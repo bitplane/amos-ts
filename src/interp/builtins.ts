@@ -43,6 +43,48 @@ function inputAssign(target: { type: number; set(v: Value): void }, raw: string)
   }
 }
 
+/**
+ * Print Using (ssprint/us* in +ILib.s): '#' digit slots (space-padded,
+ * right-aligned before '.', left-aligned after), '-' sign-if-negative,
+ * '+' always-sign, other characters literal; '~' slots take string
+ * characters. One expression per Using.
+ */
+export function formatUsing(fmt: string, v: Value, it: Interp): string {
+  if (v.k === 'str') {
+    let si = 0
+    return fmt.replace(/~/g, () => v.s[si++] ?? ' ')
+  }
+  const text = it.formatValue(v).trim()
+  const neg = text.startsWith('-')
+  const digits = (neg ? text.slice(1) : text).split('.')
+  const dInt = digits[0]!
+  const dFrac = digits[1] ?? ''
+  const dot = fmt.indexOf('.')
+  const left = dot < 0 ? fmt : fmt.slice(0, dot)
+  const hasSignSlot = /[+-]/.test(left)
+  // digits fill '#' slots right-to-left; the sign joins the stream when
+  // there is no explicit sign slot
+  const stream = (hasSignSlot ? dInt : (neg ? '-' : '') + dInt).split('')
+  let out = ''
+  for (let i = left.length - 1; i >= 0; i--) {
+    const c = left[i]!
+    if (c === '#') out = (stream.pop() ?? ' ') + out
+    else if (c === '-') out = (neg ? '-' : ' ') + out
+    else if (c === '+') out = (neg ? '-' : '+') + out
+    else out = c + out
+  }
+  if (stream.length > 0) out = stream.join('') + out // overflow: emit anyway
+  if (dot >= 0) {
+    out += '.'
+    let fi = 0
+    for (let i = dot + 1; i < fmt.length; i++) {
+      if (fmt[i] === '#') out += dFrac[fi++] ?? '0'
+      else out += fmt[i]!
+    }
+  }
+  return out
+}
+
 export const INSTR: Record<string, Instr> = {
   // ---- output ----
   print(it) {
@@ -53,9 +95,17 @@ export const INSTR: Record<string, Instr> = {
         continue
       }
       if (it.accept(',')) {
-        const pad = it.tabWidth - (it.col % it.tabWidth)
-        it.write(' '.repeat(pad))
+        it.write('\x09') // sp12: a literal TAB, interpreted by the console
         nl = false
+        continue
+      }
+      if (it.nm() === 'using') {
+        // Using formats exactly one following expression (sp11)
+        it.advance()
+        const fmt = it.evalStr()
+        it.accept(';')
+        it.write(formatUsing(fmt, it.evalExpr(), it))
+        nl = true
         continue
       }
       it.write(it.formatValue(it.evalExpr()))
@@ -225,29 +275,18 @@ export const INSTR: Record<string, Instr> = {
     const limit = it.evalNum()
     const step = it.accept('step') ? it.evalNum() : 1
     it.setVar(key, vt, VF(start))
-    if (step >= 0 ? start <= limit : start >= limit) {
-      const top = it.loops[it.loops.length - 1]
-      const frame = { t: 'for' as const, tok, body: it.afterCurrentStatement(), varKey: key, varT: vt, step, limit }
-      if (top?.tok === tok) it.loops[it.loops.length - 1] = frame
-      else it.loops.push(frame)
-      return
-    }
-    it.setPc(c.after)
-    return 'jumped'
+    // InFor performs NO initial test: the body always runs at least once,
+    // the comparison happens at Next. (c.after remains for Exit.)
+    void c
+    const top = it.loops[it.loops.length - 1]
+    const frame = { t: 'for' as const, tok, body: it.afterCurrentStatement(), varKey: key, varT: vt, step, limit }
+    if (top?.tok === tok) it.loops[it.loops.length - 1] = frame
+    else it.loops.push(frame)
   },
   next(it) {
-    const t = it.tok()
-    let wantKey: string | null = null
-    if (t?.kind === 'var') {
-      it.advance()
-      wantKey = varKey(t.name, t.flags)
-    }
-    while (it.loops.length > 0) {
-      const top = it.loops[it.loops.length - 1]!
-      if (top.t !== 'for') throw new AmosError('Next without For')
-      if (wantKey === null || top.varKey === wantKey) break
-      it.loops.pop()
-    }
+    // InNext ignores which variable is written after Next — it always
+    // operates on the innermost loop (the token is skipped cosmetically)
+    if (it.tok()?.kind === 'var') it.advance()
     const top = it.loops[it.loops.length - 1]
     if (top === undefined || top.t !== 'for') throw new AmosError('Next without For')
     const v = num(it.getVar(top.varKey!, top.varT!)) + top.step!
@@ -409,7 +448,7 @@ export const INSTR: Record<string, Instr> = {
   read(it) {
     do {
       const tg = it.parseTarget()
-      tg.set(it.readDataItem())
+      tg.set(it.readDataItem(tg.type))
     } while (it.accept(','))
   },
   restore(it) {
@@ -524,6 +563,53 @@ export const INSTR: Record<string, Instr> = {
     const len = n < 0 ? repl.length : Math.min(n, repl.length)
     repl = repl.slice(0, Math.min(len, Math.max(0, s.length - p)))
     tg.set(VS(s.slice(0, p) + repl + s.slice(p + repl.length)))
+  },
+  every(it) {
+    // Every n Gosub label / Every n Proc NAME (InEvery)
+    const n = it.evalInt()
+    if (n <= 0 || n > 32767) throw new AmosError('function call error')
+    const kind = it.nm()
+    if (kind !== 'gosub' && kind !== 'proc') throw new AmosError('Every needs Gosub or Proc')
+    it.advance()
+    const t = it.tok()
+    if (t === undefined || !('name' in t)) throw new AmosError('label expected')
+    it.advance()
+    it.every = { ticks: n, kind, target: t.name.toLowerCase(), nextFire: it.tick + n, running: false, on: true }
+  },
+  'every on'(it) {
+    if (it.every) {
+      it.every.on = true
+      it.every.nextFire = it.tick + it.every.ticks
+    }
+  },
+  'every off'(it) {
+    if (it.every) it.every.on = false
+  },
+  'def fn'(it) {
+    // Def Fn NAME[(params)] = expr — recorded, evaluated by Fn
+    const t = it.tok()
+    if (t?.kind !== 'var' && t?.kind !== 'procCall' && t?.kind !== 'labelRef') {
+      throw new AmosError('function name expected')
+    }
+    it.advance()
+    const params: Array<{ key: string; type: number }> = []
+    if (it.accept('(')) {
+      for (;;) {
+        const p = it.tok()
+        if (p?.kind !== 'var') throw new AmosError('parameter expected')
+        it.advance()
+        params.push({ key: varKey(p.name, p.flags), type: varType(p.flags) })
+        if (it.accept(',')) continue
+        it.expect(')')
+        break
+      }
+    }
+    it.expectOp('=')
+    it.userFns.set(varKey(t.name, 'flags' in t ? t.flags : 0), {
+      params,
+      body: { li: it.pc.li, ti: it.pc.ti },
+    })
+    it.skipToStmtEnd()
   },
   fix(it) {
     // InFix: n 0-15 = digits after the point; >=16 = proportional

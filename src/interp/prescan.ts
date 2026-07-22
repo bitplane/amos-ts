@@ -49,6 +49,16 @@ export interface Program {
   warnings: string[]
 }
 
+/** name of the procedure whose body contains addr, or null (Data scoping) */
+export function scopeOfAddr(program: Program, addr: Addr): string | null {
+  for (const [name, p] of program.procs) {
+    const afterBody = addr.li > p.body.li || (addr.li === p.body.li && addr.ti >= p.body.ti)
+    const beforeSkip = addr.li < p.skip.li || (addr.li === p.skip.li && addr.ti < p.skip.ti)
+    if (afterBody && beforeSkip) return name
+  }
+  return null
+}
+
 export function varKey(name: string, flags: number): string {
   const t = varType(flags)
   return name.toLowerCase() + (t === 1 ? '#' : t === 2 ? '$' : '')

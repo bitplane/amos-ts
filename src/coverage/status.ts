@@ -87,6 +87,15 @@ export const FAITHFUL = new Set<string>([
   'cright$',
   'cup$',
   'cdown$',
+  // statement sweep: InFor/InNext/ssprint/InRead/InData/InEvery read
+  'for', // no initial test — the body always runs once
+  'next', // always the innermost loop; the variable token is cosmetic
+  'print', // ',' emits TAB; Using formats one expression; CR+LF ending
+  'data',
+  'read', // empty items by target type; per-procedure data pointers
+  'every',
+  'every on',
+  'every off',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -133,7 +142,10 @@ export const NOTES: Record<string, string> = {
   paint: 'border mode ignored',
   'hot spot': 'code form approximated',
   'mouse zone': 'current-screen coordinate mapping approximated',
-  print: 'Using/# not supported; comma tab writes spaces instead of moving the cursor',
+  print: 'Print # channels unsupported',
+  using: "'^' exponent slots not implemented",
+  'def fn': 'implemented from the manual, FnFn body not yet read',
+  fn: 'implemented from the manual, FnFn body not yet read',
   input: 'no editing keys; comma-splitting approximated',
   timer: 'writable, drives the frame clock directly',
   rnd: 'deterministic — original mixes in the raster beam position',

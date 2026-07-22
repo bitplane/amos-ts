@@ -2,7 +2,7 @@ import type { Tok, TokenLine } from '../tokens/stream'
 import { TokenTable } from '../tokens/stream'
 import { detokLine } from '../tokens/detok'
 import { Names } from './names'
-import { prescan, varKey } from './prescan'
+import { prescan, scopeOfAddr, varKey } from './prescan'
 import type { Addr, Ctrl, Program } from './prescan'
 import {
   AmosError,
@@ -46,6 +46,9 @@ export interface Frame {
   retAddr: Addr | null
   loopBase: number
   gosubBase: number
+  /** caller's data pointer — procedures have their own (local Data) */
+  savedDataPtr?: Addr
+  savedDataInStmt?: boolean
 }
 
 export interface LoopFrame {
@@ -165,6 +168,12 @@ export class Interp {
   /** Fix state: digits after the point (-1 = proportional), exponent mode */
   fixDigits = -1
   fixExp = false
+  /** Every n Gosub/Proc state (InEvery) */
+  every: { ticks: number; kind: 'gosub' | 'proc'; target: string; nextFire: number; running: boolean; on: boolean } | null =
+    null
+  private everyReturnDepth = 0
+  /** Def Fn definitions: name key -> params + expression address */
+  userFns = new Map<string, { params: Array<{ key: string; type: number }>; body: Addr }>()
   private status: 'ended' | 'stopped' | 'maxSteps' | null = null
   unimplemented = new Map<string, number>()
   policy: 'throw' | 'skip'
@@ -207,6 +216,7 @@ export class Interp {
       }
       if (++steps > slice) return this.result('paused', steps)
       try {
+        this.dispatchEvery()
         this.step()
       } catch (e) {
         if (e instanceof AmosError && this.errorHandler !== null && !this.inError) {
@@ -229,6 +239,32 @@ export class Interp {
       }
     }
     return this.result(this.status ?? 'blocked', steps)
+  }
+
+  /** fire a pending Every handler at a statement boundary */
+  private dispatchEvery(): void {
+    const ev = this.every
+    if (ev === null || !ev.on || this.blocked !== null) return
+    if (ev.running) {
+      // handler finished when we are back at (or below) the entry depth
+      if (this.gosubs.length <= this.everyReturnDepth && this.frames.length === 1) ev.running = false
+      else return
+    }
+    if (this.tick < ev.nextFire) return
+    ev.nextFire = this.tick + ev.ticks
+    ev.running = true
+    if (ev.kind === 'proc') {
+      this.everyReturnDepth = this.gosubs.length
+      const proc = this.program.procs.get(ev.target)
+      if (!proc) throw new AmosError(`procedure not defined: ${ev.target.toUpperCase()}`)
+      // return to the current statement (we are at a boundary)
+      this.frames.push(newFrame({ li: this.pc.li, ti: this.pc.ti }, this.loops.length, this.gosubs.length))
+      this.setPc(proc.body)
+    } else {
+      this.everyReturnDepth = this.gosubs.length
+      this.gosubs.push({ li: this.pc.li, ti: this.pc.ti })
+      this.jumpLabel(ev.target)
+    }
   }
 
   private result(status: RunResult['status'], steps: number): RunResult {
@@ -515,6 +551,10 @@ export class Interp {
           this.expect(')')
           return v
         }
+        if (name === 'fn') {
+          this.advance()
+          return this.callUserFn()
+        }
         if (name !== undefined) {
           const fn = this.funcs[name]
           if (fn !== undefined) {
@@ -588,6 +628,11 @@ export class Interp {
       const p = proc.params[i]!
       frame.vars.set(p.key, coerce(p.type, args[i]!))
     }
+    // procedures get their own data pointer, starting at their first Data
+    frame.savedDataPtr = this.dataPtr
+    frame.savedDataInStmt = this.dataInStmt
+    this.dataPtr = { li: proc.body.li, ti: proc.body.ti }
+    this.dataInStmt = false
     this.frames.push(frame)
     this.setPc(proc.body)
   }
@@ -597,6 +642,10 @@ export class Interp {
     const frame = this.frames.pop()!
     this.loops.length = frame.loopBase
     this.gosubs.length = frame.gosubBase
+    if (frame.savedDataPtr) {
+      this.dataPtr = frame.savedDataPtr
+      this.dataInStmt = frame.savedDataInStmt ?? false
+    }
     this.setPc(frame.retAddr!)
   }
 
@@ -626,17 +675,20 @@ export class Interp {
 
   // ---- data --------------------------------------------------------------
 
-  readDataItem(): Value {
+  readDataItem(targetType: VarType = 0): Value {
     const saved = this.pc
+    const scope = this.dataScope()
     this.pc = { li: this.dataPtr.li, ti: this.dataPtr.ti }
     try {
-      if (!this.dataInStmt) this.seekData()
-      const v = this.evalExpr()
-      if (this.accept(',')) {
-        this.dataInStmt = true
+      if (!this.dataInStmt) this.seekData(scope)
+      // empty items (Data 1,,3) default by the target's type (InRdV)
+      let v: Value
+      if (this.tok() === undefined || this.nm() === ',' || this.nm() === ':') {
+        v = targetType === 2 ? { k: 'str', s: '' } : VI(0)
       } else {
-        this.dataInStmt = false
+        v = this.evalExpr()
       }
+      this.dataInStmt = this.accept(',')
       this.dataPtr = { li: this.pc.li, ti: this.pc.ti }
       return v
     } finally {
@@ -644,15 +696,59 @@ export class Interp {
     }
   }
 
-  private seekData(): void {
+  /** Data is procedure-scoped (InRead skips proc bodies, stops at End Proc). */
+  private dataScope(): string | null {
+    return this.frames.length > 1 ? scopeOfAddr(this.program, this.pc) : null
+  }
+
+  private seekData(scope: string | null): void {
     for (const a of this.program.dataToks) {
-      if (a.li > this.pc.li || (a.li === this.pc.li && a.ti >= this.pc.ti)) {
-        this.pc = { li: a.li, ti: a.ti + 1 }
-        this.dataInStmt = true
-        return
-      }
+      if (a.li < this.dataPtr.li || (a.li === this.dataPtr.li && a.ti < this.dataPtr.ti)) continue
+      if (scopeOfAddr(this.program, a) !== scope) continue
+      this.pc = { li: a.li, ti: a.ti + 1 }
+      this.dataInStmt = true
+      return
     }
     throw new AmosError('out of data')
+  }
+
+  /** Fn NAME(args): evaluate a Def Fn expression with bound parameters. */
+  private callUserFn(): Value {
+    const t = this.tok()
+    if (t === undefined || !('name' in t)) throw new AmosError('function name expected')
+    this.advance()
+    const def = this.userFns.get(varKey(t.name, 'flags' in t ? t.flags : 0))
+    if (!def) throw new AmosError(`Fn ${t.name.toUpperCase()} not defined`)
+    const args: Value[] = []
+    if (this.accept('(')) {
+      if (!this.accept(')')) {
+        for (;;) {
+          args.push(this.evalExpr())
+          if (this.accept(',')) continue
+          this.expect(')')
+          break
+        }
+      }
+    }
+    if (args.length !== def.params.length) throw new AmosError('wrong number of arguments')
+    // bind parameters over the current frame, evaluate, restore
+    const frame = this.frames[this.frames.length - 1]!
+    const savedVars: Array<[string, Value | undefined]> = []
+    def.params.forEach((prm, i) => {
+      savedVars.push([prm.key, frame.vars.get(prm.key)])
+      frame.vars.set(prm.key, coerce(prm.type as VarType, args[i]!))
+    })
+    const savedPc = this.pc
+    this.pc = { li: def.body.li, ti: def.body.ti }
+    try {
+      return this.evalExpr()
+    } finally {
+      this.pc = savedPc
+      for (const [k, v] of savedVars) {
+        if (v === undefined) frame.vars.delete(k)
+        else frame.vars.set(k, v)
+      }
+    }
   }
 
   restoreData(addr: Addr): void {

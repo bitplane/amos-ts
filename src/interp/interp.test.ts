@@ -216,7 +216,7 @@ describe('control flow', () => {
   it('runs For/Next with Step, skip and nesting', () => {
     expect(run('For I=1 To 5 : Print I; : Next : Print')).toBe(' 1 2 3 4 5\n')
     expect(run('For I=10 To 1 Step -3 : Print I; : Next I : Print')).toBe(' 10 7 4 1\n')
-    expect(run('For I=5 To 1 : Print "X" : Next\nPrint "SKIP"')).toBe('SKIP\n')
+    expect(run('For I=5 To 1 : Print "X" : Next\nPrint "SKIP"')).toBe('X\nSKIP\n') // body runs once
     expect(run('For I=1 To 2 : For J=1 To 2 : Print I;J;" "; : Next J : Next I')).toBe(' 1 1  1 2  2 1  2 2 ')
   })
 
@@ -289,6 +289,70 @@ describe('procedures', () => {
   })
 })
 
+describe('statements verified against the library source', () => {
+  it('For runs its body at least once — InFor has no initial test', () => {
+    expect(run('For I=5 To 1 : Print "X"; : Next : Print')).toBe('X\n')
+    expect(run('For I=1 To 0 : Print I; : Next')).toBe(' 1')
+  })
+
+  it('Next always operates on the innermost loop (InNext)', () => {
+    // "Next I" inside the J loop still advances J
+    expect(run('For I=1 To 1 : For J=1 To 2 : Print J; : Next I : Next J')).toBe(' 1 2')
+  })
+
+  it('Print comma emits a TAB the console interprets (sp12)', () => {
+    expect(run('Print "A","B"')).toBe('A\tB\n')
+  })
+
+  it('Print Using formats one expression (ssprint/us*)', () => {
+    expect(run('Print Using "###";42')).toBe(' 42\n')
+    expect(run('Print Using "#####.##";3.14159')).toBe('    3.14\n')
+    expect(run('Print Using "+###";7')).toBe('+  7\n')
+    expect(run('Print Using "score ###!";5')).toBe('score   5!\n')
+    expect(run('Print Using "~~~~~";"AB"')).toBe('AB   \n')
+  })
+
+  it('Read fills empty data items by target type (InRdV)', () => {
+    expect(run('Data 1,,3\nRead A,B,C : Print A;B;C')).toBe(' 1 0 3\n')
+    expect(run('Data ,\nRead A$,B$ : Print "[";A$;B$;"]"')).toBe('[]\n')
+  })
+
+  it('Data inside procedures is local to them (InRead proc scoping)', () => {
+    const prog = [
+      'Data 10',
+      'P',
+      'Read G : Print G',
+      'End',
+      'Procedure P',
+      '   Data 99',
+      '   Read L : Print L',
+      'End Proc',
+    ].join('\n')
+    expect(run(prog)).toBe(' 99\n 10\n')
+  })
+
+  it('Def Fn / Fn evaluate with bound parameters (FnFn)', () => {
+    expect(run('Def Fn D(X)=X*2\nPrint Fn D(21)')).toBe(' 42\n')
+    expect(run('A=5 : Def Fn S(A)=A+1\nPrint Fn S(1);A')).toBe(' 2 5\n')
+    expect(run('Def Fn H$(N$)=N$+"!"\nPrint Fn H$("HI")')).toBe('HI!\n')
+  })
+
+  it('Every fires a Gosub on the frame clock (InEvery)', () => {
+    const io = new BufferIO()
+    const interp = new Interp(tokenize('Every 5 Gosub T\nDo\n Wait 1\nLoop\nT: Print "T"; : Return', table), table, {
+      io,
+      maxSteps: 10_000,
+    })
+    // drive the clock: unblock waits until enough frames pass
+    for (let f = 0; f < 21; f++) {
+      interp.tick++
+      if (interp.blocked?.type === 'wait' && interp.tick >= interp.blocked.until) interp.blocked = null
+      if (!interp.done && interp.blocked === null) interp.run(1_000)
+    }
+    expect(io.out).toBe('TTTT') // fires at ticks 5,10,15,20
+  })
+})
+
 describe('data', () => {
   it('reads typed data with Restore', () => {
     const prog = [
@@ -349,8 +413,8 @@ describe('i/o', () => {
 
   it('separates Print items with ; and tabs with , (default tab 4)', () => {
     expect(run('Print "A";"B"')).toBe('AB\n')
-    expect(run('Print "A","B"')).toBe('A   B\n')
-    expect(run('Print "ABCDE","B"')).toBe('ABCDE   B\n')
+    expect(run('Print "A","B"')).toBe('A\tB\n') // raw TAB; the console expands it
+    expect(run('Print "ABCDE","B"')).toBe('ABCDE\tB\n')
     expect(run('Print "A";')).toBe('A')
   })
 

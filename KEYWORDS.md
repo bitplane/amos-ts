@@ -19,11 +19,11 @@ tested against our own understanding. Percentages exclude n/a
 | copper | 8 | 0 | 0 | 8 | 0% |
 | drawing | 16 | 0 | 15 | 1 | 94% |
 | files | 21 | 0 | 1 | 18 | 5% |
-| flow | 12 | 0 | 9 | 3 | 75% |
+| flow | 12 | 3 | 9 | 0 | 100% |
 | input | 18 | 0 | 13 | 5 | 72% |
 | interface | 21 | 0 | 0 | 21 | 0% |
 | ioports | 38 | 0 | 0 | 38 | 0% |
-| language | 254 | 49 | 94 | 102 | 58% |
+| language | 254 | 53 | 91 | 101 | 59% |
 | memory | 14 | 0 | 0 | 14 | 0% |
 | menus | 24 | 0 | 0 | 24 | 0% |
 | music | 49 | 5 | 8 | 36 | 27% |
@@ -33,10 +33,10 @@ tested against our own understanding. Percentages exclude n/a
 | request | 3 | 0 | 0 | 3 | 0% |
 | screens | 31 | 0 | 16 | 15 | 52% |
 | system | 41 | 0 | 0 | 40 | 0% |
-| text-io | 37 | 1 | 19 | 17 | 54% |
+| text-io | 37 | 2 | 18 | 17 | 54% |
 | windows | 11 | 0 | 0 | 11 | 0% |
 | zones | 3 | 0 | 3 | 0 | 100% |
-| **total** | 732 | 68 | 219 | 433 | 40% |
+| **total** | 732 | 76 | 215 | 429 | 40% |
 
 ## amal (92%)
 
@@ -76,10 +76,10 @@ tested against our own understanding. Percentages exclude n/a
 - **missing**: `append`, `close`, `close workbench`, `dir`, `dir first$`, `dir next$`, `eof`, `field`, `input #`, `kill`, `lof`, `mkdir`, `open in`, `open out`, `open port`, `open random`, `pof`, `rename`
 - **n/a**: `close editor`, `kill editor`
 
-## flow (75%)
+## flow (100%)
 
+- **faithful**: `every`, `every off`, `every on`
 - **approximated**: `direct`, `edit`, `end`, `end if`, `end proc`, `stop`, `wait`, `wait key`, `wait vbl`
-- **missing**: `every`, `every off`, `every on`
 
 ## input (72%)
 
@@ -94,11 +94,11 @@ tested against our own understanding. Percentages exclude n/a
 
 - **missing**: `parallel abort`, `parallel base`, `parallel check`, `parallel close`, `parallel error`, `parallel input$`, `parallel open`, `parallel out`, `parallel send`, `parallel status`, `printer abort`, `printer base`, `printer check`, `printer close`, `printer dump`, `printer error`, `printer online`, `printer open`, `printer out`, `printer send`, `serial abort`, `serial base`, `serial bits`, `serial buf`, `serial check`, `serial close`, `serial error`, `serial fast`, `serial get`, `serial input$`, `serial open`, `serial out`, `serial parity`, `serial send`, `serial slow`, `serial speed`, `serial status`, `serial x`
 
-## language (58%)
+## language (59%)
 
-- **faithful**: `abs`, `acos`, `asc`, `asin`, `atan`, `bin$`, `cdown$`, `chr$`, `cleft$`, `cos`, `cright$`, `cup$`, `degree`, `exp`, `false`, `fix`, `flip$`, `hcos`, `hex$`, `hsin`, `htan`, `instr`, `int`, `left$`, `len`, `ln`, `log`, `lower$`, `max`, `mid$`, `min`, `not`, `pi#`, `radian`, `randomize`, `right$`, `rnd` *(deterministic — original mixes in the raster beam position)*, `set tab`, `sgn`, `sin`, `space$`, `sqr`, `str$`, `string$`, `swap`, `tan`, `true`, `upper$`, `val`
-- **approximated**: `#`, `'`, `(`, `)`, `:`, `;`, `[`, `]`, `add` *(also works on float variables (original: integer only))*, `at`, `break off`, `break on`, `chip free`, `data`, `dec` *(also works on float variables (original: integer only))*, `def scroll`, `dim`, `do`, `double buffer` *(no-op (logical = physical))*, `else`, `else if`, `error`, `errtrap`, `exist`, `exit`, `exit if`, `fast free`, `for`, `free`, `global`, `gosub`, `goto`, `hide`, `hide on`, `hires`, `i bob`, `i sprite`, `if`, `inc` *(also works on float variables (original: integer only))*, `key$`, `laced`, `line input`, `load`, `load iff` *(HAM decodes as indexed (wrong colours))*, `loop`, `lowres`, `multi wait`, `next`, `on`, `on error`, `param`, `param#`, `param$`, `pop`, `pop proc`, `proc`, `procedure`, `read`, `rem`, `repeat`, `restore`, `resume`, `resume label`, `resume next`, `return`, `scin`, `set bob`, `set rainbow` *(stored, not rendered)*, `set zone`, `shared`, `show`, `show on`, `step`, `then`, `timer` *(writable, drives the frame clock directly)*, `to`, `trap`, `until`, `wend`, `while`, `writing` *(only replace mode)*, `x bob`, `x hard`, `x mouse`, `x screen`, `x sprite`, `xgr`, `y bob`, `y hard`, `y mouse`, `y screen`, `y sprite`, `ygr`, `zone$`
-- **missing**: `@_apml_@`, `arexx$`, `array`, `as`, `assign`, `auto view off`, `auto view on`, `border$`, `cmove$`, `command line$`, `def fn`, `dfree`, `dir$`, `dir/w`, `disc info$`, `display height`, `drive`, `err$`, `errn`, `fn`, `follow`, `follow off`, `font$`, `frame length`, `frame load`, `frame param`, `frame play`, `frame skip`, `freeze`, `hardcol`, `hrev`, `hrev block`, `hscroll`, `icon base`, `iff anim`, `input$`, `ldir`, `ldir/w`, `line input #`, `mask iff`, `match`, `menu$`, `on break proc`, `on menu del`, `on menu off`, `on menu on`, `paper$`, `parent`, `peek$`, `pen$`, `picture`, `pload`, `poke$`, `prun`, `rdialog$`, `read text`, `repeat$`, `resource$`, `rev`, `rol.b`, `rol.l`, `rol.w`, `ror.b`, `ror.l`, `ror.w`, `save`, `save iff`, `scan$`, `set accessory`, `set buffer`, `set curs`, `set dir`, `set double precision`, `set equate bank`, `set font`, `set hardcol`, `set input`, `set line`, `set menu`, `set pattern`, `set slider`, `set sprite buffer`, `set stack`, `set tempras`, `set text`, `sort`, `unfreeze`, `update`, `update every`, `update off`, `update on`, `vdialog$`, `vrev`, `vrev block`, `vscroll`, `x curs`, `x graphic`, `x text`, `y curs`, `y graphic`, `y menu`, `y text`
+- **faithful**: `abs`, `acos`, `asc`, `asin`, `atan`, `bin$`, `cdown$`, `chr$`, `cleft$`, `cos`, `cright$`, `cup$`, `data`, `degree`, `exp`, `false`, `fix`, `flip$`, `for`, `hcos`, `hex$`, `hsin`, `htan`, `instr`, `int`, `left$`, `len`, `ln`, `log`, `lower$`, `max`, `mid$`, `min`, `next`, `not`, `pi#`, `radian`, `randomize`, `read`, `right$`, `rnd` *(deterministic — original mixes in the raster beam position)*, `set tab`, `sgn`, `sin`, `space$`, `sqr`, `str$`, `string$`, `swap`, `tan`, `true`, `upper$`, `val`
+- **approximated**: `#`, `'`, `(`, `)`, `:`, `;`, `[`, `]`, `add` *(also works on float variables (original: integer only))*, `at`, `break off`, `break on`, `chip free`, `dec` *(also works on float variables (original: integer only))*, `def fn` *(implemented from the manual, FnFn body not yet read)*, `def scroll`, `dim`, `do`, `double buffer` *(no-op (logical = physical))*, `else`, `else if`, `error`, `errtrap`, `exist`, `exit`, `exit if`, `fast free`, `free`, `global`, `gosub`, `goto`, `hide`, `hide on`, `hires`, `i bob`, `i sprite`, `if`, `inc` *(also works on float variables (original: integer only))*, `key$`, `laced`, `line input`, `load`, `load iff` *(HAM decodes as indexed (wrong colours))*, `loop`, `lowres`, `multi wait`, `on`, `on error`, `param`, `param#`, `param$`, `pop`, `pop proc`, `proc`, `procedure`, `rem`, `repeat`, `restore`, `resume`, `resume label`, `resume next`, `return`, `scin`, `set bob`, `set rainbow` *(stored, not rendered)*, `set zone`, `shared`, `show`, `show on`, `step`, `then`, `timer` *(writable, drives the frame clock directly)*, `to`, `trap`, `until`, `wend`, `while`, `writing` *(only replace mode)*, `x bob`, `x hard`, `x mouse`, `x screen`, `x sprite`, `xgr`, `y bob`, `y hard`, `y mouse`, `y screen`, `y sprite`, `ygr`, `zone$`
+- **missing**: `@_apml_@`, `arexx$`, `array`, `as`, `assign`, `auto view off`, `auto view on`, `border$`, `cmove$`, `command line$`, `dfree`, `dir$`, `dir/w`, `disc info$`, `display height`, `drive`, `err$`, `errn`, `fn` *(implemented from the manual, FnFn body not yet read)*, `follow`, `follow off`, `font$`, `frame length`, `frame load`, `frame param`, `frame play`, `frame skip`, `freeze`, `hardcol`, `hrev`, `hrev block`, `hscroll`, `icon base`, `iff anim`, `input$`, `ldir`, `ldir/w`, `line input #`, `mask iff`, `match`, `menu$`, `on break proc`, `on menu del`, `on menu off`, `on menu on`, `paper$`, `parent`, `peek$`, `pen$`, `picture`, `pload`, `poke$`, `prun`, `rdialog$`, `read text`, `repeat$`, `resource$`, `rev`, `rol.b`, `rol.l`, `rol.w`, `ror.b`, `ror.l`, `ror.w`, `save`, `save iff`, `scan$`, `set accessory`, `set buffer`, `set curs`, `set dir`, `set double precision`, `set equate bank`, `set font`, `set hardcol`, `set input`, `set line`, `set menu`, `set pattern`, `set slider`, `set sprite buffer`, `set stack`, `set tempras`, `set text`, `sort`, `unfreeze`, `update`, `update every`, `update off`, `update on`, `vdialog$`, `vrev`, `vrev block`, `vscroll`, `x curs`, `x graphic`, `x text`, `y curs`, `y graphic`, `y menu`, `y text`
 - **n/a**: `,`, `\\\\\\\\\\\\\\\/`, `ask editor`, `equ`, `include`, `monitor`, `struc`, `struc$`, `||apcmp||`
 
 ## memory (0%)
@@ -144,9 +144,9 @@ tested against our own understanding. Percentages exclude n/a
 
 ## text-io (54%)
 
-- **faithful**: `tab$`
-- **approximated**: `cdown`, `centre` *(no Border$ handling)*, `cleft`, `cline`, `cls`, `cright`, `cup`, `curs off`, `curs on`, `curs pen`, `home`, `locate`, `paper`, `pen`, `print` *(Using/# not supported; comma tab writes spaces instead of moving the cursor)*, `scroll`, `text`, `text base`, `text length`
-- **missing**: `cmove`, `inverse off`, `inverse on`, `lprint`, `memorize x`, `memorize y`, `print #`, `remember x`, `remember y`, `scroll off`, `scroll on`, `shade off`, `shade on`, `text styles`, `under off`, `under on`, `using`
+- **faithful**: `print` *(Print # channels unsupported)*, `tab$`
+- **approximated**: `cdown`, `centre` *(no Border$ handling)*, `cleft`, `cline`, `cls`, `cright`, `cup`, `curs off`, `curs on`, `curs pen`, `home`, `locate`, `paper`, `pen`, `scroll`, `text`, `text base`, `text length`
+- **missing**: `cmove`, `inverse off`, `inverse on`, `lprint`, `memorize x`, `memorize y`, `print #`, `remember x`, `remember y`, `scroll off`, `scroll on`, `shade off`, `shade on`, `text styles`, `under off`, `under on`, `using` *('^' exponent slots not implemented)*
 
 ## windows (0%)
 
