@@ -10,6 +10,8 @@ import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
 import { Runtime } from '../runtime/runtime'
 import { AmosRuntimeError } from '../interp/interp'
 import { WebAudioSink } from './audio'
+import { AmigaFS } from '../runtime/vfs'
+import { readArchive, volumeFromEntries } from '../runtime/archive'
 
 const table = new TokenTable(CORE_TOKENS)
 const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
@@ -37,6 +39,23 @@ Do
 Loop`
 
 const audio = new WebAudioSink()
+// one persistent filesystem across program loads: DH0: is writable and
+// holds uploads; archives mount as their own volumes too
+const vfs = new AmigaFS()
+const dh0 = vfs.mountMemory('DH0')
+vfs.currentDir = 'DH0:'
+
+async function mountArchive(bytes: Uint8Array, name: string): Promise<void> {
+  const entries = await readArchive(bytes)
+  const volName = name.replace(/\.(zip|tar|tar\.gz|tgz)$/i, '').replace(/[^A-Za-z0-9_]/g, '_')
+  vfs.mount(volName, volumeFromEntries(entries))
+  // also merge into DH0: so relative paths find resources
+  for (const e of entries) {
+    const segs = e.path.split('/').filter((s2) => s2 !== '' && s2 !== '.')
+    if (segs.length > 0) dh0.write(segs, e.data)
+  }
+  statusEl.textContent = `mounted ${volName}: (${entries.length} files) — also merged into DH0:`
+}
 document.addEventListener('pointerdown', () => audio.unlock())
 document.addEventListener('keydown', () => audio.unlock())
 
@@ -53,7 +72,7 @@ function load(bytes: Uint8Array, name: string): void {
     const isAmos = /^AMOS (Basic|Pro)/.test(new TextDecoder('latin1').decode(bytes.subarray(0, 16)))
     const amos = isAmos ? parseAmosFile(bytes) : null
     const lines = amos ? parseSource(amos.source, table) : tokenize(new TextDecoder('latin1').decode(bytes), table)
-    rt = new Runtime(lines, table, { extensions, onUnimplemented: 'skip', banks: amos?.banks ?? [], audio })
+    rt = new Runtime(lines, table, { extensions, onUnimplemented: 'skip', banks: amos?.banks ?? [], audio, fs: vfs })
   } catch (e) {
     rt = null
     error = e instanceof Error ? e.message : String(e)
@@ -61,9 +80,21 @@ function load(bytes: Uint8Array, name: string): void {
 }
 
 fileEl.addEventListener('change', () => {
-  const f = fileEl.files?.[0]
-  if (!f) return
-  void f.arrayBuffer().then((buf) => load(new Uint8Array(buf), f.name))
+  for (const f of Array.from(fileEl.files ?? [])) {
+    void f.arrayBuffer().then(async (buf: ArrayBuffer) => {
+      const bytes = new Uint8Array(buf)
+      if (/\.(zip|tar|gz|tgz)$/i.test(f.name)) {
+        await mountArchive(bytes, f.name)
+      } else if (/\.(abk|iff)$/i.test(f.name)) {
+        dh0.write([f.name], bytes)
+        statusEl.textContent = `stored DH0:${f.name}`
+      } else {
+        // .AMOS programs also land on DH0: so relative loads work
+        dh0.write([f.name], bytes)
+        load(bytes, f.name)
+      }
+    })
+  }
 })
 document.getElementById('restart')!.addEventListener('click', () => {
   if (lastBytes) load(lastBytes, lastName)

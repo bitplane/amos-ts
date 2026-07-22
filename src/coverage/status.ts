@@ -176,6 +176,29 @@ export const FAITHFUL = new Set<string>([
   'writing', // w1 replace/OR/XOR/AND/ignore, w2 both/paper/pen-on-0
   'gr writing', // SetDrMd; mode 2 = COMPLEMENT xor
   'set tab', // per-window WiTab
+  // VFS sweep: Amiga path semantics + sequential file channels
+  'open in',
+  'open out',
+  'append',
+  'close',
+  'print #', // CRLF line ends (sp14); comma writes a TAB
+  'input #', // fields split at commas / the Set Input terminator
+  'line input #',
+  'set input',
+  'input$', // file form full; keyboard form best-effort
+  'eof',
+  'lof',
+  'pof',
+  'mkdir',
+  'kill',
+  'rename',
+  'assign',
+  'dir$',
+  'dir',
+  'dir first$',
+  'dir next$',
+  'exist',
+  'dfree',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -209,6 +232,8 @@ export const NOTES: Record<string, string> = {
   rainbow: 'stored, not rendered',
   'set rainbow': 'stored, not rendered',
   'set pattern': 'sprite-image patterns only; bank patterns need the system resource bank',
+  'input$': 'keyboard form is non-blocking best effort',
+  dir: 'plain listing; Set Dir width/filter cosmetic',
   'gr writing': 'JAM1/JAM2 identical for solid draws; XOR implemented',
   'wind move': 'moves the frame; content is not carried along',
   'wind size': 'resizes without preserving content',

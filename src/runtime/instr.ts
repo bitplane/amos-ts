@@ -1,5 +1,6 @@
 import { AmosError, VI, VS, int, str } from '../interp/values'
 import type { Instr, Func } from '../interp/builtins'
+import { parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseIlbm } from '../loader/iff'
 import { parsePacPic } from '../loader/pacpic'
@@ -7,6 +8,7 @@ import type { Runtime } from './runtime'
 import { Screen } from './screen'
 import { ObjectBank } from './objects'
 import { AmalChannel, AmalCompileError, compileAmal } from './amal'
+import { amigaPattern } from './vfs'
 import { bellPcm, boomPcm, shootPcm } from './audio'
 
 /**
@@ -869,6 +871,129 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'led on': () => {}, // the power-LED audio filter — no filter to toggle
     'led off': () => {},
 
+    // ---- files (Open In/Out, Print #, sequential channels) ----
+    'open in'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const path = it.evalStr()
+      const data = rt.fs?.read(path)
+      if (data == null) throw new AmosError(`file not found: ${path}`)
+      rt.fileChans.set(n, { mode: 'in', path, data, pos: 0, out: [] })
+    },
+    'open out'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const path = it.evalStr()
+      rt.fileChans.set(n, { mode: 'out', path, data: new Uint8Array(0), pos: 0, out: [] })
+    },
+    append(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const path = it.evalStr()
+      const existing = rt.fs?.read(path)
+      rt.fileChans.set(n, { mode: 'out', path, data: new Uint8Array(0), pos: 0, out: existing ? [...existing] : [] })
+    },
+    close(it) {
+      if (it.atStmtEnd()) {
+        for (const n of [...rt.fileChans.keys()]) rt.closeChannel(n)
+        return
+      }
+      rt.closeChannel(it.evalInt())
+    },
+    'print #'(it) {
+      const n = it.evalInt()
+      const c = rt.chan(n)
+      if (c.mode !== 'out') throw new AmosError('file type mismatch')
+      it.accept(',')
+      const put = (t: string): void => {
+        for (let i = 0; i < t.length; i++) c.out.push(t.charCodeAt(i) & 0xff)
+      }
+      let nl = true
+      while (!it.atStmtEnd()) {
+        if (it.accept(';')) {
+          nl = false
+          continue
+        }
+        if (it.accept(',')) {
+          put('\x09')
+          nl = false
+          continue
+        }
+        put(it.formatValue(it.evalExpr()))
+        nl = true
+      }
+      if (nl) put('\r\n') // sp14: CR+LF line ends
+    },
+    'input #'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      do {
+        const tg = it.parseTarget()
+        const raw = rt.readField(n, true) // Input # splits at commas
+        if (tg.type === 2) tg.set(VS(raw))
+        else tg.set(parseAmosNumber(raw))
+      } while (it.accept(','))
+    },
+    'line input #'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      do {
+        const tg = it.parseTarget()
+        const raw = rt.readField(n, false)
+        if (tg.type === 2) tg.set(VS(raw))
+        else tg.set(parseAmosNumber(raw))
+      } while (it.accept(','))
+    },
+    pof(it) {
+      // assignment form: Pof(n) = position
+      it.expect('(')
+      const c = rt.chan(it.evalInt())
+      it.expect(')')
+      it.expectOp('=')
+      const v = it.evalInt()
+      if (c.mode === 'in') c.pos = Math.max(0, Math.min(c.data.length, v))
+      else c.out.length = Math.max(0, Math.min(c.out.length, v))
+    },
+    'set input'(it) {
+      const a = it.evalInt()
+      it.expect(',')
+      const b = it.evalInt()
+      rt.chrInp = [a & 0xff, b < 0 ? -1 : b & 0xff]
+    },
+    mkdir(it) {
+      if (!rt.vfs?.mkdir(it.evalStr())) throw new AmosError('disc error')
+    },
+    kill(it) {
+      if (!rt.vfs?.deleteFile(it.evalStr())) throw new AmosError('file not found')
+    },
+    rename(it) {
+      const from = it.evalStr()
+      it.expect('to')
+      if (!rt.vfs?.rename(from, it.evalStr())) throw new AmosError('file not found')
+    },
+    assign(it) {
+      const name = it.evalStr()
+      it.expect('to')
+      rt.vfs?.assign(name, it.evalStr())
+    },
+    'dir$'(it) {
+      // assignment form: Dir$ = "path"
+      it.expectOp('=')
+      const path = it.evalStr()
+      if (!rt.vfs?.setCurrentDir(path)) throw new AmosError(`directory not found: ${path}`)
+    },
+    dir(it) {
+      const path = it.atStmtEnd() ? '' : it.evalStr()
+      const entries = rt.vfs?.listDir(path === '' ? rt.vfs.currentDir : path)
+      if (!entries) throw new AmosError('directory not found')
+      for (const e of entries) {
+        it.write((e.isDir ? '*' + e.name : ' ' + e.name) + '\n')
+      }
+    },
+    'set dir'(it) {
+      it.skipToStmtEnd() // listing width/filter — cosmetic
+    },
+
     // ---- AMAL ----
     amal(it) {
       const n = it.evalInt()
@@ -1259,5 +1384,71 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     vumeter(_, a) {
       return VI(rt.vumeter(int(a[0]!)))
     },
+
+    // ---- files ----
+    eof(_, a) {
+      const c = rt.chan(int(a[0]!))
+      return VI(c.mode === 'in' && c.pos >= c.data.length ? -1 : 0)
+    },
+    lof(_, a) {
+      const c = rt.chan(int(a[0]!))
+      return VI(c.mode === 'in' ? c.data.length : c.out.length)
+    },
+    pof(_, a) {
+      const c = rt.chan(int(a[0]!))
+      return VI(c.mode === 'in' ? c.pos : c.out.length)
+    },
+    'input$'(it, a) {
+      if (a.length === 2) {
+        // Input$(channel, count): read raw bytes from the file
+        const c = rt.chan(int(a[0]!))
+        if (c.mode !== 'in') throw new AmosError('file type mismatch')
+        const n = int(a[1]!)
+        let out = ''
+        for (let i = 0; i < n && c.pos < c.data.length; i++) out += String.fromCharCode(c.data[c.pos++]!)
+        return VS(out)
+      }
+      // Input$(n): n keys from the keyboard queue (non-blocking best effort)
+      const n = int(a[0]!)
+      let out = ''
+      for (let i = 0; i < n; i++) {
+        const k = it.inp.keyQueue.shift()
+        if (!k) break
+        out += k.ch
+      }
+      return VS(out)
+    },
+    'dir$'(_, a) {
+      void a
+      return VS(rt.vfs?.currentDir ?? '')
+    },
+    'dir first$'(_, a) {
+      const pattern = a.length > 0 ? str(a[0]!) : '*'
+      const vfs = rt.vfs
+      if (!vfs) return VS('')
+      // a path prefix may be included: "Data:pics/*.IFF"
+      const slash = Math.max(pattern.lastIndexOf('/'), pattern.lastIndexOf(':'))
+      const dirPart = slash >= 0 ? pattern.slice(0, slash + 1) : ''
+      const filePart = slash >= 0 ? pattern.slice(slash + 1) : pattern
+      const entries = vfs.listDir(dirPart === '' ? vfs.currentDir : dirPart) ?? []
+      const rx = amigaPattern(filePart === '' ? '*' : filePart)
+      rt.dirIter = { entries: entries.filter((e) => rx.test(e.name)), idx: 0 }
+      return VS(nextDirEntry())
+    },
+    'dir next$'(_, a) {
+      void a
+      return VS(nextDirEntry())
+    },
+    dfree(_, a) {
+      void a
+      return VI(0x7fffffff)
+    },
+  }
+
+  function nextDirEntry(): string {
+    const it2 = rt.dirIter
+    if (!it2 || it2.idx >= it2.entries.length) return ''
+    const e = it2.entries[it2.idx++]!
+    return e.isDir ? '*' + e.name : e.name
   }
 }

@@ -276,8 +276,12 @@ function isKeywordAt(text: string, pos: number, tables: Tables): string {
   const rest = text.slice(pos).toLowerCase()
   for (const kw of tables.keywordList) {
     if (!rest.startsWith(kw)) continue
-    const after = rest[kw.length]
-    if (after !== undefined && /[a-z0-9_$#]/.test(after)) continue
+    // keywords ending in a word character need a boundary; ones ending
+    // in '#' etc (Print #, Input #) may be followed directly by digits
+    if (/[a-z0-9_]$/.test(kw)) {
+      const after = rest[kw.length]
+      if (after !== undefined && /[a-z0-9_$#]/.test(after)) continue
+    }
     return kw
   }
   return ''

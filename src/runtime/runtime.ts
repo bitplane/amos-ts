@@ -14,6 +14,7 @@ import { AmalChannel } from './amal'
 import type { AmalHost, ChannelTarget } from './amal'
 import { NullAudio, parseSampleBank } from './audio'
 import type { AudioSink, SampleEntry } from './audio'
+import { AmigaFS } from './vfs'
 
 export interface Rainbow {
   base: number
@@ -107,6 +108,15 @@ export class Runtime {
   ]
   /** Sam Loop On voice mask */
   samLoopMask = 0
+  // ---- file channels (Open In/Out, Print #, Input #) ----
+  fileChans = new Map<
+    number,
+    { mode: 'in' | 'out'; path: string; data: Uint8Array; pos: number; out: number[] }
+  >()
+  /** Set Input line terminator pair (default CR, skip LF) */
+  chrInp: [number, number] = [13, 10]
+  /** Dir First$/Dir Next$ iterator */
+  dirIter: { entries: Array<{ name: string; isDir: boolean }>; idx: number } | null = null
   private sampleCache: { bank: MemoryBank; entries: SampleEntry[] } | null = null
   readonly amalHost: AmalHost = {
     globals: this.amalGlobals,
@@ -206,6 +216,47 @@ export class Runtime {
         if (a !== null) s.image = a
       },
     }
+  }
+
+  /** the fs as a writable AmigaFS, when it is one */
+  get vfs(): AmigaFS | null {
+    return this.fs instanceof AmigaFS ? this.fs : null
+  }
+
+  chan(n: number): { mode: 'in' | 'out'; path: string; data: Uint8Array; pos: number; out: number[] } {
+    const c = this.fileChans.get(n)
+    if (!c) throw new AmosError(`file not opened: channel ${n}`)
+    return c
+  }
+
+  /** read one Input#/Line Input# field from a channel */
+  readField(n: number, stopAtComma: boolean): string {
+    const c = this.chan(n)
+    if (c.mode !== 'in') throw new AmosError('file type mismatch')
+    let out = ''
+    while (c.pos < c.data.length) {
+      const b = c.data[c.pos++]!
+      if (stopAtComma && b === 44) return out
+      if (b === this.chrInp[0]) {
+        if (c.data[c.pos] === this.chrInp[1]) c.pos++
+        return out
+      }
+      out += String.fromCharCode(b)
+      if (out.length > 1000) break
+    }
+    return out
+  }
+
+  closeChannel(n: number): void {
+    const c = this.fileChans.get(n)
+    if (!c) return
+    if (c.mode === 'out') {
+      if (!this.vfs?.writeFile(c.path, Uint8Array.from(c.out))) {
+        this.fileChans.delete(n)
+        throw new AmosError('disc is write protected')
+      }
+    }
+    this.fileChans.delete(n)
   }
 
   getSample(n: number): SampleEntry | null {
