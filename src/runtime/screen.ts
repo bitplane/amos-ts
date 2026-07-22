@@ -26,6 +26,16 @@ export class Screen {
   offsetY = 0
   // graphics state
   ink = 2
+  /** graphics background pen (Ink 2nd arg, BPen) — pattern 0-bits */
+  gPaper = 0
+  /** area outline pen (Ink 3rd arg, AOlPen) — Set Paint borders, Paint mode 1 */
+  gBorder = 0
+  /** Set Line: 16-bit line pattern, cycled per plotted pixel */
+  linePattern = 0xffff
+  /** Set Paint: outline filled shapes with gBorder */
+  outline = false
+  /** Set Pattern: 16-bit rows for area fills (null = solid) */
+  pattern: Uint16Array | null = null
   grX = 0
   grY = 0
   clip: { x1: number; y1: number; x2: number; y2: number } | null = null
@@ -135,8 +145,10 @@ export class Screen {
     const sx = x1 < x2 ? 1 : -1
     const sy = y1 < y2 ? 1 : -1
     let err = dx + dy
+    let bit = 15 // Set Line pattern rotates from the top bit
     for (;;) {
-      this.plot(x1, y1, c)
+      if ((this.linePattern >> bit) & 1) this.plot(x1, y1, c)
+      bit = bit === 0 ? 15 : bit - 1
       if (x1 === x2 && y1 === y2) break
       const e2 = 2 * err
       if (e2 >= dy) {
@@ -151,19 +163,36 @@ export class Screen {
   }
 
   box(x1: number, y1: number, x2: number, y2: number, c = this.ink): void {
-    this.hline(x1, x2, y1, c)
-    this.hline(x1, x2, y2, c)
-    for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) {
-      this.plot(x1, y, c)
-      this.plot(x2, y, c)
-    }
+    this.line(x1, y1, x2, y1, c)
+    this.line(x2, y1, x2, y2, c)
+    this.line(x2, y2, x1, y2, c)
+    this.line(x1, y2, x1, y1, c)
   }
 
   bar(x1: number, y1: number, x2: number, y2: number, c = this.ink): void {
+    if (x1 > x2) [x1, x2] = [x2, x1]
     if (y1 > y2) [y1, y2] = [y2, y1]
-    y1 = Math.max(0, y1)
-    y2 = Math.min(this.height - 1, y2)
-    for (let y = y1; y <= y2; y++) this.hline(x1, x2, y, c)
+    const cy1 = Math.max(0, y1)
+    const cy2 = Math.min(this.height - 1, y2)
+    if (this.pattern === null) {
+      for (let y = cy1; y <= cy2; y++) this.hline(x1, x2, y, c)
+    } else {
+      const rows = this.pattern.length
+      const cx1 = Math.max(0, x1)
+      const cx2 = Math.min(this.width - 1, x2)
+      for (let y = cy1; y <= cy2; y++) {
+        const row = this.pattern[y % rows]!
+        for (let x = cx1; x <= cx2; x++) {
+          this.plot(x, y, (row >> (15 - (x & 15))) & 1 ? c : this.gPaper)
+        }
+      }
+    }
+    if (this.outline) {
+      const saved = this.linePattern
+      this.linePattern = 0xffff
+      this.box(x1, y1, x2, y2, this.gBorder)
+      this.linePattern = saved
+    }
   }
 
   ellipse(cx: number, cy: number, rx: number, ry: number, c = this.ink, fill = false): void {
@@ -194,22 +223,29 @@ export class Screen {
     }
   }
 
-  paint(x: number, y: number, c = this.ink): void {
+  paint(x: number, y: number, c = this.ink, borderMode = false): void {
     const target = this.point(x, y)
     if (target < 0 || target === (c & this.colorMask())) return
+    const border = this.gBorder & this.colorMask()
+    if (borderMode && target === border) return
+    // mode 0: fill the same-colour region; mode 1: fill until gBorder
+    const fillable = (px: number, py: number): boolean => {
+      const v = this.point(px, py)
+      if (v < 0) return false
+      return borderMode ? v !== border && v !== (c & this.colorMask()) : v === target
+    }
     const stack = [[x, y] as [number, number]]
     while (stack.length > 0) {
       const [px, py] = stack.pop()!
-      if (!this.inClip(px, py) || this.point(px, py) !== target) continue
-      // find span
+      if (!this.inClip(px, py) || !fillable(px, py)) continue
       let x1 = px
-      while (x1 > 0 && this.point(x1 - 1, py) === target && this.inClip(x1 - 1, py)) x1--
+      while (x1 > 0 && fillable(x1 - 1, py) && this.inClip(x1 - 1, py)) x1--
       let x2 = px
-      while (x2 < this.width - 1 && this.point(x2 + 1, py) === target && this.inClip(x2 + 1, py)) x2++
+      while (x2 < this.width - 1 && fillable(x2 + 1, py) && this.inClip(x2 + 1, py)) x2++
       this.hline(x1, x2, py, c)
       for (let sx = x1; sx <= x2; sx++) {
-        if (py > 0 && this.point(sx, py - 1) === target) stack.push([sx, py - 1])
-        if (py < this.height - 1 && this.point(sx, py + 1) === target) stack.push([sx, py + 1])
+        if (py > 0 && fillable(sx, py - 1)) stack.push([sx, py - 1])
+        if (py < this.height - 1 && fillable(sx, py + 1)) stack.push([sx, py + 1])
       }
     }
   }

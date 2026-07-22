@@ -120,6 +120,22 @@ export const FAITHFUL = new Set<string>([
   'cleft',
   'cright',
   'cline',
+  // drawing/palette sweep: InInk/InPaint/InSetLine/InSetPaint/InSetPattern/
+  // FadeTOn+FadeI/InFlash/PalRout/InColourBack read
+  'ink', // pen[,paper][,border] — border is the area outline pen
+  'set line', // 16-bit line pattern on Draw/Box
+  'set paint', // outline filled shapes with the border pen
+  'paint', // Flood: mode 1 same-colour (default), mode 0 until outline
+  'fade', // nibble ±1 per delay toward targets, elided untouched
+  'flash', // "(rgb,ticks)..." palette animation
+  'flash off',
+  'get palette', // colour-mask selects entries (PalRout)
+  'get sprite palette',
+  'get bob palette',
+  'get icon palette',
+  'colour back', // border colour, composited as the background
+  'colour',
+  'palette',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -150,11 +166,11 @@ export const NOTES: Record<string, string> = {
   'bob update': 'no-op — overlay model makes autoback implicit',
   'double buffer': 'no-op (logical = physical)',
   'screen swap': 'no-op',
-  fade: 'instant, no ramp',
   rain: 'stored, not rendered',
   rainbow: 'stored, not rendered',
   'set rainbow': 'stored, not rendered',
   writing: 'only replace mode',
+  'set pattern': 'sprite-image patterns only; bank patterns need the system resource bank',
   'gr writing': 'ignored',
   vumeter: 'synthesized level, not real amplitude',
   bell: 'modern synthesis, not chip waveform',
@@ -162,8 +178,6 @@ export const NOTES: Record<string, string> = {
   boom: 'modern synthesis',
   'load iff': 'HAM decodes as indexed (wrong colours)',
   centre: 'no Border$ handling',
-  ink: 'pattern/border arguments ignored',
-  paint: 'border mode ignored',
   'hot spot': 'code form approximated',
   'mouse zone': 'current-screen coordinate mapping approximated',
   print: 'Print # channels unsupported',

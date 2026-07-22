@@ -81,6 +81,80 @@ describe('drawing', () => {
     expect(rt.screen.point(40, 60)).toBe(1) // outside stays paper
   })
 
+  it('applies Set Line patterns to lines and boxes', () => {
+    const rt = run('Set Line %1010101010101010\nInk 6 : Draw 0,10 To 15,10')
+    expect(rt.screen.point(0, 10)).toBe(6) // bit 15 set
+    expect(rt.screen.point(1, 10)).toBe(1) // bit 14 clear — paper survives
+    expect(rt.screen.point(2, 10)).toBe(6)
+  })
+
+  it('outlines bars with the border pen under Set Paint (AOlPen)', () => {
+    const rt = run('Ink 5,,9 : Set Paint 1\nBar 20,20 To 40,40')
+    expect(rt.screen.point(30, 30)).toBe(5) // fill
+    expect(rt.screen.point(20, 30)).toBe(9) // outline uses Ink border arg
+    const rt2 = run('Ink 5,,9 : Set Paint 0\nBar 20,20 To 40,40')
+    expect(rt2.screen.point(20, 30)).toBe(5)
+  })
+
+  it('fills area patterns with ink/paper (Set Pattern via sprite image)', () => {
+    const prog = [
+      'Cls 0',
+      'Ink 2 : Bar 0,0 To 15,0 : Rem row 0 solid, row 1 empty',
+      'Get Bob 1,0,0 To 16,2',
+      'Cls 0',
+      'Set Pattern -1 : Ink 6,3 : Bar 100,100 To 131,103',
+    ].join('\n')
+    const rt = run(prog)
+    expect(rt.screen.point(100, 100)).toBe(6) // pattern 1-row -> ink
+    expect(rt.screen.point(100, 101)).toBe(3) // pattern 0-row -> gPaper
+    expect(rt.screen.point(100, 102)).toBe(6)
+  })
+
+  it('Paint mode 0 stops at the outline colour', () => {
+    const prog = ['Ink 4,,4 : Box 50,50 To 70,70', 'Ink 7 : Paint 60,60,0'].join('\n')
+    const rt = run(prog)
+    expect(rt.screen.point(60, 60)).toBe(7)
+    expect(rt.screen.point(40, 60)).toBe(1) // border colour 4 contained it
+  })
+
+  it('Fade steps nibbles once per delay toward targets (FadeI)', () => {
+    const rt = boot('Fade 2,,$421')
+    rt.runHeadless(3)
+    const before = rt.screens.get(0)!.palette[1]!
+    expect(before).toBe(0xa40) // untouched until the delay elapses...
+    for (let i = 0; i < 2; i++) rt.frame()
+    expect(rt.screens.get(0)!.palette[1]).toBe(0x931) // a40 -> 931 (each nibble ±1)
+    for (let i = 0; i < 20; i++) rt.frame()
+    expect(rt.screens.get(0)!.palette[1]).toBe(0x421) // reached target
+    expect(rt.screens.get(0)!.palette[0]).toBe(0x000) // elided colour 0 untouched
+  })
+
+  it('Flash animates a palette register from its pattern string', () => {
+    const rt = boot('Flash 2,"(F00,3)(0F0,3)"')
+    rt.runHeadless(2)
+    for (let i = 0; i < 3; i++) rt.frame()
+    const a = rt.screens.get(0)!.palette[2]!
+    for (let i = 0; i < 3; i++) rt.frame()
+    const b = rt.screens.get(0)!.palette[2]!
+    expect([a, b].sort()).toEqual([0x0f0, 0xf00])
+  })
+
+  it('Get Palette honours the colour mask (PalRout)', () => {
+    const prog = ['Screen Open 1,320,200,16,Lowres', 'Palette $111,$222,$333', 'Screen 0', 'Get Palette 1,%101'].join(
+      '\n',
+    )
+    const rt = run(prog)
+    expect(rt.screens.get(0)!.palette[0]).toBe(0x111)
+    expect(rt.screens.get(0)!.palette[1]).toBe(0xa40) // masked out
+    expect(rt.screens.get(0)!.palette[2]).toBe(0x333)
+  })
+
+  it('Colour Back paints the composite border', () => {
+    const rt = run('Colour Back $F00\nScreen Display 0,140,60') // shift screen to expose border
+    const { data } = rt.composite()
+    expect([data[0], data[1], data[2]]).toEqual([255, 0, 0])
+  })
+
   it('honours Clip', () => {
     const rt = run('Clip 100,100 To 200,200\nInk 5 : Bar 0,0 To 319,199')
     expect(rt.screen.point(150, 150)).toBe(5)

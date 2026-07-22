@@ -140,8 +140,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     ink(it) {
-      scr().ink = it.evalInt()
-      while (it.accept(',')) optInt(it, 0) // pattern / border — later
+      // Ink [pen][,[paper]][,[border]] — border goes to the outline pen
+      const s = scr()
+      if (it.nm() !== ',' && !it.atStmtEnd()) s.ink = it.evalInt()
+      if (it.accept(',')) {
+        if (it.nm() !== ',' && !it.atStmtEnd()) s.gPaper = it.evalInt()
+        if (it.accept(',') && !it.atStmtEnd()) s.gBorder = it.evalInt()
+      }
     },
     plot(it) {
       const [x, y] = pair(it)
@@ -199,9 +204,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     polyline: polyish(false),
     polygon: polyish(true),
     paint(it) {
+      // graphics.library Flood: mode 1 (default) fills the same-colour
+      // region; mode 0 fills until the outline pen (Ink's 3rd argument)
       const [x, y] = pair(it)
-      if (it.accept(',')) it.evalInt() // border mode — later
-      scr().paint(x, y)
+      const mode = it.accept(',') ? it.evalInt() & 1 : 1
+      scr().paint(x, y, scr().ink, mode === 0)
     },
     text(it) {
       const [x, y] = pair(it)
@@ -228,7 +235,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       s.palette[n & 31] = it.evalInt() & 0xfff
     },
     'colour back'(it) {
-      it.evalInt() // border colour — no border in our composite yet
+      rt.colourBack = it.evalInt() & 0xfff
     },
     palette(it) {
       const s = scr()
@@ -241,8 +248,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'get palette'(it) {
       const src = byIndex(it.evalInt())
-      if (it.accept(',')) it.evalInt() // mask — later
-      scr().palette.set(src.palette)
+      const mask = it.accept(',') ? it.evalInt() : -1
+      const dst = scr()
+      for (let i = 0; i < 32; i++) if (mask & (1 << i)) dst.palette[i] = src.palette[i]!
     },
     'shift up'(it) {
       const delay = it.evalInt()
@@ -265,22 +273,68 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'shift off'() {
       rt.shifts.delete(rt.currentIndex)
     },
-    fade(it) {
-      it.evalInt() // speed — instant for now
+    'set line'(it) {
+      scr().linePattern = it.evalInt() & 0xffff
+    },
+    'set paint'(it) {
+      scr().outline = it.evalInt() !== 0
+    },
+    'set pattern'(it) {
+      const n = it.evalInt()
       const s = scr()
+      if (n === 0) {
+        s.pattern = null
+        return
+      }
+      if (n < 0) {
+        // negative: a sprite image is the fill pattern (SPat1)
+        const img = rt.spriteBank?.image(-n)
+        if (!img) return
+        const rows = Math.min(16, img.height)
+        const bits = new Uint16Array(rows)
+        for (let y = 0; y < rows; y++) {
+          let row = 0
+          for (let x = 0; x < Math.min(16, img.width); x++) {
+            if (img.pixels[y * img.width + x] !== 0) row |= 1 << (15 - x)
+          }
+          bits[y] = row
+        }
+        s.pattern = bits
+        return
+      }
+      // positive patterns live in the system mouse/pattern bank
+      it.unimplemented.set('set pattern (bank pattern)', (it.unimplemented.get('set pattern (bank pattern)') ?? 0) + 1)
+    },
+    fade(it) {
+      // Fade speed[,colours...]: every `speed` ticks each RGB nibble steps
+      // one toward its target; elided colours stay untouched (FadeI).
+      const delay = Math.max(1, it.evalInt())
+      const targets = new Int32Array(32).fill(-1)
       let i = 0
       let any = false
       while (it.accept(',')) {
-        const v = it.atStmtEnd() || it.nm() === ',' ? -1 : it.evalInt()
-        if (v >= 0 && i < 32) s.palette[i] = v & 0xfff
-        any = true
+        if (!(it.atStmtEnd() || it.nm() === ',')) {
+          if (i < 32) targets[i] = it.evalInt() & 0xfff
+          any = true
+        }
         i++
       }
-      if (!any) s.palette.fill(0)
+      if (!any) targets.fill(0) // no list: fade everything to black
+      rt.fades.set(rt.currentIndex, { delay, count: 0, targets })
     },
-    'flash off': () => {},
+    'flash off'() {
+      rt.flashes.clear()
+    },
     flash(it) {
-      it.skipToStmtEnd() // cursor flash sequences — cosmetic
+      const reg = it.evalInt()
+      it.expect(',')
+      const spec = it.evalStr()
+      const seq: Array<{ rgb: number; ticks: number }> = []
+      for (const m of spec.matchAll(/\(\s*([0-9a-f]+)\s*,\s*(\d+)\s*\)/gi)) {
+        seq.push({ rgb: parseInt(m[1]!, 16) & 0xfff, ticks: Math.max(1, parseInt(m[2]!, 10)) })
+      }
+      if (seq.length === 0) throw new AmosError('syntax error in flash string')
+      rt.flashes.set(reg & 31, { seq, idx: 0, left: seq[0]!.ticks })
     },
 
     // ---- rainbows (stored; rendered when the copper composite lands) ----
@@ -466,9 +520,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'get sprite palette': bankPalette(),
     'get bob palette': bankPalette(),
     'get icon palette'(it) {
-      if (!it.atStmtEnd()) it.evalInt()
+      const mask = it.atStmtEnd() ? -1 : it.evalInt()
       const pal = rt.iconBank?.palette
-      if (pal) for (let i = 0; i < Math.min(32, pal.length); i++) scr().palette[i] = pal[i]!
+      if (pal) {
+        for (let i = 0; i < Math.min(32, pal.length); i++) {
+          if (mask & (1 << i)) scr().palette[i] = pal[i]!
+        }
+      }
     },
     'hot spot'(it) {
       const img = rt.spriteBank?.image(it.evalInt())
@@ -773,9 +831,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
   function bankPalette(): Instr {
     return (it) => {
-      if (!it.atStmtEnd()) it.evalInt() // mask — later
+      const mask = it.atStmtEnd() ? -1 : it.evalInt()
       const pal = rt.spriteBank?.palette
-      if (pal) for (let i = 0; i < Math.min(32, pal.length); i++) scr().palette[i] = pal[i]!
+      if (pal) {
+        for (let i = 0; i < Math.min(32, pal.length); i++) {
+          if (mask & (1 << i)) scr().palette[i] = pal[i]!
+        }
+      }
     }
   }
 

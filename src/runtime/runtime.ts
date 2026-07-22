@@ -57,6 +57,12 @@ export class Runtime {
   currentIndex = 0
   rainbows = new Map<number, Rainbow>()
   shifts = new Map<number, { dir: number; delay: number; first: number; last: number; count: number }>()
+  /** Fade: per-screen nibble-stepping toward targets (-1 = untouched) */
+  fades = new Map<number, { delay: number; count: number; targets: Int32Array }>()
+  /** Flash n,"(rgb,ticks)...": palette-register animations */
+  flashes = new Map<number, { seq: Array<{ rgb: number; ticks: number }>; idx: number; left: number }>()
+  /** Colour Back: the display border colour (composite background) */
+  colourBack = 0
   scrollZones = new Map<number, { x1: number; y1: number; x2: number; y2: number; dx: number; dy: number }>()
   // ---- objects ----
   spriteBank: ObjectBank | null = null
@@ -430,6 +436,8 @@ export class Runtime {
   frame(): RunResult {
     this.interp.tick++
     this.applyShifts()
+    this.applyFades()
+    this.applyFlashes()
     if (!this.synchroManual) this.stepAmal()
     this.unblock()
     if (!this.interp.done && this.interp.blocked === null) {
@@ -446,6 +454,45 @@ export class Runtime {
       this.input.keyQueue.shift()
       this.interp.blocked = null
     } else if (b.type === 'input' && this.pendingLine !== null) this.interp.blocked = null
+  }
+
+  private applyFades(): void {
+    for (const [n, fade] of this.fades) {
+      const s = this.screens.get(n)
+      if (!s) {
+        this.fades.delete(n)
+        continue
+      }
+      if (++fade.count < fade.delay) continue
+      fade.count = 0
+      let busy = false
+      for (let i = 0; i < 32; i++) {
+        const target = fade.targets[i]!
+        if (target < 0) continue
+        let v = s.palette[i]!
+        let out = 0
+        for (const shift of [8, 4, 0]) {
+          const cur = (v >> shift) & 15
+          const want = (target >> shift) & 15
+          const next = cur === want ? cur : cur < want ? cur + 1 : cur - 1
+          if (next !== want) busy = true
+          out |= next << shift
+        }
+        s.palette[i] = out
+      }
+      if (!busy) this.fades.delete(n)
+    }
+  }
+
+  private applyFlashes(): void {
+    for (const [reg, fl] of this.flashes) {
+      if (--fl.left > 0) continue
+      fl.idx = (fl.idx + 1) % fl.seq.length
+      const step = fl.seq[fl.idx]!
+      fl.left = step.ticks
+      const s = this.screens.get(this.currentIndex)
+      if (s) s.palette[reg & 31] = step.rgb & 0xfff
+    }
   }
 
   private applyShifts(): void {
@@ -496,8 +543,16 @@ export class Runtime {
     const W = 640
     const H = 400
     const data = out ?? new Uint8ClampedArray(W * H * 4)
-    data.fill(0)
-    for (let i = 3; i < data.length; i += 4) data[i] = 255
+    const bg = this.colourBack & 0xfff
+    const bgR = ((bg >> 8) & 15) * 17
+    const bgG = ((bg >> 4) & 15) * 17
+    const bgB = (bg & 15) * 17
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] = bgR
+      data[i + 1] = bgG
+      data[i + 2] = bgB
+      data[i + 3] = 255
+    }
     for (const n of this.order) {
       const s = this.screens.get(n)
       if (!s || !s.visible) continue
