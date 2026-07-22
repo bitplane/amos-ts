@@ -299,11 +299,16 @@ describe('objects', () => {
   }
   const GREEN = [0, 255, 0] // default palette colour 5 = $0F0
 
-  it('grabs an image with Get Bob and shows it as a bob overlay', () => {
+  it('blits bobs into the framebuffer with background save (Actualise)', () => {
     const rt = run('Ink 5 : Bar 0,0 To 7,7\nGet Bob 1,0,0 To 8,8\nCls 0\nBob 1,100,50,1')
-    expect(rt.screen.point(100, 50)).toBe(0) // framebuffer untouched (overlay)
-    expect(at(rt, 100, 50)).toEqual(GREEN) // but composited
+    expect(rt.screen.point(100, 50)).toBe(5) // Point sees the bob now
+    expect(at(rt, 100, 50)).toEqual(GREEN)
     expect(at(rt, 90, 50)).toEqual([0, 0, 0])
+    // moving the bob restores the background underneath
+    rt.bobs.get(1)!.x = 200
+    rt.frame()
+    expect(rt.screen.point(100, 50)).toBe(0)
+    expect(rt.screen.point(200, 50)).toBe(5)
   })
 
   it('moves bobs with elided arguments and reads X Bob back', () => {
@@ -340,6 +345,58 @@ describe('objects', () => {
   it('answers zone queries', () => {
     const out = runOut('Reserve Zone 4\nSet Zone 2,10,10 To 20,20\nPrint Zone(15,15);Zone(5,5)')
     expect(out).toBe(' 2 0\n')
+  })
+})
+
+describe('double buffering and screens', () => {
+  it('page-flips under Autoback 0 with Screen Swap', () => {
+    const rt = run(['Double Buffer : Autoback 0', 'Ink 5 : Bar 0,0 To 9,9'].join('\n'))
+    const s = rt.screen
+    expect(s.point(5, 5)).toBe(5) // logical has the bar
+    expect(s.displayBuffer[5 * s.width + 5]).not.toBe(5) // physical does not
+    rt.screens.get(0)!.swap()
+    expect(s.displayBuffer[5 * s.width + 5]).toBe(5) // now it shows
+  })
+
+  it('Screen Copy Physic To Logic works via buffer ids (FnLogic/FnPhysic)', () => {
+    const prog = [
+      'Double Buffer : Autoback 0',
+      'Ink 5 : Bar 0,0 To 9,9',
+      'Screen Swap', // bar now physical
+      'Cls 0', // logical cleared
+      'Screen Copy Physic(0) To Logic(0)', // pull it back
+    ].join('\n')
+    const rt = run(prog)
+    expect(rt.screen.point(5, 5)).toBe(5)
+  })
+
+  it('Zoom scales between screen regions', () => {
+    const rt = run('Ink 5 : Bar 0,0 To 9,9\nZoom 0,0,0,10,10 To 0,100,100,140,140')
+    expect(rt.screen.point(120, 120)).toBe(5) // 4x scaled bar
+    expect(rt.screen.point(139, 139)).toBe(5)
+    expect(rt.screen.point(142, 142)).toBe(1)
+  })
+
+  it('Set Bob negative leaves a trail; Limit Bob confines movement', () => {
+    const base = ['Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 0']
+    const trail = run([...base, 'Set Bob 1,-1,,', 'Bob 1,50,50,1'].join('\n'))
+    trail.bobs.get(1)!.x = 100
+    trail.frame()
+    expect(trail.screen.point(50, 50)).toBe(5) // old image not restored
+    expect(trail.screen.point(100, 50)).toBe(5)
+    const lim = run([...base, 'Limit Bob 40,40 To 80,80', 'Bob 1,300,190,1'].join('\n'))
+    const b = lim.bobs.get(1)!
+    expect(b.x).toBeLessThanOrEqual(80)
+    expect(b.y).toBeLessThanOrEqual(80)
+  })
+
+  it('Bob Update Off freezes the pipeline until Bob Draw', () => {
+    const rt = run(
+      ['Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 0', 'Bob Update Off', 'Bob 1,60,60,1'].join('\n'),
+    )
+    expect(rt.screen.point(60, 60)).toBe(0) // nothing drawn
+    rt.updateBobs()
+    expect(rt.screen.point(60, 60)).toBe(5)
   })
 })
 

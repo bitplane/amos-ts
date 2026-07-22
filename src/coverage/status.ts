@@ -136,6 +136,33 @@ export const FAITHFUL = new Set<string>([
   'colour back', // border colour, composited as the background
   'colour',
   'palette',
+  // objects/screens sweep: real bob pipeline (Actualise-style), buffers
+  'bob', // blitted with background save/restore; Point sees bobs
+  'bob off',
+  'bob update', // manual pass
+  'bob update on',
+  'bob update off',
+  'bob clear',
+  'bob draw',
+  'x bob',
+  'y bob',
+  'i bob',
+  'priority on',
+  'priority off',
+  'priority reverse on',
+  'priority reverse off',
+  'limit bob',
+  'double buffer',
+  'screen swap',
+  'autoback', // mode stored; 2 = logical shown (equivalent visuals)
+  'logic', // \$BFFFFFFF / \$80000000|n buffer ids (FnLogic)
+  'physic',
+  'screen copy', // Logic/Physic-aware buffer blits
+  'zoom', // nearest-neighbour scaled blit
+  'x screen', // conversions match the AMAL XS/YS/XH/YH routines
+  'y screen',
+  'x hard',
+  'y hard',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -162,10 +189,9 @@ export const NA = new Set<string>([
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
   amal: 'string programs only — Amal n,# bank programs unsupported',
-  bob: 'rendered as composite overlay; framebuffer not blitted',
-  'bob update': 'no-op — overlay model makes autoback implicit',
-  'double buffer': 'no-op (logical = physical)',
-  'screen swap': 'no-op',
+  'set bob': 'back modes implemented; planes/mask arguments ignored',
+  appear: 'copies instantly — the dissolve is not progressive',
+  autoback: 'mode 1 treated like 0',
   rain: 'stored, not rendered',
   rainbow: 'stored, not rendered',
   'set rainbow': 'stored, not rendered',

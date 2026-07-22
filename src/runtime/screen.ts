@@ -14,7 +14,12 @@ export const DEFAULT_PALETTE = [
 ]
 
 export class Screen {
+  /** the LOGICAL buffer — all drawing and Point read this */
   pixels: Uint8Array
+  /** the PHYSICAL buffer when double-buffered (what the beam shows) */
+  back: Uint8Array | null = null
+  /** Autoback mode: 2 (default) = fully automatic, 0/1 = manual-ish */
+  autoback = 2
   palette = Uint16Array.from(DEFAULT_PALETTE)
   hires: boolean
   laced: boolean
@@ -65,6 +70,32 @@ export class Screen {
       this.paper = 0
       this.pen = 1
     }
+  }
+
+  /** Double Buffer: create the physical buffer */
+  doubleBuffer(): void {
+    if (this.back === null) this.back = this.pixels.slice()
+  }
+
+  /** Screen Swap: exchange logical and physical */
+  swap(): void {
+    if (this.back === null) return
+    const t = this.pixels
+    this.pixels = this.back
+    this.back = t
+  }
+
+  /** the buffer the display shows */
+  get displayBuffer(): Uint8Array {
+    // with autoback 2 both buffers are kept identical on the real
+    // machine — showing the logical buffer is equivalent
+    return this.back !== null && this.autoback === 0 ? this.back : this.pixels
+  }
+
+  /** buffer selection for Logic()/Physic() screen ids */
+  bufferFor(kind: 'logic' | 'physic'): Uint8Array {
+    if (this.back === null) return this.pixels
+    return kind === 'logic' ? this.pixels : this.displayBuffer === this.pixels ? this.pixels : this.back
   }
 
   get cols(): number {
@@ -359,6 +390,22 @@ export class Screen {
     dx: number,
     dy: number,
   ): void {
+    Screen.copyBuf(src, src.pixels, x1, y1, x2, y2, dst, dst.pixels, dx, dy)
+  }
+
+  /** blit between explicit buffers (Logic/Physic aware) */
+  static copyBuf(
+    src: Screen,
+    srcBuf: Uint8Array,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    dst: Screen,
+    dstBuf: Uint8Array,
+    dx: number,
+    dy: number,
+  ): void {
     // clamp the source rect (wild coordinates must not allocate wildly)
     if (x1 < 0) {
       dx -= x1
@@ -378,7 +425,7 @@ export class Screen {
       for (let x = 0; x < w; x++) {
         const sx = x1 + x
         const sy = y1 + y
-        tmp[y * w + x] = sx >= 0 && sy >= 0 && sx < src.width && sy < src.height ? src.pixels[sy * src.width + sx]! : 0
+        tmp[y * w + x] = sx >= 0 && sy >= 0 && sx < src.width && sy < src.height ? srcBuf[sy * src.width + sx]! : 0
       }
     }
     for (let y = 0; y < h; y++) {
@@ -386,7 +433,7 @@ export class Screen {
         const tx = dx + x
         const ty = dy + y
         if (tx >= 0 && ty >= 0 && tx < dst.width && ty < dst.height) {
-          dst.pixels[ty * dst.width + tx] = tmp[y * w + x]!
+          dstBuf[ty * dst.width + tx] = tmp[y * w + x]!
         }
       }
     }

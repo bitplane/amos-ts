@@ -70,6 +70,15 @@ export class Runtime {
   memBanks = new Map<number, MemoryBank>()
   bobs = new Map<number, Bob>()
   hwSprites = new Map<number, HwSprite>()
+  /** bob pipeline: auto update each frame (Bob Update On/Off) */
+  bobUpdateOn = true
+  /** saved background under each drawn bob, restored before redraw */
+  private bobSaved = new Map<number, { screen: number; x: number; y: number; w: number; h: number; data: Uint8Array }>()
+  /** Set Bob background modes: 0 save/restore, <0 none, >0 fill colour-1 */
+  bobModes = new Map<number, number>()
+  /** Limit Bob rectangles: global (key -1) or per bob */
+  bobLimits = new Map<number, { x1: number; y1: number; x2: number; y2: number }>()
+  priorityReverse = false
   zones: Array<Zone | null> = []
   /** objects hit by the last Bob Col/Sprite Col, read by Col() */
   colSet = new Set<number>()
@@ -440,10 +449,14 @@ export class Runtime {
     this.applyFlashes()
     if (!this.synchroManual) this.stepAmal()
     this.unblock()
+    let result: RunResult
     if (!this.interp.done && this.interp.blocked === null) {
-      return this.interp.run(this.frameBudget)
+      result = this.interp.run(this.frameBudget)
+    } else {
+      result = { status: this.interp.done ? 'ended' : 'blocked', steps: 0, unimplemented: this.interp.unimplemented }
     }
-    return { status: this.interp.done ? 'ended' : 'blocked', steps: 0, unimplemented: this.interp.unimplemented }
+    if (this.bobUpdateOn) this.updateBobs()
+    return result
   }
 
   private unblock(): void {
@@ -556,7 +569,7 @@ export class Runtime {
     for (const n of this.order) {
       const s = this.screens.get(n)
       if (!s || !s.visible) continue
-      const pixels = this.pixelsWithBobs(n, s)
+      const pixels = s.displayBuffer
       const pw = s.hires ? 1 : 2
       const ph = s.laced ? 1 : 2
       const baseX = (s.displayX - 128) * 2
@@ -593,32 +606,102 @@ export class Runtime {
   }
 
   /**
-   * Screen pixels with its bobs overlaid. The framebuffer itself is not
-   * touched — equivalent to AMOS's autoback keeping the background saved.
+   * The real bob pipeline (the vbl Actualise): restore the saved
+   * backgrounds of the previous frame in reverse order, then draw every
+   * bob into the LOGICAL buffer, saving what was underneath. Point,
+   * Screen Copy and Get Bob therefore see bobs, exactly as with a
+   * single-buffered real AMOS.
    */
-  private pixelsWithBobs(index: number, s: Screen): Uint8Array {
-    const bobs = [...this.bobs.values()].filter((b) => b.screen === index)
-    if (bobs.length === 0) return s.pixels
-    bobs.sort((a, b) => (this.priorityOn ? a.y - b.y : a.n - b.n))
-    const out = s.pixels.slice()
+  updateBobs(): void {
+    // restore, newest first
+    const saved = [...this.bobSaved.entries()].reverse()
+    for (const [n, bg] of saved) {
+      const s = this.screens.get(bg.screen)
+      if (s) {
+        for (let y = 0; y < bg.h; y++) {
+          s.pixels.set(bg.data.subarray(y * bg.w, (y + 1) * bg.w), (bg.y + y) * s.width + bg.x)
+        }
+      }
+      this.bobSaved.delete(n)
+    }
+    // draw in priority order
+    const bobs = [...this.bobs.values()]
+    bobs.sort((a, b) => {
+      if (!this.priorityOn) return a.n - b.n
+      return this.priorityReverse ? b.y - a.y : a.y - b.y
+    })
     for (const bob of bobs) {
+      const s = this.screens.get(bob.screen)
       const img = this.spriteBank?.image(bob.image)
-      if (!img) continue
-      const dx = bob.x - img.hotX
-      const dy = bob.y - img.hotY
-      for (let y = 0; y < img.height; y++) {
-        const ty = dy + y
-        if (ty < 0 || ty >= s.height) continue
-        for (let x = 0; x < img.width; x++) {
-          const v = img.pixels[y * img.width + x]!
-          if (v === 0 && !img.opaque) continue
-          const tx = dx + x
-          if (tx < 0 || tx >= s.width) continue
-          out[ty * s.width + tx] = v
+      if (!s || !img) continue
+      const mode = this.bobModes.get(bob.n) ?? 0
+      const limit = this.bobLimits.get(bob.n) ?? this.bobLimits.get(-1)
+      let bx = bob.x
+      let by = bob.y
+      if (limit) {
+        bx = Math.max(limit.x1 + img.hotX, Math.min(limit.x2 - (img.width - img.hotX), bx))
+        by = Math.max(limit.y1 + img.hotY, Math.min(limit.y2 - (img.height - img.hotY), by))
+        bob.x = bx
+        bob.y = by
+      }
+      const dx = bx - img.hotX
+      const dy = by - img.hotY
+      // clip the rect to the screen
+      const x1 = Math.max(0, dx)
+      const y1 = Math.max(0, dy)
+      const x2 = Math.min(s.width, dx + img.width)
+      const y2 = Math.min(s.height, dy + img.height)
+      if (x1 >= x2 || y1 >= y2) continue
+      if (mode >= 0) {
+        const w = x2 - x1
+        const h = y2 - y1
+        const data = new Uint8Array(w * h)
+        if (mode === 0) {
+          for (let y = 0; y < h; y++) {
+            data.set(s.pixels.subarray((y1 + y) * s.width + x1, (y1 + y) * s.width + x2), y * w)
+          }
+        } else {
+          data.fill((mode - 1) & 63)
+        }
+        this.bobSaved.set(bob.n, { screen: bob.screen, x: x1, y: y1, w, h, data })
+      }
+      for (let y = y1; y < y2; y++) {
+        const iy = y - dy
+        for (let x = x1; x < x2; x++) {
+          const v = img.pixels[iy * img.width + (x - dx)]!
+          if (v !== 0 || img.opaque) s.pixels[y * s.width + x] = v
         }
       }
     }
-    return out
+  }
+
+  /** restore all bob backgrounds now (Bob Clear) */
+  clearBobs(): void {
+    const saved = [...this.bobSaved.entries()].reverse()
+    for (const [n, bg] of saved) {
+      const s = this.screens.get(bg.screen)
+      if (s) {
+        for (let y = 0; y < bg.h; y++) {
+          s.pixels.set(bg.data.subarray(y * bg.w, (y + 1) * bg.w), (bg.y + y) * s.width + bg.x)
+        }
+      }
+      this.bobSaved.delete(n)
+    }
+  }
+
+  /** decode a screen id from Logic()/Physic() (bit 31 set, bit 30 = physic) */
+  resolveScreenId(id: number): { s: Screen; buf: Uint8Array } {
+    if (id < 0) {
+      const physic = (id & 0x40000000) !== 0
+      const n = id & 0xff
+      const useCurrent = (id & 0x3fffff00) === 0x3fffff00 // bare Logic/Physic (-1 based)
+      const s = this.screens.get(useCurrent ? this.currentIndex : n)
+      if (!s) throw new AmosError(`screen not opened: ${useCurrent ? this.currentIndex : n}`)
+      return { s, buf: s.bufferFor(physic ? 'physic' : 'logic') }
+    }
+    const s = this.screens.get(id)
+    if (!s) throw new AmosError(`screen not opened: ${id}`)
+    return { s, buf: s.pixels }
   }
 
   /** Hardware sprites draw over everything, colours 16-31, hw coords. */

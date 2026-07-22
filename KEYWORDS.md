@@ -23,20 +23,20 @@ tested against our own understanding. Percentages exclude n/a
 | input | 18 | 0 | 13 | 5 | 72% |
 | interface | 21 | 0 | 0 | 21 | 0% |
 | ioports | 38 | 0 | 0 | 38 | 0% |
-| language | 254 | 64 | 86 | 95 | 61% |
+| language | 254 | 72 | 78 | 95 | 61% |
 | memory | 14 | 0 | 0 | 14 | 0% |
 | menus | 24 | 0 | 0 | 24 | 0% |
 | music | 49 | 5 | 8 | 36 | 27% |
-| objects | 58 | 4 | 23 | 31 | 47% |
+| objects | 58 | 16 | 15 | 27 | 53% |
 | palette | 9 | 6 | 3 | 0 | 100% |
 | rainbows | 3 | 0 | 3 | 0 | 100% |
 | request | 3 | 0 | 0 | 3 | 0% |
-| screens | 31 | 0 | 16 | 15 | 52% |
+| screens | 31 | 6 | 14 | 11 | 65% |
 | system | 41 | 0 | 0 | 40 | 0% |
 | text-io | 37 | 13 | 12 | 12 | 68% |
 | windows | 11 | 1 | 0 | 10 | 9% |
 | zones | 3 | 0 | 3 | 0 | 100% |
-| **total** | 732 | 113 | 191 | 416 | 42% |
+| **total** | 732 | 139 | 173 | 408 | 43% |
 
 ## amal (92%)
 
@@ -96,8 +96,8 @@ tested against our own understanding. Percentages exclude n/a
 
 ## language (61%)
 
-- **faithful**: `abs`, `acos`, `asc`, `asin`, `atan`, `bin$`, `cdown$`, `chr$`, `cleft$`, `cos`, `cright$`, `cup$`, `data`, `def fn`, `degree`, `dim`, `exp`, `false`, `fix`, `flip$`, `fn`, `for`, `gosub`, `goto`, `hcos`, `hex$`, `hsin`, `htan`, `instr`, `int`, `left$`, `len`, `line input`, `ln`, `log`, `lower$`, `max`, `mid$`, `min`, `next`, `not`, `on`, `pi#`, `radian`, `randomize`, `read`, `return`, `right$`, `rnd` *(deterministic — original mixes in the raster beam position)*, `set line`, `set tab`, `sgn`, `sin`, `space$`, `sqr`, `str$`, `string$`, `swap`, `tan`, `true`, `upper$`, `val`, `x curs`, `y curs`
-- **approximated**: `#`, `'`, `(`, `)`, `:`, `;`, `[`, `]`, `add` *(also works on float variables (original: integer only))*, `at`, `break off`, `break on`, `chip free`, `dec` *(also works on float variables (original: integer only))*, `def scroll`, `do`, `double buffer` *(no-op (logical = physical))*, `else`, `else if`, `error`, `errtrap`, `exist`, `exit`, `exit if`, `fast free`, `free`, `global`, `hide`, `hide on`, `hires`, `i bob`, `i sprite`, `if`, `inc` *(also works on float variables (original: integer only))*, `key$`, `laced`, `load`, `load iff` *(HAM decodes as indexed (wrong colours))*, `loop`, `lowres`, `multi wait`, `on error`, `param`, `param#`, `param$`, `pop`, `pop proc`, `proc`, `procedure`, `rem`, `repeat`, `restore`, `resume`, `resume label`, `resume next`, `scin`, `set bob`, `set curs`, `set pattern` *(sprite-image patterns only; bank patterns need the system resource bank)*, `set rainbow` *(stored, not rendered)*, `set zone`, `shared`, `show`, `show on`, `step`, `then`, `timer` *(writable, drives the frame clock directly)*, `to`, `trap`, `until`, `wend`, `while`, `writing` *(only replace mode)*, `x bob`, `x hard`, `x mouse`, `x screen`, `x sprite`, `xgr`, `y bob`, `y hard`, `y mouse`, `y screen`, `y sprite`, `ygr`, `zone$`
+- **faithful**: `abs`, `acos`, `asc`, `asin`, `atan`, `bin$`, `cdown$`, `chr$`, `cleft$`, `cos`, `cright$`, `cup$`, `data`, `def fn`, `degree`, `dim`, `double buffer`, `exp`, `false`, `fix`, `flip$`, `fn`, `for`, `gosub`, `goto`, `hcos`, `hex$`, `hsin`, `htan`, `i bob`, `instr`, `int`, `left$`, `len`, `line input`, `ln`, `log`, `lower$`, `max`, `mid$`, `min`, `next`, `not`, `on`, `pi#`, `radian`, `randomize`, `read`, `return`, `right$`, `rnd` *(deterministic — original mixes in the raster beam position)*, `set line`, `set tab`, `sgn`, `sin`, `space$`, `sqr`, `str$`, `string$`, `swap`, `tan`, `true`, `upper$`, `val`, `x bob`, `x curs`, `x hard`, `x screen`, `y bob`, `y curs`, `y hard`, `y screen`
+- **approximated**: `#`, `'`, `(`, `)`, `:`, `;`, `[`, `]`, `add` *(also works on float variables (original: integer only))*, `at`, `break off`, `break on`, `chip free`, `dec` *(also works on float variables (original: integer only))*, `def scroll`, `do`, `else`, `else if`, `error`, `errtrap`, `exist`, `exit`, `exit if`, `fast free`, `free`, `global`, `hide`, `hide on`, `hires`, `i sprite`, `if`, `inc` *(also works on float variables (original: integer only))*, `key$`, `laced`, `load`, `load iff` *(HAM decodes as indexed (wrong colours))*, `loop`, `lowres`, `multi wait`, `on error`, `param`, `param#`, `param$`, `pop`, `pop proc`, `proc`, `procedure`, `rem`, `repeat`, `restore`, `resume`, `resume label`, `resume next`, `scin`, `set bob` *(back modes implemented; planes/mask arguments ignored)*, `set curs`, `set pattern` *(sprite-image patterns only; bank patterns need the system resource bank)*, `set rainbow` *(stored, not rendered)*, `set zone`, `shared`, `show`, `show on`, `step`, `then`, `timer` *(writable, drives the frame clock directly)*, `to`, `trap`, `until`, `wend`, `while`, `writing` *(only replace mode)*, `x mouse`, `x sprite`, `xgr`, `y mouse`, `y sprite`, `ygr`, `zone$`
 - **missing**: `@_apml_@`, `arexx$`, `array`, `as`, `assign`, `auto view off`, `auto view on`, `border$`, `cmove$`, `command line$`, `dfree`, `dir$`, `dir/w`, `disc info$`, `display height`, `drive`, `err$`, `errn`, `follow`, `follow off`, `font$`, `frame length`, `frame load`, `frame param`, `frame play`, `frame skip`, `freeze`, `hardcol`, `hrev`, `hrev block`, `hscroll`, `icon base`, `iff anim`, `input$`, `ldir`, `ldir/w`, `line input #`, `mask iff`, `match`, `menu$`, `on break proc`, `on menu del`, `on menu off`, `on menu on`, `paper$`, `parent`, `peek$`, `pen$`, `picture`, `pload`, `poke$`, `prun`, `rdialog$`, `read text`, `repeat$`, `resource$`, `rev`, `rol.b`, `rol.l`, `rol.w`, `ror.b`, `ror.l`, `ror.w`, `save`, `save iff`, `scan$`, `set accessory`, `set buffer`, `set dir`, `set double precision`, `set equate bank`, `set font`, `set hardcol`, `set input`, `set menu`, `set slider`, `set sprite buffer`, `set stack`, `set tempras`, `set text`, `sort`, `unfreeze`, `update`, `update every`, `update off`, `update on`, `vdialog$`, `vrev`, `vrev block`, `vscroll`, `x graphic`, `x text`, `y graphic`, `y menu`, `y text`
 - **n/a**: `,`, `\\\\\\\\\\\\\\\/`, `ask editor`, `equ`, `include`, `monitor`, `struc`, `struc$`, `||apcmp||`
 
@@ -115,11 +115,11 @@ tested against our own understanding. Percentages exclude n/a
 - **approximated**: `bell` *(modern synthesis, not chip waveform)*, `boom` *(modern synthesis)*, `led off`, `led on`, `shoot` *(modern synthesis)*, `voice`, `volume`, `vumeter` *(synthesized level, not real amplitude)*
 - **missing**: `del wave`, `med cont`, `med load`, `med midi on`, `med play`, `med stop`, `mouth height`, `mouth read`, `mouth width`, `mubase`, `music`, `music off`, `music stop`, `mvolume`, `noise to`, `play`, `play off`, `sam raw`, `sam swap`, `sam swapped`, `sample`, `say`, `set envel`, `set talk`, `set wave`, `sload`, `ssave`, `talk misc`, `talk stop`, `tempo`, `track load`, `track loop of`, `track loop on`, `track play`, `track stop`, `wave`
 
-## objects (47%)
+## objects (53%)
 
-- **faithful**: `get bob palette`, `get icon palette`, `get palette`, `get sprite palette`
-- **approximated**: `bob` *(rendered as composite overlay; framebuffer not blitted)*, `bob clear`, `bob col`, `bob draw`, `bob off`, `bob update` *(no-op — overlay model makes autoback implicit)*, `col`, `get bob`, `get icon`, `get sprite`, `hot spot` *(code form approximated)*, `limit bob`, `limit mouse`, `make mask`, `no mask`, `paste bob`, `paste icon`, `priority off`, `priority on`, `sprite`, `sprite col`, `sprite off`, `sprite update`
-- **missing**: `bob update off`, `bob update on`, `bobsprite col`, `del block`, `del bob`, `del cblock`, `del icon`, `del sprite`, `get`, `get block`, `get cblock`, `get disc fonts`, `get fonts`, `get rom fonts`, `ins bob`, `ins icon`, `ins sprite`, `make icon mask`, `no icon mask`, `priority reverse off`, `priority reverse on`, `put`, `put block`, `put bob`, `put cblock`, `put key`, `sprite base`, `sprite priority`, `sprite update off`, `sprite update on`, `spritebob col`
+- **faithful**: `bob`, `bob clear`, `bob draw`, `bob off`, `bob update`, `bob update off`, `bob update on`, `get bob palette`, `get icon palette`, `get palette`, `get sprite palette`, `limit bob`, `priority off`, `priority on`, `priority reverse off`, `priority reverse on`
+- **approximated**: `bob col`, `col`, `get bob`, `get icon`, `get sprite`, `hot spot` *(code form approximated)*, `limit mouse`, `make mask`, `no mask`, `paste bob`, `paste icon`, `sprite`, `sprite col`, `sprite off`, `sprite update`
+- **missing**: `bobsprite col`, `del block`, `del bob`, `del cblock`, `del icon`, `del sprite`, `get`, `get block`, `get cblock`, `get disc fonts`, `get fonts`, `get rom fonts`, `ins bob`, `ins icon`, `ins sprite`, `make icon mask`, `no icon mask`, `put`, `put block`, `put bob`, `put cblock`, `put key`, `sprite base`, `sprite priority`, `sprite update off`, `sprite update on`, `spritebob col`
 
 ## palette (100%)
 
@@ -134,10 +134,11 @@ tested against our own understanding. Percentages exclude n/a
 
 - **missing**: `request off`, `request on`, `request wb`
 
-## screens (52%)
+## screens (65%)
 
-- **approximated**: `autoback`, `screen`, `screen base`, `screen close`, `screen colour`, `screen copy`, `screen display`, `screen height`, `screen hide`, `screen offset`, `screen open`, `screen show`, `screen swap` *(no-op)*, `screen to back`, `screen to front`, `screen width`
-- **missing**: `appear`, `default`, `default palette`, `dual playfield`, `dual priority`, `logbase`, `logic`, `ntsc`, `phybase`, `physic`, `screen clone`, `screen mode`, `screen size`, `view`, `zoom`
+- **faithful**: `autoback` *(mode 1 treated like 0)*, `logic`, `physic`, `screen copy`, `screen swap`, `zoom`
+- **approximated**: `appear` *(copies instantly — the dissolve is not progressive)*, `screen`, `screen base`, `screen close`, `screen colour`, `screen display`, `screen height`, `screen hide`, `screen offset`, `screen open`, `screen show`, `screen to back`, `screen to front`, `screen width`
+- **missing**: `default`, `default palette`, `dual playfield`, `dual priority`, `logbase`, `ntsc`, `phybase`, `screen clone`, `screen mode`, `screen size`, `view`
 
 ## system (0%)
 

@@ -87,18 +87,21 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.toBack(optInt(it, rt.currentIndex))
     },
     'screen swap'(it) {
-      optInt(it, 0) // logical == physical until the double-buffer milestone
+      const n = optInt(it, rt.currentIndex)
+      rt.screens.get(n)?.swap()
     },
-    'double buffer': () => {},
+    'double buffer'() {
+      scr().doubleBuffer()
+    },
     autoback(it) {
-      it.evalInt()
+      scr().autoback = it.evalInt() & 3
     },
     'screen copy'(it) {
-      const src = byIndex(it.evalInt())
+      const src = rt.resolveScreenId(it.evalInt())
       let x1 = 0
       let y1 = 0
-      let x2 = src.width
-      let y2 = src.height
+      let x2 = src.s.width
+      let y2 = src.s.height
       if (it.accept(',')) {
         x1 = it.evalInt()
         it.expect(',')
@@ -109,7 +112,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         y2 = it.evalInt()
       }
       it.expect('to')
-      const dst = byIndex(it.evalInt())
+      const dst = rt.resolveScreenId(it.evalInt())
       let dx = 0
       let dy = 0
       if (it.accept(',')) {
@@ -119,7 +122,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         // optional blitter mode
         if (it.accept(',')) it.evalInt()
       }
-      Screen.copy(src, x1, y1, x2, y2, dst, dx, dy)
+      Screen.copyBuf(src.s, src.buf, x1, y1, x2, y2, dst.s, dst.buf, dx, dy)
     },
 
     // ---- drawing ----
@@ -472,6 +475,50 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       Screen.copy(s, z.x1, z.y1, z.x2, z.y2, s, z.x1 + z.dx, z.y1 + z.dy)
     },
 
+    zoom(it) {
+      // Zoom src,x1,y1,x2,y2 To dst,x1,y1,x2,y2 — scaled blit
+      const src = rt.resolveScreenId(it.evalInt())
+      it.expect(',')
+      const [sx1, sy1] = pair(it)
+      it.expect(',')
+      const [sx2, sy2] = pair(it)
+      it.expect('to')
+      const dst = rt.resolveScreenId(it.evalInt())
+      it.expect(',')
+      const [dx1, dy1] = pair(it)
+      it.expect(',')
+      const [dx2, dy2] = pair(it)
+      const sw = sx2 - sx1
+      const sh = sy2 - sy1
+      const dw = dx2 - dx1
+      const dh = dy2 - dy1
+      if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) throw new AmosError('function call error')
+      for (let y = 0; y < dh; y++) {
+        const ty = dy1 + y
+        if (ty < 0 || ty >= dst.s.height) continue
+        const sy = sy1 + Math.floor((y * sh) / dh)
+        if (sy < 0 || sy >= src.s.height) continue
+        for (let x = 0; x < dw; x++) {
+          const tx = dx1 + x
+          if (tx < 0 || tx >= dst.s.width) continue
+          const sx = sx1 + Math.floor((x * sw) / dw)
+          if (sx < 0 || sx >= src.s.width) continue
+          dst.buf[ty * dst.s.width + tx] = src.buf[sy * src.s.width + sx]!
+        }
+      }
+    },
+    appear(it) {
+      // Appear src To dst[,effect]: full copy (the dissolve order is a
+      // full cycle, completed within the instruction)
+      const src = rt.resolveScreenId(it.evalInt())
+      it.expect('to')
+      const dst = rt.resolveScreenId(it.evalInt())
+      if (it.accept(',')) it.evalInt()
+      const w = Math.min(src.s.width, dst.s.width)
+      const h = Math.min(src.s.height, dst.s.height)
+      Screen.copyBuf(src.s, src.buf, 0, 0, w, h, dst.s, dst.buf, 0, 0)
+    },
+
     // ---- bobs ----
     bob(it) {
       const n = it.evalInt()
@@ -485,19 +532,55 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.bobs.set(n, { n, x, y, image, screen: cur?.screen ?? rt.currentIndex })
     },
     'bob off'(it) {
+      rt.clearBobs() // restore backgrounds, then drop
       if (it.atStmtEnd()) rt.bobs.clear()
       else rt.bobs.delete(it.evalInt())
     },
     'bob update'(it) {
-      it.skipToStmtEnd() // autoback is implicit in our overlay model
+      void it
+      rt.updateBobs() // one manual update pass
     },
-    'bob clear': () => {},
-    'bob draw': () => {},
+    'bob update on'() {
+      rt.bobUpdateOn = true
+    },
+    'bob update off'() {
+      rt.bobUpdateOn = false
+    },
+    'bob clear'() {
+      rt.clearBobs()
+    },
+    'bob draw'() {
+      rt.updateBobs()
+    },
     'set bob'(it) {
-      it.skipToStmtEnd() // background modes — overlay model keeps background
+      // Set Bob n,back,planes,mask: back 0 = save/restore, <0 = leave a
+      // trail, >0 = restore with solid colour back-1 (planes/mask ignored)
+      const n = it.evalInt()
+      it.expect(',')
+      const back = optInt(it, 0)
+      while (it.accept(',')) optInt(it, 0)
+      rt.bobModes.set(n, back)
     },
     'limit bob'(it) {
-      it.skipToStmtEnd()
+      // Limit Bob [n,]x1,y1 To x2,y2 | Limit Bob (clear all)
+      if (it.atStmtEnd()) {
+        rt.bobLimits.clear()
+        return
+      }
+      const a = it.evalInt()
+      it.expect(',')
+      const b = it.evalInt()
+      if (it.nm() === 'to') {
+        it.advance()
+        const [x2, y2] = pair(it)
+        rt.bobLimits.set(-1, { x1: a, y1: b, x2, y2 })
+        return
+      }
+      it.expect(',')
+      const y1 = it.evalInt()
+      it.expect('to')
+      const [x2, y2] = pair(it)
+      rt.bobLimits.set(a, { x1: b, y1, x2, y2 })
     },
     'limit mouse'(it) {
       it.skipToStmtEnd()
@@ -559,6 +642,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'priority off'() {
       rt.priorityOn = false
+    },
+    'priority reverse on'() {
+      rt.priorityOn = true
+      rt.priorityReverse = true
+    },
+    'priority reverse off'() {
+      rt.priorityReverse = false
     },
 
     // ---- hardware sprites ----
@@ -956,6 +1046,15 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
     'screen base'() {
       return VI(0)
+    },
+    logic(_, a) {
+      // Logic() = $BFFFFFFF, Logic(n) = $80000000|n (FnLogic0/1)
+      if (a.length === 0) return VI(0xbfffffff | 0)
+      return VI((0x80000000 | (int(a[0]!) & 0xff)) | 0)
+    },
+    physic(_, a) {
+      if (a.length === 0) return VI(-1)
+      return VI((0xc0000000 | (int(a[0]!) & 0xff)) | 0)
     },
     'text length'(_, a) {
       return VI(str(a[0]!).length * 8)
