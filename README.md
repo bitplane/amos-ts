@@ -34,6 +34,11 @@ npm run build      # vite lib build to dist/
 npm run cli -- src/cli/<tool>.ts <args>   # run a CLI tool via tsx
 ```
 
+CLI tools: `amoslist.ts` (detokenized listing + banks), `amosrun.ts`
+(run a program headless — .AMOS or plain-text listing), `scan.ts` (corpus
+parse census), `runreport.ts` (interpreter coverage census),
+`gentable.ts` (regenerate token tables from the original libraries).
+
 ## Status
 
 - **Loader**: parses `.AMOS` containers (all signature variants seen in the
@@ -45,6 +50,21 @@ npm run cli -- src/cli/<tool>.ts <args>   # run a CLI tool via tsx
   instructions plus the Music/Compact/Request/Compiler/IOPorts extensions.
 - **Detokenizer**: reproduces editor-style listings. Parses 100% of the
   453-file fixture corpus (token stream + banks).
+- **Tokenizer** (`src/tokens/tokenizer.ts`): text → token stream, so tests
+  are written in AMOS source and a future web editor can accept typed code.
+- **Interpreter core** (`src/interp/`): values (int32/float/string),
+  expressions with AMOS precedence and type rules (integer division,
+  string subtraction), variables/arrays with type suffixes, all control
+  flow (If/Else If, For, Repeat, While, Do/Exit, Goto/Gosub, On),
+  procedures (params, locals, Shared/Global, Param, recursion),
+  Data/Read/Restore (including computed label strings), error trapping
+  (On Error Goto/Proc, Trap, Errtrap, Resume), Input/Print with tab
+  zones, and ~70 core functions. Control flow is recomputed by a prescan
+  (`prescan.ts`) instead of trusting the inline branch links, so
+  tokenized-from-text programs run identically. Runs headless against an
+  `AmosIO` interface; graphics/sound instructions are counted and skipped
+  (`onUnimplemented: 'skip'`) — 389 of the 393 corpus programs run to a
+  stop (the rest hit their intended error paths in a headless world).
 
 Format notes recovered so far (verified against the corpus, and the
 assembly in `+Lib.s`/`+Edit.s`):
@@ -61,6 +81,22 @@ assembly in `+Lib.s`/`+Edit.s`):
 - `@_apml_@` marks machine-code procedures: raw 68k code follows in the
   token stream and is `jsr`'d directly by the interpreter. The loader
   captures the code block and skips to `End Proc`.
+
+Language semantics recovered from the assembly and the corpus:
+
+- `Print`/`Str$` write a leading space before non-negative numbers
+  (`LongToAsc` "avec signe" in `+Lib.s`) — which is why the corpus is full
+  of the `Str$(X)-" "` idiom: string subtraction removes occurrences of
+  the right operand from the left.
+- `Int()` on floats is a floor (`SPFloor`), not truncation; assignment to
+  an integer variable truncates.
+- `True` is -1, comparisons return -1/0; `/` between integers is integer
+  division.
+- Programs saved without the editor's Test pass store procedure calls and
+  label targets as plain variable tokens — the interpreter falls back to
+  procedure/label lookup for bare names.
+- `Restore`/`Gosub` accept computed string expressions as label names
+  (e.g. `Restore "Rn"+Mid$(Str$(N),2)`).
 
 ## Fixtures
 
