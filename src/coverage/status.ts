@@ -96,11 +96,35 @@ export const FAITHFUL = new Set<string>([
   'every',
   'every on',
   'every off',
+  // flow sweep: FnFn/InGoto/InGosub/InReturn/InOn/InDim/InInput read
+  'def fn',
+  'fn', // parameters write through to the real variables
+  'goto', // unwinds loop frames the target is outside of (LGoto)
+  'gosub',
+  'return', // discards loops opened since the Gosub (one shared stack)
+  'on', // out-of-range selector continues to the next statement
+  'dim', // re-dimensioning errors (AlrDim); 65535-element limits
+  'input', // promptless prints "? "; numbers parse like Val
+  'line input',
+  'x curs', // XYCuWi cursor readbacks
+  'y curs',
+  'cmove', // relative move, elided args are 0
+  'clw',
+  'home', // chr(12): cursor home WITHOUT clearing
+  'memorize x',
+  'memorize y',
+  'remember x',
+  'remember y',
+  'cdown', // chr(28-31) cursor moves
+  'cup',
+  'cleft',
+  'cright',
+  'cline',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
 export const STRUCTURAL = new Set([
-  ':', ',', ';', '#', '(', ')', '[', ']', 'to', 'not', 'then', 'step', 'rem', "'", 'procedure',
+  ':', ',', ';', '#', '(', ')', '[', ']', 'to', 'not', 'fn', 'then', 'step', 'rem', "'", 'procedure',
 ])
 
 /** Editor/compiler-internal tokens that cannot execute in a program. */
@@ -144,9 +168,7 @@ export const NOTES: Record<string, string> = {
   'mouse zone': 'current-screen coordinate mapping approximated',
   print: 'Print # channels unsupported',
   using: "'^' exponent slots not implemented",
-  'def fn': 'implemented from the manual, FnFn body not yet read',
-  fn: 'implemented from the manual, FnFn body not yet read',
-  input: 'no editing keys; comma-splitting approximated',
+  input: 'line editing keys are host-side, not the AMOS line editor',
   timer: 'writable, drives the frame clock directly',
   rnd: 'deterministic — original mixes in the raster beam position',
   inc: 'also works on float variables (original: integer only)',

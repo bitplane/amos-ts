@@ -34,13 +34,22 @@ function doExit(it: Interp, tok: Tok, n: number): 'jumped' {
   return 'jumped'
 }
 
+/** ValRout-style number parsing, shared by =Val and Input */
+export function parseAmosNumber(sIn: string): Value {
+  const s = sIn.replace(/ /g, '')
+  const hex = /^([+-]?)\$([0-9a-f]+)/i.exec(s)
+  if (hex) return VI(parseInt(hex[1] + hex[2]!, 16))
+  const bin = /^([+-]?)%([01]+)/.exec(s)
+  if (bin) return VI(parseInt(bin[1] + bin[2]!, 2))
+  const m = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?/.exec(s)
+  if (!m) return VI(0)
+  const n = parseFloat(m[0])
+  return /[.eE]/.test(m[0]) ? VF(n) : VI(n)
+}
+
 function inputAssign(target: { type: number; set(v: Value): void }, raw: string): void {
-  if (target.type === 2) {
-    target.set(VS(raw))
-  } else {
-    const n = parseFloat(raw.trim())
-    target.set(VF(Number.isFinite(n) ? n : 0))
-  }
+  if (target.type === 2) target.set(VS(raw))
+  else target.set(parseAmosNumber(raw))
 }
 
 /**
@@ -144,7 +153,7 @@ export const INSTR: Record<string, Instr> = {
 
   // ---- input ----
   input(it) {
-    let prompt = ''
+    let prompt = '? ' // promptless Input prints "? " (IInp1)
     if (it.tok()?.kind === 'str') {
       // prompt may be a full string expression: Input "GUESS"+Str$(N);T
       prompt = it.evalStr()
@@ -161,7 +170,7 @@ export const INSTR: Record<string, Instr> = {
     targets.forEach((tg, i) => inputAssign(tg, parts[i] ?? ''))
   },
   'line input'(it) {
-    let prompt = ''
+    let prompt = '? '
     if (it.tok()?.kind === 'str') {
       prompt = it.evalStr()
       it.accept(';') || it.accept(',')
@@ -279,7 +288,16 @@ export const INSTR: Record<string, Instr> = {
     // the comparison happens at Next. (c.after remains for Exit.)
     void c
     const top = it.loops[it.loops.length - 1]
-    const frame = { t: 'for' as const, tok, body: it.afterCurrentStatement(), varKey: key, varT: vt, step, limit }
+    const frame = {
+      t: 'for' as const,
+      tok,
+      body: it.afterCurrentStatement(),
+      end: c.after,
+      varKey: key,
+      varT: vt,
+      step,
+      limit,
+    }
     if (top?.tok === tok) it.loops[it.loops.length - 1] = frame
     else it.loops.push(frame)
   },
@@ -299,7 +317,15 @@ export const INSTR: Record<string, Instr> = {
   },
   repeat(it, tok) {
     const top = it.loops[it.loops.length - 1]
-    if (top?.tok !== tok) it.loops.push({ t: 'repeat', tok, body: it.afterCurrentStatement() })
+    if (top?.tok !== tok) {
+      const c = it.ctrlOf(tok)
+      it.loops.push({
+        t: 'repeat',
+        tok,
+        body: it.afterCurrentStatement(),
+        end: c.kind === 'loopStart' ? c.after : { li: -1, ti: -1 },
+      })
+    }
   },
   until(it) {
     const top = it.loops[it.loops.length - 1]
@@ -316,7 +342,7 @@ export const INSTR: Record<string, Instr> = {
     const top = it.loops[it.loops.length - 1]
     const have = top?.tok === tok
     if (truthy(it.evalExpr())) {
-      if (!have) it.loops.push({ t: 'while', tok, body: it.afterCurrentStatement() })
+      if (!have) it.loops.push({ t: 'while', tok, body: it.afterCurrentStatement(), end: c.after })
       return
     }
     if (have) it.loops.pop()
@@ -331,7 +357,15 @@ export const INSTR: Record<string, Instr> = {
   },
   do(it, tok) {
     const top = it.loops[it.loops.length - 1]
-    if (top?.tok !== tok) it.loops.push({ t: 'do', tok, body: it.afterCurrentStatement() })
+    if (top?.tok !== tok) {
+      const c = it.ctrlOf(tok)
+      it.loops.push({
+        t: 'do',
+        tok,
+        body: it.afterCurrentStatement(),
+        end: c.kind === 'loopStart' ? c.after : { li: -1, ti: -1 },
+      })
+    }
   },
   loop(it, tok) {
     const c = it.ctrlOf(tok)
@@ -351,19 +385,21 @@ export const INSTR: Record<string, Instr> = {
 
   // ---- control flow: jumps ----
   goto(it) {
-    it.jumpLabel(it.parseLabelTarget())
+    it.jumpLabel(it.parseLabelTarget(), true) // LGoto unwinds
     return 'jumped'
   },
   gosub(it) {
     const name = it.parseLabelTarget()
-    it.gosubs.push(it.afterCurrentStatement())
+    it.gosubs.push({ addr: it.afterCurrentStatement(), loopBase: it.loops.length })
     it.jumpLabel(name)
     return 'jumped'
   },
   return(it) {
     const frame = it.frames[it.frames.length - 1]!
     if (it.gosubs.length <= frame.gosubBase) throw new AmosError('Return without Gosub')
-    it.setPc(it.gosubs.pop()!)
+    const entry = it.gosubs.pop()!
+    it.loops.length = Math.min(it.loops.length, entry.loopBase) // one stack in the original
+    it.setPc(entry.addr)
     return 'jumped'
   },
   pop(it) {
@@ -403,8 +439,8 @@ export const INSTR: Record<string, Instr> = {
       it.callProc(target.toLowerCase(), [])
       return 'jumped'
     }
-    if (kind === 'gosub') it.gosubs.push(it.afterCurrentStatement())
-    it.jumpLabel(target)
+    if (kind === 'gosub') it.gosubs.push({ addr: it.afterCurrentStatement(), loopBase: it.loops.length })
+    it.jumpLabel(target, kind === 'goto')
     return 'jumped'
   },
 
@@ -769,16 +805,7 @@ export const FUNCS: Record<string, Func> = {
   },
   val(_, a) {
     arity(a, 1)
-    // ValRout skips spaces anywhere, even between digits
-    const s = str(a[0]!).replace(/ /g, '')
-    const hex = /^([+-]?)\$([0-9a-f]+)/i.exec(s)
-    if (hex) return VI(parseInt(hex[1] + hex[2]!, 16))
-    const bin = /^([+-]?)%([01]+)/.exec(s)
-    if (bin) return VI(parseInt(bin[1] + bin[2]!, 2))
-    const m = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?/.exec(s)
-    if (!m) return VI(0)
-    const n = parseFloat(m[0])
-    return /[.eE]/.test(m[0]) ? VF(n) : VI(n)
+    return parseAmosNumber(str(a[0]!)) // ValRout, spaces skipped anywhere
   },
   'left$'(_, a) {
     arity(a, 2)

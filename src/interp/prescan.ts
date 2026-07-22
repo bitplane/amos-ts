@@ -26,6 +26,8 @@ export type Ctrl =
   | { kind: 'while'; after: Addr }
   | { kind: 'wend'; whileAddr: Addr }
   | { kind: 'loop'; start: Addr }
+  /** on Repeat/Do tokens: where their loop ends (for Goto unwinding) */
+  | { kind: 'loopStart'; after: Addr }
   | { kind: 'exit'; exits: Addr[] }
   | { kind: 'proc'; skip: Addr }
 
@@ -243,7 +245,9 @@ export function prescan(lines: TokenLine[], names: Names): Program {
           break
         }
         case 'repeat': {
-          stack.push({ t: 'repeat', after: newAddr(), addr: here, start: afterStatement(li, ti) })
+          const after = newAddr()
+          program.ctrl.set(tok, { kind: 'loopStart', after })
+          stack.push({ t: 'repeat', after, addr: here, start: afterStatement(li, ti) })
           break
         }
         case 'until': {
@@ -266,7 +270,9 @@ export function prescan(lines: TokenLine[], names: Names): Program {
           break
         }
         case 'do': {
-          stack.push({ t: 'do', after: newAddr(), addr: here, start: afterStatement(li, ti) })
+          const after = newAddr()
+          program.ctrl.set(tok, { kind: 'loopStart', after })
+          stack.push({ t: 'do', after, addr: here, start: afterStatement(li, ti) })
           break
         }
         case 'loop': {

@@ -56,6 +56,8 @@ export interface LoopFrame {
   tok: Tok
   /** first statement of the loop body */
   body: Addr
+  /** first statement after the loop — Goto outside unwinds the frame */
+  end: Addr
   varKey?: string
   varT?: VarType
   step?: number
@@ -141,7 +143,7 @@ export class Interp {
   pc: Addr = { li: 0, ti: 0 }
   frames: Frame[] = [newFrame(null, 0, 0)]
   loops: LoopFrame[] = []
-  gosubs: Addr[] = []
+  gosubs: Array<{ addr: Addr; loopBase: number }> = []
   globals = new Set<string>()
   lastParam: Value = VI(0)
   /** the Else If token we branched to from a false condition, if any */
@@ -262,7 +264,7 @@ export class Interp {
       this.setPc(proc.body)
     } else {
       this.everyReturnDepth = this.gosubs.length
-      this.gosubs.push({ li: this.pc.li, ti: this.pc.ti })
+      this.gosubs.push({ addr: { li: this.pc.li, ti: this.pc.ti }, loopBase: this.loops.length })
       this.jumpLabel(ev.target)
     }
   }
@@ -406,12 +408,15 @@ export class Interp {
   }
 
   dimArray(key: string, t: VarType, dims: number[]): void {
-    const counts = dims.map((d) => {
-      if (d < 0) throw new AmosError('illegal array size')
+    const f = this.frameFor(key, true)
+    if (f.arrays.has(key)) throw new AmosError('array already dimensioned') // AlrDim
+    let size = 1
+    const counts = dims.map((d, i) => {
+      if (d < 0 || d >= 0xffff) throw new AmosError('function call error') // InDim limits
+      size *= d + 1
+      if (i < dims.length - 1 && size >= 0x10000) throw new AmosError('function call error')
       return d + 1
     })
-    const size = counts.reduce((a, b) => a * b, 1)
-    const f = this.frameFor(key, true)
     f.arrays.set(key, { type: t, dims: counts, data: new Array<Value>(size).fill(defaultValue(t)) })
   }
 
@@ -651,9 +656,23 @@ export class Interp {
 
   // ---- flow helpers ------------------------------------------------------
 
-  jumpLabel(name: string): void {
+  /**
+   * Jump to a label. Only Goto-style jumps unwind loop frames whose body
+   * range does not contain the target (LGoto) — Gosub does not.
+   */
+  jumpLabel(name: string, unwind = false): void {
     const a = this.program.labels.get(name.toLowerCase())
     if (!a) throw new AmosError(`label not defined: ${name.toUpperCase()}`)
+    if (unwind) {
+      const frame = this.frames[this.frames.length - 1]!
+      while (this.loops.length > frame.loopBase) {
+        const top = this.loops[this.loops.length - 1]!
+        const geBody = a.li > top.body.li || (a.li === top.body.li && a.ti >= top.body.ti)
+        const ltEnd = top.end.li < 0 || a.li < top.end.li || (a.li === top.end.li && a.ti < top.end.ti)
+        if (geBody && ltEnd) break
+        this.loops.pop()
+      }
+    }
     this.setPc(a)
   }
 
@@ -731,12 +750,10 @@ export class Interp {
       }
     }
     if (args.length !== def.params.length) throw new AmosError('wrong number of arguments')
-    // bind parameters over the current frame, evaluate, restore
-    const frame = this.frames[this.frames.length - 1]!
-    const savedVars: Array<[string, Value | undefined]> = []
+    // FnFn assigns parameters straight into the real variables via
+    // FindVar — they keep their new values after the call
     def.params.forEach((prm, i) => {
-      savedVars.push([prm.key, frame.vars.get(prm.key)])
-      frame.vars.set(prm.key, coerce(prm.type as VarType, args[i]!))
+      this.setVar(prm.key, prm.type as VarType, args[i]!)
     })
     const savedPc = this.pc
     this.pc = { li: def.body.li, ti: def.body.ti }
@@ -744,10 +761,6 @@ export class Interp {
       return this.evalExpr()
     } finally {
       this.pc = savedPc
-      for (const [k, v] of savedVars) {
-        if (v === undefined) frame.vars.delete(k)
-        else frame.vars.set(k, v)
-      }
     }
   }
 
@@ -868,11 +881,11 @@ export class Interp {
       case 'labelRef':
         // e.g. "Then LABEL" — an implicit Goto
         this.advance()
-        this.jumpLabel(tok.name)
+        this.jumpLabel(tok.name, true)
         return
       case 'int':
         this.advance()
-        this.jumpLabel(String(tok.value))
+        this.jumpLabel(String(tok.value), true)
         return
       case 'core':
       case 'ext': {

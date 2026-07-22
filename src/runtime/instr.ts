@@ -347,6 +347,37 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const s = scr()
       s.curX = Math.min(s.cols - 1, s.curX + 1)
     },
+    cmove(it) {
+      // relative cursor move; elided arguments mean 0 (WnCm1/WnCm3)
+      const s = scr()
+      const dx = optInt(it, 0)
+      it.accept(',')
+      const dy = optInt(it, 0)
+      s.locate(Math.max(0, s.curX + dx), Math.max(0, s.curY + dy))
+    },
+    clw(it) {
+      void it
+      scr().cls()
+    },
+    'memorize x'() {
+      const s = scr()
+      s.memX = s.curX
+    },
+    'memorize y'() {
+      const s = scr()
+      s.memY = s.curY
+    },
+    'remember x'() {
+      const s = scr()
+      s.curX = Math.min(s.cols - 1, s.memX)
+    },
+    'remember y'() {
+      const s = scr()
+      s.curY = Math.min(s.rows - 1, s.memY)
+    },
+    'set curs'(it) {
+      it.skipToStmtEnd() // cursor shape definition — cursor isn't rendered
+    },
     cline(it) {
       const s = scr()
       const n = it.atStmtEnd() ? s.cols - s.curX : it.evalInt()
@@ -869,6 +900,14 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
     'text base'() {
       return VI(6)
+    },
+    'x curs'(_, a) {
+      void a
+      return VI(scr().curX)
+    },
+    'y curs'(_, a) {
+      void a
+      return VI(scr().curY)
     },
     'zone$'(_, a) {
       void a

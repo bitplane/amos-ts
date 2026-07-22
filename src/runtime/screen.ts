@@ -34,6 +34,9 @@ export class Screen {
   paper = 1
   curX = 0
   curY = 0
+  /** Memorize X/Y storage (escape M0-M3) */
+  memX = 0
+  memY = 0
   cursorOn = true
   writing = 0
 
@@ -274,7 +277,11 @@ export class Screen {
         case 9: // tab — next multiple of 4 columns (WiTab default)
           this.curX = Math.min(this.cols - 1, (Math.floor(this.curX / 4) + 1) * 4)
           break
-        case 12: // FF — clear
+        case 12: // Home — cursor to top-left, NO clear (ChHom in +Lib.s)
+          this.curX = 0
+          this.curY = 0
+          break
+        case 25: // Clw — clear the window (ChClw)
           this.cls()
           break
         case 28: // cursor right (Cright$)

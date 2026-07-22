@@ -139,6 +139,21 @@ describe('text', () => {
     expect(found).toBeGreaterThan(10)
   })
 
+  it('Home homes without clearing; Clw clears (ChHom/ChClw)', () => {
+    const rt = run('Print "X"\nHome')
+    expect(rt.screen.point(0, 0)).not.toBe(rt.screen.paper) // X still there
+    expect([rt.screen.curX, rt.screen.curY]).toEqual([0, 0])
+    const rt2 = run('Print "X"\nClw')
+    expect(rt2.screen.point(0, 0)).toBe(rt2.screen.paper)
+  })
+
+  it('Cmove moves relatively, Memorize/Remember save the cursor', () => {
+    const rt = run('Locate 10,5 : Cmove 3,-2\nIf X Curs<>13 Then Error 1\nIf Y Curs<>3 Then Error 2')
+    expect([rt.screen.curX, rt.screen.curY]).toEqual([13, 3])
+    const rt2 = run('Locate 7,9 : Memorize X : Memorize Y : Locate 0,0 : Remember X : Remember Y')
+    expect([rt2.screen.curX, rt2.screen.curY]).toEqual([7, 9])
+  })
+
   it('centres text', () => {
     const rt = run('Centre "AB"')
     expect(rt.screen.curX).toBeGreaterThan(15) // wrote at ~col 19

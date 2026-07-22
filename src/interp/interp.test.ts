@@ -333,7 +333,8 @@ describe('statements verified against the library source', () => {
 
   it('Def Fn / Fn evaluate with bound parameters (FnFn)', () => {
     expect(run('Def Fn D(X)=X*2\nPrint Fn D(21)')).toBe(' 42\n')
-    expect(run('A=5 : Def Fn S(A)=A+1\nPrint Fn S(1);A')).toBe(' 2 5\n')
+    // FnFn writes parameters straight into the real variables — A stays 1
+    expect(run('A=5 : Def Fn S(A)=A+1\nPrint Fn S(1);A')).toBe(' 2 1\n')
     expect(run('Def Fn H$(N$)=N$+"!"\nPrint Fn H$("HI")')).toBe('HI!\n')
   })
 
@@ -350,6 +351,31 @@ describe('statements verified against the library source', () => {
       if (!interp.done && interp.blocked === null) interp.run(1_000)
     }
     expect(io.out).toBe('TTTT') // fires at ticks 5,10,15,20
+  })
+})
+
+describe('flow verified against the library source', () => {
+  it('Goto out of a loop unwinds its frame (LGoto)', () => {
+    const prog = ['For I=1 To 2', 'Goto S', 'Next', 'S: Next'].join('\n')
+    expect(() => run(prog)).toThrow(/Next without For/)
+    // jumping WITHIN the loop keeps the frame
+    expect(run(['For I=1 To 2', 'Goto K', 'K:', 'Print I;', 'Next'].join('\n'))).toBe(' 1 2')
+  })
+
+  it('Return discards loops opened since the Gosub (one shared stack)', () => {
+    const prog = ['Gosub S', 'Next', 'End', 'S: For I=1 To 9 : Return'].join('\n')
+    expect(() => run(prog)).toThrow(/Next without For/)
+  })
+
+  it('Dim rejects re-dimensioning and oversized arrays (InDim/AlrDim)', () => {
+    expect(() => run('Dim A(5) : Dim A(5)')).toThrow(/already dimensioned/)
+    expect(() => run('Dim A(70000)')).toThrow(/function call/)
+    // per-procedure arrays get a fresh frame each call — no clash
+    expect(run('P : P : Print "OK"\nEnd\nProcedure P\n Dim L(3)\nEnd Proc')).toBe('OK\n')
+  })
+
+  it('Input parses numbers like Val — hex and binary work (ValRout)', () => {
+    expect(run('Input A\nPrint A', ['$FF'])).toBe('? $FF\n 255\n')
   })
 })
 
@@ -408,7 +434,7 @@ describe('error trapping', () => {
 describe('i/o', () => {
   it('supports Input with prompt and multiple targets', () => {
     expect(run('Input "N? ";A$\nPrint "HI ";A$', ['GAZ'])).toBe('N? GAZ\nHI GAZ\n')
-    expect(run('Input A,B\nPrint A+B', ['3,4'])).toBe('3,4\n 7\n')
+    expect(run('Input A,B\nPrint A+B', ['3,4'])).toBe('? 3,4\n 7\n') // promptless prints "? "
   })
 
   it('separates Print items with ; and tabs with , (default tab 4)', () => {
