@@ -414,7 +414,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     clw(it) {
       void it
-      scr().cls()
+      scr().clw() // clears the current WINDOW only
     },
     'memorize x'() {
       const s = scr()
@@ -444,11 +444,86 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.evalInt()
     },
     writing(it) {
-      scr().writing = it.evalInt()
-      if (it.accept(',')) it.evalInt()
+      // Writing w1[,w2]: 0 replace/1 OR/2 XOR/3 AND/4 ignore; w2: 0 both,
+      // 1 paper only, 2 pen on colour 0 (console escape 'W')
+      const w = scr().curWin
+      w.writing1 = it.evalInt() & 7
+      if (it.accept(',')) w.writing2 = it.evalInt() & 3
     },
     'gr writing'(it) {
-      it.evalInt()
+      // SetDrMd: 0 JAM1 (transparent), 1 JAM2, 2 COMPLEMENT (XOR)
+      scr().grMode = it.evalInt() & 7
+    },
+    'set tab'(it) {
+      const n = Math.max(1, it.evalInt())
+      scr().curWin.tab = n
+      it.tabWidth = n // transcripts mirror the console
+    },
+    'wind open'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const [x, y] = pair(it)
+      it.expect(',')
+      const [w, h] = pair(it)
+      const border = it.accept(',') ? it.evalInt() : 0
+      if (border < 0 || border > 16) throw new AmosError('function call error')
+      try {
+        scr().windOpen(n, x, y, w, h, border)
+      } catch (e) {
+        throw new AmosError((e as Error).message)
+      }
+    },
+    'wind close'() {
+      scr().windClose()
+    },
+    'wind save'() {
+      scr().windSave = true
+    },
+    'wind move'(it) {
+      const s = scr()
+      const [x, y] = pair(it)
+      const w = s.curWin
+      const b = w.border !== 0 ? 8 : 0
+      w.x = ((x >> 4) << 4) + b
+      w.y = y + b
+      s.drawWindowFrame2()
+    },
+    'wind size'(it) {
+      const s = scr()
+      const [w2, h2] = pair(it)
+      s.curWin.cols = w2
+      s.curWin.rows = h2
+      s.curWin.curX = 0
+      s.curWin.curY = 0
+      s.drawWindowFrame2()
+    },
+    window(it) {
+      try {
+        scr().selectWindow(it.evalInt())
+      } catch (e) {
+        throw new AmosError((e as Error).message)
+      }
+    },
+    border(it) {
+      // Border n[,paper][,pen]
+      const s = scr()
+      const w = s.curWin
+      w.border = it.evalInt() & 31
+      if (it.accept(',')) {
+        if (it.nm() !== ',' && !it.atStmtEnd()) w.borPap = it.evalInt()
+        if (it.accept(',') && !it.atStmtEnd()) w.borPen = it.evalInt()
+      }
+      s.drawWindowFrame2()
+    },
+    'title top'(it) {
+      const s = scr()
+      s.curWin.titleTop = it.evalStr()
+      s.drawWindowFrame2()
+    },
+    'title bottom'(it) {
+      const s = scr()
+      s.curWin.titleBottom = it.evalStr()
+      s.drawWindowFrame2()
     },
 
     // ---- misc no-ops that must parse ----
@@ -1061,6 +1136,10 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
     'text base'() {
       return VI(6)
+    },
+    windon(_, a) {
+      void a
+      return VI(scr().curWin.n)
     },
     'x curs'(_, a) {
       void a

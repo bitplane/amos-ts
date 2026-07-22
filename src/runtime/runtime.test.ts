@@ -348,6 +348,83 @@ describe('objects', () => {
   })
 })
 
+describe('windows (WOpen)', () => {
+  it('opens a window with its own console state and prints inside it', () => {
+    const rt = run(['Wind Open 1,32,16,10,5', 'Pen 6 : Paper 9', 'Print "HI"'].join('\n'))
+    const s = rt.screen
+    expect(s.curWin.n).toBe(1)
+    expect([s.cols, s.rows]).toEqual([10, 5]) // window-sized console
+    // "HI" rendered at the window origin (x aligned to 16)
+    let sawPen = false
+    for (let y = 16; y < 24; y++) for (let x = 32; x < 48; x++) if (s.point(x, y) === 6) sawPen = true
+    expect(sawPen).toBe(true)
+  })
+
+  it('keeps per-window cursors and pens across Window switches (WOpen copies)', () => {
+    const prog = [
+      'Wind Open 1,16,8,10,5 : Pen 6 : Locate 3,2',
+      'Wind Open 2,160,8,10,5 : Pen 7',
+      'Window 1',
+    ].join('\n')
+    const rt = run(prog)
+    const s = rt.screen
+    expect(s.curWin.pen).toBe(6)
+    expect([s.curX, s.curY]).toEqual([3, 2])
+    expect(rt.screens.get(0)!.windows.get(2)!.pen).toBe(7)
+  })
+
+  it('scrolls only the window region', () => {
+    const prog = [
+      'Ink 5 : Plot 300,190', // marker outside the window
+      'Wind Open 1,16,16,10,3',
+      'For I=1 To 6 : Print "L";I : Next', // forces window scroll
+    ].join('\n')
+    const rt = run(prog)
+    expect(rt.screen.point(300, 190)).toBe(5) // untouched by scrolling
+  })
+
+  it('draws borders with titles and restores background under Wind Save', () => {
+    const prog = [
+      'Ink 5 : Bar 0,0 To 319,199', // colour 5 background
+      'Wind Save',
+      'Wind Open 1,64,64,10,5,1',
+      'Title Top "T"',
+      'Wind Close',
+    ].join('\n')
+    const rt = run(prog)
+    // everything restored: still colour 5 where the window was
+    expect(rt.screen.point(80, 80)).toBe(5)
+    expect(rt.screen.point(64, 60)).toBe(5) // border area restored too
+  })
+
+  it('Windon reports the current window; Clw clears only the window', () => {
+    const out = runOut('Wind Open 3,16,8,10,5\nPrint Windon')
+    expect(out).toContain(' 3')
+    const rt = run(['Ink 5 : Bar 0,0 To 319,199', 'Wind Open 1,64,64,10,2', 'Clw'].join('\n'))
+    expect(rt.screen.point(66, 66)).toBe(rt.screen.curWin.paper)
+    expect(rt.screen.point(10, 10)).toBe(5) // outside untouched
+  })
+
+  it('applies Writing modes to text (escape W)', () => {
+    // XOR mode: printing twice restores the background
+    const prog = ['Cls 0', 'Writing 2', 'Locate 0,0 : Print "A"', 'Locate 0,0 : Print "A"'].join('\n')
+    const rt = run(prog)
+    let nonZero = 0
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) if (rt.screen.point(x, y) !== 0) nonZero++
+    expect(nonZero).toBe(0)
+    // ignore mode prints nothing
+    const rt2 = run(['Cls 0', 'Writing 4', 'Print "A"'].join('\n'))
+    let any = 0
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) if (rt2.screen.point(x, y) !== 0) any++
+    expect(any).toBe(0)
+  })
+
+  it('Gr Writing 2 XORs drawing operations', () => {
+    const rt = run(['Cls 0', 'Gr Writing 2', 'Ink 5 : Bar 10,10 To 20,20', 'Bar 10,10 To 20,20'].join('\n'))
+    expect(rt.screen.point(15, 15)).toBe(0) // drawn twice = erased
+  })
+})
+
 describe('double buffering and screens', () => {
   it('page-flips under Autoback 0 with Screen Swap', () => {
     const rt = run(['Double Buffer : Autoback 0', 'Ink 5 : Bar 0,0 To 9,9'].join('\n'))

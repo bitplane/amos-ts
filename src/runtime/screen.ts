@@ -13,6 +13,37 @@ export const DEFAULT_PALETTE = [
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ]
 
+/** A text window (WOpen): a character grid with its own console state. */
+export interface Wind {
+  n: number
+  /** pixel origin of the text area */
+  x: number
+  y: number
+  cols: number
+  rows: number
+  /** border style, 0 = none; the frame is 8px thick around the text area */
+  border: number
+  pen: number
+  paper: number
+  cuCol: number
+  tab: number
+  curX: number
+  curY: number
+  memX: number
+  memY: number
+  borPap: number
+  borPen: number
+  titleTop: string
+  titleBottom: string
+  /** background under the whole window, when Wind Save was active */
+  savedBg: { x: number; y: number; w: number; h: number; data: Uint8Array } | null
+  /** window that was current when this one opened (Wind Close returns) */
+  prevN: number
+  /** Writing modes: w1 replace/or/xor/and/ignore, w2 both/paper/pen */
+  writing1: number
+  writing2: number
+}
+
 export class Screen {
   /** the LOGICAL buffer — all drawing and Point read this */
   pixels: Uint8Array
@@ -44,16 +75,14 @@ export class Screen {
   grX = 0
   grY = 0
   clip: { x1: number; y1: number; x2: number; y2: number } | null = null
-  // text state
-  pen = 2
-  paper = 1
-  curX = 0
-  curY = 0
-  /** Memorize X/Y storage (escape M0-M3) */
-  memX = 0
-  memY = 0
+  // text state lives in windows; window 0 is the whole screen
+  windows = new Map<number, Wind>()
+  curWin: Wind
+  /** Wind Save: subsequently opened windows save their background */
+  windSave = false
   cursorOn = true
-  writing = 0
+  /** Gr Writing: 0 JAM1 (transparent), 1 JAM2, 2 XOR */
+  grMode = 1
 
   constructor(
     readonly index: number,
@@ -65,11 +94,71 @@ export class Screen {
     this.pixels = new Uint8Array(width * height)
     this.hires = (mode & 0x8000) !== 0
     this.laced = (mode & 0x4) !== 0
-    if (nColors <= 2) {
-      // 1-bitplane screens default to paper 0 / pen 1 (Wo3a in +W.s)
-      this.paper = 0
-      this.pen = 1
+    const onePlane = nColors <= 2
+    this.curWin = {
+      n: 0,
+      x: 0,
+      y: 0,
+      cols: width >> 3,
+      rows: height >> 3,
+      border: 0,
+      // Wo3a defaults; 1-bitplane screens use paper 0 / pen 1
+      pen: onePlane ? 1 : 2,
+      paper: onePlane ? 0 : 1,
+      cuCol: onePlane ? 1 : 3,
+      tab: 4,
+      curX: 0,
+      curY: 0,
+      memX: 0,
+      memY: 0,
+      borPap: onePlane ? 0 : 1,
+      borPen: onePlane ? 1 : 2,
+      titleTop: '',
+      titleBottom: '',
+      savedBg: null,
+      prevN: 0,
+      writing1: 0,
+      writing2: 0,
     }
+    this.windows.set(0, this.curWin)
+  }
+
+  // compatibility accessors — the console state is the current window's
+  get pen(): number {
+    return this.curWin.pen
+  }
+  set pen(v: number) {
+    this.curWin.pen = v
+  }
+  get paper(): number {
+    return this.curWin.paper
+  }
+  set paper(v: number) {
+    this.curWin.paper = v
+  }
+  get curX(): number {
+    return this.curWin.curX
+  }
+  set curX(v: number) {
+    this.curWin.curX = v
+  }
+  get curY(): number {
+    return this.curWin.curY
+  }
+  set curY(v: number) {
+    this.curWin.curY = v
+  }
+  get memX(): number {
+    return this.curWin.memX
+  }
+  set memX(v: number) {
+    this.curWin.memX = v
+  }
+  get memY(): number {
+    return this.curWin.memY
+  }
+  set memY(v: number) {
+    this.curWin.memY = v
   }
 
   /** Double Buffer: create the physical buffer */
@@ -98,12 +187,13 @@ export class Screen {
     return kind === 'logic' ? this.pixels : this.displayBuffer === this.pixels ? this.pixels : this.back
   }
 
+  /** text columns/rows of the CURRENT WINDOW */
   get cols(): number {
-    return this.width >> 3
+    return this.curWin.cols
   }
 
   get rows(): number {
-    return this.height >> 3
+    return this.curWin.rows
   }
 
   private colorMask(): number {
@@ -117,7 +207,11 @@ export class Screen {
   }
 
   plot(x: number, y: number, c = this.ink): void {
-    if (this.inClip(x, y)) this.pixels[y * this.width + x] = c & this.colorMask()
+    if (!this.inClip(x, y)) return
+    const i = y * this.width + x
+    // Gr Writing 2 = COMPLEMENT: xor the destination
+    if (this.grMode === 2) this.pixels[i] = (this.pixels[i]! ^ c) & this.colorMask()
+    else this.pixels[i] = c & this.colorMask()
   }
 
   point(x: number, y: number): number {
@@ -291,16 +385,45 @@ export class Screen {
     this.curY = 0
   }
 
-  /** Draw one 8x8 glyph at pixel position; opaque paper unless transparent. */
+  /** Draw one 8x8 glyph honouring the window Writing modes. */
   drawChar(px: number, py: number, ch: number, pen: number, paper: number, transparent = false): void {
+    const w = this.curWin
+    if (w.writing1 === 4) return // IGNORE
     const glyph = FONT8[ch & 0xff] ?? FONT8[32]!
+    const bg = w.writing2 === 2 ? 0 : paper
     for (let row = 0; row < 8; row++) {
       const bits = glyph[row]!
       for (let col = 0; col < 8; col++) {
+        const x = px + col
+        const y = py + row
         const on = (bits >> (7 - col)) & 1
-        if (on) this.plot(px + col, py + row, pen)
-        else if (!transparent) this.plot(px + col, py + row, paper)
+        if (on) {
+          if (w.writing2 === 1) continue // paper only
+          this.writeMode(x, y, pen, w.writing1)
+        } else if (!transparent) {
+          this.writeMode(x, y, bg, w.writing1)
+        }
       }
+    }
+  }
+
+  /** apply a Writing mode: 0 replace, 1 OR, 2 XOR, 3 AND */
+  private writeMode(x: number, y: number, c: number, mode: number): void {
+    if (!this.inClip(x, y)) return
+    const i = y * this.width + x
+    const m = this.colorMask()
+    switch (mode) {
+      case 1:
+        this.pixels[i] = (this.pixels[i]! | c) & m
+        break
+      case 2:
+        this.pixels[i] = (this.pixels[i]! ^ c) & m
+        break
+      case 3:
+        this.pixels[i] = this.pixels[i]! & c & m
+        break
+      default:
+        this.pixels[i] = c & m
     }
   }
 
@@ -311,20 +434,22 @@ export class Screen {
     }
   }
 
-  // ---- text console ----
+  // ---- text console (window-relative) ----
 
   putChar(ch: number): void {
-    this.drawChar(this.curX * 8, this.curY * 8, ch, this.pen, this.paper)
-    this.curX++
-    if (this.curX >= this.cols) this.newline()
+    const w = this.curWin
+    this.drawChar(w.x + w.curX * 8, w.y + w.curY * 8, ch, w.pen, w.paper)
+    w.curX++
+    if (w.curX >= w.cols) this.newline()
   }
 
   newline(): void {
-    this.curX = 0
-    this.curY++
-    if (this.curY >= this.rows) {
+    const w = this.curWin
+    w.curX = 0
+    w.curY++
+    if (w.curY >= w.rows) {
       this.scrollUp(8)
-      this.curY = this.rows - 1
+      w.curY = w.rows - 1
     }
   }
 
@@ -341,15 +466,19 @@ export class Screen {
         case 8: // backspace
           this.curX = Math.max(0, this.curX - 1)
           break
-        case 9: // tab — next multiple of 4 columns (WiTab default)
-          this.curX = Math.min(this.cols - 1, (Math.floor(this.curX / 4) + 1) * 4)
+        case 9: {
+          // tab — next multiple of the window tab (WiTab)
+          const t = Math.max(1, this.curWin.tab)
+          const next = (Math.floor(this.curX / t) + 1) * t
+          if (next < this.cols) this.curX = next
           break
+        }
         case 12: // Home — cursor to top-left, NO clear (ChHom in +Lib.s)
           this.curX = 0
           this.curY = 0
           break
         case 25: // Clw — clear the window (ChClw)
-          this.cls()
+          this.clw()
           break
         case 28: // cursor right (Cright$)
           this.curX = Math.min(this.cols - 1, this.curX + 1)
@@ -374,9 +503,157 @@ export class Screen {
     if (y >= 0) this.curY = Math.min(y, this.rows - 1)
   }
 
+  /** scroll the CURRENT WINDOW's text area up by px pixels */
   scrollUp(px: number): void {
-    this.pixels.copyWithin(0, px * this.width)
-    this.pixels.fill(this.paper & this.colorMask(), (this.height - px) * this.width)
+    const w = this.curWin
+    const wPix = w.cols * 8
+    const hPix = w.rows * 8
+    if (w.x === 0 && w.y === 0 && wPix === this.width && hPix === this.height) {
+      this.pixels.copyWithin(0, px * this.width)
+      this.pixels.fill(w.paper & this.colorMask(), (this.height - px) * this.width)
+      return
+    }
+    for (let y = 0; y < hPix - px; y++) {
+      const src = (w.y + y + px) * this.width + w.x
+      this.pixels.copyWithin((w.y + y) * this.width + w.x, src, src + wPix)
+    }
+    for (let y = hPix - px; y < hPix; y++) {
+      this.pixels.fill(w.paper & this.colorMask(), (w.y + y) * this.width + w.x, (w.y + y) * this.width + w.x + wPix)
+    }
+  }
+
+  /** Clw: clear the current window's text area and home the cursor */
+  clw(): void {
+    const w = this.curWin
+    for (let y = 0; y < w.rows * 8; y++) {
+      this.pixels.fill(w.paper & this.colorMask(), (w.y + y) * this.width + w.x, (w.y + y) * this.width + w.x + w.cols * 8)
+    }
+    w.curX = 0
+    w.curY = 0
+  }
+
+  // ---- window management (WOpen/WinDel/QWindow/MoveWi/SBord/STitle) ----
+
+  private drawWindowFrame(w: Wind): void {
+    if (w.border === 0) return
+    const x1 = w.x - 8
+    const y1 = w.y - 8
+    const x2 = w.x + w.cols * 8 + 7
+    const y2 = w.y + w.rows * 8 + 7
+    const saved = { ink: this.ink, gPaper: this.gPaper, pattern: this.pattern, outline: this.outline, lp: this.linePattern }
+    this.pattern = null
+    this.outline = false
+    this.linePattern = 0xffff
+    // frame in border paper, edged with border pen
+    this.bar(x1, y1, x2, y1 + 7, w.borPap)
+    this.bar(x1, y2 - 7, x2, y2, w.borPap)
+    this.bar(x1, y1, x1 + 7, y2, w.borPap)
+    this.bar(x2 - 7, y1, x2, y2, w.borPap)
+    this.box(x1, y1, x2, y2, w.borPen)
+    const title = (t: string, ty: number): void => {
+      if (t === '') return
+      const cx = w.x + Math.max(0, (w.cols - t.length) >> 1) * 8
+      for (let i = 0; i < Math.min(t.length, w.cols); i++) {
+        this.drawChar(cx + i * 8, ty, t.charCodeAt(i), w.borPen, w.borPap)
+      }
+    }
+    // titles render through window 0 writing modes — force replace
+    const cw = this.curWin
+    this.curWin = w
+    const w1 = w.writing1
+    w.writing1 = 0
+    title(w.titleTop, y1)
+    title(w.titleBottom, y2 - 7)
+    w.writing1 = w1
+    this.curWin = cw
+    this.ink = saved.ink
+    this.gPaper = saved.gPaper
+    this.pattern = saved.pattern
+    this.outline = saved.outline
+    this.linePattern = saved.lp
+  }
+
+  /** full pixel rect of a window including its border */
+  private windowRect(w: Wind): { x: number; y: number; wPix: number; hPix: number } {
+    const b = w.border !== 0 ? 8 : 0
+    return { x: w.x - b, y: w.y - b, wPix: w.cols * 8 + 2 * b, hPix: w.rows * 8 + 2 * b }
+  }
+
+  windOpen(n: number, x: number, y: number, cols: number, rows: number, border: number): Wind {
+    if (this.windows.has(n) && n !== 0) throw new Error('window already opened')
+    const alignedX = (x >> 4) << 4
+    const b = border !== 0 ? 8 : 0
+    const src = this.curWin
+    const w: Wind = {
+      n,
+      x: alignedX + b,
+      y: y + b,
+      cols,
+      rows,
+      border,
+      pen: src.pen,
+      paper: src.paper,
+      cuCol: src.cuCol,
+      tab: src.tab,
+      curX: 0,
+      curY: 0,
+      memX: 0,
+      memY: 0,
+      borPap: src.borPap,
+      borPen: src.borPen,
+      titleTop: '',
+      titleBottom: '',
+      savedBg: null,
+      prevN: src.n,
+      writing1: 0,
+      writing2: 0,
+    }
+    if (this.windSave) {
+      const r = this.windowRect(w)
+      const data = new Uint8Array(r.wPix * r.hPix)
+      for (let yy = 0; yy < r.hPix; yy++) {
+        for (let xx = 0; xx < r.wPix; xx++) {
+          const v = this.point(r.x + xx, r.y + yy)
+          data[yy * r.wPix + xx] = v < 0 ? 0 : v
+        }
+      }
+      w.savedBg = { x: r.x, y: r.y, w: r.wPix, h: r.hPix, data }
+    }
+    this.windows.set(n, w)
+    this.curWin = w
+    this.drawWindowFrame(w)
+    this.clw()
+    return w
+  }
+
+  windClose(): void {
+    const w = this.curWin
+    if (w.n === 0) return
+    if (w.savedBg) {
+      const bg = w.savedBg
+      for (let yy = 0; yy < bg.h; yy++) {
+        for (let xx = 0; xx < bg.w; xx++) {
+          const px = bg.x + xx
+          const py = bg.y + yy
+          if (px >= 0 && py >= 0 && px < this.width && py < this.height) {
+            this.pixels[py * this.width + px] = bg.data[yy * bg.w + xx]!
+          }
+        }
+      }
+    }
+    this.windows.delete(w.n)
+    this.curWin = this.windows.get(w.prevN) ?? this.windows.get(0)!
+  }
+
+  /** redraw the current window's frame (Border/Title changes) */
+  drawWindowFrame2(): void {
+    this.drawWindowFrame(this.curWin)
+  }
+
+  selectWindow(n: number): void {
+    const w = this.windows.get(n)
+    if (!w) throw new Error(`window not opened: ${n}`)
+    this.curWin = w
   }
 
   /** Rectangle blit (Screen Copy); handles overlap via an intermediate copy. */

@@ -163,6 +163,19 @@ export const FAITHFUL = new Set<string>([
   'y screen',
   'x hard',
   'y hard',
+  // windows sweep: WOpen/WinDel/QWindow/SBord/STitle + escape W
+  'wind open', // x aligned to 16px, per-window console state copied
+  'wind close', // restores background under Wind Save
+  'wind save',
+  'window',
+  'windon',
+  'clw', // clears the current window only
+  'border',
+  'title top',
+  'title bottom',
+  'writing', // w1 replace/OR/XOR/AND/ignore, w2 both/paper/pen-on-0
+  'gr writing', // SetDrMd; mode 2 = COMPLEMENT xor
+  'set tab', // per-window WiTab
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -195,9 +208,11 @@ export const NOTES: Record<string, string> = {
   rain: 'stored, not rendered',
   rainbow: 'stored, not rendered',
   'set rainbow': 'stored, not rendered',
-  writing: 'only replace mode',
   'set pattern': 'sprite-image patterns only; bank patterns need the system resource bank',
-  'gr writing': 'ignored',
+  'gr writing': 'JAM1/JAM2 identical for solid draws; XOR implemented',
+  'wind move': 'moves the frame; content is not carried along',
+  'wind size': 'resizes without preserving content',
+  border: 'all styles render as the same simple frame',
   vumeter: 'synthesized level, not real amplitude',
   bell: 'modern synthesis, not chip waveform',
   shoot: 'modern synthesis',
