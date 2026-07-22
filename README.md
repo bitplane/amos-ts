@@ -94,10 +94,22 @@ parse census), `runreport.ts` (interpreter coverage census),
   filesystem (`AmosFS`) with Amiga assign mounts and case-insensitive
   paths.
 
-Census after milestone 2: 373/393 corpus programs run to a stop, 26 end
+- **AMAL** (`src/runtime/amal.ts`): the animation language, reimplemented
+  from TokAMAL/Animeur in `+W.s` and stepped per channel each frame.
+  Faithful semantics: lowercase = comments, strictly left-to-right 16-bit
+  expressions, 8.8→16.16 fixed-point Move slopes with half-pixel bias,
+  10-jumps-per-frame budget, background Anim, autotest `AU(...)` with
+  Direct/eXit, For/Next, single-letter labels, Z()/XM/YM/K1/K2/J0/J1/
+  BC/SC/C/XS/YS/XH/YH. Channels drive bobs, sprites, Screen Display and
+  Screen Offset; BASIC sees Amreg (read/write), Chanan, Chanmv, Amalerr,
+  Synchro modes and Amal On/Off/Freeze. AMAL bank programs (Amal n,#) and
+  PLay paths are not supported yet.
+
+Census after milestone 3: 373/393 corpus programs run to a stop, 26 end
 with nothing skipped. The remaining skip list is dominated by the
-Interface language (Dialog/Choice), AMAL, audio, Print Using, and
-hardware pokes (copper lists, Leek/Poke — mostly Planet Zybex).
+Interface language (Dialog/Choice), audio (Sam Play/Vumeter/speech),
+Print Using, and hardware pokes (copper lists, Leek/Poke — mostly
+Planet Zybex).
 
 Format notes recovered so far (verified against the corpus, and the
 assembly in `+Lib.s`/`+Edit.s`):

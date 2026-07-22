@@ -7,9 +7,11 @@ import { AmosError } from '../interp/values'
 import type { Bank, MemoryBank } from '../loader/amosfile'
 import { Screen } from './screen'
 import { makeInstructions, makeFunctions } from './instr'
-import { ObjectBank } from './objects'
+import { ObjectBank, imagesCollide } from './objects'
 import type { BankImage, Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from './fs'
+import { AmalChannel } from './amal'
+import type { AmalHost, ChannelTarget } from './amal'
 
 export interface Rainbow {
   base: number
@@ -63,6 +65,124 @@ export class Runtime {
   colSet = new Set<number>()
   priorityOn = false
   fs: AmosFS | null = null
+  // ---- AMAL ----
+  channels = new Map<number, AmalChannel>()
+  /** Channel n To ... assignments, applied when Amal defines the channel */
+  chanTargets = new Map<number, ChannelTarget>()
+  amalGlobals = new Int16Array(26)
+  amalSeed = 0x1234
+  /** Synchro Off: AMAL only steps via the Synchro instruction */
+  synchroManual = false
+  amalDefaultOn = false
+  /** last AMAL compile error position (=Amalerr) */
+  amalErrPos = 0
+  readonly amalHost: AmalHost = {
+    globals: this.amalGlobals,
+    random: (mask) => {
+      const full = (this.amalSeed * 0x3171 + (this.interp.tick & 0xffff) + 1) >>> 0
+      this.amalSeed = full & 0xffff
+      return (full >>> 8) & mask & 0xffff
+    },
+    mouseX: () => this.input.mouseX,
+    mouseY: () => this.input.mouseY,
+    mouseKey: (bit) => (this.input.mouseK & bit ? -1 : 0),
+    joy: () => this.input.joy,
+    vumeter: () => 0,
+    col: (n) => (this.colSet.has(n) ? -1 : 0),
+    bobCol: (n, f, t) => this.bobColCheck(n, f, t),
+    spriteCol: (n, f, t) => this.spriteColCheck(n, f, t),
+    xy: (kind, screen, v) => {
+      const s = this.screens.get(screen & 7)
+      if (!s) return -1
+      switch (kind) {
+        case 'XS':
+          return (v - s.displayX) * (s.hires ? 2 : 1) + s.offsetX
+        case 'YS':
+          return v - s.displayY + s.offsetY
+        case 'XH':
+          return s.displayX + Math.trunc((v - s.offsetX) / (s.hires ? 2 : 1))
+        case 'YH':
+          return s.displayY + (v - s.offsetY)
+      }
+    },
+  }
+
+  /** the object a channel drives, by kind ('bob', 'sprite', 'screen display', ...) */
+  makeChannelTarget(kind: string, m: number): ChannelTarget {
+    if (kind === 'bob') {
+      return {
+        kind,
+        n: m,
+        get: () => {
+          const b = this.bobs.get(m)
+          return { x: b?.x ?? 0, y: b?.y ?? 0, a: b?.image ?? 1 }
+        },
+        set: (x, y, a) => {
+          let b = this.bobs.get(m)
+          if (!b) {
+            b = { n: m, x: 0, y: 0, image: 1, screen: this.currentIndex }
+            this.bobs.set(m, b)
+          }
+          if (x !== null) b.x = x
+          if (y !== null) b.y = y
+          if (a !== null) b.image = a
+        },
+      }
+    }
+    if (kind === 'screen display' || kind === 'screen offset') {
+      const disp = kind === 'screen display'
+      return {
+        kind,
+        n: m,
+        get: () => {
+          const s = this.screens.get(m)
+          if (!s) return { x: 0, y: 0, a: 0 }
+          return disp ? { x: s.displayX, y: s.displayY, a: 0 } : { x: s.offsetX, y: s.offsetY, a: 0 }
+        },
+        set: (x, y) => {
+          const s = this.screens.get(m)
+          if (!s) return
+          if (disp) {
+            if (x !== null) s.displayX = x
+            if (y !== null) s.displayY = y
+          } else {
+            if (x !== null) s.offsetX = x
+            if (y !== null) s.offsetY = y
+          }
+        },
+      }
+    }
+    if (kind === 'rainbow' || kind === 'screen size') {
+      return { kind, n: m, get: () => ({ x: 0, y: 0, a: 0 }), set: () => {} }
+    }
+    // default: hardware sprite
+    return {
+      kind: 'sprite',
+      n: m,
+      get: () => {
+        const s = this.hwSprites.get(m)
+        return { x: s?.x ?? 0, y: s?.y ?? 0, a: s?.image ?? 1 }
+      },
+      set: (x, y, a) => {
+        let s = this.hwSprites.get(m)
+        if (!s) {
+          s = { n: m, x: 0, y: 0, image: 1 }
+          this.hwSprites.set(m, s)
+        }
+        if (x !== null) s.x = x
+        if (y !== null) s.y = y
+        if (a !== null) s.image = a
+      },
+    }
+  }
+
+  stepAmal(): void {
+    const nums = [...this.channels.keys()].sort((a, b) => a - b)
+    for (const n of nums) {
+      const ch = this.channels.get(n)!
+      if (ch.on && !ch.frozen) ch.step(this.amalHost)
+    }
+  }
   /** line waiting to satisfy an Input statement */
   private pendingLine: string | null = null
   private promptShown = false
@@ -198,6 +318,33 @@ export class Runtime {
     this.order.unshift(n)
   }
 
+  /** Bob n vs bobs first..last on the same screen; fills colSet. -1/0. */
+  bobColCheck(n: number, first = -Infinity, last = Infinity): number {
+    this.colSet.clear()
+    const me = this.bobs.get(n)
+    const img = me && this.spriteBank?.image(me.image)
+    if (!me || !img) return 0
+    for (const other of this.bobs.values()) {
+      if (other.n === n || other.n < first || other.n > last || other.screen !== me.screen) continue
+      const oimg = this.spriteBank?.image(other.image)
+      if (oimg && imagesCollide(img, me.x, me.y, oimg, other.x, other.y)) this.colSet.add(other.n)
+    }
+    return this.colSet.size > 0 ? -1 : 0
+  }
+
+  spriteColCheck(n: number, first = -Infinity, last = Infinity): number {
+    this.colSet.clear()
+    const me = this.hwSprites.get(n)
+    const img = me && this.spriteBank?.image(me.image)
+    if (!me || !img) return 0
+    for (const other of this.hwSprites.values()) {
+      if (other.n === n || other.n < first || other.n > last) continue
+      const oimg = this.spriteBank?.image(other.image)
+      if (oimg && imagesCollide(img, me.x, me.y, oimg, other.x, other.y)) this.colSet.add(other.n)
+    }
+    return this.colSet.size > 0 ? -1 : 0
+  }
+
   /** 1-based index of the first zone containing (x,y) in screen coords, 0 if none. */
   zoneAt(x: number, y: number): number {
     for (let i = 0; i < this.zones.length; i++) {
@@ -225,6 +372,7 @@ export class Runtime {
   frame(): RunResult {
     this.interp.tick++
     this.applyShifts()
+    if (!this.synchroManual) this.stepAmal()
     this.unblock()
     if (!this.interp.done && this.interp.blocked === null) {
       return this.interp.run(this.frameBudget)

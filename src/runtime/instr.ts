@@ -5,7 +5,8 @@ import { parseIlbm } from '../loader/iff'
 import { parsePacPic } from '../loader/pacpic'
 import type { Runtime } from './runtime'
 import { Screen } from './screen'
-import { ObjectBank, imagesCollide } from './objects'
+import { ObjectBank } from './objects'
+import { AmalChannel, AmalCompileError, compileAmal } from './amal'
 
 /**
  * Graphics/screen instruction and function registries, bound to a Runtime.
@@ -550,6 +551,110 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         else if (bank.kind === 'memory') rt.memBanks.set(forced ?? bank.number, bank)
       }
     },
+    // ---- AMAL ----
+    amal(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const v = it.evalExpr()
+      if (v.k !== 'str') {
+        // numeric form: a pre-compiled program from the AMAL bank
+        it.unimplemented.set('amal (bank program)', (it.unimplemented.get('amal (bank program)') ?? 0) + 1)
+        return
+      }
+      let prog
+      try {
+        prog = compileAmal(v.s)
+      } catch (e) {
+        if (e instanceof AmalCompileError) {
+          rt.amalErrPos = e.position
+          throw new AmosError(`syntax error in animation string: ${e.message}`)
+        }
+        throw e
+      }
+      const target = rt.chanTargets.get(n) ?? rt.makeChannelTarget('sprite', n)
+      const ch = new AmalChannel(n, prog, target)
+      ch.on = rt.amalDefaultOn
+      rt.channels.set(n, ch)
+    },
+    channel(it) {
+      const n = it.evalInt()
+      it.expect('to')
+      const kind = it.nm()
+      if (
+        kind !== 'bob' &&
+        kind !== 'sprite' &&
+        kind !== 'screen display' &&
+        kind !== 'screen offset' &&
+        kind !== 'screen size' &&
+        kind !== 'rainbow'
+      ) {
+        throw new AmosError('Channel: Bob/Sprite/Screen Display/Screen Offset/Rainbow expected')
+      }
+      it.advance()
+      const m = it.evalInt()
+      const target = rt.makeChannelTarget(kind, m)
+      rt.chanTargets.set(n, target)
+      const ch = rt.channels.get(n)
+      if (ch) ch.target = target
+    },
+    'amal on'(it) {
+      if (it.atStmtEnd()) {
+        rt.amalDefaultOn = true
+        for (const ch of rt.channels.values()) {
+          ch.on = true
+          ch.frozen = false
+        }
+        return
+      }
+      const ch = rt.channels.get(it.evalInt())
+      if (ch) {
+        ch.on = true
+        ch.frozen = false
+      }
+    },
+    'amal off'(it) {
+      if (it.atStmtEnd()) {
+        rt.amalDefaultOn = false
+        for (const ch of rt.channels.values()) ch.on = false
+        return
+      }
+      const ch = rt.channels.get(it.evalInt())
+      if (ch) ch.on = false
+    },
+    'amal freeze'(it) {
+      if (it.atStmtEnd()) {
+        for (const ch of rt.channels.values()) ch.frozen = true
+        return
+      }
+      const ch = rt.channels.get(it.evalInt())
+      if (ch) ch.frozen = true
+    },
+    synchro(it) {
+      if (rt.synchroManual) rt.stepAmal()
+      void it
+    },
+    'synchro on'() {
+      rt.synchroManual = false
+    },
+    'synchro off'() {
+      rt.synchroManual = true
+    },
+    amreg(it) {
+      // assignment form: Amreg([channel,] n) = value
+      it.expect('(')
+      const a = it.evalInt()
+      const b = it.accept(',') ? it.evalInt() : null
+      it.expect(')')
+      it.expectOp('=')
+      const v = it.evalInt()
+      if (b === null) {
+        if (a >= 0 && a < 26) rt.amalGlobals[a] = v
+      } else {
+        const ch = rt.channels.get(a)
+        if (ch && b >= 0 && b < 10) ch.regs[b] = v
+      }
+    },
+
     'load iff'(it) {
       const path = it.evalStr()
       const n = it.accept(',') ? it.evalInt() : null
@@ -729,34 +834,10 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.hwSprites.get(int(a[0]!))?.image ?? 0)
     },
     'bob col'(_, a) {
-      const n = int(a[0]!)
-      const first = a.length > 1 ? int(a[1]!) : -Infinity
-      const last = a.length > 2 ? int(a[2]!) : Infinity
-      rt.colSet.clear()
-      const me = rt.bobs.get(n)
-      const img = me && rt.spriteBank?.image(me.image)
-      if (!me || !img) return VI(0)
-      for (const other of rt.bobs.values()) {
-        if (other.n === n || other.n < first || other.n > last || other.screen !== me.screen) continue
-        const oimg = rt.spriteBank?.image(other.image)
-        if (oimg && imagesCollide(img, me.x, me.y, oimg, other.x, other.y)) rt.colSet.add(other.n)
-      }
-      return VI(rt.colSet.size > 0 ? -1 : 0)
+      return VI(rt.bobColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : -Infinity, a.length > 2 ? int(a[2]!) : Infinity))
     },
     'sprite col'(_, a) {
-      const n = int(a[0]!)
-      const first = a.length > 1 ? int(a[1]!) : -Infinity
-      const last = a.length > 2 ? int(a[2]!) : Infinity
-      rt.colSet.clear()
-      const me = rt.hwSprites.get(n)
-      const img = me && rt.spriteBank?.image(me.image)
-      if (!me || !img) return VI(0)
-      for (const other of rt.hwSprites.values()) {
-        if (other.n === n || other.n < first || other.n > last) continue
-        const oimg = rt.spriteBank?.image(other.image)
-        if (oimg && imagesCollide(img, me.x, me.y, oimg, other.x, other.y)) rt.colSet.add(other.n)
-      }
-      return VI(rt.colSet.size > 0 ? -1 : 0)
+      return VI(rt.spriteColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : -Infinity, a.length > 2 ? int(a[2]!) : Infinity))
     },
     col(_, a) {
       return VI(rt.colSet.has(int(a[0]!)) ? -1 : 0)
@@ -812,6 +893,26 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       if (n === 1) return VI(rt.spriteBank?.images.length ?? 0)
       if (n === 2) return VI(rt.iconBank?.images.length ?? 0)
       return VI(rt.memBanks.get(n)?.data.length ?? 0)
+    },
+
+    // ---- AMAL ----
+    amreg(_, a) {
+      if (a.length === 2) {
+        const ch = rt.channels.get(int(a[0]!))
+        const r = int(a[1]!)
+        return VI(ch && r >= 0 && r < 10 ? ch.regs[r]! : 0)
+      }
+      const n = int(a[0]!)
+      return VI(n >= 0 && n < 26 ? rt.amalGlobals[n]! : 0)
+    },
+    chanan(_, a) {
+      return VI(rt.channels.get(int(a[0]!))?.animating ? -1 : 0)
+    },
+    chanmv(_, a) {
+      return VI(rt.channels.get(int(a[0]!))?.moving ? -1 : 0)
+    },
+    amalerr() {
+      return VI(rt.amalErrPos)
     },
   }
 }
