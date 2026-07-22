@@ -72,13 +72,11 @@ parallel/MIDI), printer channels, `Ntsc` (always PAL), `View`/
 
 ## Implemented but simplified — the honesty list
 
-- **Bobs are composite-time overlays.** Equivalent to autoback for
-  visuals, but `Bob Update`/`Bob Clear`/`Bob Draw`/`Set Bob` are
-  no-ops, and reading pixels under a bob sees the background (real
-  AMOS with single buffer would see the bob).
-- **Double buffering is a no-op** (logical = physical). `Screen Swap`,
-  `Logbase`, `Autoback` modes do nothing; programs relying on manual
-  double-buffer flicker tricks will look wrong.
+- **Bobs are blitted with background save/restore** (faithful), but
+  `Set Bob` planes/mask arguments are ignored and Autoback mode 1 is
+  treated like mode 0. `Logbase`/`Phybase` (raw addresses) remain
+  unimplemented.
+- **`Appear` copies instantly** — the dissolve is not progressive.
 - **Rainbows are stored, not rendered** — `Set Rainbow`/`Rain`/
   `Rainbow` execute, but the composite doesn't do per-scanline
   palettes yet.
