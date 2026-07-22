@@ -80,6 +80,24 @@ parse census), `runreport.ts` (interpreter coverage census),
   the canvas only appears in `src/web`.
 - **Browser runner** (`npm run dev`): load a `.AMOS` file, watch it run
   at 50 fps with keyboard/mouse/joystick input and an Input line box.
+- **Objects** (`src/runtime/objects.ts`): sprite/icon banks decoded
+  planar → chunky; bobs render as composite-time overlays (equivalent to
+  autoback — the framebuffer keeps its background), hardware sprites
+  draw over everything with colours 16-31; Paste Bob/Icon stamp the
+  framebuffer; Get Bob grabs it; pixel-precise Bob Col/Sprite Col/Col;
+  zones (Set Zone/Zone()/Mouse Zone); Load "x.abk" installs banks at
+  runtime.
+- **Pictures**: IFF ILBM loader (ByteRun1, CAMG modes, EHB palettes,
+  palette-only files) for Load Iff, and a Pac.Pic decoder ported
+  line-by-line from UnPack_Bitmap in `+Lib.s` for Unpack — all 16 corpus
+  Pac.Pic banks decode pixel-perfect. Files resolve through a virtual
+  filesystem (`AmosFS`) with Amiga assign mounts and case-insensitive
+  paths.
+
+Census after milestone 2: 373/393 corpus programs run to a stop, 26 end
+with nothing skipped. The remaining skip list is dominated by the
+Interface language (Dialog/Choice), AMAL, audio, Print Using, and
+hardware pokes (copper lists, Leek/Poke — mostly Planet Zybex).
 
 Format notes recovered so far (verified against the corpus, and the
 assembly in `+Lib.s`/`+Edit.s`):

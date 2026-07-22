@@ -4,8 +4,12 @@ import { Interp, newInputState } from '../interp/interp'
 import type { InputState, InterpOptions, RunResult } from '../interp/interp'
 import type { AmosIO } from '../interp/io'
 import { AmosError } from '../interp/values'
+import type { Bank, MemoryBank } from '../loader/amosfile'
 import { Screen } from './screen'
 import { makeInstructions, makeFunctions } from './instr'
+import { ObjectBank } from './objects'
+import type { BankImage, Bob, HwSprite, Zone } from './objects'
+import type { AmosFS } from './fs'
 
 export interface Rainbow {
   base: number
@@ -27,6 +31,10 @@ export interface RuntimeOptions {
   frameBudget?: number
   /** mirror of all console text output (for transcripts/CLIs) */
   onText?: (text: string) => void
+  /** resource banks from the .AMOS file */
+  banks?: Bank[]
+  /** file provider for Load Iff etc. */
+  fs?: AmosFS
 }
 
 /**
@@ -44,6 +52,17 @@ export class Runtime {
   rainbows = new Map<number, Rainbow>()
   shifts = new Map<number, { dir: number; delay: number; first: number; last: number; count: number }>()
   scrollZones = new Map<number, { x1: number; y1: number; x2: number; y2: number; dx: number; dy: number }>()
+  // ---- objects ----
+  spriteBank: ObjectBank | null = null
+  iconBank: ObjectBank | null = null
+  memBanks = new Map<number, MemoryBank>()
+  bobs = new Map<number, Bob>()
+  hwSprites = new Map<number, HwSprite>()
+  zones: Array<Zone | null> = []
+  /** objects hit by the last Bob Col/Sprite Col, read by Col() */
+  colSet = new Set<number>()
+  priorityOn = false
+  fs: AmosFS | null = null
   /** line waiting to satisfy an Input statement */
   private pendingLine: string | null = null
   private promptShown = false
@@ -91,8 +110,50 @@ export class Runtime {
     if (opts.onUnimplemented) interpOpts.onUnimplemented = opts.onUnimplemented
     if (opts.maxSteps) interpOpts.maxSteps = opts.maxSteps
     this.interp = new Interp(lines, table, interpOpts)
+    this.fs = opts.fs ?? null
+    for (const bank of opts.banks ?? []) {
+      if (bank.kind === 'sprites') this.spriteBank = ObjectBank.fromSpriteBank(bank)
+      else if (bank.kind === 'icons') this.iconBank = ObjectBank.fromSpriteBank(bank)
+      else if (bank.kind === 'memory') this.memBanks.set(bank.number, bank)
+    }
     // AMOS boots with screen 0: 320x200, 16 colours, lowres
     this.openScreen(0, 320, 200, 16, 0)
+  }
+
+  /** the sprite bank, created on demand (Get Bob into an empty bank) */
+  needSpriteBank(): ObjectBank {
+    this.spriteBank ??= new ObjectBank()
+    return this.spriteBank
+  }
+
+  /** Stamp an image into a screen's framebuffer (Paste Bob / Unpack / Load Iff). */
+  blit(s: Screen, img: { width: number; height: number; pixels: Uint8Array }, dx: number, dy: number, opaque: boolean): void {
+    for (let y = 0; y < img.height; y++) {
+      const ty = dy + y
+      if (ty < 0 || ty >= s.height) continue
+      for (let x = 0; x < img.width; x++) {
+        const v = img.pixels[y * img.width + x]!
+        if (!opaque && v === 0) continue
+        const tx = dx + x
+        if (tx < 0 || tx >= s.width) continue
+        if (s.inClip(tx, ty)) s.pixels[ty * s.width + tx] = v
+      }
+    }
+  }
+
+  /** Grab a rectangle of a screen as a new bank image (Get Bob). */
+  grab(s: Screen, x1: number, y1: number, x2: number, y2: number): BankImage {
+    const w = Math.max(0, x2 - x1)
+    const h = Math.max(0, y2 - y1)
+    const pixels = new Uint8Array(w * h)
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const v = s.point(x1 + x, y1 + y)
+        pixels[y * w + x] = v < 0 ? 0 : v
+      }
+    }
+    const depth = Math.max(1, Math.ceil(Math.log2(Math.max(2, s.nColors))))
+    return { width: w, height: h, depth, hotX: 0, hotY: 0, pixels, opaque: false }
   }
 
   // ---- screens ----
@@ -135,6 +196,15 @@ export class Runtime {
     if (!this.screens.has(n)) return
     this.order = this.order.filter((i) => i !== n)
     this.order.unshift(n)
+  }
+
+  /** 1-based index of the first zone containing (x,y) in screen coords, 0 if none. */
+  zoneAt(x: number, y: number): number {
+    for (let i = 0; i < this.zones.length; i++) {
+      const z = this.zones[i]
+      if (z && x >= z.x1 && y >= z.y1 && x <= z.x2 && y <= z.y2) return i + 1
+    }
+    return 0
   }
 
   // ---- input from the host ----
@@ -225,6 +295,7 @@ export class Runtime {
     for (const n of this.order) {
       const s = this.screens.get(n)
       if (!s || !s.visible) continue
+      const pixels = this.pixelsWithBobs(n, s)
       const pw = s.hires ? 1 : 2
       const ph = s.laced ? 1 : 2
       const baseX = (s.displayX - 128) * 2
@@ -235,7 +306,7 @@ export class Runtime {
         for (let x = 0; x < s.width; x++) {
           const sx = x + s.offsetX
           if (sx < 0 || sx >= s.width) continue
-          const rgb4 = s.palette[s.pixels[sy * s.width + sx]! & 31]!
+          const rgb4 = s.palette[pixels[sy * s.width + sx]! & 31]!
           const r = ((rgb4 >> 8) & 15) * 17
           const g = ((rgb4 >> 4) & 15) * 17
           const b = (rgb4 & 15) * 17
@@ -256,6 +327,71 @@ export class Runtime {
         }
       }
     }
+    this.drawHwSprites(data, W, H)
     return { width: W, height: H, data }
+  }
+
+  /**
+   * Screen pixels with its bobs overlaid. The framebuffer itself is not
+   * touched — equivalent to AMOS's autoback keeping the background saved.
+   */
+  private pixelsWithBobs(index: number, s: Screen): Uint8Array {
+    const bobs = [...this.bobs.values()].filter((b) => b.screen === index)
+    if (bobs.length === 0) return s.pixels
+    bobs.sort((a, b) => (this.priorityOn ? a.y - b.y : a.n - b.n))
+    const out = s.pixels.slice()
+    for (const bob of bobs) {
+      const img = this.spriteBank?.image(bob.image)
+      if (!img) continue
+      const dx = bob.x - img.hotX
+      const dy = bob.y - img.hotY
+      for (let y = 0; y < img.height; y++) {
+        const ty = dy + y
+        if (ty < 0 || ty >= s.height) continue
+        for (let x = 0; x < img.width; x++) {
+          const v = img.pixels[y * img.width + x]!
+          if (v === 0 && !img.opaque) continue
+          const tx = dx + x
+          if (tx < 0 || tx >= s.width) continue
+          out[ty * s.width + tx] = v
+        }
+      }
+    }
+    return out
+  }
+
+  /** Hardware sprites draw over everything, colours 16-31, hw coords. */
+  private drawHwSprites(data: Uint8ClampedArray, W: number, H: number): void {
+    if (this.hwSprites.size === 0) return
+    const front = this.screens.get(this.order[this.order.length - 1] ?? 0)
+    const palette = front?.palette
+    if (!palette) return
+    for (const sp of this.hwSprites.values()) {
+      const img = this.spriteBank?.image(sp.image)
+      if (!img) continue
+      const bx = (sp.x - img.hotX - 128) * 2
+      const by = (sp.y - img.hotY - 50) * 2
+      for (let y = 0; y < img.height; y++) {
+        for (let x = 0; x < img.width; x++) {
+          const v = img.pixels[y * img.width + x]!
+          if (v === 0) continue
+          const rgb4 = palette[16 + (v & 15)]!
+          const r = ((rgb4 >> 8) & 15) * 17
+          const g = ((rgb4 >> 4) & 15) * 17
+          const b = (rgb4 & 15) * 17
+          for (let dy = 0; dy < 2; dy++) {
+            for (let dx = 0; dx < 2; dx++) {
+              const tx = bx + x * 2 + dx
+              const ty = by + y * 2 + dy
+              if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue
+              const o = (ty * W + tx) * 4
+              data[o] = r
+              data[o + 1] = g
+              data[o + 2] = b
+            }
+          }
+        }
+      }
+    }
   }
 }

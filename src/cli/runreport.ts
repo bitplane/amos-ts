@@ -10,6 +10,7 @@ import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
 import { Runtime } from '../runtime/runtime'
+import { fsForFile } from './nodefs'
 
 const args = process.argv.slice(2)
 const fIdx = args.indexOf('--frames')
@@ -40,7 +41,13 @@ for (const path of walk(root)) {
   files++
   try {
     const lines = parseSource(amos.source, table)
-    const rt = new Runtime(lines, table, { extensions, onUnimplemented: 'skip', maxSteps: 120_000 })
+    const rt = new Runtime(lines, table, {
+      extensions,
+      onUnimplemented: 'skip',
+      maxSteps: 120_000,
+      banks: amos.banks,
+      fs: fsForFile(path, path.includes('aga-releases') ? 'fixtures/aga-releases' : 'fixtures/official-amos'),
+    })
     const result = rt.runHeadless(maxFrames)
     ran++
     const status = result.status === 'paused' ? 'frameCap' : result.status

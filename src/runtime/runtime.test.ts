@@ -19,6 +19,15 @@ function run(src: string): Runtime {
   return rt
 }
 
+/** run and capture the text transcript */
+function runOut(src: string): string {
+  let out = ''
+  const rt = new Runtime(tokenize(src, table), table, { maxSteps: 200_000, onText: (t) => (out += t) })
+  const r = rt.runHeadless(1_000)
+  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  return out
+}
+
 describe('screens', () => {
   it('boots with the default orange screen 0', () => {
     const rt = boot('')
@@ -189,6 +198,59 @@ describe('frame clock and blocking', () => {
     rt.input.keys.add(69)
     rt.runHeadless(10)
     expect(rt.screen.curY).toBe(1) // one line printed
+  })
+})
+
+describe('objects', () => {
+  /** composite pixel at lowres screen coords */
+  const at = (rt: Runtime, x: number, y: number): number[] => {
+    const { data } = rt.composite()
+    const o = (y * 2 * 640 + x * 2) * 4
+    return [data[o]!, data[o + 1]!, data[o + 2]!]
+  }
+  const GREEN = [0, 255, 0] // default palette colour 5 = $0F0
+
+  it('grabs an image with Get Bob and shows it as a bob overlay', () => {
+    const rt = run('Ink 5 : Bar 0,0 To 7,7\nGet Bob 1,0,0 To 8,8\nCls 0\nBob 1,100,50,1')
+    expect(rt.screen.point(100, 50)).toBe(0) // framebuffer untouched (overlay)
+    expect(at(rt, 100, 50)).toEqual(GREEN) // but composited
+    expect(at(rt, 90, 50)).toEqual([0, 0, 0])
+  })
+
+  it('moves bobs with elided arguments and reads X Bob back', () => {
+    const rt = run('Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 0\nBob 1,10,20,1\nBob 1,30,,\nIf X Bob(1)<>30 Then Error 1\nIf Y Bob(1)<>20 Then Error 2')
+    expect(at(rt, 30, 20)).toEqual(GREEN)
+  })
+
+  it('stamps the framebuffer with Paste Bob', () => {
+    const rt = run('Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 0\nPaste Bob 60,60,1')
+    expect(rt.screen.point(60, 60)).toBe(5)
+  })
+
+  it('detects pixel-precise collisions with Bob Col and Col()', () => {
+    const prog = (x: number) =>
+      [
+        'Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 0',
+        'Bob 1,100,100,1',
+        `Bob 2,${x},100,1`,
+        'If Bob Col(1)',
+        '   If Col(2) : Print "HIT" : End If',
+        'Else',
+        '   Print "MISS"',
+        'End If',
+      ].join('\n')
+    const hit = run(prog(105))
+    expect(hit.screen.curY).toBe(1)
+    const miss = run(prog(120))
+    expect(miss.screen.curY).toBe(1)
+    // verify via the collision function results themselves
+    expect(runOut(prog(105))).toContain('HIT')
+    expect(runOut(prog(120))).toContain('MISS')
+  })
+
+  it('answers zone queries', () => {
+    const out = runOut('Reserve Zone 4\nSet Zone 2,10,10 To 20,20\nPrint Zone(15,15);Zone(5,5)')
+    expect(out).toBe(' 2 0\n')
   })
 })
 

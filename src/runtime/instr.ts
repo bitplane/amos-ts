@@ -1,7 +1,11 @@
 import { AmosError, VI, VS, int, str } from '../interp/values'
 import type { Instr, Func } from '../interp/builtins'
+import { parseAmosFile } from '../loader/amosfile'
+import { parseIlbm } from '../loader/iff'
+import { parsePacPic } from '../loader/pacpic'
 import type { Runtime } from './runtime'
 import { Screen } from './screen'
+import { ObjectBank, imagesCollide } from './objects'
 
 /**
  * Graphics/screen instruction and function registries, bound to a Runtime.
@@ -380,6 +384,230 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const s = scr()
       Screen.copy(s, z.x1, z.y1, z.x2, z.y2, s, z.x1 + z.dx, z.y1 + z.dy)
     },
+
+    // ---- bobs ----
+    bob(it) {
+      const n = it.evalInt()
+      const cur = rt.bobs.get(n)
+      it.expect(',')
+      const x = optInt(it, cur?.x ?? 0)
+      it.accept(',')
+      const y = optInt(it, cur?.y ?? 0)
+      it.accept(',')
+      const image = optInt(it, cur?.image ?? 1)
+      rt.bobs.set(n, { n, x, y, image, screen: cur?.screen ?? rt.currentIndex })
+    },
+    'bob off'(it) {
+      if (it.atStmtEnd()) rt.bobs.clear()
+      else rt.bobs.delete(it.evalInt())
+    },
+    'bob update'(it) {
+      it.skipToStmtEnd() // autoback is implicit in our overlay model
+    },
+    'bob clear': () => {},
+    'bob draw': () => {},
+    'set bob'(it) {
+      it.skipToStmtEnd() // background modes — overlay model keeps background
+    },
+    'limit bob'(it) {
+      it.skipToStmtEnd()
+    },
+    'limit mouse'(it) {
+      it.skipToStmtEnd()
+    },
+    'paste bob'(it) {
+      const [x, y] = pair(it)
+      it.expect(',')
+      const img = rt.spriteBank?.image(it.evalInt())
+      if (img) rt.blit(scr(), img, x - img.hotX, y - img.hotY, img.opaque)
+    },
+    'paste icon'(it) {
+      const [x, y] = pair(it)
+      it.expect(',')
+      const img = rt.iconBank?.image(it.evalInt())
+      if (img) rt.blit(scr(), img, x, y, true)
+    },
+    'get bob': getObj('sprite'),
+    'get sprite': getObj('sprite'),
+    'get icon': getObj('icon'),
+    'get sprite palette': bankPalette(),
+    'get bob palette': bankPalette(),
+    'get icon palette'(it) {
+      if (!it.atStmtEnd()) it.evalInt()
+      const pal = rt.iconBank?.palette
+      if (pal) for (let i = 0; i < Math.min(32, pal.length); i++) scr().palette[i] = pal[i]!
+    },
+    'hot spot'(it) {
+      const img = rt.spriteBank?.image(it.evalInt())
+      if (it.accept(',')) {
+        const a = it.evalInt()
+        if (it.accept(',')) {
+          const b = it.evalInt()
+          if (img) {
+            img.hotX = a
+            img.hotY = b
+          }
+        } else if (img) {
+          // predefined code $XY: nibbles select left/middle/right, top/middle/bottom
+          const cx = (a >> 4) & 3
+          const cy = a & 3
+          img.hotX = cx === 1 ? img.width >> 1 : cx === 2 ? img.width : 0
+          img.hotY = cy === 1 ? img.height >> 1 : cy === 2 ? img.height : 0
+        }
+      }
+    },
+    'make mask'(it) {
+      if (!it.atStmtEnd()) it.evalInt() // masks are implicit here
+    },
+    'no mask'(it) {
+      const img = rt.spriteBank?.image(it.atStmtEnd() ? 1 : it.evalInt())
+      if (img) img.opaque = true
+    },
+    'priority on'() {
+      rt.priorityOn = true
+    },
+    'priority off'() {
+      rt.priorityOn = false
+    },
+
+    // ---- hardware sprites ----
+    sprite(it) {
+      const n = it.evalInt()
+      const cur = rt.hwSprites.get(n)
+      it.expect(',')
+      const x = optInt(it, cur?.x ?? 0)
+      it.accept(',')
+      const y = optInt(it, cur?.y ?? 0)
+      it.accept(',')
+      const image = optInt(it, cur?.image ?? 1)
+      rt.hwSprites.set(n, { n, x, y, image })
+    },
+    'sprite off'(it) {
+      if (it.atStmtEnd()) rt.hwSprites.clear()
+      else rt.hwSprites.delete(it.evalInt())
+    },
+    'sprite update'(it) {
+      it.skipToStmtEnd()
+    },
+
+    // ---- zones ----
+    'reserve zone'(it) {
+      const n = it.atStmtEnd() ? 16 : it.evalInt()
+      rt.zones = new Array<null>(n).fill(null)
+    },
+    'set zone'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const [x1, y1] = pair(it)
+      it.expect('to')
+      const [x2, y2] = pair(it)
+      while (rt.zones.length < n) rt.zones.push(null)
+      rt.zones[n - 1] = { x1, y1, x2, y2 }
+    },
+    'reset zone'(it) {
+      if (it.atStmtEnd()) rt.zones.fill(null)
+      else rt.zones[it.evalInt() - 1] = null
+    },
+
+    // ---- packed pictures and IFF ----
+    unpack(it) {
+      const bank = rt.memBanks.get(it.evalInt())
+      if (!bank) throw new AmosError('bank not reserved')
+      const pic = parsePacPic(bank.data)
+      if (it.accept('to')) {
+        const n = it.evalInt()
+        const sc = pic.screen
+        if (!sc) throw new AmosError('bank has no screen header')
+        const s = rt.openScreen(n, sc.width, sc.height, sc.nColors, sc.mode)
+        for (let i = 0; i < 32; i++) s.palette[i] = sc.palette[i]!
+        rt.blit(s, pic, 0, 0, true)
+        return
+      }
+      let x = pic.x
+      let y = pic.y
+      if (it.accept(',')) {
+        x = optInt(it, x) & ~7
+        if (it.accept(',')) y = optInt(it, y)
+      }
+      rt.blit(scr(), pic, x, y, true)
+    },
+    load(it) {
+      // Load "file.abk"[,bank#] — install banks from an .Abk/.AMOS container
+      const path = it.evalStr()
+      const forced = it.accept(',') ? it.evalInt() : null
+      const bytes = rt.fs?.read(path)
+      if (!bytes) {
+        if (it.policy === 'skip') {
+          it.unimplemented.set('load (file missing)', (it.unimplemented.get('load (file missing)') ?? 0) + 1)
+          return
+        }
+        throw new AmosError(`file not found: ${path}`)
+      }
+      const file = parseAmosFile(bytes)
+      for (const bank of file.banks) {
+        if (bank.kind === 'sprites') rt.spriteBank = ObjectBank.fromSpriteBank(bank)
+        else if (bank.kind === 'icons') rt.iconBank = ObjectBank.fromSpriteBank(bank)
+        else if (bank.kind === 'memory') rt.memBanks.set(forced ?? bank.number, bank)
+      }
+    },
+    'load iff'(it) {
+      const path = it.evalStr()
+      const n = it.accept(',') ? it.evalInt() : null
+      const bytes = rt.fs?.read(path)
+      if (!bytes) {
+        if (it.policy === 'skip') {
+          it.unimplemented.set('load iff (file missing)', (it.unimplemented.get('load iff (file missing)') ?? 0) + 1)
+          return
+        }
+        throw new AmosError(`file not found: ${path}`)
+      }
+      const img = parseIlbm(bytes)
+      if (n !== null && img.width > 0) {
+        rt.openScreen(n, img.width, img.height, 1 << img.depth, (img.mode & 0x8000) | (img.mode & 4))
+      }
+      const s = scr()
+      for (let i = 0; i < Math.min(32, img.palette.length); i++) s.palette[i] = img.palette[i]!
+      if (img.width > 0) rt.blit(s, img, 0, 0, true)
+    },
+  }
+
+  function bankPalette(): Instr {
+    return (it) => {
+      if (!it.atStmtEnd()) it.evalInt() // mask — later
+      const pal = rt.spriteBank?.palette
+      if (pal) for (let i = 0; i < Math.min(32, pal.length); i++) scr().palette[i] = pal[i]!
+    }
+  }
+
+  /** Get Bob/Sprite/Icon: [screen,] image, x1,y1 To x2,y2 */
+  function getObj(kind: 'sprite' | 'icon'): Instr {
+    return (it) => {
+      const args: number[] = [it.evalInt()]
+      while (it.accept(',')) {
+        args.push(it.evalInt())
+        if (it.nm() === 'to') break
+      }
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      let s = scr()
+      let img: number
+      let x1: number
+      let y1: number
+      if (args.length === 4) {
+        const sc = rt.screens.get(args[0]!)
+        if (!sc) throw new AmosError(`screen not opened: ${args[0]}`)
+        s = sc
+        ;[img, x1, y1] = [args[1]!, args[2]!, args[3]!]
+      } else if (args.length === 3) {
+        ;[img, x1, y1] = [args[0]!, args[1]!, args[2]!]
+      } else {
+        throw new AmosError('Get Bob: wrong arguments')
+      }
+      const bank = kind === 'icon' ? (rt.iconBank ??= new ObjectBank()) : rt.needSpriteBank()
+      bank.setImage(img, rt.grab(s, x1, y1, x2, y2))
+    }
   }
 
   function polyish(close: boolean): Instr {
@@ -479,6 +707,111 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     'zone$'(_, a) {
       void a
       return VS('')
+    },
+
+    // ---- objects ----
+    'x bob'(_, a) {
+      return VI(rt.bobs.get(int(a[0]!))?.x ?? 0)
+    },
+    'y bob'(_, a) {
+      return VI(rt.bobs.get(int(a[0]!))?.y ?? 0)
+    },
+    'i bob'(_, a) {
+      return VI(rt.bobs.get(int(a[0]!))?.image ?? 0)
+    },
+    'x sprite'(_, a) {
+      return VI(rt.hwSprites.get(int(a[0]!))?.x ?? 0)
+    },
+    'y sprite'(_, a) {
+      return VI(rt.hwSprites.get(int(a[0]!))?.y ?? 0)
+    },
+    'i sprite'(_, a) {
+      return VI(rt.hwSprites.get(int(a[0]!))?.image ?? 0)
+    },
+    'bob col'(_, a) {
+      const n = int(a[0]!)
+      const first = a.length > 1 ? int(a[1]!) : -Infinity
+      const last = a.length > 2 ? int(a[2]!) : Infinity
+      rt.colSet.clear()
+      const me = rt.bobs.get(n)
+      const img = me && rt.spriteBank?.image(me.image)
+      if (!me || !img) return VI(0)
+      for (const other of rt.bobs.values()) {
+        if (other.n === n || other.n < first || other.n > last || other.screen !== me.screen) continue
+        const oimg = rt.spriteBank?.image(other.image)
+        if (oimg && imagesCollide(img, me.x, me.y, oimg, other.x, other.y)) rt.colSet.add(other.n)
+      }
+      return VI(rt.colSet.size > 0 ? -1 : 0)
+    },
+    'sprite col'(_, a) {
+      const n = int(a[0]!)
+      const first = a.length > 1 ? int(a[1]!) : -Infinity
+      const last = a.length > 2 ? int(a[2]!) : Infinity
+      rt.colSet.clear()
+      const me = rt.hwSprites.get(n)
+      const img = me && rt.spriteBank?.image(me.image)
+      if (!me || !img) return VI(0)
+      for (const other of rt.hwSprites.values()) {
+        if (other.n === n || other.n < first || other.n > last) continue
+        const oimg = rt.spriteBank?.image(other.image)
+        if (oimg && imagesCollide(img, me.x, me.y, oimg, other.x, other.y)) rt.colSet.add(other.n)
+      }
+      return VI(rt.colSet.size > 0 ? -1 : 0)
+    },
+    col(_, a) {
+      return VI(rt.colSet.has(int(a[0]!)) ? -1 : 0)
+    },
+    zone(_, a) {
+      // Zone(x,y) or Zone(screen,x,y) — coordinates are the last two args
+      const x = int(a[a.length - 2]!)
+      const y = int(a[a.length - 1]!)
+      return VI(rt.zoneAt(x, y))
+    },
+    hzone(_, a) {
+      const s = scr()
+      const x = (int(a[a.length - 2]!) - s.displayX) * (s.hires ? 2 : 1) + s.offsetX
+      const y = int(a[a.length - 1]!) - s.displayY + s.offsetY
+      return VI(rt.zoneAt(x, y))
+    },
+    'mouse zone'(it, a) {
+      void a
+      const s = scr()
+      const x = (it.inp.mouseX - s.displayX) * (s.hires ? 2 : 1) + s.offsetX
+      const y = it.inp.mouseY - s.displayY + s.offsetY
+      return VI(rt.zoneAt(x, y))
+    },
+    exist(_, a) {
+      return VI(rt.fs?.read(str(a[0]!)) !== null && rt.fs !== null ? -1 : 0)
+    },
+    scin(_, a) {
+      // ScIn(x,y): which screen is under this hardware coordinate?
+      const x = int(a[a.length - 2]!)
+      const y = int(a[a.length - 1]!)
+      for (let i = rt.order.length - 1; i >= 0; i--) {
+        const s = rt.screens.get(rt.order[i]!)
+        if (!s || !s.visible) continue
+        const sx = (x - s.displayX) * (s.hires ? 2 : 1)
+        const sy = y - s.displayY
+        if (sx >= 0 && sy >= 0 && sx < s.width && sy < s.height) return VI(s.index)
+      }
+      return VI(-1)
+    },
+    'key shift'(it, a) {
+      void a
+      let m = 0
+      if (it.inp.keys.has(0x60)) m |= 1
+      if (it.inp.keys.has(0x61)) m |= 2
+      if (it.inp.keys.has(0x62)) m |= 4
+      if (it.inp.keys.has(0x63)) m |= 8
+      if (it.inp.keys.has(0x64)) m |= 16
+      if (it.inp.keys.has(0x65)) m |= 32
+      return VI(m)
+    },
+    length(_, a) {
+      const n = int(a[0]!)
+      if (n === 1) return VI(rt.spriteBank?.images.length ?? 0)
+      if (n === 2) return VI(rt.iconBank?.images.length ?? 0)
+      return VI(rt.memBanks.get(n)?.data.length ?? 0)
     },
   }
 }

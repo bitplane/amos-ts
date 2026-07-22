@@ -46,10 +46,9 @@ function load(bytes: Uint8Array, name: string): void {
   error = ''
   try {
     const isAmos = /^AMOS (Basic|Pro)/.test(new TextDecoder('latin1').decode(bytes.subarray(0, 16)))
-    const lines = isAmos
-      ? parseSource(parseAmosFile(bytes).source, table)
-      : tokenize(new TextDecoder('latin1').decode(bytes), table)
-    rt = new Runtime(lines, table, { extensions, onUnimplemented: 'skip' })
+    const amos = isAmos ? parseAmosFile(bytes) : null
+    const lines = amos ? parseSource(amos.source, table) : tokenize(new TextDecoder('latin1').decode(bytes), table)
+    rt = new Runtime(lines, table, { extensions, onUnimplemented: 'skip', banks: amos?.banks ?? [] })
   } catch (e) {
     rt = null
     error = e instanceof Error ? e.message : String(e)

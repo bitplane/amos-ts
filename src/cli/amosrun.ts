@@ -10,6 +10,7 @@ import { parseSource, TokenTable } from '../tokens/stream'
 import { tokenize } from '../tokens/tokenizer'
 import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
 import { Runtime } from '../runtime/runtime'
+import { fsForFile } from './nodefs'
 
 const args = process.argv.slice(2)
 const strict = args.includes('--strict')
@@ -31,14 +32,15 @@ const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, ne
 
 const bytes = readFileSync(file)
 const isAmos = /^AMOS (Basic|Pro)/.test(bytes.subarray(0, 16).toString('latin1'))
-const lines = isAmos
-  ? parseSource(parseAmosFile(bytes).source, table)
-  : tokenize(bytes.toString('latin1'), table)
+const amos = isAmos ? parseAmosFile(bytes) : null
+const lines = amos ? parseSource(amos.source, table) : tokenize(bytes.toString('latin1'), table)
 
 const rt = new Runtime(lines, table, {
   extensions,
   onUnimplemented: strict ? 'throw' : 'skip',
   onText: (t) => process.stdout.write(t),
+  banks: amos?.banks ?? [],
+  fs: fsForFile(file),
 })
 for (const w of rt.interp.program.warnings) console.error(`warning: ${w}`)
 
