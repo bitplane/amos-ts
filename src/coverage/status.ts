@@ -204,6 +204,7 @@ export const FAITHFUL = new Set<string>([
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
 export const STRUCTURAL = new Set([
   ':', ',', ';', '#', '(', ')', '[', ']', 'to', 'not', 'fn', 'then', 'step', 'rem', "'", 'procedure',
+  'using', // parsed inside the Print handler
 ])
 
 /** Editor/compiler-internal tokens that cannot execute in a program. */

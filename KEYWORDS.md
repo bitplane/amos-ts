@@ -33,10 +33,10 @@ tested against our own understanding. Percentages exclude n/a
 | request | 3 | 0 | 0 | 3 | 0% |
 | screens | 31 | 6 | 14 | 11 | 65% |
 | system | 41 | 0 | 0 | 40 | 0% |
-| text-io | 37 | 14 | 12 | 11 | 70% |
+| text-io | 37 | 14 | 13 | 10 | 73% |
 | windows | 11 | 9 | 2 | 0 | 100% |
 | zones | 3 | 0 | 3 | 0 | 100% |
-| **total** | 732 | 171 | 173 | 376 | 48% |
+| **total** | 732 | 171 | 174 | 375 | 48% |
 
 ## amal (92%)
 
@@ -145,11 +145,11 @@ tested against our own understanding. Percentages exclude n/a
 - **missing**: `amos here`, `amos lock`, `amos to back`, `amos to front`, `amos unlock`, `areg`, `arexx`, `arexx answer`, `arexx close`, `arexx exist`, `arexx open`, `arexx wait`, `call`, `dev abort`, `dev base`, `dev check`, `dev close`, `dev do`, `dev first$`, `dev next$`, `dev open`, `dev send`, `doscall`, `dreg`, `exec`, `execall`, `gfxcall`, `intcall`, `lib base`, `lib call`, `lib close`, `lib open`, `lvo`, `port`, `prg first$`, `prg next$`, `prg state`, `prg under`, `run`, `system`
 - **n/a**: `call editor`
 
-## text-io (70%)
+## text-io (73%)
 
 - **faithful**: `cdown`, `cleft`, `cline`, `cmove`, `cright`, `cup`, `home`, `memorize x`, `memorize y`, `print` *(Print # channels unsupported)*, `print #`, `remember x`, `remember y`, `tab$`
-- **approximated**: `centre` *(no Border$ handling)*, `cls`, `curs off`, `curs on`, `curs pen`, `locate`, `paper`, `pen`, `scroll`, `text`, `text base`, `text length`
-- **missing**: `inverse off`, `inverse on`, `lprint`, `scroll off`, `scroll on`, `shade off`, `shade on`, `text styles`, `under off`, `under on`, `using` *('^' exponent slots not implemented)*
+- **approximated**: `centre` *(no Border$ handling)*, `cls`, `curs off`, `curs on`, `curs pen`, `locate`, `paper`, `pen`, `scroll`, `text`, `text base`, `text length`, `using` *('^' exponent slots not implemented)*
+- **missing**: `inverse off`, `inverse on`, `lprint`, `scroll off`, `scroll on`, `shade off`, `shade on`, `text styles`, `under off`, `under on`
 
 ## windows (100%)
 
