@@ -1,7 +1,7 @@
 # What's not implemented (and what's approximated)
 
 Status after milestone 4 (audio). Census over the 393-program corpus:
-**373 run to a stop, 26 finish with nothing skipped.** Occurrence counts
+**371 run to a stop, 24 finish with nothing skipped.** Occurrence counts
 below come from `runreport --all` (statements actually reached, so a
 tight loop counts thousands of times).
 

@@ -96,6 +96,70 @@ describe('expressions', () => {
   })
 })
 
+describe('string/math functions verified against the library source', () => {
+  it('Rnd: FnRnd LCG, Rnd(0) returns the previous draw, negatives work', () => {
+    const out = run('Randomize 1\nA=Rnd(100) : B=Rnd(0)\nPrint A=B\nPrint Rnd(-10)>=0')
+    expect(out).toBe('-1\n-1\n')
+    // deterministic sequence after Randomize
+    expect(run('Randomize 7 : Print Rnd(99);Rnd(99)')).toBe(run('Randomize 7 : Print Rnd(99);Rnd(99)'))
+  })
+
+  it('Instr: empty needle is 0, start 0 acts as 1, negative start errors', () => {
+    expect(run('Print Instr("ABC","")')).toBe(' 0\n')
+    expect(run('Print Instr("ABC","B",0)')).toBe(' 2\n')
+    expect(() => run('Print Instr("ABC","B",-1)')).toThrow(/function call/)
+  })
+
+  it('Left$/Right$/Mid$: negative counts error, Mid$ position 0 acts as 1', () => {
+    expect(() => run('Print Left$("ABC",-1)')).toThrow(/function call/)
+    expect(() => run('Print Right$("ABC",-1)')).toThrow(/function call/)
+    expect(() => run('Print Mid$("ABC",-1)')).toThrow(/function call/)
+    expect(run('Print Mid$("ABC",0,2)')).toBe('AB\n')
+  })
+
+  it('Chr$ rejects values outside 0-255 (FnChr)', () => {
+    expect(run('Print Chr$(65)')).toBe('A\n')
+    expect(() => run('Print Chr$(256)')).toThrow(/function call/)
+    expect(() => run('Print Chr$(-1)')).toThrow(/function call/)
+  })
+
+  it('Space$/String$ reject negatives; String$ of "" is ""', () => {
+    expect(() => run('Print Space$(-1)')).toThrow(/function call/)
+    expect(run('Print String$("",5);"!"')).toBe('!\n')
+  })
+
+  it('Upper$/Lower$ convert ASCII only (FnUpper/FnLower)', () => {
+    expect(run('Print Upper$("ab\xe9")')).toBe('AB\xe9\n') // é untouched
+    expect(run('Print Lower$("AB\xc9")')).toBe('ab\xc9\n')
+  })
+
+  it('Sqr/Log/Ln reject negatives (FlPos)', () => {
+    expect(() => run('Print Sqr(-1)')).toThrow(/function call/)
+    expect(() => run('Print Log(-1)')).toThrow(/function call/)
+    expect(() => run('Print Ln(-1)')).toThrow(/function call/)
+  })
+
+  it('hyperbolics share the angle-converting spec with Sin (spec "15")', () => {
+    // Degree: Hsin(90) = sinh(pi/2) ≈ 2.3013
+    const out = run('Degree : Print Hsin(90)')
+    expect(parseFloat(out)).toBeCloseTo(Math.sinh(Math.PI / 2), 4)
+  })
+
+  it('Val skips spaces inside numbers (ValRout)', () => {
+    expect(run('Print Val("1 2 3")')).toBe(' 123\n')
+  })
+
+  it('Fix controls float display (InFix)', () => {
+    expect(run('Fix(2) : Print 3.14159')).toBe(' 3.14\n')
+    expect(run('Fix(16) : Print 3.5')).toBe(' 3.5\n')
+    expect(run('Fix(-3) : Print 31.4159')).toBe(' 3.142E+1\n')
+  })
+
+  it('control-character functions return console codes', () => {
+    expect(run('Print Asc(Tab$);Asc(Cup$);Asc(Cdown$);Asc(Cleft$);Asc(Cright$)')).toBe(' 9 30 31 29 28\n')
+  })
+})
+
 describe('variables', () => {
   it('defaults to 0 / empty and respects type suffixes', () => {
     expect(run('Print A;B#;"[";C$;"]"')).toBe(' 0 0[]\n')

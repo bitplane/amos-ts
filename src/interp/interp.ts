@@ -159,6 +159,12 @@ export class Interp {
   tabWidth = 4
   col = 0
   private rng = 0x2545f491
+  /** Rnd state (FnRnd in +Lib.s): LCG seed and the last result for Rnd(0) */
+  rndSeed = 0x1234
+  oldRnd = 0
+  /** Fix state: digits after the point (-1 = proportional), exponent mode */
+  fixDigits = -1
+  fixExp = false
   private status: 'ended' | 'stopped' | 'maxSteps' | null = null
   unimplemented = new Map<string, number>()
   policy: 'throw' | 'skip'
@@ -658,6 +664,7 @@ export class Interp {
 
   seedRandom(seed: number): void {
     this.rng = seed | 0 || 0x2545f491
+    this.rndSeed = seed >>> 0
   }
 
   random(): number {
@@ -668,6 +675,36 @@ export class Interp {
     x ^= x << 5
     this.rng = x | 0
     return (x >>> 0) / 0x100000000
+  }
+
+  /**
+   * =Rnd, ported from FnRnd in +Lib.s: Rnd(0) returns the previous result;
+   * otherwise draw (seed*$BB40E62D+1)>>8 under the smallest 2^k-1 mask
+   * covering |n| and retry until <= |n|. (The original mixes in the raster
+   * beam position for n>0; we stay deterministic.)
+   */
+  rndInt(n: number): number {
+    if (n === 0) return this.oldRnd
+    const limit = Math.abs(n)
+    let mask = 0xffffff
+    while (mask >>> 1 >= limit) mask >>>= 1
+    for (;;) {
+      this.rndSeed = (Math.imul(this.rndSeed, 0xbb40e62d) + 1) >>> 0
+      const v = (this.rndSeed >>> 8) & mask
+      if (v <= limit) {
+        this.oldRnd = v
+        return v
+      }
+    }
+  }
+
+  /** Print/Str$ float display honouring Fix (InFix in +Lib.s). */
+  formatValue(v: Value): string {
+    if (v.k !== 'float') return display(v)
+    const sign = v.n < 0 ? '' : ' '
+    if (this.fixExp) return sign + v.n.toExponential(this.fixDigits < 0 ? 6 : this.fixDigits).toUpperCase()
+    if (this.fixDigits >= 0) return sign + v.n.toFixed(this.fixDigits)
+    return display(v)
   }
 
   // ---- the statement dispatcher -----------------------------------------

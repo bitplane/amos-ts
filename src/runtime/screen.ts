@@ -260,8 +260,38 @@ export class Screen {
 
   writeText(text: string): void {
     for (const ch of text) {
-      if (ch === '\n') this.newline()
-      else this.putChar(ch.charCodeAt(0))
+      const c = ch.charCodeAt(0)
+      switch (c) {
+        case 10: // LF
+          this.newline()
+          break
+        case 13: // CR
+          this.curX = 0
+          break
+        case 8: // backspace
+          this.curX = Math.max(0, this.curX - 1)
+          break
+        case 9: // tab — next multiple of 4 columns (WiTab default)
+          this.curX = Math.min(this.cols - 1, (Math.floor(this.curX / 4) + 1) * 4)
+          break
+        case 12: // FF — clear
+          this.cls()
+          break
+        case 28: // cursor right (Cright$)
+          this.curX = Math.min(this.cols - 1, this.curX + 1)
+          break
+        case 29: // cursor left (Cleft$)
+          this.curX = Math.max(0, this.curX - 1)
+          break
+        case 30: // cursor up (Cup$)
+          this.curY = Math.max(0, this.curY - 1)
+          break
+        case 31: // cursor down (Cdown$)
+          this.newline()
+          break
+        default:
+          this.putChar(c)
+      }
     }
   }
 

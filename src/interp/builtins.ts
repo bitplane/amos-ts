@@ -58,7 +58,7 @@ export const INSTR: Record<string, Instr> = {
         nl = false
         continue
       }
-      it.write(display(it.evalExpr()))
+      it.write(it.formatValue(it.evalExpr()))
       nl = true
     }
     if (nl) it.write('\n')
@@ -525,6 +525,14 @@ export const INSTR: Record<string, Instr> = {
     repl = repl.slice(0, Math.min(len, Math.max(0, s.length - p)))
     tg.set(VS(s.slice(0, p) + repl + s.slice(p + repl.length)))
   },
+  fix(it) {
+    // InFix: n 0-15 = digits after the point; >=16 = proportional
+    // default; negative = exponent notation with |n| digits
+    const n = it.evalInt()
+    const mag = Math.abs(n)
+    it.fixExp = n < 0
+    it.fixDigits = mag >= 16 ? -1 : mag
+  },
   end(it) {
     it.halt('ended')
     return 'jumped'
@@ -572,7 +580,9 @@ export const FUNCS: Record<string, Func> = {
   },
   sqr(_, a) {
     arity(a, 1)
-    return VF(Math.sqrt(num(a[0]!)))
+    const v = num(a[0]!)
+    if (v < 0) throw new AmosError('function call error') // FlPos
+    return VF(Math.sqrt(v))
   },
   exp(_, a) {
     arity(a, 1)
@@ -580,11 +590,15 @@ export const FUNCS: Record<string, Func> = {
   },
   ln(_, a) {
     arity(a, 1)
-    return VF(Math.log(num(a[0]!)))
+    const v = num(a[0]!)
+    if (v < 0) throw new AmosError('function call error')
+    return VF(Math.log(v))
   },
   log(_, a) {
     arity(a, 1)
-    return VF(Math.log10(num(a[0]!)))
+    const v = num(a[0]!)
+    if (v < 0) throw new AmosError('function call error')
+    return VF(Math.log10(v))
   },
   sin(it, a) {
     arity(a, 1)
@@ -610,17 +624,18 @@ export const FUNCS: Record<string, Func> = {
     arity(a, 1)
     return VF(fromAngle(it, Math.atan(num(a[0]!))))
   },
-  hsin(_, a) {
+  // spec "15" — the same angle-converting argument as Sin/Cos/Tan
+  hsin(it, a) {
     arity(a, 1)
-    return VF(Math.sinh(num(a[0]!)))
+    return VF(Math.sinh(toAngle(it, num(a[0]!))))
   },
-  hcos(_, a) {
+  hcos(it, a) {
     arity(a, 1)
-    return VF(Math.cosh(num(a[0]!)))
+    return VF(Math.cosh(toAngle(it, num(a[0]!))))
   },
-  htan(_, a) {
+  htan(it, a) {
     arity(a, 1)
-    return VF(Math.tanh(num(a[0]!)))
+    return VF(Math.tanh(toAngle(it, num(a[0]!))))
   },
   'pi#': (_, a) => {
     arity(a, 0)
@@ -628,8 +643,7 @@ export const FUNCS: Record<string, Func> = {
   },
   rnd(it, a) {
     arity(a, 1)
-    const n = int(a[0]!)
-    return VI(n > 0 ? Math.floor(it.random() * (n + 1)) : 0)
+    return VI(it.rndInt(int(a[0]!)))
   },
   max(_, a) {
     arity(a, 2)
@@ -653,21 +667,24 @@ export const FUNCS: Record<string, Func> = {
   },
   'chr$'(_, a) {
     arity(a, 1)
-    return VS(String.fromCharCode(int(a[0]!) & 0xffff))
+    const n = int(a[0]!)
+    if (n < 0 || n > 255) throw new AmosError('function call error') // FnChr
+    return VS(String.fromCharCode(n))
   },
   asc(_, a) {
     arity(a, 1)
     return VI(str(a[0]!).charCodeAt(0) || 0)
   },
-  'str$'(_, a) {
+  'str$'(it, a) {
     arity(a, 1)
     const v = a[0]!
     if (v.k === 'str') throw new AmosError('Type mismatch')
-    return VS(display(v))
+    return VS(it.formatValue(v))
   },
   val(_, a) {
     arity(a, 1)
-    const s = str(a[0]!).trim()
+    // ValRout skips spaces anywhere, even between digits
+    const s = str(a[0]!).replace(/ /g, '')
     const hex = /^([+-]?)\$([0-9a-f]+)/i.exec(s)
     if (hex) return VI(parseInt(hex[1] + hex[2]!, 16))
     const bin = /^([+-]?)%([01]+)/.exec(s)
@@ -679,44 +696,62 @@ export const FUNCS: Record<string, Func> = {
   },
   'left$'(_, a) {
     arity(a, 2)
-    return VS(str(a[0]!).slice(0, Math.max(0, int(a[1]!))))
+    const n = int(a[1]!)
+    if (n < 0) throw new AmosError('function call error')
+    return VS(str(a[0]!).slice(0, n))
   },
   'right$'(_, a) {
     arity(a, 2)
-    const n = Math.max(0, int(a[1]!))
+    const n = int(a[1]!)
+    if (n < 0) throw new AmosError('function call error')
     const s = str(a[0]!)
     return VS(n === 0 ? '' : s.slice(-n))
   },
   'mid$'(_, a) {
     arity(a, 2, 3)
     const s = str(a[0]!)
-    const from = Math.max(1, int(a[1]!)) - 1
-    const n = a.length === 3 ? Math.max(0, int(a[2]!)) : s.length - from
+    const p = int(a[1]!)
+    if (p < 0) throw new AmosError('function call error') // RFnMid
+    const from = p === 0 ? 0 : p - 1
+    const n = a.length === 3 ? int(a[2]!) : 0xffff
+    if (n < 0) throw new AmosError('function call error')
     return VS(s.slice(from, from + n))
   },
   instr(_, a) {
     arity(a, 2, 3)
     const s = str(a[0]!)
-    const sub = str(a[1]!)
-    const from = a.length === 3 ? Math.max(1, int(a[2]!)) - 1 : 0
-    return VI(s.indexOf(sub, from) + 1)
+    const needle = str(a[1]!)
+    let from = 0
+    if (a.length === 3) {
+      const start = int(a[2]!)
+      if (start < 0) throw new AmosError('function call error') // FnInstr3
+      from = start === 0 ? 0 : start - 1
+    }
+    if (needle === '') return VI(0) // InstrFind .if11
+    return VI(s.indexOf(needle, from) + 1)
   },
   'space$'(_, a) {
     arity(a, 1)
-    return VS(' '.repeat(Math.max(0, int(a[0]!))))
+    const n = int(a[0]!)
+    if (n < 0) throw new AmosError('function call error') // RString
+    return VS(' '.repeat(n))
   },
   'string$'(_, a) {
     arity(a, 2)
     const s = str(a[0]!)
-    return VS((s[0] ?? ' ').repeat(Math.max(0, int(a[1]!))))
+    const n = int(a[1]!)
+    if (n < 0) throw new AmosError('function call error')
+    if (s === '') return VS('') // FnString: empty source -> empty
+    return VS(s[0]!.repeat(n))
   },
+  // a-z/A-Z only — Latin-1 accents pass through untouched
   'upper$'(_, a) {
     arity(a, 1)
-    return VS(str(a[0]!).toUpperCase())
+    return VS(str(a[0]!).replace(/[a-z]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 32)))
   },
   'lower$'(_, a) {
     arity(a, 1)
-    return VS(str(a[0]!).toLowerCase())
+    return VS(str(a[0]!).replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32)))
   },
   'flip$'(_, a) {
     arity(a, 1)
@@ -840,6 +875,26 @@ export const FUNCS: Record<string, Func> = {
   errtrap(it, a) {
     arity(a, 0)
     return VI(it.errCode)
+  },
+  'tab$': (_, a) => {
+    arity(a, 0)
+    return VS('\x09')
+  },
+  'cleft$': (_, a) => {
+    arity(a, 0)
+    return VS('\x1d')
+  },
+  'cright$': (_, a) => {
+    arity(a, 0)
+    return VS('\x1c')
+  },
+  'cup$': (_, a) => {
+    arity(a, 0)
+    return VS('\x1e')
+  },
+  'cdown$': (_, a) => {
+    arity(a, 0)
+    return VS('\x1f')
   },
   free: (_, a) => {
     arity(a, 0)

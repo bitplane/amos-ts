@@ -39,6 +39,54 @@ export const FAITHFUL = new Set<string>([
   'sam stop',
   'sam loop on',
   'sam loop off',
+  // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
+  // behaviours (errors, empty cases, ranges) reproduced and tested
+  'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last (no raster noise)
+  'randomize',
+  'instr', // InstrFind: empty needle 0, start 0=1, negative errors
+  'left$',
+  'right$',
+  'mid$', // RFnMid: position 0 acts as 1, negatives error
+  'chr$', // 0-255 or error
+  'asc',
+  'len',
+  'space$',
+  'string$', // RString: negative errors, "" source -> ""
+  'upper$', // ASCII-only
+  'lower$',
+  'flip$',
+  'val', // ValRout: skips spaces anywhere, $/% prefixes, float detection
+  'bin$',
+  'hex$', // LongToBin/Hex: prefixed, fixed digits zero-padded
+  'max', // MinMax: 2 args, int/float/string via Compat
+  'min',
+  'sgn',
+  'abs',
+  'sqr', // FlPos: negative errors
+  'log',
+  'ln',
+  'exp',
+  'sin',
+  'cos',
+  'tan',
+  'asin', // AAngle: output converted in Degree mode
+  'acos',
+  'atan',
+  'hsin', // spec "15": inputs angle-converted like Sin
+  'hcos',
+  'htan',
+  'pi#',
+  'degree',
+  'radian',
+  'fix', // InFix: 0-15 digits, >=16 default, negative = exponent
+  'swap',
+  'true',
+  'false',
+  'tab$', // FinChr control characters
+  'cleft$',
+  'cright$',
+  'cup$',
+  'cdown$',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -88,4 +136,8 @@ export const NOTES: Record<string, string> = {
   print: 'Using/# not supported; comma tab writes spaces instead of moving the cursor',
   input: 'no editing keys; comma-splitting approximated',
   timer: 'writable, drives the frame clock directly',
+  rnd: 'deterministic — original mixes in the raster beam position',
+  inc: 'also works on float variables (original: integer only)',
+  dec: 'also works on float variables (original: integer only)',
+  add: 'also works on float variables (original: integer only)',
 }
