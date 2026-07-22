@@ -40,7 +40,7 @@ for (const path of walk(root)) {
   files++
   try {
     const lines = parseSource(amos.source, table)
-    const rt = new Runtime(lines, table, { extensions, onUnimplemented: 'skip', maxSteps: 400_000 })
+    const rt = new Runtime(lines, table, { extensions, onUnimplemented: 'skip', maxSteps: 120_000 })
     const result = rt.runHeadless(maxFrames)
     ran++
     const status = result.status === 'paused' ? 'frameCap' : result.status

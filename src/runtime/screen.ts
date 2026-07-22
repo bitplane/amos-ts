@@ -78,13 +78,52 @@ export class Screen {
 
   hline(x1: number, x2: number, y: number, c = this.ink): void {
     if (x1 > x2) [x1, x2] = [x2, x1]
+    // clamp to the drawable area so wild coordinates stay cheap
+    if (y < 0 || y >= this.height) return
+    x1 = Math.max(0, x1)
+    x2 = Math.min(this.width - 1, x2)
     for (let x = x1; x <= x2; x++) this.plot(x, y, c)
   }
 
   line(x1: number, y1: number, x2: number, y2: number, c = this.ink): void {
-    // Bresenham
-    let dx = Math.abs(x2 - x1)
-    let dy = -Math.abs(y2 - y1)
+    this.grX = x2
+    this.grY = y2
+    // Liang-Barsky clip to the screen so far-off endpoints don't cost
+    // millions of Bresenham steps
+    const dx = x2 - x1
+    const dy = y2 - y1
+    let t0 = 0
+    let t1 = 1
+    const edges: Array<[number, number]> = [
+      [-dx, x1],
+      [dx, this.width - 1 - x1],
+      [-dy, y1],
+      [dy, this.height - 1 - y1],
+    ]
+    for (const [p, q] of edges) {
+      if (p === 0) {
+        if (q < 0) return
+        continue
+      }
+      const r = q / p
+      if (p < 0) {
+        if (r > t1) return
+        if (r > t0) t0 = r
+      } else {
+        if (r < t0) return
+        if (r < t1) t1 = r
+      }
+    }
+    const cx1 = Math.round(x1 + t0 * dx)
+    const cy1 = Math.round(y1 + t0 * dy)
+    const cx2 = Math.round(x1 + t1 * dx)
+    const cy2 = Math.round(y1 + t1 * dy)
+    this.rawLine(cx1, cy1, cx2, cy2, c)
+  }
+
+  private rawLine(x1: number, y1: number, x2: number, y2: number, c: number): void {
+    const dx = Math.abs(x2 - x1)
+    const dy = -Math.abs(y2 - y1)
     const sx = x1 < x2 ? 1 : -1
     const sy = y1 < y2 ? 1 : -1
     let err = dx + dy
@@ -101,8 +140,6 @@ export class Screen {
         y1 += sy
       }
     }
-    this.grX = x2
-    this.grY = y2
   }
 
   box(x1: number, y1: number, x2: number, y2: number, c = this.ink): void {
@@ -116,6 +153,8 @@ export class Screen {
 
   bar(x1: number, y1: number, x2: number, y2: number, c = this.ink): void {
     if (y1 > y2) [y1, y2] = [y2, y1]
+    y1 = Math.max(0, y1)
+    y2 = Math.min(this.height - 1, y2)
     for (let y = y1; y <= y2; y++) this.hline(x1, x2, y, c)
   }
 
@@ -124,17 +163,19 @@ export class Screen {
       this.plot(cx, cy, c)
       return
     }
-    // sampled parametric outline is fine at these resolutions
-    let px = cx + rx
-    let py = cy
-    const steps = Math.max(16, (rx + ry) * 2)
     if (fill) {
-      for (let y = -ry; y <= ry; y++) {
+      const yLo = Math.max(-ry, -cy)
+      const yHi = Math.min(ry, this.height - 1 - cy)
+      for (let y = yLo; y <= yHi; y++) {
         const w = Math.floor(rx * Math.sqrt(Math.max(0, 1 - (y * y) / (ry * ry))))
         this.hline(cx - w, cx + w, cy + y, c)
       }
       return
     }
+    // sampled parametric outline is fine at these resolutions
+    let px = cx + rx
+    let py = cy
+    const steps = Math.min(4096, Math.max(16, (rx + ry) * 2))
     for (let i = 1; i <= steps; i++) {
       const a = (i / steps) * 2 * Math.PI
       const x = cx + Math.round(rx * Math.cos(a))
@@ -240,6 +281,17 @@ export class Screen {
     dx: number,
     dy: number,
   ): void {
+    // clamp the source rect (wild coordinates must not allocate wildly)
+    if (x1 < 0) {
+      dx -= x1
+      x1 = 0
+    }
+    if (y1 < 0) {
+      dy -= y1
+      y1 = 0
+    }
+    x2 = Math.min(x2, src.width)
+    y2 = Math.min(y2, src.height)
     const w = x2 - x1
     const h = y2 - y1
     if (w <= 0 || h <= 0) return
