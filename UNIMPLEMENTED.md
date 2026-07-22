@@ -50,13 +50,12 @@ Iff use it); sequential file channels don't yet.
 one 8x8 font), `Under/Shade/Inverse On/Off`, `Set Text`, `Set Paint`,
 `Set Pattern`/`Set Line` (fill/line styles), `Set Curs`, `Cmove`,
 `X Text/Y Text`, `Clw`, `Print Using`, escape-string functions
-(`Border$`, `Pen$`, `Paper$`, `Tab$`, `Repeat$`, `Zone$`).
+(`Border$`, `Pen$`, `Paper$`, `Repeat$`).
 
 ### Language-level
 `Def Fn`/`Fn`, `Every n Proc/Gosub` (interrupt-driven procedures),
 machine-code procedures (`@_apml_@` bodies are captured but 68k is
-never executed; `Call`, `Areg`, `Dreg`), `Fix` (float display
-precision), `Run`/`Prg Under`, `Command Line$`, `Err$`/`Errn`,
+never executed; `Call`, `Areg`, `Dreg`), `Run`/`Prg Under`, `Command Line$`, `Err$`/`Errn`,
 `Put Key`/`Clear Key`, bank management (`Reserve As Data/Work/Chip`,
 `Erase`, `Bank Swap`, `Start` address function), `Read Text`,
 `Appear`/`Zoom` (screen transitions), `Every On`.
@@ -94,8 +93,6 @@ parallel/MIDI), printer channels, `Ntsc` (always PAL), `View`/
 - **Bell/Boom/Shoot** are modern approximations of the chip
   waveforms.
 - **Sam Raw** is missing (needs bank-address memory model).
-- **Print comma tab width** defaults to 13 (not yet verified against
-  the console escape defaults).
 - **Collision in AMAL** is allowed in any Synchro mode (original
   required Synchro Off).
 - **`Timer=` accepted**, drives the frame clock directly.
