@@ -42,6 +42,13 @@ export interface Wind {
   /** Writing modes: w1 replace/or/xor/and/ignore, w2 both/paper/pen */
   writing1: number
   writing2: number
+  /** Scroll Off: printing past the bottom wraps to the top */
+  scrollOff: boolean
+  /** text styles: bit0 underline, bit1 bold, bit2 italic (Set Text) */
+  style: number
+  inverse: boolean
+  /** Shade On: glyphs render through a dither mask */
+  shade: boolean
 }
 
 export class Screen {
@@ -119,6 +126,10 @@ export class Screen {
       prevN: 0,
       writing1: 0,
       writing2: 0,
+      scrollOff: false,
+      style: 0,
+      inverse: false,
+      shade: false,
     }
     this.windows.set(0, this.curWin)
   }
@@ -385,14 +396,23 @@ export class Screen {
     this.curY = 0
   }
 
-  /** Draw one 8x8 glyph honouring the window Writing modes. */
+  /** Draw one 8x8 glyph honouring the window Writing modes and styles. */
   drawChar(px: number, py: number, ch: number, pen: number, paper: number, transparent = false): void {
     const w = this.curWin
     if (w.writing1 === 4) return // IGNORE
+    if (w.inverse) {
+      const t = pen
+      pen = paper
+      paper = t
+    }
     const glyph = FONT8[ch & 0xff] ?? FONT8[32]!
     const bg = w.writing2 === 2 ? 0 : paper
     for (let row = 0; row < 8; row++) {
-      const bits = glyph[row]!
+      let bits = glyph[row]!
+      if (w.style & 2) bits |= bits >> 1 // bold
+      if (w.style & 4) bits = row < 4 ? (bits >> 1) & 0xff : bits // italic (slanted top)
+      if (w.style & 1 && row === 7) bits = 0xff // underline
+      if (w.shade) bits &= row & 1 ? 0x55 : 0xaa // dither mask
       for (let col = 0; col < 8; col++) {
         const x = px + col
         const y = py + row
@@ -448,14 +468,80 @@ export class Screen {
     w.curX = 0
     w.curY++
     if (w.curY >= w.rows) {
-      this.scrollUp(8)
-      w.curY = w.rows - 1
+      if (w.scrollOff) {
+        w.curY = 0 // Scroll Off: restart from the top of the window
+      } else {
+        this.scrollUp(8)
+        w.curY = w.rows - 1
+      }
     }
   }
 
   writeText(text: string): void {
-    for (const ch of text) {
+    for (let ti = 0; ti < text.length; ti++) {
+      const ch = text[ti]!
       const c = ch.charCodeAt(0)
+      if (c === 27) {
+        // console escape: letter + parameter characters (see +Lib.s ChXxx)
+        const w = this.curWin
+        const op = text[ti + 1] ?? ''
+        const arg = (k: number): number => (text.charCodeAt(ti + 1 + k) || 48) - 48
+        switch (op) {
+          case 'X':
+            this.locate(arg(1), -1)
+            ti += 2
+            break
+          case 'Y':
+            this.locate(-1, arg(1))
+            ti += 2
+            break
+          case 'P':
+            w.pen = arg(1)
+            ti += 2
+            break
+          case 'B':
+            w.paper = arg(1)
+            ti += 2
+            break
+          case 'D':
+            w.cuCol = arg(1)
+            ti += 2
+            break
+          case 'T':
+            w.tab = Math.max(1, arg(1))
+            ti += 2
+            break
+          case 'C':
+            this.cursorOn = arg(1) !== 0
+            ti += 2
+            break
+          case 'W':
+            w.writing2 = arg(1) >> 3
+            w.writing1 = arg(1) & 7
+            ti += 2
+            break
+          case 'N': // cmove Y, biased +128 (ChCMv)
+            w.curY = Math.max(0, Math.min(w.rows - 1, w.curY + (text.charCodeAt(ti + 2) || 128) - 128))
+            ti += 2
+            break
+          case 'O': // cmove X
+            w.curX = Math.max(0, Math.min(w.cols - 1, w.curX + (text.charCodeAt(ti + 2) || 128) - 128))
+            ti += 2
+            break
+          case 'M': {
+            const m = arg(1)
+            if (m === 0) w.memX = w.curX
+            else if (m === 2) w.memY = w.curY
+            else if (m === 1) w.curX = Math.min(w.cols - 1, w.memX)
+            else w.curY = Math.min(w.rows - 1, w.memY)
+            ti += 2
+            break
+          }
+          default:
+            ti += 1
+        }
+        continue
+      }
       switch (c) {
         case 10: // LF
           this.newline()
@@ -607,6 +693,10 @@ export class Screen {
       prevN: src.n,
       writing1: 0,
       writing2: 0,
+      scrollOff: false,
+      style: 0,
+      inverse: false,
+      shade: false,
     }
     if (this.windSave) {
       const r = this.windowRect(w)

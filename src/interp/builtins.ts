@@ -94,6 +94,53 @@ export function formatUsing(fmt: string, v: Value, it: Interp): string {
   return out
 }
 
+/** Rol/Ror width,variable — rotate within b/w/l */
+function rolror(width: number, left: boolean): Instr {
+  return (it) => {
+    const n = it.evalInt() % width
+    it.expect(',')
+    const tg = it.parseTarget()
+    const v = int(tg.get())
+    const mask = width === 32 ? -1 : (1 << width) - 1
+    const x = v & mask
+    const r = left ? ((x << n) | (x >>> (width - n))) & mask : ((x >>> n) | (x << (width - n))) & mask
+    tg.set(VI((v & ~mask) | r))
+  }
+}
+
+/** functions that parse their own arguments */
+export const RAWFUNCS: Record<string, (it: Interp) => Value> = {
+  match(it) {
+    // Match(A(0),value): binary search of a sorted array; negative
+    // -closest when not found
+    it.expect('(')
+    const arr = it.parseArrayRef()
+    it.expect(',')
+    const v = it.evalExpr()
+    it.expect(')')
+    let lo = 0
+    let hi = arr.data.length - 1
+    let closest = 0
+    const cmp = (a: Value): number => {
+      if (a.k === 'str' || v.k === 'str') {
+        const x = str(a)
+        const y = str(v)
+        return x < y ? -1 : x > y ? 1 : 0
+      }
+      return a.n - v.n
+    }
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      const c = cmp(arr.data[mid]!)
+      closest = mid
+      if (c === 0) return VI(mid)
+      if (c < 0) lo = mid + 1
+      else hi = mid - 1
+    }
+    return VI(closest === 0 ? -1 : -closest)
+  },
+}
+
 export const INSTR: Record<string, Instr> = {
   // ---- output ----
   print(it) {
@@ -647,6 +694,49 @@ export const INSTR: Record<string, Instr> = {
     })
     it.skipToStmtEnd()
   },
+  sort(it) {
+    // Sort A(0): ascending, in place, int/float/string arrays
+    const arr = it.parseArrayRef()
+    arr.data.sort((a, b) => {
+      if (a.k === 'str' || b.k === 'str') return str(a) < str(b) ? -1 : str(a) > str(b) ? 1 : 0
+      return a.n - b.n
+    })
+  },
+  bset(it) {
+    const n = it.evalInt()
+    it.expect(',')
+    const tg = it.parseTarget()
+    tg.set(VI(int(tg.get()) | (1 << (n & 31))))
+  },
+  bclr(it) {
+    const n = it.evalInt()
+    it.expect(',')
+    const tg = it.parseTarget()
+    tg.set(VI(int(tg.get()) & ~(1 << (n & 31))))
+  },
+  bchg(it) {
+    const n = it.evalInt()
+    it.expect(',')
+    const tg = it.parseTarget()
+    tg.set(VI(int(tg.get()) ^ (1 << (n & 31))))
+  },
+  'rol.b': rolror(8, true),
+  'rol.w': rolror(16, true),
+  'rol.l': rolror(32, true),
+  'ror.b': rolror(8, false),
+  'ror.w': rolror(16, false),
+  'ror.l': rolror(32, false),
+  'clear key'(it) {
+    void it
+    it.inp.keyQueue.length = 0
+  },
+  lprint(it) {
+    // printer output — evaluated and discarded
+    while (!it.atStmtEnd()) {
+      if (it.accept(';') || it.accept(',')) continue
+      it.evalExpr()
+    }
+  },
   fix(it) {
     // InFix: n 0-15 = digits after the point; >=16 = proportional
     // default; negative = exponent notation with |n| digits
@@ -988,6 +1078,29 @@ export const FUNCS: Record<string, Func> = {
   errtrap(it, a) {
     arity(a, 0)
     return VI(it.errCode)
+  },
+  errn(it, a) {
+    arity(a, 0)
+    return VI(it.errCode)
+  },
+  'err$'(it, a) {
+    arity(a, 1)
+    void a
+    return VS(it.errCode !== 0 ? 'error' : '')
+  },
+  'repeat$'(_, a) {
+    arity(a, 2)
+    const n = int(a[1]!)
+    if (n < 0) throw new AmosError('function call error')
+    return VS(str(a[0]!).repeat(n))
+  },
+  'command line$'(_, a) {
+    arity(a, 0)
+    return VS('')
+  },
+  'display height'(_, a) {
+    arity(a, 0)
+    return VI(283) // PAL visible lines
   },
   'tab$': (_, a) => {
     arity(a, 0)

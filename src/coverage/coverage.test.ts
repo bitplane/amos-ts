@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
-import { INSTR, FUNCS } from '../interp/builtins'
-import { makeInstructions, makeFunctions } from '../runtime/instr'
+import { INSTR, FUNCS, RAWFUNCS } from '../interp/builtins'
+import { makeInstructions, makeFunctions, makeRawFunctions } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/tokenizer'
 import { FAITHFUL, NA, STRUCTURAL } from '../coverage/status'
@@ -14,6 +14,7 @@ const registries = {
   coreFuncs: Object.keys(FUNCS),
   runtimeInstr: Object.keys(makeInstructions(rt)),
   runtimeFuncs: Object.keys(makeFunctions(rt)),
+  raw: [...Object.keys(RAWFUNCS), ...Object.keys(makeRawFunctions(rt))],
 }
 const implemented = new Set(Object.values(registries).flat())
 

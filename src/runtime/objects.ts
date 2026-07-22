@@ -45,6 +45,7 @@ export class ObjectBank {
   /** 1-based image access, as in AMOS */
   images: BankImage[] = []
   palette: number[] = []
+  private flipCache = new Map<number, BankImage>()
 
   static fromSpriteBank(bank: SpriteBank): ObjectBank {
     const b = new ObjectBank()
@@ -53,8 +54,31 @@ export class ObjectBank {
     return b
   }
 
+  /**
+   * Image lookup honouring Hrev/Vrev flip flags: bit 15 = horizontal,
+   * bit 14 = vertical (hot spots mirror too). Flips are cached.
+   */
   image(n: number): BankImage | undefined {
-    return this.images[n - 1]
+    const flags = n & 0xc000
+    const base = this.images[(n & 0x3fff) - 1]
+    if (!base || flags === 0) return base
+    const cached = this.flipCache.get(n)
+    if (cached) return cached
+    const flipped: BankImage = {
+      ...base,
+      pixels: new Uint8Array(base.pixels.length),
+      hotX: flags & 0x8000 ? base.width - 1 - base.hotX : base.hotX,
+      hotY: flags & 0x4000 ? base.height - 1 - base.hotY : base.hotY,
+    }
+    for (let y = 0; y < base.height; y++) {
+      const sy = flags & 0x4000 ? base.height - 1 - y : y
+      for (let x = 0; x < base.width; x++) {
+        const sx = flags & 0x8000 ? base.width - 1 - x : x
+        flipped.pixels[y * base.width + x] = base.pixels[sy * base.width + sx]!
+      }
+    }
+    this.flipCache.set(n, flipped)
+    return flipped
   }
 
   /** Get Bob: (re)create image n from screen pixels. */

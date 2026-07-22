@@ -18,7 +18,7 @@ import {
 } from './values'
 import type { Value, VarType } from './values'
 import type { AmosIO } from './io'
-import { INSTR, FUNCS } from './builtins'
+import { INSTR, FUNCS, RAWFUNCS } from './builtins'
 import type { Instr as InstrFn, Func as FuncFn } from './builtins'
 
 export class AmosRuntimeError extends Error {
@@ -117,6 +117,8 @@ export interface InterpOptions {
   instructions?: Record<string, InstrFn>
   /** extra functions; override core */
   functions?: Record<string, FuncFn>
+  /** functions that parse their own arguments (Match, Hunt, ...) */
+  rawFunctions?: Record<string, (it: Interp) => Value>
   input?: InputState
 }
 
@@ -188,6 +190,7 @@ export class Interp {
   readonly inp: InputState
   private readonly instr: Record<string, InstrFn>
   private readonly funcs: Record<string, FuncFn>
+  private readonly rawFuncs: Record<string, (it: Interp) => Value>
   totalSteps = 0
 
   constructor(
@@ -202,6 +205,7 @@ export class Interp {
     this.maxSteps = opts.maxSteps ?? 5_000_000
     this.instr = opts.instructions ? { ...INSTR, ...opts.instructions } : INSTR
     this.funcs = opts.functions ? { ...FUNCS, ...opts.functions } : FUNCS
+    this.rawFuncs = { ...RAWFUNCS, ...opts.rawFunctions }
     this.inp = opts.input ?? newInputState()
   }
 
@@ -401,6 +405,17 @@ export class Interp {
     this.frameFor(key, false).vars.set(key, coerce(t, v))
   }
 
+  /** parse "A(0)" style array references (Sort/Match) */
+  parseArrayRef(): AmosArray {
+    const t = this.tok()
+    if (t?.kind !== 'var') throw new AmosError('array expected')
+    this.advance()
+    const key = varKey(t.name, t.flags)
+    this.expect('(')
+    while (!this.accept(')')) this.advance() // index ignored — whole array
+    return this.getArray(key)
+  }
+
   getArray(key: string): AmosArray {
     const arr = this.frameFor(key, true).arrays.get(key)
     if (!arr) throw new AmosError(`array not dimensioned: ${key.toUpperCase()}`)
@@ -559,6 +574,10 @@ export class Interp {
         if (name === 'fn') {
           this.advance()
           return this.callUserFn()
+        }
+        if (name !== undefined && this.rawFuncs[name]) {
+          this.advance()
+          return this.rawFuncs[name]!(this)
         }
         if (name !== undefined) {
           const fn = this.funcs[name]

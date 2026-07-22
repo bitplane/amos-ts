@@ -7,8 +7,8 @@
 import { writeFileSync } from 'node:fs'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
-import { INSTR, FUNCS } from '../interp/builtins'
-import { makeInstructions, makeFunctions } from '../runtime/instr'
+import { INSTR, FUNCS, RAWFUNCS } from '../interp/builtins'
+import { makeInstructions, makeFunctions, makeRawFunctions } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/tokenizer'
 import { FAITHFUL, NA, NOTES, STRUCTURAL } from '../coverage/status'
@@ -22,6 +22,8 @@ const implemented = new Set([
   ...Object.keys(FUNCS),
   ...Object.keys(makeInstructions(rt)),
   ...Object.keys(makeFunctions(rt)),
+  ...Object.keys(RAWFUNCS),
+  ...Object.keys(makeRawFunctions(rt)),
 ])
 
 function keywordNames(defs: Array<{ name: string }>): string[] {

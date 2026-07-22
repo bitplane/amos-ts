@@ -769,9 +769,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- packed pictures and IFF ----
     unpack(it) {
-      const bank = rt.memBanks.get(it.evalInt())
-      if (!bank) throw new AmosError('bank not reserved')
-      const pic = parsePacPic(bank.data)
+      // first argument: a bank number, or an ADDRESS inside a bank (many
+      // programs keep several packed pictures in one bank with an offset
+      // table)
+      const src = it.evalInt()
+      let bytes: Uint8Array
+      const bank = rt.memBanks.get(src)
+      if (bank) {
+        bytes = bank.data
+      } else {
+        const m = rt.resolveAddr(src)
+        if (!m) throw new AmosError('bank not reserved')
+        bytes = m.data.subarray(m.off)
+      }
+      const pic = parsePacPic(bytes)
       if (it.accept('to')) {
         const n = it.evalInt()
         const sc = pic.screen
@@ -870,6 +881,371 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'led on': () => {}, // the power-LED audio filter — no filter to toggle
     'led off': () => {},
+
+    // ---- menus ----
+    'menu$'(it) {
+      // Menu$(m)="Title" / Menu$(m,i)="Item" / deeper sub-items accepted
+      it.expect('(')
+      const m = it.evalInt()
+      const i = it.accept(',') ? it.evalInt() : null
+      while (it.accept(',')) it.evalInt() // sub-sub menus: parsed, one level kept
+      it.expect(')')
+      it.expectOp('=')
+      const t = it.evalStr()
+      const menus = rt.menus
+      if (i === null) {
+        while (menus.titles.length < m) {
+          menus.titles.push('')
+          menus.items.push([])
+        }
+        menus.titles[m - 1] = t
+      } else {
+        while (menus.items.length < m) {
+          menus.titles.push('')
+          menus.items.push([])
+        }
+        const items = menus.items[m - 1]!
+        while (items.length < i) items.push('')
+        items[i - 1] = t
+      }
+    },
+    'menu on'(it) {
+      if (!it.atStmtEnd()) it.evalInt() // menu bank — unsupported
+      rt.menus.on = true
+    },
+    'menu off'() {
+      rt.menus.on = false
+    },
+    'on menu'(it) {
+      // On Menu Gosub L1[,L2...] / On Menu Proc P1[,P2...]
+      const kind = it.nm()
+      if (kind !== 'gosub' && kind !== 'proc') throw new AmosError('On Menu needs Gosub or Proc')
+      it.advance()
+      const targets: string[] = []
+      for (;;) {
+        const t = it.tok()
+        if (t === undefined || !('name' in t)) throw new AmosError('label expected')
+        it.advance()
+        targets.push(t.name.toLowerCase())
+        if (!it.accept(',')) break
+      }
+      rt.onMenu = { kind, targets, armed: false }
+    },
+    'on menu on'() {
+      if (rt.onMenu) rt.onMenu.armed = true
+    },
+    'on menu off'() {
+      if (rt.onMenu) rt.onMenu.armed = false
+    },
+    'on menu del'() {
+      rt.onMenu = null
+    },
+    'menu key'(it) {
+      it.skipToStmtEnd() // keyboard shortcuts — not wired to selections yet
+    },
+
+    // ---- blocks ----
+    'get block'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const [x, y] = pair(it)
+      it.expect(',')
+      const [w, h] = pair(it)
+      const mask = it.accept(',') ? it.evalInt() !== 0 : false
+      const img = rt.grab(scr(), x, y, x + w, y + h)
+      rt.blocks.set(n, { x, y, w, h, pixels: img.pixels, mask })
+    },
+    'put block'(it) {
+      const b = rt.blocks.get(it.evalInt())
+      if (!b) throw new AmosError('block not defined')
+      let x = b.x
+      let y = b.y
+      if (it.accept(',')) {
+        x = it.evalInt()
+        it.expect(',')
+        y = it.evalInt()
+        while (it.accept(',')) it.evalInt() // planes/minterm
+      }
+      rt.blit(scr(), { width: b.w, height: b.h, pixels: b.pixels }, x, y, !b.mask)
+    },
+    'del block'(it) {
+      if (it.atStmtEnd()) rt.blocks.clear()
+      else rt.blocks.delete(it.evalInt())
+    },
+    'get cblock'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const [x, y] = pair(it)
+      it.expect(',')
+      const [w, h] = pair(it)
+      const img = rt.grab(scr(), x, y, x + w, y + h)
+      rt.cblocks.set(n, { x, y, w, h, pixels: img.pixels })
+    },
+    'put cblock'(it) {
+      const b = rt.cblocks.get(it.evalInt())
+      if (!b) throw new AmosError('block not defined')
+      let x = b.x
+      let y = b.y
+      if (it.accept(',')) {
+        x = it.evalInt()
+        it.expect(',')
+        y = it.evalInt()
+      }
+      rt.blit(scr(), { width: b.w, height: b.h, pixels: b.pixels }, x, y, true)
+    },
+    'del cblock'(it) {
+      if (it.atStmtEnd()) rt.cblocks.clear()
+      else rt.cblocks.delete(it.evalInt())
+    },
+
+    // ---- screens extra ----
+    'screen clone'(it) {
+      const n = it.evalInt()
+      const src = scr()
+      const clone = rt.openScreen(n, src.width, src.height, src.nColors, (src.hires ? 0x8000 : 0) | (src.laced ? 4 : 0))
+      clone.pixels = src.pixels // shared bitmap
+      clone.back = src.back
+      clone.palette = src.palette
+      rt.setCurrent(src.index)
+    },
+    'sprite update on'() {
+      rt.spriteUpdateOn = true
+      rt.frozenSprites = null
+    },
+    'sprite update off'() {
+      rt.frozenSprites = [...rt.hwSprites.values()].map((s2) => ({ ...s2 }))
+      rt.spriteUpdateOn = false
+    },
+    'hscroll'(it) {
+      // 1: line left, 2: window left, 3: line right, 4: window right
+      const t = it.evalInt()
+      const s = scr()
+      const w = s.curWin
+      const y1 = t === 1 || t === 3 ? w.y + w.curY * 8 : w.y
+      const h = t === 1 || t === 3 ? 8 : w.rows * 8
+      const dx = t <= 2 ? -8 : 8
+      Screen.copy(s, w.x, y1, w.x + w.cols * 8, y1 + h, s, w.x + dx, y1)
+    },
+    'vscroll'(it) {
+      // 1: down from cursor, 2: window up, 3: window down, 4: up from cursor
+      const t = it.evalInt()
+      const s = scr()
+      const w = s.curWin
+      const dy = t === 2 || t === 4 ? -8 : 8
+      Screen.copy(s, w.x, w.y, w.x + w.cols * 8, w.y + w.rows * 8, s, w.x, w.y + dy)
+    },
+
+    // ---- text styles ----
+    'under on'() {
+      scr().curWin.style |= 1
+    },
+    'under off'() {
+      scr().curWin.style &= ~1
+    },
+    'shade on'() {
+      scr().curWin.shade = true
+    },
+    'shade off'() {
+      scr().curWin.shade = false
+    },
+    'inverse on'() {
+      scr().curWin.inverse = true
+    },
+    'inverse off'() {
+      scr().curWin.inverse = false
+    },
+    'set text'(it) {
+      scr().curWin.style = it.evalInt() & 7
+    },
+    'scroll on'() {
+      scr().curWin.scrollOff = false
+    },
+    'scroll off'() {
+      scr().curWin.scrollOff = true
+    },
+    'key speed'(it) {
+      it.evalInt()
+      if (it.accept(',')) it.evalInt() // repeat rates — host handles keys
+    },
+    'change mouse'(it) {
+      it.evalInt() // pointer shape — host cursor is shown instead
+    },
+
+    // ---- memory / banks ----
+    'reserve as data': reserve('Datas'),
+    'reserve as work': reserve('Work'),
+    'reserve as chip data': reserve('Datas'),
+    'reserve as chip work': reserve('Work'),
+    erase(it) {
+      const n = it.evalInt()
+      if (n === 1 && rt.spriteBank) {
+        rt.spriteBank = null
+        return
+      }
+      if (n === 2 && rt.iconBank) {
+        rt.iconBank = null
+        return
+      }
+      if (!rt.memBanks.delete(n)) throw new AmosError('bank not reserved')
+    },
+    'erase all'() {
+      rt.memBanks.clear()
+      rt.spriteBank = null
+      rt.iconBank = null
+    },
+    'erase temp'() {
+      for (const [n, b] of [...rt.memBanks]) {
+        if (/work/i.test(b.name)) rt.memBanks.delete(n)
+      }
+    },
+    'bank swap'(it) {
+      const a = it.evalInt()
+      it.expect(',')
+      const b = it.evalInt()
+      // banks 1/2 are the sprite/icon object banks
+      if ((a === 1 || a === 2) && (b === 1 || b === 2) && a !== b) {
+        const t = rt.spriteBank
+        rt.spriteBank = rt.iconBank
+        rt.iconBank = t
+        return
+      }
+      const ba = rt.memBanks.get(a)
+      const bb = rt.memBanks.get(b)
+      if (!ba || !bb) throw new AmosError('bank not reserved')
+      rt.memBanks.set(a, { ...bb, number: a })
+      rt.memBanks.set(b, { ...ba, number: b })
+    },
+    'bank shrink'(it) {
+      const n = it.evalInt()
+      it.expect('to')
+      const len = it.evalInt()
+      const bank = rt.memBanks.get(n)
+      if (!bank) throw new AmosError('bank not reserved')
+      bank.data = bank.data.subarray(0, len)
+    },
+    'list bank'(it) {
+      for (const [n, b] of [...rt.memBanks].sort((x, y2) => x[0] - y2[0])) {
+        it.write(` ${n} ${b.name.padEnd(10)} S:$${rt.bankBase(n).toString(16).toUpperCase()} L:${b.data.length}\n`)
+      }
+    },
+    poke(it) {
+      const addr = it.evalInt()
+      it.expect(',')
+      const v = it.evalInt()
+      const m = rt.resolveAddr(addr)
+      if (m) m.data[m.off] = v & 0xff
+    },
+    doke(it) {
+      const addr = it.evalInt()
+      it.expect(',')
+      const v = it.evalInt()
+      const m = rt.resolveAddr(addr)
+      if (m && m.off + 1 < m.data.length) {
+        m.data[m.off] = (v >> 8) & 0xff
+        m.data[m.off + 1] = v & 0xff
+      }
+    },
+    loke(it) {
+      const addr = it.evalInt()
+      it.expect(',')
+      const v = it.evalInt()
+      const m = rt.resolveAddr(addr)
+      if (m && m.off + 3 < m.data.length) {
+        m.data[m.off] = (v >>> 24) & 0xff
+        m.data[m.off + 1] = (v >>> 16) & 0xff
+        m.data[m.off + 2] = (v >>> 8) & 0xff
+        m.data[m.off + 3] = v & 0xff
+      }
+    },
+    'poke$'(it) {
+      const addr = it.evalInt()
+      it.expect(',')
+      const str2 = it.evalStr()
+      const m = rt.resolveAddr(addr)
+      if (m) for (let i = 0; i < str2.length && m.off + i < m.data.length; i++) m.data[m.off + i] = str2.charCodeAt(i) & 0xff
+    },
+    fill(it) {
+      const start = it.evalInt()
+      it.expect('to')
+      const end = it.evalInt()
+      it.expect(',')
+      const v = it.evalInt()
+      const m = rt.resolveAddr(start)
+      if (!m) return
+      const len = Math.min(end - start, m.data.length - m.off)
+      for (let i = 0; i + 3 < len; i += 4) {
+        m.data[m.off + i] = (v >>> 24) & 0xff
+        m.data[m.off + i + 1] = (v >>> 16) & 0xff
+        m.data[m.off + i + 2] = (v >>> 8) & 0xff
+        m.data[m.off + i + 3] = v & 0xff
+      }
+    },
+    copy(it) {
+      const start = it.evalInt()
+      it.expect(',')
+      const end = it.evalInt()
+      it.expect('to')
+      const dest = it.evalInt()
+      const src = rt.resolveAddr(start)
+      const dst = rt.resolveAddr(dest)
+      if (!src || !dst) return
+      const len = Math.min(end - start, src.data.length - src.off, dst.data.length - dst.off)
+      dst.data.set(src.data.subarray(src.off, src.off + len), dst.off)
+    },
+    bload(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const dest = it.evalInt()
+      const bytes = rt.fs?.read(path)
+      if (!bytes) throw new AmosError(`file not found: ${path}`)
+      if (dest > 0 && dest < 0x10000) {
+        // small value: a bank number (Bnk.OrAdr)
+        rt.memBanks.set(dest, { kind: 'memory', number: dest, memType: 0, name: 'Datas', flags: 0, data: Uint8Array.from(bytes) })
+        return
+      }
+      const m = rt.resolveAddr(dest)
+      if (m) m.data.set(bytes.subarray(0, m.data.length - m.off), m.off)
+    },
+    bsave(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const start = it.evalInt()
+      it.expect('to')
+      const end = it.evalInt()
+      const m = rt.resolveAddr(start)
+      if (!m) throw new AmosError('address error')
+      const len = Math.min(end - start, m.data.length - m.off)
+      if (!rt.vfs?.writeFile(path, Uint8Array.from(m.data.subarray(m.off, m.off + len)))) {
+        throw new AmosError('disc is write protected')
+      }
+    },
+    'sam raw'(it) {
+      const mask = it.evalInt()
+      it.expect(',')
+      const addr = it.evalInt()
+      it.expect(',')
+      const len = it.evalInt()
+      it.expect(',')
+      const freq = it.evalInt()
+      const m = rt.resolveAddr(addr)
+      if (!m) return
+      const pcm = new Int8Array(m.data.buffer, m.data.byteOffset + m.off, Math.min(len, m.data.length - m.off))
+      rt.playPcm(mask, pcm, freq, false)
+    },
+    'hrev block'(it) {
+      const b = rt.blocks.get(it.evalInt())
+      if (!b) return
+      for (let y = 0; y < b.h; y++) b.pixels.subarray(y * b.w, (y + 1) * b.w).reverse()
+    },
+    'vrev block'(it) {
+      const b = rt.blocks.get(it.evalInt())
+      if (!b) return
+      for (let y = 0; y < b.h >> 1; y++) {
+        const a = b.pixels.slice(y * b.w, (y + 1) * b.w)
+        b.pixels.copyWithin(y * b.w, (b.h - 1 - y) * b.w, (b.h - y) * b.w)
+        b.pixels.set(a, (b.h - 1 - y) * b.w)
+      }
+    },
 
     // ---- files (Open In/Out, Print #, sequential channels) ----
     'open in'(it) {
@@ -1119,6 +1495,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
   }
 
+  /** Reserve As ... n,length */
+  function reserve(name: string): Instr {
+    return (it) => {
+      const n = it.evalInt()
+      it.expect(',')
+      rt.reserveBank(n, it.evalInt(), name)
+    }
+  }
+
   function bankPalette(): Instr {
     return (it) => {
       const mask = it.atStmtEnd() ? -1 : it.evalInt()
@@ -1184,6 +1569,32 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       } while (it.accept('to'))
       if (close) s.line(x1, y1, startX, startY)
     }
+  }
+}
+
+/** raw-parsed runtime functions (their args use To syntax) */
+export function makeRawFunctions(rt: Runtime): Record<string, (it: It) => import('../interp/values').Value> {
+  return {
+    hunt(it) {
+      // Hunt(start To finish, s$)
+      it.expect('(')
+      const start = it.evalInt()
+      it.expect('to')
+      const finish = it.evalInt()
+      it.expect(',')
+      const needle = it.evalStr()
+      it.expect(')')
+      const m = rt.resolveAddr(start)
+      if (!m || needle === '') return VI(0)
+      const len = Math.min(finish - start, m.data.length - m.off)
+      outer: for (let i = 0; i + needle.length <= len; i++) {
+        for (let k = 0; k < needle.length; k++) {
+          if (m.data[m.off + i + k] !== (needle.charCodeAt(k) & 0xff)) continue outer
+        }
+        return VI(start + i)
+      }
+      return VI(0)
+    },
   }
 }
 
@@ -1442,6 +1853,117 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     dfree(_, a) {
       void a
       return VI(0x7fffffff)
+    },
+    choice(_, a) {
+      const m = rt.menus
+      if (a.length === 0) {
+        const v = m.choiceFlag ? -1 : 0
+        m.choiceFlag = false
+        return VI(v)
+      }
+      const which = int(a[0]!)
+      if (!m.selection) return VI(0)
+      return VI(which === 2 ? m.selection[1] : m.selection[0])
+    },
+
+    at(_, a) {
+      // At(x,y) builds the locate escape the console interprets; elided
+      // coordinates leave that axis alone
+      let out = ''
+      const x = int(a[0]!)
+      const y = int(a[1]!)
+      if (x >= 0) out += '\x1bX' + String.fromCharCode(48 + x)
+      if (y >= 0) out += '\x1bY' + String.fromCharCode(48 + y)
+      return VS(out)
+    },
+
+    // ---- flips, memory, conversions ----
+    hrev(_, a) {
+      return VI(int(a[0]!) | 0x8000) // flip flag consumed by image()
+    },
+    vrev(_, a) {
+      return VI(int(a[0]!) | 0x4000)
+    },
+    start(_, a) {
+      const n = int(a[0]!)
+      if (!rt.memBanks.has(n)) throw new AmosError('bank not reserved')
+      return VI(rt.bankBase(n))
+    },
+    peek(_, a) {
+      const m = rt.resolveAddr(int(a[0]!))
+      return VI(m ? m.data[m.off]! : 0)
+    },
+    deek(_, a) {
+      const m = rt.resolveAddr(int(a[0]!))
+      return VI(m && m.off + 1 < m.data.length ? (m.data[m.off]! << 8) | m.data[m.off + 1]! : 0)
+    },
+    leek(_, a) {
+      const m = rt.resolveAddr(int(a[0]!))
+      if (!m || m.off + 3 >= m.data.length) return VI(0)
+      return VI(((m.data[m.off]! << 24) | (m.data[m.off + 1]! << 16) | (m.data[m.off + 2]! << 8) | m.data[m.off + 3]!) | 0)
+    },
+    'peek$'(_, a) {
+      const m = rt.resolveAddr(int(a[0]!))
+      if (!m) return VS('')
+      const len = int(a[1]!)
+      const stop = a.length > 2 ? str(a[2]!).charCodeAt(0) : -1
+      let out = ''
+      for (let i = 0; i < len && m.off + i < m.data.length; i++) {
+        const b = m.data[m.off + i]!
+        if (b === stop) break
+        out += String.fromCharCode(b)
+      }
+      return VS(out)
+    },
+    btst(_, a) {
+      return VI(int(a[1]!) & (1 << (int(a[0]!) & 31)) ? -1 : 0)
+    },
+    'x text'(_, a) {
+      const x = int(a[0]!) >> 3
+      return VI(x >= 0 && x < scr().width >> 3 ? x : -1)
+    },
+    'y text'(_, a) {
+      const y = int(a[0]!) >> 3
+      return VI(y >= 0 && y < scr().height >> 3 ? y : -1)
+    },
+    'x graphic'(_, a) {
+      return VI(int(a[0]!) * 8)
+    },
+    'y graphic'(_, a) {
+      return VI(int(a[0]!) * 8)
+    },
+    'mouse screen'(it, a) {
+      void a
+      for (let i = rt.order.length - 1; i >= 0; i--) {
+        const s = rt.screens.get(rt.order[i]!)
+        if (!s || !s.visible) continue
+        const sx = (it.inp.mouseX - s.displayX) * (s.hires ? 2 : 1)
+        const sy = it.inp.mouseY - s.displayY
+        if (sx >= 0 && sy >= 0 && sx < s.width && sy < s.height) return VI(s.index)
+      }
+      return VI(-1)
+    },
+    scanshift(it, a) {
+      void a
+      let m2 = 0
+      if (it.inp.keys.has(0x60)) m2 |= 1
+      if (it.inp.keys.has(0x61)) m2 |= 2
+      return VI(m2)
+    },
+    'pen$'(_, a) {
+      return VS('\x1bP' + String.fromCharCode(48 + int(a[0]!)))
+    },
+    'paper$'(_, a) {
+      return VS('\x1bB' + String.fromCharCode(48 + int(a[0]!)))
+    },
+    'cmove$'(_, a) {
+      const x = a.length > 0 ? int(a[0]!) : 0
+      const y = a.length > 1 ? int(a[1]!) : 0
+      return VS('\x1bO' + String.fromCharCode(128 + x) + '\x1bN' + String.fromCharCode(128 + y))
+    },
+    'border$'(_, a) {
+      void int(a[1] ?? a[0]!)
+      return VS(str(a[0]!)) // TODO: border boxes around zone text
     },
   }
 

@@ -6,13 +6,14 @@ import type { AmosIO } from '../interp/io'
 import { AmosError } from '../interp/values'
 import type { Bank, MemoryBank } from '../loader/amosfile'
 import { Screen } from './screen'
-import { makeInstructions, makeFunctions } from './instr'
+import { makeInstructions, makeFunctions, makeRawFunctions } from './instr'
 import { ObjectBank, imagesCollide } from './objects'
 import type { BankImage, Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from './fs'
 import { AmalChannel } from './amal'
 import type { AmalHost, ChannelTarget } from './amal'
 import { NullAudio, parseSampleBank } from './audio'
+import { FONT8 } from './font.gen'
 import type { AudioSink, SampleEntry } from './audio'
 import { AmigaFS } from './vfs'
 
@@ -117,6 +118,46 @@ export class Runtime {
   chrInp: [number, number] = [13, 10]
   /** Dir First$/Dir Next$ iterator */
   dirIter: { entries: Array<{ name: string; isDir: boolean }>; idx: number } | null = null
+  // ---- blocks (Get/Put Block, Cblocks) ----
+  blocks = new Map<number, { x: number; y: number; w: number; h: number; pixels: Uint8Array; mask: boolean }>()
+  cblocks = new Map<number, { x: number; y: number; w: number; h: number; pixels: Uint8Array }>()
+  // ---- memory model: banks with fake base addresses ----
+  /** Reserve'd banks (in addition to loaded memBanks) get data here */
+  bankBase(n: number): number {
+    return 0x01000000 + n * 0x00100000
+  }
+
+  /** find the bank containing a fake address */
+  resolveAddr(addr: number): { data: Uint8Array; off: number } | null {
+    const a = addr >>> 0
+    for (const [n, bank] of this.memBanks) {
+      const base = this.bankBase(n) >>> 0
+      if (a >= base && a < base + bank.data.length) return { data: bank.data, off: a - base }
+    }
+    return null
+  }
+
+  reserveBank(n: number, length: number, name: string): void {
+    this.memBanks.set(n, { kind: 'memory', number: n, memType: 0, name, flags: 0, data: new Uint8Array(length) })
+  }
+  // ---- sprite update freeze ----
+  spriteUpdateOn = true
+  frozenSprites: HwSprite[] | null = null
+  // ---- menus ----
+  menus = {
+    titles: [] as string[],
+    items: [] as string[][],
+    on: false,
+    /** currently dropped-down menu index (-1 none) while RMB held */
+    open: -1,
+    hoverItem: -1,
+    /** last completed selection, 1-based [menu, item] */
+    selection: null as [number, number] | null,
+    /** set on selection, cleared by =Choice */
+    choiceFlag: false,
+  }
+  onMenu: { kind: 'gosub' | 'proc'; targets: string[]; armed: boolean } | null = null
+  private lastRmb = false
   private sampleCache: { bank: MemoryBank; entries: SampleEntry[] } | null = null
   readonly amalHost: AmalHost = {
     globals: this.amalGlobals,
@@ -347,6 +388,7 @@ export class Runtime {
       io,
       instructions: makeInstructions(this),
       functions: makeFunctions(this),
+      rawFunctions: makeRawFunctions(this),
       input: this.input,
     }
     if (opts.extensions) interpOpts.extensions = opts.extensions
@@ -507,7 +549,60 @@ export class Runtime {
       result = { status: this.interp.done ? 'ended' : 'blocked', steps: 0, unimplemented: this.interp.unimplemented }
     }
     if (this.bobUpdateOn) this.updateBobs()
+    this.stepMenus()
     return result
+  }
+
+  /** right-button menu interaction + On Menu dispatch */
+  private stepMenus(): void {
+    const m = this.menus
+    const rmb = (this.input.mouseK & 2) !== 0
+    if (m.on && rmb) {
+      const mx = (this.input.mouseX - 128) * 2
+      const my = (this.input.mouseY - 50) * 2
+      // title spans: 16px pad + 8px/char each
+      let x = 0
+      m.open = -1
+      for (let i = 0; i < m.titles.length; i++) {
+        const w = m.titles[i]!.length * 8 + 16
+        if (my < 10 && mx >= x && mx < x + w) m.open = i
+        x += w
+      }
+      if (m.open < 0 && this.openMenuAt >= 0) m.open = this.openMenuAt
+      if (m.open >= 0) {
+        this.openMenuAt = m.open
+        const items = m.items[m.open] ?? []
+        const row = Math.floor((my - 10) / 10)
+        m.hoverItem = my >= 10 && row < items.length ? row : -1
+      }
+    } else if (m.on && this.lastRmb && !rmb) {
+      // release: commit the selection
+      if (this.openMenuAt >= 0 && m.hoverItem >= 0) {
+        m.selection = [this.openMenuAt + 1, m.hoverItem + 1]
+        m.choiceFlag = true
+        if (this.onMenu?.armed) this.dispatchOnMenu(this.openMenuAt)
+      }
+      m.open = -1
+      m.hoverItem = -1
+      this.openMenuAt = -1
+    }
+    this.lastRmb = rmb
+  }
+
+  private openMenuAt = -1
+
+  private dispatchOnMenu(menuIdx: number): void {
+    const h = this.onMenu
+    if (!h || this.interp.done) return
+    const target = h.targets[menuIdx] ?? h.targets[0]
+    if (target === undefined) return
+    this.interp.blocked = null // menu selections wake waits
+    if (h.kind === 'proc') {
+      this.interp.callProc(target, [])
+    } else {
+      this.interp.gosubs.push({ addr: { li: this.interp.pc.li, ti: this.interp.pc.ti }, loopBase: this.interp.loops.length })
+      this.interp.jumpLabel(target)
+    }
   }
 
   private unblock(): void {
@@ -653,7 +748,53 @@ export class Runtime {
       }
     }
     this.drawHwSprites(data, W, H)
+    this.drawMenus(data, W, H)
     return { width: W, height: H, data }
+  }
+
+  /** Workbench-style menu bar while the right button is held */
+  private drawMenus(data: Uint8ClampedArray, W: number, H: number): void {
+    const m = this.menus
+    if (!m.on || (this.input.mouseK & 2) === 0) return
+    const put = (x: number, y: number, rgb: [number, number, number]): void => {
+      if (x < 0 || y < 0 || x >= W || y >= H) return
+      const o = (y * W + x) * 4
+      data[o] = rgb[0]
+      data[o + 1] = rgb[1]
+      data[o + 2] = rgb[2]
+    }
+    const WHITE: [number, number, number] = [255, 255, 255]
+    const BLACK: [number, number, number] = [0, 0, 0]
+    const BLUE: [number, number, number] = [68, 68, 170]
+    const text = (tx: number, ty: number, t: string, fg: [number, number, number]): void => {
+      for (let i = 0; i < t.length; i++) {
+        const glyph = FONT8[t.charCodeAt(i)] ?? FONT8[32]!
+        for (let r = 0; r < 8; r++) {
+          for (let c = 0; c < 8; c++) {
+            if ((glyph[r]! >> (7 - c)) & 1) put(tx + i * 8 + c, ty + r, fg)
+          }
+        }
+      }
+    }
+    for (let y = 0; y < 10; y++) for (let x = 0; x < W; x++) put(x, y, WHITE)
+    let x = 0
+    for (let i = 0; i < m.titles.length; i++) {
+      const w = m.titles[i]!.length * 8 + 16
+      if (i === this.openMenuAt) for (let y = 0; y < 10; y++) for (let xx = x; xx < x + w; xx++) put(xx, y, BLUE)
+      text(x + 8, 1, m.titles[i]!, i === this.openMenuAt ? WHITE : BLACK)
+      x += w
+    }
+    if (this.openMenuAt >= 0) {
+      const items = m.items[this.openMenuAt] ?? []
+      let bx = 0
+      for (let i = 0; i < this.openMenuAt; i++) bx += m.titles[i]!.length * 8 + 16
+      const bw = Math.max(...items.map((t) => t.length), 4) * 8 + 16
+      for (let i = 0; i < items.length; i++) {
+        const on = i === m.hoverItem
+        for (let y = 0; y < 10; y++) for (let xx = bx; xx < bx + bw; xx++) put(xx, 10 + i * 10 + y, on ? BLUE : WHITE)
+        text(bx + 8, 11 + i * 10, items[i]!, on ? WHITE : BLACK)
+      }
+    }
   }
 
   /**
@@ -757,11 +898,12 @@ export class Runtime {
 
   /** Hardware sprites draw over everything, colours 16-31, hw coords. */
   private drawHwSprites(data: Uint8ClampedArray, W: number, H: number): void {
-    if (this.hwSprites.size === 0) return
+    const sprites = this.spriteUpdateOn ? [...this.hwSprites.values()] : (this.frozenSprites ?? [])
+    if (sprites.length === 0) return
     const front = this.screens.get(this.order[this.order.length - 1] ?? 0)
     const palette = front?.palette
     if (!palette) return
-    for (const sp of this.hwSprites.values()) {
+    for (const sp of sprites) {
       const img = this.spriteBank?.image(sp.image)
       if (!img) continue
       const bx = (sp.x - img.hotX - 128) * 2
