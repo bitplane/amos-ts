@@ -65,6 +65,21 @@ parse census), `runreport.ts` (interpreter coverage census),
   `AmosIO` interface; graphics/sound instructions are counted and skipped
   (`onUnimplemented: 'skip'`) — 389 of the 393 corpus programs run to a
   stop (the rest hit their intended error paths in a headless world).
+- **Resumable execution**: the interpreter never blocks — `Wait`,
+  `Wait Key`, `Wait Vbl` and `Input` set a `blocked` state and the driver
+  (`Runtime.frame()`, 50Hz) releases it when the clock/keys/lines arrive.
+  `run(slice)` bounds statements per frame so the browser stays live.
+- **Runtime** (`src/runtime/`): screens as indexed framebuffers + RGB4
+  palettes (the authentic default palette, recovered from
+  `AMOSPro_Interpreter_Config`), drawing (Plot/Draw/Box/Bar/Circle/
+  Ellipse/Polyline/Paint/Clip), the text console (8x8 font, Pen/Paper,
+  scrolling, Centre/Locate/CUp...), palette ops (Colour/Palette/Fade/
+  Shift), Screen Open/Display/Offset/Copy and z-ordering, rainbows
+  (stored, not yet rendered), input devices (Inkey$, Key State, mouse,
+  joystick), and a 640x400 RGBA compositor. All testable headless —
+  the canvas only appears in `src/web`.
+- **Browser runner** (`npm run dev`): load a `.AMOS` file, watch it run
+  at 50 fps with keyboard/mouse/joystick input and an Input line box.
 
 Format notes recovered so far (verified against the corpus, and the
 assembly in `+Lib.s`/`+Edit.s`):

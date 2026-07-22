@@ -1,24 +1,28 @@
 /**
- * Run an AMOS program headless: text output to stdout, everything
- * graphical stubbed. Accepts a .AMOS file or a plain-text .amos listing.
+ * Run an AMOS program headless: text output to stdout, screens composited
+ * in memory. Accepts a .AMOS file or a plain-text .amos listing.
  *
- *   npm run cli -- src/cli/amosrun.ts <file> [--strict] [--max-steps N]
+ *   npm run cli -- src/cli/amosrun.ts <file> [--strict] [--frames N] [--dump out.ppm]
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { tokenize } from '../tokens/tokenizer'
 import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
-import { Interp } from '../interp/interp'
-import type { AmosIO } from '../interp/io'
+import { Runtime } from '../runtime/runtime'
 
 const args = process.argv.slice(2)
 const strict = args.includes('--strict')
-const maxIdx = args.indexOf('--max-steps')
-const maxSteps = maxIdx >= 0 ? parseInt(args[maxIdx + 1] ?? '', 10) : 2_000_000
-const file = args.filter((a) => !a.startsWith('--') && a !== String(maxSteps))[0]
+const opt = (name: string): string | undefined => {
+  const i = args.indexOf(name)
+  return i >= 0 ? args[i + 1] : undefined
+}
+const maxFrames = parseInt(opt('--frames') ?? '5000', 10)
+const dump = opt('--dump')
+const optValues = new Set([opt('--frames'), opt('--dump')].filter((v) => v !== undefined))
+const file = args.find((a) => !a.startsWith('--') && !optValues.has(a))
 if (!file) {
-  console.error('usage: amosrun <file.AMOS | listing.txt> [--strict] [--max-steps N]')
+  console.error('usage: amosrun <file.AMOS | listing.txt> [--strict] [--frames N] [--dump out.ppm]')
   process.exit(1)
 }
 
@@ -31,30 +35,28 @@ const lines = isAmos
   ? parseSource(parseAmosFile(bytes).source, table)
   : tokenize(bytes.toString('latin1'), table)
 
-let ticks = 0
-const io: AmosIO = {
-  write: (t) => process.stdout.write(t),
-  input: (prompt) => {
-    process.stdout.write(prompt)
-    return '' // headless: no stdin (yet)
-  },
-  wait: (n) => {
-    ticks += n
-  },
-  timer: () => ticks,
-}
-
-const interp = new Interp(lines, table, {
-  io,
+const rt = new Runtime(lines, table, {
   extensions,
   onUnimplemented: strict ? 'throw' : 'skip',
-  maxSteps,
+  onText: (t) => process.stdout.write(t),
 })
-for (const w of interp.program.warnings) console.error(`warning: ${w}`)
+for (const w of rt.interp.program.warnings) console.error(`warning: ${w}`)
 
-const result = interp.run()
-console.error(`\n--- ${result.status} after ${result.steps} statements`)
+const result = rt.runHeadless(maxFrames)
+console.error(`\n--- ${result.status} after ${result.frames} frames, ${rt.interp.totalSteps} statements`)
 if (result.unimplemented.size > 0) {
   const skipped = [...result.unimplemented].sort((a, b) => b[1] - a[1])
   console.error(`--- skipped unimplemented: ${skipped.map(([n, c]) => `${n}(${c})`).join(', ')}`)
+}
+
+if (dump !== undefined) {
+  const { width, height, data } = rt.composite()
+  const ppm = Buffer.alloc(width * height * 3)
+  for (let i = 0; i < width * height; i++) {
+    ppm[i * 3] = data[i * 4]!
+    ppm[i * 3 + 1] = data[i * 4 + 1]!
+    ppm[i * 3 + 2] = data[i * 4 + 2]!
+  }
+  writeFileSync(dump, Buffer.concat([Buffer.from(`P6\n${width} ${height}\n255\n`), ppm]))
+  console.error(`--- composite written to ${dump}`)
 }

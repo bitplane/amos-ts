@@ -1,21 +1,20 @@
 /**
- * Interpreter coverage census: run every corpus program headless with
- * unimplemented instructions skipped, and report what stops us — the
- * roadmap for the runtime milestone.
+ * Interpreter+runtime coverage census: run every corpus program headless
+ * (screens in memory, blocking fast-forwarded) and report what stops us.
  *
- *   npm run cli -- src/cli/runreport.ts [fixturesDir] [--max-steps N]
+ *   npm run cli -- src/cli/runreport.ts [fixturesDir] [--frames N]
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
-import { Interp } from '../interp/interp'
+import { Runtime } from '../runtime/runtime'
 
 const args = process.argv.slice(2)
-const maxIdx = args.indexOf('--max-steps')
-const maxSteps = maxIdx >= 0 ? parseInt(args[maxIdx + 1] ?? '', 10) : 200_000
-const root = args.filter((a) => !a.startsWith('--') && a !== String(maxSteps))[0] ?? 'fixtures'
+const fIdx = args.indexOf('--frames')
+const maxFrames = fIdx >= 0 ? parseInt(args[fIdx + 1] ?? '', 10) : 2_000
+const root = args.filter((a) => !a.startsWith('--') && a !== String(maxFrames))[0] ?? 'fixtures'
 
 function* walk(dir: string): Generator<string> {
   for (const name of readdirSync(dir)) {
@@ -41,23 +40,11 @@ for (const path of walk(root)) {
   files++
   try {
     const lines = parseSource(amos.source, table)
-    let ticks = 0
-    const interp = new Interp(lines, table, {
-      io: {
-        write: () => {},
-        input: () => '',
-        wait: (n) => {
-          ticks += n
-        },
-        timer: () => ticks,
-      },
-      extensions,
-      onUnimplemented: 'skip',
-      maxSteps,
-    })
-    const result = interp.run()
+    const rt = new Runtime(lines, table, { extensions, onUnimplemented: 'skip', maxSteps: 400_000 })
+    const result = rt.runHeadless(maxFrames)
     ran++
-    statuses.set(result.status, (statuses.get(result.status) ?? 0) + 1)
+    const status = result.status === 'paused' ? 'frameCap' : result.status
+    statuses.set(status, (statuses.get(status) ?? 0) + 1)
     if (result.status === 'ended' && result.unimplemented.size === 0) cleanEnd++
     for (const [name, n] of result.unimplemented) unimpl.set(name, (unimpl.get(name) ?? 0) + n)
   } catch (e) {
@@ -74,5 +61,5 @@ for (const [msg, n] of [...errors].sort((a, b) => b[1] - a[1]).slice(0, 25)) {
 }
 console.log('\ntop skipped instructions (total occurrences):')
 for (const [name, n] of [...unimpl].sort((a, b) => b[1] - a[1]).slice(0, 40)) {
-  console.log(`  ${String(n).padStart(6)}  ${name}`)
+  console.log(`  ${String(n).padStart(8)}  ${name}`)
 }

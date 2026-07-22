@@ -11,8 +11,9 @@ export interface AmosIO {
   cls?(): void
   pen?(color: number): void
   paper?(color: number): void
-  /** Read a line of input (Input / Line Input). */
-  input?(prompt: string): string
+  /** Read a line of input (Input / Line Input). Return undefined to make
+   * the interpreter block until a line arrives (the statement re-executes). */
+  input?(prompt: string): string | undefined
   /** Non-blocking key read (Inkey$); '' when no key is pending. */
   inkey?(): string
   waitKey?(): void

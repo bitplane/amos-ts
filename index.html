@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>amos-ts</title>
+    <style>
+      body {
+        background: #1a1a1a;
+        color: #ddd;
+        font-family: monospace;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 16px;
+      }
+      canvas {
+        image-rendering: pixelated;
+        width: min(960px, 95vw);
+        aspect-ratio: 8 / 5;
+        border: 2px solid #444;
+        background: #000;
+      }
+      #bar {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      #status {
+        color: #8c8;
+      }
+      #line {
+        width: min(640px, 95vw);
+        background: #000;
+        color: #fa0;
+        border: 1px solid #444;
+        padding: 4px 8px;
+        font-family: monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <input type="file" id="file" accept=".amos,.AMOS,.txt" />
+      <button id="restart">Restart</button>
+      <label><input type="checkbox" id="turbo" /> turbo</label>
+      <span id="status"></span>
+    </div>
+    <canvas id="screen" width="640" height="400"></canvas>
+    <input id="line" placeholder="Input line — press Enter to submit" />
+    <script type="module" src="/src/web/main.ts"></script>
+  </body>
+</html>

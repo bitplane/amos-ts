@@ -19,6 +19,7 @@ import {
 import type { Value, VarType } from './values'
 import type { AmosIO } from './io'
 import { INSTR, FUNCS } from './builtins'
+import type { Instr as InstrFn, Func as FuncFn } from './builtins'
 
 export class AmosRuntimeError extends Error {
   constructor(
@@ -64,16 +65,58 @@ export interface Target {
   set(v: Value): void
 }
 
+/** Why execution is paused, waiting on the outside world. */
+export type Block =
+  | { type: 'wait'; until: number }
+  | { type: 'waitKey' }
+  | { type: 'input'; prompt: string }
+
+/** Live input device state, owned by the runtime/driver and read by builtins. */
+export interface InputState {
+  /** typed characters not yet consumed by Inkey$ / Wait Key */
+  keyQueue: Array<{ ch: string; scan: number }>
+  /** Amiga scancodes currently held down (Key State) */
+  keys: Set<number>
+  /** scancode of the last key returned by Inkey$ */
+  lastScan: number
+  /** mouse in AMOS hardware coords (lowres pixel + 128/50 origin) */
+  mouseX: number
+  mouseY: number
+  /** buttons currently held (bit 0 left, bit 1 right) */
+  mouseK: number
+  /** clicks since last Mouse Click read */
+  clicks: number
+  /** joystick bits: 1 up, 2 down, 4 left, 8 right, 16 fire */
+  joy: number
+}
+
+export const newInputState = (): InputState => ({
+  keyQueue: [],
+  keys: new Set(),
+  lastScan: 0,
+  mouseX: 128 + 160,
+  mouseY: 50 + 100,
+  mouseK: 0,
+  clicks: 0,
+  joy: 0,
+})
+
 export interface InterpOptions {
   io?: AmosIO
   extensions?: Map<number, TokenTable>
   /** what to do with instructions the interpreter doesn't know yet */
   onUnimplemented?: 'throw' | 'skip'
+  /** lifetime statement cap — a runaway-loop backstop */
   maxSteps?: number
+  /** extra instruction handlers (e.g. the graphics runtime); override core */
+  instructions?: Record<string, InstrFn>
+  /** extra functions; override core */
+  functions?: Record<string, FuncFn>
+  input?: InputState
 }
 
 export interface RunResult {
-  status: 'ended' | 'stopped' | 'maxSteps'
+  status: 'ended' | 'stopped' | 'maxSteps' | 'blocked' | 'paused'
   steps: number
   /** instruction name → times skipped (onUnimplemented: 'skip' only) */
   unimplemented: Map<string, number>
@@ -116,10 +159,19 @@ export class Interp {
   tabWidth = 13
   col = 0
   private rng = 0x2545f491
-  private status: RunResult['status'] | null = null
+  private status: 'ended' | 'stopped' | 'maxSteps' | null = null
   unimplemented = new Map<string, number>()
-  private policy: 'throw' | 'skip'
+  policy: 'throw' | 'skip'
   private maxSteps: number
+  /** 50Hz frame counter, advanced by the runtime/driver; read by Timer */
+  tick = 0
+  /** when non-null, execution is paused until the driver clears it */
+  blocked: Block | null = null
+  /** live input devices (shared with the runtime/driver) */
+  readonly inp: InputState
+  private readonly instr: Record<string, InstrFn>
+  private readonly funcs: Record<string, FuncFn>
+  totalSteps = 0
 
   constructor(
     lines: TokenLine[],
@@ -131,15 +183,23 @@ export class Interp {
     this.io = opts.io ?? { write: () => {} }
     this.policy = opts.onUnimplemented ?? 'throw'
     this.maxSteps = opts.maxSteps ?? 5_000_000
+    this.instr = opts.instructions ? { ...INSTR, ...opts.instructions } : INSTR
+    this.funcs = opts.functions ? { ...FUNCS, ...opts.functions } : FUNCS
+    this.inp = opts.input ?? newInputState()
   }
 
-  run(): RunResult {
+  /**
+   * Execute statements until the program ends, blocks on the outside world,
+   * or `slice` statements have run (status 'paused' — call run() again).
+   */
+  run(slice = Infinity): RunResult {
     let steps = 0
-    while (this.status === null) {
-      if (++steps > this.maxSteps) {
+    while (this.status === null && this.blocked === null) {
+      if (++this.totalSteps > this.maxSteps) {
         this.status = 'maxSteps'
         break
       }
+      if (++steps > slice) return this.result('paused', steps)
       try {
         this.step()
       } catch (e) {
@@ -162,11 +222,29 @@ export class Interp {
         throw e
       }
     }
-    return { status: this.status, steps, unimplemented: this.unimplemented }
+    return this.result(this.status ?? 'blocked', steps)
+  }
+
+  private result(status: RunResult['status'], steps: number): RunResult {
+    return { status, steps, unimplemented: this.unimplemented }
   }
 
   halt(status: 'ended' | 'stopped'): void {
     this.status = status
+  }
+
+  get done(): boolean {
+    return this.status !== null
+  }
+
+  /**
+   * Pause execution. With rewind, the pc returns to the start of the
+   * current statement so it re-executes when unblocked (used by Input,
+   * which needs its result mid-statement).
+   */
+  block(reason: Block, rewind = false): void {
+    this.blocked = reason
+    if (rewind) this.pc = { li: this.stmtStart.li, ti: this.stmtStart.ti }
   }
 
   // ---- cursor over the token stream -------------------------------------
@@ -444,7 +522,7 @@ export class Interp {
           return v
         }
         if (name !== undefined) {
-          const fn = FUNCS[name]
+          const fn = this.funcs[name]
           if (fn !== undefined) {
             this.advance()
             const args: Value[] = []
@@ -682,7 +760,7 @@ export class Interp {
           this.advance()
           return
         }
-        const handler = name === undefined ? undefined : INSTR[name]
+        const handler = name === undefined ? undefined : this.instr[name]
         if (handler) {
           this.advance()
           // handlers that move the pc return 'jumped' and skip the

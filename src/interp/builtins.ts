@@ -102,7 +102,11 @@ export const INSTR: Record<string, Instr> = {
     }
     const targets = [it.parseTarget()]
     while (it.accept(',')) targets.push(it.parseTarget())
-    const line = it.io.input?.(prompt) ?? ''
+    const line = it.io.input ? it.io.input(prompt) : ''
+    if (line === undefined) {
+      it.block({ type: 'input', prompt }, true)
+      return 'jumped'
+    }
     const parts = targets.length > 1 ? line.split(',') : [line]
     targets.forEach((tg, i) => inputAssign(tg, parts[i] ?? ''))
   },
@@ -112,7 +116,12 @@ export const INSTR: Record<string, Instr> = {
       prompt = it.evalStr()
       it.accept(';') || it.accept(',')
     }
-    inputAssign(it.parseTarget(), it.io.input?.(prompt) ?? '')
+    const line = it.io.input ? it.io.input(prompt) : ''
+    if (line === undefined) {
+      it.block({ type: 'input', prompt }, true)
+      return 'jumped'
+    }
+    inputAssign(it.parseTarget(), line)
   },
 
   // ---- variables ----
@@ -474,20 +483,47 @@ export const INSTR: Record<string, Instr> = {
     it.degrees = false
   },
   wait(it) {
-    it.io.wait?.(it.evalInt())
+    const n = it.evalInt()
+    if (n > 0) it.block({ type: 'wait', until: it.tick + n })
   },
   'wait key'(it) {
-    it.io.waitKey?.()
+    it.block({ type: 'waitKey' })
   },
   'wait vbl'(it) {
-    it.io.wait?.(1)
+    it.block({ type: 'wait', until: Math.floor(it.tick) + 1 })
+  },
+  'multi wait'(it) {
+    it.block({ type: 'wait', until: Math.floor(it.tick) + 1 })
   },
   'set tab'(it) {
     it.tabWidth = Math.max(1, it.evalInt())
   },
   timer(it) {
     it.expectOp('=')
-    it.evalInt() // TODO: writable Timer needs runtime clock support
+    it.tick = it.evalInt()
+  },
+  proc(it) {
+    // explicit procedure call: Proc NAME[args]
+    const t = it.tok()
+    if (t === undefined || !('name' in t)) throw new AmosError('procedure name expected')
+    it.advance()
+    it.callProc(t.name.toLowerCase(), it.parseProcArgs())
+    return 'jumped'
+  },
+  'mid$'(it) {
+    // assignment form: Mid$(A$,p[,n]) = expr — overwrite part of a string
+    it.expect('(')
+    const tg = it.parseTarget()
+    it.expect(',')
+    const p = Math.max(1, it.evalInt()) - 1
+    const n = it.accept(',') ? it.evalInt() : -1
+    it.expect(')')
+    it.expectOp('=')
+    let repl = str(it.evalExpr())
+    const s = str(tg.get())
+    const len = n < 0 ? repl.length : Math.min(n, repl.length)
+    repl = repl.slice(0, Math.min(len, Math.max(0, s.length - p)))
+    tg.set(VS(s.slice(0, p) + repl + s.slice(p + repl.length)))
   },
   end(it) {
     it.halt('ended')
@@ -719,11 +755,73 @@ export const FUNCS: Record<string, Func> = {
   },
   timer(it, a) {
     arity(a, 0)
-    return VI(it.io.timer?.() ?? 0)
+    return VI(Math.floor(it.tick))
   },
   'inkey$'(it, a) {
     arity(a, 0)
-    return VS(it.io.inkey?.() ?? '')
+    const k = it.inp.keyQueue.shift()
+    if (k === undefined) return VS('')
+    it.inp.lastScan = k.scan
+    return VS(k.ch)
+  },
+  'key$'(it, a) {
+    arity(a, 0, 1)
+    const k = it.inp.keyQueue.shift()
+    return VS(k?.ch ?? '')
+  },
+  scancode(it, a) {
+    arity(a, 0)
+    return VI(it.inp.lastScan)
+  },
+  'key state'(it, a) {
+    arity(a, 1)
+    return VI(it.inp.keys.has(int(a[0]!)) ? -1 : 0)
+  },
+  'x mouse'(it, a) {
+    arity(a, 0)
+    return VI(it.inp.mouseX)
+  },
+  'y mouse'(it, a) {
+    arity(a, 0)
+    return VI(it.inp.mouseY)
+  },
+  'mouse key'(it, a) {
+    arity(a, 0)
+    return VI(it.inp.mouseK)
+  },
+  'mouse click'(it, a) {
+    arity(a, 0)
+    const c = it.inp.clicks
+    it.inp.clicks = 0
+    return VI(c)
+  },
+  'mouse zone'(it, a) {
+    arity(a, 0)
+    return VI(0) // zones arrive with the object/zone milestone
+  },
+  joy(it, a) {
+    arity(a, 1)
+    return VI(it.inp.joy)
+  },
+  jup(it, a) {
+    arity(a, 1)
+    return VI(it.inp.joy & 1 ? -1 : 0)
+  },
+  jdown(it, a) {
+    arity(a, 1)
+    return VI(it.inp.joy & 2 ? -1 : 0)
+  },
+  jleft(it, a) {
+    arity(a, 1)
+    return VI(it.inp.joy & 4 ? -1 : 0)
+  },
+  jright(it, a) {
+    arity(a, 1)
+    return VI(it.inp.joy & 8 ? -1 : 0)
+  },
+  fire(it, a) {
+    arity(a, 1)
+    return VI(it.inp.joy & 16 ? -1 : 0)
   },
   // Param is a raw register: reading it with the wrong type suffix after a
   // skipped instruction is common, so coerce leniently instead of erroring
