@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "cli": "tsx"
+    "cli": "tsx",
+    "manifest": "tsx src/cli/genmanifest.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

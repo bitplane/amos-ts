@@ -47,6 +47,11 @@ export class Screen {
     this.pixels = new Uint8Array(width * height)
     this.hires = (mode & 0x8000) !== 0
     this.laced = (mode & 0x4) !== 0
+    if (nColors <= 2) {
+      // 1-bitplane screens default to paper 0 / pen 1 (Wo3a in +W.s)
+      this.paper = 0
+      this.pen = 1
+    }
   }
 
   get cols(): number {

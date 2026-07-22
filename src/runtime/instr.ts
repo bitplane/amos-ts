@@ -870,9 +870,6 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     'text base'() {
       return VI(6)
     },
-    'cursor pen'() {
-      return VI(scr().pen)
-    },
     'zone$'(_, a) {
       void a
       return VS('')

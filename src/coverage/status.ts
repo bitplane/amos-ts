@@ -1,0 +1,91 @@
+/**
+ * Coverage classification — the source of truth for KEYWORDS.md.
+ *
+ * Every implemented keyword defaults to "approximated" (works, passes our
+ * tests, but not verified against the original). A keyword may only be
+ * promoted to FAITHFUL when its behaviour has been checked against the
+ * original 68k source (+Lib.s/+ILib.s/+W.s/extensions), the official
+ * help manual, or byte-exact artifacts — and the test suite cites it.
+ */
+
+/** Verified against the original implementation or real artifacts. */
+export const FAITHFUL = new Set<string>([
+  // core semantics audited against +ILib.s (New_Evalue and operators),
+  // exercised by tests citing the routines
+  'int', // SPFloor
+  'str$', // LongToAsc "avec signe" — leading space on non-negatives
+  'not', // FnNot: fresh New_Evalue, bitwise not, floats convert
+  'set tab', // SetTab/Tab in +W.s; default 4 from Wo3a
+  // Pac.Pic decoder is a line-by-line port of UnPack_Bitmap; all corpus
+  // banks decode pixel-perfect
+  'unpack',
+  // AMAL: compiler+VM ported from TokAMAL/Animeur (bank programs and
+  // PLay excepted — see notes)
+  'amal',
+  'amal on',
+  'amal off',
+  'amal freeze',
+  'channel',
+  'synchro',
+  'synchro on',
+  'synchro off',
+  'amreg',
+  'chanan',
+  'chanmv',
+  'amalerr',
+  // sample commands: bank format and argument forms from +Music.s GetSam
+  'sam bank',
+  'sam play',
+  'sam stop',
+  'sam loop on',
+  'sam loop off',
+])
+
+/** Tokens the interpreter handles structurally (dispatch, literals, glue). */
+export const STRUCTURAL = new Set([
+  ':', ',', ';', '#', '(', ')', '[', ']', 'to', 'not', 'then', 'step', 'rem', "'", 'procedure',
+])
+
+/** Editor/compiler-internal tokens that cannot execute in a program. */
+export const NA = new Set<string>([
+  'ask editor',
+  'call editor',
+  'close editor',
+  'kill editor',
+  'monitor',
+  'include',
+  'equ',
+  'struc',
+  'struc$',
+  '||apcmp||',
+  '\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\/',
+  ',',
+])
+
+/** Known simplifications worth surfacing next to a keyword. */
+export const NOTES: Record<string, string> = {
+  amal: 'string programs only — Amal n,# bank programs unsupported',
+  bob: 'rendered as composite overlay; framebuffer not blitted',
+  'bob update': 'no-op — overlay model makes autoback implicit',
+  'double buffer': 'no-op (logical = physical)',
+  'screen swap': 'no-op',
+  fade: 'instant, no ramp',
+  rain: 'stored, not rendered',
+  rainbow: 'stored, not rendered',
+  'set rainbow': 'stored, not rendered',
+  writing: 'only replace mode',
+  'gr writing': 'ignored',
+  vumeter: 'synthesized level, not real amplitude',
+  bell: 'modern synthesis, not chip waveform',
+  shoot: 'modern synthesis',
+  boom: 'modern synthesis',
+  'load iff': 'HAM decodes as indexed (wrong colours)',
+  centre: 'no Border$ handling',
+  ink: 'pattern/border arguments ignored',
+  paint: 'border mode ignored',
+  'hot spot': 'code form approximated',
+  'mouse zone': 'current-screen coordinate mapping approximated',
+  print: 'Using/# not supported; comma tab writes spaces instead of moving the cursor',
+  input: 'no editing keys; comma-splitting approximated',
+  timer: 'writable, drives the frame clock directly',
+}

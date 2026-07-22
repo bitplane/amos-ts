@@ -23,6 +23,41 @@ describe('expressions', () => {
     expect(run('Print 10 mod 3')).toBe(' 1\n')
   })
 
+  it('follows the authentic id-ladder precedence (New_Evalue in +ILib.s)', () => {
+    // "/" binds tighter than "*": 10*(3/4) = 0, not (10*3)/4 = 7
+    expect(run('Print 10*3/4')).toBe(' 0\n')
+    expect(run('Print 7/2*2')).toBe(' 6\n') // (7/2)*2 — "*" is looser than "/"
+    expect(run('Print 7*2/2')).toBe(' 7\n') // 7*(2/2)
+    // mod is looser than * and /
+    expect(run('Print 2*5 mod 3')).toBe(' 1\n') // (2*5) mod 3
+    expect(run('Print 10 mod 3*2')).toBe(' 4\n') // 10 mod (3*2)
+    // and binds tighter than or, or tighter than xor
+    expect(run('Print 1 or 1 and 0')).toBe(' 1\n')
+    expect(run('Print 1 xor 2 or 2')).toBe(' 3\n') // 1 xor (2 or 2) = 3
+  })
+
+  it('applies unary minus to the operand, tighter than ^', () => {
+    expect(run('Print -2^2')).toBe(' 4\n') // (-2)^2, not -(2^2)
+    expect(run('A=5 : Print --A')).toBe(' 5\n') // OpeM toggles per operator
+  })
+
+  it('makes ^ a float operation and Not consume the rest (FnNot)', () => {
+    expect(run('Print 2^10')).toBe(' 1024\n')
+    expect(run('Print Not 1=1')).toBe(' 0\n') // Not(1=1) = Not(-1) = 0
+  })
+
+  it('raises Overflow like Op_Plus/Op_Moins, wraps 16-bit fast multiplies', () => {
+    expect(() => run('Print 2000000000+2000000000')).toThrow(/Overflow/)
+    expect(() => run('Print 100000*100000')).toThrow(/Overflow/)
+    // mulu fast path has no check: 50000*50000 wraps on a real Amiga
+    expect(run('Print 50000*50000')).toBe('-1794967296\n')
+  })
+
+  it('implements Op_Modulo: unsigned left operand, no zero check', () => {
+    expect(run('Print -7 mod 3')).toBe(' 0\n') // (2^32-7) mod 3
+    expect(run('Print 7 mod 0')).toBe(' 7\n') // no DByZero in Op_Modulo
+  })
+
   it('does integer division on integers, float on floats', () => {
     expect(run('Print 7/2')).toBe(' 3\n')
     expect(run('Print 7.0/2')).toBe(' 3.5\n')
@@ -248,9 +283,10 @@ describe('i/o', () => {
     expect(run('Input A,B\nPrint A+B', ['3,4'])).toBe('3,4\n 7\n')
   })
 
-  it('separates Print items with ; and pads with ,', () => {
+  it('separates Print items with ; and tabs with , (default tab 4)', () => {
     expect(run('Print "A";"B"')).toBe('AB\n')
-    expect(run('Print "A","B"')).toBe('A            B\n')
+    expect(run('Print "A","B"')).toBe('A   B\n')
+    expect(run('Print "ABCDE","B"')).toBe('ABCDE   B\n')
     expect(run('Print "A";')).toBe('A')
   })
 

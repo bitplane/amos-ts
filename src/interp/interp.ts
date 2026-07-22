@@ -155,8 +155,8 @@ export class Interp {
   errStmt: Addr | null = null
   errNext: Addr | null = null
   private stmtStart: Addr = { li: 0, ti: 0 }
-  // TODO: verify AMOS's default Print comma tab width against the console code
-  tabWidth = 13
+  // default tab = 4, from the window-open defaults (Wo3a in +W.s)
+  tabWidth = 4
   col = 0
   private rng = 0x2545f491
   private status: 'ended' | 'stopped' | 'maxSteps' | null = null
@@ -420,7 +420,7 @@ export class Interp {
   // ---- expressions -------------------------------------------------------
 
   evalExpr(): Value {
-    return this.parseExpr(1)
+    return this.parseExpr(0)
   }
 
   evalNum(): number {
@@ -435,62 +435,50 @@ export class Interp {
     return str(this.evalExpr())
   }
 
-  private static PREC: Record<string, number> = {
-    '^': 9,
-    '*': 8,
-    '/': 8,
-    mod: 8,
-    '+': 7,
-    '-': 7,
-    '=': 6,
-    '<>': 6,
-    '><': 6,
-    '<': 6,
-    '>': 6,
-    '<=': 6,
-    '=<': 6,
-    '>=': 6,
-    '=>': 6,
-    and: 4,
-    or: 3,
-    xor: 3,
-  }
-
+  /**
+   * Faithful port of New_Evalue (+ILib.s): a shift-reduce evaluator whose
+   * "precedence" is the operator's token id compared unsigned — later
+   * entries in the editor's operator table bind tighter. The ladder is
+   *   xor < or < and < <> < >< < <= < =< < >= < => < = < < < > <
+   *   + < - < mod < * < / < ^
+   * with a strict > shift test, so even same-family operators nest:
+   * 10*3/4 evaluates as 10*(3/4).
+   */
   private parseExpr(minPrec: number): Value {
-    let left = this.parseUnary()
+    let left = this.parseOperand()
     for (;;) {
       const t = this.tok()
       if (t?.kind !== 'op') return left
-      const op = t.op.trim()
-      const prec = Interp.PREC[op]
-      if (prec === undefined || prec < minPrec) return left
+      if (t.id <= minPrec) return left
       this.advance()
-      const right = this.parseExpr(prec + 1)
-      left = binOp(op, left, right)
+      const right = this.parseExpr(t.id)
+      left = binOp(t.op.trim(), left, right)
     }
   }
 
-  private parseUnary(): Value {
-    const t = this.tok()
-    if (t?.kind === 'op') {
-      const op = t.op.trim()
-      if (op === '-') {
-        this.advance()
-        const v = this.parseExpr(9)
-        return v.k === 'int' ? VI(-v.n) : v.k === 'float' ? { k: 'float', n: -v.n } : (() => {
-          throw new AmosError('Type mismatch')
-        })()
-      }
-      if (op === '+') {
-        this.advance()
-        return this.parseUnary()
-      }
-    }
-    if (this.nm() === 'not') {
+  private parseOperand(): Value {
+    // any operator token in operand position toggles the sign (OpeM):
+    // "-5" negates, and so does the odd-but-real "--5" / "+5" behaviour
+    let negations = 0
+    while (this.tok()?.kind === 'op') {
+      negations++
       this.advance()
-      return VI(~int(this.parseExpr(5)))
     }
-    return this.parseAtom()
+    let v: Value
+    if (this.nm() === 'not') {
+      // FnNot calls New_Evalue afresh: Not consumes the whole rest of
+      // the expression (Not A=1 or B=2 is Not(A=1 or B=2))
+      this.advance()
+      v = VI(~int(this.parseExpr(0)))
+    } else {
+      v = this.parseAtom()
+    }
+    if (negations % 2 === 1) {
+      if (v.k === 'int') v = VI(-v.n)
+      else if (v.k === 'float') v = { k: 'float', n: -v.n }
+      else throw new AmosError('Type mismatch')
+    }
+    return v
   }
 
   private parseAtom(): Value {
@@ -822,24 +810,48 @@ function binOp(op: string, a: Value, b: Value): Value {
   const bothInt = a.k === 'int' && b.k === 'int'
   const x = a.n
   const y = b.n
-  const numV = (n: number): Value => (bothInt ? VI(n) : { k: 'float', n })
+  const int32 = (n: number): number => {
+    // integer + and - raise Overflow (bvs in Op_Plus/Op_Moins)
+    if (n < -0x80000000 || n > 0x7fffffff) throw new AmosError('Overflow')
+    return n | 0
+  }
   switch (op) {
     case '+':
-      return bothInt ? VI((x + y) | 0) : { k: 'float', n: x + y }
+      return bothInt ? VI(int32(x + y)) : { k: 'float', n: x + y }
     case '-':
-      return bothInt ? VI((x - y) | 0) : { k: 'float', n: x - y }
-    case '*':
-      return bothInt ? VI(Math.imul(x, y)) : { k: 'float', n: x * y }
+      return bothInt ? VI(int32(x - y)) : { k: 'float', n: x - y }
+    case '*': {
+      if (!bothInt) return { k: 'float', n: x * y }
+      // Op_Mult: when both magnitudes fit 16 bits the original uses a
+      // single mulu with NO overflow check — the product silently wraps
+      // (50000*50000 is -1794967296 on a real Amiga). Larger operands
+      // take the checked slow path and raise Overflow.
+      const ax = Math.abs(x)
+      const ay = Math.abs(y)
+      const neg = x < 0 !== y < 0
+      if (ax < 0x10000 && ay < 0x10000) {
+        const m = (ax * ay) >>> 0
+        return VI(neg ? -m | 0 : m | 0)
+      }
+      const exact = ax * ay
+      if (exact > 0x7fffffff + (neg ? 1 : 0)) throw new AmosError('Overflow')
+      return VI(neg ? -exact | 0 : exact | 0)
+    }
     case '/':
       if (y === 0) throw new AmosError('division by zero')
       return bothInt ? VI(Math.trunc(x / y)) : { k: 'float', n: x / y }
     case 'mod': {
-      const yi = Math.trunc(y) | 0
-      if (yi === 0) throw new AmosError('division by zero')
-      return VI((Math.trunc(x) | 0) % yi)
+      // QuEntier: floats truncate to int. Op_Modulo treats the left
+      // operand as UNSIGNED 32-bit, |right|, no zero check (mod 0
+      // returns the left operand), result never negative.
+      const li = Math.trunc(x) | 0
+      const ri = Math.abs(Math.trunc(y) | 0)
+      if (ri === 0) return VI(li)
+      return VI((li >>> 0) % ri | 0)
     }
     case '^':
-      return numV(bothInt ? Math.trunc(Math.pow(x, y)) : Math.pow(x, y))
+      // Op_Puis: QueFloat — power is always a float operation
+      return { k: 'float', n: Math.pow(x, y) }
     case '=':
       return VI(x === y ? -1 : 0)
     case '<>':
