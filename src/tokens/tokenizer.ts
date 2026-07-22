@@ -16,8 +16,14 @@ const WORD = /[A-Za-z_][A-Za-z0-9_]*[$#]?/y
 const NUMBER = /(\d+\.\d*|\.\d+|\d+)([eE][+-]?\d+)?/y
 const PUNCT_NAMES = new Set([',', ';', '#', '(', ')', '[', ']', ':'])
 
+interface Keyword {
+  id: number
+  /** extension slot when the keyword comes from an extension table */
+  ext?: number
+}
+
 interface Tables {
-  keywords: Map<string, number>
+  keywords: Map<string, Keyword>
   keywordList: string[] // sorted longest first, for greedy matching
   punct: Map<string, number>
   remId: number
@@ -27,10 +33,10 @@ interface Tables {
 
 const tablesCache = new WeakMap<TokenTable, Tables>()
 
-function buildTables(table: TokenTable): Tables {
-  const cached = tablesCache.get(table)
+function buildTables(table: TokenTable, extensions?: Map<number, TokenTable>): Tables {
+  const cached = extensions === undefined ? tablesCache.get(table) : undefined
   if (cached) return cached
-  const keywords = new Map<string, number>()
+  const keywords = new Map<string, Keyword>()
   const punct = new Map<string, number>()
   let remId = -1
   let tickRemId = -1
@@ -48,11 +54,18 @@ function buildTables(table: TokenTable): Tables {
     }
     if (name === 'rem' && remId < 0) remId = e.id
     if (name === 'procedure' && procId < 0) procId = e.id
-    if (!keywords.has(name)) keywords.set(name, e.id)
+    if (!keywords.has(name)) keywords.set(name, { id: e.id })
+  }
+  for (const [slot, ext] of extensions ?? []) {
+    for (const e of ext.entries) {
+      if (e.name === '') continue
+      const name = e.name.replace(/^!/, '').trim().toLowerCase()
+      if (name !== '' && !keywords.has(name)) keywords.set(name, { id: e.id, ext: slot })
+    }
   }
   const keywordList = [...keywords.keys()].sort((a, b) => b.length - a.length)
   const tables: Tables = { keywords, keywordList, punct, remId, tickRemId, procId }
-  tablesCache.set(table, tables)
+  if (extensions === undefined) tablesCache.set(table, tables)
   return tables
 }
 
@@ -73,8 +86,8 @@ export class TokenizeError extends Error {
   }
 }
 
-export function tokenize(source: string, table: TokenTable): TokenLine[] {
-  const tables = buildTables(table)
+export function tokenize(source: string, table: TokenTable, extensions?: Map<number, TokenTable>): TokenLine[] {
+  const tables = buildTables(table, extensions)
   // procedure names must be known up front: calls can precede definitions
   const procNames = new Set<string>()
   for (const m of source.matchAll(/^\s*procedure\s+([a-z_][a-z0-9_]*[$#]?)/gim)) {
@@ -199,8 +212,14 @@ function tokenizeLine(text: string, ln: number, tables: Tables, procNames: Set<s
       }
       const kw = isKeywordAt(text, pos, tables)
       if (kw.length > 0) {
-        const id = tables.keywords.get(kw)!
+        const entry = tables.keywords.get(kw)!
+        const id = entry.id
         pos += kw.length
+        if (entry.ext !== undefined) {
+          toks.push({ kind: 'ext', ext: entry.ext, id })
+          stmtStart = false
+          continue
+        }
         if (kw === 'rem') {
           let t = text.slice(pos)
           if (t.startsWith(' ')) t = t.slice(1)

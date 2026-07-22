@@ -105,6 +105,15 @@ parse census), `runreport.ts` (interpreter coverage census),
   Synchro modes and Amal On/Off/Freeze. AMAL bank programs (Amal n,#) and
   PLay paths are not supported yet.
 
+- **Audio** (`src/runtime/audio.ts`): sample banks (format from GetSam
+  in the Music extension source), Sam Bank/Play/Stop/Loop, Volume,
+  Vumeter, and synthesized Bell/Shoot/Boom — all behind an `AudioSink`
+  (WebAudio in the browser, a recording NullAudio headless). Tracker
+  music and speech are not implemented.
+
+See `UNIMPLEMENTED.md` for the full gap list and the honesty list of
+simplifications.
+
 Census after milestone 3: 373/393 corpus programs run to a stop, 26 end
 with nothing skipped. The remaining skip list is dominated by the
 Interface language (Dialog/Choice), audio (Sam Play/Vumeter/speech),

@@ -12,6 +12,8 @@ import type { BankImage, Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from './fs'
 import { AmalChannel } from './amal'
 import type { AmalHost, ChannelTarget } from './amal'
+import { NullAudio, parseSampleBank } from './audio'
+import type { AudioSink, SampleEntry } from './audio'
 
 export interface Rainbow {
   base: number
@@ -37,6 +39,8 @@ export interface RuntimeOptions {
   banks?: Bank[]
   /** file provider for Load Iff etc. */
   fs?: AmosFS
+  /** sound output (default: recording NullAudio) */
+  audio?: AudioSink
 }
 
 /**
@@ -76,6 +80,19 @@ export class Runtime {
   amalDefaultOn = false
   /** last AMAL compile error position (=Amalerr) */
   amalErrPos = 0
+  // ---- audio ----
+  audio: AudioSink = new NullAudio()
+  samBankNum = 5
+  /** per-voice: busy-until tick and volume */
+  voices = [
+    { until: 0, volume: 63 },
+    { until: 0, volume: 63 },
+    { until: 0, volume: 63 },
+    { until: 0, volume: 63 },
+  ]
+  /** Sam Loop On voice mask */
+  samLoopMask = 0
+  private sampleCache: { bank: MemoryBank; entries: SampleEntry[] } | null = null
   readonly amalHost: AmalHost = {
     globals: this.amalGlobals,
     random: (mask) => {
@@ -87,7 +104,7 @@ export class Runtime {
     mouseY: () => this.input.mouseY,
     mouseKey: (bit) => (this.input.mouseK & bit ? -1 : 0),
     joy: () => this.input.joy,
-    vumeter: () => 0,
+    vumeter: (voice) => this.vumeter(voice),
     col: (n) => (this.colSet.has(n) ? -1 : 0),
     bobCol: (n, f, t) => this.bobColCheck(n, f, t),
     spriteCol: (n, f, t) => this.spriteColCheck(n, f, t),
@@ -176,6 +193,46 @@ export class Runtime {
     }
   }
 
+  getSample(n: number): SampleEntry | null {
+    const bank = this.memBanks.get(this.samBankNum)
+    if (!bank) return null
+    if (this.sampleCache?.bank !== bank) {
+      this.sampleCache = { bank, entries: parseSampleBank(bank.data) }
+    }
+    return this.sampleCache.entries[n - 1] ?? null
+  }
+
+  /** start PCM on every voice in the mask, tracking busy state for Vumeter */
+  playPcm(mask: number, pcm: Int8Array, freq: number, loop: boolean): void {
+    if (freq <= 0 || pcm.length === 0) return
+    const ticks = loop ? Infinity : Math.ceil((pcm.length / freq) * 50)
+    for (let v = 0; v < 4; v++) {
+      if (!(mask & (1 << v))) continue
+      this.audio.play(v, pcm, freq, this.voices[v]!.volume, loop ? 0 : -1)
+      this.voices[v]!.until = this.interp.tick + ticks
+    }
+  }
+
+  stopVoices(mask: number): void {
+    for (let v = 0; v < 4; v++) {
+      if (!(mask & (1 << v))) continue
+      this.audio.stop(v)
+      this.voices[v]!.until = 0
+    }
+  }
+
+  /**
+   * Approximate Vumeter: the real one reads the sample amplitude from the
+   * audio interrupt; we synthesize a lively deterministic level while the
+   * voice is busy.
+   */
+  vumeter(voice: number): number {
+    const v = this.voices[voice & 3]
+    if (!v || this.interp.tick >= v.until) return 0
+    const wob = 16 + ((Math.floor(this.interp.tick) * 13 + voice * 7) % 48)
+    return Math.min(63, Math.floor((wob * v.volume) / 63))
+  }
+
   stepAmal(): void {
     const nums = [...this.channels.keys()].sort((a, b) => a - b)
     for (const n of nums) {
@@ -231,6 +288,7 @@ export class Runtime {
     if (opts.maxSteps) interpOpts.maxSteps = opts.maxSteps
     this.interp = new Interp(lines, table, interpOpts)
     this.fs = opts.fs ?? null
+    if (opts.audio) this.audio = opts.audio
     for (const bank of opts.banks ?? []) {
       if (bank.kind === 'sprites') this.spriteBank = ObjectBank.fromSpriteBank(bank)
       else if (bank.kind === 'icons') this.iconBank = ObjectBank.fromSpriteBank(bank)

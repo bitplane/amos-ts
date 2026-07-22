@@ -9,6 +9,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
 import { Runtime } from '../runtime/runtime'
 import { AmosRuntimeError } from '../interp/interp'
+import { WebAudioSink } from './audio'
 
 const table = new TokenTable(CORE_TOKENS)
 const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
@@ -35,6 +36,10 @@ Do
    Wait 10
 Loop`
 
+const audio = new WebAudioSink()
+document.addEventListener('pointerdown', () => audio.unlock())
+document.addEventListener('keydown', () => audio.unlock())
+
 let rt: Runtime | null = null
 let lastBytes: Uint8Array | null = null
 let lastName = ''
@@ -48,7 +53,7 @@ function load(bytes: Uint8Array, name: string): void {
     const isAmos = /^AMOS (Basic|Pro)/.test(new TextDecoder('latin1').decode(bytes.subarray(0, 16)))
     const amos = isAmos ? parseAmosFile(bytes) : null
     const lines = amos ? parseSource(amos.source, table) : tokenize(new TextDecoder('latin1').decode(bytes), table)
-    rt = new Runtime(lines, table, { extensions, onUnimplemented: 'skip', banks: amos?.banks ?? [] })
+    rt = new Runtime(lines, table, { extensions, onUnimplemented: 'skip', banks: amos?.banks ?? [], audio })
   } catch (e) {
     rt = null
     error = e instanceof Error ? e.message : String(e)

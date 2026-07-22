@@ -63,10 +63,10 @@ for (const path of walk(root)) {
 console.log(`programs: ${files}, ran to a stop: ${ran}, ended with nothing skipped: ${cleanEnd}`)
 console.log('statuses:', Object.fromEntries(statuses))
 console.log('\ntop runtime errors:')
-for (const [msg, n] of [...errors].sort((a, b) => b[1] - a[1]).slice(0, 25)) {
+for (const [msg, n] of [...errors].sort((a, b) => b[1] - a[1]).slice(0, args.includes("--all") ? 10000 : 25)) {
   console.log(`  ${String(n).padStart(4)}  ${msg}`)
 }
 console.log('\ntop skipped instructions (total occurrences):')
-for (const [name, n] of [...unimpl].sort((a, b) => b[1] - a[1]).slice(0, 40)) {
+for (const [name, n] of [...unimpl].sort((a, b) => b[1] - a[1]).slice(0, args.includes("--all") ? 10000 : 40)) {
   console.log(`  ${String(n).padStart(8)}  ${name}`)
 }

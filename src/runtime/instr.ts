@@ -7,6 +7,7 @@ import type { Runtime } from './runtime'
 import { Screen } from './screen'
 import { ObjectBank } from './objects'
 import { AmalChannel, AmalCompileError, compileAmal } from './amal'
+import { bellPcm, boomPcm, shootPcm } from './audio'
 
 /**
  * Graphics/screen instruction and function registries, bound to a Runtime.
@@ -551,6 +552,69 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         else if (bank.kind === 'memory') rt.memBanks.set(forced ?? bank.number, bank)
       }
     },
+    // ---- audio ----
+    'sam bank'(it) {
+      rt.samBankNum = it.evalInt()
+    },
+    'sam play'(it) {
+      // Sam Play n | Sam Play voices,n | Sam Play voices,n,freq
+      const a = it.evalInt()
+      let mask = 0b1111
+      let n = a
+      let freq: number | null = null
+      if (it.accept(',')) {
+        mask = a
+        n = it.evalInt()
+        if (it.accept(',')) freq = it.evalInt()
+      }
+      const sample = rt.getSample(n)
+      if (!sample) throw new AmosError(`sample not defined: ${n}`)
+      rt.playPcm(mask, sample.pcm, freq ?? sample.freq, (rt.samLoopMask & mask) !== 0)
+    },
+    'sam stop'(it) {
+      rt.stopVoices(it.atStmtEnd() ? 0b1111 : it.evalInt())
+    },
+    'sam loop on'(it) {
+      rt.samLoopMask |= it.atStmtEnd() ? 0b1111 : it.evalInt()
+    },
+    'sam loop off'(it) {
+      rt.samLoopMask &= ~(it.atStmtEnd() ? 0b1111 : it.evalInt())
+    },
+    volume(it) {
+      // Volume v | Volume voices,v
+      const a = it.evalInt()
+      let mask = 0b1111
+      let vol = a
+      if (it.accept(',')) {
+        mask = a
+        vol = it.evalInt()
+      }
+      vol = Math.max(0, Math.min(63, vol))
+      for (let v = 0; v < 4; v++) {
+        if (!(mask & (1 << v))) continue
+        rt.voices[v]!.volume = vol
+        rt.audio.setVolume(v, vol)
+      }
+    },
+    bell(it) {
+      const pitch = it.atStmtEnd() ? 60 : it.evalInt()
+      const { pcm, freq } = bellPcm(pitch)
+      rt.playPcm(0b0001, pcm, freq, false)
+    },
+    shoot() {
+      const { pcm, freq } = shootPcm()
+      rt.playPcm(0b0010, pcm, freq, false)
+    },
+    boom() {
+      const { pcm, freq } = boomPcm()
+      rt.playPcm(0b0100, pcm, freq, false)
+    },
+    voice(it) {
+      it.evalInt() // voice activation mask (music voices) — nothing to gate yet
+    },
+    'led on': () => {}, // the power-LED audio filter — no filter to toggle
+    'led off': () => {},
+
     // ---- AMAL ----
     amal(it) {
       const n = it.evalInt()
@@ -913,6 +977,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
     amalerr() {
       return VI(rt.amalErrPos)
+    },
+
+    // ---- audio ----
+    vumeter(_, a) {
+      return VI(rt.vumeter(int(a[0]!)))
     },
   }
 }
