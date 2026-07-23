@@ -210,6 +210,45 @@ describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => 
   })
 })
 
+describe('stragglers (palette shift, wind size, key shift)', () => {
+  const shiftAfterOneStep = (setup: string): number[] => {
+    const rt = new Runtime(tokenize(setup + '\nDo : Wait Vbl : Loop', table), table, { maxSteps: 300_000 })
+    rt.frame() // frame 1: interp sets up the shift (applyShifts already ran)
+    rt.frame() // frame 2: exactly one shift applied
+    const p = rt.screens.get(0)!.palette
+    return [p[1]!, p[2]!, p[3]!]
+  }
+
+  it('Shift Up cycles a palette range with the exact rotation (Shifter +W.s:5464)', () => {
+    // start [1,2,3]=$100,$200,$300; one up-shift → pal[1]<-pal[3] wrap
+    expect(shiftAfterOneStep('Colour 1,$100 : Colour 2,$200 : Colour 3,$300\nShift Up 1,1,3')).toEqual([0x300, 0x100, 0x200])
+  })
+
+  it('Shift with flag 0 smears instead of wrapping (Shf8a)', () => {
+    // no wrap: pal[1] stays, pal[2]<-pal[1], pal[3]<-pal[2]
+    expect(shiftAfterOneStep('Colour 1,$100 : Colour 2,$200 : Colour 3,$300\nShift Up 1,1,3,0')).toEqual([0x100, 0x100, 0x200])
+  })
+
+  it('Wind Size clears the window interior (Clw)', () => {
+    const prog = [
+      'Cls 0',
+      'Wind Open 1,0,0,20,10',
+      'Ink 5 : Bar 0,0 To 100,60', // draw ink 5 into the window area
+      'Wind Size 8,4', // resize → the interior is blanked to the window paper
+    ].join('\n')
+    const { rt } = run(prog)
+    expect(rt.screen.point(20, 20)).not.toBe(5) // the ink-5 fill was cleared
+  })
+
+  it('Key Shift includes the Amiga-key bits (6/7)', () => {
+    let out = ''
+    const ks = new Runtime(tokenize('Print Key Shift', table), table, { maxSteps: 1000, onText: (t) => (out += t) })
+    ks.input.keys.add(0x66) // Left Amiga → bit 6 = 64
+    ks.runHeadless(50)
+    expect(out).toBe(' 64\n')
+  })
+})
+
 describe('text/console (vs +W.s / +ILib.s)', () => {
   it('Cls with no arg clears the current window; Cls c does not home the cursor', () => {
     // colour-form Cls must leave the cursor where it was

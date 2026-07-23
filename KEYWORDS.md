@@ -13,14 +13,14 @@ tested against our own understanding. Percentages exclude n/a
 |---|---|---|---|---|---|
 | amal | 13 | 12 | 0 | 1 | 92% |
 | amal-stos | 10 | 0 | 0 | 10 | 0% |
-| banks | 20 | 8 | 8 | 4 | 80% |
+| banks | 20 | 10 | 6 | 4 | 80% |
 | compact | 3 | 1 | 0 | 2 | 33% |
 | compiler | 15 | 0 | 0 | 15 | 0% |
 | copper | 8 | 0 | 0 | 8 | 0% |
 | drawing | 16 | 14 | 2 | 0 | 100% |
 | files | 21 | 15 | 0 | 4 | 79% |
 | flow | 12 | 3 | 9 | 0 | 100% |
-| input | 18 | 12 | 6 | 0 | 100% |
+| input | 18 | 14 | 4 | 0 | 100% |
 | interface | 25 | 21 | 3 | 1 | 96% |
 | ioports | 38 | 0 | 0 | 38 | 0% |
 | language | 250 | 181 | 22 | 38 | 84% |
@@ -28,15 +28,15 @@ tested against our own understanding. Percentages exclude n/a
 | menus | 24 | 24 | 0 | 0 | 100% |
 | music | 49 | 5 | 9 | 35 | 29% |
 | objects | 58 | 51 | 4 | 3 | 95% |
-| palette | 9 | 6 | 3 | 0 | 100% |
+| palette | 9 | 9 | 0 | 0 | 100% |
 | rainbows | 3 | 0 | 3 | 0 | 100% |
 | request | 3 | 0 | 3 | 0 | 100% |
 | screens | 31 | 22 | 8 | 1 | 97% |
 | system | 41 | 0 | 0 | 40 | 0% |
 | text-io | 37 | 31 | 5 | 1 | 97% |
-| windows | 11 | 9 | 2 | 0 | 100% |
+| windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 428 | 90 | 202 | 72% |
+| **total** | 732 | 437 | 81 | 202 | 72% |
 
 ## amal (92%)
 
@@ -49,8 +49,8 @@ tested against our own understanding. Percentages exclude n/a
 
 ## banks (80%)
 
-- **faithful**: `bank shrink`, `bank swap`, `bank to menu`, `erase temp`, `length`, `reserve as data`, `reserve as work`, `reserve zone`
-- **approximated**: `bload` *(the < 1024 bank form creates a missing bank instead of erroring)*, `bsave`, `erase`, `erase all`, `list bank`, `reserve as chip data`, `reserve as chip work`, `start` *(fake address space: Start()-relative arithmetic works, absolute hardware addresses do not)*
+- **faithful**: `bank shrink`, `bank swap`, `bank to menu`, `erase`, `erase all`, `erase temp`, `length`, `reserve as data`, `reserve as work`, `reserve zone`
+- **approximated**: `bload` *(the < 1024 bank form creates a missing bank instead of erroring)*, `bsave`, `list bank`, `reserve as chip data`, `reserve as chip work`, `start` *(fake address space: Start()-relative arithmetic works, absolute hardware addresses do not)*
 - **missing**: `bgrab`, `blength`, `bsend`, `bstart`
 
 ## compact (33%)
@@ -84,8 +84,8 @@ tested against our own understanding. Percentages exclude n/a
 
 ## input (100%)
 
-- **faithful**: `clear key`, `fire`, `inkey$`, `jdown`, `jleft`, `joy`, `jright`, `jup`, `key state`, `mouse click`, `mouse key`, `scancode`
-- **approximated**: `change mouse` *(pointer number stored; the host cursor is shown instead)*, `key shift`, `key speed` *(parsed; key-repeat is host-owned)*, `mouse screen` *(returns -1 when the pointer is over no screen (68k: EntNul))*, `mouse zone` *(current-screen coordinate mapping approximated)*, `scanshift` *(reads live shift keys; the shift byte is not captured with Inkey$)*
+- **faithful**: `clear key`, `fire`, `inkey$`, `jdown`, `jleft`, `joy`, `jright`, `jup`, `key shift` *(CapsLock reflects the physical key, not the latched toggle)*, `key state`, `mouse click`, `mouse key`, `mouse screen` *(returns -1 when the pointer is over no screen (68k: EntNul))*, `scancode`
+- **approximated**: `change mouse` *(pointer number stored; the host cursor is shown instead)*, `key speed` *(parsed; key-repeat is host-owned)*, `mouse zone` *(current-screen coordinate mapping approximated)*, `scanshift` *(reads live shift keys; the shift byte is not captured with Inkey$)*
 
 ## interface (96%)
 
@@ -128,8 +128,7 @@ tested against our own understanding. Percentages exclude n/a
 
 ## palette (100%)
 
-- **faithful**: `colour`, `colour back`, `fade`, `flash`, `flash off`, `palette`
-- **approximated**: `shift down`, `shift off`, `shift up`
+- **faithful**: `colour`, `colour back`, `fade`, `flash`, `flash off`, `palette`, `shift down`, `shift off`, `shift up` *(one shift per screen (the original has a single global shift); omitted wrap-flag defaults to wrap)*
 
 ## rainbows (100%)
 
@@ -158,8 +157,7 @@ tested against our own understanding. Percentages exclude n/a
 
 ## windows (100%)
 
-- **faithful**: `border` *(all styles render as the same simple frame)*, `clw`, `title bottom`, `title top`, `wind close`, `wind open`, `wind save`, `windon`, `window`
-- **approximated**: `wind move` *(moves the frame; content is not carried along)*, `wind size` *(resizes without preserving content)*
+- **faithful**: `border` *(all styles render as the same simple frame)*, `clw`, `title bottom`, `title top`, `wind close`, `wind move` *(trail behaviour matches; the Wind Save clean-erase path is not wired to Move)*, `wind open`, `wind save`, `wind size` *(resizes without preserving content)*, `windon`, `window`
 
 ## zones (100%)
 

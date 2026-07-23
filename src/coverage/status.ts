@@ -375,6 +375,18 @@ export const FAITHFUL = new Set<string>([
   'global',
   'shared',
   'display height',
+  // straggler cluster verified against +W.s/+Lib.s: palette colour cycling
+  // (Shifter 5464 — exact rotation/wrap/delay), Erase family (Bnk.Eff*
+  // 7982-8069), Wind Move/Size (13900/13970), Key Shift qualifier byte
+  'shift up',
+  'shift down',
+  'shift off',
+  'erase',
+  'erase all',
+  'wind move',
+  'wind size',
+  'key shift',
+  'mouse screen',
   // objects: collision verified against ColRout +W.s:177 (rectangle-reject
   // then pixel-mask AND, mask = OR of planes = colour!=0 — our pixel-perfect
   // matches); bank access/editing against Bnk.* (+Lib.s:8013-8457)
@@ -522,7 +534,6 @@ export const NOTES: Record<string, string> = {
   hscroll: 'window-region scroll, approximated',
   vscroll: 'window-region scroll, approximated',
   'shade on': 'dither approximates the original shading',
-  'set text': 'bold/italic are synthesized from the single font',
   'border$': 'returns the text unchanged — border boxes not rendered',
   at: "escape codes 'X'/'Y' assumed, not read from the source",
   match: 'not-found result for closest index 0 returns -1',
@@ -540,13 +551,9 @@ export const NOTES: Record<string, string> = {
   centre: 'no Border$ handling',
   'mouse zone': 'current-screen coordinate mapping approximated',
   print: 'Print # channels unsupported',
-  using: "'^' exponent slots not implemented",
   input: 'line editing keys are host-side, not the AMOS line editor',
   timer: 'writable, drives the frame clock directly',
   rnd: 'deterministic — original mixes in the raster beam position',
-  inc: 'also works on float variables (original: integer only)',
-  dec: 'also works on float variables (original: integer only)',
-  add: 'also works on float variables (original: integer only)',
   // Interface language caveats
   'dialog open': 'SM screen-drag is a no-op; CA (machine code) raises a function call error; edit fields use a simplified line editor; MZ reads of raw memory return ""',
   'fsel$': 'the real bank dialog driven by a TS controller: Store and keyboard qualifiers unhandled, sizes/sort approximated',
@@ -566,6 +573,9 @@ export const NOTES: Record<string, string> = {
   paper: 'stored unmasked; out-of-range does not raise error like the original',
   load: 'the sprite/icon append flag (2nd arg) is treated as overwrite',
   'set text': 'targets console text too; the original soft-style only affects graphic Text',
+  'shift up': 'one shift per screen (the original has a single global shift); omitted wrap-flag defaults to wrap',
+  'wind move': 'trail behaviour matches; the Wind Save clean-erase path is not wired to Move',
+  'key shift': 'CapsLock reflects the physical key, not the latched toggle',
   every: 'fires at each statement rather than only at control points, and after (not during) a Wait — a timing nuance tied to the blocking model',
   bar: 'inverted args are normalised rather than raising a function call error',
   box: 'dash phase restarts per edge (68k PolyDraws one continuous pattern)',

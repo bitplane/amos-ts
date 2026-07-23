@@ -94,6 +94,22 @@ const FONT_LIST = [
   { name: 'topaz.font', height: 9, type: 'Rom' },
 ]
 
+/**
+ * Shift Up/Down delay,first,last[,flag] (ShD1 +Lib.s:9358): the 4th arg is
+ * a wrap flag — flag 0 smears (Shf8a skips the wrap write), else the range
+ * cycles. Omitted defaults to wrap (the common cycling case; the original's
+ * omitted-arg polarity is unverified — see NOTES).
+ */
+function shiftArgs(it: It): { delay: number; first: number; last: number; wrap: boolean } {
+  const delay = it.evalInt()
+  it.expect(',')
+  const first = it.evalInt()
+  it.expect(',')
+  const last = it.evalInt()
+  const wrap = it.accept(',') ? it.evalInt() !== 0 : true
+  return { delay: Math.max(1, delay), first, last, wrap }
+}
+
 /** Menu keyword index path: (n[,m[,k...]]) */
 function menuPath(it: It): number[] {
   it.expect('(')
@@ -469,22 +485,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       for (let i = 0; i < 32; i++) if (mask & (1 << i)) dst.palette[i] = src.palette[i]!
     },
     'shift up'(it) {
-      const delay = it.evalInt()
-      it.expect(',')
-      const first = it.evalInt()
-      it.expect(',')
-      const last = it.evalInt()
-      if (it.accept(',')) it.evalInt()
-      rt.shifts.set(rt.currentIndex, { dir: 1, delay: Math.max(1, delay), first, last, count: 0 })
+      rt.shifts.set(rt.currentIndex, { dir: 1, ...shiftArgs(it), count: 0 })
     },
     'shift down'(it) {
-      const delay = it.evalInt()
-      it.expect(',')
-      const first = it.evalInt()
-      it.expect(',')
-      const last = it.evalInt()
-      if (it.accept(',')) it.evalInt()
-      rt.shifts.set(rt.currentIndex, { dir: -1, delay: Math.max(1, delay), first, last, count: 0 })
+      rt.shifts.set(rt.currentIndex, { dir: -1, ...shiftArgs(it), count: 0 })
     },
     'shift off'() {
       rt.shifts.delete(rt.currentIndex)
@@ -759,13 +763,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       s.drawWindowFrame2()
     },
     'wind size'(it) {
+      // WiSize +W.s:13970: resize, redraw the frame, then Clw the interior
+      // (the window is blanked to paper and the cursor homed)
       const s = scr()
       const [w2, h2] = pair(it)
       s.curWin.cols = w2
       s.curWin.rows = h2
-      s.curWin.curX = 0
-      s.curWin.curY = 0
       s.drawWindowFrame2()
+      s.clw()
     },
     window(it) {
       try {
@@ -2447,6 +2452,8 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(-1)
     },
     'key shift'(it, a) {
+      // FnKeyShift +Lib.s:13660: the qualifier byte — 0 LShift, 1 RShift,
+      // 2 CapsLock, 3 Ctrl, 4 LAlt, 5 RAlt, 6 LAmiga, 7 RAmiga
       void a
       let m = 0
       if (it.inp.keys.has(0x60)) m |= 1
@@ -2455,6 +2462,8 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       if (it.inp.keys.has(0x63)) m |= 8
       if (it.inp.keys.has(0x64)) m |= 16
       if (it.inp.keys.has(0x65)) m |= 32
+      if (it.inp.keys.has(0x66)) m |= 64
+      if (it.inp.keys.has(0x67)) m |= 128
       return VI(m)
     },
     length(_, a) {
@@ -2840,7 +2849,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
         const sy = it.inp.mouseY - s.displayY
         if (sx >= 0 && sy >= 0 && sx < s.width && sy < s.height) return VI(s.index)
       }
-      return VI(-1)
+      return VI(-0x80000000) // GetSIn +W.s:10944 returns EntNul when over no screen
     },
     scanshift(it, a) {
       void a

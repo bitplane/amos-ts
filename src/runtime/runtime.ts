@@ -91,7 +91,7 @@ export class Runtime {
   order: number[] = []
   currentIndex = 0
   rainbows = new Map<number, Rainbow>()
-  shifts = new Map<number, { dir: number; delay: number; first: number; last: number; count: number }>()
+  shifts = new Map<number, { dir: number; delay: number; first: number; last: number; wrap: boolean; count: number }>()
   /** Fade: per-screen nibble-stepping toward targets (-1 = untouched) */
   fades = new Map<number, { delay: number; count: number; targets: Int32Array }>()
   /** Flash n,"(rgb,ticks)...": palette-register animations */
@@ -1687,14 +1687,15 @@ export class Runtime {
       sh.count = 0
       const { first, last } = sh
       if (last <= first) continue
+      // wrap = cycle (write the wrapped end); !wrap = smear (skip it, Shf8a)
       if (sh.dir > 0) {
         const tmp = s.palette[last]!
         for (let i = last; i > first; i--) s.palette[i] = s.palette[i - 1]!
-        s.palette[first] = tmp
+        if (sh.wrap) s.palette[first] = tmp
       } else {
         const tmp = s.palette[first]!
         for (let i = first; i < last; i++) s.palette[i] = s.palette[i + 1]!
-        s.palette[last] = tmp
+        if (sh.wrap) s.palette[last] = tmp
       }
     }
   }
