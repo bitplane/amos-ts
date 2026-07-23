@@ -953,6 +953,36 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'get bob': getObj('sprite'),
     'get sprite': getObj('sprite'),
     'get icon': getObj('icon'),
+    'put bob'(it) {
+      // InPutBob +Lib.s:12723: stamp a live displayed bob permanently into
+      // its screen background at its current position/image
+      const n = it.evalInt()
+      const bob = rt.bobs.get(n)
+      if (!bob) return
+      const img = rt.spriteBank?.image(bob.image)
+      if (!img) return
+      const s = rt.screens.get(bob.screen) ?? scr()
+      rt.blit(s, img, bob.x - img.hotX, bob.y - img.hotY, img.opaque)
+    },
+    'put key'(it) {
+      // InPutKey +Lib.s:13724: append a string to the keyboard buffer
+      const s2 = it.evalStr()
+      if (s2.length >= 64) throw new AmosError('string too long')
+      for (const ch of s2) rt.pressKey(ch, 0)
+    },
+    'del bob': delObj('sprite'),
+    'del sprite': delObj('sprite'),
+    'del icon': delObj('icon'),
+    'ins bob': insObj('sprite'),
+    'ins sprite': insObj('sprite'),
+    'ins icon': insObj('icon'),
+    'make icon mask'(it) {
+      if (!it.atStmtEnd()) it.evalInt() // masks are implicit here
+    },
+    'no icon mask'(it) {
+      const img = rt.iconBank?.image(it.atStmtEnd() ? 1 : it.evalInt())
+      if (img) img.opaque = true
+    },
     'get sprite palette': bankPalette(),
     'get bob palette': bankPalette(),
     'get icon palette'(it) {
@@ -2110,7 +2140,33 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         throw new AmosError('Get Bob: wrong arguments')
       }
       const bank = kind === 'icon' ? (rt.iconBank ??= new ObjectBank()) : rt.needSpriteBank()
+      // Ritoune +Lib.s:12697: w=x2-x1, h=y2-y1 both must be positive and
+      // within the screen
+      if (x2 <= x1 || y2 <= y1 || x2 > s.width || y2 > s.height) throw new AmosError('function call error')
       bank.setImage(img, rt.grab(s, x1, y1, x2, y2))
+    }
+  }
+
+  /** Del Bob/Sprite/Icon n[ To m] — splice+compact (Bnk.DelBob +Lib.s:8372) */
+  function delObj(kind: 'sprite' | 'icon'): Instr {
+    return (it) => {
+      const n = it.evalInt()
+      const m = it.accept('to') ? it.evalInt() : n
+      const bank = kind === 'icon' ? rt.iconBank : rt.spriteBank
+      if (!bank) throw new AmosError('bank not reserved')
+      if (!bank.delete(n, m)) {
+        if (kind === 'icon') rt.iconBank = null
+        else rt.spriteBank = null
+      }
+    }
+  }
+
+  /** Ins Bob/Sprite/Icon n — single blank insert (Bnk.InsBob +Lib.s:8316) */
+  function insObj(kind: 'sprite' | 'icon'): Instr {
+    return (it) => {
+      const n = it.evalInt()
+      const bank = kind === 'icon' ? (rt.iconBank ??= new ObjectBank()) : rt.needSpriteBank()
+      bank.insert(n)
     }
   }
 
@@ -2301,10 +2357,19 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.bobColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : -Infinity, a.length > 2 ? int(a[2]!) : Infinity))
     },
     'sprite col'(_, a) {
-      return VI(rt.spriteColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : -Infinity, a.length > 2 ? int(a[2]!) : Infinity))
+      return VI(rt.spriteColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : 0, a.length > 2 ? int(a[2]!) : 63))
+    },
+    'bobsprite col'(_, a) {
+      // FnBobSpriteCol1/3 +Lib.s:12367: bob n against hardware sprites
+      return VI(rt.bobSpriteColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : 0, a.length > 2 ? int(a[2]!) : 63))
+    },
+    'spritebob col'(_, a) {
+      // FnSpriteBobCol1/3 +Lib.s:12419: sprite n against bobs
+      return VI(rt.spriteBobColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : 0, a.length > 2 ? int(a[2]!) : 10000))
     },
     col(_, a) {
-      return VI(rt.colSet.has(int(a[0]!)) ? -1 : 0)
+      // =Col(n): >=0 membership; <0 = the first colliding object number
+      return VI(rt.colGet(int(a[0]!)))
     },
     zone(_, a) {
       // Zone(x,y) or Zone(screen,x,y) — coordinates are the last two args

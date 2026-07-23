@@ -989,7 +989,7 @@ export class Runtime {
     mouseKey: (bit) => (this.input.mouseK & bit ? -1 : 0),
     joy: () => this.input.joy,
     vumeter: (voice) => this.vumeter(voice),
-    col: (n) => (this.colSet.has(n) ? -1 : 0),
+    col: (n) => this.colGet(n),
     bobCol: (n, f, t) => this.bobColCheck(n, f, t),
     spriteCol: (n, f, t) => this.spriteColCheck(n, f, t),
     xy: (kind, screen, v) => {
@@ -1333,6 +1333,58 @@ export class Runtime {
       if (oimg && imagesCollide(img, me.x, me.y, oimg, other.x, other.y)) this.colSet.add(other.n)
     }
     return this.colSet.size > 0 ? -1 : 0
+  }
+
+  /**
+   * Map a bob's screen position into hardware-sprite coordinate space
+   * (CXyS +W.s:10840): X = (lowres ? x>>1 : x) + display origin, Y likewise.
+   * Sprites already live in hardware coords, so this puts the bob alongside.
+   */
+  private bobToHw(bob: Bob): { x: number; y: number } {
+    const s = this.screens.get(bob.screen) ?? this.screen
+    return {
+      x: (s.hires ? bob.x : bob.x >> 1) + s.displayX,
+      y: (s.laced ? bob.y >> 1 : bob.y) + s.displayY,
+    }
+  }
+
+  /** Bob n vs hardware sprites first..last (Bobsprite Col, GoToSp +W.s:415). */
+  bobSpriteColCheck(n: number, first = 0, last = 63): number {
+    this.colSet.clear()
+    const me = this.bobs.get(n)
+    const img = me && this.spriteBank?.image(me.image)
+    if (!me || !img) return 0
+    const p = this.bobToHw(me)
+    for (const sp of this.hwSprites.values()) {
+      if (sp.n < first || sp.n > last) continue
+      const oimg = this.spriteBank?.image(sp.image)
+      if (oimg && imagesCollide(img, p.x, p.y, oimg, sp.x, sp.y)) this.colSet.add(sp.n)
+    }
+    return this.colSet.size > 0 ? -1 : 0
+  }
+
+  /** Hardware sprite n vs bobs first..last (Spritebob Col, SpToBb +W.s:526). */
+  spriteBobColCheck(n: number, first = 0, last = 10000): number {
+    this.colSet.clear()
+    const me = this.hwSprites.get(n)
+    const img = me && this.spriteBank?.image(me.image)
+    if (!me || !img) return 0
+    for (const bob of this.bobs.values()) {
+      if (bob.n < first || bob.n > last) continue
+      const oimg = this.spriteBank?.image(bob.image)
+      const p = this.bobToHw(bob)
+      if (oimg && imagesCollide(img, me.x, me.y, oimg, p.x, p.y)) this.colSet.add(bob.n)
+    }
+    return this.colSet.size > 0 ? -1 : 0
+  }
+
+  /** =Col(n): >=0 membership (-1/0); <0 the first colliding object number. */
+  colGet(n: number): number {
+    if (n < 0) {
+      for (const m of this.colSet) return m
+      return 0
+    }
+    return this.colSet.has(n) ? -1 : 0
   }
 
   /** 1-based index of the first zone containing (x,y) in screen coords, 0 if none. */

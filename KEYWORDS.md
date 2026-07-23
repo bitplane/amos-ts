@@ -27,7 +27,7 @@ tested against our own understanding. Percentages exclude n/a
 | memory | 14 | 10 | 3 | 1 | 93% |
 | menus | 24 | 24 | 0 | 0 | 100% |
 | music | 49 | 5 | 9 | 35 | 29% |
-| objects | 58 | 22 | 20 | 16 | 72% |
+| objects | 58 | 44 | 10 | 4 | 93% |
 | palette | 9 | 6 | 3 | 0 | 100% |
 | rainbows | 3 | 0 | 3 | 0 | 100% |
 | request | 3 | 0 | 3 | 0 | 100% |
@@ -36,7 +36,7 @@ tested against our own understanding. Percentages exclude n/a
 | text-io | 37 | 22 | 14 | 1 | 97% |
 | windows | 11 | 9 | 2 | 0 | 100% |
 | zones | 3 | 0 | 3 | 0 | 100% |
-| **total** | 732 | 326 | 178 | 216 | 70% |
+| **total** | 732 | 348 | 168 | 204 | 72% |
 
 ## amal (92%)
 
@@ -120,11 +120,11 @@ tested against our own understanding. Percentages exclude n/a
 - **approximated**: `bell` *(modern synthesis, not chip waveform)*, `boom` *(modern synthesis)*, `led off`, `led on`, `sam raw`, `shoot` *(modern synthesis)*, `voice`, `volume`, `vumeter` *(synthesized level, not real amplitude)*
 - **missing**: `del wave`, `med cont`, `med load`, `med midi on`, `med play`, `med stop`, `mouth height`, `mouth read`, `mouth width`, `mubase`, `music`, `music off`, `music stop`, `mvolume`, `noise to`, `play`, `play off`, `sam swap`, `sam swapped`, `sample`, `say`, `set envel`, `set talk`, `set wave`, `sload`, `ssave`, `talk misc`, `talk stop`, `tempo`, `track load`, `track loop of`, `track loop on`, `track play`, `track stop`, `wave`
 
-## objects (72%)
+## objects (93%)
 
-- **faithful**: `bob`, `bob clear`, `bob draw`, `bob off`, `bob update`, `bob update off`, `bob update on`, `del block`, `del cblock`, `get block`, `get bob palette`, `get cblock`, `get icon palette`, `get palette`, `get sprite palette`, `limit bob`, `priority off`, `priority on`, `priority reverse off`, `priority reverse on`, `put block`, `put cblock`
-- **approximated**: `bob col`, `col`, `get bob`, `get disc fonts`, `get fonts`, `get icon`, `get rom fonts`, `get sprite`, `hot spot` *(code form approximated)*, `limit mouse` *(parsed but the pointer is not clamped)*, `make mask`, `no mask`, `paste bob`, `paste icon`, `sprite`, `sprite col`, `sprite off`, `sprite update`, `sprite update off`, `sprite update on`
-- **missing**: `bobsprite col`, `del bob`, `del icon`, `del sprite`, `get`, `ins bob`, `ins icon`, `ins sprite`, `make icon mask`, `no icon mask`, `put`, `put bob`, `put key`, `sprite base`, `sprite priority`, `spritebob col`
+- **faithful**: `bob`, `bob clear`, `bob col`, `bob draw`, `bob off`, `bob update`, `bob update off`, `bob update on`, `bobsprite col`, `col`, `del block`, `del bob`, `del cblock`, `del icon`, `del sprite`, `get block`, `get bob`, `get bob palette`, `get cblock`, `get icon`, `get icon palette`, `get palette`, `get sprite`, `get sprite palette`, `ins bob`, `ins icon`, `ins sprite`, `limit bob`, `make icon mask`, `make mask`, `no icon mask`, `no mask`, `paste bob`, `paste icon`, `priority off`, `priority on`, `priority reverse off`, `priority reverse on`, `put block`, `put bob`, `put cblock`, `put key`, `sprite col`, `spritebob col`
+- **approximated**: `get disc fonts`, `get fonts`, `get rom fonts`, `hot spot` *(code form approximated)*, `limit mouse` *(parsed but the pointer is not clamped)*, `sprite`, `sprite off`, `sprite update`, `sprite update off`, `sprite update on`
+- **missing**: `get`, `put`, `sprite base`, `sprite priority`
 
 ## palette (100%)
 

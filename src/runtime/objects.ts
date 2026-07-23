@@ -83,11 +83,37 @@ export class ObjectBank {
 
   /** Get Bob: (re)create image n from screen pixels. */
   setImage(n: number, img: BankImage): void {
-    while (this.images.length < n) {
-      this.images.push({ width: 0, height: 0, depth: 0, hotX: 0, hotY: 0, pixels: new Uint8Array(0), opaque: false })
-    }
+    while (this.images.length < n) this.images.push(blankImage())
     this.images[n - 1] = img
+    this.flipCache.clear()
   }
+
+  /**
+   * Ins Bob/Sprite/Icon n (Bnk.InsBob +Lib.s:8316): insert one blank image
+   * at position n, shifting images n.. up by one.
+   */
+  insert(n: number): void {
+    if (n < 1) throw new Error('function call error')
+    while (this.images.length < n - 1) this.images.push(blankImage())
+    this.images.splice(n - 1, 0, blankImage())
+    this.flipCache.clear()
+  }
+
+  /**
+   * Del Bob/Sprite/Icon n[ To m] (Bnk.DelBob +Lib.s:8372): remove images
+   * n..m and compact — subsequent images renumber down. Returns false when
+   * the bank becomes empty (the caller frees it).
+   */
+  delete(n: number, m = n): boolean {
+    if (n < 1 || m < n || m > this.images.length) throw new Error('function call error')
+    this.images.splice(n - 1, m - n + 1)
+    this.flipCache.clear()
+    return this.images.length > 0
+  }
+}
+
+export function blankImage(): BankImage {
+  return { width: 0, height: 0, depth: 0, hotX: 0, hotY: 0, pixels: new Uint8Array(0), opaque: false }
 }
 
 export interface Bob {

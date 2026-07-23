@@ -71,6 +71,76 @@ describe('language cluster', () => {
   })
 })
 
+describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => {
+  it('Bob Col is rectangle-gated pixel-perfect and fills the Col set', () => {
+    const prog = [
+      'Cls 0 : Ink 5 : Bar 0,0 To 7,7', // an 8x8 solid image
+      'Get Bob 1,0,0 To 8,8',
+      'Bob 1,50,50,1 : Bob 2,54,54,1 : Bob 3,100,100,1', // 1 & 2 overlap, 3 far
+      'Wait Vbl',
+      'C=Bob Col(1)',
+      'Print C;Col(2);Col(3)',
+    ].join('\n')
+    expect(run(prog).out).toBe('-1-1 0\n') // hits 2, not 3
+  })
+
+  it('non-overlapping solid pixels do not collide (exclusive edges + mask AND)', () => {
+    const prog = [
+      'Cls 0 : Ink 5 : Bar 0,0 To 7,7',
+      'Get Bob 1,0,0 To 8,8',
+      'Bob 1,50,50,1 : Bob 2,58,50,1', // touching at x=58 (50+8), exclusive → no hit
+      'Wait Vbl',
+      'Print Bob Col(1)',
+    ].join('\n')
+    expect(run(prog).out).toBe(' 0\n')
+  })
+
+  it('Col(negative) returns the first colliding object number', () => {
+    const prog = [
+      'Cls 0 : Ink 5 : Bar 0,0 To 7,7',
+      'Get Bob 1,0,0 To 8,8',
+      'Bob 1,50,50,1 : Bob 5,52,52,1',
+      'Wait Vbl',
+      'C=Bob Col(1) : Print Col(-1)',
+    ].join('\n')
+    expect(run(prog).out).toBe(' 5\n')
+  })
+
+  it('Del Bob compacts the bank (splice); Ins Bob shifts images up', () => {
+    const prog = [
+      'Cls 0',
+      'Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8',
+      'Ink 6 : Bar 0,0 To 7,7 : Get Bob 2,0,0 To 8,8',
+      'Ink 7 : Bar 0,0 To 7,7 : Get Bob 3,0,0 To 8,8',
+      'Del Bob 2', // 3 renumbers down to 2
+      'Print Length(1)', // image count via the bank
+      'Ins Bob 1', // blank slot at 1, others shift up
+      'Print Length(1)',
+    ].join('\n')
+    // sprite bank Length = image count: 3 images -> del -> 2 -> ins -> 3
+    expect(run(prog).out).toBe(' 2\n 3\n')
+  })
+
+  it('Put Key appends to the keyboard buffer (InPutKey)', () => {
+    const prog = ['Put Key "AB"', 'Print Inkey$;Inkey$'].join('\n')
+    expect(run(prog).out).toBe('AB\n')
+  })
+
+  it('Bobsprite Col maps the bob into hardware space and hits the sprite', () => {
+    // a bob at screen 50,50 maps to hw (50>>1)+128=153, 50+50=100; place the
+    // hardware sprite at the same spot so they overlap
+    const prog = [
+      'Cls 0 : Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8',
+      'Bob 1,50,50,1',
+      'Sprite 8,153,100,1',
+      'Wait Vbl',
+      'Print Bobsprite Col(1)',
+    ].join('\n')
+    const { out } = run(prog)
+    expect(out).toBe('-1\n')
+  })
+})
+
 describe('screens (vs the 68k Ec* routines)', () => {
   it('Screen Open masks the width down to a multiple of 16 (EcCree +W.s:2910)', () => {
     expect(run('Screen Open 1,330,200,16,0 : Print Screen Width(1)').out).toBe(' 320\n')

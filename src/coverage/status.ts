@@ -297,6 +297,31 @@ export const FAITHFUL = new Set<string>([
   'on menu on',
   'on menu off',
   'on menu del',
+  // objects: collision verified against ColRout +W.s:177 (rectangle-reject
+  // then pixel-mask AND, mask = OR of planes = colour!=0 — our pixel-perfect
+  // matches); bank access/editing against Bnk.* (+Lib.s:8013-8457)
+  'bob col',
+  'sprite col',
+  'col',
+  'bobsprite col',
+  'spritebob col',
+  'get bob',
+  'get sprite',
+  'get icon',
+  'paste bob',
+  'paste icon',
+  'put bob',
+  'put key',
+  'del bob',
+  'del sprite',
+  'del icon',
+  'ins bob',
+  'ins sprite',
+  'ins icon',
+  'make mask',
+  'no mask',
+  'make icon mask',
+  'no icon mask',
   // screen keywords verified against +Lib.s/+W.s Ec* routines: select
   // (InScreen 9154), close (9003), display window (EcView 3276), offset
   // hardware scroll (EcOffs 3546), hide/show (9053/9065), to front/back
