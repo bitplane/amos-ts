@@ -327,6 +327,11 @@ export const FAITHFUL = new Set<string>([
   'comp size',
   'prg state',
   'prg under',
+  // ST "Squasher II" codec ported from Squash/UnSquash (+CompExt.s:1027-1558):
+  // the forward-referencing bit-packed LZ, its guard-bit word stream, the XOR
+  // checksum and the trailer layout, exercised by round-trip + corruption tests
+  'squash',
+  'unsquash',
   // flow control verified against +ILib.s (loops 2102-2345, branch/on
   // 2364-2833, gosub/return/pop 2417-2479, error trapping 1296-2050):
   // For is a do-while, Pop discards subroutine loop frames, On Error Proc
@@ -663,4 +668,5 @@ export const NOTES: Record<string, string> = {
   'prg state': 'single-program runtime — returns the plain running state',
   'prg under': 'single-program runtime — no AMOS program runs beneath this one',
   'comp here': 'no native compiler overlay can load in the web port — always 0',
+  squash: "decodes/encodes the exact Squasher format; the encoder uses a greedy longest-match rather than ST Squasher's pre-scan heuristic, so packed size may differ",
 }

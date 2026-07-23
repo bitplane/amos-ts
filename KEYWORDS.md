@@ -15,7 +15,7 @@ tested against our own understanding. Percentages exclude n/a
 | amal-stos | 10 | 0 | 0 | 10 | 0% |
 | banks | 20 | 10 | 6 | 4 | 80% |
 | compact | 3 | 1 | 0 | 2 | 33% |
-| compiler | 15 | 7 | 0 | 4 | 64% |
+| compiler | 15 | 9 | 0 | 2 | 82% |
 | copper | 8 | 0 | 0 | 8 | 0% |
 | drawing | 16 | 14 | 2 | 0 | 100% |
 | files | 21 | 15 | 0 | 4 | 79% |
@@ -36,7 +36,7 @@ tested against our own understanding. Percentages exclude n/a
 | text-io | 37 | 31 | 5 | 1 | 97% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 447 | 81 | 168 | 76% |
+| **total** | 732 | 449 | 81 | 166 | 76% |
 
 ## amal (92%)
 
@@ -58,10 +58,10 @@ tested against our own understanding. Percentages exclude n/a
 - **faithful**: `unpack`
 - **missing**: `pack`, `spack`
 
-## compiler (64%)
+## compiler (82%)
 
-- **faithful**: `comp err$`, `comp here` *(no native compiler overlay can load in the web port — always 0)*, `comp options`, `comp size`, `comp test`, `comp test off`, `comp test on`
-- **missing**: `ppload`, `ppsave`, `squash`, `unsquash`
+- **faithful**: `comp err$`, `comp here` *(no native compiler overlay can load in the web port — always 0)*, `comp options`, `comp size`, `comp test`, `comp test off`, `comp test on`, `squash` *(decodes/encodes the exact Squasher format; the encoder uses a greedy longest-match rather than ST Squasher's pre-scan heuristic, so packed size may differ)*, `unsquash`
+- **missing**: `ppload`, `ppsave`
 - **n/a**: `cmpcall`, `comp del`, `comp load`, `compile`
 
 ## copper (0%)

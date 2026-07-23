@@ -22,6 +22,7 @@ import {
 import { amigaPattern } from './vfs'
 import { MF_BAR, MF_BOUGE, MF_FIXED, MF_OFF, MF_SEP, MF_TBOUGE, MF_TOTAL, bankToMenu, compileMenuObject, menuCalc, menuToBank } from './menu'
 import { bellPcm, boomPcm, shootPcm } from './audio'
+import { squash as squashBytes, unsquash as unsquashBytes } from './squash'
 
 /**
  * Graphics/screen instruction and function registries, bound to a Runtime.
@@ -2800,6 +2801,44 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     peek(_, a) {
       const m = rt.resolveAddr(int(a[0]!))
       return VI(m ? m.data[m.off]! : 0)
+    },
+    squash(_, a) {
+      // =Squash(address,length,fast,speed,colour) — Squash +CompExt.s:969.
+      // Compresses in place and returns the compressed length, or -1 when the
+      // result would not beat the original ("Squashed >= Normal").
+      const address = int(a[0]!)
+      const length = int(a[1]!)
+      const speed = a.length >= 4 ? int(a[3]!) : 4095
+      const colour = a.length >= 5 ? int(a[4]!) : 0
+      if (length <= 0 || colour < 0 || colour >= 32) throw new AmosError('Illegal function call', 23)
+      if (a.length >= 4 && (speed < 256 || speed >= 4096)) throw new AmosError('Illegal function call', 23)
+      const m = rt.resolveAddr(address)
+      if (!m) throw new AmosError('Address error', 25)
+      const len = Math.min(length, m.data.length - m.off)
+      const packed = squashBytes(m.data.slice(m.off, m.off + len), Math.min(speed, 4096))
+      if (!packed) return VI(-1)
+      m.data.set(packed, m.off)
+      return VI(packed.length)
+    },
+    unsquash(_, a) {
+      // =Unsquash(address,length) — UnSquash +CompExt.s:1468. Decompresses in
+      // place; returns the expanded length, -1 on corrupt data (bad checksum)
+      // or -2 if it would write past the end of the memory block.
+      const address = int(a[0]!)
+      const length = int(a[1]!)
+      if (length <= 0) throw new AmosError('Illegal function call', 23)
+      const m = rt.resolveAddr(address)
+      if (!m) throw new AmosError('Address error', 25)
+      const comp = m.data.slice(m.off, m.off + Math.min(length, m.data.length - m.off))
+      let out: Uint8Array
+      try {
+        out = unsquashBytes(comp)
+      } catch {
+        return VI(-1)
+      }
+      if (m.off + out.length > m.data.length) return VI(-2)
+      m.data.set(out, m.off)
+      return VI(out.length)
     },
     deek(_, a) {
       const m = rt.resolveAddr(int(a[0]!))
