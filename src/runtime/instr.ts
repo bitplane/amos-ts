@@ -357,38 +357,59 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().box(x1, y1, x2, y2)
     },
     bar(it) {
+      const s = scr()
       const [x1, y1] = pair(it)
       it.expect('to')
       const [x2, y2] = pair(it)
-      scr().bar(x1, y1, x2, y2)
+      s.bar(x1, y1, x2, y2)
+      s.grX = x1 // InBar sets the graphics cursor to the top-left corner
+      s.grY = y1
     },
     circle(it) {
+      const s = scr()
       const [x, y] = pair(it)
       it.expect(',')
       const r = it.evalInt()
-      scr().ellipse(x, y, r, r)
+      if (r <= 0) throw new AmosError('function call error')
+      // InCircle +Lib.s:9632: on a hires screen the x-radius is doubled so
+      // the circle is round on non-square pixels
+      s.ellipse(x, y, s.hires ? r * 2 : r, r)
+      s.grX = x // the cursor ends at the centre
+      s.grY = y
     },
     ellipse(it) {
+      const s = scr()
       const [x, y] = pair(it)
       it.expect(',')
       const r1 = it.evalInt()
       it.expect(',')
       const r2 = it.evalInt()
-      scr().ellipse(x, y, r1, r2)
+      if (r1 <= 0 || r2 <= 0) throw new AmosError('function call error')
+      s.ellipse(x, y, r1, r2)
+      s.grX = x
+      s.grY = y
     },
     polyline: polyish(false),
     polygon: polyish(true),
     paint(it) {
       // graphics.library Flood: mode 1 (default) fills the same-colour
       // region; mode 0 fills until the outline pen (Ink's 3rd argument)
+      const s = scr()
       const [x, y] = pair(it)
       const mode = it.accept(',') ? it.evalInt() & 1 : 1
-      scr().paint(x, y, scr().ink, mode === 0)
+      s.paint(x, y, s.ink, mode === 0)
+      s.grX = x
+      s.grY = y
     },
     text(it) {
+      // InText +Lib.s:9849: cursor to x,y then advanced by the string width
+      const s = scr()
       const [x, y] = pair(it)
       it.expect(',')
-      scr().text(x, y, it.evalStr())
+      const str2 = it.evalStr()
+      s.text(x, y, str2)
+      s.grX = x + str2.length * 8
+      s.grY = y
     },
     clip(it) {
       const s = scr()
@@ -1579,10 +1600,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     // ---- memory / banks ----
-    'reserve as data': reserve('Datas'),
-    'reserve as work': reserve('Work'),
-    'reserve as chip data': reserve('Datas'),
-    'reserve as chip work': reserve('Work'),
+    'reserve as data': reserve('Datas', true),
+    'reserve as work': reserve('Work', false),
+    'reserve as chip data': reserve('Datas', true),
+    'reserve as chip work': reserve('Work', false),
     erase(it) {
       const n = it.evalInt()
       if (n === 1 && rt.spriteBank) {
@@ -1602,8 +1623,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.iconBank = null
     },
     'erase temp'() {
+      // Bnk.EffTemp +Lib.s:8059: erase every bank whose Data flag (bit 0)
+      // is clear — i.e. Work banks; Data/Bob/Icon banks are kept
       for (const [n, b] of [...rt.memBanks]) {
-        if (/work/i.test(b.name)) rt.memBanks.delete(n)
+        if ((b.flags & 1) === 0) rt.memBanks.delete(n)
       }
     },
     'bank swap'(it) {
@@ -1617,18 +1640,23 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         rt.iconBank = t
         return
       }
+      // InBankSwap +Lib.s:2235: swap the number fields; an absent bank
+      // just renumbers the other one — never an error
       const ba = rt.memBanks.get(a)
       const bb = rt.memBanks.get(b)
-      if (!ba || !bb) throw new AmosError('bank not reserved')
-      rt.memBanks.set(a, { ...bb, number: a })
-      rt.memBanks.set(b, { ...ba, number: b })
+      if (ba) rt.memBanks.delete(a)
+      if (bb) rt.memBanks.delete(b)
+      if (ba) rt.memBanks.set(b, { ...ba, number: b })
+      if (bb) rt.memBanks.set(a, { ...bb, number: a })
     },
     'bank shrink'(it) {
+      // Bnk.Schrink +Lib.s:8265: shrink only — a larger length errors
       const n = it.evalInt()
       it.expect('to')
       const len = it.evalInt()
       const bank = rt.memBanks.get(n)
       if (!bank) throw new AmosError('bank not reserved')
+      if (len > bank.data.length || len < 0) throw new AmosError('function call error')
       bank.data = bank.data.subarray(0, len)
     },
     'list bank'(it) {
@@ -1673,6 +1701,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (m) for (let i = 0; i < str2.length && m.off + i < m.data.length; i++) m.data[m.off + i] = str2.charCodeAt(i) & 0xff
     },
     fill(it) {
+      // FillBis +Lib.s:2648: the long value written big-endian and repeated,
+      // the trailing 1-3 bytes continuing the same rotation
       const start = it.evalInt()
       it.expect('to')
       const end = it.evalInt()
@@ -1681,14 +1711,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const m = rt.resolveAddr(start)
       if (!m) return
       const len = Math.min(end - start, m.data.length - m.off)
-      for (let i = 0; i + 3 < len; i += 4) {
-        m.data[m.off + i] = (v >>> 24) & 0xff
-        m.data[m.off + i + 1] = (v >>> 16) & 0xff
-        m.data[m.off + i + 2] = (v >>> 8) & 0xff
-        m.data[m.off + i + 3] = v & 0xff
-      }
+      for (let i = 0; i < len; i++) m.data[m.off + i] = (v >>> (24 - (i & 3) * 8)) & 0xff
     },
     copy(it) {
+      // TransMem +Lib.s:2535: direction chosen by src/dst order so
+      // overlapping moves within one bank stay correct
       const start = it.evalInt()
       it.expect(',')
       const end = it.evalInt()
@@ -1698,7 +1725,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const dst = rt.resolveAddr(dest)
       if (!src || !dst) return
       const len = Math.min(end - start, src.data.length - src.off, dst.data.length - dst.off)
-      dst.data.set(src.data.subarray(src.off, src.off + len), dst.off)
+      if (len <= 0) return
+      if (src.data === dst.data) {
+        // same bank: copyWithin handles overlap in both directions
+        dst.data.copyWithin(dst.off, src.off, src.off + len)
+      } else {
+        dst.data.set(src.data.subarray(src.off, src.off + len), dst.off)
+      }
     },
     bload(it) {
       const path = it.evalStr()
@@ -1706,9 +1739,17 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const dest = it.evalInt()
       const bytes = rt.fs?.read(path)
       if (!bytes) throw new AmosError(`file not found: ${path}`)
-      if (dest > 0 && dest < 0x10000) {
-        // small value: a bank number (Bnk.OrAdr)
-        rt.memBanks.set(dest, { kind: 'memory', number: dest, memType: 0, name: 'Datas', flags: 0, data: Uint8Array.from(bytes) })
+      if (dest > 0 && dest < 1024) {
+        // Bnk.OrAdr: < 1024 is a bank number. The original errors if the
+        // bank is unreserved and loads into it capped; the port is more
+        // lenient and creates it (see NOTES) so tools that skip the
+        // Reserve still work
+        const bank = rt.memBanks.get(dest)
+        if (bank) {
+          bank.data.set(bytes.subarray(0, bank.data.length), 0)
+        } else {
+          rt.memBanks.set(dest, { kind: 'memory', number: dest, memType: 0, name: 'Datas', flags: 0, data: Uint8Array.from(bytes) })
+        }
         return
       }
       const m = rt.resolveAddr(dest)
@@ -2004,11 +2045,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   /** Reserve As ... n,length */
-  function reserve(name: string): Instr {
+  function reserve(name: string, dataBank: boolean): Instr {
     return (it) => {
       const n = it.evalInt()
       it.expect(',')
-      rt.reserveBank(n, it.evalInt(), name)
+      rt.reserveBank(n, it.evalInt(), name, dataBank)
     }
   }
 
@@ -2058,24 +2099,26 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   function polyish(close: boolean): Instr {
     return (it) => {
       const s = scr()
-      let x1: number
-      let y1: number
+      const pts: Array<[number, number]> = []
       if (it.accept('to')) {
-        x1 = s.grX
-        y1 = s.grY
+        pts.push([s.grX, s.grY])
       } else {
-        ;[x1, y1] = pair(it)
+        const [x, y] = pair(it)
+        pts.push([x, y])
         it.expect('to')
       }
-      const startX = x1
-      const startY = y1
       do {
-        const [x2, y2] = pair(it)
-        s.line(x1, y1, x2, y2)
-        x1 = x2
-        y1 = y2
+        pts.push(pair(it))
       } while (it.accept('to'))
-      if (close) s.line(x1, y1, startX, startY)
+      if (close) {
+        // Polygon is filled (InitArea/AreaEnd)
+        s.fillPolygon(pts)
+      } else {
+        for (let i = 0; i + 1 < pts.length; i++) s.line(pts[i]![0], pts[i]![1], pts[i + 1]![0], pts[i + 1]![1])
+      }
+      const last = pts[pts.length - 1]!
+      s.grX = last[0]
+      s.grY = last[1]
     }
   }
 }
@@ -2121,9 +2164,15 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
   const scr = (): Screen => rt.screen
   return {
     point(_, a) {
+      // RPoint +Lib.s:9586 calls GrXY, so =Point(x,y) moves the graphics
+      // cursor to x,y as a side effect
       const [x, y] = [a[0], a[1]]
       if (x === undefined || y === undefined) throw new AmosError('wrong number of arguments')
-      return VI(scr().point(int(x), int(y)))
+      const s = scr()
+      const c = s.point(int(x), int(y))
+      s.grX = int(x)
+      s.grY = int(y)
+      return VI(c)
     },
     screen(_, a) {
       void a

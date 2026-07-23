@@ -170,8 +170,10 @@ export class Runtime {
     return null
   }
 
-  reserveBank(n: number, length: number, name: string): void {
-    this.memBanks.set(n, { kind: 'memory', number: n, memType: 0, name, flags: 0, data: new Uint8Array(length) })
+  reserveBank(n: number, length: number, name: string, dataBank = true): void {
+    // flags bit 0 = Bnk_BitData (+Equ.s:1865): Data banks survive Erase Temp,
+    // Work banks (bit clear) do not
+    this.memBanks.set(n, { kind: 'memory', number: n, memType: 0, name, flags: dataBank ? 1 : 0, data: new Uint8Array(length) })
   }
   // ---- resource banks (Interface language) ----
   /** Resource Bank n (0 = system default, InResourceBank +Lib.s:14933) */
@@ -580,7 +582,7 @@ export class Runtime {
       this.input.keyQueue.length = 0
     },
     clearClicks: () => {
-      this.input.clicks = 0
+      this.input.mouseClickOld = this.input.mouseK
     },
     editField: (x, y, wChars, text, pap, pen, cursor) => {
       const s = this.dTarget()

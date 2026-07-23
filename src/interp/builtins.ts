@@ -730,6 +730,17 @@ export const INSTR: Record<string, Instr> = {
     void it
     it.inp.keyQueue.length = 0
   },
+  'key$'(it) {
+    // Set Key$(n)="def": store a function-key definition (+Lib.s:13757)
+    it.expect('(')
+    const n = it.evalInt()
+    it.expect(')')
+    it.expectOp('=')
+    const def = it.evalStr()
+    if (n < 1 || n > 20) throw new AmosError('function call error')
+    while (it.inp.funcKeys.length < n) it.inp.funcKeys.push('')
+    it.inp.funcKeys[n - 1] = def
+  },
   lprint(it) {
     // printer output — evaluated and discarded
     while (!it.atStmtEnd()) {
@@ -1003,17 +1014,26 @@ export const FUNCS: Record<string, Func> = {
     return VS(k.ch)
   },
   'key$'(it, a) {
-    arity(a, 0, 1)
-    const k = it.inp.keyQueue.shift()
-    return VS(k?.ch ?? '')
+    // FnKeyD +Lib.s:13757: Key$(n) is the function-key DEFINITION string
+    // (set by Key$(n)="..."), NOT a keyboard read
+    arity(a, 1)
+    const n = int(a[0]!)
+    if (n < 1 || n > 20) throw new AmosError('function call error')
+    return VS(it.inp.funcKeys[n - 1] ?? '')
   },
   scancode(it, a) {
+    // FnScancode +Lib.s:13631: returns the last scancode, then clears it
     arity(a, 0)
-    return VI(it.inp.lastScan)
+    const s = it.inp.lastScan
+    it.inp.lastScan = 0
+    return VI(s)
   },
   'key state'(it, a) {
+    // FnKeyState +Lib.s:13649: n & $7F indexes the key matrix; n >= 128 errors
     arity(a, 1)
-    return VI(it.inp.keys.has(int(a[0]!)) ? -1 : 0)
+    const n = int(a[0]!)
+    if (n >= 128 || n < 0) throw new AmosError('function call error')
+    return VI(it.inp.keys.has(n & 0x7f) ? -1 : 0)
   },
   'x mouse'(it, a) {
     arity(a, 0)
@@ -1028,10 +1048,12 @@ export const FUNCS: Record<string, Func> = {
     return VI(it.inp.mouseK)
   },
   'mouse click'(it, a) {
+    // MRout +W.s:10627: bitmask of buttons newly pressed since the last
+    // read (edge-detected vs the stored old state, then latched)
     arity(a, 0)
-    const c = it.inp.clicks
-    it.inp.clicks = 0
-    return VI(c)
+    const pressed = it.inp.mouseK & ~it.inp.mouseClickOld & 7
+    it.inp.mouseClickOld = it.inp.mouseK
+    return VI(pressed)
   },
   'mouse zone'(it, a) {
     arity(a, 0)

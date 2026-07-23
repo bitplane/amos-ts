@@ -469,6 +469,60 @@ export class Screen {
     this.linePattern = saved.lp
   }
 
+  /**
+   * Filled polygon (InPolygon +ILib.s:5535 → InitArea/AreaEnd): scanline
+   * fill in the ink/pattern, auto-closed, with an outline in the border pen
+   * when Set Paint is on. Vertices are [x,y] pairs.
+   */
+  fillPolygon(pts: Array<[number, number]>, c = this.ink): void {
+    if (pts.length < 3) {
+      for (let i = 0; i + 1 < pts.length; i++) this.line(pts[i]![0], pts[i]![1], pts[i + 1]![0], pts[i + 1]![1], c)
+      return
+    }
+    let yMin = Infinity
+    let yMax = -Infinity
+    for (const [, y] of pts) {
+      if (y < yMin) yMin = y
+      if (y > yMax) yMax = y
+    }
+    yMin = Math.max(yMin, 0)
+    yMax = Math.min(yMax, this.height - 1)
+    const rows = this.pattern
+    for (let y = yMin; y <= yMax; y++) {
+      const xs: number[] = []
+      for (let i = 0; i < pts.length; i++) {
+        const [ax, ay] = pts[i]!
+        const [bx, by] = pts[(i + 1) % pts.length]!
+        if (ay === by) continue
+        if ((y >= ay && y < by) || (y >= by && y < ay)) {
+          xs.push(ax + ((y - ay) * (bx - ax)) / (by - ay))
+        }
+      }
+      xs.sort((p, q) => p - q)
+      for (let i = 0; i + 1 < xs.length; i += 2) {
+        const x0 = Math.round(xs[i]!)
+        const x1 = Math.round(xs[i + 1]!)
+        if (rows === null) this.hline(x0, x1, y, c)
+        else {
+          const row = rows[y % rows.length]!
+          for (let x = Math.max(0, x0); x <= Math.min(this.width - 1, x1); x++) {
+            this.plot(x, y, (row >> (15 - (x & 15))) & 1 ? c : this.gPaper)
+          }
+        }
+      }
+    }
+    if (this.outline) {
+      const saved = this.linePattern
+      this.linePattern = 0xffff
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i]!
+        const b = pts[(i + 1) % pts.length]!
+        this.line(a[0], a[1], b[0], b[1], this.gBorder)
+      }
+      this.linePattern = saved
+    }
+  }
+
   paint(x: number, y: number, c = this.ink, borderMode = false): void {
     const target = this.point(x, y)
     if (target < 0 || target === (c & this.colorMask())) return

@@ -157,12 +157,11 @@ canvas.addEventListener('mousemove', (e) => {
 })
 canvas.addEventListener('mousedown', (e) => {
   if (!rt) return
-  rt.input.mouseK |= e.button === 2 ? 2 : 1
-  rt.input.clicks++
+  rt.input.mouseK |= e.button === 2 ? 2 : e.button === 1 ? 4 : 1
   e.preventDefault()
 })
 canvas.addEventListener('mouseup', (e) => {
-  if (rt) rt.input.mouseK &= ~(e.button === 2 ? 2 : 1)
+  if (rt) rt.input.mouseK &= ~(e.button === 2 ? 2 : e.button === 1 ? 4 : 1)
 })
 canvas.addEventListener('contextmenu', (e) => e.preventDefault())
 

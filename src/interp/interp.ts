@@ -89,12 +89,14 @@ export interface InputState {
   /** mouse in AMOS hardware coords (lowres pixel + 128/50 origin) */
   mouseX: number
   mouseY: number
-  /** buttons currently held (bit 0 left, bit 1 right) */
+  /** buttons currently held (bit 0 left, bit 1 right, bit 2 middle) */
   mouseK: number
-  /** clicks since last Mouse Click read */
-  clicks: number
+  /** button state at the last Mouse Click read, for edge detection */
+  mouseClickOld: number
   /** joystick bits: 1 up, 2 down, 4 left, 8 right, 16 fire */
   joy: number
+  /** Set Key$(1..20) function-key definition strings */
+  funcKeys: string[]
 }
 
 export const newInputState = (): InputState => ({
@@ -104,8 +106,9 @@ export const newInputState = (): InputState => ({
   mouseX: 128 + 160,
   mouseY: 50 + 100,
   mouseK: 0,
-  clicks: 0,
+  mouseClickOld: 0,
   joy: 0,
+  funcKeys: [],
 })
 
 export interface InterpOptions {

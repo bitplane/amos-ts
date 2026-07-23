@@ -4,6 +4,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
+import { VI, int } from '../interp/values'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -67,6 +68,94 @@ describe('language cluster', () => {
     const { rt } = run(prog)
     expect(rt.screen.point(300, 190)).toBe(6) // nothing scrolled
     expect(rt.screen.curY).toBeLessThan(25)
+  })
+})
+
+describe('input subsystem (vs the 68k read routines)', () => {
+  const table2 = new TokenTable(CORE_TOKENS)
+  const boot = (src: string): { rt: Runtime; out: () => string } => {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table2), table2, { maxSteps: 300_000, onText: (t) => (out += t) })
+    return { rt, out: () => out }
+  }
+
+  it('Mouse Click is an edge-detected bitmask, not a count (MRout +W.s:10627)', () => {
+    const { rt, out } = boot(['Do', ' C=Mouse Click', ' If C>0 Then Print C;Mouse Click : End', ' Wait Vbl', 'Loop'].join('\n'))
+    for (let i = 0; i < 2; i++) rt.frame() // no buttons: reads 0
+    rt.input.mouseK = 1 | 2 // both pressed together
+    for (let i = 0; i < 4 && rt.frame().status !== 'ended'; i++);
+    // first read = 3 (both newly pressed), the second (same statement) = 0
+    expect(out()).toBe(' 3 0\n')
+  })
+
+  it('Scancode clears after a read (FnScancode +Lib.s:13631)', () => {
+    const { rt, out } = boot(['A$=Inkey$', 'Do', ' A$=Inkey$', ' If A$<>"" Then Print Scancode;Scancode : End', ' Wait Vbl', 'Loop'].join('\n'))
+    for (let i = 0; i < 2; i++) rt.frame()
+    rt.pressKey('a', 0x20)
+    for (let i = 0; i < 4 && rt.frame().status !== 'ended'; i++);
+    expect(out()).toBe(' 32 0\n') // first read = $20, second = 0 (cleared)
+  })
+
+  it('Key$(n) is the function-key definition, set by Key$(n)= (FnKeyD)', () => {
+    const { rt, out } = boot('Key$(3)="HELLO"\nPrint Key$(3)\nPrint Key$(1)=""')
+    rt.runHeadless(100)
+    expect(out()).toBe('HELLO\n-1\n') // slot 3 = HELLO, slot 1 = empty ("" = "" is true)
+  })
+
+  it('Key State masks to $7F and errors past 128 (FnKeyState +Lib.s:13649)', () => {
+    const { rt, out } = boot(['Do', ' If Key State($40) Then Print "hit" : End', ' Wait Vbl', 'Loop'].join('\n'))
+    for (let i = 0; i < 2; i++) rt.frame()
+    rt.input.keys.add(0x40)
+    for (let i = 0; i < 3 && rt.frame().status !== 'ended'; i++);
+    expect(out()).toBe('hit\n')
+    const bad = new Runtime(tokenize('Print Key State(200)', table2), table2, { maxSteps: 1000 })
+    expect(() => bad.runHeadless(50)).toThrow()
+  })
+})
+
+describe('drawing primitives (graphics cursor + shapes)', () => {
+  const countPixels = (s: { height: number; width: number; point(x: number, y: number): number }, c: number): number => {
+    let n = 0
+    for (let y = 0; y < s.height; y++) for (let x = 0; x < s.width; x++) if (s.point(x, y) === c) n++
+    return n
+  }
+
+  it('every primitive leaves the graphics cursor where the 68k does', () => {
+    const cur = (src: string): [number, number] => {
+      const s = run(src).rt.screen
+      return [s.grX, s.grY]
+    }
+    expect(cur('Plot 10,20')).toEqual([10, 20]) // Plot -> x,y
+    expect(cur('Draw 0,0 To 30,15')).toEqual([30, 15]) // Draw -> end
+    expect(cur('Gr Locate 0,0 : Draw To 25,5')).toEqual([25, 5])
+    expect(cur('Bar 5,5 To 40,40')).toEqual([5, 5]) // Bar -> top-left
+    expect(cur('Circle 100,60,20')).toEqual([100, 60]) // Circle -> centre
+    expect(cur('Ellipse 80,40,30,10')).toEqual([80, 40])
+    expect(cur('A=Point(50,25)')).toEqual([50, 25]) // Point() moves the cursor
+    expect(cur('Text 16,50,"AB"')).toEqual([32, 50]) // advanced by the width
+  })
+
+  it('Polygon fills its interior (InitArea/AreaEnd), Polyline strokes', () => {
+    const filled = run('Ink 5 : Polygon 10,10 To 50,10 To 30,40').rt.screens.get(0)!
+    const stroked = run('Ink 5 : Polyline 10,10 To 50,10 To 30,40').rt.screens.get(0)!
+    expect(countPixels(filled, 5)).toBeGreaterThan(400) // interior filled
+    expect(countPixels(stroked, 5)).toBeLessThan(120) // just the two edges
+    expect(stroked.point(30, 10)).toBe(5) // the top edge is drawn
+  })
+
+  it('Circle doubles the x-radius on a hires screen (round on 2:1 pixels)', () => {
+    const prog = ['Screen Open 1,640,200,16,$8000', 'Cls 0 : Ink 5', 'Circle 100,50,20'].join('\n')
+    const s = run(prog).rt.screens.get(1)!
+    // x-radius doubled to 40 → the horizontal extent is ~80, not ~40
+    let leftmost = 999
+    let rightmost = 0
+    for (let y = 48; y <= 52; y++) for (let x = 0; x < 640; x++) if (s.point(x, y) === 5) { leftmost = Math.min(leftmost, x); rightmost = Math.max(rightmost, x) }
+    expect(rightmost - leftmost).toBeGreaterThan(60)
+  })
+
+  it('Circle/Ellipse error on a non-positive radius (FonCall)', () => {
+    expect(() => run('Circle 10,10,0')).toThrow()
+    expect(() => run('Ellipse 10,10,5,0')).toThrow()
   })
 })
 
@@ -197,6 +286,60 @@ describe('memory model', () => {
       'Print Length(6)',
     ].join('\n')
     expect(run(prog).out).toBe(' 20 10\n 0\n')
+  })
+
+  it('Deek/Doke/Leek/Loke are big-endian at any alignment (FnDeek +Lib.s:2805)', () => {
+    const prog = [
+      'Reserve As Data 6,32',
+      'Doke Start(6),$1234 : Doke Start(6)+3,$5678', // even and odd
+      'Print Peek(Start(6));Peek(Start(6)+1);Deek(Start(6)+3)',
+      'Loke Start(6)+8,$DEADBEEF',
+      'Print Leek(Start(6)+8)=$DEADBEEF',
+    ].join('\n')
+    expect(run(prog).out).toBe(' 18 52 22136\n-1\n') // $12,$34; $5678
+  })
+
+  it('Fill writes the whole range including the trailing bytes (FillBis +Lib.s:2648)', () => {
+    const prog = [
+      'Reserve As Data 6,16',
+      'Fill Start(6) To Start(6)+6,$41424344',
+      'Print Peek(Start(6)+4);Peek(Start(6)+5)', // the tail continues the pattern
+    ].join('\n')
+    expect(run(prog).out).toBe(' 65 66\n') // $41,$42 — not left as 0
+  })
+
+  it('Copy handles overlapping moves within a bank (TransMem +Lib.s:2535)', () => {
+    const prog = [
+      'Reserve As Data 6,32',
+      'Poke$ Start(6),"ABCDEF"',
+      'Copy Start(6),Start(6)+6 To Start(6)+2', // forward overlap
+      'Print Peek$(Start(6),8)',
+    ].join('\n')
+    expect(run(prog).out).toBe('ABABCDEF\n')
+  })
+
+  it('Length is 0 for a missing bank; Bank Swap renumbers a lone bank (no error)', () => {
+    expect(run('Print Length(99)').out).toBe(' 0\n')
+    const prog = [
+      'Reserve As Work 5,40',
+      'Bank Swap 5,7', // 7 unreserved: 5 renumbers to 7, no error
+      'Print Length(5);Length(7)',
+    ].join('\n')
+    expect(run(prog).out).toBe(' 0 40\n')
+  })
+
+  it('Bank Shrink only shrinks — a larger length errors (Bnk.Schrink +Lib.s:8265)', () => {
+    expect(run('Reserve As Data 6,100 : Bank Shrink 6 To 40 : Print Length(6)').out).toBe(' 40\n')
+    expect(() => run('Reserve As Data 6,100 : Bank Shrink 6 To 999')).toThrow()
+  })
+
+  it('Erase Temp removes Work banks by the Data flag, keeps Data banks', () => {
+    const prog = [
+      'Reserve As Data 6,10 : Reserve As Work 7,20 : Reserve As Work 8,30',
+      'Erase Temp',
+      'Print Length(6);Length(7);Length(8)',
+    ].join('\n')
+    expect(run(prog).out).toBe(' 10 0 0\n')
   })
 })
 
