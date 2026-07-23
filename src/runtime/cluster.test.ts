@@ -70,6 +70,45 @@ describe('language cluster', () => {
   })
 })
 
+describe('sliders', () => {
+  it('draws track and knob rects with the Set Slider colours (SliHor +W.s:5051)', () => {
+    const prog = [
+      'Cls 0',
+      'Set Slider 4,4,4,0,5,5,5,0', // solid frame ink 4, solid knob ink 5
+      'Hslider 10,10 To 110,20,100,25,25',
+    ].join('\n')
+    const { rt } = run(prog)
+    const s = rt.screens.get(0)!
+    // span 100: knob at off=25 len=25 → knob covers x 35..60, tracks around it
+    expect(s.point(20, 15)).toBe(4) // before-track
+    expect(s.point(45, 15)).toBe(5) // knob
+    expect(s.point(80, 15)).toBe(4) // after-track
+  })
+
+  it('snaps the knob to the far end when pos+size >= total (SliPour full flag)', () => {
+    const prog = ['Cls 0', 'Set Slider 4,4,4,0,5,5,5,0', 'Vslider 10,10 To 20,110,100,75,25'].join('\n')
+    const { rt } = run(prog)
+    const s = rt.screens.get(0)!
+    expect(s.point(15, 109)).toBe(5) // knob reaches the bottom end
+    expect(s.point(15, 30)).toBe(4) // top is track
+  })
+
+  it('errors on negative arguments and pos > total (GetSli)', () => {
+    expect(() => run('Hslider 10,10 To 5,20,100,0,10')).toThrow() // x2 <= x1
+    expect(() => run('Hslider 0,0 To 100,10,50,60,10')).toThrow() // pos > total
+    expect(() => run('Vslider 0,0 To 10,100,-1,0,10')).toThrow()
+  })
+
+  it('enforces the 4px minimum knob (SliPour SlPo1)', () => {
+    const prog = ['Cls 0', 'Set Slider 0,0,0,0,5,5,5,0', 'Hslider 0,0 To 200,10,1000,0,1'].join('\n')
+    const { rt } = run(prog)
+    const s = rt.screens.get(0)!
+    let knob = 0
+    for (let x = 0; x <= 200; x++) if (s.point(x, 5) === 5) knob++
+    expect(knob).toBeGreaterThanOrEqual(4)
+  })
+})
+
 describe('blocks, clones, flips', () => {
   it('grabs and puts blocks, remembering the origin', () => {
     const prog = [

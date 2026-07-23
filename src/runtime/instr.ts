@@ -5,7 +5,7 @@ import { parseAmosFile } from '../loader/amosfile'
 import { parseIlbm } from '../loader/iff'
 import { parsePacPic } from '../loader/pacpic'
 import type { Runtime } from './runtime'
-import { Screen } from './screen'
+import { Screen, builtinPattern } from './screen'
 import { ObjectBank } from './objects'
 import { AmalChannel, AmalCompileError, compileAmal } from './amal'
 import { amigaPattern } from './vfs'
@@ -28,6 +28,52 @@ function pair(it: It): [number, number] {
   const x = it.evalInt()
   it.expect(',')
   return [x, it.evalInt()]
+}
+
+/** Set Slider/Set Pattern number → fill rows (0 solid, <0 sprite image, >0 builtin) */
+function resolvePattern(rt: Runtime, n: number): Uint16Array | null {
+  if (n === 0) return null
+  if (n < 0) {
+    const img = rt.spriteBank?.image(-n)
+    if (!img) return null
+    const rows = Math.min(16, img.height)
+    const bits = new Uint16Array(rows)
+    for (let y = 0; y < rows; y++) {
+      let row = 0
+      for (let x = 0; x < Math.min(16, img.width); x++) {
+        if (img.pixels[y * img.width + x] !== 0) row |= 1 << (15 - x)
+      }
+      bits[y] = row
+    }
+    return bits
+  }
+  return builtinPattern(n)
+}
+
+/**
+ * Hslider/Vslider x1,y1 To x2,y2,total,pos,size (InHSlider/InVSlider
+ * +Lib.s:10143/10151): every argument non-negative, the box non-empty and
+ * pos <= total, else function call error (GetSli/SlPa).
+ */
+function slider(it: It, s: Screen, vertical: boolean): void {
+  const x1 = it.evalInt()
+  it.expect(',')
+  const y1 = it.evalInt()
+  it.expect('to')
+  const x2 = it.evalInt()
+  it.expect(',')
+  const y2 = it.evalInt()
+  it.expect(',')
+  const total = it.evalInt()
+  it.expect(',')
+  const pos = it.evalInt()
+  it.expect(',')
+  const size = it.evalInt()
+  if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0 || total < 0 || pos < 0 || size < 0) {
+    throw new AmosError('function call error')
+  }
+  if (x2 - x1 <= 0 || y2 - y1 <= 0 || pos > total) throw new AmosError('function call error')
+  s.drawSlider(vertical, x1, y1, x2, y2, total, pos, size)
 }
 
 export function makeInstructions(rt: Runtime): Record<string, Instr> {
@@ -283,6 +329,30 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'set paint'(it) {
       scr().outline = it.evalInt() !== 0
+    },
+    hslider(it) {
+      slider(it, scr(), false)
+    },
+    vslider(it) {
+      slider(it, scr(), true)
+    },
+    'set slider'(it) {
+      // SliSet +W.s:5246: 8 params, elided ones keep their current value
+      const cfg = scr().slider
+      const vals: Array<number | null> = []
+      for (let i = 0; i < 8; i++) {
+        if (i > 0 && !it.accept(',')) break
+        vals.push(it.atStmtEnd() || it.nm() === ',' ? null : it.evalInt())
+      }
+      const [fa, fb, fc, fpat, ia, ib, ic, ipat] = vals
+      if (fa != null) cfg.fa = fa
+      if (fb != null) cfg.fb = fb
+      if (fc != null) cfg.fc = fc
+      if (fpat != null) cfg.fpat = resolvePattern(rt, fpat)
+      if (ia != null) cfg.ia = ia
+      if (ib != null) cfg.ib = ib
+      if (ic != null) cfg.ic = ic
+      if (ipat != null) cfg.ipat = resolvePattern(rt, ipat)
     },
     'set pattern'(it) {
       const n = it.evalInt()

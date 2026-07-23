@@ -51,6 +51,18 @@ export interface Wind {
   shade: boolean
 }
 
+/**
+ * Built-in fill patterns (positive Set Pattern / Set Slider numbers). On the
+ * Amiga these live in the system mouse bank (SPat +W.s:4722), which is not
+ * in the fixture set — 1 and 2 (the slider defaults) are approximated as
+ * classic dithers.
+ */
+export function builtinPattern(n: number): Uint16Array | null {
+  if (n === 1) return Uint16Array.from([0xaaaa, 0x5555])
+  if (n === 2) return Uint16Array.from([0x8888, 0x2222])
+  return null
+}
+
 export class Screen {
   /** the LOGICAL buffer — all drawing and Point read this */
   pixels: Uint8Array
@@ -90,6 +102,21 @@ export class Screen {
   cursorOn = true
   /** Gr Writing: 0 JAM1 (transparent), 1 JAM2, 2 XOR */
   grMode = 1
+  /**
+   * Set Slider state (SliSet +W.s:5246), per screen: frame inks A/B/C +
+   * pattern, inner (knob) inks + pattern. Defaults from screen creation
+   * (+W.s:3098-3109): frame/inner A,B = paper, C = pen, patterns 2 and 1.
+   */
+  slider = {
+    fa: 1,
+    fb: 1,
+    fc: 2,
+    fpat: builtinPattern(2),
+    ia: 1,
+    ib: 1,
+    ic: 2,
+    ipat: builtinPattern(1),
+  }
 
   constructor(
     readonly index: number,
@@ -357,6 +384,79 @@ export class Screen {
       px = x
       py = y
     }
+  }
+
+  /**
+   * SliPour (+W.s:5159): knob offset/length within a span, in the original
+   * fixed-point ladder (×65536, ×256, ×1 depending on magnitudes), knob at
+   * least 4px, clamped to the span, snapped to the far end when
+   * pos+size >= total.
+   */
+  private sliderMetrics(span: number, total: number, pos: number, size: number): { off: number; len: number } {
+    if (size >= total) {
+      if (total === 0) total = 1
+      size = total
+    }
+    const full = pos + size >= total
+    let posPx: number
+    let sizePx: number
+    if (span < total) {
+      const q = Math.floor((span * 0x10000) / total)
+      posPx = (pos * q) >>> 16
+      sizePx = (size * q + 0x8000) >>> 16
+    } else if (Math.floor((span * 256) / total) < 0x10000) {
+      const q = Math.floor((span * 256) / total)
+      posPx = (pos * q) >>> 8
+      sizePx = (size * q + 0x80) >>> 8
+    } else {
+      const q = Math.floor(span / total)
+      posPx = pos * q
+      sizePx = size * q
+    }
+    if (sizePx < 4) sizePx = 4
+    let off = posPx
+    if (off >= span) off = span - sizePx
+    let end = off + sizePx
+    if (end > span) {
+      off = span - sizePx
+      end = span
+    }
+    const len = end - off
+    if (full) off = span - len
+    return { off, len }
+  }
+
+  /**
+   * Hslider/Vslider (SliHor/SliVer, +W.s:5051/5086): track-before and
+   * track-after rects in the frame colours, the knob in the inner colours,
+   * all pattern-filled and outlined in ink C (SliPut).
+   */
+  drawSlider(vertical: boolean, x1: number, y1: number, x2: number, y2: number, total: number, pos: number, size: number): void {
+    const cfg = this.slider
+    const span = vertical ? y2 - y1 : x2 - x1
+    const { off, len } = this.sliderMetrics(span, total, pos, size)
+    const saved = { ink: this.ink, gPaper: this.gPaper, gBorder: this.gBorder, pattern: this.pattern, outline: this.outline, lp: this.linePattern }
+    this.outline = true
+    this.linePattern = 0xffff
+    const rect = (a: number, b: number, inner: boolean): void => {
+      if (b <= a) return // SliDess: strict extents only
+      this.ink = inner ? cfg.ia : cfg.fa
+      this.gPaper = inner ? cfg.ib : cfg.fb
+      this.gBorder = inner ? cfg.ic : cfg.fc
+      this.pattern = inner ? cfg.ipat : cfg.fpat
+      if (vertical) this.bar(x1, a, x2, b)
+      else this.bar(a, y1, b, y2)
+    }
+    const base = vertical ? y1 : x1
+    rect(base, base + off, false)
+    rect(base + off, base + off + len, true)
+    rect(base + off + len, base + span, false)
+    this.ink = saved.ink
+    this.gPaper = saved.gPaper
+    this.gBorder = saved.gBorder
+    this.pattern = saved.pattern
+    this.outline = saved.outline
+    this.linePattern = saved.lp
   }
 
   paint(x: number, y: number, c = this.ink, borderMode = false): void {
