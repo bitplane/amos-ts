@@ -236,6 +236,32 @@ export const FAITHFUL = new Set<string>([
   'pen$', // console escapes, codes from ChPen/ChPap/ChCMv
   'paper$',
   'cmove$',
+  // Interface (dialog) language: scanner/evaluator/prepass/interpreter
+  // ported from the Dia_* routines in +Lib.s (19889-24850); resource banks
+  // per Dia_GetPuzzle 14943, verified byte-level against
+  // AMOSPro_Default_Resource.Abk; zone interaction per Dia_Tests 24162
+  'dialog open',
+  'dialog close',
+  'dialog clr',
+  'dialog freeze',
+  'dialog unfreeze',
+  'dialog update',
+  'dialog run',
+  'dialog',
+  'dialog box',
+  'edialog',
+  'vdialog',
+  'vdialog$',
+  'rdialog',
+  'rdialog$',
+  'zdialog',
+  'resource bank',
+  'resource unpack',
+  'resource screen open',
+  // BASIC sliders: SliHor/SliVer/SliPour/SliSet +W.s:5051-5320
+  'hslider',
+  'vslider',
+  'set slider',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -308,4 +334,14 @@ export const NOTES: Record<string, string> = {
   inc: 'also works on float variables (original: integer only)',
   dec: 'also works on float variables (original: integer only)',
   add: 'also works on float variables (original: integer only)',
+  // Interface language caveats
+  'dialog open': 'SM screen-drag is a no-op; CA (machine code) raises a function call error; edit fields use a simplified line editor; MZ reads of raw memory return ""',
+  'fsel$': 'the real bank dialog driven by a TS controller: Store and keyboard qualifiers unhandled, sizes/sort approximated',
+  'resource$': 'negative system/editor message numbers return ""',
+  'set slider': 'system patterns 1/2 approximated as dithers (the mouse bank is not in the fixtures)',
+  hslider: 'system patterns approximated as dithers',
+  vslider: 'system patterns approximated as dithers',
+  array: 'returns an opaque handle (> 1024), not a real address',
+  vdialog: 'integer reads of string-valued slots return 0 (raw pointers are not carried)',
+  'dialog box': 'v$ seeds var 1 as a string, not an address',
 }

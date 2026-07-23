@@ -64,6 +64,16 @@ let lastBytes: Uint8Array | null = null
 let lastName = ''
 let error = ''
 
+// the system default resource bank (dialogs, Fsel$) — part of the machine
+let systemResource: Uint8Array | null = null
+void fetch('fixtures/official-amos/APSystem/AMOSPro_Default_Resource.Abk')
+  .then((r) => (r.ok ? r.arrayBuffer() : null))
+  .then((buf) => {
+    if (buf) systemResource = new Uint8Array(buf)
+    if (rt && systemResource) rt.loadSystemResource(systemResource)
+  })
+  .catch(() => {})
+
 function load(bytes: Uint8Array, name: string): void {
   lastBytes = bytes
   lastName = name
@@ -73,6 +83,7 @@ function load(bytes: Uint8Array, name: string): void {
     const amos = isAmos ? parseAmosFile(bytes) : null
     const lines = amos ? parseSource(amos.source, table) : tokenize(new TextDecoder('latin1').decode(bytes), table)
     rt = new Runtime(lines, table, { extensions, onUnimplemented: 'skip', banks: amos?.banks ?? [], audio, fs: vfs })
+    if (systemResource) rt.loadSystemResource(systemResource)
   } catch (e) {
     rt = null
     error = e instanceof Error ? e.message : String(e)

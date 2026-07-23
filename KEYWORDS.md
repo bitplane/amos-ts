@@ -21,9 +21,9 @@ tested against our own understanding. Percentages exclude n/a
 | files | 21 | 15 | 0 | 4 | 79% |
 | flow | 12 | 3 | 9 | 0 | 100% |
 | input | 18 | 1 | 17 | 0 | 100% |
-| interface | 21 | 0 | 1 | 20 | 5% |
+| interface | 25 | 20 | 4 | 1 | 96% |
 | ioports | 38 | 0 | 0 | 38 | 0% |
-| language | 254 | 98 | 93 | 54 | 78% |
+| language | 250 | 99 | 93 | 49 | 80% |
 | memory | 14 | 4 | 9 | 1 | 93% |
 | menus | 24 | 0 | 4 | 20 | 17% |
 | music | 49 | 5 | 9 | 35 | 29% |
@@ -36,7 +36,7 @@ tested against our own understanding. Percentages exclude n/a
 | text-io | 37 | 20 | 16 | 1 | 97% |
 | windows | 11 | 9 | 2 | 0 | 100% |
 | zones | 3 | 0 | 3 | 0 | 100% |
-| **total** | 732 | 207 | 227 | 286 | 60% |
+| **total** | 732 | 228 | 230 | 262 | 64% |
 
 ## amal (92%)
 
@@ -86,20 +86,21 @@ tested against our own understanding. Percentages exclude n/a
 - **faithful**: `clear key`
 - **approximated**: `change mouse`, `fire`, `inkey$`, `jdown`, `jleft`, `joy`, `jright`, `jup`, `key shift`, `key speed`, `key state`, `mouse click`, `mouse key`, `mouse screen`, `mouse zone` *(current-screen coordinate mapping approximated)*, `scancode`, `scanshift`
 
-## interface (5%)
+## interface (96%)
 
-- **approximated**: `choice` *(selection state matches; timing is per-frame)*
-- **missing**: `dialog`, `dialog box`, `dialog close`, `dialog clr`, `dialog freeze`, `dialog open`, `dialog run`, `dialog unfreeze`, `dialog update`, `edialog`, `fsel$`, `hslider`, `psel$`, `rdialog`, `resource bank`, `resource screen open`, `resource unpack`, `vdialog`, `vslider`, `zdialog`
+- **faithful**: `dialog`, `dialog box` *(v$ seeds var 1 as a string, not an address)*, `dialog close`, `dialog clr`, `dialog freeze`, `dialog open` *(SM screen-drag is a no-op; CA (machine code) raises a function call error; edit fields use a simplified line editor; MZ reads of raw memory return "")*, `dialog run`, `dialog unfreeze`, `dialog update`, `edialog`, `hslider` *(system patterns approximated as dithers)*, `rdialog`, `rdialog$`, `resource bank`, `resource screen open`, `resource unpack`, `vdialog` *(integer reads of string-valued slots return 0 (raw pointers are not carried))*, `vdialog$`, `vslider` *(system patterns approximated as dithers)*, `zdialog`
+- **approximated**: `array` *(returns an opaque handle (> 1024), not a real address)*, `choice` *(selection state matches; timing is per-frame)*, `fsel$` *(the real bank dialog driven by a TS controller: Store and keyboard qualifiers unhandled, sizes/sort approximated)*, `resource$` *(negative system/editor message numbers return "")*
+- **missing**: `psel$`
 
 ## ioports (0%)
 
 - **missing**: `parallel abort`, `parallel base`, `parallel check`, `parallel close`, `parallel error`, `parallel input$`, `parallel open`, `parallel out`, `parallel send`, `parallel status`, `printer abort`, `printer base`, `printer check`, `printer close`, `printer dump`, `printer error`, `printer online`, `printer open`, `printer out`, `printer send`, `serial abort`, `serial base`, `serial bits`, `serial buf`, `serial check`, `serial close`, `serial error`, `serial fast`, `serial get`, `serial input$`, `serial open`, `serial out`, `serial parity`, `serial send`, `serial slow`, `serial speed`, `serial status`, `serial x`
 
-## language (78%)
+## language (80%)
 
-- **faithful**: `abs`, `acos`, `asc`, `asin`, `assign`, `atan`, `bin$`, `cdown$`, `chr$`, `cleft$`, `cmove$`, `cos`, `cright$`, `cup$`, `data`, `def fn`, `degree`, `dfree`, `dim`, `dir$`, `double buffer`, `exist`, `exp`, `false`, `fix`, `flip$`, `fn`, `for`, `gosub`, `goto`, `hcos`, `hex$`, `hrev`, `hsin`, `htan`, `i bob`, `input$` *(keyboard form is non-blocking best effort)*, `instr`, `int`, `left$`, `len`, `line input`, `line input #`, `ln`, `log`, `lower$`, `match` *(not-found result for closest index 0 returns -1)*, `max`, `mid$`, `min`, `next`, `not`, `on`, `paper$`, `pen$`, `pi#`, `radian`, `randomize`, `read`, `repeat$`, `return`, `right$`, `rnd` *(deterministic — original mixes in the raster beam position)*, `rol.b`, `rol.l`, `rol.w`, `ror.b`, `ror.l`, `ror.w`, `set input`, `set line`, `set tab`, `sgn`, `sin`, `sort`, `space$`, `sqr`, `str$`, `string$`, `swap`, `tan`, `true`, `upper$`, `val`, `vrev`, `writing`, `x bob`, `x curs`, `x graphic`, `x hard`, `x screen`, `x text`, `y bob`, `y curs`, `y graphic`, `y hard`, `y screen`, `y text`
+- **faithful**: `abs`, `acos`, `asc`, `asin`, `assign`, `atan`, `bin$`, `cdown$`, `chr$`, `cleft$`, `cmove$`, `cos`, `cright$`, `cup$`, `data`, `def fn`, `degree`, `dfree`, `dim`, `dir$`, `double buffer`, `exist`, `exp`, `false`, `fix`, `flip$`, `fn`, `for`, `gosub`, `goto`, `hcos`, `hex$`, `hrev`, `hsin`, `htan`, `i bob`, `input$` *(keyboard form is non-blocking best effort)*, `instr`, `int`, `left$`, `len`, `line input`, `line input #`, `ln`, `log`, `lower$`, `match` *(not-found result for closest index 0 returns -1)*, `max`, `mid$`, `min`, `next`, `not`, `on`, `paper$`, `pen$`, `pi#`, `radian`, `randomize`, `read`, `repeat$`, `return`, `right$`, `rnd` *(deterministic — original mixes in the raster beam position)*, `rol.b`, `rol.l`, `rol.w`, `ror.b`, `ror.l`, `ror.w`, `set input`, `set line`, `set slider` *(system patterns 1/2 approximated as dithers (the mouse bank is not in the fixtures))*, `set tab`, `sgn`, `sin`, `sort`, `space$`, `sqr`, `str$`, `string$`, `swap`, `tan`, `true`, `upper$`, `val`, `vrev`, `writing`, `x bob`, `x curs`, `x graphic`, `x hard`, `x screen`, `x text`, `y bob`, `y curs`, `y graphic`, `y hard`, `y screen`, `y text`
 - **approximated**: `#`, `'`, `(`, `)`, `:`, `;`, `[`, `]`, `add` *(also works on float variables (original: integer only))*, `at` *(escape codes 'X'/'Y' assumed, not read from the source)*, `border$` *(returns the text unchanged — border boxes not rendered)*, `break off`, `break on`, `chip free`, `command line$`, `dec` *(also works on float variables (original: integer only))*, `def scroll`, `display height`, `do`, `else`, `else if`, `err$` *(generic message text)*, `errn` *(all errors report code 1)*, `error`, `errtrap`, `exit`, `exit if`, `fast free`, `free`, `global`, `hide`, `hide on`, `hires`, `hrev block`, `hscroll` *(window-region scroll, approximated)*, `i sprite`, `if`, `inc` *(also works on float variables (original: integer only))*, `key$`, `laced`, `load`, `load iff` *(HAM decodes as indexed (wrong colours))*, `loop`, `lowres`, `menu$` *(two menu levels; deeper sub-menus parsed but flattened)*, `multi wait`, `on error`, `on menu del`, `on menu off`, `on menu on`, `param`, `param#`, `param$`, `peek$`, `poke$`, `pop`, `pop proc`, `proc`, `procedure`, `rem`, `repeat`, `restore`, `resume`, `resume label`, `resume next`, `scin`, `set bob` *(back modes implemented; planes/mask arguments ignored)*, `set curs`, `set dir`, `set pattern` *(sprite-image patterns only; bank patterns need the system resource bank)*, `set rainbow` *(stored, not rendered)*, `set text` *(bold/italic are synthesized from the single font)*, `set zone`, `shared`, `show`, `show on`, `step`, `then`, `timer` *(writable, drives the frame clock directly)*, `to`, `trap`, `until`, `vrev block`, `vscroll` *(window-region scroll, approximated)*, `wend`, `while`, `x mouse`, `x sprite`, `xgr`, `y mouse`, `y sprite`, `ygr`, `zone$`
-- **missing**: `@_apml_@`, `arexx$`, `array`, `as`, `auto view off`, `auto view on`, `dir/w`, `disc info$`, `drive`, `follow`, `follow off`, `font$`, `frame length`, `frame load`, `frame param`, `frame play`, `frame skip`, `freeze`, `hardcol`, `icon base`, `iff anim`, `ldir`, `ldir/w`, `mask iff`, `on break proc`, `parent`, `picture`, `pload`, `prun`, `rdialog$`, `read text`, `resource$`, `rev`, `save`, `save iff`, `scan$`, `set accessory`, `set buffer`, `set double precision`, `set equate bank`, `set font`, `set hardcol`, `set menu`, `set slider`, `set sprite buffer`, `set stack`, `set tempras`, `unfreeze`, `update`, `update every`, `update off`, `update on`, `vdialog$`, `y menu`
+- **missing**: `@_apml_@`, `arexx$`, `as`, `auto view off`, `auto view on`, `dir/w`, `disc info$`, `drive`, `follow`, `follow off`, `font$`, `frame length`, `frame load`, `frame param`, `frame play`, `frame skip`, `freeze`, `hardcol`, `icon base`, `iff anim`, `ldir`, `ldir/w`, `mask iff`, `on break proc`, `parent`, `picture`, `pload`, `prun`, `read text`, `rev`, `save`, `save iff`, `scan$`, `set accessory`, `set buffer`, `set double precision`, `set equate bank`, `set font`, `set hardcol`, `set menu`, `set sprite buffer`, `set stack`, `set tempras`, `unfreeze`, `update`, `update every`, `update off`, `update on`, `y menu`
 - **n/a**: `,`, `\\\\\\\\\\\\\\\/`, `ask editor`, `equ`, `include`, `monitor`, `struc`, `struc$`, `||apcmp||`
 
 ## memory (93%)
