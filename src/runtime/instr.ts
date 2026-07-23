@@ -8,6 +8,7 @@ import type { Runtime } from './runtime'
 import { Screen, builtinPattern } from './screen'
 import { ObjectBank } from './objects'
 import { AmalChannel, AmalCompileError, compileAmal } from './amal'
+import { DIALOG_ERRORS, DialogChannel, DialogError, prescanDialog } from './dialog'
 import { amigaPattern } from './vfs'
 import { bellPcm, boomPcm, shootPcm } from './audio'
 
@@ -28,6 +29,20 @@ function pair(it: It): [number, number] {
   const x = it.evalInt()
   it.expect(',')
   return [x, it.evalInt()]
+}
+
+/** Vdialog(c,n)= / Vdialog$(c,n)= assignment forms (Dia_GetVariable +Lib.s:14548) */
+function vdialogWrite(it: It, rt: Runtime, isStr: boolean): void {
+  it.expect('(')
+  const c = it.evalInt()
+  it.expect(',')
+  const n = it.evalInt()
+  it.expect(')')
+  it.expectOp('=')
+  const d = rt.dialogs.get(c)
+  if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
+  if (n < 0 || n >= d.vars.length) throw new AmosError(DIALOG_ERRORS[8]!)
+  d.vars[n] = isStr ? it.evalStr() : it.evalInt()
 }
 
 /** Set Slider/Set Pattern number → fill rows (0 solid, <0 sprite image, >0 builtin) */
@@ -870,6 +885,93 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
       rt.blit(scr(), pic, x, y, true)
     },
+    // ---- dialogs (Interface language) ----
+    'dialog open'(it) {
+      // InDialogOpen2/3/4 +Lib.s:14330: Dialog Open c,prog[,nvars[,buflen]];
+      // prog is a string or a program number (<1024) in the resource bank
+      const c = it.evalInt()
+      if (c <= 0) throw new AmosError('function call error')
+      it.expect(',')
+      const prog = it.evalExpr()
+      let nVars = 16
+      let bufLen = 1024
+      if (it.accept(',')) {
+        nVars = it.evalInt()
+        if (nVars < 0) throw new AmosError('function call error')
+        if (it.accept(',')) {
+          bufLen = it.evalInt()
+          if (bufLen <= 256) throw new AmosError('function call error')
+        }
+      }
+      if (rt.dialogs.has(c)) throw new AmosError(DIALOG_ERRORS[5]!)
+      const res = rt.resource()
+      let script: string
+      if (prog.k === 'str') {
+        script = prog.s
+      } else {
+        const n = int(prog)
+        const progs = res.programs
+        if (!progs || n < 1 || n > progs.length) throw new AmosError('function call error')
+        script = progs[n - 1]!
+      }
+      const chan = new DialogChannel(c, nVars, res)
+      chan.script = script
+      chan.screenNb = rt.currentIndex
+      try {
+        const scan = prescanDialog(script)
+        chan.labels = scan.labels
+        chan.userInstrs = scan.userInstrs
+      } catch (e) {
+        if (e instanceof DialogError) {
+          rt.dialogErrPos = e.position
+          throw new AmosError(e.message)
+        }
+        throw e
+      }
+      rt.dialogErrPos = 0
+      rt.dialogs.set(c, chan)
+    },
+    'dialog close'(it) {
+      // InDialogClose0/1 +Lib.s:14399
+      if (it.atStmtEnd()) {
+        rt.dialogs.clear()
+        return
+      }
+      const c = it.evalInt()
+      if (c <= 0) throw new AmosError('function call error')
+      if (!rt.dialogs.delete(c)) throw new AmosError(DIALOG_ERRORS[6]!)
+    },
+    'dialog freeze'(it) {
+      // InDialogFreeze0/1 +Lib.s:14426
+      if (it.atStmtEnd()) {
+        for (const d of rt.dialogs.values()) d.frozen = true
+        return
+      }
+      const c = it.evalInt()
+      if (c <= 0) throw new AmosError('function call error')
+      const d = rt.dialogs.get(c)
+      if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
+      d.frozen = true
+    },
+    'dialog unfreeze'(it) {
+      if (it.atStmtEnd()) {
+        for (const d of rt.dialogs.values()) d.frozen = false
+        return
+      }
+      const c = it.evalInt()
+      if (c <= 0) throw new AmosError('function call error')
+      const d = rt.dialogs.get(c)
+      if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
+      d.frozen = false
+    },
+    vdialog(it) {
+      // InVDialog +Lib.s:14550: Vdialog(c,n)=v
+      vdialogWrite(it, rt, false)
+    },
+    'vdialog$'(it) {
+      vdialogWrite(it, rt, true)
+    },
+
     // ---- resource banks (Interface language) ----
     'resource bank'(it) {
       // InResourceBank +Lib.s:14933: negative bank = function call error
@@ -1989,6 +2091,28 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(which === 2 ? m.selection[1] : m.selection[0])
     },
 
+    vdialog(_, a) {
+      // FnVDialog +Lib.s:14563: raw long read; string slots read as 0
+      const d = rt.dialogs.get(int(a[0]!))
+      if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
+      const n = int(a[1]!)
+      if (n < 0 || n >= d.vars.length) throw new AmosError(DIALOG_ERRORS[8]!)
+      const v = d.vars[n]!
+      return VI(typeof v === 'number' ? v : 0)
+    },
+    'vdialog$'(_, a) {
+      const d = rt.dialogs.get(int(a[0]!))
+      if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
+      const n = int(a[1]!)
+      if (n < 0 || n >= d.vars.length) throw new AmosError(DIALOG_ERRORS[8]!)
+      const v = d.vars[n]!
+      return VS(typeof v === 'string' ? v : '')
+    },
+    edialog(_, a) {
+      // FnEDialog +Lib.s:14391: position of the last dialog error
+      void a
+      return VI(rt.dialogErrPos)
+    },
     'resource$'(_, a) {
       // FnResource +ILib.s:6699: n>0 = message n of the puzzle bank; 0 =
       // the system path; negative = system/editor message tables (not

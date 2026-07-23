@@ -15,6 +15,8 @@ import type { BankImage, Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from './fs'
 import { AmalChannel } from './amal'
 import type { AmalHost, ChannelTarget } from './amal'
+import { DialogChannel } from './dialog'
+import type { DialogHost } from './dialog'
 import { NullAudio, parseSampleBank } from './audio'
 import { FONT8 } from './font.gen'
 import type { AudioSink, SampleEntry } from './audio'
@@ -182,6 +184,19 @@ export class Runtime {
       programs: user?.programs ?? sys?.programs ?? null,
     }
   }
+  // ---- dialogs (Interface language) ----
+  dialogs = new Map<number, DialogChannel>()
+  /** last dialog error position (=Edialog, IDia_Error) */
+  dialogErrPos = 0
+  readonly dialogHost: DialogHost = {
+    screenWidth: () => this.screen.width,
+    screenHeight: () => this.screen.height,
+    textWidth: (s) => s.length * 8,
+    textHeight: () => 8,
+    resolveArray: (handle) => this.dialogArrays.get(handle) ?? null,
+  }
+  /** AR/AS bridge: handles passed through Vdialog (phase 7) */
+  dialogArrays = new Map<number, Int32Array>()
   // ---- sprite update freeze ----
   spriteUpdateOn = true
   frozenSprites: HwSprite[] | null = null
