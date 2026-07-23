@@ -314,6 +314,19 @@ export const FAITHFUL = new Set<string>([
   // Math.fround, the FFP exponent range (overflow/underflow), and the
   // Set Double Precision toggle to IEEE doubles
   'set double precision',
+  // AMOS Compiler directives verified against +CompExt.s: Comp Test/Options are
+  // bare `rts` at runtime (Rien 324), and the state functions report the
+  // compiler-absent values (Comp Here 410 = 0, Comp Err$ = "", Comp Size 444 =
+  // 0). Prg State/Under (+ILib.s:1803/1726) read as single-program-runtime.
+  'comp options',
+  'comp test',
+  'comp test on',
+  'comp test off',
+  'comp err$',
+  'comp here',
+  'comp size',
+  'prg state',
+  'prg under',
   // flow control verified against +ILib.s (loops 2102-2345, branch/on
   // 2364-2833, gosub/return/pop 2417-2479, error trapping 1296-2050):
   // For is a do-while, Pop discards subroutine loop frames, On Error Proc
@@ -506,8 +519,17 @@ export const STRUCTURAL = new Set([
   'using', // parsed inside the Print handler
 ])
 
-/** Editor/compiler-internal tokens that cannot execute in a program. */
+/**
+ * Tokens with no possible web semantics: editor-internal glue, plus keywords
+ * that execute raw 68k machine code, call Amiga ROM library vectors, drive the
+ * native compiler overlay, or open arbitrary exec devices. None of these can
+ * run without *being* an Amiga, so they are n/a rather than "missing" — no
+ * program's logic depends on them producing a result here. (Hardware features
+ * that are meaningful but unrendered — the copper list, serial/printer/ARexx —
+ * stay "missing": they are portable to a host capability, just not built.)
+ */
 export const NA = new Set<string>([
+  // editor-internal
   'ask editor',
   'call editor',
   'close editor',
@@ -520,6 +542,35 @@ export const NA = new Set<string>([
   '||apcmp||',
   '\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\/',
   ',',
+  // raw machine-code / ROM-library calls (Lib.Call jsr 0(a0,d3), +Lib.s:2938;
+  // InCall jsr (a4), +ILib.s:5881) and their register/offset scaffolding
+  'call',
+  'execall',
+  'gfxcall',
+  'doscall',
+  'intcall',
+  'lib open',
+  'lib call',
+  'lib close',
+  'lib base',
+  'areg',
+  'dreg',
+  'lvo',
+  // the native AMOS compiler overlay (LoadSeg APCMP + jsr, +CompExt.s:219,349)
+  'compile',
+  'cmpcall',
+  'comp load',
+  'comp del',
+  // arbitrary exec device I/O — open any .device and fire IORequests
+  'dev open',
+  'dev send',
+  'dev do',
+  'dev close',
+  'dev abort',
+  'dev base',
+  'dev check',
+  // AmigaDOS shell-out (Execute() a CLI command, +Lib.s:3392) — no web analog
+  'exec',
 ])
 
 /** Known simplifications worth surfacing next to a keyword. */
@@ -609,4 +660,7 @@ export const NOTES: Record<string, string> = {
   'request on': 'stored — the port never shows system requesters',
   'request off': 'stored — the port never shows system requesters',
   'request wb': 'stored — the port never shows system requesters',
+  'prg state': 'single-program runtime — returns the plain running state',
+  'prg under': 'single-program runtime — no AMOS program runs beneath this one',
+  'comp here': 'no native compiler overlay can load in the web port — always 0',
 }

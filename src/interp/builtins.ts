@@ -813,6 +813,15 @@ export const INSTR: Record<string, Instr> = {
     // switch A# variables from single-precision FFP to IEEE double
     it.doublePrecision = it.evalInt() !== 0
   },
+  // AMOS Compiler directives. These steer the compiler pass; at runtime under
+  // the interpreter the original routines are bare `rts` (Rien, +CompExt.s:324)
+  // — so faithful behaviour is to consume the parameters and do nothing.
+  'comp options'(it) {
+    it.evalStr()
+  },
+  'comp test': () => {},
+  'comp test on': () => {},
+  'comp test off': () => {},
 }
 
 // ---- functions ------------------------------------------------------------
@@ -1045,6 +1054,33 @@ export const FUNCS: Record<string, Func> = {
   timer(it, a) {
     arity(a, 0)
     return VI(Math.floor(it.tick))
+  },
+  // AMOS Compiler state reads: no native compiler is (or can be) loaded, so
+  // these report "compiler absent" — the values the originals return when the
+  // APCMP overlay was never loaded (CompHere +CompExt.s:410 = 0, CompErr = "",
+  // CompSize +CompExt.s:444 = 0).
+  'comp err$': (_, a) => {
+    arity(a, 0)
+    return VS('')
+  },
+  'comp here': (_, a) => {
+    arity(a, 0)
+    return VI(0)
+  },
+  'comp size': (_, a) => {
+    arity(a, 0)
+    return VI(0)
+  },
+  // Multitasking introspection in a single-program runtime: no AMOS program
+  // runs beneath this one (FnPrgUnder +ILib.s:1726) and the program state word
+  // (FnPrgState +ILib.s:1803) is the plain running state.
+  'prg state': (_, a) => {
+    arity(a, 0)
+    return VI(0)
+  },
+  'prg under': (_, a) => {
+    arity(a, 0)
+    return VI(0)
   },
   'inkey$'(it, a) {
     arity(a, 0)

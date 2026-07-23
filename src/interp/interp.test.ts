@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
-import { CORE_TOKENS } from '../tokens/tables.gen'
+import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Interp } from './interp'
 import { BufferIO } from './io'
@@ -399,6 +399,38 @@ describe('flow verified against the library source', () => {
 
   it('Input parses numbers like Val — hex and binary work (ValRout)', () => {
     expect(run('Input A\nPrint A', ['$FF'])).toBe('? $FF\n 255\n')
+  })
+})
+
+describe('compiler directives and program state (+CompExt.s / +ILib.s)', () => {
+  // Comp* are Compiler-extension keywords, so tokenize with that slot loaded
+  const exts = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
+  const runExt = (src: string): string => {
+    const io = new BufferIO([])
+    const interp = new Interp(tokenize(src, table, exts), table, { io, extensions: exts, maxSteps: 100_000 })
+    const result = interp.run()
+    if (result.status === 'maxSteps') throw new Error('program did not terminate')
+    return io.out
+  }
+
+  it('Comp Test / Comp Options are runtime no-ops (Rien, +CompExt.s:324)', () => {
+    // the directives steer the compiler pass; under the interpreter they run
+    // and produce nothing, so the program continues normally
+    const prog = ['Comp Test On', 'Comp Options "REBUG"', 'Comp Test Off', 'Print "OK"'].join('\n')
+    expect(runExt(prog)).toBe('OK\n')
+  })
+
+  it('compiler state reads report "compiler absent" (+CompExt.s:410/444)', () => {
+    // no native APCMP overlay can load, so Here=0, Err$="", Size=0
+    expect(runExt('Print Comp Here')).toBe(' 0\n')
+    expect(runExt('Print Comp Size')).toBe(' 0\n')
+    expect(runExt('Print "[";Comp Err$;"]"')).toBe('[]\n')
+  })
+
+  it('Prg State / Prg Under read as a single-program runtime (+ILib.s:1803/1726)', () => {
+    // these two are core tokens — the core table alone tokenizes them
+    expect(run('Print Prg State')).toBe(' 0\n')
+    expect(run('Print Prg Under')).toBe(' 0\n')
   })
 })
 

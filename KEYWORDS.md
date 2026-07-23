@@ -15,7 +15,7 @@ tested against our own understanding. Percentages exclude n/a
 | amal-stos | 10 | 0 | 0 | 10 | 0% |
 | banks | 20 | 10 | 6 | 4 | 80% |
 | compact | 3 | 1 | 0 | 2 | 33% |
-| compiler | 15 | 0 | 0 | 15 | 0% |
+| compiler | 15 | 7 | 0 | 4 | 64% |
 | copper | 8 | 0 | 0 | 8 | 0% |
 | drawing | 16 | 14 | 2 | 0 | 100% |
 | files | 21 | 15 | 0 | 4 | 79% |
@@ -32,11 +32,11 @@ tested against our own understanding. Percentages exclude n/a
 | rainbows | 3 | 0 | 3 | 0 | 100% |
 | request | 3 | 0 | 3 | 0 | 100% |
 | screens | 31 | 22 | 8 | 1 | 97% |
-| system | 41 | 0 | 0 | 40 | 0% |
+| system | 41 | 2 | 0 | 18 | 10% |
 | text-io | 37 | 31 | 5 | 1 | 97% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 438 | 81 | 201 | 72% |
+| **total** | 732 | 447 | 81 | 168 | 76% |
 
 ## amal (92%)
 
@@ -58,9 +58,11 @@ tested against our own understanding. Percentages exclude n/a
 - **faithful**: `unpack`
 - **missing**: `pack`, `spack`
 
-## compiler (0%)
+## compiler (64%)
 
-- **missing**: `cmpcall`, `comp del`, `comp err$`, `comp here`, `comp load`, `comp options`, `comp size`, `comp test`, `comp test off`, `comp test on`, `compile`, `ppload`, `ppsave`, `squash`, `unsquash`
+- **faithful**: `comp err$`, `comp here` *(no native compiler overlay can load in the web port — always 0)*, `comp options`, `comp size`, `comp test`, `comp test off`, `comp test on`
+- **missing**: `ppload`, `ppsave`, `squash`, `unsquash`
+- **n/a**: `cmpcall`, `comp del`, `comp load`, `compile`
 
 ## copper (0%)
 
@@ -144,10 +146,11 @@ tested against our own understanding. Percentages exclude n/a
 - **approximated**: `appear` *(copies instantly — the dissolve is not progressive)*, `dual playfield` *(each playfield uses its own palette, not the hardware's colour split; resolution/plane checks and back-screen auto-hide are not enforced)*, `dual priority`, `logbase` *(fake unbacked addresses — plane pokes do not render)*, `phybase` *(fake unbacked addresses — plane pokes do not render)*, `screen base` *(returns 0 — the chunky model has no bitmap address)*, `screen colour` *(returns the plane colour count; HAM does not report 4096)*, `screen open` *(width masked to /16; colour-count and HAM/EHB mode validation are not enforced)*
 - **missing**: `screen size`
 
-## system (0%)
+## system (10%)
 
-- **missing**: `amos here`, `amos lock`, `amos to back`, `amos to front`, `amos unlock`, `areg`, `arexx`, `arexx answer`, `arexx close`, `arexx exist`, `arexx open`, `arexx wait`, `call`, `dev abort`, `dev base`, `dev check`, `dev close`, `dev do`, `dev first$`, `dev next$`, `dev open`, `dev send`, `doscall`, `dreg`, `exec`, `execall`, `gfxcall`, `intcall`, `lib base`, `lib call`, `lib close`, `lib open`, `lvo`, `port`, `prg first$`, `prg next$`, `prg state`, `prg under`, `run`, `system`
-- **n/a**: `call editor`
+- **faithful**: `prg state` *(single-program runtime — returns the plain running state)*, `prg under` *(single-program runtime — no AMOS program runs beneath this one)*
+- **missing**: `amos here`, `amos lock`, `amos to back`, `amos to front`, `amos unlock`, `arexx`, `arexx answer`, `arexx close`, `arexx exist`, `arexx open`, `arexx wait`, `dev first$`, `dev next$`, `port`, `prg first$`, `prg next$`, `run`, `system`
+- **n/a**: `areg`, `call`, `call editor`, `dev abort`, `dev base`, `dev check`, `dev close`, `dev do`, `dev open`, `dev send`, `doscall`, `dreg`, `exec`, `execall`, `gfxcall`, `intcall`, `lib base`, `lib call`, `lib close`, `lib open`, `lvo`
 
 ## text-io (97%)
 
