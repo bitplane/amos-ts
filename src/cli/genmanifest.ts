@@ -39,7 +39,10 @@ type Status = 'faithful' | 'approximated' | 'missing' | 'n/a'
 
 function classify(name: string): Status {
   if (NA.has(name)) return 'n/a'
-  if (implemented.has(name) || STRUCTURAL.has(name)) return FAITHFUL.has(name) ? 'faithful' : 'approximated'
+  // structural glue tokens (`:`, `(`, `then`, `step`, ...) are pure syntax
+  // the parser handles exactly — faithful by construction
+  if (STRUCTURAL.has(name)) return 'faithful'
+  if (implemented.has(name)) return FAITHFUL.has(name) ? 'faithful' : 'approximated'
   return 'missing'
 }
 
