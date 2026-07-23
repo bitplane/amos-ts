@@ -310,6 +310,33 @@ export const FAITHFUL = new Set<string>([
   'y sprite',
   'i sprite',
   'hot spot',
+  // flow control verified against +ILib.s (loops 2102-2345, branch/on
+  // 2364-2833, gosub/return/pop 2417-2479, error trapping 1296-2050):
+  // For is a do-while, Pop discards subroutine loop frames, On Error Proc
+  // Resume unwinds the handler frame, Errn/Err$ carry the real .Error1
+  // numbers/messages
+  'do',
+  'loop',
+  'while',
+  'wend',
+  'repeat',
+  'until',
+  'exit',
+  'exit if',
+  'if',
+  'else',
+  'else if',
+  'pop',
+  'proc',
+  'on error',
+  'resume',
+  'resume next',
+  'resume label',
+  'trap',
+  'errtrap',
+  'errn',
+  'err$',
+  'error',
   // objects: collision verified against ColRout +W.s:177 (rectangle-reject
   // then pixel-mask AND, mask = OR of planes = colour!=0 — our pixel-perfect
   // matches); bank access/editing against Bnk.* (+Lib.s:8013-8457)
@@ -458,8 +485,6 @@ export const NOTES: Record<string, string> = {
   vscroll: 'window-region scroll, approximated',
   'shade on': 'dither approximates the original shading',
   'set text': 'bold/italic are synthesized from the single font',
-  errn: 'all errors report code 1',
-  'err$': 'generic message text',
   'border$': 'returns the text unchanged — border boxes not rendered',
   at: "escape codes 'X'/'Y' assumed, not read from the source",
   match: 'not-found result for closest index 0 returns -1',
@@ -494,6 +519,7 @@ export const NOTES: Record<string, string> = {
   array: 'returns an opaque handle (> 1024), not a real address',
   vdialog: 'integer reads of string-valued slots return 0 (raw pointers are not carried)',
   'dialog box': 'v$ seeds var 1 as a string, not an address',
+  every: 'fires at each statement rather than only at control points, and after (not during) a Wait — a timing nuance tied to the blocking model',
   bar: 'inverted args are normalised rather than raising a function call error',
   box: 'dash phase restarts per edge (68k PolyDraws one continuous pattern)',
   text: 'single Topaz-8 face; Set Text soft styles are synthesized',

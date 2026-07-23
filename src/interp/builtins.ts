@@ -2,7 +2,7 @@ import type { Tok } from '../tokens/stream'
 import type { Addr } from './prescan'
 import { varKey } from './prescan'
 import type { Interp } from './interp'
-import { AmosError, VF, VI, VS, display, int, num, str, truthy, varType } from './values'
+import { AMOS_ERRORS, AmosError, VF, VI, VS, amosErrorCode, display, int, num, str, truthy, varType } from './values'
 import type { Value } from './values'
 
 /**
@@ -443,16 +443,20 @@ export const INSTR: Record<string, Instr> = {
   },
   return(it) {
     const frame = it.frames[it.frames.length - 1]!
-    if (it.gosubs.length <= frame.gosubBase) throw new AmosError('Return without Gosub')
+    if (it.gosubs.length <= frame.gosubBase) throw new AmosError('Return without Gosub', 1)
     const entry = it.gosubs.pop()!
     it.loops.length = Math.min(it.loops.length, entry.loopBase) // one stack in the original
     it.setPc(entry.addr)
     return 'jumped'
   },
   pop(it) {
+    // InPop +ILib.s:2464: discards the Gosub return AND every loop frame
+    // opened since that Gosub (the "BUG si POP au milieu d'une boucle"
+    // behaviour — a3 is restored to BasA3)
     const frame = it.frames[it.frames.length - 1]!
-    if (it.gosubs.length <= frame.gosubBase) throw new AmosError('Pop without Gosub')
-    it.gosubs.pop()
+    if (it.gosubs.length <= frame.gosubBase) throw new AmosError('Pop without Gosub', 2)
+    const entry = it.gosubs.pop()!
+    it.loops.length = Math.min(it.loops.length, entry.loopBase)
   },
   on(it) {
     const what = it.nm()
@@ -559,23 +563,29 @@ export const INSTR: Record<string, Instr> = {
     it.errorHandler = null // bare On Error switches trapping off
   },
   trap(it) {
-    it.errCode = 0
+    // Trap <instruction>: run one statement, capturing any error's number
+    // into Errtrap (a slot separate from Errn — RunErr's .ETrap path never
+    // touches ErrorOn); InTrap +ILib.s:2039
+    it.trapCode = 0
     try {
       it.step()
     } catch (e) {
       if (!(e instanceof AmosError)) throw e
-      it.errCode = 1
+      it.trapCode = amosErrorCode(e)
       it.skipToStmtEnd()
     }
     return 'jumped'
   },
   error(it) {
-    throw new AmosError(`Error ${it.evalInt()}`)
+    // Error n: raise error number n (InError +Lib.s:11425)
+    const n = it.evalInt()
+    throw new AmosError(AMOS_ERRORS[n] ?? `Error ${n}`, n)
   },
   resume(it) {
     it.inError = false
+    it.unwindErrorHandler() // pop an On Error Proc handler frame
     if (it.atStmtEnd()) {
-      if (!it.errStmt) throw new AmosError('Resume without error')
+      if (!it.errStmt) throw new AmosError('Resume without error', 7)
       it.setPc(it.errStmt)
       return 'jumped'
     }
@@ -584,12 +594,14 @@ export const INSTR: Record<string, Instr> = {
   },
   'resume next'(it) {
     it.inError = false
-    if (!it.errNext) throw new AmosError('Resume without error')
+    it.unwindErrorHandler()
+    if (!it.errNext) throw new AmosError('Resume without error', 7)
     it.setPc(it.errNext)
     return 'jumped'
   },
   'resume label'(it) {
     it.inError = false
+    it.unwindErrorHandler()
     it.jumpLabel(it.parseLabelTarget())
     return 'jumped'
   },
@@ -1098,17 +1110,20 @@ export const FUNCS: Record<string, Func> = {
     return VS(it.lastParam.k === 'str' ? it.lastParam.s : '')
   },
   errtrap(it, a) {
+    // =Errtrap: the error number caught by the last Trap (FnErrTrap +ILib.s:2050)
     arity(a, 0)
-    return VI(it.errCode)
+    return VI(it.trapCode)
   },
   errn(it, a) {
+    // =Errn: the number of the last trapped error (FnErrn +Lib.s:1745)
     arity(a, 0)
     return VI(it.errCode)
   },
   'err$'(it, a) {
+    // =Err$(n): the message for error number n (FnErrD +Lib.s:1755)
     arity(a, 1)
-    void a
-    return VS(it.errCode !== 0 ? 'error' : '')
+    const n = a.length > 0 && int(a[0]!) >= 0 ? int(a[0]!) : it.errCode
+    return VS(AMOS_ERRORS[n] ?? '')
   },
   'repeat$'(_, a) {
     arity(a, 2)

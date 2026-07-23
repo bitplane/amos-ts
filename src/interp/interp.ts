@@ -7,6 +7,7 @@ import type { Addr, Ctrl, Program } from './prescan'
 import {
   AmosError,
   VI,
+  amosErrorCode,
   coerce,
   defaultValue,
   display,
@@ -160,12 +161,16 @@ export class Interp {
   degrees = false
   // ---- error trapping (On Error / Trap / Resume) ----
   errorHandler: { kind: 'goto' | 'proc'; target: string } | null = null
-  /** nonzero after a trapped error (read by Errtrap) */
+  /** the last error number caught by On Error (read by =Errn) */
   errCode = 0
+  /** the last error number caught by Trap (read by =Errtrap) */
+  trapCode = 0
   /** true while inside an On Error handler — a second error is fatal */
   inError = false
   errStmt: Addr | null = null
   errNext: Addr | null = null
+  /** frame depth at the trapped error, so Resume can unwind a Proc handler */
+  errFrameDepth = 0
   private stmtStart: Addr = { li: 0, ti: 0 }
   // default tab = 4, from the window-open defaults (Wo3a in +W.s)
   tabWidth = 4
@@ -231,11 +236,14 @@ export class Interp {
         this.step()
       } catch (e) {
         if (e instanceof AmosError && this.errorHandler !== null && !this.inError) {
-          this.errCode = 1
+          this.errCode = amosErrorCode(e)
           this.inError = true
           this.errStmt = { li: this.stmtStart.li, ti: this.stmtStart.ti }
           this.errNext = this.afterCurrentStatement()
           const h = this.errorHandler
+          // remember the frame depth so Resume can unwind an On Error Proc
+          // handler (which enters as a procedure) back to here
+          this.errFrameDepth = this.frames.length
           if (h.kind === 'proc') this.callProc(h.target, [])
           else this.jumpLabel(h.target)
           continue
@@ -666,6 +674,19 @@ export class Interp {
     this.setPc(proc.body)
   }
 
+  /**
+   * Resume from an error handler: an On Error Proc handler entered as a
+   * procedure frame, so pop back to the depth captured at the error (the
+   * original's Resume does PopP, InResume ResP +ILib.s:1998).
+   */
+  unwindErrorHandler(): void {
+    while (this.frames.length > this.errFrameDepth && this.frames.length > 1) {
+      const frame = this.frames.pop()!
+      this.loops.length = frame.loopBase
+      this.gosubs.length = frame.gosubBase
+    }
+  }
+
   returnFromProc(): void {
     if (this.frames.length <= 1) throw new AmosError('End Proc without Procedure call')
     const frame = this.frames.pop()!
@@ -688,8 +709,13 @@ export class Interp {
     const a = this.program.labels.get(name.toLowerCase())
     if (!a) throw new AmosError(`label not defined: ${name.toUpperCase()}`)
     if (unwind) {
+      // the unwind floor is the deeper of the current procedure frame and
+      // the most recent Gosub (BasA3, updated by both): a Goto never pops
+      // loop frames opened before the enclosing Gosub/Proc
       const frame = this.frames[this.frames.length - 1]!
-      while (this.loops.length > frame.loopBase) {
+      const topGosub = this.gosubs[this.gosubs.length - 1]
+      const floor = topGosub ? Math.max(frame.loopBase, topGosub.loopBase) : frame.loopBase
+      while (this.loops.length > floor) {
         const top = this.loops[this.loops.length - 1]!
         const geBody = a.li > top.body.li || (a.li === top.body.li && a.ti >= top.body.ti)
         const ltEnd = top.end.li < 0 || a.li < top.end.li || (a.li === top.end.li && a.ti < top.end.ti)

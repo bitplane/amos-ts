@@ -404,16 +404,16 @@ describe('data', () => {
 })
 
 describe('error trapping', () => {
-  it('jumps to an On Error Goto handler', () => {
+  it('jumps to an On Error Goto handler and reports the real error number', () => {
     const prog = [
       'On Error Goto OOPS',
       'Error 12',
       'Print "NOT REACHED"',
       'End',
       'OOPS:',
-      'Print "CAUGHT";Errtrap',
+      'Print "CAUGHT";Errn',
     ].join('\n')
-    expect(run(prog)).toBe('CAUGHT 1\n')
+    expect(run(prog)).toBe('CAUGHT 12\n') // Errn = the real error number
   })
 
   it('resumes at the next statement', () => {
@@ -421,13 +421,55 @@ describe('error trapping', () => {
     expect(run(prog)).toBe('AFTER\n')
   })
 
-  it('swallows errors under Trap and reports via Errtrap', () => {
-    expect(run('Trap Error 5\nPrint Errtrap')).toBe(' 1\n')
+  it('Errn/Err$ report the AMOS error number and message (.Error1)', () => {
+    // division by zero = error 20
+    const prog = ['On Error Goto H', 'A=1/0', 'End', 'H:', 'Print Errn;Err$(Errn)'].join('\n')
+    expect(run(prog)).toBe(' 20Division by zero\n')
+    // Err$(n) is a direct table lookup
+    expect(run('Print Err$(23)')).toBe('Illegal function call\n')
+  })
+
+  it('Errtrap and Errn are separate slots (Trap vs On Error)', () => {
+    expect(run('Trap Error 5\nPrint Errtrap')).toBe(' 5\n') // Trap → Errtrap = 5
     expect(run('Trap Print "OK"\nPrint Errtrap')).toBe('OK\n 0\n')
   })
 
+  it('On Error Proc + Resume Next unwinds the handler frame (ResP +ILib.s:1998)', () => {
+    const prog = [
+      'On Error Proc HANDLER',
+      'X=1/0',
+      'Print "resumed";X',
+      'End',
+      'Procedure HANDLER',
+      '  Shared X : X=99',
+      '  Resume Next',
+      'End Proc',
+    ].join('\n')
+    expect(run(prog)).toBe('resumed 99\n') // main continues, frame stack restored
+  })
+
+  it('Pop discards loop frames opened since the Gosub (InPop +ILib.s:2464)', () => {
+    // after Pop inside a For, the loop frame is gone: Next has no For to
+    // match, so it is a no-op and control falls straight through
+    const prog = [
+      'Gosub S',
+      'Print "back in main"',
+      'End',
+      'S:',
+      'For I=1 To 5',
+      '  Pop',
+      '  Goto DONE',
+      'Next',
+      'DONE:',
+      'Print "popped, loops cleared"',
+    ].join('\n')
+    const out = run(prog)
+    expect(out).toContain('popped, loops cleared')
+    expect(out).not.toContain('back in main') // Pop discarded the return
+  })
+
   it('is fatal without a handler', () => {
-    expect(() => run('Error 9')).toThrow(/Error 9/)
+    expect(() => run('Error 9')).toThrow()
   })
 })
 
