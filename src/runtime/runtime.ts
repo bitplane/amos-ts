@@ -1,7 +1,7 @@
 import type { TokenLine } from '../tokens/stream'
 import { TokenTable } from '../tokens/stream'
 import { Interp, newInputState } from '../interp/interp'
-import type { InputState, InterpOptions, RunResult } from '../interp/interp'
+import type { AmosArray, InputState, InterpOptions, RunResult } from '../interp/interp'
 import type { AmosIO } from '../interp/io'
 import { AmosError } from '../interp/values'
 import type { Bank, MemoryBank } from '../loader/amosfile'
@@ -21,6 +21,7 @@ import {
   DialogExec,
   dialogZoneAt,
   drawEditZone,
+  drawListZone,
   drawSliderZone,
   editFirst,
   editNext,
@@ -201,15 +202,21 @@ export class Runtime {
   dialogs = new Map<number, DialogChannel>()
   /** last dialog error position (=Edialog, IDia_Error) */
   dialogErrPos = 0
+  /** a pending =Dialog Box quick channel (Dia_RunQuick) */
+  dialogBoxChan: number | null = null
   readonly dialogHost: DialogHost = {
     screenWidth: () => this.screen.width,
     screenHeight: () => this.screen.height,
     textWidth: (s) => s.length * 8,
     textHeight: () => 8,
-    resolveArray: (handle) => this.dialogArrays.get(handle) ?? null,
+    resolveArray: (handle) => {
+      const arr = this.dialogArrays.get(handle)
+      if (!arr) return null
+      return Int32Array.from(arr.data.map((v) => (v.k === 'str' ? 0 : v.n | 0)))
+    },
   }
-  /** AR/AS bridge: handles passed through Vdialog (phase 7) */
-  dialogArrays = new Map<number, Int32Array>()
+  /** AR/AS/list bridge: =Array(A(0)) handles to live BASIC arrays */
+  dialogArrays = new Map<number, AmosArray>()
   private dialogTarget: Screen | null = null
   readonly dialogDraw: DialogDraw = {
     activate: (n) => {
@@ -321,6 +328,10 @@ export class Runtime {
         const ch = shown.charCodeAt(Math.min(cursor, shown.length))
         if (!Number.isNaN(ch)) s.drawChar(cx, y, ch, pap, pen, false)
       }
+    },
+    textCells: (x, y, s, pen, pap) => {
+      const t = this.dTarget()
+      for (let i = 0; i < s.length; i++) t.drawChar(x + i * 8, y, s.charCodeAt(i), pen, pap, false)
     },
     dialogSlider: (cfg, vertical, x, y, sx, sy, total, pos, size) => {
       const s = this.dTarget()
@@ -539,12 +550,23 @@ export class Runtime {
         break
       }
     }
-    // mouse press or simulated key press on a zone
-    if (press || simulated) {
+    // mouse: hover tracking every frame, presses (or simulated key
+    // presses) trigger zone actions
+    {
       const s = this.screens.get(d.screenNb) ?? this.screen
       const m = this.mouseOnScreen(s)
       const z = simulated ?? dialogZoneAt(d, m.x, m.y)
-      if (z && z.kind === 'button') {
+      // hover-deselect lists the mouse left (Dia_Tests .LNon)
+      for (const lz of d.zones) {
+        if (lz.kind !== 'list' || lz === z) continue
+        if (lz.sel !== -1 && ((lz.listFlags ?? 0) & 4) === 0) {
+          lz.sel = -1
+          drawListZone(d, lz, host, draw)
+        }
+      }
+      if (!press && !simulated && z?.kind !== 'list') {
+        // nothing else reacts without a press
+      } else if (z && z.kind === 'button' && (press || simulated)) {
         d.ret = z.number
         let next = z.pos + 1
         if (next > z.max) next = z.min
@@ -559,7 +581,7 @@ export class Runtime {
           zoneDraw(d, z, host, draw)
         }
         if (z.quit) exit++
-      } else if (z && (z.kind === 'edit' || z.kind === 'digit')) {
+      } else if (z && (z.kind === 'edit' || z.kind === 'digit') && (press || simulated)) {
         // click activates the edit zone (Dia_Tests .MEd)
         const prev = d.edited
         d.edited = z
@@ -574,6 +596,42 @@ export class Runtime {
         if (rel < off) d.drag = { z, mode: 'down', grab: 0 }
         else if (rel >= off + len) d.drag = { z, mode: 'up', grab: 0 }
         else d.drag = { z, mode: 'drag', grab: rel - off }
+      } else if (z && z.kind === 'list') {
+        // Dia_Tests .MLi: hover selects (unless flag bit2 = press-only);
+        // a press commits ZoPos = the absolute index
+        const row = (m.y - z.y) >> 3
+        const idx = (z.scroll ?? 0) + row
+        const valid = idx >= 0 && idx < (z.count ?? 0)
+        const wantSel = valid ? idx : -1
+        const pressOnly = ((z.listFlags ?? 0) & 4) !== 0
+        if (wantSel !== z.sel && (!pressOnly || press)) {
+          z.sel = wantSel
+          drawListZone(d, z, host, draw)
+        }
+        if (press && valid) {
+          d.ret = z.number
+          z.pos = idx
+          zoneChange(d, z, host, draw)
+          if (z.quit) exit++
+        }
+      } else if (z && z.kind === 'hyper' && press) {
+        // Dia_Tests .MHy: click an active segment; numeric keywords set
+        // the position, text keywords fill the buffer (Rdialog$)
+        const row = (m.y - z.y) >> 3
+        const col = (m.x - z.x) >> 3
+        const hz = z.htZones?.find((w) => w.row === row && col >= w.x0 && col < w.x1)
+        if (hz) {
+          d.ret = z.number
+          if (/^[0-9$%]/.test(hz.key)) {
+            z.pos = parseInt(hz.key.replace(/^\$/, '0x'), hz.key.startsWith('%') ? 2 : undefined) || 0
+            z.text = ''
+          } else {
+            z.pos = 0
+            z.text = hz.key
+          }
+          zoneChange(d, z, host, draw)
+          if (z.quit) exit++
+        }
       } else if (press && !z && d.runFlags & 8) {
         exit++ // flag bit3: any click exits
       }

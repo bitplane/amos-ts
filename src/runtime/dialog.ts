@@ -168,6 +168,17 @@ export interface DialogZone {
   size?: number
   step?: number
   vertical?: boolean
+  // lists (AL/IL)
+  handle?: number
+  count?: number
+  scroll?: number
+  sel?: number
+  rows?: number
+  listFlags?: number
+  // hypertext (HT)
+  htText?: string
+  htLines?: string[]
+  htZones?: Array<{ row: number; x0: number; x1: number; key: string }>
 }
 
 // ---- the channel ----
@@ -746,6 +757,8 @@ export interface DialogDraw {
   clearClicks(): void
   /** ED/DI field: paper-filled cell row with the text in pen */
   editField(x: number, y: number, wChars: number, text: string, pap: number, pen: number, cursor: number): void
+  /** opaque 8x8 text cells (list rows, hypertext segments) */
+  textCells(x: number, y: number, s: string, pen: number, pap: number): void
   /** HS/VS dialog slider with the channel's colour set (Sl_Draw) */
   dialogSlider(cfg: number[], vertical: boolean, x: number, y: number, sx: number, sy: number, total: number, pos: number, size: number): void
 }
@@ -1153,7 +1166,58 @@ export class DialogExec {
       drawSliderZone(this.ch, z, this.draw)
       return
     }
-    // AL/IL/HT: phase 7
+    if (idx === 32 || idx === 33) {
+      // AL/IL n,x,y,tx,ty,array,pos,flags,pap,pen;[change] (Dia_List
+      // +Lib.s:22309 — both mnemonics dispatch to the same routine)
+      const z = this.edDiHeader('list')
+      z.rows = this.evalInt()
+      z.sy = z.rows * 8
+      const handle = this.evalInt()
+      let count = 0
+      if (handle !== 0) {
+        if (handle <= 1024) this.fonc()
+        const arr = this.host.resolveArray(handle)
+        if (!arr || arr.length >= 32768) this.fonc()
+        count = arr!.length
+      }
+      z.handle = handle
+      z.count = count
+      const pos = this.evalInt()
+      z.scroll = pos >= count ? count : pos
+      z.sel = -1
+      z.pos = -1
+      z.listFlags = this.evalInt() & 0xff
+      z.pap = this.evalInt()
+      z.pen = this.evalInt()
+      z.rchange = this.getRout()
+      this.ch.zones.push(z)
+      this.ch.lastZone = z
+      drawListZone(this.ch, z, this.host, this.draw)
+      return
+    }
+    if (idx === 45) {
+      // HT n,x,y,tx,ty,text,pos,zones,pap,pen;[change] (Dia_HyperText
+      // +Lib.s:22164): text lines with {[keyword,pen,pap]segment} links
+      const z = this.edDiHeader('hyper')
+      z.rows = this.evalInt()
+      z.sy = z.rows * 8
+      const text = this.evalOne()
+      // the 68k takes a raw address; the port carries strings natively
+      if (typeof text !== 'string') this.fonc()
+      z.htText = text as string
+      z.htLines = splitHyperLines(z.htText!)
+      z.scroll = this.evalInt()
+      this.evalInt() // zones per line cap (DispMax) — not needed here
+      z.pap = this.evalInt()
+      z.pen = this.evalInt()
+      z.rchange = this.getRout()
+      z.pos = 0
+      z.text = ''
+      this.ch.zones.push(z)
+      this.ch.lastZone = z
+      drawHyperZone(this.ch, z, this.draw)
+      return
+    }
     this.synt()
   }
 
@@ -1451,6 +1515,90 @@ export function drawSliderZone(ch: DialogChannel, z: DialogZone, draw: DialogDra
   draw.dialogSlider(ch.sliderCfg, z.vertical === true, z.x, z.y, z.sx, z.sy, z.total ?? 0, z.pos, z.size ?? 0)
 }
 
+/** AL/IL list rendering (Dia_LiDraw): decimal array values, one per row */
+export function drawListZone(ch: DialogChannel, z: DialogZone, host: DialogHost, draw: DialogDraw): void {
+  const wChars = z.sx >> 3
+  const arr = z.handle ? host.resolveArray(z.handle) : null
+  for (let r = 0; r < (z.rows ?? 0); r++) {
+    const i = (z.scroll ?? 0) + r
+    const text = arr && i < arr.length ? String(arr[i]) : ''
+    const selected = i === z.sel
+    const pen = selected ? (z.pap ?? 0) : (z.pen ?? 1)
+    const pap = selected ? (z.pen ?? 1) : (z.pap ?? 0)
+    draw.editField(z.x, z.y + r * 8, wChars, '', pap, pen, -1)
+    draw.textCells(z.x, z.y + r * 8, text.slice(0, wChars), pen, pap)
+  }
+}
+
+/** split hypertext into lines: CR/LF/CRLF/LFCR ends, ESC+char skipped */
+export function splitHyperLines(text: string): string[] {
+  const lines: string[] = []
+  let cur = ''
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!
+    if (c === '\x1b') {
+      i++ // ESC skips the next char (Dia_HyperText .CEsc)
+      continue
+    }
+    if (c === '\n' || c === '\r') {
+      const pair = c === '\n' ? '\r' : '\n'
+      if (text[i + 1] === pair) i++
+      lines.push(cur)
+      cur = ''
+      continue
+    }
+    if (c >= ' ') cur += c
+  }
+  if (cur !== '') lines.push(cur)
+  return lines
+}
+
+/**
+ * HT rendering (Dia_TxDraw/TxAff): plain text in pen on paper; active
+ * segments `{[keyword,pen,pap]shown}` drawn highlighted (default: colours
+ * swapped) and recorded for hit-testing.
+ */
+export function drawHyperZone(ch: DialogChannel, z: DialogZone, draw: DialogDraw): void {
+  const wChars = z.sx >> 3
+  const pap = z.pap ?? 0
+  const pen = z.pen ?? 1
+  z.htZones = []
+  for (let r = 0; r < (z.rows ?? 0); r++) {
+    const line = z.htLines?.[(z.scroll ?? 0) + r] ?? ''
+    draw.editField(z.x, z.y + r * 8, wChars, '', pap, pen, -1)
+    let x = 0
+    let i = 0
+    while (i < line.length && x < wChars) {
+      if (line[i] === '{' && line[i + 1] === '[') {
+        const endKey = line.indexOf(']', i + 2)
+        const endSeg = line.indexOf('}', endKey >= 0 ? endKey : i)
+        if (endKey < 0 || endSeg < 0) {
+          i++
+          continue
+        }
+        const keyPart = line.slice(i + 2, endKey)
+        const [key, penS, papS] = keyPart.split(',')
+        const shown = line.slice(endKey + 1, endSeg)
+        const sPen = penS !== undefined && penS !== '' ? parseInt(penS, 10) : pap
+        const sPap = papS !== undefined && papS !== '' ? parseInt(papS, 10) : pen
+        const clipped = shown.slice(0, Math.max(0, wChars - x))
+        draw.textCells(z.x + x * 8, z.y + r * 8, clipped, sPen, sPap)
+        z.htZones.push({ row: r, x0: x, x1: x + clipped.length, key: key || shown })
+        x += clipped.length
+        i = endSeg + 1
+        continue
+      }
+      // plain run until the next '{'
+      let next = line.indexOf('{', i)
+      if (next < 0) next = line.length
+      const run = line.slice(i, next).slice(0, Math.max(0, wChars - x))
+      draw.textCells(z.x + x * 8, z.y + r * 8, run, pen, pap)
+      x += run.length
+      i = next === i ? i + 1 : next
+    }
+  }
+}
+
 /** activate the first edit/digit zone (Dia_EdFirst +Lib.s:24634) */
 export function editFirst(ch: DialogChannel, draw: DialogDraw): void {
   const prev = ch.edited
@@ -1546,6 +1694,13 @@ export function updateZone(
     } else if (z.kind === 'digit') {
       if (v !== null) z.text = String(v)
       drawEditZone(ch, z, draw)
+    } else if (z.kind === 'list') {
+      if (v !== null) z.scroll = Math.max(0, Math.min(v, z.count ?? 0))
+      if (p4 !== null) z.sel = p4
+      drawListZone(ch, z, host, draw)
+    } else if (z.kind === 'hyper') {
+      if (v !== null) z.scroll = Math.max(0, Math.min(v, (z.htLines?.length ?? 1) - 1))
+      drawHyperZone(ch, z, draw)
     }
   }
 }

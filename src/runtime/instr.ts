@@ -1850,6 +1850,17 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 /** raw-parsed runtime functions (their args use To syntax) */
 export function makeRawFunctions(rt: Runtime): Record<string, (it: It) => import('../interp/values').Value> {
   return {
+    array(it) {
+      // =Array(A(0)): the array's "address" — in the port an opaque handle
+      // (> 1024) resolvable by the dialog engine's AR/AS and list zones
+      it.expect('(')
+      const arr = it.parseArrayRef()
+      it.expect(')')
+      for (const [h, known] of rt.dialogArrays) if (known === arr) return VI(h)
+      const handle = 0x10000 + rt.dialogArrays.size
+      rt.dialogArrays.set(handle, arr)
+      return VI(handle)
+    },
     hunt(it) {
       // Hunt(start To finish, s$)
       it.expect('(')
@@ -2165,6 +2176,64 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
         it.block({ type: 'dialog', channel: c }, true)
         return VI(0)
       }
+      return VI(r)
+    },
+    'dialog box'(it, a) {
+      // FnDialogBox1..5 +Lib.s:14655 → Dia_RunQuick 20437: a temporary
+      // channel >= 65536 runs the script (or bank program) synchronously;
+      // v and v$ seed vars 0 and 1
+      if (rt.dialogBoxChan !== null) {
+        const d = rt.dialogs.get(rt.dialogBoxChan)
+        if (d && d.runState === 'done') {
+          const ret = d.ret
+          rt.dialogs.delete(rt.dialogBoxChan)
+          rt.dialogBoxChan = null
+          return VI(ret)
+        }
+        if (d && d.runState === 'waiting') {
+          it.block({ type: 'dialog', channel: rt.dialogBoxChan }, true)
+          return VI(0)
+        }
+        rt.dialogBoxChan = null
+      }
+      const res = rt.resource()
+      let script: string
+      if (a[0]!.k === 'str') {
+        script = a[0]!.s
+      } else {
+        const n = int(a[0]!)
+        const progs = res.programs
+        if (!progs || n < 1 || n > progs.length) throw new AmosError('function call error')
+        script = progs[n - 1]!
+      }
+      let c = 65536
+      while (rt.dialogs.has(c)) c++
+      const chan = new DialogChannel(c, 16, res)
+      chan.script = script
+      chan.screenNb = rt.currentIndex
+      try {
+        const scan = prescanDialog(script)
+        chan.labels = scan.labels
+        chan.userInstrs = scan.userInstrs
+      } catch (e) {
+        if (e instanceof DialogError) {
+          rt.dialogErrPos = e.position
+          throw new AmosError(e.message)
+        }
+        throw e
+      }
+      chan.vars[0] = a.length >= 2 ? int(a[1]!) : 0
+      chan.vars[1] = a.length >= 3 ? str(a[2]!) : ''
+      rt.dialogs.set(c, chan)
+      const x = a.length >= 5 ? int(a[3]!) : null
+      const y = a.length >= 5 ? int(a[4]!) : null
+      const r = rt.runDialog(c, -1, x, y)
+      if (r === 'blocked') {
+        rt.dialogBoxChan = c
+        it.block({ type: 'dialog', channel: c }, true)
+        return VI(0)
+      }
+      rt.dialogs.delete(c)
       return VI(r)
     },
     dialog(_, a) {

@@ -505,6 +505,84 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('dialog run: draw phase (Dia_RunProgra
     expect(out()).toBe(' 90\n')
   })
 
+  it('list zones show Array() values, hover selects, click commits (AL/Dia_List)', () => {
+    const src = [
+      'Dim A(4)',
+      'A(0)=11 : A(1)=22 : A(2)=33 : A(3)=44 : A(4)=55',
+      'D$="SI160,64;BA0,0;AL6,0,0,8,4,0VA,0,0,1,2;[]RU0,0;EX;"',
+      'Dialog Open 1,D$',
+      'Vdialog(1,0)=Array(A(0))',
+      'R=Dialog Run(1)',
+      'Print R;Rdialog(1,6)',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    for (let i = 0; i < 5; i++) rt.frame()
+    const d = rt.dialogs.get(1)!
+    const z = d.zones[0]!
+    expect(z.count).toBe(5)
+    // hover row 2 → selection follows
+    rt.input.mouseX = 128 + 10
+    rt.input.mouseY = 50 + 17
+    rt.frame()
+    expect(z.sel).toBe(2)
+    // click commits index 2
+    rt.input.mouseK = 1
+    rt.frame()
+    rt.input.mouseK = 0
+    expect(z.pos).toBe(2)
+    rt.runHeadless(200)
+    expect(out()).toBe(' 0 2\n')
+  })
+
+  it('hypertext zones render {[key]text} links and clicks fill the buffer (HT)', () => {
+    const src = [
+      'D$="SI320,32;BA0,0;HT8,0,0,38,2,0VA,0,4,1,2;[]RU0,0;EX;"',
+      'Dialog Open 1,D$,4',
+      'Vdialog$(1,0)="pick {[LOAD]Load} or {[9]Quit} now"+Chr$(10)+"second line"',
+      'R=Dialog Run(1)',
+      'Print Rdialog$(1,8);Rdialog(1,8)',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    for (let i = 0; i < 5; i++) rt.frame()
+    const d = rt.dialogs.get(1)!
+    const z = d.zones[0]!
+    expect(z.htLines).toHaveLength(2)
+    expect(z.htZones!.length).toBe(2)
+    // "pick " = cells 0-4, then "Load" at cells 5-8
+    const link = z.htZones![0]!
+    expect(link.key).toBe('LOAD')
+    rt.input.mouseX = 128 + link.x0 * 8 + 4
+    rt.input.mouseY = 50 + 3
+    rt.input.mouseK = 1
+    rt.frame()
+    rt.input.mouseK = 0
+    expect(z.text).toBe('LOAD')
+    rt.runHeadless(200)
+    expect(out()).toBe('LOAD 0\n')
+  })
+
+  it('Dialog Box runs a quick channel synchronously and returns the exit', () => {
+    const src = [
+      'R=Dialog Box("SI64,32;BA0,0;BU1,0,0,20,20,0VA,0,1;[][BQ;]RU30,0;EX;",7)',
+      'Print R',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    for (let i = 0; i < 5; i++) rt.frame()
+    // the quick channel is live and waiting; v seeded var 0 → pos 7
+    const d = [...rt.dialogs.values()][0]!
+    expect(d.channel).toBeGreaterThanOrEqual(65536)
+    expect(d.zones[0]!.pos).toBe(7)
+    // click the quit button
+    rt.input.mouseX = 128 + 5
+    rt.input.mouseY = 50 + 5
+    rt.input.mouseK = 1
+    rt.frame()
+    rt.input.mouseK = 0
+    for (let i = 0; i < 6 && rt.frame().status !== 'ended'; i++);
+    expect(out()).toBe(' 1\n')
+    expect(rt.dialogs.size).toBe(0) // quick channel closed
+  })
+
   it('Dialog Clr erases the display, Dialog Run label errors when undefined', () => {
     const src = [
       'Ink 3 : Bar 0,0 To 50,50',
