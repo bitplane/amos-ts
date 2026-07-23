@@ -8,15 +8,15 @@ import type { Bank, MemoryBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
 import type { ResourceBank } from '../loader/resource'
-import { Screen } from './screen'
+import { Screen, builtinPattern } from './screen'
 import { makeInstructions, makeFunctions, makeRawFunctions } from './instr'
 import { ObjectBank, imagesCollide } from './objects'
 import type { BankImage, Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from './fs'
 import { AmalChannel } from './amal'
 import type { AmalHost, ChannelTarget } from './amal'
-import { DialogChannel } from './dialog'
-import type { DialogHost } from './dialog'
+import { DialogChannel, DialogError, DialogExec, eraseDialog, DIALOG_ERRORS } from './dialog'
+import type { DialogDraw, DialogHost, DialogZone } from './dialog'
 import { NullAudio, parseSampleBank } from './audio'
 import { FONT8 } from './font.gen'
 import type { AudioSink, SampleEntry } from './audio'
@@ -197,6 +197,216 @@ export class Runtime {
   }
   /** AR/AS bridge: handles passed through Vdialog (phase 7) */
   dialogArrays = new Map<number, Int32Array>()
+  private dialogTarget: Screen | null = null
+  readonly dialogDraw: DialogDraw = {
+    activate: (n) => {
+      this.dialogTarget = this.screens.get(n) ?? this.screen
+    },
+    deactivate: () => {
+      this.dialogTarget = null
+    },
+    stamp: (img, x, y) => {
+      this.blit(this.dTarget(), img, x, y, true)
+    },
+    copyRect: (x1, ySrc, x2, h, yDest) => {
+      const s = this.dTarget()
+      for (let r = 0; r < h; r++) {
+        const sy = ySrc + r
+        const dy = yDest + r
+        if (sy < 0 || sy >= s.height || dy < 0 || dy >= s.height) continue
+        const from = Math.max(0, x1)
+        const to = Math.min(s.width, x2)
+        s.pixels.copyWithin(dy * s.width + from, sy * s.width + from, sy * s.width + to)
+      }
+    },
+    setPen: (c) => {
+      this.dTarget().ink = c
+    },
+    setBPen: (c) => {
+      this.dTarget().gPaper = c
+    },
+    setOutlinePen: (c) => {
+      this.dTarget().gBorder = c
+    },
+    rectFill: (x1, y1, x2, y2) => {
+      this.dTarget().bar(x1, y1, x2, y2)
+    },
+    outlineRect: (x1, y1, x2, y2) => {
+      this.dTarget().box(x1, y1, x2, y2)
+    },
+    line: (x1, y1, x2, y2) => {
+      this.dTarget().line(x1, y1, x2, y2)
+    },
+    ellipse: (x, y, rx, ry) => {
+      this.dTarget().ellipse(x, y, rx, ry)
+    },
+    plot: (x, y) => {
+      const s = this.dTarget()
+      s.plot(x, y, s.ink)
+    },
+    text: (x, y, s) => {
+      const t = this.dTarget()
+      for (let i = 0; i < s.length; i++) {
+        t.drawChar(x + i * 8, y, s.charCodeAt(i), t.ink, t.gPaper, t.grMode === 0)
+      }
+    },
+    setWriting: (mode) => {
+      this.dTarget().grMode = mode & 7
+    },
+    setLinePattern: (p) => {
+      this.dTarget().linePattern = p & 0xffff
+    },
+    setFillPattern: (p, outline) => {
+      const s = this.dTarget()
+      if (outline >= 0) s.outline = outline !== 0
+      s.pattern = resolveDialogPattern(this, p)
+    },
+    setFont: () => {
+      // single 8x8 system font in the port (SF stored for compatibility)
+    },
+    grabBlock: (x, y, w, h) => {
+      const s = this.dTarget()
+      const pix = new Uint8Array(w * h)
+      for (let r = 0; r < h; r++) {
+        const sy = y + r
+        if (sy < 0 || sy >= s.height) continue
+        for (let c = 0; c < w; c++) {
+          const sx = x + c
+          if (sx >= 0 && sx < s.width) pix[r * w + c] = s.pixels[sy * s.width + sx]!
+        }
+      }
+      return { x, y, w, h, pix }
+    },
+    putBlock: (saved) => {
+      const b = saved as { x: number; y: number; w: number; h: number; pix: Uint8Array }
+      const s = this.dTarget()
+      for (let r = 0; r < b.h; r++) {
+        const dy = b.y + r
+        if (dy < 0 || dy >= s.height) continue
+        for (let c = 0; c < b.w; c++) {
+          const dx = b.x + c
+          if (dx >= 0 && dx < s.width) s.pixels[dy * s.width + dx] = b.pix[r * b.w + c]!
+        }
+      }
+    },
+    clearKeys: () => {
+      this.input.keyQueue.length = 0
+    },
+    clearClicks: () => {
+      this.input.clicks = 0
+    },
+  }
+
+  private dTarget(): Screen {
+    return this.dialogTarget ?? this.screen
+  }
+
+  /**
+   * Start or restart =Dialog Run (Dia_RunProgram +Lib.s:20535). Returns the
+   * result when the script finishes without RU, or 'blocked' when the wait
+   * loop begins.
+   */
+  runDialog(c: number, label: number, x: number | null, y: number | null): number | 'blocked' {
+    const d = this.dialogs.get(c)
+    if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
+    eraseDialog(d, this.dialogDraw)
+    if (x !== null) d.baseX = x
+    if (y !== null) d.baseY = y
+    let startPos = 0
+    if (label >= 0) {
+      const off = d.labels.get(label)
+      if (off === undefined) throw new AmosError(DIALOG_ERRORS[4]!)
+      startPos = off
+    }
+    // per-run reset (Dia_RunProgram 20567-20585)
+    d.xa = 0
+    d.ya = 0
+    d.xb = 0
+    d.yb = 0
+    d.ret = 0
+    d.uiParams = []
+    d.zones = []
+    d.curZone = null
+    d.runFlags = 0
+    d.timer = 0
+    this.dialogDraw.activate(d.screenNb)
+    this.dialogDraw.setWriting(0)
+    d.drawn = true
+    const exec = new DialogExec(d, this.dialogHost, this.dialogDraw)
+    try {
+      const r = exec.run(startPos)
+      if (r.status === 'run') {
+        d.exec = exec
+        d.runState = 'waiting'
+        d.timerStart = this.interp.tick
+        return 'blocked'
+      }
+      // no RU: the dialog stays drawn ("live"), result 0
+      d.runState = 'idle'
+      return 0
+    } catch (e) {
+      if (e instanceof DialogError) {
+        this.dialogErrPos = e.position
+        eraseDialog(d, this.dialogDraw)
+        throw new AmosError(e.message)
+      }
+      throw e
+    } finally {
+      this.dialogDraw.deactivate()
+    }
+  }
+
+  /** complete a waiting dialog: run the script tail after RU, erase, store ret */
+  finishDialogRun(d: DialogChannel, ret: number): void {
+    d.ret = ret
+    this.dialogDraw.activate(d.screenNb)
+    try {
+      const r = d.exec?.run()
+      if (r && r.status === 'run') {
+        // the tail hit another RU — keep waiting
+        d.timerStart = this.interp.tick
+        return
+      }
+    } catch (e) {
+      if (e instanceof DialogError) this.dialogErrPos = e.position
+      else throw e
+    } finally {
+      this.dialogDraw.deactivate()
+    }
+    d.exec = null
+    eraseDialog(d, this.dialogDraw)
+    d.runState = 'done'
+  }
+
+  /** run a zone's [routine] block synchronously (button draw/change) */
+  runZoneRoutine(d: DialogChannel, off: number, zone: DialogZone | null): void {
+    if (off <= 0) return
+    const prev = d.curZone
+    if (zone) d.curZone = zone
+    this.dialogDraw.activate(d.screenNb)
+    try {
+      const exec = new DialogExec(d, this.dialogHost, this.dialogDraw)
+      exec.run(off)
+    } catch (e) {
+      if (e instanceof DialogError) this.dialogErrPos = e.position
+      else throw e
+    } finally {
+      this.dialogDraw.deactivate()
+      d.curZone = prev
+    }
+  }
+
+  /** per-frame dialog interaction (Dia_AutoTest / the RU wait loop) */
+  private stepDialogs(): void {
+    for (const d of this.dialogs.values()) {
+      if (d.runState !== 'waiting' || d.frozen) continue
+      if (d.timer > 0 && this.interp.tick - d.timerStart >= d.timer) {
+        this.finishDialogRun(d, 0)
+        continue
+      }
+      // phase 5: mouse/keyboard zone tests
+    }
+  }
   // ---- sprite update freeze ----
   spriteUpdateOn = true
   frozenSprites: HwSprite[] | null = null
@@ -607,6 +817,7 @@ export class Runtime {
     }
     if (this.bobUpdateOn) this.updateBobs()
     this.stepMenus()
+    this.stepDialogs()
     return result
   }
 
@@ -670,6 +881,10 @@ export class Runtime {
       this.input.keyQueue.shift()
       this.interp.blocked = null
     } else if (b.type === 'input' && this.pendingLine !== null) this.interp.blocked = null
+    else if (b.type === 'dialog') {
+      const d = this.dialogs.get(b.channel)
+      if (!d || d.runState === 'done') this.interp.blocked = null
+    }
   }
 
   private applyFades(): void {
@@ -748,6 +963,11 @@ export class Runtime {
       if (b?.type === 'wait') this.interp.tick = Math.max(this.interp.tick, b.until - 1)
       else if (b?.type === 'waitKey') this.pressKey('\r', 0x44)
       else if (b?.type === 'input') this.submitLine('')
+      else if (b?.type === 'dialog') {
+        const d = this.dialogs.get(b.channel)
+        if (d && d.runState === 'waiting') this.finishDialogRun(d, 0)
+        else this.interp.blocked = null
+      } else if (b?.type === 'fsel') this.interp.blocked = null
     }
     return { status, frames, unimplemented: this.interp.unimplemented }
   }
@@ -988,4 +1208,24 @@ export class Runtime {
       }
     }
   }
+}
+
+/** dialog SP pattern number → fill rows (0 solid, <0 sprite image, >0 builtin) */
+function resolveDialogPattern(rt: Runtime, n: number): Uint16Array | null {
+  if (n === 0) return null
+  if (n < 0) {
+    const img = rt.spriteBank?.image(-n)
+    if (!img) return null
+    const rows = Math.min(16, img.height)
+    const bits = new Uint16Array(rows)
+    for (let y = 0; y < rows; y++) {
+      let row = 0
+      for (let x = 0; x < Math.min(16, img.width); x++) {
+        if (img.pixels[y * img.width + x] !== 0) row |= 1 << (15 - x)
+      }
+      bits[y] = row
+    }
+    return bits
+  }
+  return builtinPattern(n)
 }

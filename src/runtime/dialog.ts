@@ -1,3 +1,4 @@
+import type { PacPicture } from '../loader/pacpic'
 import type { ResourceBank } from '../loader/resource'
 
 /**
@@ -205,6 +206,14 @@ export class DialogChannel {
   sliderCfg = [0, 0, 0, 1, 4, 4, 4, 1, 0, 0, 0, 1, 3, 3, 3, 1]
   /** user-instruction call depth and param stack */
   uiParams: Array<Array<number | string>> = []
+  /** last unpacked image size (Dia_PuzzleSx/Sy) */
+  puzzleSx = 0
+  puzzleSy = 0
+  /** SA/BL screen blocks by number, and the SA restore order (LIFO) */
+  blocks = new Map<number, { saved: unknown }>()
+  saOrder: number[] = []
+  /** paused execution across RU (resumed by stepDialogs) */
+  exec: DialogExec | null = null
 
   constructor(
     readonly channel: number,
@@ -695,4 +704,531 @@ export function evalExpr(cur: Cursor, ctx: EvalContext): DialogValue {
   }
   if (stack.length !== 1) synt()
   return stack[0]!
+}
+
+// ---- drawing services (implemented by the Runtime on the bound screen) ----
+
+export interface DialogDraw {
+  /** Dia_Active / Dia_ReActive: set/restore the drawing target screen */
+  activate(screenNb: number): void
+  deactivate(): void
+  /** stamp an unpacked resource image (UN/LI/VL/BO) */
+  stamp(img: PacPicture, x: number, y: number): void
+  /** BO middle fill: copy rect [x1,ySrc,x2,ySrc+h) to yDest (Dia_ScCopy) */
+  copyRect(x1: number, ySrc: number, x2: number, h: number, yDest: number): void
+  setPen(c: number): void
+  setBPen(c: number): void
+  setOutlinePen(c: number): void
+  rectFill(x1: number, y1: number, x2: number, y2: number): void
+  outlineRect(x1: number, y1: number, x2: number, y2: number): void
+  line(x1: number, y1: number, x2: number, y2: number): void
+  ellipse(x: number, y: number, rx: number, ry: number): void
+  plot(x: number, y: number): void
+  /** top-left text with the current pen and writing mode */
+  text(x: number, y: number, s: string): void
+  setWriting(mode: number): void
+  setLinePattern(p: number): void
+  setFillPattern(p: number, outline: number): void
+  setFont(font: number, style: number): void
+  grabBlock(x: number, y: number, w: number, h: number): unknown
+  putBlock(saved: unknown): void
+  clearKeys(): void
+  clearClicks(): void
+}
+
+export type ExecResult = { status: 'exit' } | { status: 'run' }
+
+interface ExecFrame {
+  kind: 'if' | 'ui'
+  ret: number
+}
+
+/**
+ * The statement interpreter (Dia_Loop +Lib.s:21258). One instance runs a
+ * whole =Dialog Run; RU pauses it (status 'run') and stepDialogs resumes
+ * the tail after the wait completes.
+ */
+export class DialogExec {
+  readonly cur: Cursor
+  private frames: ExecFrame[] = []
+  private jsStack: number[] = []
+  readonly ctx: EvalContext
+
+  constructor(
+    readonly ch: DialogChannel,
+    readonly host: DialogHost,
+    readonly draw: DialogDraw,
+  ) {
+    this.cur = new Cursor(ch.script)
+    this.ctx = { ch, host }
+  }
+
+  private synt(): never {
+    throw new DialogError(1, this.cur.pos)
+  }
+
+  private fonc(): never {
+    throw new DialogError(9, this.cur.pos)
+  }
+
+  private evalOne(): DialogValue {
+    return evalExpr(this.cur, this.ctx)
+  }
+
+  private evalInt(): number {
+    const v = this.evalOne()
+    return typeof v === 'number' ? v : 0
+  }
+
+  private evalStr(): string {
+    const v = this.evalOne()
+    return typeof v === 'string' ? v : String(v)
+  }
+
+  /** raw scan past the next unmatched `]` (Dia_If .Skip) */
+  private skipBrackets(): void {
+    let depth = 1
+    for (;;) {
+      const c = this.cur.raw()
+      if (c === '\0') this.synt()
+      if (c === '[') depth++
+      else if (c === ']' && --depth === 0) return
+    }
+  }
+
+  /** jump to label n (Dia_GetLabel: unknown label = offset 0) */
+  private jumpLabel(n: number): void {
+    this.cur.pos = this.ch.labels.get(n) ?? 0
+  }
+
+  run(startPos?: number): ExecResult {
+    if (startPos !== undefined) this.cur.pos = startPos
+    const ch = this.ch
+    const draw = this.draw
+    for (;;) {
+      const first = this.cur.next()
+      if (first.cls === C_END) this.synt() // must end with EX or ]
+      if (first.ch === ']') {
+        if (this.routineEnd()) return { status: 'exit' }
+        continue
+      }
+      const second = this.cur.next()
+      if (second.cls === C_END) this.synt()
+      const mn = first.ch + second.ch
+      const idx = findInstr(mn)
+      if (idx < 0) {
+        this.userCall(mn)
+        continue
+      }
+      const nPar = DIALOG_NPARAMS[idx]!
+      // self-parsing instructions (7+ params, .Params `cmp.w #7 bcc .Call`)
+      if (nPar >= 7) {
+        this.bigInstr(idx)
+        continue
+      }
+      const v: DialogValue[] = []
+      if (nPar === 0) {
+        this.cur.next() // .NoPar: one classified char is always consumed
+      } else {
+        for (let i = 0; i < nPar; i++) v.push(this.evalOne())
+      }
+      const int = (i: number): number => {
+        const x = v[i]
+        return typeof x === 'number' ? x : 0
+      }
+      const str = (i: number): string => {
+        const x = v[i]
+        return typeof x === 'string' ? x : String(x)
+      }
+      switch (idx) {
+        case 0: // EX — quit the current loop level, like `]` (Dia_Quit)
+          if (this.routineEnd()) return { status: 'exit' }
+          break
+        case 1: // UN x,y,i
+          this.unpack(int(2), int(0), int(1))
+          break
+        case 2: // LI x,y,i,x2
+          this.tiled(false, int(0), int(1), int(2), int(3))
+          break
+        case 44: // VL x,y,i,y2
+          this.tiled(true, int(0), int(1), int(2), int(3))
+          break
+        case 3: // BO x,y,i,x2,y2 — 9-patch (Dia_Box +Lib.s:21733)
+          this.ninePatch(int(0), int(1), int(2), int(3), int(4))
+          break
+        case 4: // SI sx,sy — sx rounded up to 16
+          ch.sizeX = (int(0) + 15) & ~15
+          ch.sizeY = int(1)
+          break
+        case 5: // BA x,y — x masked to 16
+          ch.baseX = int(0) & ~15
+          ch.baseY = int(1)
+          break
+        case 6: // PU i
+          ch.puzzleBase = int(0)
+          break
+        case 7: // SV n,v
+          ch.setVar(int(0), v[1]!)
+          break
+        case 9: { // PR x,y,text,ink
+          this.print(int(0), int(1), str(2), int(3))
+          break
+        }
+        case 10: { // PO x,y,text,p0,p1 — outlined print (Dia_Outline)
+          const [x, y, t] = [int(0), int(1), str(2)]
+          draw.setWriting(0)
+          this.print(x - 1, y, t, int(3))
+          this.print(x + 1, y, t, -1)
+          this.print(x, y - 1, t, -1)
+          this.print(x, y + 1, t, -1)
+          this.print(x, y, t, int(4))
+          break
+        }
+        case 43: { // VT x,y,text,pen — vertical text
+          const [x, y, t, pen] = [int(0), int(1), str(2), int(3)]
+          if (pen >= 0) draw.setPen(pen)
+          ch.xa = x
+          ch.ya = y
+          ch.xb = x
+          ch.yb = y
+          const h = this.host.textHeight()
+          for (let i = 0; i < t.length; i++) {
+            draw.text(ch.baseX + x, ch.baseY + y + i * h, t[i]!)
+            ch.xb += h // faithful quirk: XB advances, not YB
+          }
+          break
+        }
+        case 11: { // IN a,b,c — -1 keeps (order C,B,A in Dia_SInk)
+          if (int(2) >= 0) draw.setOutlinePen(int(2))
+          if (int(1) >= 0) draw.setBPen(int(1))
+          if (int(0) >= 0) draw.setPen(int(0))
+          break
+        }
+        case 12: // SF font,style — -1 keeps
+          draw.setFont(int(0), int(1))
+          break
+        case 13: // SW mode — -1 keeps
+          if (int(0) >= 0) draw.setWriting(int(0))
+          break
+        case 14: // SL pattern — -1 keeps
+          if (int(0) >= 0) draw.setLinePattern(int(0))
+          break
+        case 15: // SP pattern,outline
+          draw.setFillPattern(int(0), int(1))
+          break
+        case 17: // JP label
+          this.jumpLabel(int(0))
+          break
+        case 28: // LA n — re-syncs to just after the label (Dia_Label)
+          this.jumpLabel(int(0))
+          break
+        case 21: // JS label
+          this.jsStack.push(this.cur.pos)
+          this.jumpLabel(int(0))
+          break
+        case 22: { // RT
+          const ret = this.jsStack.pop()
+          if (ret === undefined) this.synt()
+          this.cur.pos = ret!
+          break
+        }
+        case 18: { // RU timer,flag — enter the wait loop (Dia_Run)
+          ch.timer = int(0)
+          ch.runFlags = int(1) & 0xff
+          if (ch.runFlags & 1) draw.clearKeys()
+          if (ch.runFlags & 2) draw.clearClicks()
+          return { status: 'run' }
+        }
+        case 19: // BR v — button return value into pseudo-var -2
+          ch.br = v[0]!
+          break
+        case 25: // SA n — save block with restore record
+          ch.saOrder.push(int(0))
+          this.grab(int(0))
+          break
+        case 27: // BL n — (re)grab without record
+          this.grab(int(0))
+          break
+        case 29: // BQ — quit flag on the current zone
+          if (!ch.curZone) this.synt()
+          ch.curZone!.quit = true
+          break
+        case 42: // NW — nowait flag
+          if (!ch.curZone) this.synt()
+          ch.curZone!.nowait = true
+          break
+        case 23: { // BC n,pos — change another button (Dia_BChange)
+          if (!ch.curZone) this.synt()
+          if (ch.curZone!.changing) break
+          const [n, pos] = [int(0), int(1)]
+          for (const z of ch.zones) {
+            if (z.kind !== 'button' || z.number !== n || z === ch.curZone) continue
+            if (z.pos !== pos) {
+              z.changing = true
+              z.pos = pos
+              this.buttonDraw(z)
+              this.zoneChange(z)
+              z.changing = false
+            }
+            z.quit = false
+          }
+          break
+        }
+        case 34: // ZC n,pos — phase 5 (zone update)
+          if (!ch.curZone) this.synt()
+          break
+        case 36: { // GB x1,y1,x2,y2 — filled box, pen A
+          const [x1, y1, x2, y2] = [int(0), int(1), int(2), int(3)]
+          ch.xa = x1
+          ch.ya = y1
+          ch.xb = x2
+          ch.yb = y2
+          if (x2 <= x1 || y2 <= y1) this.fonc()
+          draw.rectFill(ch.baseX + x1, ch.baseY + y1, ch.baseX + x2, ch.baseY + y2)
+          break
+        }
+        case 37: { // GS x1,y1,x2,y2 — outline box
+          const [x1, y1, x2, y2] = [int(0), int(1), int(2), int(3)]
+          ch.xa = x1
+          ch.ya = y1
+          ch.xb = x2
+          ch.yb = y2
+          draw.outlineRect(ch.baseX + x1, ch.baseY + y1, ch.baseX + x2, ch.baseY + y2)
+          break
+        }
+        case 38: { // GL x1,y1,x2,y2
+          const [x1, y1, x2, y2] = [int(0), int(1), int(2), int(3)]
+          ch.xa = x1
+          ch.ya = y1
+          ch.xb = x2
+          ch.yb = y2
+          draw.line(ch.baseX + x1, ch.baseY + y1, ch.baseX + x2, ch.baseY + y2)
+          break
+        }
+        case 39: { // IF cond;[...] (Dia_If +Lib.s:21594)
+          const cond = int(0)
+          const bracket = this.cur.next()
+          if (bracket.ch !== '[') this.synt()
+          if (cond !== 0) {
+            // run the block; its `]` pops the frame and skips the rest of
+            // the enclosing routine
+            this.frames.push({ kind: 'if', ret: 0 })
+          } else {
+            this.skipBrackets()
+          }
+          break
+        }
+        case 46: // CA addr — calls 68k machine code; not portable
+          this.fonc()
+          break
+        case 47: // SM — interactive screen drag (no-op in the port)
+          break
+        case 48: { // GE x,y,r1,r2
+          const [x, y, r1, r2] = [int(0), int(1), int(2), int(3)]
+          if (r1 <= 0 || r2 <= 0) this.fonc()
+          // faithful quirk: XA/YA both get x, XB/YB both get y
+          ch.xa = x
+          ch.ya = x
+          ch.xb = y
+          ch.yb = y
+          draw.ellipse(ch.baseX + x, ch.baseY + y, r1, r2)
+          break
+        }
+        case 49: { // GP x,y,i — unbased plot (Dia_GPlot quirks kept)
+          const [x, y, i] = [int(0), int(1), int(2)]
+          if (i >= 0) draw.setPen(i)
+          ch.xa = x
+          ch.ya = x
+          ch.xb = y + 1
+          ch.yb = y + 1
+          draw.plot(x, y)
+          break
+        }
+        case 8: // IL slot 8 — Dia_Illegal
+        case 35: // UI reached at runtime — Dia_Synt
+          this.synt()
+          break
+        default:
+          this.synt()
+      }
+    }
+  }
+
+  /** instructions with 7+ parameters parse their own arguments (.Params) */
+  private bigInstr(idx: number): void {
+    if (idx === 50) {
+      // SS a,b,c,p,a,b,c,p (Dia_SetSlider): 8 bytes, then copied over the
+      // active set
+      for (let i = 0; i < 8; i++) this.ch.sliderCfg[i] = this.evalInt() & 0xff
+      for (let i = 0; i < 8; i++) this.ch.sliderCfg[8 + i] = this.ch.sliderCfg[i]!
+      return
+    }
+    // BU/ED/DI/HS/VS/AL/IL/HT: the zone engine (phases 5-7)
+    this.synt()
+  }
+
+  /** `]` or EX: pop a frame, or end the routine (returns true at top level) */
+  private routineEnd(): boolean {
+    const f = this.frames.pop()
+    if (!f) return true
+    if (f.kind === 'ui') {
+      this.ch.uiParams.pop()
+      this.cur.pos = f.ret
+      return false
+    }
+    // if-frame: skip the rest of the enclosing routine (Dia_If .Skip)
+    this.skipBrackets()
+    return false
+  }
+
+  /** unknown mnemonic: user-instruction call (Dia_Loop .Inst) */
+  private userCall(mn: string): void {
+    const def = this.ch.userInstrs.get(mn)
+    if (!def) this.synt()
+    if (this.ch.uiParams.length >= 10) this.fonc()
+    const params: DialogValue[] = []
+    if (def!.nParams === 0) {
+      this.cur.next()
+    } else {
+      for (let i = 0; i < def!.nParams; i++) params.push(this.evalOne())
+    }
+    this.frames.push({ kind: 'ui', ret: this.cur.pos })
+    this.ch.uiParams.push(params)
+    this.cur.pos = def!.off
+  }
+
+  /** UN: stamp resource image i+puzzleBase at x,y (Dia_Unpack) */
+  private unpack(i: number, x: number, y: number): void {
+    const ch = this.ch
+    const n = i + ch.puzzleBase
+    if (n <= 0) this.synt()
+    const g = ch.res.graphics
+    if (!g || n > g.count) this.synt()
+    const pic = g.image(n)
+    if (!pic) this.synt()
+    ch.xa = x
+    ch.ya = y
+    ch.xb = x
+    ch.yb = y
+    this.draw.stamp(pic!, ch.baseX + x, ch.baseY + y)
+    ch.puzzleSx = pic!.width
+    ch.puzzleSy = pic!.height
+    ch.xb += pic!.width
+    ch.yb += pic!.height
+  }
+
+  /** LI/VL: middle image i+1 tiled, capped by i and i+2 (Dia_Line/VLine) */
+  private tiled(vertical: boolean, x: number, y: number, i: number, end: number): void {
+    const ch = this.ch
+    let cx = x
+    let cy = y
+    if (!vertical) {
+      cx &= ~7
+      end &= ~7
+    } else {
+      cx &= ~7
+    }
+    const start = vertical ? cy : cx
+    let rem = end - start
+    if (rem <= 0) this.fonc()
+    // the body
+    for (;;) {
+      this.unpack(i + 1, cx, cy)
+      const step = vertical ? ch.puzzleSy : ch.puzzleSx
+      if (step === 0) break
+      if (vertical) cy += step
+      else cx += step
+      rem -= step
+      if (rem < step) break
+    }
+    // the near cap (image i at the original position)
+    this.unpack(i, vertical ? cx & ~7 : x & ~7, vertical ? y : cy)
+    // the far cap (image i+2 at end minus the cap size just recorded)
+    if (vertical) this.unpack(i + 2, cx & ~7, end - ch.puzzleSy)
+    else this.unpack(i + 2, end - ch.puzzleSx, cy)
+    // Dia_BFin
+    ch.xa = x & ~7
+    ch.ya = y
+  }
+
+  /** BO: 9-patch — middle row drawn then copied down, then top and bottom */
+  private ninePatch(x: number, y: number, i: number, x2: number, y2: number): void {
+    const ch = this.ch
+    let rem = y2 - y
+    if (rem <= 0) this.fonc()
+    // middle row (images i+3..i+5) at the top position
+    this.tiled(false, x, y, i + 3, x2)
+    const rowH = ch.puzzleSy
+    if (rowH > 0) {
+      rem -= rowH
+      if (rem > 0) {
+        let ySrc = y
+        for (;;) {
+          this.draw.copyRect(ch.baseX + (x & ~7), ch.baseY + ySrc, ch.baseX + (x2 & ~7), rowH, ch.baseY + ySrc + rowH)
+          ySrc += rowH
+          rem -= rowH
+          if (rem < rowH) break
+        }
+      }
+    }
+    // top row (images i..i+2)
+    this.tiled(false, x, y, i, x2)
+    // bottom row (images i+6..i+8)
+    this.tiled(false, x, y2 - ch.puzzleSy, i + 6, x2)
+    ch.xa = x & ~7
+    ch.ya = y
+  }
+
+  private print(x: number, y: number, t: string, ink: number): void {
+    const ch = this.ch
+    if (ink >= 0) this.draw.setPen(ink)
+    ch.xa = x
+    ch.ya = y
+    ch.xb = x
+    ch.yb = y
+    this.draw.text(ch.baseX + x, ch.baseY + y, t)
+    ch.xb += this.host.textWidth(t)
+    ch.yb += this.host.textHeight()
+  }
+
+  /** SA/BL: grab the whole dialog box area as block n (Dia_Block2) */
+  private grab(n: number): void {
+    const ch = this.ch
+    const bx = ch.baseX & ~15
+    const sub = ch.baseX - bx
+    const w = (ch.sizeX + sub + 15) & ~15
+    ch.blocks.set(n, { saved: this.draw.grabBlock(bx, ch.baseY, w, ch.sizeY) })
+  }
+
+  /** run a zone's [draw routine] (phase 5 fills this in) */
+  buttonDraw(z: DialogZone): void {
+    void z
+  }
+
+  zoneChange(z: DialogZone): void {
+    void z
+  }
+}
+
+/**
+ * Erase a drawn dialog (Dia_EffChanA0 +Lib.s:20726): close edit windows,
+ * restore SA blocks in reverse order, delete them.
+ */
+export function eraseDialog(ch: DialogChannel, draw: DialogDraw): void {
+  if (!ch.drawn) return
+  draw.activate(ch.screenNb)
+  for (let i = ch.saOrder.length - 1; i >= 0; i--) {
+    const n = ch.saOrder[i]!
+    const b = ch.blocks.get(n)
+    if (b) {
+      draw.putBlock(b.saved)
+      ch.blocks.delete(n)
+    }
+  }
+  ch.saOrder = []
+  ch.blocks.clear()
+  ch.zones = []
+  ch.curZone = null
+  draw.deactivate()
+  ch.drawn = false
 }

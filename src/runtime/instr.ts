@@ -8,7 +8,7 @@ import type { Runtime } from './runtime'
 import { Screen, builtinPattern } from './screen'
 import { ObjectBank } from './objects'
 import { AmalChannel, AmalCompileError, compileAmal } from './amal'
-import { DIALOG_ERRORS, DialogChannel, DialogError, prescanDialog } from './dialog'
+import { DIALOG_ERRORS, DialogChannel, DialogError, eraseDialog, prescanDialog } from './dialog'
 import { amigaPattern } from './vfs'
 import { bellPcm, boomPcm, shootPcm } from './audio'
 
@@ -940,6 +940,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const c = it.evalInt()
       if (c <= 0) throw new AmosError('function call error')
       if (!rt.dialogs.delete(c)) throw new AmosError(DIALOG_ERRORS[6]!)
+    },
+    'dialog clr'(it) {
+      // InDialogClr +Lib.s:14415 → Dia_EffChannel: erase the display,
+      // keep the channel
+      const c = it.evalInt()
+      if (c <= 0) throw new AmosError('function call error')
+      const d = rt.dialogs.get(c)
+      if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
+      eraseDialog(d, rt.dialogDraw)
     },
     'dialog freeze'(it) {
       // InDialogFreeze0/1 +Lib.s:14426
@@ -2091,6 +2100,44 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(which === 2 ? m.selection[1] : m.selection[0])
     },
 
+    'dialog run'(it, a) {
+      // FnDialogRun1/2/4 +Lib.s:14500: =Dialog Run(c[,label][,x,y]); RU in
+      // the script blocks the interpreter until the wait loop exits
+      const c = int(a[0]!)
+      if (c <= 0) throw new AmosError('function call error')
+      const d = rt.dialogs.get(c)
+      if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
+      if (d.runState === 'done') {
+        d.runState = 'idle'
+        return VI(d.ret)
+      }
+      if (d.runState === 'waiting') {
+        it.block({ type: 'dialog', channel: c }, true)
+        return VI(0)
+      }
+      const label = a.length >= 2 ? int(a[1]!) : -1
+      if (label >= 65536) throw new AmosError('function call error')
+      const x = a.length >= 4 ? int(a[2]!) : null
+      const y = a.length >= 4 ? int(a[3]!) : null
+      const r = rt.runDialog(c, label, x, y)
+      if (r === 'blocked') {
+        it.block({ type: 'dialog', channel: c }, true)
+        return VI(0)
+      }
+      return VI(r)
+    },
+    dialog(_, a) {
+      // FnDialog +Lib.s:14538 → Dia_GetReturn: -1 when not drawn, else the
+      // return value, read-and-cleared (one-shot)
+      const c = int(a[0]!)
+      if (c <= 0) throw new AmosError('function call error')
+      const d = rt.dialogs.get(c)
+      if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
+      if (!d.drawn) return VI(-1)
+      const v = d.ret
+      d.ret = 0
+      return VI(v)
+    },
     vdialog(_, a) {
       // FnVDialog +Lib.s:14563: raw long read; string slots read as 0
       const d = rt.dialogs.get(int(a[0]!))

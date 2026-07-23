@@ -211,3 +211,133 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('dialog keywords', () => {
     expect(rt.dialogs.get(2)!.script.length).toBeGreaterThan(0)
   })
 })
+
+describe.skipIf(!existsSync(DEFAULT_ABK))('dialog run: draw phase (Dia_RunProgram +Lib.s:20535)', () => {
+  const table = new TokenTable(CORE_TOKENS)
+
+  function boot(src: string): { rt: Runtime; out: () => string } {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, onText: (t) => (out += t) })
+    rt.loadSystemResource(readFileSync(DEFAULT_ABK))
+    return { rt, out: () => out }
+  }
+
+  it('draws graphic boxes and text at the dialog base', () => {
+    const src = [
+      'D$="SI160,64;BA32,16;IN5,0,0;GB0,0,32,10;PR0,20,\'HI\',6;EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+      'Print R',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    const r = rt.runHeadless(1_000)
+    expect(r.status).toBe('ended')
+    const s = rt.screens.get(0)!
+    expect(s.point(40, 20)).toBe(5) // GB filled with ink 5 at base 32,16
+    expect(out()).toBe(' 0\n')
+    // text 'HI' in pen 6 at (32, 36)
+    let found = false
+    for (let y = 36; y < 44; y++) for (let x = 32; x < 48; x++) if (s.point(x, y) === 6) found = true
+    expect(found).toBe(true)
+  })
+
+  it('draws the 9-patch box from real resource images (BO, Dia_Box)', () => {
+    const src = [
+      'D$="SI160,64;BA0,0;BO0,0,1,SX,SY;EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+    ].join('\n')
+    const { rt } = boot(src)
+    expect(rt.runHeadless(1_000).status).toBe('ended')
+    const s = rt.screens.get(0)!
+    let painted = 0
+    for (let y = 0; y < 64; y++) for (let x = 0; x < 160; x++) if (s.point(x, y) !== 0) painted++
+    expect(painted).toBeGreaterThan(500) // the panel really rendered
+  })
+
+  it('RU blocks the program; the timer exits with 0 and restores the background (SA)', () => {
+    const src = [
+      'Ink 3 : Bar 10,10 To 60,40', // background to save/restore
+      'D$="SI64,32;BA16,8;SA1;IN5,0,0;GB0,0,40,20;RU25,0;EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+      'Print R',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    // run some frames: the dialog must be up (drawn) while waiting
+    for (let i = 0; i < 10 && rt.frame().status !== 'ended'; i++);
+    expect(rt.dialogs.get(1)!.runState).toBe('waiting')
+    expect(rt.screens.get(0)!.point(20, 12)).toBe(5) // dialog box over background
+    // let the 25-frame timer expire
+    for (let i = 0; i < 40 && rt.frame().status !== 'ended'; i++);
+    expect(out()).toBe(' 0\n')
+    expect(rt.screens.get(0)!.point(20, 12)).toBe(3) // background restored
+  })
+
+  it('a no-RU dialog stays drawn and Dialog(n) reads one-shot', () => {
+    const src = [
+      'D$="SI32,16;BA0,0;EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+      'Print Dialog(1);Dialog(1)',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    expect(rt.runHeadless(1_000).status).toBe('ended')
+    expect(rt.dialogs.get(1)!.drawn).toBe(true)
+    expect(out()).toBe(' 0 0\n')
+  })
+
+  it('IF true runs the block then skips the rest of the routine (Dia_If)', () => {
+    const src = [
+      'D$="SI32,16;IF1;[SV0,11;]SV0,99;EX;]LA1;EX;"',
+      'Dialog Open 1,D$,4',
+      'R=Dialog Run(1)',
+      'Print Vdialog(1,0)',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    expect(rt.runHeadless(1_000).status).toBe('ended')
+    expect(out()).toBe(' 11\n') // SV0,99 skipped
+    void rt
+  })
+
+  it('IF false skips only the bracketed block', () => {
+    const src = [
+      'D$="SI32,16;IF0;[SV0,11;]SV0,99;EX;"',
+      'Dialog Open 1,D$,4',
+      'R=Dialog Run(1)',
+      'Print Vdialog(1,0)',
+    ].join('\n')
+    const { out, rt } = boot(src)
+    expect(rt.runHeadless(1_000).status).toBe('ended')
+    expect(out()).toBe(' 99\n')
+  })
+
+  it('JS/RT subroutines and user instructions with P1..P9 params', () => {
+    const src = [
+      'D$="SI32,16;JS5;MY10,32;EX;LA5;SV0,7;RT;UIMY,2;[SV1,P1P2+;]"',
+      'Dialog Open 1,D$,4',
+      'R=Dialog Run(1)',
+      'Print Vdialog(1,0);Vdialog(1,1)',
+    ].join('\n')
+    const { out, rt } = boot(src)
+    expect(rt.runHeadless(1_000).status).toBe('ended')
+    expect(out()).toBe(' 7 42\n')
+  })
+
+  it('Dialog Clr erases the display, Dialog Run label errors when undefined', () => {
+    const src = [
+      'Ink 3 : Bar 0,0 To 50,50',
+      'D$="SI32,16;BA0,0;SA1;IN5,0,0;GB0,0,30,14;EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+      'Dialog Clr 1',
+    ].join('\n')
+    const { rt } = boot(src)
+    expect(rt.runHeadless(1_000).status).toBe('ended')
+    expect(rt.screens.get(0)!.point(5, 5)).toBe(3) // restored
+    expect(() => {
+      const { rt: rt2 } = boot('Dialog Open 1,"EX;"\nR=Dialog Run(1,9)')
+      rt2.runHeadless(500)
+    }).toThrow(/label not defined/)
+  })
+})

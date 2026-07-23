@@ -75,6 +75,8 @@ export type Block =
   | { type: 'wait'; until: number }
   | { type: 'waitKey' }
   | { type: 'input'; prompt: string }
+  | { type: 'dialog'; channel: number }
+  | { type: 'fsel' }
 
 /** Live input device state, owned by the runtime/driver and read by builtins. */
 export interface InputState {
@@ -932,6 +934,9 @@ export class Interp {
 
   /** After an instruction: we must be at a statement boundary. */
   private endStatement(): void {
+    // a blocking function that rewound the pc (Dialog Run, Fsel$) leaves it
+    // at the statement start on purpose — the statement re-executes later
+    if (this.blocked !== null) return
     if (this.atStmtEnd()) return
     if (this.policy === 'skip') {
       this.skipToStmtEnd()
