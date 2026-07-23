@@ -8,7 +8,17 @@ import type { Runtime } from './runtime'
 import { Screen, builtinPattern } from './screen'
 import { ObjectBank } from './objects'
 import { AmalChannel, AmalCompileError, compileAmal } from './amal'
-import { DIALOG_ERRORS, DialogChannel, DialogError, eraseDialog, prescanDialog } from './dialog'
+import {
+  DIALOG_ERRORS,
+  DialogChannel,
+  DialogError,
+  dialogZoneAt,
+  dialogZoneByNumber,
+  dialogZoneValue,
+  eraseDialog,
+  prescanDialog,
+  updateZone,
+} from './dialog'
 import { amigaPattern } from './vfs'
 import { bellPcm, boomPcm, shootPcm } from './audio'
 
@@ -29,6 +39,16 @@ function pair(it: It): [number, number] {
   const x = it.evalInt()
   it.expect(',')
   return [x, it.evalInt()]
+}
+
+/** Rdialog/Rdialog$(c,zone[,item]) shared lookup (Dia_GetValue +Lib.s:20843) */
+function rdialogValue(rt: Runtime, a: import('../interp/values').Value[]): { n: number; s: string | null } {
+  const d = rt.dialogs.get(int(a[0]!))
+  if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
+  const item = a.length >= 3 ? int(a[2]!) : 1
+  const z = dialogZoneByNumber(d, int(a[1]!), item)
+  if (!z) throw new AmosError(DIALOG_ERRORS[6]!)
+  return dialogZoneValue(z)
 }
 
 /** Vdialog(c,n)= / Vdialog$(c,n)= assignment forms (Dia_GetVariable +Lib.s:14548) */
@@ -949,6 +969,27 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const d = rt.dialogs.get(c)
       if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
       eraseDialog(d, rt.dialogDraw)
+    },
+    'dialog update'(it) {
+      // InDialogUpdate2..5 +Lib.s:14462 → Dia_ZUpdate: push a value into
+      // zone z of channel n; elided values just redraw
+      const c = it.evalInt()
+      if (c <= 0) throw new AmosError('function call error')
+      it.expect(',')
+      const z = it.evalInt()
+      let v: number | null = null
+      let p4: number | null = null
+      let p5: number | null = null
+      if (it.accept(',')) {
+        v = it.atStmtEnd() || it.nm() === ',' ? null : it.evalInt()
+        if (it.accept(',')) {
+          p4 = it.atStmtEnd() || it.nm() === ',' ? null : it.evalInt()
+          if (it.accept(',')) p5 = it.evalInt()
+        }
+      }
+      const d = rt.dialogs.get(c)
+      if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
+      updateZone(d, z, v, p4, p5, rt.dialogHost, rt.dialogDraw)
     },
     'dialog freeze'(it) {
       // InDialogFreeze0/1 +Lib.s:14426
@@ -2159,6 +2200,23 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // FnEDialog +Lib.s:14391: position of the last dialog error
       void a
       return VI(rt.dialogErrPos)
+    },
+    rdialog(_, a) {
+      // FnRDialog2/3 +Lib.s:14588 → Dia_GetValue: a zone's numeric result
+      // (string-valued zones read as 0)
+      const v = rdialogValue(rt, a)
+      return VI(v.s === null ? v.n : 0)
+    },
+    'rdialog$'(_, a) {
+      const v = rdialogValue(rt, a)
+      return VS(v.s ?? '')
+    },
+    zdialog(_, a) {
+      // FnZDialog +Lib.s:14632 → Dia_GetZ: zone number at screen x,y
+      const d = rt.dialogs.get(int(a[0]!))
+      if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
+      const z = dialogZoneAt(d, int(a[1]!), int(a[2]!))
+      return VI(z ? z.number : -1)
     },
     'resource$'(_, a) {
       // FnResource +ILib.s:6699: n>0 = message n of the puzzle bank; 0 =

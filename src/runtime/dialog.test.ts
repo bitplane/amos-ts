@@ -324,6 +324,102 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('dialog run: draw phase (Dia_RunProgra
     expect(out()).toBe(' 7 42\n')
   })
 
+  it('buttons: click cycles the position, BQ exits the wait (Dia_Tests .MBt)', () => {
+    // button zone 1 at screen 20,10 size 40x16; draw routine paints it,
+    // change routine sets quit so a click ends the run with 5
+    const src = [
+      'D$="SI160,64;BA0,0;BU5,20,10,40,16,0,0,3;[IN6,0,0;GB0,0,SX,SY;][BQ;]RU0,0;EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+      'Print R;Rdialog(1,5)',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    for (let i = 0; i < 5; i++) rt.frame()
+    expect(rt.dialogs.get(1)!.runState).toBe('waiting')
+    // button drew itself via its [draw] routine
+    expect(rt.screens.get(0)!.point(30, 15)).toBe(6)
+    // click inside the button (screen 30,15 → hw 128+30, 50+15 on lowres)
+    rt.input.mouseX = 128 + 30
+    rt.input.mouseY = 50 + 15
+    rt.input.mouseK = 1
+    rt.frame()
+    rt.input.mouseK = 0
+    for (let i = 0; i < 5 && rt.frame().status !== 'ended'; i++);
+    expect(out()).toBe(' 5 1\n') // exit zone 5, position cycled 0→1
+  })
+
+  it('clicks outside zones do not exit; RU flag bit3 makes any click exit', () => {
+    const src = [
+      'D$="SI64,32;BA0,0;BU1,0,0,10,10,0,0,1;[][BQ;]RU0,8;EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+      'Print R',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    for (let i = 0; i < 3; i++) rt.frame()
+    rt.input.mouseX = 128 + 50 // outside the button
+    rt.input.mouseY = 50 + 30
+    rt.input.mouseK = 1
+    rt.frame()
+    rt.input.mouseK = 0
+    for (let i = 0; i < 5 && rt.frame().status !== 'ended'; i++);
+    expect(out()).toBe(' 0\n') // flag bit3 exit returns Return=0 (no zone)
+  })
+
+  it('KY zones simulate a press on their button (Dia_Tests .KLoop)', () => {
+    const src = [
+      'D$="SI64,32;BA0,0;BU2,0,0,10,10,0,0,1;[][BQ;]KY27,0;RU0,0;EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+      'Print R',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    for (let i = 0; i < 3; i++) rt.frame()
+    rt.pressKey('\x1b', 0x45) // Escape, ASCII 27
+    for (let i = 0; i < 5 && rt.frame().status !== 'ended'; i++);
+    expect(out()).toBe(' 2\n')
+  })
+
+  it('live dialogs report via Dialog(n) and erase themselves on quit (Dia_AutoTest)', () => {
+    const src = [
+      'Ink 3 : Bar 0,0 To 63,31',
+      'D$="SI64,32;BA0,0;SA1;BU7,0,0,20,20,0,0,1;[IN5,0,0;GB0,0,SX,SY;][BQ;]EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+      'Do',
+      ' D=Dialog(1)',
+      ' If D<>0 Then Print D : End',
+      ' Wait Vbl',
+      'Loop',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    for (let i = 0; i < 5; i++) rt.frame()
+    expect(rt.screens.get(0)!.point(5, 5)).toBe(5) // button drawn over background
+    rt.input.mouseX = 128 + 5
+    rt.input.mouseY = 50 + 5
+    rt.input.mouseK = 1
+    rt.frame()
+    rt.input.mouseK = 0
+    for (let i = 0; i < 8 && rt.frame().status !== 'ended'; i++);
+    expect(out()).toBe('-1\n') // erased before the poll saw the number
+    // (5,18): inside the button area, clear of the printed "-1" text cells
+    expect(rt.screens.get(0)!.point(5, 18)).toBe(3) // background restored
+  })
+
+  it('Dialog Update pushes a new position through the change routine', () => {
+    const src = [
+      'D$="SI64,32;BA0,0;BU3,0,0,10,10,1,0,9;[][]RU2,0;EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+      'Print Rdialog(1,3)',
+      'Dialog Update 1,3,7',
+      'Print Rdialog(1,3)',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    expect(rt.runHeadless(1_000).status).toBe('ended')
+    expect(out()).toBe(' 1\n 7\n')
+  })
+
   it('Dialog Clr erases the display, Dialog Run label errors when undefined', () => {
     const src = [
       'Ink 3 : Bar 0,0 To 50,50',

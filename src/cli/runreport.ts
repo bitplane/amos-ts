@@ -28,6 +28,15 @@ function* walk(dir: string): Generator<string> {
 const table = new TokenTable(CORE_TOKENS)
 const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
 
+// the system default resource is part of the machine (Sys_Resource,
+// loaded at AMOS Pro startup from config message 8)
+let systemResource: Uint8Array | null = null
+try {
+  systemResource = readFileSync('fixtures/official-amos/APSystem/AMOSPro_Default_Resource.Abk')
+} catch {
+  // fixtures without the system files: dialogs will error faithfully
+}
+
 let files = 0
 let ran = 0
 let cleanEnd = 0
@@ -48,6 +57,7 @@ for (const path of walk(root)) {
       banks: amos.banks,
       fs: fsForFile(path, path.includes('aga-releases') ? 'fixtures/aga-releases' : 'fixtures/official-amos'),
     })
+    if (systemResource) rt.loadSystemResource(systemResource)
     const result = rt.runHeadless(maxFrames)
     ran++
     const status = result.status === 'paused' ? 'frameCap' : result.status

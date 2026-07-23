@@ -15,7 +15,7 @@ import type { BankImage, Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from './fs'
 import { AmalChannel } from './amal'
 import type { AmalHost, ChannelTarget } from './amal'
-import { DialogChannel, DialogError, DialogExec, eraseDialog, DIALOG_ERRORS } from './dialog'
+import { DialogChannel, DialogError, DialogExec, dialogZoneAt, eraseDialog, zoneChange, zoneDraw, DIALOG_ERRORS } from './dialog'
 import type { DialogDraw, DialogHost, DialogZone } from './dialog'
 import { NullAudio, parseSampleBank } from './audio'
 import { FONT8 } from './font.gen'
@@ -396,16 +396,115 @@ export class Runtime {
     }
   }
 
-  /** per-frame dialog interaction (Dia_AutoTest / the RU wait loop) */
+  /** per-frame dialog interaction (Dia_AutoTest 24110 + Dia_Tests 24162) */
   private stepDialogs(): void {
+    const lmb = (this.input.mouseK & 1) !== 0
+    const press = lmb && !this.dialogLmb
+    this.dialogLmb = lmb
     for (const d of this.dialogs.values()) {
-      if (d.runState !== 'waiting' || d.frozen) continue
-      if (d.timer > 0 && this.interp.tick - d.timerStart >= d.timer) {
+      if (!d.drawn || d.frozen) continue
+      const waiting = d.runState === 'waiting'
+      if (waiting && d.timer > 0 && this.interp.tick - d.timerStart >= d.timer) {
         this.finishDialogRun(d, 0)
         continue
       }
-      // phase 5: mouse/keyboard zone tests
+      this.dialogDraw.activate(d.screenNb)
+      let exit = 0
+      try {
+        exit = this.dialogTests(d, lmb, press, waiting)
+      } catch (e) {
+        if (e instanceof DialogError) {
+          // an erroring channel freezes to avoid looping (AutoTest .Err)
+          this.dialogErrPos = e.position
+          d.frozen = true
+        } else {
+          throw e
+        }
+      } finally {
+        this.dialogDraw.deactivate()
+      }
+      if (exit > 0) {
+        if (waiting) this.finishDialogRun(d, d.ret)
+        else eraseDialog(d, this.dialogDraw) // live channel erases itself
+      }
     }
+  }
+
+  private dialogLmb = false
+
+  /** hardware mouse coords → coords on screen s (SyCall XyScr) */
+  private mouseOnScreen(s: Screen): { x: number; y: number } {
+    return {
+      x: (this.input.mouseX - s.displayX) * (s.hires ? 2 : 1) + s.offsetX,
+      y: this.input.mouseY - s.displayY + s.offsetY,
+    }
+  }
+
+  /** one round of zone tests; returns the exit count (Dia_Tests) */
+  private dialogTests(d: DialogChannel, lmb: boolean, press: boolean, waiting: boolean): number {
+    let exit = 0
+    const host = this.dialogHost
+    const draw = this.dialogDraw
+    // a pressed nowait zone is tracked until release (Dia_Release)
+    if (d.release) {
+      const z = d.release
+      d.ret = z.number
+      if (lmb) {
+        zoneChange(d, z, host, draw)
+        if (z.quit) {
+          exit++
+          return exit
+        }
+      } else {
+        d.ret = 0
+        d.release = null
+        zoneDraw(d, z, host, draw)
+      }
+    }
+    // keyboard: match KY records against the next queued key. Only an RU
+    // wait owns the keyboard — live dialogs must not eat Input/Inkey$ keys.
+    const key = waiting ? (this.input.keyQueue.shift() ?? null) : (this.input.keyQueue[0] ?? null)
+    let simulated: DialogZone | null = null
+    if (key) {
+      if (d.runFlags & 4) exit++ // RU flag bit2: any key exits
+      const ascii = key.ch.toUpperCase().charCodeAt(0) || 0
+      for (const z of d.zones) {
+        if (z.kind !== 'key') continue
+        const kc = z.code!
+        if (kc === 0) continue
+        // code $FF = any key; bit7 = scancode match; else ASCII (uppercased)
+        const hit = kc === 0xff || (kc & 0x80 ? (kc & 0x7f) === key.scan : kc === ascii)
+        if (!hit) continue
+        // qualifier bytes (shift/amiga/ctrl/alt) are approximated as 0
+        if (z.ref) simulated = z.ref
+        break
+      }
+    }
+    // mouse press or simulated key press on a zone
+    if (press || simulated) {
+      const s = this.screens.get(d.screenNb) ?? this.screen
+      const m = this.mouseOnScreen(s)
+      const z = simulated ?? dialogZoneAt(d, m.x, m.y)
+      if (z && z.kind === 'button') {
+        d.ret = z.number
+        let next = z.pos + 1
+        if (next > z.max) next = z.min
+        z.pos = next
+        zoneDraw(d, z, host, draw)
+        const r = zoneChange(d, z, host, draw)
+        if (z.nowait) {
+          z.pos = r
+          d.release = z
+        } else if (r !== z.pos) {
+          z.pos = r
+          zoneDraw(d, z, host, draw)
+        }
+        if (z.quit) exit++
+      } else if (press && !z && d.runFlags & 8) {
+        exit++ // flag bit3: any click exits
+      }
+    }
+    return exit
   }
   // ---- sprite update freeze ----
   spriteUpdateOn = true

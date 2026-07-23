@@ -161,6 +161,8 @@ export interface DialogZone {
   // key zones
   code?: number
   shift?: number
+  /** the zone a KY record activates (Dia_KyZone = LastZone) */
+  ref?: DialogZone | null
   // sliders
   total?: number
   size?: number
@@ -214,6 +216,10 @@ export class DialogChannel {
   saOrder: number[] = []
   /** paused execution across RU (resumed by stepDialogs) */
   exec: DialogExec | null = null
+  /** the zone defined last (Dia_LastZone), attached to following KY records */
+  lastZone: DialogZone | null = null
+  /** a pressed nowait zone being tracked until mouse release (Dia_Release) */
+  release: DialogZone | null = null
 
   constructor(
     readonly channel: number,
@@ -963,19 +969,46 @@ export class DialogExec {
           const [n, pos] = [int(0), int(1)]
           for (const z of ch.zones) {
             if (z.kind !== 'button' || z.number !== n || z === ch.curZone) continue
+            if (z.changing) continue
             if (z.pos !== pos) {
               z.changing = true
               z.pos = pos
-              this.buttonDraw(z)
-              this.zoneChange(z)
+              zoneDraw(ch, z, this.host, this.draw)
+              zoneChange(ch, z, this.host, this.draw)
               z.changing = false
             }
             z.quit = false
           }
           break
         }
-        case 34: // ZC n,pos — phase 5 (zone update)
+        case 24: { // KY code,shift — key affectation for the last zone
+          const z: DialogZone = {
+            kind: 'key',
+            number: 0,
+            x: 0,
+            y: 0,
+            sx: 0,
+            sy: 0,
+            pos: 0,
+            min: 0,
+            max: 0,
+            rdraw: 0,
+            rchange: 0,
+            zvar: 0,
+            nowait: false,
+            quit: false,
+            changing: false,
+            value: null,
+            code: int(0) & 0xff,
+            shift: int(1) & 0xff,
+            ref: ch.lastZone,
+          }
+          ch.zones.push(z)
+          break
+        }
+        case 34: // ZC n,pos — update zone n (Dia_ZChange → Dia_ZUpdate)
           if (!ch.curZone) this.synt()
+          updateZone(ch, int(0), int(1), null, null, this.host, this.draw)
           break
         case 36: { // GB x1,y1,x2,y2 — filled box, pen A
           const [x1, y1, x2, y2] = [int(0), int(1), int(2), int(3)]
@@ -1063,8 +1096,67 @@ export class DialogExec {
       for (let i = 0; i < 8; i++) this.ch.sliderCfg[8 + i] = this.ch.sliderCfg[i]!
       return
     }
-    // BU/ED/DI/HS/VS/AL/IL/HT: the zone engine (phases 5-7)
+    if (idx === 16) {
+      // BU z,x,y,sx,sy,pos,min,max;[draw][change] (Dia_Button +Lib.s:22539)
+      const z = this.zoneHeader('button')
+      z.pos = this.evalInt()
+      z.min = this.evalInt()
+      z.max = this.evalInt()
+      z.rdraw = this.getRout()
+      z.rchange = this.getRout()
+      this.ch.zones.push(z)
+      this.ch.lastZone = z
+      zoneDraw(this.ch, z, this.host, this.draw)
+      return
+    }
+    // ED/DI/HS/VS/AL/IL/HT: phases 6-7
     this.synt()
+  }
+
+  /** Dia_GetEntete: zone number + geometry (base added), XA/YB updated */
+  private zoneHeader(kind: ZoneKind): DialogZone {
+    const ch = this.ch
+    const number = this.evalInt()
+    const rx = this.evalInt()
+    const ry = this.evalInt()
+    const sx = this.evalInt()
+    const sy = this.evalInt()
+    ch.xa = rx
+    ch.ya = ry
+    ch.xb = rx + sx
+    ch.yb = ry + sy
+    return {
+      kind,
+      number,
+      x: ch.baseX + rx,
+      y: ch.baseY + ry,
+      sx,
+      sy,
+      pos: 0,
+      min: 0,
+      max: 0,
+      rdraw: 0,
+      rchange: 0,
+      zvar: ch.nextZone,
+      nowait: false,
+      quit: false,
+      changing: false,
+      value: null,
+    }
+  }
+
+  /** Dia_GetRout +Lib.s:23878: a `[...]` routine — offset, or 0 when empty */
+  private getRout(): number {
+    const bracket = this.cur.next()
+    if (bracket.ch !== '[') this.synt()
+    const off = this.cur.pos
+    // peek: an immediately-closing bracket means "no routine"
+    const save = this.cur.pos
+    const peek = this.cur.next()
+    if (peek.ch === ']') return 0
+    this.cur.pos = save
+    this.skipBrackets()
+    return off
   }
 
   /** `]` or EX: pop a frame, or end the routine (returns true at top level) */
@@ -1200,13 +1292,141 @@ export class DialogExec {
     ch.blocks.set(n, { saved: this.draw.grabBlock(bx, ch.baseY, w, ch.sizeY) })
   }
 
-  /** run a zone's [draw routine] (phase 5 fills this in) */
-  buttonDraw(z: DialogZone): void {
-    void z
-  }
+}
 
-  zoneChange(z: DialogZone): void {
-    void z
+// ---- zone routine execution (Dia_BtDraw / Dia_ZoChange, +Lib.s:23817/24030) ----
+
+interface ZoneSnapshot {
+  baseX: number
+  baseY: number
+  sizeX: number
+  sizeY: number
+  xa: number
+  ya: number
+  xb: number
+  yb: number
+  bp: number | string
+  br: number | string
+  curZone: DialogZone | null
+}
+
+function snapshot(ch: DialogChannel): ZoneSnapshot {
+  const { baseX, baseY, sizeX, sizeY, xa, ya, xb, yb, bp, br, curZone } = ch
+  return { baseX, baseY, sizeX, sizeY, xa, ya, xb, yb, bp, br, curZone }
+}
+
+function restore(ch: DialogChannel, s: ZoneSnapshot): void {
+  Object.assign(ch, s)
+}
+
+/**
+ * Run a zone's [draw] routine with base/size set to the zone rectangle and
+ * BP = the zone position (Dia_BtDraw).
+ */
+export function zoneDraw(ch: DialogChannel, z: DialogZone, host: DialogHost, draw: DialogDraw): void {
+  if (z.rdraw <= 0) return
+  const save = snapshot(ch)
+  ch.sizeX = z.sx
+  ch.sizeY = z.sy
+  ch.baseX = z.x
+  ch.baseY = z.y
+  ch.bp = z.pos
+  ch.curZone = z
+  try {
+    new DialogExec(ch, host, draw).run(z.rdraw)
+  } finally {
+    restore(ch, save)
+  }
+}
+
+/**
+ * Run a zone's [change] routine: BP = BR = position, quit/nowait cleared
+ * first; returns the routine's BR result (the new position). Without a
+ * routine the current position comes straight back (Dia_ZoChange).
+ */
+export function zoneChange(ch: DialogChannel, z: DialogZone, host: DialogHost, draw: DialogDraw): number {
+  if (z.rchange <= 0) return z.pos
+  const save = snapshot(ch)
+  ch.bp = z.pos
+  ch.br = z.pos
+  ch.curZone = z
+  z.quit = false
+  z.nowait = false
+  try {
+    new DialogExec(ch, host, draw).run(z.rchange)
+    return typeof ch.br === 'number' ? ch.br : 0
+  } finally {
+    restore(ch, save)
+  }
+}
+
+/** hit-test the channel's zones at screen coords (Dia_GetZ +Lib.s:24591) */
+export function dialogZoneAt(ch: DialogChannel, x: number, y: number): DialogZone | null {
+  for (const z of ch.zones) {
+    if (z.kind === 'key') continue
+    if (x >= z.x && x < z.x + z.sx && y >= z.y && y < z.y + z.sy) return z
+  }
+  return null
+}
+
+/** the item-th zone with a number (Dia_GetZoneAd +Lib.s:20902) */
+export function dialogZoneByNumber(ch: DialogChannel, n: number, item = 1): DialogZone | null {
+  let left = item
+  for (const z of ch.zones) {
+    if (z.kind === 'key' || z.number !== n) continue
+    if (--left <= 0) return z
+  }
+  return null
+}
+
+/** a zone's result value + type (Dia_GetValue +Lib.s:20843) */
+export function dialogZoneValue(z: DialogZone): { n: number; s: string | null } {
+  switch (z.kind) {
+    case 'button':
+    case 'slider':
+    case 'list':
+      return { n: z.pos, s: null }
+    case 'hyper':
+      return z.pos !== 0 ? { n: z.pos, s: null } : { n: 0, s: z.text ?? '' }
+    case 'digit': {
+      const v = parseInt(z.text ?? '', 10)
+      return { n: Number.isNaN(v) ? 0 : v, s: null }
+    }
+    case 'edit':
+      return { n: 0, s: z.text ?? '' }
+    default:
+      return { n: 0, s: null }
+  }
+}
+
+/**
+ * Dialog Update / ZC: push a new value into zone n (Dia_ZUpdate
+ * +Lib.s:23916). Elided values just redraw+change; matching values are
+ * skipped entirely.
+ */
+export function updateZone(
+  ch: DialogChannel,
+  n: number,
+  v: number | null,
+  p4: number | null,
+  p5: number | null,
+  host: DialogHost,
+  draw: DialogDraw,
+): void {
+  void p4
+  void p5 // slider window/global updates arrive with the slider zones
+  for (const z of ch.zones) {
+    if (z.kind === 'key' || z.number !== n || z === ch.curZone) continue
+    if (z.kind === 'button') {
+      if (v !== null && v === z.pos) {
+        z.quit = false
+        continue
+      }
+      if (v !== null) z.pos = v
+      zoneDraw(ch, z, host, draw)
+      zoneChange(ch, z, host, draw)
+      z.quit = false
+    }
   }
 }
 
@@ -1227,8 +1447,8 @@ export function eraseDialog(ch: DialogChannel, draw: DialogDraw): void {
   }
   ch.saOrder = []
   ch.blocks.clear()
-  ch.zones = []
-  ch.curZone = null
+  // zone records survive the erase — Rdialog reads them until the next
+  // Dialog Run resets the buffer (Dia_RunProgram clears it, not the erase)
   draw.deactivate()
   ch.drawn = false
 }
