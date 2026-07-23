@@ -23,6 +23,7 @@ import { amigaPattern } from './vfs'
 import { MF_BAR, MF_BOUGE, MF_FIXED, MF_OFF, MF_SEP, MF_TBOUGE, MF_TOTAL, bankToMenu, compileMenuObject, menuCalc, menuToBank } from './menu'
 import { bellPcm, boomPcm, shootPcm } from './audio'
 import { squash as squashBytes, unsquash as unsquashBytes } from './squash'
+import { parsePpBank, writePpBank } from '../loader/powerpacker'
 
 /**
  * Graphics/screen instruction and function registries, bound to a Runtime.
@@ -1855,6 +1856,38 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!rt.vfs?.writeFile(path, Uint8Array.from(m.data.subarray(m.off, m.off + len)))) {
         throw new AmosError('disc is write protected')
       }
+    },
+    ppload(it) {
+      // Ppload "file"[,number] — InppLoad +CompExt.s:455. Loads a PowerPacked
+      // "PPbk" bank; with no number the header's own bank number is used.
+      const path = it.evalStr()
+      const forced = it.accept(',') ? it.evalInt() : -1
+      const bytes = rt.fs?.read(path)
+      if (!bytes) throw new AmosError(`file not found: ${path}`)
+      const bank = parsePpBank(Uint8Array.from(bytes))
+      // bob/icon banks (flag bits 2/3) carry serialised objects — unsupported
+      if (bank.flags & 0x0c) throw new AmosError('Not a powerpacked bank', 23)
+      const num = forced >= 0 ? forced : bank.number
+      rt.memBanks.set(num, {
+        kind: 'memory',
+        number: num,
+        memType: bank.flags & 0x02 ? 1 : 0, // Bnk_BitChip
+        name: bank.flags & 0x01 ? 'Datas' : 'Work',
+        flags: bank.flags,
+        data: bank.data,
+      })
+    },
+    ppsave(it) {
+      // Ppsave "file",number[,efficiency] — InppSave +CompExt.s:686
+      const path = it.evalStr()
+      it.expect(',')
+      const num = it.evalInt()
+      const efficiency = it.accept(',') ? it.evalInt() : 2
+      if (efficiency < 0 || efficiency >= 5) throw new AmosError('Illegal function call', 23)
+      const bank = rt.memBanks.get(num)
+      if (!bank) throw new AmosError('bank not reserved', 36)
+      const file = writePpBank({ number: num, flags: bank.flags | (bank.memType ? 0x02 : 0), data: bank.data })
+      if (!rt.vfs?.writeFile(path, file)) throw new AmosError('disc is write protected')
     },
     'sam raw'(it) {
       const mask = it.evalInt()

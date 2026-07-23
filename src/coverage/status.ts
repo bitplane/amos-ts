@@ -669,4 +669,6 @@ export const NOTES: Record<string, string> = {
   'prg under': 'single-program runtime — no AMOS program runs beneath this one',
   'comp here': 'no native compiler overlay can load in the web port — always 0',
   squash: "decodes/encodes the exact Squasher format; the encoder uses a greedy longest-match rather than ST Squasher's pre-scan heuristic, so packed size may differ",
+  ppload: 'PP20 codec follows the documented format (the real algorithm is a ROM library, not in the AMOS source) and round-trips in-engine, but is NOT verified against real PowerPacker output — decoding real-world crunched banks is unconfirmed; bob/icon banks unsupported',
+  ppsave: 'PP20 codec per the documented format, not verified against real PowerPacker; the efficiency argument is validated but the offset table is fixed; bob/icon banks unsupported',
 }

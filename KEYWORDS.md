@@ -15,7 +15,7 @@ tested against our own understanding. Percentages exclude n/a
 | amal-stos | 10 | 0 | 0 | 10 | 0% |
 | banks | 20 | 10 | 6 | 4 | 80% |
 | compact | 3 | 1 | 0 | 2 | 33% |
-| compiler | 15 | 9 | 0 | 2 | 82% |
+| compiler | 15 | 9 | 2 | 0 | 100% |
 | copper | 8 | 0 | 0 | 8 | 0% |
 | drawing | 16 | 14 | 2 | 0 | 100% |
 | files | 21 | 15 | 0 | 4 | 79% |
@@ -36,7 +36,7 @@ tested against our own understanding. Percentages exclude n/a
 | text-io | 37 | 31 | 5 | 1 | 97% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 449 | 81 | 166 | 76% |
+| **total** | 732 | 449 | 83 | 164 | 76% |
 
 ## amal (92%)
 
@@ -58,10 +58,10 @@ tested against our own understanding. Percentages exclude n/a
 - **faithful**: `unpack`
 - **missing**: `pack`, `spack`
 
-## compiler (82%)
+## compiler (100%)
 
 - **faithful**: `comp err$`, `comp here` *(no native compiler overlay can load in the web port — always 0)*, `comp options`, `comp size`, `comp test`, `comp test off`, `comp test on`, `squash` *(decodes/encodes the exact Squasher format; the encoder uses a greedy longest-match rather than ST Squasher's pre-scan heuristic, so packed size may differ)*, `unsquash`
-- **missing**: `ppload`, `ppsave`
+- **approximated**: `ppload` *(PP20 codec follows the documented format (the real algorithm is a ROM library, not in the AMOS source) and round-trips in-engine, but is NOT verified against real PowerPacker output — decoding real-world crunched banks is unconfirmed; bob/icon banks unsupported)*, `ppsave` *(PP20 codec per the documented format, not verified against real PowerPacker; the efficiency argument is validated but the offset table is fixed; bob/icon banks unsupported)*
 - **n/a**: `cmpcall`, `comp del`, `comp load`, `compile`
 
 ## copper (0%)
