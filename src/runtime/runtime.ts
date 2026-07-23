@@ -1696,10 +1696,13 @@ export class Runtime {
       const ph = s.laced ? 1 : 2
       const baseX = (s.displayX - 128) * 2
       const baseY = (s.displayY - 50) * 2
-      for (let y = 0; y < s.height; y++) {
+      // Screen Display n,,,w,h clips the visible window to w×h (EcAWTx/Ty)
+      const winW = s.displayW >= 0 ? Math.min(s.displayW, s.width) : s.width
+      const winH = s.displayH >= 0 ? Math.min(s.displayH, s.height) : s.height
+      for (let y = 0; y < winH; y++) {
         const sy = y + s.offsetY
         if (sy < 0 || sy >= s.height) continue
-        for (let x = 0; x < s.width; x++) {
+        for (let x = 0; x < winW; x++) {
           const sx = x + s.offsetX
           if (sx < 0 || sx >= s.width) continue
           const pix = pixels[sy * s.width + sx]! & 31

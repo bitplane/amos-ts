@@ -297,6 +297,24 @@ export const FAITHFUL = new Set<string>([
   'on menu on',
   'on menu off',
   'on menu del',
+  // screen keywords verified against +Lib.s/+W.s Ec* routines: select
+  // (InScreen 9154), close (9003), display window (EcView 3276), offset
+  // hardware scroll (EcOffs 3546), hide/show (9053/9065), to front/back
+  // (EcFirst/EcLast 9116/9135), width/height (EcTx/EcTy 8778/8758),
+  // resolution constants (FnHires/Lowres/Laced 9174)
+  'screen',
+  'screen close',
+  'screen display',
+  'screen offset',
+  'screen hide',
+  'screen show',
+  'screen to front',
+  'screen to back',
+  'screen width',
+  'screen height',
+  'hires',
+  'lowres',
+  'laced',
   // memory/bank sweep verified against +Lib.s (Deek/Doke/Leek/Loke
   // big-endian at any alignment 2764-2819; FillBis tail 2648; TransMem
   // overlap 2535; Length=0 for missing bank 2491; Erase Temp = Data flag)
@@ -452,7 +470,11 @@ export const NOTES: Record<string, string> = {
   'menu called': 'items redraw every frame; (PR name) label procedures are not invoked',
   'menu movable': 'drag applies final positions — no XOR rubber band',
   'menu item movable': 'drag applies final positions — no XOR rubber band',
-  'dual playfield': "each playfield uses its own palette, not the hardware's colour split",
+  'dual playfield': "each playfield uses its own palette, not the hardware's colour split; resolution/plane checks and back-screen auto-hide are not enforced",
+  'screen open': 'width masked to /16; colour-count and HAM/EHB mode validation are not enforced',
+  'screen display': 'the visible window w/h clips the composite; hardware scaling is not modelled',
+  'screen colour': 'returns the plane colour count; HAM does not report 4096',
+  'screen base': 'returns 0 — the chunky model has no bitmap address',
   logbase: 'fake unbacked addresses — plane pokes do not render',
   phybase: 'fake unbacked addresses — plane pokes do not render',
   'set font': 'a single Topaz-8 face; the number only selects metrics',

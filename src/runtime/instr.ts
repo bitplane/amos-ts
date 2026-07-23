@@ -42,6 +42,16 @@ function pair(it: It): [number, number] {
   return [x, it.evalInt()]
 }
 
+/** Screen Width/Height(n): explicit n must be open (CheckScreenNumber + AdrEc) */
+function screenArg(rt: Runtime, a: import('../interp/values').Value[]): Screen {
+  if (a.length > 0 && int(a[0]!) >= 0) {
+    const s = rt.screens.get(int(a[0]!))
+    if (!s) throw new AmosError(`screen not opened: ${int(a[0]!)}`)
+    return s
+  }
+  return rt.screen
+}
+
 /** Rdialog/Rdialog$(c,zone[,item]) shared lookup (Dia_GetValue +Lib.s:20843) */
 function rdialogValue(rt: Runtime, a: import('../interp/values').Value[]): { n: number; s: string | null } {
   const d = rt.dialogs.get(int(a[0]!))
@@ -165,7 +175,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'screen open'(it) {
       const n = it.evalInt()
       it.expect(',')
-      const w = it.evalInt()
+      // EcCree +W.s:2910 masks the bitmap width down to a multiple of 16
+      const w = it.evalInt() & ~15
       it.expect(',')
       const h = it.evalInt()
       it.expect(',')
@@ -205,11 +216,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.dualPlayfield = { front: a, back: b }
     },
     'dual priority'(it) {
-      // InDualPriority: swap which playfield displays in front
+      // InDualPriority +Lib.s:8922 → DualP: only swaps which playfield of an
+      // EXISTING dual pair draws in front — the pair must already be set up
       const a = it.evalInt()
       it.expect(',')
       const b = it.evalInt()
-      if (!rt.screens.has(a) || !rt.screens.has(b)) throw new AmosError('screen not opened')
+      const dp = rt.dualPlayfield
+      if (!dp || !((dp.front === a && dp.back === b) || (dp.front === b && dp.back === a))) {
+        throw new AmosError('function call error')
+      }
       rt.dualPlayfield = { front: a, back: b }
     },
     view() {
@@ -229,16 +244,19 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.setCurrent(it.evalInt())
     },
     'screen display'(it) {
+      // EcView +W.s:3276: n,x,y,w,h with per-arg keep-current; w/h set the
+      // displayed-window size (EcAWTx/EcAWTy). It does NOT un-hide the screen.
       const s = byIndex(it.evalInt())
       if (it.accept(',')) {
         s.displayX = optInt(it, s.displayX)
         if (it.accept(',')) {
           s.displayY = optInt(it, s.displayY)
-          // trailing ,w,h — accepted and ignored (size can't change)
-          while (it.accept(',')) optInt(it, 0)
+          if (it.accept(',')) {
+            s.displayW = optInt(it, s.displayW)
+            if (it.accept(',')) s.displayH = optInt(it, s.displayH)
+          }
         }
       }
-      s.visible = true
     },
     'screen offset'(it) {
       const s = byIndex(it.evalInt())
@@ -2179,10 +2197,12 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.currentIndex)
     },
     'screen width'(_, a) {
-      return VI((a.length > 0 ? rt.screens.get(int(a[0]!)) ?? scr() : scr()).width)
+      // FnScreenWidth0/1 +Lib.s:8778: EcTx bitmap width; an explicit
+      // unopened screen number is an error, not a fallback
+      return VI(screenArg(rt, a).width)
     },
     'screen height'(_, a) {
-      return VI((a.length > 0 ? rt.screens.get(int(a[0]!)) ?? scr() : scr()).height)
+      return VI(screenArg(rt, a).height)
     },
     'screen colour'(_, a) {
       void a

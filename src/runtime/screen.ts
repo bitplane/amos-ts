@@ -117,6 +117,9 @@ export class Screen {
   /** display position in AMOS hardware coords (default 128,50 = top-left) */
   displayX = 128
   displayY = 50
+  /** displayed-window size (Screen Display n,,,w,h → EcAWTx/EcAWTy); -1 = full */
+  displayW = -1
+  displayH = -1
   offsetX = 0
   offsetY = 0
   // graphics state

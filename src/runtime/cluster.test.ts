@@ -71,6 +71,56 @@ describe('language cluster', () => {
   })
 })
 
+describe('screens (vs the 68k Ec* routines)', () => {
+  it('Screen Open masks the width down to a multiple of 16 (EcCree +W.s:2910)', () => {
+    expect(run('Screen Open 1,330,200,16,0 : Print Screen Width(1)').out).toBe(' 320\n')
+    expect(run('Screen Open 1,336,200,16,0 : Print Screen Width(1);Screen Height(1)').out).toBe(' 336 200\n')
+  })
+
+  it('Screen Width/Height error on an explicit unopened screen (FnScreenWidth1)', () => {
+    expect(() => run('Print Screen Width(5)')).toThrow(/not opened/)
+    expect(run('Print Screen Width;Screen Height').out).toBe(' 320 200\n') // no-arg = current
+  })
+
+  it('Screen To Front reorders without changing the current screen (EcFirst)', () => {
+    const prog = ['Screen Open 1,320,200,4,0', 'Screen 0', 'Screen To Front 1', 'Print Screen'].join('\n')
+    const { rt, out } = run(prog)
+    expect(out).toBe(' 0\n') // current is still 0
+    expect(rt.order[rt.order.length - 1]).toBe(1) // but 1 composites on top
+  })
+
+  it('Screen Display sets the visible-window size and does not un-hide (EcView)', () => {
+    const prog = [
+      'Screen Open 0,320,200,4,0 : Cls 1', // fill with colour 1
+      'Screen Display 0,,,160,100', // window shrunk to 160x100
+    ].join('\n')
+    const { rt } = run(prog)
+    const s = rt.screens.get(0)!
+    expect([s.displayW, s.displayH]).toEqual([160, 100])
+    const { data } = rt.composite()
+    // inside the window (device 100,100) is drawn; beyond it (device 400,300) is not
+    const inside = data[(100 * 640 + 100) * 4] || data[(100 * 640 + 100) * 4 + 2]
+    const outside = data[(300 * 640 + 400) * 4] || data[(300 * 640 + 400) * 4 + 2]
+    expect(inside).toBeGreaterThan(0)
+    expect(outside).toBe(0)
+    // Screen Display does not re-show a hidden screen
+    const hidden = run('Screen Open 0,320,200,4,0 : Screen Hide 0 : Screen Display 0,200,60').rt
+    expect(hidden.screens.get(0)!.visible).toBe(false)
+  })
+
+  it('Dual Priority swaps an existing pair, not any two screens', () => {
+    const prog = [
+      'Screen Open 0,320,200,8,0 : Screen Open 1,320,200,8,0',
+      'Dual Playfield 0,1',
+      'Dual Priority 1,0', // swap: 1 now in front
+    ].join('\n')
+    const { rt } = run(prog)
+    expect(rt.dualPlayfield).toEqual({ front: 1, back: 0 })
+    // Dual Priority on a non-dual pair errors
+    expect(() => run('Screen Open 0,320,200,8,0 : Screen Open 2,320,200,8,0 : Dual Priority 0,2')).toThrow()
+  })
+})
+
 describe('input subsystem (vs the 68k read routines)', () => {
   const table2 = new TokenTable(CORE_TOKENS)
   const boot = (src: string): { rt: Runtime; out: () => string } => {
