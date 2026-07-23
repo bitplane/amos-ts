@@ -13,7 +13,7 @@ tested against our own understanding. Percentages exclude n/a
 |---|---|---|---|---|---|
 | amal | 13 | 12 | 0 | 1 | 92% |
 | amal-stos | 10 | 0 | 0 | 10 | 0% |
-| banks | 20 | 7 | 9 | 4 | 80% |
+| banks | 20 | 8 | 8 | 4 | 80% |
 | compact | 3 | 1 | 0 | 2 | 33% |
 | compiler | 15 | 0 | 0 | 15 | 0% |
 | copper | 8 | 0 | 0 | 8 | 0% |
@@ -23,7 +23,7 @@ tested against our own understanding. Percentages exclude n/a
 | input | 18 | 12 | 6 | 0 | 100% |
 | interface | 25 | 21 | 3 | 1 | 96% |
 | ioports | 38 | 0 | 0 | 38 | 0% |
-| language | 250 | 159 | 44 | 38 | 84% |
+| language | 250 | 181 | 22 | 38 | 84% |
 | memory | 14 | 10 | 3 | 1 | 93% |
 | menus | 24 | 24 | 0 | 0 | 100% |
 | music | 49 | 5 | 9 | 35 | 29% |
@@ -33,10 +33,10 @@ tested against our own understanding. Percentages exclude n/a
 | request | 3 | 0 | 3 | 0 | 100% |
 | screens | 31 | 22 | 8 | 1 | 97% |
 | system | 41 | 0 | 0 | 40 | 0% |
-| text-io | 37 | 23 | 13 | 1 | 97% |
+| text-io | 37 | 31 | 5 | 1 | 97% |
 | windows | 11 | 9 | 2 | 0 | 100% |
-| zones | 3 | 0 | 3 | 0 | 100% |
-| **total** | 732 | 394 | 124 | 202 | 72% |
+| zones | 3 | 3 | 0 | 0 | 100% |
+| **total** | 732 | 428 | 90 | 202 | 72% |
 
 ## amal (92%)
 
@@ -49,8 +49,8 @@ tested against our own understanding. Percentages exclude n/a
 
 ## banks (80%)
 
-- **faithful**: `bank shrink`, `bank swap`, `bank to menu`, `erase temp`, `length`, `reserve as data`, `reserve as work`
-- **approximated**: `bload` *(the < 1024 bank form creates a missing bank instead of erroring)*, `bsave`, `erase`, `erase all`, `list bank`, `reserve as chip data`, `reserve as chip work`, `reserve zone`, `start` *(fake address space: Start()-relative arithmetic works, absolute hardware addresses do not)*
+- **faithful**: `bank shrink`, `bank swap`, `bank to menu`, `erase temp`, `length`, `reserve as data`, `reserve as work`, `reserve zone`
+- **approximated**: `bload` *(the < 1024 bank form creates a missing bank instead of erroring)*, `bsave`, `erase`, `erase all`, `list bank`, `reserve as chip data`, `reserve as chip work`, `start` *(fake address space: Start()-relative arithmetic works, absolute hardware addresses do not)*
 - **missing**: `bgrab`, `blength`, `bsend`, `bstart`
 
 ## compact (33%)
@@ -99,8 +99,8 @@ tested against our own understanding. Percentages exclude n/a
 
 ## language (84%)
 
-- **faithful**: `#`, `'`, `(`, `)`, `:`, `;`, `[`, `]`, `abs`, `acos`, `asc`, `asin`, `assign`, `atan`, `auto view off`, `auto view on`, `bin$`, `cdown$`, `chr$`, `cleft$`, `cmove$`, `cos`, `cright$`, `cup$`, `data`, `def fn`, `degree`, `dfree`, `dim`, `dir$`, `do`, `double buffer`, `else`, `else if`, `err$`, `errn`, `error`, `errtrap`, `exist`, `exit`, `exit if`, `exp`, `false`, `fix`, `flip$`, `fn`, `for`, `gosub`, `goto`, `hcos`, `hex$`, `hires`, `hrev`, `hsin`, `htan`, `i bob`, `i sprite`, `if`, `input$` *(keyboard form is non-blocking best effort)*, `instr`, `int`, `key$`, `laced`, `left$`, `len`, `line input`, `line input #`, `ln`, `log`, `loop`, `lower$`, `lowres`, `match` *(not-found result for closest index 0 returns -1)*, `max`, `menu$`, `mid$`, `min`, `next`, `not`, `on`, `on error`, `on menu del`, `on menu off`, `on menu on`, `paper$`, `peek$`, `pen$`, `pi#`, `poke$`, `pop`, `proc`, `procedure`, `radian`, `randomize`, `read`, `rem`, `repeat`, `repeat$`, `resume`, `resume label`, `resume next`, `return`, `right$`, `rnd` *(deterministic — original mixes in the raster beam position)*, `rol.b`, `rol.l`, `rol.w`, `ror.b`, `ror.l`, `ror.w`, `set input`, `set line`, `set menu`, `set slider` *(system patterns 1/2 approximated as dithers (the mouse bank is not in the fixtures))*, `set tab`, `sgn`, `sin`, `sort`, `space$`, `sqr`, `step`, `str$`, `string$`, `swap`, `tan`, `then`, `to`, `trap`, `true`, `until`, `update`, `update every`, `update off`, `update on`, `upper$`, `val`, `vrev`, `wend`, `while`, `writing`, `x bob`, `x curs`, `x graphic`, `x hard`, `x mouse`, `x screen`, `x sprite`, `x text`, `xgr`, `y bob`, `y curs`, `y graphic`, `y hard`, `y menu`, `y mouse`, `y screen`, `y sprite`, `y text`, `ygr`
-- **approximated**: `add` *(also works on float variables (original: integer only))*, `at` *(escape codes 'X'/'Y' assumed, not read from the source)*, `border$` *(returns the text unchanged — border boxes not rendered)*, `break off`, `break on`, `chip free`, `command line$`, `dec` *(also works on float variables (original: integer only))*, `def scroll`, `display height`, `fast free`, `font$` *(the ROM list only (no disc fonts in the fixture set))*, `free`, `global`, `hide`, `hide on`, `hrev block`, `hscroll` *(window-region scroll, approximated)*, `inc` *(also works on float variables (original: integer only))*, `load`, `load iff` *(HAM decodes as indexed (wrong colours))*, `multi wait`, `param`, `param#`, `param$`, `pop proc`, `restore`, `scin`, `set bob` *(back modes implemented; planes/mask arguments ignored)*, `set curs`, `set dir`, `set font` *(a single Topaz-8 face; the number only selects metrics)*, `set pattern` *(sprite-image patterns only; bank patterns need the system resource bank)*, `set rainbow` *(stored, not rendered)*, `set sprite buffer` *(validated no-op — the multiplexer buffer has no effect in the chunky renderer)*, `set text` *(bold/italic are synthesized from the single font)*, `set zone`, `shared`, `show`, `show on`, `timer` *(writable, drives the frame clock directly)*, `vrev block`, `vscroll` *(window-region scroll, approximated)*, `zone$`
+- **faithful**: `#`, `'`, `(`, `)`, `:`, `;`, `[`, `]`, `abs`, `acos`, `asc`, `asin`, `assign`, `atan`, `auto view off`, `auto view on`, `bin$`, `break off`, `break on`, `cdown$`, `chr$`, `cleft$`, `cmove$`, `command line$`, `cos`, `cright$`, `cup$`, `data`, `def fn`, `def scroll`, `degree`, `dfree`, `dim`, `dir$`, `display height`, `do`, `double buffer`, `else`, `else if`, `err$`, `errn`, `error`, `errtrap`, `exist`, `exit`, `exit if`, `exp`, `false`, `fix`, `flip$`, `fn`, `for`, `global`, `gosub`, `goto`, `hcos`, `hex$`, `hide`, `hide on`, `hires`, `hrev`, `hsin`, `htan`, `i bob`, `i sprite`, `if`, `input$` *(keyboard form is non-blocking best effort)*, `instr`, `int`, `key$`, `laced`, `left$`, `len`, `line input`, `line input #`, `ln`, `log`, `loop`, `lower$`, `lowres`, `match` *(not-found result for closest index 0 returns -1)*, `max`, `menu$`, `mid$`, `min`, `multi wait`, `next`, `not`, `on`, `on error`, `on menu del`, `on menu off`, `on menu on`, `paper$`, `param`, `param#`, `param$`, `peek$`, `pen$`, `pi#`, `poke$`, `pop`, `proc`, `procedure`, `radian`, `randomize`, `read`, `rem`, `repeat`, `repeat$`, `restore`, `resume`, `resume label`, `resume next`, `return`, `right$`, `rnd` *(deterministic — original mixes in the raster beam position)*, `rol.b`, `rol.l`, `rol.w`, `ror.b`, `ror.l`, `ror.w`, `scin`, `set curs`, `set dir`, `set input`, `set line`, `set menu`, `set slider` *(system patterns 1/2 approximated as dithers (the mouse bank is not in the fixtures))*, `set tab`, `set zone`, `sgn`, `shared`, `show`, `show on`, `sin`, `sort`, `space$`, `sqr`, `step`, `str$`, `string$`, `swap`, `tan`, `then`, `timer` *(writable, drives the frame clock directly)*, `to`, `trap`, `true`, `until`, `update`, `update every`, `update off`, `update on`, `upper$`, `val`, `vrev`, `wend`, `while`, `writing`, `x bob`, `x curs`, `x graphic`, `x hard`, `x mouse`, `x screen`, `x sprite`, `x text`, `xgr`, `y bob`, `y curs`, `y graphic`, `y hard`, `y menu`, `y mouse`, `y screen`, `y sprite`, `y text`, `ygr`, `zone$`
+- **approximated**: `add` *(integer-only cells in the original; the wrap form is faithful)*, `at` *(escape codes 'X'/'Y' assumed, not read from the source)*, `border$` *(returns the text unchanged — border boxes not rendered)*, `chip free`, `dec` *(integer-only in the original; the port does float arithmetic instead)*, `fast free`, `font$` *(the ROM list only (no disc fonts in the fixture set))*, `free`, `hrev block`, `hscroll` *(window-region scroll, approximated)*, `inc` *(integer-only in the original (mangles a float); the port does float arithmetic instead)*, `load` *(the sprite/icon append flag (2nd arg) is treated as overwrite)*, `load iff` *(HAM decodes as indexed (wrong colours))*, `pop proc`, `set bob` *(back modes implemented; planes/mask arguments ignored)*, `set font` *(a single Topaz-8 face; the number only selects metrics)*, `set pattern` *(sprite-image patterns only; bank patterns need the system resource bank)*, `set rainbow` *(stored, not rendered)*, `set sprite buffer` *(validated no-op — the multiplexer buffer has no effect in the chunky renderer)*, `set text` *(targets console text too; the original soft-style only affects graphic Text)*, `vrev block`, `vscroll` *(window-region scroll, approximated)*
 - **missing**: `@_apml_@`, `arexx$`, `as`, `dir/w`, `disc info$`, `drive`, `follow`, `follow off`, `frame length`, `frame load`, `frame param`, `frame play`, `frame skip`, `freeze`, `hardcol`, `icon base`, `iff anim`, `ldir`, `ldir/w`, `mask iff`, `on break proc`, `parent`, `picture`, `pload`, `prun`, `read text`, `rev`, `save`, `save iff`, `scan$`, `set accessory`, `set buffer`, `set double precision`, `set equate bank`, `set hardcol`, `set stack`, `set tempras`, `unfreeze`
 - **n/a**: `,`, `\\\\\\\\\\\\\\\/`, `ask editor`, `equ`, `include`, `monitor`, `struc`, `struc$`, `||apcmp||`
 
@@ -152,8 +152,8 @@ tested against our own understanding. Percentages exclude n/a
 
 ## text-io (97%)
 
-- **faithful**: `cdown`, `cleft`, `cline`, `cmove`, `cright`, `cup`, `home`, `inverse off`, `inverse on`, `memorize x`, `memorize y`, `print` *(Print # channels unsupported)*, `print #`, `remember x`, `remember y`, `scroll off`, `scroll on`, `tab$`, `text base`, `text length`, `under off`, `under on`, `using` *('^' exponent slots not implemented)*
-- **approximated**: `centre` *(no Border$ handling)*, `cls`, `curs off`, `curs on`, `curs pen`, `locate`, `lprint`, `paper`, `pen`, `scroll`, `shade off`, `shade on` *(dither approximates the original shading)*, `text` *(single Topaz-8 face; Set Text soft styles are synthesized)*
+- **faithful**: `cdown`, `centre` *(no Border$ handling)*, `cleft`, `cline`, `cls`, `cmove`, `cright`, `cup`, `curs off`, `curs on`, `curs pen`, `home`, `inverse off`, `inverse on`, `memorize x`, `memorize y`, `print` *(Print # channels unsupported)*, `print #`, `remember x`, `remember y`, `scroll`, `scroll off`, `scroll on`, `shade off`, `shade on` *(dither approximates the original shading)*, `tab$`, `text base`, `text length`, `under off`, `under on`, `using` *(the '^' scientific-exponent slot is left literal (mantissa normalisation unverified))*
+- **approximated**: `locate` *(out-of-range clamps rather than raising error 16)*, `lprint`, `paper` *(stored unmasked; out-of-range does not raise error like the original)*, `pen` *(stored unmasked; out-of-range does not raise error like the original)*, `text` *(single Topaz-8 face; Set Text soft styles are synthesized)*
 - **missing**: `text styles`
 
 ## windows (100%)
@@ -163,4 +163,4 @@ tested against our own understanding. Percentages exclude n/a
 
 ## zones (100%)
 
-- **approximated**: `hzone`, `reset zone`, `zone`
+- **faithful**: `hzone`, `reset zone`, `zone`

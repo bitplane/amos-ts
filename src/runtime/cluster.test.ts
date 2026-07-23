@@ -210,6 +210,51 @@ describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => 
   })
 })
 
+describe('text/console (vs +W.s / +ILib.s)', () => {
+  it('Cls with no arg clears the current window; Cls c does not home the cursor', () => {
+    // colour-form Cls must leave the cursor where it was
+    const prog = ['Locate 5,3', 'Cls 2', 'Print "X";', 'X=X Curs : Y=Y Curs'].join('\n')
+    const { rt } = run(prog)
+    // the "X" printed at the un-homed cursor (col 5,6 after the print)
+    expect(rt.screen.curX).toBe(6)
+    expect(rt.screen.curY).toBe(3)
+  })
+
+  it('Print Using: overflow drops high digits, bare # loses the sign', () => {
+    expect(run('Print Using "###";-12').out).toBe(' 12\n') // sign consumed as space
+    expect(run('Print Using "##";123').out).toBe('23\n') // overflow digit dropped
+    expect(run('Print Using "+##";5').out).toBe('+ 5\n') // sign slot
+    expect(run('Print Using "##.##";3.5').out).toBe(' 3.50\n')
+  })
+
+  it('Zone$ wraps text in the ESC-Z text-zone codes (FnZoneD)', () => {
+    expect(run('A$=Zone$("HI",1) : Print Len(A$)').out).toBe(' 8\n') // ESC Z 1 + HI + ESC Z 1
+    expect(() => run('A$=Zone$("x",0)')).toThrow()
+  })
+
+  it('Display Height reflects the screen (laced doubles)', () => {
+    expect(run('Screen Open 1,320,400,4,$4\nPrint Display Height').out).toBe(' 400\n')
+  })
+})
+
+describe('procedures: Param typed slots (FnEProc +ILib.s:2701)', () => {
+  it('End Proc[x] writes only the slot matching x type; others stay stale', () => {
+    const prog = [
+      '_A[0] : _B[0]',
+      'Print Param;Param#;Param$',
+      'Procedure _A[N]',
+      '  Pop Proc[7]', // sets the int slot
+      'End Proc',
+      'Procedure _B[N]',
+      '  Pop Proc[2.5]', // sets the float slot only
+      'End Proc',
+    ].join('\n')
+    // int slot = 7 (from _A, never overwritten by _B's float), float = 2.5, str = ""
+    // (Print gives each positive number a leading space)
+    expect(run(prog).out).toBe(' 7 2.5\n')
+  })
+})
+
 describe('screens (vs the 68k Ec* routines)', () => {
   it('Screen Open masks the width down to a multiple of 16 (EcCree +W.s:2910)', () => {
     expect(run('Screen Open 1,330,200,16,0 : Print Screen Width(1)').out).toBe(' 320\n')

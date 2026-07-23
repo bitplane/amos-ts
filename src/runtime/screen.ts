@@ -553,14 +553,16 @@ export class Screen {
     }
   }
 
+  /**
+   * Cls c[,region] (EcCls +W.s:3660): clears the screen or a pixel region.
+   * It does NOT home the text cursor — only Clw (Cls with no argument) does.
+   */
   cls(c = this.paper, x1 = 0, y1 = 0, x2 = this.width - 1, y2 = this.height - 1): void {
     if (x1 === 0 && y1 === 0 && x2 === this.width - 1 && y2 === this.height - 1 && this.clip === null) {
       this.pixels.fill(c & this.colorMask())
     } else {
       this.bar(x1, y1, x2, y2, c)
     }
-    this.curX = 0
-    this.curY = 0
   }
 
   /** Draw one 8x8 glyph honouring the window Writing modes and styles. */

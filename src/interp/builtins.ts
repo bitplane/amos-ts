@@ -53,10 +53,14 @@ function inputAssign(target: { type: number; set(v: Value): void }, raw: string)
 }
 
 /**
- * Print Using (ssprint/us* in +ILib.s): '#' digit slots (space-padded,
- * right-aligned before '.', left-aligned after), '-' sign-if-negative,
- * '+' always-sign, other characters literal; '~' slots take string
- * characters. One expression per Using.
+ * Print Using (us1/us50 +ILib.s:5205-5362). String values: '~' emits the
+ * next source char (space when exhausted), other chars literal. Numbers:
+ * the integer part scans RIGHT-to-LEFT ('#' pulls a digit or a space, and
+ * when there is no sign slot the sign is CONSUMED-AS-SPACE so a bare-'#'
+ * negative loses its '-'; overflow digits are DROPPED, not emitted); the
+ * fraction/exponent part after the first of '.'/';'/'^' scans left-to-right
+ * ('#' a fractional digit or '0'; ';' a non-printing marker → space; '^'
+ * the progressive E±ddd exponent field).
  */
 export function formatUsing(fmt: string, v: Value, it: Interp): string {
   if (v.k === 'str') {
@@ -65,15 +69,19 @@ export function formatUsing(fmt: string, v: Value, it: Interp): string {
   }
   const text = it.formatValue(v).trim()
   const neg = text.startsWith('-')
-  const digits = (neg ? text.slice(1) : text).split('.')
-  const dInt = digits[0]!
-  const dFrac = digits[1] ?? ''
-  const dot = fmt.indexOf('.')
-  const left = dot < 0 ? fmt : fmt.slice(0, dot)
+  const [dInt, dFrac = ''] = (neg ? text.slice(1) : text).split('.') as [string, string?]
+  // split the format at the first of '.' ';' '^'
+  let split = fmt.length
+  for (let i = 0; i < fmt.length; i++) {
+    if (fmt[i] === '.' || fmt[i] === ';' || fmt[i] === '^') {
+      split = i
+      break
+    }
+  }
+  const left = fmt.slice(0, split)
   const hasSignSlot = /[+-]/.test(left)
-  // digits fill '#' slots right-to-left; the sign joins the stream when
-  // there is no explicit sign slot
-  const stream = (hasSignSlot ? dInt : (neg ? '-' : '') + dInt).split('')
+  // integer part, right-to-left; digits exhausted → space; overflow dropped
+  const stream = dInt.split('')
   let out = ''
   for (let i = left.length - 1; i >= 0; i--) {
     const c = left[i]!
@@ -82,14 +90,18 @@ export function formatUsing(fmt: string, v: Value, it: Interp): string {
     else if (c === '+') out = (neg ? '-' : '+') + out
     else out = c + out
   }
-  if (stream.length > 0) out = stream.join('') + out // overflow: emit anyway
-  if (dot >= 0) {
-    out += '.'
-    let fi = 0
-    for (let i = dot + 1; i < fmt.length; i++) {
-      if (fmt[i] === '#') out += dFrac[fi++] ?? '0'
-      else out += fmt[i]!
-    }
+  // a bare '#' negative with no sign slot loses its sign (consumed as space)
+  void hasSignSlot
+  // fraction part, left-to-right ('#' a digit or '0'; ';' → space).
+  // The '^' scientific-exponent form (us20) is not implemented — mantissa
+  // normalisation makes it fiddly and unverified, so a '^' is left literal.
+  let fi = 0
+  for (let i = split; i < fmt.length; i++) {
+    const c = fmt[i]!
+    if (c === '#') out += dFrac[fi++] ?? '0'
+    else if (c === ';') out += ' '
+    else if (c === '.') out += '.'
+    else out += c
   }
   return out
 }
@@ -498,13 +510,24 @@ export const INSTR: Record<string, Instr> = {
   // ---- procedures ----
   'end proc'(it) {
     if (it.accept('[')) {
-      it.lastParam = it.evalExpr()
+      // write only the slot matching the return value's type (FnEProc)
+      const v = it.evalExpr()
+      if (v.k === 'str') it.paramStr = v.s
+      else if (v.k === 'float') it.paramFloat = v.n
+      else it.paramInt = v.n
       it.expect(']')
     }
     it.returnFromProc()
     return 'jumped'
   },
   'pop proc'(it) {
+    if (it.accept('[')) {
+      const v = it.evalExpr()
+      if (v.k === 'str') it.paramStr = v.s
+      else if (v.k === 'float') it.paramFloat = v.n
+      else it.paramInt = v.n
+      it.expect(']')
+    }
     it.returnFromProc()
     return 'jumped'
   },
@@ -1095,19 +1118,18 @@ export const FUNCS: Record<string, Func> = {
     arity(a, 1)
     return VI(it.inp.joy & 16 ? -1 : 0)
   },
-  // Param is a raw register: reading it with the wrong type suffix after a
-  // skipped instruction is common, so coerce leniently instead of erroring
+  // =Param / =Param# / =Param$ read three independent typed slots
   param(it, a) {
     arity(a, 0)
-    return VI(it.lastParam.k === 'str' ? 0 : int(it.lastParam))
+    return VI(it.paramInt)
   },
   'param#'(it, a) {
     arity(a, 0)
-    return VF(it.lastParam.k === 'str' ? 0 : num(it.lastParam))
+    return VF(it.paramFloat)
   },
   'param$'(it, a) {
     arity(a, 0)
-    return VS(it.lastParam.k === 'str' ? it.lastParam.s : '')
+    return VS(it.paramStr)
   },
   errtrap(it, a) {
     // =Errtrap: the error number caught by the last Trap (FnErrTrap +ILib.s:2050)
@@ -1137,7 +1159,7 @@ export const FUNCS: Record<string, Func> = {
   },
   'display height'(_, a) {
     arity(a, 0)
-    return VI(283) // PAL visible lines
+    return VI(283) // fallback; the screen-aware form is in instr.ts
   },
   'tab$': (_, a) => {
     arity(a, 0)

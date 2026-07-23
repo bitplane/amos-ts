@@ -153,7 +153,14 @@ export class Interp {
   loops: LoopFrame[] = []
   gosubs: Array<{ addr: Addr; loopBase: number }> = []
   globals = new Set<string>()
-  lastParam: Value = VI(0)
+  /**
+   * The three independent =Param slots (ParamE/ParamF/ParamC): End Proc[x]
+   * writes only the slot matching x's type, leaving the others stale, so
+   * =Param / =Param# / =Param$ read distinct values (FnEProc +ILib.s:2701).
+   */
+  paramInt = 0
+  paramFloat = 0
+  paramStr = ''
   /** the Else If token we branched to from a false condition, if any */
   branchElseIf: Tok | null = null
   dataPtr: Addr = { li: 0, ti: 0 }

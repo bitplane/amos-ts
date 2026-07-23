@@ -317,9 +317,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- drawing ----
     cls(it) {
+      // InCls +Lib.s:8722: no arg = clear the current WINDOW and home its
+      // cursor (Clw); Cls c / region clears pixels without homing
       const s = scr()
       if (it.atStmtEnd()) {
-        s.cls()
+        s.clw()
         return
       }
       const c = it.evalInt()
@@ -702,7 +704,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       s.bar(s.curX * 8, s.curY * 8, (s.curX + n) * 8 - 1, s.curY * 8 + 7, s.paper)
     },
     'curs pen'(it) {
-      it.evalInt()
+      // InCursPen +Lib.s:13330: the cursor colour register (WiCuCol)
+      scr().curWin.cuCol = it.evalInt()
+    },
+    'curs on'() {
+      scr().cursorOn = true // InCursOn +Lib.s:13418 (WiSys bit1)
+    },
+    'curs off'() {
+      scr().cursorOn = false
     },
     writing(it) {
       // Writing w1[,w2]: 0 replace/1 OR/2 XOR/3 AND/4 ignore; w2: 0 both,
@@ -1310,10 +1319,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         throw new AmosError(`file not found: ${path}`)
       }
       const file = parseAmosFile(bytes)
+      // a forced number applies only to a single-bank load; a multi-bank
+      // container restores each bank to its own stored number (Bnk.Load
+      // +Lib.s:4054) — forcing every bank would collide them
+      const single = file.banks.length === 1
       for (const bank of file.banks) {
         if (bank.kind === 'sprites') rt.spriteBank = ObjectBank.fromSpriteBank(bank)
         else if (bank.kind === 'icons') rt.iconBank = ObjectBank.fromSpriteBank(bank)
-        else if (bank.kind === 'memory') rt.memBanks.set(forced ?? bank.number, bank)
+        else if (bank.kind === 'memory') rt.memBanks.set(single && forced !== null ? forced : bank.number || 5, bank)
       }
     },
     // ---- audio ----
@@ -2351,8 +2364,14 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(scr().curY)
     },
     'zone$'(_, a) {
-      void a
-      return VS('')
+      // FnZoneD +Lib.s:14167: Zone$(text$,n) wraps text as a printable
+      // text-zone — ESC "Z" <n> text ESC "Z" <n> (n is the last arg, d3);
+      // n in 1..206 (sibling of Border$)
+      const text = str(a[0]!)
+      const n = int(a[1]!)
+      if (n < 1 || n >= 207) throw new AmosError('function call error')
+      const tag = '\x1bZ' + String.fromCharCode(48 + n)
+      return VS(tag + text + tag)
     },
 
     // ---- objects ----
@@ -2707,6 +2726,13 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     ntsc(_, a) {
       void a
       return VI(0) // FnNTSC: the emulated machine is PAL
+    },
+    'display height'(_, a) {
+      // MaxRaw +Lib.s:8835 / TMaxRaw +W.s:2607: the current screen's bottom
+      // raster line — laced screens reach ~2x
+      void a
+      const s = rt.screen
+      return VI(s.laced ? s.height : Math.min(283, Math.max(s.height, 256)))
     },
     'screen mode'(_, a) {
       // FnScreenMode +Lib.s:8818: EcCon0 & $8004
