@@ -800,6 +800,59 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
       rt.blit(scr(), pic, x, y, true)
     },
+    // ---- resource banks (Interface language) ----
+    'resource bank'(it) {
+      // InResourceBank +Lib.s:14933: negative bank = function call error
+      const n = it.evalInt()
+      if (n < 0) throw new AmosError('function call error')
+      rt.resourceBankNumber = n
+    },
+    'resource unpack'(it) {
+      // InResourceUnpack +Lib.s:14998: image n of the puzzle bank onto the
+      // current screen at x,y
+      const n = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      const g = rt.resource().graphics
+      if (!g || n <= 0 || n > g.count) throw new AmosError('function call error')
+      const pic = g.image(n)
+      if (!pic) throw new AmosError('function call error')
+      rt.blit(scr(), pic, x, y, true)
+    },
+    'resource screen open'(it) {
+      // InResourceScreenOpen +Lib.s:14912 → Dia_RScOpen 20995: screen n
+      // sized sx,sy with colours/mode/palette from the graphics section;
+      // colour `flash` gets the system flash animation (config message 46),
+      // flash 0 turns the cursor off instead
+      const n = it.evalInt()
+      it.expect(',')
+      const sx = it.evalInt()
+      it.expect(',')
+      const sy = it.evalInt()
+      it.expect(',')
+      const flash = it.evalInt()
+      if (n >>> 0 >= 8) throw new AmosError('illegal screen number')
+      const g = rt.resource().graphics
+      if (!g) throw new AmosError('resource bank not present')
+      const s = rt.openScreen(n, sx, sy, g.nColors, g.mode & 0x8004)
+      for (let i = 0; i < 32; i++) s.palette[i] = g.palette[i]!
+      if (flash === 0) {
+        s.cursorOn = false
+      } else {
+        if (flash >= g.nColors) throw new AmosError('function call error')
+        // +Interpreter_Config.s:186, system message 46
+        const spec =
+          '(000,2)(440,2)(880,2)(bb0,2)(dd0,2)(ee0,2)(ff2,2)(ff8,2)(ffc,2)(fff,2)(aaf,2)(88c,2)(66a,2)(226,2)(004,2)(001,2)'
+        const seq: Array<{ rgb: number; ticks: number }> = []
+        for (const m of spec.matchAll(/\(([0-9a-f]+),(\d+)\)/gi)) {
+          seq.push({ rgb: parseInt(m[1]!, 16) & 0xfff, ticks: parseInt(m[2]!, 10) })
+        }
+        rt.flashes.set(flash & 31, { seq, idx: 0, left: seq[0]!.ticks })
+      }
+    },
+
     load(it) {
       // Load "file.abk"[,bank#] — install banks from an .Abk/.AMOS container
       const path = it.evalStr()
@@ -1864,6 +1917,19 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       const which = int(a[0]!)
       if (!m.selection) return VI(0)
       return VI(which === 2 ? m.selection[1] : m.selection[0])
+    },
+
+    'resource$'(_, a) {
+      // FnResource +ILib.s:6699: n>0 = message n of the puzzle bank; 0 =
+      // the system path; negative = system/editor message tables (not
+      // carried by the port — empty string)
+      const n = int(a[0]!)
+      if (n > 0) {
+        const msgs = rt.resource().messages
+        return VS(msgs?.[n - 1] ?? '')
+      }
+      if (n === 0) return VS('AMOSPro:')
+      return VS('')
     },
 
     at(_, a) {

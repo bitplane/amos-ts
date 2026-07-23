@@ -5,6 +5,9 @@ import type { InputState, InterpOptions, RunResult } from '../interp/interp'
 import type { AmosIO } from '../interp/io'
 import { AmosError } from '../interp/values'
 import type { Bank, MemoryBank } from '../loader/amosfile'
+import { parseAmosFile } from '../loader/amosfile'
+import { isResourceBankName, parseResourceBank } from '../loader/resource'
+import type { ResourceBank } from '../loader/resource'
 import { Screen } from './screen'
 import { makeInstructions, makeFunctions, makeRawFunctions } from './instr'
 import { ObjectBank, imagesCollide } from './objects'
@@ -139,6 +142,45 @@ export class Runtime {
 
   reserveBank(n: number, length: number, name: string): void {
     this.memBanks.set(n, { kind: 'memory', number: n, memType: 0, name, flags: 0, data: new Uint8Array(length) })
+  }
+  // ---- resource banks (Interface language) ----
+  /** Resource Bank n (0 = system default, InResourceBank +Lib.s:14933) */
+  resourceBankNumber = 0
+  /** the system default resource (AMOSPro_Default_Resource.Abk, Sys_Resource) */
+  systemResource: ResourceBank | null = null
+  private userResourceCache: { num: number; data: Uint8Array; res: ResourceBank } | null = null
+
+  /** install the system default resource from a bare .Abk file or bank payload */
+  loadSystemResource(bytes: Uint8Array): void {
+    const file = parseAmosFile(bytes)
+    const bank = file.banks.find((b) => b.kind === 'memory' && isResourceBankName(b.name))
+    this.systemResource = parseResourceBank(bank && bank.kind === 'memory' ? bank.data : bytes)
+  }
+
+  /**
+   * The merged resource view (Dia_GetPuzzle +Lib.s:14943): start from the
+   * system default bank, then override each section the user bank
+   * (Resource Bank n) actually provides.
+   */
+  resource(): ResourceBank {
+    let user: ResourceBank | null = null
+    if (this.resourceBankNumber !== 0) {
+      const bank = this.memBanks.get(this.resourceBankNumber)
+      if (!bank || !isResourceBankName(bank.name)) throw new AmosError('resource bank not present')
+      if (this.userResourceCache?.num === this.resourceBankNumber && this.userResourceCache.data === bank.data) {
+        user = this.userResourceCache.res
+      } else {
+        user = parseResourceBank(bank.data)
+        this.userResourceCache = { num: this.resourceBankNumber, data: bank.data, res: user }
+      }
+    }
+    const sys = this.systemResource
+    if (!user && !sys) throw new AmosError('resource bank not present')
+    return {
+      graphics: user?.graphics ?? sys?.graphics ?? null,
+      messages: user?.messages ?? sys?.messages ?? null,
+      programs: user?.programs ?? sys?.programs ?? null,
+    }
   }
   // ---- sprite update freeze ----
   spriteUpdateOn = true
