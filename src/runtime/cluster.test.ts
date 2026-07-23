@@ -200,6 +200,78 @@ describe('memory model', () => {
   })
 })
 
+describe('display control (Update/View/Default/Dual Playfield)', () => {
+  it('Update Off freezes both pipelines; Update runs one manual round', () => {
+    const prog = [
+      'Update Off',
+      'Ink 5 : Bar 0,0 To 15,15',
+      'Get Bob 1,0,0 To 16,16',
+      'Cls 0',
+      'Bob 1,50,50,1',
+      'Wait Vbl : Wait Vbl',
+      'Rem nothing drew yet',
+      'X=Point(50,50)',
+      'Update',
+      'Y=Point(50,50)',
+      'Print X;Y',
+    ].join('\n')
+    expect(run(prog).out).toBe(' 0 5\n')
+  })
+
+  it('Default Palette seeds newly opened screens', () => {
+    const prog = ['Default Palette $F00,,$0F0', 'Screen Open 1,320,200,16,0'].join('\n')
+    const { rt } = run(prog)
+    const s = rt.screens.get(1)!
+    expect(s.palette[0]).toBe(0xf00)
+    expect(s.palette[2]).toBe(0x0f0)
+  })
+
+  it('Auto View Off defers visibility until View', () => {
+    const prog = ['Auto View Off', 'Screen Open 1,320,200,4,0'].join('\n')
+    const { rt } = run(prog)
+    expect(rt.screens.get(1)!.visible).toBe(false)
+    const prog2 = ['Auto View Off', 'Screen Open 1,320,200,4,0', 'View'].join('\n')
+    expect(run(prog2).rt.screens.get(1)!.visible).toBe(true)
+  })
+
+  it('Dual Playfield composites the back screen through front colour 0', () => {
+    const prog = [
+      'Screen Open 0,320,200,8,0',
+      'Cls 0', // front all colour 0
+      'Screen Open 1,320,200,8,0',
+      'Screen Display 1,128,50,,',
+      'Palette $000,$00F : Cls 1', // back all colour 1 = blue
+      'Screen 0 : Screen To Front 0',
+      'Dual Playfield 0,1',
+    ].join('\n')
+    const { rt } = run(prog)
+    const { data } = rt.composite()
+    // front colour 0 is transparent → the blue back screen shows
+    expect(data[2]).toBe(255 - 0 ? data[2] : data[2]) // sanity noop
+    expect([data[0], data[1], data[2]]).toEqual([0, 0, 255])
+  })
+
+  it('reports Screen Mode, Ntsc and Font$ formats', () => {
+    const prog = [
+      'Screen Open 2,640,200,4,$8000',
+      'Print Screen Mode;Ntsc',
+      'Get Fonts',
+      'Print Font$(1)',
+      'F=1 : Set Font F',
+    ].join('\n')
+    const { out } = run(prog)
+    const lines = out.split('\n')
+    expect(lines[0]).toBe(' 32768 0')
+    expect(lines[1]).toMatch(/^topaz\.font\s+8\s+Rom\s*$/)
+  })
+
+  it('Logbase yields distinct plane addresses and errors past the depth', () => {
+    const prog = ['Screen Open 0,320,200,16,0', 'Print Logbase(0)<>Logbase(1);Logbase(0)<>Phybase(0)'].join('\n')
+    expect(run(prog).out).toBe('-1-1\n')
+    expect(() => run('Screen Open 0,320,200,4,0\nPrint Logbase(2)')).toThrow()
+  })
+})
+
 describe('menus', () => {
   it('defines menus, selects with the right button, fires Choice', () => {
     const fs = new AmigaFS()

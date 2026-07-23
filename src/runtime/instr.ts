@@ -65,6 +65,24 @@ function vdialogWrite(it: It, rt: Runtime, isStr: boolean): void {
   d.vars[n] = isStr ? it.evalStr() : it.evalInt()
 }
 
+/**
+ * Logbase/Phybase (FnLogBase +Lib.s:8852): bitplane addresses. The port's
+ * screens are chunky, so these return stable fake addresses that resolve
+ * nowhere — plane pokes are ignored (see NOTES).
+ */
+function planeBase(rt: Runtime, plane: number, phys: number): number {
+  const s = rt.screen
+  const planes = Math.ceil(Math.log2(Math.max(2, s.nColors)))
+  if (plane < 0 || plane >= planes) throw new AmosError('function call error')
+  return 0x02000000 + s.index * 0x100000 + phys * 0x80000 + plane * 0x8000
+}
+
+/** the ROM font list (Get Fonts / Font$) — the port carries Topaz only */
+const FONT_LIST = [
+  { name: 'topaz.font', height: 8, type: 'Rom' },
+  { name: 'topaz.font', height: 9, type: 'Rom' },
+]
+
 /** Set Slider/Set Pattern number → fill rows (0 solid, <0 sprite image, >0 builtin) */
 function resolvePattern(rt: Runtime, n: number): Uint16Array | null {
   if (n === 0) return null
@@ -135,6 +153,54 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'screen close'(it) {
       rt.closeScreen(optInt(it, rt.currentIndex))
+    },
+    default() {
+      // InDefault +Lib.s:8710: back to the boot display — every screen
+      // closed, screen 0 reopened with the default palette
+      for (const n of [...rt.screens.keys()]) rt.closeScreen(n)
+      rt.openScreen(0, 320, 200, 16, 0)
+    },
+    'default palette'(it) {
+      // InDefaultPalette +ILib.s:5389: colours for subsequently opened
+      // screens; elided entries keep their current default
+      let i = 0
+      for (;;) {
+        if (!(it.atStmtEnd() || it.nm() === ',')) {
+          if (i < 32) rt.defaultPalette[i] = it.evalInt() & 0xfff
+        }
+        i++
+        if (!it.accept(',')) break
+      }
+    },
+    'dual playfield'(it) {
+      // InDualPlayfield +Lib.s:8908: screen a in front (colour 0 clear),
+      // screen b behind
+      const a = it.evalInt()
+      it.expect(',')
+      const b = it.evalInt()
+      if (!rt.screens.has(a) || !rt.screens.has(b)) throw new AmosError('screen not opened')
+      rt.dualPlayfield = { front: a, back: b }
+    },
+    'dual priority'(it) {
+      // InDualPriority: swap which playfield displays in front
+      const a = it.evalInt()
+      it.expect(',')
+      const b = it.evalInt()
+      if (!rt.screens.has(a) || !rt.screens.has(b)) throw new AmosError('screen not opened')
+      rt.dualPlayfield = { front: a, back: b }
+    },
+    view() {
+      // InView +Lib.s:9106: apply deferred display changes (CopMake)
+      for (const s of rt.screens.values()) {
+        if (rt.pendingView.has(s.index)) s.visible = true
+      }
+      rt.pendingView.clear()
+    },
+    'auto view on'() {
+      rt.autoView = true
+    },
+    'auto view off'() {
+      rt.autoView = false
     },
     screen(it) {
       rt.setCurrent(it.evalInt())
@@ -364,6 +430,30 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'set paint'(it) {
       scr().outline = it.evalInt() !== 0
+    },
+    'set font'(it) {
+      // the port has one bitmap face; the number is kept for Text metrics
+      const n = it.evalInt()
+      if (n < 1 || n > FONT_LIST.length) throw new AmosError('function call error')
+      rt.currentFont = n
+    },
+    'get fonts'() {
+      rt.fontsListed = true
+    },
+    'get rom fonts'() {
+      rt.fontsListed = true
+    },
+    'get disc fonts'() {
+      rt.fontsListed = true
+    },
+    'request on'() {
+      rt.requestMode = 1
+    },
+    'request off'() {
+      rt.requestMode = 0
+    },
+    'request wb'() {
+      rt.requestMode = 2
     },
     hslider(it) {
       slider(it, scr(), false)
@@ -721,6 +811,25 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'bob update'(it) {
       void it
       rt.updateBobs() // one manual update pass
+    },
+    // ---- Update family (InUpdate* +Lib.s:11452-11527): both pipelines ----
+    'update on'() {
+      rt.bobUpdateOn = true
+      rt.spriteUpdateOn = true
+    },
+    'update off'() {
+      rt.bobUpdateOn = false
+      rt.spriteUpdateOn = false
+    },
+    update() {
+      // one manual round: bobs erase/draw + buffer swap + sprites
+      rt.updateBobs()
+    },
+    'update every'(it) {
+      // InUpdateEvery: the auto update runs every n VBLs (VBLDelai)
+      const n = it.evalInt()
+      if (n >= 65536) throw new AmosError('function call error')
+      rt.updateEvery = Math.max(1, n)
     },
     'bob update on'() {
       rt.bobUpdateOn = true
@@ -2307,6 +2416,28 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
       const z = dialogZoneAt(d, int(a[1]!), int(a[2]!))
       return VI(z ? z.number : -1)
+    },
+    ntsc(_, a) {
+      void a
+      return VI(0) // FnNTSC: the emulated machine is PAL
+    },
+    'screen mode'(_, a) {
+      // FnScreenMode +Lib.s:8818: EcCon0 & $8004
+      void a
+      const s = rt.screen
+      return VI((s.hires ? 0x8000 : 0) | (s.laced ? 4 : 0))
+    },
+    logbase(_, a) {
+      return VI(planeBase(rt, int(a[0]!), 0))
+    },
+    phybase(_, a) {
+      return VI(planeBase(rt, int(a[0]!), 1))
+    },
+    'font$'(_, a) {
+      // Font$(n): 40 chars — name(32) + height(4) + type(4)
+      const f = FONT_LIST[int(a[0]!) - 1]
+      if (!f) return VS(''.padEnd(40))
+      return VS(f.name.padEnd(32) + String(f.height).padEnd(4) + f.type.padEnd(4))
     },
     'resource$'(_, a) {
       // FnResource +ILib.s:6699: n>0 = message n of the puzzle bank; 0 =

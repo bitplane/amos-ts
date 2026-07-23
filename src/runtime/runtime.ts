@@ -923,6 +923,21 @@ export class Runtime {
     }
     return exit
   }
+  // ---- display control ----
+  /** Update Every n: the auto bob/sprite update runs every n VBLs */
+  updateEvery = 1
+  /** Default Palette: colours applied to subsequently opened screens */
+  defaultPalette: number[] = []
+  /** Dual Playfield front/back screens (colour 0 of the front is clear) */
+  dualPlayfield: { front: number; back: number } | null = null
+  /** Auto View Off: newly opened screens stay hidden until View */
+  autoView = true
+  pendingView = new Set<number>()
+  /** Request On (1) / Off (0) / Wb (2) — no requesters exist in the port */
+  requestMode = 1
+  /** Set Font / Get Fonts state (single-face Topaz port) */
+  currentFont = 1
+  fontsListed = false
   // ---- sprite update freeze ----
   spriteUpdateOn = true
   frozenSprites: HwSprite[] | null = null
@@ -1236,11 +1251,17 @@ export class Runtime {
   openScreen(n: number, w: number, h: number, nColors: number, mode: number): Screen {
     if (n < 0 || n > 7) throw new AmosError(`illegal screen number: ${n}`)
     const s = new Screen(n, Math.max(8, w), Math.max(8, h), nColors, mode)
+    for (let i = 0; i < this.defaultPalette.length && i < 32; i++) s.palette[i] = this.defaultPalette[i]!
     this.screens.set(n, s)
     this.order = this.order.filter((i) => i !== n)
     this.order.push(n)
     this.currentIndex = n
     s.cls()
+    if (!this.autoView) {
+      // Auto View Off: the display change is deferred until View
+      s.visible = false
+      this.pendingView.add(n)
+    }
     return s
   }
 
@@ -1331,7 +1352,7 @@ export class Runtime {
     } else {
       result = { status: this.interp.done ? 'ended' : 'blocked', steps: 0, unimplemented: this.interp.unimplemented }
     }
-    if (this.bobUpdateOn) this.updateBobs()
+    if (this.bobUpdateOn && this.interp.tick % this.updateEvery === 0) this.updateBobs()
     this.stepMenus()
     this.stepDialogs()
     this.stepFsel()
@@ -1511,9 +1532,16 @@ export class Runtime {
       data[i + 2] = bgB
       data[i + 3] = 255
     }
-    for (const n of this.order) {
+    // Dual Playfield: the front screen composites last with colour 0 clear
+    let order = this.order
+    const dual = this.dualPlayfield
+    if (dual && this.screens.has(dual.front) && this.screens.has(dual.back)) {
+      order = [...this.order.filter((n) => n !== dual.front), dual.front]
+    }
+    for (const n of order) {
       const s = this.screens.get(n)
       if (!s || !s.visible) continue
+      const clearZero = dual !== null && n === dual.front
       const pixels = s.displayBuffer
       const pw = s.hires ? 1 : 2
       const ph = s.laced ? 1 : 2
@@ -1525,7 +1553,9 @@ export class Runtime {
         for (let x = 0; x < s.width; x++) {
           const sx = x + s.offsetX
           if (sx < 0 || sx >= s.width) continue
-          const rgb4 = s.palette[pixels[sy * s.width + sx]! & 31]!
+          const pix = pixels[sy * s.width + sx]! & 31
+          if (clearZero && pix === 0) continue
+          const rgb4 = s.palette[pix]!
           const r = ((rgb4 >> 8) & 15) * 17
           const g = ((rgb4 >> 4) & 15) * 17
           const b = (rgb4 & 15) * 17
