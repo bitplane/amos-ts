@@ -809,6 +809,10 @@ export const INSTR: Record<string, Instr> = {
   },
   'break on': () => {},
   'break off': () => {},
+  'set double precision'(it) {
+    // switch A# variables from single-precision FFP to IEEE double
+    it.doublePrecision = it.evalInt() !== 0
+  },
 }
 
 // ---- functions ------------------------------------------------------------
@@ -822,11 +826,11 @@ const fromAngle = (it: Interp, v: number): number => (it.degrees ? (v * 180) / M
 
 export const FUNCS: Record<string, Func> = {
   // math
-  abs(_, a) {
+  abs(it, a) {
     arity(a, 1)
     const v = a[0]!
     if (v.k === 'str') throw new AmosError('Type mismatch')
-    return v.k === 'int' ? VI(Math.abs(v.n)) : VF(Math.abs(v.n))
+    return v.k === 'int' ? VI(Math.abs(v.n)) : VF(it.ffp(Math.abs(v.n)))
   },
   sgn(_, a) {
     arity(a, 1)
@@ -836,68 +840,68 @@ export const FUNCS: Record<string, Func> = {
     arity(a, 1)
     return VI(Math.floor(num(a[0]!)))
   },
-  sqr(_, a) {
+  sqr(it, a) {
     arity(a, 1)
     const v = num(a[0]!)
     if (v < 0) throw new AmosError('function call error') // FlPos
-    return VF(Math.sqrt(v))
+    return VF(it.ffp(Math.sqrt(v)))
   },
-  exp(_, a) {
+  exp(it, a) {
     arity(a, 1)
-    return VF(Math.exp(num(a[0]!)))
+    return VF(it.ffp(Math.exp(num(a[0]!))))
   },
-  ln(_, a) {
-    arity(a, 1)
-    const v = num(a[0]!)
-    if (v < 0) throw new AmosError('function call error')
-    return VF(Math.log(v))
-  },
-  log(_, a) {
+  ln(it, a) {
     arity(a, 1)
     const v = num(a[0]!)
     if (v < 0) throw new AmosError('function call error')
-    return VF(Math.log10(v))
+    return VF(it.ffp(Math.log(v)))
+  },
+  log(it, a) {
+    arity(a, 1)
+    const v = num(a[0]!)
+    if (v < 0) throw new AmosError('function call error')
+    return VF(it.ffp(Math.log10(v)))
   },
   sin(it, a) {
     arity(a, 1)
-    return VF(Math.sin(toAngle(it, num(a[0]!))))
+    return VF(it.ffp(Math.sin(toAngle(it, num(a[0]!)))))
   },
   cos(it, a) {
     arity(a, 1)
-    return VF(Math.cos(toAngle(it, num(a[0]!))))
+    return VF(it.ffp(Math.cos(toAngle(it, num(a[0]!)))))
   },
   tan(it, a) {
     arity(a, 1)
-    return VF(Math.tan(toAngle(it, num(a[0]!))))
+    return VF(it.ffp(Math.tan(toAngle(it, num(a[0]!)))))
   },
   asin(it, a) {
     arity(a, 1)
-    return VF(fromAngle(it, Math.asin(num(a[0]!))))
+    return VF(it.ffp(fromAngle(it, Math.asin(num(a[0]!)))))
   },
   acos(it, a) {
     arity(a, 1)
-    return VF(fromAngle(it, Math.acos(num(a[0]!))))
+    return VF(it.ffp(fromAngle(it, Math.acos(num(a[0]!)))))
   },
   atan(it, a) {
     arity(a, 1)
-    return VF(fromAngle(it, Math.atan(num(a[0]!))))
+    return VF(it.ffp(fromAngle(it, Math.atan(num(a[0]!)))))
   },
   // spec "15" — the same angle-converting argument as Sin/Cos/Tan
   hsin(it, a) {
     arity(a, 1)
-    return VF(Math.sinh(toAngle(it, num(a[0]!))))
+    return VF(it.ffp(Math.sinh(toAngle(it, num(a[0]!)))))
   },
   hcos(it, a) {
     arity(a, 1)
-    return VF(Math.cosh(toAngle(it, num(a[0]!))))
+    return VF(it.ffp(Math.cosh(toAngle(it, num(a[0]!)))))
   },
   htan(it, a) {
     arity(a, 1)
-    return VF(Math.tanh(toAngle(it, num(a[0]!))))
+    return VF(it.ffp(Math.tanh(toAngle(it, num(a[0]!)))))
   },
-  'pi#': (_, a) => {
+  'pi#': (it, a) => {
     arity(a, 0)
-    return VF(Math.PI)
+    return VF(it.ffp(Math.PI)) // FFP Pi# = 3.141593 (the ROM constant)
   },
   rnd(it, a) {
     arity(a, 1)
@@ -939,9 +943,10 @@ export const FUNCS: Record<string, Func> = {
     if (v.k === 'str') throw new AmosError('Type mismatch')
     return VS(it.formatValue(v))
   },
-  val(_, a) {
+  val(it, a) {
     arity(a, 1)
-    return parseAmosNumber(str(a[0]!)) // ValRout, spaces skipped anywhere
+    const v = parseAmosNumber(str(a[0]!)) // ValRout, spaces skipped anywhere
+    return v.k === 'float' ? VF(it.ffp(v.n)) : v
   },
   'left$'(_, a) {
     arity(a, 2)

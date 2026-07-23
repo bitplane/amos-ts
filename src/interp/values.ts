@@ -12,6 +12,27 @@ export const VI = (n: number): Value => ({ k: 'int', n: n | 0 })
 export const VF = (n: number): Value => ({ k: 'float', n })
 export const VS = (s: string): Value => ({ k: 'str', s })
 
+// ---- Motorola Fast Floating Point (mathffp.library) ----
+//
+// AMOS floats default to single-precision FFP: a 24-bit mantissa (identical
+// to IEEE float32, so Math.fround gives the exact precision) with a 7-bit
+// excess-64 exponent — a smaller range than float32. Values at/above 2^63
+// overflow; tiny values underflow to 0 (FFP has no infinities or
+// denormals). Set Double Precision switches to raw IEEE doubles.
+const FFP_MAX = 2 ** 63 // ~9.22e18
+const FFP_MIN = 2 ** -65 // ~2.7e-20, the smallest normalised magnitude
+
+/** Round a double to the nearest representable FFP value (raises Overflow). */
+export function ffpRound(n: number): number {
+  if (!Number.isFinite(n)) throw new AmosError('Overflow')
+  if (n === 0) return 0
+  const f = Math.fround(n)
+  const a = Math.abs(f)
+  if (a >= FFP_MAX) throw new AmosError('Overflow')
+  if (a < FFP_MIN) return 0
+  return f
+}
+
 /**
  * The AMOS runtime error table (.Error1 in +Editor_Config.s:844): Errn
  * returns the number, Err$ returns the message. Codes match the original.

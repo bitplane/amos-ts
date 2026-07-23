@@ -15,6 +15,29 @@ function run(src: string, inputs: string[] = []): string {
   return io.out
 }
 
+describe('FFP single-precision floats (mathffp.library)', () => {
+  it('rounds float arithmetic to 24-bit FFP precision', () => {
+    // 2^30 = 1073741824 loses precision at FFP's 24-bit mantissa
+    expect(run('A#=2^30 : Print A#')).toBe(' 1073742000\n')
+    expect(run('Print Pi#')).toBe(' 3.141593\n') // the ROM FFP constant
+  })
+
+  it('overflows above the FFP range (~9.2e18), unlike a double', () => {
+    expect(() => run('A#=1E10 : B#=A#*A#')).toThrow(/Overflow/) // 1e20 > 2^63
+  })
+
+  it('Set Double Precision switches to IEEE doubles (no FFP overflow)', () => {
+    // 1e20 overflows FFP but is fine as a double
+    expect(run('Set Double Precision 1 : A#=1E10 : B#=A#*A# : Print B#>0')).toBe('-1\n')
+    // and back to single precision restores the overflow
+    expect(() => run('Set Double Precision 1\nSet Double Precision 0\nA#=1E10 : B#=A#*A#')).toThrow(/Overflow/)
+  })
+
+  it('a value below the FFP minimum underflows to 0', () => {
+    expect(run('A#=1E-10 : B#=A#*A# : Print B#')).toBe(' 0\n') // 1e-20 < 2^-65
+  })
+})
+
 describe('expressions', () => {
   it('applies operator precedence', () => {
     expect(run('Print 2+3*4')).toBe(' 14\n')

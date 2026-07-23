@@ -310,6 +310,10 @@ export const FAITHFUL = new Set<string>([
   'y sprite',
   'i sprite',
   'hot spot',
+  // FFP single-precision floats (mathffp.library): 24-bit mantissa via
+  // Math.fround, the FFP exponent range (overflow/underflow), and the
+  // Set Double Precision toggle to IEEE doubles
+  'set double precision',
   // flow control verified against +ILib.s (loops 2102-2345, branch/on
   // 2364-2833, gosub/return/pop 2417-2479, error trapping 1296-2050):
   // For is a do-while, Pop discards subroutine loop frames, On Error Proc
@@ -540,7 +544,6 @@ export const NOTES: Record<string, string> = {
   appear: 'copies instantly — the dissolve is not progressive',
   dir: 'plain listing; Set Dir width/filter cosmetic',
   'gr writing': 'JAM1/JAM2 identical for solid draws; XOR implemented',
-  'wind move': 'moves the frame; content is not carried along',
   'wind size': 'resizes without preserving content',
   border: 'all styles render as the same simple frame',
   vumeter: 'synthesized level, not real amplitude',
@@ -564,6 +567,8 @@ export const NOTES: Record<string, string> = {
   array: 'returns an opaque handle (> 1024), not a real address',
   vdialog: 'integer reads of string-valued slots return 0 (raw pointers are not carried)',
   'dialog box': 'v$ seeds var 1 as a string, not an address',
+  sin: 'FFP-precision (24-bit) result; matches mathtrans to ~24 bits, not necessarily the last bit',
+  cos: 'FFP-precision result; last-bit mathtrans algorithm differences possible',
   inc: 'integer-only in the original (mangles a float); the port does float arithmetic instead',
   dec: 'integer-only in the original; the port does float arithmetic instead',
   add: 'integer-only cells in the original; the wrap form is faithful',

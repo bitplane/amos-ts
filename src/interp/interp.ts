@@ -11,6 +11,7 @@ import {
   coerce,
   defaultValue,
   display,
+  ffpRound,
   int,
   num,
   str,
@@ -166,6 +167,13 @@ export class Interp {
   dataPtr: Addr = { li: 0, ti: 0 }
   dataInStmt = false
   degrees = false
+  /** Set Double Precision: false = single-precision FFP (the default) */
+  doublePrecision = false
+
+  /** round a float result to FFP precision unless Set Double Precision is on */
+  ffp(n: number): number {
+    return this.doublePrecision ? n : ffpRound(n)
+  }
   // ---- error trapping (On Error / Trap / Resume) ----
   errorHandler: { kind: 'goto' | 'proc'; target: string } | null = null
   /** the last error number caught by On Error (read by =Errn) */
@@ -534,7 +542,7 @@ export class Interp {
       if (t.id <= minPrec) return left
       this.advance()
       const right = this.parseExpr(t.id)
-      left = binOp(t.op.trim(), left, right)
+      left = binOp(t.op.trim(), left, right, this.doublePrecision)
     }
   }
 
@@ -574,7 +582,7 @@ export class Interp {
         return VI(t.value)
       case 'float':
         this.advance()
-        return { k: 'float', n: t.value }
+        return { k: 'float', n: this.ffp(t.value) } // a float literal is stored at FFP precision
       case 'str':
         this.advance()
         return { k: 'str', s: t.value }
@@ -984,7 +992,9 @@ export class Interp {
 
 // ---- operators -----------------------------------------------------------
 
-function binOp(op: string, a: Value, b: Value): Value {
+function binOp(op: string, a: Value, b: Value, double = false): Value {
+  // FFP-round every float result (mathffp does the op at 24-bit precision)
+  const flt = (n: number): Value => ({ k: 'float', n: double ? n : ffpRound(n) })
   if (a.k === 'str' || b.k === 'str') {
     const x = str(a)
     const y = str(b)
@@ -1023,11 +1033,11 @@ function binOp(op: string, a: Value, b: Value): Value {
   }
   switch (op) {
     case '+':
-      return bothInt ? VI(int32(x + y)) : { k: 'float', n: x + y }
+      return bothInt ? VI(int32(x + y)) : flt(x + y)
     case '-':
-      return bothInt ? VI(int32(x - y)) : { k: 'float', n: x - y }
+      return bothInt ? VI(int32(x - y)) : flt(x - y)
     case '*': {
-      if (!bothInt) return { k: 'float', n: x * y }
+      if (!bothInt) return flt(x * y)
       // Op_Mult: when both magnitudes fit 16 bits the original uses a
       // single mulu with NO overflow check — the product silently wraps
       // (50000*50000 is -1794967296 on a real Amiga). Larger operands
@@ -1045,7 +1055,7 @@ function binOp(op: string, a: Value, b: Value): Value {
     }
     case '/':
       if (y === 0) throw new AmosError('division by zero')
-      return bothInt ? VI(Math.trunc(x / y)) : { k: 'float', n: x / y }
+      return bothInt ? VI(Math.trunc(x / y)) : flt(x / y)
     case 'mod': {
       // QuEntier: floats truncate to int. Op_Modulo treats the left
       // operand as UNSIGNED 32-bit, |right|, no zero check (mod 0
@@ -1057,7 +1067,7 @@ function binOp(op: string, a: Value, b: Value): Value {
     }
     case '^':
       // Op_Puis: QueFloat — power is always a float operation
-      return { k: 'float', n: Math.pow(x, y) }
+      return flt(Math.pow(x, y))
     case '=':
       return VI(x === y ? -1 : 0)
     case '<>':
