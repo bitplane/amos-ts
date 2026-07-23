@@ -9,6 +9,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
+import { AmigaFS } from './vfs'
 
 const FIXTURES = join(__dirname, '..', '..', 'fixtures')
 const DEFAULT_ABK = join(FIXTURES, 'official-amos', 'APSystem', 'AMOSPro_Default_Resource.Abk')
@@ -164,6 +165,100 @@ describe.skipIf(!existsSync(FIXTURES))('oracle: every resource-bank program pres
   })
 })
 
+describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank program 2)', () => {
+  const table = new TokenTable(CORE_TOKENS)
+
+  function bootFs(src: string): { rt: Runtime; out: () => string } {
+    const fs = new AmigaFS()
+    const dh0 = fs.mountMemory('DH0')
+    const enc = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.charCodeAt(0)))
+    dh0.write(['Games', 'alpha.iff'], enc('A'))
+    dh0.write(['Games', 'beta.iff'], enc('BB'))
+    dh0.write(['Games', 'Deep', 'gamma.abk'], enc('CCC'))
+    fs.currentDir = 'DH0:'
+    let out = ''
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, fs, onText: (t) => (out += t) })
+    rt.loadSystemResource(readFileSync(DEFAULT_ABK))
+    return { rt, out: () => out }
+  }
+
+  function clickZone(rt: Runtime, number: number, kind?: string): void {
+    const d = [...rt.dialogs.values()][0]!
+    const z = d.zones.find((zz) => zz.number === number && (!kind || zz.kind === kind))!
+    const s = rt.screens.get(d.screenNb)!
+    rt.input.mouseX = s.displayX + ((z.x + 4) >> (s.hires ? 1 : 0))
+    rt.input.mouseY = s.displayY + z.y + 4
+    rt.input.mouseK = 1
+    rt.frame()
+    rt.input.mouseK = 0
+    rt.frame()
+  }
+
+  it('opens the selector screen from the bank layout and cancels to ""', () => {
+    const { rt, out } = bootFs('F$=Fsel$("DH0:Games")\nPrint "R=";F$;"."')
+    for (let i = 0; i < 5; i++) rt.frame()
+    expect(rt.fsel).not.toBeNull()
+    const d = [...rt.dialogs.values()][0]!
+    expect(d.screenNb).toBe(9)
+    expect(rt.screens.has(9)).toBe(true)
+    // the real bank layout produced the zones: OK 1, Cancel 2, list 13, edits 14/15
+    for (const n of [1, 2, 3, 4, 6]) expect(d.zones.some((z) => z.number === n && z.kind === 'button')).toBe(true)
+    expect(d.zones.some((z) => z.kind === 'list')).toBe(true)
+    // the file list was filled from the VFS (2 files + 1 dir)
+    const list = d.zones.find((z) => z.kind === 'list')!
+    expect(list.count).toBe(3)
+    clickZone(rt, 2, 'button') // Cancel
+    for (let i = 0; i < 6 && rt.frame().status !== 'ended'; i++);
+    expect(out()).toBe('R=.\n')
+    expect(rt.screens.has(9)).toBe(false) // selector screen closed
+  })
+
+  it('double-clicking a file returns its full path', () => {
+    const { rt, out } = bootFs('F$=Fsel$("DH0:Games")\nPrint F$')
+    for (let i = 0; i < 5; i++) rt.frame()
+    const d = [...rt.dialogs.values()][0]!
+    const list = d.zones.find((z) => z.kind === 'list')!
+    const s = rt.screens.get(9)!
+    // rows: dir "Deep" first, then alpha.iff, beta.iff — click row 1 twice
+    rt.input.mouseX = s.displayX + ((list.x + 8) >> 1)
+    rt.input.mouseY = s.displayY + list.y + 8 + 4
+    rt.input.mouseK = 1
+    rt.frame()
+    rt.input.mouseK = 0
+    rt.frame()
+    const nameZone = d.zones.find((z) => z.number === 15 && z.kind === 'edit')!
+    expect(nameZone.text).toBe('alpha.iff')
+    rt.input.mouseK = 1
+    rt.frame()
+    rt.input.mouseK = 0
+    for (let i = 0; i < 6 && rt.frame().status !== 'ended'; i++);
+    expect(out()).toBe('DH0:Games/alpha.iff\n')
+  })
+
+  it('clicking a directory descends into it', () => {
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")\nPrint F$')
+    for (let i = 0; i < 5; i++) rt.frame()
+    const d = [...rt.dialogs.values()][0]!
+    const list = d.zones.find((z) => z.kind === 'list')!
+    const s = rt.screens.get(9)!
+    rt.input.mouseX = s.displayX + ((list.x + 8) >> 1)
+    rt.input.mouseY = s.displayY + list.y + 4 // row 0 = the "Deep" dir
+    rt.input.mouseK = 1
+    rt.frame()
+    rt.input.mouseK = 0
+    rt.frame()
+    expect(rt.fsel!.path).toBe('DH0:Games/Deep')
+    expect(list.count).toBe(1) // gamma.abk
+  })
+
+  it('headless runs cancel the selector', () => {
+    const { rt, out } = bootFs('F$=Fsel$("DH0:Games")\nPrint "got[";F$;"]"')
+    const r = rt.runHeadless(500)
+    expect(r.status).toBe('ended')
+    expect(out()).toBe('got[]\n')
+  })
+})
+
 describe.skipIf(!existsSync(DEFAULT_ABK))('dialog keywords', () => {
   const table = new TokenTable(CORE_TOKENS)
 
@@ -287,29 +382,19 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('dialog run: draw phase (Dia_RunProgra
     expect(out()).toBe(' 0 0\n')
   })
 
-  it('IF true runs the block then skips the rest of the routine (Dia_If)', () => {
-    const src = [
-      'D$="SI32,16;IF1;[SV0,11;]SV0,99;EX;]LA1;EX;"',
-      'Dialog Open 1,D$,4',
-      'R=Dialog Run(1)',
-      'Print Vdialog(1,0)',
-    ].join('\n')
-    const { rt, out } = boot(src)
-    expect(rt.runHeadless(1_000).status).toBe('ended')
-    expect(out()).toBe(' 11\n') // SV0,99 skipped
-    void rt
-  })
-
-  it('IF false skips only the bracketed block', () => {
-    const src = [
-      'D$="SI32,16;IF0;[SV0,11;]SV0,99;EX;"',
-      'Dialog Open 1,D$,4',
-      'R=Dialog Run(1)',
-      'Print Vdialog(1,0)',
-    ].join('\n')
-    const { out, rt } = boot(src)
-    expect(rt.runHeadless(1_000).status).toBe('ended')
-    expect(out()).toBe(' 99\n')
+  it('IF runs (or skips) exactly its block, then continues (Dia_If)', () => {
+    // true: the block runs, then execution continues after it
+    const t = boot(['D$="SI32,16;IF1;[SV0,11;]SV1,99;EX;"', 'Dialog Open 1,D$,4', 'R=Dialog Run(1)', 'Print Vdialog(1,0);Vdialog(1,1)'].join('\n'))
+    expect(t.rt.runHeadless(1_000).status).toBe('ended')
+    expect(t.out()).toBe(' 11 99\n')
+    // false: only the block is skipped
+    const f = boot(['D$="SI32,16;IF0;[SV0,11;]SV1,99;EX;"', 'Dialog Open 1,D$,4', 'R=Dialog Run(1)', 'Print Vdialog(1,0);Vdialog(1,1)'].join('\n'))
+    expect(f.rt.runHeadless(1_000).status).toBe('ended')
+    expect(f.out()).toBe(' 0 99\n')
+    // nested brackets inside the block are balanced during the skip
+    const n = boot(['D$="SI32,16;IF0;[IF1;[SV0,5;]SV0,6;]SV1,7;EX;"', 'Dialog Open 1,D$,4', 'R=Dialog Run(1)', 'Print Vdialog(1,0);Vdialog(1,1)'].join('\n'))
+    expect(n.rt.runHeadless(1_000).status).toBe('ended')
+    expect(n.out()).toBe(' 0 7\n')
   })
 
   it('JS/RT subroutines and user instructions with P1..P9 params', () => {

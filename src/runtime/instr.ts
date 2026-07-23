@@ -2270,6 +2270,27 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       void a
       return VI(rt.dialogErrPos)
     },
+    'fsel$'(it, a) {
+      // FnFileSelector1..4 +Lib.s:6778 → Dsk.FileSelector: the selector is
+      // the default resource bank's dialog program 2 driven natively;
+      // blocks until OK/Cancel, "" on cancel
+      if (rt.fsel) {
+        if (rt.fsel.done) {
+          const r = rt.fsel.result
+          rt.fsel = null
+          return VS(r)
+        }
+        it.block({ type: 'fsel' }, true)
+        return VS('')
+      }
+      const path = a.length >= 1 ? str(a[0]!) : ''
+      const def = a.length >= 2 ? str(a[1]!) : ''
+      const t1 = a.length >= 3 ? str(a[2]!) : ''
+      const t2 = a.length >= 4 ? str(a[3]!) : ''
+      if (!rt.startFsel(path, def, t1, t2)) return VS('') // no system bank/vfs
+      it.block({ type: 'fsel' }, true)
+      return VS('')
+    },
     rdialog(_, a) {
       // FnRDialog2/3 +Lib.s:14588 → Dia_GetValue: a zone's numeric result
       // (string-valued zones read as 0)

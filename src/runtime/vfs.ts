@@ -130,6 +130,10 @@ export class AmigaFS implements AmosFS {
     return [...this.volumes.values()].map((v) => v.name)
   }
 
+  assignNames(): string[] {
+    return [...this.assigns.keys()]
+  }
+
   // ---- path resolution ----
 
   /** resolve an Amiga path against the current dir and assigns */

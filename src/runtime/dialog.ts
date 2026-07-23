@@ -124,8 +124,8 @@ export interface DialogHost {
   /** TW/TH via the current font */
   textWidth(s: string): number
   textHeight(): number
-  /** AR/AS array bridge: handle (a value > 1024) → int array */
-  resolveArray(handle: number): Int32Array | null
+  /** AR/AS/list bridge: handle (a value > 1024) → live array values */
+  resolveArray(handle: number): Array<number | string> | null
 }
 
 // ---- zones ----
@@ -608,7 +608,7 @@ export function evalExpr(cur: Cursor, ctx: EvalContext): DialogValue {
         if (handle <= 1024) fonc()
         const arr = ctx.host.resolveArray(handle)
         if (!arr || i < 0 || i >= arr.length) fonc()
-        stack.push(arr![i]!)
+        stack.push(arr![i]!) // raw long in the 68k: number or string alike
         break
       }
       case 46: // ZV
@@ -897,6 +897,15 @@ export class DialogExec {
         case 7: // SV n,v
           ch.setVar(int(0), v[1]!)
           break
+        case 40: // SZ v — the next zone's ZoVar (Dia_ZVar)
+          ch.nextZone = int(0)
+          break
+        case 41: // XY a,b,c,d — set XA/YA/XB/YB (Dia_XY)
+          ch.xa = int(0)
+          ch.ya = int(1)
+          ch.xb = int(2)
+          ch.yb = int(3)
+          break
         case 9: { // PR x,y,text,ink
           this.print(int(0), int(1), str(2), int(3))
           break
@@ -1064,9 +1073,9 @@ export class DialogExec {
           const bracket = this.cur.next()
           if (bracket.ch !== '[') this.synt()
           if (cond !== 0) {
-            // run the block; its `]` pops the frame and skips the rest of
-            // the enclosing routine
-            this.frames.push({ kind: 'if', ret: 0 })
+            // run the block; the nested Dia_Loop restores a6 to the block
+            // start on `]`, so the closing skip consumes exactly the block
+            this.frames.push({ kind: 'if', ret: this.cur.pos })
           } else {
             this.skipBrackets()
           }
@@ -1312,7 +1321,9 @@ export class DialogExec {
       this.cur.pos = f.ret
       return false
     }
-    // if-frame: skip the rest of the enclosing routine (Dia_If .Skip)
+    // if-frame: rewind to the block start and skip it as text (Dia_If
+    // .Skip — a6 was restored to the block start by the nested Dia_Loop)
+    this.cur.pos = f.ret
     this.skipBrackets()
     return false
   }
@@ -1515,13 +1526,25 @@ export function drawSliderZone(ch: DialogChannel, z: DialogZone, draw: DialogDra
   draw.dialogSlider(ch.sliderCfg, z.vertical === true, z.x, z.y, z.sx, z.sy, z.total ?? 0, z.pos, z.size ?? 0)
 }
 
-/** AL/IL list rendering (Dia_LiDraw): decimal array values, one per row */
+/**
+ * AL/IL list rendering (Dia_LiAff +Lib.s:23706): elements are strings
+ * (BASIC string arrays through =Array); flags bit0 prefixes "n - " index
+ * numbers (bit1: 1-based); the selected row draws inverted.
+ */
 export function drawListZone(ch: DialogChannel, z: DialogZone, host: DialogHost, draw: DialogDraw): void {
   const wChars = z.sx >> 3
   const arr = z.handle ? host.resolveArray(z.handle) : null
+  const numW = String(z.count ?? 0).length
   for (let r = 0; r < (z.rows ?? 0); r++) {
     const i = (z.scroll ?? 0) + r
-    const text = arr && i < arr.length ? String(arr[i]) : ''
+    let text = ''
+    if (arr && i >= 0 && i < arr.length) {
+      if ((z.listFlags ?? 0) & 1) {
+        const shown = (z.listFlags ?? 0) & 2 ? i + 1 : i
+        text = String(shown).padStart(numW) + ' - '
+      }
+      text += String(arr[i])
+    }
     const selected = i === z.sel
     const pen = selected ? (z.pap ?? 0) : (z.pen ?? 1)
     const pap = selected ? (z.pen ?? 1) : (z.pap ?? 0)
