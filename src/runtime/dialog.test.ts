@@ -420,6 +420,91 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('dialog run: draw phase (Dia_RunProgra
     expect(out()).toBe(' 1\n 7\n')
   })
 
+  it('edit zones: typing, Return reporting, Tab cycling (ED/LEd)', () => {
+    const src = [
+      'D$="SI160,32;BA0,0;ED1,0,0,10,20,\'AB\',1,2;ED2,0,10,10,20,\'\',1,2;RU0,0;EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+      'Print R;Rdialog$(1,1);"/";Rdialog$(1,2)',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    for (let i = 0; i < 3; i++) rt.frame()
+    const d = rt.dialogs.get(1)!
+    expect(d.edited).toBe(d.zones[0]) // first edit active (Dia_EdFirst)
+    rt.pressKey('C', 0x33)
+    rt.frame()
+    expect(d.zones[0]!.text).toBe('ABC')
+    rt.pressKey('\t', 0x42) // Tab → next edit
+    rt.frame()
+    expect(d.edited).toBe(d.zones[1])
+    rt.pressKey('X', 0x32)
+    rt.frame()
+    // exit via KY-free route: quit with a Return + a quit key is not set up,
+    // so use the headless force-exit and read the collected texts
+    const r = rt.runHeadless(200)
+    expect(r.status).toBe('ended')
+    expect(out()).toBe(' 0ABC/X\n')
+  })
+
+  it('digit zones accept only digits and parse via Rdialog (DI)', () => {
+    const src = [
+      'D$="SI160,16;BA0,0;DI4,0,0,8,37,1,1,2;RU0,0;EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+      'Print Rdialog(1,4)',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    for (let i = 0; i < 3; i++) rt.frame()
+    const d = rt.dialogs.get(1)!
+    expect(d.zones[0]!.text).toBe('37') // flag bit0: initial value shown
+    rt.pressKey('Z', 0x11) // filtered out
+    rt.frame()
+    rt.pressKey('5', 0x05)
+    rt.frame()
+    expect(d.zones[0]!.text).toBe('375')
+    rt.runHeadless(200)
+    expect(out()).toBe(' 375\n')
+  })
+
+  it('slider zones: track click steps, knob drag repositions (HS/Sl_Clic)', () => {
+    const src = [
+      'D$="SI160,32;BA0,0;HS9,10,10,100,10,40,10,100,5;[]RU0,0;EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+      'Print Rdialog(1,9)',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    for (let i = 0; i < 3; i++) rt.frame()
+    const d = rt.dialogs.get(1)!
+    const z = d.zones[0]!
+    expect(z.pos).toBe(40)
+    // knob for pos=40/100 window 10 on span 99 sits around x 49..59
+    // click the track LEFT of the knob: steps down by 5 while held
+    rt.input.mouseX = 128 + 15 // screen x=15 → rel 5, well before the knob
+    rt.input.mouseY = 50 + 15
+    rt.input.mouseK = 1
+    rt.frame()
+    expect(z.pos).toBe(35)
+    rt.frame()
+    expect(z.pos).toBe(30) // repeats while held
+    rt.input.mouseK = 0
+    rt.frame()
+    // drag the knob to the far right
+    const m = { off: 0, len: 0 }
+    void m
+    rt.input.mouseX = 128 + 10 + 35 // on the knob (pos 30 → off ~29)
+    rt.input.mouseK = 1
+    rt.frame()
+    expect(d.drag?.mode).toBe('drag')
+    rt.input.mouseX = 128 + 10 + 99 // drag to the end
+    rt.frame()
+    expect(z.pos).toBe(90) // clamped to total-window
+    rt.input.mouseK = 0
+    rt.frame()
+    rt.runHeadless(200)
+    expect(out()).toBe(' 90\n')
+  })
+
   it('Dialog Clr erases the display, Dialog Run label errors when undefined', () => {
     const src = [
       'Ink 3 : Bar 0,0 To 50,50',

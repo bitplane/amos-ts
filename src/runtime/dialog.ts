@@ -220,6 +220,10 @@ export class DialogChannel {
   lastZone: DialogZone | null = null
   /** a pressed nowait zone being tracked until mouse release (Dia_Release) */
   release: DialogZone | null = null
+  /** the active edit/digit zone (Dia_Edited) */
+  edited: DialogZone | null = null
+  /** a held slider interaction: knob drag or track stepping (Sl_Clic) */
+  drag: { z: DialogZone; mode: 'drag' | 'down' | 'up'; grab: number } | null = null
 
   constructor(
     readonly channel: number,
@@ -740,6 +744,10 @@ export interface DialogDraw {
   putBlock(saved: unknown): void
   clearKeys(): void
   clearClicks(): void
+  /** ED/DI field: paper-filled cell row with the text in pen */
+  editField(x: number, y: number, wChars: number, text: string, pap: number, pen: number, cursor: number): void
+  /** HS/VS dialog slider with the channel's colour set (Sl_Draw) */
+  dialogSlider(cfg: number[], vertical: boolean, x: number, y: number, sx: number, sy: number, total: number, pos: number, size: number): void
 }
 
 export type ExecResult = { status: 'exit' } | { status: 'run' }
@@ -1109,8 +1117,80 @@ export class DialogExec {
       zoneDraw(this.ch, z, this.host, this.draw)
       return
     }
-    // ED/DI/HS/VS/AL/IL/HT: phases 6-7
+    if (idx === 20 || idx === 26) {
+      // ED n,x,y,len,maxlen,init$,pap,pen / DI n,x,y,len,value,flag,pap,pen
+      // (Dia_Edit 22066 / Dia_Digit 22030 via Dia_EdDiRout 22403)
+      const z = this.edDiHeader(idx === 20 ? 'edit' : 'digit')
+      if (idx === 20) {
+        const maxLen = this.evalInt()
+        if (maxLen <= 0 || maxLen > 1024) this.fonc()
+        z.maxLen = maxLen
+        z.text = this.evalStr().slice(0, maxLen)
+      } else {
+        const value = this.evalInt()
+        const flag = this.evalInt()
+        z.maxLen = 16
+        z.text = flag & 1 ? String(value) : ''
+      }
+      z.pap = this.evalInt()
+      z.pen = this.evalInt()
+      this.ch.zones.push(z)
+      this.ch.lastZone = z
+      drawEditZone(this.ch, z, this.draw)
+      return
+    }
+    if (idx === 30 || idx === 31) {
+      // HS/VS n,x,y,sx,sy,pos,window,total,step;[change] (Dia_Slider 22443)
+      const z = this.zoneHeader('slider')
+      z.vertical = idx === 31
+      z.pos = this.evalInt()
+      z.size = this.evalInt() // Sl_Window
+      z.total = this.evalInt() // Sl_Global
+      z.step = this.evalInt() // Sl_Scroll
+      z.rchange = this.getRout()
+      this.ch.zones.push(z)
+      this.ch.lastZone = z
+      drawSliderZone(this.ch, z, this.draw)
+      return
+    }
+    // AL/IL/HT: phase 7
     this.synt()
+  }
+
+  /** Dia_EdDiRout: edit/digit header — x masked to 16, even char width, 8px rows */
+  private edDiHeader(kind: ZoneKind): DialogZone {
+    const ch = this.ch
+    const number = this.evalInt()
+    const rx = this.evalInt()
+    ch.xa = rx
+    ch.xb = rx
+    const zx = (ch.baseX + rx) & ~15
+    const ry = this.evalInt()
+    ch.ya = ry
+    ch.yb = ry + 8
+    const zy = ch.baseY + ry
+    const chars = (this.evalInt() + 1) & ~1
+    if (chars === 0) this.synt()
+    ch.xb += chars
+    return {
+      kind,
+      number,
+      x: zx,
+      y: zy,
+      sx: chars * 8,
+      sy: 8,
+      pos: 0,
+      min: 0,
+      max: 0,
+      rdraw: 0,
+      rchange: 0,
+      zvar: ch.nextZone,
+      nowait: false,
+      quit: false,
+      changing: false,
+      value: null,
+      text: '',
+    }
   }
 
   /** Dia_GetEntete: zone number + geometry (base added), XA/YB updated */
@@ -1360,6 +1440,38 @@ export function zoneChange(ch: DialogChannel, z: DialogZone, host: DialogHost, d
   }
 }
 
+/** draw an ED/DI field (the edit window content, Dia_Edit2 .Init string) */
+export function drawEditZone(ch: DialogChannel, z: DialogZone, draw: DialogDraw): void {
+  const active = ch.edited === z
+  draw.editField(z.x, z.y, z.sx >> 3, z.text ?? '', z.pap ?? 0, z.pen ?? 1, active ? (z.text ?? '').length : -1)
+}
+
+/** draw an HS/VS slider zone with the channel's colours (Dia_Slider Sl_Draw) */
+export function drawSliderZone(ch: DialogChannel, z: DialogZone, draw: DialogDraw): void {
+  draw.dialogSlider(ch.sliderCfg, z.vertical === true, z.x, z.y, z.sx, z.sy, z.total ?? 0, z.pos, z.size ?? 0)
+}
+
+/** activate the first edit/digit zone (Dia_EdFirst +Lib.s:24634) */
+export function editFirst(ch: DialogChannel, draw: DialogDraw): void {
+  const prev = ch.edited
+  ch.edited = ch.zones.find((z) => z.kind === 'edit' || z.kind === 'digit') ?? null
+  if (prev !== ch.edited) {
+    if (prev) drawEditZone(ch, prev, draw)
+    if (ch.edited) drawEditZone(ch, ch.edited, draw)
+  }
+}
+
+/** move to the next edit zone, wrapping (Dia_EdNext) */
+export function editNext(ch: DialogChannel, draw: DialogDraw): void {
+  const edits = ch.zones.filter((z) => z.kind === 'edit' || z.kind === 'digit')
+  if (edits.length === 0) return
+  const i = ch.edited ? edits.indexOf(ch.edited) : -1
+  const prev = ch.edited
+  ch.edited = edits[(i + 1) % edits.length]!
+  if (prev && prev !== ch.edited) drawEditZone(ch, prev, draw)
+  if (ch.edited) drawEditZone(ch, ch.edited, draw)
+}
+
 /** hit-test the channel's zones at screen coords (Dia_GetZ +Lib.s:24591) */
 export function dialogZoneAt(ch: DialogChannel, x: number, y: number): DialogZone | null {
   for (const z of ch.zones) {
@@ -1413,8 +1525,6 @@ export function updateZone(
   host: DialogHost,
   draw: DialogDraw,
 ): void {
-  void p4
-  void p5 // slider window/global updates arrive with the slider zones
   for (const z of ch.zones) {
     if (z.kind === 'key' || z.number !== n || z === ch.curZone) continue
     if (z.kind === 'button') {
@@ -1426,6 +1536,16 @@ export function updateZone(
       zoneDraw(ch, z, host, draw)
       zoneChange(ch, z, host, draw)
       z.quit = false
+    } else if (z.kind === 'slider') {
+      // ZUpdate .Sl: p5 → global, p4 → window, v → position, then redraw
+      if (p5 !== null) z.total = p5
+      if (p4 !== null) z.size = p4
+      if (v !== null) z.pos = v
+      drawSliderZone(ch, z, draw)
+      z.quit = false
+    } else if (z.kind === 'digit') {
+      if (v !== null) z.text = String(v)
+      drawEditZone(ch, z, draw)
     }
   }
 }
@@ -1447,6 +1567,8 @@ export function eraseDialog(ch: DialogChannel, draw: DialogDraw): void {
   }
   ch.saOrder = []
   ch.blocks.clear()
+  ch.edited = null
+  ch.drag = null
   // zone records survive the erase — Rdialog reads them until the next
   // Dialog Run resets the buffer (Dia_RunProgram clears it, not the erase)
   draw.deactivate()

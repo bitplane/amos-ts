@@ -63,6 +63,46 @@ export function builtinPattern(n: number): Uint16Array | null {
   return null
 }
 
+/**
+ * SliPour (+W.s:5159): knob offset/length within a span, in the original
+ * fixed-point ladder (×65536, ×256, ×1 depending on magnitudes), knob at
+ * least 4px, clamped to the span, snapped to the far end when
+ * pos+size >= total.
+ */
+export function sliderMetrics(span: number, total: number, pos: number, size: number): { off: number; len: number } {
+  if (size >= total) {
+    if (total === 0) total = 1
+    size = total
+  }
+  const full = pos + size >= total
+  let posPx: number
+  let sizePx: number
+  if (span < total) {
+    const q = Math.floor((span * 0x10000) / total)
+    posPx = (pos * q) >>> 16
+    sizePx = (size * q + 0x8000) >>> 16
+  } else if (Math.floor((span * 256) / total) < 0x10000) {
+    const q = Math.floor((span * 256) / total)
+    posPx = (pos * q) >>> 8
+    sizePx = (size * q + 0x80) >>> 8
+  } else {
+    const q = Math.floor(span / total)
+    posPx = pos * q
+    sizePx = size * q
+  }
+  if (sizePx < 4) sizePx = 4
+  let off = posPx
+  if (off >= span) off = span - sizePx
+  let end = off + sizePx
+  if (end > span) {
+    off = span - sizePx
+    end = span
+  }
+  const len = end - off
+  if (full) off = span - len
+  return { off, len }
+}
+
 export class Screen {
   /** the LOGICAL buffer — all drawing and Point read this */
   pixels: Uint8Array
@@ -387,54 +427,24 @@ export class Screen {
   }
 
   /**
-   * SliPour (+W.s:5159): knob offset/length within a span, in the original
-   * fixed-point ladder (×65536, ×256, ×1 depending on magnitudes), knob at
-   * least 4px, clamped to the span, snapped to the far end when
-   * pos+size >= total.
-   */
-  private sliderMetrics(span: number, total: number, pos: number, size: number): { off: number; len: number } {
-    if (size >= total) {
-      if (total === 0) total = 1
-      size = total
-    }
-    const full = pos + size >= total
-    let posPx: number
-    let sizePx: number
-    if (span < total) {
-      const q = Math.floor((span * 0x10000) / total)
-      posPx = (pos * q) >>> 16
-      sizePx = (size * q + 0x8000) >>> 16
-    } else if (Math.floor((span * 256) / total) < 0x10000) {
-      const q = Math.floor((span * 256) / total)
-      posPx = (pos * q) >>> 8
-      sizePx = (size * q + 0x80) >>> 8
-    } else {
-      const q = Math.floor(span / total)
-      posPx = pos * q
-      sizePx = size * q
-    }
-    if (sizePx < 4) sizePx = 4
-    let off = posPx
-    if (off >= span) off = span - sizePx
-    let end = off + sizePx
-    if (end > span) {
-      off = span - sizePx
-      end = span
-    }
-    const len = end - off
-    if (full) off = span - len
-    return { off, len }
-  }
-
-  /**
    * Hslider/Vslider (SliHor/SliVer, +W.s:5051/5086): track-before and
    * track-after rects in the frame colours, the knob in the inner colours,
-   * all pattern-filled and outlined in ink C (SliPut).
+   * all pattern-filled and outlined in ink C (SliPut). Dialog sliders pass
+   * their own per-channel colour set.
    */
-  drawSlider(vertical: boolean, x1: number, y1: number, x2: number, y2: number, total: number, pos: number, size: number): void {
-    const cfg = this.slider
+  drawSlider(
+    vertical: boolean,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    total: number,
+    pos: number,
+    size: number,
+    cfg = this.slider,
+  ): void {
     const span = vertical ? y2 - y1 : x2 - x1
-    const { off, len } = this.sliderMetrics(span, total, pos, size)
+    const { off, len } = sliderMetrics(span, total, pos, size)
     const saved = { ink: this.ink, gPaper: this.gPaper, gBorder: this.gBorder, pattern: this.pattern, outline: this.outline, lp: this.linePattern }
     this.outline = true
     this.linePattern = 0xffff

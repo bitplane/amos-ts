@@ -8,14 +8,27 @@ import type { Bank, MemoryBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
 import type { ResourceBank } from '../loader/resource'
-import { Screen, builtinPattern } from './screen'
+import { Screen, builtinPattern, sliderMetrics } from './screen'
 import { makeInstructions, makeFunctions, makeRawFunctions } from './instr'
 import { ObjectBank, imagesCollide } from './objects'
 import type { BankImage, Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from './fs'
 import { AmalChannel } from './amal'
 import type { AmalHost, ChannelTarget } from './amal'
-import { DialogChannel, DialogError, DialogExec, dialogZoneAt, eraseDialog, zoneChange, zoneDraw, DIALOG_ERRORS } from './dialog'
+import {
+  DialogChannel,
+  DialogError,
+  DialogExec,
+  dialogZoneAt,
+  drawEditZone,
+  drawSliderZone,
+  editFirst,
+  editNext,
+  eraseDialog,
+  zoneChange,
+  zoneDraw,
+  DIALOG_ERRORS,
+} from './dialog'
 import type { DialogDraw, DialogHost, DialogZone } from './dialog'
 import { NullAudio, parseSampleBank } from './audio'
 import { FONT8 } from './font.gen'
@@ -295,6 +308,33 @@ export class Runtime {
     clearClicks: () => {
       this.input.clicks = 0
     },
+    editField: (x, y, wChars, text, pap, pen, cursor) => {
+      const s = this.dTarget()
+      s.bar(x, y, x + wChars * 8 - 1, y + 7, pap)
+      const shown = text.slice(Math.max(0, text.length - wChars))
+      for (let i = 0; i < shown.length; i++) {
+        s.drawChar(x + i * 8, y, shown.charCodeAt(i), pen, pap, false)
+      }
+      if (cursor >= 0) {
+        const cx = x + Math.min(cursor, wChars - 1) * 8
+        s.bar(cx, y, cx + 7, y + 7, pen)
+        const ch = shown.charCodeAt(Math.min(cursor, shown.length))
+        if (!Number.isNaN(ch)) s.drawChar(cx, y, ch, pap, pen, false)
+      }
+    },
+    dialogSlider: (cfg, vertical, x, y, sx, sy, total, pos, size) => {
+      const s = this.dTarget()
+      s.drawSlider(vertical, x, y, x + sx - 1, y + sy - 1, total, pos, size, {
+        fa: cfg[0]!,
+        fb: cfg[1]!,
+        fc: cfg[2]!,
+        fpat: builtinPattern(cfg[3]!),
+        ia: cfg[4]!,
+        ib: cfg[5]!,
+        ic: cfg[6]!,
+        ipat: builtinPattern(cfg[7]!),
+      })
+    },
   }
 
   private dTarget(): Screen {
@@ -335,6 +375,7 @@ export class Runtime {
     const exec = new DialogExec(d, this.dialogHost, this.dialogDraw)
     try {
       const r = exec.run(startPos)
+      editFirst(d, this.dialogDraw) // activate the first edit zone
       if (r.status === 'run') {
         d.exec = exec
         d.runState = 'waiting'
@@ -465,7 +506,25 @@ export class Runtime {
     // wait owns the keyboard — live dialogs must not eat Input/Inkey$ keys.
     const key = waiting ? (this.input.keyQueue.shift() ?? null) : (this.input.keyQueue[0] ?? null)
     let simulated: DialogZone | null = null
-    if (key) {
+    if (key && d.edited) {
+      // the active edit field consumes the keyboard (LEd_Loop)
+      const z = d.edited
+      if (key.ch === '\r') {
+        d.ret = z.number // Return reports the edit zone
+        editNext(d, draw)
+      } else if (key.ch === '\t') {
+        editNext(d, draw)
+      } else if (key.ch === '\b' || key.ch === '\x7f') {
+        z.text = (z.text ?? '').slice(0, -1)
+        drawEditZone(d, z, draw)
+      } else if (key.ch >= ' ') {
+        const ok = z.kind !== 'digit' || /[0-9-]/.test(key.ch)
+        if (ok && (z.text ?? '').length < (z.maxLen ?? 1024)) {
+          z.text = (z.text ?? '') + key.ch
+          drawEditZone(d, z, draw)
+        }
+      }
+    } else if (key) {
       if (d.runFlags & 4) exit++ // RU flag bit2: any key exits
       const ascii = key.ch.toUpperCase().charCodeAt(0) || 0
       for (const z of d.zones) {
@@ -500,8 +559,54 @@ export class Runtime {
           zoneDraw(d, z, host, draw)
         }
         if (z.quit) exit++
+      } else if (z && (z.kind === 'edit' || z.kind === 'digit')) {
+        // click activates the edit zone (Dia_Tests .MEd)
+        const prev = d.edited
+        d.edited = z
+        if (prev && prev !== z) drawEditZone(d, prev, draw)
+        drawEditZone(d, z, draw)
+      } else if (z && z.kind === 'slider' && press) {
+        // Sl_Clic: knob → drag, track → step repeatedly while held
+        d.ret = z.number
+        const span = (z.vertical ? z.sy : z.sx) - 1
+        const rel = z.vertical ? m.y - z.y : m.x - z.x
+        const { off, len } = sliderMetrics(span, z.total ?? 0, z.pos, z.size ?? 0)
+        if (rel < off) d.drag = { z, mode: 'down', grab: 0 }
+        else if (rel >= off + len) d.drag = { z, mode: 'up', grab: 0 }
+        else d.drag = { z, mode: 'drag', grab: rel - off }
       } else if (press && !z && d.runFlags & 8) {
         exit++ // flag bit3: any click exits
+      }
+    }
+    // a held slider (knob drag / track stepping, Sl_Clic)
+    if (d.drag) {
+      const { z, mode, grab } = d.drag
+      if (!lmb) {
+        if (mode === 'drag') zoneChange(d, z, host, draw)
+        d.drag = null
+      } else {
+        const s = this.screens.get(d.screenNb) ?? this.screen
+        const m = this.mouseOnScreen(s)
+        const span = (z.vertical ? z.sy : z.sx) - 1
+        const total = z.total ?? 0
+        const window = z.size ?? 0
+        const maxPos = Math.max(0, total - window)
+        let next = z.pos
+        if (mode === 'drag') {
+          const rel = Math.max(0, (z.vertical ? m.y - z.y : m.x - z.x) - grab)
+          next = Math.min(maxPos, Math.floor((rel * (total + 1)) / (span + 1)))
+          if (next !== z.pos) {
+            z.pos = next
+            drawSliderZone(d, z, draw)
+          }
+        } else {
+          next = mode === 'down' ? Math.max(0, z.pos - (z.step ?? 1)) : Math.min(maxPos, z.pos + (z.step ?? 1))
+          if (next !== z.pos) {
+            z.pos = next
+            drawSliderZone(d, z, draw)
+            zoneChange(d, z, host, draw)
+          }
+        }
       }
     }
     return exit
