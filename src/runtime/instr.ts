@@ -20,6 +20,7 @@ import {
   updateZone,
 } from './dialog'
 import { amigaPattern } from './vfs'
+import { MF_BAR, MF_BOUGE, MF_FIXED, MF_OFF, MF_SEP, MF_TBOUGE, MF_TOTAL, bankToMenu, compileMenuObject, menuCalc, menuToBank } from './menu'
 import { bellPcm, boomPcm, shootPcm } from './audio'
 
 /**
@@ -82,6 +83,28 @@ const FONT_LIST = [
   { name: 'topaz.font', height: 8, type: 'Rom' },
   { name: 'topaz.font', height: 9, type: 'Rom' },
 ]
+
+/** Menu keyword index path: (n[,m[,k...]]) */
+function menuPath(it: It): number[] {
+  it.expect('(')
+  const path = [it.evalInt()]
+  while (it.accept(',')) path.push(it.evalInt())
+  it.expect(')')
+  return path
+}
+
+function menuNodeFlag(it: It, rt: Runtime, set: number, clear: number): void {
+  // parens = a node path; a bare number = a whole level (MnDim +ILib.s:6996)
+  if (it.nm() !== '(') {
+    rt.menu.setLevelFlag(it.evalInt(), set, clear)
+    return
+  }
+  const node = rt.menu.find(menuPath(it))
+  if (node) {
+    node.flags = (node.flags | set) & ~clear
+    rt.menu.change = true
+  }
+}
 
 /** Set Slider/Set Pattern number → fill rows (0 solid, <0 sprite image, >0 builtin) */
 function resolvePattern(rt: Runtime, n: number): Uint16Array | null {
@@ -1268,37 +1291,141 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- menus ----
     'menu$'(it) {
-      // Menu$(m)="Title" / Menu$(m,i)="Item" / deeper sub-items accepted
-      it.expect('(')
-      const m = it.evalInt()
-      const i = it.accept(',') ? it.evalInt() : null
-      while (it.accept(',')) it.evalInt() // sub-sub menus: parsed, one level kept
-      it.expect(')')
+      // InMenu +ILib.s:6856: Menu$(path)=normal$[,highlight$][,inactive$]
+      // [,background$] — labels compile to display objects (MnObjet)
+      const path = menuPath(it)
       it.expectOp('=')
-      const t = it.evalStr()
-      const menus = rt.menus
-      if (i === null) {
-        while (menus.titles.length < m) {
-          menus.titles.push('')
-          menus.items.push([])
-        }
-        menus.titles[m - 1] = t
-      } else {
-        while (menus.items.length < m) {
-          menus.titles.push('')
-          menus.items.push([])
-        }
-        const items = menus.items[m - 1]!
-        while (items.length < i) items.push('')
-        items[i - 1] = t
-      }
+      const node = rt.menu.insert(path)
+      const w = rt.screen.curWin
+      node.inks1 = [w.paper, w.pen, w.paper]
+      node.inks2 = [w.pen, w.paper, w.paper]
+      node.ob1 = compileMenuObject(it.evalStr())
+      node.ob2 = it.accept(',') ? compileMenuObject(it.evalStr()) : null
+      node.ob3 = it.accept(',') ? compileMenuObject(it.evalStr()) : null
+      node.obF = it.accept(',') ? compileMenuObject(it.evalStr()) : null
+      if (rt.menu.screenNb < 0) rt.menu.screenNb = rt.currentIndex
     },
     'menu on'(it) {
-      if (!it.atStmtEnd()) it.evalInt() // menu bank — unsupported
-      rt.menus.on = true
+      void it
+      rt.menu.on = true
     },
     'menu off'() {
-      rt.menus.on = false
+      rt.menu.on = false
+    },
+    'menu calc'() {
+      menuCalc(rt.menu)
+    },
+    'menu base'(it) {
+      // MnBase +Lib.s:15624 — EntNul-style elision keeps a coordinate
+      const x = it.atStmtEnd() || it.nm() === ',' ? null : it.evalInt()
+      if (it.accept(',')) {
+        const y = it.atStmtEnd() ? null : it.evalInt()
+        if (y !== null) rt.menu.baseY = y
+      }
+      if (x !== null) rt.menu.baseX = x
+      rt.menu.change = true
+    },
+    'menu movable'(it) {
+      rt.menu.setLevelFlag(optInt(it, 1), MF_TBOUGE, 0)
+    },
+    'menu static'(it) {
+      rt.menu.setLevelFlag(optInt(it, 1), 0, MF_TBOUGE)
+    },
+    'menu item movable'(it) {
+      rt.menu.setLevelFlag(optInt(it, 1), MF_BOUGE, 0)
+    },
+    'menu item static'(it) {
+      rt.menu.setLevelFlag(optInt(it, 1), 0, MF_BOUGE)
+    },
+    'menu bar'(it) {
+      // level layout styles (+Lib.s:15682): bar = vertical column
+      rt.menu.setLevelFlag(optInt(it, 1), MF_BAR, 0)
+    },
+    'menu line'(it) {
+      rt.menu.setLevelFlag(optInt(it, 1), 0, MF_BAR | MF_TOTAL)
+    },
+    'menu tline'(it) {
+      rt.menu.setLevelFlag(optInt(it, 1), MF_TOTAL, MF_BAR)
+    },
+    'menu active'(it) {
+      menuNodeFlag(it, rt, 0, MF_OFF)
+    },
+    'menu inactive'(it) {
+      menuNodeFlag(it, rt, MF_OFF, 0)
+    },
+    'menu separate'(it) {
+      // MnDim addresses either a node path (parens) or a whole level
+      menuNodeFlag(it, rt, MF_SEP, 0)
+    },
+    'menu link'(it) {
+      menuNodeFlag(it, rt, 0, MF_SEP)
+    },
+    'menu called'(it) {
+      const node = rt.menu.find(menuPath(it))
+      if (node) node.called = true
+    },
+    'menu once'(it) {
+      const node = rt.menu.find(menuPath(it))
+      if (node) node.called = false
+    },
+    'menu del'(it) {
+      // InMenuDel +ILib.s:6954: no path = wipe the whole tree
+      if (it.atStmtEnd()) {
+        rt.menu.reset()
+        return
+      }
+      rt.menu.delete(menuPath(it))
+    },
+    'menu mouse on'() {
+      rt.menu.mouse = true
+    },
+    'menu mouse off'() {
+      rt.menu.mouse = false
+    },
+    'set menu'(it) {
+      // InSetMenu +ILib.s:6973: Set Menu(path) To x,y — fixed position
+      const node = rt.menu.insert(menuPath(it))
+      it.expect('to')
+      node.x = it.evalInt()
+      it.expect(',')
+      node.y = it.evalInt()
+      node.flags |= MF_FIXED
+      rt.menu.change = true
+    },
+    'menu key'(it) {
+      // InMenuKey +ILib.s:6760: Menu Key(path) To k$ (ASCII) or
+      // Menu Key(path),scan[,shift]; leaf nodes only
+      const node = rt.menu.find(menuPath(it))
+      if (node && node.children.length > 0) throw new AmosError('function call error')
+      if (it.accept('to')) {
+        const k = it.evalStr()
+        if (node) node.key = { kind: 1, asc: k.charCodeAt(0) || 0, scan: 0, shift: 0 }
+        return
+      }
+      it.expect(',')
+      const scan = it.evalInt()
+      const shift = it.accept(',') ? it.evalInt() : 0
+      if (node) node.key = { kind: -1, asc: 0, scan: scan & 0x7f, shift }
+    },
+    'menu to bank'(it) {
+      // +Lib.s:15401: serialise the tree as a "Menu    " bank
+      const n = it.evalInt()
+      rt.memBanks.set(n, {
+        kind: 'memory',
+        number: n,
+        memType: 0,
+        name: 'Menu    ',
+        flags: 0,
+        data: menuToBank(rt.menu),
+      })
+    },
+    'bank to menu'(it) {
+      // +Lib.s:15494: load a tree from a menu bank
+      const n = it.evalInt()
+      const bank = rt.memBanks.get(n)
+      if (!bank || !/^menu/i.test(bank.name)) throw new AmosError('bank not reserved')
+      bankToMenu(rt.menu, bank.data)
+      if (rt.menu.screenNb < 0) rt.menu.screenNb = rt.currentIndex
     },
     'on menu'(it) {
       // On Menu Gosub L1[,L2...] / On Menu Proc P1[,P2...]
@@ -1324,10 +1451,6 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'on menu del'() {
       rt.onMenu = null
     },
-    'menu key'(it) {
-      it.skipToStmtEnd() // keyboard shortcuts — not wired to selections yet
-    },
-
     // ---- blocks ----
     'get block'(it) {
       const n = it.evalInt()
@@ -1470,7 +1593,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         rt.iconBank = null
         return
       }
-      if (!rt.memBanks.delete(n)) throw new AmosError('bank not reserved')
+      // InErase +Lib.s:2210 has no error path — a missing bank is a no-op
+      rt.memBanks.delete(n)
     },
     'erase all'() {
       rt.memBanks.clear()
@@ -2250,15 +2374,23 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(0x7fffffff)
     },
     choice(_, a) {
-      const m = rt.menus
+      // =Choice: self-clearing latch (-1/0); =Choice(n): level n's number
+      const m = rt.menu
       if (a.length === 0) {
-        const v = m.choiceFlag ? -1 : 0
-        m.choiceFlag = false
+        const v = m.choice
+        m.choice = 0
         return VI(v)
       }
-      const which = int(a[0]!)
-      if (!m.selection) return VI(0)
-      return VI(which === 2 ? m.selection[1] : m.selection[0])
+      const n = int(a[0]!)
+      return VI(m.choix[n - 1] ?? 0)
+    },
+    'x menu'(_, a) {
+      const node = rt.menu.find(a.map((v) => int(v)))
+      return VI(node ? node.x : 0)
+    },
+    'y menu'(_, a) {
+      const node = rt.menu.find(a.map((v) => int(v)))
+      return VI(node ? node.y : 0)
     },
 
     'dialog run'(it, a) {

@@ -273,7 +273,7 @@ describe('display control (Update/View/Default/Dual Playfield)', () => {
 })
 
 describe('menus', () => {
-  it('defines menus, selects with the right button, fires Choice', () => {
+  it('defines a tree, selects with the right button, fires Choice', () => {
     const fs = new AmigaFS()
     fs.mountMemory('DH0')
     let out = ''
@@ -288,26 +288,24 @@ describe('menus', () => {
     ].join('\n')
     const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, fs, onText: (t) => (out += t) })
     for (let i = 0; i < 5; i++) rt.frame()
-    // press RMB over the "File" title (composite x ~8 -> hw 128+4)
+    // press RMB over the "File" title (title bar at the top of screen 0)
     rt.input.mouseK = 2
     rt.input.mouseX = 128 + 4
-    rt.input.mouseY = 50 + 2
+    rt.input.mouseY = 50 + 3
     rt.frame()
-    expect(rt.menus.open).toBe(0)
-    // move down to the second item ("Save": rows start at y=10, 10px each)
-    rt.input.mouseY = 50 + Math.floor((10 + 15) / 2) // composite y ~25 -> hw 50+12
-    rt.input.mouseY = 50 + 12
+    expect(rt.menuOpen).not.toBeNull()
+    expect(rt.menuOpen!.levels).toHaveLength(2) // the dropdown opened below
+    // move onto the second item ("Save") using its computed geometry
+    const save = rt.menuOpen!.levels[1]!.lvl.list[1]!
+    rt.input.mouseX = 128 + save.xx + 2
+    rt.input.mouseY = 50 + save.yy + 2
     rt.frame()
-    expect(rt.menus.hoverItem).toBe(1)
-    // menu bar renders while held — open title is highlighted blue
-    const { data } = rt.composite()
-    expect([data[0], data[1], data[2]]).toEqual([68, 68, 170])
-    const far = (600 * 4) // beyond the titles: plain white bar
-    expect([data[far], data[far + 1], data[far + 2]]).toEqual([255, 255, 255])
-    // release
+    expect(rt.menuOpen!.active).toBe(save)
+    // release commits the selection and restores the screen
     rt.input.mouseK = 0
     for (let i = 0; i < 4; i++) rt.frame()
     expect(out).toContain(' 1 2')
+    expect(rt.menuOpen).toBeNull()
   })
 
   it('dispatches On Menu Gosub on selection', () => {
@@ -323,10 +321,12 @@ describe('menus', () => {
     const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, fs, onText: (t) => (out += t) })
     for (let i = 0; i < 3; i++) rt.frame()
     rt.input.mouseK = 2
-    rt.input.mouseX = 128 + 4
-    rt.input.mouseY = 50 + 2
+    rt.input.mouseX = 128 + 3
+    rt.input.mouseY = 50 + 3
     rt.frame()
-    rt.input.mouseY = 50 + 8 // first item row
+    const item = rt.menuOpen!.levels[1]!.lvl.list[0]!
+    rt.input.mouseX = 128 + item.xx + 2
+    rt.input.mouseY = 50 + item.yy + 2
     rt.frame()
     rt.input.mouseK = 0
     for (let i = 0; i < 5; i++) rt.frame()

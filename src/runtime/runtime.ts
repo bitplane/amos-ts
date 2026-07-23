@@ -32,6 +32,19 @@ import {
   DIALOG_ERRORS,
 } from './dialog'
 import type { DialogDraw, DialogHost, DialogZone } from './dialog'
+import {
+  MF_BOUGE,
+  MF_FIXED,
+  MF_TBOUGE,
+  MenuTree,
+  drawMenuCell,
+  drawMenuBranch,
+  menuCalc,
+  menuZoneAt,
+  restoreRect,
+  MF_BAR,
+} from './menu'
+import type { MenuHost, MenuNode, OpenLevel } from './menu'
 import { NullAudio, parseSampleBank } from './audio'
 import { FONT8 } from './font.gen'
 import type { AudioSink, SampleEntry } from './audio'
@@ -941,20 +954,25 @@ export class Runtime {
   // ---- sprite update freeze ----
   spriteUpdateOn = true
   frozenSprites: HwSprite[] | null = null
-  // ---- menus ----
-  menus = {
-    titles: [] as string[],
-    items: [] as string[][],
-    on: false,
-    /** currently dropped-down menu index (-1 none) while RMB held */
-    open: -1,
-    hoverItem: -1,
-    /** last completed selection, 1-based [menu, item] */
-    selection: null as [number, number] | null,
-    /** set on selection, cleared by =Choice */
-    choiceFlag: false,
+  // ---- menus (the Mn* engine, src/runtime/menu.ts) ----
+  menu = new MenuTree()
+  /** open interaction state while RMB is held (MnGere) */
+  menuOpen: {
+    levels: Array<{ lvl: OpenLevel; parent: MenuNode | null }>
+    hover: Array<MenuNode | null>
+    active: MenuNode | null
+    activeLevel: number
+  } | null = null
+  readonly menuHost: MenuHost = {
+    bobImage: (n) => this.spriteBank?.image(n) ?? null,
+    iconImage: (n) => this.iconBank?.image(n) ?? null,
+    callProc: () => {
+      // (PR name) label procedures are not invoked by the port — see NOTES
+    },
   }
   onMenu: { kind: 'gosub' | 'proc'; targets: string[]; armed: boolean } | null = null
+  /** LMB drag of a movable item or level (MnBGoch +Lib.s:16016) */
+  private menuDrag: { kind: 'item' | 'level'; node: MenuNode | null; level: number; mx: number; my: number } | null = null
   private lastRmb = false
   private sampleCache: { bank: MemoryBank; entries: SampleEntry[] } | null = null
   readonly amalHost: AmalHost = {
@@ -1359,43 +1377,172 @@ export class Runtime {
     return result
   }
 
-  /** right-button menu interaction + On Menu dispatch */
+  /** the menu interaction (MnGere +Lib.s:15811), one iteration per frame */
   private stepMenus(): void {
-    const m = this.menus
+    const t = this.menu
     const rmb = (this.input.mouseK & 2) !== 0
-    if (m.on && rmb) {
-      const mx = (this.input.mouseX - 128) * 2
-      const my = (this.input.mouseY - 50) * 2
-      // title spans: 16px pad + 8px/char each
-      let x = 0
-      m.open = -1
-      for (let i = 0; i < m.titles.length; i++) {
-        const w = m.titles[i]!.length * 8 + 16
-        if (my < 10 && mx >= x && mx < x + w) m.open = i
-        x += w
+    const s = this.screens.get(t.screenNb >= 0 ? t.screenNb : this.currentIndex) ?? this.screens.get(this.currentIndex) ?? null
+    if (!t.on || t.roots.length === 0 || !s) {
+      if (this.menuOpen && s) this.closeMenu(s)
+      this.lastRmb = rmb
+      return
+    }
+    if (!this.menuOpen) this.menuKeys()
+    if (rmb && !this.menuOpen) {
+      // open: recompute if dirty, origin = base or the mouse (Menu Mouse On)
+      if (t.change) menuCalc(t)
+      const m = this.mouseOnScreen(s)
+      const ox = t.mouse ? m.x : t.baseX
+      const oy = t.mouse ? m.y : t.baseY
+      this.menuOpen = {
+        levels: [{ lvl: drawMenuBranch(t.roots, s, this.menuHost, ox, oy), parent: null }],
+        hover: [],
+        active: null,
+        activeLevel: -1,
       }
-      if (m.open < 0 && this.openMenuAt >= 0) m.open = this.openMenuAt
-      if (m.open >= 0) {
-        this.openMenuAt = m.open
-        const items = m.items[m.open] ?? []
-        const row = Math.floor((my - 10) / 10)
-        m.hoverItem = my >= 10 && row < items.length ? row : -1
+    }
+    const open = this.menuOpen
+    if (rmb && open) {
+      // per-frame: Called items redraw, hover tracking, submenu cascade
+      for (const { lvl } of open.levels) {
+        for (const n of lvl.list) if (n.called) drawMenuCell(n, s, this.menuHost, n === open.active)
       }
-    } else if (m.on && this.lastRmb && !rmb) {
-      // release: commit the selection
-      if (this.openMenuAt >= 0 && m.hoverItem >= 0) {
-        m.selection = [this.openMenuAt + 1, m.hoverItem + 1]
-        m.choiceFlag = true
-        if (this.onMenu?.armed) this.dispatchOnMenu(this.openMenuAt)
+      const m = this.mouseOnScreen(s)
+      let found: MenuNode | null = null
+      let foundLevel = -1
+      for (let i = open.levels.length - 1; i >= 0; i--) {
+        const z = menuZoneAt(open.levels[i]!.lvl, m.x, m.y)
+        if (z) {
+          found = z
+          foundLevel = i
+          break
+        }
       }
-      m.open = -1
-      m.hoverItem = -1
-      this.openMenuAt = -1
+      if (found && found !== open.active) {
+        while (open.levels.length > foundLevel + 1) {
+          const l = open.levels.pop()!
+          restoreRect(s, l.lvl.bounds, l.lvl.saved)
+        }
+        open.hover.length = foundLevel
+        const old = open.hover[foundLevel]
+        if (old && old !== found) drawMenuCell(old, s, this.menuHost, false)
+        open.hover[foundLevel] = found
+        open.active = found
+        open.activeLevel = foundLevel
+        drawMenuCell(found, s, this.menuHost, true)
+        if (found.children.length > 0 && open.levels.length < 8) {
+          const right = (found.flags & MF_BAR) !== 0
+          const cx = right ? found.xx + found.tx + 3 : found.xx - 2
+          const cy = right ? found.yy - 2 : found.yy + found.ty + 3
+          open.levels.push({ lvl: drawMenuBranch(found.children, s, this.menuHost, cx, cy), parent: found })
+        }
+      } else if (!found && open.active) {
+        // moved off every cell: the active highlight clears (abort state)
+        drawMenuCell(open.active, s, this.menuHost, false)
+        open.active = null
+        open.activeLevel = -1
+      }
+      // LMB drags movable items/levels (MnBGoch; final position, no band)
+      const lmb = (this.input.mouseK & 1) !== 0
+      if (lmb && !this.menuDrag) {
+        if (open.active && open.active.flags & MF_BOUGE) {
+          this.menuDrag = { kind: 'item', node: open.active, level: open.activeLevel, mx: m.x, my: m.y }
+        } else if (foundLevel >= 0 && open.levels[foundLevel]!.lvl.list.some((n) => n.flags & MF_TBOUGE)) {
+          this.menuDrag = { kind: 'level', node: null, level: foundLevel, mx: m.x, my: m.y }
+        }
+      }
+      const drag = this.menuDrag
+      if (drag && lmb) {
+        const dx = m.x - drag.mx
+        const dy = m.y - drag.my
+        if (dx !== 0 || dy !== 0) {
+          drag.mx = m.x
+          drag.my = m.y
+          while (open.levels.length > drag.level + 1) {
+            const l = open.levels.pop()!
+            restoreRect(s, l.lvl.bounds, l.lvl.saved)
+          }
+          open.hover.length = drag.level
+          open.active = null
+          open.activeLevel = -1
+          const lvl = open.levels.pop()!
+          restoreRect(s, lvl.lvl.bounds, lvl.lvl.saved)
+          let ox = lvl.lvl.ox
+          let oy = lvl.lvl.oy
+          if (drag.kind === 'item' && drag.node) {
+            drag.node.x += dx
+            drag.node.y += dy
+            drag.node.flags |= MF_FIXED
+          } else {
+            ox += dx
+            oy += dy
+            if (drag.level === 0 && !t.mouse) {
+              t.baseX += dx
+              t.baseY += dy
+            }
+          }
+          open.levels.push({ lvl: drawMenuBranch(lvl.parent ? lvl.parent.children : t.roots, s, this.menuHost, ox, oy), parent: lvl.parent })
+        }
+      }
+      if (!lmb) this.menuDrag = null
+    } else if (!rmb && open) {
+      this.menuDrag = null
+      // release (MnExit 15975): commit or abort, then restore backgrounds
+      t.choix.fill(0)
+      t.choice = 0
+      if (open.active) {
+        for (let i = 1; i <= open.activeLevel; i++) t.choix[i - 1] = open.levels[i]!.parent!.nb
+        t.choix[open.activeLevel] = open.active.nb
+        t.choice = -1
+      }
+      this.closeMenu(s)
+      if (t.choice === -1 && this.onMenu?.armed) this.dispatchOnMenu(t.choix[0]! - 1)
     }
     this.lastRmb = rmb
   }
 
-  private openMenuAt = -1
+  private closeMenu(s: Screen): void {
+    const open = this.menuOpen
+    if (!open) return
+    for (let i = open.levels.length - 1; i >= 0; i--) {
+      const l = open.levels[i]!
+      restoreRect(s, l.lvl.bounds, l.lvl.saved)
+    }
+    this.menuOpen = null
+  }
+
+  /** keyboard shortcuts fire selections without opening (MenuKeyExplore 17684) */
+  private menuKeys(): void {
+    if (this.input.keyQueue.length === 0) return
+    const t = this.menu
+    const match = (list: MenuNode[], path: number[]): number[] | null => {
+      for (const n of list) {
+        if (n.children.length > 0) {
+          const r = match(n.children, [...path, n.nb])
+          if (r) return r
+          continue
+        }
+        if (n.key.kind === 0) continue
+        for (let qi = 0; qi < this.input.keyQueue.length; qi++) {
+          const q = this.input.keyQueue[qi]!
+          const want = n.key.asc >= 97 && n.key.asc <= 122 ? n.key.asc - 32 : n.key.asc
+          const hit = n.key.kind === 1 ? q.ch.toUpperCase().charCodeAt(0) === want : q.scan === n.key.scan
+          if (hit) {
+            this.input.keyQueue.splice(qi, 1)
+            return [...path, n.nb]
+          }
+        }
+      }
+      return null
+    }
+    const r = match(t.roots, [])
+    if (r) {
+      t.choix.fill(0)
+      r.forEach((nb, i) => (t.choix[i] = nb))
+      t.choice = -1
+      if (this.onMenu?.armed) this.dispatchOnMenu(r[0]! - 1)
+    }
+  }
 
   private dispatchOnMenu(menuIdx: number): void {
     const h = this.onMenu
@@ -1577,54 +1724,10 @@ export class Runtime {
       }
     }
     this.drawHwSprites(data, W, H)
-    this.drawMenus(data, W, H)
     return { width: W, height: H, data }
   }
 
   /** Workbench-style menu bar while the right button is held */
-  private drawMenus(data: Uint8ClampedArray, W: number, H: number): void {
-    const m = this.menus
-    if (!m.on || (this.input.mouseK & 2) === 0) return
-    const put = (x: number, y: number, rgb: [number, number, number]): void => {
-      if (x < 0 || y < 0 || x >= W || y >= H) return
-      const o = (y * W + x) * 4
-      data[o] = rgb[0]
-      data[o + 1] = rgb[1]
-      data[o + 2] = rgb[2]
-    }
-    const WHITE: [number, number, number] = [255, 255, 255]
-    const BLACK: [number, number, number] = [0, 0, 0]
-    const BLUE: [number, number, number] = [68, 68, 170]
-    const text = (tx: number, ty: number, t: string, fg: [number, number, number]): void => {
-      for (let i = 0; i < t.length; i++) {
-        const glyph = FONT8[t.charCodeAt(i)] ?? FONT8[32]!
-        for (let r = 0; r < 8; r++) {
-          for (let c = 0; c < 8; c++) {
-            if ((glyph[r]! >> (7 - c)) & 1) put(tx + i * 8 + c, ty + r, fg)
-          }
-        }
-      }
-    }
-    for (let y = 0; y < 10; y++) for (let x = 0; x < W; x++) put(x, y, WHITE)
-    let x = 0
-    for (let i = 0; i < m.titles.length; i++) {
-      const w = m.titles[i]!.length * 8 + 16
-      if (i === this.openMenuAt) for (let y = 0; y < 10; y++) for (let xx = x; xx < x + w; xx++) put(xx, y, BLUE)
-      text(x + 8, 1, m.titles[i]!, i === this.openMenuAt ? WHITE : BLACK)
-      x += w
-    }
-    if (this.openMenuAt >= 0) {
-      const items = m.items[this.openMenuAt] ?? []
-      let bx = 0
-      for (let i = 0; i < this.openMenuAt; i++) bx += m.titles[i]!.length * 8 + 16
-      const bw = Math.max(...items.map((t) => t.length), 4) * 8 + 16
-      for (let i = 0; i < items.length; i++) {
-        const on = i === m.hoverItem
-        for (let y = 0; y < 10; y++) for (let xx = bx; xx < bx + bw; xx++) put(xx, 10 + i * 10 + y, on ? BLUE : WHITE)
-        text(bx + 8, 11 + i * 10, items[i]!, on ? WHITE : BLACK)
-      }
-    }
-  }
 
   /**
    * The real bob pipeline (the vbl Actualise): restore the saved
