@@ -126,6 +126,32 @@ describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => 
     expect(run(prog).out).toBe('AB\n')
   })
 
+  it('collision ignores the flip flags (ColRout strips them, +W.s:179)', () => {
+    // an asymmetric image with the hot spot to one side; two bobs overlap.
+    // whether bob 2 is flipped or not, the collision result is identical
+    // because collision uses the raw un-flipped box.
+    const base = [
+      'Cls 0 : Ink 5 : Bar 0,0 To 3,7', // left half of a 16-wide image
+      'Get Bob 1,0,0 To 16,8',
+      'Hot Spot 1,12,4', // hot spot off-centre
+    ]
+    const unflipped = run([...base, 'Bob 1,60,60,1 : Bob 2,64,60,1', 'Wait Vbl', 'Print Bob Col(1)'].join('\n')).out
+    const flipped = run([...base, 'Bob 1,60,60,1 : Bob 2,64,60,Hrev(1)', 'Wait Vbl', 'Print Bob Col(1)'].join('\n')).out
+    expect(flipped).toBe(unflipped) // flip must not shift the collision box
+  })
+
+  it('Hot Spot code form uses the full width/height, not width-1 (SpotH +W.s:600)', () => {
+    const prog = [
+      'Cls 0 : Ink 5 : Bar 0,0 To 15,9',
+      'Get Bob 1,0,0 To 16,10', // 16x10
+      'Hot Spot 1,$22', // bottom-right = full width/height
+      'Bob 1,100,100,1', // drawn top-left at 100-16, 100-10 = 84,90
+    ].join('\n')
+    const { rt } = run(prog)
+    expect(rt.screen.point(84, 90)).toBe(5) // top-left corner of the image
+    expect(rt.screen.point(99, 99)).toBe(5) // bottom-right at the hot spot
+  })
+
   it('Bobsprite Col maps the bob into hardware space and hits the sprite', () => {
     // a bob at screen 50,50 maps to hw (50>>1)+128=153, 50+50=100; place the
     // hardware sprite at the same spot so they overlap
@@ -332,19 +358,20 @@ describe('blocks, clones, flips', () => {
     expect(rt.screen.point(105, 55)).toBe(5)
   })
 
-  it('flips bob images via Hrev/Vrev flags in the image number', () => {
+  it('flips bob images with the faithful width-hotX hot spot (BobCalc +W.s:1408)', () => {
     const prog = [
       'Cls 0 : Ink 5 : Plot 0,0 : Rem a single marked corner',
-      'Get Bob 1,0,0 To 8,8',
+      'Get Bob 1,0,0 To 8,8', // 8x8, hot spot 0,0
       'Cls 0',
       'Bob 1,50,50,1',
       'Bob 2,100,50,Hrev(1)',
     ].join('\n')
     const { rt } = run(prog)
-    expect(rt.screen.point(50, 50)).toBe(5) // normal: top-left set
-    // flipped: the mirrored hot spot keeps the marked pixel at (100,50)
-    expect(rt.screen.point(100, 50)).toBe(5)
-    expect(rt.screen.point(94, 50)).toBe(0)
+    expect(rt.screen.point(50, 50)).toBe(5) // normal: marked pixel at the hot spot
+    // flipped: effective hotX = width-0 = 8, drawn top-left at 92; the marked
+    // pixel (image column 0) mirrors to column 7 → screen 99 (not 100)
+    expect(rt.screen.point(99, 50)).toBe(5)
+    expect(rt.screen.point(100, 50)).toBe(0)
   })
 
   it('clones screens sharing the bitmap', () => {

@@ -1308,15 +1308,24 @@ export class Runtime {
     this.order.unshift(n)
   }
 
+  /**
+   * The un-flipped collision image: ColRout (+W.s:179) strips the flip
+   * flags, so collision always uses the raw hot spot and box even when the
+   * object is drawn flipped.
+   */
+  private colImage(image: number): BankImage | undefined {
+    return this.spriteBank?.image(image & 0x3fff)
+  }
+
   /** Bob n vs bobs first..last on the same screen; fills colSet. -1/0. */
   bobColCheck(n: number, first = -Infinity, last = Infinity): number {
     this.colSet.clear()
     const me = this.bobs.get(n)
-    const img = me && this.spriteBank?.image(me.image)
+    const img = me && this.colImage(me.image)
     if (!me || !img) return 0
     for (const other of this.bobs.values()) {
       if (other.n === n || other.n < first || other.n > last || other.screen !== me.screen) continue
-      const oimg = this.spriteBank?.image(other.image)
+      const oimg = this.colImage(other.image)
       if (oimg && imagesCollide(img, me.x, me.y, oimg, other.x, other.y)) this.colSet.add(other.n)
     }
     return this.colSet.size > 0 ? -1 : 0
@@ -1325,11 +1334,11 @@ export class Runtime {
   spriteColCheck(n: number, first = -Infinity, last = Infinity): number {
     this.colSet.clear()
     const me = this.hwSprites.get(n)
-    const img = me && this.spriteBank?.image(me.image)
+    const img = me && this.colImage(me.image)
     if (!me || !img) return 0
     for (const other of this.hwSprites.values()) {
       if (other.n === n || other.n < first || other.n > last) continue
-      const oimg = this.spriteBank?.image(other.image)
+      const oimg = this.colImage(other.image)
       if (oimg && imagesCollide(img, me.x, me.y, oimg, other.x, other.y)) this.colSet.add(other.n)
     }
     return this.colSet.size > 0 ? -1 : 0
@@ -1352,12 +1361,12 @@ export class Runtime {
   bobSpriteColCheck(n: number, first = 0, last = 63): number {
     this.colSet.clear()
     const me = this.bobs.get(n)
-    const img = me && this.spriteBank?.image(me.image)
+    const img = me && this.colImage(me.image)
     if (!me || !img) return 0
     const p = this.bobToHw(me)
     for (const sp of this.hwSprites.values()) {
       if (sp.n < first || sp.n > last) continue
-      const oimg = this.spriteBank?.image(sp.image)
+      const oimg = this.colImage(sp.image)
       if (oimg && imagesCollide(img, p.x, p.y, oimg, sp.x, sp.y)) this.colSet.add(sp.n)
     }
     return this.colSet.size > 0 ? -1 : 0
@@ -1367,11 +1376,11 @@ export class Runtime {
   spriteBobColCheck(n: number, first = 0, last = 10000): number {
     this.colSet.clear()
     const me = this.hwSprites.get(n)
-    const img = me && this.spriteBank?.image(me.image)
+    const img = me && this.colImage(me.image)
     if (!me || !img) return 0
     for (const bob of this.bobs.values()) {
       if (bob.n < first || bob.n > last) continue
-      const oimg = this.spriteBank?.image(bob.image)
+      const oimg = this.colImage(bob.image)
       const p = this.bobToHw(bob)
       if (oimg && imagesCollide(img, me.x, me.y, oimg, p.x, p.y)) this.colSet.add(bob.n)
     }

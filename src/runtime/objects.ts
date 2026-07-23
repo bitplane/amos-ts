@@ -64,11 +64,13 @@ export class ObjectBank {
     if (!base || flags === 0) return base
     const cached = this.flipCache.get(n)
     if (cached) return cached
+    // BobCalc +W.s:1408-1413: a flipped image's effective hot spot is
+    // width-hotX / height-hotY (no -1; width is the 16-padded pixel width)
     const flipped: BankImage = {
       ...base,
       pixels: new Uint8Array(base.pixels.length),
-      hotX: flags & 0x8000 ? base.width - 1 - base.hotX : base.hotX,
-      hotY: flags & 0x4000 ? base.height - 1 - base.hotY : base.hotY,
+      hotX: flags & 0x8000 ? base.width - base.hotX : base.hotX,
+      hotY: flags & 0x4000 ? base.height - base.hotY : base.hotY,
     }
     for (let y = 0; y < base.height; y++) {
       const sy = flags & 0x4000 ? base.height - 1 - y : y
