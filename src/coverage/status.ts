@@ -297,6 +297,19 @@ export const FAITHFUL = new Set<string>([
   'on menu on',
   'on menu off',
   'on menu del',
+  // hardware sprites verified against +W.s HsNxya/HsXY/HsOff/HsPri: raw
+  // hardware coords (CXyS 10840), 0..63 range, deferred-update model,
+  // and the flip hot-spot / code forms (SpotH 600, BobCalc 1408)
+  'sprite',
+  'sprite off',
+  'sprite update',
+  'sprite update on',
+  'sprite update off',
+  'sprite priority',
+  'x sprite',
+  'y sprite',
+  'i sprite',
+  'hot spot',
   // objects: collision verified against ColRout +W.s:177 (rectangle-reject
   // then pixel-mask AND, mask = OR of planes = colour!=0 — our pixel-perfect
   // matches); bank access/editing against Bnk.* (+Lib.s:8013-8457)
@@ -462,7 +475,6 @@ export const NOTES: Record<string, string> = {
   boom: 'modern synthesis',
   'load iff': 'HAM decodes as indexed (wrong colours)',
   centre: 'no Border$ handling',
-  'hot spot': 'code form approximated',
   'mouse zone': 'current-screen coordinate mapping approximated',
   print: 'Print # channels unsupported',
   using: "'^' exponent slots not implemented",
@@ -495,6 +507,8 @@ export const NOTES: Record<string, string> = {
   'menu called': 'items redraw every frame; (PR name) label procedures are not invoked',
   'menu movable': 'drag applies final positions — no XOR rubber band',
   'menu item movable': 'drag applies final positions — no XOR rubber band',
+  'sprite priority': 'binary front/behind-playfield z-order; per-plane granularity not modelled',
+  'set sprite buffer': 'validated no-op — the multiplexer buffer has no effect in the chunky renderer',
   'dual playfield': "each playfield uses its own palette, not the hardware's colour split; resolution/plane checks and back-screen auto-hide are not enforced",
   'screen open': 'width masked to /16; colour-count and HAM/EHB mode validation are not enforced',
   'screen display': 'the visible window w/h clips the composite; hardware scaling is not modelled',

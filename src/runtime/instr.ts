@@ -494,9 +494,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().outline = it.evalInt() !== 0
     },
     'set font'(it) {
-      // the port has one bitmap face; the number is kept for Text metrics
+      // InSetFont +Lib.s:9835: only a negative number errors; the port has a
+      // single face, so any valid number just keeps it (number stored for
+      // Text metrics)
       const n = it.evalInt()
-      if (n < 1 || n > FONT_LIST.length) throw new AmosError('function call error')
+      if (n < 0) throw new AmosError('function call error')
       rt.currentFont = n
     },
     'get fonts'() {
@@ -1036,7 +1038,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 
     // ---- hardware sprites ----
     sprite(it) {
+      // InSprite +Lib.s:12315 → HsNxya: n in 0..63; omitted args keep the
+      // previous value (each compared to EntNul)
       const n = it.evalInt()
+      if (n < 0 || n >= 64) throw new AmosError('illegal sprite number')
       const cur = rt.hwSprites.get(n)
       it.expect(',')
       const x = optInt(it, cur?.x ?? 0)
@@ -1051,7 +1056,23 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       else rt.hwSprites.delete(it.evalInt())
     },
     'sprite update'(it) {
+      // InSpriteUpdate +Lib.s:11508: apply buffered changes now (ActHs+AffHs)
       it.skipToStmtEnd()
+      if (!rt.spriteUpdateOn) rt.frozenSprites = [...rt.hwSprites.values()].map((s) => ({ ...s }))
+    },
+    'sprite priority'(it) {
+      // InSpritePriority +Lib.s:12302 → HsPri: BPLCON2 sprite-vs-playfield
+      // z-order, 0..4 (0 = sprites over everything)
+      const p = it.evalInt()
+      if (p < 0 || p > 4) throw new AmosError('function call error')
+      rt.spritePriority = p
+    },
+    'set sprite buffer'(it) {
+      // InSetSpriteBuffer +Lib.s:12290: scanlines per multiplexer slot, must
+      // be >= 16 (cmp #16 / bcs error). A resource knob with no visible
+      // effect in the chunky renderer.
+      const n = it.evalInt()
+      if (n < 16) throw new AmosError('function call error')
     },
 
     // ---- zones ----

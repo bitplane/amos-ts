@@ -153,17 +153,60 @@ describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => 
   })
 
   it('Bobsprite Col maps the bob into hardware space and hits the sprite', () => {
-    // a bob at screen 50,50 maps to hw (50>>1)+128=153, 50+50=100; place the
-    // hardware sprite at the same spot so they overlap
+    // lowres bob at screen 50,50 maps to hw x=50+128=178, y=50+50=100
+    // (CXyS: X halved only in hires, so lowres X is unchanged)
     const prog = [
       'Cls 0 : Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8',
       'Bob 1,50,50,1',
-      'Sprite 8,153,100,1',
+      'Sprite 8,178,100,1',
       'Wait Vbl',
       'Print Bobsprite Col(1)',
     ].join('\n')
-    const { out } = run(prog)
-    expect(out).toBe('-1\n')
+    expect(run(prog).out).toBe('-1\n')
+  })
+
+  it('X/Y/I Sprite read back the raw stored hardware coords (HsXY)', () => {
+    expect(run('Sprite 5,200,120,3 : Print X Sprite(5);Y Sprite(5);I Sprite(5)').out).toBe(' 200 120 3\n')
+    // omitted args keep the previous value
+    expect(run('Sprite 5,200,120,3 : Sprite 5,,140, : Print X Sprite(5);Y Sprite(5)').out).toBe(' 200 140\n')
+  })
+
+  it('Sprite number is limited to 0..63; Sprite Priority to 0..4', () => {
+    expect(() => run('Sprite 64,100,100,1')).toThrow(/sprite number/)
+    expect(() => run('Sprite Priority 5')).toThrow()
+  })
+
+  it('Sprite Priority 4 draws sprites behind the playfield', () => {
+    const prog = [
+      'Cls 5', // opaque colour-5 playfield everywhere
+      'Ink 7 : Bar 0,0 To 15,15 : Get Bob 1,0,0 To 16,16',
+      'Sprite 8,160,100,1',
+      'Sprite Priority 4',
+      'Wait Vbl',
+    ].join('\n')
+    const { rt } = run(prog)
+    const { data } = rt.composite()
+    // at the sprite's device position the playfield (colour 5) wins, not the sprite
+    const px = (160 - 128) * 2
+    const py = (100 - 50) * 2
+    const o = (py * 640 + px) * 4
+    const c5 = rt.screens.get(0)!.palette[5]!
+    expect([data[o], data[o + 1], data[o + 2]]).toEqual([((c5 >> 8) & 15) * 17, ((c5 >> 4) & 15) * 17, (c5 & 15) * 17])
+  })
+
+  it('manual Sprite Update applies buffered moves while frozen', () => {
+    const prog = [
+      'Cls 0 : Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8',
+      'Sprite 8,200,100,1',
+      'Wait Vbl',
+      'Sprite Update Off',
+      'Sprite 8,240,100,1', // buffered, not yet shown
+      'Print X Sprite(8)', // the table still reflects the write
+      'Sprite Update', // apply now
+    ].join('\n')
+    const { rt, out } = run(prog)
+    expect(out).toBe(' 240\n')
+    expect(rt.frozenSprites!.find((s) => s.n === 8)!.x).toBe(240) // snapshot updated
   })
 })
 

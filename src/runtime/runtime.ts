@@ -956,6 +956,8 @@ export class Runtime {
   // ---- sprite update freeze ----
   spriteUpdateOn = true
   frozenSprites: HwSprite[] | null = null
+  /** Sprite Priority (HsPri): 0..4 sprite-vs-playfield z-order; 4 = behind */
+  spritePriority = 0
   // ---- menus (the Mn* engine, src/runtime/menu.ts) ----
   menu = new MenuTree()
   /** open interaction state while RMB is held (MnGere) */
@@ -1346,13 +1348,14 @@ export class Runtime {
 
   /**
    * Map a bob's screen position into hardware-sprite coordinate space
-   * (CXyS +W.s:10840): X = (lowres ? x>>1 : x) + display origin, Y likewise.
-   * Sprites already live in hardware coords, so this puts the bob alongside.
+   * (CXyS +W.s:10840): X is halved in HIRES, Y is halved when INTERLACED —
+   * one hardware unit is one lowres pixel. Sprites already live in hardware
+   * coords, so this puts the bob alongside them for collision.
    */
   private bobToHw(bob: Bob): { x: number; y: number } {
     const s = this.screens.get(bob.screen) ?? this.screen
     return {
-      x: (s.hires ? bob.x : bob.x >> 1) + s.displayX,
+      x: (s.hires ? bob.x >> 1 : bob.x) + s.displayX,
       y: (s.laced ? bob.y >> 1 : bob.y) + s.displayY,
     }
   }
@@ -1743,6 +1746,9 @@ export class Runtime {
       data[i + 3] = 255
     }
     // Dual Playfield: the front screen composites last with colour 0 clear
+    // Sprite Priority 4 puts hardware sprites BEHIND the playfield (drawn
+    // before the screens); lower priorities keep them in front (default)
+    if (this.spritePriority >= 4) this.drawHwSprites(data, W, H)
     let order = this.order
     const dual = this.dualPlayfield
     if (dual && this.screens.has(dual.front) && this.screens.has(dual.back)) {
@@ -1789,7 +1795,7 @@ export class Runtime {
         }
       }
     }
-    this.drawHwSprites(data, W, H)
+    if (this.spritePriority < 4) this.drawHwSprites(data, W, H)
     return { width: W, height: H, data }
   }
 
