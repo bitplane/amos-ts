@@ -37,6 +37,14 @@ describe('user copper instructions (TCop* +W.s:6815-6935)', () => {
     expect(out).toBe(' 384\n 3840\n 25603\n 65534\n')
   })
 
+  it('a runaway list faults at the 12KB buffer, like the real machine (CopEr2 +W.s:6905, 12*1024 config)', () => {
+    // Multi_Rainbows springs this when its data file is missing: its list
+    // walker runs off the end of a zeroed bank writing Cop Move forever
+    const src = ['Copper Off', 'Do', ' Cop Move 0,0', 'Loop'].join('\n')
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000 })
+    expect(() => rt.runHeadless(500)).toThrow(/copper list too long/)
+  })
+
   it('Cop Wait past line 255 emits the $FFE1 crossing once (TCopWt 6884)', () => {
     const rt = run(['Copper Off', 'Cop Wait 0,280', 'Cop Wait 0,300'].join('\n'))
     const l = rt.copLogic

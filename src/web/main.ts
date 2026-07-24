@@ -363,7 +363,7 @@ function loop(now: number): void {
           : b.type
         : `running · ${lastName}`
     const skipped = rt.interp.unimplemented.size
-    if (skipped > 0) status += ` · ${skipped} unimplemented skipped`
+    if (skipped > 0) status += ` · ${skipped} skipped: ${[...rt.interp.unimplemented.keys()].slice(0, 4).join(', ')}`
   }
   statusEl.textContent = error !== '' ? `error: ${error}` : status
 }
