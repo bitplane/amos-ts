@@ -295,6 +295,10 @@ export class Runtime {
   devIter: { entries: string[]; idx: number } | null = null
   /** Amos Lock's T_NoFlip flag — no screen flipping to suppress here */
   noFlip = false
+  /** IffReturn: the last DLTA's ANHD relative time (=Frame Param) */
+  iffReturn = 0
+  /** Iff Anim playback state (InIffAnim3's frame loop, +Lib.s:4564) */
+  iffAnim: { buf: Uint8Array; pos: number; firstPos: number; remaining: number; nextDue: number } | null = null
   // ---- blocks (Get/Put Block, Cblocks) ----
   blocks = new Map<number, { x: number; y: number; w: number; h: number; pixels: Uint8Array; mask: boolean }>()
   cblocks = new Map<number, { x: number; y: number; w: number; h: number; pixels: Uint8Array }>()

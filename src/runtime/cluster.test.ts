@@ -415,6 +415,61 @@ describe('integration: random-access records (InField/InGet/InPut +ILib.s:4769/+
   })
 })
 
+describe('integration: IFF ANIM frames (IffForm* +Lib.s:6861-7500)', () => {
+  const animBytes = new Uint8Array(readFileSync(join(__dirname, '../../fixtures/official-amos/Tutorial/Iff_Anim/AMOS.Anim')))
+
+  function animRt(src: string): { rt: Runtime; out: string } {
+    const fs = new AmigaFS()
+    const vol = fs.mountMemory('DH0')
+    vol.write(['AMOS.Anim'], animBytes)
+    let out = ''
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 500_000, fs, onText: (t) => (out += t) })
+    rt.runHeadless(400)
+    return { rt, out }
+  }
+
+  it('Frame Length measures and Frame Load banks frames from a channel', () => {
+    const { out } = animRt(
+      ['Open In 1,"AMOS.Anim"', 'L=Frame Length(1)', 'Print L>0', 'N=Frame Load(1 To 10,3)', 'Print N', 'Print Length(10)>0', 'Close 1'].join('\n'),
+    )
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['-1', '3', '-1'])
+  })
+
+  it('Frame Play draws the first frame into a created screen; Frame Skip advances', () => {
+    const prog = [
+      'Open In 1,"AMOS.Anim"',
+      'N=Frame Load(1 To 10,2)',
+      'Close 1',
+      'A=Frame Play(10,1,0)', // create screen 0 from the BMHD
+      'Print Screen Width;Screen Height',
+      'B=Frame Skip(10)',
+      'Print A=B', // skip walks the same single frame
+      'Print A>Start(10)',
+    ].join('\n')
+    const { rt, out } = animRt(prog)
+    const lines = out.trim().split('\n').map((s) => s.trim())
+    expect(lines[0]).toBe('320 256')
+    expect(lines[1]).toBe('-1')
+    expect(lines[2]).toBe('-1')
+    // the frame drew something: some pixel is nonzero
+    let lit = 0
+    const px = rt.screens.get(0)!.pixels
+    for (let i = 0; i < px.length; i += 31) if (px[i] !== 0) lit++
+    expect(lit).toBeGreaterThan(10)
+  })
+
+  it('Iff Anim plays the file with double-buffered swaps (InIffAnim +Lib.s:4538)', () => {
+    const { rt } = animRt('Iff Anim "AMOS.Anim",0\nPrint "done"')
+    expect(rt.screens.get(0)!.doubleBuffered).toBe(true)
+    expect(rt.iffAnim).toBeNull() // playback completed
+  })
+
+  it('Frame Param carries the ANHD wait time after a DLTA', () => {
+    const prog = ['Open In 1,"AMOS.Anim"', 'N=Frame Load(1 To 10,2)', 'Close 1', 'A=Frame Play(10,2,0)', 'Print Frame Param>=0'].join('\n')
+    expect(animRt(prog).out.trim().split('\n').pop()!.trim()).toBe('-1')
+  })
+})
+
 describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => {
   it('Bob Col is rectangle-gated pixel-perfect and fills the Col set', () => {
     const prog = [

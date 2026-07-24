@@ -24,6 +24,7 @@ import { amigaPattern } from './vfs'
 import { MF_BAR, MF_BOUGE, MF_FIXED, MF_OFF, MF_SEP, MF_TBOUGE, MF_TOTAL, bankToMenu, compileMenuObject, menuCalc, menuToBank } from './menu'
 import { ENV_BELL, ENV_BOOM, ENV_SHOOT } from './music'
 import { squash as squashBytes, unsquash as unsquashBytes } from './squash'
+import { formLoad, formPlay, formSize } from './iffanim'
 import { parsePpBank, writePpBank } from '../loader/powerpacker'
 
 /**
@@ -371,6 +372,16 @@ function objBase(rt: Runtime, kind: 'sprites' | 'icons', n: number): number {
   const img = rt.objectBankImage(kind)!
   const off = 2 + (idx - 1) * 8
   return (((img[off]! << 24) | (img[off + 1]! << 16) | (img[off + 2]! << 8) | img[off + 3]!) >>> 0) | 0
+}
+
+/** Frame Play/Skip core: resolve the buffer, walk, return the new address */
+function framePlaySkip(rt: Runtime, ad: number, n: number, param: number | null, skip: boolean): number {
+  if (n < 0 || n >= 32768) throw new AmosError('Illegal function call', 23)
+  const base = ad > 0 && ad < 0x10000 ? rt.bankBase(ad) : ad
+  const m = rt.bankOrAddr(ad)
+  if (!m) throw new AmosError('bad IFF format')
+  const end = formPlay(rt, m.data, m.off, n, param, skip)
+  return base + (end - m.off)
 }
 
 /**
@@ -2099,6 +2110,46 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // the buffer size only matters to the editor/compiler at load time
       it.evalInt()
     },
+    'iff anim'(it) {
+      // InIffAnim +Lib.s:4538: Iff Anim "file",screen[,times] — the
+      // whole ANIM loads, frame 1 creates and double-buffers the
+      // screen, then each frame waits the ANHD time, swaps, and plays
+      // the next DLTA into the logical buffer (which is what makes
+      // ANIM5's two-frames-back deltas land correctly)
+      const path = it.evalStr()
+      it.expect(',')
+      const screen = it.evalInt()
+      const times = it.accept(',') ? it.evalInt() : 1
+      if (times < 0) throw new AmosError('Illegal function call', 23)
+      if (!rt.iffAnim) {
+        const bytes = rt.fs?.read(path)
+        if (!bytes) throw new AmosError(`file not found: ${path}`)
+        const data = Uint8Array.from(bytes)
+        const { bytes: size } = formSize(data, 0, 32767)
+        const buf = new Uint8Array(size + 8)
+        formLoad(data, 0, 32767, buf)
+        if (String.fromCharCode(buf[8]!, buf[9]!, buf[10]!, buf[11]!) !== 'ILBM') throw new AmosError('bad IFF format')
+        const pos = formPlay(rt, buf, 0, 1, screen, false)
+        rt.screen.doubleBuffer()
+        rt.iffAnim = { buf, pos, firstPos: pos, remaining: times, nextDue: it.tick + Math.max(1, rt.iffReturn + 1) }
+      }
+      const st = rt.iffAnim
+      while (it.tick >= st.nextDue) {
+        rt.screen.swap()
+        if (String.fromCharCode(st.buf[st.pos]!, st.buf[st.pos + 1]!, st.buf[st.pos + 2]!, st.buf[st.pos + 3]!) === 'AenD') {
+          if (--st.remaining > 0) {
+            st.pos = st.firstPos
+          } else {
+            rt.iffAnim = null
+            return
+          }
+        }
+        st.pos = formPlay(rt, st.buf, st.pos, 1, null, false)
+        st.nextDue = it.tick + Math.max(1, rt.iffReturn + 1)
+      }
+      it.block({ type: 'wait', until: st.nextDue }, true)
+      return 'jumped'
+    },
     'med load'(it) {
       // InMedLoad +Music.s:4456: whole file into a chip bank "Med     ";
       // a bad magic erases the bank and raises error 189
@@ -3213,6 +3264,66 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It) => import
       rt.dialogArrays.set(addr, arr)
       return VI(addr)
     },
+    'frame load'(it) {
+      // =Frame Load(f To dest[,n]) — FnFormLoad +Lib.s:4412: n>0; a
+      // dest under 1024 reserves a Work bank "Iff" sized by
+      // IffFormSize; returns the number of frames loaded
+      it.expect('(')
+      const f = it.evalInt()
+      it.expect('to')
+      const dest = it.evalInt()
+      const n = it.accept(',') ? it.evalInt() : 1
+      it.expect(')')
+      if (n <= 0 || dest <= 0) throw new AmosError('Illegal function call', 23)
+      const c = rt.chan(f)
+      if (c.mode !== 'in') throw new AmosError('file type mismatch')
+      let view: { data: Uint8Array; off: number } | null
+      if (dest < 1024) {
+        rt.memBanks.delete(dest)
+        const { bytes } = formSize(c.data, c.pos, n)
+        rt.reserveBank(dest, bytes, 'Iff', false)
+        view = { data: rt.memBanks.get(dest)!.data, off: 0 }
+      } else {
+        view = rt.resolveWrite(dest)
+      }
+      if (!view) return VI(0)
+      const r = formLoad(c.data, c.pos, n, view.off === 0 ? view.data : view.data.subarray(view.off))
+      c.pos = r.pos
+      return VI(r.frames)
+    },
+    'frame length'(it) {
+      // =Frame Length(f[,n]) — FnFormLength +Lib.s:4458: bytes for the
+      // next n FORMs (+4 for AenD) without moving the position
+      it.expect('(')
+      const f = it.evalInt()
+      const n = it.accept(',') ? it.evalInt() : 1
+      it.expect(')')
+      if (n < 0 || n >= 32768) throw new AmosError('Illegal function call', 23)
+      const c = rt.chan(f)
+      if (c.mode !== 'in') throw new AmosError('file type mismatch')
+      return VI(formSize(c.data, c.pos, n).bytes)
+    },
+    'frame play'(it) {
+      // =Frame Play(ad,n[,screen]) — FnFormPlay +Lib.s:4487: plays n
+      // FORMs from the buffer; the screen argument creates the screen
+      // at each BODY; returns the address after the played frames
+      it.expect('(')
+      const ad = it.evalInt()
+      it.expect(',')
+      const n = it.evalInt()
+      const param = it.accept(',') ? it.evalInt() : null
+      it.expect(')')
+      return VI(framePlaySkip(rt, ad, n, param, false))
+    },
+    'frame skip'(it) {
+      // =Frame Skip(ad[,n]) — FnFormSkip +Lib.s:4513: bit 30 set, no
+      // drawing; returns the advanced address
+      it.expect('(')
+      const ad = it.evalInt()
+      const n = it.accept(',') ? it.evalInt() : 1
+      it.expect(')')
+      return VI(framePlaySkip(rt, ad, n, null, true))
+    },
     varptr(it) {
       // FnVarPtr +ILib.s:4087: numbers -> the address of the 4-byte cell
       // (arena slots that sync/flush through Peek/Poke, floats in FFP);
@@ -3340,6 +3451,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     'text styles'() {
       // FnTextStyle +Lib.s:9898: the rastport SoftStyle byte
       return VI(scr().textStyle)
+    },
+    'frame param'(_, a) {
+      // FnFormParam +Lib.s:4616: the last DLTA's ANHD relative time
+      void a
+      return VI(rt.iffReturn)
     },
     'sprite base'(_, a) {
       return VI(objBase(rt, 'sprites', int(a[0]!)))

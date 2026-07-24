@@ -201,6 +201,18 @@ export const FAITHFUL = new Set<string>([
   'field',
   'get',
   'put',
+  // IFF ANIM frames: IffFormLoad/Size/Play ported (+Lib.s:6861-7500) —
+  // FORM ANIM unwrapping + AenD terminator, the exact size formula,
+  // BMHD/CMAP/CAMG/ANHD chunk registry, BODY row-interleaved ByteRun1
+  // into the screen planes, ANIM5 (op 5 only) vertical-column DLTAs,
+  // Iff Anim's double-buffer/swap frame loop with ANHD timing
+  // (InIffAnim 4538); cluster.test.ts replays the shipped AMOS.Anim
+  'frame load',
+  'frame length',
+  'frame play',
+  'frame skip',
+  'frame param',
+  'iff anim',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
   'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add
