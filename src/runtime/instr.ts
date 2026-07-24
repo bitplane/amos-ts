@@ -799,6 +799,44 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (it.atStmtEnd()) rt.rainbows.clear()
       else rt.rainbows.delete(it.evalInt())
     },
+
+    // ---- user copper (TCop* +W.s:6815-6935) ----
+    'copper on'() {
+      rt.copperOnOff(true)
+    },
+    'copper off'() {
+      rt.copperOnOff(false)
+    },
+    'cop swap'() {
+      rt.copSwapUser()
+    },
+    'cop reset'() {
+      rt.copResetUser()
+    },
+    'cop wait'(it) {
+      // Cop Wait x,y[,xmask,ymask] — masks default -1 (InCopWait2 +Lib.s:9487)
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      let mx = -1
+      let my = -1
+      if (it.accept(',')) {
+        mx = it.evalInt()
+        it.expect(',')
+        my = it.evalInt()
+      }
+      rt.copWait(x, y, mx, my)
+    },
+    'cop move'(it) {
+      const reg = it.evalInt()
+      it.expect(',')
+      rt.copMove(reg, it.evalInt())
+    },
+    'cop movel'(it) {
+      const reg = it.evalInt()
+      it.expect(',')
+      rt.copMoveL(reg, it.evalInt())
+    },
     rain(it) {
       // assignment form: Rain(n,line) = colour (TRVar +W.s:3966: bounds
       // checked, the value masked to 12 bits; errors are OUT OF MEMORY
@@ -2932,6 +2970,12 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
       const z = dialogZoneAt(d, int(a[1]!), int(a[2]!))
       return VI(z ? z.number : -1)
+    },
+    'cop logic'(_, a) {
+      // =Cop Logic (FnCopLogic +Lib.s:9527 → TCopBs): the address of the
+      // logical copper list — real mapped memory, Leek/Loke reach it
+      void a
+      return VI(rt.copLogicAddr() | 0)
     },
     rain(_, a) {
       // =Rain(n,line) (FnRain +Lib.s:9447 → TRVar +W.s:3966): bounds

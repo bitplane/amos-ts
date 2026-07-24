@@ -211,6 +211,129 @@ export class Runtime {
     return (Runtime.SCREEN_CHIP_BASE + index * Runtime.SCREEN_CHIP_SLOT) >>> 0
   }
 
+  // ---- user copper (CpInit/TCop* +W.s:6764-6935) ----
+  /**
+   * Two real copper-list buffers in mapped chip RAM (T_CopLogic /
+   * T_CopPhysic). T_CopLong is interpreter-config item 12, "Taille liste
+   * copper" — 12K by default (+Interpreter_Config.s:60). The buffers are
+   * plain memory: Leek/Loke through Cop Logic addresses read and patch
+   * the actual list bytes, which is how Multi_Rainbows.AMOS works.
+   */
+  static readonly COPPER_BASE = 0x50000000
+  static readonly COPPER_SLOT = 0x00004000
+  static readonly COPPER_LONG = 12 * 1024
+  /** T_CopON: the system rebuilds and owns the display while true */
+  copperOn = true
+  copBufA = new Uint8Array(Runtime.COPPER_LONG)
+  copBufB = new Uint8Array(Runtime.COPPER_LONG)
+  private copLogIsA = true
+  /** T_CopPos: the user write offset into the logical list */
+  copPos = 0
+  /** T_Cop255: the line-255 crossing wait has been emitted */
+  private copCross = false
+
+  get copLogic(): Uint8Array {
+    return this.copLogIsA ? this.copBufA : this.copBufB
+  }
+  get copPhysic(): Uint8Array {
+    return this.copLogIsA ? this.copBufB : this.copBufA
+  }
+  /** =Cop Logic (TCopBs): the mapped address of the logical list */
+  copLogicAddr(): number {
+    return (Runtime.COPPER_BASE + (this.copLogIsA ? 0 : Runtime.COPPER_SLOT)) >>> 0
+  }
+
+  private copCheckOff(): void {
+    // CopEr1: every user list write requires Copper Off first
+    if (this.copperOn) throw new AmosError('copper not deactivated')
+  }
+
+  private copPut(w: number): void {
+    // CopFin: the 68k writes first and faults after T_CopLong; we bound
+    // each word (protective) with the same error
+    if (this.copPos + 2 > Runtime.COPPER_LONG) throw new AmosError('copper list too long')
+    const l = this.copLogic
+    l[this.copPos] = (w >> 8) & 0xff
+    l[this.copPos + 1] = w & 0xff
+    this.copPos += 2
+  }
+
+  /** Cop Wait x,y[,xmask,ymask] (TCopWt +W.s:6874) */
+  copWait(x: number, y: number, mx: number, my: number): void {
+    this.copCheckOff()
+    if (x >>> 0 >= 313 || y >>> 0 >= 313) throw new AmosError('copper parameter out of range')
+    if (y >= 256 && !this.copCross) {
+      // the line-255 crossing wait, emitted once ($FFE1,$FFFE)
+      this.copPut(0xffe1)
+      this.copPut(0xfffe)
+      this.copCross = true
+    }
+    this.copPut(((y << 8) | ((x >> 1) & 0xfe) | 1) & 0xffff)
+    this.copPut(((my << 8) | ((mx >> 1) & 0xfe)) & 0xffff)
+  }
+
+  /** Cop Move reg,value (TCopMv +W.s:6910) */
+  copMove(reg: number, val: number): void {
+    this.copCheckOff()
+    if (reg >>> 0 >= 512) throw new AmosError('copper parameter out of range')
+    this.copPut(reg & 0x1fe)
+    this.copPut(val & 0xffff)
+  }
+
+  /** Cop Movel reg,value — high word at reg, low at reg+2 (TCopMl) */
+  copMoveL(reg: number, val: number): void {
+    this.copMove(reg, (val >>> 16) & 0xffff)
+    this.copMove(reg + 2, val & 0xffff)
+  }
+
+  /** Cop Swap (TCopSw): terminate, swap lists, reset the write pointer */
+  copSwapUser(): void {
+    this.copCheckOff()
+    const l = this.copLogic
+    if (this.copPos + 4 <= Runtime.COPPER_LONG) {
+      l[this.copPos] = 0xff
+      l[this.copPos + 1] = 0xff
+      l[this.copPos + 2] = 0xff
+      l[this.copPos + 3] = 0xfe
+    }
+    this.copLogIsA = !this.copLogIsA
+    // TCopSw falls into TCopRes
+    this.copPos = 0
+    this.copCross = false
+  }
+
+  /** Cop Reset (TCopRes) */
+  copResetUser(): void {
+    this.copCheckOff()
+    this.copPos = 0
+    this.copCross = false
+  }
+
+  /** Copper On / Copper Off (TCopOn +W.s:6815) */
+  copperOnOff(on: boolean): void {
+    if (!on) {
+      if (!this.copperOn) return
+      this.copperOn = false
+      // the OFF path terminates the logical list empty and swaps: the
+      // display goes blank, and the last system list lands in the new
+      // logical buffer where Cop Logic readers see it. (The real machine
+      // also hides the mouse pointer, T_MouShow=-1 — a front-end concern.)
+      this.copPos = 0
+      const l = this.copLogic
+      l[0] = 0xff
+      l[1] = 0xff
+      l[2] = 0xff
+      l[3] = 0xfe
+      this.copLogIsA = !this.copLogIsA
+      this.copPos = 0
+      this.copCross = false
+    } else {
+      if (this.copperOn) return
+      this.copperOn = true
+      this.buildCopperList() // EcForceCop: recalcule les listes
+    }
+  }
+
   /** resolve an address for reading (Peek): planar mirrors refresh from chunky */
   resolveAddr(addr: number): { data: Uint8Array; off: number } | null {
     return this.resolveInto(addr, false)
@@ -223,6 +346,12 @@ export class Runtime {
 
   private resolveInto(addr: number, write: boolean): { data: Uint8Array; off: number } | null {
     const a = addr >>> 0
+    if (a >= Runtime.COPPER_BASE && a < Runtime.COPPER_BASE + 2 * Runtime.COPPER_SLOT) {
+      const rel = a - Runtime.COPPER_BASE
+      const buf = rel < Runtime.COPPER_SLOT ? this.copBufA : this.copBufB
+      const off = rel % Runtime.COPPER_SLOT
+      return off < buf.length ? { data: buf, off } : null
+    }
     if (a >= Runtime.SCREEN_CHIP_BASE && a < Runtime.SCREEN_CHIP_BASE + 8 * Runtime.SCREEN_CHIP_SLOT) {
       const rel = a - Runtime.SCREEN_CHIP_BASE
       const s = this.screens.get(Math.floor(rel / Runtime.SCREEN_CHIP_SLOT))
@@ -1545,8 +1674,11 @@ export class Runtime {
     this.applyFlashes()
     // the copper rebuild runs at the vbl (EcCopper via T_Actualise), so
     // Rainbow-instruction changes latch here — consecutive same-frame
-    // Rainbow calls coalesce their RnAct bits, exactly as on the Amiga
-    this.activateRainbows()
+    // Rainbow calls coalesce their RnAct bits, exactly as on the Amiga.
+    // While the system copper is on, the real word list is regenerated
+    // and swapped so Cop Logic readers see it; Copper Off freezes it.
+    if (this.copperOn) this.buildCopperList()
+    else this.activateRainbows()
     if (!this.synchroManual) this.stepAmal()
     this.unblock()
     let result: RunResult
@@ -1877,6 +2009,182 @@ export class Runtime {
     }
   }
 
+  private winWOf(s: Screen): number {
+    return s.displayW >= 0 ? Math.min(s.displayW, s.width) : s.width
+  }
+  private winHOf(s: Screen): number {
+    return s.displayH >= 0 ? Math.min(s.displayH, s.height) : s.height
+  }
+  private coversLine(s: Screen, L: number): boolean {
+    const hwH = s.laced ? Math.ceil(this.winHOf(s) / 2) : this.winHOf(s)
+    return L >= s.displayY && L < s.displayY + hwH
+  }
+  /** the front screen band owning hardware line L (priority slices) */
+  private frontAt(L: number): Screen | null {
+    let f: Screen | null = null
+    for (let i = this.order.length - 1; i >= 0; i--) {
+      const s = this.screens.get(this.order[i]!)
+      if (!s || !s.visible || !this.coversLine(s, L)) continue
+      f = s
+      break
+    }
+    const dual = this.dualPlayfield
+    if (dual && f && f === this.screens.get(dual.back) && this.screens.has(dual.front)) {
+      const df = this.screens.get(dual.front)!
+      if (df.visible && this.coversLine(df, L)) f = df
+    }
+    return f
+  }
+
+  /**
+   * Build the system copper list into the logical buffer and swap — the
+   * word-for-word equivalent of EcCopper (+W.s:5730/6030-6500) run at each
+   * vbl. The list is real memory behind Cop Logic: the header wait
+   * $1003FFFE + sprite pointers $120-$13E (HsCop +W.s:6786), then per
+   * screen band an EcCopHo block (WAIT, DMACON stop, the 16-colour
+   * palette, BPLxPTH/L pointing into the screen's chip-RAM planes,
+   * DIWSTRT/STOP, DDFSTRT/STOP, modulos, BPLCON0-2, then a WAIT for the
+   * next line + DMACON $8300 + colours 16-31, FiniCop), per rainbow line
+   * a WAIT + COLOR move (CopBow), EcCopBa (DMA stop + fond) at band ends,
+   * and the $FFFFFFFE terminator. Deviation: the rainbow-restore move is
+   * emitted after a WAIT for its own line (the 68k emits it unwaited,
+   * which lands it a beam-race early — idealized here).
+   */
+  buildCopperList(): void {
+    this.activateRainbows()
+    const l = this.copLogic
+    let p = 0
+    const put = (w: number): void => {
+      if (p + 2 <= l.length) {
+        l[p] = (w >> 8) & 0xff
+        l[p + 1] = w & 0xff
+        p += 2
+      }
+    }
+    let cross = false
+    const wait = (line: number): void => {
+      if (line >= 256 && !cross) {
+        put(0xffdf)
+        put(0xfffe)
+        cross = true
+      }
+      put(((line << 8) & 0xff00) | 0x03)
+      put(0xfffe)
+    }
+    put(0x1003)
+    put(0xfffe)
+    for (let r = 0x120; r <= 0x13e; r += 2) {
+      put(r)
+      put(0)
+    }
+    const rbs = [...this.rainbows.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, r]) => r)
+      .filter((r) => r.table.length > 0 && r.h >= 0 && r.ty > 0)
+    let front: Screen | null = null
+    let curRb: Rainbow | null = null
+    let emitted = false
+    for (let L = 0; L < 313; L++) {
+      const f = this.frontAt(L)
+      const bandStart = f !== front && f !== null
+      const bandEnd = f !== front && f === null
+      if (bandStart && f) {
+        emitted = true
+        // EcCopHo head (+W.s:6293) — the band splitter stores boundaries
+        // at EcWY-1 (MkD2 +W.s:5830), so the setup runs on the line BEFORE
+        // the band and the DMA restart lands exactly on its first line
+        wait(Math.max(0, L - 1))
+        put(0x096)
+        put(0x0100)
+        for (let i = 0; i < 16; i++) {
+          put(0x180 + i * 2)
+          put(f.palette[i]! & 0xfff)
+        }
+        // bitplane pointers: the +1 window offset relative to the setup
+        // line cancels the -1, pointing at the band's first row
+        const rowOff = (L - f.displayY + f.offsetY) * f.rowBytes + ((f.offsetX >> 4) << 1)
+        const base = this.screenChipBase(f.index) + (f.doubleBuffered ? Runtime.SCREEN_PHY_OFFSET : 0)
+        for (let pl = 0; pl < f.depth; pl++) {
+          const ad = (base + pl * f.planeSize + rowOff) >>> 0
+          put(0x0e0 + pl * 4)
+          put((ad >>> 16) & 0xffff)
+          put(0x0e2 + pl * 4)
+          put(ad & 0xffff)
+        }
+        const hwx = f.displayX + 1
+        put(0x08e) // DIWSTRT
+        put(((hwx & 0xff) | 0x0100) & 0xffff)
+        put(0x090) // DIWSTOP
+        put((((hwx + (this.winWOf(f) >> (f.hires ? 1 : 0))) & 0xff) | 0x3700) & 0xffff)
+        const ds = f.hires ? ((hwx - 9) >> 1) & 0xfffc : ((hwx - 17) >> 1) & 0xfff8
+        const de = ds + (this.winWOf(f) >> (f.hires ? 2 : 1)) - 8
+        put(0x092)
+        put(ds & 0xffff)
+        put(0x094)
+        put(de & 0xffff)
+        const fetch = (this.winWOf(f) >> 4) << 1
+        let mod = Math.max(0, f.rowBytes - (f.hires ? fetch >> 1 : fetch))
+        if (f.laced) mod += f.rowBytes
+        put(0x108)
+        put(mod)
+        put(0x10a)
+        put(mod)
+        put(0x100) // BPLCON0
+        put(((f.hires ? 0x8000 : 0) | (Math.min(f.depth, 7) << 12) | 0x0200 | (f.laced ? 4 : 0)) & 0xffff)
+        put(0x102)
+        put(0)
+        put(0x104)
+        put(0x0024)
+        // FiniCop: restart the DMA on the band's first line + the upper
+        // palette half
+        wait(L)
+        put(0x096)
+        put(0x8300)
+        for (let i = 16; i < 32; i++) {
+          put(0x180 + i * 2)
+          put(f.palette[i]! & 0xfff)
+        }
+      } else if (bandEnd) {
+        // EcCopBa (+W.s:6741)
+        wait(L)
+        put(0x096)
+        put(0x0100)
+        put(0x180)
+        put(this.colourBack & 0xfff)
+      }
+      front = f
+      // the single-rainbow machine (CopBow), interleaved with the bands
+      if (curRb && L >= curRb.fy) {
+        if (!bandStart && !bandEnd && front) {
+          wait(L)
+          put(0x180 + curRb.colour * 2)
+          put(front.palette[curRb.colour]! & 0xfff)
+        }
+        curRb = null
+      }
+      if (!curRb) curRb = rbs.find((r) => L >= r.dy && L < r.fy) ?? null
+      if (curRb) {
+        // at a band start the beam already sits at L after FiniCop
+        if (!bandStart) wait(L)
+        const t = curRb.table
+        put(0x180 + curRb.colour * 2)
+        put(t[(L - curRb.dy + curRb.base) % t.length]!)
+      }
+    }
+    if (!emitted) {
+      // no screens: the fond is still parked at the bottom (MCopX)
+      wait(312)
+      put(0x096)
+      put(0x0100)
+      put(0x180)
+      put(this.colourBack & 0xfff)
+    }
+    put(0xffff)
+    put(0xfffe)
+    // MCopSw: swap the lists; the freshly built one becomes physical
+    this.copLogIsA = !this.copLogIsA
+  }
+
   /**
    * The scanline compositor: a faithful walk of the copper list the real
    * AMOS builds each vbl (EcCopper/CopBow +W.s:6030-6260). Per hardware
@@ -1899,6 +2207,13 @@ export class Runtime {
     const H = 400
     const data = out ?? new Uint8ClampedArray(W * H * 4)
     this.activateRainbows()
+    // Copper Off: the display is whatever the user's physical list says
+    if (!this.copperOn) {
+      if (this.spritePriority >= 4) this.drawHwSprites(data, W, H)
+      this.compositeFromList(data, W, H)
+      if (this.spritePriority < 4) this.drawHwSprites(data, W, H)
+      return { width: W, height: H, data }
+    }
     // rainbows in slot order — the copper machine scans 0..NbRain-1
     const rbs = [...this.rainbows.entries()]
       .sort((a, b) => a[0] - b[0])
@@ -1910,12 +2225,7 @@ export class Runtime {
     // before the screens); lower priorities keep them in front (default)
     if (this.spritePriority >= 4) this.drawHwSprites(data, W, H)
 
-    const winWOf = (s: Screen): number => (s.displayW >= 0 ? Math.min(s.displayW, s.width) : s.width)
-    const winHOf = (s: Screen): number => (s.displayH >= 0 ? Math.min(s.displayH, s.height) : s.height)
-    const covers = (s: Screen, L: number): boolean => {
-      const hwH = s.laced ? Math.ceil(winHOf(s) / 2) : winHOf(s)
-      return L >= s.displayY && L < s.displayY + hwH
-    }
+    const winWOf = (s: Screen): number => this.winWOf(s)
     // cursor cell of the current screen's current window (AffCur)
     const cs = this.screens.get(this.currentIndex) ?? null
     const cw = cs?.curWin ?? null
@@ -1965,19 +2275,9 @@ export class Runtime {
     }
 
     for (let L = 50; L < 250; L++) {
-      // the front screen band for this line (highest priority covering it)
-      let f: Screen | null = null
-      for (let i = this.order.length - 1; i >= 0; i--) {
-        const s = this.screens.get(this.order[i]!)
-        if (!s || !s.visible || !covers(s, L)) continue
-        f = s
-        break
-      }
-      // a dual-playfield pair displays as one: the front screen leads
-      if (dual && dualBack && f === dualBack) {
-        const df = this.screens.get(dual.front)!
-        if (df.visible && covers(df, L)) f = df
-      }
+      // the front screen band for this line (highest priority covering it;
+      // a dual-playfield pair displays as one, the front screen leading)
+      const f = this.frontAt(L)
       if (f !== front) {
         if (f) {
           // band start: EcCopHo emits the screen's palette block
@@ -2021,6 +2321,141 @@ export class Runtime {
     }
     if (this.spritePriority < 4) this.drawHwSprites(data, W, H)
     return { width: W, height: H, data }
+  }
+
+  /**
+   * Interpret the physical copper list (Copper Off mode): a beam walk over
+   * the real word stream. WAITs advance the line (a $FFxx vpos is the
+   * 255-crossing; $FFFF/$FFFE ends the list); MOVEs apply at the current
+   * line — COLORxx into the live palette, BPL1PTH/L resolved back to a
+   * screen + row through the chip-RAM map, BPLCON0's hires bit, DMACON's
+   * raster enable, DIWSTRT's horizontal start. DIWSTOP/DDF/modulos/
+   * BPLCON1-2/sprite pointers are parsed and ignored (the fetch geometry
+   * comes from the resolved screen). Registers start each frame from the
+   * fond (real hardware would carry last frame's values).
+   */
+  private compositeFromList(data: Uint8ClampedArray, W: number, H: number): void {
+    const phys = this.copPhysic
+    const hwPal = new Uint16Array(32)
+    hwPal[0] = this.colourBack & 0xfff
+    let p = 0
+    let line = 0
+    let cross = false
+    let dmaOn = false
+    let hires = false
+    let hstart = 0x81
+    let screen: Screen | null = null
+    let usePhy = false
+    let srcRow = 0
+    const bplH = new Int32Array(8).fill(-1)
+    const bplL = new Int32Array(8).fill(-1)
+    const cs = this.screens.get(this.currentIndex) ?? null
+    const cw = cs?.curWin ?? null
+    const curX0 = cw ? cw.x + cw.curX * 8 : 0
+    const curY0 = cw ? cw.y + cw.curY * 8 : 0
+
+    const renderLines = (to: number): void => {
+      const end = Math.min(to, 313)
+      for (; line < end; line++) {
+        const fetching = dmaOn && screen !== null
+        if (line >= 50 && line < 250) {
+          const bg = hwPal[0]!
+          const bgR = ((bg >> 8) & 15) * 17
+          const bgG = ((bg >> 4) & 15) * 17
+          const bgB = (bg & 15) * 17
+          const r0 = (line - 50) * 2
+          for (let ri = 0; ri < 2; ri++) {
+            const r = r0 + ri
+            for (let o = r * W * 4; o < (r + 1) * W * 4; o += 4) {
+              data[o] = bgR
+              data[o + 1] = bgG
+              data[o + 2] = bgB
+              data[o + 3] = 255
+            }
+            if (!fetching) continue
+            const s = screen!
+            const sy = s.laced ? srcRow + ri : srcRow
+            if (sy < 0 || sy >= s.height) continue
+            const pixels = usePhy ? s.displayBuffer : s.pixels
+            const pw = hires ? 1 : 2
+            const baseX = (hstart - 1 - 128) * 2
+            const isCur = s === cs && s.cursorOn && cw !== null && sy >= curY0 && sy < curY0 + 8
+            const mask = isCur ? CURSOR_SHAPE[sy - curY0]! : 0
+            for (let sx = 0; sx < s.width; sx++) {
+              let pix = pixels[sy * s.width + sx]! & 31
+              if (mask !== 0 && sx >= curX0 && sx < curX0 + 8 && (mask << (sx - curX0)) & 0x80) pix = cw!.cuCol & 31
+              const rgb4 = hwPal[pix]!
+              const cr = ((rgb4 >> 8) & 15) * 17
+              const cg = ((rgb4 >> 4) & 15) * 17
+              const cb = (rgb4 & 15) * 17
+              const px = baseX + sx * pw
+              for (let dx = 0; dx < pw; dx++) {
+                const tx = px + dx
+                if (tx < 0 || tx >= W) continue
+                const o = (r * W + tx) * 4
+                data[o] = cr
+                data[o + 1] = cg
+                data[o + 2] = cb
+                data[o + 3] = 255
+              }
+            }
+          }
+        }
+        if (fetching) srcRow += screen!.laced ? 2 : 1
+      }
+      if (to > line) line = end
+    }
+
+    while (p + 4 <= phys.length) {
+      const w1 = (phys[p]! << 8) | phys[p + 1]!
+      const w2 = (phys[p + 2]! << 8) | phys[p + 3]!
+      p += 4
+      if (w1 & 1) {
+        if (w1 === 0xffff && w2 === 0xfffe) break
+        const vp = (w1 >> 8) & 0xff
+        if (vp === 0xff && !cross) {
+          renderLines(256)
+          cross = true
+          continue
+        }
+        renderLines(vp + (cross ? 256 : 0))
+      } else {
+        const reg = w1 & 0x1fe
+        if (reg >= 0x180 && reg < 0x1c0) {
+          hwPal[(reg - 0x180) >> 1] = w2 & 0xfff
+        } else if (reg >= 0x0e0 && reg <= 0x0f6) {
+          const idx = (reg - 0xe0) >> 2
+          if (reg & 2) bplL[idx] = w2
+          else bplH[idx] = w2
+          if (idx === 0 && bplH[0]! >= 0 && bplL[0]! >= 0) {
+            const ad = (((bplH[0]! << 16) | bplL[0]!) >>> 0)
+            screen = null
+            if (ad >= Runtime.SCREEN_CHIP_BASE && ad < Runtime.SCREEN_CHIP_BASE + 8 * Runtime.SCREEN_CHIP_SLOT) {
+              const rel = ad - Runtime.SCREEN_CHIP_BASE
+              const s = this.screens.get(Math.floor(rel / Runtime.SCREEN_CHIP_SLOT))
+              if (s) {
+                let within = rel % Runtime.SCREEN_CHIP_SLOT
+                usePhy = within >= Runtime.SCREEN_PHY_OFFSET
+                if (usePhy) within -= Runtime.SCREEN_PHY_OFFSET
+                screen = s
+                srcRow = Math.floor(within / s.rowBytes)
+              }
+            }
+          }
+        } else if (reg === 0x100) {
+          hires = (w2 & 0x8000) !== 0
+        } else if (reg === 0x096) {
+          if (w2 & 0x8000) {
+            if (w2 & 0x0100) dmaOn = true
+          } else if (w2 & 0x0100) {
+            dmaOn = false
+          }
+        } else if (reg === 0x08e) {
+          hstart = w2 & 0xff
+        }
+      }
+    }
+    renderLines(313)
   }
 
   /** Workbench-style menu bar while the right button is held */

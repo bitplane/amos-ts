@@ -148,6 +148,26 @@ export const FAITHFUL = new Set<string>([
   'rainbow',
   'rain',
   'rainbow del',
+  // user copper (TCop* +W.s:6815-6935, CpInit 6764): two real 12K list
+  // buffers in mapped chip RAM (T_CopLong = interpreter-config item 12);
+  // Cop Move/Wait/Movel encode genuine copper words at T_CopPos with the
+  // CopEr1-3 errors ("copper not deactivated", reg < 512, x/y < 313, the
+  // one-shot $FFE1 line-255 crossing); Cop Swap terminates + swaps +
+  // resets; Copper Off empties the logical list and parks the last system
+  // list for Cop Logic readers; the system list itself is regenerated
+  // each vbl word-for-word (HsCop header, EcCopHo screen blocks, CopBow
+  // rainbow lines, EcCopBa, $FFFFFFFE) and the physical list is beam-
+  // walked to render when the copper is off — verified by replaying the
+  // system list verbatim through Cop Move/Loke pixel-identically, the
+  // Multi_Rainbows.AMOS pattern
+  'copper on',
+  'copper off',
+  'cop swap',
+  'cop reset',
+  'cop wait',
+  'cop move',
+  'cop movel',
+  'cop logic',
   // objects/screens sweep: real bob pipeline (Actualise-style), buffers
   'bob', // blitted with background save/restore; Point sees bobs
   'bob off',
@@ -630,6 +650,9 @@ export const NOTES: Record<string, string> = {
   'set bob': 'back modes implemented; planes/mask arguments ignored',
   autoback: 'mode 1 treated like 0',
   rainbow: 'rendered per scanline by the copper-walk compositor; hardware lines above 50 (the top border) are outside the composite window',
+  'copper off':
+    'the interpreted list renders COLOR/BPLxPT/BPLCON0-hires/DMACON/DIWSTRT; DDF/modulos/BPLCON1-2/sprite pointers are parsed but ignored, and registers reset each frame rather than persisting (the real machine also hides the mouse pointer)',
+  'cop logic': 'a mapped chip-RAM address; the system list is regenerated every vbl (the T_Actualise change-gating is not modelled)',
   'set pattern': 'sprite-image patterns only; bank patterns need the system resource bank',
   'input$': 'keyboard form is non-blocking best effort',
   start: 'fake address space: Start()-relative arithmetic works, absolute hardware addresses do not',

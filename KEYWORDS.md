@@ -16,7 +16,7 @@ tested against our own understanding. Percentages exclude n/a
 | banks | 20 | 10 | 6 | 4 | 80% |
 | compact | 3 | 1 | 0 | 2 | 33% |
 | compiler | 15 | 10 | 1 | 0 | 100% |
-| copper | 8 | 0 | 0 | 8 | 0% |
+| copper | 8 | 8 | 0 | 0 | 100% |
 | drawing | 16 | 14 | 2 | 0 | 100% |
 | files | 21 | 15 | 0 | 4 | 79% |
 | flow | 12 | 9 | 3 | 0 | 100% |
@@ -36,7 +36,7 @@ tested against our own understanding. Percentages exclude n/a
 | text-io | 37 | 31 | 5 | 1 | 97% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 463 | 69 | 164 | 76% |
+| **total** | 732 | 471 | 69 | 156 | 78% |
 
 ## amal (92%)
 
@@ -64,9 +64,9 @@ tested against our own understanding. Percentages exclude n/a
 - **approximated**: `ppsave` *(Writes a valid PP20 file — proven decodable by an independent reference decoder — but NOT bit-identical to real PowerPacker output: powerpacker.library makes different (better) crunch choices, and its encoder is not in the AMOS source, so byte-exact parity is unverifiable. The efficiency argument is validated but the offset table is fixed; bob/icon banks unsupported.)*
 - **n/a**: `cmpcall`, `comp del`, `comp load`, `compile`
 
-## copper (0%)
+## copper (100%)
 
-- **missing**: `cop logic`, `cop move`, `cop movel`, `cop reset`, `cop swap`, `cop wait`, `copper off`, `copper on`
+- **faithful**: `cop logic` *(a mapped chip-RAM address; the system list is regenerated every vbl (the T_Actualise change-gating is not modelled))*, `cop move`, `cop movel`, `cop reset`, `cop swap`, `cop wait`, `copper off` *(the interpreted list renders COLOR/BPLxPT/BPLCON0-hires/DMACON/DIWSTRT; DDF/modulos/BPLCON1-2/sprite pointers are parsed but ignored, and registers reset each frame rather than persisting (the real machine also hides the mouse pointer))*, `copper on`
 
 ## drawing (100%)
 
