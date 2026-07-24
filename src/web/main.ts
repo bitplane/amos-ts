@@ -237,11 +237,18 @@ document.addEventListener('drop', (e) => {
 const filesEl = document.getElementById('files') as HTMLDetailsElement
 const fstreeEl = document.getElementById('fstree')!
 
+/** an AMOS program by content, not name (some are extensionless on disk) */
+function isRunnable(bytes: Uint8Array | null): boolean {
+  if (!bytes || bytes.length < 16) return false
+  return /^AMOS (Basic|Pro)/.test(new TextDecoder('latin1').decode(bytes.subarray(0, 16)))
+}
+
+/** directories the user has expanded; volumes default open, subdirs closed */
+const openDirs = new Set<string>()
+
 function refreshFiles(): void {
   if (!filesEl.open) return
   fstreeEl.textContent = ''
-  const MAX = 400
-  let shown = 0
   const addLine = (depth: number, text: string, cls?: string, onClick?: () => void): void => {
     fstreeEl.appendChild(document.createTextNode('  '.repeat(depth)))
     const el = document.createElement(onClick ? 'a' : 'span')
@@ -252,20 +259,20 @@ function refreshFiles(): void {
     fstreeEl.appendChild(document.createTextNode('\n'))
   }
   const walk = (base: string, dir: string[], depth: number): void => {
-    if (depth > 6 || shown > MAX) return
     const path = base + dir.join('/')
     const entries = vfs.listDir(path) ?? []
     entries.sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name))
     for (const e of entries) {
-      if (++shown > MAX) {
-        addLine(depth, '…')
-        return
-      }
+      const full = base + [...dir, e.name].join('/')
       if (e.isDir) {
-        addLine(depth, e.name + '/')
-        walk(base, [...dir, e.name], depth + 1)
-      } else if (/\.amos$/i.test(e.name)) {
-        const full = base + [...dir, e.name].join('/')
+        const open = openDirs.has(full)
+        addLine(depth, `${open ? '▾' : '▸'} ${e.name}/`, 'dir', () => {
+          if (open) openDirs.delete(full)
+          else openDirs.add(full)
+          refreshFiles()
+        })
+        if (open) walk(base, [...dir, e.name], depth + 1)
+      } else if (isRunnable(vfs.read(full))) {
         addLine(depth, e.name, undefined, () => {
           const bytes = vfs.read(full)
           if (!bytes) return
@@ -279,8 +286,10 @@ function refreshFiles(): void {
     }
   }
   for (const vol of vfs.volumeNames()) {
-    addLine(0, vol + ':', 'vol')
-    walk(vol + ':', [], 1)
+    const root = vol + ':'
+    openDirs.add(root) // volumes always expanded
+    addLine(0, root, 'vol')
+    walk(root, [], 1)
   }
 }
 filesEl.addEventListener('toggle', refreshFiles)
