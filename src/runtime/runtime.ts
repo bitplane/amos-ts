@@ -1965,7 +1965,11 @@ export class Runtime {
 
   /** Type a character (feeds Inkey$ / Wait Key). */
   pressKey(ch: string, scan = 0): void {
-    this.input.keyQueue.push({ ch, scan })
+    // the shift byte (scancodes $60-$67 -> bits 0-7) is captured WITH the
+    // keystroke; Inkey$ stores it in SScan for Scanshift (+Lib.s:13618)
+    let shift = 0
+    for (let i = 0; i < 8; i++) if (this.input.keys.has(0x60 + i)) shift |= 1 << i
+    this.input.keyQueue.push({ ch, scan, shift })
   }
 
   /** Submit a line for a pending Input statement. */

@@ -83,11 +83,13 @@ export type Block =
 /** Live input device state, owned by the runtime/driver and read by builtins. */
 export interface InputState {
   /** typed characters not yet consumed by Inkey$ / Wait Key */
-  keyQueue: Array<{ ch: string; scan: number }>
+  keyQueue: Array<{ ch: string; scan: number; shift?: number }>
   /** Amiga scancodes currently held down (Key State) */
   keys: Set<number>
   /** scancode of the last key returned by Inkey$ */
   lastScan: number
+  /** shift byte captured with the last Inkey$ (SScan high byte) */
+  lastShift: number
   /** mouse in AMOS hardware coords (lowres pixel + 128/50 origin) */
   mouseX: number
   mouseY: number
@@ -105,6 +107,7 @@ export const newInputState = (): InputState => ({
   keyQueue: [],
   keys: new Set(),
   lastScan: 0,
+  lastShift: 0,
   mouseX: 128 + 160,
   mouseY: 50 + 100,
   mouseK: 0,

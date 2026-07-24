@@ -517,16 +517,22 @@ export class Screen {
     this.rawLine(cx1, cy1, cx2, cy2, c)
   }
 
+  /** dash-pattern phase; box carries it across its four edges (PolyDraw) */
+  private lineBit = 15
+  private lineCont = false
+
   private rawLine(x1: number, y1: number, x2: number, y2: number, c: number): void {
     const dx = Math.abs(x2 - x1)
     const dy = -Math.abs(y2 - y1)
     const sx = x1 < x2 ? 1 : -1
     const sy = y1 < y2 ? 1 : -1
     let err = dx + dy
-    let bit = 15 // Set Line pattern rotates from the top bit
+    if (!this.lineCont) this.lineBit = 15 // Set Line pattern rotates from the top bit
+    let bit = this.lineBit
     for (;;) {
       if ((this.linePattern >> bit) & 1) this.plot(x1, y1, c)
       bit = bit === 0 ? 15 : bit - 1
+      this.lineBit = bit
       if (x1 === x2 && y1 === y2) break
       const e2 = 2 * err
       if (e2 >= dy) {
@@ -540,11 +546,21 @@ export class Screen {
     }
   }
 
+  /**
+   * InBox (+Lib.s:9702): ONE PolyDraw starting just below the top-left
+   * corner — the Set Line dash pattern runs continuously around the box
+   * and the start corner pixel is not double-drawn.
+   */
   box(x1: number, y1: number, x2: number, y2: number, c = this.ink): void {
-    this.line(x1, y1, x2, y1, c)
-    this.line(x2, y1, x2, y2, c)
-    this.line(x2, y2, x1, y2, c)
-    this.line(x1, y2, x1, y1, c)
+    let sy = y1 + 1
+    if (sy >= y2) sy = y1 - 1
+    this.lineBit = 15
+    this.lineCont = true
+    this.line(x1, sy, x1, y2, c)
+    this.line(x1, y2, x2, y2, c)
+    this.line(x2, y2, x2, y1, c)
+    this.line(x2, y1, x1, y1, c)
+    this.lineCont = false
   }
 
   bar(x1: number, y1: number, x2: number, y2: number, c = this.ink): void {

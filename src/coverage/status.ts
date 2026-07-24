@@ -144,6 +144,20 @@ export const FAITHFUL = new Set<string>([
   'get fonts',
   'get rom fonts',
   'text styles',
+  // graphics odds: Bar's strict x2>x1/y2>y1 error (InBar +Lib.s:9975),
+  // Box as one continuous-dash PolyDraw from below the start corner
+  // (InBox 9702), Scanshift captured with Inkey$ and read-cleared
+  // (FnScanshift 13640), Hrev/Vrev Block via RevBloc (+W.s:12620),
+  // Mouse Zone through the SyZoHd hard->screen mapping with the
+  // outside-screen 0 (+W.s:11150), Set Sprite Buffer's >=16 check
+  // (InSetSpriteBuffer +Lib.s:12290); cluster.test.ts cites each
+  'bar',
+  'box',
+  'scanshift',
+  'hrev block',
+  'vrev block',
+  'mouse zone',
+  'set sprite buffer',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
   'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add
@@ -815,7 +829,6 @@ export const NOTES: Record<string, string> = {
   peek: 'addresses inside banks and screen bitplanes (Logbase/Phybase) resolve; other addresses read 0',
   poke: 'writes into banks and screen bitplanes render; writes elsewhere are ignored',
   'shade on': 'dither approximates the original shading',
-  'border$': 'returns the text unchanged — border boxes not rendered',
   match: 'not-found result for closest index 0 returns -1',
   dir: 'plain listing; Set Dir width/filter cosmetic',
   'gr writing': 'JAM1/JAM2 identical for solid draws; XOR implemented',
@@ -834,7 +847,6 @@ export const NOTES: Record<string, string> = {
   'led off': 'filter flag reaches the sink; audibility depends on the host audio implementation',
   'load iff': 'HAM/EHB decode and render correctly; not byte-verified against the 68k IFF loader',
   centre: 'Border$ escapes inside the text are printed, not measured, when centring',
-  'mouse zone': 'current-screen coordinate mapping approximated',
   print: 'Print # channels unsupported',
   input: 'line editing keys are host-side, not the AMOS line editor',
   timer: 'writable, drives the frame clock directly',
@@ -844,6 +856,8 @@ export const NOTES: Record<string, string> = {
   'fsel$': 'the real bank dialog driven by a TS controller: Store and keyboard qualifiers unhandled, sizes/sort approximated',
   'resource$': 'negative system/editor message numbers return ""',
   'set slider': 'system patterns 1/2 approximated as dithers (the mouse bank is not in the fixtures)',
+  'mouse zone': 'zones are a single global table, not per-screen (EcAZones)',
+  'set bob': 'the back mode is honoured; planes and mask arguments are ignored',
   hslider: 'system patterns approximated as dithers',
   vslider: 'system patterns approximated as dithers',
   array: 'returns an opaque handle (> 1024), not a real address',
@@ -859,12 +873,9 @@ export const NOTES: Record<string, string> = {
   'wind move': 'trail behaviour matches; the Wind Save clean-erase path is not wired to Move',
   'key shift': 'CapsLock reflects the physical key, not the latched toggle',
   every: 'fires at each statement rather than only at control points, and after (not during) a Wait — a timing nuance tied to the blocking model',
-  bar: 'inverted args are normalised rather than raising a function call error',
-  box: 'dash phase restarts per edge (68k PolyDraws one continuous pattern)',
   text: 'single 8x8 face whatever Set Font selects; soft styles are synthesized approximations',
   bload: 'bounded by the destination region; the real machine would overrun into raw memory',
   'mouse screen': 'returns -1 when the pointer is over no screen (68k: EntNul)',
-  scanshift: 'reads live shift keys; the shift byte is not captured with Inkey$',
   'change mouse': 'pointer number stored; the host cursor is shown instead',
   'key speed': 'parsed; key-repeat is host-owned',
   'menu called': 'items redraw every frame; (PR name) label procedures are not invoked',
@@ -879,7 +890,6 @@ export const NOTES: Record<string, string> = {
   'screen base': 'a read-only synthesized Ec control block (EcLogic/EcPhysic, geometry, EcNbCol, live EcPal, EcTLigne...); pokes into it are ignored',
   'set font': 'the stock Workbench font list is reported but rendering stays the single 8x8 face',
   'border$': 'box glyph bitmaps are drawn approximations (the AMOS charset binary is not in the source tree)',
-  'font$': 'the ROM list only (no disc fonts in the fixture set)',
   'request on': 'stored — the port never shows system requesters',
   'request off': 'stored — the port never shows system requesters',
   'request wb': 'stored — the port never shows system requesters',

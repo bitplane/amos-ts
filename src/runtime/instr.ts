@@ -667,10 +667,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().box(x1, y1, x2, y2)
     },
     bar(it) {
+      // InBar +Lib.s:9975: x2<=x1 or y2<=y1 is a function call error
       const s = scr()
       const [x1, y1] = pair(it)
       it.expect('to')
       const [x2, y2] = pair(it)
+      if (x2 <= x1 || y2 <= y1) throw new AmosError('Illegal function call', 23)
       s.bar(x1, y1, x2, y2)
       s.grX = x1 // InBar sets the graphics cursor to the top-left corner
       s.grY = y1
@@ -3228,10 +3230,14 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.zoneAt(x, y))
     },
     'mouse zone'(it, a) {
+      // FnMouseZone +Lib.s:11077 -> SyZoHd +W.s:11150: hard coords map
+      // into the current screen (display position, resolution doubling,
+      // screen offset); outside the screen the answer is 0
       void a
       const s = scr()
       const x = (it.inp.mouseX - s.displayX) * (s.hires ? 2 : 1) + s.offsetX
       const y = it.inp.mouseY - s.displayY + s.offsetY
+      if (x < 0 || y < 0 || x >= s.width || y >= s.height) return VI(0)
       return VI(rt.zoneAt(x, y))
     },
     exist(_, a) {
@@ -3739,11 +3745,12 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(-0x80000000) // GetSIn +W.s:10944 returns EntNul when over no screen
     },
     scanshift(it, a) {
+      // FnScanshift +Lib.s:13640: the shift byte captured with the last
+      // Inkey$, read AND cleared (like Scancode)
       void a
-      let m2 = 0
-      if (it.inp.keys.has(0x60)) m2 |= 1
-      if (it.inp.keys.has(0x61)) m2 |= 2
-      return VI(m2)
+      const v = it.inp.lastShift
+      it.inp.lastShift = 0
+      return VI(v)
     },
     'pen$'(_, a) {
       return VS('\x1bP' + String.fromCharCode(48 + int(a[0]!)))

@@ -99,7 +99,7 @@ describe('drawing', () => {
   it('fills area patterns with ink/paper (Set Pattern via sprite image)', () => {
     const prog = [
       'Cls 0',
-      'Ink 2 : Bar 0,0 To 15,0 : Rem row 0 solid, row 1 empty',
+      'Ink 2 : Draw 0,0 To 15,0 : Rem row 0 solid, row 1 empty (Bar needs y2>y1)',
       'Get Bob 1,0,0 To 16,2',
       'Cls 0',
       'Set Pattern -1 : Ink 6,3 : Bar 100,100 To 131,103',

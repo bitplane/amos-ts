@@ -169,6 +169,73 @@ describe('faithfulness pass: text & fonts (vs +W.s / +Lib.s)', () => {
   })
 })
 
+describe('faithfulness pass: graphics odds (vs +Lib.s / +W.s)', () => {
+  it('Bar errors on non-increasing coordinates (InBar +Lib.s:9975)', () => {
+    expect(() => run('Bar 10,10 To 10,20')).toThrow(/illegal function call/i)
+    expect(() => run('Bar 10,10 To 20,10')).toThrow(/illegal function call/i)
+    expect(() => run('Bar 20,20 To 10,30')).toThrow(/illegal function call/i)
+  })
+
+  it('Box runs one continuous dash pattern around the edges (InBox +Lib.s:9702)', () => {
+    // an alternating 1-pixel dash: with a continuous phase, the pixel
+    // count around the whole box is ~half the perimeter; with a
+    // restarting phase the corners would double up
+    const { rt } = run('Cls 0 : Ink 5 : Set Line %1010101010101010 : Box 10,10 To 41,41')
+    let lit = 0
+    for (let y = 0; y < 60; y++) for (let x = 0; x < 60; x++) if (rt.screen.point(x, y) === 5) lit++
+    // perimeter ~124 pixels, half lit, small corner variance allowed
+    expect(lit).toBeGreaterThan(54)
+    expect(lit).toBeLessThan(70)
+  })
+
+  it('Scanshift is captured with Inkey$ and read-clears (FnScanshift +Lib.s:13640)', () => {
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    let out = ''
+    const rt = new Runtime(tokenize('K$=Inkey$\nPrint Scanshift\nPrint Scanshift', table), table, { maxSteps: 100_000, fs, onText: (t) => (out += t) })
+    rt.input.keys.add(0x60) // left shift held while the key goes in
+    rt.pressKey('A', 0x20)
+    rt.input.keys.delete(0x60) // released before the program reads
+    rt.runHeadless(20)
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['1', '0'])
+  })
+
+  it('Hrev/Vrev Block mirror pixels and error on missing blocks (RevBloc +W.s:12620)', () => {
+    const prog = [
+      'Cls 0 : Ink 5 : Plot 0,0', // a single lit pixel top-left
+      'Get Block 1,0,0,8,8',
+      'Hrev Block 1',
+      'Put Block 1,100,100',
+      'Print Point(107,100)',
+      'Vrev Block 1',
+      'Put Block 1,100,120',
+      'Print Point(107,127)',
+    ].join('\n')
+    const { out } = run(prog)
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['5', '5'])
+    expect(() => run('Hrev Block 9')).toThrow(/block not defined/i)
+    expect(() => run('Vrev Block 9')).toThrow(/block not defined/i)
+  })
+
+  it('Mouse Zone maps into the current screen and is 0 outside (SyZoHd +W.s:11150)', () => {
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    let out = ''
+    const rt = new Runtime(
+      tokenize('Reserve Zone 4\nSet Zone 2,10,10 To 50,50\nWait 2\nPrint Mouse Zone\nWait 2\nPrint Mouse Zone', table),
+      table,
+      { maxSteps: 100_000, fs, onText: (t) => (out += t) },
+    )
+    rt.input.mouseX = 128 + 20
+    rt.input.mouseY = 50 + 20
+    for (let i = 0; i < 4; i++) rt.frame()
+    rt.input.mouseX = 1000
+    rt.input.mouseY = 300
+    rt.runHeadless(20)
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['2', '0'])
+  })
+})
+
 describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => {
   it('Bob Col is rectangle-gated pixel-perfect and fills the Col set', () => {
     const prog = [

@@ -1111,6 +1111,7 @@ export const FUNCS: Record<string, Func> = {
     const k = it.inp.keyQueue.shift()
     if (k === undefined) return VS('')
     it.inp.lastScan = k.scan
+    it.inp.lastShift = k.shift ?? 0
     return VS(k.ch)
   },
   'key$'(it, a) {
