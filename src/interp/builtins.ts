@@ -265,18 +265,18 @@ export const INSTR: Record<string, Instr> = {
   // adds to the FFP bit pattern (garbage), which no sane program uses.
   inc(it) {
     const tg = it.parseTarget()
-    if (tg.type === 'int') tg.set(VI((int(tg.get()) + 1) | 0))
+    if (tg.type === 0) tg.set(VI((int(tg.get()) + 1) | 0))
     else tg.set(VF(num(tg.get()) + 1))
   },
   dec(it) {
     const tg = it.parseTarget()
-    if (tg.type === 'int') tg.set(VI((int(tg.get()) - 1) | 0))
+    if (tg.type === 0) tg.set(VI((int(tg.get()) - 1) | 0))
     else tg.set(VF(num(tg.get()) - 1))
   },
   add(it) {
     const tg = it.parseTarget()
     it.expect(',')
-    if (tg.type === 'int') {
+    if (tg.type === 0) {
       const e = it.evalInt()
       let v = (int(tg.get()) + e) | 0
       if (it.accept(',')) {

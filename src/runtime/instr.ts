@@ -1716,14 +1716,30 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         throw new AmosError(`file not found: ${path}`)
       }
       const file = parseAmosFile(bytes)
+      // an AmBs bank list erases ALL banks first (LB_Multiples: Bnk.EffAll,
+      // +Lib.s Bnk.Load)
+      if (file.bankList) {
+        rt.memBanks.clear()
+        rt.spriteBank = null
+        rt.iconBank = null
+      }
       // a forced number applies only to a single-bank load; a multi-bank
       // container restores each bank to its own stored number (Bnk.Load
       // +Lib.s:4054) — forcing every bank would collide them
       const single = file.banks.length === 1
       for (const bank of file.banks) {
-        if (bank.kind === 'sprites') rt.spriteBank = ObjectBank.fromSpriteBank(bank)
-        else if (bank.kind === 'icons') rt.iconBank = ObjectBank.fromSpriteBank(bank)
-        else if (bank.kind === 'memory') rt.memBanks.set(single && forced !== null ? forced : bank.number || 5, bank)
+        if (bank.kind === 'sprites' || bank.kind === 'icons') {
+          // LB_Sprites/LB_Icons: a nonzero (or defaulted) bank argument
+          // APPENDS to an existing bank and the file's palette wins;
+          // 0 overwrites
+          const nb = ObjectBank.fromSpriteBank(bank)
+          const slot = bank.kind === 'sprites' ? 'spriteBank' : ('iconBank' as const)
+          const cur = rt[slot]
+          if (cur && forced !== 0) {
+            cur.images.push(...nb.images)
+            cur.palette = nb.palette
+          } else rt[slot] = nb
+        } else if (bank.kind === 'memory') rt.memBanks.set(single && forced !== null ? forced : bank.number || 5, bank)
       }
     },
     // ---- audio ----
@@ -2312,8 +2328,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     // ---- memory / banks ----
     'reserve as data': reserve('Datas', true),
     'reserve as work': reserve('Work', false),
-    'reserve as chip data': reserve('Datas', true),
-    'reserve as chip work': reserve('Work', false),
+    'reserve as chip data': reserve('Datas', true, true),
+    'reserve as chip work': reserve('Work', false, true),
     erase(it) {
       const n = it.evalInt()
       if (n === 1 && rt.spriteBank) {
@@ -2370,8 +2386,18 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       bank.data = bank.data.subarray(0, len)
     },
     'list bank'(it) {
-      for (const [n, b] of [...rt.memBanks].sort((x, y2) => x[0] - y2[0])) {
-        it.write(` ${n} ${b.name.padEnd(10)} S:$${rt.bankBase(n).toString(16).toUpperCase()} L:${b.data.length}\n`)
+      // InListBank/Bnk.List +Lib.s:2194/8616: ascending bank number;
+      // "NN - name8 S: $XXXXXXXX L: len" — numbers under 10 get a
+      // leading space, bob/icon banks list their image COUNT as L:
+      const lines: Array<[number, string, number]> = []
+      if (rt.spriteBank) lines.push([1, 'Sprites', rt.spriteBank.images.length])
+      if (rt.iconBank) lines.push([2, 'Icons', rt.iconBank.images.length])
+      for (const [n, b] of rt.memBanks) lines.push([n, b.name, b.data.length])
+      lines.sort((x, y2) => x[0] - y2[0])
+      for (const [n, name, len] of lines) {
+        const num = (n < 10 ? ' ' : '') + n
+        const hex = rt.bankBase(n).toString(16).toUpperCase().padStart(8, '0')
+        it.write(`${num} - ${name.padEnd(8).slice(0, 8)} S: $${hex} L: ${len}\n`)
       }
     },
     poke(it) {
@@ -2444,36 +2470,32 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     bload(it) {
+      // InBload +Lib.s:4307: destination through Bnk.OrAdr — a bank
+      // number names a RESERVED bank (missing = bank not reserved); the
+      // whole file loads to the address (bounded here by the region;
+      // the real machine would overrun into raw memory)
       const path = it.evalStr()
       it.expect(',')
       const dest = it.evalInt()
       const bytes = rt.fs?.read(path)
       if (!bytes) throw new AmosError(`file not found: ${path}`)
-      if (dest > 0 && dest < 1024) {
-        // Bnk.OrAdr: < 1024 is a bank number. The original errors if the
-        // bank is unreserved and loads into it capped; the port is more
-        // lenient and creates it (see NOTES) so tools that skip the
-        // Reserve still work
-        const bank = rt.memBanks.get(dest)
-        if (bank) {
-          bank.data.set(bytes.subarray(0, bank.data.length), 0)
-        } else {
-          rt.memBanks.set(dest, { kind: 'memory', number: dest, memType: 0, name: 'Datas', flags: 0, data: Uint8Array.from(bytes) })
-        }
-        return
-      }
-      const m = rt.resolveAddr(dest)
+      const m = rt.bankOrAddr(dest)
       if (m) m.data.set(bytes.subarray(0, m.data.length - m.off), m.off)
     },
     bsave(it) {
+      // InBSave +Lib.s:4336: end-start must be positive (Rbls FonCall);
+      // the start goes through Bnk.OrAdr
       const path = it.evalStr()
       it.expect(',')
       const start = it.evalInt()
       it.expect('to')
       const end = it.evalInt()
-      const m = rt.resolveAddr(start)
+      const bankForm = start >= 0 && start < 0x10000
+      const base = bankForm ? rt.bankBase(start) : start
+      if (end - base <= 0) throw new AmosError('Illegal function call', 23)
+      const m = rt.bankOrAddr(start)
       if (!m) throw new AmosError('address error')
-      const len = Math.min(end - start, m.data.length - m.off)
+      const len = Math.min(end - base, m.data.length - m.off)
       if (!rt.vfs?.writeFile(path, Uint8Array.from(m.data.subarray(m.off, m.off + len)))) {
         throw new AmosError('disc is write protected')
       }
@@ -2877,11 +2899,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   /** Reserve As ... n,length */
-  function reserve(name: string, dataBank: boolean): Instr {
+  function reserve(name: string, dataBank: boolean, chip = false): Instr {
     return (it) => {
       const n = it.evalInt()
       it.expect(',')
-      rt.reserveBank(n, it.evalInt(), name, dataBank)
+      rt.reserveBank(n, it.evalInt(), name, dataBank, chip)
     }
   }
 

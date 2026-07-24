@@ -113,6 +113,17 @@ export const FAITHFUL = new Set<string>([
   'dec',
   'wait',
   'hunt',
+  // memory & banks: Bload/Bsave via Bnk.OrAdr with the range checks
+  // (+Lib.s:4307/4336), List Bank in the exact Bnk.List line format
+  // incl. image counts for object banks (8616), Load's AmBs erase-all
+  // and the sprite/icon append-vs-overwrite rule (Bnk.Load), Reserve
+  // number/length validation + the chip flag (RsBqX); cluster.test.ts
+  'bload',
+  'bsave',
+  'list bank',
+  'load',
+  'reserve as chip data',
+  'reserve as chip work',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
   'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add
@@ -828,7 +839,6 @@ export const NOTES: Record<string, string> = {
   locate: 'out-of-range clamps rather than raising error 16',
   pen: 'stored unmasked; out-of-range does not raise error like the original',
   paper: 'stored unmasked; out-of-range does not raise error like the original',
-  load: 'the sprite/icon append flag (2nd arg) is treated as overwrite',
   'set text': 'targets console text too; the original soft-style only affects graphic Text',
   'shift up': 'one shift per screen (the original has a single global shift); omitted wrap-flag defaults to wrap',
   'wind move': 'trail behaviour matches; the Wind Save clean-erase path is not wired to Move',
@@ -837,7 +847,7 @@ export const NOTES: Record<string, string> = {
   bar: 'inverted args are normalised rather than raising a function call error',
   box: 'dash phase restarts per edge (68k PolyDraws one continuous pattern)',
   text: 'single Topaz-8 face; Set Text soft styles are synthesized',
-  bload: 'the < 1024 bank form creates a missing bank instead of erroring',
+  bload: 'bounded by the destination region; the real machine would overrun into raw memory',
   'mouse screen': 'returns -1 when the pointer is over no screen (68k: EntNul)',
   scanshift: 'reads live shift keys; the shift byte is not captured with Inkey$',
   'change mouse': 'pointer number stored; the host cursor is shown instead',
@@ -867,7 +877,7 @@ export const NOTES: Record<string, string> = {
   // Amiga facility it drives has no equivalent in the port.
   edit: 'InEdit +ILib.s:1858 returns to the AMOS editor (run-error 1000); there is no editor in the port, so the program halts',
   direct: 'InDirect +ILib.s:1866 returns to direct mode (run-error 1001); no direct window exists in the port, so the program halts',
-  free: 'FnFree queries exec AvailMem; the port has no Amiga memory manager, so it returns a nominal free figure',
+  free: 'FnFree +Lib.s:13600 garbage-collects then reports TabBas-HiChaine (free variable space); no variable arena exists here — returns a nominal figure',
   'chip free': 'FnChipFree +Lib.s:2510 queries exec AvailMem(MEMF_CHIP); no Amiga memory manager in the port — returns a nominal figure',
   'fast free': 'FnFastFree +Lib.s:2517 queries exec AvailMem(MEMF_FAST); no Amiga memory manager in the port — returns a nominal figure',
   lprint: 'InLPrint +ILib.s:5067 routes Print to the printer device; no printer host, so the arguments are evaluated (for side effects) then discarded',

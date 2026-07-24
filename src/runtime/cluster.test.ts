@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -589,6 +591,29 @@ describe('blocks, clones, flips', () => {
 })
 
 describe('memory model', () => {
+  it('List Bank prints the Bnk.List line format (+Lib.s:8616)', () => {
+    const { out } = run('Reserve As Data 6,100\nReserve As Chip Work 12,50\nList Bank')
+    expect(out).toBe(' 6 - Datas    S: $01600000 L: 100\n12 - Work     S: $01C00000 L: 50\n')
+  })
+
+  it('Reserve validates the number and length (RsBqX)', () => {
+    expect(() => run('Reserve As Data 0,10')).toThrow(/illegal function call/i)
+    expect(() => run('Reserve As Data 65536,10')).toThrow(/illegal function call/i)
+    expect(() => run('Reserve As Work 5,0')).toThrow(/illegal function call/i)
+  })
+
+  it('Load appends sprites by default, overwrites with bank 0 (Bnk.Load LB_Sprites)', () => {
+    const abk = new Uint8Array(readFileSync(join(__dirname, '../../fixtures/official-amos/Tutorial/Objects/Bobs.Abk')))
+    const fs = new AmigaFS()
+    const vol = fs.mountMemory('DH0')
+    vol.write(['bobs.abk'], abk)
+    let out = ''
+    const src = ['Load "bobs.abk"', 'N=Length(1)', 'Load "bobs.abk"', 'Print Length(1)/N', 'Load "bobs.abk",0', 'Print Length(1)/N'].join('\n')
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, fs, onText: (t) => (out += t) })
+    rt.runHeadless(50)
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['2', '1'])
+  })
+
   it('reserves banks, peeks and pokes through fake addresses', () => {
     const prog = [
       'Reserve As Data 6,100',
@@ -624,10 +649,18 @@ describe('memory model', () => {
       'Reserve As Data 7,8',
       'Bload "DH0:mem.bin",Start(7)',
       'Print Peek$(Start(7),8)',
-      'Bload "DH0:mem.bin",9',
-      'Print Length(9)',
+      'Reserve As Data 9,8',
+      'Bload "DH0:mem.bin",9', // Bnk.OrAdr: a bare number names a reserved bank
+      'Print Peek$(Start(9),8)',
     ].join('\n')
-    expect(run(prog).out).toBe('SAVEDATA\n 8\n')
+    expect(run(prog).out).toBe('SAVEDATA\nSAVEDATA\n')
+    // InBload: an unreserved bank number errors (Bnk.OrAdr)
+    expect(() => run('Bsave "DH0:x.bin",1024 To 1032')).toThrow()
+    const bad = ['Reserve As Data 6,8', 'Bsave "DH0:m.bin",Start(6) To Start(6)+8', 'Bload "DH0:m.bin",42'].join('\n')
+    expect(() => run(bad)).toThrow(/bank not reserved/i)
+    // InBSave: end before start is a function call error (+Lib.s:4340)
+    const rng = ['Reserve As Data 6,8', 'Bsave "DH0:m.bin",Start(6) To Start(6)'].join('\n')
+    expect(() => run(rng)).toThrow(/illegal function call/i)
   })
 
   it('Erase and Bank Swap manage banks', () => {

@@ -7,6 +7,8 @@ import { BinReader } from './binreader'
  * Standalone .Abk files are a single bank without the AmBs wrapper.
  */
 export interface AmosFile {
+  /** true when the banks came from an AmBs list (Load erases all banks first) */
+  bankList?: boolean
   signature: string
   source: Uint8Array
   banks: Bank[]
@@ -58,6 +60,12 @@ export function parseAmosFile(bytes: Uint8Array): AmosFile {
     // bare .Abk bank file
     return { signature: signature.slice(0, 4), source: new Uint8Array(0), banks: parseBankList(r, 1, diagnostics), diagnostics }
   }
+  if (signature.startsWith('AmBs')) {
+    // bare multi-bank .Abk ("save all banks")
+    r.skip(4)
+    const count = r.u16()
+    return { signature: 'AmBs', source: new Uint8Array(0), banks: parseBankList(r, count, diagnostics), bankList: true, diagnostics }
+  }
   r.skip(16)
   if (!SIGNATURE_RE.test(signature)) {
     diagnostics.push(`unknown signature ${JSON.stringify(signature)}`)
@@ -65,14 +73,16 @@ export function parseAmosFile(bytes: Uint8Array): AmosFile {
   const srcLen = r.u32()
   const source = r.raw(srcLen)
   let banks: Bank[] = []
+  let bankList = false
   if (r.remaining >= 6 && r.peekStr(4) === 'AmBs') {
     r.skip(4)
     const count = r.u16()
     banks = parseBankList(r, count, diagnostics)
+    bankList = true
   } else if (r.remaining > 0) {
     diagnostics.push(`${r.remaining} trailing bytes after source, no AmBs marker`)
   }
-  return { signature, source, banks, diagnostics }
+  return { signature, source, banks, bankList, diagnostics }
 }
 
 function parseBankList(r: BinReader, count: number, diagnostics: string[]): Bank[] {

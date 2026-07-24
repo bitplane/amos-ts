@@ -507,10 +507,12 @@ export class Runtime {
     return null
   }
 
-  reserveBank(n: number, length: number, name: string, dataBank = true): void {
-    // flags bit 0 = Bnk_BitData (+Equ.s:1865): Data banks survive Erase Temp,
-    // Work banks (bit clear) do not
-    this.memBanks.set(n, { kind: 'memory', number: n, memType: 0, name, flags: dataBank ? 1 : 0, data: new Uint8Array(length) })
+  reserveBank(n: number, length: number, name: string, dataBank = true, chip = false): void {
+    // RsBqX (+Lib.s): length <= 0 or bank outside 1..65535 = function call
+    // error; flags bit 0 = Bnk_BitData (+Equ.s:1865): Data banks survive
+    // Erase Temp, Work banks (bit clear) do not
+    if (length <= 0 || n <= 0 || n >= 0x10000) throw new AmosError('Illegal function call', 23)
+    this.memBanks.set(n, { kind: 'memory', number: n, memType: chip ? 1 : 0, name, flags: dataBank ? 1 : 0, data: new Uint8Array(length) })
   }
   // ---- resource banks (Interface language) ----
   /** Resource Bank n (0 = system default, InResourceBank +Lib.s:14933) */
