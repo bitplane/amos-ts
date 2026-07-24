@@ -7,6 +7,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { parseAmosFile } from '../loader/amosfile'
 import { Runtime } from './runtime'
 import { NullAudio, periodToHz } from './audio'
+import { AmigaFS } from './vfs'
 import type { MemoryBank } from '../loader/amosfile'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -458,6 +459,73 @@ describe('the real Mod.Tracker module', () => {
       expect(p.freq!).toBeGreaterThanOrEqual(periodToHz(0x358) - 1)
       expect(p.freq!).toBeLessThanOrEqual(periodToHz(0x71) + 1)
     }
+  })
+})
+
+describe('Sam Swap / Sload / Ssave', () => {
+  const sampBank2: MemoryBank = (() => {
+    const rec = [
+      ...[...'TICK    '].map((c) => c.charCodeAt(0)),
+      0x20, 0xab,
+      0, 0, 0, 100,
+      ...new Array(100).fill(7),
+    ]
+    return { kind: 'memory', number: 5, memType: 1, name: 'Samples', flags: 0, data: new Uint8Array([0, 1, 0, 0, 0, 6, ...rec]) }
+  })()
+
+  it('Sam Swap chains a second buffer when the first ends (Sami .swap +Music.s:1085)', () => {
+    const audio = new NullAudio()
+    const rt = new Runtime(
+      tokenize('Reserve As Work 10,1000\nSam Play %0001,1,8000\nSam Swap %0001 To Start(10),400', table, extensions),
+      table,
+      { extensions, audio, banks: [sampBank2], maxSteps: 100_000, onText: () => {} },
+    )
+    rt.frame() // statements run; the vbl has not yet seen the sample end
+    // playing, swap queued
+    expect(rt.music.samState[0]).toBe(0)
+    // 100 bytes at ~8kHz ends within a frame; the swap takes over
+    rt.frame()
+    expect(rt.music.samState[0]).toBe(-1)
+    const plays = audio.events.filter((e) => e.kind === 'play' && e.voice === 0)
+    expect(plays).toHaveLength(2)
+    expect(plays[1]!.length).toBe(400)
+    // and when the swap buffer itself ends, the voice reads 1
+    for (let i = 0; i < 20; i++) rt.frame()
+    expect(rt.music.samState[0]).toBe(1)
+  })
+
+  it('Sam Swapped validates the voice (FnSamSwapped +Music.s:4055)', () => {
+    expect(() => boot('Print Sam Swapped(4)', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/illegal function call/i)
+    const { rt } = boot('Print Sam Swapped(0)', musicBank(BASIC))
+    let out = ''
+    rt.interp.io.write = (t) => (out += t)
+    rt.runHeadless(3)
+    expect(out.trim()).toBe('1') // idle voice: interrupts off
+  })
+
+  it('Sload reads channel bytes into memory, Ssave writes them out (+Music.s:3239/4426)', () => {
+    const fs = new AmigaFS()
+    const vol = fs.mountMemory('DH0')
+    vol.write(['in.raw'], Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]))
+    const rt = new Runtime(
+      tokenize(
+        'Reserve As Work 10,16\nOpen In 1,"in.raw"\nSload 1 To Start(10),8\nClose 1\n' +
+          'Open Out 2,"out.raw"\nSsave 2,Start(10) To Start(10)+4\nClose 2',
+        table,
+        extensions,
+      ),
+      table,
+      { extensions, audio: new NullAudio(), maxSteps: 100_000, onText: () => {}, fs },
+    )
+    rt.runHeadless(10)
+    const bank = rt.memBanks.get(10)!
+    expect([...bank.data.slice(0, 8)]).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect([...(fs.read('out.raw') ?? [])]).toEqual([1, 2, 3, 4])
+  })
+
+  it('Sload/Ssave validate channels and ranges', () => {
+    expect(() => boot('Sload 11 To 10,4', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/illegal function call/i)
+    expect(() => boot('Ssave 1,100 To 100', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/illegal function call/i)
   })
 })
 

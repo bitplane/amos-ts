@@ -95,6 +95,13 @@ export const FAITHFUL = new Set<string>([
   'med stop',
   'med cont',
   'med midi on',
+  // Sam Swap double-buffering (InSamSwap 4080 + the Sami .swap handler
+  // 1085), =Sam Swapped states (FnSamSwapped 4055), Sload/Ssave raw
+  // channel I/O (3239/4426); music.test.ts cites each
+  'sam swap',
+  'sam swapped',
+  'sload',
+  'ssave',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
   'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add
@@ -779,6 +786,8 @@ export const NOTES: Record<string, string> = {
   'track play': 'triggers skip the one-vbl DMA latch gap; the pattern argument is ignored ("not supported in this version" in the 68k too)',
   'med play': 'the replay reimplements the MMD0/MMD1 format (medplayer.library is not in the AMOS source): sampled instruments and the common effect subset; synthsounds are silent; CIA timing approximated at vbl granularity',
   'med midi on': 'flag stored; no MIDI output exists in the port',
+  'sam swap': 'the swap is consumed when a one-shot ends; on a looping voice the Amiga swaps at the loop boundary, here it stays pending',
+  'sam swapped': 'chunk-granularity 0 state (Sami_pos == one chunk) is not modelled',
   'noise to': 'the WebAudio sink snapshots the noise buffer at trigger; the per-vbl random refresh mutates the live buffer as on the Amiga but is only re-heard on retrigger there',
   'led on': 'filter flag reaches the sink; audibility depends on the host audio implementation',
   'led off': 'filter flag reaches the sink; audibility depends on the host audio implementation',

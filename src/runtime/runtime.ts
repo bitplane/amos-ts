@@ -1558,7 +1558,21 @@ export class Runtime {
       // InSamStop kills the Sami interrupt (+Music.s:4108) — no natural
       // end fires, so the music does NOT reclaim the voice
       this.music.samEnd[v] = Infinity
+      this.music.onSamStop(v)
     }
+  }
+
+  /**
+   * Bnk.OrAdr: a small value is a bank number (its start address), else
+   * a raw address into the fake address space.
+   */
+  bankOrAddr(n: number): { data: Uint8Array; off: number } | null {
+    if (n >= 0 && n < 0x10000) {
+      const bank = this.memBanks.get(n)
+      if (!bank) throw new AmosError('bank not reserved', 36)
+      return { data: bank.data, off: 0 }
+    }
+    return this.resolveAddr(n)
   }
 
   /**

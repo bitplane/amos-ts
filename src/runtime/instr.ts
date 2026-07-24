@@ -1752,6 +1752,53 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'sam stop'(it) {
       rt.stopVoices((it.atStmtEnd() ? 0b1111 : it.evalInt()) & 15)
     },
+    'sam swap'(it) {
+      // InSamSwap +Music.s:4080: Sam Swap voices To address,length —
+      // queues the next buffer, picked up when the playing one ends
+      const mask = it.evalInt()
+      it.expect('to')
+      const addr = it.evalInt()
+      it.expect(',')
+      const len = it.evalInt()
+      if (len < 0) throw new AmosError('Illegal function call', 23)
+      const m = rt.bankOrAddr(addr)
+      if (!m) return
+      const pcm = new Int8Array(m.data.buffer, m.data.byteOffset + m.off, Math.min(len, m.data.length - m.off))
+      rt.music.samSwap(mask & 15, pcm)
+    },
+    sload(it) {
+      // InSload +Music.s:3239: Sload f To address,length — reads raw
+      // bytes from an open sequential channel into memory
+      const ch = it.evalInt()
+      it.expect('to')
+      const addr = it.evalInt()
+      it.expect(',')
+      const len = it.evalInt()
+      if (len < 0 || ch < 1 || ch > 10) throw new AmosError('Illegal function call', 23)
+      const c = rt.fileChans.get(ch)
+      if (!c || c.mode !== 'in') throw new AmosError('Illegal function call', 23)
+      const m = rt.resolveWrite(addr)
+      if (!m) return
+      const n = Math.min(len, c.data.length - c.pos, m.data.length - m.off)
+      for (let i = 0; i < n; i++) m.data[m.off + i] = c.data[c.pos + i]!
+      c.pos += n
+    },
+    ssave(it) {
+      // InSsave +Music.s:4426: Ssave f,start To end — end must be past
+      // start; writes the raw bytes to an open output channel
+      const ch = it.evalInt()
+      it.expect(',')
+      const start = it.evalInt()
+      it.expect('to')
+      const end = it.evalInt()
+      if (end - start <= 0 || ch < 1 || ch > 10) throw new AmosError('Illegal function call', 23)
+      const c = rt.fileChans.get(ch)
+      if (!c || c.mode !== 'out') throw new AmosError('Illegal function call', 23)
+      const m = rt.resolveAddr(start)
+      if (!m) return
+      const n = Math.min(end - start, m.data.length - m.off)
+      for (let i = 0; i < n; i++) c.out.push(m.data[m.off + i]!)
+    },
     'sam loop on'(it) {
       // SL0 +Music.s:3073: updates the mask AND re-points live samples
       const mask = (it.atStmtEnd() ? 0b1111 : it.evalInt()) & 15
@@ -3204,6 +3251,13 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // FnMusicBase +Music.s:3907: the extension data zone address; the
       // vumeter bytes at +0..3 are mapped into the fake address space
       return VI(Runtime.MUBASE_ADDR)
+    },
+    'sam swapped'(_, a) {
+      // FnSamSwapped +Music.s:4055: voice 0-3 else illegal function call;
+      // 1 = voice off, 0 = swap pending, -1 = playing / swap consumed
+      const v = int(a[0]!)
+      if (v < 0 || v > 3) throw new AmosError('Illegal function call', 23)
+      return VI(rt.music.samState[v]!)
     },
 
     // ---- files ----

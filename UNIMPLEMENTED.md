@@ -1,28 +1,25 @@
 # What's not implemented (and what's approximated)
 
-Status after the graphics completion pass (scanline compositor, copper,
-rainbows, HAM/EHB, dual playfield, STOS anim). Census over the
-393-program corpus: **380 run to a stop, 100 end cleanly, 60 finish
-with nothing skipped.** Occurrence counts come from `runreport --all`
-(statements actually reached, so a tight loop counts thousands of
-times). Per-keyword detail lives in `KEYWORDS.md` (generated); this is
-the narrative view.
+Status after the audio completion pass (Paula-shaped voice layer, the
+music bank player, the MOD tracker, the wavetable synth, the MED
+player). Census over the 393-program corpus: **380 run to a stop, 100
+end cleanly, 60 finish with nothing skipped.** Occurrence counts come
+from `runreport --all` (statements actually reached, so a tight loop
+counts thousands of times). Per-keyword detail lives in `KEYWORDS.md`
+(generated); this is the narrative view.
 
 The display pipeline is considered done: screens, drawing, palette,
 rainbows, copper (system-generated AND user lists), menus, windows,
 zones, dual playfield, HAM/EHB, hardware/STOS animation are all at
-100%, with every remaining caveat NOTES'd in `KEYWORDS.md`.
+100%. The audio pipeline is now done too: the three players (music
+bank, MOD tracker, MED) and the wavetable synth are ported from
++Music.s over the AudioSink, with the faithful read-and-clear
+Vumeter, voice stealing/reclaim, Sam Swap double-buffering and the
+LED filter. Every remaining caveat is NOTES'd in `KEYWORDS.md`; a
+WebAudio sink renders it in the browser (per-tick control is
+best-effort there).
 
 ## Not implemented — grouped, roughly by census weight
-
-### Music & sound (the big one — music area 29%)
-`Music`/`Music Off/Stop`, `Tempo`, `Mvolume`, `Track Load/Play/Stop/
-Loop`, `Med Load/Play/Stop/Cont/Midi On` (MED player), `Play/Play
-Off`, `Set Wave/Set Envel/Del Wave/Noise To/Wave/Sample`, `Sload/
-Ssave`, `Sam Swap`, `Amplay`. Music banks are converted Soundtracker
-modules; MED banks are OctaMED. This is the next roadmap item: a
-Paula-shaped player over the existing audio sink. Nearly every AMOS
-game plays a module — the biggest remaining gap for real games.
 
 ### Speech (~27k hits, mostly one talking-head demo)
 `Say`, `Set Talk`, `Talk Misc/Stop`, `Mouth Read/Width/Height` — the
@@ -61,8 +58,8 @@ the encoders are unwritten). `Squash`/`Unsquash` and PowerPacker are
 done and verified.
 
 ### Misc language stragglers
-`Read Text`, `Amal n,#` bank programs (the AMAL/Anim/Move string
-forms all work), the `Play` recorded-path form.
+`Read Text`, `Amal n,#` bank programs and their `Amplay` speed
+setter (the AMAL/Anim/Move string forms all work).
 
 ## Implemented but approximated — the honesty list
 
@@ -73,8 +70,11 @@ Everything here also carries a NOTES entry in `KEYWORDS.md`.
 - **Dialog engine**: MZ (raw-memory strings) returns "", CA (machine
   code) errors, SM (screen drag) is a no-op; `=Array` passes a handle,
   not a real address.
-- **Bell/Boom/Shoot/Vumeter** are modern synthesis, not chip
-  waveforms; `Sam Raw` needs bank-address audio.
+- **Med Play** reimplements the public MMD0/MMD1 format — the replay
+  lived in medplayer.library, which is not in the AMOS source;
+  synthsounds are silent and CIA timing is vbl-granular.
+- **The players** start note triggers immediately instead of after
+  the one-vbl DMA latch gap; a 2-byte repeat region plays silence.
 - **Request On/Off/Wb** store the mode; no system requesters exist in
   the port.
 - **Fonts**: one Topaz face; `Get Disc Fonts` reports the ROM list.

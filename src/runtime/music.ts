@@ -158,6 +158,14 @@ export class MusicPlayer {
   private patBase = 0
   /** tick at which a one-shot Sam Play ends per voice (Sami end -> MuReStart) */
   samEnd = [Infinity, Infinity, Infinity, Infinity]
+  /** queued Sam Swap double-buffers (Sami_radr/rlong, +Music.s:4080) */
+  private samSwaps: Array<{ pcm: Int8Array; hz: number; vol: number } | null> = [null, null, null, null]
+  /**
+   * =Sam Swapped states (FnSamSwapped +Music.s:4055): 1 = voice's sample
+   * interrupt is off, 0 = a swap is still pending, -1 = playing with the
+   * swap consumed (ready for the next).
+   */
+  samState = [1, 1, 1, 1]
   /** last values sent to the sink, to skip per-vbl no-op writes */
   private lastFreq = [0, 0, 0, 0]
   private lastVol = [-1, -1, -1, -1]
@@ -322,13 +330,23 @@ export class MusicPlayer {
     // MusInt (+Music.s:1092): envelopes and the noise refresh run before
     // the music/tracker players
     this.envStep()
-    // Sami natural end -> MuReStart (+Music.s:1080): one-shot samples give
-    // their voice back to the music when they finish
+    // Sami natural end (+Music.s:1062): a queued Sam Swap buffer takes
+    // over first (.swap); otherwise the voice ends and MuReStart hands
+    // it back to the music
     const t = this.host.tick()
     for (let v = 0; v < 4; v++) {
       if (t >= this.samEnd[v]!) {
-        this.samEnd[v] = Infinity
-        this.restart |= 1 << v
+        const sw = this.samSwaps[v]
+        if (sw) {
+          this.samSwaps[v] = null
+          this.samState[v] = -1
+          this.host.audio.play(v, sw.pcm, sw.hz, sw.vol, -1, sw.pcm.length)
+          this.samEnd[v] = t + Math.ceil((sw.pcm.length / sw.hz) * 50)
+        } else {
+          this.samEnd[v] = Infinity
+          this.samState[v] = 1
+          this.restart |= 1 << v
+        }
       }
     }
     const s = this.cur()
@@ -902,6 +920,25 @@ export class MusicPlayer {
   onSamVoice(v: number): void {
     this.envs[v]!.on = false
     this.noiseMask &= ~(1 << v)
+    this.samSwaps[v] = null
+    this.samState[v] = -1
+  }
+
+  /** InSamSwap (+Music.s:4080): queue the next buffer for playing voices */
+  samSwap(mask: number, pcm: Int8Array): void {
+    for (let v = 0; v < 4; v++) {
+      if (!(mask & (1 << v))) continue
+      const hz = this.lastFreq[v]! || periodToHz(samPeriod(8363))
+      const vol = this.lastVol[v]! >= 0 ? this.lastVol[v]! : this.host.voiceVolume(v)
+      this.samSwaps[v] = { pcm, hz, vol }
+      if (this.samState[v] !== 1) this.samState[v] = 0
+    }
+  }
+
+  /** InSamStop kills the interrupt: the state reads 1, swaps are dropped */
+  onSamStop(v: number): void {
+    this.samState[v] = 1
+    this.samSwaps[v] = null
   }
 
   /** InSetWave/NeWave (+Music.s:3387/3488): replacing stops all envelopes */

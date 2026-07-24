@@ -26,7 +26,7 @@ tested against our own understanding. Percentages exclude n/a
 | language | 250 | 186 | 18 | 37 | 85% |
 | memory | 14 | 10 | 3 | 1 | 93% |
 | menus | 24 | 24 | 0 | 0 | 100% |
-| music | 49 | 37 | 1 | 11 | 78% |
+| music | 49 | 41 | 1 | 7 | 86% |
 | objects | 56 | 52 | 3 | 1 | 98% |
 | palette | 9 | 9 | 0 | 0 | 100% |
 | rainbows | 3 | 3 | 0 | 0 | 100% |
@@ -36,7 +36,7 @@ tested against our own understanding. Percentages exclude n/a
 | text-io | 37 | 31 | 5 | 1 | 97% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 521 | 53 | 121 | 83% |
+| **total** | 732 | 525 | 53 | 117 | 83% |
 
 ## amal (92%)
 
@@ -116,11 +116,11 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `menu active`, `menu bar`, `menu base`, `menu calc`, `menu called` *(items redraw every frame; (PR name) label procedures are not invoked)*, `menu del`, `menu inactive`, `menu item movable` *(drag applies final positions — no XOR rubber band)*, `menu item static`, `menu key`, `menu line`, `menu link`, `menu mouse off`, `menu mouse on`, `menu movable` *(drag applies final positions — no XOR rubber band)*, `menu off`, `menu on`, `menu once`, `menu separate`, `menu static`, `menu tline`, `menu to bank`, `on menu`, `x menu`
 
-## music (78%)
+## music (86%)
 
-- **faithful**: `bell`, `boom`, `del wave`, `led off` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `led on` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `med cont`, `med load`, `med midi on` *(flag stored; no MIDI output exists in the port)*, `med stop`, `mubase` *(only the vumeter bytes (MB+0..3) of the data zone are mapped)*, `music` *(note triggers start immediately instead of after the one-vbl DMA-off gap; a 2-byte repeat region plays silence rather than looping its two bytes)*, `music off`, `music stop`, `mvolume`, `noise to` *(the WebAudio sink snapshots the noise buffer at trigger; the per-vbl random refresh mutates the live buffer as on the Amiga but is only re-heard on retrigger there)*, `play`, `play off`, `sam bank`, `sam loop off`, `sam loop on`, `sam play`, `sam raw` *(unmapped addresses play nothing (the real machine plays whatever memory holds))*, `sam stop`, `sample`, `set envel`, `set wave`, `shoot`, `tempo`, `track load`, `track loop of`, `track loop on`, `track play` *(triggers skip the one-vbl DMA latch gap; the pattern argument is ignored ("not supported in this version" in the 68k too))*, `track stop`, `voice`, `volume`, `vumeter`, `wave`
+- **faithful**: `bell`, `boom`, `del wave`, `led off` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `led on` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `med cont`, `med load`, `med midi on` *(flag stored; no MIDI output exists in the port)*, `med stop`, `mubase` *(only the vumeter bytes (MB+0..3) of the data zone are mapped)*, `music` *(note triggers start immediately instead of after the one-vbl DMA-off gap; a 2-byte repeat region plays silence rather than looping its two bytes)*, `music off`, `music stop`, `mvolume`, `noise to` *(the WebAudio sink snapshots the noise buffer at trigger; the per-vbl random refresh mutates the live buffer as on the Amiga but is only re-heard on retrigger there)*, `play`, `play off`, `sam bank`, `sam loop off`, `sam loop on`, `sam play`, `sam raw` *(unmapped addresses play nothing (the real machine plays whatever memory holds))*, `sam stop`, `sam swap` *(the swap is consumed when a one-shot ends; on a looping voice the Amiga swaps at the loop boundary, here it stays pending)*, `sam swapped` *(chunk-granularity 0 state (Sami_pos == one chunk) is not modelled)*, `sample`, `set envel`, `set wave`, `shoot`, `sload`, `ssave`, `tempo`, `track load`, `track loop of`, `track loop on`, `track play` *(triggers skip the one-vbl DMA latch gap; the pattern argument is ignored ("not supported in this version" in the 68k too))*, `track stop`, `voice`, `volume`, `vumeter`, `wave`
 - **approximated**: `med play` *(the replay reimplements the MMD0/MMD1 format (medplayer.library is not in the AMOS source): sampled instruments and the common effect subset; synthsounds are silent; CIA timing approximated at vbl granularity)*
-- **missing**: `mouth height`, `mouth read`, `mouth width`, `sam swap`, `sam swapped`, `say`, `set talk`, `sload`, `ssave`, `talk misc`, `talk stop`
+- **missing**: `mouth height`, `mouth read`, `mouth width`, `say`, `set talk`, `talk misc`, `talk stop`
 
 ## objects (98%)
 
