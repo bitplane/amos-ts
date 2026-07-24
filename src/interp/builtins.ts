@@ -692,19 +692,39 @@ export const INSTR: Record<string, Instr> = {
     return 'jumped'
   },
   'mid$'(it) {
-    // assignment form: Mid$(A$,p[,n]) = expr — overwrite part of a string
+    // assignment form: Mid$(A$,p[,n]) = expr (InMid2/InMid3 +ILib.s:6531;
+    // the 2-arg form's count is $FFFF, clamped by target and source)
     it.expect('(')
     const tg = it.parseTarget()
     it.expect(',')
-    const p = Math.max(1, it.evalInt()) - 1
-    const n = it.accept(',') ? it.evalInt() : -1
+    const p = it.evalInt()
+    const n = it.accept(',') ? it.evalInt() : 0xffff
     it.expect(')')
     it.expectOp('=')
-    let repl = str(it.evalExpr())
-    const s = str(tg.get())
-    const len = n < 0 ? repl.length : Math.min(n, repl.length)
-    repl = repl.slice(0, Math.min(len, Math.max(0, s.length - p)))
-    tg.set(VS(s.slice(0, p) + repl + s.slice(p + repl.length)))
+    midStore(tg, p, n, str(it.evalExpr()))
+  },
+  'left$'(it) {
+    // Left$(A$,n) = expr (InLeft +ILib.s:6471): position 0, count n
+    it.expect('(')
+    const tg = it.parseTarget()
+    it.expect(',')
+    const n = it.evalInt()
+    it.expect(')')
+    it.expectOp('=')
+    midStore(tg, 0, n, str(it.evalExpr()))
+  },
+  'right$'(it) {
+    // Right$(A$,n) = expr (InRight +ILib.s:6494): starts at len-n+1
+    // (1-based), or the whole string when n >= len; count n
+    it.expect('(')
+    const tg = it.parseTarget()
+    it.expect(',')
+    const n = it.evalInt()
+    it.expect(')')
+    it.expectOp('=')
+    if (n < 0) throw new AmosError('function call error')
+    const len = str(tg.get()).length
+    midStore(tg, n >= len ? 0 : len - n + 1, n, str(it.evalExpr()))
   },
   every(it) {
     // Every n Gosub label / Every n Proc NAME (InEvery)
@@ -849,6 +869,24 @@ export const INSTR: Record<string, Instr> = {
 }
 
 // ---- functions ------------------------------------------------------------
+
+/**
+ * The shared store of the Mid$/Left$/Right$ assignment forms (RInMid2
+ * +ILib.s:6644): overwrite `count` chars of the target at 1-based `rawPos`
+ * (0 acts like 1) with the source string, clamped by the target's
+ * remaining length and the source length — the target's LENGTH never
+ * changes. Negative position or count is a function call error; a
+ * position past the end silently changes nothing.
+ */
+function midStore(tg: { get(): Value; set(v: Value): void }, rawPos: number, count: number, src: string): void {
+  if (rawPos < 0 || count < 0) throw new AmosError('function call error')
+  const pos = rawPos === 0 ? 0 : rawPos - 1
+  const s = str(tg.get())
+  if (pos >= s.length || count === 0) return
+  const n = Math.min(count, s.length - pos, src.length)
+  if (n <= 0) return
+  tg.set(VS(s.slice(0, pos) + src.slice(0, n) + s.slice(pos + n)))
+}
 
 function arity(args: Value[], min: number, max = min): void {
   if (args.length < min || args.length > max) throw new AmosError('wrong number of arguments')

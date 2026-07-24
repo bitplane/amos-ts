@@ -316,6 +316,22 @@ describe('procedures', () => {
 })
 
 describe('statements verified against the library source', () => {
+  it('Mid$/Left$/Right$ assignment overwrites in place, length fixed (RInMid2 +ILib.s:6644)', () => {
+    expect(run('A$="AMOSPRO" : Left$(A$,4)="1234567" : Print A$')).toBe('1234PRO\n')
+    expect(run('A$="AMOSPRO" : Right$(A$,3)="xyz123" : Print A$')).toBe('AMOSxyz\n')
+    // n >= length: Right$ starts at 0 (InRight bcc RInMid2 with d5=0)
+    expect(run('A$="AMOSPRO" : Right$(A$,99)="ab" : Print A$')).toBe('abOSPRO\n')
+    expect(run('A$="AMOSPRO" : Mid$(A$,3)="xy" : Print A$')).toBe('AMxyPRO\n')
+    expect(run('A$="AMOSPRO" : Mid$(A$,3,1)="xy" : Print A$')).toBe('AMxSPRO\n')
+    // position 0 acts like 1; past-the-end and count 0 change nothing
+    expect(run('A$="AB" : Mid$(A$,0)="Z" : Print A$')).toBe('ZB\n')
+    expect(run('A$="AB" : Mid$(A$,99)="Z" : Print A$')).toBe('AB\n')
+    expect(run('A$="AB" : Left$(A$,0)="Z" : Print A$')).toBe('AB\n')
+    // negative position/count: function call error (tst.l / bmi FonCall)
+    expect(() => run('A$="AB" : Left$(A$,-1)="Z"')).toThrow(/function call/)
+    expect(() => run('A$="AB" : Right$(A$,-1)="Z"')).toThrow(/function call/)
+  })
+
   it('For runs its body at least once — InFor has no initial test', () => {
     expect(run('For I=5 To 1 : Print "X"; : Next : Print')).toBe('X\n')
     expect(run('For I=1 To 0 : Print I; : Next')).toBe(' 1')
