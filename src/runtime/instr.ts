@@ -1558,10 +1558,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.mouseLimit = { x1: a, y1, x2, y2 }
     },
     'paste bob'(it) {
+      // InPasteBob +Lib.s:12753 -> Patch: bset #31,d3 sets the "PAS POINT
+      // CHAUD" flag, so BobCalc (+W.s:1387) skips the hot-spot subtraction
+      // — Paste Bob draws at the raw top-left x,y, unlike Bob/Sprite
       const [x, y] = pair(it)
       it.expect(',')
       const img = rt.spriteBank?.image(it.evalInt())
-      if (img) rt.blit(scr(), img, x - img.hotX, y - img.hotY, img.opaque)
+      if (img) rt.blit(scr(), img, x, y, img.opaque)
     },
     'paste icon'(it) {
       const [x, y] = pair(it)

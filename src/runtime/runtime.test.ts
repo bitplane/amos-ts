@@ -336,6 +336,19 @@ describe('objects', () => {
     expect(rt.screen.point(60, 60)).toBe(5)
   })
 
+  it('Paste Bob ignores the hot spot — pastes at raw top-left (Patch bset #31, +W.s:1387)', () => {
+    // Bob/Sprite subtract the hot spot; Paste Bob does not (PAS POINT
+    // CHAUD). A hot spot at the image centre must NOT shift the paste.
+    const rt = run(
+      ['Ink 5 : Bar 0,0 To 15,15 : Get Bob 1,0,0 To 16,16', 'Hot Spot 1,8,8', 'Cls 0', 'Paste Bob 100,100,1'].join('\n'),
+    )
+    // top-left corner of the image lands exactly at 100,100
+    expect(rt.screen.point(100, 100)).toBe(5)
+    expect(rt.screen.point(115, 115)).toBe(5)
+    // nothing drawn hot-spot-shifted up-left at 92,92
+    expect(rt.screen.point(92, 92)).toBe(0)
+  })
+
   it('detects pixel-precise collisions with Bob Col and Col()', () => {
     const prog = (x: number) =>
       [
