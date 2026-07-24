@@ -196,6 +196,22 @@ export const FAITHFUL = new Set<string>([
   // the source pixel index space, copying the shared planes only and
   // preserving the destination's higher planes; gcd patterns faithful
   'appear',
+  // STOS compatibility (TokAMAL AniStos +W.s:7483, executors AmAnim/
+  // AmMvtX/AmMvtY 8721/8749): Anim (image,delay) pairs with L looping;
+  // Move X/Y [start](speed,step,count) groups, count 0 = 65536 steps,
+  // L/E with an equality-triggered position, the loop re-applying the
+  // start in the same vbl; independent slots beside the AMAL program
+  // (channel*4+mode); Movon reports live move slots
+  'anim',
+  'anim on',
+  'anim off',
+  'anim freeze',
+  'move x',
+  'move y',
+  'move on',
+  'move off',
+  'move freeze',
+  'movon',
   // objects/screens sweep: real bob pipeline (Actualise-style), buffers
   'bob', // blitted with background save/restore; Point sees bobs
   'bob off',
@@ -679,6 +695,9 @@ export const NA = new Set<string>([
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
   amal: 'string programs only — Amal n,# bank programs unsupported',
+  anim: 'string programs only — bank program numbers unsupported, like amal',
+  'move x': 'string programs only — bank program numbers unsupported, like amal',
+  'move y': 'string programs only — bank program numbers unsupported, like amal',
   'set bob': 'back modes implemented; planes/mask arguments ignored',
   autoback: 'mode 1 treated like 0',
   rainbow: 'rendered per scanline by the copper-walk compositor; hardware lines above 50 (the top border) are outside the composite window',

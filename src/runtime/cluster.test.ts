@@ -952,3 +952,65 @@ describe('the pseudo raster beam (FnRnd +Lib.s:1976, VPOSR/VHPOSR)', () => {
     expect(out).toBe('-1\n')
   })
 })
+
+describe('STOS Anim / Move X / Move Y (AniStos +W.s:7483, AmMvtX/AmAnim executors)', () => {
+  const frames = (rt: Runtime, n: number): void => {
+    for (let i = 0; i < n; i++) rt.frame()
+  }
+
+  it('Move X steps by (speed,step,count) groups after Move On', () => {
+    const prog = ['Sprite 5,200,120,1', 'Move X 5,"(2,3,4)"', 'Move On'].join('\n')
+    const { rt } = run(prog)
+    // speed 2: a step every 2 vbls, +3 each, 4 times, then done
+    frames(rt, 2)
+    expect(rt.hwSprites.get(5)!.x).toBe(203)
+    frames(rt, 6)
+    expect(rt.hwSprites.get(5)!.x).toBe(212)
+    frames(rt, 10)
+    expect(rt.hwSprites.get(5)!.x).toBe(212) // finished, stays put
+  })
+
+  it('a leading number re-positions, L loops and re-applies it (StML)', () => {
+    const prog = ['Sprite 5,10,120,1', 'Move X 5,"100(1,10,3)L"', 'Move On'].join('\n')
+    const { rt } = run(prog)
+    // the loop's final step and the start re-position land in the SAME
+    // vbl (StML writes the position immediately), so the visible cycle
+    // is 110, 120, 100 — the nominal 130 never appears on screen
+    const seen = new Set<number>()
+    for (let i = 0; i < 9; i++) {
+      rt.frame()
+      seen.add(rt.hwSprites.get(5)!.x)
+    }
+    expect([...seen].sort((a, b) => a - b)).toEqual([100, 110, 120])
+  })
+
+  it('the E position stops the movement on equality; Movon reports it', () => {
+    const prog = ['Sprite 5,100,120,1', 'Move X 5,"(1,1,200)E105"', 'Move On', 'Print Movon(5)'].join('\n')
+    const { rt, out } = run(prog)
+    expect(out).toBe('-1\n')
+    frames(rt, 20)
+    expect(rt.hwSprites.get(5)!.x).toBe(105) // froze at the trigger
+    const src2 = 'Print Movon(3)'
+    expect(run(src2).out).toBe(' 0\n')
+  })
+
+  it('Anim cycles (image,delay) pairs; L loops, otherwise it parks on the last', () => {
+    const prog = ['Sprite 5,100,120,1', 'Anim 5,"(2,3)(7,3)"', 'Anim On'].join('\n')
+    const { rt } = run(prog)
+    rt.frame()
+    expect(rt.hwSprites.get(5)!.image).toBe(2)
+    frames(rt, 3)
+    expect(rt.hwSprites.get(5)!.image).toBe(7)
+    frames(rt, 10)
+    expect(rt.hwSprites.get(5)!.image).toBe(7) // no L: stops on the last
+  })
+
+  it('Move Off halts and Move On resumes; channels cap at 16 (MvA +Lib.s:11694)', () => {
+    const prog = ['Sprite 5,100,120,1', 'Move X 5,"(1,2,50)L"', 'Move On', 'Wait Vbl : Wait Vbl', 'Move Off'].join('\n')
+    const { rt } = run(prog)
+    const x = rt.hwSprites.get(5)!.x
+    frames(rt, 5)
+    expect(rt.hwSprites.get(5)!.x).toBe(x) // off: no motion
+    expect(() => run('Move X 16,"(1,1,1)"')).toThrow(/function call/)
+  })
+})

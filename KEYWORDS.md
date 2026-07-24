@@ -12,7 +12,7 @@ tested against our own understanding. Percentages exclude n/a
 | area | keywords | faithful | approximated | missing | coverage |
 |---|---|---|---|---|---|
 | amal | 13 | 12 | 0 | 1 | 92% |
-| amal-stos | 10 | 0 | 0 | 10 | 0% |
+| amal-stos | 10 | 10 | 0 | 0 | 100% |
 | banks | 20 | 10 | 6 | 4 | 80% |
 | compact | 3 | 1 | 0 | 2 | 33% |
 | compiler | 15 | 10 | 1 | 0 | 100% |
@@ -36,16 +36,16 @@ tested against our own understanding. Percentages exclude n/a
 | text-io | 37 | 31 | 5 | 1 | 97% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 479 | 61 | 155 | 78% |
+| **total** | 732 | 489 | 61 | 145 | 79% |
 
 ## amal (92%)
 
 - **faithful**: `amal` *(string programs only — Amal n,# bank programs unsupported)*, `amal freeze`, `amal off`, `amal on`, `amalerr`, `amreg`, `chanan`, `chanmv`, `channel`, `synchro`, `synchro off`, `synchro on`
 - **missing**: `amplay`
 
-## amal-stos (0%)
+## amal-stos (100%)
 
-- **missing**: `anim`, `anim freeze`, `anim off`, `anim on`, `move freeze`, `move off`, `move on`, `move x`, `move y`, `movon`
+- **faithful**: `anim` *(string programs only — bank program numbers unsupported, like amal)*, `anim freeze`, `anim off`, `anim on`, `move freeze`, `move off`, `move on`, `move x` *(string programs only — bank program numbers unsupported, like amal)*, `move y` *(string programs only — bank program numbers unsupported, like amal)*, `movon`
 
 ## banks (80%)
 

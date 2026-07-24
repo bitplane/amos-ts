@@ -212,6 +212,124 @@ function buildRainbowTable(len: number, seed: number, rs: string, gs: string, bs
   return table
 }
 
+/**
+ * STOS-string scanner (StChr +W.s:7494): spaces skipped, lowercase
+ * upper-cased; numbers are AniLong's (optional '-', decimal or $hex).
+ */
+function stosScan(src: string): { next: () => string; num: () => number; done: () => boolean } {
+  const sig: string[] = []
+  for (const ch of src) {
+    if (ch === ' ') continue
+    sig.push(ch >= 'a' && ch <= 'z' ? String.fromCharCode(ch.charCodeAt(0) - 32) : ch)
+  }
+  let p = 0
+  const next = (): string => sig[p++] ?? ''
+  const num = (): number => {
+    let neg = false
+    let ch = next()
+    if (ch === '-') {
+      neg = true
+      ch = next()
+    }
+    let v = 0
+    if (ch === '$') {
+      let any = false
+      for (;;) {
+        const d = sig[p] ?? ''
+        const dv = /[0-9]/.test(d) ? d.charCodeAt(0) - 48 : /[A-F]/.test(d) ? d.charCodeAt(0) - 55 : -1
+        if (dv < 0) break
+        v = v * 16 + dv
+        p++
+        any = true
+      }
+      if (!any) throw new AmosError('syntax error in animation string')
+    } else {
+      if (!/[0-9]/.test(ch)) throw new AmosError('syntax error in animation string')
+      v = ch.charCodeAt(0) - 48
+      while (/[0-9]/.test(sig[p] ?? '')) v = v * 10 + (sig[p++]!.charCodeAt(0) - 48)
+    }
+    return neg ? -v : v
+  }
+  return { next, num, done: () => p >= sig.length }
+}
+
+/** Anim string "(image,delay)...[L]" (AniStos +W.s:7490) */
+function parseStosAnim(src: string): { pairs: Array<[number, number]>; loop: boolean } {
+  const s = stosScan(src)
+  const synt = (): never => {
+    throw new AmosError('syntax error in animation string')
+  }
+  const pairs: Array<[number, number]> = []
+  if (s.next() !== '(') synt()
+  for (;;) {
+    const img = s.num()
+    if (s.next() !== ',') synt()
+    const delay = s.num()
+    if (delay < 0) synt()
+    if (s.next() !== ')') synt()
+    pairs.push([img, delay])
+    const c = s.next()
+    if (c === '') return { pairs, loop: false }
+    if (c === 'L') return { pairs, loop: true }
+    if (c !== '(') synt()
+  }
+}
+
+/** Move string "[start](speed,step,count)...[L|E][pos]" (AnMve +W.s:7516) */
+function parseStosMove(src: string): { start: number | null; groups: Array<[number, number, number]>; loop: boolean; endPos: number | null } {
+  const s = stosScan(src)
+  const synt = (): never => {
+    throw new AmosError('syntax error in animation string')
+  }
+  let start: number | null = null
+  let c = s.next()
+  if (c !== '(') {
+    if (c === '') synt()
+    // a leading number is the starting coordinate
+    let neg = false
+    if (c === '-') {
+      neg = true
+      c = s.next()
+    }
+    if (!/[0-9$]/.test(c)) synt()
+    let v = 0
+    if (c === '$') v = s.num()
+    else {
+      v = c.charCodeAt(0) - 48
+      for (;;) {
+        const d = s.next()
+        if (/[0-9]/.test(d)) v = v * 10 + (d.charCodeAt(0) - 48)
+        else {
+          c = d
+          break
+        }
+      }
+    }
+    start = neg ? -v : v
+    if (c !== '(') synt()
+  }
+  const groups: Array<[number, number, number]> = []
+  for (;;) {
+    const speed = s.num()
+    if (speed <= 0) synt()
+    if (s.next() !== ',') synt()
+    const step = s.num()
+    if (s.next() !== ',') synt()
+    const count = s.num()
+    if (count < 0) synt()
+    if (s.next() !== ')') synt()
+    groups.push([speed, step, count])
+    const t = s.next()
+    if (t === '(') continue
+    if (t === '') return { start, groups, loop: false, endPos: null }
+    let loop = false
+    if (t === 'L') loop = true
+    else if (t !== 'E') synt()
+    const endPos = s.done() ? null : s.num()
+    return { start, groups, loop, endPos }
+  }
+}
+
 /** the ROM font list (Get Fonts / Font$) — the port carries Topaz only */
 const FONT_LIST = [
   { name: 'topaz.font', height: 8, type: 'Rom' },
@@ -2336,6 +2454,88 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       ch.on = rt.amalDefaultOn
       rt.channels.set(n, ch)
     },
+    // ---- STOS-compatibility Anim / Move (InAnim2/InMoveX2 +Lib.s:11660) ----
+    anim(it) {
+      // Anim n,"(image,delay)...[L]" — an independent slot beside the
+      // channel's AMAL program (ID channel*4+1, CreAMAL +W.s:7998)
+      const n = it.evalInt()
+      const limit = rt.synchroManual ? 64 : 16
+      if (n >>> 0 >= limit) throw new AmosError('function call error')
+      it.expect(',')
+      const spec = parseStosAnim(it.evalStr())
+      const slot = rt.stosSlot(n)
+      slot.anim = { ...spec, idx: 0, left: 1, done: false, on: false, frozen: false }
+    },
+    'move x'(it) {
+      const n = it.evalInt()
+      const limit = rt.synchroManual ? 64 : 16
+      if (n >>> 0 >= limit) throw new AmosError('function call error')
+      it.expect(',')
+      const spec = parseStosMove(it.evalStr())
+      rt.stosSlot(n).moveX = { ...spec, gi: 0, speedLeft: 1, countLeft: spec.groups[0]![2] || 0x10000, started: false, done: false, on: false, frozen: false }
+    },
+    'move y'(it) {
+      const n = it.evalInt()
+      const limit = rt.synchroManual ? 64 : 16
+      if (n >>> 0 >= limit) throw new AmosError('function call error')
+      it.expect(',')
+      const spec = parseStosMove(it.evalStr())
+      rt.stosSlot(n).moveY = { ...spec, gi: 0, speedLeft: 1, countLeft: spec.groups[0]![2] || 0x10000, started: false, done: false, on: false, frozen: false }
+    },
+    'anim on'(it) {
+      const n = it.atStmtEnd() ? null : it.evalInt()
+      for (const [k, s] of rt.stosSlots) {
+        if (n !== null && k !== n) continue
+        if (s.anim) {
+          s.anim.on = true
+          s.anim.frozen = false
+        }
+      }
+    },
+    'anim off'(it) {
+      const n = it.atStmtEnd() ? null : it.evalInt()
+      for (const [k, s] of rt.stosSlots) {
+        if (n !== null && k !== n) continue
+        if (s.anim) s.anim.on = false
+      }
+    },
+    'anim freeze'(it) {
+      const n = it.atStmtEnd() ? null : it.evalInt()
+      for (const [k, s] of rt.stosSlots) {
+        if (n !== null && k !== n) continue
+        if (s.anim) s.anim.frozen = true
+      }
+    },
+    'move on'(it) {
+      const n = it.atStmtEnd() ? null : it.evalInt()
+      for (const [k, s] of rt.stosSlots) {
+        if (n !== null && k !== n) continue
+        for (const m of [s.moveX, s.moveY]) {
+          if (m) {
+            m.on = true
+            m.frozen = false
+          }
+        }
+      }
+    },
+    'move off'(it) {
+      const n = it.atStmtEnd() ? null : it.evalInt()
+      for (const [k, s] of rt.stosSlots) {
+        if (n !== null && k !== n) continue
+        for (const m of [s.moveX, s.moveY]) {
+          if (m) m.on = false
+        }
+      }
+    },
+    'move freeze'(it) {
+      const n = it.atStmtEnd() ? null : it.evalInt()
+      for (const [k, s] of rt.stosSlots) {
+        if (n !== null && k !== n) continue
+        for (const m of [s.moveX, s.moveY]) {
+          if (m) m.frozen = true
+        }
+      }
+    },
     channel(it) {
       const n = it.evalInt()
       it.expect('to')
@@ -3041,6 +3241,15 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
       const z = dialogZoneAt(d, int(a[1]!), int(a[2]!))
       return VI(z ? z.number : -1)
+    },
+    movon(_, a) {
+      // =Movon(n) (FnMovon +Lib.s:11945): -1 while a Move X/Y program on
+      // channel n is still running
+      const n = int(a[0]!)
+      if (n < 0) throw new AmosError('function call error')
+      const s = rt.stosSlots.get(n)
+      const live = (m: { on: boolean; done: boolean } | undefined): boolean => !!m && m.on && !m.done
+      return VI(s && (live(s.moveX) || live(s.moveY)) ? -1 : 0)
     },
     'cop logic'(_, a) {
       // =Cop Logic (FnCopLogic +Lib.s:9527 → TCopBs): the address of the

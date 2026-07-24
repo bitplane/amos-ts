@@ -95,6 +95,36 @@ export function parseFlashSpec(spec: string): Array<{ rgb: number; ticks: number
 /** the default cursor shape: an underline (DefCurs +W.s:16736) */
 export const CURSOR_SHAPE = [0, 0, 0, 0, 0, 0, 0xff, 0xff]
 
+/** STOS Anim slot: (image,delay) pairs, L = loop (AniStos +W.s:7490) */
+export interface StosAnim {
+  pairs: Array<[number, number]>
+  loop: boolean
+  idx: number
+  left: number
+  done: boolean
+  on: boolean
+  frozen: boolean
+}
+
+/**
+ * STOS Move X/Y slot: optional start position, (speed,step,count) groups
+ * (count 0 = 65536 steps), L = loop / E = stop, either with an optional
+ * position that triggers on equality (AniStos AnMve +W.s:7516).
+ */
+export interface StosMove {
+  start: number | null
+  groups: Array<[number, number, number]>
+  loop: boolean
+  endPos: number | null
+  gi: number
+  speedLeft: number
+  countLeft: number
+  started: boolean
+  done: boolean
+  on: boolean
+  frozen: boolean
+}
+
 export interface RuntimeOptions {
   extensions?: Map<number, TokenTable>
   onUnimplemented?: 'throw' | 'skip'
@@ -1484,6 +1514,91 @@ export class Runtime {
       const ch = this.channels.get(n)!
       if (ch.on && !ch.frozen) ch.step(this.amalHost)
     }
+    this.stepStos()
+  }
+
+  // ---- STOS-compatibility Anim / Move X / Move Y ----
+  // Each channel carries independent Anim/MoveX/MoveY program slots
+  // beside its AMAL program (the 68k IDs them channel*4+mode, CreAMAL
+  // +W.s:7998). The strings compile in TokAMAL's AniStos pass (+W.s:7483)
+  // and run in the AmAnim/AmMvtX/AmMvtY executors (+W.s:8721/8749).
+  stosSlots = new Map<number, { target: ChannelTarget; anim?: StosAnim; moveX?: StosMove; moveY?: StosMove }>()
+
+  stosSlot(n: number): { target: ChannelTarget; anim?: StosAnim; moveX?: StosMove; moveY?: StosMove } {
+    let s = this.stosSlots.get(n)
+    if (!s) {
+      s = { target: this.chanTargets.get(n) ?? this.makeChannelTarget('sprite', n) }
+      this.stosSlots.set(n, s)
+    }
+    return s
+  }
+
+  private stepStos(): void {
+    for (const s of this.stosSlots.values()) {
+      const t = s.target
+      const a = s.anim
+      if (a && a.on && !a.frozen && !a.done && --a.left <= 0) {
+        const [img, delay] = a.pairs[a.idx]!
+        t.set(null, null, img)
+        a.left = Math.max(1, delay)
+        if (++a.idx >= a.pairs.length) {
+          if (a.loop) a.idx = 0
+          else a.done = true
+        }
+      }
+      this.stepStosMove(s.moveX, t, 'x')
+      this.stepStosMove(s.moveY, t, 'y')
+    }
+  }
+
+  private stepStosMove(m: StosMove | undefined, t: ChannelTarget, axis: 'x' | 'y'): void {
+    if (!m || !m.on || m.frozen || m.done) return
+    if (!m.started) {
+      // AmMvtX init: the leading number re-positions the object
+      m.started = true
+      if (m.start !== null) {
+        if (axis === 'x') t.set(m.start, null, null)
+        else t.set(null, m.start, null)
+      }
+    }
+    if (--m.speedLeft > 0) return
+    const g = m.groups[m.gi]
+    if (!g) {
+      m.done = true
+      return
+    }
+    m.speedLeft = g[0]
+    const cur = axis === 'x' ? t.get().x : t.get().y
+    const next = ((cur + g[1]) << 16) >> 16
+    if (axis === 'x') t.set(next, null, null)
+    else t.set(null, next, null)
+    // the L/E position is an equality trigger checked at every step
+    // (cmp.w AmDeltY, StM0 +W.s:8782)
+    if (m.endPos !== null && next === m.endPos) {
+      this.stosLoopOrStop(m, t, axis)
+      return
+    }
+    if (--m.countLeft <= 0) {
+      m.gi++
+      const ng = m.groups[m.gi]
+      if (!ng) this.stosLoopOrStop(m, t, axis)
+      else m.countLeft = ng[2] || 0x10000
+    }
+  }
+
+  private stosLoopOrStop(m: StosMove, t: ChannelTarget, axis: 'x' | 'y'): void {
+    if (!m.loop) {
+      m.done = true
+      return
+    }
+    // StML: re-apply the start position and restart the group list
+    if (m.start !== null) {
+      if (axis === 'x') t.set(m.start, null, null)
+      else t.set(null, m.start, null)
+    }
+    m.gi = 0
+    m.countLeft = m.groups[0]?.[2] || 0x10000
+    m.speedLeft = m.groups[0]?.[0] ?? 1
   }
   /** line waiting to satisfy an Input statement */
   private pendingLine: string | null = null
