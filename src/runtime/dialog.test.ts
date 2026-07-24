@@ -3,8 +3,8 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseAmosFile } from '../loader/amosfile'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
-import { Cursor, DialogChannel, DialogError, evalExpr, prescanDialog } from './dialog'
-import type { DialogHost } from './dialog'
+import { Cursor, DialogChannel, DialogError, evalExpr, prescanDialog, splitHyperLines, updateZone } from './dialog'
+import type { DialogDraw, DialogHost, DialogZone } from './dialog'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -683,5 +683,175 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('dialog run: draw phase (Dia_RunProgra
       const { rt: rt2 } = boot('Dialog Open 1,"EX;"\nR=Dialog Run(1,9)')
       rt2.runHeadless(500)
     }).toThrow(/label not defined/)
+  })
+})
+
+// ---- fix-up pass: divergences found auditing the engine against +Lib.s ----
+
+describe('audit fix-ups (verified against +Lib.s)', () => {
+  it('divides with the dividend truncated to its sign-extended low word (Dia_FDiv 22990)', () => {
+    expect(evl('17 5/')).toBe(3)
+    // ext.l d1 happens BEFORE divs: 70000 & $FFFF = 4464, then / 2
+    expect(evl('70000 2/')).toBe(2232)
+    expect(evl('65536 2/')).toBe(0) // low word is 0
+    // divs overflow (-32768 / -1) leaves the register unchanged
+    expect(evl('32768NE 1NE/')).toBe(-32768)
+  })
+
+  it('AR/AS stack underflow is the parameter-count error, not a syntax error (22869/22891)', () => {
+    expect(() => evl('AR')).toThrow(/number of parameters/)
+    expect(() => evl('AS')).toThrow(/number of parameters/)
+  })
+
+  it('splits hypertext lines like the 68k scan — the CR-LF pairing at .C13 is dead code (22245)', () => {
+    expect(splitHyperLines('A\nB')).toEqual(['A', 'B'])
+    expect(splitHyperLines('A\n\rB')).toEqual(['A', 'B']) // a FOLLOWING CR merges
+    expect(splitHyperLines('A\r\rB')).toEqual(['A', 'B'])
+    expect(splitHyperLines('A\r\nB')).toEqual(['A', '', 'B']) // CRLF = two breaks
+    expect(splitHyperLines('A\n')).toEqual(['A', '']) // .CFini always closes the last line
+    expect(splitHyperLines('')).toEqual([''])
+    expect(splitHyperLines('A\x1bxyB')).toEqual(['AB']) // ESC skips TWO chars (.CEsc)
+  })
+
+  it('prescan wants a true terminator after LA n and the UI param count (20104/20137)', () => {
+    expect(() => prescanDialog('LA5;EX;')).not.toThrow()
+    expect(() => prescanDialog('LA5-2;EX;')).toThrow(/syntax/)
+    expect(() => prescanDialog('UIAB,2-;[]EX;')).toThrow(/syntax/)
+  })
+
+  it('prescan UI names take sign first chars and digit second chars (CCR classes, 20065-20071)', () => {
+    expect(prescanDialog('UIU1,0;[]EX;').userInstrs.has('U1')).toBe(true)
+    expect(prescanDialog('UI+A,0;[]EX;').userInstrs.has('+A')).toBe(true)
+    expect(() => prescanDialog('UI1A,0;[]EX;')).toThrow(/syntax/) // digit first char: bmi .Synt
+  })
+
+  const nop = (): void => {}
+  function mkDraw(log: string[]): DialogDraw {
+    return {
+      activate: nop, deactivate: nop, stamp: nop, copyRect: nop,
+      setPen: nop, setBPen: nop, setOutlinePen: nop,
+      rectFill: nop, outlineRect: nop, line: nop, ellipse: nop, plot: nop,
+      text: nop, setWriting: nop, setLinePattern: nop, setFillPattern: nop,
+      setFont: nop, grabBlock: () => null, putBlock: nop,
+      clearKeys: nop, clearClicks: nop,
+      editField: () => { log.push('edit') },
+      textCells: () => { log.push('cells') },
+      dialogSlider: () => { log.push('slider') },
+    }
+  }
+  function mkZone(kind: DialogZone['kind'], number: number, over: Partial<DialogZone> = {}): DialogZone {
+    return {
+      kind, number, x: 0, y: 0, sx: 32, sy: 8, pos: 0, min: 0, max: 0,
+      rdraw: 0, rchange: 0, zvar: 0, nowait: false, quit: false,
+      changing: false, value: null, ...over,
+    }
+  }
+
+  it('Dialog Update on a slider always redraws AND fires its change routine (ZUpdate .Sl 23966)', () => {
+    const ch = new DialogChannel(1, 8, emptyRes)
+    ch.script = 'XSV0,9;]' // change routine at offset 1
+    const log: string[] = []
+    const z = mkZone('slider', 3, { rchange: 1, quit: true })
+    ch.zones.push(z)
+    updateZone(ch, 3, null, null, null, host, mkDraw(log)) // fully elided
+    expect(log).toContain('slider')
+    expect(ch.vars[0]).toBe(9) // the change routine really ran
+    expect(z.quit).toBe(false) // "Pas de sortie!"
+  })
+
+  it('Dialog Update reaches string edit fields; an int there is a bad pointer (.Ed 24002)', () => {
+    const ch = new DialogChannel(1, 8, emptyRes)
+    const log: string[] = []
+    const z = mkZone('edit', 2, { maxLen: 8, text: 'OLD' })
+    ch.zones.push(z)
+    updateZone(ch, 2, 'NEW TEXT LONGER', null, null, host, mkDraw(log))
+    expect(z.text).toBe('NEW TEXT')
+    expect(log).toContain('edit')
+    expect(() => updateZone(ch, 2, 42, null, null, host, mkDraw(log))).toThrow(/function call/)
+  })
+
+  it('Dialog Update skips hypertext entirely when the value is elided (.Tx 23993)', () => {
+    const ch = new DialogChannel(1, 8, emptyRes)
+    const log: string[] = []
+    const z = mkZone('hyper', 4, { htLines: ['A', 'B'], rows: 2, quit: true })
+    ch.zones.push(z)
+    updateZone(ch, 4, null, null, null, host, mkDraw(log))
+    expect(log).toEqual([]) // nothing drawn, quit untouched
+    expect(z.quit).toBe(true)
+    updateZone(ch, 4, 1, null, null, host, mkDraw(log))
+    expect(z.scroll).toBe(1)
+    expect(z.quit).toBe(false)
+    expect(log.length).toBeGreaterThan(0)
+  })
+})
+
+describe.skipIf(!existsSync(DEFAULT_ABK))('audit fix-ups: run semantics (Dia_Run/Dia_Tests)', () => {
+  const table = new TokenTable(CORE_TOKENS)
+  function boot(src: string): { rt: Runtime; out: () => string } {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, onText: (t) => (out += t) })
+    rt.loadSystemResource(readFileSync(DEFAULT_ABK))
+    return { rt, out: () => out }
+  }
+
+  it('digit fields edit window-width - 1 chars, and only RU activates an edit zone (22052/22699)', () => {
+    const src = ['D$="SI160,32;BA0,0;DI1,8,8,9,42,1,0,1;EX;"', 'Dialog Open 1,D$', 'R=Dialog Run(1)'].join('\n')
+    const { rt } = boot(src)
+    expect(rt.runHeadless(1_000).status).toBe('ended')
+    const d = rt.dialogs.get(1)!
+    const z = d.zones[0]!
+    expect(z.maxLen).toBe(9) // (9+1 rounded even) - 1
+    expect(z.text).toBe('42')
+    expect(d.edited).toBeNull() // no RU ran, so Dia_EdFirst never did either
+  })
+
+  it('HT leaves its line count in Dia_NextZone, readable via ZV (22276)', () => {
+    const src = [
+      'D$="BA0,0;HT1,0,0,10,3,0VA,0,0,0,1;[]SV1,ZV;EX;"',
+      'Dialog Open 1,D$,8',
+      'Vdialog$(1,0)="A"+Chr$(10)+"B"+Chr$(10)+"C"',
+      'R=Dialog Run(1)',
+      'Print Vdialog(1,1)',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    expect(rt.runHeadless(1_000).status).toBe('ended')
+    expect(out()).toBe(' 3\n')
+  })
+
+  it('under RU flag bit 3 ANY press exits, even one that hit a zone (24346)', () => {
+    const src = [
+      'D$="SI64,32;BA0,0;BU1,0,0,64,16,0,0,3;[][]RU0,8;EX;"',
+      'Dialog Open 1,D$',
+      'R=Dialog Run(1)',
+      'Print R',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    for (let i = 0; i < 5; i++) rt.frame()
+    const d = rt.dialogs.get(1)!
+    expect(d.runState).toBe('waiting')
+    const s = rt.screens.get(0)!
+    const z = d.zones[0]!
+    rt.input.mouseX = s.displayX + ((z.x + 4) >> (s.hires ? 1 : 0))
+    rt.input.mouseY = s.displayY + z.y + 4
+    rt.input.mouseK = 1 // press ON the button — bit 3 must still exit
+    rt.frame()
+    rt.input.mouseK = 0
+    for (let i = 0; i < 10 && rt.frame().status !== 'ended'; i++);
+    expect(out()).toBe(' 1\n') // the button set the return before the exit
+  })
+
+  it('any press resets the RU timer (.Timer via bsr — the (sp) guard is always nonzero, 24360)', () => {
+    const src = ['D$="SI64,32;BA0,0;RU25,0;EX;"', 'Dialog Open 1,D$', 'R=Dialog Run(1)', 'Print R'].join('\n')
+    const { rt, out } = boot(src)
+    for (let i = 0; i < 20; i++) rt.frame()
+    expect(rt.dialogs.get(1)!.runState).toBe('waiting')
+    rt.input.mouseK = 1 // a press at ~tick 20 restarts the 25-frame timer
+    rt.frame()
+    rt.input.mouseK = 0
+    for (let i = 0; i < 12; i++) rt.frame()
+    // tick ~33: the original deadline (25) has passed but the reset one has not
+    expect(rt.dialogs.get(1)!.runState).toBe('waiting')
+    for (let i = 0; i < 60 && rt.frame().status !== 'ended'; i++);
+    expect(out()).toBe(' 0\n')
   })
 })

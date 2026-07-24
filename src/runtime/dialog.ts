@@ -399,24 +399,31 @@ export function prescanDialog(script: string): {
       if (n >= 65536 || n < 0) synt()
       if (labels.has(n)) throw new DialogError(3, cur.pos)
       const sep = cur.next()
-      if (sep.cls === C_END || sep.cls === C_LETTER) synt()
+      // the separator must be a true terminator class — a sign or digit
+      // here is a syntax error too (`beq/bcs .Synt` +Lib.s:20104-20106)
+      if (sep.cls !== C_TERM) synt()
       labels.set(n, cur.pos)
       continue
     }
     if (idx === 35) {
-      // UIxy,n;[ — define a user instruction
+      // UIxy,n;[ — define a user instruction. The class checks come from
+      // the CCR the class byte is loaded into (+Lib.s:20065-20071): the
+      // first name char may be a letter OR a sign (only end, terminators
+      // and digits are rejected — beq/bcc/bmi), the second any carry-set
+      // class including digits (bcc only).
       const a = cur.next()
-      if (a.cls !== C_LETTER) synt()
+      if (a.cls !== C_LETTER && a.cls !== C_SIGN) synt()
       const b = cur.next()
-      if (b.cls !== C_LETTER) synt()
+      if (b.cls !== C_LETTER && b.cls !== C_SIGN && b.cls !== C_DIGIT) synt()
       const name = a.ch + b.ch
       if (findInstr(name) >= 0 || userInstrs.has(name)) throw new DialogError(3, cur.pos)
       const comma = cur.next()
       if (comma.ch !== ',') synt()
       const count = literal()
       if (count > 9) synt()
+      // after the count a terminator class is required (`bcs .Synt` 20137)
       const sep = cur.next()
-      if (sep.cls === C_LETTER) synt()
+      if (sep.cls !== C_TERM && sep.cls !== C_END) synt()
       const bracket = cur.next()
       if (bracket.ch !== '[') synt()
       userInstrs.set(name, { nParams: count, off: cur.pos })
@@ -476,6 +483,11 @@ export function evalExpr(cur: Cursor, ctx: EvalContext): DialogValue {
   const need = (n: number): void => {
     if (stack.length < n) synt()
   }
+  // AR/AS depth failures raise EDia_NPar (wrong number of parameters), not
+  // a syntax error (`Rblt L_Dia_NPar` +Lib.s:22869/22891)
+  const needP = (n: number): void => {
+    if (stack.length < n) throw new DialogError(12, cur.pos)
+  }
 
   const apply = (fn: number): void => {
     switch (fn) {
@@ -509,11 +521,19 @@ export function evalExpr(cur: Cursor, ctx: EvalContext): DialogValue {
         stack.push(Math.imul(w16(popInt()), w16(b)))
         break
       }
-      case 7: { // / — divs: 32/16 signed, /0 = syntax error
+      case 7: { // / — the dividend is truncated to its sign-extended low
+        // word BEFORE the divs (`ext.l d1` at +Lib.s:22990), and the
+        // quotient is the sign-extended low word again: 70000/2 is 2232 on
+        // the Amiga, not 35000. Only a full-long zero divisor is a syntax
+        // error (22989); a nonzero long with a zero low word would hit the
+        // 68000 divide-by-zero trap — kept as a syntax error here.
         need(2)
         const b = popInt()
         if (b === 0 || w16(b) === 0) synt()
-        stack.push(Math.trunc(popInt() / w16(b)) | 0)
+        const a = w16(popInt())
+        const q = Math.trunc(a / w16(b))
+        // divs overflow (-32768/-1) leaves the register unchanged
+        stack.push(q === 32768 ? a : q)
         break
       }
       case 8: { // NE — negate top in place, needs depth >= 1
@@ -602,7 +622,7 @@ export function evalExpr(cur: Cursor, ctx: EvalContext): DialogValue {
         stack.push(ctx.ch.yb)
         break
       case 29: { // AR — array element (handle > 1024, Dia_FArray)
-        need(2)
+        needP(2)
         const i = popInt()
         const handle = popInt()
         if (handle <= 1024) fonc()
@@ -625,7 +645,7 @@ export function evalExpr(cur: Cursor, ctx: EvalContext): DialogValue {
         break
       }
       case 49: { // AS — array size (0 stays 0)
-        need(1)
+        needP(1)
         const handle = popInt()
         if (handle === 0) {
           stack.push(0)
@@ -1107,7 +1127,9 @@ export class DialogExec {
           draw.plot(x, y)
           break
         }
-        case 8: // IL slot 8 — Dia_Illegal
+        case 8: // IL slot 8 — Dia_Illegal executes a literal `illegal` CPU
+        // trap in the 68k (a debug leftover, +Lib.s:21851); raised as a
+        // dialog syntax error here rather than crashing the host
         case 35: // UI reached at runtime — Dia_Synt
           this.synt()
           break
@@ -1151,7 +1173,9 @@ export class DialogExec {
       } else {
         const value = this.evalInt()
         const flag = this.evalInt()
-        z.maxLen = 16
+        // digit fields edit up to window-width - 1 chars ("Largeur=
+        // largeur fenetre-1", Dia_Digit +Lib.s:22052-22054)
+        z.maxLen = (z.sx >> 3) - 1
         z.text = flag & 1 ? String(value) : ''
       }
       z.pap = this.evalInt()
@@ -1171,13 +1195,16 @@ export class DialogExec {
       z.step = this.evalInt() // Sl_Scroll
       z.rchange = this.getRout()
       this.ch.zones.push(z)
-      this.ch.lastZone = z
+      // no lastZone: only BU/ED/DI set Dia_LastZone (+Lib.s:22544/22073/
+      // 22036), so KY cannot attach to sliders, lists or hypertext
       drawSliderZone(this.ch, z, this.draw)
       return
     }
     if (idx === 32 || idx === 33) {
-      // AL/IL n,x,y,tx,ty,array,pos,flags,pap,pen;[change] (Dia_List
-      // +Lib.s:22309 — both mnemonics dispatch to the same routine)
+      // AL n,x,y,tx,ty,array,pos,flags,pap,pen;[change] (Dia_List
+      // +Lib.s:22309). Only AL reaches here: the first-match scan resolves
+      // 'IL' to slot 8 (Dia_Illegal) in the 68k and here alike, so the
+      // Inactive List entry at index 33 is dead in both implementations.
       const z = this.edDiHeader('list')
       z.rows = this.evalInt()
       z.sy = z.rows * 8
@@ -1199,8 +1226,7 @@ export class DialogExec {
       z.pap = this.evalInt()
       z.pen = this.evalInt()
       z.rchange = this.getRout()
-      this.ch.zones.push(z)
-      this.ch.lastZone = z
+      this.ch.zones.push(z) // no lastZone (lists don't set Dia_LastZone)
       drawListZone(this.ch, z, this.host, this.draw)
       return
     }
@@ -1215,6 +1241,9 @@ export class DialogExec {
       if (typeof text !== 'string') this.fonc()
       z.htText = text as string
       z.htLines = splitHyperLines(z.htText!)
+      // the line count lands in Dia_NextZone (+Lib.s:22276), so a ZV right
+      // after an HT statement reads how many lines the text split into
+      this.ch.nextZone = z.htLines.length
       z.scroll = this.evalInt()
       this.evalInt() // zones per line cap (DispMax) — not needed here
       z.pap = this.evalInt()
@@ -1222,8 +1251,7 @@ export class DialogExec {
       z.rchange = this.getRout()
       z.pos = 0
       z.text = ''
-      this.ch.zones.push(z)
-      this.ch.lastZone = z
+      this.ch.zones.push(z) // no lastZone (HT doesn't set Dia_LastZone)
       drawHyperZone(this.ch, z, this.draw)
       return
     }
@@ -1298,7 +1326,12 @@ export class DialogExec {
     }
   }
 
-  /** Dia_GetRout +Lib.s:23878: a `[...]` routine — offset, or 0 when empty */
+  /**
+   * Dia_GetRout +Lib.s:23878: a `[...]` routine — offset, or 0 when empty.
+   * (The 68k peek desynchronizes its bracket-depth count when the routine's
+   * first char is another `[`; that bug is not reproduced — we re-scan from
+   * the saved position, which is what the code plainly intends.)
+   */
   private getRout(): number {
     const bracket = this.cur.next()
     if (bracket.ch !== '[') this.synt()
@@ -1553,26 +1586,35 @@ export function drawListZone(ch: DialogChannel, z: DialogZone, host: DialogHost,
   }
 }
 
-/** split hypertext into lines: CR/LF/CRLF/LFCR ends, ESC+char skipped */
+/**
+ * Split hypertext into lines (Dia_HyperText line scan, +Lib.s:22245-22270).
+ * LF or CR each end a line, and only a FOLLOWING CR is absorbed into the
+ * break: the CR-then-LF pairing at .C13 is dead code (both 10 and 13 branch
+ * into .C10), so a CRLF text faithfully produces an extra blank line.
+ * ESC skips the next TWO chars (.CEsc `addq.l #2,a0`). The final line is
+ * always recorded (.CFini), so a trailing newline yields a trailing empty
+ * line and the empty text is one empty line.
+ */
 export function splitHyperLines(text: string): string[] {
   const lines: string[] = []
   let cur = ''
   for (let i = 0; i < text.length; i++) {
     const c = text[i]!
     if (c === '\x1b') {
-      i++ // ESC skips the next char (Dia_HyperText .CEsc)
+      i += 2
       continue
     }
     if (c === '\n' || c === '\r') {
-      const pair = c === '\n' ? '\r' : '\n'
-      if (text[i + 1] === pair) i++
+      if (text[i + 1] === '\r') i++
       lines.push(cur)
       cur = ''
       continue
     }
+    // other sub-32 bytes stay inside the 68k line slice and would render
+    // as raw glyphs; dropped here (display-level deviation)
     if (c >= ' ') cur += c
   }
-  if (cur !== '') lines.push(cur)
+  lines.push(cur)
   return lines
 }
 
@@ -1683,14 +1725,21 @@ export function dialogZoneValue(z: DialogZone): { n: number; s: string | null } 
 }
 
 /**
- * Dialog Update / ZC: push a new value into zone n (Dia_ZUpdate
- * +Lib.s:23916). Elided values just redraw+change; matching values are
- * skipped entirely.
+ * Dialog Update / ZC: push a new value into every zone numbered n except
+ * the current one (Dia_ZUpdate +Lib.s:23916). Per kind: buttons redraw and
+ * fire their change routine even when the value is elided, but skip both
+ * when it matches (.Bt); sliders take p5→total, p4→window, v→position and
+ * ALWAYS redraw AND fire the change routine (.Sl 23966-23967); lists take
+ * p5→max activable, p4→active row (also ZoPos), v→list position, unclamped,
+ * and always redraw (.Li); hypertext skips entirely when the value is
+ * elided (.Tx 23993-23994); string edits take a string value, digits the
+ * decimal of an int (.Ed/.Di). Bt/Sl/Li/Tx clear the zone's quit flag
+ * ("Pas de sortie!"); edit/digit don't.
  */
 export function updateZone(
   ch: DialogChannel,
   n: number,
-  v: number | null,
+  v: number | string | null,
   p4: number | null,
   p5: number | null,
   host: DialogHost,
@@ -1699,31 +1748,47 @@ export function updateZone(
   for (const z of ch.zones) {
     if (z.kind === 'key' || z.number !== n || z === ch.curZone) continue
     if (z.kind === 'button') {
-      if (v !== null && v === z.pos) {
+      const nv = typeof v === 'number' ? v : null
+      if (nv !== null && nv === z.pos) {
         z.quit = false
         continue
       }
-      if (v !== null) z.pos = v
+      if (nv !== null) z.pos = nv
       zoneDraw(ch, z, host, draw)
       zoneChange(ch, z, host, draw)
       z.quit = false
     } else if (z.kind === 'slider') {
-      // ZUpdate .Sl: p5 → global, p4 → window, v → position, then redraw
       if (p5 !== null) z.total = p5
       if (p4 !== null) z.size = p4
-      if (v !== null) z.pos = v
+      if (typeof v === 'number') z.pos = v
       drawSliderZone(ch, z, draw)
+      zoneChange(ch, z, host, draw)
       z.quit = false
-    } else if (z.kind === 'digit') {
-      if (v !== null) z.text = String(v)
+    } else if (z.kind === 'edit' || z.kind === 'digit') {
+      if (v === null) continue
+      if (z.kind === 'edit') {
+        // an int here would be a bad string pointer (`cmp.l #1*1024`
+        // +Lib.s:24006 → function call error)
+        if (typeof v !== 'string') throw new DialogError(9, 0)
+        z.text = v.slice(0, z.maxLen ?? 1024)
+      } else {
+        z.text = String(typeof v === 'number' ? v : 0)
+      }
       drawEditZone(ch, z, draw)
     } else if (z.kind === 'list') {
-      if (v !== null) z.scroll = Math.max(0, Math.min(v, z.count ?? 0))
-      if (p4 !== null) z.sel = p4
+      if (p5 !== null) z.count = p5
+      if (p4 !== null) {
+        z.sel = p4
+        z.pos = p4
+      }
+      if (typeof v === 'number') z.scroll = v
       drawListZone(ch, z, host, draw)
+      z.quit = false
     } else if (z.kind === 'hyper') {
-      if (v !== null) z.scroll = Math.max(0, Math.min(v, (z.htLines?.length ?? 1) - 1))
+      if (typeof v !== 'number') continue
+      z.scroll = v
       drawHyperZone(ch, z, draw)
+      z.quit = false
     }
   }
 }

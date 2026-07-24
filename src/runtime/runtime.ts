@@ -673,7 +673,8 @@ export class Runtime {
       if (off === undefined) throw new AmosError(DIALOG_ERRORS[4]!)
       startPos = off
     }
-    // per-run reset (Dia_RunProgram 20567-20585)
+    // per-run reset (Dia_RunProgram 20567-20585, incl. Dia_Edited /
+    // Dia_LastZone / Dia_Release)
     d.xa = 0
     d.ya = 0
     d.xb = 0
@@ -684,14 +685,21 @@ export class Runtime {
     d.curZone = null
     d.runFlags = 0
     d.timer = 0
+    d.edited = null
+    d.lastZone = null
+    d.release = null
+    d.drag = null
     this.dialogDraw.activate(d.screenNb)
     this.dialogDraw.setWriting(0)
     d.drawn = true
     const exec = new DialogExec(d, this.dialogHost, this.dialogDraw)
     try {
       const r = exec.run(startPos)
-      editFirst(d, this.dialogDraw) // activate the first edit zone
       if (r.status === 'run') {
+        // only an RU wait activates the first edit zone (Dia_Run →
+        // L_Dia_EdFirst +Lib.s:22699); a live no-RU dialog has none
+        // until the user clicks one
+        editFirst(d, this.dialogDraw)
         d.exec = exec
         d.runState = 'waiting'
         d.timerStart = this.interp.tick
@@ -719,7 +727,8 @@ export class Runtime {
     try {
       const r = d.exec?.run()
       if (r && r.status === 'run') {
-        // the tail hit another RU — keep waiting
+        // the tail hit another RU — keep waiting (Dia_Run re-runs EdFirst)
+        editFirst(d, this.dialogDraw)
         d.timerStart = this.interp.tick
         return
       }
@@ -806,16 +815,16 @@ export class Runtime {
       const z = d.release
       d.ret = z.number
       if (lmb) {
+        // while held, fire the change routine and skip EVERY other test
+        // (both branches reach `bra .TFini`, +Lib.s:24177-24181)
         zoneChange(d, z, host, draw)
-        if (z.quit) {
-          exit++
-          return exit
-        }
-      } else {
-        d.ret = 0
-        d.release = null
-        zoneDraw(d, z, host, draw)
+        if (z.quit) exit++
+        return exit
       }
+      // released: clear and fall through to the other tests (.Re)
+      d.ret = 0
+      d.release = null
+      zoneDraw(d, z, host, draw)
     }
     // keyboard: match KY records against the next queued key. Only an RU
     // wait owns the keyboard — live dialogs must not eat Input/Inkey$ keys.
@@ -936,8 +945,14 @@ export class Runtime {
           zoneChange(d, z, host, draw)
           if (z.quit) exit++
         }
-      } else if (press && !z && d.runFlags & 8) {
-        exit++ // flag bit3: any click exits
+      }
+      if (press) {
+        // any press resets the RU timer and, under flag bit 3, exits —
+        // whether or not it hit a zone (+Lib.s:24346-24352; the timer
+        // guard there reads Dia_Timer(sp), stack garbage that is
+        // effectively always nonzero, so the reset always happens)
+        d.timerStart = this.interp.tick
+        if (d.runFlags & 8) exit++
       }
     }
     // a held slider (knob drag / track stepping, Sl_Clic)

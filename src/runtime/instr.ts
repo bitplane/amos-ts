@@ -1221,11 +1221,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (c <= 0) throw new AmosError('function call error')
       it.expect(',')
       const z = it.evalInt()
-      let v: number | null = null
+      // the value stays a raw long in the 68k — a string reaches a string
+      // edit zone as its pointer, so carry either type through
+      let v: number | string | null = null
       let p4: number | null = null
       let p5: number | null = null
       if (it.accept(',')) {
-        v = it.atStmtEnd() || it.nm() === ',' ? null : it.evalInt()
+        if (!it.atStmtEnd() && it.nm() !== ',') {
+          const raw = it.evalExpr()
+          v = raw.k === 'str' ? raw.s : int(raw)
+        }
         if (it.accept(',')) {
           p4 = it.atStmtEnd() || it.nm() === ',' ? null : it.evalInt()
           if (it.accept(',')) p5 = it.evalInt()
