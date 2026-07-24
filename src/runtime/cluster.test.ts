@@ -1479,3 +1479,82 @@ describe('STOS Anim / Move X / Move Y (AniStos +W.s:7483, AmMvtX/AmAnim executor
     expect(() => run('Move X 16,"(1,1,1)"')).toThrow(/function call/)
   })
 })
+
+describe('the mouse pointer (MChange +W.s:10669, HiSho +W.s:10722)', () => {
+  const MOUSE_ABK = join(__dirname, '..', '..', 'fixtures', 'machine', 'AMOSPro_Mouse.abk')
+  const bank = (): Uint8Array => readFileSync(MOUSE_ABK)
+
+  function boot(src: string): { rt: Runtime; out: string } {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, onText: (t) => (out += t) })
+    rt.loadMouseBank(bank())
+    const r = rt.runHeadless(1_000)
+    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    return { rt, out }
+  }
+
+  it('loads the bank shapes and installs its colours 16-31 as the default sprite palette (+W.s:9316)', () => {
+    const { rt } = boot('Wait Vbl')
+    expect(rt.mouseObjects!.images.length).toBeGreaterThanOrEqual(4)
+    const arrow = rt.mouseObjects!.image(1)!
+    expect([arrow.width, arrow.height, arrow.depth]).toEqual([16, 11, 2])
+    // the pointer colours of a real AMOS Pro boot screen
+    expect(rt.screens.get(0)!.palette[17]! & 0xfff).toBe(0xec8)
+    expect(rt.screens.get(0)!.palette[18]! & 0xfff).toBe(0xc60)
+    expect(rt.screens.get(0)!.palette[19]! & 0xfff).toBe(0xea0)
+  })
+
+  it('Change Mouse: 1-3 from the mouse bank, hot spots applied; 0 errors (InChangeMouse)', () => {
+    const { rt } = boot('Change Mouse 2')
+    expect(rt.mouseShapeNo).toBe(2)
+    expect(rt.mouseShape!.hotX).toBe(7) // the crosshair centres on the tip
+    expect(() => boot('Change Mouse 0')).toThrow(/function call/)
+  })
+
+  it('a sprite-bank shape must be 16px wide with 2 planes, else silently the arrow (MCh3/MChE)', () => {
+    // Get Bob makes a 4-plane image on the 16-colour screen — invalid
+    const src = ['Ink 2 : Bar 0,0 To 15,15', 'Get Bob 1,0,0 To 16,16', 'Change Mouse 4'].join('\n')
+    const { rt } = boot(src)
+    expect(rt.mouseShapeNo).toBe(1) // fell back, no error
+  })
+
+  it('draws as hardware sprite 0 at the pointer position, hidden by Hide and Copper Off', () => {
+    const { rt } = boot('Wait Vbl')
+    rt.input.mouseX = 200
+    rt.input.mouseY = 120
+    const px = (): number => {
+      const { data } = rt.composite()
+      // the arrow's hot spot is 0,0 — sample a pixel just inside the shape
+      const x = (200 - 128) * 2 + 2
+      const y = (120 - 26) * 2 + 2
+      const o = (y * 640 + x) * 4
+      return (data[o]! << 16) | (data[o + 1]! << 8) | data[o + 2]!
+    }
+    const shown = px()
+    expect(shown).not.toBe(0) // pointer pixels over the black default screen
+    rt.mouseShow = -1 // Hide
+    const hidden = px()
+    expect(hidden).not.toBe(shown)
+  })
+
+  it('Hide/Show step the T_MouShow counter; the On forms force it (MHide/MShow)', () => {
+    const { rt } = boot(['Hide', 'Hide'].join('\n'))
+    expect(rt.mouseShow).toBe(-2)
+    const { rt: rt2 } = boot(['Hide', 'Hide', 'Show'].join('\n'))
+    expect(rt2.mouseShow).toBe(-1) // still hidden — Show only steps once
+    const { rt: rt3 } = boot(['Hide', 'Hide', 'Show On'].join('\n'))
+    expect(rt3.mouseShow).toBe(0)
+    // the documented quirk: Show past zero counts up, so one Hide later
+    // the pointer is STILL visible (HiSho stores the raw counter)
+    const { rt: rt4 } = boot(['Show', 'Hide'].join('\n'))
+    expect(rt4.mouseShow).toBe(0)
+  })
+
+  it('Set Pattern n>0 pulls the real system pattern from the bank (SPat +W.s:4730)', () => {
+    const { rt } = boot('Set Pattern 1\nWait Vbl')
+    const pat = rt.screens.get(0)!.pattern
+    expect(pat).not.toBeNull()
+    // a genuine bank pattern, not the 2-row dither stand-in
+    expect(pat!.length).toBe(16)
+  })
+})

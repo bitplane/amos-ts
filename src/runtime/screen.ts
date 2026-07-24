@@ -105,9 +105,9 @@ export interface Wind {
 
 /**
  * Built-in fill patterns (positive Set Pattern / Set Slider numbers). On the
- * Amiga these live in the system mouse bank (SPat +W.s:4722), which is not
- * in the fixture set — 1 and 2 (the slider defaults) are approximated as
- * classic dithers.
+ * Amiga these live in the system mouse bank (SPat +W.s:4722), which the
+ * runtime loads (fixtures/machine); these classic dithers only stand in
+ * when no mouse bank was provided.
  */
 export function builtinPattern(n: number): Uint16Array | null {
   if (n === 1) return Uint16Array.from([0xaaaa, 0x5555])

@@ -112,6 +112,16 @@ void fetch('fixtures/official-amos/APSystem/AMOSPro_Default_Resource.Abk')
   })
   .catch(() => {})
 
+// the machine mouse bank: pointer shapes + system fill patterns
+let mouseBank: Uint8Array | null = null
+void fetch('fixtures/machine/AMOSPro_Mouse.abk')
+  .then((r) => (r.ok ? r.arrayBuffer() : null))
+  .then((buf) => {
+    if (buf) mouseBank = new Uint8Array(buf)
+    if (rt && mouseBank) rt.loadMouseBank(mouseBank)
+  })
+  .catch(() => {})
+
 function load(bytes: Uint8Array, name: string): void {
   lastBytes = bytes
   lastName = name
@@ -122,6 +132,7 @@ function load(bytes: Uint8Array, name: string): void {
     const lines = amos ? parseSource(amos.source, table) : tokenize(new TextDecoder('latin1').decode(bytes), table)
     rt = new Runtime(lines, table, { extensions, onUnimplemented: 'skip', banks: amos?.banks ?? [], audio, fs: vfs })
     if (systemResource) rt.loadSystemResource(systemResource)
+    if (mouseBank) rt.loadMouseBank(mouseBank)
   } catch (e) {
     rt = null
     error = e instanceof Error ? e.message : String(e)

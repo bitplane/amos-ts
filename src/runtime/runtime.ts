@@ -5,7 +5,7 @@ import type { AmosArray, InputState, InterpOptions, RunResult } from '../interp/
 import type { AmosIO } from '../interp/io'
 import { AmosError, VF, VI } from '../interp/values'
 import type { Value } from '../interp/values'
-import type { Bank, MemoryBank } from '../loader/amosfile'
+import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
 import type { ResourceBank } from '../loader/resource'
@@ -541,8 +541,9 @@ export class Runtime {
       this.copperOn = false
       // the OFF path terminates the logical list empty and swaps: the
       // display goes blank, and the last system list lands in the new
-      // logical buffer where Cop Logic readers see it. (The real machine
-      // also hides the mouse pointer, T_MouShow=-1 — a front-end concern.)
+      // logical buffer where Cop Logic readers see it. The mouse pointer
+      // is hidden too (T_MouShow=-1) and stays hidden until Show.
+      this.mouseShow = -1
       this.copPos = 0
       const l = this.copLogic
       l[0] = 0xff
@@ -648,6 +649,84 @@ export class Runtime {
     const file = parseAmosFile(bytes)
     const bank = file.banks.find((b) => b.kind === 'memory' && isResourceBankName(b.name))
     this.systemResource = parseResourceBank(bank && bank.kind === 'memory' ? bank.data : bytes)
+  }
+
+  // ---- the machine mouse bank: pointer shapes + system fill patterns ----
+
+  /** T_MouBank (+AMOSPro_Mouse.abk, an AmSp bank baked into the real
+   * interpreter binary): images 1-3 = arrow/crosshair/clock pointer
+   * shapes, images 5+ = the Set Pattern/Set Slider system patterns
+   * (SPat +W.s:4730 skips the first 4) */
+  mouseObjects: ObjectBank | null = null
+  /** T_MouSpr/T_MouDes: the current pointer shape (1-based) */
+  mouseShapeNo = 1
+  mouseShape: BankImage | null = null
+  /** T_MouShow: visible while >= 0; Hide decrements / Show increments,
+   * Hide On forces -1 / Show On forces 0 (MHide/MShow/HiSho +W.s:10722) */
+  mouseShow = 0
+
+  /** boot-load the mouse bank (LdMouse +B.s:2081, init +W.s:9290) */
+  loadMouseBank(bytes: Uint8Array): void {
+    const file = parseAmosFile(bytes)
+    const bank = file.banks.find((b): b is SpriteBank => b.kind === 'sprites')
+    // the init insists on at least 4 images (cmp.w #4 / TheEnd_Cantread)
+    if (!bank || bank.sprites.length < 4) throw new Error('not a mouse bank')
+    this.mouseObjects = ObjectBank.fromSpriteBank(bank)
+    // the bank's colours 16-31 become the default palette's sprite half
+    // (+W.s:9316 .PCopy) — the white/orange/grey boot pointer
+    for (let i = 16; i < 32; i++) this.defaultPalette[i] = bank.palette[i]! & 0xfff
+    // on the real machine this happens before any screen opens; the web
+    // runner loads asynchronously, so patch screens whose sprite half is
+    // still the untouched zero default
+    for (const s of this.screens.values()) {
+      if (s.palette.slice(16, 32).every((c) => (c & 0xfff) === 0)) {
+        for (let i = 16; i < 32; i++) s.palette[i] = this.defaultPalette[i]!
+      }
+    }
+    this.changeMouse(this.mouseShapeNo)
+  }
+
+  /**
+   * Change Mouse n — MChange (+W.s:10669): 1-3 pick from the mouse bank;
+   * n >= 4 takes sprite-bank image n-3, which must be exactly one word
+   * wide and two planes (a hardware sprite); anything invalid silently
+   * falls back to shape 1 (MChE).
+   */
+  changeMouse(n: number): void {
+    let d1 = n - 1
+    for (;;) {
+      if (d1 < 3) {
+        this.mouseShapeNo = d1 + 1
+        this.mouseShape = this.mouseObjects?.image(d1 + 1) ?? null
+        return
+      }
+      const img = this.spriteBank?.image(d1 - 3 + 1)
+      if (!img || img.width !== 16 || img.depth !== 2) {
+        d1 = 0 // MChE: "met la souris 1"
+        continue
+      }
+      this.mouseShapeNo = d1 + 1
+      this.mouseShape = img
+      return
+    }
+  }
+
+  /** Set Pattern n>0: mouse-bank pattern n (bank image 4+n 1-based,
+   * SPat +W.s:4730); rows of 16 bits. Without the bank, the classic
+   * dither approximations (builtinPattern) stand in. */
+  systemPattern(n: number): Uint16Array | null {
+    const img = this.mouseObjects?.image(n + 4)
+    if (!img) return builtinPattern(n)
+    const rows = Math.min(16, img.height)
+    const bits = new Uint16Array(rows)
+    for (let y = 0; y < rows; y++) {
+      let row = 0
+      for (let x = 0; x < Math.min(16, img.width); x++) {
+        if (img.pixels[y * img.width + x] !== 0) row |= 1 << (15 - x)
+      }
+      bits[y] = row
+    }
+    return bits
   }
 
   /**
@@ -3346,15 +3425,17 @@ export class Runtime {
       const pair = sp.n < 8 ? sp.n >> 1 : 3
       return frontPass ? pair < p : pair >= p
     })
-    if (sprites.length === 0) return
+    // the mouse pointer is hardware sprite 0 (HiSho1 does HsSet channel 0)
+    // — pair 0, drawn last so it tops the other sprites of its pass
+    const pointer =
+      this.copperOn && this.mouseShow >= 0 && this.mouseShape !== null && (frontPass ? 0 < p : 0 >= p) ? this.mouseShape : null
+    if (sprites.length === 0 && pointer === null) return
     const front = this.screens.get(this.order[this.order.length - 1] ?? 0)
     const palette = front?.palette
     if (!palette) return
-    for (const sp of sprites) {
-      const img = this.spriteBank?.image(sp.image)
-      if (!img) continue
-      const bx = (sp.x - img.hotX - 128) * 2
-      const by = (sp.y - img.hotY - Runtime.COMPOSITE_TOP) * 2
+    const blit = (img: BankImage, hx: number, hy: number): void => {
+      const bx = (hx - img.hotX - 128) * 2
+      const by = (hy - img.hotY - Runtime.COMPOSITE_TOP) * 2
       for (let y = 0; y < img.height; y++) {
         for (let x = 0; x < img.width; x++) {
           const v = img.pixels[y * img.width + x]!
@@ -3377,10 +3458,16 @@ export class Runtime {
         }
       }
     }
+    for (const sp of sprites) {
+      const img = this.spriteBank?.image(sp.image)
+      if (img) blit(img, sp.x, sp.y)
+    }
+    if (pointer) blit(pointer, this.input.mouseX, this.input.mouseY)
   }
 }
 
-/** dialog SP pattern number → fill rows (0 solid, <0 sprite image, >0 builtin) */
+/** dialog SP pattern number → fill rows (0 solid, <0 sprite image,
+ * >0 machine mouse-bank pattern) */
 function resolveDialogPattern(rt: Runtime, n: number): Uint16Array | null {
   if (n === 0) return null
   if (n < 0) {
@@ -3397,7 +3484,7 @@ function resolveDialogPattern(rt: Runtime, n: number): Uint16Array | null {
     }
     return bits
   }
-  return builtinPattern(n)
+  return rt.systemPattern(n)
 }
 
 /** "DH0:Games" + "Zybex" → "DH0:Games/Zybex"; volume roots need no slash */

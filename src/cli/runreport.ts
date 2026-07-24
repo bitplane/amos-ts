@@ -36,6 +36,13 @@ try {
 } catch {
   // fixtures without the system files: dialogs will error faithfully
 }
+// so is the mouse bank (pointer shapes + system fill patterns, T_MouBank)
+let mouseBank: Uint8Array | null = null
+try {
+  mouseBank = readFileSync('fixtures/machine/AMOSPro_Mouse.abk')
+} catch {
+  /* pattern dither fallbacks apply */
+}
 
 let files = 0
 let ran = 0
@@ -58,6 +65,7 @@ for (const path of walk(root)) {
       fs: fsForFile(path, path.includes('aga-releases') ? 'fixtures/aga-releases' : 'fixtures/official-amos'),
     })
     if (systemResource) rt.loadSystemResource(systemResource)
+    if (mouseBank) rt.loadMouseBank(mouseBank)
     const result = rt.runHeadless(maxFrames)
     ran++
     const status = result.status === 'paused' ? 'frameCap' : result.status

@@ -507,7 +507,7 @@ function resolvePattern(rt: Runtime, n: number): Uint16Array | null {
     }
     return bits
   }
-  return builtinPattern(n)
+  return rt.systemPattern(n)
 }
 
 /**
@@ -960,8 +960,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         s.pattern = bits
         return
       }
-      // positive patterns live in the system mouse/pattern bank
-      it.unimplemented.set('set pattern (bank pattern)', (it.unimplemented.get('set pattern (bank pattern)') ?? 0) + 1)
+      // positive patterns come from the machine mouse bank (SPat +W.s:4730)
+      s.pattern = rt.systemPattern(n)
     },
     fade(it) {
       // Fade speed[,colours...]: every `speed` ticks each RGB nibble steps
@@ -1276,11 +1276,21 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       s.drawWindowFrame2()
     },
 
-    // ---- misc no-ops that must parse ----
-    hide: () => {},
-    'hide on': () => {},
-    show: () => {},
-    'show on': () => {},
+    // ---- pointer visibility (MHide/MShow +W.s:10722, both no-ops under
+    // Copper Off): a counter, visible while >= 0; Hide/Show step it,
+    // the On forms force -1 / 0 ----
+    hide: () => {
+      if (rt.copperOn) rt.mouseShow--
+    },
+    'hide on': () => {
+      if (rt.copperOn) rt.mouseShow = -1
+    },
+    show: () => {
+      if (rt.copperOn) rt.mouseShow++
+    },
+    'show on': () => {
+      if (rt.copperOn) rt.mouseShow = 0
+    },
     'def scroll'(it) {
       const n = it.evalInt()
       it.expect(',')
@@ -2544,7 +2554,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (it.accept(',')) it.evalInt() // repeat rates — host handles keys
     },
     'change mouse'(it) {
-      it.evalInt() // pointer shape — host cursor is shown instead
+      // InChangeMouse +Lib.s:12214: shape 0 and below error before MChange
+      const n = it.evalInt()
+      if (n <= 0) throw new AmosError('function call error')
+      rt.changeMouse(n)
     },
 
     // ---- memory / banks ----
