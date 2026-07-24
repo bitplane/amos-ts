@@ -38,6 +38,33 @@
         padding: 4px 8px;
         font-family: monospace;
       }
+      body.dragging {
+        outline: 3px dashed #fa0;
+        outline-offset: -6px;
+      }
+      #files {
+        width: min(960px, 95vw);
+        border: 1px solid #444;
+        padding: 6px 10px;
+      }
+      #files summary {
+        cursor: pointer;
+        color: #8c8;
+      }
+      #fstree {
+        max-height: 40vh;
+        overflow-y: auto;
+        white-space: pre;
+        line-height: 1.35;
+      }
+      #fstree .vol {
+        color: #fa0;
+      }
+      #fstree a {
+        color: #8cf;
+        cursor: pointer;
+        text-decoration: underline;
+      }
     </style>
   </head>
   <body>
@@ -49,6 +76,10 @@
     </div>
     <canvas id="screen" width="640" height="400"></canvas>
     <input id="line" placeholder="Input line — press Enter to submit" />
+    <details id="files">
+      <summary>Files — drop .AMOS programs, data files, folders or zips anywhere on the page</summary>
+      <div id="fstree"></div>
+    </details>
     <script type="module" src="/src/web/main.ts"></script>
   </body>
 </html>

@@ -87,29 +87,128 @@ function load(bytes: Uint8Array, name: string): void {
   } catch (e) {
     rt = null
     error = e instanceof Error ? e.message : String(e)
+    console.error('amos-ts: failed to load program:', e)
   }
+}
+
+/**
+ * Take one incoming file (picker or drop). `dir` is the relative folder
+ * path inside DH0: (from folder drops), so a dropped game directory keeps
+ * its layout and relative loads work. Auto-runs a .AMOS only when asked.
+ */
+async function receiveFile(name: string, bytes: Uint8Array, dir: string[], autoRun: boolean): Promise<void> {
+  if (/\.(zip|tar|gz|tgz)$/i.test(name)) {
+    await mountArchive(bytes, name)
+  } else {
+    dh0.write([...dir, name], bytes)
+    statusEl.textContent = `stored DH0:${[...dir, name].join('/')}`
+    if (autoRun && /\.amos$/i.test(name)) {
+      vfs.currentDir = dir.length > 0 ? `DH0:${dir.join('/')}` : 'DH0:'
+      load(bytes, name)
+    }
+  }
+  refreshFiles()
 }
 
 fileEl.addEventListener('change', () => {
   for (const f of Array.from(fileEl.files ?? [])) {
-    void f.arrayBuffer().then(async (buf: ArrayBuffer) => {
-      const bytes = new Uint8Array(buf)
-      if (/\.(zip|tar|gz|tgz)$/i.test(f.name)) {
-        await mountArchive(bytes, f.name)
-      } else if (/\.(abk|iff)$/i.test(f.name)) {
-        dh0.write([f.name], bytes)
-        statusEl.textContent = `stored DH0:${f.name}`
-      } else {
-        // .AMOS programs also land on DH0: so relative loads work
-        dh0.write([f.name], bytes)
-        load(bytes, f.name)
-      }
-    })
+    void f.arrayBuffer().then((buf: ArrayBuffer) => receiveFile(f.name, new Uint8Array(buf), [], true))
   }
 })
 document.getElementById('restart')!.addEventListener('click', () => {
   if (lastBytes) load(lastBytes, lastName)
 })
+
+// ---- drag and drop (files, folders, zips) ----
+
+async function dropEntry(entry: FileSystemEntry, dir: string[], single: boolean): Promise<void> {
+  if (entry.isFile) {
+    const file = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej))
+    await receiveFile(entry.name, new Uint8Array(await file.arrayBuffer()), dir, single)
+  } else if (entry.isDirectory) {
+    const reader = (entry as FileSystemDirectoryEntry).createReader()
+    // readEntries returns batches of <=100 until empty
+    for (;;) {
+      const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej))
+      if (batch.length === 0) break
+      for (const e of batch) await dropEntry(e, [...dir, entry.name], false)
+    }
+  }
+}
+
+document.addEventListener('dragover', (e) => {
+  e.preventDefault()
+  document.body.classList.add('dragging')
+})
+document.addEventListener('dragleave', (e) => {
+  if (e.target === document.body || (e as DragEvent).relatedTarget === null) document.body.classList.remove('dragging')
+})
+document.addEventListener('drop', (e) => {
+  e.preventDefault()
+  document.body.classList.remove('dragging')
+  const items = Array.from(e.dataTransfer?.items ?? [])
+  const entries = items.map((i) => i.webkitGetAsEntry?.()).filter((x): x is FileSystemEntry => x != null)
+  const single = entries.length === 1 && entries[0]!.isFile
+  void (async () => {
+    for (const entry of entries) await dropEntry(entry, [], single)
+    // a folder drop doesn't auto-run: point the user at the file panel
+    if (!single && entries.length > 0) {
+      filesEl.open = true
+      statusEl.textContent = 'files stored — pick a .AMOS in the Files panel to run it'
+    }
+  })()
+})
+
+// ---- the file manager panel ----
+
+const filesEl = document.getElementById('files') as HTMLDetailsElement
+const fstreeEl = document.getElementById('fstree')!
+
+function refreshFiles(): void {
+  if (!filesEl.open) return
+  fstreeEl.textContent = ''
+  const MAX = 400
+  let shown = 0
+  const addLine = (depth: number, text: string, cls?: string, onClick?: () => void): void => {
+    const el = document.createElement(onClick ? 'a' : 'span')
+    el.textContent = '  '.repeat(depth) + text + '\n'
+    if (cls) el.className = cls
+    if (onClick) el.addEventListener('click', onClick)
+    fstreeEl.appendChild(el)
+  }
+  const walk = (base: string, dir: string[], depth: number): void => {
+    if (depth > 6 || shown > MAX) return
+    const path = base + dir.join('/')
+    const entries = vfs.listDir(path) ?? []
+    entries.sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name))
+    for (const e of entries) {
+      if (++shown > MAX) {
+        addLine(depth, '…')
+        return
+      }
+      if (e.isDir) {
+        addLine(depth, e.name + '/')
+        walk(base, [...dir, e.name], depth + 1)
+      } else if (/\.amos$/i.test(e.name)) {
+        const full = base + [...dir, e.name].join('/')
+        addLine(depth, e.name, undefined, () => {
+          const bytes = vfs.read(full)
+          if (!bytes) return
+          // run with the program's own directory current, like a disk boot
+          vfs.currentDir = base + dir.join('/')
+          load(bytes, e.name)
+        })
+      } else {
+        addLine(depth, `${e.name}  (${e.size})`)
+      }
+    }
+  }
+  for (const vol of vfs.volumeNames()) {
+    addLine(0, vol + ':', 'vol')
+    walk(vol + ':', [], 1)
+  }
+}
+filesEl.addEventListener('toggle', refreshFiles)
 
 // ---- input ----
 
@@ -171,7 +270,10 @@ let acc = 0
 let last = performance.now()
 function loop(now: number): void {
   requestAnimationFrame(loop)
-  acc += now - last
+  // pause rather than catch up: a long gap (tab hidden, debugger, laggy
+  // machine) counts as at most two frames, so returning to the tab
+  // resumes at normal speed instead of fast-forwarding
+  acc += Math.min(now - last, 40)
   last = now
   if (!rt) return
   const frames = turboEl.checked ? 20 : Math.min(5, Math.floor(acc / 20))
@@ -184,6 +286,7 @@ function loop(now: number): void {
       rt.frame()
     } catch (e) {
       error = e instanceof AmosRuntimeError ? e.message : String(e)
+      console.error('amos-ts: program error:', e)
       rt = null
       break
     }

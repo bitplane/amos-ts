@@ -232,7 +232,9 @@ export class Interp {
     this.program = prescan(lines, this.names)
     this.io = opts.io ?? { write: () => {} }
     this.policy = opts.onUnimplemented ?? 'throw'
-    this.maxSteps = opts.maxSteps ?? 5_000_000
+    // no default cap: an interactive session runs forever, like the
+    // machine did — the census/tests pass an explicit budget
+    this.maxSteps = opts.maxSteps ?? Infinity
     this.instr = opts.instructions ? { ...INSTR, ...opts.instructions } : INSTR
     this.funcs = opts.functions ? { ...FUNCS, ...opts.functions } : FUNCS
     this.rawFuncs = { ...RAWFUNCS, ...opts.rawFunctions }
