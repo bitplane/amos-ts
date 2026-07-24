@@ -45,6 +45,9 @@ export interface Frame {
   arrays: Map<string, AmosArray>
   /** variable keys resolved in the global frame (Shared) */
   shared: Set<string>
+  /** procedure parameter keys — always local, they shadow a Global of the
+   * same name (AMOS params are passed by value into the proc's own frame) */
+  params: Set<string>
   retAddr: Addr | null
   loopBase: number
   gosubBase: number
@@ -145,6 +148,7 @@ const newFrame = (retAddr: Addr | null, loopBase: number, gosubBase: number): Fr
   vars: new Map(),
   arrays: new Map(),
   shared: new Set(),
+  params: new Set(),
   retAddr,
   loopBase,
   gosubBase,
@@ -451,6 +455,8 @@ export class Interp {
   private frameFor(key: string, arrays: boolean): Frame {
     const top = this.frames[this.frames.length - 1]!
     if (this.frames.length === 1) return top
+    // a parameter is always local and shadows a Global of the same name
+    if (top.params.has(key)) return top
     if (top.shared.has(key) || this.globals.has(key)) return this.frames[0]!
     // arrays Dim'd at top level are visible if declared Global/Shared only;
     // otherwise procedures see their own
@@ -734,6 +740,7 @@ export class Interp {
     for (let i = 0; i < args.length; i++) {
       const p = proc.params[i]!
       frame.vars.set(p.key, coerce(p.type, args[i]!))
+      frame.params.add(p.key)
     }
     // procedures get their own data pointer, starting at their first Data
     frame.savedDataPtr = this.dataPtr

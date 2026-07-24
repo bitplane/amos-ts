@@ -295,6 +295,33 @@ describe('procedures', () => {
     expect(run(glob)).toBe(' 5\n')
   })
 
+  it('a parameter shadows a Global of the same name, even when passed to a nested proc', () => {
+    // eggit passes Global A$ params through _BOX -> X_BOX; the params must
+    // stay local, not resolve back to the (empty) global
+    const src = [
+      'Global A$,B$',
+      'OUTER["HELLO","WORLD"]',
+      'Procedure OUTER[A$,B$]',
+      '   INNER[A$,B$]',
+      'Procedure INNER[A$,B$]',
+      '   Print "[";A$;"|";B$;"]"',
+      'End Proc',
+      'End Proc',
+    ].join('\n')
+    expect(run(src)).toBe('[HELLO|WORLD]\n')
+    // the global itself is untouched by the shadowing params
+    const src2 = [
+      'Global G',
+      'G=5',
+      'ADD1[10]',
+      'Print G',
+      'Procedure ADD1[G]',
+      '   Inc G : Print G',
+      'End Proc',
+    ].join('\n')
+    expect(run(src2)).toBe(' 11\n 5\n') // param incremented; global unchanged
+  })
+
   it('skips procedure bodies in normal flow', () => {
     expect(run('Print "A"\nProcedure P\n   Print "NEVER"\nEnd Proc\nPrint "B"')).toBe('A\nB\n')
   })
