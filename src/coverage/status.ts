@@ -49,6 +49,18 @@ export const FAITHFUL = new Set<string>([
   'vumeter',
   'led on',
   'led off',
+  // the music bank player: MusInt/MuStep/MuEvery/DoEffects ported from
+  // +Music.s:1091-1665 (pattern streams, the MuJumps command set, tempo
+  // counter, arpeggio/portamento/vibrato/slides, note-on vumeter bytes,
+  // music stack, voice steal/reclaim); music.test.ts cites each routine
+  // and replays the shipped Music.abk
+  'music',
+  'music off',
+  'music stop',
+  'tempo',
+  'mvolume',
+  'voice',
+  'mubase',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
   'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add
@@ -727,8 +739,9 @@ export const NOTES: Record<string, string> = {
   'gr writing': 'JAM1/JAM2 identical for solid draws; XOR implemented',
   'wind size': 'resizes without preserving content',
   border: 'all styles render as the same simple frame',
-  vumeter: 'read-and-clear per FnVuMeter; the music player that writes the note-on bytes lands with Music',
   'sam raw': 'unmapped addresses play nothing (the real machine plays whatever memory holds)',
+  music: 'note triggers start immediately instead of after the one-vbl DMA-off gap; a 2-byte repeat region plays silence rather than looping its two bytes',
+  mubase: 'only the vumeter bytes (MB+0..3) of the data zone are mapped',
   bell: 'modern synthesis, not chip waveform',
   shoot: 'modern synthesis',
   boom: 'modern synthesis',

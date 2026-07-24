@@ -26,7 +26,7 @@ tested against our own understanding. Percentages exclude n/a
 | language | 250 | 186 | 18 | 37 | 85% |
 | memory | 14 | 10 | 3 | 1 | 93% |
 | menus | 24 | 24 | 0 | 0 | 100% |
-| music | 49 | 10 | 4 | 35 | 29% |
+| music | 49 | 17 | 3 | 29 | 41% |
 | objects | 56 | 52 | 3 | 1 | 98% |
 | palette | 9 | 9 | 0 | 0 | 100% |
 | rainbows | 3 | 3 | 0 | 0 | 100% |
@@ -36,7 +36,7 @@ tested against our own understanding. Percentages exclude n/a
 | text-io | 37 | 31 | 5 | 1 | 97% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 494 | 56 | 145 | 79% |
+| **total** | 732 | 501 | 55 | 139 | 80% |
 
 ## amal (92%)
 
@@ -116,11 +116,11 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `menu active`, `menu bar`, `menu base`, `menu calc`, `menu called` *(items redraw every frame; (PR name) label procedures are not invoked)*, `menu del`, `menu inactive`, `menu item movable` *(drag applies final positions — no XOR rubber band)*, `menu item static`, `menu key`, `menu line`, `menu link`, `menu mouse off`, `menu mouse on`, `menu movable` *(drag applies final positions — no XOR rubber band)*, `menu off`, `menu on`, `menu once`, `menu separate`, `menu static`, `menu tline`, `menu to bank`, `on menu`, `x menu`
 
-## music (29%)
+## music (41%)
 
-- **faithful**: `led off` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `led on` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `sam bank`, `sam loop off`, `sam loop on`, `sam play`, `sam raw` *(unmapped addresses play nothing (the real machine plays whatever memory holds))*, `sam stop`, `volume`, `vumeter` *(read-and-clear per FnVuMeter; the music player that writes the note-on bytes lands with Music)*
-- **approximated**: `bell` *(modern synthesis, not chip waveform)*, `boom` *(modern synthesis)*, `shoot` *(modern synthesis)*, `voice`
-- **missing**: `del wave`, `med cont`, `med load`, `med midi on`, `med play`, `med stop`, `mouth height`, `mouth read`, `mouth width`, `mubase`, `music`, `music off`, `music stop`, `mvolume`, `noise to`, `play`, `play off`, `sam swap`, `sam swapped`, `sample`, `say`, `set envel`, `set talk`, `set wave`, `sload`, `ssave`, `talk misc`, `talk stop`, `tempo`, `track load`, `track loop of`, `track loop on`, `track play`, `track stop`, `wave`
+- **faithful**: `led off` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `led on` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `mubase` *(only the vumeter bytes (MB+0..3) of the data zone are mapped)*, `music` *(note triggers start immediately instead of after the one-vbl DMA-off gap; a 2-byte repeat region plays silence rather than looping its two bytes)*, `music off`, `music stop`, `mvolume`, `sam bank`, `sam loop off`, `sam loop on`, `sam play`, `sam raw` *(unmapped addresses play nothing (the real machine plays whatever memory holds))*, `sam stop`, `tempo`, `voice`, `volume`, `vumeter`
+- **approximated**: `bell` *(modern synthesis, not chip waveform)*, `boom` *(modern synthesis)*, `shoot` *(modern synthesis)*
+- **missing**: `del wave`, `med cont`, `med load`, `med midi on`, `med play`, `med stop`, `mouth height`, `mouth read`, `mouth width`, `noise to`, `play`, `play off`, `sam swap`, `sam swapped`, `sample`, `say`, `set envel`, `set talk`, `set wave`, `sload`, `ssave`, `talk misc`, `talk stop`, `track load`, `track loop of`, `track loop on`, `track play`, `track stop`, `wave`
 
 ## objects (98%)
 

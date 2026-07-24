@@ -1772,6 +1772,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       } else {
         rt.setVolume(0b1111, a)
         rt.musicVolume = a & 63
+        rt.music.setMusicVolume()
       }
     },
     bell(it) {
@@ -1788,9 +1789,36 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.playPcm(0b0100, pcm, freq, false)
     },
     voice(it) {
-      // InVoice +Music.s:3754: mask &15 -> MuDMAsk, gating the music
-      // player's voices (VOnOf stops/restarts them)
-      rt.voiceMask = it.evalInt() & 15
+      // InVoice +Music.s:3754: mask &15 -> VOnOf; only acts while a
+      // music is playing (stops/reclaims the player's voices)
+      rt.music.voiceOnOff(it.evalInt() & 15)
+    },
+    music(it) {
+      // InMusic +Music.s:3815: song from the bank-3 music bank; up to
+      // 3 musics stack, a full stack ignores the call
+      rt.music.music(it.evalInt())
+    },
+    'music off'() {
+      rt.music.musicOff()
+    },
+    'music stop'() {
+      // InMusicStop +Music.s:3701: zero the voice counters — the player
+      // pops the music stack at the next step-tick
+      rt.music.musicStop()
+    },
+    tempo(it) {
+      // InTempo +Music.s:3878: 0-100 (unsigned compare), only affects a
+      // playing music
+      const t = it.evalInt()
+      if (t < 0 || t > 100) throw new AmosError('Illegal function call', 23)
+      rt.music.tempo(t)
+    },
+    mvolume(it) {
+      // InMvolume +Music.s:3720: >=64 errors; rescales all stacked musics
+      const v = it.evalInt()
+      if (v < 0 || v >= 64) throw new AmosError('Illegal function call', 23)
+      rt.musicVolume = v & 63
+      rt.music.setMusicVolume()
     },
     // InLedOn/Of +Music.s:3917: $BFE001 bit 1 — LED lit = low-pass filter engaged
     'led on': () => rt.audio.setFilter(true),
@@ -3019,6 +3047,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       const v = int(a[0]!)
       if (v < 0 || v >= 4) throw new AmosError('Illegal function call', 23)
       return VI(rt.vumeter(v))
+    },
+    mubase() {
+      // FnMusicBase +Music.s:3907: the extension data zone address; the
+      // vumeter bytes at +0..3 are mapped into the fake address space
+      return VI(Runtime.MUBASE_ADDR)
     },
 
     // ---- files ----

@@ -46,6 +46,7 @@ import {
 } from './menu'
 import type { MenuHost, MenuNode, OpenLevel } from './menu'
 import { NullAudio, parseSampleBank, periodToHz, samPeriod } from './audio'
+import { MusicPlayer } from './music'
 import { FONT8 } from './font.gen'
 import type { AudioSink, SampleEntry } from './audio'
 import { AmigaFS, amigaPattern } from './vfs'
@@ -202,16 +203,34 @@ export class Runtime {
   voices = [{ volume: 56 }, { volume: 56 }, { volume: 56 }, { volume: 56 }]
   /** music master volume (MuVolume), default 56 */
   musicVolume = 56
-  /** Voice on/off mask (MuDMAsk) gating the music player's voices */
-  voiceMask = 0b1111
   /** Sam Loop On voice mask */
   samLoopMask = 0
   /**
    * The Vumeter bytes at the head of the extension data zone (MB+0..3):
    * the music player stores each note's volume here on trigger (DoNote
    * +Music.s:1245/1273); FnVuMeter and AMAL's Vu() read AND clear them.
+   * =Mubase maps them at MUBASE_ADDR.
    */
   vuBytes = new Uint8Array(4)
+  /** the music bank player (MusInt +Music.s), stepped every frame */
+  music = new MusicPlayer(
+    ((rt: Runtime) => ({
+      get audio() {
+        return rt.audio
+      },
+      get vuBytes() {
+        return rt.vuBytes
+      },
+      get musicVolume() {
+        return rt.musicVolume
+      },
+      tick: () => rt.interp.tick,
+      musicBank: () => {
+        const b = rt.memBanks.get(3)
+        return b && b.name.startsWith('Musi') ? b.data : null
+      },
+    }))(this),
+  )
   // ---- file channels (Open In/Out, Print #, Input #) ----
   fileChans = new Map<
     number,
@@ -311,6 +330,8 @@ export class Runtime {
    */
   static readonly COPPER_BASE = 0x50000000
   static readonly COPPER_SLOT = 0x00004000
+  /** =Mubase — the music extension data zone (vumeter bytes at +0..3) */
+  static readonly MUBASE_ADDR = 0x58000000
   static readonly COPPER_LONG = 12 * 1024
   /** T_CopON: the system rebuilds and owns the display while true */
   copperOn = true
@@ -443,6 +464,11 @@ export class Runtime {
       // VPOSR: V8 in bit 0 of the low byte; VHPOSR: V7-0 / H8-1
       const b = Uint8Array.of(0, (line >> 8) & 1, (vh >> 8) & 0xff, vh & 0xff)
       return { data: b, off: a - 0xdff004 }
+    }
+    if (a >= Runtime.MUBASE_ADDR && a < Runtime.MUBASE_ADDR + 4) {
+      // =Mubase points at the music extension data zone; the vumeter
+      // bytes at MB+0..3 are the mapped part (FnMusicBase +Music.s:3907)
+      return { data: this.vuBytes, off: a - Runtime.MUBASE_ADDR }
     }
     if (a >= Runtime.COPPER_BASE && a < Runtime.COPPER_BASE + 2 * Runtime.COPPER_SLOT) {
       const rel = a - Runtime.COPPER_BASE
@@ -1497,10 +1523,15 @@ export class Runtime {
   samPlay(mask: number, pcm: Int8Array, freq: number): void {
     if (pcm.length === 0) return
     const hz = periodToHz(samPeriod(freq))
+    // GoSam steals the voices from the music (VOnOf with the complement,
+    // +Music.s:3176); one-shots hand them back when they finish (the Sami
+    // handler sets MuReStart at natural end, +Music.s:1080)
+    this.music.samSteal(mask)
     for (let v = 0; v < 4; v++) {
       if (!(mask & (1 << v))) continue
       const loop = (this.samLoopMask >> v) & 1
       this.audio.play(v, pcm, hz, this.voices[v]!.volume, loop ? 0 : -1)
+      this.music.samEnd[v] = loop ? Infinity : this.interp.tick + Math.ceil((pcm.length / hz) * 50)
     }
   }
 
@@ -1517,6 +1548,9 @@ export class Runtime {
     for (let v = 0; v < 4; v++) {
       if (!(mask & (1 << v))) continue
       this.audio.stop(v)
+      // InSamStop kills the Sami interrupt (+Music.s:4108) — no natural
+      // end fires, so the music does NOT reclaim the voice
+      this.music.samEnd[v] = Infinity
     }
   }
 
@@ -1921,6 +1955,8 @@ export class Runtime {
   /** Advance one 50Hz frame: release expired waits, run a slice. */
   frame(): RunResult {
     this.interp.tick++
+    // MusInt is the first VBL routine (Mus_Cold +Music.s:848)
+    this.music.vbl()
     this.applyShifts()
     this.applyFades()
     this.applyFlashes()

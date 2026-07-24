@@ -1,0 +1,638 @@
+/**
+ * The AMOS music bank player — a port of the interrupt player in
+ * extensions/+Music.s (MusInt/Music/MuStep/MuEvery/DoEffects,
+ * lines 1091-1665), driving the AudioSink instead of Paula registers.
+ *
+ * The bank (number 3, "Music   ") is converted Soundtracker: three
+ * sections addressed by longs at payload +0/+4/+8 (BkNew +Music.s:1017)
+ * — instruments, songs, patterns. Instrument records are 32 bytes at
+ * BankInst+2+n*32: sample offset.l, repeat offset.l, length.w (words),
+ * repeat length.w, default volume.w, name (EtInst 1338, DoNote 1237,
+ * MuEvery 1581). Songs: count.w then long offsets; each song holds four
+ * word offsets to per-voice pattern lists. Patterns: count.w then a
+ * word offset per (pattern, voice) into the stream data.
+ *
+ * Pattern stream words (MuStep 1223): $0xxx = note (period, triggers
+ * the current instrument), $4xxx = old-format note (low byte = delay,
+ * next word = optional note), $8000|cmd<<8|arg = command via MuJumps.
+ *
+ * Deviations (honest): note triggers start playback immediately instead
+ * of after the one-vbl DMA-off gap (Mus3/MuEvX latch dance); a 2-byte
+ * repeat region plays silence (one-shot) rather than looping whatever
+ * two bytes it points at; malformed streams that would hang the Amiga
+ * in the interrupt are stopped by an iteration guard.
+ */
+
+import { AmosError } from '../interp/values'
+import { periodToHz } from './audio'
+import type { AudioSink } from './audio'
+
+/** what the player needs from the runtime */
+export interface MusicHost {
+  audio: AudioSink
+  vuBytes: Uint8Array
+  musicVolume: number
+  tick: () => number
+  musicBank: () => Uint8Array | null
+}
+
+type Effect = 'none' | 'slide' | 'arp' | 'ptone' | 'vib' | 'vsl'
+
+interface MuVoice {
+  adr: number // pattern-stream position (payload offset); -1 = FoEnd fake pattern
+  deb: number // Repeat loop-back position (0 = unset)
+  inst: number // instrument record offset in the payload; -1 = none
+  dpat: number // song voice-list start
+  pat: number // current position in the voice list
+  cpt: number // step counter — only the low byte counts (VoiCpt+1)
+  rep: number
+  note: number // current period
+  dvol: number
+  vol: number
+  effect: Effect
+  value: number // VoiValue word (arp keeps its phase in the high byte)
+  ptoTo: number
+  ptone: boolean
+  vib: number // vibrato phase byte
+}
+
+interface MuSong {
+  voices: MuVoice[]
+  cpt: number // MuCpt
+  tempo: number // MuTempo
+}
+
+const TEMPO_BASE = 100 // PAL (MusDef +Music.s:852)
+
+/** Periods table (+Music.s:2150) — arpeggio semitone lookup */
+const PERIODS = [
+  0x0358, 0x0328, 0x02fa, 0x02d0, 0x02a6, 0x0280, 0x025c, 0x023a, 0x021a, 0x01fc, 0x01e0,
+  0x01c5, 0x01ac, 0x0194, 0x017d, 0x0168, 0x0153, 0x0140, 0x012e, 0x011d, 0x010d, 0x00fe,
+  0x00f0, 0x00e2, 0x00d6, 0x00ca, 0x00be, 0x00b4, 0x00aa, 0x00a0, 0x0097, 0x008f, 0x0087,
+  0x007f, 0x0078, 0x0071, 0x0000, 0x0000,
+]
+
+/** Sinus table (+Music.s:2146) — vibrato waveform, unsigned half-sine */
+const SINUS = [
+  0x00, 0x18, 0x31, 0x4a, 0x61, 0x78, 0x8d, 0xa1, 0xb4, 0xc5, 0xd4, 0xe0, 0xeb, 0xf4, 0xfa, 0xfd,
+  0xff, 0xfd, 0xfa, 0xf4, 0xeb, 0xe0, 0xd4, 0xc5, 0xb4, 0xa1, 0x8d, 0x78, 0x61, 0x4a, 0x31, 0x18,
+]
+
+function newVoice(): MuVoice {
+  return {
+    adr: -1, deb: 0, inst: -1, dpat: 0, pat: 0, cpt: 0, rep: 0, note: 0,
+    dvol: 0, vol: 0, effect: 'none', value: 0, ptoTo: 0, ptone: false, vib: 0,
+  }
+}
+
+export class MusicPlayer {
+  private host: MusicHost
+  /** the music stack — up to 3 nested musics (MuBuffer/MuNumber) */
+  private stack: MuSong[] = []
+  /** MuDMAsk: voices the player may drive */
+  dmask = 0b1111
+  /** MuReStart: voices to reclaim at the next vbl */
+  private restart = 0
+  /** the bound bank payload (BkCheck rebinds when the bank changes) */
+  private bound: Uint8Array | null = null
+  private instBase = 0
+  private songBase = 0
+  private patBase = 0
+  /** tick at which a one-shot Sam Play ends per voice (Sami end -> MuReStart) */
+  samEnd = [Infinity, Infinity, Infinity, Infinity]
+  /** last values sent to the sink, to skip per-vbl no-op writes */
+  private lastFreq = [0, 0, 0, 0]
+  private lastVol = [-1, -1, -1, -1]
+
+  constructor(host: MusicHost) {
+    this.host = host
+  }
+
+  get playing(): boolean {
+    return this.stack.length > 0
+  }
+
+  // ---- bank access -------------------------------------------------------
+
+  /** bounds-checked big-endian reads over the bank payload */
+  private w(off: number): number {
+    const d = this.bound
+    if (!d || off < 0 || off + 2 > d.length) return 0
+    return (d[off]! << 8) | d[off + 1]!
+  }
+
+  private l(off: number): number {
+    const d = this.bound
+    if (!d || off < 0 || off + 4 > d.length) return 0
+    return ((d[off]! << 24) | (d[off + 1]! << 16) | (d[off + 2]! << 8) | d[off + 3]!) >>> 0
+  }
+
+  /**
+   * BkCheck (+Music.s:987): rebind when bank 3 changes; a vanished or
+   * replaced bank stops the music (MuInit) so it cannot "crash".
+   */
+  ensureBank(): void {
+    const bank = this.host.musicBank()
+    if (bank === this.bound) return
+    if (this.playing) this.musicOff()
+    this.bound = bank
+    if (bank) {
+      this.instBase = this.l(0)
+      this.songBase = this.l(4)
+      this.patBase = this.l(8)
+    }
+  }
+
+  // ---- keywords ----------------------------------------------------------
+
+  /** InMusic (+Music.s:3815) */
+  music(n: number): void {
+    if (n <= 0) throw new AmosError('Illegal function call', 23)
+    this.ensureBank()
+    if (!this.bound) throw new AmosError('music bank not reserved')
+    const count = this.w(this.songBase)
+    if (n > count) throw new AmosError('music not defined')
+    if (this.stack.length >= 3) return // no room — current music keeps playing
+    const songOff = this.songBase + this.l(this.songBase + 2 + n * 4 - 4)
+    const voices: MuVoice[] = []
+    for (let v = 0; v < 4; v++) {
+      const V = newVoice()
+      V.cpt = 1 // steps at the first tick
+      V.adr = -1 // FoEnd fake pattern (+Music.s:2139)
+      const rel = this.w(songOff + v * 2)
+      V.pat = songOff + (rel >= 0x8000 ? rel - 0x10000 : rel) // add.w sign-extends
+      V.dpat = V.pat
+      voices.push(V)
+    }
+    this.stack.push({ voices, cpt: TEMPO_BASE, tempo: 17 })
+  }
+
+  /** InMusicOff (+Music.s:3688) */
+  musicOff(): void {
+    this.stack = []
+    this.mOff()
+  }
+
+  /** InMusicStop (+Music.s:3701): zero the counters — the next step-tick pops */
+  musicStop(): void {
+    const s = this.cur()
+    if (!s) return
+    for (const V of s.voices) V.cpt = 0
+  }
+
+  /** InTempo (+Music.s:3878): only affects the currently playing music */
+  tempo(t: number): void {
+    const s = this.cur()
+    if (s) s.tempo = t
+  }
+
+  /** MVol (+Music.s:3727): rescale every stacked music's live volumes */
+  setMusicVolume(): void {
+    const mv = this.host.musicVolume
+    for (const s of this.stack) {
+      for (const V of s.voices) V.vol = (V.dvol * mv) >> 6
+    }
+  }
+
+  /** VOnOf (+Music.s:3767): only acts while a music is playing */
+  voiceOnOff(mask: number): void {
+    const s = this.cur()
+    if (!s) return
+    const old = this.dmask
+    this.dmask = mask & 15
+    for (let v = 0; v < 4; v++) {
+      const bit = 1 << v
+      if (!(mask & bit)) {
+        if (old & bit) {
+          this.host.audio.stop(v)
+          this.lastVol[v] = -1
+          this.lastFreq[v] = 0
+        }
+      } else if (!(old & bit)) {
+        this.restart |= bit
+      }
+    }
+  }
+
+  /** GoSam voice steal (+Music.s:3176): Sam Play sets the mask to the complement */
+  samSteal(mask: number): void {
+    this.voiceOnOff(~mask & 15)
+  }
+
+  // ---- the vbl interrupt (MusInt +Music.s:1092) --------------------------
+
+  vbl(): void {
+    this.ensureBank()
+    // Sami natural end -> MuReStart (+Music.s:1080): one-shot samples give
+    // their voice back to the music when they finish
+    const t = this.host.tick()
+    for (let v = 0; v < 4; v++) {
+      if (t >= this.samEnd[v]!) {
+        this.samEnd[v] = Infinity
+        this.restart |= 1 << v
+      }
+    }
+    const s = this.cur()
+    if (!s) return
+    this.muEvery(s)
+    s.cpt += s.tempo
+    if (s.cpt >= TEMPO_BASE) {
+      s.cpt -= TEMPO_BASE
+      this.stepTick(s)
+    } else {
+      this.doEffects(s)
+    }
+  }
+
+  private cur(): MuSong | null {
+    return this.stack[this.stack.length - 1] ?? null
+  }
+
+  /** MuEvery (+Music.s:1576): restart reclaimed voices at their repeat region */
+  private muEvery(s: MuSong): void {
+    let r = this.restart & 15
+    if (!r) return
+    this.restart = 0
+    this.dmask |= r // MuRs3 (+Music.s:1662)
+    for (let v = 0; v < 4; v++) {
+      if (!(r & (1 << v))) continue
+      const V = s.voices[v]!
+      if (V.inst < 0) continue
+      // the 68k re-enables DMA on the repeat region of the current
+      // instrument (AUDxLEN=2 then the MuStop relatch)
+      const region = this.instrumentPcm(V.inst, true)
+      if (region && V.note > 0) {
+        this.play(v, region.pcm, periodToHz(V.note), V.vol, region.loopStart, region.loopEnd)
+      }
+    }
+  }
+
+  /** one tempo wrap: count down the voices, step those that hit zero */
+  private stepTick(s: MuSong): void {
+    let active = 0
+    for (let v = 0; v < 4; v++) {
+      const V = s.voices[v]!
+      if (V.cpt === 0) continue
+      active++
+      V.cpt = (V.cpt - 1) & 0xff
+      if (V.cpt === 0) this.stepVoice(s, v)
+    }
+    if (active === 0) this.finished()
+  }
+
+  /** MuFin/MuFini (+Music.s:1204): pop the music stack */
+  private finished(): void {
+    this.stack.pop()
+    const prev = this.cur()
+    if (prev) {
+      this.restart = this.dmask // MuFin: MuReStart = MuDMAsk
+    } else {
+      this.mOff()
+    }
+  }
+
+  /** MOff (+Music.s:2421): silence the player's voices */
+  private mOff(): void {
+    for (let v = 0; v < 4; v++) {
+      if (!(this.dmask & (1 << v))) continue
+      this.host.audio.stop(v)
+      this.lastVol[v] = -1
+      this.lastFreq[v] = 0
+    }
+  }
+
+  // ---- one step of one voice (MuStep +Music.s:1223) ----------------------
+
+  private stepVoice(s: MuSong, v: number): void {
+    const V = s.voices[v]!
+    let pos = V.adr
+    // a stream with no delay would spin the 68k interrupt forever; guard
+    for (let guard = 0; guard < 20000; guard++) {
+      let word: number
+      if (pos < 0) {
+        word = 0x8000 // FoEnd: a lone "end of pattern"
+        pos = 0
+      } else {
+        word = this.w(pos)
+        pos += 2
+      }
+      if (!(word & 0x8000)) {
+        if (word & 0x4000) {
+          // OldNote (+Music.s:1259): low byte = duration, next word = note
+          V.cpt = word & 0xff
+          const n = this.w(pos)
+          pos += 2
+          if (n !== 0) {
+            const per = n & 0x0fff
+            V.note = per
+            this.perWrite(v, per)
+            this.triggerSample(s, v, per)
+          }
+          V.adr = pos
+          return
+        }
+        // DoNote (+Music.s:1233)
+        const per = word & 0x0fff
+        this.triggerSample(s, v, per)
+        if (!V.ptone) {
+          V.note = per
+          this.perWrite(v, per)
+        } else {
+          // pending Portamento: the note becomes the slide target
+          V.ptone = false
+          V.ptoTo = per
+          V.effect = 'ptone'
+        }
+        continue
+      }
+      // command (MuJumps +Music.s:1278)
+      const cmd = (word >> 8) & 0x7f
+      const arg = word & 0xff
+      switch (cmd) {
+        case 0: {
+          // EtEnd: next pattern from the voice list
+          V.cpt = 0
+          V.rep = 0
+          V.deb = 0
+          V.effect = 'none'
+          const next = this.nextPattern(V, v)
+          if (next < 0) return // voice halts (list end / bad pattern)
+          pos = next
+          continue
+        }
+        case 3: {
+          // EtSVol
+          V.dvol = Math.min(arg, 63)
+          V.vol = (V.dvol * this.host.musicVolume) >> 6
+          continue
+        }
+        case 4:
+          V.effect = 'none'
+          continue
+        case 5: {
+          // EtRep
+          if (arg === 0) {
+            V.deb = pos
+          } else if (V.rep === 0) {
+            V.rep = arg
+          } else {
+            V.rep = (V.rep - 1) & 0xffff
+            if (V.rep !== 0 && V.deb !== 0) pos = V.deb
+          }
+          continue
+        }
+        case 6:
+          this.host.audio.setFilter(true) // EtLOn
+          continue
+        case 7:
+          this.host.audio.setFilter(false) // EtLOff
+          continue
+        case 8:
+          s.tempo = arg // EtTemp
+          continue
+        case 9: {
+          // EtInst
+          V.inst = this.instBase + 2 + arg * 32
+          V.dvol = Math.min(this.w(V.inst + 12), 63)
+          V.vol = (V.dvol * this.host.musicVolume) >> 6
+          continue
+        }
+        case 10: {
+          // EtArp: arg in the low byte, phase lives in the high byte
+          V.value = (V.value & 0xff00) | arg
+          V.effect = 'arp'
+          continue
+        }
+        case 11:
+          // EtPort
+          V.ptone = true
+          V.value = arg
+          V.effect = 'ptone'
+          continue
+        case 12:
+          V.value = arg // EtVib
+          V.effect = 'vib'
+          continue
+        case 13: {
+          // EtVSl: high nibble slides up, else low nibble slides down
+          const up = arg >> 4
+          V.value = up !== 0 ? up : -(arg & 0x0f) & 0xffff
+          V.effect = 'vsl'
+          continue
+        }
+        case 14:
+          V.value = -arg & 0xffff // EtSlU
+          V.effect = 'slide'
+          continue
+        case 15:
+          V.value = arg // EtSlD
+          V.effect = 'slide'
+          continue
+        case 16:
+          // EtDel: the step ends here; only the low byte counts
+          V.cpt = arg
+          V.adr = pos
+          return
+        case 17: {
+          // EtJmp: jump into the song list, then end-of-pattern processing
+          V.cpt = 0
+          V.rep = 0
+          V.deb = 0
+          V.effect = 'none'
+          V.pat = V.dpat + arg * 2
+          const next = this.nextPattern(V, v)
+          if (next < 0) return
+          pos = next
+          continue
+        }
+        default:
+          continue // 1/2 old slides and 18-31 fall through (MuSt0)
+      }
+    }
+    V.cpt = 0 // malformed stream: halt the voice instead of hanging
+  }
+
+  /**
+   * EtEnd's pattern fetch (+Music.s:1317): read the next entry of the
+   * voice list; >=0 = pattern number, -1 = halt, other negatives =
+   * restart the list. Returns the new stream position or -1 to halt.
+   */
+  private nextPattern(V: MuVoice, v: number): number {
+    for (let guard = 0; guard < 1000; guard++) {
+      const raw = this.w(V.pat)
+      if (raw & 0x8000) {
+        if (raw === 0xffff) return -1 // -1: voice done
+        V.pat = V.dpat // other negative: loop the song
+        continue
+      }
+      V.pat += 2
+      const count = this.w(this.patBase)
+      if (raw > count) return -1 // EtEndX
+      const off = this.w(this.patBase + 2 + (raw * 4 + v) * 2)
+      if (off === 0) return -1
+      return this.patBase + off
+    }
+    return -1
+  }
+
+  /**
+   * The sample side of DoNote: vumeter byte and DMA bookkeeping always
+   * (the vumeter pulses even on voices Voice-d off — DoNote runs before
+   * the MuDMAsk gate), sink playback only on enabled voices.
+   */
+  private triggerSample(s: MuSong, v: number, per: number): void {
+    const V = s.voices[v]!
+    this.host.vuBytes[v] = V.vol & 0xff
+    if (!(this.dmask & (1 << v))) return
+    if (V.inst < 0) return
+    const region = this.instrumentPcm(V.inst, false)
+    if (!region) return
+    const hz = periodToHz(V.ptone ? V.note || per : per)
+    this.play(v, region.pcm, hz, V.vol, region.loopStart, region.loopEnd)
+  }
+
+  /**
+   * Build the playable region of an instrument: first pass [off, off+len)
+   * then the repeat region loops (MuEvery relatch). repeatOnly returns
+   * just the loop region (voice restart).
+   */
+  private instrumentPcm(rec: number, repeatOnly: boolean): { pcm: Int8Array; loopStart: number; loopEnd: number } | null {
+    const d = this.bound
+    if (!d) return null
+    const off = this.instBase + this.l(rec)
+    const len = this.w(rec + 8) * 2
+    const repOff = this.instBase + this.l(rec + 4)
+    const repLen = this.w(rec + 10) * 2
+    const looped = repLen > 2 && repOff >= off
+    const start = repeatOnly && looped ? repOff : off
+    const end = Math.min(d.length, looped ? Math.max(off + len, repOff + repLen) : off + len)
+    if (start >= end || start < 0) return null
+    const pcm = new Int8Array(d.buffer, d.byteOffset + start, end - start)
+    if (!looped) return { pcm, loopStart: -1, loopEnd: pcm.length }
+    return { pcm, loopStart: repOff - start, loopEnd: repOff - start + repLen }
+  }
+
+  // ---- per-vbl effects (DoEffects +Music.s:1442) -------------------------
+
+  private doEffects(s: MuSong): void {
+    for (let v = 0; v < 4; v++) {
+      const V = s.voices[v]!
+      switch (V.effect) {
+        case 'none':
+          this.perWrite(v, V.note) // NoEffect re-writes AUDxPER every vbl
+          break
+        case 'slide': {
+          // MuSlide (+Music.s:1466)
+          const val = V.value
+          if (val === 0) {
+            V.effect = 'none'
+            break
+          }
+          let per = (V.note + val) & 0xffff
+          if (per < 0x71) {
+            per = 0x71
+            V.effect = 'none'
+          }
+          if (per > 0x358) {
+            per = 0x358
+            V.effect = 'none'
+          }
+          V.note = per
+          this.perWrite(v, per)
+          break
+        }
+        case 'arp': {
+          // MuArp (+Music.s:1488): phase cycles low nibble, base, high nibble
+          const arg = V.value & 0xff
+          let phase = (V.value >> 8) & 0xff
+          if (phase >= 3) phase = 2
+          phase = (phase - 1) & 0xff
+          V.value = (phase << 8) | arg
+          if (phase === 0) {
+            this.perWrite(v, V.note)
+            break
+          }
+          const nibble = phase < 0x80 ? arg & 0x0f : arg >> 4
+          for (let i = 0; i < 37; i++) {
+            if (PERIODS[i]! <= V.note) {
+              const per = PERIODS[i + nibble]
+              if (per !== undefined && per > 0) this.perWrite(v, per)
+              break
+            }
+          }
+          break
+        }
+        case 'ptone': {
+          // MuPTone (+Music.s:1519)
+          const speed = V.value & 0xffff
+          let per = V.note
+          if (per === V.ptoTo) {
+            V.effect = 'none'
+          } else if (per < V.ptoTo) {
+            per = (per + speed) & 0xffff
+            if (per >= V.ptoTo) {
+              per = V.ptoTo
+              V.effect = 'none'
+            }
+          } else {
+            per = (per - speed) & 0xffff
+            if (per <= V.ptoTo) {
+              per = V.ptoTo
+              V.effect = 'none'
+            }
+          }
+          V.note = per
+          this.perWrite(v, per)
+          break
+        }
+        case 'vib': {
+          // MuVib (+Music.s:1538): modulated period is written, not stored
+          const arg = V.value & 0xff
+          const idx = (V.vib >> 2) & 0x1f
+          const depth = arg & 0x0f
+          const d2 = (SINUS[idx]! * depth) >> 6
+          const per = V.vib & 0x80 ? (V.note - d2) & 0xffff : (V.note + d2) & 0xffff
+          this.perWrite(v, per)
+          V.vib = (V.vib + ((arg >> 2) & 0x3c)) & 0xff
+          break
+        }
+        case 'vsl': {
+          // MuVSl (+Music.s:1562): slide the default volume, rescale
+          const delta = V.value >= 0x8000 ? V.value - 0x10000 : V.value
+          let dv = V.dvol + delta
+          if (dv < 0) dv = 0
+          if (dv >= 0x40) dv = 0x3f
+          V.dvol = dv
+          V.vol = (dv * this.host.musicVolume) >> 6
+          break
+        }
+      }
+      this.volWrite(v, V.vol)
+    }
+  }
+
+  // ---- cached sink writes ------------------------------------------------
+
+  private play(v: number, pcm: Int8Array, hz: number, vol: number, loopStart: number, loopEnd: number): void {
+    this.host.audio.play(v, pcm, hz, vol, loopStart, loopEnd)
+    this.lastFreq[v] = hz
+    this.lastVol[v] = vol
+  }
+
+  /** AUDxPER write — skipped for voices the mask routes to the dummy buffer */
+  private perWrite(v: number, per: number): void {
+    if (!(this.dmask & (1 << v)) || per <= 0) return
+    const hz = periodToHz(per)
+    if (hz === this.lastFreq[v]) return
+    this.lastFreq[v] = hz
+    this.host.audio.setFrequency(v, hz)
+  }
+
+  /** AUDxVOL write, once per change */
+  private volWrite(v: number, vol: number): void {
+    if (!(this.dmask & (1 << v))) return
+    if (vol === this.lastVol[v]) return
+    this.lastVol[v] = vol
+    this.host.audio.setVolume(v, vol)
+  }
+}
