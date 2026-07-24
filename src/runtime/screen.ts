@@ -759,7 +759,7 @@ export class Screen {
   textStyle = 0
 
   /** Draw one 8x8 glyph honouring the window Writing modes and styles. */
-  drawChar(px: number, py: number, ch: number, pen: number, paper: number, transparent = false, styleFrom?: number): void {
+  drawChar(px: number, py: number, ch: number, pen: number, paper: number, transparent = false, styleFrom?: number, clipped = false): void {
     const w = this.curWin
     if (w.writing1 === 4) return // IGNORE
     if (w.inverse) {
@@ -782,17 +782,25 @@ export class Screen {
         const on = (bits >> (7 - col)) & 1
         if (on) {
           if (w.writing2 === 1) continue // paper only
-          this.writeMode(x, y, pen, w.writing1)
+          this.writeMode(x, y, pen, w.writing1, clipped)
         } else if (!transparent) {
-          this.writeMode(x, y, bg, w.writing1)
+          this.writeMode(x, y, bg, w.writing1, clipped)
         }
       }
     }
   }
 
-  /** apply a Writing mode: 0 replace, 1 OR, 2 XOR, 3 AND */
-  private writeMode(x: number, y: number, c: number, mode: number): void {
-    if (!this.inClip(x, y)) return
+  /**
+   * Apply a Writing mode: 0 replace, 1 OR, 2 XOR, 3 AND.
+   * NOT clip-tested: this is the console character blitter's write — on
+   * the real machine the AMOS console writes straight to the bitplanes,
+   * bypassing the layer ClipRegion that Clip installs (Ec_SetClip
+   * +W.s:4259 clips rastport graphics only). Eggit2 relies on printing
+   * status text OUTSIDE its play-area Clip.
+   */
+  private writeMode(x: number, y: number, c: number, mode: number, clipped = false): void {
+    if (clipped && !this.inClip(x, y)) return
+    if (x < 0 || y < 0 || x >= this.width || y >= this.height) return
     const i = y * this.width + x
     const m = this.colorMask()
     switch (mode) {
@@ -818,7 +826,7 @@ export class Screen {
     const f = this.font
     if (!f) {
       for (let i = 0; i < s.length; i++) {
-        this.drawChar(x + i * 8, y - 6, s.charCodeAt(i), this.ink, 0, true, this.textStyle)
+        this.drawChar(x + i * 8, y - 6, s.charCodeAt(i), this.ink, 0, true, this.textStyle, true)
       }
       return
     }
@@ -833,7 +841,7 @@ export class Screen {
       const m = glyphMetrics(f, ch)
       for (let gy = 0; gy < f.ySize; gy++) {
         for (let gx = 0; gx < m.width; gx++) {
-          if (glyphBit(f, ch, gx, gy)) this.writeMode(penX + m.kern + gx, top + gy, this.ink, w.writing1)
+          if (glyphBit(f, ch, gx, gy)) this.writeMode(penX + m.kern + gx, top + gy, this.ink, w.writing1, true)
         }
       }
       penX += m.advance

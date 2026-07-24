@@ -161,6 +161,21 @@ describe('drawing', () => {
     expect(rt.screen.point(50, 50)).toBe(1)
   })
 
+  it('the text console ignores Clip — Print writes to bitplanes past the clip (Ec_SetClip +W.s:4259)', () => {
+    // Clip bounds rastport graphics (Bar) but the AMOS console blits
+    // straight to the bitplanes; eggit2 prints its status line outside
+    // the play-area Clip and relied on this
+    const rt = run('Clip 100,100 To 200,200\nPen 2 : Paper 0 : Locate 0,0 : Print "A"')
+    let lit = 0
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) if (rt.screen.point(x, y) === 2) lit++
+    expect(lit).toBeGreaterThan(4) // the 'A' rendered at 0,0, well outside the clip
+    // but graphics Text() DOES clip (it's a rastport op)
+    const rt2 = run('Clip 100,100 To 200,200\nInk 2 : Text 0,20,"A"')
+    let g = 0
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 16; x++) if (rt2.screen.point(x, y) === 2) g++
+    expect(g).toBe(0) // clipped away
+  })
+
   it('sets palette entries via Colour and Palette', () => {
     const rt = run('Colour 3,$F0F\nPalette $111,,$222')
     expect(rt.screen.palette[3]).toBe(0xf0f)
