@@ -45,7 +45,7 @@ import {
   MF_BAR,
 } from './menu'
 import type { MenuHost, MenuNode, OpenLevel } from './menu'
-import { NullAudio, parseSampleBank } from './audio'
+import { NullAudio, parseSampleBank, periodToHz, samPeriod } from './audio'
 import { FONT8 } from './font.gen'
 import type { AudioSink, SampleEntry } from './audio'
 import { AmigaFS, amigaPattern } from './vfs'
@@ -198,15 +198,20 @@ export class Runtime {
   // ---- audio ----
   audio: AudioSink = new NullAudio()
   samBankNum = 5
-  /** per-voice: busy-until tick and volume */
-  voices = [
-    { until: 0, volume: 63 },
-    { until: 0, volume: 63 },
-    { until: 0, volume: 63 },
-    { until: 0, volume: 63 },
-  ]
+  /** per-voice default volume (EnvDVol); MusDef sets 56 (+Music.s:918) */
+  voices = [{ volume: 56 }, { volume: 56 }, { volume: 56 }, { volume: 56 }]
+  /** music master volume (MuVolume), default 56 */
+  musicVolume = 56
+  /** Voice on/off mask (MuDMAsk) gating the music player's voices */
+  voiceMask = 0b1111
   /** Sam Loop On voice mask */
   samLoopMask = 0
+  /**
+   * The Vumeter bytes at the head of the extension data zone (MB+0..3):
+   * the music player stores each note's volume here on trigger (DoNote
+   * +Music.s:1245/1273); FnVuMeter and AMAL's Vu() read AND clear them.
+   */
+  vuBytes = new Uint8Array(4)
   // ---- file channels (Open In/Out, Print #, Input #) ----
   fileChans = new Map<
     number,
@@ -1314,7 +1319,7 @@ export class Runtime {
     mouseY: () => this.input.mouseY,
     mouseKey: (bit) => (this.input.mouseK & bit ? -1 : 0),
     joy: () => this.input.joy,
-    vumeter: (voice) => this.vumeter(voice),
+    vumeter: (voice) => (voice >= 0 && voice < 4 ? this.vumeter(voice) : 0),
     col: (n) => this.colGet(n),
     bobCol: (n, f, t) => this.bobColCheck(n, f, t),
     spriteCol: (n, f, t) => this.spriteColCheck(n, f, t),
@@ -1468,23 +1473,43 @@ export class Runtime {
     this.fileChans.delete(n)
   }
 
-  getSample(n: number): SampleEntry | null {
+  /**
+   * GetSam (+Music.s:3207): errors follow the 68k order — n<=0 illegal
+   * function call; bank missing or not a "Samp" bank = sample bank not
+   * reserved; n past the count or a zero offset = sample not defined.
+   */
+  getSample(n: number): SampleEntry {
+    if (n <= 0) throw new AmosError('Illegal function call', 23)
     const bank = this.memBanks.get(this.samBankNum)
-    if (!bank) return null
+    if (!bank || !bank.name.startsWith('Samp')) throw new AmosError('sample bank not reserved')
     if (this.sampleCache?.bank !== bank) {
       this.sampleCache = { bank, entries: parseSampleBank(bank.data) }
     }
-    return this.sampleCache.entries[n - 1] ?? null
+    const s = this.sampleCache.entries[n - 1]
+    if (!s || s.pcm.length === 0) throw new AmosError('sample not defined')
+    return s
   }
 
-  /** start PCM on every voice in the mask, tracking busy state for Vumeter */
+  /**
+   * GoSam/SPl0 (+Music.s:3169/3282): start PCM on each masked voice at the
+   * period-quantized Paula rate, looping the voices flagged by Sam Loop On.
+   */
+  samPlay(mask: number, pcm: Int8Array, freq: number): void {
+    if (pcm.length === 0) return
+    const hz = periodToHz(samPeriod(freq))
+    for (let v = 0; v < 4; v++) {
+      if (!(mask & (1 << v))) continue
+      const loop = (this.samLoopMask >> v) & 1
+      this.audio.play(v, pcm, hz, this.voices[v]!.volume, loop ? 0 : -1)
+    }
+  }
+
+  /** start PCM on every voice in the mask (Bell/Boom/Shoot effects path) */
   playPcm(mask: number, pcm: Int8Array, freq: number, loop: boolean): void {
     if (freq <= 0 || pcm.length === 0) return
-    const ticks = loop ? Infinity : Math.ceil((pcm.length / freq) * 50)
     for (let v = 0; v < 4; v++) {
       if (!(mask & (1 << v))) continue
       this.audio.play(v, pcm, freq, this.voices[v]!.volume, loop ? 0 : -1)
-      this.voices[v]!.until = this.interp.tick + ticks
     }
   }
 
@@ -1492,20 +1517,31 @@ export class Runtime {
     for (let v = 0; v < 4; v++) {
       if (!(mask & (1 << v))) continue
       this.audio.stop(v)
-      this.voices[v]!.until = 0
     }
   }
 
   /**
-   * Approximate Vumeter: the real one reads the sample amplitude from the
-   * audio interrupt; we synthesize a lively deterministic level while the
-   * voice is busy.
+   * Vol (+Music.s:2754): volume outside 0-63 = illegal function call
+   * (unsigned compare); sets the per-voice default and the live level.
+   */
+  setVolume(mask: number, vol: number): void {
+    if (vol < 0 || vol >= 64) throw new AmosError('Illegal function call', 23)
+    for (let v = 0; v < 4; v++) {
+      if (!(mask & (1 << v))) continue
+      this.voices[v]!.volume = vol
+      this.audio.setVolume(v, vol)
+    }
+  }
+
+  /**
+   * FnVuMeter (+Music.s:3893): read AND clear the note-on byte the music
+   * player stores per voice. Callers validate the range (BASIC errors on
+   * voice>3, AMAL's Vu() returns 0 — AmVu +W.s:9065).
    */
   vumeter(voice: number): number {
-    const v = this.voices[voice & 3]
-    if (!v || this.interp.tick >= v.until) return 0
-    const wob = 16 + ((Math.floor(this.interp.tick) * 13 + voice * 7) % 48)
-    return Math.min(63, Math.floor((wob * v.volume) / 63))
+    const b = this.vuBytes[voice]!
+    this.vuBytes[voice] = 0
+    return b
   }
 
   stepAmal(): void {

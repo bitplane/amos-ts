@@ -33,12 +33,22 @@ export const FAITHFUL = new Set<string>([
   'chanan',
   'chanmv',
   'amalerr',
-  // sample commands: bank format and argument forms from +Music.s GetSam
+  // sample commands: audited against +Music.s — GetSam errors (3207),
+  // GoSam/SPl0 period quantization min 124 (3316), SL0 live loop
+  // re-point (3073), InSamStop DMA/IntEna clear (4103), InSamRaw
+  // freq/length validation (3157), Vol unsigned range check + MVol on
+  // the 1-arg form (2739), FnVuMeter read-and-clear (3893), InLedOn/Of
+  // filter bit (3917); audio.test.ts cites each
   'sam bank',
   'sam play',
   'sam stop',
   'sam loop on',
   'sam loop off',
+  'sam raw',
+  'volume',
+  'vumeter',
+  'led on',
+  'led off',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
   'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add
@@ -717,10 +727,13 @@ export const NOTES: Record<string, string> = {
   'gr writing': 'JAM1/JAM2 identical for solid draws; XOR implemented',
   'wind size': 'resizes without preserving content',
   border: 'all styles render as the same simple frame',
-  vumeter: 'synthesized level, not real amplitude',
+  vumeter: 'read-and-clear per FnVuMeter; the music player that writes the note-on bytes lands with Music',
+  'sam raw': 'unmapped addresses play nothing (the real machine plays whatever memory holds)',
   bell: 'modern synthesis, not chip waveform',
   shoot: 'modern synthesis',
   boom: 'modern synthesis',
+  'led on': 'filter flag reaches the sink; audibility depends on the host audio implementation',
+  'led off': 'filter flag reaches the sink; audibility depends on the host audio implementation',
   'load iff': 'HAM/EHB decode and render correctly; not byte-verified against the 68k IFF loader',
   centre: 'no Border$ handling',
   'mouse zone': 'current-screen coordinate mapping approximated',

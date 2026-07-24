@@ -1728,10 +1728,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
     // ---- audio ----
     'sam bank'(it) {
-      rt.samBankNum = it.evalInt()
+      // InSamBank +Music.s:3034: 1-16, else illegal function call
+      const n = it.evalInt()
+      if (n <= 0 || n > 16) throw new AmosError('Illegal function call', 23)
+      rt.samBankNum = n
     },
     'sam play'(it) {
       // Sam Play n | Sam Play voices,n | Sam Play voices,n,freq
+      // (InSamPlay1-3 +Music.s:3128: an explicit frequency <=500 errors)
       const a = it.evalInt()
       let mask = 0b1111
       let n = a
@@ -1741,33 +1745,33 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         n = it.evalInt()
         if (it.accept(',')) freq = it.evalInt()
       }
+      if (freq !== null && freq <= 500) throw new AmosError('Illegal function call', 23)
       const sample = rt.getSample(n)
-      if (!sample) throw new AmosError(`sample not defined: ${n}`)
-      rt.playPcm(mask, sample.pcm, freq ?? sample.freq, (rt.samLoopMask & mask) !== 0)
+      rt.samPlay(mask & 15, sample.pcm, freq ?? sample.freq)
     },
     'sam stop'(it) {
-      rt.stopVoices(it.atStmtEnd() ? 0b1111 : it.evalInt())
+      rt.stopVoices((it.atStmtEnd() ? 0b1111 : it.evalInt()) & 15)
     },
     'sam loop on'(it) {
-      rt.samLoopMask |= it.atStmtEnd() ? 0b1111 : it.evalInt()
+      // SL0 +Music.s:3073: updates the mask AND re-points live samples
+      const mask = (it.atStmtEnd() ? 0b1111 : it.evalInt()) & 15
+      rt.samLoopMask |= mask
+      for (let v = 0; v < 4; v++) if (mask & (1 << v)) rt.audio.setLoop(v, 0)
     },
     'sam loop off'(it) {
-      rt.samLoopMask &= ~(it.atStmtEnd() ? 0b1111 : it.evalInt())
+      const mask = (it.atStmtEnd() ? 0b1111 : it.evalInt()) & 15
+      rt.samLoopMask &= ~mask
+      for (let v = 0; v < 4; v++) if (mask & (1 << v)) rt.audio.setLoop(v, -1)
     },
     volume(it) {
-      // Volume v | Volume voices,v
+      // InVolume1/2 +Music.s:2739: the one-argument form also sets the
+      // music master volume (L_MVol); out-of-range volume errors in Vol
       const a = it.evalInt()
-      let mask = 0b1111
-      let vol = a
       if (it.accept(',')) {
-        mask = a
-        vol = it.evalInt()
-      }
-      vol = Math.max(0, Math.min(63, vol))
-      for (let v = 0; v < 4; v++) {
-        if (!(mask & (1 << v))) continue
-        rt.voices[v]!.volume = vol
-        rt.audio.setVolume(v, vol)
+        rt.setVolume(a & 15, it.evalInt())
+      } else {
+        rt.setVolume(0b1111, a)
+        rt.musicVolume = a & 63
       }
     },
     bell(it) {
@@ -1784,10 +1788,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.playPcm(0b0100, pcm, freq, false)
     },
     voice(it) {
-      it.evalInt() // voice activation mask (music voices) — nothing to gate yet
+      // InVoice +Music.s:3754: mask &15 -> MuDMAsk, gating the music
+      // player's voices (VOnOf stops/restarts them)
+      rt.voiceMask = it.evalInt() & 15
     },
-    'led on': () => {}, // the power-LED audio filter — no filter to toggle
-    'led off': () => {},
+    // InLedOn/Of +Music.s:3917: $BFE001 bit 1 — LED lit = low-pass filter engaged
+    'led on': () => rt.audio.setFilter(true),
+    'led off': () => rt.audio.setFilter(false),
 
     // ---- menus ----
     'menu$'(it) {
@@ -2277,6 +2284,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!rt.vfs?.writeFile(path, file)) throw new AmosError('disc is write protected')
     },
     'sam raw'(it) {
+      // InSamRaw +Music.s:3157: freq<=500 then length<=256 error; plays
+      // through GoSam, so Sam Loop On applies to raw plays too
       const mask = it.evalInt()
       it.expect(',')
       const addr = it.evalInt()
@@ -2284,10 +2293,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const len = it.evalInt()
       it.expect(',')
       const freq = it.evalInt()
+      if (freq <= 500 || len <= 256) throw new AmosError('Illegal function call', 23)
       const m = rt.resolveAddr(addr)
       if (!m) return
       const pcm = new Int8Array(m.data.buffer, m.data.byteOffset + m.off, Math.min(len, m.data.length - m.off))
-      rt.playPcm(mask, pcm, freq, false)
+      rt.samPlay(mask & 15, pcm, freq)
     },
     'hrev block'(it) {
       // RevBloc +W.s:12620: FindBloc raises "Block not defined" on a missing
@@ -3005,7 +3015,10 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
 
     // ---- audio ----
     vumeter(_, a) {
-      return VI(rt.vumeter(int(a[0]!)))
+      // FnVuMeter +Music.s:3893: voice 0-3 else illegal function call
+      const v = int(a[0]!)
+      if (v < 0 || v >= 4) throw new AmosError('Illegal function call', 23)
+      return VI(rt.vumeter(v))
     },
 
     // ---- files ----

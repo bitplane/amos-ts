@@ -5,36 +5,119 @@
  * NullAudio headless.
  */
 
+/** Paula clock, PAL (MusClock, +Music.s:851; NTSC would be 3579545) */
+export const PAULA_CLOCK = 3546895
+
+/**
+ * AUDxPER for a requested sample rate: clock/freq, floored, minimum 124
+ * (SPl0 +Music.s:3316-3322) — Paula cannot play faster than ~28.6kHz.
+ */
+export function samPeriod(freqHz: number): number {
+  return Math.max(124, Math.floor(PAULA_CLOCK / Math.max(1, freqHz)))
+}
+
+/** the rate Paula actually plays at for a given period */
+export function periodToHz(period: number): number {
+  return PAULA_CLOCK / Math.max(1, period)
+}
+
 export interface AudioSink {
-  /** signed 8-bit PCM at freqHz on voice 0-3; loop from loopStart (-1 = one-shot) */
-  play(voice: number, pcm: Int8Array, freqHz: number, volume63: number, loopStart: number): void
+  /**
+   * (Re)trigger voice 0-3: signed 8-bit PCM at freqHz, volume 0-63. After
+   * the first pass, playback repeats [loopStart, loopEnd) (AUDxLC/LEN
+   * relatch); loopStart -1 = one-shot. loopEnd defaults to pcm.length.
+   */
+  play(voice: number, pcm: Int8Array, freqHz: number, volume63: number, loopStart: number, loopEnd?: number): void
   stop(voice: number): void
   setVolume(voice: number, volume63: number): void
+  /** per-tick rate change (AUDxPER write) without retriggering */
+  setFrequency(voice: number, freqHz: number): void
+  /** re-point the repeat region of the playing sample; loopStart -1 = play out and stop */
+  setLoop(voice: number, loopStart: number, loopEnd?: number): void
+  /** the power-LED low-pass filter ($BFE001 bit 1); on = filter engaged */
+  setFilter(on: boolean): void
 }
 
 export interface AudioEvent {
-  kind: 'play' | 'stop' | 'volume'
+  kind: 'play' | 'stop' | 'volume' | 'freq' | 'loop' | 'filter'
   voice: number
   freq?: number
   length?: number
   volume?: number
   loop?: boolean
+  loopStart?: number
+  loopEnd?: number
+  filter?: boolean
 }
 
-/** headless sink: records everything for tests/censuses */
+/** what a voice is doing right now — the per-frame oracle for player tests */
+export interface VoiceState {
+  playing: boolean
+  pcm: Int8Array | null
+  freq: number
+  volume: number
+  loopStart: number
+  loopEnd: number
+}
+
+/** headless sink: records the event stream and live per-voice state */
 export class NullAudio implements AudioSink {
   events: AudioEvent[] = []
+  filter = true
+  voiceState: VoiceState[] = [0, 1, 2, 3].map(() => ({
+    playing: false,
+    pcm: null,
+    freq: 0,
+    volume: 0,
+    loopStart: -1,
+    loopEnd: 0,
+  }))
 
-  play(voice: number, pcm: Int8Array, freqHz: number, volume63: number, loopStart: number): void {
-    this.events.push({ kind: 'play', voice, freq: freqHz, length: pcm.length, volume: volume63, loop: loopStart >= 0 })
+  play(voice: number, pcm: Int8Array, freqHz: number, volume63: number, loopStart: number, loopEnd?: number): void {
+    const end = loopEnd ?? pcm.length
+    this.events.push({
+      kind: 'play', voice, freq: freqHz, length: pcm.length, volume: volume63,
+      loop: loopStart >= 0, loopStart, loopEnd: end,
+    })
+    const s = this.voiceState[voice]!
+    s.playing = true
+    s.pcm = pcm
+    s.freq = freqHz
+    s.volume = volume63
+    s.loopStart = loopStart
+    s.loopEnd = end
   }
 
   stop(voice: number): void {
     this.events.push({ kind: 'stop', voice })
+    const s = this.voiceState[voice]!
+    s.playing = false
+    s.pcm = null
   }
 
   setVolume(voice: number, volume63: number): void {
     this.events.push({ kind: 'volume', voice, volume: volume63 })
+    this.voiceState[voice]!.volume = volume63
+  }
+
+  setFrequency(voice: number, freqHz: number): void {
+    this.events.push({ kind: 'freq', voice, freq: freqHz })
+    this.voiceState[voice]!.freq = freqHz
+  }
+
+  setLoop(voice: number, loopStart: number, loopEnd?: number): void {
+    const s = this.voiceState[voice]!
+    const end = loopEnd ?? s.pcm?.length ?? 0
+    this.events.push({ kind: 'loop', voice, loopStart, loopEnd: end })
+    if (s.playing) {
+      s.loopStart = loopStart
+      s.loopEnd = end
+    }
+  }
+
+  setFilter(on: boolean): void {
+    this.events.push({ kind: 'filter', voice: -1, filter: on })
+    this.filter = on
   }
 }
 
