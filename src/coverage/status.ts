@@ -863,6 +863,18 @@ export const NA = new Set<string>([
   'dev check',
   // AmigaDOS shell-out (Execute() a CLI command, +Lib.s:3392) — no web analog
   'exec',
+  // the ARexx host bridge (rexxsyslib.library message ports) — no ARexx
+  // system exists outside AmigaOS
+  'arexx open',
+  'arexx close',
+  'arexx exist',
+  'arexx',
+  'arexx$',
+  'arexx wait',
+  'arexx answer',
+  // serial/parallel device channels ("SER:"/"PAR:" file ports)
+  'open port',
+  'port',
 ])
 
 /** Known simplifications worth surfacing next to a keyword. */
