@@ -1172,7 +1172,14 @@ export class Runtime {
   spriteUpdateOn = true
   frozenSprites: HwSprite[] | null = null
   /** Sprite Priority (HsPri): 0..4 sprite-vs-playfield z-order; 4 = behind */
-  spritePriority = 0
+  /**
+   * Sprite Priority (BPLCON2 PF2P, HsPri +W.s:11374): sprite PAIRS below
+   * this value show in front of the playfield, pairs at/above it behind.
+   * EcCree initialises EcCon2 to %100100 — PF2P 4, every pair in front.
+   */
+  spritePriority = 4
+  /** Limit Mouse rectangle in hardware coords, clamped each vbl */
+  mouseLimit: { x1: number; y1: number; x2: number; y2: number } | null = null
   // ---- menus (the Mn* engine, src/runtime/menu.ts) ----
   menu = new MenuTree()
   /** open interaction state while RMB is held (MnGere) */
@@ -1701,6 +1708,12 @@ export class Runtime {
     // and swapped so Cop Logic readers see it; Copper Off freezes it.
     if (this.copperOn) this.buildCopperList()
     else this.activateRainbows()
+    // Limit Mouse clamp (LimitMEc, run at the vbl)
+    if (this.mouseLimit) {
+      const m = this.mouseLimit
+      this.input.mouseX = Math.max(m.x1, Math.min(m.x2, this.input.mouseX))
+      this.input.mouseY = Math.max(m.y1, Math.min(m.y2, this.input.mouseY))
+    }
     if (!this.synchroManual) this.stepAmal()
     this.unblock()
     let result: RunResult
@@ -2263,9 +2276,9 @@ export class Runtime {
     this.activateRainbows()
     // Copper Off: the display is whatever the user's physical list says
     if (!this.copperOn) {
-      if (this.spritePriority >= 4) this.drawHwSprites(data, W, H)
+      this.drawHwSprites(data, W, H, false)
       this.compositeFromList(data, W, H)
-      if (this.spritePriority < 4) this.drawHwSprites(data, W, H)
+      this.drawHwSprites(data, W, H, true)
       return { width: W, height: H, data }
     }
     // rainbows in slot order — the copper machine scans 0..NbRain-1
@@ -2275,9 +2288,8 @@ export class Runtime {
       .filter((r) => r.table.length > 0 && r.h >= 0 && r.ty > 0)
     const dual = this.dualPlayfield
     const dualBack = dual && this.screens.has(dual.front) && this.screens.has(dual.back) ? this.screens.get(dual.back)! : null
-    // Sprite Priority 4 puts hardware sprites BEHIND the playfield (drawn
-    // before the screens); lower priorities keep them in front (default)
-    if (this.spritePriority >= 4) this.drawHwSprites(data, W, H)
+    // behind-playfield sprite pairs draw first, in-front pairs after
+    this.drawHwSprites(data, W, H, false)
 
     const winWOf = (s: Screen): number => this.winWOf(s)
     // cursor cell of the current screen's current window (AffCur)
@@ -2384,7 +2396,7 @@ export class Runtime {
         }
       }
     }
-    if (this.spritePriority < 4) this.drawHwSprites(data, W, H)
+    this.drawHwSprites(data, W, H, true)
     return { width: W, height: H, data }
   }
 
@@ -2626,8 +2638,15 @@ export class Runtime {
   }
 
   /** Hardware sprites draw over everything, colours 16-31, hw coords. */
-  private drawHwSprites(data: Uint8ClampedArray, W: number, H: number): void {
-    const sprites = this.spriteUpdateOn ? [...this.hwSprites.values()] : (this.frozenSprites ?? [])
+  private drawHwSprites(data: Uint8ClampedArray, W: number, H: number, frontPass: boolean): void {
+    let sprites = this.spriteUpdateOn ? [...this.hwSprites.values()] : (this.frozenSprites ?? [])
+    // hardware pair priority: sprites 0-7 pair n>>1; computed sprites
+    // (8+) multiplex onto the tail channels — treated as pair 3
+    const p = this.spritePriority
+    sprites = sprites.filter((sp) => {
+      const pair = sp.n < 8 ? sp.n >> 1 : 3
+      return frontPass ? pair < p : pair >= p
+    })
     if (sprites.length === 0) return
     const front = this.screens.get(this.order[this.order.length - 1] ?? 0)
     const palette = front?.palette

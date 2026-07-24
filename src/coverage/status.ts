@@ -188,6 +188,9 @@ export const FAITHFUL = new Set<string>([
   // regions, +W.s:14539-14760), so Print Chr$(17) scrolls too
   'hscroll',
   'vscroll',
+  // Limit Mouse (InLimitMouse +Lib.s): no-arg/current-screen, screen-n
+  // and x1,y1 To x2,y2 hardware-rect forms, clamped each vbl (LimitMEc)
+  'limit mouse',
   // objects/screens sweep: real bob pipeline (Actualise-style), buffers
   'bob', // blitted with background save/restore; Point sees bobs
   'bob off',
@@ -731,12 +734,11 @@ export const NOTES: Record<string, string> = {
   'mouse screen': 'returns -1 when the pointer is over no screen (68k: EntNul)',
   scanshift: 'reads live shift keys; the shift byte is not captured with Inkey$',
   'change mouse': 'pointer number stored; the host cursor is shown instead',
-  'limit mouse': 'parsed but the pointer is not clamped',
   'key speed': 'parsed; key-repeat is host-owned',
   'menu called': 'items redraw every frame; (PR name) label procedures are not invoked',
   'menu movable': 'drag applies final positions — no XOR rubber band',
   'menu item movable': 'drag applies final positions — no XOR rubber band',
-  'sprite priority': 'binary front/behind-playfield z-order; per-plane granularity not modelled',
+  'sprite priority': 'per-pair BPLCON2 PF2P z-order; computed sprites (8+) approximate as the last pair, and the value is global rather than per-screen EcCon2',
   'set sprite buffer': 'validated no-op — the multiplexer buffer has no effect in the chunky renderer',
   'dual playfield': 'the pair renders under the system copper walk; a Copper Off user list shows only the front playfield, and one pair at a time is modelled (per-screen EcDual allows several)',
   'screen open': 'width masked to /16; the 1..1023 size bounds of EcCree are not enforced',

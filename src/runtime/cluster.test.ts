@@ -176,22 +176,30 @@ describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => 
     expect(() => run('Sprite Priority 5')).toThrow()
   })
 
-  it('Sprite Priority 4 draws sprites behind the playfield', () => {
-    const prog = [
-      'Cls 5', // opaque colour-5 playfield everywhere
-      'Ink 7 : Bar 0,0 To 15,15 : Get Bob 1,0,0 To 16,16',
-      'Sprite 8,160,100,1',
-      'Sprite Priority 4',
-      'Wait Vbl',
-    ].join('\n')
-    const { rt } = run(prog)
-    const { data } = rt.composite()
-    // at the sprite's device position the playfield (colour 5) wins, not the sprite
+  it('Sprite Priority 0 puts sprites behind the playfield; 4 (default) in front (HsPri PF2P)', () => {
+    // BPLCON2 PF2P semantics: sprite PAIRS below the value are in front of
+    // the playfield. EcCon2 initialises to %100100 = 4, all pairs in front.
+    const mk = (priority: string): Uint8ClampedArray => {
+      const prog = [
+        'Cls 5', // opaque colour-5 playfield everywhere
+        'Ink 7 : Bar 0,0 To 15,15 : Get Bob 1,0,0 To 16,16',
+        'Sprite 2,160,100,1', // hardware channel 2 = pair 1
+        priority,
+        'Wait Vbl',
+      ].join('\n')
+      return run(prog).rt.composite().data
+    }
     const px = (160 - 128) * 2
     const py = (100 - 50) * 2
     const o = (py * 640 + px) * 4
-    const c5 = rt.screens.get(0)!.palette[5]!
-    expect([data[o], data[o + 1], data[o + 2]]).toEqual([((c5 >> 8) & 15) * 17, ((c5 >> 4) & 15) * 17, (c5 & 15) * 17])
+    const behind = mk('Sprite Priority 0')
+    // priority 0: the playfield (colour 5 = $A0A default? read from data) wins
+    const front = mk('Sprite Priority 4')
+    const mid = mk('Sprite Priority 1') // pair 1 >= 1: still behind
+    expect([front[o], front[o + 1], front[o + 2]]).not.toEqual([behind[o], behind[o + 1], behind[o + 2]])
+    expect([mid[o], mid[o + 1], mid[o + 2]]).toEqual([behind[o], behind[o + 1], behind[o + 2]])
+    const two = mk('Sprite Priority 2') // pair 1 < 2: in front
+    expect([two[o], two[o + 1], two[o + 2]]).toEqual([front[o], front[o + 1], front[o + 2]])
   })
 
   it('manual Sprite Update applies buffered moves while frozen', () => {
@@ -857,5 +865,25 @@ describe('Hscroll/Vscroll: window escape codes (InHScroll/InVScroll +Lib.s:13544
   it('rejects arguments outside 1..4 (HVSc +Lib.s:13560)', () => {
     expect(() => run('Hscroll 0')).toThrow(/function call/)
     expect(() => run('Vscroll 5')).toThrow(/function call/)
+  })
+})
+
+describe('Limit Mouse (InLimitMouse +Lib.s / LimitMEc)', () => {
+  it('clamps the pointer to a hardware rectangle each vbl', () => {
+    const { rt } = run('Limit Mouse 200,100 To 260,140')
+    rt.input.mouseX = 500
+    rt.input.mouseY = 20
+    rt.frame()
+    expect(rt.input.mouseX).toBe(260)
+    expect(rt.input.mouseY).toBe(100)
+  })
+
+  it('with no arguments limits to the current screen display area', () => {
+    const { rt } = run('Screen Open 0,160,50,16,Lowres : Screen Display 0,140,60,,\nLimit Mouse')
+    rt.input.mouseX = 20
+    rt.input.mouseY = 250
+    rt.frame()
+    expect(rt.input.mouseX).toBe(140)
+    expect(rt.input.mouseY).toBe(60 + 50 - 1)
   })
 })

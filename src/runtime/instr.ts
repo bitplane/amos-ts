@@ -1174,7 +1174,33 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.bobLimits.set(a, { x1: b, y1, x2, y2 })
     },
     'limit mouse'(it) {
-      it.skipToStmtEnd()
+      // InLimitMouse (+Lib.s:12330): no args = the current screen's display
+      // area; `Limit Mouse n` = screen n's; `Limit Mouse x1,y1 To x2,y2` =
+      // a hardware-coordinate rectangle. Clamped every vbl (LimitMEc).
+      const screenRect = (s: Screen): { x1: number; y1: number; x2: number; y2: number } => {
+        const winW = s.displayW >= 0 ? Math.min(s.displayW, s.width) : s.width
+        const winH = s.displayH >= 0 ? Math.min(s.displayH, s.height) : s.height
+        const hwW = winW >> (s.hires ? 1 : 0)
+        const hwH = s.laced ? Math.ceil(winH / 2) : winH
+        return { x1: s.displayX, y1: s.displayY, x2: s.displayX + hwW - 1, y2: s.displayY + hwH - 1 }
+      }
+      if (it.atStmtEnd()) {
+        rt.mouseLimit = screenRect(rt.screen)
+        return
+      }
+      const a = it.evalInt()
+      if (!it.accept(',')) {
+        const s = rt.screens.get(a)
+        if (!s) throw new AmosError(`screen not opened: ${a}`)
+        rt.mouseLimit = screenRect(s)
+        return
+      }
+      const y1 = it.evalInt()
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      rt.mouseLimit = { x1: a, y1, x2, y2 }
     },
     'paste bob'(it) {
       const [x, y] = pair(it)
@@ -1297,8 +1323,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!rt.spriteUpdateOn) rt.frozenSprites = [...rt.hwSprites.values()].map((s) => ({ ...s }))
     },
     'sprite priority'(it) {
-      // InSpritePriority +Lib.s:12302 → HsPri: BPLCON2 sprite-vs-playfield
-      // z-order, 0..4 (0 = sprites over everything)
+      // InSpritePriority → HsPri (+W.s:11374): pokes BPLCON2 PF2P — pairs
+      // BELOW the value show in front of the playfield. 4 (the EcCon2
+      // default) = all sprites in front; 0 = all behind.
       const p = it.evalInt()
       if (p < 0 || p > 4) throw new AmosError('function call error')
       rt.spritePriority = p

@@ -18,7 +18,7 @@ tested against our own understanding. Percentages exclude n/a
 | compiler | 15 | 10 | 1 | 0 | 100% |
 | copper | 8 | 8 | 0 | 0 | 100% |
 | drawing | 16 | 14 | 2 | 0 | 100% |
-| files | 21 | 15 | 0 | 4 | 79% |
+| files | 23 | 15 | 0 | 6 | 71% |
 | flow | 12 | 9 | 3 | 0 | 100% |
 | input | 18 | 14 | 4 | 0 | 100% |
 | interface | 25 | 21 | 3 | 1 | 96% |
@@ -27,7 +27,7 @@ tested against our own understanding. Percentages exclude n/a
 | memory | 14 | 10 | 3 | 1 | 93% |
 | menus | 24 | 24 | 0 | 0 | 100% |
 | music | 49 | 5 | 9 | 35 | 29% |
-| objects | 58 | 51 | 4 | 3 | 95% |
+| objects | 56 | 52 | 3 | 1 | 98% |
 | palette | 9 | 9 | 0 | 0 | 100% |
 | rainbows | 3 | 3 | 0 | 0 | 100% |
 | request | 3 | 0 | 3 | 0 | 100% |
@@ -36,7 +36,7 @@ tested against our own understanding. Percentages exclude n/a
 | text-io | 37 | 31 | 5 | 1 | 97% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 477 | 63 | 156 | 78% |
+| **total** | 732 | 478 | 62 | 156 | 78% |
 
 ## amal (92%)
 
@@ -73,10 +73,10 @@ tested against our own understanding. Percentages exclude n/a
 - **faithful**: `circle`, `clip`, `draw`, `draw to`, `ellipse`, `gr locate`, `gr writing` *(JAM1/JAM2 identical for solid draws; XOR implemented)*, `ink`, `paint`, `plot`, `point`, `polygon`, `polyline`, `set paint`
 - **approximated**: `bar` *(inverted args are normalised rather than raising a function call error)*, `box` *(dash phase restarts per edge (68k PolyDraws one continuous pattern))*
 
-## files (79%)
+## files (71%)
 
 - **faithful**: `append`, `close`, `dir` *(plain listing; Set Dir width/filter cosmetic)*, `dir first$`, `dir next$`, `eof`, `input` *(line editing keys are host-side, not the AMOS line editor)*, `input #`, `kill`, `lof`, `mkdir`, `open in`, `open out`, `pof`, `rename`
-- **missing**: `close workbench`, `field`, `open port`, `open random`
+- **missing**: `close workbench`, `field`, `get`, `open port`, `open random`, `put`
 - **n/a**: `close editor`, `kill editor`
 
 ## flow (100%)
@@ -122,11 +122,11 @@ tested against our own understanding. Percentages exclude n/a
 - **approximated**: `bell` *(modern synthesis, not chip waveform)*, `boom` *(modern synthesis)*, `led off`, `led on`, `sam raw`, `shoot` *(modern synthesis)*, `voice`, `volume`, `vumeter` *(synthesized level, not real amplitude)*
 - **missing**: `del wave`, `med cont`, `med load`, `med midi on`, `med play`, `med stop`, `mouth height`, `mouth read`, `mouth width`, `mubase`, `music`, `music off`, `music stop`, `mvolume`, `noise to`, `play`, `play off`, `sam swap`, `sam swapped`, `sample`, `say`, `set envel`, `set talk`, `set wave`, `sload`, `ssave`, `talk misc`, `talk stop`, `tempo`, `track load`, `track loop of`, `track loop on`, `track play`, `track stop`, `wave`
 
-## objects (95%)
+## objects (98%)
 
-- **faithful**: `bob`, `bob clear`, `bob col`, `bob draw`, `bob off`, `bob update`, `bob update off`, `bob update on`, `bobsprite col`, `col`, `del block`, `del bob`, `del cblock`, `del icon`, `del sprite`, `get block`, `get bob`, `get bob palette`, `get cblock`, `get icon`, `get icon palette`, `get palette`, `get sprite`, `get sprite palette`, `hot spot`, `ins bob`, `ins icon`, `ins sprite`, `limit bob`, `make icon mask`, `make mask`, `no icon mask`, `no mask`, `paste bob`, `paste icon`, `priority off`, `priority on`, `priority reverse off`, `priority reverse on`, `put block`, `put bob`, `put cblock`, `put key`, `sprite`, `sprite col`, `sprite off`, `sprite priority` *(binary front/behind-playfield z-order; per-plane granularity not modelled)*, `sprite update`, `sprite update off`, `sprite update on`, `spritebob col`
-- **approximated**: `get disc fonts`, `get fonts`, `get rom fonts`, `limit mouse` *(parsed but the pointer is not clamped)*
-- **missing**: `get`, `put`, `sprite base`
+- **faithful**: `bob`, `bob clear`, `bob col`, `bob draw`, `bob off`, `bob update`, `bob update off`, `bob update on`, `bobsprite col`, `col`, `del block`, `del bob`, `del cblock`, `del icon`, `del sprite`, `get block`, `get bob`, `get bob palette`, `get cblock`, `get icon`, `get icon palette`, `get palette`, `get sprite`, `get sprite palette`, `hot spot`, `ins bob`, `ins icon`, `ins sprite`, `limit bob`, `limit mouse`, `make icon mask`, `make mask`, `no icon mask`, `no mask`, `paste bob`, `paste icon`, `priority off`, `priority on`, `priority reverse off`, `priority reverse on`, `put block`, `put bob`, `put cblock`, `put key`, `sprite`, `sprite col`, `sprite off`, `sprite priority` *(per-pair BPLCON2 PF2P z-order; computed sprites (8+) approximate as the last pair, and the value is global rather than per-screen EcCon2)*, `sprite update`, `sprite update off`, `sprite update on`, `spritebob col`
+- **approximated**: `get disc fonts`, `get fonts`, `get rom fonts`
+- **missing**: `sprite base`
 
 ## palette (100%)
 
