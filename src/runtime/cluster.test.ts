@@ -334,16 +334,26 @@ describe('screens (vs the 68k Ec* routines)', () => {
     expect(hidden.screens.get(0)!.visible).toBe(false)
   })
 
-  it('Dual Priority swaps an existing pair, not any two screens', () => {
+  it('Dual Priority raises PF2 without reassigning the pair (DualP +W.s:2870)', () => {
     const prog = [
       'Screen Open 0,320,200,8,0 : Screen Open 1,320,200,8,0',
       'Dual Playfield 0,1',
-      'Dual Priority 1,0', // swap: 1 now in front
+      'Dual Priority 1,0', // back screen named first: PFBA set, PF2 in front
     ].join('\n')
     const { rt } = run(prog)
-    expect(rt.dualPlayfield).toEqual({ front: 1, back: 0 })
-    // Dual Priority on a non-dual pair errors
-    expect(() => run('Screen Open 0,320,200,8,0 : Screen Open 2,320,200,8,0 : Dual Priority 0,2')).toThrow()
+    expect(rt.dualPlayfield).toEqual({ front: 0, back: 1, pf2Front: true })
+    // Dual Priority on a non-dual pair errors (EcE27)
+    expect(() => run('Screen Open 0,320,200,8,0 : Screen Open 2,320,200,8,0 : Dual Priority 0,2')).toThrow(/dual playfield/)
+  })
+
+  it('Dual Playfield validates like SetDual (+W.s:2810)', () => {
+    // resolution mismatch, too many planes, and bad plane combos all error
+    expect(() => run('Screen Open 0,320,200,8,0 : Screen Open 1,640,200,8,$8000 : Dual Playfield 0,1')).toThrow(/impossible/)
+    expect(() => run('Screen Open 0,320,200,16,0 : Screen Open 1,320,200,16,0 : Dual Playfield 0,1')).toThrow(/impossible/)
+    expect(() => run('Screen Open 0,320,200,4,0 : Screen Open 1,320,200,8,0 : Dual Playfield 0,1')).toThrow(/impossible/)
+    // (n, n-1) is legal, and the back screen hides (BitHide)
+    const { rt } = run('Screen Open 0,320,200,8,0 : Screen Open 1,320,200,4,0 : Dual Playfield 0,1')
+    expect(rt.screens.get(1)!.visible).toBe(false)
   })
 })
 
@@ -669,20 +679,19 @@ describe('display control (Update/View/Default/Dual Playfield)', () => {
     expect(run(prog2).rt.screens.get(1)!.visible).toBe(true)
   })
 
-  it('Dual Playfield composites the back screen through front colour 0', () => {
+  it('Dual Playfield: PF2 shows through front colour 0 via FRONT palette 8-15', () => {
     const prog = [
       'Screen Open 0,320,200,8,0',
       'Cls 0', // front all colour 0
       'Screen Open 1,320,200,8,0',
       'Screen Display 1,128,50,,',
-      'Palette $000,$00F : Cls 1', // back all colour 1 = blue
+      'Cls 1', // back all colour 1
       'Screen 0 : Screen To Front 0',
+      'Colour 9,$00F', // PF2 pixel value 1 resolves through FRONT colour 9
       'Dual Playfield 0,1',
     ].join('\n')
     const { rt } = run(prog)
     const { data } = rt.composite()
-    // front colour 0 is transparent → the blue back screen shows
-    expect(data[2]).toBe(255 - 0 ? data[2] : data[2]) // sanity noop
     expect([data[0], data[1], data[2]]).toEqual([0, 0, 255])
   })
 

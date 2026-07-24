@@ -9,7 +9,10 @@ const table = new TokenTable(CORE_TOKENS)
 
 function boot(src: string, fs?: AmigaFS): { rt: Runtime; out: string } {
   let out = ''
-  const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, fs, onText: (t) => (out += t) })
+  const opts = fs
+    ? { maxSteps: 300_000, fs, onText: (t: string) => (out += t) }
+    : { maxSteps: 300_000, onText: (t: string) => (out += t) }
+  const rt = new Runtime(tokenize(src, table), table, opts)
   const r = rt.runHeadless(1_000)
   if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
   return { rt, out }

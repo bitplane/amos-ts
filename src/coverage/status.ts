@@ -175,6 +175,12 @@ export const FAITHFUL = new Set<string>([
   // half-brite per scanline; Screen Colour faithfully reports 64 for HAM.
   'screen open',
   'screen colour',
+  // dual playfield (SetDual/DualP +W.s:2810-2900): validation (same
+  // resolution/mode, planes <= 3 or 2 in hires, equal or back-one-fewer),
+  // BitHide on the back screen, PF2 through the FRONT palette 8-15,
+  // Dual Priority = BPLCON2 PFBA for whichever screen is named first
+  'dual playfield',
+  'dual priority',
   // objects/screens sweep: real bob pipeline (Actualise-style), buffers
   'bob', // blitted with background save/restore; Point sees bobs
   'bob off',
@@ -727,7 +733,7 @@ export const NOTES: Record<string, string> = {
   'menu item movable': 'drag applies final positions — no XOR rubber band',
   'sprite priority': 'binary front/behind-playfield z-order; per-plane granularity not modelled',
   'set sprite buffer': 'validated no-op — the multiplexer buffer has no effect in the chunky renderer',
-  'dual playfield': "each playfield uses its own palette, not the hardware's colour split; resolution/plane checks and back-screen auto-hide are not enforced",
+  'dual playfield': 'the pair renders under the system copper walk; a Copper Off user list shows only the front playfield, and one pair at a time is modelled (per-screen EcDual allows several)',
   'screen open': 'width masked to /16; the 1..1023 size bounds of EcCree are not enforced',
   'screen display': 'the visible window w/h clips the composite; hardware scaling is not modelled',
   'screen colour': 'HAM reports 64 — the real EcNbCol is stored as 64 by InScreenOpen, never 4096',
@@ -752,7 +758,7 @@ export const NOTES: Record<string, string> = {
   'chip free': 'FnChipFree +Lib.s:2510 queries exec AvailMem(MEMF_CHIP); no Amiga memory manager in the port — returns a nominal figure',
   'fast free': 'FnFastFree +Lib.s:2517 queries exec AvailMem(MEMF_FAST); no Amiga memory manager in the port — returns a nominal figure',
   lprint: 'InLPrint +ILib.s:5067 routes Print to the printer device; no printer host, so the arguments are evaluated (for side effects) then discarded',
-  'dual priority': 'InDualPriority +Lib.s:8922 reorders an existing dual-playfield pair; tied to the approximated dual-playfield model, and the pair-validation error differs from CheckScreenNumber/EcWiErr',
+  'dual priority': 'the EcE27 error message text is a guess — the string is not in the source tree',
   'hrev block': "RevBloc +W.s:12620 mirrors the block; the visible result matches, but the port reverses pixels directly rather than via AMOS's stored orientation flag (bits $C000)",
   'vrev block': "RevBloc +W.s:12620 mirrors the block vertically; visible result matches, but via direct pixel reversal rather than AMOS's orientation-flag mechanism",
 }

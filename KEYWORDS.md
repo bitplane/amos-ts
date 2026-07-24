@@ -31,12 +31,12 @@ tested against our own understanding. Percentages exclude n/a
 | palette | 9 | 9 | 0 | 0 | 100% |
 | rainbows | 3 | 3 | 0 | 0 | 100% |
 | request | 3 | 0 | 3 | 0 | 100% |
-| screens | 31 | 26 | 4 | 1 | 97% |
+| screens | 31 | 28 | 2 | 1 | 97% |
 | system | 41 | 2 | 0 | 18 | 10% |
 | text-io | 37 | 31 | 5 | 1 | 97% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 473 | 67 | 156 | 78% |
+| **total** | 732 | 475 | 65 | 156 | 78% |
 
 ## amal (92%)
 
@@ -142,8 +142,8 @@ tested against our own understanding. Percentages exclude n/a
 
 ## screens (97%)
 
-- **faithful**: `autoback` *(mode 1 treated like 0)*, `default`, `default palette`, `logbase`, `logic`, `ntsc`, `phybase`, `physic`, `screen`, `screen clone`, `screen close`, `screen colour` *(HAM reports 64 — the real EcNbCol is stored as 64 by InScreenOpen, never 4096)*, `screen copy`, `screen display` *(the visible window w/h clips the composite; hardware scaling is not modelled)*, `screen height`, `screen hide`, `screen mode`, `screen offset`, `screen open` *(width masked to /16; the 1..1023 size bounds of EcCree are not enforced)*, `screen show`, `screen swap`, `screen to back`, `screen to front`, `screen width`, `view`, `zoom`
-- **approximated**: `appear` *(copies instantly — the dissolve is not progressive)*, `dual playfield` *(each playfield uses its own palette, not the hardware's colour split; resolution/plane checks and back-screen auto-hide are not enforced)*, `dual priority` *(InDualPriority +Lib.s:8922 reorders an existing dual-playfield pair; tied to the approximated dual-playfield model, and the pair-validation error differs from CheckScreenNumber/EcWiErr)*, `screen base` *(returns 0 — Screen Base is the AMOS screen control block (ScOnAd), which is not modelled in memory; Logbase/Phybase give the real bitplane addresses)*
+- **faithful**: `autoback` *(mode 1 treated like 0)*, `default`, `default palette`, `dual playfield` *(the pair renders under the system copper walk; a Copper Off user list shows only the front playfield, and one pair at a time is modelled (per-screen EcDual allows several))*, `dual priority` *(the EcE27 error message text is a guess — the string is not in the source tree)*, `logbase`, `logic`, `ntsc`, `phybase`, `physic`, `screen`, `screen clone`, `screen close`, `screen colour` *(HAM reports 64 — the real EcNbCol is stored as 64 by InScreenOpen, never 4096)*, `screen copy`, `screen display` *(the visible window w/h clips the composite; hardware scaling is not modelled)*, `screen height`, `screen hide`, `screen mode`, `screen offset`, `screen open` *(width masked to /16; the 1..1023 size bounds of EcCree are not enforced)*, `screen show`, `screen swap`, `screen to back`, `screen to front`, `screen width`, `view`, `zoom`
+- **approximated**: `appear` *(copies instantly — the dissolve is not progressive)*, `screen base` *(returns 0 — Screen Base is the AMOS screen control block (ScOnAd), which is not modelled in memory; Logbase/Phybase give the real bitplane addresses)*
 - **missing**: `screen size`
 
 ## system (10%)

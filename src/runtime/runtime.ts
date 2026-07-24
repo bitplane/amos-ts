@@ -1158,7 +1158,8 @@ export class Runtime {
   /** Default Palette: colours applied to subsequently opened screens */
   defaultPalette: number[] = []
   /** Dual Playfield front/back screens (colour 0 of the front is clear) */
-  dualPlayfield: { front: number; back: number } | null = null
+  /** Dual Playfield state: pf2Front = BPLCON2 PFBA (Dual Priority) */
+  dualPlayfield: { front: number; back: number; pf2Front: boolean } | null = null
   /** Auto View Off: newly opened screens stay hidden until View */
   autoView = true
   pendingView = new Set<number>()
@@ -1546,6 +1547,13 @@ export class Runtime {
   }
 
   closeScreen(n: number): void {
+    // closing either half of a dual-playfield pair dissolves it (EcDel)
+    const dp = this.dualPlayfield
+    if (dp && (dp.front === n || dp.back === n)) {
+      const back = this.screens.get(dp.back)
+      if (back) back.visible = true
+      this.dualPlayfield = null
+    }
     this.screens.delete(n)
     this.order = this.order.filter((i) => i !== n)
     if (this.currentIndex === n) this.currentIndex = this.order[this.order.length - 1] ?? 0
@@ -2283,27 +2291,28 @@ export class Runtime {
     let front: Screen | null = null
     let curRb: Rainbow | null = null
 
-    const drawRow = (s: Screen, r: number, pal: Uint16Array | null, clearZero: boolean): void => {
-      // pal = the live hardware palette for the front playfield; null =
-      // the screen's own palette (dual-playfield back, an approximation)
+    const drawRow = (s: Screen, r: number, pal: Uint16Array | null, clearZero: boolean, palOff = 0, posFrom: Screen = s): void => {
+      // pal = the live hardware palette. palOff 8 = a dual-playfield PF2
+      // pass: 3-bit pixels through palette entries 8-15, positioned by the
+      // FRONT screen (the playfields share the display window).
       const pixels = s.displayBuffer
-      const pw = s.hires ? 1 : 2
-      const ph = s.laced ? 1 : 2
-      const baseX = (s.displayX - 128) * 2
-      const baseY = (s.displayY - 50) * 2
+      const pw = posFrom.hires ? 1 : 2
+      const ph = posFrom.laced ? 1 : 2
+      const baseX = (posFrom.displayX - 128) * 2
+      const baseY = (posFrom.displayY - 50) * 2
       const sy = Math.floor((r - baseY) / ph) + s.offsetY
       if (sy < 0 || sy >= s.height) return
-      const winW = winWOf(s)
+      const winW = winWOf(posFrom)
       const isCur = s === cs && s.cursorOn && cw !== null && sy >= curY0 && sy < curY0 + 8
       const mask = isCur ? CURSOR_SHAPE[sy - curY0]! : 0
       const colour = this.rowColours(s, pal)
       for (let x = 0; x < winW; x++) {
         const sx = x + s.offsetX
         if (sx < 0 || sx >= s.width) continue
-        let pix = pixels[sy * s.width + sx]! & 63
+        let pix = pixels[sy * s.width + sx]! & (palOff ? 7 : 63)
         if (mask !== 0 && sx >= curX0 && sx < curX0 + 8 && (mask << (sx - curX0)) & 0x80) pix = cw!.cuCol & 63
         if (clearZero && pix === 0) continue
-        const rgb4 = colour(pix)
+        const rgb4 = palOff ? (pal ? pal[palOff + pix]! : s.palette[palOff + pix]! & 0xfff) : colour(pix)
         const cr = ((rgb4 >> 8) & 15) * 17
         const cg = ((rgb4 >> 4) & 15) * 17
         const cb = (rgb4 & 15) * 17
@@ -2361,8 +2370,17 @@ export class Runtime {
         }
         if (f) {
           const isDualFront = dual !== null && dualBack !== null && f === this.screens.get(dual.front)
-          if (isDualFront && dualBack.visible) drawRow(dualBack, r, null, false)
-          drawRow(f, r, hwPal, isDualFront)
+          if (!isDualFront) {
+            drawRow(f, r, hwPal, false)
+          } else if (!dual!.pf2Front) {
+            // PF1 priority (default): PF2 behind through palette 8-15
+            drawRow(dualBack!, r, hwPal, true, 8, f)
+            drawRow(f, r, hwPal, true)
+          } else {
+            // Dual Priority named the back screen first: PF2 in front
+            drawRow(f, r, hwPal, true)
+            drawRow(dualBack!, r, hwPal, true, 8, f)
+          }
         }
       }
     }

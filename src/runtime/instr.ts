@@ -347,25 +347,42 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     'dual playfield'(it) {
-      // InDualPlayfield +Lib.s:8908: screen a in front (colour 0 clear),
-      // screen b behind
+      // SetDual +W.s:2810: a = front (PF1), b = back (PF2). The back
+      // screen is hidden (BitHide) and its pixels resolve through the
+      // FRONT screen's palette entries 8-15, like the hardware. Checks:
+      // different screens, neither already dual, same resolution + mode
+      // (EcCon0 compared with the plane bits masked out), planes <= 3
+      // each (2 in hires), and counts equal or the back one fewer.
+      // (Error 70's exact message text is not in the source tree.)
+      const a = it.evalInt()
+      it.expect(',')
+      const b = it.evalInt()
+      const sa = rt.screens.get(a)
+      const sb = rt.screens.get(b)
+      if (!sa || !sb) throw new AmosError('screen not opened')
+      const dualErr = (): never => {
+        throw new AmosError('dual playfield impossible')
+      }
+      if (a === b || rt.dualPlayfield) dualErr()
+      if (sa.hires !== sb.hires || sa.laced !== sb.laced) dualErr()
+      const cap = sa.hires ? 2 : 3
+      if (sa.depth > cap || sb.depth > cap) dualErr()
+      if (!(sa.depth === sb.depth || sa.depth === sb.depth + 1)) dualErr()
+      sb.visible = false // BitHide on the back screen
+      rt.dualPlayfield = { front: a, back: b, pf2Front: false }
+    },
+    'dual priority'(it) {
+      // DualP +W.s:2870: both screens must be in dual mode; the FIRST-
+      // named screen's playfield comes to the front (BPLCON2 bit 6, PFBA)
       const a = it.evalInt()
       it.expect(',')
       const b = it.evalInt()
       if (!rt.screens.has(a) || !rt.screens.has(b)) throw new AmosError('screen not opened')
-      rt.dualPlayfield = { front: a, back: b }
-    },
-    'dual priority'(it) {
-      // InDualPriority +Lib.s:8922 → DualP: only swaps which playfield of an
-      // EXISTING dual pair draws in front — the pair must already be set up
-      const a = it.evalInt()
-      it.expect(',')
-      const b = it.evalInt()
       const dp = rt.dualPlayfield
       if (!dp || !((dp.front === a && dp.back === b) || (dp.front === b && dp.back === a))) {
-        throw new AmosError('function call error')
+        throw new AmosError('screen not in dual playfield mode')
       }
-      rt.dualPlayfield = { front: a, back: b }
+      dp.pf2Front = a === dp.back
     },
     view() {
       // InView +Lib.s:9106: apply deferred display changes (CopMake)
