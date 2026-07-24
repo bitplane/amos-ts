@@ -373,6 +373,22 @@ function objBase(rt: Runtime, kind: 'sprites' | 'icons', n: number): number {
   return (((img[off]! << 24) | (img[off + 1]! << 16) | (img[off + 2]! << 8) | img[off + 3]!) >>> 0) | 0
 }
 
+/**
+ * GetPut (+Lib.s:5382): record-1 must be under 65500, the channel must
+ * be the random-access type ("file type mismatch"), and the offset is
+ * (record-1) * record size. Callers apply their own EOF rule.
+ */
+function getPut(rt: Runtime, it: It): { c: NonNullable<ReturnType<Runtime['fileChans']['get']>>; off: number } {
+  it.accept('#')
+  const n = it.evalInt()
+  it.expect(',')
+  const rec = it.evalInt()
+  if (rec - 1 < 0 || rec - 1 >= 65500) throw new AmosError('Illegal function call', 23)
+  const c = rt.chan(n)
+  if (c.mode !== 'random' || !c.fields) throw new AmosError('file type mismatch')
+  return { c, off: (rec - 1) * c.recSize! }
+}
+
 function devFirst(rt: Runtime, filter: string): string {
   const vfs = rt.vfs
   if (!vfs) return ''
@@ -2668,6 +2684,72 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     // ---- files (Open In/Out, Print #, sequential channels) ----
+    'open random'(it) {
+      // InOpenRandom +Lib.s:5249 (RanApp $80): opens the existing file
+      // or creates it; the channel type is random-access
+      const n = it.evalInt()
+      it.expect(',')
+      const path = it.evalStr()
+      const data = rt.fs?.read(path)
+      rt.fileChans.set(n, { mode: 'random', path, data: data ? Uint8Array.from(data) : new Uint8Array(0), pos: 0, out: [] })
+    },
+    field(it) {
+      // InField +ILib.s:4769: Field #c, len As var$,... — the channel
+      // must be open; zero lengths error; the record size is the sum
+      // and the file size is snapshotted here for the Get/Put checks
+      it.accept('#')
+      const n = it.evalInt()
+      const c = rt.chan(n)
+      const fields: NonNullable<typeof c.fields> = []
+      let recSize = 0
+      do {
+        it.expect(',')
+        const len = it.evalInt()
+        it.expect('as')
+        const tg = it.parseTarget()
+        if (tg.type !== 2) throw new AmosError('Type mismatch')
+        if (len <= 0) throw new AmosError('Illegal function call', 23)
+        recSize += len
+        fields.push({ len, get: () => str(tg.get()), set: (v: string) => tg.set(VS(v)) })
+      } while (it.nm() === ',')
+      c.fields = fields
+      c.recSize = recSize
+      c.fileSize = c.data.length
+    },
+    get(it) {
+      // InGet +Lib.s:5291: Get #c,record — reads one record into the
+      // Field variables; past the snapshot size is "end of file"
+      const { c, off } = getPut(rt, it)
+      if (off >= c.fileSize!) throw new AmosError('end of file')
+      let pos = off
+      for (const f of c.fields!) {
+        if (pos + f.len > c.data.length) throw new AmosError('disc error')
+        let s = ''
+        for (let i = 0; i < f.len; i++) s += String.fromCharCode(c.data[pos + i]!)
+        f.set(s)
+        pos += f.len
+      }
+    },
+    put(it) {
+      // InPut +Lib.s:5324: writes each field (string truncated to the
+      // field, short strings space-padded); writing may extend the file
+      // by one record (offset > size is "end of file")
+      const { c, off } = getPut(rt, it)
+      if (off > c.fileSize!) throw new AmosError('end of file')
+      const end = off + c.recSize!
+      if (end > c.data.length) {
+        const grown = new Uint8Array(end)
+        grown.set(c.data)
+        c.data = grown
+      }
+      let pos = off
+      for (const f of c.fields!) {
+        const s = f.get()
+        for (let i = 0; i < f.len; i++) c.data[pos + i] = i < s.length ? s.charCodeAt(i) & 0xff : 32
+        pos += f.len
+      }
+      if (c.data.length > c.fileSize!) c.fileSize = c.data.length
+    },
     'open in'(it) {
       const n = it.evalInt()
       it.expect(',')

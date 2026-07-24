@@ -192,6 +192,15 @@ export const FAITHFUL = new Set<string>([
   'dev next$',
   'prg first$',
   'prg next$',
+  // random-access records: Open Random (RanApp $80 +Lib.s:5249), Field
+  // record layout with the file-size snapshot (InField +ILib.s:4769),
+  // Get/Put via GetPut's record/type checks with the exact EOF rules
+  // and Put's space padding + size growth (+Lib.s:5291/5324/5382);
+  // cluster.test.ts round-trips records through the VFS
+  'open random',
+  'field',
+  'get',
+  'put',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
   'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add

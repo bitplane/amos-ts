@@ -18,7 +18,7 @@ tested against our own understanding. Percentages exclude n/a
 | compiler | 15 | 10 | 1 | 0 | 100% |
 | copper | 8 | 8 | 0 | 0 | 100% |
 | drawing | 16 | 16 | 0 | 0 | 100% |
-| files | 23 | 17 | 0 | 5 | 77% |
+| files | 23 | 21 | 0 | 1 | 95% |
 | flow | 12 | 10 | 2 | 0 | 100% |
 | input | 18 | 16 | 2 | 0 | 100% |
 | interface | 25 | 22 | 2 | 1 | 96% |
@@ -36,7 +36,7 @@ tested against our own understanding. Percentages exclude n/a
 | text-io | 37 | 36 | 1 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 573 | 23 | 100 | 86% |
+| **total** | 732 | 577 | 23 | 96 | 86% |
 
 ## amal (92%)
 
@@ -72,10 +72,10 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `bar`, `box`, `circle`, `clip`, `draw`, `draw to`, `ellipse`, `gr locate`, `gr writing` *(JAM1/JAM2 identical for solid draws; XOR implemented)*, `ink`, `paint`, `plot`, `point`, `polygon`, `polyline`, `set paint`
 
-## files (77%)
+## files (95%)
 
-- **faithful**: `append`, `close`, `close editor` *(no editor memory to free)*, `close workbench` *(no Workbench memory to free)*, `dir` *(plain listing; Set Dir width/filter cosmetic)*, `dir first$`, `dir next$`, `eof`, `input` *(line editing keys are host-side, not the AMOS line editor)*, `input #`, `kill`, `lof`, `mkdir`, `open in`, `open out`, `pof`, `rename`
-- **missing**: `field`, `get`, `open port`, `open random`, `put`
+- **faithful**: `append`, `close`, `close editor` *(no editor memory to free)*, `close workbench` *(no Workbench memory to free)*, `dir` *(plain listing; Set Dir width/filter cosmetic)*, `dir first$`, `dir next$`, `eof`, `field`, `get`, `input` *(line editing keys are host-side, not the AMOS line editor)*, `input #`, `kill`, `lof`, `mkdir`, `open in`, `open out`, `open random`, `pof`, `put`, `rename`
+- **missing**: `open port`
 - **n/a**: `kill editor`
 
 ## flow (100%)

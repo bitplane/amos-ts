@@ -367,6 +367,54 @@ describe('integration: Run and the environment cluster', () => {
   })
 })
 
+describe('integration: random-access records (InField/InGet/InPut +ILib.s:4769/+Lib.s:5291)', () => {
+  it('Field defines records; Put pads/truncates; Get reads them back', () => {
+    const prog = [
+      'Open Random 1,"DH0:db.dat"',
+      'Field #1,8 As N$,4 As A$',
+      'N$="ALICE" : A$="30" : Put #1,1',
+      'N$="BOBBYLONGNAME" : A$="7" : Put #1,2',
+      'N$="" : A$=""',
+      'Get #1,1',
+      'Print "[";N$;"][";A$;"]"',
+      'Get #1,2',
+      'Print "[";N$;"][";A$;"]"',
+      'Close 1',
+    ].join('\n')
+    const { out } = run(prog)
+    expect(out).toContain('[ALICE   ][30  ]')
+    expect(out).toContain('[BOBBYLON][7   ]') // truncated to the field
+  })
+
+  it('records survive Close and reopen through the VFS', () => {
+    const prog = [
+      'Open Random 1,"DH0:db.dat"',
+      'Field #1,8 As N$',
+      'N$="FIRST" : Put #1,1',
+      'Close 1',
+      'Open Random 1,"DH0:db.dat"',
+      'Field #1,8 As N$',
+      'Get #1,1',
+      'Print N$',
+      'Close 1',
+    ].join('\n')
+    expect(run(prog).out).toContain('FIRST')
+  })
+
+  it('EOF rules: Get past the end errors, Put may append exactly one record', () => {
+    const base = ['Open Random 1,"DH0:db.dat"', 'Field #1,8 As N$']
+    expect(() => run([...base, 'Get #1,1'].join('\n'))).toThrow(/end of file/i)
+    expect(() => run([...base, 'N$="X" : Put #1,2'].join('\n'))).toThrow(/end of file/i)
+    expect(() => run([...base, 'N$="X" : Put #1,1', 'Put #1,2', 'Get #1,2', 'Print "ok"'].join('\n'))).not.toThrow()
+  })
+
+  it('validation: record range, channel type, zero-length fields', () => {
+    expect(() => run(['Open Random 1,"DH0:x"', 'Field #1,8 As N$', 'Get #1,0'].join('\n'))).toThrow(/illegal function call/i)
+    expect(() => run(['Open Out 1,"DH0:x"', 'Field #1,8 As N$', 'N$="A" : Put #1,1'].join('\n'))).toThrow(/file type mismatch/i)
+    expect(() => run(['Open Random 1,"DH0:x"', 'Field #1,0 As N$'].join('\n'))).toThrow(/illegal function call/i)
+  })
+})
+
 describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => {
   it('Bob Col is rectangle-gated pixel-perfect and fills the Col set', () => {
     const prog = [

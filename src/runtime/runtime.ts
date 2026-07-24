@@ -271,10 +271,21 @@ export class Runtime {
       voiceVolume: (v: number) => rt.voices[v]!.volume,
     }))(this),
   )
-  // ---- file channels (Open In/Out, Print #, Input #) ----
+  // ---- file channels (Open In/Out/Random, Print #, Input #, Get/Put) ----
   fileChans = new Map<
     number,
-    { mode: 'in' | 'out'; path: string; data: Uint8Array; pos: number; out: number[] }
+    {
+      mode: 'in' | 'out' | 'random'
+      path: string
+      data: Uint8Array
+      pos: number
+      out: number[]
+      /** Field record layout (InField +ILib.s:4769) */
+      fields?: Array<{ len: number; get: () => string; set: (v: string) => void }>
+      recSize?: number
+      /** file size, snapshotted at Field time, grown by Put */
+      fileSize?: number
+    }
   >()
   /** Set Input line terminator pair (default CR, skip LF) */
   chrInp: [number, number] = [13, 10]
@@ -1528,7 +1539,7 @@ export class Runtime {
     return this.fs instanceof AmigaFS ? this.fs : null
   }
 
-  chan(n: number): { mode: 'in' | 'out'; path: string; data: Uint8Array; pos: number; out: number[] } {
+  chan(n: number): NonNullable<ReturnType<Runtime['fileChans']['get']>> {
     const c = this.fileChans.get(n)
     if (!c) throw new AmosError(`file not opened: channel ${n}`)
     return c
@@ -1557,6 +1568,11 @@ export class Runtime {
     if (!c) return
     if (c.mode === 'out') {
       if (!this.vfs?.writeFile(c.path, Uint8Array.from(c.out))) {
+        this.fileChans.delete(n)
+        throw new AmosError('disc is write protected')
+      }
+    } else if (c.mode === 'random') {
+      if (!this.vfs?.writeFile(c.path, c.data)) {
         this.fileChans.delete(n)
         throw new AmosError('disc is write protected')
       }
