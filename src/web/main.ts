@@ -55,6 +55,44 @@ async function mountArchive(bytes: Uint8Array, name: string): Promise<void> {
     if (segs.length > 0) dh0.write(segs, e.data)
   }
   statusEl.textContent = `mounted ${volName}: (${entries.length} files) — also merged into DH0:`
+  detectAmosInstall()
+}
+
+/**
+ * A real AMOS Pro install creates assigns like AMOSPro_Accessories: for
+ * every drawer next to APSystem — accessories load their data through
+ * them (e.g. the Help reader opens AMOSPro_Accessories:AMOSPro_Help/...).
+ * If a dropped tree contains an APSystem/APSystemAGA drawer, treat its
+ * parent as the install root, create the standard assigns and pick up the
+ * default resource bank from the install itself.
+ */
+function detectAmosInstall(): void {
+  const join = (base: string, name: string): string => (base.endsWith(':') ? base + name : base + '/' + name)
+  const findRoot = (dir: string, depth: number): { dir: string; sys: string } | null => {
+    const entries = (vfs.listDir(dir) ?? []).filter((e) => e.isDir)
+    const sys = entries.find((e) => /^APSystem(AGA)?$/i.test(e.name))
+    if (sys) return { dir, sys: sys.name }
+    if (depth >= 2) return null
+    for (const e of entries) {
+      const r = findRoot(join(dir, e.name), depth + 1)
+      if (r) return r
+    }
+    return null
+  }
+  const root = findRoot('DH0:', 0)
+  if (!root) return
+  vfs.assign('AMOSPro', root.dir)
+  vfs.assign('AMOSPro_System', join(root.dir, root.sys))
+  for (const e of (vfs.listDir(root.dir) ?? []).filter((x) => x.isDir)) {
+    vfs.assign(`AMOSPro_${e.name}`, join(root.dir, e.name))
+    vfs.assign(e.name, join(root.dir, e.name))
+  }
+  const res = vfs.read(join(join(root.dir, root.sys), 'AMOSPro_Default_Resource.Abk'))
+  if (res) {
+    systemResource = res
+    if (rt) rt.loadSystemResource(res)
+  }
+  statusEl.textContent = `AMOS Pro install detected at ${root.dir} — assigns created`
 }
 document.addEventListener('pointerdown', () => audio.unlock())
 document.addEventListener('keydown', () => audio.unlock())
@@ -153,8 +191,10 @@ document.addEventListener('drop', (e) => {
     for (const entry of entries) await dropEntry(entry, [], single)
     // a folder drop doesn't auto-run: point the user at the file panel
     if (!single && entries.length > 0) {
+      detectAmosInstall()
       filesEl.open = true
-      statusEl.textContent = 'files stored — pick a .AMOS in the Files panel to run it'
+      refreshFiles()
+      statusEl.textContent += ' — pick a .AMOS in the Files panel to run it'
     }
   })()
 })
