@@ -2282,7 +2282,7 @@ export class Runtime {
       status = r.status
       if (status === 'ended' || status === 'stopped' || status === 'maxSteps') break
       const b = this.interp.blocked
-      if (b?.type === 'wait') this.interp.tick = Math.max(this.interp.tick, b.until - 1)
+      if (b?.type === 'wait' && Number.isFinite(b.until)) this.interp.tick = Math.max(this.interp.tick, b.until - 1)
       else if (b?.type === 'waitKey') this.pressKey('\r', 0x44)
       else if (b?.type === 'input') this.submitLine('')
       else if (b?.type === 'dialog') {

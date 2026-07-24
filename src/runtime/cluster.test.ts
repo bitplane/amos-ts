@@ -71,6 +71,49 @@ describe('language cluster', () => {
   })
 })
 
+describe('faithfulness pass: Inc/Dec/Add/Hunt/Wait (vs +ILib.s:4382 / +Lib.s:2073/2672)', () => {
+  it('Inc/Dec/Add wrap integers at 32 bits (addq.l/add.l on the long)', () => {
+    const { out } = run(['X=2147483647', 'Inc X', 'Print X', 'Y=-2147483648', 'Dec Y', 'Print Y', 'Z=2147483647', 'Add Z,2', 'Print Z'].join('\n'))
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['-2147483648', '2147483647', '-2147483647'])
+  })
+
+  it('Add with base To top wraps both directions (InAdd4)', () => {
+    const { out } = run(['M=12', 'Add M,1,1 To 12', 'Print M', 'Add M,-1,1 To 12', 'Print M'].join('\n'))
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['1', '12'])
+  })
+
+  it('Inc/Dec on float variables stay numeric', () => {
+    const { out } = run('F#=1.5\nInc F#\nPrint F#')
+    expect(out.trim()).toBe('2.5')  // Str$ leading space trimmed
+  })
+
+  it('Wait errors on negative counts (InWait: Rbmi FonCall)', () => {
+    expect(() => run('Wait -1')).toThrow(/illegal function call/i)
+  })
+
+  it('Wait 0 waits forever (Wait_Event +Lib.s:2115)', () => {
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    const rt = new Runtime(tokenize('Wait 0\nPrint "never"', table), table, { maxSteps: 100_000, fs, onText: () => {} })
+    const r = rt.runHeadless(50)
+    expect(r.status).toBe('blocked')
+  })
+
+  it('Hunt accepts a bank number as start and allows overhanging matches (FnHunt)', () => {
+    const prog = [
+      'Reserve As Work 10,32',
+      'Poke Start(10)+4,65 : Poke Start(10)+5,66 : Poke Start(10)+6,67',
+      'Print Hunt(10 To Start(10)+32,"ABC")-Start(10)',
+      // the candidate start is before finish, the tail extends past it
+      'Print Hunt(Start(10) To Start(10)+5,"ABC")-Start(10)',
+      'Print Hunt(Start(10) To Start(10)+4,"ABC")',
+      'Print Hunt(10 To Start(10)+32,"")',
+    ].join('\n')
+    const { out } = run(prog)
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['4', '4', '0', '0'])
+  })
+})
+
 describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => {
   it('Bob Col is rectangle-gated pixel-perfect and fills the Col set', () => {
     const prog = [

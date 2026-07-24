@@ -259,24 +259,44 @@ export const INSTR: Record<string, Instr> = {
       it.dimArray(varKey(t.name, t.flags), varType(t.flags), dims)
     } while (it.accept(','))
   },
+  // Inc/Dec/Add (InInc/InDec/InAdd +ILib.s:4382-4423) operate on the
+  // variable's long directly (addq.l/add.l), so integers wrap at 32
+  // bits. Float targets get plain arithmetic here — the real machine
+  // adds to the FFP bit pattern (garbage), which no sane program uses.
   inc(it) {
     const tg = it.parseTarget()
-    tg.set(VF(num(tg.get()) + 1))
+    if (tg.type === 'int') tg.set(VI((int(tg.get()) + 1) | 0))
+    else tg.set(VF(num(tg.get()) + 1))
   },
   dec(it) {
     const tg = it.parseTarget()
-    tg.set(VF(num(tg.get()) - 1))
+    if (tg.type === 'int') tg.set(VI((int(tg.get()) - 1) | 0))
+    else tg.set(VF(num(tg.get()) - 1))
   },
   add(it) {
     const tg = it.parseTarget()
     it.expect(',')
+    if (tg.type === 'int') {
+      const e = it.evalInt()
+      let v = (int(tg.get()) + e) | 0
+      if (it.accept(',')) {
+        // InAdd4: the wrap checks are signed 32-bit, base first
+        const base = it.evalInt() | 0
+        it.expect('to')
+        const top = it.evalInt() | 0
+        if (v < base) v = top
+        else if (v > top) v = base
+      }
+      tg.set(VI(v))
+      return
+    }
     let v = num(tg.get()) + it.evalNum()
     if (it.accept(',')) {
       const base = it.evalNum()
       it.expect('to')
       const top = it.evalNum()
-      if (v > top) v = base
-      else if (v < base) v = top
+      if (v < base) v = top
+      else if (v > top) v = base
     }
     tg.set(VF(v))
   },
@@ -640,8 +660,12 @@ export const INSTR: Record<string, Instr> = {
     it.degrees = false
   },
   wait(it) {
+    // InWait +Lib.s:2073: negative = function call error; Wait 0 enters
+    // Wait_Event (2115), an endless Sys_WaitMul loop only a break exits
     const n = it.evalInt()
-    if (n > 0) it.block({ type: 'wait', until: it.tick + n })
+    if (n < 0) throw new AmosError('Illegal function call', 23)
+    if (n === 0) it.block({ type: 'wait', until: Infinity })
+    else it.block({ type: 'wait', until: it.tick + n })
   },
   'wait key'(it) {
     it.block({ type: 'waitKey' })

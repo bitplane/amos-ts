@@ -2996,7 +2996,10 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It) => import
       return VI(handle)
     },
     hunt(it) {
-      // Hunt(start To finish, s$)
+      // FnHunt +Lib.s:2672: the start goes through Bnk.OrAdr (a bank
+      // number names its bank), the end address is raw; a match may
+      // START before the end and extend past it (only the candidate
+      // start is compared against the end)
       it.expect('(')
       const start = it.evalInt()
       it.expect('to')
@@ -3004,14 +3007,16 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It) => import
       it.expect(',')
       const needle = it.evalStr()
       it.expect(')')
-      const m = rt.resolveAddr(start)
+      const bankForm = start >= 0 && start < 0x10000
+      const base = bankForm ? rt.bankBase(start) : start
+      const m = rt.bankOrAddr(start)
       if (!m || needle === '') return VI(0)
-      const len = Math.min(finish - start, m.data.length - m.off)
-      outer: for (let i = 0; i + needle.length <= len; i++) {
+      const span = Math.min(finish - base, m.data.length - m.off)
+      outer: for (let i = 0; i < span; i++) {
         for (let k = 0; k < needle.length; k++) {
           if (m.data[m.off + i + k] !== (needle.charCodeAt(k) & 0xff)) continue outer
         }
-        return VI(start + i)
+        return VI(base + i)
       }
       return VI(0)
     },

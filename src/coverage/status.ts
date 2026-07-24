@@ -102,6 +102,17 @@ export const FAITHFUL = new Set<string>([
   'sam swapped',
   'sload',
   'ssave',
+  // faithfulness pass: Inc/Dec/Add operate on the variable long with
+  // 32-bit wrap (InInc/InDec/InAdd +ILib.s:4382-4423, base-To-top wrap
+  // both directions); Wait errors on negatives and Wait 0 is the
+  // endless Wait_Event loop (+Lib.s:2073/2115); Hunt takes Bnk.OrAdr
+  // starts and allows matches overhanging the end (+Lib.s:2672);
+  // cluster.test.ts cites each
+  'add',
+  'inc',
+  'dec',
+  'wait',
+  'hunt',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
   'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add
@@ -810,9 +821,9 @@ export const NOTES: Record<string, string> = {
   'dialog box': 'v$ seeds var 1 as a string, not an address',
   sin: 'FFP-precision (24-bit) result; matches mathtrans to ~24 bits, not necessarily the last bit',
   cos: 'FFP-precision result; last-bit mathtrans algorithm differences possible',
-  inc: 'integer-only in the original (mangles a float); the port does float arithmetic instead',
-  dec: 'integer-only in the original; the port does float arithmetic instead',
-  add: 'integer-only cells in the original; the wrap form is faithful',
+  inc: 'float targets get numeric arithmetic; the real machine mangles the FFP bit pattern',
+  dec: 'float targets get numeric arithmetic; the real machine mangles the FFP bit pattern',
+  add: 'float targets get numeric arithmetic; the real machine adds to the FFP bit pattern',
   using: "the '^' scientific-exponent slot is left literal (mantissa normalisation unverified)",
   locate: 'out-of-range clamps rather than raising error 16',
   pen: 'stored unmasked; out-of-range does not raise error like the original',
@@ -827,7 +838,6 @@ export const NOTES: Record<string, string> = {
   box: 'dash phase restarts per edge (68k PolyDraws one continuous pattern)',
   text: 'single Topaz-8 face; Set Text soft styles are synthesized',
   bload: 'the < 1024 bank form creates a missing bank instead of erroring',
-  hunt: 'the bare bank-number (Bnk.OrAdr) form is unsupported; Start() works',
   'mouse screen': 'returns -1 when the pointer is over no screen (68k: EntNul)',
   scanshift: 'reads live shift keys; the shift byte is not captured with Inkey$',
   'change mouse': 'pointer number stored; the host cursor is shown instead',
@@ -857,7 +867,6 @@ export const NOTES: Record<string, string> = {
   // Amiga facility it drives has no equivalent in the port.
   edit: 'InEdit +ILib.s:1858 returns to the AMOS editor (run-error 1000); there is no editor in the port, so the program halts',
   direct: 'InDirect +ILib.s:1866 returns to direct mode (run-error 1001); no direct window exists in the port, so the program halts',
-  wait: 'InWait +Lib.s:2075 waits the given VBLs (faithful for the positive case); a negative count should raise a function-call error and Wait 0 should wait for any event — both are currently no-ops',
   free: 'FnFree queries exec AvailMem; the port has no Amiga memory manager, so it returns a nominal free figure',
   'chip free': 'FnChipFree +Lib.s:2510 queries exec AvailMem(MEMF_CHIP); no Amiga memory manager in the port — returns a nominal figure',
   'fast free': 'FnFastFree +Lib.s:2517 queries exec AvailMem(MEMF_FAST); no Amiga memory manager in the port — returns a nominal figure',
