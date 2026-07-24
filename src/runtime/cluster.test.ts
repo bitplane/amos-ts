@@ -1656,3 +1656,16 @@ describe('long-tail: Freeze/Unfreeze, On Break Proc, Set Tempras, Drive, rts no-
     expect(run(src).out).toBe('-1-1 0 0\n')
   })
 })
+
+describe('function-argument To ranges (the "0,0T0" token specs)', () => {
+  it('Bob Col(n,first To last) parses and bounds the test (FnBobCol +Lib.s:12374)', () => {
+    const src = [
+      'Ink 2 : Bar 0,0 To 15,15 : Get Bob 1,0,0 To 16,16',
+      'Bob 1,50,50,1 : Bob 2,50,50,1 : Bob 3,200,100,1',
+      'Update : Wait Vbl',
+      'Print Bob Col(1,2 To 2);Bob Col(1,3 To 3)',
+    ].join('\n')
+    // bob 2 overlaps, bob 3 does not — the range limits which are tested
+    expect(run(src).out).toBe('-1 0\n')
+  })
+})

@@ -654,7 +654,9 @@ export class Interp {
                   // elided argument, e.g. At(,10) — "keep current"
                   if (this.nm() === ',' || this.nm() === ')') args.push(VI(-1))
                   else args.push(this.evalExpr())
-                  if (this.accept(',')) continue
+                  // 'To' separates range arguments in the token specs
+                  // ("0,0T0"): Bob Col(1,2 To 5), Sprite Col, Range()...
+                  if (this.accept(',') || this.accept('to')) continue
                   this.expect(')')
                   break
                 }
