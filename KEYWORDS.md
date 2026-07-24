@@ -21,10 +21,10 @@ tested against our own understanding. Percentages exclude n/a
 | files | 23 | 15 | 0 | 6 | 71% |
 | flow | 12 | 10 | 2 | 0 | 100% |
 | input | 18 | 16 | 2 | 0 | 100% |
-| interface | 25 | 21 | 3 | 1 | 96% |
+| interface | 25 | 22 | 2 | 1 | 96% |
 | ioports | 38 | 0 | 0 | 38 | 0% |
 | language | 250 | 198 | 6 | 37 | 85% |
-| memory | 14 | 11 | 2 | 1 | 93% |
+| memory | 14 | 12 | 2 | 0 | 100% |
 | menus | 24 | 24 | 0 | 0 | 100% |
 | music | 49 | 41 | 1 | 7 | 86% |
 | objects | 56 | 54 | 1 | 1 | 98% |
@@ -36,7 +36,7 @@ tested against our own understanding. Percentages exclude n/a
 | text-io | 37 | 36 | 1 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 555 | 24 | 116 | 83% |
+| **total** | 732 | 557 | 23 | 115 | 83% |
 
 ## amal (92%)
 
@@ -90,8 +90,8 @@ tested against our own understanding. Percentages exclude n/a
 
 ## interface (96%)
 
-- **faithful**: `choice`, `dialog`, `dialog box` *(v$ seeds var 1 as a string, not an address)*, `dialog close`, `dialog clr`, `dialog freeze`, `dialog open` *(SM screen-drag is a no-op; CA (machine code) raises a function call error; edit fields use a simplified line editor; MZ reads of raw memory return "")*, `dialog run`, `dialog unfreeze`, `dialog update`, `edialog`, `hslider` *(system patterns approximated as dithers)*, `rdialog`, `rdialog$`, `resource bank`, `resource screen open`, `resource unpack`, `vdialog` *(integer reads of string-valued slots return 0 (raw pointers are not carried))*, `vdialog$`, `vslider` *(system patterns approximated as dithers)*, `zdialog`
-- **approximated**: `array` *(returns an opaque handle (> 1024), not a real address)*, `fsel$` *(the real bank dialog driven by a TS controller: Store and keyboard qualifiers unhandled, sizes/sort approximated)*, `resource$` *(negative system/editor message numbers return "")*
+- **faithful**: `array` *(int/float arrays map to live arena blocks; string arrays (pointer tables on the 68k) stay opaque handles)*, `choice`, `dialog`, `dialog box` *(v$ seeds var 1 as a string, not an address)*, `dialog close`, `dialog clr`, `dialog freeze`, `dialog open` *(SM screen-drag is a no-op; CA (machine code) raises a function call error; edit fields use a simplified line editor; MZ reads of raw memory return "")*, `dialog run`, `dialog unfreeze`, `dialog update`, `edialog`, `hslider` *(system patterns approximated as dithers)*, `rdialog`, `rdialog$`, `resource bank`, `resource screen open`, `resource unpack`, `vdialog` *(integer reads of string-valued slots return 0 (raw pointers are not carried))*, `vdialog$`, `vslider` *(system patterns approximated as dithers)*, `zdialog`
+- **approximated**: `fsel$` *(the real bank dialog driven by a TS controller: Store and keyboard qualifiers unhandled, sizes/sort approximated)*, `resource$` *(negative system/editor message numbers return "")*
 - **missing**: `psel$`
 
 ## ioports (0%)
@@ -105,11 +105,10 @@ tested against our own understanding. Percentages exclude n/a
 - **missing**: `@_apml_@`, `arexx$`, `as`, `dir/w`, `disc info$`, `drive`, `follow`, `follow off`, `frame length`, `frame load`, `frame param`, `frame play`, `frame skip`, `freeze`, `hardcol`, `icon base`, `iff anim`, `ldir`, `ldir/w`, `mask iff`, `on break proc`, `parent`, `picture`, `pload`, `prun`, `read text`, `rev`, `save`, `save iff`, `scan$`, `set accessory`, `set buffer`, `set equate bank`, `set hardcol`, `set stack`, `set tempras`, `unfreeze`
 - **n/a**: `,`, `\\\\\\\\\\\\\\\/`, `ask editor`, `equ`, `include`, `monitor`, `struc`, `struc$`, `||apcmp||`
 
-## memory (93%)
+## memory (100%)
 
-- **faithful**: `bchg`, `bclr`, `bset`, `btst`, `copy`, `deek`, `doke`, `fill`, `hunt`, `leek`, `loke`
+- **faithful**: `bchg`, `bclr`, `bset`, `btst`, `copy`, `deek`, `doke`, `fill`, `hunt`, `leek`, `loke`, `varptr` *(arena slots: string blocks are snapshots that go stale on reassignment (as on the 68k); pokes flush back while the length matches)*
 - **approximated**: `peek` *(addresses inside banks and screen bitplanes (Logbase/Phybase) resolve; other addresses read 0)*, `poke` *(writes into banks and screen bitplanes render; writes elsewhere are ignored)*
-- **missing**: `varptr`
 
 ## menus (100%)
 

@@ -1,4 +1,5 @@
-import { AmosError, VI, VS, int, str } from '../interp/values'
+import { AmosError, VF, VI, VS, int, num, str, varType } from '../interp/values'
+import { varKey } from '../interp/prescan'
 import type { Instr, Func } from '../interp/builtins'
 import { parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
@@ -3038,15 +3039,41 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
 export function makeRawFunctions(rt: Runtime): Record<string, (it: It) => import('../interp/values').Value> {
   return {
     array(it) {
-      // =Array(A(0)): the array's "address" — in the port an opaque handle
-      // (> 1024) resolvable by the dialog engine's AR/AS and list zones
+      // FnArray +ILib.s:4103: the array's data address. Int/float arrays
+      // get a live arena block (big-endian cells, FFP floats) that Peek/
+      // Poke/Deek/Doke reach; the dialog engine resolves the same
+      // address for its AR/AS zones. String arrays hold pointers on the
+      // 68k — they keep an opaque handle (NOTES).
       it.expect('(')
+      const t = it.tok()
+      if (t?.kind !== 'var') throw new AmosError('array expected')
+      const key = varKey(t.name, t.flags)
+      const type = varType(t.flags)
       const arr = it.parseArrayRef()
       it.expect(')')
-      for (const [h, known] of rt.dialogArrays) if (known === arr) return VI(h)
-      const handle = 0x10000 + rt.dialogArrays.size
-      rt.dialogArrays.set(handle, arr)
-      return VI(handle)
+      if (type === 2) {
+        for (const [h, known] of rt.dialogArrays) if (known === arr) return VI(h)
+        const handle = 0x10000 + rt.dialogArrays.size
+        rt.dialogArrays.set(handle, arr)
+        return VI(handle)
+      }
+      const addr = rt.varptrArray(key, arr, type)
+      rt.dialogArrays.set(addr, arr)
+      return VI(addr)
+    },
+    varptr(it) {
+      // FnVarPtr +ILib.s:4087: numbers -> the address of the 4-byte cell
+      // (arena slots that sync/flush through Peek/Poke, floats in FFP);
+      // strings -> the character data, length word at -2, snapshotted
+      // like the 68k's moving string heap
+      it.expect('(')
+      const tg = it.parseTarget()
+      it.expect(')')
+      if (tg.type === 2) {
+        return VI(rt.varptrString(() => str(tg.get()), (v) => tg.set(VS(v))))
+      }
+      const type = tg.type
+      return VI(rt.varptrScalar(tg.key ?? 'anon', type, () => num(tg.get()), (v) => tg.set(type === 1 ? VF(v) : VI(v))))
     },
     hunt(it) {
       // FnHunt +Lib.s:2672: the start goes through Bnk.OrAdr (a bank

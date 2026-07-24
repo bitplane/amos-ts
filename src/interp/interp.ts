@@ -68,6 +68,8 @@ export interface LoopFrame {
 
 export interface Target {
   type: VarType
+  /** stable identity for the referenced cell (Varptr arena slots) */
+  key?: string
   get(): Value
   set(v: Value): void
 }
@@ -497,6 +499,7 @@ export class Interp {
       const linear = this.arrayIndex(arr, key, idx)
       return {
         type,
+        key: `${key}[${linear}]`,
         get: () => arr.data[linear]!,
         set: (v) => {
           arr.data[linear] = coerce(type, v)
@@ -505,6 +508,7 @@ export class Interp {
     }
     return {
       type,
+      key,
       get: () => this.getVar(key, type),
       set: (v) => this.setVar(key, type, v),
     }

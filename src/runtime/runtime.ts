@@ -3,7 +3,8 @@ import { TokenTable } from '../tokens/stream'
 import { Interp, newInputState } from '../interp/interp'
 import type { AmosArray, InputState, InterpOptions, RunResult } from '../interp/interp'
 import type { AmosIO } from '../interp/io'
-import { AmosError } from '../interp/values'
+import { AmosError, VF, VI } from '../interp/values'
+import type { Value } from '../interp/values'
 import type { Bank, MemoryBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
@@ -47,6 +48,40 @@ import {
 import type { MenuHost, MenuNode, OpenLevel } from './menu'
 import { NullAudio, parseSampleBank, periodToHz, samPeriod } from './audio'
 import { MusicPlayer } from './music'
+
+/**
+ * Motorola FFP float format (mathffp.library): bits 31-8 = normalized
+ * mantissa (MSB set), bit 7 = sign, bits 6-0 = exponent excess-64.
+ * Varptr'd float cells expose this representation.
+ */
+export function toFFP(n: number): number {
+  if (n === 0 || !Number.isFinite(n)) return 0
+  const sign = n < 0 ? 0x80 : 0
+  const a = Math.abs(n)
+  let e = Math.ceil(Math.log2(a))
+  let m = a / 2 ** e // (0.5, 1]
+  if (m <= 0.5) {
+    m *= 2
+    e--
+  }
+  let mant = Math.round(m * 0x1000000)
+  if (mant >= 0x1000000) {
+    mant >>= 1
+    e++
+  }
+  const exp = e + 0x40
+  if (exp <= 0) return 0
+  if (exp > 0x7f) return ((0xffffff << 8) | sign | 0x7f) >>> 0
+  return ((mant << 8) | sign | exp) >>> 0
+}
+
+export function fromFFP(v: number): number {
+  const mant = v >>> 8
+  if (mant === 0) return 0
+  const sign = v & 0x80 ? -1 : 1
+  const exp = (v & 0x7f) - 0x40
+  return sign * (mant / 0x1000000) * 2 ** exp
+}
 import { FONT8 } from './font.gen'
 import type { AudioSink, SampleEntry } from './audio'
 import { AmigaFS, amigaPattern } from './vfs'
@@ -337,6 +372,8 @@ export class Runtime {
   static readonly COPPER_SLOT = 0x00004000
   /** =Mubase — the music extension data zone (vumeter bytes at +0..3) */
   static readonly MUBASE_ADDR = 0x58000000
+  /** Varptr/=Array variable arena (FnVarPtr +ILib.s:4087) */
+  static readonly VAR_BASE = 0x60000000
   static readonly COPPER_LONG = 12 * 1024
   /** T_CopON: the system rebuilds and owns the display while true */
   copperOn = true
@@ -474,6 +511,9 @@ export class Runtime {
       // =Mubase points at the music extension data zone; the vumeter
       // bytes at MB+0..3 are the mapped part (FnMusicBase +Music.s:3907)
       return { data: this.vuBytes, off: a - Runtime.MUBASE_ADDR }
+    }
+    if (a >= Runtime.VAR_BASE && a < this.varArenaNext) {
+      return this.resolveVarSlot(a)
     }
     if (a >= Runtime.COPPER_BASE && a < Runtime.COPPER_BASE + 2 * Runtime.COPPER_SLOT) {
       const rel = a - Runtime.COPPER_BASE
@@ -1563,6 +1603,133 @@ export class Runtime {
       this.music.samEnd[v] = Infinity
       this.music.onSamStop(v)
     }
+  }
+
+  // ---- the Varptr variable arena -----------------------------------------
+  // Variables mapped into the fake address space (FnVarPtr +ILib.s:4087):
+  // integer/float cells get a stable 4-byte slot that syncs from the
+  // variable on reads and flushes Pokes back; strings are snapshotted
+  // (length word + chars, Varptr returns chars) exactly as the 68k hands
+  // out the current string block — reassignment leaves the old address
+  // stale there too. Pokes into a string flush back while the variable
+  // still has the snapshot's length.
+
+  private varSlots: Array<{
+    addr: number
+    buf: Uint8Array
+    view: Uint8Array
+    sync: () => void
+    flush: () => void
+  }> = []
+
+  private varAddrByKey = new Map<string, number>()
+  private varArenaNext = Runtime.VAR_BASE
+
+  private makeVarSlot(key: string | null, size: number, sync: (buf: Uint8Array) => void, flush: (buf: Uint8Array) => void): number {
+    if (key !== null) {
+      const existing = this.varAddrByKey.get(key)
+      if (existing !== undefined) return existing
+    }
+    const buf = new Uint8Array(size)
+    const slot: { addr: number; buf: Uint8Array; view: Uint8Array; sync: () => void; flush: () => void } = {
+      addr: this.varArenaNext,
+      buf,
+      view: buf,
+      sync: () => sync(buf),
+      flush: () => flush(buf),
+    }
+    slot.view = new Proxy(buf, {
+      set(t, prop, v): boolean {
+        ;(t as unknown as Record<string | symbol, unknown>)[prop] = v
+        slot.flush()
+        return true
+      },
+      get(t, prop): unknown {
+        const val = (t as unknown as Record<string | symbol, unknown>)[prop]
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val
+      },
+    }) as Uint8Array
+    this.varArenaNext += (size + 15) & ~15
+    this.varSlots.push(slot)
+    if (key !== null) this.varAddrByKey.set(key, slot.addr)
+    return slot.addr
+  }
+
+  /** a stable arena slot for a scalar variable cell */
+  varptrScalar(key: string, type: number, get: () => number, set: (v: number) => void): number {
+    return this.makeVarSlot(
+      `s:${key}`,
+      4,
+      (buf) => {
+        const raw = type === 1 ? toFFP(get()) : get() | 0
+        buf[0] = (raw >>> 24) & 0xff
+        buf[1] = (raw >>> 16) & 0xff
+        buf[2] = (raw >>> 8) & 0xff
+        buf[3] = raw & 0xff
+      },
+      (buf) => {
+        const raw = ((buf[0]! << 24) | (buf[1]! << 16) | (buf[2]! << 8) | buf[3]!) >>> 0
+        set(type === 1 ? fromFFP(raw) : raw | 0)
+      },
+    )
+  }
+
+  /** a string snapshot slot; returns the address of the CHARACTERS */
+  varptrString(get: () => string, set: (v: string) => void): number {
+    const snapLen = get().length
+    const addr = this.makeVarSlot(
+      null, // fresh block per call, like the 68k's moving string heap
+      2 + snapLen,
+      (buf) => {
+        const s = get()
+        if (s.length !== snapLen) return // variable moved on: stale block
+        buf[0] = (snapLen >> 8) & 0xff
+        buf[1] = snapLen & 0xff
+        for (let i = 0; i < snapLen; i++) buf[2 + i] = s.charCodeAt(i) & 0xff
+      },
+      (buf) => {
+        if (get().length !== snapLen) return
+        let s = ''
+        for (let i = 0; i < snapLen; i++) s += String.fromCharCode(buf[2 + i]!)
+        set(s)
+      },
+    )
+    return addr + 2
+  }
+
+  /** the whole-array slot backing =Array() — int/float arrays only */
+  varptrArray(key: string, arr: { data: Value[]; type?: number }, type: number): number {
+    return this.makeVarSlot(
+      `a:${key}`,
+      Math.max(4, arr.data.length * 4),
+      (buf) => {
+        for (let i = 0; i < arr.data.length; i++) {
+          const v = arr.data[i]!
+          const n = v.k === 'str' ? 0 : v.n
+          const raw = type === 1 ? toFFP(n) : n | 0
+          buf[i * 4] = (raw >>> 24) & 0xff
+          buf[i * 4 + 1] = (raw >>> 16) & 0xff
+          buf[i * 4 + 2] = (raw >>> 8) & 0xff
+          buf[i * 4 + 3] = raw & 0xff
+        }
+      },
+      (buf) => {
+        for (let i = 0; i < arr.data.length; i++) {
+          const raw = ((buf[i * 4]! << 24) | (buf[i * 4 + 1]! << 16) | (buf[i * 4 + 2]! << 8) | buf[i * 4 + 3]!) >>> 0
+          arr.data[i] = type === 1 ? VF(fromFFP(raw)) : VI(raw | 0)
+        }
+      },
+    )
+  }
+
+  private resolveVarSlot(a: number): { data: Uint8Array; off: number } | null {
+    for (const s of this.varSlots) {
+      if (a >= s.addr && a < s.addr + s.buf.length) {
+        s.sync()
+        return { data: s.view, off: a - s.addr }
+      }
+    }
+    return null
   }
 
   /**

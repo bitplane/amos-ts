@@ -236,6 +236,46 @@ describe('faithfulness pass: graphics odds (vs +Lib.s / +W.s)', () => {
   })
 })
 
+describe('integration: Varptr / =Array arena (FnVarPtr +ILib.s:4087)', () => {
+  it('integer cells read and write through the arena', () => {
+    const { out } = run(['A=123456', 'P=Varptr(A)', 'Print Leek(P)', 'Loke P,-42', 'Print A', 'Print Varptr(A)=P'].join('\n'))
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['123456', '-42', '-1'])
+  })
+
+  it('string Varptr points at the chars with the length word at -2', () => {
+    const prog = [
+      'A$="HELLO"',
+      'P=Varptr(A$)',
+      'Print Deek(P-2)',
+      'Print Chr$(Peek(P))+Chr$(Peek(P+4))',
+      'Poke P,Asc("J")',
+      'Print A$',
+    ].join('\n')
+    const { out } = run(prog)
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['5', 'HO', 'JELLO'])
+  })
+
+  it('float cells expose the FFP representation', () => {
+    // 1.5 = mantissa $C00000, exponent $41 -> $C0000041
+    const { out } = run('A#=1.5\nPrint Hex$(Leek(Varptr(A#)))')
+    expect(out.trim()).toBe('$C0000041')
+  })
+
+  it('array elements get distinct stable slots; =Array maps the block', () => {
+    const prog = [
+      'Dim A(3)',
+      'A(2)=7',
+      'Print Varptr(A(1))<>Varptr(A(2))',
+      'B=Array(A(0))',
+      'Print Leek(B+8)',
+      'Loke B+8,55',
+      'Print A(2)',
+    ].join('\n')
+    const { out } = run(prog)
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['-1', '7', '55'])
+  })
+})
+
 describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => {
   it('Bob Col is rectangle-gated pixel-perfect and fills the Col set', () => {
     const prog = [

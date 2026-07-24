@@ -158,6 +158,13 @@ export const FAITHFUL = new Set<string>([
   'vrev block',
   'mouse zone',
   'set sprite buffer',
+  // integration: Varptr maps variables into the fake address space
+  // (FnVarPtr +ILib.s:4087 — number cells at the address, string chars
+  // with the length word at -2, floats in Motorola FFP); =Array maps
+  // int/float array blocks (FnArray 4103); cluster.test.ts round-trips
+  // Peek/Poke/Leek/Loke through both
+  'varptr',
+  'array',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
   'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add
@@ -859,7 +866,8 @@ export const NOTES: Record<string, string> = {
   'set bob': 'the back mode is honoured; planes and mask arguments are ignored',
   hslider: 'system patterns approximated as dithers',
   vslider: 'system patterns approximated as dithers',
-  array: 'returns an opaque handle (> 1024), not a real address',
+  array: 'int/float arrays map to live arena blocks; string arrays (pointer tables on the 68k) stay opaque handles',
+  varptr: 'arena slots: string blocks are snapshots that go stale on reassignment (as on the 68k); pokes flush back while the length matches',
   vdialog: 'integer reads of string-valued slots return 0 (raw pointers are not carried)',
   'dialog box': 'v$ seeds var 1 as a string, not an address',
   sin: 'FFP-precision (24-bit) result; matches mathtrans to ~24 bits, not necessarily the last bit',
