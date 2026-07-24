@@ -933,3 +933,22 @@ describe('Appear and Screen Base (InAppear +Lib.s:10466, FnScreenBase 8798)', ()
     expect(run(prog).out).toBe(' 320\n 200\n 4\n 16\n 40\n 291\n-1\n')
   })
 })
+
+describe('the pseudo raster beam (FnRnd +Lib.s:1976, VPOSR/VHPOSR)', () => {
+  it('Rnd(-n) is the pure generator; Rnd(n) mixes the beam word', () => {
+    // the negative form masks out the VHPOSR term (and.w with 0) — the
+    // sequence is exactly the seeded LCG and reproduces run to run
+    const a = run('Randomize 7 : For I=1 To 5 : Print Rnd(-100) : Next').out
+    const b = run('Randomize 7 : For I=1 To 5 : Print Rnd(-100) : Next').out
+    expect(a).toBe(b)
+    const { out } = run('Randomize 7 : For I=1 To 50 : R=Rnd(10) : If R<0 Or R>10 Then Print "BAD"\nNext : Print "OK"')
+    expect(out).toBe('OK\n')
+    // Rnd(0) returns the previous result
+    expect(run('Randomize 7 : A=Rnd(-1000) : Print Rnd(0)=A').out).toBe('-1\n')
+  })
+
+  it('reads of $DFF006 return the advancing beam position', () => {
+    const { out } = run(['A=Deek($DFF006)', 'For I=1 To 200 : Next I', 'B=Deek($DFF006)', 'Print A<>B'].join('\n'))
+    expect(out).toBe('-1\n')
+  })
+})

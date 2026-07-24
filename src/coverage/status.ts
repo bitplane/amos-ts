@@ -41,7 +41,8 @@ export const FAITHFUL = new Set<string>([
   'sam loop off',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
-  'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last (no raster noise)
+  'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add
+  // on positive args (pseudo-beam), Rnd(-n) pure — +Lib.s:1976
   'randomize',
   'instr', // InstrFind: empty needle 0, start 0=1, negative errors
   'left$',
@@ -707,7 +708,7 @@ export const NOTES: Record<string, string> = {
   print: 'Print # channels unsupported',
   input: 'line editing keys are host-side, not the AMOS line editor',
   timer: 'writable, drives the frame clock directly',
-  rnd: 'deterministic — original mixes in the raster beam position',
+  rnd: 'Rnd(n) mixes a statement-paced pseudo-beam instead of the free-running raster, so runs stay reproducible; Rnd(-n) is the pure generator exactly as on the Amiga',
   // Interface language caveats
   'dialog open': 'SM screen-drag is a no-op; CA (machine code) raises a function call error; edit fields use a simplified line editor; MZ reads of raw memory return ""',
   'fsel$': 'the real bank dialog driven by a TS controller: Store and keyboard qualifiers unhandled, sizes/sort approximated',

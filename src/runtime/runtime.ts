@@ -401,6 +401,14 @@ export class Runtime {
 
   private resolveInto(addr: number, write: boolean): { data: Uint8Array; off: number } | null {
     const a = addr >>> 0
+    if (a >= 0xdff004 && a < 0xdff008) {
+      // VPOSR/VHPOSR beam counters, synthesized from the pseudo-beam
+      const line = this.interp.beamLine()
+      const vh = this.interp.beamWord()
+      // VPOSR: V8 in bit 0 of the low byte; VHPOSR: V7-0 / H8-1
+      const b = Uint8Array.of(0, (line >> 8) & 1, (vh >> 8) & 0xff, vh & 0xff)
+      return { data: b, off: a - 0xdff004 }
+    }
     if (a >= Runtime.COPPER_BASE && a < Runtime.COPPER_BASE + 2 * Runtime.COPPER_SLOT) {
       const rel = a - Runtime.COPPER_BASE
       const buf = rel < Runtime.COPPER_SLOT ? this.copBufA : this.copBufB

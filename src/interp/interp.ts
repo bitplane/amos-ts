@@ -857,14 +857,35 @@ export class Interp {
    * covering |n| and retry until <= |n|. (The original mixes in the raster
    * beam position for n>0; we stay deterministic.)
    */
+  /**
+   * A deterministic pseudo raster beam, paced by executed statements
+   * (~64 per scanline, 313 lines a frame). Feeds Rnd's VHPOSR mixing and
+   * the $DFF004/$DFF006 beam-register reads — deterministic on purpose,
+   * so runs reproduce, unlike the free-running hardware beam.
+   */
+  beamLine(): number {
+    return Math.floor(this.totalSteps / 64) % 313
+  }
+
+  /** VHPOSR: vertical low byte in the high byte, horizontal in the low */
+  beamWord(): number {
+    return ((this.beamLine() & 0xff) << 8) | ((this.totalSteps * 29) & 0xff)
+  }
+
   rndInt(n: number): number {
+    // FnRnd (+Lib.s:1976): Rnd(0) = the last result; a NEGATIVE argument
+    // masks out the VHPOSR term (and.w d2 with d2=0) — Rnd(-n) is the
+    // pure generator, Rnd(n) word-adds the beam into the low 16 bits
     if (n === 0) return this.oldRnd
+    const beamed = n > 0
     const limit = Math.abs(n)
     let mask = 0xffffff
     while (mask >>> 1 >= limit) mask >>>= 1
     for (;;) {
       this.rndSeed = (Math.imul(this.rndSeed, 0xbb40e62d) + 1) >>> 0
-      const v = (this.rndSeed >>> 8) & mask
+      const r = this.rndSeed >>> 8
+      const lo = beamed ? (r + this.beamWord()) & 0xffff : r & 0xffff
+      const v = ((r & 0xff0000) | lo) & mask
       if (v <= limit) {
         this.oldRnd = v
         return v
