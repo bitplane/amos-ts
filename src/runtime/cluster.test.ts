@@ -219,14 +219,17 @@ describe('stragglers (palette shift, wind size, key shift)', () => {
     return [p[1]!, p[2]!, p[3]!]
   }
 
+  // Flash Off first: colour 3 carries the system flash out of the box
+  // (Screen Open runs Flash 3, +Lib.s:8989), which would fight the shifted
+  // value here exactly as it does on a real Amiga
   it('Shift Up cycles a palette range with the exact rotation (Shifter +W.s:5464)', () => {
     // start [1,2,3]=$100,$200,$300; one up-shift → pal[1]<-pal[3] wrap
-    expect(shiftAfterOneStep('Colour 1,$100 : Colour 2,$200 : Colour 3,$300\nShift Up 1,1,3')).toEqual([0x300, 0x100, 0x200])
+    expect(shiftAfterOneStep('Flash Off : Colour 1,$100 : Colour 2,$200 : Colour 3,$300\nShift Up 1,1,3')).toEqual([0x300, 0x100, 0x200])
   })
 
   it('Shift with flag 0 smears instead of wrapping (Shf8a)', () => {
     // no wrap: pal[1] stays, pal[2]<-pal[1], pal[3]<-pal[2]
-    expect(shiftAfterOneStep('Colour 1,$100 : Colour 2,$200 : Colour 3,$300\nShift Up 1,1,3,0')).toEqual([0x100, 0x100, 0x200])
+    expect(shiftAfterOneStep('Flash Off : Colour 1,$100 : Colour 2,$200 : Colour 3,$300\nShift Up 1,1,3,0')).toEqual([0x100, 0x100, 0x200])
   })
 
   it('Wind Size clears the window interior (Clw)', () => {

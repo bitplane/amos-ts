@@ -136,6 +136,18 @@ export const FAITHFUL = new Set<string>([
   'colour back', // border colour, composited as the background
   'colour',
   'palette',
+  // rainbows: table build TRSet +W.s:3990 (channel wave machines, seed,
+  // (interval,step,count) groups, colour &31 < PalMax); display TRDo
+  // +W.s:3940 (elided params keep, RnAct latching at the vbl copper build,
+  // y clamped to 28, out-of-range base ignored); rendering CopBow
+  // +W.s:6079-6260 (one rainbow at a time, lowest slot wins, per-line
+  // register writes, palette/fond restore after the span); Rain TRVar
+  // +W.s:3966 (12-bit masked, bounds); errors map through EcWiErr code 1
+  // = out of memory, faithfully
+  'set rainbow',
+  'rainbow',
+  'rain',
+  'rainbow del',
   // objects/screens sweep: real bob pipeline (Actualise-style), buffers
   'bob', // blitted with background save/restore; Point sees bobs
   'bob off',
@@ -617,9 +629,7 @@ export const NOTES: Record<string, string> = {
   amal: 'string programs only — Amal n,# bank programs unsupported',
   'set bob': 'back modes implemented; planes/mask arguments ignored',
   autoback: 'mode 1 treated like 0',
-  rain: 'stored, not rendered',
-  rainbow: 'stored, not rendered',
-  'set rainbow': 'stored, not rendered',
+  rainbow: 'rendered per scanline by the copper-walk compositor; hardware lines above 50 (the top border) are outside the composite window',
   'set pattern': 'sprite-image patterns only; bank patterns need the system resource bank',
   'input$': 'keyboard form is non-blocking best effort',
   start: 'fake address space: Start()-relative arithmetic works, absolute hardware addresses do not',

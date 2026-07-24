@@ -50,17 +50,50 @@ import { FONT8 } from './font.gen'
 import type { AudioSink, SampleEntry } from './audio'
 import { AmigaFS, amigaPattern } from './vfs'
 
+/**
+ * One rainbow (RainTable entry, +WEqu.s:169-183, NbRain = 4). The 12-bit
+ * colour table is generated once by Set Rainbow (TRSet +W.s:3990); Rainbow
+ * n,base,y,h stores raw values and pending-change bits (RnAct), which the
+ * copper build folds into the display fields lazily (RainA1-A5 +W.s:6079).
+ */
 export interface Rainbow {
+  /** RnColor: the palette register the copper writes (0-15) */
+  colour: number
+  /** the pre-computed 12-bit colour per line */
+  table: Uint16Array
+  /** RnBase: validated start offset into the table */
   base: number
-  height: number
-  r: string
-  g: string
-  b: string
-  colours: Uint16Array
+  /** RnX/RnY/RnI: raw Rainbow-instruction values (h < 0 = not displayed) */
   x: number
   y: number
   h: number
+  /** RnAct pending bits: 0 = height, 1 = base, 2 = y */
+  act: number
+  /** computed display span in hardware lines [dy, fy) and latched height */
+  dy: number
+  fy: number
+  ty: number
 }
+
+/**
+ * The system flash sequence (interpreter-config message 46,
+ * +Interpreter_Config.s:186) — Screen Open runs `Flash 3` with it on any
+ * screen deeper than one plane (+Lib.s:8989), which is what makes the
+ * out-of-the-box cursor pulse gold-white-blue.
+ */
+export const DEFAULT_FLASH_SPEC =
+  '(000,2)(440,2)(880,2)(bb0,2)(dd0,2)(ee0,2)(ff2,2)(ff8,2)(ffc,2)(fff,2)(aaf,2)(88c,2)(66a,2)(226,2)(004,2)(001,2)'
+
+export function parseFlashSpec(spec: string): Array<{ rgb: number; ticks: number }> {
+  const seq: Array<{ rgb: number; ticks: number }> = []
+  for (const m of spec.matchAll(/\(\s*([0-9a-f]+)\s*,\s*(\d+)\s*\)/gi)) {
+    seq.push({ rgb: parseInt(m[1]!, 16) & 0xfff, ticks: Math.max(1, parseInt(m[2]!, 10)) })
+  }
+  return seq
+}
+
+/** the default cursor shape: an underline (DefCurs +W.s:16736) */
+export const CURSOR_SHAPE = [0, 0, 0, 0, 0, 0, 0xff, 0xff]
 
 export interface RuntimeOptions {
   extensions?: Map<number, TokenTable>
@@ -94,8 +127,10 @@ export class Runtime {
   shifts = new Map<number, { dir: number; delay: number; first: number; last: number; wrap: boolean; count: number }>()
   /** Fade: per-screen nibble-stepping toward targets (-1 = untouched) */
   fades = new Map<number, { delay: number; count: number; targets: Int32Array }>()
-  /** Flash n,"(rgb,ticks)...": palette-register animations */
-  flashes = new Map<number, { seq: Array<{ rgb: number; ticks: number }>; idx: number; left: number }>()
+  /** Flash n,"(rgb,ticks)...": palette-register animations, each bound to
+   * the screen that was current at Flash time (FlInt +W.s:5678 stores the
+   * screen address in the flash record) */
+  flashes = new Map<number, { seq: Array<{ rgb: number; ticks: number }>; idx: number; left: number; screen: number }>()
   /** Colour Back: the display border colour (composite background) */
   colourBack = 0
   scrollZones = new Map<number, { x1: number; y1: number; x2: number; y2: number; dx: number; dy: number }>()
@@ -1105,7 +1140,31 @@ export class Runtime {
         },
       }
     }
-    if (kind === 'rainbow' || kind === 'screen size') {
+    if (kind === 'rainbow') {
+      // Channel n To Rainbow m: X drives the table base, Y the vertical
+      // position — changes latch RnAct bits like the Rainbow instruction
+      return {
+        kind,
+        n: m,
+        get: () => {
+          const rb = this.rainbows.get(m)
+          return { x: rb?.x ?? 0, y: rb?.y ?? 0, a: 0 }
+        },
+        set: (x, y) => {
+          const rb = this.rainbows.get(m)
+          if (!rb) return
+          if (x !== null) {
+            rb.x = x
+            rb.act |= 2
+          }
+          if (y !== null) {
+            rb.y = y
+            rb.act |= 4
+          }
+        },
+      }
+    }
+    if (kind === 'screen size') {
       return { kind, n: m, get: () => ({ x: 0, y: 0, a: 0 }), set: () => {} }
     }
     // default: hardware sprite
@@ -1329,6 +1388,12 @@ export class Runtime {
     this.order.push(n)
     this.currentIndex = n
     s.cls()
+    // "Fait flasher la couleur 3" — Screen Open installs the system flash
+    // on colour 3 of any screen deeper than one plane (+Lib.s:8989)
+    if (nColors > 2) {
+      const seq = parseFlashSpec(DEFAULT_FLASH_SPEC)
+      this.flashes.set(3, { seq, idx: 0, left: seq[0]!.ticks, screen: n })
+    }
     if (!this.autoView) {
       // Auto View Off: the display change is deferred until View
       s.visible = false
@@ -1478,6 +1543,10 @@ export class Runtime {
     this.applyShifts()
     this.applyFades()
     this.applyFlashes()
+    // the copper rebuild runs at the vbl (EcCopper via T_Actualise), so
+    // Rainbow-instruction changes latch here — consecutive same-frame
+    // Rainbow calls coalesce their RnAct bits, exactly as on the Amiga
+    this.activateRainbows()
     if (!this.synchroManual) this.stepAmal()
     this.unblock()
     let result: RunResult
@@ -1724,7 +1793,9 @@ export class Runtime {
       fl.idx = (fl.idx + 1) % fl.seq.length
       const step = fl.seq[fl.idx]!
       fl.left = step.ticks
-      const s = this.screens.get(this.currentIndex)
+      // FlInt writes EcPal of the screen recorded at Flash time, not
+      // whichever screen is current now (+W.s:5700)
+      const s = this.screens.get(fl.screen)
       if (s) s.palette[reg & 31] = step.rgb & 0xfff
     }
   }
@@ -1782,67 +1853,169 @@ export class Runtime {
   // ---- video out ----
 
   /** Compose all visible screens into a 640x400 RGBA frame. */
+  /**
+   * Fold Rainbow-instruction changes into the display fields, exactly like
+   * the copper build's activation pass (RainA1-A5 +W.s:6079): a height
+   * change re-latches RnTY and forces the Y pass; the Y pass clamps the
+   * start to hardware line 28; a base change is IGNORED when out of range
+   * (RainA4 keeps the old base). Nothing happens while h < 0.
+   */
+  private activateRainbows(): void {
+    for (const rb of this.rainbows.values()) {
+      if (rb.table.length === 0 || rb.h < 0 || rb.act === 0) continue
+      let act = rb.act
+      rb.act = 0
+      if (act & 1) {
+        rb.ty = rb.h
+        act |= 4
+      }
+      if (act & 4) {
+        rb.dy = Math.max(28, rb.y)
+        rb.fy = rb.dy + rb.ty
+      }
+      if (act & 2 && ((rb.x << 1) & 0xffff) < rb.table.length * 2) rb.base = rb.x
+    }
+  }
+
+  /**
+   * The scanline compositor: a faithful walk of the copper list the real
+   * AMOS builds each vbl (EcCopper/CopBow +W.s:6030-6260). Per hardware
+   * line: exactly ONE front screen is fetched (the screens are cut into
+   * vertical slices by priority — "Decoupe les ecrans en tranches",
+   * +W.s:5808); a band start reloads the hardware palette (EcCopHo); ONE
+   * rainbow at a time writes its colour register per line (lowest-numbered
+   * rainbow covering the line wins, RainN0), and on leaving its span the
+   * register is restored from the screen palette — or colour 0 from the
+   * fond when no screen is above (RainNX). The border shows hardware
+   * colour 0, so a screen's palette bleeds into the border beside it and
+   * a rainbow on colour 0 recolours the border itself.
+   *
+   * The current window's cursor is overlaid in its cursor pen (AffCur
+   * +W.s:13604 forces the masked pixels to WiCuCol), so Flash and rainbows
+   * show straight through it — the classic fading AMOS cursor.
+   */
   composite(out?: Uint8ClampedArray): { width: number; height: number; data: Uint8ClampedArray } {
     const W = 640
     const H = 400
     const data = out ?? new Uint8ClampedArray(W * H * 4)
-    const bg = this.colourBack & 0xfff
-    const bgR = ((bg >> 8) & 15) * 17
-    const bgG = ((bg >> 4) & 15) * 17
-    const bgB = (bg & 15) * 17
-    for (let i = 0; i < data.length; i += 4) {
-      data[i] = bgR
-      data[i + 1] = bgG
-      data[i + 2] = bgB
-      data[i + 3] = 255
-    }
-    // Dual Playfield: the front screen composites last with colour 0 clear
+    this.activateRainbows()
+    // rainbows in slot order — the copper machine scans 0..NbRain-1
+    const rbs = [...this.rainbows.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, r]) => r)
+      .filter((r) => r.table.length > 0 && r.h >= 0 && r.ty > 0)
+    const dual = this.dualPlayfield
+    const dualBack = dual && this.screens.has(dual.front) && this.screens.has(dual.back) ? this.screens.get(dual.back)! : null
     // Sprite Priority 4 puts hardware sprites BEHIND the playfield (drawn
     // before the screens); lower priorities keep them in front (default)
     if (this.spritePriority >= 4) this.drawHwSprites(data, W, H)
-    let order = this.order
-    const dual = this.dualPlayfield
-    if (dual && this.screens.has(dual.front) && this.screens.has(dual.back)) {
-      order = [...this.order.filter((n) => n !== dual.front), dual.front]
+
+    const winWOf = (s: Screen): number => (s.displayW >= 0 ? Math.min(s.displayW, s.width) : s.width)
+    const winHOf = (s: Screen): number => (s.displayH >= 0 ? Math.min(s.displayH, s.height) : s.height)
+    const covers = (s: Screen, L: number): boolean => {
+      const hwH = s.laced ? Math.ceil(winHOf(s) / 2) : winHOf(s)
+      return L >= s.displayY && L < s.displayY + hwH
     }
-    for (const n of order) {
-      const s = this.screens.get(n)
-      if (!s || !s.visible) continue
-      const clearZero = dual !== null && n === dual.front
+    // cursor cell of the current screen's current window (AffCur)
+    const cs = this.screens.get(this.currentIndex) ?? null
+    const cw = cs?.curWin ?? null
+    const curX0 = cw ? cw.x + cw.curX * 8 : 0
+    const curY0 = cw ? cw.y + cw.curY * 8 : 0
+
+    const hwPal = new Uint16Array(32)
+    hwPal[0] = this.colourBack & 0xfff
+    let front: Screen | null = null
+    let curRb: Rainbow | null = null
+
+    const drawRow = (s: Screen, r: number, pal: Uint16Array | null, clearZero: boolean): void => {
+      // pal = the live hardware palette for the front playfield; null =
+      // the screen's own palette (dual-playfield back, an approximation)
       const pixels = s.displayBuffer
       const pw = s.hires ? 1 : 2
       const ph = s.laced ? 1 : 2
       const baseX = (s.displayX - 128) * 2
       const baseY = (s.displayY - 50) * 2
-      // Screen Display n,,,w,h clips the visible window to w×h (EcAWTx/Ty)
-      const winW = s.displayW >= 0 ? Math.min(s.displayW, s.width) : s.width
-      const winH = s.displayH >= 0 ? Math.min(s.displayH, s.height) : s.height
-      for (let y = 0; y < winH; y++) {
-        const sy = y + s.offsetY
-        if (sy < 0 || sy >= s.height) continue
-        for (let x = 0; x < winW; x++) {
-          const sx = x + s.offsetX
-          if (sx < 0 || sx >= s.width) continue
-          const pix = pixels[sy * s.width + sx]! & 31
-          if (clearZero && pix === 0) continue
-          const rgb4 = s.palette[pix]!
-          const r = ((rgb4 >> 8) & 15) * 17
-          const g = ((rgb4 >> 4) & 15) * 17
-          const b = (rgb4 & 15) * 17
-          const px = baseX + x * pw
-          const py = baseY + y * ph
-          for (let dy = 0; dy < ph; dy++) {
-            for (let dx = 0; dx < pw; dx++) {
-              const tx = px + dx
-              const ty = py + dy
-              if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue
-              const o = (ty * W + tx) * 4
-              data[o] = r
-              data[o + 1] = g
-              data[o + 2] = b
-              data[o + 3] = 255
-            }
-          }
+      const sy = Math.floor((r - baseY) / ph) + s.offsetY
+      if (sy < 0 || sy >= s.height) return
+      const winW = winWOf(s)
+      const isCur = s === cs && s.cursorOn && cw !== null && sy >= curY0 && sy < curY0 + 8
+      const mask = isCur ? CURSOR_SHAPE[sy - curY0]! : 0
+      for (let x = 0; x < winW; x++) {
+        const sx = x + s.offsetX
+        if (sx < 0 || sx >= s.width) continue
+        let pix = pixels[sy * s.width + sx]! & 31
+        if (mask !== 0 && sx >= curX0 && sx < curX0 + 8 && (mask << (sx - curX0)) & 0x80) pix = cw!.cuCol & 31
+        if (clearZero && pix === 0) continue
+        const rgb4 = pal ? pal[pix]! : s.palette[pix]! & 0xfff
+        const cr = ((rgb4 >> 8) & 15) * 17
+        const cg = ((rgb4 >> 4) & 15) * 17
+        const cb = (rgb4 & 15) * 17
+        const px = baseX + x * pw
+        if (px + pw <= 0 || px >= W) continue
+        for (let dx = 0; dx < pw; dx++) {
+          const tx = px + dx
+          if (tx < 0 || tx >= W) continue
+          const o = (r * W + tx) * 4
+          data[o] = cr
+          data[o + 1] = cg
+          data[o + 2] = cb
+          data[o + 3] = 255
+        }
+      }
+    }
+
+    for (let L = 50; L < 250; L++) {
+      // the front screen band for this line (highest priority covering it)
+      let f: Screen | null = null
+      for (let i = this.order.length - 1; i >= 0; i--) {
+        const s = this.screens.get(this.order[i]!)
+        if (!s || !s.visible || !covers(s, L)) continue
+        f = s
+        break
+      }
+      // a dual-playfield pair displays as one: the front screen leads
+      if (dual && dualBack && f === dualBack) {
+        const df = this.screens.get(dual.front)!
+        if (df.visible && covers(df, L)) f = df
+      }
+      if (f !== front) {
+        if (f) {
+          // band start: EcCopHo emits the screen's palette block
+          for (let i = 0; i < 32; i++) hwPal[i] = f.palette[i]! & 0xfff
+        } else {
+          // band end into a gap: EcCopBa restores the fond (T_EcFond)
+          hwPal[0] = this.colourBack & 0xfff
+        }
+        front = f
+      }
+      // the single-rainbow copper machine
+      if (curRb && L >= curRb.fy) {
+        if (front) hwPal[curRb.colour] = front.palette[curRb.colour]! & 0xfff
+        else hwPal[0] = this.colourBack & 0xfff
+        curRb = null
+      }
+      if (!curRb) curRb = rbs.find((r) => L >= r.dy && L < r.fy) ?? null
+      if (curRb) {
+        const t = curRb.table
+        hwPal[curRb.colour] = t[(L - curRb.dy + curRb.base) % t.length]!
+      }
+      // render the two output rows of this hardware line
+      const bg = hwPal[0]!
+      const bgR = ((bg >> 8) & 15) * 17
+      const bgG = ((bg >> 4) & 15) * 17
+      const bgB = (bg & 15) * 17
+      const r0 = (L - 50) * 2
+      for (const r of [r0, r0 + 1]) {
+        for (let o = r * W * 4; o < (r + 1) * W * 4; o += 4) {
+          data[o] = bgR
+          data[o + 1] = bgG
+          data[o + 2] = bgB
+          data[o + 3] = 255
+        }
+        if (f) {
+          const isDualFront = dual !== null && dualBack !== null && f === this.screens.get(dual.front)
+          if (isDualFront && dualBack.visible) drawRow(dualBack, r, null, false)
+          drawRow(f, r, hwPal, isDualFront)
         }
       }
     }

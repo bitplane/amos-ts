@@ -4,7 +4,7 @@ import { parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseIlbm } from '../loader/iff'
 import { parsePacPic } from '../loader/pacpic'
-import { Runtime } from './runtime'
+import { DEFAULT_FLASH_SPEC, Runtime, parseFlashSpec } from './runtime'
 import { Screen, builtinPattern } from './screen'
 import { ObjectBank } from './objects'
 import { AmalChannel, AmalCompileError, compileAmal } from './amal'
@@ -94,6 +94,122 @@ function planeBase(rt: Runtime, plane: number, phys: number): number {
   const physical = phys !== 0 && s.doubleBuffered
   const base = rt.screenChipBase(s.index) + (physical ? Runtime.SCREEN_PHY_OFFSET : 0)
   return (base + plane * s.planeSize) >>> 0
+}
+
+/**
+ * Set Rainbow's table build (TRSet +W.s:4020-4100): each channel is a
+ * little state machine driven by "(interval,step,count)" groups — every
+ * `interval` lines add `step` to the 4-bit component, `count` times, then
+ * load the next group (wrapping at the end; count 0 repeats forever).
+ * Numbers are AniLong's (+W.s:7088): optional '-', decimal or $hex.
+ * Groups must be juxtaposed — a comma BETWEEN groups is a syntax error
+ * (RainTok +W.s:4118); lowercase letters and spaces are skipped as noise
+ * (AniChr +W.s:7070). An empty string freezes the channel at its seed.
+ */
+function buildRainbowTable(len: number, seed: number, rs: string, gs: string, bs: string): Uint16Array {
+  const parse = (src: string): Array<[number, number, number]> => {
+    // AniChr keeps chars 33..'Z' (plus '|' and ESC, which then fail the
+    // structural checks); everything else is skipped
+    const sig: string[] = []
+    for (const ch of src) {
+      const cc = ch.charCodeAt(0)
+      if ((cc >= 33 && cc <= 90) || cc === 124 || cc === 27) sig.push(ch)
+    }
+    let p = 0
+    const next = (): string => sig[p++] ?? ''
+    const num = (): number => {
+      let neg = false
+      let ch = next()
+      if (ch === '-') {
+        neg = true
+        ch = next()
+      }
+      let v = 0
+      if (ch === '$') {
+        let any = false
+        for (;;) {
+          const d = sig[p] ?? ''
+          const dv = /[0-9]/.test(d) ? d.charCodeAt(0) - 48 : /[A-F]/.test(d) ? d.charCodeAt(0) - 55 : -1
+          if (dv < 0) break
+          v = v * 16 + dv
+          p++
+          any = true
+        }
+        if (!any) throw new Error('rainbow syntax')
+      } else {
+        if (!/[0-9]/.test(ch)) throw new Error('rainbow syntax')
+        v = ch.charCodeAt(0) - 48
+        for (;;) {
+          const d = sig[p] ?? ''
+          if (!/[0-9]/.test(d)) break
+          v = v * 10 + (d.charCodeAt(0) - 48)
+          p++
+        }
+      }
+      return neg ? -v : v
+    }
+    const groups: Array<[number, number, number]> = []
+    while (p < sig.length) {
+      if (next() !== '(') throw new Error('rainbow syntax')
+      const a = num()
+      if (a <= 0) throw new Error('rainbow syntax') // ble RainTE
+      if (next() !== ',') throw new Error('rainbow syntax')
+      const b = num()
+      if (next() !== ',') throw new Error('rainbow syntax')
+      const c = num()
+      if (c < 0) throw new Error('rainbow syntax') // blt RainTE
+      if (next() !== ')') throw new Error('rainbow syntax')
+      groups.push([a, b, c])
+    }
+    return groups
+  }
+  interface Chan {
+    val: number
+    plus: number
+    cpt: number
+    vit: number
+    nb: number
+    pos: number
+    toks: Array<[number, number, number]>
+  }
+  const mkChan = (src: string, nib: number): Chan => ({
+    val: nib & 15,
+    plus: 0,
+    cpt: 1,
+    vit: 0,
+    nb: 1,
+    pos: 0,
+    toks: parse(src),
+  })
+  // channel seeds: R = seed bits 8-11, G = 4-7, B = 0-3 (TRSet pushes B,G,R)
+  const chans = [mkChan(rs, seed >> 8), mkChan(gs, seed >> 4), mkChan(bs, seed)]
+  const step = (ch: Chan): void => {
+    if (ch.cpt === 0) return // frozen channel
+    if (--ch.cpt !== 0) return
+    ch.cpt = ch.vit
+    ch.val = (ch.val + ch.plus) & 15
+    if (ch.nb === 0) return // count 0: repeat the group forever
+    if (--ch.nb !== 0) return
+    if (ch.toks.length === 0) {
+      // empty string: the zeroed group — freeze from now on
+      ch.cpt = 0
+      ch.vit = 0
+      ch.plus = 0
+      return
+    }
+    if (ch.pos >= ch.toks.length) ch.pos = 0
+    const [a, b, c] = ch.toks[ch.pos++]!
+    ch.cpt = a
+    ch.vit = a
+    ch.plus = b
+    ch.nb = c
+  }
+  const table = new Uint16Array(len)
+  for (let i = 0; i < len; i++) {
+    for (const ch of chans) step(ch)
+    table[i] = (chans[0]!.val << 8) | (chans[1]!.val << 4) | chans[2]!.val
+  }
+  return table
 }
 
 /** the ROM font list (Get Fonts / Font$) — the port carries Topaz only */
@@ -612,40 +728,81 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         seq.push({ rgb: parseInt(m[1]!, 16) & 0xfff, ticks: Math.max(1, parseInt(m[2]!, 10)) })
       }
       if (seq.length === 0) throw new AmosError('syntax error in flash string')
-      rt.flashes.set(reg & 31, { seq, idx: 0, left: seq[0]!.ticks })
+      // the flash binds to the CURRENT screen (FlStart records the screen
+      // address; FlInt +W.s:5700 writes that screen's palette)
+      rt.flashes.set(reg & 31, { seq, idx: 0, left: seq[0]!.ticks, screen: rt.currentIndex })
     },
 
-    // ---- rainbows (stored; rendered when the copper composite lands) ----
+    // ---- rainbows (TRSet/TRDo/TRVar/TRDel, +W.s:3916-4170) ----
     'set rainbow'(it) {
+      // Set Rainbow n,colour,length,r$,g$,b$[,seed]: builds the 12-bit
+      // table once, via three per-channel wave machines (Trs1/Trs2).
+      // Bounds from InSetRainbow7 +Lib.s:9385: n < 4, 16 <= length < 32700;
+      // the colour is masked &31 THEN must be < PalMax=16 (TRSet +W.s:3999)
+      // — so colour 33 legally wraps to 1. The optional 7th value seeds the
+      // three channel nibbles (R=bits 8-11, G=4-7, B=0-3).
       const n = it.evalInt()
       it.expect(',')
-      const base = it.evalInt()
+      const colour = it.evalInt()
       it.expect(',')
-      const height = it.evalInt()
+      const len = it.evalInt()
       it.expect(',')
-      const r = it.evalStr()
+      const rs = it.evalStr()
       it.expect(',')
-      const g = it.evalStr()
+      const gs = it.evalStr()
       it.expect(',')
-      const b = it.evalStr()
-      rt.rainbows.set(n, { base, height, r, g, b, colours: new Uint16Array(Math.max(16, height)), x: 0, y: 0, h: 0 })
+      const bs = it.evalStr()
+      const seed = it.accept(',') ? it.evalInt() : 0
+      if (n >>> 0 >= 4) throw new AmosError('function call error')
+      if (len < 16 || len >= 32700) throw new AmosError('function call error')
+      if (colour < 0) throw new AmosError('function call error')
+      const c = colour & 31
+      if (c >= 16) throw new AmosError('function call error')
+      let table: Uint16Array
+      try {
+        table = buildRainbowTable(len, seed, rs, gs, bs)
+      } catch {
+        // TrSynt deletes the half-made rainbow and errors (+W.s:4113)
+        rt.rainbows.delete(n)
+        throw new AmosError('function call error')
+      }
+      // fresh entry: nothing displayed until a Rainbow instruction (RnI=-1)
+      rt.rainbows.set(n, { colour: c, table, base: 0, x: 0, y: 0, h: -1, act: 0, dy: 0, fy: 0, ty: 0 })
     },
     rainbow(it) {
-      const rb = rt.rainbows.get(it.evalInt())
+      // Rainbow n[,base][,y][,h] (TRDo +W.s:3940): elided values keep the
+      // current ones; changes are latched as RnAct bits and folded in at
+      // the next copper build. Errors report as OUT OF MEMORY — RainEr
+      // returns 1, which EcWiErr maps to L_OOfMem (+Lib.s).
+      const n = it.evalInt()
+      const rb = rt.rainbows.get(n)
+      if (n >>> 0 >= 4 || !rb || rb.table.length === 0) throw new AmosError('out of memory')
       it.expect(',')
-      const x = optInt(it, rb?.x ?? 0)
-      it.accept(',')
-      const y = optInt(it, rb?.y ?? 0)
-      it.accept(',')
-      const h = optInt(it, rb?.h ?? 0)
-      if (rb) Object.assign(rb, { x, y, h })
+      if (!(it.atStmtEnd() || it.nm() === ',')) {
+        rb.x = it.evalInt()
+        rb.act |= 2
+      }
+      if (it.accept(',')) {
+        if (!(it.atStmtEnd() || it.nm() === ',')) {
+          rb.y = it.evalInt()
+          rb.act |= 4
+        }
+        if (it.accept(',') && !it.atStmtEnd()) {
+          // the tutorial writes `Rainbow N,Y,,` — trailing elision keeps h
+          rb.h = it.evalInt()
+          rb.act |= 1
+        }
+      }
     },
     'rainbow del'(it) {
+      // TRDel +W.s:4160: no argument clears every rainbow
       if (it.atStmtEnd()) rt.rainbows.clear()
       else rt.rainbows.delete(it.evalInt())
     },
     rain(it) {
-      // assignment form: Rain(n,line) = colour
+      // assignment form: Rain(n,line) = colour (TRVar +W.s:3966: bounds
+      // checked, the value masked to 12 bits; errors are OUT OF MEMORY
+      // via EcWiErr, like Rainbow)
       it.expect('(')
       const n = it.evalInt()
       it.expect(',')
@@ -654,7 +811,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expectOp('=')
       const v = it.evalInt()
       const rb = rt.rainbows.get(n)
-      if (rb && line >= 0 && line < rb.colours.length) rb.colours[line] = v & 0xfff
+      if (n >>> 0 >= 4 || !rb || rb.table.length === 0 || line < 0 || line >= rb.table.length)
+        throw new AmosError('out of memory')
+      rb.table[line] = v & 0xfff
     },
 
     // ---- text console extras ----
@@ -1314,13 +1473,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       } else {
         if (flash >= g.nColors) throw new AmosError('function call error')
         // +Interpreter_Config.s:186, system message 46
-        const spec =
-          '(000,2)(440,2)(880,2)(bb0,2)(dd0,2)(ee0,2)(ff2,2)(ff8,2)(ffc,2)(fff,2)(aaf,2)(88c,2)(66a,2)(226,2)(004,2)(001,2)'
-        const seq: Array<{ rgb: number; ticks: number }> = []
-        for (const m of spec.matchAll(/\(([0-9a-f]+),(\d+)\)/gi)) {
-          seq.push({ rgb: parseInt(m[1]!, 16) & 0xfff, ticks: parseInt(m[2]!, 10) })
-        }
-        rt.flashes.set(flash & 31, { seq, idx: 0, left: seq[0]!.ticks })
+        const seq = parseFlashSpec(DEFAULT_FLASH_SPEC)
+        rt.flashes.set(flash & 31, { seq, idx: 0, left: seq[0]!.ticks, screen: n })
       }
     },
 
@@ -2778,6 +2932,16 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       if (!d) throw new AmosError(DIALOG_ERRORS[6]!)
       const z = dialogZoneAt(d, int(a[1]!), int(a[2]!))
       return VI(z ? z.number : -1)
+    },
+    rain(_, a) {
+      // =Rain(n,line) (FnRain +Lib.s:9447 → TRVar +W.s:3966): bounds
+      // errors report as OUT OF MEMORY via EcWiErr, like Rainbow
+      const n = int(a[0]!)
+      const line = int(a[1]!)
+      const rb = rt.rainbows.get(n)
+      if (n >>> 0 >= 4 || !rb || rb.table.length === 0 || line < 0 || line >= rb.table.length)
+        throw new AmosError('out of memory')
+      return VI(rb.table[line]!)
     },
     ntsc(_, a) {
       void a
