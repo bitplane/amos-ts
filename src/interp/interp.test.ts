@@ -263,7 +263,10 @@ describe('control flow', () => {
   })
 
   it('honours End and Stop', () => {
+    // InEnd +ILib.s:549 (RunErr NbEnd) and InStop +Lib.s:13042 (GoError 9) both
+    // halt the run; nothing after them executes
     expect(run('Print "A"\nEnd\nPrint "B"')).toBe('A\n')
+    expect(run('Print "A"\nStop\nPrint "B"')).toBe('A\n')
   })
 })
 

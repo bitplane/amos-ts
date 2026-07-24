@@ -501,6 +501,21 @@ describe('blocks, clones, flips', () => {
     expect(rt.screen.point(100, 50)).toBe(0)
   })
 
+  it('Hrev/Vrev Block mirror the stored block (RevBloc +W.s:12620)', () => {
+    // a 4x4 block with a single marked pixel at its top-left corner
+    const base = ['Cls 0', 'Ink 5 : Plot 10,10', 'Get Block 1,10,10,4,4']
+    // horizontal mirror moves column 0 to the last column
+    let rt = run([...base, 'Hrev Block 1', 'Cls 0', 'Put Block 1,0,0'].join('\n')).rt
+    expect(rt.screen.point(3, 0)).toBe(5)
+    expect(rt.screen.point(0, 0)).toBe(0)
+    // vertical mirror moves row 0 to the last row
+    rt = run([...base, 'Vrev Block 1', 'Cls 0', 'Put Block 1,0,0'].join('\n')).rt
+    expect(rt.screen.point(0, 3)).toBe(5)
+    expect(rt.screen.point(0, 0)).toBe(0)
+    // a missing block raises the FindBloc "Block not defined" error
+    expect(() => run('Hrev Block 9')).toThrow(/block not defined/)
+  })
+
   it('clones screens sharing the bitmap', () => {
     const prog = ['Screen Clone 3', 'Ink 5 : Plot 10,10'].join('\n')
     const { rt } = run(prog)

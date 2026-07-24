@@ -1903,13 +1903,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.playPcm(mask, pcm, freq, false)
     },
     'hrev block'(it) {
+      // RevBloc +W.s:12620: FindBloc raises "Block not defined" on a missing
+      // block, then Retourne mirrors the pixels along the chosen axis.
       const b = rt.blocks.get(it.evalInt())
-      if (!b) return
+      if (!b) throw new AmosError('block not defined')
       for (let y = 0; y < b.h; y++) b.pixels.subarray(y * b.w, (y + 1) * b.w).reverse()
     },
     'vrev block'(it) {
       const b = rt.blocks.get(it.evalInt())
-      if (!b) return
+      if (!b) throw new AmosError('block not defined')
       for (let y = 0; y < b.h >> 1; y++) {
         const a = b.pixels.slice(y * b.w, (y + 1) * b.w)
         b.pixels.copyWithin(y * b.w, (b.h - 1 - y) * b.w, (b.h - y) * b.w)

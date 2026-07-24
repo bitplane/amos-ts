@@ -366,6 +366,24 @@ export const FAITHFUL = new Set<string>([
   'errn',
   'err$',
   'error',
+  // program/flow terminators + waits verified against the library source:
+  //   End (InEnd +ILib.s:549 → RunErr NbEnd) and Stop (InStop +Lib.s:13042 →
+  //     GoError 9) both halt the run — our halt('ended')/halt('stopped').
+  //   End If (a runtime no-op: the multi-line If prepass has already branched;
+  //     reaching End If just falls through).
+  //   End Proc (InEndProc +ILib.s:2659) writes the optional [expr] into the
+  //     type-matching Param slot (FnEProc) then restores the caller; Pop Proc
+  //     (InPopProc → PopP +ILib.s:2724) force-exits from any depth by resetting
+  //     to BasA3 — our returnFromProc truncates loops/gosubs to the proc base.
+  //   Wait Vbl (InWtVbl +Lib.s:2133) waits one frame; Wait Key (InWtKy
+  //     +Lib.s:2142) loops Inkey until a key arrives — both block until then.
+  'end',
+  'stop',
+  'end if',
+  'end proc',
+  'pop proc',
+  'wait vbl',
+  'wait key',
   // text/console + language statements verified against +W.s/+Lib.s/+ILib.s:
   // Cls window-vs-screen (8722), Curs Pen/On/Off (13330-13418), Centre
   // (13289), Scroll (10221), Shade (14837), Param typed slots (FnEProc
@@ -678,4 +696,16 @@ export const NOTES: Record<string, string> = {
   squash: "decodes/encodes the exact Squasher format; the encoder uses a greedy longest-match rather than ST Squasher's pre-scan heuristic, so packed size may differ",
   ppload: 'PP20 decoder verified against genuine PowerPacker output (a real crunched AmigaGuide decodes byte-for-byte) and against two independent reference decoders; the real crunch algorithm is a ROM library, not in the AMOS source, so this is a from-format reimplementation of a verified-correct decoder rather than a source port. Bob/icon object banks unsupported.',
   ppsave: 'Writes a valid PP20 file — proven decodable by an independent reference decoder — but NOT bit-identical to real PowerPacker output: powerpacker.library makes different (better) crunch choices, and its encoder is not in the AMOS source, so byte-exact parity is unverifiable. The efficiency argument is validated but the offset table is fixed; bob/icon banks unsupported.',
+  // Host-capability gaps — the source is understood (cites below) but the
+  // Amiga facility it drives has no equivalent in the port.
+  edit: 'InEdit +ILib.s:1858 returns to the AMOS editor (run-error 1000); there is no editor in the port, so the program halts',
+  direct: 'InDirect +ILib.s:1866 returns to direct mode (run-error 1001); no direct window exists in the port, so the program halts',
+  wait: 'InWait +Lib.s:2075 waits the given VBLs (faithful for the positive case); a negative count should raise a function-call error and Wait 0 should wait for any event — both are currently no-ops',
+  free: 'FnFree queries exec AvailMem; the port has no Amiga memory manager, so it returns a nominal free figure',
+  'chip free': 'FnChipFree +Lib.s:2510 queries exec AvailMem(MEMF_CHIP); no Amiga memory manager in the port — returns a nominal figure',
+  'fast free': 'FnFastFree +Lib.s:2517 queries exec AvailMem(MEMF_FAST); no Amiga memory manager in the port — returns a nominal figure',
+  lprint: 'InLPrint +ILib.s:5067 routes Print to the printer device; no printer host, so the arguments are evaluated (for side effects) then discarded',
+  'dual priority': 'InDualPriority +Lib.s:8922 reorders an existing dual-playfield pair; tied to the approximated dual-playfield model, and the pair-validation error differs from CheckScreenNumber/EcWiErr',
+  'hrev block': "RevBloc +W.s:12620 mirrors the block; the visible result matches, but the port reverses pixels directly rather than via AMOS's stored orientation flag (bits $C000)",
+  'vrev block': "RevBloc +W.s:12620 mirrors the block vertically; visible result matches, but via direct pixel reversal rather than AMOS's orientation-flag mechanism",
 }
