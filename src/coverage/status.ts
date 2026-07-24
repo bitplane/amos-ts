@@ -87,6 +87,14 @@ export const FAITHFUL = new Set<string>([
   'bell',
   'shoot',
   'boom',
+  // MED: the AMOS-side plumbing (+Music.s:4456-4745) — bank handling,
+  // magic check + erase on failure (error 189), stop/cont/midi flag,
+  // MedCheck — is ported; the replay reimplements the public MMD0/MMD1
+  // format (medplayer.library is not in the AMOS source) — see NOTES
+  'med load',
+  'med stop',
+  'med cont',
+  'med midi on',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
   'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add
@@ -769,6 +777,8 @@ export const NOTES: Record<string, string> = {
   music: 'note triggers start immediately instead of after the one-vbl DMA-off gap; a 2-byte repeat region plays silence rather than looping its two bytes',
   mubase: 'only the vumeter bytes (MB+0..3) of the data zone are mapped',
   'track play': 'triggers skip the one-vbl DMA latch gap; the pattern argument is ignored ("not supported in this version" in the 68k too)',
+  'med play': 'the replay reimplements the MMD0/MMD1 format (medplayer.library is not in the AMOS source): sampled instruments and the common effect subset; synthsounds are silent; CIA timing approximated at vbl granularity',
+  'med midi on': 'flag stored; no MIDI output exists in the port',
   'noise to': 'the WebAudio sink snapshots the noise buffer at trigger; the per-vbl random refresh mutates the live buffer as on the Amiga but is only re-heard on retrigger there',
   'led on': 'filter flag reaches the sink; audibility depends on the host audio implementation',
   'led off': 'filter flag reaches the sink; audibility depends on the host audio implementation',

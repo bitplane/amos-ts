@@ -25,6 +25,7 @@
 
 import { AmosError } from '../interp/values'
 import { PAULA_CLOCK, periodToHz, samPeriod } from './audio'
+import { MedPlayer } from './med'
 import type { AudioSink } from './audio'
 
 /** what the player needs from the runtime */
@@ -180,8 +181,12 @@ export class MusicPlayer {
     nb: 0,
   }))
 
+  /** the MED player (its own interrupt on the Amiga; stepped from our vbl) */
+  med!: MedPlayer
+
   constructor(host: MusicHost) {
     this.host = host
+    this.med = new MedPlayer(host)
     // MusDef (+Music.s:897-917): wave 1 is a square, wave 0 is the noise
     // buffer, seeded by the same LCG the vbl refresh uses
     const square = new Int8Array(256)
@@ -331,16 +336,18 @@ export class MusicPlayer {
       // "Music: beq Tracker" (+Music.s:1138) — the tracker only steps
       // while no bank music is playing
       this.trackerVbl()
-      return
-    }
-    this.muEvery(s)
-    s.cpt += s.tempo
-    if (s.cpt >= TEMPO_BASE) {
-      s.cpt -= TEMPO_BASE
-      this.stepTick(s)
     } else {
-      this.doEffects(s)
+      this.muEvery(s)
+      s.cpt += s.tempo
+      if (s.cpt >= TEMPO_BASE) {
+        s.cpt -= TEMPO_BASE
+        this.stepTick(s)
+      } else {
+        this.doEffects(s)
+      }
     }
+    // the MED player runs on its own interrupt on the Amiga
+    this.med.vbl()
   }
 
   private cur(): MuSong | null {

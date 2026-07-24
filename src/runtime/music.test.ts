@@ -461,6 +461,64 @@ describe('the real Mod.Tracker module', () => {
   })
 })
 
+describe('the MED player', () => {
+  const medPath = join(__dirname, '../../fixtures/official-amos/Examples/Music/Med_Module')
+
+  function medBoot(src: string): { rt: Runtime; audio: NullAudio } {
+    const audio = new NullAudio()
+    const mod = new Uint8Array(readFileSync(medPath))
+    const rt = new Runtime(tokenize(src, table, extensions), table, {
+      extensions,
+      audio,
+      maxSteps: 100_000,
+      onText: () => {},
+      fs: { read: (p: string) => (p === 'mod.med' ? mod : null) },
+    })
+    return { rt, audio }
+  }
+
+  it('Med Load banks the module; bad magic erases the bank (InMedLoad +Music.s:4456)', () => {
+    const { rt } = medBoot('Med Load "mod.med",7')
+    frames(rt, 3)
+    expect(rt.memBanks.get(7)?.name).toBe('Med')
+    expect(rt.music.med.bank).toBe(7)
+    const audio = new NullAudio()
+    const rt2 = new Runtime(tokenize('Med Load "bad.med",7', table, extensions), table, {
+      extensions, audio, maxSteps: 100_000, onText: () => {},
+      fs: { read: () => new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]) },
+    })
+    expect(() => rt2.runHeadless(3)).toThrow(/not a med module/i)
+    expect(rt2.memBanks.get(7)).toBeUndefined()
+  })
+
+  it('Med Play replays the shipped MMD0 module (reimplemented MMD replay)', () => {
+    const { rt, audio } = medBoot('Med Load "mod.med",7\nMed Play')
+    frames(rt, 400)
+    expect(rt.music.med.on).toBe(true)
+    const plays = audio.events.filter((e) => e.kind === 'play')
+    expect(plays.length).toBeGreaterThan(2)
+    for (const p of plays) {
+      expect(p.freq!).toBeGreaterThanOrEqual(periodToHz(856) - 1)
+      expect(p.freq!).toBeLessThanOrEqual(periodToHz(113) + 1)
+    }
+  })
+
+  it('Med Stop silences, Med Cont resumes (InMedStop/Cont +Music.s:4588/4732)', () => {
+    const { rt, audio } = medBoot('Med Load "mod.med",7\nMed Play\nWait 100\nMed Stop')
+    frames(rt, 200)
+    expect(rt.music.med.on).toBe(false)
+    const count = audio.events.filter((e) => e.kind === 'play').length
+    rt.music.med.cont()
+    frames(rt, 200)
+    expect(rt.music.med.on).toBe(true)
+    expect(audio.events.filter((e) => e.kind === 'play').length).toBeGreaterThan(count)
+  })
+
+  it('Med Play errors on a non-Med bank (error 189, +Music.s:4663)', () => {
+    expect(() => boot('Med Play', musicBank(BASIC)).rt.runHeadless(3)).toThrow(/not a med module/i)
+  })
+})
+
 describe('the real Music.abk', () => {
   const path = join(__dirname, '../../fixtures/official-amos/Examples/Music/Music.abk')
 

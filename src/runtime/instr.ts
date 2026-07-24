@@ -1921,6 +1921,49 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'track stop'() {
       rt.music.trackStop()
     },
+    'med load'(it) {
+      // InMedLoad +Music.s:4456: whole file into a chip bank "Med     ";
+      // a bad magic erases the bank and raises error 189
+      const path = it.evalStr()
+      it.expect(',')
+      const n = it.evalInt()
+      if (n < 1 || n >= 0x10000) throw new AmosError('Illegal function call', 23)
+      if (n === rt.music.med.bank) rt.music.med.stop()
+      rt.music.med.bank = n
+      const bytes = rt.fs?.read(path)
+      if (!bytes) throw new AmosError(`file not found: ${path}`)
+      rt.memBanks.set(n, { kind: 'memory', number: n, memType: 1, name: 'Med', flags: 0, data: bytes })
+      const magic = String.fromCharCode(...bytes.slice(0, 4))
+      if (magic !== 'MMD0' && magic !== 'MMD1') {
+        rt.memBanks.delete(n)
+        throw new AmosError('not a med module')
+      }
+    },
+    'med play'(it) {
+      // InMedPlay0-2 +Music.s:4603: Med Play [bank][,song] — the bank is
+      // verified first, then samples/tracker/med all stop before the start
+      let bank: number | null = null
+      let song = 0
+      if (!it.atStmtEnd()) {
+        if (it.nm() !== ',') bank = it.evalInt()
+        if (it.accept(',')) song = it.evalInt()
+      }
+      rt.music.med.stop()
+      const n = rt.music.med.checkBank(bank)
+      rt.stopVoices(0b1111)
+      rt.music.trackStop()
+      rt.music.med.play(n, song)
+    },
+    'med stop'() {
+      rt.music.med.stop()
+    },
+    'med cont'() {
+      rt.music.med.cont()
+    },
+    'med midi on'() {
+      // InMedMidiOn +Music.s:4702: flag only — no MIDI output in the port
+      rt.music.med.midi = true
+    },
     'track loop on'() {
       rt.music.trackLoop = true
     },
