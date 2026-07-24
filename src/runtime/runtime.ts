@@ -229,6 +229,7 @@ export class Runtime {
         const b = rt.memBanks.get(3)
         return b && b.name.startsWith('Musi') ? b.data : null
       },
+      getBank: (n: number) => rt.memBanks.get(n) ?? null,
     }))(this),
   )
   // ---- file channels (Open In/Out, Print #, Input #) ----
@@ -1501,13 +1502,14 @@ export class Runtime {
 
   /**
    * GetSam (+Music.s:3207): errors follow the 68k order — n<=0 illegal
-   * function call; bank missing or not a "Samp" bank = sample bank not
-   * reserved; n past the count or a zero offset = sample not defined.
+   * function call; bank missing or not a "Samp" bank = error 180 "Sample
+   * bank not found"; n past the count or a zero offset = sample not
+   * defined (+Editor_Config.s:1049).
    */
   getSample(n: number): SampleEntry {
     if (n <= 0) throw new AmosError('Illegal function call', 23)
     const bank = this.memBanks.get(this.samBankNum)
-    if (!bank || !bank.name.startsWith('Samp')) throw new AmosError('sample bank not reserved')
+    if (!bank || !bank.name.startsWith('Samp')) throw new AmosError('sample bank not found')
     if (this.sampleCache?.bank !== bank) {
       this.sampleCache = { bank, entries: parseSampleBank(bank.data) }
     }

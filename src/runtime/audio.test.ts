@@ -70,7 +70,7 @@ describe('sample playback', () => {
 
   it('errors on undefined samples and bad bank numbers', () => {
     expect(() => run('Sam Play 7')).toThrow(/sample not defined/i)
-    expect(() => run('Sam Bank 6\nSam Play 1')).toThrow(/sample bank not reserved/i)
+    expect(() => run('Sam Bank 6\nSam Play 1')).toThrow(/sample bank not found/i)
     expect(() => run('Sam Bank 0')).toThrow(/illegal function call/i)
     expect(() => run('Sam Bank 17')).toThrow(/illegal function call/i)
   })

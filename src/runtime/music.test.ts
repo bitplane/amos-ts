@@ -239,11 +239,136 @@ describe('music bank player', () => {
 
   it('errors: no bank, bad song, bad tempo/mvolume ranges', () => {
     const noBank: MemoryBank = { kind: 'memory', number: 5, memType: 1, name: 'Work', flags: 0, data: new Uint8Array(4) }
-    expect(() => boot('Music 1', noBank).rt.runHeadless(2)).toThrow(/music bank not reserved/i)
+    expect(() => boot('Music 1', noBank).rt.runHeadless(2)).toThrow(/music bank not found/i)
     expect(() => boot('Music 9', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/music not defined/i)
     expect(() => boot('Music 0', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/illegal function call/i)
     expect(() => boot('Tempo 101', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/illegal function call/i)
     expect(() => boot('Mvolume 64', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/illegal function call/i)
+  })
+})
+
+// ---- the Tracker (MOD) player -------------------------------------------
+
+/**
+ * Minimal M.K. module: one sample, one pattern; row 0 voice 0 plays
+ * instrument 1 at period 0x143 with F01 (speed 1), so the whole pattern
+ * runs in 64 vbls. The note period 0x1ac is distinct from the synthetic
+ * music bank's notes so tests can tell the two players apart.
+ */
+function modFile(loopSample = false): Uint8Array {
+  const d = new Uint8Array(1084 + 1024 + 64)
+  const dv = new DataView(d.buffer)
+  dv.setUint16(20 + 22, 32) // sample 1: 64 bytes
+  d[20 + 25] = 40 // volume
+  if (loopSample) {
+    dv.setUint16(20 + 26, 8) // repeat at byte 16
+    dv.setUint16(20 + 28, 8) // 16 bytes
+  } else {
+    dv.setUint16(20 + 28, 1) // conventional 1-word repeat
+  }
+  d[950] = 1 // song length
+  d[951] = 0 // restart position
+  d[952] = 0 // positions[0] = pattern 0
+  d.set([0x4d, 0x2e, 0x4b, 0x2e], 1080) // "M.K."
+  // row 0 voice 0: inst 1 (lo nibble in byte 2), period 0x1ac, cmd F01
+  d[1084] = 0x01
+  d[1085] = 0xac
+  d[1086] = 0x1f
+  d[1087] = 0x01
+  for (let i = 0; i < 64; i++) d[1084 + 1024 + i] = i & 1 ? 80 : 176
+  return d
+}
+
+function trackerBank(loopSample = false, number = 6): MemoryBank {
+  return { kind: 'memory', number, memType: 1, name: 'Tracker', flags: 0, data: modFile(loopSample) }
+}
+
+describe('the MOD tracker', () => {
+  it('plays rows at the module speed and writes the vumeter (mt_playvoice +Music.s:1800)', () => {
+    const { rt, audio } = boot('Track Play', trackerBank())
+    // statement on frame 1; first row when mt_counter reaches speed 6
+    frames(rt, 8)
+    const plays = audio.events.filter((e) => e.kind === 'play')
+    expect(plays).toHaveLength(1)
+    expect(plays[0]).toMatchObject({ voice: 0, freq: periodToHz(0x1ac), volume: 40 })
+    // the conventional 1-word repeat loops two bytes, as on the Amiga
+    expect(plays[0]!.loopStart).toBe(0)
+    expect(plays[0]!.loopEnd).toBe(2)
+    expect(rt.vuBytes[0]).toBe(40)
+    expect(rt.music.mtOn).toBe(true)
+  })
+
+  it('stops at song end without Track Loop, loops with it (mt_next +Music.s:1760)', () => {
+    const { rt } = boot('Track Play', trackerBank())
+    frames(rt, 90) // 64 rows at speed 1 + the lead-in
+    expect(rt.music.mtOn).toBe(false)
+    const { rt: rt2, audio: a2 } = boot('Track Loop On\nTrack Play', trackerBank())
+    frames(rt2, 200)
+    expect(rt2.music.mtOn).toBe(true)
+    expect(a2.events.filter((e) => e.kind === 'play').length).toBeGreaterThan(1)
+  })
+
+  it('Track Stop silences all four voices (InTrackStop +Music.s:4229)', () => {
+    const { rt, audio } = boot('Track Play\nWait 10\nTrack Stop', trackerBank())
+    frames(rt, 20)
+    expect(rt.music.mtOn).toBe(false)
+    expect(audio.events.filter((e) => e.kind === 'stop').length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('errors on a bank that is not a tracker module (+Music.s:4356)', () => {
+    expect(() => boot('Track Play', musicBank(BASIC)).rt.runHeadless(2)).toThrow(/not a tracker module/i)
+  })
+
+  it('Track Load pulls a file into the bank and Track Play uses it (InTrackLoad +Music.s:4120)', () => {
+    const audio = new NullAudio()
+    const mod = modFile()
+    const rt = new Runtime(tokenize('Track Load "song.mod",6\nTrack Play', table, extensions), table, {
+      extensions,
+      audio,
+      maxSteps: 100_000,
+      onText: () => {},
+      fs: { read: (p: string) => (p === 'song.mod' ? mod : null) },
+    })
+    frames(rt, 10)
+    expect(rt.memBanks.get(6)?.name).toBe('Tracker')
+    expect(rt.music.mtOn).toBe(true)
+    expect(audio.events.some((e) => e.kind === 'play')).toBe(true)
+  })
+
+  it('the tracker only steps while no bank music plays (Music: beq Tracker +Music.s:1138)', () => {
+    const audio = new NullAudio()
+    const rt = new Runtime(tokenize('Music 1\nTrack Play\nWait 10\nMusic Off', table, extensions), table, {
+      extensions,
+      audio,
+      banks: [musicBank(BASIC, { loopSong: true }), trackerBank()],
+      maxSteps: 100_000,
+      onText: () => {},
+    })
+    frames(rt, 8)
+    // while the music plays, the tracker is installed but silent
+    expect(rt.music.mtOn).toBe(true)
+    expect(audio.events.filter((e) => e.kind === 'play').every((e) => e.freq !== periodToHz(0x1ac))).toBe(true)
+    frames(rt, 20)
+    // Music Off frees the vbl for the tracker
+    expect(audio.events.filter((e) => e.kind === 'play').some((e) => e.freq === periodToHz(0x1ac))).toBe(true)
+  })
+})
+
+describe('the real Mod.Tracker module', () => {
+  const path = join(__dirname, '../../fixtures/official-amos/Examples/Music/Mod.Tracker')
+
+  it('replays with sensible Paula periods on several voices', () => {
+    const bank: MemoryBank = { kind: 'memory', number: 6, memType: 1, name: 'Tracker', flags: 0, data: new Uint8Array(readFileSync(path)) }
+    const { rt, audio } = boot('Track Loop On\nTrack Play', bank)
+    frames(rt, 400)
+    expect(rt.music.mtOn).toBe(true)
+    const plays = audio.events.filter((e) => e.kind === 'play')
+    expect(plays.length).toBeGreaterThan(4)
+    expect(new Set(plays.map((p) => p.voice)).size).toBeGreaterThan(1)
+    for (const p of plays) {
+      expect(p.freq!).toBeGreaterThanOrEqual(periodToHz(0x358) - 1)
+      expect(p.freq!).toBeLessThanOrEqual(periodToHz(0x71) + 1)
+    }
   })
 })
 

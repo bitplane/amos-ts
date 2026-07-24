@@ -1820,6 +1820,40 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.musicVolume = v & 63
       rt.music.setMusicVolume()
     },
+    'track load'(it) {
+      // InTrackLoad +Music.s:4120: the whole file into a chip bank named
+      // "Tracker "; reloading the currently playing bank stops it first
+      const path = it.evalStr()
+      it.expect(',')
+      const n = it.evalInt()
+      if (n < 1 || n >= 0x10000) throw new AmosError('Illegal function call', 23)
+      if (n === rt.music.trackBank && rt.music.mtOn) rt.music.trackStop()
+      rt.music.trackBank = n
+      const bytes = rt.fs?.read(path)
+      if (!bytes) throw new AmosError(`file not found: ${path}`)
+      rt.memBanks.set(n, { kind: 'memory', number: n, memType: 1, name: 'Tracker', flags: 0, data: bytes })
+    },
+    'track play'(it) {
+      // InTrackPlay0-2 +Music.s:4266: bank defaults to Track_Bank; the
+      // pattern argument is "not supported in this version" there either
+      let bank: number | null = null
+      if (!it.atStmtEnd()) {
+        if (it.nm() !== ',') bank = it.evalInt()
+        if (it.accept(',')) it.evalInt()
+      }
+      rt.music.trackPlay(bank)
+    },
+    'track stop'() {
+      rt.music.trackStop()
+    },
+    'track loop on'() {
+      rt.music.trackLoop = true
+    },
+    // the original token table really does spell it with one f
+    // ("track loop o","f"+$80 — +Music.s:503)
+    'track loop of'() {
+      rt.music.trackLoop = false
+    },
     // InLedOn/Of +Music.s:3917: $BFE001 bit 1 — LED lit = low-pass filter engaged
     'led on': () => rt.audio.setFilter(true),
     'led off': () => rt.audio.setFilter(false),

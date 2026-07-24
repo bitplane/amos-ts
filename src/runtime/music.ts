@@ -34,6 +34,7 @@ export interface MusicHost {
   musicVolume: number
   tick: () => number
   musicBank: () => Uint8Array | null
+  getBank: (n: number) => { name: string; data: Uint8Array } | null
 }
 
 type Effect = 'none' | 'slide' | 'arp' | 'ptone' | 'vib' | 'vsl'
@@ -149,7 +150,7 @@ export class MusicPlayer {
   music(n: number): void {
     if (n <= 0) throw new AmosError('Illegal function call', 23)
     this.ensureBank()
-    if (!this.bound) throw new AmosError('music bank not reserved')
+    if (!this.bound) throw new AmosError('music bank not found')
     const count = this.w(this.songBase)
     if (n > count) throw new AmosError('music not defined')
     if (this.stack.length >= 3) return // no room — current music keeps playing
@@ -233,7 +234,12 @@ export class MusicPlayer {
       }
     }
     const s = this.cur()
-    if (!s) return
+    if (!s) {
+      // "Music: beq Tracker" (+Music.s:1138) — the tracker only steps
+      // while no bank music is playing
+      this.trackerVbl()
+      return
+    }
     this.muEvery(s)
     s.cpt += s.tempo
     if (s.cpt >= TEMPO_BASE) {
@@ -619,20 +625,370 @@ export class MusicPlayer {
     this.lastVol[v] = vol
   }
 
-  /** AUDxPER write — skipped for voices the mask routes to the dummy buffer */
-  private perWrite(v: number, per: number): void {
-    if (!(this.dmask & (1 << v)) || per <= 0) return
+  private sinkFreq(v: number, per: number): void {
+    if (per <= 0) return
     const hz = periodToHz(per)
     if (hz === this.lastFreq[v]) return
     this.lastFreq[v] = hz
     this.host.audio.setFrequency(v, hz)
   }
 
-  /** AUDxVOL write, once per change */
-  private volWrite(v: number, vol: number): void {
-    if (!(this.dmask & (1 << v))) return
+  private sinkVol(v: number, vol: number): void {
     if (vol === this.lastVol[v]) return
     this.lastVol[v] = vol
     this.host.audio.setVolume(v, vol)
+  }
+
+  /** AUDxPER write — skipped for voices the mask routes to the dummy buffer */
+  private perWrite(v: number, per: number): void {
+    if (this.dmask & (1 << v)) this.sinkFreq(v, per)
+  }
+
+  /** AUDxVOL write, once per change */
+  private volWrite(v: number, vol: number): void {
+    if (this.dmask & (1 << v)) this.sinkVol(v, vol)
+  }
+
+  // ---- the Tracker (ProTracker MOD replay, Tracker/mt_* +Music.s:1673) ---
+  // A separate player over raw modules loaded by Track Load; it only
+  // steps while no bank music plays. The DMA latch dance (row: DMA off +
+  // first-part LC/LEN, beam-wait, DMA on; next vbl: loop-part LC/LEN) is
+  // collapsed into play() with the loop region, as with the bank player.
+
+  mtOn = false
+  /** Track_Bank (+Music.s:2298): default 6 */
+  trackBank = 6
+  /** Track_Loop */
+  trackLoop = false
+  private trackStopFlag = false
+  private mtData: Uint8Array | null = null
+  private mtBankNum = 6
+  private mtSpeed = 6
+  private mtCounter = 0
+  private mtSongpos = 0
+  private mtPattpos = 0
+  private mtBreak = false
+  /** sample start offsets by instrument number 1-31 (mt_samplestarts) */
+  private mtStarts: number[] = []
+  private mtVoices = [0, 1, 2, 3].map(() => ({
+    note: 0, // row word 0 ((a4))
+    cmd: 0, // row word 1 (2(a4))
+    start: 0, // 4(a4)
+    length: 0, // 8(a4), words
+    loopStart: 0, // $a(a4)
+    repLen: 0, // $e(a4), words
+    period: 0, // $10(a4)
+    volume: 0, // $13(a4)
+    portDir: false, // $14(a4): true = slide down toward a lower period
+    portSpeed: 0, // $15(a4)
+    portTarget: 0, // $16(a4)
+    vibCmd: 0, // $18(a4)
+    vibPos: 0, // $19(a4)
+  }))
+
+  private mw(off: number): number {
+    const d = this.mtData
+    if (!d || off < 0 || off + 2 > d.length) return 0
+    return (d[off]! << 8) | d[off + 1]!
+  }
+
+  /** InTrackPlay2 (+Music.s:4277); the pattern argument is unsupported there too */
+  trackPlay(bankArg: number | null): void {
+    let n = bankArg ?? this.trackBank
+    // Bnk.OrAdr: an address inside the bank region names its bank
+    if (n >= 0x01000000) n = Math.floor((n - 0x01000000) / 0x00100000)
+    const bank = this.host.getBank(n)
+    if (!bank || !bank.name.startsWith('Trac')) throw new AmosError('not a tracker module')
+    // InSamStop0 + InTrackStop before the init
+    for (let v = 0; v < 4; v++) this.host.audio.stop(v)
+    this.trackStop()
+    this.mtBankNum = n // Track_Bank itself is only set by Track Load
+    const d = bank.data
+    this.mtData = d
+    // mt_samplestarts: walk the 31 sample records (finetune is ignored —
+    // the 68k clears the finetune bytes in the bank)
+    let maxPat = 0
+    for (let i = 0; i < 128; i++) maxPat = Math.max(maxPat, d[0x3b8 + i] ?? 0)
+    let p = 0x43c + (maxPat + 1) * 1024
+    this.mtStarts = new Array<number>(32).fill(0)
+    for (let i = 1; i <= 31; i++) {
+      this.mtStarts[i] = p
+      p += this.mw(12 + i * 30) * 2
+    }
+    this.mtSpeed = 6
+    this.mtCounter = 0
+    this.mtSongpos = 0
+    this.mtPattpos = 0
+    this.mtBreak = false
+    this.trackStopFlag = false
+    for (const V of this.mtVoices) {
+      V.note = V.cmd = V.start = V.length = V.loopStart = V.repLen = 0
+      V.period = V.volume = V.portSpeed = V.portTarget = V.vibCmd = V.vibPos = 0
+      V.portDir = false
+    }
+    this.mtOn = true
+  }
+
+  /** InTrackStop (+Music.s:4229) */
+  trackStop(): void {
+    if (!this.mtOn) return
+    this.mtOn = false
+    this.trackStopFlag = false
+    for (let v = 0; v < 4; v++) {
+      this.host.audio.stop(v)
+      this.lastVol[v] = -1
+      this.lastFreq[v] = 0
+    }
+  }
+
+  private trackerVbl(): void {
+    if (!this.mtOn) return
+    // TrackCheck (+Music.s:4211): the bank vanished or was replaced
+    const bank = this.host.getBank(this.mtBankNum)
+    if (!bank || bank.data !== this.mtData || !bank.name.startsWith('Trac')) {
+      this.trackStop()
+      return
+    }
+    this.mtMusic()
+    if (this.trackStopFlag) this.trackStop() // Tracker exit (+Music.s:1694)
+  }
+
+  /** mt_music (+Music.s:1709) */
+  private mtMusic(): void {
+    const d = this.mtData!
+    this.mtCounter++
+    if (this.mtCounter < this.mtSpeed) {
+      // mt_nonew: per-tick effects
+      for (let v = 0; v < 4; v++) this.mtCom(v)
+      if (this.mtBreak) this.mtNext()
+      return
+    }
+    this.mtCounter = 0
+    const pat = d[0x3b8 + this.mtSongpos] ?? 0
+    const rowOff = 0x43c + pat * 1024 + this.mtPattpos
+    for (let v = 0; v < 4; v++) this.mtPlayVoice(v, rowOff + v * 4)
+    this.mtPattpos += 16
+    if (this.mtPattpos === 0x400 || this.mtBreak) this.mtNext()
+  }
+
+  /** mt_next (+Music.s:1760): advance the song position */
+  private mtNext(): void {
+    const d = this.mtData!
+    this.mtPattpos = 0
+    this.mtBreak = false
+    this.mtSongpos = (this.mtSongpos + 1) & 0x7f
+    if (this.mtSongpos === (d[0x3b6] ?? 0)) {
+      if (!this.trackLoop) this.trackStopFlag = true // Track_Stop
+      this.mtSongpos = d[0x3b7] ?? 0 // restart byte
+    }
+  }
+
+  /** mt_playvoice (+Music.s:1800): one row entry for one voice */
+  private mtPlayVoice(v: number, rowOff: number): void {
+    const d = this.mtData!
+    const V = this.mtVoices[v]!
+    const b0 = d[rowOff] ?? 0
+    const b2 = d[rowOff + 2] ?? 0
+    V.note = (b0 << 8) | (d[rowOff + 1] ?? 0)
+    V.cmd = (b2 << 8) | (d[rowOff + 3] ?? 0)
+    const inst = (b0 & 0xf0) | (b2 >> 4)
+    if (inst !== 0) {
+      const rec = 12 + inst * 30
+      V.start = this.mtStarts[inst] ?? 0
+      V.length = this.mw(rec)
+      V.volume = this.mw(rec + 2) & 0xff
+      const rep = this.mw(rec + 4)
+      const repLen = this.mw(rec + 6)
+      if (rep !== 0) {
+        // looping sample: first pass covers start..(repeat+replen)
+        V.loopStart = V.start + rep * 2
+        V.length = rep + repLen
+      } else {
+        V.loopStart = V.start
+      }
+      V.repLen = repLen
+      this.sinkVol(v, V.volume)
+      this.host.vuBytes[v] = V.volume & 0xff // MuVu write (+Music.s:1838)
+    }
+    const per = V.note & 0xfff
+    if (per !== 0) {
+      if (V.length === 0) {
+        this.host.audio.stop(v) // mt_stopsound
+      } else {
+        const fx = (V.cmd >> 8) & 0x0f
+        if (fx === 3 || fx === 5) {
+          // mt_setport: the note is a portamento target, no retrigger;
+          // an equal target clears it AND skips the row command (rts)
+          V.portTarget = per
+          V.portDir = false
+          if (per === V.period) {
+            V.portTarget = 0
+            return
+          }
+          if (per < V.period) V.portDir = true
+        } else {
+          V.period = per
+          V.vibPos = 0
+          this.mtTrigger(v)
+        }
+      }
+    }
+    this.mtCom2(v)
+  }
+
+  /** the retrigger: AUDxLC/LEN/PER + DMA + next-vbl loop latch, collapsed */
+  private mtTrigger(v: number): void {
+    const d = this.mtData!
+    const V = this.mtVoices[v]!
+    const first = V.length * 2
+    const loopBytes = V.repLen * 2
+    const end = Math.min(d.length, Math.max(V.start + first, V.loopStart + loopBytes))
+    if (V.start >= end || V.start < 0) return
+    const pcm = new Int8Array(d.buffer, d.byteOffset + V.start, end - V.start)
+    let loopStart = -1
+    let loopEnd = pcm.length
+    if (loopBytes >= 2 && V.loopStart >= V.start) {
+      // Paula always relatches the repeat region — a conventional 1-word
+      // repeat loops two (usually silent) bytes, exactly as on the Amiga
+      loopStart = V.loopStart - V.start
+      loopEnd = Math.min(pcm.length, loopStart + loopBytes)
+    }
+    this.play(v, pcm, periodToHz(V.period), V.volume, loopStart, loopEnd)
+  }
+
+  /** mt_com2 (+Music.s:2047): row commands */
+  private mtCom2(v: number): void {
+    const V = this.mtVoices[v]!
+    const fx = (V.cmd >> 8) & 0x0f
+    const arg = V.cmd & 0xff
+    switch (fx) {
+      case 0xe:
+        // Exy: bit set = filter OFF (mt_filter pokes $BFE001 bit 1)
+        this.host.audio.setFilter(!(arg & 1))
+        break
+      case 0xd:
+        this.mtBreak = true
+        break
+      case 0xb:
+        this.mtBreak = true
+        this.mtSongpos = (arg - 1) & 0xff
+        break
+      case 0xc: {
+        V.volume = Math.min(arg, 0x40)
+        this.sinkVol(v, V.volume)
+        break
+      }
+      case 0xf: {
+        let s = Math.min(arg, 0x1f)
+        if (s === 0) s = 1
+        this.mtSpeed = s
+        break
+      }
+    }
+  }
+
+  /** mt_com (+Music.s:1974): per-tick effects */
+  private mtCom(v: number): void {
+    const V = this.mtVoices[v]!
+    if ((V.cmd & 0xfff) === 0) {
+      this.sinkFreq(v, V.period) // mt_normper
+      return
+    }
+    const fx = (V.cmd >> 8) & 0x0f
+    const arg = V.cmd & 0xff
+    switch (fx) {
+      case 0x0:
+        this.mtArp(v)
+        break
+      case 0x6:
+        this.mtVib2(v)
+        this.mtVolslide(v)
+        break
+      case 0x4:
+        if (arg !== 0) V.vibCmd = arg // mt_vib
+        this.mtVib2(v)
+        break
+      case 0x5:
+        this.mtPort2(v)
+        this.mtVolslide(v)
+        break
+      case 0x3:
+        // mt_port: a fresh speed is stored and the arg byte cleared
+        if (arg !== 0) {
+          V.portSpeed = arg
+          V.cmd &= 0xff00
+        }
+        this.mtPort2(v)
+        break
+      case 0x1: {
+        // mt_portup: clamp at period $71
+        V.period = Math.max(0x71, V.period - arg)
+        this.sinkFreq(v, V.period)
+        break
+      }
+      case 0x2: {
+        // mt_portdown: clamp at period $358
+        V.period = Math.min(0x358, V.period + arg)
+        this.sinkFreq(v, V.period)
+        break
+      }
+      default:
+        this.sinkFreq(v, V.period)
+        if (fx === 0xa) this.mtVolslide(v)
+    }
+  }
+
+  /** mt_port2 (+Music.s:1891): slide toward the stored target */
+  private mtPort2(v: number): void {
+    const V = this.mtVoices[v]!
+    if (V.portTarget === 0) return
+    if (!V.portDir) {
+      V.period += V.portSpeed
+      if (V.portTarget <= V.period) {
+        V.period = V.portTarget
+        V.portTarget = 0
+      }
+    } else {
+      V.period -= V.portSpeed
+      if (V.portTarget >= V.period) {
+        V.period = V.portTarget
+        V.portTarget = 0
+      }
+    }
+    this.sinkFreq(v, V.period)
+  }
+
+  /** mt_vib2 (+Music.s:1924): sine vibrato, depth>>7 (half the bank player's) */
+  private mtVib2(v: number): void {
+    const V = this.mtVoices[v]!
+    const idx = (V.vibPos >> 2) & 0x1f
+    const delta = (SINUS[idx]! * (V.vibCmd & 0x0f)) >> 7
+    const per = V.vibPos & 0x80 ? V.period - delta : V.period + delta
+    this.sinkFreq(v, per)
+    V.vibPos = (V.vibPos + ((V.vibCmd >> 2) & 0x3c)) & 0xff
+  }
+
+  /** mt_arp (+Music.s:1950): counter-indexed 0,1,2 cycle over the period table */
+  private mtArp(v: number): void {
+    const V = this.mtVoices[v]!
+    const sel = this.mtCounter % 3 // mt_arplist is 0,1,2 repeating
+    if (sel === 0) {
+      this.sinkFreq(v, V.period)
+      return
+    }
+    const nib = sel === 2 ? V.cmd & 0x0f : (V.cmd >> 4) & 0x0f
+    let i = 0
+    while (i < 36 && PERIODS[i]! > V.period) i++
+    const per = PERIODS[i + nib]
+    if (per !== undefined && per > 0) this.sinkFreq(v, per)
+  }
+
+  /** mt_volslide (+Music.s:2027) */
+  private mtVolslide(v: number): void {
+    const V = this.mtVoices[v]!
+    const up = (V.cmd >> 4) & 0x0f
+    if (up !== 0) V.volume = Math.min(0x40, V.volume + up)
+    else V.volume = Math.max(0, V.volume - (V.cmd & 0x0f))
+    this.sinkVol(v, V.volume)
   }
 }

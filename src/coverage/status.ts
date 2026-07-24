@@ -61,6 +61,15 @@ export const FAITHFUL = new Set<string>([
   'mvolume',
   'voice',
   'mubase',
+  // the MOD tracker: Tracker/mt_* replay ported from +Music.s:1673-2103
+  // (row fetch, effect subset 0-6/A-F, song advance/loop, TrackCheck,
+  // one-f "track loop of" token spelling per the original table);
+  // music.test.ts replays a synthetic module and the shipped Mod.Tracker
+  'track load',
+  'track play',
+  'track stop',
+  'track loop on',
+  'track loop of',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
   'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add
@@ -742,6 +751,7 @@ export const NOTES: Record<string, string> = {
   'sam raw': 'unmapped addresses play nothing (the real machine plays whatever memory holds)',
   music: 'note triggers start immediately instead of after the one-vbl DMA-off gap; a 2-byte repeat region plays silence rather than looping its two bytes',
   mubase: 'only the vumeter bytes (MB+0..3) of the data zone are mapped',
+  'track play': 'triggers skip the one-vbl DMA latch gap; the pattern argument is ignored ("not supported in this version" in the 68k too)',
   bell: 'modern synthesis, not chip waveform',
   shoot: 'modern synthesis',
   boom: 'modern synthesis',
