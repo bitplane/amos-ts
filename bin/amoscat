@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# rg --pre preprocessor: detokenise an AMOS program to source on stdout,
+# pass anything else through unchanged. Bundled to plain JS for fast
+# per-file startup (rg spawns this once per file).
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec node "$here/dist/amoscat.cjs" "$1"

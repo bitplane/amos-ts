@@ -3,10 +3,10 @@ import { varKey } from '../interp/prescan'
 import type { Instr, Func } from '../interp/builtins'
 import { parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
-import { parseIlbm } from '../loader/iff'
+import { encodeIlbm, parseIlbm } from '../loader/iff'
 import { parsePacPic } from '../loader/pacpic'
 import { parseDiskFont, parseFontDescriptor } from '../loader/diskfont'
-import { DEFAULT_FLASH_SPEC, Runtime, SYS_MESSAGES, parseFlashSpec } from './runtime'
+import { DEFAULT_FLASH_SPEC, Runtime, SYS_MESSAGES, extractCodeHunk, parseFlashSpec } from './runtime'
 import { Screen, builtinPattern } from './screen'
 import { ObjectBank } from './objects'
 import { AmalChannel, AmalCompileError, compileAmal } from './amal'
@@ -3318,7 +3318,53 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
       const s = scr()
       for (let i = 0; i < Math.min(32, img.palette.length); i++) s.palette[i] = img.palette[i]!
-      if (img.width > 0) rt.blit(s, img, 0, 0, true)
+      // Mask Iff: only load the bitplanes selected by the mask (IffMask)
+      if (img.width > 0) rt.blit(s, img, 0, 0, true, rt.iffMask)
+    },
+    'mask iff'(it) {
+      // InMaskIff +Lib.s:4365: store the bitplane mask Load Iff obeys
+      rt.iffMask = it.evalInt()
+    },
+    'save iff'(it) {
+      // InSaveIff1/2 +Lib.s:4624: save the screen as a compressed ILBM;
+      // the optional 2nd arg is the compression mode (must be < 3)
+      const path = it.evalStr()
+      if (it.accept(',')) {
+        const mode = it.evalInt()
+        if (mode >>> 0 >= 3) throw new AmosError('function call error')
+      }
+      const s = scr()
+      const camg = (s.hires ? 0x8000 : 0) | (s.laced ? 4 : 0) | (s.ham ? 0x800 : 0) | (s.ehb ? 0x80 : 0)
+      const bytes = encodeIlbm({ width: s.width, height: s.height, depth: s.depth, mode: camg, palette: [...s.palette], pixels: s.pixels })
+      if (!rt.vfs?.writeFile(path, bytes)) throw new AmosError('disc is write protected')
+    },
+    save(it) {
+      // InSave1/2 +Lib.s:3829: Save "file" = all banks (AmBs container);
+      // Save "file",n = bank n alone (AmBk/AmSp/AmIc)
+      const path = it.evalStr()
+      const n = it.accept(',') ? it.evalInt() : null
+      const bytes = n === null ? rt.serializeAllBanks() : rt.serializeBank(n)
+      if (!rt.vfs?.writeFile(path, bytes)) throw new AmosError('disc is write protected')
+    },
+    pload(it) {
+      // InPLoad +Lib.s:4254: load the code hunk of an AmigaDOS executable
+      // into bank n as a Data bank (n<0 = chip RAM)
+      const path = it.evalStr()
+      it.expect(',')
+      const n = it.evalInt()
+      if (n === 0) throw new AmosError('function call error')
+      const bytes = rt.fs?.read(path)
+      if (!bytes) {
+        if (it.policy === 'skip') {
+          it.unimplemented.set('pload (file missing)', (it.unimplemented.get('pload (file missing)') ?? 0) + 1)
+          return
+        }
+        throw new AmosError(`file not found: ${path}`)
+      }
+      const data = extractCodeHunk(bytes)
+      if (!data) throw new AmosError('file format not recognised')
+      const num = Math.abs(n)
+      rt.memBanks.set(num, { kind: 'memory', number: num, memType: n < 0 ? 1 : 0, name: 'Datas   ', flags: 0, data })
     },
   }
 
@@ -3679,6 +3725,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     'text base'() {
       // the graphics font's tf_Baseline (topaz 8 = 6)
       return VI(scr().font?.baseline ?? 6)
+    },
+    picture(_, a) {
+      // FnPicture +Lib.s:4372: a legacy AMOS 1.3 constant, always 127
+      void a
+      return VI(127)
     },
     windon(_, a) {
       void a

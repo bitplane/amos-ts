@@ -215,6 +215,15 @@ export const FAITHFUL = new Set<string>([
   'drive',
   'set stack',
   'set equate bank',
+  // IFF/bank I/O: Save Iff (ILBM encoder, ByteRun1, round-trips parseIlbm,
+  // InSaveIff2 +Lib.s:4630), Save/Save n (bank serializers, AmBs/AmBk),
+  // Mask Iff plane mask (InMaskIff 4365), =Picture legacy constant 127
+  // (FnPicture 4372), Pload code-hunk loader into a bank (InPLoad 4254)
+  'save iff',
+  'save',
+  'mask iff',
+  'picture',
+  'pload',
   // random-access records: Open Random (RanApp $80 +Lib.s:5249), Field
   // record layout with the file-size snapshot (InField +ILib.s:4769),
   // Get/Put via GetPut's record/type checks with the exact EOF rules

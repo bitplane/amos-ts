@@ -113,3 +113,96 @@ export function parseIlbm(bytes: Uint8Array): IlbmImage {
 
   return { width, height, depth, mode, palette, pixels }
 }
+
+/** ByteRun1 (PackBits) compress one plane row (Save Iff BODY encoding) */
+function packRow(row: Uint8Array): number[] {
+  const out: number[] = []
+  let i = 0
+  while (i < row.length) {
+    // count a run of identical bytes
+    let run = 1
+    while (i + run < row.length && row[i + run] === row[i] && run < 128) run++
+    if (run >= 2) {
+      out.push(257 - run, row[i]!)
+      i += run
+    } else {
+      // literal run: up to 128 bytes until a >=2 repeat begins
+      const start = i
+      let lit = 0
+      while (i < row.length && lit < 128) {
+        if (i + 1 < row.length && row[i + 1] === row[i] && i + 2 < row.length && row[i + 2] === row[i]) break
+        i++
+        lit++
+      }
+      out.push(lit - 1)
+      for (let j = start; j < i; j++) out.push(row[j]!)
+    }
+  }
+  return out
+}
+
+/**
+ * Encode an indexed image as a compressed IFF ILBM (Save Iff): FORM ILBM
+ * with BMHD (compression 1 = ByteRun1), CMAP (RGB4 → 8-bit), CAMG (the
+ * viewport mode) and a row-interleaved BODY. The exact inverse of
+ * parseIlbm for the fields AMOS round-trips.
+ */
+export function encodeIlbm(img: IlbmImage): Uint8Array {
+  const { width, height, depth, mode, palette, pixels } = img
+  const rowBytes = ((width + 15) >> 4) * 2
+  const chunks: Array<[string, number[]]> = []
+  chunks.push([
+    'BMHD',
+    [
+      width >> 8, width & 255, height >> 8, height & 255,
+      0, 0, 0, 0, // x, y
+      depth, 0 /* masking */, 1 /* compression = ByteRun1 */, 0 /* pad */,
+      0, 0, // transparent colour
+      1, 1, // aspect x, y
+      width >> 8, width & 255, height >> 8, height & 255, // page w, h
+    ],
+  ])
+  const cmap: number[] = []
+  const n = Math.min(palette.length || 1 << depth, 1 << depth)
+  for (let i = 0; i < n; i++) {
+    const v = palette[i] ?? 0
+    // RGB4 nibble → 8-bit, replicated into both nibbles like the Amiga
+    cmap.push((((v >> 8) & 15) * 17) & 255, (((v >> 4) & 15) * 17) & 255, ((v & 15) * 17) & 255)
+  }
+  chunks.push(['CMAP', cmap])
+  chunks.push(['CAMG', [(mode >>> 24) & 255, (mode >>> 16) & 255, (mode >>> 8) & 255, mode & 255]])
+
+  const body: number[] = []
+  const row = new Uint8Array(rowBytes)
+  for (let y = 0; y < height; y++) {
+    for (let plane = 0; plane < depth; plane++) {
+      row.fill(0)
+      const bit = 1 << plane
+      const base = y * width
+      for (let x = 0; x < width; x++) {
+        if (pixels[base + x]! & bit) row[x >> 3]! |= 1 << (7 - (x & 7))
+      }
+      body.push(...packRow(row))
+    }
+  }
+  chunks.push(['BODY', body])
+
+  // assemble FORM
+  const put = (arr: number[], s: string): void => {
+    for (let i = 0; i < s.length; i++) arr.push(s.charCodeAt(i))
+  }
+  const put32 = (arr: number[], v: number): void => { arr.push((v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255) }
+  const inner: number[] = []
+  put(inner, 'ILBM')
+  for (const [id, data] of chunks) {
+    put(inner, id)
+    put32(inner, data.length)
+    inner.push(...data)
+    if (data.length & 1) inner.push(0) // pad to even
+  }
+  const form: number[] = []
+  put(form, 'FORM')
+  put32(form, inner.length)
+  form.push(...inner)
+  return Uint8Array.from(form)
+}

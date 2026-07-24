@@ -2217,7 +2217,9 @@ export class Runtime {
   }
 
   /** Stamp an image into a screen's framebuffer (Paste Bob / Unpack / Load Iff). */
-  blit(s: Screen, img: { width: number; height: number; pixels: Uint8Array }, dx: number, dy: number, opaque: boolean): void {
+  blit(s: Screen, img: { width: number; height: number; pixels: Uint8Array }, dx: number, dy: number, opaque: boolean, planeMask = -1): void {
+    // Mask Iff: -1 (all planes) unless a program restricted the load;
+    // masking a pixel keeps the destination's bits outside the mask
     for (let y = 0; y < img.height; y++) {
       const ty = dy + y
       if (ty < 0 || ty >= s.height) continue
@@ -2226,9 +2228,44 @@ export class Runtime {
         if (!opaque && v === 0) continue
         const tx = dx + x
         if (tx < 0 || tx >= s.width) continue
-        if (s.inClip(tx, ty)) s.pixels[ty * s.width + tx] = v
+        if (!s.inClip(tx, ty)) continue
+        const i = ty * s.width + tx
+        s.pixels[i] = planeMask === -1 ? v : (s.pixels[i]! & ~planeMask) | (v & planeMask)
       }
     }
+  }
+
+  /** Mask Iff plane mask obeyed by Load Iff (IffMask; -1 = all planes) */
+  iffMask = -1
+
+  /** Serialise bank n as a standalone .Abk (AmBk memory / AmSp sprites /
+   * AmIc icons) — the inverse of parseAmosFile for one bank */
+  serializeBank(n: number): Uint8Array {
+    if (n === 1 && this.spriteBank) return serializeObjectBank('AmSp', this.spriteBank)
+    if (n === 2 && this.iconBank) return serializeObjectBank('AmIc', this.iconBank)
+    const bank = this.memBanks.get(n)
+    if (!bank) throw new AmosError('bank not reserved')
+    return serializeMemoryBank(bank)
+  }
+
+  /** Save "file": all banks in an AmBs container (word count + banks) */
+  serializeAllBanks(): Uint8Array {
+    const parts: Uint8Array[] = []
+    const nums = [...this.memBanks.keys()].sort((a, b) => a - b)
+    let count = nums.length + (this.spriteBank ? 1 : 0) + (this.iconBank ? 1 : 0)
+    if (this.spriteBank) parts.push(serializeObjectBank('AmSp', this.spriteBank))
+    if (this.iconBank) parts.push(serializeObjectBank('AmIc', this.iconBank))
+    for (const num of nums) parts.push(serializeMemoryBank(this.memBanks.get(num)!))
+    const body = concatBytes(parts)
+    const out = new Uint8Array(6 + body.length)
+    out[0] = 0x41 // 'A'
+    out[1] = 0x6d // 'm'
+    out[2] = 0x42 // 'B'
+    out[3] = 0x73 // 's'
+    out[4] = (count >> 8) & 255
+    out[5] = count & 255
+    out.set(body, 6)
+    return out
   }
 
   /** Grab a rectangle of a screen as a new bank image (Get Bob). */
@@ -3525,4 +3562,91 @@ function parentAmigaPath(path: string): string {
 
 function amigaPatternRx(pattern: string): RegExp {
   return amigaPattern(pattern)
+}
+
+/** join byte chunks into one Uint8Array */
+function concatBytes(parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((n, p) => n + p.length, 0)
+  const out = new Uint8Array(total)
+  let off = 0
+  for (const p of parts) {
+    out.set(p, off)
+    off += p.length
+  }
+  return out
+}
+
+/** serialise a memory bank as AmBk (the inverse of parseMemoryBank) */
+function serializeMemoryBank(bank: MemoryBank): Uint8Array {
+  const name = (bank.name + '        ').slice(0, 8)
+  const out = new Uint8Array(4 + 2 + 2 + 4 + 8 + bank.data.length)
+  const v = new DataView(out.buffer)
+  out[0] = 0x41 // A
+  out[1] = 0x6d // m
+  out[2] = 0x42 // B
+  out[3] = 0x6b // k
+  v.setUint16(4, bank.number)
+  v.setUint16(6, bank.memType)
+  // low 28 bits = data length + 8 (the name), high byte = flags
+  v.setUint32(8, ((bank.flags & 0xff) << 24) | ((bank.data.length + 8) & 0x0fffffff))
+  for (let i = 0; i < 8; i++) out[12 + i] = name.charCodeAt(i)
+  out.set(bank.data, 20)
+  return out
+}
+
+/** serialise a sprite/icon ObjectBank as AmSp/AmIc, re-encoding each
+ * image's chunky pixels back to planar (inverse of decodeSprite) */
+function serializeObjectBank(magic: 'AmSp' | 'AmIc', bank: ObjectBank): Uint8Array {
+  const parts: Uint8Array[] = []
+  const head = new Uint8Array(6)
+  head[0] = magic.charCodeAt(0)
+  head[1] = magic.charCodeAt(1)
+  head[2] = magic.charCodeAt(2)
+  head[3] = magic.charCodeAt(3)
+  new DataView(head.buffer).setUint16(4, bank.images.length)
+  parts.push(head)
+  for (const img of bank.images) {
+    const widthWords = (img.width + 15) >> 4
+    const hdr = new Uint8Array(10)
+    const hv = new DataView(hdr.buffer)
+    hv.setUint16(0, widthWords)
+    hv.setUint16(2, img.height)
+    hv.setUint16(4, img.depth)
+    hv.setUint16(6, img.hotX)
+    hv.setUint16(8, img.hotY)
+    parts.push(hdr)
+    const rowBytes = widthWords * 2
+    const planar = new Uint8Array(rowBytes * img.height * img.depth)
+    for (let plane = 0; plane < img.depth; plane++) {
+      const bit = 1 << plane
+      const planeBase = plane * rowBytes * img.height
+      for (let y = 0; y < img.height; y++) {
+        const rowBase = planeBase + y * rowBytes
+        for (let x = 0; x < img.width; x++) {
+          if (img.pixels[y * img.width + x]! & bit) planar[rowBase + (x >> 3)]! |= 1 << (7 - (x & 7))
+        }
+      }
+    }
+    parts.push(planar)
+  }
+  const pal = new Uint8Array(64)
+  const pv = new DataView(pal.buffer)
+  for (let i = 0; i < 32; i++) pv.setUint16(i * 2, bank.palette[i] ?? 0)
+  parts.push(pal)
+  return concatBytes(parts)
+}
+
+/** the code hunk of an AmigaDOS load-file (Pload / diskfont): skip the
+ * HUNK_HEADER, find HUNK_CODE ($3E9), return its bytes; null if not one */
+export function extractCodeHunk(bytes: Uint8Array): Uint8Array | null {
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  if (bytes.length < 8 || v.getUint32(0) !== 0x3f3) return null
+  let p = 8
+  const tableSize = v.getUint32(p)
+  p += 12 + tableSize * 4
+  if (p + 8 > bytes.length || v.getUint32(p) !== 0x3e9) return null
+  const len = v.getUint32(p + 4) * 4
+  const base = p + 8
+  if (base + len > bytes.length) return null
+  return bytes.slice(base, base + len)
 }
