@@ -852,6 +852,31 @@ export class Screen {
           this.curX = 0
           this.curY = 0
           break
+        // window scrolls (+W.s:16588-16595): Hscroll/Vscroll print these
+        case 16: // cursor line one character left (ScGLine +W.s:14541)
+          this.winHScroll(-1, true)
+          break
+        case 17: // whole window left (ScGWi)
+          this.winHScroll(-1, false)
+          break
+        case 18: // cursor line right (ScDLine)
+          this.winHScroll(1, true)
+          break
+        case 19: // whole window right (ScDWi)
+          this.winHScroll(1, false)
+          break
+        case 20: // lines from the cursor down move DOWN one; cursor line cleared (ScBas)
+          this.winVScroll(1)
+          break
+        case 21: // lines above the cursor move DOWN one; top line cleared (ScBasHaut)
+          this.winVScroll(2)
+          break
+        case 22: // lines down to the cursor move UP one; cursor line cleared (ScHaut)
+          this.winVScroll(3)
+          break
+        case 23: // lines below the cursor move UP one; bottom line cleared (ScHautBas)
+          this.winVScroll(4)
+          break
         case 25: // Clw — clear the window (ChClw)
           this.clw()
           break
@@ -876,6 +901,69 @@ export class Screen {
   locate(x: number, y: number): void {
     if (x >= 0) this.curX = Math.min(x, this.cols - 1)
     if (y >= 0) this.curY = Math.min(y, this.rows - 1)
+  }
+
+  /** raw paper-colour fill of a window region (the blit fills/ClFin) */
+  private winFill(x: number, y: number, w: number, h: number, c: number): void {
+    const px = this.pixels
+    for (let yy = y; yy < y + h; yy++) {
+      if (yy < 0 || yy >= this.height) continue
+      const row = yy * this.width
+      for (let xx = x; xx < x + w; xx++) if (xx >= 0 && xx < this.width) px[row + xx] = c
+    }
+  }
+
+  /**
+   * Hscroll: shift the cursor line (or the whole window) one CHARACTER
+   * left/right; the vacated column fills with paper (ScGLine/ScGWi/
+   * ScDLine/ScDWi +W.s:14539-14655).
+   */
+  private winHScroll(dir: number, lineOnly: boolean): void {
+    const w = this.curWin
+    const y1 = lineOnly ? w.y + w.curY * 8 : w.y
+    const h = lineOnly ? 8 : w.rows * 8
+    const x1 = w.x
+    const wpx = w.cols * 8
+    if (dir < 0) {
+      Screen.copy(this, x1 + 8, y1, x1 + wpx, y1 + h, this, x1, y1)
+      this.winFill(x1 + wpx - 8, y1, 8, h, w.paper)
+    } else {
+      Screen.copy(this, x1, y1, x1 + wpx - 8, y1 + h, this, x1 + 8, y1)
+      this.winFill(x1, y1, 8, h, w.paper)
+    }
+  }
+
+  /**
+   * Vscroll region scrolls (+W.s:14657-14760):
+   *  1 ScBas     — cursor..bottom-1 move down one line, cursor line cleared
+   *  2 ScBasHaut — top..cursor-1 move down one line, top line cleared
+   *  3 ScHaut    — 1..cursor move up one line, cursor line cleared
+   *  4 ScHautBas — cursor+1..bottom move up one line, bottom line cleared
+   */
+  private winVScroll(kind: number): void {
+    const w = this.curWin
+    const x1 = w.x
+    const wpx = w.cols * 8
+    const top = w.y
+    const cy = w.y + w.curY * 8
+    const bottom = w.y + w.rows * 8
+    switch (kind) {
+      case 1:
+        Screen.copy(this, x1, cy, x1 + wpx, bottom - 8, this, x1, cy + 8)
+        this.winFill(x1, cy, wpx, 8, w.paper)
+        break
+      case 2:
+        Screen.copy(this, x1, top, x1 + wpx, cy, this, x1, top + 8)
+        this.winFill(x1, top, wpx, 8, w.paper)
+        break
+      case 3:
+        Screen.copy(this, x1, top + 8, x1 + wpx, cy + 8, this, x1, top)
+        this.winFill(x1, cy, wpx, 8, w.paper)
+        break
+      default:
+        Screen.copy(this, x1, cy + 8, x1 + wpx, bottom, this, x1, cy)
+        this.winFill(x1, bottom - 8, wpx, 8, w.paper)
+    }
   }
 
   /** scroll the CURRENT WINDOW's text area up by px pixels */

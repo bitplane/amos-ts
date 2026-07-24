@@ -181,6 +181,13 @@ export const FAITHFUL = new Set<string>([
   // Dual Priority = BPLCON2 PFBA for whichever screen is named first
   'dual playfield',
   'dual priority',
+  // Hscroll/Vscroll (InHScroll/InVScroll +Lib.s:13544): the keywords just
+  // print window control codes 16-19/20-23 — the scrolls themselves are
+  // the escape handlers (ScGLine/ScGWi/ScDLine/ScDWi one character with
+  // paper fill, ScBas/ScBasHaut/ScHaut/ScHautBas cursor-relative line
+  // regions, +W.s:14539-14760), so Print Chr$(17) scrolls too
+  'hscroll',
+  'vscroll',
   // objects/screens sweep: real bob pipeline (Actualise-style), buffers
   'bob', // blitted with background save/restore; Point sees bobs
   'bob off',
@@ -671,8 +678,6 @@ export const NOTES: Record<string, string> = {
   start: 'fake address space: Start()-relative arithmetic works, absolute hardware addresses do not',
   peek: 'addresses inside banks and screen bitplanes (Logbase/Phybase) resolve; other addresses read 0',
   poke: 'writes into banks and screen bitplanes render; writes elsewhere are ignored',
-  hscroll: 'window-region scroll, approximated',
-  vscroll: 'window-region scroll, approximated',
   'shade on': 'dither approximates the original shading',
   'border$': 'returns the text unchanged — border boxes not rendered',
   at: "escape codes 'X'/'Y' assumed, not read from the source",

@@ -1854,22 +1854,19 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.spriteUpdateOn = false
     },
     'hscroll'(it) {
-      // 1: line left, 2: window left, 3: line right, 4: window right
-      const t = it.evalInt()
-      const s = scr()
-      const w = s.curWin
-      const y1 = t === 1 || t === 3 ? w.y + w.curY * 8 : w.y
-      const h = t === 1 || t === 3 ? 8 : w.rows * 8
-      const dx = t <= 2 ? -8 : 8
-      Screen.copy(s, w.x, y1, w.x + w.cols * 8, y1 + h, s, w.x + dx, y1)
+      // InHScroll +Lib.s:13544: n in 1..4 prints window control code 15+n
+      // — the scroll itself is the escape-code handler (ScG*/ScD*
+      // +W.s:14539), so Print Chr$(16) does the same thing
+      const n = it.evalInt()
+      if (n < 1 || n > 4) throw new AmosError('function call error')
+      scr().writeText(String.fromCharCode(15 + n))
     },
     'vscroll'(it) {
-      // 1: down from cursor, 2: window up, 3: window down, 4: up from cursor
-      const t = it.evalInt()
-      const s = scr()
-      const w = s.curWin
-      const dy = t === 2 || t === 4 ? -8 : 8
-      Screen.copy(s, w.x, w.y, w.x + w.cols * 8, w.y + w.rows * 8, s, w.x, w.y + dy)
+      // InVScroll +Lib.s:13552: codes 19+n (ScBas/ScBasHaut/ScHaut/
+      // ScHautBas +W.s:14657-14760)
+      const n = it.evalInt()
+      if (n < 1 || n > 4) throw new AmosError('function call error')
+      scr().writeText(String.fromCharCode(19 + n))
     },
 
     // ---- text styles ----

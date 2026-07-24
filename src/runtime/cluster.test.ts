@@ -810,3 +810,52 @@ describe('menus', () => {
     expect(out).toContain('PICKED 1')
   })
 })
+
+describe('Hscroll/Vscroll: window escape codes (InHScroll/InVScroll +Lib.s:13544)', () => {
+  // the keywords print control chars 16-19/20-23; the scrolls are the
+  // window escape handlers ScG*/ScD*/ScBas*/ScHaut* (+W.s:14539-14760)
+  it('Hscroll 1 shifts only the cursor line one character left, paper-filling the edge', () => {
+    const prog = [
+      'Flash Off',
+      'Plot 8,2,5', // text line 0 (cell rows 0-7)
+      'Plot 8,10,6', // text line 1
+      'Locate 0,0 : Hscroll 1',
+    ].join('\n')
+    const { rt } = run(prog)
+    expect(rt.screen.point(0, 2)).toBe(5) // moved 8px left
+    expect(rt.screen.point(8, 2)).toBe(1) // old spot now background
+    expect(rt.screen.point(8, 10)).toBe(6) // other lines untouched
+    expect(rt.screen.point(312, 2)).toBe(1) // vacated right column = paper
+  })
+
+  it('Hscroll 4 shifts the whole window right; Print Chr$(19) is identical', () => {
+    const a = run('Flash Off\nPlot 8,2,5 : Plot 8,50,6\nHscroll 4').rt
+    const b = run('Flash Off\nPlot 8,2,5 : Plot 8,50,6\nPrint Chr$(19);').rt
+    for (const rt of [a, b]) {
+      expect(rt.screen.point(16, 2)).toBe(5)
+      expect(rt.screen.point(16, 50)).toBe(6)
+      expect(rt.screen.point(0, 2)).toBe(1) // vacated left column = paper
+    }
+  })
+
+  it('Vscroll 1 moves the cursor line and below DOWN, clearing the cursor line (ScBas)', () => {
+    const prog = ['Flash Off', 'Plot 4,4,5 : Plot 4,12,6 : Plot 4,20,7', 'Locate 0,1 : Vscroll 1'].join('\n')
+    const { rt } = run(prog)
+    expect(rt.screen.point(4, 4)).toBe(5) // line 0 untouched
+    expect(rt.screen.point(4, 12)).toBe(1) // cursor line cleared to paper
+    expect(rt.screen.point(4, 20)).toBe(6) // old line 1 moved down to line 2
+  })
+
+  it('Vscroll 4 moves the lines below the cursor UP, clearing the bottom (ScHautBas)', () => {
+    const prog = ['Flash Off', 'Plot 4,12,6 : Plot 4,20,7', 'Locate 0,0 : Vscroll 4'].join('\n')
+    const { rt } = run(prog)
+    expect(rt.screen.point(4, 4)).toBe(6) // old line 1 now at line 0 (cursor)
+    expect(rt.screen.point(4, 12)).toBe(7) // old line 2 at line 1
+    expect(rt.screen.point(4, 192)).toBe(1) // bottom line cleared
+  })
+
+  it('rejects arguments outside 1..4 (HVSc +Lib.s:13560)', () => {
+    expect(() => run('Hscroll 0')).toThrow(/function call/)
+    expect(() => run('Vscroll 5')).toThrow(/function call/)
+  })
+})
