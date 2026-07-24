@@ -1510,7 +1510,21 @@ export class Runtime {
 
   openScreen(n: number, w: number, h: number, nColors: number, mode: number): Screen {
     if (n < 0 || n > 7) throw new AmosError(`illegal screen number: ${n}`)
-    const s = new Screen(n, Math.max(8, w), Math.max(8, h), nColors, mode)
+    // InScreenOpen (+Lib.s:8948): 4096 = HAM — lowres only, 6 planes,
+    // stored as 64 colours with the CAMG bit; otherwise the colour count
+    // must be exactly a power of two 2..64 (error 5, "illegal number of
+    // colours"), and hires screens cap at 16 colours
+    let colours = nColors
+    let m = mode
+    if (colours === 4096) {
+      if (m & 0x8000) throw new AmosError('function call error')
+      colours = 64
+      m |= 0x800
+    } else {
+      if (![2, 4, 8, 16, 32, 64].includes(colours)) throw new AmosError('illegal number of colours')
+      if (m & 0x8000 && colours > 16) throw new AmosError('function call error')
+    }
+    const s = new Screen(n, Math.max(8, w), Math.max(8, h), colours, m)
     for (let i = 0; i < this.defaultPalette.length && i < 32; i++) s.palette[i] = this.defaultPalette[i]!
     this.screens.set(n, s)
     this.order = this.order.filter((i) => i !== n)
@@ -2009,6 +2023,38 @@ export class Runtime {
     }
   }
 
+  /**
+   * Per-row colour resolver: plain indexed, EHB half-bright (values 32-63
+   * show colours 0-31 with each component halved), or HAM6 (control bits
+   * 5-4: 0 = set from the 16-colour palette, 1/2/3 = modify blue/red/green
+   * of a running colour that restarts from colour 0 each scanline).
+   */
+  private rowColours(s: Screen, pal: Uint16Array | null): (pix: number) => number {
+    const get = (i: number): number => (pal ? pal[i & 31]! : s.palette[i & 31]! & 0xfff)
+    if (s.ham) {
+      let c = get(0)
+      return (pix) => {
+        const dat = pix & 15
+        switch (pix >> 4) {
+          case 0:
+            c = get(dat)
+            break
+          case 1:
+            c = (c & 0xff0) | dat
+            break
+          case 2:
+            c = (c & 0x0ff) | (dat << 8)
+            break
+          default:
+            c = (c & 0xf0f) | (dat << 4)
+        }
+        return c
+      }
+    }
+    if (s.ehb) return (pix) => (pix >= 32 ? (get(pix - 32) >> 1) & 0x777 : get(pix))
+    return (pix) => get(pix)
+  }
+
   private winWOf(s: Screen): number {
     return s.displayW >= 0 ? Math.min(s.displayW, s.width) : s.width
   }
@@ -2250,13 +2296,14 @@ export class Runtime {
       const winW = winWOf(s)
       const isCur = s === cs && s.cursorOn && cw !== null && sy >= curY0 && sy < curY0 + 8
       const mask = isCur ? CURSOR_SHAPE[sy - curY0]! : 0
+      const colour = this.rowColours(s, pal)
       for (let x = 0; x < winW; x++) {
         const sx = x + s.offsetX
         if (sx < 0 || sx >= s.width) continue
-        let pix = pixels[sy * s.width + sx]! & 31
-        if (mask !== 0 && sx >= curX0 && sx < curX0 + 8 && (mask << (sx - curX0)) & 0x80) pix = cw!.cuCol & 31
+        let pix = pixels[sy * s.width + sx]! & 63
+        if (mask !== 0 && sx >= curX0 && sx < curX0 + 8 && (mask << (sx - curX0)) & 0x80) pix = cw!.cuCol & 63
         if (clearZero && pix === 0) continue
-        const rgb4 = pal ? pal[pix]! : s.palette[pix]! & 0xfff
+        const rgb4 = colour(pix)
         const cr = ((rgb4 >> 8) & 15) * 17
         const cg = ((rgb4 >> 4) & 15) * 17
         const cb = (rgb4 & 15) * 17
@@ -2381,10 +2428,11 @@ export class Runtime {
             const baseX = (hstart - 1 - 128) * 2
             const isCur = s === cs && s.cursorOn && cw !== null && sy >= curY0 && sy < curY0 + 8
             const mask = isCur ? CURSOR_SHAPE[sy - curY0]! : 0
+            const colour = this.rowColours(s, hwPal)
             for (let sx = 0; sx < s.width; sx++) {
-              let pix = pixels[sy * s.width + sx]! & 31
-              if (mask !== 0 && sx >= curX0 && sx < curX0 + 8 && (mask << (sx - curX0)) & 0x80) pix = cw!.cuCol & 31
-              const rgb4 = hwPal[pix]!
+              let pix = pixels[sy * s.width + sx]! & 63
+              if (mask !== 0 && sx >= curX0 && sx < curX0 + 8 && (mask << (sx - curX0)) & 0x80) pix = cw!.cuCol & 63
+              const rgb4 = colour(pix)
               const cr = ((rgb4 >> 8) & 15) * 17
               const cg = ((rgb4 >> 4) & 15) * 17
               const cb = (rgb4 & 15) * 17

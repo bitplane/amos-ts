@@ -1822,7 +1822,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'screen clone'(it) {
       const n = it.evalInt()
       const src = scr()
-      const clone = rt.openScreen(n, src.width, src.height, src.nColors, (src.hires ? 0x8000 : 0) | (src.laced ? 4 : 0))
+      const clone = rt.openScreen(n, src.width, src.height, src.ham ? 4096 : src.nColors, (src.hires ? 0x8000 : 0) | (src.laced ? 4 : 0))
       clone.pixels = src.pixels // shared bitmap
       clone.back = src.back
       clone.palette = src.palette
@@ -2362,7 +2362,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
       const img = parseIlbm(bytes)
       if (n !== null && img.width > 0) {
-        rt.openScreen(n, img.width, img.height, 1 << img.depth, (img.mode & 0x8000) | (img.mode & 4))
+        // CAMG $800 = HAM: open through the 4096-colour path so the
+        // compositor decodes the modify chains (InScreenOpen ScOo)
+        const colours = img.mode & 0x800 ? 4096 : 1 << img.depth
+        rt.openScreen(n, img.width, img.height, colours, (img.mode & 0x8000) | (img.mode & 4))
       }
       const s = scr()
       for (let i = 0; i < Math.min(32, img.palette.length); i++) s.palette[i] = img.palette[i]!

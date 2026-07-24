@@ -156,6 +156,12 @@ export class Screen {
   palette = Uint16Array.from(DEFAULT_PALETTE)
   hires: boolean
   laced: boolean
+  /** HAM6 (Screen Open with 4096 colours; CAMG bit $800) */
+  ham: boolean
+  /** extra-half-brite: 6 planes, lowres, not HAM — the hardware implies it */
+  get ehb(): boolean {
+    return !this.ham && this.depth === 6
+  }
   visible = true
   /** display position in AMOS hardware coords (default 128,50 = top-left) */
   displayX = 128
@@ -217,6 +223,7 @@ export class Screen {
     this.planeSize = this.rowBytes * height
     this.planarLog = new Uint8Array(this.depth * this.planeSize)
     this.hires = (mode & 0x8000) !== 0
+    this.ham = (mode & 0x800) !== 0
     this.laced = (mode & 0x4) !== 0
     const onePlane = nColors <= 2
     this.curWin = {
@@ -391,7 +398,7 @@ export class Screen {
   }
 
   private colorMask(): number {
-    return this.nColors <= 2 ? 1 : this.nColors <= 4 ? 3 : this.nColors <= 8 ? 7 : this.nColors <= 16 ? 15 : 31
+    return (1 << this.depth) - 1
   }
 
   inClip(x: number, y: number): boolean {

@@ -168,6 +168,13 @@ export const FAITHFUL = new Set<string>([
   'cop move',
   'cop movel',
   'cop logic',
+  // HAM/EHB (InScreenOpen +Lib.s:8948): 4096 colours = HAM, lowres only,
+  // stored as EcNbCol 64 with 6 planes; other counts must be exactly
+  // 2..64 powers of two (error 5, "illegal number of colours"); hires
+  // caps at 4 planes. The compositor decodes HAM6 modify chains and EHB
+  // half-brite per scanline; Screen Colour faithfully reports 64 for HAM.
+  'screen open',
+  'screen colour',
   // objects/screens sweep: real bob pipeline (Actualise-style), buffers
   'bob', // blitted with background save/restore; Point sees bobs
   'bob off',
@@ -673,7 +680,7 @@ export const NOTES: Record<string, string> = {
   bell: 'modern synthesis, not chip waveform',
   shoot: 'modern synthesis',
   boom: 'modern synthesis',
-  'load iff': 'HAM decodes as indexed (wrong colours)',
+  'load iff': 'HAM/EHB decode and render correctly; not byte-verified against the 68k IFF loader',
   centre: 'no Border$ handling',
   'mouse zone': 'current-screen coordinate mapping approximated',
   print: 'Print # channels unsupported',
@@ -721,9 +728,9 @@ export const NOTES: Record<string, string> = {
   'sprite priority': 'binary front/behind-playfield z-order; per-plane granularity not modelled',
   'set sprite buffer': 'validated no-op — the multiplexer buffer has no effect in the chunky renderer',
   'dual playfield': "each playfield uses its own palette, not the hardware's colour split; resolution/plane checks and back-screen auto-hide are not enforced",
-  'screen open': 'width masked to /16; colour-count and HAM/EHB mode validation are not enforced',
+  'screen open': 'width masked to /16; the 1..1023 size bounds of EcCree are not enforced',
   'screen display': 'the visible window w/h clips the composite; hardware scaling is not modelled',
-  'screen colour': 'returns the plane colour count; HAM does not report 4096',
+  'screen colour': 'HAM reports 64 — the real EcNbCol is stored as 64 by InScreenOpen, never 4096',
   'screen base': 'returns 0 — Screen Base is the AMOS screen control block (ScOnAd), which is not modelled in memory; Logbase/Phybase give the real bitplane addresses',
   'set font': 'a single Topaz-8 face; the number only selects metrics',
   'font$': 'the ROM list only (no disc fonts in the fixture set)',
