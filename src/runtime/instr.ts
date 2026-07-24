@@ -1080,15 +1080,40 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     appear(it) {
-      // Appear src To dst[,effect]: full copy (the dissolve order is a
-      // full cycle, completed within the instruction)
+      // Appear src To dst,e[,p] (InAppear +Lib.s:10466): p iterations
+      // (default = every pixel) stepping (e mod p) through the source
+      // pixel index space, copying only the planes both screens share and
+      // preserving the destination's higher planes. gcd(e, total) > 1
+      // leaves pixels uncopied — the classic venetian/checker dissolves.
       const src = rt.resolveScreenId(it.evalInt())
       it.expect('to')
       const dst = rt.resolveScreenId(it.evalInt())
-      if (it.accept(',')) it.evalInt()
-      const w = Math.min(src.s.width, dst.s.width)
-      const h = Math.min(src.s.height, dst.s.height)
-      Screen.copyBuf(src.s, src.buf, 0, 0, w, h, dst.s, dst.buf, 0, 0)
+      it.expect(',')
+      const e = it.evalInt()
+      const p = it.accept(',') ? it.evalInt() : 0
+      if (e <= 0 || p < 0) throw new AmosError('function call error')
+      const s = src.s
+      const d = dst.s
+      const total = s.rowBytes * 8 * s.height
+      const count = p === 0 ? total : p
+      let step = e
+      while (step >= count) step -= count
+      const mask = (1 << Math.min(s.depth, d.depth)) - 1
+      let idx = 0
+      for (let i = 0; i < count; i++) {
+        idx += step
+        if (idx >= total) idx -= total
+        const byte = idx >> 3
+        const row = Math.floor(byte / s.rowBytes)
+        if (row >= d.height) continue
+        const byteInRow = byte % s.rowBytes
+        if (byteInRow >= d.rowBytes) continue
+        const x = byteInRow * 8 + (idx & 7)
+        if (x >= s.width || x >= d.width) continue
+        const v = src.buf[row * s.width + x]! & mask
+        const di = row * d.width + x
+        dst.buf[di] = (dst.buf[di]! & ~mask) | v
+      }
     },
 
     // ---- bobs ----
@@ -2622,7 +2647,9 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(y - scr().offsetY + 50)
     },
     'screen base'() {
-      return VI(0)
+      // FnScreenBase +Lib.s:8798: ScOnAd — the current screen's control
+      // block (the Ec structure), mapped read-only so Deek/Leek walks work
+      return VI(rt.screenCtrlAddr(rt.currentIndex) | 0)
     },
     logic(_, a) {
       // Logic() = $BFFFFFFF, Logic(n) = $80000000|n (FnLogic0/1)

@@ -206,9 +206,64 @@ export class Runtime {
   static readonly SCREEN_CHIP_SLOT = 0x00100000
   static readonly SCREEN_PHY_OFFSET = 0x00080000
 
-  /** base address of screen n's logical bitmap = Logbase(n=0) = Screen Base */
+  /** base address of screen n's logical bitmap = Logbase(n=0) */
   screenChipBase(index: number): number {
     return (Runtime.SCREEN_CHIP_BASE + index * Runtime.SCREEN_CHIP_SLOT) >>> 0
+  }
+
+  /**
+   * Screen Base points at the AMOS screen CONTROL BLOCK (ScOnAd — the Ec
+   * structure, +Equ.s:482-540). A read-only image of the block is
+   * synthesized on access so Deek/Leek walks work: EcLogic/EcPhysic plane
+   * addresses at +0/+24, EcCon0 +72, EcTx/Ty/NPlan +76/78/80, the window
+   * geometry, EcNbCol +96, the live palette EcPal +98, EcTPlan +166,
+   * EcTLigne +178, EcNumber +188. Pokes into the block are ignored.
+   */
+  static readonly SCREEN_CTRL_BASE = 0x48000000
+  static readonly SCREEN_CTRL_SLOT = 0x00001000
+
+  screenCtrlAddr(index: number): number {
+    return (Runtime.SCREEN_CTRL_BASE + index * Runtime.SCREEN_CTRL_SLOT) >>> 0
+  }
+
+  private screenCtrlBlock(s: Screen): Uint8Array {
+    const b = new Uint8Array(256)
+    const w16 = (off: number, v: number): void => {
+      b[off] = (v >> 8) & 0xff
+      b[off + 1] = v & 0xff
+    }
+    const w32 = (off: number, v: number): void => {
+      w16(off, v >>> 16)
+      w16(off + 2, v & 0xffff)
+    }
+    const logic = this.screenChipBase(s.index)
+    const physic = logic + (s.doubleBuffered ? Runtime.SCREEN_PHY_OFFSET : 0)
+    for (let p = 0; p < 6; p++) {
+      const off = p < s.depth ? p * s.planeSize : 0
+      w32(0 + p * 4, p < s.depth ? logic + off : 0) // EcLogic
+      w32(24 + p * 4, p < s.depth ? physic + off : 0) // EcPhysic
+      w32(48 + p * 4, p < s.depth ? physic + off : 0) // EcCurrent
+    }
+    w16(72, (s.hires ? 0x8000 : 0) | (Math.min(s.depth, 7) << 12) | 0x200 | (s.laced ? 4 : 0) | (s.ham ? 0x800 : 0)) // EcCon0
+    w16(74, 0x24) // EcCon2
+    w16(76, s.width) // EcTx
+    w16(78, s.height) // EcTy
+    w16(80, s.depth) // EcNPlan
+    w16(82, s.displayX) // EcWX
+    w16(84, s.displayY) // EcWY
+    w16(86, s.displayW >= 0 ? Math.min(s.displayW, s.width) : s.width) // EcWTx
+    w16(88, s.displayH >= 0 ? Math.min(s.displayH, s.height) : s.height) // EcWTy
+    w16(90, s.offsetX) // EcVX
+    w16(92, s.offsetY) // EcVY
+    w16(96, s.nColors) // EcNbCol
+    for (let i = 0; i < 32; i++) w16(98 + i * 2, s.palette[i]! & 0xfff) // EcPal
+    w32(166, s.planeSize) // EcTPlan
+    w16(174, s.width - 1) // EcTxM
+    w16(176, s.height - 1) // EcTyM
+    w16(178, s.rowBytes) // EcTLigne
+    w16(188, s.index) // EcNumber
+    w16(190, s.autoback) // EcAuto
+    return b
   }
 
   // ---- user copper (CpInit/TCop* +W.s:6764-6935) ----
@@ -351,6 +406,15 @@ export class Runtime {
       const buf = rel < Runtime.COPPER_SLOT ? this.copBufA : this.copBufB
       const off = rel % Runtime.COPPER_SLOT
       return off < buf.length ? { data: buf, off } : null
+    }
+    if (a >= Runtime.SCREEN_CTRL_BASE && a < Runtime.SCREEN_CTRL_BASE + 8 * Runtime.SCREEN_CTRL_SLOT) {
+      const rel = a - Runtime.SCREEN_CTRL_BASE
+      const s = this.screens.get(Math.floor(rel / Runtime.SCREEN_CTRL_SLOT))
+      if (!s) return null
+      const off = rel % Runtime.SCREEN_CTRL_SLOT
+      // synthesized read-only block; writes land in a throwaway copy
+      const block = this.screenCtrlBlock(s)
+      return off < block.length ? { data: block, off } : null
     }
     if (a >= Runtime.SCREEN_CHIP_BASE && a < Runtime.SCREEN_CHIP_BASE + 8 * Runtime.SCREEN_CHIP_SLOT) {
       const rel = a - Runtime.SCREEN_CHIP_BASE

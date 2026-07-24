@@ -887,3 +887,49 @@ describe('Limit Mouse (InLimitMouse +Lib.s / LimitMEc)', () => {
     expect(rt.input.mouseY).toBe(60 + 50 - 1)
   })
 })
+
+describe('Appear and Screen Base (InAppear +Lib.s:10466, FnScreenBase 8798)', () => {
+  it('Appear copies through the shared planes with the gcd dissolve pattern', () => {
+    // e sharing a factor with the pixel total leaves pixels uncopied
+    const prog = [
+      'Screen Open 1,320,32,16,Lowres : Flash Off : Cls 6', // source: all colour 6
+      'Screen Open 0,320,32,16,Lowres : Flash Off : Cls 0',
+      'Appear 1 To 0,2', // gcd(2, 320*32) = 2: exactly half the pixels
+    ].join('\n')
+    const { rt } = run(prog)
+    const d = rt.screens.get(0)!
+    let copied = 0
+    for (let i = 0; i < d.pixels.length; i++) if (d.pixels[i] === 6) copied++
+    expect(copied).toBe((320 * 32) / 2)
+    // a coprime step copies every pixel
+    const full = run(prog.replace('Appear 1 To 0,2', 'Appear 1 To 0,7')).rt.screens.get(0)!
+    expect(full.pixels.every((v) => v === 6)).toBe(true)
+  })
+
+  it('Appear p argument bounds the number of pixels copied', () => {
+    const prog = [
+      'Screen Open 1,320,32,16,Lowres : Flash Off : Cls 6',
+      'Screen Open 0,320,32,16,Lowres : Flash Off : Cls 0',
+      'Appear 1 To 0,7,100',
+    ].join('\n')
+    const { rt } = run(prog)
+    const d = rt.screens.get(0)!
+    let copied = 0
+    for (let i = 0; i < d.pixels.length; i++) if (d.pixels[i] === 6) copied++
+    expect(copied).toBe(100)
+    expect(() => run('Appear 0 To 0,0')).toThrow(/function call/)
+  })
+
+  it('Screen Base maps the Ec control block: geometry, colours, plane pointers', () => {
+    const prog = [
+      'Screen Open 0,320,200,16,Lowres : Flash Off : Colour 1,$123',
+      'A=Screen Base',
+      'Print Deek(A+76) : Print Deek(A+78)', // EcTx/EcTy
+      'Print Deek(A+80) : Print Deek(A+96)', // EcNPlan/EcNbCol
+      'Print Deek(A+178)', // EcTLigne
+      'Print Deek(A+98+2)', // EcPal colour 1
+      'Print Leek(A)=Logbase(0)', // EcLogic[0]
+    ].join('\n')
+    expect(run(prog).out).toBe(' 320\n 200\n 4\n 16\n 40\n 291\n-1\n')
+  })
+})

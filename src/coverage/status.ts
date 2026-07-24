@@ -191,6 +191,10 @@ export const FAITHFUL = new Set<string>([
   // Limit Mouse (InLimitMouse +Lib.s): no-arg/current-screen, screen-n
   // and x1,y1 To x2,y2 hardware-rect forms, clamped each vbl (LimitMEc)
   'limit mouse',
+  // Appear (InAppear +Lib.s:10466): p iterations stepping e mod p through
+  // the source pixel index space, copying the shared planes only and
+  // preserving the destination's higher planes; gcd patterns faithful
+  'appear',
   // objects/screens sweep: real bob pipeline (Actualise-style), buffers
   'bob', // blitted with background save/restore; Point sees bobs
   'bob off',
@@ -623,6 +627,10 @@ export const STRUCTURAL = new Set([
  * stay "missing": they are portable to a host capability, just not built.)
  */
 export const NA = new Set<string>([
+  // syntax-only phrase: the token table maps `screen size` to
+  // L_Syntax/L_Syntax (+Lib.s:513) — it exists solely as the AMAL
+  // `Channel ... To Screen Size` target and errors as an instruction
+  'screen size',
   // editor-internal
   'ask editor',
   'call editor',
@@ -685,7 +693,6 @@ export const NOTES: Record<string, string> = {
   'border$': 'returns the text unchanged — border boxes not rendered',
   at: "escape codes 'X'/'Y' assumed, not read from the source",
   match: 'not-found result for closest index 0 returns -1',
-  appear: 'copies instantly — the dissolve is not progressive',
   dir: 'plain listing; Set Dir width/filter cosmetic',
   'gr writing': 'JAM1/JAM2 identical for solid draws; XOR implemented',
   'wind size': 'resizes without preserving content',
@@ -744,7 +751,7 @@ export const NOTES: Record<string, string> = {
   'screen open': 'width masked to /16; the 1..1023 size bounds of EcCree are not enforced',
   'screen display': 'the visible window w/h clips the composite; hardware scaling is not modelled',
   'screen colour': 'HAM reports 64 — the real EcNbCol is stored as 64 by InScreenOpen, never 4096',
-  'screen base': 'returns 0 — Screen Base is the AMOS screen control block (ScOnAd), which is not modelled in memory; Logbase/Phybase give the real bitplane addresses',
+  'screen base': 'a read-only synthesized Ec control block (EcLogic/EcPhysic, geometry, EcNbCol, live EcPal, EcTLigne...); pokes into it are ignored',
   'set font': 'a single Topaz-8 face; the number only selects metrics',
   'font$': 'the ROM list only (no disc fonts in the fixture set)',
   'request on': 'stored — the port never shows system requesters',
