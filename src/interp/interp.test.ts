@@ -322,6 +322,21 @@ describe('procedures', () => {
     expect(run(src2)).toBe(' 11\n 5\n') // param incremented; global unchanged
   })
 
+  it('a scalar parameter does not shadow a global ARRAY of the same name', () => {
+    // worms: Procedure TURNOFF[Y] uses Y() (a Global array) indexed by the
+    // scalar param Y — the array must stay global, not the local param
+    const src = [
+      'Dim Y(4)',
+      'Global Y()',
+      'Y(2)=99',
+      'GO[2]',
+      'Procedure GO[Y]',
+      '   Print Y;Y(Y)', // scalar param Y=2, array Y(2)=99
+      'End Proc',
+    ].join('\n')
+    expect(run(src)).toBe(' 2 99\n')
+  })
+
   it('skips procedure bodies in normal flow', () => {
     expect(run('Print "A"\nProcedure P\n   Print "NEVER"\nEnd Proc\nPrint "B"')).toBe('A\nB\n')
   })

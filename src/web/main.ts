@@ -43,6 +43,8 @@ const audio = new WebAudioSink()
 // holds uploads; archives mount as their own volumes too
 const vfs = new AmigaFS()
 const dh0 = vfs.mountMemory('DH0')
+// RAM: is part of every AMOS machine (the ram-handler) — writable, empty
+vfs.mountMemory('RAM')
 vfs.currentDir = 'DH0:'
 
 async function mountArchive(bytes: Uint8Array, name: string): Promise<void> {

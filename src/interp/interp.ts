@@ -455,8 +455,10 @@ export class Interp {
   private frameFor(key: string, arrays: boolean): Frame {
     const top = this.frames[this.frames.length - 1]!
     if (this.frames.length === 1) return top
-    // a parameter is always local and shadows a Global of the same name
-    if (top.params.has(key)) return top
+    // a scalar parameter is always local and shadows a Global of the same
+    // name — but only the scalar: an array Y() and a scalar param Y share
+    // a key (varKey ignores array-ness), and the array stays Global
+    if (!arrays && top.params.has(key)) return top
     if (top.shared.has(key) || this.globals.has(key)) return this.frames[0]!
     // arrays Dim'd at top level are visible if declared Global/Shared only;
     // otherwise procedures see their own

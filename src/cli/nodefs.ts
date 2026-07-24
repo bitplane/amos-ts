@@ -49,6 +49,9 @@ export function fsForFile(file: string, fixturesRoot = 'fixtures/official-amos')
   const fs = new AmigaFS()
   fs.mount('PROG', new NodeVolume(dirname(file)))
   fs.currentDir = 'PROG:'
+  // RAM: is always present on a real AMOS machine (the ram-handler) —
+  // a writable, initially-empty volume
+  fs.mountMemory('RAM')
   if (existsSync(fixturesRoot)) {
     fs.mount('AMOSPro', new NodeVolume(fixturesRoot))
     for (const entry of readdirSync(fixturesRoot)) {
