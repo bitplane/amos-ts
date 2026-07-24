@@ -1558,3 +1558,42 @@ describe('the mouse pointer (MChange +W.s:10669, HiSho +W.s:10722)', () => {
     expect(pat!.length).toBe(16)
   })
 })
+
+describe('long-tail: Rev/Scan$/Parent/Dir/W and the previous-program banks', () => {
+  it('Rev sets both flip bits at once (FnRev +Lib.s:12744)', () => {
+    const { out } = run('Print Rev(5)-$C000')
+    expect(out).toBe(' 5\n')
+  })
+
+  it('Scan$ builds the 4-byte Put Key injection string (FnScan1/2 +Lib.s:13799)', () => {
+    const { out } = run('A$=Scan$(69) : Print Len(A$);Asc(Mid$(A$,1,1));Asc(Mid$(A$,2,1))')
+    expect(out).toBe(' 4 1 69\n')
+    const { out: out2 } = run('A$=Scan$(69,3) : Print Asc(Mid$(A$,3,1))')
+    expect(out2).toBe(' 3\n')
+    expect(() => run('A$=Scan$(256)')).toThrow(/function call/)
+  })
+
+  it('Parent strips the last component of the current dir (InParent +Lib.s:4878)', () => {
+    const prog = ['Mkdir "DH0:a"', 'Mkdir "DH0:a/b"', 'Dir$="DH0:a/b"', 'Parent', 'Print Dir$', 'Parent', 'Print Dir$'].join('\n')
+    const { out } = run(prog)
+    expect(out).toBe('DH0:a\nDH0:\n')
+  })
+
+  it('Dir/W lists two columns at half the window width (DirW2 +Lib.s:5798)', () => {
+    const prog = ['Mkdir "DH0:sub"', 'Open Out 1,"DH0:f.dat" : Print #1,"x" : Close 1', 'Dir/W'].join('\n')
+    const { out } = run(prog)
+    const line = out.split('\n')[0]!
+    expect(line).toContain('*sub')
+    expect(line).toContain(' f.dat') // both entries on one two-column row
+  })
+
+  it('the previous-program bank exchange fails standalone (Bnk.PrevProgram, FnBStart +Lib.s:2271)', () => {
+    // no editor/parent program exists in the port: BStart errors, BLength
+    // is 0, Bgrab erases the destination then errors, Bsend errors
+    expect(() => run('Print Bstart(1)')).toThrow(/bank not reserved/)
+    expect(run('Print Blength(1)').out).toBe(' 0\n')
+    const prog = ['Reserve As Work 5,64', 'Trap Bgrab 5', 'Print Errtrap;Length(5)'].join('\n')
+    expect(run(prog).out).toBe(' 36 0\n') // destination erased, error 36
+    expect(() => run('Bsend 5')).toThrow(/function call/)
+  })
+})

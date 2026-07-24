@@ -2985,6 +2985,51 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         it.write((e.isDir ? '*' + e.name : ' ' + e.name) + '\n')
       }
     },
+    'dir/w'(it) {
+      // InDirW (+Lib.s:5798 -> DirW2): the same listing compressed to two
+      // columns — DirComp=1 with the name width halved to WiTx/2
+      const path = it.atStmtEnd() ? '' : it.evalStr()
+      const entries = rt.vfs?.listDir(path === '' ? rt.vfs.currentDir : path)
+      if (!entries) throw new AmosError('directory not found')
+      const width = Math.max(2, (rt.screen.curWin?.cols ?? 40) >> 1)
+      let col = 0
+      for (const e of entries) {
+        const cell = ((e.isDir ? '*' : ' ') + e.name).slice(0, width - 1).padEnd(width)
+        it.write(cell)
+        if (++col === 2) {
+          it.write('\n')
+          col = 0
+        }
+      }
+      if (col !== 0) it.write('\n')
+    },
+    parent(it) {
+      // InParent +Lib.s:4878: strip the last path component of the
+      // current directory (back to the ':' or previous '/')
+      void it
+      const vfs = rt.vfs
+      if (!vfs) return
+      const cur = vfs.currentDir
+      const i = cur.lastIndexOf('/')
+      const c = cur.indexOf(':')
+      vfs.currentDir = i > c ? cur.slice(0, i) : cur.slice(0, c + 1)
+    },
+    bgrab(it) {
+      // InBGrab +Lib.s:2303: pull bank n from the PREVIOUS program's
+      // list. There is no previous program in the port (yet — Prun), so
+      // the destination is erased and the grab fails: Bnk.Eff + BkNoRes
+      const n = it.evalInt()
+      if (n <= 0) throw new AmosError('function call error')
+      rt.memBanks.delete(n)
+      throw new AmosError('bank not reserved')
+    },
+    bsend(it) {
+      // InBSend +Lib.s:2333: push bank n to the previous program — with
+      // no previous program, Bnk.PrevProgram fails: function call error
+      const n = it.evalInt()
+      if (n <= 0) throw new AmosError('function call error')
+      throw new AmosError('function call error')
+    },
     'set dir'(it) {
       // InSetDir0/1 (+Lib.s:5515): Set Dir [width][,neg$] — width is
       // forced even (and.l #$FFFFFFFE), must be 2..104; the second arg is
@@ -4078,6 +4123,30 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
     vrev(_, a) {
       return VI(int(a[0]!) | 0x4000)
+    },
+    rev(_, a) {
+      // FnRev +Lib.s:12744: both flip bits at once
+      return VI(int(a[0]!) | 0xc000)
+    },
+    'scan$'(_, a) {
+      // FnScan1/2 +Lib.s:13799: a 4-byte Put Key scancode injection
+      // string — chr$(1), scancode, shift, chr$(0); both bytes < 256
+      const scan = int(a[0]!)
+      const shift = a.length > 1 ? int(a[1]!) : 0
+      if (scan >>> 0 >= 256 || shift >>> 0 >= 256) throw new AmosError('function call error')
+      return VS(String.fromCharCode(1, scan, shift, 0))
+    },
+    'bstart'(_, a) {
+      // FnBStart +Lib.s:2271: bank address in the PREVIOUS program's list
+      // (the editor/accessory exchange) — no parent program here, so the
+      // Bnk.PrevProgram failure path: bank not reserved
+      void a
+      throw new AmosError('bank not reserved')
+    },
+    'blength'(_, a) {
+      // FnBLength +Lib.s:2284: 0 when there is no previous program's bank
+      void a
+      return VI(0)
     },
     start(_, a) {
       const n = int(a[0]!)

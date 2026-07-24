@@ -192,6 +192,18 @@ export const FAITHFUL = new Set<string>([
   'dev next$',
   'prg first$',
   'prg next$',
+  // long-tail: Rev both flip bits (FnRev 12744), Scan$ injection strings
+  // (FnScan 13799), Parent path strip (InParent 4878), Dir/W two-column
+  // (DirW2 5798), the previous-program bank exchange standalone failure
+  // paths (FnBStart 2271/FnBLength 2284/InBGrab 2303/InBSend 2333)
+  'rev',
+  'scan$',
+  'parent',
+  'dir/w',
+  'bstart',
+  'blength',
+  'bgrab',
+  'bsend',
   // random-access records: Open Random (RanApp $80 +Lib.s:5249), Field
   // record layout with the file-size snapshot (InField +ILib.s:4769),
   // Get/Put via GetPut's record/type checks with the exact EOF rules
@@ -881,6 +893,10 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  bstart: 'the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply',
+  blength: 'the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply',
+  bgrab: 'the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply',
+  bsend: 'the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply',
   'disc info$': 'format is exact (volume name + 10-char left-aligned free bytes); the free count is the Dfree constant — browser storage has no real quota',
   dfree: 'no real quota in the browser store — a large constant',
   amal: 'string programs only — Amal n,# bank programs unsupported',
