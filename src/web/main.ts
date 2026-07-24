@@ -288,6 +288,12 @@ const SPECIAL_CH: Record<string, string> = {
 }
 document.addEventListener('keydown', (e) => {
   if (e.target === lineEl || !rt) return
+  // Ctrl-C = the AMOS break (BitControl); On Break Proc handlers fire
+  if (e.ctrlKey && e.code === 'KeyC') {
+    rt.interp.requestBreak()
+    e.preventDefault()
+    return
+  }
   const scan = SCAN[e.code] ?? 0
   if (scan) rt.input.keys.add(scan)
   if (JOY[e.code] !== undefined) rt.input.joy |= JOY[e.code]!

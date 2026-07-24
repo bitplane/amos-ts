@@ -181,6 +181,8 @@ export class Interp {
   }
   // ---- error trapping (On Error / Trap / Resume) ----
   errorHandler: { kind: 'goto' | 'proc'; target: string } | null = null
+  /** On Break Proc handler (InOnBreak +ILib.s:1890) */
+  breakHandler: { kind: 'goto' | 'proc'; target: string } | null = null
   /** the last error number caught by On Error (read by =Errn) */
   errCode = 0
   /** the last error number caught by Trap (read by =Errtrap) */
@@ -701,6 +703,23 @@ export class Interp {
       }
     }
     return args
+  }
+
+  /**
+   * A Ctrl-C break from the host. With a handler stored (On Break Proc)
+   * it runs like an event; otherwise the program stops, as the editor
+   * would (BitControl in T_Actualise → the break test).
+   */
+  requestBreak(): void {
+    if (this.status !== null) return
+    const h = this.breakHandler
+    if (h) {
+      this.blocked = null
+      if (h.kind === 'proc') this.callProc(h.target, [])
+      else this.jumpLabel(h.target)
+      return
+    }
+    this.status = 'stopped'
   }
 
   callProc(name: string, args: Value[]): void {

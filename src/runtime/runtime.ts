@@ -343,6 +343,9 @@ export class Runtime {
    * default 30 = PI_DirSize +Interpreter_Config.s:69) + negative filter */
   dirWidth = 30
   dirNegFilter = ''
+  /** Set Tempras (RasSize/RasLock +Lib.s:9997) — validated, unused by
+   * the chunky renderer */
+  tempRas: { addr: number; size: number } | null = null
   /** Amos Lock's T_NoFlip flag — no screen flipping to suppress here */
   noFlip = false
   /** IffReturn: the last DLTA's ANHD relative time (=Frame Param) */
@@ -2032,6 +2035,23 @@ export class Runtime {
     const b = this.vuBytes[voice]!
     this.vuBytes[voice] = 0
     return b
+  }
+
+  /** Freeze parks the whole AMAL channel chain (FrzAMAL +W.s:9999:
+   * T_AmChaine moves to T_AmFreeze); channels made while frozen run on a
+   * fresh live chain. Unfreeze restores ONLY if the live chain is still
+   * empty — otherwise the frozen chain is discarded (UFrzAMAL). */
+  frozenAmal: Map<number, AmalChannel> | null = null
+
+  freezeAll(): void {
+    if (this.frozenAmal !== null) return
+    this.frozenAmal = this.channels
+    this.channels = new Map()
+  }
+
+  unfreezeAll(): void {
+    if (this.channels.size === 0 && this.frozenAmal !== null) this.channels = this.frozenAmal
+    this.frozenAmal = null
   }
 
   stepAmal(): void {

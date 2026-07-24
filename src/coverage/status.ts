@@ -204,6 +204,17 @@ export const FAITHFUL = new Set<string>([
   'blength',
   'bgrab',
   'bsend',
+  // Freeze/Unfreeze chain parking (FrzAMAL/UFrzAMAL +W.s:9999 with the
+  // discard-on-nonempty quirk), On Break Proc (InOnBreak +ILib.s:1890),
+  // Set Tempras validation (+Lib.s:9997), Drive (FnDrive +Lib.s:4951),
+  // Set Stack / Set Equate Bank -> InSetBuffer rts (+Lib.s:1683/1689)
+  'freeze',
+  'unfreeze',
+  'on break proc',
+  'set tempras',
+  'drive',
+  'set stack',
+  'set equate bank',
   // random-access records: Open Random (RanApp $80 +Lib.s:5249), Field
   // record layout with the file-size snapshot (InField +ILib.s:4769),
   // Get/Put via GetPut's record/type checks with the exact EOF rules
@@ -893,6 +904,7 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  'set tempras': 'size/address validated and stored; the chunky renderer needs no temporary raster buffer',
   bstart: 'the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply',
   blength: 'the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply',
   bgrab: 'the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply',

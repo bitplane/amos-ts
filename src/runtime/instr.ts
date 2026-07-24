@@ -1276,6 +1276,40 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       s.drawWindowFrame2()
     },
 
+    freeze() {
+      // InFreeze +Lib.s:11626 -> FrzAMAL: park the whole channel chain
+      rt.freezeAll()
+    },
+    unfreeze() {
+      rt.unfreezeAll()
+    },
+    'set tempras'(it) {
+      // InSetTempras0/1/2 (+Lib.s:9997): [size | addr,size] with size
+      // 256..65535; the chunky renderer needs no raster buffer, so the
+      // validated values are stored and unused
+      if (it.atStmtEnd()) {
+        rt.tempRas = null
+        return
+      }
+      const a = it.evalInt()
+      if (it.accept(',')) {
+        const size = it.evalInt()
+        if (size < 256 || size >= 65536) throw new AmosError('function call error')
+        rt.tempRas = { addr: a, size }
+        return
+      }
+      if (a < 256 || a >= 65536) throw new AmosError('function call error')
+      rt.tempRas = { addr: 0, size: a }
+    },
+    'set stack'(it) {
+      // InSetStack -> InSetBuffer, which is rts (+Lib.s:1683)
+      it.evalInt()
+    },
+    'set equate bank'(it) {
+      // InSetEquateBank -> InSetBuffer, rts (+Lib.s:1689)
+      it.evalInt()
+    },
+
     // ---- pointer visibility (MHide/MShow +W.s:10722, both no-ops under
     // Copper Off): a counter, visible while >= 0; Hide/Show step it,
     // the On forms force -1 / 0 ----
@@ -4127,6 +4161,14 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     rev(_, a) {
       // FnRev +Lib.s:12744: both flip bits at once
       return VI(int(a[0]!) | 0xc000)
+    },
+    drive(_, a) {
+      // FnDrive +Lib.s:4951: True when the name ends with ':' AND the
+      // device/assign resolves (DeviceProc), else False
+      const s = str(a[0]!)
+      if (!s.endsWith(':')) return VI(0)
+      const known = [...(rt.vfs?.volumeNames() ?? []), ...(rt.vfs?.assignNames() ?? [])].map((n) => n.toLowerCase())
+      return VI(known.includes(s.slice(0, -1).toLowerCase()) ? -1 : 0)
     },
     'scan$'(_, a) {
       // FnScan1/2 +Lib.s:13799: a 4-byte Put Key scancode injection

@@ -853,6 +853,11 @@ export const INSTR: Record<string, Instr> = {
   },
   'break on': () => {},
   'break off': () => {},
+  'on break proc'(it) {
+    // InOnBreak +ILib.s:1890: stores the Ctrl-C break handler (fires
+    // through Interp.requestBreak when Break On)
+    it.breakHandler = { kind: 'proc', target: it.parseLabelTarget().toLowerCase() }
+  },
   'set double precision'(it) {
     // switch A# variables from single-precision FFP to IEEE double
     it.doublePrecision = it.evalInt() !== 0

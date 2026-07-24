@@ -1597,3 +1597,62 @@ describe('long-tail: Rev/Scan$/Parent/Dir/W and the previous-program banks', () 
     expect(() => run('Bsend 5')).toThrow(/function call/)
   })
 })
+
+describe('long-tail: Freeze/Unfreeze, On Break Proc, Set Tempras, Drive, rts no-ops', () => {
+  it('Freeze parks the whole AMAL chain; Unfreeze restores only onto an empty chain (FrzAMAL +W.s:9999)', () => {
+    const src = [
+      'Ink 2 : Bar 0,0 To 15,15 : Get Bob 1,0,0 To 16,16',
+      'Sprite 8,200,100,1',
+      'Amal 8,"L: Move 10,0,5 ; Jump L" : Amal On',
+      'Wait 3', // let it move
+      'Freeze',
+      'X1=X Sprite(8) : Wait 3 : X2=X Sprite(8)',
+      'Print X2-X1',
+      'Unfreeze',
+      'Wait 3 : Print Sgn(X Sprite(8)-X2)',
+    ].join('\n')
+    const { out } = run(src)
+    expect(out).toBe(' 0\n 1\n') // frozen: no motion; unfrozen: moving again
+    // channels made while frozen live on a fresh chain; Unfreeze then
+    // DISCARDS the frozen one (UFrzAMAL tst.l T_AmChaine)
+    const src2 = [
+      'Ink 2 : Bar 0,0 To 15,15 : Get Bob 1,0,0 To 16,16',
+      'Sprite 8,200,100,1 : Sprite 10,10,10,1',
+      'Amal 8,"L: Move 10,0,5 ; Jump L" : Amal On',
+      'Freeze',
+      'Amal 10,"L: Move 10,0,5 ; Jump L" : Amal On : Wait 2',
+      'Unfreeze', // live chain non-empty: frozen channel 0 is dropped
+      'X1=X Sprite(8) : Wait 3',
+      'Print X Sprite(8)-X1',
+    ].join('\n')
+    expect(run(src2).out).toBe(' 0\n') // channel 0 never came back
+  })
+
+  it('On Break Proc runs the handler on a host break; without one the program stops (InOnBreak +ILib.s:1890)', () => {
+    const src = ['On Break Proc HANDLER', 'Do : Wait Vbl : Loop', 'Procedure HANDLER', ' Print "BROKE" : End', 'End Proc'].join('\n')
+    let out = ''
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, onText: (t) => (out += t) })
+    for (let i = 0; i < 5; i++) rt.frame()
+    rt.interp.requestBreak()
+    for (let i = 0; i < 5; i++) rt.frame()
+    expect(out).toBe('BROKE\n')
+    const rt2 = new Runtime(tokenize('Do : Wait Vbl : Loop', table), table, { maxSteps: 300_000 })
+    for (let i = 0; i < 3; i++) rt2.frame()
+    rt2.interp.requestBreak()
+    rt2.frame()
+    expect(rt2.interp.done).toBe(true)
+  })
+
+  it('Set Tempras validates 256..65535; Set Stack/Set Equate Bank are rts (+Lib.s:9997/1683/1689)', () => {
+    expect(run('Set Tempras 1024').rt.tempRas).toEqual({ addr: 0, size: 1024 })
+    expect(run('Set Tempras $10000,2048').rt.tempRas).toEqual({ addr: 0x10000, size: 2048 })
+    expect(() => run('Set Tempras 128')).toThrow(/function call/)
+    expect(() => run('Set Tempras 0,65536')).toThrow(/function call/)
+    expect(run('Set Stack 8000\nSet Equate Bank 5\nPrint "OK"').out).toBe('OK\n')
+  })
+
+  it('Drive requires a trailing ":" and a mounted device/assign (FnDrive +Lib.s:4951)', () => {
+    const src = ['Assign "Res:" To "DH0:"', 'Print Drive("DH0:");Drive("res:");Drive("DH0");Drive("nope:")'].join('\n')
+    expect(run(src).out).toBe('-1-1 0 0\n')
+  })
+})
