@@ -1710,10 +1710,10 @@ export class Runtime {
       locate: (x, y) => this.screen.locate(x, y),
       cls: () => this.screen.cls(),
       pen: (n) => {
-        this.screen.pen = n
+        this.screen.setPenChecked(n)
       },
       paper: (n) => {
-        this.screen.paper = n
+        this.screen.setPaperChecked(n)
       },
       input: (prompt) => {
         if (this.pendingLine !== null) {

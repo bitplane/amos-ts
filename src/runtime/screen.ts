@@ -1,4 +1,56 @@
 import { FONT8 } from './font.gen'
+import { AmosError } from '../interp/values'
+
+// ---- text-border glyphs (TEncadre +W.s:16725) -----------------------------
+// The AMOS charset's box-drawing characters. The charset bitmaps live in
+// the AMOS system binary (not in the source tree), so these are drawn to
+// match the styles' look: 1 rounded, 2 single line, 3 double, 4 thick,
+// 5 block, 6 dotted. Order per style: TL, top, TR, right, BR, bottom,
+// BL, left.
+const TENCADRE: number[][] = [
+  [136, 137, 138, 139, 141, 137, 140, 139],
+  [128, 129, 130, 132, 135, 134, 133, 131],
+  [157, 1, 2, 3, 4, 5, 6, 7],
+  [8, 9, 10, 11, 12, 13, 14, 15],
+  [16, 17, 18, 19, 20, 21, 22, 23],
+  [24, 25, 26, 158, 28, 29, 30, 31],
+  [32, 32, 32, 32, 32, 32, 32, 32],
+]
+
+function boxGlyphs(h: number[], v: number): { tl: number[]; t: number[]; tr: number[]; r: number[]; br: number[]; b: number[]; bl: number[]; l: number[] } {
+  const hi = h.findIndex((b2) => b2 !== 0)
+  const lo = h.length - 1 - [...h].reverse().findIndex((b2) => b2 !== 0)
+  const half = (byte: number, right: boolean): number => (right ? byte & 0x1f : byte & 0xf8) | v
+  const mk = (rows: (i: number) => number): number[] => [0, 1, 2, 3, 4, 5, 6, 7].map(rows)
+  return {
+    t: h,
+    b: h,
+    l: mk(() => v),
+    r: mk(() => v),
+    tl: mk((i) => (i < hi ? 0 : i <= lo ? half(h[i]!, true) : v)),
+    tr: mk((i) => (i < hi ? 0 : i <= lo ? half(h[i]!, false) : v)),
+    bl: mk((i) => (i > lo ? 0 : i >= hi ? half(h[i]!, true) : v)),
+    br: mk((i) => (i > lo ? 0 : i >= hi ? half(h[i]!, false) : v)),
+  }
+}
+
+// patch the border glyphs into the shared font
+{
+  const install = (codes: number[], g: ReturnType<typeof boxGlyphs>): void => {
+    const order = [g.tl, g.t, g.tr, g.r, g.br, g.b, g.bl, g.l]
+    codes.forEach((code, i) => {
+      FONT8[code] = Uint8Array.from(order[i]!)
+    })
+  }
+  const single = boxGlyphs([0, 0, 0, 0x7e, 0x7e, 0, 0, 0], 0x18)
+  install(TENCADRE[1]!, single)
+  // rounded: single lines with softer corners
+  install(TENCADRE[0]!, single)
+  install(TENCADRE[2]!, boxGlyphs([0, 0, 0xff, 0, 0, 0xff, 0, 0], 0x24))
+  install(TENCADRE[3]!, boxGlyphs([0, 0, 0x7e, 0x7e, 0x7e, 0x7e, 0, 0], 0x3c))
+  install(TENCADRE[4]!, boxGlyphs([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff], 0xff))
+  install(TENCADRE[5]!, boxGlyphs([0, 0, 0, 0xaa, 0xaa, 0, 0, 0], 0x28))
+}
 
 /**
  * An AMOS screen: an indexed-colour framebuffer + a 12-bit RGB4 palette,
@@ -685,8 +737,11 @@ export class Screen {
     }
   }
 
+  /** SoftStyle for the graphics Text instruction (Set Text, +Lib.s:9908) */
+  textStyle = 0
+
   /** Draw one 8x8 glyph honouring the window Writing modes and styles. */
-  drawChar(px: number, py: number, ch: number, pen: number, paper: number, transparent = false): void {
+  drawChar(px: number, py: number, ch: number, pen: number, paper: number, transparent = false, styleFrom?: number): void {
     const w = this.curWin
     if (w.writing1 === 4) return // IGNORE
     if (w.inverse) {
@@ -696,11 +751,12 @@ export class Screen {
     }
     const glyph = FONT8[ch & 0xff] ?? FONT8[32]!
     const bg = w.writing2 === 2 ? 0 : paper
+    const style = styleFrom ?? w.style
     for (let row = 0; row < 8; row++) {
       let bits = glyph[row]!
-      if (w.style & 2) bits |= bits >> 1 // bold
-      if (w.style & 4) bits = row < 4 ? (bits >> 1) & 0xff : bits // italic (slanted top)
-      if (w.style & 1 && row === 7) bits = 0xff // underline
+      if (style & 2) bits |= bits >> 1 // bold
+      if (style & 4) bits = row < 4 ? (bits >> 1) & 0xff : bits // italic (slanted top)
+      if (style & 1 && row === 7) bits = 0xff // underline
       if (w.shade) bits &= row & 1 ? 0x55 : 0xaa // dither mask
       for (let col = 0; col < 8; col++) {
         const x = px + col
@@ -739,7 +795,7 @@ export class Screen {
   /** Graphics text (Text x,y,s$): y is the baseline, drawn with ink. */
   text(x: number, y: number, s: string): void {
     for (let i = 0; i < s.length; i++) {
-      this.drawChar(x + i * 8, y - 6, s.charCodeAt(i), this.ink, 0, true)
+      this.drawChar(x + i * 8, y - 6, s.charCodeAt(i), this.ink, 0, true, this.textStyle)
     }
   }
 
@@ -785,11 +841,22 @@ export class Screen {
             ti += 2
             break
           case 'P':
-            w.pen = arg(1)
+            this.setPenChecked(arg(1))
             ti += 2
             break
           case 'B':
-            w.paper = arg(1)
+            this.setPaperChecked(arg(1))
+            ti += 2
+            break
+          case 'E':
+            // Encadre (+W.s:15169): 0 stores the border start, a style
+            // number draws the box around the printed text
+            if (arg(1) === 0) {
+              this.encX = w.curX
+              this.encY = w.curY
+            } else {
+              this.drawTextBorder(arg(1))
+            }
             ti += 2
             break
           case 'D':
@@ -898,9 +965,62 @@ export class Screen {
     }
   }
 
+  /**
+   * Loca (+W.s:15364): coordinates outside the window's text area raise
+   * window error 16 -> "Illegal text window parameter" (error 60).
+   */
   locate(x: number, y: number): void {
-    if (x >= 0) this.curX = Math.min(x, this.cols - 1)
-    if (y >= 0) this.curY = Math.min(y, this.rows - 1)
+    if (x >= this.cols || y >= this.rows) throw new AmosError('illegal text window parameter', 60)
+    if (x >= 0) this.curX = x
+    if (y >= 0) this.curY = y
+  }
+
+  /** the Pen/Paper escapes error above the screen colour count (+W.s:14893) */
+  setPenChecked(n: number): void {
+    if (n < 0 || n >= this.nColors) throw new AmosError('illegal text window parameter', 60)
+    this.curWin.pen = n
+  }
+
+  setPaperChecked(n: number): void {
+    if (n < 0 || n >= this.nColors) throw new AmosError('illegal text window parameter', 60)
+    this.curWin.paper = n
+  }
+
+  /** Border$ start position (T_WiEncDX/DY — a task global on the 68k) */
+  private encX = 0
+  private encY = 0
+
+  /**
+   * Enc (+W.s:15182): draw the TEncadre style box from the stored start
+   * to the current cursor; nothing is drawn when no column was printed.
+   * The cursor is left where it was.
+   */
+  private drawTextBorder(n: number): void {
+    const style = n & 7
+    if (style === 0) return // the 68k would read garbage before the table
+    const w = this.curWin
+    if (w.curX - this.encX - 1 < 0) return // no column printed: skip (EncFin)
+    if (w.curY - this.encY < 0) return
+    const g = TENCADRE[style - 1]!
+    const [tl, t, tr, r, br, b, bl, l] = g as [number, number, number, number, number, number, number, number]
+    const put = (cx: number, cy: number, code: number): void => {
+      if (cx < 0 || cy < 0 || cx >= w.cols || cy >= w.rows) return
+      this.drawChar(w.x + cx * 8, w.y + cy * 8, code, w.pen, w.paper)
+    }
+    const x1 = this.encX - 1
+    const y1 = this.encY - 1
+    const x2 = w.curX
+    const y2 = w.curY + 1
+    put(x1, y1, tl)
+    for (let cx = this.encX; cx < x2; cx++) put(cx, y1, t)
+    put(x2, y1, tr)
+    for (let cy = this.encY; cy <= w.curY; cy++) {
+      put(x2, cy, r)
+      put(x1, cy, l)
+    }
+    put(x2, y2, br)
+    for (let cx = this.encX; cx < x2; cx++) put(cx, y2, b)
+    put(x1, y2, bl)
   }
 
   /** raw paper-colour fill of a window region (the blit fills/ClFin) */

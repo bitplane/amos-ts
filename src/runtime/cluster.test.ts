@@ -57,12 +57,19 @@ describe('language cluster', () => {
     expect(found).toBe(true)
   })
 
-  it('applies text styles: inverse, underline via Set Text', () => {
+  it('console styles: Inverse/Under On; Set Text only styles graphic Text (+Lib.s:9908)', () => {
     const inv = run('Cls 0 : Inverse On : Pen 5 : Paper 0 : Locate 0,0 : Print "A"').rt
     // inverse: background cells get the pen colour
     expect(inv.screen.point(0, 0)).toBe(5)
-    const und = run('Cls 0 : Set Text 1 : Pen 5 : Paper 0 : Locate 0,0 : Print "A"').rt
+    const und = run('Cls 0 : Under On : Pen 5 : Paper 0 : Locate 0,0 : Print "A"').rt
     for (let x = 0; x < 8; x++) expect(und.screen.point(x, 7)).toBe(5) // underline row
+    // Set Text is the rastport SoftStyle: Print is NOT underlined...
+    const st = run('Cls 0 : Set Text 1 : Pen 5 : Paper 0 : Locate 0,0 : Print "."').rt
+    expect(st.screen.point(0, 7)).toBe(0)
+    // ...but Text is
+    const tx = run('Cls 0 : Set Text 1 : Ink 5 : Text 0,13,"." : X=1').rt
+    for (let x = 0; x < 8; x++) expect(tx.screen.point(x, 14)).toBe(5)
+    expect(run('Set Text 5\nPrint Text Styles').out.trim()).toBe('5')
   })
 
   it('Scroll Off wraps printing to the window top', () => {
@@ -113,6 +120,52 @@ describe('faithfulness pass: Inc/Dec/Add/Hunt/Wait (vs +ILib.s:4382 / +Lib.s:207
     ].join('\n')
     const { out } = run(prog)
     expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['4', '4', '0', '0'])
+  })
+})
+
+describe('faithfulness pass: text & fonts (vs +W.s / +Lib.s)', () => {
+  it('Locate errors outside the window (Loca +W.s:15364, error 60)', () => {
+    expect(() => run('Locate 200,0')).toThrow(/illegal text window parameter/i)
+    expect(() => run('Locate 0,200')).toThrow(/illegal text window parameter/i)
+  })
+
+  it('Pen/Paper error at the screen colour count (+W.s:14879/14893)', () => {
+    expect(() => run('Pen 16')).toThrow(/illegal text window parameter/i) // default screen: 16 colours
+    expect(() => run('Paper 99')).toThrow(/illegal text window parameter/i)
+    expect(run('Pen 15 : Print "ok"').out).toContain('ok')
+  })
+
+  it('At validates coordinates above 207 (FnAt +Lib.s:14046)', () => {
+    expect(() => run('X$=At(208,0)')).toThrow(/illegal function call/i)
+    expect(run('Print At(2,3)="X"+Chr$(50)+"Y"+Chr$(51)').out.trim()).toBe('-1')
+  })
+
+  it('Border$ wraps text in the Encadre escapes and the box is drawn (FnBorderD/Encadre)', () => {
+    expect(() => run('X$=Border$("hi",0)')).toThrow(/illegal function call/i)
+    expect(() => run('X$=Border$("hi",16)')).toThrow(/illegal function call/i)
+    const { rt } = run('Cls 0 : Pen 5 : Locate 2,2 : Print Border$("HELLO",2);')
+    // border chars land in the cells around the text: row above at 1, below at 3
+    let hits = 0
+    for (let y = 8; y < 16; y++) for (let x = 8; x < 64; x++) if (rt.screen.point(x, y) === 5) hits++
+    expect(hits).toBeGreaterThan(4) // the top edge drew glyph pixels
+    let below = 0
+    for (let y = 24; y < 32; y++) for (let x = 8; x < 64; x++) if (rt.screen.point(x, y) === 5) below++
+    expect(below).toBeGreaterThan(4) // and the bottom edge
+  })
+
+  it('Font$ needs Get Fonts, formats 38 chars, "" past the list (FnFont +Lib.s:9786)', () => {
+    expect(() => run('Print Font$(1)')).toThrow(/fonts not examined/i)
+    const { out } = run('Get Fonts\nPrint Len(Font$(1))\nPrint Font$(999)="";Font$(0)=""')
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['38', '-1-1'])
+    const { out: o2 } = run('Get Fonts\nPrint Font$(1)')
+    expect(o2).toContain('topaz.font')
+    expect(o2).toContain('Rom')
+  })
+
+  it('Set Font: 0 is a no-op, unknown numbers error (TSFont +W.s:4922)', () => {
+    expect(run('Get Fonts\nSet Font 0\nPrint "ok"').out).toContain('ok')
+    expect(() => run('Set Font 1')).toThrow(/fonts not examined/i)
+    expect(() => run('Get Fonts\nSet Font 999')).toThrow(/font not available/i)
   })
 })
 

@@ -331,9 +331,24 @@ function parseStosMove(src: string): { start: number | null; groups: Array<[numb
 }
 
 /** the ROM font list (Get Fonts / Font$) — the port carries Topaz only */
+// the ROM faces plus the stock Workbench Fonts: drawer, so Set Font
+// numbers that work on a real machine work here (rendering stays the
+// single 8x8 face — see NOTES)
 const FONT_LIST = [
   { name: 'topaz.font', height: 8, type: 'Rom' },
   { name: 'topaz.font', height: 9, type: 'Rom' },
+  ...[
+    ['courier.font', [11, 13, 15, 18, 24]],
+    ['diamond.font', [12, 20]],
+    ['emerald.font', [17, 20]],
+    ['garnet.font', [9, 16]],
+    ['helvetica.font', [9, 11, 13, 15, 18, 24]],
+    ['opal.font', [9, 12]],
+    ['pearl.font', [8]],
+    ['ruby.font', [8, 12, 15]],
+    ['sapphire.font', [14, 19]],
+    ['times.font', [11, 13, 15, 18, 24]],
+  ].flatMap(([name, sizes]) => (sizes as number[]).map((height) => ({ name: name as string, height, type: 'Disc' }))),
 ]
 
 /**
@@ -759,11 +774,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().outline = it.evalInt() !== 0
     },
     'set font'(it) {
-      // InSetFont +Lib.s:9835: only a negative number errors; the port has a
-      // single face, so any valid number just keeps it (number stored for
-      // Text metrics)
+      // InSetFont +Lib.s:9835: negative errors; needs Get Fonts first
+      // ("fonts not examined", error 37); Set Font 0 is a silent no-op
+      // (TSFont +W.s:4922); an unknown number is "font not available"
       const n = it.evalInt()
-      if (n < 0) throw new AmosError('function call error')
+      if (n < 0) throw new AmosError('Illegal function call', 23)
+      if (!rt.fontsListed) throw new AmosError('fonts not examined')
+      if (n === 0) return
+      if (!FONT_LIST[n - 1]) throw new AmosError('font not available')
       rt.currentFont = n
     },
     'get fonts'() {
@@ -2309,7 +2327,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().curWin.inverse = false
     },
     'set text'(it) {
-      scr().curWin.style = it.evalInt() & 7
+      // InSetText +Lib.s:9908: the rastport SoftStyle byte — it styles
+      // the graphics Text instruction only; the console's underline is
+      // the separate Under On/Off flag (Esc U)
+      scr().textStyle = it.evalInt() & 0xff
     },
     'scroll on'() {
       scr().curWin.scrollOff = false
@@ -3127,6 +3148,10 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     'text length'(_, a) {
       return VI(str(a[0]!).length * 8)
     },
+    'text styles'() {
+      // FnTextStyle +Lib.s:9898: the rastport SoftStyle byte
+      return VI(scr().textStyle)
+    },
     'text base'() {
       return VI(6)
     },
@@ -3572,10 +3597,17 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(planeBase(rt, a.length ? int(a[0]!) : 0, 1))
     },
     'font$'(_, a) {
-      // Font$(n): 40 chars — name(32) + height(4) + type(4)
-      const f = FONT_LIST[int(a[0]!) - 1]
-      if (!f) return VS(''.padEnd(40))
-      return VS(f.name.padEnd(32) + String(f.height).padEnd(4) + f.type.padEnd(4))
+      // FnFont +Lib.s:9786: requires Get Fonts first ("fonts not
+      // examined"); negative errors; past the list returns "". The
+      // string is exactly 38 chars: name to 30, height decimal at 30,
+      // "Rom "/"Disc" at 34.
+      const n = int(a[0]!)
+      if (n < 0) throw new AmosError('Illegal function call', 23)
+      if (!rt.fontsListed) throw new AmosError('fonts not examined')
+      const f = FONT_LIST[n - 1]
+      if (!f) return VS('')
+      const out = (f.name + ' ').padEnd(30).slice(0, 30) + String(f.height).padEnd(4).slice(0, 4) + (f.type === 'Rom' ? 'Rom ' : 'Disc')
+      return VS(out)
     },
     'resource$'(_, a) {
       // FnResource +ILib.s:6699: n>0 = message n of the puzzle bank; 0 =
@@ -3591,11 +3623,12 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
 
     at(_, a) {
-      // At(x,y) builds the locate escape the console interprets; elided
-      // coordinates leave that axis alone
+      // FnAt +Lib.s:14046: Esc X / Esc Y escapes, one per present
+      // coordinate; values above 207 (255-48) are a function call error
       let out = ''
       const x = int(a[0]!)
       const y = int(a[1]!)
+      if (x > 207 || y > 207) throw new AmosError('Illegal function call', 23)
       if (x >= 0) out += '\x1bX' + String.fromCharCode(48 + x)
       if (y >= 0) out += '\x1bY' + String.fromCharCode(48 + y)
       return VS(out)
@@ -3724,8 +3757,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VS('\x1bO' + String.fromCharCode(128 + x) + '\x1bN' + String.fromCharCode(128 + y))
     },
     'border$'(_, a) {
-      void int(a[1] ?? a[0]!)
-      return VS(str(a[0]!)) // TODO: border boxes around zone text
+      // FnBorderD +Lib.s:14153: style 1-15 (0 and >=16 error); the text
+      // is wrapped in Esc E 0 (store position) ... Esc E n (draw box)
+      const n = int(a[1]!)
+      if (n <= 0 || n >= 16) throw new AmosError('Illegal function call', 23)
+      return VS('\x1bE0' + str(a[0]!) + '\x1bE' + String.fromCharCode(48 + n))
     },
   }
 

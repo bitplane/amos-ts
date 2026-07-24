@@ -124,6 +124,26 @@ export const FAITHFUL = new Set<string>([
   'load',
   'reserve as chip data',
   'reserve as chip work',
+  // text & fonts: At escapes + 207 limit (FnAt +Lib.s:14046), Locate/
+  // Pen/Paper window errors (Loca/Pen +W.s:15364/14893 -> error 60),
+  // Border$'s Encadre escapes and box drawing (FnBorderD 14153 /
+  // Encadre +W.s:15169, glyph bitmaps approximated — see NOTES),
+  // Set Text as the rastport SoftStyle distinct from the console's
+  // Under flag (InSetText 9908), Font$'s exact 38-char format and
+  // fonts-not-examined error (FnFont 9786), Set Font 0 no-op + font
+  // not available (TSFont +W.s:4922); cluster.test.ts cites each
+  'at',
+  'locate',
+  'pen',
+  'paper',
+  'set text',
+  'text',
+  'border$',
+  'font$',
+  'set font',
+  'get fonts',
+  'get rom fonts',
+  'text styles',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
   'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add
@@ -796,7 +816,6 @@ export const NOTES: Record<string, string> = {
   poke: 'writes into banks and screen bitplanes render; writes elsewhere are ignored',
   'shade on': 'dither approximates the original shading',
   'border$': 'returns the text unchanged — border boxes not rendered',
-  at: "escape codes 'X'/'Y' assumed, not read from the source",
   match: 'not-found result for closest index 0 returns -1',
   dir: 'plain listing; Set Dir width/filter cosmetic',
   'gr writing': 'JAM1/JAM2 identical for solid draws; XOR implemented',
@@ -814,7 +833,7 @@ export const NOTES: Record<string, string> = {
   'led on': 'filter flag reaches the sink; audibility depends on the host audio implementation',
   'led off': 'filter flag reaches the sink; audibility depends on the host audio implementation',
   'load iff': 'HAM/EHB decode and render correctly; not byte-verified against the 68k IFF loader',
-  centre: 'no Border$ handling',
+  centre: 'Border$ escapes inside the text are printed, not measured, when centring',
   'mouse zone': 'current-screen coordinate mapping approximated',
   print: 'Print # channels unsupported',
   input: 'line editing keys are host-side, not the AMOS line editor',
@@ -836,17 +855,13 @@ export const NOTES: Record<string, string> = {
   dec: 'float targets get numeric arithmetic; the real machine mangles the FFP bit pattern',
   add: 'float targets get numeric arithmetic; the real machine adds to the FFP bit pattern',
   using: "the '^' scientific-exponent slot is left literal (mantissa normalisation unverified)",
-  locate: 'out-of-range clamps rather than raising error 16',
-  pen: 'stored unmasked; out-of-range does not raise error like the original',
-  paper: 'stored unmasked; out-of-range does not raise error like the original',
-  'set text': 'targets console text too; the original soft-style only affects graphic Text',
   'shift up': 'one shift per screen (the original has a single global shift); omitted wrap-flag defaults to wrap',
   'wind move': 'trail behaviour matches; the Wind Save clean-erase path is not wired to Move',
   'key shift': 'CapsLock reflects the physical key, not the latched toggle',
   every: 'fires at each statement rather than only at control points, and after (not during) a Wait — a timing nuance tied to the blocking model',
   bar: 'inverted args are normalised rather than raising a function call error',
   box: 'dash phase restarts per edge (68k PolyDraws one continuous pattern)',
-  text: 'single Topaz-8 face; Set Text soft styles are synthesized',
+  text: 'single 8x8 face whatever Set Font selects; soft styles are synthesized approximations',
   bload: 'bounded by the destination region; the real machine would overrun into raw memory',
   'mouse screen': 'returns -1 when the pointer is over no screen (68k: EntNul)',
   scanshift: 'reads live shift keys; the shift byte is not captured with Inkey$',
@@ -862,7 +877,8 @@ export const NOTES: Record<string, string> = {
   'screen display': 'the visible window w/h clips the composite; hardware scaling is not modelled',
   'screen colour': 'HAM reports 64 — the real EcNbCol is stored as 64 by InScreenOpen, never 4096',
   'screen base': 'a read-only synthesized Ec control block (EcLogic/EcPhysic, geometry, EcNbCol, live EcPal, EcTLigne...); pokes into it are ignored',
-  'set font': 'a single Topaz-8 face; the number only selects metrics',
+  'set font': 'the stock Workbench font list is reported but rendering stays the single 8x8 face',
+  'border$': 'box glyph bitmaps are drawn approximations (the AMOS charset binary is not in the source tree)',
   'font$': 'the ROM list only (no disc fonts in the fixture set)',
   'request on': 'stored — the port never shows system requesters',
   'request off': 'stored — the port never shows system requesters',
