@@ -400,13 +400,45 @@ function getPut(rt: Runtime, it: It): { c: NonNullable<ReturnType<Runtime['fileC
   return { c, off: (rec - 1) * c.recSize! }
 }
 
+/**
+ * One Dir/Dev listing entry, exactly as FnFillNext returns it
+ * (+Lib.s:5583): [marker][name] truncated then space-padded to the Set Dir
+ * name width (FillFPoke +Lib.s:6328, FillF32 set), followed by an 8-char
+ * field with the size left-aligned (LongToDec) — or spaces when the entry
+ * is a directory ('*' marker) or its size is negative (devices).
+ */
+function fillEntry(rt: Runtime, marker: string, name: string, size: number | null): string {
+  const nameField = (marker + name).slice(0, rt.dirWidth).padEnd(rt.dirWidth)
+  const sizeField = marker !== '*' && size !== null && size >= 0 ? String(size).slice(0, 8).padEnd(8) : ' '.repeat(8)
+  return nameField + sizeField
+}
+
 function devFirst(rt: Runtime, filter: string): string {
   const vfs = rt.vfs
   if (!vfs) return ''
-  const rx = amigaPattern(filter === '' ? '*' : filter.replace(/:$/, ''))
-  const names = [...vfs.volumeNames(), ...vfs.assignNames()].map((n) => `${n}:`)
-  rt.devIter = { entries: names.filter((n) => rx.test(n.slice(0, -1)) || rx.test(n)), idx: 0 }
+  // the filter's first letter selects the class: D* = devices (volumes),
+  // A* = assigns, anything else lists both (FillDev +Lib.s:6088-6101);
+  // the whole filter then jokers against "NAME:" (FDev3)
+  const first = filter.charAt(0).toUpperCase()
+  const names = [
+    ...(first === 'A' ? [] : vfs.volumeNames()),
+    ...(first === 'D' ? [] : vfs.assignNames()),
+  ].map((n) => `${n}:`)
+  const rx = amigaPattern(filter === '' ? '*' : filter)
+  const entries = names
+    .filter((n) => rx.test(n))
+    .map((n) => fillEntry(rt, ' ', n, null))
+    .sort((a, b) => (fillSortKey(a) < fillSortKey(b) ? -1 : 1))
+  rt.devIter = { entries, idx: 0 }
   return devNext(rt)
+}
+
+/** FillSort (+Lib.s:6274) compares name fields uppercased with '*' as
+ * byte 1 — so directory entries bubble to the front */
+function fillSortKey(s: string): string {
+  let k = ''
+  for (const c of s) k += c === '*' ? '\x01' : c.toUpperCase()
+  return k
 }
 
 function devNext(rt: Runtime): string {
@@ -2941,7 +2973,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     'set dir'(it) {
-      it.skipToStmtEnd() // listing width/filter — cosmetic
+      // InSetDir0/1 (+Lib.s:5515): Set Dir [width][,neg$] — width is
+      // forced even (and.l #$FFFFFFFE), must be 2..104; the second arg is
+      // the negative filename filter for listings
+      if (!(it.atStmtEnd() || it.nm() === ',')) {
+        const w = it.evalInt() & ~1
+        if (w === 0 || w >= 106) throw new AmosError('function call error')
+        rt.dirWidth = w
+      }
+      if (it.accept(',')) rt.dirNegFilter = it.evalStr()
     },
 
     // ---- AMAL ----
@@ -3708,6 +3748,21 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       void a
       return VS(rt.vfs?.currentDir ?? '')
     },
+    'disc info$'(_, a) {
+      // FnDiscInfo +Lib.s:4995: "VOLUME:" (from the volume node of the
+      // locked path) + a 10-char field with the free byte count
+      // left-aligned (LongToDec into ten spaces). Free space matches
+      // =Dfree — the browser store has no real quota (see NOTES).
+      const path = a.length > 0 ? str(a[0]!) : ''
+      const vfs = rt.vfs
+      if (!vfs) throw new AmosError('device not available')
+      const r = vfs.resolve(path === '' ? vfs.currentDir : path)
+      if (!r || vfs.exists(path === '' ? vfs.currentDir : path) === null) {
+        throw new AmosError('device not available')
+      }
+      const volName = r.canonical.split(':')[0]!
+      return VS(`${volName}:` + String(0x7fffffff).padEnd(10))
+    },
     'dir first$'(_, a) {
       const pattern = a.length > 0 ? str(a[0]!) : '*'
       const vfs = rt.vfs
@@ -3718,7 +3773,16 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       const filePart = slash >= 0 ? pattern.slice(slash + 1) : pattern
       const entries = vfs.listDir(dirPart === '' ? vfs.currentDir : dirPart) ?? []
       const rx = amigaPattern(filePart === '' ? '*' : filePart)
-      rt.dirIter = { entries: entries.filter((e) => rx.test(e.name)), idx: 0 }
+      // positive joker + Set Dir's negative filter apply to FILES only —
+      // directories always list (FillNxt +Lib.s:6213: tst.w 4(a2) bpl)
+      const neg = rt.dirNegFilter === '' ? null : amigaPattern(rt.dirNegFilter)
+      const kept = entries.filter((e) => e.isDir || (rx.test(e.name) && !(neg && neg.test(e.name))))
+      kept.sort((a2, b) => {
+        const ka = fillSortKey((a2.isDir ? '*' : ' ') + a2.name)
+        const kb = fillSortKey((b.isDir ? '*' : ' ') + b.name)
+        return ka < kb ? -1 : 1
+      })
+      rt.dirIter = { entries: kept, idx: 0 }
       return VS(nextDirEntry())
     },
     'dir next$'(_, a) {
@@ -4131,6 +4195,6 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     const it2 = rt.dirIter
     if (!it2 || it2.idx >= it2.entries.length) return ''
     const e = it2.entries[it2.idx++]!
-    return e.isDir ? '*' + e.name : e.name
+    return e.isDir ? fillEntry(rt, '*', e.name, null) : fillEntry(rt, ' ', e.name, e.size)
   }
 }

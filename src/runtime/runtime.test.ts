@@ -294,7 +294,7 @@ describe('objects', () => {
   /** composite pixel at lowres screen coords */
   const at = (rt: Runtime, x: number, y: number): number[] => {
     const { data } = rt.composite()
-    const o = (y * 2 * 640 + x * 2) * 4
+    const o = ((y * 2 + 48) * 640 + x * 2) * 4 // +48: overscan rows above line 50
     return [data[o]!, data[o + 1]!, data[o + 2]!]
   }
   const GREEN = [0, 255, 0] // default palette colour 5 = $0F0
@@ -478,12 +478,12 @@ describe('double buffering and screens', () => {
 })
 
 describe('composite', () => {
-  it('produces a 640x400 RGBA frame with doubled lowres pixels', () => {
+  it('produces a 640x572 PAL-overscan RGBA frame with doubled lowres pixels', () => {
     const rt = run('Plot 10,20,2') // colour 2 = white
     const { width, height, data } = rt.composite()
-    expect([width, height]).toEqual([640, 400])
+    expect([width, height]).toEqual([640, 572])
     const at = (x: number, y: number): number[] => {
-      const o = (y * 640 + x) * 4
+      const o = ((y + 48) * 640 + x) * 4 // rows relative to hardware line 50
       return [data[o]!, data[o + 1]!, data[o + 2]!]
     }
     expect(at(20, 40)).toEqual([255, 255, 255])
@@ -494,7 +494,8 @@ describe('composite', () => {
   it('layers screens by z-order', () => {
     const rt = run('Screen Open 1,320,200,16,Lowres\nCls 0\nScreen To Back 1')
     const { data } = rt.composite()
-    // screen 0 (orange) should be in front
-    expect([data[0], data[1], data[2]]).toEqual([170, 68, 0])
+    // screen 0 (orange) should be in front; sample its top row (line 50)
+    const o = 48 * 640 * 4
+    expect([data[o], data[o + 1], data[o + 2]]).toEqual([170, 68, 0])
   })
 })

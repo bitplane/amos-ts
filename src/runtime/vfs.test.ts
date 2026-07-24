@@ -184,7 +184,9 @@ describe('file channels', () => {
       'Print Exist("DH0:log2")',
     ].join('\n')
     const { out } = run(prog)
-    expect(out).toBe('ONETWO\nlevel1.iff\n\n 0\n')
+    // Dir First$ entries are FnFillNext-formatted: marker + name padded to
+    // 30 + 8-char size; the Music directory sorts first ('*' -> byte 1)
+    expect(out).toBe('ONETWO\n' + '*Music'.padEnd(38) + '\n' + ' level1.iff'.padEnd(30) + '6'.padEnd(8) + '\n 0\n')
   })
 
   it('changes directory via Dir$ and Assign', () => {

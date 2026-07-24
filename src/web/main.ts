@@ -22,7 +22,7 @@ const statusEl = document.getElementById('status')!
 const fileEl = document.getElementById('file') as HTMLInputElement
 const lineEl = document.getElementById('line') as HTMLInputElement
 const turboEl = document.getElementById('turbo') as HTMLInputElement
-const img = ctx.createImageData(640, 400)
+const img = ctx.createImageData(640, Runtime.COMPOSITE_LINES * 2)
 
 const DEMO = `Curs Off : Cls 0
 For C=1 To 15
@@ -210,11 +210,13 @@ function refreshFiles(): void {
   const MAX = 400
   let shown = 0
   const addLine = (depth: number, text: string, cls?: string, onClick?: () => void): void => {
+    fstreeEl.appendChild(document.createTextNode('  '.repeat(depth)))
     const el = document.createElement(onClick ? 'a' : 'span')
-    el.textContent = '  '.repeat(depth) + text + '\n'
+    el.textContent = text
     if (cls) el.className = cls
     if (onClick) el.addEventListener('click', onClick)
     fstreeEl.appendChild(el)
+    fstreeEl.appendChild(document.createTextNode('\n'))
   }
   const walk = (base: string, dir: string[], depth: number): void => {
     if (depth > 6 || shown > MAX) return
@@ -266,14 +268,21 @@ const SCAN: Record<string, number> = {
 }
 const JOY: Record<string, number> = { ArrowUp: 1, ArrowDown: 2, ArrowLeft: 4, ArrowRight: 8, Space: 16, ControlLeft: 16 }
 
+// AMOS ASCII codes for special keys (Cla_Special +W.s:12941): cursor keys
+// are Chr$(30)/(31)/(28)/(29), Backspace 8, Tab 9, Return 13, Esc 27,
+// Del stores ASCII 0 with its scancode
+const SPECIAL_CH: Record<string, string> = {
+  Backspace: '\x08', Tab: '\x09', Enter: '\r', NumpadEnter: '\r', Escape: '\x1b', Delete: '\x00',
+  ArrowUp: '\x1e', ArrowDown: '\x1f', ArrowRight: '\x1c', ArrowLeft: '\x1d',
+}
 document.addEventListener('keydown', (e) => {
   if (e.target === lineEl || !rt) return
   const scan = SCAN[e.code] ?? 0
   if (scan) rt.input.keys.add(scan)
   if (JOY[e.code] !== undefined) rt.input.joy |= JOY[e.code]!
-  const ch = e.key === 'Enter' ? '\r' : e.key.length === 1 ? e.key : ''
+  const ch = SPECIAL_CH[e.code] ?? (e.key.length === 1 ? e.key : '')
   if (ch !== '') rt.pressKey(ch, scan)
-  if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault()
+  if (e.code === 'Space' || e.code === 'Backspace' || e.code === 'Tab' || e.code.startsWith('Arrow')) e.preventDefault()
 })
 document.addEventListener('keyup', (e) => {
   if (!rt) return
@@ -292,7 +301,7 @@ canvas.addEventListener('mousemove', (e) => {
   if (!rt) return
   const r = canvas.getBoundingClientRect()
   rt.input.mouseX = 128 + Math.floor(((e.clientX - r.left) / r.width) * 320)
-  rt.input.mouseY = 50 + Math.floor(((e.clientY - r.top) / r.height) * 200)
+  rt.input.mouseY = Runtime.COMPOSITE_TOP + Math.floor(((e.clientY - r.top) / r.height) * Runtime.COMPOSITE_LINES)
 })
 canvas.addEventListener('mousedown', (e) => {
   if (!rt) return

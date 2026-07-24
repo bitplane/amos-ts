@@ -449,6 +449,7 @@ export const FAITHFUL = new Set<string>([
   'dir next$',
   'exist',
   'dfree',
+  'disc info$',
   // correctness-pass cluster (help-manual verified)
   'sort',
   'match',
@@ -879,12 +880,14 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  'disc info$': 'format is exact (volume name + 10-char left-aligned free bytes); the free count is the Dfree constant — browser storage has no real quota',
+  dfree: 'no real quota in the browser store — a large constant',
   amal: 'string programs only — Amal n,# bank programs unsupported',
   anim: 'string programs only — bank program numbers unsupported, like amal',
   'move x': 'string programs only — bank program numbers unsupported, like amal',
   'move y': 'string programs only — bank program numbers unsupported, like amal',
   autoback: 'mode 1 treated like 0',
-  rainbow: 'rendered per scanline by the copper-walk compositor; hardware lines above 50 (the top border) are outside the composite window',
+  rainbow: 'rendered per scanline by the copper-walk compositor across the PAL overscan window (hardware lines 26-311)',
   'copper off':
     'the interpreted list renders COLOR/BPLxPT/BPLCON0-hires/DMACON/DIWSTRT; DDF/modulos/BPLCON1-2/sprite pointers are parsed but ignored, and registers reset each frame rather than persisting (the real machine also hides the mouse pointer)',
   'cop logic': 'a mapped chip-RAM address; the system list is regenerated every vbl (the T_Actualise change-gating is not modelled)',

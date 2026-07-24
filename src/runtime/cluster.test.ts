@@ -362,8 +362,42 @@ describe('integration: Run and the environment cluster', () => {
   it('Dev/Prg First$/Next$ enumerate the device list (FnPrgFirst=FnDevFirst +Lib.s:5539)', () => {
     const prog = ['Print Dev First$("*")', 'Print Dev Next$', 'Print Prg First$("*")'].join('\n')
     const { out } = run(prog)
-    expect(out.trim().split('\n')[0]!.trim()).toBe('DH0:')
-    expect(out.trim().split('\n')[2]!.trim()).toBe('DH0:')
+    // FnFillNext format (+Lib.s:5583): a marker space, the name padded to
+    // the Set Dir width (30), then an 8-char size field — spaces for
+    // devices (FillDev pokes size -1)
+    const lines = out.split('\n')
+    expect(lines[0]).toBe(' DH0:'.padEnd(30) + ' '.repeat(8))
+    expect(lines[2]).toBe(' DH0:'.padEnd(30) + ' '.repeat(8))
+  })
+
+  it('Dir First$ entries carry marker + padded name + size; dirs sort first (FillFPoke/FillSort)', () => {
+    const prog = [
+      'Mkdir "DH0:sub"',
+      'Open Out 1,"DH0:zz.dat" : Print #1,"12345" : Close 1',
+      'Open Out 1,"DH0:aa.dat" : Print #1,"x" : Close 1',
+      'A$=Dir First$("*")',
+      'While A$<>"" : Print "[";A$;"]" : A$=Dir Next$ : Wend',
+      'Set Dir 10',
+      'Print "[";Dir First$("*.dat");"]"',
+    ].join('\n')
+    const { out } = run(prog)
+    const lines = out.split('\n').filter((l) => l.startsWith('['))
+    // '*' maps to byte 1 in FillSort, so the directory leads the list
+    expect(lines[0]).toBe('[' + '*sub'.padEnd(30) + ' '.repeat(8) + ']')
+    // file sizes are left-aligned decimals in the 8-char field
+    expect(lines[1]!.length).toBe(2 + 30 + 8)
+    const m = /^\[ aa\.dat\s+(\d+)\s*\]$/.exec(lines[1]!)
+    expect(m).not.toBeNull()
+    // Set Dir 10 narrows the name column (InSetDir1 +Lib.s:5525); dirs
+    // list even against "*.dat" — filters only apply to files (FillNxt)
+    expect(lines[3]).toBe('[' + '*sub'.padEnd(10) + ' '.repeat(8) + ']')
+  })
+
+  it('Disc Info$ returns "VOLUME:" + 10-char free-byte field (FnDiscInfo +Lib.s:4995)', () => {
+    const { out } = run('A$=Disc Info$("DH0:")\nPrint Left$(A$,Len(A$)-10)\nPrint Val(Right$(A$,10))')
+    const lines = out.split('\n')
+    expect(lines[0]).toBe('DH0:')
+    expect(Number(lines[1])).toBeGreaterThan(0)
   })
 })
 
@@ -589,7 +623,7 @@ describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => 
       return run(prog).rt.composite().data
     }
     const px = (160 - 128) * 2
-    const py = (100 - 50) * 2
+    const py = (100 - 26) * 2 // composite rows start at hardware line 26
     const o = (py * 640 + px) * 4
     const behind = mk('Sprite Priority 0')
     // priority 0: the playfield (colour 5 = $A0A default? read from data) wins
@@ -1130,7 +1164,8 @@ describe('display control (Update/View/Default/Dual Playfield)', () => {
     ].join('\n')
     const { rt } = run(prog)
     const { data } = rt.composite()
-    expect([data[0], data[1], data[2]]).toEqual([0, 0, 255])
+    const o = 48 * 640 * 4 // top of the screen band (hardware line 50)
+    expect([data[o], data[o + 1], data[o + 2]]).toEqual([0, 0, 255])
   })
 
   it('reports Screen Mode, Ntsc and Font$ formats', () => {

@@ -17,7 +17,7 @@ function boot(src: string): { rt: Runtime; out: string } {
 /** the composited RGBA pixel at output coords (x, y) as a 12-bit value */
 function pix12(rt: Runtime, x: number, y: number): number {
   const { data } = rt.composite()
-  const o = (y * 640 + x) * 4
+  const o = ((y + 48) * 640 + x) * 4 // helper rows start at line 50 (the classic top); 48 rows of overscan sit above
   return ((Math.round(data[o]! / 17) & 15) << 8) | ((Math.round(data[o + 1]! / 17) & 15) << 4) | (Math.round(data[o + 2]! / 17) & 15)
 }
 

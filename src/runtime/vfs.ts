@@ -123,15 +123,20 @@ export class AmigaFS implements AmosFS {
   }
 
   assign(name: string, target: string): void {
-    this.assigns.set(name.toLowerCase().replace(/:$/, ''), target)
+    const display = name.replace(/:$/, '')
+    this.assigns.set(display.toLowerCase(), target)
+    this.assignDisplay.set(display.toLowerCase(), display)
   }
+
+  /** original-case assign names for device enumeration */
+  private assignDisplay = new Map<string, string>()
 
   volumeNames(): string[] {
     return [...this.volumes.values()].map((v) => v.name)
   }
 
   assignNames(): string[] {
-    return [...this.assigns.keys()]
+    return [...this.assigns.keys()].map((k) => this.assignDisplay.get(k) ?? k)
   }
 
   // ---- path resolution ----

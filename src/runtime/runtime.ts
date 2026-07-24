@@ -336,9 +336,13 @@ export class Runtime {
   /** Set Input line terminator pair (default CR, skip LF) */
   chrInp: [number, number] = [13, 10]
   /** Dir First$/Dir Next$ iterator */
-  dirIter: { entries: Array<{ name: string; isDir: boolean }>; idx: number } | null = null
+  dirIter: { entries: Array<{ name: string; isDir: boolean; size: number }>; idx: number } | null = null
   /** Dev/Prg First$/Next$ iterator (FillDev device list) */
   devIter: { entries: string[]; idx: number } | null = null
+  /** Set Dir n[,neg$]: name-column width of Dir/Dev listings (DirLNom,
+   * default 30 = PI_DirSize +Interpreter_Config.s:69) + negative filter */
+  dirWidth = 30
+  dirNegFilter = ''
   /** Amos Lock's T_NoFlip flag — no screen flipping to suppress here */
   noFlip = false
   /** IffReturn: the last DLTA's ANHD relative time (=Frame Param) */
@@ -2705,7 +2709,16 @@ export class Runtime {
 
   // ---- video out ----
 
-  /** Compose all visible screens into a 640x400 RGBA frame. */
+  /** The composite window: a full-overscan PAL monitor. Hardware lines
+   * COMPOSITE_TOP .. COMPOSITE_TOP+COMPOSITE_LINES-1 (26..311 — vertical
+   * blank ends ~25, bottom overscan ~311) each map to two canvas rows.
+   * The AMOS default screen sits at line 50; accessories place screens
+   * from ~line 20 (Object_Editor) to ~291 and Limit Mouse 25..310. */
+  static readonly COMPOSITE_TOP = 26
+  static readonly COMPOSITE_LINES = 286
+
+  /** Compose all visible screens into a 640x572 RGBA frame (the PAL
+   * overscan window, doubled). */
   /**
    * Fold Rainbow-instruction changes into the display fields, exactly like
    * the copper build's activation pass (RainA1-A5 +W.s:6079): a height
@@ -2957,7 +2970,7 @@ export class Runtime {
    */
   composite(out?: Uint8ClampedArray): { width: number; height: number; data: Uint8ClampedArray } {
     const W = 640
-    const H = 400
+    const H = Runtime.COMPOSITE_LINES * 2
     const data = out ?? new Uint8ClampedArray(W * H * 4)
     this.activateRainbows()
     // Copper Off: the display is whatever the user's physical list says
@@ -2997,7 +3010,7 @@ export class Runtime {
       const pw = posFrom.hires ? 1 : 2
       const ph = posFrom.laced ? 1 : 2
       const baseX = (posFrom.displayX - 128) * 2
-      const baseY = (posFrom.displayY - 50) * 2
+      const baseY = (posFrom.displayY - Runtime.COMPOSITE_TOP) * 2
       const sy = Math.floor((r - baseY) / ph) + s.offsetY
       if (sy < 0 || sy >= s.height) return
       const winW = winWOf(posFrom)
@@ -3028,7 +3041,7 @@ export class Runtime {
       }
     }
 
-    for (let L = 50; L < 250; L++) {
+    for (let L = Runtime.COMPOSITE_TOP; L < Runtime.COMPOSITE_TOP + Runtime.COMPOSITE_LINES; L++) {
       // the front screen band for this line (highest priority covering it;
       // a dual-playfield pair displays as one, the front screen leading)
       const f = this.frontAt(L)
@@ -3058,7 +3071,7 @@ export class Runtime {
       const bgR = ((bg >> 8) & 15) * 17
       const bgG = ((bg >> 4) & 15) * 17
       const bgB = (bg & 15) * 17
-      const r0 = (L - 50) * 2
+      const r0 = (L - Runtime.COMPOSITE_TOP) * 2
       for (const r of [r0, r0 + 1]) {
         for (let o = r * W * 4; o < (r + 1) * W * 4; o += 4) {
           data[o] = bgR
@@ -3121,12 +3134,12 @@ export class Runtime {
       const end = Math.min(to, 313)
       for (; line < end; line++) {
         const fetching = dmaOn && screen !== null
-        if (line >= 50 && line < 250) {
+        if (line >= Runtime.COMPOSITE_TOP && line < Runtime.COMPOSITE_TOP + Runtime.COMPOSITE_LINES) {
           const bg = hwPal[0]!
           const bgR = ((bg >> 8) & 15) * 17
           const bgG = ((bg >> 4) & 15) * 17
           const bgB = (bg & 15) * 17
-          const r0 = (line - 50) * 2
+          const r0 = (line - Runtime.COMPOSITE_TOP) * 2
           for (let ri = 0; ri < 2; ri++) {
             const r = r0 + ri
             for (let o = r * W * 4; o < (r + 1) * W * 4; o += 4) {
@@ -3341,7 +3354,7 @@ export class Runtime {
       const img = this.spriteBank?.image(sp.image)
       if (!img) continue
       const bx = (sp.x - img.hotX - 128) * 2
-      const by = (sp.y - img.hotY - 50) * 2
+      const by = (sp.y - img.hotY - Runtime.COMPOSITE_TOP) * 2
       for (let y = 0; y < img.height; y++) {
         for (let x = 0; x < img.width; x++) {
           const v = img.pixels[y * img.width + x]!

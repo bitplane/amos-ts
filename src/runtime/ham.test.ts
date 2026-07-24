@@ -20,7 +20,7 @@ function boot(src: string, fs?: AmigaFS): { rt: Runtime; out: string } {
 
 function pix12(rt: Runtime, x: number, y: number): number {
   const { data } = rt.composite()
-  const o = (y * 640 + x) * 4
+  const o = ((y + 48) * 640 + x) * 4 // rows relative to hardware line 50; the window starts at line 26
   return ((Math.round(data[o]! / 17) & 15) << 8) | ((Math.round(data[o + 1]! / 17) & 15) << 4) | (Math.round(data[o + 2]! / 17) & 15)
 }
 
