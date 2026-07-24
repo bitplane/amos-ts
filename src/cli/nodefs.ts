@@ -63,5 +63,17 @@ export function fsForFile(file: string, fixturesRoot = 'fixtures/official-amos')
   // parent of the program dir as a second lookup for relative resources
   fs.mount('PARENT', new NodeVolume(dirname(dirname(file))))
   fs.assign(basename(dirname(dirname(file))), 'PARENT:')
+  // a fonts drawer beside the program (or its parent) becomes FONTS:,
+  // like the system assign AvailFonts scans
+  for (const [dir, vol] of [
+    [dirname(file), 'PROG'],
+    [dirname(dirname(file)), 'PARENT'],
+  ] as const) {
+    const hit = existsSync(dir) && readdirSync(dir).find((e) => e.toLowerCase() === 'fonts' && statSync(join(dir, e)).isDirectory())
+    if (hit) {
+      fs.assign('Fonts', `${vol}:${hit}`)
+      break
+    }
+  }
   return fs
 }

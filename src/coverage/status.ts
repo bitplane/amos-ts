@@ -994,7 +994,7 @@ export const NOTES: Record<string, string> = {
   'screen display': 'the visible window w/h clips the composite; hardware scaling is not modelled',
   'screen colour': 'HAM reports 64 — the real EcNbCol is stored as 64 by InScreenOpen, never 4096',
   'screen base': 'a read-only synthesized Ec control block (EcLogic/EcPhysic, geometry, EcNbCol, live EcPal, EcTLigne...); pokes into it are ignored',
-  'set font': 'the stock Workbench font list is reported but rendering stays the single 8x8 face',
+  'set font': 'real Amiga diskfonts render when a Fonts: drawer is mounted (drop one in the browser); without one, the synthetic Workbench list with the 8x8 face stands in',
   'border$': 'box glyph bitmaps are drawn approximations (the AMOS charset binary is not in the source tree)',
   'request on': 'stored — the port never shows system requesters',
   'request off': 'stored — the port never shows system requesters',

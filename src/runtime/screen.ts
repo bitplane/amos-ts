@@ -1,5 +1,7 @@
 import { FONT8 } from './font.gen'
 import { AmosError } from '../interp/values'
+import { glyphBit, glyphMetrics } from '../loader/diskfont'
+import type { DiskFont } from '../loader/diskfont'
 
 // ---- text-border glyphs (TEncadre +W.s:16725) -----------------------------
 // The AMOS charset's box-drawing characters. The charset bitmaps live in
@@ -808,11 +810,43 @@ export class Screen {
     }
   }
 
+  /** the graphics font set by Set Font (TSFont) — null = the 8x8 face */
+  font: DiskFont | null = null
+
   /** Graphics text (Text x,y,s$): y is the baseline, drawn with ink. */
   text(x: number, y: number, s: string): void {
-    for (let i = 0; i < s.length; i++) {
-      this.drawChar(x + i * 8, y - 6, s.charCodeAt(i), this.ink, 0, true, this.textStyle)
+    const f = this.font
+    if (!f) {
+      for (let i = 0; i < s.length; i++) {
+        this.drawChar(x + i * 8, y - 6, s.charCodeAt(i), this.ink, 0, true, this.textStyle)
+      }
+      return
     }
+    // real diskfont glyphs: pen offset (kern), bit-span width, per-char
+    // advance, glyph top = baseline - tf_Baseline (graphics.library Text)
+    const w = this.curWin
+    if (w.writing1 === 4) return // IGNORE
+    let penX = x
+    const top = y - f.baseline
+    for (let i = 0; i < s.length; i++) {
+      const ch = s.charCodeAt(i)
+      const m = glyphMetrics(f, ch)
+      for (let gy = 0; gy < f.ySize; gy++) {
+        for (let gx = 0; gx < m.width; gx++) {
+          if (glyphBit(f, ch, gx, gy)) this.writeMode(penX + m.kern + gx, top + gy, this.ink, w.writing1)
+        }
+      }
+      penX += m.advance
+    }
+  }
+
+  /** Text Length with the current graphics font (TextLength sums advances) */
+  measureText(s: string): number {
+    const f = this.font
+    if (!f) return s.length * 8
+    let len = 0
+    for (let i = 0; i < s.length; i++) len += glyphMetrics(f, s.charCodeAt(i)).advance
+    return len
   }
 
   // ---- text console (window-relative) ----

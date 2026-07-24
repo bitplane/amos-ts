@@ -5,6 +5,7 @@ import { parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseIlbm } from '../loader/iff'
 import { parsePacPic } from '../loader/pacpic'
+import { parseDiskFont, parseFontDescriptor } from '../loader/diskfont'
 import { DEFAULT_FLASH_SPEC, Runtime, SYS_MESSAGES, parseFlashSpec } from './runtime'
 import { Screen, builtinPattern } from './screen'
 import { ObjectBank } from './objects'
@@ -447,9 +448,29 @@ function devNext(rt: Runtime): string {
   return it2.entries[it2.idx++]!
 }
 
-function examinedFonts(rt: Runtime): typeof FONT_LIST {
+/** Disc fonts come from the real Fonts: drawer when one is mounted
+ * (AvailFonts scans FONTS:); the synthetic Workbench list stands in when
+ * there is none, so stock Set Font numbers still resolve. */
+function discFontList(rt: Runtime): Array<{ name: string; height: number; type: string; file?: string }> {
+  if (rt.discFontCache) return rt.discFontCache
+  const out: Array<{ name: string; height: number; type: string; file?: string }> = []
+  const entries = rt.vfs?.listDir('Fonts:')
+  for (const e of entries ?? []) {
+    if (e.isDir || !/\.font$/i.test(e.name)) continue
+    const bytes = rt.vfs!.read('Fonts:' + e.name)
+    const desc = bytes ? parseFontDescriptor(bytes) : null
+    if (!desc) continue // corrupt descriptors are skipped, not fatal
+    for (const d of desc) out.push({ name: e.name, height: d.ySize, type: 'Disc', file: d.file })
+  }
+  rt.discFontCache = out.length > 0 ? out : FONT_LIST.filter((f) => f.type === 'Disc')
+  return rt.discFontCache
+}
+
+function examinedFonts(rt: Runtime): Array<{ name: string; height: number; type: string; file?: string }> {
   const mask = rt.fontsListed
-  return FONT_LIST.filter((f) => (f.type === 'Rom' ? mask & 1 : mask & 2))
+  const rom = mask & 1 ? FONT_LIST.filter((f) => f.type === 'Rom') : []
+  const disc = mask & 2 ? discFontList(rt) : []
+  return [...rom, ...disc]
 }
 
 /**
@@ -890,19 +911,31 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (n < 0) throw new AmosError('Illegal function call', 23)
       if (!rt.fontsListed) throw new AmosError('fonts not examined')
       if (n === 0) return
-      if (!examinedFonts(rt)[n - 1]) throw new AmosError('font not available')
+      const entry = examinedFonts(rt)[n - 1]
+      if (!entry) throw new AmosError('font not available')
       rt.currentFont = n
+      if (entry.file) {
+        // a real disc font: load Fonts:<name>/<size> onto the screen
+        const bytes = rt.vfs?.read('Fonts:' + entry.file)
+        const df = bytes ? parseDiskFont(bytes) : null
+        if (!df) throw new AmosError('font not available')
+        scr().font = df
+      } else {
+        scr().font = null // ROM/synthetic: the built-in 8x8 face
+      }
     },
     // InGetFonts/Igf +Lib.s:9772: d1 mask 3/1/2 selects rom+disc, rom
     // only, disc only; Font$/Set Font see the filtered list
     'get fonts'() {
       rt.fontsListed = 3
+      rt.discFontCache = null
     },
     'get rom fonts'() {
       rt.fontsListed = 1
     },
     'get disc fonts'() {
       rt.fontsListed = 2
+      rt.discFontCache = null
     },
     'request on'() {
       rt.requestMode = 1
@@ -3599,7 +3632,8 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI((0xc0000000 | (int(a[0]!) & 0xff)) | 0)
     },
     'text length'(_, a) {
-      return VI(str(a[0]!).length * 8)
+      // TextLength() with the set font: sum of per-char advances
+      return VI(scr().measureText(str(a[0]!)))
     },
     'text styles'() {
       // FnTextStyle +Lib.s:9898: the rastport SoftStyle byte
@@ -3640,7 +3674,8 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VS(devNext(rt))
     },
     'text base'() {
-      return VI(6)
+      // the graphics font's tf_Baseline (topaz 8 = 6)
+      return VI(scr().font?.baseline ?? 6)
     },
     windon(_, a) {
       void a

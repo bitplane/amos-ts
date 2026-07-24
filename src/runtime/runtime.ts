@@ -346,6 +346,8 @@ export class Runtime {
   /** Set Tempras (RasSize/RasLock +Lib.s:9997) — validated, unused by
    * the chunky renderer */
   tempRas: { addr: number; size: number } | null = null
+  /** disc fonts enumerated from Fonts: at Get Fonts time (AvailFonts) */
+  discFontCache: Array<{ name: string; height: number; type: string; file?: string }> | null = null
   /** Amos Lock's T_NoFlip flag — no screen flipping to suppress here */
   noFlip = false
   /** IffReturn: the last DLTA's ANHD relative time (=Frame Param) */

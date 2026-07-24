@@ -94,6 +94,27 @@ function detectAmosInstall(): void {
   }
   statusEl.textContent = `AMOS Pro install detected at ${root.dir} — assigns created`
 }
+
+/** a dropped drawer named "fonts" becomes the FONTS: assign AvailFonts
+ * scans — real Amiga diskfonts render Text/menus with true metrics */
+function detectFontsDrawer(): void {
+  const findFonts = (dir: string, depth: number): string | null => {
+    const entries = (vfs.listDir(dir) ?? []).filter((e) => e.isDir)
+    const hit = entries.find((e) => e.name.toLowerCase() === 'fonts')
+    if (hit) return dir.endsWith(':') ? dir + hit.name : dir + '/' + hit.name
+    if (depth >= 2) return null
+    for (const e of entries) {
+      const r = findFonts(dir.endsWith(':') ? dir + e.name : dir + '/' + e.name, depth + 1)
+      if (r) return r
+    }
+    return null
+  }
+  const found = findFonts('DH0:', 0)
+  if (found) {
+    vfs.assign('Fonts', found)
+    if (rt) rt.discFontCache = null
+  }
+}
 document.addEventListener('pointerdown', () => audio.unlock())
 document.addEventListener('keydown', () => audio.unlock())
 
@@ -203,6 +224,7 @@ document.addEventListener('drop', (e) => {
     // a folder drop doesn't auto-run: point the user at the file panel
     if (!single && entries.length > 0) {
       detectAmosInstall()
+      detectFontsDrawer()
       filesEl.open = true
       refreshFiles()
       statusEl.textContent += ' — pick a .AMOS in the Files panel to run it'
