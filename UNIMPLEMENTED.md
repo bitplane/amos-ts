@@ -1,108 +1,114 @@
 # What's not implemented (and what's approximated)
 
-Status after milestone 4 (audio). Census over the 393-program corpus:
-**371 run to a stop, 24 finish with nothing skipped.** Occurrence counts
-below come from `runreport --all` (statements actually reached, so a
-tight loop counts thousands of times).
+Status after the graphics completion pass (scanline compositor, copper,
+rainbows, HAM/EHB, dual playfield, STOS anim). Census over the
+393-program corpus: **380 run to a stop, 100 end cleanly, 60 finish
+with nothing skipped.** Occurrence counts come from `runreport --all`
+(statements actually reached, so a tight loop counts thousands of
+times). Per-keyword detail lives in `KEYWORDS.md` (generated); this is
+the narrative view.
+
+The display pipeline is considered done: screens, drawing, palette,
+rainbows, copper (system-generated AND user lists), menus, windows,
+zones, dual playfield, HAM/EHB, hardware/STOS animation are all at
+100%, with every remaining caveat NOTES'd in `KEYWORDS.md`.
 
 ## Not implemented — grouped, roughly by census weight
 
-### Interface / Dialog language  (~130k hits — the biggest gap)
-The AMOS "Interface" resource language: `Dialog`, `Dialog Box/Open/
-Run/Close`, `VDialog`, `RDialog$`, `Choice`, `Hslider`/`Vslider`/
-`Set Slider`, `Fsel$` (file selector), `Resource Bank`, `Resource
-Screen Open`, `Resource$`. Like AMAL, it's a second compiled
-mini-language (source in `+ILib.s`). Needed by the Productivity tools
-and some game front-ends.
+### Music & sound (the big one — music area 29%)
+`Music`/`Music Off/Stop`, `Tempo`, `Mvolume`, `Track Load/Play/Stop/
+Loop`, `Med Load/Play/Stop/Cont/Midi On` (MED player), `Play/Play
+Off`, `Set Wave/Set Envel/Del Wave/Noise To/Wave/Sample`, `Sload/
+Ssave`, `Sam Swap`, `Amplay`. Music banks are converted Soundtracker
+modules; MED banks are OctaMED. This is the next roadmap item: a
+Paula-shaped player over the existing audio sink. Nearly every AMOS
+game plays a module — the biggest remaining gap for real games.
 
-### Copper & direct hardware access  (~160k hits, almost all Planet Zybex)
-`Cop Move/Movel/Wait/Swap/Logic`, `Copper Off`, `Logbase`, `Phybase`,
-`Logic`, `Physic`, and raw memory: `Peek/Poke/Deek/Doke/Leek/Loke/
-Peek$`, `Btst`, `Ror.b`, `Dreg/Areg`, `Doscall/Execall/Gfxcall`,
-`Exec`. Supporting these means a decision: emulate a small slice of
-chip RAM + custom registers, or accept that hardware-banging programs
-stay partial.
+### Speech (~27k hits, mostly one talking-head demo)
+`Say`, `Set Talk`, `Talk Misc/Stop`, `Mouth Read/Width/Height` — the
+narrator.device formant synthesizer. A faithful reimplementation is a
+research project; a modern TTS would not sound like an Amiga. Long
+tail.
 
-### Music (tracker)  (~5k hits)
-`Music`, `Music Off/Stop`, `Tempo`, `Mvolume`, `Voice` gating,
-`Play/Play Off`, `Set Wave/Set Envel/Del Wave/Noise To`, `Track
-Load/Play/Stop/Loop`, `Med *` (MED player), `Amplay`. Music banks are
-converted Soundtracker modules; a proper player is a milestone of its
-own.
+### Host-machine calls (~10k hits, mostly doscall)
+`Doscall/Execall/Gfxcall/Intcall`, `Dreg/Areg`, `Exec`, `Call` and
+machine-code procedures (68k is never executed — n/a by policy),
+`Varptr`, `Lib Open/Call/Close`, `Dev *` device I/O. The library-call
+keywords are classified n/a (they jump into AmigaOS ROM); `Varptr`
+could join the fake address space.
 
-### Speech  (~27k hits, one talking-head demo mostly)
-`Say`, `Set Talk`, `Talk Misc`, `Mouth Read/Width/Height` — the Amiga
-narrator.device formant synthesizer. Faithful reimplementation is a
-research project; a modern TTS would not sound like an Amiga.
+### IOPorts extension (serial/parallel/printer — area 0%, 38 keywords)
+`Serial *` (~14), `Parallel *` (~10), `Printer *` (~10). Host bridges
+(Web Serial / print dialogs) — integration work, not 68k porting.
+The parallel hits in the census (~19k) are one diagnostics accessory
+polling status registers.
 
-### Menus  (~6k hits)
-`Menu$` definitions, `Set Menu`, `Menu On/Off/Key/Base/Called/Link/
-Static/Inactive/Separate/Del`, `On Menu`, `Bank To Menu`/`Menu To
-Bank`.
+### System / environment (area 10%)
+`Amos To Front/Back`, `Amos Here/Lock/Unlock` (window-system
+integration), ARexx (6 keywords — host bridge), `Run`, `Prg First$/
+Next$`, `Dev First$/Next$`, `Port`, `System`, `Close Workbench`,
+`Set Buffer`, `Set Accessory`, `Set Tempras`, `Frame Load/Length`
+(IFF ANIM playback), `Sprite Base`/`Icon Base` (addresses inside the
+object banks — needs the banks mapped into the fake address space).
 
-### Files & I/O channels  (~1k hits)
-`Open In/Open Out/Close`, `Print #`, `Input #`, `Line Input #`,
-`Input$(n)`, `Dir$`, `Sload/Ssave`. The virtual FS exists (Load/Load
-Iff use it); sequential file channels don't yet.
+### Files: random access records
+`Field`, `Open Random`, `Get #`/`Put #` (record I/O), `Open Port`.
+Sequential channels, Dir$ and the VFS all work.
 
-### Windows, fonts and text styles
-`Wind Open/Save/Close`, `Set Font`/`Get Fonts`/`Font$` (we always use
-one 8x8 font), `Under/Shade/Inverse On/Off`, `Set Text`, `Set Paint`,
-`Set Pattern`/`Set Line` (fill/line styles), `Set Curs`, `Cmove`,
-`X Text/Y Text`, `Clw`, `Print Using`, escape-string functions
-(`Border$`, `Pen$`, `Paper$`, `Repeat$`).
+### Compact
+`Pack`/`Spack` (screen compaction — `Unpack` of existing banks works;
+the encoders are unwritten). `Squash`/`Unsquash` and PowerPacker are
+done and verified.
 
-### Language-level
-`Def Fn`/`Fn`, `Every n Proc/Gosub` (interrupt-driven procedures),
-machine-code procedures (`@_apml_@` bodies are captured but 68k is
-never executed; `Call`, `Areg`, `Dreg`), `Run`/`Prg Under`, `Command Line$`, `Err$`/`Errn`,
-`Put Key`/`Clear Key`, bank management (`Reserve As Data/Work/Chip`,
-`Erase`, `Bank Swap`, `Start` address function), `Read Text`,
-`Appear`/`Zoom` (screen transitions), `Every On`.
+### Misc language stragglers
+`Read Text`, `Amal n,#` bank programs (the AMAL/Anim/Move string
+forms all work), the `Play` recorded-path form.
 
-### AMAL leftovers
-`Amal n,#` (pre-compiled programs from an AMAL bank), `PLay` recorded
-paths, `Bobsprite Col`/`Spritebob Col` cross-type collision.
+## Implemented but approximated — the honesty list
 
-### System / environment
-`Amos To Front/Back`, `Amos Lock`, `Close Workbench/Editor`,
-`Set Buffer`, `Set Accessory`, ARexx, the IOPorts extension (serial/
-parallel/MIDI), printer channels, `Ntsc` (always PAL), `View`/
-`Auto View On/Off`.
+Everything here also carries a NOTES entry in `KEYWORDS.md`.
 
-## Implemented but simplified — the honesty list
-
-- **Bobs are blitted with background save/restore** (faithful), but
-  `Set Bob` planes/mask arguments are ignored and Autoback mode 1 is
-  treated like mode 0. `Logbase`/`Phybase` (raw addresses) remain
-  unimplemented.
-- **`Appear` copies instantly** — the dissolve is not progressive.
-- **Rainbows are stored, not rendered** — `Set Rainbow`/`Rain`/
-  `Rainbow` execute, but the composite doesn't do per-scanline
-  palettes yet.
-- **Writing modes**: only the default replace mode; `Writing`/`Gr
-  Writing` XOR/OR/AND modes are ignored. `Ink` patterns ignored.
-- **Fade is instant** (target palette applied immediately, no ramp).
-- **HAM pictures decode as indexed** (wrong colours); EHB works.
-- **Hardware sprites** use the front screen's palette 16–31 and ignore
-  the real 4-per-scanline hardware limits (a superset).
-- **Vumeter is synthesized** (deterministic wobble while a voice is
-  busy) rather than measuring actual PCM amplitude.
-- **Bell/Boom/Shoot** are modern approximations of the chip
-  waveforms.
-- **Sam Raw** is missing (needs bank-address memory model).
-- **Collision in AMAL** is allowed in any Synchro mode (original
-  required Synchro Off).
-- **`Timer=` accepted**, drives the frame clock directly.
-- **Machine-code procedures** return immediately (skip mode) instead
-  of executing 68k.
+- **Fsel$** runs the real resource-bank dialog, but Store and keyboard
+  qualifiers are unhandled; edit fields use a simplified line editor.
+- **Dialog engine**: MZ (raw-memory strings) returns "", CA (machine
+  code) errors, SM (screen drag) is a no-op; `=Array` passes a handle,
+  not a real address.
+- **Bell/Boom/Shoot/Vumeter** are modern synthesis, not chip
+  waveforms; `Sam Raw` needs bank-address audio.
+- **Request On/Off/Wb** store the mode; no system requesters exist in
+  the port.
+- **Fonts**: one Topaz face; `Get Disc Fonts` reports the ROM list.
+- **Rnd** mixes a deterministic statement-paced pseudo-beam instead of
+  the free-running raster (runs reproduce); `Rnd(-n)` is the pure
+  generator exactly as on the Amiga.
+- **Sprite priority** is per-pair (PF2P) but global rather than
+  per-screen; computed sprites approximate as the last pair. Hardware
+  sprites ignore the 4-per-scanline DMA limit (a superset).
+- **Copper Off** interprets COLOR/BPLxPT/BPLCON0/DMACON/DIWSTRT from
+  user lists; DDF/modulos/BPLCON1-2/sprite pointers are parsed but
+  ignored, and registers reset each frame rather than persisting.
+- **Screen Base** maps a read-only synthesized control block; pokes
+  into it are ignored.
+- **Dual playfield** renders under the system copper only, one pair at
+  a time.
+- **FFP trig** matches mathtrans to ~24 bits, not necessarily the last
+  bit.
+- **Ppsave/Squash** write valid files but not byte-identical to the
+  original crunchers' choices (the decoders are verified faithful).
+- **Load** treats the sprite/icon append flag as overwrite; `Bload` of
+  a small bank number creates a bank instead of erroring.
+- **Edit/Direct** stop the program (there is no editor to return to);
+  `Lprint` and printer/serial hosts are absent.
 - Only tokenized `.AMOS` sources run — compiled AMOS executables are
   out of scope.
 
-## Remaining census errors (16 programs)
+## Remaining census stoppers
 
-- `screen not opened` (8): follow-ons from `Load` of missing files or
-  unimplemented `Erase`/bank flows.
-- `bank not reserved` (8): `Unpack` after a `Load` that couldn't find
-  its file, or `Reserve` not implemented.
-- `out of data` (2): a Data tutorial that errors on real AMOS too.
+- `blocked` (78): programs waiting on input/mouse forever — mostly
+  accessories and demos that idle in event loops (correct behaviour).
+- `maxSteps` (200): games and demos that run their main loop happily
+  until the step cap — the census can't "win" a game.
+- errors (13): missing data files for `Load` (fixtures don't ship
+  every disc), `function call error` (4), `bank not reserved`
+  follow-ons (4), and `Type mismatch` (2) in programs that error on
+  real AMOS too.
