@@ -3,7 +3,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
-import { NullAudio, parseSampleBank, bellPcm, samPeriod, periodToHz, PAULA_CLOCK } from './audio'
+import { NullAudio, parseSampleBank, samPeriod, periodToHz, PAULA_CLOCK } from './audio'
 import type { MemoryBank } from '../loader/amosfile'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -127,23 +127,34 @@ describe('sample playback', () => {
 })
 
 describe('effects and vumeter', () => {
-  it('synthesizes Bell, Shoot and Boom', () => {
-    const { audio } = run('Bell 60\nShoot\nBoom')
+  it('Bell is the looped square wave on all four voices (InBell +Music.s:2681)', () => {
+    const { audio } = run('Bell')
     const plays = audio.events.filter((e) => e.kind === 'play')
-    expect(plays.map((p) => p.voice)).toEqual([0, 1, 2])
-    expect(plays.every((p) => (p.length ?? 0) > 500)).toBe(true)
+    expect(plays.map((p) => p.voice)).toEqual([0, 1, 2, 3])
+    // default note 70, octave (70+2)/12 = 6 -> the 8-byte mip, looped
+    expect(plays.every((p) => p.length === 8 && p.loop)).toBe(true)
+    // period = clock/(8*1760Hz) = 251
+    expect(plays[0]!.freq).toBeCloseTo(PAULA_CLOCK / 251)
   })
 
-  it('bell pitch changes the tone', () => {
-    const low = bellPcm(20).pcm
-    const high = bellPcm(80).pcm
-    // higher pitch → more zero crossings in the same window
-    const crossings = (p: Int8Array): number => {
-      let n = 0
-      for (let i = 1; i < 2000; i++) if ((p[i - 1]! < 0) !== (p[i]! < 0)) n++
-      return n
-    }
-    expect(crossings(high)).toBeGreaterThan(crossings(low) * 2)
+  it('Shoot and Boom play detuned noise on all four voices (Shout +Music.s:2722)', () => {
+    const { audio } = run('Shoot')
+    const plays = audio.events.filter((e) => e.kind === 'play')
+    expect(new Set(plays.map((p) => p.voice)).size).toBe(4)
+    // noise: the 510-byte refreshed buffer, looped; each voice one note apart
+    expect(plays.every((p) => p.length === 510 && p.loop)).toBe(true)
+    expect(new Set(plays.map((p) => p.freq)).size).toBe(4)
+  })
+
+  it('envelopes drive the volume then stop the voice (MuIntE +Music.s:3638)', () => {
+    const { rt, audio } = run('Bell')
+    for (let i = 0; i < 60; i++) rt.frame() // the program ended; envelopes keep running
+    // EnvBell (1,64)(4,40)(25,0): volume jumps to 56, decays, voice stops
+    const vols = audio.events.filter((e) => e.kind === 'volume' && e.voice === 0).map((e) => e.volume!)
+    expect(vols[0]).toBe(56) // (64*56)>>6 at default voice volume 56
+    expect(vols[vols.length - 1]).toBe(0)
+    expect(audio.events.some((e) => e.kind === 'stop' && e.voice === 0)).toBe(true)
+    expect(audio.voiceState[0]!.playing).toBe(false)
   })
 
   it('Vumeter reads and clears the note-on byte (FnVuMeter +Music.s:3893)', () => {

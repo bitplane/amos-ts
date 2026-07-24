@@ -21,7 +21,7 @@ import {
 } from './dialog'
 import { amigaPattern } from './vfs'
 import { MF_BAR, MF_BOUGE, MF_FIXED, MF_OFF, MF_SEP, MF_TBOUGE, MF_TOTAL, bankToMenu, compileMenuObject, menuCalc, menuToBank } from './menu'
-import { bellPcm, boomPcm, shootPcm } from './audio'
+import { ENV_BELL, ENV_BOOM, ENV_SHOOT } from './music'
 import { squash as squashBytes, unsquash as unsquashBytes } from './squash'
 import { parsePpBank, writePpBank } from '../loader/powerpacker'
 
@@ -1776,17 +1776,92 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     bell(it) {
-      const pitch = it.atStmtEnd() ? 60 : it.evalInt()
-      const { pcm, freq } = bellPcm(pitch)
-      rt.playPcm(0b0001, pcm, freq, false)
+      // InBell +Music.s:2681: the square wave (1) with EnvBell on all
+      // four voices; default note 70
+      rt.music.playNote(0b1111, it.atStmtEnd() ? 70 : it.evalInt(), 1, ENV_BELL)
     },
     shoot() {
-      const { pcm, freq } = shootPcm()
-      rt.playPcm(0b0010, pcm, freq, false)
+      // InShoot +Music.s:2713: noise notes 60..63, one per voice
+      rt.music.shout(60, ENV_SHOOT)
     },
     boom() {
-      const { pcm, freq } = boomPcm()
-      rt.playPcm(0b0100, pcm, freq, false)
+      // InBoom +Music.s:2702: noise notes 36..39 with the boom envelope
+      rt.music.shout(36, ENV_BOOM)
+    },
+    play(it) {
+      // InPlay2/3 +Music.s:2802: Play [voices,]note,wait — a negative
+      // wait errors; a positive one behaves as Wait n after starting
+      const a = it.evalInt()
+      it.expect(',')
+      const b = it.evalInt()
+      let mask = 0b1111
+      let note = a
+      let wait = b
+      if (it.accept(',')) {
+        mask = a & 15
+        note = b
+        wait = it.evalInt()
+      }
+      if (wait < 0) throw new AmosError('Illegal function call', 23)
+      rt.music.playNote(mask, note)
+      if (wait > 0) it.block({ type: 'wait', until: it.tick + wait })
+    },
+    'play off'(it) {
+      // InPlayOff +Music.s:2977 -> EnvOff
+      rt.music.playOff((it.atStmtEnd() ? 0b1111 : it.evalInt()) & 15)
+    },
+    'set wave'(it) {
+      // InSetWave +Music.s:3387: needs at least 256 characters (error
+      // 181), wave 0 illegal; the first 256 bytes become the waveform
+      const n = it.evalInt()
+      it.expect(',')
+      const s = it.evalStr()
+      if (s.length < 256) throw new AmosError('256 characters for a wave')
+      if (n <= 0) throw new AmosError('Illegal function call', 23)
+      const src = new Int8Array(256)
+      for (let i = 0; i < 256; i++) src[i] = (s.charCodeAt(i) << 24) >> 24
+      rt.music.setWave(n, src)
+    },
+    'del wave'(it) {
+      // InDelWave +Music.s:3405: waves 0 and 1 are reserved (error 182);
+      // deleting resets every voice to wave 1
+      const n = it.evalInt()
+      if (n < 0) throw new AmosError('Illegal function call', 23)
+      if (n === 0 || n === 1) throw new AmosError('wave 0 and 1 are reserved')
+      rt.music.delWave(n)
+    },
+    'set envel'(it) {
+      // InSetEnvel +Music.s:3426: Set Envel wave,phase To duration,volume;
+      // a negative duration in phases 1-6 loops the envelope
+      const wave = it.evalInt()
+      it.expect(',')
+      const phase = it.evalInt()
+      it.expect('to')
+      const dur = it.evalInt()
+      it.expect(',')
+      const vol = it.evalInt()
+      if (vol < 0 || vol >= 64) throw new AmosError('Illegal function call', 23)
+      if (phase < 0 || phase >= 7) throw new AmosError('Illegal function call', 23)
+      if (wave < 0) throw new AmosError('Illegal function call', 23)
+      if (phase === 0 && dur <= 0) throw new AmosError('Illegal function call', 23)
+      rt.music.setEnvel(wave, phase, dur, vol)
+    },
+    wave(it) {
+      // InWave +Music.s:3373: Wave n To voices
+      const n = it.evalInt()
+      if (n < 0) throw new AmosError('Illegal function call', 23)
+      it.expect('to')
+      rt.music.waveTo(n, it.evalInt() & 15)
+    },
+    'noise to'(it) {
+      // InNoiseTo +Music.s:3093
+      rt.music.noiseTo(it.evalInt() & 15)
+    },
+    sample(it) {
+      // InSampleTo +Music.s:3102: Sample n To voices
+      const n = it.evalInt()
+      it.expect('to')
+      rt.music.sampleTo(n, it.evalInt() & 15)
     },
     voice(it) {
       // InVoice +Music.s:3754: mask &15 -> VOnOf; only acts while a

@@ -24,7 +24,7 @@
  */
 
 import { AmosError } from '../interp/values'
-import { periodToHz } from './audio'
+import { PAULA_CLOCK, periodToHz, samPeriod } from './audio'
 import type { AudioSink } from './audio'
 
 /** what the player needs from the runtime */
@@ -33,8 +33,12 @@ export interface MusicHost {
   vuBytes: Uint8Array
   musicVolume: number
   tick: () => number
+  beam: () => number
   musicBank: () => Uint8Array | null
   getBank: (n: number) => { name: string; data: Uint8Array } | null
+  getSample: (n: number) => { pcm: Int8Array; freq: number }
+  samLoop: () => number
+  voiceVolume: (v: number) => number
 }
 
 type Effect = 'none' | 'slide' | 'arp' | 'ptone' | 'vib' | 'vsl'
@@ -79,6 +83,58 @@ const SINUS = [
   0xff, 0xfd, 0xfa, 0xf4, 0xeb, 0xe0, 0xd4, 0xc5, 0xb4, 0xa1, 0x8d, 0x78, 0x61, 0x4a, 0x31, 0x18,
 ]
 
+// ---- the wavetable synth tables (+Music.s:2156-2183) ----------------------
+
+/** default envelopes (EnvDef/EnvShoot/EnvBoom/EnvBell): (duration, volume) pairs, 0 = end */
+export const ENV_DEF = [1, 64, 4, 55, 5, 50, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+export const ENV_SHOOT = [1, 64, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+export const ENV_BOOM = [1, 64, 10, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+export const ENV_BELL = [1, 64, 4, 40, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+/** wave buffer length: 256+128+64+32+16+8+4+2 (LWave) */
+const LWAVE = 510
+
+/** TFreq: per-octave (byte offset, length in words) into the wave mip chain */
+const TFREQ: Array<[number, number]> = [
+  [0, 128], [0, 128], [256, 64], [384, 32], [448, 16], [480, 8], [496, 4], [504, 2], [504, 2],
+]
+
+/** TNotes: note frequencies in Hz, indexed by note+2 */
+const TNOTES = [
+  0, 0, 0, 33, 35, 37, 39, 41, 44, 46, 49, 52,
+  55, 58, 62, 65, 69, 73, 78, 82, 87, 92, 98, 104,
+  110, 117, 123, 131, 139, 147, 156, 165, 175, 185, 196, 208,
+  220, 233, 247, 262, 277, 294, 311, 330, 349, 370, 392, 415,
+  440, 466, 494, 523, 554, 587, 622, 659, 698, 740, 784, 830,
+  880, 932, 988, 1046, 1109, 1175, 1245, 1319, 1397, 1480, 1568, 1661,
+  1760, 1865, 1986, 2093, 2217, 2349, 2489, 2637, 2794, 2960, 3136, 3322,
+  3520, 3729, 3952, 4186, 4435, 4699, 4978, 5274, 5588, 5920, 6272, 6645,
+  7040, 7459, 7902, 8372,
+]
+
+export interface Wave {
+  /** 8 (duration, volume) pairs; 0 duration ends, negative loops */
+  env: number[]
+  /** the 510-byte mip chain (256+128+...+2) */
+  data: Int8Array
+}
+
+/** NeWave's mip build (+Music.s:3510-3545): halve the 256-byte wave 6 times */
+function waveMips(src: Int8Array): Int8Array {
+  const out = new Int8Array(LWAVE)
+  out.set(src.subarray(0, 256))
+  let from = 0
+  let to = 256
+  for (let size = 128; size >= 4; size >>= 1) {
+    for (let i = 0; i < size; i++) {
+      out[to + i] = (out[from + i * 2]! + out[from + i * 2 + 1]!) >> 1
+    }
+    from = to
+    to += size
+  }
+  return out
+}
+
 function newVoice(): MuVoice {
   return {
     adr: -1, deb: 0, inst: -1, dpat: 0, pat: 0, cpt: 0, rep: 0, note: 0,
@@ -105,8 +161,42 @@ export class MusicPlayer {
   private lastFreq = [0, 0, 0, 0]
   private lastVol = [-1, -1, -1, -1]
 
+  // ---- wavetable synth state (+Music.s waves/envelopes) ----
+  /** wave list; 0 = the vbl-refreshed noise buffer, 1 = the square */
+  waves = new Map<number, Wave>()
+  /** Waves per voice: wave number, 0 = noise, -n = sample n (NoWave default 1) */
+  voiceWave = [1, 1, 1, 1]
+  /** Noise word: voices currently playing noise */
+  noiseMask = 0
+  private noiseSeed = 0
+  private noisePos = 0
+  /** per-voice ADSR machine (EnvBase entries) */
+  private envs = [0, 1, 2, 3].map(() => ({
+    on: false,
+    pairs: ENV_DEF as number[],
+    pos: 0,
+    vol: 0, // EnvVol, 16.16 fixed point
+    delta: 0,
+    nb: 0,
+  }))
+
   constructor(host: MusicHost) {
     this.host = host
+    // MusDef (+Music.s:897-917): wave 1 is a square, wave 0 is the noise
+    // buffer, seeded by the same LCG the vbl refresh uses
+    const square = new Int8Array(256)
+    square.fill(127, 0, 128)
+    square.fill(-127, 128)
+    this.waves.set(0, { env: ENV_DEF.slice(), data: waveMips(square) })
+    this.waves.set(1, { env: ENV_DEF.slice(), data: waveMips(square) })
+    const noise = this.waves.get(0)!.data
+    let seed = 0
+    for (let i = 0; i + 1 < LWAVE; i += 2) {
+      seed = ((seed * 0x3171) >>> 8) & 0xffff
+      noise[i] = (seed >> 8) << 24 >> 24
+      noise[i + 1] = (seed & 0xff) << 24 >> 24
+    }
+    this.noiseSeed = seed
   }
 
   get playing(): boolean {
@@ -224,6 +314,9 @@ export class MusicPlayer {
 
   vbl(): void {
     this.ensureBank()
+    // MusInt (+Music.s:1092): envelopes and the noise refresh run before
+    // the music/tracker players
+    this.envStep()
     // Sami natural end -> MuReStart (+Music.s:1080): one-shot samples give
     // their voice back to the music when they finish
     const t = this.host.tick()
@@ -647,6 +740,203 @@ export class MusicPlayer {
   /** AUDxVOL write, once per change */
   private volWrite(v: number, vol: number): void {
     if (this.dmask & (1 << v)) this.sinkVol(v, vol)
+  }
+
+  // ---- the wavetable synth (Play/Bell/Boom/Shoot, +Music.s:2676-3563) ----
+
+  /**
+   * GoBel (+Music.s:2822): note 0-96, steal the voices from the music,
+   * start each one. forcedWave: -1 = the voice's Waves entry (Play),
+   * 1 = the square (Bell), 0 = noise (Boom/Shoot via shout()).
+   */
+  playNote(mask: number, note: number, forcedWave = -1, forcedEnv: number[] | null = null): void {
+    if (note < 0 || note > 96) throw new AmosError('Illegal function call', 23)
+    this.samSteal(mask & 15)
+    for (let v = 0; v < 4; v++) {
+      if (mask & (1 << v)) this.vPlay(v, note, forcedWave, forcedEnv)
+    }
+  }
+
+  /** Shout (+Music.s:2722): rising notes voice 3 down to 0 — "a stereo effect" */
+  shout(baseNote: number, env: number[]): void {
+    this.voiceOnOff(0)
+    let note = baseNote
+    for (let v = 3; v >= 0; v--) {
+      this.vPlay(v, note, 0, env)
+      note++
+    }
+  }
+
+  /** VPlay (+Music.s:2865): one voice — wave, noise or pitched sample */
+  private vPlay(v: number, note: number, forcedWave: number, forcedEnv: number[] | null): void {
+    const bit = 1 << v
+    this.noiseMask &= ~bit
+    this.samEnd[v] = Infinity
+    if (note === 0) {
+      // VSil: silence the voice, envelope off
+      this.host.audio.stop(v)
+      this.envs[v]!.on = false
+      return
+    }
+    const idx = note + 2 // TNotes index (the 68k's note+3-1)
+    const w = forcedWave >= 0 ? forcedWave : this.voiceWave[v]!
+    if (w < 0) {
+      // VPl2: sample pitched relative to A440, no envelope, Sam Loop applies
+      const s = this.host.getSample(-w)
+      const freq = Math.min(0xffff, Math.floor((s.freq * (TNOTES[idx] ?? 0)) / 440))
+      this.envs[v]!.on = false
+      const hz = periodToHz(samPeriod(freq))
+      const loop = (this.host.samLoop() >> v) & 1
+      this.play(v, s.pcm, hz, this.host.voiceVolume(v), loop ? 0 : -1, s.pcm.length)
+      this.samEnd[v] = loop ? Infinity : this.host.tick() + Math.ceil((s.pcm.length / hz) * 50)
+      return
+    }
+    if (w === 0) {
+      // VPl4: noise — the head wave's buffer, looped, envelope-driven
+      const wave0 = this.waves.get(0)!
+      this.noiseMask |= bit
+      const freq = Math.min(0xffff, Math.floor((2000 * (TNOTES[idx] ?? 0)) / 440))
+      this.play(v, wave0.data, periodToHz(samPeriod(freq)), 0, 0, wave0.data.length)
+      this.startEnv(v, forcedEnv ?? wave0.env)
+      return
+    }
+    // VPl0: wavetable — pick the mip for the octave, loop it at the note rate
+    const rec = this.waves.get(w)
+    if (!rec) throw new AmosError('wave not defined')
+    const [off, lenW] = TFREQ[Math.min(8, Math.floor(idx / 12))]!
+    const lenBytes = lenW * 2
+    const per = Math.max(124, Math.floor(PAULA_CLOCK / (lenBytes * ((TNOTES[idx] ?? 0) || 1))))
+    this.play(v, rec.data.subarray(off, off + lenBytes), periodToHz(per), 0, 0, lenBytes)
+    this.startEnv(v, forcedEnv ?? rec.env)
+  }
+
+  private startEnv(v: number, pairs: number[]): void {
+    const e = this.envs[v]!
+    e.on = true
+    e.pairs = pairs
+    e.pos = 0
+    e.vol = 0
+    this.envNext(v)
+  }
+
+  /** MuIntE (+Music.s:3638): advance to the next envelope segment */
+  private envNext(v: number): void {
+    const e = this.envs[v]!
+    for (let guard = 0; guard < 32; guard++) {
+      const dur = e.pairs[e.pos]
+      if (dur === undefined || dur === 0) {
+        // MuIntS: envelope finished — stop the voice, the music reclaims it
+        e.on = false
+        this.host.audio.stop(v)
+        this.lastVol[v] = -1
+        this.lastFreq[v] = 0
+        this.noiseMask &= ~(1 << v)
+        this.restart |= 1 << v
+        return
+      }
+      if (dur < 0) {
+        e.pos = 0 // loop to EnvDeb
+        continue
+      }
+      const target = (this.host.voiceVolume(v) * (e.pairs[e.pos + 1] ?? 0)) >> 6
+      const cur = e.vol >> 16
+      e.delta = (Math.trunc(((target - cur) << 8) / dur) << 8) | 0
+      e.vol = cur << 16
+      e.nb = dur
+      e.pos += 2
+      return
+    }
+    e.on = false
+  }
+
+  /** the per-vbl envelope walk + noise refresh (MusInt +Music.s:1093-1134) */
+  private envStep(): void {
+    for (let v = 0; v < 4; v++) {
+      const e = this.envs[v]!
+      if (!e.on) continue
+      e.vol = (e.vol + e.delta) | 0
+      this.sinkVol(v, (e.vol >> 16) & 0xffff)
+      if (--e.nb === 0) this.envNext(v)
+    }
+    if (this.noiseMask) {
+      // 8 fresh random words per vbl into the head wave, beam-seeded
+      const noise = this.waves.get(0)!.data
+      let pos = this.noisePos
+      let seed = this.noiseSeed
+      for (let i = 0; i < 8; i++) {
+        seed = ((((seed + this.host.beam()) & 0xffff) * 0x3171) >>> 8) & 0xffff
+        noise[pos] = ((seed >> 8) << 24) >> 24
+        noise[pos + 1] = ((seed & 0xff) << 24) >> 24
+        pos -= 2
+        if (pos < 0) pos = LWAVE - 2
+      }
+      this.noisePos = pos
+      this.noiseSeed = seed
+    }
+  }
+
+  /** EnvOff (+Music.s:3611): Play Off — stop envelopes, music reclaims */
+  playOff(mask: number): void {
+    let stopped = 0
+    for (let v = 0; v < 4; v++) {
+      const bit = 1 << v
+      const e = this.envs[v]!
+      if (!(mask & bit) || !e.on) continue
+      e.on = false
+      stopped |= bit
+      this.host.audio.stop(v)
+      this.lastVol[v] = -1
+      this.lastFreq[v] = 0
+    }
+    this.restart = stopped // EnvOff overwrites MuReStart (+Music.s:3631)
+  }
+
+  /** a Sam Play on a voice kills its envelope and noise (SPl0/SPlay) */
+  onSamVoice(v: number): void {
+    this.envs[v]!.on = false
+    this.noiseMask &= ~(1 << v)
+  }
+
+  /** InSetWave/NeWave (+Music.s:3387/3488): replacing stops all envelopes */
+  setWave(n: number, src: Int8Array): void {
+    if (this.waves.has(n)) {
+      this.playOff(0b1111)
+      this.waves.delete(n)
+    }
+    this.waves.set(n, { env: ENV_DEF.slice(), data: waveMips(src) })
+  }
+
+  /** InDelWave (+Music.s:3405): also resets every voice to wave 1 (NoWave) */
+  delWave(n: number): void {
+    this.playOff(0b1111)
+    if (!this.waves.has(n)) throw new AmosError('wave not defined')
+    this.waves.delete(n)
+    this.voiceWave = [1, 1, 1, 1]
+  }
+
+  /** InSetEnvel (+Music.s:3426): set one phase and terminate after it */
+  setEnvel(wave: number, phase: number, dur: number, vol: number): void {
+    const rec = this.waves.get(wave)
+    if (!rec) throw new AmosError('wave not defined')
+    rec.env[phase * 2] = dur
+    rec.env[phase * 2 + 1] = vol
+    if (phase * 2 + 2 < 16) rec.env[phase * 2 + 2] = 0
+  }
+
+  /** InWave (+Music.s:3373): Wave n To voices — the wave must exist */
+  waveTo(n: number, mask: number): void {
+    if (!this.waves.has(n)) throw new AmosError('wave not defined')
+    for (let v = 0; v < 4; v++) if (mask & (1 << v)) this.voiceWave[v] = n
+  }
+
+  noiseTo(mask: number): void {
+    for (let v = 0; v < 4; v++) if (mask & (1 << v)) this.voiceWave[v] = 0
+  }
+
+  /** InSampleTo (+Music.s:3102): Waves entry = -n */
+  sampleTo(n: number, mask: number): void {
+    this.host.getSample(n) // validates, GetSam errors propagate
+    for (let v = 0; v < 4; v++) if (mask & (1 << v)) this.voiceWave[v] = -n
   }
 
   // ---- the Tracker (ProTracker MOD replay, Tracker/mt_* +Music.s:1673) ---

@@ -26,7 +26,7 @@ tested against our own understanding. Percentages exclude n/a
 | language | 250 | 186 | 18 | 37 | 85% |
 | memory | 14 | 10 | 3 | 1 | 93% |
 | menus | 24 | 24 | 0 | 0 | 100% |
-| music | 49 | 22 | 3 | 24 | 51% |
+| music | 49 | 33 | 0 | 16 | 67% |
 | objects | 56 | 52 | 3 | 1 | 98% |
 | palette | 9 | 9 | 0 | 0 | 100% |
 | rainbows | 3 | 3 | 0 | 0 | 100% |
@@ -36,7 +36,7 @@ tested against our own understanding. Percentages exclude n/a
 | text-io | 37 | 31 | 5 | 1 | 97% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 506 | 55 | 134 | 81% |
+| **total** | 732 | 517 | 52 | 126 | 82% |
 
 ## amal (92%)
 
@@ -116,11 +116,10 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `menu active`, `menu bar`, `menu base`, `menu calc`, `menu called` *(items redraw every frame; (PR name) label procedures are not invoked)*, `menu del`, `menu inactive`, `menu item movable` *(drag applies final positions — no XOR rubber band)*, `menu item static`, `menu key`, `menu line`, `menu link`, `menu mouse off`, `menu mouse on`, `menu movable` *(drag applies final positions — no XOR rubber band)*, `menu off`, `menu on`, `menu once`, `menu separate`, `menu static`, `menu tline`, `menu to bank`, `on menu`, `x menu`
 
-## music (51%)
+## music (67%)
 
-- **faithful**: `led off` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `led on` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `mubase` *(only the vumeter bytes (MB+0..3) of the data zone are mapped)*, `music` *(note triggers start immediately instead of after the one-vbl DMA-off gap; a 2-byte repeat region plays silence rather than looping its two bytes)*, `music off`, `music stop`, `mvolume`, `sam bank`, `sam loop off`, `sam loop on`, `sam play`, `sam raw` *(unmapped addresses play nothing (the real machine plays whatever memory holds))*, `sam stop`, `tempo`, `track load`, `track loop of`, `track loop on`, `track play` *(triggers skip the one-vbl DMA latch gap; the pattern argument is ignored ("not supported in this version" in the 68k too))*, `track stop`, `voice`, `volume`, `vumeter`
-- **approximated**: `bell` *(modern synthesis, not chip waveform)*, `boom` *(modern synthesis)*, `shoot` *(modern synthesis)*
-- **missing**: `del wave`, `med cont`, `med load`, `med midi on`, `med play`, `med stop`, `mouth height`, `mouth read`, `mouth width`, `noise to`, `play`, `play off`, `sam swap`, `sam swapped`, `sample`, `say`, `set envel`, `set talk`, `set wave`, `sload`, `ssave`, `talk misc`, `talk stop`, `wave`
+- **faithful**: `bell`, `boom`, `del wave`, `led off` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `led on` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `mubase` *(only the vumeter bytes (MB+0..3) of the data zone are mapped)*, `music` *(note triggers start immediately instead of after the one-vbl DMA-off gap; a 2-byte repeat region plays silence rather than looping its two bytes)*, `music off`, `music stop`, `mvolume`, `noise to` *(the WebAudio sink snapshots the noise buffer at trigger; the per-vbl random refresh mutates the live buffer as on the Amiga but is only re-heard on retrigger there)*, `play`, `play off`, `sam bank`, `sam loop off`, `sam loop on`, `sam play`, `sam raw` *(unmapped addresses play nothing (the real machine plays whatever memory holds))*, `sam stop`, `sample`, `set envel`, `set wave`, `shoot`, `tempo`, `track load`, `track loop of`, `track loop on`, `track play` *(triggers skip the one-vbl DMA latch gap; the pattern argument is ignored ("not supported in this version" in the 68k too))*, `track stop`, `voice`, `volume`, `vumeter`, `wave`
+- **missing**: `med cont`, `med load`, `med midi on`, `med play`, `med stop`, `mouth height`, `mouth read`, `mouth width`, `sam swap`, `sam swapped`, `say`, `set talk`, `sload`, `ssave`, `talk misc`, `talk stop`
 
 ## objects (98%)
 

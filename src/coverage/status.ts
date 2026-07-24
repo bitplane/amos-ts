@@ -70,6 +70,23 @@ export const FAITHFUL = new Set<string>([
   'track stop',
   'track loop on',
   'track loop of',
+  // the wavetable synth: VPlay/MuIntE/EnvOff/NeWave ported from
+  // +Music.s:2676-3563 — square/noise defaults, mip chains, per-octave
+  // TFreq/TNotes pitch, (duration,volume) envelope segments with the
+  // end-stops-voice/music-reclaim semantics, Bell=square+EnvBell at
+  // note 70, Shoot/Boom=detuned noise via Shout; music.test.ts and
+  // audio.test.ts cite the routines
+  'play',
+  'play off',
+  'set wave',
+  'del wave',
+  'set envel',
+  'wave',
+  'noise to',
+  'sample',
+  'bell',
+  'shoot',
+  'boom',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
   'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add
@@ -752,9 +769,7 @@ export const NOTES: Record<string, string> = {
   music: 'note triggers start immediately instead of after the one-vbl DMA-off gap; a 2-byte repeat region plays silence rather than looping its two bytes',
   mubase: 'only the vumeter bytes (MB+0..3) of the data zone are mapped',
   'track play': 'triggers skip the one-vbl DMA latch gap; the pattern argument is ignored ("not supported in this version" in the 68k too)',
-  bell: 'modern synthesis, not chip waveform',
-  shoot: 'modern synthesis',
-  boom: 'modern synthesis',
+  'noise to': 'the WebAudio sink snapshots the noise buffer at trigger; the per-vbl random refresh mutates the live buffer as on the Amiga but is only re-heard on retrigger there',
   'led on': 'filter flag reaches the sink; audibility depends on the host audio implementation',
   'led off': 'filter flag reaches the sink; audibility depends on the host audio implementation',
   'load iff': 'HAM/EHB decode and render correctly; not byte-verified against the 68k IFF loader',

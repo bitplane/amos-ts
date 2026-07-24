@@ -225,11 +225,15 @@ export class Runtime {
         return rt.musicVolume
       },
       tick: () => rt.interp.tick,
+      beam: () => rt.interp.beamWord(),
       musicBank: () => {
         const b = rt.memBanks.get(3)
         return b && b.name.startsWith('Musi') ? b.data : null
       },
       getBank: (n: number) => rt.memBanks.get(n) ?? null,
+      getSample: (n: number) => rt.getSample(n),
+      samLoop: () => rt.samLoopMask,
+      voiceVolume: (v: number) => rt.voices[v]!.volume,
     }))(this),
   )
   // ---- file channels (Open In/Out, Print #, Input #) ----
@@ -1531,6 +1535,7 @@ export class Runtime {
     this.music.samSteal(mask)
     for (let v = 0; v < 4; v++) {
       if (!(mask & (1 << v))) continue
+      this.music.onSamVoice(v)
       const loop = (this.samLoopMask >> v) & 1
       this.audio.play(v, pcm, hz, this.voices[v]!.volume, loop ? 0 : -1)
       this.music.samEnd[v] = loop ? Infinity : this.interp.tick + Math.ceil((pcm.length / hz) * 50)

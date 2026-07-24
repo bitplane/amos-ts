@@ -247,6 +247,95 @@ describe('music bank player', () => {
   })
 })
 
+// ---- the wavetable synth ------------------------------------------------
+
+describe('the wavetable synth (Play)', () => {
+  const sampBank: MemoryBank = (() => {
+    const rec = [
+      ...[...'TICK    '].map((c) => c.charCodeAt(0)),
+      0x20, 0xab, // 8363 Hz
+      0, 0, 0, 8,
+      10, 20, 30, 40, 50, 60, 70, 80,
+    ]
+    return { kind: 'memory', number: 5, memType: 1, name: 'Samples', flags: 0, data: new Uint8Array([0, 1, 0, 0, 0, 6, ...rec]) }
+  })()
+
+  it('Play loops the default square wave with the default envelope (VPl0 +Music.s:2887)', () => {
+    const { rt, audio } = boot('Play 40,0', sampBank)
+    frames(rt, 3)
+    const plays = audio.events.filter((e) => e.kind === 'play')
+    expect(plays).toHaveLength(4)
+    // note 40: octave (40+2)/12 = 3 -> 64-byte mip at offset 384
+    expect(plays[0]).toMatchObject({ length: 64, loop: true })
+    // EnvDef first segment (1,64) -> volume 56 on the next vbl
+    const vols = audio.events.filter((e) => e.kind === 'volume' && e.voice === 0)
+    expect(vols[0]!.volume).toBe(56)
+  })
+
+  it('Play note,wait blocks like Wait (InPlay2 +Music.s:2802)', () => {
+    const { rt } = boot('Play 40,10\nPrint "done"', sampBank)
+    let out = ''
+    rt.interp.io.write = (t) => (out += t)
+    frames(rt, 5)
+    expect(out).toBe('')
+    frames(rt, 10)
+    expect(out).toContain('done')
+    expect(() => boot('Play 40,-1', sampBank).rt.runHeadless(2)).toThrow(/illegal function call/i)
+    expect(() => boot('Play 97,0', sampBank).rt.runHeadless(2)).toThrow(/illegal function call/i)
+  })
+
+  it('Noise To routes a voice to the refreshed noise buffer (VPl4 +Music.s:2961)', () => {
+    const { rt, audio } = boot('Noise To %0001\nPlay %0001,40,0', sampBank)
+    frames(rt, 3)
+    const play = audio.events.find((e) => e.kind === 'play')!
+    expect(play.length).toBe(510)
+    expect(play.loop).toBe(true)
+    // the buffer refreshes 8 words per vbl (descending) while noise plays
+    const before = [...audio.voiceState[0]!.pcm!]
+    frames(rt, 6)
+    const after = [...audio.voiceState[0]!.pcm!]
+    expect(after).not.toEqual(before)
+  })
+
+  it('Sample To pitches a bank sample relative to A440 (VPl2 +Music.s:2947)', () => {
+    const { rt, audio } = boot('Sample 1 To %0001\nPlay %0001,49,0', sampBank)
+    frames(rt, 3)
+    const play = audio.events.find((e) => e.kind === 'play')!
+    // note 49 -> TNotes[49+2] = 523Hz: freq = 8363*523/440, then quantized
+    const want = Math.floor((8363 * 523) / 440)
+    expect(play.freq).toBeCloseTo(periodToHz(Math.max(124, Math.floor(3546895 / want))))
+    expect(play.length).toBe(8)
+  })
+
+  it('Set Wave defines a wave, Set Envel shapes it, Del Wave resets voices (+Music.s:3387-3426)', () => {
+    const src = 'A'.repeat(256)
+    const { rt, audio } = boot(`Set Wave 2,"${src}"\nSet Envel 2,0 To 100,63\nWave 2 To %0001\nPlay %0001,40,0`, sampBank)
+    frames(rt, 4)
+    const play = audio.events.find((e) => e.kind === 'play')!
+    expect(play.length).toBe(64)
+    // 'A' = 65 everywhere; the mip of a constant wave is constant
+    expect(audio.voiceState[0]!.pcm![0]).toBe(65)
+    expect(rt.music.waves.get(2)!.env.slice(0, 3)).toEqual([100, 63, 0])
+    expect(rt.music.voiceWave[0]).toBe(2)
+    rt.music.delWave(2)
+    expect(rt.music.voiceWave).toEqual([1, 1, 1, 1])
+  })
+
+  it('Set Wave needs 256 characters; waves 0/1 protected (+Music.s:3391/3405)', () => {
+    expect(() => boot('Set Wave 2,"short"', sampBank).rt.runHeadless(2)).toThrow(/256 characters/i)
+    expect(() => boot(`Del Wave 1`, sampBank).rt.runHeadless(2)).toThrow(/reserved/i)
+    expect(() => boot(`Wave 9 To 15`, sampBank).rt.runHeadless(2)).toThrow(/wave not defined/i)
+  })
+
+  it('Play Off stops the envelopes and the music reclaims (EnvOff +Music.s:3611)', () => {
+    const { rt, audio } = boot('Play 40,0\nPlay Off', sampBank)
+    frames(rt, 3)
+    expect(audio.events.filter((e) => e.kind === 'stop').length).toBeGreaterThanOrEqual(4)
+    expect(audio.voiceState.every((s) => !s.playing)).toBe(true)
+    void rt
+  })
+})
+
 // ---- the Tracker (MOD) player -------------------------------------------
 
 /**
