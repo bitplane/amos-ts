@@ -4,7 +4,7 @@ import { parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseIlbm } from '../loader/iff'
 import { parsePacPic } from '../loader/pacpic'
-import type { Runtime } from './runtime'
+import { Runtime } from './runtime'
 import { Screen, builtinPattern } from './screen'
 import { ObjectBank } from './objects'
 import { AmalChannel, AmalCompileError, compileAmal } from './amal'
@@ -84,10 +84,16 @@ function vdialogWrite(it: It, rt: Runtime, isStr: boolean): void {
  * nowhere — plane pokes are ignored (see NOTES).
  */
 function planeBase(rt: Runtime, plane: number, phys: number): number {
+  // Logbase(p)/Phybase(p): the address of bitplane p of the logical/physical
+  // bitmap. Faithful Amiga layout — planes are `planeSize` apart (+W.s:1856),
+  // and the region is backed by the screen's planar mirror (Runtime.resolveAddr).
   const s = rt.screen
-  const planes = Math.ceil(Math.log2(Math.max(2, s.nColors)))
-  if (plane < 0 || plane >= planes) throw new AmosError('function call error')
-  return 0x02000000 + s.index * 0x100000 + phys * 0x80000 + plane * 0x8000
+  if (plane < 0 || plane >= s.depth) throw new AmosError('function call error')
+  // single-buffered screens open with EcLogic == EcPhysic (+W.s:3001); only
+  // Double Buffer splits the physical bitmap onto its own address
+  const physical = phys !== 0 && s.doubleBuffered
+  const base = rt.screenChipBase(s.index) + (physical ? Runtime.SCREEN_PHY_OFFSET : 0)
+  return (base + plane * s.planeSize) >>> 0
 }
 
 /** the ROM font list (Get Fonts / Font$) — the port carries Topaz only */
@@ -1757,14 +1763,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const addr = it.evalInt()
       it.expect(',')
       const v = it.evalInt()
-      const m = rt.resolveAddr(addr)
+      const m = rt.resolveWrite(addr)
       if (m) m.data[m.off] = v & 0xff
     },
     doke(it) {
       const addr = it.evalInt()
       it.expect(',')
       const v = it.evalInt()
-      const m = rt.resolveAddr(addr)
+      const m = rt.resolveWrite(addr)
       if (m && m.off + 1 < m.data.length) {
         m.data[m.off] = (v >> 8) & 0xff
         m.data[m.off + 1] = v & 0xff
@@ -1774,7 +1780,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const addr = it.evalInt()
       it.expect(',')
       const v = it.evalInt()
-      const m = rt.resolveAddr(addr)
+      const m = rt.resolveWrite(addr)
       if (m && m.off + 3 < m.data.length) {
         m.data[m.off] = (v >>> 24) & 0xff
         m.data[m.off + 1] = (v >>> 16) & 0xff
@@ -1786,7 +1792,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const addr = it.evalInt()
       it.expect(',')
       const str2 = it.evalStr()
-      const m = rt.resolveAddr(addr)
+      const m = rt.resolveWrite(addr)
       if (m) for (let i = 0; i < str2.length && m.off + i < m.data.length; i++) m.data[m.off + i] = str2.charCodeAt(i) & 0xff
     },
     fill(it) {
@@ -1797,7 +1803,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const end = it.evalInt()
       it.expect(',')
       const v = it.evalInt()
-      const m = rt.resolveAddr(start)
+      const m = rt.resolveWrite(start)
       if (!m) return
       const len = Math.min(end - start, m.data.length - m.off)
       for (let i = 0; i < len; i++) m.data[m.off + i] = (v >>> (24 - (i & 3) * 8)) & 0xff
@@ -1811,7 +1817,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect('to')
       const dest = it.evalInt()
       const src = rt.resolveAddr(start)
-      const dst = rt.resolveAddr(dest)
+      const dst = rt.resolveWrite(dest)
       if (!src || !dst) return
       const len = Math.min(end - start, src.data.length - src.off, dst.data.length - dst.off)
       if (len <= 0) return
@@ -2786,10 +2792,12 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI((s.hires ? 0x8000 : 0) | (s.laced ? 4 : 0))
     },
     logbase(_, a) {
-      return VI(planeBase(rt, int(a[0]!), 0))
+      // FnLogBase +Lib.s:8851: EcLogic[plane]; the plane arg defaults to 0
+      return VI(planeBase(rt, a.length ? int(a[0]!) : 0, 0))
     },
     phybase(_, a) {
-      return VI(planeBase(rt, int(a[0]!), 1))
+      // FnPhyBase +Lib.s:8864: EcPhysic[plane]; the plane arg defaults to 0
+      return VI(planeBase(rt, a.length ? int(a[0]!) : 0, 1))
     },
     'font$'(_, a) {
       // Font$(n): 40 chars — name(32) + height(4) + type(4)

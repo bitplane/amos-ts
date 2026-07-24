@@ -477,6 +477,15 @@ export const FAITHFUL = new Set<string>([
   'hires',
   'lowres',
   'laced',
+  // Logbase(n)/Phybase(n) return the real per-plane pointers (EcLogic[n]/
+  // EcPhysic[n], FnLogBase/FnPhyBase +Lib.s:8851/8864) into the screen's
+  // bitplane memory, which is now backed in chip RAM: planes are planeSize
+  // apart (rowBytes*height, +W.s:1856), single-buffered Logbase==Phybase
+  // (EcLogic==EcPhysic at open, +W.s:3001), Double Buffer splits them, and a
+  // plane past the depth raises a function-call error. Pokes there round-trip
+  // with chunky drawing/Point through a lossless chunky<->planar bijection.
+  'logbase',
+  'phybase',
   // memory/bank sweep verified against +Lib.s (Deek/Doke/Leek/Loke
   // big-endian at any alignment 2764-2819; FillBis tail 2648; TransMem
   // overlap 2535; Length=0 for missing bank 2491; Erase Temp = Data flag)
@@ -614,8 +623,8 @@ export const NOTES: Record<string, string> = {
   'set pattern': 'sprite-image patterns only; bank patterns need the system resource bank',
   'input$': 'keyboard form is non-blocking best effort',
   start: 'fake address space: Start()-relative arithmetic works, absolute hardware addresses do not',
-  peek: 'only addresses inside banks resolve; others read 0',
-  poke: 'writes outside banks are ignored',
+  peek: 'addresses inside banks and screen bitplanes (Logbase/Phybase) resolve; other addresses read 0',
+  poke: 'writes into banks and screen bitplanes render; writes elsewhere are ignored',
   hscroll: 'window-region scroll, approximated',
   vscroll: 'window-region scroll, approximated',
   'shade on': 'dither approximates the original shading',
@@ -682,9 +691,7 @@ export const NOTES: Record<string, string> = {
   'screen open': 'width masked to /16; colour-count and HAM/EHB mode validation are not enforced',
   'screen display': 'the visible window w/h clips the composite; hardware scaling is not modelled',
   'screen colour': 'returns the plane colour count; HAM does not report 4096',
-  'screen base': 'returns 0 — the chunky model has no bitmap address',
-  logbase: 'fake unbacked addresses — plane pokes do not render',
-  phybase: 'fake unbacked addresses — plane pokes do not render',
+  'screen base': 'returns 0 — Screen Base is the AMOS screen control block (ScOnAd), which is not modelled in memory; Logbase/Phybase give the real bitplane addresses',
   'set font': 'a single Topaz-8 face; the number only selects metrics',
   'font$': 'the ROM list only (no disc fonts in the fixture set)',
   'request on': 'stored — the port never shows system requesters',

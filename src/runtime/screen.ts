@@ -104,10 +104,53 @@ export function sliderMetrics(span: number, total: number, pos: number, size: nu
 }
 
 export class Screen {
+  /**
+   * The chunky buffers are the drawing surface; each has a faithful planar
+   * mirror (Amiga bitplanes) that Logbase/Phybase/Screen Base address. Sync is
+   * lazy and lossless: `get pixels`/`get back` pull any plane pokes back into
+   * chunky (ensureChunky); resolving a plane address for reading encodes chunky
+   * -> planar (ensurePlanar); a plane write marks the chunky side stale.
+   */
+  private _pixels: Uint8Array
+  private _back: Uint8Array | null = null
+  /** which representation is authoritative for each buffer */
+  private logSrc: 'chunky' | 'planar' = 'chunky'
+  private phySrc: 'chunky' | 'planar' = 'chunky'
   /** the LOGICAL buffer — all drawing and Point read this */
-  pixels: Uint8Array
+  get pixels(): Uint8Array {
+    if (this.logSrc === 'planar') {
+      this.decode(this.planarLog, this._pixels)
+      this.logSrc = 'chunky'
+    }
+    return this._pixels
+  }
+  set pixels(v: Uint8Array) {
+    this._pixels = v
+    this.logSrc = 'chunky'
+  }
   /** the PHYSICAL buffer when double-buffered (what the beam shows) */
-  back: Uint8Array | null = null
+  get back(): Uint8Array | null {
+    if (this.phySrc === 'planar' && this._back && this.planarPhy) {
+      this.decode(this.planarPhy, this._back)
+      this.phySrc = 'chunky'
+    }
+    return this._back
+  }
+  set back(v: Uint8Array | null) {
+    this._back = v
+    this.phySrc = 'chunky'
+  }
+  // ---- Amiga planar layout (faithful: Taille plan +W.s:1856) ----
+  /** bytes per bitplane row = ceil(width/16)*2 (word-aligned) */
+  readonly rowBytes: number
+  /** number of bitplanes = ceil(log2(nColors)) */
+  readonly depth: number
+  /** bytes per bitplane = rowBytes * height */
+  readonly planeSize: number
+  /** planar mirror of the logical buffer; Logbase(n) = planarLog + n*planeSize */
+  private planarLog: Uint8Array
+  /** planar mirror of the physical buffer (allocated by Double Buffer) */
+  private planarPhy: Uint8Array | null = null
   /** Autoback mode: 2 (default) = fully automatic, 0/1 = manual-ish */
   autoback = 2
   palette = Uint16Array.from(DEFAULT_PALETTE)
@@ -168,7 +211,11 @@ export class Screen {
     readonly nColors: number,
     mode = 0,
   ) {
-    this.pixels = new Uint8Array(width * height)
+    this._pixels = new Uint8Array(width * height)
+    this.rowBytes = ((width + 15) >> 4) << 1
+    this.depth = Math.max(1, Math.ceil(Math.log2(Math.max(2, nColors))))
+    this.planeSize = this.rowBytes * height
+    this.planarLog = new Uint8Array(this.depth * this.planeSize)
     this.hires = (mode & 0x8000) !== 0
     this.laced = (mode & 0x4) !== 0
     const onePlane = nColors <= 2
@@ -242,17 +289,83 @@ export class Screen {
     this.curWin.memY = v
   }
 
+  // ---- chunky <-> planar bijection (Amiga bitplanes) ------------------
+  /** pack a chunky index buffer into `depth` contiguous bitplanes */
+  private encode(chunky: Uint8Array, planar: Uint8Array): void {
+    const { width, height, rowBytes, depth, planeSize } = this
+    planar.fill(0)
+    for (let y = 0; y < height; y++) {
+      const rowBase = y * rowBytes
+      for (let x = 0; x < width; x++) {
+        const idx = chunky[y * width + x]!
+        if (idx === 0) continue
+        const byteOff = rowBase + (x >> 3)
+        const mask = 0x80 >> (x & 7)
+        for (let p = 0; p < depth; p++) {
+          if (idx & (1 << p)) planar[p * planeSize + byteOff] = planar[p * planeSize + byteOff]! | mask
+        }
+      }
+    }
+  }
+  /** unpack `depth` bitplanes back into a chunky index buffer */
+  private decode(planar: Uint8Array, chunky: Uint8Array): void {
+    const { width, height, rowBytes, depth, planeSize } = this
+    for (let y = 0; y < height; y++) {
+      const rowBase = y * rowBytes
+      for (let x = 0; x < width; x++) {
+        const byteOff = rowBase + (x >> 3)
+        const mask = 0x80 >> (x & 7)
+        let idx = 0
+        for (let p = 0; p < depth; p++) {
+          if (planar[p * planeSize + byteOff]! & mask) idx |= 1 << p
+        }
+        chunky[y * width + x] = idx
+      }
+    }
+  }
+
+  /**
+   * The planar mirror of a buffer, addressable at Logbase/Phybase. `write`
+   * marks the chunky side stale so the next `.pixels`/`.back` access re-decodes
+   * (a plane poke); a read just refreshes the planar bytes from chunky.
+   */
+  planarView(kind: 'log' | 'phy', write: boolean): Uint8Array {
+    if (kind === 'phy' && this._back !== null) {
+      if (this.planarPhy === null) this.planarPhy = new Uint8Array(this.depth * this.planeSize)
+      if (this.phySrc === 'chunky') this.encode(this._back, this.planarPhy)
+      if (write) this.phySrc = 'planar'
+      return this.planarPhy
+    }
+    // single-buffered Phybase aliases the logical bitmap, as on the hardware
+    if (this.logSrc === 'chunky') this.encode(this._pixels, this.planarLog)
+    if (write) this.logSrc = 'planar'
+    return this.planarLog
+  }
+
+  /** true once Double Buffer has split the physical bitmap from the logical */
+  get doubleBuffered(): boolean {
+    return this._back !== null
+  }
+
   /** Double Buffer: create the physical buffer */
   doubleBuffer(): void {
-    if (this.back === null) this.back = this.pixels.slice()
+    if (this._back === null) {
+      this._back = this._pixels.slice()
+      this.phySrc = 'chunky'
+    }
   }
 
   /** Screen Swap: exchange logical and physical */
   swap(): void {
-    if (this.back === null) return
-    const t = this.pixels
-    this.pixels = this.back
-    this.back = t
+    if (this._back === null) return
+    // force both chunky sides current, then swap; the planar mirrors are
+    // marked stale ('chunky' authoritative) and re-encode on the next access
+    const log = this.pixels
+    const phy = this.back!
+    this._pixels = phy
+    this._back = log
+    this.logSrc = 'chunky'
+    this.phySrc = 'chunky'
   }
 
   /** the buffer the display shows */

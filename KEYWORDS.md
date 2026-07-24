@@ -31,12 +31,12 @@ tested against our own understanding. Percentages exclude n/a
 | palette | 9 | 9 | 0 | 0 | 100% |
 | rainbows | 3 | 0 | 3 | 0 | 100% |
 | request | 3 | 0 | 3 | 0 | 100% |
-| screens | 31 | 22 | 8 | 1 | 97% |
+| screens | 31 | 24 | 6 | 1 | 97% |
 | system | 41 | 2 | 0 | 18 | 10% |
 | text-io | 37 | 31 | 5 | 1 | 97% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 457 | 75 | 164 | 76% |
+| **total** | 732 | 459 | 73 | 164 | 76% |
 
 ## amal (92%)
 
@@ -109,7 +109,7 @@ tested against our own understanding. Percentages exclude n/a
 ## memory (93%)
 
 - **faithful**: `bchg`, `bclr`, `bset`, `btst`, `copy`, `deek`, `doke`, `fill`, `leek`, `loke`
-- **approximated**: `hunt` *(the bare bank-number (Bnk.OrAdr) form is unsupported; Start() works)*, `peek` *(only addresses inside banks resolve; others read 0)*, `poke` *(writes outside banks are ignored)*
+- **approximated**: `hunt` *(the bare bank-number (Bnk.OrAdr) form is unsupported; Start() works)*, `peek` *(addresses inside banks and screen bitplanes (Logbase/Phybase) resolve; other addresses read 0)*, `poke` *(writes into banks and screen bitplanes render; writes elsewhere are ignored)*
 - **missing**: `varptr`
 
 ## menus (100%)
@@ -142,8 +142,8 @@ tested against our own understanding. Percentages exclude n/a
 
 ## screens (97%)
 
-- **faithful**: `autoback` *(mode 1 treated like 0)*, `default`, `default palette`, `logic`, `ntsc`, `physic`, `screen`, `screen clone`, `screen close`, `screen copy`, `screen display` *(the visible window w/h clips the composite; hardware scaling is not modelled)*, `screen height`, `screen hide`, `screen mode`, `screen offset`, `screen show`, `screen swap`, `screen to back`, `screen to front`, `screen width`, `view`, `zoom`
-- **approximated**: `appear` *(copies instantly — the dissolve is not progressive)*, `dual playfield` *(each playfield uses its own palette, not the hardware's colour split; resolution/plane checks and back-screen auto-hide are not enforced)*, `dual priority` *(InDualPriority +Lib.s:8922 reorders an existing dual-playfield pair; tied to the approximated dual-playfield model, and the pair-validation error differs from CheckScreenNumber/EcWiErr)*, `logbase` *(fake unbacked addresses — plane pokes do not render)*, `phybase` *(fake unbacked addresses — plane pokes do not render)*, `screen base` *(returns 0 — the chunky model has no bitmap address)*, `screen colour` *(returns the plane colour count; HAM does not report 4096)*, `screen open` *(width masked to /16; colour-count and HAM/EHB mode validation are not enforced)*
+- **faithful**: `autoback` *(mode 1 treated like 0)*, `default`, `default palette`, `logbase`, `logic`, `ntsc`, `phybase`, `physic`, `screen`, `screen clone`, `screen close`, `screen copy`, `screen display` *(the visible window w/h clips the composite; hardware scaling is not modelled)*, `screen height`, `screen hide`, `screen mode`, `screen offset`, `screen show`, `screen swap`, `screen to back`, `screen to front`, `screen width`, `view`, `zoom`
+- **approximated**: `appear` *(copies instantly — the dissolve is not progressive)*, `dual playfield` *(each playfield uses its own palette, not the hardware's colour split; resolution/plane checks and back-screen auto-hide are not enforced)*, `dual priority` *(InDualPriority +Lib.s:8922 reorders an existing dual-playfield pair; tied to the approximated dual-playfield model, and the pair-validation error differs from CheckScreenNumber/EcWiErr)*, `screen base` *(returns 0 — Screen Base is the AMOS screen control block (ScOnAd), which is not modelled in memory; Logbase/Phybase give the real bitplane addresses)*, `screen colour` *(returns the plane colour count; HAM does not report 4096)*, `screen open` *(width masked to /16; colour-count and HAM/EHB mode validation are not enforced)*
 - **missing**: `screen size`
 
 ## system (10%)

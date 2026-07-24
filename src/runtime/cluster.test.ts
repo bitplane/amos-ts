@@ -697,10 +697,43 @@ describe('display control (Update/View/Default/Dual Playfield)', () => {
     expect(lines[1]).toMatch(/^topaz\.font\s+8\s+Rom\s*$/)
   })
 
-  it('Logbase yields distinct plane addresses and errors past the depth', () => {
-    const prog = ['Screen Open 0,320,200,16,0', 'Print Logbase(0)<>Logbase(1);Logbase(0)<>Phybase(0)'].join('\n')
-    expect(run(prog).out).toBe('-1-1\n')
+  it('Logbase/Phybase are faithful plane pointers (FnLogBase +Lib.s:8851)', () => {
+    // planes are planeSize apart; single-buffered Logbase == Phybase (EcLogic ==
+    // EcPhysic at open, +W.s:3001); Double Buffer splits them
+    const prog = [
+      'Screen Open 0,320,200,16,0', // 320 wide, 16 col => 4 planes, rowBytes 40
+      'Print Logbase(1)-Logbase(0)', // one plane = 40*200 = 8000 bytes
+      'Print Logbase(0)=Phybase(0)', // single-buffered: identical
+      'Double Buffer',
+      'Print Logbase(0)<>Phybase(0)', // now distinct
+    ].join('\n')
+    expect(run(prog).out).toBe(' 8000\n-1\n-1\n')
+    // a plane index past the depth is a function-call error (4 col => 2 planes)
     expect(() => run('Screen Open 0,320,200,4,0\nPrint Logbase(2)')).toThrow()
+  })
+
+  it('plane pokes and chunky drawing round-trip through the same bitmap', () => {
+    // row 50 is well below the console text area, so Print does not disturb it.
+    // chunky -> planar: Plot then read the plane bit back via Peek
+    const a = run(
+      [
+        'Screen Open 0,320,200,4,0', // 2 planes, rowBytes 40
+        'Cls 0 : Plot 8,50,3', // colour 3 = planes 0 and 1 set at x=8,y=50
+        'Print Peek(Logbase(0)+50*40+1);Peek(Logbase(1)+50*40+1)',
+      ].join('\n'),
+    ).out
+    expect(a).toBe(' 128 128\n') // x=8 => bit 7 set in both planes
+    // planar -> chunky: Poke a plane then read it as a pixel
+    const b = run(
+      [
+        'Screen Open 0,320,200,4,0',
+        'Cls 0',
+        'Poke Logbase(0)+50*40+0,64', // plane0 row50 byte0 bit6 => x=1
+        'Poke Logbase(1)+50*40+0,64', // plane1 same => colour 3
+        'Print Point(1,50);Point(0,50)',
+      ].join('\n'),
+    ).out
+    expect(b).toBe(' 3 0\n')
   })
 })
 

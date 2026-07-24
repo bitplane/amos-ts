@@ -161,8 +161,43 @@ export class Runtime {
   }
 
   /** find the bank containing a fake address */
+  /**
+   * Screen bitplane chip-RAM region (Logbase/Phybase/Screen Base point here).
+   * Well above the bank region (bankBase 0x01000000+n*0x100000) so they never
+   * collide. Each screen gets a 1MB slot: logical bitmap at the base, physical
+   * bitmap at +0x80000, planes `planeSize` apart.
+   */
+  static readonly SCREEN_CHIP_BASE = 0x40000000
+  static readonly SCREEN_CHIP_SLOT = 0x00100000
+  static readonly SCREEN_PHY_OFFSET = 0x00080000
+
+  /** base address of screen n's logical bitmap = Logbase(n=0) = Screen Base */
+  screenChipBase(index: number): number {
+    return (Runtime.SCREEN_CHIP_BASE + index * Runtime.SCREEN_CHIP_SLOT) >>> 0
+  }
+
+  /** resolve an address for reading (Peek): planar mirrors refresh from chunky */
   resolveAddr(addr: number): { data: Uint8Array; off: number } | null {
+    return this.resolveInto(addr, false)
+  }
+
+  /** resolve for writing (Poke): a screen plane write marks the chunky side stale */
+  resolveWrite(addr: number): { data: Uint8Array; off: number } | null {
+    return this.resolveInto(addr, true)
+  }
+
+  private resolveInto(addr: number, write: boolean): { data: Uint8Array; off: number } | null {
     const a = addr >>> 0
+    if (a >= Runtime.SCREEN_CHIP_BASE && a < Runtime.SCREEN_CHIP_BASE + 8 * Runtime.SCREEN_CHIP_SLOT) {
+      const rel = a - Runtime.SCREEN_CHIP_BASE
+      const s = this.screens.get(Math.floor(rel / Runtime.SCREEN_CHIP_SLOT))
+      if (!s) return null
+      const within = rel % Runtime.SCREEN_CHIP_SLOT
+      const phy = within >= Runtime.SCREEN_PHY_OFFSET
+      const off = phy ? within - Runtime.SCREEN_PHY_OFFSET : within
+      const planar = s.planarView(phy ? 'phy' : 'log', write)
+      return off < planar.length ? { data: planar, off } : null
+    }
     for (const [n, bank] of this.memBanks) {
       const base = this.bankBase(n) >>> 0
       if (a >= base && a < base + bank.data.length) return { data: bank.data, off: a - base }
