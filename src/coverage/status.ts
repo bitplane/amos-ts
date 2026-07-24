@@ -165,6 +165,13 @@ export const FAITHFUL = new Set<string>([
   // Peek/Poke/Leek/Loke through both
   'varptr',
   'array',
+  // Sprite Base / Icon Base: the synthesized bank layout (count,
+  // 8-byte pointer entries, palette, TX/TY/planes/hot-spot records
+  // with planar data — Bnk.Load LB_Sprites), |n|&$3FFF with 0 error,
+  // the shared AdBErr "Icon not defined" quirk, mask pointers 0
+  // (Sb/AdBob +Lib.s:12792); cluster.test.ts walks a real record
+  'sprite base',
+  'icon base',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
   'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add
@@ -864,6 +871,8 @@ export const NOTES: Record<string, string> = {
   'set slider': 'system patterns 1/2 approximated as dithers (the mouse bank is not in the fixtures)',
   'mouse zone': 'zones are a single global table, not per-screen (EcAZones)',
   'set bob': 'the back mode is honoured; planes and mask arguments are ignored',
+  'sprite base': 'read-only synthesis, rebuilt when the image count changes; pokes are ignored and in-place pixel edits can be stale until the count changes',
+  'icon base': 'read-only synthesis like sprite base',
   hslider: 'system patterns approximated as dithers',
   vslider: 'system patterns approximated as dithers',
   array: 'int/float arrays map to live arena blocks; string arrays (pointer tables on the 68k) stay opaque handles',

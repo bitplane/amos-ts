@@ -276,6 +276,31 @@ describe('integration: Varptr / =Array arena (FnVarPtr +ILib.s:4087)', () => {
   })
 })
 
+describe('integration: Sprite Base / Icon Base (Sb/AdBob +Lib.s:12792)', () => {
+  it('walks the synthesized bank: record header, planar data, palette', () => {
+    const prog = [
+      'Cls 0 : Ink 5 : Bar 0,0 To 15,7', // a solid 16x8 image
+      'Get Bob 1,0,0 To 16,8',
+      'Hot Spot 1,3,4',
+      'B=Sprite Base(1)',
+      'Print Deek(B)', // width in words
+      'Print Deek(B+2)', // height
+      'Print Deek(B+6);Deek(B+8)', // hot spot
+      'Print Peek(B+10)', // first planar byte of plane 0: solid row = $FF
+      'Print Sprite Base(-1)', // mask pointer stays 0
+    ].join('\n')
+    const { out } = run(prog)
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['1', '8', '3 4', '255', '0'])
+  })
+
+  it('errors: 0 illegal, missing bank, out of range says Icon not defined (AdBErr shared)', () => {
+    expect(() => run('X=Sprite Base(0)')).toThrow(/illegal function call/i)
+    expect(() => run('X=Sprite Base(1)')).toThrow(/bank not reserved/i)
+    const prog = ['Cls 0 : Ink 5 : Bar 0,0 To 7,7', 'Get Bob 1,0,0 To 8,8', 'X=Sprite Base(9)'].join('\n')
+    expect(() => run(prog)).toThrow(/icon not defined/i)
+  })
+})
+
 describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => {
   it('Bob Col is rectangle-gated pixel-perfect and fills the Col set', () => {
     const prog = [

@@ -374,6 +374,9 @@ export class Runtime {
   static readonly MUBASE_ADDR = 0x58000000
   /** Varptr/=Array variable arena (FnVarPtr +ILib.s:4087) */
   static readonly VAR_BASE = 0x60000000
+  /** Sprite Base / Icon Base synthesized bank images */
+  static readonly SPRITE_BANK_BASE = 0x64000000
+  static readonly ICON_BANK_BASE = 0x68000000
   static readonly COPPER_LONG = 12 * 1024
   /** T_CopON: the system rebuilds and owns the display while true */
   copperOn = true
@@ -514,6 +517,16 @@ export class Runtime {
     }
     if (a >= Runtime.VAR_BASE && a < this.varArenaNext) {
       return this.resolveVarSlot(a)
+    }
+    for (const [kind, base] of [
+      ['sprites', Runtime.SPRITE_BANK_BASE],
+      ['icons', Runtime.ICON_BANK_BASE],
+    ] as Array<['sprites' | 'icons', number]>) {
+      if (a >= base && a < base + 0x04000000) {
+        const img = this.objectBankImage(kind)
+        if (!img || a - base >= img.length) return null
+        return { data: img, off: a - base }
+      }
     }
     if (a >= Runtime.COPPER_BASE && a < Runtime.COPPER_BASE + 2 * Runtime.COPPER_SLOT) {
       const rel = a - Runtime.COPPER_BASE
@@ -1720,6 +1733,69 @@ export class Runtime {
         }
       },
     )
+  }
+
+  // ---- Sprite Base / Icon Base synthesized bank memory --------------------
+  // The 68k sprite bank: count.w, then 8 bytes per image (record ptr.l +
+  // mask ptr.l), the 32-word palette, and the records themselves
+  // (TX.w TY.w planes.w hotX.w hotY.w + planar data) in chip RAM
+  // (Bnk.Load LB_Sprites +Lib.s). Synthesized read-only; rebuilt when
+  // the image count changes (in-place pixel edits may serve a stale
+  // image until then — NOTES).
+
+  private objBankCache = new Map<string, { bank: ObjectBank; count: number; image: Uint8Array }>()
+
+  objectBankImage(kind: 'sprites' | 'icons'): Uint8Array | null {
+    const bank = kind === 'sprites' ? this.spriteBank : this.iconBank
+    if (!bank) return null
+    const cached = this.objBankCache.get(kind)
+    if (cached && cached.bank === bank && cached.count === bank.images.length) return cached.image
+    const count = bank.images.length
+    const recOffsets: number[] = []
+    let size = 2 + count * 8 + 64
+    for (const img of bank.images) {
+      recOffsets.push(size)
+      size += 10 + (img.width >> 4) * 2 * img.height * img.depth
+    }
+    const base = kind === 'sprites' ? Runtime.SPRITE_BANK_BASE : Runtime.ICON_BANK_BASE
+    const out = new Uint8Array(size)
+    const w16 = (off: number, v: number): void => {
+      out[off] = (v >> 8) & 0xff
+      out[off + 1] = v & 0xff
+    }
+    const w32 = (off: number, v: number): void => {
+      w16(off, v >>> 16)
+      w16(off + 2, v & 0xffff)
+    }
+    w16(0, count)
+    for (let i = 0; i < count; i++) {
+      w32(2 + i * 8, base + recOffsets[i]!)
+      w32(2 + i * 8 + 4, 0) // the mask pointer stays 0 (computed lazily on the 68k)
+    }
+    for (let i = 0; i < 32; i++) w16(2 + count * 8 + i * 2, bank.palette[i] ?? 0)
+    bank.images.forEach((img, i) => {
+      const off = recOffsets[i]!
+      const widthWords = img.width >> 4
+      w16(off, widthWords)
+      w16(off + 2, img.height)
+      w16(off + 4, img.depth)
+      w16(off + 6, img.hotX)
+      w16(off + 8, img.hotY)
+      const planeSize = widthWords * 2 * img.height
+      for (let p = 0; p < img.depth; p++) {
+        const bit = 1 << p
+        for (let y = 0; y < img.height; y++) {
+          for (let x = 0; x < img.width; x++) {
+            if (img.pixels[y * img.width + x]! & bit) {
+              const bo = off + 10 + p * planeSize + y * widthWords * 2 + (x >> 3)
+              out[bo] = out[bo]! | (1 << (7 - (x & 7)))
+            }
+          }
+        }
+      }
+    })
+    this.objBankCache.set(kind, { bank, count, image: out })
+    return out
   }
 
   private resolveVarSlot(a: number): { data: Uint8Array; off: number } | null {

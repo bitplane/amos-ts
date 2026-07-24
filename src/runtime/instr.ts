@@ -353,6 +353,26 @@ const FONT_LIST = [
   ].flatMap(([name, sizes]) => (sizes as number[]).map((height) => ({ name: name as string, height, type: 'Disc' }))),
 ]
 
+/**
+ * Sprite Base / Icon Base (Sb/AdBob +Lib.s:12792): index = |n| & $3FFF
+ * with 0 erroring; a missing bank is "bank not reserved"; out of range
+ * is error 74 "Icon not defined" for BOTH functions (AdBErr is shared —
+ * a real 68k quirk). Positive n returns the image record's address in
+ * the synthesized bank, negative n the mask pointer, which stays 0
+ * (the 68k computes masks lazily).
+ */
+function objBase(rt: Runtime, kind: 'sprites' | 'icons', n: number): number {
+  const idx = Math.abs(n) & 0x3fff
+  if (idx === 0) throw new AmosError('Illegal function call', 23)
+  const bank = kind === 'sprites' ? rt.spriteBank : rt.iconBank
+  if (!bank) throw new AmosError('bank not reserved', 36)
+  if (idx > bank.images.length) throw new AmosError('icon not defined')
+  if (n < 0) return 0
+  const img = rt.objectBankImage(kind)!
+  const off = 2 + (idx - 1) * 8
+  return (((img[off]! << 24) | (img[off + 1]! << 16) | (img[off + 2]! << 8) | img[off + 3]!) >>> 0) | 0
+}
+
 function examinedFonts(rt: Runtime): typeof FONT_LIST {
   const mask = rt.fontsListed
   return FONT_LIST.filter((f) => (f.type === 'Rom' ? mask & 1 : mask & 2))
@@ -3188,6 +3208,12 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     'text styles'() {
       // FnTextStyle +Lib.s:9898: the rastport SoftStyle byte
       return VI(scr().textStyle)
+    },
+    'sprite base'(_, a) {
+      return VI(objBase(rt, 'sprites', int(a[0]!)))
+    },
+    'icon base'(_, a) {
+      return VI(objBase(rt, 'icons', int(a[0]!)))
     },
     'text base'() {
       return VI(6)
