@@ -18,12 +18,12 @@ tested against our own understanding. Percentages exclude n/a
 | compiler | 15 | 10 | 1 | 0 | 100% |
 | copper | 8 | 8 | 0 | 0 | 100% |
 | drawing | 16 | 16 | 0 | 0 | 100% |
-| files | 23 | 15 | 0 | 6 | 71% |
+| files | 23 | 17 | 0 | 5 | 77% |
 | flow | 12 | 10 | 2 | 0 | 100% |
 | input | 18 | 16 | 2 | 0 | 100% |
 | interface | 25 | 22 | 2 | 1 | 96% |
 | ioports | 38 | 0 | 0 | 38 | 0% |
-| language | 250 | 199 | 6 | 36 | 85% |
+| language | 250 | 200 | 6 | 35 | 85% |
 | memory | 14 | 12 | 2 | 0 | 100% |
 | menus | 24 | 24 | 0 | 0 | 100% |
 | music | 49 | 41 | 1 | 7 | 86% |
@@ -32,11 +32,11 @@ tested against our own understanding. Percentages exclude n/a
 | rainbows | 3 | 3 | 0 | 0 | 100% |
 | request | 3 | 0 | 3 | 0 | 100% |
 | screens | 31 | 29 | 1 | 0 | 100% |
-| system | 41 | 2 | 0 | 18 | 10% |
+| system | 41 | 13 | 0 | 7 | 65% |
 | text-io | 37 | 36 | 1 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 559 | 23 | 113 | 84% |
+| **total** | 732 | 573 | 23 | 100 | 86% |
 
 ## amal (92%)
 
@@ -72,11 +72,11 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `bar`, `box`, `circle`, `clip`, `draw`, `draw to`, `ellipse`, `gr locate`, `gr writing` *(JAM1/JAM2 identical for solid draws; XOR implemented)*, `ink`, `paint`, `plot`, `point`, `polygon`, `polyline`, `set paint`
 
-## files (71%)
+## files (77%)
 
-- **faithful**: `append`, `close`, `dir` *(plain listing; Set Dir width/filter cosmetic)*, `dir first$`, `dir next$`, `eof`, `input` *(line editing keys are host-side, not the AMOS line editor)*, `input #`, `kill`, `lof`, `mkdir`, `open in`, `open out`, `pof`, `rename`
-- **missing**: `close workbench`, `field`, `get`, `open port`, `open random`, `put`
-- **n/a**: `close editor`, `kill editor`
+- **faithful**: `append`, `close`, `close editor` *(no editor memory to free)*, `close workbench` *(no Workbench memory to free)*, `dir` *(plain listing; Set Dir width/filter cosmetic)*, `dir first$`, `dir next$`, `eof`, `input` *(line editing keys are host-side, not the AMOS line editor)*, `input #`, `kill`, `lof`, `mkdir`, `open in`, `open out`, `pof`, `rename`
+- **missing**: `field`, `get`, `open port`, `open random`, `put`
+- **n/a**: `kill editor`
 
 ## flow (100%)
 
@@ -100,9 +100,9 @@ tested against our own understanding. Percentages exclude n/a
 
 ## language (85%)
 
-- **faithful**: `#`, `'`, `(`, `)`, `:`, `;`, `[`, `]`, `abs`, `acos`, `add` *(float targets get numeric arithmetic; the real machine adds to the FFP bit pattern)*, `asc`, `asin`, `assign`, `at`, `atan`, `auto view off`, `auto view on`, `bin$`, `border$` *(box glyph bitmaps are drawn approximations (the AMOS charset binary is not in the source tree))*, `break off`, `break on`, `cdown$`, `chr$`, `cleft$`, `cmove$`, `command line$`, `cos` *(FFP-precision result; last-bit mathtrans algorithm differences possible)*, `cright$`, `cup$`, `data`, `dec` *(float targets get numeric arithmetic; the real machine mangles the FFP bit pattern)*, `def fn`, `def scroll`, `degree`, `dfree`, `dim`, `dir$`, `display height`, `do`, `double buffer`, `else`, `else if`, `err$`, `errn`, `error`, `errtrap`, `exist`, `exit`, `exit if`, `exp`, `false`, `fix`, `flip$`, `fn`, `font$`, `for`, `global`, `gosub`, `goto`, `hcos`, `hex$`, `hide`, `hide on`, `hires`, `hrev`, `hrev block` *(RevBloc +W.s:12620 mirrors the block; the visible result matches, but the port reverses pixels directly rather than via AMOS's stored orientation flag (bits $C000))*, `hscroll`, `hsin`, `htan`, `i bob`, `i sprite`, `icon base` *(read-only synthesis like sprite base)*, `if`, `inc` *(float targets get numeric arithmetic; the real machine mangles the FFP bit pattern)*, `input$` *(keyboard form is non-blocking best effort)*, `instr`, `int`, `key$`, `laced`, `left$`, `len`, `line input`, `line input #`, `ln`, `load`, `log`, `loop`, `lower$`, `lowres`, `match` *(not-found result for closest index 0 returns -1)*, `max`, `menu$`, `mid$`, `min`, `multi wait`, `next`, `not`, `on`, `on error`, `on menu del`, `on menu off`, `on menu on`, `paper$`, `param`, `param#`, `param$`, `peek$`, `pen$`, `pi#`, `poke$`, `pop`, `pop proc`, `proc`, `procedure`, `radian`, `randomize`, `read`, `rem`, `repeat`, `repeat$`, `restore`, `resume`, `resume label`, `resume next`, `return`, `right$`, `rnd` *(Rnd(n) mixes a statement-paced pseudo-beam instead of the free-running raster, so runs stay reproducible; Rnd(-n) is the pure generator exactly as on the Amiga)*, `rol.b`, `rol.l`, `rol.w`, `ror.b`, `ror.l`, `ror.w`, `scin`, `set curs`, `set dir`, `set double precision`, `set font` *(the stock Workbench font list is reported but rendering stays the single 8x8 face)*, `set input`, `set line`, `set menu`, `set rainbow`, `set slider` *(system patterns 1/2 approximated as dithers (the mouse bank is not in the fixtures))*, `set sprite buffer` *(validated no-op — the multiplexer buffer has no effect in the chunky renderer)*, `set tab`, `set text`, `set zone`, `sgn`, `shared`, `show`, `show on`, `sin` *(FFP-precision (24-bit) result; matches mathtrans to ~24 bits, not necessarily the last bit)*, `sort`, `space$`, `sqr`, `step`, `str$`, `string$`, `swap`, `tan`, `then`, `timer` *(writable, drives the frame clock directly)*, `to`, `trap`, `true`, `until`, `update`, `update every`, `update off`, `update on`, `upper$`, `val`, `vrev`, `vrev block` *(RevBloc +W.s:12620 mirrors the block vertically; visible result matches, but via direct pixel reversal rather than AMOS's orientation-flag mechanism)*, `vscroll`, `wend`, `while`, `writing`, `x bob`, `x curs`, `x graphic`, `x hard`, `x mouse`, `x screen`, `x sprite`, `x text`, `xgr`, `y bob`, `y curs`, `y graphic`, `y hard`, `y menu`, `y mouse`, `y screen`, `y sprite`, `y text`, `ygr`, `zone$`
+- **faithful**: `#`, `'`, `(`, `)`, `:`, `;`, `[`, `]`, `abs`, `acos`, `add` *(float targets get numeric arithmetic; the real machine adds to the FFP bit pattern)*, `asc`, `asin`, `assign`, `at`, `atan`, `auto view off`, `auto view on`, `bin$`, `border$` *(box glyph bitmaps are drawn approximations (the AMOS charset binary is not in the source tree))*, `break off`, `break on`, `cdown$`, `chr$`, `cleft$`, `cmove$`, `command line$`, `cos` *(FFP-precision result; last-bit mathtrans algorithm differences possible)*, `cright$`, `cup$`, `data`, `dec` *(float targets get numeric arithmetic; the real machine mangles the FFP bit pattern)*, `def fn`, `def scroll`, `degree`, `dfree`, `dim`, `dir$`, `display height`, `do`, `double buffer`, `else`, `else if`, `err$`, `errn`, `error`, `errtrap`, `exist`, `exit`, `exit if`, `exp`, `false`, `fix`, `flip$`, `fn`, `font$`, `for`, `global`, `gosub`, `goto`, `hcos`, `hex$`, `hide`, `hide on`, `hires`, `hrev`, `hrev block` *(RevBloc +W.s:12620 mirrors the block; the visible result matches, but the port reverses pixels directly rather than via AMOS's stored orientation flag (bits $C000))*, `hscroll`, `hsin`, `htan`, `i bob`, `i sprite`, `icon base` *(read-only synthesis like sprite base)*, `if`, `inc` *(float targets get numeric arithmetic; the real machine mangles the FFP bit pattern)*, `input$` *(keyboard form is non-blocking best effort)*, `instr`, `int`, `key$`, `laced`, `left$`, `len`, `line input`, `line input #`, `ln`, `load`, `log`, `loop`, `lower$`, `lowres`, `match` *(not-found result for closest index 0 returns -1)*, `max`, `menu$`, `mid$`, `min`, `multi wait`, `next`, `not`, `on`, `on error`, `on menu del`, `on menu off`, `on menu on`, `paper$`, `param`, `param#`, `param$`, `peek$`, `pen$`, `pi#`, `poke$`, `pop`, `pop proc`, `proc`, `procedure`, `radian`, `randomize`, `read`, `rem`, `repeat`, `repeat$`, `restore`, `resume`, `resume label`, `resume next`, `return`, `right$`, `rnd` *(Rnd(n) mixes a statement-paced pseudo-beam instead of the free-running raster, so runs stay reproducible; Rnd(-n) is the pure generator exactly as on the Amiga)*, `rol.b`, `rol.l`, `rol.w`, `ror.b`, `ror.l`, `ror.w`, `scin`, `set buffer`, `set curs`, `set dir`, `set double precision`, `set font` *(the stock Workbench font list is reported but rendering stays the single 8x8 face)*, `set input`, `set line`, `set menu`, `set rainbow`, `set slider` *(system patterns 1/2 approximated as dithers (the mouse bank is not in the fixtures))*, `set sprite buffer` *(validated no-op — the multiplexer buffer has no effect in the chunky renderer)*, `set tab`, `set text`, `set zone`, `sgn`, `shared`, `show`, `show on`, `sin` *(FFP-precision (24-bit) result; matches mathtrans to ~24 bits, not necessarily the last bit)*, `sort`, `space$`, `sqr`, `step`, `str$`, `string$`, `swap`, `tan`, `then`, `timer` *(writable, drives the frame clock directly)*, `to`, `trap`, `true`, `until`, `update`, `update every`, `update off`, `update on`, `upper$`, `val`, `vrev`, `vrev block` *(RevBloc +W.s:12620 mirrors the block vertically; visible result matches, but via direct pixel reversal rather than AMOS's orientation-flag mechanism)*, `vscroll`, `wend`, `while`, `writing`, `x bob`, `x curs`, `x graphic`, `x hard`, `x mouse`, `x screen`, `x sprite`, `x text`, `xgr`, `y bob`, `y curs`, `y graphic`, `y hard`, `y menu`, `y mouse`, `y screen`, `y sprite`, `y text`, `ygr`, `zone$`
 - **approximated**: `chip free` *(FnChipFree +Lib.s:2510 queries exec AvailMem(MEMF_CHIP); no Amiga memory manager in the port — returns a nominal figure)*, `fast free` *(FnFastFree +Lib.s:2517 queries exec AvailMem(MEMF_FAST); no Amiga memory manager in the port — returns a nominal figure)*, `free` *(FnFree +Lib.s:13600 garbage-collects then reports TabBas-HiChaine (free variable space); no variable arena exists here — returns a nominal figure)*, `load iff` *(HAM/EHB decode and render correctly; not byte-verified against the 68k IFF loader)*, `set bob` *(the back mode is honoured; planes and mask arguments are ignored)*, `set pattern` *(sprite-image patterns only; bank patterns need the system resource bank)*
-- **missing**: `@_apml_@`, `arexx$`, `as`, `dir/w`, `disc info$`, `drive`, `follow`, `follow off`, `frame length`, `frame load`, `frame param`, `frame play`, `frame skip`, `freeze`, `hardcol`, `iff anim`, `ldir`, `ldir/w`, `mask iff`, `on break proc`, `parent`, `picture`, `pload`, `prun`, `read text`, `rev`, `save`, `save iff`, `scan$`, `set accessory`, `set buffer`, `set equate bank`, `set hardcol`, `set stack`, `set tempras`, `unfreeze`
+- **missing**: `@_apml_@`, `arexx$`, `as`, `dir/w`, `disc info$`, `drive`, `follow`, `follow off`, `frame length`, `frame load`, `frame param`, `frame play`, `frame skip`, `freeze`, `hardcol`, `iff anim`, `ldir`, `ldir/w`, `mask iff`, `on break proc`, `parent`, `picture`, `pload`, `prun`, `read text`, `rev`, `save`, `save iff`, `scan$`, `set accessory`, `set equate bank`, `set hardcol`, `set stack`, `set tempras`, `unfreeze`
 - **n/a**: `,`, `\\\\\\\\\\\\\\\/`, `ask editor`, `equ`, `include`, `monitor`, `struc`, `struc$`, `||apcmp||`
 
 ## memory (100%)
@@ -143,10 +143,10 @@ tested against our own understanding. Percentages exclude n/a
 - **approximated**: `screen base` *(a read-only synthesized Ec control block (EcLogic/EcPhysic, geometry, EcNbCol, live EcPal, EcTLigne...); pokes into it are ignored)*
 - **n/a**: `screen size`
 
-## system (10%)
+## system (65%)
 
-- **faithful**: `prg state` *(single-program runtime — returns the plain running state)*, `prg under` *(single-program runtime — no AMOS program runs beneath this one)*
-- **missing**: `amos here`, `amos lock`, `amos to back`, `amos to front`, `amos unlock`, `arexx`, `arexx answer`, `arexx close`, `arexx exist`, `arexx open`, `arexx wait`, `dev first$`, `dev next$`, `port`, `prg first$`, `prg next$`, `run`, `system`
+- **faithful**: `amos here`, `amos lock` *(the T_NoFlip flag is stored; no host flipping exists to suppress)*, `amos to back` *(single-display host: nothing to lower)*, `amos to front` *(single-display host: the AMOS display is always at the front)*, `amos unlock`, `dev first$` *(the device list is the virtual file system volumes and assigns)*, `dev next$`, `prg first$` *(aliases Dev First$ exactly as the 68k does)*, `prg next$`, `prg state` *(single-program runtime — returns the plain running state)*, `prg under` *(single-program runtime — no AMOS program runs beneath this one)*, `run`, `system`
+- **missing**: `arexx`, `arexx answer`, `arexx close`, `arexx exist`, `arexx open`, `arexx wait`, `port`
 - **n/a**: `areg`, `call`, `call editor`, `dev abort`, `dev base`, `dev check`, `dev close`, `dev do`, `dev open`, `dev send`, `doscall`, `dreg`, `exec`, `execall`, `gfxcall`, `intcall`, `lib base`, `lib call`, `lib close`, `lib open`, `lvo`
 
 ## text-io (100%)

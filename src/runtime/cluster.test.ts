@@ -301,6 +301,72 @@ describe('integration: Sprite Base / Icon Base (Sb/AdBob +Lib.s:12792)', () => {
   })
 })
 
+describe('integration: Run and the environment cluster', () => {
+  it('the program swap keeps screens and resets variables (RunII +ILib.s:1497)', () => {
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    let out = ''
+    const rt = new Runtime(tokenize('Ink 5 : Plot 100,100\nA=42\nPrint "PARENT"', table), table, {
+      maxSteps: 100_000,
+      fs,
+      onText: (t) => (out += t),
+    })
+    rt.runHeadless(5)
+    expect(out).toContain('PARENT')
+    rt.runLines(tokenize('Print "CHILD"\nPrint Point(100,100)\nPrint A', table))
+    const r = rt.runHeadless(10)
+    expect(r.status).toBe('ended')
+    expect(out).toContain('CHILD')
+    const lines = out.trim().split('\n').map((s) => s.trim())
+    expect(lines[2]).toBe('5') // the screen survived the chain
+    expect(lines[3]).toBe('0') // variables reset
+  })
+
+  it('Run "file" loads and chains a real corpus program (InRun1 +ILib.s:1475)', () => {
+    const child = new Uint8Array(readFileSync(join(__dirname, '../../fixtures/official-amos/Examples/Examples/H-0/Help_1.AMOS')))
+    const fs = new AmigaFS()
+    const vol = fs.mountMemory('DH0')
+    vol.write(['child.amos'], child)
+    let out = ''
+    const rt = new Runtime(tokenize('Run "child.amos"\nPrint "NEVER"', table), table, {
+      maxSteps: 200_000,
+      fs,
+      onText: (t) => (out += t),
+    })
+    rt.runHeadless(20)
+    expect(out).not.toContain('NEVER')
+    expect(rt.interp.program.lines.length).toBeGreaterThan(2) // the child is in charge
+  })
+
+  it('bare Run is a syntax error in a program; missing files error (Rn_NoF)', () => {
+    expect(() => run('Run')).toThrow(/syntax error/i)
+    expect(() => run('Run "nothere.amos"')).toThrow(/file not found/i)
+  })
+
+  it('the environment cluster: Amos Here, Set Buffer, Close Workbench are quiet', () => {
+    const { out } = run(['Amos To Front', 'Amos To Back', 'Amos Lock', 'Amos Unlock', 'Close Workbench', 'Close Editor', 'Set Buffer 20', 'Print Amos Here'].join('\n'))
+    expect(out.trim()).toBe('-1')
+  })
+
+  it('System ends the program like Edit/Direct (run-error 1002)', () => {
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    let out = ''
+    const rt = new Runtime(tokenize('Print "A"\nSystem\nPrint "B"', table), table, { maxSteps: 100_000, fs, onText: (t) => (out += t) })
+    const r = rt.runHeadless(10)
+    expect(r.status).toBe('ended')
+    expect(out).toContain('A')
+    expect(out).not.toContain('B')
+  })
+
+  it('Dev/Prg First$/Next$ enumerate the device list (FnPrgFirst=FnDevFirst +Lib.s:5539)', () => {
+    const prog = ['Print Dev First$("*")', 'Print Dev Next$', 'Print Prg First$("*")'].join('\n')
+    const { out } = run(prog)
+    expect(out.trim().split('\n')[0]!.trim()).toBe('DH0:')
+    expect(out.trim().split('\n')[2]!.trim()).toBe('DH0:')
+  })
+})
+
 describe('objects: collision and bank editing (vs +W.s ColRout / Bnk.*)', () => {
   it('Bob Col is rectangle-gated pixel-perfect and fills the Col set', () => {
     const prog = [

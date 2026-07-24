@@ -1,5 +1,5 @@
 import type { TokenLine } from '../tokens/stream'
-import { TokenTable } from '../tokens/stream'
+import { TokenTable, parseSource } from '../tokens/stream'
 import { Interp, newInputState } from '../interp/interp'
 import type { AmosArray, InputState, InterpOptions, RunResult } from '../interp/interp'
 import type { AmosIO } from '../interp/io'
@@ -280,6 +280,10 @@ export class Runtime {
   chrInp: [number, number] = [13, 10]
   /** Dir First$/Dir Next$ iterator */
   dirIter: { entries: Array<{ name: string; isDir: boolean }>; idx: number } | null = null
+  /** Dev/Prg First$/Next$ iterator (FillDev device list) */
+  devIter: { entries: string[]; idx: number } | null = null
+  /** Amos Lock's T_NoFlip flag — no screen flipping to suppress here */
+  noFlip = false
   // ---- blocks (Get/Put Block, Cblocks) ----
   blocks = new Map<number, { x: number; y: number; w: number; h: number; pixels: Uint8Array; mask: boolean }>()
   cblocks = new Map<number, { x: number; y: number; w: number; h: number; pixels: Uint8Array }>()
@@ -1735,6 +1739,37 @@ export class Runtime {
     )
   }
 
+  /** the token table, kept for Run's program reload */
+  private table!: TokenTable
+
+  /**
+   * Run "file" (InRun1 +ILib.s:1475): the file must exist ("file not
+   * found"), the running program is New'd WITHOUT erasing screens
+   * (Prg_New d0=0), and the new program loads with its own banks and
+   * starts from the top.
+   */
+  runFile(path: string): void {
+    const bytes = this.fs?.read(path)
+    if (!bytes) throw new AmosError('file not found')
+    const file = parseAmosFile(bytes)
+    if (file.source.length === 0) throw new AmosError('file not found')
+    const lines = parseSource(file.source, this.table)
+    this.memBanks.clear()
+    this.spriteBank = null
+    this.iconBank = null
+    for (const bank of file.banks) {
+      if (bank.kind === 'sprites') this.spriteBank = ObjectBank.fromSpriteBank(bank)
+      else if (bank.kind === 'icons') this.iconBank = ObjectBank.fromSpriteBank(bank)
+      else if (bank.kind === 'memory') this.memBanks.set(bank.number, bank)
+    }
+    this.runLines(lines)
+  }
+
+  /** the program-swap half of Run: screens survive, execution restarts */
+  runLines(lines: TokenLine[]): void {
+    this.interp.replaceProgram(lines)
+  }
+
   // ---- Sprite Base / Icon Base synthesized bank memory --------------------
   // The 68k sprite bank: count.w, then 8 bytes per image (record ptr.l +
   // mask ptr.l), the 32-word palette, and the records themselves
@@ -1985,6 +2020,7 @@ export class Runtime {
     if (opts.onUnimplemented) interpOpts.onUnimplemented = opts.onUnimplemented
     if (opts.maxSteps) interpOpts.maxSteps = opts.maxSteps
     this.interp = new Interp(lines, table, interpOpts)
+    this.table = table
     this.fs = opts.fs ?? null
     if (opts.audio) this.audio = opts.audio
     for (const bank of opts.banks ?? []) {

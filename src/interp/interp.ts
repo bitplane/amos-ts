@@ -240,6 +240,31 @@ export class Interp {
   }
 
   /**
+   * Run "file" (RunII +ILib.s:1497): swap in a new program. Variables,
+   * stacks, handlers and data pointers reset; the caller decides what
+   * happens to screens and banks. The timer and step budget carry on.
+   */
+  replaceProgram(lines: TokenLine[]): void {
+    ;(this as { program: Program }).program = prescan(lines, this.names)
+    this.pc = { li: 0, ti: 0 }
+    this.frames = [newFrame(null, 0, 0)]
+    this.loops = []
+    this.gosubs = []
+    this.globals = new Set()
+    this.dataPtr = { li: 0, ti: 0 }
+    this.dataInStmt = false
+    this.branchElseIf = null
+    this.errorHandler = null
+    this.inError = false
+    this.errStmt = null
+    this.errNext = null
+    this.every = null
+    this.userFns = new Map()
+    this.blocked = null
+    this.status = null
+  }
+
+  /**
    * Execute statements until the program ends, blocks on the outside world,
    * or `slice` statements have run (status 'paused' — call run() again).
    */

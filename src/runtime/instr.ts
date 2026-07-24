@@ -373,6 +373,21 @@ function objBase(rt: Runtime, kind: 'sprites' | 'icons', n: number): number {
   return (((img[off]! << 24) | (img[off + 1]! << 16) | (img[off + 2]! << 8) | img[off + 3]!) >>> 0) | 0
 }
 
+function devFirst(rt: Runtime, filter: string): string {
+  const vfs = rt.vfs
+  if (!vfs) return ''
+  const rx = amigaPattern(filter === '' ? '*' : filter.replace(/:$/, ''))
+  const names = [...vfs.volumeNames(), ...vfs.assignNames()].map((n) => `${n}:`)
+  rt.devIter = { entries: names.filter((n) => rx.test(n.slice(0, -1)) || rx.test(n)), idx: 0 }
+  return devNext(rt)
+}
+
+function devNext(rt: Runtime): string {
+  const it2 = rt.devIter
+  if (!it2 || it2.idx >= it2.entries.length) return ''
+  return it2.entries[it2.idx++]!
+}
+
 function examinedFonts(rt: Runtime): typeof FONT_LIST {
   const mask = rt.fontsListed
   return FONT_LIST.filter((f) => (f.type === 'Rom' ? mask & 1 : mask & 2))
@@ -2033,6 +2048,41 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'track stop'() {
       rt.music.trackStop()
     },
+    run(it) {
+      // InRun0/1 +ILib.s:1465: bare Run only works in direct mode —
+      // inside a program it is a syntax error; Run "file" chains to the
+      // new program (screens kept, banks replaced by the file's)
+      if (it.atStmtEnd()) throw new AmosError('syntax error')
+      rt.runFile(it.evalStr())
+      return 'jumped'
+    },
+    system(it) {
+      // InSystem +ILib.s:1849: run-error 1002 — leave AMOS entirely; in
+      // the port, like Edit/Direct, the program simply ends
+      it.halt('ended')
+      return 'jumped'
+    },
+    // AMOS_WB window juggling (+Lib.s:11361): a single-display host has
+    // nothing to raise or lower — AMOS is always at the front
+    'amos to front': () => {},
+    'amos to back': () => {},
+    'amos lock'() {
+      rt.noFlip = true // InAmosLock: to front + T_NoFlip
+    },
+    'amos unlock'() {
+      rt.noFlip = false
+    },
+    'close workbench'() {
+      // WB_Close frees Workbench memory on the Amiga; nothing to close
+    },
+    'close editor'() {
+      // Ed_CloseEditor frees the editor; there is no editor in the port
+    },
+    'set buffer'(it) {
+      // InSetBuffer +ILib.s:1828 is literally rts in the interpreter —
+      // the buffer size only matters to the editor/compiler at load time
+      it.evalInt()
+    },
     'med load'(it) {
       // InMedLoad +Music.s:4456: whole file into a chip bank "Med     ";
       // a bad magic erases the bank and raises error 189
@@ -3214,6 +3264,29 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
     'icon base'(_, a) {
       return VI(objBase(rt, 'icons', int(a[0]!)))
+    },
+    'amos here'(_, a) {
+      // FnAmosHere = AMOS_WB(-1): is the AMOS display in front? Always
+      // true on a single-display host
+      void a
+      return VI(-1)
+    },
+    // =Prg First$ and =Dev First$ are the SAME routine on the 68k
+    // (FnPrgFirst/FnDevFirst +Lib.s:5539 both go through DevAcc/FillDev):
+    // they enumerate the mounted devices and assigns
+    'dev first$'(_, a) {
+      return VS(devFirst(rt, a.length > 0 ? str(a[a.length - 1]!) : '*'))
+    },
+    'dev next$'(_, a) {
+      void a
+      return VS(devNext(rt))
+    },
+    'prg first$'(_, a) {
+      return VS(devFirst(rt, a.length > 0 ? str(a[a.length - 1]!) : '*'))
+    },
+    'prg next$'(_, a) {
+      void a
+      return VS(devNext(rt))
     },
     'text base'() {
       return VI(6)

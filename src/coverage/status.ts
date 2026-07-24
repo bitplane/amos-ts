@@ -172,6 +172,26 @@ export const FAITHFUL = new Set<string>([
   // (Sb/AdBob +Lib.s:12792); cluster.test.ts walks a real record
   'sprite base',
   'icon base',
+  // Run/System and the environment cluster: Run's chain semantics
+  // (InRun0/1 +ILib.s:1465 — bare Run errors in a program, screens
+  // survive, banks replaced), System = run-error 1002 (1849), Set
+  // Buffer is rts in the interpreter (1828), AMOS_WB no-ops on a
+  // single display (+Lib.s:11361), Prg/Dev First$/Next$ share FillDev
+  // (+Lib.s:5539); cluster.test.ts cites each
+  'run',
+  'system',
+  'set buffer',
+  'amos to front',
+  'amos to back',
+  'amos here',
+  'amos lock',
+  'amos unlock',
+  'close workbench',
+  'close editor',
+  'dev first$',
+  'dev next$',
+  'prg first$',
+  'prg next$',
   // string/maths sweep: every routine read in +Lib.s/+ILib.s, edge
   // behaviours (errors, empty cases, ranges) reproduced and tested
   'rnd', // FnRnd: LCG $BB40E62D, mask+retry, Rnd(0)=last, VHPOSR word-add
@@ -784,7 +804,6 @@ export const NA = new Set<string>([
   // editor-internal
   'ask editor',
   'call editor',
-  'close editor',
   'kill editor',
   'monitor',
   'include',
@@ -871,6 +890,13 @@ export const NOTES: Record<string, string> = {
   'set slider': 'system patterns 1/2 approximated as dithers (the mouse bank is not in the fixtures)',
   'mouse zone': 'zones are a single global table, not per-screen (EcAZones)',
   'set bob': 'the back mode is honoured; planes and mask arguments are ignored',
+  'amos to front': 'single-display host: the AMOS display is always at the front',
+  'amos to back': 'single-display host: nothing to lower',
+  'amos lock': 'the T_NoFlip flag is stored; no host flipping exists to suppress',
+  'close workbench': 'no Workbench memory to free',
+  'close editor': 'no editor memory to free',
+  'dev first$': 'the device list is the virtual file system volumes and assigns',
+  'prg first$': 'aliases Dev First$ exactly as the 68k does',
   'sprite base': 'read-only synthesis, rebuilt when the image count changes; pokes are ignored and in-place pixel edits can be stale until the count changes',
   'icon base': 'read-only synthesis like sprite base',
   hslider: 'system patterns approximated as dithers',
