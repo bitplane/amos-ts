@@ -332,6 +332,13 @@ export const FAITHFUL = new Set<string>([
   // checksum and the trailer layout, exercised by round-trip + corruption tests
   'squash',
   'unsquash',
+  // Ppload's PP20 decoder is verified against a byte-exact real artifact (a
+  // genuine PowerPacker-crunched AmigaGuide decodes to correct plaintext) and
+  // matches two independent reference decoders (MilkyTracker/amigadepack)
+  // line-by-line; the AMOS-side "PPbk" parse, bank install and error contract
+  // are ported from +CompExt.s:686-767. (Ppsave stays approximated — it writes
+  // valid PP20 but not bit-identical to real PowerPacker's crunch choices.)
+  'ppload',
   // flow control verified against +ILib.s (loops 2102-2345, branch/on
   // 2364-2833, gosub/return/pop 2417-2479, error trapping 1296-2050):
   // For is a do-while, Pop discards subroutine loop frames, On Error Proc
@@ -669,6 +676,6 @@ export const NOTES: Record<string, string> = {
   'prg under': 'single-program runtime — no AMOS program runs beneath this one',
   'comp here': 'no native compiler overlay can load in the web port — always 0',
   squash: "decodes/encodes the exact Squasher format; the encoder uses a greedy longest-match rather than ST Squasher's pre-scan heuristic, so packed size may differ",
-  ppload: 'PP20 codec follows the documented format (the real algorithm is a ROM library, not in the AMOS source) and round-trips in-engine, but is NOT verified against real PowerPacker output — decoding real-world crunched banks is unconfirmed; bob/icon banks unsupported',
-  ppsave: 'PP20 codec per the documented format, not verified against real PowerPacker; the efficiency argument is validated but the offset table is fixed; bob/icon banks unsupported',
+  ppload: 'PP20 decoder verified against genuine PowerPacker output (a real crunched AmigaGuide decodes byte-for-byte) and against two independent reference decoders; the real crunch algorithm is a ROM library, not in the AMOS source, so this is a from-format reimplementation of a verified-correct decoder rather than a source port. Bob/icon object banks unsupported.',
+  ppsave: 'Writes a valid PP20 file — proven decodable by an independent reference decoder — but NOT bit-identical to real PowerPacker output: powerpacker.library makes different (better) crunch choices, and its encoder is not in the AMOS source, so byte-exact parity is unverifiable. The efficiency argument is validated but the offset table is fixed; bob/icon banks unsupported.',
 }

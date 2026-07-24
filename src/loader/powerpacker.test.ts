@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
@@ -12,6 +15,72 @@ function lcg(seed: number): () => number {
     s = (Math.imul(s, 1664525) + 1013904223) >>> 0
     return s
   }
+}
+
+/**
+ * An INDEPENDENT PP20 decoder — a transcription of amigadepack 0.02's
+ * ppDecrunch, using a byte-backward, LSB-accumulating bit reader that is
+ * structurally unlike powerpacker.ts's 32-bit-word reader. Because it shares no
+ * code with our codec, a decode through it that matches proves our encoder
+ * emits real-format PP20 (not merely something our own decoder can read), and
+ * rules out any encoder/decoder bug that would cancel out in a self round-trip.
+ */
+function refDecrunch(file: Uint8Array): Uint8Array {
+  const eff = [file[4]!, file[5]!, file[6]!, file[7]!]
+  const n = file.length
+  const declen = (file[n - 4]! << 16) | (file[n - 3]! << 8) | file[n - 2]!
+  const skip = file[n - 1]!
+  const out = new Uint8Array(declen)
+  let src = n - 4 // one past the last crunched byte
+  let buf = 0
+  let left = 0
+  const read = (nb: number): number => {
+    while (left < nb) {
+      buf |= file[--src]! << left // accumulate a byte at the low end
+      left += 8
+    }
+    let r = 0
+    for (let i = 0; i < nb; i++) {
+      r = (r << 1) | (buf & 1) // pull bits LSB-first, assemble MSB-first
+      buf >>>= 1
+      left--
+    }
+    return r
+  }
+  read(skip)
+  let dst = declen
+  while (dst > 0) {
+    if (read(1) === 0) {
+      let cnt = 1
+      let t: number
+      do {
+        t = read(2)
+        cnt += t
+      } while (t === 3)
+      while (cnt-- > 0) out[--dst] = read(8)
+      if (dst === 0) break
+    }
+    const b = read(2)
+    let dist: number
+    let len: number
+    if (b < 3) {
+      dist = read(eff[b]!) + 1
+      len = b + 2
+    } else {
+      dist = read(read(1) ? eff[3]! : 7) + 1
+      len = 5
+      let t: number
+      do {
+        t = read(3)
+        len += t
+      } while (t === 7)
+    }
+    while (len-- > 0) {
+      out[dst - 1] = out[dst - 1 + dist]!
+      dst--
+    }
+  }
+  return out
 }
 
 function roundtrip(bytes: number[] | Uint8Array): void {
@@ -66,6 +135,59 @@ describe('PowerPacker PP20 codec (documented format — self-consistent)', () =>
 
   it('rejects a non-PP20 buffer', () => {
     expect(() => pp20Decrunch(Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]))).toThrow(/powerpacked/i)
+  })
+})
+
+describe('PP20 verified against an independent reference decoder (amigadepack)', () => {
+  // Our encoder emits real-format PP20 iff a foreign decoder can read it.
+  function crossCheck(bytes: number[] | Uint8Array): void {
+    const input = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes)
+    const packed = pp20Crunch(input)
+    expect(Array.from(refDecrunch(packed))).toEqual(Array.from(input)) // foreign decoder
+    expect(Array.from(pp20Decrunch(packed))).toEqual(Array.from(input)) // and ours agree
+  }
+
+  it('a foreign decoder reproduces our crunched output across seeds', () => {
+    for (const seed of [1, 7, 42, 0xbeef, 0x1234abcd, 999, 55555]) {
+      const rnd = lcg(seed)
+      const len = 400 + (rnd() % 3000)
+      const data = new Uint8Array(len)
+      for (let i = 0; i < len; i++) data[i] = rnd() % 5 === 0 ? rnd() & 0xff : (data[Math.max(0, i - (1 + (rnd() % 70)))] ?? 0)
+      crossCheck(data)
+    }
+  })
+
+  it('a foreign decoder handles every match class we emit', () => {
+    crossCheck(new Uint8Array(3000).fill(0x55)) // long class-3 matches
+    const far: number[] = []
+    const rnd = lcg(5)
+    for (let k = 0; k < 500; k++) far.push(rnd() & 0xff)
+    far.push(...new Array(300).fill(0), ...far.slice(0, 500)) // far offset -> eff[3]
+    crossCheck(far)
+    crossCheck([...'ABABAB'.repeat(400)].map((c) => c.charCodeAt(0))) // short len-2/3 matches
+  })
+})
+
+describe('PP20 decoder vs GENUINE PowerPacker output', () => {
+  // A real PowerPacker-crunched AmigaGuide (PP20, efficiency "Best" = 09 0a 0c
+  // 0d), lifted from an Amiga workbench partition. Local-only, like every other
+  // fixture in this repo — the test skips when the tree is absent.
+  const fixture = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures', 'powerpacker', 'OctaMEDPlayer.guide.pp')
+
+  it.skipIf(!existsSync(fixture))('decrunches a real crunched file to correct plaintext', () => {
+    const file = new Uint8Array(readFileSync(fixture))
+    expect(String.fromCharCode(file[0]!, file[1]!, file[2]!, file[3]!)).toBe('PP20')
+    expect([file[4], file[5], file[6], file[7]]).toEqual([9, 10, 12, 13]) // "Best"
+
+    const out = pp20Decrunch(file)
+    expect(out.length).toBe(7907) // the file's own 24-bit trailer length
+    const txt = new TextDecoder('latin1').decode(out)
+    expect(txt.startsWith('@DATABASE OctaMEDPlayer Guide')).toBe(true) // valid AmigaGuide
+    expect(txt).toContain('@NODE Main')
+    expect(txt.trimEnd().endsWith('@ENDNODE')).toBe(true)
+
+    // and the independent decoder agrees byte-for-byte on real data
+    expect(Array.from(refDecrunch(file))).toEqual(Array.from(out))
   })
 })
 

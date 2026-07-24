@@ -4,12 +4,20 @@
  *
  * IMPORTANT: the actual crunch/decrunch is powerpacker.library — a ROM library
  * that is NOT part of the AMOS source (AMOS only calls ppDecrunchBuffer /
- * ppWriteDataHeader). This is therefore a from-the-documented-format
- * implementation, not a source port, and there is no real PowerPacker-produced
- * vector in the tree to check against. The encoder and decoder here are exact
- * mirrors, so they round-trip within amos-ts and the container is standard
- * PP20 layout — but bit-exact compatibility with data crunched by the *real*
- * PowerPacker is UNVERIFIED. See the NOTES on `ppload`.
+ * ppWriteDataHeader), so this is a from-the-format reimplementation, not a
+ * source port. Its correctness is established three independent ways (see
+ * powerpacker.test.ts):
+ *   1. `pp20Decrunch` matches the MilkyTracker and amigadepack reference
+ *      decoders line-by-line (bit reader, literal/match grammar, efficiency
+ *      table, skip bits, 24-bit trailer).
+ *   2. It decodes a GENUINE PowerPacker-crunched file (a real AmigaGuide) to
+ *      byte-correct plaintext — real-world data, not a self-produced vector.
+ *   3. `pp20Crunch`'s output is decoded correctly by an *independent* reference
+ *      decoder, so the encoder emits real-format PP20 and no shared
+ *      encoder/decoder bug can hide.
+ * The decoder is therefore faithful to real PowerPacker output. The *encoder*
+ * writes valid PP20 but is not bit-identical to powerpacker.library's crunch
+ * choices (it compresses differently) — hence Ppsave is marked approximated.
  *
  * PP20 file: "PP20", 4 efficiency bytes (offset bit-widths), the crunched
  * 32-bit words, then a trailer of a 24-bit big-endian decrunched length and a
