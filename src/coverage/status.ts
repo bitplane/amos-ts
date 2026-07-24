@@ -817,7 +817,6 @@ export const NOTES: Record<string, string> = {
   anim: 'string programs only — bank program numbers unsupported, like amal',
   'move x': 'string programs only — bank program numbers unsupported, like amal',
   'move y': 'string programs only — bank program numbers unsupported, like amal',
-  'set bob': 'back modes implemented; planes/mask arguments ignored',
   autoback: 'mode 1 treated like 0',
   rainbow: 'rendered per scanline by the copper-walk compositor; hardware lines above 50 (the top border) are outside the composite window',
   'copper off':

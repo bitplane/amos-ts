@@ -333,7 +333,8 @@ function parseStosMove(src: string): { start: number | null; groups: Array<[numb
 /** the ROM font list (Get Fonts / Font$) — the port carries Topaz only */
 // the ROM faces plus the stock Workbench Fonts: drawer, so Set Font
 // numbers that work on a real machine work here (rendering stays the
-// single 8x8 face — see NOTES)
+// single 8x8 face — see NOTES). examinedFonts() applies the Get Fonts
+// variant's rom/disc mask.
 const FONT_LIST = [
   { name: 'topaz.font', height: 8, type: 'Rom' },
   { name: 'topaz.font', height: 9, type: 'Rom' },
@@ -350,6 +351,11 @@ const FONT_LIST = [
     ['times.font', [11, 13, 15, 18, 24]],
   ].flatMap(([name, sizes]) => (sizes as number[]).map((height) => ({ name: name as string, height, type: 'Disc' }))),
 ]
+
+function examinedFonts(rt: Runtime): typeof FONT_LIST {
+  const mask = rt.fontsListed
+  return FONT_LIST.filter((f) => (f.type === 'Rom' ? mask & 1 : mask & 2))
+}
 
 /**
  * Shift Up/Down delay,first,last[,flag] (ShD1 +Lib.s:9358): the 4th arg is
@@ -783,17 +789,19 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (n < 0) throw new AmosError('Illegal function call', 23)
       if (!rt.fontsListed) throw new AmosError('fonts not examined')
       if (n === 0) return
-      if (!FONT_LIST[n - 1]) throw new AmosError('font not available')
+      if (!examinedFonts(rt)[n - 1]) throw new AmosError('font not available')
       rt.currentFont = n
     },
+    // InGetFonts/Igf +Lib.s:9772: d1 mask 3/1/2 selects rom+disc, rom
+    // only, disc only; Font$/Set Font see the filtered list
     'get fonts'() {
-      rt.fontsListed = true
+      rt.fontsListed = 3
     },
     'get rom fonts'() {
-      rt.fontsListed = true
+      rt.fontsListed = 1
     },
     'get disc fonts'() {
-      rt.fontsListed = true
+      rt.fontsListed = 2
     },
     'request on'() {
       rt.requestMode = 1
@@ -3610,7 +3618,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       const n = int(a[0]!)
       if (n < 0) throw new AmosError('Illegal function call', 23)
       if (!rt.fontsListed) throw new AmosError('fonts not examined')
-      const f = FONT_LIST[n - 1]
+      const f = examinedFonts(rt)[n - 1]
       if (!f) return VS('')
       const out = (f.name + ' ').padEnd(30).slice(0, 30) + String(f.height).padEnd(4).slice(0, 4) + (f.type === 'Rom' ? 'Rom ' : 'Disc')
       return VS(out)

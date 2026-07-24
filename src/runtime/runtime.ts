@@ -1307,7 +1307,8 @@ export class Runtime {
   requestMode = 1
   /** Set Font / Get Fonts state (single-face Topaz port) */
   currentFont = 1
-  fontsListed = false
+  /** Get Fonts examination mask (Igf d1: 1 = rom, 2 = disc, 3 = both) */
+  fontsListed = 0
   // ---- sprite update freeze ----
   spriteUpdateOn = true
   frozenSprites: HwSprite[] | null = null

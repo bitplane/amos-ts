@@ -1,9 +1,12 @@
 # What's not implemented (and what's approximated)
 
-Status after the audio completion pass (Paula-shaped voice layer, the
-music bank player, the MOD tracker, the wavetable synth, the MED
-player). Census over the 393-program corpus: **380 run to a stop, 100
-end cleanly, 60 finish with nothing skipped.** Occurrence counts come
+Status after the audio completion pass (Paula-shaped voice layer,
+music bank player, MOD tracker, wavetable synth, MED player) and the
+faithfulness sweep over the remaining approximated keywords
+(Inc/Dec/Add wrap, Wait, Hunt, banks, text windows, fonts, Border$,
+Bar/Box, Scanshift, Mouse Zone). Census over the 393-program corpus:
+**380 run to a stop, 100 end cleanly, 60 finish with nothing
+skipped.** Occurrence counts come
 from `runreport --all` (statements actually reached, so a tight loop
 counts thousands of times). Per-keyword detail lives in `KEYWORDS.md`
 (generated); this is the narrative view.
@@ -77,7 +80,10 @@ Everything here also carries a NOTES entry in `KEYWORDS.md`.
   the one-vbl DMA latch gap; a 2-byte repeat region plays silence.
 - **Request On/Off/Wb** store the mode; no system requesters exist in
   the port.
-- **Fonts**: one Topaz face; `Get Disc Fonts` reports the ROM list.
+- **Fonts**: the stock Workbench font list is reported (rom/disc
+  masks per Get Fonts variant) but rendering is a single 8x8 face;
+  `Border$` box glyphs are drawn approximations (the AMOS charset
+  binary is not in the source tree).
 - **Rnd** mixes a deterministic statement-paced pseudo-beam instead of
   the free-running raster (runs reproduce); `Rnd(-n)` is the pure
   generator exactly as on the Amiga.
@@ -95,8 +101,6 @@ Everything here also carries a NOTES entry in `KEYWORDS.md`.
   bit.
 - **Ppsave/Squash** write valid files but not byte-identical to the
   original crunchers' choices (the decoders are verified faithful).
-- **Load** treats the sprite/icon append flag as overwrite; `Bload` of
-  a small bank number creates a bank instead of erroring.
 - **Edit/Direct** stop the program (there is no editor to return to);
   `Lprint` and printer/serial hosts are absent.
 - Only tokenized `.AMOS` sources run — compiled AMOS executables are
