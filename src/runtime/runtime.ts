@@ -112,20 +112,64 @@ export interface Rainbow {
 }
 
 /**
+ * The interpreter-config message table (Sys_Messages, Txt1 block of
+ * +Interpreter_Config.s:135-190): system file names, extension libraries,
+ * communication ports and the cursor flash. `Resource$(-n)` reads entry n
+ * for n in 1..1000 (FnResource +ILib.s:6714). Sparse — untranscribed
+ * entries are genuinely empty in the original.
+ */
+export const SYS_MESSAGES: Record<number, string> = {
+  1: 'APSystem/',
+  4: 'Def_Icon',
+  5: 'AutoExec.AMOS',
+  6: 'AMOSPro_Editor',
+  7: 'AMOSPro_Editor_Config',
+  8: 'AMOSPro_Default_Resource.Abk',
+  9: 'AMOSPro_Productivity1:Equates/AMOSPro_System_Equates',
+  10: 'AMOSPro_Monitor',
+  11: 'AMOSPro_Monitor_Resource.Abk',
+  12: 'AMOSPro_Accessories:AMOSPro_Help/AMOSPro_Help',
+  13: 'AMOSPro_Accessories:AMOSPro_Help/LatestNews',
+  14: 'AMOSPro.Lib',
+  16: 'AMOSPro_Music.Lib',
+  17: 'AMOSPro_Compact.Lib',
+  18: 'AMOSPro_Request.Lib',
+  20: 'AMOSPro_Compiler.Lib',
+  21: 'AMOSPro_IOPorts.Lib',
+  43: 'Par:',
+  44: 'Aux:',
+  46: '(000,2)(440,2)(880,2)(bb0,2)(dd0,2)(ee0,2)(ff2,2)(ff8,2)(ffc,2)(fff,2)(aaf,2)(88c,2)(66a,2)(226,2)(004,2)(001,2)',
+}
+
+/**
  * The system flash sequence (interpreter-config message 46,
  * +Interpreter_Config.s:186) — Screen Open runs `Flash 3` with it on any
  * screen deeper than one plane (+Lib.s:8989), which is what makes the
  * out-of-the-box cursor pulse gold-white-blue.
  */
-export const DEFAULT_FLASH_SPEC =
-  '(000,2)(440,2)(880,2)(bb0,2)(dd0,2)(ee0,2)(ff2,2)(ff8,2)(ffc,2)(fff,2)(aaf,2)(88c,2)(66a,2)(226,2)(004,2)(001,2)'
+export const DEFAULT_FLASH_SPEC = SYS_MESSAGES[46]!
 
-export function parseFlashSpec(spec: string): Array<{ rgb: number; ticks: number }> {
+/**
+ * FlStart's spec parser (+W.s:5340-5378): a strict run of `(hhh,ticks)`
+ * groups — exactly three hex digits, a non-zero delay (decimal or $hex,
+ * dechexa), at most 16 pairs, nothing between groups. Returns null on a
+ * malformed string ("Flash declaration error"); an empty string is the
+ * documented way to stop one colour and parses to an empty sequence.
+ */
+export function parseFlashSpec(spec: string): Array<{ rgb: number; ticks: number }> | null {
   const seq: Array<{ rgb: number; ticks: number }> = []
-  for (const m of spec.matchAll(/\(\s*([0-9a-f]+)\s*,\s*(\d+)\s*\)/gi)) {
-    seq.push({ rgb: parseInt(m[1]!, 16) & 0xfff, ticks: Math.max(1, parseInt(m[2]!, 10)) })
+  const re = /\(([0-9a-f]{3}),(\$[0-9a-f]+|\d+)\)/giy
+  let pos = 0
+  while (pos < spec.length) {
+    re.lastIndex = pos
+    const m = re.exec(spec)
+    if (!m) return null
+    const ticks = m[2]!.startsWith('$') ? parseInt(m[2]!.slice(1), 16) : parseInt(m[2]!, 10)
+    if (ticks === 0) return null
+    seq.push({ rgb: parseInt(m[1]!, 16), ticks })
+    pos = re.lastIndex
   }
-  return seq
+  return seq.length > 16 ? null : seq
 }
 
 /** the default cursor shape: an underline (DefCurs +W.s:16736) */
@@ -193,10 +237,12 @@ export class Runtime {
   shifts = new Map<number, { dir: number; delay: number; first: number; last: number; wrap: boolean; count: number }>()
   /** Fade: per-screen nibble-stepping toward targets (-1 = untouched) */
   fades = new Map<number, { delay: number; count: number; targets: Int32Array }>()
-  /** Flash n,"(rgb,ticks)...": palette-register animations, each bound to
-   * the screen that was current at Flash time (FlInt +W.s:5678 stores the
-   * screen address in the flash record) */
-  flashes = new Map<number, { seq: Array<{ rgb: number; ticks: number }>; idx: number; left: number; screen: number }>()
+  /** The flasher table: up to FlMax=16 entries, one per (colour, screen)
+   * pair (T_TFlash +WEqu.s:138-141, FlStart +W.s:5303). The 68k records
+   * the screen ADDRESS at Flash time; we record the Screen object and drop
+   * the entry once that screen is closed or replaced (on hardware the
+   * interrupt would write into freed memory — observably: nothing). */
+  flashes: Array<{ reg: number; screen: number; scr: Screen; seq: Array<{ rgb: number; ticks: number }>; idx: number; left: number }> = []
   /** Colour Back: the display border colour (composite background) */
   colourBack = 0
   scrollZones = new Map<number, { x1: number; y1: number; x2: number; y2: number; dx: number; dy: number }>()
@@ -893,6 +939,11 @@ export class Runtime {
       const arr = this.dialogArrays.get(handle)
       if (!arr) return null
       return arr.data.map((v) => (v.k === 'str' ? v.s : v.n | 0))
+    },
+    readMem: (addr, maxLen) => {
+      const m = this.resolveAddr(addr)
+      if (!m) return null
+      return m.data.subarray(m.off, Math.min(m.off + maxLen, m.data.length))
     },
   }
   /** AR/AS/list bridge: =Array(A(0)) handles to live BASIC arrays */
@@ -2048,8 +2099,10 @@ export class Runtime {
       else if (bank.kind === 'icons') this.iconBank = ObjectBank.fromSpriteBank(bank)
       else if (bank.kind === 'memory') this.memBanks.set(bank.number, bank)
     }
-    // AMOS boots with screen 0: 320x200, 16 colours, lowres
+    // AMOS boots with screen 0: 320x200, 16 colours, lowres — with the
+    // system flash on colour 3 (the boot cursor pulses out of the box)
     this.openScreen(0, 320, 200, 16, 0)
+    this.installSystemFlash()
   }
 
   /** the sprite bank, created on demand (Get Bob into an empty bank) */
@@ -2119,18 +2172,59 @@ export class Runtime {
     this.order.push(n)
     this.currentIndex = n
     s.cls()
-    // "Fait flasher la couleur 3" — Screen Open installs the system flash
-    // on colour 3 of any screen deeper than one plane (+Lib.s:8989)
-    if (nColors > 2) {
-      const seq = parseFlashSpec(DEFAULT_FLASH_SPEC)
-      this.flashes.set(3, { seq, idx: 0, left: seq[0]!.ticks, screen: n })
-    }
+    // NOTE: no flash here — the low-level create (EcCall Cree) never
+    // touches the flasher; only the Screen Open INSTRUCTION adds the
+    // system flash (+Lib.s:8989), so Unpack/IFF/clone screens don't blink
     if (!this.autoView) {
       // Auto View Off: the display change is deferred until View
       s.visible = false
       this.pendingView.add(n)
     }
     return s
+  }
+
+  /**
+   * Flash colour,seq — FlStart (+W.s:5303): the entry binds to the CURRENT
+   * screen; an existing (colour, screen) entry is replaced, otherwise a
+   * free slot is taken. A full table (FlMax=16 active flashes, checked
+   * before the search) raises error 7 → "Too many colours in flash"
+   * (EcWiErr maps code n to message 44+n, +Lib.s:12946/+Equ.s:799).
+   * The 68k pokes counter=1 so the first vbl applies the first pair.
+   */
+  flashStart(reg: number, seq: Array<{ rgb: number; ticks: number }>): void {
+    const scr = this.screens.get(this.currentIndex)
+    if (!scr) throw new AmosError('screen not opened')
+    this.flashes = this.flashes.filter((f) => this.screens.get(f.screen) === f.scr)
+    const fl = this.flashes.find((f) => f.reg === reg && f.scr === scr)
+    if (!fl && this.flashes.length >= 16) throw new AmosError('too many colours in flash')
+    if (fl) this.flashes.splice(this.flashes.indexOf(fl), 1)
+    this.flashes.push({ reg, screen: this.currentIndex, scr, seq, idx: -1, left: 1 })
+  }
+
+  /** Flash n,"" — flspoke with an empty string silently stops that colour
+   * on the current screen (+W.s:5333-5339) */
+  flashStop(reg: number): void {
+    const scr = this.screens.get(this.currentIndex)
+    this.flashes = this.flashes.filter((f) => !(f.reg === reg && f.scr === scr))
+  }
+
+  /** Flash Off — FlStop (+W.s:5285): stops the CURRENT screen's flashes
+   * only; other screens' entries keep running */
+  flashOff(): void {
+    const scr = this.screens.get(this.currentIndex)
+    this.flashes = this.flashes.filter((f) => f.scr !== scr)
+  }
+
+  /** the Screen Open instruction's `Flash 3` with config message 46 — the
+   * out-of-the-box pulsing cursor colour. Errors (a full table) are
+   * swallowed: InScreenOpen never checks EcCall Flash's return
+   * (+Lib.s:8996 falls straight into ScOo4). */
+  installSystemFlash(): void {
+    try {
+      this.flashStart(3, parseFlashSpec(DEFAULT_FLASH_SPEC)!)
+    } catch {
+      /* full flasher table — Screen Open ignores it */
+    }
   }
 
   closeScreen(n: number): void {
@@ -2541,15 +2635,21 @@ export class Runtime {
   }
 
   private applyFlashes(): void {
-    for (const [reg, fl] of this.flashes) {
+    for (let i = this.flashes.length - 1; i >= 0; i--) {
+      const fl = this.flashes[i]!
+      // entry for a closed/replaced screen: the 68k would write into
+      // freed memory — drop it
+      if (this.screens.get(fl.screen) !== fl.scr) {
+        this.flashes.splice(i, 1)
+        continue
+      }
       if (--fl.left > 0) continue
       fl.idx = (fl.idx + 1) % fl.seq.length
       const step = fl.seq[fl.idx]!
       fl.left = step.ticks
       // FlInt writes EcPal of the screen recorded at Flash time, not
       // whichever screen is current now (+W.s:5700)
-      const s = this.screens.get(fl.screen)
-      if (s) s.palette[reg & 31] = step.rgb & 0xfff
+      fl.scr.palette[fl.reg & 31] = step.rgb & 0xfff
     }
   }
 

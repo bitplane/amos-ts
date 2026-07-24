@@ -20,6 +20,7 @@ const host: DialogHost = {
   textWidth: (s) => s.length * 8,
   textHeight: () => 8,
   resolveArray: () => null,
+  readMem: () => null,
 }
 
 const emptyRes = { graphics: null, messages: ['first', 'second', 'third'], programs: null }
@@ -853,5 +854,43 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('audit fix-ups: run semantics (Dia_Run
     expect(rt.dialogs.get(1)!.runState).toBe('waiting')
     for (let i = 0; i < 60 && rt.frame().status !== 'ended'; i++);
     expect(out()).toBe(' 0\n')
+  })
+
+  it('HT takes a raw ADDRESS of a NUL-terminated buffer (Dia_HyperText 22182, the AMOSProHelp path)', () => {
+    const src = [
+      'Reserve As Work 10,256',
+      'Poke$ Start(10),"one"+Chr$(10)+"two"+Chr$(10)+"three"+Chr$(0)',
+      'D$="BA0,0;HT1,0,0,10,3,0VA,0,0,0,1;[]SV1,ZV;EX;"',
+      'Dialog Open 1,D$,8',
+      'Vdialog(1,0)=Start(10)',
+      'R=Dialog Run(1)',
+      'Print Vdialog(1,1)',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    expect(rt.runHeadless(1_000).status).toBe('ended')
+    expect(out()).toBe(' 3\n')
+    // an address <= 1024 is `cmp.l #1*1024,d0 / Rble L_Dia_Fonc`
+    const bad = ['D$="BA0,0;HT1,0,0,10,3,0VA,0,0,0,1;[]EX;"', 'Dialog Open 1,D$,8', 'Vdialog(1,0)=100', 'R=Dialog Run(1)'].join('\n')
+    const { rt: rt2 } = boot(bad)
+    expect(() => rt2.runHeadless(1_000)).toThrow(/dialog function call error/)
+  })
+
+  it('MZ copies raw memory until a below-space byte, capped at maxlen (Dia_FStZero 23171)', () => {
+    const mk = (maxlen: number): string =>
+      [
+        'Reserve As Work 10,64',
+        'Poke$ Start(10),"HELLO"+Chr$(10)+"XX"',
+        `D$="BA0,0;SV1,0VA ${maxlen}MZ;EX;"`, // pushes addr, maxlen -> MZ
+        'Dialog Open 1,D$,8',
+        'Vdialog(1,0)=Start(10)',
+        'R=Dialog Run(1)',
+        'Print Vdialog$(1,1)',
+      ].join('\n')
+    const { rt, out } = boot(mk(20))
+    expect(rt.runHeadless(1_000).status).toBe('ended')
+    expect(out()).toBe('HELLO\n') // the LF stopped the copy
+    const { rt: rt2, out: out2 } = boot(mk(3))
+    expect(rt2.runHeadless(1_000).status).toBe('ended')
+    expect(out2()).toBe('HEL\n') // maxlen cap
   })
 })

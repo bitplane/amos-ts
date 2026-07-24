@@ -166,13 +166,38 @@ describe('rainbow rendering: the scanline copper walk (CopBow +W.s:6079-6260)', 
 describe('the out-of-the-box cursor (AffCur +W.s:13604 + Flash 3 +Lib.s:8989)', () => {
   it('Screen Open installs the system flash on colour 3, bound to that screen', () => {
     const { rt } = boot('Screen Open 0,320,200,16,Lowres')
-    const fl = rt.flashes.get(3)
+    const fl = rt.flashes.find((f) => f.reg === 3)
     expect(fl).toBeDefined()
     expect(fl!.screen).toBe(0)
     expect(fl!.seq.length).toBe(16) // config message 46: 16 steps of 2
-    // ... but not on a 2-colour screen (one plane)
+    // ... but not on a 2-colour screen (one plane, +Lib.s:8990)
     const { rt: rt2 } = boot('Flash Off\nScreen Open 1,320,200,2,Lowres')
-    expect(rt2.flashes.has(3)).toBe(false)
+    expect(rt2.flashes.some((f) => f.reg === 3)).toBe(false)
+  })
+
+  it('only the Screen Open INSTRUCTION flashes — Unpack/clone screens do not (+Lib.s:25517, EcCall Cree)', () => {
+    // Spack needs the compact extension; use Screen Clone, which also goes
+    // through the low-level create rather than InScreenOpen
+    const { rt } = boot('Flash Off\nScreen Clone 4')
+    expect(rt.flashes.length).toBe(0)
+  })
+
+  it('each screen keeps its own entry; Flash Off stops the current screen only (FlStop +W.s:5285)', () => {
+    const src = [
+      'Screen Open 0,320,200,16,Lowres', // flash col 3 @ screen 0
+      'Screen Open 1,320,200,16,Lowres', // flash col 3 @ screen 1
+      'Screen 1 : Flash Off', // clears screen 1's entry only
+    ].join('\n')
+    const { rt } = boot(src)
+    expect(rt.flashes.map((f) => f.screen)).toEqual([0])
+    // Flash n,"" silently stops one colour (flspoke +W.s:5333)
+    const { rt: rt2 } = boot('Screen Open 0,320,200,16,Lowres\nFlash 3,""')
+    expect(rt2.flashes.length).toBe(0)
+  })
+
+  it('a malformed spec raises Flash declaration error (flsynt → message 52)', () => {
+    expect(() => boot('Flash 3,"(ff,2)"')).toThrow(/flash declaration error/)
+    expect(() => boot('Flash 3,"(ff0,0)"')).toThrow(/flash declaration error/)
   })
 
   it('the flash animates the bound screen palette each vbl (FlInt +W.s:5678)', () => {

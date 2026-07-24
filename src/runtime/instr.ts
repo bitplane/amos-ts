@@ -5,7 +5,7 @@ import { parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseIlbm } from '../loader/iff'
 import { parsePacPic } from '../loader/pacpic'
-import { DEFAULT_FLASH_SPEC, Runtime, parseFlashSpec } from './runtime'
+import { DEFAULT_FLASH_SPEC, Runtime, SYS_MESSAGES, parseFlashSpec } from './runtime'
 import { Screen, builtinPattern } from './screen'
 import { ObjectBank } from './objects'
 import { AmalChannel, AmalCompileError, compileAmal } from './amal'
@@ -526,15 +526,21 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const mode = it.evalInt()
       rt.openScreen(n, w, h, nc, mode)
+      // "Fait flasher la couleur 3 (si plus de 2 couleurs)" — only the
+      // Screen Open instruction adds the system flash (+Lib.s:8989);
+      // HAM (4096) is 6 planes so it qualifies
+      if (nc === 4096 || nc > 2) rt.installSystemFlash()
     },
     'screen close'(it) {
       rt.closeScreen(optInt(it, rt.currentIndex))
     },
     default() {
       // InDefault +Lib.s:8710: back to the boot display — every screen
-      // closed, screen 0 reopened with the default palette
+      // closed, screen 0 reopened with the default palette and the boot
+      // cursor flash
       for (const n of [...rt.screens.keys()]) rt.closeScreen(n)
       rt.openScreen(0, 320, 200, 16, 0)
+      rt.installSystemFlash()
     },
     'default palette'(it) {
       // InDefaultPalette +ILib.s:5389: colours for subsequently opened
@@ -943,20 +949,26 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.fades.set(rt.currentIndex, { delay, count: 0, targets })
     },
     'flash off'() {
-      rt.flashes.clear()
+      // FlStop (+W.s:5285): stops the flashes of the ACTIVE screen only
+      rt.flashOff()
     },
     flash(it) {
       const reg = it.evalInt()
       it.expect(',')
       const spec = it.evalStr()
-      const seq: Array<{ rgb: number; ticks: number }> = []
-      for (const m of spec.matchAll(/\(\s*([0-9a-f]+)\s*,\s*(\d+)\s*\)/gi)) {
-        seq.push({ rgb: parseInt(m[1]!, 16) & 0xfff, ticks: Math.max(1, parseInt(m[2]!, 10)) })
+      const seq = parseFlashSpec(spec)
+      // flsynt (+W.s:5333): a bad string still clears the colour's entry,
+      // then errors (code 8 → message 52, "Flash declaration error")
+      if (seq === null) {
+        rt.flashStop(reg)
+        throw new AmosError('flash declaration error')
       }
-      if (seq.length === 0) throw new AmosError('syntax error in flash string')
-      // the flash binds to the CURRENT screen (FlStart records the screen
-      // address; FlInt +W.s:5700 writes that screen's palette)
-      rt.flashes.set(reg & 31, { seq, idx: 0, left: seq[0]!.ticks, screen: rt.currentIndex })
+      // Flash n,"" is the documented way to stop one colour — no error
+      if (seq.length === 0) {
+        rt.flashStop(reg)
+        return
+      }
+      rt.flashStart(reg, seq)
     },
 
     // ---- rainbows (TRSet/TRDo/TRVar/TRDel, +W.s:3916-4170) ----
@@ -1613,6 +1625,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         if (!sc) throw new AmosError('bank has no screen header')
         const s = rt.openScreen(n, sc.width, sc.height, sc.nColors, sc.mode)
         for (let i = 0; i < 32; i++) s.palette[i] = sc.palette[i]!
+        // Unpack_Screen prints Esc"C0" to the new screen — cursor off, and
+        // no system flash either (+Lib.s:25520-25552)
+        s.cursorOn = false
         rt.blit(s, pic, 0, 0, true)
         return
       }
@@ -1788,9 +1803,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         s.cursorOn = false
       } else {
         if (flash >= g.nColors) throw new AmosError('function call error')
-        // +Interpreter_Config.s:186, system message 46
-        const seq = parseFlashSpec(DEFAULT_FLASH_SPEC)
-        rt.flashes.set(flash & 31, { seq, idx: 0, left: seq[0]!.ticks, screen: n })
+        // +Interpreter_Config.s:186, system message 46, on the new
+        // (current) screen's chosen colour
+        rt.flashStart(flash & 31, parseFlashSpec(DEFAULT_FLASH_SPEC)!)
       }
     },
 
@@ -2309,19 +2324,25 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.menu.change = true
     },
     'menu key'(it) {
-      // InMenuKey +ILib.s:6760: Menu Key(path) To k$ (ASCII) or
-      // Menu Key(path),scan[,shift]; leaf nodes only
+      // InMenuKey +ILib.s:6760: Menu Key(path) To k$ (ASCII, first char of
+      // a non-empty string) or To scan[,shift] (numeric, scan < 128,
+      // shift < 256); leaf nodes only; NO To clears the key (IMnk2)
       const node = rt.menu.find(menuPath(it))
       if (node && node.children.length > 0) throw new AmosError('function call error')
-      if (it.accept('to')) {
-        const k = it.evalStr()
-        if (node) node.key = { kind: 1, asc: k.charCodeAt(0) || 0, scan: 0, shift: 0 }
+      if (!it.accept('to')) {
+        if (node) node.key = { kind: 0, asc: 0, scan: 0, shift: 0 }
         return
       }
-      it.expect(',')
-      const scan = it.evalInt()
+      const v = it.evalExpr()
+      if (v.k === 'str') {
+        if (v.s.length === 0) throw new AmosError('function call error')
+        if (node) node.key = { kind: 1, asc: v.s.charCodeAt(0), scan: 0, shift: 0 }
+        return
+      }
+      const scan = int(v)
       const shift = it.accept(',') ? it.evalInt() : 0
-      if (node) node.key = { kind: -1, asc: 0, scan: scan & 0x7f, shift }
+      if (shift >>> 0 >= 256 || scan >>> 0 >= 128) throw new AmosError('function call error')
+      if (node) node.key = { kind: -1, asc: 0, scan, shift }
     },
     'menu to bank'(it) {
       // +Lib.s:15401: serialise the tree as a "Menu    " bank
@@ -3949,14 +3970,16 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
     'resource$'(_, a) {
       // FnResource +ILib.s:6699: n>0 = message n of the puzzle bank; 0 =
-      // the system path; negative = system/editor message tables (not
-      // carried by the port — empty string)
+      // the system path; -1..-1000 = the interpreter-config messages
+      // (Sys_Messages); deeper negatives reach the editor's own message
+      // tables, which the port doesn't carry — empty string
       const n = int(a[0]!)
       if (n > 0) {
         const msgs = rt.resource().messages
         return VS(msgs?.[n - 1] ?? '')
       }
       if (n === 0) return VS('AMOSPro:')
+      if (n >= -1000) return VS(SYS_MESSAGES[-n] ?? '')
       return VS('')
     },
 

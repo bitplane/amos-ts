@@ -126,6 +126,9 @@ export interface DialogHost {
   textHeight(): number
   /** AR/AS/list bridge: handle (a value > 1024) → live array values */
   resolveArray(handle: number): Array<number | string> | null
+  /** raw memory for MZ / HT text addresses: up to maxLen bytes starting
+   * at addr in the fake address space, or null if it doesn't resolve */
+  readMem(addr: number, maxLen: number): Uint8Array | null
 }
 
 // ---- zones ----
@@ -603,10 +606,20 @@ export function evalExpr(cur: Cursor, ctx: EvalContext): DialogValue {
         break
       }
       case 24: { // MZ maxlen addr — copy a below-space-terminated string
+        // Dia_FStZero (+Lib.s:23171): bytes from the address while >= 32,
+        // capped at maxlen
         need(2)
-        popInt() // maxlen
-        popInt() // address — raw memory strings are not carried by the port
-        stack.push('')
+        const maxLen = popInt()
+        const addr = popInt()
+        const bytes = ctx.host.readMem(addr, Math.max(0, maxLen))
+        let s = ''
+        if (bytes) {
+          for (const b of bytes) {
+            if (b < 32) break
+            s += String.fromCharCode(b)
+          }
+        }
+        stack.push(s)
         break
       }
       case 25: // XA
@@ -1237,9 +1250,21 @@ export class DialogExec {
       z.rows = this.evalInt()
       z.sy = z.rows * 8
       const text = this.evalOne()
-      // the 68k takes a raw address; the port carries strings natively
-      if (typeof text !== 'string') this.fonc()
-      z.htText = text as string
+      if (typeof text === 'string') {
+        // port extension: a string variable (Vdialog$) works directly
+        z.htText = text
+      } else {
+        // the 68k takes a raw address of a NUL-terminated buffer; values
+        // <= 1024 are rejected (`cmp.l #1*1024,d0` +Lib.s:22182)
+        if (text <= 1024) this.fonc()
+        const bytes = this.host.readMem(text, 1 << 20)
+        if (!bytes) this.fonc()
+        let end = 0
+        while (end < bytes!.length && bytes![end] !== 0) end++
+        let s = ''
+        for (let i = 0; i < end; i++) s += String.fromCharCode(bytes![i]!)
+        z.htText = s
+      }
       z.htLines = splitHyperLines(z.htText!)
       // the line count lands in Dia_NextZone (+Lib.s:22276), so a ZV right
       // after an HT statement reads how many lines the text split into

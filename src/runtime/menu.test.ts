@@ -171,6 +171,39 @@ describe('menu interaction', () => {
     expect(out()).toContain(' 1 2')
   })
 
+  it('Menu Key To also takes a scancode[,shift], and bare Menu Key clears (InMenuKey +ILib.s:6774)', () => {
+    // the AMAL editor binds Quit as `Menu Key(1,3) To 69` (Esc's scancode)
+    const src = [
+      'Menu$(1)="A" : Menu$(1,1)="Quit"',
+      'Menu Key(1,1) To 69',
+      'Menu On',
+      'Do : If Choice Then Print Choice(1);Choice(2)',
+      ' Wait Vbl : Loop',
+    ].join('\n')
+    const { rt, out } = boot(src)
+    for (let i = 0; i < 3; i++) rt.frame()
+    rt.pressKey('', 0x45) // Esc by scancode
+    for (let i = 0; i < 4; i++) rt.frame()
+    expect(out()).toContain(' 1 1')
+    // out-of-range scan/shift are function call errors (cmp.l #128/#256)
+    const { rt: rtBad } = boot('Menu$(1)="A" : Menu$(1,1)="X" : Menu Key(1,1) To 128')
+    expect(() => rtBad.runHeadless(10)).toThrow(/function call/)
+    // bare Menu Key(path) clears the binding (IMnk2 clr.b MnKFlag)
+    const cleared = [
+      'Menu$(1)="A" : Menu$(1,1)="Quit"',
+      'Menu Key(1,1) To 69',
+      'Menu Key(1,1)',
+      'Menu On',
+      'Do : If Choice Then Print Choice(1);Choice(2)',
+      ' Wait Vbl : Loop',
+    ].join('\n')
+    const { rt: rt2, out: out2 } = boot(cleared)
+    for (let i = 0; i < 3; i++) rt2.frame()
+    rt2.pressKey('', 0x45)
+    for (let i = 0; i < 4; i++) rt2.frame()
+    expect(out2()).not.toContain(' 1 1')
+  })
+
   it('Menu Item Movable items drag with the left button (MnBGoch)', () => {
     const src = [
       'Menu$(1)="A" : Menu$(1,1)="Long item"',

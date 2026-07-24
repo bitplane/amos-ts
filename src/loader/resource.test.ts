@@ -95,6 +95,16 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('resource keywords', () => {
     expect(() => run('Resource Unpack 999,0,0')).toThrow()
   })
 
+  it('Resource$(-n) reads the interpreter-config messages (FnResource +ILib.s:6714, Txt1 block)', () => {
+    const { out } = run(['Print Resource$(-13)', 'Print Resource$(-8)', 'Print Resource$(-15)', 'Print Resource$(-2000)'].join('\n'))
+    const lines = out.split('\n')
+    // message 13: the LatestNews path AMOSProHelp derives its help dir from
+    expect(lines[0]).toBe('AMOSPro_Accessories:AMOSPro_Help/LatestNews')
+    expect(lines[1]).toBe('AMOSPro_Default_Resource.Abk')
+    expect(lines[2]).toBe('') // genuinely empty entry
+    expect(lines[3]).toBe('') // editor tables aren't carried by the port
+  })
+
   it('lets Resource Bank switch to a loaded user bank, falling back per section', () => {
     const bytes = readFileSync(EXAMPLE_ABK)
     const file = parseAmosFile(bytes)

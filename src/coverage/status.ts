@@ -917,9 +917,9 @@ export const NOTES: Record<string, string> = {
   timer: 'writable, drives the frame clock directly',
   rnd: 'Rnd(n) mixes a statement-paced pseudo-beam instead of the free-running raster, so runs stay reproducible; Rnd(-n) is the pure generator exactly as on the Amiga',
   // Interface language caveats
-  'dialog open': 'SM screen-drag is a no-op; CA (machine code) raises a function call error; edit fields use a simplified line editor; MZ reads of raw memory return ""',
+  'dialog open': 'SM screen-drag is a no-op; CA (machine code) raises a function call error; edit fields use a simplified line editor',
   'fsel$': 'the real bank dialog driven by a TS controller: Store and keyboard qualifiers unhandled, sizes/sort approximated',
-  'resource$': 'negative system/editor message numbers return ""',
+  'resource$': '-1..-1000 read the transcribed interpreter-config messages (Sys_Messages); the editor message tables (-1001 and deeper) return ""',
   'set slider': 'system patterns 1/2 approximated as dithers (the mouse bank is not in the fixtures)',
   'mouse zone': 'zones are a single global table, not per-screen (EcAZones)',
   'set bob': 'the back mode is honoured; planes and mask arguments are ignored',
