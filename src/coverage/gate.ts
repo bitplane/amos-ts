@@ -27,13 +27,8 @@ import { PROBE_DIR } from './probe'
  * Delete entries as tests land — never add one to make the build pass.
  */
 export const ALLOWED_UNPROVEN = new Set<string>([
-  'amal freeze', 'amal off', 'amalerr', 'anim freeze', 'anim off', 'boom', 'chanan',
-  'comp test', 'def scroll', 'default', 'del icon', 'dialog freeze', 'dialog unfreeze',
-  'get rom fonts', 'hzone', 'icon base', 'ins icon', 'jdown', 'jright', 'med cont',
-  'med midi on', 'mouse screen', 'move freeze', 'move y', 'mubase', 'prg next$', 'rainbow del',
-  'reset zone', 'sam loop off', 'scroll', 'scroll on', 'set sprite buffer', 'shift down',
-  'shift off', 'synchro', 'synchro off', 'synchro on', 'track loop of', 'unpack', 'vrev',
-  'wind move', 'x mouse', 'y hard', 'y mouse', 'zdialog',
+  'anim freeze', 'anim off', 'comp test', 'default', 'dialog freeze', 'dialog unfreeze',
+  'get rom fonts', 'hzone', 'move freeze', 'move y', 'rainbow del', 'vrev', 'zdialog',
 ])
 
 export function setup(): void {
