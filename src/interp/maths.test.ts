@@ -1,0 +1,125 @@
+import { describe, expect, it } from 'vitest'
+import { TokenTable } from '../tokens/stream'
+import { CORE_TOKENS } from '../tokens/tables.gen'
+import { tokenize } from '../tokens/tokenizer'
+import { Runtime } from '../runtime/runtime'
+
+const table = new TokenTable(CORE_TOKENS)
+
+function run(src: string): string {
+  let out = ''
+  const rt = new Runtime(tokenize(src, table), table, {
+    maxSteps: 200_000,
+    onText: (t) => (out += t),
+  })
+  const r = rt.runHeadless(1_000)
+  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  return out
+}
+
+/** AMOS truth is -1; every assertion below is written as an in-language test. */
+const isTrue = (expr: string, prelude = ''): boolean =>
+  run(`${prelude}Print ${expr}`).trim() === '-1'
+
+describe('angle mode (InRadian/InDegree +Lib.s:1942-1951)', () => {
+  it('starts in radians — InRadian clears Angle(a5), and the variable area starts zeroed', () => {
+    // Cos(Pi) is -1 only if the argument is being read as radians.
+    expect(isTrue('Abs(Cos(Pi#)+1)<0.0001')).toBe(true)
+    // 180 radians is nowhere near a half turn: cos(180 rad) is -0.5985
+    expect(isTrue('Abs(Cos(180)+0.5984601)<0.0001')).toBe(true)
+  })
+
+  it('Degree then Radian switch the mode back and forth (Angle(a5) = -1 / 0)', () => {
+    expect(isTrue('Abs(Cos(180)+1)<0.0001', 'Degree : ')).toBe(true)
+    expect(isTrue('Abs(Cos(Pi#)+1)<0.0001', 'Degree : Radian : ')).toBe(true)
+  })
+
+  it('applies the mode to inverse functions in reverse (results converted out)', () => {
+    // Acos(-1) is a half turn: Pi radians, or 180 degrees
+    expect(isTrue('Abs(Acos(-1)-Pi#)<0.0001')).toBe(true)
+    expect(isTrue('Abs(Acos(-1)-180)<0.001', 'Degree : ')).toBe(true)
+    expect(isTrue('Abs(Asin(1)-90)<0.001', 'Degree : ')).toBe(true)
+    expect(isTrue('Abs(Atan(1)-45)<0.001', 'Degree : ')).toBe(true)
+  })
+})
+
+describe('transcendental functions', () => {
+  it('Cos/Tan agree with their defining identities', () => {
+    expect(isTrue('Abs(Cos(0)-1)<0.0001')).toBe(true)
+    expect(isTrue('Abs(Tan(0))<0.0001')).toBe(true)
+    // tan = sin/cos
+    expect(isTrue('Abs(Tan(0.7)-Sin(0.7)/Cos(0.7))<0.0001')).toBe(true)
+    // Pythagorean identity holds across the circle
+    expect(isTrue('Abs(Sin(1.1)*Sin(1.1)+Cos(1.1)*Cos(1.1)-1)<0.0001')).toBe(true)
+  })
+
+  it('Exp inverts Log, and Exp(0) is 1', () => {
+    expect(isTrue('Abs(Exp(0)-1)<0.0001')).toBe(true)
+    expect(isTrue('Abs(Exp(1)-2.718282)<0.0001')).toBe(true)
+    // Ln is the natural log; AMOS's Log is base 10, so it is Ln that inverts Exp
+    expect(isTrue('Abs(Ln(Exp(2.5))-2.5)<0.0001')).toBe(true)
+    expect(isTrue('Abs(Log(100)-2)<0.0001')).toBe(true)
+  })
+
+  it('Hcos/Htan satisfy the hyperbolic identities', () => {
+    // cosh^2 - sinh^2 = 1
+    expect(isTrue('Abs(Hcos(1.3)*Hcos(1.3)-Hsin(1.3)*Hsin(1.3)-1)<0.0001')).toBe(true)
+    // tanh = sinh/cosh, and tanh is bounded by 1
+    expect(isTrue('Abs(Htan(0.8)-Hsin(0.8)/Hcos(0.8))<0.0001')).toBe(true)
+    // tanh is bounded by 1 (at 50 it is already 1 to FFP precision, so test lower)
+    expect(isTrue('Htan(2)<1')).toBe(true)
+    expect(isTrue('Abs(Htan(2)-0.9640276)<0.0001')).toBe(true)
+    expect(isTrue('Abs(Hcos(0)-1)<0.0001')).toBe(true)
+  })
+
+  it('the inverse functions round-trip their forward counterparts', () => {
+    expect(isTrue('Abs(Acos(Cos(0.9))-0.9)<0.0001')).toBe(true)
+    expect(isTrue('Abs(Asin(Sin(0.6))-0.6)<0.0001')).toBe(true)
+    expect(isTrue('Abs(Atan(Tan(0.4))-0.4)<0.0001')).toBe(true)
+  })
+})
+
+describe('Not (FnNot +ILib.s — fresh New_Evalue, bitwise complement)', () => {
+  it('complements every bit rather than mapping to 0/1', () => {
+    // AMOS truth is -1 (all bits set), so Not of false is true and vice versa
+    expect(run('Print Not 0')).toBe('-1\n')
+    expect(run('Print Not -1')).toBe(' 0\n')
+    // it is bitwise, not logical: ~5 = -6
+    expect(run('Print Not 5')).toBe('-6\n')
+    expect(run('Print Not 1')).toBe('-2\n')
+  })
+
+  it('is its own inverse', () => {
+    expect(isTrue('Not(Not 12345)=12345')).toBe(true)
+  })
+
+  it('converts a float operand before complementing', () => {
+    expect(run('Print Not 5.7')).toBe('-6\n')
+  })
+})
+
+describe('bit rotation and clearing', () => {
+  it('Rol.w/Ror.w rotate within 16 bits, wrapping through the ends', () => {
+    // a bit rotated out of the top re-enters at the bottom
+    expect(run('A=$8000 : Rol.w 1,A : Print A')).toBe(' 1\n')
+    expect(run('A=1 : Ror.w 1,A : Print A')).toBe(' 32768\n')
+    // rotating by the full width is the identity
+    expect(run('A=$1234 : Rol.w 16,A : Print A')).toBe(' 4660\n')
+    // and the word forms must not disturb anything above bit 15
+    expect(run('A=1 : Ror.w 1,A : Print A>0')).toBe('-1\n')
+  })
+
+  it('Ror.l rotates within 32 bits', () => {
+    expect(run('A=1 : Ror.l 1,A : Print A')).toBe('-2147483648\n')
+    expect(run('A=1 : Ror.l 32,A : Print A')).toBe(' 1\n')
+  })
+
+  it('Bclr clears one bit and leaves the rest alone', () => {
+    expect(run('A=3 : Bclr 0,A : Print A')).toBe(' 2\n')
+    expect(run('A=3 : Bclr 1,A : Print A')).toBe(' 1\n')
+    // clearing a bit that is already clear is a no-op
+    expect(run('A=4 : Bclr 1,A : Print A')).toBe(' 4\n')
+    // Bset then Bclr returns the original value
+    expect(run('A=$F0 : Bset 2,A : Bclr 2,A : Print A')).toBe(' 240\n')
+  })
+})
