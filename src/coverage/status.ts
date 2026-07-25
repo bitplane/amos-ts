@@ -929,7 +929,8 @@ export const NOTES: Record<string, string> = {
   'copper off':
     'the interpreted list now takes its fetch geometry from the registers rather than from the screen the pointers happen to hit. BPL1PT is walked as a byte pointer, so its remainder inside a row is a horizontal skew of 8 pixels a byte; BPL1MOD is added at the end of every line, which is what makes a wrong modulo shear or repeat the picture and what interlace falls out of; DDFSTRT/DDFSTOP set the fetched width and where the data lands (first pixel at DDFSTRT*2+17 lores, +9 hires — the constants AMOS inverts at +W.s:6293); BPLCON1 PF1H delays the playfield; DIWSTRT/DIWSTOP window it; BPLCON2 PF1P decides which sprite pairs are in front; and SPRxPT are decoded as real Amiga sprite structures (POS/CTL, two bitplanes, ATTACH), which is what Copper Off hands the program when it clears T_HsChange (+W.s:6822). The register file persists across frames as the hardware\'s does, and the pointer is not reloaded at the vertical blank either — a list that sets it once really does march off the bitmap on its second frame. The handover resets to black, which is faithful: the OFF path swaps in a list that is nothing but an end marker. Remaining: BPL2MOD is tracked but a chunky screen has no independent even-plane pointer for it to move, so it only matters for a dual playfield, which this path does not render; and the real machine also hides the mouse pointer',
   'cop logic': 'a mapped chip-RAM address; the system list is regenerated every vbl (the T_Actualise change-gating is not modelled)',
-  'set pattern': 'system patterns come from the machine mouse bank (fixtures/machine); without it, dither stand-ins',
+  'set pattern':
+    'SPat +W.s:4730: positive numbers index the mouse bank past its first four images, which are the pointer shapes. That bank is baked in (bin/+AMOSPro_Mouse.abk, linked into the interpreter binary at +W.s:16795), so the system patterns are the machine\'s without anything having to be mounted; a loaded bank overrides it. A number past the end of the bank still falls back to a dither stand-in',
   'input$': 'keyboard form is non-blocking best effort',
   start: 'fake address space: Start()-relative arithmetic works, absolute hardware addresses do not',
   peek: 'addresses inside banks and screen bitplanes (Logbase/Phybase) resolve; other addresses read 0',
@@ -1013,7 +1014,8 @@ export const NOTES: Record<string, string> = {
   'screen colour': 'HAM reports 64 — the real EcNbCol is stored as 64 by InScreenOpen, never 4096',
   'screen base': 'a read-only synthesized Ec control block (EcLogic/EcPhysic, geometry, EcNbCol, live EcPal, EcTLigne...); pokes into it are ignored',
   'set font': 'real Amiga diskfonts render when a Fonts: drawer is mounted (drop one in the browser); without one, the synthetic Workbench list with the 8x8 face stands in',
-  'border$': 'box glyph bitmaps are drawn approximations (the AMOS charset binary is not in the source tree)',
+  'border$':
+    'FnBorderD +Lib.s:14153 / Encadre +W.s:15169. The box characters are AMOS\'s own charset glyphs, not the ROM font\'s: bin/+WFont.bin is poked over codes 0-31 and 128-159 (+W.s:9640), and genfont.ts bakes that binary in, so the drawn cells are the original bitmaps byte for byte',
   'request on': 'stored — the port never shows system requesters',
   'request off': 'stored — the port never shows system requesters',
   'request wb': 'stored — the port never shows system requesters',

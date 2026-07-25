@@ -1,4 +1,5 @@
 import type { TokenLine } from '../tokens/stream'
+import { DEFAULT_MOUSE_BANK } from './mousebank.gen'
 import { TokenTable, parseSource } from '../tokens/stream'
 import { Interp, newInputState } from '../interp/interp'
 import type { AmosArray, InputState, InterpOptions, RunResult } from '../interp/interp'
@@ -746,9 +747,11 @@ export class Runtime {
   // ---- the machine mouse bank: pointer shapes + system fill patterns ----
 
   /** T_MouBank (+AMOSPro_Mouse.abk, an AmSp bank baked into the real
-   * interpreter binary): images 1-3 = arrow/crosshair/clock pointer
-   * shapes, images 5+ = the Set Pattern/Set Slider system patterns
-   * (SPat +W.s:4730 skips the first 4) */
+   * interpreter binary at +W.s:16795): images 1-3 = arrow/crosshair/clock
+   * pointer shapes, images 5+ = the Set Pattern/Set Slider system patterns
+   * (SPat +W.s:4730 skips the first 4). Baked in here too, so the shapes
+   * and patterns are the machine's whether or not a bank file is around —
+   * loadMouseBank still overrides it, as a customised one would. */
   mouseObjects: ObjectBank | null = null
   /** T_MouSpr/T_MouDes: the current pointer shape (1-based) */
   mouseShapeNo = 1
@@ -2326,6 +2329,13 @@ export class Runtime {
       else if (bank.kind === 'icons') this.iconBank = ObjectBank.fromSpriteBank(bank)
       else if (bank.kind === 'memory') this.memBanks.set(bank.number, bank)
     }
+    // the mouse bank comes up with the interpreter, before any screen —
+    // LdMouse +B.s:2081 over a bank the binary already carries
+    try {
+      this.loadMouseBank(DEFAULT_MOUSE_BANK)
+    } catch {
+      /* a corrupt baked-in bank must not stop the interpreter booting */
+    }
     // AMOS boots with screen 0: 320x200, 16 colours, lowres — with the
     // system flash on colour 3 (the boot cursor pulses out of the box)
     this.openScreen(0, 320, 200, 16, 0)
@@ -2430,7 +2440,12 @@ export class Runtime {
       if (m & 0x8000 && colours > 16) throw new AmosError('function call error')
     }
     const s = new Screen(n, Math.max(8, w), Math.max(8, h), colours, m)
-    for (let i = 0; i < this.defaultPalette.length && i < 32; i++) s.palette[i] = this.defaultPalette[i]!
+    // Default Palette is a sparse override list — the mouse bank fills only
+    // the sprite half (16-31), so unset entries must keep the boot colours
+    for (let i = 0; i < this.defaultPalette.length && i < 32; i++) {
+      const c = this.defaultPalette[i]
+      if (c !== undefined) s.palette[i] = c
+    }
     this.screens.set(n, s)
     this.order = this.order.filter((i) => i !== n)
     this.order.push(n)

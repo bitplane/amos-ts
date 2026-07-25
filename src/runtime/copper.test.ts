@@ -145,7 +145,11 @@ describe('interpreting a user list (Copper Off display)', () => {
     // the Multi_Rainbows.AMOS pattern: copy the system list into a bank,
     // Copper Off, write it back through Cop Move 0,0 + Loke, Cop Swap
     const src = [
-      'Flash Off : Curs Off',
+      // Hide On because Copper Off really does take the pointer away
+      // (TCopOn forces T_MouShow to -1, +W.s:6823) — with it showing, the
+      // two displays are legitimately different and the comparison below
+      // would be measuring that instead of the list replay
+      'Flash Off : Curs Off : Hide On',
       'Ink 2 : Bar 50,20 To 270,180 : Ink 4 : Bar 100,60 To 200,120',
       'Set Rainbow 0,1,64,"(1,1,15)","",""',
       'Rainbow 0,0,70,40',

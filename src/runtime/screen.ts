@@ -4,11 +4,11 @@ import { glyphBit, glyphMetrics } from '../loader/diskfont'
 import type { DiskFont } from '../loader/diskfont'
 
 // ---- text-border glyphs (TEncadre +W.s:16725) -----------------------------
-// The AMOS charset's box-drawing characters. The charset bitmaps live in
-// the AMOS system binary (not in the source tree), so these are drawn to
-// match the styles' look: 1 rounded, 2 single line, 3 double, 4 thick,
-// 5 block, 6 dotted. Order per style: TL, top, TR, right, BR, bottom,
-// BL, left.
+// Border$ draws its box out of the AMOS charset's own characters. Those
+// bitmaps are not the ROM font's: AMOS pokes them over codes 0-31 and
+// 128-159 from bin/+WFont.bin (+W.s:9640-9647), and genfont.ts bakes that
+// binary into FONT8, so the glyphs these codes name are the real ones.
+// Order per style: TL, top, TR, right, BR, bottom, BL, left.
 const TENCADRE: number[][] = [
   [136, 137, 138, 139, 141, 137, 140, 139],
   [128, 129, 130, 132, 135, 134, 133, 131],
@@ -18,41 +18,6 @@ const TENCADRE: number[][] = [
   [24, 25, 26, 158, 28, 29, 30, 31],
   [32, 32, 32, 32, 32, 32, 32, 32],
 ]
-
-function boxGlyphs(h: number[], v: number): { tl: number[]; t: number[]; tr: number[]; r: number[]; br: number[]; b: number[]; bl: number[]; l: number[] } {
-  const hi = h.findIndex((b2) => b2 !== 0)
-  const lo = h.length - 1 - [...h].reverse().findIndex((b2) => b2 !== 0)
-  const half = (byte: number, right: boolean): number => (right ? byte & 0x1f : byte & 0xf8) | v
-  const mk = (rows: (i: number) => number): number[] => [0, 1, 2, 3, 4, 5, 6, 7].map(rows)
-  return {
-    t: h,
-    b: h,
-    l: mk(() => v),
-    r: mk(() => v),
-    tl: mk((i) => (i < hi ? 0 : i <= lo ? half(h[i]!, true) : v)),
-    tr: mk((i) => (i < hi ? 0 : i <= lo ? half(h[i]!, false) : v)),
-    bl: mk((i) => (i > lo ? 0 : i >= hi ? half(h[i]!, true) : v)),
-    br: mk((i) => (i > lo ? 0 : i >= hi ? half(h[i]!, false) : v)),
-  }
-}
-
-// patch the border glyphs into the shared font
-{
-  const install = (codes: number[], g: ReturnType<typeof boxGlyphs>): void => {
-    const order = [g.tl, g.t, g.tr, g.r, g.br, g.b, g.bl, g.l]
-    codes.forEach((code, i) => {
-      FONT8[code] = Uint8Array.from(order[i]!)
-    })
-  }
-  const single = boxGlyphs([0, 0, 0, 0x7e, 0x7e, 0, 0, 0], 0x18)
-  install(TENCADRE[1]!, single)
-  // rounded: single lines with softer corners
-  install(TENCADRE[0]!, single)
-  install(TENCADRE[2]!, boxGlyphs([0, 0, 0xff, 0, 0, 0xff, 0, 0], 0x24))
-  install(TENCADRE[3]!, boxGlyphs([0, 0, 0x7e, 0x7e, 0x7e, 0x7e, 0, 0], 0x3c))
-  install(TENCADRE[4]!, boxGlyphs([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff], 0xff))
-  install(TENCADRE[5]!, boxGlyphs([0, 0, 0, 0xaa, 0xaa, 0, 0, 0], 0x28))
-}
 
 /**
  * An AMOS screen: an indexed-colour framebuffer + a 12-bit RGB4 palette,

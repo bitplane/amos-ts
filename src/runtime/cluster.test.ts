@@ -7,6 +7,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
 import { VI, int } from '../interp/values'
+import { DEFAULT_MOUSE_BANK } from './mousebank.gen'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -144,13 +145,29 @@ describe('faithfulness pass: text & fonts (vs +W.s / +Lib.s)', () => {
     expect(() => run('X$=Border$("hi",0)')).toThrow(/illegal function call/i)
     expect(() => run('X$=Border$("hi",16)')).toThrow(/illegal function call/i)
     const { rt } = run('Cls 0 : Pen 5 : Locate 2,2 : Print Border$("HELLO",2);')
-    // border chars land in the cells around the text: row above at 1, below at 3
-    let hits = 0
-    for (let y = 8; y < 16; y++) for (let x = 8; x < 64; x++) if (rt.screen.point(x, y) === 5) hits++
-    expect(hits).toBeGreaterThan(4) // the top edge drew glyph pixels
-    let below = 0
-    for (let y = 24; y < 32; y++) for (let x = 8; x < 64; x++) if (rt.screen.point(x, y) === 5) below++
-    expect(below).toBeGreaterThan(4) // and the bottom edge
+    // style 2 is TEncadre row 2: codes 128,129,130,132,135,134,133,131 —
+    // AMOS's own glyphs, poked over the ROM font from bin/+WFont.bin
+    // (+W.s:9640), so the drawn cells are those bitmaps byte for byte
+    const cell = (cx: number, cy: number): number[] => {
+      const rows: number[] = []
+      for (let y = 0; y < 8; y++) {
+        let b = 0
+        for (let x = 0; x < 8; x++) if (rt.screen.point(cx * 8 + x, cy * 8 + y) === 5) b |= 0x80 >> x
+        rows.push(b)
+      }
+      return rows
+    }
+    // top-left corner (128), top edge (129), top-right (130)
+    expect(cell(1, 1)).toEqual([0xff, 0xc0, 0xc0, 0xc0, 0xc0, 0xc0, 0xc0, 0xc0])
+    expect(cell(2, 1)).toEqual([0xff, 0, 0, 0, 0, 0, 0, 0])
+    expect(cell(7, 1)).toEqual([0xff, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03])
+    // left and right uprights (131, 132) beside the text
+    expect(cell(1, 2)).toEqual([0xc0, 0xc0, 0xc0, 0xc0, 0xc0, 0xc0, 0xc0, 0xc0])
+    expect(cell(7, 2)).toEqual([0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03])
+    // bottom-left (133), bottom edge (134), bottom-right (135)
+    expect(cell(1, 3)).toEqual([0xc0, 0xc0, 0xc0, 0xc0, 0xc0, 0xc0, 0xc0, 0xff])
+    expect(cell(2, 3)).toEqual([0, 0, 0, 0, 0, 0, 0, 0xff])
+    expect(cell(7, 3)).toEqual([0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0xff])
   })
 
   it('Font$ needs Get Fonts, formats 38 chars, "" past the list (FnFont +Lib.s:9786)', () => {
@@ -1496,6 +1513,23 @@ describe('the mouse pointer (MChange +W.s:10669, HiSho +W.s:10722)', () => {
     if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
     return { rt, out }
   }
+
+  it('the bank is already there at boot — the interpreter carries it (+W.s:16795)', () => {
+    // no loadMouseBank call: a bare Runtime has the machine's pointer
+    // shapes and system patterns, because a real interpreter binary does
+    let out = ''
+    const rt = new Runtime(tokenize('Wait Vbl', table), table, { maxSteps: 300_000, onText: (t) => (out += t) })
+    rt.runHeadless(1_000)
+    expect(Buffer.from(DEFAULT_MOUSE_BANK).equals(Buffer.from(bank()))).toBe(true)
+    expect(rt.mouseObjects!.image(1)!.width).toBe(16)
+    expect(rt.screens.get(0)!.palette[17]! & 0xfff).toBe(0xec8)
+    // Set Pattern 1 is image 5 of that bank, not a dither stand-in
+    const img = rt.mouseObjects!.image(5)!
+    let want = 0
+    for (let x = 0; x < 16; x++) if (img.pixels[x] !== 0) want |= 1 << (15 - x)
+    rt.screen.pattern = rt.systemPattern(1)
+    expect(rt.screen.pattern![0]).toBe(want)
+  })
 
   it('loads the bank shapes and installs its colours 16-31 as the default sprite palette (+W.s:9316)', () => {
     const { rt } = boot('Wait Vbl')
