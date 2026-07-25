@@ -2,6 +2,7 @@
  * AMOS values: 32-bit signed integers, floats and strings.
  * Variable type is part of the name: A (int), A# (float), A$ (string).
  */
+import { ED_RUN_MESSAGES } from '../runtime/edmessages.gen'
 
 export type Value =
   | { k: 'int'; n: number }
@@ -34,48 +35,18 @@ export function ffpRound(n: number): number {
 }
 
 /**
- * The AMOS runtime error table (.Error1 in +Editor_Config.s:844): Errn
- * returns the number, Err$ returns the message. Codes match the original.
+ * The AMOS runtime error table (.Error1 in +Editor_Config.s:849): Errn
+ * returns the number, Err$ returns the message.
+ *
+ * Generated from the assembler source rather than transcribed, so it is
+ * the whole table — 174 messages, where the hand-written version carried
+ * the 73 that had come up. Indices are the error codes AMOS itself uses;
+ * the block's first record is the empty one the source numbers 0, which
+ * is why a code is one behind its Resource$(-5000-n) record.
  */
-export const AMOS_ERRORS: Record<number, string> = {
-  1: 'RETURN without GOSUB',
-  2: 'POP without GOSUB',
-  3: 'Error not resumed',
-  4: "Can't resume to a label",
-  5: 'No ON ERROR PROC before this instruction',
-  6: 'Resume label not defined',
-  7: 'Resume without error',
-  8: 'Error procedure must RESUME to end',
-  9: 'Program interrupted',
-  10: 'End of program',
-  11: 'Out of variable space',
-  13: 'Out of stack space',
-  15: 'User function not defined',
-  16: 'Illegal user function call',
-  17: 'Illegal direct mode',
-  20: 'Division by zero',
-  21: 'String too long',
-  22: 'Syntax error',
-  23: 'Illegal function call',
-  24: 'Out of memory',
-  25: 'Address error',
-  27: 'Non dimensioned array',
-  28: 'Array already dimensioned',
-  29: 'Overflow',
-  30: 'Bad IFF format',
-  31: 'IFF compression not recognised',
-  32: "Can't fit picture in current screen",
-  33: 'Out of data',
-  34: 'Type mismatch',
-  35: 'Bank already reserved',
-  36: 'Bank not reserved',
-  37: 'Fonts not examined',
-  38: 'Menu not opened',
-  39: 'Menu item not defined',
-  40: 'Label not defined',
-  41: 'No data after this label',
-  44: 'Font not available',
-}
+export const AMOS_ERRORS: Record<number, string> = Object.fromEntries(
+  ED_RUN_MESSAGES.map((m, i) => [i, m]).filter(([, m]) => m !== ''),
+)
 
 /** AMOS error codes used at throw sites (Errn / Err$ / Error). */
 export const ERR = {

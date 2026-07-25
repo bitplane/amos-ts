@@ -17,7 +17,7 @@
     "test:watch": "vitest",
     "cli": "tsx",
     "manifest": "tsx src/cli/genmanifest.ts",
-    "gentables": "tsx src/cli/gentable.ts && tsx src/cli/genext.ts",
+    "gentables": "tsx src/cli/gentable.ts && tsx src/cli/genext.ts && tsx src/cli/genedmsg.ts",
     "extscan": "tsx src/cli/extscan.ts"
   },
   "devDependencies": {

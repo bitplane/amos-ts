@@ -6,6 +6,7 @@ import { parseAmosFile } from '../loader/amosfile'
 import { encodeIlbm, parseIlbm } from '../loader/iff'
 import { parsePacPic } from '../loader/pacpic'
 import { parseDiskFont, parseFontDescriptor } from '../loader/diskfont'
+import { ED_MESSAGES, ED_RUN_MESSAGES, ED_SYSTEME, ED_TST_MESSAGES, EDM_MESSAGES } from './edmessages.gen'
 import { DEFAULT_FLASH_SPEC, Runtime, SYS_MESSAGES, extractCodeHunk, parseFlashSpec } from './runtime'
 import { Screen, builtinPattern } from './screen'
 import { ObjectBank } from './objects'
@@ -4287,18 +4288,27 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VS(out)
     },
     'resource$'(_, a) {
-      // FnResource +ILib.s:6699: n>0 = message n of the puzzle bank; 0 =
-      // the system path; -1..-1000 = the interpreter-config messages
-      // (Sys_Messages); deeper negatives reach the editor's own message
-      // tables, which the port doesn't carry — empty string
+      // FnResource +ILib.s:6699 walks six tables a thousand apart: n>0 is
+      // message n of the puzzle bank, 0 the system path, then -1.. the
+      // interpreter-config messages and -1001.. -5001 the editor's own
+      // five (Ed_Systeme, the menus, the editor messages, the test-time
+      // and the run-time errors). Past -6000 it is a function call error.
+      // Records are 1-based within each block (GetMessage +B.s:590) and
+      // an index past the end reads empty, not an error.
       const n = int(a[0]!)
       if (n > 0) {
         const msgs = rt.resource().messages
         return VS(msgs?.[n - 1] ?? '')
       }
       if (n === 0) return VS('AMOSPro:')
-      if (n >= -1000) return VS(SYS_MESSAGES[-n] ?? '')
-      return VS('')
+      let d = -n
+      if (d <= 1000) return VS(SYS_MESSAGES[d] ?? '')
+      const blocks = [ED_SYSTEME, EDM_MESSAGES, ED_MESSAGES, ED_TST_MESSAGES, ED_RUN_MESSAGES]
+      for (const b of blocks) {
+        d -= 1000
+        if (d <= 1000) return VS(b[d - 1] ?? '')
+      }
+      throw new AmosError('Illegal function call', 23)
     },
 
     at(_, a) {

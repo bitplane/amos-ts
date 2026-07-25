@@ -5,6 +5,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import { AmigaFS } from './vfs'
+import { ED_RUN_MESSAGES } from './edmessages.gen'
 
 const table = new TokenTable(CORE_TOKENS)
 // Boom, Sam Loop Off, Mubase, Track Loop Of and Med * are Music-extension
@@ -258,5 +259,42 @@ describe('Load Iff with a palette-only picture', () => {
     const r = rt.runHeadless(1_000)
     expect(r.status === 'ended' || r.status === 'stopped').toBe(true)
     expect(out).toBe(' 3840 320\n')
+  })
+})
+
+describe('Resource$ reaches all six message tables (FnResource +ILib.s:6699)', () => {
+  it('0 is the system path and -1.. the interpreter-config messages', () => {
+    expect(runOut('Print Resource$(0)')).toBe('AMOSPro:\n')
+    expect(runOut('Print Resource$(-8)')).toBe('AMOSPro_Default_Resource.Abk\n')
+  })
+
+  it('-1001 and deeper walk the editor tables a thousand apart', () => {
+    // Ed_Systeme, then the menu block, the editor messages, the test-time
+    // errors and the run-time errors — each 1-based within its own block
+    expect(runOut('Print Resource$(-1003)')).toBe(' Edit\n')
+    expect(runOut('Print Resource$(-1043)')).toBe('System\n')
+    expect(runOut('Print Resource$(-3001)')).toBe('Link cursor movement: please click on the window to link...\n')
+    expect(runOut('Print Resource$(-4001)')).toBe('Bad structure\n')
+    expect(runOut('Print Resource$(-4005)')).toBe('Extension not loaded\n')
+  })
+
+  it('the run-time block is the error table, one record ahead of the code', () => {
+    // .Error1 starts its numbering at 0 with an empty record, so error 1
+    // is record 2 — and Err$ of the same code agrees
+    expect(runOut('Print Resource$(-5001)')).toBe('\n')
+    expect(runOut('Print Resource$(-5002)')).toBe('RETURN without GOSUB\n')
+    expect(runOut('Print Resource$(-5027)')).toBe(runOut('Print Err$(26)'))
+  })
+
+  it('an index past the end of a block reads empty, but -6001 is an error', () => {
+    expect(runOut('Print Resource$(-1999)')).toBe('\n')
+    expect(() => run('Print Resource$(-6001)')).toThrow(/Illegal function call/)
+  })
+
+  it('Err$ now answers for the whole table, not just the transcribed part', () => {
+    // 'Instruction not implemented' (code 12) is one of the 101 messages
+    // the hand-written table never carried
+    expect(runOut('Print Err$(12)')).toBe(ED_RUN_MESSAGES[12] + '\n')
+    expect(runOut('Print Err$(174)')).toBe(ED_RUN_MESSAGES[174] + '\n')
   })
 })
