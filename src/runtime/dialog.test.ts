@@ -9,6 +9,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
+import { fselAffF, fselNext } from './fsel'
 import { AmigaFS } from './vfs'
 
 const FIXTURES = join(__dirname, '..', '..', 'fixtures')
@@ -290,6 +291,99 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     clickZone(rt, 2, 'button') // Cancel
     for (let i = 0; i < 8 && rt.frame().status !== 'ended'; i++);
     expect(out()).toBe('| 5\n')
+  })
+
+  it('formats the Sizes column the way Fs_GetName does', () => {
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    for (let i = 0; i < 8; i++) rt.frame()
+    const d = [...rt.dialogs.values()][0]!
+    d.vars[8] = 1 // FsV_Size on
+    d.vars[12] = 30 // FsV_Tx — the script owns this; pin it for the test
+    rt.fsel!.entries = [
+      { name: 'Deep', isDir: true, size: 0 },
+      { name: 'alpha.iff', isDir: false, size: 1 },
+      { name: 'RAM:', isDir: false, size: 0, special: true },
+    ]
+    fselAffF(rt, rt.fsel!)
+    const rows = rt.fsel!.arr.data.map((v) => (v as { s: string }).s)
+    // a file: name padded to Tx-8, a space, then the size left-aligned in
+    // what is left, the whole row exactly Tx wide
+    expect(rows[1]).toBe(' alpha.iff'.padEnd(22) + ' ' + '1'.padEnd(7))
+    expect(rows[1]!.length).toBe(30)
+    // directories and assigns never get a size, just the marker + name
+    expect(rows[0]).toBe('*Deep')
+    expect(rows[2]).toBe(' RAM:')
+  })
+
+  it('leaves the size off entirely when the Sizes toggle is off', () => {
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    for (let i = 0; i < 8; i++) rt.frame()
+    const d = [...rt.dialogs.values()][0]!
+    d.vars[8] = 0
+    d.vars[12] = 30
+    rt.fsel!.entries = [{ name: 'alpha.iff', isDir: false, size: 1 }]
+    fselAffF(rt, rt.fsel!)
+    expect((rt.fsel!.arr.data[0] as { s: string }).s).toBe(' alpha.iff')
+  })
+
+  it('fills the list one entry per frame', () => {
+    // Fs_Loop (+Lib.s:17920) takes a single name per pass while Fs_DirOn is
+    // set, so the selector stays live while a slow drawer lists
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    const seen: number[] = []
+    for (let i = 0; i < 6; i++) {
+      rt.frame()
+      seen.push(rt.fsel!.entries.length)
+    }
+    // the drawer holds 1 directory + 2 files, and they arrive one per frame
+    // rather than all at once when the selector opens
+    expect(seen[0]!).toBeLessThan(3)
+    expect(seen).toEqual([...seen].sort((a, b) => a - b)) // never goes backwards
+    expect(seen[seen.length - 1]!).toBe(3)
+    expect(rt.fsel!.dirOn).toBe(false)
+  })
+
+  it('keeps the view steady when a sorted insert lands above the top', () => {
+    // Fs_Next (18765): with PosFirst pinned, an entry inserted at or above it
+    // steps FsV_PList and FsV_PosFirst together. A plain listing leaves
+    // PosFirst at -1, so this only bites after a type-ahead search.
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    for (let i = 0; i < 8; i++) rt.frame()
+    const d = [...rt.dialogs.values()][0]!
+    const f = rt.fsel!
+    d.vars[7] = 1 // sorted
+    f.entries = [{ name: 'zeta', isDir: false, size: 0 }]
+    f.pending = [{ name: 'alpha', isDir: false, size: 0 }]
+    f.dirOn = true
+    d.vars[10] = 4 // FsV_PList
+    d.vars[25] = 0 // FsV_PosFirst pinned at the top
+    fselNext(rt, f)
+    expect(f.entries.map((e) => e.name)).toEqual(['alpha', 'zeta'])
+    expect([d.vars[10], d.vars[25]]).toEqual([5, 1])
+  })
+
+  it('takes a second click on the same row as the double-click', () => {
+    // Fs_Name (18280) compares the row index against Fs_Click — there is no
+    // timer anywhere in the original, and any other row resets it
+    const { rt, out } = bootFs('F$=Fsel$("DH0:Games")\nPrint F$')
+    for (let i = 0; i < 8; i++) rt.frame()
+    const d = [...rt.dialogs.values()][0]!
+    const list = d.zones.find((z) => z.kind === 'list')!
+    const s = rt.screens.get(Runtime.EC_FSEL)!
+    const clickRow = (row: number): void => {
+      rt.input.mouseX = s.displayX + ((list.x + 8) >> 1)
+      rt.input.mouseY = s.displayY + list.y + row * 8 + 4
+      rt.input.mouseK = 1
+      rt.frame()
+      rt.input.mouseK = 0
+      rt.frame()
+    }
+    clickRow(1) // a file: name goes in the box, click remembered
+    expect(rt.fsel!.click).toBe(1)
+    for (let i = 0; i < 40; i++) rt.frame() // no timer to expire
+    clickRow(1)
+    for (let i = 0; i < 8 && rt.frame().status !== 'ended'; i++);
+    expect(out()).toBe('DH0:Games/alpha.iff\n')
   })
 
   it('double-clicking a file returns its full path', () => {

@@ -22,7 +22,7 @@ import {
   prescanDialog,
   updateZone,
 } from './dialog'
-import { amigaPattern } from './vfs'
+import { amigaPattern, fillSortKey } from './vfs'
 import { MF_BAR, MF_BOUGE, MF_FIXED, MF_OFF, MF_SEP, MF_TBOUGE, MF_TOTAL, bankToMenu, compileMenuObject, menuCalc, menuToBank } from './menu'
 import { ENV_BELL, ENV_BOOM, ENV_SHOOT } from './music'
 import { squash as squashBytes, unsquash as unsquashBytes } from './squash'
@@ -437,12 +437,6 @@ function devFirst(rt: Runtime, filter: string): string {
 
 /** FillSort (+Lib.s:6274) compares name fields uppercased with '*' as
  * byte 1 — so directory entries bubble to the front */
-function fillSortKey(s: string): string {
-  let k = ''
-  for (const c of s) k += c === '*' ? '\x01' : c.toUpperCase()
-  return k
-}
-
 function devNext(rt: Runtime): string {
   const it2 = rt.devIter
   if (!it2 || it2.idx >= it2.entries.length) return ''

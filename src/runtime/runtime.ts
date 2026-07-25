@@ -11,6 +11,8 @@ import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
 import { newPiConfig } from './piconfig.gen'
 import type { PiConfig } from './piconfig.gen'
+import { fselFirst, fselJump, fselNext } from './fsel'
+import type { FselState } from './fsel'
 import { parseAmalBank } from '../loader/amalbank'
 import type { AmalBank } from '../loader/amalbank'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
@@ -907,22 +909,7 @@ export class Runtime {
    * 2 Cancel, 3 Parent, 4 Devices, 5 Assigns, 6 Get Dir, 7 Sort, 8 Sizes,
    * 13 the file list, 14 the Path edit (var 15), 15 the Name edit (var 14).
    */
-  fsel: {
-    done: boolean
-    result: string
-    chan: number
-    screenNb: number
-    prevScreen: number
-    path: string
-    pattern: string
-    sorted: boolean
-    sizes: boolean
-    devices: boolean
-    entries: Array<{ name: string; isDir: boolean; size: number }>
-    arr: AmosArray
-    lastSel: number
-    lastSelTick: number
-  } | null = null
+  fsel: FselState | null = null
 
   /** begin Fsel$: open the selector screen + dialog; false = could not */
   startFsel(pathArg: string, defName: string, t1: string, t2: string): boolean {
@@ -998,14 +985,13 @@ export class Runtime {
       screenNb: Runtime.EC_FSEL,
       prevScreen,
       path,
-      pattern,
-      sorted: true,
-      sizes: false,
-      devices: false,
+      filter: pattern,
+      devFlag: 0,
+      dirOn: false,
+      click: -1,
       entries: [],
+      pending: [],
       arr,
-      lastSel: -1,
-      lastSelTick: -1000,
     }
     try {
       this.runDialog(chan, -1, null, null)
@@ -1013,63 +999,18 @@ export class Runtime {
       this.finishFsel('')
       return true // surfaced as a cancel
     }
-    this.fselRefresh()
+    // the draw pass is what sets FsV_Tx/Ty — Start_FSel only ever reads them,
+    // because the list geometry belongs to the dialog script (19159)
+    fselFirst(this, this.fsel)
     return true
   }
 
   /** re-read the directory (or device list) into the list zone */
-  private fselRefresh(): void {
-    const f = this.fsel
-    if (!f || !this.vfs) return
-    const d = this.dialogs.get(f.chan)
-    if (!d) return
-    const dirMark = this.systemResource?.messages?.[15] ?? '* '
-    let names: string[]
-    if (f.devices) {
-      f.entries = [...this.vfs.volumeNames(), ...this.vfs.assignNames()].map((n) => ({
-        name: `${n.replace(/:$/, '')}:`,
-        isDir: true,
-        size: 0,
-      }))
-      names = f.entries.map((e) => e.name)
-    } else {
-      const list = this.vfs.listDir(f.path) ?? []
-      const match = f.pattern !== '' ? amigaPatternRx(f.pattern) : null
-      const dirs = list.filter((e) => e.isDir)
-      const files = list.filter((e) => !e.isDir && (!match || match.test(e.name)))
-      if (f.sorted) {
-        dirs.sort((a, b) => a.name.localeCompare(b.name))
-        files.sort((a, b) => a.name.localeCompare(b.name))
-      }
-      f.entries = [...dirs, ...files].map((e) => ({ name: e.name, isDir: e.isDir, size: e.size }))
-      names = f.entries.map((e) => (e.isDir ? dirMark + e.name : f.sizes ? `${e.name} (${e.size})` : e.name))
-    }
-    f.arr.data = names.map((s) => ({ k: 'str' as const, s }))
-    f.arr.dims = [names.length]
-    this.dialogDraw.activate(d.screenNb)
-    const list = d.zones.find((z) => z.kind === 'list')
-    if (list) {
-      list.count = names.length
-      list.scroll = 0
-      list.sel = -1
-      list.pos = -1
-      drawListZone(d, list, this.dialogHost, this.dialogDraw)
-    }
-    const slider = d.zones.find((z) => z.kind === 'slider' && z.vertical)
-    if (slider) {
-      slider.total = names.length
-      slider.pos = 0
-      drawSliderZone(d, slider, this.dialogDraw)
-    }
-    const pathZone = d.zones.find((z) => z.number === 14 && (z.kind === 'edit' || z.kind === 'digit'))
-    if (pathZone) {
-      pathZone.text = f.path
-      drawEditZone(d, pathZone, this.dialogDraw)
-    }
-    this.dialogDraw.deactivate()
-  }
-
-  /** the native FSel loop: act on the dialog's zone returns */
+  /**
+   * Fs_Loop (+Lib.s:17920): one pass. With a directory read running it takes
+   * the next name (Fs_Next); otherwise it waits. Either way a zone report
+   * from the dialog is dispatched through Fs_Jumps.
+   */
   private stepFsel(): void {
     const f = this.fsel
     if (!f || f.done) return
@@ -1078,82 +1019,11 @@ export class Runtime {
       this.finishFsel('')
       return
     }
+    if (f.dirOn) fselNext(this, f)
     const ret = d.ret
     if (ret === 0) return
     d.ret = 0
-    const zoneText = (n: number): string =>
-      d.zones.find((z) => z.number === n && (z.kind === 'edit' || z.kind === 'digit'))?.text ?? ''
-    const ok = (): void => {
-      const name = zoneText(15)
-      const path = zoneText(14)
-      this.finishFsel(name === '' ? '' : joinAmigaPath(path, name))
-    }
-    switch (ret) {
-      case 1:
-      case 15:
-        ok()
-        break
-      case 2:
-        this.finishFsel('')
-        break
-      case 3: {
-        f.path = parentAmigaPath(zoneText(14))
-        f.devices = false
-        this.fselRefresh()
-        break
-      }
-      case 4:
-      case 5:
-        f.devices = true
-        this.fselRefresh()
-        break
-      case 6:
-      case 14:
-        f.path = zoneText(14)
-        f.devices = false
-        this.fselRefresh()
-        break
-      case 7:
-        f.sorted = !f.sorted
-        this.fselRefresh()
-        break
-      case 8:
-        f.sizes = !f.sizes
-        this.fselRefresh()
-        break
-      case 13: {
-        const list = d.zones.find((z) => z.kind === 'list')
-        const idx = list?.pos ?? -1
-        const entry = idx >= 0 ? f.entries[idx] : undefined
-        if (!entry) break
-        if (f.devices) {
-          f.path = entry.name
-          f.devices = false
-          this.fselRefresh()
-          break
-        }
-        if (entry.isDir) {
-          f.path = joinAmigaPath(f.path, entry.name)
-          this.fselRefresh()
-          break
-        }
-        // a file: put it in the Name field; double-click = OK
-        const dbl = idx === f.lastSel && this.interp.tick - f.lastSelTick < 25
-        f.lastSel = idx
-        f.lastSelTick = this.interp.tick
-        const nameZone = d.zones.find((z) => z.number === 15 && z.kind === 'edit')
-        if (nameZone) {
-          nameZone.text = entry.name
-          this.dialogDraw.activate(d.screenNb)
-          drawEditZone(d, nameZone, this.dialogDraw)
-          this.dialogDraw.deactivate()
-        }
-        if (dbl) ok()
-        break
-      }
-      default:
-        break
-    }
+    fselJump(this, f, d, ret)
   }
 
   /** close the selector: dialog, screen, restore, store the result */
@@ -4384,19 +4254,6 @@ function resolveDialogPattern(rt: Runtime, n: number): Uint16Array | null {
 }
 
 /** "DH0:Games" + "Zybex" → "DH0:Games/Zybex"; volume roots need no slash */
-function joinAmigaPath(path: string, name: string): string {
-  if (path === '' || path.endsWith(':') || path.endsWith('/')) return path + name
-  return `${path}/${name}`
-}
-
-function parentAmigaPath(path: string): string {
-  const noSlash = path.replace(/\/$/, '')
-  const i = noSlash.lastIndexOf('/')
-  if (i >= 0) return noSlash.slice(0, i)
-  const c = noSlash.indexOf(':')
-  return c >= 0 ? noSlash.slice(0, c + 1) : noSlash
-}
-
 function amigaPatternRx(pattern: string): RegExp {
   return amigaPattern(pattern)
 }

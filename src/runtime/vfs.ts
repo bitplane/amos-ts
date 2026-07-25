@@ -268,6 +268,36 @@ export class AmigaFS implements AmosFS {
 }
 
 /** AmigaDOS/AMOS filename pattern (`#?`, `*`, `?`) → RegExp */
+export function joinAmigaPath(path: string, name: string): string {
+  if (path === '' || path.endsWith(':') || path.endsWith('/')) return path + name
+  return `${path}/${name}`
+}
+
+/**
+ * Fs_Parent (+Lib.s:18326) walks back over a trailing '/' and then to the
+ * previous '/' or ':'. Note the original does nothing at all unless the path
+ * ends in '/', which the caller reproduces.
+ */
+export function parentAmigaPath(path: string): string {
+  const noSlash = path.replace(/\/$/, '')
+  const i = noSlash.lastIndexOf('/')
+  if (i >= 0) return noSlash.slice(0, i)
+  const c = noSlash.indexOf(':')
+  return c >= 0 ? noSlash.slice(0, c + 1) : noSlash
+}
+
+/**
+ * FillSort's ordering key (+Lib.s): case-insensitive, and the '*' that marks
+ * a directory sorts before every printable character so drawers head the
+ * list. Shared by Dir First$ and the file selector, which walk the same
+ * Fill-File records.
+ */
+export function fillSortKey(s: string): string {
+  let k = ''
+  for (const c of s) k += c === '*' ? '\x01' : c.toUpperCase()
+  return k
+}
+
 export function amigaPattern(pattern: string): RegExp {
   let rx = ''
   for (let i = 0; i < pattern.length; i++) {
