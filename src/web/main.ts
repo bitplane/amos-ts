@@ -310,10 +310,32 @@ const SCAN: Record<string, number> = {
   Digit6: 0x06, Digit7: 0x07, Digit8: 0x08, Digit9: 0x09, Digit0: 0x0a,
   F1: 0x50, F2: 0x51, F3: 0x52, F4: 0x53, F5: 0x54, F6: 0x55, F7: 0x56, F8: 0x57, F9: 0x58, F10: 0x59,
 }
-// two joystick ports: arrows + Space = Joy(1) (player 1), WASD + Left-Shift
-// = Joy(0) (player 2). Bits: 1 up, 2 down, 4 left, 8 right, 16 fire.
-const JOY1: Record<string, number> = { ArrowUp: 1, ArrowDown: 2, ArrowLeft: 4, ArrowRight: 8, Space: 16 }
-const JOY0: Record<string, number> = { KeyW: 1, KeyS: 2, KeyA: 4, KeyD: 8, ShiftLeft: 16 }
+// Joystick input is the two hardware ports (Joy(1)/Joy(0)). Real gamepads
+// drive them faithfully (polled each frame). The keyboard does NOT touch
+// the ports unless the user opts in per port via the Controls dropdown —
+// otherwise a game that uses those keys AND reads a joystick would get
+// phantom input (flight sims etc.). Bits: 1 up, 2 down, 4 left, 8 right,
+// 16 fire.
+/** which keys count as which port's directions, keyed by port. Empty
+ * (faithful default) until the user assigns a keyboard→joystick mode. */
+const KB_PORT: [Record<string, number>, Record<string, number>] = [{}, {}]
+const KB_ARROWS: Record<string, number> = { ArrowUp: 1, ArrowDown: 2, ArrowLeft: 4, ArrowRight: 8, Space: 16 }
+const KB_WASD: Record<string, number> = { KeyW: 1, KeyS: 2, KeyA: 4, KeyD: 8, ShiftLeft: 16 }
+// live keyboard-joystick bits per port (only set while a mode is assigned)
+const kbJoy = [0, 0]
+// Controls dropdowns: opt a port into an arrows/WASD keyboard mapping
+for (const [id, port] of [
+  ['kb1', 1],
+  ['kb0', 0],
+] as const) {
+  const sel = document.getElementById(id) as HTMLSelectElement
+  const apply = (): void => {
+    KB_PORT[port] = sel.value === 'arrows' ? KB_ARROWS : sel.value === 'wasd' ? KB_WASD : {}
+    kbJoy[port] = 0 // clear stale held bits when the mapping changes
+  }
+  sel.addEventListener('change', apply)
+  apply()
+}
 
 // AMOS ASCII codes for special keys (Cla_Special +W.s:12941): cursor keys
 // are Chr$(30)/(31)/(28)/(29), Backspace 8, Tab 9, Return 13, Esc 27,
@@ -332,8 +354,7 @@ document.addEventListener('keydown', (e) => {
   }
   const scan = SCAN[e.code] ?? 0
   if (scan) rt.input.keys.add(scan)
-  if (JOY1[e.code] !== undefined) rt.input.joy |= JOY1[e.code]!
-  if (JOY0[e.code] !== undefined) rt.input.joy0 |= JOY0[e.code]!
+  for (let p = 0; p < 2; p++) if (KB_PORT[p]![e.code] !== undefined) kbJoy[p]! |= KB_PORT[p]![e.code]!
   const ch = SPECIAL_CH[e.code] ?? (e.key.length === 1 ? e.key : '')
   if (ch !== '') rt.pressKey(ch, scan)
   if (e.code === 'Space' || e.code === 'Backspace' || e.code === 'Tab' || e.code.startsWith('Arrow')) e.preventDefault()
@@ -342,9 +363,33 @@ document.addEventListener('keyup', (e) => {
   if (!rt) return
   const scan = SCAN[e.code] ?? 0
   if (scan) rt.input.keys.delete(scan)
-  if (JOY1[e.code] !== undefined) rt.input.joy &= ~JOY1[e.code]!
-  if (JOY0[e.code] !== undefined) rt.input.joy0 &= ~JOY0[e.code]!
+  for (let p = 0; p < 2; p++) if (KB_PORT[p]![e.code] !== undefined) kbJoy[p]! &= ~KB_PORT[p]![e.code]!
 })
+
+/** poll real gamepads and merge with any opted-in keyboard bits, then
+ * write the two ports. Gamepad 0 → Joy(1), gamepad 1 → Joy(0). */
+function updateJoysticks(): void {
+  if (!rt) return
+  const pads = navigator.getGamepads?.() ?? []
+  const padBits = (gp: Gamepad | null): number => {
+    if (!gp) return 0
+    let b = 0
+    const ax = gp.axes
+    if ((ax[1] ?? 0) < -0.5) b |= 1
+    if ((ax[1] ?? 0) > 0.5) b |= 2
+    if ((ax[0] ?? 0) < -0.5) b |= 4
+    if ((ax[0] ?? 0) > 0.5) b |= 8
+    // d-pad buttons 12..15 on the standard mapping
+    if (gp.buttons[12]?.pressed) b |= 1
+    if (gp.buttons[13]?.pressed) b |= 2
+    if (gp.buttons[14]?.pressed) b |= 4
+    if (gp.buttons[15]?.pressed) b |= 8
+    if (gp.buttons[0]?.pressed || gp.buttons[1]?.pressed) b |= 16
+    return b
+  }
+  rt.input.joy = kbJoy[1]! | padBits(pads[0] ?? null)
+  rt.input.joy0 = kbJoy[0]! | padBits(pads[1] ?? null)
+}
 lineEl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && rt) {
     rt.submitLine(lineEl.value)
@@ -383,6 +428,7 @@ function loop(now: number): void {
   const frames = turboEl.checked ? 20 : Math.min(5, Math.floor(acc / 20))
   if (!turboEl.checked && frames > 0) acc -= frames * 20
   else if (turboEl.checked) acc = 0
+  updateJoysticks()
   let status = ''
   for (let i = 0; i < frames; i++) {
     if (rt.interp.done) break
