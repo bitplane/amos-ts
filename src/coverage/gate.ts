@@ -27,17 +27,13 @@ import { PROBE_DIR } from './probe'
  * Delete entries as tests land — never add one to make the build pass.
  */
 export const ALLOWED_UNPROVEN = new Set<string>([
-  'amal freeze', 'amal off', 'amalerr', 'anim freeze', 'anim off', 'bank to menu', 'boom',
-  'chanan', 'comp test', 'def scroll', 'default', 'del icon', 'dialog freeze',
-  'dialog unfreeze', 'get rom fonts', 'hzone', 'icon base', 'ins icon', 'jdown', 'jright',
-  'med cont', 'med midi on', 'menu active', 'menu bar', 'menu called', 'menu del',
-  'menu item static', 'menu line', 'menu link', 'menu mouse off', 'menu mouse on',
-  'menu movable', 'menu off', 'menu once', 'menu separate', 'menu static', 'menu tline',
-  'menu to bank', 'mouse screen', 'move freeze', 'move y', 'mubase', 'on menu del',
-  'on menu off', 'prg next$', 'rainbow del', 'reset zone', 'sam loop off', 'scroll',
-  'scroll on', 'set menu', 'set sprite buffer', 'shift down', 'shift off', 'synchro',
-  'synchro off', 'synchro on', 'track loop of', 'unpack', 'vrev', 'wind move', 'x mouse',
-  'y hard', 'y menu', 'y mouse', 'zdialog',
+  'amal freeze', 'amal off', 'amalerr', 'anim freeze', 'anim off', 'boom', 'chanan',
+  'comp test', 'def scroll', 'default', 'del icon', 'dialog freeze', 'dialog unfreeze',
+  'get rom fonts', 'hzone', 'icon base', 'ins icon', 'jdown', 'jright', 'med cont',
+  'med midi on', 'mouse screen', 'move freeze', 'move y', 'mubase', 'prg next$', 'rainbow del',
+  'reset zone', 'sam loop off', 'scroll', 'scroll on', 'set sprite buffer', 'shift down',
+  'shift off', 'synchro', 'synchro off', 'synchro on', 'track loop of', 'unpack', 'vrev',
+  'wind move', 'x mouse', 'y hard', 'y mouse', 'zdialog',
 ])
 
 export function setup(): void {
