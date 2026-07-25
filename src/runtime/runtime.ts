@@ -11,7 +11,8 @@ import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
 import { newPiConfig } from './piconfig.gen'
 import type { PiConfig } from './piconfig.gen'
-import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlideStep, fselStore } from './fsel'
+import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlideStep, fselStore, slideOpen, slideShut } from './fsel'
+import type { SlideState } from './fsel'
 import type { FselState, FselStoreEntry } from './fsel'
 import { parseAmalBank } from '../loader/amalbank'
 import type { AmalBank } from '../loader/amalbank'
@@ -1027,7 +1028,7 @@ export class Runtime {
     // the closing slide outlives the dialog being drawn, so it runs before
     // any of the checks that would otherwise end the selector
     if (f.slide) {
-      if (fselSlideStep(this, f)) {
+      if (fselSlideStep(this, f.screenNb, f.slide)) {
         f.slide = null
         if (f.closing !== null) this.finishFselNow(f.closing)
       }
@@ -1106,7 +1107,16 @@ export class Runtime {
    * zone 5 (the HT zone) and quits when the dialog stops being drawn, so
    * this controller is stepped a frame at a time while BASIC blocks.
    */
-  readText: { done: boolean; result: string; chan: number; screenNb: number; prevScreen: number } | null = null
+  readText: {
+    done: boolean
+    result: string
+    chan: number
+    screenNb: number
+    prevScreen: number
+    /** the AppCentre slide, shared with the file selector */
+    slide: SlideState | null
+    closing: string | null
+  } | null = null
 
   /** begin Read Text over text at `addr`; false = no system resource bank */
   startReadText(title: string, addr: number, length: number): boolean {
@@ -1160,12 +1170,16 @@ export class Runtime {
     d.vars[1] = title
     d.vars[2] = hyp
     this.dialogs.set(chan, d)
-    this.readText = { done: false, result: '', chan, screenNb: Runtime.EC_FSEL, prevScreen }
+    // PI_RtWx/RtWy is where the reader sits (+Lib.s:14790)
+    s.displayX = this.pi.RtWx
+    s.displayY = this.pi.RtWy
+    this.readText = { done: false, result: '', chan, screenNb: Runtime.EC_FSEL, prevScreen, slide: null, closing: null }
     try {
       this.runDialog(chan, -1, null, null)
     } catch {
       this.finishReadText('')
     }
+    if (this.pi.RtSpeed > 0) this.readText.slide = slideOpen(s, this.pi.RtSpeed)
     return true
   }
 
@@ -1174,6 +1188,15 @@ export class Runtime {
   private stepReadText(): void {
     const t = this.readText
     if (!t || t.done) return
+    // the reader arrives and leaves through the same centre-out slide as the
+    // selector, at PI_RtSpeed rather than PI_FsDVApp (Fs_Appear/AppCentre)
+    if (t.slide) {
+      if (fselSlideStep(this, t.screenNb, t.slide)) {
+        t.slide = null
+        if (t.closing !== null) this.finishReadTextNow(t.closing)
+      }
+      return
+    }
     const d = this.dialogs.get(t.chan)
     if (!d || !d.drawn) {
       // Dia_GetReturn hands back -1 once the dialog stops being drawn
@@ -1191,12 +1214,26 @@ export class Runtime {
   /** close the reader: dialog, screen, restore; the result goes to Param$ */
   finishReadText(result: string): void {
     const t = this.readText
-    if (!t) return
+    if (!t || t.done || t.closing !== null) return
+    const sc = this.screens.get(t.screenNb)
+    if (sc && this.pi.RtSpeed > 0) {
+      t.slide = slideShut(sc, this.pi.RtSpeed)
+      t.closing = result
+      return
+    }
+    this.finishReadTextNow(result)
+  }
+
+  /** the teardown half, once the reader's screen has slid shut */
+  finishReadTextNow(result: string): void {
+    const t = this.readText
+    if (!t || t.done) return
     const d = this.dialogs.get(t.chan)
     if (d) {
       eraseDialog(d, this.dialogDraw)
       this.dialogs.delete(t.chan)
     }
+    t.slide = null
     this.closeScreen(t.screenNb)
     if (t.prevScreen >= 0) this.setCurrent(t.prevScreen) // .NoEc, 14903
     this.tempBuffer = null // ResTempBuffer 0 (+Lib.s:14905)
@@ -3287,10 +3324,12 @@ export class Runtime {
         if (d && d.runState === 'waiting') this.finishDialogRun(d, 0)
         else this.interp.blocked = null
       } else if (b?.type === 'fsel') {
-        if (this.fsel && !this.fsel.done) this.finishFselNow('')
+        // a close already under way keeps its result; the animation is what
+        // headless skips, not the outcome
+        if (this.fsel && !this.fsel.done) this.finishFselNow(this.fsel.closing ?? '')
         else this.interp.blocked = null
       } else if (b?.type === 'readtext') {
-        if (this.readText && !this.readText.done) this.finishReadText('')
+        if (this.readText && !this.readText.done) this.finishReadTextNow(this.readText.closing ?? '')
         else this.interp.blocked = null
       }
     }

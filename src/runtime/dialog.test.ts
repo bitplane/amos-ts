@@ -1280,6 +1280,17 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('audit fix-ups: run semantics (Dia_Run
 })
 
 describe.skipIf(!existsSync(DEFAULT_ABK))('Read Text (the ASCII reader over bank program 1)', () => {
+  /** run the reader's AppCentre slide out before poking at it */
+  function openRt(rt: Runtime): void {
+    for (let i = 0; i < 60 && (!rt.readText || rt.readText.slide); i++) rt.frame()
+    rt.frame()
+  }
+
+  /** ...and let the closing slide land */
+  function closeRt(rt: Runtime): void {
+    for (let i = 0; i < 60 && rt.readText && !rt.readText.done; i++) rt.frame()
+  }
+
   const table = new TokenTable(CORE_TOKENS)
 
   function boot(src: string, files: Record<string, string> = {}): { rt: Runtime; out: () => string } {
@@ -1313,7 +1324,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Read Text (the ASCII reader over bank
 
   it('opens bank program 1 on the EcFsel screen with the text, title and #HYP flag in vars 0-2', () => {
     const { rt } = boot('Read Text "DH0:doc.txt"\nPrint "R=";Param$;"."', { 'doc.txt': 'Alpha\nBeta\n' })
-    for (let i = 0; i < 3; i++) rt.frame()
+    openRt(rt)
     expect(rt.readText).not.toBeNull()
     const d = reader(rt)
     // IRText +Lib.s:14790: Dia_RScOpen on EcFsel, then program 1 with 8 vars
@@ -1333,7 +1344,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Read Text (the ASCII reader over bank
     // the real files carry exactly 8 header bytes: "#HYP2000" then the LF
     // (fixtures/official-amos/Productivity1/Equates/Equates.Doc)
     const { rt } = boot('Read Text "DH0:h.txt"', { 'h.txt': '#HYP2000\nOne\n' })
-    for (let i = 0; i < 3; i++) rt.frame()
+    openRt(rt)
     const d = reader(rt)
     expect(d.vars[2]).toBe(2)
     expect(d.vars[0]).toBe(Runtime.TEMP_BUFFER_BASE + 8)
@@ -1345,7 +1356,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Read Text (the ASCII reader over bank
     const { rt, out } = boot('Read Text "DH0:h.txt"\nPrint "R=";Param$;"."', {
       'h.txt': '#HYP1000\nSee {[TOPIC,4,7]this bit} now\n',
     })
-    for (let i = 0; i < 3; i++) rt.frame()
+    openRt(rt)
     const prev = rt.readText!.prevScreen
     clickKeyword(rt, 'TOPIC')
     expect(rt.runHeadless(200).status).toBe('ended')
@@ -1358,7 +1369,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Read Text (the ASCII reader over bank
 
   it('quitting the reader leaves Param$ empty (Dia_GetReturn -1 once it stops being drawn)', () => {
     const { rt, out } = boot('Read Text "DH0:doc.txt"\nPrint "R=";Param$;"."', { 'doc.txt': 'Alpha\n' })
-    for (let i = 0; i < 3; i++) rt.frame()
+    openRt(rt)
     const d = reader(rt)
     // zone 1 is the script's exit button: [BR0;BQ;]
     const z = d.zones.find((zz) => zz.number === 1 && zz.kind === 'button')!
@@ -1376,11 +1387,12 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Read Text (the ASCII reader over bank
   it('with no screen open there is nothing to come back to (TRd_OldEc -1, 14783/14903)', () => {
     // the shape Editor_Commands.AMOS uses: Screen Close 0, then Read Text
     const { rt } = boot('Screen Close 0\nRead Text "DH0:doc.txt"\nA=1', { 'doc.txt': 'Alpha\n' })
-    for (let i = 0; i < 3; i++) rt.frame()
+    openRt(rt)
     // no current screen, so nothing is stored to reactivate on the way out
     expect(rt.readText!.prevScreen).toBe(-1)
     expect(rt.screens.has(Runtime.EC_FSEL)).toBe(true)
     expect(() => rt.finishReadText('')).not.toThrow()
+    closeRt(rt)
     expect(rt.screens.size).toBe(0)
     expect(rt.runHeadless(200).status).toBe('ended')
   })
@@ -1392,7 +1404,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Read Text (the ASCII reader over bank
       'Read Text "My Title",Start(10),40',
     ].join('\n')
     const { rt } = boot(src)
-    for (let i = 0; i < 3; i++) rt.frame()
+    openRt(rt)
     const d = reader(rt)
     expect(d.vars[1]).toBe('My Title')
     expect(d.vars[0]).toBe(rt.bankBase(10))

@@ -77,7 +77,7 @@ export interface FselState {
   /** what Fs_Next has yet to take, one per frame */
   pending: FselEntry[]
   /** AppCentre state while the screen is opening or closing */
-  slide: { half: number; speed: number; centreY: number } | null
+  slide: SlideState | null
   /** the result waiting on the closing slide, null while the selector lives */
   closing: string | null
   arr: AmosArray
@@ -597,9 +597,14 @@ export function fselHelp(rt: Runtime, f: FselState, d: DialogChannel): void {
  *
  * Returns true when the slide has finished.
  */
-export function fselSlideStep(rt: Runtime, f: FselState): boolean {
-  const s = f.slide
-  const sc = rt.screens.get(f.screenNb)
+export interface SlideState {
+  half: number
+  speed: number
+  centreY: number
+}
+
+export function fselSlideStep(rt: Runtime, screenNb: number, s: SlideState | null): boolean {
+  const sc = rt.screens.get(screenNb)
   if (!s || !sc) return true
   const halfMax = sc.height >> 1
   const prev = s.half
@@ -613,16 +618,30 @@ export function fselSlideStep(rt: Runtime, f: FselState): boolean {
   return next === prev
 }
 
+/** the state an opening slide starts from, for a screen of this height */
+export const slideOpen = (sc: { displayY: number; height: number }, speed: number): SlideState => ({
+  half: 1,
+  speed,
+  centreY: sc.displayY + (sc.height >> 1),
+})
+
+/** ...and a closing one */
+export const slideShut = (sc: { displayY: number; height: number }, speed: number): SlideState => ({
+  half: sc.height >> 1,
+  speed: -speed,
+  centreY: sc.displayY + (sc.height >> 1),
+})
+
 /** Fs_Appear (18963): grow from the centre line at PI_FsDVApp a step */
 export function fselAppear(rt: Runtime, f: FselState): void {
   const sc = rt.screens.get(f.screenNb)
   if (!sc || rt.pi.FsDVApp <= 0) return
-  f.slide = { half: 1, speed: rt.pi.FsDVApp, centreY: sc.displayY + (sc.height >> 1) }
+  f.slide = slideOpen(sc, rt.pi.FsDVApp)
 }
 
 /** Fs_DisAppear (18977): the same in reverse, from the full height */
 export function fselDisAppear(rt: Runtime, f: FselState): void {
   const sc = rt.screens.get(f.screenNb)
   if (!sc || rt.pi.FsDVApp <= 0) return
-  f.slide = { half: sc.height >> 1, speed: -rt.pi.FsDVApp, centreY: sc.displayY + (sc.height >> 1) }
+  f.slide = slideShut(sc, rt.pi.FsDVApp)
 }
