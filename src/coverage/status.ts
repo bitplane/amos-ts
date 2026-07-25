@@ -927,7 +927,7 @@ export const NOTES: Record<string, string> = {
   autoback: 'mode 1 treated like 0',
   rainbow: 'rendered per scanline by the copper-walk compositor across the PAL overscan window (hardware lines 26-311)',
   'copper off':
-    'the interpreted list renders COLOR/BPLxPT/BPLCON0-hires/DMACON/DIWSTRT; DDF/modulos/BPLCON1-2/sprite pointers are parsed but ignored, and registers reset each frame rather than persisting (the real machine also hides the mouse pointer)',
+    'the interpreted list renders COLOR/BPLxPT/BPLCON0-hires/DMACON/DIWSTRT, and the register file now persists across frames as the hardware\'s does — a MOVE sticks until something writes that register again, so a list that only pokes COLOR00 keeps whatever the bitplane pointers were aimed at. The handover itself still resets to black, which is faithful: the OFF path swaps in a list that is nothing but an end marker. Still parsed and ignored: DDF, the modulos, BPLCON1 (playfield scroll) and BPLCON2, and the sprite pointers — the fetch geometry comes from the resolved screen rather than from the registers. The real machine also hides the mouse pointer',
   'cop logic': 'a mapped chip-RAM address; the system list is regenerated every vbl (the T_Actualise change-gating is not modelled)',
   'set pattern': 'system patterns come from the machine mouse bank (fixtures/machine); without it, dither stand-ins',
   'input$': 'keyboard form is non-blocking best effort',

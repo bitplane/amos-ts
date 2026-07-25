@@ -580,11 +580,55 @@ export class Runtime {
       this.copLogIsA = !this.copLogIsA
       this.copPos = 0
       this.copCross = false
+      this.seedCopperRegs()
     } else {
       if (this.copperOn) return
       this.copperOn = true
       this.buildCopperList() // EcForceCop: recalcule les listes
     }
+  }
+
+  /**
+   * The custom registers as the user copper list left them.
+   *
+   * On the hardware a copper MOVE sticks: a register keeps its value until
+   * something writes it again, across frames as well as down the display. A
+   * list that only pokes COLOR00 therefore keeps showing whatever the
+   * bitplane pointers were already aimed at. Rebuilding this from defaults
+   * every frame made such a list display nothing at all.
+   */
+  private copRegs = {
+    pal: new Uint16Array(32),
+    dmaOn: false,
+    hires: false,
+    hstart: 0x81,
+    bplH: new Int32Array(8).fill(-1),
+    bplL: new Int32Array(8).fill(-1),
+    screenIdx: -1,
+    usePhy: false,
+    srcRow: 0,
+  }
+
+  /**
+   * Reset the register file when Copper Off hands the display over.
+   *
+   * Blank, not "whatever was on screen": AMOS's OFF path swaps in a list
+   * that is nothing but an end marker, so the display really does go dark
+   * until the program's own list sets bitplane pointers up. What changed is
+   * that this now happens ONCE, at the handover, instead of every frame.
+   */
+  private seedCopperRegs(): void {
+    const r = this.copRegs
+    r.pal.fill(0)
+    r.pal[0] = this.colourBack & 0xfff
+    r.dmaOn = false
+    r.hires = false
+    r.hstart = 0x81
+    r.bplH.fill(-1)
+    r.bplL.fill(-1)
+    r.screenIdx = -1
+    r.usePhy = false
+    r.srcRow = 0
   }
 
   /** resolve an address for reading (Peek): planar mirrors refresh from chunky */
@@ -3297,24 +3341,25 @@ export class Runtime {
    * screen + row through the chip-RAM map, BPLCON0's hires bit, DMACON's
    * raster enable, DIWSTRT's horizontal start. DIWSTOP/DDF/modulos/
    * BPLCON1-2/sprite pointers are parsed and ignored (the fetch geometry
-   * comes from the resolved screen). Registers start each frame from the
-   * fond (real hardware would carry last frame's values).
+   * comes from the resolved screen). Registers persist across frames, as
+   * the hardware's do — see copRegs.
    */
   private compositeFromList(data: Uint8ClampedArray, W: number, H: number): void {
     const phys = this.copPhysic
+    const R = this.copRegs
     const hwPal = new Uint16Array(32)
-    hwPal[0] = this.colourBack & 0xfff
+    hwPal.set(R.pal)
     let p = 0
     let line = 0
     let cross = false
-    let dmaOn = false
-    let hires = false
-    let hstart = 0x81
-    let screen: Screen | null = null
-    let usePhy = false
-    let srcRow = 0
-    const bplH = new Int32Array(8).fill(-1)
-    const bplL = new Int32Array(8).fill(-1)
+    let dmaOn = R.dmaOn
+    let hires = R.hires
+    let hstart = R.hstart
+    let screen: Screen | null = R.screenIdx >= 0 ? (this.screens.get(R.screenIdx) ?? null) : null
+    let usePhy = R.usePhy
+    let srcRow = R.srcRow
+    const bplH = Int32Array.from(R.bplH)
+    const bplL = Int32Array.from(R.bplL)
     const cs = this.screens.get(this.currentIndex) ?? null
     const cw = cs?.curWin ?? null
     const curX0 = cw ? cw.x + cw.curX * 8 : 0
@@ -3423,6 +3468,18 @@ export class Runtime {
       }
     }
     renderLines(313)
+    // carry the register file into the next frame
+    R.pal.set(hwPal)
+    R.dmaOn = dmaOn
+    R.hires = hires
+    R.hstart = hstart
+    R.bplH.set(bplH)
+    R.bplL.set(bplL)
+    R.screenIdx = screen ? screen.index : -1
+    R.usePhy = usePhy
+    // srcRow walks down the display as lines are fetched; the next frame
+    // restarts from the top of whatever the pointers were last aimed at
+    R.srcRow = 0
   }
 
   /** Workbench-style menu bar while the right button is held */

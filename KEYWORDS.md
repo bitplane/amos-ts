@@ -85,7 +85,7 @@ tested against our own understanding. Percentages exclude n/a
 
 ## copper (100%)
 
-- **faithful**: `cop logic` *(a mapped chip-RAM address; the system list is regenerated every vbl (the T_Actualise change-gating is not modelled))*, `cop move`, `cop movel`, `cop reset`, `cop swap`, `cop wait`, `copper off` *(the interpreted list renders COLOR/BPLxPT/BPLCON0-hires/DMACON/DIWSTRT; DDF/modulos/BPLCON1-2/sprite pointers are parsed but ignored, and registers reset each frame rather than persisting (the real machine also hides the mouse pointer))*, `copper on`
+- **faithful**: `cop logic` *(a mapped chip-RAM address; the system list is regenerated every vbl (the T_Actualise change-gating is not modelled))*, `cop move`, `cop movel`, `cop reset`, `cop swap`, `cop wait`, `copper off` *(the interpreted list renders COLOR/BPLxPT/BPLCON0-hires/DMACON/DIWSTRT, and the register file now persists across frames as the hardware's does — a MOVE sticks until something writes that register again, so a list that only pokes COLOR00 keeps whatever the bitplane pointers were aimed at. The handover itself still resets to black, which is faithful: the OFF path swaps in a list that is nothing but an end marker. Still parsed and ignored: DDF, the modulos, BPLCON1 (playfield scroll) and BPLCON2, and the sprite pointers — the fetch geometry comes from the resolved screen rather than from the registers. The real machine also hides the mouse pointer)*, `copper on`
 
 ## drawing (100%)
 

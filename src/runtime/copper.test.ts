@@ -192,3 +192,35 @@ describe('interpreting a user list (Copper Off display)', () => {
     expect(Buffer.from(restored).equals(Buffer.from(before))).toBe(true)
   })
 })
+
+describe('copper registers persist across frames, as the hardware\'s do', () => {
+  const pix12 = (rt: Runtime, x: number, y: number): number => {
+    const { data } = rt.composite()
+    const o = ((y + 48) * 640 + x) * 4
+    return ((Math.round(data[o]! / 17) & 15) << 8) | ((Math.round(data[o + 1]! / 17) & 15) << 4) | (Math.round(data[o + 2]! / 17) & 15)
+  }
+
+  it('a colour set by one frame is still in force on the next', () => {
+    // A copper MOVE sticks until something writes the register again. Rebuilding
+    // the register file every frame instead made the bar vanish after one frame.
+    const rt = run(['Copper Off', 'Cop Wait 1,100', 'Cop Move $180,$F00', 'Cop Swap'].join('\n'))
+    const first = pix12(rt, 320, (105 - 50) * 2)
+    expect(first).toBe(0xf00)
+    // compose several more frames without the program running again
+    for (let i = 0; i < 5; i++) rt.composite()
+    expect(pix12(rt, 320, (105 - 50) * 2)).toBe(0xf00)
+  })
+
+  it('Copper Off itself blanks the display before any list runs', () => {
+    // the OFF path swaps in a list that is only an end marker, so the reset
+    // is to black — persistence starts from there, not from what was on screen
+    const rt = run(['Ink 5 : Bar 0,0 To 319,199', 'Copper Off'].join('\n'))
+    const { data } = rt.composite()
+    let lit = 0
+    for (let i = 0; i < data.length; i += 4) if (data[i]! || data[i + 1]! || data[i + 2]!) lit++
+    expect(lit).toBe(0)
+  })
+
+})
+
+

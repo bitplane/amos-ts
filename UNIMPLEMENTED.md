@@ -106,9 +106,10 @@ saying which is how a list like this quietly becomes furniture.
 - `resource$` for the editor message tables (-1001 and deeper).
 - `load iff` is not byte-verified against the 68k loader — a testing gap.
 - `get disc fonts` and `set pattern` when no machine bank is mounted.
-- Sprite priority is global rather than per-screen; dual playfield renders
-  one pair at a time; `Copper Off` ignores DDF/modulos/BPLCON1-2 and resets
-  registers each frame instead of persisting them.
+- `Copper Off` ignores DDF, the modulos, BPLCON1 (playfield scroll) and
+  BPLCON2, and the sprite pointers: the fetch geometry comes from the
+  resolved screen rather than from the registers. Register *persistence*
+  across frames is done. Sprite priority and dual playfield are done.
 - The players trigger notes immediately instead of after the one-vbl DMA
   latch gap, and a 2-byte repeat region plays silence.
 - `Border$` box glyphs are drawn approximations (the AMOS charset binary is
@@ -135,16 +136,22 @@ saying which is how a list like this quietly becomes furniture.
 - **Rnd** mixes a deterministic statement-paced pseudo-beam instead of
   the free-running raster (runs reproduce); `Rnd(-n)` is the pure
   generator exactly as on the Amiga.
-- **Sprite priority** is per-pair (PF2P) but global rather than
-  per-screen; computed sprites approximate as the last pair. Hardware
-  sprites ignore the 4-per-scanline DMA limit (a superset).
+- **Sprite priority** is per-screen (EcCon2) and the compositor picks
+  the PF1P of whichever screen covers a sprite's scanline. Remaining:
+  computed sprites (8+) count as the last pair rather than being
+  tracked through the multiplexer, PF2P is stored but the single
+  compositor pass keys off PF1P, and hardware sprites ignore the
+  4-per-scanline DMA limit (a superset).
 - **Copper Off** interprets COLOR/BPLxPT/BPLCON0/DMACON/DIWSTRT from
-  user lists; DDF/modulos/BPLCON1-2/sprite pointers are parsed but
-  ignored, and registers reset each frame rather than persisting.
+  user lists, and the register file persists across frames as the
+  hardware's does. DDF, the modulos, BPLCON1-2 and the sprite pointers
+  are still parsed and ignored — the fetch geometry comes from the
+  resolved screen.
 - **Screen Base** maps a read-only synthesized control block; pokes
   into it are ignored.
-- **Dual playfield** renders under the system copper only, one pair at
-  a time.
+- **Dual playfield** pairs are per-screen (EcDual), so several coexist
+  down the display; they render under the system copper walk, so a
+  Copper Off user list shows only the front playfield.
 - **FFP trig** matches mathtrans to ~24 bits, not necessarily the last
   bit.
 - **Ppsave/Squash** write valid files but not byte-identical to the
