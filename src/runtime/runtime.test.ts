@@ -573,3 +573,24 @@ describe('frame-budget pacing (blitter cost)', () => {
     expect(n).toBeGreaterThan(1000) // uncharged loop runs thousands per frame
   })
 })
+
+describe('two joystick ports (FJ +Lib.s:13716)', () => {
+  it('Joy(1)/Jup(0) read separate ports — arrows and WASD are independent', () => {
+    const rt = new Runtime(tokenize('Do : A=Jup(1) : B=Jup(0) : C=Jleft(0) : D=Fire(1) : Wait Vbl : Loop', table), table, {
+      maxSteps: 1_000_000,
+    })
+    rt.input.joy = 1 | 16 // port 1: up + fire
+    rt.input.joy0 = 4 // port 0: left
+    rt.frame()
+    const gf = (rt.interp as any).frames[0].vars
+    expect(Number(gf.get('a').n)).toBe(-1) // Jup(1) port-1 up
+    expect(Number(gf.get('b').n)).toBe(0) //  Jup(0) port-0 not up
+    expect(Number(gf.get('c').n)).toBe(-1) // Jleft(0) port-0 left
+    expect(Number(gf.get('d').n)).toBe(-1) // Fire(1) port-1 fire
+  })
+
+  it('a port above 1 is a function call error', () => {
+    const rt = new Runtime(tokenize('X=Joy(2)', table), table, { maxSteps: 1000 })
+    expect(() => rt.runHeadless(10)).toThrow(/function call/)
+  })
+})

@@ -893,6 +893,14 @@ function midStore(tg: { get(): Value; set(v: Value): void }, rawPos: number, cou
   tg.set(VS(s.slice(0, pos) + src.slice(0, n) + s.slice(pos + n)))
 }
 
+/** select the joystick port's bits (port 0 = mouse port, 1 = joystick;
+ * FJ +Lib.s:13716 errors on a port > 1) */
+function joyPort(it: Parameters<Func>[0], portArg: Value): number {
+  const p = int(portArg)
+  if (p >>> 0 > 1) throw new AmosError('function call error')
+  return p === 0 ? it.inp.joy0 : it.inp.joy
+}
+
 function arity(args: Value[], min: number, max = min): void {
   if (args.length < min || args.length > max) throw new AmosError('wrong number of arguments')
 }
@@ -1203,29 +1211,31 @@ export const FUNCS: Record<string, Func> = {
     arity(a, 0)
     return VI(0) // zones arrive with the object/zone milestone
   },
+  // Joy/Jup/... take a port 0 or 1 (FJ +Lib.s:13716 rejects >1). Port 1 is
+  // the joystick port, port 0 the mouse port — two distinct players.
   joy(it, a) {
     arity(a, 1)
-    return VI(it.inp.joy)
+    return VI(joyPort(it, a[0]!))
   },
   jup(it, a) {
     arity(a, 1)
-    return VI(it.inp.joy & 1 ? -1 : 0)
+    return VI(joyPort(it, a[0]!) & 1 ? -1 : 0)
   },
   jdown(it, a) {
     arity(a, 1)
-    return VI(it.inp.joy & 2 ? -1 : 0)
+    return VI(joyPort(it, a[0]!) & 2 ? -1 : 0)
   },
   jleft(it, a) {
     arity(a, 1)
-    return VI(it.inp.joy & 4 ? -1 : 0)
+    return VI(joyPort(it, a[0]!) & 4 ? -1 : 0)
   },
   jright(it, a) {
     arity(a, 1)
-    return VI(it.inp.joy & 8 ? -1 : 0)
+    return VI(joyPort(it, a[0]!) & 8 ? -1 : 0)
   },
   fire(it, a) {
     arity(a, 1)
-    return VI(it.inp.joy & 16 ? -1 : 0)
+    return VI(joyPort(it, a[0]!) & 16 ? -1 : 0)
   },
   // =Param / =Param# / =Param$ read three independent typed slots
   param(it, a) {

@@ -310,7 +310,10 @@ const SCAN: Record<string, number> = {
   Digit6: 0x06, Digit7: 0x07, Digit8: 0x08, Digit9: 0x09, Digit0: 0x0a,
   F1: 0x50, F2: 0x51, F3: 0x52, F4: 0x53, F5: 0x54, F6: 0x55, F7: 0x56, F8: 0x57, F9: 0x58, F10: 0x59,
 }
-const JOY: Record<string, number> = { ArrowUp: 1, ArrowDown: 2, ArrowLeft: 4, ArrowRight: 8, Space: 16, ControlLeft: 16 }
+// two joystick ports: arrows + Space = Joy(1) (player 1), WASD + Left-Shift
+// = Joy(0) (player 2). Bits: 1 up, 2 down, 4 left, 8 right, 16 fire.
+const JOY1: Record<string, number> = { ArrowUp: 1, ArrowDown: 2, ArrowLeft: 4, ArrowRight: 8, Space: 16 }
+const JOY0: Record<string, number> = { KeyW: 1, KeyS: 2, KeyA: 4, KeyD: 8, ShiftLeft: 16 }
 
 // AMOS ASCII codes for special keys (Cla_Special +W.s:12941): cursor keys
 // are Chr$(30)/(31)/(28)/(29), Backspace 8, Tab 9, Return 13, Esc 27,
@@ -329,7 +332,8 @@ document.addEventListener('keydown', (e) => {
   }
   const scan = SCAN[e.code] ?? 0
   if (scan) rt.input.keys.add(scan)
-  if (JOY[e.code] !== undefined) rt.input.joy |= JOY[e.code]!
+  if (JOY1[e.code] !== undefined) rt.input.joy |= JOY1[e.code]!
+  if (JOY0[e.code] !== undefined) rt.input.joy0 |= JOY0[e.code]!
   const ch = SPECIAL_CH[e.code] ?? (e.key.length === 1 ? e.key : '')
   if (ch !== '') rt.pressKey(ch, scan)
   if (e.code === 'Space' || e.code === 'Backspace' || e.code === 'Tab' || e.code.startsWith('Arrow')) e.preventDefault()
@@ -338,7 +342,8 @@ document.addEventListener('keyup', (e) => {
   if (!rt) return
   const scan = SCAN[e.code] ?? 0
   if (scan) rt.input.keys.delete(scan)
-  if (JOY[e.code] !== undefined) rt.input.joy &= ~JOY[e.code]!
+  if (JOY1[e.code] !== undefined) rt.input.joy &= ~JOY1[e.code]!
+  if (JOY0[e.code] !== undefined) rt.input.joy0 &= ~JOY0[e.code]!
 })
 lineEl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && rt) {

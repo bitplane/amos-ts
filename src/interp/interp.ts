@@ -102,8 +102,10 @@ export interface InputState {
   mouseK: number
   /** button state at the last Mouse Click read, for edge detection */
   mouseClickOld: number
-  /** joystick bits: 1 up, 2 down, 4 left, 8 right, 16 fire */
+  /** port-1 joystick bits (Joy(1)): 1 up, 2 down, 4 left, 8 right, 16 fire */
   joy: number
+  /** port-0 joystick bits (Joy(0)) — the mouse port; a distinct player */
+  joy0: number
   /** Set Key$(1..20) function-key definition strings */
   funcKeys: string[]
 }
@@ -118,6 +120,7 @@ export const newInputState = (): InputState => ({
   mouseK: 0,
   mouseClickOld: 0,
   joy: 0,
+  joy0: 0,
   funcKeys: [],
 })
 
