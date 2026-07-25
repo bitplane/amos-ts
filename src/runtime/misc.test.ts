@@ -298,3 +298,64 @@ describe('Resource$ reaches all six message tables (FnResource +ILib.s:6699)', (
     expect(runOut('Print Err$(174)')).toBe(ED_RUN_MESSAGES[174] + '\n')
   })
 })
+
+describe('Pack / Spack', () => {
+  it('round-trips a drawn screen through a bank and back', () => {
+    const rt = run(
+      [
+        'Screen Open 0,320,100,16,Lowres',
+        'Cls 0 : Ink 5 : Bar 10,10 To 100,60 : Ink 3 : Draw 0,0 To 319,99',
+        'Spack 0,10',
+        'Cls 0',
+        'Unpack 10',
+      ].join('\n'),
+    )
+    const bank = rt.memBanks.get(10)!
+    expect(bank.name).toBe('Pac.Pic.')
+    const s = rt.screens.get(0)!
+    // the picture came back: the bar and the diagonal are where they were
+    expect(s.point(50, 30)).toBe(5)
+    expect(s.point(0, 0)).toBe(3)
+    expect(s.point(200, 90)).toBe(0)
+  })
+
+  it('Pack writes the bitmap alone, Spack prefixes the screen definition', () => {
+    const rt = run(
+      ['Screen Open 0,320,100,16,Lowres', 'Cls 3', 'Pack 0,11', 'Spack 0,12'].join('\n'),
+    )
+    const packed = rt.memBanks.get(11)!.data
+    const spacked = rt.memBanks.get(12)!.data
+    // $06071963 straight away for Pack; $12031990 then the same bitmap 90
+    // bytes in for Spack (PsLong, +Equ.s:940)
+    expect([...packed.subarray(0, 4)]).toEqual([0x06, 0x07, 0x19, 0x63])
+    expect([...spacked.subarray(0, 4)]).toEqual([0x12, 0x03, 0x19, 0x90])
+    expect([...spacked.subarray(90, 94)]).toEqual([0x06, 0x07, 0x19, 0x63])
+    expect(spacked.length).toBe(packed.length + 90)
+  })
+
+  it('packs only the requested rectangle, x forced to byte boundaries', () => {
+    const rt = run(
+      [
+        'Screen Open 0,320,100,16,Lowres',
+        'Cls 0 : Ink 7 : Bar 0,0 To 319,99',
+        'Spack 0,13,60,20 To 140,60',
+        'Cls 0',
+        'Unpack 13',
+      ].join('\n'),
+    )
+    const s = rt.screens.get(0)!
+    // Unpack puts it back at the packed origin: 60 rounds down to 56
+    expect(s.point(56, 20)).toBe(7)
+    expect(s.point(55, 20)).toBe(0)
+    expect(s.point(56, 19)).toBe(0)
+    // 140 rounds down to 17 bytes, so the last packed column is pixel 135
+    expect(s.point(135, 59)).toBe(7)
+    expect(s.point(136, 59)).toBe(0)
+    expect(s.point(135, 60)).toBe(0)
+  })
+
+  it('rejects an empty rectangle and an out-of-range bank', () => {
+    expect(() => run('Screen Open 0,320,100,16,Lowres : Spack 0,10,100,10 To 100,50')).toThrow(/function call/)
+    expect(() => run('Screen Open 0,320,100,16,Lowres : Spack 0,70000')).toThrow(/function call/)
+  })
+})

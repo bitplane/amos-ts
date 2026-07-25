@@ -13,7 +13,7 @@ tested against our own understanding. Percentages exclude n/a
 |---|---|---|---|---|---|
 | amal | 13 | 13 | 0 | 0 | 100% |
 | amal-stos | 10 | 10 | 0 | 0 | 100% |
-| amospro-compact-2.0 | 3 | 1 | 0 | 2 | 33% |
+| amospro-compact-2.0 | 3 | 3 | 0 | 0 | 100% |
 | amospro-compiler-2.0 | 15 | 10 | 1 | 0 | 100% |
 | amospro-ioports-2.0 | 38 | 0 | 0 | 38 | 0% |
 | amospro-music-2.0 | 49 | 41 | 1 | 7 | 86% |
@@ -42,7 +42,7 @@ tested against our own understanding. Percentages exclude n/a
 | turbo-plus-1.0 | 134 | 0 | 0 | 134 | 0% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 1346 | 613 | 22 | 662 | 49% |
+| **total** | 1346 | 615 | 22 | 660 | 49% |
 
 ## amal (100%)
 
@@ -52,10 +52,9 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `anim` *(the bank-program/string discrimination is by value type, like amal)*, `anim freeze`, `anim off`, `anim on`, `move freeze`, `move off`, `move on`, `move x` *(the bank-program/string discrimination is by value type, like amal)*, `move y` *(the bank-program/string discrimination is by value type, like amal)*, `movon`
 
-## amospro-compact-2.0 (33%)
+## amospro-compact-2.0 (100%)
 
-- **faithful**: `unpack`
-- **missing**: `pack`, `spack`
+- **faithful**: `pack`, `spack`, `unpack`
 
 ## amospro-compiler-2.0 (100%)
 

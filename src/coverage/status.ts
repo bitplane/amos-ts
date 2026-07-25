@@ -19,6 +19,10 @@ export const FAITHFUL = new Set<string>([
   // Pac.Pic decoder is a line-by-line port of UnPack_Bitmap; all corpus
   // banks decode pixel-perfect
   'unpack',
+  // Pack/Spack are ported from the Compact extension's own source
+  // (+Compact.s:343/478) and re-pack every corpus picture byte for byte
+  'pack',
+  'spack',
   // AMAL: compiler+VM ported from TokAMAL/Animeur, including the bank
   // program table (InAmal2 +Lib.s:11857) and PLay's recorded movements
   // (AmPli +W.s:8661), both verified against Tutorial PLay_Data.Abk

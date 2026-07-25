@@ -4,7 +4,7 @@ import type { Instr, Func } from '../interp/builtins'
 import { parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
 import { encodeIlbm, parseIlbm } from '../loader/iff'
-import { parsePacPic } from '../loader/pacpic'
+import { packBitmap, packScreen, parsePacPic } from '../loader/pacpic'
 import { parseDiskFont, parseFontDescriptor } from '../loader/diskfont'
 import { ED_MESSAGES, ED_RUN_MESSAGES, ED_SYSTEME, ED_TST_MESSAGES, EDM_MESSAGES } from './edmessages.gen'
 import { DEFAULT_FLASH_SPEC, Runtime, SYS_MESSAGES, extractCodeHunk, parseFlashSpec } from './runtime'
@@ -619,6 +619,73 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     const n = int(v) & 0xffff
     if (n >= bank.programs.length) throw new AmosError('function call error')
     return bank.programs[n]!
+  }
+
+  /**
+   * Pack / Spack (InPack6 / InSPack6, +Compact.s:142/165).
+   *
+   * PacPar (296) takes `screen, bank, x1, y1 To x2, y2`, forces the X
+   * coordinates down to byte boundaries and clamps the far corner to the
+   * screen, so the two-argument forms — which pass 0,0 To 10000,10000 — pack
+   * the whole thing. Spack puts a 90-byte screen definition in front so
+   * Unpack can rebuild the screen it came from.
+   */
+  const packOrSpack = (it: It, withScreen: boolean): void => {
+    const n = it.evalInt()
+    const s = byIndex(n)
+    it.expect(',')
+    const bank = it.evalInt()
+    let dx = 0
+    let dy = 0
+    let x2 = 10000
+    let y2 = 10000
+    if (it.accept(',')) {
+      dx = it.evalInt()
+      it.expect(',')
+      dy = it.evalInt()
+      it.expect('to')
+      x2 = it.evalInt()
+      it.expect(',')
+      y2 = it.evalInt()
+    }
+    if (bank >>> 0 >= 0x10000) throw new AmosError('function call error')
+    // lsr.w #3 on both X coordinates, then the far corner clamps to the
+    // screen's row width and height
+    dx = (dx & 0xffff) >>> 3
+    const tx = Math.min((x2 & 0xffff) >>> 3, s.rowBytes) - dx
+    const ty = Math.min(y2 & 0xffff, s.height) - dy
+    if (tx <= 0 || ty <= 0) throw new AmosError('function call error')
+    const bitmap = packBitmap(
+      { planar: s.planarView('log', false), planeSize: s.planeSize, rowBytes: s.rowBytes, nPlanes: s.depth },
+      dx,
+      dy,
+      tx,
+      ty,
+    )
+    let data = bitmap
+    if (withScreen) {
+      // EcCon0 (+W.s:2964) carries the plane count in bits 12-14 alongside
+      // the mode bits, which is what real Spack'd banks hold
+      data = packScreen(
+        {
+          width: s.width,
+          height: s.height,
+          nColors: s.nColors,
+          nPlanes: s.depth,
+          mode: (s.depth << 12) | (s.hires ? 0x8000 : 0) | (s.laced ? 4 : 0) | (s.ham ? 0x800 : 0),
+          awX: s.displayX,
+          awY: s.displayY,
+          awTX: s.displayW >= 0 ? s.displayW : Math.min(s.width, s.hires ? 640 : 320),
+          awTY: s.displayH >= 0 ? s.displayH : Math.min(s.height, 256),
+          avX: s.offsetX,
+          avY: s.offsetY,
+          palette: s.palette,
+        },
+        bitmap,
+      )
+    }
+    rt.reserveBank(bank, data.length, 'Pac.Pic.')
+    rt.memBanks.get(bank)!.data.set(data)
   }
 
   return {
@@ -1823,6 +1890,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     // ---- packed pictures and IFF ----
+    pack(it) {
+      packOrSpack(it, false)
+    },
+    spack(it) {
+      packOrSpack(it, true)
+    },
     unpack(it) {
       // first argument: a bank number, or an ADDRESS inside a bank (many
       // programs keep several packed pictures in one bank with an offset

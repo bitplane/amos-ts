@@ -139,3 +139,174 @@ export function parsePacPic(bytes: Uint8Array): PacPicture {
 
   return { screen, x: dx * 8, y: dy, width, height, nPlanes, pixels }
 }
+
+// ---------------------------------------------------------------------------
+// Pack / Spack — the encoder, from +Compact.s (Pack 478, GetSize 343)
+// ---------------------------------------------------------------------------
+
+/** the square heights GetSize tries, TSize +Compact.s:459 */
+const SQUARE_SIZES = [1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 24, 32, 48, 64]
+
+export interface PackSource {
+  /** the screen's planar bitmap: plane p starts at p*planeSize */
+  planar: Uint8Array
+  planeSize: number
+  /** EcTLigne — bytes per bitplane row */
+  rowBytes: number
+  nPlanes: number
+}
+
+/**
+ * One packing pass with a chosen square height (`Pack`, +Compact.s:478).
+ *
+ * The bitmap is walked as `ty` bands of `tcar` lines, each band scanned a
+ * byte-column at a time straight down, and every byte that differs from the
+ * last one emitted is appended to the data stream with a flag bit set in an
+ * intermediate table. That table is then run through the very same "same as
+ * before?" compression, which is why the format has two data streams and one
+ * stored bit table: the decoder rebuilds the first table as it goes.
+ */
+function packWith(
+  src: PackSource,
+  dx: number,
+  dy: number,
+  tx: number,
+  ty: number,
+  tcar: number,
+): Uint8Array {
+  const { planar, planeSize, rowBytes, nPlanes } = src
+  // the intermediate flag table is allocated exactly as the 68k does — one
+  // bit per byte examined, plus two bytes of slack that are compressed along
+  // with the rest (MemFast +Compact.s:517)
+  const interSize = ((tcar * tx * ty * nPlanes) >>> 3) + 2
+  const t1 = new Uint8Array(interSize)
+
+  // PkDatas1[0] is the cleared byte the 68k pre-increments past, and it is
+  // also the decoder's initial "previous byte" — so it must stay 0
+  const data1: number[] = [0]
+  let prev = 0
+  let bit = 7
+  let tp = 0
+  for (let p = 0; p < nPlanes; p++) {
+    const base = p * planeSize + dy * rowBytes + dx
+    for (let band = 0; band < ty; band++) {
+      const bandStart = base + band * tcar * rowBytes
+      for (let col = 0; col < tx; col++) {
+        let addr = bandStart + col
+        for (let k = 0; k < tcar; k++) {
+          const b = planar[addr] ?? 0
+          if (b !== prev) {
+            prev = b
+            data1.push(b)
+            t1[tp] = t1[tp]! | (1 << bit)
+          }
+          if (--bit < 0) {
+            bit = 7
+            tp++
+          }
+          addr += rowBytes
+        }
+      }
+    }
+  }
+
+  // second level: the flag table compressed by the same rule
+  const t2 = new Uint8Array((interSize >>> 3) + 2)
+  const data2: number[] = [0]
+  let prev2 = 0
+  bit = 7
+  let t2p = 0
+  for (let i = 0; i < interSize; i++) {
+    const b = t1[i]!
+    if (b !== prev2) {
+      prev2 = b
+      data2.push(b)
+      t2[t2p] = t2[t2p]! | (1 << bit)
+    }
+    if (--bit < 0) {
+      bit = 7
+      t2p++
+    }
+  }
+
+  const pointsOff = 24 + data1.length // PkPoint2
+  const dataOff2 = pointsOff + t2.length // PkDatas2
+  // "Final size (EVEN!)": the last written byte, +3, rounded down to even
+  const size = (dataOff2 + data2.length - 1 + 3) & ~1
+  const out = new Uint8Array(size)
+  const view = new DataView(out.buffer)
+  view.setUint32(0, BITMAP_MAGIC)
+  view.setUint16(4, dx)
+  view.setUint16(6, dy)
+  view.setUint16(8, tx)
+  view.setUint16(10, ty)
+  view.setUint16(12, tcar)
+  view.setUint16(14, nPlanes)
+  view.setUint32(16, dataOff2)
+  view.setUint32(20, pointsOff)
+  out.set(data1, 24)
+  out.set(t2, pointsOff)
+  out.set(data2, dataOff2)
+  return out
+}
+
+/**
+ * GetSize +Compact.s:343: try every square height that divides the region
+ * exactly and keep the smallest result — ties go to the first tried, since
+ * the original only replaces its best on a strict improvement (`bcc`).
+ * dx/dy are in bytes and lines, tx in bytes, tyLines in lines.
+ */
+export function packBitmap(src: PackSource, dx: number, dy: number, tx: number, tyLines: number): Uint8Array {
+  let best: Uint8Array | null = null
+  for (const tcar of SQUARE_SIZES) {
+    if (tyLines % tcar !== 0) continue
+    const got = packWith(src, dx, dy, tx, tyLines / tcar, tcar)
+    if (best === null || got.length < best.length) best = got
+  }
+  // TY below the smallest square never happens: 1 divides everything
+  if (best === null) throw new Error('no usable square size')
+  return best
+}
+
+export interface PackScreenHeader {
+  width: number
+  height: number
+  nColors: number
+  nPlanes: number
+  /** EcCon0 — the BPLCON0-style mode word */
+  mode: number
+  awX: number
+  awY: number
+  awTX: number
+  awTY: number
+  avX: number
+  avY: number
+  palette: ArrayLike<number>
+}
+
+/** PsLong (+Equ.s:940): the screen definition Spack puts in front */
+export const SCREEN_HEADER_SIZE = 90
+
+/**
+ * Spack (+Compact.s:165): the same packed bitmap with a screen definition in
+ * front, so Unpack can recreate the screen it came from.
+ */
+export function packScreen(header: PackScreenHeader, bitmap: Uint8Array): Uint8Array {
+  const out = new Uint8Array(SCREEN_HEADER_SIZE + bitmap.length)
+  const view = new DataView(out.buffer)
+  view.setUint32(0, SCREEN_MAGIC)
+  view.setUint16(4, header.width)
+  view.setUint16(6, header.height)
+  view.setUint16(8, header.awX)
+  view.setUint16(10, header.awY)
+  view.setUint16(12, header.awTX)
+  view.setUint16(14, header.awTY)
+  view.setUint16(16, header.avX)
+  view.setUint16(18, header.avY)
+  view.setUint16(20, header.mode)
+  view.setUint16(22, header.nColors)
+  view.setUint16(24, header.nPlanes)
+  for (let i = 0; i < 32; i++) view.setUint16(26 + i * 2, header.palette[i] ?? 0)
+  out.set(bitmap, SCREEN_HEADER_SIZE)
+  return out
+}

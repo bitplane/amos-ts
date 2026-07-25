@@ -65,11 +65,6 @@ faithful now, and `Prun` runs a second program in its own structure on a
 real program stack (Prg_Push/Prg_Pull). Still missing: the
 editor-integration keywords.
 
-### Compact
-`Pack`/`Spack` (screen compaction — `Unpack` of existing banks works;
-the encoders are unwritten). `Squash`/`Unsquash` and PowerPacker are
-done and verified.
-
 ### Implemented but approximated — the honesty list
 
 Everything here also carries a NOTES entry in `KEYWORDS.md`.
@@ -97,6 +92,9 @@ saying which is how a list like this quietly becomes furniture.
   allocates, but the pool sizes are our choice, not a real machine's.
 - `ppsave`/`squash` — the original crunchers' encoders are not in the AMOS
   source, so byte-exact parity is unverifiable. Both decoders are faithful.
+  (`Pack`/`Spack` are the opposite case: `extensions/+Compact.s` is in the
+  tree, so the packer is a port and re-packs every corpus picture byte for
+  byte.)
 - `med play` — medplayer.library is not in the AMOS source either.
 - Speech, IOPorts, `Doscall`/`Execall`/`Lib Open`/ARexx — host and ROM.
 
