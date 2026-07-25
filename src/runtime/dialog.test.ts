@@ -270,6 +270,28 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     expect(d.noEditAdvance).toBe(true)
   })
 
+  it('parses a blocking Fsel$ nested in procedure-call arguments', () => {
+    // block(rewind) resets the pc so the statement re-runs on resume. It used
+    // to return normally, leaving parseProcArgs reading from the start of the
+    // statement — `expected "]"`. Real corpus programs call the selector
+    // exactly this way: _INFO_LOAD_[Fsel$(""),5]
+    const { rt, out } = bootFs(
+      [
+        'Procedure _LOAD_[F$,N]',
+        '  Shared R$',
+        '  R$=F$+"|"+Str$(N)',
+        'End Proc',
+        '_LOAD_[Fsel$("DH0:Games"),5]',
+        'Print R$',
+      ].join('\n'),
+    )
+    for (let i = 0; i < 5; i++) rt.frame()
+    expect(rt.fsel).not.toBeNull() // it really did block mid-argument
+    clickZone(rt, 2, 'button') // Cancel
+    for (let i = 0; i < 8 && rt.frame().status !== 'ended'; i++);
+    expect(out()).toBe('| 5\n')
+  })
+
   it('double-clicking a file returns its full path', () => {
     const { rt, out } = bootFs('F$=Fsel$("DH0:Games")\nPrint F$')
     for (let i = 0; i < 5; i++) rt.frame()

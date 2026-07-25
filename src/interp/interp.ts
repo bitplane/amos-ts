@@ -186,6 +186,15 @@ const newFrame = (retAddr: Addr | null, loopBase: number, gosubBase: number): Fr
   gosubBase,
 })
 
+/**
+ * Thrown by `block(reason, rewind)` to abandon the rest of the current
+ * statement. A singleton: it carries no information beyond its identity, and
+ * Trap already re-throws anything that is not an AmosError, so it passes
+ * through the one place that wraps a bare step().
+ */
+class BlockSignal extends Error {}
+const BLOCK_SIGNAL = new BlockSignal('blocked')
+
 export class Interp {
   readonly names: Names
   readonly program: Program
@@ -324,6 +333,8 @@ export class Interp {
         this.dispatchEvery()
         this.step()
       } catch (e) {
+        // a blocking statement unwound itself; pc is already rewound
+        if (e === BLOCK_SIGNAL) break
         if (e instanceof AmosError && this.errorHandler !== null && !this.inError) {
           this.errCode = amosErrorCode(e)
           this.inError = true
@@ -490,7 +501,15 @@ export class Interp {
    */
   block(reason: Block, rewind = false): void {
     this.blocked = reason
-    if (rewind) this.pc = { li: this.stmtStart.li, ti: this.stmtStart.ti }
+    if (!rewind) return
+    // Rewinding means "run this whole statement again when we resume", so the
+    // rest of it must not be parsed now. Simply returning left the caller
+    // reading tokens from the rewound pc: a blocking Func nested in a larger
+    // expression — `_INFO_LOAD_[Fsel$(""),5]` — sent parseProcArgs back to the
+    // start of the statement and it failed with `expected "]"`. Throwing
+    // unwinds however deep the nesting goes.
+    this.pc = { li: this.stmtStart.li, ti: this.stmtStart.ti }
+    throw BLOCK_SIGNAL
   }
 
   // ---- cursor over the token stream -------------------------------------
