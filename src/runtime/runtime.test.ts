@@ -543,3 +543,33 @@ describe('composite', () => {
     expect([data[o], data[o + 1], data[o + 2]]).toEqual([170, 68, 0])
   })
 })
+
+describe('frame-budget pacing (blitter cost)', () => {
+  it('Screen Copy charges the frame budget so a no-Wait-Vbl loop paces like the blitter', () => {
+    // a busy loop that Screen Copies a big region every iteration should run
+    // only a handful of iterations per frame, not thousands
+    const src = [
+      'Screen Open 0,320,256,16,Lowres : Cls 0',
+      'Screen Open 1,320,256,16,Lowres : Cls 0',
+      'N=0',
+      'Do',
+      ' Screen Copy 1,0,0,320,256 To 0,0,0',
+      ' Inc N',
+      'Loop',
+    ].join('\n')
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 5_000_000, frameBudget: 20_000 })
+    rt.frame() // one displayed frame
+    const gf = (rt.interp as any).frames[0].vars
+    const n = Number(gf.get('n').n)
+    // 320x256 = 81920 px, charged >>4 ≈ 5120/copy → ~3-4 iterations, not 1000s
+    expect(n).toBeGreaterThan(0)
+    expect(n).toBeLessThan(20)
+  })
+
+  it('a cheap loop still runs its full statement budget (no over-charging)', () => {
+    const rt = new Runtime(tokenize('N=0\nDo : Inc N : Loop', table), table, { maxSteps: 5_000_000, frameBudget: 20_000 })
+    rt.frame()
+    const n = Number((rt.interp as any).frames[0].vars.get('n').n)
+    expect(n).toBeGreaterThan(1000) // uncharged loop runs thousands per frame
+  })
+})

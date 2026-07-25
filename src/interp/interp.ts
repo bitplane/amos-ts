@@ -283,7 +283,11 @@ export class Interp {
         this.status = 'maxSteps'
         break
       }
-      if (++steps > slice) return this.result('paused', steps)
+      // `steps` is a cost, not a raw count: a statement is 1, but expensive
+      // blitter ops (Screen Copy, big Cls) charge their approximate cost so
+      // a busy no-Wait-Vbl loop paces like the real blitter instead of
+      // running thousands of iterations per displayed frame.
+      if (steps > slice) return this.result('paused', steps)
       try {
         this.dispatchEvery()
         this.step()
@@ -309,8 +313,19 @@ export class Interp {
         }
         throw e
       }
+      steps += 1 + this.pendingCharge
+      this.pendingCharge = 0
     }
     return this.result(this.status ?? 'blocked', steps)
+  }
+
+  /** extra frame-budget cost accrued by the current statement (blitter ops) */
+  private pendingCharge = 0
+
+  /** charge n extra budget units for an expensive operation (Screen Copy,
+   * big Cls) so a busy loop paces like the real blitter */
+  charge(n: number): void {
+    this.pendingCharge += Math.max(0, Math.floor(n))
   }
 
   /** fire a pending Every handler at a statement boundary */

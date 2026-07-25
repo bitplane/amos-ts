@@ -731,6 +731,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         if (it.accept(',')) it.evalInt()
       }
       Screen.copyBuf(src.s, src.buf, x1, y1, x2, y2, dst.s, dst.buf, dx, dy)
+      // charge the blitter cost so a no-Wait-Vbl loop that Screen Copies
+      // every iteration paces realistically (~pixels/16 budget units)
+      it.charge((Math.max(0, x2 - x1) * Math.max(0, y2 - y1)) >> 4)
     },
 
     // ---- drawing ----
