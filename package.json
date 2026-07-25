@@ -13,7 +13,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "AMOS_COVERAGE_GATE=1 vitest run",
     "test:watch": "vitest",
     "cli": "tsx",
     "manifest": "tsx src/cli/genmanifest.ts",

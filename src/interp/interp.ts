@@ -22,6 +22,7 @@ import type { Value, VarType } from './values'
 import type { AmosIO } from './io'
 import { INSTR, FUNCS, RAWFUNCS } from './builtins'
 import type { Instr as InstrFn, Func as FuncFn } from './builtins'
+import { KEYWORD_PROBE } from '../coverage/probe'
 
 export class AmosRuntimeError extends Error {
   constructor(
@@ -665,6 +666,7 @@ export class Interp {
           this.advance()
           return this.callUserFn()
         }
+        if (name !== undefined) KEYWORD_PROBE?.add(name)
         if (name !== undefined && this.rawFuncs[name]) {
           this.advance()
           return this.rawFuncs[name]!(this)
@@ -1067,6 +1069,7 @@ export class Interp {
           this.advance()
           return
         }
+        if (name !== undefined) KEYWORD_PROBE?.add(name)
         const handler = name === undefined ? undefined : this.instr[name]
         if (handler) {
           this.advance()

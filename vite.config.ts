@@ -12,5 +12,9 @@ export default defineConfig({
   },
   test: {
     include: ['src/**/*.test.ts'],
+    // records which keywords the suite actually dispatches, so the
+    // faithfulness gate can enforce that every FAITHFUL one is exercised
+    setupFiles: ['src/coverage/probe.setup.ts'],
+    globalSetup: ['src/coverage/gate.ts'],
   },
 })
