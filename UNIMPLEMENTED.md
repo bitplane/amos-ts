@@ -104,12 +104,10 @@ saying which is how a list like this quietly becomes furniture.
 - `med play` — medplayer.library is not in the AMOS source either.
 - Speech, IOPorts, `Doscall`/`Execall`/`Lib Open`/ARexx — host and ROM.
 
-**Closable, just not done** (tracked as work, not accepted as permanent):
+**Closable, just not done**: nothing. The list is empty — `fsel$` was the
+last entry, and the full `Start_FSel` port closed it.
 
-- `fsel$` Store and keyboard qualifiers; sizes and sort order — the only one
-  left, and owned by the full `Start_FSel` port rather than patched here.
-
-Everything else on this list has closed. Two of them closed by finding the
+Everything on this list has closed. Two of them closed by finding the
 data rather than approximating it better: `Border$`'s box glyphs and
 `Set Pattern`'s system patterns are in the source tree after all, as
 `bin/+WFont.bin` and `bin/+AMOSPro_Mouse.abk` — linked into the interpreter
@@ -118,8 +116,12 @@ files. Both are baked in and exact now. `Resource$`'s editor message tables
 were the same story: `+Editor_Config.s` declares them, so they are generated
 rather than transcribed.
 
-- **Fsel$** runs the real resource-bank dialog, but Store and keyboard
-  qualifiers are unhandled; edit fields use a simplified line editor.
+- **Fsel$** is the full `Start_FSel` port: config-sized screen, incremental
+  directory read, the Sizes column, all twenty zones, the Store directory
+  cache, Help-key type-ahead and the AppCentre slide. What remains is
+  structural — the 68k reads the directory in a background task where the
+  port reads one entry per frame on the one thread, and the low-memory
+  selector has no memory cliff to fall off here.
 - **Dialog engine**: MZ (raw-memory strings) returns "", CA (machine
   code) errors, SM (screen drag) is a no-op; `=Array` of a STRING
   array passes a handle (int/float arrays map to real arena blocks).
