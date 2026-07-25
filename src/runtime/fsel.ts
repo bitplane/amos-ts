@@ -46,6 +46,8 @@ export interface FselEntry {
   size: number
   /** bit 31 of the size word: an assign or a stored directory, never sized */
   special?: boolean
+  /** for a stored-directory row, which cache entry it stands for */
+  storeIndex?: number
 }
 
 export interface FselState {
@@ -62,6 +64,12 @@ export interface FselState {
   devFlag: number
   /** Fs_DirOn: a directory read is still in progress */
   dirOn: boolean
+  /**
+   * FillFSorted — latched from FsV_Sort when the read begins and used for the
+   * rest of it, so flipping the toggle mid-listing does not reorder what is
+   * already there. Stored and restored with a cached directory.
+   */
+  sorted: boolean
   /** Fs_Click: the row remembered for the double-click test, -1 for none */
   click: number
   /** what has been read so far — the Fill list */
@@ -164,6 +172,7 @@ export function fselFirst(rt: Runtime, f: FselState): void {
   if (!d || !rt.vfs) return
   f.devFlag = 0
   f.click = -1
+  f.sorted = Number(d.vars[FSV.sort]) !== 0
   d.vars[FSV.posFirst] = -1
   d.vars[FSV.pList] = 0
   f.entries = []
@@ -172,6 +181,15 @@ export function fselFirst(rt: Runtime, f: FselState): void {
     list.scroll = 0
     list.sel = -1
     list.pos = -1
+  }
+  // Fs_FindStore (18583): a directory already in the cache is adopted whole
+  // rather than read again
+  const hit = fselFindStore(rt, f.path, f.filter)
+  if (hit >= 0) {
+    fselBranch(rt, f, d, hit)
+    fselShowPath(rt, f)
+    fselAffF(rt, f)
+    return
   }
   const all = rt.vfs.listDir(f.path) ?? []
   const rx = f.filter === '' ? null : amigaPattern(f.filter)
@@ -226,14 +244,14 @@ export function fselNext(rt: Runtime, f: FselState): void {
     return
   }
   let at = f.entries.length
-  if (Number(d.vars[FSV.sort])) {
+  if (f.sorted) {
     const key = fillSortKey((e.isDir ? '*' : ' ') + e.name)
     at = f.entries.findIndex((o) => fillSortKey((o.isDir ? '*' : ' ') + o.name) > key)
     if (at < 0) at = f.entries.length
   }
   f.entries.splice(at, 0, e)
   const posFirst = Number(d.vars[FSV.posFirst])
-  if (Number(d.vars[FSV.sort]) && posFirst >= 0 && posFirst >= at) {
+  if (f.sorted && posFirst >= 0 && posFirst >= at) {
     d.vars[FSV.pList] = Number(d.vars[FSV.pList]) + 1
     d.vars[FSV.posFirst] = posFirst + 1
   }
@@ -249,9 +267,11 @@ export function fselNext(rt: Runtime, f: FselState): void {
 export function fselJump(rt: Runtime, f: FselState, d: DialogChannel, zone: number): void {
   switch (zone) {
     case 1: // Fs_Ok (18074)
+      fselStore(rt, f, d)
       fselOk(rt, f, d)
       break
     case 2: // Fs_Cancel (18107)
+      fselStore(rt, f, d)
       rt.finishFsel('')
       break
     case 3: { // Fs_Parent (18326)
@@ -259,15 +279,18 @@ export function fselJump(rt: Runtime, f: FselState, d: DialogChannel, zone: numb
       // "DH0:Games" leaves the button dead until you have descended
       const cur = fselZoneText(d, FS_PATH_ZONE)
       if (!cur.endsWith('/')) break
+      fselStore(rt, f, d)
       f.path = parentAmigaPath(cur)
       f.filter = ''
       fselFirst(rt, f)
       break
     }
     case 4: // Fs_Device (18226)
+      fselStore(rt, f, d)
       fselDevices(rt, f, 1)
       break
     case 5: // Fs_Assign (18233)
+      fselStore(rt, f, d)
       fselDevices(rt, f, 2)
       break
     case 6: // Fs_GDir (18131) — and Edit Path, which shares it
@@ -299,10 +322,25 @@ export function fselJump(rt: Runtime, f: FselState, d: DialogChannel, zone: numb
     case FS_FILE_ZONE: // Fs_Return (18048)
       fselReturn(rt, f, d)
       break
+    case 16: // Fs_BStore (18354): the Store toggle
+      // switching it off does not just stop caching, it empties the cache
+      rt.pi.FsStore = Number(d.vars[FSV.store]) ? 1 : 0
+      if (!rt.pi.FsStore) rt.fselStore.length = 0
+      break
+    case 17: // Fs_SliDel (18382): "Del" goes to the oldest stored directory,
+      // which consumes it — Fs_Branch takes the entry back out of the cache
+      if (rt.pi.FsStore && rt.fselStore.length > 0) fselStoDir(rt, f, rt.fselStore.length - 1)
+      break
+    case 18: // Fs_StoreList (18137): show the cache as the list
+      fselStoreList(rt, f, d)
+      break
     case 20: // Fs_Droite (18197): files -> devices -> assigns -> stored
-      if (f.devFlag === 0) fselDevices(rt, f, 1)
-      else if (f.devFlag === 1) fselDevices(rt, f, 2)
-      else fselFirst(rt, f) // the stored list arrives with the Store slice
+      if (f.devFlag === 0) {
+        fselStore(rt, f, d)
+        fselDevices(rt, f, 1)
+      } else if (f.devFlag === 1) fselDevices(rt, f, 2)
+      else if (f.devFlag === 2 && rt.pi.FsStore) fselStoreList(rt, f, d)
+      else fselFirst(rt, f)
       break
     default:
       break
@@ -338,6 +376,7 @@ function fselReturn(rt: Runtime, f: FselState, d: DialogChannel): void {
     fselOk(rt, f, d)
     return
   }
+  fselStore(rt, f, d)
   const pathPart = typed.slice(0, cut + 1)
   const namePart = typed.slice(cut + 1)
   fselNewName(rt, f, namePart)
@@ -358,6 +397,11 @@ function fselName(rt: Runtime, f: FselState, d: DialogChannel): void {
   const idx = list?.pos ?? -1
   const e = idx >= 0 ? f.entries[idx] : undefined
   if (!e) return
+  if (f.devFlag === 3) {
+    // .Stored (18299): the row carries the cache entry it stands for
+    if (e.storeIndex !== undefined) fselStoDir(rt, f, e.storeIndex)
+    return
+  }
   if (f.devFlag === 1 || f.devFlag === 2) {
     f.click = -1
     f.devFlag = 0
@@ -367,6 +411,7 @@ function fselName(rt: Runtime, f: FselState, d: DialogChannel): void {
     return
   }
   if (e.isDir) {
+    fselStore(rt, f, d)
     f.path = joinAmigaPath(f.path, e.name)
     f.filter = ''
     fselFirst(rt, f)
@@ -378,4 +423,117 @@ function fselName(rt: Runtime, f: FselState, d: DialogChannel): void {
   }
   f.click = idx
   fselNewName(rt, f, e.name)
+}
+
+// ---------------------------------------------------------------------------
+// The Store — a cache of directories already read (+Lib.s:18528-18706)
+// ---------------------------------------------------------------------------
+
+/**
+ * One remembered directory. This is not a favourites list: it holds the whole
+ * listing, so revisiting a drawer costs nothing, and `Fs_Branch` moves the
+ * entry back out of the cache rather than copying it — which is what makes
+ * the list an LRU, most recent first.
+ *
+ * It lives on the Runtime, not on the selector state, because Fs_Liste is a
+ * global at a5 (+Equ.s:1210) and survives from one Fsel$ to the next.
+ */
+export interface FselStoreEntry {
+  path: string
+  filter: string
+  entries: FselEntry[]
+  /** FsV_PList at the moment it was put away */
+  scroll: number
+  /** FillFSorted at the moment it was put away */
+  sorted: boolean
+}
+
+/** Fs_MaxStore (+Equ.s:2201) */
+export const FS_MAX_STORE = 10
+
+/** Fs_FindStore (18583): case-insensitive on both the path and the filter */
+export function fselFindStore(rt: Runtime, path: string, filter: string): number {
+  if (!rt.pi.FsStore) return -1
+  const p = path.toUpperCase()
+  const f = filter.toUpperCase()
+  return rt.fselStore.findIndex((e) => e.path.toUpperCase() === p && e.filter.toUpperCase() === f)
+}
+
+/**
+ * Fs_Store (18528): put the current listing away. Devices are never stored,
+ * nor is an empty list; an entry for the same directory is replaced, and the
+ * list is trimmed to Fs_MaxStore before the new head goes on.
+ */
+export function fselStore(rt: Runtime, f: FselState, d: DialogChannel): void {
+  if (!rt.pi.FsStore || f.devFlag !== 0 || f.entries.length === 0) return
+  const dup = fselFindStore(rt, f.path, f.filter)
+  if (dup >= 0) rt.fselStore.splice(dup, 1)
+  rt.fselStore.length = Math.min(rt.fselStore.length, FS_MAX_STORE - 1)
+  rt.fselStore.unshift({
+    path: f.path,
+    filter: f.filter,
+    entries: f.entries,
+    scroll: Number(d.vars[FSV.pList]) || 0,
+    sorted: f.sorted,
+  })
+  f.entries = []
+  f.pending = []
+  f.dirOn = false
+}
+
+/** Fs_Branch (18564): adopt a cached listing and take it out of the cache */
+export function fselBranch(rt: Runtime, f: FselState, d: DialogChannel, i: number): void {
+  const e = rt.fselStore[i]
+  if (!e) return
+  rt.fselStore.splice(i, 1)
+  f.entries = e.entries
+  f.pending = []
+  f.sorted = e.sorted
+  f.dirOn = false // the listing is already complete
+  d.vars[FSV.pList] = e.scroll
+}
+
+/**
+ * Fs_StoreList (18137): show the cache itself as the list. Each row is the
+ * stored path and filter, and when that is longer than FsV_Tx the original
+ * shows its *tail* — the end of a deep path is what tells you which one it is.
+ */
+export function fselStoreList(rt: Runtime, f: FselState, d: DialogChannel): void {
+  if (!rt.pi.FsStore) return
+  fselStore(rt, f, d)
+  f.devFlag = 3
+  f.click = -1
+  f.dirOn = false
+  f.pending = []
+  f.sorted = true
+  const tx = Number(d.vars[FSV.tx]) || 0
+  f.entries = rt.fselStore.map((e, i) => {
+    const full = e.path + e.filter
+    return {
+      name: tx > 0 && full.length > tx ? full.slice(full.length - tx) : full,
+      isDir: false,
+      size: 0,
+      special: true, // bit 31: never sized
+      storeIndex: i,
+    }
+  })
+  d.vars[FSV.pList] = 0
+  const list = d.zones.find((z) => z.kind === 'list')
+  if (list) {
+    list.scroll = 0
+    list.sel = -1
+    list.pos = -1
+  }
+  fselAffF(rt, f)
+}
+
+/** Fs_StoDir2 (18367): go to a stored directory, which consumes the entry */
+export function fselStoDir(rt: Runtime, f: FselState, i: number): void {
+  const e = rt.fselStore[i]
+  if (!e) return
+  f.devFlag = 0
+  f.click = -1
+  f.path = e.path
+  f.filter = e.filter
+  fselFirst(rt, f) // Fs_FindStore will match it and Fs_Branch adopt it
 }

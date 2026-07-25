@@ -9,7 +9,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
-import { fselAffF, fselNext } from './fsel'
+import { FS_MAX_STORE, fselAffF, fselFirst, fselJump, fselNext, fselStore, fselStoreList } from './fsel'
 import { AmigaFS } from './vfs'
 
 const FIXTURES = join(__dirname, '..', '..', 'fixtures')
@@ -384,6 +384,88 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     clickRow(1)
     for (let i = 0; i < 8 && rt.frame().status !== 'ended'; i++);
     expect(out()).toBe('DH0:Games/alpha.iff\n')
+  })
+
+  it('caches a directory and adopts it whole on the way back', () => {
+    // Fs_Store (18528) puts the listing away; Fs_FindStore/Fs_Branch (18583/
+    // 18564) take it back rather than reading the drawer again — and Branch
+    // MOVES it out of the cache, which is what makes the list an LRU
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    for (let i = 0; i < 8; i++) rt.frame()
+    const f = rt.fsel!
+    const d = [...rt.dialogs.values()][0]!
+    expect(f.entries.length).toBe(3)
+    // leaving DH0:Games stores it under the path it still has
+    fselStore(rt, f, d)
+    expect(rt.fselStore.map((e) => e.path)).toEqual(['DH0:Games'])
+    // going back finds it cached: complete immediately, nothing left to read
+    f.path = 'DH0:Games'
+    fselFirst(rt, f)
+    expect(f.dirOn).toBe(false)
+    expect(f.pending.length).toBe(0)
+    expect(f.entries.length).toBe(3)
+    expect(rt.fselStore.length).toBe(0) // taken back out
+  })
+
+  it('keeps at most Fs_MaxStore directories', () => {
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    for (let i = 0; i < 8; i++) rt.frame()
+    const f = rt.fsel!
+    const d = [...rt.dialogs.values()][0]!
+    for (let i = 0; i < 14; i++) {
+      f.path = `DH0:d${i}`
+      f.entries = [{ name: 'x', isDir: false, size: 0 }]
+      f.devFlag = 0
+      fselStore(rt, f, d)
+    }
+    expect(rt.fselStore.length).toBe(FS_MAX_STORE)
+    expect(rt.fselStore[0]!.path).toBe('DH0:d13') // most recent at the head
+  })
+
+  it('shows the cache as a list, tail-first when the path is long', () => {
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    for (let i = 0; i < 8; i++) rt.frame()
+    const f = rt.fsel!
+    const d = [...rt.dialogs.values()][0]!
+    d.vars[12] = 10 // FsV_Tx
+    f.entries = [] // nothing live to put away first
+    rt.fselStore = [
+      { path: 'DH0:a/very/deep/drawer', filter: '', entries: [], scroll: 0, sorted: true },
+      { path: 'DH0:s', filter: '', entries: [], scroll: 0, sorted: true },
+    ]
+    fselStoreList(rt, f, d)
+    expect(f.devFlag).toBe(3)
+    // Fs_StoreList (18169) shows the END of an over-long path
+    expect(f.entries.map((e) => e.name)).toEqual(['eep/drawer', 'DH0:s'])
+    expect(f.entries.every((e) => e.special)).toBe(true)
+  })
+
+  it('turning the Store toggle off empties the cache', () => {
+    // Fs_BStore (18354) does not merely stop caching
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    for (let i = 0; i < 8; i++) rt.frame()
+    const d = [...rt.dialogs.values()][0]!
+    rt.fselStore = [{ path: 'DH0:x', filter: '', entries: [], scroll: 0, sorted: true }]
+    d.vars[16] = 0 // FsV_Store off
+    fselJump(rt, rt.fsel!, d, 16)
+    expect(rt.pi.FsStore).toBe(0)
+    expect(rt.fselStore.length).toBe(0)
+  })
+
+  it('Del goes to the oldest stored directory and consumes it', () => {
+    // Fs_SliDel (18382) -> Fs_StoDir (18364): NumStore(126) is the last
+    // element, and visiting it takes it out of the cache
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    for (let i = 0; i < 8; i++) rt.frame()
+    const f = rt.fsel!
+    const d = [...rt.dialogs.values()][0]!
+    rt.fselStore = [
+      { path: 'DH0:new', filter: '', entries: [{ name: 'n', isDir: false, size: 0 }], scroll: 0, sorted: true },
+      { path: 'DH0:old', filter: '', entries: [{ name: 'o', isDir: false, size: 0 }], scroll: 0, sorted: true },
+    ]
+    fselJump(rt, f, d, 17)
+    expect(f.path).toBe('DH0:old')
+    expect(rt.fselStore.map((e) => e.path)).toEqual(['DH0:new'])
   })
 
   it('double-clicking a file returns its full path', () => {

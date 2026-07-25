@@ -12,7 +12,7 @@ import { parseAmosFile } from '../loader/amosfile'
 import { newPiConfig } from './piconfig.gen'
 import type { PiConfig } from './piconfig.gen'
 import { fselFirst, fselJump, fselNext } from './fsel'
-import type { FselState } from './fsel'
+import type { FselState, FselStoreEntry } from './fsel'
 import { parseAmalBank } from '../loader/amalbank'
 import type { AmalBank } from '../loader/amalbank'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
@@ -911,6 +911,12 @@ export class Runtime {
    */
   fsel: FselState | null = null
 
+  /**
+   * Fs_Liste (+Equ.s:1210): the store, a global at a5 and so shared by every
+   * Fsel$ in the session rather than owned by one call. Fs_Flush clears it.
+   */
+  fselStore: FselStoreEntry[] = []
+
   /** begin Fsel$: open the selector screen + dialog; false = could not */
   startFsel(pathArg: string, defName: string, t1: string, t2: string): boolean {
     const res = this.systemResource
@@ -988,6 +994,7 @@ export class Runtime {
       filter: pattern,
       devFlag: 0,
       dirOn: false,
+      sorted: this.pi.FsSort !== 0,
       click: -1,
       entries: [],
       pending: [],
@@ -1001,7 +1008,7 @@ export class Runtime {
     }
     // the draw pass is what sets FsV_Tx/Ty — Start_FSel only ever reads them,
     // because the list geometry belongs to the dialog script (19159)
-    fselFirst(this, this.fsel)
+    fselFirst(this, this.fsel!)
     return true
   }
 
