@@ -200,6 +200,9 @@ export const FAITHFUL = new Set<string>([
   'scan$',
   'parent',
   'dir/w',
+  'ldir',
+  'ldir/w',
+  'set accessory',
   'bstart',
   'blength',
   'bgrab',
@@ -852,10 +855,19 @@ export const STRUCTURAL = new Set([
  * stay "missing": they are portable to a host capability, just not built.)
  */
 export const NA = new Set<string>([
-  // syntax-only phrase: the token table maps `screen size` to
-  // L_Syntax/L_Syntax (+Lib.s:513) — it exists solely as the AMAL
-  // `Channel ... To Screen Size` target and errors as an instruction
+  // syntax-only phrases: the token table points these at L_Syntax, which
+  // is not an implementation — it is the routine that says "this token
+  // cannot start a statement". They exist so the tokenizer has a symbol
+  // for a word that only ever appears inside somebody else's grammar.
+  // `screen size` (+Lib.s:513) is the AMAL `Channel ... To Screen Size`
+  // target; `as` (+Lib.s:179) joins `Reserve ... As` and `Open ... As`;
+  // `follow` and `follow off` (+Lib.s:138/140) have no routine at all and
+  // no construct in the shipped grammar that reaches them — they are
+  // reserved words with a token id and nothing behind it.
   'screen size',
+  'as',
+  'follow',
+  'follow off',
   // editor-internal
   'ask editor',
   'call editor',
@@ -869,7 +881,10 @@ export const NA = new Set<string>([
   '\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\/',
   ',',
   // raw machine-code / ROM-library calls (Lib.Call jsr 0(a0,d3), +Lib.s:2938;
-  // InCall jsr (a4), +ILib.s:5881) and their register/offset scaffolding
+  // InCall jsr (a4), +ILib.s:5881) and their register/offset scaffolding.
+  // `@_apml_@` (In_apml_ +ILib.s:5842) is the AMOS Professional Machine
+  // Language call: it pushes the argument list and does jsr (a6).
+  '@_apml_@',
   'call',
   'execall',
   'gfxcall',
@@ -929,6 +944,10 @@ export const NOTES: Record<string, string> = {
   'copper off':
     'the interpreted list now takes its fetch geometry from the registers rather than from the screen the pointers happen to hit. BPL1PT is walked as a byte pointer, so its remainder inside a row is a horizontal skew of 8 pixels a byte; BPL1MOD is added at the end of every line, which is what makes a wrong modulo shear or repeat the picture and what interlace falls out of; DDFSTRT/DDFSTOP set the fetched width and where the data lands (first pixel at DDFSTRT*2+17 lores, +9 hires — the constants AMOS inverts at +W.s:6293); BPLCON1 PF1H delays the playfield; DIWSTRT/DIWSTOP window it; BPLCON2 PF1P decides which sprite pairs are in front; and SPRxPT are decoded as real Amiga sprite structures (POS/CTL, two bitplanes, ATTACH), which is what Copper Off hands the program when it clears T_HsChange (+W.s:6822). The register file persists across frames as the hardware\'s does, and the pointer is not reloaded at the vertical blank either — a list that sets it once really does march off the bitmap on its second frame. The handover resets to black, which is faithful: the OFF path swaps in a list that is nothing but an end marker. Remaining: BPL2MOD is tracked but a chunky screen has no independent even-plane pointer for it to move, so it only matters for a dual playfield, which this path does not render; and the real machine also hides the mouse pointer',
   'cop logic': 'a mapped chip-RAM address; the system list is regenerated every vbl (the T_Actualise change-gating is not modelled)',
+  ldir: 'InLDir +Lib.s:5842 is InDir with ImpFlg set, and ImpFlg is the one thing ImpChaine (+Lib.s:5413) tests before it prints — set, the line goes to PRT_Print instead of the window. Same listing, printer sink, and there is no printer host here, so it is discarded exactly as Lprint is',
+  'ldir/w': 'InLDirW +Lib.s:5793: the two-column form of the same, likewise to the printer',
+  'set accessory':
+    'the token table points this at L_InNull (+Lib.s:1474) and InNull is a single rts (+ILib.s:3748). The accessory flag is the editor\'s, not the interpreter\'s — which is why the Prg_Accessory test inside InPRun is commented out in the source. Running one directly does nothing, and that is the faithful behaviour, not a stub',
   'set pattern':
     'SPat +W.s:4730: positive numbers index the mouse bank past its first four images, which are the pointer shapes. That bank is baked in (bin/+AMOSPro_Mouse.abk, linked into the interpreter binary at +W.s:16795), so the system patterns are the machine\'s without anything having to be mounted; a loaded bank overrides it. A number past the end of the bank still falls back to a dither stand-in',
   'input$': 'keyboard form is non-blocking best effort',

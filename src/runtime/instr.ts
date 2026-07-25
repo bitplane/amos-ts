@@ -480,6 +480,37 @@ function examinedFonts(rt: Runtime): Array<{ name: string; height: number; type:
  * cycles. Omitted defaults to wrap (the common cycling case; the original's
  * omitted-arg polarity is unverified — see NOTES).
  */
+/**
+ * Dir / Dir/W / Ldir / Ldir/W (+Lib.s:5793-5880).
+ *
+ * The four are one routine with two flags. DirComp (wide) halves the name
+ * field to WiTx/2 and packs two entries a line; ImpFlg picks the sink, and
+ * ImpChaine (+Lib.s:5413) tests it first: set, every line goes to
+ * PRT_Print instead of the window. The L forms set ImpFlg, which is all
+ * the L means.
+ */
+function dirListing(it: It, rt: Runtime, wide: boolean, printer: boolean): void {
+  const path = it.atStmtEnd() ? '' : it.evalStr()
+  const entries = rt.vfs?.listDir(path === '' ? rt.vfs.currentDir : path)
+  if (!entries) throw new AmosError('directory not found')
+  // no printer host, so the printer sink discards — as Lprint's does
+  const out = printer ? (): void => {} : (t: string): void => it.write(t)
+  if (!wide) {
+    for (const e of entries) out((e.isDir ? '*' + e.name : ' ' + e.name) + '\n')
+    return
+  }
+  const width = Math.max(2, (rt.screen.curWin?.cols ?? 40) >> 1)
+  let col = 0
+  for (const e of entries) {
+    out(((e.isDir ? '*' : ' ') + e.name).slice(0, width - 1).padEnd(width))
+    if (++col === 2) {
+      out('\n')
+      col = 0
+    }
+  }
+  if (col !== 0) out('\n')
+}
+
 function shiftArgs(it: It): { delay: number; first: number; last: number; wrap: boolean } {
   const delay = it.evalInt()
   it.expect(',')
@@ -2289,6 +2320,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // the buffer size only matters to the editor/compiler at load time
       it.evalInt()
     },
+    'set accessory'(it) {
+      // The token table points this at L_InNull (+Lib.s:1474), and InNull
+      // is one instruction: rts (+ILib.s:3748). It marks the program as an
+      // accessory for the *editor* — the interpreter never reads the flag,
+      // which is why the commented-out Prg_Accessory test in InPRun
+      // (+ILib.s:1541) is commented out. Running one directly does nothing.
+      if (!it.atStmtEnd()) it.evalInt()
+    },
     'iff anim'(it) {
       // InIffAnim +Lib.s:4538: Iff Anim "file",screen[,times] — the
       // whole ANIM loads, frame 1 creates and double-buffers the
@@ -3100,30 +3139,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!rt.vfs?.setCurrentDir(path)) throw new AmosError(`directory not found: ${path}`)
     },
     dir(it) {
-      const path = it.atStmtEnd() ? '' : it.evalStr()
-      const entries = rt.vfs?.listDir(path === '' ? rt.vfs.currentDir : path)
-      if (!entries) throw new AmosError('directory not found')
-      for (const e of entries) {
-        it.write((e.isDir ? '*' + e.name : ' ' + e.name) + '\n')
-      }
+      dirListing(it, rt, false, false)
     },
     'dir/w'(it) {
-      // InDirW (+Lib.s:5798 -> DirW2): the same listing compressed to two
-      // columns — DirComp=1 with the name width halved to WiTx/2
-      const path = it.atStmtEnd() ? '' : it.evalStr()
-      const entries = rt.vfs?.listDir(path === '' ? rt.vfs.currentDir : path)
-      if (!entries) throw new AmosError('directory not found')
-      const width = Math.max(2, (rt.screen.curWin?.cols ?? 40) >> 1)
-      let col = 0
-      for (const e of entries) {
-        const cell = ((e.isDir ? '*' : ' ') + e.name).slice(0, width - 1).padEnd(width)
-        it.write(cell)
-        if (++col === 2) {
-          it.write('\n')
-          col = 0
-        }
-      }
-      if (col !== 0) it.write('\n')
+      dirListing(it, rt, true, false)
+    },
+    ldir(it) {
+      dirListing(it, rt, false, true)
+    },
+    'ldir/w'(it) {
+      dirListing(it, rt, true, true)
     },
     parent(it) {
       // InParent +Lib.s:4878: strip the last path component of the

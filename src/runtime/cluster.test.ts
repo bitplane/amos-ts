@@ -1625,6 +1625,25 @@ describe('long-tail: Rev/Scan$/Parent/Dir/W and the previous-program banks', () 
     expect(line).toContain(' f.dat') // both entries on one two-column row
   })
 
+  it('Ldir and Ldir/W are the same listings sent to the printer (ImpFlg +Lib.s:5842)', () => {
+    // InLDir is InDir with ImpFlg set, and ImpChaine tests ImpFlg before
+    // anything else (+Lib.s:5415) — so nothing reaches the window
+    const setup = ['Mkdir "DH0:sub"', 'Open Out 1,"DH0:f.dat" : Print #1,"x" : Close 1']
+    expect(run([...setup, 'Ldir'].join('\n')).out).toBe('')
+    expect(run([...setup, 'Ldir/W'].join('\n')).out).toBe('')
+    // the non-L forms of the very same code still print
+    expect(run([...setup, 'Dir'].join('\n')).out).not.toBe('')
+    // and a bad path still errors, so the listing really did run
+    expect(() => run('Ldir "NOSUCH:"')).toThrow(/directory not found/)
+  })
+
+  it('Set Accessory is a real no-op, not a stub (L_InNull +Lib.s:1474 / +ILib.s:3748)', () => {
+    // the accessory flag belongs to the editor; the interpreter's routine
+    // is one rts, so the statement must run and change nothing
+    expect(run('Set Accessory : Print "ran"').out).toBe('ran\n')
+    expect(run('Set Accessory -1 : Print "ran"').out).toBe('ran\n')
+  })
+
   it('the previous-program bank exchange fails standalone (Bnk.PrevProgram, FnBStart +Lib.s:2271)', () => {
     // no editor/parent program exists in the port: BStart errors, BLength
     // is 0, Bgrab erases the destination then errors, Bsend errors
