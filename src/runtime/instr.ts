@@ -4419,6 +4419,12 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       it.block({ type: 'fsel' }, true)
       return VS('')
     },
+    'psel$'(_, a) {
+      // FnPSel (+Lib.s:6771) is a bare `rts`. The keyword has four token-table
+      // variants and no implementation at all in AMOS Professional, so it
+      // returns d3 — the last argument — untouched.
+      return VS(a.length > 0 ? str(a[a.length - 1]!) : '')
+    },
     rdialog(_, a) {
       // FnRDialog2/3 +Lib.s:14588 → Dia_GetValue: a zone's numeric result
       // (string-valued zones read as 0)

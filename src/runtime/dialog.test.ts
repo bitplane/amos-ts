@@ -532,6 +532,36 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     expect(d.vars[10]).toBe(0)
   })
 
+  it('writes the toggles and the window position back to the config', () => {
+    // Fs_Close (18469/18482) — this is what makes Sort/Size/Store and the
+    // place you dragged the selector to survive to the next call
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    for (let i = 0; i < 8; i++) rt.frame()
+    const d = [...rt.dialogs.values()][0]!
+    const s = rt.screens.get(Runtime.EC_FSEL)!
+    d.vars[7] = 0 // Sort off
+    d.vars[8] = 1 // Sizes on
+    d.vars[16] = 0 // Store off
+    s.displayX = 200
+    s.displayY = 90
+    rt.finishFsel('')
+    expect([rt.pi.FsSort, rt.pi.FsSize, rt.pi.FsStore]).toEqual([0, 1, 0])
+    expect([rt.pi.FsDWx, rt.pi.FsDWy]).toEqual([200, 90])
+  })
+
+  it('opens the next selector where the last one left off', () => {
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")\nG$=Fsel$("DH0:Games")')
+    for (let i = 0; i < 8; i++) rt.frame()
+    const d = [...rt.dialogs.values()][0]!
+    d.vars[7] = 0
+    rt.screens.get(Runtime.EC_FSEL)!.displayX = 210
+    clickZone(rt, 2, 'button') // Cancel
+    for (let i = 0; i < 6; i++) rt.frame()
+    const d2 = [...rt.dialogs.values()][0]!
+    expect(d2.vars[7]).toBe(0) // the toggle came back
+    expect(rt.screens.get(Runtime.EC_FSEL)!.displayX).toBe(210)
+  })
+
   it('double-clicking a file returns its full path', () => {
     const { rt, out } = bootFs('F$=Fsel$("DH0:Games")\nPrint F$')
     for (let i = 0; i < 5; i++) rt.frame()

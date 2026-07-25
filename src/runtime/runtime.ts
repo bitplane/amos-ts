@@ -11,7 +11,7 @@ import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
 import { newPiConfig } from './piconfig.gen'
 import type { PiConfig } from './piconfig.gen'
-import { fselFirst, fselJump, fselNext } from './fsel'
+import { FSV, fselFirst, fselJump, fselNext, fselStore } from './fsel'
 import type { FselState, FselStoreEntry } from './fsel'
 import { parseAmalBank } from '../loader/amalbank'
 import type { AmalBank } from '../loader/amalbank'
@@ -1039,8 +1039,21 @@ export class Runtime {
     if (!f) return
     const d = this.dialogs.get(f.chan)
     if (d) {
+      // Fs_Close (+Lib.s:18461): the last directory goes into the store, and
+      // the three toggles go back into the interpreter config, which is what
+      // makes them stick from one Fsel$ to the next
+      fselStore(this, f, d)
+      this.pi.FsSort = Number(d.vars[FSV.sort]) ? 1 : 0
+      this.pi.FsSize = Number(d.vars[FSV.size]) ? 1 : 0
+      this.pi.FsStore = Number(d.vars[FSV.store]) ? 1 : 0
       eraseDialog(d, this.dialogDraw)
       this.dialogs.delete(f.chan)
+    }
+    // and where the user dragged the window to (18482)
+    const sc = this.screens.get(f.screenNb)
+    if (sc) {
+      this.pi.FsDWx = sc.displayX
+      this.pi.FsDWy = sc.displayY
     }
     this.closeScreen(f.screenNb)
     if (f.prevScreen >= 0) this.setCurrent(f.prevScreen)
