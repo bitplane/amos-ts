@@ -688,7 +688,12 @@ export class Interp {
               }
             }
             this.unimplemented.set(name, (this.unimplemented.get(name) ?? 0) + 1)
-            return name.endsWith('$') ? { k: 'str', s: '' } : VI(0)
+            // return a type-correct default: extension functions often
+            // return strings without a "$" name (Ldate, Lsys Time), so the
+            // spec's return-type code (first char, 2=string) is authoritative
+            const ret = this.names.specOf(t)?.[0]
+            const str = ret === '2' || (ret === undefined && name.endsWith('$'))
+            return str ? { k: 'str', s: '' } : VI(0)
           }
         }
         throw new AmosError(`unimplemented function: ${name ?? '?'}`)
