@@ -597,6 +597,30 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     return s
   }
 
+  /**
+   * The source argument of Amal / Anim / Move X / Move Y, which all share
+   * Lib_Def MvA3 (+Lib.s:11838). Before looking at the argument at all, MvA3
+   * finds bank 4 and keeps its address if the bank is named "Amal" — that is
+   * what fixes T_AmBank for the AMAL PLay instruction, and it happens for
+   * every one of these keywords, not just Amal.
+   *
+   * The argument is then either a string or, on the Amiga, a value below
+   * 1024 — too small to be a string pointer — which indexes the bank's
+   * program table (InMb1, 11857). Our values are typed, so anything numeric
+   * takes the bank path; only the low word of it is used (`move.w a1,d0`).
+   * An empty table slot is not an error: it yields ChVide, the empty string.
+   */
+  const amalSource = (it: It): string => {
+    const bank = rt.refreshAmalBank()
+    const v = it.evalExpr()
+    if (v.k === 'str') return v.s
+    if (!bank) throw new AmosError('bank not reserved', 36)
+    if (bank.programs.length === 0) throw new AmosError('function call error')
+    const n = int(v) & 0xffff
+    if (n >= bank.programs.length) throw new AmosError('function call error')
+    return bank.programs[n]!
+  }
+
   return {
     // ---- screens ----
     'screen open'(it) {
@@ -3249,15 +3273,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     amal(it) {
       const n = it.evalInt()
       it.expect(',')
-      const v = it.evalExpr()
-      if (v.k !== 'str') {
-        // numeric form: a pre-compiled program from the AMAL bank
-        it.unimplemented.set('amal (bank program)', (it.unimplemented.get('amal (bank program)') ?? 0) + 1)
-        return
-      }
+      const src = amalSource(it)
       let prog
       try {
-        prog = compileAmal(v.s)
+        prog = compileAmal(src)
       } catch (e) {
         if (e instanceof AmalCompileError) {
           rt.amalErrPos = e.position
@@ -3278,7 +3297,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const limit = rt.synchroManual ? 64 : 16
       if (n >>> 0 >= limit) throw new AmosError('function call error')
       it.expect(',')
-      const spec = parseStosAnim(it.evalStr())
+      const spec = parseStosAnim(amalSource(it))
       const slot = rt.stosSlot(n)
       slot.anim = { ...spec, idx: 0, left: 1, done: false, on: false, frozen: false }
     },
@@ -3287,7 +3306,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const limit = rt.synchroManual ? 64 : 16
       if (n >>> 0 >= limit) throw new AmosError('function call error')
       it.expect(',')
-      const spec = parseStosMove(it.evalStr())
+      const spec = parseStosMove(amalSource(it))
       rt.stosSlot(n).moveX = { ...spec, gi: 0, speedLeft: 1, countLeft: spec.groups[0]![2] || 0x10000, started: false, done: false, on: false, frozen: false }
     },
     'move y'(it) {
@@ -3295,7 +3314,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const limit = rt.synchroManual ? 64 : 16
       if (n >>> 0 >= limit) throw new AmosError('function call error')
       it.expect(',')
-      const spec = parseStosMove(it.evalStr())
+      const spec = parseStosMove(amalSource(it))
       rt.stosSlot(n).moveY = { ...spec, gi: 0, speedLeft: 1, countLeft: spec.groups[0]![2] || 0x10000, started: false, done: false, on: false, frozen: false }
     },
     'anim on'(it) {
@@ -3404,6 +3423,35 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
       const ch = rt.channels.get(it.evalInt())
       if (ch) ch.frozen = true
+    },
+    amplay(it) {
+      // InAmPlay2/4 +Lib.s:12017 → SetPlay +W.s:7937. The PLay instruction
+      // is steered entirely by two per-channel internal registers, and this
+      // writes them across a range of channels in one go: R0 is the tempo,
+      // R1 the direction (>0 forwards, 0 backwards, <0 abort). RegAMAL
+      // (+W.s:7925) indexes the internal registers from the end, so R0/R1
+      // are the same words AmPli initialises.
+      const speed = it.atStmtEnd() || it.nm() === ',' ? null : it.evalInt()
+      let dir: number | null = null
+      let first = 0
+      let last = 63
+      if (it.accept(',')) {
+        if (!(it.atStmtEnd() || it.nm() === ',')) dir = it.evalInt()
+        if (it.accept(',')) {
+          first = it.evalInt()
+          it.expect('to')
+          last = it.evalInt()
+        }
+      }
+      // InAmPlay4's own checks, in its order: last unsigned-compared against
+      // 64, first non-negative, and the range the right way round
+      if (last >>> 0 >= 64 || first < 0 || last < first) throw new AmosError('function call error')
+      for (let n = first; n <= last; n++) {
+        const ch = rt.channels.get(n)
+        if (!ch) continue
+        if (speed !== null) ch.regs[0] = speed
+        if (dir !== null) ch.regs[1] = dir
+      }
     },
     synchro(it) {
       if (rt.synchroManual) rt.stepAmal()

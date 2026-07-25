@@ -69,11 +69,7 @@ an accessory) and the editor-integration keywords.
 the encoders are unwritten). `Squash`/`Unsquash` and PowerPacker are
 done and verified.
 
-### Misc language stragglers
-`Amal n,#` bank programs and their `Amplay` speed setter (the
-AMAL/Anim/Move string forms all work).
-
-## Implemented but approximated — the honesty list
+### Implemented but approximated — the honesty list
 
 Everything here also carries a NOTES entry in `KEYWORDS.md`.
 

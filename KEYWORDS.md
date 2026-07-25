@@ -11,7 +11,7 @@ tested against our own understanding. Percentages exclude n/a
 
 | area | keywords | faithful | approximated | missing | coverage |
 |---|---|---|---|---|---|
-| amal | 13 | 12 | 0 | 1 | 92% |
+| amal | 13 | 13 | 0 | 0 | 100% |
 | amal-stos | 10 | 10 | 0 | 0 | 100% |
 | amospro-compact-2.0 | 3 | 1 | 0 | 2 | 33% |
 | amospro-compiler-2.0 | 15 | 10 | 1 | 0 | 100% |
@@ -42,16 +42,15 @@ tested against our own understanding. Percentages exclude n/a
 | turbo-plus-1.0 | 134 | 0 | 0 | 134 | 0% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 1346 | 611 | 22 | 664 | 49% |
+| **total** | 1346 | 612 | 22 | 663 | 49% |
 
-## amal (92%)
+## amal (100%)
 
-- **faithful**: `amal` *(string programs only — Amal n,# bank programs unsupported)*, `amal freeze`, `amal off`, `amal on`, `amalerr`, `amreg`, `chanan`, `chanmv`, `channel`, `synchro`, `synchro off`, `synchro on`
-- **missing**: `amplay`
+- **faithful**: `amal` *(the Amiga tells a bank program number from an AMAL string by whether the argument is below 1024, too small to be a string pointer (InMb1 +Lib.s:11857); our values are typed, so anything numeric takes the bank path and a number above 1023 is a program number here rather than a stray pointer dereference)*, `amal freeze`, `amal off`, `amal on`, `amalerr`, `amplay` *(SetPlay (+W.s:7937) walks one list holding all four slot kinds per channel (Amal, Anim, Move X, Move Y) and so also writes the internal registers of the STOS slots of the channels below the last; only the AMAL slot's registers are reachable from BASIC or used by PLay, so the port writes just those)*, `amreg`, `chanan`, `chanmv`, `channel`, `synchro`, `synchro off`, `synchro on`
 
 ## amal-stos (100%)
 
-- **faithful**: `anim` *(string programs only — bank program numbers unsupported, like amal)*, `anim freeze`, `anim off`, `anim on`, `move freeze`, `move off`, `move on`, `move x` *(string programs only — bank program numbers unsupported, like amal)*, `move y` *(string programs only — bank program numbers unsupported, like amal)*, `movon`
+- **faithful**: `anim` *(the bank-program/string discrimination is by value type, like amal)*, `anim freeze`, `anim off`, `anim on`, `move freeze`, `move off`, `move on`, `move x` *(the bank-program/string discrimination is by value type, like amal)*, `move y` *(the bank-program/string discrimination is by value type, like amal)*, `movon`
 
 ## amospro-compact-2.0 (33%)
 

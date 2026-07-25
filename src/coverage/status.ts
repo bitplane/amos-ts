@@ -19,9 +19,11 @@ export const FAITHFUL = new Set<string>([
   // Pac.Pic decoder is a line-by-line port of UnPack_Bitmap; all corpus
   // banks decode pixel-perfect
   'unpack',
-  // AMAL: compiler+VM ported from TokAMAL/Animeur (bank programs and
-  // PLay excepted — see notes)
+  // AMAL: compiler+VM ported from TokAMAL/Animeur, including the bank
+  // program table (InAmal2 +Lib.s:11857) and PLay's recorded movements
+  // (AmPli +W.s:8661), both verified against Tutorial PLay_Data.Abk
   'amal',
+  'amplay',
   'amal on',
   'amal off',
   'amal freeze',
@@ -938,10 +940,11 @@ export const NOTES: Record<string, string> = {
   bsend: 'the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply',
   'disc info$': 'format is exact (volume name + 10-char left-aligned free bytes); the free count is the Dfree constant — browser storage has no real quota',
   dfree: 'no real quota in the browser store — a large constant',
-  amal: 'string programs only — Amal n,# bank programs unsupported',
-  anim: 'string programs only — bank program numbers unsupported, like amal',
-  'move x': 'string programs only — bank program numbers unsupported, like amal',
-  'move y': 'string programs only — bank program numbers unsupported, like amal',
+  amal: "the Amiga tells a bank program number from an AMAL string by whether the argument is below 1024, too small to be a string pointer (InMb1 +Lib.s:11857); our values are typed, so anything numeric takes the bank path and a number above 1023 is a program number here rather than a stray pointer dereference",
+  anim: 'the bank-program/string discrimination is by value type, like amal',
+  'move x': 'the bank-program/string discrimination is by value type, like amal',
+  'move y': 'the bank-program/string discrimination is by value type, like amal',
+  amplay: "SetPlay (+W.s:7937) walks one list holding all four slot kinds per channel (Amal, Anim, Move X, Move Y) and so also writes the internal registers of the STOS slots of the channels below the last; only the AMAL slot's registers are reachable from BASIC or used by PLay, so the port writes just those",
   autoback: 'mode 1 treated like 0',
   rainbow: 'rendered per scanline by the copper-walk compositor across the PAL overscan window (hardware lines 26-311)',
   'copper off':

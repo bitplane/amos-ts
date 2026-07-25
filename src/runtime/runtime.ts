@@ -8,6 +8,8 @@ import { AmosError, VF, VI } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
+import { parseAmalBank } from '../loader/amalbank'
+import type { AmalBank } from '../loader/amalbank'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
 import type { ResourceBank } from '../loader/resource'
 import { Screen, builtinPattern, sliderMetrics } from './screen'
@@ -1804,6 +1806,33 @@ export class Runtime {
           return s.displayY + (v - s.offsetY)
       }
     },
+    amalBank: () => this.amalBank,
+  }
+
+  /**
+   * T_AmBank (+W.s:7186). TokAMAL stashes the AMAL bank address every time a
+   * channel is tokenized, so the bank the PLay instruction reads is whatever
+   * bank 4 held at the last Amal/Anim/Move — a global, re-read live by AmPli.
+   */
+  amalBank: AmalBank | null = null
+  private amalBankSrc: Uint8Array | null = null
+
+  /**
+   * The bank lookup every Amal/Anim/Move X/Move Y performs before tokenizing
+   * (+Lib.s:11855): bank 4, and only if it is named "Amal". Returns null when
+   * there is no such bank, which is what makes `Amal n,#` raise BkNoRes.
+   */
+  refreshAmalBank(): AmalBank | null {
+    const b = this.memBanks.get(4)
+    const data = b && b.name.startsWith('Amal') ? b.data : null
+    if (data === null) {
+      this.amalBank = null
+      this.amalBankSrc = null
+    } else if (this.amalBankSrc !== data) {
+      this.amalBankSrc = data
+      this.amalBank = parseAmalBank(data)
+    }
+    return this.amalBank
   }
 
   /** the object a channel drives, by kind ('bob', 'sprite', 'screen display', ...) */

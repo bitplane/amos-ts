@@ -14,6 +14,8 @@
  *   and D label to redirect the main sequence
  */
 
+import type { AmalBank } from '../loader/amalbank'
+
 export class AmalCompileError extends Error {
   constructor(
     message: string,
@@ -472,6 +474,8 @@ export interface AmalHost {
   bobCol(n: number, f: number, t: number): number
   spriteCol(n: number, f: number, t: number): number
   xy(kind: 'XS' | 'YS' | 'XH' | 'YH', screen: number, v: number): number
+  /** T_AmBank (+W.s:7186): bank 4 if it is named "Amal", else null */
+  amalBank(): AmalBank | null
 }
 
 const w16 = (v: number): number => (v << 16) >> 16
@@ -488,6 +492,13 @@ export class AmalChannel {
   private dyFix = 0
   private accX = 0
   private accY = 0
+  // PLay state (AmDeltX/AmDeltY/AmVirgX/AmVirgY): raw offsets into the AMAL
+  // bank payload, walked forwards or backwards depending on R1
+  private playData: Uint8Array | null = null
+  private playX = 0
+  private playY = 0
+  private waitX = 0
+  private waitY = 0
   // background Anim state
   private anim: { countLeft: number; idx: number; delayLeft: number; frames: Array<{ img: Expr; delay: Expr }> } | null =
     null
@@ -767,15 +778,93 @@ export class AmalChannel {
           this.pc++
           continue
         }
-        case 'play':
-          // AMAL bank paths aren't supported yet — stop the sequence
-          this.pc = null
+        case 'play': {
+          // AmPlay +W.s:8588. AmCpt is the same counter Move uses: decrement
+          // it, then negative means "not started yet" (AmPli), positive means
+          // the tempo has not elapsed (AmX), zero means take a step (AmPl0).
+          this.moveCount--
+          if (this.moveCount < 0) {
+            // AmPli +W.s:8661 — look the movement up in the AMAL bank. A
+            // missing bank, a number past the count and number 0 all fall
+            // through to AmMvX, which simply runs on to the next instruction.
+            const n = this.eval(op.e, host)
+            const bank = host.amalBank()
+            const mv = bank && n > 0 ? (bank.movements[n] ?? null) : null
+            if (!bank || !mv) {
+              this.pc++
+              continue
+            }
+            this.regs[0] = w16(mv.speed) // R0 = the record's own tempo
+            this.regs[1] = 1 // R1 = 1: play forwards
+            this.playData = bank.data
+            this.playX = mv.xStart
+            this.playY = mv.yStart
+            this.waitX = 0
+            this.waitY = 0
+          } else if (this.moveCount > 0) {
+            return
+          }
+          if (this.playData === null || this.playStep()) {
+            this.pc++ // AmMvX: the movement is over
+            continue
+          }
           return
+        }
         default:
           this.pc++
       }
     }
     if (this.pc !== null && this.pc >= ops.length) this.pc = null
+  }
+
+  /**
+   * AmPl0 +W.s:8591 — one tempo tick of a recorded movement: one step off
+   * the X stream, one off the Y stream, then AmCpt reloads from R0.
+   *
+   * A stream byte is either 0 (the movement ends — and it is a 0 *before*
+   * the first step that ends a backwards replay), a 7-bit signed pixel step,
+   * or, with bit 7 set, a pause of that many ticks. Returns true when the
+   * movement is over, i.e. when the 68k branches to AmMvX.
+   */
+  private playStep(): boolean {
+    const d = this.playData
+    if (d === null) return true
+    const dir = this.regs[1]!
+    if (dir < 0) return true // R1 < 0 aborts the movement (bmi AmMvX)
+    const forward = dir !== 0 // R1 = 0 replays the path in reverse
+    const byteAt = (i: number): number => (i >= 0 && i < d.length ? d[i]! : 0)
+
+    const bx = byteAt(this.playX)
+    if (bx === 0) return true
+    if (bx < 0x80) {
+      // lsl.b #1 / asr.b #1: the step is signed on bit 6, so -64..63
+      const step = (bx << 25) >> 25
+      this.target.set(w16(this.target.get().x + (forward ? step : -step)), null, null)
+      this.playX += forward ? 1 : -1
+    } else if (--this.waitX === 0) {
+      this.playX += forward ? 1 : -1
+    } else if (this.waitX < 0) {
+      const n = bx & 0x7f
+      if (n === 0) this.playX += forward ? 1 : -1
+      else this.waitX = n
+    }
+
+    const by = byteAt(this.playY)
+    if (by === 0) return true
+    if (by < 0x80) {
+      const step = (by << 25) >> 25
+      this.target.set(null, w16(this.target.get().y + (forward ? step : -step)), null)
+      this.playY += forward ? 1 : -1
+    } else if (--this.waitY === 0) {
+      this.playY += forward ? 1 : -1
+    } else if (this.waitY < 0) {
+      const n = by & 0x7f
+      if (n === 0) this.playY += forward ? 1 : -1
+      else this.waitY = n
+    }
+
+    this.moveCount = this.regs[0]! // Ampwy3: reload AmCpt from the tempo
+    return false
   }
 
   private moveStep(): void {
