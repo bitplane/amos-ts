@@ -85,6 +85,22 @@ export function parseAmosLib(bytes: Uint8Array): AmosLib {
   return { tokens: rebase(parseTokenTable(table)), code }
 }
 
+/**
+ * Older / third-party extensions (TURBO Plus, GUI, Ldos) lack the AP20
+ * magic of the stock AMOS Pro 2.0 libraries. Their code hunk begins with
+ * a header long = the jump-table size; the token table follows the jump
+ * table, and the entry offsets sit 10 bytes past 8+jumpSize (a fixed
+ * header the file token-ids are measured from — verified by matching
+ * 45/45 Ldos, 52/52 TURBO and 34/34 GUI ids used across the corpus).
+ */
+export function parseAmosLibOld(bytes: Uint8Array): AmosLib {
+  const code = firstCodeHunk(bytes)
+  const v = new DataView(code.buffer, code.byteOffset, code.byteLength)
+  const jumpSize = v.getUint32(0)
+  const table = code.subarray(8 + jumpSize + 10)
+  return { tokens: parseTokenTable(table), code }
+}
+
 export function parseTokenTable(table: Uint8Array): TokenEntry[] {
   const r = new BinReader(table)
   const entries: TokenEntry[] = []
