@@ -2320,6 +2320,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // the buffer size only matters to the editor/compiler at load time
       it.evalInt()
     },
+    'set hardcol'(it) {
+      // InSetHardcol +Lib.s:12346 -> HColSet +W.s:10018: CLXCON is built
+      // from a fixed $F in the odd-sprite enables, the first argument in
+      // ENBP1-6 and the second in MVBP1-6
+      const enable = it.evalInt()
+      it.expect(',')
+      const match = it.evalInt()
+      rt.clxcon = (0xf << 12) | ((enable & 0x3f) << 6) | (match & 0x3f)
+    },
     'set accessory'(it) {
       // The token table points this at L_InNull (+Lib.s:1474), and InNull
       // is one instruction: rts (+ILib.s:3748). It marks the program as an
@@ -3885,6 +3894,14 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     'spritebob col'(_, a) {
       // FnSpriteBobCol1/3 +Lib.s:12419: sprite n against bobs
       return VI(rt.spriteBobColCheck(int(a[0]!), a.length > 1 ? int(a[1]!) : 0, a.length > 2 ? int(a[2]!) : 10000))
+    },
+    hardcol(_, a) {
+      // FnHardcol +Lib.s:12353: -1 or lower asks about the playfields,
+      // otherwise the sprite number, and 8 or above is a function call
+      // error (cmp.l #8,d3 / bcc)
+      const n = int(a[0]!)
+      if (n >= 8) throw new AmosError('function call error')
+      return VI(rt.hardcol(n))
     },
     col(_, a) {
       // =Col(n): >=0 membership; <0 = the first colliding object number

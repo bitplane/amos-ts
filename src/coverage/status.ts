@@ -203,6 +203,8 @@ export const FAITHFUL = new Set<string>([
   'ldir',
   'ldir/w',
   'set accessory',
+  'hardcol',
+  'set hardcol',
   'bstart',
   'blength',
   'bgrab',
@@ -944,6 +946,10 @@ export const NOTES: Record<string, string> = {
   'copper off':
     'the interpreted list now takes its fetch geometry from the registers rather than from the screen the pointers happen to hit. BPL1PT is walked as a byte pointer, so its remainder inside a row is a horizontal skew of 8 pixels a byte; BPL1MOD is added at the end of every line, which is what makes a wrong modulo shear or repeat the picture and what interlace falls out of; DDFSTRT/DDFSTOP set the fetched width and where the data lands (first pixel at DDFSTRT*2+17 lores, +9 hires — the constants AMOS inverts at +W.s:6293); BPLCON1 PF1H delays the playfield; DIWSTRT/DIWSTOP window it; BPLCON2 PF1P decides which sprite pairs are in front; and SPRxPT are decoded as real Amiga sprite structures (POS/CTL, two bitplanes, ATTACH), which is what Copper Off hands the program when it clears T_HsChange (+W.s:6822). The register file persists across frames as the hardware\'s does, and the pointer is not reloaded at the vertical blank either — a list that sets it once really does march off the bitmap on its second frame. The handover resets to black, which is faithful: the OFF path swaps in a list that is nothing but an end marker. Remaining: BPL2MOD is tracked but a chunky screen has no independent even-plane pointer for it to move, so it only matters for a dual playfield, which this path does not render; and the real machine also hides the mouse pointer',
   'cop logic': 'a mapped chip-RAM address; the system list is regenerated every vbl (the T_Actualise change-gating is not modelled)',
+  hardcol:
+    'FnHardcol +Lib.s:12353 -> HColGet +W.s:115, over a CLXDAT computed from where the sprites and playfields actually are. HColT (+W.s:159) is transcribed, so the bit layout is the hardware\'s: bit 0 playfield against playfield, 1-4 and 5-8 each sprite pair against playfield 1 and 2, 9-14 the six pair combinations. The two-bits-per-entry word the 68k byte-swaps into T_TColl is reproduced as the Col() set, and the function itself is true only for a sprite-against-sprite hit — a playfield hit fills the Col() bits without making it true, which is what the cmp.w #$0100 in HCol1 is doing. Deviation: the real register accumulates what the beam passed over during the frame and clears on read; this samples the current positions, which agrees for the usual move / Wait Vbl / test but not for a sprite moved twice within one frame',
+  'set hardcol':
+    'InSetHardcol +Lib.s:12346 -> HColSet +W.s:10018: CLXCON gets a fixed $F in the odd-sprite enables (AMOS never exposes those), the first argument in ENBP1-6 and the second in MVBP1-6, so a playfield pixel counts as solid when every enabled plane carries the matching bit',
   ldir: 'InLDir +Lib.s:5842 is InDir with ImpFlg set, and ImpFlg is the one thing ImpChaine (+Lib.s:5413) tests before it prints — set, the line goes to PRT_Print instead of the window. Same listing, printer sink, and there is no printer host here, so it is discarded exactly as Lprint is',
   'ldir/w': 'InLDirW +Lib.s:5793: the two-column form of the same, likewise to the printer',
   'set accessory':

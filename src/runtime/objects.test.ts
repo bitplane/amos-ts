@@ -425,3 +425,58 @@ describe('sprite layers against the playfields (EcCon2 PF1P/PF2P)', () => {
     expect(at(behind, 200, 70)).not.toBe(at(inFront, 200, 70))
   })
 })
+
+describe('hardware collisions (HColSet/HColGet +W.s:10018/115)', () => {
+  const setup = [
+    'Screen Open 0,320,200,16,Lowres : Curs Off : Flash Off : Hide On : Cls 0',
+    'Reserve As Chip Work 9,16*16',
+    'Ink 1 : Bar 0,0 To 15,15 : Get Sprite 1,0,0 To 16,16 : Cls 0',
+  ]
+
+  it('Set Hardcol builds CLXCON: $F odd-sprite enables, ENBP1-6, MVBP1-6', () => {
+    const rt = run([...setup, 'Set Hardcol 3,1'].join('\n'))
+    expect(rt.clxcon).toBe((0xf << 12) | (3 << 6) | 1)
+  })
+
+  it('two sprite pairs overlapping set their pair-against-pair bit', () => {
+    // sprites 0 and 2 are pairs 0 and 1, so HColT says bit 9
+    const apart = run([...setup, 'Set Hardcol 0,0', 'Sprite 0,100,100,1', 'Sprite 2,200,100,1'].join('\n'))
+    expect(apart.hardcolData() & (1 << 9)).toBe(0)
+    expect(apart.hardcol(0)).toBe(0)
+    const over = run([...setup, 'Set Hardcol 0,0', 'Sprite 0,100,100,1', 'Sprite 2,104,100,1'].join('\n'))
+    expect(over.hardcolData() & (1 << 9)).not.toBe(0)
+    expect(over.hardcol(0)).toBe(-1)
+    expect(over.hardcol(2)).toBe(-1)
+    // pair 2 saw nothing
+    expect(over.hardcol(4)).toBe(0)
+  })
+
+  it('Col() reads the pair bits the same call leaves behind', () => {
+    const rt = run([...setup, 'Set Hardcol 0,0', 'Sprite 0,100,100,1', 'Sprite 2,104,100,1'].join('\n'))
+    rt.hardcol(0)
+    // entry 1 of pair 0's row is pair 1, so Col objects 2 and 3
+    expect(rt.colGet(2)).toBe(-1)
+    expect(rt.colGet(3)).toBe(-1)
+    expect(rt.colGet(4)).toBe(0)
+  })
+
+  it('a sprite over a matching playfield pixel sets its playfield bit, and that alone is not a sprite hit', () => {
+    // ENBP = %0001, MVBP = %0001: a pixel counts when plane 1 is set
+    const prog = [...setup, 'Set Hardcol 1,1', 'Ink 1 : Bar 0,0 To 319,199', 'Sprite 0,200,100,1']
+    const rt = run(prog.join('\n'))
+    expect(rt.hardcolData() & (1 << 1)).not.toBe(0) // pair 0 vs playfield 1
+    expect(rt.hardcol(0)).toBe(0) // playfield-only: the function stays false
+    expect(rt.colGet(8)).toBe(-1) // but Col() records it
+  })
+
+  it('the plane match really discriminates — a wrong colour does not collide', () => {
+    // the bar is colour 2 (plane 2), the match asks for plane 1
+    const prog = [...setup, 'Set Hardcol 1,1', 'Ink 2 : Bar 0,0 To 319,199', 'Sprite 0,200,100,1']
+    expect(run(prog.join('\n')).hardcolData() & (1 << 1)).toBe(0)
+  })
+
+  it('Hardcol(8) and above is a function call error (cmp.l #8 +Lib.s:12356)', () => {
+    expect(() => run([...setup, 'Print Hardcol(8)'].join('\n'))).toThrow(/function call/)
+    expect(() => run([...setup, 'Print Hardcol(-1)'].join('\n'))).not.toThrow()
+  })
+})
