@@ -22,14 +22,12 @@ import { PROBE_DIR } from './probe'
 /**
  * FAITHFUL keywords with no test that dispatches them.
  *
- * Every entry is a keyword we assert was verified against the 68k source but
- * which nothing in the suite runs, so the claim rests on code review alone.
- * Delete entries as tests land — never add one to make the build pass.
+ * Empty, and it should stay that way: every keyword classified FAITHFUL is
+ * executed by the suite. An entry here is a keyword we assert was verified
+ * against the 68k source but which nothing runs, so the claim would rest on
+ * code review alone. If you are about to add one, write the test instead.
  */
-export const ALLOWED_UNPROVEN = new Set<string>([
-  'anim freeze', 'anim off', 'comp test', 'default', 'dialog freeze', 'dialog unfreeze',
-  'get rom fonts', 'hzone', 'move freeze', 'move y', 'rainbow del', 'vrev', 'zdialog',
-])
+export const ALLOWED_UNPROVEN = new Set<string>([])
 
 export function setup(): void {
   if (!process.env.AMOS_COVERAGE_GATE) return
