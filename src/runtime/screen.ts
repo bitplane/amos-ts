@@ -225,6 +225,21 @@ export class Screen {
    */
   pf1p = 4
   pf2p = 4
+  /**
+   * EcDual: which screen this one is paired with as a dual playfield, and
+   * which half it is. The 68k packs both into one word (+EcDual, positive
+   * for playfield 1 and -(partner+1) for playfield 2 — see HsPri's
+   * neg/lsl walk back through T_EcAdr at +W.s:11374); split here for
+   * legibility. null means an ordinary single-playfield screen.
+   *
+   * Pairing lives on the screens rather than on the machine because each
+   * screen gets its own copper band, so several pairs can coexist down the
+   * display.
+   */
+  dualPartner: number | null = null
+  dualIsBack = false
+  /** BPLCON2 PFBA: the back playfield draws in front (Dual Priority). */
+  pf2Front = false
   /** display position in AMOS hardware coords (default 128,50 = top-left) */
   displayX = 128
   displayY = 50

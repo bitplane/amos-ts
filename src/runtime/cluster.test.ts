@@ -782,7 +782,11 @@ describe('screens (vs the 68k Ec* routines)', () => {
       'Dual Priority 1,0', // back screen named first: PFBA set, PF2 in front
     ].join('\n')
     const { rt } = run(prog)
-    expect(rt.dualPlayfield).toEqual({ front: 0, back: 1, pf2Front: true })
+    // pairing lives on the screens (EcDual), so several pairs can coexist
+    expect(rt.screens.get(0)!.dualPartner).toBe(1)
+    expect(rt.screens.get(1)!.dualPartner).toBe(0)
+    expect(rt.screens.get(1)!.dualIsBack).toBe(true)
+    expect(rt.screens.get(0)!.pf2Front).toBe(true)
     // Dual Priority on a non-dual pair errors (EcE27)
     expect(() => run('Screen Open 0,320,200,8,0 : Screen Open 2,320,200,8,0 : Dual Priority 0,2')).toThrow(/dual playfield/)
   })

@@ -298,3 +298,70 @@ describe('Sprite Priority is per-screen (EcCon2, HsPri +W.s:11374)', () => {
     expect(rt.screens.get(1)!.pf1p).toBe(4)
   })
 })
+
+describe('dual playfield pairs are per-screen (EcDual)', () => {
+  const pair = (a: number, b: number, y: number): string[] => [
+    `Screen Open ${a},320,80,4,Lowres : Screen Display ${a},128,${y},320,80`,
+    `Screen Open ${b},320,80,4,Lowres : Screen Display ${b},128,${y},320,80`,
+    `Dual Playfield ${a},${b}`,
+  ]
+
+  it('two independent pairs can exist at once, down the display', () => {
+    // each screen gets its own copper band, so the machine is not limited to
+    // a single dual pair — that was an artefact of storing it once globally
+    const rt = run([...pair(0, 1, 50), ...pair(2, 3, 140)].join('\n'))
+    expect(rt.screens.get(0)!.dualPartner).toBe(1)
+    expect(rt.screens.get(1)!.dualIsBack).toBe(true)
+    expect(rt.screens.get(2)!.dualPartner).toBe(3)
+    expect(rt.screens.get(3)!.dualIsBack).toBe(true)
+  })
+
+  it('each pair keeps its own PF2 priority', () => {
+    const rt = run([...pair(0, 1, 50), ...pair(2, 3, 140), 'Dual Priority 3,2'].join('\n'))
+    expect(rt.screens.get(0)!.pf2Front).toBe(false)
+    expect(rt.screens.get(2)!.pf2Front).toBe(true)
+  })
+
+  it('closing one half dissolves only that pair', () => {
+    const rt = run([...pair(0, 1, 50), ...pair(2, 3, 140), 'Screen Close 1'].join('\n'))
+    expect(rt.screens.get(0)!.dualPartner).toBeNull()
+    // the other pair is untouched
+    expect(rt.screens.get(2)!.dualPartner).toBe(3)
+    expect(rt.screens.get(3)!.dualIsBack).toBe(true)
+  })
+
+  it('the hidden back half becomes visible again when the pair dissolves', () => {
+    // Dual Playfield hides the back screen (BitHide); closing the front one
+    // must not leave it hidden and unreachable
+    const rt = run([...pair(0, 1, 50), 'Screen Close 0'].join('\n'))
+    expect(rt.screens.get(1)!.visible).toBe(true)
+    expect(rt.screens.get(1)!.dualPartner).toBeNull()
+  })
+
+  it('a screen already in a pair cannot join another', () => {
+    expect(() =>
+      run([...pair(0, 1, 50), 'Screen Open 4,320,80,4,Lowres', 'Dual Playfield 1,4'].join('\n')),
+    ).toThrow(/dual playfield impossible/)
+  })
+
+  it('both pairs render, each blending its back half through palette 8-15', () => {
+    const rt = run(
+      [
+        ...pair(0, 1, 50),
+        ...pair(2, 3, 140),
+        'Screen 1 : Cls 3',
+        'Screen 3 : Cls 5',
+        'Screen 0 : Cls 0',
+        'Screen 2 : Cls 0',
+      ].join('\n'),
+    )
+    const img = rt.composite()
+    const at = (hx: number, hy: number): string => {
+      const o = ((hy - Runtime.COMPOSITE_TOP) * img.width + hx) * 4
+      return `${img.data[o]},${img.data[o + 1]},${img.data[o + 2]}`
+    }
+    // both bands show their back playfield's colour, not the empty front
+    expect(at(200, 80)).not.toBe(at(200, 30))
+    expect(at(200, 170)).not.toBe(at(200, 30))
+  })
+})

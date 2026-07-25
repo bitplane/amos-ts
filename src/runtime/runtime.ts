@@ -1532,7 +1532,6 @@ export class Runtime {
   defaultPalette: number[] = []
   /** Dual Playfield front/back screens (colour 0 of the front is clear) */
   /** Dual Playfield state: pf2Front = BPLCON2 PFBA (Dual Priority) */
-  dualPlayfield: { front: number; back: number; pf2Front: boolean } | null = null
   /** Auto View Off: newly opened screens stay hidden until View */
   autoView = true
   pendingView = new Set<number>()
@@ -2419,12 +2418,15 @@ export class Runtime {
   }
 
   closeScreen(n: number): void {
-    // closing either half of a dual-playfield pair dissolves it (EcDel)
-    const dp = this.dualPlayfield
-    if (dp && (dp.front === n || dp.back === n)) {
-      const back = this.screens.get(dp.back)
-      if (back) back.visible = true
-      this.dualPlayfield = null
+    // closing either half of a dual-playfield pair dissolves that pair (EcDel)
+    const closing = this.screens.get(n)
+    if (closing?.dualPartner !== null && closing !== undefined) {
+      const partner = this.screens.get(closing.dualPartner)
+      if (partner) {
+        partner.dualPartner = null
+        partner.dualIsBack = false
+        partner.visible = true // the hidden back half comes back into view
+      }
     }
     this.screens.delete(n)
     this.order = this.order.filter((i) => i !== n)
@@ -2981,10 +2983,10 @@ export class Runtime {
       f = s
       break
     }
-    const dual = this.dualPlayfield
-    if (dual && f && f === this.screens.get(dual.back) && this.screens.has(dual.front)) {
-      const df = this.screens.get(dual.front)!
-      if (df.visible && this.coversLine(df, L)) f = df
+    // the hidden back half of a pair defers to its front screen
+    if (f?.dualIsBack && f.dualPartner !== null) {
+      const df = this.screens.get(f.dualPartner)
+      if (df?.visible && this.coversLine(df, L)) f = df
     }
     return f
   }
@@ -3172,8 +3174,6 @@ export class Runtime {
       .sort((a, b) => a[0] - b[0])
       .map(([, r]) => r)
       .filter((r) => r.table.length > 0 && r.h >= 0 && r.ty > 0)
-    const dual = this.dualPlayfield
-    const dualBack = dual && this.screens.has(dual.front) && this.screens.has(dual.back) ? this.screens.get(dual.back)! : null
     // behind-playfield sprite pairs draw first, in-front pairs after
     this.drawHwSprites(data, W, H, false)
 
@@ -3267,17 +3267,20 @@ export class Runtime {
           data[o + 3] = 255
         }
         if (f) {
-          const isDualFront = dual !== null && dualBack !== null && f === this.screens.get(dual.front)
-          if (!isDualFront) {
+          // each screen carries its own pairing, so several dual pairs can
+          // coexist down the display, each in its own copper band
+          const back =
+            !f.dualIsBack && f.dualPartner !== null ? (this.screens.get(f.dualPartner) ?? null) : null
+          if (back === null) {
             drawRow(f, r, hwPal, false)
-          } else if (!dual!.pf2Front) {
+          } else if (!f.pf2Front) {
             // PF1 priority (default): PF2 behind through palette 8-15
-            drawRow(dualBack!, r, hwPal, true, 8, f)
+            drawRow(back, r, hwPal, true, 8, f)
             drawRow(f, r, hwPal, true)
           } else {
             // Dual Priority named the back screen first: PF2 in front
             drawRow(f, r, hwPal, true)
-            drawRow(dualBack!, r, hwPal, true, 8, f)
+            drawRow(back, r, hwPal, true, 8, f)
           }
         }
       }

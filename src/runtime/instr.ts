@@ -624,13 +624,17 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const dualErr = (): never => {
         throw new AmosError('dual playfield impossible')
       }
-      if (a === b || rt.dualPlayfield) dualErr()
+      if (a === b || sa.dualPartner !== null || sb.dualPartner !== null) dualErr()
       if (sa.hires !== sb.hires || sa.laced !== sb.laced) dualErr()
       const cap = sa.hires ? 2 : 3
       if (sa.depth > cap || sb.depth > cap) dualErr()
       if (!(sa.depth === sb.depth || sa.depth === sb.depth + 1)) dualErr()
       sb.visible = false // BitHide on the back screen
-      rt.dualPlayfield = { front: a, back: b, pf2Front: false }
+      sa.dualPartner = b
+      sa.dualIsBack = false
+      sa.pf2Front = false
+      sb.dualPartner = a
+      sb.dualIsBack = true
     },
     'dual priority'(it) {
       // DualP +W.s:2870: both screens must be in dual mode; the FIRST-
@@ -639,11 +643,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const b = it.evalInt()
       if (!rt.screens.has(a) || !rt.screens.has(b)) throw new AmosError('screen not opened')
-      const dp = rt.dualPlayfield
-      if (!dp || !((dp.front === a && dp.back === b) || (dp.front === b && dp.back === a))) {
+      const sa = rt.screens.get(a)!
+      const sb = rt.screens.get(b)!
+      if (sa.dualPartner !== b || sb.dualPartner !== a) {
         throw new AmosError('screen not in dual playfield mode')
       }
-      dp.pf2Front = a === dp.back
+      // the first-named screen's playfield comes forward
+      const front = sa.dualIsBack ? sb : sa
+      front.pf2Front = sa.dualIsBack
     },
     view() {
       // InView +Lib.s:9106: apply deferred display changes (CopMake)
@@ -1723,10 +1730,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // callers and is never reached from BASIC.
       const p = it.evalInt()
       if (p >>> 0 > 4) throw new AmosError('function call error')
-      const dual = rt.dualPlayfield
       const cur = scr()
-      if (dual && rt.currentIndex === dual.back && rt.screens.has(dual.front)) {
-        rt.screens.get(dual.front)!.pf2p = p
+      if (cur.dualIsBack && cur.dualPartner !== null && rt.screens.has(cur.dualPartner)) {
+        rt.screens.get(cur.dualPartner)!.pf2p = p
       } else {
         cur.pf1p = p
       }
