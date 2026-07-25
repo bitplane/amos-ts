@@ -27,23 +27,17 @@ import { PROBE_DIR } from './probe'
  * Delete entries as tests land — never add one to make the build pass.
  */
 export const ALLOWED_UNPROVEN = new Set<string>([
-  'amal freeze', 'amal off', 'amalerr', 'anim freeze', 'anim off', 'auto view on',
-  'bank to menu', 'bob clear', 'bob draw', 'bob off', 'bob update', 'bob update on', 'boom',
-  'chanan', 'comp test', 'def scroll', 'default', 'del block', 'del cblock', 'del icon',
-  'del sprite', 'dialog freeze', 'dialog unfreeze', 'get bob palette', 'get cblock',
-  'get icon', 'get icon palette', 'get rom fonts', 'get sprite', 'get sprite palette', 'hzone',
-  'i bob', 'icon base', 'ins icon', 'ins sprite', 'jdown', 'jright', 'make icon mask',
-  'make mask', 'med cont', 'med midi on', 'menu active', 'menu bar', 'menu called', 'menu del',
+  'amal freeze', 'amal off', 'amalerr', 'anim freeze', 'anim off', 'bank to menu', 'boom',
+  'chanan', 'comp test', 'def scroll', 'default', 'del icon', 'dialog freeze',
+  'dialog unfreeze', 'get rom fonts', 'hzone', 'icon base', 'ins icon', 'jdown', 'jright',
+  'med cont', 'med midi on', 'menu active', 'menu bar', 'menu called', 'menu del',
   'menu item static', 'menu line', 'menu link', 'menu mouse off', 'menu mouse on',
   'menu movable', 'menu off', 'menu once', 'menu separate', 'menu static', 'menu tline',
-  'menu to bank', 'mouse screen', 'move freeze', 'move y', 'mubase', 'multi wait',
-  'no icon mask', 'no mask', 'on menu del', 'on menu off', 'paste icon', 'prg next$',
-  'priority off', 'priority on', 'priority reverse off', 'priority reverse on', 'put bob',
-  'put cblock', 'rainbow del', 'reset zone', 'sam loop off', 'scroll', 'scroll on', 'set menu',
-  'set sprite buffer', 'shift down', 'shift off', 'sprite col', 'sprite off',
-  'sprite update on', 'spritebob col', 'synchro', 'synchro off', 'synchro on', 'track loop of',
-  'unpack', 'update every', 'update on', 'vrev', 'wind move', 'x mouse', 'y hard', 'y menu',
-  'y mouse', 'zdialog',
+  'menu to bank', 'mouse screen', 'move freeze', 'move y', 'mubase', 'on menu del',
+  'on menu off', 'prg next$', 'rainbow del', 'reset zone', 'sam loop off', 'scroll',
+  'scroll on', 'set menu', 'set sprite buffer', 'shift down', 'shift off', 'synchro',
+  'synchro off', 'synchro on', 'track loop of', 'unpack', 'vrev', 'wind move', 'x mouse',
+  'y hard', 'y menu', 'y mouse', 'zdialog',
 ])
 
 export function setup(): void {
