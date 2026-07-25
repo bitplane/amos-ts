@@ -1517,13 +1517,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.updateBobs()
     },
     'set bob'(it) {
-      // Set Bob n,back,planes,mask: back 0 = save/restore, <0 = leave a
-      // trail, >0 = restore with solid colour back-1 (planes/mask ignored)
+      // Set Bob n,back,planes,mask (InSetBob +Lib.s:12225 -> ResBOB +W.s:988).
+      // back  -> BbEff: 0 save/restore, <0 leave a trail (a negative value
+      //          clears BbDecor so no background is kept), >0 restore with
+      //          solid colour back-1
+      // planes-> BbAPlan, the bitplane write mask; omitted is -1, all planes
+      // mask  -> BbACon, a raw blitter minterm control word — see NOTES
       const n = it.evalInt()
       it.expect(',')
       const back = optInt(it, 0)
-      while (it.accept(',')) optInt(it, 0)
       rt.bobModes.set(n, back)
+      if (it.accept(',')) {
+        rt.bobPlanes.set(n, optInt(it, -1))
+        if (it.accept(',')) optInt(it, 0) // mask: the minterm, not honoured
+      }
     },
     'limit bob'(it) {
       // Limit Bob [n,]x1,y1 To x2,y2 | Limit Bob (clear all)
@@ -3713,6 +3720,28 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
     'sprite base'(_, a) {
       return VI(objBase(rt, 'sprites', int(a[0]!)))
+    },
+    // ---- machine memory (AvailMem) ----
+    // A constant here is worse than useless: a program that reserves banks
+    // until Chip Free runs out would never stop. These track what the program
+    // has actually allocated against a simulated A1200-sized pool.
+    'chip free'(_, a) {
+      // FnChipFree +Lib.s:2510 = AvailMem(MEMF_CHIP)
+      void a
+      return VI(Math.max(0, Runtime.CHIP_TOTAL - rt.chipUsed()))
+    },
+    'fast free'(_, a) {
+      // FnFastFree +Lib.s:2517 = AvailMem(MEMF_FAST)
+      void a
+      return VI(Math.max(0, Runtime.FAST_TOTAL - rt.fastUsed()))
+    },
+    free(_, a) {
+      // FnFree +Lib.s:13600 garbage-collects then reports TabBas-HiChaine,
+      // the space left for variables and strings — not machine memory. There
+      // is no fixed variable region here, so report what is left of a nominal
+      // one after the Varptr arena in use.
+      void a
+      return VI(Math.max(0, Runtime.VARIABLE_SPACE - rt.arenaBytes()))
     },
     'icon base'(_, a) {
       return VI(objBase(rt, 'icons', int(a[0]!)))

@@ -963,7 +963,8 @@ export const NOTES: Record<string, string> = {
   'resource$': '-1..-1000 read the transcribed interpreter-config messages (Sys_Messages); the editor message tables (-1001 and deeper) return ""',
   'set slider': 'system patterns come from the machine mouse bank (fixtures/machine); without it, dither stand-ins',
   'mouse zone': 'zones are a single global table, not per-screen (EcAZones)',
-  'set bob': 'the back mode is honoured; planes and mask arguments are ignored',
+  'set bob':
+    'InSetBob +Lib.s:12225 -> ResBOB +W.s:988. back (BbEff) and planes (BbAPlan, the bitplane write mask) are both honoured. mask (BbACon) is not: it is a raw blitter minterm control word, poked into BLTCON0/1 at +W.s:1425-1448, and the chunky renderer has no minterm to override',
   'amos to front': 'single-display host: the AMOS display is always at the front',
   'amos to back': 'single-display host: nothing to lower',
   'amos lock': 'the T_NoFlip flag is stored; no host flipping exists to suppress',
@@ -1019,8 +1020,10 @@ export const NOTES: Record<string, string> = {
   edit: 'InEdit +ILib.s:1858 returns to the AMOS editor (run-error 1000); there is no editor in the port, so the program halts',
   direct: 'InDirect +ILib.s:1866 returns to direct mode (run-error 1001); no direct window exists in the port, so the program halts',
   free: 'FnFree +Lib.s:13600 garbage-collects then reports TabBas-HiChaine (free variable space); no variable arena exists here — returns a nominal figure',
-  'chip free': 'FnChipFree +Lib.s:2510 queries exec AvailMem(MEMF_CHIP); no Amiga memory manager in the port — returns a nominal figure',
-  'fast free': 'FnFastFree +Lib.s:2517 queries exec AvailMem(MEMF_FAST); no Amiga memory manager in the port — returns a nominal figure',
+  'chip free':
+    'FnChipFree +Lib.s:2510 queries exec AvailMem(MEMF_CHIP). There is no Amiga allocator here, so the figure is modelled: an A1200-sized 2MB chip pool less what the program has actually allocated (chip banks, open screens\' bitplanes, sprite/icon banks). It responds to Reserve and Erase, which a constant did not — a program looping until chip memory ran out never terminated. The pool size is our choice, not the original\'s',
+  'fast free':
+    'FnFastFree +Lib.s:2517 queries exec AvailMem(MEMF_FAST). Modelled like chip free: a nominal 8MB fast pool less the non-chip banks in use. The pool size is our choice',
   lprint: 'InLPrint +ILib.s:5067 routes Print to the printer device; no printer host, so the arguments are evaluated (for side effects) then discarded',
   'dual priority': 'the EcE27 error message text is a guess — the string is not in the source tree',
   'hrev block': "RevBloc +W.s:12620 mirrors the block; the visible result matches, but the port reverses pixels directly rather than via AMOS's stored orientation flag (bits $C000)",

@@ -213,3 +213,42 @@ describe('display control', () => {
     expect(() => run('Multi Wait')).not.toThrow()
   })
 })
+
+describe('Set Bob (InSetBob +Lib.s:12225 -> ResBOB +W.s:988)', () => {
+  it('back < 0 leaves a trail, back = 0 saves and restores the background', () => {
+    // a negative back clears BbDecor, so nothing is kept to put back
+    let rt = run(`Update Off\n${GRAB}\nSet Bob 1,-1,,\nBob 1,40,40,1\nBob Draw\nBob Clear`)
+    expect(rt.screen.point(42, 42)).toBe(5)
+    rt = run(`Update Off\n${GRAB}\nSet Bob 1,0,,\nBob 1,40,40,1\nBob Draw\nBob Clear`)
+    expect(rt.screen.point(42, 42)).toBe(0)
+  })
+
+  it('back > 0 restores with the solid colour back-1 instead of the background', () => {
+    const rt = run(`Update Off\n${GRAB}\nSet Bob 1,4,,\nBob 1,40,40,1\nBob Draw\nBob Clear`)
+    expect(rt.screen.point(42, 42)).toBe(3)
+  })
+
+  it('the planes argument masks which bitplanes the bob writes (BbAPlan)', () => {
+    // colour 5 is %0101. Restricted to plane 0 (mask 1) only bit 0 is written,
+    // so over a background of colour 2 (%0010) the result is %0011 = 3.
+    const paint = 'Screen Open 0,320,200,16,Lowres : Cls 2 : Ink 5 : Bar 0,0 To 7,7'
+    const grab = `${paint} : Get Bob 1,0,0 To 8,8 : Cls 2`
+    let rt = run(`Update Off\n${grab}\nSet Bob 1,0,1,\nBob 1,40,40,1\nBob Draw`)
+    expect(rt.screen.point(42, 42)).toBe(3)
+    // masking to plane 2 (mask 4) writes only bit 2: %0010 -> %0110 = 6
+    rt = run(`Update Off\n${grab}\nSet Bob 1,0,4,\nBob 1,40,40,1\nBob Draw`)
+    expect(rt.screen.point(42, 42)).toBe(6)
+    // omitted means every plane, so the bob's own colour lands intact
+    rt = run(`Update Off\n${grab}\nSet Bob 1,0,,\nBob 1,40,40,1\nBob Draw`)
+    expect(rt.screen.point(42, 42)).toBe(5)
+  })
+
+  it('a plane mask still respects transparency', () => {
+    // pixel (0,0) of the grab is colour 0, which stays transparent whatever
+    // the plane mask says, so the background shows through untouched
+    const grab = 'Screen Open 0,320,200,16,Lowres : Cls 0 : Ink 5 : Bar 1,1 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 2'
+    const rt = run(`Update Off\n${grab}\nSet Bob 1,0,1,\nBob 1,40,40,1\nBob Draw`)
+    expect(rt.screen.point(40, 40)).toBe(2)
+    expect(rt.screen.point(42, 42)).toBe(3)
+  })
+})

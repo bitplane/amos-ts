@@ -185,3 +185,38 @@ describe('mouse and joystick reads', () => {
     expect(() => run('A=Jdown(2)')).toThrow(/function call error/)
   })
 })
+
+describe('machine memory reporting (AvailMem)', () => {
+  it('Chip Free counts the screen bitplanes and chip banks against the pool', () => {
+    // a constant would be worse than useless: a program reserving banks until
+    // Chip Free runs out would never stop. Screen 0 is 320x200x4 planes, so
+    // 40 bytes a row x 200 rows x 4 = 32000 bytes of the chip pool at boot.
+    expect(runOut('Print Chip Free')).toBe(` ${2 * 1024 * 1024 - 32000}\n`)
+    expect(runOut('Reserve As Chip Data 5,100000\nPrint Chip Free')).toBe(
+      ` ${2 * 1024 * 1024 - 32000 - 100000}\n`,
+    )
+    // and Erase hands it back
+    expect(runOut('Reserve As Chip Data 5,100000\nErase 5\nPrint Chip Free')).toBe(
+      ` ${2 * 1024 * 1024 - 32000}\n`,
+    )
+  })
+
+  it('a bigger screen costs more chip memory', () => {
+    const before = Number(runOut('Print Chip Free'))
+    const after = Number(runOut('Screen Open 1,640,400,16,Hires\nPrint Chip Free'))
+    // 640x400x4 planes = 80 bytes a row x 400 x 4 = 128000
+    expect(before - after).toBe(128000)
+  })
+
+  it('Fast Free tracks non-chip banks and leaves the chip pool alone', () => {
+    const chip = runOut('Print Chip Free')
+    const out = runOut('Reserve As Data 5,100000\nPrint Fast Free;Chip Free')
+    expect(out).toBe(` ${8 * 1024 * 1024 - 100000}${chip.replace(/\n$/, '')}\n`)
+  })
+
+  it('Free reports variable space, not machine memory', () => {
+    // FnFree +Lib.s:13600 reports TabBas-HiChaine — the BASIC variable and
+    // string region, whose default buffer is 32K
+    expect(runOut('Print Free')).toBe(` ${32 * 1024}\n`)
+  })
+})

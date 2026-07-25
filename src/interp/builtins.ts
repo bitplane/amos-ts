@@ -1300,18 +1300,6 @@ export const FUNCS: Record<string, Func> = {
     arity(a, 0)
     return VS('\x1f')
   },
-  free: (_, a) => {
-    arity(a, 0)
-    return VI(1_000_000)
-  },
-  'chip free': (_, a) => {
-    arity(a, 0)
-    return VI(1_000_000)
-  },
-  'fast free': (_, a) => {
-    arity(a, 0)
-    return VI(1_000_000)
-  },
 }
 
 export { tokAt }

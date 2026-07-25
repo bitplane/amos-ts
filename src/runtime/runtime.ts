@@ -257,7 +257,29 @@ export class Runtime {
   /** saved background under each drawn bob, restored before redraw */
   private bobSaved = new Map<number, { screen: number; x: number; y: number; w: number; h: number; data: Uint8Array }>()
   /** Set Bob background modes: 0 save/restore, <0 none, >0 fill colour-1 */
+  /**
+   * The simulated machine's memory pools, in bytes. AvailMem has no meaning
+   * without a real allocator, but returning a constant is worse than useless:
+   * a program that reserves banks until Chip Free runs out never stops. These
+   * are an A1200's 2MB chip plus a modest fast board — generous enough that
+   * "have I room for this?" checks pass, while still responding to what the
+   * program actually allocates.
+   */
+  static readonly CHIP_TOTAL = 2 * 1024 * 1024
+  static readonly FAST_TOTAL = 8 * 1024 * 1024
+  /**
+   * The nominal BASIC variable region Free reports against (TabBas-HiChaine).
+   * AMOS Pro's default buffer is 32K, grown by Set Buffer.
+   */
+  static readonly VARIABLE_SPACE = 32 * 1024
+
   bobModes = new Map<number, number>()
+  /**
+   * Set Bob's `planes` argument: the bitplane write mask (BbAPlan, set by
+   * ResBOB +W.s:998 and handed to the blitter as BbDAPlan at +W.s:1271).
+   * Omitted means -1, every plane.
+   */
+  bobPlanes = new Map<number, number>()
   /** Limit Bob rectangles: global (key -1) or per bob */
   bobLimits = new Map<number, { x1: number; y1: number; x2: number; y2: number }>()
   priorityReverse = false
@@ -1779,6 +1801,35 @@ export class Runtime {
       this.music.samEnd[v] = Infinity
       this.music.onSamStop(v)
     }
+  }
+
+  /** Chip bytes held by banks and by open screens' bitplanes. */
+  chipUsed(): number {
+    let n = 0
+    for (const b of this.memBanks.values()) if (b.memType === 1) n += b.data.length
+    for (const s of this.screens.values()) {
+      // bitplanes are chip memory: a row is rounded up to a whole word
+      n += (((s.width + 15) >> 4) << 1) * s.height * s.depth
+    }
+    for (const bank of [this.spriteBank, this.iconBank]) {
+      if (!bank) continue
+      for (const img of bank.images) n += (((img.width + 15) >> 4) << 1) * img.height * 2
+    }
+    return n
+  }
+
+  /** Fast bytes held by banks (anything not asked for as chip). */
+  fastUsed(): number {
+    let n = 0
+    for (const b of this.memBanks.values()) if (b.memType !== 1) n += b.data.length
+    return n
+  }
+
+  /** Bytes of the Varptr arena currently mapped, for Free. */
+  arenaBytes(): number {
+    let n = 0
+    for (const slot of this.varSlots) n += slot.buf.length
+    return n
   }
 
   // ---- the Varptr variable arena -----------------------------------------
@@ -3435,11 +3486,17 @@ export class Runtime {
         }
         this.bobSaved.set(bob.n, { screen: bob.screen, x: x1, y: y1, w, h, data })
       }
+      // Set Bob's plane mask restricts which bitplanes the bob writes, so a
+      // bob can be confined to (say) the low two planes of a 16-colour screen
+      // and leave the rest of the background showing through (BbAPlan).
+      const planes = this.bobPlanes.get(bob.n) ?? -1
       for (let y = y1; y < y2; y++) {
         const iy = y - dy
         for (let x = x1; x < x2; x++) {
           const v = img.pixels[iy * img.width + (x - dx)]!
-          if (v !== 0 || img.opaque) s.pixels[y * s.width + x] = v
+          if (v === 0 && !img.opaque) continue
+          const i = y * s.width + x
+          s.pixels[i] = planes === -1 ? v : (s.pixels[i]! & ~planes) | (v & planes)
         }
       }
     }
