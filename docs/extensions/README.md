@@ -137,7 +137,7 @@ function-form variants of the keyword above them.
 | `amospro-ioports-2.0` | source | 39 | stock, slot 6 |
 | `intuition-1.3b` | source | 183 | Table assembled from its own `itokens.s`. |
 | `personal-1.0b` | source | 110 | Full assembler source ships with it. |
-| `misc-1.0` | manual | 12 | Public Domain; manual documents every keyword. Recommends slot 23. |
+| `misc-1.0` | source | 12 | Public Domain, with both source and a manual documenting every keyword. Recommends slot 23. |
 | `ldos-2.5` | table | 77 | No manual found. |
 | `turbo-plus-1.0` | table | 134 | No manual found. |
 | `gui-1.61` | table | 103 | No manual found. |

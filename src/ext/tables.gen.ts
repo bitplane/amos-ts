@@ -1064,7 +1064,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Frank Otto",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "source",
     "idBaseEvidence": "assumed",
     "defaultSlot": 23,
     "observedSlots": [],
@@ -1074,7 +1074,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     ],
     "sha256": "b8554f71107cb756237f57501b9e2412835ec417aecb5b19e9380057e8346b6e",
     "provenance": "AMOS-Professional-Official/extensions/Misc-1.0 Manual.TXT documents every keyword and tells users to install it at interpreter-config number 23 — a recommendation, not a reservation, which is precisely how slot collisions arise.",
-    "notes": "Small (13 tokens) and fully documented, so this is the reference case for the extension pipeline. The author's own manual warns several keywords crash the real machine ('Pal On ... forces AMOS to crash'); faithful ports must reproduce the documented behaviour, not the crash. No corpus program uses it, so the legacy id base is assumed from the shared legacy layout rather than calibrated against observed ids."
+    "notes": "Small (13 tokens), fully documented AND source-complete, so this is the reference case for the extension pipeline. Misc_Extension.asm is the whole extension — its own token table (C_Tk/C_Off) and every routine — written in DevPac 2 and placed in the public domain, so behaviour is read rather than inferred. The source also bakes in the slot the manual recommends (ExtNb equ 23-1), which is exactly how slot collisions arise. The manual warns several keywords crash the real machine ('Pal On ... forces AMOS to crash'); faithful ports reproduce the documented behaviour, not the crash. No corpus program uses it, so the legacy id base is assumed from the shared legacy layout rather than calibrated against observed ids."
   },
   {
     "id": "personal-1.0b",
@@ -1092,7 +1092,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     ],
     "sha256": "c6b749b4d43cd4cca11dd7c386d29e572f4db716f3f45d18765ab6678d6ef81d",
     "provenance": "AMOS-Professional-Official/extensions/Personal-1.1a Distributed in a folder named 'Personal-1.1a' but the binary identifies itself as V1.0b and its own banner calls it the SHAREWARE demonstration version. The binary's self-report is taken as authoritative. Builds for both AMOS 1.3 and AMOS Professional.",
-    "notes": "Full assembler source ships alongside the binary, so behaviour can be read directly rather than inferred — the only third-party extension here besides Intuition with source-grade evidence. No corpus program uses it, so the legacy id base is assumed rather than calibrated."
+    "notes": "Full assembler source ships alongside the binary, so behaviour can be read directly rather than inferred — one of three third-party extensions here with source-grade evidence, alongside Intuition and Misc. No corpus program uses it, so the legacy id base is assumed rather than calibrated."
   },
   {
     "id": "turbo-plus-1.0",

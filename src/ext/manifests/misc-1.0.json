@@ -8,15 +8,15 @@
   "sha256": "b8554f71107cb756237f57501b9e2412835ec417aecb5b19e9380057e8346b6e",
   "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
-  "docs": ["Manual.TXT"],
+  "evidence": "source",
+  "docs": ["Misc_Extension.asm", "Manual.TXT"],
   "titleStrings": ["AMOSPro Misc Extension V1.0 by Frank Otto (1995)", "$VER: 1.0"],
   "recommendedSlot": 23,
   "observedSlots": [],
   "provenance": {
     "from": "AMOS-Professional-Official/extensions/Misc-1.0",
     "note": "Manual.TXT documents every keyword and tells users to install it at interpreter-config number 23 — a recommendation, not a reservation, which is precisely how slot collisions arise.",
-    "redistribution": "Released to the Public Domain by the author (Manual.TXT), with source."
+    "redistribution": "Released to the Public Domain by the author (Manual.TXT), source included."
   },
-  "notes": "Small (13 tokens) and fully documented, so this is the reference case for the extension pipeline. The author's own manual warns several keywords crash the real machine ('Pal On ... forces AMOS to crash'); faithful ports must reproduce the documented behaviour, not the crash. No corpus program uses it, so the legacy id base is assumed from the shared legacy layout rather than calibrated against observed ids."
+  "notes": "Small (13 tokens), fully documented AND source-complete, so this is the reference case for the extension pipeline. Misc_Extension.asm is the whole extension — its own token table (C_Tk/C_Off) and every routine — written in DevPac 2 and placed in the public domain, so behaviour is read rather than inferred. The source also bakes in the slot the manual recommends (ExtNb equ 23-1), which is exactly how slot collisions arise. The manual warns several keywords crash the real machine ('Pal On ... forces AMOS to crash'); faithful ports reproduce the documented behaviour, not the crash. No corpus program uses it, so the legacy id base is assumed from the shared legacy layout rather than calibrated against observed ids."
 }

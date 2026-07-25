@@ -20,5 +20,5 @@
     "note": "Distributed in a folder named 'Personal-1.1a' but the binary identifies itself as V1.0b and its own banner calls it the SHAREWARE demonstration version. The binary's self-report is taken as authoritative. Builds for both AMOS 1.3 and AMOS Professional.",
     "redistribution": "Shareware demonstration version; ships with the AMOS Professional source release."
   },
-  "notes": "Full assembler source ships alongside the binary, so behaviour can be read directly rather than inferred — the only third-party extension here besides Intuition with source-grade evidence. No corpus program uses it, so the legacy id base is assumed rather than calibrated."
+  "notes": "Full assembler source ships alongside the binary, so behaviour can be read directly rather than inferred — one of three third-party extensions here with source-grade evidence, alongside Intuition and Misc. No corpus program uses it, so the legacy id base is assumed rather than calibrated."
 }

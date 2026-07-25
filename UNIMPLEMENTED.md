@@ -47,15 +47,21 @@ identification is automatic, so these programs now list and load with
 real keyword names instead of `{ext12:$02d4}` — they just stop at the
 first extension keyword. `docs/extensions/README.md` explains the
 identification model and the evidence tiers that decide which of these
-can ever be marked faithful: Intuition and Personnal ship assembler
-source, Misc ships a manual, and the other three are token-table-only,
-so keywords ported from them are structural by definition.
+can ever be marked faithful: Intuition, Personnal **and Misc** all ship
+assembler source (Misc's `Misc_Extension.asm` is the whole extension,
+public domain), so all three can reach faithful; LDos, TURBO Plus and
+GUI are token-table-only, so keywords ported from them are structural by
+definition.
 
 ### IOPorts extension (serial/parallel/printer — area 0%, 38 keywords)
-`Serial *` (~14), `Parallel *` (~10), `Printer *` (~10). Host bridges
-(Web Serial / print dialogs) — integration work, not 68k porting.
-The parallel hits in the census (~19k) are one diagnostics accessory
-polling status registers.
+`Serial *` (~14), `Parallel *` (~10), `Printer *` (~10). This is a stock
+extension and `extensions/+IO_Ports.s` is in the source tree, so the
+keyword surface — parameter checking, buffer semantics, the error paths
+— is a port like any other; only the devices underneath it
+(serial.device, parallel.device, printer.device) have no counterpart
+here, and the host bridges that could stand in for them (Web Serial,
+print dialogs) are integration work. The parallel hits in the census
+(~19k) are one diagnostics accessory polling status registers.
 
 ### System / environment
 Mostly done: `Run`, `Prg/Dev First$/Next$`, `System`, `Close
