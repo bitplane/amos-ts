@@ -621,6 +621,7 @@ export class Interp {
     if (this.nm() === 'not') {
       // FnNot calls New_Evalue afresh: Not consumes the whole rest of
       // the expression (Not A=1 or B=2 is Not(A=1 or B=2))
+      KEYWORD_PROBE?.add('not') // parsed as a prefix operator, so probed here
       this.advance()
       v = VI(~int(this.parseExpr(0)))
     } else {
@@ -663,6 +664,7 @@ export class Interp {
           return v
         }
         if (name === 'fn') {
+          KEYWORD_PROBE?.add(name) // intercepted before the dispatch tables
           this.advance()
           return this.callUserFn()
         }

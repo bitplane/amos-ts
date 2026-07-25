@@ -2,6 +2,7 @@ import type { Tok, TokenLine } from '../tokens/stream'
 import { varType } from './values'
 import type { VarType } from './values'
 import type { Names } from './names'
+import { KEYWORD_PROBE } from '../coverage/probe'
 
 /** Position in the program: line index + token index. */
 export interface Addr {
@@ -150,6 +151,7 @@ export function prescan(lines: TokenLine[], names: Names): Program {
       }
 
       if (tok.kind === 'proc') {
+        KEYWORD_PROBE?.add('proc') // a token kind, resolved here rather than dispatched
         const nameTok = toks[ti + 1]
         if (nameTok === undefined || !('name' in nameTok)) {
           warn(li, 'Procedure without a name')
