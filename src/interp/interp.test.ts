@@ -374,6 +374,16 @@ describe('statements verified against the library source', () => {
     expect(() => run('A$="AB" : Right$(A$,-1)="Z"')).toThrow(/function call/)
   })
 
+  it('a For opened in one single-line If pairs with a Next in the next line’s single-line If', () => {
+    // the adventure-game idiom: If C Then For.. / If C Then Next — the
+    // loop closer sits inside its own single-line If (prescan must not
+    // discard that If while matching the Next)
+    const y = ['A$="i"', 'If A$="i" Then For N=1 To 3 : Print N;', 'If A$="i" Then Next N', 'Print "!"'].join('\n')
+    expect(run(y)).toBe(' 1 2 3!\n')
+    const n = ['A$="x"', 'If A$="i" Then For N=1 To 3 : Print N;', 'If A$="i" Then Next N', 'Print "!"'].join('\n')
+    expect(run(n)).toBe('!\n') // both lines skipped, no loop
+  })
+
   it('For runs its body at least once — InFor has no initial test', () => {
     expect(run('For I=5 To 1 : Print "X"; : Next : Print')).toBe('X\n')
     expect(run('For I=1 To 0 : Print I; : Next')).toBe(' 1')

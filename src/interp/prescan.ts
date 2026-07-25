@@ -120,17 +120,18 @@ export function prescan(lines: TokenLine[], names: Names): Program {
   }
 
   const popLoop = (li: number, want: LoopOpen['t'], closer: string): LoopOpen | undefined => {
-    while (stack.length > 0) {
-      const top = stack[stack.length - 1]!
-      if (top.t === want) {
-        stack.pop()
-        return top
+    // Search DOWN for the loop, splicing only it. An intervening If is left
+    // on the stack (resolved by the end-of-line / End If cleanup), not
+    // discarded — the common AMOS idiom `If C Then For..` on one line with
+    // `If C Then Next` on the next puts the loop's closer inside its own
+    // single-line If, so discarding that If would orphan its branch target.
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const e = stack[i]!
+      if (e.t === want) {
+        stack.splice(i, 1)
+        return e as LoopOpen
       }
-      if (top.t === 'if') {
-        warn(li, `unclosed If discarded while matching ${closer}`)
-        stack.pop()
-        continue
-      }
+      if (e.t === 'if') continue
       break
     }
     warn(li, `${closer} without matching ${want}`)
