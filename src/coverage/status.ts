@@ -953,7 +953,8 @@ export const NOTES: Record<string, string> = {
   'noise to': 'the WebAudio sink snapshots the noise buffer at trigger; the per-vbl random refresh mutates the live buffer as on the Amiga but is only re-heard on retrigger there',
   'led on': 'filter flag reaches the sink; audibility depends on the host audio implementation',
   'led off': 'filter flag reaches the sink; audibility depends on the host audio implementation',
-  'load iff': 'HAM/EHB decode and render correctly; not byte-verified against the 68k IFF loader',
+  'load iff':
+    'every ILBM in the corpus (38 files) is decoded and checked structurally — one chunky byte per pixel, indices within the declared plane count, RGB4 palette entries — and round-tripped through our own encoder back to identical pixels, so the ByteRun1 unpacker cannot drift unnoticed. Palette-only pictures (BMHD 0x0 with only a CMAP, as the Plasma procedures ship) load their colours without disturbing the bitmap. HAM/EHB decode and render correctly. What is still not possible is a byte-for-byte comparison against the 68k loader itself, since running it is out of scope',
   centre: 'Border$ escapes inside the text are printed, not measured, when centring',
   print: 'Print # channels unsupported',
   input: 'line editing keys are host-side, not the AMOS line editor',

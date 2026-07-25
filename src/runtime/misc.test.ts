@@ -4,6 +4,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { EXTENSION_TOKENS } from '../ext/registry'
+import { AmigaFS } from './vfs'
 
 const table = new TokenTable(CORE_TOKENS)
 // Boom, Sam Loop Off, Mubase, Track Loop Of and Med * are Music-extension
@@ -218,5 +219,44 @@ describe('machine memory reporting (AvailMem)', () => {
     // FnFree +Lib.s:13600 reports TabBas-HiChaine — the BASIC variable and
     // string region, whose default buffer is 32K
     expect(runOut('Print Free')).toBe(` ${32 * 1024}\n`)
+  })
+})
+
+describe('Load Iff with a palette-only picture', () => {
+  it('takes the colours and leaves the bitmap alone', () => {
+    // The Plasma procedures ship IFFs whose BMHD is 0x0 with 0 planes and
+    // nothing but a CMAP. Load Iff must apply the palette without trying to
+    // resize or blank the screen.
+    const fs = new AmigaFS()
+    const dh0 = fs.mountMemory('DH0')
+    const pal = new Uint8Array(48 + 96)
+    const dv = new DataView(pal.buffer)
+    const tag = (o: number, s: string): void => {
+      for (let i = 0; i < 4; i++) pal[o + i] = s.charCodeAt(i)
+    }
+    tag(0, 'FORM')
+    dv.setUint32(4, pal.length - 8)
+    tag(8, 'ILBM')
+    tag(12, 'BMHD')
+    dv.setUint32(16, 20) // BMHD stays all zero: 0x0, 0 planes
+    tag(40, 'CMAP')
+    dv.setUint32(44, 96)
+    pal[48 + 3 * 3] = 0xff // colour 3 = red
+    dh0.write(['pal.iff'], pal)
+    fs.currentDir = 'DH0:'
+
+    let out = ''
+    const rt = new Runtime(
+      tokenize(
+        'Screen Open 0,320,200,32,Lowres\nLoad Iff "pal.iff",0\nPrint Colour(3);Screen Width',
+        table,
+        extensions,
+      ),
+      table,
+      { maxSteps: 300_000, extensions, fs, onText: (t) => (out += t) },
+    )
+    const r = rt.runHeadless(1_000)
+    expect(r.status === 'ended' || r.status === 'stopped').toBe(true)
+    expect(out).toBe(' 3840 320\n')
   })
 })

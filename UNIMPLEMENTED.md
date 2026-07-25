@@ -104,7 +104,6 @@ saying which is how a list like this quietly becomes furniture.
 
 - `fsel$` Store and keyboard qualifiers; sizes and sort order.
 - `resource$` for the editor message tables (-1001 and deeper).
-- `load iff` is not byte-verified against the 68k loader — a testing gap.
 - `get disc fonts` and `set pattern` when no machine bank is mounted.
 - `Copper Off` ignores DDF, the modulos, BPLCON1 (playfield scroll) and
   BPLCON2, and the sprite pointers: the fetch geometry comes from the
