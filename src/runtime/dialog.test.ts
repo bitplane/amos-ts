@@ -468,6 +468,70 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     expect(rt.fselStore.map((e) => e.path)).toEqual(['DH0:new'])
   })
 
+  it('type-ahead jumps the list to the first matching file', () => {
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    for (let i = 0; i < 8; i++) rt.frame()
+    const f = rt.fsel!
+    const d = [...rt.dialogs.values()][0]!
+    d.vars[13] = 2 // FsV_Ty — two visible rows
+    f.sorted = true
+    f.entries = [
+      { name: 'Deep', isDir: true, size: 0 },
+      { name: 'alpha.iff', isDir: false, size: 0 },
+      { name: 'beta.iff', isDir: false, size: 0 },
+      { name: 'gamma.iff', isDir: false, size: 0 },
+    ]
+    const nameZone = d.zones.find((z) => z.number === 15 && z.kind === 'edit')!
+    nameZone.text = 'be'
+    fselJump(rt, f, d, 19)
+    // row 2 scrolls to the top, and PosFirst is pinned with it — the only
+    // place the original ever sets it
+    expect([d.vars[10], d.vars[25]]).toEqual([2, 2])
+  })
+
+  it('type-ahead never matches a directory', () => {
+    // Fs_Help prepends a space to the search and FillFFind folds the '*'
+    // marker to chr(1), so a drawer can never be found by typing its name
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    for (let i = 0; i < 8; i++) rt.frame()
+    const f = rt.fsel!
+    const d = [...rt.dialogs.values()][0]!
+    f.sorted = true
+    f.entries = [
+      { name: 'alpha.iff', isDir: false, size: 0 },
+      { name: 'Deep', isDir: true, size: 0 },
+    ]
+    d.vars[10] = 0
+    d.vars[25] = -1
+    const nameZone = d.zones.find((z) => z.number === 15 && z.kind === 'edit')!
+    nameZone.text = 'Deep'
+    fselJump(rt, f, d, 19)
+    expect(d.vars[25]).toBe(-1) // nothing found, so nothing pinned
+  })
+
+  it('unsorted type-ahead searches on from the current position', () => {
+    // ...and wraps to the top when that finds nothing, so pressing again
+    // walks through the matches (17970)
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    for (let i = 0; i < 8; i++) rt.frame()
+    const f = rt.fsel!
+    const d = [...rt.dialogs.values()][0]!
+    d.vars[13] = 1
+    f.sorted = false
+    f.entries = [
+      { name: 'a1', isDir: false, size: 0 },
+      { name: 'b', isDir: false, size: 0 },
+      { name: 'a2', isDir: false, size: 0 },
+    ]
+    const nameZone = d.zones.find((z) => z.number === 15 && z.kind === 'edit')!
+    nameZone.text = 'a'
+    d.vars[10] = 0
+    fselJump(rt, f, d, 19) // from row 1 -> finds a2 at 2
+    expect(d.vars[10]).toBe(2)
+    fselJump(rt, f, d, 19) // from row 3 -> nothing below, wraps to a1 at 0
+    expect(d.vars[10]).toBe(0)
+  })
+
   it('double-clicking a file returns its full path', () => {
     const { rt, out } = bootFs('F$=Fsel$("DH0:Games")\nPrint F$')
     for (let i = 0; i < 5; i++) rt.frame()

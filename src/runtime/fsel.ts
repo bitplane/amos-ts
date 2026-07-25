@@ -334,6 +334,9 @@ export function fselJump(rt: Runtime, f: FselState, d: DialogChannel, zone: numb
     case 18: // Fs_StoreList (18137): show the cache as the list
       fselStoreList(rt, f, d)
       break
+    case 19: // Fs_Help (17963): type-ahead on the name box
+      fselHelp(rt, f, d)
+      break
     case 20: // Fs_Droite (18197): files -> devices -> assigns -> stored
       if (f.devFlag === 0) {
         fselStore(rt, f, d)
@@ -536,4 +539,43 @@ export function fselStoDir(rt: Runtime, f: FselState, i: number): void {
   f.path = e.path
   f.filter = e.filter
   fselFirst(rt, f) // Fs_FindStore will match it and Fs_Branch adopt it
+}
+
+/**
+ * Fs_Help (+Lib.s:17963) — type-ahead. Whatever is in the name box is looked
+ * up as a prefix and the list scrolls to it.
+ *
+ * FillFFind (6433) compares the row *including* its marker character, and
+ * Fs_Help prepends a space to the search string, so a directory (marker '*',
+ * which FillFFind folds to chr(1)) can never match — type-ahead finds files
+ * only. The search is case-insensitive.
+ *
+ * With sorting off the search starts just below the current top and wraps to
+ * the beginning if that finds nothing, so repeated presses walk through the
+ * matches; sorted, it always starts from the top. The found row is scrolled
+ * to the top of the view unless that would run past the end.
+ *
+ * This is the only place FsV_PosFirst is ever given a real value, which is
+ * what arms the view-stability bump in Fs_Next.
+ */
+export function fselHelp(rt: Runtime, f: FselState, d: DialogChannel): void {
+  const typed = fselZoneText(d, FS_FILE_ZONE)
+  const cut = Math.max(typed.lastIndexOf('/'), typed.lastIndexOf(':'))
+  const name = cut < 0 ? typed : typed.slice(cut + 1)
+  if (name === '') return
+  const key = (' ' + name).toUpperCase()
+  const hit = (e: FselEntry): boolean => ((e.isDir ? '\x01' : ' ') + e.name).toUpperCase().startsWith(key)
+  let found = -1
+  if (!f.sorted) {
+    const from = (Number(d.vars[FSV.pList]) || 0) + 1
+    found = f.entries.findIndex((e, i) => i >= from && hit(e))
+  }
+  if (found < 0) found = f.entries.findIndex(hit)
+  if (found >= 0) {
+    const ty = Number(d.vars[FSV.ty]) || 0
+    const pos = Math.max(0, Math.min(found + ty, f.entries.length) - ty)
+    d.vars[FSV.pList] = pos
+    d.vars[FSV.posFirst] = pos
+  }
+  fselAffF(rt, f)
 }
