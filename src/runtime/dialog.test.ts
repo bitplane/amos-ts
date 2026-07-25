@@ -212,7 +212,62 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     clickZone(rt, 2, 'button') // Cancel
     for (let i = 0; i < 6 && rt.frame().status !== 'ended'; i++);
     expect(out()).toBe('R=.\n')
-    expect(rt.screens.has(9)).toBe(false) // selector screen closed
+    expect(rt.screens.has(Runtime.EC_FSEL)).toBe(false) // selector screen closed
+  })
+
+  it('opens at the size and position the interpreter config holds', () => {
+    // Fs_ScOpen (+Lib.s:17825) takes PI_FsDSx/FsDSy, and the window position
+    // is whatever Fs_Close last stored in PI_FsDWx/FsDWy
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    for (let i = 0; i < 5; i++) rt.frame()
+    const s = rt.screens.get(Runtime.EC_FSEL)!
+    expect([s.width, s.height]).toEqual([448, 158])
+    expect([s.displayX, s.displayY]).toEqual([129 + 48, 50 + 20])
+  })
+
+  it('follows the config when it has been changed', () => {
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    rt.pi.FsDSx = 320
+    rt.pi.FsDSy = 128
+    rt.pi.FsDWx = 200
+    rt.pi.FsDWy = 90
+    for (let i = 0; i < 5; i++) rt.frame()
+    const s = rt.screens.get(Runtime.EC_FSEL)!
+    expect([s.width, s.height, s.displayX, s.displayY]).toEqual([320, 128, 200, 90])
+  })
+
+  it('seeds the Sort/Size/Store toggles from the config', () => {
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    rt.pi.FsSort = 1
+    rt.pi.FsSize = 0
+    rt.pi.FsStore = 1
+    for (let i = 0; i < 5; i++) rt.frame()
+    const d = [...rt.dialogs.values()][0]!
+    // FsV_Sort 7, FsV_Size 8, FsV_Store 16 (+Equ.s:2189), and FsV_PosFirst
+    // starts at -1 until Fs_First finds the first file (18737)
+    expect([d.vars[7], d.vars[8], d.vars[16]]).toEqual([1, 0, 1])
+    expect(d.vars[25]).toBe(-1)
+    expect(d.vars[10]).toBe(0) // FsV_PList
+  })
+
+  it('leaves a blank title to the dialog program', () => {
+    // Fs_GetInputs (18923) tests the length word before assigning, so an
+    // empty title line is not the same as a title of ""
+    const { rt } = bootFs('F$=Fsel$("DH0:Games","","Pick one")')
+    for (let i = 0; i < 5; i++) rt.frame()
+    const d = [...rt.dialogs.values()][0]!
+    expect(d.vars[0]).toBe('Pick one') // FsV_Titre0 given
+    expect(d.vars[1]).toBe(0) // FsV_Titre1 left unset, so the script fills it
+  })
+
+  it('sets the Return-does-not-advance flag on its channel', () => {
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    for (let i = 0; i < 5; i++) rt.frame()
+    // Dia_Flags bit 4 (17858): Return in the name box reports the zone but
+    // must not jump the cursor to the path box. Only the wiring is checked
+    // here — the keystroke itself goes through Fs_Return, which is slice 6.
+    const d = [...rt.dialogs.values()][0]!
+    expect(d.noEditAdvance).toBe(true)
   })
 
   it('double-clicking a file returns its full path', () => {

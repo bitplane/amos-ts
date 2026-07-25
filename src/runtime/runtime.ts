@@ -941,12 +941,18 @@ export class Runtime {
     // Fs_OldEc (+Lib.s:17800): -1 when no screen is current, and the
     // reactivation at the end is skipped for it (`bmi .PaClo`, 18492)
     const prevScreen = this.screens.has(this.currentIndex) ? this.currentIndex : -1
-    // a system screen outside the user range 0-7 (like the 68k's Fs_ScOpen)
-    const s = new Screen(Runtime.EC_FSEL, 640, 200, res!.graphics?.nColors ?? 8, 0x8000)
+    // Fs_ScOpen (+Lib.s:18910): a system screen outside the user range 0-7,
+    // sized from the config. The 68k retries at 320x128 and drops to the
+    // cut-down Fs_LowMemory selector if even that fails; neither the 32K
+    // AvailMem cliff nor the retry is reachable here (NOTES).
+    const s = new Screen(Runtime.EC_FSEL, this.pi.FsDSx, this.pi.FsDSy, res!.graphics?.nColors ?? 8, 0x8000)
     this.screens.set(Runtime.EC_FSEL, s)
     this.order = this.order.filter((i) => i !== Runtime.EC_FSEL)
     this.order.push(Runtime.EC_FSEL)
     this.currentIndex = Runtime.EC_FSEL
+    // where the user last dragged it to — Fs_Close stores it back (18482)
+    s.displayX = this.pi.FsDWx
+    s.displayY = this.pi.FsDWy
     s.cls(0)
     if (res!.graphics) for (let i = 0; i < 32; i++) s.palette[i] = res!.graphics.palette[i]!
     let chan = 65536
@@ -966,12 +972,24 @@ export class Runtime {
     const arr: AmosArray = { type: 2, dims: [0], data: [] }
     const handle = 0x20000 + this.dialogArrays.size
     this.dialogArrays.set(handle, arr)
-    d.vars[0] = t1
-    d.vars[1] = t2
-    d.vars[10] = 0
-    d.vars[11] = handle
+    // Fs_GetInputs (+Lib.s:18923) only assigns a title when the string is
+    // non-empty (`tst.b 1(a0)` on the length word), so Fsel$ with a blank
+    // title line leaves whatever the dialog program drew for itself
+    if (t1 !== '') d.vars[0] = t1 // FsV_Titre0
+    if (t2 !== '') d.vars[1] = t2 // FsV_Titre1
+    // the three toggles start from the config and are written back to it on
+    // close (17863-17865 / Fs_Close 18469), so they persist between calls
+    d.vars[7] = this.pi.FsSort
+    d.vars[8] = this.pi.FsSize
+    d.vars[16] = this.pi.FsStore
+    d.vars[10] = 0 // FsV_PList
+    d.vars[25] = -1 // FsV_PosFirst, set by Fs_First (18737)
+    d.vars[11] = handle // FsV_Array — the magic array (17869)
     d.vars[14] = defName
     d.vars[15] = path
+    // Dia_Flags bit 4 (17858): Return still reports the edit zone but does
+    // not step on to the next one (+Lib.s:24203)
+    d.noEditAdvance = true
     this.dialogs.set(chan, d)
     this.fsel = {
       done: false,
@@ -1590,8 +1608,9 @@ export class Runtime {
       // the active edit field consumes the keyboard (LEd_Loop)
       const z = d.edited
       if (key.ch === '\r') {
-        d.ret = z.number // Return reports the edit zone
-        editNext(d, draw)
+        d.ret = z.number // Return reports the edit zone (Dia_Tests 24200)
+        // ...and moves to the next one unless Dia_Flags bit 4 says otherwise
+        if (!d.noEditAdvance) editNext(d, draw)
       } else if (key.ch === '\t') {
         editNext(d, draw)
       } else if (key.ch === '\b' || key.ch === '\x7f') {

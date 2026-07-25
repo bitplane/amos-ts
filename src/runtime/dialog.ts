@@ -211,6 +211,12 @@ export class DialogChannel {
   zones: DialogZone[] = []
   drawn = false
   frozen = false
+  /**
+   * Dia_Flags bit 4 (+Lib.s:24203): Return in an edit zone still reports the
+   * zone number, but does not advance to the next editable field. The file
+   * selector sets it so Return in the name box means "accept", not "move on".
+   */
+  noEditAdvance = false
   /** Dia_Return, read-and-cleared by =Dialog(n) */
   ret = 0
   runState: 'idle' | 'waiting' | 'done' = 'idle'
@@ -463,6 +469,13 @@ const w16 = (n: number): number => (n << 16) >> 16
  * Returns the single remaining stack value; depth != 1 at the end is a
  * dialog syntax error, exactly like `cmp.w #1,d7` at .Fini.
  */
+/**
+ * What a string is worth when a script uses it as a number. The original has
+ * a pointer there, so the only property scripts can depend on is that it is
+ * not zero (see popInt).
+ */
+const STRING_AS_ADDRESS = 1
+
 export function evalExpr(cur: Cursor, ctx: EvalContext): DialogValue {
   const stack: DialogValue[] = []
   const synt = (): never => {
@@ -477,7 +490,12 @@ export function evalExpr(cur: Cursor, ctx: EvalContext): DialogValue {
   }
   const popInt = (): number => {
     const v = pop()
-    return typeof v === 'number' ? v : 0
+    // The 68k value stack is untyped 32 bits, so a string variable's value is
+    // its address — never 0, not even for "". Scripts rely on that: the file
+    // selector's own program guards its default title with `IF 0VA 0=`,
+    // meaning "if variable 0 was never set". Coercing strings to 0 made every
+    // supplied title vanish behind the default.
+    return typeof v === 'number' ? v : STRING_AS_ADDRESS
   }
   const popStr = (): string => {
     const v = pop()
