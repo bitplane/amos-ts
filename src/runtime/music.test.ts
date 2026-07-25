@@ -382,9 +382,14 @@ describe('the MOD tracker', () => {
     const plays = audio.events.filter((e) => e.kind === 'play')
     expect(plays).toHaveLength(1)
     expect(plays[0]).toMatchObject({ voice: 0, freq: periodToHz(0x1ac), volume: 40 })
-    // the conventional 1-word repeat loops two bytes, as on the Amiga
-    expect(plays[0]!.loopStart).toBe(0)
-    expect(plays[0]!.loopEnd).toBe(2)
+    // the trigger itself carries no repeat: Tracker pokes the second half of
+    // the sample ($a0/$a4) at the top of the NEXT interrupt (+Music.s:1678)
+    expect(plays[0]!.loopStart).toBe(-1)
+    frames(rt, 1)
+    // and then the conventional 1-word repeat loops two bytes, as on the Amiga
+    const loops = audio.events.filter((e) => e.kind === 'loop')
+    expect(loops).toHaveLength(1)
+    expect(loops[0]).toMatchObject({ voice: 0, loopStart: 0, loopEnd: 2 })
     expect(rt.vuBytes[0]).toBe(40)
     expect(rt.music.mtOn).toBe(true)
   })
@@ -612,5 +617,36 @@ describe('the real Music.abk', () => {
     frames(rt, 120)
     expect(rt.music.playing).toBe(false)
     expect(audio.events.some((e) => e.kind === 'stop')).toBe(true)
+  })
+})
+
+describe('the one-vbl repeat latch (Tracker +Music.s:1678-1688)', () => {
+  it('a trigger plays the whole sample; the repeat pointers arrive next frame', () => {
+    // The interrupt sets AUDxLC/LEN to the full sample and enables DMA, then
+    // pokes the REPEAT pointers ($a0/$a4) at the top of the FOLLOWING
+    // interrupt. So the first pass always plays in full and looping only
+    // takes hold from the next vbl — writing the loop at trigger time would
+    // cut a one-shot attack short.
+    const { rt, audio } = boot('Music 1', musicBank(BASIC, { loopInst: true }))
+    frames(rt, 2)
+    const plays = audio.events.filter((e) => e.kind === 'play')
+    expect(plays).toHaveLength(1)
+    // no loop on the trigger itself
+    expect(plays[0]!.loopStart).toBe(-1)
+    expect(audio.events.filter((e) => e.kind === 'loop')).toHaveLength(0)
+
+    // the very next frame latches the repeat region
+    frames(rt, 1)
+    const loops = audio.events.filter((e) => e.kind === 'loop')
+    expect(loops).toHaveLength(1)
+    expect(loops[0]!.voice).toBe(0)
+    expect(loops[0]!.loopStart).toBeGreaterThanOrEqual(0)
+  })
+
+  it('a one-shot instrument never latches a repeat at all', () => {
+    const { rt, audio } = boot('Music 1', musicBank(BASIC))
+    frames(rt, 4)
+    expect(audio.events.filter((e) => e.kind === 'play').length).toBeGreaterThan(0)
+    expect(audio.events.filter((e) => e.kind === 'loop')).toHaveLength(0)
   })
 })

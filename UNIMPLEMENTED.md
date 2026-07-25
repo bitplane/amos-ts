@@ -110,8 +110,6 @@ saying which is how a list like this quietly becomes furniture.
   BPLCON2, and the sprite pointers: the fetch geometry comes from the
   resolved screen rather than from the registers. Register *persistence*
   across frames is done. Sprite priority and dual playfield are done.
-- The players trigger notes immediately instead of after the one-vbl DMA
-  latch gap, and a 2-byte repeat region plays silence.
 - `Border$` box glyphs are drawn approximations (the AMOS charset binary is
   not in the source tree — but it may be recoverable from a real install).
 
@@ -123,8 +121,10 @@ saying which is how a list like this quietly becomes furniture.
 - **Med Play** reimplements the public MMD0/MMD1 format — the replay
   lived in medplayer.library, which is not in the AMOS source;
   synthsounds are silent and CIA timing is vbl-granular.
-- **The players** start note triggers immediately instead of after
-  the one-vbl DMA latch gap; a 2-byte repeat region plays silence.
+- **The players** model the one-vbl repeat latch (the trigger plays the
+  whole sample, the repeat pointers arrive next interrupt). The
+  ~5-scanline DMA-off/DMA-on wait inside a single frame is sub-frame
+  timing a vbl-granular player cannot express.
 - **Request On/Off/Wb** store the mode; no system requesters exist in
   the port.
 - **Fonts**: real Amiga diskfonts render when a `Fonts:` drawer is

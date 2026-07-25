@@ -941,9 +941,11 @@ export const NOTES: Record<string, string> = {
   'wind size': 'resizes without preserving content',
   border: 'all styles render as the same simple frame',
   'sam raw': 'unmapped addresses play nothing (the real machine plays whatever memory holds)',
-  music: 'note triggers start immediately instead of after the one-vbl DMA-off gap; a 2-byte repeat region plays silence rather than looping its two bytes',
+  music:
+    'the one-vbl repeat latch is modelled: a trigger enables DMA over the whole sample and the repeat pointers are poked at the top of the next interrupt (Tracker +Music.s:1678-1688), so the first pass always plays in full. Remaining: the ~5-scanline wait between DMA-off and DMA-on inside a single frame (mt_music +Music.s:1774) is sub-frame timing this vbl-granular player cannot express',
   mubase: 'only the vumeter bytes (MB+0..3) of the data zone are mapped',
-  'track play': 'triggers skip the one-vbl DMA latch gap; the pattern argument is ignored ("not supported in this version" in the 68k too)',
+  'track play':
+    'the one-vbl repeat latch is modelled (see music); the pattern argument is ignored ("not supported in this version" in the 68k too)',
   'med play': 'the replay reimplements the MMD0/MMD1 format (medplayer.library is not in the AMOS source): sampled instruments and the common effect subset; synthsounds are silent; CIA timing approximated at vbl granularity',
   'med midi on': 'flag stored; no MIDI output exists in the port',
   'sam swap': 'the swap is consumed when a one-shot ends; on a looping voice the Amiga swaps at the loop boundary, here it stays pending',

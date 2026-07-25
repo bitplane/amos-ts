@@ -393,6 +393,9 @@ export class MusicPlayer {
 
   /** one tempo wrap: count down the voices, step those that hit zero */
   private stepTick(s: MuSong): void {
+    // the deferred repeat pointers land before this frame's note work, as
+    // they do at the top of the Tracker interrupt
+    this.latchPendingLoops()
     let active = 0
     for (let v = 0; v < 4; v++) {
       const V = s.voices[v]!
@@ -612,7 +615,30 @@ export class MusicPlayer {
     const region = this.instrumentPcm(V.inst, false)
     if (!region) return
     const hz = periodToHz(V.ptone ? V.note || per : per)
-    this.play(v, region.pcm, hz, V.vol, region.loopStart, region.loopEnd)
+    // The trigger sets AUDxLC/LEN to the whole sample and enables DMA; the
+    // REPEAT pointers are not written until the top of the next interrupt
+    // (Tracker +Music.s:1678-1688 pokes $a0/$a4 from mt_voice before calling
+    // mt_music). So the first pass always plays the full sample, and looping
+    // only takes hold from the following vbl.
+    this.play(v, region.pcm, hz, V.vol, -1, region.pcm.length)
+    this.pendingLoop[v] = region.loopStart >= 0 ? { start: region.loopStart, end: region.loopEnd } : null
+  }
+
+  /**
+   * Repeat pointers waiting for the next vbl, one per voice — Paula latches
+   * AUDxLC/AUDxLEN when the current pass ends, so writing them a frame late
+   * is what makes the first pass play in full before the loop takes over.
+   */
+  private pendingLoop: Array<{ start: number; end: number } | null> = [null, null, null, null]
+
+  /** Poke the deferred repeat pointers (the top of Tracker's interrupt). */
+  private latchPendingLoops(): void {
+    for (let v = 0; v < 4; v++) {
+      const p = this.pendingLoop[v]
+      if (!p) continue
+      this.pendingLoop[v] = null
+      this.host.audio.setLoop(v, p.start, p.end)
+    }
   }
 
   /**
@@ -1083,6 +1109,9 @@ export class MusicPlayer {
       this.trackStop()
       return
     }
+    // "Poke les deuxiemes parties des samples" — the deferred repeat
+    // pointers go in before mt_music runs (+Music.s:1678-1688)
+    this.latchPendingLoops()
     this.mtMusic()
     if (this.trackStopFlag) this.trackStop() // Tracker exit (+Music.s:1694)
   }
@@ -1187,7 +1216,11 @@ export class MusicPlayer {
       loopStart = V.loopStart - V.start
       loopEnd = Math.min(pcm.length, loopStart + loopBytes)
     }
-    this.play(v, pcm, periodToHz(V.period), V.volume, loopStart, loopEnd)
+    // as in the bank player: the trigger enables DMA over the whole sample
+    // and the repeat pointers are poked at the top of the NEXT interrupt
+    // (Tracker +Music.s:1678-1688), so the first pass always plays in full
+    this.play(v, pcm, periodToHz(V.period), V.volume, -1, pcm.length)
+    this.pendingLoop[v] = loopStart >= 0 ? { start: loopStart, end: loopEnd } : null
   }
 
   /** mt_com2 (+Music.s:2047): row commands */
