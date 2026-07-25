@@ -13,30 +13,36 @@ tested against our own understanding. Percentages exclude n/a
 |---|---|---|---|---|---|
 | amal | 13 | 12 | 0 | 1 | 92% |
 | amal-stos | 10 | 10 | 0 | 0 | 100% |
+| amospro-compact-2.0 | 3 | 1 | 0 | 2 | 33% |
+| amospro-compiler-2.0 | 15 | 10 | 1 | 0 | 100% |
+| amospro-ioports-2.0 | 38 | 0 | 0 | 38 | 0% |
+| amospro-music-2.0 | 49 | 41 | 1 | 7 | 86% |
+| amospro-request-2.0 | 3 | 0 | 3 | 0 | 100% |
 | banks | 20 | 19 | 1 | 0 | 100% |
-| compact | 3 | 1 | 0 | 2 | 33% |
-| compiler | 15 | 10 | 1 | 0 | 100% |
 | copper | 8 | 8 | 0 | 0 | 100% |
 | drawing | 16 | 16 | 0 | 0 | 100% |
 | files | 23 | 21 | 0 | 0 | 100% |
 | flow | 12 | 10 | 2 | 0 | 100% |
+| gui-1.61 | 103 | 0 | 0 | 103 | 0% |
 | input | 18 | 17 | 1 | 0 | 100% |
 | interface | 25 | 22 | 2 | 1 | 96% |
-| ioports | 38 | 0 | 0 | 38 | 0% |
+| intuition-1.3b | 183 | 0 | 0 | 183 | 0% |
 | language | 250 | 223 | 6 | 11 | 95% |
+| ldos-2.5 | 77 | 0 | 0 | 77 | 0% |
 | memory | 14 | 12 | 2 | 0 | 100% |
 | menus | 24 | 24 | 0 | 0 | 100% |
-| music | 49 | 41 | 1 | 7 | 86% |
+| misc-1.0 | 12 | 0 | 0 | 12 | 0% |
 | objects | 56 | 55 | 1 | 0 | 100% |
 | palette | 9 | 9 | 0 | 0 | 100% |
+| personal-1.0b | 105 | 0 | 0 | 105 | 0% |
 | rainbows | 3 | 3 | 0 | 0 | 100% |
-| request | 3 | 0 | 3 | 0 | 100% |
 | screens | 31 | 29 | 1 | 0 | 100% |
 | system | 41 | 13 | 0 | 0 | 100% |
 | text-io | 37 | 36 | 1 | 0 | 100% |
+| turbo-plus-1.0 | 134 | 0 | 0 | 134 | 0% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 732 | 605 | 22 | 60 | 91% |
+| **total** | 1346 | 605 | 22 | 674 | 48% |
 
 ## amal (92%)
 
@@ -47,21 +53,35 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `anim` *(string programs only — bank program numbers unsupported, like amal)*, `anim freeze`, `anim off`, `anim on`, `move freeze`, `move off`, `move on`, `move x` *(string programs only — bank program numbers unsupported, like amal)*, `move y` *(string programs only — bank program numbers unsupported, like amal)*, `movon`
 
-## banks (100%)
-
-- **faithful**: `bank shrink`, `bank swap`, `bank to menu`, `bgrab` *(the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply)*, `blength` *(the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply)*, `bload` *(bounded by the destination region; the real machine would overrun into raw memory)*, `bsave`, `bsend` *(the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply)*, `bstart` *(the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply)*, `erase`, `erase all`, `erase temp`, `length`, `list bank`, `reserve as chip data`, `reserve as chip work`, `reserve as data`, `reserve as work`, `reserve zone`
-- **approximated**: `start` *(fake address space: Start()-relative arithmetic works, absolute hardware addresses do not)*
-
-## compact (33%)
+## amospro-compact-2.0 (33%)
 
 - **faithful**: `unpack`
 - **missing**: `pack`, `spack`
 
-## compiler (100%)
+## amospro-compiler-2.0 (100%)
 
 - **faithful**: `comp err$`, `comp here` *(no native compiler overlay can load in the web port — always 0)*, `comp options`, `comp size`, `comp test`, `comp test off`, `comp test on`, `ppload` *(PP20 decoder verified against genuine PowerPacker output (a real crunched AmigaGuide decodes byte-for-byte) and against two independent reference decoders; the real crunch algorithm is a ROM library, not in the AMOS source, so this is a from-format reimplementation of a verified-correct decoder rather than a source port. Bob/icon object banks unsupported.)*, `squash` *(decodes/encodes the exact Squasher format; the encoder uses a greedy longest-match rather than ST Squasher's pre-scan heuristic, so packed size may differ)*, `unsquash`
 - **approximated**: `ppsave` *(Writes a valid PP20 file — proven decodable by an independent reference decoder — but NOT bit-identical to real PowerPacker output: powerpacker.library makes different (better) crunch choices, and its encoder is not in the AMOS source, so byte-exact parity is unverifiable. The efficiency argument is validated but the offset table is fixed; bob/icon banks unsupported.)*
 - **n/a**: `cmpcall`, `comp del`, `comp load`, `compile`
+
+## amospro-ioports-2.0 (0%)
+
+- **missing**: `parallel abort`, `parallel base`, `parallel check`, `parallel close`, `parallel error`, `parallel input$`, `parallel open`, `parallel out`, `parallel send`, `parallel status`, `printer abort`, `printer base`, `printer check`, `printer close`, `printer dump`, `printer error`, `printer online`, `printer open`, `printer out`, `printer send`, `serial abort`, `serial base`, `serial bits`, `serial buf`, `serial check`, `serial close`, `serial error`, `serial fast`, `serial get`, `serial input$`, `serial open`, `serial out`, `serial parity`, `serial send`, `serial slow`, `serial speed`, `serial status`, `serial x`
+
+## amospro-music-2.0 (86%)
+
+- **faithful**: `bell`, `boom`, `del wave`, `led off` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `led on` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `med cont`, `med load`, `med midi on` *(flag stored; no MIDI output exists in the port)*, `med stop`, `mubase` *(only the vumeter bytes (MB+0..3) of the data zone are mapped)*, `music` *(note triggers start immediately instead of after the one-vbl DMA-off gap; a 2-byte repeat region plays silence rather than looping its two bytes)*, `music off`, `music stop`, `mvolume`, `noise to` *(the WebAudio sink snapshots the noise buffer at trigger; the per-vbl random refresh mutates the live buffer as on the Amiga but is only re-heard on retrigger there)*, `play`, `play off`, `sam bank`, `sam loop off`, `sam loop on`, `sam play`, `sam raw` *(unmapped addresses play nothing (the real machine plays whatever memory holds))*, `sam stop`, `sam swap` *(the swap is consumed when a one-shot ends; on a looping voice the Amiga swaps at the loop boundary, here it stays pending)*, `sam swapped` *(chunk-granularity 0 state (Sami_pos == one chunk) is not modelled)*, `sample`, `set envel`, `set wave`, `shoot`, `sload`, `ssave`, `tempo`, `track load`, `track loop of`, `track loop on`, `track play` *(triggers skip the one-vbl DMA latch gap; the pattern argument is ignored ("not supported in this version" in the 68k too))*, `track stop`, `voice`, `volume`, `vumeter`, `wave`
+- **approximated**: `med play` *(the replay reimplements the MMD0/MMD1 format (medplayer.library is not in the AMOS source): sampled instruments and the common effect subset; synthsounds are silent; CIA timing approximated at vbl granularity)*
+- **missing**: `mouth height`, `mouth read`, `mouth width`, `say`, `set talk`, `talk misc`, `talk stop`
+
+## amospro-request-2.0 (100%)
+
+- **approximated**: `request off` *(stored — the port never shows system requesters)*, `request on` *(stored — the port never shows system requesters)*, `request wb` *(stored — the port never shows system requesters)*
+
+## banks (100%)
+
+- **faithful**: `bank shrink`, `bank swap`, `bank to menu`, `bgrab` *(the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply)*, `blength` *(the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply)*, `bload` *(bounded by the destination region; the real machine would overrun into raw memory)*, `bsave`, `bsend` *(the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply)*, `bstart` *(the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply)*, `erase`, `erase all`, `erase temp`, `length`, `list bank`, `reserve as chip data`, `reserve as chip work`, `reserve as data`, `reserve as work`, `reserve zone`
+- **approximated**: `start` *(fake address space: Start()-relative arithmetic works, absolute hardware addresses do not)*
 
 ## copper (100%)
 
@@ -81,6 +101,10 @@ tested against our own understanding. Percentages exclude n/a
 - **faithful**: `end`, `end if`, `end proc`, `every` *(fires at each statement rather than only at control points, and after (not during) a Wait — a timing nuance tied to the blocking model)*, `every off`, `every on`, `stop`, `wait`, `wait key`, `wait vbl`
 - **approximated**: `direct` *(InDirect +ILib.s:1866 returns to direct mode (run-error 1001); no direct window exists in the port, so the program halts)*, `edit` *(InEdit +ILib.s:1858 returns to the AMOS editor (run-error 1000); there is no editor in the port, so the program halts)*
 
+## gui-1.61 (0%)
+
+- **missing**: `gui activate`, `gui actual`, `gui amiga`, `gui amos`, `gui asl font`, `gui asl screen`, `gui asl$`, `gui bank`, `gui bar`, `gui beep`, `gui border`, `gui close`, `gui cls`, `gui clw`, `gui code`, `gui code$`, `gui dir$`, `gui draw`, `gui draw to`, `gui ellipse`, `gui event`, `gui exist`, `gui file$`, `gui gad adr`, `gui gad height`, `gui gad width`, `gui gfx`, `gui height`, `gui iconify`, `gui in height`, `gui in width`, `gui ink`, `gui key shift`, `gui kind`, `gui len`, `gui lock`, `gui menu`, `gui mouse x`, `gui mouse y`, `gui move`, `gui off`, `gui on`, `gui open`, `gui os`, `gui paper`, `gui paste block`, `gui paste bob`, `gui paste icon`, `gui pen`, `gui range`, `gui read`, `gui read$`, `gui remember off`, `gui remember on`, `gui req`, `gui reset`, `gui resize`, `gui scroll`, `gui sensitive off`, `gui sensitive on`, `gui set`, `gui sh`, `gui sw`, `gui sx`, `gui sy`, `gui text`, `gui titles`, `gui to back`, `gui to front`, `gui uniconify`, `gui unlock`, `gui wait`, `gui wait vbl`, `gui width`, `gui window`, `gui writing`, `gui x`, `gui x font`, `gui x gad`, `gui y`, `gui y font`, `gui y gad`, `tcp buffer`, `tcp channel`, `tcp check`, `tcp close`, `tcp code`, `tcp count`, `tcp error`, `tcp f open`, `tcp get`, `tcp limit`, `tcp open`, `tcp packet`, `tcp put`, `tcp put$`, `tcp read`, `tcp reset`, `tcp send`, `tcp send$`, `tcp time`, `tcp trash`, `tcp type`
+
 ## input (100%)
 
 - **faithful**: `change mouse`, `clear key`, `fire`, `inkey$`, `jdown`, `jleft`, `joy`, `jright`, `jup`, `key shift` *(CapsLock reflects the physical key, not the latched toggle)*, `key state`, `mouse click`, `mouse key`, `mouse screen` *(returns -1 when the pointer is over no screen (68k: EntNul))*, `mouse zone` *(zones are a single global table, not per-screen (EcAZones))*, `scancode`, `scanshift`
@@ -92,9 +116,9 @@ tested against our own understanding. Percentages exclude n/a
 - **approximated**: `fsel$` *(the real bank dialog driven by a TS controller: Store and keyboard qualifiers unhandled, sizes/sort approximated)*, `resource$` *(-1..-1000 read the transcribed interpreter-config messages (Sys_Messages); the editor message tables (-1001 and deeper) return "")*
 - **missing**: `psel$`
 
-## ioports (0%)
+## intuition-1.3b (0%)
 
-- **missing**: `parallel abort`, `parallel base`, `parallel check`, `parallel close`, `parallel error`, `parallel input$`, `parallel open`, `parallel out`, `parallel send`, `parallel status`, `printer abort`, `printer base`, `printer check`, `printer close`, `printer dump`, `printer error`, `printer online`, `printer open`, `printer out`, `printer send`, `serial abort`, `serial base`, `serial bits`, `serial buf`, `serial check`, `serial close`, `serial error`, `serial fast`, `serial get`, `serial input$`, `serial open`, `serial out`, `serial parity`, `serial send`, `serial slow`, `serial speed`, `serial status`, `serial x`
+- **missing**: `aga`, `amos iscreen copy`, `ecs`, `ehb`, `ham`, `i flush`, `i_creen`, `i_indow`, `ibar`, `ibox`, `icentre`, `ichoice`, `icircle`, `iclear all`, `iclear key`, `iclear menu`, `iclear mouse`, `icls`, `iclw`, `icolour`, `idraw`, `idraw to`, `iellipse`, `ierr`, `ierr$`, `ierror`, `ierrtrap`, `ievent close`, `ievent data`, `ievent gadget`, `ievent key`, `ievent menu`, `ievent mouse`, `ievent vbl`, `ifont base`, `ifont height`, `ifont$`, `igadget active`, `igadget down`, `igadget inactive`, `igadget off`, `igadget on`, `igadget read`, `igadget read$`, `iget icon`, `iget icon palette`, `iget sprite palette`, `iget$`, `igr writing`, `iink`, `ilocate`, `ilocate gr`, `imenu off`, `imenu on`, `imouse key`, `imouse x`, `imouse y`, `ipalette`, `ipaste icon`, `iplot`, `ipoint`, `iread char$`, `iread int`, `iread str$`, `ireq scr colour`, `ireq scr height`, `ireq scr mode`, `ireq scr width`, `irequest def title`, `irequest error`, `irequest file multi$`, `irequest file next$`, `irequest file$`, `irequest font$`, `irequest message`, `irequest screen`, `irequest warning`, `iscan`, `iscreen`, `iscreen amos copy`, `iscreen base`, `iscreen close`, `iscreen colour`, `iscreen copy`, `iscreen display`, `iscreen height`, `iscreen mode`, `iscreen offset`, `iscreen open`, `iscreen open back`, `iscreen open front`, `iscreen open public`, `iscreen title height`, `iscreen to back`, `iscreen to front`, `iscreen width`, `iscreen_open`, `ishift`, `itext`, `itext base`, `itext length`, `itrap off`, `itrap on`, `iwait`, `iwait event`, `iwait event vbl`, `iwait key`, `iwait mouse`, `iwait vbl`, `iwindow`, `iwindow activate`, `iwindow activate wb`, `iwindow active`, `iwindow active base`, `iwindow active num`, `iwindow actual height`, `iwindow actual width`, `iwindow base`, `iwindow close`, `iwindow close wb`, `iwindow height`, `iwindow height wb`, `iwindow move`, `iwindow move wb`, `iwindow on wb`, `iwindow open`, `iwindow open wb`, `iwindow size`, `iwindow size wb`, `iwindow status`, `iwindow status wb`, `iwindow to back`, `iwindow to back wb`, `iwindow to front`, `iwindow to front wb`, `iwindow width`, `iwindow width wb`, `iwindow x`, `iwindow x wb`, `iwindow y`, `iwindow y wb`, `iwindow_height`, `iwindow_move`, `iwindow_open`, `iwindow_open wb`, `iwindow_size`, `iwindow_status`, `iwindow_to back`, `iwindow_to front`, `iwindow_width`, `iwindow_x`, `iwindow_y`, `iwrite`, `ixgr`, `iygr`, `reqtools here`, `reserve igadget`, `set icolour`, `set ifont`, `set igadget hit`, `set igadget hslider`, `set igadget int`, `set igadget string`, `set igadget toggle`, `set igadget value`, `set igadget value$`, `set igadget vslider`, `set imenu`, `set ipens`, `set iscreen`, `set iscreen title`, `set iwindow`, `set iwindow title`, `set iwindow wb`, `set_iscreen`, `set_iwindow`, `superhires`, `x hard min`, `x ihard`, `x iscreen`, `y hard min`, `y ihard`, `y iscreen`
 
 ## language (95%)
 
@@ -102,6 +126,10 @@ tested against our own understanding. Percentages exclude n/a
 - **approximated**: `chip free` *(FnChipFree +Lib.s:2510 queries exec AvailMem(MEMF_CHIP); no Amiga memory manager in the port — returns a nominal figure)*, `fast free` *(FnFastFree +Lib.s:2517 queries exec AvailMem(MEMF_FAST); no Amiga memory manager in the port — returns a nominal figure)*, `free` *(FnFree +Lib.s:13600 garbage-collects then reports TabBas-HiChaine (free variable space); no variable arena exists here — returns a nominal figure)*, `load iff` *(HAM/EHB decode and render correctly; not byte-verified against the 68k IFF loader)*, `set bob` *(the back mode is honoured; planes and mask arguments are ignored)*, `set pattern` *(system patterns come from the machine mouse bank (fixtures/machine); without it, dither stand-ins)*
 - **missing**: `@_apml_@`, `as`, `follow`, `follow off`, `hardcol`, `ldir`, `ldir/w`, `prun`, `read text`, `set accessory`, `set hardcol`
 - **n/a**: `,`, `\\\\\\\\\\\\\\\/`, `arexx$`, `ask editor`, `equ`, `include`, `monitor`, `struc`, `struc$`, `||apcmp||`
+
+## ldos-2.5 (0%)
+
+- **missing**: `lansi`, `lback hunt`, `lbstr`, `lcat blocks`, `lcat comment`, `lcat first`, `lcat next`, `lcat prot`, `lcat pull`, `lcat push`, `lcat size`, `lcat stamp`, `lcat type`, `lchk boot`, `lchk data`, `lclose`, `lcreate`, `lcrypt`, `lcust freq`, `ldate`, `ldecrypt`, `ldelete var`, `ldev first`, `ldev next`, `ldevice`, `ldevice close`, `ldevice error`, `ldevice open`, `ldisk font`, `lexecute`, `lfile type`, `lfilter`, `lfontsize freq`, `lfreq`, `lget comment`, `lget freq dir`, `lget freq file`, `lget prot`, `lget var`, `llargest free`, `lldir$`, `lload`, `llobuffer`, `lmatch`, `lold`, `lopen`, `lpos freq`, `lpp decrunch`, `lpp mem`, `lreplace`, `lrexx execute`, `lrexx get msg`, `lrexx make host`, `lrexx remove host`, `lrexx reply`, `lrexx result1`, `lrexx result2`, `lrexx send msg`, `lrun`, `lsave`, `lseek`, `lset comment`, `lset eoln`, `lset file date`, `lset freq dir`, `lset prot`, `lset var`, `lsize`, `lskip`, `lstamp`, `lstr`, `lsys stamp`, `lsys time`, `lupbuffer`, `lwild`, `lword`, `lwords`
 
 ## memory (100%)
 
@@ -112,11 +140,9 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `menu active`, `menu bar`, `menu base`, `menu calc`, `menu called` *(items redraw every frame; (PR name) label procedures are not invoked)*, `menu del`, `menu inactive`, `menu item movable` *(drag applies final positions — no XOR rubber band)*, `menu item static`, `menu key`, `menu line`, `menu link`, `menu mouse off`, `menu mouse on`, `menu movable` *(drag applies final positions — no XOR rubber band)*, `menu off`, `menu on`, `menu once`, `menu separate`, `menu static`, `menu tline`, `menu to bank`, `on menu`, `x menu`
 
-## music (86%)
+## misc-1.0 (0%)
 
-- **faithful**: `bell`, `boom`, `del wave`, `led off` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `led on` *(filter flag reaches the sink; audibility depends on the host audio implementation)*, `med cont`, `med load`, `med midi on` *(flag stored; no MIDI output exists in the port)*, `med stop`, `mubase` *(only the vumeter bytes (MB+0..3) of the data zone are mapped)*, `music` *(note triggers start immediately instead of after the one-vbl DMA-off gap; a 2-byte repeat region plays silence rather than looping its two bytes)*, `music off`, `music stop`, `mvolume`, `noise to` *(the WebAudio sink snapshots the noise buffer at trigger; the per-vbl random refresh mutates the live buffer as on the Amiga but is only re-heard on retrigger there)*, `play`, `play off`, `sam bank`, `sam loop off`, `sam loop on`, `sam play`, `sam raw` *(unmapped addresses play nothing (the real machine plays whatever memory holds))*, `sam stop`, `sam swap` *(the swap is consumed when a one-shot ends; on a looping voice the Amiga swaps at the loop boundary, here it stays pending)*, `sam swapped` *(chunk-granularity 0 state (Sami_pos == one chunk) is not modelled)*, `sample`, `set envel`, `set wave`, `shoot`, `sload`, `ssave`, `tempo`, `track load`, `track loop of`, `track loop on`, `track play` *(triggers skip the one-vbl DMA latch gap; the pattern argument is ignored ("not supported in this version" in the 68k too))*, `track stop`, `voice`, `volume`, `vumeter`, `wave`
-- **approximated**: `med play` *(the replay reimplements the MMD0/MMD1 format (medplayer.library is not in the AMOS source): sampled instruments and the common effect subset; synthsounds are silent; CIA timing approximated at vbl granularity)*
-- **missing**: `mouth height`, `mouth read`, `mouth width`, `say`, `set talk`, `talk misc`, `talk stop`
+- **missing**: `clear ram`, `disk wait`, `display off`, `display on`, `dled off`, `dled on`, `firewait`, `mouse off`, `multi off`, `multi on`, `pal on`, `reset`
 
 ## objects (100%)
 
@@ -127,13 +153,13 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `colour`, `colour back`, `fade`, `flash`, `flash off`, `palette`, `shift down`, `shift off`, `shift up` *(one shift per screen (the original has a single global shift); omitted wrap-flag defaults to wrap)*
 
+## personal-1.0b (0%)
+
+- **missing**: `active copper`, `active second screen`, `aga erase icon`, `aga get icon`, `aga icon base`, `aga icon load`, `aga icon save`, `aga off`, `aga paste icon`, `aga reserve icon`, `allow plane col`, `attribute palette`, `blit mask`, `blitter copy`, `c mplot`, `change palette`, `cmap base`, `copper base`, `copper line`, `copper next line`, `copper wait line`, `create aga`, `create standard`, `double mask`, `f set sprite buffer`, `f sprite`, `fade palette`, `fc cos`, `fc sin`, `fc tan`, `fire(1,2)`, `fire(1,3)`, `forbid plane col`, `get even sprite`, `get odd sprite`, `ham mode`, `iff color`, `iff convert`, `iff planes`, `iff x size`, `iff y size`, `iff4bits palette to copper`, `iff8bits palette to copper`, `iff8bits to iff4bits`, `inverse playfields`, `l blit mask`, `l double mask`, `low filter.b`, `low filter.l`, `low filter.w`, `lsr zone`, `mosaic x16`, `mosaic x2`, `mosaic x32`, `mosaic x4`, `mosaic x8`, `mplot base`, `mplot c define`, `mplot define`, `mplot dpf1 draw`, `mplot dpf2 draw`, `mplot draw`, `mplot erase`, `mplot load`, `mplot modify`, `mplot origin`, `mplot planes`, `mplot reserve`, `mplot save`, `mplot x define`, `mplot y define`, `new color value`, `normal playfields`, `octets fill`, `pf sprites col`, `plane base`, `playfields col`, `right click`, `s32 block to screen`, `s32 vertice to screen`, `screen position`, `screen x size`, `screen y size`, `second y size`, `set aga color`, `set color`, `set d plane`, `set dual mode`, `set dual palette`, `set lace`, `set ntsc`, `set pal`, `set plane`, `set resolution`, `set screen sizes`, `set second color`, `set second planes`, `set second view`, `set view planes`, `swap planes`, `test`, `vb line wait`, `x fade`, `x mplot`, `y mplot`
+
 ## rainbows (100%)
 
 - **faithful**: `rain`, `rainbow` *(rendered per scanline by the copper-walk compositor across the PAL overscan window (hardware lines 26-311))*, `rainbow del`
-
-## request (100%)
-
-- **approximated**: `request off` *(stored — the port never shows system requesters)*, `request on` *(stored — the port never shows system requesters)*, `request wb` *(stored — the port never shows system requesters)*
 
 ## screens (100%)
 
@@ -150,6 +176,10 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `cdown`, `centre` *(Border$ escapes inside the text are printed, not measured, when centring)*, `cleft`, `cline`, `cls`, `cmove`, `cright`, `cup`, `curs off`, `curs on`, `curs pen`, `home`, `inverse off`, `inverse on`, `locate`, `memorize x`, `memorize y`, `paper`, `pen`, `print` *(Print # channels unsupported)*, `print #`, `remember x`, `remember y`, `scroll`, `scroll off`, `scroll on`, `shade off`, `shade on` *(dither approximates the original shading)*, `tab$`, `text` *(single 8x8 face whatever Set Font selects; soft styles are synthesized approximations)*, `text base`, `text length`, `text styles`, `under off`, `under on`, `using` *(the '^' scientific-exponent slot is left literal (mantissa normalisation unverified))*
 - **approximated**: `lprint` *(InLPrint +ILib.s:5067 routes Print to the printer device; no printer host, so the arguments are evaluated (for side effects) then discarded)*
+
+## turbo-plus-1.0 (0%)
+
+- **missing**: `amos pri`, `bank end`, `between`, `bit field ext`, `bit field ins`, `blit clear`, `blit erase`, `blit int change`, `blit int off`, `blit int on`, `blit int wait`, `blit left`, `blit speed`, `blit store left`, `blit store up`, `blit up`, `build static block`, `byte hunt`, `check`, `check erase`, `cpu info`, `debug`, `define attr`, `define draw`, `define move`, `define star`, `define stop`, `display stars`, `eye 3d`, `f 16 icon`, `f 16proc icon`, `f 32 icon`, `f 32proc icon`, `f circle`, `f draw`, `f paste icon`, `f plot`, `f point`, `f put block`, `f put static block`, `f sqr`, `hit bob check`, `hit bob zone`, `hit spr check`, `hit spr zone`, `icon check`, `l swap`, `left click`, `line 3d`, `lsl.b`, `lsl.l`, `lsl.w`, `lsr.b`, `lsr.l`, `lsr.w`, `math info`, `memory fill`, `multi blit`, `multi no`, `multi yes`, `object draw`, `object erase`, `object limit`, `object load`, `object mag draw`, `object save`, `plane offset`, `plane shift down`, `plane shift up`, `plane swap`, `plane update`, `planes icon`, `r bar`, `r box`, `r draw`, `r home`, `r move`, `r object draw`, `r object mag draw`, `range`, `raw key`, `reserve check`, `reserve object`, `reserve stars`, `reserve static block`, `reset check`, `scene 16 bottom`, `scene 16 change`, `scene 16 check`, `scene 16 def`, `scene 16 do`, `scene 16 draw`, `scene 16 left`, `scene 16 limit`, `scene 16 restore`, `scene 16 right`, `scene 16 top`, `scene 16 view`, `scene 32 bottom`, `scene 32 change`, `scene 32 check`, `scene 32 do`, `scene 32 draw`, `scene 32 left`, `scene 32 right`, `scene 32 top`, `scene 32 view`, `scene bank`, `scene change`, `scene check`, `scene icon bank`, `scene load`, `scene mask palette`, `scene palette`, `scene x`, `scene y`, `set check`, `set planes`, `stars clip`, `stars compute`, `stars draw`, `stars erase`, `stars int off`, `stars int on`, `stars speed`, `static block erase`, `t clip`, `test.b`, `test.w`, `texp`, `vbl wait`, `workbench open`, `x icon`, `y icon`
 
 ## windows (100%)
 

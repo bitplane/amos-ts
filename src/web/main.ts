@@ -6,7 +6,8 @@
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { tokenize } from '../tokens/tokenizer'
-import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
+import { CORE_TOKENS } from '../tokens/tables.gen'
+import { extensionTablesFor } from '../ext/identify'
 import { Runtime } from '../runtime/runtime'
 import { AmosRuntimeError } from '../interp/interp'
 import { WebAudioSink } from './audio'
@@ -14,7 +15,6 @@ import { AmigaFS } from '../runtime/vfs'
 import { readArchive, volumeFromEntries } from '../runtime/archive'
 
 const table = new TokenTable(CORE_TOKENS)
-const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
 
 const canvas = document.getElementById('screen') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')!
@@ -153,7 +153,7 @@ function load(bytes: Uint8Array, name: string): void {
     const isAmos = /^AMOS (Basic|Pro)/.test(new TextDecoder('latin1').decode(bytes.subarray(0, 16)))
     const amos = isAmos ? parseAmosFile(bytes) : null
     const lines = amos ? parseSource(amos.source, table) : tokenize(new TextDecoder('latin1').decode(bytes), table)
-    rt = new Runtime(lines, table, { extensions, onUnimplemented: 'skip', banks: amos?.banks ?? [], audio, fs: vfs })
+    rt = new Runtime(lines, table, { extensions: extensionTablesFor(lines), onUnimplemented: 'skip', banks: amos?.banks ?? [], audio, fs: vfs })
     if (systemResource) rt.loadSystemResource(systemResource)
     if (mouseBank) rt.loadMouseBank(mouseBank)
   } catch (e) {

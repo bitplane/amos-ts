@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest'
 import { parseAmosFile } from './loader/amosfile'
 import { parseSource, TokenTable } from './tokens/stream'
 import { detokSource } from './tokens/detok'
-import { CORE_TOKENS, EXTENSION_TOKENS } from './tokens/tables.gen'
+import { CORE_TOKENS } from './tokens/tables.gen'
+import { extensionTablesFor } from './ext/identify'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures')
 
@@ -34,8 +35,8 @@ describe.skipIf(!existsSync(fixtures))('fixture corpus', () => {
     const file = join(fixtures, 'official-amos', 'Examples', 'Examples', 'H-1', 'Help_19.AMOS')
     const amos = parseAmosFile(readFileSync(file))
     const table = new TokenTable(CORE_TOKENS)
-    const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
-    const listing = detokSource(parseSource(amos.source, table), table, { extensions })
+    const lines = parseSource(amos.source, table)
+    const listing = detokSource(lines, table, { extensions: extensionTablesFor(lines) })
     expect(listing).toContain('Screen Open 0,320,200,16,Lowres')
     expect(listing).toContain('For D=1 To 8')
     expect(listing).toContain('Set Curs L(1),L(2),L(3),L(4),L(5),L(6),L(7),L(8)')

@@ -1,0 +1,24 @@
+{
+  "id": "personal-1.0b",
+  "name": "Personnal Extension",
+  "version": "1.0b",
+  "author": "unknown",
+  "source": "binary",
+  "library": "AMOSPro_Personnal.Lib",
+  "sha256": "c6b749b4d43cd4cca11dd7c386d29e572f4db716f3f45d18765ab6678d6ef81d",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "source",
+  "docs": ["AMOSPro_Personnal.Lib.s"],
+  "titleStrings": [
+    "Amos1.3/AmosPro Personnal Extension V1.0b",
+    "Amos 1.3 ET Amos Professionnal Personnal library"
+  ],
+  "observedSlots": [],
+  "provenance": {
+    "from": "AMOS-Professional-Official/extensions/Personal-1.1a",
+    "note": "Distributed in a folder named 'Personal-1.1a' but the binary identifies itself as V1.0b and its own banner calls it the SHAREWARE demonstration version. The binary's self-report is taken as authoritative. Builds for both AMOS 1.3 and AMOS Professional.",
+    "redistribution": "Shareware demonstration version; ships with the AMOS Professional source release."
+  },
+  "notes": "Full assembler source ships alongside the binary, so behaviour can be read directly rather than inferred — the only third-party extension here besides Intuition with source-grade evidence. No corpus program uses it, so the legacy id base is assumed rather than calibrated."
+}

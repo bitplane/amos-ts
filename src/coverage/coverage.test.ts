@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
-import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
+import { CORE_TOKENS } from '../tokens/tables.gen'
+import { EXTENSION_TOKENS } from '../ext/registry'
 import { INSTR, FUNCS, RAWFUNCS } from '../interp/builtins'
 import { makeInstructions, makeFunctions, makeRawFunctions } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'

@@ -1,0 +1,21 @@
+{
+  "id": "turbo-plus-1.0",
+  "name": "TURBO Plus Extension",
+  "version": "1.0",
+  "author": "unknown",
+  "source": "binary",
+  "library": "AMOSPro_TURBO_Plus.Lib",
+  "sha256": "336e35bf5140990870f3e745d9cf873b4a33a49d60c08bac52393f1de4aaf897",
+  "format": "legacy",
+  "idBaseEvidence": "calibrated",
+  "evidence": "table",
+  "docs": [],
+  "titleStrings": ["AMOSPro TURBO Plus Extension V 1.0", "$VER: 1.0"],
+  "observedSlots": [12],
+  "provenance": {
+    "from": "The project author's own AMOS Pro installation.",
+    "note": "Large extension (136 tokens) covering blitter objects, scrolling scenes, starfields, 3D and fixed-point maths.",
+    "redistribution": "Third-party extension, redistribution terms unverified. Kept as a fixture for identification only."
+  },
+  "notes": "No manual available. Table-only evidence — see ldos-2.5 for what that bars."
+}

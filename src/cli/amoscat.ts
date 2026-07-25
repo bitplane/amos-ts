@@ -18,7 +18,8 @@ import { readFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { detokSource } from '../tokens/detok'
-import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
+import { CORE_TOKENS } from '../tokens/tables.gen'
+import { extensionTablesFor } from '../ext/identify'
 
 const file = process.argv[2]
 if (!file) {
@@ -37,8 +38,8 @@ try {
   const amos = parseAmosFile(raw)
   if (amos.source.length === 0) passthrough() // not a tokenised program
   const table = new TokenTable(CORE_TOKENS)
-  const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
   const lines = parseSource(amos.source, table)
+  const extensions = extensionTablesFor(lines)
   // a leading comment banner naming the file helps when grepping -l
   process.stdout.write(detokSource(lines, table, { extensions }))
   process.stdout.write('\n')

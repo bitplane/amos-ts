@@ -216,7 +216,10 @@ function tokenizeLine(text: string, ln: number, tables: Tables, procNames: Set<s
         const id = entry.id
         pos += kw.length
         if (entry.ext !== undefined) {
-          toks.push({ kind: 'ext', ext: entry.ext, id })
+          // re-tokenising from text: AMOS Pro records $FF here for AP20
+          // libraries (+Verif.s:458) and we have no older-library arity to
+          // reproduce, so emit the AP20 marker
+          toks.push({ kind: 'ext', ext: entry.ext, id, nparams: 0xff })
           stmtStart = false
           continue
         }

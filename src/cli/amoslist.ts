@@ -6,7 +6,8 @@ import { readFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { detokSource } from '../tokens/detok'
-import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
+import { CORE_TOKENS } from '../tokens/tables.gen'
+import { extensionTablesFor } from '../ext/identify'
 
 const file = process.argv[2]
 if (!file) {
@@ -27,7 +28,7 @@ for (const b of amos.banks) {
 
 if (amos.source.length > 0) {
   const table = new TokenTable(CORE_TOKENS)
-  const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
   const lines = parseSource(amos.source, table)
+  const extensions = extensionTablesFor(lines)
   console.log(detokSource(lines, table, { extensions }))
 }

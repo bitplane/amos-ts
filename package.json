@@ -16,7 +16,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "cli": "tsx",
-    "manifest": "tsx src/cli/genmanifest.ts"
+    "manifest": "tsx src/cli/genmanifest.ts",
+    "gentables": "tsx src/cli/gentable.ts && tsx src/cli/genext.ts",
+    "extscan": "tsx src/cli/extscan.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

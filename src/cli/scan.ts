@@ -9,7 +9,8 @@ import { join, dirname, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable, TokenStreamError } from '../tokens/stream'
-import { CORE_TOKENS, AGA_CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
+import { CORE_TOKENS, AGA_CORE_TOKENS } from '../tokens/tables.gen'
+import { extensionTablesFor } from '../ext/identify'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const fixtures = join(root, 'fixtures')
@@ -26,7 +27,6 @@ function* walk(dir: string): Generator<string> {
 
 const table = new TokenTable(CORE_TOKENS)
 const agaTable = new TokenTable(AGA_CORE_TOKENS)
-const extTables = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
 
 let files = 0
 let sourceOk = 0
@@ -66,6 +66,8 @@ for (const path of walk(fixtures)) {
       agaParsed++
     }
     sourceOk++
+    // resolve each slot from the program's own evidence, not a fixed map
+    const extTables = extensionTablesFor(lines)
     for (const line of lines) {
       for (const tok of line.tokens) {
         if (tok.kind === 'core') {

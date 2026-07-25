@@ -8,7 +8,8 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
-import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
+import { CORE_TOKENS } from '../tokens/tables.gen'
+import { extensionTablesFor } from '../ext/identify'
 import { Runtime } from '../runtime/runtime'
 import { fsForFile } from './nodefs'
 
@@ -26,7 +27,6 @@ function* walk(dir: string): Generator<string> {
 }
 
 const table = new TokenTable(CORE_TOKENS)
-const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
 
 // the system default resource is part of the machine (Sys_Resource,
 // loaded at AMOS Pro startup from config message 8)
@@ -58,7 +58,7 @@ for (const path of walk(root)) {
   try {
     const lines = parseSource(amos.source, table)
     const rt = new Runtime(lines, table, {
-      extensions,
+      extensions: extensionTablesFor(lines),
       onUnimplemented: 'skip',
       maxSteps: 120_000,
       banks: amos.banks,

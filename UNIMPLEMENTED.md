@@ -38,6 +38,19 @@ machine-code procedures (68k is never executed — n/a by policy),
 the ARexx system). `Varptr`/`=Array` now live in the fake address
 space.
 
+### Third-party extensions (~620 keywords, all 0%)
+
+Registered and detokenising, none implemented: Intuition 1.3b (183),
+TURBO Plus (134), Personnal 1.0b (110), GUI 1.61 (103), LDos 2.5 (77),
+Misc 1.0 (12). The token tables are ground truth and slot
+identification is automatic, so these programs now list and load with
+real keyword names instead of `{ext12:$02d4}` — they just stop at the
+first extension keyword. `docs/extensions/README.md` explains the
+identification model and the evidence tiers that decide which of these
+can ever be marked faithful: Intuition and Personnal ship assembler
+source, Misc ships a manual, and the other three are token-table-only,
+so keywords ported from them are structural by definition.
+
 ### IOPorts extension (serial/parallel/printer — area 0%, 38 keywords)
 `Serial *` (~14), `Parallel *` (~10), `Printer *` (~10). Host bridges
 (Web Serial / print dialogs) — integration work, not 68k porting.
@@ -76,10 +89,12 @@ Everything here also carries a NOTES entry in `KEYWORDS.md`.
   the one-vbl DMA latch gap; a 2-byte repeat region plays silence.
 - **Request On/Off/Wb** store the mode; no system requesters exist in
   the port.
-- **Fonts**: the stock Workbench font list is reported (rom/disc
-  masks per Get Fonts variant) but rendering is a single 8x8 face;
-  `Border$` box glyphs are drawn approximations (the AMOS charset
-  binary is not in the source tree).
+- **Fonts**: real Amiga diskfonts render when a `Fonts:` drawer is
+  mounted (`.font` descriptor plus the per-size glyph files); without
+  one, the stock Workbench font list is reported (rom/disc masks per
+  Get Fonts variant) and the built-in 8x8 face stands in. `Border$`
+  box glyphs are drawn approximations (the AMOS charset binary is not
+  in the source tree).
 - **Rnd** mixes a deterministic statement-paced pseudo-beam instead of
   the free-running raster (runs reproduce); `Rnd(-n)` is the pure
   generator exactly as on the Amiga.

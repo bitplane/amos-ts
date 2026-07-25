@@ -8,7 +8,8 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { tokenize } from '../tokens/tokenizer'
-import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
+import { CORE_TOKENS } from '../tokens/tables.gen'
+import { extensionTablesFor } from '../ext/identify'
 import { Runtime } from '../runtime/runtime'
 import { fsForFile } from './nodefs'
 
@@ -28,12 +29,14 @@ if (!file) {
 }
 
 const table = new TokenTable(CORE_TOKENS)
-const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)]))
-
 const bytes = readFileSync(file)
 const isAmos = /^AMOS (Basic|Pro)/.test(bytes.subarray(0, 16).toString('latin1'))
 const amos = isAmos ? parseAmosFile(bytes) : null
 const lines = amos ? parseSource(amos.source, table) : tokenize(bytes.toString('latin1'), table)
+
+// Which extension each slot held is a property of the machine the program
+// was saved on, so it is identified from the program itself.
+const extensions = extensionTablesFor(lines)
 
 const rt = new Runtime(lines, table, {
   extensions,

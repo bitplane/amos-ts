@@ -75,7 +75,15 @@ export type Tok =
   | { kind: 'int' | 'bin' | 'hex'; value: number }
   | { kind: 'float'; value: number; raw: number }
   | { kind: 'str'; value: string; quote: '"' | "'" }
-  | { kind: 'ext'; ext: number; id: number }
+  /**
+   * An extension keyword. `ext` is the interpreter-config slot number, which
+   * identifies the extension only relative to the machine the program was
+   * saved on. `nparams` is the byte Ver_Extension pokes after the slot
+   * (+Verif.s:456-460): $FF for an AP20-format library, otherwise the actual
+   * argument count of this use — the strongest signal available for working
+   * out which extension a slot really held. See src/ext/identify.ts.
+   */
+  | { kind: 'ext'; ext: number; id: number; nparams: number }
   | { kind: 'rem'; id: number; text: string }
   | { kind: 'proc'; id: number; size: number; flags: number; endTarget: number }
   | {
@@ -276,9 +284,9 @@ function parseTok(id: number, r: BinReader, table: TokenTable, idOffset: number)
     }
     case T.EXTENSION: {
       const ext = r.u8()
-      r.skip(1)
+      const nparams = r.u8()
       const extId = r.u16()
-      return { kind: 'ext', ext, id: extId }
+      return { kind: 'ext', ext, id: extId, nparams }
     }
   }
   if (table.isRem(id)) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
-import { CORE_TOKENS, EXTENSION_TOKENS } from '../tokens/tables.gen'
+import { CORE_TOKENS } from '../tokens/tables.gen'
+import { EXTENSION_TOKENS } from '../ext/registry'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { squash, unsquash } from './squash'

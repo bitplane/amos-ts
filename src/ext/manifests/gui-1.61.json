@@ -1,0 +1,21 @@
+{
+  "id": "gui-1.61",
+  "name": "AMOSPro GUI Extension",
+  "version": "1.61",
+  "author": "unknown",
+  "source": "binary",
+  "library": "amospro_gui.lib",
+  "sha256": "9395e13d10ca0297e61a1204c759637299179de9afe66bc1e9d8b36297862250",
+  "format": "legacy",
+  "idBaseEvidence": "calibrated",
+  "evidence": "table",
+  "docs": [],
+  "titleStrings": ["AMOSPro GUI Extension V 1.61 31-03-97", "$VER: V 1.61 31-03-97"],
+  "observedSlots": [24],
+  "provenance": {
+    "from": "The project author's own AMOS Pro installation.",
+    "note": "Dated 31-03-97, so post-dates the commercial life of AMOS Pro. Wraps real Intuition/ASL gadgetry (gui open/gadgets/menus/requesters) and carries an unrelated TCP keyword family.",
+    "redistribution": "Third-party extension, redistribution terms unverified. Kept as a fixture for identification only."
+  },
+  "notes": "No manual available. Table-only evidence — see ldos-2.5 for what that bars."
+}
