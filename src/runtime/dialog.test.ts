@@ -184,6 +184,12 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     return { rt, out: () => out }
   }
 
+  /** run the Fs_Appear slide out, as the 68k does before its main loop */
+  function openFsel(rt: Runtime): void {
+    for (let i = 0; i < 60 && (!rt.fsel || rt.fsel.slide); i++) rt.frame()
+    for (let k = 0; k < 9; k++) rt.frame() // and let the listing fill
+  }
+
   function clickZone(rt: Runtime, number: number, kind?: string): void {
     const d = [...rt.dialogs.values()][0]!
     const z = d.zones.find((zz) => zz.number === number && (!kind || zz.kind === kind))!
@@ -198,7 +204,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
 
   it('opens the selector screen from the bank layout and cancels to ""', () => {
     const { rt, out } = bootFs('F$=Fsel$("DH0:Games")\nPrint "R=";F$;"."')
-    for (let i = 0; i < 5; i++) rt.frame()
+    openFsel(rt)
     expect(rt.fsel).not.toBeNull()
     const d = [...rt.dialogs.values()][0]!
     // EcFsel (+Equ.s:792) — the system slot Fs_ScOpen uses, above 0-7
@@ -211,7 +217,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     const list = d.zones.find((z) => z.kind === 'list')!
     expect(list.count).toBe(3)
     clickZone(rt, 2, 'button') // Cancel
-    for (let i = 0; i < 6 && rt.frame().status !== 'ended'; i++);
+    for (let i = 0; i < 60 && rt.frame().status !== 'ended'; i++);
     expect(out()).toBe('R=.\n')
     expect(rt.screens.has(Runtime.EC_FSEL)).toBe(false) // selector screen closed
   })
@@ -220,7 +226,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     // Fs_ScOpen (+Lib.s:17825) takes PI_FsDSx/FsDSy, and the window position
     // is whatever Fs_Close last stored in PI_FsDWx/FsDWy
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
-    for (let i = 0; i < 5; i++) rt.frame()
+    openFsel(rt)
     const s = rt.screens.get(Runtime.EC_FSEL)!
     expect([s.width, s.height]).toEqual([448, 158])
     expect([s.displayX, s.displayY]).toEqual([129 + 48, 50 + 20])
@@ -232,7 +238,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     rt.pi.FsDSy = 128
     rt.pi.FsDWx = 200
     rt.pi.FsDWy = 90
-    for (let i = 0; i < 5; i++) rt.frame()
+    openFsel(rt)
     const s = rt.screens.get(Runtime.EC_FSEL)!
     expect([s.width, s.height, s.displayX, s.displayY]).toEqual([320, 128, 200, 90])
   })
@@ -242,7 +248,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     rt.pi.FsSort = 1
     rt.pi.FsSize = 0
     rt.pi.FsStore = 1
-    for (let i = 0; i < 5; i++) rt.frame()
+    openFsel(rt)
     const d = [...rt.dialogs.values()][0]!
     // FsV_Sort 7, FsV_Size 8, FsV_Store 16 (+Equ.s:2189), and FsV_PosFirst
     // starts at -1 until Fs_First finds the first file (18737)
@@ -255,7 +261,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     // Fs_GetInputs (18923) tests the length word before assigning, so an
     // empty title line is not the same as a title of ""
     const { rt } = bootFs('F$=Fsel$("DH0:Games","","Pick one")')
-    for (let i = 0; i < 5; i++) rt.frame()
+    openFsel(rt)
     const d = [...rt.dialogs.values()][0]!
     expect(d.vars[0]).toBe('Pick one') // FsV_Titre0 given
     expect(d.vars[1]).toBe(0) // FsV_Titre1 left unset, so the script fills it
@@ -263,7 +269,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
 
   it('sets the Return-does-not-advance flag on its channel', () => {
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
-    for (let i = 0; i < 5; i++) rt.frame()
+    openFsel(rt)
     // Dia_Flags bit 4 (17858): Return in the name box reports the zone but
     // must not jump the cursor to the path box. Only the wiring is checked
     // here — the keystroke itself goes through Fs_Return, which is slice 6.
@@ -286,16 +292,16 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
         'Print R$',
       ].join('\n'),
     )
-    for (let i = 0; i < 5; i++) rt.frame()
+    openFsel(rt)
     expect(rt.fsel).not.toBeNull() // it really did block mid-argument
     clickZone(rt, 2, 'button') // Cancel
-    for (let i = 0; i < 8 && rt.frame().status !== 'ended'; i++);
+    for (let i = 0; i < 60 && rt.frame().status !== 'ended'; i++);
     expect(out()).toBe('| 5\n')
   })
 
   it('formats the Sizes column the way Fs_GetName does', () => {
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
-    for (let i = 0; i < 8; i++) rt.frame()
+    openFsel(rt)
     const d = [...rt.dialogs.values()][0]!
     d.vars[8] = 1 // FsV_Size on
     d.vars[12] = 30 // FsV_Tx — the script owns this; pin it for the test
@@ -317,7 +323,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
 
   it('leaves the size off entirely when the Sizes toggle is off', () => {
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
-    for (let i = 0; i < 8; i++) rt.frame()
+    openFsel(rt)
     const d = [...rt.dialogs.values()][0]!
     d.vars[8] = 0
     d.vars[12] = 30
@@ -330,6 +336,9 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     // Fs_Loop (+Lib.s:17920) takes a single name per pass while Fs_DirOn is
     // set, so the selector stays live while a slow drawer lists
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    // the screen slides open first (Fs_Appear runs before the loop), so let
+    // that finish and then watch the fill itself
+    for (let i = 0; i < 60 && (!rt.fsel || rt.fsel.slide); i++) rt.frame()
     const seen: number[] = []
     for (let i = 0; i < 6; i++) {
       rt.frame()
@@ -348,7 +357,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     // steps FsV_PList and FsV_PosFirst together. A plain listing leaves
     // PosFirst at -1, so this only bites after a type-ahead search.
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
-    for (let i = 0; i < 8; i++) rt.frame()
+    openFsel(rt)
     const d = [...rt.dialogs.values()][0]!
     const f = rt.fsel!
     d.vars[7] = 1 // sorted
@@ -366,7 +375,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     // Fs_Name (18280) compares the row index against Fs_Click — there is no
     // timer anywhere in the original, and any other row resets it
     const { rt, out } = bootFs('F$=Fsel$("DH0:Games")\nPrint F$')
-    for (let i = 0; i < 8; i++) rt.frame()
+    openFsel(rt)
     const d = [...rt.dialogs.values()][0]!
     const list = d.zones.find((z) => z.kind === 'list')!
     const s = rt.screens.get(Runtime.EC_FSEL)!
@@ -382,7 +391,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     expect(rt.fsel!.click).toBe(1)
     for (let i = 0; i < 40; i++) rt.frame() // no timer to expire
     clickRow(1)
-    for (let i = 0; i < 8 && rt.frame().status !== 'ended'; i++);
+    for (let i = 0; i < 60 && rt.frame().status !== 'ended'; i++);
     expect(out()).toBe('DH0:Games/alpha.iff\n')
   })
 
@@ -391,7 +400,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     // 18564) take it back rather than reading the drawer again — and Branch
     // MOVES it out of the cache, which is what makes the list an LRU
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
-    for (let i = 0; i < 8; i++) rt.frame()
+    openFsel(rt)
     const f = rt.fsel!
     const d = [...rt.dialogs.values()][0]!
     expect(f.entries.length).toBe(3)
@@ -409,7 +418,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
 
   it('keeps at most Fs_MaxStore directories', () => {
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
-    for (let i = 0; i < 8; i++) rt.frame()
+    openFsel(rt)
     const f = rt.fsel!
     const d = [...rt.dialogs.values()][0]!
     for (let i = 0; i < 14; i++) {
@@ -424,7 +433,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
 
   it('shows the cache as a list, tail-first when the path is long', () => {
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
-    for (let i = 0; i < 8; i++) rt.frame()
+    openFsel(rt)
     const f = rt.fsel!
     const d = [...rt.dialogs.values()][0]!
     d.vars[12] = 10 // FsV_Tx
@@ -443,7 +452,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
   it('turning the Store toggle off empties the cache', () => {
     // Fs_BStore (18354) does not merely stop caching
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
-    for (let i = 0; i < 8; i++) rt.frame()
+    openFsel(rt)
     const d = [...rt.dialogs.values()][0]!
     rt.fselStore = [{ path: 'DH0:x', filter: '', entries: [], scroll: 0, sorted: true }]
     d.vars[16] = 0 // FsV_Store off
@@ -456,7 +465,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     // Fs_SliDel (18382) -> Fs_StoDir (18364): NumStore(126) is the last
     // element, and visiting it takes it out of the cache
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
-    for (let i = 0; i < 8; i++) rt.frame()
+    openFsel(rt)
     const f = rt.fsel!
     const d = [...rt.dialogs.values()][0]!
     rt.fselStore = [
@@ -470,7 +479,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
 
   it('type-ahead jumps the list to the first matching file', () => {
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
-    for (let i = 0; i < 8; i++) rt.frame()
+    openFsel(rt)
     const f = rt.fsel!
     const d = [...rt.dialogs.values()][0]!
     d.vars[13] = 2 // FsV_Ty — two visible rows
@@ -493,7 +502,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     // Fs_Help prepends a space to the search and FillFFind folds the '*'
     // marker to chr(1), so a drawer can never be found by typing its name
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
-    for (let i = 0; i < 8; i++) rt.frame()
+    openFsel(rt)
     const f = rt.fsel!
     const d = [...rt.dialogs.values()][0]!
     f.sorted = true
@@ -513,7 +522,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     // ...and wraps to the top when that finds nothing, so pressing again
     // walks through the matches (17970)
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
-    for (let i = 0; i < 8; i++) rt.frame()
+    openFsel(rt)
     const f = rt.fsel!
     const d = [...rt.dialogs.values()][0]!
     d.vars[13] = 1
@@ -536,7 +545,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     // Fs_Close (18469/18482) — this is what makes Sort/Size/Store and the
     // place you dragged the selector to survive to the next call
     const { rt } = bootFs('F$=Fsel$("DH0:Games")')
-    for (let i = 0; i < 8; i++) rt.frame()
+    openFsel(rt)
     const d = [...rt.dialogs.values()][0]!
     const s = rt.screens.get(Runtime.EC_FSEL)!
     d.vars[7] = 0 // Sort off
@@ -551,20 +560,47 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
 
   it('opens the next selector where the last one left off', () => {
     const { rt } = bootFs('F$=Fsel$("DH0:Games")\nG$=Fsel$("DH0:Games")')
-    for (let i = 0; i < 8; i++) rt.frame()
+    openFsel(rt)
     const d = [...rt.dialogs.values()][0]!
     d.vars[7] = 0
     rt.screens.get(Runtime.EC_FSEL)!.displayX = 210
     clickZone(rt, 2, 'button') // Cancel
-    for (let i = 0; i < 6; i++) rt.frame()
+    openFsel(rt)
     const d2 = [...rt.dialogs.values()][0]!
     expect(d2.vars[7]).toBe(0) // the toggle came back
     expect(rt.screens.get(Runtime.EC_FSEL)!.displayX).toBe(210)
   })
 
+  it('slides the screen open from its centre line and shut again', () => {
+    // AppCentre (+Lib.s:6820): the screen never resizes — the displayed
+    // window grows, offset so the middle stays put and the top edge lifts
+    const { rt } = bootFs('F$=Fsel$("DH0:Games")')
+    rt.frame()
+    const s = rt.screens.get(Runtime.EC_FSEL)!
+    const heights: number[] = []
+    for (let i = 0; i < 60 && rt.fsel!.slide; i++) {
+      heights.push(s.displayH)
+      // the window stays centred on the same line throughout
+      expect(s.displayY + (s.displayH >> 1)).toBe(rt.pi.FsDWy + (s.height >> 1))
+      rt.frame()
+    }
+    expect(heights[0]).toBe(2) // starts at a two-pixel sliver
+    expect(heights).toEqual([...heights].sort((a, b) => a - b))
+    expect(s.displayH).toBe(158) // and lands on the full height
+    expect(s.offsetY).toBe(0)
+    // and the same in reverse on the way out (Fs_DisAppear)
+    for (let i = 0; i < 9; i++) rt.frame()
+    rt.finishFsel('')
+    expect(rt.fsel!.slide).not.toBeNull()
+    expect(rt.fsel!.done).toBe(false) // not gone until it has closed
+    for (let i = 0; i < 60 && !rt.fsel!.done; i++) rt.frame()
+    expect(rt.fsel!.done).toBe(true)
+    expect(rt.screens.has(Runtime.EC_FSEL)).toBe(false)
+  })
+
   it('double-clicking a file returns its full path', () => {
     const { rt, out } = bootFs('F$=Fsel$("DH0:Games")\nPrint F$')
-    for (let i = 0; i < 5; i++) rt.frame()
+    openFsel(rt)
     const d = [...rt.dialogs.values()][0]!
     const list = d.zones.find((z) => z.kind === 'list')!
     const s = rt.screens.get(Runtime.EC_FSEL)!
@@ -580,13 +616,13 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     rt.input.mouseK = 1
     rt.frame()
     rt.input.mouseK = 0
-    for (let i = 0; i < 6 && rt.frame().status !== 'ended'; i++);
+    for (let i = 0; i < 60 && rt.frame().status !== 'ended'; i++);
     expect(out()).toBe('DH0:Games/alpha.iff\n')
   })
 
   it('clicking a directory descends into it', () => {
     const { rt } = bootFs('F$=Fsel$("DH0:Games")\nPrint F$')
-    for (let i = 0; i < 5; i++) rt.frame()
+    openFsel(rt)
     const d = [...rt.dialogs.values()][0]!
     const list = d.zones.find((z) => z.kind === 'list')!
     const s = rt.screens.get(Runtime.EC_FSEL)!

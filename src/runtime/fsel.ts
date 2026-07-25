@@ -76,6 +76,10 @@ export interface FselState {
   entries: FselEntry[]
   /** what Fs_Next has yet to take, one per frame */
   pending: FselEntry[]
+  /** AppCentre state while the screen is opening or closing */
+  slide: { half: number; speed: number; centreY: number } | null
+  /** the result waiting on the closing slide, null while the selector lives */
+  closing: string | null
   arr: AmosArray
 }
 
@@ -578,4 +582,47 @@ export function fselHelp(rt: Runtime, f: FselState, d: DialogChannel): void {
     d.vars[FSV.posFirst] = pos
   }
   fselAffF(rt, f)
+}
+
+/**
+ * AppCentre (+Lib.s:6820) — one step of the centre-out/centre-in slide the
+ * selector and the text reader both open with.
+ *
+ * The screen itself never changes size: what moves is the displayed window.
+ * Each step sets the shown height to twice the half-height, offsets into the
+ * bitmap so the middle stays put, and lifts the top edge to match — so the
+ * picture appears to grow out of its own centre line. The step is
+ * PI_FsDVApp, clamped to 1 at the bottom and EcTy/2 at the top, and the loop
+ * ends when clamping stops the value moving.
+ *
+ * Returns true when the slide has finished.
+ */
+export function fselSlideStep(rt: Runtime, f: FselState): boolean {
+  const s = f.slide
+  const sc = rt.screens.get(f.screenNb)
+  if (!s || !sc) return true
+  const halfMax = sc.height >> 1
+  const prev = s.half
+  sc.displayH = s.half * 2
+  sc.offsetY = halfMax - s.half
+  sc.displayY = s.centreY - s.half
+  let next = s.half + s.speed
+  if (next < 0) next = 1
+  if (next > halfMax) next = halfMax
+  s.half = next
+  return next === prev
+}
+
+/** Fs_Appear (18963): grow from the centre line at PI_FsDVApp a step */
+export function fselAppear(rt: Runtime, f: FselState): void {
+  const sc = rt.screens.get(f.screenNb)
+  if (!sc || rt.pi.FsDVApp <= 0) return
+  f.slide = { half: 1, speed: rt.pi.FsDVApp, centreY: sc.displayY + (sc.height >> 1) }
+}
+
+/** Fs_DisAppear (18977): the same in reverse, from the full height */
+export function fselDisAppear(rt: Runtime, f: FselState): void {
+  const sc = rt.screens.get(f.screenNb)
+  if (!sc || rt.pi.FsDVApp <= 0) return
+  f.slide = { half: sc.height >> 1, speed: -rt.pi.FsDVApp, centreY: sc.displayY + (sc.height >> 1) }
 }

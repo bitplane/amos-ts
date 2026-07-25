@@ -11,7 +11,7 @@ import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
 import { newPiConfig } from './piconfig.gen'
 import type { PiConfig } from './piconfig.gen'
-import { FSV, fselFirst, fselJump, fselNext, fselStore } from './fsel'
+import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlideStep, fselStore } from './fsel'
 import type { FselState, FselStoreEntry } from './fsel'
 import { parseAmalBank } from '../loader/amalbank'
 import type { AmalBank } from '../loader/amalbank'
@@ -998,6 +998,8 @@ export class Runtime {
       click: -1,
       entries: [],
       pending: [],
+      slide: null,
+      closing: null,
       arr,
     }
     try {
@@ -1009,6 +1011,7 @@ export class Runtime {
     // the draw pass is what sets FsV_Tx/Ty — Start_FSel only ever reads them,
     // because the list geometry belongs to the dialog script (19159)
     fselFirst(this, this.fsel!)
+    fselAppear(this, this.fsel!) // Fs_Appear (17893), after the draw pass
     return true
   }
 
@@ -1021,6 +1024,15 @@ export class Runtime {
   private stepFsel(): void {
     const f = this.fsel
     if (!f || f.done) return
+    // the closing slide outlives the dialog being drawn, so it runs before
+    // any of the checks that would otherwise end the selector
+    if (f.slide) {
+      if (fselSlideStep(this, f)) {
+        f.slide = null
+        if (f.closing !== null) this.finishFselNow(f.closing)
+      }
+      return
+    }
     const d = this.dialogs.get(f.chan)
     if (!d || !d.drawn) {
       this.finishFsel('')
@@ -1034,9 +1046,14 @@ export class Runtime {
   }
 
   /** close the selector: dialog, screen, restore, store the result */
+  /**
+   * Fs_Close (+Lib.s:18447): put the state back where it came from, then let
+   * the screen slide shut before it is destroyed. The teardown itself is
+   * finishFselNow, which the slide calls when it finishes.
+   */
   finishFsel(result: string): void {
     const f = this.fsel
-    if (!f) return
+    if (!f || f.done || f.closing !== null) return
     const d = this.dialogs.get(f.chan)
     if (d) {
       // Fs_Close (+Lib.s:18461): the last directory goes into the store, and
@@ -1049,12 +1066,31 @@ export class Runtime {
       eraseDialog(d, this.dialogDraw)
       this.dialogs.delete(f.chan)
     }
-    // and where the user dragged the window to (18482)
+    // and where the user dragged the window to (18482) — read before
+    // Fs_DisAppear starts moving the top edge
     const sc = this.screens.get(f.screenNb)
     if (sc) {
       this.pi.FsDWx = sc.displayX
       this.pi.FsDWy = sc.displayY
+      fselDisAppear(this, f)
     }
+    if (f.slide) {
+      f.closing = result
+      return
+    }
+    this.finishFselNow(result)
+  }
+
+  /** the teardown half of Fs_Close, once the screen has finished sliding */
+  finishFselNow(result: string): void {
+    const f = this.fsel
+    if (!f || f.done) return
+    const d = this.dialogs.get(f.chan)
+    if (d) {
+      eraseDialog(d, this.dialogDraw)
+      this.dialogs.delete(f.chan)
+    }
+    f.slide = null
     this.closeScreen(f.screenNb)
     if (f.prevScreen >= 0) this.setCurrent(f.prevScreen)
     f.done = true
@@ -3251,7 +3287,7 @@ export class Runtime {
         if (d && d.runState === 'waiting') this.finishDialogRun(d, 0)
         else this.interp.blocked = null
       } else if (b?.type === 'fsel') {
-        if (this.fsel && !this.fsel.done) this.finishFsel('')
+        if (this.fsel && !this.fsel.done) this.finishFselNow('')
         else this.interp.blocked = null
       } else if (b?.type === 'readtext') {
         if (this.readText && !this.readText.done) this.finishReadText('')
