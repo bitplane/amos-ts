@@ -252,3 +252,49 @@ describe('Set Bob (InSetBob +Lib.s:12225 -> ResBOB +W.s:988)', () => {
     expect(rt.screen.point(42, 42)).toBe(3)
   })
 })
+
+describe('Sprite Priority is per-screen (EcCon2, HsPri +W.s:11374)', () => {
+  it('stores the value on the current screen, not on the machine', () => {
+    const rt = run(
+      [
+        'Screen Open 0,320,100,4,Lowres : Screen Display 0,128,50,320,100',
+        'Screen Open 1,320,100,4,Lowres : Screen Display 1,128,160,320,100',
+        'Screen 0 : Sprite Priority 0',
+        'Screen 1 : Sprite Priority 4',
+      ].join('\n'),
+    )
+    // two screens on the same display, ordering sprites differently
+    expect(rt.screens.get(0)!.pf1p).toBe(0)
+    expect(rt.screens.get(1)!.pf1p).toBe(4)
+  })
+
+  it('starts at 4 — EcCree puts every sprite pair in front', () => {
+    const rt = run('Screen Open 2,320,100,4,Lowres')
+    expect(rt.screens.get(2)!.pf1p).toBe(4)
+    expect(rt.screens.get(2)!.pf2p).toBe(4)
+  })
+
+  it('rejects a value above 4 (InSpritePriority checks before HsPri)', () => {
+    // the keyword's own cmp.l #4 / Rbhi L_FonCall rejects it; HsPri's
+    // internal clamp to 0 guards its other callers and is never reached here
+    expect(() => run('Sprite Priority 5')).toThrow(/function call error/)
+    expect(() => run('Sprite Priority -1')).toThrow(/function call error/)
+    expect(() => run('Sprite Priority 4')).not.toThrow()
+    expect(() => run('Sprite Priority 0')).not.toThrow()
+  })
+
+  it('on the second playfield of a dual pair it pokes the first screen PF2P', () => {
+    const rt = run(
+      [
+        'Screen Open 0,320,200,4,Lowres',
+        'Screen Open 1,320,200,4,Lowres',
+        'Dual Playfield 0,1',
+        'Screen 1 : Sprite Priority 2',
+      ].join('\n'),
+    )
+    // the back playfield has no EcCon2 of its own for this: the value lands
+    // in the front screen's PF2P field, and its own PF1P is untouched
+    expect(rt.screens.get(0)!.pf2p).toBe(2)
+    expect(rt.screens.get(1)!.pf1p).toBe(4)
+  })
+})

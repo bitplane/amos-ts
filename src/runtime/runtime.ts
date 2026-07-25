@@ -1545,13 +1545,11 @@ export class Runtime {
   // ---- sprite update freeze ----
   spriteUpdateOn = true
   frozenSprites: HwSprite[] | null = null
-  /** Sprite Priority (HsPri): 0..4 sprite-vs-playfield z-order; 4 = behind */
   /**
-   * Sprite Priority (BPLCON2 PF2P, HsPri +W.s:11374): sprite PAIRS below
-   * this value show in front of the playfield, pairs at/above it behind.
-   * EcCree initialises EcCon2 to %100100 — PF2P 4, every pair in front.
+   * Sprite Priority lives on the screen now (Screen.pf1p/pf2p — EcCon2), not
+   * here: HsPri (+W.s:11374) pokes the CURRENT screen's control block, so two
+   * screens can order sprites against their playfields differently.
    */
-  spritePriority = 4
   /** Limit Mouse rectangle in hardware coords, clamped each vbl */
   mouseLimit: { x1: number; y1: number; x2: number; y2: number } | null = null
   // ---- menus (the Mn* engine, src/runtime/menu.ts) ----
@@ -3531,16 +3529,33 @@ export class Runtime {
     return { s, buf: s.pixels }
   }
 
+  /**
+   * The PF1P in force at a hardware scanline: the topmost visible screen
+   * covering it, else the frontmost screen (EcCon2, HsPri +W.s:11374).
+   */
+  private priorityUnder(hy: number): number {
+    for (let i = this.order.length - 1; i >= 0; i--) {
+      const s = this.screens.get(this.order[i]!)
+      if (!s || !s.visible) continue
+      if (hy >= s.displayY && hy < s.displayY + s.height) return s.pf1p
+    }
+    return this.screens.get(this.order[this.order.length - 1] ?? 0)?.pf1p ?? 4
+  }
+
   /** Hardware sprites draw over everything, colours 16-31, hw coords. */
   private drawHwSprites(data: Uint8ClampedArray, W: number, H: number, frontPass: boolean): void {
     let sprites = this.spriteUpdateOn ? [...this.hwSprites.values()] : (this.frozenSprites ?? [])
     // hardware pair priority: sprites 0-7 pair n>>1; computed sprites
-    // (8+) multiplex onto the tail channels — treated as pair 3
-    const p = this.spritePriority
+    // (8+) multiplex onto the tail channels — treated as pair 3.
+    // The threshold is EcCon2's PF1P, which belongs to the screen the sprite
+    // is over rather than to the machine, so a sprite crossing from a screen
+    // with priority 4 onto one with 0 changes side as it goes.
     sprites = sprites.filter((sp) => {
       const pair = sp.n < 8 ? sp.n >> 1 : 3
+      const p = this.priorityUnder(sp.y)
       return frontPass ? pair < p : pair >= p
     })
+    const p = this.priorityUnder(this.input.mouseY)
     // the mouse pointer is hardware sprite 0 (HiSho1 does HsSet channel 0)
     // — pair 0, drawn last so it tops the other sprites of its pass
     const pointer =

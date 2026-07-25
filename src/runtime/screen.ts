@@ -217,6 +217,14 @@ export class Screen {
     return !this.ham && this.depth === 6
   }
   visible = true
+  /**
+   * EcCon2's two playfield-priority fields (HsPri +W.s:11374). PF1P is bits
+   * 0-2, PF2P bits 3-5; EcCree starts both at 4, every sprite pair in front.
+   * These live on the screen, not the machine — two screens on the same
+   * display can order sprites against their playfields differently.
+   */
+  pf1p = 4
+  pf2p = 4
   /** display position in AMOS hardware coords (default 128,50 = top-left) */
   displayX = 128
   displayY = 50

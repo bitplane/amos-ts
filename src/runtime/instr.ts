@@ -1706,12 +1706,30 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!rt.spriteUpdateOn) rt.frozenSprites = [...rt.hwSprites.values()].map((s) => ({ ...s }))
     },
     'sprite priority'(it) {
-      // InSpritePriority → HsPri (+W.s:11374): pokes BPLCON2 PF2P — pairs
-      // BELOW the value show in front of the playfield. 4 (the EcCon2
-      // default) = all sprites in front; 0 = all behind.
+      // InSpritePriority -> HsPri (+W.s:11374). Sprite PAIRS below the value
+      // show in front of the playfield; 4 (the EcCore default) puts every
+      // pair in front, 0 puts them all behind.
+      //
+      // Two details the old single global missed:
+      //  - the value is stored in the CURRENT SCREEN's EcCon2, not machine
+      //    state, so screens can differ
+      //  - on the second playfield of a dual pair the poke is redirected to
+      //    the FIRST screen's PF2P field instead of its own PF1P
+      //
+      // The range check belongs to the keyword, not to HsPri: InSpritePriority
+      // (+Lib.s) does cmp.l #4,d1 / Rbhi L_FonCall before calling PriHs, so
+      // anything above 4 (unsigned, so negatives too) is a function call
+      // error. HsPri's own cmp.w #5 / moveq #0 clamp only guards its other
+      // callers and is never reached from BASIC.
       const p = it.evalInt()
-      if (p < 0 || p > 4) throw new AmosError('function call error')
-      rt.spritePriority = p
+      if (p >>> 0 > 4) throw new AmosError('function call error')
+      const dual = rt.dualPlayfield
+      const cur = scr()
+      if (dual && rt.currentIndex === dual.back && rt.screens.has(dual.front)) {
+        rt.screens.get(dual.front)!.pf2p = p
+      } else {
+        cur.pf1p = p
+      }
     },
     'set sprite buffer'(it) {
       // InSetSpriteBuffer +Lib.s:12290: scanlines per multiplexer slot, must

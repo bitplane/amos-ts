@@ -998,7 +998,8 @@ export const NOTES: Record<string, string> = {
   'menu called': 'items redraw every frame; (PR name) label procedures are not invoked',
   'menu movable': 'drag applies final positions — no XOR rubber band',
   'menu item movable': 'drag applies final positions — no XOR rubber band',
-  'sprite priority': 'per-pair BPLCON2 PF2P z-order; computed sprites (8+) approximate as the last pair, and the value is global rather than per-screen EcCon2',
+  'sprite priority':
+    'HsPri +W.s:11374. Per-screen now: the value is stored in the current screen\'s EcCon2 (PF1P), and on the second playfield of a dual pair it is redirected to the first screen\'s PF2P, so screens can order sprites against their playfields differently. The compositor picks the PF1P of whichever screen covers a sprite\'s scanline. Remaining approximation: computed sprites (8+) are treated as the last pair rather than tracked through the multiplexer, and PF2P is stored faithfully but the single compositor pass keys off PF1P',
   'set sprite buffer': 'validated no-op — the multiplexer buffer has no effect in the chunky renderer',
   'dual playfield': 'the pair renders under the system copper walk; a Copper Off user list shows only the front playfield, and one pair at a time is modelled (per-screen EcDual allows several)',
   'screen open': 'width masked to /16; the 1..1023 size bounds of EcCree are not enforced',
