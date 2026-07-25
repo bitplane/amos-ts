@@ -129,6 +129,22 @@ describe('drawing', () => {
     expect(rt.screens.get(0)!.palette[0]).toBe(0x000) // elided colour 0 untouched
   })
 
+  it('Fade n To s fades toward screen s’s palette, not to black (InFade IFaTo)', () => {
+    // CoinGrabber's fade-in intro: blank the current palette, then
+    // Fade N To <other screen> reveals it by fading up to that palette
+    const rt = boot(
+      [
+        'Screen Open 1,16,16,16,Lowres : Colour 1,$F00 : Colour 2,$0F0',
+        'Screen 0 : Palette 0,0,0', // colours 0,1,2 black on screen 0
+        'Fade 1 To 1',
+      ].join('\n'),
+    )
+    for (let i = 0; i < 40; i++) rt.frame()
+    // screen 0's palette has faded up to screen 1's colours, not stayed black
+    expect(rt.screens.get(0)!.palette[1]).toBe(0xf00)
+    expect(rt.screens.get(0)!.palette[2]).toBe(0x0f0)
+  })
+
   it('Flash animates a palette register from its pattern string', () => {
     const rt = boot('Flash 2,"(F00,3)(0F0,3)"')
     rt.runHeadless(2)

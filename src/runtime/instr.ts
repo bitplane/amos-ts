@@ -997,20 +997,35 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       s.pattern = rt.systemPattern(n)
     },
     fade(it) {
-      // Fade speed[,colours...]: every `speed` ticks each RGB nibble steps
-      // one toward its target; elided colours stay untouched (FadeI).
+      // InFade +ILib.s:5440. Every `speed` ticks each RGB nibble steps one
+      // toward its target. Forms:
+      //   Fade n              → fade to black
+      //   Fade n,c1,c2,...    → to those colours (elided = untouched)
+      //   Fade n To s         → to screen s's palette (s<0 = sprite bank)
+      //   Fade n To s,c1,...  → that palette, then colour overrides from 0
       const delay = Math.max(1, it.evalInt())
       const targets = new Int32Array(32).fill(-1)
-      let i = 0
-      let any = false
-      while (it.accept(',')) {
-        if (!(it.atStmtEnd() || it.nm() === ',')) {
-          if (i < 32) targets[i] = it.evalInt() & 0xfff
-          any = true
+      if (it.accept('to')) {
+        const s = it.evalInt()
+        const pal = s < 0 ? rt.spriteBank?.palette : rt.screens.get(s)?.palette
+        for (let j = 0; j < 32; j++) targets[j] = (pal?.[j] ?? 0) & 0xfff
+        let i = 0
+        while (it.accept(',')) {
+          if (!(it.atStmtEnd() || it.nm() === ',') && i < 32) targets[i] = it.evalInt() & 0xfff
+          i++
         }
-        i++
+      } else {
+        let i = 0
+        let any = false
+        while (it.accept(',')) {
+          if (!(it.atStmtEnd() || it.nm() === ',')) {
+            if (i < 32) targets[i] = it.evalInt() & 0xfff
+            any = true
+          }
+          i++
+        }
+        if (!any) targets.fill(0) // Fade n alone: fade everything to black
       }
-      if (!any) targets.fill(0) // no list: fade everything to black
       rt.fades.set(rt.currentIndex, { delay, count: 0, targets })
     },
     'flash off'() {
