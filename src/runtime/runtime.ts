@@ -22,6 +22,8 @@ import {
   DialogError,
   DialogExec,
   dialogZoneAt,
+  dialogZoneByNumber,
+  dialogZoneValue,
   drawEditZone,
   drawListZone,
   drawSliderZone,
@@ -474,6 +476,13 @@ export class Runtime {
   /** Sprite Base / Icon Base synthesized bank images */
   static readonly SPRITE_BANK_BASE = 0x64000000
   static readonly ICON_BANK_BASE = 0x68000000
+  /**
+   * TempBuffer (ResTempBuffer +ILib.s): the interpreter's scratch block.
+   * Read Text loads its file here and hands the dialog engine the address,
+   * so HT walks real memory exactly as it does on the Amiga.
+   */
+  static readonly TEMP_BUFFER_BASE = 0x6c000000
+  tempBuffer: Uint8Array | null = null
   static readonly COPPER_LONG = 12 * 1024
   /** T_CopON: the system rebuilds and owns the display while true */
   copperOn = true
@@ -681,6 +690,10 @@ export class Runtime {
     if (a >= Runtime.VAR_BASE && a < this.varArenaNext) {
       return this.resolveVarSlot(a)
     }
+    const temp = this.tempBuffer
+    if (temp && a >= Runtime.TEMP_BUFFER_BASE && a < Runtime.TEMP_BUFFER_BASE + temp.length) {
+      return { data: temp, off: a - Runtime.TEMP_BUFFER_BASE }
+    }
     for (const [kind, base] of [
       ['sprites', Runtime.SPRITE_BANK_BASE],
       ['icons', Runtime.ICON_BANK_BASE],
@@ -867,6 +880,12 @@ export class Runtime {
 
   // ---- Fsel$ (Dsk.FileSelector / Start_FSel +Lib.s:17756) ----
   /**
+   * EcFsel (+Equ.s:792): the system screen slot the file selector and the
+   * text reader both open on, above the user range 0-7 (8 EcFonc, 9 EcEdit,
+   * 10 EcFsel, 11 EcReq).
+   */
+  static readonly EC_FSEL = 10
+  /**
    * The file selector is itself an Interface dialog: the layout comes from
    * program 2 of the system default resource bank; this controller is the
    * native driver that fills the list, reacts to the zone returns and
@@ -905,27 +924,29 @@ export class Runtime {
       pattern = m[2]!
     }
     if (path === '') path = this.vfs.currentDir
-    const prevScreen = this.currentIndex
+    // Fs_OldEc (+Lib.s:17800): -1 when no screen is current, and the
+    // reactivation at the end is skipped for it (`bmi .PaClo`, 18492)
+    const prevScreen = this.screens.has(this.currentIndex) ? this.currentIndex : -1
     // a system screen outside the user range 0-7 (like the 68k's Fs_ScOpen)
-    const s = new Screen(9, 640, 200, res!.graphics?.nColors ?? 8, 0x8000)
-    this.screens.set(9, s)
-    this.order = this.order.filter((i) => i !== 9)
-    this.order.push(9)
-    this.currentIndex = 9
+    const s = new Screen(Runtime.EC_FSEL, 640, 200, res!.graphics?.nColors ?? 8, 0x8000)
+    this.screens.set(Runtime.EC_FSEL, s)
+    this.order = this.order.filter((i) => i !== Runtime.EC_FSEL)
+    this.order.push(Runtime.EC_FSEL)
+    this.currentIndex = Runtime.EC_FSEL
     s.cls(0)
     if (res!.graphics) for (let i = 0; i < 32; i++) s.palette[i] = res!.graphics.palette[i]!
     let chan = 65536
     while (this.dialogs.has(chan)) chan++
     const d = new DialogChannel(chan, 32, res!)
     d.script = prog
-    d.screenNb = 9
+    d.screenNb = Runtime.EC_FSEL
     try {
       const scan = prescanDialog(prog)
       d.labels = scan.labels
       d.userInstrs = scan.userInstrs
     } catch {
-      this.closeScreen(9)
-      this.setCurrent(prevScreen)
+      this.closeScreen(Runtime.EC_FSEL)
+      if (prevScreen >= 0) this.setCurrent(prevScreen)
       return false
     }
     const arr: AmosArray = { type: 2, dims: [0], data: [] }
@@ -942,7 +963,7 @@ export class Runtime {
       done: false,
       result: '',
       chan,
-      screenNb: 9,
+      screenNb: Runtime.EC_FSEL,
       prevScreen,
       path,
       pattern,
@@ -1113,9 +1134,114 @@ export class Runtime {
       this.dialogs.delete(f.chan)
     }
     this.closeScreen(f.screenNb)
-    this.setCurrent(f.prevScreen)
+    if (f.prevScreen >= 0) this.setCurrent(f.prevScreen)
     f.done = true
     f.result = result
+  }
+
+  // ---- Read Text (InReadText1/3 +Lib.s:14707 -> IRText 14755) ----
+  /**
+   * The ASCII reader is dialog program 1 of the system default resource
+   * bank, run on its own EcFsel screen (PI_RtSx x PI_RtSy, +Interpreter_
+   * Config.s:94) with 8 internal variables: 0 = the text address, 1 = the
+   * title, 2 = the hypertext flag. The 68k then sits in a vbl loop reading
+   * zone 5 (the HT zone) and quits when the dialog stops being drawn, so
+   * this controller is stepped a frame at a time while BASIC blocks.
+   */
+  readText: { done: boolean; result: string; chan: number; screenNb: number; prevScreen: number } | null = null
+
+  /** begin Read Text over text at `addr`; false = no system resource bank */
+  startReadText(title: string, addr: number, length: number): boolean {
+    const res = this.systemResource
+    const prog = res?.programs?.[0]
+    if (!prog) return false
+    // "#HYPn" in the first bytes selects hypertext mode n and the text
+    // itself starts 8 bytes in (+Lib.s:14771)
+    let hyp = 0
+    let base = addr
+    const head = this.resolveAddr(addr)
+    if (head) {
+      const b = head.data.subarray(head.off, head.off + 5)
+      const tag = String.fromCharCode(...b.subarray(0, 4))
+      const digit = (b[4] ?? 0) - 0x30
+      if (tag === '#HYP' && digit >= 1 && digit <= 9) {
+        hyp = digit
+        base = addr + 8
+      }
+    }
+    void length // only sizes the 68k's string buffer (Dia_OpenChannel buflen)
+    // TRd_OldEc (+Lib.s:14783): the screen to come back to, or -1 when
+    // there is no current screen at all (`move.l T_EcCourant(a5),d1 / beq`)
+    // — Read Text after a Screen Close has nothing to reactivate
+    const prevScreen = this.screens.has(this.currentIndex) ? this.currentIndex : -1
+    const g = res!.graphics
+    const s = new Screen(Runtime.EC_FSEL, 640, 200, g?.nColors ?? 8, (g?.mode ?? 0x8000) & 0x8004)
+    this.screens.set(Runtime.EC_FSEL, s)
+    this.order = this.order.filter((i) => i !== Runtime.EC_FSEL)
+    this.order.push(Runtime.EC_FSEL)
+    this.currentIndex = Runtime.EC_FSEL
+    s.cls(0)
+    if (g) for (let i = 0; i < 32; i++) s.palette[i] = g.palette[i]!
+    let chan = 65536
+    while (this.dialogs.has(chan)) chan++
+    const d = new DialogChannel(chan, 8, res!)
+    d.script = prog
+    d.screenNb = Runtime.EC_FSEL
+    try {
+      const scan = prescanDialog(prog)
+      d.labels = scan.labels
+      d.userInstrs = scan.userInstrs
+    } catch {
+      this.closeScreen(Runtime.EC_FSEL)
+      if (prevScreen >= 0) this.setCurrent(prevScreen)
+      return false
+    }
+    d.vars[0] = base
+    d.vars[1] = title
+    d.vars[2] = hyp
+    this.dialogs.set(chan, d)
+    this.readText = { done: false, result: '', chan, screenNb: Runtime.EC_FSEL, prevScreen }
+    try {
+      this.runDialog(chan, -1, null, null)
+    } catch {
+      this.finishReadText('')
+    }
+    return true
+  }
+
+  /** the reader's own wait loop (+Lib.s:14843): poll zone 5, quit when the
+   * dialog closes itself */
+  private stepReadText(): void {
+    const t = this.readText
+    if (!t || t.done) return
+    const d = this.dialogs.get(t.chan)
+    if (!d || !d.drawn) {
+      // Dia_GetReturn hands back -1 once the dialog stops being drawn
+      this.finishReadText('')
+      return
+    }
+    // Dia_GetValue(c,5,0): a hypertext zone with no numeric position gives
+    // back its keyword buffer, and a non-empty one ends Read Text in Param$
+    const z = dialogZoneByNumber(d, 5, 0)
+    if (!z) return
+    const v = dialogZoneValue(z)
+    if (v.s !== null && v.s !== '') this.finishReadText(v.s)
+  }
+
+  /** close the reader: dialog, screen, restore; the result goes to Param$ */
+  finishReadText(result: string): void {
+    const t = this.readText
+    if (!t) return
+    const d = this.dialogs.get(t.chan)
+    if (d) {
+      eraseDialog(d, this.dialogDraw)
+      this.dialogs.delete(t.chan)
+    }
+    this.closeScreen(t.screenNb)
+    if (t.prevScreen >= 0) this.setCurrent(t.prevScreen) // .NoEc, 14903
+    this.tempBuffer = null // ResTempBuffer 0 (+Lib.s:14905)
+    t.done = true
+    t.result = result
   }
   readonly dialogHost: DialogHost = {
     screenWidth: () => this.screen.width,
@@ -2838,6 +2964,7 @@ export class Runtime {
     this.stepMenus()
     this.stepDialogs()
     this.stepFsel()
+    this.stepReadText()
     return result
   }
 
@@ -3035,6 +3162,8 @@ export class Runtime {
       if (!d || d.runState === 'done') this.interp.blocked = null
     } else if (b.type === 'fsel') {
       if (!this.fsel || this.fsel.done) this.interp.blocked = null
+    } else if (b.type === 'readtext') {
+      if (!this.readText || this.readText.done) this.interp.blocked = null
     }
   }
 
@@ -3129,6 +3258,9 @@ export class Runtime {
         else this.interp.blocked = null
       } else if (b?.type === 'fsel') {
         if (this.fsel && !this.fsel.done) this.finishFsel('')
+        else this.interp.blocked = null
+      } else if (b?.type === 'readtext') {
+        if (this.readText && !this.readText.done) this.finishReadText('')
         else this.interp.blocked = null
       }
     }

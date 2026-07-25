@@ -85,6 +85,7 @@ export type Block =
   | { type: 'input'; prompt: string }
   | { type: 'dialog'; channel: number }
   | { type: 'fsel' }
+  | { type: 'readtext' }
 
 /** Live input device state, owned by the runtime/driver and read by builtins. */
 export interface InputState {

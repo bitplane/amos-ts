@@ -2003,6 +2003,53 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         rt.flashStart(flash & 31, parseFlashSpec(DEFAULT_FLASH_SPEC)!)
       }
     },
+    'read text'(it) {
+      // InReadText1 +Lib.s:14707 (a file) / InReadText3 14744 (title,
+      // address, length) → IRText 14755: both open the resource bank's
+      // reader dialog and block until it closes, leaving the clicked
+      // hypertext keyword in Param$
+      const t = rt.readText
+      if (t) {
+        if (t.done) {
+          it.paramStr = t.result
+          rt.readText = null
+          it.skipToStmtEnd()
+          return
+        }
+        it.block({ type: 'readtext' }, true)
+        return
+      }
+      const first = it.evalStr()
+      let title: string
+      let addr: number
+      let length: number
+      if (it.accept(',')) {
+        // Read Text title$,address,length — the text is already in memory
+        title = first
+        addr = it.evalInt()
+        it.expect(',')
+        length = it.evalInt()
+      } else {
+        // Read Text file$ — loaded into TempBuffer, titled from default
+        // resource message 20 (Def_GetMessage)
+        const bytes = rt.fs?.read(first)
+        if (!bytes) throw new AmosError(`file not found: ${first}`)
+        // D_Read leaves the file in the buffer; the reader wants it
+        // NUL-terminated (ResTempBuffer takes size+4, +Lib.s:14727)
+        const buf = new Uint8Array(bytes.length + 4)
+        buf.set(bytes)
+        rt.tempBuffer = buf
+        addr = Runtime.TEMP_BUFFER_BASE
+        length = bytes.length
+        title = rt.systemResource?.messages?.[19] ?? ''
+      }
+      if (!rt.startReadText(title, addr, length)) {
+        // no system resource bank: nothing to read the text with
+        it.paramStr = ''
+        return
+      }
+      it.block({ type: 'readtext' }, true)
+    },
 
     load(it) {
       // Load "file.abk"[,bank#] — install banks from an .Abk/.AMOS container

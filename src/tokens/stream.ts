@@ -114,11 +114,17 @@ export class TokenTable {
   constructor(readonly entries: TokenEntry[]) {
     // Entries with an empty name are argument-count variants of the last
     // named entry (the low special ids — variable, string, ... — excluded).
+    // "Empty" means nothing printable: the tokenizer never compares a
+    // variant's name — after a -2 terminator VerC4/VerC6 (+Verif.s:3193)
+    // steps over the routine words and skips the name bytes outright — so
+    // the filler is arbitrary. Every variant but one is a bare $80; Read
+    // Text's three-parameter form (+Lib.s:14701) writes $8C, a lone $0C.
     let lastName = ''
     for (const e of entries) {
       this.byId.set(e.id, e)
-      if (e.name !== '') lastName = e.name
-      const name = e.id > T.EXTENSION && e.name === '' ? lastName : e.name
+      const blank = e.name.trim() === ''
+      if (!blank) lastName = e.name
+      const name = e.id > T.EXTENSION && blank ? lastName : e.name
       this.names.set(e.id, name)
       const n = name.trim().replace(/^!/, '')
       if (n === 'rem' || n === "'") this.remIds.add(e.id)

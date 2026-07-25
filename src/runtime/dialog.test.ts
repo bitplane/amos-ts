@@ -200,8 +200,9 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     for (let i = 0; i < 5; i++) rt.frame()
     expect(rt.fsel).not.toBeNull()
     const d = [...rt.dialogs.values()][0]!
-    expect(d.screenNb).toBe(9)
-    expect(rt.screens.has(9)).toBe(true)
+    // EcFsel (+Equ.s:792) — the system slot Fs_ScOpen uses, above 0-7
+    expect(d.screenNb).toBe(10)
+    expect(rt.screens.has(Runtime.EC_FSEL)).toBe(true)
     // the real bank layout produced the zones: OK 1, Cancel 2, list 13, edits 14/15
     for (const n of [1, 2, 3, 4, 6]) expect(d.zones.some((z) => z.number === n && z.kind === 'button')).toBe(true)
     expect(d.zones.some((z) => z.kind === 'list')).toBe(true)
@@ -219,7 +220,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     for (let i = 0; i < 5; i++) rt.frame()
     const d = [...rt.dialogs.values()][0]!
     const list = d.zones.find((z) => z.kind === 'list')!
-    const s = rt.screens.get(9)!
+    const s = rt.screens.get(Runtime.EC_FSEL)!
     // rows: dir "Deep" first, then alpha.iff, beta.iff — click row 1 twice
     rt.input.mouseX = s.displayX + ((list.x + 8) >> 1)
     rt.input.mouseY = s.displayY + list.y + 8 + 4
@@ -241,7 +242,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('Fsel$ (the native selector over bank 
     for (let i = 0; i < 5; i++) rt.frame()
     const d = [...rt.dialogs.values()][0]!
     const list = d.zones.find((z) => z.kind === 'list')!
-    const s = rt.screens.get(9)!
+    const s = rt.screens.get(Runtime.EC_FSEL)!
     rt.input.mouseX = s.displayX + ((list.x + 8) >> 1)
     rt.input.mouseY = s.displayY + list.y + 4 // row 0 = the "Deep" dir
     rt.input.mouseK = 1
@@ -892,5 +893,127 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('audit fix-ups: run semantics (Dia_Run
     const { rt: rt2, out: out2 } = boot(mk(3))
     expect(rt2.runHeadless(1_000).status).toBe('ended')
     expect(out2()).toBe('HEL\n') // maxlen cap
+  })
+})
+
+describe.skipIf(!existsSync(DEFAULT_ABK))('Read Text (the ASCII reader over bank program 1)', () => {
+  const table = new TokenTable(CORE_TOKENS)
+
+  function boot(src: string, files: Record<string, string> = {}): { rt: Runtime; out: () => string } {
+    const fs = new AmigaFS()
+    const dh0 = fs.mountMemory('DH0')
+    for (const [name, text] of Object.entries(files)) {
+      dh0.write([name], Uint8Array.from([...text].map((c) => c.charCodeAt(0))))
+    }
+    fs.currentDir = 'DH0:'
+    let out = ''
+    const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, fs, onText: (t) => (out += t) })
+    rt.loadSystemResource(readFileSync(DEFAULT_ABK))
+    return { rt, out: () => out }
+  }
+
+  const reader = (rt: Runtime): DialogChannel => rt.dialogs.get(rt.readText!.chan)!
+
+  /** click a hypertext segment by its keyword */
+  function clickKeyword(rt: Runtime, key: string): void {
+    const d = reader(rt)
+    const z = d.zones.find((zz) => zz.kind === 'hyper')!
+    const hz = z.htZones!.find((h) => h.key === key)!
+    const s = rt.screens.get(d.screenNb)!
+    rt.input.mouseX = s.displayX + ((z.x + hz.x0 * 8 + 2) >> (s.hires ? 1 : 0))
+    rt.input.mouseY = s.displayY + z.y + hz.row * 8 + 2
+    rt.input.mouseK = 1
+    rt.frame()
+    rt.input.mouseK = 0
+    rt.frame()
+  }
+
+  it('opens bank program 1 on the EcFsel screen with the text, title and #HYP flag in vars 0-2', () => {
+    const { rt } = boot('Read Text "DH0:doc.txt"\nPrint "R=";Param$;"."', { 'doc.txt': 'Alpha\nBeta\n' })
+    for (let i = 0; i < 3; i++) rt.frame()
+    expect(rt.readText).not.toBeNull()
+    const d = reader(rt)
+    // IRText +Lib.s:14790: Dia_RScOpen on EcFsel, then program 1 with 8 vars
+    expect(d.screenNb).toBe(Runtime.EC_FSEL)
+    expect(d.vars.length).toBe(8)
+    expect(d.vars[0]).toBe(Runtime.TEMP_BUFFER_BASE) // var 0 = text base
+    // var 1 = the title, default resource message 20 (Def_GetMessage)
+    expect(d.vars[1]).toBe('AMOS Professional Text Reader')
+    expect(d.vars[2]).toBe(0) // var 2 = no hypertext header
+    // the script's HT zone split the file into lines
+    const z = d.zones.find((zz) => zz.kind === 'hyper')!
+    expect(z.number).toBe(5)
+    expect(z.htLines!.slice(0, 2)).toEqual(['Alpha', 'Beta'])
+  })
+
+  it('a "#HYPn" header sets the mode in var 2 and moves the text base 8 bytes on (14771)', () => {
+    // the real files carry exactly 8 header bytes: "#HYP2000" then the LF
+    // (fixtures/official-amos/Productivity1/Equates/Equates.Doc)
+    const { rt } = boot('Read Text "DH0:h.txt"', { 'h.txt': '#HYP2000\nOne\n' })
+    for (let i = 0; i < 3; i++) rt.frame()
+    const d = reader(rt)
+    expect(d.vars[2]).toBe(2)
+    expect(d.vars[0]).toBe(Runtime.TEMP_BUFFER_BASE + 8)
+    const z = d.zones.find((zz) => zz.kind === 'hyper')!
+    expect(z.htLines![1]).toBe('One')
+  })
+
+  it('clicking a hypertext keyword ends Read Text with it in Param$ (Dia_GetValue zone 5, .Copy 14875)', () => {
+    const { rt, out } = boot('Read Text "DH0:h.txt"\nPrint "R=";Param$;"."', {
+      'h.txt': '#HYP1000\nSee {[TOPIC,4,7]this bit} now\n',
+    })
+    for (let i = 0; i < 3; i++) rt.frame()
+    const prev = rt.readText!.prevScreen
+    clickKeyword(rt, 'TOPIC')
+    expect(rt.runHeadless(200).status).toBe('ended')
+    expect(out()).toBe('R=TOPIC.\n')
+    // the reader screen closed and the old one came back (14895-14903)
+    expect(rt.screens.has(Runtime.EC_FSEL)).toBe(false)
+    expect(rt.currentIndex).toBe(prev)
+    expect(rt.tempBuffer).toBeNull() // ResTempBuffer 0
+  })
+
+  it('quitting the reader leaves Param$ empty (Dia_GetReturn -1 once it stops being drawn)', () => {
+    const { rt, out } = boot('Read Text "DH0:doc.txt"\nPrint "R=";Param$;"."', { 'doc.txt': 'Alpha\n' })
+    for (let i = 0; i < 3; i++) rt.frame()
+    const d = reader(rt)
+    // zone 1 is the script's exit button: [BR0;BQ;]
+    const z = d.zones.find((zz) => zz.number === 1 && zz.kind === 'button')!
+    const s = rt.screens.get(d.screenNb)!
+    rt.input.mouseX = s.displayX + ((z.x + 4) >> (s.hires ? 1 : 0))
+    rt.input.mouseY = s.displayY + z.y + 4
+    rt.input.mouseK = 1
+    rt.frame()
+    rt.input.mouseK = 0
+    expect(rt.runHeadless(200).status).toBe('ended')
+    expect(out()).toBe('R=.\n')
+    expect(rt.dialogs.size).toBe(0)
+  })
+
+  it('with no screen open there is nothing to come back to (TRd_OldEc -1, 14783/14903)', () => {
+    // the shape Editor_Commands.AMOS uses: Screen Close 0, then Read Text
+    const { rt } = boot('Screen Close 0\nRead Text "DH0:doc.txt"\nA=1', { 'doc.txt': 'Alpha\n' })
+    for (let i = 0; i < 3; i++) rt.frame()
+    // no current screen, so nothing is stored to reactivate on the way out
+    expect(rt.readText!.prevScreen).toBe(-1)
+    expect(rt.screens.has(Runtime.EC_FSEL)).toBe(true)
+    expect(() => rt.finishReadText('')).not.toThrow()
+    expect(rt.screens.size).toBe(0)
+    expect(rt.runHeadless(200).status).toBe('ended')
+  })
+
+  it('the three-parameter form reads text already in memory (InReadText3 14744)', () => {
+    const src = [
+      'Reserve As Work 10,64',
+      'Poke$ Start(10),"Line one"+Chr$(10)+"Line two"',
+      'Read Text "My Title",Start(10),40',
+    ].join('\n')
+    const { rt } = boot(src)
+    for (let i = 0; i < 3; i++) rt.frame()
+    const d = reader(rt)
+    expect(d.vars[1]).toBe('My Title')
+    expect(d.vars[0]).toBe(rt.bankBase(10))
+    const z = d.zones.find((zz) => zz.kind === 'hyper')!
+    expect(z.htLines!.slice(0, 2)).toEqual(['Line one', 'Line two'])
   })
 })

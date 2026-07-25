@@ -4,8 +4,8 @@ Status after the integration pass (Varptr/=Array variable arena,
 Sprite Base/Icon Base bank memory, Run program chaining, random-
 access records, IFF ANIM frames, the environment cluster), following
 the audio pass and the faithfulness sweep. Census over the
-393-program corpus: **380 run to a stop, 64 finish with nothing
-skipped** (92 end, more now running their real event loops instead
+405-program corpus: **397 run to a stop, 73 finish with nothing
+skipped** (95 end, more now running their real event loops instead
 of bailing at skipped keywords). Occurrence counts come
 from `runreport --all` (statements actually reached, so a tight loop
 counts thousands of times). Per-keyword detail lives in `KEYWORDS.md`
@@ -61,8 +61,8 @@ polling status registers.
 Mostly done: `Run`, `Prg/Dev First$/Next$`, `System`, `Close
 Workbench/Editor`, `Set Buffer`, the `Amos *` window keywords,
 `Sprite Base`/`Icon Base` and the IFF ANIM `Frame *` family are all
-faithful now. Still missing: `Set Accessory`/`Prun` (the accessory
-program system), `Set Tempras`, and the editor-integration keywords.
+faithful now. Still missing: `Prun` (a second program structure run as
+an accessory) and the editor-integration keywords.
 
 ### Compact
 `Pack`/`Spack` (screen compaction — `Unpack` of existing banks works;
@@ -70,8 +70,8 @@ the encoders are unwritten). `Squash`/`Unsquash` and PowerPacker are
 done and verified.
 
 ### Misc language stragglers
-`Read Text`, `Amal n,#` bank programs and their `Amplay` speed
-setter (the AMAL/Anim/Move string forms all work).
+`Amal n,#` bank programs and their `Amplay` speed setter (the
+AMAL/Anim/Move string forms all work).
 
 ## Implemented but approximated — the honesty list
 
@@ -174,11 +174,10 @@ rather than transcribed.
 
 ## Remaining census stoppers
 
-- `blocked` (80): programs waiting on input/mouse forever — mostly
+- `blocked` (85): programs waiting on input/mouse forever — mostly
   accessories and demos that idle in event loops (correct behaviour).
-- `maxSteps` (206): games and demos that run their main loop happily
+- `maxSteps` (215): games and demos that run their main loop happily
   until the step cap — the census can't "win" a game.
-- errors (13): missing data files for `Load` (fixtures don't ship
-  every disc), `function call error` (4), `bank not reserved`
-  follow-ons (4), and `Type mismatch` (2) in programs that error on
-  real AMOS too.
+- errors (8): `bank not reserved` follow-ons (4), `Next without For`
+  (2) and screens the program itself closed before drawing on them
+  (2) — programs that error on real AMOS too.
