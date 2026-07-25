@@ -149,6 +149,33 @@ export interface RunResult {
   unimplemented: Map<string, number>
 }
 
+/**
+ * Everything Prg_DataSave (+Verif.s:4564) copies out of the a5 globals for a
+ * program that is about to be pushed, plus the program itself — the state a
+ * Prun'd accessory must not disturb.
+ */
+interface SavedProgram {
+  program: Program
+  pc: Addr
+  frames: Frame[]
+  loops: LoopFrame[]
+  gosubs: Array<{ addr: Addr; loopBase: number }>
+  globals: Set<string>
+  dataPtr: Addr
+  dataInStmt: boolean
+  branchElseIf: Tok | null
+  errorHandler: { kind: 'goto' | 'proc'; target: string } | null
+  breakHandler: { kind: 'goto' | 'proc'; target: string } | null
+  inError: boolean
+  errStmt: Addr | null
+  errNext: Addr | null
+  errFrameDepth: number
+  every: Interp['every']
+  everyReturnDepth: number
+  userFns: Interp['userFns']
+  stmtStart: Addr
+}
+
 const newFrame = (retAddr: Addr | null, loopBase: number, gosubBase: number): Frame => ({
   vars: new Map(),
   arrays: new Map(),
@@ -363,8 +390,93 @@ export class Interp {
     return { status, steps, unimplemented: this.unimplemented }
   }
 
-  halt(status: 'ended' | 'stopped'): void {
+  halt(status: 'ended' | 'stopped', returnToCaller = true): void {
+    // Prg_Pull (+Verif.s:4530). An accessory reaching the end of its program
+    // does not stop the machine: the editor-return path pulls the program
+    // stack, which puts back the interpreter data of whoever Prun'd it —
+    // including the pc, so that program resumes after its Prun statement.
+    if (status === 'ended' && returnToCaller && this.progStack.length > 0) {
+      const top = this.progStack.pop()!
+      this.onProgramPop?.(top.host)
+      this.restoreProgramState(top.state)
+      return
+    }
     this.status = status
+  }
+
+  // ---- the program stack (Prg_Push/Prg_Pull, +Verif.s:4499/4530) ----------
+
+  private progStack: Array<{ state: SavedProgram; host: unknown }> = []
+
+  /** called with the pusher's opaque state just before the pc is restored */
+  onProgramPop: ((host: unknown) => void) | null = null
+
+  /** true while a Prun'd program is running (Prg_Previous is set) */
+  get nestedProgram(): boolean {
+    return this.progStack.length > 0
+  }
+
+  /**
+   * Prg_Push: stack this program's interpreter data and start a new one.
+   * Prg_DataNew then clears the new program's state, which is what
+   * replaceProgram already does for Run.
+   */
+  pushProgram(lines: TokenLine[], host: unknown, resumeAt?: Addr): void {
+    const state = this.saveProgramState()
+    if (resumeAt) state.pc = resumeAt
+    this.replaceProgram(lines)
+    this.breakHandler = null
+    this.errFrameDepth = 0
+    this.everyReturnDepth = 0
+    this.progStack.push({ state, host })
+  }
+
+  private saveProgramState(): SavedProgram {
+    return {
+      program: this.program,
+      pc: this.pc,
+      frames: this.frames,
+      loops: this.loops,
+      gosubs: this.gosubs,
+      globals: this.globals,
+      dataPtr: this.dataPtr,
+      dataInStmt: this.dataInStmt,
+      branchElseIf: this.branchElseIf,
+      errorHandler: this.errorHandler,
+      breakHandler: this.breakHandler,
+      inError: this.inError,
+      errStmt: this.errStmt,
+      errNext: this.errNext,
+      errFrameDepth: this.errFrameDepth,
+      every: this.every,
+      everyReturnDepth: this.everyReturnDepth,
+      userFns: this.userFns,
+      stmtStart: this.stmtStart,
+    }
+  }
+
+  private restoreProgramState(s: SavedProgram): void {
+    ;(this as { program: Program }).program = s.program
+    this.pc = s.pc
+    this.frames = s.frames
+    this.loops = s.loops
+    this.gosubs = s.gosubs
+    this.globals = s.globals
+    this.dataPtr = s.dataPtr
+    this.dataInStmt = s.dataInStmt
+    this.branchElseIf = s.branchElseIf
+    this.errorHandler = s.errorHandler
+    this.breakHandler = s.breakHandler
+    this.inError = s.inError
+    this.errStmt = s.errStmt
+    this.errNext = s.errNext
+    this.errFrameDepth = s.errFrameDepth
+    this.every = s.every
+    this.everyReturnDepth = s.everyReturnDepth
+    this.userFns = s.userFns
+    this.stmtStart = s.stmtStart
+    this.blocked = null
+    this.status = null
   }
 
   get done(): boolean {

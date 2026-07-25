@@ -181,6 +181,7 @@ export const FAITHFUL = new Set<string>([
   // single display (+Lib.s:11361), Prg/Dev First$/Next$ share FillDev
   // (+Lib.s:5539); cluster.test.ts cites each
   'run',
+  'prun',
   'system',
   'set buffer',
   'amos to front',
@@ -944,6 +945,7 @@ export const NOTES: Record<string, string> = {
   anim: 'the bank-program/string discrimination is by value type, like amal',
   'move x': 'the bank-program/string discrimination is by value type, like amal',
   'move y': 'the bank-program/string discrimination is by value type, like amal',
+  prun: "the editor keeps a Prun'd accessory resident and re-enters it in place (Prg_AccAdr/Prg_DejaRunned, +ILib.s:1552), so on the Amiga an accessory Prun'd twice can still be holding its variables; with no editor to own that residency the port loads a fresh structure each time, which is the same path the Amiga takes for a first Prun. Prg_Edited, the Direct-mode ban and the Mon_Base monitor check have no counterpart here either. End, Edit and Direct all return to the caller, as they do on the Amiga where they share the editor-return path that pulls the stack (rErr1 +ILib.s:1401); Stop instead halts the machine, since our 'stopped' is what the census reads",
   amplay: "SetPlay (+W.s:7937) walks one list holding all four slot kinds per channel (Amal, Anim, Move X, Move Y) and so also writes the internal registers of the STOS slots of the channels below the last; only the AMAL slot's registers are reachable from BASIC or used by PLay, so the port writes just those",
   autoback: 'mode 1 treated like 0',
   rainbow: 'rendered per scanline by the copper-walk compositor across the PAL overscan window (hardware lines 26-311)',

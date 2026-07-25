@@ -61,8 +61,9 @@ polling status registers.
 Mostly done: `Run`, `Prg/Dev First$/Next$`, `System`, `Close
 Workbench/Editor`, `Set Buffer`, the `Amos *` window keywords,
 `Sprite Base`/`Icon Base` and the IFF ANIM `Frame *` family are all
-faithful now. Still missing: `Prun` (a second program structure run as
-an accessory) and the editor-integration keywords.
+faithful now, and `Prun` runs a second program in its own structure on a
+real program stack (Prg_Push/Prg_Pull). Still missing: the
+editor-integration keywords.
 
 ### Compact
 `Pack`/`Spack` (screen compaction — `Unpack` of existing banks works;

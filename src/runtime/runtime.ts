@@ -3,6 +3,7 @@ import { DEFAULT_MOUSE_BANK } from './mousebank.gen'
 import { TokenTable, parseSource } from '../tokens/stream'
 import { Interp, newInputState } from '../interp/interp'
 import type { AmosArray, InputState, InterpOptions, RunResult } from '../interp/interp'
+import type { Addr } from '../interp/prescan'
 import type { AmosIO } from '../interp/io'
 import { AmosError, VF, VI } from '../interp/values'
 import type { Value } from '../interp/values'
@@ -2209,6 +2210,47 @@ export class Runtime {
     this.interp.replaceProgram(lines)
   }
 
+  /**
+   * Prun "file" (InPRun +ILib.s:1537): load a second program into its own
+   * structure and run it as an accessory, coming back here afterwards.
+   *
+   * Unlike Run this does not replace the caller: Prg_RunIt pushes the
+   * caller's interpreter data (Prg_Push) and only the accessory's End pops
+   * it again. Each program structure owns its own bank list — Prg_SetBanks
+   * (+Verif.s:4742) just repoints Cur_Banks — so the accessory's banks
+   * replace the caller's for the duration and are swapped back on the way
+   * out. The display is not reinitialised (DefRunAcc, the d0=-1 arm of
+   * Prg_RunIt at 4398): screens, and whatever is drawn on them, survive in
+   * both directions.
+   */
+  prun(path: string, resumeAt: Addr): void {
+    // an accessory cannot Prun another one (PRun_Acc, +ILib.s:1600)
+    if (this.interp.nestedProgram) throw new AmosError('accessory cannot Prun', 102)
+    const bytes = this.fs?.read(path)
+    if (!bytes) throw new AmosError('file not found')
+    const file = parseAmosFile(bytes)
+    if (file.source.length === 0) throw new AmosError('file not found')
+    const lines = parseSource(file.source, this.table)
+    const saved = { memBanks: this.memBanks, spriteBank: this.spriteBank, iconBank: this.iconBank }
+    this.memBanks = new Map()
+    this.spriteBank = null
+    this.iconBank = null
+    for (const bank of file.banks) {
+      if (bank.kind === 'sprites') this.spriteBank = ObjectBank.fromSpriteBank(bank)
+      else if (bank.kind === 'icons') this.iconBank = ObjectBank.fromSpriteBank(bank)
+      else if (bank.kind === 'memory') this.memBanks.set(bank.number, bank)
+    }
+    this.interp.pushProgram(lines, saved, resumeAt)
+  }
+
+  /** Prg_Pull's half of the bank swap: Prg_SetBanks + Bnk.Change */
+  private restoreProgramBanks(host: unknown): void {
+    const s = host as { memBanks: Map<number, MemoryBank>; spriteBank: ObjectBank | null; iconBank: ObjectBank | null }
+    this.memBanks = s.memBanks
+    this.spriteBank = s.spriteBank
+    this.iconBank = s.iconBank
+  }
+
   // ---- Sprite Base / Icon Base synthesized bank memory --------------------
   // The 68k sprite bank: count.w, then 8 bytes per image (record ptr.l +
   // mask ptr.l), the 32-word palette, and the records themselves
@@ -2476,6 +2518,7 @@ export class Runtime {
     if (opts.onUnimplemented) interpOpts.onUnimplemented = opts.onUnimplemented
     if (opts.maxSteps) interpOpts.maxSteps = opts.maxSteps
     this.interp = new Interp(lines, table, interpOpts)
+    this.interp.onProgramPop = (host) => this.restoreProgramBanks(host)
     this.table = table
     this.fs = opts.fs ?? null
     if (opts.audio) this.audio = opts.audio

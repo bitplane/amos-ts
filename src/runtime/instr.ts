@@ -2364,6 +2364,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.runFile(it.evalStr())
       return 'jumped'
     },
+    prun(it) {
+      // InPRun +ILib.s:1537: run a second program as an accessory; the
+      // caller's saved ChrGet points past this statement, so it resumes
+      // there when the accessory ends
+      const path = it.evalStr()
+      rt.prun(path, it.afterCurrentStatement())
+      return 'jumped'
+    },
     system(it) {
       // InSystem +ILib.s:1849: run-error 1002 — leave AMOS entirely; in
       // the port, like Edit/Direct, the program simply ends
