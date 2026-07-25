@@ -102,13 +102,10 @@ saying which is how a list like this quietly becomes furniture.
 
 **Closable, just not done** (tracked as work, not accepted as permanent):
 
-- `fsel$` Store and keyboard qualifiers; sizes and sort order.
+- `fsel$` Store and keyboard qualifiers; sizes and sort order. Owned by the
+  full `Start_FSel` port rather than patched here.
 - `resource$` for the editor message tables (-1001 and deeper).
 - `get disc fonts` and `set pattern` when no machine bank is mounted.
-- `Copper Off` ignores DDF, the modulos, BPLCON1 (playfield scroll) and
-  BPLCON2, and the sprite pointers: the fetch geometry comes from the
-  resolved screen rather than from the registers. Register *persistence*
-  across frames is done. Sprite priority and dual playfield are done.
 - `Border$` box glyphs are drawn approximations (the AMOS charset binary is
   not in the source tree — but it may be recoverable from a real install).
 
@@ -135,17 +132,21 @@ saying which is how a list like this quietly becomes furniture.
 - **Rnd** mixes a deterministic statement-paced pseudo-beam instead of
   the free-running raster (runs reproduce); `Rnd(-n)` is the pure
   generator exactly as on the Amiga.
-- **Sprite priority** is per-screen (EcCon2) and the compositor picks
-  the PF1P of whichever screen covers a sprite's scanline. Remaining:
-  computed sprites (8+) count as the last pair rather than being
-  tracked through the multiplexer, PF2P is stored but the single
-  compositor pass keys off PF1P, and hardware sprites ignore the
+- **Sprite priority** is per-screen (EcCon2), the compositor picks the
+  PF1P of whichever screen covers a sprite's scanline, and computed
+  sprites (8+) go through the real multiplexer's channel allocator
+  (HsAff). Remaining: PF2P is stored but the single compositor pass
+  keys off PF1P, a sprite wide enough to span several channels draws at
+  the priority of the first, and hardware sprites ignore the
   4-per-scanline DMA limit (a superset).
-- **Copper Off** interprets COLOR/BPLxPT/BPLCON0/DMACON/DIWSTRT from
-  user lists, and the register file persists across frames as the
-  hardware's does. DDF, the modulos, BPLCON1-2 and the sprite pointers
-  are still parsed and ignored — the fetch geometry comes from the
-  resolved screen.
+- **Copper Off** takes its fetch geometry from the registers now: the
+  bitplane pointer is walked as a byte pointer (so a mid-row address
+  shears the picture), BPL1MOD joins the lines, DDF sets the width and
+  where the data lands, BPLCON1 scrolls, DIW windows it, BPLCON2 orders
+  the sprites and SPRxPT are decoded as real sprite structures.
+  BPL2MOD is tracked but has no independent even-plane pointer to move
+  in a chunky screen, so it only matters for a dual playfield — which
+  this path still does not render.
 - **Screen Base** maps a read-only synthesized control block; pokes
   into it are ignored.
 - **Dual playfield** pairs are per-screen (EcDual), so several coexist

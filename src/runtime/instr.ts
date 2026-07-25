@@ -1738,11 +1738,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     'set sprite buffer'(it) {
-      // InSetSpriteBuffer +Lib.s:12290: scanlines per multiplexer slot, must
-      // be >= 16 (cmp #16 / bcs error). A resource knob with no visible
-      // effect in the chunky renderer.
+      // InSetSpriteBuffer +Lib.s:12290: scanlines per multiplexer column,
+      // must be >= 16 (cmp #16 / bcs error). HsSBuf reserves n+2 lines
+      // (+W.s:11268), leaving n words of room per column — the budget that
+      // decides how many computed sprites share a channel.
       const n = it.evalInt()
       if (n < 16) throw new AmosError('function call error')
+      rt.spriteBufferLines = n + 2
     },
 
     // ---- zones ----

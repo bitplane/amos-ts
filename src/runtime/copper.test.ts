@@ -224,3 +224,243 @@ describe('copper registers persist across frames, as the hardware\'s do', () => 
 })
 
 
+describe('the fetch registers really drive the Copper Off display', () => {
+  /**
+   * A hand-written list of the kind a demo writes: it sets up the whole
+   * bitplane fetch itself rather than copying AMOS's. Every register under
+   * test is a parameter here, so each test below changes exactly one word
+   * and the difference in the pixels is the register's doing.
+   */
+  const listSrc = (over: Record<string, string> = {}, fill = 'Draw 0,Y To 319,Y'): string => {
+    const R = {
+      diwstrt: '$2C81',
+      diwstop: '$2CC1',
+      ddfstrt: '$38',
+      ddfstop: '$D0',
+      mod1: '0',
+      bplcon0: '$1200', // 1 plane, colour burst
+      bplcon1: '0',
+      bplcon2: '$24',
+      ...over,
+    }
+    return [
+      'Screen Open 0,320,200,2,Lowres',
+      'Curs Off : Flash Off : Cls 0',
+      'Colour 1,$F00',
+      // every second row filled, so a modulo that skips rows shows up
+      `For Y=0 To 199 Step 2 : Ink 1 : ${fill} : Next Y`,
+      'A=Logbase(0)',
+      'Wait Vbl',
+      'Copper Off',
+      'Cop Move $180,$000 : Cop Move $182,$F00',
+      `Cop Move $8E,${R.diwstrt} : Cop Move $90,${R.diwstop}`,
+      `Cop Move $92,${R.ddfstrt} : Cop Move $94,${R.ddfstop}`,
+      `Cop Move $108,${R.mod1} : Cop Move $10A,${R.mod1}`,
+      `Cop Move $100,${R.bplcon0}`,
+      `Cop Move $102,${R.bplcon1} : Cop Move $104,${R.bplcon2}`,
+      'Cop Wait 0,50',
+      'Cop Move $E0,A/65536 : Cop Move $E2,A and $FFFF',
+      'Cop Move $96,$8300',
+      'Cop Swap',
+    ].join('\n')
+  }
+
+  /** 12-bit colour of the composited pixel at screen (x, row-below-line-50) */
+  const pix = (rt: Runtime, x: number, y: number): number => {
+    const { data } = rt.composite()
+    const o = ((y + 48) * 640 + x) * 4
+    return ((Math.round(data[o]! / 17) & 15) << 8) | ((Math.round(data[o + 1]! / 17) & 15) << 4) | (Math.round(data[o + 2]! / 17) & 15)
+  }
+
+  it('the baseline list draws the screen where AMOS would put it', () => {
+    const rt = run(listSrc())
+    expect(pix(rt, 0, 0)).toBe(0xf00) // first fetched pixel, hard left
+    expect(pix(rt, 638, 0)).toBe(0xf00) // last one inside the window
+    expect(pix(rt, 0, 2)).toBe(0x000) // row 1 of the screen is empty
+  })
+
+  it('BPLCON1 PF1H delays the playfield by whole lores pixels', () => {
+    // the register that had no test and so was reverted once: 4 lores
+    // pixels of delay is 8 output pixels of shift, and the pixels pushed
+    // past DIWSTOP are lost rather than wrapping
+    const rt = run(listSrc({ bplcon1: '4' }))
+    expect(pix(rt, 0, 0)).toBe(0x000)
+    expect(pix(rt, 7, 0)).toBe(0x000)
+    expect(pix(rt, 8, 0)).toBe(0xf00)
+    expect(pix(rt, 638, 0)).toBe(0xf00)
+  })
+
+  it('BPL1MOD joins the fetched words, so a wrong one shears the picture', () => {
+    // +40 bytes is one extra row per line: the display then shows only the
+    // even rows of the screen, which are the filled ones
+    const rt = run(listSrc({ mod1: '40' }))
+    expect(pix(rt, 0, 0)).toBe(0xf00)
+    expect(pix(rt, 0, 2)).toBe(0xf00) // row 2, not the blank row 1
+    expect(pix(rt, 0, 4)).toBe(0xf00)
+  })
+
+  it('a half-row modulo skews each line sideways', () => {
+    // -20 bytes leaves a net advance of half a row per line, so every other
+    // line starts 160 pixels into the row it is already showing — the
+    // classic copper shear. Only the right half of the even rows is drawn,
+    // so the skew is visible as content moving to the left.
+    const rt = run(listSrc({ mod1: '-20' }, 'Draw 160,Y To 319,Y'))
+    // line 50 fetches row 0 from its start: the filled half stays on the right
+    expect(pix(rt, 0, 0)).toBe(0x000)
+    expect(pix(rt, 400, 0)).toBe(0xf00)
+    // line 51 starts halfway into row 0, so that same half is now hard left
+    expect(pix(rt, 0, 2)).toBe(0xf00)
+    expect(pix(rt, 400, 2)).toBe(0x000)
+    // line 52 has advanced a whole row: row 1 is blank
+    expect(pix(rt, 0, 4)).toBe(0x000)
+    expect(pix(rt, 400, 4)).toBe(0x000)
+    // line 54 reaches row 2, and the pattern repeats
+    expect(pix(rt, 400, 8)).toBe(0xf00)
+  })
+
+  it('DDFSTOP sets how many words are fetched, hence the width', () => {
+    // (0xB0-0x38)/8+1 = 16 words = 256 pixels instead of 320
+    const rt = run(listSrc({ ddfstop: '$B0' }))
+    expect(pix(rt, 510, 0)).toBe(0xf00)
+    expect(pix(rt, 512, 0)).toBe(0x000)
+  })
+
+  it('DDFSTRT sets where the data lands as well as the width', () => {
+    // 8 colour clocks later: 16 output pixels right, 2 words narrower
+    const rt = run(listSrc({ ddfstrt: '$40' }))
+    expect(pix(rt, 30, 0)).toBe(0x000)
+    expect(pix(rt, 32, 0)).toBe(0xf00)
+  })
+
+  it('DIWSTOP clips the right-hand edge', () => {
+    const rt = run(listSrc({ diwstop: '$2C21' })) // stop at colour clock 289
+    expect(pix(rt, 318, 0)).toBe(0xf00)
+    expect(pix(rt, 320, 0)).toBe(0x000)
+  })
+})
+
+describe('sprites under a user copper list', () => {
+  const spriteSrc = (bplcon2: string): string =>
+    [
+      'Screen Open 0,320,200,4,Lowres',
+      'Curs Off : Flash Off : Cls 0',
+      'Colour 1,$F00 : Colour 17,$0F0',
+      'Ink 1 : Bar 0,0 To 319,199',
+      'A=Logbase(0)',
+      'Reserve As Work 5,128',
+      'S=Start(5)',
+      // SPRxPOS: VSTART 60, HSTART bits 8-1 = 129>>1
+      'Doke S,60*256+64',
+      // SPRxCTL: VSTOP 70, bit 0 = HSTART bit 0
+      'Doke S+2,70*256+1',
+      'For I=0 To 9',
+      '  Doke S+4+I*4,$FFFF : Doke S+6+I*4,0',
+      'Next I',
+      'Doke S+44,0 : Doke S+46,0',
+      'Wait Vbl',
+      'Copper Off',
+      'Cop Move $180,$000 : Cop Move $182,$F00 : Cop Move $1A2,$0F0',
+      'Cop Move $8E,$2C81 : Cop Move $90,$2CC1',
+      'Cop Move $92,$38 : Cop Move $94,$D0',
+      'Cop Move $108,0 : Cop Move $10A,0',
+      'Cop Move $100,$1200 : Cop Move $102,0',
+      `Cop Move $104,${bplcon2}`,
+      'Cop Move $120,S/65536 : Cop Move $122,S and $FFFF',
+      'Cop Wait 0,50',
+      'Cop Move $E0,A/65536 : Cop Move $E2,A and $FFFF',
+      'Cop Move $96,$8300',
+      'Cop Swap',
+    ].join('\n')
+
+  const at = (rt: Runtime, hx: number, hy: number): number => {
+    const { data } = rt.composite()
+    const o = (((hy - 26) * 2) * 640 + (hx - 128) * 2) * 4
+    return ((Math.round(data[o]! / 17) & 15) << 8) | ((Math.round(data[o + 1]! / 17) & 15) << 4) | (Math.round(data[o + 2]! / 17) & 15)
+  }
+
+  it('SPRxPT is decoded as real sprite structures (POS/CTL + two bitplanes)', () => {
+    // the list owns the sprite pointers once Copper Off clears T_HsChange
+    // (+W.s:6822), so the display is whatever data they point at
+    const rt = run(spriteSrc('$24'))
+    expect(at(rt, 129, 60)).toBe(0x0f0) // colour 17: pair 0, pixel value 1
+    expect(at(rt, 144, 69)).toBe(0x0f0) // 16 wide, VSTOP-VSTART tall
+    expect(at(rt, 129, 70)).toBe(0xf00) // VSTOP is exclusive
+    expect(at(rt, 145, 60)).toBe(0xf00) // and 16 pixels is the whole width
+  })
+
+  it('BPLCON2 PF1P decides whether the sprite is in front of the playfield', () => {
+    // pair 0 with PF1P 0: the playfield wins and covers the sprite
+    const rt = run(spriteSrc('$20'))
+    expect(at(rt, 129, 60)).toBe(0xf00)
+  })
+})
+
+describe('the hardware sprite multiplexer (HsAff +W.s:11742)', () => {
+  const rt = (): Runtime => new Runtime(tokenize('Screen Open 0,320,200,16,Lowres', table), table, { maxSteps: 100_000 })
+
+  const load = (r: Runtime): void => {
+    // four 16x16 images so the allocator has real heights to budget
+    r.spriteBank = {
+      image: () => ({ width: 16, height: 16, depth: 2, hotX: 0, hotY: 0, pixels: new Uint8Array(256), opaque: false }),
+    } as unknown as Runtime['spriteBank']
+  }
+
+  it('sprites 0-7 keep their own channel, and the mouse holds channel 0', () => {
+    const r = rt()
+    r.runHeadless(50)
+    load(r)
+    const ch = r.spriteChannels([
+      { n: 0, x: 100, y: 50, image: 1 },
+      { n: 3, x: 100, y: 50, image: 1 },
+    ])
+    expect(ch.get(0)).toBe(0)
+    expect(ch.get(3)).toBe(3)
+  })
+
+  it('computed sprites are packed into a free channel from their own top line', () => {
+    const r = rt()
+    r.runHeadless(50)
+    load(r)
+    r.mouseShow = -1 // hidden, so channel 0 is available
+    // three sprites stacked down the display: one channel can hold them all
+    const ch = r.spriteChannels([
+      { n: 8, x: 100, y: 50, image: 1 },
+      { n: 9, x: 100, y: 80, image: 1 },
+      { n: 10, x: 100, y: 110, image: 1 },
+    ])
+    expect(ch.get(8)).toBe(0)
+    expect([...new Set(ch.values())].length).toBeGreaterThan(0)
+    // ...but they must not all be crammed onto one channel when they overlap
+    const overlap = r.spriteChannels([
+      { n: 8, x: 100, y: 50, image: 1 },
+      { n: 9, x: 100, y: 52, image: 1 },
+      { n: 10, x: 100, y: 54, image: 1 },
+    ])
+    expect(new Set(overlap.values()).size).toBe(3)
+  })
+
+  it('a visible mouse pointer takes channel 0 away from them', () => {
+    const r = rt()
+    r.runHeadless(50)
+    load(r)
+    r.mouseShow = 0
+    const ch = r.spriteChannels([{ n: 8, x: 100, y: 50, image: 1 }])
+    expect(ch.get(8)).not.toBe(0)
+  })
+
+  it('Set Sprite Buffer bounds how many share a channel (HsPMax = lines-2)', () => {
+    const r = rt()
+    r.runHeadless(50)
+    load(r)
+    r.mouseShow = -1
+    r.spriteBufferLines = 20 // Set Sprite Buffer 18: 18 words per column
+    // each 16-high sprite books 17 words, so a second one cannot follow it
+    // down the same channel even though it starts well below
+    const ch = r.spriteChannels([
+      { n: 8, x: 100, y: 50, image: 1 },
+      { n: 9, x: 100, y: 150, image: 1 },
+    ])
+    expect(ch.get(8)).toBe(0)
+    expect(ch.get(9)).toBe(1)
+  })
+})

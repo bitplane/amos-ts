@@ -602,11 +602,22 @@ export class Runtime {
     dmaOn: false,
     hires: false,
     hstart: 0x81,
+    hstop: 0x1c1,
+    ddfstrt: 0x38,
+    ddfstop: 0xd0,
+    mod1: 0,
+    mod2: 0,
+    bplcon1: 0,
+    bplcon2: 0x0024,
     bplH: new Int32Array(8).fill(-1),
     bplL: new Int32Array(8).fill(-1),
+    sprH: new Int32Array(8).fill(-1),
+    sprL: new Int32Array(8).fill(-1),
+    sprSet: false,
     screenIdx: -1,
     usePhy: false,
-    srcRow: 0,
+    /** plane-0 fetch pointer as a byte offset into the resolved screen */
+    ptr: 0,
   }
 
   /**
@@ -624,11 +635,21 @@ export class Runtime {
     r.dmaOn = false
     r.hires = false
     r.hstart = 0x81
+    r.hstop = 0x1c1
+    r.ddfstrt = 0x38
+    r.ddfstop = 0xd0
+    r.mod1 = 0
+    r.mod2 = 0
+    r.bplcon1 = 0
+    r.bplcon2 = 0x0024
     r.bplH.fill(-1)
     r.bplL.fill(-1)
+    r.sprH.fill(-1)
+    r.sprL.fill(-1)
+    r.sprSet = false
     r.screenIdx = -1
     r.usePhy = false
-    r.srcRow = 0
+    r.ptr = 0
   }
 
   /** resolve an address for reading (Peek): planar mirrors refresh from chunky */
@@ -735,6 +756,15 @@ export class Runtime {
   /** T_MouShow: visible while >= 0; Hide decrements / Show increments,
    * Hide On forces -1 / Show On forces 0 (MHide/MShow/HiSho +W.s:10722) */
   mouseShow = 0
+
+  /**
+   * Scanlines the hardware-sprite multiplexer's column buffer holds
+   * (T_HsNLine). 128 from the interpreter config (+Interpreter_Config.s:61,
+   * read by HsInit +W.s:9421); Set Sprite Buffer n stores n+2 because
+   * HsSBuf adds two before reserving (+W.s:11268). Column capacity is this
+   * less 2 words — see spriteChannels.
+   */
+  spriteBufferLines = 128
 
   /** boot-load the mouse bank (LdMouse +B.s:2081, init +W.s:9290) */
   loadMouseBank(bytes: Uint8Array): void {
@@ -3133,7 +3163,9 @@ export class Runtime {
         put(0x102)
         put(0)
         put(0x104)
-        put(0x0024)
+        // BPLCON2 is the screen's own EcCon2 (+W.s:6470), so a list copied
+        // out of Cop Logic carries that screen's sprite priority with it
+        put(((f.pf1p & 7) | ((f.pf2p & 7) << 3) | (f.pf2Front ? 0x40 : 0)) & 0xffff)
         // FiniCop: restart the DMA on the band's first line + the upper
         // palette half
         wait(L)
@@ -3208,9 +3240,20 @@ export class Runtime {
     this.activateRainbows()
     // Copper Off: the display is whatever the user's physical list says
     if (!this.copperOn) {
-      this.drawHwSprites(data, W, H, false)
+      // no system list patches SPRxPT now, so the sprite side of the display
+      // is whatever the user's list points at (TCopOn clears T_HsChange,
+      // +W.s:6822). Until a list writes a sprite pointer the registers still
+      // hold what the last system list left there, so AMOS's own sprites
+      // carry on showing — at the priority the list's BPLCON2 asks for.
+      const R = this.copRegs
+      const pf1p = R.bplcon2 & 7
+      const spr = (frontPass: boolean): void => {
+        if (R.sprSet) this.drawListSprites(data, W, H, frontPass)
+        else this.drawHwSprites(data, W, H, frontPass, pf1p)
+      }
+      spr(false)
       this.compositeFromList(data, W, H)
-      this.drawHwSprites(data, W, H, true)
+      spr(true)
       return { width: W, height: H, data }
     }
     // rainbows in slot order — the copper machine scans 0..NbRain-1
@@ -3337,14 +3380,33 @@ export class Runtime {
    * Interpret the physical copper list (Copper Off mode): a beam walk over
    * the real word stream. WAITs advance the line (a $FFxx vpos is the
    * 255-crossing; $FFFF/$FFFE ends the list); MOVEs apply at the current
-   * line — COLORxx into the live palette, BPL1PTH/L resolved back to a
-   * screen + row through the chip-RAM map, BPLCON0's hires bit, DMACON's
-   * raster enable, DIWSTRT's horizontal start. DIWSTOP/DDF/modulos/
-   * BPLCON1-2/sprite pointers are parsed and ignored (the fetch geometry
-   * comes from the resolved screen). Registers persist across frames, as
-   * the hardware's do — see copRegs.
+   * line.
+   *
+   * The fetch geometry comes from the registers, not from the screen the
+   * pointers happen to resolve to:
+   *
+   * - BPL1PTH/L is a byte pointer walked down memory. Its row inside the
+   *   screen is `ptr / rowBytes` and any remainder is a horizontal skew of
+   *   8 pixels a byte, so a list that aims mid-row shears the picture just
+   *   as the hardware does.
+   * - BPL1MOD is added to that pointer at the end of every line (odd planes
+   *   take MOD1; plane 0 is bitplane *one*). AMOS's own bands set it to
+   *   `rowBytes - fetch`, which is what makes the pointer step exactly one
+   *   row — a list choosing anything else legitimately repeats or shears
+   *   the display, and interlace falls out of MOD1 += rowBytes.
+   * - DDFSTRT/DDFSTOP set how many words are fetched per line, hence the
+   *   width, and where the data lands: the first fetched pixel appears at
+   *   colour clock `DDFSTRT*2 + 17` (lores) or `+9` (hires), the constants
+   *   AMOS itself inverts when it derives DDF from DIWSTRT (+W.s:6293).
+   * - BPLCON1's PF1H delays the playfield by up to 15 lores pixels.
+   * - DIWSTRT/DIWSTOP window the result horizontally.
+   * - BPLCON2's PF1P decides which sprite pairs are in front (see
+   *   composite), and SPRxPT feed drawListSprites.
+   *
+   * Registers persist across frames, as the hardware's do — see copRegs.
    */
   private compositeFromList(data: Uint8ClampedArray, W: number, H: number): void {
+    void H
     const phys = this.copPhysic
     const R = this.copRegs
     const hwPal = new Uint16Array(32)
@@ -3355,11 +3417,21 @@ export class Runtime {
     let dmaOn = R.dmaOn
     let hires = R.hires
     let hstart = R.hstart
+    let hstop = R.hstop
+    let ddfstrt = R.ddfstrt
+    let ddfstop = R.ddfstop
+    let mod1 = R.mod1
+    let mod2 = R.mod2
+    let bplcon1 = R.bplcon1
+    let bplcon2 = R.bplcon2
+    let sprSet = R.sprSet
     let screen: Screen | null = R.screenIdx >= 0 ? (this.screens.get(R.screenIdx) ?? null) : null
     let usePhy = R.usePhy
-    let srcRow = R.srcRow
+    let ptr = R.ptr
     const bplH = Int32Array.from(R.bplH)
     const bplL = Int32Array.from(R.bplL)
+    const sprH = Int32Array.from(R.sprH)
+    const sprL = Int32Array.from(R.sprL)
     const cs = this.screens.get(this.currentIndex) ?? null
     const cw = cs?.curWin ?? null
     const curX0 = cw ? cw.x + cw.curX * 8 : 0
@@ -3369,6 +3441,14 @@ export class Runtime {
       const end = Math.min(to, 313)
       for (; line < end; line++) {
         const fetching = dmaOn && screen !== null
+        // words fetched per line: (stop-start)/8+1 lores, /4+2 hires — the
+        // standard $38/$D0 and $3C/$D4 pairs give 20 and 40 words
+        let words = 0
+        if (fetching) {
+          const span = ddfstop - ddfstrt
+          words = span < 0 ? 0 : hires ? (span >> 2) + 2 : (span >> 3) + 1
+          if (words > 128) words = 128
+        }
         if (line >= Runtime.COMPOSITE_TOP && line < Runtime.COMPOSITE_TOP + Runtime.COMPOSITE_LINES) {
           const bg = hwPal[0]!
           const bgR = ((bg >> 8) & 15) * 17
@@ -3383,24 +3463,37 @@ export class Runtime {
               data[o + 2] = bgB
               data[o + 3] = 255
             }
-            if (!fetching) continue
+            if (!fetching || words === 0) continue
             const s = screen!
-            const sy = s.laced ? srcRow + ri : srcRow
-            if (sy < 0 || sy >= s.height) continue
+            const rowPix = s.rowBytes * 8
+            // the pointer is a byte address: whole rows plus a byte skew
+            const abs = ptr * 8 + (s.laced ? ri * rowPix : 0)
             const pixels = usePhy ? s.displayBuffer : s.pixels
             const pw = hires ? 1 : 2
-            const baseX = (hstart - 1 - 128) * 2
-            const isCur = s === cs && s.cursorOn && cw !== null && sy >= curY0 && sy < curY0 + 8
-            const mask = isCur ? CURSOR_SHAPE[sy - curY0]! : 0
+            // where the first fetched pixel lands, in colour clocks
+            const dataStart = ddfstrt * 2 + (hires ? 9 : 17) + (bplcon1 & 15)
+            const originX = (dataStart - 1 - 128) * 2
             const colour = this.rowColours(s, hwPal)
-            for (let sx = 0; sx < s.width; sx++) {
+            const n = words * 16
+            for (let i = 0; i < n; i++) {
+              const a = abs + i
+              const sy = Math.floor(a / rowPix)
+              const sx = a - sy * rowPix
+              if (sy < 0 || sy >= s.height || sx >= s.width) continue
+              // DIW clips in colour clocks, so a hires pair shares one
+              const hx = dataStart + (hires ? i >> 1 : i)
+              if (hx < hstart || hx >= hstop) continue
               let pix = pixels[sy * s.width + sx]! & 63
-              if (mask !== 0 && sx >= curX0 && sx < curX0 + 8 && (mask << (sx - curX0)) & 0x80) pix = cw!.cuCol & 63
+              const isCur = s === cs && s.cursorOn && cw !== null && sy >= curY0 && sy < curY0 + 8
+              if (isCur) {
+                const mask = CURSOR_SHAPE[sy - curY0]!
+                if (sx >= curX0 && sx < curX0 + 8 && (mask << (sx - curX0)) & 0x80) pix = cw!.cuCol & 63
+              }
               const rgb4 = colour(pix)
               const cr = ((rgb4 >> 8) & 15) * 17
               const cg = ((rgb4 >> 4) & 15) * 17
               const cb = (rgb4 & 15) * 17
-              const px = baseX + sx * pw
+              const px = originX + i * pw
               for (let dx = 0; dx < pw; dx++) {
                 const tx = px + dx
                 if (tx < 0 || tx >= W) continue
@@ -3413,7 +3506,8 @@ export class Runtime {
             }
           }
         }
-        if (fetching) srcRow += screen!.laced ? 2 : 1
+        // end of line: the modulo joins the fetched words (BPL1MOD, odd planes)
+        if (fetching) ptr += words * 2 + mod1
       }
       if (to > line) line = end
     }
@@ -3450,12 +3544,29 @@ export class Runtime {
                 usePhy = within >= Runtime.SCREEN_PHY_OFFSET
                 if (usePhy) within -= Runtime.SCREEN_PHY_OFFSET
                 screen = s
-                srcRow = Math.floor(within / s.rowBytes)
+                ptr = within
               }
             }
           }
+        } else if (reg >= 0x120 && reg <= 0x13e) {
+          const idx = (reg - 0x120) >> 2
+          if (reg & 2) sprL[idx] = w2
+          else sprH[idx] = w2
+          sprSet = true
         } else if (reg === 0x100) {
           hires = (w2 & 0x8000) !== 0
+        } else if (reg === 0x102) {
+          bplcon1 = w2 & 0xff
+        } else if (reg === 0x104) {
+          bplcon2 = w2 & 0x7f
+        } else if (reg === 0x108) {
+          mod1 = (w2 << 16) >> 16 // signed word
+        } else if (reg === 0x10a) {
+          mod2 = (w2 << 16) >> 16
+        } else if (reg === 0x092) {
+          ddfstrt = w2 & 0xfe
+        } else if (reg === 0x094) {
+          ddfstop = w2 & 0xfe
         } else if (reg === 0x096) {
           if (w2 & 0x8000) {
             if (w2 & 0x0100) dmaOn = true
@@ -3464,6 +3575,10 @@ export class Runtime {
           }
         } else if (reg === 0x08e) {
           hstart = w2 & 0xff
+        } else if (reg === 0x090) {
+          // DIWSTOP's H8 is inverted on the hardware, so a stop right of
+          // colour clock 255 is written with the bit clear
+          hstop = (w2 & 0xff) | 0x100
         }
       }
     }
@@ -3473,13 +3588,116 @@ export class Runtime {
     R.dmaOn = dmaOn
     R.hires = hires
     R.hstart = hstart
+    R.hstop = hstop
+    R.ddfstrt = ddfstrt
+    R.ddfstop = ddfstop
+    R.mod1 = mod1
+    R.mod2 = mod2
+    R.bplcon1 = bplcon1
+    R.bplcon2 = bplcon2
     R.bplH.set(bplH)
     R.bplL.set(bplL)
+    R.sprH.set(sprH)
+    R.sprL.set(sprL)
+    R.sprSet = sprSet
     R.screenIdx = screen ? screen.index : -1
     R.usePhy = usePhy
-    // srcRow walks down the display as lines are fetched; the next frame
-    // restarts from the top of whatever the pointers were last aimed at
-    R.srcRow = 0
+    // the pointer keeps whatever the walk left it at: nothing reloads
+    // BPLxPT at the vertical blank, the copper list does it, so a list that
+    // sets the pointers once and never again really does march off the
+    // bitmap on its second frame
+    R.ptr = ptr
+  }
+
+  /**
+   * Hardware sprites straight out of SPRxPT (Copper Off).
+   *
+   * The system list leaves eight patch slots at $120-$13E for HsAff to fill
+   * in (HsCop +W.s:6783); once the program owns the list they are its to
+   * write, and the data behind them is the plain Amiga sprite structure:
+   * SPRxPOS/SPRxCTL, then VSTOP-VSTART rows of two bitplane words, then a
+   * zero long to end. Pair n draws in colours 17+4n..19+4n; CTL bit 7
+   * attaches the odd sprite to the even one for a single 16-colour sprite
+   * out of colours 16-31.
+   */
+  private drawListSprites(data: Uint8ClampedArray, W: number, H: number, frontPass: boolean): void {
+    const R = this.copRegs
+    const pf1p = R.bplcon2 & 7
+    const pal = R.pal
+    /** decoded pixels of one channel: y*1024+hx -> 2-bit colour */
+    const decode = (n: number): Map<number, number> => {
+      const out = new Map<number, number>()
+      if (R.sprH[n]! < 0 || R.sprL[n]! < 0) return out
+      const m = this.resolveAddr((((R.sprH[n]! << 16) | R.sprL[n]!) >>> 0))
+      if (!m) return out
+      const mem = m.data
+      let o = m.off
+      const w = (i: number): number => (i + 1 < mem.length ? (mem[i]! << 8) | mem[i + 1]! : 0)
+      // one pointer can chain several sprites down the display
+      for (let guard = 0; guard < 32; guard++) {
+        if (o + 4 > mem.length) break
+        const pos = w(o)
+        const ctl = w(o + 2)
+        if (pos === 0 && ctl === 0) break
+        const vstart = ((pos >> 8) & 0xff) | (ctl & 4 ? 0x100 : 0)
+        let vstop = ((ctl >> 8) & 0xff) | (ctl & 2 ? 0x100 : 0)
+        const hx = ((pos & 0xff) << 1) | (ctl & 1)
+        if (vstop < vstart) vstop = vstart
+        if (vstop - vstart > 313) vstop = vstart + 313
+        o += 4
+        for (let y = vstart; y < vstop && o + 4 <= mem.length; y++) {
+          const a = w(o)
+          const b = w(o + 2)
+          o += 4
+          for (let x = 0; x < 16; x++) {
+            const bit = 15 - x
+            const v = ((a >> bit) & 1) | (((b >> bit) & 1) << 1)
+            if (v !== 0) out.set(y * 1024 + ((hx + x) & 1023), v)
+          }
+        }
+      }
+      return out
+    }
+    /** ATTACH lives in the odd sprite's control word */
+    const attached = (n: number): boolean => {
+      if (R.sprH[n]! < 0 || R.sprL[n]! < 0) return false
+      const m = this.resolveAddr((((R.sprH[n]! << 16) | R.sprL[n]!) >>> 0))
+      if (!m || m.off + 4 > m.data.length) return false
+      return (((m.data[m.off + 2]! << 8) | m.data[m.off + 3]!) & 0x80) !== 0
+    }
+    const put = (hx: number, hy: number, rgb4: number): void => {
+      const bx = (hx - 128) * 2
+      const by = (hy - Runtime.COMPOSITE_TOP) * 2
+      const cr = ((rgb4 >> 8) & 15) * 17
+      const cg = ((rgb4 >> 4) & 15) * 17
+      const cb = (rgb4 & 15) * 17
+      for (let dy = 0; dy < 2; dy++) {
+        for (let dx = 0; dx < 2; dx++) {
+          const tx = bx + dx
+          const ty = by + dy
+          if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue
+          const o = (ty * W + tx) * 4
+          data[o] = cr
+          data[o + 1] = cg
+          data[o + 2] = cb
+        }
+      }
+    }
+    // pairs draw back-to-front: 3, 2, 1, 0 — sprite 0 tops the display
+    for (let pair = 3; pair >= 0; pair--) {
+      if (frontPass ? !(pair < pf1p) : pair < pf1p) continue
+      const even = decode(pair * 2)
+      const odd = decode(pair * 2 + 1)
+      if (attached(pair * 2 + 1)) {
+        for (const k of new Set([...even.keys(), ...odd.keys()])) {
+          const v = (even.get(k) ?? 0) | ((odd.get(k) ?? 0) << 2)
+          if (v !== 0) put(k & 1023, Math.floor(k / 1024), pal[16 + v]! & 0xfff)
+        }
+        continue
+      }
+      for (const [k, v] of odd) put(k & 1023, Math.floor(k / 1024), pal[16 + pair * 4 + v]! & 0xfff)
+      for (const [k, v] of even) put(k & 1023, Math.floor(k / 1024), pal[16 + pair * 4 + v]! & 0xfff)
+    }
   }
 
   /** Workbench-style menu bar while the right button is held */
@@ -3602,20 +3820,88 @@ export class Runtime {
     return this.screens.get(this.order[this.order.length - 1] ?? 0)?.pf1p ?? 4
   }
 
+  /**
+   * Which hardware channel each sprite ends up on (HsAff +W.s:11742-11960).
+   *
+   * Sprites 0-7 are "direct": they own the channel of the same number, and
+   * a visible mouse pointer holds channel 0 (HsAff's T_MouShow test). Every
+   * higher sprite is "computed" and shares what is left, which is the whole
+   * point of the multiplexer: the channels are re-used down the display, so
+   * a sprite only needs a channel free from its own top line onward.
+   *
+   * The 68k sorts them by top edge (HsYr, ties by sprite number — Hss20-23)
+   * and packs them round-robin: try channels from where the last one landed,
+   * take the first whose previous occupant has already finished above this
+   * sprite's top (`HsYr >= HsYAct`) and which still has room in its column
+   * buffer (`HsPAct + height+1 <= HsPMax`), and give up after eight misses.
+   * A sprite wider than 16 pixels takes that many channels side by side, and
+   * a 16-colour one must start on an even channel (HsMAff).
+   *
+   * This decides the sprite's *pair*, so it decides whether it is in front
+   * of the playfield: exactly the thing that used to be guessed by calling
+   * every computed sprite pair 3.
+   */
+  spriteChannels(sprites: HwSprite[]): Map<number, number> {
+    const out = new Map<number, number>()
+    const free = [true, true, true, true, true, true, true, true]
+    const yAct = new Int32Array(8)
+    const pAct = new Int32Array(8)
+    const computed: { sp: HwSprite; yr: number; h: number; w: number; multi: boolean }[] = []
+    for (const sp of sprites) {
+      if (sp.n < 8) {
+        out.set(sp.n, sp.n)
+        free[sp.n] = false
+        continue
+      }
+      const img = this.spriteBank?.image(sp.image)
+      if (!img) continue
+      computed.push({
+        sp,
+        yr: Math.max(0, sp.y - img.hotY),
+        h: img.height + 1,
+        w: Math.max(1, Math.ceil(img.width / 16)),
+        multi: img.depth > 2,
+      })
+    }
+    if (this.mouseShow >= 0) free[0] = false
+    // HsPMax = lines - 2 words per column (HsRBuf +W.s:11311)
+    const pMax = Math.max(0, this.spriteBufferLines - 2)
+    computed.sort((a, b) => a.yr - b.yr || a.sp.n - b.sp.n)
+    let cur = 0
+    for (const c of computed) {
+      for (let tries = 0; tries < 8; tries++) {
+        const col = (cur + tries) % 8
+        if (!free[col]) continue
+        if (c.multi && col % 2 !== 0) continue
+        if (c.yr < yAct[col]! || pAct[col]! + c.h > pMax) continue
+        out.set(c.sp.n, col)
+        // a wide sprite occupies consecutive channels, 16 pixels apart
+        for (let k = 0; k < c.w && col + k < 8; k++) {
+          yAct[col + k] = c.yr + c.h
+          pAct[col + k] = pAct[col + k]! + c.h
+        }
+        cur = (col + c.w) % 8
+        break
+      }
+    }
+    return out
+  }
+
   /** Hardware sprites draw over everything, colours 16-31, hw coords. */
-  private drawHwSprites(data: Uint8ClampedArray, W: number, H: number, frontPass: boolean): void {
+  private drawHwSprites(data: Uint8ClampedArray, W: number, H: number, frontPass: boolean, pf1pOverride?: number): void {
     let sprites = this.spriteUpdateOn ? [...this.hwSprites.values()] : (this.frozenSprites ?? [])
     // hardware pair priority: sprites 0-7 pair n>>1; computed sprites
     // (8+) multiplex onto the tail channels — treated as pair 3.
     // The threshold is EcCon2's PF1P, which belongs to the screen the sprite
     // is over rather than to the machine, so a sprite crossing from a screen
     // with priority 4 onto one with 0 changes side as it goes.
+    const channels = this.spriteChannels(sprites)
     sprites = sprites.filter((sp) => {
-      const pair = sp.n < 8 ? sp.n >> 1 : 3
-      const p = this.priorityUnder(sp.y)
+      const pair = (channels.get(sp.n) ?? 6) >> 1
+      const p = pf1pOverride ?? this.priorityUnder(sp.y)
       return frontPass ? pair < p : pair >= p
     })
-    const p = this.priorityUnder(this.input.mouseY)
+    const p = pf1pOverride ?? this.priorityUnder(this.input.mouseY)
     // the mouse pointer is hardware sprite 0 (HiSho1 does HsSet channel 0)
     // — pair 0, drawn last so it tops the other sprites of its pass
     const pointer =
