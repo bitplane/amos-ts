@@ -3276,8 +3276,7 @@ export class Runtime {
       .sort((a, b) => a[0] - b[0])
       .map(([, r]) => r)
       .filter((r) => r.table.length > 0 && r.h >= 0 && r.ty > 0)
-    // behind-playfield sprite pairs draw first, in-front pairs after
-    this.drawHwSprites(data, W, H, false)
+    const sprites = this.spriteList()
 
     const winWOf = (s: Screen): number => this.winWOf(s)
     // cursor cell of the current screen's current window (AffCur)
@@ -3355,6 +3354,20 @@ export class Runtime {
         const t = curRb.table
         hwPal[curRb.colour] = t[(L - curRb.dy + curRb.base) % t.length]!
       }
+      // What is in front of what, back to front.
+      //
+      // EcCon2 does not say "sprites in front" or "sprites behind": PF1P and
+      // PF2P each name the sprite pair a playfield slots in behind, so the
+      // display is one interleaved stack — pair 0, pair 1, ... with each
+      // playfield inserted at its own threshold. Sorting on that alone gets
+      // the dual-playfield cases right, including the ones where the numbers
+      // put playfield 2 in front of playfield 1 without PFBA being set; a
+      // tie is what PFBA (Dual Priority) breaks.
+      const back = f && !f.dualIsBack && f.dualPartner !== null ? (this.screens.get(f.dualPartner) ?? null) : null
+      const stack: { key: number; layer: 'pf1' | 'pf2' | number }[] = [0, 1, 2, 3].map((p) => ({ key: p, layer: p }))
+      if (f) stack.push({ key: f.pf1p - 0.5 + (back && f.pf2Front ? 0.1 : 0), layer: 'pf1' })
+      if (f && back) stack.push({ key: f.pf2p - 0.5 + (f.pf2Front ? 0 : 0.1), layer: 'pf2' })
+      const layers = stack.sort((a, b) => b.key - a.key).map((e) => e.layer)
       // render the two output rows of this hardware line
       const bg = hwPal[0]!
       const bgR = ((bg >> 8) & 15) * 17
@@ -3368,26 +3381,13 @@ export class Runtime {
           data[o + 2] = bgB
           data[o + 3] = 255
         }
-        if (f) {
-          // each screen carries its own pairing, so several dual pairs can
-          // coexist down the display, each in its own copper band
-          const back =
-            !f.dualIsBack && f.dualPartner !== null ? (this.screens.get(f.dualPartner) ?? null) : null
-          if (back === null) {
-            drawRow(f, r, hwPal, false)
-          } else if (!f.pf2Front) {
-            // PF1 priority (default): PF2 behind through palette 8-15
-            drawRow(back, r, hwPal, true, 8, f)
-            drawRow(f, r, hwPal, true)
-          } else {
-            // Dual Priority named the back screen first: PF2 in front
-            drawRow(f, r, hwPal, true)
-            drawRow(back, r, hwPal, true, 8, f)
-          }
+        for (const layer of layers) {
+          if (layer === 'pf1') drawRow(f!, r, hwPal, true)
+          else if (layer === 'pf2') drawRow(back!, r, hwPal, true, 8, f!)
+          else this.blitSpriteRow(data, W, r, sprites, hwPal, (p) => p === layer)
         }
       }
     }
-    this.drawHwSprites(data, W, H, true)
     return { width: W, height: H, data }
   }
 
@@ -3904,57 +3904,75 @@ export class Runtime {
 
   /** Hardware sprites draw over everything, colours 16-31, hw coords. */
   private drawHwSprites(data: Uint8ClampedArray, W: number, H: number, frontPass: boolean, pf1pOverride?: number): void {
-    let sprites = this.spriteUpdateOn ? [...this.hwSprites.values()] : (this.frozenSprites ?? [])
-    // hardware pair priority: sprites 0-7 pair n>>1; computed sprites
-    // (8+) multiplex onto the tail channels — treated as pair 3.
-    // The threshold is EcCon2's PF1P, which belongs to the screen the sprite
-    // is over rather than to the machine, so a sprite crossing from a screen
-    // with priority 4 onto one with 0 changes side as it goes.
+    const list = this.spriteList()
+    for (let r = 0; r < H; r++) {
+      this.blitSpriteRow(data, W, r, list, null, (pair) => {
+        const p = pf1pOverride ?? this.priorityUnder(Runtime.COMPOSITE_TOP + (r >> 1))
+        return frontPass ? pair < p : pair >= p
+      })
+    }
+  }
+
+  /**
+   * The visible hardware sprites, each with the channel pair it landed on.
+   *
+   * The mouse pointer is hardware sprite 0 — HiSho1 sets it up through the
+   * same HsSet channel 0 — so it is pair 0, and it goes last so it tops
+   * whatever else shares its layer.
+   */
+  private spriteList(): { img: BankImage; hx: number; hy: number; pair: number }[] {
+    const sprites = this.spriteUpdateOn ? [...this.hwSprites.values()] : (this.frozenSprites ?? [])
     const channels = this.spriteChannels(sprites)
-    sprites = sprites.filter((sp) => {
-      const pair = (channels.get(sp.n) ?? 6) >> 1
-      const p = pf1pOverride ?? this.priorityUnder(sp.y)
-      return frontPass ? pair < p : pair >= p
-    })
-    const p = pf1pOverride ?? this.priorityUnder(this.input.mouseY)
-    // the mouse pointer is hardware sprite 0 (HiSho1 does HsSet channel 0)
-    // — pair 0, drawn last so it tops the other sprites of its pass
-    const pointer =
-      this.copperOn && this.mouseShow >= 0 && this.mouseShape !== null && (frontPass ? 0 < p : 0 >= p) ? this.mouseShape : null
-    if (sprites.length === 0 && pointer === null) return
-    const front = this.screens.get(this.order[this.order.length - 1] ?? 0)
-    const palette = front?.palette
-    if (!palette) return
-    const blit = (img: BankImage, hx: number, hy: number): void => {
-      const bx = (hx - img.hotX - 128) * 2
+    const out: { img: BankImage; hx: number; hy: number; pair: number }[] = []
+    for (const sp of sprites) {
+      const img = this.spriteBank?.image(sp.image)
+      if (img) out.push({ img, hx: sp.x, hy: sp.y, pair: (channels.get(sp.n) ?? 6) >> 1 })
+    }
+    if (this.copperOn && this.mouseShow >= 0 && this.mouseShape !== null) {
+      out.push({ img: this.mouseShape, hx: this.input.mouseX, hy: this.input.mouseY, pair: 0 })
+    }
+    return out
+  }
+
+  /**
+   * Blit one output row's worth of the sprites whose pair `keep` accepts.
+   *
+   * Row at a time because that is the only way the playfield can be drawn
+   * between two sprite layers, which is what PF1P and PF2P describe: a
+   * sprite pair can be in front of one playfield and behind the other.
+   */
+  private blitSpriteRow(
+    data: Uint8ClampedArray,
+    W: number,
+    r: number,
+    list: { img: BankImage; hx: number; hy: number; pair: number }[],
+    pal: Uint16Array | null,
+    keep: (pair: number) => boolean,
+  ): void {
+    const fallback = this.screens.get(this.order[this.order.length - 1] ?? 0)?.palette
+    for (const { img, hx, hy, pair } of list) {
+      if (!keep(pair)) continue
       const by = (hy - img.hotY - Runtime.COMPOSITE_TOP) * 2
-      for (let y = 0; y < img.height; y++) {
-        for (let x = 0; x < img.width; x++) {
-          const v = img.pixels[y * img.width + x]!
-          if (v === 0) continue
-          const rgb4 = palette[16 + (v & 15)]!
-          const r = ((rgb4 >> 8) & 15) * 17
-          const g = ((rgb4 >> 4) & 15) * 17
-          const b = (rgb4 & 15) * 17
-          for (let dy = 0; dy < 2; dy++) {
-            for (let dx = 0; dx < 2; dx++) {
-              const tx = bx + x * 2 + dx
-              const ty = by + y * 2 + dy
-              if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue
-              const o = (ty * W + tx) * 4
-              data[o] = r
-              data[o + 1] = g
-              data[o + 2] = b
-            }
-          }
+      const iy = (r - by) >> 1
+      if (iy < 0 || iy >= img.height) continue
+      const bx = (hx - img.hotX - 128) * 2
+      for (let x = 0; x < img.width; x++) {
+        const v = img.pixels[iy * img.width + x]!
+        if (v === 0) continue
+        const rgb4 = (pal ? pal[16 + (v & 15)] : fallback?.[16 + (v & 15)]) ?? 0
+        const cr = ((rgb4 >> 8) & 15) * 17
+        const cg = ((rgb4 >> 4) & 15) * 17
+        const cb = (rgb4 & 15) * 17
+        for (let dx = 0; dx < 2; dx++) {
+          const tx = bx + x * 2 + dx
+          if (tx < 0 || tx >= W) continue
+          const o = (r * W + tx) * 4
+          data[o] = cr
+          data[o + 1] = cg
+          data[o + 2] = cb
         }
       }
     }
-    for (const sp of sprites) {
-      const img = this.spriteBank?.image(sp.image)
-      if (img) blit(img, sp.x, sp.y)
-    }
-    if (pointer) blit(pointer, this.input.mouseX, this.input.mouseY)
   }
 }
 

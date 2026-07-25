@@ -142,13 +142,14 @@ rather than transcribed.
 - **Rnd** mixes a deterministic statement-paced pseudo-beam instead of
   the free-running raster (runs reproduce); `Rnd(-n)` is the pure
   generator exactly as on the Amiga.
-- **Sprite priority** is per-screen (EcCon2), the compositor picks the
-  PF1P of whichever screen covers a sprite's scanline, and computed
-  sprites (8+) go through the real multiplexer's channel allocator
-  (HsAff). Remaining: PF2P is stored but the single compositor pass
-  keys off PF1P, a sprite wide enough to span several channels draws at
-  the priority of the first, and hardware sprites ignore the
-  4-per-scanline DMA limit (a superset).
+- **Sprite priority** is per-screen (EcCon2) and computed sprites (8+)
+  go through the real multiplexer's channel allocator (HsAff). PF1P and
+  PF2P are both live: they are positions in one interleaved stack of
+  four sprite pairs and up to two playfields, drawn a scanline at a
+  time, so a sprite can sit between the halves of a dual pair.
+  Remaining: a sprite wide enough to span several channels draws at the
+  priority of the first, and hardware sprites ignore the 4-per-scanline
+  DMA limit (a superset).
 - **Copper Off** takes its fetch geometry from the registers now: the
   bitplane pointer is walked as a byte pointer (so a mid-row address
   shears the picture), BPL1MOD joins the lines, DDF sets the width and

@@ -365,3 +365,63 @@ describe('dual playfield pairs are per-screen (EcDual)', () => {
     expect(at(200, 170)).not.toBe(at(200, 30))
   })
 })
+
+describe('sprite layers against the playfields (EcCon2 PF1P/PF2P)', () => {
+  // a 16x16 solid sprite in colour 1 of the sprite palette
+  const SPR = [
+    'Screen Open 0,320,200,16,Lowres : Curs Off : Flash Off : Hide On',
+    'Colour 1,$F00 : Colour 17,$0F0',
+    'Reserve As Chip Work 9,16*16',
+    'Ink 1 : Bar 0,0 To 15,15 : Get Sprite 1,0,0 To 16,16 : Cls 0',
+  ]
+
+  const at = (rt: Runtime, hx: number, hy: number): string => {
+    const img = rt.composite()
+    const o = ((hy - Runtime.COMPOSITE_TOP) * 2 * img.width + (hx - 128) * 2) * 4
+    return `${img.data[o]},${img.data[o + 1]},${img.data[o + 2]}`
+  }
+
+  it('a sprite behind the playfield shows through where the playfield is colour 0', () => {
+    // the playfield is transparent at colour 0 for priority purposes, so
+    // "behind" does not mean "invisible" — it means covered only where
+    // something is actually drawn
+    const rt = run(
+      [...SPR, 'Sprite Priority 0', 'Ink 2 : Bar 0,100 To 319,199', 'Sprite 8,200,80,1', 'Wait Vbl'].join('\n'),
+    )
+    const spriteColour = at(rt, 200, 80)
+    // over blank screen: visible even though pair 0 is not in front of PF1P 0
+    expect(spriteColour).not.toBe(at(rt, 100, 80))
+    // and the drawn bar does cover it
+    const rt2 = run(
+      [...SPR, 'Sprite Priority 0', 'Ink 2 : Bar 0,0 To 319,199', 'Sprite 8,200,80,1', 'Wait Vbl'].join('\n'),
+    )
+    expect(at(rt2, 200, 80)).toBe(at(rt2, 100, 80))
+  })
+
+  it('PF2P puts a sprite between the two playfields of a dual pair', () => {
+    // pair 0, PF1P 4 (in front of playfield 1) but PF2P 0 (behind
+    // playfield 2): the sprite sits between them, so the back playfield's
+    // drawn pixels cover it while the front one's do not
+    const src = (dualPri: string): string =>
+      [
+        'Screen Open 0,320,100,4,Lowres : Screen Display 0,128,50,320,100',
+        'Screen Open 1,320,100,4,Lowres : Screen Display 1,128,50,320,100',
+        'Dual Playfield 0,1',
+        'Curs Off : Flash Off : Hide On',
+        'Screen 1 : Cls 3',
+        'Screen 0 : Cls 0 : Colour 17,$0F0',
+        'Reserve As Chip Work 9,16*16',
+        'Ink 1 : Bar 0,0 To 15,15 : Get Sprite 1,0,0 To 16,16 : Cls 0',
+        dualPri,
+        'Sprite 8,200,70,1',
+        'Wait Vbl',
+      ].join('\n')
+    // PF1P 4 / PF2P 0: behind the back playfield, which is filled, so hidden
+    const behind = run(src('Screen 0 : Sprite Priority 4 : Screen 1 : Sprite Priority 0 : Screen 0'))
+    // PF1P 4 / PF2P 4: in front of both, so visible
+    const inFront = run(src('Screen 0 : Sprite Priority 4 : Screen 1 : Sprite Priority 4 : Screen 0'))
+    expect(behind.screens.get(0)!.pf1p).toBe(4)
+    expect(behind.screens.get(0)!.pf2p).toBe(0)
+    expect(at(behind, 200, 70)).not.toBe(at(inFront, 200, 70))
+  })
+})
