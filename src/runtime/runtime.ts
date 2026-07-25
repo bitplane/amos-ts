@@ -9,6 +9,8 @@ import { AmosError, VF, VI } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
+import { newPiConfig } from './piconfig.gen'
+import type { PiConfig } from './piconfig.gen'
 import { parseAmalBank } from '../loader/amalbank'
 import type { AmalBank } from '../loader/amalbank'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
@@ -486,6 +488,15 @@ export class Runtime {
    */
   static readonly TEMP_BUFFER_BASE = 0x6c000000
   tempBuffer: Uint8Array | null = null
+
+  /**
+   * The interpreter configuration block (PI_*, +Equ.s:1590-1650, defaults
+   * from +Interpreter_Config.s). Editable defaults rather than constants:
+   * the file selector stores its Sort/Size/Store toggles and its window
+   * position back here when it closes (Fs_Close +Lib.s:18469), so they
+   * persist from one call to the next within a session.
+   */
+  pi: PiConfig = newPiConfig()
   static readonly COPPER_LONG = 12 * 1024
   /** T_CopON: the system rebuilds and owns the display while true */
   copperOn = true
@@ -1178,7 +1189,9 @@ export class Runtime {
     // — Read Text after a Screen Close has nothing to reactivate
     const prevScreen = this.screens.has(this.currentIndex) ? this.currentIndex : -1
     const g = res!.graphics
-    const s = new Screen(Runtime.EC_FSEL, 640, 200, g?.nColors ?? 8, (g?.mode ?? 0x8000) & 0x8004)
+    // the reader's screen is config-sized (PI_RtSx x PI_RtSy, +Lib.s:14790),
+    // which happens to default to the 640x200 this used to hard-code
+    const s = new Screen(Runtime.EC_FSEL, this.pi.RtSx, this.pi.RtSy, g?.nColors ?? 8, (g?.mode ?? 0x8000) & 0x8004)
     this.screens.set(Runtime.EC_FSEL, s)
     this.order = this.order.filter((i) => i !== Runtime.EC_FSEL)
     this.order.push(Runtime.EC_FSEL)
