@@ -2427,12 +2427,11 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       const icons = sceneIcons(rt, n)
       const mask = rt.turbo.scene.maskPalette
       const s = rt.screen
-      // On the Amiga a sprite or icon bank always carries 32 palette words
-      // and the routine copies all 32. Here a bank built by Get Icon has no
-      // recorded palette at all, so — as Get Icon Palette already does — an
-      // entry the bank does not have is left alone rather than zeroed.
-      for (let i = 0; i < Math.min(32, icons.palette.length, s.palette.length); i++) {
-        if (mask & (1 << i)) s.palette[i] = icons.palette[i]! & 0xfff
+      // Every sprite and icon bank carries 32 palette words (Bnk.Ric2's
+      // `.CPal`, +Lib.s:8228), so all 32 are considered and the mask alone
+      // decides which reach the screen.
+      for (let i = 0; i < Math.min(32, s.palette.length); i++) {
+        if (mask & (1 << i)) s.palette[i] = (icons.palette[i] ?? 0) & 0xfff
       }
     },
 

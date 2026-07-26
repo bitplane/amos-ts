@@ -1236,8 +1236,6 @@ export const NOTES: Record<string, string> = {
     'Holds the bank number and resolves it at each use, where the library holds the pointer GetBank returned. Erasing the scene bank and then drawing therefore reports "Scene Bank not defined" instead of reading freed memory. Scene Bank also resolves the icon bank, so a missing icon bank is reported here, as the manual says it is',
   'scene icon bank':
     "Bank 1 is the sprite bank and bank 2 the icon bank; any other number can only be a plain memory bank in this port's model, so it fails the routine's 'Icon'/'Spri' cookie test with the extension's own error 26. The manual's suggestion of appending bobs and sprites to a single bank and switching to it works for 1 and 2, which is what programs use",
-  'scene palette':
-    'On the Amiga a sprite or icon bank always carries 32 palette words and the routine writes all 32, using $FFFF for the entries the mask excludes. A bank built here by Get Icon has no recorded palette at all, so an entry the bank does not have is left alone rather than written as black — the same rule Get Icon Palette already follows',
   'scene 16 change':
     'The manual says "the change made on screen and in the Scene bank"; the routine ends at the bank write and draws nothing. The bank is what happens',
   'scene scan y':

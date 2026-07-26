@@ -4,7 +4,6 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
-import { ObjectBank } from './objects'
 import { AmigaFS } from './vfs'
 
 /**
@@ -1548,18 +1547,18 @@ describe('TURBO scenes: the palette and the scanners (TURBO_DocsV2.15.Asc + disa
     // Bank color upon execution of the Scene Palette command." The routine
     // builds all 32 entries, writing $FFFF — AMOS's "leave this one alone" —
     // wherever the bit is clear, and hands the lot to the palette setter.
-    let out = ''
-    const src = ['Palette $111,$222,$333', 'Scene Mask Palette %101', 'Scene Palette 2', 'Print Hex$(Colour(0));Hex$(Colour(1));Hex$(Colour(2))']
-    const rt = new Runtime(tokenize(src.join('\n'), table, extensions), table, {
-      extensions,
-      maxSteps: 10_000,
-      onText: (t) => (out += t),
-    })
-    rt.iconBank = new ObjectBank()
-    rt.iconBank.palette = [0xf00, 0x0f0, 0x00f]
-    rt.runHeadless(100)
+    // Get Icon snapshots the live palette into the bank it creates, so the
+    // bank here holds the colours that were up when it was grabbed.
+    const src = [
+      'Palette $F00,$0F0,$00F',
+      'Get Icon 1,0,0 To 16,16',
+      'Palette $111,$222,$333',
+      'Scene Mask Palette %101',
+      'Scene Palette 2',
+      'Print Hex$(Colour(0));" ";Hex$(Colour(1));" ";Hex$(Colour(2))',
+    ]
     // Hex$ strips leading zeros, so colour 2's $00F prints as $F
-    expect(out).toBe('$F00$222$F\n')
+    expect(run(src.join('\n')).out).toBe('$F00 $222 $F\n')
   })
 
   it('Scene Palette refuses a bank that is not a sprite or icon bank', () => {

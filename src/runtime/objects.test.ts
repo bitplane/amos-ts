@@ -160,10 +160,13 @@ describe('image banks and masks', () => {
     expect(rt.screen.point(62, 62)).toBe(5)
   })
 
-  it('the Get *Palette family leaves colours alone when the bank carries none', () => {
-    // A bank grabbed off the screen has no palette of its own — only one
-    // loaded from disc or built in the sprite editor does. So these must be
-    // a no-op here rather than clearing the screen to black.
+  it('a bank grabbed off the screen carries the palette that was live when it was created', () => {
+    // Bnk.Ric2 (+Lib.s:8168) creates and grows every sprite and icon bank,
+    // and always ends at the `.CPal` loop — thirty-two words written after
+    // the image table. On creation (`.PaCopy`) they come from DefPal,
+    // overridden by EcPal off ScOnAd whenever a screen is open. So a bank
+    // built by Get Bob does have a palette of its own, and Get Bob Palette
+    // hands it back.
     const out = runOut(
       [
         'Screen Open 0,320,200,16,Lowres',
@@ -174,9 +177,46 @@ describe('image banks and masks', () => {
         'Print Colour(3)',
       ].join('\n'),
     )
-    expect(out).toBe(' 15\n')
+    expect(out).toBe(' 3840\n')
+    expect(runOut('Colour 5,$0F0 : Get Icon 1,0,0 To 8,8 : Colour 5,0 : Get Icon Palette : Print Colour(5)')).toBe(' 240\n')
     expect(() => run('Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8\nGet Bob Palette')).not.toThrow()
-    expect(() => run('Ink 5 : Bar 0,0 To 7,7 : Get Icon 1,0,0 To 8,8\nGet Icon Palette')).not.toThrow()
+  })
+
+  it('the snapshot is taken once, when the bank is created, and never refreshed', () => {
+    // Growing a bank takes the `.ECop` path, which copies the palette
+    // forward out of the old bank rather than re-reading the screen — so
+    // twenty Get Bobs all report the colours that were up at the first one.
+    const out = runOut(
+      [
+        'Colour 3,$F00',
+        'Get Sprite 1,0,0 To 8,8',
+        'Colour 3,$0F0',
+        'Get Sprite 2,0,0 To 8,8',
+        'Colour 3,$00F',
+        'Get Sprite Palette',
+        'Print Colour(3)',
+      ].join('\n'),
+    )
+    expect(out).toBe(' 3840\n')
+  })
+
+  it('the snapshot comes from the current screen, not the one being grabbed from', () => {
+    // `.PaCopy` reads EcPal off ScOnAd — the current screen — where the
+    // four-argument Get Bob grabs its pixels from the screen named in the
+    // first argument.
+    const out = runOut(
+      [
+        'Screen Open 1,320,200,16,Lowres',
+        'Colour 3,$F00',
+        'Screen Open 0,320,200,16,Lowres',
+        'Colour 3,$0F0',
+        'Get Sprite 1,1,0,0 To 8,8',
+        'Colour 3,0',
+        'Get Sprite Palette',
+        'Print Colour(3)',
+      ].join('\n'),
+    )
+    expect(out).toBe(' 240\n')
   })
 })
 

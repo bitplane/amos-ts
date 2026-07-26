@@ -18,7 +18,7 @@ import { parseAmalBank } from '../loader/amalbank'
 import type { AmalBank } from '../loader/amalbank'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
 import type { ResourceBank } from '../loader/resource'
-import { Screen, builtinPattern, sliderMetrics } from './screen'
+import { DEFAULT_PALETTE, Screen, builtinPattern, sliderMetrics } from './screen'
 import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from './instr'
 import { defaultHost, type Host } from './host'
 import { newLdosState, type LdosState } from './ldos'
@@ -2585,9 +2585,44 @@ export class Runtime {
     this.installSystemFlash()
   }
 
+  /**
+   * A newly created sprite or icon bank, carrying the 32 palette words AMOS
+   * always writes after the image table.
+   *
+   * Bnk.Ric2 (+Lib.s:8168) is the one routine that both creates and grows
+   * these banks, and it always ends at the `.CPal` loop — `moveq #32-1,d0`,
+   * thirty-two words copied from wherever `a0` points. Which is:
+   *
+   *   .ECop    growing an existing bank: the old bank's own palette, so a
+   *            bank keeps what it had. Automatic here, the object survives.
+   *   .PaCopy  creating one: `lea DefPal(a5),a0`, then overridden by
+   *            `lea EcPal(a0),a0` off ScOnAd when a screen is open.
+   *
+   * So the palette is snapshotted once, at creation, from the *current*
+   * screen — not from whichever screen a four-argument Get Bob is grabbing
+   * out of — and later Gets never refresh it. That is what Get Bob Palette
+   * and Get Icon Palette hand back.
+   */
+  newObjectBank(): ObjectBank {
+    const b = new ObjectBank()
+    const s = this.screens.get(this.currentIndex)
+    if (s) {
+      b.palette = Array.from(s.palette).slice(0, 32)
+      return b
+    }
+    // no screen open: DefPal, which this port models as the sparse Default
+    // Palette overrides sitting on top of the boot colours
+    b.palette = DEFAULT_PALETTE.slice(0, 32)
+    for (let i = 0; i < this.defaultPalette.length && i < 32; i++) {
+      const c = this.defaultPalette[i]
+      if (c !== undefined) b.palette[i] = c
+    }
+    return b
+  }
+
   /** the sprite bank, created on demand (Get Bob into an empty bank) */
   needSpriteBank(): ObjectBank {
-    this.spriteBank ??= new ObjectBank()
+    this.spriteBank ??= this.newObjectBank()
     return this.spriteBank
   }
 

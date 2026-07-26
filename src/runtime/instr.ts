@@ -3684,7 +3684,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       } else {
         throw new AmosError('Get Bob: wrong arguments')
       }
-      const bank = kind === 'icon' ? (rt.iconBank ??= new ObjectBank()) : rt.needSpriteBank()
+      const bank = kind === 'icon' ? (rt.iconBank ??= rt.newObjectBank()) : rt.needSpriteBank()
       // Ritoune +Lib.s:12697: w=x2-x1, h=y2-y1 both must be positive and
       // within the screen
       if (x2 <= x1 || y2 <= y1 || x2 > s.width || y2 > s.height) throw new AmosError('function call error')
@@ -3710,7 +3710,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   function insObj(kind: 'sprite' | 'icon'): Instr {
     return (it) => {
       const n = it.evalInt()
-      const bank = kind === 'icon' ? (rt.iconBank ??= new ObjectBank()) : rt.needSpriteBank()
+      const bank = kind === 'icon' ? (rt.iconBank ??= rt.newObjectBank()) : rt.needSpriteBank()
       bank.insert(n)
     }
   }
