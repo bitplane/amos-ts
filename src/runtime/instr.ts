@@ -2,7 +2,7 @@ import { AmosError, VF, VI, VS, int, num, str, varType } from '../interp/values'
 import { varKey } from '../interp/prescan'
 import type { Instr, Func } from '../interp/builtins'
 import { makeLdosFunctions, makeLdosInstructions } from './ldos'
-import { makeTurboFunctions, makeTurboInstructions } from './turbo'
+import { makeTurboFunctions, makeTurboInstructions, turboDefault } from './turbo'
 import { parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
 import { encodeIlbm, parseIlbm } from '../loader/iff'
@@ -713,6 +713,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       for (const n of [...rt.screens.keys()]) rt.closeScreen(n)
       rt.openScreen(0, 320, 200, 16, 0)
       rt.installSystemFlash()
+      // extensions hook Default to re-initialise their own settings; TURBO
+      // Plus puts Scene Icon Bank and Scene Mask Palette back here
+      turboDefault(rt)
     },
     'default palette'(it) {
       // InDefaultPalette +ILib.s:5389: colours for subsequently opened

@@ -4,6 +4,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
+import { ObjectBank } from './objects'
 import { AmigaFS } from './vfs'
 
 /**
@@ -21,11 +22,12 @@ const extensions = new Map([
   [TURBO_SLOT, extensionById('turbo-plus-2.15')!.table] as const,
 ])
 
-function run(src: string): { out: string; rt: Runtime; fs: AmigaFS } {
+function run(src: string, files: Record<string, number[]> = {}): { out: string; rt: Runtime; fs: AmigaFS } {
   let out = ''
   const fs = new AmigaFS()
   fs.mountMemory('DH0')
   fs.currentDir = 'DH0:'
+  for (const [name, bytes] of Object.entries(files)) fs.writeFile(`DH0:${name}`, Uint8Array.from(bytes))
   const rt = new Runtime(tokenize(src, table, extensions), table, {
     maxSteps: 200_000,
     extensions,
@@ -1198,5 +1200,463 @@ describe('TURBO timing (TURBO_DocsV2.15.Asc + disassembly)', () => {
     // there is no beam to race, so this waits a frame. See the NOTES entry.
     const { rt } = run('Vbl Wait 101 : Vbl Wait 0 : Vbl Wait 255')
     expect(rt.interp.done).toBe(true)
+  })
+})
+
+describe('TURBO scenes: banks (TURBO_DocsV2.15.Asc + disassembly)', () => {
+  it('Reserve Scene lays out the header the manual documents', () => {
+    // "Start+0 WORD X_WIDTH / Start+2 WORD Y_HEIGHT / Repeat X_WIDTH*YHEIGHT
+    // / Start+4,6,8,... WORD ICONIMAGE_TO_DISPLAY-1". "All tiles are set to
+    // zero (0)", and the bank is named so "the Listbank command will display
+    // the type of the bank as Scenery".
+    const { rt } = run('Reserve Scene 5,4,3')
+    const b = rt.memBanks.get(5)!
+    expect(b.name).toBe('Scenery ')
+    expect(b.data.length).toBe(4 + 4 * 3 * 2)
+    expect([...b.data.subarray(0, 4)]).toEqual([0, 4, 0, 3])
+    expect([...b.data.subarray(4)].every((v) => v === 0)).toBe(true)
+  })
+
+  it('Reserve Scene refuses a zero dimension and a bank number over 65535', () => {
+    // three `Rble routine 62` and a `cmp.l #$10000,d0 : Rbge`
+    expect(() => run('Reserve Scene 5,0,3')).toThrow(/Illegal function call/)
+    expect(() => run('Reserve Scene 5,4,0')).toThrow(/Illegal function call/)
+    expect(() => run('Reserve Scene 65536,4,3')).toThrow(/Illegal function call/)
+  })
+
+  it('Scene X and Scene Y read the header back', () => {
+    expect(run('Get Icon 1,0,0 To 16,16 : Reserve Scene 5,7,9 : Scene Bank 5 : Print Scene X;Scene Y').out).toBe(' 7 9\n')
+  })
+
+  it('Scene Bank resolves the icon bank too, so a missing one fails here', () => {
+    // "Make sure you have both a scene bank and icon bank in memory or this
+    // command will return a Bank Not Reserved error": routine 97 looks the
+    // icon bank up as well and both misses land on AMOS error 36.
+    expect(() => run('Reserve Scene 5,4,4 : Scene Bank 5')).toThrow(/bank not reserved/)
+    expect(() => run('Scene Bank 5')).toThrow(/bank not reserved/)
+    // with an icon bank present it goes through
+    const ok = run(['Get Icon 1,0,0 To 16,16', 'Reserve Scene 5,4,4', 'Scene Bank 5'].join('\n'))
+    expect(ok.rt.turbo.scene.bank).toBe(5)
+  })
+
+  it('Scene Icon Bank stores the number before it validates it', () => {
+    // `move.w d0,$3b8(a2)` comes before the GetBank, so a rejected bank
+    // still replaces the setting
+    let rt: Runtime | null = null
+    try {
+      rt = run('Get Icon 1,0,0 To 16,16 : Scene Icon Bank 7').rt
+    } catch {
+      /* expected */
+    }
+    expect(rt).toBeNull()
+    // and 2 is the default, "for compatibility with the 'older' TURBO_PLUS libs"
+    expect(run('Get Icon 1,0,0 To 16,16').rt.turbo.scene.iconBank).toBe(2)
+  })
+
+  it('Default puts Scene Icon Bank and Scene Mask Palette back', () => {
+    // "Scene Icon Bank is set to 2 ... when you call Default"; the mask is
+    // "set to -1 (all bits set) if you do a RUN or a DEFAULT"
+    const { rt } = run(['Get Icon 1,0,0 To 16,16', 'Get Sprite 1,0,0 To 16,16', 'Scene Icon Bank 1', 'Scene Mask Palette 7', 'Default'].join('\n'))
+    expect(rt.turbo.scene.iconBank).toBe(2)
+    expect(rt.turbo.scene.maskPalette).toBe(-1)
+  })
+
+  it('Scene Load reads the whole file into a bank and leaves Scene Bank alone', () => {
+    // routine 314 seeks to the end for the length, reserves that many bytes
+    // and reads the lot. "The Scene Bank is not set by this command."
+    const file = [0, 2, 0, 1, 0, 9, 0, 4]
+    const { rt } = run('Scene Load "map.scn",6', { 'map.scn': file })
+    expect([...rt.memBanks.get(6)!.data]).toEqual(file)
+    expect(rt.memBanks.get(6)!.name).toBe('Scenery ')
+    expect(rt.turbo.scene.bank).toBe(0)
+  })
+
+  it('Scene Convert widens the V1.0 byte format to words', () => {
+    // "This command is used to convert the V1.0 'BYTE' Sceneformat to V2.0
+    // 'WORD' Sceneformat, so you don't have to throw away your 'old' work."
+    const old = [0, 3, 0, 2, 1, 2, 3, 4, 5, 6]
+    const { out } = run(
+      [
+        'Scene Load "old.scn",6',
+        'Scene Convert 6 To 7',
+        'Get Icon 1,0,0 To 16,16',
+        'Scene Bank 7',
+        'Print Scene X;Scene Y;Scene Check(0,0);Scene Check(2,1)',
+      ].join('\n'),
+      { 'old.scn': old },
+    )
+    expect(out).toBe(' 3 2 1 6\n')
+  })
+})
+
+describe('TURBO scenes: reading and writing tiles (TURBO_DocsV2.15.Asc)', () => {
+  const map = ['Get Icon 1,0,0 To 16,16', 'Reserve Scene 5,4,3', 'Scene Bank 5']
+
+  it('Scene Check and Scene Change work in scene coordinates', () => {
+    // "Changes tile at X,Y scene coordinates to V" / "Returns Icon number in
+    // the scene at scene coordinates X,Y, minus 1"
+    expect(run([...map, 'Scene Change 2,1,42', 'Print Scene Check(2,1);Scene Check(0,0)'].join('\n')).out).toBe(' 42 0\n')
+  })
+
+  it('a coordinate equal to the width or height is accepted, one beyond is not', () => {
+    // The bound is `cmp.w d2,d0 : Rbhi` — strictly greater — so x = width
+    // passes and indexes the first tile of the next row.
+    expect(run([...map, 'Scene Change 0,1,77', 'Print Scene Check(4,0)'].join('\n')).out).toBe(' 77\n')
+    expect(() => run([...map, 'Print Scene Check(5,0)'].join('\n'))).toThrow(/Illegal function call/)
+    expect(() => run([...map, 'Print Scene Check(-1,0)'].join('\n'))).toThrow(/Illegal function call/)
+  })
+
+  it('Scene 16/32 Check and Change divide screen coordinates by the tile size', () => {
+    // "Returns Icon number is in the scene according to the X and Y screen
+    // coordinates" — a bare shift, with no viewport offset applied
+    const sixteen = run([...map, 'Scene 16 Change 33,17,9', 'Print Scene Check(2,1);Scene 16 Check(47,31)'].join('\n'))
+    expect(sixteen.out).toBe(' 9 9\n')
+    const thirtytwo = run([...map, 'Scene 32 Change 65,33,8', 'Print Scene Check(2,1)'].join('\n'))
+    expect(thirtytwo.out).toBe(' 8\n')
+  })
+
+  it('Scene 16 Change writes the bank and does not redraw', () => {
+    // "The change made on screen and in the Scene bank" — the routine ends
+    // at `move.w d3,(a0,d0.l)`. Nothing reaches the screen.
+    const { rt } = run([...map, 'Cls 0', 'Scene 16 Change 0,0,1'].join('\n'))
+    expect(rt.screen.point(0, 0)).toBe(0)
+  })
+})
+
+describe('TURBO scenes: the bulk operations (TURBO_DocsV2.15.Asc)', () => {
+  const two = ['Get Icon 1,0,0 To 16,16', 'Reserve Scene 5,4,3', 'Reserve Scene 6,2,2']
+
+  it('Scene Fill fills a rectangle and clips it to the bank', () => {
+    // "Fills a rectangular area of a scene bank with VALUE"
+    const { out } = run([...two, 'Scene Fill 5,2,1,9,9,7', 'Scene Bank 5', 'Print Scene Check(2,1);Scene Check(3,2);Scene Check(1,1)'].join('\n'))
+    expect(out).toBe(' 7 7 0\n')
+  })
+
+  it('Scene Replace swaps one tile value for another inside a rectangle', () => {
+    // "Ex.: to replace all icons 2 in the scene to 5. Scene Replace
+    // 1,0,0,Scene X,Scene Y,2,5"
+    const { out } = run(
+      [...two, 'Scene Fill 5,0,0,4,3,2', 'Scene Replace 5,0,0,2,2,2,5', 'Scene Bank 5', 'Print Scene Check(0,0);Scene Check(2,0);Scene Check(3,2)'].join('\n'),
+    )
+    expect(out).toBe(' 5 2 2\n')
+  })
+
+  it('Scene Copy clips against both banks', () => {
+    // "The Scene Banks may have different width and height, everything is
+    // checked for" — the source clip runs first, the destination clip second
+    const { out } = run(
+      [...two, 'Scene Fill 5,0,0,4,3,3', 'Scene Copy 5,0,0,4,3 To 6,1,1', 'Scene Bank 6', 'Print Scene Check(1,1);Scene Check(0,0)'].join('\n'),
+    )
+    expect(out).toBe(' 3 0\n')
+  })
+
+  it('the bulk operations refuse a start outside the bank', () => {
+    // `sub.w d2,d0 : Rble` — nothing left to work on is an error, not a no-op
+    expect(() => run([...two, 'Scene Fill 5,4,0,1,1,7'].join('\n'))).toThrow(/Illegal function call/)
+    expect(() => run([...two, 'Scene Fill 5,0,0,0,1,7'].join('\n'))).toThrow(/Illegal function call/)
+  })
+})
+
+describe('TURBO scenes: drawing (TURBO_DocsV2.15.Asc + disassembly)', () => {
+  // icon 1 solid colour 3, icon 2 solid colour 5, both 16x16
+  const icons = [
+    'Cls 0',
+    'Ink 3 : Bar 0,0 To 15,15',
+    'Get Icon 1,0,0 To 16,16',
+    'Ink 5 : Bar 0,0 To 15,15',
+    'Get Icon 2,0,0 To 16,16',
+    'Cls 0',
+  ]
+  const map = [...icons, 'Reserve Scene 5,4,3', 'Scene Bank 5', 'Scene Change 1,0,1']
+
+  it('Scene 16 Draw paints a rectangle of tiles, icon = tile + 1', () => {
+    // "SCENEX and SCENEY are the start scene-coordinates. XAMT and YAMT
+    // define how many Icons are to be drawn onto the screen. XSCREEN and
+    // YSCREEN are the screen coordinates where the to begin drawing."
+    const { rt } = run([...map, 'Scene 16 Draw 0,0,2,1,0,0'].join('\n'))
+    expect(rt.screen.point(0, 0)).toBe(3)
+    expect(rt.screen.point(16, 0)).toBe(5)
+    expect(rt.screen.point(0, 16)).toBe(0)
+  })
+
+  it('Scene 16 Draw chops XSCREEN to a 16-pixel boundary and clips both ways', () => {
+    // "XSCREEN/YSCREEN are chopped to lie on a 16/32 bit boundary" — only
+    // XSCREEN actually is
+    expect(run([...map, 'Scene 16 Draw 0,0,1,1,40,7'].join('\n')).rt.screen.point(32, 7)).toBe(3)
+    // asking for more tiles than the scene has draws what there is
+    const wide = run([...map, 'Scene 16 Draw 0,0,99,99,0,0'].join('\n'))
+    expect(wide.rt.screen.point(48, 32)).toBe(3)
+    expect(wide.rt.screen.point(64, 0)).toBe(0)
+    // and a destination past the right edge of the bitplane is an error
+    expect(() => run([...map, 'Scene 16 Draw 0,0,1,1,320,0'].join('\n'))).toThrow(/Illegal function call/)
+  })
+
+  it('Scene 32 Draw chops XSCREEN to 16 as well, not 32', () => {
+    // "Do not try to use one of the '16' commands with 32 * 32 pixels icons
+    // and vice versa" — but the mask is `andi.w #$fff0` in both routines,
+    // so a 32-pixel scene can start on a 16-pixel boundary
+    expect(run([...map, 'Scene 32 Draw 0,0,1,1,16,0'].join('\n')).rt.screen.point(16, 0)).toBe(3)
+  })
+
+  it('Scene 16 View and Scene 16 Do fill the viewport', () => {
+    // "Used to fill up a screen, in the viewport set with the last Scene
+    // 16/32 view command, with a scene starting from scene-coordinates
+    // XSCENE/YSCENE"
+    const { rt } = run([...map, 'Scene 16 View 0,0,0 To 64,32', 'Scene 16 Do 0,0'].join('\n'))
+    expect(rt.screen.point(0, 0)).toBe(3)
+    expect(rt.screen.point(16, 0)).toBe(5)
+    expect(rt.screen.point(0, 16)).toBe(3)
+    expect(rt.screen.point(64, 0)).toBe(0)
+  })
+
+  it('the viewport wraps the scene coordinates in both directions', () => {
+    // Undocumented, and the reason the view commands exist: a tile that runs
+    // off the right of a row comes back at the left, and one that runs off
+    // the end of the map restarts at the top.
+    const wrapped = run([...map, 'Scene 16 View 0,0,0 To 64,32', 'Scene 16 Do 3,0'].join('\n'))
+    expect(wrapped.rt.screen.point(0, 0)).toBe(3) // tile 3,0
+    expect(wrapped.rt.screen.point(16, 0)).toBe(3) // wrapped to 0,0
+    expect(wrapped.rt.screen.point(32, 0)).toBe(5) // wrapped to 1,0
+    // a negative coordinate is folded in by repeated addition, not clamped
+    const back = run([...map, 'Scene 16 View 0,0,0 To 64,32', 'Scene 16 Do -3,0'].join('\n'))
+    expect(back.rt.screen.point(0, 0)).toBe(5) // -3 + 4 = tile 1,0, which is icon 2
+    // and so is a coordinate a whole map past the end
+    const far = run([...map, 'Scene 16 View 0,0,0 To 64,32', 'Scene 16 Do 5,0'].join('\n'))
+    expect(far.rt.screen.point(0, 0)).toBe(5)
+  })
+
+  it("Scene View's y1 is used as a byte offset, not a line — the 2.15 regression", () => {
+    // V1.0's Scene 16 Do multiplied y1 by the screen's bytes-per-row itself
+    // (`mulu.w d4,d2` at $5178). 2.15 moved the arithmetic into Scene 16/32
+    // View for speed, converted x1 with `lsr.w #3` and left y1 alone, so the
+    // drawing core adds a pixel count to a byte offset. Scene Draw and Scene
+    // 16 Def, which compute their own destination, both still multiply.
+    //
+    // On a 320-wide screen rowBytes is 40, so y1 = 40 lands one whole line
+    // down and y1 = 16 lands on line 0, 128 pixels in.
+    const { rt } = run([...map, 'Scene 16 View 0,0,16 To 64,48', 'Scene 16 Do 0,0'].join('\n'))
+    expect(rt.screen.point(128, 0)).toBe(3)
+    expect(rt.screen.point(0, 16)).toBe(0)
+    const line = run([...map, 'Scene 16 View 0,0,40 To 64,72', 'Scene 16 Do 0,0'].join('\n'))
+    expect(line.rt.screen.point(0, 1)).toBe(3)
+  })
+
+  it('Top, Left and Right redraw one edge of the viewport', () => {
+    // "Does the same thing as the Scene 16/32 Do command, but is used to
+    // redraw only the Left edge of the area defined by the Scene 16/32 View
+    // command" — with y1 = 0 these three land where they should
+    const view = [...map, 'Scene Fill 5,0,1,4,2,1', 'Scene 16 View 0,0,0 To 64,32']
+    const top = run([...view, 'Scene 16 Top 0,0'].join('\n'))
+    expect(top.rt.screen.point(0, 0)).toBe(3)
+    expect(top.rt.screen.point(0, 16)).toBe(0)
+    const left = run([...view, 'Scene 16 Left 0,0'].join('\n'))
+    expect(left.rt.screen.point(0, 0)).toBe(3)
+    expect(left.rt.screen.point(0, 16)).toBe(5) // scene row 1 was filled with tile 1
+    expect(left.rt.screen.point(16, 0)).toBe(0)
+    const right = run([...view, 'Scene 16 Right 0,0'].join('\n'))
+    expect(right.rt.screen.point(48, 0)).toBe(3)
+    expect(right.rt.screen.point(0, 0)).toBe(0)
+  })
+
+  it('Bottom carries the same regression, through y2-16', () => {
+    // `$3a2 = y2-16` is stored raw for the same reason y1 is, so the bottom
+    // edge lands at byte y2-16 rather than line y2-16. Only a viewport
+    // exactly one tile tall (y2 = 16) puts it where it belongs.
+    const view = [...map, 'Scene Fill 5,0,1,4,2,1', 'Scene 16 View 0,0,0 To 64,32']
+    const { rt } = run([...view, 'Scene 16 Bottom 0,0'].join('\n'))
+    expect(rt.screen.point(128, 0)).toBe(5) // scene row 1, at byte 16
+    expect(rt.screen.point(0, 16)).toBe(0)
+  })
+
+  it('drawing a viewport on the wrong screen is "View not defined for this screen"', () => {
+    // routine 121 compares the current screen's EcNumber with the view's
+    const src = [...map, 'Screen Open 1,320,200,16,Lowres', 'Screen 0', 'Scene 16 View 0,0,0 To 64,32', 'Screen 1', 'Scene 16 Do 0,0']
+    expect(() => run(src.join('\n'))).toThrow(/View not defined for this screen/)
+    expect(() => run([...icons, 'Reserve Scene 5,4,3', 'Scene Bank 5', 'Scene 16 Do 0,0'].join('\n'))).toThrow(/View not defined for this screen/)
+  })
+
+  it('a viewport smaller than one tile is refused', () => {
+    // `lsr.w #4,d2 : Rbeq routine 62` on both axes
+    expect(() => run([...map, 'Scene 16 View 0,0,0 To 8,32'].join('\n'))).toThrow(/Illegal function call/)
+    expect(() => run([...map, 'Scene 16 View 0,0,0 To 64,8'].join('\n'))).toThrow(/Illegal function call/)
+    expect(() => run([...map, 'Scene 16 View 0,64,0 To 32,32'].join('\n'))).toThrow(/Illegal function call/)
+  })
+
+  it('Scene 16 View needs a Scene Bank before it will look at its arguments', () => {
+    // `move.l $35c(a2),d3 : Rbeq routine 126`
+    expect(() => run([...icons, 'Scene 16 View 0,0,0 To 64,32'].join('\n'))).toThrow(/Scene Bank not defined/)
+  })
+})
+
+describe('TURBO scenes: definitions (TURBO_DocsV2.15.Asc)', () => {
+  const icons = ['Cls 0', 'Ink 3 : Bar 0,0 To 15,15', 'Get Icon 1,0,0 To 16,16', 'Cls 0']
+  const map = [...icons, 'Reserve Scene 5,4,3', 'Scene Bank 5']
+
+  it('Scene 16 Limit allocates and frees, and says so when it is asked twice', () => {
+    // "X is the amount of definitions. When X is set to zero, the memory is
+    // given back to the system."
+    expect(run([...map, 'Scene 16 Limit 4'].join('\n')).rt.turbo.scene.defs.length).toBe(4)
+    expect(run([...map, 'Scene 16 Limit 4', 'Scene 16 Limit 0'].join('\n')).rt.turbo.scene.defs.length).toBe(0)
+    expect(() => run([...map, 'Scene 16 Limit 4', 'Scene 16 Limit 4'].join('\n'))).toThrow(/Limit allready set/)
+    expect(() => run([...map, 'Scene 16 Limit 0'].join('\n'))).toThrow(/Limit allready cleared/)
+    expect(() => run([...map, 'Scene 16 Limit 32001'].join('\n'))).toThrow(/Limit should be max : 32000/)
+  })
+
+  it('Scene 16 Def stores a drawing and Scene 16 Restore replays it', () => {
+    // "Does basically the same as Scene 16 Draw but the information is
+    // stored in a scene definition for use by Scene 16 Restore command."
+    const { rt } = run([...map, 'Scene 16 Limit 2', 'Scene 16 Def 0,1,0,0,2,1,32,16', 'Scene 16 Restore 1'].join('\n'))
+    expect(rt.screen.point(32, 16)).toBe(3)
+    expect(rt.screen.point(48, 16)).toBe(3)
+    expect(rt.screen.point(0, 0)).toBe(0)
+    // Def itself draws nothing
+    const defOnly = run([...map, 'Scene 16 Limit 2', 'Scene 16 Def 0,1,0,0,2,1,32,16'].join('\n'))
+    expect(defOnly.rt.screen.point(32, 16)).toBe(0)
+  })
+
+  it('Restore reports an unused slot and a definition made for another screen', () => {
+    const limit = [...map, 'Scene 16 Limit 2']
+    expect(() => run([...limit, 'Scene 16 Restore 2'].join('\n'))).toThrow(/Scene Area is not defined/)
+    expect(() => run([...limit, 'Scene 16 Restore 3'].join('\n'))).toThrow(/Illegal function call/)
+    const other = [...limit, 'Screen Open 1,320,200,16,Lowres', 'Screen 0', 'Scene 16 Def 1,1,0,0,1,1,0,0', 'Scene 16 Restore 1']
+    expect(() => run(other.join('\n'))).toThrow(/Scene definition not defined for this screen/)
+  })
+
+  it('a definition keeps the banks it was made with', () => {
+    // The record stores the icon bank at $42 and the scene data at $46 as
+    // pointers, so changing Scene Bank afterwards does not follow.
+    const src = [
+      ...icons,
+      'Reserve Scene 5,4,3',
+      'Reserve Scene 6,4,3',
+      'Scene Fill 6,0,0,4,3,1',
+      'Scene Bank 5',
+      'Scene 16 Limit 1',
+      'Scene 16 Def 0,1,0,0,1,1,0,0',
+      'Scene Bank 6',
+      'Scene 16 Restore 1',
+    ]
+    // bank 6 is all tile 1 = icon 2, which does not exist; bank 5 is tile 0
+    // = icon 1, which is the solid colour 3 the definition captured
+    expect(run(src.join('\n')).rt.screen.point(0, 0)).toBe(3)
+  })
+})
+
+describe('TURBO scenes: the palette and the scanners (TURBO_DocsV2.15.Asc + disassembly)', () => {
+  it('Scene Palette brings in only the colours Scene Mask Palette allows', () => {
+    // "If a bit is set, the screen color will be replaced by the Scene Icon
+    // Bank color upon execution of the Scene Palette command." The routine
+    // builds all 32 entries, writing $FFFF — AMOS's "leave this one alone" —
+    // wherever the bit is clear, and hands the lot to the palette setter.
+    let out = ''
+    const src = ['Palette $111,$222,$333', 'Scene Mask Palette %101', 'Scene Palette 2', 'Print Hex$(Colour(0));Hex$(Colour(1));Hex$(Colour(2))']
+    const rt = new Runtime(tokenize(src.join('\n'), table, extensions), table, {
+      extensions,
+      maxSteps: 10_000,
+      onText: (t) => (out += t),
+    })
+    rt.iconBank = new ObjectBank()
+    rt.iconBank.palette = [0xf00, 0x0f0, 0x00f]
+    rt.runHeadless(100)
+    // Hex$ strips leading zeros, so colour 2's $00F prints as $F
+    expect(out).toBe('$F00$222$F\n')
+  })
+
+  it('Scene Palette refuses a bank that is not a sprite or icon bank', () => {
+    // "Icon/Bob banks are legal, but any other type of bank gives an illegal
+    // function call" — two different errors in the binary
+    expect(() => run('Get Icon 1,0,0 To 16,16 : Scene Palette 9')).toThrow(/bank not reserved/)
+    expect(() => run('Get Icon 1,0,0 To 16,16 : Reserve As Data 9,10 : Scene Palette 9')).toThrow(/Only Sprite or Icon banks/)
+    expect(() => run('Get Icon 1,0,0 To 16,16 : Scene Palette 0')).toThrow(/Illegal function call/)
+  })
+
+  it('Scene Scan X counts the steps to a tile', () => {
+    // Undocumented in either manual: routines 154 and 155 walk from x,y in
+    // steps of STEP tiles, returning how many steps it took or -1 off the map
+    const map = ['Get Icon 1,0,0 To 16,16', 'Reserve Scene 5,6,4', 'Scene Bank 5', 'Scene Change 4,1,9']
+    expect(run([...map, 'Print Scene Scan X(0,1,1,9)'].join('\n')).out).toBe(' 4\n')
+    expect(run([...map, 'Print Scene Scan X(0,1,2,9)'].join('\n')).out).toBe(' 2\n')
+    expect(run([...map, 'Print Scene Scan X(0,0,1,9)'].join('\n')).out).toBe('-1\n')
+    expect(run([...map, 'Print Scene Scan X(5,1,-1,9)'].join('\n')).out).toBe(' 1\n')
+    expect(() => run([...map, 'Print Scene Scan X(0,1,0,9)'].join('\n'))).toThrow(/Illegal function call/)
+  })
+
+  it('Scene Scan Y counts down a column, and its negative form is broken', () => {
+    // Scene Scan X's negative form scans for the first tile that is *not*
+    // the value (`neg.l d5` then a `beq` loop at $4c30). Scene Scan Y has
+    // the same branch but closes it with `bne` at $4cb0, so its negative
+    // form searches for the positive value and behaves exactly like the
+    // positive one. Its mode test reads d3 rather than d5, too — a register
+    // that happens to hold the last argument evaluated, so that half of the
+    // slip never shows.
+    const map = ['Get Icon 1,0,0 To 16,16', 'Reserve Scene 5,6,4', 'Scene Bank 5', 'Scene Change 2,3,9']
+    expect(run([...map, 'Print Scene Scan Y(2,0,1,9)'].join('\n')).out).toBe(' 3\n')
+    expect(run([...map, 'Print Scene Scan Y(1,0,1,9)'].join('\n')).out).toBe('-1\n')
+    // X: -1 means "the first tile that is not 1"; the map is all zeroes
+    expect(run([...map, 'Print Scene Scan X(0,0,1,-1)'].join('\n')).out).toBe(' 0\n')
+    // Y: -9 finds 9, exactly as +9 does
+    expect(run([...map, 'Print Scene Scan Y(2,0,1,-9)'].join('\n')).out).toBe(' 3\n')
+  })
+})
+
+describe('TURBO Multi Bload (disassembly)', () => {
+  it('Multi Bload loads a file into a bank with the name it is given', () => {
+    // Undocumented. The real routine CreateProc()s an AmigaDOS process which
+    // opens the file, reserves a bank the size of it under the eight
+    // characters given, reads it and exits; up to five run at once. There is
+    // no second thread here, so the load happens now — which every program
+    // that waits on Multi Bl Ended cannot tell apart.
+    const { rt } = run('Multi Bload "data.bin","Level1",4', { 'data.bin': [1, 2, 3, 4, 5] })
+    expect([...rt.memBanks.get(4)!.data]).toEqual([1, 2, 3, 4, 5])
+    expect(rt.memBanks.get(4)!.name).toBe('Level1  ')
+  })
+
+  it('Multi Bl Ended is true once nothing is pending, and Multi Bl Error reports the failure', () => {
+    // routine 174 returns -1 while the count at $6d4 is zero; routine 173
+    // clears the error word whether or not it raises
+    expect(run('Print Multi Bl Ended').out).toBe('-1\n')
+    expect(() => run('Multi Bload "gone.bin","X",4 : Multi Bl Error')).toThrow(/file not found/)
+    expect(() => run('Multi Bl Error')).not.toThrow()
+    // reading it clears it, so a second read is silent
+    expect(() => run('Multi Bload "gone.bin","X",4 : Multi Bl Error')).toThrow()
+  })
+})
+
+describe('TURBO scenes: the 32-pixel family (TURBO_DocsV2.15.Asc + routine 122)', () => {
+  // "'16/32' in the commands below means there are acutally 2 commands" —
+  // routine 122 is routine 121 with the destination advancing four bytes a
+  // column and thirty-two scanlines a row, and the viewport measured in
+  // 32-pixel tiles. The icons here are still 16 wide, which changes nothing
+  // about the arithmetic being checked.
+  const icons = [
+    'Cls 0',
+    'Ink 3 : Bar 0,0 To 15,15',
+    'Get Icon 1,0,0 To 16,16',
+    'Ink 5 : Bar 0,0 To 15,15',
+    'Get Icon 2,0,0 To 16,16',
+    'Cls 0',
+  ]
+  const map = [...icons, 'Reserve Scene 5,4,3', 'Scene Bank 5', 'Scene Change 1,0,1', 'Scene Fill 5,0,1,4,2,1']
+  const view = [...map, 'Scene 32 View 0,0,0 To 128,64']
+
+  it('Scene 32 View measures the viewport in 32-pixel tiles and Scene 32 Do fills it', () => {
+    const { rt } = run([...view, 'Scene 32 Do 0,0'].join('\n'))
+    expect(rt.turbo.scene.view32).toMatchObject({ cols: 4, rows: 2, xb: 0, yb: 0, right: 12, bottom: 32 })
+    expect(rt.screen.point(0, 0)).toBe(3)
+    expect(rt.screen.point(32, 0)).toBe(5) // tile 1,0 four bytes along
+    expect(rt.screen.point(0, 32)).toBe(5) // scene row 1, thirty-two lines down
+  })
+
+  it('Scene 32 Top, Bottom, Left and Right each redraw one edge', () => {
+    expect(run([...view, 'Scene 32 Top 0,0'].join('\n')).rt.screen.point(0, 32)).toBe(0)
+    expect(run([...view, 'Scene 32 Left 0,0'].join('\n')).rt.screen.point(32, 0)).toBe(0)
+    expect(run([...view, 'Scene 32 Right 0,0'].join('\n')).rt.screen.point(96, 0)).toBe(3)
+    // Bottom carries the same y2-32-as-a-byte-offset regression the 16 set has
+    expect(run([...view, 'Scene 32 Bottom 0,0'].join('\n')).rt.screen.point(256, 0)).toBe(5)
+  })
+
+  it('Scene 32 Check shifts screen coordinates by 5', () => {
+    expect(run([...map, 'Print Scene 32 Check(33,0)'].join('\n')).out).toBe(' 1\n')
+    expect(run([...map, 'Print Scene 32 Check(31,0)'].join('\n')).out).toBe(' 0\n')
   })
 })

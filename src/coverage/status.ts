@@ -683,6 +683,48 @@ export const FAITHFUL = new Set<string>([
   'y icon',
   'planes icon',
   'icon check',
+  // scenes: routines 97-124, 139, 148, 151-161 and the shared cores 121/122
+  'reserve scene',
+  'scene bank',
+  'scene icon bank',
+  'scene load',
+  'scene convert',
+  'scene x',
+  'scene y',
+  'scene check',
+  'scene change',
+  'scene 16 check',
+  'scene 32 check',
+  'scene 16 change',
+  'scene 32 change',
+  'scene 16 draw',
+  'scene 32 draw',
+  'scene 16 view',
+  'scene 32 view',
+  'scene 16 do',
+  'scene 32 do',
+  'scene 16 top',
+  'scene 32 top',
+  'scene 16 bottom',
+  'scene 32 bottom',
+  'scene 16 left',
+  'scene 32 left',
+  'scene 16 right',
+  'scene 32 right',
+  'scene 16 limit',
+  'scene 16 def',
+  'scene 16 restore',
+  'scene fill',
+  'scene copy',
+  'scene replace',
+  'scene palette',
+  'scene mask palette',
+  'scene scan x',
+  'scene scan y',
+  // the background loader: routines 172-174
+  'multi bload',
+  'multi bl error',
+  'multi bl ended',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1188,6 +1230,28 @@ export const NOTES: Record<string, string> = {
     "The five F icon keywords differ in what they refuse to do rather than in what they draw: the width-specialised ones skip the 16-pixel chop of X, and the two processor ones drive the CPU instead of the blitter and lose the mask with it ('Masking is not supported!'). Both of those survive here. What cannot is the point of them — there is no blitter to be faster than, so F 16proc Icon and F 32proc Icon are the same speed as the rest, where on a real machine choosing the wrong one for your CPU was the difference the manual spends a page on",
   'icon check':
     "Reports -1 for a defined icon with no mask, 1 with one, 0 for a missing one, and 0 rather than an error when there is no bank — 'in AMOSPro you don't get an error'. It reads the bank number from the Scene Icon Bank setting, so once that keyword exists this should follow it rather than always asking the icon bank",
+  'scene 16 view':
+    "The whole viewport family carries a regression the 2.15 rewrite introduced, and it is reproduced rather than corrected. V1.0's Scene 16 Do multiplied the viewport's y1 by the screen's bytes-per-row itself (mulu.w d4,d2 at $5178) before handing a byte offset to the drawing core. 2.15 moved that arithmetic into Scene 16/32 View for speed, converted x1 to bytes with lsr.w #3 — and left y1 in pixels, so the core adds a line count to a byte offset. Scene Draw and Scene 16 Def, which compute their own destination, both still multiply, which is what makes it a slip rather than a convention. In practice a viewport declared at y1 = 0 draws correctly through Do, Top, Left and Right, and only Bottom is always wrong, because its edge is stored as y2-16 in the same units. That is very likely why it shipped: the demos scroll horizontally",
+  'scene bank':
+    'Holds the bank number and resolves it at each use, where the library holds the pointer GetBank returned. Erasing the scene bank and then drawing therefore reports "Scene Bank not defined" instead of reading freed memory. Scene Bank also resolves the icon bank, so a missing icon bank is reported here, as the manual says it is',
+  'scene icon bank':
+    "Bank 1 is the sprite bank and bank 2 the icon bank; any other number can only be a plain memory bank in this port's model, so it fails the routine's 'Icon'/'Spri' cookie test with the extension's own error 26. The manual's suggestion of appending bobs and sprites to a single bank and switching to it works for 1 and 2, which is what programs use",
+  'scene palette':
+    'On the Amiga a sprite or icon bank always carries 32 palette words and the routine writes all 32, using $FFFF for the entries the mask excludes. A bank built here by Get Icon has no recorded palette at all, so an entry the bank does not have is left alone rather than written as black — the same rule Get Icon Palette already follows',
+  'scene 16 change':
+    'The manual says "the change made on screen and in the Scene bank"; the routine ends at the bank write and draws nothing. The bank is what happens',
+  'scene scan y':
+    "Undocumented in either manual. Scene Scan X's negative form scans for the first tile that is not the value; Scene Scan Y has the same branch but closes it with bne rather than beq, so its negative form searches for the positive value and is indistinguishable from the positive form. Its mode test also reads d3 instead of d5 — a register that happens to hold the last argument evaluated, which is the value, so that half of the slip is invisible. Both are reproduced",
+  'scene check':
+    "The bound is cmp.w/Rbhi, a strictly-greater test, so a coordinate equal to the width or height is accepted and indexes one tile past the row or the map. On the Amiga that reads whatever follows the bank; here it reads zero once it is past the end of the array. Scene 16/32 Check convert screen coordinates with a bare shift and never apply the viewport offset, so they only answer for the screen while the view starts at 0,0",
+  'scene 32 draw':
+    'Chops XSCREEN with andi.w #$fff0, the same 16-pixel mask the 16 version uses, despite the manual\'s "XSCREEN/YSCREEN are chopped to lie on a 16/32 bit boundary". YSCREEN is not chopped by either',
+  'scene convert':
+    'The source bank is fetched with no check and read immediately, so on the Amiga a missing bank reads address zero. Here it is "bank not reserved"',
+  'scene 16 def':
+    'The 78-byte definition record captures the scene and icon banks as pointers, so a definition outlives the Scene Bank setting that made it and Scene 16 Restore keeps drawing from wherever it was pointed. That is kept, by holding the arrays rather than the numbers',
+  'multi bload':
+    "The only genuinely concurrent keyword in the extension: it CreateProc()s an AmigaDOS process — up to five at once — which opens the file, reserves a bank the size of it under the eight characters given, reads it and exits, while BASIC carries on. There is no second thread here, so the load happens synchronously and Multi Bl Ended, which reports whether the pending count has reached zero, is always true. Every program that uses these three waits on Multi Bl Ended before touching the bank and cannot tell the difference; what is not reproduced is the overlap itself, so a program animating a loading screen sees the load complete in one frame",
   'cpu info':
     "Reports 20, a 68020. There is no 68000 here to ask, so the answer has to come from the machine this port models — and that is settled elsewhere already: Chip Free and Fast Free answer for 2MB of chip and a fast board, which is an A1200. Math Info answers 0 to match, a stock A1200 having no FPU. A program that branches on the CPU will take its 020 path",
   'parse$':

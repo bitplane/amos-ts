@@ -29,6 +29,7 @@
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Interp } from '../interp/interp'
+import type { ObjectBank } from './objects'
 import type { Runtime } from './runtime'
 import type { Screen } from './screen'
 
@@ -227,6 +228,80 @@ export interface TurboState {
    * back sees what it wrote.
    */
   priority: number
+  /** the icon tile-map engine — `Scene Bank` through `Scene 32 Right` */
+  scene: TurboScene
+  /**
+   * `Multi Bload`'s error word: 0 for none, -1 for out of memory (the
+   * routine sets the high byte with `sf.b`), otherwise a DOS error code.
+   */
+  blError: number
+}
+
+/**
+ * A viewport, as `Scene 16/32 View` leaves it in the structure at $398 (the
+ * 16 set) and $3a8 (the 32 set). The fields are stored in exactly the units
+ * the library stores them in, because one of them is wrong — see `yb`.
+ */
+export interface SceneView {
+  /** the screen the view was declared on; drawing on another is error 20 */
+  screen: number
+  /** tiles across, `(x2-x1)>>4` — the whole-tile count, nothing partial */
+  cols: number
+  /** tiles down, `(y2-y1)>>4` */
+  rows: number
+  /** `x1>>3`: the left edge as a byte offset into a bitplane row */
+  xb: number
+  /**
+   * `y1`, in pixels, and used by the drawing core as a byte offset — the
+   * regression described on `sceneViewCore`.
+   */
+  yb: number
+  /** `(x2-16)>>3`, the left edge of the last column, for `Scene Right` */
+  right: number
+  /** `y2-16`, the top of the last row, for `Scene Bottom` */
+  bottom: number
+}
+
+/**
+ * A `Scene 16 Def` definition: the 78-byte record the library fills in and
+ * `Scene 16 Restore` replays. It captures the scene and icon banks as
+ * pointers, so a definition outlives the `Scene Bank` setting that made it
+ * and keeps drawing from wherever it was pointed.
+ */
+export interface SceneDef {
+  screen: number
+  /** the icon bank pointer captured at Def time ($42) */
+  icons: ObjectBank
+  /** the scene bank's tile data captured at Def time ($46) */
+  scene: Uint8Array
+  /** scene bytes per row, width*2 ($26) */
+  sceneRowBytes: number
+  /** `scenex*2` ($1a) */
+  sx2: number
+  /** `sceney*width*2` ($2a) */
+  sceneRowOff: number
+  /** tiles across and down, after both clips ($1c/$1e, less their -1) */
+  cols: number
+  rows: number
+  /** `xscreen>>3` ($20) and `yscreen*rowBytes` ($36) */
+  destX: number
+  destY: number
+  /** `rowBytes*16` ($3e) */
+  rowStep: number
+}
+
+/** the whole Scene subsystem's state */
+export interface TurboScene {
+  /** `Scene Bank n`; 0 = none set */
+  bank: number
+  /** `Scene Icon Bank n`, "set to 2 (default setting, normal icon bank)" */
+  iconBank: number
+  /** `Scene Mask Palette`, "set to -1 (all bits set) if you do a RUN" */
+  maskPalette: number
+  view16: SceneView | null
+  view32: SceneView | null
+  /** `Scene 16 Limit`'s array of definitions; empty until it is called */
+  defs: Array<SceneDef | null>
 }
 
 export const newTurboState = (): TurboState => ({
@@ -247,7 +322,21 @@ export const newTurboState = (): TurboState => ({
   blitInt: null,
   blitGo: 0,
   priority: 0,
+  scene: { bank: 0, iconBank: 2, maskPalette: -1, view16: null, view32: null, defs: [] },
+  blError: 0,
 })
+
+/**
+ * The two settings the extension re-initialises from its Default hook, and
+ * the interpreter re-initialises at Run: "Scene Icon Bank is set to 2
+ * (default setting, normal icon bank) when you run a program, when you call
+ * Default. This is done for compatibility with the 'older' TURBO_PLUS libs",
+ * and the mask is "set to -1 (all bits set) if you do a RUN or a DEFAULT".
+ */
+export function turboDefault(rt: Runtime): void {
+  rt.turbo.scene.iconBank = 2
+  rt.turbo.scene.maskPalette = -1
+}
 
 /** 68k word truncation: the vector list stores words and Draw takes D0:16 */
 const w = (v: number): number => (v << 16) >> 16
@@ -897,6 +986,420 @@ function starfield(rt: Runtime): TurboStars {
   // count — an illegal function call, not "Stars not reserved"
   if (rt.turbo.stars.count === 0) funcCall()
   return rt.turbo.stars
+}
+
+// ---- scenes: the icon tile-map engine ----
+
+/**
+ * A scene bank, whose layout the manual gives outright because by 2.15 "the
+ * docs are now only diskbased":
+ *
+ *     Start+0  WORD X_WIDTH
+ *     Start+2  WORD Y_HEIGHT
+ *     Start+4,6,8,...  WORD ICONIMAGE_TO_DISPLAY-1   (width*height of them)
+ *
+ * V1.0 stored the tiles as bytes, "limiting the maximum amount of different
+ * Icons of a Scene to 256"; 2.15 widened them to words and left `Scene
+ * Convert` behind to bring the old banks forward. This port implements 2.15
+ * throughout, as every other TURBO phase does.
+ */
+function sceneData(rt: Runtime): Uint8Array {
+  const n = rt.turbo.scene.bank
+  const b = n === 0 ? undefined : rt.memBanks.get(n)
+  // The library holds a pointer, not a number, so an erased bank leaves it
+  // dangling and the next draw reads freed memory. Holding the number means
+  // that case reports "Scene Bank not defined" instead.
+  if (!b) turboError(22)
+  return b.data
+}
+
+const sceneW = (d: Uint8Array): number => ((d[0]! << 8) | d[1]!) & 0xffff
+const sceneH = (d: Uint8Array): number => ((d[2]! << 8) | d[3]!) & 0xffff
+
+/** tile at a word offset from the start of the bank, header included */
+function tileAt(d: Uint8Array, off: number): number {
+  return off + 1 < d.length ? ((d[off]! << 8) | d[off + 1]!) & 0xffff : 0
+}
+
+function setTileAt(d: Uint8Array, off: number, v: number): void {
+  if (off + 1 >= d.length) return
+  d[off] = (v >> 8) & 0xff
+  d[off + 1] = v & 0xff
+}
+
+/**
+ * The icon bank the Scene commands draw from. Two of them check the bank's
+ * four-character type: 'Icon' or 'Spri' passes, anything else is "Only
+ * Sprite or Icon banks can be used", and a bank that is not there at all is
+ * AMOS's own "bank not reserved" — the two errors the manual's "Icon/Bob
+ * banks are legal, but any other type of bank gives an illegal function
+ * call" runs together.
+ */
+function sceneIcons(rt: Runtime, n: number): ObjectBank {
+  const b = n === 1 ? rt.spriteBank : n === 2 ? rt.iconBank : null
+  if (b) return b
+  if (n === 1 || n === 2 || !rt.memBanks.get(n)) throw new AmosError('bank not reserved', 36)
+  // a numbered memory bank is reserved but is not one of the two object
+  // banks this port keeps typed, so it can only fail the cookie test
+  turboError(26)
+}
+
+/**
+ * Paste one tile. `off` is a byte offset into a bitplane, which is the unit
+ * the library works in throughout: it loads the screen's plane pointers and
+ * adds a single offset built from `x>>3` and `y*rowBytes`. Splitting it back
+ * into a pixel position is what makes the `Scene View` regression visible
+ * rather than merely arithmetic.
+ *
+ * "AMOS does not let you use icon 0 so you must add 1 to get the correct
+ * icon number" — the tile stored is the image number minus one.
+ */
+function pasteTile(rt: Runtime, s: Screen, off: number, tile: number, icons: ObjectBank): void {
+  const img = icons.image((tile + 1) & 0xffff)
+  if (!img) return
+  rt.blit(s, img, (off % s.rowBytes) * 8, Math.floor(off / s.rowBytes), img.opaque)
+}
+
+/** the six arguments `Scene 16/32 Draw` and the tail of `Scene 16 Def` share */
+interface DrawArgs {
+  sx: number
+  sy: number
+  xamt: number
+  yamt: number
+  xdest: number
+  ydest: number
+}
+
+function drawArgs(it: Interp): DrawArgs {
+  const sx = it.evalInt()
+  it.expect(',')
+  const sy = it.evalInt()
+  it.expect(',')
+  const xamt = it.evalInt()
+  it.expect(',')
+  const yamt = it.evalInt()
+  it.expect(',')
+  const xdest = it.evalInt()
+  it.expect(',')
+  const ydest = it.evalInt()
+  return { sx, sy, xamt, yamt, xdest, ydest }
+}
+
+/**
+ * The clipping `Scene 16/32 Draw` and `Scene 16 Def` both do, in the order
+ * the routine does it — the arguments are popped last-first, so `yscreen` is
+ * refused before `xscreen` and the scene coordinates are checked last of all.
+ *
+ * Two details of the 32 version are not what the manual says. "XSCREEN and
+ * YSCREEN are chopped to lie on a 16/32 bit boundary": only XSCREEN is
+ * chopped, and `Scene 32 Draw` chops it with the same `andi.w #$fff0` the 16
+ * version uses, so a 32-pixel scene can start on a 16-pixel boundary.
+ */
+function sceneClip(a: DrawArgs, s: Screen, d: Uint8Array, big: boolean): {
+  xb: number
+  yoff: number
+  cols: number
+  rows: number
+} {
+  if (a.ydest < 0 || a.xdest < 0) funcCall()
+  const xdest = a.xdest & 0xfff0
+  if (a.ydest >= s.height) funcCall()
+  const xb = xdest >> 3
+  if (xb >= s.rowBytes) funcCall()
+  // the columns left in the bitplane row: 2 bytes a tile at 16, 4 at 32
+  const fit = (s.rowBytes - xb) >> (big ? 2 : 1)
+  if (a.yamt <= 0 || a.xamt <= 0) funcCall()
+  let cols = Math.min(a.xamt, fit)
+  const down = (s.height - a.ydest) >> (big ? 5 : 4)
+  if (down === 0) funcCall()
+  let rows = Math.min(a.yamt, down)
+  if (a.sy < 0 || a.sx < 0) funcCall()
+  cols = Math.min(cols, sceneW(d) - a.sx)
+  if (cols <= 0) funcCall()
+  rows = Math.min(rows, sceneH(d) - a.sy)
+  if (rows <= 0) funcCall()
+  return { xb, yoff: a.ydest * s.rowBytes, cols, rows }
+}
+
+/** `Scene 16 Draw` / `Scene 32 Draw`, which draw on the current screen */
+function sceneDraw(rt: Runtime, it: Interp, big: boolean): void {
+  const a = drawArgs(it)
+  const d = sceneData(rt)
+  const s = rt.screen
+  const icons = sceneIcons(rt, rt.turbo.scene.iconBank)
+  const { xb, yoff, cols, rows } = sceneClip(a, s, d, big)
+  const srb = sceneW(d) * 2
+  const step = big ? 4 : 2
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const tile = tileAt(d, 4 + (a.sy + r) * srb + (a.sx + c) * 2)
+      pasteTile(rt, s, xb + c * step + yoff + r * s.rowBytes * (big ? 32 : 16), tile, icons)
+    }
+  }
+}
+
+/**
+ * The shared viewport core, routine 121 for the 16 set and 122 for the 32
+ * set: `Scene Do`, `Top`, `Bottom`, `Left` and `Right` all reach it with the
+ * rectangle already chosen and only the scene coordinates left to pop.
+ *
+ * ## The wrap
+ *
+ * Undocumented and the reason the view commands exist: the scene coordinates
+ * are folded into the map before drawing (repeated add/subtract of the width
+ * or height, so a coordinate a whole map away still terminates), and each
+ * tile that runs off the right edge of a row comes back at the left, while
+ * one that runs off the end of the map restarts at the top — the row base is
+ * zeroed and keeps advancing from there. A scrolling game can therefore let
+ * its scene coordinates run without bounding them.
+ *
+ * ## The regression
+ *
+ * `yb` is the viewport's y1 in pixels and is used here as a byte offset. In
+ * V1.0 `Scene 16 Do` did the multiply itself (`mulu.w d4,d2` against
+ * EcTLigne at $5178, saving the product for the core to read); 2.15 moved
+ * the arithmetic into `Scene 16/32 View` for speed, converted x1 to bytes
+ * with `lsr.w #3`, and left y1 alone. `Scene Draw` and `Scene 16 Def`, which
+ * compute their own destination, both still multiply — so the whole
+ * viewport family, and only the viewport family, puts its top edge at line
+ * `y1 / rowBytes` instead of line `y1`. It is reproduced rather than
+ * corrected: a program written against the real 2.15 is drawing where this
+ * puts it. `Scene 16/32 View scr,x1,0 To x2,y2` is unaffected.
+ */
+function sceneViewCore(
+  rt: Runtime,
+  it: Interp,
+  big: boolean,
+  v: SceneView,
+  rect: { cols: number; rows: number; xb: number; yb: number; c0: number; r0: number },
+): void {
+  const xsc = it.evalInt()
+  it.expect(',')
+  const ysc = it.evalInt()
+  const s = rt.screen
+  if (rt.currentIndex !== v.screen) turboError(20)
+  const d = sceneData(rt)
+  const icons = sceneIcons(rt, rt.turbo.scene.iconBank)
+  const width = sceneW(d)
+  const height = sceneH(d)
+  if (width === 0 || height === 0) return
+  let y = rect.r0 + ysc
+  while (y < 0) y += height
+  while (y >= height) y -= height
+  let x = rect.c0 + xsc
+  while (x < 0) x += width
+  while (x >= width) x -= width
+  const srb = width * 2
+  const total = srb * height
+  const x0 = x * 2
+  let base = y * srb
+  let dy = rect.yb
+  for (let r = 0; r < rect.rows; r++) {
+    for (let c = 0; c < rect.cols; c++) {
+      let off = x0 + c * 2
+      if (off >= srb) off -= srb
+      off += base
+      if (off >= total) {
+        off = 0
+        // the row base is reset for good, not just for this tile: the rest
+        // of the row and every row after it come from the top of the map
+        base = 0
+      }
+      // the destination advances one tile-width in bytes a column and one
+      // tile-height of scanlines a row; the scene advances one word either way
+      pasteTile(rt, s, rect.xb + c * (big ? 4 : 2) + dy, tileAt(d, 4 + off), icons)
+    }
+    dy += s.rowBytes * (big ? 32 : 16)
+    base += srb
+  }
+}
+
+/** the five viewport keywords, which differ only in the rectangle they pick */
+function sceneViewEdge(rt: Runtime, it: Interp, big: boolean, edge: '' | 't' | 'b' | 'l' | 'r'): void {
+  const v = big ? rt.turbo.scene.view32 : rt.turbo.scene.view16
+  if (!v) turboError(20)
+  const rect = { cols: v.cols, rows: v.rows, xb: v.xb, yb: v.yb, c0: 0, r0: 0 }
+  if (edge === 't') rect.rows = 1
+  if (edge === 'b') {
+    rect.rows = 1
+    rect.yb = v.bottom
+    rect.r0 = v.rows - 1
+  }
+  if (edge === 'l') rect.cols = 1
+  if (edge === 'r') {
+    rect.cols = 1
+    rect.xb = v.right
+    rect.c0 = v.cols - 1
+  }
+  sceneViewCore(rt, it, big, v, rect)
+}
+
+/** `Scene 16/32 View scrnr,x1,y1 To x2,y2` */
+function sceneView(rt: Runtime, it: Interp, big: boolean): void {
+  const nr = it.evalInt()
+  it.expect(',')
+  const x1 = it.evalInt()
+  it.expect(',')
+  const y1 = it.evalInt()
+  it.expect('to')
+  const x2 = it.evalInt()
+  it.expect(',')
+  const y2 = it.evalInt()
+  const s = rt.screens.get(nr)
+  if (!s) throw new AmosError(`screen not opened: ${nr}`)
+  // the pointer check comes before the arguments are popped, so a program
+  // with no Scene Bank set gets error 22 whatever else is wrong
+  sceneData(rt)
+  if (y2 <= 0 || x2 <= 0 || y1 < 0 || x1 < 0) funcCall()
+  if (x1 >= x2 || y1 >= y2) funcCall()
+  if (x2 > s.width || y2 > s.height) funcCall()
+  const shift = big ? 5 : 4
+  const cols = (x2 - x1) >> shift
+  const rows = (y2 - y1) >> shift
+  if (cols === 0 || rows === 0) funcCall()
+  const v: SceneView = {
+    screen: nr,
+    cols,
+    rows,
+    xb: x1 >> 3,
+    yb: y1,
+    right: (x2 - (big ? 32 : 16)) >> 3,
+    bottom: y2 - (big ? 32 : 16),
+  }
+  if (big) rt.turbo.scene.view32 = v
+  else rt.turbo.scene.view16 = v
+}
+
+/** the definition `Scene 16 Restore` replays, with the checks Def makes */
+function sceneDef(rt: Runtime, it: Interp): void {
+  const nr = it.evalInt()
+  it.expect(',')
+  const n = it.evalInt()
+  it.expect(',')
+  const a = drawArgs(it)
+  const defs = rt.turbo.scene.defs
+  if (n <= 0 || n > defs.length) funcCall()
+  const s = rt.screens.get(nr)
+  if (!s) throw new AmosError(`screen not opened: ${nr}`)
+  const d = sceneData(rt)
+  const icons = sceneIcons(rt, rt.turbo.scene.iconBank)
+  const { xb, yoff, cols, rows } = sceneClip(a, s, d, false)
+  const srb = sceneW(d) * 2
+  defs[n - 1] = {
+    screen: nr,
+    icons,
+    scene: d,
+    sceneRowBytes: srb,
+    sx2: a.sx * 2,
+    sceneRowOff: a.sy * srb,
+    cols,
+    rows,
+    destX: xb,
+    destY: yoff,
+    rowStep: s.rowBytes * 16,
+  }
+}
+
+/**
+ * `Scene 16 Restore nr` — the record replayed. There is no wrap here and no
+ * re-clip: everything was decided at Def time, including which banks to draw
+ * from, so a Restore is a straight rectangle out of a possibly stale bank.
+ */
+function sceneRestore(rt: Runtime, it: Interp): void {
+  const n = it.evalInt()
+  const defs = rt.turbo.scene.defs
+  if (n <= 0 || n > defs.length) funcCall()
+  const def = defs[n - 1]
+  // "Scene Area is not defined" — the record's flag word, still zero
+  if (!def) turboError(19)
+  const s = rt.screen
+  if (rt.currentIndex !== def.screen) turboError(21)
+  for (let r = 0; r < def.rows; r++) {
+    for (let c = 0; c < def.cols; c++) {
+      const tile = tileAt(def.scene, 4 + def.sceneRowOff + r * def.sceneRowBytes + def.sx2 + c * 2)
+      pasteTile(rt, s, def.destX + c * 2 + def.destY + r * def.rowStep, tile, def.icons)
+    }
+  }
+}
+
+/**
+ * The bounds `Scene Check`, `Scene Change` and their screen-coordinate
+ * cousins share. `cmp.w`/`Rbhi` is a strictly-greater test, so a coordinate
+ * *equal* to the width or height passes and indexes one tile beyond the row
+ * or the map — on the Amiga that reads whatever follows the bank, here it
+ * reads zero past the end of the array.
+ */
+function sceneIndex(d: Uint8Array, x: number, y: number): number {
+  if (x < 0 || y < 0) funcCall()
+  if ((x & 0xffff) > sceneW(d) || (y & 0xffff) > sceneH(d)) funcCall()
+  return 4 + ((y & 0xffff) * sceneW(d) + (x & 0xffff)) * 2
+}
+
+/**
+ * `Scene 16/32 Check(x,y)` — "Returns Icon number is in the scene according
+ * to the X and Y screen coordinates". The conversion is a bare shift by 4 or
+ * 5 with no viewport offset applied, so it answers for the screen only while
+ * the view starts at 0,0.
+ */
+function sceneCheckScreen(rt: Runtime, a: Value[], shift: number): number {
+  const x = int(a[0] ?? VI(0))
+  const y = int(a[1] ?? VI(0))
+  if (x < 0 || y < 0) funcCall()
+  const d = sceneData(rt)
+  return tileAt(d, sceneIndex(d, (x & 0xffff) >>> shift, (y & 0xffff) >>> shift))
+}
+
+/** the four bulk operations, which share their clipping */
+function sceneRegion(
+  d: Uint8Array,
+  x: number,
+  y: number,
+  aw: number,
+  ah: number,
+): { off: number; cols: number; rows: number } {
+  if (x < 0 || y < 0) funcCall()
+  const left = sceneW(d) - x
+  if (left <= 0) funcCall()
+  const down = sceneH(d) - y
+  if (down <= 0) funcCall()
+  return { off: 4 + (y * sceneW(d) + x) * 2, cols: Math.min(aw, left), rows: Math.min(ah, down) }
+}
+
+/**
+ * `Scene Scan X/Y(x,y,step,value)`, undocumented in either manual. Walks the
+ * scene from x,y in steps of `step` tiles and returns how many steps it took
+ * to reach `value`, or -1 if it left the map first — a step of zero is an
+ * illegal function call, and a negative step walks backwards.
+ *
+ * `Scene Scan X` treats a negative value as "scan until the tile is *not*
+ * this" (`neg.l d5` then a `beq` loop at $4c30). `Scene Scan Y` has the same
+ * branch but closes it with `bne`, so its negative form searches for the
+ * positive value and behaves exactly like the positive form. Its mode test
+ * is on d3 rather than d5 as well — a register that happens to hold the last
+ * argument evaluated, which is the value, so that half of the slip is
+ * invisible.
+ */
+function sceneScan(rt: Runtime, a: Value[], vertical: boolean): number {
+  const [x, y, step, value] = [0, 1, 2, 3].map((i) => int(a[i] ?? VI(0))) as [number, number, number, number]
+  const d = sceneData(rt)
+  if (step === 0) funcCall()
+  if (x < 0 || y < 0) funcCall()
+  const width = sceneW(d)
+  const height = sceneH(d)
+  if ((x & 0xffff) > width) funcCall()
+  if ((y & 0xffff) > height) funcCall()
+  const inverse = vertical ? false : value < 0
+  const want = value < 0 ? -value : value
+  let n = 0
+  let i = vertical ? y : x
+  const limit = vertical ? height : width
+  for (;;) {
+    if (i < 0 || i >= limit) return -1
+    const tile = vertical ? tileAt(d, 4 + (i * width + x) * 2) : tileAt(d, 4 + (y * width + i) * 2)
+    if (inverse ? tile !== want : tile === want) return n
+    i += step
+    n++
+  }
 }
 
 export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
@@ -1672,6 +2175,325 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       z.y2 = Math.max(y1, y2)
       z.set = true
     },
+
+    // ---- scenes ----
+
+    'reserve scene'(it) {
+      // Reserve Scene BANKNR,WIDTH,HEIGHT — routine 158. WIDTH*HEIGHT words
+      // and a four-byte header, reserved under the name "Scenery " so that
+      // "the Listbank command will display the type of the bank as Scenery".
+      const n = it.evalInt()
+      it.expect(',')
+      const width = it.evalInt()
+      it.expect(',')
+      const height = it.evalInt()
+      // the height is checked first: the routine reads the arguments back
+      // off the stack top-down before popping any of them
+      if (height <= 0 || width <= 0 || n <= 0 || n >= 0x10000) funcCall()
+      rt.reserveBank(n, 4 + ((width * height) & 0xffff) * 2, 'Scenery ')
+      const d = rt.memBanks.get(n)!.data
+      setTileAt(d, 0, width)
+      setTileAt(d, 2, height)
+    },
+    'scene bank'(it) {
+      // "Make sure you have both a scene bank and icon bank in memory or
+      // this command will return a Bank Not Reserved error" — it resolves
+      // the icon bank as well as the scene bank, so the icon bank's absence
+      // is reported here rather than at the first draw. The scene bank's own
+      // type is never checked.
+      const n = it.evalInt()
+      if (!rt.memBanks.get(n)) throw new AmosError('bank not reserved', 36)
+      sceneIcons(rt, rt.turbo.scene.iconBank)
+      rt.turbo.scene.bank = n
+    },
+    'scene icon bank'(it) {
+      // The number is stored before it is validated, so a rejected bank
+      // still replaces the setting and the next Scene Bank fails too.
+      const n = it.evalInt()
+      rt.turbo.scene.iconBank = n
+      sceneIcons(rt, n)
+    },
+    'scene load'(it) {
+      // Scene Load "file",bank — routine 314. It reserves a bank the size of
+      // the file and reads the lot: no header is parsed and nothing is
+      // converted, so "this command is able to cope with both 'BYTE' and
+      // 'WORD' Sceneformats" only in the sense that it will load either.
+      // "The Scene Bank is not set by this command."
+      const name = it.evalStr()
+      it.expect(',')
+      const n = it.evalInt()
+      if (n >= 0x10000) funcCall()
+      if (name.length < 1 || name.length > 128) funcCall()
+      const bytes = rt.fs?.read(name)
+      if (!bytes) throw new AmosError('file not found', 94)
+      rt.reserveBank(n, bytes.length, 'Scenery ')
+      rt.memBanks.get(n)!.data.set(bytes)
+    },
+    'scene convert'(it) {
+      // Scene Convert BANK_FROM To BANK_TO — routine 160, the V1.0 byte
+      // format widened to words. It reserves BANK_TO itself at the source's
+      // dimensions and copies width*height bytes across.
+      const from = it.evalInt()
+      it.expect('to')
+      const to = it.evalInt()
+      const src = rt.memBanks.get(from)
+      // the source is fetched without a check and read straight away, which
+      // on the Amiga reads address zero
+      if (!src) throw new AmosError('bank not reserved', 36)
+      const width = sceneW(src.data)
+      const height = sceneH(src.data)
+      if (to <= 0 || to >= 0x10000 || width <= 0 || height <= 0) funcCall()
+      rt.reserveBank(to, 4 + ((width * height) & 0xffff) * 2, 'Scenery ')
+      const d = rt.memBanks.get(to)!.data
+      setTileAt(d, 0, width)
+      setTileAt(d, 2, height)
+      for (let i = 0; i < width * height; i++) setTileAt(d, 4 + i * 2, src.data[4 + i] ?? 0)
+    },
+    'scene change'(it) {
+      // Scene Change x,y,v — scene coordinates straight into the bank
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const v = it.evalInt()
+      setTileAt(sceneData(rt), sceneIndex(sceneData(rt), x, y), v)
+    },
+    'scene 16 change': sceneChange(rt, 4),
+    'scene 32 change': sceneChange(rt, 5),
+    'scene 16 draw'(it) {
+      sceneDraw(rt, it, false)
+    },
+    'scene 32 draw'(it) {
+      sceneDraw(rt, it, true)
+    },
+    'scene 16 view'(it) {
+      sceneView(rt, it, false)
+    },
+    'scene 32 view'(it) {
+      sceneView(rt, it, true)
+    },
+    'scene 16 do'(it) {
+      sceneViewEdge(rt, it, false, '')
+    },
+    'scene 32 do'(it) {
+      sceneViewEdge(rt, it, true, '')
+    },
+    'scene 16 top'(it) {
+      sceneViewEdge(rt, it, false, 't')
+    },
+    'scene 32 top'(it) {
+      sceneViewEdge(rt, it, true, 't')
+    },
+    'scene 16 bottom'(it) {
+      sceneViewEdge(rt, it, false, 'b')
+    },
+    'scene 32 bottom'(it) {
+      sceneViewEdge(rt, it, true, 'b')
+    },
+    'scene 16 left'(it) {
+      sceneViewEdge(rt, it, false, 'l')
+    },
+    'scene 32 left'(it) {
+      sceneViewEdge(rt, it, true, 'l')
+    },
+    'scene 16 right'(it) {
+      sceneViewEdge(rt, it, false, 'r')
+    },
+    'scene 32 right'(it) {
+      sceneViewEdge(rt, it, true, 'r')
+    },
+    'scene 16 limit'(it) {
+      // "X is the amount of definitions. When X is set to zero, the memory
+      // is given back to the system." 78 bytes each, AllocMem'd cleared.
+      const n = it.evalInt()
+      const sc = rt.turbo.scene
+      if (n < 0) funcCall()
+      if (n > 32000) turboError(16)
+      if (n === 0) {
+        if (sc.defs.length === 0) turboError(15)
+        sc.defs = []
+        return
+      }
+      if (sc.defs.length !== 0) turboError(14)
+      sc.defs = Array.from({ length: n }, () => null)
+    },
+    'scene 16 def'(it) {
+      sceneDef(rt, it)
+    },
+    'scene 16 restore'(it) {
+      sceneRestore(rt, it)
+    },
+    'scene replace'(it) {
+      // Scene Replace SC_BNK,XSTART,YSTART,XAMOUNT,YAMOUNT,IC_SEARCH,
+      // IC_REPLACE — "a SUPERFAST search and replace" over a rectangle,
+      // on a named bank rather than the Scene Bank one.
+      const bank = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const aw = it.evalInt()
+      it.expect(',')
+      const ah = it.evalInt()
+      it.expect(',')
+      const find = it.evalInt()
+      it.expect(',')
+      const put = it.evalInt()
+      if (put < 0 || find < 0 || ah <= 0 || aw <= 0) funcCall()
+      const b = rt.memBanks.get(bank)
+      if (!b) throw new AmosError('bank not reserved', 36)
+      const { off, cols, rows } = sceneRegion(b.data, x, y, aw, ah)
+      const srb = sceneW(b.data) * 2
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const at = off + r * srb + c * 2
+          if (tileAt(b.data, at) === (find & 0xffff)) setTileAt(b.data, at, put)
+        }
+      }
+    },
+    'scene fill'(it) {
+      // Scene Fill BANK,SCENEX,SCENEY,AMOUNTX,AMOUNTY,VALUE
+      const bank = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const aw = it.evalInt()
+      it.expect(',')
+      const ah = it.evalInt()
+      it.expect(',')
+      const v = it.evalInt()
+      if (v < 0 || ah <= 0 || aw <= 0) funcCall()
+      const b = rt.memBanks.get(bank)
+      if (!b) throw new AmosError('bank not reserved', 36)
+      const { off, cols, rows } = sceneRegion(b.data, x, y, aw, ah)
+      const srb = sceneW(b.data) * 2
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) setTileAt(b.data, off + r * srb + c * 2, v)
+    },
+    'scene copy'(it) {
+      // Scene Copy BANK_FROM,SCENEX,SCENEY,AMOUNTX,AMOUNTY To BANK_TO,
+      // SCENEX,SCENEY. "The Scene Banks may have different width and
+      // height, everything is checked for" — the rectangle is clipped
+      // against the source first and then against the destination, so the
+      // smaller of the two wins. "Beware! When Scene Copy is used on the
+      // SAME bank, be sure that the areas do NOT overlap": it copies
+      // forwards with no overlap test, and this does the same.
+      const from = it.evalInt()
+      it.expect(',')
+      const sx = it.evalInt()
+      it.expect(',')
+      const sy = it.evalInt()
+      it.expect(',')
+      const aw = it.evalInt()
+      it.expect(',')
+      const ah = it.evalInt()
+      it.expect('to')
+      const to = it.evalInt()
+      it.expect(',')
+      const dx = it.evalInt()
+      it.expect(',')
+      const dy = it.evalInt()
+      if (dy < 0 || dx < 0) funcCall()
+      const a = rt.memBanks.get(from)
+      if (!a) throw new AmosError('bank not reserved', 36)
+      const src = sceneRegion(a.data, sx, sy, aw, ah)
+      const b = rt.memBanks.get(to)
+      if (!b) throw new AmosError('bank not reserved', 36)
+      const dst = sceneRegion(b.data, dx, dy, src.cols, src.rows)
+      const srb = sceneW(a.data) * 2
+      const drb = sceneW(b.data) * 2
+      for (let r = 0; r < dst.rows; r++) {
+        for (let c = 0; c < dst.cols; c++) {
+          setTileAt(b.data, dst.off + r * drb + c * 2, tileAt(a.data, src.off + r * srb + c * 2))
+        }
+      }
+    },
+    'scene mask palette'(it) {
+      // "Each BIT represents a colour. If a bit is set, the screen color
+      // will be replaced by the Scene Icon Bank color upon execution of the
+      // Scene Palette command."
+      rt.turbo.scene.maskPalette = it.evalInt()
+    },
+    'scene palette'(it) {
+      // Scene Palette X — routine 151. It builds all 32 entries, writing
+      // $FFFF (AMOS's "leave this one alone") wherever the mask bit is
+      // clear, and hands the lot to the palette-setting routine. Created
+      // "because Get Icon Palette will not get the palette from any bank
+      // besides the default icon bank (2)".
+      const n = it.evalInt()
+      if (n <= 0) funcCall()
+      const icons = sceneIcons(rt, n)
+      const mask = rt.turbo.scene.maskPalette
+      const s = rt.screen
+      // On the Amiga a sprite or icon bank always carries 32 palette words
+      // and the routine copies all 32. Here a bank built by Get Icon has no
+      // recorded palette at all, so — as Get Icon Palette already does — an
+      // entry the bank does not have is left alone rather than zeroed.
+      for (let i = 0; i < Math.min(32, icons.palette.length, s.palette.length); i++) {
+        if (mask & (1 << i)) s.palette[i] = icons.palette[i]! & 0xfff
+      }
+    },
+
+    // ---- the background loader ----
+
+    'multi bload'(it) {
+      // Multi Bload "file","bankname",bank — undocumented, and the only
+      // keyword in the extension that is genuinely concurrent: it CreateProc()s
+      // an AmigaDOS process (up to five at once) which opens the file,
+      // reserves a bank the size of it under the eight-character name given,
+      // reads it and exits. The parent checks the file exists first, with
+      // pr_WindowPtr set to -1 so a missing volume does not put a requester
+      // up, and returns immediately.
+      //
+      // There is no second thread here, so the load happens now. Every
+      // program that uses it waits on Multi Bl Ended before touching the
+      // bank, and Multi Bl Ended is true the moment the count reaches zero —
+      // so a load that has already finished is indistinguishable from one
+      // that finished while BASIC was busy. What is not reproduced is the
+      // overlap itself: a program drawing a progress bar during the load
+      // sees it complete in one frame.
+      const name = it.evalStr()
+      it.expect(',')
+      const label = it.evalStr()
+      it.expect(',')
+      const n = it.evalInt()
+      if (n - 1 >= 0x10000 || n - 1 < 0) funcCall()
+      const bytes = rt.fs?.read(name)
+      if (!bytes) {
+        // the parent's Lock() failing is the one error it reports itself
+        rt.turbo.blError = 94
+        return
+      }
+      rt.reserveBank(n, bytes.length, (label.slice(0, 8) + '        ').slice(0, 8))
+      rt.memBanks.get(n)!.data.set(bytes)
+    },
+    'multi bl error'() {
+      // routine 173: the high byte of the error word marks out of memory,
+      // the word itself carries a DOS error, and zero means nothing went
+      // wrong. Reading it clears it either way.
+      const e = rt.turbo.blError
+      rt.turbo.blError = 0
+      if (e === -1) throw new AmosError('Out of memory', 24)
+      if (e !== 0) throw new AmosError('file not found', e)
+    },
+  }
+}
+
+/** `Scene 16/32 Change x,y,v` — screen coordinates, shifted down to tiles */
+function sceneChange(rt: Runtime, shift: number): Instr {
+  return (it) => {
+    const x = it.evalInt()
+    it.expect(',')
+    const y = it.evalInt()
+    it.expect(',')
+    const v = it.evalInt()
+    // "The change made on screen and in the Scene bank" — the routine ends
+    // at the bank write. Nothing is redrawn.
+    if (x < 0 || y < 0) funcCall()
+    const d = sceneData(rt)
+    setTileAt(d, sceneIndex(d, (x & 0xffff) >>> shift, (y & 0xffff) >>> shift), v)
   }
 }
 
@@ -1929,6 +2751,40 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       const spr = rt.hwSprites.get(n!)
       if (!spr) return VI(0)
       return VI(checkHit(rt, s!, e!, spr.x + dx!, spr.y + dy!))
+    },
+
+    // ---- scenes ----
+
+    'scene x'(_) {
+      // width and height straight out of the bank header. Neither checks
+      // that a Scene Bank was ever set — with the pointer still zero they
+      // read low memory; here they say so.
+      return VI(sceneW(sceneData(rt)))
+    },
+    'scene y'(_) {
+      return VI(sceneH(sceneData(rt)))
+    },
+    'scene check'(_, a) {
+      // "Returns Icon number in the scene at scene coordinates X,Y, minus 1"
+      const d = sceneData(rt)
+      return VI(tileAt(d, sceneIndex(d, int(a[0] ?? VI(0)), int(a[1] ?? VI(0)))))
+    },
+    'scene 16 check'(_, a) {
+      return VI(sceneCheckScreen(rt, a, 4))
+    },
+    'scene 32 check'(_, a) {
+      return VI(sceneCheckScreen(rt, a, 5))
+    },
+    'scene scan x'(_, a) {
+      return VI(sceneScan(rt, a, false))
+    },
+    'scene scan y'(_, a) {
+      return VI(sceneScan(rt, a, true))
+    },
+    'multi bl ended'(_) {
+      // -1 while the pending-load count is zero. With the loads done
+      // synchronously the count is never anything else.
+      return VI(-1)
     },
   } as Record<string, Func>
 }
