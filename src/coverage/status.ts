@@ -543,6 +543,8 @@ export const FAITHFUL = new Set<string>([
   // — see NOTES. The manual documents no algorithm for these at all.
   'lcrypt',
   'ldecrypt',
+  'lsys stamp',
+  'lsys time',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   // NB: 'lmatch' is deliberately absent — implemented, but the manual never
@@ -1025,12 +1027,16 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  'lsys stamp':
+    'Reads the host clock, which defaults to a fixed date so a headless corpus run stays reproducible; a host with a real clock (the browser) supplies one. Nothing about the keyword is approximated — what varies is whether the machine it runs on has a clock, which is a property of the host rather than of the port',
+  'lsys time':
+    'As Lsys Stamp. Formats HHMMSS with no separators, which the manual is explicit about: "No extra \":\",\".\" or \"-\" is added so that you easily can process this string to the format you like"',
   'lcrypt':
     "LdosV25.DOC documents the calling convention and says nothing whatever about the cipher, so this was read out of AMOSPro_Ldos.lib itself — Lcrypt at \$4400, disassembled with capstone. The key is built by add.b (low byte of d7 only), eori.l #3 and rol.l #1 per password character, then each longword is (value + \$20) XOR key. The byte-width of the add is the part a manual could never have conveyed and the part that matters: widen it and the key diverges after one character. The disassembly is short, unambiguous and its two routines are exact inverses, and the tests hand-simulate the 68k key loop as an independent check — but this is evidence of a different kind from source or a manual, and it is recorded as such",
   'ldecrypt':
     "The inverse of Lcrypt, at \$4436, and the only one of the pair that validates its argument: it opens cmp.w #4,d0 / bcc, while Lcrypt has no length check at all. So the manual's 'an error will be produced if the password is less than 4 characters long' is true of one of the two keywords, which the binary shows and the documentation does not. A short password given to Lcrypt on the real machine runs its dbra 65536 times off the end of the string",
   'lset var':
-    "Global environment variables, held in the interpreter. On the real machine SetVar with GVF_GLOBAL_ONLY writes a file into ENV:, so the value outlives the program and is visible to the Shell and to every other program; here it lives and dies with the run. The documented limits (50 characters for the name and for the value) and the case-insensitive lookup are reproduced",
+    'Writes a file into ENV:, which is what a global environment variable actually is — SetVar with GVF_GLOBAL_ONLY does exactly this — so the value is visible to Dir, to the browser file panel and to anything else that reads the filesystem, and outlives the program the way it does on the real machine. The documented 50-character limits on name and value are enforced. Case-insensitivity comes free from the filesystem, which is case-insensitive for the same reason AmigaDOS is',
   'ldisk font':
     "Reports whether the named font exists in the mounted Fonts: drawer and invalidates the disc font list so Get Rom Fonts picks it up, which is what the keyword is for. Two documented behaviours are not reproduced: it cannot distinguish 'already in memory' from 'not on the disk' (both return false, as the manual allows, but for the wrong reason), and the real routine 'is designed to always try to scale the selected font with a best match, it may return true even though the requested font wasn't available' — no scaling happens here, so a near-miss size fails where the original would succeed",
   'llobuffer':

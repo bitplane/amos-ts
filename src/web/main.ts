@@ -13,6 +13,7 @@ import { AmosRuntimeError } from '../interp/interp'
 import { WebAudioSink } from './audio'
 import { AmigaFS } from '../runtime/vfs'
 import { readArchive, volumeFromEntries } from '../runtime/archive'
+import { systemClock } from '../runtime/host'
 import { baseName, deleteEntry, moveEntry, newDrawer, relabelVolume, renameEntry, type FsResult } from './filemanager'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -46,6 +47,9 @@ const vfs = new AmigaFS()
 const dh0 = vfs.mountMemory('DH0')
 // RAM: is part of every AMOS machine (the ram-handler) — writable, empty
 vfs.mountMemory('RAM')
+// global environment variables are files in ENV: on a real machine, and
+// AMOS programs (and LDos) read and write them there
+vfs.mountMemory('ENV')
 vfs.currentDir = 'DH0:'
 
 async function mountArchive(bytes: Uint8Array, name: string): Promise<void> {
@@ -154,7 +158,7 @@ function load(bytes: Uint8Array, name: string): void {
     const isAmos = /^AMOS (Basic|Pro)/.test(new TextDecoder('latin1').decode(bytes.subarray(0, 16)))
     const amos = isAmos ? parseAmosFile(bytes) : null
     const lines = amos ? parseSource(amos.source, table) : tokenize(new TextDecoder('latin1').decode(bytes), table)
-    rt = new Runtime(lines, table, { extensions: extensionTablesFor(lines), onUnimplemented: 'skip', banks: amos?.banks ?? [], audio, fs: vfs })
+    rt = new Runtime(lines, table, { extensions: extensionTablesFor(lines), onUnimplemented: 'skip', banks: amos?.banks ?? [], audio, fs: vfs, host: { clock: systemClock() } })
     if (systemResource) rt.loadSystemResource(systemResource)
     if (mouseBank) rt.loadMouseBank(mouseBank)
   } catch (e) {

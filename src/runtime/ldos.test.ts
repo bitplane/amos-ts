@@ -29,6 +29,7 @@ const enc = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.charC
 function run(src: string): { out: string; fs: AmigaFS; rt: Runtime } {
   const fs = new AmigaFS()
   fs.mountMemory('DH0')
+  fs.mountMemory('ENV') // global environment variables are files in ENV:
   fs.currentDir = 'DH0:'
   let out = ''
   const rt = new Runtime(tokenize(src, table, extensions), table, {
@@ -502,9 +503,11 @@ describe('LDos directory scanning (LdosV25.DOC + Lrecursive.AMOS)', () => {
   it('Ldev First and Ldev Next walk the devices, without colons', () => {
     // "Please note that the devicename (like DF0: etc.) NOT contains a colon"
     const { out } = run(
-      ['Assign "Data:" To "DH0:"', 'Print Ldev First(0)', 'Print Ldev Next', 'Print "["+Ldev Next+"]"'].join('\n'),
+      ['Assign "Data:" To "DH0:"', 'Print Ldev First(0)', 'Print Ldev Next', 'Print Ldev Next', 'Print "["+Ldev Next+"]"'].join('\n'),
     )
-    expect(out).toBe('DH0\nData\n[]\n')
+    // ENV: is a mounted volume like any other, so it enumerates as a device
+    // — which is what it is on a real machine
+    expect(out).toBe('DH0\nENV\nData\n[]\n')
   })
 
   it('Lldir$ gives LDos its own current directory, which Dir$ does not touch', () => {
@@ -651,6 +654,25 @@ describe('LDos environment variables and fonts (LdosV25.DOC)', () => {
       ['Print Lset Var(String$("n",51),"v")', 'Print Lset Var("ok",String$("v",51))', 'Print Lset Var("ok",String$("v",50))'].join('\n'),
     )
     expect(out).toBe(' 0\n 0\n-1\n')
+  })
+
+  it('environment variables really are files in ENV:', () => {
+    // SetVar with GVF_GLOBAL_ONLY writes a file into ENV: on the real
+    // machine, so they are visible to Dir and to anything else that reads
+    // the filesystem — not hidden in the extension's own memory.
+    const { out, fs } = run(
+      ['Print Lset Var("Editor","ed")', 'Print Lget Var("Editor")', 'Print Exist("ENV:Editor")'].join('\n'),
+    )
+    expect(out).toBe('-1\ned\n-1\n')
+    expect(fs.readFile('ENV:Editor')).toEqual(enc('ed'))
+  })
+
+  it('Lsys Stamp and Lsys Time read the host clock, fixed by default', () => {
+    // The default clock is deterministic so a headless run is reproducible;
+    // a host with a real clock supplies one. FIXED_DATE is 12 July 1994,
+    // 14:30:00.
+    const { out } = run(['Print Ldate(Lsys Stamp)', 'Print Lsys Time'].join('\n'))
+    expect(out).toBe('940712\n143000\n')
   })
 
   it('Ldisk Font wants a .font name and a font that is really there', () => {

@@ -35,6 +35,9 @@ import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { amigaMatch, hasWildcard } from './ldospat'
 
+/** an AMOS string is bytes, not UTF-16 */
+const latin1 = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.charCodeAt(0) & 0xff))
+
 /**
  * AmigaDOS datestamps count days from 1 Jan 1978. Ldate and Lstamp convert
  * between that and a "YYMMDD" string; the manual caps the useful range at
@@ -139,18 +142,14 @@ export interface LdosState {
   cwd: string | null
   /** the Ldev First/Ldev Next walk over volumes and assigns */
   devices: { names: string[]; index: number } | null
-  /**
-   * AmigaDOS global environment variables, keyed lower-case because the
-   * manual says "Name of the variable is not case-sensitive".
-   */
-  vars: Map<string, string>
+
   /** Lset Eoln: the end-of-line byte Lstr looks for. Default 10 (manual:
    * "Default is 10, normal Amiga LineFeed. (Unlike AMOS which tends to use
    * 13 for some reason...)") */
   eoln: number
 }
 
-export const newLdosState = (): LdosState => ({ chans: new Map(), cat: null, pushed: new Map(), cwd: null, devices: null, vars: new Map(), eoln: 10 })
+export const newLdosState = (): LdosState => ({ chans: new Map(), cat: null, pushed: new Map(), cwd: null, devices: null, eoln: 10 })
 
 /**
  * Resolve a path the way LDos does: against its own current directory when
@@ -192,6 +191,7 @@ function ensure(c: LdosChannel, end: number): void {
 function flush(rt: Runtime, c: LdosChannel): void {
   if (!c.dirty) return
   rt.vfs?.writeFile(c.path, c.data)
+  rt.stampFile(c.path) // AmigaDOS dates a file when it is written
   c.dirty = false
 }
 
@@ -260,6 +260,7 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       if (mode === 1) {
         data = new Uint8Array(0)
         rt.vfs?.writeFile(path, data) // created, and truncated if it existed
+        rt.stampFile(path)
       } else {
         const existing = rt.fs?.read(path) ?? null
         if (existing === null) throw new AmosError(`file not found: ${path}`)
@@ -665,20 +666,41 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       // T=Lset Var("Name","VALUE") — 'Name' at most 50 characters, 'VALUE'
       // likewise, "This function will return true if successful. Name of the
       // variable is not case-sensitive."
+      //
+      // A global environment variable on the Amiga is a FILE in ENV:, which
+      // is what SetVar with GVF_GLOBAL_ONLY writes — so that is where these
+      // go. Dir "ENV:" lists them and the browser's file panel shows them,
+      // exactly as on the real machine.
       const name = str(a[0] ?? VS(''))
       const value = str(a[1] ?? VS(''))
-      if (name === '' || name.length > 50 || value.length > 50) return VI(0)
-      rt.ldos.vars.set(name.toLowerCase(), value)
-      return VI(-1)
+      if (name === '' || name.length > 50 || value.length > 50 || /[:/]/.test(name)) return VI(0)
+      return VI(rt.vfs?.writeFile('ENV:' + name, latin1(value)) ? -1 : 0)
     },
     'lget var'(_, a) {
       // A$=Lget Var("Name") — "If A$ is empty the variable didn't exist."
-      return VS(rt.ldos.vars.get(str(a[0] ?? VS('')).toLowerCase()) ?? '')
+      const name = str(a[0] ?? VS(''))
+      if (name === '' || /[:/]/.test(name)) return VS('')
+      const bytes = rt.vfs?.readFile('ENV:' + name)
+      return VS(bytes ? String.fromCharCode(...bytes) : '')
     },
     'ldelete var'(_, a) {
       // T=Ldelete Var("Name") — "T will be true if a variable with the name
       // 'Name' was found and removed. If T is zero the variable didn't exist."
-      return VI(rt.ldos.vars.delete(str(a[0] ?? VS('')).toLowerCase()) ? -1 : 0)
+      const name = str(a[0] ?? VS(''))
+      if (name === '' || /[:/]/.test(name)) return VI(0)
+      return VI(rt.vfs?.deleteFile('ENV:' + name) ? -1 : 0)
+    },
+    'lsys stamp'(_) {
+      // A=Lsys Stamp — "A will contain a datestamp which can be used in
+      // conjunction with Ldate to print the current date."
+      return VI(rt.host.clock.now().days)
+    },
+    'lsys time'(_) {
+      // A$=Lsys Time — "A$ will be in the form "HHMMSS", hours, minutes,
+      // seconds. No extra ":","." or "-" is added"
+      const { mins, ticks } = rt.host.clock.now()
+      const pad = (n: number): string => String(n).padStart(2, '0')
+      return VS(`${pad(Math.floor(mins / 60) % 24)}${pad(mins % 60)}${pad(Math.floor(ticks / 50) % 60)}`)
     },
     'ldisk font'(_, a) {
       // A=Ldisk Font("name.font",SIZE) — "name is the fontname, '.font' MUST
@@ -757,6 +779,7 @@ export const LDOS_IMPLEMENTED: readonly string[] = [
   'lcat stamp', 'lcat push', 'lcat pull', 'ldev first', 'ldev next', 'lldir$',
   'lupbuffer', 'llobuffer', 'llargest free', 'lchk data', 'lchk boot',
   'lset var', 'lget var', 'ldelete var', 'ldisk font', 'lcrypt', 'ldecrypt',
+  'lsys stamp', 'lsys time',
 ]
 
 export type { Value }

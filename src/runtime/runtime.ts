@@ -20,6 +20,7 @@ import { isResourceBankName, parseResourceBank } from '../loader/resource'
 import type { ResourceBank } from '../loader/resource'
 import { Screen, builtinPattern, sliderMetrics } from './screen'
 import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from './instr'
+import { defaultHost, type Host } from './host'
 import { newLdosState, type LdosState } from './ldos'
 import { ObjectBank, imagesCollide } from './objects'
 import type { BankImage, Bob, HwSprite, Zone } from './objects'
@@ -227,10 +228,17 @@ export interface RuntimeOptions {
   onText?: (text: string) => void
   /** resource banks from the .AMOS file */
   banks?: Bank[]
-  /** file provider for Load Iff etc. */
+  /** file provider for Load Iff etc. — shorthand for host.fs */
   fs?: AmosFS
-  /** sound output (default: recording NullAudio) */
+  /** sound output (default: recording NullAudio) — shorthand for host.audio */
   audio?: AudioSink
+  /**
+   * Everything the machine needs from outside itself, in one place: the
+   * clock, the printer sink, and the file and audio providers the two
+   * options above are shorthand for. See ./host.ts — the deterministic
+   * defaults live there, which is what keeps a headless run reproducible.
+   */
+  host?: Partial<Host>
 }
 
 /**
@@ -352,6 +360,13 @@ export class Runtime {
     }))(this),
   )
   // ---- file channels (Open In/Out/Random, Print #, Input #, Get/Put) ----
+  /**
+   * Everything this machine can reach outside itself. Composed once in the
+   * constructor from the options, so every default is the one in host.ts and
+   * no keyword handler has to remember to be deterministic.
+   */
+  host: Host = defaultHost()
+
   /** LDos keeps its own channels, separate from Open In/Open Out */
   ldos: LdosState = newLdosState()
 
@@ -1928,6 +1943,17 @@ export class Runtime {
     }
   }
 
+  /**
+   * Stamp a file with the host clock's current time. AmigaDOS updates a
+   * file's datestamp whenever it is written; doing it here rather than
+   * inside AmigaFS keeps the filesystem free of any notion of time, and
+   * keeps the clock the single source of it.
+   */
+  stampFile(path: string): void {
+    const { days, mins, ticks } = this.host.clock.now()
+    this.vfs?.setMeta(path, { days, mins, ticks })
+  }
+
   /** the fs as a writable AmigaFS, when it is one */
   get vfs(): AmigaFS | null {
     return this.fs instanceof AmigaFS ? this.fs : null
@@ -2477,7 +2503,13 @@ export class Runtime {
 
   constructor(lines: TokenLine[], table: TokenTable, opts: RuntimeOptions = {}) {
     this.frameBudget = opts.frameBudget ?? 20_000
-    this.onText = opts.onText
+    // one composition point: the fs/audio/onText options are shorthand for
+    // host members, and every default comes from defaultHost()
+    this.host = { ...defaultHost(), ...opts.host }
+    if (opts.fs) this.host.fs = opts.fs
+    if (opts.audio) this.host.audio = opts.audio
+    if (opts.onText) this.host.onText = opts.onText
+    this.onText = this.host.onText
     const io: AmosIO = {
       write: (text) => {
         this.onText?.(text)
@@ -2519,8 +2551,8 @@ export class Runtime {
     this.interp = new Interp(lines, table, interpOpts)
     this.interp.onProgramPop = (host) => this.restoreProgramBanks(host)
     this.table = table
-    this.fs = opts.fs ?? null
-    if (opts.audio) this.audio = opts.audio
+    this.fs = this.host.fs ?? null
+    if (this.host.audio) this.audio = this.host.audio
     for (const bank of opts.banks ?? []) {
       if (bank.kind === 'sprites') this.spriteBank = ObjectBank.fromSpriteBank(bank)
       else if (bank.kind === 'icons') this.iconBank = ObjectBank.fromSpriteBank(bank)
