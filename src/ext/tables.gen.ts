@@ -6320,7 +6320,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "id": "turbo-plus-1.0",
     "name": "TURBO Plus Extension",
     "version": "1.0",
-    "author": "Ryan Scott",
+    "author": "Manuel Andre",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "table",
@@ -6335,7 +6335,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     ],
     "sha256": "336e35bf5140990870f3e745d9cf873b4a33a49d60c08bac52393f1de4aaf897",
     "provenance": "The project author's own AMOS Pro installation. Large extension (136 tokens) covering blitter objects, scrolling scenes, starfields, 3D and fixed-point maths.",
-    "notes": "No manual available. Table-only evidence — see ldos-2.5 for what that bars. Attributed to Scott's Turbo Plus line; see turbo-plus-2.15. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs."
+    "notes": "No manual available. Table-only evidence — see ldos-2.5 for what that bars. Attributed to Scott's Turbo Plus line; see turbo-plus-2.15. Attribution: Andrew Burton's list credits Turbo Plus 2.x to Ryan Scott, and this entry briefly followed it. The manual shipped in this very archive contradicts that outright — \"Any reference to PLAYFIELD! and Ryan Scott are no longer valid! ... I hereby declare that he has no more rights on distributing/selling TURBO Plus. Since Manuel ANDRE is the only programmer involved with this package\". Scott was a distributor, not an author, and the arrangement was revoked. The primary source wins over the secondary list, which is the same rule that settled The Game Extension's version."
   },
   {
     "id": "turbo-plus-1.9",
@@ -6361,7 +6361,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "id": "turbo-plus-2.15",
     "name": "TURBO Plus",
     "version": "2.15",
-    "author": "Ryan Scott",
+    "author": "Manuel Andre",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "manual",
@@ -6370,6 +6370,6 @@ export const EXT_INFO: ExtensionInfo[] = [
     "titleStrings": [],
     "sha256": "ddc8abb16f35cd2fb4230e2c70dc85e6bcbbfe5f73ebcc6712135471faaafb07",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: turbo. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "The latest TURBO Plus, and the only one properly documented: TURBO_DocsV2.15.Asc covers 128 of its 152 keywords. Registered alongside 1.0 (134 keywords) and 1.9 (87), which are different tables, not subsets. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. credits Turbo (1.9) to Manuel Andre and Turbo Plus (2.x) to Ryan Scott, so this build is attributed to Scott rather than to Andre as it was before. The token tables are one lineage — 1.0's 134 keywords are a strict subset of 2.15's, and 1.9 shares 83 of its 87 with 1.0 — so this reads as Scott continuing Andre's work rather than as a separate extension."
+    "notes": "The latest TURBO Plus, and the only one properly documented: TURBO_DocsV2.15.Asc covers 128 of its 152 keywords. Registered alongside 1.0 (134 keywords) and 1.9 (87), which are different tables, not subsets. Attribution: Andrew Burton's list credits Turbo Plus 2.x to Ryan Scott, and this entry briefly followed it. The manual shipped in this very archive contradicts that outright — \"Any reference to PLAYFIELD! and Ryan Scott are no longer valid! ... I hereby declare that he has no more rights on distributing/selling TURBO Plus. Since Manuel ANDRE is the only programmer involved with this package\". Scott was a distributor, not an author, and the arrangement was revoked. The primary source wins over the secondary list, which is the same rule that settled The Game Extension's version."
   }
 ]

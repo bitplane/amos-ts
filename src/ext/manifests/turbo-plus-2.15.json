@@ -2,7 +2,7 @@
   "id": "turbo-plus-2.15",
   "name": "TURBO Plus",
   "version": "2.15",
-  "author": "Ryan Scott",
+  "author": "Manuel Andre",
   "source": "binary",
   "library": "AMOSPro_TURBO_Plus.Lib",
   "sha256": "ddc8abb16f35cd2fb4230e2c70dc85e6bcbbfe5f73ebcc6712135471faaafb07",
@@ -19,5 +19,5 @@
     "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
-  "notes": "The latest TURBO Plus, and the only one properly documented: TURBO_DocsV2.15.Asc covers 128 of its 152 keywords. Registered alongside 1.0 (134 keywords) and 1.9 (87), which are different tables, not subsets. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. credits Turbo (1.9) to Manuel Andre and Turbo Plus (2.x) to Ryan Scott, so this build is attributed to Scott rather than to Andre as it was before. The token tables are one lineage — 1.0's 134 keywords are a strict subset of 2.15's, and 1.9 shares 83 of its 87 with 1.0 — so this reads as Scott continuing Andre's work rather than as a separate extension."
+  "notes": "The latest TURBO Plus, and the only one properly documented: TURBO_DocsV2.15.Asc covers 128 of its 152 keywords. Registered alongside 1.0 (134 keywords) and 1.9 (87), which are different tables, not subsets. Attribution: Andrew Burton's list credits Turbo Plus 2.x to Ryan Scott, and this entry briefly followed it. The manual shipped in this very archive contradicts that outright — \"Any reference to PLAYFIELD! and Ryan Scott are no longer valid! ... I hereby declare that he has no more rights on distributing/selling TURBO Plus. Since Manuel ANDRE is the only programmer involved with this package\". Scott was a distributor, not an author, and the arrangement was revoked. The primary source wins over the secondary list, which is the same rule that settled The Game Extension's version."
 }
