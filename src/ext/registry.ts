@@ -41,6 +41,17 @@ export type ExtFormat =
 export type ExtEvidence =
   /** Original assembler source available — behaviour can be read directly. */
   | 'source'
+  /**
+   * The library binary was disassembled. This ranks with `source` for what it
+   * permits — it is the shipped code, and strictly more authoritative than a
+   * manual, which can be wrong (LDos's documents a password-length check that
+   * only one of its two crypt routines actually has). It is tracked
+   * separately because the failure mode differs: a disassembly has no symbols
+   * or comments, data and code are easy to confuse, and there is no way to
+   * grep for every caller. A keyword read this way can be faithful; what it
+   * cannot be is re-checked as cheaply.
+   */
+  | 'disassembly'
   /** The extension's own manual or command reference documents behaviour. */
   | 'manual'
   /** Token table only: names and arities are known, behaviour is inferred. */

@@ -97,8 +97,28 @@ ever be called faithful:
 | tier | meaning |
 |---|---|
 | `source` | Original assembler source is available; behaviour can be read directly. |
+| `disassembly` | The library binary was disassembled. Ranks with `source`. |
 | `manual` | The extension's own manual or command reference documents behaviour. |
 | `table` | Token table only. Names and arities are known; behaviour is inferred. |
+
+`disassembly` deserves a word, because it is the tier that turns a dead end
+into a job of work. Reading the shipped binary is *more* authoritative than a
+manual — LDos's manual states a password-length check that only one of its two
+crypt routines has, which the code settles and the prose does not. The token
+table makes it targeted rather than heroic: every keyword carries a routine
+number, so the read is tens of instructions, not thousands. What separates it
+from `source` is the failure mode. There are no symbols and no comments, data
+and code are easily confused (a string table disassembles into plausible
+nonsense), and nothing can be grepped for callers. So a keyword read this way
+can be faithful, but a future reader needs to know that is where it came from
+— which is why it is its own tier rather than folded into `source`.
+
+Evidence is recorded per extension, but it is really per keyword: an
+extension whose headline tier is `manual` may still have individual keywords
+established by disassembly, and those carry a NOTES entry saying so.
+
+68k machine code is never *executed* here — that rule is unchanged. Reading it
+is the same activity as reading `+Lib.s`.
 
 A keyword implemented from `table`-tier evidence alone **cannot** be marked
 faithful, however plausible the implementation looks. It is guesswork from a
