@@ -309,10 +309,14 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
     },
     'td screen height'(it) {
       // `cmp.l #1 / bcs` then `cmpi.l #$100 / bls` at $211526: 1..256. Then
-      // `tst.l $4814(a4) / beq` — changing it with objects loaded is refused.
+      // `tst.l $4814(a4) / beq` — and $4814 is the head of the live instance
+      // list, not the loaded-object table: Td Kill writes it when unlinking
+      // the first frame. So it is instances that block a resize, and every
+      // demo relies on that, loading its objects first and setting the height
+      // only just before the Td Object that uses it.
       const n = it.evalInt()
       if (n < 1 || n > 256) tdError(9)
-      if (st().objects.size !== 0) tdError(10)
+      if (st().instances.size !== 0) tdError(10)
       st().screenHeight = n
     },
     'td object'(it) {

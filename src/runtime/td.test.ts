@@ -73,7 +73,7 @@ describe('AMOS 3D object files (loader at $219ba4)', () => {
     const files = readdirSync(OBJECTS)
     let links = 0
     for (const f of files) links += parseTdFile(shipped(f)).links.length
-    expect(files.length).toBe(110)
+    expect(files.length).toBe(111)
     expect(links).toBe(130)
   })
 
@@ -134,13 +134,14 @@ describe('AMOS 3D loading keywords (engine binary + the demo programs)', () => {
     ).toThrow(/Surface file not found/)
   })
 
-  it('p8.3DT is absent from this archive, so most demo objects cannot load', () => {
-    // Not a defect in the port: thirty of the thirty-five objects on the demo
-    // disc link to the template p8, and no p8.3DT exists anywhere in the
-    // material — only an unbuilt p8.3DO under the Object Modeller. The engine
-    // would say the same thing, and the manual warns of exactly this: "any
-    // object which uses it will fail to load, either under OM or via Td Load".
-    expect(() => run('Td Load "dice"', { 'dice.3DO': shipped('dice.3DO') })).toThrow(/Template file not found/)
+  it('loads dice.3DO, the object thirty of the thirty-five demo objects need', () => {
+    // p8.3DT is not on the AMOS 3D demo disc at all — only an unbuilt p8.3DO
+    // under the Object Modeller — but eighteen copies of it are scattered over
+    // the AMOS PD Library CD, and the one from an AMOS_System drawer is here.
+    // They differ only in embedded absolute addresses, which are dumped
+    // memory pointers the loader rewrites and this port never reads.
+    const { rt } = run('Td Load "dice"', objectAndLinks('dice.3DO'))
+    expect(rt.td.objects.get('dice')!.linked.get(110)!.name).toBe('p8')
   })
 
   it('loading the same object twice is an error', () => {
@@ -163,9 +164,15 @@ describe('AMOS 3D loading keywords (engine binary + the demo programs)', () => {
     expect(run('Td Screen Height 200').rt.td.screenHeight).toBe(200)
     expect(() => run('Td Screen Height 0')).toThrow(/Invalid 3d screen size/)
     expect(() => run('Td Screen Height 257')).toThrow(/Invalid 3d screen size/)
-    expect(() => run('Td Load "polygons"\nTd Screen Height 200', objectAndLinks('polygons.3DO'))).toThrow(
-      /Can’t change screen size while objects exist/,
-    )
+    // it is live instances that block the change, not loaded objects — every
+    // demo loads first and sets the height just before its Td Object
+    expect(() => run('Td Load "polygons"\nTd Screen Height 200', objectAndLinks('polygons.3DO'))).not.toThrow()
+    expect(() =>
+      run(
+        'Td Load "polygons"\nTd Object 1,"polygons",0,0,0,0,0,0\nTd Screen Height 200',
+        objectAndLinks('polygons.3DO'),
+      ),
+    ).toThrow(/Can’t change screen size while objects exist/)
   })
 
   it('Td Keep and Td Quit record what the manual says they do', () => {
