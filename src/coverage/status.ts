@@ -539,6 +539,10 @@ export const FAITHFUL = new Set<string>([
   'lset var',
   'lget var',
   'ldelete var',
+  // Evidenced by disassembly of the library binary rather than by the manual
+  // — see NOTES. The manual documents no algorithm for these at all.
+  'lcrypt',
+  'ldecrypt',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   // NB: 'lmatch' is deliberately absent — implemented, but the manual never
@@ -1021,6 +1025,10 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  'lcrypt':
+    "LdosV25.DOC documents the calling convention and says nothing whatever about the cipher, so this was read out of AMOSPro_Ldos.lib itself — Lcrypt at \$4400, disassembled with capstone. The key is built by add.b (low byte of d7 only), eori.l #3 and rol.l #1 per password character, then each longword is (value + \$20) XOR key. The byte-width of the add is the part a manual could never have conveyed and the part that matters: widen it and the key diverges after one character. The disassembly is short, unambiguous and its two routines are exact inverses, and the tests hand-simulate the 68k key loop as an independent check — but this is evidence of a different kind from source or a manual, and it is recorded as such",
+  'ldecrypt':
+    "The inverse of Lcrypt, at \$4436, and the only one of the pair that validates its argument: it opens cmp.w #4,d0 / bcc, while Lcrypt has no length check at all. So the manual's 'an error will be produced if the password is less than 4 characters long' is true of one of the two keywords, which the binary shows and the documentation does not. A short password given to Lcrypt on the real machine runs its dbra 65536 times off the end of the string",
   'lset var':
     "Global environment variables, held in the interpreter. On the real machine SetVar with GVF_GLOBAL_ONLY writes a file into ENV:, so the value outlives the program and is visible to the Shell and to every other program; here it lives and dies with the run. The documented limits (50 characters for the name and for the value) and the case-insensitive lookup are reproduced",
   'ldisk font':

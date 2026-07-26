@@ -48,6 +48,36 @@ export function stampToYmd(days: number): [number, number, number] {
   return [d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()]
 }
 
+/**
+ * LDos's cipher, read out of AMOSPro_Ldos.lib itself (Lcrypt at $4400,
+ * Ldecrypt at $4436, disassembled with capstone). The manual documents the
+ * calling convention and says nothing whatever about the algorithm, so the
+ * binary is the only specification there is:
+ *
+ *     moveq   #0,d7            ; key starts at zero
+ *   .key:
+ *     add.b   (a0)+,d7         ; NB add.b — only d7's low byte is affected
+ *     eori.l  #3,d7            ;   ...but the XOR and rotate are full 32-bit
+ *     rol.l   #1,d7
+ *     dbra    d0,.key
+ *
+ * then, per longword, encrypt adds before masking and decrypt masks before
+ * subtracting, which is what makes them exact inverses:
+ *
+ *     addi.l  #$20,(a1) : eor.l d7,(a1)+     ; Lcrypt
+ *     eor.l   d7,(a1)   : subi.l #$20,(a1)+  ; Ldecrypt
+ */
+export function ldosKey(password: string): number {
+  let key = 0
+  for (let i = 0; i < password.length; i++) {
+    const lo = ((key & 0xff) + (password.charCodeAt(i) & 0xff)) & 0xff
+    key = ((key & 0xffffff00) | lo) >>> 0
+    key = (key ^ 3) >>> 0
+    key = (((key << 1) | (key >>> 31)) & 0xffffffff) >>> 0
+  }
+  return key >>> 0
+}
+
 export function ymdToStamp(year: number, month: number, day: number): number {
   const days = Math.floor((Date.UTC(year, month - 1, day) - STAMP_EPOCH) / DAY_MS)
   return Number.isFinite(days) ? Math.max(0, days) : 0
@@ -333,6 +363,40 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       // the real machine it never sees AMOS's Dir$ changes. The manual's own
       // advice is "Set Dir$ to desired value, and call LLdir$ Dir$".
       rt.ldos.cwd = it.evalStr()
+    },
+    lcrypt(it) {
+      // Lcrypt START,LONGS,"password" — "LONGS is the length divided by four.
+      // Fx LONGS=Length(10)/4 ... the password is casesensitive!"
+      const start = it.evalInt()
+      it.expect(',')
+      const longs = it.evalInt()
+      it.expect(',')
+      const key = ldosKey(it.evalStr())
+      const m = rt.resolveAddr(start)
+      if (!m) return
+      const n = Math.min(longs, (m.data.length - m.off) >> 2)
+      const v = new DataView(m.data.buffer, m.data.byteOffset + m.off)
+      for (let i = 0; i < n; i++) {
+        v.setUint32(i * 4, ((((v.getUint32(i * 4, false) + 0x20) >>> 0) ^ key) >>> 0), false)
+      }
+    },
+    ldecrypt(it) {
+      // The exact inverse, and the only one of the pair that checks the
+      // password: cmp.w #4,d0 / bcc. Lcrypt has no such check at all.
+      const start = it.evalInt()
+      it.expect(',')
+      const longs = it.evalInt()
+      it.expect(',')
+      const password = it.evalStr()
+      if (password.length < 4) throw new AmosError('Ldos: password must be at least 4 characters')
+      const key = ldosKey(password)
+      const m = rt.resolveAddr(start)
+      if (!m) return
+      const n = Math.min(longs, (m.data.length - m.off) >> 2)
+      const v = new DataView(m.data.buffer, m.data.byteOffset + m.off)
+      for (let i = 0; i < n; i++) {
+        v.setUint32(i * 4, (((v.getUint32(i * 4, false) ^ key) >>> 0) - 0x20) >>> 0, false)
+      }
     },
     lupbuffer(it) {
       // Lupbuffer START To STOP — "Just like AMOS Upper$ this routine won't
@@ -675,7 +739,7 @@ export const LDOS_IMPLEMENTED: readonly string[] = [
   'lcat first', 'lcat next', 'lcat type', 'lcat size', 'lcat blocks', 'lcat prot', 'lcat comment',
   'lcat stamp', 'lcat push', 'lcat pull', 'ldev first', 'ldev next', 'lldir$',
   'lupbuffer', 'llobuffer', 'llargest free', 'lchk data', 'lchk boot',
-  'lset var', 'lget var', 'ldelete var', 'ldisk font',
+  'lset var', 'lget var', 'ldelete var', 'ldisk font', 'lcrypt', 'ldecrypt',
 ]
 
 export type { Value }

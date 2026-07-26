@@ -6,6 +6,7 @@ import { EXTENSION_TOKENS } from '../ext/registry'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
+import { ldosKey } from './ldos'
 import { existsSync, readFileSync } from 'node:fs'
 
 /**
@@ -658,5 +659,61 @@ describe('LDos environment variables and fonts (LdosV25.DOC)', () => {
       ['Print Ldisk Font("diamond",12)', 'Print Ldisk Font("diamond.font",12)'].join('\n'),
     )
     expect(out).toBe(' 0\n 0\n') // no Fonts: drawer mounted here
+  })
+})
+
+describe('LDos encryption (disassembled from AMOSPro_Ldos.lib)', () => {
+  // The manual documents the calling convention and nothing about the
+  // algorithm, so this is verified against the library binary itself:
+  // Lcrypt at $4400 and Ldecrypt at $4436, read with capstone. See the
+  // comment on ldosKey() for the routines as disassembled.
+  it('Ldecrypt undoes Lcrypt, which is what the pair is for', () => {
+    const { out } = run(
+      [
+        'Reserve As Work 10,16',
+        'Loke Start(10),$41424344 : Loke Start(10)+4,$45464748',
+        'Lcrypt Start(10),2,"secret"',
+        'Print Hex$(Leek(Start(10)))<>"$41424344"', // it really changed
+        'Ldecrypt Start(10),2,"secret"',
+        'Print Hex$(Leek(Start(10)));" ";Hex$(Leek(Start(10)+4))',
+      ].join('\n'),
+    )
+    expect(out).toBe('-1\n$41424344 $45464748\n')
+  })
+
+  it('the wrong password does not recover the data', () => {
+    // "password is your secret code which also is used to DEcode your data
+    // later ... note that the password is casesensitive!"
+    const { out } = run(
+      [
+        'Reserve As Work 10,8',
+        'Loke Start(10),$DEADBEEF',
+        'Lcrypt Start(10),1,"secret"',
+        'Ldecrypt Start(10),1,"Secret"', // capital S — a different key
+        'Print Hex$(Leek(Start(10)))="$DEADBEEF"',
+      ].join('\n'),
+    )
+    expect(out).toBe(' 0\n')
+  })
+
+  it('only Ldecrypt enforces the four-character password', () => {
+    // The binary is asymmetric: Ldecrypt begins cmp.w #4,d0 / bcc, and
+    // Lcrypt has no length check at all — so the manual's "an error will be
+    // produced if the password is less than 4 characters long" holds for one
+    // of the pair only.
+    expect(() => run(['Reserve As Work 10,8', 'Ldecrypt Start(10),1,"ab"'].join('\n'))).toThrow(/at least 4/)
+    const { out } = run(['Reserve As Work 10,8', 'Lcrypt Start(10),1,"ab"', 'Print "no error"'].join('\n'))
+    expect(out).toBe('no error\n')
+  })
+
+  it('derives the key exactly as the disassembled loop does', () => {
+    // add.b touches only the low byte of d7, while the XOR and the rotate are
+    // full 32-bit — get that wrong and the key diverges after one character.
+    // Hand-simulating the 68k for "AB":
+    //   'A' (65): key.b = 65 -> ^3 = 66 -> rol1 = 132
+    //   'B' (66): key.b = (132+66)&255 = 198 -> ^3 = 197 -> rol1 = 394
+    expect(ldosKey('A')).toBe(132)
+    expect(ldosKey('AB')).toBe(394)
+    expect(ldosKey('')).toBe(0)
   })
 })
