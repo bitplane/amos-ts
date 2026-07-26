@@ -734,6 +734,19 @@ export const FAITHFUL = new Set<string>([
   'td keep off',
   'td screen height',
   'td quit',
+  // phase 3: instances and the transform state
+  'td object',
+  'td kill',
+  'td move',
+  'td move rel',
+  'td angle',
+  'td angle rel',
+  'td position x',
+  'td position y',
+  'td position z',
+  'td attitude a',
+  'td attitude b',
+  'td attitude c',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1261,6 +1274,10 @@ export const NOTES: Record<string, string> = {
     "A cache switch: 'Td Keep Off tells 3D not to keep objects in memory, but to load them each time'. The setting is recorded and Td Load consults it, but with objects held as parsed structures rather than AllocMem'd blocks there is no memory pressure for it to relieve, so turning it off costs nothing here where on the Amiga it traded speed for space",
   'td quit':
     "'Unload the 3D extensions along with all objects and release all 3D memory.' There is no separately loaded engine here to unload — c3d.lib is this module — so it is the object clear and the state reset",
+  'td angle':
+    'Angles are 65536 units to the revolution, which is what the matrix builder at $213df8 works in — it reduces by quadrant with btst #6/#7 on the high byte and reflects about $8000. The relative forms wrap at 32 bits rather than clamping, as the engine\'s add.l does, and nothing normalises: Dice_Spin drives its angles negative every frame for two thousand frames and relies on exactly that',
+  'td position x':
+    'The position and attitude readers are one engine routine each plus an axis selector in d2, so Td Position X/Y/Z is $2119ec with 0/1/2 and Td Attitude A/B/C is $211bf8 the same way. Reading an object that does not exist is "Object does not exist" rather than zero',
   'td load':
     'The engine gates its ".3DO" suffix on a flag at a4+$b1a whose setter is not on any path traced so far; every shipped demo loads by bare name, so the suffix is always added here and a name that already carries an extension keeps it. Worth revisiting if a program turns up that loads by full filename',
   'multi bload':

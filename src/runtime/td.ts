@@ -32,8 +32,8 @@
  * the engine and none of what a game depends on, so polygons are filled by
  * our own scanline code and that deviation carries a NOTES entry.
  */
-import { AmosError } from '../interp/values'
-import type { Instr } from '../interp/builtins'
+import { AmosError, VI, int } from '../interp/values'
+import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 
 /**
@@ -189,9 +189,17 @@ export interface TdState {
   objects: Map<string, TdObject>
   /** `Td Screen Height`, 1..256 per the engine's own bounds check */
   screenHeight: number
+  /** live objects, 1..20, the table at a4+$47c4 */
+  instances: Map<number, TdInstance>
 }
 
-export const newTdState = (): TdState => ({ dir: '', keep: true, objects: new Map(), screenHeight: 0 })
+export const newTdState = (): TdState => ({
+  dir: '',
+  keep: true,
+  objects: new Map(),
+  screenHeight: 0,
+  instances: new Map(),
+})
 
 /**
  * `Td Dir path$` — routine $211614.
@@ -288,6 +296,7 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       // "Removes all objects from memory" — the whole table goes, templates
       // and surfaces with it, since nothing else holds a reference
       st().objects.clear()
+      st().instances.clear()
     },
     'td keep on'() {
       // "Td Keep Off tells 3D not to keep objects in memory, but to load them
@@ -306,10 +315,119 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       if (st().objects.size !== 0) tdError(10)
       st().screenHeight = n
     },
+    'td object'(it) {
+      // Td Object n,name$,x,y,z,a,b,c — $211694. The number must be 1..20,
+      // the slot must be free, and the name must already be loaded; the three
+      // errors are "Invalid object number", "Object already exists" and
+      // "Object not loaded", in that order.
+      const n = it.evalInt()
+      it.expect(',')
+      const name = it.evalStr()
+      const nums: number[] = []
+      for (let i = 0; i < 6; i++) {
+        it.expect(',')
+        nums.push(it.evalInt())
+      }
+      const t = st()
+      if (n < 1 || n > TD_MAX_OBJECTS) tdError(0)
+      if (t.instances.has(n)) tdError(1)
+      const object = t.objects.get(name.toLowerCase())
+      if (!object) tdError(5)
+      t.instances.set(n, {
+        n,
+        object,
+        pos: [l32(nums[0]!), l32(nums[1]!), l32(nums[2]!)],
+        angle: [l32(nums[3]!), l32(nums[4]!), l32(nums[5]!)],
+      })
+    },
+    'td kill'(it) {
+      // $2117d2 unlinks the frame from the live list and frees it
+      const t = st()
+      t.instances.delete(tdInstance(t, it.evalInt()).n)
+    },
+    'td move': tdVector(rt, 'pos', false),
+    'td move rel': tdVector(rt, 'pos', true),
+    'td angle': tdVector(rt, 'angle', false),
+    'td angle rel': tdVector(rt, 'angle', true),
     'td quit'() {
       // "Unload the 3D extensions along with all objects and release all 3D
       // memory." There is no engine to unload here, so it is the clear.
       rt.td = newTdState()
     },
   }
+}
+
+// ---- instances ----
+
+/**
+ * A live object — what the manual calls an Object Frame, one per `Td Object`.
+ *
+ * Position is three 32-bit world coordinates; the demos run them to ±8500.
+ * Angles are three 32-bit values stored whole but used sixteen bits wide: the
+ * matrix builder at $213df8 reduces by quadrant with `btst #6/#7` on the high
+ * byte and reflects about $8000, so **a full revolution is 65536 units**. That
+ * is why Dice_Spin can write `Td Angle Rel 1,-ZI*50,-XI*20,-XI` with ZI around
+ * 120 and get a sedate spin rather than a blur.
+ */
+export interface TdInstance {
+  n: number
+  object: TdObject
+  /** world x, y, z */
+  pos: [number, number, number]
+  /** attitude a, b, c, in 65536ths of a revolution */
+  angle: [number, number, number]
+}
+
+/** `Td Object` numbers run 1..20 — `moveq #$14,d0 : cmp.l d0,d6 : bcs` */
+export const TD_MAX_OBJECTS = 20
+
+/** a full revolution in the engine's angle units */
+export const TD_REVOLUTION = 0x10000
+
+/** the instance a keyword names, with the checks $21301c makes */
+export function tdInstance(st: TdState, n: number): TdInstance {
+  if (n < 1 || n > TD_MAX_OBJECTS) tdError(0)
+  const inst = st.instances.get(n)
+  if (!inst) tdError(3)
+  return inst
+}
+
+/** 32-bit wrap, since every coordinate and angle is stored as a long */
+const l32 = (v: number): number => v | 0
+
+/**
+ * The four keywords that set a triple, absolute or relative.
+ *
+ * `Td Move n,x,y,z` is three `move.l` into the position vector and `Td Move
+ * Rel` the same three as `add.l` ($21188a and $2118bc, identical but for the
+ * opcode); Td Angle and Td Angle Rel are that again on the angle triple. The
+ * relative forms wrap at 32 bits rather than clamping, which for angles is
+ * exactly right — 65536 units to the revolution means the low sixteen bits
+ * are all the matrix builder ever looks at.
+ */
+function tdVector(rt: Runtime, field: 'pos' | 'angle', relative: boolean): Instr {
+  return (it) => {
+    const n = it.evalInt()
+    const v: number[] = []
+    for (let i = 0; i < 3; i++) {
+      it.expect(',')
+      v.push(it.evalInt())
+    }
+    const target = tdInstance(rt.td, n)[field]
+    for (let i = 0; i < 3; i++) target[i] = l32(relative ? target[i]! + v[i]! : v[i]!)
+  }
+}
+
+/** `Td Position X/Y/Z(n)` and `Td Attitude A/B/C(n)`, one routine and a selector */
+export function makeTdFunctions(rt: Runtime): Record<string, Func> {
+  const read = (field: 'pos' | 'angle', axis: number): Func => (_, a) =>
+    VI(tdInstance(rt.td, int(a[0] ?? VI(0)))[field][axis]!)
+  return {
+    'td position x': read('pos', 0),
+    'td position y': read('pos', 1),
+    'td position z': read('pos', 2),
+    'td attitude a': read('angle', 0),
+    'td attitude b': read('angle', 1),
+    'td attitude c': read('angle', 2),
+  } as Record<string, Func>
 }

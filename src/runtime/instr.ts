@@ -3,7 +3,7 @@ import { varKey } from '../interp/prescan'
 import type { Instr, Func } from '../interp/builtins'
 import { makeLdosFunctions, makeLdosInstructions } from './ldos'
 import { makeTurboFunctions, makeTurboInstructions, turboDefault } from './turbo'
-import { makeTdInstructions } from './td'
+import { makeTdFunctions, makeTdInstructions } from './td'
 import { parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
 import { encodeIlbm, parseIlbm } from '../loader/iff'
@@ -4740,5 +4740,5 @@ export function makeAllInstructions(rt: Runtime): Record<string, Instr> {
 }
 
 export function makeAllFunctions(rt: Runtime): Record<string, Func> {
-  return { ...makeFunctions(rt), ...makeLdosFunctions(rt), ...makeTurboFunctions(rt) }
+  return { ...makeFunctions(rt), ...makeLdosFunctions(rt), ...makeTurboFunctions(rt), ...makeTdFunctions(rt) }
 }

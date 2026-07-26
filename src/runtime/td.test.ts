@@ -175,3 +175,66 @@ describe('AMOS 3D loading keywords (engine binary + the demo programs)', () => {
     expect(rt.td.objects.size).toBe(0)
   })
 })
+
+describe('AMOS 3D instances (Td Object at $211694, Td Move at $21188a)', () => {
+  const load = (): Record<string, Uint8Array> => objectAndLinks('polygons.3DO')
+  const withObject = (extra: string): { out: string; rt: Runtime } =>
+    run(['Td Load "polygons"', 'Td Object 1,"polygons",100,200,1500,0,0,0', extra].join('\n'), load())
+
+  it('Td Object places an instance with a position and three angles', () => {
+    // Dice_Spin's own form: Td Object 1,"dice",0,0,1500,0,0,0
+    const { rt } = withObject('')
+    const inst = rt.td.instances.get(1)!
+    expect(inst.pos).toEqual([100, 200, 1500])
+    expect(inst.angle).toEqual([0, 0, 0])
+    expect(inst.object.name).toBe('polygons')
+  })
+
+  it('object numbers run 1 to 20', () => {
+    // `moveq #$14,d0 : cmp.l d0,d6 : bcs` on n-1, so 1..20 and nothing else
+    const src = (n: number): string => `Td Load "polygons"\nTd Object ${n},"polygons",0,0,0,0,0,0`
+    expect(() => run(src(20), load())).not.toThrow()
+    expect(() => run(src(21), load())).toThrow(/Invalid object number/)
+    expect(() => run(src(0), load())).toThrow(/Invalid object number/)
+  })
+
+  it('a taken slot and an unloaded name report differently', () => {
+    expect(() => withObject('Td Object 1,"polygons",0,0,0,0,0,0')).toThrow(/Object already exists/)
+    expect(() => run('Td Object 1,"nope",0,0,0,0,0,0')).toThrow(/Object not loaded/)
+  })
+
+  it('Td Kill frees the slot', () => {
+    const { rt } = withObject('Td Kill 1')
+    expect(rt.td.instances.size).toBe(0)
+    expect(() => withObject('Td Kill 2')).toThrow(/Object does not exist/)
+  })
+
+  it('Td Move sets and Td Move Rel adds', () => {
+    // $21188a stores three longs; $2118bc is the same three as add.l
+    expect(withObject('Td Move 1,10,20,30').rt.td.instances.get(1)!.pos).toEqual([10, 20, 30])
+    expect(withObject('Td Move Rel 1,10,20,30').rt.td.instances.get(1)!.pos).toEqual([110, 220, 1530])
+  })
+
+  it('Td Angle works in 65536ths of a revolution and wraps at 32 bits', () => {
+    // The matrix builder at $213df8 reduces by quadrant with `btst #6/#7` on
+    // the angle's high byte and reflects about $8000 — a full turn is $10000.
+    expect(withObject('Td Angle 1,16384,32768,49152').rt.td.instances.get(1)!.angle).toEqual([16384, 32768, 49152])
+    // Dice_Spin drives this negative every frame and never normalises
+    const spun = withObject('Td Angle Rel 1,-6000,-2400,-120')
+    expect(spun.rt.td.instances.get(1)!.angle).toEqual([-6000, -2400, -120])
+  })
+
+  it('Td Position and Td Attitude read the triples back', () => {
+    const { out } = withObject(
+      'Td Angle 1,11,22,33\nPrint Td Position X(1);Td Position Y(1);Td Position Z(1);Td Attitude A(1);Td Attitude B(1);Td Attitude C(1)',
+    )
+    expect(out).toBe(' 100 200 1500 11 22 33\n')
+    expect(() => run('Print Td Position X(1)')).toThrow(/Object does not exist/)
+  })
+
+  it('Td Clear All takes the instances with it', () => {
+    const { rt } = withObject('Td Clear All')
+    expect(rt.td.instances.size).toBe(0)
+    expect(rt.td.objects.size).toBe(0)
+  })
+})
