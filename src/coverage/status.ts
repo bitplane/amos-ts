@@ -554,6 +554,22 @@ export const FAITHFUL = new Set<string>([
   'lcust freq',
   'lfontsize freq',
   'lpp mem',
+
+  // --- TURBO Plus (third-party extension, by Manuel Andre) ---
+  // Verified against TURBO_DocsV2.15.Asc, the extension's own manual, and
+  // where it is thin against the disassembled routine; see src/runtime/turbo.ts.
+  'left click',
+  'right click',
+  'raw key',
+  'is raw key',
+  'check',
+  'reserve check',
+  'check erase',
+  'reset check',
+  'set check',
+  'hit bob check',
+  'hit spr check',
+  'workbench open',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1034,6 +1050,22 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  'multi no':
+    "SetTaskPri(FindTask(NULL), 20) in the binary, which is exactly what the manual describes. There is no scheduler here to apply a priority to, so the value is recorded and nothing else happens — and the consequence the manual warns about, that under AMOS 1.3 'the keyboard and mouse are disabled', is deliberately not reproduced: it is the reason Left Click and Raw Key exist, and simulating an input blackout would break programs rather than emulate one",
+  'multi yes':
+    'The counterpart, SetTaskPri(..., 0). Inert here for the same reason as Multi No',
+  'amos pri':
+    'Records a task priority clamped to the documented -128..20. Nothing schedules against it',
+  'vbl wait':
+    "Four instructions in the binary: a busy-wait on the low byte of VHPOSR (\$dff006) until it equals the requested line. That is sub-frame beam racing, and its whole purpose — the manual's example scrolls only the top 100 lines and then waits for line 101, so the work happens in scanlines the display is not using — has no meaning against a compositor that draws once per frame. This waits one frame, like Wait Vbl. Programs still run correctly; what they lose is the smoothness the keyword existed to buy",
+  'raw key':
+    "Reads the same key state Key State does, which is what the manual says it is for ('Does the same thing as the Key State function but works even if multitasking is disabled'). The real routine gets there differently — it reads CIA-A's keyboard serial register directly, which is how it survives Multi No — but there is no multitasking here to survive",
+  'is raw key':
+    "Returns the last scancode seen. The manual warns 'it gives different values if the key is pressed or released', the difference being the release bit; this port records the press code, so a program distinguishing the two would differ",
+  'check':
+    "TURBO's own zone system, which the manual is explicit is 'not compatible with the normal Zone commands'. Note it returns 1 and 0 rather than AMOS's -1 and 0, as documented",
+  'workbench open':
+    'The counterpart to Close Workbench, which this port already treats as faithful because there is no Workbench memory to free. Reopening it is the same nothing in reverse',
   'lfreq':
     "LDos does not draw this requester — it calls req.library, which the manual gives away when it apologises that 'Currently the req.library doesn't support CG-fonts'. There is no req.library here, so AMOS's own Fsel\$ stands in: a working file requester that returns the same thing (full path and name, empty on cancel) and remembers the same state, but which looks and behaves like AMOS's rather than ReqTools'. The FLAGS argument is accepted and largely cannot be honoured — .info filtering, the dir cache, the hide gadgets and font mode all belong to the requester that is not here — and \$2 was never supported by LDos itself either ('Extended select. Not supported by Ldos.'). Approximated for the substitution, not for the plumbing",
   'lpp decrunch':

@@ -22,6 +22,7 @@ import { Screen, builtinPattern, sliderMetrics } from './screen'
 import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from './instr'
 import { defaultHost, type Host } from './host'
 import { newLdosState, type LdosState } from './ldos'
+import { newTurboState, type TurboState } from './turbo'
 import { ObjectBank, imagesCollide } from './objects'
 import type { BankImage, Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from './fs'
@@ -369,6 +370,9 @@ export class Runtime {
 
   /** LDos keeps its own channels, separate from Open In/Open Out */
   ldos: LdosState = newLdosState()
+
+  /** TURBO Plus: its own Check zones, and the task priority Multi No sets */
+  turbo: TurboState = newTurboState()
 
   fileChans = new Map<
     number,

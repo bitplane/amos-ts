@@ -2,6 +2,7 @@ import { AmosError, VF, VI, VS, int, num, str, varType } from '../interp/values'
 import { varKey } from '../interp/prescan'
 import type { Instr, Func } from '../interp/builtins'
 import { makeLdosFunctions, makeLdosInstructions } from './ldos'
+import { makeTurboFunctions, makeTurboInstructions } from './turbo'
 import { parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
 import { encodeIlbm, parseIlbm } from '../loader/iff'
@@ -4731,9 +4732,9 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
  * a new extension file cannot be implemented-but-unreported.
  */
 export function makeAllInstructions(rt: Runtime): Record<string, Instr> {
-  return { ...makeInstructions(rt), ...makeLdosInstructions(rt) }
+  return { ...makeInstructions(rt), ...makeLdosInstructions(rt), ...makeTurboInstructions(rt) }
 }
 
 export function makeAllFunctions(rt: Runtime): Record<string, Func> {
-  return { ...makeFunctions(rt), ...makeLdosFunctions(rt) }
+  return { ...makeFunctions(rt), ...makeLdosFunctions(rt), ...makeTurboFunctions(rt) }
 }
