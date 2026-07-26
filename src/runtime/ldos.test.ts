@@ -142,7 +142,8 @@ describe('LDos file queries (LdosV25.DOC)', () => {
       'Print Lfile Type("DH0:d")',
       'Print Lfile Type("DH0:f.dat")',
     ].join('\n')
-    expect(run(src).out).toBe(' 1\n-1\n')
+    // fib_DirEntryType: ST_USERDIR is 2, ST_FILE is -3
+    expect(run(src).out).toBe(' 2\n-3\n')
   })
 })
 
@@ -451,7 +452,7 @@ describe('LDos directory scanning (LdosV25.DOC + Lrecursive.AMOS)', () => {
       ].join('\n'),
     )
     // AMOS prints a leading space before a positive number
-    expect(out).toBe(' 1\na.txt -1  12  1\nb.txt -1  0\nsub  1  0\n')
+    expect(out).toBe(' 2\na.txt -3  12  1\nb.txt -3  0\nsub  2  0\n')
   })
 
   it('Lcat Prot, Comment and Stamp read the current entry metadata', () => {

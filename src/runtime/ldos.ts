@@ -40,6 +40,17 @@ import { amigaMatch, hasWildcard } from './ldospat'
  * between that and a "YYMMDD" string; the manual caps the useful range at
  * 2099 ("which should be enough?").
  */
+/**
+ * AmigaDOS FileInfoBlock entry types. The Lcat accessors read a real
+ * FileInfoBlock field by field — verified by disassembly, where every one of
+ * them indexes the documented offset: type at +4, protection at +116 ($74),
+ * size at +124 ($7c), blocks at +128 ($80), date at +132 ($84) and comment
+ * at +144 ($90). Which also explains Lcat Push's otherwise odd 264 bytes:
+ * a 4-byte lock plus a 260-byte FileInfoBlock.
+ */
+const FIB_ST_USERDIR = 2
+const FIB_ST_FILE = -3
+
 const STAMP_EPOCH = Date.UTC(1978, 0, 1)
 const DAY_MS = 86_400_000
 
@@ -487,10 +498,13 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
     },
     'lfile type'(_, a) {
       // A=Lfile Type("FileName"). "A is greater than 0 if it is a directory,
-      // or negative if it is a file."
-      const path = str(a[0] ?? VS(''))
+      // or negative if it is a file" — which is true of AmigaDOS's own
+      // fib_DirEntryType, and that is literally what the sibling Lcat Type
+      // hands back (verified by disassembly). ST_USERDIR is 2 and ST_FILE
+      // is -3, so those are the values, not 1 and -1.
+      const path = ldosPath(rt, str(a[0] ?? VS('')))
       const kind = rt.vfs?.exists(path) ?? (rt.fs?.read(path) != null ? 'file' : null)
-      return VI(kind === 'dir' ? 1 : -1)
+      return VI(kind === 'dir' ? FIB_ST_USERDIR : FIB_ST_FILE)
     },
     lwords(_, a) {
       // NUM=Lwords(STRING$). "If STRING$ is empty zero is returned."
@@ -602,9 +616,12 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       return VS(e ? e.name : '')
     },
     'lcat type'(_) {
-      // "A can be either positive, for directories, or negative for files."
+      // "A can be either positive, for directories, or negative for files" —
+      // and the routine is simply `move.l $4(a0),d3` over a FileInfoBlock,
+      // so what comes back is fib_DirEntryType itself: 2 for a directory,
+      // -3 for a file.
       const e = catAt(rt)
-      return VI(e === null ? 0 : e.isDir ? 1 : -1)
+      return VI(e === null ? 0 : e.isDir ? FIB_ST_USERDIR : FIB_ST_FILE)
     },
     'lcat size'(_) {
       // "it is fully legal to call this command even if the current 'file' is
