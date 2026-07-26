@@ -1,0 +1,23 @@
+{
+  "id": "amos3d-1.0",
+  "name": "AMOS 3D",
+  "version": "1.0",
+  "author": "Voodoo Software / Europress Software",
+  "source": "binary",
+  "library": "3d.lib",
+  "sha256": "c93a90e82a542836b0ecb985b8a81d1431e7edbf2e48a6646bd4197af023aa65",
+  "format": "legacy",
+  "idBaseEvidence": "calibrated",
+  "evidence": "table",
+  "docs": [],
+  "titleStrings": [],
+  "observedSlots": [
+    4
+  ],
+  "provenance": {
+    "from": "AMOS PD Library CD, APD371/AMOS_System.",
+    "note": "Present on several APD disks with no documentation. AMOS 3D was a commercial add-on sold by Europress, not public-domain material, so its presence here does not imply redistribution rights.",
+    "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
+  },
+  "notes": "The 3D extension: object//scene keywords (Td Load, Td Object, Td Move X, ...) over a vector engine. Table tier, and a commercial product, so evidence is unlikely to improve without the original manual. Two 82-entry variants are on the disc; both explain all 53 ids observed in slot 4, so the two cannot be told apart from the corpus."
+}

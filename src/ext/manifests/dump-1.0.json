@@ -1,0 +1,21 @@
+{
+  "id": "dump-1.0",
+  "name": "Dump",
+  "version": "1.0",
+  "author": "unknown",
+  "source": "binary",
+  "library": "Dump.Lib",
+  "sha256": "b609afce0d6fa4398a68697c86aa75e30c27c618055c59dd2d0cacc08446c69a",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "table",
+  "docs": [],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "AMOS PD Library CD, APD565/JC/AMOS_System.",
+    "note": "No documentation found. A smaller 5-entry Dump.Lib also exists on APD036.",
+    "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Low-level disc access (Diskin, Secread, Secwrite, Trackformat) plus a screen dump. Table tier. The disc-sector keywords have no counterpart in a virtual filesystem, so much of this is likely to end up n/a rather than merely unimplemented."
+}

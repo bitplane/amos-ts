@@ -1,0 +1,21 @@
+{
+  "id": "range-1.0",
+  "name": "Range",
+  "version": "1.0",
+  "author": "unknown",
+  "source": "binary",
+  "library": "Range.Lib",
+  "sha256": "6f0c171fa3fdb95534025590d6fb2e067c7bfa9794c83bcf9451c1a07bdc60c1",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "table",
+  "docs": [],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "AMOS PD Library CD, APD574/AMOS_System.",
+    "note": "No documentation or author attribution found on the disc.",
+    "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Random-range helpers plus the MKB$/MKI$/MKL$/CVB/CVI/CVL binary field conversions familiar from other BASICs. A four-keyword shuffle.lib on APD426 contains a subset (range, shuffle, rand) and is probably an earlier build of the same extension rather than a separate one; it is not registered separately."
+}

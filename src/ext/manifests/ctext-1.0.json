@@ -1,0 +1,21 @@
+{
+  "id": "ctext-1.0",
+  "name": "CText",
+  "version": "1.0",
+  "author": "unknown",
+  "source": "binary",
+  "library": "CTEXT.Lib",
+  "sha256": "9435138841a5a0be029d72fff03f801ce7f025d68bc03009e2183da92b702f3b",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "table",
+  "docs": [],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "AMOS PD Library CD, APD426/AMOS_System.",
+    "note": "No documentation found on the disc.",
+    "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Compressed/custom text rendering: font size, font base, font data, kerning and a proportional-length function. Table tier, six keywords."
+}

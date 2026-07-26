@@ -137,10 +137,28 @@ function-form variants of the keyword above them.
 | `amospro-ioports-2.0` | source | 39 | stock, slot 6 |
 | `intuition-1.3b` | source | 183 | Table assembled from its own `itokens.s`. |
 | `personal-1.0b` | source | 110 | Full assembler source ships with it. |
+| `jd-5.3` | source | 130 | Assembler source and a per-keyword manual. |
+| `jd-prt-1.3` | source | 63 | Printer control; source and manual. |
+| `jd-colour-1.4` | source | 44 | Palette manipulation; source, no manual. |
 | `misc-1.0` | source | 12 | Public Domain, with both source and a manual documenting every keyword. Recommends slot 23. |
-| `ldos-2.5` | table | 77 | No manual found. |
-| `turbo-plus-1.0` | table | 134 | No manual found. |
+| `turbo-plus-1.9` | manual | 87 | Later than 1.0 and better evidenced: full English doc set. PD release by Manuel Andre. |
+| `ldos-2.5` | manual | 77 | Manual located on the AMOS PD Library CD. |
+| `easylife-1.0` | manual | 72 | Documented; by Paul Hickman. |
+| `lserial-2.1` | manual | 15 | Unregistered shareware build; documented. |
+| `stars-2.33` | manual | 11 | Documented; (c) 1993 J. G. Doig. |
+| `turbo-plus-1.0` | table | 134 | No manual found for *this* build; see 1.9. |
 | `gui-1.61` | table | 103 | No manual found. |
+| `tome-4.0` | table | 67 | Two versions on the disc; identification ambiguous between them. |
+| `amos3d-1.0` | table | 64 | Commercial Europress product; no manual found. |
+| `range-1.0` | table | 47 | No manual or attribution found. |
+| `sticks-1.01b` | table | 16 | Shareware build that disables some of its own keywords. |
+| `dump-1.0` | table | 8 | Low-level disc access; much of it likely n/a here. |
+| `ctext-1.0` | table | 6 | No manual found. |
+
+Twelve of these came from a single source — the AMOS PD Library CD (Weird Science,
+1994) — scanned with `libscan` and written up by hand. Their `provenance` records
+that the disc's own copyright notice disclaims any assumption of public-domain
+status, so redistribution terms are unverified for all of them.
 
 Two of these carry identity strings that disagree with how they were
 distributed, and the registry records both rather than quietly picking one:

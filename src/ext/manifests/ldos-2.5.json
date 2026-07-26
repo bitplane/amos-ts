@@ -8,14 +8,24 @@
   "sha256": "90bbd62b3f00f5c5e51c416382aef4f0058c703c763a30659a3fab831977fb7b",
   "format": "legacy",
   "idBaseEvidence": "calibrated",
-  "evidence": "table",
-  "docs": [],
-  "titleStrings": ["$VER:Ldos_V2.5_Registered", "LDos Pro 1.0 - All rights reserved Niklas Sj"],
-  "observedSlots": [10],
+  "evidence": "manual",
+  "docs": [
+    "LdosV25.DOC",
+    "UpDateV25_Ldos.DOC",
+    "HELP.DOC",
+    "Known_Problems.DOC"
+  ],
+  "titleStrings": [
+    "$VER:Ldos_V2.5_Registered",
+    "LDos Pro 1.0 - All rights reserved Niklas Sj"
+  ],
+  "observedSlots": [
+    10
+  ],
   "provenance": {
     "from": "The project author's own AMOS Pro installation.",
-    "note": "The two identity strings disagree: the embedded $VER cookie says V2.5 Registered while the copyright banner still says 'LDos Pro 1.0'. The $VER cookie is taken as authoritative (it is the string the Amiga Version command reads); the stale banner is recorded so a binary carrying only the banner can still be matched.",
+    "note": "The two identity strings disagree: the embedded $VER cookie says V2.5 Registered while the copyright banner still says 'LDos Pro 1.0'. The $VER cookie is taken as authoritative (it is the string the Amiga Version command reads); the stale banner is recorded so a binary carrying only the banner can still be matched. Documentation was found later on the AMOS PD Library CD (APD600/ldos_demo/docs): LdosV25.DOC describes the extension and its keywords, with UpDateV25_Ldos.DOC covering the changes to V2.5 and Known_Problems.DOC listing its defects. The base document's own header still reads 'LDos V1(3) for AMOS1.3 and above', so the V2.5 keyword set is documented by the pair rather than by one current manual.",
     "redistribution": "Third-party extension, redistribution terms unverified. Kept as a fixture for identification only."
   },
-  "notes": "No manual available. Keyword behaviour is therefore inferred from the token table (names + parameter specs) and the library's embedded error strings, which is table-only evidence: keywords implemented from this alone cannot be marked faithful."
+  "notes": "77 keywords for file and directory handling AMOS lacks. Previously table tier — the manual has since been located on the AMOS PD Library CD, so keyword behaviour is documented rather than inferred and ports from it can be marked faithful. The two identity strings still disagree (see provenance); the $VER cookie remains authoritative. Explains all 46 ids observed in slot 10 across 42 programs of that corpus."
 }

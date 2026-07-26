@@ -1,0 +1,25 @@
+{
+  "id": "stars-2.33",
+  "name": "Stars",
+  "version": "2.33",
+  "author": "J. G. Doig",
+  "source": "binary",
+  "library": "stars.lib",
+  "sha256": "74807c997fce879331ab07ae28f7194645f10067cfb22b8c9a813813e6f924c2",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "Stars.doc"
+  ],
+  "titleStrings": [
+    "$VER: 2.33"
+  ],
+  "observedSlots": [],
+  "provenance": {
+    "from": "AMOS PD Library CD, APD600/stars.",
+    "note": "Stars.doc: 'All files are copyright 1993 J.G.Doig'. The same doc forbids separate distribution of the files and forbids cover-disk distribution, which the disc appears not to have honoured.",
+    "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Starfield generator with a copper-list palette keyword. Documented, so manual tier. A companion starspro.lib is on the disc as a separate table and is not registered here."
+}

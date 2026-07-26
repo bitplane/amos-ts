@@ -1,0 +1,38 @@
+{
+  "id": "turbo-plus-1.9",
+  "name": "TURBO Plus",
+  "version": "1.9",
+  "author": "Manuel Andre",
+  "source": "binary",
+  "library": "AMOSPro_Turbo1_9.Lib",
+  "sha256": "d1cb8d86ad72c5a9c272fd38f9e0629a3e3b3d98a2483f32895c31ae7ced268a",
+  "format": "legacy",
+  "idBaseEvidence": "calibrated",
+  "evidence": "manual",
+  "docs": [
+    "Turbo_Blit_doc.asc",
+    "Turbo_Block_doc.asc",
+    "Turbo_Graph_doc.asc",
+    "Turbo_Icon_doc.asc",
+    "Turbo_Misc_doc.asc",
+    "Turbo_Object_doc.asc",
+    "Turbo_Plane_doc.asc",
+    "Turbo_Stars_doc.asc",
+    "Turbo_Zone_doc.asc",
+    "bugfixes_doc.asc",
+    "credits_doc.asc",
+    "disclaimer_doc.asc"
+  ],
+  "titleStrings": [
+    "$VER: 1.9"
+  ],
+  "observedSlots": [
+    12
+  ],
+  "provenance": {
+    "from": "AMOS PD Library CD, APD600/Amos_Turbo.",
+    "note": "credits_doc.asc identifies it as 'AMOS 1.3 TURBO extension library V1.9 — LAST PD RELEASE' by Manuel Andre, Berchem, Belgium.",
+    "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
+  },
+  "notes": "A later TURBO than the turbo-plus-1.0 already registered, and much better evidenced: the English documentation set covers the keywords group by group, which lifts TURBO from table tier to manual tier. Explains all 57 ids observed in slot 12 across 60 corpus programs, so the id base is calibrated. Slot 8's 16 ids are all but two explained by this table as well, suggesting yet another build in circulation."
+}

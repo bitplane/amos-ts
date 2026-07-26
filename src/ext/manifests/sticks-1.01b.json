@@ -1,0 +1,23 @@
+{
+  "id": "sticks-1.01b",
+  "name": "Sticks",
+  "version": "1.01b",
+  "author": "unknown",
+  "source": "binary",
+  "library": "Sticks.lib",
+  "sha256": "669711695f3d02e032e85cc1fb48c72b282c4da83652e20b38b8ec1bd79767c3",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "table",
+  "docs": [],
+  "titleStrings": [
+    "$VER:Sticks Shareware v1.01b"
+  ],
+  "observedSlots": [],
+  "provenance": {
+    "from": "AMOS PD Library CD, Catalogue/Sticks/Library.",
+    "note": "Shareware. The binary carries registration nag strings ('Command not available in this version'), so this build is feature-limited by design.",
+    "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Joystick and multi-player input keywords. Table tier. Note the binary itself disables some commands pending registration, so a faithful port of *this* build would have to reproduce the limitation rather than the full keyword set - the token table lists keywords the library refuses to run."
+}
