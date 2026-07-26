@@ -570,6 +570,25 @@ export const FAITHFUL = new Set<string>([
   'hit bob check',
   'hit spr check',
   'workbench open',
+  // vector objects: routines 315 and 326-333 read out of the 2.15 binary,
+  // documented in 1.9's Turbo_Object_doc.asc. The error messages are the
+  // library's own table at $6e44.
+  'object limit',
+  'reserve object',
+  'reserve object chip',
+  'reserve object fast',
+  'define draw',
+  'define move',
+  'define stop',
+  'define attr',
+  'object draw',
+  'r object draw',
+  'object mag draw',
+  'r object mag draw',
+  'object erase',
+  'object save',
+  'object load',
+  'object load chip',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1066,6 +1085,12 @@ export const NOTES: Record<string, string> = {
     "TURBO's own zone system, which the manual is explicit is 'not compatible with the normal Zone commands'. Note it returns 1 and 0 rather than AMOS's -1 and 0, as documented",
   'workbench open':
     'The counterpart to Close Workbench, which this port already treats as faithful because there is no Workbench memory to free. Reopening it is the same nothing in reverse',
+  'reserve object chip':
+    "1.9 splits Reserve Object into Chip and Fast variants, and routines 28 and 29 differ in exactly one longword: the AllocMem flags, MEMF_CHIP against MEMF_FAST. They share one object table and one set of errors. There is no chip/fast memory here, so both names run the same handler — and the out-of-memory exit both routines carry (routine 64, AMOS error 24) cannot be reached",
+  'object draw':
+    "Faithful for any object that ends in a Stop element, which the manual demands in capitals: 'Make sure that the last ELEMENT of an OBJECT definition is a Stop instruction. And nothing unpredictable will happen.' Without one the four draw routines fall out of the attribute branch straight into the Move code and read four bytes past the vector list — the unpredictable thing the manual is warning about. This stops at the reserved count instead of reading whatever follows the allocation",
+  'object save':
+    "Writes the file the routine writes: 'OBJE', a word holding END-START, then a count word and COUNT*6 bytes for each defined object, silently skipping the ones that are not — which leaves a file Object Load reads short, exactly as the original does. Two departures follow from having no AmigaDOS: a failed Open is silent here as there (the routine branches to its close-and-return tail), and START/END are not validated against the limit, where the original reads outside its pointer array. The manual's claim that a name over 80 characters means 'nothing will happen' is wrong — the routine raises AMOS error 21, and so does this",
   'lfreq':
     "LDos does not draw this requester — it calls req.library, which the manual gives away when it apologises that 'Currently the req.library doesn't support CG-fonts'. There is no req.library here, so AMOS's own Fsel\$ stands in: a working file requester that returns the same thing (full path and name, empty on cancel) and remembers the same state, but which looks and behaves like AMOS's rather than ReqTools'. The FLAGS argument is accepted and largely cannot be honoured — .info filtering, the dir cache, the hide gadgets and font mode all belong to the requester that is not here — and \$2 was never supported by LDos itself either ('Extended select. Not supported by Ldos.'). Approximated for the substitution, not for the plumbing",
   'lpp decrunch':

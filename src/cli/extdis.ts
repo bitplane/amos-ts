@@ -101,8 +101,15 @@ if (cal.first >= code.length) {
   process.exit(1)
 }
 
+/**
+ * The table has an entry per routine, not per keyword, and the extras matter:
+ * a keyword's routine is very often a six-byte trampoline — `Rbsr routine
+ * 333` — into a shared worker that no token names. Building the whole table
+ * (jumpSize/2 entries) is what makes those reachable, via `#333`.
+ */
+const entries = jumpSize / 2
 const addr: number[] = [cal.first]
-for (let i = 0; i < maxRoutine; i++) addr.push(addr[i]! + u16(cal.at + i * 2) * 2)
+for (let i = 0; i + 1 < entries; i++) addr.push(addr[i]! + u16(cal.at + i * 2) * 2)
 
 /**
  * Decode an AMOS call pseudo-instruction at `off`, if there is one.
@@ -138,6 +145,15 @@ function decodeCall(off: number): { text: string; size: number } | null {
  * what separates a readable listing from a misleading one.
  */
 function textRuns(from: number, to: number): Array<{ at: number; end: number; text: string }> {
+  /**
+   * Printability alone is not enough: `66 30 24 4e 2c 78` in TURBO's Reserve
+   * Object worker is `bne.b` + `movea.l` + `movea.w`, and reads as "f0$N,x".
+   * A real message is mostly letters and spaces; opcodes that happen to be
+   * printable are mostly punctuation.
+   */
+  const looksLikeProse = (s: string): boolean =>
+    s.length >= 12 || [...s].filter((c) => /[A-Za-z ]/.test(c)).length >= s.length * 0.75
+
   const runs: Array<{ at: number; end: number; text: string }> = []
   let start = -1
   for (let i = from; i <= to; i++) {
@@ -148,7 +164,7 @@ function textRuns(from: number, to: number): Array<{ at: number; end: number; te
       if (i - start >= 6) {
         let text = ''
         for (let k = start; k < i; k++) text += String.fromCharCode(code[k]!)
-        runs.push({ at: start, end: i, text })
+        if (looksLikeProse(text)) runs.push({ at: start, end: i, text })
       }
       start = -1
     }
@@ -189,20 +205,11 @@ if (showMap || !keyword) {
   }
 }
 
-if (keyword) {
-  const e = byName.get(keyword.toLowerCase())
-  if (!e) {
-    console.error(`\n${id} has no keyword "${keyword}"`)
-    process.exit(1)
-  }
-  for (const [kind, n] of [
-    ['instruction', e.instr],
-    ['function', e.func],
-  ] as const) {
-    if (n === undefined) continue
-    const start = addr[n]!
-    const end = addr[n + 1] ?? code.length
-    console.log(`\n=== ${keyword} (${kind}, routine ${n}) $${start.toString(16)}..$${end.toString(16)}, ${end - start} bytes ===`)
+function disassemble(label: string, n: number): void {
+  const start = addr[n]!
+  const end = addr[n + 1] ?? code.length
+  console.log(`\n=== ${label} (routine ${n}) $${start.toString(16)}..$${end.toString(16)}, ${end - start} bytes ===`)
+  {
     try {
       // built line by line: a template literal would eat the Python
       // f-strings' braces and dollars
@@ -250,5 +257,27 @@ if (keyword) {
     } catch {
       console.log('  (python3 + capstone not available — address range printed above)')
     }
+  }
+}
+
+if (keyword) {
+  // "#333" dumps a routine the token table does not name — the shared worker
+  // behind a trampoline
+  const byNumber = /^#(\d+)$/.exec(keyword)
+  if (byNumber) {
+    const n = Number(byNumber[1])
+    if (n >= entries) {
+      console.error(`\n${id} has ${entries} routines; ${n} is out of range`)
+      process.exit(1)
+    }
+    disassemble(routineName(n), n)
+  } else {
+    const e = byName.get(keyword.toLowerCase())
+    if (!e) {
+      console.error(`\n${id} has no keyword "${keyword}"`)
+      process.exit(1)
+    }
+    if (e.instr !== undefined) disassemble(`${keyword} (instruction)`, e.instr)
+    if (e.func !== undefined) disassemble(`${keyword} (function)`, e.func)
   }
 }
