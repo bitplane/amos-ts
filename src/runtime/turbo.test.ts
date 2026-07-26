@@ -768,6 +768,125 @@ describe('TURBO the blitter interrupt (TURBO_DocsV2.15.Asc + disassembly)', () =
   })
 })
 
+/**
+ * The relative and fast drawing keywords, and 3D — routines 23-27, 41, 42,
+ * 49, 51, 61, 65 and 70, documented in both manuals.
+ */
+describe('TURBO relative drawing (Turbo_Graph_doc.asc + disassembly)', () => {
+  it('R Move and R Home put the graphics cursor where they say', () => {
+    // "Gr Locate 10,10 : R Move 5,-5 : Rem graphics cursor is now at 15,5"
+    const { rt } = run('Gr Locate 10,10 : R Move 5,-5')
+    expect([rt.screen.grX, rt.screen.grY]).toEqual([15, 5])
+    // R Home is undocumented and, despite the R, absolute: routine 26
+    // writes both cursor words outright
+    const home = run('Gr Locate 10,10 : R Home 40,50')
+    expect([home.rt.screen.grX, home.rt.screen.grY]).toEqual([40, 50])
+  })
+
+  it('R Draw leaves the cursor at the end of the line, R Box and R Bar do not', () => {
+    const d = run('Cls 0 : Gr Locate 10,10 : R Draw 20,0')
+    expect(d.rt.screen.point(20, 10)).toBe(d.rt.screen.ink)
+    expect([d.rt.screen.grX, d.rt.screen.grY]).toEqual([30, 10])
+    const b = run('Cls 0 : Gr Locate 10,10 : R Box 20,10')
+    expect(b.rt.screen.point(30, 15)).toBe(b.rt.screen.ink) // the right side
+    expect(b.rt.screen.point(20, 10)).toBe(b.rt.screen.ink) // the top
+    expect(b.rt.screen.point(20, 12)).toBe(0) // hollow
+    expect([b.rt.screen.grX, b.rt.screen.grY]).toEqual([10, 10])
+    const f = run('Cls 0 : Gr Locate 10,10 : R Bar 20,10')
+    expect(f.rt.screen.point(20, 12)).toBe(f.rt.screen.ink) // filled
+    expect([f.rt.screen.grX, f.rt.screen.grY]).toEqual([10, 10])
+    // two Rbmi: neither delta may be negative
+    expect(() => run('R Bar -1,10')).toThrow(/Illegal function call/)
+  })
+})
+
+describe('TURBO fast drawing (Turbo_Graph_doc.asc + disassembly)', () => {
+  it('F Plot takes its colour as an argument and drops what is off screen', () => {
+    // "you must give the COLOUR parameter"
+    const { rt } = run('Cls 0 : F Plot 10,10,5 : F Plot -1,10,5 : F Plot 10,999,5')
+    expect(rt.screen.point(10, 10)).toBe(5)
+    expect(rt.screen.point(10, 199)).toBe(0)
+  })
+
+  it('F Point reads a pixel back, and -1 from off the screen', () => {
+    const { out } = run('Cls 0 : F Plot 10,10,7 : Print F Point(10,10);F Point(11,10);F Point(-5,0)')
+    expect(out).toBe(' 7 0-1\n')
+  })
+
+  it('the fast keywords ignore the plane mask and the line pattern', () => {
+    // "TURBO commands where the mask is not recognized: F Draw, F Plot,
+    // F point, F Circle" — and "The Set Line MASK command has no effect
+    // when using F Draw"
+    const { rt } = run(
+      ['Cls 0', 'Set Planes %1', 'F Plot 10,10,6', 'Set Line %1010101010101010', 'Ink 3', 'F Draw 20,20 To 40,20', 'Set Planes 255'].join(
+        '\n',
+      ),
+    )
+    expect(rt.screen.point(10, 10)).toBe(6) // written whole, mask or no mask
+    for (let x = 20; x <= 40; x++) expect(rt.screen.point(x, 20)).toBe(3) // solid
+  })
+
+  it('F Draw only has the To form, whatever the manual says', () => {
+    // The token spec is I0,0t0,0 in 1.0, 1.9 and 2.15 alike, so the "F Draw
+    // X,Y" the manual describes cannot be written
+    expect(() => run('F Draw 10,10')).toThrow()
+  })
+
+  it('F Sqr rounds up one step early, at every n*n+n', () => {
+    // routine 65 ends `cmp.l d1,d0 : blt : addq.l #1,d1` — it rounds up when
+    // what is left over REACHES the root, where rounding to nearest wants
+    // it to exceed it. So F Sqr(0) is 1, F Sqr(2) is 2, F Sqr(6) is 3.
+    const { out } = run('For I=0 To 9 : Print F Sqr(I); : Next I')
+    expect(out).toBe(' 1 1 2 2 2 2 3 3 3 3') // trailing ; so no newline
+    // away from that boundary it is an ordinary integer square root
+    expect(run('Print F Sqr(1000000);F Sqr(123456789)').out).toBe(' 1000 11111\n')
+  })
+
+  it('F Circle draws a circle, and stops being one above radius 180', () => {
+    // "There is a known bug in this command, do not use a radius above
+    // 180...there will be no crash, but the result is definitely not a
+    // circle!" — the y for each column comes from a WORD square root, and
+    // r*r stops fitting in sixteen bits at 182.
+    const ok = run('Cls 0 : F Circle 160,100,50,4')
+    for (const [x, y] of [
+      [210, 100],
+      [110, 100],
+      [160, 50],
+      [160, 150],
+    ]) {
+      expect(ok.rt.screen.point(x!, y!)).toBe(4)
+    }
+    expect(ok.rt.screen.point(160, 100)).toBe(0) // hollow
+    const broken = run('Cls 0 : F Circle 160,100,190,4')
+    expect(broken.rt.screen.point(160, 100 - 190)).not.toBe(4) // nowhere near
+    expect(() => run('F Circle 10,10,0,1')).toThrow(/Illegal function call/)
+  })
+})
+
+describe('TURBO 3D (Turbo_Graph_doc.asc + disassembly)', () => {
+  it('Line 3d divides by Z with D=128 and offsets by the eye', () => {
+    // "our perspective calculations can be simplified to : X=X*D/Z and
+    // Y=Y*D/Z... The value I use for D=128" — and the eye starts at 160,100
+    const { rt } = run('Cls 0 : Line 3d 10,10,128 To 20,20,128')
+    // 10*128/128 + 160 = 170, and the far end at 180,120
+    expect(rt.screen.point(170, 110)).toBe(rt.screen.ink)
+    expect([rt.screen.grX, rt.screen.grY]).toEqual([180, 120])
+  })
+
+  it('a greater Z draws it smaller, and Eye 3d moves the vanishing point', () => {
+    // "So the greater the value of 'Z' the further away the object"
+    const far = run('Cls 0 : Line 3d 100,0,256 To 100,0,256')
+    expect(far.rt.screen.grX).toBe(210) // 100*128/256 + 160
+    const moved = run('Cls 0 : Eye 3d 0,0 : Line 3d 100,0,256 To 100,0,256')
+    expect([moved.rt.screen.grX, moved.rt.screen.grY]).toEqual([50, 0])
+  })
+
+  it('a Z of zero is a division by zero, as the routine says', () => {
+    expect(() => run('Line 3d 1,1,0 To 2,2,1')).toThrow(/Division by zero/)
+    expect(() => run('Line 3d 1,1,1 To 2,2,0')).toThrow(/Division by zero/)
+  })
+})
+
 describe('TURBO timing (TURBO_DocsV2.15.Asc + disassembly)', () => {
   it('Vbl Wait waits, and does not hang on any line value', () => {
     // The routine busy-waits on the low byte of VHPOSR ($dff006), which is

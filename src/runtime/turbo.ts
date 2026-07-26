@@ -30,6 +30,7 @@ import { AmosError, VI, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Interp } from '../interp/interp'
 import type { Runtime } from './runtime'
+import type { Screen } from './screen'
 
 /**
  * TURBO's own error messages, read out of the 2.15 binary at $6e44 — the
@@ -190,6 +191,12 @@ export interface TurboState {
   stars: TurboStars
   /** the 96 scrolling zones, 1-based in BASIC and 0-based here */
   blits: Array<BlitDef | null>
+  /**
+   * The `Eye 3d` point of view, at +$74/$76 of the structure. "If not
+   * initialised when using the Line 3d instruction X will have a value of
+   * 160 and Y a value of 100" — the centre of a standard screen.
+   */
+  eye: { x: number; y: number }
   /** `Blit Int On start To end`, or null when no server is installed */
   blitInt: { from: number; to: number } | null
   /**
@@ -219,6 +226,7 @@ export const newTurboState = (): TurboState => ({
     intClear: false,
   },
   blits: Array.from({ length: 96 }, () => null),
+  eye: { x: 160, y: 100 },
   blitInt: null,
   blitGo: 0,
   priority: 0,
@@ -455,6 +463,55 @@ function starsPlotter(rt: Runtime, screen: number): (x: number, y: number) => vo
     if (x < 0 || y < 0 || x >= s.width || y >= s.height) return
     px[y * s.width + x]! |= 1
   }
+}
+
+// ---- the fast drawing keywords, and 3D ----
+
+/**
+ * The F keywords reach past the RastPort and poke the bitplanes themselves,
+ * which is where their speed comes from and what they give up for it: the
+ * manual lists F Draw, F Plot, F Point and F Circle among the "TURBO
+ * commands where the mask is not recognized", and admits of F Draw that "The
+ * Set Line MASK command has no effect... this will be corrected in a future
+ * update".
+ */
+function rawDraw(s: Screen, body: () => void): void {
+  const mask = s.planeMask
+  const pattern = s.linePattern
+  s.planeMask = 0xff
+  s.linePattern = 0xffff
+  try {
+    body()
+  } finally {
+    s.planeMask = mask
+    s.linePattern = pattern
+  }
+}
+
+/**
+ * The digit-by-digit integer square root routine 65 is, with the rounding
+ * step it ends on: if what is left over reaches the root, round up.
+ *
+ * `bits` is 32 for `F Sqr` and 16 for the copy inside `F Circle` — and that
+ * difference is the whole of the circle's documented bug, because the word
+ * version can only see the low half of r*r - x*x.
+ */
+function turboSqrt(v: number, bits: 16 | 32): number {
+  const trunc = bits === 16 ? (x: number): number => (x << 16) >> 16 : (x: number): number => x | 0
+  let rest = trunc(v)
+  let root = 0
+  let step = bits === 16 ? 0x4000 : 0x40000000
+  do {
+    const guess = trunc(root + step)
+    root = bits === 16 ? (root & 0xffff) >>> 1 : root >>> 1
+    if (rest > guess) {
+      rest = trunc(rest - guess)
+      root |= step
+    }
+    step = (bits === 16 ? step & 0xffff : step >>> 0) >>> 2
+  } while (step !== 0)
+  if (rest >= root) root++
+  return root
 }
 
 // ---- scrolling zones: Blit Store Left / Up, Multi Blit and the interrupt ----
@@ -947,6 +1004,152 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       st.intClear = false
       st.int = false
     },
+    'r move'(it) {
+      // "Does the same thing as: Gr Locate Xgr+dx,Ygr+dy but is shorter and
+      // faster" — two add.w straight into rp_cp_x/cp_y
+      const s = rt.screen
+      const dx = it.evalInt()
+      it.expect(',')
+      s.grX = w(s.grX + dx)
+      s.grY = w(s.grY + it.evalInt())
+    },
+    'r home'(it) {
+      // Undocumented, and not relative at all: routine 26 writes both words
+      // of the graphics cursor, so it is Gr Locate under another name
+      const s = rt.screen
+      s.grX = w(it.evalInt())
+      it.expect(',')
+      s.grY = w(it.evalInt())
+    },
+    'r draw'(it) {
+      // "draw a line relative to the graphics cursor... At the completion of
+      // the command, the graphics cursor will be located at the end"
+      const s = rt.screen
+      const dx = it.evalInt()
+      it.expect(',')
+      const dy = it.evalInt()
+      s.line(s.grX, s.grY, w(s.grX + dx), w(s.grY + dy))
+    },
+    'r box'(it) {
+      // Four Draws round the rectangle, ending back where it started, which
+      // is why "the position of the graphics cursor remains unchanged"
+      const s = rt.screen
+      const dx = it.evalInt()
+      it.expect(',')
+      const dy = it.evalInt()
+      const x = s.grX
+      const y = s.grY
+      s.line(x, y, w(x + dx), y)
+      s.line(w(x + dx), y, w(x + dx), w(y + dy))
+      s.line(w(x + dx), w(y + dy), x, w(y + dy))
+      s.line(x, w(y + dy), x, y)
+    },
+    'r bar'(it) {
+      // RectFill from the cursor, which does not move it. Both deltas must
+      // be positive — two Rbmi before the call.
+      const s = rt.screen
+      const dx = it.evalInt()
+      it.expect(',')
+      const dy = it.evalInt()
+      if (dx < 0 || dy < 0) funcCall()
+      const x = s.grX
+      const y = s.grY
+      s.bar(x, y, w(x + dx), w(y + dy))
+      s.grX = x
+      s.grY = y
+    },
+    'f draw'(it) {
+      // F Draw x,y To x1,y1 — the token spec is I0,0t0,0 in every build, so
+      // the manual's shorter "F Draw X,Y" form does not exist; see NOTES
+      const s = rt.screen
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect('to')
+      const x1 = it.evalInt()
+      it.expect(',')
+      const y1 = it.evalInt()
+      rawDraw(s, () => s.line(x, y, x1, y1))
+    },
+    'f plot'(it) {
+      // F Plot x,y,colour — "you must give the COLOUR parameter". The
+      // routine pokes the planes, so it obeys neither the write mask nor
+      // Clip, and a point off the screen is dropped without a word.
+      const s = rt.screen
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const c = it.evalInt()
+      if (c < 0) funcCall()
+      if (x < 0 || y < 0 || x >= s.width || y >= s.height) return
+      s.pixels[y * s.width + x] = c & ((1 << s.depth) - 1)
+    },
+    'f circle'(it) {
+      // F Circle x,y,radius,colour — routine 61. Eight-way symmetry, x
+      // running from r/root2 down to zero, and y from an integer square
+      // root that is computed in WORDS. That is the whole of the documented
+      // bug: "keep the radius of the circle below 180", because r*r-x*x
+      // stops fitting in sixteen bits at 182.
+      const s = rt.screen
+      const cx = it.evalInt()
+      it.expect(',')
+      const cy = it.evalInt()
+      it.expect(',')
+      const r = it.evalInt()
+      it.expect(',')
+      const c = it.evalInt()
+      if (c < 0 || r <= 0) funcCall()
+      const col = c & ((1 << s.depth) - 1)
+      const px = s.pixels
+      const put = (x: number, y: number): void => {
+        if (x < 0 || y < 0 || x >= s.width || y >= s.height) return
+        px[y * s.width + x] = col
+      }
+      // (r*256)/362 is r/root2, the 45 degree point, plus one
+      const q = Math.floor((r * 256) / 362)
+      const rr = r * r
+      for (let x = q === 0 ? 0 : q + 1; x >= 0; x--) {
+        const y = turboSqrt(rr - x * x, 16)
+        put(cx + x, cy + y)
+        put(cx + x, cy - y)
+        put(cx - x, cy + y)
+        put(cx - x, cy - y)
+        put(cx + y, cy + x)
+        put(cx + y, cy - x)
+        put(cx - y, cy + x)
+        put(cx - y, cy - x)
+      }
+    },
+    'eye 3d'(it) {
+      // "This instruction changes the point of view in opposite to the
+      // picture plane."
+      const x = it.evalInt()
+      it.expect(',')
+      rt.turbo.eye = { x: w(x), y: w(it.evalInt()) }
+    },
+    'line 3d'(it) {
+      // Line 3D x,y,z To x1,y1,z1 — "our perspective calculations can be
+      // simplified to : X=X*D/Z and Y=Y*D/Z... The value I use for D=128",
+      // which in the routine is asl.l #7 then divs.w. A zero Z is a
+      // division by zero, AMOS error 20, and the routine says so itself.
+      const s = rt.screen
+      const v: number[] = []
+      for (const sep of [',', ',', 'to', ',', ','] as const) {
+        v.push(it.evalInt())
+        it.expect(sep)
+      }
+      v.push(it.evalInt())
+      const [x, y, z, x1, y1, z1] = v as [number, number, number, number, number, number]
+      if (z === 0 || z1 === 0) throw new AmosError('Division by zero', 20)
+      const e = rt.turbo.eye
+      const px = (a: number, d: number): number => w(divs(a * 128, d) + e.x)
+      const py = (a: number, d: number): number => w(divs(a * 128, d) + e.y)
+      // Move then Draw, so the graphics cursor is left at the far end
+      s.grX = px(x, z)
+      s.grY = py(y, z)
+      s.line(s.grX, s.grY, px(x1, z1), py(y1, z1))
+    },
     'blit store left'(it) {
       // Blit Store Left screen,blitnr,x,y To x1,y1,shift — routine 325.
       // "allows you to predefine up to 96 different horizontal scrolling
@@ -1144,6 +1347,16 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       const bob = rt.bobs.get(n!)
       if (!bob) return VI(0)
       return VI(checkHit(rt, s!, e!, bob.x - dx!, bob.y - dy!))
+    },
+    'f sqr'(_, a) {
+      // Undocumented; routine 65 is a digit-by-digit integer square root
+      // over a long, rounding up when the remainder reaches the root
+      return VI(turboSqrt(int(a[0] ?? VI(0)), 32))
+    },
+    'f point'(_, a) {
+      // "returns the colour register of the pixel located on screen at
+      // coordinates X,Y" — and, like AMOS's own Point, -1 off the screen
+      return VI(rt.screen.point(int(a[0] ?? VI(0)), int(a[1] ?? VI(0))))
     },
     'hit spr check'(_, a) {
       // x=Hit Spr Check(start To end,dx,dy,n) — as above, for a sprite, and

@@ -618,6 +618,20 @@ export const FAITHFUL = new Set<string>([
   'blit int change',
   'blit int wait',
   'set planes',
+  // the relative and fast drawing keywords, and 3D: routines 23-27, 41, 42,
+  // 49, 51, 61, 65 and 70
+  'r move',
+  'r home',
+  'r draw',
+  'r box',
+  'r bar',
+  'f draw',
+  'f plot',
+  'f point',
+  'f circle',
+  'f sqr',
+  'line 3d',
+  'eye 3d',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1114,6 +1128,12 @@ export const NOTES: Record<string, string> = {
     "TURBO's own zone system, which the manual is explicit is 'not compatible with the normal Zone commands'. Note it returns 1 and 0 rather than AMOS's -1 and 0, as documented",
   'workbench open':
     'The counterpart to Close Workbench, which this port already treats as faithful because there is no Workbench memory to free. Reopening it is the same nothing in reverse',
+  'f circle':
+    "Eight-way symmetry with the column height taken from an integer square root computed in WORDS, which is the whole of the documented bug: 'do not use a radius above 180...there will be no crash, but the result is definitely not a circle!' — r*r-x*x stops fitting in sixteen bits at 182, and this overflows where the routine overflows. Not modelled: the manual's other caveat, that a hires screen turns the circle into an ellipse, because that is a property of the pixel aspect of the display rather than of the pixels written",
+  'f sqr':
+    "Undocumented, and faithful including its off-by-one: the routine rounds up when the remainder REACHES the root rather than exceeds it, so F Sqr(0) is 1 and every n*n+n comes out a step high. Away from that boundary it is an ordinary integer square root",
+  'f draw':
+    "The token spec is I0,0t0,0 in 1.0, 1.9 and 2.15 alike, so only the To form exists — the manual's shorter 'F Draw X,Y' cannot be written and would not parse on the real machine either. Ignores the Set Line pattern, as the manual admits ('this will be corrected in a future update'), and the plane mask",
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
   'blit speed':
