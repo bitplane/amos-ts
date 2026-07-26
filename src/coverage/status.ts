@@ -643,6 +643,36 @@ export const FAITHFUL = new Set<string>([
   'static block erase',
   'build static block',
   'f put static block',
+  // the machine-level tail: routines 4-12, 19, 20, 90, 91, 134, 135, 137,
+  // 140, 143, 144, 149, 150, 153, 159, 167-169, 180, 181
+  'lsl.b',
+  'lsl.w',
+  'lsl.l',
+  'lsr.b',
+  'lsr.w',
+  'lsr.l',
+  'l swap',
+  'test.b',
+  'test.w',
+  'bit field ext',
+  'bit field ins',
+  'byte hunt',
+  'word hunt',
+  'string hunt',
+  'memory fill',
+  'move mem',
+  'range',
+  'texp',
+  't clip',
+  'between',
+  'bank end',
+  'chip largest',
+  'fast largest',
+  'parse$',
+  'hit spr zone',
+  'hit bob zone',
+  'cpu info',
+  'math info',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1023,6 +1053,11 @@ export const STRUCTURAL = new Set([
  * stay "missing": they are portable to a host capability, just not built.)
  */
 export const NA = new Set<string>([
+  // TURBO Plus: routine 132 points COP1LC at graphics.library's own copper
+  // list and clears a flag in the AMOS workspace, handing the display back
+  // to the system so a developer can see the machine underneath. There is
+  // no system copper list here to hand it back to, and nothing underneath.
+  'debug',
   // syntax-only phrases: the token table points these at L_Syntax, which
   // is not an implementation — it is the routine that says "this token
   // cannot start a statement". They exist so the tokenizer has a symbol
@@ -1139,6 +1174,12 @@ export const NOTES: Record<string, string> = {
     "TURBO's own zone system, which the manual is explicit is 'not compatible with the normal Zone commands'. Note it returns 1 and 0 rather than AMOS's -1 and 0, as documented",
   'workbench open':
     'The counterpart to Close Workbench, which this port already treats as faithful because there is no Workbench memory to free. Reopening it is the same nothing in reverse',
+  'cpu info':
+    "Reports 20, a 68020. There is no 68000 here to ask, so the answer has to come from the machine this port models — and that is settled elsewhere already: Chip Free and Fast Free answer for 2MB of chip and a fast board, which is an A1200. Math Info answers 0 to match, a stock A1200 having no FPU. A program that branches on the CPU will take its 020 path",
+  'parse$':
+    "Undocumented, and it does not return a string despite the name: routine 180 leaves an integer in d3 — which alternative of a '|' separated list matched word N of the source, counting from one, or the fourth argument when none did. One departure: an empty source or an empty list jumps to the routine's common tail, which pops a long nothing pushed and returns into it. That is a crash; here it is the not-found value",
+  'chip largest':
+    "AvailMem(MEMF_CHIP|MEMF_LARGEST). With no fragmenting allocator behind it, the largest contiguous block is the whole of what is free, so this equals Chip Free; the same goes for Fast Largest",
   'plane offset':
     "The offset table is the routine's own — a byte offset of y*rowBytes+x per plane, accumulating unless the new offset works out to zero, and cleared for a whole screen by a negative plane number. Plane Update applies it to the display and not to the buffer, which is faithful to how it works ('In fact I don't change the bitplane addresses at all' — it biases the pointers the copper reads, rebuilds, and puts them back), so Point and every drawing keyword go on seeing the buffer unmoved. What does not follow is the fragility: on the real machine the biased pointers last only until AMOS next rebuilds its copper list, and here they last until the next Plane Update",
   'f put static block':

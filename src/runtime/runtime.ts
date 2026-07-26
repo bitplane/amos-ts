@@ -2063,6 +2063,16 @@ export class Runtime {
   }
 
   /** Chip bytes held by banks and by open screens' bitplanes. */
+  /** AvailMem(MEMF_CHIP) — what Chip Free reports, and Chip Largest with it */
+  chipFree(): number {
+    return Math.max(0, Runtime.CHIP_TOTAL - this.chipUsed())
+  }
+
+  /** AvailMem(MEMF_FAST) */
+  fastFree(): number {
+    return Math.max(0, Runtime.FAST_TOTAL - this.fastUsed())
+  }
+
   chipUsed(): number {
     let n = 0
     for (const b of this.memBanks.values()) if (b.memType === 1) n += b.data.length

@@ -984,6 +984,156 @@ describe('TURBO blocks (Turbo_Block_doc.asc + disassembly)', () => {
   })
 })
 
+/**
+ * The machine-level tail: shifts and tests, the memory hunts, the small
+ * numeric helpers, and the two hardware questions.
+ */
+describe('TURBO shifts and tests (TURBO_DocsV2.15.Asc + disassembly)', () => {
+  it('a byte or word shift leaves the rest of the longword alone', () => {
+    // one 68k instruction each: lsl.b touches eight bits and no more
+    expect(run('Print Lsl.b(5,1);Lsl.w(5,1);Lsl.l(5,1)').out).toBe(' 10 10 10\n')
+    expect(run('Print Lsl.b($1234,4);Lsl.w($1234,4)').out).toBe(' 4672 9024\n') // $1240 and $2340
+    expect(run('Print Lsr.b($1234,4);Lsr.w($1234,4);Lsr.l($1234,4)').out).toBe(' 4611 291 291\n')
+    // the count is a register shift, so it goes mod 64 and clears the field
+    expect(run('Print Lsl.b(255,8)').out).toBe(' 0\n')
+  })
+
+  it('L Swap exchanges the halves of the longword', () => {
+    // "A=$FFFF1111 : B=L Swap(A) returns B=$1111FFFF"
+    expect(run('Print Hex$(L Swap($FFFF1111))').out).toBe('$1111FFFF\n')
+  })
+
+  it('Test.b and Test.w compare only the low bits', () => {
+    // "Test.b(x,y) is equivalent to: If (X And $FF) = (Y AND $FF)"
+    expect(run('Print Test.b($1234,$FF34);Test.b($1234,$1235)').out).toBe('-1 0\n')
+    expect(run('Print Test.w($11234,$21234);Test.w($1234,$1235)').out).toBe('-1 0\n')
+  })
+
+  it('Bit Field Ext and Ins move a field of bits', () => {
+    // "STARTBIT is the bit where to the start the extraction from and WIDTH
+    // indicates how many bits are to be extracted"
+    expect(run('Print Bit Field Ext($F0,4,4)').out).toBe(' 15\n')
+    expect(run('Print Bit Field Ext($F0,4,2)').out).toBe(' 3\n')
+    expect(run('Print Hex$(Bit Field Ins($F0,0,4,5))').out).toBe('$F5\n')
+    // a field that would run off the end of the longword is refused
+    expect(() => run('Print Bit Field Ins(0,30,4,1)')).toThrow(/Illegal function call/)
+  })
+})
+
+describe('TURBO numeric helpers (TURBO_DocsV2.15.Asc + disassembly)', () => {
+  it('Range clamps, T Clip truncates, Texp chooses, Between is strict', () => {
+    // "x=Range(3, 5 to 100) — x now equals 5"
+    expect(run('Print Range(3,5 To 100);Range(105,5 To 100);Range(40,5 To 100)').out).toBe(' 5 100 40\n')
+    // "Print T Clip (50,15) returns 45"
+    expect(run('Print T Clip(50,15);T Clip(64,32)').out).toBe(' 45 64\n')
+    // divs.w truncates towards zero rather than flooring
+    expect(run('Print T Clip(-50,15)').out).toBe('-45\n')
+    expect(() => run('Print T Clip(50,0)')).toThrow(/Illegal function call/)
+    // "x=Texp (4=3,1,2) — since 4=3 is false, x now equals 2"
+    expect(run('Print Texp(4=3,1,2);Texp(4=4,1,2)').out).toBe(' 2 1\n')
+    // "x=((low<value) and (value<high))", and the ends are exchanged if need be
+    expect(run('Print Between(1,5,10);Between(1,1,10);Between(10,5,1)').out).toBe('-1 0-1\n')
+  })
+
+  it('Cpu Info and Math Info answer for the machine this port models', () => {
+    // 2MB chip and a fast board is an A1200, so a 68020 and no FPU
+    expect(run('Print Cpu Info;Math Info').out).toBe(' 20 0\n')
+  })
+
+  it('Chip Largest and Fast Largest report the free memory', () => {
+    // AvailMem with MEMF_LARGEST, which without a fragmenting allocator is
+    // the same answer Chip Free and Fast Free give
+    expect(run('Print Chip Largest=Chip Free;Fast Largest=Fast Free').out).toBe('-1-1\n')
+  })
+
+  it('Bank End is the end address, or minus the count for sprites and icons', () => {
+    // "If you ask for the Bank End of a Sprite or Icon bank the result will
+    // be NEGATIVE. It gives the negative amount of Sprite/Icon definitions"
+    expect(run('Reserve As Work 6,100 : Print Bank End(6)=Start(6)+100').out).toBe('-1\n')
+    expect(run('Print Bank End(9)').out).toBe(' 0\n') // not reserved: no error
+    const sprites = run(
+      ['Ink 5 : Bar 0,0 To 7,7', 'Get Sprite 1,0,0 To 8,8', 'Get Sprite 2,0,0 To 8,8', 'Print Bank End(1)'].join('\n'),
+    )
+    expect(sprites.out).toBe('-2\n')
+  })
+
+  it('Parse$ matches a word against a list of alternatives', () => {
+    // Undocumented: routine 180 returns an integer despite the name — which
+    // alternative of a "|" list word N matched, or the fourth argument
+    expect(run('Print Parse$("go north",2,"south|north|east",0)').out).toBe(' 2\n')
+    expect(run('Print Parse$("go north",2,"south|east",-1)').out).toBe('-1\n')
+    expect(run('Print Parse$("take the lamp, now",4,"now|then",7)').out).toBe(' 1\n')
+    expect(run('Print Parse$("",1,"a|b",5)').out).toBe(' 5\n')
+  })
+})
+
+describe('TURBO memory keywords (TURBO_DocsV2.15.Asc + disassembly)', () => {
+  const bank = 'Reserve As Work 7,64'
+
+  it('Memory Fill repeats a string through the region', () => {
+    // the manual's own example fills a bank with 0123401234...
+    // the region is END-START bytes, as AMOS's own Fill is
+    const { rt } = run([bank, 'Memory Fill Start(7) To Start(7)+8,"AB"'].join('\n'))
+    const m = rt.resolveAddr(rt.bankBase(7))!
+    expect([...m.data.subarray(m.off, m.off + 9)]).toEqual([65, 66, 65, 66, 65, 66, 65, 66, 0])
+  })
+
+  it('Byte Hunt finds a value, a range, or nothing', () => {
+    const setup = [bank, 'Memory Fill Start(7) To Start(7)+7,"ABCD"']
+    // "If ACTION=0 the Byte Hunt command behaves just like the normal Hunt
+    // command. Only VAL1 is checked for."
+    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+7,0,67,0)-Start(7)'].join('\n')).out).toBe(' 2\n')
+    // "If ACTION=1 ... any value lying inside the values VAL1 to VAL2"
+    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+7,1,66 To 67,0)-Start(7)'].join('\n')).out).toBe(' 1\n')
+    // "If ACTION=-1 ... any value lying outside"
+    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+7,-1,65 To 66,0)-Start(7)'].join('\n')).out).toBe(' 2\n')
+    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+7,0,90,0)'].join('\n')).out).toBe(' 0\n')
+  })
+
+  it('Word Hunt works in words, String Hunt in strings and either direction', () => {
+    const setup = [bank, 'Memory Fill Start(7) To Start(7)+16,"ABCD"']
+    expect(run([...setup, 'Print Word Hunt(Start(7) To Start(7)+16,0,$4142,0)-Start(7)'].join('\n')).out).toBe(' 0\n')
+    expect(run([...setup, 'Print String Hunt(Start(7) To Start(7)+16,0,1,"CD")-Start(7)'].join('\n')).out).toBe(' 2\n')
+    // "When step is negative, this routine will search from end to start!"
+    expect(run([...setup, 'Print String Hunt(Start(7) To Start(7)+16,0,-1,"CD")-Start(7)'].join('\n')).out).toBe(' 14\n')
+  })
+
+  it('Move Mem copies a region and refuses an empty one', () => {
+    const { rt } = run([bank, 'Memory Fill Start(7) To Start(7)+4,"AB"', 'Move Mem Start(7),Start(7)+4 To Start(7)+8'].join('\n'))
+    const m = rt.resolveAddr(rt.bankBase(7))!
+    expect([...m.data.subarray(m.off + 8, m.off + 12)]).toEqual([65, 66, 65, 66])
+    expect(() => run([bank, 'Move Mem Start(7),Start(7) To Start(7)+8'].join('\n'))).toThrow(/Illegal function call/)
+  })
+})
+
+describe('TURBO Hit Zone (TURBO_DocsV2.15.Asc)', () => {
+  it('Hit Bob Zone asks AMOS which zone the bob is in', () => {
+    // "the same as: A=Zone(X Bob(n)+dx,Y Bob(n)+dy)"
+    const { out } = run(
+      [
+        'Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 0',
+        'Set Zone 1,10,10 To 50,50',
+        'Bob 1,30,30,1',
+        'Print Hit Bob Zone(0,0,1);Hit Bob Zone(100,100,1)',
+      ].join('\n'),
+    )
+    expect(out).toBe(' 1 0\n')
+  })
+
+  it('Hit Spr Zone uses hardware coordinates, as Hzone does', () => {
+    // "A=Hzone(X Sprite(n)+dx,Y Sprite(n)+dy)"
+    const { out } = run(
+      [
+        'Ink 5 : Bar 0,0 To 7,7 : Get Sprite 1,0,0 To 8,8 : Cls 0',
+        'Set Zone 1,10,10 To 50,50',
+        'Sprite 8,128+30,50+30,1',
+        'Print Hit Spr Zone(0,0,8)',
+      ].join('\n'),
+    )
+    expect(out).toBe(' 1\n')
+  })
+})
+
 describe('TURBO timing (TURBO_DocsV2.15.Asc + disassembly)', () => {
   it('Vbl Wait waits, and does not hang on any line value', () => {
     // The routine busy-waits on the low byte of VHPOSR ($dff006), which is

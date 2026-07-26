@@ -26,7 +26,7 @@
  * that stopped being necessary, and the manual says so, but programs kept
  * using them for compatibility.
  */
-import { AmosError, VI, int, type Value } from '../interp/values'
+import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Interp } from '../interp/interp'
 import type { Runtime } from './runtime'
@@ -529,6 +529,103 @@ function turboSqrt(v: number, bits: 16 | 32): number {
   } while (step !== 0)
   if (rest >= root) root++
   return root
+}
+
+// ---- the machine-level tail ----
+
+/**
+ * One 68k shift instruction. A `.b` or `.w` shift touches only that much of
+ * the register, so the bits above it come back unchanged — `Lsl.b($1234,4)`
+ * is $1240, not $12340. The count is taken mod 64, as a register shift is.
+ */
+function shiftOp(a: Value[], width: 8 | 16 | 32, right: boolean): number {
+  const v = int(a[0] ?? VI(0))
+  const n = int(a[1] ?? VI(0)) & 63
+  const mask = width === 32 ? -1 : (1 << width) - 1
+  const part = v & mask
+  const shifted = n >= width ? 0 : right ? (part & mask) >>> n : (part << n) & mask
+  return width === 32 ? shifted | 0 : (v & ~mask) | shifted
+}
+
+/**
+ * `Byte Hunt` and `Word Hunt`. "If ACTION=0 the Byte Hunt command behaves
+ * just like the normal Hunt command. Only VAL1 is checked for. If ACTION=-1
+ * ... any value lying outside the values VAL1 to VAL2, inclusive. If
+ * ACTION=1 ... any value lying inside".
+ */
+function memHunt(rt: Runtime, a: Value[], unit: 1 | 2): number {
+  let from = int(a[0] ?? VI(0))
+  let to = int(a[1] ?? VI(0))
+  const action = int(a[2] ?? VI(0))
+  const v1 = int(a[3] ?? VI(0))
+  const v2 = int(a[4] ?? VI(0))
+  // "If START is greater than END the addresses are swapped so that the
+  // command still works"
+  if (from > to) [from, to] = [to, from]
+  // "START and END adress are made automatically even"
+  if (unit === 2) {
+    from &= ~1
+    to &= ~1
+  }
+  const m = rt.resolveAddr(from)
+  if (!m) return 0
+  const n = Math.min(to - from, m.data.length - m.off)
+  const lo = Math.min(v1, v2)
+  const hi = Math.max(v1, v2)
+  for (let i = 0; i + unit <= n; i += unit) {
+    const at = m.off + i
+    const val = unit === 1 ? m.data[at]! : (m.data[at]! << 8) | m.data[at + 1]!
+    const hit = action === 0 ? val === (unit === 1 ? v1 & 0xff : v1 & 0xffff) : action > 0 ? val >= lo && val <= hi : val < lo || val > hi
+    if (hit) return from + i
+  }
+  return 0
+}
+
+/**
+ * `Parse$`, which is undocumented and does not return a string despite its
+ * name: routine 180 leaves an integer in d3.
+ *
+ * `Parse$(source$, n, alternatives$, notfound)` takes word `n` of the source
+ * — words being separated by space, comma or full stop — and matches it
+ * against a list of alternatives separated by `|`, returning which one
+ * matched, counting from one, or `notfound`. A command parser for text
+ * adventures, in one keyword.
+ *
+ * One departure: the two early exits for an empty source or an empty
+ * alternatives list jump to the routine's common tail, which pops a long
+ * that was never pushed and returns into it. That is a crash; here it is
+ * the not-found value.
+ */
+function parseWord(source: string, n: number, alternatives: string, notfound: number): number {
+  if (n <= 0) throw new AmosError('Illegal function call', 23)
+  if (source === '' || alternatives === '') return notfound
+  const sep = (c: string): boolean => c === ' ' || c === ',' || c === '.'
+  // skip to word n
+  let i = 0
+  let word = 1
+  while (word < n && i < source.length) {
+    while (i < source.length && !sep(source[i]!)) i++
+    if (i >= source.length) return notfound
+    // a comma or full stop swallows one following space with it
+    if (source[i] !== ' ' && source[i + 1] === ' ') i++
+    i++
+    word++
+  }
+  let end = i
+  while (end < source.length && !sep(source[end]!)) end++
+  const got = source.slice(i, end)
+  let k = 1
+  for (const alt of alternatives.split('|')) {
+    if (alt === got) return k
+    k++
+  }
+  return notfound
+}
+
+/** `Hzone`'s mapping: hardware coordinates into the current screen */
+function hardZoneAt(rt: Runtime, x: number, y: number): number {
+  const s = rt.screen
+  return rt.zoneAt((x - s.displayX) * (s.hires ? 2 : 1) + s.offsetX, y - s.displayY + s.offsetY)
 }
 
 // ---- bitplanes and blocks ----
@@ -1245,6 +1342,41 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       s.grY = py(y, z)
       s.line(s.grX, s.grY, px(x1, z1), py(y1, z1))
     },
+    'memory fill'(it) {
+      // Memory Fill start To end,a$ — "Fill the memory between START and END
+      // address with the data held in 'string variable'... If START is
+      // greater than END the addresses are swapped so that the command still
+      // works."
+      let start = it.evalInt()
+      it.expect('to')
+      let end = it.evalInt()
+      it.expect(',')
+      const s = it.evalStr()
+      if (start > end) [start, end] = [end, start]
+      if (s.length === 0) return
+      const m = rt.resolveWrite(start)
+      if (!m) return
+      const len = Math.min(end - start, m.data.length - m.off)
+      for (let i = 0; i < len; i++) m.data[m.off + i] = s.charCodeAt(i % s.length) & 0xff
+    },
+    'move mem'(it) {
+      // Move Mem start,end To dest — routine 181, a memmove that picks its
+      // direction from the addresses so an overlapping move stays right.
+      // An end at or below the start is an illegal function call (Rbls).
+      const start = it.evalInt()
+      it.expect(',')
+      const end = it.evalInt()
+      it.expect('to')
+      const dest = it.evalInt()
+      if (end - start <= 0) funcCall()
+      const src = rt.resolveAddr(start)
+      const dst = rt.resolveWrite(dest)
+      if (!src || !dst) return
+      const len = Math.min(end - start, src.data.length - src.off, dst.data.length - dst.off)
+      if (len <= 0) return
+      if (src.data === dst.data) dst.data.copyWithin(dst.off, src.off, src.off + len)
+      else dst.data.set(src.data.subarray(src.off, src.off + len), dst.off)
+    },
     'plane offset'(it) {
       // Plane Offset scrnr,planenr,xoffset,yoffset — routine 77. The stored
       // value is a byte offset, y*rowBytes+x, and it ADDS to what is there
@@ -1536,6 +1668,178 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       const bob = rt.bobs.get(n!)
       if (!bob) return VI(0)
       return VI(checkHit(rt, s!, e!, bob.x - dx!, bob.y - dy!))
+    },
+    // The shift group is one 68k instruction each, on a register the routine
+    // does not otherwise touch — so a byte shift leaves the top 24 bits of
+    // the value exactly as they were. "A=Lsl.b(5,1) gives A=10".
+    'lsl.b': (_, a) => VI(shiftOp(a, 8, false)),
+    'lsl.w': (_, a) => VI(shiftOp(a, 16, false)),
+    'lsl.l': (_, a) => VI(shiftOp(a, 32, false)),
+    'lsr.b': (_, a) => VI(shiftOp(a, 8, true)),
+    'lsr.w': (_, a) => VI(shiftOp(a, 16, true)),
+    'lsr.l': (_, a) => VI(shiftOp(a, 32, true)),
+    'l swap'(_, a) {
+      // "Swap the lower half of the longword with the upper half."
+      const v = int(a[0] ?? VI(0))
+      return VI(((v << 16) | ((v >>> 16) & 0xffff)) | 0)
+    },
+    'test.b'(_, a) {
+      // "Compares the lower 8 bits of a variable with a given value.
+      // Returns 0 if false, -1 if true."
+      return VI((int(a[0] ?? VI(0)) & 0xff) === (int(a[1] ?? VI(0)) & 0xff) ? -1 : 0)
+    },
+    'test.w'(_, a) {
+      return VI((int(a[0] ?? VI(0)) & 0xffff) === (int(a[1] ?? VI(0)) & 0xffff) ? -1 : 0)
+    },
+    'cpu info'(_) {
+      // Reads AttnFlags at ExecBase+$128 and reports 0, 10, 20, 30 or 40.
+      // The machine this port models has 2MB of chip and a fast board — an
+      // A1200 — so it answers 20; see the NOTES entry.
+      return VI(20)
+    },
+    'math info'(_) {
+      // 0, 881 or 882 from the same flags. A stock A1200 has no FPU.
+      return VI(0)
+    },
+    'bit field ext'(_, a) {
+      // x=Bit Field Ext(var,startbit,width) — "Both the STARTBIT and the
+      // WIDTH are interpreted mod 31", which in the routine is `andi.l #$1f`
+      const v = int(a[0] ?? VI(0))
+      const start = int(a[1] ?? VI(0))
+      const width = int(a[2] ?? VI(0))
+      if (start < 0 || width < 0) funcCall()
+      const wd = width & 31
+      // a width of zero pops the remaining arguments and hands back the
+      // variable untouched
+      if (wd === 0) return VI(v)
+      return VI((v >>> (start & 31)) & (wd === 32 ? -1 : (1 << wd) - 1))
+    },
+    'bit field ins'(_, a) {
+      // x=Bit Field Ins(var,startbit,width,value)
+      const v = int(a[0] ?? VI(0))
+      const start = int(a[1] ?? VI(0))
+      const width = int(a[2] ?? VI(0))
+      const val = int(a[3] ?? VI(0))
+      if (start < 0 || width < 0) funcCall()
+      const wd = width & 31
+      if (wd === 0) return VI(v)
+      const st = start & 31
+      // a field running off the end of the longword is refused outright
+      if (st + wd > 32) funcCall()
+      const mask = ((wd === 32 ? -1 : (1 << wd) - 1) << st) | 0
+      return VI(((v & ~mask) | ((val << st) & mask)) | 0)
+    },
+    'byte hunt'(_, a) {
+      return VI(memHunt(rt, a, 1))
+    },
+    'word hunt'(_, a) {
+      // "See Byte Hunt(params) but now for word hunting... START and END
+      // adress are made automatically even."
+      return VI(memHunt(rt, a, 2))
+    },
+    'string hunt'(_, a) {
+      // x=String Hunt(start To end,action,step,string) — "The step parameter
+      // is used to skip a certain amount of bytes for each comparison. When
+      // step is negative, this routine will search from end to start!"
+      let from = int(a[0] ?? VI(0))
+      let to = int(a[1] ?? VI(0))
+      const action = int(a[2] ?? VI(0))
+      const step = int(a[3] ?? VI(0))
+      const needle = str(a[4] ?? VS(''))
+      if (from > to) [from, to] = [to, from]
+      if (needle.length === 0 || step === 0) return VI(0)
+      const m = rt.resolveAddr(from)
+      if (!m) return VI(0)
+      const n = Math.min(to - from, m.data.length - m.off)
+      const at = (i: number): boolean => {
+        for (let k = 0; k < needle.length; k++) {
+          if (m.data[m.off + i + k] !== (needle.charCodeAt(k) & 0xff)) return false
+        }
+        return true
+      }
+      const inside = (i: number): boolean => (action === 0 || action === 1 ? at(i) : !at(i))
+      if (step > 0) {
+        for (let i = 0; i + needle.length <= n; i += step) if (inside(i)) return VI(from + i)
+      } else {
+        for (let i = n - needle.length; i >= 0; i += step) if (inside(i)) return VI(from + i)
+      }
+      return VI(0)
+    },
+    range(_, a) {
+      // x=Range(var, lowvalue To highvalue) — "It is important to make sure
+      // lowvalue is less than highvalue or this function returns erroneous
+      // values", which is true: the two tests are made in order and never
+      // compared with each other
+      const v = int(a[0] ?? VI(0))
+      const lo = int(a[1] ?? VI(0))
+      const hi = int(a[2] ?? VI(0))
+      if (v > hi) return VI(hi)
+      if (v < lo) return VI(lo)
+      return VI(v)
+    },
+    texp(_, a) {
+      // x=Texp(ex, true val, false val). The test is against zero, so any
+      // non-zero expression counts as true, not only -1.
+      return VI(int(a[0] ?? VI(0)) !== 0 ? int(a[1] ?? VI(0)) : int(a[2] ?? VI(0)))
+    },
+    't clip'(_, a) {
+      // "T Clip(var,32) will make var a multiple of 32... Print T Clip
+      // (50,15) returns 45". divs.w then muls.w, so it truncates towards
+      // zero rather than flooring: T Clip(-50,15) is -45.
+      const v = int(a[0] ?? VI(0))
+      const at = int(a[1] ?? VI(0))
+      if (at <= 0) funcCall()
+      return VI(Math.trunc(v / at) * at)
+    },
+    between(_, a) {
+      // x=Between(low,value,high) — "If high is smaller than low, then these
+      // values are exchanged so the function still works", and the
+      // comparisons are strict: ((low<value) and (value<high))
+      let lo = int(a[0] ?? VI(0))
+      const v = int(a[1] ?? VI(0))
+      let hi = int(a[2] ?? VI(0))
+      if (hi <= lo) [lo, hi] = [hi, lo]
+      return VI(v < hi && v > lo ? -1 : 0)
+    },
+    'bank end'(_, a) {
+      // "If you ask for the Bank End of a Sprite or Icon bank the result
+      // will be NEGATIVE. It gives the negative amount of Sprite/Icon
+      // definitions stored in the bank." The routine tells them apart by
+      // the four-character name in the bank header.
+      const n = int(a[0] ?? VI(0))
+      if (n === 1 && rt.spriteBank) return VI(-rt.spriteBank.images.length)
+      if (n === 2 && rt.iconBank) return VI(-rt.iconBank.images.length)
+      const b = rt.memBanks.get(n)
+      // "If you ask TURBO PLUS to return the Bank End of a bank that is not
+      // reserved you will get useless information - you will not get an
+      // error"
+      if (!b) return VI(0)
+      return VI(rt.bankBase(n) + b.data.length)
+    },
+    'chip largest'(_) {
+      // AvailMem(MEMF_CHIP|MEMF_LARGEST)
+      return VI(rt.chipFree())
+    },
+    'fast largest'(_) {
+      return VI(rt.fastFree())
+    },
+    'parse$'(_, a) {
+      return VI(parseWord(str(a[0] ?? VS('')), int(a[1] ?? VI(0)), str(a[2] ?? VS('')), int(a[3] ?? VI(0))))
+    },
+    'hit spr zone'(_, a) {
+      // "This command does the same thing as: A=Hzone(X Sprite(n)+dx,
+      // Y Sprite(n)+dy)" — hardware coordinates, so a hardware zone lookup
+      const [dx, dy, n] = [0, 1, 2].map((i) => int(a[i] ?? VI(0)))
+      const spr = rt.hwSprites.get(n!)
+      if (!spr) return VI(0)
+      return VI(hardZoneAt(rt, spr.x + dx!, spr.y + dy!))
+    },
+    'hit bob zone'(_, a) {
+      // "the same as: A=Zone(X Bob(n)+dx,Y Bob(n)+dy)" — screen coordinates
+      const [dx, dy, n] = [0, 1, 2].map((i) => int(a[i] ?? VI(0)))
+      const bob = rt.bobs.get(n!)
+      if (!bob) return VI(0)
+      return VI(rt.zoneAt(bob.x + dx!, bob.y + dy!))
     },
     'f sqr'(_, a) {
       // Undocumented; routine 65 is a digit-by-digit integer square root
