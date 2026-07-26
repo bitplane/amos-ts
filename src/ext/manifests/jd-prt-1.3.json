@@ -2,7 +2,7 @@
   "id": "jd-prt-1.3",
   "name": "JD Printer",
   "version": "1.3",
-  "author": "unknown (same author as JD)",
+  "author": "Joerg Dommermuth",
   "source": "binary",
   "library": "AMOSPro_Prt.Lib",
   "sha256": "66db735b6c9378e7bdb9b0e4f06e245e5c6e67e56da8e9e79182994a2c541d14",
@@ -19,7 +19,7 @@
   "observedSlots": [],
   "provenance": {
     "from": "AMOS PD Library CD, APD599/APSystem.",
-    "note": "Shipped with JD on APD599, with its own manual and assembler source (SOURCES/|prt.s).",
+    "note": "Shipped with JD on APD599, with its own manual and assembler source (SOURCES/|prt.s). Same author as JD; identified from the Ultimate Amiga AMOS Factory archive listing.",
     "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
   },
   "notes": "Printer control keywords (Jd Prt Init/Italics/Bold/Elite and so on) driving Epson-style escape sequences. Source tier. No host printer exists here, so a port would follow Lprint/Ldir and discard the output — the faithful part is the escape sequences and the state each keyword sets."

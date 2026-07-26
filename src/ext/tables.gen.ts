@@ -1752,7 +1752,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "id": "dump-1.0",
     "name": "Dump",
     "version": "1.0",
-    "author": "unknown",
+    "author": "Alex J. Grant",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "table",
@@ -1760,7 +1760,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "b609afce0d6fa4398a68697c86aa75e30c27c618055c59dd2d0cacc08446c69a",
-    "provenance": "AMOS PD Library CD, APD565/JC/AMOS_System. No documentation found. A smaller 5-entry Dump.Lib also exists on APD036.",
+    "provenance": "AMOS PD Library CD, APD565/JC/AMOS_System. No documentation found. A smaller 5-entry Dump.Lib also exists on APD036. Author identified from the Ultimate Amiga AMOS Factory archive listing (Dump Extension v1.0, archived by Lonewolf10); the binary carries no attribution.",
     "notes": "Low-level disc access (Diskin, Secread, Secwrite, Trackformat) plus a screen dump. Table tier. The disc-sector keywords have no counterpart in a virtual filesystem, so much of this is likely to end up n/a rather than merely unimplemented."
   },
   {
@@ -1821,7 +1821,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "id": "jd-5.3",
     "name": "JD",
     "version": "5.3",
-    "author": "unknown (credited only as \"JD\"; documentation is German with an English translation)",
+    "author": "Joerg Dommermuth",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "source",
@@ -1831,14 +1831,14 @@ export const EXT_INFO: ExtensionInfo[] = [
       "$VER: 5.3"
     ],
     "sha256": "ba5efb0b200ee60e2689d723643a522440fe1da0bab3049a30426af650a1992b",
-    "provenance": "AMOS PD Library CD, APD599/APSystem. APD599 ships the extension, a per-keyword command reference (name/parameters/function/result/syntax/example) and the 36KB assembler source (SOURCES/|jd.s, April 1994), so behaviour can be read rather than inferred.",
+    "provenance": "AMOS PD Library CD, APD599/APSystem. APD599 ships the extension, a per-keyword command reference (name/parameters/function/result/syntax/example) and the 36KB assembler source (SOURCES/|jd.s, April 1994), so behaviour can be read rather than inferred. Author identified from the Ultimate Amiga AMOS Factory archive listing (JD Extension, archived by Lonewolf10); the binary and its manual credit only \"JD\".",
     "notes": "The largest third-party extension found on the disc: 130 named keywords covering date/time, file and screen utilities. Source and manual both present, so this is source tier. The disc's Extension_numbers file states the JD set installs at interpreter-config numbers 20, 21 and 22 — a recommendation, and exactly the mechanism by which slot collisions arise. In the corpus, slot 22's ids are explained by this table except one ($0884), which suggests programs there used a slightly different JD build; observedSlots is therefore left empty rather than claiming a match this fixture does not fully support."
   },
   {
     "id": "jd-colour-1.4",
     "name": "JD Colour",
     "version": "1.4",
-    "author": "unknown (same author as JD)",
+    "author": "Joerg Dommermuth",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "source",
@@ -1848,14 +1848,14 @@ export const EXT_INFO: ExtensionInfo[] = [
       "$VER: 1.4"
     ],
     "sha256": "ffe52277ff6b87603f3e1209c077ede1a25e0fe513d65bf775575dc4476e0356",
-    "provenance": "AMOS PD Library CD, APD599/APSystem. Third of the JD set on APD599; assembler source present (SOURCES/|col.s) but no separate manual.",
+    "provenance": "AMOS PD Library CD, APD599/APSystem. Third of the JD set on APD599; assembler source present (SOURCES/|col.s) but no separate manual. Same author as JD; identified from the Ultimate Amiga AMOS Factory archive listing. Not to be confused with the unrelated \"AMOSPro Colours\" extension by Jan Normann Nielsen.",
     "notes": "Palette manipulation: spread, greyscale, antique, false-colour, negative, complement, mixing. Source present so behaviour is readable; the manual covers JD and Prt but not this one. Slot 20's corpus ids are explained by this table except three, so observedSlots is left empty — likely a different build."
   },
   {
     "id": "jd-prt-1.3",
     "name": "JD Printer",
     "version": "1.3",
-    "author": "unknown (same author as JD)",
+    "author": "Joerg Dommermuth",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "source",
@@ -1865,7 +1865,7 @@ export const EXT_INFO: ExtensionInfo[] = [
       "$VER: 1.3"
     ],
     "sha256": "66db735b6c9378e7bdb9b0e4f06e245e5c6e67e56da8e9e79182994a2c541d14",
-    "provenance": "AMOS PD Library CD, APD599/APSystem. Shipped with JD on APD599, with its own manual and assembler source (SOURCES/|prt.s).",
+    "provenance": "AMOS PD Library CD, APD599/APSystem. Shipped with JD on APD599, with its own manual and assembler source (SOURCES/|prt.s). Same author as JD; identified from the Ultimate Amiga AMOS Factory archive listing.",
     "notes": "Printer control keywords (Jd Prt Init/Italics/Bold/Elite and so on) driving Epson-style escape sequences. Source tier. No host printer exists here, so a port would follow Lprint/Ldir and discard the output — the faithful part is the escape sequences and the state each keyword sets."
   },
   {
@@ -1892,7 +1892,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "id": "lserial-2.1",
     "name": "LSerial",
     "version": "2.1",
-    "author": "Niklas Sjoberg",
+    "author": "Niklas Sjöberg",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "manual",
@@ -1904,7 +1904,7 @@ export const EXT_INFO: ExtensionInfo[] = [
       "$VER:LSerial_V21_UnRegistered"
     ],
     "sha256": "12ed4b4f1342a27314d702ef73048bc6d488ad2bd8009aec920feee2e608273e",
-    "provenance": "AMOS PD Library CD, APD600/lserial_demo/extensions. Unregistered shareware build; the binary emits 'UNREGISTERED SHAREWARE version of LSerial!' banners. Attributed to the LDos author by the shared naming and demo layout, which is an inference, not a stated credit.",
+    "provenance": "AMOS PD Library CD, APD600/lserial_demo/extensions. Unregistered shareware build; the binary emits 'UNREGISTERED SHAREWARE version of LSerial!' banners. Attributed to Niklas Sjoberg, the LDos author — inferred here from the shared naming and demo layout, and since confirmed by the Ultimate Amiga AMOS Factory archive listing.",
     "notes": "Serial port keywords (Lser Open/Close/Send/Read/Query). Explains all 8 ids observed in slot 11, so the id base is calibrated. Documented, so manual tier. Like IOPorts, the keyword surface is portable but serial.device has no counterpart here."
   },
   {
