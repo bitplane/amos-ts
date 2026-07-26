@@ -449,3 +449,55 @@ export function makeTdFunctions(rt: Runtime): Record<string, Func> {
     'td attitude c': read('angle', 2),
   } as Record<string, Func>
 }
+
+// ---- templates ----
+
+/**
+ * A relocated template. `.3DT` files are memory images: they open with four
+ * absolute Amiga addresses, which is why sixteen of the eighteen copies of
+ * p8.3DT on the AMOS PD Library CD differ while all are 3,424 bytes.
+ *
+ * The loader at $2199ba rebuilds them from `u16` offsets kept elsewhere in
+ * the block — `+$1e -> +$00`, `+$22 -> +$04`, `+$20 -> +$08`, `+$1c -> +$0c`
+ * — and then computes the one thing the file cannot carry:
+ *
+ *     d7 = (base + offset(+$1e)) - oldPointer(+$00)
+ *
+ * the difference between where the first section is now and where it was when
+ * the file was written. Every remaining pointer in the image is fixed by
+ * adding that delta, which the loader does across a record array: `(u16)+$12`
+ * records of ten bytes each, hanging off the section at `+$0c`, each opening
+ * with a pointer.
+ *
+ * Recovering the delta from the file rather than from a live address is what
+ * makes a template readable off disc: subtract it from any stored pointer and
+ * what is left is an offset into the block.
+ */
+export interface TdTemplate {
+  block: Uint8Array
+  /** the four section starts, as offsets into the block */
+  sections: [number, number, number, number]
+  /** offset of every ten-byte record's pointer target */
+  records: Array<{ at: number; target: number }>
+  /** the delta the loader adds to every stored pointer */
+  delta: number
+}
+
+export function parseTdTemplate(file: TdFile): TdTemplate {
+  const b = file.block
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength)
+  const u16 = (o: number): number => v.getUint16(o, false)
+  const u32 = (o: number): number => v.getUint32(o, false)
+  // the loader's order: +$1e, +$22, +$20, +$1c into +$00, +$04, +$08, +$0c
+  const sections: [number, number, number, number] = [u16(0x1e), u16(0x22), u16(0x20), u16(0x1c)]
+  // d7 = new - old for the first section; every other stored pointer shares it
+  const delta = sections[0] - u32(0)
+  const count = u16(0x12)
+  const records: Array<{ at: number; target: number }> = []
+  for (let i = 0; i < count; i++) {
+    const at = sections[3] + i * 10
+    if (at + 4 > b.length) break
+    records.push({ at, target: (u32(at) + delta) | 0 })
+  }
+  return { block: b, sections, records, delta }
+}

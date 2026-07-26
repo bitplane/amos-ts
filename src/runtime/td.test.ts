@@ -6,7 +6,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
-import { parseTdFile, tdSections } from './td'
+import { parseTdFile, parseTdTemplate, tdSections } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -263,5 +263,45 @@ describe('AMOS 3D display (Td Cls at $2114be)', () => {
     )
     expect(rt.screen.point(160, 50)).toBe(0)
     expect(rt.screen.point(160, 150)).toBe(5)
+  })
+})
+
+describe('AMOS 3D templates (relocation at $2199ba)', () => {
+  it('rebuilds p8.3DT’s four section pointers from the offsets beside them', () => {
+    // A .3DT opens with four absolute Amiga addresses. The loader overwrites
+    // them from u16 offsets at +$1e/+$22/+$20/+$1c, and the difference
+    // between the new first section and the old pointer that was there is the
+    // delta every other stored pointer needs. Checking that the delta
+    // explains all four is what proves the reading.
+    const t = parseTdTemplate(parseTdFile(shipped('p8.3DT'), 22))
+    expect(t.sections).toEqual([3124, 3388, 3324, 52])
+    const v = new DataView(t.block.buffer, t.block.byteOffset, t.block.byteLength)
+    for (const [i, slot] of [0x00, 0x04, 0x08, 0x0c].entries()) {
+      expect(v.getUint32(slot, false) + t.delta, `slot +$${slot.toString(16)}`).toBe(t.sections[i])
+    }
+  })
+
+  it('decodes every template on the disc with all pointers inside the block', () => {
+    // Eight templates, from f4a's 122 bytes to p8's 3,418. The record array
+    // is (u16)+$12 ten-byte entries hanging off the section at +$0c, which is
+    // always 52 — a fixed header — and each opens with a pointer to relocate.
+    const files = readdirSync(OBJECTS).filter((f) => /\.3dt$/i.test(f))
+    expect(files.length).toBeGreaterThanOrEqual(7)
+    for (const f of files) {
+      const t = parseTdTemplate(parseTdFile(shipped(f), 22))
+      expect(t.sections[3], f).toBe(52)
+      for (const s of t.sections) expect(s, `${f} section`).toBeLessThanOrEqual(t.block.length)
+      for (const r of t.records) {
+        expect(r.target, `${f} record at ${r.at}`).toBeGreaterThanOrEqual(0)
+        expect(r.target).toBeLessThanOrEqual(t.block.length)
+      }
+    }
+  })
+
+  it('scales its record count with the shape’s complexity', () => {
+    const recs = (f: string): number => parseTdTemplate(parseTdFile(shipped(f), 22)).records.length
+    expect(recs('f4a.3DT')).toBe(2)
+    expect(recs('p5.3DT')).toBe(26)
+    expect(recs('p8.3DT')).toBe(56)
   })
 })
