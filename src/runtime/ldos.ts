@@ -50,6 +50,7 @@ import type { Runtime } from './runtime'
  * the keyword.
  */
 import { amigaMatch, parsePatternResult } from './ldospat'
+import { pp20Decrunch } from '../loader/powerpacker'
 
 /**
  * Convert an ANSI escape sequence to the AMOS console's own control codes,
@@ -246,6 +247,23 @@ export interface LdosState {
    * has been set, so AMOS's current directory applies.
    */
   cwd: string | null
+  /**
+   * The requester's own remembered directory ("Whenever the user changes
+   * directory it will be remembered by Ldos. This path does not affect
+   * AMOS's (Dir$) path in any way") and the last selection, which the
+   * manual says survives a Cancel.
+   */
+  freqDir: string
+  freqFile: string
+  /** Lpos Freq — "Default positions are 3,11" */
+  freqX: number
+  freqY: number
+  /** Lcust Freq — "Default values are 12,30,14" */
+  freqDevWidth: number
+  freqFileWidth: number
+  freqFiles: number
+  /** Lfontsize Freq, updated only by a font-mode ($8) requester */
+  freqFontSize: number
   /** the tail of an ANSI escape split across two Lansi calls */
   ansiPending: string
   /** the Ldev First/Ldev Next walk over volumes and assigns */
@@ -257,7 +275,8 @@ export interface LdosState {
   eoln: number
 }
 
-export const newLdosState = (): LdosState => ({ chans: new Map(), cat: null, pushed: new Map(), cwd: null, ansiPending: '', devices: null, eoln: 10 })
+export const newLdosState = (): LdosState => ({ chans: new Map(), cat: null, pushed: new Map(), cwd: null, freqDir: '', freqFile: '', freqX: 3, freqY: 11,
+  freqDevWidth: 12, freqFileWidth: 30, freqFiles: 14, freqFontSize: 0, ansiPending: '', devices: null, eoln: 10 })
 
 /**
  * Resolve a path the way LDos does: against its own current directory when
@@ -518,6 +537,50 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
         v.setUint32(i * 4, (((v.getUint32(i * 4, false) ^ key) >>> 0) - 0x20) >>> 0, false)
       }
     },
+    'lpp decrunch'(it) {
+      // Lpp Decrunch START,END To DEST — "no test is done to see if the bank
+      // really contains a powerpacked file! Be careful!" That warning is
+      // reproduced as far as it can be: a bank that is not PP20 decrunches to
+      // nothing here rather than scribbling over memory.
+      const start = it.evalInt()
+      it.expect(',')
+      const end = it.evalInt()
+      it.expect('to')
+      const dest = it.evalInt()
+      const src = rt.resolveAddr(start)
+      const dst = rt.resolveAddr(dest)
+      if (!src || !dst || end <= start) return
+      const file = src.data.subarray(src.off, src.off + Math.min(end - start, src.data.length - src.off))
+      let outBytes: Uint8Array
+      try {
+        outBytes = pp20Decrunch(file)
+      } catch {
+        return // not a PowerPacked file
+      }
+      const n = Math.min(outBytes.length, dst.data.length - dst.off)
+      dst.data.set(outBytes.subarray(0, n), dst.off)
+    },
+    'lset freq dir'(it) {
+      // Lset Freq Dir "Path" — "If you haven't set path, the filerequester
+      // will use your programs current directory ... This path does not
+      // affect AMOS's (Dir$) path in any way."
+      rt.ldos.freqDir = it.evalStr()
+    },
+    'lpos freq'(it) {
+      // Lpos Freq X,Y — "only be used if the $40-flag is specified,
+      // otherwise the requester pops up at the mousepointer"
+      rt.ldos.freqX = it.evalInt()
+      it.expect(',')
+      rt.ldos.freqY = it.evalInt()
+    },
+    'lcust freq'(it) {
+      // Lcust Freq DEVWIDTH,FILEWIDTH,FILES — "Default values are 12,30,14"
+      rt.ldos.freqDevWidth = it.evalInt()
+      it.expect(',')
+      rt.ldos.freqFileWidth = it.evalInt()
+      it.expect(',')
+      rt.ldos.freqFiles = it.evalInt()
+    },
     lupbuffer(it) {
       // Lupbuffer START To STOP — "Just like AMOS Upper$ this routine won't
       // handle national characters (due to AMOS isn't using a standard
@@ -777,6 +840,50 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       d.index++
       return VS(d.names[d.index] ?? '')
     },
+    lfreq(it, a) {
+      // A$=Lfreq("Title",FLAGS) — "A$ will contain the full path and
+      // filename after the call. If the user clicked cancel, A$ will be
+      // empty."
+      //
+      // LDos puts up req.library's requester (the manual gives that away:
+      // "Currently the req.library doesn't support CG-fonts"). There is no
+      // req.library here, so AMOS's own Fsel$ stands in — see the NOTES
+      // entry. The FLAGS are accepted and mostly cannot be honoured.
+      if (rt.fsel) {
+        if (rt.fsel.done) {
+          const r = rt.fsel.result
+          rt.fsel = null
+          if (r !== '') {
+            // remember the split, which Lget Freq Dir/File hand back and
+            // which the manual says survives a Cancel
+            const cut = Math.max(r.lastIndexOf('/'), r.lastIndexOf(':'))
+            rt.ldos.freqDir = cut >= 0 ? r.slice(0, cut + 1) : ''
+            rt.ldos.freqFile = r.slice(cut + 1)
+          }
+          return VS(r)
+        }
+        it.block({ type: 'fsel' }, true)
+        return VS('')
+      }
+      const title = str(a[0] ?? VS(''))
+      const dir = rt.ldos.freqDir !== '' ? rt.ldos.freqDir : (rt.ldos.cwd ?? '')
+      if (!rt.startFsel(dir, rt.ldos.freqFile, title, '')) return VS('')
+      it.block({ type: 'fsel' }, true)
+      return VS('')
+    },
+    'lget freq file'(_) {
+      // "A$ will hold the LAST selected file. A$ will NOT empty even if the
+      // user clicked CANCEL, and something has been selected before."
+      return VS(rt.ldos.freqFile)
+    },
+    'lget freq dir'(_) {
+      return VS(rt.ldos.freqDir)
+    },
+    'lfontsize freq'(_) {
+      // "you must set the filerequester to font-mode ($8-flag) in order to
+      // update this field"
+      return VI(rt.ldos.freqFontSize)
+    },
     'lset var'(_, a) {
       // T=Lset Var("Name","VALUE") — 'Name' at most 50 characters, 'VALUE'
       // likewise, "This function will return true if successful. Name of the
@@ -843,6 +950,19 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       const fast = int(a[0] ?? VI(0)) === 1
       return VI(fast ? Math.max(0, 0x80000 - rt.fastUsed()) : Math.max(0, 0x80000 - rt.chipUsed()))
     },
+    'lpp mem'(_, a) {
+      // SIZE=Lpp Mem(END) — "END is the end of the previously loaded file.
+      // It must not be the end of the bank, but the end of the file ...
+      // (AMOS's banks are always rounded off to the nearest multiple of 4 and
+      // may differ from the actual filesize)". A PP20 file records its
+      // decrunched length in the top 24 bits of its final longword, which is
+      // why the exact end matters rather than the bank's.
+      const end = int(a[0] ?? VI(0))
+      const m = rt.resolveAddr(end - 4)
+      if (!m || m.data.length - m.off < 4) return VI(0)
+      const v = new DataView(m.data.buffer, m.data.byteOffset + m.off, 4)
+      return VI(v.getUint32(0, false) >>> 8)
+    },
     'lchk data'(_, a) {
       // CHK=Lchk Data(ADR) — "ADR points to a buffer containing the datablock
       // (512 bytes)". The manual gives no algorithm; this is the standard
@@ -901,6 +1021,8 @@ export const LDOS_IMPLEMENTED: readonly string[] = [
   'lupbuffer', 'llobuffer', 'llargest free', 'lchk data', 'lchk boot',
   'lset var', 'lget var', 'ldelete var', 'ldisk font', 'lcrypt', 'ldecrypt',
   'lsys stamp', 'lsys time', 'lansi',
+  'lfreq', 'lset freq dir', 'lget freq file', 'lget freq dir', 'lpos freq', 'lcust freq',
+  'lfontsize freq', 'lpp mem', 'lpp decrunch',
 ]
 
 export type { Value }

@@ -7,6 +7,7 @@ import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
 import { ldosKey } from './ldos'
+import { pp20Crunch } from '../loader/powerpacker'
 import { existsSync, readFileSync } from 'node:fs'
 
 /**
@@ -824,5 +825,135 @@ describe('Lansi: ANSI to AMOS control codes (LdosV25.DOC)', () => {
        `B$=Lansi(Chr$(12)) : Print Len(B$)`].join('\n'),
     )
     expect(out).toBe(' 4 10 8\n 6\n') // text passes through; $C becomes Clw/Home
+  })
+})
+
+describe('LDos file requester (LdosV25.DOC)', () => {
+  it('remembers its own directory, separate from Dir$', () => {
+    // "This path does not affect AMOS's (Dir$) path in any way"
+    const { out, rt } = run(['Lset Freq Dir "DH0:work"', 'Dir$="DH0:"', 'Print Dir$'].join('\n'))
+    expect(out).toBe('DH0:\n') // AMOS's path is untouched
+    expect(rt.ldos.freqDir).toBe('DH0:work') // LDos keeps its own
+  })
+
+  it('Lget Freq Dir/File survive a Cancel, and start empty', () => {
+    // "A$ will NOT be empty even if the user clicked CANCEL and something
+    // has been selected through the filerequester before" — so they hold the
+    // last selection, and before any selection they are empty
+    const { out } = run(['Print "["+Lget Freq Dir+"]"', 'Print "["+Lget Freq File+"]"'].join('\n'))
+    expect(out).toBe('[]\n[]\n')
+  })
+
+  it('Lcust Freq and Lpos Freq store the documented defaults and overrides', () => {
+    // "Default values are 12,30,14" and "Default positions are 3,11"
+    const fresh = run('Print 0').rt
+    expect([fresh.ldos.freqDevWidth, fresh.ldos.freqFileWidth, fresh.ldos.freqFiles]).toEqual([12, 30, 14])
+    expect([fresh.ldos.freqX, fresh.ldos.freqY]).toEqual([3, 11])
+    const { rt } = run(['Lcust Freq 20,40,8', 'Lpos Freq 100,50'].join('\n'))
+    expect([rt.ldos.freqDevWidth, rt.ldos.freqFileWidth, rt.ldos.freqFiles]).toEqual([20, 40, 8])
+    expect([rt.ldos.freqX, rt.ldos.freqY]).toEqual([100, 50])
+  })
+
+  it('Lfontsize Freq is zero until a font-mode requester has run', () => {
+    // "you must set the filerequester to font-mode ($8-flag) in order to
+    // update this field"
+    expect(run('Print Lfontsize Freq').out).toBe(' 0\n')
+  })
+
+  it('Lfreq returns empty when there is no resource bank to draw with', () => {
+    // the same failure Fsel$ has: without the system resource bank there is
+    // no dialog to run, and the call returns rather than hanging
+    expect(run('Print "["+Lfreq("Load an IFF-file",0)+"]"').out).toBe('[]\n')
+  })
+})
+
+describe('LDos PowerPacker (LdosV25.DOC)', () => {
+  // The decoder itself is the one already used by Ppload/Ppsave, whose
+  // correctness is established in powerpacker.test.ts against reference
+  // decoders and a genuine crunched file. These check the keyword wiring.
+  it('Lpp Mem reads the decrunched size out of the file trailer', () => {
+    // "END ... must not be the end of the bank, but the end of the file"
+    const plain = enc('the quick brown fox jumps over the lazy dog, twice over')
+    const packed = pp20Crunch(plain)
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    fs.mountMemory('ENV')
+    fs.currentDir = 'DH0:'
+    fs.writeFile('DH0:packed.pp', packed)
+    let out = ''
+    const rt = new Runtime(
+      tokenize(
+        [
+          'Reserve As Work 10,4096',
+          'Bload "DH0:packed.pp",10',
+          `Print Lpp Mem(Start(10)+${packed.length})`,
+        ].join('\n'),
+        table,
+        extensions,
+      ),
+      table,
+      { maxSteps: 200_000, extensions, fs, onText: (t) => (out += t) },
+    )
+    rt.runHeadless(200)
+    expect(out.trim()).toBe(String(plain.length))
+  })
+
+  it('Lpp Decrunch unpacks into the destination bank', () => {
+    const plain = enc('AMOS Professional, crunched and restored again and again')
+    const packed = pp20Crunch(plain)
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    fs.mountMemory('ENV')
+    fs.currentDir = 'DH0:'
+    fs.writeFile('DH0:d.pp', packed)
+    let out = ''
+    const rt = new Runtime(
+      tokenize(
+        [
+          'Reserve As Work 10,4096',
+          'Reserve As Work 11,4096',
+          'Bload "DH0:d.pp",10',
+          `Lpp Decrunch Start(10),Start(10)+${packed.length} To Start(11)`,
+          `Print Lstr(Start(11) To Start(11)+${plain.length})`,
+        ].join('\n'),
+        table,
+        extensions,
+      ),
+      table,
+      { maxSteps: 200_000, extensions, fs, onText: (t) => (out += t) },
+    )
+    rt.runHeadless(200)
+    expect(out.trim()).toBe('AMOS Professional, crunched and restored again and again')
+  })
+
+  it('does no checking, exactly as the manual warns', () => {
+    // "No check is done to see that the bank really contains a powerpacked
+    // file so make sure you have loaded one before" — so Lpp Mem on
+    // arbitrary data returns whatever the trailing longword happens to say,
+    // and reproducing that is the faithful behaviour rather than a defect.
+    const { out } = run(
+      [
+        'Reserve As Work 10,64',
+        'Lbstr "not packed at all",Start(10)',
+        'Print Lpp Mem(Start(10)+17)>0',
+      ].join('\n'),
+    )
+    expect(out).toBe('-1\n')
+  })
+
+  it('Lpp Decrunch leaves the destination alone rather than corrupting it', () => {
+    // The real routine would scribble over memory ("Again, no test is done
+    // ... Be careful!"). That much cannot be reproduced usefully, so a bank
+    // that is not PP20 writes nothing — recorded in the NOTES.
+    const { out } = run(
+      [
+        'Reserve As Work 10,64 : Reserve As Work 11,64',
+        'Lbstr "not packed at all",Start(10)',
+        'Lbstr "untouched",Start(11)',
+        'Lpp Decrunch Start(10),Start(10)+17 To Start(11)',
+        'Print Lstr(Start(11) To Start(11)+9)',
+      ].join('\n'),
+    )
+    expect(out).toBe('untouched\n')
   })
 })

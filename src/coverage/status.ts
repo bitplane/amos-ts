@@ -547,6 +547,13 @@ export const FAITHFUL = new Set<string>([
   'lsys stamp',
   'lsys time',
   'lansi',
+  'lset freq dir',
+  'lget freq file',
+  'lget freq dir',
+  'lpos freq',
+  'lcust freq',
+  'lfontsize freq',
+  'lpp mem',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1027,6 +1034,12 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  'lfreq':
+    "LDos does not draw this requester — it calls req.library, which the manual gives away when it apologises that 'Currently the req.library doesn't support CG-fonts'. There is no req.library here, so AMOS's own Fsel\$ stands in: a working file requester that returns the same thing (full path and name, empty on cancel) and remembers the same state, but which looks and behaves like AMOS's rather than ReqTools'. The FLAGS argument is accepted and largely cannot be honoured — .info filtering, the dir cache, the hide gadgets and font mode all belong to the requester that is not here — and \$2 was never supported by LDos itself either ('Extended select. Not supported by Ldos.'). Approximated for the substitution, not for the plumbing",
+  'lpp decrunch':
+    "Decrunches PP20 with the decoder Ppload already uses, whose correctness is established in powerpacker.test.ts against reference decoders and a genuine crunched file. One deliberate departure: the manual is emphatic that 'no test is done to see if the bank really contains a powerpacked file! Be careful!', and on the real machine that means memory gets scribbled over. Here a bank that is not PP20 writes nothing, because faithfully corrupting memory would be of no use to anyone",
+  'lpp mem':
+    "Reads the decrunched length out of the PP20 trailer's top 24 bits, which is why the manual insists END be the true end of the file rather than of the bank ('AMOS's banks are always rounded off to the nearest multiple of 4'). It does no validity checking, exactly as documented — arbitrary data returns whatever its last longword happens to say",
   'lansi':
     "Translates ANSI escape sequences into the AMOS console's own control codes — ESC P n for pen, ESC B n for paper, ESC X/Y n to locate, ESC O/N with a +128 bias for relative moves (screen.ts, +Lib.s ChXxx) — which is what a BBS terminal written in AMOS needs. The manual's table is implemented as given, including its own stated limits: only Italics, Inverse and Underline are supported and other styles are ignored, changing style does not clear the previous one, and clearing at the cursor is not distinguishable from clearing the window ('even if only ESC[J is printed the whole window is cleared'). An escape split across calls is carried over, as documented",
   'lopen':
