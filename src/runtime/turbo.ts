@@ -122,6 +122,33 @@ export interface TurboObjects {
   counts: number[]
 }
 
+/**
+ * The starfield, laid out as routine 323 lays it out.
+ *
+ * A star is four words — X, Y, X SPEED, Y SPEED — which is the "COUNT*8" the
+ * manual tells you to budget for. The other half of its formula, "Heigth of
+ * screen*2", is a table of row offsets the reserve computes up front: "It
+ * also computes in advance the address of the start of every line. This is
+ * done for more speed when displaying the 'STARS'." Row offsets are implicit
+ * here, but the consequence the manual shouts about is not — the table
+ * belongs to the screen the stars were reserved on, and drawing them
+ * anywhere else scribbles over whatever is there.
+ */
+export interface TurboStars {
+  /** four words per star: X, Y, X SPEED, Y SPEED */
+  data: Int16Array
+  /** 0 when nothing is reserved; capped at 4000 by the routine */
+  count: number
+  /** the clip rectangle at +$206, which Reserve Stars fills with the screen */
+  clip: { x1: number; y1: number; x2: number; y2: number }
+  /** the screen Reserve Stars ran on — where the interrupt draws */
+  screen: number
+  /** Stars Int On: the VBL server is installed */
+  int: boolean
+  /** its CLEAR argument — the "AUTOMATIC CLEAR MODE" */
+  intClear: boolean
+}
+
 export interface TurboState {
   /**
    * Check zones, TURBO's replacement for AMOS's Zone commands. "These
@@ -130,6 +157,8 @@ export interface TurboState {
   checks: CheckZone[]
   /** vector objects — `Object Limit` through `Object Load` */
   objects: TurboObjects
+  /** the starfield — `Reserve Stars` through `Stars Int Off` */
+  stars: TurboStars
   /**
    * The task priority Multi No / Multi Yes / Amos Pri set. There is no
    * scheduler here to apply it to; it is kept so a program that reads it
@@ -141,6 +170,14 @@ export interface TurboState {
 export const newTurboState = (): TurboState => ({
   checks: [],
   objects: { limit: 0, els: [], counts: [] },
+  stars: {
+    data: new Int16Array(0),
+    count: 0,
+    clip: { x1: 0, y1: 0, x2: 0, y2: 0 },
+    screen: 0,
+    int: false,
+    intClear: false,
+  },
   priority: 0,
 })
 
@@ -310,6 +347,107 @@ function objectLoad(rt: Runtime, it: Interp): void {
     count = u.getInt16(off, false)
     off += 2
   }
+}
+
+/**
+ * One pass over stars `from`..`to`: move each by its speed, wrap it at the
+ * clip rectangle, and — for the drawing forms — plot where it was before the
+ * move. "Displays the 'STARS' onto the screen and computes the next position
+ * of the 'STARS' depending on the X- and Y SPEEDS", in that order.
+ *
+ * `xOnly` is the interrupt server, which skips the Y half: "Only the X-speed
+ * is changed (for more speed)."
+ *
+ * The clip edges are deliberately local and mutable. The wrap-left path is
+ * `adda.w d5,a3` — it adds the overshoot into the register holding the right
+ * edge and never puts it back, so every later star in the same pass wraps to
+ * a slightly different column. The author knew: "This instruction works fine
+ * now as it is, but is not really finished yet...somethimes you don't get
+ * what you want!". Reloaded from the structure at each call, so the drift
+ * lasts one pass and no longer.
+ */
+function starsStep(
+  st: TurboStars,
+  from: number,
+  to: number,
+  plot: ((x: number, y: number) => void) | null,
+  xOnly = false,
+): void {
+  let { x1, y1, x2, y2 } = st.clip
+  for (let i = from; i <= to && i < st.count; i++) {
+    const o = i * 4
+    const x = st.data[o]!
+    const y = st.data[o + 1]!
+    const dx = st.data[o + 2]!
+    const dy = st.data[o + 3]!
+    if (dx !== 0) {
+      const nx = w(x + dx)
+      if (nx >= x2) st.data[o] = w(nx - x2)
+      else if (nx < x1) st.data[o] = x2 = w(x2 + nx)
+      else st.data[o] = nx
+    }
+    if (dy !== 0 && !xOnly) {
+      const ny = w(y + dy)
+      if (ny < y1) st.data[o + 1] = y2 = w(y2 + ny)
+      else if (ny >= y2) st.data[o + 1] = w(ny - y2)
+      else st.data[o + 1] = ny
+    }
+    plot?.(x, y)
+  }
+}
+
+/**
+ * `bset` into the first bitplane: "I use only 1 bitplane (the first one), so
+ * only 1 coloured 'STARS' are possible... But you can change the colour of
+ * them with the Palette or Colour instructions!"
+ *
+ * The routine computes its byte address from the row table and does not check
+ * anything, so a star outside the screen writes outside the bitmap. That is
+ * the crash the manual warns about; here it is skipped.
+ */
+function starsPlotter(rt: Runtime, screen: number): (x: number, y: number) => void {
+  const s = rt.screens.get(screen) ?? rt.screen
+  const px = s.pixels
+  return (x, y) => {
+    if (x < 0 || y < 0 || x >= s.width || y >= s.height) return
+    px[y * s.width + x]! |= 1
+  }
+}
+
+/** `Stars Draw` in 2.15, `F Stars` in 1.9 — routine 57, plot without moving */
+function starsDraw(rt: Runtime): void {
+  const st = starfield(rt)
+  const plot = starsPlotter(rt, rt.currentIndex)
+  for (let i = 0; i < st.count; i++) plot(st.data[i * 4]!, st.data[i * 4 + 1]!)
+}
+
+/**
+ * The VBL server `Stars Int On` installs, run once a frame from the
+ * runtime's own vertical blank. It draws on the screen the stars were
+ * reserved on — the routine keeps that address at +$210 and the manual is
+ * blunt about the consequence: "Allways be sure that the SCREEN where you
+ * have reserved the 'STARS' remains open when the 'STARS INTERRUPT' is on.
+ * Otherwise a crash will be certain".
+ */
+export function starsVbl(rt: Runtime): void {
+  const st = rt.turbo.stars
+  if (!st.int || st.count === 0) return
+  const s = rt.screens.get(st.screen)
+  if (!s) return // the screen is closed: on the Amiga, the crash
+  if (st.intClear) {
+    // the blitter clears the first bitplane and only that one
+    const px = s.pixels
+    for (let i = 0; i < px.length; i++) px[i]! &= ~1
+  }
+  starsStep(st, 0, st.count - 1, starsPlotter(rt, st.screen), true)
+}
+
+/** the stars, checked as the drawing keywords check them */
+function starfield(rt: Runtime): TurboStars {
+  // Display Stars and Stars Draw both go through `Rbeq routine 62` on a zero
+  // count — an illegal function call, not "Stars not reserved"
+  if (rt.turbo.stars.count === 0) funcCall()
+  return rt.turbo.stars
 }
 
 export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
@@ -502,6 +640,136 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
     'object load chip'(it) {
       // 1.9's name for routine 40, the same routine
       objectLoad(rt, it)
+    },
+    'reserve stars'(it) {
+      // Reserve Stars COUNT — routine 323 ($65c8). "At this point you can
+      // reserve memory for 4000 'STARS'": cmp.w #$fa1 and out.
+      const st = rt.turbo.stars
+      const n = it.evalInt()
+      if (n <= 0 || n >= 4001) funcCall()
+      if (st.count !== 0) turboError(8)
+      st.count = n
+      st.data = new Int16Array(n * 4)
+      // the row table, and the clip rectangle, both come from the screen
+      // this ran on — which is why the manual insists you display them there
+      st.screen = rt.currentIndex
+      const s = rt.screen
+      st.clip = { x1: 0, y1: 0, x2: s.width - 1, y2: s.height - 1 }
+    },
+    'define star'(it) {
+      // Define Star NR,X,Y,X SPEED,Y SPEED — routine 322, four words stored
+      // with one movem. Negative coordinates are refused; negative speeds
+      // are not, which is how "your 'STARS' can fly in any direction".
+      const st = rt.turbo.stars
+      const nr = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const dx = it.evalInt()
+      it.expect(',')
+      const dy = it.evalInt()
+      if (nr <= 0 || y < 0 || x < 0) funcCall()
+      if (st.count === 0) turboError(9)
+      if (nr - 1 >= st.count) funcCall()
+      st.data.set([x, y, dx, dy], (nr - 1) * 4)
+    },
+    'display stars'() {
+      // "Displays the 'STARS' onto the screen and computes the next position"
+      const st = starfield(rt)
+      starsStep(st, 0, st.count - 1, starsPlotter(rt, rt.currentIndex))
+    },
+    'stars draw'() {
+      starsDraw(rt)
+    },
+    'f stars'() {
+      // 1.9's name for routine 57. "Displays the 'STARS' onto the screen
+      // without computing the next 'STAR' position. So your 'STARS' can be
+      // freezed without changing the SPEED of them!"
+      starsDraw(rt)
+    },
+    'stars compute'(it) {
+      // Stars Compute START To END — routine 56, the same walk with no plot
+      const from = it.evalInt()
+      it.expect('to')
+      const to = it.evalInt()
+      const st = rt.turbo.stars
+      if (to === 0 || to - 1 >= st.count) funcCall()
+      if (from === 0) funcCall()
+      // the loop runs at least once whatever START and END are, and START is
+      // never checked against the count — past the end it would read on into
+      // whatever follows the allocation
+      starsStep(st, from - 1, Math.max(from - 1, to - 1), null)
+    },
+    'stars speed'(it) {
+      // Stars Speed START To END,X SPEED,Y SPEED — routine 58. END must be
+      // strictly greater than START (`cmp.w d1,d2 : Rble`), so a range of
+      // one star is an illegal function call.
+      const from = it.evalInt()
+      it.expect('to')
+      const to = it.evalInt()
+      it.expect(',')
+      const dx = it.evalInt()
+      it.expect(',')
+      const dy = it.evalInt()
+      const st = rt.turbo.stars
+      if (from === 0 || to <= from || to - 1 >= st.count) funcCall()
+      for (let i = from - 1; i <= to - 1; i++) {
+        st.data[i * 4 + 2] = dx
+        st.data[i * 4 + 3] = dy
+      }
+    },
+    'stars clip'(it) {
+      // Stars Clip X,Y,X1,Y1 — routine 320. The right and bottom edges are
+      // clamped to the screen rather than refused; the left and top are
+      // refused. The width it compares against is the bitplane's, rowBytes*8,
+      // which is the screen width rounded up to a word.
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      if (y < 0 || x < 0 || x2 <= x || y2 <= y) funcCall()
+      const s = rt.screen
+      const wide = s.rowBytes * 8
+      if (x >= wide || y >= s.height) funcCall()
+      rt.turbo.stars.clip = {
+        x1: x,
+        y1: y,
+        x2: x2 >= wide ? wide - 1 : x2,
+        y2: y2 >= s.height ? s.height - 1 : y2,
+      }
+    },
+    'stars erase'() {
+      // routine 321 frees both allocations and zeroes the count. With
+      // nothing reserved it returns without a word.
+      const st = rt.turbo.stars
+      if (st.count === 0) return
+      st.count = 0
+      st.data = new Int16Array(0)
+    },
+    'stars int on'(it) {
+      // Stars Int On CLEAR — routine 319 builds an Interrupt of priority -40
+      // and AddIntServer()s it on INTB_VERTB. "If CLEAR <> 0 the display will
+      // be cleared before displaying the 'STARS'."
+      const st = rt.turbo.stars
+      if (st.count === 0) turboError(9)
+      if (st.int) turboError(10)
+      st.int = true
+      // the CLEAR argument is read after the checks, and only ever sets the
+      // flag — Stars Int On 0 leaves an earlier setting alone, but there
+      // cannot be one, because the flag is cleared by Stars Int Off
+      if (it.evalInt() !== 0) st.intClear = true
+    },
+    'stars int off'() {
+      // routine 318: RemIntServer and free, silent when it is not on
+      const st = rt.turbo.stars
+      if (!st.int) return
+      st.intClear = false
+      st.int = false
     },
     'reserve check'(it) {
       // "Reserves x check ZONES for TURBO zone (CHECK) routines. Execute

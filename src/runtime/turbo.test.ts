@@ -401,6 +401,13 @@ describe('TURBO 1.9 chip and fast objects (Turbo_Object_doc.asc)', () => {
     expect(rt.turbo.objects.els[1]?.length).toBe(9)
   })
 
+  it('F Stars is 2.15 Stars Draw under its older name', () => {
+    // routine 57 either way: plot without advancing
+    const rt = run19('Cls 0 : Reserve Stars 1 : Define Star 1,20,30,5,5 : F Stars')
+    expect(rt.screen.point(20, 30) & 1).toBe(1)
+    expect([...rt.turbo.stars.data.slice(0, 2)]).toEqual([20, 30])
+  })
+
   it('Object Load Chip reads what 2.15 wrote', () => {
     const rt = run19(
       [
@@ -413,6 +420,175 @@ describe('TURBO 1.9 chip and fast objects (Turbo_Object_doc.asc)', () => {
       ].join('\n'),
     )
     expect([...rt.turbo.objects.els[1]!]).toEqual([0, 3, 4, 1, 0, 0])
+  })
+})
+
+/**
+ * Starfields, from Turbo_Stars_doc.asc and routines 318-323 and 52-59. The
+ * star record is four words — X, Y, X SPEED, Y SPEED — which is the manual's
+ * "COUNT*8" bytes.
+ */
+describe('TURBO stars: reserving and defining (Turbo_Stars_doc.asc + disassembly)', () => {
+  it('Reserve Stars takes up to 4000 and only once', () => {
+    // "At this point you can reserve memory for 4000 'STARS'" — cmp.w #$fa1
+    const { rt } = run('Reserve Stars 4000')
+    expect(rt.turbo.stars.count).toBe(4000)
+    expect(rt.turbo.stars.data.length).toBe(4000 * 4)
+    expect(() => run('Reserve Stars 4001')).toThrow(/Illegal function call/)
+    expect(() => run('Reserve Stars 0')).toThrow(/Illegal function call/)
+    expect(() => run('Reserve Stars 10 : Reserve Stars 10')).toThrow(/Stars allready reserved/)
+  })
+
+  it('the clip rectangle starts as the whole screen it was reserved on', () => {
+    const { rt } = run('Reserve Stars 4')
+    expect(rt.turbo.stars.clip).toEqual({ x1: 0, y1: 0, x2: 319, y2: 199 })
+  })
+
+  it('Define Star stores four words and refuses negative coordinates', () => {
+    // "X and Y are the initial coordinates... X SPEED and Y SPEED define the
+    // speed of the 'STAR'. So your 'STARS' can fly in any direction!"
+    const { rt } = run('Reserve Stars 2 : Define Star 2,10,20,-1,3')
+    expect([...rt.turbo.stars.data.slice(4, 8)]).toEqual([10, 20, -1, 3])
+    expect(() => run('Reserve Stars 2 : Define Star 1,-1,0,0,0')).toThrow(/Illegal function call/)
+    expect(() => run('Reserve Stars 2 : Define Star 3,0,0,0,0')).toThrow(/Illegal function call/)
+    expect(() => run('Define Star 1,0,0,0,0')).toThrow(/Stars not reserved/)
+  })
+
+  it('Stars Erase gives the memory back, quietly even if there is none', () => {
+    expect(() => run('Stars Erase')).not.toThrow()
+    const { rt } = run('Reserve Stars 4 : Stars Erase')
+    expect(rt.turbo.stars.count).toBe(0)
+    // and the display keywords go through Rbeq routine 62, not error 9
+    expect(() => run('Reserve Stars 4 : Stars Erase : Display Stars')).toThrow(/Illegal function call/)
+  })
+})
+
+describe('TURBO stars: display (Turbo_Stars_doc.asc + disassembly)', () => {
+  it('Display Stars plots where the star is, then moves it', () => {
+    // Cls 0 first: the default paper is colour 1, which has bit 0 set
+    const { rt } = run('Cls 0 : Reserve Stars 1 : Define Star 1,50,60,1,2 : Display Stars')
+    expect(rt.screen.point(50, 60) & 1).toBe(1)
+    expect([...rt.turbo.stars.data.slice(0, 2)]).toEqual([51, 62])
+    expect(rt.screen.point(51, 62) & 1).toBe(0) // not yet drawn there
+  })
+
+  it('a star only ever sets the first bitplane', () => {
+    // "I use only 1 bitplane (the first one), so only 1 coloured 'STARS' are
+    // possible" — a bset, so colour 2 underneath becomes 3, not 1
+    const { rt } = run(
+      ['Ink 2', 'Bar 40,40 To 60,60', 'Reserve Stars 1', 'Define Star 1,50,50,0,0', 'Display Stars'].join('\n'),
+    )
+    expect(rt.screen.point(50, 50)).toBe(3)
+  })
+
+  it('Stars Draw plots without moving anything', () => {
+    // "Displays the 'STARS' onto the screen without computing the next 'STAR'
+    // position. So your 'STARS' can be freezed"
+    const { rt } = run('Reserve Stars 1 : Define Star 1,50,60,1,2 : Stars Draw : Stars Draw')
+    expect(rt.screen.point(50, 60) & 1).toBe(1)
+    expect([...rt.turbo.stars.data.slice(0, 2)]).toEqual([50, 60])
+  })
+
+  it('Stars Compute moves the range it is given and draws nothing', () => {
+    const { rt } = run(
+      [
+        'Cls 0',
+        'Reserve Stars 3',
+        'Define Star 1,10,10,1,0',
+        'Define Star 2,20,20,1,0',
+        'Define Star 3,30,30,1,0',
+        'Stars Compute 1 To 2',
+      ].join('\n'),
+    )
+    const d = rt.turbo.stars.data
+    expect([d[0], d[4], d[8]]).toEqual([11, 21, 30])
+    expect(rt.screen.point(10, 10) & 1).toBe(0)
+    expect(() => run('Reserve Stars 2 : Stars Compute 1 To 3')).toThrow(/Illegal function call/)
+  })
+
+  it('Stars Speed changes a range, and will not take a range of one', () => {
+    // `cmp.w d1,d2 : Rble routine 62` — END must be strictly above START
+    const { rt } = run(
+      ['Reserve Stars 3', 'Define Star 1,0,0,9,9', 'Define Star 2,0,0,9,9', 'Stars Speed 1 To 2,4,5'].join('\n'),
+    )
+    expect([...rt.turbo.stars.data.slice(2, 4)]).toEqual([4, 5])
+    expect([...rt.turbo.stars.data.slice(6, 8)]).toEqual([4, 5])
+    expect(() => run('Reserve Stars 3 : Stars Speed 2 To 2,1,1')).toThrow(/Illegal function call/)
+  })
+})
+
+describe('TURBO stars: clipping (Turbo_Stars_doc.asc + disassembly)', () => {
+  it('Stars Clip clamps the far corner and refuses a backwards rectangle', () => {
+    const { rt } = run('Reserve Stars 1 : Stars Clip 10,20,999,999')
+    expect(rt.turbo.stars.clip).toEqual({ x1: 10, y1: 20, x2: 319, y2: 199 })
+    expect(() => run('Reserve Stars 1 : Stars Clip 10,10,10,50')).toThrow(/Illegal function call/)
+    expect(() => run('Reserve Stars 1 : Stars Clip -1,0,10,10')).toThrow(/Illegal function call/)
+  })
+
+  it('a star past the right edge wraps by the width of the region', () => {
+    const { rt } = run('Reserve Stars 1 : Stars Clip 0,0,100,100 : Define Star 1,99,0,2,0 : Display Stars')
+    expect(rt.turbo.stars.data[0]).toBe(1) // 101 - 100
+  })
+
+  it('two stars wrapping left in one pass land in different columns', () => {
+    // The wrap-left path is `adda.w d5,a3`: it folds the overshoot into the
+    // register holding the right edge and leaves it there, so the second
+    // star to wrap in a pass goes one column further left than the first.
+    // "somethimes you don't get what you want!", as the manual has it.
+    const { rt } = run(
+      [
+        'Reserve Stars 2',
+        'Stars Clip 0,0,100,100',
+        'Define Star 1,0,50,-1,0',
+        'Define Star 2,0,50,-1,0',
+        'Display Stars',
+      ].join('\n'),
+    )
+    expect([rt.turbo.stars.data[0], rt.turbo.stars.data[4]]).toEqual([99, 98])
+    // and the damage lasts one pass only: the edge is reloaded each call
+    const again = run(
+      ['Reserve Stars 1', 'Stars Clip 0,0,100,100', 'Define Star 1,0,50,-1,0', 'Display Stars', 'Display Stars'].join(
+        '\n',
+      ),
+    )
+    expect(again.rt.turbo.stars.data[0]).toBe(98) // 99 the first pass, 98 the next
+  })
+})
+
+describe('TURBO stars: the interrupt (Turbo_Stars_doc.asc + disassembly)', () => {
+  it('Stars Int On installs once and needs stars to install', () => {
+    expect(() => run('Stars Int On 0')).toThrow(/Stars not reserved/)
+    expect(() => run('Reserve Stars 2 : Stars Int On 0 : Stars Int On 0')).toThrow(/Stars int allready on/)
+    const { rt } = run('Reserve Stars 2 : Stars Int On 1 : Stars Int Off')
+    expect(rt.turbo.stars.int).toBe(false)
+    expect(() => run('Stars Int Off')).not.toThrow()
+  })
+
+  it('the server runs every frame and moves the stars in X only', () => {
+    // "Only the X-speed is changed (for more speed)."
+    const { rt } = run('Reserve Stars 1 : Define Star 1,10,10,1,1 : Stars Int On 0 : Wait 5')
+    const d = rt.turbo.stars.data
+    expect(d[0]).toBeGreaterThan(10)
+    expect(d[1]).toBe(10) // the Y speed is ignored by the server
+    expect(rt.screen.point(10, 10) & 1).toBe(1)
+  })
+
+  it('the automatic clear mode wipes the starfield plane and nothing else', () => {
+    // "Only the 'STARFIELD PLANE' is cleared, this is the first bitplane."
+    const { rt } = run(
+      [
+        'Ink 2 : Bar 0,0 To 100,100', // colour 2 lives in the second plane
+        'Reserve Stars 1',
+        'Define Star 1,50,50,1,0',
+        'Stars Int On 1',
+        'Wait 5',
+      ].join('\n'),
+    )
+    expect(rt.screen.point(10, 10)).toBe(2) // the bar survives
+    // the star's earlier positions were cleared, only the newest one is lit
+    const lit = []
+    for (let x = 50; x < 60; x++) if (rt.screen.point(x, 50) & 1) lit.push(x)
+    expect(lit.length).toBe(1)
   })
 })
 

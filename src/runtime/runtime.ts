@@ -22,7 +22,7 @@ import { Screen, builtinPattern, sliderMetrics } from './screen'
 import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from './instr'
 import { defaultHost, type Host } from './host'
 import { newLdosState, type LdosState } from './ldos'
-import { newTurboState, type TurboState } from './turbo'
+import { newTurboState, starsVbl, type TurboState } from './turbo'
 import { ObjectBank, imagesCollide } from './objects'
 import type { BankImage, Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from './fs'
@@ -3060,6 +3060,9 @@ export class Runtime {
       this.input.mouseY = Math.max(m.y1, Math.min(m.y2, this.input.mouseY))
     }
     if (!this.synchroManual) this.stepAmal()
+    // TURBO's Stars Int On adds its own server to the VBLANK chain, at
+    // priority -40 — so it runs after AMOS's own vertical blank work
+    starsVbl(this)
     this.unblock()
     let result: RunResult
     if (!this.interp.done && this.interp.blocked === null) {

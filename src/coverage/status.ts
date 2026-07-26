@@ -589,6 +589,19 @@ export const FAITHFUL = new Set<string>([
   'object save',
   'object load',
   'object load chip',
+  // starfields: routines 318-323 and 52-59, documented in 1.9's
+  // Turbo_Stars_doc.asc
+  'reserve stars',
+  'define star',
+  'display stars',
+  'stars draw',
+  'f stars',
+  'stars compute',
+  'stars speed',
+  'stars clip',
+  'stars erase',
+  'stars int on',
+  'stars int off',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1085,6 +1098,10 @@ export const NOTES: Record<string, string> = {
     "TURBO's own zone system, which the manual is explicit is 'not compatible with the normal Zone commands'. Note it returns 1 and 0 rather than AMOS's -1 and 0, as documented",
   'workbench open':
     'The counterpart to Close Workbench, which this port already treats as faithful because there is no Workbench memory to free. Reopening it is the same nothing in reverse',
+  'display stars':
+    "The plot is a bset into the first bitplane, the wrap is the routine's own — including the bug the author owns up to in the Stars Clip entry ('This instruction works fine now as it is, but is not really finished yet...somethimes you don't get what you want!'), where wrapping past the left edge folds the overshoot into the register holding the right edge and every later star in the same pass wraps a column further in. What is not reproduced is what happens off-screen: the routine computes a byte address from its precomputed row table and checks nothing, so a star outside the screen — or a screen other than the one Reserve Stars ran on, which the manual warns about in capitals — writes over whatever is there. Those stars are skipped",
+  'stars int on':
+    "Installs a VBLANK server at priority -40; here the runtime's own vertical blank calls it, once a frame, after AMOS's. The X-only movement is faithful ('Only the X-speed is changed (for more speed)'), as is drawing on the screen Reserve Stars ran on rather than the current one. Two things cannot follow: the server keeps running while AMOS is busy on the real machine, where this is bounded by the frame; and closing that screen with the interrupt on is 'a crash will be certain' there, and nothing here",
   'reserve object chip':
     "1.9 splits Reserve Object into Chip and Fast variants, and routines 28 and 29 differ in exactly one longword: the AllocMem flags, MEMF_CHIP against MEMF_FAST. They share one object table and one set of errors. There is no chip/fast memory here, so both names run the same handler — and the out-of-memory exit both routines carry (routine 64, AMOS error 24) cannot be reached",
   'object draw':
