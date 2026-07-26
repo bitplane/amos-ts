@@ -35,6 +35,24 @@ import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { amigaMatch, hasWildcard } from './ldospat'
 
+/**
+ * AmigaDOS datestamps count days from 1 Jan 1978. Ldate and Lstamp convert
+ * between that and a "YYMMDD" string; the manual caps the useful range at
+ * 2099 ("which should be enough?").
+ */
+const STAMP_EPOCH = Date.UTC(1978, 0, 1)
+const DAY_MS = 86_400_000
+
+export function stampToYmd(days: number): [number, number, number] {
+  const d = new Date(STAMP_EPOCH + Math.max(0, days) * DAY_MS)
+  return [d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()]
+}
+
+export function ymdToStamp(year: number, month: number, day: number): number {
+  const days = Math.floor((Date.UTC(year, month - 1, day) - STAMP_EPOCH) / DAY_MS)
+  return Number.isFinite(days) ? Math.max(0, days) : 0
+}
+
 /** LDos channel: readable and writable at once, unlike an AMOS channel */
 export interface LdosChannel {
   path: string
@@ -209,6 +227,21 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
         if (b >= low && b <= high) r.data[i] = swap
       }
     },
+    'lset comment'(it) {
+      // Lset Comment "FileName","Comment" — '"Comment" may not be longer
+      // than 79 characters and also works on directories as well.'
+      const path = it.evalStr()
+      it.expect(',')
+      const comment = it.evalStr()
+      rt.vfs?.setMeta(path, { comment: comment.slice(0, 79) })
+    },
+    'lset prot'(it) {
+      // Lset Prot "FileName",MASK — 'MASK is a bitpattern like above',
+      // e.g. %00000000 meaning ----rwed
+      const path = it.evalStr()
+      it.expect(',')
+      rt.vfs?.setMeta(path, { protection: it.evalInt() & 0xff })
+    },
     lold() {
       // "Lold - MAY CURRENTLY NOT BE USED!!  These are here for future
       // versions". Documented as unusable, so doing nothing is what the
@@ -330,6 +363,43 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       }
       return VI(stop)
     },
+    'lget comment'(_, a) {
+      // A$=Lget Comment("FileName"). "A$ will contain nothing if there was no
+      // filenote. This of course also works on directories."
+      return VS(rt.vfs?.meta(str(a[0] ?? VS(''))).comment ?? '')
+    },
+    'lget prot'(_, a) {
+      // A=Lget Prot("FileName") — bit 7 H, 6 S, 5 P, 4 A (active high);
+      // bit 3 R, 2 W, 1 E, 0 D (active LOW, so a set bit denies it)
+      return VI(rt.vfs?.meta(str(a[0] ?? VS(''))).protection ?? 0)
+    },
+    ldate(_, a) {
+      // A$=Ldate(STAMP). "stamp is the number of days since 1 Jan 1978. A$
+      // will be in the form of "YYMMDD" ... If the datestamp is less than
+      // zero (below 1 Jan 1978) the string 780101 will be returned."
+      const [y, m, d] = stampToYmd(int(a[0] ?? VI(0)))
+      const pad = (n: number): string => String(n).padStart(2, '0')
+      return VS(`${pad(y % 100)}${pad(m)}${pad(d)}`)
+    },
+    lstamp(_, a) {
+      // S=Lstamp(YEAR,MONTH,DAY). "If the date is before 1 Jan 1978, 1 Jan
+      // 1978 will still be returned."
+      return VI(ymdToStamp(int(a[0] ?? VI(0)), int(a[1] ?? VI(1)), int(a[2] ?? VI(1))))
+    },
+    'lset file date'(_, a) {
+      // TEST=Lset File Date("name",STAMP,MIN,TICKS). "TEST will be true (-1)
+      // if the call was successful ... MIN are the number of minutes that
+      // have passed since midnight. TICKS are the number of ticks that have
+      // passed during the last minute (1 tick is the same as a VBL = 1/50 sec)"
+      const path = str(a[0] ?? VS(''))
+      if (rt.vfs?.exists(path) == null) return VI(0)
+      const ok = rt.vfs.setMeta(path, {
+        days: Math.max(0, int(a[1] ?? VI(0))),
+        mins: int(a[2] ?? VI(0)),
+        ticks: int(a[3] ?? VI(0)),
+      })
+      return VI(ok ? -1 : 0)
+    },
     lstr(_, a) {
       // A$=Lstr(START To MAX). Reads from START up to the end-of-line byte
       // (Lset Eoln, default 10) or MAX. "The end-of-line-terminator is NOT
@@ -356,6 +426,7 @@ export const LDOS_IMPLEMENTED: readonly string[] = [
   'lopen', 'lclose', 'lset eoln', 'lbstr', 'lold', 'lcreate',
   'lload', 'lsave', 'lseek', 'lsize', 'lfile type', 'lstr',
   'lwords', 'lword', 'lwild', 'lmatch', 'lreplace', 'lfilter', 'lskip', 'lback hunt',
+  'lget comment', 'lset comment', 'lget prot', 'lset prot', 'ldate', 'lstamp', 'lset file date',
 ]
 
 export type { Value }

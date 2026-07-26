@@ -515,6 +515,13 @@ export const FAITHFUL = new Set<string>([
   'lfilter',
   'lskip',
   'lback hunt',
+  'lget comment',
+  'lset comment',
+  'lget prot',
+  'lset prot',
+  'ldate',
+  'lstamp',
+  'lset file date',
   // NB: 'lmatch' is deliberately absent — implemented, but the manual never
   // states what a successful match returns, so it is approximated. See NOTES.
   'assign',
@@ -968,6 +975,12 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  'lget prot':
+    "Protection bits are stored per path in the virtual filesystem, since most volumes here are read-only (a disk image, a zip) and the bits must be settable regardless. Nothing enforces them: the manual notes that even real DOS 'doesn't care about some flags when it comes to directories' and that 'if you are running Kickstart 1.2 or 1.3 DOS neglects most flags', so unenforced flags are within the documented range of behaviour — but here no flag is enforced at all",
+  'lset file date':
+    'Stores the datestamp, minutes and ticks. The virtual filesystem does not otherwise track modification times, so a file that has never been stamped reads back as 1 Jan 1978 rather than when it was written — deliberate, because a real clock would make the corpus census non-reproducible',
+  'ldate':
+    "Converts a datestamp to YYMMDD. The manual bounds the range at 2099 ('which should be enough?') and specifies that a negative stamp returns 780101, both of which hold here; the two-digit year is ambiguous past 2000 in exactly the way the original is",
   'lmatch':
     "The pattern syntax is fully documented — ? # (a|b) ~ [abc] [~abc] a-z % and the optional * — and is implemented in full, including negation, which is why it is a backtracking matcher rather than a RegExp. What LdosV25.DOC never states is what a *successful* match returns: it gives the form 'L=Lmatch(SOURCE$,S$)' and describes only the wildcard grammar. AMOS's own true is -1 and that is what this returns, but a program comparing the result against a specific positive number could differ. The author's own example programs do not call it, so there is no artifact to settle it either — hence approximated, not faithful",
   'lwild':

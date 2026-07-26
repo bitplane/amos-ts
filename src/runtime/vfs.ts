@@ -93,6 +93,34 @@ export class MemoryVolume implements Volume {
   }
 }
 
+
+/**
+ * AmigaDOS file metadata: the comment, protection bits and datestamp every
+ * file and directory carries alongside its contents.
+ *
+ * Kept beside the data rather than in it, because most volumes here are
+ * read-only (an ADF, a zip) and the metadata has to be settable regardless.
+ */
+export interface FileMeta {
+  /** the FileNote, up to 79 characters; empty when unset */
+  comment: string
+  /**
+   * Protection bits. The high nibble is active HIGH (bit 7 hidden, 6 script,
+   * 5 pure, 4 archived) and the low nibble is active LOW (bit 3 readable,
+   * 2 writable, 1 executable, 0 deleteable) — a set bit in the low nibble
+   * *denies* the permission. 0 is therefore the default `----rwed`.
+   */
+  protection: number
+  /** days since 1 Jan 1978 */
+  days: number
+  /** minutes since midnight */
+  mins: number
+  /** ticks (1/50 s) elapsed in the current minute */
+  ticks: number
+}
+
+export const defaultMeta = (): FileMeta => ({ comment: '', protection: 0, days: 0, mins: 0, ticks: 0 })
+
 export interface ResolvedPath {
   volume: string
   segs: string[]
@@ -106,6 +134,8 @@ export class AmigaFS implements AmosFS {
   /** all writes land here, shadowing read-only volumes */
   readonly overlay = new MemoryVolume()
   private deleted = new Set<string>()
+  /** AmigaDOS metadata per path; absent means the defaults */
+  private metadata = new Map<string, FileMeta>()
   currentDir = ''
 
   // ---- setup (the JS side) ----
@@ -304,6 +334,12 @@ export class AmigaFS implements AmosFS {
   private erase(r: ResolvedPath): void {
     this.overlay.delete([r.volume, ...r.segs])
     this.deleted.add(this.tomb(r))
+    // metadata belongs to the object, not the name: it goes with it, and
+    // takes a deleted directory's whole subtree along
+    const under = this.tomb(r) + '/'
+    for (const k of [...this.metadata.keys()]) {
+      if (k === this.tomb(r) || k.startsWith(under)) this.metadata.delete(k)
+    }
   }
 
   /**
@@ -326,18 +362,26 @@ export class AmigaFS implements AmosFS {
     if (kind === 'file') {
       const data = this.readFile(a.canonical)
       if (data === null) return false
+      const meta = this.metadata.get(this.tomb(a))
       this.erase(a)
-      return this.writeFile(b.canonical, data)
+      if (!this.writeFile(b.canonical, data)) return false
+      if (meta) this.metadata.set(this.tomb(b), meta)
+      return true
     }
     // a directory goes with everything under it; the contents are read out
     // before the source is erased, since the two can overlap in case-only
     // renames and the read side is layered
     const { dirs, files } = this.contents(a.canonical)
     const moved = files.map((f) => ({ path: joinAmigaPath(b.canonical, f.rel.join('/')), data: f.data }))
+    // metadata is keyed by path, so re-key the whole subtree before erasing
+    const metaFrom = this.tomb(a)
+    const carried = [...this.metadata].filter(([k]) => k === metaFrom || k.startsWith(metaFrom + '/'))
     this.erase(a)
     this.mkdir(b.canonical)
     for (const d of dirs) this.mkdir(joinAmigaPath(b.canonical, d.join('/')))
     for (const f of moved) this.writeFile(f.path, f.data)
+    const metaTo = this.tomb(b)
+    for (const [k, v] of carried) this.metadata.set(metaTo + k.slice(metaFrom.length), v)
     return true
   }
 
@@ -383,6 +427,28 @@ export class AmigaFS implements AmosFS {
     }
     for (const e of over ?? []) byName.set(e.name.toLowerCase(), e)
     return [...byName.values()]
+  }
+
+  // ---- AmigaDOS metadata ----
+
+  /**
+   * The comment, protection bits and datestamp for a path. Files that have
+   * never had any set read back as defaults rather than as absent, which is
+   * what AmigaDOS does — every file has protection bits.
+   */
+  meta(path: string): FileMeta {
+    const r = this.resolve(path)
+    if (!r) return defaultMeta()
+    return { ...defaultMeta(), ...this.metadata.get(this.tomb(r)) }
+  }
+
+  /** set part of a path's metadata; returns false if the path is unresolvable */
+  setMeta(path: string, patch: Partial<FileMeta>): boolean {
+    const r = this.resolve(path)
+    if (!r) return false
+    const key = this.tomb(r)
+    this.metadata.set(key, { ...defaultMeta(), ...this.metadata.get(key), ...patch })
+    return true
   }
 
   setCurrentDir(path: string): boolean {

@@ -336,3 +336,82 @@ describe('LDos memory scanning (LdosV25.DOC)', () => {
     expect(out).toBe(' 5\n 0\n')
   })
 })
+
+describe('LDos file metadata (LdosV25.DOC)', () => {
+  it('Lset/Lget Comment round-trip a FileNote, on files and directories', () => {
+    // "A$ will contain nothing if there was no filenote. This of course also
+    // works on directories." / "may not be longer than 79 characters"
+    const { out } = run(
+      [
+        'Lopen 1,"DH0:c.dat",1 : Lclose 1',
+        'Mkdir "DH0:cdir"',
+        'Print "["+Lget Comment("DH0:c.dat")+"]"', // none yet
+        'Lset Comment "DH0:c.dat","hello there"',
+        'Lset Comment "DH0:cdir","a drawer note"',
+        'Print Lget Comment("DH0:c.dat")',
+        'Print Lget Comment("DH0:cdir")',
+        'Lset Comment "DH0:c.dat",String$("x",100)',
+        'Print Len(Lget Comment("DH0:c.dat"))', // clipped to 79
+      ].join('\n'),
+    )
+    expect(out).toBe('[]\nhello there\na drawer note\n 79\n')
+  })
+
+  it('protection bits default to ----rwed and round-trip', () => {
+    // bit 7 H, 6 S, 5 P, 4 A are active HIGH; bits 3-0 R,W,E,D are active
+    // LOW, so 0 means every permission granted. The manual's own example:
+    //   Lset Prot "c:myCommand",%00000000 : Rem ----rwed
+    const { out } = run(
+      [
+        'Lopen 1,"DH0:p.dat",1 : Lclose 1',
+        'Print Lget Prot("DH0:p.dat")', // default 0
+        'Lset Prot "DH0:p.dat",%10000001', // hidden, and NOT deleteable
+        'Print Lget Prot("DH0:p.dat")',
+        'Print (Lget Prot("DH0:p.dat") and %10000000)<>0', // H is set
+        'Print (Lget Prot("DH0:p.dat") and 1)<>0', // D bit set = deletion denied
+      ].join('\n'),
+    )
+    expect(out).toBe(' 0\n 129\n-1\n-1\n')
+  })
+
+  it('Ldate and Lstamp convert both ways, per the manual example', () => {
+    // "Fx. Print Ldate(LStamp(1991,10,23)) --> 911023"
+    // "If the datestamp is less than zero ... the string 780101 will be
+    // returned" and Lstamp of an earlier date still returns 1 Jan 1978.
+    const { out } = run(
+      [
+        'Print Ldate(Lstamp(1991,10,23))',
+        'Print Ldate(0)',
+        'Print Ldate(-5)',
+        'Print Lstamp(1977,6,1)',
+        'Print Ldate(Lstamp(2020,2,29))', // a leap day, well past 2000
+      ].join('\n'),
+    )
+    expect(out).toBe('911023\n780101\n780101\n 0\n200229\n')
+  })
+
+  it('Lset File Date is true for a real file and false for a missing one', () => {
+    // "TEST will be true (-1) if the call was successful"
+    const { out } = run(
+      [
+        'Lopen 1,"DH0:d.dat",1 : Lclose 1',
+        'Print Lset File Date("DH0:d.dat",Lstamp(1994,7,10),90,25)',
+        'Print Lset File Date("DH0:missing",0,0,0)',
+      ].join('\n'),
+    )
+    expect(out).toBe('-1\n 0\n')
+  })
+
+  it('metadata belongs to the object: it follows a rename and dies with it', () => {
+    const { fs } = run(
+      [
+        'Lopen 1,"DH0:m.dat",1 : Lclose 1',
+        'Lset Comment "DH0:m.dat","travels"',
+        'Lset Prot "DH0:m.dat",%00000101',
+        'Rename "DH0:m.dat" To "DH0:moved.dat"',
+      ].join('\n'),
+    )
+    expect(fs.meta('DH0:moved.dat')).toMatchObject({ comment: 'travels', protection: 5 })
+    expect(fs.meta('DH0:m.dat').comment).toBe('') // the old name has nothing
+  })
+})
