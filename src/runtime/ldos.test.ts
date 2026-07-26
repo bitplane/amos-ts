@@ -415,3 +415,109 @@ describe('LDos file metadata (LdosV25.DOC)', () => {
     expect(fs.meta('DH0:m.dat').comment).toBe('') // the old name has nothing
   })
 })
+
+describe('LDos directory scanning (LdosV25.DOC + Lrecursive.AMOS)', () => {
+  const tree = [
+    'Mkdir "DH0:top"',
+    'Mkdir "DH0:top/sub"',
+    'Lopen 1,"DH0:top/a.txt",1 : Reserve As Work 10,64 : A=Lsave(1,Start(10),12) : Lclose 1',
+    'Lopen 1,"DH0:top/b.txt",1 : Lclose 1',
+  ]
+
+  it('Lcat First locks the directory; entries come from Lcat Next', () => {
+    // The manual says Lcat First "actually returns the path, requested by
+    // you and doesn't read in all the files and directories like Dir First$",
+    // and the author's Lrecursive.AMOS confirms it: the result of Lcat First
+    // is discarded and every entry is read with Lcat Next. This is AmigaDOS
+    // Examine()/ExNext(), not Dir First$/Dir Next$.
+    const { out } = run(
+      [...tree, 'Print Lcat First("DH0:top")', 'Print Lcat Next', 'Print Lcat Next', 'Print Lcat Next', 'Print "["+Lcat Next+"]"'].join('\n'),
+    )
+    expect(out).toBe('DH0:top\na.txt\nb.txt\nsub\n[]\n')
+  })
+
+  it('the accessors describe the entry Lcat Next is on', () => {
+    // Lrecursive.AMOS tests `If Lcat Type > 0` straight after `a$=Lcat Next`
+    const { out } = run(
+      [
+        ...tree,
+        'A$=Lcat First("DH0:top")',
+        'Print Lcat Type', // still the locked directory
+        'A$=Lcat Next : Print A$;" ";Lcat Type;" ";Lcat Size;" ";Lcat Blocks',
+        'A$=Lcat Next : Print A$;" ";Lcat Type;" ";Lcat Size',
+        'A$=Lcat Next : Print A$;" ";Lcat Type;" ";Lcat Size', // a directory: size 0
+      ].join('\n'),
+    )
+    // AMOS prints a leading space before a positive number
+    expect(out).toBe(' 1\na.txt -1  12  1\nb.txt -1  0\nsub  1  0\n')
+  })
+
+  it('Lcat Prot, Comment and Stamp read the current entry metadata', () => {
+    const { out } = run(
+      [
+        ...tree,
+        'Lset Comment "DH0:top/a.txt","noted"',
+        'Lset Prot "DH0:top/a.txt",%00000011',
+        'A=Lset File Date("DH0:top/a.txt",Lstamp(1993,3,3),0,0)',
+        'A$=Lcat First("DH0:top") : A$=Lcat Next',
+        'Print A$;" ";Lcat Prot;" ";Lcat Comment;" ";Ldate(Lcat Stamp)',
+      ].join('\n'),
+    )
+    expect(out).toBe('a.txt  3 noted 930303\n')
+  })
+
+  it('Lcat Push and Pull let a scan nest, as the recursive example does', () => {
+    // Lrecursive.AMOS: st=st+264 : Lcat Push st : Proc recursive[...] :
+    // Lcat Pull st : st=st-264
+    const { out } = run(
+      [
+        ...tree,
+        'Reserve As Work 11,264*4',
+        'A$=Lcat First("DH0:top") : A$=Lcat Next : Print A$',
+        'Lcat Push Start(11)',
+        'B$=Lcat First("DH0:top/sub") : Print "["+Lcat Next+"]"', // empty subdir
+        'Lcat Pull Start(11)',
+        'Print Lcat Next', // the outer scan resumes where it was
+      ].join('\n'),
+    )
+    expect(out).toBe('a.txt\n[]\nb.txt\n')
+  })
+
+  it('Lcat Pull on a bank holding nothing is the documented error', () => {
+    // "If ADR points to NULLs (empty bank) you will receive the errormessage
+    // 'No more entries in this dir!'"
+    expect(() => run(['Reserve As Work 11,264', 'Lcat Pull Start(11)'].join('\n'))).toThrow(/No more entries/)
+  })
+
+  it('Lcat First on a directory that is not there is an Invalid Filename', () => {
+    // "If the directory didn't exist the error "Invalid Filename" will be
+    // produced (this is because I wanted to keep as few error-messages as
+    // possible)"
+    expect(() => run('A$=Lcat First("DH0:nosuchdir")')).toThrow(/Invalid Filename/)
+  })
+
+  it('Ldev First and Ldev Next walk the devices, without colons', () => {
+    // "Please note that the devicename (like DF0: etc.) NOT contains a colon"
+    const { out } = run(
+      ['Assign "Data:" To "DH0:"', 'Print Ldev First(0)', 'Print Ldev Next', 'Print "["+Ldev Next+"]"'].join('\n'),
+    )
+    expect(out).toBe('DH0\nData\n[]\n')
+  })
+
+  it('Lldir$ gives LDos its own current directory, which Dir$ does not touch', () => {
+    // "If you change the dir using the Dir$-command and then try to open a
+    // file using Lopen, the file probably couldn't be found, since Ldos
+    // hadn't noticed the directory-change"
+    const { out } = run(
+      [
+        'Mkdir "DH0:work"',
+        'Lopen 1,"DH0:work/f.dat",1 : Lclose 1',
+        'Lldir$ "DH0:work"',
+        'Lopen 1,"f.dat",0 : Print "opened relative to LDos cwd" : Lclose 1',
+        'Dir$="DH0:"', // AMOS moves; LDos does not follow
+        'Lopen 1,"f.dat",0 : Print "still LDos cwd" : Lclose 1',
+      ].join('\n'),
+    )
+    expect(out).toBe('opened relative to LDos cwd\nstill LDos cwd\n')
+  })
+})

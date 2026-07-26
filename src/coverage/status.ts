@@ -522,6 +522,18 @@ export const FAITHFUL = new Set<string>([
   'ldate',
   'lstamp',
   'lset file date',
+  'lcat first',
+  'lcat next',
+  'lcat type',
+  'lcat size',
+  'lcat prot',
+  'lcat comment',
+  'lcat stamp',
+  'lcat push',
+  'lcat pull',
+  'lldir$',
+  // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
+  // approximated — see NOTES.
   // NB: 'lmatch' is deliberately absent — implemented, but the manual never
   // states what a successful match returns, so it is approximated. See NOTES.
   'assign',
@@ -975,6 +987,18 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  'lcat first':
+    "A lock, not a first entry: it returns the directory and Lcat Next walks the contents, which is AmigaDOS Examine()/ExNext() rather than AMOS's Dir First\$/Dir Next\$. The manual says as much and the author's own Lrecursive.AMOS settles it — the result of Lcat First is discarded there and every entry comes from Lcat Next. What it returns is the path as requested; the manual describes it once as 'the file- or directoryname' and once as 'the path, requested by you', and no example prints it, so the ambiguity is unresolved",
+  'lcat blocks':
+    "Reported as ceil(size / 512), the FFS data-block figure the manual quotes. The real value also counts the file header and any extension blocks, which this filesystem has no equivalent of — so the number is right in magnitude and low by the filesystem's own overhead. Approximated for that reason",
+  'lcat push':
+    "The real Lcat Push writes DOS locks and a FileInfoBlock into 264 bytes of a bank the caller reserved. Here the scan is parked beside the bank, keyed by the address, and only a marker byte is written into it. Programs that follow the manual — reserve a bank, advance by 264 per level, pull in reverse — behave identically; a program that inspected or copied those 264 bytes would not, and the manual's warning that a bank holding something else 'MAY crash if you're unlucky' has no counterpart here",
+  'ldev first':
+    'Walks the mounted volumes and then the assigns, returning names without a colon as the manual specifies. The block of device information the real call writes to ADR — device type, unit number, handler name — is not modelled, so the address argument is accepted and ignored',
+  'ldev next':
+    'Continues the Ldev First walk; see that entry for what is not modelled',
+  'lldir$':
+    "LDos keeps its own current directory, which is the entire reason the keyword exists: the manual explains that Ldos never notices a Dir\$ change, so a relative Lopen after one would fail. That separation is reproduced, including the trap — set Dir\$ without calling Lldir\$ and LDos keeps using its own path",
   'lget prot':
     "Protection bits are stored per path in the virtual filesystem, since most volumes here are read-only (a disk image, a zip) and the bits must be settable regardless. Nothing enforces them: the manual notes that even real DOS 'doesn't care about some flags when it comes to directories' and that 'if you are running Kickstart 1.2 or 1.3 DOS neglects most flags', so unenforced flags are within the documented range of behaviour — but here no flag is enforced at all",
   'lset file date':

@@ -64,15 +64,68 @@ export interface LdosChannel {
   dirty: boolean
 }
 
+/**
+ * An Lcat directory scan. Lcat First "locks" a directory and Lcat Next walks
+ * its entries, which is AmigaDOS Examine()/ExNext() rather than AMOS's Dir
+ * First$/Dir Next$ — the manual says so ("Lcat First actually returns the
+ * path, requested by you and doesn't read in all the files and directories
+ * like Dir First\$") and the author's own Lrecursive.AMOS confirms it: the
+ * result of Lcat First is discarded and every entry comes from Lcat Next.
+ *
+ * `index` is -1 while the lock still describes the directory itself, so the
+ * accessors (Lcat Type, Lcat Size, ...) report the directory until the first
+ * Lcat Next moves on to a real entry.
+ */
+export interface LcatScan {
+  dir: string
+  entries: Array<{ name: string; isDir: boolean; size: number }>
+  index: number
+}
+
 export interface LdosState {
   chans: Map<number, LdosChannel>
+  /** the current Lcat scan, if any */
+  cat: LcatScan | null
+  /** scans parked by Lcat Push, keyed by the bank address given to it */
+  pushed: Map<number, LcatScan>
+  /**
+   * LDos tracks its own current directory. The manual is explicit that it
+   * does not see AMOS's: "If you change the dir using the Dir$-command and
+   * then try to open a file using Lopen, the file probably couldn't be
+   * found, since Ldos hadn't noticed the directory-change". Null means none
+   * has been set, so AMOS's current directory applies.
+   */
+  cwd: string | null
+  /** the Ldev First/Ldev Next walk over volumes and assigns */
+  devices: { names: string[]; index: number } | null
   /** Lset Eoln: the end-of-line byte Lstr looks for. Default 10 (manual:
    * "Default is 10, normal Amiga LineFeed. (Unlike AMOS which tends to use
    * 13 for some reason...)") */
   eoln: number
 }
 
-export const newLdosState = (): LdosState => ({ chans: new Map(), eoln: 10 })
+export const newLdosState = (): LdosState => ({ chans: new Map(), cat: null, pushed: new Map(), cwd: null, devices: null, eoln: 10 })
+
+/**
+ * Resolve a path the way LDos does: against its own current directory when
+ * Lldir$ has set one, and against AMOS's otherwise.
+ */
+function ldosPath(rt: Runtime, path: string): string {
+  const cwd = rt.ldos.cwd
+  if (cwd === null || /^[^:/]*:/.test(path)) return path
+  return cwd.endsWith(':') || cwd.endsWith('/') ? cwd + path : `${cwd}/${path}`
+}
+
+/** the entry an Lcat accessor is currently looking at, or the locked dir */
+function catAt(rt: Runtime): { name: string; isDir: boolean; size: number; path: string } | null {
+  const c = rt.ldos.cat
+  if (!c) return null
+  if (c.index < 0) return { name: c.dir, isDir: true, size: 0, path: c.dir }
+  const e = c.entries[c.index]
+  if (!e) return null
+  const base = c.dir.endsWith(':') || c.dir.endsWith('/') ? c.dir : `${c.dir}/`
+  return { ...e, path: base + e.name }
+}
 
 /** `Lopen` accepts channels 1..3 (manual: "Channel can range from 1 to 3") */
 function channel(rt: Runtime, n: number): LdosChannel {
@@ -153,7 +206,7 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       // erased. (the file will be 0 bytes long)"
       const n = it.evalInt()
       it.expect(',')
-      const path = it.evalStr()
+      const path = ldosPath(rt, it.evalStr())
       it.expect(',')
       const mode = it.evalInt()
       if (n < 1 || n > 3) throw new AmosError('Ldos: channel must be 1 to 3')
@@ -241,6 +294,40 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       const path = it.evalStr()
       it.expect(',')
       rt.vfs?.setMeta(path, { protection: it.evalInt() & 0xff })
+    },
+    'lcat push'(it) {
+      // Lcat Push ADR — "Each time you push something 264 bytes are used and
+      // the next datas should thus be copied to ADR+264 ... Using Lcat Push
+      // you simply move this internal data to a bank reserved by you. You may
+      // now use Lcat on a different device/directory."
+      const addr = it.evalInt()
+      const c = rt.ldos.cat
+      if (!c) return
+      rt.ldos.pushed.set(addr, c)
+      rt.ldos.cat = null
+      // the real thing writes DOS locks and a FileInfoBlock into those 264
+      // bytes; the scan lives beside the bank here, and a cookie is written
+      // so Lcat Pull can tell a pushed block from an empty one
+      const m = rt.resolveAddr(addr)
+      if (m && m.off < m.data.length) m.data[m.off] = 0x4c // 'L'
+    },
+    'lcat pull'(it) {
+      // Lcat Pull ADR — "if this address not contains Lcat-data AmigaDOS MAY
+      // crash if you're unlucky!! If ADR points to NULLs (empty bank) you
+      // will receive the errormessage 'No more entries in this dir!'"
+      const addr = it.evalInt()
+      const c = rt.ldos.pushed.get(addr)
+      if (!c) throw new AmosError('No more entries in this dir!')
+      rt.ldos.pushed.delete(addr)
+      rt.ldos.cat = c
+      const m = rt.resolveAddr(addr)
+      if (m && m.off < m.data.length) m.data[m.off] = 0
+    },
+    lldir$(it) {
+      // LLdir$ "new-dir" — LDos keeps its own current directory, because on
+      // the real machine it never sees AMOS's Dir$ changes. The manual's own
+      // advice is "Set Dir$ to desired value, and call LLdir$ Dir$".
+      rt.ldos.cwd = it.evalStr()
     },
     lold() {
       // "Lold - MAY CURRENTLY NOT BE USED!!  These are here for future
@@ -400,6 +487,69 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       })
       return VI(ok ? -1 : 0)
     },
+    'lcat first'(_, a) {
+      // F$=Lcat First("Directory") — a lock, not a first entry. "If the
+      // directory didn't exist the error 'Invalid Filename' will be produced".
+      const dir = ldosPath(rt, str(a[0] ?? VS('')))
+      const entries = rt.vfs?.listDir(dir) ?? null
+      if (entries === null) throw new AmosError('Invalid Filename')
+      const sorted = [...entries].sort((x, y) => x.name.localeCompare(y.name))
+      rt.ldos.cat = { dir, entries: sorted, index: -1 }
+      return VS(dir)
+    },
+    'lcat next'(_) {
+      // F$=Lcat Next — "If F$ is empty, there are no more files/directories
+      // in this directory. Lcat Next won't work if you haven't used Lcat
+      // First."
+      const c = rt.ldos.cat
+      if (!c) return VS('')
+      c.index++
+      const e = c.entries[c.index]
+      return VS(e ? e.name : '')
+    },
+    'lcat type'(_) {
+      // "A can be either positive, for directories, or negative for files."
+      const e = catAt(rt)
+      return VI(e === null ? 0 : e.isDir ? 1 : -1)
+    },
+    'lcat size'(_) {
+      // "it is fully legal to call this command even if the current 'file' is
+      // a directory! If the current name belongs to a directory S will
+      // contain 0. (Keep in mind that files which are zero bytes do exist, so
+      // don't use this method instead of Lcat Type)"
+      const e = catAt(rt)
+      return VI(e === null || e.isDir ? 0 : e.size)
+    },
+    'lcat blocks'(_) {
+      // "FFS can hold 512 bytes of data in one block"
+      const e = catAt(rt)
+      return VI(e === null || e.isDir ? 0 : Math.ceil(e.size / 512))
+    },
+    'lcat prot'(_) {
+      const e = catAt(rt)
+      return VI(e === null ? 0 : (rt.vfs?.meta(e.path).protection ?? 0))
+    },
+    'lcat comment'(_) {
+      const e = catAt(rt)
+      return VS(e === null ? '' : (rt.vfs?.meta(e.path).comment ?? ''))
+    },
+    'lcat stamp'(_) {
+      const e = catAt(rt)
+      return VI(e === null ? 0 : (rt.vfs?.meta(e.path).days ?? 0))
+    },
+    'ldev first'(_) {
+      // A$=Ldev First(ADR) — "the devicename (like DF0: etc.) NOT contains a
+      // colon". ADR receives a block of device info this port does not model.
+      const names = [...(rt.vfs?.volumeNames() ?? []), ...(rt.vfs?.assignNames() ?? [])]
+      rt.ldos.devices = { names, index: 0 }
+      return VS(names[0] ?? '')
+    },
+    'ldev next'(_) {
+      const d = rt.ldos.devices
+      if (!d) return VS('')
+      d.index++
+      return VS(d.names[d.index] ?? '')
+    },
     lstr(_, a) {
       // A$=Lstr(START To MAX). Reads from START up to the end-of-line byte
       // (Lset Eoln, default 10) or MAX. "The end-of-line-terminator is NOT
@@ -427,6 +577,8 @@ export const LDOS_IMPLEMENTED: readonly string[] = [
   'lload', 'lsave', 'lseek', 'lsize', 'lfile type', 'lstr',
   'lwords', 'lword', 'lwild', 'lmatch', 'lreplace', 'lfilter', 'lskip', 'lback hunt',
   'lget comment', 'lset comment', 'lget prot', 'lset prot', 'ldate', 'lstamp', 'lset file date',
+  'lcat first', 'lcat next', 'lcat type', 'lcat size', 'lcat blocks', 'lcat prot', 'lcat comment',
+  'lcat stamp', 'lcat push', 'lcat pull', 'ldev first', 'ldev next', 'lldir$',
 ]
 
 export type { Value }
