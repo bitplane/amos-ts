@@ -98,13 +98,18 @@ export interface LdosState {
   cwd: string | null
   /** the Ldev First/Ldev Next walk over volumes and assigns */
   devices: { names: string[]; index: number } | null
+  /**
+   * AmigaDOS global environment variables, keyed lower-case because the
+   * manual says "Name of the variable is not case-sensitive".
+   */
+  vars: Map<string, string>
   /** Lset Eoln: the end-of-line byte Lstr looks for. Default 10 (manual:
    * "Default is 10, normal Amiga LineFeed. (Unlike AMOS which tends to use
    * 13 for some reason...)") */
   eoln: number
 }
 
-export const newLdosState = (): LdosState => ({ chans: new Map(), cat: null, pushed: new Map(), cwd: null, devices: null, eoln: 10 })
+export const newLdosState = (): LdosState => ({ chans: new Map(), cat: null, pushed: new Map(), cwd: null, devices: null, vars: new Map(), eoln: 10 })
 
 /**
  * Resolve a path the way LDos does: against its own current directory when
@@ -575,6 +580,37 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       d.index++
       return VS(d.names[d.index] ?? '')
     },
+    'lset var'(_, a) {
+      // T=Lset Var("Name","VALUE") — 'Name' at most 50 characters, 'VALUE'
+      // likewise, "This function will return true if successful. Name of the
+      // variable is not case-sensitive."
+      const name = str(a[0] ?? VS(''))
+      const value = str(a[1] ?? VS(''))
+      if (name === '' || name.length > 50 || value.length > 50) return VI(0)
+      rt.ldos.vars.set(name.toLowerCase(), value)
+      return VI(-1)
+    },
+    'lget var'(_, a) {
+      // A$=Lget Var("Name") — "If A$ is empty the variable didn't exist."
+      return VS(rt.ldos.vars.get(str(a[0] ?? VS('')).toLowerCase()) ?? '')
+    },
+    'ldelete var'(_, a) {
+      // T=Ldelete Var("Name") — "T will be true if a variable with the name
+      // 'Name' was found and removed. If T is zero the variable didn't exist."
+      return VI(rt.ldos.vars.delete(str(a[0] ?? VS('')).toLowerCase()) ? -1 : 0)
+    },
+    'ldisk font'(_, a) {
+      // A=Ldisk Font("name.font",SIZE) — "name is the fontname, '.font' MUST
+      // follow it ... A will be >0 if the font loaded OK. If a <1 the font
+      // wasn't on the disk or already in memory." It makes the font directly
+      // available to Get Rom Fonts, so the disc font list is invalidated and
+      // rebuilt from the Fonts: drawer.
+      const name = str(a[0] ?? VS(''))
+      if (!/\.font$/i.test(name)) return VI(0)
+      if (rt.vfs?.read('Fonts:' + name) == null) return VI(0)
+      rt.discFontCache = null
+      return VI(1)
+    },
     'llargest free'(_, a) {
       // A=Llargest Free(TYPE), 0 CHIP or 1 FAST. "This value is NOT the same
       // as the AMOS commands Fast Free and Chip Free, they return total
@@ -639,6 +675,7 @@ export const LDOS_IMPLEMENTED: readonly string[] = [
   'lcat first', 'lcat next', 'lcat type', 'lcat size', 'lcat blocks', 'lcat prot', 'lcat comment',
   'lcat stamp', 'lcat push', 'lcat pull', 'ldev first', 'ldev next', 'lldir$',
   'lupbuffer', 'llobuffer', 'llargest free', 'lchk data', 'lchk boot',
+  'lset var', 'lget var', 'ldelete var', 'ldisk font',
 ]
 
 export type { Value }

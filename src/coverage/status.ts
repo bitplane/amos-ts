@@ -536,6 +536,9 @@ export const FAITHFUL = new Set<string>([
   'llobuffer',
   'lchk data',
   'lchk boot',
+  'lset var',
+  'lget var',
+  'ldelete var',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   // NB: 'lmatch' is deliberately absent — implemented, but the manual never
@@ -998,6 +1001,11 @@ export const NA = new Set<string>([
   'ldevice close',
   'ldevice',
   'ldevice error',
+  // Lrun opens a Shell/CLI to run AmigaDOS commands and Lexecute starts a
+  // separate executable; both need a host operating system to run something
+  // in, which is the same boundary `exec` and `call` are n/a for above.
+  'lrun',
+  'lexecute',
 
   'arexx open',
   'arexx close',
@@ -1013,6 +1021,10 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  'lset var':
+    "Global environment variables, held in the interpreter. On the real machine SetVar with GVF_GLOBAL_ONLY writes a file into ENV:, so the value outlives the program and is visible to the Shell and to every other program; here it lives and dies with the run. The documented limits (50 characters for the name and for the value) and the case-insensitive lookup are reproduced",
+  'ldisk font':
+    "Reports whether the named font exists in the mounted Fonts: drawer and invalidates the disc font list so Get Rom Fonts picks it up, which is what the keyword is for. Two documented behaviours are not reproduced: it cannot distinguish 'already in memory' from 'not on the disk' (both return false, as the manual allows, but for the wrong reason), and the real routine 'is designed to always try to scale the selected font with a best match, it may return true even though the requested font wasn't available' — no scaling happens here, so a near-miss size fails where the original would succeed",
   'llobuffer':
     "The manual calls this keyword Llowbuffer; the token table in the library says Llobuffer, and the table is what a program is actually written against. Like AMOS's own Upper\$/Lower\$ it converts A-Z and a-z only — the manual notes this is 'due to AMOS isn't using a standard keymap'",
   'lchk data':

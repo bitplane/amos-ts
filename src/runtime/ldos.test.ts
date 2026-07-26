@@ -625,3 +625,38 @@ describe.skipIf(!existsSync(ADFS))('LDos checksums, against real disks', () => {
     expect(out.trim()).toBe(String(stored))
   })
 })
+
+describe('LDos environment variables and fonts (LdosV25.DOC)', () => {
+  it('variables round-trip and are not case-sensitive', () => {
+    // "Name of the variable is not case-sensitive" / "If A$ is empty the
+    // variable didn't exist" / "T will be true if ... found and removed"
+    const { out } = run(
+      [
+        'Print Lset Var("Editor","ed")',
+        'Print Lget Var("EDITOR")', // same variable, different case
+        'Print "["+Lget Var("nothere")+"]"',
+        'Print Ldelete Var("editor")',
+        'Print Ldelete Var("editor")', // already gone
+        'Print "["+Lget Var("Editor")+"]"',
+      ].join('\n'),
+    )
+    expect(out).toBe('-1\ned\n[]\n-1\n 0\n[]\n')
+  })
+
+  it('rejects names and values over the documented 50 characters', () => {
+    // "must not exceed 50 characters" for both
+    const { out } = run(
+      ['Print Lset Var(String$("n",51),"v")', 'Print Lset Var("ok",String$("v",51))', 'Print Lset Var("ok",String$("v",50))'].join('\n'),
+    )
+    expect(out).toBe(' 0\n 0\n-1\n')
+  })
+
+  it('Ldisk Font wants a .font name and a font that is really there', () => {
+    // "name is the fontname, '.font' MUST follow it ... A will be >0 if the
+    // font loaded OK. If a <1 the font wasn't on the disk"
+    const { out } = run(
+      ['Print Ldisk Font("diamond",12)', 'Print Ldisk Font("diamond.font",12)'].join('\n'),
+    )
+    expect(out).toBe(' 0\n 0\n') // no Fonts: drawer mounted here
+  })
+})
