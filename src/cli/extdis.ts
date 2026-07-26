@@ -39,6 +39,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { firstCodeHunk } from '../tokens/libtok'
 import { extensionById, REGISTRY } from '../ext/registry'
+import { AMOS_CALL_KINDS, AMOS_CALL_LOW, AMOS_CALL_MARKER, AMOS_ROUTINES } from '../ext/amoscalls.gen'
 
 const args = process.argv.slice(2)
 const showMap = args.includes('--map')
@@ -103,6 +104,67 @@ if (cal.first >= code.length) {
 const addr: number[] = [cal.first]
 for (let i = 0; i < maxRoutine; i++) addr.push(addr[i]! + u16(cal.at + i * 2) * 2)
 
+/**
+ * Decode an AMOS call pseudo-instruction at `off`, if there is one.
+ *
+ * These are why a plain disassembler gives up mid-routine: they are not 68k
+ * opcodes at all but four (or six) bytes of $FE, kind*16+$01, an optional
+ * library selector, and a routine word. +CEqu.s:39-150 defines them.
+ */
+function decodeCall(off: number): { text: string; size: number } | null {
+  if (code[off] !== AMOS_CALL_MARKER) return null
+  const second = code[off + 1] ?? 0
+  if ((second & 0x0f) !== AMOS_CALL_LOW) return null
+  const form = AMOS_CALL_KINDS[second >> 4]
+  if (!form) return null
+  const viaLib = code[off + 2] !== undefined && form.viaLib !== undefined && code[off + 2] === 0xff
+  if (form.viaLib && !form.plain) {
+    const lib = code[off + 3] ?? 0
+    const n = view.getUint16(off + 4, false)
+    const name = lib === 0 ? (AMOS_ROUTINES[n] ?? `routine ${n}`) : `lib${lib} routine ${n}`
+    return { text: `${form.viaLib.padEnd(10)} ${name}`, size: 6 }
+  }
+  void viaLib
+  const n = view.getUint16(off + 2, false)
+  // a plain call targets THIS library's own routine table
+  const own = routineName(n)
+  return { text: `${(form.plain ?? '?').padEnd(10)} ${own}`, size: 4 }
+}
+
+/**
+ * Runs of printable text embedded in a routine. Extension code keeps its
+ * error messages inline, and a disassembler renders them as plausible-looking
+ * nonsense — `movea.l ([$6c6c, a2])` is the ASCII "ll". Finding them first is
+ * what separates a readable listing from a misleading one.
+ */
+function textRuns(from: number, to: number): Array<{ at: number; end: number; text: string }> {
+  const runs: Array<{ at: number; end: number; text: string }> = []
+  let start = -1
+  for (let i = from; i <= to; i++) {
+    const b = i < to ? (code[i] ?? 0) : 0
+    const printable = b >= 0x20 && b < 0x7f
+    if (printable && start < 0) start = i
+    else if (!printable && start >= 0) {
+      if (i - start >= 6) {
+        let text = ''
+        for (let k = start; k < i; k++) text += String.fromCharCode(code[k]!)
+        runs.push({ at: start, end: i, text })
+      }
+      start = -1
+    }
+  }
+  return runs
+}
+
+/** name a routine of this library: its keyword if it has one, else its number */
+function routineName(n: number): string {
+  for (const t of ext!.tokens) {
+    const nm = t.name.trim().replace(/^!/, '')
+    if (nm !== '' && (t.instr === n || t.func === n)) return `routine ${n} (${nm})`
+  }
+  return `routine ${n}`
+}
+
 /** keyword name -> routine numbers */
 const byName = new Map<string, { instr?: number; func?: number }>()
 for (const t of ext.tokens) {
@@ -161,7 +223,29 @@ if (keyword) {
       ].join('\n')
       const tmp = join(process.env.TMPDIR ?? '/tmp', 'extdis-' + String(process.pid) + '.bin')
       writeFileSync(tmp, code)
-      console.log(execFileSync('python3', ['-c', py, tmp, String(start), String(end)], { encoding: 'utf8' }).trimEnd())
+      const raw = execFileSync('python3', ['-c', py, tmp, String(start), String(end)], { encoding: 'utf8' }).trimEnd()
+      // capstone cannot decode the AMOS call pseudo-instructions, so it
+      // emits .dc.w for them (and then resyncs badly); rewrite those here
+      const runs = textRuns(start, end)
+      const lines: string[] = []
+      let skipUntil = -1
+      for (const line of raw.split('\n')) {
+        const m = /^\s*([0-9a-f]+)\s/.exec(line)
+        const at = m ? parseInt(m[1]!, 16) : -1
+        if (at >= 0 && at < skipUntil) continue
+        const run = runs.find((r) => at >= r.at && at < r.end)
+        if (run) {
+          lines.push(`  ${run.at.toString(16).padStart(7, '0')}  dc.b       ${JSON.stringify(run.text)}`)
+          skipUntil = run.end
+          continue
+        }
+        const call = at >= 0 ? decodeCall(at) : null
+        if (call) {
+          lines.push(`  ${at.toString(16).padStart(7, '0')}  ${call.text}`)
+          skipUntil = at + call.size
+        } else lines.push(line)
+      }
+      console.log(lines.join('\n'))
       unlinkSync(tmp)
     } catch {
       console.log('  (python3 + capstone not available — address range printed above)')
