@@ -325,6 +325,10 @@ describe('the whole corpus identifies without a slot map', () => {
       1: 'amospro-music-2.0',
       2: 'amospro-compact-2.0',
       3: 'amospro-request-2.0',
+      // AMOS 3D's own demo disc, added with the extension's fixtures. Nothing
+      // told the identifier where 3D lives; it landed on 4, which is where
+      // AMOS 3D has always been installed.
+      4: 'amos3d-1.0',
       5: 'amospro-compiler-2.0',
       6: 'amospro-ioports-2.0',
       14: 'intuition-1.3b',

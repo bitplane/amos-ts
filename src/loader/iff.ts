@@ -163,7 +163,11 @@ export function encodeIlbm(img: IlbmImage): Uint8Array {
     ],
   ])
   const cmap: number[] = []
-  const n = Math.min(palette.length || 1 << depth, 1 << depth)
+  // Write back as many entries as we were handed rather than truncating to
+  // the bitplane count: a CMAP wider than 2^depth is legal and real files use
+  // it (AMOS 3D's Scrollpic.IFF is three planes with all 32 entries), and on
+  // the Amiga the registers past the screen's depth still drive the sprites.
+  const n = Math.min(palette.length || 1 << depth, 32)
   for (let i = 0; i < n; i++) {
     const v = palette[i] ?? 0
     // RGB4 nibble → 8-bit, replicated into both nibbles like the Amiga
