@@ -51,6 +51,96 @@ import type { Runtime } from './runtime'
  */
 import { amigaMatch, parsePatternResult } from './ldospat'
 
+/**
+ * Convert an ANSI escape sequence to the AMOS console's own control codes,
+ * as `Lansi` does.
+ *
+ * AMOS's console does not speak ANSI: it takes ESC followed by a letter and
+ * a parameter byte (screen.ts:874, +Lib.s ChXxx) — ESC P n for pen, ESC B n
+ * for paper, ESC X/Y n to locate, ESC O/N with a +128 bias to move
+ * relatively. Lansi is the translator, which is why a BBS terminal written
+ * in AMOS needs it.
+ *
+ * The manual notes a sequence "doesn't have to be complete if the rest of
+ * the sequence follow in the next call(s)", so the tail of an unfinished
+ * escape is carried over — hence the state on LdosState rather than a pure
+ * function.
+ */
+export function ansiToAmos(input: string, state: LdosState): string {
+  let out = ''
+  let src = state.ansiPending + input
+  state.ansiPending = ''
+  let i = 0
+  while (i < src.length) {
+    const c = src[i]!
+    if (c !== '\x1b') {
+      // $C is not an ANSI code at all, but the manual supports it "since many
+      // BBS-programs (and AmigaDOS + others) use this"
+      if (c === '\x0c') out += '\x1bX0\x1bY0' // Clw/Home
+      else out += c // linefeed, carriage return and backspace pass through
+      i++
+      continue
+    }
+    if (src[i + 1] !== '[') {
+      // not a CSI: if the buffer simply ends here, wait for the rest
+      if (i + 1 >= src.length) break
+      i += 2
+      continue
+    }
+    // gather the parameter digits and the final letter
+    let j = i + 2
+    while (j < src.length && !/[A-Za-z@]/.test(src[j]!)) j++
+    if (j >= src.length) break // incomplete: carry it to the next call
+    const params = src.slice(i + 2, j)
+    const final = src[j]!
+    const nums = params.split(';').map((p) => (p === '' ? -1 : parseInt(p, 10)))
+    const n = (k = 0): number => (nums[k] === undefined || nums[k]! < 0 ? 1 : nums[k]!)
+    const esc = (op: string, v: number): string => '\x1b' + op + String.fromCharCode(48 + v)
+    switch (final) {
+      case 'm': {
+        // "Lansi detects if style or colour is to be changed", and ESC[0m
+        // resets to pen 1, paper 0, no style
+        for (const raw of nums) {
+          const v = raw < 0 ? 0 : raw
+          if (v === 0) out += esc('P', 1) + esc('B', 0) + '\x1bW' + String.fromCharCode(48)
+          else if (v >= 30 && v <= 37) out += esc('P', v - 30)
+          else if (v >= 40 && v <= 47) out += esc('B', v - 40)
+          // Italics (shaded), Inverse and Underline are the supported
+          // styles; the manual says other styles are simply ignored
+          else if (v === 3) out += '\x1bW' + String.fromCharCode(48 + 1)
+          else if (v === 4) out += '\x1bW' + String.fromCharCode(48 + 2)
+          else if (v === 7) out += '\x1bW' + String.fromCharCode(48 + 4)
+        }
+        break
+      }
+      case 'A': out += '\x1bN' + String.fromCharCode(128 - n()); break // cursor up
+      case 'B': out += '\x1bN' + String.fromCharCode(128 + n()); break // down
+      case 'C': out += '\x1bO' + String.fromCharCode(128 + n()); break // right
+      case 'D': out += '\x1bO' + String.fromCharCode(128 - n()); break // left
+      case 'H': {
+        // ESC[y;xH is Locate x,y — note the ANSI order is row then column
+        const y = nums[0] === undefined || nums[0]! < 0 ? 1 : nums[0]!
+        const x = nums[1] === undefined || nums[1]! < 0 ? 1 : nums[1]!
+        out += esc('X', Math.max(0, x - 1)) + esc('Y', Math.max(0, y - 1))
+        break
+      }
+      case '@': out += ' '.repeat(Math.max(0, n())); break // insert x spaces
+      case 'J': out += '\x1bX0\x1bY0'; break // "even if only ESC[J ... the whole window is cleared"
+      case 'K':
+      case 'L':
+      case 'M':
+      case 'p':
+        break // clear-line and cursor-visibility forms the manual lists as ignored
+      default:
+        break
+    }
+    i = j + 1
+  }
+  // whatever is left is an unfinished sequence: hold it for the next call
+  if (i < src.length) state.ansiPending = src.slice(i)
+  return out
+}
+
 /** an AMOS string is bytes, not UTF-16 */
 const latin1 = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.charCodeAt(0) & 0xff))
 
@@ -156,6 +246,8 @@ export interface LdosState {
    * has been set, so AMOS's current directory applies.
    */
   cwd: string | null
+  /** the tail of an ANSI escape split across two Lansi calls */
+  ansiPending: string
   /** the Ldev First/Ldev Next walk over volumes and assigns */
   devices: { names: string[]; index: number } | null
 
@@ -165,7 +257,7 @@ export interface LdosState {
   eoln: number
 }
 
-export const newLdosState = (): LdosState => ({ chans: new Map(), cat: null, pushed: new Map(), cwd: null, devices: null, eoln: 10 })
+export const newLdosState = (): LdosState => ({ chans: new Map(), cat: null, pushed: new Map(), cwd: null, ansiPending: '', devices: null, eoln: 10 })
 
 /**
  * Resolve a path the way LDos does: against its own current directory when
@@ -713,6 +805,12 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       if (name === '' || /[:/]/.test(name)) return VI(0)
       return VI(rt.vfs?.deleteFile('ENV:' + name) ? -1 : 0)
     },
+    lansi(_, a) {
+      // S$=Lansi(A$) — "S$ will contain a sequence containing AMOS control
+      // characters. A$ is a normal ANSI-sequence which doesn't have to be
+      // complete if the rest of the sequence follow in the next call(s)."
+      return VS(ansiToAmos(str(a[0] ?? VS('')), rt.ldos))
+    },
     'lsys stamp'(_) {
       // A=Lsys Stamp — "A will contain a datestamp which can be used in
       // conjunction with Ldate to print the current date."
@@ -802,7 +900,7 @@ export const LDOS_IMPLEMENTED: readonly string[] = [
   'lcat stamp', 'lcat push', 'lcat pull', 'ldev first', 'ldev next', 'lldir$',
   'lupbuffer', 'llobuffer', 'llargest free', 'lchk data', 'lchk boot',
   'lset var', 'lget var', 'ldelete var', 'ldisk font', 'lcrypt', 'ldecrypt',
-  'lsys stamp', 'lsys time',
+  'lsys stamp', 'lsys time', 'lansi',
 ]
 
 export type { Value }

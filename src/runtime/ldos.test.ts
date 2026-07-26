@@ -767,3 +767,62 @@ describe('LDos pattern keywords are dos.library wrappers (disassembly)', () => {
     expect(() => run(`Print Lmatch("abc"${z},"(unclosed"${z})`)).toThrow(/To long pattern/)
   })
 })
+
+describe('Lansi: ANSI to AMOS control codes (LdosV25.DOC)', () => {
+  const E = 'Chr$(27)'
+  it('translates colour and the ESC[0m reset', () => {
+    // "To reset to pen-colour 1, background-colour 0 and no style, use
+    // ESC[0m." AMOS's own codes are ESC P n for pen and ESC B n for paper.
+    const { out } = run(
+      [
+        `A$=Lansi(${E}+"[31m") : Print Len(A$);" ";Mid$(A$,2,1);Asc(Mid$(A$,3,1))-48`,
+        `B$=Lansi(${E}+"[44m") : Print Mid$(B$,2,1);Asc(Mid$(B$,3,1))-48`,
+        `C$=Lansi(${E}+"[0m") : Print Len(C$)`,
+      ].join('\n'),
+    )
+    expect(out).toBe(' 3 P 1\nB 4\n 9\n') // pen 1, paper 4, reset is pen+paper+style
+  })
+
+  it('translates cursor movement, biased the way AMOS expects', () => {
+    // ESC[xA/B/C/D become AMOS's relative moves, which carry a +128 bias
+    const { out } = run(
+      [
+        `A$=Lansi(${E}+"[3C") : Print Mid$(A$,2,1);Asc(Mid$(A$,3,1))-128`,
+        `B$=Lansi(${E}+"[2A") : Print Mid$(B$,2,1);Asc(Mid$(B$,3,1))-128`,
+      ].join('\n'),
+    )
+    expect(out).toBe('O 3\nN-2\n')
+  })
+
+  it('ESC[y;xH becomes Locate x,y — the ANSI order is row first', () => {
+    // the result is ESC X <col> ESC Y <row>: column 10 -> 9, row 5 -> 4,
+    // both zero-based and both biased by 48 into printable characters
+    const { out } = run(
+      [`A$=Lansi(${E}+"[5;10H")`, 'Print Mid$(A$,2,1);Asc(Mid$(A$,3,1))-48;Mid$(A$,5,1);Asc(Mid$(A$,6,1))-48'].join('\n'),
+    )
+    expect(out).toBe('X 9Y 4\n')
+  })
+
+  it('carries an unfinished escape across calls', () => {
+    // "A$ is a normal ANSI-sequence which doesn't have to be complete if the
+    // rest of the sequence follow in the next call(s)."
+    const { out } = run(
+      [
+        `A$=Lansi(${E}+"[3") : Print "["+A$+"]"`, // incomplete: nothing yet
+        `B$=Lansi("1m") : Print Mid$(B$,2,1);Asc(Mid$(B$,3,1))-48`,
+      ].join('\n'),
+    )
+    expect(out).toBe('[]\nP 1\n')
+  })
+
+  it('passes through the codes the manual says to pass through', () => {
+    // "$a Linefeed. Passed on to AMOS. $d Carrige return. $8 Backspace."
+    // and $C, which "really isn't a ANSI-code but is supported since many
+    // BBS-programs (and AmigaDOS + others) use this"
+    const { out } = run(
+      [`A$=Lansi("hi"+Chr$(10)+Chr$(8)) : Print Len(A$);Asc(Mid$(A$,3,1));Asc(Mid$(A$,4,1))`,
+       `B$=Lansi(Chr$(12)) : Print Len(B$)`].join('\n'),
+    )
+    expect(out).toBe(' 4 10 8\n 6\n') // text passes through; $C becomes Clw/Home
+  })
+})

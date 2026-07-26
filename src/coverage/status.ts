@@ -546,6 +546,7 @@ export const FAITHFUL = new Set<string>([
   'lmatch',
   'lsys stamp',
   'lsys time',
+  'lansi',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1026,6 +1027,8 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  'lansi':
+    "Translates ANSI escape sequences into the AMOS console's own control codes — ESC P n for pen, ESC B n for paper, ESC X/Y n to locate, ESC O/N with a +128 bias for relative moves (screen.ts, +Lib.s ChXxx) — which is what a BBS terminal written in AMOS needs. The manual's table is implemented as given, including its own stated limits: only Italics, Inverse and Underline are supported and other styles are ignored, changing style does not clear the previous one, and clearing at the cursor is not distinguishable from clearing the window ('even if only ESC[J is printed the whole window is cleared'). An escape split across calls is carried over, as documented",
   'lopen':
     'Files are read into memory whole on open and written back on Lclose, so the manual\'s warning that an unclosed file can corrupt the disk holds in the sense that the writes are simply lost — it cannot corrupt anything else. Error messages are the library\'s own, read out of its string table rather than invented: "Invalid Lchannel", "LFile not open", "Invalid filename", with the author\'s English preserved as he wrote it',
   'lsys stamp':
