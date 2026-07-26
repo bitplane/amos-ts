@@ -973,6 +973,28 @@ export const NA = new Set<string>([
   'exec',
   // the ARexx host bridge (rexxsyslib.library message ports) — no ARexx
   // system exists outside AmigaOS
+  // --- LDos (third-party) ---
+  // The same two boundaries the core port already draws, reached through a
+  // different extension. Lrexx * is ARexx, which is n/a above for the core
+  // Arexx keywords: it needs an ARexx host, a message port and a resident
+  // rexxmast, none of which exist outside AmigaOS. Ldevice * is raw
+  // exec device I/O — OpenDevice/DoIO against trackdisk.device and the
+  // like — which is n/a above as `dev open`. Both are classified here rather
+  // than left as "missing" because no amount of work makes them possible;
+  // reporting them as unimplemented would overstate what is left to do.
+  'lrexx make host',
+  'lrexx remove host',
+  'lrexx get msg',
+  'lrexx execute',
+  'lrexx reply',
+  'lrexx result1',
+  'lrexx result2',
+  'lrexx send msg',
+  'ldevice open',
+  'ldevice close',
+  'ldevice',
+  'ldevice error',
+
   'arexx open',
   'arexx close',
   'arexx exist',
