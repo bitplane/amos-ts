@@ -50,7 +50,7 @@ vfs.currentDir = 'DH0:'
 
 async function mountArchive(bytes: Uint8Array, name: string): Promise<void> {
   const entries = await readArchive(bytes)
-  const volName = name.replace(/\.(zip|tar|tar\.gz|tgz)$/i, '').replace(/[^A-Za-z0-9_]/g, '_')
+  const volName = name.replace(/\.(zip|tar|tar\.gz|tgz|adf)$/i, '').replace(/[^A-Za-z0-9_]/g, '_')
   vfs.mount(volName, volumeFromEntries(entries))
   // also merge into DH0: so relative paths find resources
   for (const e of entries) {
@@ -170,7 +170,7 @@ function load(bytes: Uint8Array, name: string): void {
  * its layout and relative loads work. Auto-runs a .AMOS only when asked.
  */
 async function receiveFile(name: string, bytes: Uint8Array, dir: string[], autoRun: boolean): Promise<void> {
-  if (/\.(zip|tar|gz|tgz)$/i.test(name)) {
+  if (/\.(zip|tar|gz|tgz|adf)$/i.test(name)) {
     await mountArchive(bytes, name)
   } else {
     dh0.write([...dir, name], bytes)

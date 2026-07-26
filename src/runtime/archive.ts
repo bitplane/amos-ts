@@ -1,9 +1,11 @@
 import { MemoryVolume } from './vfs'
+import { isAdf, readAdf } from '../loader/adf'
 
 /**
- * Dependency-free ZIP and TAR readers, for filling the virtual filesystem
- * from uploads. Deflate/gzip decompression uses DecompressionStream
- * (browsers and Node 18+).
+ * Dependency-free ZIP, TAR and ADF readers, for filling the virtual
+ * filesystem from uploads. Deflate/gzip decompression uses
+ * DecompressionStream (browsers and Node 18+); Amiga floppy images are
+ * read by ../loader/adf.
  */
 
 async function inflate(data: Uint8Array, format: 'deflate-raw' | 'gzip'): Promise<Uint8Array> {
@@ -81,10 +83,13 @@ export function readTar(bytes: Uint8Array): ArchiveEntry[] {
   return out
 }
 
-/** Detect and read a zip / tar / tar.gz archive. */
+/** Detect and read a zip / tar / tar.gz archive, or an Amiga disk image. */
 export async function readArchive(bytes: Uint8Array): Promise<ArchiveEntry[]> {
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) return readZip(bytes)
   if (bytes[0] === 0x1f && bytes[1] === 0x8b) return readTar(await inflate(bytes, 'gzip'))
+  // an Amiga floppy image is a plain run of sectors — most surviving AMOS
+  // material (coverdisks, the PD library, the diskzines) is in this form
+  if (isAdf(bytes)) return readAdf(bytes)
   return readTar(bytes)
 }
 

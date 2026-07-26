@@ -95,7 +95,7 @@
   </head>
   <body>
     <div id="bar">
-      <input type="file" id="file" accept=".amos,.AMOS,.txt,.zip,.tar,.gz,.abk,.iff" multiple />
+      <input type="file" id="file" accept=".amos,.AMOS,.txt,.zip,.tar,.gz,.abk,.iff,.adf" multiple />
       <button id="restart">Restart</button>
       <label><input type="checkbox" id="turbo" /> turbo</label>
       <label title="Real gamepads always drive the joystick ports. Optionally map keys too.">Keyboard→Joy1
@@ -107,7 +107,7 @@
     <canvas id="screen" width="640" height="572"></canvas>
     <input id="line" placeholder="Input line — press Enter to submit" />
     <details id="files">
-      <summary>Files — drop .AMOS programs, data files, folders or zips anywhere on the page; drag a row onto a drawer to move it</summary>
+      <summary>Files — drop .AMOS programs, data files, folders, zips or .adf disk images anywhere on the page; drag a row onto a drawer to move it</summary>
       <div id="fstree"></div>
     </details>
     <script type="module" src="/src/web/main.ts"></script>
