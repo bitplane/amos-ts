@@ -33,6 +33,22 @@
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
+
+/*
+ * Error messages are the library's own, read out of its string table at
+ * $609e..$6340 rather than invented. The author's English is preserved
+ * exactly — "To short password-string!", "No enough words in string!" — on
+ * the same principle as everything else here: a program that prints an
+ * error is showing the user LDos's words, not ours.
+ *
+ * The shareware build this fixture is has a wrinkle worth recording: 69
+ * copies of "UNREGISTERED SHAREWARE version of LDos!" are embedded, one per
+ * routine, and the error paths print those instead of the descriptive
+ * message. So the real table is present but unreachable in this build. The
+ * descriptive messages are used here because they are what the extension
+ * means to say, and because a nag is a property of one build rather than of
+ * the keyword.
+ */
 import { amigaMatch, hasWildcard } from './ldospat'
 
 /** an AMOS string is bytes, not UTF-16 */
@@ -175,7 +191,7 @@ function catAt(rt: Runtime): { name: string; isDir: boolean; size: number; path:
 /** `Lopen` accepts channels 1..3 (manual: "Channel can range from 1 to 3") */
 function channel(rt: Runtime, n: number): LdosChannel {
   const c = rt.ldos.chans.get(n)
-  if (!c) throw new AmosError(`Ldos: file not opened: channel ${n}`)
+  if (!c) throw new AmosError('LFile not open')
   return c
 }
 
@@ -255,7 +271,7 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       const path = ldosPath(rt, it.evalStr())
       it.expect(',')
       const mode = it.evalInt()
-      if (n < 1 || n > 3) throw new AmosError('Ldos: channel must be 1 to 3')
+      if (n < 1 || n > 3) throw new AmosError('Invalid Lchannel')
       let data: Uint8Array
       if (mode === 1) {
         data = new Uint8Array(0)
@@ -263,7 +279,7 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
         rt.stampFile(path)
       } else {
         const existing = rt.fs?.read(path) ?? null
-        if (existing === null) throw new AmosError(`file not found: ${path}`)
+        if (existing === null) throw new AmosError('Invalid filename')
         data = Uint8Array.from(existing)
       }
       rt.ldos.chans.set(n, { path, data, pos: 0, dirty: mode === 1 })
@@ -290,7 +306,7 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const addr = it.evalInt()
       const m = rt.resolveAddr(addr)
-      if (!m) throw new AmosError(`Ldos: address not in any bank: ${addr}`)
+      if (!m) throw new AmosError('You can not call with an empty argument!')
       const n = Math.min(s.length, m.data.length - m.off)
       for (let i = 0; i < n; i++) m.data[m.off + i] = s.charCodeAt(i) & 0xff
     },
@@ -361,10 +377,10 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
     'lcat pull'(it) {
       // Lcat Pull ADR — "if this address not contains Lcat-data AmigaDOS MAY
       // crash if you're unlucky!! If ADR points to NULLs (empty bank) you
-      // will receive the errormessage 'No more entries in this dir!'"
+      // will receive the errormessage 'No more entries in this dir'"
       const addr = it.evalInt()
       const c = rt.ldos.pushed.get(addr)
-      if (!c) throw new AmosError('No more entries in this dir!')
+      if (!c) throw new AmosError('No more entries in this dir')
       rt.ldos.pushed.delete(addr)
       rt.ldos.cat = c
       const m = rt.resolveAddr(addr)
@@ -400,7 +416,7 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       const longs = it.evalInt()
       it.expect(',')
       const password = it.evalStr()
-      if (password.length < 4) throw new AmosError('Ldos: password must be at least 4 characters')
+      if (password.length < 4) throw new AmosError('To short password-string!')
       const key = ldosKey(password)
       const m = rt.resolveAddr(start)
       if (!m) return
@@ -517,7 +533,7 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       // produced."
       const n = int(a[0] ?? VI(0))
       const words = ldosWords(str(a[1] ?? VS('')))
-      if (n < 1 || n > words.length) throw new AmosError(`Ldos: no word ${n} in that string`)
+      if (n < 1 || n > words.length) throw new AmosError('No enough words in string!')
       return VS(words[n - 1]!)
     },
     lwild(_, a) {
@@ -598,10 +614,10 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
     },
     'lcat first'(_, a) {
       // F$=Lcat First("Directory") — a lock, not a first entry. "If the
-      // directory didn't exist the error 'Invalid Filename' will be produced".
+      // directory didn't exist the error 'Invalid filename' will be produced".
       const dir = ldosPath(rt, str(a[0] ?? VS('')))
       const entries = rt.vfs?.listDir(dir) ?? null
-      if (entries === null) throw new AmosError('Invalid Filename')
+      if (entries === null) throw new AmosError('Invalid filename')
       const sorted = [...entries].sort((x, y) => x.name.localeCompare(y.name))
       rt.ldos.cat = { dir, entries: sorted, index: -1 }
       return VS(dir)

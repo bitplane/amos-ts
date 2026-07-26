@@ -63,8 +63,8 @@ describe('LDos file channels (LdosV25.DOC)', () => {
   })
 
   it('Lopen mode 0 on a missing file is an error, and channels are 1 to 3', () => {
-    expect(() => run('Lopen 1,"DH0:nope",0')).toThrow(/file not found/)
-    expect(() => run('Lopen 4,"DH0:x",1')).toThrow(/channel must be 1 to 3/)
+    expect(() => run('Lopen 1,"DH0:nope",0')).toThrow(/Invalid filename/)
+    expect(() => run('Lopen 4,"DH0:x",1')).toThrow(/Invalid Lchannel/)
   })
 
   it('Lclose is what commits written bytes to the filesystem', () => {
@@ -240,8 +240,8 @@ describe('LDos word splitting (LdosV25.DOC)', () => {
 
   it('asking for a word that does not exist is an error', () => {
     // "If you request a word which doesn't exist an error will be produced."
-    expect(() => run('Print Lword(9,"one two")')).toThrow(/no word 9/)
-    expect(() => run('Print Lword(0,"one two")')).toThrow(/no word 0/)
+    expect(() => run('Print Lword(9,"one two")')).toThrow(/No enough words/)
+    expect(() => run('Print Lword(0,"one two")')).toThrow(/No enough words/)
   })
 })
 
@@ -497,7 +497,7 @@ describe('LDos directory scanning (LdosV25.DOC + Lrecursive.AMOS)', () => {
     // "If the directory didn't exist the error "Invalid Filename" will be
     // produced (this is because I wanted to keep as few error-messages as
     // possible)"
-    expect(() => run('A$=Lcat First("DH0:nosuchdir")')).toThrow(/Invalid Filename/)
+    expect(() => run('A$=Lcat First("DH0:nosuchdir")')).toThrow(/Invalid filename/)
   })
 
   it('Ldev First and Ldev Next walk the devices, without colons', () => {
@@ -724,7 +724,7 @@ describe('LDos encryption (disassembled from AMOSPro_Ldos.lib)', () => {
     // Lcrypt has no length check at all — so the manual's "an error will be
     // produced if the password is less than 4 characters long" holds for one
     // of the pair only.
-    expect(() => run(['Reserve As Work 10,8', 'Ldecrypt Start(10),1,"ab"'].join('\n'))).toThrow(/at least 4/)
+    expect(() => run(['Reserve As Work 10,8', 'Ldecrypt Start(10),1,"ab"'].join('\n'))).toThrow(/To short password-string/)
     const { out } = run(['Reserve As Work 10,8', 'Lcrypt Start(10),1,"ab"', 'Print "no error"'].join('\n'))
     expect(out).toBe('no error\n')
   })

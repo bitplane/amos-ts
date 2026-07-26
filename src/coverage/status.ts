@@ -1027,6 +1027,8 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  'lopen':
+    'Files are read into memory whole on open and written back on Lclose, so the manual\'s warning that an unclosed file can corrupt the disk holds in the sense that the writes are simply lost — it cannot corrupt anything else. Error messages are the library\'s own, read out of its string table rather than invented: "Invalid Lchannel", "LFile not open", "Invalid filename", with the author\'s English preserved as he wrote it',
   'lsys stamp':
     'Reads the host clock, which defaults to a fixed date so a headless corpus run stays reproducible; a host with a real clock (the browser) supplies one. Nothing about the keyword is approximated — what varies is whether the machine it runs on has a clock, which is a property of the host rather than of the port',
   'lsys time':
@@ -1087,8 +1089,6 @@ export const NOTES: Record<string, string> = {
     "The manual warns 'No check is done to see whether the bufferlimit was exceeded or not so make sure there is room for the string'. That overrun is precisely what a port cannot reproduce: the write is bounded by the memory region it lands in, where the real machine would run on into whatever followed the bank",
   'lsave':
     "Returns the bytes written, and the manual's disk-error cases ('disk full, or write error', dos.library returning -1) have no counterpart in a browser filesystem, so a short write can only happen when the source address runs out",
-  'lopen':
-    'Files are read into memory whole on open and written back on Lclose, so the manual\'s warning that an unclosed file can corrupt the disk holds in the sense that the writes are simply lost — it cannot corrupt anything else',
   'set tempras': 'size/address validated and stored; the chunky renderer needs no temporary raster buffer',
   bstart: 'the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply',
   blength: 'the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply',
