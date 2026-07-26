@@ -208,3 +208,36 @@ Against the bundled corpus (426 programs) every slot currently resolves exactly,
 with no unexplained ids. That is a starting point, not a finish line: the corpus
 is the official releases plus the Intuition distribution's own samples, and a
 real sweep of Aminet would turn up extensions nobody here has seen.
+
+## Collections that identify themselves
+
+`src/cli/libscan.ts` is the other half. Where extscan reads programs and reports
+the slots they use, libscan reads the `.Lib` files and reports what each token
+table *contains* — every keyword the extension has, not just the ones some
+program happened to call:
+
+```
+npm run cli -- src/cli/libscan.ts /path/to/collection --json libs.json
+```
+
+A collection carrying programs and their libraries together — a PD library
+disc, an install, a coverdisk rip — can therefore resolve its own slot numbers.
+`extscan --libs` adds the scanned tables to the identification pool for that
+run:
+
+```
+npm run cli -- src/cli/extscan.ts /path/to/collection --libs /path/to/collection
+```
+
+A hit here is a **lead, not a registry entry**, and extscan labels it
+`UNREGISTERED` to keep the two apart. A matching id set establishes which token
+table a slot held; it says nothing about the extension's name, version, author,
+licence or behaviour, and the id base is assumed rather than calibrated.
+Promoting a lead means doing the work in "Adding an extension" above —
+including recording where it came from.
+
+This is also how to sanity-check a corpus you cannot fully parse. Token ids are
+byte offsets into a real table, so a desynchronised reader cannot produce
+dozens of ids that all land inside one library. Slots resolving exactly against
+libraries found beside the programs is strong evidence the tokenised stream was
+read correctly, whatever version of AMOS wrote it.
