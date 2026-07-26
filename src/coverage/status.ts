@@ -532,6 +532,10 @@ export const FAITHFUL = new Set<string>([
   'lcat push',
   'lcat pull',
   'lldir$',
+  'lupbuffer',
+  'llobuffer',
+  'lchk data',
+  'lchk boot',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   // NB: 'lmatch' is deliberately absent — implemented, but the manual never
@@ -1009,6 +1013,14 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  'llobuffer':
+    "The manual calls this keyword Llowbuffer; the token table in the library says Llobuffer, and the table is what a program is actually written against. Like AMOS's own Upper\$/Lower\$ it converts A-Z and a-z only — the manual notes this is 'due to AMOS isn't using a standard keymap'",
+  'lchk data':
+    "The manual gives no algorithm, only 'CHK will contain the checksum itself'. This is the standard AmigaDOS block checksum — the 128 longs of a 512-byte block sum to zero — and it is verified against real disk images from the corpus rather than inferred: the value it computes over a genuine root block equals the one already stored there. Byte-exact artifact evidence, which is why this is faithful despite the documentation gap",
+  'lchk boot':
+    "Likewise undocumented, and a different algorithm — an end-around-carry sum over both boot blocks, complemented — exactly as the manual warns ('you must not use Lchk Data for the bootblock and Lchk Boot for datablocks'). Verified the same way, against the stored boot checksum of real disks",
+  'llargest free':
+    'Reports the largest single allocatable block rather than the total, which is the distinction the manual draws against Chip Free/Fast Free. There is no real allocator here, so the figure is derived from the same synthetic memory budget those keywords use and cannot reflect genuine fragmentation — approximated for that reason',
   'lcat first':
     "A lock, not a first entry: it returns the directory and Lcat Next walks the contents, which is AmigaDOS Examine()/ExNext() rather than AMOS's Dir First\$/Dir Next\$. The manual says as much and the author's own Lrecursive.AMOS settles it — the result of Lcat First is discarded there and every entry comes from Lcat Next. What it returns is the path as requested; the manual describes it once as 'the file- or directoryname' and once as 'the path, requested by you', and no example prints it, so the ambiguity is unresolved",
   'lcat blocks':

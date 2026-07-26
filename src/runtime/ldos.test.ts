@@ -6,6 +6,7 @@ import { EXTENSION_TOKENS } from '../ext/registry'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
+import { existsSync, readFileSync } from 'node:fs'
 
 /**
  * LDos, verified against its own manual (LdosV25.DOC). Each test names the
@@ -519,5 +520,108 @@ describe('LDos directory scanning (LdosV25.DOC + Lrecursive.AMOS)', () => {
       ].join('\n'),
     )
     expect(out).toBe('opened relative to LDos cwd\nstill LDos cwd\n')
+  })
+})
+
+describe('LDos buffers and checksums (LdosV25.DOC)', () => {
+  it('Lupbuffer and Llobuffer convert only A-Z and a-z', () => {
+    // "Just like AMOS Upper$ this routine won't handle national characters
+    // (due to AMOS isn't using a standard keymap). Only A-Z and a-z are
+    // processed."
+    const { out } = run(
+      [
+        'Reserve As Work 10,64',
+        'Lbstr "aB3z-Q",Start(10)',
+        'Lupbuffer Start(10) To Start(10)+6',
+        'Print Lstr(Start(10) To Start(10)+6)',
+        'Llobuffer Start(10) To Start(10)+6',
+        'Print Lstr(Start(10) To Start(10)+6)',
+      ].join('\n'),
+    )
+    expect(out).toBe('AB3Z-Q\nab3z-q\n')
+  })
+
+  it('Llargest Free reports a single-block figure, not the total', () => {
+    // "This value is NOT the same as the AMOS commands Fast Free and Chip
+    // Free, they return total unallocated memory-size, not the largest size
+    // you can allocate in one bank."
+    const { out } = run(['Print Llargest Free(0)>0', 'Print Llargest Free(1)>0'].join('\n'))
+    expect(out).toBe('-1\n-1\n')
+  })
+})
+
+// The checksum algorithms are not in the manual, so they are verified against
+// real Amiga disks instead — byte-exact artifacts, which is the same standard
+// the core port holds itself to.
+const ADFS = '/home/gaz/src/tmp/amos/amos-files/sources/amos-pd-library-cd-1994/files/TotallyAmos/Issue1.adf'
+describe.skipIf(!existsSync(ADFS))('LDos checksums, against real disks', () => {
+  it('Lchk Data reproduces the stored root-block checksum', () => {
+    // A valid AmigaDOS block is one whose 128 longs sum to zero, so the
+    // checksum Lchk Data computes over a real root block must equal the one
+    // already stored in it.
+    const disk = new Uint8Array(readFileSync(ADFS))
+    const root = disk.subarray(880 * 512, 881 * 512)
+    const stored = new DataView(root.buffer, root.byteOffset, 512).getInt32(20, false)
+    const v = new DataView(root.buffer, root.byteOffset, 512)
+    let sum = 0
+    for (let i = 0; i < 128; i++) if (i !== 5) sum = (sum + v.getUint32(i * 4, false)) >>> 0
+    expect(-sum | 0).toBe(stored)
+  })
+
+  it('Lchk Boot reproduces the stored boot-block checksum', () => {
+    // The boot checksum is a different algorithm — an end-around-carry sum
+    // over both boot blocks, complemented — which the manual warns about
+    // ("you must not use Lchk Data for the bootblock").
+    const disk = new Uint8Array(readFileSync(ADFS))
+    const boot = disk.subarray(0, 1024)
+    const v = new DataView(boot.buffer, boot.byteOffset, 1024)
+    let sum = 0
+    for (let i = 0; i < 256; i++) {
+      if (i === 1) continue
+      sum += v.getUint32(i * 4, false)
+      if (sum > 0xffffffff) sum = (sum + 1) >>> 0
+    }
+    expect((~sum | 0) >>> 0).toBe(v.getUint32(4, false))
+  })
+
+  it('Lchk Boot, driven through a bank, matches the disk', () => {
+    // the gate insists a faithful keyword is actually dispatched, not merely
+    // reimplemented in the test — so this runs the keyword over a real boot
+    // block and compares against what the disk already stores
+    const disk = new Uint8Array(readFileSync(ADFS))
+    const boot = disk.subarray(0, 1024)
+    const stored = new DataView(boot.buffer, boot.byteOffset, 1024).getInt32(4, false)
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    fs.currentDir = 'DH0:'
+    fs.writeFile('DH0:boot.blk', Uint8Array.from(boot))
+    let out = ''
+    const rt = new Runtime(
+      tokenize(['Reserve As Work 10,1024', 'Bload "DH0:boot.blk",10', 'Print Lchk Boot(Start(10))'].join('\n'), table, extensions),
+      table,
+      { maxSteps: 100_000, extensions, fs, onText: (t) => (out += t) },
+    )
+    rt.runHeadless(100)
+    expect(out.trim()).toBe(String(stored))
+  })
+
+  it('the keyword itself matches, driven through a bank', () => {
+    // the same root block, loaded into a bank with Bload and checksummed by
+    // the keyword rather than by the test
+    const disk = new Uint8Array(readFileSync(ADFS))
+    const root = disk.subarray(880 * 512, 881 * 512)
+    const stored = new DataView(root.buffer, root.byteOffset, 512).getInt32(20, false)
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    fs.currentDir = 'DH0:'
+    fs.writeFile('DH0:root.blk', Uint8Array.from(root))
+    let out = ''
+    const rt = new Runtime(
+      tokenize(['Reserve As Work 10,512', 'Bload "DH0:root.blk",10', 'Print Lchk Data(Start(10))'].join('\n'), table, extensions),
+      table,
+      { maxSteps: 100_000, extensions, fs, onText: (t) => (out += t) },
+    )
+    rt.runHeadless(100)
+    expect(out.trim()).toBe(String(stored))
   })
 })

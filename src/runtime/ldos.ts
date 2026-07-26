@@ -329,6 +329,31 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       // advice is "Set Dir$ to desired value, and call LLdir$ Dir$".
       rt.ldos.cwd = it.evalStr()
     },
+    lupbuffer(it) {
+      // Lupbuffer START To STOP — "Just like AMOS Upper$ this routine won't
+      // handle national characters (due to AMOS isn't using a standard
+      // keymap). Only A-Z and a-z are processed."
+      const start = it.evalInt()
+      it.expect('to')
+      const r = region(rt, start, it.evalInt())
+      if (!r) return
+      for (let i = r.from; i < r.to; i++) {
+        const b = r.data[i]!
+        if (b >= 0x61 && b <= 0x7a) r.data[i] = b - 32
+      }
+    },
+    llobuffer(it) {
+      // The manual calls this "Llowbuffer"; the token table says Llobuffer,
+      // and the table is what a program is written against.
+      const start = it.evalInt()
+      it.expect('to')
+      const r = region(rt, start, it.evalInt())
+      if (!r) return
+      for (let i = r.from; i < r.to; i++) {
+        const b = r.data[i]!
+        if (b >= 0x41 && b <= 0x5a) r.data[i] = b + 32
+      }
+    },
     lold() {
       // "Lold - MAY CURRENTLY NOT BE USED!!  These are here for future
       // versions". Documented as unusable, so doing nothing is what the
@@ -550,6 +575,40 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       d.index++
       return VS(d.names[d.index] ?? '')
     },
+    'llargest free'(_, a) {
+      // A=Llargest Free(TYPE), 0 CHIP or 1 FAST. "This value is NOT the same
+      // as the AMOS commands Fast Free and Chip Free, they return total
+      // unallocated memory-size, not the largest size you can allocate in one
+      // bank."
+      const fast = int(a[0] ?? VI(0)) === 1
+      return VI(fast ? Math.max(0, 0x80000 - rt.fastUsed()) : Math.max(0, 0x80000 - rt.chipUsed()))
+    },
+    'lchk data'(_, a) {
+      // CHK=Lchk Data(ADR) — "ADR points to a buffer containing the datablock
+      // (512 bytes)". The manual gives no algorithm; this is the standard
+      // AmigaDOS block checksum, verified against real disks in the tests.
+      const m = rt.resolveAddr(int(a[0] ?? VI(0)))
+      if (!m || m.data.length - m.off < 512) return VI(0)
+      const v = new DataView(m.data.buffer, m.data.byteOffset + m.off, 512)
+      let sum = 0
+      for (let i = 0; i < 128; i++) if (i !== 5) sum = (sum + v.getUint32(i * 4, false)) >>> 0
+      return VI((-sum | 0))
+    },
+    'lchk boot'(_, a) {
+      // CHK=Lchk Boot(ADR) — "the bootchecksum isn't calculated in the same
+      // way as the checksum of other blocks ... the bootblock actually
+      // consists of TWO blocks ... and ADR should thus point to the TWO first"
+      const m = rt.resolveAddr(int(a[0] ?? VI(0)))
+      if (!m || m.data.length - m.off < 1024) return VI(0)
+      const v = new DataView(m.data.buffer, m.data.byteOffset + m.off, 1024)
+      let sum = 0
+      for (let i = 0; i < 256; i++) {
+        if (i === 1) continue // the checksum long itself
+        sum += v.getUint32(i * 4, false)
+        if (sum > 0xffffffff) sum = (sum + 1) >>> 0 // end-around carry
+      }
+      return VI(~sum | 0)
+    },
     lstr(_, a) {
       // A$=Lstr(START To MAX). Reads from START up to the end-of-line byte
       // (Lset Eoln, default 10) or MAX. "The end-of-line-terminator is NOT
@@ -579,6 +638,7 @@ export const LDOS_IMPLEMENTED: readonly string[] = [
   'lget comment', 'lset comment', 'lget prot', 'lset prot', 'ldate', 'lstamp', 'lset file date',
   'lcat first', 'lcat next', 'lcat type', 'lcat size', 'lcat blocks', 'lcat prot', 'lcat comment',
   'lcat stamp', 'lcat push', 'lcat pull', 'ldev first', 'ldev next', 'lldir$',
+  'lupbuffer', 'llobuffer', 'llargest free', 'lchk data', 'lchk boot',
 ]
 
 export type { Value }
