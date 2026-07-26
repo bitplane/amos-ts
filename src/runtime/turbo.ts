@@ -687,6 +687,30 @@ function permutePlanes(s: Screen, src: (p: number) => number): void {
   }
 }
 
+/**
+ * The five F icon keywords. They differ in what they refuse to do rather
+ * than in what they draw: the width-specialised ones skip the 16-pixel chop
+ * ("I've disgarded all testing for best speed possible!"), and the two
+ * processor ones draw through the CPU instead of the blitter, which costs
+ * them the mask. There is no blitter here and no CPU to be faster than it,
+ * so what is left is the chopping and the masking.
+ */
+function fIcon(rt: Runtime, it: Interp, chop: boolean, noMask = false): void {
+  const x = it.evalInt()
+  it.expect(',')
+  const y = it.evalInt()
+  it.expect(',')
+  const n = it.evalInt()
+  const s = rt.screen
+  const img = rt.iconBank?.image(n)
+  if (!img) return
+  // "If X < 0 no Icon is displayed... If X > width of screen, no Icon is
+  // displayed" — off the near edge it is dropped whole, off the far edge it
+  // is clipped
+  if (x < 0 || y < 0 || x >= s.width || y >= s.height) return
+  rt.blit(s, img, chop ? x & 0xfff0 : x, y, noMask || img.opaque)
+}
+
 /** `F Put Block` and `F Put Static Block`, which differ only in the lookup */
 function fPutBlock(rt: Runtime, it: Interp, viaStatic: boolean): void {
   const n = it.evalInt()
@@ -1377,6 +1401,28 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       if (src.data === dst.data) dst.data.copyWithin(dst.off, src.off, src.off + len)
       else dst.data.set(src.data.subarray(src.off, src.off + len), dst.off)
     },
+    'f paste icon'(it) {
+      // F Paste Icon x,y,icon — "The X coordinate is chopped to ly on a 16
+      // bit boundary, and only partial clipping is supported... Masks are
+      // now supported!"
+      fIcon(rt, it, true)
+    },
+    'f 16 icon'(it) {
+      // "This routine can only be used to display Icons that are 16 pixels
+      // wide... The X and Y coordinates are no longer chopped to ly on a 16
+      // bit boundary."
+      fIcon(rt, it, false)
+    },
+    'f 32 icon'(it) {
+      fIcon(rt, it, false)
+    },
+    'f 16proc icon'(it) {
+      // the processor versions chop X again, and "Masking is not supported!"
+      fIcon(rt, it, true, true)
+    },
+    'f 32proc icon'(it) {
+      fIcon(rt, it, true, true)
+    },
     'plane offset'(it) {
       // Plane Offset scrnr,planenr,xoffset,yoffset — routine 77. The stored
       // value is a byte offset, y*rowBytes+x, and it ADDS to what is there
@@ -1840,6 +1886,31 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       const bob = rt.bobs.get(n!)
       if (!bob) return VI(0)
       return VI(rt.zoneAt(bob.x + dx!, bob.y + dy!))
+    },
+    'x icon'(_, a) {
+      // "returns the width (in words) of a particular Icon" — words, not
+      // pixels, because that is how the bank stores it
+      const img = rt.iconBank?.image(int(a[0] ?? VI(0)))
+      return VI(img ? img.width >> 4 : 0)
+    },
+    'y icon'(_, a) {
+      // "returns the height (in lines)"
+      return VI(rt.iconBank?.image(int(a[0] ?? VI(0)))?.height ?? 0)
+    },
+    'planes icon'(_, a) {
+      // "how many planes the Icon is made of"
+      return VI(rt.iconBank?.image(int(a[0] ?? VI(0)))?.depth ?? 0)
+    },
+    'icon check'(_, a) {
+      // "-1 indicates that the Icon is defined, and it has NO MASK. 1
+      // indicates that the Icon is defined, and it has a MASK. 0 indicates
+      // that the Icon is NOT defined" — and with no bank at all, "in AMOSPro
+      // you don't get an error, 0 is returned instead"
+      const n = int(a[0] ?? VI(0))
+      if (n <= 0) funcCall()
+      const img = rt.iconBank?.image(n)
+      if (!img) return VI(0)
+      return VI(img.opaque ? -1 : 1)
     },
     'f sqr'(_, a) {
       // Undocumented; routine 65 is a digit-by-digit integer square root

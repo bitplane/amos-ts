@@ -673,6 +673,16 @@ export const FAITHFUL = new Set<string>([
   'hit bob zone',
   'cpu info',
   'math info',
+  // icons: routines 82-89 and 147
+  'f paste icon',
+  'f 16 icon',
+  'f 32 icon',
+  'f 16proc icon',
+  'f 32proc icon',
+  'x icon',
+  'y icon',
+  'planes icon',
+  'icon check',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1174,6 +1184,10 @@ export const NOTES: Record<string, string> = {
     "TURBO's own zone system, which the manual is explicit is 'not compatible with the normal Zone commands'. Note it returns 1 and 0 rather than AMOS's -1 and 0, as documented",
   'workbench open':
     'The counterpart to Close Workbench, which this port already treats as faithful because there is no Workbench memory to free. Reopening it is the same nothing in reverse',
+  'f 16proc icon':
+    "The five F icon keywords differ in what they refuse to do rather than in what they draw: the width-specialised ones skip the 16-pixel chop of X, and the two processor ones drive the CPU instead of the blitter and lose the mask with it ('Masking is not supported!'). Both of those survive here. What cannot is the point of them — there is no blitter to be faster than, so F 16proc Icon and F 32proc Icon are the same speed as the rest, where on a real machine choosing the wrong one for your CPU was the difference the manual spends a page on",
+  'icon check':
+    "Reports -1 for a defined icon with no mask, 1 with one, 0 for a missing one, and 0 rather than an error when there is no bank — 'in AMOSPro you don't get an error'. It reads the bank number from the Scene Icon Bank setting, so once that keyword exists this should follow it rather than always asking the icon bank",
   'cpu info':
     "Reports 20, a 68020. There is no 68000 here to ask, so the answer has to come from the machine this port models — and that is settled elsewhere already: Chip Free and Fast Free answer for 2MB of chip and a fast board, which is an A1200. Math Info answers 0 to match, a stock A1200 having no FPU. A program that branches on the CPU will take its 020 path",
   'parse$':

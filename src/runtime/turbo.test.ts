@@ -1134,6 +1134,63 @@ describe('TURBO Hit Zone (TURBO_DocsV2.15.Asc)', () => {
   })
 })
 
+/**
+ * Icons — routines 82-89 and 147, documented in Turbo_Icon_doc.asc and the
+ * 2.15 manual.
+ */
+describe('TURBO icons (Turbo_Icon_doc.asc + disassembly)', () => {
+  const grab = ['Cls 0', 'Ink 3 : Bar 0,0 To 15,7', 'Get Icon 1,0,0 To 16,8', 'Cls 0']
+
+  it('F Paste Icon chops X to a 16-pixel boundary and drops what is off screen', () => {
+    const { rt } = run([...grab, 'F Paste Icon 100,50,1'].join('\n'))
+    expect(rt.screen.point(96, 50)).toBe(3)
+    const off = run([...grab, 'F Paste Icon -16,50,1', 'F Paste Icon 10,999,1'].join('\n'))
+    let lit = 0
+    for (let y = 0; y < 200; y++) for (let x = 0; x < 320; x++) if (off.rt.screen.point(x, y) !== 0) lit++
+    expect(lit).toBe(0)
+  })
+
+  it('the width-specialised routines do not chop X', () => {
+    // "The X and Y coordinates are no longer chopped to ly on a 16 bit
+    // boundary. So you can put the allmost anywhere onto the screen"
+    const { rt } = run([...grab, 'F 16 Icon 100,50,1'].join('\n'))
+    expect(rt.screen.point(100, 50)).toBe(3)
+    expect(rt.screen.point(96, 50)).toBe(0)
+    const wide = run([...grab, 'F 32 Icon 100,50,1'].join('\n'))
+    expect(wide.rt.screen.point(100, 50)).toBe(3)
+  })
+
+  it('the processor versions chop X again and draw without a mask', () => {
+    // "Masking is not supported!" — the CPU versions paste the whole
+    // rectangle, colour 0 and all
+    const masked = ['Cls 0', 'Ink 3 : Bar 0,0 To 7,7', 'Get Icon 1,0,0 To 16,8', 'Cls 0', 'Ink 5 : Bar 0,0 To 319,199']
+    const proc = run([...masked, 'F 16proc Icon 100,50,1'].join('\n'))
+    expect(proc.rt.screen.point(96, 50)).toBe(3)
+    expect(proc.rt.screen.point(110, 50)).toBe(0) // the icon's blank half painted over
+    const blit = run([...masked, 'F Paste Icon 100,50,1'].join('\n'))
+    expect(blit.rt.screen.point(110, 50)).toBe(5) // masked: the background shows
+    const proc32 = run([...masked, 'F 32proc Icon 100,50,1'].join('\n'))
+    expect(proc32.rt.screen.point(96, 50)).toBe(3)
+  })
+
+  it('X Icon is in words, Y Icon in lines, Planes Icon in bitplanes', () => {
+    // "Ex.: Screen Open 0,320,200,8,Lowres : Get Icon 1,0,0 To 64,100 :
+    // DEPTH=Planes Icon(1) — DEPTH will contain 3"
+    const { out } = run(['Screen Open 0,320,200,8,Lowres', 'Get Icon 1,0,0 To 64,100', 'Print X Icon(1);Y Icon(1);Planes Icon(1)'].join('\n'))
+    expect(out).toBe(' 4 100 3\n')
+  })
+
+  it('Icon Check tells a defined icon from a missing one', () => {
+    // "-1 indicates that the Icon is defined, and it has NO MASK... 0
+    // indicates that the Icon is NOT defined"
+    const { out } = run([...grab, 'Print Icon Check(1);Icon Check(2)'].join('\n'))
+    expect(out).toBe(' 1 0\n')
+    // with no bank at all: "in AMOSPro you don't get an error, 0 is returned"
+    expect(run('Print Icon Check(1)').out).toBe(' 0\n')
+    expect(() => run('Print Icon Check(0)')).toThrow(/Illegal function call/)
+  })
+})
+
 describe('TURBO timing (TURBO_DocsV2.15.Asc + disassembly)', () => {
   it('Vbl Wait waits, and does not hang on any line value', () => {
     // The routine busy-waits on the low byte of VHPOSR ($dff006), which is
