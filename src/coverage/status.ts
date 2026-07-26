@@ -725,6 +725,15 @@ export const FAITHFUL = new Set<string>([
   'multi bload',
   'multi bl error',
   'multi bl ended',
+  // AMOS 3D, phase 2: getting objects off disc. Verified against the engine
+  // binary c3d.lib via src/cli/tddis.ts; see src/runtime/td.ts.
+  'td dir',
+  'td load',
+  'td clear all',
+  'td keep on',
+  'td keep off',
+  'td screen height',
+  'td quit',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1248,6 +1257,12 @@ export const NOTES: Record<string, string> = {
     'The source bank is fetched with no check and read immediately, so on the Amiga a missing bank reads address zero. Here it is "bank not reserved"',
   'scene 16 def':
     'The 78-byte definition record captures the scene and icon banks as pointers, so a definition outlives the Scene Bank setting that made it and Scene 16 Restore keeps drawing from wherever it was pointed. That is kept, by holding the arrays rather than the numbers',
+  'td keep on':
+    "A cache switch: 'Td Keep Off tells 3D not to keep objects in memory, but to load them each time'. The setting is recorded and Td Load consults it, but with objects held as parsed structures rather than AllocMem'd blocks there is no memory pressure for it to relieve, so turning it off costs nothing here where on the Amiga it traded speed for space",
+  'td quit':
+    "'Unload the 3D extensions along with all objects and release all 3D memory.' There is no separately loaded engine here to unload — c3d.lib is this module — so it is the object clear and the state reset",
+  'td load':
+    'The engine gates its ".3DO" suffix on a flag at a4+$b1a whose setter is not on any path traced so far; every shipped demo loads by bare name, so the suffix is always added here and a name that already carries an extension keeps it. Worth revisiting if a program turns up that loads by full filename',
   'multi bload':
     "The only genuinely concurrent keyword in the extension: it CreateProc()s an AmigaDOS process — up to five at once — which opens the file, reserves a bank the size of it under the eight characters given, reads it and exits, while BASIC carries on. There is no second thread here, so the load happens synchronously and Multi Bl Ended, which reports whether the pending count has reached zero, is always true. Every program that uses these three waits on Multi Bl Ended before touching the bank and cannot tell the difference; what is not reproduced is the overlap itself, so a program animating a loading screen sees the load complete in one frame",
   'cpu info':

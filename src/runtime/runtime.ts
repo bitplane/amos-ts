@@ -23,6 +23,7 @@ import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from './instr
 import { defaultHost, type Host } from './host'
 import { newLdosState, type LdosState } from './ldos'
 import { blitVbl, newTurboState, starsVbl, type TurboState } from './turbo'
+import { newTdState, type TdState } from './td'
 import { ObjectBank, imagesCollide } from './objects'
 import type { BankImage, Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from './fs'
@@ -373,6 +374,8 @@ export class Runtime {
 
   /** TURBO Plus: its own Check zones, and the task priority Multi No sets */
   turbo: TurboState = newTurboState()
+  /** AMOS 3D's loaded objects and settings */
+  td: TdState = newTdState()
 
   fileChans = new Map<
     number,
