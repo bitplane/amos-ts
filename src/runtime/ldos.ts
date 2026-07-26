@@ -49,7 +49,7 @@ import type { Runtime } from './runtime'
  * means to say, and because a nag is a property of one build rather than of
  * the keyword.
  */
-import { amigaMatch, hasWildcard } from './ldospat'
+import { amigaMatch, parsePatternResult } from './ldospat'
 
 /** an AMOS string is bytes, not UTF-16 */
 const latin1 = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.charCodeAt(0) & 0xff))
@@ -537,17 +537,24 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       return VS(words[n - 1]!)
     },
     lwild(_, a) {
-      // TEST=Lwild(A$). "TEST will be false (zero) if A$ contains no
-      // wildcard(s), otherwise TEST may contain anything (usually 1)."
-      return VI(hasWildcard(str(a[0] ?? VS(''))) ? 1 : 0)
+      // TEST=Lwild(A$). The routine is a thin wrapper: jsr -$348(a6) —
+      // dos.library ParsePattern — and `move.l d0,d3`, so the result is
+      // ParsePattern's verbatim. 0 no wildcards, 1 wildcards, -1 unparseable.
+      return VI(parsePatternResult(str(a[0] ?? VS(''))))
     },
     lmatch(_, a) {
-      // L=Lmatch(SOURCE$,S$). "PLEASE NOTE THAT BOTH STRINGS MUST BE NULL-
-      // TERMINATED (+Chr$(0))" — a dos.library calling convention the caller
-      // satisfies by appending Chr$(0), so the terminator is stripped here
-      // rather than treated as part of the text.
+      // L=Lmatch(SOURCE$,S$). The routine calls dos.library ParsePattern
+      // (-$348) and then MatchPattern (-$34e), returning the latter's result
+      // verbatim — so the answer is DOSTRUE (-1) or DOSFALSE (0), and the
+      // pattern grammar is dos.library's own rather than anything LDos
+      // invented. "PLEASE NOTE THAT BOTH STRINGS MUST BE NULL-TERMINATED
+      // (+Chr$(0))" is that calling convention showing through; the caller
+      // appends it, so it is stripped here rather than matched against.
       const trim = (v: string): string => (v.endsWith('\0') ? v.slice(0, -1) : v)
-      return VI(amigaMatch(trim(str(a[0] ?? VS(''))), trim(str(a[1] ?? VS('')))) ? -1 : 0)
+      const pattern = trim(str(a[1] ?? VS('')))
+      // ParsePattern runs first and its failure is the documented overflow
+      if (parsePatternResult(pattern) < 0) throw new AmosError('To long pattern/overflow/or no pattern')
+      return VI(amigaMatch(trim(str(a[0] ?? VS(''))), pattern) ? -1 : 0)
     },
     lskip(_, a) {
       // ADR=Lskip(CHAR,START To STOP). "ADR will contain the address AFTER

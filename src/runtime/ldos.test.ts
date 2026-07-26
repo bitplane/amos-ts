@@ -740,3 +740,30 @@ describe('LDos encryption (disassembled from AMOSPro_Ldos.lib)', () => {
     expect(ldosKey('')).toBe(0)
   })
 })
+
+describe('LDos pattern keywords are dos.library wrappers (disassembly)', () => {
+  // Lwild is `jsr -$348(a6)` (ParsePattern) and Lmatch is ParsePattern then
+  // `jsr -$34e(a6)` (MatchPattern), each returning `move.l d0,d3` — the
+  // library's own result verbatim. That settles what the manual never says.
+  it('Lwild returns ParsePattern: 0, 1, or -1 for an unparseable pattern', () => {
+    const { out } = run(
+      [
+        'Print Lwild("readme.txt")', // no wildcards
+        'Print Lwild("#?.txt")', // wildcards
+        'Print Lwild("(unclosed")', // ParsePattern fails
+        'Print Lwild("[a-z")',
+      ].join('\n'),
+    )
+    expect(out).toBe(' 0\n 1\n-1\n-1\n')
+  })
+
+  it('Lmatch returns DOSTRUE/DOSFALSE, and raises on a bad pattern', () => {
+    // MatchPattern's result is DOSTRUE (-1) or DOSFALSE (0). LDos calls
+    // ParsePattern itself first, so a pattern that will not parse produces
+    // the library's own message rather than a silent false.
+    const z = '+Chr$(0)'
+    const { out } = run([`Print Lmatch("abc"${z},"a?c"${z})`, `Print Lmatch("abc"${z},"axc"${z})`].join('\n'))
+    expect(out).toBe('-1\n 0\n')
+    expect(() => run(`Print Lmatch("abc"${z},"(unclosed"${z})`)).toThrow(/To long pattern/)
+  })
+})

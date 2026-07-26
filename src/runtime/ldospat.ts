@@ -120,15 +120,26 @@ export function parseAmigaPattern(pattern: string, star = false): Node[] {
   return seq
 }
 
-/** does the pattern contain anything that makes it a pattern rather than text? */
-export function hasWildcard(pattern: string, star = false): boolean {
+/**
+ * dos.library ParsePattern's result, which is what `Lwild` hands back
+ * verbatim (disassembly: jsr -$348(a6), move.l d0,d3):
+ *
+ *   0  the pattern contains no wildcards
+ *   1  it contains wildcards
+ *  -1  it could not be parsed — the buffer overflowed or the syntax is bad
+ *
+ * The manual's "TEST may contain anything (usually 1)" is that middle case
+ * seen from outside. The -1 is why it also says to "always use Lwild before
+ * calling Lmatch to prevent Lmatch to cause an overflow-error".
+ */
+export function parsePatternResult(pattern: string, star = false): 0 | 1 | -1 {
   try {
     // anything that is not a literal character is one of the wildcard forms
     // the manual lists — including a bare alternation like "(ab|cd)", which
     // is a pattern even when every branch is plain text
-    return parseAmigaPattern(pattern, star).some((n) => n.k !== 'char')
+    return parseAmigaPattern(pattern, star).some((n) => n.k !== 'char') ? 1 : 0
   } catch {
-    return false // an unparseable pattern is not a valid wildcard
+    return -1
   }
 }
 

@@ -543,12 +543,11 @@ export const FAITHFUL = new Set<string>([
   // — see NOTES. The manual documents no algorithm for these at all.
   'lcrypt',
   'ldecrypt',
+  'lmatch',
   'lsys stamp',
   'lsys time',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
-  // NB: 'lmatch' is deliberately absent — implemented, but the manual never
-  // states what a successful match returns, so it is approximated. See NOTES.
   'assign',
   'dir$',
   'dir',
