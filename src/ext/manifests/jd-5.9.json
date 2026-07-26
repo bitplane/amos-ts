@@ -19,5 +19,6 @@
     "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
-  "notes": "A much later JD than the 5.3 found on the AMOS PD CD: 133 keywords against 130, and its per-keyword manual covers 131 of them. The 5.3 fixture keeps its assembler source, which this one does not ship, so the two entries carry different evidence — 5.3 is source tier and this is manual tier."
+  "notes": "A much later JD than the 5.3 found on the AMOS PD CD: 133 keywords against 130, and its per-keyword manual covers 131 of them. The 5.3 fixture keeps its assembler source, which this one does not ship, so the two entries carry different evidence — 5.3 is source tier and this is manual tier. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. records a later 6.4 for AMOS Pro.",
+  "recommendedSlot": 22
 }

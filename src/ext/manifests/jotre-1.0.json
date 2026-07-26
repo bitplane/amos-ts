@@ -19,5 +19,6 @@
     "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
-  "notes": "A THX/AHX music player — five keywords, all documented. The archive splits builds by CPU (an mc68000 drawer), which no other extension here does."
+  "notes": "A THX/AHX music player — five keywords, all documented. The archive splits builds by CPU (an mc68000 drawer), which no other extension here does. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs..",
+  "recommendedSlot": 22
 }

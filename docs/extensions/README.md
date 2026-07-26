@@ -227,6 +227,35 @@ a registered-but-unimplemented extension is useful on its own: programs using it
 detokenise with real keyword names instead of `{ext12:$02d4}`, and unimplemented
 functions return a type-correct default rather than a type mismatch.
 
+## The published list
+
+Andrew Burton maintained an AMOS Extensions List from the AMOS-LIST archives,
+magazine clippings and coverdisk CDs; a copy is kept at ultimateamiga.com
+(last updated 2007-07-29) and in the corpus as `extension-list.txt`. It names
+62 extensions with their conventional slot, their AMOS and AMOS Pro version
+numbers, and occasionally where to find them.
+
+It is worth reading for two reasons. First, it is a **check on identification
+that was arrived at independently**: of the fourteen slots this port derived
+purely from token-id evidence in corpus programs, thirteen match Burton
+exactly. The fourteenth is Intuition, which he lists at 25 with the note
+"Slot 14 originally?" — and every corpus program that uses it has it at 14,
+which answers his question from the programs themselves.
+
+Second, it fills in what a binary cannot tell you: authorship (Sticks is by
+N. Critten, GUI by Pietro Ghizzoni), version numbers this port had only
+guessed at (TOME is 4.24, CText 1.32, Range 2.8), and the fact that Turbo
+and Turbo Plus were separately credited — Manuel Andre's 1.9 and Ryan Scott's
+2.x — even though their token tables are plainly one lineage.
+
+Where the list and a binary disagree, the binary wins: it records The Game
+Extension at 0.4b where the library's own \$VER says 0.9.
+
+**An extension id is a stable key, not an assertion.** Several carry a version
+suffix that was a provisional guess when the entry was created; the `version`
+field is the authoritative one and is corrected as evidence arrives, while the
+id stays put so that generated tables and manifests keep matching up.
+
 ## Finding what is missing
 
 `src/cli/extscan.ts` walks a tree of `.AMOS` files and reports what each slot

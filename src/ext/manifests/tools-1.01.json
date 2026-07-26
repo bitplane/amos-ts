@@ -19,5 +19,6 @@
     "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
-  "notes": "Memory and string peek/poke helpers — `set byte`, `get long`, `set string`. 33 keywords, 22 documented."
+  "notes": "Memory and string peek/poke helpers — `set byte`, `get long`, `set string`. 33 keywords, 22 documented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs..",
+  "recommendedSlot": 23
 }

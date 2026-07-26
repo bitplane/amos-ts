@@ -20,5 +20,6 @@
     "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
-  "notes": "Drives the OpalVision 24-bit graphics card: 78 keywords (`ovopenscreen24`, `ovwritepixel24`). Opal.Readme documents 76. A small Opal.s ships too but is a fragment rather than the whole extension. The hardware has no counterpart here, so most of this would be n/a rather than merely unimplemented."
+  "notes": "Drives the OpalVision 24-bit graphics card: 78 keywords (`ovopenscreen24`, `ovwritepixel24`). Opal.Readme documents 76. A small Opal.s ships too but is a fragment rather than the whole extension. The hardware has no counterpart here, so most of this would be n/a rather than merely unimplemented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs..",
+  "recommendedSlot": 21
 }

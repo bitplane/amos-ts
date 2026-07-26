@@ -19,5 +19,6 @@
     "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
-  "notes": "Keywords were renamed between the 1.0 already registered and this one — `znsx` became `elznsx`, `find asc` became `elf asc` — so the two tables are genuinely different rather than one extending the other. EasyLife.guide documents 146 of the 160. Version 1.09 is also in the archive with 157 keywords and is not registered separately, being three keywords from this one."
+  "notes": "Keywords were renamed between the 1.0 already registered and this one — `znsx` became `elznsx`, `find asc` became `elf asc` — so the two tables are genuinely different rather than one extending the other. EasyLife.guide documents 146 of the 160. Version 1.09 is also in the archive with 157 keywords and is not registered separately, being three keywords from this one. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs..",
+  "recommendedSlot": 16
 }

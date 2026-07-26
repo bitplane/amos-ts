@@ -655,6 +655,176 @@ export const EXT_TABLES: Record<string, TokenEntry[]> = {
     { id: 0x0170, name: "light grey", spec: "0", instr: 0xffff, func: 0x1b },
     { id: 0x0180, name: "light brown", spec: "0", instr: 0xffff, func: 0x1c },
   ],
+  "craft-1.0": [
+    { id: 0x0000, name: "", spec: "", instr: 0x1, func: 0x0 },
+    { id: 0x0006, name: "up case$", spec: "22", instr: 0xffff, func: 0x3 },
+    { id: 0x0016, name: "lo case$", spec: "22", instr: 0xffff, func: 0x4 },
+    { id: 0x0026, name: "flip case$", spec: "22", instr: 0xffff, func: 0x5 },
+    { id: 0x0038, name: "!left trim$", spec: "22,2", instr: 0xffff, func: 0x7 },
+    { id: 0x004c, name: "", spec: "22", instr: 0xffff, func: 0x6 },
+    { id: 0x0054, name: "!right trim$", spec: "22,2", instr: 0xffff, func: 0x9 },
+    { id: 0x006a, name: "", spec: "22", instr: 0xffff, func: 0x8 },
+    { id: 0x0072, name: "!bw instr", spec: "02,2,0", instr: 0xffff, func: 0xb },
+    { id: 0x0086, name: "", spec: "02,2", instr: 0xffff, func: 0xa },
+    { id: 0x0090, name: "chr conv$", spec: "22,0t0", instr: 0xffff, func: 0xc },
+    { id: 0x00a4, name: "str count", spec: "02,2", instr: 0xffff, func: 0x10 },
+    { id: 0x00b6, name: "!mem str count", spec: "00t0,2", instr: 0xffff, func: 0xd },
+    { id: 0x00d0, name: "", spec: "00,2", instr: 0xffff, func: 0xe },
+    { id: 0x00da, name: "str scramble$", spec: "22,2", instr: 0xffff, func: 0x12 },
+    { id: 0x00f0, name: "str unscramble$", spec: "22,2", instr: 0xffff, func: 0x14 },
+    { id: 0x0108, name: "!hex dump$", spec: "20,0,0", instr: 0xffff, func: 0x19 },
+    { id: 0x011e, name: "", spec: "20,0", instr: 0xffff, func: 0x18 },
+    { id: 0x0128, name: "chr dump$", spec: "20,0", instr: 0xffff, func: 0x1a },
+    { id: 0x013a, name: "!str peek$", spec: "20,0,2", instr: 0xffff, func: 0x1c },
+    { id: 0x0150, name: "", spec: "20,0", instr: 0xffff, func: 0x1b },
+    { id: 0x015a, name: "str poke", spec: "I0,2", instr: 0x1d, func: 0xffff },
+    { id: 0x016c, name: "chip max block", spec: "0", instr: 0xffff, func: 0x20 },
+    { id: 0x0180, name: "fast max block", spec: "0", instr: 0xffff, func: 0x21 },
+    { id: 0x0194, name: "mem copy", spec: "I0,0t0", instr: 0x23, func: 0xffff },
+    { id: 0x01a8, name: "mem type", spec: "00", instr: 0xffff, func: 0x24 },
+    { id: 0x01b8, name: "!mem scramble", spec: "I0t0,2", instr: 0x25, func: 0xffff },
+    { id: 0x01d0, name: "", spec: "I0,2", instr: 0x26, func: 0xffff },
+    { id: 0x01da, name: "!mem unscramble", spec: "I0t0,2", instr: 0x27, func: 0xffff },
+    { id: 0x01f4, name: "", spec: "I0,2", instr: 0x28, func: 0xffff },
+    { id: 0x01fe, name: "dr file$", spec: "22", instr: 0xffff, func: 0x29 },
+    { id: 0x020e, name: "dr path$", spec: "22", instr: 0xffff, func: 0x2a },
+    { id: 0x021e, name: "db free", spec: "02", instr: 0xffff, func: 0x2c },
+    { id: 0x022c, name: "db used", spec: "02", instr: 0xffff, func: 0x2d },
+    { id: 0x023a, name: "db size", spec: "02", instr: 0xffff, func: 0x2e },
+    { id: 0x0248, name: "disc state", spec: "02", instr: 0xffff, func: 0x2f },
+    { id: 0x025a, name: "disc type$", spec: "22", instr: 0xffff, func: 0x30 },
+    { id: 0x026c, name: "file protect", spec: "02", instr: 0xffff, func: 0x32 },
+    { id: 0x0280, name: "file comment$", spec: "22", instr: 0xffff, func: 0x33 },
+    { id: 0x0294, name: "file length", spec: "02", instr: 0xffff, func: 0x34 },
+    { id: 0x02a6, name: "file type", spec: "02", instr: 0xffff, func: 0x35 },
+    { id: 0x02b6, name: "set protect", spec: "I2,0", instr: 0x37, func: 0xffff },
+    { id: 0x02ca, name: "set comment", spec: "I2,2", instr: 0x38, func: 0xffff },
+    { id: 0x02de, name: "dr name$", spec: "22", instr: 0xffff, func: 0x3b },
+    { id: 0x02ee, name: "dr next$", spec: "2", instr: 0xffff, func: 0x3c },
+    { id: 0x02fc, name: "dr comment$", spec: "2", instr: 0xffff, func: 0x3d },
+    { id: 0x030e, name: "dr protect", spec: "0", instr: 0xffff, func: 0x3e },
+    { id: 0x031e, name: "dr length", spec: "0", instr: 0xffff, func: 0x3f },
+    { id: 0x032e, name: "dr type", spec: "0", instr: 0xffff, func: 0x40 },
+    { id: 0x033c, name: "dr fib", spec: "0", instr: 0xffff, func: 0x41 },
+    { id: 0x0348, name: "dr forget", spec: "I", instr: 0x42, func: 0xffff },
+    { id: 0x0358, name: "disc error", spec: "0", instr: 0xffff, func: 0x3a },
+    { id: 0x0368, name: "set red", spec: "I0,0", instr: 0x45, func: 0xffff },
+    { id: 0x0378, name: "pal red", spec: "00", instr: 0xffff, func: 0x44 },
+    { id: 0x0386, name: "set green", spec: "I0,0", instr: 0x47, func: 0x46 },
+    { id: 0x0398, name: "pal green", spec: "00", instr: 0xffff, func: 0x46 },
+    { id: 0x03a8, name: "set blue", spec: "I0,0", instr: 0x49, func: 0x48 },
+    { id: 0x03ba, name: "pal blue", spec: "00", instr: 0xffff, func: 0x48 },
+    { id: 0x03ca, name: "pal spread", spec: "I0t0", instr: 0x4c, func: 0xffff },
+    { id: 0x03de, name: "pal swap", spec: "I0,0", instr: 0x4d, func: 0xffff },
+    { id: 0x03f0, name: "pal copy", spec: "I0t0", instr: 0x4e, func: 0xffff },
+    { id: 0x0402, name: "reserve as palette", spec: "I0,0", instr: 0x4f, func: 0xffff },
+    { id: 0x041e, name: "pal count", spec: "00", instr: 0xffff, func: 0x50 },
+    { id: 0x042e, name: "!pal to bank", spec: "I0,0,0", instr: 0x53, func: 0xffff },
+    { id: 0x0446, name: "", spec: "I0,0", instr: 0x52, func: 0xffff },
+    { id: 0x0450, name: "", spec: "I0", instr: 0x51, func: 0xffff },
+    { id: 0x0458, name: "!pal from bank", spec: "I0,0,0", instr: 0x57, func: 0xffff },
+    { id: 0x0472, name: "", spec: "I0,0", instr: 0x56, func: 0xffff },
+    { id: 0x047c, name: "", spec: "I0", instr: 0x55, func: 0xffff },
+    { id: 0x0484, name: "!pal swap bank", spec: "I0,0,0", instr: 0x5a, func: 0xffff },
+    { id: 0x049e, name: "", spec: "I0,0", instr: 0x59, func: 0xffff },
+    { id: 0x04a8, name: "", spec: "I0", instr: 0x58, func: 0xffff },
+    { id: 0x04b0, name: "set bank colour", spec: "I0,0,0,0", instr: 0x5b, func: 0xffff },
+    { id: 0x04cc, name: "bank colour", spec: "00,0,0", instr: 0xffff, func: 0x5c },
+    { id: 0x04e2, name: "del bank colour", spec: "I0,0,0", instr: 0x5d, func: 0xffff },
+    { id: 0x04fc, name: "!tr exec", spec: "I2,0", instr: 0x5f, func: 0xffff },
+    { id: 0x050e, name: "", spec: "I2", instr: 0x60, func: 0xffff },
+    { id: 0x0516, name: "tr error", spec: "0", instr: 0xffff, func: 0x61 },
+    { id: 0x0524, name: "tr reset", spec: "I", instr: 0x62, func: 0xffff },
+    { id: 0x0532, name: "tr angle", spec: "I0", instr: 0x63, func: 0xffff },
+    { id: 0x0542, name: "tr get angle", spec: "0", instr: 0xffff, func: 0x64 },
+    { id: 0x0554, name: "tr left", spec: "I0", instr: 0x66, func: 0xffff },
+    { id: 0x0562, name: "tr right", spec: "I0", instr: 0x67, func: 0xffff },
+    { id: 0x0572, name: "tr towards", spec: "I0,0", instr: 0x68, func: 0xffff },
+    { id: 0x0586, name: "tr forward", spec: "I0", instr: 0x6b, func: 0xffff },
+    { id: 0x0598, name: "tr forw", spec: "I0", instr: 0x6b, func: 0xffff },
+    { id: 0x05a6, name: "tr back", spec: "I0", instr: 0x6c, func: 0xffff },
+    { id: 0x05b4, name: "tr distance", spec: "00,0", instr: 0xffff, func: 0x79 },
+    { id: 0x05c8, name: "tr pen up", spec: "I", instr: 0x7a, func: 0xffff },
+    { id: 0x05d8, name: "tr pen down", spec: "I", instr: 0x7b, func: 0xffff },
+    { id: 0x05ea, name: "tr pen state", spec: "0", instr: 0xffff, func: 0x7c },
+    { id: 0x05fc, name: "tr move rel", spec: "I0,0", instr: 0x73, func: 0xffff },
+    { id: 0x0610, name: "tr move", spec: "I0,0", instr: 0x72, func: 0xffff },
+    { id: 0x0620, name: "tr draw rel", spec: "I0,0", instr: 0x75, func: 0xffff },
+    { id: 0x0634, name: "tr draw", spec: "I0,0", instr: 0x74, func: 0xffff },
+    { id: 0x0644, name: "tr x pos", spec: "0", instr: 0xffff, func: 0x6f },
+    { id: 0x0652, name: "tr y pos", spec: "0", instr: 0xffff, func: 0x70 },
+    { id: 0x0660, name: "!tr proportions", spec: "I0,0", instr: 0x7e, func: 0xffff },
+    { id: 0x0678, name: "", spec: "I0", instr: 0x7d, func: 0xffff },
+    { id: 0x0680, name: "tr set home", spec: "I0,0", instr: 0x7f, func: 0xffff },
+    { id: 0x0694, name: "tr home", spec: "I", instr: 0x80, func: 0xffff },
+    { id: 0x06a2, name: "tr x home", spec: "0", instr: 0xffff, func: 0x81 },
+    { id: 0x06b2, name: "tr y home", spec: "0", instr: 0xffff, func: 0x82 },
+    { id: 0x06c2, name: "tr remember x", spec: "I", instr: 0x83, func: 0xffff },
+    { id: 0x06d6, name: "tr remember y", spec: "I", instr: 0x84, func: 0xffff },
+    { id: 0x06ea, name: "tr remember a", spec: "I", instr: 0x85, func: 0xffff },
+    { id: 0x06fe, name: "tr memorize x", spec: "I", instr: 0x86, func: 0xffff },
+    { id: 0x0712, name: "tr memorize y", spec: "I", instr: 0x87, func: 0xffff },
+    { id: 0x0726, name: "tr memorize a", spec: "I", instr: 0x88, func: 0xffff },
+    { id: 0x073a, name: "tr base", spec: "0", instr: 0xffff, func: 0x89 },
+    { id: 0x0748, name: "fr reset", spec: "I", instr: 0x8a, func: 0xffff },
+    { id: 0x0756, name: "fr x position", spec: "0", instr: 0xffff, func: 0x8c },
+    { id: 0x076a, name: "fr y position", spec: "0", instr: 0xffff, func: 0x8d },
+    { id: 0x077e, name: "fr position", spec: "I0,0", instr: 0x8b, func: 0xffff },
+    { id: 0x0792, name: "fr x step", spec: "0", instr: 0xffff, func: 0x91 },
+    { id: 0x07a2, name: "fr y step", spec: "0", instr: 0xffff, func: 0x92 },
+    { id: 0x07b2, name: "!fr step", spec: "I0,0", instr: 0x8e, func: 0xffff },
+    { id: 0x07c4, name: "", spec: "I0", instr: 0x8f, func: 0xffff },
+    { id: 0x07cc, name: "fr colour", spec: "I0,0", instr: 0x93, func: 0xffff },
+    { id: 0x07de, name: "fr get colour", spec: "00", instr: 0xffff, func: 0x94 },
+    { id: 0x07f2, name: "!fr window", spec: "I0,0,0,0,0", instr: 0x99, func: 0xffff },
+    { id: 0x080c, name: "", spec: "I0,0,0,0", instr: 0x98, func: 0xffff },
+    { id: 0x081a, name: "", spec: "I0", instr: 0x97, func: 0xffff },
+    { id: 0x0822, name: "fr scan all", spec: "I", instr: 0x9b, func: 0xffff },
+    { id: 0x0834, name: "!fr scan", spec: "I0", instr: 0x9c, func: 0xffff },
+    { id: 0x0844, name: "", spec: "I0,0", instr: 0x9d, func: 0xffff },
+    { id: 0x084e, name: "fr julia", spec: "I0,0,0", instr: 0x9f, func: 0xffff },
+    { id: 0x0862, name: "fr mandelbrot", spec: "I0", instr: 0xa0, func: 0xffff },
+    { id: 0x0876, name: "open workbench", spec: "I", instr: 0xa2, func: 0xffff },
+    { id: 0x088a, name: "wb to back", spec: "I", instr: 0xa4, func: 0xffff },
+    { id: 0x089a, name: "wb to front", spec: "I", instr: 0xa3, func: 0xffff },
+    { id: 0x08ac, name: "cli execute", spec: "I2", instr: 0xa5, func: 0xffff },
+    { id: 0x08be, name: "cli print", spec: "I2", instr: 0xa6, func: 0xffff },
+    { id: 0x08ce, name: "guru meditation", spec: "I0,0", instr: 0xa7, func: 0xffff },
+    { id: 0x08e6, name: "!guru alert", spec: "02,2,2,2,2", instr: 0xffff, func: 0xa8 },
+    { id: 0x0900, name: "", spec: "02,2,2,2", instr: 0xffff, func: 0xa9 },
+    { id: 0x090e, name: "", spec: "02,2,2", instr: 0xffff, func: 0xaa },
+    { id: 0x091a, name: "", spec: "02,2", instr: 0xffff, func: 0xab },
+    { id: 0x0924, name: "", spec: "02", instr: 0xffff, func: 0xac },
+    { id: 0x092c, name: "multi on", spec: "I", instr: 0xae, func: 0xffff },
+    { id: 0x093a, name: "multi off", spec: "I", instr: 0xaf, func: 0xffff },
+    { id: 0x094a, name: "set amos pri", spec: "I0", instr: 0xb0, func: 0xffff },
+    { id: 0x095e, name: "amos pri", spec: "0", instr: 0xffff, func: 0xb1 },
+    { id: 0x096c, name: "wb def prefs", spec: "I0,0", instr: 0xb2, func: 0xffff },
+    { id: 0x0982, name: "wb prefs", spec: "I0,0", instr: 0xb3, func: 0xffff },
+    { id: 0x0994, name: "!set wb prefs", spec: "I0,0,0", instr: 0xb5, func: 0xffff },
+    { id: 0x09ac, name: "", spec: "I0,0", instr: 0xb4, func: 0xffff },
+    { id: 0x09b6, name: "!sys request", spec: "02,2,2,2,2,2,2", instr: 0xffff, func: 0xb6 },
+    { id: 0x09d6, name: "", spec: "02,2,2,2,2,2", instr: 0xffff, func: 0xb7 },
+    { id: 0x09e8, name: "", spec: "02,2,2,2,2", instr: 0xffff, func: 0xb8 },
+    { id: 0x09f8, name: "", spec: "02,2,2,2", instr: 0xffff, func: 0xb9 },
+    { id: 0x0a06, name: "", spec: "02,2,2", instr: 0xffff, func: 0xba },
+    { id: 0x0a12, name: "hard reset", spec: "I", instr: 0xbc, func: 0xffff },
+    { id: 0x0a22, name: "warm reset", spec: "I", instr: 0xbd, func: 0xffff },
+    { id: 0x0a32, name: "hw mouse key", spec: "0", instr: 0xffff, func: 0xbe },
+    { id: 0x0a44, name: "y beam", spec: "0", instr: 0xffff, func: 0xbf },
+    { id: 0x0a50, name: "beam wait", spec: "I0", instr: 0xc0, func: 0xffff },
+    { id: 0x0a60, name: "gr ink", spec: "0", instr: 0xffff, func: 0xc1 },
+    { id: 0x0a6c, name: "gr back", spec: "0", instr: 0xffff, func: 0xc2 },
+    { id: 0x0a7a, name: "gr border", spec: "0", instr: 0xffff, func: 0xc3 },
+    { id: 0x0a8a, name: "gr centre", spec: "I0,2", instr: 0xc5, func: 0xffff },
+    { id: 0x0a9c, name: "amos base", spec: "0", instr: 0xffff, func: 0xc6 },
+    { id: 0x0aac, name: "craft version", spec: "0", instr: 0xffff, func: 0xc7 },
+    { id: 0x0ac0, name: "b.swap", spec: "00", instr: 0xffff, func: 0xc8 },
+    { id: 0x0ace, name: "w.swap", spec: "00", instr: 0xffff, func: 0xc9 },
+    { id: 0x0adc, name: "l.swap", spec: "00", instr: 0xffff, func: 0xca },
+    { id: 0x0aea, name: "cli here", spec: "0", instr: 0xffff, func: 0xcb },
+    { id: 0x0af8, name: "amos pro", spec: "0", instr: 0xffff, func: 0xcc },
+  ],
   "ctext-1.0": [
     { id: 0x0000, name: "", spec: "", instr: 0x1, func: 0x0 },
     { id: 0x0006, name: "ctext", spec: "I0,0,2", instr: 0x7, func: 0xffff },
@@ -5319,11 +5489,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 20,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "36a27625e91c072145df6e62799a91084b75b783e3f2cb6d4a6581afbaacc577",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AGA. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "AGA chipset support — 256-colour screens, palettes, blocks. 24 keywords, 22 documented. The archive also holds v0.09, not registered separately."
+    "notes": "AGA chipset support — 256-colour screens, palettes, blocks. 24 keywords, 22 documented. The archive also holds v0.09, not registered separately. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "amcaf-1.50",
@@ -5334,11 +5505,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 8,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "9894a7e216ff501244bbcdc47d3830abdbcf4382d4f4a6daa43551faa87917e4",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AMCAF150Final. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Freeware, and the largest well-documented third-party extension: 281 keywords over banks, graphics, maths and AGA. Its manual states \"AMCAF V1.50beta4 is the FINAL RELEASE! FREEWARE!\". The manual is for V1.40 and the author writes \"Sorry, but I didn't have time to update the manual. You'll have to find out the new commands since V1.40 yourself\" — so keywords added in 1.50 are undocumented and only the V1.40 subset is genuinely at manual tier. The archive also ships AMOSPro_AMCAFUpdate.Lib, a patch overlay with no token table of its own. Its documentation states the extension expects slot 8."
+    "notes": "Freeware, and the largest well-documented third-party extension: 281 keywords over banks, graphics, maths and AGA. Its manual states \"AMCAF V1.50beta4 is the FINAL RELEASE! FREEWARE!\". The manual is for V1.40 and the author writes \"Sorry, but I didn't have time to update the manual. You'll have to find out the new commands since V1.40 yourself\" — so keywords added in 1.50 are undocumented and only the V1.40 subset is genuinely at manual tier. The archive also ships AMOSPro_AMCAFUpdate.Lib, a patch overlay with no token table of its own. Its documentation states the extension expects slot 8. Slot 8, per both the extension's own documentation and Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "amos3d-1.0",
@@ -5349,13 +5521,14 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "table",
     "idBaseEvidence": "calibrated",
+    "defaultSlot": 4,
     "observedSlots": [
       4
     ],
     "titleStrings": [],
     "sha256": "c93a90e82a542836b0ecb985b8a81d1431e7edbf2e48a6646bd4197af023aa65",
     "provenance": "AMOS PD Library CD, APD371/AMOS_System. Present on several APD disks with no documentation. AMOS 3D was a commercial add-on sold by Europress, not public-domain material, so its presence here does not imply redistribution rights.",
-    "notes": "The 3D extension: object//scene keywords (Td Load, Td Object, Td Move X, ...) over a vector engine. Table tier, and a commercial product, so evidence is unlikely to improve without the original manual. Two 82-entry variants are on the disc; both explain all 53 ids observed in slot 4, so the two cannot be told apart from the corpus."
+    "notes": "The 3D extension: object//scene keywords (Td Load, Td Object, Td Move X, ...) over a vector engine. Table tier, and a commercial product, so evidence is unlikely to improve without the original manual. Two 82-entry variants are on the disc; both explain all 53 ids observed in slot 4, so the two cannot be told apart from the corpus. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. records an AMOS Pro build numbered 1.02AP, which is not this one — this is the AMOS 1.3-era 1.0."
   },
   {
     "id": "amospro-colours-1.0",
@@ -5366,26 +5539,44 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "source",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 23,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "496c99f2843b265225f1d96f014254edb1603872c138991ce54e9fcb25866b62",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Colour_1.0. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Named colour constants — `red`, `green`, `cyan`, `grey` — 27 keywords. The complete assembler source ships with it, so this is source tier despite having no prose documentation at all. Unrelated to Joerg Dommermuth's JD Colour."
+    "notes": "Named colour constants — `red`, `green`, `cyan`, `grey` — 27 keywords. The complete assembler source ships with it, so this is source tier despite having no prose documentation at all. Unrelated to Joerg Dommermuth's JD Colour. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
+  },
+  {
+    "id": "craft-1.0",
+    "name": "CRAFT",
+    "version": "1.0",
+    "author": "Hannu Rummukainen (for Black Legend Ltd)",
+    "origin": "third-party",
+    "format": "legacy",
+    "evidence": "table",
+    "idBaseEvidence": "assumed",
+    "defaultSlot": 18,
+    "observedSlots": [],
+    "titleStrings": [],
+    "sha256": "423073d319ad5a43722f4a9bd06cea6acd2925473278cec265620d19ebb614d8",
+    "provenance": "Ultimate Amiga AMOS Factory, CRAFT archive, retrieved 2026-07-26. Recovered rather than found. The archive ships no .Lib at all — only a DMS disk image whose contents are an Installer and seven opaque Data blobs. Decompressing the DMS (xdms) and reading the disk gave those blobs, and Data0 turned out to be the library itself behind an eight-byte prefix: HUNK_HEADER sits at offset 8 and the token table parses cleanly from there. The other blobs are installer payloads, each a length, a destination path and a file — Data5 is RAM:CRAFT_Help.AMOS, kept here alongside.",
+    "notes": "168 tokens of string handling — up case$, lo case$, flip case$, left trim$, bw instr, str scramble$, chr conv$ and the like. Table tier: the archive's only documentation is CRAFT_Help.AMOS, which is crunched with a packer identifying itself as SOLARIS/E and yields no readable text, so keyword behaviour is inferred from names and parameter specs. Burton's AMOS Extensions List places it at slot 18."
   },
   {
     "id": "ctext-1.0",
     "name": "CText",
-    "version": "1.0",
+    "version": "1.32",
     "author": "unknown",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "table",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 8,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "9435138841a5a0be029d72fff03f801ce7f025d68bc03009e2183da92b702f3b",
     "provenance": "AMOS PD Library CD, APD426/AMOS_System. No documentation found on the disc.",
-    "notes": "Compressed/custom text rendering: font size, font base, font data, kerning and a proportional-length function. Table tier, six keywords."
+    "notes": "Compressed/custom text rendering: font size, font base, font data, kerning and a proportional-length function. Table tier, six keywords. Version from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.; 1.0 was a placeholder."
   },
   {
     "id": "d-sam-1.01",
@@ -5396,11 +5587,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "table",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 15,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "045b7f8f5b97bd86737d96653a612ce6c9f1657439954b607b0aad572d125d94",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: D_Sam_1.01. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Sample replay from disk — 50 keywords (`smp load`, `smp dma buffer`, `smp mode minchip`). D-Sam.doc ships but mentions almost none of the keywords, so this stays at table tier; the example program uses more of them than the documentation does."
+    "notes": "Sample replay from disk — 50 keywords (`smp load`, `smp dma buffer`, `smp mode minchip`). D-Sam.doc ships but mentions almost none of the keywords, so this stays at table tier; the example program uses more of them than the documentation does. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "delta-1.4",
@@ -5411,11 +5603,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 15,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "1bbfbc43fe54c72d2d13fea003654b5f514e14d3a57997d6bf8259ffb6ca28ca",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Delta. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "The earlier Delta, 26 keywords, all documented. Registered beside 1.6 because the tables differ."
+    "notes": "The earlier Delta, 26 keywords, all documented. Registered beside 1.6 because the tables differ. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "delta-1.6",
@@ -5426,11 +5619,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 15,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "97fbb8acb3347dfb91dcf73ebf240722a40702b9b9f200bb7da3505c2eb3aeed",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Delta. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "System utilities — drive motor, PAL/NTSC, decrunching, interrupt control. 46 keywords, 45 documented in its guide."
+    "notes": "System utilities — drive motor, PAL/NTSC, decrunching, interrupt control. 46 keywords, 45 documented in its guide. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "dump-1.0",
@@ -5441,11 +5635,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "table",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 10,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "b609afce0d6fa4398a68697c86aa75e30c27c618055c59dd2d0cacc08446c69a",
     "provenance": "AMOS PD Library CD, APD565/JC/AMOS_System. No documentation found. A smaller 5-entry Dump.Lib also exists on APD036. Author identified from the Ultimate Amiga AMOS Factory archive listing (Dump Extension v1.0, archived by Lonewolf10); the binary carries no attribution.",
-    "notes": "Low-level disc access (Diskin, Secread, Secwrite, Trackformat) plus a screen dump. Table tier. The disc-sector keywords have no counterpart in a virtual filesystem, so much of this is likely to end up n/a rather than merely unimplemented."
+    "notes": "Low-level disc access (Diskin, Secread, Secwrite, Trackformat) plus a screen dump. Table tier. The disc-sector keywords have no counterpart in a virtual filesystem, so much of this is likely to end up n/a rather than merely unimplemented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "easylife-1.0",
@@ -5456,11 +5651,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 16,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "79e0f3fdcab923d788ec022b7a4401c3693a9f2634cd314276725e0d7154932c",
     "provenance": "AMOS PD Library CD, APD600/easy. EasyLife.doc names it 'EASY LIFE Extension V1.0, Written By Paul Hickman'.",
-    "notes": "72 named keywords: zone geometry accessors, string searching, and assorted conveniences. Documented, so manual tier."
+    "notes": "72 named keywords: zone geometry accessors, string searching, and assorted conveniences. Documented, so manual tier. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "easylife-1.10",
@@ -5471,11 +5667,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 16,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "42ad66986c9bcb8f72ec485bcb8fdedafa9f14de529f38489d7685525224b798",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: EasyLife. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Keywords were renamed between the 1.0 already registered and this one — `znsx` became `elznsx`, `find asc` became `elf asc` — so the two tables are genuinely different rather than one extending the other. EasyLife.guide documents 146 of the 160. Version 1.09 is also in the archive with 157 keywords and is not registered separately, being three keywords from this one."
+    "notes": "Keywords were renamed between the 1.0 already registered and this one — `znsx` became `elznsx`, `find asc` became `elf asc` — so the two tables are genuinely different rather than one extending the other. EasyLife.guide documents 146 of the 160. Version 1.09 is also in the archive with 157 keywords and is not registered separately, being three keywords from this one. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "easylife-1.44",
@@ -5486,11 +5683,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 16,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "6cc53c104ae7e57537d83f7fab34fbafaa8fba8de85024e208c6f9446457ffb3",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: EasyLife. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "The latest EasyLife in the archive, and smaller than 1.10 — 108 named keywords against 160 — so the extension was cut down rather than grown. The 1.09 documentation covers 100 of them; no 1.44-specific manual ships with it, so what changed is not documented."
+    "notes": "The latest EasyLife in the archive, and smaller than 1.10 — 108 named keywords against 160 — so the extension was cut down rather than grown. The 1.09 documentation covers 100 of them; no 1.44-specific manual ships with it, so what changed is not documented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "eme-3.0",
@@ -5501,11 +5699,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 1,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "a2d081aadec4a72c9b4399503c56f9b9b2c613692aa03161515eb041fd568116",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: EME_3.0_DEMO. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Replaces the stock Music extension in place, keeping the filename AMOSPro_Music.Lib so it drops into slot 1 — 59 keywords against the stock 49. This resolves what the AMOS PD CD's eme/ drawer holds: two tables of 74 and 70 entries that matched no registered extension, which are this and its AMOS 1.3 sibling. A demo build. EME.doc documents 25 keywords, mostly the additions."
+    "notes": "Replaces the stock Music extension in place, keeping the filename AMOSPro_Music.Lib so it drops into slot 1 — 59 keywords against the stock 49. This resolves what the AMOS PD CD's eme/ drawer holds: two tables of 74 and 70 entries that matched no registered extension, which are this and its AMOS 1.3 sibling. A demo build. EME.doc documents 25 keywords, mostly the additions. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. notes it 'apparently went up to 4.5b'."
   },
   {
     "id": "ercole-1.7",
@@ -5516,11 +5715,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 10,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "2ad07234daf37eedb0c4fae550b71d39c0be4aafccd24b03e55aa273a02a783e",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Ercole_1.7. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Game-port extras: paddles, analogue sticks, the 4-player parallel adaptor, and the second and third buttons on console pads. 11 keywords, 10 documented. An AMOS 1.3 build (v1.6) is in the archive too."
+    "notes": "Game-port extras: paddles, analogue sticks, the 4-player parallel adaptor, and the second and third buttons on console pads. 11 keywords, 10 documented. An AMOS 1.3 build (v1.6) is in the archive too. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "first-0.1",
@@ -5531,21 +5731,23 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 22,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "0b19b31bbe06516baa3381c444c71600f8e343cb3995fe26b3aadc144e5b7f9a",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: First_0.1. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Four keywords — LED control, wait-for-mouse, wait-for-joystick, clear banks. Documented, and evidently a first attempt at writing an extension, which is what the name says."
+    "notes": "Four keywords — LED control, wait-for-mouse, wait-for-joystick, clear banks. Documented, and evidently a first attempt at writing an extension, which is what the name says. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "gui-1.61",
     "name": "AMOSPro GUI Extension",
     "version": "1.61",
-    "author": "unknown",
+    "author": "Pietro Ghizzoni",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "table",
     "idBaseEvidence": "calibrated",
+    "defaultSlot": 24,
     "observedSlots": [
       24
     ],
@@ -5555,22 +5757,23 @@ export const EXT_INFO: ExtensionInfo[] = [
     ],
     "sha256": "9395e13d10ca0297e61a1204c759637299179de9afe66bc1e9d8b36297862250",
     "provenance": "The project author's own AMOS Pro installation. Dated 31-03-97, so post-dates the commercial life of AMOS Pro. Wraps real Intuition/ASL gadgetry (gui open/gadgets/menus/requesters) and carries an unrelated TCP keyword family.",
-    "notes": "No manual available. Table-only evidence — see ldos-2.5 for what that bars."
+    "notes": "No manual available. Table-only evidence — see ldos-2.5 for what that bars. Author from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs."
   },
   {
     "id": "gui-2.10",
     "name": "GUI",
     "version": "2.1",
-    "author": "unknown",
+    "author": "Pietro Ghizzoni",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 24,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "49343990a3b4fe5961daa5519ff17cf4c6f67590fbf93bef2da93505aae22c1a",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: gui210. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "A later GUI than the 1.61 already registered — 204 keywords against 103 — and far better evidenced: GUI2.guide documents 202 of them. The binary's $VER reads \"V 2.1 18-10-2000\", so this is a late release, well after the Amiga's commercial life. The archive also carries Gui_CLI.lib and Gui_Backstart.Lib, which are compiler headers rather than extensions and have no token table."
+    "notes": "A later GUI than the 1.61 already registered — 204 keywords against 103 — and far better evidenced: GUI2.guide documents 202 of them. The binary's $VER reads \"V 2.1 18-10-2000\", so this is a late release, well after the Amiga's commercial life. The archive also carries Gui_CLI.lib and Gui_Backstart.Lib, which are compiler headers rather than extensions and have no token table. Author from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs."
   },
   {
     "id": "intuition-1.3b",
@@ -5581,6 +5784,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "source",
     "evidence": "source",
     "idBaseEvidence": "calibrated",
+    "defaultSlot": 25,
     "observedSlots": [
       14
     ],
@@ -5589,7 +5793,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     ],
     "sha256": "1063312c56e4ab1a84a47b62232fce30a5dc32d3d881d11f4dcf1b76119187ef",
     "provenance": "AMOS-Professional-Official/extensions/Intuition-41.95/Intuition Distributed as 'Intuition-41.95' — 41.95 is the intuition.library version it targets, not the extension version. intuition.guide and the makefile both say 1.3b. No linked .Lib ships with the distribution (only Intuition.lib.info), so the token table is assembled from its own src/itokens.s.",
-    "notes": "The id base is not a guess: exactly one offset in -2048..2048 (K=6) maps all 149 distinct slot-14 token ids observed across the 819-program corpus onto valid entry starts. See src/ext/registry.test.ts."
+    "notes": "The id base is not a guess: exactly one offset in -2048..2048 (K=6) maps all 149 distinct slot-14 token ids observed across the 819-program corpus onto valid entry starts. See src/ext/registry.test.ts. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. lists slot 25 but asks 'Slot 14 originally?' — the corpus answers it: every program here that uses Intuition has it at slot 14."
   },
   {
     "id": "jd-5.3",
@@ -5617,11 +5821,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 22,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "425c761ebd02a4f4e0186486d820d9ffb43642bf41d3249280d3b37b3ff29ade",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "A much later JD than the 5.3 found on the AMOS PD CD: 133 keywords against 130, and its per-keyword manual covers 131 of them. The 5.3 fixture keeps its assembler source, which this one does not ship, so the two entries carry different evidence — 5.3 is source tier and this is manual tier."
+    "notes": "A much later JD than the 5.3 found on the AMOS PD CD: 133 keywords against 130, and its per-keyword manual covers 131 of them. The 5.3 fixture keeps its assembler source, which this one does not ship, so the two entries carry different evidence — 5.3 is source tier and this is manual tier. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. records a later 6.4 for AMOS Pro."
   },
   {
     "id": "jd-colour-1.4",
@@ -5649,11 +5854,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 20,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "f3f19d866d7ef09b7e3e69aa933ab6f32b18eb0c0cc3636bdf900e339aa760fb",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "A major revision of the 1.4 on the PD CD — 56 keywords against 44 — and this one has a manual, which 1.4 did not. Unrelated to the \"AMOSPro Colours\" extension by Jan Normann Nielsen."
+    "notes": "A major revision of the 1.4 on the PD CD — 56 keywords against 44 — and this one has a manual, which 1.4 did not. Unrelated to the \"AMOSPro Colours\" extension by Jan Normann Nielsen. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "jd-int-1.3",
@@ -5664,11 +5870,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 18,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "280035af9c988219c400003471bc400620d7616be0a7d88fbb3e5b0791cac31c",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "A fourth JD library, absent from the PD CD: Intuition window and screen wrappers (`jd open intwindow`, `jd intprint`). Manual covers 33 of its 34 keywords."
+    "notes": "A fourth JD library, absent from the PD CD: Intuition window and screen wrappers (`jd open intwindow`, `jd intprint`). Manual covers 33 of its 34 keywords. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "jd-k3-1.1",
@@ -5679,11 +5886,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 19,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "a18ba63c055f9985235ce325b70acf41c42a5339c61e8361622bc6045178a511",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "The fifth and smallest JD library: six keywords for relabelling, pattern matching and the mouse click. Fully documented."
+    "notes": "The fifth and smallest JD library: six keywords for relabelling, pattern matching and the mouse click. Fully documented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "jd-prt-1.3",
@@ -5711,11 +5919,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 21,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "6a035fe8e47317bf8a20e0e286e60425a456dc05d68ab21102be0f8687f379b6",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Later than the 1.3 registered from the PD CD (69 keywords against 63), with a per-keyword manual covering all 69. No host printer exists here, so a port would discard output as Lprint does; the faithful part is the escape sequences and the state each keyword sets."
+    "notes": "Later than the 1.3 registered from the PD CD (69 keywords against 63), with a per-keyword manual covering all 69. No host printer exists here, so a port would discard output as Lprint does; the faithful part is the escape sequences and the state each keyword sets. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. records a later 2.0."
   },
   {
     "id": "jotre-1.0",
@@ -5726,11 +5935,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 22,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "a36a562bd36c2515ee7738c338df6bb0e42336f38e9f008af2c9582666f47d4e",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: jotre. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "A THX/AHX music player — five keywords, all documented. The archive splits builds by CPU (an mc68000 drawer), which no other extension here does."
+    "notes": "A THX/AHX music player — five keywords, all documented. The archive splits builds by CPU (an mc68000 drawer), which no other extension here does. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "jvp-1.01",
@@ -5741,11 +5951,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 25,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "d985288a5f7b15e008ca01b797ca7dc8bf8101d0ca28894c14c2c5e76bb03d57",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JVP_1.01. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Sorting, string handling and message banks. All 11 keywords documented, and a partial source file ships as well."
+    "notes": "Sorting, string handling and message banks. All 11 keywords documented, and a partial source file ships as well. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "ldos-2.5",
@@ -5756,6 +5967,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "calibrated",
+    "defaultSlot": 10,
     "observedSlots": [
       10
     ],
@@ -5765,7 +5977,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     ],
     "sha256": "90bbd62b3f00f5c5e51c416382aef4f0058c703c763a30659a3fab831977fb7b",
     "provenance": "The project author's own AMOS Pro installation. The two identity strings disagree: the embedded $VER cookie says V2.5 Registered while the copyright banner still says 'LDos Pro 1.0'. The $VER cookie is taken as authoritative (it is the string the Amiga Version command reads); the stale banner is recorded so a binary carrying only the banner can still be matched. Documentation was found later on the AMOS PD Library CD (APD600/ldos_demo/docs): LdosV25.DOC describes the extension and its keywords, with UpDateV25_Ldos.DOC covering the changes to V2.5 and Known_Problems.DOC listing its defects. The base document's own header still reads 'LDos V1(3) for AMOS1.3 and above', so the V2.5 keyword set is documented by the pair rather than by one current manual.",
-    "notes": "77 keywords for file and directory handling AMOS lacks. Previously table tier — the manual has since been located on the AMOS PD Library CD, so keyword behaviour is documented rather than inferred and ports from it can be marked faithful. The two identity strings still disagree (see provenance); the $VER cookie remains authoritative. Explains all 46 ids observed in slot 10 across 42 programs of that corpus."
+    "notes": "77 keywords for file and directory handling AMOS lacks. Previously table tier — the manual has since been located on the AMOS PD Library CD, so keyword behaviour is documented rather than inferred and ports from it can be marked faithful. The two identity strings still disagree (see provenance); the $VER cookie remains authoritative. Explains all 46 ids observed in slot 10 across 42 programs of that corpus. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs., matching what the corpus shows."
   },
   {
     "id": "ldos-2.6",
@@ -5776,11 +5988,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 10,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "cbb06295b1ea418042507f81a7c228c838e1668f81d8659a50692a7c6dfd07f5",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: ldos. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Later than the 2.5 registered (85 keywords against 77), and this archive carries LdosV25.guide documenting 84 of them — the AmigaGuide form of the same manual that lifted 2.5 off table tier."
+    "notes": "Later than the 2.5 registered (85 keywords against 77), and this archive carries LdosV25.guide documenting 84 of them — the AmigaGuide form of the same manual that lifted 2.5 off table tier. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "locale-0.26",
@@ -5791,11 +6004,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 17,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "a26f5c0ffd26707473ab33521e3ee57d19cc914ec7982da0914f2b72e3cd4bde",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Locale_0.26. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Wraps AmigaOS locale.library — catalogs, localised case conversion. All 20 keywords documented."
+    "notes": "Wraps AmigaOS locale.library — catalogs, localised case conversion. All 20 keywords documented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "lserial-2.1",
@@ -5806,6 +6020,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "calibrated",
+    "defaultSlot": 11,
     "observedSlots": [
       11
     ],
@@ -5814,7 +6029,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     ],
     "sha256": "12ed4b4f1342a27314d702ef73048bc6d488ad2bd8009aec920feee2e608273e",
     "provenance": "AMOS PD Library CD, APD600/lserial_demo/extensions. Unregistered shareware build; the binary emits 'UNREGISTERED SHAREWARE version of LSerial!' banners. Attributed to Niklas Sjoberg, the LDos author — inferred here from the shared naming and demo layout, and since confirmed by the Ultimate Amiga AMOS Factory archive listing.",
-    "notes": "Serial port keywords (Lser Open/Close/Send/Read/Query). Explains all 8 ids observed in slot 11, so the id base is calibrated. Documented, so manual tier. Like IOPorts, the keyword surface is portable but serial.device has no counterpart here."
+    "notes": "Serial port keywords (Lser Open/Close/Send/Read/Query). Explains all 8 ids observed in slot 11, so the id base is calibrated. Documented, so manual tier. Like IOPorts, the keyword surface is portable but serial.device has no counterpart here. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. records a later 2.2."
   },
   {
     "id": "med-7.1",
@@ -5859,11 +6074,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 21,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "5ba39156b0e3993d9421a1b6b6fe3e706139ea30a8ca137bfe6ff77b1d6d1086",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Opal_1.1. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Drives the OpalVision 24-bit graphics card: 78 keywords (`ovopenscreen24`, `ovwritepixel24`). Opal.Readme documents 76. A small Opal.s ships too but is a fragment rather than the whole extension. The hardware has no counterpart here, so most of this would be n/a rather than merely unimplemented."
+    "notes": "Drives the OpalVision 24-bit graphics card: 78 keywords (`ovopenscreen24`, `ovwritepixel24`). Opal.Readme documents 76. A small Opal.s ships too but is a fragment rather than the whole extension. The hardware has no counterpart here, so most of this would be n/a rather than merely unimplemented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "os-devkit-1.61",
@@ -5874,13 +6090,14 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "ap20",
     "evidence": "manual",
     "idBaseEvidence": "calibrated",
+    "defaultSlot": 20,
     "observedSlots": [
       20
     ],
     "titleStrings": [],
     "sha256": "96a9d65b767a406e8a2b0e568c25d19be0f8cfbe4e4668ebd6fa1d56ebc2ee59",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: OS_Dev_1.61. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "By a wide margin the largest AMOS extension found anywhere: 1,046 named keywords, and the only third-party one here in AP20 format. It is an AmigaOS toolkit — memory (`_mem alloc`), channels, and wrappers over large parts of the OS API. Its own AmigaGuide set documents 989 of the 1,046, so nearly all of it is at manual tier. Sharing a version number with GUI 1.61 is coincidence; they are unrelated extensions. Its documentation ships an example program that uses the extension, and every token id that program references lands in this table, so the id base is calibrated against real evidence rather than assumed from the shared legacy layout — and slot 20 resolves to it exactly in the identification oracle."
+    "notes": "By a wide margin the largest AMOS extension found anywhere: 1,046 named keywords, and the only third-party one here in AP20 format. It is an AmigaOS toolkit — memory (`_mem alloc`), channels, and wrappers over large parts of the OS API. Its own AmigaGuide set documents 989 of the 1,046, so nearly all of it is at manual tier. Sharing a version number with GUI 1.61 is coincidence; they are unrelated extensions. Its documentation ships an example program that uses the extension, and every token id that program references lands in this table, so the id base is calibrated against real evidence rather than assumed from the shared legacy layout — and slot 20 resolves to it exactly in the identification oracle. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. records a later 2.0."
   },
   {
     "id": "p61-1.2",
@@ -5891,11 +6108,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "source",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 25,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "d0feb58b13ee040f2b6dd3f91df602973d0ae5e8fc93fd1d3bd931be795e64d6",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AMOSP61Ext. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Replays The Player 6.1A modules — 9 keywords. Ships its own source, which is built on P610.2 by Jarno Paananen. Its documentation states the extension expects slot 25."
+    "notes": "Replays The Player 6.1A modules — 9 keywords. Ships its own source, which is built on P610.2 by Jarno Paananen. Its documentation states the extension expects slot 25. Slot 25, per both its own documentation and Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "personal-1.0b",
@@ -5928,7 +6146,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "titleStrings": [],
     "sha256": "3deff9c32bc9acdb44ed987da851a5a32b0d51fae3153d4f531284dc6d3a8f63",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AmosPersonnal1.11. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Later than the 1.0b already registered (128 keywords against 110). An English guide documents 105 of them. The archive also holds Personnal-EXTRA.Lib, a two-keyword version-reporting stub with its own source, not registered separately."
+    "notes": "Later than the 1.0b already registered (128 keywords against 110). An English guide documents 105 of them. The archive also holds Personnal-EXTRA.Lib, a two-keyword version-reporting stub with its own source, not registered separately. Not listed in Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "powerbobs-1.0",
@@ -5939,41 +6157,44 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 13,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "dd2afda0692d93a5f58def26631e54798bac1f255413eb4a62dc45482c12c50e",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: PowerBobs_1.0. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "A faster bob engine — 65 keywords (`reserve pbobs`, `pbob draw`, `pfast bobcol`). POWER_BOBS_DOC.asc documents 63. The archive holds an AMOS 1.3 build (Amos_PowerBobs.Lib) with the same table, not registered separately. Same author as TURBO Plus."
+    "notes": "A faster bob engine — 65 keywords (`reserve pbobs`, `pbob draw`, `pfast bobcol`). POWER_BOBS_DOC.asc documents 63. The archive holds an AMOS 1.3 build (Amos_PowerBobs.Lib) with the same table, not registered separately. Same author as TURBO Plus. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "range-1.0",
     "name": "Range",
-    "version": "1.0",
+    "version": "2.8",
     "author": "unknown",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "table",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 9,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "6f0c171fa3fdb95534025590d6fb2e067c7bfa9794c83bcf9451c1a07bdc60c1",
     "provenance": "AMOS PD Library CD, APD574/AMOS_System. No documentation or author attribution found on the disc.",
-    "notes": "Random-range helpers plus the MKB$/MKI$/MKL$/CVB/CVI/CVL binary field conversions familiar from other BASICs. A four-keyword shuffle.lib on APD426 contains a subset (range, shuffle, rand) and is probably an earlier build of the same extension rather than a separate one; it is not registered separately."
+    "notes": "Random-range helpers plus the MKB$/MKI$/MKL$/CVB/CVI/CVL binary field conversions familiar from other BASICs. A four-keyword shuffle.lib on APD426 contains a subset (range, shuffle, rand) and is probably an earlier build of the same extension rather than a separate one; it is not registered separately. Version from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs., which also confirms Range and Shuffle are one extension rather than two — the four-keyword shuffle.lib is an earlier build, as suspected here."
   },
   {
     "id": "range-2.0",
     "name": "Range",
-    "version": "2.0",
+    "version": "2.9plus",
     "author": "Shadow Software",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "table",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 9,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "d7ed3132015170a4f5cceb3118353c3c791b78c215bfd00529199f0b8213bdb1",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: TOME4_AMOSPro. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Ships with TOME IV and is a superset of the Range on the PD CD — 73 keywords against 48. No documentation accompanies it; the version is inferred from its pairing with TOME IV and is provisional. Random-range helpers plus the MKB$/MKI$/CVB binary field conversions."
+    "notes": "Ships with TOME IV and is a superset of the Range on the PD CD — 73 keywords against 48. No documentation accompanies it; the version is inferred from its pairing with TOME IV and is provisional. Random-range helpers plus the MKB$/MKI$/CVB binary field conversions. Version from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "sln-2.0",
@@ -5984,11 +6205,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "source",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 24,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "7bcf644759b003e24785357d618589b53e060baa48539556751b53ed0d5ea6f6",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: SLN_Extensions. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Ships its own assembler source (sln_extII.s), so behaviour is readable rather than inferred: 70 keywords for mouse handling, arrays and memory."
+    "notes": "Ships its own assembler source (sln_extII.s), so behaviour is readable rather than inferred: 70 keywords for mouse handling, arrays and memory. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "stars-2.33",
@@ -5999,30 +6221,32 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 20,
     "observedSlots": [],
     "titleStrings": [
       "$VER: 2.33"
     ],
     "sha256": "74807c997fce879331ab07ae28f7194645f10067cfb22b8c9a813813e6f924c2",
     "provenance": "AMOS PD Library CD, APD600/stars. Stars.doc: 'All files are copyright 1993 J.G.Doig'. The same doc forbids separate distribution of the files and forbids cover-disk distribution, which the disc appears not to have honoured.",
-    "notes": "Starfield generator with a copper-list palette keyword. Documented, so manual tier. A companion starspro.lib is on the disc as a separate table and is not registered here."
+    "notes": "Starfield generator with a copper-list palette keyword. Documented, so manual tier. A companion starspro.lib is on the disc as a separate table and is not registered here. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.; it also records a 2.23b for AMOS 1.3."
   },
   {
     "id": "sticks-1.01b",
     "name": "Sticks",
     "version": "1.01b",
-    "author": "unknown",
+    "author": "N. Critten",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "table",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 17,
     "observedSlots": [],
     "titleStrings": [
       "$VER:Sticks Shareware v1.01b"
     ],
     "sha256": "669711695f3d02e032e85cc1fb48c72b282c4da83652e20b38b8ec1bd79767c3",
     "provenance": "AMOS PD Library CD, Catalogue/Sticks/Library. Shareware. The binary carries registration nag strings ('Command not available in this version'), so this build is feature-limited by design.",
-    "notes": "Joystick and multi-player input keywords. Table tier. Note the binary itself disables some commands pending registration, so a faithful port of *this* build would have to reproduce the limitation rather than the full keyword set - the token table lists keywords the library refuses to run."
+    "notes": "Joystick and multi-player input keywords. Table tier. Note the binary itself disables some commands pending registration, so a faithful port of *this* build would have to reproduce the limitation rather than the full keyword set - the token table lists keywords the library refuses to run. Author from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs."
   },
   {
     "id": "tft-0.6",
@@ -6033,11 +6257,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 25,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "5bd9a537ba0d8566f4713b29fb6e8ed5bc9e763971a145e4ebffc8a47743879f",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: TFT_0.6. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Low-level oddments — MFM reads, bitplane pointers, timers, interrupt control. 22 keywords, 21 documented. An early version number for something this hardware-specific."
+    "notes": "Low-level oddments — MFM reads, bitplane pointers, timers, interrupt control. 22 keywords, 21 documented. An early version number for something this hardware-specific. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "the-game-0.9",
@@ -6048,21 +6273,23 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 14,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "e2b859aba0343043d86e917cf676afb75a71e175e41c8d25fb2fb33564f82adf",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: tge_beta. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "A game-oriented toolkit — 103 keywords covering CD32 pads, requesters, vertical blank and mouse handling. TGE.guide.beta documents 73 of them. NOTE: the binary embeds the string \"Do NOT Distrubte\" [sic] beside its version cookie, so the author appears not to have intended this build to circulate. Held as a fixture for identification only."
+    "notes": "A game-oriented toolkit — 103 keywords covering CD32 pads, requesters, vertical blank and mouse handling. TGE.guide.beta documents 73 of them. NOTE: the binary embeds the string \"Do NOT Distrubte\" [sic] beside its version cookie, so the author appears not to have intended this build to circulate. Held as a fixture for identification only. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. records version 0.4b; the binary's own $VER says 0.9, and the binary is taken as authoritative."
   },
   {
     "id": "tome-4.0",
     "name": "TOME",
-    "version": "4.0",
+    "version": "4.24",
     "author": "Shadow Software",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "table",
     "idBaseEvidence": "calibrated",
+    "defaultSlot": 7,
     "observedSlots": [
       7
     ],
@@ -6071,7 +6298,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     ],
     "sha256": "3b6c15eadfb466968b078db8fc1965709a324e14bf98184f04e353fb79f288df",
     "provenance": "AMOS PD Library CD, APD574/AMOS_System. No documentation accompanies the library on the disc; the version is inferred from the entry count and is not stated by the binary.",
-    "notes": "The Total Map Editor's runtime extension — map/tile keywords behind a bank of map data, one of the best known third-party AMOS extensions. Table tier: no manual was found alongside it, so keyword behaviour is inferred from names and parameter specs only. Two TOME tables exist on the disc (68 and 35 entries); both explain every id observed in slot 7, so identification is ambiguous between versions and the version recorded here is provisional."
+    "notes": "The Total Map Editor's runtime extension — map/tile keywords behind a bank of map data, one of the best known third-party AMOS extensions. Table tier: no manual was found alongside it, so keyword behaviour is inferred from names and parameter specs only. Two TOME tables exist on the disc (68 and 35 entries); both explain every id observed in slot 7, so identification is ambiguous between versions and the version recorded here is provisional. Version corrected to 4.24 from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. — 4.0 was inferred here from the archive's name and was a guess."
   },
   {
     "id": "tools-1.01",
@@ -6082,21 +6309,23 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 23,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "0ae921b0de8f81d3dc522890ea3fac1191c78c6aaf0c490e2175750c98431b31",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Tools_1.01. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Memory and string peek/poke helpers — `set byte`, `get long`, `set string`. 33 keywords, 22 documented."
+    "notes": "Memory and string peek/poke helpers — `set byte`, `get long`, `set string`. 33 keywords, 22 documented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "turbo-plus-1.0",
     "name": "TURBO Plus Extension",
     "version": "1.0",
-    "author": "unknown",
+    "author": "Ryan Scott",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "table",
     "idBaseEvidence": "calibrated",
+    "defaultSlot": 12,
     "observedSlots": [
       12
     ],
@@ -6106,7 +6335,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     ],
     "sha256": "336e35bf5140990870f3e745d9cf873b4a33a49d60c08bac52393f1de4aaf897",
     "provenance": "The project author's own AMOS Pro installation. Large extension (136 tokens) covering blitter objects, scrolling scenes, starfields, 3D and fixed-point maths.",
-    "notes": "No manual available. Table-only evidence — see ldos-2.5 for what that bars."
+    "notes": "No manual available. Table-only evidence — see ldos-2.5 for what that bars. Attributed to Scott's Turbo Plus line; see turbo-plus-2.15. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs."
   },
   {
     "id": "turbo-plus-1.9",
@@ -6117,6 +6346,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "table",
     "idBaseEvidence": "calibrated",
+    "defaultSlot": 12,
     "observedSlots": [
       12
     ],
@@ -6125,13 +6355,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     ],
     "sha256": "d1cb8d86ad72c5a9c272fd38f9e0629a3e3b3d98a2483f32895c31ae7ced268a",
     "provenance": "AMOS PD Library CD, APD600/Amos_Turbo. credits_doc.asc identifies it as 'AMOS 1.3 TURBO extension library V1.9 — LAST PD RELEASE' by Manuel Andre, Berchem, Belgium.",
-    "notes": "A later TURBO than turbo-plus-1.0 and earlier than 2.15. Its English doc set covers only 18 of its 87 keywords, so despite shipping documentation this sits at table tier — the docs describe a subset, not the library. (An earlier version of this manifest claimed manual tier on the strength of the docs existing; counting how many keywords they actually mention corrected it.) TURBO Plus 2.15 is the one with a manual worth the name, covering 128 of 152. Explains all 57 ids observed in slot 12 across 60 programs of the AMOS PD CD corpus, so the id base is calibrated; slot 8's 16 ids are all but two explained by this table too, suggesting yet another build in circulation."
+    "notes": "A later TURBO than turbo-plus-1.0 and earlier than 2.15. Its English doc set covers only 18 of its 87 keywords, so despite shipping documentation this sits at table tier — the docs describe a subset, not the library. (An earlier version of this manifest claimed manual tier on the strength of the docs existing; counting how many keywords they actually mention corrected it.) TURBO Plus 2.15 is the one with a manual worth the name, covering 128 of 152. Explains all 57 ids observed in slot 12 across 60 programs of the AMOS PD CD corpus, so the id base is calibrated; slot 8's 16 ids are all but two explained by this table too, suggesting yet another build in circulation. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. lists this separately from Turbo Plus, crediting it to Manuel Andre — which its own credits_doc.asc already confirmed."
   },
   {
     "id": "turbo-plus-2.15",
     "name": "TURBO Plus",
     "version": "2.15",
-    "author": "Manuel Andre",
+    "author": "Ryan Scott",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "manual",
@@ -6140,6 +6370,6 @@ export const EXT_INFO: ExtensionInfo[] = [
     "titleStrings": [],
     "sha256": "ddc8abb16f35cd2fb4230e2c70dc85e6bcbbfe5f73ebcc6712135471faaafb07",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: turbo. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "The latest TURBO Plus, and the only one properly documented: TURBO_DocsV2.15.Asc covers 128 of its 152 keywords. Registered alongside 1.0 (134 keywords) and 1.9 (87), which are different tables, not subsets."
+    "notes": "The latest TURBO Plus, and the only one properly documented: TURBO_DocsV2.15.Asc covers 128 of its 152 keywords. Registered alongside 1.0 (134 keywords) and 1.9 (87), which are different tables, not subsets. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. credits Turbo (1.9) to Manuel Andre and Turbo Plus (2.x) to Ryan Scott, so this build is attributed to Scott rather than to Andre as it was before. The token tables are one lineage — 1.0's 134 keywords are a strict subset of 2.15's, and 1.9 shares 83 of its 87 with 1.0 — so this reads as Scott continuing Andre's work rather than as a separate extension."
   }
 ]

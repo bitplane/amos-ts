@@ -1,0 +1,22 @@
+{
+  "id": "craft-1.0",
+  "name": "CRAFT",
+  "version": "1.0",
+  "author": "Hannu Rummukainen (for Black Legend Ltd)",
+  "source": "binary",
+  "library": "AMOSPro_CRAFT.Lib",
+  "sha256": "423073d319ad5a43722f4a9bd06cea6acd2925473278cec265620d19ebb614d8",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "table",
+  "docs": [],
+  "titleStrings": [],
+  "observedSlots": [],
+  "recommendedSlot": 18,
+  "provenance": {
+    "from": "Ultimate Amiga AMOS Factory, CRAFT archive, retrieved 2026-07-26.",
+    "note": "Recovered rather than found. The archive ships no .Lib at all — only a DMS disk image whose contents are an Installer and seven opaque Data blobs. Decompressing the DMS (xdms) and reading the disk gave those blobs, and Data0 turned out to be the library itself behind an eight-byte prefix: HUNK_HEADER sits at offset 8 and the token table parses cleanly from there. The other blobs are installer payloads, each a length, a destination path and a file — Data5 is RAM:CRAFT_Help.AMOS, kept here alongside.",
+    "redistribution": "Commercial: published by Black Legend Ltd. Redistribution terms unverified. Kept as a fixture for identification and reference only."
+  },
+  "notes": "168 tokens of string handling — up case$, lo case$, flip case$, left trim$, bw instr, str scramble$, chr conv$ and the like. Table tier: the archive's only documentation is CRAFT_Help.AMOS, which is crunched with a packer identifying itself as SOLARIS/E and yields no readable text, so keyword behaviour is inferred from names and parameter specs. Burton's AMOS Extensions List places it at slot 18."
+}

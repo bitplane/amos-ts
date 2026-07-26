@@ -19,5 +19,6 @@
     "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
-  "notes": "A game-oriented toolkit — 103 keywords covering CD32 pads, requesters, vertical blank and mouse handling. TGE.guide.beta documents 73 of them. NOTE: the binary embeds the string \"Do NOT Distrubte\" [sic] beside its version cookie, so the author appears not to have intended this build to circulate. Held as a fixture for identification only."
+  "notes": "A game-oriented toolkit — 103 keywords covering CD32 pads, requesters, vertical blank and mouse handling. TGE.guide.beta documents 73 of them. NOTE: the binary embeds the string \"Do NOT Distrubte\" [sic] beside its version cookie, so the author appears not to have intended this build to circulate. Held as a fixture for identification only. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. records version 0.4b; the binary's own $VER says 0.9, and the binary is taken as authoritative.",
+  "recommendedSlot": 14
 }

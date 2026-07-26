@@ -24,13 +24,14 @@ tested against our own understanding. Percentages exclude n/a
 | amospro-request-2.0 | 3 | 0 | 3 | 0 | 100% |
 | banks | 20 | 19 | 1 | 0 | 100% |
 | copper | 8 | 8 | 0 | 0 | 100% |
+| craft-1.0 | 136 | 0 | 0 | 136 | 0% |
 | ctext-1.0 | 6 | 0 | 0 | 6 | 0% |
 | d-sam-1.01 | 50 | 0 | 0 | 50 | 0% |
 | delta-1.4 | 26 | 0 | 0 | 26 | 0% |
 | delta-1.6 | 20 | 0 | 0 | 20 | 0% |
 | drawing | 16 | 16 | 0 | 0 | 100% |
 | dump-1.0 | 8 | 0 | 0 | 8 | 0% |
-| easylife-1.0 | 70 | 0 | 0 | 70 | 0% |
+| easylife-1.0 | 69 | 0 | 0 | 69 | 0% |
 | easylife-1.10 | 156 | 0 | 0 | 156 | 0% |
 | easylife-1.44 | 4 | 0 | 0 | 4 | 0% |
 | eme-3.0 | 10 | 0 | 0 | 10 | 0% |
@@ -61,7 +62,7 @@ tested against our own understanding. Percentages exclude n/a
 | med-7.1 | 25 | 0 | 0 | 25 | 0% |
 | memory | 14 | 12 | 2 | 0 | 100% |
 | menus | 24 | 24 | 0 | 0 | 100% |
-| misc-1.0 | 12 | 0 | 0 | 12 | 0% |
+| misc-1.0 | 10 | 0 | 0 | 10 | 0% |
 | objects | 56 | 55 | 1 | 0 | 100% |
 | opal-1.1 | 78 | 0 | 0 | 78 | 0% |
 | os-devkit-1.61 | 1047 | 0 | 0 | 1047 | 0% |
@@ -83,12 +84,12 @@ tested against our own understanding. Percentages exclude n/a
 | the-game-0.9 | 103 | 0 | 0 | 103 | 0% |
 | tome-4.0 | 67 | 0 | 0 | 67 | 0% |
 | tools-1.01 | 32 | 0 | 0 | 32 | 0% |
-| turbo-plus-1.0 | 133 | 0 | 0 | 133 | 0% |
+| turbo-plus-1.0 | 132 | 0 | 0 | 132 | 0% |
 | turbo-plus-1.9 | 4 | 0 | 0 | 4 | 0% |
 | turbo-plus-2.15 | 17 | 0 | 0 | 17 | 0% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 4223 | 673 | 28 | 3459 | 17% |
+| **total** | 4355 | 673 | 28 | 3591 | 16% |
 
 ## aga-1.0 (0%)
 
@@ -147,6 +148,10 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `cop logic` *(a mapped chip-RAM address; the system list is regenerated every vbl (the T_Actualise change-gating is not modelled))*, `cop move`, `cop movel`, `cop reset`, `cop swap`, `cop wait`, `copper off` *(the interpreted list now takes its fetch geometry from the registers rather than from the screen the pointers happen to hit. BPL1PT is walked as a byte pointer, so its remainder inside a row is a horizontal skew of 8 pixels a byte; BPL1MOD is added at the end of every line, which is what makes a wrong modulo shear or repeat the picture and what interlace falls out of; DDFSTRT/DDFSTOP set the fetched width and where the data lands (first pixel at DDFSTRT*2+17 lores, +9 hires — the constants AMOS inverts at +W.s:6293); BPLCON1 PF1H delays the playfield; DIWSTRT/DIWSTOP window it; BPLCON2 PF1P decides which sprite pairs are in front; and SPRxPT are decoded as real Amiga sprite structures (POS/CTL, two bitplanes, ATTACH), which is what Copper Off hands the program when it clears T_HsChange (+W.s:6822). The register file persists across frames as the hardware's does, and the pointer is not reloaded at the vertical blank either — a list that sets it once really does march off the bitmap on its second frame. The handover resets to black, which is faithful: the OFF path swaps in a list that is nothing but an end marker. Remaining: BPL2MOD is tracked but a chunky screen has no independent even-plane pointer for it to move, so it only matters for a dual playfield, which this path does not render; and the real machine also hides the mouse pointer)*, `copper on`
 
+## craft-1.0 (0%)
+
+- **missing**: `amos base`, `amos pri`, `amos pro`, `b.swap`, `bank colour`, `beam wait`, `bw instr`, `chip max block`, `chr conv$`, `chr dump$`, `cli execute`, `cli here`, `cli print`, `craft version`, `db free`, `db size`, `db used`, `del bank colour`, `disc error`, `disc state`, `disc type$`, `dr comment$`, `dr fib`, `dr file$`, `dr forget`, `dr length`, `dr name$`, `dr next$`, `dr path$`, `dr protect`, `dr type`, `fast max block`, `file comment$`, `file length`, `file protect`, `file type`, `flip case$`, `fr colour`, `fr get colour`, `fr julia`, `fr mandelbrot`, `fr position`, `fr reset`, `fr scan`, `fr scan all`, `fr step`, `fr window`, `fr x position`, `fr x step`, `fr y position`, `fr y step`, `gr back`, `gr border`, `gr centre`, `gr ink`, `guru alert`, `guru meditation`, `hard reset`, `hex dump$`, `hw mouse key`, `l.swap`, `left trim$`, `lo case$`, `mem copy`, `mem scramble`, `mem str count`, `mem type`, `mem unscramble`, `multi off`, `multi on`, `pal blue`, `pal copy`, `pal count`, `pal from bank`, `pal green`, `pal red`, `pal swap`, `pal swap bank`, `pal to bank`, `reserve as palette`, `right trim$`, `set amos pri`, `set bank colour`, `set blue`, `set comment`, `set green`, `set protect`, `set red`, `set wb prefs`, `str count`, `str peek$`, `str poke`, `str scramble$`, `str unscramble$`, `sys request`, `tr angle`, `tr back`, `tr base`, `tr distance`, `tr draw`, `tr draw rel`, `tr error`, `tr exec`, `tr forw`, `tr forward`, `tr get angle`, `tr home`, `tr left`, `tr memorize a`, `tr memorize x`, `tr memorize y`, `tr move`, `tr move rel`, `tr pen down`, `tr pen state`, `tr pen up`, `tr proportions`, `tr remember a`, `tr remember x`, `tr remember y`, `tr reset`, `tr right`, `tr set home`, `tr towards`, `tr x home`, `tr x pos`, `tr y home`, `tr y pos`, `up case$`, `w.swap`, `warm reset`, `wb def prefs`, `wb prefs`, `wb to back`, `wb to front`, `y beam`
+
 ## ctext-1.0 (0%)
 
 - **missing**: `ctext`, `font base`, `font data`, `font size`, `kern$`, `plen`
@@ -173,7 +178,7 @@ tested against our own understanding. Percentages exclude n/a
 
 ## easylife-1.0 (0%)
 
-- **missing**: `amos data`, `clear multi group`, `easy base`, `el error`, `extb`, `extw`, `find asc`, `find char`, `find control`, `find last asc`, `find last char`, `find last not asc`, `find last not char`, `find not asc`, `find not char`, `find nth asc`, `find nth char`, `find num asc`, `find num char`, `i close workbench`, `i open workbench`, `i test workbench`, `iconify amos`, `lchg`, `lclr`, `lock font`, `long`, `long$`, `lset`, `ltst`, `mem`, `mem inc`, `mem$`, `message$`, `mznex`, `mzney`, `mznsx`, `mznsy`, `mzone`, `mzoneg`, `mzonen`, `output`, `output exists`, `pp buf`, `pp crunch`, `pp free`, `pp keep off`, `pp keep on`, `pp len`, `pp load`, `protect`, `reserve multi zone`, `set bank name`, `set multi zone`, `set protect`, `unlock fonts`, `wchg`, `wclr`, `word`, `word$`, `wset`, `wtst`, `zb add`, `zb install`, `zb multi add`, `zn shift`, `znex`, `zney`, `znsx`, `znsy`
+- **missing**: `amos data`, `clear multi group`, `easy base`, `el error`, `extb`, `extw`, `find asc`, `find char`, `find control`, `find last asc`, `find last char`, `find last not asc`, `find last not char`, `find not asc`, `find not char`, `find nth asc`, `find nth char`, `find num asc`, `find num char`, `i close workbench`, `i open workbench`, `i test workbench`, `iconify amos`, `lchg`, `lclr`, `lock font`, `long`, `long$`, `lset`, `ltst`, `mem`, `mem inc`, `mem$`, `message$`, `mznex`, `mzney`, `mznsx`, `mznsy`, `mzone`, `mzoneg`, `mzonen`, `output`, `output exists`, `pp buf`, `pp crunch`, `pp free`, `pp keep off`, `pp keep on`, `pp len`, `pp load`, `protect`, `reserve multi zone`, `set bank name`, `set multi zone`, `unlock fonts`, `wchg`, `wclr`, `word`, `word$`, `wset`, `wtst`, `zb add`, `zb install`, `zb multi add`, `zn shift`, `znex`, `zney`, `znsx`, `znsy`
 
 ## easylife-1.10 (0%)
 
@@ -306,7 +311,7 @@ tested against our own understanding. Percentages exclude n/a
 
 ## misc-1.0 (0%)
 
-- **missing**: `clear ram`, `disk wait`, `display off`, `display on`, `dled off`, `dled on`, `firewait`, `mouse off`, `multi off`, `multi on`, `pal on`, `reset`
+- **missing**: `clear ram`, `disk wait`, `display off`, `display on`, `dled off`, `dled on`, `firewait`, `mouse off`, `pal on`, `reset`
 
 ## objects (100%)
 
@@ -399,7 +404,7 @@ tested against our own understanding. Percentages exclude n/a
 
 ## turbo-plus-1.0 (0%)
 
-- **missing**: `amos pri`, `bank end`, `between`, `bit field ext`, `bit field ins`, `blit clear`, `blit erase`, `blit int change`, `blit int off`, `blit int on`, `blit int wait`, `blit left`, `blit speed`, `blit store left`, `blit store up`, `blit up`, `build static block`, `byte hunt`, `check`, `check erase`, `cpu info`, `debug`, `define attr`, `define draw`, `define move`, `define star`, `define stop`, `display stars`, `eye 3d`, `f 16 icon`, `f 16proc icon`, `f 32 icon`, `f 32proc icon`, `f circle`, `f draw`, `f paste icon`, `f plot`, `f point`, `f put block`, `f put static block`, `f sqr`, `hit bob check`, `hit bob zone`, `hit spr check`, `hit spr zone`, `icon check`, `l swap`, `left click`, `line 3d`, `lsl.b`, `lsl.l`, `lsl.w`, `lsr.b`, `lsr.l`, `lsr.w`, `math info`, `memory fill`, `multi blit`, `multi no`, `multi yes`, `object draw`, `object erase`, `object limit`, `object load`, `object mag draw`, `object save`, `plane offset`, `plane shift down`, `plane shift up`, `plane swap`, `plane update`, `planes icon`, `r bar`, `r box`, `r draw`, `r home`, `r move`, `r object draw`, `r object mag draw`, `raw key`, `reserve check`, `reserve object`, `reserve stars`, `reserve static block`, `reset check`, `scene 16 bottom`, `scene 16 change`, `scene 16 check`, `scene 16 def`, `scene 16 do`, `scene 16 draw`, `scene 16 left`, `scene 16 limit`, `scene 16 restore`, `scene 16 right`, `scene 16 top`, `scene 16 view`, `scene 32 bottom`, `scene 32 change`, `scene 32 check`, `scene 32 do`, `scene 32 draw`, `scene 32 left`, `scene 32 right`, `scene 32 top`, `scene 32 view`, `scene bank`, `scene change`, `scene check`, `scene icon bank`, `scene load`, `scene mask palette`, `scene palette`, `scene x`, `scene y`, `set check`, `set planes`, `stars clip`, `stars compute`, `stars draw`, `stars erase`, `stars int off`, `stars int on`, `stars speed`, `static block erase`, `t clip`, `test.b`, `test.w`, `texp`, `vbl wait`, `workbench open`, `x icon`, `y icon`
+- **missing**: `bank end`, `between`, `bit field ext`, `bit field ins`, `blit clear`, `blit erase`, `blit int change`, `blit int off`, `blit int on`, `blit int wait`, `blit left`, `blit speed`, `blit store left`, `blit store up`, `blit up`, `build static block`, `byte hunt`, `check`, `check erase`, `cpu info`, `debug`, `define attr`, `define draw`, `define move`, `define star`, `define stop`, `display stars`, `eye 3d`, `f 16 icon`, `f 16proc icon`, `f 32 icon`, `f 32proc icon`, `f circle`, `f draw`, `f paste icon`, `f plot`, `f point`, `f put block`, `f put static block`, `f sqr`, `hit bob check`, `hit bob zone`, `hit spr check`, `hit spr zone`, `icon check`, `l swap`, `left click`, `line 3d`, `lsl.b`, `lsl.l`, `lsl.w`, `lsr.b`, `lsr.l`, `lsr.w`, `math info`, `memory fill`, `multi blit`, `multi no`, `multi yes`, `object draw`, `object erase`, `object limit`, `object load`, `object mag draw`, `object save`, `plane offset`, `plane shift down`, `plane shift up`, `plane swap`, `plane update`, `planes icon`, `r bar`, `r box`, `r draw`, `r home`, `r move`, `r object draw`, `r object mag draw`, `raw key`, `reserve check`, `reserve object`, `reserve stars`, `reserve static block`, `reset check`, `scene 16 bottom`, `scene 16 change`, `scene 16 check`, `scene 16 def`, `scene 16 do`, `scene 16 draw`, `scene 16 left`, `scene 16 limit`, `scene 16 restore`, `scene 16 right`, `scene 16 top`, `scene 16 view`, `scene 32 bottom`, `scene 32 change`, `scene 32 check`, `scene 32 do`, `scene 32 draw`, `scene 32 left`, `scene 32 right`, `scene 32 top`, `scene 32 view`, `scene bank`, `scene change`, `scene check`, `scene icon bank`, `scene load`, `scene mask palette`, `scene palette`, `scene x`, `scene y`, `set check`, `set planes`, `stars clip`, `stars compute`, `stars draw`, `stars erase`, `stars int off`, `stars int on`, `stars speed`, `static block erase`, `t clip`, `test.b`, `test.w`, `texp`, `vbl wait`, `workbench open`, `x icon`, `y icon`
 
 ## turbo-plus-1.9 (0%)
 

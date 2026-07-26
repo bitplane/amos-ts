@@ -20,5 +20,6 @@
     "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
-  "notes": "Replays The Player 6.1A modules — 9 keywords. Ships its own source, which is built on P610.2 by Jarno Paananen. Its documentation states the extension expects slot 25."
+  "notes": "Replays The Player 6.1A modules — 9 keywords. Ships its own source, which is built on P610.2 by Jarno Paananen. Its documentation states the extension expects slot 25. Slot 25, per both its own documentation and Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs..",
+  "recommendedSlot": 25
 }

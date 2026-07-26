@@ -9,13 +9,20 @@
   "idBase": 6,
   "idBaseEvidence": "calibrated",
   "evidence": "source",
-  "docs": ["cmdlist"],
-  "titleStrings": ["The AMOS Intuition Extension - Version 1.3b"],
-  "observedSlots": [14],
+  "docs": [
+    "cmdlist"
+  ],
+  "titleStrings": [
+    "The AMOS Intuition Extension - Version 1.3b"
+  ],
+  "observedSlots": [
+    14
+  ],
   "provenance": {
     "from": "AMOS-Professional-Official/extensions/Intuition-41.95/Intuition",
     "note": "Distributed as 'Intuition-41.95' — 41.95 is the intuition.library version it targets, not the extension version. intuition.guide and the makefile both say 1.3b. No linked .Lib ships with the distribution (only Intuition.lib.info), so the token table is assembled from its own src/itokens.s.",
     "redistribution": "Ships with the AMOS Professional source release."
   },
-  "notes": "The id base is not a guess: exactly one offset in -2048..2048 (K=6) maps all 149 distinct slot-14 token ids observed across the 819-program corpus onto valid entry starts. See src/ext/registry.test.ts."
+  "notes": "The id base is not a guess: exactly one offset in -2048..2048 (K=6) maps all 149 distinct slot-14 token ids observed across the 819-program corpus onto valid entry starts. See src/ext/registry.test.ts. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. lists slot 25 but asks 'Slot 14 originally?' — the corpus answers it: every program here that uses Intuition has it at slot 14.",
+  "recommendedSlot": 25
 }

@@ -1,7 +1,7 @@
 {
   "id": "range-2.0",
   "name": "Range",
-  "version": "2.0",
+  "version": "2.9plus",
   "author": "Shadow Software",
   "source": "binary",
   "library": "AMOSPro_Range.Lib",
@@ -17,5 +17,6 @@
     "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
-  "notes": "Ships with TOME IV and is a superset of the Range on the PD CD — 73 keywords against 48. No documentation accompanies it; the version is inferred from its pairing with TOME IV and is provisional. Random-range helpers plus the MKB$/MKI$/CVB binary field conversions."
+  "notes": "Ships with TOME IV and is a superset of the Range on the PD CD — 73 keywords against 48. No documentation accompanies it; the version is inferred from its pairing with TOME IV and is provisional. Random-range helpers plus the MKB$/MKI$/CVB binary field conversions. Version from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs..",
+  "recommendedSlot": 9
 }
