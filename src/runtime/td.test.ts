@@ -21,7 +21,7 @@ const extensions = new Map([
   [TD_SLOT, extensionById('amos3d-1.0')!.table] as const,
 ])
 
-const OBJECTS = 'fixtures/extensions/amos3d-1.0/demos/objects'
+const OBJECTS = 'fixtures/extensions/amos3d-1.0/demos/AMOS_3D_demos/objects'
 
 function run(src: string, files: Record<string, Uint8Array> = {}): { out: string; rt: Runtime } {
   let out = ''

@@ -48,7 +48,16 @@ export class NodeVolume implements Volume {
 export function fsForFile(file: string, fixturesRoot = 'fixtures/official-amos'): AmigaFS {
   const fs = new AmigaFS()
   fs.mount('PROG', new NodeVolume(dirname(file)))
-  fs.currentDir = 'PROG:'
+  // The current directory is the program's own drawer, but reached through
+  // the volume mounted one level up — because on a real machine the volume is
+  // the disc, not the drawer, and a leading colon means the disc's root. The
+  // AMOS 3D demos are written that way throughout ("Td Dir
+  // ':AMOS_3D_demos/objects'", "Load Iff ':AMOS_3D_demos/dicepic.iff'") and
+  // cannot find anything if ':' stops at the drawer they are sitting in.
+  // Relative paths are unaffected: PARENT:<drawer>/ is the same directory
+  // PROG: is.
+  fs.mount('PARENT', new NodeVolume(dirname(dirname(file))))
+  fs.currentDir = `PARENT:${basename(dirname(file))}/`
   // RAM: is always present on a real AMOS machine (the ram-handler) —
   // a writable, initially-empty volume
   fs.mountMemory('RAM')
@@ -63,8 +72,7 @@ export function fsForFile(file: string, fixturesRoot = 'fixtures/official-amos')
     fs.assign('AMOSPro_System', 'AMOSPro:APSystem')
     fs.assign('df0', 'AMOSPro:')
   }
-  // parent of the program dir as a second lookup for relative resources
-  fs.mount('PARENT', new NodeVolume(dirname(dirname(file))))
+  // the parent volume also answers to its own directory name, as a disc would
   fs.assign(basename(dirname(dirname(file))), 'PARENT:')
   // a fonts drawer beside the program (or its parent) becomes FONTS:,
   // like the system assign AvailFonts scans
