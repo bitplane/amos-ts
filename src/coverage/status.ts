@@ -632,6 +632,17 @@ export const FAITHFUL = new Set<string>([
   'f sqr',
   'line 3d',
   'eye 3d',
+  // bitplanes and blocks: routines 77-81 and 92-96
+  'plane offset',
+  'plane swap',
+  'plane shift up',
+  'plane shift down',
+  'plane update',
+  'f put block',
+  'reserve static block',
+  'static block erase',
+  'build static block',
+  'f put static block',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1128,6 +1139,10 @@ export const NOTES: Record<string, string> = {
     "TURBO's own zone system, which the manual is explicit is 'not compatible with the normal Zone commands'. Note it returns 1 and 0 rather than AMOS's -1 and 0, as documented",
   'workbench open':
     'The counterpart to Close Workbench, which this port already treats as faithful because there is no Workbench memory to free. Reopening it is the same nothing in reverse',
+  'plane offset':
+    "The offset table is the routine's own — a byte offset of y*rowBytes+x per plane, accumulating unless the new offset works out to zero, and cleared for a whole screen by a negative plane number. Plane Update applies it to the display and not to the buffer, which is faithful to how it works ('In fact I don't change the bitplane addresses at all' — it biases the pointers the copper reads, rebuilds, and puts them back), so Point and every drawing keyword go on seeing the buffer unmoved. What does not follow is the fragility: on the real machine the biased pointers last only until AMOS next rebuilds its copper list, and here they last until the next Plane Update",
+  'f put static block':
+    "The static list is a lookup optimisation over the same blocks, so this draws what F Put Block draws. The one observable difference is kept: the table is allocated without MEMF_CLEAR, so a block grabbed after Build Static Block ran is an uninitialised pointer — a crash there, and nothing drawn here",
   'f circle':
     "Eight-way symmetry with the column height taken from an integer square root computed in WORDS, which is the whole of the documented bug: 'do not use a radius above 180...there will be no crash, but the result is definitely not a circle!' — r*r-x*x stops fitting in sixteen bits at 182, and this overflows where the routine overflows. Not modelled: the manual's other caveat, that a hires screen turns the circle into an ellipse, because that is a property of the pixel aspect of the display rather than of the pixels written",
   'f sqr':

@@ -887,6 +887,103 @@ describe('TURBO 3D (Turbo_Graph_doc.asc + disassembly)', () => {
   })
 })
 
+/**
+ * Bitplanes and blocks, from Turbo_Plane_doc.asc / Turbo_Block_doc.asc and
+ * routines 77-81 and 92-96.
+ */
+describe('TURBO bitplane rearranging (Turbo_Plane_doc.asc + disassembly)', () => {
+  it('Plane Swap exchanges two planes, so every pixel swaps those bits', () => {
+    // The routine swaps the pointers in all three tables of the screen
+    // structure, which means each plane now reads and writes the other's
+    // memory — colour 1 becomes colour 2 and back
+    const { rt } = run(['Cls 0', 'Ink 1 : Bar 0,0 To 5,5', 'Ink 2 : Bar 10,0 To 15,5', 'Plane Swap 0,1,2'].join('\n'))
+    expect(rt.screen.point(2, 2)).toBe(2)
+    expect(rt.screen.point(12, 2)).toBe(1)
+    expect(() => run('Plane Swap 0,1,99')).toThrow(/Illegal function call/)
+  })
+
+  it('Plane Shift Up rotates a range of planes, Down the other way', () => {
+    // "PLANE1 = 50000 ... Plane Shift Up 1 To 3 ... PLANE1 = 70000,
+    // PLANE2 = 50000, PLANE3 = 60000" — plane 1 takes plane 3's data
+    const up = run(['Cls 0', 'Ink 1 : Plot 0,0', 'Ink 2 : Plot 1,0', 'Ink 4 : Plot 2,0', 'Plane Shift Up 0,1 To 3'].join('\n'))
+    expect([up.rt.screen.point(0, 0), up.rt.screen.point(1, 0), up.rt.screen.point(2, 0)]).toEqual([2, 4, 1])
+    const down = run(
+      ['Cls 0', 'Ink 1 : Plot 0,0', 'Ink 2 : Plot 1,0', 'Ink 4 : Plot 2,0', 'Plane Shift Down 0,1 To 3'].join('\n'),
+    )
+    expect([down.rt.screen.point(0, 0), down.rt.screen.point(1, 0), down.rt.screen.point(2, 0)]).toEqual([4, 1, 2])
+  })
+})
+
+describe('TURBO Plane Offset (Turbo_Plane_doc.asc + disassembly)', () => {
+  it('the offsets accumulate, and a zero one resets that plane', () => {
+    // The routine adds to the stored offset unless the new one works out to
+    // zero: "To reset the offset of a particular plane, set the X and
+    // YOFFSET parameters to zero."
+    const { rt } = run(['Plane Offset 0,1,4,0', 'Plane Offset 0,1,4,0', 'Plane Offset 0,2,0,1'].join('\n'))
+    const t = rt.turbo.planeOffsets.get(0)!
+    expect([t[0], t[1]]).toEqual([8, 40]) // 4+4 bytes, and one row of 40
+    const reset = run(['Plane Offset 0,1,4,0', 'Plane Offset 0,1,0,0'].join('\n'))
+    expect(reset.rt.turbo.planeOffsets.get(0)![0]).toBe(0)
+    // "To set all offsets for all planes to zero... a negative PLANENR"
+    const all = run(['Plane Offset 0,1,4,0', 'Plane Offset 0,2,4,0', 'Plane Offset 0,-1,0,0'].join('\n'))
+    expect([...all.rt.turbo.planeOffsets.get(0)!]).toEqual([0, 0, 0, 0, 0, 0])
+    expect(() => run('Plane Offset 0,0,0,0')).toThrow(/Illegal function call/)
+  })
+
+  it('nothing moves until Plane Update, and then only on screen', () => {
+    // "This command is used to reflect the changes made with the Plane
+    // commands" — the routine biases the pointers the copper reads and puts
+    // them straight back, so the buffer itself never moves
+    const mark = ['Cls 0', 'Ink 1 : Bar 16,0 To 23,7', 'Plane Offset 0,1,2,0']
+    const { rt } = run(mark.join('\n'))
+    expect(rt.screen.planeOffsets).toBe(null) // not applied yet
+    const shown = run([...mark, 'Plane Update 0'].join('\n'))
+    const s = shown.rt.screen
+    expect([...s.planeOffsets!].slice(0, 1)).toEqual([2])
+    // Point still reads the buffer, which has not moved
+    expect(s.point(16, 0)).toBe(1)
+    expect(s.point(0, 0)).toBe(0)
+    // what the compositor draws has: two bytes of offset is sixteen pixels
+    expect(s.offsetPixel(s.pixels, 0, 0)).toBe(1)
+    expect(s.offsetPixel(s.pixels, 0, 16)).toBe(0)
+  })
+})
+
+describe('TURBO blocks (Turbo_Block_doc.asc + disassembly)', () => {
+  const grab = ['Cls 0', 'Ink 3 : Bar 0,0 To 15,7', 'Get Block 1,0,0,16,8', 'Cls 0']
+
+  it('F Put Block chops X to a 16-pixel boundary and drops what is off screen', () => {
+    // "The X coordinate is chopped to ly on a 16 bit boundary... If X < 0 no
+    // Block is displayed"
+    const { rt } = run([...grab, 'F Put Block 1,100,50'].join('\n'))
+    expect(rt.screen.point(96, 50)).toBe(3) // 100 chopped to 96
+    expect(rt.screen.point(111, 57)).toBe(3)
+    const off = run([...grab, 'F Put Block 1,-16,50', 'F Put Block 1,10,999'].join('\n'))
+    let lit = 0
+    for (let y = 0; y < 200; y++) for (let x = 0; x < 320; x++) if (off.rt.screen.point(x, y) !== 0) lit++
+    expect(lit).toBe(0)
+  })
+
+  it('the static block list has to be reserved, built, and only once', () => {
+    expect(() => run('Reserve Static Block 10 : Reserve Static Block 10')).toThrow(/Illegal function call/)
+    expect(() => run('Static Block Erase')).toThrow(/Illegal function call/)
+    expect(() => run('Reserve Static Block 0')).toThrow(/Illegal function call/)
+    const { rt } = run('Reserve Static Block 10 : Static Block Erase')
+    expect(rt.turbo.staticBlocks).toBe(null)
+  })
+
+  it('F Put Static Block draws what Build Static Block found, and nothing else', () => {
+    // the table is allocated without MEMF_CLEAR, so a block that was not in
+    // AMOS's list when it was built is an uninitialised pointer
+    const { rt } = run([...grab, 'Reserve Static Block 4', 'Build Static Block', 'F Put Static Block 1,32,20'].join('\n'))
+    expect(rt.screen.point(32, 20)).toBe(3)
+    const late = run(
+      [...grab, 'Reserve Static Block 4', 'Build Static Block', 'Get Block 2,0,0,16,8', 'F Put Static Block 2,32,20'].join('\n'),
+    )
+    expect(late.rt.screen.point(32, 20)).toBe(0) // block 2 was grabbed too late
+  })
+})
+
 describe('TURBO timing (TURBO_DocsV2.15.Asc + disassembly)', () => {
   it('Vbl Wait waits, and does not hang on any line value', () => {
     // The routine busy-waits on the low byte of VHPOSR ($dff006), which is

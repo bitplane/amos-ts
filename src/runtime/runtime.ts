@@ -3704,7 +3704,7 @@ export class Runtime {
       for (let x = 0; x < winW; x++) {
         const sx = x + s.offsetX
         if (sx < 0 || sx >= s.width) continue
-        let pix = pixels[sy * s.width + sx]! & (palOff ? 7 : 63)
+        let pix = (s.planeOffsets === null ? pixels[sy * s.width + sx]! : s.offsetPixel(pixels, sy, sx)) & (palOff ? 7 : 63)
         if (mask !== 0 && sx >= curX0 && sx < curX0 + 8 && (mask << (sx - curX0)) & 0x80) pix = cw!.cuCol & 63
         if (clearZero && pix === 0) continue
         const rgb4 = palOff ? (pal ? pal[palOff + pix]! : s.palette[palOff + pix]! & 0xfff) : colour(pix)

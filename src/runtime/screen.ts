@@ -451,6 +451,37 @@ export class Screen {
    */
   planeMask = 0xff
 
+  /**
+   * Per-plane display offsets, in bytes, as TURBO's `Plane Offset` sets them
+   * and `Plane Update` applies them — null while every plane is at zero,
+   * which is the case that has to stay free.
+   *
+   * The routine biases the bitplane pointers the copper reads and puts them
+   * straight back ("In fact I don't change the bitplane addresses at all"),
+   * so this belongs to the display and not to the drawing surface: a plane's
+   * pixels move on screen while Point and every drawing keyword carry on
+   * seeing the buffer as it is.
+   */
+  planeOffsets: Int32Array | null = null
+
+  /**
+   * The pixel the display shows at (x,y) once plane offsets are in play.
+   * A plane's offset is a byte offset into a linear bitplane, so it moves
+   * that plane's bits eight pixels per byte and runs on into the rows below.
+   */
+  offsetPixel(buf: Uint8Array, y: number, x: number): number {
+    const off = this.planeOffsets
+    const base = y * this.width + x
+    if (!off) return buf[base]!
+    let v = 0
+    for (let p = 0; p < this.depth; p++) {
+      const at = base + off[p]! * 8
+      // past either end of the plane the real one reads whatever is there
+      if (at >= 0 && at < buf.length) v |= buf[at]! & (1 << p)
+    }
+    return v
+  }
+
   /** apply the write mask: bits it excludes keep what the pixel already had */
   private masked(old: number, next: number): number {
     return (this.planeMask === 0xff ? next : (old & ~this.planeMask) | (next & this.planeMask)) & this.colorMask()

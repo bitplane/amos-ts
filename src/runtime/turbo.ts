@@ -86,7 +86,9 @@ function turboError(n: number): never {
 }
 
 /** `Rbra routine 62` / `Rbra routine 64`: TURBO's two exits into AMOS's own errors */
-const funcCall = (): never => {
+// annotated rather than inferred so a call counts as an exit for the
+// compiler's control-flow analysis
+const funcCall: () => never = () => {
   throw new AmosError('Illegal function call', 23)
 }
 
@@ -197,6 +199,19 @@ export interface TurboState {
    * 160 and Y a value of 100" — the centre of a standard screen.
    */
   eye: { x: number; y: number }
+  /**
+   * `Plane Offset`'s table: per screen, a byte offset for each of six
+   * planes. It is separate from what the screen displays because the
+   * routine keeps it separate — the offsets sit here until Plane Update
+   * folds them into the pointers the copper reads, which is why the manual
+   * says "you should use Plane Update instead of the AMOS View command".
+   */
+  planeOffsets: Map<number, Int32Array>
+  /**
+   * `Reserve Static Block`'s table: the count reserved, and the block
+   * numbers `Build Static Block` found in AMOS's list.
+   */
+  staticBlocks: { size: number; built: Set<number> } | null
   /** `Blit Int On start To end`, or null when no server is installed */
   blitInt: { from: number; to: number } | null
   /**
@@ -227,6 +242,8 @@ export const newTurboState = (): TurboState => ({
   },
   blits: Array.from({ length: 96 }, () => null),
   eye: { x: 160, y: 100 },
+  planeOffsets: new Map(),
+  staticBlocks: null,
   blitInt: null,
   blitGo: 0,
   priority: 0,
@@ -512,6 +529,84 @@ function turboSqrt(v: number, bits: 16 | 32): number {
   } while (step !== 0)
   if (rest >= root) root++
   return root
+}
+
+// ---- bitplanes and blocks ----
+
+/** the six-long offset table `Plane Offset` keeps for a screen */
+function planeTable(rt: Runtime, nr: number): Int32Array {
+  let t = rt.turbo.planeOffsets.get(nr)
+  if (!t) {
+    t = new Int32Array(6)
+    rt.turbo.planeOffsets.set(nr, t)
+  }
+  return t
+}
+
+/** the checks Plane Swap and the two Plane Shifts share */
+function screenForPlanes(rt: Runtime, nr: number, planes: number[]): Screen {
+  const s = rt.screens.get(nr)
+  if (!s) funcCall()
+  // a one-plane screen has nothing to rearrange, and says so
+  if (s.depth === 1) funcCall()
+  for (const p of planes) if (p <= 0 || p > s.depth) funcCall()
+  return s
+}
+
+function shiftArgs(rt: Runtime, it: Interp): { s: Screen; from: number; to: number } {
+  const nr = it.evalInt()
+  it.expect(',')
+  const from = it.evalInt()
+  it.expect('to')
+  const to = it.evalInt()
+  const s = screenForPlanes(rt, nr, [from, to])
+  if (to < from) funcCall()
+  return { s, from: from - 1, to: to - 1 }
+}
+
+/**
+ * Rearranging plane pointers, in a buffer that has no pointers.
+ *
+ * Swapping two of a screen's plane pointers means each plane now reads and
+ * writes the other's memory, so every pixel's two bits change places — and
+ * they change places for the physical buffer too, because the routine
+ * rewrites all three of the structure's pointer tables.
+ *
+ * `src(p)` gives the plane whose old bit ends up in plane p.
+ */
+function permutePlanes(s: Screen, src: (p: number) => number): void {
+  const from = Array.from({ length: s.depth }, (_, p) => src(p))
+  for (const buf of [s.pixels, s.back]) {
+    if (!buf) continue
+    for (let i = 0; i < buf.length; i++) {
+      const v = buf[i]!
+      let out = v
+      for (let p = 0; p < from.length; p++) {
+        const bit = (v >> from[p]!) & 1
+        out = (out & ~(1 << p)) | (bit << p)
+      }
+      buf[i] = out
+    }
+  }
+}
+
+/** `F Put Block` and `F Put Static Block`, which differ only in the lookup */
+function fPutBlock(rt: Runtime, it: Interp, viaStatic: boolean): void {
+  const n = it.evalInt()
+  it.expect(',')
+  const x = it.evalInt()
+  it.expect(',')
+  const y = it.evalInt()
+  const s = rt.screen
+  const b = rt.blocks.get(n)
+  // The static table is not cleared when it is allocated, so a block that
+  // was not in AMOS's list when Build Static Block ran is an uninitialised
+  // pointer — a crash there, nothing here.
+  if (!b || (viaStatic && !rt.turbo.staticBlocks?.built.has(n))) return
+  // "If X < 0 no Block is displayed... If X > width of screen, no Block is
+  // displayed", and the X is chopped to a 16-pixel boundary
+  if (x < 0 || y < 0 || x >= s.width || y >= s.height) return
+  rt.blit(s, { width: b.w, height: b.h, pixels: b.pixels }, x & 0xfff0, y, !b.mask)
 }
 
 // ---- scrolling zones: Blit Store Left / Up, Multi Blit and the interrupt ----
@@ -1149,6 +1244,100 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       s.grX = px(x, z)
       s.grY = py(y, z)
       s.line(s.grX, s.grY, px(x1, z1), py(y1, z1))
+    },
+    'plane offset'(it) {
+      // Plane Offset scrnr,planenr,xoffset,yoffset — routine 77. The stored
+      // value is a byte offset, y*rowBytes+x, and it ADDS to what is there
+      // unless the new offset works out to zero, which resets that plane:
+      // "To reset the offset of a particular plane, set the X and YOFFSET
+      // parameters to zero."
+      const nr = it.evalInt()
+      it.expect(',')
+      const plane = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      const s = rt.screens.get(nr)
+      if (!s) funcCall()
+      const table = planeTable(rt, nr)
+      if (plane === 0) funcCall()
+      if (plane < 0) {
+        // "To set all offsets for all planes to zero, you should use the
+        // Plane Offset command with a negative PLANENR parameter"
+        table.fill(0)
+        return
+      }
+      if (plane > s.depth) funcCall()
+      const off = y * s.rowBytes + x
+      table[plane - 1] = off === 0 ? 0 : (table[plane - 1] ?? 0) + off
+    },
+    'plane swap'(it) {
+      // Plane Swap scrnr,plane1,plane2 — the pointers are exchanged in all
+      // three tables of the screen structure, so what swaps is which memory
+      // each plane reads and writes: in a chunky buffer, the two bits
+      const nr = it.evalInt()
+      it.expect(',')
+      const p1 = it.evalInt()
+      it.expect(',')
+      const p2 = it.evalInt()
+      const s = screenForPlanes(rt, nr, [p1, p2])
+      permutePlanes(s, (p) => (p === p1 - 1 ? p2 - 1 : p === p2 - 1 ? p1 - 1 : p))
+    },
+    'plane shift up'(it) {
+      // Plane Shift Up scrnr,start To end — "Shifts the planes up by 1":
+      // plane 1 takes plane 3's data, plane 2 takes plane 1's, and so on
+      const { s, from, to } = shiftArgs(rt, it)
+      const n = to - from + 1
+      permutePlanes(s, (p) => (p < from || p > to ? p : from + (((p - from - 1) % n) + n) % n))
+    },
+    'plane shift down'(it) {
+      // "Does the opposite thing of Plane Shift Up..."
+      const { s, from, to } = shiftArgs(rt, it)
+      const n = to - from + 1
+      permutePlanes(s, (p) => (p < from || p > to ? p : from + ((p - from + 1) % n)))
+    },
+    'plane update'(it) {
+      // "This command is used to reflect the changes made with the Plane
+      // commands." The routine biases the plane pointers by the offset
+      // table, rebuilds the display, and puts the pointers straight back.
+      const nr = it.evalInt()
+      const s = rt.screens.get(nr)
+      if (!s) funcCall()
+      const table = rt.turbo.planeOffsets.get(nr)
+      s.planeOffsets = table && table.some((v) => v !== 0) ? Int32Array.from(table) : null
+    },
+    'f put block'(it) {
+      // F Put Block block,x,y — "The X coordinate is chopped to ly on a 16
+      // bit boundary, and only partial clipping is supported."
+      fPutBlock(rt, it, false)
+    },
+    'reserve static block'(it) {
+      // "Reserves X*8 bytes of memory for converting the linked block-list
+      // into a static block-list. (4 bytes for address block data and 4
+      // bytes for it's mask)"
+      const n = it.evalInt()
+      if (rt.turbo.staticBlocks) funcCall()
+      if (n <= 0 || n > 32000) funcCall()
+      rt.turbo.staticBlocks = { size: n, built: new Set() }
+    },
+    'static block erase'() {
+      // "Returns the memory back to the system" — and refuses when there is
+      // none to return
+      if (!rt.turbo.staticBlocks) funcCall()
+      rt.turbo.staticBlocks = null
+    },
+    'build static block'() {
+      // "Converts the linked block-list into a static block-list." It walks
+      // AMOS's own list and indexes each block by its number, with no bounds
+      // check at all — "Be sure that you have reserved enough memory for all
+      // entries!"
+      const t = rt.turbo.staticBlocks
+      if (!t) return
+      t.built = new Set(rt.blocks.keys())
+    },
+    'f put static block'(it) {
+      fPutBlock(rt, it, true)
     },
     'blit store left'(it) {
       // Blit Store Left screen,blitnr,x,y To x1,y1,shift — routine 325.
