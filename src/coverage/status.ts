@@ -602,6 +602,22 @@ export const FAITHFUL = new Set<string>([
   'stars erase',
   'stars int on',
   'stars int off',
+  // scrolling zones: routines 313, 317, 324, 325, 43-48 and 141-146,
+  // documented in the 2.15 manual. Set Planes comes with them because the
+  // blit keywords read the mask it writes.
+  'blit store left',
+  'blit store up',
+  'blit left',
+  'blit up',
+  'multi blit',
+  'blit speed',
+  'blit erase',
+  'blit clear',
+  'blit int on',
+  'blit int off',
+  'blit int change',
+  'blit int wait',
+  'set planes',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1098,6 +1114,14 @@ export const NOTES: Record<string, string> = {
     "TURBO's own zone system, which the manual is explicit is 'not compatible with the normal Zone commands'. Note it returns 1 and 0 rather than AMOS's -1 and 0, as documented",
   'workbench open':
     'The counterpart to Close Workbench, which this port already treats as faithful because there is no Workbench memory to free. Reopening it is the same nothing in reverse',
+  'blit left':
+    "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
+  'blit speed':
+    "Faithful including the defect. The routine decides which way a zone scrolls by testing bit 0 and then bit 15 of the stored word masks, and for a Blit Store Left zone those masks are \$ff<<shift — so a shift below 8 matches neither test and the routine returns having changed nothing, silently. A Blit Store Up zone leaves the mask at \$ff, bit 0 set, so the change goes through there — and writes a horizontal barrel shift into a vertical scroll, because BLTCON0 carries the shift for both. The manual's plain description ('you can change the SHIFT (speed) value after you have defined a scrolling zone') is true only from 8 up",
+  'blit int on':
+    "Installs a VBLANK server at priority 9; here the runtime's vertical blank runs it once a frame, before the starfield's, which is the order the two priorities give. The wait flag is faithful in both senses: Blit Int Wait writes the opposite of its argument, so False stores 1 and starts the scrolling. What cannot follow is the timing — on the real machine the server is preempted by anything that owns the blitter, which is why the manual warns against running Scene 16/32 Do with the interrupt on",
+  'set planes':
+    "Writes rp_Mask, so it restricts AMOS's own drawing as well as TURBO's, as the manual says ('All normal graphic AMOS commands use this parameter'). Applied here at the two points every write funnels through — plot and the text writing modes — which covers the drawing keywords but not the wholesale fills: Cls and screen clears write every plane whatever the mask says. The keywords the manual lists as ignoring the mask (F Draw, F Plot, F Point, F Circle, Plane Offset) ignore it here too",
   'display stars':
     "The plot is a bset into the first bitplane, the wrap is the routine's own — including the bug the author owns up to in the Stars Clip entry ('This instruction works fine now as it is, but is not really finished yet...somethimes you don't get what you want!'), where wrapping past the left edge folds the overshoot into the register holding the right edge and every later star in the same pass wraps a column further in. What is not reproduced is what happens off-screen: the routine computes a byte address from its precomputed row table and checks nothing, so a star outside the screen — or a screen other than the one Reserve Stars ran on, which the manual warns about in capitals — writes over whatever is there. Those stars are skipped",
   'stars int on':

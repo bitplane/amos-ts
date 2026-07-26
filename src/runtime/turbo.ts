@@ -149,6 +149,35 @@ export interface TurboStars {
   intClear: boolean
 }
 
+/**
+ * A stored scrolling zone — one of the 96 `Blit Store Left` / `Blit Store Up`
+ * definitions, held here as what the blit does rather than as the blitter
+ * registers the routine precomputes (a 20+depth*8 byte record of BLTCON0/1,
+ * the modulos, the size word and a source and destination address per plane).
+ *
+ * `masks` is the exception, kept because it is observable: `Blit Speed`
+ * decides which way a zone scrolls by testing bits of it, and gets it wrong.
+ */
+export interface BlitDef {
+  /** the screen the zone was defined on; Multi Blit scrolls that one */
+  screen: number
+  /** the region, with x chopped to a 16-pixel boundary as the routine chops it */
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+  /** the shift, 1-15 — the magnitude; `left` carries the sign */
+  shift: number
+  /** the blitter's DESC bit: scrolling left rather than right */
+  left: boolean
+  /** a Blit Store Up definition: a vertical move, not a barrel-shift */
+  vertical: boolean
+  /** vertical only: the row delta after the routine's clamp to the screen */
+  dy: number
+  /** BLTAFWM/BLTALWM as the routine computes them — see Blit Speed */
+  masks: number
+}
+
 export interface TurboState {
   /**
    * Check zones, TURBO's replacement for AMOS's Zone commands. "These
@@ -159,6 +188,17 @@ export interface TurboState {
   objects: TurboObjects
   /** the starfield — `Reserve Stars` through `Stars Int Off` */
   stars: TurboStars
+  /** the 96 scrolling zones, 1-based in BASIC and 0-based here */
+  blits: Array<BlitDef | null>
+  /** `Blit Int On start To end`, or null when no server is installed */
+  blitInt: { from: number; to: number } | null
+  /**
+   * The word `Blit Int Wait` writes. Its sense is inverted from its name:
+   * `Blit Int Wait False` stores 1 and the interrupt runs, `Blit Int Wait
+   * True` stores 0 and it does not. Zero at the start of a program, so
+   * "Blit Int On ... Up to this point nothing will happen."
+   */
+  blitGo: number
   /**
    * The task priority Multi No / Multi Yes / Amos Pri set. There is no
    * scheduler here to apply it to; it is kept so a program that reads it
@@ -178,6 +218,9 @@ export const newTurboState = (): TurboState => ({
     int: false,
     intClear: false,
   },
+  blits: Array.from({ length: 96 }, () => null),
+  blitInt: null,
+  blitGo: 0,
   priority: 0,
 })
 
@@ -411,6 +454,139 @@ function starsPlotter(rt: Runtime, screen: number): (x: number, y: number) => vo
   return (x, y) => {
     if (x < 0 || y < 0 || x >= s.width || y >= s.height) return
     px[y * s.width + x]! |= 1
+  }
+}
+
+// ---- scrolling zones: Blit Store Left / Up, Multi Blit and the interrupt ----
+
+/**
+ * Read the arguments both the stored and the immediate scroll keywords take,
+ * apply the routine's checks, and work out the region.
+ *
+ * The checks, in the order routine 325 makes them: the shift may not be zero;
+ * y1 may not exceed the screen height; x and x1 are chopped to a 16-pixel
+ * boundary ("Ex.: 198 will become 196 , 307 will become 304"); y and x may
+ * not be negative; x must be below x1 and y below y1; and x1 is clamped to
+ * the width of the bitplane, which is rowBytes*8 rather than the screen
+ * width.
+ */
+function blitArgs(rt: Runtime, it: Interp, screen: number, vertical: boolean): BlitDef {
+  const x = it.evalInt()
+  it.expect(',')
+  const y = it.evalInt()
+  it.expect('to')
+  const x1raw = it.evalInt()
+  it.expect(',')
+  const y1 = it.evalInt()
+  it.expect(',')
+  const shift = it.evalInt()
+  const s = rt.screens.get(screen)
+  if (!s) throw new AmosError('Illegal function call', 23)
+  if (vertical ? shift === 0 : (shift & 0xf) === 0) funcCall()
+  if (y1 > s.height) funcCall()
+  const x0 = x & 0xfff0
+  let x1 = x1raw & 0xfff0
+  if (y < 0 || x < 0) funcCall()
+  if (x0 >= x1 || y >= y1) funcCall()
+  const wide = s.rowBytes * 8
+  if (x1 > wide) x1 = wide
+  // Blit Store Up: "Y = Y + SCROLL : If Y < 0 then Y = 0 Else if Y > Screen
+  // Height then Y = Screen Height" — the manual writes the clamp out in
+  // BASIC, which is why a shift of -50 from y=5 only scrolls five pixels
+  const dest = vertical ? Math.max(0, Math.min(s.height, y + shift)) : y
+  return {
+    screen,
+    x0,
+    y0: y,
+    x1,
+    y1,
+    // BLTCON0 carries the barrel shift for both kinds; a vertical store
+    // leaves it at zero, so the copy is straight down until Blit Speed
+    // writes a shift into it
+    shift: vertical ? 0 : Math.abs(shift) & 0xf,
+    left: !vertical && shift < 0,
+    vertical,
+    dy: dest - y,
+    // moveq #$ff,d6 then lsl.l for a right scroll, lsr.l and swap for a left
+    // one; Blit Store Up leaves it at $ff
+    masks: vertical ? 0xff : shift < 0 ? (0xff >>> (-shift & 0xf)) << 16 : (0xff << (shift & 0xf)) >>> 0,
+  }
+}
+
+/**
+ * Run one zone. A horizontal scroll is a barrel-shift of the region through
+ * the A channel back into D — "TURBO Blit uses the A and D blitter channels,
+ * AMOS Scroll uses the B,C and D channels" — which is why the pixels shifted
+ * out of one row appear at the start of the next: the shifter carries across
+ * the modulo. A vertical scroll is a plain copy to the clamped row.
+ *
+ * The plane mask is the RastPort's, read from the CURRENT screen rather than
+ * the one being scrolled, exactly as `btst.l d0,$18(a4)` reads it.
+ */
+function runBlit(rt: Runtime, d: BlitDef): void {
+  const s = rt.screens.get(d.screen)
+  if (!s) return // "a crash will be certain" — nothing here
+  const mask = rt.screen.planeMask
+  const px = s.pixels
+  const sw = s.width
+  const w0 = Math.min(d.x1, sw) - d.x0
+  const h = Math.min(d.y1, s.height) - d.y0
+  if (w0 <= 0 || h <= 0) return
+  for (let p = 0; p < s.depth; p++) {
+    if (!(mask & (1 << p))) continue
+    const bit = 1 << p
+    // channel A: the region as one stream, rows joined end to end, which is
+    // what the modulo does and why the shifter carries between them
+    const src = new Uint8Array(w0 * h)
+    for (let r = 0; r < h; r++) {
+      const row = (d.y0 + r) * sw + d.x0
+      for (let c = 0; c < w0; c++) src[r * w0 + c] = (px[row + c]! >> p) & 1
+    }
+    // channel D: the same region, moved down by dy for a vertical scroll
+    for (let i = 0; i < src.length; i++) {
+      const j = d.left ? i + d.shift : i - d.shift
+      const v = j >= 0 && j < src.length ? src[j]! : 0
+      const y = d.y0 + d.dy + ((i / w0) | 0)
+      if (y < 0 || y >= s.height) continue // off the screen: the real one writes anyway
+      const at = y * sw + d.x0 + (i % w0)
+      px[at] = (px[at]! & ~bit) | (v << p)
+    }
+  }
+}
+
+/** `Multi Blit`, `Blit Int On` and `Blit Int Change` all take this range */
+function blitRange(it: Interp): { from: number; to: number } {
+  const from = it.evalInt()
+  it.expect('to')
+  const to = it.evalInt()
+  if (to < from || from - 1 < 0 || to - 1 >= 96) funcCall()
+  return { from: from - 1, to: to - 1 }
+}
+
+/** define a zone, or refuse because one is already there */
+function blitStore(rt: Runtime, it: Interp, vertical: boolean): void {
+  // the routine reads blitnr and screen off the argument stack before it
+  // pops anything, so "1 to 96" and "allready defined" are checked first
+  const screen = it.evalInt()
+  it.expect(',')
+  const nr = it.evalInt()
+  it.expect(',')
+  if (nr <= 0 || nr > 96) funcCall()
+  if (rt.turbo.blits[nr - 1]) turboError(11)
+  rt.turbo.blits[nr - 1] = blitArgs(rt, it, screen, vertical)
+}
+
+/**
+ * The VBL server `Blit Int On` installs, at priority 9. It does what Multi
+ * Blit does over the stored range, once a frame, but only once `Blit Int
+ * Wait False` has cleared the wait.
+ */
+export function blitVbl(rt: Runtime): void {
+  const t = rt.turbo
+  if (!t.blitInt || t.blitGo === 0) return
+  for (let i = t.blitInt.from; i <= t.blitInt.to; i++) {
+    const d = t.blits[i]
+    if (d) runBlit(rt, d)
   }
 }
 
@@ -770,6 +946,123 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       if (!st.int) return
       st.intClear = false
       st.int = false
+    },
+    'blit store left'(it) {
+      // Blit Store Left screen,blitnr,x,y To x1,y1,shift — routine 325.
+      // "allows you to predefine up to 96 different horizontal scrolling
+      // zones... If SHIFT is positive the zone will be shifted to the right."
+      blitStore(rt, it, false)
+    },
+    'blit store up'(it) {
+      // "Identical to the Blit Store Left command, except it defines a
+      // vertical scroll" — routine 313
+      blitStore(rt, it, true)
+    },
+    'blit left'(it) {
+      // Blit Left screen,x,y To x1,y1,shift — routine 47, the same scroll
+      // with no stored definition: "Immediately executes the scroll"
+      const screen = it.evalInt()
+      it.expect(',')
+      runBlit(rt, blitArgs(rt, it, screen, false))
+    },
+    'blit up'(it) {
+      // routine 145, the vertical counterpart — the one blit keyword the
+      // manual never got round to describing
+      const screen = it.evalInt()
+      it.expect(',')
+      runBlit(rt, blitArgs(rt, it, screen, true))
+    },
+    'multi blit'(it) {
+      // Multi Blit start To end — "With this command you can scroll up to 96
+      // zones in one go". An undefined zone in the range is skipped.
+      const { from, to } = blitRange(it)
+      for (let i = from; i <= to; i++) {
+        const d = rt.turbo.blits[i]
+        if (d) runBlit(rt, d)
+      }
+    },
+    'blit speed'(it) {
+      // Blit Speed blitnr,shift — routine 46. "Only use positive values, it
+      // determines itself if the defined scrolling zone is scrolling to the
+      // left or to the right." It determines it by testing bits 0 and 15 of
+      // the stored first/last word masks, and only a Blit Store Up zone
+      // (mask $ff) or a right scroll of 8 or more (mask $ff<<8 and up) ever
+      // matches — see the NOTES entry.
+      const nr = it.evalInt()
+      it.expect(',')
+      const shift = it.evalInt() & 0xf
+      if (shift === 0) funcCall()
+      if (nr <= 0 || nr > 96) funcCall()
+      const d = rt.turbo.blits[nr - 1]
+      if (!d) turboError(12)
+      // `btst #0` then `btst #15` on the stored masks: a Blit Store Left
+      // zone with a shift below 8 matches neither, and the routine returns
+      // having changed nothing at all
+      if ((d.masks & 1) === 0 && (d.masks & 0x8000) === 0) return
+      d.shift = shift
+    },
+    'blit erase'(it) {
+      // "Erases and frees the memory used by a particular scrolling zone. If
+      // blitnr is negative, ALL blit definitions are erased from memory."
+      const nr = it.evalInt()
+      if (nr < 0) {
+        rt.turbo.blits = rt.turbo.blits.map(() => null)
+        return
+      }
+      if (nr === 0 || nr > 96) funcCall()
+      rt.turbo.blits[nr - 1] = null
+    },
+    'blit clear'(it) {
+      // Blit Clear x — "If x <0, all bitplanes of a screen will be erased.
+      // If x >0, clear bitplane x. An 8 colour screen has 3 bitplanes,
+      // numbered 1 -> 3." The all-planes form is the one that honours the
+      // Set Planes mask; naming a plane clears it whatever the mask says.
+      const s = rt.screen
+      const n = it.evalInt()
+      const px = s.pixels
+      if (n < 0) {
+        for (let p = 0; p < s.depth; p++) {
+          if (!(s.planeMask & (1 << p))) continue
+          const bit = ~(1 << p)
+          for (let i = 0; i < px.length; i++) px[i]! &= bit
+        }
+        return
+      }
+      if (n === 0 || n - 1 >= s.depth) funcCall()
+      const bit = ~(1 << (n - 1))
+      for (let i = 0; i < px.length; i++) px[i]! &= bit
+    },
+    'blit int on'(it) {
+      // "adds a new interrupt server to the VBLANK server chain which will
+      // do the same thing as the Multi Blit command... The scrolling does
+      // not begin until Blit Int Wait is set False!"
+      const range = blitRange(it)
+      if (rt.turbo.blitInt) turboError(13)
+      rt.turbo.blitInt = range
+    },
+    'blit int off'() {
+      // "This command does not change the Blit Int Wait status."
+      rt.turbo.blitInt = null
+    },
+    'blit int change'(it) {
+      // "Allows you to change the blits that are executed within the
+      // interrupt scrolling system... exactly the same as Blit Int On start
+      // to End, except it works while the interrupt is being executed."
+      const range = blitRange(it)
+      if (!rt.turbo.blitInt) turboError(23)
+      rt.turbo.blitInt = range
+    },
+    'blit int wait'(it) {
+      // Blit Int Wait True/False. The routine stores the opposite of its
+      // argument: anything non-zero clears the flag, zero sets it to 1.
+      rt.turbo.blitGo = it.evalInt() !== 0 ? 0 : 1
+    },
+    'set planes'(it) {
+      // Set Planes mask — "Restricts most drawing operations to a number of
+      // bitplanes, defined by the MASK parameter. Each bit represents a
+      // bitplane. Ex.: Set Planes %101, enables planes 1 and 3." It writes
+      // rp_Mask, so it belongs to the screen rather than to TURBO.
+      rt.screen.planeMask = it.evalInt() & 0xff
     },
     'reserve check'(it) {
       // "Reserves x check ZONES for TURBO zone (CHECK) routines. Execute

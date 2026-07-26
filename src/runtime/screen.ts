@@ -443,6 +443,19 @@ export class Screen {
     return (1 << this.depth) - 1
   }
 
+  /**
+   * rp_Mask, the RastPort write mask — which bitplanes a write may touch.
+   * All ones until TURBO's `Set Planes` narrows it: "Restricts most drawing
+   * operations to a number of bitplanes, defined by the MASK parameter. Each
+   * bit represents a bitplane."
+   */
+  planeMask = 0xff
+
+  /** apply the write mask: bits it excludes keep what the pixel already had */
+  private masked(old: number, next: number): number {
+    return (this.planeMask === 0xff ? next : (old & ~this.planeMask) | (next & this.planeMask)) & this.colorMask()
+  }
+
   inClip(x: number, y: number): boolean {
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return false
     const c = this.clip
@@ -453,8 +466,8 @@ export class Screen {
     if (!this.inClip(x, y)) return
     const i = y * this.width + x
     // Gr Writing 2 = COMPLEMENT: xor the destination
-    if (this.grMode === 2) this.pixels[i] = (this.pixels[i]! ^ c) & this.colorMask()
-    else this.pixels[i] = c & this.colorMask()
+    const old = this.pixels[i]!
+    this.pixels[i] = this.masked(old, this.grMode === 2 ? old ^ c : c)
   }
 
   point(x: number, y: number): number {
@@ -790,19 +803,19 @@ export class Screen {
     if (clipped && !this.inClip(x, y)) return
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return
     const i = y * this.width + x
-    const m = this.colorMask()
+    const old = this.pixels[i]!
     switch (mode) {
       case 1:
-        this.pixels[i] = (this.pixels[i]! | c) & m
+        this.pixels[i] = this.masked(old, old | c)
         break
       case 2:
-        this.pixels[i] = (this.pixels[i]! ^ c) & m
+        this.pixels[i] = this.masked(old, old ^ c)
         break
       case 3:
-        this.pixels[i] = this.pixels[i]! & c & m
+        this.pixels[i] = this.masked(old, old & c)
         break
       default:
-        this.pixels[i] = c & m
+        this.pixels[i] = this.masked(old, c)
     }
   }
 

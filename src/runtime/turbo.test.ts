@@ -592,6 +592,182 @@ describe('TURBO stars: the interrupt (Turbo_Stars_doc.asc + disassembly)', () =>
   })
 })
 
+/**
+ * Scrolling zones, from the 2.15 manual and routines 313, 317, 324, 325,
+ * 43-48 and 141-146. A horizontal scroll is a barrel-shift of the region
+ * through blitter channels A and D; a vertical one is a plain copy.
+ */
+describe('TURBO blitter scrolling (TURBO_DocsV2.15.Asc + disassembly)', () => {
+  // a column of pixels to watch the scroll move
+  const mark = ['Cls 0', 'Ink 1', 'Bar 32,10 To 47,20']
+
+  it('Blit Left shifts the region right, blanking what it leaves behind', () => {
+    // "If SHIFT is positive the zone will be shifted to the right."
+    const { rt } = run([...mark, 'Blit Left 0,0,0 To 320,200,4'].join('\n'))
+    expect(rt.screen.point(36, 15)).toBe(1) // 32+4
+    expect(rt.screen.point(51, 15)).toBe(1) // 47+4
+    expect(rt.screen.point(35, 15)).toBe(0) // vacated
+    expect(rt.screen.point(52, 15)).toBe(0)
+  })
+
+  it('a negative shift scrolls left', () => {
+    const { rt } = run([...mark, 'Blit Left 0,0,0 To 320,200,-4'].join('\n'))
+    expect(rt.screen.point(28, 15)).toBe(1)
+    expect(rt.screen.point(43, 15)).toBe(1)
+    expect(rt.screen.point(44, 15)).toBe(0)
+  })
+
+  it('x and x1 are chopped to a 16-pixel boundary', () => {
+    // "The routine automatically chops the X and X1 values so that they
+    // always lie on a 16 bit boundary. Ex.: 198 will become 196" — which is
+    // to say the low four bits are cleared, so 198 becomes 192
+    const { rt } = run(['Cls 0', 'Blit Store Left 0,1,198,0 To 307,100,2'].join('\n'))
+    const d = rt.turbo.blits[0]!
+    expect([d.x0, d.x1]).toEqual([192, 304])
+  })
+
+  it('the region is refused when it is empty or off the screen', () => {
+    expect(() => run('Blit Left 0,10,10 To 10,50,2')).toThrow(/Illegal function call/)
+    expect(() => run('Blit Left 0,0,50 To 100,50,2')).toThrow(/Illegal function call/)
+    expect(() => run('Blit Left 0,0,0 To 100,500,2')).toThrow(/Illegal function call/)
+    expect(() => run('Blit Left 0,0,0 To 100,100,0')).toThrow(/Illegal function call/)
+  })
+
+  it('Multi Blit runs the stored zones and skips the empty slots', () => {
+    const { rt } = run(
+      [...mark, 'Blit Store Left 0,1,0,0 To 320,200,4', 'Blit Store Left 0,3,0,0 To 320,200,4', 'Multi Blit 1 To 3'].join(
+        '\n',
+      ),
+    )
+    // zones 1 and 3 both scroll the same region, so the mark moves twice
+    expect(rt.screen.point(40, 15)).toBe(1) // 32 + 4 + 4
+    expect(rt.screen.point(39, 15)).toBe(0)
+    expect(() => run('Multi Blit 2 To 1')).toThrow(/Illegal function call/)
+    expect(() => run('Multi Blit 1 To 97')).toThrow(/Illegal function call/)
+  })
+
+  it('a zone number is 1 to 96 and can only be defined once', () => {
+    expect(() => run('Blit Store Left 0,97,0,0 To 100,100,1')).toThrow(/Illegal function call/)
+    expect(() =>
+      run('Blit Store Left 0,1,0,0 To 100,100,1 : Blit Store Left 0,1,0,0 To 100,100,1'),
+    ).toThrow(/Blit store allready defined/)
+    // erased, and then definable again
+    const { rt } = run(
+      ['Blit Store Left 0,1,0,0 To 100,100,1', 'Blit Erase 1', 'Blit Store Left 0,1,0,0 To 100,100,2'].join('\n'),
+    )
+    expect(rt.turbo.blits[0]?.shift).toBe(2)
+    // "If blitnr is negative, ALL blit definitions are erased"
+    const all = run(['Blit Store Left 0,1,0,0 To 100,100,1', 'Blit Store Left 0,2,0,0 To 100,100,1', 'Blit Erase -1'].join('\n'))
+    expect(all.rt.turbo.blits.every((b) => b === null)).toBe(true)
+  })
+
+  it('Blit Speed changes the shift only when its own test happens to pass', () => {
+    // The routine picks its branch with `btst #0` then `btst #15` on the
+    // stored word masks, which are $ff<<shift for a right scroll. A shift
+    // below 8 sets neither bit, so nothing at all happens — the documented
+    // behaviour ("you can change the SHIFT value after you have defined a
+    // scrolling zone") only works from 8 up.
+    const low = run(['Blit Store Left 0,1,0,0 To 100,100,2', 'Blit Speed 1,5'].join('\n'))
+    expect(low.rt.turbo.blits[0]?.shift).toBe(2) // unchanged
+    const high = run(['Blit Store Left 0,1,0,0 To 100,100,8', 'Blit Speed 1,5'].join('\n'))
+    expect(high.rt.turbo.blits[0]?.shift).toBe(5)
+    // a Blit Store Up zone keeps its mask at $ff, so bit 0 is set and the
+    // change goes through — as a horizontal shift on a vertical scroll
+    const up = run(['Blit Store Up 0,1,0,0 To 100,100,5', 'Blit Speed 1,3'].join('\n'))
+    expect(up.rt.turbo.blits[0]?.shift).toBe(3)
+    expect(() => run('Blit Speed 1,2')).toThrow(/Blit store not defined/)
+  })
+
+  it('Blit Store Up moves the region, clamping the destination to the screen', () => {
+    // The manual writes the clamp out in BASIC and warns: "Blit Store Up
+    // 0,1,0,5 To 320,100,-50 ... Huh??? The screen isn't scrolling 50 pixels
+    // up! Nope...it's only scrolling 5 pixels up."
+    const { rt } = run(
+      ['Cls 0', 'Ink 1', 'Bar 32,10 To 47,20', 'Blit Store Up 0,1,0,5 To 320,100,-50', 'Multi Blit 1 To 1'].join('\n'),
+    )
+    expect(rt.turbo.blits[0]?.dy).toBe(-5)
+    expect(rt.screen.point(40, 5)).toBe(1) // the bar moved up five, not fifty
+    expect(rt.screen.point(40, 16)).toBe(0)
+  })
+
+  it('Blit Up does the same thing at once, without a definition', () => {
+    // routine 145, the immediate vertical scroll — present in the token
+    // table and absent from the manual, which never describes it
+    const { rt } = run(['Cls 0', 'Ink 1', 'Bar 32,10 To 47,20', 'Blit Up 0,0,0 To 320,100,20'].join('\n'))
+    expect(rt.screen.point(40, 35)).toBe(1) // the bar arrived twenty rows down
+    // A→D with no C channel is a copy, so what it came from is still there:
+    // a vertical scroll leaves a trail unless the program clears behind it
+    expect(rt.screen.point(40, 15)).toBe(1)
+  })
+})
+
+describe('TURBO Set Planes and Blit Clear (TURBO_DocsV2.15.Asc + disassembly)', () => {
+  it('Set Planes restricts what a write may touch', () => {
+    // "Ex.: Set Planes %101, enables planes 1 and 3." rp_Mask, so it applies
+    // to AMOS's own drawing as well as TURBO's
+    const { rt } = run(['Cls 0', 'Set Planes %101', 'Ink 7', 'Bar 0,0 To 10,10', 'Set Planes 255'].join('\n'))
+    expect(rt.screen.point(5, 5)).toBe(5) // 7 masked to %101
+  })
+
+  it('Multi Blit scrolls only the planes the mask allows', () => {
+    const { rt } = run(
+      [
+        'Cls 0',
+        'Ink 3 : Bar 32,10 To 47,20', // planes 1 and 2
+        'Set Planes %1',
+        'Blit Left 0,0,0 To 320,200,4',
+        'Set Planes 255',
+      ].join('\n'),
+    )
+    // plane 1 moved, plane 2 stayed: the bar splits into a 2 and a 1
+    expect(rt.screen.point(34, 15)).toBe(2)
+    expect(rt.screen.point(50, 15)).toBe(1)
+  })
+
+  it('Blit Clear takes one bitplane, or all of them with a negative', () => {
+    // "If x <0, all bitplanes of a screen will be erased. If x >0, clear
+    // bitplane x. An 8 colour screen has 3 bitplanes, numbered 1 -> 3."
+    const one = run(['Cls 0', 'Ink 3 : Bar 0,0 To 10,10', 'Blit Clear 1'].join('\n'))
+    expect(one.rt.screen.point(5, 5)).toBe(2)
+    const all = run(['Cls 0', 'Ink 3 : Bar 0,0 To 10,10', 'Blit Clear -1'].join('\n'))
+    expect(all.rt.screen.point(5, 5)).toBe(0)
+    expect(() => run('Blit Clear 0')).toThrow(/Illegal function call/)
+  })
+})
+
+describe('TURBO the blitter interrupt (TURBO_DocsV2.15.Asc + disassembly)', () => {
+  it('nothing scrolls until Blit Int Wait is set False', () => {
+    // "The scrolling does not begin until Blit Int Wait is set False!"
+    const waiting = run(
+      ['Cls 0', 'Ink 1 : Bar 32,10 To 47,20', 'Blit Store Left 0,1,0,0 To 320,200,4', 'Blit Int On 1 To 1', 'Wait 5'].join(
+        '\n',
+      ),
+    )
+    expect(waiting.rt.screen.point(32, 15)).toBe(1) // never moved
+    const going = run(
+      [
+        'Cls 0',
+        'Ink 1 : Bar 32,10 To 47,20',
+        'Blit Store Left 0,1,0,0 To 320,200,4',
+        'Blit Int On 1 To 1',
+        'Blit Int Wait False',
+        'Wait 5',
+      ].join('\n'),
+    )
+    expect(going.rt.screen.point(32, 15)).toBe(0) // scrolled away, frame by frame
+    expect(going.rt.turbo.blitGo).toBe(1)
+  })
+
+  it('Blit Int On installs once; Blit Int Change needs it installed', () => {
+    expect(() => run('Blit Int On 1 To 1 : Blit Int On 1 To 1')).toThrow(/Blit int allready on/)
+    expect(() => run('Blit Int Change 1 To 2')).toThrow(/Blit int not on/)
+    // "This command does not change the Blit Int Wait status."
+    const { rt } = run('Blit Int Wait False : Blit Int On 1 To 2 : Blit Int Change 2 To 3 : Blit Int Off')
+    expect(rt.turbo.blitInt).toBe(null)
+    expect(rt.turbo.blitGo).toBe(1)
+  })
+})
+
 describe('TURBO timing (TURBO_DocsV2.15.Asc + disassembly)', () => {
   it('Vbl Wait waits, and does not hang on any line value', () => {
     // The routine busy-waits on the low byte of VHPOSR ($dff006), which is
