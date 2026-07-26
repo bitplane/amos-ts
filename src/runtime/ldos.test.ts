@@ -195,3 +195,144 @@ describe('LDos keywords the manual declares unusable', () => {
     expect(out).toBe('ran\n')
   })
 })
+
+describe('LDos word splitting (LdosV25.DOC)', () => {
+  it("counts words exactly as the manual's own examples do", () => {
+    // The manual lists these four results directly, which makes them the
+    // best oracle available for the separator rules:
+    //   Lwords("TAB Hi,, this TAB is just me") -> 5
+    //   Lwords('Hi, "this is just" "" me')     -> 4
+    //   Lwords('Hi "this is just" me')         -> 3
+    //   Lwords('"Hi this is just me')          -> 1
+    const q = 'Chr$(34)'
+    const { out } = run(
+      [
+        'Print Lwords(Chr$(9)+" Hi,, this "+Chr$(9)+"is just me")',
+        `Print Lwords("Hi, "+${q}+"this is just"+${q}+" "+${q}+${q}+" me")`,
+        `Print Lwords("Hi "+${q}+"this is just"+${q}+" me")`,
+        `Print Lwords(${q}+"Hi this is just me")`,
+        'Print Lwords("")',
+      ].join('\n'),
+    )
+    expect(out).toBe(' 5\n 4\n 3\n 1\n 0\n')
+  })
+
+  it('Lword is 1-based and keeps the quotes on a quoted word', () => {
+    // "If a 'NULL'-word is specified ('""') an empty string will not be
+    // returned, but both the doublequotes will be returned."
+    const q = 'Chr$(34)'
+    const { out } = run(
+      [
+        `S$="Hi, "+${q}+"this is just"+${q}+" "+${q}+${q}+" me"`,
+        'Print Lword(1,S$)',
+        'Print Lword(2,S$)',
+        'Print Lword(3,S$)',
+        'Print Lword(4,S$)',
+        'Print Len(Lword(3,S$))',
+      ].join('\n'),
+    )
+    expect(out).toBe('Hi\n"this is just"\n""\nme\n 2\n')
+  })
+
+  it('asking for a word that does not exist is an error', () => {
+    // "If you request a word which doesn't exist an error will be produced."
+    expect(() => run('Print Lword(9,"one two")')).toThrow(/no word 9/)
+    expect(() => run('Print Lword(0,"one two")')).toThrow(/no word 0/)
+  })
+})
+
+describe('LDos pattern matching (LdosV25.DOC)', () => {
+  it('Lwild is false for plain text and true for a pattern', () => {
+    // "TEST will be false (zero) if A$ contains no wildcard(s), otherwise
+    // TEST may contain anything (usually 1)."
+    const { out } = run(
+      ['Print Lwild("readme.txt")', 'Print Lwild("#?.txt")', 'Print Lwild("(a|b)")', 'Print Lwild("[a-z]")'].join('\n'),
+    )
+    expect(out).toBe(' 0\n 1\n 1\n 1\n')
+  })
+
+  it('matches the wildcard forms the manual lists', () => {
+    const z = '+Chr$(0)'
+    const t = (src: string, pat: string): string => `Print Lmatch("${src}"${z},"${pat}"${z})`
+    const { out } = run(
+      [
+        t('cat', 'c?t'),
+        t('readme.txt', '#?.txt'),
+        t('abc', '(abc|xyz)'),
+        t('xyz', '(abc|xyz)'),
+        t('q', '[a-z]'),
+        t('Q', '[a-z]'),
+        t('b', '[~ac]'),
+        t('a', '[~ac]'),
+        t('foo', '(foo|bar|%)'),
+        t('', '(foo|bar|%)'),
+        t('bar', '~(foo)'),
+        t('foo', '~(foo)'),
+      ].join('\n'),
+    )
+    expect(out).toBe('-1\n-1\n-1\n-1\n-1\n 0\n-1\n 0\n-1\n-1\n-1\n 0\n')
+  })
+
+  it('matches the whole string, not a substring', () => {
+    const z = '+Chr$(0)'
+    const { out } = run(
+      [`Print Lmatch("readme.txt"${z},"read"${z})`, `Print Lmatch("readme.txt"${z},"read#?"${z})`].join('\n'),
+    )
+    expect(out).toBe(' 0\n-1\n')
+  })
+})
+
+describe('LDos memory scanning (LdosV25.DOC)', () => {
+  it('Lreplace swaps one byte value across a range', () => {
+    // "will replace all tabs with spaces in bank number ten"
+    const { out } = run(
+      [
+        'Reserve As Work 10,64',
+        'Lbstr "a"+Chr$(9)+"b"+Chr$(9)+"c",Start(10)',
+        'Lreplace 9,Asc(" "),Start(10) To Start(10)+5',
+        'Print Lstr(Start(10) To Start(10)+5)',
+      ].join('\n'),
+    )
+    expect(out).toBe('a b c\n')
+  })
+
+  it('Lfilter swaps an inclusive range of byte values', () => {
+    // "Everything between LOW and HIGH (INCLUDING LOW and HIGH)"
+    const { out } = run(
+      [
+        'Reserve As Work 10,64',
+        'Lbstr "aBcDz",Start(10)',
+        'Lfilter Asc("a"),Asc("z"),Asc("-"),Start(10) To Start(10)+5',
+        'Print Lstr(Start(10) To Start(10)+5)',
+      ].join('\n'),
+    )
+    expect(out).toBe('-B-D-\n')
+  })
+
+  it('Lskip returns the address after the last skipped character', () => {
+    // "ADR will contain the address AFTER the last CHAR"
+    const { out } = run(
+      [
+        'Reserve As Work 10,64',
+        'Lbstr Chr$(10)+Chr$(10)+"x",Start(10)',
+        'Print Lskip(10,Start(10) To Start(10)+8)-Start(10)',
+        'Lbstr Chr$(10)+Chr$(10)+Chr$(10)+Chr$(10),Start(10)',
+        'Print Lskip(10,Start(10) To Start(10)+3)-Start(10)',
+      ].join('\n'),
+    )
+    expect(out).toBe(' 2\n 3\n')
+  })
+
+  it('Lback Hunt searches backwards from START down to STOP', () => {
+    // "START is greater than STOP since this routine works backwards"
+    const { out } = run(
+      [
+        'Reserve As Work 10,64',
+        'Lbstr "ab*cd*ef",Start(10)',
+        'Print Lback Hunt(Asc("*"),Start(10)+8 To Start(10))-Start(10)',
+        'Print Lback Hunt(Asc("Z"),Start(10)+8 To Start(10))-Start(10)',
+      ].join('\n'),
+    )
+    expect(out).toBe(' 5\n 0\n')
+  })
+})

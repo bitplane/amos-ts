@@ -508,6 +508,15 @@ export const FAITHFUL = new Set<string>([
   'lset eoln',
   'lold',
   'lcreate',
+  'lwords',
+  'lword',
+  'lwild',
+  'lreplace',
+  'lfilter',
+  'lskip',
+  'lback hunt',
+  // NB: 'lmatch' is deliberately absent — implemented, but the manual never
+  // states what a successful match returns, so it is approximated. See NOTES.
   'assign',
   'dir$',
   'dir',
@@ -959,6 +968,16 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  'lmatch':
+    "The pattern syntax is fully documented — ? # (a|b) ~ [abc] [~abc] a-z % and the optional * — and is implemented in full, including negation, which is why it is a backtracking matcher rather than a RegExp. What LdosV25.DOC never states is what a *successful* match returns: it gives the form 'L=Lmatch(SOURCE$,S$)' and describes only the wildcard grammar. AMOS's own true is -1 and that is what this returns, but a program comparing the result against a specific positive number could differ. The author's own example programs do not call it, so there is no artifact to settle it either — hence approximated, not faithful",
+  'lwild':
+    "Returns 1, which the manual sanctions loosely: 'TEST will be false (zero) if A$ contains no wildcard(s), otherwise TEST may contain anything (usually 1)'. Any non-zero is documented as acceptable",
+  'lword':
+    'A quoted word comes back with its quotes still attached, which the manual calls out as deliberate and surprising: a NULL word ("") returns two quote characters rather than an empty string, so callers can tell a quoted phrase from a bare one',
+  'lskip':
+    "Returns the address after the last skipped character, stopping at STOP when every byte matches. Clipped to the memory region the start address lands in, where the real machine would scan on into whatever followed",
+  'lback hunt':
+    'Scans backwards from START down to STOP and returns STOP when the character is absent. The manual does not say what an unsuccessful search returns, so STOP is the boundary the search ended at rather than a documented sentinel',
   'lold':
     "LdosV25.DOC documents this as 'Lold - MAY CURRENTLY NOT BE USED!!', kept back for a future version the author never shipped: 'These are here for future versions, currently the compiler seems to mess up values of reserved variables'. Doing nothing is what the manual describes, but the manual says what the keyword is *for*, not what the released library does when called — that is unknown, and the binary is the only place it is written down",
   'lcreate':
