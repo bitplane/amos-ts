@@ -359,3 +359,12 @@ describe('Pack / Spack', () => {
     expect(() => run('Screen Open 0,320,100,16,Lowres : Spack 0,70000')).toThrow(/function call/)
   })
 })
+
+describe('Psel$ (FnPSel +Lib.s:6771)', () => {
+  it('hands back its last argument, because the original is a bare rts', () => {
+    // FnPSel has no body at all — the token table carries the keyword and
+    // the routine is a single `rts`, so d3 (the last argument evaluated) is
+    // still sitting in the result register when it returns
+    expect(runOut('Print Psel$("DH0:","name.abk")')).toBe('name.abk\n')
+  })
+})

@@ -60,6 +60,87 @@ describe('Amiga path resolution', () => {
     expect(names).toEqual(['Music', 'hiscores.dat', 'level1.iff'])
   })
 
+  it('takes a deleted directory\'s whole subtree with it', () => {
+    // deleting something that lives in a read-only volume can only be
+    // recorded, so the tombstone has to cover the children too
+    const fs = makeFs()
+    expect(fs.deleteAll('DH0:Games/Zybex')).toBe(true)
+    expect(fs.readFile('DH0:Games/Zybex/level1.iff')).toBeNull()
+    expect(fs.readFile('DH0:Games/Zybex/Music/theme.abk')).toBeNull()
+    expect(fs.exists('DH0:Games/Zybex/Music')).toBeNull()
+    expect(fs.listDir('DH0:Games/Zybex')).toBeNull()
+    expect(fs.listDir('DH0:Games')).toEqual([])
+    // writing back under it brings the path to life again
+    expect(fs.writeFile('DH0:Games/Zybex/new.iff', enc('N'))).toBe(true)
+    expect(fs.exists('DH0:Games/Zybex')).toBe('dir')
+    expect(fs.readFile('DH0:Games/Zybex/new.iff')).toEqual(enc('N'))
+    expect(fs.readFile('DH0:Games/Zybex/level1.iff')).toBeNull() // still gone
+  })
+
+  it('refuses to Kill a directory that still has anything in it', () => {
+    // InKill (+Lib.s:4902) is DeleteFile(), which takes a file or an empty
+    // directory and nothing else
+    const fs = makeFs()
+    expect(fs.deleteFile('DH0:Games/Zybex')).toBe(false)
+    expect(fs.exists('DH0:Games/Zybex')).toBe('dir')
+    expect(fs.deleteFile('DH0:Games/Zybex/Music/theme.abk')).toBe(true)
+    expect(fs.deleteFile('DH0:Games/Zybex/Music')).toBe(true)
+    expect(fs.exists('DH0:Games/Zybex/Music')).toBeNull()
+  })
+
+  it('renames directories, contents and all', () => {
+    // InRename (+Lib.s:4915) is DOS Rename(), which moves directories too
+    const fs = makeFs()
+    expect(fs.rename('DH0:Games/Zybex', 'DH0:Games/Xybez')).toBe(true)
+    expect(fs.exists('DH0:Games/Zybex')).toBeNull()
+    expect(fs.readFile('DH0:Games/Xybez/level1.iff')).toEqual(enc('LEVEL1'))
+    expect(fs.readFile('DH0:Games/Xybez/Music/theme.abk')).toEqual(enc('THEME'))
+    // and it moves, not just renames
+    expect(fs.rename('DH0:Games/Xybez', 'DH0:Xybez')).toBe(true)
+    expect(fs.readFile('DH0:Xybez/Music/theme.abk')).toEqual(enc('THEME'))
+    expect(fs.listDir('DH0:Games')).toEqual([])
+  })
+
+  it('keeps empty drawers when a directory moves', () => {
+    const fs = makeFs()
+    fs.mkdir('DH0:Games/Zybex/Empty')
+    expect(fs.rename('DH0:Games/Zybex', 'DH0:Z2')).toBe(true)
+    expect(fs.exists('DH0:Z2/Empty')).toBe('dir')
+  })
+
+  it('renames case-only, and refuses the impossible moves', () => {
+    const fs = makeFs()
+    expect(fs.rename('DH0:S/startup-sequence', 'DH0:S/Startup-Sequence')).toBe(true)
+    expect(fs.listDir('DH0:S')!.map((e) => e.name)).toEqual(['Startup-Sequence'])
+    // onto something that exists (ERROR_OBJECT_EXISTS)
+    expect(fs.rename('DH0:Games/Zybex/level1.iff', 'DH0:S/Startup-Sequence')).toBe(false)
+    // into itself
+    expect(fs.rename('DH0:Games', 'DH0:Games/Inner')).toBe(false)
+    // across devices (ERROR_RENAME_ACROSS_DEVICES) — no silent copy
+    fs.mountMemory('RAM')
+    expect(fs.rename('DH0:Games/Zybex/level1.iff', 'RAM:level1.iff')).toBe(false)
+    expect(fs.readFile('DH0:Games/Zybex/level1.iff')).toEqual(enc('LEVEL1'))
+    // and something that isn't there at all
+    expect(fs.rename('DH0:nope', 'DH0:nope2')).toBe(false)
+  })
+
+  it('relabels a volume, assigns and current dir following it', () => {
+    const fs = makeFs()
+    fs.assign('Res:', 'DH0:Games/Zybex')
+    fs.writeFile('DH0:Games/Zybex/save.dat', enc('SAVE')) // lands in the overlay
+    fs.deleteFile('DH0:S/startup-sequence') // and a tombstone
+    fs.setCurrentDir('DH0:Games')
+    expect(fs.renameVolume('DH0', 'Work')).toBe(true)
+    expect(fs.volumeNames()).toEqual(['Work'])
+    expect(fs.currentDir).toBe('Work:Games')
+    expect(fs.readFile('Work:Games/Zybex/level1.iff')).toEqual(enc('LEVEL1')) // backing volume
+    expect(fs.readFile('Work:Games/Zybex/save.dat')).toEqual(enc('SAVE')) // overlay
+    expect(fs.exists('Work:S/startup-sequence')).toBeNull() // tombstone
+    expect(fs.readFile('Res:level1.iff')).toEqual(enc('LEVEL1')) // assign retargeted
+    expect(fs.readFile('DH0:Games/Zybex/level1.iff')).toBeNull() // old name is gone
+    expect(fs.renameVolume('Work', 'a/b')).toBe(false)
+  })
+
   it('matches AmigaDOS patterns', () => {
     expect(amigaPattern('#?.IFF').test('picture.iff')).toBe(true)
     expect(amigaPattern('*.iff').test('a.IFF')).toBe(true)

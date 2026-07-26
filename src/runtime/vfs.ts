@@ -139,6 +139,43 @@ export class AmigaFS implements AmosFS {
     return [...this.assigns.keys()].map((k) => this.assignDisplay.get(k) ?? k)
   }
 
+  /**
+   * Relabel a volume. Host-side only — no AMOS keyword renames a device —
+   * but the overlay, the tombstones, the assigns and the current directory
+   * are all keyed by volume, so they have to come along. Assigns and the
+   * current dir follow the volume rather than break, which is what happens
+   * on the Amiga where both hold a lock rather than a name.
+   */
+  renameVolume(from: string, to: string): boolean {
+    const oldKey = from.replace(/:$/, '').toLowerCase()
+    const name = to.replace(/:$/, '')
+    const newKey = name.toLowerCase()
+    if (!this.volumes.has(oldKey) || name === '' || /[:/]/.test(name)) return false
+    if (newKey !== oldKey && this.volumes.has(newKey)) return false
+
+    // rebuilt in place so the panel's volume order doesn't jump
+    const rebuilt = new Map<string, { name: string; vol: Volume }>()
+    for (const [k, v] of this.volumes) rebuilt.set(k === oldKey ? newKey : k, k === oldKey ? { name, vol: v.vol } : v)
+    this.volumes = rebuilt
+
+    const over = this.overlay.root.dirs.get(oldKey)
+    if (over) {
+      this.overlay.root.dirs.delete(oldKey)
+      over.name = name
+      this.overlay.root.dirs.set(newKey, over)
+    }
+    const retarget = (p: string): string => (p.replace(/:.*/s, '').toLowerCase() === oldKey ? name + p.slice(oldKey.length) : p)
+    for (const key of [...this.deleted]) {
+      if (key.slice(0, oldKey.length + 1) === oldKey + ':') {
+        this.deleted.delete(key)
+        this.deleted.add(newKey + key.slice(oldKey.length))
+      }
+    }
+    for (const [k, target] of this.assigns) this.assigns.set(k, retarget(target))
+    this.currentDir = retarget(this.currentDir)
+    return true
+  }
+
   // ---- path resolution ----
 
   /** resolve an Amiga path against the current dir and assigns */
@@ -191,21 +228,41 @@ export class AmigaFS implements AmosFS {
     return this.volumes.get(key)?.vol ?? null
   }
 
+  // ---- tombstones ----
+  //
+  // Deleting something that lives in a read-only volume can't actually
+  // remove it, so the path is recorded here and the read-only layer is
+  // masked from that point down — a deleted directory takes its whole
+  // subtree with it, which is why lookups test the ancestors too. The
+  // overlay is never masked: writing into a deleted drawer recreates it
+  // with only what has been written since, not with the old contents back.
+
+  /** the tombstone key for a resolved path (`dh0:games/zybex`) */
+  private tomb(r: ResolvedPath): string {
+    return `${r.volume}:${r.segs.join('/').toLowerCase()}`
+  }
+
+  /** is the read-only layer masked at or above this path? */
+  private hidden(r: ResolvedPath): boolean {
+    for (let i = r.segs.length; i > 0; i--) {
+      if (this.deleted.has(`${r.volume}:${r.segs.slice(0, i).join('/').toLowerCase()}`)) return true
+    }
+    return false
+  }
+
   // ---- file API ----
 
   readFile(path: string): Uint8Array | null {
     const r = this.resolve(path)
     if (!r) return null
-    if (this.deleted.has(r.canonical.toLowerCase())) return null
     const over = this.overlay.read([r.volume, ...r.segs])
     if (over !== null) return over
-    return this.volumeOf(r.volume)?.read(r.segs) ?? null
+    return (this.hidden(r) ? null : this.volumeOf(r.volume)?.read(r.segs)) ?? null
   }
 
   writeFile(path: string, data: Uint8Array): boolean {
     const r = this.resolve(path)
     if (!r) return false
-    this.deleted.delete(r.canonical.toLowerCase())
     this.overlay.write([r.volume, ...r.segs], data)
     return true
   }
@@ -213,24 +270,95 @@ export class AmigaFS implements AmosFS {
   exists(path: string): 'file' | 'dir' | null {
     const r = this.resolve(path)
     if (!r) return null
-    if (this.deleted.has(r.canonical.toLowerCase())) return null
-    return this.overlay.exists([r.volume, ...r.segs]) ?? this.volumeOf(r.volume)?.exists(r.segs) ?? null
+    return (
+      this.overlay.exists([r.volume, ...r.segs]) ??
+      (this.hidden(r) ? null : this.volumeOf(r.volume)?.exists(r.segs)) ??
+      null
+    )
   }
 
+  /**
+   * Kill (InKill +Lib.s:4902) is AmigaDOS DeleteFile(), which takes a file
+   * or an *empty* directory and fails on anything else — so a directory
+   * with contents is refused here rather than silently taking them along.
+   */
   deleteFile(path: string): boolean {
     const r = this.resolve(path)
-    if (!r) return false
-    const had = this.exists(path) !== null
-    this.overlay.delete([r.volume, ...r.segs])
-    if (had) this.deleted.add(r.canonical.toLowerCase())
-    return had
+    if (!r || r.segs.length === 0) return false
+    const kind = this.exists(path)
+    if (kind === null) return false
+    if (kind === 'dir' && (this.listDir(path) ?? []).length > 0) return false
+    this.erase(r)
+    return true
   }
 
+  /** delete a directory and everything under it — host-side (the file
+   * manager), not something any AMOS keyword does */
+  deleteAll(path: string): boolean {
+    const r = this.resolve(path)
+    if (!r || r.segs.length === 0 || this.exists(path) === null) return false
+    this.erase(r)
+    return true
+  }
+
+  private erase(r: ResolvedPath): void {
+    this.overlay.delete([r.volume, ...r.segs])
+    this.deleted.add(this.tomb(r))
+  }
+
+  /**
+   * Rename (InRename +Lib.s:4915) is AmigaDOS Rename(), so it also *moves*
+   * within a volume and works on directories. It fails when the target
+   * exists (ERROR_OBJECT_EXISTS) and when the two paths are on different
+   * devices (ERROR_RENAME_ACROSS_DEVICES) — no copying across volumes.
+   */
   rename(from: string, to: string): boolean {
-    const data = this.readFile(from)
-    if (data === null) return false
-    this.deleteFile(from)
-    return this.writeFile(to, data)
+    const a = this.resolve(from)
+    const b = this.resolve(to)
+    if (!a || !b || a.segs.length === 0 || b.segs.length === 0) return false
+    if (a.volume !== b.volume) return false
+    const kind = this.exists(a.canonical)
+    if (kind === null) return false
+    const sameName = this.tomb(a) === this.tomb(b)
+    if (!sameName && this.exists(b.canonical) !== null) return false
+    // no moving a directory inside itself
+    if (kind === 'dir' && !sameName && this.tomb(b).startsWith(this.tomb(a) + '/')) return false
+    if (kind === 'file') {
+      const data = this.readFile(a.canonical)
+      if (data === null) return false
+      this.erase(a)
+      return this.writeFile(b.canonical, data)
+    }
+    // a directory goes with everything under it; the contents are read out
+    // before the source is erased, since the two can overlap in case-only
+    // renames and the read side is layered
+    const { dirs, files } = this.contents(a.canonical)
+    const moved = files.map((f) => ({ path: joinAmigaPath(b.canonical, f.rel.join('/')), data: f.data }))
+    this.erase(a)
+    this.mkdir(b.canonical)
+    for (const d of dirs) this.mkdir(joinAmigaPath(b.canonical, d.join('/')))
+    for (const f of moved) this.writeFile(f.path, f.data)
+    return true
+  }
+
+  /** everything under a directory, as segments relative to it */
+  private contents(path: string): { dirs: string[][]; files: { rel: string[]; data: Uint8Array }[] } {
+    const dirs: string[][] = []
+    const files: { rel: string[]; data: Uint8Array }[] = []
+    const walk = (dir: string, rel: string[]): void => {
+      for (const e of this.listDir(dir) ?? []) {
+        const child = joinAmigaPath(dir, e.name)
+        if (e.isDir) {
+          dirs.push([...rel, e.name])
+          walk(child, [...rel, e.name])
+        } else {
+          const data = this.readFile(child)
+          if (data !== null) files.push({ rel: [...rel, e.name], data })
+        }
+      }
+    }
+    walk(path, [])
+    return { dirs, files }
   }
 
   mkdir(path: string): boolean {
@@ -243,14 +371,18 @@ export class AmigaFS implements AmosFS {
   listDir(path: string): DirEntry[] | null {
     const r = this.resolve(path)
     if (!r) return null
-    const disk = this.volumeOf(r.volume)?.list(r.segs)
+    const disk = (this.hidden(r) ? null : this.volumeOf(r.volume)?.list(r.segs)) ?? null
     const over = this.overlay.list([r.volume, ...r.segs])
     if (disk === null && over === null) return null
+    // a deleted name is only really gone while nothing has been written
+    // back over it, so the overlay goes on top of the filter, not under it
+    const prefix = `${this.tomb(r)}${r.segs.length === 0 ? '' : '/'}`
     const byName = new Map<string, DirEntry>()
-    for (const e of disk ?? []) byName.set(e.name.toLowerCase(), e)
+    for (const e of disk ?? []) {
+      if (!this.deleted.has(prefix + e.name.toLowerCase())) byName.set(e.name.toLowerCase(), e)
+    }
     for (const e of over ?? []) byName.set(e.name.toLowerCase(), e)
-    const prefix = r.canonical.toLowerCase().replace(/\/?$/, '/')
-    return [...byName.values()].filter((e) => !this.deleted.has(prefix + e.name.toLowerCase()))
+    return [...byName.values()]
   }
 
   setCurrentDir(path: string): boolean {
@@ -267,7 +399,7 @@ export class AmigaFS implements AmosFS {
   }
 }
 
-/** AmigaDOS/AMOS filename pattern (`#?`, `*`, `?`) → RegExp */
+/** append a name to a directory path, in Amiga form */
 export function joinAmigaPath(path: string, name: string): string {
   if (path === '' || path.endsWith(':') || path.endsWith('/')) return path + name
   return `${path}/${name}`

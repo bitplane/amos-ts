@@ -80,6 +80,9 @@ parse census), `runreport.ts` (interpreter coverage census),
   the canvas only appears in `src/web`.
 - **Browser runner** (`npm run dev`): load a `.AMOS` file, watch it run
   at 50 fps with keyboard/mouse/joystick input and an Input line box.
+  The Files panel is a file manager over the same virtual filesystem the
+  program sees: drop in files, folders or zips, then rename, delete, make
+  drawers, relabel volumes, and drag rows between drawers to move them.
 - **Objects** (`src/runtime/objects.ts`): sprite/icon banks decoded
   planar → chunky; bobs render as composite-time overlays (equivalent to
   autoback — the framebuffer keeps its background), hardware sprites

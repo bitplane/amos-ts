@@ -72,6 +72,25 @@
         color: #cc8;
         text-decoration: none;
       }
+      /* the per-row rename/delete/new-drawer actions: out of the way until
+         the row is under the pointer, so the tree still reads as a tree */
+      #fstree a.act {
+        color: #888;
+        text-decoration: none;
+        margin-left: 8px;
+        visibility: hidden;
+      }
+      #fstree div:hover a.act {
+        visibility: visible;
+      }
+      #fstree a.act:hover {
+        color: #fa0;
+      }
+      /* a drawer the dragged entry would move into */
+      #fstree div.over {
+        background: #333;
+        outline: 1px dashed #fa0;
+      }
     </style>
   </head>
   <body>
@@ -88,7 +107,7 @@
     <canvas id="screen" width="640" height="572"></canvas>
     <input id="line" placeholder="Input line — press Enter to submit" />
     <details id="files">
-      <summary>Files — drop .AMOS programs, data files, folders or zips anywhere on the page</summary>
+      <summary>Files — drop .AMOS programs, data files, folders or zips anywhere on the page; drag a row onto a drawer to move it</summary>
       <div id="fstree"></div>
     </details>
     <script type="module" src="/src/web/main.ts"></script>

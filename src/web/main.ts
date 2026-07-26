@@ -13,6 +13,7 @@ import { AmosRuntimeError } from '../interp/interp'
 import { WebAudioSink } from './audio'
 import { AmigaFS } from '../runtime/vfs'
 import { readArchive, volumeFromEntries } from '../runtime/archive'
+import { baseName, deleteEntry, moveEntry, newDrawer, relabelVolume, renameEntry, type FsResult } from './filemanager'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -208,7 +209,10 @@ async function dropEntry(entry: FileSystemEntry, dir: string[], single: boolean)
   }
 }
 
+// these are for files arriving from the desktop; a drag that started inside
+// the Files panel is a move, and the panel's own rows handle it
 document.addEventListener('dragover', (e) => {
+  if (dragging !== null) return
   e.preventDefault()
   document.body.classList.add('dragging')
 })
@@ -216,8 +220,9 @@ document.addEventListener('dragleave', (e) => {
   if (e.target === document.body || (e as DragEvent).relatedTarget === null) document.body.classList.remove('dragging')
 })
 document.addEventListener('drop', (e) => {
-  e.preventDefault()
   document.body.classList.remove('dragging')
+  if (dragging !== null) return
+  e.preventDefault()
   const items = Array.from(e.dataTransfer?.items ?? [])
   const entries = items.map((i) => i.webkitGetAsEntry?.()).filter((x): x is FileSystemEntry => x != null)
   const single = entries.length === 1 && entries[0]!.isFile
@@ -248,17 +253,100 @@ function isRunnable(bytes: Uint8Array | null): boolean {
 /** directories the user has expanded; volumes default open, subdirs closed */
 const openDirs = new Set<string>()
 
+/** the entry being dragged inside the tree — set while a move is in flight
+ * so the page-wide file-drop handling stays out of the way */
+let dragging: string | null = null
+const DRAG_TYPE = 'application/x-amos-path'
+
+/** report an operation and redraw; expanded paths that no longer exist
+ * (renamed, moved, deleted) drop out of the open set here */
+function applied(r: FsResult): void {
+  statusEl.textContent = r.message
+  for (const p of [...openDirs]) if (vfs.exists(p) !== 'dir') openDirs.delete(p)
+  refreshFiles()
+}
+
+const askRename = (path: string): void => {
+  const to = prompt(`Rename ${baseName(path)} to:`, baseName(path))
+  if (to !== null) applied(renameEntry(vfs, path, to))
+}
+const askDelete = (path: string, isDir: boolean): void => {
+  const inside = isDir ? (vfs.listDir(path) ?? []).length : 0
+  const what = baseName(path)
+  if (confirm(inside > 0 ? `Delete ${what} and the ${inside} item(s) in it?` : `Delete ${what}?`)) {
+    applied(deleteEntry(vfs, path, inside > 0))
+  }
+}
+const askNewDrawer = (dir: string): void => {
+  const name = prompt(`New drawer in ${dir}`, 'New')
+  if (name !== null) applied(newDrawer(vfs, dir, name))
+}
+const askRelabel = (vol: string): void => {
+  const to = prompt(`Rename the volume ${vol}: to:`, vol)
+  if (to !== null) applied(relabelVolume(vfs, vol, to))
+}
+
+interface RowOptions {
+  cls?: string
+  onClick?: (() => void) | undefined
+  /** this row can be dragged elsewhere */
+  drag?: string
+  /** this row accepts a drop, moving the dragged entry into this drawer */
+  drop?: string
+  actions?: [label: string, title: string, run: () => void][]
+}
+
 function refreshFiles(): void {
   if (!filesEl.open) return
   fstreeEl.textContent = ''
-  const addLine = (depth: number, text: string, cls?: string, onClick?: () => void): void => {
-    fstreeEl.appendChild(document.createTextNode('  '.repeat(depth)))
-    const el = document.createElement(onClick ? 'a' : 'span')
+  const addLine = (depth: number, text: string, o: RowOptions = {}): void => {
+    const line = document.createElement('div')
+    line.appendChild(document.createTextNode('  '.repeat(depth)))
+    const el: HTMLElement = document.createElement(o.onClick ? 'a' : 'span')
     el.textContent = text
-    if (cls) el.className = cls
-    if (onClick) el.addEventListener('click', onClick)
-    fstreeEl.appendChild(el)
-    fstreeEl.appendChild(document.createTextNode('\n'))
+    if (o.cls) el.className = o.cls
+    if (o.onClick) el.addEventListener('click', o.onClick)
+    if (o.drag !== undefined) {
+      const from = o.drag
+      el.draggable = true
+      el.addEventListener('dragstart', (e) => {
+        dragging = from
+        e.dataTransfer?.setData(DRAG_TYPE, from)
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+      })
+      el.addEventListener('dragend', () => (dragging = null))
+    }
+    line.appendChild(el)
+    for (const [label, title, run] of o.actions ?? []) {
+      const b = document.createElement('a')
+      b.className = 'act'
+      b.textContent = label
+      b.title = title
+      b.addEventListener('click', run)
+      line.appendChild(b)
+    }
+    if (o.drop !== undefined) {
+      const into = o.drop
+      // only our own rows: a file dragged in from the desktop still goes to
+      // the page-wide handler that uploads it
+      line.addEventListener('dragover', (e) => {
+        if (dragging === null) return
+        e.preventDefault()
+        e.stopPropagation()
+        line.classList.add('over')
+      })
+      line.addEventListener('dragleave', () => line.classList.remove('over'))
+      line.addEventListener('drop', (e) => {
+        line.classList.remove('over')
+        if (dragging === null) return
+        e.preventDefault()
+        e.stopPropagation()
+        const from = dragging
+        dragging = null
+        applied(moveEntry(vfs, from, into))
+      })
+    }
+    fstreeEl.appendChild(line)
   }
   const walk = (base: string, dir: string[], depth: number): void => {
     const path = base + dir.join('/')
@@ -268,29 +356,54 @@ function refreshFiles(): void {
       const full = base + [...dir, e.name].join('/')
       if (e.isDir) {
         const open = openDirs.has(full)
-        addLine(depth, `${open ? '▾' : '▸'} ${e.name}/`, 'dir', () => {
-          if (open) openDirs.delete(full)
-          else openDirs.add(full)
-          refreshFiles()
+        addLine(depth, `${open ? '▾' : '▸'} ${e.name}/`, {
+          cls: 'dir',
+          onClick: () => {
+            if (open) openDirs.delete(full)
+            else openDirs.add(full)
+            refreshFiles()
+          },
+          drag: full,
+          drop: full,
+          actions: [
+            ['+', 'new drawer inside', () => askNewDrawer(full)],
+            ['ren', 'rename', () => askRename(full)],
+            ['del', 'delete', () => askDelete(full, true)],
+          ],
         })
         if (open) walk(base, [...dir, e.name], depth + 1)
-      } else if (isRunnable(vfs.read(full))) {
-        addLine(depth, e.name, undefined, () => {
-          const bytes = vfs.read(full)
-          if (!bytes) return
-          // run with the program's own directory current, like a disk boot
-          vfs.currentDir = base + dir.join('/')
-          load(bytes, e.name)
-        })
       } else {
-        addLine(depth, `${e.name}  (${e.size})`)
+        const runnable = isRunnable(vfs.read(full))
+        addLine(depth, runnable ? e.name : `${e.name}  (${e.size})`, {
+          onClick: runnable
+            ? () => {
+                const bytes = vfs.read(full)
+                if (!bytes) return
+                // run with the program's own directory current, like a disk boot
+                vfs.currentDir = base + dir.join('/')
+                load(bytes, e.name)
+              }
+            : undefined,
+          drag: full,
+          actions: [
+            ['ren', 'rename', () => askRename(full)],
+            ['del', 'delete', () => askDelete(full, false)],
+          ],
+        })
       }
     }
   }
   for (const vol of vfs.volumeNames()) {
     const root = vol + ':'
     openDirs.add(root) // volumes always expanded
-    addLine(0, root, 'vol')
+    addLine(0, root, {
+      cls: 'vol',
+      drop: root,
+      actions: [
+        ['+', 'new drawer inside', () => askNewDrawer(root)],
+        ['ren', 'rename this volume', () => askRelabel(vol)],
+      ],
+    })
     walk(root, [], 1)
   }
 }

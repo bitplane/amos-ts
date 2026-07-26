@@ -3275,12 +3275,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (!rt.vfs?.mkdir(it.evalStr())) throw new AmosError('disc error')
     },
     kill(it) {
-      if (!rt.vfs?.deleteFile(it.evalStr())) throw new AmosError('file not found')
+      // DeleteFile() takes a file or an *empty* directory; a full one comes
+      // back as a disc error rather than a missing file
+      const path = it.evalStr()
+      if (rt.vfs?.exists(path) == null) throw new AmosError('file not found')
+      if (!rt.vfs.deleteFile(path)) throw new AmosError('disc error')
     },
     rename(it) {
+      // Rename() also moves, within one volume — across devices, or onto
+      // something that already exists, it fails
       const from = it.evalStr()
       it.expect('to')
-      if (!rt.vfs?.rename(from, it.evalStr())) throw new AmosError('file not found')
+      const to = it.evalStr()
+      if (rt.vfs?.exists(from) == null) throw new AmosError('file not found')
+      if (!rt.vfs.rename(from, to)) throw new AmosError('disc error')
     },
     assign(it) {
       const name = it.evalStr()
