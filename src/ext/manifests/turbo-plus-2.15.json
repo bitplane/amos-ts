@@ -1,0 +1,23 @@
+{
+  "id": "turbo-plus-2.15",
+  "name": "TURBO Plus",
+  "version": "2.15",
+  "author": "Manuel Andre",
+  "source": "binary",
+  "library": "AMOSPro_TURBO_Plus.Lib",
+  "sha256": "ddc8abb16f35cd2fb4230e2c70dc85e6bcbbfe5f73ebcc6712135471faaafb07",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "Docs/"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: turbo.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "The latest TURBO Plus, and the only one properly documented: TURBO_DocsV2.15.Asc covers 128 of its 152 keywords. Registered alongside 1.0 (134 keywords) and 1.9 (87), which are different tables, not subsets."
+}

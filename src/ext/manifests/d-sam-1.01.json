@@ -1,0 +1,21 @@
+{
+  "id": "d-sam-1.01",
+  "name": "D-Sam",
+  "version": "1.01",
+  "author": "Mark Everingham (AZ Software)",
+  "source": "binary",
+  "library": "D-Sam.Lib",
+  "sha256": "045b7f8f5b97bd86737d96653a612ce6c9f1657439954b607b0aad572d125d94",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "table",
+  "docs": [],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: D_Sam_1.01.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Sample replay from disk — 50 keywords (`smp load`, `smp dma buffer`, `smp mode minchip`). D-Sam.doc ships but mentions almost none of the keywords, so this stays at table tier; the example program uses more of them than the documentation does."
+}

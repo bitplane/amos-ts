@@ -1,0 +1,23 @@
+{
+  "id": "aga-1.0",
+  "name": "AMOS AGA",
+  "version": "1.0",
+  "author": "Kevin Picone",
+  "source": "binary",
+  "library": "AGA.lib",
+  "sha256": "36a27625e91c072145df6e62799a91084b75b783e3f2cb6d4a6581afbaacc577",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "Docs/"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AGA.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "AGA chipset support — 256-colour screens, palettes, blocks. 24 keywords, 22 documented. The archive also holds v0.09, not registered separately."
+}

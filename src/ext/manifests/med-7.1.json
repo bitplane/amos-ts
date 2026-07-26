@@ -1,0 +1,23 @@
+{
+  "id": "med-7.1",
+  "name": "MED",
+  "version": "7.1",
+  "author": "Haiko Lemser",
+  "source": "binary",
+  "library": "MED.Lib",
+  "sha256": "f3e952736d48d27afbf13dca58a3466f05fa87bb3dc48e1c7a7324f89af58e25",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "MED.Guide"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: MED_7.1.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "A standalone MED module player — 28 keywords, 27 documented. Distinct from the `med *` keywords in the stock Music extension, which the port already implements; this is a third-party replacement with its own token table."
+}

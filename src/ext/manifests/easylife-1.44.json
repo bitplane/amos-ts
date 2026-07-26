@@ -1,0 +1,21 @@
+{
+  "id": "easylife-1.44",
+  "name": "Easy Life",
+  "version": "1.44",
+  "author": "Paul Hickman",
+  "source": "binary",
+  "library": "AMOSPro_EasyLife1.44.Lib",
+  "sha256": "6cc53c104ae7e57537d83f7fab34fbafaa8fba8de85024e208c6f9446457ffb3",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: EasyLife.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "The latest EasyLife in the archive, and smaller than 1.10 — 108 named keywords against 160 — so the extension was cut down rather than grown. The 1.09 documentation covers 100 of them; no 1.44-specific manual ships with it, so what changed is not documented."
+}

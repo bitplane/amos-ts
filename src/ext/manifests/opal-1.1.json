@@ -1,0 +1,24 @@
+{
+  "id": "opal-1.1",
+  "name": "Opal",
+  "version": "1.1",
+  "author": "Martin Boyd",
+  "source": "binary",
+  "library": "Opal.lib",
+  "sha256": "5ba39156b0e3993d9421a1b6b6fe3e706139ea30a8ca137bfe6ff77b1d6d1086",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "Opal.Readme",
+    "Opal.s"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Opal_1.1.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Drives the OpalVision 24-bit graphics card: 78 keywords (`ovopenscreen24`, `ovwritepixel24`). Opal.Readme documents 76. A small Opal.s ships too but is a fragment rather than the whole extension. The hardware has no counterpart here, so most of this would be n/a rather than merely unimplemented."
+}

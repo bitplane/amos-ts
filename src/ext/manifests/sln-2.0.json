@@ -1,0 +1,24 @@
+{
+  "id": "sln-2.0",
+  "name": "SLN",
+  "version": "2.0",
+  "author": "Soren Nielsen",
+  "source": "binary",
+  "library": "AMOSPro_SLN_2.0.lib",
+  "sha256": "7bcf644759b003e24785357d618589b53e060baa48539556751b53ed0d5ea6f6",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "source",
+  "docs": [
+    "sln_extII.s",
+    "Sln_ext_Historie"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: SLN_Extensions.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Ships its own assembler source (sln_extII.s), so behaviour is readable rather than inferred: 70 keywords for mouse handling, arrays and memory."
+}

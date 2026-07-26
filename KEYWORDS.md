@@ -11,9 +11,12 @@ tested against our own understanding. Percentages exclude n/a
 
 | area | keywords | faithful | approximated | missing | coverage |
 |---|---|---|---|---|---|
+| aga-1.0 | 24 | 0 | 0 | 24 | 0% |
 | amal | 13 | 13 | 0 | 0 | 100% |
 | amal-stos | 10 | 10 | 0 | 0 | 100% |
+| amcaf-1.50 | 278 | 0 | 0 | 278 | 0% |
 | amos3d-1.0 | 64 | 0 | 0 | 64 | 0% |
+| amospro-colours-1.0 | 27 | 0 | 0 | 27 | 0% |
 | amospro-compact-2.0 | 3 | 3 | 0 | 0 | 100% |
 | amospro-compiler-2.0 | 15 | 10 | 1 | 0 | 100% |
 | amospro-ioports-2.0 | 38 | 0 | 0 | 38 | 0% |
@@ -22,40 +25,74 @@ tested against our own understanding. Percentages exclude n/a
 | banks | 20 | 19 | 1 | 0 | 100% |
 | copper | 8 | 8 | 0 | 0 | 100% |
 | ctext-1.0 | 6 | 0 | 0 | 6 | 0% |
+| d-sam-1.01 | 50 | 0 | 0 | 50 | 0% |
+| delta-1.4 | 26 | 0 | 0 | 26 | 0% |
+| delta-1.6 | 20 | 0 | 0 | 20 | 0% |
 | drawing | 16 | 16 | 0 | 0 | 100% |
 | dump-1.0 | 8 | 0 | 0 | 8 | 0% |
-| easylife-1.0 | 72 | 0 | 0 | 72 | 0% |
+| easylife-1.0 | 70 | 0 | 0 | 70 | 0% |
+| easylife-1.10 | 156 | 0 | 0 | 156 | 0% |
+| easylife-1.44 | 4 | 0 | 0 | 4 | 0% |
+| eme-3.0 | 10 | 0 | 0 | 10 | 0% |
+| ercole-1.7 | 10 | 0 | 0 | 10 | 0% |
 | files | 23 | 21 | 0 | 0 | 100% |
+| first-0.1 | 4 | 0 | 0 | 4 | 0% |
 | flow | 12 | 10 | 2 | 0 | 100% |
 | gui-1.61 | 103 | 0 | 0 | 103 | 0% |
+| gui-2.10 | 118 | 0 | 0 | 118 | 0% |
 | input | 18 | 17 | 1 | 0 | 100% |
 | interface | 25 | 24 | 1 | 0 | 100% |
 | intuition-1.3b | 183 | 0 | 0 | 183 | 0% |
 | jd-5.3 | 130 | 0 | 0 | 130 | 0% |
+| jd-5.9 | 5 | 0 | 0 | 5 | 0% |
 | jd-colour-1.4 | 44 | 0 | 0 | 44 | 0% |
+| jd-colour-2.0 | 12 | 0 | 0 | 12 | 0% |
+| jd-int-1.3 | 33 | 0 | 0 | 33 | 0% |
+| jd-k3-1.1 | 5 | 0 | 0 | 5 | 0% |
 | jd-prt-1.3 | 63 | 0 | 0 | 63 | 0% |
+| jd-prt-1.4 | 6 | 0 | 0 | 6 | 0% |
+| jotre-1.0 | 5 | 0 | 0 | 5 | 0% |
+| jvp-1.01 | 11 | 0 | 0 | 11 | 0% |
 | language | 250 | 230 | 6 | 0 | 100% |
 | ldos-2.5 | 77 | 0 | 0 | 77 | 0% |
+| ldos-2.6 | 8 | 0 | 0 | 8 | 0% |
+| locale-0.26 | 20 | 0 | 0 | 20 | 0% |
 | lserial-2.1 | 15 | 0 | 0 | 15 | 0% |
+| med-7.1 | 25 | 0 | 0 | 25 | 0% |
 | memory | 14 | 12 | 2 | 0 | 100% |
 | menus | 24 | 24 | 0 | 0 | 100% |
 | misc-1.0 | 12 | 0 | 0 | 12 | 0% |
 | objects | 56 | 55 | 1 | 0 | 100% |
+| opal-1.1 | 78 | 0 | 0 | 78 | 0% |
+| os-devkit-1.61 | 1047 | 0 | 0 | 1047 | 0% |
+| p61-1.2 | 9 | 0 | 0 | 9 | 0% |
 | palette | 9 | 9 | 0 | 0 | 100% |
-| personal-1.0b | 105 | 0 | 0 | 105 | 0% |
+| personal-1.0b | 102 | 0 | 0 | 102 | 0% |
+| personnal-1.1 | 14 | 0 | 0 | 14 | 0% |
+| powerbobs-1.0 | 65 | 0 | 0 | 65 | 0% |
 | rainbows | 3 | 3 | 0 | 0 | 100% |
-| range-1.0 | 47 | 0 | 0 | 47 | 0% |
+| range-1.0 | 46 | 0 | 0 | 46 | 0% |
+| range-2.0 | 23 | 0 | 0 | 23 | 0% |
 | screens | 31 | 29 | 1 | 0 | 100% |
+| sln-2.0 | 70 | 0 | 0 | 70 | 0% |
 | stars-2.33 | 11 | 0 | 0 | 11 | 0% |
 | sticks-1.01b | 16 | 0 | 0 | 16 | 0% |
 | system | 41 | 13 | 0 | 0 | 100% |
 | text-io | 37 | 36 | 1 | 0 | 100% |
+| tft-0.6 | 22 | 0 | 0 | 22 | 0% |
+| the-game-0.9 | 103 | 0 | 0 | 103 | 0% |
 | tome-4.0 | 67 | 0 | 0 | 67 | 0% |
+| tools-1.01 | 32 | 0 | 0 | 32 | 0% |
 | turbo-plus-1.0 | 133 | 0 | 0 | 133 | 0% |
 | turbo-plus-1.9 | 4 | 0 | 0 | 4 | 0% |
+| turbo-plus-2.15 | 17 | 0 | 0 | 17 | 0% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 1892 | 617 | 21 | 1205 | 35% |
+| **total** | 4223 | 617 | 21 | 3536 | 15% |
+
+## aga-1.0 (0%)
+
+- **missing**: `aga bar`, `aga box`, `aga clip`, `aga cls`, `aga colour`, `aga del block`, `aga draw mode`, `aga front screen`, `aga get bank palette`, `aga get block`, `aga get palette`, `aga ink`, `aga load bitplanes`, `aga point`, `aga put block`, `aga screen`, `aga screen close`, `aga screen copy`, `aga screen open`, `aga spack`, `aga sprite mode`, `aga text`, `aga unpack`, `aga use font`
 
 ## amal (100%)
 
@@ -65,9 +102,17 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `anim` *(the bank-program/string discrimination is by value type, like amal)*, `anim freeze`, `anim off`, `anim on`, `move freeze`, `move off`, `move on`, `move x` *(the bank-program/string discrimination is by value type, like amal)*, `move y` *(the bank-program/string discrimination is by value type, like amal)*, `movon`
 
+## amcaf-1.50 (0%)
+
+- **missing**: `aga detect`, `alloc code bank`, `alloc trans map`, `alloc trans source`, `amcaf aga notation off`, `amcaf aga notation on`, `amcaf base`, `amcaf length`, `amcaf version$`, `amos cli`, `amos task`, `asc.l`, `asc.w`, `audio free`, `audio lock`, `bank checksum`, `bank code add.b`, `bank code add.w`, `bank code mix.b`, `bank code mix.w`, `bank code rol.b`, `bank code rol.w`, `bank code ror.b`, `bank code ror.w`, `bank code xor.b`, `bank code xor.w`, `bank copy`, `bank delta decode`, `bank delta encode`, `bank name`, `bank name$`, `bank permanent`, `bank stretch`, `bank temporary`, `bank to chip`, `bank to fast`, `bcircle`, `best pen`, `binexp`, `binlog`, `blitter busy`, `blitter clear`, `blitter copy`, `blitter copy limit`, `blitter fill`, `blitter wait`, `blue val`, `bzoom`, `c2p convert`, `c2p fire`, `c2p shift`, `cd date$`, `cd day`, `cd month`, `cd string`, `cd weekday`, `cd year`, `change bank font`, `change font`, `change print font`, `chr.l$`, `chr.w$`, `command name$`, `convert grey`, `coords bank`, `coords read`, `cop pos`, `count pixels`, `cpu`, `ct hour`, `ct minute`, `ct second`, `ct string`, `ct tick`, `ct time$`, `current date`, `current time`, `cutstr$`, `disk state`, `disk type`, `dload`, `dos hash`, `dsave`, `even`, `examine dir`, `examine next$`, `examine object`, `examine stop`, `exchange bob`, `exchange icon`, `extbase`, `extdefault`, `extpath$`, `extreinit`, `extremove`, `fcircle`, `fellipse`, `file copy`, `filename$`, `flush libs`, `font style`, `fpu`, `glue colour`, `green val`, `ham best`, `ham colour`, `ham fade out`, `ham point`, `imploder load`, `imploder unpack`, `insstr$`, `io error`, `io error$`, `itemstr$`, `launch`, `limit smouse`, `lsl`, `lsr`, `lsstr$`, `lzstr$`, `make bank font`, `make pix mask`, `mask copy`, `mix colour`, `nfn`, `nop`, `object blocks`, `object comment$`, `object date`, `object name$`, `object protection`, `object protection$`, `object size`, `object time`, `object type`, `odd`, `open workbench`, `pal get`, `pal get screen`, `pal set`, `pal set screen`, `pal spread`, `paste ptile`, `path$`, `pattern match`, `pfire`, `pix brighten`, `pix darken`, `pix shift down`, `pix shift up`, `pjdown`, `pjleft`, `pjoy`, `pjright`, `pjup`, `ppfromdisk`, `pptodisk`, `ppunpack`, `protect object`, `pt bank`, `pt cia speed`, `pt cinstr`, `pt cnote`, `pt continue`, `pt cpattern`, `pt cpos`, `pt data base`, `pt free voice`, `pt instr address`, `pt instr length`, `pt instr play`, `pt play`, `pt raw play`, `pt sam bank`, `pt sam freq`, `pt sam play`, `pt sam stop`, `pt sam volume`, `pt signal`, `pt stop`, `pt voice`, `pt volume`, `pt vu`, `ptile bank`, `qarc`, `qcos`, `qrnd`, `qsin`, `qsqr`, `rain fade`, `raster wait`, `red val`, `replacestr$`, `reset computer`, `rgb to rrggbb`, `rnc unpack`, `rnp`, `rrggbb to rgb`, `scanstr$`, `scrn bitmap`, `scrn layer`, `scrn layerinfo`, `scrn rastport`, `scrn region`, `sdeek`, `set ntsc`, `set object comment`, `set object date`, `set pal`, `set rain colour`, `set sprite priority`, `set trans map`, `set trans source`, `shade bob down`, `shade bob mask`, `shade bob planes`, `shade bob up`, `shade pix`, `smouse key`, `smouse speed`, `smouse x`, `smouse y`, `speek`, `splinters active`, `splinters back`, `splinters bank`, `splinters colour`, `splinters double del`, `splinters double do`, `splinters draw`, `splinters fuel`, `splinters gravity`, `splinters init`, `splinters limit`, `splinters max`, `splinters move`, `splinters single del`, `splinters single do`, `td stars accelerate off`, `td stars accelerate on`, `td stars bank`, `td stars double del`, `td stars double do`, `td stars draw`, `td stars gravity`, `td stars init`, `td stars limit`, `td stars move`, `td stars origin`, `td stars planes`, `td stars single del`, `td stars single do`, `tool types$`, `trans screen dynamic`, `trans screen runtime`, `trans screen static`, `turbo draw`, `turbo plot`, `turbo point`, `turbo text`, `vclip`, `vec rot angles`, `vec rot pos`, `vec rot precalc`, `vec rot x`, `vec rot y`, `vec rot z`, `vin`, `vmod`, `wload`, `wordswap`, `write cli`, `wsave`, `x raster`, `x smouse`, `xfire`, `y raster`, `y smouse`
+
 ## amos3d-1.0 (0%)
 
 - **missing**: `td advanced`, `td angle`, `td angle a`, `td angle b`, `td angle c`, `td angle rel`, `td anim`, `td anim point x`, `td anim point y`, `td anim point z`, `td anim rel`, `td attitude a`, `td attitude b`, `td attitude c`, `td background`, `td bearing a`, `td bearing b`, `td bearing r`, `td clear all`, `td cls`, `td collide`, `td debug`, `td delete zone`, `td dir`, `td face`, `td forward`, `td keep off`, `td keep on`, `td kill`, `td load`, `td move`, `td move rel`, `td move x`, `td move y`, `td move z`, `td object`, `td position x`, `td position y`, `td position z`, `td pragma`, `td pragma status`, `td priority`, `td quit`, `td range`, `td redraw`, `td screen height`, `td screen x`, `td screen y`, `td set colour`, `td set zone`, `td surface`, `td surface points`, `td surface points off`, `td view x`, `td view y`, `td view z`, `td visible`, `td world x`, `td world y`, `td world z`, `td zone r`, `td zone x`, `td zone y`, `td zone z`
+
+## amospro-colours-1.0 (0%)
+
+- **missing**: `black`, `blue`, `brown`, `c orange`, `cyan`, `dark blue`, `dark brown`, `dark cyan`, `dark green`, `dark grey`, `dark magenta`, `dark red`, `dark yellow`, `green`, `grey`, `light blue`, `light brown`, `light cyan`, `light green`, `light grey`, `light magenta`, `light red`, `light yellow`, `magenta`, `red`, `white`, `yellow`
 
 ## amospro-compact-2.0 (100%)
 
@@ -106,6 +151,18 @@ tested against our own understanding. Percentages exclude n/a
 
 - **missing**: `ctext`, `font base`, `font data`, `font size`, `kern$`, `plen`
 
+## d-sam-1.01 (0%)
+
+- **missing**: `smp assign`, `smp assign left`, `smp assign right`, `smp base`, `smp close`, `smp cue`, `smp data`, `smp decompress off`, `smp decompress on`, `smp disk buffer`, `smp disk error`, `smp dma buffer`, `smp fade`, `smp fade off`, `smp fade on`, `smp free`, `smp info`, `smp left data`, `smp length`, `smp load`, `smp loop end`, `smp loop range`, `smp loop start`, `smp loops`, `smp memory`, `smp mode minchip`, `smp mode minproc`, `smp name`, `smp open`, `smp oversample off`, `smp oversample on`, `smp play`, `smp playing`, `smp priority`, `smp range`, `smp repeat off`, `smp repeat on`, `smp reset`, `smp right data`, `smp sequence`, `smp sequence off`, `smp sequence on`, `smp size`, `smp speed`, `smp start`, `smp status`, `smp stereo`, `smp stop`, `smp version`, `smp volume`
+
+## delta-1.4 (0%)
+
+- **missing**: `delta about$`, `delta american mile$`, `delta brithday`, `delta change disk`, `delta decrunch`, `delta degree$`, `delta drive motor off`, `delta drive motor on`, `delta e#`, `delta english mile$`, `delta euler$`, `delta feet$`, `delta inch$`, `delta inter off`, `delta inter on`, `delta mouse off`, `delta no synchro`, `delta ntsc`, `delta pal`, `delta pi#`, `delta radian$`, `delta reset`, `delta wait double mouse`, `delta wait fire`, `delta wait left mouse`, `delta yard$`
+
+## delta-1.6 (0%)
+
+- **missing**: `delta beep all`, `delta blit off`, `delta change bank`, `delta crash`, `delta find task`, `delta hard reset`, `delta intuition message`, `delta kill task`, `delta lock pub screens`, `delta req palette`, `delta reqtools get number`, `delta reqtools palette`, `delta reqtools requester`, `delta unlock pub screens`, `delta wb to back`, `delta wb to front`, `jsr`, `moveb`, `movel`, `movew`
+
 ## drawing (100%)
 
 - **faithful**: `bar`, `box`, `circle`, `clip`, `draw`, `draw to`, `ellipse`, `gr locate`, `gr writing` *(JAM1/JAM2 identical for solid draws; XOR implemented)*, `ink`, `paint`, `plot`, `point`, `polygon`, `polyline`, `set paint`
@@ -116,12 +173,32 @@ tested against our own understanding. Percentages exclude n/a
 
 ## easylife-1.0 (0%)
 
-- **missing**: `amos data`, `bank name$`, `clear multi group`, `easy base`, `el error`, `extb`, `extw`, `find asc`, `find char`, `find control`, `find last asc`, `find last char`, `find last not asc`, `find last not char`, `find not asc`, `find not char`, `find nth asc`, `find nth char`, `find num asc`, `find num char`, `i close workbench`, `i open workbench`, `i test workbench`, `iconify amos`, `lchg`, `lclr`, `lock font`, `long`, `long$`, `lset`, `ltst`, `mem`, `mem inc`, `mem$`, `message$`, `mznex`, `mzney`, `mznsx`, `mznsy`, `mzone`, `mzoneg`, `mzonen`, `output`, `output exists`, `pp buf`, `pp crunch`, `pp free`, `pp keep off`, `pp keep on`, `pp len`, `pp load`, `protect`, `raster wait`, `reserve multi zone`, `set bank name`, `set multi zone`, `set protect`, `unlock fonts`, `wchg`, `wclr`, `word`, `word$`, `wset`, `wtst`, `zb add`, `zb install`, `zb multi add`, `zn shift`, `znex`, `zney`, `znsx`, `znsy`
+- **missing**: `amos data`, `clear multi group`, `easy base`, `el error`, `extb`, `extw`, `find asc`, `find char`, `find control`, `find last asc`, `find last char`, `find last not asc`, `find last not char`, `find not asc`, `find not char`, `find nth asc`, `find nth char`, `find num asc`, `find num char`, `i close workbench`, `i open workbench`, `i test workbench`, `iconify amos`, `lchg`, `lclr`, `lock font`, `long`, `long$`, `lset`, `ltst`, `mem`, `mem inc`, `mem$`, `message$`, `mznex`, `mzney`, `mznsx`, `mznsy`, `mzone`, `mzoneg`, `mzonen`, `output`, `output exists`, `pp buf`, `pp crunch`, `pp free`, `pp keep off`, `pp keep on`, `pp len`, `pp load`, `protect`, `reserve multi zone`, `set bank name`, `set multi zone`, `set protect`, `unlock fonts`, `wchg`, `wclr`, `word`, `word$`, `wset`, `wtst`, `zb add`, `zb install`, `zb multi add`, `zn shift`, `znex`, `zney`, `znsx`, `znsy`
+
+## easylife-1.10 (0%)
+
+- **missing**: `el base`, `el lapex`, `el lapey`, `el lapsx`, `el lapsy`, `el overlap`, `elbank name$`, `elbnk here`, `elclose font`, `elclose fonts`, `elcompiled`, `elexec`, `elexists`, `elextb`, `elextw`, `elf asc`, `elf char`, `elf control`, `elf fail end`, `elf fail start`, `elf last asc`, `elf last char`, `elf last not asc`, `elf last not char`, `elf not asc`, `elf not char`, `elf nth asc`, `elf nth char`, `elf num asc`, `elf num char`, `eliconify amos`, `eliconify begin`, `eliconify end`, `eliconify test`, `elin exists`, `elin get$`, `elin$`, `ellchg`, `ellclr`, `ellong`, `ellong$`, `ellset`, `elltst`, `elmem`, `elmem inc`, `elmem$`, `elmessage exists`, `elmessage$`, `elmz  set`, `elmz erase`, `elmz reserve`, `elmznex`, `elmzney`, `elmznsx`, `elmznsy`, `elmzone`, `elmzoneg`, `elmzonen`, `elopen font`, `elout`, `elout exists`, `elpad asc$`, `elpad char$`, `elpat case`, `elpat def`, `elpat escape$`, `elpat free`, `elpat nocase`, `elpat remove$`, `elpat set case`, `elpat set nocase`, `elpat test`, `elpp allocate`, `elpp buf`, `elpp crunch`, `elpp free`, `elpp keep off`, `elpp keep on`, `elpp len`, `elpp load`, `elpro`, `elprotect`, `elraster wait`, `elreset`, `els bank name`, `els protect`, `elset font`, `elwb close`, `elwb open`, `elwb test`, `elwchg`, `elwclr`, `elword`, `elword$`, `elwset`, `elwtst`, `elxpk bload`, `elxpk bsave`, `elxpk error`, `elxpk load`, `elxpk lof`, `elxpk save`, `elzb add`, `elzb multi add`, `elzn shift`, `elznex`, `elzney`, `elznsx`, `elznsy`, `mui add`, `mui app`, `mui application`, `mui begin`, `mui dispose`, `mui do`, `mui flush`, `mui fn`, `mui get`, `mui get$`, `mui hook`, `mui input`, `mui make button`, `mui make popbutton`, `mui new`, `mui notify`, `mui remove`, `mui request`, `mui set`, `mui set str`, `st cmp`, `st copy`, `st dup`, `st erase`, `st free`, `st free all`, `st get`, `st get$`, `st input`, `st len`, `st load`, `st lookup`, `st new`, `st output$`, `st save`, `st set`, `st set str`, `st type`, `stv`, `tag`, `tag attach$`, `tag block size`, `tag keep`, `tag list$`, `tag str`, `tag str$`, `tag$`
+
+## easylife-1.44 (0%)
+
+- **missing**: `ellock font`, `elqqzqzqq`, `elunlock fonts`, `elzqzqzq`
+
+## eme-3.0 (0%)
+
+- **missing**: `patt loop no`, `patt loop of`, `patt loop on`, `track sample off`, `track sample on`, `track tempo`, `trlen`, `trpat`, `trpos`, `trstat`
+
+## ercole-1.7 (0%)
+
+- **missing**: `cli`, `ext fire`, `ext joy`, `library close`, `library open`, `pad fire`, `paddle`, `prop off`, `prop on`, `yfire`
 
 ## files (100%)
 
 - **faithful**: `append`, `close`, `close editor` *(no editor memory to free)*, `close workbench` *(no Workbench memory to free)*, `dir` *(plain listing; Set Dir width/filter cosmetic)*, `dir first$`, `dir next$`, `eof`, `field`, `get`, `input` *(line editing keys are host-side, not the AMOS line editor)*, `input #`, `kill`, `lof`, `mkdir`, `open in`, `open out`, `open random`, `pof`, `put`, `rename`
 - **n/a**: `kill editor`, `open port`
+
+## first-0.1 (0%)
+
+- **missing**: `change led`, `clear banks`, `wait joy`, `wait mouse`
 
 ## flow (100%)
 
@@ -131,6 +208,10 @@ tested against our own understanding. Percentages exclude n/a
 ## gui-1.61 (0%)
 
 - **missing**: `gui activate`, `gui actual`, `gui amiga`, `gui amos`, `gui asl font`, `gui asl screen`, `gui asl$`, `gui bank`, `gui bar`, `gui beep`, `gui border`, `gui close`, `gui cls`, `gui clw`, `gui code`, `gui code$`, `gui dir$`, `gui draw`, `gui draw to`, `gui ellipse`, `gui event`, `gui exist`, `gui file$`, `gui gad adr`, `gui gad height`, `gui gad width`, `gui gfx`, `gui height`, `gui iconify`, `gui in height`, `gui in width`, `gui ink`, `gui key shift`, `gui kind`, `gui len`, `gui lock`, `gui menu`, `gui mouse x`, `gui mouse y`, `gui move`, `gui off`, `gui on`, `gui open`, `gui os`, `gui paper`, `gui paste block`, `gui paste bob`, `gui paste icon`, `gui pen`, `gui range`, `gui read`, `gui read$`, `gui remember off`, `gui remember on`, `gui req`, `gui reset`, `gui resize`, `gui scroll`, `gui sensitive off`, `gui sensitive on`, `gui set`, `gui sh`, `gui sw`, `gui sx`, `gui sy`, `gui text`, `gui titles`, `gui to back`, `gui to front`, `gui uniconify`, `gui unlock`, `gui wait`, `gui wait vbl`, `gui width`, `gui window`, `gui writing`, `gui x`, `gui x font`, `gui x gad`, `gui y`, `gui y font`, `gui y gad`, `tcp buffer`, `tcp channel`, `tcp check`, `tcp close`, `tcp code`, `tcp count`, `tcp error`, `tcp f open`, `tcp get`, `tcp limit`, `tcp open`, `tcp packet`, `tcp put`, `tcp put$`, `tcp read`, `tcp reset`, `tcp send`, `tcp send$`, `tcp time`, `tcp trash`, `tcp type`
+
+## gui-2.10 (0%)
+
+- **missing**: `gui aga`, `gui amiga os`, `gui app icon`, `gui app id`, `gui app name$`, `gui app remove`, `gui array`, `gui array down`, `gui array read`, `gui array up`, `gui asl colours`, `gui asl depth`, `gui asl height`, `gui asl id`, `gui asl open`, `gui asl width`, `gui bbox`, `gui best`, `gui blue`, `gui box`, `gui catalog close`, `gui catalog open`, `gui catalog$`, `gui center`, `gui change`, `gui check`, `gui clip read$`, `gui clip write$`, `gui clone`, `gui colour`, `gui display iff`, `gui eye 3d`, `gui font size`, `gui free zone`, `gui gad tag`, `gui gadget`, `gui get$`, `gui green`, `gui guide`, `gui help`, `gui input$`, `gui line 3d`, `gui menu check`, `gui menu off`, `gui menu on`, `gui menu uncheck`, `gui monitor`, `gui mouse ex`, `gui mouse ey`, `gui mouse mode`, `gui mouse queue`, `gui mouse report`, `gui mouse wx`, `gui mouse wy`, `gui mouse zone`, `gui notify`, `gui output`, `gui paint`, `gui pause`, `gui plot`, `gui point`, `gui pub check`, `gui pub free`, `gui pub list`, `gui pub list free`, `gui pub mode`, `gui pub name$`, `gui pub screen`, `gui pub to back`, `gui pub to front`, `gui put`, `gui red`, `gui rem notify`, `gui remap`, `gui reserve zone`, `gui rgb`, `gui rmb`, `gui save iff`, `gui screen base`, `gui screen close`, `gui screen colours`, `gui screen copy`, `gui screen depth`, `gui screen height`, `gui screen move`, `gui screen open`, `gui screen width`, `gui selected`, `gui set mode`, `gui set zone`, `gui set$`, `gui show title`, `gui text base`, `gui timer`, `gui title$`, `gui user catalog`, `gui zone`, `tcp abort`, `tcp accept`, `tcp download`, `tcp host$`, `tcp listen`, `tcp read$`, `tcp recvd`, `tcp response`, `tcp set`, `tcp socket`, `tcp total`, `tcp user`, `xfa check`, `xfa depth`, `xfa frames`, `xfa height`, `xfa mode id`, `xfa pack`, `xfa play`, `xfa rtg play`, `xfa width`
 
 ## input (100%)
 
@@ -150,13 +231,41 @@ tested against our own understanding. Percentages exclude n/a
 
 - **missing**: `jd actual date$`, `jd actual time$`, `jd arcus`, `jd area first`, `jd area last`, `jd array clear`, `jd array swap`, `jd array$ clear`, `jd asl`, `jd asr`, `jd bootchecksum`, `jd change$`, `jd char x`, `jd char y`, `jd checkprt`, `jd checksum`, `jd compare`, `jd copy`, `jd count`, `jd count dirs`, `jd count files`, `jd crypt$`, `jd cut$`, `jd date$`, `jd day`, `jd day of year`, `jd day$`, `jd dayval`, `jd deoct`, `jd detab`, `jd diskchange`, `jd distance`, `jd dled off`, `jd dled on`, `jd double click`, `jd draw angle`, `jd draw segment`, `jd dump$`, `jd e#`, `jd encrypt$`, `jd eqv`, `jd exdatazone`, `jd extend$`, `jd exval$`, `jd file comment$`, `jd file protection`, `jd file size`, `jd file type`, `jd find`, `jd firstup$`, `jd flush`, `jd format`, `jd get area`, `jd get dim`, `jd get number`, `jd get string$`, `jd get tab`, `jd grid`, `jd hardware$`, `jd hexdump`, `jd imp`, `jd insert$`, `jd install`, `jd keypress`, `jd keywait`, `jd largest chip free`, `jd largest fast free`, `jd leap year`, `jd limit`, `jd linstr`, `jd logical$`, `jd lsl`, `jd lsr`, `jd moff click`, `jd moff key`, `jd monthval`, `jd multi off`, `jd multi on`, `jd mwait`, `jd ninstr`, `jd oct$`, `jd odd`, `jd paste$`, `jd percent`, `jd pi#`, `jd ppdecrunch`, `jd ppfind mem`, `jd print`, `jd private`, `jd rastport`, `jd read sector`, `jd reduce dim`, `jd relabel`, `jd reset`, `jd reset area`, `jd reset dim`, `jd rol`, `jd rol$`, `jd ror`, `jd ror$`, `jd roxl`, `jd roxr`, `jd screen planes`, `jd screen resolution`, `jd secstime$`, `jd set comment`, `jd set protection`, `jd setclock`, `jd setdate`, `jd shortformat`, `jd skip$`, `jd spline`, `jd spread`, `jd squash`, `jd textfont`, `jd time$`, `jd timesecs`, `jd tscroll`, `jd type`, `jd video off`, `jd video on`, `jd volume$`, `jd wait amiga`, `jd wait event`, `jd write sector`, `jd x pos`, `jd xoffset`, `jd y pos`, `jd yearval`, `jd yoffset`
 
+## jd-5.9 (0%)
+
+- **missing**: `jd chipset`, `jd cpu`, `jd dpath`, `jd fpu`, `jd pattern`
+
 ## jd-colour-1.4 (0%)
 
 - **missing**: `jd antique colour`, `jd blue value`, `jd change colours`, `jd complement colour`, `jd copy colour`, `jd cut off$`, `jd darkest colour`, `jd false colour`, `jd fill colour`, `jd fit`, `jd green value`, `jd grey colour`, `jd guru`, `jd lightest colour`, `jd load palette`, `jd mix colours`, `jd mouse`, `jd negative colour`, `jd pseudo palette`, `jd red value`, `jd rgb value`, `jd rprint`, `jd save palette`, `jd screen border`, `jd screen convert`, `jd separate black`, `jd separate blue`, `jd separate cyan`, `jd separate green`, `jd separate magenta`, `jd separate red`, `jd separate yellow`, `jd setoutput amiga`, `jd setoutput amos`, `jd slide down`, `jd slide left`, `jd slide right`, `jd slide up`, `jd slide x`, `jd slide y`, `jd spread palette`, `jd swap colours`, `jd tone colour`, `jd wait raster`
 
+## jd-colour-2.0 (0%)
+
+- **missing**: `jd bswap`, `jd close con`, `jd drive$`, `jd file$`, `jd input con`, `jd key to asc`, `jd lswap`, `jd open con`, `jd path$`, `jd print con`, `jd request`, `jd wswap`
+
+## jd-int-1.3 (0%)
+
+- **missing**: `jd close intscreen`, `jd close intwindow`, `jd intbar`, `jd intbox`, `jd intclass`, `jd intcls`, `jd intcolour`, `jd intcurs(x)`, `jd intcurs(y)`, `jd intdrawmode`, `jd intellipse`, `jd intevent`, `jd intfill`, `jd intline`, `jd intlocate`, `jd intmouse(x)`, `jd intmouse(y)`, `jd intmove`, `jd intpaper`, `jd intpen`, `jd intplot`, `jd intpoint`, `jd intprint`, `jd intscreen height`, `jd intscreen width`, `jd intzone`, `jd open intscreen`, `jd open intwindow`, `jd rem intzones`, `jd show intscreen`, `jd show intwindow`, `jd use intscreen`, `jd use intwindow`
+
+## jd-k3-1.1 (0%)
+
+- **missing**: `jd match`, `jd match nocase`, `jd star joker off`, `jd star joker on`, `jd toggle click`
+
 ## jd-prt-1.3 (0%)
 
 - **missing**: `jd prt aspect`, `jd prt bold`, `jd prt bold off`, `jd prt center`, `jd prt clr htab`, `jd prt clr htabs`, `jd prt clr margins`, `jd prt clr vtab`, `jd prt clr vtabs`, `jd prt density`, `jd prt double`, `jd prt double off`, `jd prt elite`, `jd prt elite off`, `jd prt enlarged`, `jd prt enlarged off`, `jd prt fine`, `jd prt fine off`, `jd prt fjustify`, `jd prt image`, `jd prt init`, `jd prt italics`, `jd prt italics off`, `jd prt justify off`, `jd prt ljustify`, `jd prt lspace eight`, `jd prt lspace six`, `jd prt nlq`, `jd prt nlq off`, `jd prt pline down`, `jd prt pline up`, `jd prt prop`, `jd prt prop off`, `jd prt reset`, `jd prt rjustiy`, `jd prt set bmargin`, `jd prt set danishi`, `jd prt set danishii`, `jd prt set def tabs`, `jd prt set french`, `jd prt set german`, `jd prt set htab`, `jd prt set italian`, `jd prt set japanese`, `jd prt set lmargin`, `jd prt set norge`, `jd prt set rmargin`, `jd prt set spanish`, `jd prt set sweden`, `jd prt set tmargin`, `jd prt set uk`, `jd prt set us`, `jd prt set vtab`, `jd prt shade`, `jd prt shadow`, `jd prt shadow off`, `jd prt sub`, `jd prt sub off`, `jd prt super`, `jd prt super off`, `jd prt threshold`, `jd prt under`, `jd prt under off`
+
+## jd-prt-1.4 (0%)
+
+- **missing**: `jd prt borders off`, `jd prt doubleunder`, `jd prt doubleunder off`, `jd prt ff`, `jd prt lf`, `jd prt reverse lf`
+
+## jotre-1.0 (0%)
+
+- **missing**: `deinit thx`, `init thx`, `play thx`, `stop thx`, `volume thx`
+
+## jvp-1.01 (0%)
+
+- **missing**: `jvp bin sort`, `jvp bin sort type`, `jvp cstr$`, `jvp msg bank`, `jvp msg exists`, `jvp msg$`, `jvp set msg bank`, `jvp set str len`, `jvp set str sep`, `jvp str$`, `jvp version`
 
 ## language (100%)
 
@@ -168,9 +277,21 @@ tested against our own understanding. Percentages exclude n/a
 
 - **missing**: `lansi`, `lback hunt`, `lbstr`, `lcat blocks`, `lcat comment`, `lcat first`, `lcat next`, `lcat prot`, `lcat pull`, `lcat push`, `lcat size`, `lcat stamp`, `lcat type`, `lchk boot`, `lchk data`, `lclose`, `lcreate`, `lcrypt`, `lcust freq`, `ldate`, `ldecrypt`, `ldelete var`, `ldev first`, `ldev next`, `ldevice`, `ldevice close`, `ldevice error`, `ldevice open`, `ldisk font`, `lexecute`, `lfile type`, `lfilter`, `lfontsize freq`, `lfreq`, `lget comment`, `lget freq dir`, `lget freq file`, `lget prot`, `lget var`, `llargest free`, `lldir$`, `lload`, `llobuffer`, `lmatch`, `lold`, `lopen`, `lpos freq`, `lpp decrunch`, `lpp mem`, `lreplace`, `lrexx execute`, `lrexx get msg`, `lrexx make host`, `lrexx remove host`, `lrexx reply`, `lrexx result1`, `lrexx result2`, `lrexx send msg`, `lrun`, `lsave`, `lseek`, `lset comment`, `lset eoln`, `lset file date`, `lset freq dir`, `lset prot`, `lset var`, `lsize`, `lskip`, `lstamp`, `lstr`, `lsys stamp`, `lsys time`, `lupbuffer`, `lwild`, `lword`, `lwords`
 
+## ldos-2.6 (0%)
+
+- **missing**: `lcompress`, `ldecompress`, `lhicol off`, `lhicol on`, `lprot conv`, `lrol`, `lror`, `lstrcmp`
+
+## locale-0.26 (0%)
+
+- **missing**: `catalog active`, `catalog string$`, `close catalog`, `date$`, `datetime$`, `emit catalog description`, `emit close`, `format date$`, `locale active`, `locale compare`, `locale lower$`, `locale string$`, `locale upper$`, `lowerchar`, `open catalog`, `short date$`, `short datetime$`, `short time$`, `time$`, `upperchar`
+
 ## lserial-2.1 (0%)
 
 - **missing**: `lcarrier`, `linkey$`, `lser baud`, `lser brk`, `lser close`, `lser get`, `lser mul check`, `lser mul send`, `lser open`, `lser params`, `lser query`, `lser read`, `lser send`, `lser status`, `lxpr`
+
+## med-7.1 (0%)
+
+- **missing**: `med 14bit mode off`, `med 14bit mode on`, `med continue`, `med counter`, `med fast load`, `med fastplay off`, `med fastplay on`, `med free player`, `med get player`, `med get sub songs`, `med init player`, `med is fastplaying`, `med mod base`, `med pblock`, `med pline`, `med pointer`, `med reloc`, `med reset midi`, `med seq num`, `med set hq`, `med set mixbuffer`, `med set mixing freq`, `med set mod nr`, `med set tempo`, `med unload`
 
 ## memory (100%)
 
@@ -190,13 +311,33 @@ tested against our own understanding. Percentages exclude n/a
 - **faithful**: `bob`, `bob clear`, `bob col`, `bob draw`, `bob off`, `bob update`, `bob update off`, `bob update on`, `bobsprite col`, `col`, `del block`, `del bob`, `del cblock`, `del icon`, `del sprite`, `get block`, `get bob`, `get bob palette`, `get cblock`, `get fonts`, `get icon`, `get icon palette`, `get palette`, `get rom fonts`, `get sprite`, `get sprite palette`, `hot spot`, `ins bob`, `ins icon`, `ins sprite`, `limit bob`, `limit mouse`, `make icon mask`, `make mask`, `no icon mask`, `no mask`, `paste bob`, `paste icon`, `priority off`, `priority on`, `priority reverse off`, `priority reverse on`, `put block`, `put bob`, `put cblock`, `put key`, `sprite`, `sprite base` *(read-only synthesis, rebuilt when the image count changes; pokes are ignored and in-place pixel edits can be stale until the count changes)*, `sprite col`, `sprite off`, `sprite priority` *(HsPri +W.s:11374. Per-screen: the value is stored in the current screen's EcCon2 (PF1P), and on the second playfield of a dual pair it is redirected to the first screen's PF2P, so screens can order sprites against their playfields differently. The compositor picks the PF1P of whichever screen covers a sprite's scanline, and computed sprites (8+) now run through the real multiplexer (HsAff +W.s:11742): sorted by top edge, packed round-robin into the first channel whose previous occupant finished above them and which still has column-buffer room, with the mouse holding channel 0 and 16-colour sprites forced onto an even channel. That decides the pair, so it decides the priority. PF1P and PF2P are both live: they are not "sprites in front or behind" flags but the positions two playfields take in one interleaved stack with the four sprite pairs, so a dual pair can have a sprite between its playfields, and priority numbers alone can put playfield 2 in front of playfield 1 with PFBA clear. The compositor draws that stack a scanline at a time. Remaining approximation: a sprite wide enough to span several channels is drawn at the priority of the first, and hardware sprites ignore the 4-per-scanline DMA limit (a superset))*, `sprite update`, `sprite update off`, `sprite update on`, `spritebob col`
 - **approximated**: `get disc fonts`
 
+## opal-1.1 (0%)
+
+- **missing**: `ovactivescreen24`, `ovamigapriority`, `ovappendcopper24`, `ovautosync24`, `ovbitplanetoov`, `ovcleardisplaybottom24`, `ovclearpfstencil24`, `ovclearprstencil24`, `ovclearquick24`, `ovclearscreen24`, `ovclosescreen24`, `ovconfig24`, `ovcopperrefresh`, `ovcreatescreen24`, `ovdisableprstencil24`, `ovdisplayframe24`, `ovdisplaythumbnail24`, `ovdownloadframe24`, `ovdrawellipse24`, `ovdrawline24`, `ovdualdisplay24`, `ovdualplayfield24`, `ovenableprstencil24`, `ovfadein24`, `ovfadeout24`, `ovfreescreen24`, `ovfreezeframe24`, `ovgetblue24`, `ovgetgreen24`, `ovgetred24`, `ovilbmtoov`, `ovlatchdisplay24`, `ovloadiff24`, `ovloadimage24`, `ovlowmem2update24`, `ovlowmemupdate24`, `ovopenscreen24`, `ovpalettemap24`, `ovpriority`, `ovreadpfpixel24`, `ovreadpixel24`, `ovreadprpixel24`, `ovrectfill24`, `ovrefresh24`, `ovregwait24`, `ovrgbtoov`, `ovsaveiff24`, `ovsavejpeg24`, `ovscroll24`, `ovsetcontrolbit24`, `ovsetcopro24`, `ovsetdisplaybottom24`, `ovsethires24`, `ovsetloadaddress24`, `ovsetlores24`, `ovsetpen24`, `ovsetpfstencil24`, `ovsetprstencil24`, `ovsetrgb24`, `ovsetscreen24`, `ovsetsprite24`, `ovsingledisplay24`, `ovsingleplayfield24`, `ovstopupdate24`, `ovtobitplane`, `ovtoilbm`, `ovtorgb`, `ovupdateall24`, `ovupdatecopro24`, `ovupdatedelay24`, `ovupdatepalette24`, `ovupdatepfstencil24`, `ovupdateregs24`, `ovwriteframe24`, `ovwritepfpixel24`, `ovwritepixel24`, `ovwriteprpixel24`, `ovwritethumbnail24`
+
+## os-devkit-1.61 (0%)
+
+- **missing**: `_0$`, `_ag display`, `_ag show`, `_alert`, `_amos name`, `_app add icon`, `_app add menu`, `_app add wnd`, `_app rem icon`, `_app rem menu`, `_app rem wnd`, `_area draw`, `_area ellipse`, `_area end`, `_area init`, `_area move`, `_areg`, `_arg what lock`, `_arg what str`, `_asl alloc`, `_asl do`, `_asl file$`, `_asl free`, `_asl what drawer`, `_asl what file`, `_asl what font`, `_asl what nb args`, `_base asl`, `_base cx`, `_base dos`, `_base dt`, `_base gad`, `_base gfx`, `_base icon`, `_base iff`, `_base int`, `_base layers`, `_base loc`, `_base tag`, `_base topaz`, `_base wb`, `_bd draw`, `_bd set`, `_bd set corner`, `_bd set dots`, `_bd set draw`, `_bd set next`, `_bd what back pen`, `_bd what dots`, `_bd what dots nb`, `_bd what draw mode`, `_bd what front pen`, `_bd what left`, `_bd what next`, `_bd what top`, `_bi set`, `_bi set flags`, `_bi set mask`, `_bi what flags`, `_bi what mask`, `_blt clip`, `_blt clr`, `_blt disown`, `_blt msk bm to rp`, `_blt own`, `_blt pattern`, `_blt wait`, `_bm alloc`, `_bm free`, `_bm set datas`, `_bm set plane`, `_bm what attr`, `_bm what depth`, `_bm what flags`, `_bm what height`, `_bm what modulo`, `_bm what plane`, `_bob blit`, `_cache clr`, `_cache ctrl`, `_calc ivg`, `_call`, `_cat close`, `_cat open`, `_cat str`, `_chip set rev`, `_chn add`, `_chn find`, `_chn free`, `_chn ins`, `_chn list alloc`, `_chn list free`, `_chn location`, `_chn new length`, `_chn set default`, `_chn set first`, `_chn set last`, `_chn set length`, `_chn set list`, `_chn set next`, `_chn set number`, `_chn set previous`, `_chn swap`, `_chn what default`, `_chn what first`, `_chn what last`, `_chn what length`, `_chn what list`, `_chn what next`, `_chn what number`, `_chn what previous`, `_chr$.l`, `_chr$.w`, `_chunk child`, `_chunk current`, `_chunk end`, `_chunk parent`, `_chunk read`, `_chunk what id`, `_chunk what scan`, `_chunk what size`, `_chunk what type`, `_chunk write`, `_class get file`, `_cli read args`, `_cli what arg`, `_cli what arg$`, `_cm alloc`, `_cm free`, `_cold reboot`, `_cop control`, `_cop init view`, `_cop init vport`, `_cop load view`, `_cop make vport`, `_cop mrg`, `_cop scroll vport`, `_cop vbeam pos`, `_cop wait bottom`, `_cop wait tof`, `_cpu long`, `_cpu uword`, `_cpu word`, `_cx broker`, `_cx disable`, `_cx enable`, `_cx id activate`, `_cx id attach`, `_cx id base`, `_cx id clear error`, `_cx id create`, `_cx id delete`, `_cx id error`, `_cx id event data`, `_cx id event id`, `_cx id event type`, `_cx id inactivate`, `_cx id next event`, `_cx id remove`, `_cx id type`, `_cx id wait event`, `_cx init`, `_cx install`, `_cx msg port`, `_cx uninstall`, `_dbl click`, `_disp alert`, `_disp info find`, `_disp info get`, `_disp remake`, `_disp rethink`, `_dos add part`, `_dos append`, `_dos close`, `_dos date$`, `_dos day$`, `_dos dir`, `_dos end notify`, `_dos eof`, `_dos err`, `_dos exist`, `_dos f getc`, `_dos f gets`, `_dos f name`, `_dos f putc`, `_dos f puts`, `_dos f ungetc`, `_dos fault`, `_dos file part`, `_dos input`, `_dos l name`, `_dos l open`, `_dos lock`, `_dos lof`, `_dos mode`, `_dos msg notify`, `_dos new proc`, `_dos open`, `_dos opin`, `_dos opout`, `_dos path part`, `_dos print`, `_dos rd lock`, `_dos read`, `_dos report`, `_dos seek`, `_dos seg load`, `_dos seg unload`, `_dos set dir$`, `_dos set err`, `_dos sig notify`, `_dos time$`, `_dos unlock`, `_dos var del`, `_dos var find`, `_dos var value$`, `_dos what dir$`, `_dos wr lock`, `_dos write`, `_dots alloc`, `_dots free`, `_dots set`, `_dots what x`, `_dots what y`, `_dreg`, `_dt add`, `_dt create`, `_dt delete`, `_dt do`, `_dt init`, `_dt obtain`, `_dt refresh`, `_dt release`, `_dt remove`, `_dt set attrs`, `_dt str$`, `_dt what attrs`, `_dt what methods`, `_dt what triggers`, `_event wait port`, `_ext.b`, `_ext.l`, `_ext.w`, `_fh name$`, `_file part`, `_font add`, `_font ask`, `_font close`, `_font load`, `_font open`, `_font rem`, `_font set`, `_font soft style`, `_font style`, `_fx balance`, `_fx bank`, `_fx play`, `_gad activate`, `_gad add`, `_gad modif prop`, `_gad off`, `_gad on`, `_gad refresh`, `_gad remove`, `_gad set body`, `_gad set fat`, `_gad set next`, `_gad set render`, `_gad set spec info`, `_gad set text`, `_gad set user`, `_gad what activation`, `_gad what flags`, `_gad what h render`, `_gad what height`, `_gad what left`, `_gad what next`, `_gad what render`, `_gad what spec info`, `_gad what text`, `_gad what top`, `_gad what type`, `_gad what user data`, `_gad what user id`, `_gad what width`, `_ggad add`, `_ggad context`, `_ggad create`, `_ggad def body`, `_ggad def flags`, `_ggad def font`, `_ggad def id`, `_ggad def text`, `_ggad def user`, `_ggad def vinf`, `_ggad define`, `_ggad draw box`, `_ggad free`, `_ggad refresh`, `_ggad set attrs`, `_ggad vinf free`, `_ggad vinf get`, `_ggad wdef flags`, `_ggad wdef font`, `_ggad wdef height`, `_ggad wdef id`, `_ggad wdef left`, `_ggad wdef text`, `_ggad wdef top`, `_ggad wdef user`, `_ggad wdef vinf`, `_ggad wdef width`, `_ggad what attrs`, `_gmn create`, `_gmn end`, `_gmn free`, `_gmn layout`, `_gmn list alloc`, `_gmn list free`, `_gmn set`, `_gmsg get`, `_gmsg reply`, `_gt activate`, `_gt add bob item`, `_gt add bob sub`, `_gt add image item`, `_gt add image sub`, `_gt add item`, `_gt add menu`, `_gt add sub`, `_gt base`, `_gt begin refresh`, `_gt bevel box`, `_gt bob`, `_gt boopsi`, `_gt button`, `_gt checkbox`, `_gt create`, `_gt cycle`, `_gt disable`, `_gt enable`, `_gt end refresh`, `_gt free array`, `_gt free list`, `_gt gadgets attach`, `_gt gadgets bank`, `_gt gadgets erase`, `_gt gadgets remove`, `_gt h scroller`, `_gt h slider`, `_gt image`, `_gt integer`, `_gt listview`, `_gt make array`, `_gt make bitmap`, `_gt make image`, `_gt make list`, `_gt menu clear check`, `_gt menu off`, `_gt menu on`, `_gt menu set check`, `_gt menu what check`, `_gt menus attach`, `_gt menus bank`, `_gt menus erase`, `_gt mx`, `_gt number`, `_gt palette`, `_gt refresh`, `_gt refresh wnd`, `_gt set attrs`, `_gt set bob`, `_gt set checkbox`, `_gt set cycle`, `_gt set image`, `_gt set integer`, `_gt set integer mode`, `_gt set listview`, `_gt set listview mode`, `_gt set mode`, `_gt set mx`, `_gt set number`, `_gt set palette`, `_gt set scroller`, `_gt set slider`, `_gt set string`, `_gt set string mode`, `_gt set text`, `_gt string`, `_gt text`, `_gt v scroller`, `_gt v slider`, `_gt what attr`, `_gt what integer`, `_gt what string`, `_help ctrl`, `_ibase lock`, `_ibase unlock`, `_icon def`, `_icon del`, `_icon free`, `_icon get`, `_icon info`, `_icon kill`, `_icon load`, `_icon put`, `_icon save`, `_id unique`, `_iff close`, `_iff init`, `_iff open in`, `_iff open out`, `_iff parse`, `_img draw`, `_img draw state`, `_img erase`, `_img point in`, `_img set body`, `_img set next`, `_img set planes`, `_img what body`, `_img what depth`, `_img what height`, `_img what left`, `_img what next`, `_img what onoff`, `_img what pick`, `_img what top`, `_img what width`, `_imsg what class`, `_imsg what code`, `_imsg what item`, `_imsg what micros`, `_imsg what qualifier`, `_imsg what seconds`, `_imsg what wnd`, `_imsg what x mouse`, `_imsg what y mouse`, `_int add`, `_int alloc`, `_int free`, `_int rem`, `_int set`, `_it print`, `_it set`, `_it set corner`, `_it set draw`, `_it set font`, `_it set next`, `_it set str`, `_it what back pen`, `_it what draw mode`, `_it what font`, `_it what front pen`, `_it what left`, `_it what len`, `_it what next`, `_it what str`, `_it what top`, `_join.w`, `_joy init`, `_joy read`, `_joy set`, `_joy type`, `_key pressed`, `_layer create behind`, `_layer create upfront`, `_layer delete`, `_li free`, `_li new`, `_lib call`, `_lib close`, `_lib open`, `_lib revision`, `_lib version`, `_lnod alloc`, `_lnod free`, `_lnod set head`, `_lnod set tail`, `_lnod set type`, `_lnod what head`, `_lnod what tail`, `_lnod what type`, `_loc close`, `_loc init`, `_loc open`, `_loc str`, `_lock name$`, `_low init`, `_mem abs alloc`, `_mem alloc`, `_mem avail`, `_mem copy`, `_mem free`, `_mem type`, `_menu clear`, `_menu off`, `_menu on`, `_menu set`, `_menu share`, `_menu what address`, `_menu what flags`, `_menu what item nb`, `_menu what menu nb`, `_menu what next sel`, `_menu what sub nb`, `_menu what user`, `_mode best id`, `_mode coerce`, `_mouse report`, `_mouse unreport`, `_msg get`, `_msg put`, `_msg reply`, `_msg what length`, `_msg what reply port`, `_nmsg what nreq`, `_nod alloc`, `_nod enqueue`, `_nod find name`, `_nod free`, `_nod h add`, `_nod h rem`, `_nod ins`, `_nod rem`, `_nod set name`, `_nod set pred`, `_nod set pri`, `_nod set succ`, `_nod set type`, `_nod t add`, `_nod t rem`, `_nod what name`, `_nod what pred`, `_nod what pri`, `_nod what start`, `_nod what succ`, `_nod what type`, `_nr what user`, `_obj do`, `_obj free`, `_obj new`, `_obj set attrs`, `_obj what attr`, `_path add`, `_path part`, `_pen find`, `_pen obtain`, `_pen obtain best`, `_pen release`, `_pen set max`, `_pi set`, `_pi what % height`, `_pi what % horiz`, `_pi what % vert`, `_pi what % width`, `_pi what flags`, `_pi what height`, `_pi what hinc`, `_pi what left`, `_pi what top`, `_pi what vinc`, `_pi what width`, `_pool alloc`, `_pool create`, `_pool delete`, `_pool free`, `_port add`, `_port create`, `_port delete`, `_port find`, `_port rem`, `_port wait`, `_port what sig nb`, `_port what sig task`, `_prfs get`, `_prfs get def`, `_prfs set`, `_prg dir$`, `_prg name$`, `_print`, `_ptr clear`, `_ptr set`, `_query overscan`, `_rast alloc`, `_rast free`, `_req do`, `_req easy`, `_req end`, `_req init`, `_request choice`, `_rfsh begin`, `_rfsh end`, `_rgb32 cm set`, `_rgb32 get`, `_rgb32 load`, `_rgb32 set`, `_rgb4 cm set`, `_rgb4 get`, `_rgb4 load`, `_rgb4 set`, `_ri set`, `_ri what bmap`, `_ri what next`, `_ri what x`, `_ri what y`, `_rp a pen`, `_rp b pen`, `_rp bar`, `_rp bf scroll`, `_rp clr eol`, `_rp clr scr`, `_rp dr md`, `_rp draw`, `_rp ellipse`, `_rp flood`, `_rp len text`, `_rp move`, `_rp o pen`, `_rp plot`, `_rp point`, `_rp poly draw`, `_rp rast`, `_rp scroll`, `_rp set area info`, `_rp set attrs`, `_rp set bmap`, `_rp set layer`, `_rp set line`, `_rp set o pen`, `_rp set tmpras`, `_rp set wr msk`, `_rp text`, `_rp what area info`, `_rp what attrs`, `_rp what bmap`, `_rp what layer`, `_rp what text base`, `_rp what tmpras`, `_rp what xgr`, `_rp what ygr`, `_rp wr msk`, `_scale bm`, `_scale div`, `_scr beep`, `_scr close`, `_scr def bmap`, `_scr def body`, `_scr def font`, `_scr def pens`, `_scr def pub`, `_scr def title`, `_scr def type`, `_scr def vmodes`, `_scr dinf free`, `_scr dinf get`, `_scr hide title`, `_scr id aga colour`, `_scr id bar`, `_scr id base`, `_scr id beep`, `_scr id clip`, `_scr id close`, `_scr id cls`, `_scr id colour`, `_scr id def dri pens v1`, `_scr id def dri pens v2`, `_scr id depth`, `_scr id ellipse`, `_scr id fill ellipse`, `_scr id fix dri pens`, `_scr id from pointer`, `_scr id from pub`, `_scr id from wb`, `_scr id get aga pal`, `_scr id get pal`, `_scr id gr locate`, `_scr id gr writing`, `_scr id height`, `_scr id hide`, `_scr id in use`, `_scr id ink`, `_scr id line`, `_scr id line to`, `_scr id mode`, `_scr id move`, `_scr id offset`, `_scr id open`, `_scr id paint`, `_scr id pattern off`, `_scr id pattern on`, `_scr id plot`, `_scr id point`, `_scr id put bob`, `_scr id rect`, `_scr id rport`, `_scr id scroll`, `_scr id set aga pal`, `_scr id set high pattern`, `_scr id set line`, `_scr id set low pattern`, `_scr id set mouse pos`, `_scr id set paint`, `_scr id set pal`, `_scr id show`, `_scr id tag open`, `_scr id text`, `_scr id use`, `_scr id vport`, `_scr id width`, `_scr id x mouse`, `_scr id y mouse`, `_scr move`, `_scr open`, `_scr position`, `_scr pub lock`, `_scr pub modes`, `_scr pub status`, `_scr pub unlock`, `_scr set def title`, `_scr set title`, `_scr show title`, `_scr tag open`, `_scr to back`, `_scr to front`, `_scr wdef bmap`, `_scr wdef font`, `_scr wdef title`, `_scr wdef type`, `_scr wdef vmodes`, `_scr what active`, `_scr what b pen`, `_scr what barh`, `_scr what bmap`, `_scr what d pen`, `_scr what def title`, `_scr what depth`, `_scr what first wnd`, `_scr what font`, `_scr what front`, `_scr what height`, `_scr what layer`, `_scr what layer info`, `_scr what next`, `_scr what rport`, `_scr what title`, `_scr what type`, `_scr what vmodes`, `_scr what vport`, `_scr what width`, `_scr what x mouse`, `_scr what y mouse`, `_si set`, `_si set buf`, `_si set ext`, `_si set integer`, `_si set keymap`, `_si what buf`, `_si what cleft`, `_si what ctop`, `_si what disp chars`, `_si what disp count`, `_si what ext`, `_si what integer`, `_si what keymap`, `_si what max chars`, `_si what nb chars`, `_si what pos buf`, `_si what undo buf`, `_si what undo pos`, `_sig alloc`, `_sig free`, `_sig put`, `_sig set`, `_sig wait`, `_sp balance`, `_sp check`, `_sp install`, `_sp mix`, `_sp play`, `_sp remove`, `_sp speed`, `_sp stop`, `_sp volume`, `_spr a change`, `_spr a data alloc`, `_spr a data free`, `_spr a get`, `_spr change`, `_spr free`, `_spr get`, `_spr move`, `_spr set height`, `_spr set nb`, `_spr set pos`, `_str alloc`, `_str free`, `_str get`, `_str len`, `_str pos`, `_str put`, `_struct alloc`, `_struct byte`, `_struct free`, `_struct long`, `_struct ubyte`, `_struct uword`, `_struct word`, `_sys cpu`, `_sys disown`, `_sys fpu`, `_sys own`, `_sys revision`, `_sys time`, `_sys version`, `_sys view`, `_ta set`, `_ta what flags`, `_ta what height`, `_ta what name`, `_ta what style`, `_tag data`, `_tag done`, `_tag find`, `_tag list alloc`, `_tag list free`, `_tag set`, `_task find`, `_task set pri`, `_time elapsed`, `_tmpras init`, `_to str`, `_tool exist`, `_tool find`, `_tool get$`, `_tool match`, `_tool val match$`, `_tr set`, `_tr what raster`, `_tr what size`, `_ut day`, `_ut hour`, `_ut min`, `_ut month`, `_ut sec`, `_ut year`, `_val.l`, `_val.w`, `_vec alloc`, `_vec free`, `_view set`, `_view what modes`, `_view what vport`, `_view what x`, `_view what y`, `_vp get mode`, `_vp set body`, `_vp set cmap`, `_vp set next`, `_vp set ras info`, `_vp what cmap`, `_vp what height`, `_vp what modes`, `_vp what next`, `_vp what ras info`, `_vp what spr pri`, `_vp what width`, `_vp what x`, `_vp what y`, `_wb close`, `_wb msg`, `_wb open`, `_wb to back`, `_wb to front`, `_wnd activate`, `_wnd box`, `_wnd clear port`, `_wnd close`, `_wnd def bmap`, `_wnd def body`, `_wnd def flags`, `_wnd def gad`, `_wnd def idcmp`, `_wnd def image`, `_wnd def limits`, `_wnd def pens`, `_wnd def scr`, `_wnd def title`, `_wnd def type`, `_wnd id activate`, `_wnd id bar`, `_wnd id base`, `_wnd id bottom bdr`, `_wnd id box`, `_wnd id close`, `_wnd id cls`, `_wnd id data`, `_wnd id ellipse`, `_wnd id event code`, `_wnd id event gadget`, `_wnd id event gt bank`, `_wnd id event item`, `_wnd id event menu`, `_wnd id event next menu`, `_wnd id event qualifier`, `_wnd id event sub`, `_wnd id event wnd`, `_wnd id event x mouse`, `_wnd id event y mouse`, `_wnd id fill ellipse`, `_wnd id gr locate`, `_wnd id gr writing`, `_wnd id height`, `_wnd id in use`, `_wnd id ink`, `_wnd id inner height`, `_wnd id inner width`, `_wnd id inner x mouse`, `_wnd id inner y mouse`, `_wnd id left bdr`, `_wnd id limits`, `_wnd id line`, `_wnd id line to`, `_wnd id lock`, `_wnd id mask event`, `_wnd id mouse`, `_wnd id move`, `_wnd id next event`, `_wnd id open`, `_wnd id paint`, `_wnd id pattern off`, `_wnd id pattern on`, `_wnd id plot`, `_wnd id point`, `_wnd id put bob`, `_wnd id rect`, `_wnd id right bdr`, `_wnd id scroll`, `_wnd id set high pattern`, `_wnd id set line`, `_wnd id set low pattern`, `_wnd id set mouse pos`, `_wnd id set paint`, `_wnd id size`, `_wnd id tag open`, `_wnd id text`, `_wnd id titles`, `_wnd id top bdr`, `_wnd id unlock`, `_wnd id use`, `_wnd id wait event`, `_wnd id width`, `_wnd id x`, `_wnd id x mouse`, `_wnd id xgr`, `_wnd id y`, `_wnd id y mouse`, `_wnd id ygr`, `_wnd in front of`, `_wnd move`, `_wnd open`, `_wnd refresh frame`, `_wnd scroll raster`, `_wnd set idcmp`, `_wnd set limits`, `_wnd set pointera`, `_wnd set titles`, `_wnd share port`, `_wnd size`, `_wnd tag open`, `_wnd to back`, `_wnd to front`, `_wnd unshare port`, `_wnd wait port`, `_wnd wdef b pen`, `_wnd wdef bmap`, `_wnd wdef d pen`, `_wnd wdef flags`, `_wnd wdef gad`, `_wnd wdef height`, `_wnd wdef idcmp`, `_wnd wdef image`, `_wnd wdef left`, `_wnd wdef max height`, `_wnd wdef max width`, `_wnd wdef min height`, `_wnd wdef min width`, `_wnd wdef scr`, `_wnd wdef title`, `_wnd wdef top`, `_wnd wdef type`, `_wnd wdef width`, `_wnd what active`, `_wnd what b pen`, `_wnd what bdr bottom`, `_wnd what bdr left`, `_wnd what bdr right`, `_wnd what bdr top`, `_wnd what count req`, `_wnd what d pen`, `_wnd what descendant`, `_wnd what dm req`, `_wnd what ext data`, `_wnd what first gad`, `_wnd what first req`, `_wnd what flags`, `_wnd what font`, `_wnd what front`, `_wnd what height`, `_wnd what idcmp`, `_wnd what image`, `_wnd what int msg`, `_wnd what layer`, `_wnd what left`, `_wnd what max height`, `_wnd what max width`, `_wnd what menu`, `_wnd what min height`, `_wnd what min width`, `_wnd what next`, `_wnd what parent`, `_wnd what pointer`, `_wnd what pointer height`, `_wnd what pointer width`, `_wnd what pointer xoff`, `_wnd what pointer yoff`, `_wnd what port`, `_wnd what rport`, `_wnd what scr`, `_wnd what scr title`, `_wnd what title`, `_wnd what top`, `_wnd what user data`, `_wnd what user port`, `_wnd what vport`, `_wnd what width`, `_wnd what x mouse`, `_wnd what y mouse`, `_wnd zip`, `a3 pointer`, `give me`, `reserve as gt gadgets`, `reserve as gt menus`, `track add`, `track exist`, `track set`, `track unset`
+
+## p61-1.2 (0%)
+
+- **missing**: `p61 cia speed`, `p61 continue`, `p61 fade`, `p61 pause`, `p61 play`, `p61 pos`, `p61 signal`, `p61 stop`, `p61 volume`
+
 ## palette (100%)
 
 - **faithful**: `colour`, `colour back`, `fade`, `flash`, `flash off`, `palette`, `shift down`, `shift off`, `shift up` *(one shift per screen (the original has a single global shift); omitted wrap-flag defaults to wrap)*
 
 ## personal-1.0b (0%)
 
-- **missing**: `active copper`, `active second screen`, `aga erase icon`, `aga get icon`, `aga icon base`, `aga icon load`, `aga icon save`, `aga off`, `aga paste icon`, `aga reserve icon`, `allow plane col`, `attribute palette`, `blit mask`, `blitter copy`, `c mplot`, `change palette`, `cmap base`, `copper base`, `copper line`, `copper next line`, `copper wait line`, `create aga`, `create standard`, `double mask`, `f set sprite buffer`, `f sprite`, `fade palette`, `fc cos`, `fc sin`, `fc tan`, `fire(1,2)`, `fire(1,3)`, `forbid plane col`, `get even sprite`, `get odd sprite`, `ham mode`, `iff color`, `iff convert`, `iff planes`, `iff x size`, `iff y size`, `iff4bits palette to copper`, `iff8bits palette to copper`, `iff8bits to iff4bits`, `inverse playfields`, `l blit mask`, `l double mask`, `low filter.b`, `low filter.l`, `low filter.w`, `lsr zone`, `mosaic x16`, `mosaic x2`, `mosaic x32`, `mosaic x4`, `mosaic x8`, `mplot base`, `mplot c define`, `mplot define`, `mplot dpf1 draw`, `mplot dpf2 draw`, `mplot draw`, `mplot erase`, `mplot load`, `mplot modify`, `mplot origin`, `mplot planes`, `mplot reserve`, `mplot save`, `mplot x define`, `mplot y define`, `new color value`, `normal playfields`, `octets fill`, `pf sprites col`, `plane base`, `playfields col`, `right click`, `s32 block to screen`, `s32 vertice to screen`, `screen position`, `screen x size`, `screen y size`, `second y size`, `set aga color`, `set color`, `set d plane`, `set dual mode`, `set dual palette`, `set lace`, `set ntsc`, `set pal`, `set plane`, `set resolution`, `set screen sizes`, `set second color`, `set second planes`, `set second view`, `set view planes`, `swap planes`, `test`, `vb line wait`, `x fade`, `x mplot`, `y mplot`
+- **missing**: `active copper`, `active second screen`, `aga erase icon`, `aga get icon`, `aga icon base`, `aga icon load`, `aga icon save`, `aga off`, `aga paste icon`, `aga reserve icon`, `allow plane col`, `attribute palette`, `blit mask`, `c mplot`, `change palette`, `cmap base`, `copper base`, `copper line`, `copper next line`, `copper wait line`, `create aga`, `create standard`, `double mask`, `f set sprite buffer`, `f sprite`, `fade palette`, `fc cos`, `fc sin`, `fc tan`, `fire(1,2)`, `fire(1,3)`, `forbid plane col`, `get even sprite`, `get odd sprite`, `ham mode`, `iff color`, `iff convert`, `iff planes`, `iff x size`, `iff y size`, `iff4bits palette to copper`, `iff8bits palette to copper`, `iff8bits to iff4bits`, `inverse playfields`, `l blit mask`, `l double mask`, `low filter.b`, `low filter.l`, `low filter.w`, `lsr zone`, `mosaic x16`, `mosaic x2`, `mosaic x32`, `mosaic x4`, `mosaic x8`, `mplot base`, `mplot c define`, `mplot define`, `mplot dpf1 draw`, `mplot dpf2 draw`, `mplot draw`, `mplot erase`, `mplot load`, `mplot modify`, `mplot origin`, `mplot planes`, `mplot reserve`, `mplot save`, `mplot x define`, `mplot y define`, `new color value`, `normal playfields`, `octets fill`, `pf sprites col`, `plane base`, `playfields col`, `right click`, `s32 block to screen`, `s32 vertice to screen`, `screen position`, `screen x size`, `screen y size`, `second y size`, `set aga color`, `set color`, `set d plane`, `set dual mode`, `set dual palette`, `set lace`, `set plane`, `set resolution`, `set screen sizes`, `set second color`, `set second planes`, `set second view`, `set view planes`, `swap planes`, `test`, `vb line wait`, `x fade`, `x mplot`, `y mplot`
+
+## personnal-1.1 (0%)
+
+- **missing**: `anim unpack`, `fpeek`, `full view`, `mplot start plane`, `omd free`, `omd load`, `omd play`, `omd stop`, `p61 mpos`, `p61 mvolume`, `pic pack`, `pic unpack`, `set deform value`, `word switch`
+
+## powerbobs-1.0 (0%)
+
+- **missing**: `convert sprites`, `i pbob`, `padd`, `pasl`, `pasr`, `pbob`, `pbob clear`, `pbob dbuf`, `pbob draw`, `pbob erase`, `pbob fastcol`, `pbob height`, `pbob off`, `pbob update`, `pbobsprite fastcol`, `pchannel to pbob`, `pchannel to psprite`, `pdebug`, `pdec`, `pdiv`, `pdraw 25fps`, `pfast bobcol`, `pfast bobsprcol`, `pfast sprbobcol`, `pfast sprcol`, `pinc`, `plsl`, `plsr`, `pmul`, `pmul shift`, `psprite`, `psprite erase`, `psprite fastcol`, `psprite max`, `psprite off`, `psprite update`, `pspritebob fastcol`, `psum`, `pswap clear`, `psync every`, `psync every pbob`, `psync every psprite`, `psync pbob`, `psync psprite`, `reserve pbobs`, `same`, `set 68020 amal`, `set fastpbob mode`, `set pbob`, `set pdec range`, `set pinc range`, `set psprite colours`, `set psum range`, `unset padd range`, `unset pdec range`, `unset pinc range`, `unset psum range`, `x pbob`, `x psprite`, `xscr mouse`, `xscr sprite`, `y pbob`, `y psprite`, `yscr mouse`, `yscr sprite`
 
 ## rainbows (100%)
 
@@ -204,13 +345,21 @@ tested against our own understanding. Percentages exclude n/a
 
 ## range-1.0 (0%)
 
-- **missing**: `analog scan`, `analog x`, `analog y`, `b colours`, `b height`, `b width`, `bank name`, `bank screen`, `busy printer`, `case`, `case$`, `change bob colours`, `change icon colours`, `cvb`, `cvi`, `cvl`, `exchange bob colours`, `exchange icon colours`, `float bob`, `float bob clear`, `float bob reset`, `game area`, `h spot x`, `h spot y`, `i colours`, `i height`, `i width`, `in screen`, `in screen bob`, `js screen`, `last float bob`, `list bobs`, `list palette`, `make bob colour`, `make icon colour`, `mkb$`, `mki$`, `mkl$`, `no paper`, `of`, `of$`, `rand`, `range`, `sam speed`, `shuffle`, `unbank screen`, `wrap`
+- **missing**: `analog scan`, `analog x`, `analog y`, `b colours`, `b height`, `b width`, `bank screen`, `busy printer`, `case`, `case$`, `change bob colours`, `change icon colours`, `cvb`, `cvi`, `cvl`, `exchange bob colours`, `exchange icon colours`, `float bob`, `float bob clear`, `float bob reset`, `game area`, `h spot x`, `h spot y`, `i colours`, `i height`, `i width`, `in screen`, `in screen bob`, `js screen`, `last float bob`, `list bobs`, `list palette`, `make bob colour`, `make icon colour`, `mkb$`, `mki$`, `mkl$`, `no paper`, `of`, `of$`, `rand`, `range`, `sam speed`, `shuffle`, `unbank screen`, `wrap`
+
+## range-2.0 (0%)
+
+- **missing**: `analyse`, `bank str end`, `bank str ptr`, `bank str$`, `bank string`, `ch key scan`, `ch key state`, `ch scan code`, `first col`, `float back`, `float offset`, `fmod`, `key scan`, `library call`, `nxt col`, `pull`, `push`, `set bzone`, `splot`, `spoint`, `t planes`, `void`, `wipe`
 
 ## screens (100%)
 
 - **faithful**: `appear`, `autoback` *(mode 1 treated like 0)*, `default`, `default palette`, `dual playfield` *(pairing is per-screen (EcDual) as on the hardware, so several pairs coexist down the display, each in its own copper band, each with its own Dual Priority, and sprites layer between the two playfields per EcCon2's PF1P/PF2P. Remaining approximation: the pair renders under the system copper walk, so a Copper Off user list shows only the front playfield)*, `dual priority` *(the EcE27 error message text is a guess — the string is not in the source tree)*, `logbase`, `logic`, `ntsc`, `phybase`, `physic`, `screen`, `screen clone`, `screen close`, `screen colour` *(HAM reports 64 — the real EcNbCol is stored as 64 by InScreenOpen, never 4096)*, `screen copy`, `screen display` *(the visible window w/h clips the composite; hardware scaling is not modelled)*, `screen height`, `screen hide`, `screen mode`, `screen offset`, `screen open` *(width masked to /16; the 1..1023 size bounds of EcCree are not enforced)*, `screen show`, `screen swap`, `screen to back`, `screen to front`, `screen width`, `view`, `zoom`
 - **approximated**: `screen base` *(a read-only synthesized Ec control block (EcLogic/EcPhysic, geometry, EcNbCol, live EcPal, EcTLigne...); pokes into it are ignored)*
 - **n/a**: `screen size`
+
+## sln-2.0 (0%)
+
+- **missing**: `s abase`, `s aclear`, `s aerase`, `s aerase all`, `s ainit`, `s array`, `s aset`, `s asize`, `s atype`, `s axsize`, `s aysize`, `s azsize`, `s checksum`, `s compare$`, `s delete`, `s disk abort`, `s disk changes`, `s disk close`, `s disk dev check`, `s disk open`, `s disk prot state`, `s disk read`, `s disk rename`, `s disk send read`, `s disk send write`, `s disk state`, `s disk update`, `s disk wait`, `s disk write`, `s iadr`, `s ibase`, `s iconify`, `s ierase`, `s ifree`, `s iinit`, `s mask$`, `s motor off`, `s motor on`, `s mouse button`, `s mouse off`, `s mouse on`, `s num tracks`, `s sam bank`, `s sam bank erase`, `s sam bank load`, `s sam bank reserve`, `s sam bank save`, `s sam bank=`, `s sam base`, `s sam chip load`, `s sam clip`, `s sam del`, `s sam freq`, `s sam length`, `s sam load`, `s sam play`, `s sam stop`, `s set freq`, `s track length`, `s track load`, `s track play`, `s track stop`, `s track tempo`, `s track tempo=`, `s track volume`, `s volume`, `s x mouse`, `s x mouse=`, `s y mouse`, `s y mouse=`
 
 ## stars-2.33 (0%)
 
@@ -230,9 +379,21 @@ tested against our own understanding. Percentages exclude n/a
 - **faithful**: `cdown`, `centre` *(Border$ escapes inside the text are printed, not measured, when centring)*, `cleft`, `cline`, `cls`, `cmove`, `cright`, `cup`, `curs off`, `curs on`, `curs pen`, `home`, `inverse off`, `inverse on`, `locate`, `memorize x`, `memorize y`, `paper`, `pen`, `print` *(Print # channels unsupported)*, `print #`, `remember x`, `remember y`, `scroll`, `scroll off`, `scroll on`, `shade off`, `shade on` *(dither approximates the original shading)*, `tab$`, `text` *(single 8x8 face whatever Set Font selects; soft styles are synthesized approximations)*, `text base`, `text length`, `text styles`, `under off`, `under on`, `using` *(the '^' scientific-exponent slot is left literal (mantissa normalisation unverified))*
 - **approximated**: `lprint` *(InLPrint +ILib.s:5067 routes Print to the printer device; no printer host, so the arguments are evaluated (for side effects) then discarded)*
 
+## tft-0.6 (0%)
+
+- **missing**: `cpu clear`, `cpu clear ntsc`, `cpu clear pal`, `get high word`, `get low word`, `get timer`, `get xmouse`, `get ymouse`, `init bpl scroll`, `init cpu clear`, `init timer`, `mfm luecke`, `mfm read`, `qsort`, `set bpl`, `start int`, `start timer`, `stop int`, `stop timer`, `tft error$`, `tft version`, `var mask`
+
+## the-game-0.9 (0%)
+
+- **missing**: `g agaplasma`, `g amiga`, `g bitmap offset`, `g blur`, `g bob`, `g cd32`, `g check vbl`, `g circle`, `g cli`, `g close gms`, `g close req`, `g close reqtools`, `g cls`, `g colour`, `g copyarea`, `g decrypt`, `g def palette`, `g double buffer`, `g draw bob`, `g encrypt`, `g erase`, `g exit`, `g file size`, `g get img`, `g get palette`, `g getmem`, `g getscr`, `g handicap`, `g icon check`, `g iconify`, `g init bobs`, `g init encyrpt`, `g init gms`, `g init mbobs`, `g ink`, `g left click`, `g line`, `g load bobs`, `g load iff`, `g load pcx`, `g make rp`, `g oddno`, `g open reqtools`, `g own blitter`, `g palette`, `g paste bob`, `g plot`, `g point`, `g ptchan off`, `g ptchan on`, `g ptfade`, `g ptlength`, `g ptload`, `g ptpause`, `g ptplay`, `g ptpos`, `g ptset pos`, `g ptstop`, `g ptunpause`, `g ptvolume`, `g reboot`, `g rectangle`, `g reset`, `g rgb`, `g right click`, `g save bitmap`, `g save iff`, `g screen`, `g screen close`, `g screen copy`, `g screen hide`, `g screen offset`, `g screen open`, `g screen show`, `g set bob`, `g set img`, `g set mbob`, `g set mouse`, `g set pen`, `g set table`, `g setup bobs`, `g spaste bob`, `g stc pack`, `g stc unpack`, `g swap buffers`, `g tmap`, `g triple buffer`, `g unhandicap`, `g update`, `g wait lmb`, `g wait rmb`, `g word$`, `g x mouse`, `g y mouse`, `gcos`, `gham`, `ghires`, `glowres`, `gscreen colour`, `gscreen height`, `gscreen width`, `gsin`, `gsuperhires`
+
 ## tome-4.0 (0%)
 
 - **missing**: `brik bank`, `brik x`, `brik y`, `briks`, `list tile`, `map ab length`, `map an at`, `map an freeze`, `map an move`, `map an point`, `map an unfreeze`, `map anim`, `map anim bank`, `map anim off`, `map anim on`, `map bank`, `map base`, `map bottom`, `map brik`, `map check`, `map do`, `map fall`, `map fx`, `map fy`, `map handle`, `map handle init`, `map hx`, `map hy`, `map left`, `map length`, `map paste`, `map plot`, `map pos x`, `map pos y`, `map right`, `map scan x`, `map scan y`, `map set zone`, `map swap tile`, `map tile`, `map top`, `map update`, `map update off`, `map update on`, `map view`, `map x`, `map y`, `map zb length`, `map zone`, `map zone bank`, `paste brik`, `tile count`, `tile size`, `tile tag`, `tile tag set`, `tile tag x`, `tile tag y`, `tile tags off`, `tile tags on`, `tile typ bank`, `tile val`, `tiny bank`, `tiny map`, `tme credit$`, `tme ver$`, `xtile`, `ytile`
+
+## tools-1.01 (0%)
+
+- **missing**: `add pos`, `array bank`, `array dim`, `array get`, `array set`, `checksum`, `decode`, `encode`, `get byte`, `get crypt`, `get long`, `get pos`, `get string`, `get word`, `oui bank`, `oui data`, `oui edata`, `oui init`, `oui new`, `oui reserve text`, `oui set bank`, `oui set data`, `oui set edata`, `oui set text`, `oui text`, `set array bank`, `set byte`, `set crypt`, `set long`, `set pos`, `set string`, `set word`
 
 ## turbo-plus-1.0 (0%)
 
@@ -241,6 +402,10 @@ tested against our own understanding. Percentages exclude n/a
 ## turbo-plus-1.9 (0%)
 
 - **missing**: `f stars`, `object load chip`, `reserve object chip`, `reserve object fast`
+
+## turbo-plus-2.15 (0%)
+
+- **missing**: `chip largest`, `fast largest`, `is raw key`, `move mem`, `multi bl ended`, `multi bl error`, `multi bload`, `parse$`, `reserve scene`, `scene convert`, `scene copy`, `scene fill`, `scene replace`, `scene scan x`, `scene scan y`, `string hunt`, `word hunt`
 
 ## windows (100%)
 

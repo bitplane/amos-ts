@@ -1,0 +1,23 @@
+{
+  "id": "jd-int-1.3",
+  "name": "JD Intuition",
+  "version": "1.3",
+  "author": "Joerg Dommermuth",
+  "source": "binary",
+  "library": "AMOSPro_JDInt.Lib",
+  "sha256": "280035af9c988219c400003471bc400620d7616be0a7d88fbb3e5b0791cac31c",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "AMOSPro_JDInt.Lib.MANUAL"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "A fourth JD library, absent from the PD CD: Intuition window and screen wrappers (`jd open intwindow`, `jd intprint`). Manual covers 33 of its 34 keywords."
+}

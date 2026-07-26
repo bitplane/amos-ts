@@ -1,0 +1,23 @@
+{
+  "id": "ldos-2.6",
+  "name": "LDos",
+  "version": "2.6",
+  "author": "Niklas Sjoberg",
+  "source": "binary",
+  "library": "AMOSPro_LDos.Lib",
+  "sha256": "cbb06295b1ea418042507f81a7c228c838e1668f81d8659a50692a7c6dfd07f5",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "Documentation/"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: ldos.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Later than the 2.5 registered (85 keywords against 77), and this archive carries LdosV25.guide documenting 84 of them — the AmigaGuide form of the same manual that lifted 2.5 off table tier."
+}

@@ -1,0 +1,23 @@
+{
+  "id": "jd-5.9",
+  "name": "JD",
+  "version": "5.9",
+  "author": "Joerg Dommermuth",
+  "source": "binary",
+  "library": "AMOSPro_JD.Lib",
+  "sha256": "425c761ebd02a4f4e0186486d820d9ffb43642bf41d3249280d3b37b3ff29ade",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "AMOSPro_JD.Lib.MANUAL"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "A much later JD than the 5.3 found on the AMOS PD CD: 133 keywords against 130, and its per-keyword manual covers 131 of them. The 5.3 fixture keeps its assembler source, which this one does not ship, so the two entries carry different evidence — 5.3 is source tier and this is manual tier."
+}

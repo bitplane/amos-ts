@@ -1,0 +1,23 @@
+{
+  "id": "personnal-1.1",
+  "name": "Personnal",
+  "version": "1.1",
+  "author": "Frederic Cordler",
+  "source": "binary",
+  "library": "AmosPro_Personnal.Lib",
+  "sha256": "3deff9c32bc9acdb44ed987da851a5a32b0d51fae3153d4f531284dc6d3a8f63",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "Documentations/"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AmosPersonnal1.11.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Later than the 1.0b already registered (128 keywords against 110). An English guide documents 105 of them. The archive also holds Personnal-EXTRA.Lib, a two-keyword version-reporting stub with its own source, not registered separately."
+}

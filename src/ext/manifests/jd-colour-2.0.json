@@ -1,0 +1,23 @@
+{
+  "id": "jd-colour-2.0",
+  "name": "JD Colour",
+  "version": "2.0",
+  "author": "Joerg Dommermuth",
+  "source": "binary",
+  "library": "AMOSPro_JDColour.Lib",
+  "sha256": "f3f19d866d7ef09b7e3e69aa933ab6f32b18eb0c0cc3636bdf900e339aa760fb",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "AMOSPro_JDColour.Lib.MAN"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "A major revision of the 1.4 on the PD CD — 56 keywords against 44 — and this one has a manual, which 1.4 did not. Unrelated to the \"AMOSPro Colours\" extension by Jan Normann Nielsen."
+}

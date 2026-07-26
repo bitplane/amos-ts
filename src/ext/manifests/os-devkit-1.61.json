@@ -1,0 +1,25 @@
+{
+  "id": "os-devkit-1.61",
+  "name": "OS-DevKit",
+  "version": "1.61",
+  "author": "Fromentin Brice and Jens Vang Petersen",
+  "source": "binary",
+  "library": "AMOSPro_OS_DevKit.Lib",
+  "sha256": "96a9d65b767a406e8a2b0e568c25d19be0f8cfbe4e4668ebd6fa1d56ebc2ee59",
+  "format": "ap20",
+  "idBaseEvidence": "calibrated",
+  "evidence": "manual",
+  "docs": [
+    "docs/"
+  ],
+  "titleStrings": [],
+  "observedSlots": [
+    20
+  ],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: OS_Dev_1.61.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "By a wide margin the largest AMOS extension found anywhere: 1,046 named keywords, and the only third-party one here in AP20 format. It is an AmigaOS toolkit — memory (`_mem alloc`), channels, and wrappers over large parts of the OS API. Its own AmigaGuide set documents 989 of the 1,046, so nearly all of it is at manual tier. Sharing a version number with GUI 1.61 is coincidence; they are unrelated extensions. Its documentation ships an example program that uses the extension, and every token id that program references lands in this table, so the id base is calibrated against real evidence rather than assumed from the shared legacy layout — and slot 20 resolves to it exactly in the identification oracle."
+}

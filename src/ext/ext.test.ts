@@ -328,6 +328,10 @@ describe('the whole corpus identifies without a slot map', () => {
       5: 'amospro-compiler-2.0',
       6: 'amospro-ioports-2.0',
       14: 'intuition-1.3b',
+      // OS-DevKit's own documentation ships an example program, which came in
+      // with the extension. Every id it uses lands in OS-DevKit's table, which
+      // is what turns that entry's id base from assumed into calibrated.
+      20: 'os-devkit-1.61',
     })
   })
 })

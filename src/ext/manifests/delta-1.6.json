@@ -1,0 +1,23 @@
+{
+  "id": "delta-1.6",
+  "name": "Delta",
+  "version": "1.6",
+  "author": "Luke \"DELTA\" Zelezny",
+  "source": "binary",
+  "library": "amospro_delta.lib",
+  "sha256": "97fbb8acb3347dfb91dcf73ebf240722a40702b9b9f200bb7da3505c2eb3aeed",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "amospro_delta.guide"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Delta.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "System utilities — drive motor, PAL/NTSC, decrunching, interrupt control. 46 keywords, 45 documented in its guide."
+}

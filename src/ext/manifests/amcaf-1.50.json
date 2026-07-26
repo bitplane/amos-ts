@@ -1,0 +1,23 @@
+{
+  "id": "amcaf-1.50",
+  "name": "AMCAF",
+  "version": "1.50",
+  "author": "Chris Hodges",
+  "source": "binary",
+  "library": "AMOSPro_AMCAF.Lib",
+  "sha256": "9894a7e216ff501244bbcdc47d3830abdbcf4382d4f4a6daa43551faa87917e4",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "AMCAF.Guide"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AMCAF150Final.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Freeware, and the largest well-documented third-party extension: 281 keywords over banks, graphics, maths and AGA. Its manual states \"AMCAF V1.50beta4 is the FINAL RELEASE! FREEWARE!\". The manual is for V1.40 and the author writes \"Sorry, but I didn't have time to update the manual. You'll have to find out the new commands since V1.40 yourself\" — so keywords added in 1.50 are undocumented and only the V1.40 subset is genuinely at manual tier. The archive also ships AMOSPro_AMCAFUpdate.Lib, a patch overlay with no token table of its own. Its documentation states the extension expects slot 8."
+}

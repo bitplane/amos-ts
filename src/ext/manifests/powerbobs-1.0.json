@@ -1,0 +1,23 @@
+{
+  "id": "powerbobs-1.0",
+  "name": "Power Bobs",
+  "version": "1.0",
+  "author": "Manuel Andre",
+  "source": "binary",
+  "library": "AMOSPro_PowerBobs.LIB",
+  "sha256": "dd2afda0692d93a5f58def26631e54798bac1f255413eb4a62dc45482c12c50e",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "POWER_BOBS_DOC.asc"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: PowerBobs_1.0.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "A faster bob engine — 65 keywords (`reserve pbobs`, `pbob draw`, `pfast bobcol`). POWER_BOBS_DOC.asc documents 63. The archive holds an AMOS 1.3 build (Amos_PowerBobs.Lib) with the same table, not registered separately. Same author as TURBO Plus."
+}

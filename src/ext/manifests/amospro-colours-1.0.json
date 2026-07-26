@@ -1,0 +1,23 @@
+{
+  "id": "amospro-colours-1.0",
+  "name": "AMOSPro Colours",
+  "version": "1.0",
+  "author": "Jan Normann Nielsen",
+  "source": "binary",
+  "library": "AMOSPro_Colours.Lib",
+  "sha256": "496c99f2843b265225f1d96f014254edb1603872c138991ce54e9fcb25866b62",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "source",
+  "docs": [
+    "AMOSPro_Colours.Lib.s"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Colour_1.0.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Named colour constants — `red`, `green`, `cyan`, `grey` — 27 keywords. The complete assembler source ships with it, so this is source tier despite having no prose documentation at all. Unrelated to Joerg Dommermuth's JD Colour."
+}

@@ -1,0 +1,24 @@
+{
+  "id": "jvp-1.01",
+  "name": "JVP NoKids",
+  "version": "1.01",
+  "author": "Jens Vang Petersen",
+  "source": "binary",
+  "library": "AMOSPro_JVP.Lib",
+  "sha256": "d985288a5f7b15e008ca01b797ca7dc8bf8101d0ca28894c14c2c5e76bb03d57",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "JVP_Extension.doc",
+    "source/"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JVP_1.01.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Sorting, string handling and message banks. All 11 keywords documented, and a partial source file ships as well."
+}

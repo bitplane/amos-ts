@@ -1,0 +1,23 @@
+{
+  "id": "tft-0.6",
+  "name": "TFT",
+  "version": "0.6",
+  "author": "Turgut Temucin",
+  "source": "binary",
+  "library": "AMOSPro_tft.Lib",
+  "sha256": "5bd9a537ba0d8566f4713b29fb6e8ed5bc9e763971a145e4ebffc8a47743879f",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "TFT_Extension.doc"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: TFT_0.6.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Low-level oddments — MFM reads, bitplane pointers, timers, interrupt control. 22 keywords, 21 documented. An early version number for something this hardware-specific."
+}

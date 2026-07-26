@@ -1,0 +1,23 @@
+{
+  "id": "tools-1.01",
+  "name": "Tools",
+  "version": "1.01",
+  "author": "Tor Erik Ottinsen",
+  "source": "binary",
+  "library": "AMOSPro_Tools.Lib",
+  "sha256": "0ae921b0de8f81d3dc522890ea3fac1191c78c6aaf0c490e2175750c98431b31",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "AMOSPro_Tools.Guide"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Tools_1.01.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Memory and string peek/poke helpers — `set byte`, `get long`, `set string`. 33 keywords, 22 documented."
+}

@@ -1,0 +1,23 @@
+{
+  "id": "delta-1.4",
+  "name": "Delta",
+  "version": "1.4",
+  "author": "Luke \"DELTA\" Zelezny",
+  "source": "binary",
+  "library": "AMOSPro_Delta.Lib",
+  "sha256": "1bbfbc43fe54c72d2d13fea003654b5f514e14d3a57997d6bf8259ffb6ca28ca",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "AMOSPro_Delta.Guide"
+  ],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Delta.",
+    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
+  },
+  "notes": "The earlier Delta, 26 keywords, all documented. Registered beside 1.6 because the tables differ."
+}

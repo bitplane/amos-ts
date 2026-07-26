@@ -8,7 +8,7 @@
   "sha256": "d1cb8d86ad72c5a9c272fd38f9e0629a3e3b3d98a2483f32895c31ae7ced268a",
   "format": "legacy",
   "idBaseEvidence": "calibrated",
-  "evidence": "manual",
+  "evidence": "table",
   "docs": [
     "Turbo_Blit_doc.asc",
     "Turbo_Block_doc.asc",
@@ -34,5 +34,5 @@
     "note": "credits_doc.asc identifies it as 'AMOS 1.3 TURBO extension library V1.9 — LAST PD RELEASE' by Manuel Andre, Berchem, Belgium.",
     "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
   },
-  "notes": "A later TURBO than the turbo-plus-1.0 already registered, and much better evidenced: the English documentation set covers the keywords group by group, which lifts TURBO from table tier to manual tier. Explains all 57 ids observed in slot 12 across 60 corpus programs, so the id base is calibrated. Slot 8's 16 ids are all but two explained by this table as well, suggesting yet another build in circulation."
+  "notes": "A later TURBO than turbo-plus-1.0 and earlier than 2.15. Its English doc set covers only 18 of its 87 keywords, so despite shipping documentation this sits at table tier — the docs describe a subset, not the library. (An earlier version of this manifest claimed manual tier on the strength of the docs existing; counting how many keywords they actually mention corrected it.) TURBO Plus 2.15 is the one with a manual worth the name, covering 128 of 152. Explains all 57 ids observed in slot 12 across 60 programs of the AMOS PD CD corpus, so the id base is calibrated; slot 8's 16 ids are all but two explained by this table too, suggesting yet another build in circulation."
 }
