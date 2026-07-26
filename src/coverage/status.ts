@@ -747,6 +747,7 @@ export const FAITHFUL = new Set<string>([
   'td attitude a',
   'td attitude b',
   'td attitude c',
+  'td cls',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1278,6 +1279,8 @@ export const NOTES: Record<string, string> = {
     'Angles are 65536 units to the revolution, which is what the matrix builder at $213df8 works in — it reduces by quadrant with btst #6/#7 on the high byte and reflects about $8000. The relative forms wrap at 32 bits rather than clamping, as the engine\'s add.l does, and nothing normalises: Dice_Spin drives its angles negative every frame for two thousand frames and relies on exactly that',
   'td position x':
     'The position and attitude readers are one engine routine each plus an axis selector in d2, so Td Position X/Y/Z is $2119ec with 0/1/2 and Td Attitude A/B/C is $211bf8 the same way. Reading an object that does not exist is "Object does not exist" rather than zero',
+  'td cls':
+    'Clears the top Td Screen Height lines to colour 0, after the three checks $2114be makes on the AMOS screen: exactly 320 wide, at least 4 bitplanes, and at least as tall as Td Screen Height. Anything else is "Amos screen not compatible with 3d", which is why every demo opens Screen Open n,320,200,16,Lowres. What is not reproduced is the clear being a blitter fill of the 3D area only — here it is a plot loop over the same rectangle',
   'td load':
     'The engine gates its ".3DO" suffix on a flag at a4+$b1a whose setter is not on any path traced so far; every shipped demo loads by bare name, so the suffix is always added here and a name that already carries an extension keeps it. Worth revisiting if a program turns up that loads by full filename',
   'multi bload':

@@ -245,3 +245,23 @@ describe('AMOS 3D instances (Td Object at $211694, Td Move at $21188a)', () => {
     expect(rt.td.objects.size).toBe(0)
   })
 })
+
+describe('AMOS 3D display (Td Cls at $2114be)', () => {
+  it('refuses a screen 3D cannot draw on', () => {
+    // EcTx must be exactly 320, EcNPlan at least 4, EcTy at least the
+    // Td Screen Height — three checks, one error between them
+    const bad = (open: string): string => `${open}\nTd Screen Height 100\nTd Cls`
+    expect(() => run(bad('Screen Open 0,640,200,16,Hires'))).toThrow(/not compatible with 3d/)
+    expect(() => run(bad('Screen Open 0,320,200,4,Lowres'))).toThrow(/not compatible with 3d/)
+    expect(() => run(bad('Screen Open 0,320,64,16,Lowres'))).toThrow(/not compatible with 3d/)
+  })
+
+  it('clears the top Td Screen Height lines and leaves the rest', () => {
+    // Dice_Spin's screen exactly: Screen Open 0,320,200,16,Lowres
+    const { rt } = run(
+      ['Screen Open 0,320,200,16,Lowres', 'Ink 5 : Bar 0,0 To 319,199', 'Td Screen Height 100', 'Td Cls'].join('\n'),
+    )
+    expect(rt.screen.point(160, 50)).toBe(0)
+    expect(rt.screen.point(160, 150)).toBe(5)
+  })
+})

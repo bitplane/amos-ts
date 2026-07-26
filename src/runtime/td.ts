@@ -353,6 +353,20 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
     'td move rel': tdVector(rt, 'pos', true),
     'td angle': tdVector(rt, 'angle', false),
     'td angle rel': tdVector(rt, 'angle', true),
+    'td cls'() {
+      // $2114be checks the AMOS screen is one 3D can draw on before it
+      // touches anything: EcTy (+$4e) at least Td Screen Height, EcNPlan
+      // (+$50) at least 4, and EcTx (+$4c) exactly 320. Anything else is
+      // "Amos screen not compatible with 3d". Every demo opens
+      // `Screen Open n,320,200,16,Lowres`, which passes all three.
+      const s = rt.screen
+      const t = st()
+      if (s.height < t.screenHeight || s.depth < 4 || s.width !== 320) tdError(11)
+      // the 3D area is the top Td Screen Height lines, cleared to colour 0
+      for (let y = 0; y < Math.min(t.screenHeight, s.height); y++) {
+        for (let x = 0; x < s.width; x++) s.plot(x, y, 0)
+      }
+    },
     'td quit'() {
       // "Unload the 3D extensions along with all objects and release all 3D
       // memory." There is no engine to unload here, so it is the clear.

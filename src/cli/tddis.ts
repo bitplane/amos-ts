@@ -97,9 +97,20 @@ function stubRoutines(): number[] {
 }
 
 /** read the `move.w #x,d0 : move.w #y,d1` pair out of a sixteen-byte trampoline */
-function trampoline(at: number): { d0: number; d1: number; d2: number | null } | null {
-  if (at < 0 || at + 8 > stub.length) return null
-  if (sv.getUint16(at, false) !== 0x303c || sv.getUint16(at + 4, false) !== 0x323c) return null
+function trampoline(start: number, end: number): { d0: number; d1: number; d2: number | null } | null {
+  if (start < 0 || end <= start) return null
+  // Most keywords are the selector pair and nothing else, but a few do work
+  // first — Td Redraw checks the screen is open, Td Cls likewise — so scan a
+  // short way in for `move.w #x,d0 : move.w #y,d1` rather than demanding it
+  // at the very start.
+  let at = -1
+  for (let i = start; i < end && i + 8 <= stub.length; i += 2) {
+    if (sv.getUint16(i, false) === 0x303c && sv.getUint16(i + 4, false) === 0x323c) {
+      at = i
+      break
+    }
+  }
+  if (at < 0) return null
   // The eighteen-byte shape adds `moveq #k,d2` and enters the dispatcher two
   // bytes in, past its own `moveq #-1,d2` — so k becomes a leading argument.
   // That is how Td Move X/Y/Z share one engine routine with an axis selector,
@@ -187,7 +198,10 @@ for (const t of ext.tokens) {
     ['func', t.func],
   ] as const) {
     if (n === 0xffff || n === undefined) continue
-    const tr = trampoline(addr[n] ?? -1)
+    // bounded by where the next routine begins: several keywords share a
+    // zero-length stub for the half they do not implement, and an unbounded
+    // scan would walk out of one routine into the next one's selectors
+    const tr = trampoline(addr[n] ?? -1, addr[n + 1] ?? stub.length)
     if (!tr) continue
     rows.push({ name: t.name, kind, d0: tr.d0, d1: tr.d1, d2: tr.d2, target: readPtr(engine, engine.base + TABLE_OFFSET + tr.d1) })
   }
