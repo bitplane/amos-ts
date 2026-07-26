@@ -9,7 +9,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { allExtensions } from '../ext/registry'
 import { INSTR, FUNCS, RAWFUNCS } from '../interp/builtins'
-import { makeInstructions, makeFunctions, makeRawFunctions } from '../runtime/instr'
+import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/tokenizer'
 import { FAITHFUL, NA, NOTES, STRUCTURAL } from '../coverage/status'
@@ -20,8 +20,8 @@ const rt = new Runtime(tokenize('', table), table, {})
 const implemented = new Set([
   ...Object.keys(INSTR),
   ...Object.keys(FUNCS),
-  ...Object.keys(makeInstructions(rt)),
-  ...Object.keys(makeFunctions(rt)),
+  ...Object.keys(makeAllInstructions(rt)),
+  ...Object.keys(makeAllFunctions(rt)),
   ...Object.keys(RAWFUNCS),
   ...Object.keys(makeRawFunctions(rt)),
 ])

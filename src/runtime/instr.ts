@@ -1,6 +1,7 @@
 import { AmosError, VF, VI, VS, int, num, str, varType } from '../interp/values'
 import { varKey } from '../interp/prescan'
 import type { Instr, Func } from '../interp/builtins'
+import { makeLdosFunctions, makeLdosInstructions } from './ldos'
 import { parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
 import { encodeIlbm, parseIlbm } from '../loader/iff'
@@ -4719,4 +4720,20 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     const e = it2.entries[it2.idx++]!
     return e.isDir ? fillEntry(rt, '*', e.name, null) : fillEntry(rt, ' ', e.name, e.size)
   }
+}
+
+/**
+ * Core keywords plus every implemented extension's.
+ *
+ * Extension keywords dispatch through the same tables as core ones (interp.ts
+ * treats 'core' and 'ext' identically), so this is where an extension is
+ * plugged in. Both the Runtime and the coverage manifest build from here, so
+ * a new extension file cannot be implemented-but-unreported.
+ */
+export function makeAllInstructions(rt: Runtime): Record<string, Instr> {
+  return { ...makeInstructions(rt), ...makeLdosInstructions(rt) }
+}
+
+export function makeAllFunctions(rt: Runtime): Record<string, Func> {
+  return { ...makeFunctions(rt), ...makeLdosFunctions(rt) }
 }

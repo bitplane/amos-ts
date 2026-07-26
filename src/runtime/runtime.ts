@@ -19,7 +19,8 @@ import type { AmalBank } from '../loader/amalbank'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
 import type { ResourceBank } from '../loader/resource'
 import { Screen, builtinPattern, sliderMetrics } from './screen'
-import { makeInstructions, makeFunctions, makeRawFunctions } from './instr'
+import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from './instr'
+import { newLdosState, type LdosState } from './ldos'
 import { ObjectBank, imagesCollide } from './objects'
 import type { BankImage, Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from './fs'
@@ -351,6 +352,9 @@ export class Runtime {
     }))(this),
   )
   // ---- file channels (Open In/Out/Random, Print #, Input #, Get/Put) ----
+  /** LDos keeps its own channels, separate from Open In/Open Out */
+  ldos: LdosState = newLdosState()
+
   fileChans = new Map<
     number,
     {
@@ -2504,8 +2508,8 @@ export class Runtime {
     }
     const interpOpts: InterpOptions = {
       io,
-      instructions: makeInstructions(this),
-      functions: makeFunctions(this),
+      instructions: makeAllInstructions(this),
+      functions: makeAllFunctions(this),
       rawFunctions: makeRawFunctions(this),
       input: this.input,
     }

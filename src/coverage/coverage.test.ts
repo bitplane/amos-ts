@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { EXTENSION_TOKENS } from '../ext/registry'
+import { allExtensions } from '../ext/registry'
 import { INSTR, FUNCS, RAWFUNCS } from '../interp/builtins'
-import { makeInstructions, makeFunctions, makeRawFunctions } from '../runtime/instr'
+import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/tokenizer'
 import { FAITHFUL, NA, STRUCTURAL } from '../coverage/status'
@@ -13,8 +13,8 @@ const rt = new Runtime(tokenize('', table), table, {})
 const registries = {
   coreInstr: Object.keys(INSTR),
   coreFuncs: Object.keys(FUNCS),
-  runtimeInstr: Object.keys(makeInstructions(rt)),
-  runtimeFuncs: Object.keys(makeFunctions(rt)),
+  runtimeInstr: Object.keys(makeAllInstructions(rt)),
+  runtimeFuncs: Object.keys(makeAllFunctions(rt)),
   raw: [...Object.keys(RAWFUNCS), ...Object.keys(makeRawFunctions(rt))],
 }
 const implemented = new Set(Object.values(registries).flat())
@@ -24,8 +24,11 @@ for (const e of CORE_TOKENS) {
   const n = e.name.replace(/^!/, '').trim().toLowerCase()
   if (n !== '') known.add(n)
 }
-for (const [, defs] of EXTENSION_TOKENS) {
-  for (const e of defs) {
+// every registered extension, not just the stock ones: a third-party
+// extension's keywords are as real as Music's, and classifying one requires
+// the manifest to recognise it
+for (const ext of allExtensions()) {
+  for (const e of ext.tokens) {
     const n = e.name.replace(/^!/, '').trim().toLowerCase()
     if (n !== '') known.add(n)
   }

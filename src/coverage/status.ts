@@ -491,6 +491,23 @@ export const FAITHFUL = new Set<string>([
   'mkdir',
   'kill',
   'rename',
+
+  // --- LDos (third-party extension, by Niklas Sjoberg) ---
+  // Verified against LdosV25.DOC, the extension's own manual, which documents
+  // every keyword with syntax, parameter meanings and error results. Manual
+  // evidence, so these can be faithful; see src/runtime/ldos.ts.
+  'lopen',
+  'lclose',
+  'lload',
+  'lsave',
+  'lseek',
+  'lsize',
+  'lfile type',
+  'lstr',
+  'lbstr',
+  'lset eoln',
+  'lold',
+  'lcreate',
   'assign',
   'dir$',
   'dir',
@@ -942,6 +959,16 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  'lold':
+    "LdosV25.DOC documents this as 'Lold - MAY CURRENTLY NOT BE USED!!', kept back for a future version the author never shipped: 'These are here for future versions, currently the compiler seems to mess up values of reserved variables'. Doing nothing is what the manual describes, but the manual says what the keyword is *for*, not what the released library does when called — that is unknown, and the binary is the only place it is written down",
+  'lcreate':
+    'As Lold: LdosV25.DOC marks it MAY CURRENTLY NOT BE USED, so it is implemented as a no-op and what the shipped library actually does when called is unknown',
+  'lbstr':
+    "The manual warns 'No check is done to see whether the bufferlimit was exceeded or not so make sure there is room for the string'. That overrun is precisely what a port cannot reproduce: the write is bounded by the memory region it lands in, where the real machine would run on into whatever followed the bank",
+  'lsave':
+    "Returns the bytes written, and the manual's disk-error cases ('disk full, or write error', dos.library returning -1) have no counterpart in a browser filesystem, so a short write can only happen when the source address runs out",
+  'lopen':
+    'Files are read into memory whole on open and written back on Lclose, so the manual\'s warning that an unclosed file can corrupt the disk holds in the sense that the writes are simply lost — it cannot corrupt anything else',
   'set tempras': 'size/address validated and stored; the chunky renderer needs no temporary raster buffer',
   bstart: 'the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply',
   blength: 'the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply',
