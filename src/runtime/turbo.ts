@@ -2728,9 +2728,19 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       // indicates that the Icon is defined, and it has a MASK. 0 indicates
       // that the Icon is NOT defined" — and with no bank at all, "in AMOSPro
       // you don't get an error, 0 is returned instead"
+      //
+      // Routine 147 reads the bank number from $3b8 — the Scene Icon Bank
+      // setting — rather than always asking the icon bank: "It is also
+      // possible to check other Icon banks with it. See the Scene Icon Bank
+      // command for more clarification. It can even check BOB/SPRITE banks,
+      // as the bank has the same format." It never checks the lookup
+      // succeeded, so a missing bank reads address zero on the Amiga; here
+      // it takes the documented answer of 0.
       const n = int(a[0] ?? VI(0))
       if (n <= 0) funcCall()
-      const img = rt.iconBank?.image(n)
+      const nb = rt.turbo.scene.iconBank
+      const bank = nb === 1 ? rt.spriteBank : nb === 2 ? rt.iconBank : null
+      const img = bank?.image(n)
       if (!img) return VI(0)
       return VI(img.opaque ? -1 : 1)
     },
