@@ -780,6 +780,11 @@ export const FAITHFUL = new Set<string>([
   'td debug',
   'td pragma',
   'td pragma status',
+  'td anim',
+  'td anim rel',
+  'td anim point x',
+  'td anim point y',
+  'td anim point z',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',

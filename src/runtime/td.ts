@@ -394,6 +394,33 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       if (block < 0 || block >= obj.colours.length) tdError(24)
       obj.colours[block] = [...TD_DITHER[(colour >>> 0) < 16 ? colour : colour & 15]!] as TdDither
     },
+    ...Object.fromEntries(
+      ([['td anim', false], ['td anim rel', true]] as const).map(([name, relative]) => [
+        name,
+        ((it) => {
+          // Td Anim [Rel] n, point, x, y, z, transform — $211e42, the two
+          // forms one routine and a selector. The object goes through
+          // $212fd0, so object zero is out of range: the viewpoint has no
+          // geometry to deform.
+          const t = st()
+          const n = it.evalInt()
+          const nums: number[] = []
+          for (let i = 0; i < 5; i++) {
+            it.expect(',')
+            nums.push(it.evalInt())
+          }
+          const [index, x, y, z] = nums as [number, number, number, number]
+          const p = tdAnimPoint(tdInstance(t, n), index)
+          const w = (v: number): number => (v << 16) >> 16
+          p.x = w(relative ? p.x + x : x)
+          p.y = w(relative ? p.y + y : y)
+          p.z = w(relative ? p.z + z : z)
+          // the last argument asks for the point list to be re-transformed
+          // there and then ($211ea8 into $21085c); here every redraw
+          // transforms from scratch, so there is nothing to force
+        }) as Instr,
+      ]),
+    ),
     'td forward'(it) {
       // Td Forward n, d — $2118ee moves the object d units along its own
       // facing. It builds sin and cos of the two angles and combines them by
@@ -597,6 +624,14 @@ export interface TdInstance extends TdFrame {
   object: TdObject
   /** `Td Priority`, the word at +$42 of the object's render record */
   priority?: number
+  /**
+   * The instance's own copy of the model points, once `Td Anim` has touched
+   * one. $2149ce copies the point list into the instance when the object is
+   * created, so animating one `Td Object` does not deform another of the same
+   * name; the copy is made here on first use instead of on creation, which
+   * comes to the same thing and costs nothing for an object nobody animates.
+   */
+  points?: TdPoint[]
   /** world x, y, z */
   pos: [number, number, number]
   /** attitude a, b, c, in 65536ths of a revolution */
@@ -981,6 +1016,28 @@ export function tdViewPoint(frame: TdFrame, world: readonly number[]): [number, 
   return [r.x, r.y, r.z]
 }
 
+/**
+ * An instance's model points, copied on first use — `Td Anim` deforms the
+ * object it is given and not every other object loaded from the same file.
+ */
+export function tdInstancePoints(inst: TdInstance): TdPoint[] {
+  if (!inst.points) inst.points = parseTdGeometry(inst.object.file).points.map((p) => ({ ...p }))
+  return inst.points
+}
+
+/**
+ * One model point of a live object, for `Td Anim` — the walk at $211f2a.
+ *
+ * The index counts from zero, and the walk stops at the 30000 terminator
+ * rather than at a count, so asking for a point past the end of the list is
+ * "Point does not exist" rather than a read into whatever follows.
+ */
+export function tdAnimPoint(inst: TdInstance, index: number): TdPoint {
+  const points = tdInstancePoints(inst)
+  if (index < 0 || index >= points.length) tdError(20)
+  return points[index]!
+}
+
 /** `Td Position X/Y/Z(n)` and `Td Attitude A/B/C(n)`, one routine and a selector */
 export function makeTdFunctions(rt: Runtime): Record<string, Func> {
   const read = (field: 'pos' | 'angle', axis: number): Func => (_, a) =>
@@ -1081,6 +1138,15 @@ export function makeTdFunctions(rt: Runtime): Record<string, Func> {
           const z = (tdFrame(rt.td, int(a[0] ?? VI(0))).zones ?? []).find((q) => q.n === (int(a[1] ?? VI(0)) & 0xff))
           if (!z) return VI(-1)
           return VI(i === 3 ? z.r : z.pos[i]!)
+        }) as Func,
+      ]),
+    ),
+    ...Object.fromEntries(
+      (['x', 'y', 'z'] as const).map((axis) => [
+        `td anim point ${axis}`,
+        ((_, a) => {
+          const p = tdAnimPoint(tdInstance(rt.td, int(a[0] ?? VI(0))), int(a[1] ?? VI(0)))
+          return VI(axis === 'x' ? p.x : axis === 'y' ? p.y : p.z)
         }) as Func,
       ]),
     ),
@@ -1965,6 +2031,8 @@ export function tdRedrawFaces(st: TdState): Array<{ n: number; faces: TdScreenFa
   const out: Array<{ n: number; faces: TdScreenFace[] }> = []
   for (const [n, inst] of [...st.instances].sort((a, b) => a[0] - b[0])) {
     const g = parseTdGeometry(inst.object.file)
+    // Td Anim deforms this instance's own copy of the points
+    if (inst.points) g.points = inst.points
     const attitude = tdMatrix(inst.angle[0], inst.angle[1], inst.angle[2])
     out.push({ n, faces: tdInstanceFaces(g, attitude, tdViewFor(st.viewpoint, inst), inst.object) })
   }

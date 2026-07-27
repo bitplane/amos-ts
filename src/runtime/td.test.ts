@@ -1694,3 +1694,85 @@ describe('AMOS 3D the small keywords ($2118ee, $212f0c, $212f30, $2114b6, $212f5
     expect(tdInstance(rt.td, 1).priority).toBe(7)
   })
 })
+
+describe('AMOS 3D Td Anim ($211e42, the point walk at $211f2a)', () => {
+  const setup = `
+      Td Load "dice"
+      Td Object 1,"dice",0,0,0,0,0,0
+  `
+  const go = (src: string) => run(`${setup}\n${src}`, objectAndLinks('dice.3DO'))
+
+  it('moves a model point where it is told', () => {
+    const { out } = go(`
+      Td Anim 1,0,11,22,33,0
+      Print Td Anim Point X(1,0);",";Td Anim Point Y(1,0);",";Td Anim Point Z(1,0)
+    `)
+    expect(out.split('\n')[0]).toBe(' 11, 22, 33')
+  })
+
+  it('Td Anim Rel adds instead of replacing', () => {
+    const { out } = go(`
+      Td Anim 1,0,100,200,300,0
+      Td Anim Rel 1,0,1,2,3,0
+      Print Td Anim Point X(1,0);",";Td Anim Point Y(1,0);",";Td Anim Point Z(1,0)
+    `)
+    expect(out.split('\n')[0]).toBe(' 101, 202, 303')
+  })
+
+  it('reads the object as loaded before anything animates it', () => {
+    // dice is a cube of half-side about 173, so every coordinate starts big
+    const { out } = go('Print Td Anim Point X(1,0)')
+    expect(Math.abs(Number(out.split('\n')[0]))).toBeGreaterThan(160)
+  })
+
+  it('deforms one object and not another of the same name', () => {
+    // $2149ce copies the point list into each instance, so two Td Objects of
+    // one file do not share their geometry
+    const { out } = run(`
+      Td Load "dice"
+      Td Object 1,"dice",0,0,0,0,0,0
+      Td Object 2,"dice",0,0,0,0,0,0
+      Td Anim 1,0,0,0,0,0
+      Print Td Anim Point X(1,0);",";Td Anim Point X(2,0)
+    `, objectAndLinks('dice.3DO'))
+    const [one, two] = out.split('\n')[0]!.split(',').map((n) => Number(n))
+    expect(one).toBe(0)
+    expect(Math.abs(two!)).toBeGreaterThan(160)
+  })
+
+  it('refuses a point the object has not got', () => {
+    // $211f2a walks to the 30000 terminator and raises there
+    expect(() => go('Td Anim 1,8,0,0,0,0')).toThrow(/Point does not exist/)
+    expect(() => go('Print Td Anim Point X(1,99)')).toThrow(/Point does not exist/)
+    expect(() => go('Td Anim 1,7,0,0,0,0')).not.toThrow()
+  })
+
+  it('is not allowed on the viewpoint, which has no geometry', () => {
+    // $212fd0 rather than $21301c, so object zero is out of range
+    expect(() => go('Td Anim 0,0,1,2,3,0')).toThrow(/Invalid object number/)
+  })
+
+  it('a deformed point moves what Td Redraw draws', () => {
+    const painted = (src: string) => {
+      const { rt } = run(`
+        Td Screen Height 150
+        Screen Open 0,320,200,16,0
+        Td Load "dice"
+        Td Object 1,"dice",0,0,1500,0,0,0
+        ${src}
+        Td Cls
+        Td Redraw
+      `, objectAndLinks('dice.3DO'))
+      let n = 0
+      for (let y = 0; y < 150; y++) for (let x = 0; x < 320; x++) if (rt.screen.point(x, y) !== 0) n++
+      return n
+    }
+    // pulling every corner in to the centre leaves nothing with any area
+    const whole = painted('')
+    const collapsed = painted(`
+      For I=0 To 7 : Td Anim 1,I,0,0,0,0 : Next I
+    `)
+    expect(whole).toBeGreaterThan(1000)
+    expect(collapsed).toBe(0)
+  })
+})
