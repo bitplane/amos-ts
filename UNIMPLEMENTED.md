@@ -81,6 +81,18 @@ because the thing being approximated is a piece of Amiga hardware or host
 machinery that does not exist here. Calling both "approximated" without
 saying which is how a list like this quietly becomes furniture.
 
+**Closable** (nobody has done the work yet):
+
+- `td redraw` — the whole geometry pipeline is there and tested, from the
+  screen checks through the attitude matrix, the vertex transform, the view
+  transform and the perspective divide to every live instance's faces in
+  screen coordinates. What is missing is the fill, and it is blocked on the
+  `.3DS` format: a surface is not a colour but a "surface detail" with its
+  own anchor points, and dice's six run from 318 to 1848 bytes of nested
+  geometry — the pips on the faces of a die. Until that is decoded there is
+  nothing honest to fill a polygon with, so the keyword validates the screen
+  and advances the frame and draws nothing.
+
 **Will not close** (the deviation is structural, not a gap):
 
 - `peek`/`poke`/`start`/`screen base` — there is no real address space, only

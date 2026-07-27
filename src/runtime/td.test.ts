@@ -8,7 +8,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
 import { loadHunks } from '../loader/hunk'
 import type { TdFrame, TdMatrix, TdView } from './td'
-import { TD_NEAR, TD_ONE, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
+import { TD_NEAR, TD_ONE, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -670,5 +670,52 @@ describe('AMOS 3D depth limits (the near test and the divisor at $210268)', () =
     // inside the limit it behaves
     const ok: TdView = { matrix: tdMatrix(0, 0, 0), origin: [1000 * TD_ONE, 0, 20000 * TD_ONE], shift: 0 }
     expect(tdProject(ok, { x: 0, y: 0, z: 0 }).x).toBe(204)
+  })
+})
+
+describe('AMOS 3D Td Redraw ($21131e, screen check at $211418)', () => {
+  it('refuses a screen 3D cannot draw on, like Td Cls does', () => {
+    const files = objectAndLinks('dice.3DO')
+    // 320 wide but only 8 colours
+    expect(() => run('Td Screen Height 100 : Screen Open 0,320,200,8,0 : Td Redraw', files))
+      .toThrow(/not compatible with 3d/)
+    // wide enough in colours but not 320 across
+    expect(() => run('Td Screen Height 100 : Screen Open 0,640,200,16,0 : Td Redraw', files))
+      .toThrow(/not compatible with 3d/)
+    // shorter than the 3D area
+    expect(() => run('Td Screen Height 200 : Screen Open 0,320,100,16,0 : Td Redraw', files))
+      .toThrow(/not compatible with 3d/)
+  })
+
+  it('advances the frame stamp, skipping zero when it wraps', () => {
+    const { rt } = run('Screen Open 0,320,200,16,0 : For I=1 To 3 : Td Redraw : Next I')
+    expect(rt.td.frame).toBe(3)
+    rt.td.frame = 255
+    expect((rt.td.frame + 1) & 0xff).toBe(0) // which is why the engine bumps again
+  })
+
+  it('walks the live instances in order and projects each one', () => {
+    const files = objectAndLinks('dice.3DO')
+    const { rt } = run(`
+      Td Screen Height 150
+      Screen Open 0,320,200,16,0
+      Td Load "dice"
+      Td Object 2,"dice",600,0,2000,0,0,0
+      Td Object 1,"dice",0,0,1500,0,0,0
+      Td Redraw
+    `, files)
+    const drawn = tdRedrawFaces(rt.td)
+    expect(drawn.map((d) => d.n)).toEqual([1, 2])
+    // both cubes are in front of the camera, so all six faces of each project
+    expect(drawn.map((d) => d.faces.length)).toEqual([6, 6])
+    // and the one placed 600 to the right really is to the right
+    const centre = (i: number): number => {
+      const xs = drawn[i]!.faces.flatMap((f) => f.points.map((p) => p.x))
+      return (Math.max(...xs) + Math.min(...xs)) / 2
+    }
+    // not exactly zero: divs.w truncates toward zero, so the left and right
+    // corners of a centred cube round in opposite directions
+    expect(Math.abs(centre(0))).toBeLessThan(16)
+    expect(centre(1)).toBeGreaterThan(100)
   })
 })

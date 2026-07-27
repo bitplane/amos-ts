@@ -193,6 +193,8 @@ export interface TdState {
   instances: Map<number, TdInstance>
   /** object zero, the viewpoint — the frame at a4+$481c */
   viewpoint: TdFrame
+  /** the frame stamp at a4+$1902, bumped by every Td Redraw and never zero */
+  frame: number
 }
 
 export const newTdState = (): TdState => ({
@@ -202,6 +204,7 @@ export const newTdState = (): TdState => ({
   screenHeight: 0,
   instances: new Map(),
   viewpoint: { pos: [0, 0, 0], angle: [0, 0, 0] },
+  frame: 0,
 })
 
 /**
@@ -369,6 +372,18 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       for (let y = 0; y < Math.min(t.screenHeight, s.height); y++) {
         for (let x = 0; x < s.width; x++) s.plot(x, y, 0)
       }
+    },
+    'td redraw'() {
+      // $211418 makes the same three checks Td Cls does, and for the same
+      // reason — the renderer writes bitplanes directly. Then $211f6e bumps
+      // the frame stamp at a4+$1902, which is what makes the per-vertex cache
+      // at +$9 of each vertex record go stale, and skips zero when it wraps.
+      const s2 = rt.screen
+      const t = st()
+      if (s2.height < t.screenHeight || s2.depth < 4 || s2.width !== 320) tdError(11)
+      t.frame = (t.frame + 1) & 0xff
+      if (t.frame === 0) t.frame = 1
+      tdRedrawFaces(t)
     },
     'td quit'() {
       // "Unload the 3D extensions along with all objects and release all 3D
@@ -967,6 +982,32 @@ export function tdInstanceFaces(g: TdGeometry, attitude: TdMatrix, view: TdView)
     const points = face.vertices.map((i) => projected[i]!)
     if (points.some((p) => p.status !== 0)) continue
     out.push({ face, points: points.map((p) => ({ x: p.x, y: p.y })) })
+  }
+  return out
+}
+
+/**
+ * The geometry half of `Td Redraw`: every live instance's faces, in screen
+ * coordinates, in the order the engine walks them.
+ *
+ * This is the loop at $21138c — the live instance list, each object's frame
+ * at +$52, its attitude at +$12/+$16/+$1a — with the transform and projection
+ * behind it. What it does not do is fill anything.
+ *
+ * NOTES: the port stops here. Choosing a face's colour means decoding a
+ * `.3DS`, and a surface is not a colour: the QuickCard calls it a "surface
+ * detail" with its own anchor points, and dice's six surfaces are 318 to 1848
+ * bytes of nested geometry — the pip patterns on the faces of a die. Until
+ * that is read there is nothing honest to fill a polygon with, so `Td Redraw`
+ * validates the screen and advances the frame and the scanline fill is not
+ * written yet.
+ */
+export function tdRedrawFaces(st: TdState): Array<{ n: number; faces: TdScreenFace[] }> {
+  const out: Array<{ n: number; faces: TdScreenFace[] }> = []
+  for (const [n, inst] of [...st.instances].sort((a, b) => a[0] - b[0])) {
+    const g = parseTdGeometry(inst.object.file)
+    const attitude = tdMatrix(inst.angle[0], inst.angle[1], inst.angle[2])
+    out.push({ n, faces: tdInstanceFaces(g, attitude, tdViewFor(st.viewpoint, inst)) })
   }
   return out
 }
