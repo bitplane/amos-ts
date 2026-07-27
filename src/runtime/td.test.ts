@@ -8,7 +8,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
 import { loadHunks } from '../loader/hunk'
 import type { TdFrame, TdMatrix, TdView } from './td'
-import { TD_ARCTAN, TD_NEAR, TD_ONE, tdFrame, tdFrameReach, tdAtan2, tdCentreRow, tdScanFill, tdScreenX, tdScreenY, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
+import { TD_ARCTAN, TD_NEAR, TD_ONE, tdFrame, tdInstance, tdFrameReach, tdAtan2, tdCentreRow, tdScanFill, tdScreenX, tdScreenY, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -1642,5 +1642,55 @@ describe('AMOS 3D zones and collision ($211f98, $212200, the test at $2122ec)', 
       Print Td Zone X(1,0);",";Td Zone X(1,1)
     `)
     expect(out.split('\n')[0]).toBe('-1, 20')
+  })
+})
+
+describe('AMOS 3D the small keywords ($2118ee, $212f0c, $212f30, $2114b6, $212f5e)', () => {
+  const setup = `
+      Td Load "dice"
+      Td Object 1,"dice",0,0,0,0,0,0
+  `
+  const go = (src: string) => run(`${setup}\n${src}`, objectAndLinks('dice.3DO'))
+
+  it('Td Forward moves an object along its own facing', () => {
+    // unturned, forward is +z
+    expect(go('Td Forward 1,500\nPrint Td Position X(1);",";Td Position Y(1);",";Td Position Z(1)')
+      .out.split('\n')[0]).toBe(' 0, 0, 500')
+  })
+
+  it('Td Forward follows the object round', () => {
+    // a quarter turn about B and forward is +x, the same prediction the
+    // attitude matrix and Td World were both held to
+    const q = TD_REVOLUTION / 4
+    const { out } = go(`Td Angle 1,0,${q},0\nTd Forward 1,500\nPrint Td Position X(1);",";Td Position Z(1)`)
+    const [x, z] = out.split('\n')[0]!.split(',').map((n) => Number(n))
+    expect(Math.abs(x! - 500)).toBeLessThanOrEqual(1)
+    expect(Math.abs(z!)).toBeLessThanOrEqual(1)
+  })
+
+  it('Td Forward accumulates, and goes backwards for a negative distance', () => {
+    expect(go('Td Forward 1,300\nTd Forward 1,-800\nPrint Td Position Z(1)').out.split('\n')[0]).toBe('-500')
+  })
+
+  it('Td Forward moves the viewpoint too', () => {
+    expect(go('Td Forward 0,250\nPrint Td Position Z(0)').out.split('\n')[0]).toBe(' 250')
+  })
+
+  it('Td Debug and Td Pragma do nothing, because the engine does nothing', () => {
+    // both are `link a5,#0 : unlk : rts` in the shipped library — the
+    // keywords outlived their bodies
+    expect(() => go('Td Debug 1')).not.toThrow()
+    expect(() => go('Td Pragma 1,2')).not.toThrow()
+    expect(go('Td Debug 1\nTd Pragma 3,4\nPrint Td Position Z(1)').out.split('\n')[0]).toBe(' 0')
+  })
+
+  it('Td Pragma Status always answers 42', () => {
+    // $212f54 is `moveq #$2a,d0 : rts`, whatever it is asked
+    expect(go('Print Td Pragma Status(0,0);",";Td Pragma Status(99,99)').out.split('\n')[0]).toBe(' 42, 42')
+  })
+
+  it('Td Priority records the value it is given', () => {
+    const { rt } = go('Td Priority 1,7')
+    expect(tdInstance(rt.td, 1).priority).toBe(7)
   })
 })

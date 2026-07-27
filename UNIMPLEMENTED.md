@@ -83,9 +83,18 @@ saying which is how a list like this quietly becomes furniture.
 
 **Closable** (nobody has done the work yet):
 
-- (nothing at present)
+- `td priority` — the value is recorded where the engine records it, in the
+  object's render record at `+$42`, and nothing reads it. `$42` is written
+  all over the `$215xxx` render code but no read of it as a sort key has
+  turned up yet, so the draw order it is supposed to feed is not modelled and
+  setting a priority changes no output.
 
 **Will not close** (the deviation is structural, not a gap):
+
+- `td advanced` — hands back an Amiga address: `a4` itself for object zero,
+  otherwise the instance pointer. There is no address space here for one to
+  mean anything in, so it answers zero, for the same reason `peek` and `poke`
+  do what they do.
 
 - `td redraw` — the model is the engine's, the rasteriser is ours. Everything
   down to the last polygon is reproduced: the transform chain, the camera, the

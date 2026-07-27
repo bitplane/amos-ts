@@ -394,6 +394,41 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       if (block < 0 || block >= obj.colours.length) tdError(24)
       obj.colours[block] = [...TD_DITHER[(colour >>> 0) < 16 ? colour : colour & 15]!] as TdDither
     },
+    'td forward'(it) {
+      // Td Forward n, d — $2118ee moves the object d units along its own
+      // facing. It builds sin and cos of the two angles and combines them by
+      // hand, with a shorter path when the roll is zero, but the products are
+      // the attitude matrix's third column taken in the same order with the
+      // same two shifts — so this is the local point (0, 0, d) put into the
+      // world, which is Td World's arithmetic exactly.
+      const t = st()
+      const n = it.evalInt()
+      it.expect(',')
+      const d = it.evalInt()
+      const frame = tdFrame(t, n)
+      frame.pos = tdWorldPoint(frame, [0, 0, d])
+    },
+    'td priority'(it) {
+      // $212f30 writes the word into the object's render record at +$42.
+      // NOTES: recorded where the engine records it, and nothing here reads
+      // it — the draw order it feeds has not been traced, so setting a
+      // priority changes no output yet.
+      const t = st()
+      const n = it.evalInt()
+      it.expect(',')
+      tdInstance(t, n).priority = (it.evalInt() << 16) >> 16
+    },
+    'td debug'(it) {
+      // $2114b6 is `link a5,#0 : unlk : rts` — the keyword survived into the
+      // shipped engine with its body removed, so it does nothing at all
+      it.evalInt()
+    },
+    'td pragma'(it) {
+      // $212f5e, likewise a bare link/unlk/rts
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+    },
     'td set zone'(it) {
       // Td Set Zone n, zone, x, y, z, r — $211f98. The object goes through
       // $21301c so zero counts; a centre over $4000 on any axis, a radius
@@ -560,6 +595,8 @@ export interface TdAnim {
 export interface TdInstance extends TdFrame {
   n: number
   object: TdObject
+  /** `Td Priority`, the word at +$42 of the object's render record */
+  priority?: number
   /** world x, y, z */
   pos: [number, number, number]
   /** attitude a, b, c, in 65536ths of a revolution */
@@ -1047,6 +1084,15 @@ export function makeTdFunctions(rt: Runtime): Record<string, Func> {
         }) as Func,
       ]),
     ),
+    'td pragma status': () => VI(42),
+    'td advanced': (_, a) => {
+      // $212f0c hands back an address: a4 itself for object zero, otherwise
+      // the instance pointer. NOTES: there is no address space here for one
+      // to mean anything in, so this answers zero — the same reason peek and
+      // poke are approximated.
+      int(a[0] ?? VI(0))
+      return VI(0)
+    },
     'td collide': (_, a) => {
       // $21218e. With a second object it tests that one; without, it walks
       // the twenty slots at a4+$47c0 and stops at the first hit, skipping

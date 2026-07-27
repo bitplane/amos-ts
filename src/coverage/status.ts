@@ -776,6 +776,10 @@ export const FAITHFUL = new Set<string>([
   'td zone z',
   'td zone r',
   'td collide',
+  'td forward',
+  'td debug',
+  'td pragma',
+  'td pragma status',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1315,6 +1319,10 @@ export const NOTES: Record<string, string> = {
     'Equal object numbers return zero before either is validated ($211d9c compares first), so Td Range(99,99) is 0 rather than "Invalid object number". Object zero counts, because the frames come through $21301c. The prescale at $21235a is reproduced rather than replaced by an exact distance: it ORs the absolute deltas together and, once that passes $4000, normalises to a shift of p-13 where p is the highest set bit, shifts all three down by it and the root back up at the end. That keeps the sum of squares inside a long and costs precision — two objects 100000 apart are measured in units of 8. The integer square root at $213184 is taken to be the floor',
   'td redraw':
     'The model is the engine\'s and the rasteriser is ours. Everything before a pixel is reproduced and tested: the three screen checks at $211418, the frame stamp at a4+$1902 that never wraps to zero, the walk of the live instance list, the attitude matrix from $213df8, the vertex transform from $2108a2, the view transform and perspective divide from $2101c8, the near and far limits, the .3DS surfaces with their midpoint constructions and pens, and the dither pair each block is drawn in — the two bytes per block at the object\'s +$3a section. The screen mapping is the engine\'s own, the arithmetic Td Screen X and Td Screen Y do: x/16 + 160, and the centre row (h-1)>>1 minus y/16, with row zero outside the bounds. What is not the engine\'s is the fill. It hands the blitter one EOR line per edge in line mode ($210456 picks the octant and shortens the run by one) and then area-fills the mask; there is no blitter here, so the same shape is computed directly by a scanline fill, even-odd, with edges half-open at the bottom. The polygons and their pens are right; the bits are not guaranteed identical, a long shallow edge can land a column either side of where Bresenham would have put it, and the phase of the two-pen dither — which pen falls on the even squares — is a choice, because it is decided inside the fill that is not reproduced. A pen only ever touches the bottom two bitplanes, as $21042a and $210438 do, so a Td Background in the upper planes shows through',
+  'td priority':
+    "Records the word where the engine records it — $212f30 writes it into the object's render record at +$42 — and nothing reads it back. The draw order it feeds has not been traced: $42 is written all over the $215xxx render code but no read of it as a sort key turned up, so setting a priority changes no output yet. The value is kept so a program that sets and forgets behaves, and so the ordering can be wired up without changing the keyword",
+  'td advanced':
+    "Hands back an address on the Amiga: a4 itself for object zero, otherwise the instance pointer ($212f0c). There is no address space here for one to mean anything in, so this answers zero — the same reason peek, poke and start are approximated. A program that only tests it against zero will see 'no object'; one that pokes through it could not have worked here whatever the answer",
   'td load':
     'The engine gates its ".3DO" suffix on a flag at a4+$b1a whose setter is not on any path traced so far; every shipped demo loads by bare name, so the suffix is always added here and a name that already carries an extension keeps it. Worth revisiting if a program turns up that loads by full filename',
   'multi bload':
