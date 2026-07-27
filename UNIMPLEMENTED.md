@@ -83,18 +83,20 @@ saying which is how a list like this quietly becomes furniture.
 
 **Closable** (nobody has done the work yet):
 
-- `td redraw` — everything but the pixels. The geometry pipeline is there and
-  tested, from the screen checks through the attitude matrix, the vertex
-  transform, the view transform and the perspective divide to every live
-  instance's faces in screen coordinates; the `.3DS` surfaces on top of them
-  are decoded, midpoint constructions, patches and pens; and each face knows
-  the dither pair its block is drawn in. What is left is the rasteriser
-  itself — the EOR-edge scanline fill at `$2105e0` and the two-pen dither —
-  plus `Td Cls` and the double buffer it draws into. So the keyword validates
-  the screen, advances the frame and computes every polygon, and nothing
-  reaches the bitmap.
+- (nothing at present)
 
 **Will not close** (the deviation is structural, not a gap):
+
+- `td redraw` — the model is the engine's, the rasteriser is ours. Everything
+  down to the last polygon is reproduced: the transform chain, the camera, the
+  `.3DS` surfaces and the dither pair each block is drawn in. But the engine
+  draws by handing the blitter one EOR line per edge in line mode and then
+  running an area fill over the mask, and there is no blitter here. The same
+  shapes are computed directly instead — a scanline fill, even-odd, edges
+  half-open at the bottom — so what lands on the screen is the right polygons
+  in the right pens but not guaranteed to be the same bits. A long, shallow
+  edge can sit a column either side of where a Bresenham line would have put
+  it, and the phase of the two-pen dither is a choice rather than a reading.
 
 - `peek`/`poke`/`start`/`screen base` — there is no real address space, only
   banks and bitplanes mapped into a fake one.

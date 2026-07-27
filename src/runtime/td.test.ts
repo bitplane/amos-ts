@@ -8,7 +8,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
 import { loadHunks } from '../loader/hunk'
 import type { TdFrame, TdMatrix, TdView } from './td'
-import { TD_NEAR, TD_ONE, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
+import { TD_NEAR, TD_ONE, tdCentreRow, tdScanFill, tdScreenX, tdScreenY, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -1114,5 +1114,118 @@ describe('AMOS 3D block colours ($2109c0 at load, $212f66 for Td Set Colour)', (
       Td Set Colour 2,0,15
     `, objectAndLinks('dice.3DO'))
     for (const inst of rt.td.instances.values()) expect(inst.object.colours).toEqual([[3, 3]])
+  })
+})
+
+describe('AMOS 3D rasteriser (screen mapping $2126b6/$212688, our own fill)', () => {
+  it('puts x through the same arithmetic Td Screen X does', () => {
+    // asr.l #4 then add 160, and the bounds are tdClipCode's
+    expect(tdScreenX(0)).toBe(160)
+    expect(tdScreenX(-0xa00)).toBe(0)
+    expect(tdScreenX(0x9f0)).toBe(319)
+    // arithmetic, so a negative sixteenth floors rather than truncating
+    expect(tdScreenX(-1)).toBe(159)
+  })
+
+  it('measures rows down from the centre of the 3D area', () => {
+    // $211570: a4+$4864 is (h-1)>>1, and $212688 subtracts y/16 from it
+    expect(tdCentreRow(150)).toBe(74)
+    expect(tdScreenY(150, 0)).toBe(74)
+    // the model's y grows up and the screen's grows down
+    expect(tdScreenY(150, 16)).toBe(73)
+    expect(tdScreenY(150, -16)).toBe(75)
+    expect(tdCentreRow(200)).toBe(99)
+  })
+
+  it('fills a rectangle to its edges and no further', () => {
+    const rows: string[] = []
+    tdScanFill([{ x: 2, y: 1 }, { x: 5, y: 1 }, { x: 5, y: 4 }, { x: 2, y: 4 }], (y, a, b) => rows.push(`${y}:${a}-${b}`))
+    // half-open at the bottom, because the engine shortens every edge by one
+    expect(rows).toEqual(['1:2-5', '2:2-5', '3:2-5'])
+  })
+
+  it('skips horizontal edges, as $2103f8 does', () => {
+    const rows: string[] = []
+    tdScanFill([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 3 }], (y, a, b) => rows.push(`${y}:${a}-${b}`))
+    expect(rows).toEqual(['0:0-10', '1:1-8', '2:3-6'])
+  })
+
+  it('pairs crossings even-odd, so a polygon can have a hole', () => {
+    // an EOR mask filled inclusively leaves the middle of a figure-of-eight
+    // empty; a winding-number fill would not
+    const rows: number[][] = []
+    tdScanFill(
+      [{ x: 0, y: 0 }, { x: 8, y: 0 }, { x: 8, y: 8 }, { x: 0, y: 8 },
+       { x: 0, y: 6 }, { x: 6, y: 6 }, { x: 6, y: 2 }, { x: 0, y: 2 }],
+      (y, a, b) => rows.push([y, a, b]),
+    )
+    // row 3 crosses the right wall at 8 and the inner wall at 6 and fills
+    // only between them; a winding fill would have swallowed the notch
+    expect(rows.filter((r) => r[0] === 3)).toEqual([[3, 6, 8]])
+    // row 1 is below the notch, so it fills the full width
+    expect(rows.filter((r) => r[0] === 1)).toEqual([[1, 0, 8]])
+  })
+
+  it('draws the dice, in the pens its block is dithered in', () => {
+    const { rt } = run(`
+      Td Screen Height 150
+      Screen Open 0,320,200,16,0
+      Td Load "dice"
+      Td Object 1,"dice",0,0,1500,300,600,0
+      Td Cls
+      Td Redraw
+    `, objectAndLinks('dice.3DO'))
+    const s = rt.screen
+    let painted = 0
+    const pens = new Set<number>()
+    for (let y = 0; y < 200; y++) {
+      for (let x = 0; x < 320; x++) {
+        const p = s.point(x, y)
+        if (p !== 0) { painted++; pens.add(p) }
+        // Td Cls blanks rows 0 to 149 and the redraw may only write inside
+        // them, never on row zero and never past Td Screen Height — below it
+        // the screen is still the colour Screen Open left
+        if (y === 0) expect(p, `${x},${y}`).toBe(0)
+        if (y >= 150) expect(p, `${x},${y}`).toBe(1)
+      }
+    }
+    // 16000 of those are the untouched rows below the 3D area
+    expect(painted - 16000).toBeGreaterThan(2000)
+    // dice's one block is [1,2] and its pips are pens 1 and 2, so only the
+    // bottom two planes are ever touched
+    for (const p of pens) expect(p).toBeLessThan(4)
+    expect([...pens].sort()).toEqual([1, 2])
+    expect(pens.has(1) && pens.has(2)).toBe(true)
+  })
+
+  it('leaves the upper planes alone, because a pen is a two-bit mask', () => {
+    // $21042a and $210438 EOR into planes 0 and 1 only, so a background in
+    // the high planes shows through the low two bits the 3D writes
+    const { rt } = run(`
+      Td Screen Height 150
+      Screen Open 0,320,200,16,0
+      Td Load "dice"
+      Td Object 1,"dice",0,0,1500,0,0,0
+      Ink 12 : Bar 0,0 To 319,149
+      Td Redraw
+    `, objectAndLinks('dice.3DO'))
+    const s = rt.screen
+    const seen = new Set<number>()
+    for (let y = 1; y < 150; y++) for (let x = 0; x < 320; x++) seen.add(s.point(x, y))
+    // 12 is %1100: every pixel keeps those two bits and only the low two move
+    for (const p of seen) expect(p & ~3).toBe(12)
+    expect(seen.size).toBeGreaterThan(1)
+  })
+
+  it('Td Cls wipes what Td Redraw drew', () => {
+    const { rt } = run(`
+      Td Screen Height 150
+      Screen Open 0,320,200,16,0
+      Td Load "dice"
+      Td Object 1,"dice",0,0,1500,0,0,0
+      Td Redraw
+      Td Cls
+    `, objectAndLinks('dice.3DO'))
+    for (let y = 0; y < 150; y++) for (let x = 0; x < 320; x++) expect(rt.screen.point(x, y), `${x},${y}`).toBe(0)
   })
 })

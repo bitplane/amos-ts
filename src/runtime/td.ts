@@ -424,7 +424,7 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       // builds that instance's matrix, so an animation set this frame moves
       // the object this frame
       tdStepAnims(t)
-      tdRedrawFaces(t)
+      for (const inst of tdRedrawFaces(t)) for (const f of inst.faces) tdDrawFace(s2, t.screenHeight, f)
     },
     'td quit'() {
       // "Unload the 3D extensions along with all objects and release all 3D
@@ -1459,6 +1459,131 @@ export function tdRedrawFaces(st: TdState): Array<{ n: number; faces: TdScreenFa
     out.push({ n, faces: tdInstanceFaces(g, attitude, tdViewFor(st.viewpoint, inst), inst.object) })
   }
   return out
+}
+
+// ---- the rasteriser ----
+
+/** the only width the engine will draw on, checked at $211418 */
+export const TD_SCREEN_WIDTH = 320
+
+/**
+ * A projected x, in sixteenths of a pixel, as a column.
+ *
+ * `Td Screen X` is the same arithmetic in a keyword ($2126b6): the bounds are
+ * `tdClipCode`'s, then `asr.l #4` and `moveq #$50,d1 : add.l d1,d1` — a
+ * hundred and sixty, the middle of the only width 3D accepts.
+ */
+export function tdScreenX(x: number): number {
+  return (x >> 4) + TD_SCREEN_WIDTH / 2
+}
+
+/**
+ * The row a projected y lands on, and the row the horizon sits at.
+ *
+ * `Td Screen Height h` ($211570) keeps `h - 1` at a4+$4860 and `(h - 1) >> 1`
+ * at a4+$4864, and $212688 turns a y into a row by subtracting: the screen's
+ * y grows downwards and the model's grows up, so the centre row minus the
+ * height is the answer. The bounds either side of it ($21266c) work out as
+ * rows 1 to h-1 — row zero is never drawn on, which is where the engine keeps
+ * the slack its edge lists need.
+ */
+export function tdCentreRow(height: number): number {
+  return (height - 1) >> 1
+}
+export function tdScreenY(height: number, y: number): number {
+  return tdCentreRow(height) - (y >> 4)
+}
+
+/**
+ * Fill a polygon by scanlines, even-odd, calling `span` with an inclusive
+ * pair of columns.
+ *
+ * NOTES: this is ours, and it is the one place in AMOS 3D where the port
+ * stops copying the original. The engine draws each edge with the blitter in
+ * line mode, EORing one bit per scanline into a mask ($210456 sets the octant
+ * in d7 and shortens the run by one, $2104ea onwards drives $dff000), waits
+ * ($2135cc polls DMACONR bit 14) and then runs a blitter area fill over it.
+ * Reproducing that means emulating the blitter, so instead the same shape is
+ * computed directly: an edge contributes a crossing to every row it spans
+ * except its last, which is what shortening the line by one does, and the
+ * crossings pair off left to right, which is what an inclusive area fill
+ * does to an EOR mask. Horizontal edges contribute nothing, as at $2103f8.
+ *
+ * The vertices are already whole pixels when they arrive, because the engine
+ * rounds them before it builds any edge — `andi.w #$fff0` on both ends at
+ * $2103e6 and then `asr.w #4`. What is not reproduced is the sub-pixel path a
+ * Bresenham line takes between two of them; a crossing here is interpolated,
+ * so a long, shallow edge can sit one column either side of the original.
+ */
+export function tdScanFill(points: Array<{ x: number; y: number }>, span: (y: number, x0: number, x1: number) => void): void {
+  if (points.length < 3) return
+  let top = points[0]!.y
+  let bottom = top
+  for (const p of points) {
+    if (p.y < top) top = p.y
+    if (p.y > bottom) bottom = p.y
+  }
+  for (let y = top; y < bottom; y++) {
+    const xs: number[] = []
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i]!
+      const b = points[(i + 1) % points.length]!
+      if (a.y === b.y) continue
+      const [lo, hi] = a.y < b.y ? [a, b] : [b, a]
+      if (y < lo.y || y >= hi.y) continue
+      xs.push(lo.x + Math.floor(((y - lo.y) * (hi.x - lo.x)) / (hi.y - lo.y)))
+    }
+    xs.sort((p, q) => p - q)
+    for (let i = 0; i + 1 < xs.length; i += 2) span(y, xs[i]!, xs[i + 1]!)
+  }
+}
+
+/** what the rasteriser needs of a screen: the low two planes of a pixel */
+export interface TdRaster {
+  width: number
+  height: number
+  point(x: number, y: number): number
+  plot(x: number, y: number, c: number): void
+}
+
+/**
+ * Put one pixel down in one of the bottom four pens.
+ *
+ * A pen is a two-bit plane mask — $21042a and $210438 btst bit 0 and bit 1
+ * and EOR into plane 0 and plane 1 — so only the bottom two planes of the
+ * pixel are touched and whatever the upper ones hold, a `Td Background` for
+ * instance, survives underneath.
+ */
+function tdPen(t: TdRaster, x: number, y: number, pen: number): void {
+  t.plot(x, y, (t.point(x, y) & ~3) | (pen & 3))
+}
+
+/**
+ * Draw one face: the polygon in its block's dither, then whatever its surface
+ * puts on top, in file order.
+ *
+ * NOTES: the dither pattern is a checkerboard on the sum of the coordinates,
+ * with the first of the two pens on the even squares. That the two pens
+ * alternate per pixel is not in doubt — it is why a4+$54 holds sixteen pairs
+ * of four pens, and why [0,1] and [1,0] are listed as different colours when
+ * as a set they are the same two pens. Which square each pen starts on is not
+ * pinned down, because it is decided inside the blitter fill this does not
+ * reproduce; getting it backwards swaps colour 1 with colour 10.
+ */
+export function tdDrawFace(t: TdRaster, height: number, f: TdScreenFace): void {
+  const rows = Math.min(height, t.height)
+  const px = (p: { x: number; y: number }) => ({ x: tdScreenX(p.x), y: tdScreenY(height, p.y) })
+  const paint = (poly: Array<{ x: number; y: number }>, pen: (x: number, y: number) => number): void => {
+    tdScanFill(poly.map(px), (y, x0, x1) => {
+      // row zero is outside the engine's own bounds, and so is anything past
+      // the 3D area or either side of the 320 columns
+      if (y < 1 || y >= rows) return
+      for (let x = Math.max(0, x0); x <= Math.min(TD_SCREEN_WIDTH - 1, x1); x++) tdPen(t, x, y, pen(x, y))
+    })
+  }
+  const [a, b] = f.colour
+  paint(f.points, (x, y) => ((x + y) & 1 ? b : a))
+  for (const fill of f.fills) paint(fill.points, () => fill.pen)
 }
 
 // ---- animation ----
