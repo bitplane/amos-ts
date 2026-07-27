@@ -761,6 +761,12 @@ export const FAITHFUL = new Set<string>([
   'td angle b',
   'td angle c',
   'td set colour',
+  // Td Priority's draw order, from the bubble sort at $218cc4: zero-priority
+  // pairs sort on the depth key at +$1c ascending, any pair with a priority
+  // between them sorts on priority descending. Corroborated by the manual
+  // update on the Object Modeller coverdisk (Voodoo/Europress, 31/10/1992),
+  // which documents the keyword the printed manual leaves out.
+  'td priority',
   'td redraw',
   'td bearing a',
   'td bearing b',
@@ -1347,8 +1353,6 @@ export const NOTES: Record<string, string> = {
     "The four anchors are recorded where the engine records them, at a4+$486f with the flag at a4+$4873, and nothing maps a surface through them: a surface's first four slots are still the face's own four corners, which is what $217424 fills them with. The only use of the anchors traced so far is Td Surface validating them against the block's point count ($212d42), and what actually consumes them has not been found. Td Surface Points Off clears the flag, which is faithful, and setting them changes no output",
   'td visible':
     "$211d64 answers 0 when the byte at $f8 of the instance is set and the one at $cb is clear. $f8 is a culled-this-frame flag: $219038 clears it at the top of each object's pass and $2190c8 sets it when the object fails a distance test, `d6 + a4+$b34 < d7`. That test is a bounding-sphere check made before any face is looked at, and the pass it lives in has not been read, so this answers the same question a different way — whether the last Td Redraw put any of the object on the screen. An object rejected wholly by the near limit agrees with the engine; one the engine culls early for being too far, and this one drops face by face, can disagree at the margin. An object that has never been redrawn reads as visible, which is what the cleared byte gives",
-  'td priority':
-    "Records the word where the engine records it — $212f30 writes it into the object's render record at +$42 — and nothing reads it back. The draw order it feeds has not been traced: $42 is written all over the $215xxx render code but no read of it as a sort key turned up, so setting a priority changes no output yet. The value is kept so a program that sets and forgets behaves, and so the ordering can be wired up without changing the keyword",
   'td advanced':
     "Hands back an address on the Amiga: a4 itself for object zero, otherwise the instance pointer ($212f0c). There is no address space here for one to mean anything in, so this answers zero — the same reason peek, poke and start are approximated. A program that only tests it against zero will see 'no object'; one that pokes through it could not have worked here whatever the answer",
   'td load':

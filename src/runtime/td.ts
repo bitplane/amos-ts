@@ -388,6 +388,13 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       // +$20 of its object is "Block does not exist"; and a colour outside
       // 0..15 is masked rather than refused, `cmp.l #$10 : bcs : and.l #$f`,
       // which makes -1 white and 16 black.
+      //
+      // The 31/10/1992 manual update on the Object Modeller coverdisk says
+      // "valid colour numbers range from 0 to 16" and that an out-of-range
+      // code "will be truncated to the nearest valid code without causing an
+      // error". Both are loose: there are sixteen combinations, not
+      // seventeen, and $212faa masks rather than clamps, so 16 lands on 0
+      // rather than staying at the top. The binary is what runs.
       const n = it.evalInt()
       it.expect(',')
       const block = it.evalInt()
@@ -548,10 +555,9 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       frame.pos = tdWorldPoint(frame, [0, 0, d])
     },
     'td priority'(it) {
-      // $212f30 writes the word into the object's render record at +$42.
-      // NOTES: recorded where the engine records it, and nothing here reads
-      // it — the draw order it feeds has not been traced, so setting a
-      // priority changes no output yet.
+      // $212f30 writes the word into the object's render record at +$42, and
+      // that is all it does — no relinking, no sort here. The sort is at
+      // $218cc4 and runs every Td Redraw; see tdSortInstances.
       const t = st()
       const n = it.evalInt()
       it.expect(',')
@@ -670,7 +676,11 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       // builds that instance's matrix, so an animation set this frame moves
       // the object this frame
       tdStepAnims(t)
-      for (const inst of tdRedrawFaces(t)) for (const f of inst.faces) tdDrawFace(s2, t.screenHeight, f)
+      // tdRedrawFaces hands back the engine's order, front-most first; a
+      // painter has to go the other way for the front-most to end up on top
+      for (const inst of tdRedrawFaces(t).reverse()) {
+        for (const f of inst.faces) tdDrawFace(s2, t.screenHeight, f)
+      }
     },
     'td quit'() {
       // "Unload the 3D extensions along with all objects and release all 3D
@@ -2069,9 +2079,10 @@ export function tdClipCode(v: number): 0 | 1 | 2 {
  * screen, and a 173-unit cube at 1500 comes out about 59 pixels across.
  *
  * The shift is per object: $215e8c copies it out of the object's +$40 into
- * a4+$b32 and $2101c8 applies it to each row's sum, so it scales an object
- * whose model coordinates are too large. Where +$40 comes from in the file
- * has not been located, so only the neutral zero is reachable so far.
+ * a4+$b32 and $2101c8 applies it to each row's sum. It does not come from the
+ * file at all — $218de8 recomputes it every frame from how far the object is
+ * from the viewpoint (`tdViewShift`), so it is a range scale, not a model
+ * property.
  *
  * $215e54 copies a per-object origin out of the object's +$c0..+$c8 into
  * a4+$b34, and $2101c8 adds it after the view rotation rather than before —
@@ -2080,12 +2091,39 @@ export function tdClipCode(v: number): 0 | 1 | 2 {
  * consistent with the data flow and with the transform being applied to
  * points that have already been rotated into the object's own attitude.
  */
-export function tdViewFor(viewpoint: TdFrame, frame: TdFrame, shift = 0): TdView {
+/**
+ * The per-object range shift, from $218de8.
+ *
+ * The three world deltas are OR'd together by magnitude, exactly as
+ * `tdBearingCore` does. Under $4000 the shift is zero ($218f58 takes the
+ * short path and stores zero into +$40). At or above it, the count starts at
+ * $12 and comes down one for every position the accumulator has to be shifted
+ * left before bit 31 is set — so a bigger separation buys a bigger shift, and
+ * the products downstream stay inside a long.
+ *
+ * `andi.w #$c000,d0` masks only the low word and the `tst.l` that follows
+ * looks at all 32 bits, so the test is "is the magnitude $4000 or more", not
+ * anything about those two bits on their own.
+ */
+export function tdViewShift(viewpoint: TdFrame, frame: TdFrame): number {
+  let acc = 0
+  for (let i = 0; i < 3; i++) acc |= Math.abs((frame.pos[i]! - viewpoint.pos[i]!) | 0)
+  if ((acc & 0xffff_c000) === 0) return 0
+  let shift = 0x12
+  let n = acc
+  while ((n & 0x8000_0000) === 0) {
+    shift--
+    n = (n << 1) | 0
+  }
+  return shift
+}
+
+export function tdViewFor(viewpoint: TdFrame, frame: TdFrame, shift = tdViewShift(viewpoint, frame)): TdView {
   const matrix = tdMatrix(viewpoint.angle[0], viewpoint.angle[1], viewpoint.angle[2])
   const rel = {
-    x: (frame.pos[0] - viewpoint.pos[0]) | 0,
-    y: (frame.pos[1] - viewpoint.pos[1]) | 0,
-    z: (frame.pos[2] - viewpoint.pos[2]) | 0,
+    x: ((frame.pos[0] - viewpoint.pos[0]) | 0) >> shift,
+    y: ((frame.pos[1] - viewpoint.pos[1]) | 0) >> shift,
+    z: ((frame.pos[2] - viewpoint.pos[2]) | 0) >> shift,
   }
   const o = tdViewRotate(matrix, rel, 0)
   return { matrix, origin: [o.x, o.y, o.z], shift }
@@ -2162,9 +2200,65 @@ export function tdInstanceFaces(g: TdGeometry, attitude: TdMatrix, view: TdView,
  * been located, so the faces themselves have no colour to be filled with yet.
  * The surfaces on top of them do: their pens come out of the `.3DS`.
  */
+/**
+ * The draw order, from the bubble sort at $218cc4.
+ *
+ * The engine copies the live object list into a scratch array at a4+$32d4 and
+ * bubbles adjacent pairs until a pass makes no swap. The comparison is two
+ * rules in one, and which applies depends on the pair:
+ *
+ *     move.w $42(a0),d6      ; A's Td Priority
+ *     move.w $42(a1),d5      ; B's
+ *     move.l d6,d0 : or.w d5,d0 : bne $218d08
+ *     move.l $1c(a0),d0 : cmp.l $1c(a1),d0 : bgt $218d0c   ; both zero: depth
+ *     cmp.w d5,d6 : bge $218d14                            ; else: priority
+ *
+ * So a pair of zero-priority objects sorts on +$1c ascending, and any pair
+ * with a priority between them sorts on priority descending. +$1c is written
+ * at $21902e from what $218de8 returns, which is the object origin's Z in the
+ * camera's frame — its depth into the screen — so nearest comes first.
+ *
+ * That is the rule the manual update on the Object Modeller coverdisk states
+ * from the other side ("Undocumented Td Commands", Voodoo/Europress,
+ * 31/10/1992): 0 draws by depth, above zero draws in front of everything
+ * lower, below zero behind everything higher, and "if two objects have
+ * non-zero priority the one with the highest priority will be drawn first (in
+ * front)".
+ *
+ * The comparison is not a total order — a priority pair and a depth pair can
+ * disagree about the same three objects — so which arrangement a list settles
+ * into depends on the algorithm, and the bubble sort is reproduced rather than
+ * handed to `Array.sort`.
+ *
+ * NOTES: first in this list is the front-most, and the port paints in reverse
+ * so the front-most lands on top. The engine gets there the other way round,
+ * drawing front to back; with a blitter mask that is the same picture, but it
+ * is not the same mechanism, which is already noted against `td redraw`.
+ */
+export function tdSortInstances(st: TdState): Array<[number, TdInstance]> {
+  const list = [...st.instances].sort((a, b) => a[0] - b[0])
+  const depth = new Map<number, number>()
+  for (const [n, inst] of list) depth.set(n, tdViewFor(st.viewpoint, inst).origin[2])
+  for (let swapped = true; swapped; ) {
+    swapped = false
+    for (let i = 0; i + 1 < list.length; i++) {
+      const a = list[i]!
+      const b = list[i + 1]!
+      const pa = a[1].priority ?? 0
+      const pb = b[1].priority ?? 0
+      const swap = pa === 0 && pb === 0 ? depth.get(a[0])! > depth.get(b[0])! : pa < pb
+      if (!swap) continue
+      list[i] = b
+      list[i + 1] = a
+      swapped = true
+    }
+  }
+  return list
+}
+
 export function tdRedrawFaces(st: TdState): Array<{ n: number; faces: TdScreenFace[] }> {
   const out: Array<{ n: number; faces: TdScreenFace[] }> = []
-  for (const [n, inst] of [...st.instances].sort((a, b) => a[0] - b[0])) {
+  for (const [n, inst] of tdSortInstances(st)) {
     const g = parseTdGeometry(inst.object.file)
     // Td Anim deforms this instance's own copy of the points
     if (inst.points) g.points = inst.points

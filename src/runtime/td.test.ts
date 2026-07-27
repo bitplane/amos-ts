@@ -8,7 +8,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
 import { loadHunks } from '../loader/hunk'
 import type { TdFrame, TdMatrix, TdObject, TdView } from './td'
-import { TD_ARCTAN, TD_NEAR, TD_ONE, tdFrame, tdInstance, tdFrameReach, tdAtan2, tdCentreRow, tdScanFill, tdScreenX, tdScreenY, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
+import { TD_ARCTAN, TD_NEAR, TD_ONE, tdFrame, tdInstance, tdFrameReach, tdAtan2, tdCentreRow, tdScanFill, tdScreenX, tdScreenY, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdSortInstances, tdViewFor, tdViewRotate, tdViewShift } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -71,12 +71,15 @@ describe('AMOS 3D object files (loader at $219ba4)', () => {
 
   it('reads every object, template and surface on the demo disc', () => {
     // The format claim is only worth as much as the files it survives: all
-    // 110 of them, .3DO, .3DT and .3DS alike, and every link record parses.
+    // 112 of them, .3DO, .3DT and .3DS alike, and every link record parses.
+    // 112 rather than 111 since monitor.3DO came off the Amiga Computing #66
+    // coverdisk, which is the only copy of it found so far.
     const files = readdirSync(OBJECTS)
     let links = 0
     for (const f of files) links += parseTdFile(shipped(f)).links.length
-    expect(files.length).toBe(111)
-    expect(links).toBe(130)
+    expect(files.length).toBe(112)
+    // monitor.3DO brings five link records of its own, 130 -> 135
+    expect(links).toBe(135)
   })
 
   it('recovers the five section offsets the loader turns into pointers', () => {
@@ -1114,6 +1117,90 @@ describe('AMOS 3D block colours ($2109c0 at load, $212f66 for Td Set Colour)', (
       Td Set Colour 2,0,15
     `, objectAndLinks('dice.3DO'))
     for (const inst of rt.td.instances.values()) expect(inst.object.colours).toEqual([[3, 3]])
+  })
+})
+
+describe('Td Priority and the draw order ($218cc4, and the 31/10/1992 manual update)', () => {
+  const eye = { pos: [0, 0, 0], angle: [0, 0, 0] }
+  /** a state holding objects at the given depths, numbered from 1 */
+  const at = (...depths: number[]) => {
+    const st = { viewpoint: eye, instances: new Map() } as never as import('./td').TdState
+    depths.forEach((z, i) => st.instances.set(i + 1, { n: i + 1, pos: [0, 0, z], angle: [0, 0, 0] } as never))
+    return st
+  }
+  const order = (st: import('./td').TdState) => tdSortInstances(st).map(([n]) => n)
+
+  it('sorts zero-priority objects by depth, nearest first', () => {
+    // both priorities zero takes the `cmp.l $1c(a1),d0 / bgt` arm, and +$1c
+    // is the object origin's Z in the camera's frame
+    expect(order(at(3000, 1000, 2000))).toEqual([2, 3, 1])
+  })
+
+  it('leaves the order alone when the objects are already nearest-first', () => {
+    expect(order(at(1000, 2000, 3000))).toEqual([1, 2, 3])
+  })
+
+  it('puts a positive priority in front of everything lower, whatever the depth', () => {
+    const st = at(1000, 9000)
+    st.instances.get(2)!.priority = 1
+    // object 2 is four times further away and still draws first
+    expect(order(st)).toEqual([2, 1])
+  })
+
+  it('puts a negative priority behind everything higher', () => {
+    const st = at(9000, 1000)
+    st.instances.get(1)!.priority = -1
+    expect(order(st)).toEqual([2, 1])
+  })
+
+  it('orders two non-zero priorities by priority descending', () => {
+    // "if two objects have non-zero priority the one with the highest
+    // priority will be drawn first (in front)"
+    const st = at(1000, 2000, 3000)
+    st.instances.get(1)!.priority = 1
+    st.instances.get(2)!.priority = 5
+    st.instances.get(3)!.priority = -2
+    expect(order(st)).toEqual([2, 1, 3])
+  })
+
+  it('a priority of zero is the default and means depth', () => {
+    const st = at(5000, 1000)
+    st.instances.get(1)!.priority = 0
+    expect(order(st)).toEqual([2, 1])
+  })
+})
+
+describe('the per-object range shift ($218de8)', () => {
+  const eye: import('./td').TdFrame = { pos: [0, 0, 0], angle: [0, 0, 0] }
+  const at = (z: number): import('./td').TdFrame => ({ pos: [0, 0, z], angle: [0, 0, 0] })
+
+  it('is zero while the separation stays under $4000', () => {
+    // $218e72 masks the low word with $c000 and $218e76 tests the whole long,
+    // so the question is only whether the magnitude reached $4000
+    expect(tdViewShift(eye, at(0x3fff))).toBe(0)
+    expect(tdViewShift(eye, at(0x4000))).toBe(1)
+  })
+
+  it('takes the largest of the three axes, sign ignored', () => {
+    expect(tdViewShift(eye, { pos: [-0x40000, 1, 2], angle: [0, 0, 0] } as import('./td').TdFrame)).toBe(
+      tdViewShift(eye, { pos: [0, 0x40000, 0], angle: [0, 0, 0] } as import('./td').TdFrame),
+    )
+  })
+
+  it('counts down from $12 as the magnitude grows', () => {
+    // one place further left for each doubling, so each doubling of the
+    // separation costs one from the shift
+    expect(tdViewShift(eye, at(0x4000))).toBe(1)
+    expect(tdViewShift(eye, at(0x8000))).toBe(2)
+    expect(tdViewShift(eye, at(0x10000))).toBe(3)
+  })
+
+  it('is what scales the view origin down', () => {
+    // the shift divides the deltas before the matrix, so a far object's
+    // origin comes back scaled rather than overflowing
+    const far = at(0x8000)
+    expect(tdViewFor(eye, far).shift).toBe(2)
+    expect(tdViewFor(eye, far).origin[2]).toBe((0x8000 >> 2) * TD_ONE)
   })
 })
 
