@@ -83,17 +83,16 @@ saying which is how a list like this quietly becomes furniture.
 
 **Closable** (nobody has done the work yet):
 
-- `td redraw` — the whole geometry pipeline is there and tested, from the
-  screen checks through the attitude matrix, the vertex transform, the view
-  transform and the perspective divide to every live instance's faces in
-  screen coordinates, and the `.3DS` surfaces on top of them are decoded as
-  well: their midpoint constructions, their filled patches and the pen each
-  is drawn in. What is missing is the colour of the faces themselves. A face
-  is filled with a *dither pair*, not a pen — `Td Set Colour` writes two of
-  the bottom four pens through `$38(part)` out of the sixteen pairs at
-  `a4+$54` — and where a part's pair points before any `Td Set Colour` has
-  not been found yet. So the keyword validates the screen, advances the
-  frame and computes every polygon, and draws nothing.
+- `td redraw` — everything but the pixels. The geometry pipeline is there and
+  tested, from the screen checks through the attitude matrix, the vertex
+  transform, the view transform and the perspective divide to every live
+  instance's faces in screen coordinates; the `.3DS` surfaces on top of them
+  are decoded, midpoint constructions, patches and pens; and each face knows
+  the dither pair its block is drawn in. What is left is the rasteriser
+  itself — the EOR-edge scanline fill at `$2105e0` and the two-pen dither —
+  plus `Td Cls` and the double buffer it draws into. So the keyword validates
+  the screen, advances the frame and computes every polygon, and nothing
+  reaches the bitmap.
 
 **Will not close** (the deviation is structural, not a gap):
 

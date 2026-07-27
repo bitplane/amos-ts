@@ -8,7 +8,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
 import { loadHunks } from '../loader/hunk'
 import type { TdFrame, TdMatrix, TdView } from './td'
-import { TD_NEAR, TD_ONE, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
+import { TD_NEAR, TD_ONE, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -1007,5 +1007,112 @@ describe('AMOS 3D surfaces (fix-up at $219b30, constructor at $2174d2, fill at $
       expect(f.fills.length).toBeGreaterThan(0)
       for (const fill of f.fills) expect(fill.pen).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('AMOS 3D block colours ($2109c0 at load, $212f66 for Td Set Colour)', () => {
+  const objects = readdirSync(OBJECTS).filter((n) => /\.3do$/i.test(n))
+
+  it('finds two bytes per block in the section at +$3a', () => {
+    // $2109c0 allocates 2 * the block count at +$20 and copies the +$3a
+    // section into it, so every object has to have exactly that much room
+    // between the section and whatever follows — and it does, on all 35.
+    for (const name of objects) {
+      const f = parseTdFile(shipped(name))
+      const cols = tdBlockColours(f)
+      const blocks = parseTdBlocks(f)
+      expect(cols.length, name).toBe(blocks.length)
+      expect(cols.length, name).toBeGreaterThan(0)
+      const at = new DataView(f.block.buffer, f.block.byteOffset, f.block.byteLength).getUint16(0x3a, false)
+      const points = tdSections(f.block)[0x0c]!
+      expect(points - at, name).toBeGreaterThanOrEqual(cols.length * 2)
+    }
+  })
+
+  it('reads a pen in 0..3 for every block of every object', () => {
+    // The pens are the bottom two bitplanes, so nothing above 3 can be drawn
+    // and a byte outside that range would mean the section is misread.
+    for (const name of objects) {
+      for (const [a, b] of tdBlockColours(parseTdFile(shipped(name)))) {
+        expect(a, name).toBeLessThan(4)
+        expect(b, name).toBeLessThan(4)
+      }
+    }
+  })
+
+  it('gives church its four blocks four different colours', () => {
+    // Four blocks and the colours alternate, which is what a building drawn
+    // in walls-and-roof pairs looks like.
+    expect(tdBlockColours(parseTdFile(shipped('church.3DO')))).toEqual([[0, 2], [1, 3], [1, 3], [0, 2]])
+    expect(tdBlockColours(parseTdFile(shipped('dice.3DO')))).toEqual([[1, 2]])
+  })
+
+  it('numbers a block by its first face', () => {
+    // $214f56 takes +$16 of the block record as the index of its first face,
+    // and the blocks run in order, so a face belongs to the last block that
+    // starts at or before it.
+    const blocks = parseTdBlocks(parseTdFile(shipped('church.3DO')))
+    const bases = blocks.map((b) => b.baseFace)
+    expect(bases).toEqual([...bases].sort((a, b) => a - b))
+    expect(tdBlockForFace(blocks, 0)).toBe(0)
+    expect(tdBlockForFace(blocks, blocks[3]!.baseFace)).toBe(3)
+    expect(tdBlockForFace(blocks, blocks[3]!.baseFace - 1)).toBe(2)
+  })
+
+  it('hands every drawn face the colour of its block', () => {
+    const { rt } = run(`
+      Td Screen Height 150
+      Screen Open 0,320,200,16,0
+      Td Load "dice"
+      Td Object 1,"dice",0,0,1500,0,0,0
+      Td Redraw
+    `, objectAndLinks('dice.3DO'))
+    for (const f of tdRedrawFaces(rt.td)[0]!.faces) expect(f.colour).toEqual([1, 2])
+  })
+
+  it('Td Set Colour picks a dither pair out of the sixteen', () => {
+    // $212fb4 doubles the colour and reads two bytes from a4+$54: four solid
+    // pens and twelve ordered pairs. 11 is solid pen 1, 8 is 2-over-3.
+    const colours = (src: string) => {
+      const { rt } = run(`
+        Td Load "dice"
+        Td Object 1,"dice",0,0,1500,0,0,0
+        ${src}
+      `, objectAndLinks('dice.3DO'))
+      return rt.td.objects.get('dice')!.colours
+    }
+    expect(colours('Td Set Colour 1,0,11')).toEqual([[1, 1]])
+    expect(colours('Td Set Colour 1,0,8')).toEqual([[2, 3]])
+    expect(colours('Td Set Colour 1,0,0')).toEqual([[0, 0]])
+    // out of range is masked, not refused: 16 wraps to 0 and -1 to 15
+    expect(colours('Td Set Colour 1,0,16')).toEqual([[0, 0]])
+    expect(colours('Td Set Colour 1,0,-1')).toEqual([[3, 3]])
+  })
+
+  it('Td Set Colour refuses a block the object has not got', () => {
+    const bad = (n: number) => () => run(`
+      Td Load "dice"
+      Td Object 1,"dice",0,0,1500,0,0,0
+      Td Set Colour 1,${n},1
+    `, objectAndLinks('dice.3DO'))
+    expect(bad(1)).toThrow(/Block does not exist/)
+    expect(bad(0)).not.toThrow()
+    // and the object number goes through $212fd0, which subtracts one and
+    // rejects anything not below 20 — so zero is not the viewpoint here, it
+    // is out of range
+    expect(() => run('Td Set Colour 0,0,1')).toThrow(/Invalid object number/)
+  })
+
+  it('recolours every instance of an object at once', () => {
+    // The colour array belongs to the loaded object — $2109de hangs it off
+    // the object record, and $214df6 points each instance's blocks into it —
+    // so two Td Objects of one name share their colours.
+    const { rt } = run(`
+      Td Load "dice"
+      Td Object 1,"dice",0,0,1500,0,0,0
+      Td Object 2,"dice",500,0,1500,0,0,0
+      Td Set Colour 2,0,15
+    `, objectAndLinks('dice.3DO'))
+    for (const inst of rt.td.instances.values()) expect(inst.object.colours).toEqual([[3, 3]])
   })
 })

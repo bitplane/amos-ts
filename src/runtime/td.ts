@@ -176,6 +176,11 @@ export interface TdObject {
   file: TdFile
   /** what each link record resolved to, keyed by its byte offset */
   linked: Map<number, TdObject>
+  /**
+   * One dither pair per block, the array the loader allocates at $2109c0 and
+   * hangs off the object record's +$10. Empty for templates and surfaces.
+   */
+  colours: TdDither[]
 }
 
 export interface TdState {
@@ -271,7 +276,8 @@ function tdLoadFile(
   if (existing) return existing
   const bytes = read(`${st.dir}${name}${/\.[^./]*$/.test(name) ? '' : ext}`)
   if (!bytes) tdError(missing)
-  const obj: TdObject = { name: key, file: parseTdFile(bytes, bad), linked: new Map() }
+  const file = parseTdFile(bytes, bad)
+  const obj: TdObject = { name: key, file, linked: new Map(), colours: ext === '.3DO' ? tdBlockColours(file) : [] }
   // registered before the links are followed, so an object that somehow
   // refers to itself terminates rather than recursing
   st.objects.set(key, obj)
@@ -350,6 +356,21 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
         pos: [l32(nums[0]!), l32(nums[1]!), l32(nums[2]!)],
         angle: [l32(nums[3]!), l32(nums[4]!), l32(nums[5]!)],
       })
+    },
+    'td set colour'(it) {
+      // Td Set Colour n,block,colour — $212f66. The object goes through
+      // $212fd0, so object zero is not allowed; a block past the count at
+      // +$20 of its object is "Block does not exist"; and a colour outside
+      // 0..15 is masked rather than refused, `cmp.l #$10 : bcs : and.l #$f`,
+      // which makes -1 white and 16 black.
+      const n = it.evalInt()
+      it.expect(',')
+      const block = it.evalInt()
+      it.expect(',')
+      const colour = it.evalInt()
+      const obj = tdInstance(st(), n).object
+      if (block < 0 || block >= obj.colours.length) tdError(24)
+      obj.colours[block] = [...TD_DITHER[(colour >>> 0) < 16 ? colour : colour & 15]!] as TdDither
     },
     'td kill'(it) {
       // $2117d2 unlinks the frame from the live list and frees it
@@ -749,6 +770,118 @@ export function parseTdGeometry(file: TdFile): TdGeometry & { multipart: boolean
     faces.push({ at, surface: v.getUint32(at, false), vertices })
   }
   return { points, faces, pointsAt, facesAt, facesEnd, multipart }
+}
+
+// ---- blocks and colour ----
+
+/**
+ * The engine calls a sub-object a *block* — "Block does not exist" is error
+ * 24, and it is what `Td Set Colour` and `Td Surface` index. A block record is
+ * forty-six bytes in the section the loader reaches through +$38.
+ */
+export const TD_BLOCK_SIZE = 46
+
+/** two pens from the bottom four, dithered together to make one colour */
+export type TdDither = [number, number]
+
+/**
+ * The sixteen colours, as the pairs of pens they are really drawn in — the
+ * table at a4+$54, which `Td Set Colour` indexes by colour*2 ($212fb4).
+ *
+ * Four solids and twelve ordered dithers of two pens, which is how a screen
+ * with four usable pens offers sixteen colours. Note that 1 and 10 are the
+ * same two pens the other way round: the order is the dither's phase, so they
+ * are different colours on screen.
+ */
+export const TD_DITHER: readonly TdDither[] = [
+  [0, 0], [0, 1], [0, 2], [0, 3],
+  [1, 2], [2, 1], [1, 3], [3, 1],
+  [2, 3], [3, 2], [1, 0], [1, 1],
+  [2, 0], [2, 2], [3, 0], [3, 3],
+]
+
+export interface TdBlock {
+  /** offset of the record in the object's block */
+  at: number
+  /** the stored template pointer; the type-4 link record names `at + $a` */
+  template: number
+  /** index of the first working vertex the block owns ($214dd6, byte * $20) */
+  firstVertex: number
+  /** index of the block's first face in the object's face list ($214f56) */
+  baseFace: number
+}
+
+/**
+ * The blocks of an object, out of the section at +$38 with the count at +$20.
+ *
+ * $214f22 is the reader: it walks the records forty-six bytes at a time,
+ * taking +$16 as the index of the block's first face — it multiplies by
+ * sixteen and adds the face pointer — and +$12 as the index of its first
+ * working vertex, multiplied by the $20 vertex stride. +$a is the template
+ * pointer, which is exactly where the object's type-4 link record puts its
+ * resolved address.
+ */
+export function parseTdBlocks(file: TdFile): TdBlock[] {
+  const b = file.block
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength)
+  const at0 = v.getUint16(0x38, false)
+  const count = b[0x20] ?? 0
+  const out: TdBlock[] = []
+  for (let i = 0; i < count; i++) {
+    const at = at0 + i * TD_BLOCK_SIZE
+    if (at + TD_BLOCK_SIZE > b.length) break
+    out.push({
+      at,
+      template: v.getUint32(at + 0x0a, false),
+      firstVertex: b[at + 0x12]!,
+      baseFace: v.getUint16(at + 0x16, false),
+    })
+  }
+  return out
+}
+
+/**
+ * An object's starting colours, one dither pair per block.
+ *
+ * This is the section at +$3a, and it is the last of the five to be read for
+ * what it is. $2109c0 allocates two bytes per block — the count at +$20,
+ * doubled — hangs the array off the object record's +$10 and copies the
+ * section straight into it; $214df6 then gives each block struct a pointer
+ * into it, advancing by two, and that pointer is the one `Td Set Colour`
+ * writes through. So the file's own bytes are the object's colours until a
+ * program changes them.
+ *
+ * The evidence is the release: every one of the thirty-five objects has
+ * exactly two bytes per block between this section and its point list, and
+ * every one of those bytes is a pen in 0 to 3.
+ *
+ * Because the array belongs to the *loaded object* and not to an instance,
+ * two `Td Object`s of the same name share it — recolouring one recolours the
+ * other. That is reproduced.
+ */
+export function tdBlockColours(file: TdFile): TdDither[] {
+  const b = file.block
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength)
+  const at = v.getUint16(0x3a, false)
+  const count = b[0x20] ?? 0
+  const out: TdDither[] = []
+  for (let i = 0; i < count; i++) out.push([b[at + i * 2] ?? 0, b[at + i * 2 + 1] ?? 0])
+  return out
+}
+
+/**
+ * Which block a face belongs to: the last one whose first face is not past it.
+ *
+ * The engine reads the count out of the block's template ($1a of it, bounding
+ * Td Surface's face argument at $212cac) rather than working it out this way,
+ * but the two agree — the blocks' faces are consecutive and in order — and
+ * this needs no template, which matters because p8.3DT is missing from the
+ * archive that thirty of the demo objects want.
+ */
+export function tdBlockForFace(blocks: TdBlock[], face: number): number {
+  let n = 0
+  for (let i = 0; i < blocks.length; i++) if (blocks[i]!.baseFace <= face) n = i
+  return n
 }
 
 // ---- surfaces ----
@@ -1254,6 +1387,8 @@ export interface TdScreenFace {
   points: Array<{ x: number; y: number }>
   /** the polygons the face's `.3DS` puts on top of it, if it has one */
   fills: TdSurfaceFill[]
+  /** the two pens the face's block is dithered in */
+  colour: TdDither
 }
 
 /**
@@ -1280,14 +1415,20 @@ export interface TdScreenFace {
  */
 export function tdInstanceFaces(g: TdGeometry, attitude: TdMatrix, view: TdView, obj?: TdObject): TdScreenFace[] {
   const projected = g.points.map((p) => tdProject(view, tdRotate(attitude, p)))
+  const blocks = obj ? parseTdBlocks(obj.file) : []
   const out: TdScreenFace[] = []
-  for (const face of g.faces) {
+  for (const [i, face] of g.faces.entries()) {
     if (face.surface === 0) continue
-    const projectedFace = face.vertices.map((i) => projected[i]!)
+    const projectedFace = face.vertices.map((n) => projected[n]!)
     if (projectedFace.some((p) => p.status !== 0)) continue
     const points = projectedFace.map((p) => ({ x: p.x, y: p.y }))
     const surface = obj?.linked.get(face.at)
-    out.push({ face, points, fills: surface ? tdSurfaceFills(parseTdSurface(surface.file), points) : [] })
+    out.push({
+      face,
+      points,
+      fills: surface ? tdSurfaceFills(parseTdSurface(surface.file), points) : [],
+      colour: obj?.colours[tdBlockForFace(blocks, i)] ?? [0, 0],
+    })
   }
   return out
 }
