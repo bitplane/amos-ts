@@ -7,13 +7,28 @@ import type { DirEntry, Volume } from '../runtime/vfs'
 export class NodeVolume implements Volume {
   constructor(readonly root: string) {}
 
-  private hostPath(segs: string[]): string | null {
-    let cur = this.root
+  /**
+   * Resolve an AMOS path to a host path, as raw bytes.
+   *
+   * Buffers rather than strings because **Amiga filenames are ISO-8859-1**,
+   * and a byte like $E4 (a-umlaut) is not valid UTF-8. Node decodes directory
+   * entries as UTF-8 by default, so such a name comes back with a replacement
+   * character and every later stat/open on it fails — the PD corpus is full of
+   * Finnish and Swedish programs that crashed the census this way. Reading the
+   * entries as buffers keeps the bytes intact; they are decoded as Latin-1 only
+   * to compare with what the program asked for, which is the encoding the
+   * program itself is written in.
+   */
+  private hostPath(segs: string[]): Buffer | null {
+    let cur = Buffer.from(this.root)
     for (const seg of segs) {
       if (!existsSync(cur) || !statSync(cur).isDirectory()) return null
-      const hit = readdirSync(cur).find((e) => e.toLowerCase() === seg.toLowerCase())
+      const want = seg.toLowerCase()
+      const hit = readdirSync(cur, { encoding: 'buffer' }).find(
+        (e) => e.toString('latin1').toLowerCase() === want,
+      )
       if (hit === undefined) return null
-      cur = join(cur, hit)
+      cur = Buffer.concat([cur, Buffer.from('/'), hit])
     }
     return cur
   }
@@ -27,9 +42,9 @@ export class NodeVolume implements Volume {
   list(segs: string[]): DirEntry[] | null {
     const p = this.hostPath(segs)
     if (p === null || !existsSync(p) || !statSync(p).isDirectory()) return null
-    return readdirSync(p).map((name) => {
-      const st = statSync(join(p, name))
-      return { name, isDir: st.isDirectory(), size: st.isFile() ? st.size : 0 }
+    return readdirSync(p, { encoding: 'buffer' }).map((raw) => {
+      const st = statSync(Buffer.concat([p, Buffer.from('/'), raw]))
+      return { name: raw.toString('latin1'), isDir: st.isDirectory(), size: st.isFile() ? st.size : 0 }
     })
   }
 
@@ -63,8 +78,9 @@ export function fsForFile(file: string, fixturesRoot = 'fixtures/official-amos')
   fs.mountMemory('RAM')
   if (existsSync(fixturesRoot)) {
     fs.mount('AMOSPro', new NodeVolume(fixturesRoot))
-    for (const entry of readdirSync(fixturesRoot)) {
-      if (statSync(join(fixturesRoot, entry)).isDirectory()) {
+    for (const raw of readdirSync(fixturesRoot, { encoding: 'buffer' })) {
+      const entry = raw.toString('latin1')
+      if (statSync(Buffer.concat([Buffer.from(fixturesRoot), Buffer.from('/'), raw])).isDirectory()) {
         fs.assign(`AMOSPro_${entry}`, `AMOSPro:${entry}`)
         fs.assign(entry, `AMOSPro:${entry}`)
       }
