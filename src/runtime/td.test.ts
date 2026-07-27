@@ -1903,3 +1903,36 @@ describe('AMOS 3D Td Background ($210c54)', () => {
     expect(rt.screen.point(0, 0)).toBe(1)
   })
 })
+
+describe('AMOS 3D Td Visible ($211d64, the flag set at $2190c8)', () => {
+  const vis = (src: string) => run(`
+      Td Screen Height 150
+      Screen Open 0,320,200,16,0
+      Td Load "dice"
+      ${src}
+      Td Redraw
+      Print Td Visible(1)
+    `, objectAndLinks('dice.3DO')).out.split('\n')[0]
+
+  it('is true for an object in front of the viewpoint', () => {
+    expect(vis('Td Object 1,"dice",0,0,1500,0,0,0')).toBe(' 1')
+  })
+
+  it('is false for one behind it', () => {
+    // every vertex fails the near limit, so nothing of it is drawn
+    expect(vis('Td Object 1,"dice",0,0,-1500,0,0,0')).toBe(' 0')
+  })
+
+  it('is true before anything has been redrawn, because the flag starts clear', () => {
+    const { out } = run(`
+      Td Load "dice"
+      Td Object 1,"dice",0,0,-1500,0,0,0
+      Print Td Visible(1)
+    `, objectAndLinks('dice.3DO'))
+    expect(out.split('\n')[0]).toBe(' 1')
+  })
+
+  it('goes through $212fd0, so object zero is out of range', () => {
+    expect(() => run('Print Td Visible(0)')).toThrow(/Invalid object number/)
+  })
+})

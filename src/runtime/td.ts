@@ -736,6 +736,8 @@ export interface TdInstance extends TdFrame {
   object: TdObject
   /** `Td Priority`, the word at +$42 of the object's render record */
   priority?: number
+  /** whether the last `Td Redraw` put any of this object on the screen */
+  drawn?: boolean
   /**
    * The instance's own copy of the model points, once `Td Anim` has touched
    * one. $2149ce copies the point list into the instance when the object is
@@ -1262,6 +1264,22 @@ export function makeTdFunctions(rt: Runtime): Record<string, Func> {
         }) as Func,
       ]),
     ),
+    'td visible': (_, a) => {
+      // $211d64 answers 0 when the byte at $f8 of the instance is set and the
+      // one at $cb is clear. $f8 is a "culled this frame" flag: $219038
+      // clears it at the top of each object's pass and $2190c8 sets it when
+      // the object fails the distance test, `d6 + a4+$b34 < d7`.
+      //
+      // NOTES: that test is a bounding-sphere check made before any face is
+      // looked at, and the pass it lives in has not been read. This answers
+      // the same question a different way — whether the last Td Redraw put
+      // any of the object on the screen — so an object rejected wholly by the
+      // near limit agrees with the engine, while one the engine culls early
+      // for being too far and this one drops face by face may disagree at the
+      // margin. An object that has never been redrawn reads as visible, which
+      // is what the cleared byte gives.
+      return VI(tdInstance(rt.td, int(a[0] ?? VI(0))).drawn === false ? 0 : 1)
+    },
     'td pragma status': () => VI(42),
     'td advanced': (_, a) => {
       // $212f0c hands back an address: a4 itself for object zero, otherwise
@@ -2151,7 +2169,9 @@ export function tdRedrawFaces(st: TdState): Array<{ n: number; faces: TdScreenFa
     // Td Anim deforms this instance's own copy of the points
     if (inst.points) g.points = inst.points
     const attitude = tdMatrix(inst.angle[0], inst.angle[1], inst.angle[2])
-    out.push({ n, faces: tdInstanceFaces(g, attitude, tdViewFor(st.viewpoint, inst), inst.object) })
+    const faces = tdInstanceFaces(g, attitude, tdViewFor(st.viewpoint, inst), inst.object)
+    inst.drawn = faces.length > 0
+    out.push({ n, faces })
   }
   return out
 }
