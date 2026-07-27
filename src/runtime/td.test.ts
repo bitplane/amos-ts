@@ -7,8 +7,8 @@ import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
 import { loadHunks } from '../loader/hunk'
-import type { TdMatrix } from './td'
-import { TD_ONE, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdCos, tdMatrix, tdRotate, tdSections, tdSin } from './td'
+import type { TdMatrix, TdView } from './td'
+import { TD_NEAR, TD_ONE, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdMatrix, tdProject, tdRotate, tdSections, tdSin } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -491,5 +491,56 @@ describe('AMOS 3D attitude matrix ($213df8 in full)', () => {
     const m = tdMatrix(0, 0, TD_REVOLUTION / 4)
     for (let i = 0; i < 4; i++) p = tdRotate(m, p)
     expect(p).toEqual({ x: 500, y: -300, z: 200 })
+  })
+})
+
+describe('AMOS 3D projection ($2101c8, reached through $214876)', () => {
+  /** the identity view: +1 down the diagonal, with $bc2 and $bbe zero */
+  const flat = (shift = 0, origin: [number, number, number] = [0, 0, 0]): TdView => ({
+    matrix: [TD_ONE, 0, 0, TD_ONE, 0, 0, 0, 0, TD_ONE],
+    origin,
+    shift,
+  })
+
+  it('shifts the sum, not the terms, and then adds the world position', () => {
+    // the shift is applied to the whole row before the origin goes on, so an
+    // object 500 units out stays 500 units out however the model is scaled
+    const v = flat(12, [500, -200, 0x40000])
+    expect(tdProject(v, { x: 4096, y: 8192, z: 0 }).view).toEqual([500 + 4096, -200 + 8192, 0x40000])
+  })
+
+  it('rejects anything at or in front of the near limit', () => {
+    expect(tdProject(flat(12, [0, 0, TD_NEAR]), { x: 0, y: 0, z: 0 }).status).toBe(1)
+    expect(tdProject(flat(12, [0, 0, TD_NEAR + 4096]), { x: 0, y: 0, z: 0 }).status).toBe(0)
+    // and a point behind the eye is the same rejection, not a negative x
+    expect(tdProject(flat(12, [0, 0, -0x30000]), { x: 0, y: 0, z: 0 }).status).toBe(1)
+  })
+
+  it('divides by the depth in 4096ths', () => {
+    // z of $20000 is 32 units of depth, so x of 32000 lands at 1000
+    const p = tdProject(flat(12, [32000, -16000, 0x20000]), { x: 0, y: 0, z: 0 })
+    expect(p.status).toBe(0)
+    expect([p.x, p.y]).toEqual([1000, -500])
+  })
+
+  it('truncates the quotient toward zero, as divs.w does', () => {
+    const near = tdProject(flat(12, [-999, 999, 0x10000 + 4096]), { x: 0, y: 0, z: 0 })
+    expect([near.x, near.y]).toEqual([-58, 58]) // -999/17 and 999/17
+  })
+
+  it('reports an overflowing quotient rather than wrapping it', () => {
+    // a huge x with barely any depth: the quotient will not fit a word, and
+    // the engine redoes the divide wider
+    expect(tdProject(flat(12, [0x4000_0000, 0, 0x11000]), { x: 0, y: 0, z: 0 }).status).toBe(2)
+  })
+
+  it('codes a coordinate against the sixteenths-of-a-pixel bounds', () => {
+    expect(tdClipCode(0)).toBe(0)
+    expect(tdClipCode(-0xa00)).toBe(0)
+    expect(tdClipCode(-0xa01)).toBe(1)
+    expect(tdClipCode(0x9f0)).toBe(0)
+    expect(tdClipCode(0x9f1)).toBe(2)
+    // -$a00 is -2560, sixteen times a 160-pixel half-width
+    expect(-0xa00 / 16).toBe(-160)
   })
 })

@@ -753,3 +753,83 @@ export function tdMatrix(a: number, b: number, c: number): TdMatrix {
     w(m(ca, cb)),
   ]
 }
+
+// ---- camera and projection ----
+
+/**
+ * The view transform and the perspective divide, $2101c8 — one routine
+ * reached through the veneer at $214876.
+ *
+ * It reads and writes the engine's globals rather than taking arguments: the
+ * point at a4+$b1c..$b20, the view matrix at a4+$bba..$bca, a shift at
+ * a4+$b32 and the object's world position at a4+$b34..$b3c. The nine view
+ * words carry their own sign pattern, different from the attitude matrix's:
+ *
+ *     X = ((v0*x + v1*y - v2*z) >> shift) + ox
+ *     Y = ((v3*y - v4*x - v5*z) >> shift) + oy
+ *     Z = ((v6*x + v7*y + v8*z) >> shift) + oz
+ *
+ * The shift is per object — `$215e8c` copies it out of the object's +$40 —
+ * and it is applied to the sum, not to each term.
+ */
+export interface TdView {
+  /** the nine words at a4+$bba, in memory order */
+  matrix: TdMatrix
+  /** the object's world position, added after the shift */
+  origin: [number, number, number]
+  /** the per-object shift at a4+$b32 */
+  shift: number
+}
+
+/**
+ * What the projection decided about a point, and the engine's own status
+ * code: 0 both coordinates divided cleanly, 1 the point is too close to the
+ * eye, 2 the quotient overflowed a word and the caller redoes the divide
+ * wider.
+ */
+export interface TdProjected {
+  status: 0 | 1 | 2
+  /** view-space coordinates, cached by the engine at the vertex's +$c/+$10/+$14 */
+  view: [number, number, number]
+  /** screen coordinates, only meaningful when status is 0 */
+  x: number
+  y: number
+}
+
+/**
+ * The near limit. `cmpi.l #$10000,d2 : ble` rejects anything at or in front
+ * of one unit of depth, where a unit is the 4096ths the divide works in.
+ */
+export const TD_NEAR = 0x10000
+
+export function tdProject(v: TdView, p: TdPoint): TdProjected {
+  const m = v.matrix
+  const s = v.shift
+  const X = ((((m[0] * p.x + m[1] * p.y - m[2] * p.z) | 0) >> s) | 0) + v.origin[0]
+  const Y = ((((m[3] * p.y - m[4] * p.x - m[5] * p.z) | 0) >> s) | 0) + v.origin[1]
+  const Z = ((((m[6] * p.x + m[7] * p.y + m[8] * p.z) | 0) >> s) | 0) + v.origin[2]
+  const view: [number, number, number] = [X | 0, Y | 0, Z | 0]
+  if (Z <= TD_NEAR) return { status: 1, view, x: 0, y: 0 }
+  // divs.w is a 32-by-16 divide, and it takes only the low word of its source
+  // as the divisor — a depth past 2^27 wraps rather than clipping, which is
+  // the engine's behaviour and not something to tidy up
+  const d = (((Z >> 12) << 16) >> 16) | 0
+  if (d === 0) return { status: 2, view, x: 0, y: 0 }
+  // a quotient outside a signed word sets V and the engine falls back to a
+  // wider divide, which is what status 2 reports
+  const qx = (X / d) | 0
+  const qy = (Y / d) | 0
+  if (qx < -0x8000 || qx > 0x7fff || qy < -0x8000 || qy > 0x7fff) return { status: 2, view, x: qx, y: qy }
+  return { status: 0, view, x: qx, y: qy }
+}
+
+/**
+ * The clip code a projected x or y gets, from $214740: below -$a00 is 1,
+ * above $9f0 is 2, otherwise 0. Those bounds are 160 and 159 screens' worth
+ * of sixteenths, so a coordinate is sixteen times a pixel at this point.
+ */
+export function tdClipCode(v: number): 0 | 1 | 2 {
+  if (v < -0xa00) return 1
+  if (v > 0x9f0) return 2
+  return 0
+}
