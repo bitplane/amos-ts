@@ -6,7 +6,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
-import { parseTdFile, parseTdTemplate, tdSections } from './td'
+import { parseTdFile, parseTdGeometry, parseTdTemplate, tdSections } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -303,5 +303,70 @@ describe('AMOS 3D templates (relocation at $2199ba)', () => {
     expect(recs('f4a.3DT')).toBe(2)
     expect(recs('p5.3DT')).toBe(26)
     expect(recs('p8.3DT')).toBe(56)
+  })
+})
+
+describe('AMOS 3D geometry (vertex transform at $21085c, face walk at $217ee2)', () => {
+  const geo = (name: string) => parseTdGeometry(parseTdFile(shipped(name)))
+
+  it('reads dice as the eight-point cube it is', () => {
+    const g = geo('dice.3DO')
+    expect(g.points.length).toBe(8)
+    // a cube of half-side ~173: every coordinate is that size, and the eight
+    // points cover all eight sign combinations
+    const signs = new Set(g.points.map((p) => `${Math.sign(p.x)}${Math.sign(p.y)}${Math.sign(p.z)}`))
+    expect(signs.size).toBe(8)
+    for (const p of g.points) for (const c of [p.x, p.y, p.z]) expect(Math.abs(c)).toBeGreaterThan(160)
+    expect(g.faces.length).toBe(6)
+    for (const f of g.faces) expect(new Set(f.vertices).size).toBe(4)
+  })
+
+  it('agrees with the terminator about where the point list ends', () => {
+    // The section table brackets the points and a $7530 word ends them; the
+    // transform loop at $210930 trusts only the terminator, so the two must
+    // line up or the engine would read past the object.
+    for (const f of readdirSync(OBJECTS).filter((n) => /\.3do$/i.test(n))) {
+      const g = geo(f)
+      expect(g.points.length, f).toBeGreaterThan(0)
+      expect(g.pointsAt + g.points.length * 6, f).toBeLessThan(g.facesAt)
+    }
+  })
+
+  it('writes a triangle as a quad with a repeated vertex', () => {
+    // rocket is a four-sided pyramid: apex 4 doubled at the front of every
+    // face, so the rasteriser needs no triangle case
+    const r = geo('rocket.3DO')
+    expect(r.faces.map((f) => f.vertices)).toEqual([[4, 4, 0, 1], [4, 4, 1, 2], [4, 4, 2, 3], [4, 4, 3, 0]])
+    // game_ship doubles its apex at both ends instead — same polygon
+    expect(geo('game_ship.3DO').faces[0]!.vertices).toEqual([4, 0, 1, 4])
+  })
+
+  it('keeps every vertex reference a multiple of the $20 working stride', () => {
+    // the refs are byte offsets into the engine's 32-byte vertex records, not
+    // indices — $217f48 steps by $20 and $2146e6 reads the model point from
+    // +$18 of each. Dividing back out must land inside the point list.
+    for (const f of readdirSync(OBJECTS).filter((n) => /\.3do$/i.test(n))) {
+      const g = geo(f)
+      for (const face of g.faces) for (const v of face.vertices) expect(v, f).toBeLessThan(g.points.length)
+    }
+  })
+
+  it('stops at the two objects that carry a second template', () => {
+    // 3d2 and monitor2 link two templates and break the face run with a
+    // further header; everything else is a flat list of sixteen-byte records
+    const multi = readdirSync(OBJECTS)
+      .filter((n) => /\.3do$/i.test(n))
+      .filter((n) => geo(n).multipart)
+      .sort()
+    expect(multi).toEqual(['3d2.3DO', 'monitor2.3DO'])
+  })
+
+  it('matches every external surface link to a face record', () => {
+    // a type-2 link names the offset its surface pointer is patched into, and
+    // that offset is a face's +0 — dice gives all six of its faces one
+    const g = geo('dice.3DO')
+    const links = parseTdFile(shipped('dice.3DO')).links.filter((l) => l.type === 2)
+    expect(links.map((l) => l.offset)).toEqual(g.faces.map((f) => f.at))
+    for (const f of g.faces) expect(f.surface).not.toBe(0)
   })
 })

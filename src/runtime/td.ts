@@ -501,3 +501,111 @@ export function parseTdTemplate(file: TdFile): TdTemplate {
   }
   return { block: b, sections, records, delta }
 }
+
+// ---- geometry ----
+
+/**
+ * The word every point list ends with: `cmpi.w #$7530,(a0)` at $210930, in
+ * the vertex transform's loop condition. 30000 is outside any coordinate the
+ * object editor will emit, so it doubles as a terminator and as a bound.
+ */
+export const TD_POINT_END = 30000
+
+/** one model point, in object space, as three signed words */
+export interface TdPoint {
+  x: number
+  y: number
+  z: number
+}
+
+/**
+ * A polygon. `surface` is the stored surface pointer, and the record's own
+ * offset is what a type-2 link record names, so a face given an external
+ * surface can be matched to the `.3DS` it was linked against.
+ *
+ * A zero surface covers two different things in the release's objects: a
+ * wholly blank sixteen bytes padding the face list out (amiga, 3d2), and a
+ * real polygon with no surface of its own (all six of minicube's). Every face
+ * that does carry a surface pointer has three or four distinct vertices, so
+ * the blank records are the only degenerate ones.
+ */
+export interface TdFace {
+  /** offset of the record in the block */
+  at: number
+  /** the stored surface pointer, before relocation; 0 for an unused face */
+  surface: number
+  /** indices into `points`, in winding order */
+  vertices: number[]
+}
+
+export interface TdGeometry {
+  points: TdPoint[]
+  faces: TdFace[]
+  /** where the point list starts, from the section table */
+  pointsAt: number
+  /** where the face list starts and ends */
+  facesAt: number
+  facesEnd: number
+}
+
+/**
+ * Vertex references in a face record are byte offsets into the engine's
+ * working vertex array, whose stride is $20 — `moveq #$20,d0 : add.l
+ * d0,$4f2e(a4)` at $217f48, stepping to the next vertex of the face. Each of
+ * those 32-byte records holds a pointer to its 6-byte model point at +$18
+ * ($2146e6), so ref/32 indexes the point list.
+ */
+export const TD_VERTEX_STRIDE = 0x20
+
+/**
+ * A face record is sixteen bytes: the surface pointer, four vertex
+ * references, then a second pointer. Four because every face the object
+ * editor emits is a quadrilateral — a triangle is written with two of its
+ * references equal, which is why the rasteriser needs no special case.
+ */
+export const TD_FACE_SIZE = 16
+
+/**
+ * Read an object's geometry out of its block.
+ *
+ * The section table (`TD_SECTIONS`) gives the layout: +$3c is the start of the
+ * point list and +$3e..+$40 bracket the faces. The point list is
+ * `TD_POINT_END`-terminated as well as bracketed, and both agree on every one
+ * of the release's 35 objects, so this checks them against each other and
+ * reports the terminator's position as the count.
+ *
+ * NOTE: two of the demo objects — 3d2 and monitor2 — carry a second template
+ * link and interleave a further header inside the face range, so their face
+ * list is not a flat run of records. They come back with `multipart` set and
+ * only the faces up to the break; the sub-object tree is not modelled.
+ */
+export function parseTdGeometry(file: TdFile): TdGeometry & { multipart: boolean } {
+  const b = file.block
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength)
+  const sec = tdSections(b)
+  const pointsAt = sec[0x0c] ?? 0
+  const facesAt = sec[0x42] ?? 0
+  const facesEnd = sec[0x14] ?? 0
+
+  const points: TdPoint[] = []
+  for (let o = pointsAt; o + 6 <= b.length; o += 6) {
+    const x = v.getInt16(o, false)
+    if (x === TD_POINT_END) break
+    points.push({ x, y: v.getInt16(o + 2, false), z: v.getInt16(o + 4, false) })
+  }
+
+  const faces: TdFace[] = []
+  let multipart = false
+  for (let at = facesAt; at + TD_FACE_SIZE <= facesEnd && at + TD_FACE_SIZE <= b.length; at += TD_FACE_SIZE) {
+    const vertices: number[] = []
+    let ok = true
+    for (let i = 0; i < 4; i++) {
+      const ref = v.getUint16(at + 4 + i * 2, false)
+      if (ref % TD_VERTEX_STRIDE !== 0 || ref / TD_VERTEX_STRIDE >= points.length) { ok = false; break }
+      vertices.push(ref / TD_VERTEX_STRIDE)
+    }
+    if (!ok) { multipart = true; break }
+    faces.push({ at, surface: v.getUint32(at, false), vertices })
+  }
+  return { points, faces, pointsAt, facesAt, facesEnd, multipart }
+}
