@@ -786,6 +786,7 @@ export const FAITHFUL = new Set<string>([
   'td anim point y',
   'td anim point z',
   'td surface',
+  'td background',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',

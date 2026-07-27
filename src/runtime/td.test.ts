@@ -1837,3 +1837,69 @@ describe('AMOS 3D Td Surface ($212c28, the bounds at $212c7c and $212cac)', () =
     expect(after).not.toEqual(before)
   })
 })
+
+describe('AMOS 3D Td Background ($210c54)', () => {
+  const setup = `
+      Td Screen Height 150
+      Screen Open 1,320,200,4,0
+      Cls 3
+      Screen Open 0,320,200,16,0
+      Td Screen Height 150
+  `
+  it('copies a picture in under the 3D', () => {
+    // the picture goes down at full depth, so a 3 in the source is a 3 here
+    const { rt } = run(`${setup}
+      Td Background 1,0,0,320,150 To 0,0
+    `, {})
+    expect(rt.screen.point(0, 0)).toBe(3)
+    expect(rt.screen.point(319, 149)).toBe(3)
+  })
+
+  it('keeps the planes it does not cover', () => {
+    // a four-colour source covers planes 0 and 1 only, so a destination
+    // pixel's higher bits survive underneath it
+    const { rt } = run(`
+      Screen Open 1,320,200,4,0
+      Cls 3
+      Screen Open 0,320,200,16,0
+      Td Screen Height 150
+      Ink 12 : Bar 0,0 To 319,149
+      Td Background 1,0,0,320,150 To 0,0
+    `, {})
+    expect(rt.screen.point(10, 10)).toBe(12 | 3)
+  })
+
+  it('honours the destination corner', () => {
+    const { rt } = run(`${setup}
+      Td Background 1,0,0,100,50 To 40,20
+    `, {})
+    expect(rt.screen.point(39, 20)).toBe(1)
+    expect(rt.screen.point(40, 20)).toBe(3)
+    expect(rt.screen.point(139, 69)).toBe(3)
+    expect(rt.screen.point(140, 69)).toBe(1)
+  })
+
+  it('refuses the screen it is drawing on', () => {
+    expect(() => run(`${setup}
+      Td Background 0,0,0,320,150 To 0,0
+    `, {})).toThrow(/source screen is current screen/)
+  })
+
+  it('refuses a source with more planes than there is room for', () => {
+    // thirty-two colours is five planes and the destination has four
+    expect(() => run(`
+      Screen Open 1,320,200,32,0
+      Screen Open 0,320,200,16,0
+      Td Screen Height 150
+      Td Background 1,0,0,320,150 To 0,0
+    `, {})).toThrow(/Too many planes/)
+  })
+
+  it('does nothing for a rectangle that cannot land', () => {
+    const { rt } = run(`${setup}
+      Td Background 1,0,0,0,0 To 0,0
+      Td Background 1,0,0,320,150 To 400,0
+    `, {})
+    expect(rt.screen.point(0, 0)).toBe(1)
+  })
+})

@@ -424,6 +424,55 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
         }) as Instr,
       ]),
     ),
+    'td background'(it) {
+      // Td Background screen, sx, sy, w, h To dx, dy — $210c54, and the
+      // demos write it exactly so: `Td Background 1,0,0,320,180 To 0,0`.
+      //
+      // It puts a picture *underneath* the 3D, which is the other half of the
+      // reason a pen only ever touches the bottom two bitplanes: the picture
+      // goes down at full depth and the objects then change two bits of it.
+      // A source deeper than the destination is "Too many planes for 3d
+      // background", and handing it the screen it is drawing on is "3d
+      // background source screen is current screen".
+      const t = st()
+      const from = it.evalInt()
+      it.expect(',')
+      const sx = it.evalInt()
+      it.expect(',')
+      const sy = it.evalInt()
+      it.expect(',')
+      const w = it.evalInt()
+      it.expect(',')
+      const h = it.evalInt()
+      it.expect('to')
+      const dx = it.evalInt()
+      it.expect(',')
+      const dy = it.evalInt()
+
+      const dest = rt.screen
+      const src = rt.screens.get(from)
+      if (!src || src === dest) tdError(26)
+      if (dest.height < t.screenHeight || dest.depth < 4 || dest.width !== TD_SCREEN_WIDTH) tdError(11)
+      if (src.depth + TD_BACKGROUND_PLANE > dest.depth) tdError(27)
+      // $210cdc onwards: nothing to do for a destination off the right or
+      // below the 3D area, or for a rectangle with no width or height
+      if (dx > TD_SCREEN_WIDTH - 1 || dy >= t.screenHeight - 1 || w < 1 || h < 1) return
+      // the source replaces the planes it covers and leaves any above it
+      const mask = ((1 << src.depth) - 1) << TD_BACKGROUND_PLANE
+      const keep = ~mask
+      for (let y = 0; y < h; y++) {
+        const ty = dy + y
+        if (ty < 0 || ty >= Math.min(t.screenHeight, dest.height)) continue
+        for (let x = 0; x < w; x++) {
+          const tx = dx + x
+          if (tx < 0 || tx >= dest.width) continue
+          const p = src.point(sx + x, sy + y)
+          // outside the source is left alone rather than read as zero
+          if (p < 0) continue
+          dest.plot(tx, ty, (dest.point(tx, ty) & keep) | ((p << TD_BACKGROUND_PLANE) & mask))
+        }
+      }
+    },
     'td surface'(it) {
       // Td Surface name$, srcBlock, srcFace To n, dstBlock, dstFace, k —
       // $212c28, and the demos write it exactly like that:
@@ -2108,6 +2157,22 @@ export function tdRedrawFaces(st: TdState): Array<{ n: number; faces: TdScreenFa
 }
 
 // ---- the rasteriser ----
+
+/**
+ * The plane a background starts at.
+ *
+ * $210cc6 refuses a source when `srcPlanes + $28(a5) > destPlanes`, and
+ * $28(a5) is not one of the seven numbers the keyword takes — the stub
+ * supplies it. Every call in the demos behaves as though it is zero: Dice_Spin
+ * copies a sixteen-colour picture on to a sixteen-colour screen, which only
+ * fits with nothing to spare.
+ *
+ * Zero is also the reading that makes sense of the rasteriser. The background
+ * is a full-depth picture and the 3D draws *over* it, changing only the
+ * bottom two bits of each pixel, which is why a pen is a two-bit plane mask.
+ * The picture keeps its upper planes and the objects appear in front of it.
+ */
+export const TD_BACKGROUND_PLANE = 0
 
 /** the only width the engine will draw on, checked at $211418 */
 export const TD_SCREEN_WIDTH = 320
