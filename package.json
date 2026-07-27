@@ -12,7 +12,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:web": "vite build --config vite.web.config.ts",
     "typecheck": "tsc --noEmit",
+    "release": "npm version",
+    "preversion": "npm run typecheck && npm test",
+    "postversion": "git push --follow-tags",
     "test": "AMOS_COVERAGE_GATE=1 vitest run",
     "test:watch": "vitest",
     "cli": "tsx",

@@ -1,0 +1,80 @@
+# Tag-triggered release. `npm run release [patch|minor|major|x.y.z]` bumps the
+# version, runs the gate, commits, tags v* and pushes — this takes it from
+# there.
+#
+# The site is published to bitplane/amos.bitplane.net twice: once to an
+# immutable /v/<version>/ that a page can pin and cache forever, and once to
+# the moving /v/latest/. Versions are paths, never query parameters, so a URL
+# identifies exactly which code runs.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+
+      # The tag is cut by `npm version`, which already runs this — but a
+      # workflow_dispatch build has not been through that gate, and a green
+      # tag that nobody can reproduce is worth less than a slow one.
+      - run: npm run typecheck
+      - run: npm test
+
+      - run: npm run build:web
+
+      - name: Version from the tag
+        id: v
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # destination_dir scopes the wipe: publishing to v/<version> replaces
+      # only that directory and leaves the rest of the branch alone, so no
+      # stale hashed assets accumulate and force_orphan is not needed. (It
+      # could not be used anyway — the action documents force_orphan and
+      # keep_files as incompatible, and keeping earlier versions is the point.)
+      - name: Publish this version
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.PAGES_DEPLOY_KEY }}
+          external_repository: bitplane/amos.bitplane.net
+          publish_branch: release
+          publish_dir: dist-web
+          destination_dir: v/${{ steps.v.outputs.version }}
+          cname: amos.bitplane.net
+          commit_message: "publish v${{ steps.v.outputs.version }}"
+
+      - name: Move latest
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.PAGES_DEPLOY_KEY }}
+          external_repository: bitplane/amos.bitplane.net
+          publish_branch: release
+          publish_dir: dist-web
+          destination_dir: v/latest
+          cname: amos.bitplane.net
+          commit_message: "latest -> v${{ steps.v.outputs.version }}"
+
+      # The root landing page. keep_files because publishing to the root with
+      # the default would delete everything under v/.
+      - name: Publish the landing page
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.PAGES_DEPLOY_KEY }}
+          external_repository: bitplane/amos.bitplane.net
+          publish_branch: release
+          publish_dir: web/landing
+          keep_files: true
+          cname: amos.bitplane.net
+          commit_message: "landing page for v${{ steps.v.outputs.version }}"
