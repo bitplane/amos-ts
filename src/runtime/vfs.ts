@@ -321,20 +321,26 @@ export class AmigaFS implements AmosFS {
       }
     }
     const out = { volume: volKey, segs, canonical: `${vol.name}:${segs.join('/')}` }
-    // Last chance for an absolute path that leads nowhere: try its final
-    // component in the current directory. A drive name now resolves, but the
-    // drawers under it are the author's own — "dh1:amos/amos_saves/spr.abk"
-    // keeps a 1997 hard disk's layout, and only the filename still means
-    // anything. Nothing is invented: this returns a path only when a real
-    // file is sitting there, so a genuinely missing file stays missing.
+    // Last chance for an absolute path that leads nowhere: try shorter and
+    // shorter tails of it against the current directory. The drawers a 1997
+    // program names are its author's own — "dh0:amos_pro/saves/space_game/
+    // gfx/moon_screen.iff" is a whole hard disk's layout wrapped around one
+    // file that is really just in "gfx/". Dropping leading components until
+    // something matches finds it while keeping as much of the author's own
+    // structure as still exists; the last thing tried is the bare filename.
+    //
+    // Nothing is invented: a tail is accepted only when a real file is
+    // sitting at it, so a genuinely missing file stays missing.
     if (
       this.strayVolume === 'currentDir' &&
       absolute &&
       segs.length > 1 &&
       this.existsResolved(out) === null
     ) {
-      const byLeaf = this.resolveIn(this.currentDir, segs[segs.length - 1]!)
-      if (byLeaf) return byLeaf
+      for (let from = 1; from < segs.length; from++) {
+        const tail = this.resolveIn(this.currentDir, segs.slice(from).join('/'))
+        if (tail) return tail
+      }
     }
     return out
   }
