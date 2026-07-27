@@ -764,6 +764,11 @@ export const FAITHFUL = new Set<string>([
   'td world x',
   'td world y',
   'td world z',
+  'td view x',
+  'td view y',
+  'td view z',
+  'td screen x',
+  'td screen y',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',

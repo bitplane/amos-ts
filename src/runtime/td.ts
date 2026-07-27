@@ -209,6 +209,16 @@ export interface TdState {
   bearing: TdBearing
   /** the last `Td World X/Y/Z`, at a4+$1c/$20/$24, read by the no-argument form */
   world: [number, number, number]
+  /** the last `Td View X/Y/Z`, at a4+$28/$2c/$30 */
+  view: [number, number, number]
+  /**
+   * The last `Td Screen X/Y`, in sixteenths of a pixel, and whether it was in
+   * front of the viewpoint at all. The engine keeps the view-space triple at
+   * a4+$c/$10/$14 and divides again on every read — $21263c re-checks the
+   * near limit and re-divides for the no-argument form — so what is cached is
+   * the projection, not the pixel.
+   */
+  screen: { x: number; y: number; ok: boolean }
 }
 
 export const newTdState = (): TdState => ({
@@ -221,6 +231,8 @@ export const newTdState = (): TdState => ({
   frame: 0,
   bearing: { a: 0, b: 0, r: 0, shift: 0 },
   world: [0, 0, 0],
+  view: [0, 0, 0],
+  screen: { x: 0, y: 0, ok: false },
 })
 
 /**
@@ -780,26 +792,47 @@ export function tdBearingFor(prev: TdBearing, frame: TdFrame, to: readonly numbe
  * The prescale is $21235a's, on the input vector, so a distant point cannot
  * overflow the products; it is shifted straight back out afterwards.
  *
- * Object zero takes the other path at $212822, which reads the matrix at
- * a4+$bba rather than a4+$bcc — the view matrix, which is the transpose. So
- * the viewpoint rotates its local vectors the other way round, and that is
- * `tdViewRotate` rather than `tdRotate`.
+ * Object zero takes the other path at $212822, and it is worth being clear
+ * about what that fork is and is not. It reads a4+$bba instead of a4+$bcc —
+ * the viewpoint's cached matrix rather than the one just built for the object
+ * — but the fold is identical: $bc6 against z and $bc2 against y are indices
+ * 6 and 4, the same two the object branch takes as $bd8 and $bd4. Both blocks
+ * hold the same nine numbers from the same builder, so here there is one
+ * case, not two. What the transpose distinguishes is Td World from Td View,
+ * not object zero from the rest.
  *
  * All three coordinates are worked out together and left at a4+$1c/$20/$24;
  * the no-argument form ($21291c) reads one back without recomputing, the same
  * arrangement Td Bearing has.
  */
-export function tdWorldPoint(frame: TdFrame, local: readonly number[], viewpoint = false): [number, number, number] {
+export function tdWorldPoint(frame: TdFrame, local: readonly number[]): [number, number, number] {
   const m = tdMatrix(frame.angle[0]!, frame.angle[1]!, frame.angle[2]!)
-  const p = { x: local[0]!, y: local[1]!, z: local[2]! }
-  const r = viewpoint
-    ? tdViewRotate(m, p)
-    : {
-        x: (((m[0]! * p.x - m[4]! * p.y + m[6]! * p.z) | 0) >> 12) | 0,
-        y: (((m[1]! * p.x + m[3]! * p.y + m[7]! * p.z) | 0) >> 12) | 0,
-        z: (((-m[2]! * p.x - m[5]! * p.y + m[8]! * p.z) | 0) >> 12) | 0,
-      }
-  return [(frame.pos[0]! + r.x) | 0, (frame.pos[1]! + r.y) | 0, (frame.pos[2]! + r.z) | 0]
+  const [x, y, z] = [local[0]!, local[1]!, local[2]!]
+  return [
+    (frame.pos[0]! + ((((m[0]! * x - m[4]! * y + m[6]! * z) | 0) >> 12) | 0)) | 0,
+    (frame.pos[1]! + ((((m[1]! * x + m[3]! * y + m[7]! * z) | 0) >> 12) | 0)) | 0,
+    (frame.pos[2]! + ((((-m[2]! * x - m[5]! * y + m[8]! * z) | 0) >> 12) | 0)) | 0,
+  ]
+}
+
+/**
+ * `Td View X/Y/Z(n, x, y, z)` — $21294c, and the exact inverse of Td World:
+ * it takes a point in the world and gives it back in an object's own frame.
+ *
+ * The object's position is subtracted first ($21298c), then the same matrix
+ * is folded the other way round — $2129f8 opens with index 2 against z where
+ * Td World opens with index 6, which is the difference between `tdRotate` and
+ * `tdViewRotate`. Nothing is added back afterwards, because the result is
+ * already relative. Results at a4+$28/$2c/$30.
+ */
+export function tdViewPoint(frame: TdFrame, world: readonly number[]): [number, number, number] {
+  const m = tdMatrix(frame.angle[0]!, frame.angle[1]!, frame.angle[2]!)
+  const r = tdViewRotate(m, {
+    x: (world[0]! - frame.pos[0]!) | 0,
+    y: (world[1]! - frame.pos[1]!) | 0,
+    z: (world[2]! - frame.pos[2]!) | 0,
+  })
+  return [r.x, r.y, r.z]
 }
 
 /** `Td Position X/Y/Z(n)` and `Td Attitude A/B/C(n)`, one routine and a selector */
@@ -845,13 +878,52 @@ export function makeTdFunctions(rt: Runtime): Record<string, Func> {
           const t = rt.td
           if (a.length >= 4) {
             const n = int(a[0] ?? VI(0))
-            t.world = tdWorldPoint(
-              tdFrame(t, n),
-              [int(a[1] ?? VI(0)), int(a[2] ?? VI(0)), int(a[3] ?? VI(0))],
-              n === 0,
-            )
+            t.world = tdWorldPoint(tdFrame(t, n), [int(a[1] ?? VI(0)), int(a[2] ?? VI(0)), int(a[3] ?? VI(0))])
           }
           return VI(t.world[i]!)
+        }) as Func,
+      ]),
+    ),
+    ...Object.fromEntries(
+      (['x', 'y', 'z'] as const).map((axis, i) => [
+        `td view ${axis}`,
+        ((_, a) => {
+          const t = rt.td
+          if (a.length >= 4) {
+            t.view = tdViewPoint(tdFrame(t, int(a[0] ?? VI(0))), [
+              int(a[1] ?? VI(0)),
+              int(a[2] ?? VI(0)),
+              int(a[3] ?? VI(0)),
+            ])
+          }
+          return VI(t.view[i]!)
+        }) as Func,
+      ]),
+    ),
+    ...Object.fromEntries(
+      (['x', 'y'] as const).map((axis) => [
+        `td screen ${axis}`,
+        ((_, a) => {
+          // Td Screen X/Y(x, y, z) takes a world coordinate — there is no
+          // object number, because the frame it is measured against is always
+          // the viewpoint, whose position $212540 subtracts from a4+$1474.
+          const t = rt.td
+          if (a.length >= 3) {
+            const world: [number, number, number] = [int(a[0] ?? VI(0)), int(a[1] ?? VI(0)), int(a[2] ?? VI(0))]
+            const p = tdProject(tdViewFor(t.viewpoint, { pos: world, angle: [0, 0, 0] }), { x: 0, y: 0, z: 0 })
+            t.screen = { x: p.x, y: p.y, ok: p.status === 0 }
+          }
+          // out of range is -1, `moveq #$ff,d0` at $2126b2 and $212648
+          if (!t.screen.ok) return VI(-1)
+          if (axis === 'x') {
+            return VI(tdClipCode(t.screen.x) === 0 ? tdScreenX(t.screen.x) : -1)
+          }
+          // the vertical bounds are a4+$4868 and a4+$4864 - 1, both in whole
+          // rows and both shifted up four to meet the coordinate ($21266c)
+          const centre = tdCentreRow(t.screenHeight)
+          const top = centre - (t.screenHeight - 1)
+          if (t.screen.y < top * 16 || t.screen.y > (centre - 1) * 16) return VI(-1)
+          return VI(tdScreenY(t.screenHeight, t.screen.y))
         }) as Func,
       ]),
     ),

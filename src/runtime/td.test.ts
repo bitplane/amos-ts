@@ -1417,9 +1417,11 @@ describe('AMOS 3D Td World ($2126c8, the fold at $212758, the add at $2128e8)', 
     expect(out.split('\n')[0]).toBe(' 17, 28, 39')
   })
 
-  it('rotates the viewpoint the other way round', () => {
-    // object zero reads the matrix at a4+$bba, which is a4+$bcc transposed,
-    // so the same attitude sends the same local point the other way
+  it('treats object zero like any other frame', () => {
+    // $212822 forks for object zero, but only over which cached matrix it
+    // reads — a4+$bba instead of a4+$bcc. The fold is the same one, index 6
+    // against z and index 4 against y, so the same attitude and the same
+    // local point have to land in the same place either way.
     const q = TD_REVOLUTION / 4
     const { out } = run(`
       Td Load "dice"
@@ -1429,6 +1431,98 @@ describe('AMOS 3D Td World ($2126c8, the fold at $212758, the add at $2128e8)', 
     `, objectAndLinks('dice.3DO'))
     const [obj, view] = out.split('\n')[0]!.split(',').map((n) => Number(n))
     expect(Math.abs(obj! - 1000)).toBeLessThanOrEqual(1)
-    expect(Math.abs(view! + 1000)).toBeLessThanOrEqual(1)
+    expect(view).toBe(obj)
+  })
+
+  it('Td View undoes Td World', () => {
+    // $21294c subtracts the position and folds the same matrix the other way
+    // round, so the two are inverses — round-tripping a point returns it
+    const { out } = run(`
+      Td Load "dice"
+      Td Object 1,"dice",500,-200,900,4000,20000,9000
+      W=Td World X(1,120,-340,760)
+      Print Td View X(1,Td World X,Td World Y,Td World Z);",";Td View Y;",";Td View Z
+    `, objectAndLinks('dice.3DO'))
+    const [x, y, z] = out.split('\n')[0]!.split(',').map((n) => Number(n))
+    // the fixed-point matrix loses a little in each direction
+    expect(Math.abs(x! - 120)).toBeLessThanOrEqual(2)
+    expect(Math.abs(y! + 340)).toBeLessThanOrEqual(2)
+    expect(Math.abs(z! - 760)).toBeLessThanOrEqual(2)
+  })
+
+  it('Td View is relative, so it adds no position back', () => {
+    const { out } = run(`
+      Td Load "dice"
+      Td Object 1,"dice",100,200,300,0,0,0
+      Print Td View X(1,150,260,380);",";Td View Y;",";Td View Z
+    `, objectAndLinks('dice.3DO'))
+    expect(out.split('\n')[0]).toBe(' 50, 60, 80')
+  })
+})
+
+describe('AMOS 3D Td Screen ($21251e, the divide at $212626, the map at $2126b6)', () => {
+  const setup = `
+      Td Screen Height 150
+      Screen Open 0,320,200,16,0
+      Td Load "dice"
+  `
+  const screen = (src: string, args: string) => {
+    const { out } = run(`${setup}
+      ${src}
+      Print Td Screen X(${args});",";Td Screen Y(${args})
+    `, objectAndLinks('dice.3DO'))
+    return out.split('\n')[0]!.split(',').map((n) => Number(n))
+  }
+
+  it('puts a point straight ahead in the middle of the screen', () => {
+    // the viewpoint starts at the origin looking down +z, so a point on the
+    // axis lands on column 160 and the centre row, (150-1)>>1
+    expect(screen('', '0,0,1500')).toEqual([160, 74])
+  })
+
+  it('moves the right way as the point moves', () => {
+    // +x goes right, +y goes up — the screen's rows grow downwards
+    const [rx, ry] = screen('', '200,0,1500')
+    expect(rx).toBeGreaterThan(160)
+    expect(ry).toBe(74)
+    const [, uy] = screen('', '0,200,1500')
+    expect(uy).toBeLessThan(74)
+  })
+
+  it('shrinks with distance, because it is a perspective divide', () => {
+    const near = screen('', '200,0,1000')[0]!
+    const far = screen('', '200,0,4000')[0]!
+    expect(near - 160).toBeGreaterThan((far - 160) * 3)
+  })
+
+  it('answers -1 for anything behind the near limit', () => {
+    // $212640 rejects a depth under $10000 before it divides
+    expect(screen('', '0,0,-1500')).toEqual([-1, -1])
+    expect(screen('', '0,0,0')).toEqual([-1, -1])
+  })
+
+  it('answers -1 for anything off the sides or off the top', () => {
+    // the horizontal bounds are tdClipCode's, the vertical ones a4+$4868 and
+    // a4+$4864 - 1
+    expect(screen('', '100000,0,1500')[0]).toBe(-1)
+    expect(screen('', '0,100000,1500')[1]).toBe(-1)
+  })
+
+  it('measures against the viewpoint, wherever it has got to', () => {
+    // there is no object number: $212540 always subtracts a4+$1474, the
+    // viewpoint's own position
+    expect(screen('Td Move 0,500,0,0', '500,0,1500')).toEqual([160, 74])
+  })
+
+  it('divides again for the no-argument form', () => {
+    // $21263c re-checks the near limit and re-divides the stored view triple
+    // rather than handing back a cached pixel
+    const { out } = run(`${setup}
+      X=Td Screen X(200,0,1500)
+      Print Td Screen X;",";Td Screen Y
+    `, objectAndLinks('dice.3DO'))
+    const [x, y] = out.split('\n')[0]!.split(',').map((n) => Number(n))
+    expect(x).toBe(screen('', '200,0,1500')[0])
+    expect(y).toBe(74)
   })
 })
