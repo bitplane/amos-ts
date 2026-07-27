@@ -336,7 +336,7 @@ describe('Pack / Spack', () => {
       [
         'Screen Open 0,320,100,16,Lowres',
         'Cls 0 : Ink 5 : Bar 10,10 To 100,60 : Ink 3 : Draw 0,0 To 319,99',
-        'Spack 0,10',
+        'Spack 0 To 10',
         'Cls 0',
         'Unpack 10',
       ].join('\n'),
@@ -352,7 +352,7 @@ describe('Pack / Spack', () => {
 
   it('Pack writes the bitmap alone, Spack prefixes the screen definition', () => {
     const rt = run(
-      ['Screen Open 0,320,100,16,Lowres', 'Cls 3', 'Pack 0,11', 'Spack 0,12'].join('\n'),
+      ['Screen Open 0,320,100,16,Lowres', 'Cls 3', 'Pack 0 To 11', 'Spack 0 To 12'].join('\n'),
     )
     const packed = rt.memBanks.get(11)!.data
     const spacked = rt.memBanks.get(12)!.data
@@ -369,7 +369,7 @@ describe('Pack / Spack', () => {
       [
         'Screen Open 0,320,100,16,Lowres',
         'Cls 0 : Ink 7 : Bar 0,0 To 319,99',
-        'Spack 0,13,60,20 To 140,60',
+        'Spack 0 To 13,60,20,140,60',
         'Cls 0',
         'Unpack 13',
       ].join('\n'),
@@ -386,8 +386,8 @@ describe('Pack / Spack', () => {
   })
 
   it('rejects an empty rectangle and an out-of-range bank', () => {
-    expect(() => run('Screen Open 0,320,100,16,Lowres : Spack 0,10,100,10 To 100,50')).toThrow(/function call/)
-    expect(() => run('Screen Open 0,320,100,16,Lowres : Spack 0,70000')).toThrow(/function call/)
+    expect(() => run('Screen Open 0,320,100,16,Lowres : Spack 0 To 10,100,10,100,50')).toThrow(/function call/)
+    expect(() => run('Screen Open 0,320,100,16,Lowres : Spack 0 To 70000')).toThrow(/function call/)
   })
 })
 

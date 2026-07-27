@@ -656,9 +656,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
    * Unpack can rebuild the screen it came from.
    */
   const packOrSpack = (it: It, withScreen: boolean): void => {
+    // `Pack screen To bank` / `Pack screen To bank,x1,y1,x2,y2` — the token
+    // table in +Compact.s:74 spells both out: "I0t0" and "I0t0,0,0,0,0",
+    // where t is the To separator. Only the one To; the manual's
+    // ",x1,y1 TO x2,y2" and the source comment above InSPack6 are both
+    // wrong, and the corpus writes `Pack 1 To 7,104,13,250,60`.
     const n = it.evalInt()
     const s = byIndex(n)
-    it.expect(',')
+    it.expect('to')
     const bank = it.evalInt()
     let dx = 0
     let dy = 0
@@ -668,7 +673,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       dx = it.evalInt()
       it.expect(',')
       dy = it.evalInt()
-      it.expect('to')
+      it.expect(',')
       x2 = it.evalInt()
       it.expect(',')
       y2 = it.evalInt()

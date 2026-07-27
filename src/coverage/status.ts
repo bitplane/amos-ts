@@ -20,7 +20,12 @@ export const FAITHFUL = new Set<string>([
   // banks decode pixel-perfect
   'unpack',
   // Pack/Spack are ported from the Compact extension's own source
-  // (+Compact.s:343/478) and re-pack every corpus picture byte for byte
+  // (+Compact.s:343/478) and re-pack every corpus picture byte for byte.
+  // Syntax comes from the extension's token table (+Compact.s:74) rather
+  // than the manual: "I0t0" and "I0t0,0,0,0,0", so `Pack screen To bank`
+  // with ONE To and the rectangle comma-separated after it. The manual's
+  // ",x1,y1 TO x2,y2" and the comment above InSPack6 both disagree with
+  // the table and with the corpus (`Pack 1 To 7,104,13,250,60`).
   'pack',
   'spack',
   // AMAL: compiler+VM ported from TokAMAL/Animeur, including the bank
