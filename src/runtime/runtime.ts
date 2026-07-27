@@ -2521,6 +2521,10 @@ export class Runtime {
   /** line waiting to satisfy an Input statement */
   private pendingLine: string | null = null
   private promptShown = false
+  /** what has been typed at the console since the Input prompt went up */
+  private inputBuf = ''
+  /** the console editor already echoed this line, so Input must not repeat it */
+  private inputEchoed = false
   private frameBudget: number
   private onText: ((text: string) => void) | undefined
 
@@ -2551,7 +2555,12 @@ export class Runtime {
           const line = this.pendingLine
           this.pendingLine = null
           this.promptShown = false
-          io.write(line + '\n')
+          // A line typed at the console is already on screen character by
+          // character, so only the newline is owed. One submitted from
+          // outside — runHeadless fast-forwarding, or a host calling
+          // submitLine — still has to be shown.
+          io.write((this.inputEchoed ? '' : line) + '\n')
+          this.inputEchoed = false
           return line
         }
         if (!this.promptShown) {
@@ -3315,9 +3324,54 @@ export class Runtime {
     }
   }
 
+  /**
+   * The console line editor an `Input` is waiting on.
+   *
+   * AMOS reads Input at the console cursor, echoing as you type — there is no
+   * separate box to focus, and that is the whole point: the program's prompt,
+   * the cursor and what you type are all on the AMOS screen. Keys arrive
+   * through the same queue Inkey$ reads, so a headless test drives this with
+   * `pressKey` exactly as the browser does.
+   *
+   * Return submits, backspace rubs out the last character (and puts a space
+   * over it, because the console's own backspace only steps the cursor left).
+   * Anything below space that is not one of those is dropped rather than
+   * echoed as a control glyph.
+   */
+  private editInputLine(): void {
+    const q = this.input.keyQueue
+    while (q.length > 0) {
+      const k = q[0]!
+      if (k.ch === '\r' || k.ch === '\n') {
+        q.shift()
+        // the characters are already on screen; Input writes the newline
+        this.inputEchoed = true
+        this.submitLine(this.inputBuf)
+        this.inputBuf = ''
+        return
+      }
+      if (k.ch === '\x08') {
+        q.shift()
+        if (this.inputBuf.length > 0) {
+          this.inputBuf = this.inputBuf.slice(0, -1)
+          this.interp.io.write('\x08 \x08')
+        }
+        continue
+      }
+      if (k.ch.length !== 1 || k.ch < ' ') {
+        q.shift()
+        continue
+      }
+      q.shift()
+      this.inputBuf += k.ch
+      this.interp.io.write(k.ch)
+    }
+  }
+
   private unblock(): void {
     const b = this.interp.blocked
     if (b === null) return
+    if (b.type === 'input' && this.pendingLine === null) this.editInputLine()
     if (b.type === 'wait' && this.interp.tick >= b.until) this.interp.blocked = null
     else if (b.type === 'waitKey' && this.input.keyQueue.length > 0) {
       this.input.keyQueue.shift()

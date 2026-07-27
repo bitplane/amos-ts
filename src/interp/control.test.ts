@@ -151,6 +151,60 @@ describe('Line Input', () => {
     expect(out.startsWith('name? ')).toBe(true)
   })
 
+  it('types at the console cursor, no separate input box', () => {
+    // AMOS reads Input where the cursor is, echoing as you type. Keys arrive
+    // through the same queue Inkey$ reads, so this drives it exactly as the
+    // browser does — there is nothing web-specific about the line editor.
+    // frame() rather than runHeadless, which deliberately fast-forwards a
+    // pending Input with an empty line so a census cannot hang on one
+    let out = ''
+    const rt = new Runtime(tokenize('Line Input "name? ";A$ : Print "[";A$;"]"', table), table, {
+      maxSteps: 300_000,
+      onText: (t) => (out += t),
+    })
+    const step = (n = 3): void => {
+      for (let i = 0; i < n; i++) rt.frame()
+    }
+    step()
+    expect(out).toBe('name? ')
+    for (const ch of 'Gaz') rt.pressKey(ch)
+    step()
+    expect(out).toBe('name? Gaz') // echoed as typed
+    rt.pressKey('\r')
+    step()
+    expect(out).toBe('name? Gaz\n[Gaz]\n')
+  })
+
+  it('backspace rubs the character out rather than only moving the cursor', () => {
+    // the console's own backspace steps left without erasing, so the editor
+    // writes back-space-back to actually clear the glyph
+    let out = ''
+    const rt = new Runtime(tokenize('Line Input A$ : Print "[";A$;"]"', table), table, {
+      maxSteps: 300_000,
+      onText: (t) => (out += t),
+    })
+    rt.frame()
+    for (const ch of 'abX') rt.pressKey(ch)
+    rt.pressKey('\x08')
+    rt.pressKey('c')
+    rt.pressKey('\r')
+    for (let i = 0; i < 3; i++) rt.frame()
+    expect(out).toBe('? abX\x08 \x08c\n[abc]\n')
+  })
+
+  it('a backspace on an empty line does nothing', () => {
+    let out = ''
+    const rt = new Runtime(tokenize('Line Input A$ : Print "[";A$;"]"', table), table, {
+      maxSteps: 300_000,
+      onText: (t) => (out += t),
+    })
+    rt.frame()
+    rt.pressKey('\x08')
+    rt.pressKey('\r')
+    for (let i = 0; i < 3; i++) rt.frame()
+    expect(out).toBe('? \n[]\n')
+  })
+
   it('without a prompt string it still prints the "? " prompt', () => {
     // Line Input prompts like Input does; headless nobody types, so the line
     // comes back empty and the echoed newline lands before the next Print

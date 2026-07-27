@@ -22,7 +22,6 @@ const canvas = document.getElementById('screen') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')!
 const statusEl = document.getElementById('status')!
 const fileEl = document.getElementById('file') as HTMLInputElement
-const lineEl = document.getElementById('line') as HTMLInputElement
 const turboEl = document.getElementById('turbo') as HTMLInputElement
 const img = ctx.createImageData(640, Runtime.COMPOSITE_LINES * 2)
 
@@ -462,7 +461,7 @@ const SPECIAL_CH: Record<string, string> = {
   ArrowUp: '\x1e', ArrowDown: '\x1f', ArrowRight: '\x1c', ArrowLeft: '\x1d',
 }
 document.addEventListener('keydown', (e) => {
-  if (e.target === lineEl || !rt) return
+  if (!rt) return
   // Ctrl-C = the AMOS break (BitControl); On Break Proc handlers fire
   if (e.ctrlKey && e.code === 'KeyC') {
     rt.interp.requestBreak()
@@ -507,13 +506,6 @@ function updateJoysticks(): void {
   rt.input.joy = kbJoy[1]! | padBits(pads[0] ?? null)
   rt.input.joy0 = kbJoy[0]! | padBits(pads[1] ?? null)
 }
-lineEl.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && rt) {
-    rt.submitLine(lineEl.value)
-    lineEl.value = ''
-    e.stopPropagation()
-  }
-})
 canvas.addEventListener('mousemove', (e) => {
   if (!rt) return
   const r = canvas.getBoundingClientRect()
@@ -532,19 +524,29 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault())
 
 // ---- the 50Hz loop ----
 
+/** the Amiga vertical blank: 50Hz PAL */
+const FRAME_MS = 20
 let acc = 0
 let last = performance.now()
 function loop(now: number): void {
   requestAnimationFrame(loop)
-  // pause rather than catch up: a long gap (tab hidden, debugger, laggy
-  // machine) counts as at most two frames, so returning to the tab
-  // resumes at normal speed instead of fast-forwarding
-  acc += Math.min(now - last, 40)
+  // Never catch up. The debt is capped at a single frame, so a hitch — a
+  // long GC, a hidden tab, a slow machine — costs time rather than being
+  // replayed at speed afterwards. Running a burst to make up the deficit is
+  // what makes a game lurch: the emulation is nominally correct and the
+  // player is thrown across the screen. Slightly slow and steady is the
+  // right failure, and on a machine that keeps up this is exactly 50Hz.
+  acc += Math.min(now - last, FRAME_MS)
   last = now
   if (!rt) return
-  const frames = turboEl.checked ? 20 : Math.min(5, Math.floor(acc / 20))
-  if (!turboEl.checked && frames > 0) acc -= frames * 20
-  else if (turboEl.checked) acc = 0
+  let frames = 0
+  if (turboEl.checked) {
+    frames = 20
+    acc = 0
+  } else if (acc >= FRAME_MS) {
+    frames = 1
+    acc -= FRAME_MS
+  }
   updateJoysticks()
   let status = ''
   for (let i = 0; i < frames; i++) {
@@ -566,7 +568,7 @@ function loop(now: number): void {
       ? 'ended'
       : b
         ? b.type === 'input'
-          ? 'waiting for Input — type in the box below'
+          ? 'waiting for Input — type on the screen'
           : b.type
         : `running · ${lastName}`
     const skipped = rt.interp.unimplemented.size
