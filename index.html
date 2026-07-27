@@ -14,15 +14,15 @@
         gap: 12px;
         padding: 16px;
       }
-      canvas {
-        image-rendering: pixelated;
+      #player {
         width: min(960px, 95vw);
-        aspect-ratio: 640 / 572;
         border: 2px solid #444;
         background: #000;
-        /* the AMOS pointer is composited like the real machine's
-           hardware sprite 0 — hide the OS cursor over the display */
-        cursor: none;
+        line-height: 0;
+      }
+      /* the focus ring is the only cue that the player has the keyboard */
+      #player.amos-focus {
+        border-color: #fa0;
       }
       #bar {
         display: flex;
@@ -113,7 +113,7 @@
       <span id="status"></span>
       <a id="repo" href="https://github.com/bitplane/amos-ts">github.com/bitplane/amos-ts</a>
     </div>
-    <canvas id="screen" width="640" height="572"></canvas>
+    <div id="player"></div>
     <details id="files">
       <summary>Files — drop .AMOS programs, data files, folders, zips or .adf disk images anywhere on the page; drag a row onto a drawer to move it</summary>
       <div id="fstree"></div>

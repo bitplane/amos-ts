@@ -12,7 +12,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:web": "vite build --config vite.web.config.ts",
+    "build:web": "vite build --config vite.web.config.ts && vite build --config vite.lib.config.ts",
     "typecheck": "tsc --noEmit",
     "release": "npm version",
     "preversion": "npm run typecheck && npm test",

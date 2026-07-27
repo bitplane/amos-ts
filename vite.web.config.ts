@@ -39,7 +39,10 @@ export default defineConfig({
         // key. Hashing on top of that would only mean /v/latest/ collecting
         // a new orphaned bundle on every release, and it would deny anyone
         // embedding the player a URL they can predict and write down.
-        entryFileNames: 'assets/amos-player.js',
+        //
+        // This is the standalone page's bundle; the library an embedder
+        // imports is assets/amos-player.js, built by vite.lib.config.ts.
+        entryFileNames: 'assets/standalone.js',
         chunkFileNames: 'assets/[name].js',
         assetFileNames: 'assets/[name][extname]',
       },
