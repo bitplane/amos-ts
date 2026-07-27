@@ -46,15 +46,19 @@ jobs:
       # better anyway: one commit per release instead of three, and the
       # version and latest copies can never disagree.
       #
+      # The root is the player itself, not a page about the player. The same
+      # build goes to three places: / and /v/latest/ both move, /v/<version>/
+      # does not.
+      #
       # keep_files, because this publishes the whole site root and must not
       # delete the versions already there. Nothing accumulates: asset
-      # filenames are stable (see vite.web.config.ts), so v/latest is
-      # overwritten in place rather than gathering a bundle per release.
+      # filenames are stable (see vite.web.config.ts), so the moving copies
+      # are overwritten in place rather than gathering a bundle per release.
       - name: Assemble the site
         run: |
           v="${{ steps.v.outputs.version }}"
           mkdir -p site/v/"$v" site/v/latest
-          cp -r web/landing/.      site/
+          cp -r dist-web/.         site/
           cp -r dist-web/.         site/v/"$v"/
           cp -r dist-web/.         site/v/latest/
           find site -type f | sort

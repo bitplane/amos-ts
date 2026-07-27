@@ -91,6 +91,14 @@
         background: #333;
         outline: 1px dashed #fa0;
       }
+      #repo {
+        margin-left: auto;
+        color: #888;
+        text-decoration: none;
+      }
+      #repo:hover {
+        color: #8cf;
+      }
     </style>
   </head>
   <body>
@@ -103,6 +111,7 @@
       <label>Joy0
         <select id="kb0"><option value="">off</option><option value="wasd">WASD</option><option value="arrows">arrows</option></select></label>
       <span id="status"></span>
+      <a id="repo" href="https://github.com/bitplane/amos-ts">github.com/bitplane/amos-ts</a>
     </div>
     <canvas id="screen" width="640" height="572"></canvas>
     <input id="line" placeholder="Input line — press Enter to submit" />
