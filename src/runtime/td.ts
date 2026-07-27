@@ -33,6 +33,7 @@
  * our own scanline code and that deviation carries a NOTES entry.
  */
 import { AmosError, VI, int } from '../interp/values'
+import { parseStosMove } from './instr'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 
@@ -359,6 +360,21 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
     'td move rel': tdVector(rt, 'pos', true),
     'td angle': tdVector(rt, 'angle', false),
     'td angle rel': tdVector(rt, 'angle', true),
+    ...Object.fromEntries(
+      // the six string forms: axis 0/1/2 on the position or the attitude
+      (['x', 'y', 'z'] as const).flatMap((ax, i) => [
+        [`td move ${ax}`, ((it) => {
+          const n = it.evalInt()
+          it.expect(',')
+          tdSetAnim(tdFrame(st(), n), 'pos', i, it.evalStr())
+        }) as Instr],
+        [`td angle ${'abc'[i]}`, ((it) => {
+          const n = it.evalInt()
+          it.expect(',')
+          tdSetAnim(tdFrame(st(), n), 'angle', i, it.evalStr())
+        }) as Instr],
+      ]),
+    ),
     'td cls'() {
       // $2114be checks the AMOS screen is one 3D can draw on before it
       // touches anything: EcTy (+$4e) at least Td Screen Height, EcNPlan
@@ -383,6 +399,10 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       if (s2.height < t.screenHeight || s2.depth < 4 || s2.width !== 320) tdError(11)
       t.frame = (t.frame + 1) & 0xff
       if (t.frame === 0) t.frame = 1
+      // $211394 steps both animation lists of every live instance before it
+      // builds that instance's matrix, so an animation set this frame moves
+      // the object this frame
+      tdStepAnims(t)
       tdRedrawFaces(t)
     },
     'td quit'() {
@@ -414,6 +434,32 @@ export interface TdFrame {
   pos: [number, number, number]
   /** attitude a, b, c, in 65536ths of a revolution */
   angle: [number, number, number]
+  /**
+   * The two animation lists a frame carries: `$1e(frame)` drives the position
+   * and `$22(frame)` the attitude, and Td Redraw steps both. Keyed by axis,
+   * because `$21303e` looks for a node whose mask matches before it links a
+   * new one — so setting the same axis twice replaces rather than stacks.
+   */
+  anims?: Map<string, TdAnim>
+}
+
+/**
+ * One animation node. The engine's is 24 bytes with the countdown at +$10 and
+ * the reload at +$4, which is a (speed, step, count) group being stepped —
+ * the same shape as a sprite's Move X.
+ */
+export interface TdAnim {
+  field: 'pos' | 'angle'
+  axis: number
+  start: number | null
+  groups: Array<[number, number, number]>
+  loop: boolean
+  endPos: number | null
+  gi: number
+  speedLeft: number
+  countLeft: number
+  started: boolean
+  done: boolean
 }
 
 export interface TdInstance extends TdFrame {
@@ -1055,4 +1101,97 @@ export function tdRedrawFaces(st: TdState): Array<{ n: number; faces: TdScreenFa
     out.push({ n, faces: tdInstanceFaces(g, attitude, tdViewFor(st.viewpoint, inst)) })
   }
   return out
+}
+
+// ---- animation ----
+
+/**
+ * `Td Move X/Y/Z n,spec$` and `Td Angle A/B/C n,spec$` — routines $211822 and
+ * $211a14, one each with the axis in d2.
+ *
+ * "The movement string follows the same rules as those for sprites. Much of
+ * the AMAL animation language is inappropriate and only a subset applies."
+ * So the spec is AMOS's own STOS-compatible movement language and the parser
+ * is shared with `Move X` rather than written twice — `(speed,step,count)`
+ * groups, an optional leading start position, `L` to loop and `E` to stop.
+ *
+ * The engine's shape backs that up. $211822 takes the axis as `1 << d7`, gets
+ * the frame through $21301c — so object zero, the viewpoint, can be animated
+ * — and hands $21303e the list head at `$1e(frame)` for a position or
+ * `$22(frame)` for an attitude. $21303e walks that list looking for a node
+ * whose mask matches before it links a new one, which is why setting the same
+ * axis twice replaces the animation instead of stacking a second one on it.
+ * The node it builds is 24 bytes with a countdown at +$10 reloaded from +$4
+ * and a delta at +$8: a (speed, step, count) group being stepped.
+ *
+ * NOTES: the step happens once per `Td Redraw`, not once per vertical blank.
+ * That is where the engine does it — $21137e walks both lists per instance
+ * and calls the stepper at $21321a — so a program that redraws every frame
+ * sees the original speed, and one that redraws every other frame sees its
+ * animations run at half pace. A sprite's Move X is not like this; it is
+ * driven by the interrupt.
+ */
+export function tdSetAnim(frame: TdFrame, field: 'pos' | 'angle', axis: number, spec: string): void {
+  const p = parseStosMove(spec)
+  if (!frame.anims) frame.anims = new Map()
+  frame.anims.set(`${field}${axis}`, {
+    ...p,
+    field,
+    axis,
+    gi: 0,
+    speedLeft: 1,
+    countLeft: p.groups[0]?.[2] || 0x10000,
+    started: false,
+    done: false,
+  })
+}
+
+/** one step of one animation, the stepper at $213ad4 */
+export function tdStepAnim(frame: TdFrame, a: TdAnim): void {
+  if (a.done) return
+  const v = frame[a.field]
+  if (!a.started) {
+    a.started = true
+    if (a.start !== null) v[a.axis] = a.start | 0
+  }
+  if (--a.speedLeft > 0) return
+  const g = a.groups[a.gi]
+  if (!g) {
+    a.done = true
+    return
+  }
+  a.speedLeft = g[0]
+  // 32 bits, not 16: a 3D coordinate is a long, and an angle relies on
+  // wrapping at 32 rather than at 16 — see the note on tdVector
+  const next = (v[a.axis]! + g[1]) | 0
+  v[a.axis] = next
+  if (a.endPos !== null && next === a.endPos) {
+    tdRestartAnim(frame, a)
+    return
+  }
+  if (--a.countLeft <= 0) {
+    a.gi++
+    const ng = a.groups[a.gi]
+    if (!ng) tdRestartAnim(frame, a)
+    else a.countLeft = ng[2] || 0x10000
+  }
+}
+
+function tdRestartAnim(frame: TdFrame, a: TdAnim): void {
+  if (!a.loop) {
+    a.done = true
+    return
+  }
+  if (a.start !== null) frame[a.field][a.axis] = a.start | 0
+  a.gi = 0
+  a.countLeft = a.groups[0]?.[2] || 0x10000
+  a.speedLeft = a.groups[0]?.[0] ?? 1
+}
+
+/** every live frame's animations, one step — the loop at $211394 */
+export function tdStepAnims(st: TdState): void {
+  for (const frame of [st.viewpoint, ...st.instances.values()]) {
+    if (!frame.anims) continue
+    for (const a of frame.anims.values()) tdStepAnim(frame, a)
+  }
 }

@@ -749,6 +749,12 @@ export const FAITHFUL = new Set<string>([
   'td attitude c',
   'td cls',
   'td range',
+  'td move x',
+  'td move y',
+  'td move z',
+  'td angle a',
+  'td angle b',
+  'td angle c',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',
@@ -1282,6 +1288,8 @@ export const NOTES: Record<string, string> = {
     'The position and attitude readers are one engine routine each plus an axis selector in d2, so Td Position X/Y/Z is $2119ec with 0/1/2 and Td Attitude A/B/C is $211bf8 the same way. Reading an object that does not exist is "Object does not exist" rather than zero',
   'td cls':
     'Clears the top Td Screen Height lines to colour 0, after the three checks $2114be makes on the AMOS screen: exactly 320 wide, at least 4 bitplanes, and at least as tall as Td Screen Height. Anything else is "Amos screen not compatible with 3d", which is why every demo opens Screen Open n,320,200,16,Lowres. What is not reproduced is the clear being a blitter fill of the 3D area only — here it is a plot loop over the same rectangle',
+  'td move x':
+    'The six string forms — Td Move X/Y/Z and Td Angle A/B/C — are $211822 and $211a14 with the axis in d2. "The movement string follows the same rules as those for sprites", so the parser is shared with Move X rather than written twice: (speed,step,count) groups, an optional leading start position, L to loop and E to stop. The engine\'s shape agrees — $211822 takes the axis as 1<<d7, gets the frame through $21301c so the viewpoint can be animated too, and hands $21303e the list at $1e(frame) for a position or $22(frame) for an attitude; $21303e looks for a node with a matching mask before linking a new one, which is why setting the same axis twice replaces rather than stacks. Two things differ from a sprite: the step happens once per Td Redraw, not once per vertical blank, because that is where the engine does it ($211394 walks both lists per instance and calls $21321a) — so a program that redraws every other frame sees its animations run at half pace; and the accumulator is 32 bits rather than 16, since a 3D coordinate is a long and an angle relies on wrapping at 32',
   'td range':
     'Equal object numbers return zero before either is validated ($211d9c compares first), so Td Range(99,99) is 0 rather than "Invalid object number". Object zero counts, because the frames come through $21301c. The prescale at $21235a is reproduced rather than replaced by an exact distance: it ORs the absolute deltas together and, once that passes $4000, normalises to a shift of p-13 where p is the highest set bit, shifts all three down by it and the root back up at the end. That keeps the sum of squares inside a long and costs precision — two objects 100000 apart are measured in units of 8. The integer square root at $213184 is taken to be the floor',
   // 'td redraw' is deliberately not in FAITHFUL: see UNIMPLEMENTED.md. The

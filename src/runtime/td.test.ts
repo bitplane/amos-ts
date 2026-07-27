@@ -764,3 +764,99 @@ describe('AMOS 3D Td Range ($211d8c, prescale at $21235a)', () => {
       .toBeGreaterThan(499000)
   })
 })
+
+describe('AMOS 3D animation strings ($211822 move, $211a14 angle)', () => {
+  const setup = `
+      Td Screen Height 150
+      Screen Open 0,320,200,16,0
+      Td Load "dice"
+      Td Object 1,"dice",0,0,1500,0,0,0
+  `
+
+  it('steps a coordinate once per Td Redraw', () => {
+    // one step of 100 every redraw, five times
+    const { out } = run(`${setup}
+      Td Move Z 1,"(1,100,5)"
+      For I=1 To 5 : Td Redraw : Next I
+      Print Td Position Z(1)
+    `, objectAndLinks('dice.3DO'))
+    expect(out.split('\n')[0]).toBe(' 2000')
+  })
+
+  it('honours the speed field — one step every n redraws', () => {
+    const { out } = run(`${setup}
+      Td Move Z 1,"(3,100,10)"
+      For I=1 To 9 : Td Redraw : Next I
+      Print Td Position Z(1)
+    `, objectAndLinks('dice.3DO'))
+    // speed 3 means the step lands on redraws 3, 6 and 9
+    expect(out.split('\n')[0]).toBe(' 1800')
+  })
+
+  it('runs the demo’s own string', () => {
+    // Not_Just_A_Cube: Td Move Z 1,"(1,0,100)(1,25,45)"
+    // 100 steps of nothing, then 45 steps of 25
+    const { out } = run(`${setup}
+      Td Move Z 1,"(1,0,100)(1,25,45)"
+      For I=1 To 100 : Td Redraw : Next I
+      Print Td Position Z(1)
+      For I=1 To 45 : Td Redraw : Next I
+      Print Td Position Z(1)
+    `, objectAndLinks('dice.3DO'))
+    expect(out.split('\n').slice(0, 2)).toEqual([' 1500', ' 2625'])
+  })
+
+  it('loops with L and stops without it', () => {
+    const once = run(`${setup}
+      Td Move Z 1,"(1,10,3)"
+      For I=1 To 20 : Td Redraw : Next I
+      Print Td Position Z(1)
+    `, objectAndLinks('dice.3DO'))
+    expect(once.out.split('\n')[0]).toBe(' 1530')
+    const looped = run(`${setup}
+      Td Move Z 1,"(1,10,3)L"
+      For I=1 To 20 : Td Redraw : Next I
+      Print Td Position Z(1)
+    `, objectAndLinks('dice.3DO'))
+    expect(looped.out.split('\n')[0]).toBe(' 1700')
+  })
+
+  it('animates an angle, wrapping at 32 bits not 16', () => {
+    const { out } = run(`${setup}
+      Td Angle B 1,"(1,20000,10)"
+      For I=1 To 10 : Td Redraw : Next I
+      Print Td Attitude B(1)
+    `, objectAndLinks('dice.3DO'))
+    // 200000 is past a revolution and past a word, and is kept whole
+    expect(out.split('\n')[0]).toBe(' 200000')
+  })
+
+  it('replaces the same axis rather than stacking, per $21303e', () => {
+    const { out } = run(`${setup}
+      Td Move Z 1,"(1,100,50)"
+      Td Move Z 1,"(1,1,50)"
+      For I=1 To 10 : Td Redraw : Next I
+      Print Td Position Z(1)
+    `, objectAndLinks('dice.3DO'))
+    expect(out.split('\n')[0]).toBe(' 1510')
+  })
+
+  it('animates the viewpoint, because it goes through $21301c', () => {
+    const { out } = run(`
+      Screen Open 0,320,200,16,0
+      Td Move X 0,"(1,50,4)"
+      For I=1 To 4 : Td Redraw : Next I
+      Print Td Position X(0)
+    `)
+    expect(out.split('\n')[0]).toBe(' 200')
+  })
+
+  it('takes a leading number as a starting coordinate', () => {
+    const { out } = run(`${setup}
+      Td Move Z 1,"9000(1,10,2)"
+      Td Redraw
+      Print Td Position Z(1)
+    `, objectAndLinks('dice.3DO'))
+    expect(out.split('\n')[0]).toBe(' 9010')
+  })
+})

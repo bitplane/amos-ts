@@ -283,7 +283,7 @@ function parseStosAnim(src: string): { pairs: Array<[number, number]>; loop: boo
 }
 
 /** Move string "[start](speed,step,count)...[L|E][pos]" (AnMve +W.s:7516) */
-function parseStosMove(src: string): { start: number | null; groups: Array<[number, number, number]>; loop: boolean; endPos: number | null } {
+export function parseStosMove(src: string): { start: number | null; groups: Array<[number, number, number]>; loop: boolean; endPos: number | null } {
   const s = stosScan(src)
   const synt = (): never => {
     throw new AmosError('syntax error in animation string')
