@@ -191,6 +191,8 @@ export interface TdState {
   screenHeight: number
   /** live objects, 1..20, the table at a4+$47c4 */
   instances: Map<number, TdInstance>
+  /** object zero, the viewpoint — the frame at a4+$481c */
+  viewpoint: TdFrame
 }
 
 export const newTdState = (): TdState => ({
@@ -199,6 +201,7 @@ export const newTdState = (): TdState => ({
   objects: new Map(),
   screenHeight: 0,
   instances: new Map(),
+  viewpoint: { pos: [0, 0, 0], angle: [0, 0, 0] },
 })
 
 /**
@@ -387,7 +390,18 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
  * is why Dice_Spin can write `Td Angle Rel 1,-ZI*50,-XI*20,-XI` with ZI around
  * 120 and get a sedate spin rather than a blur.
  */
-export interface TdInstance {
+/**
+ * A position and an attitude — what `$21301c` hands back. The viewpoint has
+ * one without an object attached to it.
+ */
+export interface TdFrame {
+  /** world x, y, z */
+  pos: [number, number, number]
+  /** attitude a, b, c, in 65536ths of a revolution */
+  angle: [number, number, number]
+}
+
+export interface TdInstance extends TdFrame {
   n: number
   object: TdObject
   /** world x, y, z */
@@ -408,6 +422,27 @@ export function tdInstance(st: TdState, n: number): TdInstance {
   const inst = st.instances.get(n)
   if (!inst) tdError(3)
   return inst
+}
+
+/**
+ * Object zero is the viewpoint — "one of those objects, object 0 is special;
+ * it is your own viewpoint. You can move your viewpoint around just like any
+ * other object. Whatever it sees you see."
+ *
+ * It is not in the instance table. `$21301c` is the getter every keyword that
+ * takes a frame goes through, and it forks on zero: `tst.l d7 : bne` sends
+ * anything else to `$212fd0` and then reads its frame from `$52(instance)`,
+ * while zero returns `a4+$481c` directly. So Td Move, Td Angle, Td Position,
+ * Td Attitude, Td Range and the coordinate conversions all accept 0, while Td
+ * Kill and Td Visible — which go straight to `$212fd0` — do not.
+ *
+ * `$212fd0` bounds with `subq.l #1,d7 : moveq #$14,d0 : cmp.l d0,d7 : bcs`,
+ * an unsigned compare after the decrement, which is what makes 1..20 the
+ * range and 0 an "Invalid object number" there.
+ */
+export function tdFrame(st: TdState, n: number): TdFrame {
+  if (n === 0) return st.viewpoint
+  return tdInstance(st, n)
 }
 
 /** 32-bit wrap, since every coordinate and angle is stored as a long */
@@ -431,7 +466,7 @@ function tdVector(rt: Runtime, field: 'pos' | 'angle', relative: boolean): Instr
       it.expect(',')
       v.push(it.evalInt())
     }
-    const target = tdInstance(rt.td, n)[field]
+    const target = tdFrame(rt.td, n)[field]
     for (let i = 0; i < 3; i++) target[i] = l32(relative ? target[i]! + v[i]! : v[i]!)
   }
 }
@@ -439,7 +474,7 @@ function tdVector(rt: Runtime, field: 'pos' | 'angle', relative: boolean): Instr
 /** `Td Position X/Y/Z(n)` and `Td Attitude A/B/C(n)`, one routine and a selector */
 export function makeTdFunctions(rt: Runtime): Record<string, Func> {
   const read = (field: 'pos' | 'angle', axis: number): Func => (_, a) =>
-    VI(tdInstance(rt.td, int(a[0] ?? VI(0)))[field][axis]!)
+    VI(tdFrame(rt.td, int(a[0] ?? VI(0)))[field][axis]!)
   return {
     'td position x': read('pos', 0),
     'td position y': read('pos', 1),

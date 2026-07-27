@@ -544,3 +544,32 @@ describe('AMOS 3D projection ($2101c8, reached through $214876)', () => {
     expect(-0xa00 / 16).toBe(-160)
   })
 })
+
+describe('AMOS 3D viewpoint (object zero, the frame at a4+$481c)', () => {
+  it('moves and turns like any other object, with nothing loaded', () => {
+    // "One of those objects, object 0 is special; it is your own viewpoint."
+    // $21301c forks on zero before it ever reaches the instance table, so
+    // this works with no Td Load and no Td Object at all.
+    const { out } = run(`
+      Td Move 0,100,200,300
+      Td Angle 0,$1000,$2000,$3000
+      Print Td Position X(0);",";Td Position Y(0);",";Td Position Z(0)
+      Print Td Attitude A(0);",";Td Attitude B(0);",";Td Attitude C(0)
+      Td Move Rel 0,-1,-2,-3
+      Print Td Position X(0);",";Td Position Y(0);",";Td Position Z(0)
+    `)
+    expect(out.split('\n').slice(0, 3)).toEqual([' 100, 200, 300', ' 4096, 8192, 12288', ' 99, 198, 297'])
+  })
+
+  it('starts at the origin looking down z', () => {
+    const { out } = run('Print Td Position Z(0);",";Td Attitude B(0)')
+    expect(out.split('\n')[0]).toBe(' 0, 0')
+  })
+
+  it('still refuses object zero where the engine does', () => {
+    // Td Kill goes straight to $212fd0, whose `subq.l #1 : cmp.l #$14 : bcs`
+    // makes zero an invalid number rather than the viewpoint
+    expect(() => run('Td Kill 0')).toThrow(/Invalid object number/)
+    expect(() => run('Td Move 0,1,2,3 : Td Move 21,1,2,3')).toThrow(/Invalid object number/)
+  })
+})
