@@ -31,5 +31,18 @@ export default defineConfig({
     // embed. Splitting it would trade that for parallel fetches we do not
     // need, so the warning is turned off rather than worked around.
     chunkSizeWarningLimit: 1024,
+    rollupOptions: {
+      output: {
+        // No content hash in the filename. Hashing exists to bust caches
+        // when a URL's contents change, and here they never do: every
+        // version lives at its own immutable path, so the path IS the cache
+        // key. Hashing on top of that would only mean /v/latest/ collecting
+        // a new orphaned bundle on every release, and it would deny anyone
+        // embedding the player a URL they can predict and write down.
+        entryFileNames: 'assets/amos-player.js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: 'assets/[name][extname]',
+      },
+    },
   },
 })
