@@ -999,6 +999,11 @@ export const FAITHFUL = new Set<string>([
   'param#',
   'param$',
   'timer',
+  // both forms: InCommandLine (+Lib.s:7867) stashes the string under a "CmdL"
+  // cookie below TBuffer and errors at 256 characters, FnCommandLine (7886)
+  // reads it back or "" without the cookie. Living outside the variable table
+  // is what carries it across a Run, which the port reproduces by hanging it
+  // off the Runtime rather than the program.
   'command line$',
   'multi wait',
   'scin',
@@ -1122,7 +1127,14 @@ export const FAITHFUL = new Set<string>([
   // input read routines verified against +Lib.s (X/Y Mouse raw lowres hw
   // coords 12115; Joy bits 13669; Jup/Jdown/Jleft/Jright/Fire; Key State
   // matrix + $7F mask 13649; Mouse Click edge bitmask 12146; Scancode
-  // clears on read 13631; Key$ = function-key definition 13757)
+  // clears on read 13631; Key$ = function-key definition 13757).
+  // X/Y Mouse also have assignment forms (InXMouse 12108 / InYMouse 12122):
+  // MSetAb (+W.s:10950) doubles the value into the fine counter, clamps it
+  // there against the Limit Mouse rectangle with UNSIGNED compares and halves
+  // it back, so a negative lands on the far limit. With no Limit Mouse in
+  // force the port clamps to 458x312 — the cap MLimA (+W.s:11006) puts on any
+  // rectangle, so no wider one can exist — rather than to a boot default,
+  // which the source only ever sets from the editor.
   'x mouse',
   'y mouse',
   'mouse key',

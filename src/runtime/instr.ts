@@ -51,6 +51,34 @@ function pair(it: It): [number, number] {
   return [x, it.evalInt()]
 }
 
+/**
+ * The rectangle `X Mouse =`/`Y Mouse =` clamp against. On the Amiga these are
+ * T_MouXMin/Max and T_MouYMin/Max, whose only writer is MLimA (+W.s:11006) —
+ * `Limit Mouse`. MLimA also caps the rectangle it is given at 458x312 and
+ * floors it at 0, so with no Limit Mouse in force that cap is the widest
+ * bound any program could have set, and it stands in for the boot default.
+ */
+function mouseBounds(rt: Runtime): { x1: number; y1: number; x2: number; y2: number } {
+  return rt.mouseLimit ?? { x1: 0, y1: 0, x2: 458, y2: 312 }
+}
+
+/**
+ * MSetAb (+W.s:10950) one axis. The value is doubled into the fine counter
+ * (`lsl.w #1`, so it wraps in the word), clamped there against the limits —
+ * which MLimA stored doubled too — and halved back with `lsr.w`. The compares
+ * are UNSIGNED (bcc/bcs) where the vbl clamp in MousInt (+W.s:10556) is signed
+ * (bge/ble), so a negative value looks enormous, fails the "below max" test
+ * and lands on the far limit: `X Mouse = -1` puts the pointer at the right.
+ */
+function setMouseAxis(v: number, lo: number, hi: number): number {
+  let d = (v << 1) & 0xffff
+  const min = (lo << 1) & 0xffff
+  const max = (hi << 1) & 0xffff
+  if (d < min) d = min
+  if (d >= max) d = max
+  return d >>> 1
+}
+
 /** Screen Width/Height(n): explicit n must be open (CheckScreenNumber + AdrEc) */
 function screenArg(rt: Runtime, a: import('../interp/values').Value[]): Screen {
   if (a.length > 0 && int(a[0]!) >= 0) {
@@ -1682,6 +1710,26 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect('to')
       const [x2, y2] = pair(it)
       rt.bobLimits.set(a, { x1: b, y1, x2, y2 })
+    },
+    'x mouse'(it) {
+      // X Mouse = n (InXMouse +Lib.s:12108) -> MSetAb (+W.s:10950) with
+      // EntNul for Y, so only X moves.
+      it.expectOp('=')
+      it.inp.mouseX = setMouseAxis(it.evalInt(), mouseBounds(rt).x1, mouseBounds(rt).x2)
+    },
+    'y mouse'(it) {
+      // Y Mouse = n (InYMouse +Lib.s:12122) -> MSetAb with EntNul for X.
+      it.expectOp('=')
+      it.inp.mouseY = setMouseAxis(it.evalInt(), mouseBounds(rt).y1, mouseBounds(rt).y2)
+    },
+    'command line$'(it) {
+      // Command Line$ = a$ (InCommandLine +Lib.s:7867): stashed under a
+      // "CmdL" cookie just below TBuffer, so it survives Run chaining. 256
+      // or longer is a function call error (cmp.w #256,d2 / Rbcc).
+      it.expectOp('=')
+      const s = str(it.evalExpr())
+      if (s.length >= 256) throw new AmosError('function call error')
+      rt.commandLine = s
     },
     'limit mouse'(it) {
       // InLimitMouse (+Lib.s:12330): no args = the current screen's display
@@ -4484,6 +4532,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     ntsc(_, a) {
       void a
       return VI(0) // FnNTSC: the emulated machine is PAL
+    },
+    'command line$'(_, a) {
+      // FnCommandLine +Lib.s:7886: "" unless the "CmdL" cookie is there
+      void a
+      return VS(rt.commandLine)
     },
     'display height'(_, a) {
       // MaxRaw +Lib.s:8835 / TMaxRaw +W.s:2607: the current screen's bottom

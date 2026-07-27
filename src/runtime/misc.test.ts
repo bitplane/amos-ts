@@ -170,6 +170,37 @@ describe('mouse and joystick reads', () => {
     expect(runOut('Print X Mouse>=0;Y Mouse>=0')).toBe('-1-1\n')
   })
 
+  it('X Mouse = and Y Mouse = move the pointer (InXMouse/InYMouse -> MSetAb)', () => {
+    // each sets one axis; MSetAb leaves the other alone (EntNul in the
+    // register it does not receive)
+    const rt = run('X Mouse=200\nY Mouse=120')
+    expect(rt.input.mouseX).toBe(200)
+    expect(rt.input.mouseY).toBe(120)
+    expect(runOut('X Mouse=200 : Print X Mouse;Y Mouse=Y Mouse')).toBe(' 200-1\n')
+  })
+
+  it('X Mouse = clamps inside Limit Mouse (MSetAb, unsigned)', () => {
+    const rt = run('Limit Mouse 200,100 To 260,140\nX Mouse=400 : Y Mouse=0')
+    expect(rt.input.mouseX).toBe(260)
+    expect(rt.input.mouseY).toBe(100)
+  })
+
+  it('a negative X Mouse = lands on the far limit, not the near one', () => {
+    // MSetAb compares with bcc/bcs where the vbl clamp (MousInt +W.s:10556)
+    // uses bge/ble: doubled, -1 is $FFFE, which is above every limit
+    // unsigned, so it fails "below max" and clamps up
+    const rt = run('Limit Mouse 200,100 To 260,140\nX Mouse=-1')
+    expect(rt.input.mouseX).toBe(260)
+  })
+
+  it('with no Limit Mouse the hardware cap MLimA enforces stands in', () => {
+    // MLimA (+W.s:11006) caps any rectangle at 458x312, so nothing wider
+    // can ever be in force
+    const rt = run('X Mouse=1000 : Y Mouse=1000')
+    expect(rt.input.mouseX).toBe(458)
+    expect(rt.input.mouseY).toBe(312)
+  })
+
   it('Y Hard converts a screen row back to a hardware line', () => {
     expect(runOut('Screen Open 0,320,200,16,Lowres : Screen Display 0,128,50,320,200\nPrint Y Hard(0)')).toBe(
       ' 50\n',

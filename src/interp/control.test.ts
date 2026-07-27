@@ -126,6 +126,15 @@ describe('interpreter no-ops that must still parse', () => {
   it('Command Line$ is empty when nothing invoked the program', () => {
     expect(run('Print Len(Command Line$)').out).toBe(' 0\n')
   })
+
+  it('Command Line$ = stores what the function reads back (InCommandLine)', () => {
+    expect(run('Command Line$="df0:game 3" : Print Command Line$').out).toBe('df0:game 3\n')
+  })
+
+  it('Command Line$ = errors at 256 characters (+Lib.s:7871 cmp.w #256)', () => {
+    expect(run('Command Line$=String$("x",255) : Print Len(Command Line$)').out).toBe(' 255\n')
+    expect(() => run('Command Line$=String$("x",256)')).toThrow(/function call error/)
+  })
 })
 
 describe('Line Input', () => {

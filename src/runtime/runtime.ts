@@ -1778,6 +1778,12 @@ export class Runtime {
    */
   /** Limit Mouse rectangle in hardware coords, clamped each vbl */
   mouseLimit: { x1: number; y1: number; x2: number; y2: number } | null = null
+  /**
+   * `Command Line$` (InCommandLine +Lib.s:7867). The 68k keeps it under a
+   * "CmdL" cookie below TBuffer rather than in a program variable, which is
+   * how it survives `Run` chaining into the next program.
+   */
+  commandLine = ''
   // ---- menus (the Mn* engine, src/runtime/menu.ts) ----
   menu = new MenuTree()
   /** open interaction state while RMB is held (MnGere) */
