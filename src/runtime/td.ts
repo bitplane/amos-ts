@@ -394,6 +394,41 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       if (block < 0 || block >= obj.colours.length) tdError(24)
       obj.colours[block] = [...TD_DITHER[(colour >>> 0) < 16 ? colour : colour & 15]!] as TdDither
     },
+    'td set zone'(it) {
+      // Td Set Zone n, zone, x, y, z, r — $211f98. The object goes through
+      // $21301c so zero counts; a centre over $4000 on any axis, a radius
+      // over $80000 or a negative zone number is "Zone parameter(s) out of
+      // range". Setting a number that is already there replaces it, because
+      // the list walk at $212020 looks before it allocates.
+      const t = st()
+      const n = it.evalInt()
+      const nums: number[] = []
+      for (let i = 0; i < 5; i++) {
+        it.expect(',')
+        nums.push(it.evalInt())
+      }
+      const [zone, x, y, z, r] = nums as [number, number, number, number, number]
+      if (zone < 0 || r < 0 || r > TD_ZONE_RADIUS_LIMIT) tdError(12)
+      for (const v of [x, y, z]) if (Math.abs(v) > TD_ZONE_LIMIT) tdError(12)
+      const frame = tdFrame(t, n)
+      if (!frame.zones) frame.zones = []
+      // the number is kept as a byte, so 256 is zone 0 all over again
+      const key = zone & 0xff
+      const reach = (Math.floor(Math.sqrt(x * x + y * y + z * z)) + r) | 0
+      const made: TdZone = { n: key, pos: [x, y, z], r, reach }
+      const at = frame.zones.findIndex((q) => q.n === key)
+      if (at < 0) frame.zones.push(made)
+      else frame.zones[at] = made
+    },
+    'td delete zone'(it) {
+      // $2120e8 — unlinks it; a number that is not there is not an error
+      const t = st()
+      const n = it.evalInt()
+      it.expect(',')
+      const zone = it.evalInt() & 0xff
+      const frame = tdFrame(t, n)
+      if (frame.zones) frame.zones = frame.zones.filter((q) => q.n !== zone)
+    },
     'td face'(it) {
       // $211c24, selector 8 into the same routine Td Bearing uses — "points
       // object n1 at n2" is the bearing written back into the attitude. Only
@@ -492,6 +527,8 @@ export interface TdFrame {
   pos: [number, number, number]
   /** attitude a, b, c, in 65536ths of a revolution */
   angle: [number, number, number]
+  /** the collision spheres in the list off the frame's +$0, in the order added */
+  zones?: TdZone[]
   /**
    * The two animation lists a frame carries: `$1e(frame)` drives the position
    * and `$22(frame)` the attitude, and Td Redraw steps both. Keyed by axis,
@@ -626,6 +663,78 @@ export function tdRange(a: TdFrame, b: TdFrame): number {
   const scaled = d.map((v) => v >> shift)
   const sum = scaled.reduce((t, v) => t + v * v, 0) | 0
   return (Math.floor(Math.sqrt(sum >>> 0)) << shift) | 0
+}
+
+// ---- zones and collision ----
+
+/** `Td Set Zone` refuses a centre outside this, on any axis ($211fce) */
+export const TD_ZONE_LIMIT = 0x4000
+
+/** ...and a radius above this, tested unsigned ($211ffe) */
+export const TD_ZONE_RADIUS_LIMIT = 0x80000
+
+/**
+ * A collision sphere hung on a frame. The engine keeps them in a linked list
+ * off the frame's +$0, each thirty-eight bytes: the number as a byte at +$0,
+ * the reach at +$2, the centre at +$6/$a/$e, a world-space copy of the centre
+ * at +$12/$16/$1a, the radius at +$1e and the next one at +$22.
+ */
+export interface TdZone {
+  /** the zone's number, stored as a byte, so it wraps at 256 */
+  n: number
+  /** the centre, in the object's own frame */
+  pos: [number, number, number]
+  r: number
+  /**
+   * How far the zone reaches from the object's origin — `sqrt(x^2+y^2+z^2) +
+   * r`, worked out at $2120a6 and kept at +$2. The largest of them is the
+   * frame's own bounding radius, which is what the broad phase compares.
+   */
+  reach: number
+}
+
+/** the frame's bounding radius: the furthest any of its zones reaches */
+export function tdFrameReach(frame: TdFrame): number {
+  let reach = 0
+  for (const z of frame.zones ?? []) if (z.reach > reach) reach = z.reach
+  return reach
+}
+
+/** a zone's centre in world coordinates — its local centre turned and moved */
+export function tdZoneWorld(frame: TdFrame, z: TdZone): [number, number, number] {
+  return tdWorldPoint(frame, z.pos)
+}
+
+/**
+ * Whether two frames' zones touch — $212200, and the predicate at $2122ec.
+ *
+ * Two passes. The broad one compares the distance between the frames with the
+ * sum of their bounding radii, so a pair that cannot possibly touch costs one
+ * test. The narrow one is every zone of the first against every zone of the
+ * second, in world coordinates.
+ *
+ * Both use the same comparison and it is strict: `slt` at $21234e, so the
+ * squared distance has to be *less than* the squared sum. Spheres that touch
+ * exactly do not collide.
+ *
+ * NOTES: the engine prescales the three differences and the radius together
+ * before squaring them, so that the products fit in a long; the port squares
+ * them as they are. Double arithmetic carries about as many significant
+ * digits as the engine has left after its shift, so the two agree except
+ * possibly on the exact boundary between objects millions of units apart.
+ */
+export function tdFramesCollide(a: TdFrame, b: TdFrame): boolean {
+  const near = (p: readonly number[], q: readonly number[], sum: number): boolean => {
+    const d = [0, 1, 2].map((i) => p[i]! - q[i]!)
+    return d[0]! * d[0]! + d[1]! * d[1]! + d[2]! * d[2]! < sum * sum
+  }
+  if (!near(a.pos, b.pos, tdFrameReach(a) + tdFrameReach(b))) return false
+  for (const za of a.zones ?? []) {
+    for (const zb of b.zones ?? []) {
+      if (near(tdZoneWorld(a, za), tdZoneWorld(b, zb), za.r + zb.r)) return true
+    }
+  }
+  return false
 }
 
 // ---- bearings ----
@@ -927,6 +1036,36 @@ export function makeTdFunctions(rt: Runtime): Record<string, Func> {
         }) as Func,
       ]),
     ),
+    ...Object.fromEntries(
+      (['x', 'y', 'z', 'r'] as const).map((axis, i) => [
+        `td zone ${axis}`,
+        ((_, a) => {
+          // $212438 answers -1 for a zone the object has not got
+          const z = (tdFrame(rt.td, int(a[0] ?? VI(0))).zones ?? []).find((q) => q.n === (int(a[1] ?? VI(0)) & 0xff))
+          if (!z) return VI(-1)
+          return VI(i === 3 ? z.r : z.pos[i]!)
+        }) as Func,
+      ]),
+    ),
+    'td collide': (_, a) => {
+      // $21218e. With a second object it tests that one; without, it walks
+      // the twenty slots at a4+$47c0 and stops at the first hit, skipping
+      // itself and any empty slot — but never skipping zero, the viewpoint,
+      // which has no slot to be empty. -1 when nothing touches.
+      const t = rt.td
+      const n = int(a[0] ?? VI(0))
+      const frame = tdFrame(t, n)
+      if (a.length >= 2) {
+        const m = int(a[1] ?? VI(0))
+        return VI(tdFramesCollide(frame, tdFrame(t, m)) ? m : -1)
+      }
+      for (let m = 0; m <= TD_MAX_OBJECTS; m++) {
+        if (m === n) continue
+        if (m !== 0 && !t.instances.has(m)) continue
+        if (tdFramesCollide(frame, tdFrame(t, m))) return VI(m)
+      }
+      return VI(-1)
+    },
     'td range': (_, a) => {
       const n1 = int(a[0] ?? VI(0))
       const n2 = int(a[1] ?? VI(0))

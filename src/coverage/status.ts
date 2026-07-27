@@ -769,6 +769,13 @@ export const FAITHFUL = new Set<string>([
   'td view z',
   'td screen x',
   'td screen y',
+  'td set zone',
+  'td delete zone',
+  'td zone x',
+  'td zone y',
+  'td zone z',
+  'td zone r',
+  'td collide',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',

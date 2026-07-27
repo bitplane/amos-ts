@@ -8,7 +8,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
 import { loadHunks } from '../loader/hunk'
 import type { TdFrame, TdMatrix, TdView } from './td'
-import { TD_ARCTAN, TD_NEAR, TD_ONE, tdAtan2, tdCentreRow, tdScanFill, tdScreenX, tdScreenY, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
+import { TD_ARCTAN, TD_NEAR, TD_ONE, tdFrame, tdFrameReach, tdAtan2, tdCentreRow, tdScanFill, tdScreenX, tdScreenY, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -1524,5 +1524,123 @@ describe('AMOS 3D Td Screen ($21251e, the divide at $212626, the map at $2126b6)
     const [x, y] = out.split('\n')[0]!.split(',').map((n) => Number(n))
     expect(x).toBe(screen('', '200,0,1500')[0])
     expect(y).toBe(74)
+  })
+})
+
+describe('AMOS 3D zones and collision ($211f98, $212200, the test at $2122ec)', () => {
+  const setup = `
+      Td Load "dice"
+      Td Object 1,"dice",0,0,0,0,0,0
+      Td Object 2,"dice",1000,0,0,0,0,0
+  `
+  const go = (src: string) => run(`${setup}\n${src}`, objectAndLinks('dice.3DO'))
+
+  it('reads a zone back, and answers -1 for one that is not there', () => {
+    const { out } = go(`
+      Td Set Zone 1,3,10,20,30,40
+      Print Td Zone X(1,3);",";Td Zone Y(1,3);",";Td Zone Z(1,3);",";Td Zone R(1,3)
+      Print Td Zone X(1,4)
+    `)
+    expect(out.split('\n').slice(0, 2)).toEqual([' 10, 20, 30, 40', '-1'])
+  })
+
+  it('replaces a zone of the same number rather than adding a second', () => {
+    // $212020 walks the list looking for the number before it allocates
+    const { rt } = go(`
+      Td Set Zone 1,0,10,0,0,50
+      Td Set Zone 1,0,20,0,0,60
+    `)
+    const zones = tdFrame(rt.td, 1).zones!
+    expect(zones).toHaveLength(1)
+    expect(zones[0]!.pos[0]).toBe(20)
+    expect(zones[0]!.r).toBe(60)
+  })
+
+  it('refuses a centre or a radius outside its limits', () => {
+    expect(() => go('Td Set Zone 1,0,16385,0,0,10')).toThrow(/Zone parameter/)
+    expect(() => go('Td Set Zone 1,0,0,-16385,0,10')).toThrow(/Zone parameter/)
+    expect(() => go(`Td Set Zone 1,0,0,0,0,${0x80000 + 1}`)).toThrow(/Zone parameter/)
+    expect(() => go(`Td Set Zone 1,0,16384,0,0,${0x80000}`)).not.toThrow()
+  })
+
+  it('works out how far a zone reaches from the object origin', () => {
+    // $2120a6: sqrt(x^2+y^2+z^2) + r, and the largest is the frame's own
+    // bounding radius — 3-4-5, so 300,400 reaches 500 plus the radius
+    const { rt } = go('Td Set Zone 1,0,300,400,0,60')
+    expect(tdFrame(rt.td, 1).zones![0]!.reach).toBe(560)
+    expect(tdFrameReach(tdFrame(rt.td, 1))).toBe(560)
+  })
+
+  it('collides two objects whose spheres overlap, and not when they touch', () => {
+    // the comparison is strict — slt at $21234e — so exactly touching is not
+    // a collision. The objects are 1000 apart.
+    expect(go(`
+      Td Set Zone 1,0,0,0,0,600
+      Td Set Zone 2,0,0,0,0,401
+      Print Td Collide(1,2)
+    `).out.split('\n')[0]).toBe(' 2')
+    expect(go(`
+      Td Set Zone 1,0,0,0,0,600
+      Td Set Zone 2,0,0,0,0,400
+      Print Td Collide(1,2)
+    `).out.split('\n')[0]).toBe('-1')
+  })
+
+  it('an object with no zones collides with nothing', () => {
+    expect(go(`
+      Td Set Zone 1,0,0,0,0,100000
+      Print Td Collide(1,2)
+    `).out.split('\n')[0]).toBe('-1')
+  })
+
+  it('turns a zone with the object it is on', () => {
+    // the centre is in the object's own frame, so a quarter turn swings it
+    // round: a zone 900 along +z reaches object 2 at +x only once turned
+    const q = TD_REVOLUTION / 4
+    expect(go(`
+      Td Set Zone 1,0,0,0,900,200
+      Td Set Zone 2,0,0,0,0,50
+      Print Td Collide(1,2)
+    `).out.split('\n')[0]).toBe('-1')
+    expect(go(`
+      Td Angle 1,0,${q},0
+      Td Set Zone 1,0,0,0,900,200
+      Td Set Zone 2,0,0,0,0,50
+      Print Td Collide(1,2)
+    `).out.split('\n')[0]).toBe(' 2')
+  })
+
+  it('scans every object when it is given only one', () => {
+    // $2121b6 walks the twenty slots, skips itself and empty ones, and stops
+    // at the first hit
+    expect(go(`
+      Td Object 3,"dice",0,0,900,0,0,0
+      Td Set Zone 1,0,0,0,0,500
+      Td Set Zone 3,0,0,0,0,500
+      Print Td Collide(1)
+    `).out.split('\n')[0]).toBe(' 3')
+    expect(go(`
+      Td Set Zone 1,0,0,0,0,100
+      Td Set Zone 2,0,0,0,0,100
+      Print Td Collide(1)
+    `).out.split('\n')[0]).toBe('-1')
+  })
+
+  it('collides with the viewpoint, which is object zero', () => {
+    expect(go(`
+      Td Set Zone 0,0,0,0,0,300
+      Td Set Zone 1,0,0,0,0,300
+      Print Td Collide(1)
+    `).out.split('\n')[0]).toBe(' 0')
+  })
+
+  it('Td Delete Zone takes one away and leaves the rest', () => {
+    const { out } = go(`
+      Td Set Zone 1,0,10,0,0,50
+      Td Set Zone 1,1,20,0,0,50
+      Td Delete Zone 1,0
+      Print Td Zone X(1,0);",";Td Zone X(1,1)
+    `)
+    expect(out.split('\n')[0]).toBe('-1, 20')
   })
 })
