@@ -408,11 +408,17 @@ function objectWalk(rt: Runtime, n: number, xf: (x: number, y: number) => [numbe
   // nothing unpredictable will happen." — so this stops instead.
 }
 
-/** `Check`, `Hit Bob Check` and `Hit Spr Check` all share this scan */
+/**
+ * `Check`, `Hit Bob Check` and `Hit Spr Check` all share this scan.
+ *
+ * Zone numbers are 1-based, as they are for core AMOS `Set Zone` — the TURBO
+ * manual says Set Check "does the same thing as the Set Zone command" — so
+ * `Reserve Check 650` numbers them 1..650 and the array is indexed one lower.
+ */
 function checkHit(rt: Runtime, from: number, to: number, x: number, y: number): number {
   const zones = rt.turbo.checks
-  const lo = Math.max(0, Math.min(from, to))
-  const hi = Math.min(zones.length - 1, Math.max(from, to))
+  const lo = Math.max(0, Math.min(from, to) - 1)
+  const hi = Math.min(zones.length - 1, Math.max(from, to) - 1)
   for (let i = lo; i <= hi; i++) {
     const z = zones[i]
     if (!z?.set) continue
@@ -2152,7 +2158,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
     },
     'reset check'(it) {
       // "Erases a Check zone's definition. You must give the zone number."
-      const z = rt.turbo.checks[it.evalInt()]
+      const z = rt.turbo.checks[it.evalInt() - 1]
       if (z) z.set = false
     },
     'set check'(it) {
@@ -2167,7 +2173,8 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       const x2 = it.evalInt()
       it.expect(',')
       const y2 = it.evalInt()
-      const z = rt.turbo.checks[n]
+      // 1-based, like Set Zone — Reserve Check 650 numbers them 1..650
+      const z = rt.turbo.checks[n - 1]
       if (!z) throw new AmosError('Illegal function call')
       z.x1 = Math.min(x1, x2)
       z.y1 = Math.min(y1, y2)

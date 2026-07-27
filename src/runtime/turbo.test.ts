@@ -114,12 +114,18 @@ describe('TURBO input (TURBO_DocsV2.15.Asc + disassembly)', () => {
 describe('TURBO Check zones (TURBO_DocsV2.15.Asc)', () => {
   // "CHECK commands are the TURBO version of AMOS Zone commands. These
   // commands are not compatible with the normal Zone commands!"
-  const setup = ['Reserve Check 4', 'Set Check 0,10,10 To 50,50', 'Set Check 1,100,100 To 120,120']
+  //
+  // Zones are numbered from ONE, not zero. The docs do not say so outright,
+  // but Set Check "does the same thing as the Set Zone command" and core
+  // AMOS numbers zones 1..n. The extension author's own Hit_SprZone demo
+  // settles it: `Reserve Check 650` followed by Set Check for zones 1 to 650
+  // inclusive, which only fits if n zones are numbered 1..n.
+  const setup = ['Reserve Check 4', 'Set Check 1,10,10 To 50,50', 'Set Check 2,100,100 To 120,120']
 
   it('Check reports 1 inside a zone and 0 outside — not AMOS truth', () => {
     // "Returns 1 is the result is true, 0 if not" — note 1, not -1
     const { out } = run(
-      [...setup, 'Print Check(0 To 3,20,20)', 'Print Check(0 To 3,200,200)', 'Print Check(0 To 3,110,110)'].join('\n'),
+      [...setup, 'Print Check(1 To 4,20,20)', 'Print Check(1 To 4,200,200)', 'Print Check(1 To 4,110,110)'].join('\n'),
     )
     expect(out).toBe(' 1\n 0\n 1\n')
   })
@@ -127,20 +133,27 @@ describe('TURBO Check zones (TURBO_DocsV2.15.Asc)', () => {
   it('the start/end range excludes zones outside it', () => {
     // "The START and END parameters indicate which zones you want to check.
     // Ideal if there are many zones and you want to exclude some zones."
-    const { out } = run([...setup, 'Print Check(0 To 0,110,110)', 'Print Check(1 To 1,110,110)'].join('\n'))
+    const { out } = run([...setup, 'Print Check(1 To 1,110,110)', 'Print Check(2 To 2,110,110)'].join('\n'))
     expect(out).toBe(' 0\n 1\n')
+  })
+
+  it('the last reserved zone is usable — Reserve Check 4 gives 1..4', () => {
+    // the off-by-one this file used to encode: zone 4 of 4 read past the end
+    // and answered "Illegal function call"
+    const { out } = run(['Reserve Check 4', 'Set Check 4,10,10 To 50,50', 'Print Check(1 To 4,20,20)'].join('\n'))
+    expect(out).toBe(' 1\n')
   })
 
   it('Reset Check erases one definition, Check Erase all of them', () => {
     const { out } = run(
-      [...setup, 'Reset Check 0', 'Print Check(0 To 3,20,20)', 'Check Erase', 'Print Check(0 To 3,110,110)'].join('\n'),
+      [...setup, 'Reset Check 1', 'Print Check(1 To 4,20,20)', 'Check Erase', 'Print Check(1 To 4,110,110)'].join('\n'),
     )
     expect(out).toBe(' 0\n 0\n')
   })
 
   it('Set Check without reserving first is an error', () => {
     // "Execute this command before Setting any Check zones."
-    expect(() => run('Set Check 0,0,0 To 10,10')).toThrow(/Illegal function call/)
+    expect(() => run('Set Check 1,0,0 To 10,10')).toThrow(/Illegal function call/)
   })
 
   it('Hit Bob Check and Hit Spr Check test an object against the zones', () => {
@@ -150,17 +163,17 @@ describe('TURBO Check zones (TURBO_DocsV2.15.Asc)', () => {
     const src = [
       'Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 0', // a bob image to place
       'Reserve Check 2',
-      'Set Check 0,10,10 To 50,50',
+      'Set Check 1,10,10 To 50,50',
       'Bob 1,30,30,1',
       'Sprite 8,30,30,1',
-      'Print Hit Bob Check(0 To 1,0,0,1);Hit Bob Check(0 To 1,100,100,1)',
-      'Print Hit Spr Check(0 To 1,0,0,8);Hit Spr Check(0 To 1,100,100,8)',
+      'Print Hit Bob Check(1 To 2,0,0,1);Hit Bob Check(1 To 2,100,100,1)',
+      'Print Hit Spr Check(1 To 2,0,0,8);Hit Spr Check(1 To 2,100,100,8)',
     ]
     expect(run(src.join('\n')).out).toBe(' 1 0\n 1 0\n')
   })
 
   it('Set Check normalises a rectangle given the other way round', () => {
-    const { out } = run(['Reserve Check 1', 'Set Check 0,50,50 To 10,10', 'Print Check(0 To 0,20,20)'].join('\n'))
+    const { out } = run(['Reserve Check 1', 'Set Check 1,50,50 To 10,10', 'Print Check(1 To 1,20,20)'].join('\n'))
     expect(out).toBe(' 1\n')
   })
 })

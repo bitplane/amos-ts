@@ -552,13 +552,27 @@ export const INSTR: Record<string, Instr> = {
     return 'jumped'
   },
   shared(it) {
+    // InShared (+ILib.s:4206) does nothing at run time — Sha0 walks its own
+    // argument list, steps over an optional "()", loops on a comma and
+    // returns. It never touches a variable table, because the editor's Test
+    // pass has already assigned the slots; the instruction only has to get
+    // out of the way at run time.
+    //
+    // So `Shared` in the MAIN program is not the no-op it looks like here: the
+    // names it lists are the main program's variables, and every procedure
+    // that mentions one gets that slot. Treating it as Global is what
+    // reproduces the observable behaviour. TURBO's Starfield demo does exactly
+    // this — Dim, then `Shared AANTAL,X_AS(),SPEED()` at the top level, then
+    // procedures using the arrays with no declaration of their own.
     const frame = it.frames[it.frames.length - 1]!
+    const inProc = it.frames.length > 1
     do {
       const t = it.tok()
       if (t?.kind !== 'var') throw new AmosError('variable expected in Shared')
       it.advance()
       if (it.accept('(')) it.expect(')')
-      frame.shared.add(varKey(t.name, t.flags))
+      if (inProc) frame.shared.add(varKey(t.name, t.flags))
+      else it.globals.add(varKey(t.name, t.flags))
     } while (it.accept(','))
   },
   global(it) {

@@ -296,6 +296,46 @@ describe('procedures', () => {
     expect(run(glob)).toBe(' 5\n')
   })
 
+  it('Shared in the main program means Global (InShared +ILib.s:4206)', () => {
+    // InShared does nothing at run time — Sha0 walks its own argument list,
+    // steps over an optional "()", loops on a comma and returns, never
+    // touching a variable table. The scoping comes from the editor's Test
+    // pass assigning slots, so a name the MAIN program declares Shared is the
+    // main program's variable in every procedure that mentions it, declared
+    // there or not.
+    //
+    // TURBO's Starfield demo is the case that found this: Dim, then
+    // `Shared AANTAL,X_AS(),SPEED()` at the top level, then procedures using
+    // the arrays with no declaration of their own.
+    const src = [
+      'Dim A(4)',
+      'A(2)=7 : N=3',
+      'Shared N,A()',
+      'REPORT',
+      'Procedure REPORT',
+      '   Print A(2);N',
+      'End Proc',
+    ].join('\n')
+    expect(run(src)).toBe(' 7 3\n')
+  })
+
+  it('Shared inside a procedure still shares only with that procedure', () => {
+    // the ordinary form is unchanged: one procedure declaring Shared does not
+    // hand the name to another that did not
+    const src = [
+      'V=1',
+      'A : B',
+      'Procedure A',
+      '   Shared V',
+      '   V=9',
+      'End Proc',
+      'Procedure B',
+      '   Print V',   // B's own local V, untouched by A
+      'End Proc',
+    ].join('\n')
+    expect(run(src)).toBe(' 0\n')
+  })
+
   it('a parameter shadows a Global of the same name, even when passed to a nested proc', () => {
     // eggit passes Global A$ params through _BOX -> X_BOX; the params must
     // stay local, not resolve back to the (empty) global
