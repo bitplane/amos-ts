@@ -837,6 +837,33 @@ export interface TdProjected {
  */
 export const TD_NEAR = 0x10000
 
+/**
+ * Apply the view matrix, without the shift or the origin — the three rows of
+ * $2101c8 on their own.
+ *
+ * The nine words are the ones `tdMatrix` builds; $219566 is $213df8
+ * recompiled with its destinations moved eighteen bytes down, from a4+$bcc to
+ * a4+$bba, and is otherwise instruction-for-instruction the same routine. So
+ * the camera's matrix and an object's matrix are built identically, and the
+ * only difference is how the two transforms fold the signs in — comparing
+ * them row by row:
+ *
+ *     tdRotate      x' = [ m0, -m4,  m6 ]      view    X = [  m0, m1, -m2 ]
+ *                   y' = [ m1,  m3,  m7 ]              Y = [ -m4, m3, -m5 ]
+ *                   z' = [-m2, -m5,  m8 ]              Z = [  m6, m7,  m8 ]
+ *
+ * Row i of one is column i of the other: the view transform is the transpose,
+ * which for a rotation is the inverse. That is exactly what a camera wants,
+ * and it is why the same builder serves both.
+ */
+export function tdViewRotate(m: TdMatrix, p: TdPoint, shift = 12): TdPoint {
+  return {
+    x: (((m[0] * p.x + m[1] * p.y - m[2] * p.z) | 0) >> shift) | 0,
+    y: (((-m[4] * p.x + m[3] * p.y - m[5] * p.z) | 0) >> shift) | 0,
+    z: (((m[6] * p.x + m[7] * p.y + m[8] * p.z) | 0) >> shift) | 0,
+  }
+}
+
 export function tdProject(v: TdView, p: TdPoint): TdProjected {
   const m = v.matrix
   const s = v.shift
@@ -845,9 +872,12 @@ export function tdProject(v: TdView, p: TdPoint): TdProjected {
   const Z = ((((m[6] * p.x + m[7] * p.y + m[8] * p.z) | 0) >> s) | 0) + v.origin[2]
   const view: [number, number, number] = [X | 0, Y | 0, Z | 0]
   if (Z <= TD_NEAR) return { status: 1, view, x: 0, y: 0 }
-  // divs.w is a 32-by-16 divide, and it takes only the low word of its source
-  // as the divisor — a depth past 2^27 wraps rather than clipping, which is
-  // the engine's behaviour and not something to tidy up
+  // divs.w is a 32-by-16 divide and it takes only the low word of its source
+  // as the divisor. Since the divisor is the depth in world units, the engine
+  // has a hard far limit: past 32767 units the divisor wraps and objects come
+  // back the wrong size, or mirrored once it goes negative. That is real
+  // 1991 behaviour, not an artefact of the port — with the near limit at 16
+  // units it still leaves a range of 2000 to 1.
   const d = (((Z >> 12) << 16) >> 16) | 0
   if (d === 0) return { status: 2, view, x: 0, y: 0 }
   // a quotient outside a signed word sets V and the engine falls back to a
@@ -867,4 +897,76 @@ export function tdClipCode(v: number): 0 | 1 | 2 {
   if (v < -0xa00) return 1
   if (v > 0x9f0) return 2
   return 0
+}
+
+/**
+ * The view an object is drawn through this frame.
+ *
+ * Everything downstream of the view matrix is in 4096ths of a world unit,
+ * because the matrix product is not shifted back down. `Td Object
+ * 1,"dice",0,0,1500` puts a cube whose points are about 173 across at a depth
+ * of 1500, and the near limit rejects a depth of $10000 — sixteen world
+ * units — so the two only sit in the same space if the world position is
+ * scaled up to meet the model rather than the model scaled down to meet it.
+ * The divide then takes the depth back to world units, which fixes the focal
+ * length at 4096/16 = 256 pixels: a 64-degree field of view on a 320-wide
+ * screen, and a 173-unit cube at 1500 comes out about 59 pixels across.
+ *
+ * The shift is per object: $215e8c copies it out of the object's +$40 into
+ * a4+$b32 and $2101c8 applies it to each row's sum, so it scales an object
+ * whose model coordinates are too large. Where +$40 comes from in the file
+ * has not been located, so only the neutral zero is reachable so far.
+ *
+ * $215e54 copies a per-object origin out of the object's +$c0..+$c8 into
+ * a4+$b34, and $2101c8 adds it after the view rotation rather than before —
+ * so it is the object's position already expressed in the camera's frame,
+ * `V * (objectWorld - viewpointWorld)`. That is the only composition
+ * consistent with the data flow and with the transform being applied to
+ * points that have already been rotated into the object's own attitude.
+ */
+export function tdViewFor(viewpoint: TdFrame, frame: TdFrame, shift = 0): TdView {
+  const matrix = tdMatrix(viewpoint.angle[0], viewpoint.angle[1], viewpoint.angle[2])
+  const rel = {
+    x: (frame.pos[0] - viewpoint.pos[0]) | 0,
+    y: (frame.pos[1] - viewpoint.pos[1]) | 0,
+    z: (frame.pos[2] - viewpoint.pos[2]) | 0,
+  }
+  const o = tdViewRotate(matrix, rel, 0)
+  return { matrix, origin: [o.x, o.y, o.z], shift }
+}
+
+/** a face ready to fill: screen corners in sixteenths of a pixel */
+export interface TdScreenFace {
+  face: TdFace
+  /** one entry per vertex, in winding order */
+  points: Array<{ x: number; y: number }>
+}
+
+/**
+ * Everything Td Redraw does to one instance before a pixel is touched:
+ * rotate the model points into the object's attitude, project each one, and
+ * hand back the faces whose vertices all landed.
+ *
+ * The order is the engine's. $21085c transforms the whole point list in one
+ * pass, writing into a second array, and only then does the face walk at
+ * $217ee2 visit vertices — which is why a point shared by four faces is
+ * transformed once. The per-vertex frame stamp at +$9 does the same job for
+ * the projection.
+ *
+ * A face is dropped when any of its vertices comes back with a non-zero
+ * status: status 1 is the near limit and status 2 an overflowing quotient,
+ * and neither has a partial polygon to draw. Clipping a polygon against the
+ * frustum is not something the engine does either — it relies on the near
+ * limit and on the rasteriser's own bounds.
+ */
+export function tdInstanceFaces(g: TdGeometry, attitude: TdMatrix, view: TdView): TdScreenFace[] {
+  const projected = g.points.map((p) => tdProject(view, tdRotate(attitude, p)))
+  const out: TdScreenFace[] = []
+  for (const face of g.faces) {
+    if (face.surface === 0) continue
+    const points = face.vertices.map((i) => projected[i]!)
+    if (points.some((p) => p.status !== 0)) continue
+    out.push({ face, points: points.map((p) => ({ x: p.x, y: p.y })) })
+  }
+  return out
 }

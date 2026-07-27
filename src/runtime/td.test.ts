@@ -7,8 +7,8 @@ import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
 import { loadHunks } from '../loader/hunk'
-import type { TdMatrix, TdView } from './td'
-import { TD_NEAR, TD_ONE, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdMatrix, tdProject, tdRotate, tdSections, tdSin } from './td'
+import type { TdFrame, TdMatrix, TdView } from './td'
+import { TD_NEAR, TD_ONE, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -571,5 +571,104 @@ describe('AMOS 3D viewpoint (object zero, the frame at a4+$481c)', () => {
     // makes zero an invalid number rather than the viewpoint
     expect(() => run('Td Kill 0')).toThrow(/Invalid object number/)
     expect(() => run('Td Move 0,1,2,3 : Td Move 21,1,2,3')).toThrow(/Invalid object number/)
+  })
+})
+
+describe('AMOS 3D camera ($219566 is $213df8 with its stores moved to a4+$bba)', () => {
+  it('undoes the attitude it was built from', () => {
+    // The view transform's fold is the transpose of tdRotate's, so rotating a
+    // point by an attitude and then viewing it through the same attitude must
+    // give the point back. Nothing in either routine was written to make that
+    // true — it falls out of the two sign patterns being transposes, which is
+    // the check.
+    for (const [a, b, c] of [[0x1000, 0, 0], [0, 0x3000, 0], [0, 0, 0x5000], [0x1234, 0x5678, 0x9abc]]) {
+      const m = tdMatrix(a!, b!, c!)
+      const p = { x: 3000, y: -2000, z: 1500 }
+      const back = tdViewRotate(m, tdRotate(m, p))
+      for (const k of ['x', 'y', 'z'] as const) {
+        expect(Math.abs(back[k] - p[k]), `${k} at ${a},${b},${c}`).toBeLessThan(8)
+      }
+    }
+  })
+
+  it('places an object relative to the viewpoint, in the camera’s frame', () => {
+    const eye = { pos: [1000, 0, 0] as [number, number, number], angle: [0, 0, 0] as [number, number, number] }
+    const obj = { pos: [1000, 0, 5000] as [number, number, number], angle: [0, 0, 0] as [number, number, number] }
+    // straight ahead: the camera's x and y drop out, and the depth is the gap
+    // — in 4096ths, because the view product is never shifted back down
+    expect(tdViewFor(eye, obj).origin).toEqual([0, 0, 5000 * TD_ONE])
+    // turn the camera a quarter turn about b and the object swings to the side
+    const turned = tdViewFor({ ...eye, angle: [0, TD_REVOLUTION / 4, 0] }, obj)
+    expect(turned.origin[2]).toBe(0)
+    expect(Math.abs(turned.origin[0])).toBe(5000 * TD_ONE)
+  })
+
+  it('projects a cube in front of the camera onto the screen', () => {
+    const g = parseTdGeometry(parseTdFile(shipped('dice.3DO')))
+    const eye: TdFrame = { pos: [0, 0, 0], angle: [0, 0, 0] }
+    // where Dice_Spin puts it: Td Object 1,"dice",0,0,1500,0,0,0
+    const obj: TdFrame = { pos: [0, 0, 1500], angle: [0, 0, 0] }
+    const faces = tdInstanceFaces(g, tdMatrix(0, 0, 0), tdViewFor(eye, obj))
+    // all six faces project, each a quad
+    expect(faces.length).toBe(6)
+    for (const f of faces) expect(f.points.length).toBe(4)
+    // and every corner lands well inside the clip bounds
+    for (const f of faces) for (const p of f.points) {
+      expect(tdClipCode(p.x)).toBe(0)
+      expect(tdClipCode(p.y)).toBe(0)
+    }
+  })
+
+  it('drops the whole object when it is behind the eye', () => {
+    const g = parseTdGeometry(parseTdFile(shipped('dice.3DO')))
+    const eye: TdFrame = { pos: [0, 0, 0], angle: [0, 0, 0] }
+    const behind: TdFrame = { pos: [0, 0, -1500], angle: [0, 0, 0] }
+    expect(tdInstanceFaces(g, tdMatrix(0, 0, 0), tdViewFor(eye, behind))).toEqual([])
+  })
+
+  it('shrinks the cube as it recedes', () => {
+    const g = parseTdGeometry(parseTdFile(shipped('dice.3DO')))
+    const eye: TdFrame = { pos: [0, 0, 0], angle: [0, 0, 0] }
+    const span = (z: number): number => {
+      const f = tdInstanceFaces(g, tdMatrix(0, 0, 0), tdViewFor(eye, { pos: [0, 0, z], angle: [0, 0, 0] }))
+      const xs = f.flatMap((k) => k.points.map((p) => p.x))
+      return Math.max(...xs) - Math.min(...xs)
+    }
+    expect(span(1500)).toBeGreaterThan(span(3000))
+    expect(span(3000)).toBeGreaterThan(span(6000))
+    // and it roughly halves as the distance doubles, which is what a divide
+    // by depth means. Only roughly: the cube is 346 units deep itself, so at
+    // 1500 its near face is a tenth closer than its centre and the span is
+    // wider than a point at the centre would give.
+    expect(Math.abs(span(3000) / span(6000) - 2)).toBeLessThan(0.1)
+    expect(Math.abs(span(1500) / span(3000) - 2)).toBeLessThan(0.2)
+  })
+})
+
+describe('AMOS 3D depth limits (the near test and the divisor at $210268)', () => {
+  const g = () => parseTdGeometry(parseTdFile(shipped('dice.3DO')))
+  const eye: TdFrame = { pos: [0, 0, 0], angle: [0, 0, 0] }
+  const at = (z: number) => tdInstanceFaces(g(), tdMatrix(0, 0, 0), tdViewFor(eye, { pos: [0, 0, z], angle: [0, 0, 0] }))
+
+  it('has a near limit of sixteen world units', () => {
+    // $10000 in 4096ths is sixteen units. A cube centred there still has its
+    // back half beyond the limit, so faces drop out one at a time as it comes
+    // through rather than the whole object vanishing at once.
+    expect(at(-200).length).toBe(0)
+    expect(at(16).length).toBeGreaterThan(0)
+    expect(at(16).length).toBeLessThan(6)
+    expect(at(200).length).toBe(6)
+  })
+
+  it('wraps past 32767 units, because divs.w takes a word', () => {
+    // A point 1000 units off-axis at a depth of 40000 should project to
+    // 1000 * 4096 / 40000, about 102 sixteenths. The divisor is the low word
+    // of the depth, and 40000 reads as -25536 there, so it comes out negative
+    // and too far out instead.
+    const view: TdView = { matrix: tdMatrix(0, 0, 0), origin: [1000 * TD_ONE, 0, 40000 * TD_ONE], shift: 0 }
+    expect(tdProject(view, { x: 0, y: 0, z: 0 }).x).toBe(-160)
+    // inside the limit it behaves
+    const ok: TdView = { matrix: tdMatrix(0, 0, 0), origin: [1000 * TD_ONE, 0, 20000 * TD_ONE], shift: 0 }
+    expect(tdProject(ok, { x: 0, y: 0, z: 0 }).x).toBe(204)
   })
 })
