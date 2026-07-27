@@ -1,26 +1,23 @@
 # What's not implemented (and what's approximated)
 
-Status after the integration pass (Varptr/=Array variable arena,
-Sprite Base/Icon Base bank memory, Run program chaining, random-
-access records, IFF ANIM frames, the environment cluster), following
-the audio pass and the faithfulness sweep. Census over the
-405-program corpus: **397 run to a stop, 73 finish with nothing
-skipped** (95 end, more now running their real event loops instead
-of bailing at skipped keywords). Occurrence counts come
-from `runreport --all` (statements actually reached, so a tight loop
-counts thousands of times). Per-keyword detail lives in `KEYWORDS.md`
-(generated); this is the narrative view.
+Every caveat here also carries a NOTES entry in `KEYWORDS.md`, which is
+generated from `src/coverage/status.ts`. This is the narrative view.
 
-The display pipeline is considered done: screens, drawing, palette,
-rainbows, copper (system-generated AND user lists), menus, windows,
-zones, dual playfield, HAM/EHB, hardware/STOS animation are all at
-100%. The audio pipeline is now done too: the three players (music
-bank, MOD tracker, MED) and the wavetable synth are ported from
-+Music.s over the AudioSink, with the faithful read-and-clear
-Vumeter, voice stealing/reclaim, Sam Swap double-buffering and the
-LED filter. Every remaining caveat is NOTES'd in `KEYWORDS.md`; a
-WebAudio sink renders it in the browser (per-tick control is
-best-effort there).
+**Where the port stands.** Core AMOS Professional is complete: the display
+pipeline, the audio pipeline, the language, banks, files, menus, the Interface
+dialog engine and the file selector are all at 100%, as are the AMOS 3D,
+TURBO Plus and LDos 2.5 extensions.
+
+Census over the 419-program corpus: **412 run to a stop, and 353 of those —
+86% — run without hitting a single unimplemented keyword.** The census also
+prints "ended with nothing skipped" (76); ignore it. It counts only programs
+that *terminate*, and most AMOS programs are games and demos that never do:
+220 hit the step cap and 91 block waiting on input, both correct behaviour.
+
+Occurrence counts below come from `runreport --all` and are statements
+actually reached, so a tight loop counts thousands of times. That makes them a
+measure of how hot a gap is, not how many programs it blocks — the two are
+given separately where they differ.
 
 ## Not implemented — grouped, roughly by census weight
 
@@ -38,20 +35,36 @@ machine-code procedures (68k is never executed — n/a by policy),
 the ARexx system). `Varptr`/`=Array` now live in the fake address
 space.
 
-### Third-party extensions (~620 keywords, all 0%)
+### Third-party extensions
 
-Registered and detokenising, none implemented: Intuition 1.3b (183),
-TURBO Plus (134), Personnal 1.0b (110), GUI 1.61 (103), LDos 2.5 (77),
-Misc 1.0 (12). The token tables are ground truth and slot
-identification is automatic, so these programs now list and load with
-real keyword names instead of `{ext12:$02d4}` — they just stop at the
-first extension keyword. `docs/extensions/README.md` explains the
-identification model and the evidence tiers that decide which of these
-can ever be marked faithful: Intuition, Personnal **and Misc** all ship
-assembler source (Misc's `Misc_Extension.asm` is the whole extension,
-public domain), so all three can reach faithful; LDos, TURBO Plus and
-GUI are token-table-only, so keywords ported from them are structural by
-definition.
+**Done, and faithful.** AMOS 3D (64), TURBO Plus (153 across 1.0/1.9/2.15),
+LDos 2.5 (77) and Compact (3). Only Compact ships source — `extensions/+Compact.s`
+is in the AMOS tree. The other three were reverse-engineered from the shipped
+binaries, so their evidence tier is disassembly rather than source — which
+`docs/extensions/README.md` ranks alongside source, and which is what earlier
+versions of this file got wrong when they called every token-table-only
+extension "structural by definition". The token table is not the only thing a
+shipped library tells you.
+
+**Registered and detokenising, not implemented** — these programs list and load
+with real keyword names instead of `{ext12:$02d4}`, then stop at the first
+extension keyword:
+
+| extension | keywords | note |
+|---|---|---|
+| AMCAF 1.50 | 278 | freeware, ships an AmigaGuide manual |
+| **Intuition 1.3b** | **183** | **ships assembler source; the largest remaining gap, ~17 corpus programs** |
+| Craft 1.0 | 136 | commercial (Black Legend) |
+| GUI 2.10 / 1.61 | 118 / 103 | |
+| Personnal 1.0b | 102 | ships assembler source |
+| Range 1.0 / 2.0 | 46 / 23 | |
+| AMOSPro Colours | 27 | ships its assembler source |
+| AGA 1.0 | 24 | |
+| Misc 1.0 | 10 | public domain, source is the whole extension |
+| LDos 2.6 | 8 | the delta over 2.5 |
+
+`docs/extensions/README.md` explains the slot model and how an extension is
+identified by fingerprint when slots collide.
 
 ### IOPorts extension (serial/parallel/printer — area 0%, 38 keywords)
 `Serial *` (~14), `Parallel *` (~10), `Printer *` (~10). This is a stock
@@ -134,83 +147,13 @@ saying which is how a list like this quietly becomes furniture.
 - `med play` — medplayer.library is not in the AMOS source either.
 - Speech, IOPorts, `Doscall`/`Execall`/`Lib Open`/ARexx — host and ROM.
 
-**Closable, just not done**: nothing. The list is empty — `fsel$` was the
-last entry, and the full `Start_FSel` port closed it.
-
-Everything on this list has closed. Two of them closed by finding the
-data rather than approximating it better: `Border$`'s box glyphs and
-`Set Pattern`'s system patterns are in the source tree after all, as
-`bin/+WFont.bin` and `bin/+AMOSPro_Mouse.abk` — linked into the interpreter
-binary rather than loaded as files, which is why they did not look like
-files. Both are baked in and exact now. `Resource$`'s editor message tables
-were the same story: `+Editor_Config.s` declares them, so they are generated
-rather than transcribed.
-
-- **Fsel$** is the full `Start_FSel` port: config-sized screen, incremental
-  directory read, the Sizes column, all twenty zones, the Store directory
-  cache, Help-key type-ahead and the AppCentre slide. What remains is
-  structural — the 68k reads the directory in a background task where the
-  port reads one entry per frame on the one thread, and the low-memory
-  selector has no memory cliff to fall off here.
-- **Dialog engine**: MZ (raw-memory strings) returns "", CA (machine
-  code) errors, SM (screen drag) is a no-op; `=Array` of a STRING
-  array passes a handle (int/float arrays map to real arena blocks).
-- **Med Play** reimplements the public MMD0/MMD1 format — the replay
-  lived in medplayer.library, which is not in the AMOS source;
-  synthsounds are silent and CIA timing is vbl-granular.
-- **The players** model the one-vbl repeat latch (the trigger plays the
-  whole sample, the repeat pointers arrive next interrupt). The
-  ~5-scanline DMA-off/DMA-on wait inside a single frame is sub-frame
-  timing a vbl-granular player cannot express.
-- **Request On/Off/Wb** store the mode; no system requesters exist in
-  the port.
-- **Fonts**: real Amiga diskfonts render when a `Fonts:` drawer is
-  mounted (`.font` descriptor plus the per-size glyph files); without
-  one, the stock Workbench font list is reported (rom/disc masks per
-  Get Fonts variant) and the built-in 8x8 face stands in. `Get Disc
-  Fonts` on a machine with no drawer mounted has nothing faithful to
-  report — the answer is a property of that machine, not of AMOS.
-  Codes 0-31 and 128-159, `Border$`'s box glyphs among them, are exact:
-  they come from bin/+WFont.bin, which AMOS pokes over the ROM font.
-- **Rnd** mixes a deterministic statement-paced pseudo-beam instead of
-  the free-running raster (runs reproduce); `Rnd(-n)` is the pure
-  generator exactly as on the Amiga.
-- **Sprite priority** is per-screen (EcCon2) and computed sprites (8+)
-  go through the real multiplexer's channel allocator (HsAff). PF1P and
-  PF2P are both live: they are positions in one interleaved stack of
-  four sprite pairs and up to two playfields, drawn a scanline at a
-  time, so a sprite can sit between the halves of a dual pair.
-  Remaining: a sprite wide enough to span several channels draws at the
-  priority of the first, and hardware sprites ignore the 4-per-scanline
-  DMA limit (a superset).
-- **Copper Off** takes its fetch geometry from the registers now: the
-  bitplane pointer is walked as a byte pointer (so a mid-row address
-  shears the picture), BPL1MOD joins the lines, DDF sets the width and
-  where the data lands, BPLCON1 scrolls, DIW windows it, BPLCON2 orders
-  the sprites and SPRxPT are decoded as real sprite structures.
-  BPL2MOD is tracked but has no independent even-plane pointer to move
-  in a chunky screen, so it only matters for a dual playfield — which
-  this path still does not render.
-- **Screen Base** maps a read-only synthesized control block; pokes
-  into it are ignored.
-- **Dual playfield** pairs are per-screen (EcDual), so several coexist
-  down the display; they render under the system copper walk, so a
-  Copper Off user list shows only the front playfield.
-- **FFP trig** matches mathtrans to ~24 bits, not necessarily the last
-  bit.
-- **Ppsave/Squash** write valid files but not byte-identical to the
-  original crunchers' choices (the decoders are verified faithful).
-- **Edit/Direct** stop the program (there is no editor to return to);
-  `Lprint` and printer/serial hosts are absent.
-- Only tokenized `.AMOS` sources run — compiled AMOS executables are
-  out of scope.
-
 ## Remaining census stoppers
 
-- `blocked` (85): programs waiting on input/mouse forever — mostly
-  accessories and demos that idle in event loops (correct behaviour).
-- `maxSteps` (215): games and demos that run their main loop happily
-  until the step cap — the census can't "win" a game.
-- errors (8): `bank not reserved` follow-ons (4), `Next without For`
-  (2) and screens the program itself closed before drawing on them
-  (2) — programs that error on real AMOS too.
+- `blocked` (91): programs waiting on input or the mouse forever — mostly
+  accessories and demos idling in event loops. Correct behaviour.
+- `maxSteps` (220): games and demos that run their main loop happily until the
+  step cap. The census can't "win" a game.
+- errors (7): `bank not reserved` (2), `Next without For` (2), screens the
+  program itself closed before drawing on them (2) — all of which error on
+  real AMOS too — and one missing object file, `tinycube.3DO`, which is not in
+  any archive found so far (it blocks the AMOS 3D demo Spunt's Village).

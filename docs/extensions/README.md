@@ -126,9 +126,9 @@ name, and the honest classification is structural, with a NOTES entry saying so.
 This mirrors the rule for the core language, where faithful means verified
 against the original 68k source, the manual, or byte-exact artifacts.
 
-68k machine code is never executed here, so a binary-only extension is not
-something we can run to find out. Behaviour has to come from documentation or
-source, or be marked as unknown.
+Because the code is never run, a binary-only extension cannot be probed by
+experiment — behaviour has to be read out of the disassembly, out of
+documentation, or be marked unknown.
 
 ## The registry
 
