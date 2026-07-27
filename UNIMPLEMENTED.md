@@ -86,12 +86,14 @@ saying which is how a list like this quietly becomes furniture.
 - `td redraw` — the whole geometry pipeline is there and tested, from the
   screen checks through the attitude matrix, the vertex transform, the view
   transform and the perspective divide to every live instance's faces in
-  screen coordinates. What is missing is the fill, and it is blocked on the
-  `.3DS` format: a surface is not a colour but a "surface detail" with its
-  own anchor points, and dice's six run from 318 to 1848 bytes of nested
-  geometry — the pips on the faces of a die. Until that is decoded there is
-  nothing honest to fill a polygon with, so the keyword validates the screen
-  and advances the frame and draws nothing.
+  screen coordinates, and the `.3DS` surfaces on top of them are decoded as
+  well: their midpoint constructions, their filled patches and the pen each
+  is drawn in. What is missing is the colour of the faces themselves. A face
+  is filled with a *dither pair*, not a pen — `Td Set Colour` writes two of
+  the bottom four pens through `$38(part)` out of the sixteen pairs at
+  `a4+$54` — and where a part's pair points before any `Td Set Colour` has
+  not been found yet. So the keyword validates the screen, advances the
+  frame and computes every polygon, and draws nothing.
 
 **Will not close** (the deviation is structural, not a gap):
 

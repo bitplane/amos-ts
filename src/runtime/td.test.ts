@@ -8,7 +8,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
 import { loadHunks } from '../loader/hunk'
 import type { TdFrame, TdMatrix, TdView } from './td'
-import { TD_NEAR, TD_ONE, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
+import { TD_NEAR, TD_ONE, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -851,6 +851,22 @@ describe('AMOS 3D animation strings ($211822 move, $211a14 angle)', () => {
     expect(out.split('\n')[0]).toBe(' 200')
   })
 
+  it('steps each of the six axes through its own animation', () => {
+    // $211822 and $211a14 take the axis as 1 << d7 and hang the node off
+    // $1e(frame) for a position or $22(frame) for an attitude, so all six are
+    // one routine apiece with a selector — and all six have to step.
+    const { out } = run(`${setup}
+      Td Move X 1,"(1,1,3)" : Td Move Y 1,"(1,2,3)" : Td Move Z 1,"(1,3,3)"
+      Td Angle A 1,"(1,4,3)" : Td Angle B 1,"(1,5,3)" : Td Angle C 1,"(1,6,3)"
+      For I=1 To 3 : Td Redraw : Next I
+      Print Td Position X(1);",";Td Position Y(1);",";Td Position Z(1)
+      Print Td Attitude A(1);",";Td Attitude B(1);",";Td Attitude C(1)
+    `, objectAndLinks('dice.3DO'))
+    const lines = out.split('\n')
+    expect(lines[0]).toBe(' 3, 6, 1509')
+    expect(lines[1]).toBe(' 12, 15, 18')
+  })
+
   it('takes a leading number as a starting coordinate', () => {
     const { out } = run(`${setup}
       Td Move Z 1,"9000(1,10,2)"
@@ -858,5 +874,138 @@ describe('AMOS 3D animation strings ($211822 move, $211a14 angle)', () => {
       Print Td Position Z(1)
     `, objectAndLinks('dice.3DO'))
     expect(out.split('\n')[0]).toBe(' 9010')
+  })
+})
+
+describe('AMOS 3D surfaces (fix-up at $219b30, constructor at $2174d2, fill at $2103ac)', () => {
+  const surfaces = readdirSync(OBJECTS).filter((n) => /\.3ds$/i.test(n))
+  const surf = (name: string) => parseTdSurface(parseTdFile(shipped(name)))
+
+  it('reads every shipped surface as slot indices', () => {
+    // The loader turns a stored pointer into `base + 10*slot` by adding
+    // (a4+$bf2 - base) to it, so dividing the difference by ten has to come
+    // out whole for every pointer in every section or the file is misread.
+    expect(surfaces.length).toBeGreaterThan(20)
+    for (const name of surfaces) {
+      const s = surf(name)
+      expect(s.build.length, name).toBeGreaterThan(0)
+      expect(s.fills.length, name).toBeGreaterThan(0)
+      for (const f of s.fills) expect(f.length, name).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it('builds every slot from two that are already known', () => {
+    // This is what says the section at +$0c is a construction list and not a
+    // triangle list: $2174d2 evaluates it in file order with no second pass,
+    // so a record may only name sources an earlier one has defined, and slots
+    // 1 to 4 are already there because $217424 fills them from the face.
+    for (const name of surfaces) {
+      const s = surf(name)
+      const known = new Set([1, 2, 3, 4])
+      for (const r of s.build) {
+        expect(known.has(r.a), `${name} ${r.dest}<-${r.a}`).toBe(true)
+        expect(known.has(r.b), `${name} ${r.dest}<-${r.b}`).toBe(true)
+        expect(known.has(r.dest), `${name} redefines ${r.dest}`).toBe(false)
+        known.add(r.dest)
+      }
+      // and nothing else may reference a slot that was never built
+      for (const f of s.fills) for (const c of f) expect(known.has(c.slot), `${name} fill ${c.slot}`).toBe(true)
+      for (const [a, b] of s.edges) expect(known.has(a) && known.has(b), `${name} edge`).toBe(true)
+    }
+  })
+
+  it('never overwrites the four corners the face supplies', () => {
+    for (const name of surfaces) for (const r of surf(name).build) expect(r.dest, name).toBeGreaterThan(4)
+  })
+
+  it('fills in one of the four pens the bottom two bitplanes can make', () => {
+    // $21042a and $210438 btst bit 0 and bit 1 of the pen byte and EOR into
+    // plane 0 and plane 1, so a pen is a two-bit mask and nothing above 3 can
+    // be drawn.
+    for (const name of surfaces) for (const f of surf(name).fills) for (const c of f) expect(c.pen, name).toBeLessThan(4)
+  })
+
+  it('reads m3s0 and m3s1 as the same shape in different pens', () => {
+    // The two files differ in four bytes: the pen on each corner of their one
+    // polygon. Nothing else about them differs at all, which is what a pen
+    // byte in the fill records predicts.
+    const a = surf('m3s0.3DS')
+    const b = surf('m3s1.3DS')
+    expect(a.build).toEqual(b.build)
+    expect(a.fills.map((f) => f.map((c) => c.slot))).toEqual(b.fills.map((f) => f.map((c) => c.slot)))
+    expect(a.fills[0]!.map((c) => c.pen)).toEqual([1, 1, 1, 1])
+    expect(b.fills[0]!.map((c) => c.pen)).toEqual([3, 3, 3, 3])
+    // five bisections place the one point that is not a corner
+    expect(a.build.map((r) => [r.dest, r.a, r.b])).toEqual([[5, 1, 4], [6, 5, 4], [7, 2, 3], [8, 7, 3], [9, 6, 8]])
+    expect(a.fills).toHaveLength(1)
+    expect(a.fills[0]!.map((c) => c.slot)).toEqual([9, 3, 4, 9])
+  })
+
+  it('puts the right number of pips on each face of the dice', () => {
+    // dice.3DO links six surfaces, one per face of a plain eight-point cube,
+    // so the pips are entirely in the .3DS files. Five of the six come out as
+    // exactly their face value; the sixth has each of its six pips twice,
+    // once in pen 1 and once in pen 2.
+    const links = parseTdFile(shipped('dice.3DO')).links.filter((l) => l.type === 2)
+    const fills = links.map((l) => surf(`${l.name}.3DS`).fills)
+    expect(fills.map((f) => f.length)).toEqual([3, 1, 4, 12, 5, 2])
+    const six = fills[3]!
+    expect(six.slice(0, 6).map((f) => f.map((c) => c.slot))).toEqual(six.slice(6).map((f) => f.map((c) => c.slot)))
+    expect(six.slice(0, 6).map((f) => f[0]!.pen)).toEqual([1, 1, 1, 1, 1, 1])
+    expect(six.slice(6).map((f) => f[0]!.pen)).toEqual([2, 2, 2, 2, 2, 2])
+  })
+
+  it('bisects exactly, on the word the engine bisects', () => {
+    // $2174d2: move.w $2(a1),d0 : ext.l : move.w $2(a0),d1 : ext.l :
+    // add.l d0,d1 : asr.l #1,d1 : move.w d1,$2(a3) — the sum of two
+    // sign-extended words shifted down one, so an odd sum rounds towards
+    // minus infinity rather than towards zero.
+    const s = surf('m3s0.3DS')
+    const corners = [{ x: 0, y: 0 }, { x: 160, y: 0 }, { x: 160, y: 161 }, { x: -1, y: 160 }]
+    const slots = tdSurfaceSlots(s, corners)
+    expect(slots[1]).toEqual({ x: 0, y: 0 })
+    expect(slots[4]).toEqual({ x: -1, y: 160 })
+    // 5 = mid(1,4): x = (0 + -1) >> 1 = -1, not 0
+    expect(slots[5]).toEqual({ x: -1, y: 80 })
+    expect(slots[6]).toEqual({ x: -1, y: 120 })
+    expect(slots[7]).toEqual({ x: 160, y: 80 })
+    expect(slots[8]).toEqual({ x: 160, y: 120 })
+    expect(slots[9]).toEqual({ x: 79, y: 120 })
+  })
+
+  it('keeps a surface inside the face it is stuck to', () => {
+    // Every slot is a corner or halfway between two points that are already
+    // slots, so the whole surface lies in the convex hull of the corners —
+    // which for these files means inside their bounding box.
+    const corners = [{ x: -100, y: -80 }, { x: 100, y: -80 }, { x: 100, y: 80 }, { x: -100, y: 80 }]
+    for (const name of surfaces) {
+      for (const f of tdSurfaceFills(surf(name), corners)) {
+        for (const p of f.points) {
+          expect(p.x, name).toBeGreaterThanOrEqual(-100)
+          expect(p.x, name).toBeLessThanOrEqual(100)
+          expect(p.y, name).toBeGreaterThanOrEqual(-80)
+          expect(p.y, name).toBeLessThanOrEqual(80)
+        }
+      }
+    }
+  })
+
+  it('hands Td Redraw the dice with its pips on', () => {
+    const { rt } = run(`
+      Td Screen Height 150
+      Screen Open 0,320,200,16,0
+      Td Load "dice"
+      Td Object 1,"dice",0,0,1500,0,0,0
+      Td Redraw
+    `, objectAndLinks('dice.3DO'))
+    const drawn = tdRedrawFaces(rt.td)
+    expect(drawn).toHaveLength(1)
+    const faces = drawn[0]!.faces
+    expect(faces.length).toBeGreaterThan(0)
+    // whichever faces survive the near limit, each carries its own patches
+    for (const f of faces) {
+      expect(f.fills.length).toBeGreaterThan(0)
+      for (const fill of f.fills) expect(fill.pen).toBeGreaterThan(0)
+    }
   })
 })

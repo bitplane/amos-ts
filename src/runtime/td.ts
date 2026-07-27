@@ -751,6 +751,212 @@ export function parseTdGeometry(file: TdFile): TdGeometry & { multipart: boolean
   return { points, faces, pointsAt, facesAt, facesEnd, multipart }
 }
 
+// ---- surfaces ----
+
+/**
+ * A surface point slot is ten bytes: a long x, a long y and a word of clip
+ * flags — the first ten bytes of a working vertex, which is what $217424
+ * copies into the first four slots.
+ */
+export const TD_SLOT_STRIDE = 10
+
+/** a construction record: three slot pointers, destination first */
+export const TD_BUILD_SIZE = 12
+
+/** a fill record: a slot pointer and a pen byte, with one byte spare */
+export const TD_FILL_SIZE = 6
+
+/** dest = midpoint(a, b), with every operand a slot index */
+export interface TdBuild {
+  dest: number
+  a: number
+  b: number
+}
+
+/** one corner of a filled polygon: a slot index and the pen for its edge */
+export interface TdFillPoint {
+  slot: number
+  pen: number
+}
+
+export interface TdSurface {
+  /** the editor's base address, stored at +$12 and subtracted off every pointer */
+  base: number
+  /** the midpoint constructions, in the order they must be evaluated */
+  build: TdBuild[]
+  /** the edge list at +$0e, as pairs of slot indices */
+  edges: Array<[number, number]>
+  /** the filled polygons at +$10, one array of corners each */
+  fills: TdFillPoint[][]
+  /** one past the highest slot the surface mentions */
+  slots: number
+}
+
+/**
+ * Parse a `.3DS`.
+ *
+ * The load-time fix-up is at $219b30 and is the object's, one section shorter:
+ *
+ *     +$0e -> +$00    +$10 -> +$04    +$0c -> +$08
+ *
+ * What makes the file readable is the long at +$12. It is the address the
+ * surface editor's own point array sat at, and the loader turns every pointer
+ * in the file into an offset from it:
+ *
+ *     lea $bf2(a4),a0 : move.l a0,d1 : sub.l $12(block),d1 : move.l d1,d7
+ *
+ * then adds d7 to each. So a stored pointer is `base + 10*slot`, and dividing
+ * out the ten recovers a slot index that means the same thing in every file.
+ * The two loops that follow are what say where each section ends: the one at
+ * +$08 is a flat run of longs stopped by a zero, and the one at +$04 is a run
+ * of six-byte records where a zero record ends a polygon and a second zero
+ * record ends the list.
+ *
+ * The three sections are, in the order the renderer uses them:
+ *
+ * - **+$08, the constructions.** Twelve bytes each: a destination slot and two
+ *   sources. $2174d2 evaluates them in file order — `dest.x = (a.x + b.x) >> 1`
+ *   and the same for y — so a surface is nothing but repeated bisection, and
+ *   every source is a slot an earlier record already defined. That is why the
+ *   file carries no coordinates at all: slots 1 to 4 are the face's own
+ *   projected corners and everything else is halfway between two points that
+ *   are already known.
+ * - **+$04, the fills.** A slot pointer and a pen byte per corner. $2103ac
+ *   reads a corner, copies its pen byte to the pen global at $21d3d8, reads
+ *   the next corner and emits the edge between them, so the pen belongs to the
+ *   edge leaving a corner rather than to the polygon.
+ * - **+$00, the edges.** Pairs of slot pointers describing the same outline the
+ *   fills do. The fix-up does not relocate this section and no path traced from
+ *   Td Redraw reads it, so the port carries it as slot indices and nothing
+ *   more. Every surface on the dice has an empty one.
+ *
+ * `Bad Surface file` is not raised from here: the engine validates only the
+ * leading `(N)`, exactly as it does for an object.
+ */
+export function parseTdSurface(file: TdFile): TdSurface {
+  const b = file.block
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength)
+  const buildAt = v.getUint16(0x0c, false)
+  const edgesAt = v.getUint16(0x0e, false)
+  const fillsAt = v.getUint16(0x10, false)
+  const base = v.getUint32(0x12, false)
+
+  let slots = 0
+  /** a stored pointer as a slot index, or -1 if it is not one */
+  const slot = (p: number): number => {
+    const d = p - base
+    if (d < 0 || d % TD_SLOT_STRIDE !== 0) return -1
+    const n = d / TD_SLOT_STRIDE
+    if (n + 1 > slots) slots = n + 1
+    return n
+  }
+
+  const build: TdBuild[] = []
+  for (let o = buildAt; o + TD_BUILD_SIZE <= b.length; o += TD_BUILD_SIZE) {
+    const dest = v.getUint32(o, false)
+    if (dest === 0) break
+    const r = [dest, v.getUint32(o + 4, false), v.getUint32(o + 8, false)].map(slot)
+    if (r.some((n) => n < 0)) break
+    build.push({ dest: r[0]!, a: r[1]!, b: r[2]! })
+  }
+
+  const edges: Array<[number, number]> = []
+  for (let o = edgesAt; o + 8 <= b.length; o += 8) {
+    const a = v.getUint32(o, false)
+    if (a === 0) break
+    const c = v.getUint32(o + 4, false)
+    const [x, y] = [slot(a), slot(c)]
+    if (x < 0 || y < 0) break
+    edges.push([x, y])
+  }
+
+  const fills: TdFillPoint[][] = []
+  let cur: TdFillPoint[] = []
+  for (let o = fillsAt; o + TD_FILL_SIZE <= b.length; o += TD_FILL_SIZE) {
+    const p = v.getUint32(o, false)
+    if (p === 0) {
+      // a zero record closes a polygon; one with nothing open ends the list
+      if (!cur.length) break
+      fills.push(cur)
+      cur = []
+      continue
+    }
+    const n = slot(p)
+    if (n < 0) break
+    cur.push({ slot: n, pen: b[o + 4]! })
+  }
+  if (cur.length) fills.push(cur)
+
+  return { base, build, edges, fills, slots }
+}
+
+/**
+ * Evaluate a surface's slots against the four projected corners of the face
+ * it is stuck to — the pass at $217424 followed by the one at $2174d2.
+ *
+ * Slots 1 to 4 are the corners, in the order the face record names them;
+ * $217424 copies ten bytes out of each working vertex, so a slot holds a
+ * screen coordinate in sixteenths of a pixel like every other one. Slot 0 is
+ * never referenced by any of the release's surfaces and is left undefined
+ * here, because the engine leaves whatever was in it alone.
+ *
+ * NOTES: the constructor writes only the words at +$2 and +$6, so on the Amiga
+ * a constructed slot keeps the high halves of the previous face's x and y. It
+ * does not matter — nothing downstream reads more than the word — but it means
+ * a slot is a 16-bit quantity in practice and the port stores it as one.
+ */
+export function tdSurfaceSlots(s: TdSurface, corners: Array<{ x: number; y: number }>): Array<{ x: number; y: number } | undefined> {
+  const w = (n: number): number => (n << 16) >> 16
+  const out: Array<{ x: number; y: number } | undefined> = new Array(Math.max(s.slots, 5)).fill(undefined)
+  for (let i = 0; i < 4; i++) {
+    const c = corners[i]
+    if (c) out[i + 1] = { x: w(c.x), y: w(c.y) }
+  }
+  for (const r of s.build) {
+    const a = out[r.a]
+    const b = out[r.b]
+    if (!a || !b) continue
+    out[r.dest] = { x: w((a.x + b.x) >> 1), y: w((a.y + b.y) >> 1) }
+  }
+  return out
+}
+
+/** a surface polygon in screen coordinates, with the pen the engine fills it in */
+export interface TdSurfaceFill {
+  pen: number
+  points: Array<{ x: number; y: number }>
+}
+
+/**
+ * A surface's filled polygons, in screen coordinates.
+ *
+ * The pen is the byte the fill records carry, and it is a bitplane mask, not a
+ * palette index: $21042a and $210438 test bit 0 and bit 1 of the pen global
+ * and EOR into plane 0 and plane 1, the second reached by adding the plane
+ * size at $21b2b2 twice over. So a surface draws in one of the bottom four
+ * pens — which is the same four the object faces dither between, per the
+ * sixteen pairs at a4+$54.
+ *
+ * The pen is taken from the first corner because that is the one whose byte is
+ * live when the first edge is emitted. Every surface in the release writes the
+ * same pen on all of a polygon's corners bar, sometimes, the closing repeat.
+ */
+export function tdSurfaceFills(s: TdSurface, corners: Array<{ x: number; y: number }>): TdSurfaceFill[] {
+  const slots = tdSurfaceSlots(s, corners)
+  const out: TdSurfaceFill[] = []
+  for (const poly of s.fills) {
+    const points: Array<{ x: number; y: number }> = []
+    let ok = true
+    for (const c of poly) {
+      const p = slots[c.slot]
+      if (!p) { ok = false; break }
+      points.push(p)
+    }
+    if (ok && points.length >= 3) out.push({ pen: poly[0]!.pen, points })
+  }
+  return out
+}
+
 // ---- rotation ----
 
 /** the engine's fixed-point one: every matrix entry is in 4096ths */
@@ -1046,6 +1252,8 @@ export interface TdScreenFace {
   face: TdFace
   /** one entry per vertex, in winding order */
   points: Array<{ x: number; y: number }>
+  /** the polygons the face's `.3DS` puts on top of it, if it has one */
+  fills: TdSurfaceFill[]
 }
 
 /**
@@ -1064,15 +1272,22 @@ export interface TdScreenFace {
  * and neither has a partial polygon to draw. Clipping a polygon against the
  * frustum is not something the engine does either — it relies on the near
  * limit and on the rasteriser's own bounds.
+ *
+ * Pass `obj` and each face's surface is evaluated too. A type-2 link record
+ * names the byte offset its resolved pointer belongs at, and that offset is
+ * the face record's own — a face's surface pointer is its first long — so
+ * `linked` is keyed by exactly `face.at`.
  */
-export function tdInstanceFaces(g: TdGeometry, attitude: TdMatrix, view: TdView): TdScreenFace[] {
+export function tdInstanceFaces(g: TdGeometry, attitude: TdMatrix, view: TdView, obj?: TdObject): TdScreenFace[] {
   const projected = g.points.map((p) => tdProject(view, tdRotate(attitude, p)))
   const out: TdScreenFace[] = []
   for (const face of g.faces) {
     if (face.surface === 0) continue
-    const points = face.vertices.map((i) => projected[i]!)
-    if (points.some((p) => p.status !== 0)) continue
-    out.push({ face, points: points.map((p) => ({ x: p.x, y: p.y })) })
+    const projectedFace = face.vertices.map((i) => projected[i]!)
+    if (projectedFace.some((p) => p.status !== 0)) continue
+    const points = projectedFace.map((p) => ({ x: p.x, y: p.y }))
+    const surface = obj?.linked.get(face.at)
+    out.push({ face, points, fills: surface ? tdSurfaceFills(parseTdSurface(surface.file), points) : [] })
   }
   return out
 }
@@ -1085,20 +1300,22 @@ export function tdInstanceFaces(g: TdGeometry, attitude: TdMatrix, view: TdView)
  * at +$52, its attitude at +$12/+$16/+$1a — with the transform and projection
  * behind it. What it does not do is fill anything.
  *
- * NOTES: the port stops here. Choosing a face's colour means decoding a
- * `.3DS`, and a surface is not a colour: the QuickCard calls it a "surface
- * detail" with its own anchor points, and dice's six surfaces are 318 to 1848
- * bytes of nested geometry — the pip patterns on the faces of a die. Until
- * that is read there is nothing honest to fill a polygon with, so `Td Redraw`
- * validates the screen and advances the frame and the scanline fill is not
- * written yet.
+ * Every face arrives with its surface's polygons already evaluated, so what is
+ * left is the scanline fill itself.
+ *
+ * NOTES: the port stops one step short of pixels. A face's own colour is a
+ * dither pair rather than a pen — `Td Set Colour` writes two bytes through
+ * $38(part) out of the sixteen pairs at a4+$54, each naming two of the bottom
+ * four pens — and where a part's pair points before any Td Set Colour has not
+ * been located, so the faces themselves have no colour to be filled with yet.
+ * The surfaces on top of them do: their pens come out of the `.3DS`.
  */
 export function tdRedrawFaces(st: TdState): Array<{ n: number; faces: TdScreenFace[] }> {
   const out: Array<{ n: number; faces: TdScreenFace[] }> = []
   for (const [n, inst] of [...st.instances].sort((a, b) => a[0] - b[0])) {
     const g = parseTdGeometry(inst.object.file)
     const attitude = tdMatrix(inst.angle[0], inst.angle[1], inst.angle[2])
-    out.push({ n, faces: tdInstanceFaces(g, attitude, tdViewFor(st.viewpoint, inst)) })
+    out.push({ n, faces: tdInstanceFaces(g, attitude, tdViewFor(st.viewpoint, inst), inst.object) })
   }
   return out
 }
