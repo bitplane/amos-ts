@@ -24,6 +24,8 @@ const extensions = new Map([
 ])
 
 const OBJECTS = 'fixtures/extensions/amos3d-1.0/demos/AMOS_3D_demos/objects'
+/** fixtures/ is gitignored, so a fresh clone and CI skip everything below */
+const HAVE_OBJECTS = existsSync(OBJECTS)
 
 function run(src: string, files: Record<string, Uint8Array> = {}): { out: string; rt: Runtime } {
   let out = ''
@@ -55,7 +57,7 @@ function objectAndLinks(name: string): Record<string, Uint8Array> {
   return files
 }
 
-describe('AMOS 3D object files (loader at $219ba4)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D object files (loader at $219ba4)', () => {
   it('splits an object into its block and its link records', () => {
     // "(410)" then 410 bytes then the links, terminated by a zero offset.
     // amiga.3DO names one template and three surfaces.
@@ -99,7 +101,7 @@ describe('AMOS 3D object files (loader at $219ba4)', () => {
   })
 })
 
-describe('AMOS 3D loading keywords (engine binary + the demo programs)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D loading keywords (engine binary + the demo programs)', () => {
   it('Td Dir appends a separator unless one is there', () => {
     // $21164c: `moveq #$2f,d0 : cmp.b -1(a2),d0 : bne : move.b d0,(a2)+`,
     // which is what lets Dice_Spin write Td Dir ":AMOS_3D_demos/objects"
@@ -188,7 +190,7 @@ describe('AMOS 3D loading keywords (engine binary + the demo programs)', () => {
   })
 })
 
-describe('AMOS 3D instances (Td Object at $211694, Td Move at $21188a)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D instances (Td Object at $211694, Td Move at $21188a)', () => {
   const load = (): Record<string, Uint8Array> => objectAndLinks('polygons.3DO')
   const withObject = (extra: string): { out: string; rt: Runtime } =>
     run(['Td Load "polygons"', 'Td Object 1,"polygons",100,200,1500,0,0,0', extra].join('\n'), load())
@@ -251,7 +253,7 @@ describe('AMOS 3D instances (Td Object at $211694, Td Move at $21188a)', () => {
   })
 })
 
-describe('AMOS 3D display (Td Cls at $2114be)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D display (Td Cls at $2114be)', () => {
   it('refuses a screen 3D cannot draw on', () => {
     // EcTx must be exactly 320, EcNPlan at least 4, EcTy at least the
     // Td Screen Height — three checks, one error between them
@@ -271,7 +273,7 @@ describe('AMOS 3D display (Td Cls at $2114be)', () => {
   })
 })
 
-describe('AMOS 3D templates (relocation at $2199ba)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D templates (relocation at $2199ba)', () => {
   it('rebuilds p8.3DT’s four section pointers from the offsets beside them', () => {
     // A .3DT opens with four absolute Amiga addresses. The loader overwrites
     // them from u16 offsets at +$1e/+$22/+$20/+$1c, and the difference
@@ -311,7 +313,7 @@ describe('AMOS 3D templates (relocation at $2199ba)', () => {
   })
 })
 
-describe('AMOS 3D geometry (vertex transform at $21085c, face walk at $217ee2)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D geometry (vertex transform at $21085c, face walk at $217ee2)', () => {
   const geo = (name: string) => parseTdGeometry(parseTdFile(shipped(name)))
 
   it('reads dice as the eight-point cube it is', () => {
@@ -577,7 +579,7 @@ describe('AMOS 3D viewpoint (object zero, the frame at a4+$481c)', () => {
   })
 })
 
-describe('AMOS 3D camera ($219566 is $213df8 with its stores moved to a4+$bba)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D camera ($219566 is $213df8 with its stores moved to a4+$bba)', () => {
   it('undoes the attitude it was built from', () => {
     // The view transform's fold is the transpose of tdRotate's, so rotating a
     // point by an attitude and then viewing it through the same attitude must
@@ -648,7 +650,7 @@ describe('AMOS 3D camera ($219566 is $213df8 with its stores moved to a4+$bba)',
   })
 })
 
-describe('AMOS 3D depth limits (the near test and the divisor at $210268)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D depth limits (the near test and the divisor at $210268)', () => {
   const g = () => parseTdGeometry(parseTdFile(shipped('dice.3DO')))
   const eye: TdFrame = { pos: [0, 0, 0], angle: [0, 0, 0] }
   const at = (z: number) => tdInstanceFaces(g(), tdMatrix(0, 0, 0), tdViewFor(eye, { pos: [0, 0, z], angle: [0, 0, 0] }))
@@ -676,7 +678,7 @@ describe('AMOS 3D depth limits (the near test and the divisor at $210268)', () =
   })
 })
 
-describe('AMOS 3D Td Redraw ($21131e, screen check at $211418)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D Td Redraw ($21131e, screen check at $211418)', () => {
   it('refuses a screen 3D cannot draw on, like Td Cls does', () => {
     const files = objectAndLinks('dice.3DO')
     // 320 wide but only 8 colours
@@ -723,7 +725,7 @@ describe('AMOS 3D Td Redraw ($21131e, screen check at $211418)', () => {
   })
 })
 
-describe('AMOS 3D Td Range ($211d8c, prescale at $21235a)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D Td Range ($211d8c, prescale at $21235a)', () => {
   it('measures the distance between two objects', () => {
     const files = objectAndLinks('dice.3DO')
     const { out } = run(`
@@ -768,7 +770,7 @@ describe('AMOS 3D Td Range ($211d8c, prescale at $21235a)', () => {
   })
 })
 
-describe('AMOS 3D animation strings ($211822 move, $211a14 angle)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D animation strings ($211822 move, $211a14 angle)', () => {
   const setup = `
       Td Screen Height 150
       Screen Open 0,320,200,16,0
@@ -880,8 +882,8 @@ describe('AMOS 3D animation strings ($211822 move, $211a14 angle)', () => {
   })
 })
 
-describe('AMOS 3D surfaces (fix-up at $219b30, constructor at $2174d2, fill at $2103ac)', () => {
-  const surfaces = readdirSync(OBJECTS).filter((n) => /\.3ds$/i.test(n))
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D surfaces (fix-up at $219b30, constructor at $2174d2, fill at $2103ac)', () => {
+  const surfaces = (HAVE_OBJECTS ? readdirSync(OBJECTS) : []).filter((n) => /\.3ds$/i.test(n))
   const surf = (name: string) => parseTdSurface(parseTdFile(shipped(name)))
 
   it('reads every shipped surface as slot indices', () => {
@@ -1013,8 +1015,8 @@ describe('AMOS 3D surfaces (fix-up at $219b30, constructor at $2174d2, fill at $
   })
 })
 
-describe('AMOS 3D block colours ($2109c0 at load, $212f66 for Td Set Colour)', () => {
-  const objects = readdirSync(OBJECTS).filter((n) => /\.3do$/i.test(n))
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D block colours ($2109c0 at load, $212f66 for Td Set Colour)', () => {
+  const objects = (HAVE_OBJECTS ? readdirSync(OBJECTS) : []).filter((n) => /\.3do$/i.test(n))
 
   it('finds two bytes per block in the section at +$3a', () => {
     // $2109c0 allocates 2 * the block count at +$20 and copies the +$3a
@@ -1204,7 +1206,7 @@ describe('the per-object range shift ($218de8)', () => {
   })
 })
 
-describe('AMOS 3D rasteriser (screen mapping $2126b6/$212688, our own fill)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D rasteriser (screen mapping $2126b6/$212688, our own fill)', () => {
   it('puts x through the same arithmetic Td Screen X does', () => {
     // asr.l #4 then add 160, and the bounds are tdClipCode's
     expect(tdScreenX(0)).toBe(160)
@@ -1317,7 +1319,7 @@ describe('AMOS 3D rasteriser (screen mapping $2126b6/$212688, our own fill)', ()
   })
 })
 
-describe('AMOS 3D bearings (core $219200, atan2 $21939e, table a4+$672)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D bearings (core $219200, atan2 $21939e, table a4+$672)', () => {
   const setup = `
       Td Load "dice"
       Td Object 1,"dice",0,0,0,0,0,0
@@ -1465,7 +1467,7 @@ describe('AMOS 3D bearings (core $219200, atan2 $21939e, table a4+$672)', () => 
   })
 })
 
-describe('AMOS 3D Td World ($2126c8, the fold at $212758, the add at $2128e8)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D Td World ($2126c8, the fold at $212758, the add at $2128e8)', () => {
   const world = (src: string) => {
     const { out } = run(`
       Td Load "dice"
@@ -1547,7 +1549,7 @@ describe('AMOS 3D Td World ($2126c8, the fold at $212758, the add at $2128e8)', 
   })
 })
 
-describe('AMOS 3D Td Screen ($21251e, the divide at $212626, the map at $2126b6)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D Td Screen ($21251e, the divide at $212626, the map at $2126b6)', () => {
   const setup = `
       Td Screen Height 150
       Screen Open 0,320,200,16,0
@@ -1614,7 +1616,7 @@ describe('AMOS 3D Td Screen ($21251e, the divide at $212626, the map at $2126b6)
   })
 })
 
-describe('AMOS 3D zones and collision ($211f98, $212200, the test at $2122ec)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D zones and collision ($211f98, $212200, the test at $2122ec)', () => {
   const setup = `
       Td Load "dice"
       Td Object 1,"dice",0,0,0,0,0,0
@@ -1732,7 +1734,7 @@ describe('AMOS 3D zones and collision ($211f98, $212200, the test at $2122ec)', 
   })
 })
 
-describe('AMOS 3D the small keywords ($2118ee, $212f0c, $212f30, $2114b6, $212f5e)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D the small keywords ($2118ee, $212f0c, $212f30, $2114b6, $212f5e)', () => {
   const setup = `
       Td Load "dice"
       Td Object 1,"dice",0,0,0,0,0,0
@@ -1782,7 +1784,7 @@ describe('AMOS 3D the small keywords ($2118ee, $212f0c, $212f30, $2114b6, $212f5
   })
 })
 
-describe('AMOS 3D Td Anim ($211e42, the point walk at $211f2a)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D Td Anim ($211e42, the point walk at $211f2a)', () => {
   const setup = `
       Td Load "dice"
       Td Object 1,"dice",0,0,0,0,0,0
@@ -1864,7 +1866,7 @@ describe('AMOS 3D Td Anim ($211e42, the point walk at $211f2a)', () => {
   })
 })
 
-describe('AMOS 3D Td Surface ($212c28, the bounds at $212c7c and $212cac)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D Td Surface ($212c28, the bounds at $212c7c and $212cac)', () => {
   const go = (src: string) => run(`
       Td Load "dice"
       Td Object 1,"dice",0,0,1500,0,0,0
@@ -1991,7 +1993,7 @@ describe('AMOS 3D Td Background ($210c54)', () => {
   })
 })
 
-describe('AMOS 3D Td Visible ($211d64, the flag set at $2190c8)', () => {
+describe.skipIf(!HAVE_OBJECTS)('AMOS 3D Td Visible ($211d64, the flag set at $2190c8)', () => {
   const vis = (src: string) => run(`
       Td Screen Height 150
       Screen Open 0,320,200,16,0

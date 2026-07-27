@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseAmosFile } from './amosfile'
 import { parseAmalBank } from './amalbank'
@@ -35,7 +35,7 @@ function playDataBank(): MemoryBank {
   return bank
 }
 
-describe('the AMAL bank (bank 4, "Amal")', () => {
+describe.skipIf(!existsSync(PLAY_DATA))('the AMAL bank (bank 4, "Amal")', () => {
   it('is bank 4 named Amal, which is what makes it the AMAL bank', () => {
     const bank = playDataBank()
     expect(bank.number).toBe(4)

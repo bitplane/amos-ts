@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
@@ -450,7 +450,7 @@ describe('the MOD tracker', () => {
   })
 })
 
-describe('the real Mod.Tracker module', () => {
+describe.skipIf(!existsSync(join(__dirname, '../../fixtures/official-amos/Examples/Music/Mod.Tracker')))('the real Mod.Tracker module', () => {
   const path = join(__dirname, '../../fixtures/official-amos/Examples/Music/Mod.Tracker')
 
   it('replays with sensible Paula periods on several voices', () => {
@@ -535,7 +535,7 @@ describe('Sam Swap / Sload / Ssave', () => {
   })
 })
 
-describe('the MED player', () => {
+describe.skipIf(!existsSync(join(__dirname, '../../fixtures/official-amos/Examples/Music/Med_Module')))('the MED player', () => {
   const medPath = join(__dirname, '../../fixtures/official-amos/Examples/Music/Med_Module')
 
   function medBoot(src: string): { rt: Runtime; audio: NullAudio } {
@@ -593,7 +593,7 @@ describe('the MED player', () => {
   })
 })
 
-describe('the real Music.abk', () => {
+describe.skipIf(!existsSync(join(__dirname, '../../fixtures/official-amos/Examples/Music/Music.abk')))('the real Music.abk', () => {
   const path = join(__dirname, '../../fixtures/official-amos/Examples/Music/Music.abk')
 
   it('parses as bank 3 and plays through the player', () => {

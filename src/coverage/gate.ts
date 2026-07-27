@@ -35,8 +35,27 @@ export function setup(): void {
   mkdirSync(PROBE_DIR, { recursive: true })
 }
 
+/**
+ * `fixtures/` is gitignored — the AMOS libraries and the commercial extensions
+ * are not ours to redistribute — so a fresh clone, and CI, have most of the
+ * suite skipped. The coverage question is then unanswerable rather than
+ * answered "no": asking whether every FAITHFUL keyword is exercised only makes
+ * sense when the tests that exercise them can run. Without this the gate
+ * accuses ~200 keywords of being unproven, which is the first thing a new
+ * contributor would see and is not true.
+ */
+const FIXTURES = join(process.cwd(), 'fixtures')
+
 export function teardown(): void {
   if (!process.env.AMOS_COVERAGE_GATE) return
+  if (!existsSync(FIXTURES)) {
+    console.warn(
+      'faithfulness gate: fixtures/ is absent, so most of the suite was skipped ' +
+        'and keyword coverage cannot be judged. The gate is only meaningful in a ' +
+        'checkout with the corpus in place.',
+    )
+    return
+  }
   const dispatched = new Set<string>()
   if (existsSync(PROBE_DIR)) {
     for (const f of readdirSync(PROBE_DIR)) {

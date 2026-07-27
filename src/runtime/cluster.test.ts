@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
@@ -20,6 +20,11 @@ function run(src: string): { rt: Runtime; out: string } {
   if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
   return { rt, out }
 }
+
+/** fixtures/ is gitignored, so the three corpus-file tests below skip in a
+ *  fresh clone and in CI rather than failing. */
+const corpus = (rel: string): string => join(__dirname, '../../fixtures/official-amos', rel)
+const have = (rel: string): boolean => existsSync(corpus(rel))
 
 describe('language cluster', () => {
   it('sorts arrays and finds entries with Match', () => {
@@ -339,8 +344,8 @@ describe('integration: Run and the environment cluster', () => {
     expect(lines[3]).toBe('0') // variables reset
   })
 
-  it('Run "file" loads and chains a real corpus program (InRun1 +ILib.s:1475)', () => {
-    const child = new Uint8Array(readFileSync(join(__dirname, '../../fixtures/official-amos/Examples/Examples/H-0/Help_1.AMOS')))
+  it.skipIf(!have('Examples/Examples/H-0/Help_1.AMOS'))('Run "file" loads and chains a real corpus program (InRun1 +ILib.s:1475)', () => {
+    const child = new Uint8Array(readFileSync(corpus('Examples/Examples/H-0/Help_1.AMOS')))
     const fs = new AmigaFS()
     const vol = fs.mountMemory('DH0')
     vol.write(['child.amos'], child)
@@ -466,8 +471,11 @@ describe('integration: random-access records (InField/InGet/InPut +ILib.s:4769/+
   })
 })
 
-describe('integration: IFF ANIM frames (IffForm* +Lib.s:6861-7500)', () => {
-  const animBytes = new Uint8Array(readFileSync(join(__dirname, '../../fixtures/official-amos/Tutorial/Iff_Anim/AMOS.Anim')))
+describe.skipIf(!have('Tutorial/Iff_Anim/AMOS.Anim'))('integration: IFF ANIM frames (IffForm* +Lib.s:6861-7500)', () => {
+  // lazy: a skipped describe still runs its body
+  const animBytes = have('Tutorial/Iff_Anim/AMOS.Anim')
+    ? new Uint8Array(readFileSync(corpus('Tutorial/Iff_Anim/AMOS.Anim')))
+    : new Uint8Array()
 
   function animRt(src: string): { rt: Runtime; out: string } {
     const fs = new AmigaFS()
@@ -1011,8 +1019,8 @@ describe('memory model', () => {
     expect(() => run('Reserve As Work 5,0')).toThrow(/illegal function call/i)
   })
 
-  it('Load appends sprites by default, overwrites with bank 0 (Bnk.Load LB_Sprites)', () => {
-    const abk = new Uint8Array(readFileSync(join(__dirname, '../../fixtures/official-amos/Tutorial/Objects/Bobs.Abk')))
+  it.skipIf(!have('Tutorial/Objects/Bobs.Abk'))('Load appends sprites by default, overwrites with bank 0 (Bnk.Load LB_Sprites)', () => {
+    const abk = new Uint8Array(readFileSync(corpus('Tutorial/Objects/Bobs.Abk')))
     const fs = new AmigaFS()
     const vol = fs.mountMemory('DH0')
     vol.write(['bobs.abk'], abk)
@@ -1501,8 +1509,9 @@ describe('STOS Anim / Move X / Move Y (AniStos +W.s:7483, AmMvtX/AmAnim executor
   })
 })
 
-describe('the mouse pointer (MChange +W.s:10669, HiSho +W.s:10722)', () => {
-  const MOUSE_ABK = join(__dirname, '..', '..', 'fixtures', 'machine', 'AMOSPro_Mouse.abk')
+const MOUSE_ABK = join(__dirname, '..', '..', 'fixtures', 'machine', 'AMOSPro_Mouse.abk')
+
+describe.skipIf(!existsSync(MOUSE_ABK))('the mouse pointer (MChange +W.s:10669, HiSho +W.s:10722)', () => {
   const bank = (): Uint8Array => readFileSync(MOUSE_ABK)
 
   function boot(src: string): { rt: Runtime; out: string } {

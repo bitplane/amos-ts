@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseAmosFile } from './amosfile'
 import { SCREEN_HEADER_SIZE, packBitmap, packScreen, parsePacPic } from './pacpic'
@@ -18,6 +18,7 @@ function* walk(dir: string): Generator<string> {
 /** every .Abk in the corpus whose single bank is a packed picture */
 function pacPicBanks(): Array<{ path: string; bank: MemoryBank }> {
   const out: Array<{ path: string; bank: MemoryBank }> = []
+  if (!existsSync(FIXTURES)) return out
   for (const p of walk(FIXTURES)) {
     if (!p.toLowerCase().endsWith('.abk')) continue
     let banks
@@ -53,7 +54,7 @@ function toPlanar(pixels: Uint8Array, width: number, height: number, nPlanes: nu
   return { planar, planeSize, rowBytes, nPlanes }
 }
 
-describe('the Pac.Pic packer (Pack/Spack, +Compact.s:478)', () => {
+describe.skipIf(!existsSync(FIXTURES))('the Pac.Pic packer (Pack/Spack, +Compact.s:478)', () => {
   const banks = pacPicBanks()
 
   it('finds packed pictures in the corpus to test against', () => {

@@ -23,6 +23,7 @@ function parseProgram(path: string) {
 /** Every .AMOS shipped alongside an extension fixture. */
 function extensionPrograms(): string[] {
   const out: string[] = []
+  if (!existsSync(extFixtures)) return out
   for (const dir of readdirSync(extFixtures)) {
     const progs = join(extFixtures, dir, 'progs')
     if (!existsSync(progs)) continue
@@ -126,9 +127,12 @@ describe('extension registry (src/ext/registry.ts)', () => {
   })
 })
 
-describe('Intuition 1.3b token table, assembled from its own source', () => {
-  const src = readFileSync(join(extFixtures, 'intuition-1.3b', 'itokens.s'), 'latin1')
-  const toks = tokensFromSource(src)
+const ITOKENS = join(extFixtures, 'intuition-1.3b', 'itokens.s')
+
+describe.skipIf(!existsSync(ITOKENS))('Intuition 1.3b token table, assembled from its own source', () => {
+  // read lazily: vitest still runs a skipped describe's body, so an eager
+  // readFileSync here would break collection in a fixture-less checkout
+  const toks = existsSync(ITOKENS) ? tokensFromSource(readFileSync(ITOKENS, 'latin1')) : []
 
   it('reproduces keywords listed in the extension’s own cmdlist', () => {
     const cmdlist = readFileSync(join(extFixtures, 'intuition-1.3b', 'cmdlist'), 'latin1')
@@ -170,7 +174,7 @@ describe('Intuition 1.3b token table, assembled from its own source', () => {
   })
 })
 
-describe('slot identification (src/ext/identify.ts)', () => {
+describe.skipIf(!existsSync(extFixtures))('slot identification (src/ext/identify.ts)', () => {
   it('counts arguments from a parameter spec', () => {
     expect(specArity('I')).toBe(0) // instruction, no arguments
     expect(specArity('I0')).toBe(1)
@@ -262,7 +266,7 @@ describe('slot identification (src/ext/identify.ts)', () => {
   })
 })
 
-describe('the whole corpus identifies without a slot map', () => {
+describe.skipIf(!existsSync(extFixtures))('the whole corpus identifies without a slot map', () => {
   function* walk(p: string): Generator<string> {
     for (const e of readdirSync(p)) {
       const f = join(p, e)
