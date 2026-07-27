@@ -104,6 +104,20 @@ describe('ADF disk images', () => {
     expect(isAdf(new Uint8Array(1024))).toBe(false) // not a floppy geometry
   })
 
+  it('walks the last hash slot, which is at offset 308 and not before it', () => {
+    // The hash table is 72 longs at 24..308 *inclusive*. Treating 308 as an
+    // exclusive limit drops slot 71 entirely, and does it silently — the file
+    // just is not in the listing. Real disks land names there: on the Thrusts
+    // compilation disk it was `thrusts.info`, which disappeared until the
+    // bound was fixed.
+    const d = new DiskBuilder()
+    d.file(ROOT, 0, 900, 'first.abk', text('a'))
+    d.file(ROOT, 71, 910, 'last.info', text('b'))
+    const paths = readAdf(d.bytes).map((e) => e.path)
+    expect(paths).toContain('last.info')
+    expect(paths).toHaveLength(2)
+  })
+
   it('reads the volume label and filesystem flags', () => {
     const ofs = adfInfo(new DiskBuilder(false).bytes)
     expect(ofs).toMatchObject({ label: 'TestDisk', filesystem: 'OFS', blocks: 1760 })
@@ -171,7 +185,10 @@ describe.skipIf(!existsSync(`${CORPUS}/Issue1.adf`))('against real disks', () =>
     // and comparing byte-for-byte against that tree checks this reader
     // against an independent extraction made on the original hardware.
     const entries = readAdf(new Uint8Array(readFileSync(`${CORPUS}/Issue1.adf`)))
-    expect(entries.length).toBe(111)
+    // 112, not 111: `edit/a_a_amos.seq` hashes to slot 71, the last of the
+    // hash table, and was invisible while the walk stopped short of offset
+    // 308. The CD's own extraction has it, which is how we know 112 is right.
+    expect(entries.length).toBe(112)
 
     let identical = 0
     const differing: string[] = []
@@ -188,7 +205,7 @@ describe.skipIf(!existsSync(`${CORPUS}/Issue1.adf`))('against real disks', () =>
     // diverge. The table is what AmigaDOS uses and it agrees with the recorded
     // file size, so this reader follows it.
     expect(differing).toEqual(['fonts/emerald/17'])
-    expect(identical).toBe(110)
+    expect(identical).toBe(111)
   })
 
   it('reads every disk image in the corpus without failing', () => {

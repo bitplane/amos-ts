@@ -36,6 +36,14 @@ const BSIZE = 512
 /** longs 6..77 of a header block: the hash table / data block table */
 const TABLE_START = 24
 const TABLE_END = 308
+/**
+ * The table holds 72 longs — (512/4) - 56 — at offsets 24 to 308 *inclusive*,
+ * so 308 is the last slot and not a limit to stop before. A directory walk
+ * that treats it as exclusive loses every name that hashes to slot 71, which
+ * is silent: the file is simply absent from the listing. (Found on a real
+ * disk, where `thrusts.info` hashed there and vanished.)
+ */
+const TABLE_SLOTS = 72
 /** offsets from the start of a header block */
 const OFF = {
   type: 0,
@@ -173,7 +181,8 @@ export function readAdf(bytes: Uint8Array): ArchiveEntry[] {
   const walk = (dir: number, prefix: string): void => {
     if (visited.has(dir)) return // a corrupt disk can loop
     visited.add(dir)
-    for (let off = TABLE_START; off < TABLE_END; off += 4) {
+    for (let slot = 0; slot < TABLE_SLOTS; slot++) {
+      const off = TABLE_START + slot * 4
       let block = a.u32(dir, off)
       // follow the collision chain for this hash slot
       while (a.valid(block) && !visited.has(block)) {
