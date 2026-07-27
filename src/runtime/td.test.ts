@@ -7,7 +7,7 @@ import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
 import { loadHunks } from '../loader/hunk'
-import type { TdFrame, TdMatrix, TdView } from './td'
+import type { TdFrame, TdMatrix, TdObject, TdView } from './td'
 import { TD_ARCTAN, TD_NEAR, TD_ONE, tdFrame, tdInstance, tdFrameReach, tdAtan2, tdCentreRow, tdScanFill, tdScreenX, tdScreenY, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
 
 /**
@@ -1774,5 +1774,66 @@ describe('AMOS 3D Td Anim ($211e42, the point walk at $211f2a)', () => {
     `)
     expect(whole).toBeGreaterThan(1000)
     expect(collapsed).toBe(0)
+  })
+})
+
+describe('AMOS 3D Td Surface ($212c28, the bounds at $212c7c and $212cac)', () => {
+  const go = (src: string) => run(`
+      Td Load "dice"
+      Td Object 1,"dice",0,0,1500,0,0,0
+      ${src}
+    `, objectAndLinks('dice.3DO'))
+
+  it('moves a surface from one face to another', () => {
+    // dice's six faces carry six different pip patterns; putting face 0's
+    // surface on face 3 gives the die two of the same
+    const { rt } = go('Td Surface "dice",0,0 To 1,0,3,0')
+    const g = parseTdGeometry(rt.td.objects.get('dice')!.file)
+    const linked = rt.td.objects.get('dice')!.linked
+    expect(linked.get(g.faces[3]!.at)!.name).toBe(linked.get(g.faces[0]!.at)!.name)
+  })
+
+  it('leaves the other faces alone', () => {
+    const before = run('Td Load "dice"', objectAndLinks('dice.3DO')).rt.td.objects.get('dice')!
+    const names = (o: TdObject) => parseTdGeometry(o.file).faces.map((f) => o.linked.get(f.at)?.name ?? '')
+    const after = go('Td Surface "dice",0,0 To 1,0,3,0').rt.td.objects.get('dice')!
+    const a = names(before)
+    const b = names(after)
+    expect(b.filter((n, i) => n !== a[i])).toHaveLength(1)
+  })
+
+  it('refuses a block or a face the object has not got', () => {
+    // "Block does not exist" then "Face does not exist" — dice has one block
+    // of six faces
+    expect(() => go('Td Surface "dice",1,0 To 1,0,0,0')).toThrow(/Block does not exist/)
+    expect(() => go('Td Surface "dice",0,6 To 1,0,0,0')).toThrow(/Face does not exist/)
+    expect(() => go('Td Surface "dice",0,0 To 1,0,6,0')).toThrow(/Face does not exist/)
+    expect(() => go('Td Surface "dice",0,5 To 1,0,5,0')).not.toThrow()
+  })
+
+  it('refuses a source object that is not loaded', () => {
+    expect(() => go('Td Surface "nothing",0,0 To 1,0,0,0')).toThrow(/Object not loaded/)
+  })
+
+  it('Td Surface Points records four anchors and Off clears them', () => {
+    expect(go('Td Surface Points 1,2,3,4').rt.td.surfacePoints).toEqual([1, 2, 3, 4])
+    expect(go('Td Surface Points 1,2,3,4\nTd Surface Points Off').rt.td.surfacePoints).toBe(null)
+  })
+
+  it('a moved surface shows up in what Td Redraw computes', () => {
+    const patches = (src: string) => {
+      const { rt } = run(`
+        Td Screen Height 150
+        Screen Open 0,320,200,16,0
+        Td Load "dice"
+        Td Object 1,"dice",0,0,1500,0,0,0
+        ${src}
+        Td Redraw
+      `, objectAndLinks('dice.3DO'))
+      return tdRedrawFaces(rt.td)[0]!.faces.map((f) => f.fills.length)
+    }
+    const before = patches('')
+    const after = patches('Td Surface "dice",0,0 To 1,0,3,0')
+    expect(after).not.toEqual(before)
   })
 })

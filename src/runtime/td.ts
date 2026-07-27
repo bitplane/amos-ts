@@ -219,6 +219,8 @@ export interface TdState {
    * the projection, not the pixel.
    */
   screen: { x: number; y: number; ok: boolean }
+  /** `Td Surface Points`, the four bytes at a4+$486f and the flag at a4+$4873 */
+  surfacePoints: [number, number, number, number] | null
 }
 
 export const newTdState = (): TdState => ({
@@ -233,6 +235,7 @@ export const newTdState = (): TdState => ({
   world: [0, 0, 0],
   view: [0, 0, 0],
   screen: { x: 0, y: 0, ok: false },
+  surfacePoints: null,
 })
 
 /**
@@ -421,6 +424,66 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
         }) as Instr,
       ]),
     ),
+    'td surface'(it) {
+      // Td Surface name$, srcBlock, srcFace To n, dstBlock, dstFace, k —
+      // $212c28, and the demos write it exactly like that:
+      // `Td Surface "3d2",1,3 To 1,0,5,0`.
+      // It lifts the surface off a face of a *loaded* object and puts it on a
+      // face of a *live* one, which is how the demos repaint a die or swap
+      // the picture on a monitor without reloading anything.
+      const t = st()
+      const name = it.evalStr()
+      it.expect(',')
+      const srcBlock = it.evalInt()
+      it.expect(',')
+      const srcFace = it.evalInt()
+      it.expect('to')
+      const n = it.evalInt()
+      it.expect(',')
+      const dstBlock = it.evalInt()
+      it.expect(',')
+      const dstFace = it.evalInt()
+      it.expect(',')
+      // the sixth number is $24(a5), which nothing on the path traced from
+      // here reads; the demos pass 0 and 2
+      it.evalInt()
+      const src = t.objects.get(name.toLowerCase())
+      if (!src) tdError(5)
+      const dst = tdInstance(t, n).object
+      // the block index is bounded by the count at +$20 and the face index by
+      // the block's template at +$1a — "Block does not exist" then "Face does
+      // not exist", in that order for the source and then for the destination
+      const faceAt = (obj: TdObject, block: number, face: number): number => {
+        const blocks = parseTdBlocks(obj.file)
+        if (block < 0 || block >= blocks.length) tdError(24)
+        const b = blocks[block]!
+        const template = obj.linked.get(b.at + 0x0a)
+        if (face < 0 || face >= (template ? parseTdTemplate(template.file).faces : 0)) tdError(25)
+        return parseTdGeometry(obj.file).facesAt + (b.baseFace + face) * TD_FACE_SIZE
+      }
+      const from = faceAt(src, srcBlock, srcFace)
+      const to = faceAt(dst, dstBlock, dstFace)
+      const surface = src.linked.get(from)
+      if (surface) dst.linked.set(to, surface)
+      else dst.linked.delete(to)
+    },
+    'td surface points'(it) {
+      // $212bde keeps four anchor bytes at a4+$486f..$4872 and sets the flag
+      // at a4+$4873. NOTES: they are recorded and nothing maps a surface
+      // through them — a surface's slots 1 to 4 are still the face's own four
+      // corners, as $217424 fills them. The engine only reads the anchors to
+      // validate them ($212d42), and what consumes them has not been found.
+      const t = st()
+      const n: number[] = [it.evalInt()]
+      for (let i = 0; i < 3; i++) {
+        it.expect(',')
+        n.push(it.evalInt())
+      }
+      t.surfacePoints = n.map((v) => v & 0xff) as [number, number, number, number]
+    },
+    'td surface points off'() {
+      st().surfacePoints = null
+    },
     'td forward'(it) {
       // Td Forward n, d — $2118ee moves the object d units along its own
       // facing. It builds sin and cos of the two angles and combines them by
@@ -1219,6 +1282,11 @@ export interface TdTemplate {
   records: Array<{ at: number; target: number }>
   /** the delta the loader adds to every stored pointer */
   delta: number
+  /**
+   * How many faces a block built on this template has — the byte at +$1a,
+   * which is what bounds `Td Surface`'s face arguments at $212cac and $212d06.
+   */
+  faces: number
 }
 
 export function parseTdTemplate(file: TdFile): TdTemplate {
@@ -1237,7 +1305,7 @@ export function parseTdTemplate(file: TdFile): TdTemplate {
     if (at + 4 > b.length) break
     records.push({ at, target: (u32(at) + delta) | 0 })
   }
-  return { block: b, sections, records, delta }
+  return { block: b, sections, records, delta, faces: b[0x1a] ?? 0 }
 }
 
 // ---- geometry ----

@@ -83,6 +83,12 @@ saying which is how a list like this quietly becomes furniture.
 
 **Closable** (nobody has done the work yet):
 
+- `td surface points` — the four anchors are recorded where the engine
+  records them and nothing maps a surface through them. A surface's first
+  four slots are still the face's own corners; the only use of the anchors
+  traced so far is `Td Surface` validating them, and what consumes them has
+  not been found.
+
 - `td priority` — the value is recorded where the engine records it, in the
   object's render record at `+$42`, and nothing reads it. `$42` is written
   all over the `$215xxx` render code but no read of it as a sort key has
