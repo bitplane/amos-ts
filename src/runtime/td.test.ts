@@ -6,7 +6,9 @@ import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
-import { parseTdFile, parseTdGeometry, parseTdTemplate, tdSections } from './td'
+import { loadHunks } from '../loader/hunk'
+import type { TdMatrix } from './td'
+import { TD_ONE, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdCos, tdRotate, tdSections, tdSin } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -368,5 +370,66 @@ describe('AMOS 3D geometry (vertex transform at $21085c, face walk at $217ee2)',
     const links = parseTdFile(shipped('dice.3DO')).links.filter((l) => l.type === 2)
     expect(links.map((l) => l.offset)).toEqual(g.faces.map((f) => f.at))
     for (const f of g.faces) expect(f.surface).not.toBe(0)
+  })
+})
+
+describe('AMOS 3D rotation (matrix builder at $213df8, vertex loop at $2108a2)', () => {
+  const C3D = 'fixtures/extensions/amos3d-1.0/engine/c3d.lib'
+
+  it.skipIf(!existsSync(C3D))('generates the engine’s own quarter-sine table', () => {
+    // a4+$270 is the table and a4+$670 its last entry; with a4 at $219e40 in
+    // our load that puts it at $21a0b0, in hunk 23. Regenerating it rather
+    // than shipping a copy keeps the library out of the repository.
+    const l = loadHunks(new Uint8Array(readFileSync(C3D)))
+    const v = new DataView(l.image.buffer, l.image.byteOffset, l.image.byteLength)
+    const at = 0x21a0b0 - l.base
+    for (let i = 0; i <= TD_SINE_STEPS; i++) expect(v.getInt16(at + i * 2, false), `entry ${i}`).toBe(TD_SINE[i])
+  })
+
+  it('puts a whole revolution in 65536 units', () => {
+    expect(tdSin(0)).toBe(0)
+    expect(tdCos(0)).toBe(TD_ONE)
+    expect(tdSin(TD_REVOLUTION / 4)).toBe(TD_ONE)
+    expect(tdCos(TD_REVOLUTION / 4)).toBe(0)
+    expect(tdSin(TD_REVOLUTION / 2)).toBe(0)
+    expect(tdCos(TD_REVOLUTION / 2)).toBe(-TD_ONE)
+    expect(tdSin((TD_REVOLUTION * 3) / 4)).toBe(-TD_ONE)
+    expect(tdCos((TD_REVOLUTION * 3) / 4)).toBe(0)
+  })
+
+  it('gets every quadrant’s signs right', () => {
+    // The two bit tests at $213e00 pick the quadrant and the two flags at
+    // $4cc8/$4cc9 the signs — checked here against real trigonometry, which is
+    // independent of how the disassembly was read.
+    //
+    // The tolerance is the engine's own resolution: it reduces to the first
+    // quadrant and only then shifts right by five, so the angle it actually
+    // uses is within 32 units of the one asked for. Across a whole revolution
+    // that is 4096 * 2*pi * 32/65536 ~ 12.6, plus one for the truncation.
+    const tol = 14
+    for (let a = 0; a < TD_REVOLUTION; a += 137) {
+      const rad = a * ((2 * Math.PI) / TD_REVOLUTION)
+      expect(Math.abs(tdSin(a) - TD_ONE * Math.sin(rad)), `sin ${a}`).toBeLessThanOrEqual(tol)
+      expect(Math.abs(tdCos(a) - TD_ONE * Math.cos(rad)), `cos ${a}`).toBeLessThanOrEqual(tol)
+    }
+  })
+
+  it('quantises to 32 units — the >>5 that indexes the table', () => {
+    expect(tdSin(0)).toBe(tdSin(31))
+    expect(tdSin(32)).not.toBe(tdSin(0))
+    expect(tdSin(TD_REVOLUTION + 500)).toBe(tdSin(500))
+  })
+
+  it('rotates a point with the signs the loop folds in', () => {
+    // the identity in memory order $bcc..$bdc: +1 on the x and y diagonals,
+    // and +1 at $bdc because z' subtracts its first two terms
+    const I: TdMatrix = [TD_ONE, 0, 0, TD_ONE, 0, 0, 0, 0, TD_ONE]
+    expect(tdRotate(I, { x: 100, y: -200, z: 300 })).toEqual({ x: 100, y: -200, z: 300 })
+    // the shift is arithmetic, so a negative product rounds down rather than
+    // toward zero — asr.l on -1 is -1 however far you shift it
+    const tiny: TdMatrix = [-1, 0, 0, 1, 0, 0, 0, 0, 1]
+    expect(tdRotate(tiny, { x: 1, y: 0, z: 0 }).x).toBe(-1)
+    expect(tdRotate(tiny, { x: 4095, y: 0, z: 0 }).x).toBe(-1)
+    expect(tdRotate(tiny, { x: 4096, y: 0, z: 0 }).x).toBe(-1)
   })
 })

@@ -609,3 +609,100 @@ export function parseTdGeometry(file: TdFile): TdGeometry & { multipart: boolean
   }
   return { points, faces, pointsAt, facesAt, facesEnd, multipart }
 }
+
+// ---- rotation ----
+
+/** the engine's fixed-point one: every matrix entry is in 4096ths */
+export const TD_ONE = 4096
+
+/**
+ * The quarter-wave sine table at a4+$270, 513 entries of one word covering
+ * a quarter revolution — a4+$670 is its last entry, which is how the matrix
+ * builder reads cosines out of it backwards.
+ *
+ * The shipped table is `floor(4096 * sin(i * pi / 1024))`: rounding to
+ * nearest disagrees with 253 of the 513 entries, truncation with two. Those
+ * two are indices where the original's sine landed a hair above an integer
+ * and a double's lands a hair below, so they are carried explicitly and the
+ * whole table is checked against the library's own copy in the tests.
+ */
+export const TD_SINE_STEPS = 512
+
+function buildSineTable(): Int16Array {
+  const t = new Int16Array(TD_SINE_STEPS + 1)
+  for (let i = 0; i <= TD_SINE_STEPS; i++) t[i] = Math.floor(TD_ONE * Math.sin((i * Math.PI) / (TD_SINE_STEPS * 2)))
+  t[222] = 2579
+  t[391] = 3817
+  return t
+}
+
+export const TD_SINE = buildSineTable()
+
+/**
+ * Reduce an angle to the first quadrant, as $213e00 does with two bit tests
+ * on the high byte of the word.
+ *
+ * The four cases are the four quadrants, and each records whether the sine
+ * and the cosine come back negated ($4cc8 and $4cc9):
+ *
+ *     bit 14  bit 15   reduced        sin   cos
+ *        0       0     angle           +     +
+ *        1       0     $8000 - angle   +     -
+ *        0       1     angle - $8000   -     -
+ *        1       1     -angle          -     +
+ *
+ * The reduced angle is then shifted right by five to index the table, so the
+ * engine's angular resolution is 32 of the 65536 units in a revolution.
+ */
+export function tdQuadrant(angle: number): { index: number; negSin: boolean; negCos: boolean } {
+  const a = angle & 0xffff
+  const b14 = (a & 0x4000) !== 0
+  const b15 = (a & 0x8000) !== 0
+  const reduced = b14 ? (b15 ? (-a & 0xffff) : 0x8000 - a) : b15 ? a - 0x8000 : a
+  return { index: (reduced & 0xffff) >>> 5, negSin: b15, negCos: b14 !== b15 }
+}
+
+/** sin(angle) in 4096ths, exactly as the matrix builder computes it */
+export function tdSin(angle: number): number {
+  const q = tdQuadrant(angle)
+  const s = TD_SINE[q.index]!
+  // neg.w of zero is zero, so never hand back a negative zero
+  return q.negSin ? -s | 0 : s
+}
+
+/** cos(angle) in 4096ths — the same table read from the far end */
+export function tdCos(angle: number): number {
+  const q = tdQuadrant(angle)
+  const c = TD_SINE[TD_SINE_STEPS - q.index]!
+  return q.negCos ? -c | 0 : c
+}
+
+/**
+ * The nine matrix words in the order they sit in memory, a4+$bcc upwards:
+ * $bcc $bce $bd0 | $bd2 $bd4 $bd6 | $bd8 $bda $bdc.
+ */
+export type TdMatrix = readonly [number, number, number, number, number, number, number, number, number]
+
+/**
+ * Rotate one model point, the loop at $2108a2.
+ *
+ * The signs are folded into the arithmetic rather than into the stored
+ * matrix, which is why this cannot be written as a plain dot product:
+ *
+ *     x' = ( m0*x - m4*y + m6*z) >> 12
+ *     y' = ( m1*x + m3*y + m7*z) >> 12
+ *     z' = (-m2*x - m5*y + m8*z) >> 12
+ *
+ * The shift is `asr.l #8` then `asr.l #4`, an arithmetic shift, so a negative
+ * result rounds away from zero rather than towards it — the same as
+ * JavaScript's `>>`. Results are stored as words.
+ */
+export function tdRotate(m: TdMatrix, p: TdPoint): TdPoint {
+  const { x, y, z } = p
+  const w = (n: number): number => (n << 16) >> 16
+  return {
+    x: w((((m[0] * x - m[4] * y + m[6] * z) | 0) >> 12) | 0),
+    y: w((((m[1] * x + m[3] * y + m[7] * z) | 0) >> 12) | 0),
+    z: w((((-m[2] * x - m[5] * y + m[8] * z) | 0) >> 12) | 0),
+  }
+}
