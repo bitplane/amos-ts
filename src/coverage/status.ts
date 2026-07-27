@@ -757,6 +757,10 @@ export const FAITHFUL = new Set<string>([
   'td angle c',
   'td set colour',
   'td redraw',
+  'td bearing a',
+  'td bearing b',
+  'td bearing r',
+  'td face',
   // NB: 'lcat blocks', 'ldev first' and 'ldev next' are implemented but
   // approximated — see NOTES.
   'assign',

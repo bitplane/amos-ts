@@ -8,7 +8,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
 import { loadHunks } from '../loader/hunk'
 import type { TdFrame, TdMatrix, TdView } from './td'
-import { TD_NEAR, TD_ONE, tdCentreRow, tdScanFill, tdScreenX, tdScreenY, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
+import { TD_ARCTAN, TD_NEAR, TD_ONE, tdAtan2, tdCentreRow, tdScanFill, tdScreenX, tdScreenY, parseTdBlocks, tdBlockColours, tdBlockForFace, parseTdSurface, tdSurfaceFills, tdSurfaceSlots, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -1227,5 +1227,153 @@ describe('AMOS 3D rasteriser (screen mapping $2126b6/$212688, our own fill)', ()
       Td Cls
     `, objectAndLinks('dice.3DO'))
     for (let y = 0; y < 150; y++) for (let x = 0; x < 320; x++) expect(rt.screen.point(x, y), `${x},${y}`).toBe(0)
+  })
+})
+
+describe('AMOS 3D bearings (core $219200, atan2 $21939e, table a4+$672)', () => {
+  const setup = `
+      Td Load "dice"
+      Td Object 1,"dice",0,0,0,0,0,0
+      Td Object 2,"dice",1000,0,0,0,0,0
+  `
+
+  it('generates the arctangent table the library ships', () => {
+    // thirty-three words straight after the sine table, floor(atan(i/32) *
+    // 65536 / 2pi), ending at $2000 — forty-five degrees
+    const engine = loadHunks(new Uint8Array(readFileSync('fixtures/extensions/amos3d-1.0/engine/c3d.lib')))
+    const v = new DataView(engine.image.buffer, engine.image.byteOffset, engine.image.byteLength)
+    const at = 0x219e40 + 0x672 - engine.base
+    for (let i = 0; i <= 32; i++) expect(v.getInt16(at + i * 2, false), `entry ${i}`).toBe(TD_ARCTAN[i])
+    expect(TD_ARCTAN[32]).toBe(0x2000)
+  })
+
+  it('answers the same as a real atan2, all the way round', () => {
+    // the octant reflections are the part worth checking: a table that only
+    // covers 0..45 degrees has to be put back in the right eighth
+    for (let deg = 0; deg < 360; deg++) {
+      const r = (deg * Math.PI) / 180
+      const p = Math.round(Math.sin(r) * 10000)
+      const q = Math.round(Math.cos(r) * 10000)
+      const want = Math.round((Math.atan2(p, q) * TD_REVOLUTION) / (2 * Math.PI))
+      let diff = (((tdAtan2(p, q) - want) % TD_REVOLUTION) + TD_REVOLUTION) % TD_REVOLUTION
+      if (diff > TD_REVOLUTION / 2) diff -= TD_REVOLUTION
+      // the table's step is 128 ratio units and it interpolates, so a couple
+      // of parts in 65536 is all the truncation costs
+      expect(Math.abs(diff), `${deg} degrees`).toBeLessThanOrEqual(4)
+    }
+  })
+
+  it('points at something dead ahead with both angles zero', () => {
+    const { out } = run(`
+      Td Load "dice"
+      Td Object 1,"dice",0,0,0,0,0,0
+      Td Object 2,"dice",0,0,1000,0,0,0
+      Print Td Bearing A(1,2);",";Td Bearing B(1,2);",";Td Bearing R(1,2)
+    `, objectAndLinks('dice.3DO'))
+    expect(out.split('\n')[0]).toBe(' 0, 0, 1000')
+  })
+
+  it('turns a quarter of a revolution for something off to one side', () => {
+    // 16384 is a quarter of the engine's 65536 units, and the range is the
+    // plain distance
+    const { out } = run(`${setup}
+      Print Td Bearing A(1,2);",";Td Bearing B(1,2);",";Td Bearing R(1,2)
+    `, objectAndLinks('dice.3DO'))
+    expect(out.split('\n')[0]).toBe(` 0, ${TD_REVOLUTION / 4}, 1000`)
+  })
+
+  it('takes a literal x,y,z as readily as a second object', () => {
+    const { out } = run(`${setup}
+      Print Td Bearing B(1,1000,0,0)
+    `, objectAndLinks('dice.3DO'))
+    expect(out.split('\n')[0]).toBe(` ${TD_REVOLUTION / 4}`)
+  })
+
+  it('remembers the last answer for the no-argument form', () => {
+    // bit 3 of the flags word is clear, so $211c6e goes straight to $211d26
+    // and recomputes nothing
+    const { out } = run(`${setup}
+      X=Td Bearing B(1,2)
+      Print Td Bearing A;",";Td Bearing B;",";Td Bearing R
+    `, objectAndLinks('dice.3DO'))
+    expect(out.split('\n')[0]).toBe(` 0, ${TD_REVOLUTION / 4}, 1000`)
+  })
+
+  it('keeps the old answer when the target is straight up — and negates it', () => {
+    // The core bails at $2192c0 when x and z are both zero rather than
+    // dividing by nothing, so $149c and $149e keep the previous answer. But
+    // $211c6e negates them whatever the core did — the bail returns
+    // normally, it does not skip the tail — so the stored bearing comes back
+    // with its sign flipped, and flips again on the next degenerate call.
+    // Reproduced because it is what the engine does, not because it is sane.
+    const { out } = run(`${setup}
+      X=Td Bearing B(1,2)
+      Print Td Bearing B(1,0,500,0)
+      Print Td Bearing B(1,0,500,0)
+    `, objectAndLinks('dice.3DO'))
+    expect(out.split('\n').slice(0, 2)).toEqual([`-${TD_REVOLUTION / 4}`, ` ${TD_REVOLUTION / 4}`])
+  })
+
+  it('picks whichever of the two facings is nearer where the object points', () => {
+    // $211cea onwards: (a,b) and ($8000-a, b+$8000) face the same way, and
+    // the engine takes the one with the smaller squared difference from the
+    // attitude the object already has
+    const { out } = run(`
+      Td Load "dice"
+      Td Object 1,"dice",0,0,0,-32768,-16384,0
+      Td Object 2,"dice",1000,0,0,0,0,0
+      Print Td Bearing A(1,2);",";Td Bearing B(1,2)
+    `, objectAndLinks('dice.3DO'))
+    // Print gives a negative no leading space, so the commas sit tight
+    expect(out.split('\n')[0]).toBe('-32768,-16384')
+  })
+
+  it('Td Face writes the bearing into the attitude, roll untouched', () => {
+    const { out } = run(`
+      Td Load "dice"
+      Td Object 1,"dice",0,0,0,0,0,1234
+      Td Object 2,"dice",1000,0,0,0,0,0
+      Td Face 1,2
+      Print Td Attitude A(1);",";Td Attitude B(1);",";Td Attitude C(1)
+    `, objectAndLinks('dice.3DO'))
+    expect(out.split('\n')[0]).toBe(` 0, ${TD_REVOLUTION / 4}, 1234`)
+  })
+
+  it('Td Face leaves A, B and R readable as if Td Bearing had run', () => {
+    const { out } = run(`${setup}
+      Td Face 1,2
+      Print Td Bearing R
+    `, objectAndLinks('dice.3DO'))
+    expect(out.split('\n')[0]).toBe(' 1000')
+  })
+
+  it('agrees with Td Range about how far away something is', () => {
+    // different routines — Td Range square-roots, the bearing divides by a
+    // sine — so they are an independent check on each other
+    const { out } = run(`
+      Td Load "dice"
+      Td Object 1,"dice",100,200,300,0,0,0
+      Td Object 2,"dice",4100,2200,-1700,0,0,0
+      Print Td Range(1,2);",";Td Bearing R(1,2)
+    `, objectAndLinks('dice.3DO'))
+    const [range, r] = out.split('\n')[0]!.split(',').map((n) => Number(n))
+    // 4000, 2000, -2000 apart: 4898.98...
+    expect(range).toBe(4898)
+    expect(Math.abs(r! - range!)).toBeLessThanOrEqual(2)
+  })
+
+  it('prescales a bearing that would overflow, and puts the shift back', () => {
+    // $219266: anything above eighteen bits shifts all three differences
+    // down together, and $211d4a shifts the range back up when it is read
+    const { out } = run(`
+      Td Load "dice"
+      Td Object 1,"dice",0,0,0,0,0,0
+      Td Object 2,"dice",3000000,0,4000000,0,0,0
+      Print Td Range(1,2);",";Td Bearing R(1,2)
+    `, objectAndLinks('dice.3DO'))
+    const [range, r] = out.split('\n')[0]!.split(',').map((n) => Number(n))
+    // both prescale, so both lose the low bits: 3-4-5 scaled up by a million
+    expect(Math.abs(range! - 5000000)).toBeLessThan(200)
+    expect(Math.abs(r! - 5000000)).toBeLessThan(5000)
   })
 })

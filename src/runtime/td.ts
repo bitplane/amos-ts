@@ -201,6 +201,12 @@ export interface TdState {
   viewpoint: TdFrame
   /** the frame stamp at a4+$1902, bumped by every Td Redraw and never zero */
   frame: number
+  /**
+   * The last bearing worked out, at a4+$149c/$149e/$14a0 with its prescale
+   * shift at a4+$14a4. It survives between calls on purpose: the no-argument
+   * forms read it, and the core's two bail-outs leave it alone.
+   */
+  bearing: TdBearing
 }
 
 export const newTdState = (): TdState => ({
@@ -211,6 +217,7 @@ export const newTdState = (): TdState => ({
   instances: new Map(),
   viewpoint: { pos: [0, 0, 0], angle: [0, 0, 0] },
   frame: 0,
+  bearing: { a: 0, b: 0, r: 0, shift: 0 },
 })
 
 /**
@@ -371,6 +378,21 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       const obj = tdInstance(st(), n).object
       if (block < 0 || block >= obj.colours.length) tdError(24)
       obj.colours[block] = [...TD_DITHER[(colour >>> 0) < 16 ? colour : colour & 15]!] as TdDither
+    },
+    'td face'(it) {
+      // $211c24, selector 8 into the same routine Td Bearing uses — "points
+      // object n1 at n2" is the bearing written back into the attitude. Only
+      // A and B move; C, the roll, is left alone.
+      const t = st()
+      const n1 = it.evalInt()
+      it.expect(',')
+      const nums: number[] = [it.evalInt()]
+      while (it.accept(',')) nums.push(it.evalInt())
+      const frame = tdFrame(t, n1)
+      const to = nums.length >= 3 ? nums.slice(0, 3) : tdFrame(t, nums[0]!).pos
+      t.bearing = tdBearingFor(t.bearing, frame, to)
+      frame.angle[0] = t.bearing.a
+      frame.angle[1] = t.bearing.b
     },
     'td kill'(it) {
       // $2117d2 unlinks the frame from the live list and frees it
@@ -591,6 +613,155 @@ export function tdRange(a: TdFrame, b: TdFrame): number {
   return (Math.floor(Math.sqrt(sum >>> 0)) << shift) | 0
 }
 
+// ---- bearings ----
+
+/** the arctangent table covers a ratio of 0 to 1 in thirty-two steps */
+export const TD_ARCTAN_STEPS = 32
+
+/**
+ * The arctangent table at a4+$672, thirty-three words — one per thirty-second
+ * of a ratio from zero to one, so the last is $2000, forty-five degrees.
+ *
+ * It sits immediately after the sine table (a4+$270, 513 words), and like it
+ * the entries are truncated rather than rounded: `floor(atan(i/32) * 65536 /
+ * 2pi)`. The tests check the generated table against the library's own copy.
+ */
+function buildArctan(): Int16Array {
+  const t = new Int16Array(TD_ARCTAN_STEPS + 1)
+  for (let i = 0; i <= TD_ARCTAN_STEPS; i++) {
+    t[i] = Math.floor((Math.atan(i / TD_ARCTAN_STEPS) * TD_REVOLUTION) / (2 * Math.PI))
+  }
+  return t
+}
+export const TD_ARCTAN = buildArctan()
+
+/**
+ * The angle whose tangent is `ratio/4096`, for a ratio in 0..4096 — $21942e.
+ *
+ * `lsr.w #7` picks the entry and the remainder interpolates linearly into the
+ * next one, `(remainder * (next - this)) >> 7`. A ratio of exactly 4096 lands
+ * on the last entry with nothing left over, so the table is never read past.
+ */
+export function tdArctan(ratio: number): number {
+  const r = ratio & 0xffff
+  const i = r >>> 7
+  const base = TD_ARCTAN[i]!
+  const rest = r - (i << 7)
+  if (rest === 0) return base
+  return (base + (((rest * (TD_ARCTAN[i + 1]! - base)) | 0) >> 7)) | 0
+}
+
+/**
+ * `atan2(p, q)` in the engine's 65536ths of a revolution — $21939e.
+ *
+ * Both arguments are made positive and their signs remembered, the smaller is
+ * divided by the larger to keep the ratio inside the table, and the octant is
+ * put back afterwards: a ratio taken the other way up is reflected about
+ * $4000, a negative `q` about $8000, and a negative `p` is negated outright.
+ * Zero for both never reaches here — every caller checks first.
+ */
+export function tdAtan2(p: number, q: number): number {
+  const negQ = q < 0
+  const negP = p < 0
+  const a = Math.abs(q)
+  const b = Math.abs(p)
+  let angle = a > b ? tdArctan(((b * TD_ONE) / a) | 0) : 0x4000 - tdArctan(b === 0 ? 0 : ((a * TD_ONE) / b) | 0)
+  if (negQ) angle = 0x8000 - angle
+  if (negP) angle = -angle
+  return (angle << 16) >> 16
+}
+
+/** what the bearing core leaves behind, and what the no-argument forms read */
+export interface TdBearing {
+  /** `Td Bearing A`, the engine's a4+$149e */
+  a: number
+  /** `Td Bearing B`, a4+$149c */
+  b: number
+  /** `Td Bearing R`, a4+$14a0, before the prescale shift is put back */
+  r: number
+  /** the prescale shift, a4+$14a4 — `Td Bearing R` shifts left by it */
+  shift: number
+}
+
+/**
+ * The bearing core — $21324a, a veneer on to $219200.
+ *
+ * It answers "which way is that, and how far": the two angles that point the
+ * first frame at the second, and the distance between them.
+ *
+ * The prescale is Td Range's, one bit wider: the three differences are OR'd
+ * together and, if anything lands above eighteen bits, all three are shifted
+ * down by the same amount so the arithmetic that follows cannot overflow. The
+ * shift is remembered because `Td Bearing R` puts it back.
+ *
+ * Then, twice, the same move: take the angle to a pair of components with
+ * `atan2`, build its sine and cosine, and use them to fold the problem down a
+ * dimension. The heading comes from x against z; rotating by minus it gives
+ * the distance to the target in the plane the heading points along; the
+ * elevation comes from y against that. The range is the last division,
+ * against whichever of the sine and cosine is the larger — over a half in
+ * 4096ths — because dividing by the smaller of the two loses precision.
+ *
+ * Both bail-outs are the engine's: if x and z are both zero, or if y and the
+ * folded distance are both zero, it returns without touching anything and the
+ * previous answer stands. That is the same mechanism that lets a program read
+ * A, B or R after `Td Face` as if it had just called `Td Bearing`.
+ */
+export function tdBearingCore(prev: TdBearing, from: readonly number[], to: readonly number[]): TdBearing {
+  const d = [0, 1, 2].map((i) => (to[i]! - from[i]!) | 0)
+  let acc = 0
+  for (const v of d) acc |= Math.abs(v)
+  let shift = 0
+  if ((acc & 0xfffc_0000) !== 0) {
+    let n = acc
+    shift = 14
+    while ((n & 0x8000_0000) === 0) {
+      shift--
+      n = (n << 1) | 0
+    }
+  }
+  const [dx, dy, dz] = d.map((v) => v >> shift) as [number, number, number]
+  if (dx === 0 && dz === 0) return { ...prev, shift }
+
+  const b = tdAtan2(-dx, dz)
+  // sin and cos of minus the heading, the pair the engine leaves at a4+$bd0
+  // and a4+$bde, fold x and z into one distance along it
+  const folded = ((dz * tdCos(-b) + dx * tdSin(-b)) | 0) >> 12
+  if (dy === 0 && folded === 0) return { ...prev, b, shift }
+
+  const a = tdAtan2(-dy, folded)
+  const sin = tdSin(a)
+  const cos = tdCos(a)
+  const r = Math.abs(Math.abs(sin) > 0x800 ? ((dy * TD_ONE) / sin) | 0 : ((folded * TD_ONE) / cos) | 0) | 0
+  return { a, b, r, shift }
+}
+
+/**
+ * `Td Bearing A/B(n1, ...)` and `Td Face` — the tail of $211c6e.
+ *
+ * The core's two angles are negated, and then the engine does something worth
+ * keeping: there are two attitudes that face the same way — (a, b) and its
+ * mirror ($8000 - a, b + $8000) — and it picks whichever is nearer the
+ * object's *present* attitude, by the sum of the squared differences on the
+ * two axes. So turning to face something takes the shorter way round, and
+ * which of the two you get depends on where the object was already pointing.
+ */
+export function tdBearingFor(prev: TdBearing, frame: TdFrame, to: readonly number[]): TdBearing {
+  const c = tdBearingCore(prev, frame.pos, to)
+  const w = (n: number): number => (n << 16) >> 16
+  let a = w(-c.a)
+  let b = w(-c.b)
+  const altA = w(0x8000 - a)
+  const altB = w(b + 0x8000)
+  const cost = (x: number, y: number): number =>
+    w(x - frame.angle[0]!) * w(x - frame.angle[0]!) + w(y - frame.angle[1]!) * w(y - frame.angle[1]!)
+  if (cost(altA, altB) < cost(a, b)) {
+    a = altA
+    b = altB
+  }
+  return { ...c, a, b }
+}
+
 /** `Td Position X/Y/Z(n)` and `Td Attitude A/B/C(n)`, one routine and a selector */
 export function makeTdFunctions(rt: Runtime): Record<string, Func> {
   const read = (field: 'pos' | 'angle', axis: number): Func => (_, a) =>
@@ -602,6 +773,29 @@ export function makeTdFunctions(rt: Runtime): Record<string, Func> {
     'td attitude a': read('angle', 0),
     'td attitude b': read('angle', 1),
     'td attitude c': read('angle', 2),
+    ...Object.fromEntries(
+      (['a', 'b', 'r'] as const).map((which) => [
+        `td bearing ${which}`,
+        ((_, a) => {
+          // $211c6e reads its argument flags out of d7: bit 3 clear is the
+          // no-argument form, which recomputes nothing, and bit 2 chooses
+          // between a second object number and a literal (x,y,z).
+          const t = rt.td
+          if (a.length !== 0) {
+            const n1 = int(a[0] ?? VI(0))
+            const to =
+              a.length >= 4
+                ? [int(a[1] ?? VI(0)), int(a[2] ?? VI(0)), int(a[3] ?? VI(0))]
+                : tdFrame(t, int(a[1] ?? VI(0))).pos
+            t.bearing = tdBearingFor(t.bearing, tdFrame(t, n1), to)
+          }
+          // $211d4a puts the prescale shift back into the range, exactly as
+          // Td Range does; the two angles are already whole
+          if (which === 'r') return VI((t.bearing.r << t.bearing.shift) | 0)
+          return VI(which === 'a' ? t.bearing.a : t.bearing.b)
+        }) as Func,
+      ]),
+    ),
     'td range': (_, a) => {
       const n1 = int(a[0] ?? VI(0))
       const n2 = int(a[1] ?? VI(0))
