@@ -8,7 +8,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
 import { loadHunks } from '../loader/hunk'
 import type { TdMatrix } from './td'
-import { TD_ONE, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdCos, tdRotate, tdSections, tdSin } from './td'
+import { TD_ONE, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdCos, tdMatrix, tdRotate, tdSections, tdSin } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -431,5 +431,65 @@ describe('AMOS 3D rotation (matrix builder at $213df8, vertex loop at $2108a2)',
     expect(tdRotate(tiny, { x: 1, y: 0, z: 0 }).x).toBe(-1)
     expect(tdRotate(tiny, { x: 4095, y: 0, z: 0 }).x).toBe(-1)
     expect(tdRotate(tiny, { x: 4096, y: 0, z: 0 }).x).toBe(-1)
+  })
+})
+
+describe('AMOS 3D attitude matrix ($213df8 in full)', () => {
+  /** the effective 3x3, with the signs tdRotate folds in put back */
+  const rows = (m: TdMatrix): number[][] => [
+    [m[0], -m[4], m[6]],
+    [m[1], m[3], m[7]],
+    [-m[2], -m[5], m[8]],
+  ]
+
+  it('is the identity at rest', () => {
+    expect(tdMatrix(0, 0, 0)).toEqual([TD_ONE, 0, 0, TD_ONE, 0, 0, 0, 0, TD_ONE])
+    expect(tdRotate(tdMatrix(0, 0, 0), { x: 7, y: -9, z: 11 })).toEqual({ x: 7, y: -9, z: 11 })
+  })
+
+  it('stays orthonormal all the way round', () => {
+    // Every row and column must be a unit vector and every pair
+    // perpendicular. Nothing in the derivation enforces that, so it is a real
+    // check on the nine expressions — a single sign or swapped sine breaks
+    // it. The tolerance is the fixed point's: the triple products shift twice
+    // and so lose a couple of bits more than the pairs.
+    for (const [a, b, c] of [
+      [0, 0, 0], [0x4000, 0, 0], [0, 0x4000, 0], [0, 0, 0x4000],
+      [0x2000, 0x2000, 0x2000], [0x1234, 0x5678, 0x9abc], [0xf000, 0x8000, 0x4000],
+      [0x0555, 0xaaaa, 0x3333],
+    ]) {
+      const r = rows(tdMatrix(a!, b!, c!))
+      const cols = [0, 1, 2].map((j) => r.map((row) => row[j]!))
+      for (const set of [r, cols]) {
+        for (let i = 0; i < 3; i++) {
+          const len = Math.hypot(...set[i]!)
+          expect(Math.abs(len - TD_ONE), `|${set[i]}| at ${a},${b},${c}`).toBeLessThan(8)
+          for (let j = i + 1; j < 3; j++) {
+            const dot = set[i]!.reduce((s, v, k) => s + v * set[j]![k]!, 0) / TD_ONE
+            expect(Math.abs(dot), `dot at ${a},${b},${c}`).toBeLessThan(8)
+          }
+        }
+      }
+    }
+  })
+
+  it('turns a quarter revolution about each axis', () => {
+    const q = TD_REVOLUTION / 4
+    const p = { x: 1000, y: 0, z: 0 }
+    // angle b is the one whose sine lands in $bd0, the bottom row's x term,
+    // so it swings x into -z
+    expect(tdRotate(tdMatrix(0, q, 0), p)).toEqual({ x: 0, y: 0, z: -1000 })
+    // angle c takes x to y
+    expect(tdRotate(tdMatrix(0, 0, q), p)).toEqual({ x: 0, y: 1000, z: 0 })
+    // and angle a leaves x alone, swinging y into z
+    expect(tdRotate(tdMatrix(q, 0, 0), p)).toEqual({ x: 1000, y: 0, z: 0 })
+    expect(tdRotate(tdMatrix(q, 0, 0), { x: 0, y: 1000, z: 0 })).toEqual({ x: 0, y: 0, z: -1000 })
+  })
+
+  it('composes: four quarter turns come back to the start', () => {
+    let p = { x: 500, y: -300, z: 200 }
+    const m = tdMatrix(0, 0, TD_REVOLUTION / 4)
+    for (let i = 0; i < 4; i++) p = tdRotate(m, p)
+    expect(p).toEqual({ x: 500, y: -300, z: 200 })
   })
 })

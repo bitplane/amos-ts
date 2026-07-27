@@ -706,3 +706,50 @@ export function tdRotate(m: TdMatrix, p: TdPoint): TdPoint {
     z: w((((-m[2] * x - m[5] * y + m[8] * z) | 0) >> 12) | 0),
   }
 }
+
+/**
+ * Build the rotation matrix from an attitude triple — $213df8 in full.
+ *
+ * The three angles are reduced one at a time, b first, then a, then c, and
+ * the nine words are assembled from their sines and cosines. Writing sa for
+ * sin(a), cb for cos(b) and so on, and `*` for a product taken back down by
+ * twelve bits:
+ *
+ *     $bcc = cc*cb            $bd2 = cc*ca - sb*sa*sc   $bd8 = sb*cc*ca - sa*sc
+ *     $bce = cb*sc            $bd4 = sb*cc*sa + ca*sc   $bda = sb*ca*sc + cc*sa
+ *     $bd0 = sb               $bd6 = sa*cb              $bdc = ca*cb
+ *
+ * $bd0 is the raw table entry, never shifted — it is the only one of the nine
+ * that is a sine rather than a product. The triple products shift twice,
+ * once per multiply, so they lose a little more precision than the pairs;
+ * that is the engine's arithmetic and is reproduced rather than tidied.
+ *
+ * Read against `tdRotate`, which folds the signs in, the bottom row is
+ * -sb*x - sa*cb*y + ca*cb*z, so b is the pitch away from the z axis and the
+ * matrix is orthonormal to within the fixed point.
+ */
+export function tdMatrix(a: number, b: number, c: number): TdMatrix {
+  const sa = tdSin(a)
+  const ca = tdCos(a)
+  const sb = tdSin(b)
+  const cb = tdCos(b)
+  const sc = tdSin(c)
+  const cc = tdCos(c)
+  const m = (x: number, y: number): number => ((x * y) | 0) >> 12
+  const w = (n: number): number => (n << 16) >> 16
+  const ccsa = m(cc, sa)
+  const sasc = m(sa, sc)
+  const ccca = m(cc, ca)
+  const casc = m(ca, sc)
+  return [
+    w(m(cc, cb)),
+    w(m(cb, sc)),
+    w(sb),
+    w(ccca - m(sb, sasc)),
+    w(m(sb, ccsa) + casc),
+    w(m(sa, cb)),
+    w(m(sb, ccca) - sasc),
+    w(m(sb, casc) + ccsa),
+    w(m(ca, cb)),
+  ]
+}
