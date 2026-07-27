@@ -3355,10 +3355,20 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.vfs?.assign(name, it.evalStr())
     },
     'dir$'(it) {
-      // assignment form: Dir$ = "path"
+      // assignment form: Dir$ = "path". InDirD (+Lib.s:4828) locks the path
+      // and branches to L_DiskError if it cannot, so a bad one stops the
+      // program on a real machine — which is what happens here too.
+      //
+      // Unless the host has turned on the stray-volume fallback, in which
+      // case a path that no longer exists leaves the current directory alone
+      // rather than ending the game. A 1997 program pointing at its author's
+      // second hard drive is not a bug in the program; the files are in the
+      // drawer next to it, and every load after this line names them bare.
       it.expectOp('=')
       const path = it.evalStr()
-      if (!rt.vfs?.setCurrentDir(path)) throw new AmosError(`directory not found: ${path}`)
+      if (!rt.vfs?.setCurrentDir(path)) {
+        if (rt.vfs?.strayVolume !== 'currentDir') throw new AmosError(`directory not found: ${path}`)
+      }
     },
     dir(it) {
       dirListing(it, rt, false, false)

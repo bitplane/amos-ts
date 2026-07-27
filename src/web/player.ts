@@ -163,6 +163,12 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
 
   // ---- the machine's filesystem ----
   const vfs = new AmigaFS()
+  // A game packaged as a zip is being run away from the machine it was
+  // written on, so a path naming that machine's second hard drive resolves
+  // against the drawer the program is in instead of failing. See
+  // AmigaFS.strayVolume — it is off by default and deliberately not on for
+  // the census, which needs a missing file to look like one.
+  vfs.strayVolume = 'currentDir'
   const dh0 = vfs.mountMemory('DH0')
   vfs.mountMemory('RAM') // the ram-handler is part of every AMOS machine
   vfs.mountMemory('ENV') // global environment variables live here
@@ -362,8 +368,18 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       return
     }
     const segs = pick.path.split('/').filter((s) => s !== '' && s !== '.')
+    const dir = segs.slice(0, -1)
+    // Every Amiga drive name points at the drawer the program came from. A
+    // game written to load off DF0: was written to load off the floppy it
+    // shipped on, and that floppy is now this archive; DH0:/HD0: likewise for
+    // one installed to a hard disk. Nothing inside the game has to change.
+    //
+    // The target is the ARCHIVE volume, not the DH0: copy — assigning DH0 to
+    // a path that starts "DH0:" is self-referential, and resolve() expands
+    // assigns before volumes, so it would spin until the cycle guard gave up.
+    vfs.assignDrives(dir.length > 0 ? `${vol}:${dir.join('/')}` : `${vol}:`)
     const file = entries.find((e) => e.path === pick.path)!
-    loadProgram(file.data, segs[segs.length - 1]!, segs.slice(0, -1))
+    loadProgram(file.data, segs[segs.length - 1]!, dir)
   }
 
   // ---- the 50Hz loop ----

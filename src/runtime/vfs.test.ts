@@ -282,3 +282,82 @@ describe('file channels', () => {
     expect(out).toBe(' 6\nDH0:Games/Zybex\n')
   })
 })
+
+describe('running a game away from the machine it was written on', () => {
+  // A 1997 program names its author's drives: DF0: because that is the floppy
+  // it shipped on, DH1: because that is where it was installed. Those drives
+  // cannot exist in a browser, so a host running a game out of an archive
+  // points every drive name at the drawer the program came from and lets a
+  // dead path fall back to the file's own name.
+  //
+  // OFF by default and deliberately: InDirD (+Lib.s:4828) locks the path and
+  // branches to L_DiskError when it cannot, so the machine stops the program.
+  // The census depends on that — a missing file has to look missing.
+  function machine(): AmigaFS {
+    const fs = new AmigaFS()
+    const dh0 = fs.mountMemory('DH0')
+    const zip = fs.mountMemory('GAME_ZIP')
+    for (const v of [dh0, zip]) {
+      v.write(['game', 'main.amos'], new Uint8Array([1]))
+      v.write(['game', 'title.iff'], new Uint8Array([2]))
+      v.write(['game', 'data', 'level1'], new Uint8Array([3]))
+    }
+    fs.currentDir = 'DH0:game'
+    return fs
+  }
+
+  it('leaves every drive name unresolved by default', () => {
+    const fs = machine()
+    for (const p of ['df0:title.iff', 'dh1:title.iff', 'hd0:title.iff']) {
+      expect(fs.exists(p), p).toBe(null)
+    }
+  })
+
+  it('points all twelve drive names at the program drawer', () => {
+    const fs = machine()
+    fs.assignDrives('GAME_ZIP:game')
+    for (const d of AmigaFS.DRIVES) {
+      expect(fs.exists(`${d}:title.iff`), d).toBe('file')
+    }
+  })
+
+  it('keeps a sub-drawer that really is in the archive', () => {
+    const fs = machine()
+    fs.assignDrives('GAME_ZIP:game')
+    expect(fs.resolve('dh1:data/level1')?.canonical).toBe('GAME_ZIP:game/data/level1')
+  })
+
+  it('falls back to the filename when the drawers never existed here', () => {
+    // Q.A.B. does Dir$="dh1:amos/amos_saves" and then loads by bare name;
+    // that layout was on a hard disk nobody has any more
+    const fs = machine()
+    fs.strayVolume = 'currentDir'
+    fs.assignDrives('GAME_ZIP:game')
+    expect(fs.exists('dh1:amos/amos_saves/title.iff')).toBe('file')
+  })
+
+  it('rescues an assign the author invented, not just the drives', () => {
+    // "saves:" and "apd85:" are as dead as DH1: and just as common
+    const fs = machine()
+    fs.strayVolume = 'currentDir'
+    expect(fs.exists('saves:title.iff')).toBe('file')
+    expect(fs.exists('apd85:title.iff')).toBe('file')
+  })
+
+  it('still cannot find a file that is not there', () => {
+    // the fallback only ever returns a path when something real is at it —
+    // it rescues a dead layout, it does not invent files
+    const fs = machine()
+    fs.strayVolume = 'currentDir'
+    fs.assignDrives('GAME_ZIP:game')
+    expect(fs.exists('df0:nope.iff')).toBe(null)
+    expect(fs.exists('df0:amos/nope.iff')).toBe(null)
+  })
+
+  it('refuses a drive assign that points back through a drive', () => {
+    // assigns expand before volumes, so DH0 -> "DH0:game" spins until the
+    // cycle guard gives up and every path comes out as nonsense
+    const fs = machine()
+    expect(() => fs.assignDrives('DH0:game')).toThrow(/itself under a drive name/)
+  })
+})

@@ -138,6 +138,63 @@ export class AmigaFS implements AmosFS {
   private metadata = new Map<string, FileMeta>()
   currentDir = ''
 
+  /**
+   * What to do with a path naming a volume that is not mounted.
+   *
+   * `'error'` is the machine's own answer and the default: DH1: is not
+   * there, so the path does not resolve. The census depends on this — a
+   * missing file has to look like a missing file or the oracle is blind.
+   *
+   * `'currentDir'` is for running a program away from the machine it was
+   * written on. A 1997 game says `Dir$="dh1:amos/amos_saves"` and then loads
+   * everything by bare name; that volume is gone and is never coming back,
+   * but the files are sitting right beside the program. The stray volume is
+   * dropped and the rest of the path resolved against the current directory,
+   * falling back to the last component alone when the drawers in between do
+   * not exist either — which is what makes a flat archive of a game's drawer
+   * just work.
+   *
+   * A deviation, and NOT what an Amiga does: InDirD (+Lib.s:4828) locks the
+   * path and branches to L_DiskError when it cannot, so the real machine
+   * stops the program. Hosts that want a game to run turn this on; anything
+   * measuring fidelity leaves it alone.
+   */
+  strayVolume: 'error' | 'currentDir' = 'error'
+
+  /**
+   * The Amiga's drive names, which cannot exist in a browser.
+   *
+   * DF0: to DF3: are the four floppy units trackdisk.device supports — four
+   * is the real ceiling, there was never a DF7:. DH0:/HD0: upward are the
+   * hard-disk conventions; the number is whatever the mountlist said, so a
+   * few is enough to cover what programs actually name.
+   *
+   * A game that shipped on a floppy says DF0: because that is where it was.
+   * Pointing these at the drawer the program came from is compatibility for
+   * free, with nothing edited inside the game.
+   */
+  static readonly DRIVES: readonly string[] = [
+    'DF0', 'DF1', 'DF2', 'DF3',
+    'DH0', 'DH1', 'DH2', 'DH3',
+    'HD0', 'HD1', 'HD2', 'HD3',
+  ]
+
+  /**
+   * Point every Amiga drive name at one directory.
+   *
+   * The target must NOT itself sit under a drive name: assigns are expanded
+   * before volumes, so `assignDrives('DH0:game')` makes DH0 refer to a path
+   * beginning DH0: and the expansion spins until the cycle guard stops it.
+   * Pass a volume that is not in DRIVES.
+   */
+  assignDrives(target: string): void {
+    const dev = /^([^:/]*):/.exec(target.trim())?.[1]?.toUpperCase()
+    if (dev !== undefined && AmigaFS.DRIVES.includes(dev)) {
+      throw new Error(`assignDrives: ${target} is itself under a drive name`)
+    }
+    for (const d of AmigaFS.DRIVES) this.assign(d, target)
+  }
+
   // ---- setup (the JS side) ----
 
   mount(name: string, vol: Volume): void {
@@ -211,6 +268,7 @@ export class AmigaFS implements AmosFS {
   /** resolve an Amiga path against the current dir and assigns */
   resolve(path: string): ResolvedPath | null {
     let p = path.trim()
+    const absolute = /^[^:/]*:/.test(p)
     // expand device / assign, recursively (with a cycle guard)
     let base = this.currentDir
     for (let hops = 0; hops < 16; hops++) {
@@ -228,6 +286,17 @@ export class AmigaFS implements AmosFS {
       if (assigned !== undefined) {
         p = assigned.replace(/\/?$/, '/') + m[2]!
         continue
+      }
+      if (this.strayVolume === 'currentDir' && !this.volumes.has(dev)) {
+        // the volume is gone; try what is left against where we are
+        const rest = m[2]!.replace(/^\/+/, '')
+        const here = this.resolveIn(this.currentDir, rest)
+        if (here) return here
+        const leaf = rest.split('/').filter((s2) => s2 !== '').pop()
+        if (leaf !== undefined) {
+          const byLeaf = this.resolveIn(this.currentDir, leaf)
+          if (byLeaf) return byLeaf
+        }
       }
       base = `${m[1]!}:`
       p = m[2]!
@@ -251,7 +320,36 @@ export class AmigaFS implements AmosFS {
         segs.push(seg)
       }
     }
-    return { volume: volKey, segs, canonical: `${vol.name}:${segs.join('/')}` }
+    const out = { volume: volKey, segs, canonical: `${vol.name}:${segs.join('/')}` }
+    // Last chance for an absolute path that leads nowhere: try its final
+    // component in the current directory. A drive name now resolves, but the
+    // drawers under it are the author's own — "dh1:amos/amos_saves/spr.abk"
+    // keeps a 1997 hard disk's layout, and only the filename still means
+    // anything. Nothing is invented: this returns a path only when a real
+    // file is sitting there, so a genuinely missing file stays missing.
+    if (
+      this.strayVolume === 'currentDir' &&
+      absolute &&
+      segs.length > 1 &&
+      this.existsResolved(out) === null
+    ) {
+      const byLeaf = this.resolveIn(this.currentDir, segs[segs.length - 1]!)
+      if (byLeaf) return byLeaf
+    }
+    return out
+  }
+
+  /** resolve `rest` under `base`, but only if something is actually there */
+  private resolveIn(base: string, rest: string): ResolvedPath | null {
+    const bm = /^([^:/]*):(.*)$/.exec(base)
+    if (!bm) return null
+    const volKey = bm[1]!.toLowerCase()
+    const vol = this.volumes.get(volKey)
+    if (!vol) return null
+    const segs = bm[2]!.split('/').filter((s) => s !== '')
+    for (const seg of rest.split('/')) if (seg !== '') segs.push(seg)
+    const r = { volume: volKey, segs, canonical: `${vol.name}:${segs.join('/')}` }
+    return this.existsResolved(r) !== null ? r : null
   }
 
   private volumeOf(key: string): Volume | null {
@@ -299,7 +397,10 @@ export class AmigaFS implements AmosFS {
 
   exists(path: string): 'file' | 'dir' | null {
     const r = this.resolve(path)
-    if (!r) return null
+    return r ? this.existsResolved(r) : null
+  }
+
+  private existsResolved(r: ResolvedPath): 'file' | 'dir' | null {
     return (
       this.overlay.exists([r.volume, ...r.segs]) ??
       (this.hidden(r) ? null : this.volumeOf(r.volume)?.exists(r.segs)) ??
