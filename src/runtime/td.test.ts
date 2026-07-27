@@ -8,7 +8,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
 import { loadHunks } from '../loader/hunk'
 import type { TdFrame, TdMatrix, TdView } from './td'
-import { TD_NEAR, TD_ONE, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
+import { TD_NEAR, TD_ONE, TD_REVOLUTION, TD_SINE, TD_SINE_STEPS, parseTdFile, parseTdGeometry, parseTdTemplate, tdClipCode, tdCos, tdInstanceFaces, tdMatrix, tdProject, tdRotate, tdRange, tdRedrawFaces, tdSections, tdSin, tdViewFor, tdViewRotate } from './td'
 
 /**
  * AMOS 3D, verified against the engine binary via src/cli/tddis.ts, the
@@ -717,5 +717,50 @@ describe('AMOS 3D Td Redraw ($21131e, screen check at $211418)', () => {
     // corners of a centred cube round in opposite directions
     expect(Math.abs(centre(0))).toBeLessThan(16)
     expect(centre(1)).toBeGreaterThan(100)
+  })
+})
+
+describe('AMOS 3D Td Range ($211d8c, prescale at $21235a)', () => {
+  it('measures the distance between two objects', () => {
+    const files = objectAndLinks('dice.3DO')
+    const { out } = run(`
+      Td Load "dice"
+      Td Object 1,"dice",0,0,0,0,0,0
+      Td Object 2,"dice",300,400,0,0,0,0
+      Print Td Range(1,2)
+      Td Object 3,"dice",0,0,-1000,0,0,0
+      Print Td Range(1,3)
+    `, files)
+    expect(out.split('\n').slice(0, 2)).toEqual([' 500', ' 1000'])
+  })
+
+  it('counts the viewpoint as an object', () => {
+    const files = objectAndLinks('dice.3DO')
+    const { out } = run(`
+      Td Load "dice"
+      Td Object 1,"dice",0,0,1500,0,0,0
+      Td Move 0,0,0,500
+      Print Td Range(0,1)
+    `, files)
+    expect(out.split('\n')[0]).toBe(' 1000')
+  })
+
+  it('returns zero for the same object, without validating it', () => {
+    // $211d9c compares before it calls $21301c, so a number that would be an
+    // error anywhere else comes back as zero
+    expect(run('Print Td Range(99,99)').out.split('\n')[0]).toBe(' 0')
+  })
+
+  it('loses precision once a delta passes $4000, and by how much', () => {
+    // under $4000 nothing is scaled and the answer is exact
+    expect(tdRange({ pos: [0, 0, 0], angle: [0, 0, 0] }, { pos: [16000, 0, 0], angle: [0, 0, 0] })).toBe(16000)
+    // above it, the prescale quantises: the highest set bit of 100000 is 16,
+    // so the shift is 3 and the answer comes back in units of 8
+    const far = tdRange({ pos: [0, 0, 0], angle: [0, 0, 0] }, { pos: [100000, 0, 0], angle: [0, 0, 0] })
+    expect(far % 8).toBe(0)
+    expect(Math.abs(far - 100000)).toBeLessThan(8)
+    // and a 3-4-5 triangle stays a 3-4-5 triangle at that scale
+    expect(tdRange({ pos: [0, 0, 0], angle: [0, 0, 0] }, { pos: [300000, 400000, 0], angle: [0, 0, 0] }))
+      .toBeGreaterThan(499000)
   })
 })

@@ -486,6 +486,44 @@ function tdVector(rt: Runtime, field: 'pos' | 'angle', relative: boolean): Instr
   }
 }
 
+/**
+ * `Td Range(n1,n2)` — "returns the range between two objects n1 and n2, that
+ * is the distance between them" — routine $211d8c.
+ *
+ * Equal numbers return zero without validating either, so `Td Range(99,99)`
+ * is 0 rather than an error. Otherwise both frames come through $21301c, so
+ * the viewpoint counts as an object here.
+ *
+ * The interesting part is the prescale at $21235a, which is what keeps the
+ * sum of squares inside a long. It takes the absolute values, ORs them
+ * together, and if the result is under $4000 does nothing. Above that it
+ * normalises — `moveq #$12,d5` then shift left until bit 31 is set,
+ * decrementing — which leaves a shift of `p - 13` where p is the position of
+ * the highest set bit. Every delta is then arithmetic-shifted down by that,
+ * so each squares to at most 2^28 and the three sum without overflowing, and
+ * the root is shifted back up at the end.
+ *
+ * The cost is precision, and it is the engine's: two objects 100000 apart are
+ * measured in units of 8.
+ */
+export function tdRange(a: TdFrame, b: TdFrame): number {
+  const d = [0, 1, 2].map((i) => (a.pos[i]! - b.pos[i]!) | 0)
+  let acc = 0
+  for (const v of d) acc |= Math.abs(v)
+  let shift = 0
+  if ((acc & 0xffff_c000) !== 0) {
+    let n = acc & 0xffff_c000
+    shift = 18
+    while ((n & 0x8000_0000) === 0) {
+      shift--
+      n = (n << 1) | 0
+    }
+  }
+  const scaled = d.map((v) => v >> shift)
+  const sum = scaled.reduce((t, v) => t + v * v, 0) | 0
+  return (Math.floor(Math.sqrt(sum >>> 0)) << shift) | 0
+}
+
 /** `Td Position X/Y/Z(n)` and `Td Attitude A/B/C(n)`, one routine and a selector */
 export function makeTdFunctions(rt: Runtime): Record<string, Func> {
   const read = (field: 'pos' | 'angle', axis: number): Func => (_, a) =>
@@ -497,6 +535,13 @@ export function makeTdFunctions(rt: Runtime): Record<string, Func> {
     'td attitude a': read('angle', 0),
     'td attitude b': read('angle', 1),
     'td attitude c': read('angle', 2),
+    'td range': (_, a) => {
+      const n1 = int(a[0] ?? VI(0))
+      const n2 = int(a[1] ?? VI(0))
+      // $211d9c compares the two numbers before it validates either
+      if (n1 === n2) return VI(0)
+      return VI(tdRange(tdFrame(rt.td, n1), tdFrame(rt.td, n2)))
+    },
   } as Record<string, Func>
 }
 
