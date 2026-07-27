@@ -1377,3 +1377,58 @@ describe('AMOS 3D bearings (core $219200, atan2 $21939e, table a4+$672)', () => 
     expect(Math.abs(r! - 5000000)).toBeLessThan(5000)
   })
 })
+
+describe('AMOS 3D Td World ($2126c8, the fold at $212758, the add at $2128e8)', () => {
+  const world = (src: string) => {
+    const { out } = run(`
+      Td Load "dice"
+      ${src}
+      Print Td World X(1,0,0,1000);",";Td World Y(1,0,0,1000);",";Td World Z(1,0,0,1000)
+    `, objectAndLinks('dice.3DO'))
+    return out.split('\n')[0]!.split(',').map((n) => Number(n))
+  }
+
+  it('adds the object position to an unrotated point', () => {
+    expect(world('Td Object 1,"dice",100,200,300,0,0,0')).toEqual([100, 200, 1300])
+  })
+
+  it('turns the local frame with the object', () => {
+    // a quarter turn about B sends the object's +z along the world's +x, the
+    // same prediction the attitude matrix was checked against in phase 4
+    const q = TD_REVOLUTION / 4
+    const [x, y, z] = world(`Td Object 1,"dice",0,0,0,0,${q},0`)
+    expect(Math.abs(x! - 1000)).toBeLessThanOrEqual(1)
+    expect(y).toBe(0)
+    expect(Math.abs(z!)).toBeLessThanOrEqual(1)
+  })
+
+  it('leaves a point alone when the object is at the origin unturned', () => {
+    expect(world('Td Object 1,"dice",0,0,0,0,0,0')).toEqual([0, 0, 1000])
+  })
+
+  it('remembers all three for the no-argument form', () => {
+    // one call works out x, y and z together and leaves them at a4+$1c/$20/$24
+    const { out } = run(`
+      Td Load "dice"
+      Td Object 1,"dice",7,8,9,0,0,0
+      X=Td World X(1,10,20,30)
+      Print Td World X;",";Td World Y;",";Td World Z
+    `, objectAndLinks('dice.3DO'))
+    expect(out.split('\n')[0]).toBe(' 17, 28, 39')
+  })
+
+  it('rotates the viewpoint the other way round', () => {
+    // object zero reads the matrix at a4+$bba, which is a4+$bcc transposed,
+    // so the same attitude sends the same local point the other way
+    const q = TD_REVOLUTION / 4
+    const { out } = run(`
+      Td Load "dice"
+      Td Object 1,"dice",0,0,0,0,${q},0
+      Td Angle 0,0,${q},0
+      Print Td World X(1,0,0,1000);",";Td World X(0,0,0,1000)
+    `, objectAndLinks('dice.3DO'))
+    const [obj, view] = out.split('\n')[0]!.split(',').map((n) => Number(n))
+    expect(Math.abs(obj! - 1000)).toBeLessThanOrEqual(1)
+    expect(Math.abs(view! + 1000)).toBeLessThanOrEqual(1)
+  })
+})

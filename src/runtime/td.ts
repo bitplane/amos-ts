@@ -207,6 +207,8 @@ export interface TdState {
    * forms read it, and the core's two bail-outs leave it alone.
    */
   bearing: TdBearing
+  /** the last `Td World X/Y/Z`, at a4+$1c/$20/$24, read by the no-argument form */
+  world: [number, number, number]
 }
 
 export const newTdState = (): TdState => ({
@@ -218,6 +220,7 @@ export const newTdState = (): TdState => ({
   viewpoint: { pos: [0, 0, 0], angle: [0, 0, 0] },
   frame: 0,
   bearing: { a: 0, b: 0, r: 0, shift: 0 },
+  world: [0, 0, 0],
 })
 
 /**
@@ -762,6 +765,43 @@ export function tdBearingFor(prev: TdBearing, frame: TdFrame, to: readonly numbe
   return { ...c, a, b }
 }
 
+/**
+ * `Td World X/Y/Z(n, x, y, z)` — $2126c8.
+ *
+ * "Where in the world is this point on that object": takes a coordinate in an
+ * object's own frame and gives it back in the world's.
+ *
+ * The engine folds the local vector through the object's attitude matrix with
+ * the vertex loop's own arithmetic, keeps the three long products, and only
+ * then brings them down and adds the object's position ($2128e8):
+ *
+ *     world = position + ((rotate(attitude, local) >> 12) << prescale)
+ *
+ * The prescale is $21235a's, on the input vector, so a distant point cannot
+ * overflow the products; it is shifted straight back out afterwards.
+ *
+ * Object zero takes the other path at $212822, which reads the matrix at
+ * a4+$bba rather than a4+$bcc — the view matrix, which is the transpose. So
+ * the viewpoint rotates its local vectors the other way round, and that is
+ * `tdViewRotate` rather than `tdRotate`.
+ *
+ * All three coordinates are worked out together and left at a4+$1c/$20/$24;
+ * the no-argument form ($21291c) reads one back without recomputing, the same
+ * arrangement Td Bearing has.
+ */
+export function tdWorldPoint(frame: TdFrame, local: readonly number[], viewpoint = false): [number, number, number] {
+  const m = tdMatrix(frame.angle[0]!, frame.angle[1]!, frame.angle[2]!)
+  const p = { x: local[0]!, y: local[1]!, z: local[2]! }
+  const r = viewpoint
+    ? tdViewRotate(m, p)
+    : {
+        x: (((m[0]! * p.x - m[4]! * p.y + m[6]! * p.z) | 0) >> 12) | 0,
+        y: (((m[1]! * p.x + m[3]! * p.y + m[7]! * p.z) | 0) >> 12) | 0,
+        z: (((-m[2]! * p.x - m[5]! * p.y + m[8]! * p.z) | 0) >> 12) | 0,
+      }
+  return [(frame.pos[0]! + r.x) | 0, (frame.pos[1]! + r.y) | 0, (frame.pos[2]! + r.z) | 0]
+}
+
 /** `Td Position X/Y/Z(n)` and `Td Attitude A/B/C(n)`, one routine and a selector */
 export function makeTdFunctions(rt: Runtime): Record<string, Func> {
   const read = (field: 'pos' | 'angle', axis: number): Func => (_, a) =>
@@ -793,6 +833,25 @@ export function makeTdFunctions(rt: Runtime): Record<string, Func> {
           // Td Range does; the two angles are already whole
           if (which === 'r') return VI((t.bearing.r << t.bearing.shift) | 0)
           return VI(which === 'a' ? t.bearing.a : t.bearing.b)
+        }) as Func,
+      ]),
+    ),
+    ...Object.fromEntries(
+      (['x', 'y', 'z'] as const).map((axis, i) => [
+        `td world ${axis}`,
+        ((_, a) => {
+          // bit 2 of the flags word says a vector came with it; without one
+          // $21291c hands back the coordinate worked out last time
+          const t = rt.td
+          if (a.length >= 4) {
+            const n = int(a[0] ?? VI(0))
+            t.world = tdWorldPoint(
+              tdFrame(t, n),
+              [int(a[1] ?? VI(0)), int(a[2] ?? VI(0)), int(a[3] ?? VI(0))],
+              n === 0,
+            )
+          }
+          return VI(t.world[i]!)
         }) as Func,
       ]),
     ),
