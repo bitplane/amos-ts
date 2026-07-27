@@ -570,9 +570,14 @@ export const INSTR: Record<string, Instr> = {
       const t = it.tok()
       if (t?.kind !== 'var') throw new AmosError('variable expected in Shared')
       it.advance()
-      if (it.accept('(')) it.expect(')')
-      if (inProc) frame.shared.add(varKey(t.name, t.flags))
-      else it.globals.add(varKey(t.name, t.flags))
+      // "Global Y()" declares the ARRAY Y, not the scalar Y — AMOS keeps
+      // them as separate variables, so the declaration has to as well or a
+      // scalar parameter named Y is wrongly treated as global (worms).
+      const isArray = it.accept('(')
+      if (isArray) it.expect(')')
+      const key = varKey(t.name, t.flags) + (isArray ? '()' : '')
+      if (inProc) frame.shared.add(key)
+      else it.globals.add(key)
     } while (it.accept(','))
   },
   global(it) {
@@ -580,8 +585,10 @@ export const INSTR: Record<string, Instr> = {
       const t = it.tok()
       if (t?.kind !== 'var') throw new AmosError('variable expected in Global')
       it.advance()
-      if (it.accept('(')) it.expect(')')
-      it.globals.add(varKey(t.name, t.flags))
+      // an array declaration is a different variable from the scalar
+      const isArray = it.accept('(')
+      if (isArray) it.expect(')')
+      it.globals.add(varKey(t.name, t.flags) + (isArray ? '()' : ''))
     } while (it.accept(','))
   },
 

@@ -606,14 +606,24 @@ export class Interp {
   private frameFor(key: string, arrays: boolean): Frame {
     const top = this.frames[this.frames.length - 1]!
     if (this.frames.length === 1) return top
-    // a scalar parameter is always local and shadows a Global of the same
-    // name — but only the scalar: an array Y() and a scalar param Y share
-    // a key (varKey ignores array-ness), and the array stays Global
+    // A Global name is global EVERYWHERE, including where a procedure takes
+    // it as a parameter — binding the parameter assigns to the global slot
+    // rather than making a local. That is not a guess: the parameter loop at
+    // +ILib.s:2570 evaluates the argument, reads the parameter's own slot
+    // offset and branches on its sign, and InPaGlo ("Si variable globale",
+    // 2651) stores into VarGlo, the global table, instead of the frame it
+    // just built.
+    //
+    // Viking-saxon tester is the program that needs it: WRITE takes TXT$ as
+    // a parameter, HANDLE reads TXT$ and writes A$ with no declaration of
+    // its own, and the big-letter routine only works if all three are the
+    // same variables. eggit's _BOX -> X_BOX chain works either way, so the
+    // rule was previously set from it by assumption.
+    const k = arrays ? key + '()' : key
+    if (top.shared.has(k) || this.globals.has(k)) return this.frames[0]!
     if (!arrays && top.params.has(key)) return top
-    if (top.shared.has(key) || this.globals.has(key)) return this.frames[0]!
-    // arrays Dim'd at top level are visible if declared Global/Shared only;
-    // otherwise procedures see their own
-    void arrays
+    // arrays Dim'd at top level are visible only if declared Global/Shared;
+    // otherwise a procedure sees its own
     return top
   }
 
@@ -900,7 +910,16 @@ export class Interp {
     const frame = newFrame(this.afterCurrentStatement(), this.loops.length, this.gosubs.length)
     for (let i = 0; i < args.length; i++) {
       const p = proc.params[i]!
-      frame.vars.set(p.key, coerce(p.type, args[i]!))
+      const v = coerce(p.type, args[i]!)
+      // Where the argument lands is decided by the parameter's own slot, not
+      // by the fact that it is a parameter: +ILib.s:2570 reads the offset and
+      // branches on its sign, and InPaGlo (2651) stores into VarGlo. So a
+      // parameter whose name was declared Global writes the GLOBAL, and the
+      // binding has to agree with what a later read of that name resolves to
+      // — binding one place and reading another is what made eggit's message
+      // boxes come out empty in the first place.
+      if (this.globals.has(p.key)) this.frames[0]!.vars.set(p.key, v)
+      else frame.vars.set(p.key, v)
       frame.params.add(p.key)
     }
     // procedures get their own data pointer, starting at their first Data
@@ -971,8 +990,20 @@ export class Interp {
       this.advance()
       return t.name
     }
-    // un-Tested programs store label targets as plain variable tokens
-    if (t?.kind === 'var' && this.program.labels.has(t.name.toLowerCase())) {
+    // GetLabel (+ILib.s:2889) resolves only _TkLGo and _TkPro tokens by
+    // name; anything else is "une expression", evaluated, with a string used
+    // as-is and an integer rendered to digits. A variable token is therefore
+    // normally an expression.
+    //
+    // The exception is a program saved without the editor's Test pass, which
+    // stores its label targets as plain variable tokens. That fallback must
+    // not swallow a real variable, and a type suffix settles it because an
+    // AMOS label never has one — the name field holds "a" for both A and A$,
+    // with the $ carried in the flags. Viking-saxon tester draws its big
+    // letters with `Restore A$` against Data blocks labelled A: B: C:, and
+    // matching on the bare name made every character in the game restore to
+    // A: and draw an A.
+    if (t?.kind === 'var' && varType(t.flags) === 0 && this.program.labels.has(t.name.toLowerCase())) {
       this.advance()
       return t.name
     }

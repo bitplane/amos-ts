@@ -336,9 +336,19 @@ describe('procedures', () => {
     expect(run(src)).toBe(' 0\n')
   })
 
-  it('a parameter shadows a Global of the same name, even when passed to a nested proc', () => {
-    // eggit passes Global A$ params through _BOX -> X_BOX; the params must
-    // stay local, not resolve back to the (empty) global
+  it('a Global name stays global even as a procedure parameter (InPaGlo +ILib.s:2651)', () => {
+    // The parameter loop at +ILib.s:2570 evaluates the argument, reads the
+    // PARAMETER's own slot offset and branches on its sign; InPaGlo — "Si
+    // variable globale" — stores into VarGlo, the global table, instead of
+    // the frame it has just built. So binding a parameter whose name was
+    // declared Global assigns the GLOBAL; it does not make a local.
+    //
+    // Viking-saxon tester is the program that depends on it: WRITE takes
+    // TXT$ as a parameter, HANDLE reads TXT$ and writes A$ declaring
+    // neither, and the big-letter routine only works if they are the same
+    // variables. This file used to assert the opposite, from eggit — but
+    // eggit's _BOX -> X_BOX chain carries its strings either way, so it
+    // never distinguished the two rules.
     const src = [
       'Global A$,B$',
       'OUTER["HELLO","WORLD"]',
@@ -350,7 +360,9 @@ describe('procedures', () => {
       'End Proc',
     ].join('\n')
     expect(run(src)).toBe('[HELLO|WORLD]\n')
-    // the global itself is untouched by the shadowing params
+
+    // and the discriminating case: the argument lands in the global slot,
+    // so the caller sees what the procedure did to it
     const src2 = [
       'Global G',
       'G=5',
@@ -360,7 +372,21 @@ describe('procedures', () => {
       '   Inc G : Print G',
       'End Proc',
     ].join('\n')
-    expect(run(src2)).toBe(' 11\n 5\n') // param incremented; global unchanged
+    expect(run(src2)).toBe(' 11\n 11\n')
+  })
+
+  it('a parameter that is NOT Global is an ordinary local', () => {
+    // the sign of the slot offset is what decides; a name nobody declared
+    // Global gets a positive one and lands in the new frame
+    const src = [
+      'G=5',
+      'ADD1[10]',
+      'Print G',
+      'Procedure ADD1[G]',
+      '   Inc G : Print G',
+      'End Proc',
+    ].join('\n')
+    expect(run(src)).toBe(' 11\n 5\n')
   })
 
   it('a scalar parameter does not shadow a global ARRAY of the same name', () => {
