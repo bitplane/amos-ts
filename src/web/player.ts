@@ -24,12 +24,16 @@
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { isAmosProgram, loadProgram as compileProgram } from '../loader/program'
+import { VERSION } from '../version'
 import { Runtime } from '../runtime/runtime'
 import { AmosRuntimeError } from '../interp/interp'
 import { AmigaFS, MemoryVolume } from '../runtime/vfs'
 import { readArchive, volumeFromEntries } from '../runtime/archive'
 import { systemClock } from '../runtime/host'
 import { WebAudioSink } from './audio'
+
+/** the release this player was built from; 'dev' outside a release build */
+export { VERSION }
 
 /** the Amiga vertical blank: 50Hz PAL */
 export const FRAME_MS = 20

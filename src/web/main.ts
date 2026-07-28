@@ -3,13 +3,18 @@
  * Runtime at 50 frames a second, composite to a canvas, feed it keys and
  * mouse. `npm run dev` and open the page.
  */
-import { createPlayer, isAmosProgram, type JoyKeys } from './player'
+import { createPlayer, isAmosProgram, VERSION, type JoyKeys } from './player'
 import { readArchive, volumeFromEntries } from '../runtime/archive'
 import { baseName, deleteEntry, moveEntry, newDrawer, relabelVolume, renameEntry, type FsResult } from './filemanager'
 
 const statusEl = document.getElementById('status')!
 const fileEl = document.getElementById('file') as HTMLInputElement
 const turboEl = document.getElementById('turbo') as HTMLInputElement
+
+// Which build the page is running. Small and out of the way, but it is the
+// only thing that distinguishes a fresh deploy from a CDN still handing out
+// the previous /v/latest/ bundle. See src/version.ts.
+document.getElementById('version')!.textContent = `v${VERSION}`
 
 // The standalone page is a thin host over the same player the site publishes:
 // it adds a file picker, drag-and-drop, a filesystem panel and the joystick

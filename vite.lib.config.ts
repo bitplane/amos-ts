@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite'
+import pkg from './package.json'
 
 /**
  * The embeddable player, as a library.
@@ -13,6 +14,9 @@ import { defineConfig } from 'vite'
  * cacheable forever and something a person can write down.
  */
 export default defineConfig({
+  // stamped into the bundle so a page can say which build it is running,
+  // which is the only way to notice a CDN still serving an old /v/latest/
+  define: { __AMOS_VERSION__: JSON.stringify(pkg.version) },
   build: {
     outDir: 'dist-web',
     emptyOutDir: false,
