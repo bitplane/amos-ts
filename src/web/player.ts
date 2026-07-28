@@ -21,11 +21,9 @@
  * at once. The overlay is the gesture, and it doubles as the thing that tells
  * a reader this is playable rather than a screenshot.
  */
-import { parseAmosFile } from '../loader/amosfile'
-import { parseSource, TokenTable } from '../tokens/stream'
-import { tokenize } from '../tokens/tokenizer'
+import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { extensionTablesFor } from '../ext/identify'
+import { isAmosProgram, loadProgram as compileProgram } from '../loader/program'
 import { Runtime } from '../runtime/runtime'
 import { AmosRuntimeError } from '../interp/interp'
 import { AmigaFS, MemoryVolume } from '../runtime/vfs'
@@ -129,10 +127,7 @@ export interface Player {
 }
 
 /** an AMOS program by content, not by name — plenty are extensionless */
-export function isAmosProgram(bytes: Uint8Array | null | undefined): boolean {
-  if (!bytes || bytes.length < 16) return false
-  return /^AMOS (Basic|Pro)/.test(new TextDecoder('latin1').decode(bytes.subarray(0, 16)))
-}
+export { isAmosProgram }
 
 /**
  * Pick the program to run out of an archive's entries.
@@ -320,13 +315,10 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     lastDir = dir
     error = ''
     try {
-      const amos = isAmosProgram(bytes) ? parseAmosFile(bytes) : null
-      const lines = amos
-        ? parseSource(amos.source, table)
-        : tokenize(new TextDecoder('latin1').decode(bytes), table)
+      const { lines, extensions, amos } = compileProgram(bytes, table)
       vfs.currentDir = dir.length > 0 ? `DH0:${dir.join('/')}` : 'DH0:'
       rt = new Runtime(lines, table, {
-        extensions: extensionTablesFor(lines),
+        extensions,
         onUnimplemented: 'skip',
         banks: amos?.banks ?? [],
         audio,

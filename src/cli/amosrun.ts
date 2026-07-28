@@ -5,11 +5,9 @@
  *   npm run cli -- src/cli/amosrun.ts <file> [--strict] [--frames N] [--dump out.ppm]
  */
 import { readFileSync, writeFileSync } from 'node:fs'
-import { parseAmosFile } from '../loader/amosfile'
-import { parseSource, TokenTable } from '../tokens/stream'
-import { tokenize } from '../tokens/tokenizer'
+import { loadProgram } from '../loader/program'
+import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { extensionTablesFor } from '../ext/identify'
 import { Runtime } from '../runtime/runtime'
 import { fsForFile } from './nodefs'
 
@@ -30,13 +28,7 @@ if (!file) {
 
 const table = new TokenTable(CORE_TOKENS)
 const bytes = readFileSync(file)
-const isAmos = /^AMOS (Basic|Pro)/.test(bytes.subarray(0, 16).toString('latin1'))
-const amos = isAmos ? parseAmosFile(bytes) : null
-const lines = amos ? parseSource(amos.source, table) : tokenize(bytes.toString('latin1'), table)
-
-// Which extension each slot held is a property of the machine the program
-// was saved on, so it is identified from the program itself.
-const extensions = extensionTablesFor(lines)
+const { lines, extensions, amos } = loadProgram(bytes, table)
 
 const rt = new Runtime(lines, table, {
   extensions,
