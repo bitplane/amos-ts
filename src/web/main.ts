@@ -190,9 +190,17 @@ const filesEl = document.getElementById('files') as HTMLDetailsElement
 const fstreeEl = document.getElementById('fstree')!
 
 /** an AMOS program by content, not name (some are extensionless on disk) */
-function isRunnable(bytes: Uint8Array | null): boolean {
-  if (!bytes || bytes.length < 16) return false
-  return /^AMOS (Basic|Pro)/.test(new TextDecoder('latin1').decode(bytes.subarray(0, 16)))
+/**
+ * Can this entry be clicked to run?
+ *
+ * By header OR by name, which is the same rule the archive loader and the
+ * file drop use — a plain-text listing has no header to identify it, so the
+ * `.amos` extension is all there is to go on. Testing the header alone made
+ * a listing look like inert data in the tree while the very same file, when
+ * dropped on the window, ran fine.
+ */
+function isRunnable(name: string, bytes: Uint8Array | null): boolean {
+  return isAmosProgram(bytes) || (/\.amos$/i.test(name) && bytes !== null && bytes.length > 0)
 }
 
 /** directories the user has expanded; volumes default open, subdirs closed */
@@ -318,7 +326,7 @@ function refreshFiles(): void {
         })
         if (open) walk(base, [...dir, e.name], depth + 1)
       } else {
-        const runnable = isRunnable(vfs.read(full))
+        const runnable = isRunnable(e.name, vfs.read(full))
         addLine(depth, runnable ? e.name : `${e.name}  (${e.size})`, {
           onClick: runnable
             ? () => {
