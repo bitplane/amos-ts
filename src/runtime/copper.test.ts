@@ -542,3 +542,57 @@ describe('the hardware sprite multiplexer (HsAff +W.s:11742)', () => {
     expect(ch.get(9)).toBe(1)
   })
 })
+
+describe('HAM from the copper list, not just from the screen', () => {
+  /**
+   * A 6-plane screen whose row 0 walks the four HAM control codes, displayed
+   * by a list that asks for HAM through BPLCON0 bit 11. The screen itself was
+   * opened as an ordinary one, so anything that appears is the list's doing.
+   */
+  const src = (bplcon0: string): string =>
+    [
+      'Screen Open 0,320,200,64,Lowres',
+      'Curs Off : Flash Off : Cls 0',
+      'Colour 1,$F00',
+      // set base to colour 1 ($F00), then modify blue, then red, then green
+      'Ink 1 : Plot 0,0',
+      'Ink 16+15 : Plot 1,0',
+      'Ink 32+0 : Plot 2,0',
+      'Ink 48+15 : Plot 3,0',
+      'A=Logbase(0)',
+      'Wait Vbl',
+      'Copper Off',
+      'Cop Move $180,$000 : Cop Move $182,$F00',
+      'Cop Move $8E,$2C81 : Cop Move $90,$2CC1',
+      'Cop Move $92,$38 : Cop Move $94,$D0',
+      'Cop Move $108,0 : Cop Move $10A,0',
+      `Cop Move $100,${bplcon0}`,
+      'Cop Move $102,0 : Cop Move $104,$24',
+      'Cop Wait 0,50',
+      'Cop Move $E0,A/65536 : Cop Move $E2,A and $FFFF',
+      'Cop Move $96,$8300',
+      'Cop Swap',
+    ].join('\n')
+
+  const pix = (rt: Runtime, x: number, y: number): number => {
+    const { data } = rt.composite()
+    const o = ((y + 48) * 640 + x) * 4
+    return ((Math.round(data[o]! / 17) & 15) << 8) | ((Math.round(data[o + 1]! / 17) & 15) << 4) | (Math.round(data[o + 2]! / 17) & 15)
+  }
+
+  it('bit 11 makes the list decode HAM over a plain screen', () => {
+    // $6A00 = 6 planes, HAM, colour burst
+    const rt = run(src('$6A00'))
+    expect(pix(rt, 0, 0)).toBe(0xf00) // code 0: set from the palette
+    expect(pix(rt, 2, 0)).toBe(0xf0f) // code 1: hold, modify blue
+    expect(pix(rt, 4, 0)).toBe(0x00f) // code 2: modify red
+    expect(pix(rt, 6, 0)).toBe(0x0ff) // code 3: modify green to 15
+  })
+
+  it('without bit 11 the same screen is plain indexed colour', () => {
+    // $6200 = 6 planes, no HAM. Pen 1 is red, the rest are unset and black.
+    const rt = run(src('$6200'))
+    expect(pix(rt, 0, 0)).toBe(0xf00)
+    expect(pix(rt, 2, 0)).toBe(0x000)
+  })
+})

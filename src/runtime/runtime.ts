@@ -3619,9 +3619,15 @@ export class Runtime {
    * 5-4: 0 = set from the 16-colour palette, 1/2/3 = modify blue/red/green
    * of a running colour that restarts from colour 0 each scanline).
    */
-  private rowColours(s: Screen, pal: Uint16Array | null): (pix: number) => number {
+  /**
+   * `forceHam` lets a copper list ask for HAM over a screen that was not
+   * opened as one. BPLCON0 bit 11 is a property of the display, not of the
+   * bitmap, and a list that sets it means it however the screen was made —
+   * the same reasoning as LACE. Personnal's Ham Mode is exactly that bit.
+   */
+  private rowColours(s: Screen, pal: Uint16Array | null, forceHam = false): (pix: number) => number {
     const get = (i: number): number => (pal ? pal[i & 31]! : s.palette[i & 31]! & 0xfff)
-    if (s.ham) {
+    if (s.ham || forceHam) {
       let c = get(0)
       return (pix) => {
         const dat = pix & 15
@@ -4097,7 +4103,7 @@ export class Runtime {
             // where the first fetched pixel lands, in colour clocks
             const dataStart = ddfstrt * 2 + (hires ? 9 : 17) + (bplcon1 & 15)
             const originX = (dataStart - 1 - 128) * 2
-            const colour = this.rowColours(s, hwPal)
+            const colour = this.rowColours(s, hwPal, ham)
             // BPU 0 fetches nothing at all; the screen's own depth caps the
             // rest, since that is what its chunky buffer actually holds
             const planeMask = bpu === 0 ? 0 : (1 << Math.min(bpu, s.depth)) - 1
