@@ -773,11 +773,14 @@ export class Screen {
    */
   paint(x: number, y: number, c = this.ink, borderMode = false): void {
     const target = this.point(x, y)
-    if (target < 0 || target === (c & this.colorMask())) return
+    if (target < 0) return
     const border = this.gBorder & this.colorMask()
-    if (borderMode && target === border) return
     // outside the clip is not painted at all, as TPaint bails on the same
-    // four comparisons before it allocates anything (+W.s:4341-4348)
+    // four comparisons before it allocates anything (+W.s:4341-4348). They
+    // are its only early exits besides a null tempras — there is no test for
+    // the seed already being the fill colour, and there cannot usefully be
+    // one: under Gr Writing 2 painting c over c writes 0, which is a real
+    // change. Skipping it as a no-op is only right when plot() replaces.
     if (!this.inClip(x, y)) return
 
     const cl = this.clip
@@ -787,14 +790,15 @@ export class Screen {
     const cy1 = Math.min(this.height - 1, cl?.y2 ?? this.height - 1)
     const w = cx1 - cx0 + 1
 
-    // 1 = unavailable: a different colour (mode 0), the border colour
-    // (mode 1), or already filled. Built once, from the screen as it stands.
+    // 1 = unavailable: a different colour to the seed (mode 1), or the border
+    // colour (mode 0, Flood's OUTLINE). Built once, from the screen as it
+    // stands; the fill then sets a bit per pixel it takes, so nothing here
+    // needs to describe what has already been painted.
     const blocked = new Uint8Array(w * (cy1 - cy0 + 1))
-    const fill = c & this.colorMask()
     for (let py = cy0; py <= cy1; py++) {
       for (let px = cx0; px <= cx1; px++) {
         const v = this.pixels[py * this.width + px]!
-        const open = borderMode ? v !== border && v !== fill : v === target
+        const open = borderMode ? v !== border : v === target
         if (!open) blocked[(py - cy0) * w + (px - cx0)] = 1
       }
     }

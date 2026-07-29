@@ -139,6 +139,17 @@ describe('drawing', () => {
     expect(rt.screen.point(51, 51)).toBe(1)
   })
 
+  it('Paint xors a region to zero when the pen matches what is there', () => {
+    // TPaint has no "seed is already the fill colour, skip it" exit — its only
+    // early outs are the four clip comparisons and a null tempras. Treating
+    // that as a no-op is a replace-mode assumption: under Gr Writing 2,
+    // painting c over c writes c ^ c = 0, which is how you blank a region.
+    const prog = ['Ink 4 : Bar 50,50 To 70,70', 'Gr Writing 2', 'Ink 4 : Paint 60,60'].join('\n')
+    const rt = run(prog)
+    expect(rt.screen.point(60, 60)).toBe(0)
+    expect(rt.screen.point(80, 60)).toBe(1) // outside the bar, still paper
+  })
+
   it('Paint xors its fill under Gr Writing 2', () => {
     const prog = ['Ink 4 : Box 50,50 To 70,70', 'Gr Writing 2', 'Ink 7 : Paint 60,60'].join('\n')
     const rt = run(prog)
