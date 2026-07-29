@@ -1184,6 +1184,42 @@ export const FAITHFUL = new Set<string>([
   'mouth width',
   'mouth height',
 
+  // --- IOPorts extension (+IO_Ports.s, slot 6) ---
+  // Source tier: extensions/+IO_Ports.s ships in the official release. The
+  // shared device layer these drive (Dev.Open/GetIO/DoIO/SendIO/CheckIO) is
+  // in the main library at +Lib.s:3068-3260 and is modelled with them, since
+  // it is what decides that a closed port raises error 141 rather than
+  // reporting "not ready". No hardware is attached, which is a state a real
+  // Amiga has too -- the devices open and the status reads bare.
+  'serial open',
+  'serial close',
+  'serial send',
+  'serial out',
+  'serial speed',
+  'serial bits',
+  'serial parity',
+  'serial x',
+  'serial buf',
+  'serial fast',
+  'serial slow',
+  'serial abort',
+  'serial check',
+  'serial get',
+  'serial input$',
+  'printer open',
+  'printer close',
+  'printer send',
+  'printer out',
+  'printer abort',
+  'printer check',
+  'parallel open',
+  'parallel close',
+  'parallel send',
+  'parallel out',
+  'parallel abort',
+  'parallel check',
+  'parallel status',
+
   // --- Personnal (third-party extension, by Frederic Cordier / FireWorks) ---
   // Ported against the 1.1a source (+AMOSPro_Personnal.Lib.s) where it has
   // one, and against the disassembled 1.1 binary where it does not -- the
@@ -1346,6 +1382,22 @@ export const NA = new Set<string>([
 
 /** Known simplifications worth surfacing next to a keyword. */
 export const NOTES: Record<string, string> = {
+  // --- IOPorts: implemented, but reporting a port with nothing on it ---
+  'serial error':
+    "Returns 0. The real call reads io_Error from the request and maps it through the device's error table (base 145, 16 messages, from the Dev.Open call). With no hardware behind the port there is no transfer to fail, so no error is ever raised and the keyword can only report success. The mapping itself is modelled -- ioError() resolves those exact messages -- it just has nothing to map",
+  'serial status':
+    'Returns 0. Reads the modem control lines (CD, CTS, DSR, RI, DTR, RTS) from the serial request. Nothing is connected, so every line reads low. A real port with a real cable would report the handshake state and a program watching for carrier would see it here',
+  'serial base':
+    'Returns 0. Hands back the address of the IOExtSer request so a program can poke the structure directly. There is no such structure in this port -- the parameters live in a SerialParams object, not in emulated memory -- so there is no address to give. A program that only calls Serial Base to pass it on is unaffected; one that peeks the request is not',
+  'printer error': 'Returns 0, for the same reason as Serial Error: nothing is attached, so nothing fails',
+  'printer online':
+    "Returns 0, meaning not online. The source's failure path is `moveq #-1,d3`, so the two states are distinguishable, and this reports the one that is true of a machine with no printer plugged in. A program that waits for the printer to come online will wait, exactly as it would on such a machine",
+  'printer base':
+    'Returns 0 -- the PrinterData/IORequest address, which does not exist here. See Serial Base',
+  'parallel error': 'Returns 0. See Serial Error; the parallel error table is base 171 with 7 messages',
+  'parallel base': 'Returns 0. See Serial Base',
+  'parallel input$':
+    'Returns the empty string. Reads up to LEN bytes with an optional timeout; with nothing attached nothing ever arrives, so the read finds no data and the timeout is the only outcome. The two arities are both accepted',
   'multi no':
     "SetTaskPri(FindTask(NULL), 20) in the binary, which is exactly what the manual describes. There is no scheduler here to apply a priority to, so the value is recorded and nothing else happens — and the consequence the manual warns about, that under AMOS 1.3 'the keyboard and mouse are disabled', is deliberately not reproduced: it is the reason Left Click and Raw Key exist, and simulating an input blackout would break programs rather than emulate one",
   'multi yes':

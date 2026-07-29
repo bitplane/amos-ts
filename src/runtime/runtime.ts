@@ -11,6 +11,7 @@ import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
 import { newPiConfig } from './piconfig.gen'
 import { newSpeechState, ensureLib, type SpeechState } from './speech'
+import { newIoPortsState, type IoPortsState } from './ioports'
 import { newPersonnalState, type PersonnalState } from './personnal'
 import type { PiConfig } from './piconfig.gen'
 import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlideStep, fselStore, slideOpen, slideShut } from './fsel'
@@ -558,6 +559,8 @@ export class Runtime {
   pi: PiConfig = newPiConfig()
   /** the Music extension's narrator state (+Music.s); see speech.ts */
   speech: SpeechState = newSpeechState()
+  /** Serial, Printer and Parallel device state (IOPorts, slot 6) */
+  ioports: IoPortsState = newIoPortsState()
   /** tick at which a finished Say hands the music voices back, -1 when idle */
   speechRestore = -1
   static readonly COPPER_LONG = 12 * 1024

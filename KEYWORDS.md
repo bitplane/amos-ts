@@ -19,7 +19,7 @@ tested against our own understanding. Percentages exclude n/a
 | amospro-colours-1.0 | 27 | 0 | 0 | 27 | 0% |
 | amospro-compact-2.0 | 3 | 3 | 0 | 0 | 100% |
 | amospro-compiler-2.0 | 15 | 10 | 1 | 0 | 100% |
-| amospro-ioports-2.0 | 38 | 0 | 0 | 38 | 0% |
+| amospro-ioports-2.0 | 38 | 28 | 9 | 1 | 97% |
 | amospro-music-2.0 | 49 | 48 | 1 | 0 | 100% |
 | amospro-request-2.0 | 3 | 0 | 3 | 0 | 100% |
 | banks | 20 | 19 | 1 | 0 | 100% |
@@ -89,7 +89,7 @@ tested against our own understanding. Percentages exclude n/a
 | turbo-plus-2.15 | 17 | 17 | 0 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 4355 | 1015 | 36 | 3240 | 24% |
+| **total** | 4355 | 1043 | 45 | 3203 | 25% |
 
 ## aga-1.0 (0%)
 
@@ -127,9 +127,11 @@ tested against our own understanding. Percentages exclude n/a
 - **approximated**: `ppsave` *(Writes a valid PP20 file — proven decodable by an independent reference decoder — but NOT bit-identical to real PowerPacker output: powerpacker.library makes different (better) crunch choices, and its encoder is not in the AMOS source, so byte-exact parity is unverifiable. The efficiency argument is validated but the offset table is fixed; bob/icon banks unsupported.)*
 - **n/a**: `cmpcall`, `comp del`, `comp load`, `compile`
 
-## amospro-ioports-2.0 (0%)
+## amospro-ioports-2.0 (97%)
 
-- **missing**: `parallel abort`, `parallel base`, `parallel check`, `parallel close`, `parallel error`, `parallel input$`, `parallel open`, `parallel out`, `parallel send`, `parallel status`, `printer abort`, `printer base`, `printer check`, `printer close`, `printer dump`, `printer error`, `printer online`, `printer open`, `printer out`, `printer send`, `serial abort`, `serial base`, `serial bits`, `serial buf`, `serial check`, `serial close`, `serial error`, `serial fast`, `serial get`, `serial input$`, `serial open`, `serial out`, `serial parity`, `serial send`, `serial slow`, `serial speed`, `serial status`, `serial x`
+- **faithful**: `parallel abort`, `parallel check`, `parallel close`, `parallel open`, `parallel out`, `parallel send`, `parallel status`, `printer abort`, `printer check`, `printer close`, `printer open`, `printer out`, `printer send`, `serial abort`, `serial bits`, `serial buf`, `serial check`, `serial close`, `serial fast`, `serial get`, `serial input$`, `serial open`, `serial out`, `serial parity`, `serial send`, `serial slow`, `serial speed`, `serial x`
+- **approximated**: `parallel base`, `parallel error`, `parallel input$`, `printer base`, `printer error`, `printer online`, `serial base`, `serial error`, `serial status`
+- **missing**: `printer dump`
 
 ## amospro-music-2.0 (100%)
 
