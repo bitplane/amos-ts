@@ -3,6 +3,7 @@ import { varKey } from '../interp/prescan'
 import type { Instr, Func } from '../interp/builtins'
 import { makeLdosFunctions, makeLdosInstructions } from './ldos'
 import { makeTurboFunctions, makeTurboInstructions, turboDefault } from './turbo'
+import { makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
 import { makeTdFunctions, makeTdInstructions } from './td'
 import { parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
@@ -750,6 +751,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // extensions hook Default to re-initialise their own settings; TURBO
       // Plus puts Scene Icon Bank and Scene Mask Palette back here
       turboDefault(rt)
+      personnalDefault(rt)
     },
     'default palette'(it) {
       // InDefaultPalette +ILib.s:5389: colours for subsequently opened
@@ -4804,9 +4806,9 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
  * a new extension file cannot be implemented-but-unreported.
  */
 export function makeAllInstructions(rt: Runtime): Record<string, Instr> {
-  return { ...makeInstructions(rt), ...makeLdosInstructions(rt), ...makeTurboInstructions(rt), ...makeTdInstructions(rt) }
+  return { ...makeInstructions(rt), ...makeLdosInstructions(rt), ...makeTurboInstructions(rt), ...makeTdInstructions(rt), ...makePersonnalInstructions(rt) }
 }
 
 export function makeAllFunctions(rt: Runtime): Record<string, Func> {
-  return { ...makeFunctions(rt), ...makeLdosFunctions(rt), ...makeTurboFunctions(rt), ...makeTdFunctions(rt) }
+  return { ...makeFunctions(rt), ...makeLdosFunctions(rt), ...makeTurboFunctions(rt), ...makeTdFunctions(rt), ...makePersonnalFunctions(rt) }
 }

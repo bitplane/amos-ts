@@ -1,0 +1,296 @@
+/**
+ * Personnal — an ECS/AGA display extension by Frederic Cordler (FireWorks),
+ * 1995-96. Slot 13 (`ExtNb Equ 13-1`).
+ *
+ * ## Evidence
+ *
+ * `AMOSPro_Personnal.Lib.s`, 4534 lines of assembler, ships with the 1.0b
+ * shareware binary and covers all 108 of its keyword names. Line numbers
+ * below are into that file. The 18 keywords 1.1a adds have no source and are
+ * read from the extension's own AmigaGuide instead; those say so
+ * individually.
+ *
+ * ## What it does, and why it needs the copper interpreter
+ *
+ * Personnal does not use AMOS's screen system. It builds a copper list of its
+ * own at an address the program hands it, and every display keyword after
+ * that is a patch to one word of that list — `Set Resolution` is bit 15 of
+ * BPLCON0, `Set Lace` is bit 2, `Set Screen Sizes` writes the two modulos.
+ * The extension's whole state is a handful of pointers into the list it
+ * built.
+ *
+ * So the keywords here write real copper words into the program's memory,
+ * and what appears on screen is whatever Runtime's list interpreter makes of
+ * them once the program points the hardware at it (`Active Copper`, batch 4).
+ * Building a list does not display it, here or on the Amiga.
+ */
+import { AmosError, VI, type Value } from '../interp/values'
+import type { Func, Instr } from '../interp/builtins'
+import type { Runtime } from './runtime'
+
+/**
+ * The extension's own error table (ErrMess, +AMOSPro_Personnal.Lib.s:4485).
+ * Routine 122 raises one of these by index, so a program gets the message the
+ * real library would have given it, in the French the author wrote.
+ */
+export const PERSONNAL_ERRORS = [
+  'Adresse pour copper list INVALIDE.',
+  'Copper list non reservee.',
+  'Registre de couleur invalide.',
+  'BMHD non trouve.',
+  'Une ou plusieurs bases ecran INVALIDE(S).',
+  'Banque memoire trop petite.',
+  'CMAP non trouve.Fichier IFF/ILBM corrompu.',
+  '2e Ecran copper non cree.',
+  "Pas assez de memoire pour l'allocation!!!",
+  'Aga Icon bank non reservee.',
+  "Fichier d'un format inconnu.",
+  'Multi Plot bank non reservee.',
+  'Multi Plot bank deja reservee.',
+  'Point demande HORS limite de reservation.',
+  'Valeur permise de 1 a 8 seulement.',
+  'Aga Icon bank deja reservee.',
+] as const
+
+const err = (n: number): never => {
+  throw new AmosError(PERSONNAL_ERRORS[n] ?? PERSONNAL_ERRORS[0])
+}
+
+/**
+ * The extension's memory registers, named as the source names them
+ * (+AMOSPro_Personnal.Lib.s:385-450). Addresses point into the copper list
+ * the program asked it to build, which is why they are plain numbers: a later
+ * keyword reaches them with the same arithmetic the 68k does.
+ */
+export interface PersonnalState {
+  /** _CopperBase — the list itself */
+  copperBase: number
+  /** _SprPtBase — the eight sprite pointer moves */
+  sprPtBase: number
+  /** _ColorBase — the colour block (8 banks of 32 under Create Aga) */
+  colorBase: number
+  /** _BplPtBase — BPL1PTH..BPL8PTL */
+  bplPtBase: number
+  /** _Others — DIWSTRT, DIWSTOP, DDFSTRT, DDFSTOP, BPL1MOD, BPL2MOD, CLXCON */
+  others: number
+  /** _BplConBase — BPLCON0..BPLCON3 */
+  bplConBase: number
+  /** _CurrentLine */
+  currentLine: number
+  /** _Line — the display start line, $32 after either builder */
+  line: number
+  /** _Aga — 0 for a Create Standard list, non-zero for Create Aga */
+  aga: number
+  /** _2nd — the second playfield's list, batch 6 */
+  second: number
+  /** _XY — screen size, defaulting to 320x192 ($140,$C0) */
+  xy: [number, number]
+  /** _XYOff — X1,Y1,X2,Y2 scroll offsets */
+  xyOff: [number, number, number, number]
+  /** _D4 — the last Screen Position type */
+  d4: number
+}
+
+export function newPersonnalState(): PersonnalState {
+  return {
+    copperBase: 0,
+    sprPtBase: 0,
+    colorBase: 0,
+    bplPtBase: 0,
+    others: 0,
+    bplConBase: 0,
+    currentLine: 0,
+    line: 0x32,
+    aga: 0,
+    second: 0,
+    // _XY Dc.l $140,$C0
+    xy: [320, 192],
+    xyOff: [0, 0, 0, 0],
+    d4: 0,
+  }
+}
+
+/** Longword into the fake address space, as the 68k's `Move.l dn,(a0)+` does. */
+function putL(rt: Runtime, addr: number, v: number): void {
+  const m = rt.resolveWrite(addr)
+  if (!m || m.off + 3 >= m.data.length) return
+  m.data[m.off] = (v >>> 24) & 0xff
+  m.data[m.off + 1] = (v >>> 16) & 0xff
+  m.data[m.off + 2] = (v >>> 8) & 0xff
+  m.data[m.off + 3] = v & 0xff
+}
+
+/** Word at addr, for the read-modify-write patches. */
+function getW(rt: Runtime, addr: number): number {
+  const m = rt.resolveAddr(addr)
+  if (!m || m.off + 1 >= m.data.length) return 0
+  return ((m.data[m.off]! << 8) | m.data[m.off + 1]!) & 0xffff
+}
+
+function putW(rt: Runtime, addr: number, v: number): void {
+  const m = rt.resolveWrite(addr)
+  if (!m || m.off + 1 >= m.data.length) return
+  m.data[m.off] = (v >> 8) & 0xff
+  m.data[m.off + 1] = v & 0xff
+}
+
+/**
+ * Create Standard addr (L26, :1008) and Create Aga addr (L10, :566).
+ *
+ * The two builders are the same list except for the colour block: Standard
+ * writes one bank of 32 COLOR moves, Aga writes eight, each preceded by a
+ * BPLCON3 bank select ($0106, +$2000 a bank) — which is how AGA addresses
+ * 256 colours through 32 registers.
+ */
+function buildList(rt: Runtime, addr: number, aga: boolean): void {
+  if (addr === 0) err(0)
+  const s = rt.personnal
+  s.copperBase = addr
+  let p = addr
+  const put = (v: number): void => {
+    putL(rt, p, v)
+    p += 4
+  }
+
+  put(0x1003fffe) // WAIT line $10
+  put(0x01fc0000) // FMODE 0 — "Anti Double Scanning"
+
+  s.sprPtBase = p
+  for (let d = 0x01200000; d !== 0x01400000; d += 0x20000) put(d) // SPR0PTH..SPR7PTL
+
+  put(0x1803fffe) // WAIT line $18
+  s.colorBase = p
+  if (aga) {
+    // eight banks: BPLCON3 selects, then 32 COLOR moves
+    for (let bank = 0x01060000; bank !== 0x01070000; bank += 0x2000) {
+      put(bank)
+      for (let c = 0x01800000; c !== 0x01c00000; c += 0x20000) put(c)
+    }
+  } else {
+    for (let c = 0x01800000; c !== 0x01c00000; c += 0x20000) put(c)
+  }
+
+  put(0x3103fffe) // WAIT line $31
+  put(0x00960100) // DMACON: bitplane DMA off while the pointers are set
+  s.bplPtBase = p
+  for (let d = 0x00e00000; d !== 0x01000000; d += 0x20000) put(d) // BPL1PTH..BPL8PTL
+
+  s.others = p
+  put(0x008e0181) // DIWSTRT
+  put(0x009037c1) // DIWSTOP
+  put(0x00920038) // DDFSTRT — $38 unscrolled, $30 scrolled
+  put(0x009400d0) // DDFSTOP
+  put(0x01080000) // BPL1MOD
+  put(0x010a0000) // BPL2MOD
+  put(0x0098ffc0) // CLXCON
+
+  s.bplConBase = p
+  put(0x01001000) // BPLCON0 — one plane
+  put(0x01020000) // BPLCON1
+  put(0x01040024) // BPLCON2
+  put(0x01060c00) // BPLCON3 — $c00 for the PAL second field
+
+  put(0x3203fffe) // WAIT line $32
+  put(0x00968300) // DMACON: bitplane DMA back on
+  s.currentLine = p
+  put(0xf203fffe) // WAIT line $F2
+  put(0x00960100) // off again below the display
+  put(0xf303fffe) // WAIT line $F3
+  put(0x01060000) // BPLCON3 back to AMOS's default
+  put(0xfffffffe) // end
+
+  s.line = 0x32
+  s.aga = aga ? 1 : 0
+  s.second = 0
+}
+
+export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
+  return {
+    /** Create Standard addr (L26, :1008) */
+    'create standard'(it) {
+      buildList(rt, it.evalInt(), false)
+    },
+    /** Create Aga addr (L10, :566) */
+    'create aga'(it) {
+      buildList(rt, it.evalInt(), true)
+    },
+
+    /**
+     * Set Screen Sizes x,y (L23, :961). X floors at 320 and Y at 192 — the
+     * routine compares and substitutes rather than clamping upward, so a
+     * smaller request simply becomes the minimum. The size then goes into the
+     * list as the two modulos, (X-320)>>3 at _Others+18 and +22.
+     */
+    'set screen sizes'(it) {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      const s = rt.personnal
+      s.xy = [Math.max(x, 320), Math.max(y, 192)]
+      if (s.others === 0) err(1)
+      const mod = (s.xy[0] - 320) >> 3
+      putW(rt, s.others + 18, mod)
+      putW(rt, s.others + 22, mod)
+    },
+
+    /** Set Resolution n (L29, :1246) — BPLCON0 bit 15, HIRES */
+    'set resolution'(it) {
+      const hi = it.evalInt() !== 0
+      const s = rt.personnal
+      if (s.bplConBase === 0) err(1)
+      const a = s.bplConBase + 2
+      putW(rt, a, hi ? getW(rt, a) | 0x8000 : getW(rt, a) & ~0x8000)
+    },
+
+    /** Set Lace n (L30, :1264) — BPLCON0 bit 2, LACE */
+    'set lace'(it) {
+      const on = it.evalInt() !== 0
+      const s = rt.personnal
+      if (s.bplConBase === 0) err(1)
+      const a = s.bplConBase + 2
+      putW(rt, a, on ? getW(rt, a) | 0x0004 : getW(rt, a) & ~0x0004)
+    },
+
+    /** Set Ntsc (L3, :524) — BEAMCON0 $DFF1DC = 0 */
+    'set ntsc'() {
+      rt.beamcon0 = 0x0000
+    },
+    /** Set Pal (L4, :528) — BEAMCON0 = $0020, PAL */
+    'set pal'() {
+      rt.beamcon0 = 0x0020
+    },
+
+    /**
+     * Aga Off (L61, :2672). Two direct register writes, not a list patch:
+     * FMODE $DFF1FC = 0 turns double scanning off, BPLCON3 $DFF106 = 0 puts
+     * the colour bank back to 0-31 so AMOS's own palette means what it says
+     * again.
+     */
+    'aga off'() {
+      rt.fmode = 0
+      rt.bplcon3Direct = 0
+    },
+  }
+}
+
+export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
+  return {
+    /**
+     * Screen X Size (L24, :989) and Screen Y Size (L25, :998).
+     *
+     * Both re-apply the floor when they read rather than trusting what was
+     * stored, so they answer 320/192 even if _XY somehow holds less.
+     */
+    'screen x size'(): Value {
+      return VI(Math.max(rt.personnal.xy[0], 320))
+    },
+    'screen y size'(): Value {
+      return VI(Math.max(rt.personnal.xy[1], 192))
+    },
+  }
+}
+
+/** Reset between programs, as the extension's data section starts. */
+export function personnalDefault(rt: Runtime): void {
+  rt.personnal = newPersonnalState()
+}

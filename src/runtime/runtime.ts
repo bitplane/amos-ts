@@ -10,6 +10,7 @@ import type { Value } from '../interp/values'
 import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
 import { newPiConfig } from './piconfig.gen'
+import { newPersonnalState, type PersonnalState } from './personnal'
 import type { PiConfig } from './piconfig.gen'
 import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlideStep, fselStore, slideOpen, slideShut } from './fsel'
 import type { SlideState } from './fsel'
@@ -256,6 +257,22 @@ export class Runtime {
   order: number[] = []
   currentIndex = 0
   rainbows = new Map<number, Rainbow>()
+
+  /**
+   * Personnal's memory registers. The extension builds its own copper list
+   * and keeps pointers into it; see personnal.ts.
+   */
+  personnal: PersonnalState = newPersonnalState()
+  /**
+   * BEAMCON0 ($DFF1DC). Personnal's Set Pal/Set Ntsc write it directly and
+   * nothing here reads it yet — the composite window is a PAL monitor either
+   * way. Kept because the register is the whole of those two keywords.
+   */
+  beamcon0 = 0x0020
+  /** FMODE ($DFF1FC), written directly by Aga Off */
+  fmode = 0
+  /** BPLCON3 ($DFF106) written outside a list, by Aga Off */
+  bplcon3Direct = 0
   shifts = new Map<number, { dir: number; delay: number; first: number; last: number; wrap: boolean; count: number }>()
   /** Fade: per-screen nibble-stepping toward targets (-1 = untouched) */
   fades = new Map<number, { delay: number; count: number; targets: Int32Array }>()
