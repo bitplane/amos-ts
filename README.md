@@ -97,33 +97,33 @@ Disassembly tools need `python3` with `capstone`.
 
 **Core AMOS Professional is complete.** Every core area in `KEYWORDS.md` reads
 100%: language, screens, drawing, menus, banks, text-io, objects, input, files,
-memory, system, interface. 920 keywords implemented, **884 of them faithful** —
-verified against the 68k source, the official manual, or byte-exact artifacts.
-1250 tests.
+memory, system, interface, AMAL, copper, palette, rainbows, windows and zones.
+1051 keywords implemented, **1015 of them faithful** — verified against the 68k
+source, the official manual, or byte-exact artifacts. 1445 tests.
 
-Three third-party extensions are complete too: **AMOS 3D** (64 keywords, the
-engine reverse-engineered from `c3d.lib` — see `docs/amos3d/README.md`),
-**TURBO Plus** (153 across three versions) and **LDos 2.5** (77).
+Four of the five extensions a stock AMOS Professional installs are complete —
+Music (49, including `Say` and the mouth stream), Compact, Compiler and
+Requester. The fifth, IOPorts, is the one gap.
+
+Four third-party extensions are complete: **AMOS 3D** (64 keywords, the engine
+reverse-engineered from `c3d.lib` — see `docs/amos3d/README.md`), **Personnal**
+(116 across 1.0b and 1.1), **TURBO Plus** (153 across three versions) and
+**LDos 2.5** (77).
 
 ### Corpus census
 
-`npx tsx src/cli/runreport.ts --all` runs all 419 corpus programs headless.
+`npx tsx src/cli/runreport.ts --all` runs all 488 corpus programs headless.
 
 | | |
 |---|---|
-| run to a stop | 412 |
-| **run with nothing skipped** | **353 (86%)** |
-| hit something unimplemented | 59 |
+| run to a stop | 478 |
+| **run with nothing skipped** | **425 (89%)** |
+| hit something unimplemented | 53 |
 
 Read the second row, not the "ended with nothing skipped" line the tool
 prints. That line counts only programs that *terminate*, and most AMOS
-programs are games and demos that never do — 220 hit the step cap and 91 block
-waiting on input, both of which are correct behaviour, not failure.
-
-Of the 59 that skip something: ~31 hit only host/68k calls (`dreg`,
-`doscall`, machine-code procedures) which are n/a by policy; ~17 hit Intuition
-1.3b, the one substantial port still outstanding; 6 speech, 4 IOPorts, and a
-handful of one-offs.
+programs are games and demos that never do — 233 hit the step cap and 139
+block waiting on input, both of which are correct behaviour, not failure.
 
 **Reach is not correctness.** All of the above measures whether a program hits
 a missing keyword. It says nothing about whether the pixels are right — see

@@ -55,6 +55,7 @@ jobs:
       # catches, and it is unrecoverable afterwards: a version number cannot
       # be reused once it has been on the registry.
       - name: Version must match package.json
+        id: check
         run: |
           want="${{ inputs.version || github.ref_name }}"
           want="${want#v}"
@@ -63,7 +64,18 @@ jobs:
             echo "asked for v$want, package.json says $pkg" >&2
             exit 1
           fi
-          echo "publishing $pkg"
+          # Already on the registry? Then there is nothing to do and saying
+          # so beats failing. Two ways to get here: a re-run of a workflow
+          # that already succeeded, and the first release of a new package,
+          # which has to be published by hand before npm will let you
+          # nominate a trusted publisher for it.
+          if npm view "amos-ts@$pkg" version >/dev/null 2>&1; then
+            echo "amos-ts@$pkg is already published — nothing to do"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publishing $pkg"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - run: npm run typecheck
       - run: npm run build
@@ -91,5 +103,7 @@ jobs:
         run: npm publish --access public --dry-run
 
       - name: Publish
-        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        if: >-
+          steps.check.outputs.skip == 'false' &&
+          (github.event_name != 'workflow_dispatch' || inputs.publish)
         run: npm publish --access public
