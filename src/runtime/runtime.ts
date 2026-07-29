@@ -543,6 +543,9 @@ export class Runtime {
    */
   static readonly PERSONNAL_BASE = 0x70000000
   personnalMem: Uint8Array | null = null
+  /** the same, for the AGA icon bank — a separate AllocMem in the library */
+  static readonly PERSONNAL_ICON_BASE = 0x74000000
+  personnalIcons: Uint8Array | null = null
 
   /**
    * The interpreter configuration block (PI_*, +Equ.s:1590-1650, defaults
@@ -824,6 +827,10 @@ export class Runtime {
     const pmem = this.personnalMem
     if (pmem && a >= Runtime.PERSONNAL_BASE && a < Runtime.PERSONNAL_BASE + pmem.length) {
       return { data: pmem, off: a - Runtime.PERSONNAL_BASE }
+    }
+    const picons = this.personnalIcons
+    if (picons && a >= Runtime.PERSONNAL_ICON_BASE && a < Runtime.PERSONNAL_ICON_BASE + picons.length) {
+      return { data: picons, off: a - Runtime.PERSONNAL_ICON_BASE }
     }
     for (const [kind, base] of [
       ['sprites', Runtime.SPRITE_BANK_BASE],

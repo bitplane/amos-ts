@@ -1194,6 +1194,100 @@ describe('Personnal: the five mosaics (L32-L36, :1316/:1373/:1444/:1517/:1591)',
   })
 })
 
+describe('Personnal: the AGA icon bank (L87-L93, :3369-:3598)', () => {
+  const bank = ['Reserve As Work 10,24000', 'A=Start(10)', 'Create Standard A']
+
+  /** a 320x64 screen whose eight plane slots all point at real memory */
+  const withPlanes = (body: string[]): string[] => [
+    'Screen Open 0,320,64,32,Lowres',
+    'Cls 0',
+    ...bank,
+    'B=Screen Base',
+    'For P=1 To 8 : Set Plane P,Leek(B+(P-1)*4) : Next P',
+    ...body,
+  ]
+
+  it('Aga Reserve Icon stamps F.C1 and the count, and refuses to do it twice', () => {
+    const rt = run([...bank, 'Aga Reserve Icon 4'].join('\n'))
+    const s = rt.personnal
+    expect(s.icons).toBe(4)
+    expect(s.icBase).toBe(0x74000000)
+    expect(leek(rt, s.icBase)).toBe(0x462e4331) // "F.C1"
+    expect(leek(rt, s.icBase + 4)).toBe(4)
+    expect(rt.personnalIcons!.length).toBe(4 * 260 + 8) // 260 is the slot stride
+    expect(() => run([...bank, 'Aga Reserve Icon 4', 'Aga Reserve Icon 2'].join('\n'))).toThrow(
+      /Aga Icon bank deja reservee/,
+    )
+  })
+
+  it('Aga Icon Base reads the bank address back, and Aga Erase Icon drops it', () => {
+    const rt = run([...bank, 'Aga Reserve Icon 2', 'C=Aga Icon Base', 'Aga Erase Icon', 'D=Aga Icon Base'].join('\n'))
+    expect(rt.personnal.icBase).toBe(0)
+    expect(rt.personnalIcons).toBe(null)
+    // erasing nothing is silent, not an error
+    expect(() => run([...bank, 'Aga Erase Icon'].join('\n'))).not.toThrow()
+  })
+
+  it('Get then Paste moves a 16x16 block, eight planes at 260 bytes a slot', () => {
+    const rt = run(
+      withPlanes([
+        'Aga Reserve Icon 2',
+        'Ink 5 : Bar 0,0 To 15,15',
+        'Aga Get Icon 1,0,0',
+        'Aga Paste Icon 1,64,32',
+      ]).join('\n'),
+    )
+    const s = rt.screens.get(0)!
+    expect([s.point(64, 32), s.point(79, 47), s.point(80, 32), s.point(64, 48)]).toEqual([5, 5, 0, 0])
+    // it went through the bank, not straight across: slot 1 holds the plane 0
+    // words, sixteen of them, before plane 1's start
+    expect(getWord(rt, rt.personnal.icBase + 8)).toBe(0xffff)
+  })
+
+  it('an icon number outside 1..IconMax is ignored in silence', () => {
+    for (const n of [0, 3]) {
+      const rt = run(withPlanes(['Aga Reserve Icon 2', 'Ink 5 : Bar 0,0 To 15,15', `Aga Get Icon ${n},0,0`]).join('\n'))
+      expect(leek(rt, rt.personnal.icBase + 8)).toBe(0) // nothing was written
+    }
+  })
+
+  it('using the bank before reserving it is error 9', () => {
+    expect(() => run(withPlanes(['Aga Get Icon 1,0,0']).join('\n'))).not.toThrow() // icons==0 fails the range test first
+    expect(() => run([...bank, 'Aga Icon Save "RAM:x.icn"'].join('\n'))).toThrow(/Aga Icon bank non reservee/)
+  })
+
+  it('Save writes the whole bank and Load reads it back', () => {
+    const rt = run(
+      withPlanes([
+        'Aga Reserve Icon 2',
+        'Ink 5 : Bar 0,0 To 15,15',
+        'Aga Get Icon 1,0,0',
+        'Aga Icon Save "RAM:icons.dat"',
+        'Aga Erase Icon',
+        'Aga Icon Load "RAM:icons.dat"',
+        'Cls 0',
+        'Aga Paste Icon 1,32,16',
+      ]).join('\n'),
+      withRam(),
+    )
+    expect(rt.personnal.icons).toBe(2)
+    const s = rt.screens.get(0)!
+    expect([s.point(32, 16), s.point(47, 31), s.point(48, 16)]).toEqual([5, 5, 0])
+  })
+
+  it('a file that is not an icon bank is error 10, and it discards the live bank', () => {
+    const fs = withRam()
+    expect(() =>
+      run(
+        [...bank, 'Open Out 1,"RAM:junk.dat"', 'Print #1,"nope"', 'Close 1', 'Aga Reserve Icon 2', 'Aga Icon Load "RAM:junk.dat"'].join(
+          '\n',
+        ),
+        fs,
+      ),
+    ).toThrow(/format inconnu/)
+  })
+})
+
 describe('Personnal: the two 1.1-only keywords (routines 120 and 122)', () => {
   const bank = ['Reserve As Work 10,24000', 'A=Start(10)', 'Create Standard A']
 

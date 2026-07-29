@@ -123,6 +123,10 @@ export interface PersonnalState {
   bplcon2nd: number
   /** _BPlanesMask — which planes Allow/Forbid Plane Col have enabled */
   bplanesMask: number
+  /** _Icons (+$50) — how many icons the AGA icon bank holds, 0 when unreserved */
+  icons: number
+  /** _IcBase (+$54) — its address, 0 when unreserved */
+  icBase: number
   /** _SpriteBase (data bank +$12e) — the buffer F Set Sprite Buffer was given */
   spriteBase: number
   /** _SpriteLength (+$132) — its size, which must be at least 8K */
@@ -167,6 +171,8 @@ export function newPersonnalState(): PersonnalState {
     bpl2: 0,
     bplcon2nd: 0,
     bplanesMask: 0,
+    icons: 0,
+    icBase: 0,
     spriteBase: 0,
     spriteLength: 0,
   }
@@ -780,6 +786,45 @@ function getSprite(rt: Runtime, base: number, n: number, x: number, y: number, l
     put(at, getL(rt, p1 + off + i * rowBytes))
     put(at + 4, getL(rt, p2 + off + i * rowBytes))
     at += 8
+  }
+}
+
+/**
+ * Aga Get Icon / Aga Paste Icon icon,x,y (L89/L90, :3426/:3479). One routine
+ * run in two directions.
+ *
+ * An icon is 16 pixels wide and 16 lines tall over EIGHT planes: sixteen
+ * words a plane, 256 bytes, in a 260-byte slot. That stride is four bytes
+ * longer than the data and is the same 260 Mplot Load reads by (:4479) for
+ * six-byte points, which is where that copy-paste came from.
+ *
+ * The bank is `"F.C1"`, the icon count, then the slots. Both keywords index
+ * it as `_IcBase + 8 + (icon-1)*260`, walk _BitsPlanes -- the plane list Set
+ * Plane fills, not a screen's -- and step a row of `_XY[0] >> 3` bytes
+ * between lines. An icon out of 1..IconMax returns in silence; a bank that
+ * was never reserved is error 9.
+ *
+ * The plane walk stops at the first null entry, so an icon taken from a
+ * four-plane screen keeps the top four planes of whatever the slot held
+ * before. The slot is only fully written when all eight planes are set.
+ */
+function icon(rt: Runtime, n: number, x: number, y: number, paste: boolean): void {
+  const s = rt.personnal
+  if (n < 1 || n > s.icons) return
+  if (s.icBase === 0) err(9)
+  let at = s.icBase + 8 + (n - 1) * 260
+  const rowBytes = s.xy[0] >> 3
+  const off = y * rowBytes + (x >> 3)
+  for (let p = 0; p < 8; p++) {
+    const plane = s.planes[p] ?? 0
+    if (plane === 0) return
+    let a = plane + off
+    for (let line = 0; line < 16; line++) {
+      if (paste) putW(rt, a, getW(rt, at))
+      else putW(rt, at, getW(rt, a))
+      at += 2
+      a += rowBytes
+    }
   }
 }
 
@@ -1721,6 +1766,104 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
+     * Aga Reserve Icon n (L87, :3369). AllocMem's a chip block of
+     * `n*260 + 8` and stamps it `"F.C1"` followed by the count. Reserving
+     * over a live bank is error 15; a failed AllocMem is error 8, which
+     * cannot happen here because the allocation is a Uint8Array.
+     *
+     * _Icons is written BEFORE the allocation, so on a real machine the
+     * error-8 path leaves the count set against a bank that does not exist.
+     */
+    'aga reserve icon'(it) {
+      const n = it.evalInt()
+      const s = rt.personnal
+      if (s.icons !== 0) err(15)
+      s.icons = n
+      const mem = new Uint8Array(n * 260 + 8)
+      mem.set([0x46, 0x2e, 0x43, 0x31]) // "F.C1"
+      mem[4] = (n >>> 24) & 0xff
+      mem[5] = (n >>> 16) & 0xff
+      mem[6] = (n >>> 8) & 0xff
+      mem[7] = n & 0xff
+      rt.personnalIcons = mem
+      s.icBase = Runtime.PERSONNAL_ICON_BASE
+    },
+
+    /**
+     * Aga Erase Icon (L88, :3403). Frees the bank. With no bank at all it
+     * returns in silence, but a count with no base is error 9 — and note the
+     * count is cleared before that test, so the error leaves both registers
+     * zero either way.
+     */
+    'aga erase icon'() {
+      const s = rt.personnal
+      if (s.icons === 0) return
+      s.icons = 0
+      if (s.icBase === 0) err(9)
+      s.icBase = 0
+      rt.personnalIcons = null
+    },
+
+    /** Aga Get Icon / Aga Paste Icon icon,x,y (L89/L90) — see `icon`. */
+    'aga get icon'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      icon(rt, n, x, it.evalInt(), false)
+    },
+    'aga paste icon'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      icon(rt, n, x, it.evalInt(), true)
+    },
+
+    /**
+     * Aga Icon Save name$ (L92, :3541). Writes the whole bank, header and
+     * all, so the file is exactly what Aga Icon Load expects back. No bank
+     * is error 9; a name outside 1..95 characters returns in silence,
+     * because that is the length the routine's own _IcN buffer holds.
+     */
+    'aga icon save'(it) {
+      const name = it.evalStr()
+      const s = rt.personnal
+      if (s.icBase === 0) err(9)
+      if (name.length < 1 || name.length > 95) return
+      rt.vfs?.writeFile(name, rt.personnalIcons!.subarray(0, s.icons * 260 + 8))
+    },
+
+    /**
+     * Aga Icon Load name$ (L93, :3598). Reads the eight-byte header, checks
+     * the `"F.C1"` cookie, allocates from the count it carries and reads the
+     * rest in behind a freshly written header.
+     *
+     * A file that is not an icon bank is error 10, and the routine clears
+     * both registers on the way out — so a failed load discards whatever
+     * bank was already there.
+     */
+    'aga icon load'(it) {
+      const name = it.evalStr()
+      const s = rt.personnal
+      if (name.length < 1 || name.length > 95) return
+      const d = rt.vfs?.readFile(name) ?? null
+      const cookie = d && d.length >= 8 ? String.fromCharCode(d[0]!, d[1]!, d[2]!, d[3]!) : ''
+      if (cookie !== 'F.C1') {
+        s.icons = 0
+        s.icBase = 0
+        rt.personnalIcons = null
+        err(10)
+      }
+      const count = ((d![4]! << 24) | (d![5]! << 16) | (d![6]! << 8) | d![7]!) >>> 0
+      const mem = new Uint8Array(count * 260 + 8)
+      mem.set(d!.subarray(0, Math.min(d!.length, mem.length)))
+      rt.personnalIcons = mem
+      s.icons = count
+      s.icBase = Runtime.PERSONNAL_ICON_BASE
+    },
+
+    /**
      * Mplot Start Plane n (routine 120, $6644). Which entry of _BitsPlanes
      * Mplot Draw begins at: 1 to 8, or error 14. 1.1 only — the published
      * 1.1a source compiles to the smaller binary, where the keyword does not
@@ -2168,6 +2311,11 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     /** Mplot Base (L99, :3931) — the bank address, or 0 */
     'mplot base'(): Value {
       return VI(rt.personnal.mpBase)
+    },
+
+    /** =Aga Icon Base (L91, :3535) — _IcBase, zero when unreserved. */
+    'aga icon base'(): Value {
+      return VI(rt.personnal.icBase)
     },
 
     /**
