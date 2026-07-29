@@ -101,6 +101,8 @@ export interface PersonnalState {
   origin: [number, number]
   /** _MpBase (:395) — the point bank's address, 0 when unreserved */
   mpBase: number
+  /** _DoubleCopper — non-zero while a second list is being assembled */
+  doubleCopper: number
 }
 
 /**
@@ -132,6 +134,7 @@ export function newPersonnalState(): PersonnalState {
     mplots: 0,
     origin: [0, 0],
     mpBase: 0,
+    doubleCopper: 0,
   }
 }
 
@@ -275,6 +278,37 @@ function defineAdd(rt: Runtime, n: number, field: number, add: number, bound: nu
   if (v >= bound) v = 0
   else if (v < 0) v = bound - 1
   putW(rt, at, v & 0xffff)
+}
+
+/**
+ * Append a WAIT to the list and re-terminate after it (_lw :846 and
+ * :1294). Both line keywords share this: they overwrite the tail the last
+ * append left, write the wait, remember where the list now ends, and put a
+ * fresh tail back. `hb` is the second byte of the wait — $01 for Copper Next
+ * Line, $03 for Copper Wait Line.
+ *
+ * The tail differs for the second playfield's list: an ordinary one shuts the
+ * display down at lines $F2/$F3, a second one stops at $14.
+ */
+function appendWait(rt: Runtime, s: PersonnalState, line: number, hb: number): void {
+  let p = s.currentLine
+  putW(rt, p, ((line & 0xff) << 8) | hb)
+  putW(rt, p + 2, 0xfffe)
+  p += 4
+  s.currentLine = p
+  s.line = line
+  if (s.second === 1) {
+    putL(rt, p, 0x1403fffe)
+    putL(rt, p + 4, 0x01000000)
+    putL(rt, p + 8, 0x00960100)
+    putL(rt, p + 12, 0xfffffffe)
+  } else {
+    putL(rt, p, 0xf201fffe)
+    putL(rt, p + 4, 0x01000000)
+    putL(rt, p + 8, 0x00960100)
+    putL(rt, p + 12, 0xf301fffe)
+    putL(rt, p + 16, 0xfffffffe)
+  }
 }
 
 /** One sign-extended word of a point, shared by X/Y/C Mplot. */
@@ -715,6 +749,60 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       rt.personnal.origin = [x, y]
     },
 
+    /**
+     * Active Copper (L37, :1660) — `Move.l d0,$dff080`, COP1LC. The single
+     * instruction that makes everything the other keywords built visible.
+     *
+     * It does not turn AMOS's own copper off; the programs do that themselves
+     * (EcsCopper/Rainbows.AMOS is `Copper Off` then `Active Copper`), and on
+     * the real machine AMOS's vbl rebuild would otherwise take the display
+     * straight back.
+     */
+    'active copper'() {
+      const s = rt.personnal
+      if (s.copperBase === 0) err(1)
+      rt.copList1Addr = s.copperBase
+    },
+
+    /** Copper Base addr (L15, :751) — point the extension at an existing list */
+    'copper base'(it) {
+      rt.personnal.copperBase = it.evalInt()
+    },
+
+    /**
+     * Copper Next Line (L19, :830) and Copper Wait Line n (L31, :1282).
+     * Both append a WAIT and re-terminate. Next Line waits for the line after
+     * the last one, wrapping past $100; Wait Line takes the line outright.
+     * The second byte of the wait differs, $01 against $03, which is the
+     * horizontal position each stops at.
+     */
+    'copper next line'() {
+      const s = rt.personnal
+      if (s.copperBase === 0) err(1)
+      let line = s.line + 1
+      if (line >= 0x100) line -= 0x100
+      appendWait(rt, s, line, 0x01)
+    },
+    'copper wait line'(it) {
+      const line = it.evalInt()
+      const s = rt.personnal
+      // a no-op while a second list is being built (the _DoubleCopper guard)
+      if (s.doubleCopper !== 0) return
+      if (s.currentLine === 0) err(1)
+      appendWait(rt, s, line, 0x03)
+    },
+
+    /**
+     * Vb Line Wait n (L74, :2961) spins on VPOSR until the beam reaches the
+     * line, clamping past 381 to 383. There is no beam here and nothing to
+     * spin on, so this yields the frame instead — the effect a program wants
+     * from it, without the wait it actually performs.
+     */
+    'vb line wait'(it) {
+      void it.evalInt()
+      it.block({ type: 'wait', until: Math.floor(it.tick) + 1 })
+    },
+
     /** Set Ntsc (L3, :524) — BEAMCON0 $DFF1DC = 0 */
     'set ntsc'() {
       rt.beamcon0 = 0x0000
@@ -750,6 +838,14 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     },
     'screen y size'(): Value {
       return VI(Math.max(rt.personnal.xy[1], 192))
+    },
+
+    /** Copper Base (L14, :744) and Copper Line (L20, :866) — plain readers */
+    'copper base'(): Value {
+      return VI(rt.personnal.copperBase)
+    },
+    'copper line'(): Value {
+      return VI(rt.personnal.line)
     },
 
     /** Mplot Base (L99, :3931) — the bank address, or 0 */

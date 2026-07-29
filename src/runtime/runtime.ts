@@ -555,6 +555,14 @@ export class Runtime {
   static readonly COPPER_LONG = 12 * 1024
   /** T_CopON: the system rebuilds and owns the display while true */
   copperOn = true
+  /**
+   * COP1LC, when something outside the interpreter has pointed it somewhere —
+   * Personnal's Active Copper writes $dff080 with the list it built in a
+   * program bank. The copper re-reads from there every frame, so the bytes
+   * are copied into the physical buffer each composite rather than once,
+   * which is what lets a program keep patching its list and see the change.
+   */
+  copList1Addr: number | null = null
   copBufA = new Uint8Array(Runtime.COPPER_LONG)
   copBufB = new Uint8Array(Runtime.COPPER_LONG)
   private copLogIsA = true
@@ -727,6 +735,28 @@ export class Runtime {
    * until the program's own list sets bitplane pointers up. What changed is
    * that this now happens ONCE, at the handover, instead of every frame.
    */
+  /**
+   * Copy a list from anywhere in the address space into the physical buffer,
+   * up to its $FFFFFFFE terminator or the buffer's end. This is the copper
+   * fetching from COP1LC, which it does afresh every frame.
+   */
+  private loadCopperFrom(addr: number): void {
+    const dst = this.copPhysic
+    for (let p = 0; p + 4 <= dst.length; p += 4) {
+      const m = this.resolveAddr(addr + p)
+      if (!m || m.off + 3 >= m.data.length) break
+      const a = m.data[m.off]!
+      const b = m.data[m.off + 1]!
+      const c = m.data[m.off + 2]!
+      const d = m.data[m.off + 3]!
+      dst[p] = a
+      dst[p + 1] = b
+      dst[p + 2] = c
+      dst[p + 3] = d
+      if (a === 0xff && b === 0xff && c === 0xff && d === 0xfe) break
+    }
+  }
+
   private seedCopperRegs(): void {
     const r = this.copRegs
     r.pal.fill(0)
@@ -3815,6 +3845,12 @@ export class Runtime {
     const H = Runtime.COMPOSITE_LINES * 2
     const data = out ?? new Uint8ClampedArray(W * H * 4)
     this.activateRainbows()
+    // Something has pointed COP1LC at a list of its own (Personnal's Active
+    // Copper). The hardware re-reads from that address every frame, so copy
+    // it in every frame too — a program that patches its list after
+    // activating it expects the change to show, and several do exactly that
+    // inside their main loop.
+    if (this.copList1Addr !== null) this.loadCopperFrom(this.copList1Addr)
     // Copper Off: the display is whatever the user's physical list says
     if (!this.copperOn) {
       // no system list patches SPRxPT now, so the sprite side of the display

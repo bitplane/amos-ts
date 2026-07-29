@@ -559,3 +559,89 @@ describe('Personnal: the Mplot range is exclusive, and the rest of batch 3', () 
     expect(out).toBe('-1-1-1\n')
   })
 })
+
+describe('Personnal: the copper list keywords (L14/L15/L19/L20/L31/L37/L74)', () => {
+  const bank = ['Reserve As Work 10,24000', 'A=Start(10)', 'Create Standard A']
+
+  it('Copper Base reads back what was built, and can be pointed elsewhere', () => {
+    let out = ''
+    const src = [...bank, 'C=Copper Base', 'Copper Base $1234', 'D=Copper Base', 'Print C=A;D=$1234'].join('\n')
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, onText: (t) => (out += t) })
+    rt.runHeadless(200)
+    expect(out).toBe('-1-1\n')
+  })
+
+  it('Copper Wait Line appends a WAIT and re-terminates after it', () => {
+    const rt = run([...bank, 'Copper Wait Line $50'].join('\n'))
+    const s = rt.personnal
+    // the wait overwrote the tail the builder left at _CurrentLine
+    const at = s.currentLine - 4
+    expect(leek(rt, at)).toBe(0x5003fffe) // line $50, hpos byte $03
+    expect(s.line).toBe(0x50)
+    // and a fresh tail follows, ending in the terminator
+    expect(leek(rt, s.currentLine)).toBe(0xf201fffe)
+    expect(leek(rt, s.currentLine + 16)).toBe(0xfffffffe)
+  })
+
+  it('Copper Next Line steps on from the last one, wrapping past $100', () => {
+    // the builder leaves _Line at $32
+    const rt = run([...bank, 'Copper Next Line'].join('\n'))
+    expect(rt.personnal.line).toBe(0x33)
+    expect(leek(rt, rt.personnal.currentLine - 4)).toBe(0x3301fffe) // hpos byte $01
+    const wrapped = run([...bank, 'Copper Wait Line $FF', 'Copper Next Line'].join('\n'))
+    expect(wrapped.personnal.line).toBe(0)
+  })
+
+  it('Copper Line reports where the list has got to', () => {
+    let out = ''
+    const src = [...bank, 'Copper Wait Line 100', 'Print Copper Line'].join('\n')
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, onText: (t) => (out += t) })
+    rt.runHeadless(200)
+    expect(out).toBe(' 100\n')
+  })
+
+  it('Active Copper points COP1LC at the list, and the display follows it', () => {
+    // the whole point of batches 1-4: a list built by hand now drives the
+    // screen, through the same interpreter Cop Move feeds
+    const src = [
+      'Screen Open 0,320,200,4,Lowres',
+      'Curs Off : Flash Off : Cls 0',
+      'Reserve As Chip Data 8,16384',
+      'Create Standard Start(8)',
+      'Set Screen Sizes 320,200',
+      'Set View Planes 2',
+      'AX=Screen Base',
+      'Set Plane 1,Leek(AX) : Set Plane 2,Leek(AX+4)',
+      'Copper Off',
+      'Active Copper',
+    ].join('\n')
+    const rt = run(src)
+    expect(rt.copList1Addr).toBeGreaterThan(0)
+    expect(rt.copList1Addr).toBe(rt.personnal.copperBase)
+    // and the walk picks it up: the list sets BPU 2 through _PlanesMask
+    rt.composite()
+    expect((rt as unknown as { copRegs: { bpu: number } }).copRegs.bpu).toBe(2)
+  })
+
+  it('activating without a list is the extension error, not a crash', () => {
+    expect(() => run('Active Copper')).toThrow(/Copper list non reservee/)
+  })
+
+  it('the list is re-read every frame, so a later patch shows', () => {
+    // the copper fetches from COP1LC afresh each frame; several demos patch
+    // their list inside the main loop and expect that
+    const rt = run(
+      [
+        'Screen Open 0,320,200,4,Lowres',
+        'Curs Off : Flash Off : Cls 0',
+        'Reserve As Chip Data 8,16384',
+        'Create Standard Start(8)',
+        'Copper Off',
+        'Active Copper',
+        'Set View Planes 4',
+      ].join('\n'),
+    )
+    rt.composite()
+    expect((rt as unknown as { copRegs: { bpu: number } }).copRegs.bpu).toBe(4)
+  })
+})
