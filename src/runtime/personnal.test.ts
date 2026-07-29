@@ -852,3 +852,70 @@ describe('Personnal: the palette utilities (L66/L76/L77)', () => {
     )
   })
 })
+
+describe('Personnal: dual playfield (L28/L42/L43/L65/L111/L112)', () => {
+  const bank = ['Reserve As Work 10,24000', 'A=Start(10)', 'Create Standard A']
+
+  it('Set Dual Mode is BPLCON0 bit 10, and it toggles', () => {
+    const on = run([...bank, 'Set Dual Mode 1'].join('\n'))
+    expect(getWord(on, on.personnal.bplConBase + 2) & 0x0400).toBe(0x0400)
+    const off = run([...bank, 'Set Dual Mode 1', 'Set Dual Mode 0'].join('\n'))
+    expect(getWord(off, off.personnal.bplConBase + 2) & 0x0400).toBe(0)
+  })
+
+  it('Inverse and Normal Playfields are BPLCON2 bit 6, PF2PRI', () => {
+    const inv = run([...bank, 'Inverse Playfields'].join('\n'))
+    expect(getWord(inv, inv.personnal.bplConBase + 10) & 0x40).toBe(0x40)
+    const norm = run([...bank, 'Inverse Playfields', 'Normal Playfields'].join('\n'))
+    expect(getWord(norm, norm.personnal.bplConBase + 10) & 0x40).toBe(0)
+  })
+
+  it('Set Dual Palette writes n<<10 into BPLCON3, clobbering the rest of it', () => {
+    // the builder leaves $0c00 there for the PAL second field; a plain Move.w
+    // takes the whole register, so that goes with it
+    const rt = run([...bank, 'Set Dual Palette 2'].join('\n'))
+    expect(getWord(rt, rt.personnal.bplConBase + 14)).toBe(2 << 10)
+  })
+
+  it('Dpf1 and Dpf2 Draw take alternate planes from the list', () => {
+    // Dpf1 walks _BitsPlanes from the start, Dpf2 from its second entry, both
+    // striding two (a_Mpp :4330, b_Mpp :4426)
+    const scene = (draw: string): string =>
+      [
+        'Screen Open 0,320,200,4,Lowres',
+        'Curs Off : Flash Off : Cls 0',
+        'P=Logbase(0)',
+        'Reserve As Work 10,24000 : A=Start(10)',
+        'Create Standard A',
+        // planes 1 and 3 are the real screen, 2 and 4 point elsewhere
+        'Set Plane 1,P : Set Plane 2,P+16000',
+        'Set Plane 3,P+8000 : Set Plane 4,P+24000',
+        'Mplot Planes 1 : Mplot Reserve 2',
+        'Mplot Define 1,10,20,1',
+        draw,
+        'R=Point(10,20)',
+        'Print R',
+      ].join('\n')
+    let a = ''
+    const rt1 = new Runtime(tokenize(scene('Mplot Dpf1 Draw 1 To 2'), table, exts), table, {
+      extensions: exts,
+      maxSteps: 1_000_000,
+      onText: (t) => (a += t),
+    })
+    rt1.runHeadless(300)
+    expect(a).toBe(' 1\n') // Dpf1 starts at plane 1, which is the screen
+    let b = ''
+    const rt2 = new Runtime(tokenize(scene('Mplot Dpf2 Draw 1 To 2'), table, exts), table, {
+      extensions: exts,
+      maxSteps: 1_000_000,
+      onText: (t) => (b += t),
+    })
+    rt2.runHeadless(300)
+    expect(b).toBe(' 0\n') // Dpf2 starts at plane 2, which points away
+  })
+
+  it('the dual-playfield draws need a bank like the ordinary one', () => {
+    expect(() => run('Mplot Dpf1 Draw 1 To 2')).toThrow(/Multi Plot bank non reservee/)
+    expect(() => run('Mplot Dpf2 Draw 1 To 2')).toThrow(/Multi Plot bank non reservee/)
+  })
+})

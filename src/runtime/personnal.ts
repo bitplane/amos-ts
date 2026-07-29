@@ -320,6 +320,40 @@ function appendWait(rt: Runtime, s: PersonnalState, line: number, hb: number): v
   }
 }
 
+/**
+ * The Mplot plotting engine (L100, :3937), shared with the two dual-playfield
+ * forms. `start` and `stride` choose which of _BitsPlanes it walks.
+ */
+function mplotDraw(rt: Runtime, it: { evalInt(): number; expect(t: string): void }, start: number, stride: number): void {
+  const first = it.evalInt()
+  it.expect('to')
+  const last = it.evalInt()
+  const s = rt.personnal
+  if (s.mpBase === 0) err(11)
+  const [width, height] = s.xy
+  const rowBytes = width >> 3
+  const xMax = width - 1
+  const yMax = height - 1
+  // The range excludes `last` — see the note on the loop bound in the tests.
+  for (let n = first; n < Math.max(first + 1, last); n++) {
+    const at = s.mpBase + 8 + (n - 1) * 6
+    const sx = (w: number): number => (w & 0x8000 ? w | ~0xffff : w)
+    const x = sx(getW(rt, at)) + s.origin[0]
+    const y = sx(getW(rt, at + 2)) + s.origin[1]
+    const ink = getW(rt, at + 4)
+    if (x < 0 || x > xMax || y < 0 || y > yMax) continue
+    const off = y * rowBytes + (x >> 3)
+    const bit = 7 - (x & 7)
+    for (let p = 0; p < s.mpP; p++) {
+      const plane = s.planes[start + p * stride] ?? 0
+      if (plane === 0) break // the point is abandoned, not the plane
+      const a = plane + off
+      const b = getB(rt, a)
+      putB(rt, a, ink & (1 << p) ? b | (1 << bit) : b & ~(1 << bit))
+    }
+  }
+}
+
 /** Shared by the two palette-to-copper keywords (_bi1 :2936, _bj1 :2980). */
 function cmapToCopper(rt: Runtime, n: number, src: number, eightBit: boolean): void {
   const s = rt.personnal
@@ -629,38 +663,66 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
      * here.
      */
     'mplot draw'(it) {
-      const first = it.evalInt()
-      it.expect('to')
-      const last = it.evalInt()
+      mplotDraw(rt, it, 0, 1)
+    },
+
+    /**
+     * Mplot Dpf1 Draw / Mplot Dpf2 Draw (L111/L112, :4264/:4360). The same
+     * engine over half the plane list: Dpf1 walks _BitsPlanes from the start
+     * and Dpf2 from its second entry, both striding two (a_Mpp :4330,
+     * b_Mpp :4426). That splits the planes into the two playfields — the
+     * guide calls Dpf1's "les bits plans impairs (1,3,5(&7 if AGA))".
+     *
+     * _MpP still counts planes drawn, not entries stepped, so four planes
+     * consumes the whole eight-entry list.
+     */
+    'mplot dpf1 draw'(it) {
+      mplotDraw(rt, it, 0, 2)
+    },
+    'mplot dpf2 draw'(it) {
+      mplotDraw(rt, it, 1, 2)
+    },
+
+    /**
+     * Set Dual Mode n (L28, :1336) — BPLCON0 bit 10, DBLPF. Splits the
+     * planes into two independent playfields.
+     */
+    'set dual mode'(it) {
+      const on = it.evalInt() !== 0
       const s = rt.personnal
-      if (s.mpBase === 0) err(11)
-      const [width, height] = s.xy
-      const rowBytes = width >> 3
-      const xMax = width - 1
-      const yMax = height - 1
-      // The range excludes `last`. The loop tests after the pointer has
-      // stepped a whole point (Cmp.l a0,a1 / Bgt at _xxl, :4027), so a range
-      // ending at the address of `last` stops just short of it. The guide
-      // says the opposite — "jusqu'au point LAST" — and every demo writes
-      // `Mplot Draw 1 To NUM` after reserving NUM, so the last point silently
-      // never draws. Source beats manual, and this is what the library does.
-      for (let n = first; n < Math.max(first + 1, last); n++) {
-        const at = s.mpBase + 8 + (n - 1) * 6
-        const sx = (w: number): number => (w & 0x8000 ? w | ~0xffff : w)
-        const x = sx(getW(rt, at)) + s.origin[0]
-        const y = sx(getW(rt, at + 2)) + s.origin[1]
-        const ink = getW(rt, at + 4)
-        if (x < 0 || x > xMax || y < 0 || y > yMax) continue
-        const off = y * rowBytes + (x >> 3)
-        const bit = 7 - (x & 7)
-        for (let p = 0; p < s.mpP; p++) {
-          const plane = s.planes[p] ?? 0
-          if (plane === 0) break // the point is abandoned, not the plane
-          const a = plane + off
-          const b = getB(rt, a)
-          putB(rt, a, ink & (1 << p) ? b | (1 << bit) : b & ~(1 << bit))
-        }
-      }
+      if (s.bplConBase === 0) err(1)
+      const a = s.bplConBase + 2
+      putW(rt, a, on ? getW(rt, a) | 0x0400 : getW(rt, a) & ~0x0400)
+    },
+
+    /**
+     * Inverse Playfields / Normal Playfields (L42/L43, :1932/:1945) —
+     * BPLCON2 bit 6, PF2PRI, which of the two is in front.
+     */
+    'inverse playfields'() {
+      const s = rt.personnal
+      if (s.bplConBase === 0) err(1)
+      putW(rt, s.bplConBase + 10, getW(rt, s.bplConBase + 10) | 0x40)
+    },
+    'normal playfields'() {
+      const s = rt.personnal
+      if (s.bplConBase === 0) err(1)
+      putW(rt, s.bplConBase + 10, getW(rt, s.bplConBase + 10) & ~0x40)
+    },
+
+    /**
+     * Set Dual Palette n (L65, :2716) — n<<10 into BPLCON3, the PF2OF field,
+     * which picks the 16-colour bank the second playfield reads.
+     *
+     * It writes the whole register rather than the field, so it also clears
+     * the $c00 the builder put there for the PAL second field, and any bank
+     * select left in it. Kept: the source is a plain Move.w.
+     */
+    'set dual palette'(it) {
+      const n = it.evalInt()
+      const s = rt.personnal
+      if (s.bplConBase === 0) err(1)
+      putW(rt, s.bplConBase + 14, (n * 0x400) & 0xffff)
     },
 
     /**
