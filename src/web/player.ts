@@ -327,7 +327,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
         banks: amos?.banks ?? [],
         audio,
         fs: vfs,
-        host: { clock: systemClock() },
+        host: { clock: systemClock(), printerPage: printPage },
       })
       if (systemResource) rt.loadSystemResource(systemResource)
       status(`running ${name}`)
@@ -464,4 +464,54 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       container.textContent = ''
     },
   }
+}
+
+/**
+ * Printer Dump, on paper.
+ *
+ * The page arrives as RGBA at the screen's own resolution, which is tiny by
+ * paper standards, so it goes into an off-screen canvas and is scaled up
+ * with smoothing off — an Amiga screen dumped to A4 should look like big
+ * square pixels, not a blurred photograph of them.
+ *
+ * SPECIAL_ASPECT is honoured by not honouring it: the source asks the driver
+ * to correct for the printer's own pixel aspect, and a browser's print
+ * pipeline has no such distortion to correct. Lowres pixels were wide on a
+ * real monitor, and that is reproduced by the 2:1 scale below rather than by
+ * the printer.
+ *
+ * The window is opened and printed rather than using a print stylesheet on
+ * the player itself, because the player is a canvas the size of a screen and
+ * the page is a separate document — and because printing must not disturb a
+ * program that is still running.
+ */
+function printPage(page: import('../runtime/host').PrinterPage): void {
+  const cv = document.createElement('canvas')
+  cv.width = page.width
+  cv.height = page.height
+  const cx = cv.getContext('2d')
+  if (!cx) return
+  // createImageData then set, rather than new ImageData(pixels, ...) — the
+  // constructor overload wants an ArrayBuffer-backed array specifically
+  const img = cx.createImageData(page.width, page.height)
+  img.data.set(page.pixels)
+  cx.putImageData(img, 0, 0)
+
+  // lowres pixels were twice as wide as they were tall
+  const wide = page.width <= 400
+  const w = page.width * (wide ? 2 : 1)
+  const url = cv.toDataURL('image/png')
+  const win = window.open('', '_blank')
+  if (!win) return
+  win.document.write(
+    `<!doctype html><title>Printer Dump</title>` +
+      `<style>@page{margin:1cm}html,body{margin:0;padding:0}` +
+      `img{width:100%;max-width:${w * 2}px;image-rendering:pixelated;display:block}</style>` +
+      `<img src="${url}">`,
+  )
+  win.document.close()
+  // let the image decode before the dialog measures the page
+  const el = win.document.querySelector('img')
+  if (el) el.onload = (): void => win.print()
+  else win.print()
 }

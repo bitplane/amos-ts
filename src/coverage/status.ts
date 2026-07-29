@@ -1212,6 +1212,7 @@ export const FAITHFUL = new Set<string>([
   'printer out',
   'printer abort',
   'printer check',
+  'printer dump',
   'parallel open',
   'parallel close',
   'parallel send',
@@ -1396,6 +1397,8 @@ export const NOTES: Record<string, string> = {
     'Returns 0 -- the PrinterData/IORequest address, which does not exist here. See Serial Base',
   'parallel error': 'Returns 0. See Serial Error; the parallel error table is base 171 with 7 messages',
   'parallel base': 'Returns 0. See Serial Base',
+  'printer dump':
+    "Rasterises the region and hands it to the host as a page (host.printerPage); where it then goes -- a print dialog, a download -- is the host's decision, as it is the printer driver's on a real machine. The geometry is reported exactly as the source computes it, including destCols/destRows as 16.16 fractions when FRACCOLS/FRACROWS are set, because turning a fraction of the page into inches needs a driver that knows the paper. What is NOT modelled is the printer driver itself: density, dithering, the aspect correction SPECIAL_ASPECT asks for, and the colour reduction a real driver would apply are all left to whatever renders the page",
   'parallel input$':
     'Returns the empty string. Reads up to LEN bytes with an optional timeout; with nothing attached nothing ever arrives, so the read finds no data and the timeout is the only outcome. The two arities are both accepted',
   'multi no':

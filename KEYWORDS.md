@@ -19,7 +19,7 @@ tested against our own understanding. Percentages exclude n/a
 | amospro-colours-1.0 | 27 | 0 | 0 | 27 | 0% |
 | amospro-compact-2.0 | 3 | 3 | 0 | 0 | 100% |
 | amospro-compiler-2.0 | 15 | 10 | 1 | 0 | 100% |
-| amospro-ioports-2.0 | 38 | 28 | 9 | 1 | 97% |
+| amospro-ioports-2.0 | 38 | 29 | 9 | 0 | 100% |
 | amospro-music-2.0 | 49 | 48 | 1 | 0 | 100% |
 | amospro-request-2.0 | 3 | 0 | 3 | 0 | 100% |
 | banks | 20 | 19 | 1 | 0 | 100% |
@@ -89,7 +89,7 @@ tested against our own understanding. Percentages exclude n/a
 | turbo-plus-2.15 | 17 | 17 | 0 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 4355 | 1043 | 45 | 3203 | 25% |
+| **total** | 4355 | 1044 | 45 | 3202 | 25% |
 
 ## aga-1.0 (0%)
 
@@ -127,11 +127,10 @@ tested against our own understanding. Percentages exclude n/a
 - **approximated**: `ppsave` *(Writes a valid PP20 file — proven decodable by an independent reference decoder — but NOT bit-identical to real PowerPacker output: powerpacker.library makes different (better) crunch choices, and its encoder is not in the AMOS source, so byte-exact parity is unverifiable. The efficiency argument is validated but the offset table is fixed; bob/icon banks unsupported.)*
 - **n/a**: `cmpcall`, `comp del`, `comp load`, `compile`
 
-## amospro-ioports-2.0 (97%)
+## amospro-ioports-2.0 (100%)
 
-- **faithful**: `parallel abort`, `parallel check`, `parallel close`, `parallel open`, `parallel out`, `parallel send`, `parallel status`, `printer abort`, `printer check`, `printer close`, `printer open`, `printer out`, `printer send`, `serial abort`, `serial bits`, `serial buf`, `serial check`, `serial close`, `serial fast`, `serial get`, `serial input$`, `serial open`, `serial out`, `serial parity`, `serial send`, `serial slow`, `serial speed`, `serial x`
-- **approximated**: `parallel base`, `parallel error`, `parallel input$`, `printer base`, `printer error`, `printer online`, `serial base`, `serial error`, `serial status`
-- **missing**: `printer dump`
+- **faithful**: `parallel abort`, `parallel check`, `parallel close`, `parallel open`, `parallel out`, `parallel send`, `parallel status`, `printer abort`, `printer check`, `printer close`, `printer dump` *(Rasterises the region and hands it to the host as a page (host.printerPage); where it then goes -- a print dialog, a download -- is the host's decision, as it is the printer driver's on a real machine. The geometry is reported exactly as the source computes it, including destCols/destRows as 16.16 fractions when FRACCOLS/FRACROWS are set, because turning a fraction of the page into inches needs a driver that knows the paper. What is NOT modelled is the printer driver itself: density, dithering, the aspect correction SPECIAL_ASPECT asks for, and the colour reduction a real driver would apply are all left to whatever renders the page)*, `printer open`, `printer out`, `printer send`, `serial abort`, `serial bits`, `serial buf`, `serial check`, `serial close`, `serial fast`, `serial get`, `serial input$`, `serial open`, `serial out`, `serial parity`, `serial send`, `serial slow`, `serial speed`, `serial x`
+- **approximated**: `parallel base` *(Returns 0. See Serial Base)*, `parallel error` *(Returns 0. See Serial Error; the parallel error table is base 171 with 7 messages)*, `parallel input$` *(Returns the empty string. Reads up to LEN bytes with an optional timeout; with nothing attached nothing ever arrives, so the read finds no data and the timeout is the only outcome. The two arities are both accepted)*, `printer base` *(Returns 0 -- the PrinterData/IORequest address, which does not exist here. See Serial Base)*, `printer error` *(Returns 0, for the same reason as Serial Error: nothing is attached, so nothing fails)*, `printer online` *(Returns 0, meaning not online. The source's failure path is `moveq #-1,d3`, so the two states are distinguishable, and this reports the one that is true of a machine with no printer plugged in. A program that waits for the printer to come online will wait, exactly as it would on such a machine)*, `serial base` *(Returns 0. Hands back the address of the IOExtSer request so a program can poke the structure directly. There is no such structure in this port -- the parameters live in a SerialParams object, not in emulated memory -- so there is no address to give. A program that only calls Serial Base to pass it on is unaffected; one that peeks the request is not)*, `serial error` *(Returns 0. The real call reads io_Error from the request and maps it through the device's error table (base 145, 16 messages, from the Dev.Open call). With no hardware behind the port there is no transfer to fail, so no error is ever raised and the keyword can only report success. The mapping itself is modelled -- ioError() resolves those exact messages -- it just has nothing to map)*, `serial status` *(Returns 0. Reads the modem control lines (CD, CTS, DSR, RI, DTR, RTS) from the serial request. Nothing is connected, so every line reads low. A real port with a real cable would report the handshake state and a program watching for carrier would see it here)*
 
 ## amospro-music-2.0 (100%)
 

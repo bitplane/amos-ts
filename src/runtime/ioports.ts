@@ -23,7 +23,9 @@
 import { VI, VS, AmosError, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
+import type { Screen } from './screen'
 import { ED_RUN_MESSAGES } from './edmessages.gen'
+import type { PrinterPage } from './host'
 
 /**
  * AMOS run-time error N, with the interpreter's own wording.
@@ -142,6 +144,8 @@ export interface IoPortsState {
   printerOut: number[]
   /** bytes written to the parallel port */
   parallelOut: number[]
+  /** pages produced by Printer Dump, in order */
+  pages: PrinterPage[]
 }
 
 export function newIoPortsState(): IoPortsState {
@@ -156,6 +160,7 @@ export function newIoPortsState(): IoPortsState {
     parallel: newSlot(PARALLEL_ERR_BASE, 7),
     printerOut: [],
     parallelOut: [],
+    pages: [],
   }
 }
 
@@ -273,6 +278,36 @@ function outBlock(rt: Runtime, addr: number, len: number): Uint8Array {
   const m = rt.resolveAddr(addr)
   if (!m || m.off + len > m.data.length) throw ioFonc()
   return m.data.subarray(m.off, m.off + len)
+}
+
+/**
+ * Rasterise a screen region to RGBA.
+ *
+ * Screen.renderRGBA already resolves pens through the screen's own palette,
+ * which is the same journey L_Dump makes by hand: GetColorMap(32) then EcPal
+ * unpacked a nibble at a time into the map printer.device reads. Pixels
+ * outside the screen come back transparent rather than clamped, because a
+ * dump of a region that runs off the edge is showing you nothing there, not
+ * the edge pixel repeated.
+ */
+function dumpRegion(sc: Screen, x0: number, y0: number, w: number, h: number): Uint8ClampedArray {
+  const full = sc.renderRGBA()
+  const out = new Uint8ClampedArray(w * h * 4)
+  for (let y = 0; y < h; y++) {
+    const sy = y0 + y
+    if (sy < 0 || sy >= sc.height) continue
+    for (let x = 0; x < w; x++) {
+      const sx = x0 + x
+      if (sx < 0 || sx >= sc.width) continue
+      const si = (sy * sc.width + sx) * 4
+      const di = (y * w + x) * 4
+      out[di] = full[si]!
+      out[di + 1] = full[si + 1]!
+      out[di + 2] = full[si + 2]!
+      out[di + 3] = full[si + 3]!
+    }
+  }
+  return out
 }
 
 /* ------------------------------------------------------------------ *
@@ -495,6 +530,97 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
 
     'printer abort'() {
       devAbort(st().printer)
+    },
+
+    /**
+     * Printer Dump [x1,y1 To x2,y2[,destCols,destRows,special]]
+     * (InPrinterDump0/4/7, +IO_Ports.s:801/812/861).
+     *
+     * A GRAPHICS dump, not a text one: L_Dump builds a colour map from the
+     * screen's own palette (GetColorMap(32), then EcPal unpacked a nibble at
+     * a time) and hands printer.device a bitmap through PRD_DUMPRPORT. The
+     * screen is whichever is current — GetScr reads ScOnAd and raises error
+     * 47 "Screen not opened" if there is none.
+     *
+     * The three forms differ in how the page is sized:
+     *  - no arguments: the whole screen, special $8c = ASPECT|FULLROWS|FULLCOLS
+     *  - four: the region, with destCols/destRows computed as 16.16 fractions
+     *    of the page from how much of the screen it covers, special $b0 =
+     *    ASPECT|FRACROWS|FRACCOLS
+     *  - seven: everything given explicitly
+     *
+     * Dump2a pops bottom-y, bottom-x, srcY, srcX — reverse stack order, so
+     * the written order is srcX,srcY To bottomX,bottomY — and then width and
+     * height become the extent (`neg.w d0 / add.w d0,(a0)`), not a second
+     * corner.
+     *
+     * DEVIATION: rasterising is all this does. Where the page then goes is
+     * the host's (host.printerPage), because on the real machine that is the
+     * printer driver's decision too — and the driver is what turns a
+     * FRACCOLS fraction into inches. With no host sink the page is still
+     * rendered and recorded, so a headless run is exercised rather than
+     * skipped.
+     */
+    'printer dump'(it) {
+      const p = st().printer
+      devGetIO(p)
+
+      const sc = rt.screen // GetScr: ScOnAd, else error 47
+      let srcX = 0
+      let srcY = 0
+      let width = sc.width
+      let height = sc.height
+      let destCols = 0
+      let destRows = 0
+      let special = 0x8c // ASPECT | FULLROWS | FULLCOLS
+
+      if (!it.atStmtEnd()) {
+        srcX = it.evalInt()
+        it.expect(',')
+        srcY = it.evalInt()
+        it.expect('to')
+        const bottomX = it.evalInt()
+        it.expect(',')
+        const bottomY = it.evalInt()
+        // Dump2a: the corners become an extent
+        width = bottomX - srcX
+        height = bottomY - srcY
+        if (it.accept(',')) {
+          destCols = it.evalInt()
+          it.expect(',')
+          destRows = it.evalInt()
+          it.expect(',')
+          special = it.evalInt() & 0xffff
+        } else {
+          // Dump4's proportional sizing. `divu.w` twice: the screen extent
+          // over the region extent, then $ffff over that, left in the top
+          // word as a 16.16 fraction. Both divisions guard their result
+          // against zero with Rbeq L_IOFonc, so a region wider than the
+          // screen is error 23 rather than a fraction over 1.
+          if (width <= 0 || height <= 0) throw ioFonc()
+          const cx = Math.floor(sc.width / width)
+          const cy = Math.floor(sc.height / height)
+          if (cx === 0 || cy === 0) throw ioFonc()
+          destCols = (Math.floor(0xffff / cx) & 0xffff) * 0x10000
+          destRows = (Math.floor(0xffff / cy) & 0xffff) * 0x10000
+          special = 0xb0 // ASPECT | FRACROWS | FRACCOLS
+        }
+      }
+
+      if (width <= 0 || height <= 0) throw ioFonc()
+      const page: PrinterPage = {
+        pixels: dumpRegion(sc, srcX, srcY, width, height),
+        width,
+        height,
+        srcX,
+        srcY,
+        special,
+        destCols,
+        destRows,
+      }
+      st().pages.push(page)
+      rt.host.printerPage?.(page)
+      devDoIO(p)
     },
 
     /* ---------------- Parallel ---------------- */

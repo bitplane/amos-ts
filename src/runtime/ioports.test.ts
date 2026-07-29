@@ -6,6 +6,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { makeIoPortsFunctions } from './ioports'
 import { VI, VS } from '../interp/values'
+import { fixedClock } from './host'
 
 const table = new TokenTable(CORE_TOKENS)
 // IOPorts is slot 6 (`ExtNb equ 6-1`, +IO_Ports.s:46)
@@ -251,5 +252,80 @@ describe('IOPorts: the keywords with no observable result but real state', () =>
 
     expect(() => run('Parallel Abort')).toThrow(/Device not opened/)
     expect(() => run('Printer Abort')).toThrow(/Device not opened/)
+  })
+})
+
+describe('IOPorts: Printer Dump (InPrinterDump0/4/7, +IO_Ports.s:801/812/861)', () => {
+  const pre = ['Screen Open 0,320,200,32,Lowres', 'Cls 0', 'Ink 5', 'Bar 10,10 To 59,59', 'Printer Open'].join('\n')
+
+  it('with no arguments it dumps the whole screen', () => {
+    // Dump0 sets pwidth/pheight from the screen and special $8c
+    const { rt } = run(`${pre}\nPrinter Dump`)
+    const p = rt.ioports.pages[0]!
+    expect([p.width, p.height, p.srcX, p.srcY]).toEqual([320, 200, 0, 0])
+    expect(p.special).toBe(0x8c) // ASPECT | FULLROWS | FULLCOLS
+    expect([p.destCols, p.destRows]).toEqual([0, 0])
+    expect(p.pixels.length).toBe(320 * 200 * 4)
+  })
+
+  it('the corners are an extent, not a second rectangle', () => {
+    // Dump2a pops bottom-y, bottom-x, srcY, srcX and then negates:
+    // `width = -srcX + bottomX`
+    const { rt } = run(`${pre}\nPrinter Dump 40,20 To 140,120`)
+    const p = rt.ioports.pages[0]!
+    expect([p.srcX, p.srcY, p.width, p.height]).toEqual([40, 20, 100, 100])
+  })
+
+  it('four arguments size the page as a 16.16 fraction of the screen covered', () => {
+    // half the screen each way -> $7fff in the top word, ~half the page
+    const { rt } = run(`${pre}\nPrinter Dump 0,0 To 160,100`)
+    const p = rt.ioports.pages[0]!
+    expect(p.special).toBe(0xb0) // ASPECT | FRACROWS | FRACCOLS
+    expect(p.destCols).toBe(0x7fff_0000)
+    expect(p.destRows).toBe(0x7fff_0000)
+  })
+
+  it('a region bigger than the screen is error 23, not a fraction over one', () => {
+    // both divu.w results are checked with Rbeq L_IOFonc, so a region the
+    // screen does not divide into at least once is rejected
+    expect(() => run(`${pre}\nPrinter Dump 0,0 To 640,400`)).toThrow(/function call/)
+  })
+
+  it('seven arguments are taken verbatim', () => {
+    const { rt } = run(`${pre}\nPrinter Dump 10,10 To 60,60,100,200,128`)
+    const p = rt.ioports.pages[0]!
+    expect([p.width, p.height, p.destCols, p.destRows, p.special]).toEqual([50, 50, 100, 200, 128])
+  })
+
+  it('the dump carries the screen pixels through its own palette', () => {
+    // the Bar is ink 5 over a cleared screen, so the dumped region should be
+    // one solid colour and it should not be the background
+    const { rt } = run(`${pre}\nPrinter Dump 20,20 To 50,50`)
+    const p = rt.ioports.pages[0]!
+    const px = (i: number): number[] => [p.pixels[i * 4]!, p.pixels[i * 4 + 1]!, p.pixels[i * 4 + 2]!]
+    const first = px(0)
+    for (let i = 1; i < p.width * p.height; i++) expect(px(i)).toEqual(first)
+
+    const bg = run(`${pre}\nPrinter Dump 200,150 To 230,180`)
+    expect(px(0)).not.toEqual([
+      bg.rt.ioports.pages[0]!.pixels[0]!,
+      bg.rt.ioports.pages[0]!.pixels[1]!,
+      bg.rt.ioports.pages[0]!.pixels[2]!,
+    ])
+  })
+
+  it('dumping with the printer closed is error 141', () => {
+    expect(() => run('Screen Open 0,320,200,32,Lowres\nPrinter Dump')).toThrow(/Device not opened/)
+  })
+
+  it('the page reaches a host that has a printer', () => {
+    const seen: number[] = []
+    const rt = new Runtime(tokenize(`${pre}\nPrinter Dump`, table, exts), table, {
+      extensions: exts,
+      maxSteps: 200_000,
+      host: { clock: fixedClock(), printerPage: (pg) => seen.push(pg.width, pg.height) },
+    })
+    rt.runHeadless(100_000)
+    expect(seen).toEqual([320, 200])
   })
 })

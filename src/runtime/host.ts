@@ -89,6 +89,48 @@ export interface Host {
    * but a browser could open a print dialog.
    */
   printer?: (text: string) => void
+  /**
+   * Graphics printer sink — a rendered page from `Printer Dump`.
+   *
+   * Separate from `printer` above because they are genuinely different
+   * devices' worth of work: that one is a character stream (Lprint, JD's Prt
+   * keywords), this is printer.device's PRD_DUMPRPORT, which rasterises a
+   * screen region. A host that can do one may not do the other.
+   *
+   * Absent rather than impossible: nothing to print to headless, but a
+   * browser can render the page to a canvas and open the print dialog.
+   */
+  printerPage?: (page: PrinterPage) => void
+}
+
+/**
+ * One `Printer Dump`, rasterised and ready for a page.
+ *
+ * The geometry is reported as the source computes it rather than resolved
+ * here, because how a dump lands on paper is the printer driver's decision
+ * on a real machine too — SPECIAL_FRACCOLS means "this fraction of the
+ * printable width", and only the driver knows how wide that is.
+ */
+export interface PrinterPage {
+  /** the region's pixels, RGBA, `width` * `height` * 4 */
+  pixels: Uint8ClampedArray
+  width: number
+  height: number
+  /** where on the screen the region came from */
+  srcX: number
+  srcY: number
+  /**
+   * printer.device's `special` word: ASPECT $80, FULLROWS $08, FULLCOLS $04,
+   * FRACROWS $20, FRACCOLS $10, CENTER $40, MILROWS $02, MILCOLS $01.
+   */
+  special: number
+  /**
+   * destCols/destRows as the source leaves them. With FRACCOLS/FRACROWS set
+   * these are 16.16 fixed point — the top word is the fraction of the page —
+   * which is why they are handed over raw rather than as pixel counts.
+   */
+  destCols: number
+  destRows: number
 }
 
 /** Every capability at its deterministic default. */
