@@ -345,3 +345,113 @@ describe('Personnal: the Mplot point bank (L94/L95/L98/L99/L101-103/L108)', () =
     expect(run('Mplot Reserve 1').personnal.mpP).toBe(8)
   })
 })
+
+describe('Personnal: Mplot Draw and the field defines (L100/L105-107)', () => {
+  // a real screen so the plane addresses resolve to its planar mirror
+  // Set Plane needs a list to write pointers into, so build one; _XY keeps
+  // its 320x192 default, which is what the bounds below are measured against
+  const scene = (body: string[]): string =>
+    [
+      'Screen Open 0,320,200,4,Lowres',
+      'Curs Off : Flash Off : Cls 0',
+      'P=Logbase(0)',
+      'Reserve As Work 10,24000',
+      'A=Start(10)',
+      'Create Standard A',
+      ...body,
+    ].join('\n')
+
+  it('plots into the plane bits, MSB leftmost, and the chunky side sees it', () => {
+    // the write goes through the planar mirror; Point reads the chunky one,
+    // so this is the round trip screen.ts:127-392 promises
+    let out = ''
+    const src = scene([
+      'Set Plane 1,P : Set Plane 2,P+8000',
+      'Mplot Planes 2',
+      'Mplot Reserve 2',
+      'Mplot Define 1,10,20,3',
+      'Mplot Draw 1 To 1',
+      'R1=Point(10,20) : R2=Point(11,20)',
+      'Print R1;R2',
+    ])
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 1_000_000, onText: (t) => (out += t) })
+    rt.runHeadless(300)
+    // ink 3 into two planes lights both bits of the index; its neighbour stays 0
+    expect(out).toBe(' 3 0\n')
+  })
+
+  it('clears a plane whose colour bit is 0, rather than leaving it', () => {
+    // the loop Bclr's as readily as it Bset's (_MpClear, :4014)
+    let out = ''
+    const src = scene([
+      'Set Plane 1,P : Set Plane 2,P+8000',
+      'Mplot Planes 2 : Mplot Reserve 1',
+      'Ink 3 : Plot 10,20',
+      'Mplot Define 1,10,20,1',
+      'Mplot Draw 1 To 1',
+      'Print Point(10,20)',
+    ])
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 1_000_000, onText: (t) => (out += t) })
+    rt.runHeadless(300)
+    expect(out).toBe(' 1\n') // plane 2's bit was cleared back down
+  })
+
+  it('the origin shifts the coordinates, and off-screen points are dropped', () => {
+    let out = ''
+    const src = scene([
+      'Set Plane 1,P',
+      'Mplot Planes 1 : Mplot Reserve 2',
+      'Mplot Origin 100,50',
+      'Mplot Define 1,5,5,1',
+      'Mplot Define 2,-500,0,1',
+      'Mplot Draw 1 To 2',
+      'R1=Point(105,55) : R2=Point(5,5)',
+      'Print R1;R2',
+    ])
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 1_000_000, onText: (t) => (out += t) })
+    rt.runHeadless(300)
+    expect(out).toBe(' 1 0\n') // drawn at the origin, and the wild one vanished
+  })
+
+  it('a zero plane address abandons the whole point, not just that plane', () => {
+    // _Mpp1's Beq goes to _xxl (:4006) — plane 3 unset truncates the pixel
+    let out = ''
+    const src = scene([
+      'Set Plane 1,P : Set Plane 2,P+8000',
+      'Mplot Planes 4 : Mplot Reserve 1',
+      'Mplot Define 1,10,20,15',
+      'Mplot Draw 1 To 1',
+      'Print Point(10,20)',
+    ])
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 1_000_000, onText: (t) => (out += t) })
+    rt.runHeadless(300)
+    expect(out).toBe(' 3\n') // planes 1 and 2 only; 3 and 4 were never reached
+  })
+
+  it('the field defines step and wrap: X on width, Y on height, C on 256', () => {
+    const rt = run(
+      [
+        'Mplot Reserve 1',
+        'Mplot Define 1,318,198,254',
+        'Mplot X Define 1,5', // 318+5 = 323 >= 320 -> 0
+        'Mplot Y Define 1,5', // 198+5 = 203 >= 192 -> 0  (the floor, not 200)
+        'Mplot C Define 1,5', // 254+5 = 259 >= 256 -> 0
+      ].join('\n'),
+    )
+    const at = rt.personnal.mpBase + 8
+    expect(leek(rt, at) >>> 16).toBe(0)
+    expect(leek(rt, at) & 0xffff).toBe(0)
+    expect(leek(rt, at + 4) >>> 16).toBe(0)
+  })
+
+  it('stepping below zero wraps to the far end', () => {
+    const rt = run(['Mplot Reserve 1', 'Mplot Define 1,2,2,2', 'Mplot X Define 1,-5'].join('\n'))
+    // 2-5 = -3, so it lands on width-1
+    expect(leek(rt, rt.personnal.mpBase + 8) >>> 16).toBe(319)
+  })
+
+  it('drawing or stepping without a bank is ErrMess 11', () => {
+    expect(() => run('Mplot Draw 1 To 2')).toThrow(/Multi Plot bank non reservee/)
+    expect(() => run('Mplot X Define 1,1')).toThrow(/Multi Plot bank non reservee/)
+  })
+})

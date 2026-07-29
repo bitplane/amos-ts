@@ -247,6 +247,36 @@ function writePlanePointers(rt: Runtime, s: PersonnalState): void {
   }
 }
 
+function getB(rt: Runtime, addr: number): number {
+  const m = rt.resolveAddr(addr)
+  return m && m.off < m.data.length ? m.data[m.off]! : 0
+}
+
+function putB(rt: Runtime, addr: number, v: number): void {
+  const m = rt.resolveWrite(addr)
+  if (m && m.off < m.data.length) m.data[m.off] = v & 0xff
+}
+
+/**
+ * The wrapping add the three single-field defines share (L105-L107,
+ * :4142/:4171/:4201). Past the bound it wraps to 0, below zero to bound-1 —
+ * which is what makes a starfield loop without the program checking.
+ *
+ * Note the read is UNSIGNED here, where X Mplot sign-extends the same word.
+ * A point holding a negative coordinate therefore steps from 65536-odd rather
+ * than from where X Mplot says it is, and lands on 0 the first time. Kept as
+ * found; it is the difference between reading a point and stepping one.
+ */
+function defineAdd(rt: Runtime, n: number, field: number, add: number, bound: number): void {
+  const s = rt.personnal
+  if (s.mpBase === 0) err(11)
+  const at = s.mpBase + 8 + (n - 1) * 6 + field
+  let v = getW(rt, at) + add
+  if (v >= bound) v = 0
+  else if (v < 0) v = bound - 1
+  putW(rt, at, v & 0xffff)
+}
+
 /** One sign-extended word of a point, shared by X/Y/C Mplot. */
 function mplotWord(rt: Runtime, n: number, field: number): number {
   const s = rt.personnal
@@ -514,6 +544,77 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       putW(rt, at, x & 0xffff)
       putW(rt, at + 2, y & 0xffff)
       putW(rt, at + 4, c & 0xffff)
+    },
+
+    /**
+     * Mplot Draw first To last (L100, :3937). The engine, and the reason the
+     * bank exists — a starfield redraws by walking the whole range every
+     * frame.
+     *
+     * Per point: read X and Y sign-extended, add the origin, reject anything
+     * outside 0..X-1 and 0..Y-1, then split the position into a byte offset
+     * of `y*(width>>3) + (x>>3)` and a bit of `7-(x and 7)`, MSB leftmost.
+     * The ink is written a plane at a time — bit d4 of the colour decides
+     * whether plane d4 is set or cleared — for _MpP planes.
+     *
+     * A plane address of zero abandons the whole POINT, not just that plane
+     * (_Mpp1's Beq goes to _xxl, :4006), so a gap in the middle of the plane
+     * list truncates the pixel rather than skipping a layer.
+     *
+     * These are direct planar writes into the addresses Set Plane recorded.
+     * resolveWrite hands back the screen's planar mirror and flips its
+     * authority, so the chunky side re-decodes on the next read — the port
+     * keeps both faithfully (screen.ts:127-392) and nothing extra is needed
+     * here.
+     */
+    'mplot draw'(it) {
+      const first = it.evalInt()
+      it.expect('to')
+      const last = it.evalInt()
+      const s = rt.personnal
+      if (s.mpBase === 0) err(11)
+      const [width, height] = s.xy
+      const rowBytes = width >> 3
+      const xMax = width - 1
+      const yMax = height - 1
+      for (let n = first; n <= last; n++) {
+        const at = s.mpBase + 8 + (n - 1) * 6
+        const sx = (w: number): number => (w & 0x8000 ? w | ~0xffff : w)
+        const x = sx(getW(rt, at)) + s.origin[0]
+        const y = sx(getW(rt, at + 2)) + s.origin[1]
+        const ink = getW(rt, at + 4)
+        if (x < 0 || x > xMax || y < 0 || y > yMax) continue
+        const off = y * rowBytes + (x >> 3)
+        const bit = 7 - (x & 7)
+        for (let p = 0; p < s.mpP; p++) {
+          const plane = s.planes[p] ?? 0
+          if (plane === 0) break // the point is abandoned, not the plane
+          const a = plane + off
+          const b = getB(rt, a)
+          putB(rt, a, ink & (1 << p) ? b | (1 << bit) : b & ~(1 << bit))
+        }
+      }
+    },
+
+    /**
+     * Mplot X/Y/C Define n,add (L105/L106/L107). One field of one point,
+     * stepped and wrapped — X against the screen width, Y against its height,
+     * C against 256.
+     */
+    'mplot x define'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      defineAdd(rt, n, 0, it.evalInt(), rt.personnal.xy[0])
+    },
+    'mplot y define'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      defineAdd(rt, n, 2, it.evalInt(), rt.personnal.xy[1])
+    },
+    'mplot c define'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      defineAdd(rt, n, 4, it.evalInt(), 256)
     },
 
     /** Mplot Origin x,y (L108, :4229) — where the coordinates are measured from */
