@@ -24,7 +24,7 @@
  * them once the program points the hardware at it (`Active Copper`, batch 4).
  * Building a list does not display it, here or on the Amiga.
  */
-import { AmosError, VI, type Value } from '../interp/values'
+import { AmosError, VI, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 
@@ -89,7 +89,20 @@ export interface PersonnalState {
   xyOff: [number, number, number, number]
   /** _D4 — the last Screen Position type */
   d4: number
+  /** _BitsPlanes (:383) — the eight displayed plane addresses */
+  planes: number[]
+  /** _BitsPlanesD (:447) — the back set Swap Planes exchanges with */
+  planesD: number[]
+  /** _MpP — how many planes the Mplot engine draws into */
+  mpP: number
 }
+
+/**
+ * _PlanesMask (:399), indexed by plane count 0..8. Seven counts live in
+ * BPLCON0's BPU field at bits 12-14; the eighth is bit 4, BPU3, because AGA
+ * ran out of room in the original field.
+ */
+const PLANES_MASK = [0x0, 0x1000, 0x2000, 0x3000, 0x4000, 0x5000, 0x6000, 0x7000, 0x10] as const
 
 export function newPersonnalState(): PersonnalState {
   return {
@@ -107,6 +120,9 @@ export function newPersonnalState(): PersonnalState {
     xy: [320, 192],
     xyOff: [0, 0, 0, 0],
     d4: 0,
+    planes: new Array(8).fill(0),
+    planesD: new Array(8).fill(0),
+    mpP: 0,
   }
 }
 
@@ -204,6 +220,24 @@ function buildList(rt: Runtime, addr: number, aga: boolean): void {
   s.second = 0
 }
 
+/**
+ * Copy the plane addresses into the list's BPLxPT moves (_spb, :779, and
+ * again in Swap Planes at _nbb, :3357).
+ *
+ * The 68k copies WORDS out of _BitsPlanes: a longword address read as two
+ * words is its own high half then low half, which is exactly the PTH then PTL
+ * a pointer pair wants. Twelve words for six planes, sixteen for eight — the
+ * loop counts are 11 and 15 with a Bpl, so one more than they look.
+ */
+function writePlanePointers(rt: Runtime, s: PersonnalState): void {
+  const words = s.aga ? 16 : 12
+  for (let i = 0; i < words; i++) {
+    const addr = s.planes[i >> 1] ?? 0
+    const w = i & 1 ? addr & 0xffff : (addr >>> 16) & 0xffff
+    putW(rt, s.bplPtBase + i * 4 + 2, w)
+  }
+}
+
 export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
   return {
     /** Create Standard addr (L26, :1008) */
@@ -251,6 +285,83 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       putW(rt, a, on ? getW(rt, a) | 0x0004 : getW(rt, a) & ~0x0004)
     },
 
+    /**
+     * Set Plane n,address (L16, :758). Records the address and rewrites every
+     * pointer in the list, not just this one. A plane number outside 1-8 is
+     * ignored in silence — the routine branches straight to its RTS — where
+     * no list at all is the error.
+     */
+    'set plane'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const addr = it.evalInt()
+      const s = rt.personnal
+      if (s.copperBase === 0) err(1)
+      if (n < 1 || n > 8) return
+      s.planes[n - 1] = addr >>> 0
+      writePlanePointers(rt, s)
+    },
+
+    /**
+     * Set D Plane n,address (L85, :3325). The back set. It only records —
+     * nothing reaches the list until Swap Planes, and it raises nothing at
+     * all, not even for a missing list.
+     */
+    'set d plane'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const addr = it.evalInt()
+      if (n < 1 || n > 8) return
+      rt.personnal.planesD[n - 1] = addr >>> 0
+    },
+
+    /**
+     * Swap Planes (L86, :3339). Exchanges all eight addresses with the back
+     * set and rewrites the pointers — the double buffer flip. Guarded on the
+     * first plane rather than on the list: an unset _BitsPlanes[0] is what
+     * raises "Copper list non reservee.", so swapping before any Set Plane
+     * is the error even if a list exists.
+     */
+    'swap planes'() {
+      const s = rt.personnal
+      if ((s.planes[0] ?? 0) === 0) err(1)
+      for (let i = 0; i < 8; i++) {
+        const t = s.planes[i]!
+        s.planes[i] = s.planesD[i]!
+        s.planesD[i] = t
+      }
+      writePlanePointers(rt, s)
+    },
+
+    /**
+     * Set View Planes n (L21, :872). How many planes the display fetches,
+     * through BPLCON0's BPU. Above six is ignored unless the list was built
+     * by Create Aga. The mask comes from _PlanesMask, and the routine clears
+     * bit 4 along with 12-14 before OR-ing it in, because eight planes is
+     * BPU3 at bit 4 rather than a fourth bit up top.
+     */
+    'set view planes'(it) {
+      const n = it.evalInt()
+      const s = rt.personnal
+      if (s.aga === 0 && n > 6) return
+      if (s.copperBase === 0) err(1)
+      if (n < 0 || n > 8) return
+      const a = s.bplConBase + 2
+      const kept = getW(rt, a) & ~0x7010
+      putW(rt, a, kept | PLANES_MASK[n]!)
+    },
+
+    /**
+     * Mplot Planes n (L109, :4236). How many planes the point engine draws
+     * into. Unlike the plane setters this one refuses a bad count out loud,
+     * with ErrMess 14.
+     */
+    'mplot planes'(it) {
+      const n = it.evalInt()
+      if (n < 1 || n > 8) err(14)
+      rt.personnal.mpP = n
+    },
+
     /** Set Ntsc (L3, :524) — BEAMCON0 $DFF1DC = 0 */
     'set ntsc'() {
       rt.beamcon0 = 0x0000
@@ -286,6 +397,17 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     },
     'screen y size'(): Value {
       return VI(Math.max(rt.personnal.xy[1], 192))
+    },
+
+    /**
+     * Plane Base(n) (L17, :794). The address Set Plane recorded, or 0 for a
+     * plane outside 1-8 — the routine zeroes d3 before it validates, so an
+     * out-of-range ask is answered rather than refused.
+     */
+    'plane base'(_, a): Value {
+      const n = int(a[0]!)
+      if (n < 1 || n > 8) return VI(0)
+      return VI(rt.personnal.planes[n - 1] ?? 0)
     },
   }
 }

@@ -4139,8 +4139,12 @@ export class Runtime {
           sprSet = true
         } else if (reg === 0x100) {
           hires = (w2 & 0x8000) !== 0
-          // BPU 12-14; 0 planes means the playfield is off, not 1
-          bpu = (w2 >> 12) & 7
+          // BPU is 12-14 plus BPU3 at bit 4, which is how AGA says eight
+          // planes — Personnal's _PlanesMask (:399) ends $7000,$10 for
+          // exactly that reason, and Set View Planes clears bit 4 alongside
+          // 12-14 before it ORs the new count in. Reading only 12-14 makes an
+          // 8-plane list look like no planes at all.
+          bpu = ((w2 >> 12) & 7) | ((w2 >> 1) & 8)
           ham = (w2 & 0x0800) !== 0
           dblpf = (w2 & 0x0400) !== 0
           lace = (w2 & 0x0004) !== 0

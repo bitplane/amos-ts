@@ -151,3 +151,82 @@ describe('Personnal: the registers written outside a list', () => {
     expect(rt.bplcon3Direct).toBe(0)
   })
 })
+
+describe('Personnal: bitplanes (L16/L17/L21/L85/L86/L109)', () => {
+  it('Set Plane records the address and rewrites every pointer in the list', () => {
+    // _spb (:779) copies WORDS out of _BitsPlanes, so a longword address
+    // becomes its own PTH then PTL. Twelve words for six planes.
+    const rt = run(withBank(['Create Standard A', 'Set Plane 1,$12345678', 'Set Plane 2,$AABBCCDD']))
+    const s = rt.personnal
+    expect(leek(rt, s.bplPtBase)).toBe(0x00e01234) // BPL1PTH
+    expect(leek(rt, s.bplPtBase + 4)).toBe(0x00e25678) // BPL1PTL
+    expect(leek(rt, s.bplPtBase + 8)).toBe(0x00e4aabb) // BPL2PTH
+    expect(leek(rt, s.bplPtBase + 12)).toBe(0x00e6ccdd) // BPL2PTL
+  })
+
+  it('Create Aga writes sixteen words, Create Standard only twelve', () => {
+    // the loop counts are 15 and 11 with a Bpl, so one more than they look:
+    // plane 7 reaches the list under Aga and does not under Standard
+    const aga = run(withBank(['Create Aga A', 'Set Plane 7,$11112222']))
+    expect(leek(aga, aga.personnal.bplPtBase + 48)).toBe(0x00f81111) // BPL7PTH
+    const std = run(withBank(['Create Standard A', 'Set Plane 7,$11112222']))
+    expect(leek(std, std.personnal.bplPtBase + 48)).toBe(0x00f80000) // untouched
+  })
+
+  it('an out-of-range plane is ignored, a missing list is not', () => {
+    // L16 branches to its RTS for 0 or 9 and says nothing
+    const rt = run(withBank(['Create Standard A', 'Set Plane 0,$1234', 'Set Plane 9,$5678']))
+    expect(rt.personnal.planes.every((p) => p === 0)).toBe(true)
+    expect(() => run('Set Plane 1,$1234')).toThrow(/Copper list non reservee/)
+  })
+
+  it('Plane Base answers what Set Plane recorded, and 0 off the ends', () => {
+    let out = ''
+    const src = withBank(['Create Standard A', 'Set Plane 3,$DEAD', 'Print Plane Base(3) : Print Plane Base(9)'])
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, onText: (t) => (out += t) })
+    rt.runHeadless(200)
+    expect(out).toBe(` ${0xdead}\n 0\n`)
+  })
+
+  it('Swap Planes exchanges the two sets and rewrites the pointers', () => {
+    const rt = run(
+      withBank(['Create Standard A', 'Set Plane 1,$1000', 'Set D Plane 1,$2000', 'Swap Planes']),
+    )
+    const s = rt.personnal
+    expect(s.planes[0]).toBe(0x2000)
+    expect(s.planesD[0]).toBe(0x1000)
+    expect(leek(rt, s.bplPtBase + 4) & 0xffff).toBe(0x2000) // the list followed
+    // and back again
+    const twice = run(
+      withBank(['Create Standard A', 'Set Plane 1,$1000', 'Set D Plane 1,$2000', 'Swap Planes', 'Swap Planes']),
+    )
+    expect(twice.personnal.planes[0]).toBe(0x1000)
+  })
+
+  it('Swap Planes before any Set Plane is the error, list or no list', () => {
+    // guarded on _BitsPlanes[0], not on _CopperBase (sppx, :3362)
+    expect(() => run(withBank(['Create Standard A', 'Swap Planes']))).toThrow(/Copper list non reservee/)
+  })
+
+  it('Set View Planes writes BPU, with eight planes at bit 4', () => {
+    // _PlanesMask (:399) is $0,$1000..$7000,$10 — the eighth count is BPU3
+    const four = run(withBank(['Create Standard A', 'Set View Planes 4']))
+    expect(leek(four, four.personnal.bplConBase) & 0x7010).toBe(0x4000)
+    const eight = run(withBank(['Create Aga A', 'Set View Planes 8']))
+    expect(leek(eight, eight.personnal.bplConBase) & 0x7010).toBe(0x0010)
+    // What the interpreter makes of that cannot be asserted here: nothing has
+    // pointed the hardware at this list yet, so copRegs still holds its seeded
+    // defaults. Active Copper is batch 4, and the readback belongs with it.
+  })
+
+  it('above six planes needs an Aga list; a Standard one ignores the ask', () => {
+    const rt = run(withBank(['Create Standard A', 'Set View Planes 4', 'Set View Planes 7']))
+    expect(leek(rt, rt.personnal.bplConBase) & 0x7010).toBe(0x4000) // still four
+  })
+
+  it('Mplot Planes refuses a bad count out loud (ErrMess 14)', () => {
+    expect(run('Mplot Planes 8').personnal.mpP).toBe(8)
+    expect(() => run('Mplot Planes 0')).toThrow(/Valeur permise de 1 a 8 seulement/)
+    expect(() => run('Mplot Planes 9')).toThrow(/Valeur permise de 1 a 8 seulement/)
+  })
+})
