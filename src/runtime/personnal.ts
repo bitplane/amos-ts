@@ -2094,8 +2094,17 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
      * the program expects music. NOTES entry at closeout; the closable path
      * is a real P61 decoder, which `med play` already sets the precedent for.
      */
+    /**
+     * P61 Play has TWO table entries: id $09CC with spec `I0` and id $09DC
+     * with `I0,0` and no name of its own — an arity variant, which
+     * TokenTable.name resolves back to the named one. Routine 124 is byte for
+     * byte routine 123 with an extra `move.l (a3)+,d0` at the front, so the
+     * second argument is popped and then ignored. Both forms have to parse or
+     * the second argument is left dangling at the comma.
+     */
     'p61 play'(it) {
       it.evalInt()
+      if (it.accept(',')) it.evalInt()
       rt.personnal.p61Playing = true
     },
     'p61 stop'() {
@@ -2701,6 +2710,41 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     /** Mplot Base (L99, :3931) — the bank address, or 0 */
     'mplot base'(): Value {
       return VI(rt.personnal.mpBase)
+    },
+
+    /**
+     * Sprite Col(s1,s2) (L44, :1958), registered under Personnal's own slot
+     * because core owns the plain name and asks a different question of
+     * different arguments — core's is `Sprite Col(n[,first[,last]])`, a real
+     * sprite-against-sprites check. A Personnal program calling this used to
+     * get that instead, which is not a harmless substitution: it answers with
+     * a colliding sprite number where this answers -1.
+     *
+     * Personnal maps the PAIR of sprite numbers onto one CLXDAT bit through a
+     * ladder of Cmp/Move (:1958-:1998) and answers -1 when that bit is CLEAR
+     * — the same inverted test as Playfields Col, and the same always--1
+     * result, because nothing writes CLXDAT here.
+     *
+     * The slot is 13: the source says so (`ExtNb Equ 13-1`) and 68 of the 69
+     * shipped demos agree. Bound anywhere else it falls back to the plain
+     * name, which is core's — no worse than before.
+     */
+    'ext13:sprite col'(_, a): Value {
+      void a
+      return VI(clxBit(rt, 0))
+    },
+
+    /**
+     * Right Click (L5, $29aa) — POTGOR bit 10, DATLY, port 0 pin 9, answering
+     * -1 when the bit is clear. TURBO Plus owns the plain name and reads the
+     * same button to the same answer, so nothing was lost while this was
+     * unregistered; but relying on another extension happening to agree is
+     * not the same as implementing it. Registered under Personnal's own slot
+     * so the agreement is a fact about the two libraries rather than a
+     * dependency.
+     */
+    'ext13:right click'(): Value {
+      return VI(rt.input.mouseK & 2 ? -1 : 0)
     },
 
     /** =Aga Icon Base (L91, :3535) — _IcBase, zero when unreserved. */

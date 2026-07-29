@@ -17,7 +17,11 @@ const registries = {
   runtimeFuncs: Object.keys(makeAllFunctions(rt)),
   raw: [...Object.keys(RAWFUNCS), ...Object.keys(makeRawFunctions(rt))],
 }
-const implemented = new Set(Object.values(registries).flat())
+// a handler may be registered under a slot-qualified key (`ext13:sprite col`)
+// when it needs its own version of a name another layer owns; the keyword it
+// implements is the part after the colon. See Names.qualified.
+const unqualify = (n: string): string => n.replace(/^ext\d+:/, '')
+const implemented = new Set(Object.values(registries).flat().map(unqualify))
 
 const known = new Set<string>()
 for (const e of CORE_TOKENS) {

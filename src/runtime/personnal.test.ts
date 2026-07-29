@@ -1194,6 +1194,47 @@ describe('Personnal: the five mosaics (L32-L36, :1316/:1373/:1444/:1517/:1591)',
   })
 })
 
+describe('Personnal: Sprite Col resolves by slot, not by name', () => {
+  it("a Personnal program gets Personnal's answer, a core program gets core's", () => {
+    // Core owns the plain name and asks a different question of different
+    // arguments: `Sprite Col(n[,first[,last]])` really checks sprite n
+    // against a range and answers with a colliding sprite number. Personnal's
+    // `Sprite Col(s1,s2)` maps the PAIR onto one CLXDAT bit and answers -1
+    // when it is clear — always, since nothing writes CLXDAT here.
+    //
+    // Both now coexist, as they do on the machine: the token carries its slot
+    // and the dispatch tries `ext13:sprite col` before the bare name.
+    // Typed text cannot express the difference: `Sprite Col` matches core's
+    // name and the text tokeniser takes it. A SAVED program records whichever
+    // token the editor chose, and a program written with Personnal loaded
+    // holds ext13:$0304 — so that is what this builds, as parseSource would
+    // read out of the file.
+    const lines = tokenize('Print Sprite Col(0,1)', table, exts)
+    for (const line of lines) {
+      for (let i = 0; i < line.tokens.length; i++) {
+        const t = line.tokens[i]!
+        if (t.kind !== 'core') continue
+        if (table.name(t.id)?.trim().toLowerCase() === 'sprite col') {
+          line.tokens[i] = { kind: 'ext', ext: 13, id: 0x0304, nparams: 2 }
+        }
+      }
+    }
+    let out = ''
+    const rt = new Runtime(lines, table, { extensions: exts, maxSteps: 200_000, onText: (t) => (out += t) })
+    rt.runHeadless(100)
+    expect(out).toBe('-1\n') // Personnal's, through slot 13
+
+    // the same source with no extension bound is core's keyword, unchanged
+    let core = ''
+    const plain = new Runtime(tokenize('Print Sprite Col(0)', table), table, {
+      maxSteps: 200_000,
+      onText: (t) => (core += t),
+    })
+    plain.runHeadless(100)
+    expect(core).toBe(' 0\n')
+  })
+})
+
 describe('Personnal: the six the other blocks never reach', () => {
   // every keyword promoted to FAITHFUL has to be dispatched by the suite or
   // the coverage gate fails the run; these are the ones the behavioural

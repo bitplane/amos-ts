@@ -76,10 +76,12 @@ identified by fingerprint when slots collide.
 
 **A caveat on those percentages.** Coverage is counted by keyword NAME, and
 several extensions share names. Porting Personnal moved `p61-1.2` to 22%,
-`amcaf-1.50` to 2% and `intuition-1.3b` to 1% without a line of either being
-written — the names collide and the count cannot tell them apart. It is the
-same name-keyed dispatch that let an extension keyword silently replace a core
-one; the table over-reports until that is fixed.
+`amcaf-1.50` to 2% and `intuition-1.3b` to 1% without a line of any of them
+being written — the names collide and the count cannot tell them apart. The
+dispatch itself no longer has that problem: a layer that needs its own version
+of a name another layer owns registers under a slot-qualified key
+(`ext13:sprite col`) and the interpreter tries that first, which is how the
+machine resolves it. The published table is what still over-reports.
 
 ### IOPorts extension (serial/parallel/printer — area 0%, 38 keywords)
 `Serial *` (~14), `Parallel *` (~10), `Printer *` (~10). This is a stock

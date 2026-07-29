@@ -816,7 +816,8 @@ export class Interp {
           return this.rawFuncs[name]!(this)
         }
         if (name !== undefined) {
-          const fn = this.funcs[name]
+          const qual = this.names.qualified(t)
+          const fn = (qual === undefined ? undefined : this.funcs[qual]) ?? this.funcs[name]
           if (fn !== undefined) {
             this.advance()
             const args: Value[] = []
@@ -1235,7 +1236,9 @@ export class Interp {
           return
         }
         if (name !== undefined) KEYWORD_PROBE?.add(name)
-        const handler = name === undefined ? undefined : this.instr[name]
+        // a slot-qualified handler wins over the plain name: see Names.qualified
+        const qual = this.names.qualified(tok)
+        const handler = (qual === undefined ? undefined : this.instr[qual]) ?? (name === undefined ? undefined : this.instr[name])
         if (handler) {
           this.advance()
           // handlers that move the pc return 'jumped' and skip the

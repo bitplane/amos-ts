@@ -33,6 +33,26 @@ export class Names {
   }
 
   /**
+   * Slot-qualified dispatch key for an extension token — `ext13:sprite col`.
+   *
+   * The dispatch tables are keyed by name, but a name is not unique: core has
+   * a `Sprite Col` and so does Personnal, and they ask different questions of
+   * different arguments. On the machine they are different tokens and coexist
+   * (core token vs (slot, id) pair); here the plain name collapses them, and
+   * whichever layer registered last used to win.
+   *
+   * So a layer that needs its own version of a name it does not own registers
+   * under this key instead, and the dispatch tries it before the plain name.
+   * That reproduces the machine's answer: the slot the program bound decides.
+   * Only names that opt in are affected, so nothing else changes.
+   */
+  qualified(tok: Tok): string | undefined {
+    if (tok.kind !== 'ext') return undefined
+    const n = this.extensions.get(tok.ext)?.name(tok.id)
+    return n === undefined ? undefined : `ext${tok.ext}:${n.trim().toLowerCase()}`
+  }
+
+  /**
    * The token's spec string (parameter/return type codes). The first code
    * is the return type: 0=int, 1=float, 2=string. Used to give an
    * unimplemented extension FUNCTION a type-correct default so a program

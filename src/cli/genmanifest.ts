@@ -17,6 +17,9 @@ import { FAITHFUL, NA, NOTES, STRUCTURAL } from '../coverage/status'
 
 const table = new TokenTable(CORE_TOKENS)
 const rt = new Runtime(tokenize('', table), table, {})
+// slot-qualified handlers (`ext13:sprite col`) implement the keyword after
+// the colon; see Names.qualified
+const unqualify = (n: string): string => n.replace(/^ext\d+:/, '')
 const implemented = new Set([
   ...Object.keys(INSTR),
   ...Object.keys(FUNCS),
@@ -24,7 +27,7 @@ const implemented = new Set([
   ...Object.keys(makeAllFunctions(rt)),
   ...Object.keys(RAWFUNCS),
   ...Object.keys(makeRawFunctions(rt)),
-])
+].map(unqualify))
 
 function keywordNames(defs: Array<{ name: string }>): string[] {
   const out = new Set<string>()

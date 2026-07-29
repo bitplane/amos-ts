@@ -1648,6 +1648,10 @@ export const NOTES: Record<string, string> = {
   'allow plane col':
     "reaches _BPlanesMask correctly but always sets CLXCON bit 0: the routine shifts the plane left six before `Bset d0,d1`, and Bset on a DATA register takes its bit number modulo 32, so n*64 is bit 0 for every n in range",
   'forbid plane col': 'the same modulo-32 Bset as Allow Plane Col — every plane clears the same CLXCON bit',
+  'sprite col':
+    "Personnal's own, registered under its slot (`ext13:sprite col`) because core owns the plain name and asks a different question of different arguments — core's `Sprite Col(n[,first[,last]])` really checks a sprite against a range. Personnal's maps the PAIR onto one CLXDAT bit and answers -1 when it is clear, which is always, since nothing writes CLXDAT here. A program that bound Personnal at any other slot falls back to core's",
+  'right click':
+    "Personnal's is registered under its slot too, though TURBO Plus's reads the same button (POTGOR bit 10, DATLY, port 0 pin 9) to the same answer — the agreement is a fact about the two libraries rather than something to depend on",
   'playfields col':
     'answers -1 when the CLXDAT bit is CLEAR, the opposite of what the name suggests (Btst sets Z on a zero bit and the Bne skips the -1); and there is no collision hardware here, so CLXDAT reads 0 and it always answers -1',
   'pf sprites col': 'the same inverted test as Playfields Col, and the same always--1 answer for want of CLXDAT',
@@ -1695,7 +1699,7 @@ export const NOTES: Record<string, string> = {
     'a control byte of zero fills the rest of the PLANE rather than emitting nothing — its decrement never satisfies the test. The end guard is >= where the 68k tests exact equality, so a header pointing behind its data stops rather than hanging',
   'anim unpack': 'Pic Unpack behind a frame table; the same zero-control-byte and end-guard behaviour',
   'p61 play':
-    'an LVO call into player61.library, which is not part of AMOS and not in the source tree. The state machine around it is reproduced because the extension checks it before calling out, but NOTHING SOUNDS. It deliberately does not raise the library-not-found error: the gap here is a decoder, not a missing library. Closable by a real P61 decoder, as med play already is for MMD0/MMD1',
+    'an LVO call into player61.library, which is not part of AMOS and not in the source tree. The state machine around it is reproduced because the extension checks it before calling out, but NOTHING SOUNDS. It deliberately does not raise the library-not-found error: the gap here is a decoder, not a missing library. Closable by a real P61 decoder, as med play already is for MMD0/MMD1. It also has TWO table entries, `I0` and an unnamed `I0,0` arity variant that TokenTable.name resolves back to it — routine 124 is byte for byte routine 123 with an extra pop at the front, so the second argument is read and ignored; both forms parse here',
   'p61 stop': 'the P61 state machine only — error 19 when nothing is playing; no audio',
   'p61 mvolume': 'range-checks 0..63 as the library does; no audio',
   'p61 mpos': 'accepted and recorded; no audio',
