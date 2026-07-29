@@ -228,6 +228,80 @@ describe('copper registers persist across frames, as the hardware\'s do', () => 
 })
 
 
+describe('BPLCON0 past HIRES, and BPLCON3', () => {
+  /**
+   * A list over a 4-plane screen whose row 0 is drawn in pen 3, so the
+   * colour that comes back says how many planes the list asked to fetch.
+   * Only $100 changes between the tests below.
+   */
+  const src = (bplcon0: string): string =>
+    [
+      'Screen Open 0,320,200,16,Lowres',
+      'Curs Off : Flash Off : Cls 0',
+      'Colour 1,$00F : Colour 2,$0FF : Colour 3,$0F0',
+      'Ink 3 : Draw 0,0 To 319,0',
+      'A=Logbase(0)',
+      'Wait Vbl',
+      'Copper Off',
+      'Cop Move $180,$000 : Cop Move $182,$00F',
+      'Cop Move $184,$0FF : Cop Move $186,$0F0',
+      'Cop Move $8E,$2C81 : Cop Move $90,$2CC1',
+      'Cop Move $92,$38 : Cop Move $94,$D0',
+      'Cop Move $108,0 : Cop Move $10A,0',
+      `Cop Move $100,${bplcon0}`,
+      'Cop Move $102,0 : Cop Move $104,$24',
+      'Cop Wait 0,50',
+      'Cop Move $E0,A/65536 : Cop Move $E2,A and $FFFF',
+      'Cop Move $96,$8300',
+      'Cop Swap',
+    ].join('\n')
+
+  const pix = (rt: Runtime, x: number, y: number): number => {
+    const { data } = rt.composite()
+    const o = ((y + 48) * 640 + x) * 4
+    return ((Math.round(data[o]! / 17) & 15) << 8) | ((Math.round(data[o + 1]! / 17) & 15) << 4) | (Math.round(data[o + 2]! / 17) & 15)
+  }
+
+  it('BPU bounds the colour index, so fetching fewer planes drops the high bits', () => {
+    // pen 3 is %11. Three planes fetch it whole and give colour 3; two give
+    // colour 3 as well; one fetches only bit 0 and lands on colour 1. This is
+    // what BPU does on the hardware and what Personnal's Create Standard and
+    // Create Aga choose when they build a list.
+    expect(pix(run(src('$3200')), 0, 0)).toBe(0x0f0) // 3 planes -> pen 3
+    expect(pix(run(src('$2200')), 0, 0)).toBe(0x0f0) // 2 planes -> pen 3
+    expect(pix(run(src('$1200')), 0, 0)).toBe(0x00f) // 1 plane  -> pen 1
+  })
+
+  it('BPU 0 fetches no planes at all, which is not the same as one', () => {
+    // %000 in bits 12-14 turns the playfield off; the index is 0, not 1
+    expect(pix(run(src('$0200')), 0, 0)).toBe(0x000)
+  })
+
+  it('records HAM, dual playfield, interlace and BPLCON3 from the list', () => {
+    // Decoded and carried in the register file. Personnal patches exactly
+    // these bits — Set Lace is Bset/Bclr #2 on this word, Ham Mode bit 11,
+    // Set Dual Mode bit 10 — so the bits have to survive the walk even where
+    // the renderer does not yet act on all of them.
+    const rt = run(src('$3E04').replace('Cop Move $102,0', 'Cop Move $106,$2000 : Cop Move $102,0'))
+    rt.composite() // the register file is what the walk leaves behind
+    const R = (rt as unknown as { copRegs: Record<string, unknown> }).copRegs
+    expect(R.bpu).toBe(3)
+    expect(R.ham).toBe(true) // bit 11
+    expect(R.dblpf).toBe(true) // bit 10
+    expect(R.lace).toBe(true) // bit 2
+    expect(R.bplcon3).toBe(0x2000) // AGA colour bank 1
+  })
+
+  it('decodes BPL7PT and BPL8PT, which only AGA fetches', () => {
+    // the pointers were always 8 wide; the MOVE range test stopped at $0f6
+    const rt = run(src('$1200').replace('Cop Move $96,$8300', 'Cop Move $F8,$1234 : Cop Move $FE,$5678 : Cop Move $96,$8300'))
+    rt.composite()
+    const R = (rt as unknown as { copRegs: { bplH: Int32Array; bplL: Int32Array } }).copRegs
+    expect(R.bplH[6]).toBe(0x1234) // $F8 = BPL7PTH
+    expect(R.bplL[7]).toBe(0x5678) // $FE = BPL8PTL
+  })
+})
+
 describe('the fetch registers really drive the Copper Off display', () => {
   /**
    * A hand-written list of the kind a demo writes: it sets up the whole

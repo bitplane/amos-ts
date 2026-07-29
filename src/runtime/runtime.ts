@@ -654,6 +654,26 @@ export class Runtime {
     pal: new Uint16Array(32),
     dmaOn: false,
     hires: false,
+    /**
+     * The rest of BPLCON0. Only HIRES used to be read, which was enough for
+     * AMOS's own lists — it varies resolution and nothing else. An extension
+     * that builds its own list varies all of them: Personnal's Set Lace is
+     * literally `Bset/Bclr #2` on this word and Set Resolution `#15`.
+     *
+     * bpu (bits 12-14) is the plane count. Planes are not composed here —
+     * a bitplane pointer resolves to a Screen and the pixel comes from its
+     * chunky buffer — so what BPU does is bound the pixel index, the way
+     * fetching n planes bounds it on the hardware.
+     */
+    bpu: 6,
+    /** BPLCON0 bit 11, HAM */
+    ham: false,
+    /** BPLCON0 bit 10, dual playfield */
+    dblpf: false,
+    /** BPLCON0 bit 2, interlace */
+    lace: false,
+    /** BPLCON3 — AGA, colour bank select in bits 13-15 */
+    bplcon3: 0,
     hstart: 0x81,
     hstop: 0x1c1,
     ddfstrt: 0x38,
@@ -687,6 +707,14 @@ export class Runtime {
     r.pal[0] = this.colourBack & 0xfff
     r.dmaOn = false
     r.hires = false
+    // 6 planes, the most an OCS/ECS list can fetch: the handover blanks the
+    // display by clearing the pointers, not by asking for no planes, so BPU
+    // only bounds a colour index once a list points somewhere real
+    r.bpu = 6
+    r.ham = false
+    r.dblpf = false
+    r.lace = false
+    r.bplcon3 = 0
     r.hstart = 0x81
     r.hstop = 0x1c1
     r.ddfstrt = 0x38
@@ -3935,6 +3963,11 @@ export class Runtime {
     let cross = false
     let dmaOn = R.dmaOn
     let hires = R.hires
+    let bpu = R.bpu
+    let ham = R.ham
+    let dblpf = R.dblpf
+    let lace = R.lace
+    let bplcon3 = R.bplcon3
     let hstart = R.hstart
     let hstop = R.hstop
     let ddfstrt = R.ddfstrt
@@ -3986,13 +4019,22 @@ export class Runtime {
             const s = screen!
             const rowPix = s.rowBytes * 8
             // the pointer is a byte address: whole rows plus a byte skew
-            const abs = ptr * 8 + (s.laced ? ri * rowPix : 0)
+            // BPLCON0's LACE means the same thing the screen's own flag does:
+            // a field shows every other row, so the pointer advances a whole
+            // row per displayed line. Either source turns it on — the screen
+            // was opened laced, or the list asked for it (Personnal's Set Lace
+            // is Bset/Bclr #2 on this word and nothing else).
+            const laced = s.laced || lace
+            const abs = ptr * 8 + (laced ? ri * rowPix : 0)
             const pixels = usePhy ? s.displayBuffer : s.pixels
             const pw = hires ? 1 : 2
             // where the first fetched pixel lands, in colour clocks
             const dataStart = ddfstrt * 2 + (hires ? 9 : 17) + (bplcon1 & 15)
             const originX = (dataStart - 1 - 128) * 2
             const colour = this.rowColours(s, hwPal)
+            // BPU 0 fetches nothing at all; the screen's own depth caps the
+            // rest, since that is what its chunky buffer actually holds
+            const planeMask = bpu === 0 ? 0 : (1 << Math.min(bpu, s.depth)) - 1
             const n = words * 16
             for (let i = 0; i < n; i++) {
               const a = abs + i
@@ -4002,7 +4044,11 @@ export class Runtime {
               // DIW clips in colour clocks, so a hires pair shares one
               const hx = dataStart + (hires ? i >> 1 : i)
               if (hx < hstart || hx >= hstop) continue
-              let pix = pixels[sy * s.width + sx]! & 63
+              // fetching n planes can only produce n bits of index. Planes are
+              // not composed here — the pointer resolved to a Screen and the
+              // value comes from its chunky buffer — so BPU bounds the index
+              // instead, which is the same thing the hardware ends up doing.
+              let pix = pixels[sy * s.width + sx]! & planeMask
               const isCur = s === cs && s.cursorOn && cw !== null && sy >= curY0 && sy < curY0 + 8
               if (isCur) {
                 const mask = CURSOR_SHAPE[sy - curY0]!
@@ -4048,7 +4094,9 @@ export class Runtime {
         const reg = w1 & 0x1fe
         if (reg >= 0x180 && reg < 0x1c0) {
           hwPal[(reg - 0x180) >> 1] = w2 & 0xfff
-        } else if (reg >= 0x0e0 && reg <= 0x0f6) {
+          // through $0fe: $0f8-$0fe are BPL7/BPL8, which only AGA fetches.
+          // bplH/bplL were already 8 wide; only this range test excluded them.
+        } else if (reg >= 0x0e0 && reg <= 0x0fe) {
           const idx = (reg - 0xe0) >> 2
           if (reg & 2) bplL[idx] = w2
           else bplH[idx] = w2
@@ -4074,6 +4122,13 @@ export class Runtime {
           sprSet = true
         } else if (reg === 0x100) {
           hires = (w2 & 0x8000) !== 0
+          // BPU 12-14; 0 planes means the playfield is off, not 1
+          bpu = (w2 >> 12) & 7
+          ham = (w2 & 0x0800) !== 0
+          dblpf = (w2 & 0x0400) !== 0
+          lace = (w2 & 0x0004) !== 0
+        } else if (reg === 0x106) {
+          bplcon3 = w2 & 0xffff
         } else if (reg === 0x102) {
           bplcon1 = w2 & 0xff
         } else if (reg === 0x104) {
@@ -4106,6 +4161,11 @@ export class Runtime {
     R.pal.set(hwPal)
     R.dmaOn = dmaOn
     R.hires = hires
+    R.bpu = bpu
+    R.ham = ham
+    R.dblpf = dblpf
+    R.lace = lace
+    R.bplcon3 = bplcon3
     R.hstart = hstart
     R.hstop = hstop
     R.ddfstrt = ddfstrt
