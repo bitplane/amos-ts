@@ -1003,3 +1003,73 @@ describe('Personnal: the second screen (L67/L68/L69/L70/L78)', () => {
     expect(getWord(rt, rt.personnal.currentLine) >> 8).toBe(0x14)
   })
 })
+
+describe('Personnal: HAM, EHB and collision control (L8/L9/L38/L40/L41/L44-46)', () => {
+  const bank = ['Reserve As Work 10,24000', 'A=Start(10)', 'Create Standard A']
+
+  it('Ham and Ehb are named constants, not tests', () => {
+    let out = ''
+    const rt = new Runtime(tokenize('Print Ham;Ehb', table, exts), table, {
+      extensions: exts,
+      maxSteps: 200_000,
+      onText: (t) => (out += t),
+    })
+    rt.runHeadless(100)
+    expect(out).toBe(' 4096 64\n') // the Screen Open mode flags
+  })
+
+  it('Ham Mode is BPLCON0 bit 11, and the list interpreter acts on it', () => {
+    const on = run([...bank, 'Ham Mode 1'].join('\n'))
+    expect(getWord(on, on.personnal.bplConBase + 2) & 0x0800).toBe(0x0800)
+    const off = run([...bank, 'Ham Mode 1', 'Ham Mode 0'].join('\n'))
+    expect(getWord(off, off.personnal.bplConBase + 2) & 0x0800).toBe(0)
+  })
+
+  it('Allow Plane Col records the plane but always writes CLXCON bit 0', () => {
+    // Bset d0,d1 on a DATA register takes its bit number modulo 32, and the
+    // routine shifts the plane left six first — so n*64 is bit 0 for every n
+    // in range. The mask gets the right bit; CLXCON does not. Library bug,
+    // kept, tested so it reads as deliberate.
+    const rt = run([...bank, 'Allow Plane Col 3'].join('\n'))
+    expect(rt.personnal.bplanesMask).toBe(1 << 3)
+    expect(getWord(rt, rt.personnal.others + 26) & 1).toBe(1)
+    const other = run([...bank, 'Allow Plane Col 5'].join('\n'))
+    expect(other.personnal.bplanesMask).toBe(1 << 5)
+    expect(getWord(other, other.personnal.others + 26) & 1).toBe(1) // the same bit
+  })
+
+  it('Forbid Plane Col undoes both halves, and the range is 1..6', () => {
+    const rt = run([...bank, 'Allow Plane Col 2', 'Forbid Plane Col 2'].join('\n'))
+    expect(rt.personnal.bplanesMask).toBe(0)
+    expect(getWord(rt, rt.personnal.others + 26) & 1).toBe(0)
+    const out = run([...bank, 'Allow Plane Col 7', 'Allow Plane Col 0'].join('\n'))
+    expect(out.personnal.bplanesMask).toBe(0) // both ignored in silence
+  })
+
+  it('the collision readers answer from a CLXDAT we do not have', () => {
+    // All three end the same way: -1 when the CLXDAT bit is CLEAR, which is
+    // the opposite of what their names suggest and is kept as found. There is
+    // no collision hardware here, so CLXDAT reads 0 and they all say -1.
+    let out = ''
+    const src = 'Print Sprite Col(0,2);Playfields Col;Pf Sprites Col(1,0)'
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      maxSteps: 200_000,
+      onText: (t) => (out += t),
+    })
+    rt.runHeadless(100)
+    expect(out).toBe('-1-1-1\n')
+  })
+
+  it('two sprites of one pair cannot collide, and answer 0', () => {
+    // both numbers lose bit 0 first, so 0 and 1 are the same pair
+    let out = ''
+    const rt = new Runtime(tokenize('Print Sprite Col(0,1)', table, exts), table, {
+      extensions: exts,
+      maxSteps: 200_000,
+      onText: (t) => (out += t),
+    })
+    rt.runHeadless(100)
+    expect(out).toBe(' 0\n')
+  })
+})

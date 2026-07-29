@@ -115,6 +115,8 @@ export interface PersonnalState {
   bpl2: number
   /** _2bplcon — the second screen's BPLCON0 */
   bplcon2nd: number
+  /** _BPlanesMask — which planes Allow/Forbid Plane Col have enabled */
+  bplanesMask: number
 }
 
 /**
@@ -153,6 +155,7 @@ export function newPersonnalState(): PersonnalState {
     pal2: 0,
     bpl2: 0,
     bplcon2nd: 0,
+    bplanesMask: 0,
   }
 }
 
@@ -371,6 +374,34 @@ function mplotDraw(rt: Runtime, it: { evalInt(): number; expect(t: string): void
       putB(rt, a, ink & (1 << p) ? b | (1 << bit) : b & ~(1 << bit))
     }
   }
+}
+
+/** Allow/Forbid Plane Col (L40/L41). See the keyword comment for the Bset. */
+function planeCol(rt: Runtime, n: number, allow: boolean): void {
+  const s = rt.personnal
+  if (s.others === 0) err(1)
+  if (n < 1 || n > 6) return
+  s.bplanesMask = allow ? s.bplanesMask | (1 << n) : s.bplanesMask & ~(1 << n)
+  // n<<6 taken modulo 32 is 0 for every n in range — the library's bug, kept
+  const a = s.others + 26
+  putW(rt, a, allow ? getW(rt, a) | 1 : getW(rt, a) & ~1)
+}
+
+/**
+ * The three collision readers (L44/L45/L46, :1958/:1996/:2000) all end the
+ * same way: pick a CLXDAT bit, read $DFF00E, and answer -1 when that bit is
+ * CLEAR — Btst sets Z on a zero bit and the Bne skips the -1 when it is set.
+ * That is the opposite of what the names suggest and is kept as found.
+ *
+ * There is no collision hardware here and nothing writes CLXDAT, so it reads
+ * 0 and every one of them answers -1. That is the deviation that matters, far
+ * more than the polarity. NOTES entry at closeout.
+ */
+function clxBit(rt: Runtime, bit: number | null): number {
+  void rt
+  if (bit === null) return 0
+  const clxdat = 0
+  return clxdat & (1 << bit) ? 0 : -1
 }
 
 /** Shared by the two palette-to-copper keywords (_bi1 :2936, _bj1 :2980). */
@@ -1269,6 +1300,40 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       putW(rt, s.currentLine, ((line & 0xff) << 8) | (w & 0xff))
     },
 
+    /**
+     * Ham Mode n (L38, :1670) — BPLCON0 bit 11. The list interpreter honours
+     * it since b219d4b, so this genuinely turns HAM on for a screen that was
+     * not opened as one.
+     */
+    'ham mode'(it) {
+      const on = it.evalInt() !== 0
+      const s = rt.personnal
+      if (s.bplConBase === 0) err(1)
+      const a = s.bplConBase + 2
+      putW(rt, a, on ? getW(rt, a) | 0x0800 : getW(rt, a) & ~0x0800)
+    },
+
+    /**
+     * Allow Plane Col n / Forbid Plane Col n (L40/L41, :1890/:1911). Which
+     * bitplanes take part in collision detection: a bit in the extension's
+     * own _BPlanesMask, and a bit of CLXCON at _Others+26.
+     *
+     * The CLXCON half does not work. The routine shifts the plane number left
+     * six before `Bset d0,d1`, and Bset on a DATA register takes its bit
+     * number modulo 32 — so n*64 is bit 0 whatever n was. Every plane
+     * therefore sets and clears the same CLXCON bit. _BPlanesMask gets the
+     * right bit, because that Bset is on memory and takes modulo 8.
+     *
+     * Kept, because it is what the library does, and named here because it
+     * looks like a typo someone would otherwise fix.
+     */
+    'allow plane col'(it) {
+      planeCol(rt, it.evalInt(), true)
+    },
+    'forbid plane col'(it) {
+      planeCol(rt, it.evalInt(), false)
+    },
+
     /** Set Ntsc (L3, :524) — BEAMCON0 $DFF1DC = 0 */
     'set ntsc'() {
       rt.beamcon0 = 0x0000
@@ -1365,6 +1430,46 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
         p += 2
       }
       return err(6)
+    },
+
+    /**
+     * Ham (L8, :556) and Ehb (L9, :561) are named constants, not tests —
+     * $1000 and $40, the screen-mode flags a program passes to Screen Open.
+     */
+    ham(): Value {
+      return VI(4096)
+    },
+    ehb(): Value {
+      return VI(64)
+    },
+
+    /**
+     * Sprite Col(s1,s2) (L44, :1958). Sprites collide in pairs, so both
+     * numbers lose bit 0 first; two sprites of the same pair cannot collide
+     * and answer 0. The pair combination picks a CLXDAT bit from 9 to 14.
+     */
+    'sprite col'(_, a): Value {
+      const s1 = int(a[0]!) & ~1
+      const s2 = int(a[1]!) & ~1
+      if (s1 === s2) return VI(0)
+      const key = (s1 << 4) | s2
+      const bit = { 0x02: 9, 0x04: 10, 0x06: 11, 0x24: 12, 0x26: 13, 0x46: 14 }[key]
+      return VI(clxBit(rt, bit ?? null))
+    },
+
+    /** Playfields Col (L45, :1996) — CLXDAT bit 0, playfield against playfield */
+    'playfields col'(): Value {
+      return VI(clxBit(rt, 0))
+    },
+
+    /**
+     * Pf Sprites Col(pf,spr) (L46, :2000) — playfield against sprite pair,
+     * CLXDAT bits 1-4 for playfield 1 and 5-8 for playfield 2.
+     */
+    'pf sprites col'(_, a): Value {
+      const key = (int(a[0]!) << 4) | int(a[1]!)
+      const bit = { 0x10: 1, 0x12: 2, 0x14: 3, 0x16: 4, 0x20: 5, 0x22: 6, 0x24: 7, 0x26: 8 }[key]
+      return VI(clxBit(rt, bit ?? null))
     },
 
     /** Copper Base (L14, :744) and Copper Line (L20, :866) — plain readers */
