@@ -117,6 +117,10 @@ export interface PersonnalState {
   bplcon2nd: number
   /** _BPlanesMask — which planes Allow/Forbid Plane Col have enabled */
   bplanesMask: number
+  /** _SpriteBase (data bank +$12e) — the buffer F Set Sprite Buffer was given */
+  spriteBase: number
+  /** _SpriteLength (+$132) — its size, which must be at least 8K */
+  spriteLength: number
 }
 
 /**
@@ -156,6 +160,8 @@ export function newPersonnalState(): PersonnalState {
     bpl2: 0,
     bplcon2nd: 0,
     bplanesMask: 0,
+    spriteBase: 0,
+    spriteLength: 0,
   }
 }
 
@@ -447,6 +453,326 @@ function mosaic(rt: Runtime, base: number, n: number): void {
         for (let r = 0; r < n; r++) putL(rt, plane + off + r * rowBytes, d0)
       }
     }
+  }
+}
+
+/**
+ * The blitter's logic function unit, applied a word at a time. LF is the low
+ * byte of BLTCON0: bit (A<<2 | B<<1 | C) of it says what D is for that
+ * combination of source bits. There is no blitter here, so the batch-8
+ * keywords that set one up compute their minterm directly instead of driving
+ * $DFF040-$DFF058. Every one of them uses zero modulos and full first/last
+ * word masks, which is what makes a plain word loop equivalent.
+ */
+/**
+ * A contiguous window of the fake address space, resolved once and handed back
+ * as a view rather than a copy. The blitter keywords touch tens of thousands
+ * of words per call, and a per-element `resolveAddr` costs more than the work
+ * does. Null when the span does not lie inside one region, and the callers
+ * fall back to the plain per-element path so nothing changes but the speed.
+ */
+function bytesAt(rt: Runtime, addr: number, bytes: number, write: boolean): Uint8Array | null {
+  const m = write ? rt.resolveWrite(addr) : rt.resolveAddr(addr)
+  if (!m || bytes <= 0 || m.off + bytes > m.data.length) return null
+  return m.data.subarray(m.off, m.off + bytes)
+}
+
+const rdW = (v: Uint8Array, i: number): number => (v[i]! << 8) | v[i + 1]!
+const wrW = (v: Uint8Array, i: number, x: number): void => {
+  v[i] = (x >> 8) & 0xff
+  v[i + 1] = x & 0xff
+}
+const rdL = (v: Uint8Array, i: number): number => ((v[i]! << 24) | (v[i + 1]! << 16) | (v[i + 2]! << 8) | v[i + 3]!) >>> 0
+const wrL = (v: Uint8Array, i: number, x: number): void => {
+  v[i] = (x >>> 24) & 0xff
+  v[i + 1] = (x >>> 16) & 0xff
+  v[i + 2] = (x >>> 8) & 0xff
+  v[i + 3] = x & 0xff
+}
+
+/**
+ * BLTSIZE as the hardware reads it: bits 15-6 are rows, bits 5-0 words, and a
+ * zero in either field means its maximum. All four blitter keywords build the
+ * value the same way, `rows<<6 + words` truncated to a word, so decoding it
+ * back keeps whatever their arithmetic overflowed into.
+ */
+function bltSize(v: number): { rows: number; words: number } {
+  return { rows: (v >>> 6) & 0x3ff || 1024, words: (v & 0x3f) || 64 }
+}
+
+function bltMinterm(lf: number, a: number, b: number, c: number): number {
+  let d = 0
+  if (lf & 0x80) d |= a & b & c
+  if (lf & 0x40) d |= a & b & ~c
+  if (lf & 0x20) d |= a & ~b & c
+  if (lf & 0x10) d |= a & ~b & ~c
+  if (lf & 0x08) d |= ~a & b & c
+  if (lf & 0x04) d |= ~a & b & ~c
+  if (lf & 0x02) d |= ~a & ~b & c
+  if (lf & 0x01) d |= ~a & ~b & ~c
+  return d & 0xffff
+}
+
+/**
+ * Double Mask mask To s1,s2 (L53, :2180) and its Y-limited form (L54, :2264).
+ *
+ * The CPU half of the pair: `(mask AND s1) OR (NOT mask AND s2)` a longword at
+ * a time, written back over s2. Geometry comes from the MASK screen's control
+ * block, and plane 0 of the mask is used against every plane of the two
+ * screens — the mask is one bitplane, not a screen's worth.
+ *
+ * The plane walk stops at the first zero pointer in either screen. It can do
+ * that safely because the routine zeroes eight _BitsPlanes entries and fills
+ * only six, so a full-depth screen still terminates on entry six.
+ */
+function doubleMask(rt: Runtime, mask: number, s1: number, s2: number, yStart: number, yEnd: number | null): void {
+  if (mask === 0 || s1 === 0 || s2 === 0) err(4)
+  const rowBytes = getW(rt, mask + 76) >> 3
+  // the plain form takes the whole screen; L Double Mask takes (yEnd-yStart)
+  // rows, and Move.w truncates that difference to a word before the multiply
+  const rows = yEnd === null ? getW(rt, mask + 78) : (yEnd - yStart) & 0xffff
+  const off = yStart * rowBytes
+  const mLen = rowBytes * rows
+  const maskPlane = getL(rt, mask) + off
+  // the inner loop is a do-while against (mLen>>2)-1, so an empty plane still
+  // copies one longword — kept rather than tidied
+  const longs = Math.max(1, mLen >>> 2)
+  for (let p = 0; p < 8; p++) {
+    const p1 = p < 6 ? getL(rt, s1 + p * 4) : 0
+    const p2 = p < 6 ? getL(rt, s2 + p * 4) : 0
+    if (p1 === 0 || p2 === 0) return
+    const a = p1 + off
+    const b = p2 + off
+    const bytes = longs * 4
+    const M = bytesAt(rt, maskPlane, bytes, false)
+    const A = bytesAt(rt, a, bytes, false)
+    const B = bytesAt(rt, b, bytes, true)
+    if (M && A && B) {
+      for (let i = 0; i < bytes; i += 4) {
+        const m = rdL(M, i)
+        wrL(B, i, ((m & rdL(A, i)) | (~m & rdL(B, i))) >>> 0)
+      }
+    } else {
+      for (let i = 0; i < bytes; i += 4) {
+        const m = getL(rt, maskPlane + i)
+        putL(rt, b + i, ((m & getL(rt, a + i)) | (~m & getL(rt, b + i))) >>> 0)
+      }
+    }
+  }
+}
+
+/**
+ * Blit Mask fore,mask,back To target (L59, :2480) and L Blit Mask (L60, :2571).
+ *
+ * The blitter half. A is the first screen, B the mask, C the third and D the
+ * target, with BLTCON0 = $0F98 — all four channels on, minterm $98. That
+ * minterm is `(B AND C) OR (A AND NOT B AND NOT C)`, which is NOT the
+ * mask-select function the keyword's name implies ($E2 would be `B ? A : C`).
+ * It is what both the source and the shipped binary contain, so it is what
+ * this does.
+ *
+ * Geometry, and the number of planes to walk, come from the THIRD screen's
+ * control block — EcTx/EcTy at +76/+78 and EcNPlan at +80. The mask pointer
+ * alone is not stepped between planes, so plane 0 of the mask applies to all
+ * of them, exactly as in Double Mask.
+ *
+ * `yEnd` marks the L form, and it carries that form's bug: the plain one
+ * blits EcTy rows, and the L one blits yEnd rows starting at yStart rather
+ * than the yEnd-yStart the name promises. L Double Mask, doing the same job on
+ * the CPU, subtracts properly. The demos pass 64,128 to both on a 192-row
+ * screen, where the L blitter form covers rows 64..191 and the L CPU form
+ * covers 64..127.
+ */
+function blitMask(
+  rt: Runtime,
+  fore: number,
+  mask: number,
+  back: number,
+  target: number,
+  yStart: number,
+  yEnd: number | null,
+): void {
+  if (fore === 0 || mask === 0 || back === 0 || target === 0) err(4)
+  const width = getW(rt, back + 76)
+  const height = getW(rt, back + 78)
+  const off = yStart * (width >> 3)
+  const planes = getW(rt, back + 80)
+  const { rows, words } = bltSize((((yEnd === null ? height : yEnd) << 6) + (width >> 4)) & 0xffff)
+  const total = rows * words
+  for (let p = 0; p < planes; p++) {
+    const a = getL(rt, fore + p * 4) + off
+    const b = getL(rt, mask) + off // never stepped
+    const c = getL(rt, back + p * 4) + off
+    const d = getL(rt, target + p * 4) + off
+    const bytes = total * 2
+    const A = bytesAt(rt, a, bytes, false)
+    const B = bytesAt(rt, b, bytes, false)
+    const C = bytesAt(rt, c, bytes, false)
+    const D = bytesAt(rt, d, bytes, true)
+    if (A && B && C && D) {
+      for (let i = 0; i < bytes; i += 2) wrW(D, i, bltMinterm(0x98, rdW(A, i), rdW(B, i), rdW(C, i)))
+    } else {
+      for (let i = 0; i < bytes; i += 2) {
+        putW(rt, d + i, bltMinterm(0x98, getW(rt, a + i), getW(rt, b + i), getW(rt, c + i)))
+      }
+    }
+  }
+}
+
+/**
+ * S32 Block To Screen (L83, :3237) and S32 Vertice To Screen (L84, :3281).
+ *
+ * Both walk up to six planes in place, and both do the same thing to a row:
+ * take its leftmost longword and repeat it across the whole row, so 32 pixels
+ * become the width of the screen. They differ only in where the source
+ * pointer sits at the top of each 32-row band. Block resets it to the plane
+ * base every band (`_z2`'s `Move.l (a0),a1`), so the top 32 rows are tiled
+ * down the screen — a 32x32 block blown up to fill it. Vertice loads it once
+ * (`_z3b`), so the source keeps pace with the destination and every row gets
+ * its own leftmost longword — a 32-pixel vertical strip stretched sideways.
+ *
+ * Reading the row before writing it is what makes the in-place version work,
+ * and repeating the leftmost longword is what makes Block's reset harmless:
+ * the value it re-reads on the second band is the one it already wrote.
+ *
+ * The height is rounded down to whole 32-row bands, the width to whole
+ * longwords. A screen under 32 pixels wide gives the innermost do-while a
+ * count of zero and the 68k never leaves it; that case does nothing here.
+ */
+function s32Expand(rt: Runtime, base: number, tile: boolean): void {
+  const longs = getW(rt, base + 76) >>> 5
+  const bands = getW(rt, base + 78) >>> 5
+  if (longs === 0 || bands === 0) return
+  // the row step is longs*4, taken from `Lsl.l #2,d6`, not the screen's real
+  // byte width — a width that is not a whole number of longwords drifts
+  const rowBytes = longs * 4
+  for (let p = 0; p < 6; p++) {
+    const plane = getL(rt, base + p * 4)
+    if (plane === 0) return
+    const v = bytesAt(rt, plane, bands * 32 * rowBytes, true)
+    let src = 0
+    let dst = 0
+    for (let band = 0; band < bands; band++) {
+      if (tile) src = 0
+      for (let row = 0; row < 32; row++) {
+        const w = v ? rdL(v, src) : getL(rt, plane + src)
+        for (let x = 0; x < longs; x++) {
+          if (v) wrL(v, dst, w)
+          else putL(rt, plane + dst, w)
+          dst += 4
+        }
+        src += rowBytes
+      }
+    }
+  }
+}
+
+/**
+ * Blitter Clear base (routine 113) and Blitter Copy source To target
+ * (L82, :3183). Both walk up to six planes of a screen with the blitter and
+ * both take their size from EcTx/EcTy of the screen they are handed.
+ *
+ * Clear sets BLTCON0 to $0100 — D alone, minterm 0 — which writes zeros; it is
+ * a Cls that ignores the current window and clears the whole plane. Copy uses
+ * $09F0, A and D with minterm $F0, a straight A-to-D move.
+ *
+ * They differ in where the zero-pointer test sits. Clear tests at the top, so
+ * a screen with no planes does nothing. Copy blits the first plane before any
+ * test and only then looks at the NEXT pair, so a source whose plane 0 is null
+ * blits from address zero — the up-front check is on the control block, not
+ * the plane.
+ *
+ * Blitter Clear is one of the two keywords in this batch that the published
+ * 1.1a source leaves as an empty label; it exists only in the shipped binary,
+ * so this is read off the disassembly rather than the source.
+ */
+function blitPlanes(rt: Runtime, src: number, dst: number, geom: number, copy: boolean): void {
+  const size = ((getW(rt, geom + 78) << 6) + (getW(rt, geom + 76) >> 4)) & 0xffff
+  const { rows, words } = bltSize(size)
+  const bytes = rows * words * 2
+  for (let p = 0; p < 6; p++) {
+    const d = getL(rt, dst + p * 4)
+    const a = copy ? getL(rt, src + p * 4) : 0
+    if (!copy && d === 0) return
+    const D = bytesAt(rt, d, bytes, true)
+    if (copy) {
+      const A = bytesAt(rt, a, bytes, false)
+      if (A && D) D.set(A)
+      else for (let i = 0; i < bytes; i += 2) putW(rt, d + i, bltMinterm(0xf0, getW(rt, a + i), 0, 0))
+      // the next pair decides whether there is another plane, not this one
+      if (getL(rt, src + (p + 1) * 4) === 0 || getL(rt, dst + (p + 1) * 4) === 0) return
+    } else if (D) D.fill(0)
+    else for (let i = 0; i < bytes; i += 2) putW(rt, d + i, 0)
+  }
+}
+
+/**
+ * Low Filter.b/.w/.l value To start,end (L62/L63/L64, :2677/:2690/:2703).
+ * A ceiling: anything that compares greater than or equal to `value` is
+ * replaced by it, signed, element by element.
+ *
+ * Only the byte form has a loop. The word and longword forms end theirs with
+ * `Cmp.l a0,a1 / Blt`, which branches while the END pointer is below the
+ * CURRENT one — false on the first pass of any sane range — so they filter one
+ * element and return. The byte form uses `Bne` and walks the range properly.
+ * Both the source and the shipped binary say so; kept, and tested.
+ *
+ * A range whose end is below its start does nothing here; the byte form's
+ * `Bne` would step past it and keep going, as Octets Fill's does.
+ */
+function lowFilter(rt: Runtime, value: number, start: number, end: number, size: 1 | 2 | 4): void {
+  const get = (a: number): number =>
+    size === 1 ? (getB(rt, a) << 24) >> 24 : size === 2 ? (getW(rt, a) << 16) >> 16 : getL(rt, a) | 0
+  const put = (a: number, v: number): void => {
+    if (size === 1) putB(rt, a, v)
+    else if (size === 2) putW(rt, a, v & 0xffff)
+    else putL(rt, a, v >>> 0)
+  }
+  const cap = size === 1 ? (value << 24) >> 24 : size === 2 ? (value << 16) >> 16 : value | 0
+  for (let p = start; p < end; p += size) {
+    if (get(p) >= cap) put(p, cap)
+    if (size !== 1) break // the Blt that never loops
+  }
+}
+
+/**
+ * Get Even Sprite / Get Odd Sprite base,n,x,y To lines (L56/L57, :2375/:2413).
+ * Cut a 16-pixel-wide, two-plane sprite out of a screen: Even takes planes 0
+ * and 1, Odd takes 2 and 3, and the two planes interleave a longword at a time
+ * behind a four-byte header of `$0000, lines, $00`.
+ *
+ * It does not go where it should. The destination is computed as
+ * `DLea _SpriteBase,a0 / Move.l a0,d1 / Move.l d1,a0` — the address OF the
+ * variable, round-tripped through a data register and never dereferenced. So
+ * the sprite is written over the extension's own variables starting at
+ * _SpriteBase, and the buffer F Set Sprite Buffer was given is never touched.
+ * F Sprite then reads that buffer, which is still empty. Confirmed in the
+ * shipped binary at $4592 (`movea.l $1b8(a5),a0 / adda.w #$12e,a0`), not just
+ * in the source, and it is why no demo in the archive uses these three.
+ *
+ * Modelled by writing where the library writes: _SpriteBase takes the header
+ * and _SpriteLength the first plane-0 longword. Past those two the writes land
+ * on library variables this port does not keep as memory — what matters, and
+ * what is tested, is that nothing reaches the reserved buffer.
+ */
+function getSprite(rt: Runtime, base: number, n: number, x: number, y: number, lines: number, odd: boolean): void {
+  const s = rt.personnal
+  const rowBytes = getW(rt, base + 76) >> 3
+  const p1 = getL(rt, base + (odd ? 8 : 0))
+  const p2 = getL(rt, base + (odd ? 12 : 4))
+  const off = y * rowBytes + (x >> 3)
+  const put = (at: number, v: number): void => {
+    if (at === 0) s.spriteBase = v >>> 0
+    else if (at === 4) s.spriteLength = v >>> 0
+  }
+  let at = n * 520
+  put(at, ((lines & 0xff) << 8) >>> 0)
+  at += 4
+  // Sub.l #1,d6 / Bpl runs one more row than `lines` says
+  for (let i = 0; i <= lines; i++) {
+    put(at, getL(rt, p1 + off + i * rowBytes))
+    put(at + 4, getL(rt, p2 + off + i * rowBytes))
+    at += 8
   }
 }
 
@@ -1404,6 +1730,220 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
     'mosaic x32'(it) {
       mosaic(rt, it.evalInt(), 32)
+    },
+
+    /**
+     * Double Mask mask To s1,s2 (L53, :2180) and
+     * L Double Mask mask,ystart,yend To s1,s2 (L54, :2264).
+     * See `doubleMask`. The result is written back over s2.
+     */
+    'double mask'(it) {
+      const mask = it.evalInt()
+      it.expect('to')
+      const s1 = it.evalInt()
+      it.expect(',')
+      doubleMask(rt, mask, s1, it.evalInt(), 0, null)
+    },
+    'l double mask'(it) {
+      const mask = it.evalInt()
+      it.expect(',')
+      const y0 = it.evalInt()
+      it.expect(',')
+      const y1 = it.evalInt()
+      it.expect('to')
+      const s1 = it.evalInt()
+      it.expect(',')
+      doubleMask(rt, mask, s1, it.evalInt(), y0, y1)
+    },
+
+    /**
+     * Blit Mask a,mask,c To target (L59, :2480) and
+     * L Blit Mask a,mask,c To target,ystart,yend (L60, :2571). See `blitMask`
+     * for the minterm and for the L form's row count.
+     */
+    'blit mask'(it) {
+      const a = it.evalInt()
+      it.expect(',')
+      const mask = it.evalInt()
+      it.expect(',')
+      const c = it.evalInt()
+      it.expect('to')
+      blitMask(rt, a, mask, c, it.evalInt(), 0, null)
+    },
+    'l blit mask'(it) {
+      const a = it.evalInt()
+      it.expect(',')
+      const mask = it.evalInt()
+      it.expect(',')
+      const c = it.evalInt()
+      it.expect('to')
+      const target = it.evalInt()
+      it.expect(',')
+      const y0 = it.evalInt()
+      it.expect(',')
+      blitMask(rt, a, mask, c, target, y0, it.evalInt())
+    },
+
+    /** Blitter Clear base (routine 113) — see `blitPlanes`. */
+    'blitter clear'(it) {
+      const b = it.evalInt()
+      blitPlanes(rt, 0, b, b, false)
+    },
+    /** Blitter Copy source To target (L82, :3183) — see `blitPlanes`. */
+    'blitter copy'(it) {
+      const src = it.evalInt()
+      it.expect('to')
+      const dst = it.evalInt()
+      if (src === 0 || dst === 0) err(4)
+      blitPlanes(rt, src, dst, src, true)
+    },
+
+    /** S32 Block To Screen / S32 Vertice To Screen (L83/L84) — see `s32Expand`. */
+    's32 block to screen'(it) {
+      s32Expand(rt, it.evalInt(), true)
+    },
+    's32 vertice to screen'(it) {
+      s32Expand(rt, it.evalInt(), false)
+    },
+
+    /**
+     * Octets Fill value,start To end (L81, :3171). A byte memset over
+     * [start,end), skipped entirely when end is below start.
+     *
+     * `end` equal to `start` passes the `Bmi` and then never satisfies the
+     * do-while's `Cmp.l a0,a1 / Bne`, so the 68k fills memory until it faults.
+     * Here it writes nothing.
+     */
+    'octets fill'(it) {
+      const v = it.evalInt()
+      it.expect(',')
+      const start = it.evalInt()
+      it.expect('to')
+      const end = it.evalInt()
+      if (end < start) return
+      const w = bytesAt(rt, start, end - start, true)
+      if (w) w.fill(v & 0xff)
+      else for (let p = start; p < end; p++) putB(rt, p, v)
+    },
+
+    /** Low Filter.b/.w/.l value To start,end (L62/L63/L64) — see `lowFilter`. */
+    'low filter.b'(it) {
+      const v = it.evalInt()
+      it.expect('to')
+      const start = it.evalInt()
+      it.expect(',')
+      lowFilter(rt, v, start, it.evalInt(), 1)
+    },
+    'low filter.w'(it) {
+      const v = it.evalInt()
+      it.expect('to')
+      const start = it.evalInt()
+      it.expect(',')
+      lowFilter(rt, v, start, it.evalInt(), 2)
+    },
+    'low filter.l'(it) {
+      const v = it.evalInt()
+      it.expect('to')
+      const start = it.evalInt()
+      it.expect(',')
+      lowFilter(rt, v, start, it.evalInt(), 4)
+    },
+
+    /**
+     * Word Switch start To end (routine 119, $661c). Byte-swaps every word in
+     * the range — the endianness flip you need after reading a little-endian
+     * file. The loop is a do-while whose test is `a1 < end` with a1 one byte
+     * past the current word, so it swaps at least one word and stops when the
+     * NEXT word would begin at or past end.
+     *
+     * Read off the shipped binary: the published 1.1a source has L119 as an
+     * empty label, like L113.
+     *
+     * A range that ends at or below its start swaps that one word here and
+     * stops; the 68k keeps stepping until the pointer wraps.
+     */
+    'word switch'(it) {
+      const start = it.evalInt()
+      it.expect('to')
+      const end = it.evalInt()
+      for (let p = start; ; p += 2) {
+        const lo = getB(rt, p)
+        putB(rt, p, getB(rt, p + 1))
+        putB(rt, p + 1, lo)
+        if (p + 3 >= end) return
+      }
+    },
+
+    /**
+     * F Set Sprite Buffer base,length (L55, :2362). Records where the hardware
+     * sprites live; the buffer has to be at least 8K or it raises error 5,
+     * "Banque memoire trop petite".
+     */
+    'f set sprite buffer'(it) {
+      const base = it.evalInt()
+      it.expect(',')
+      const len = it.evalInt()
+      if (len < 8192) err(5)
+      rt.personnal.spriteBase = base
+      rt.personnal.spriteLength = len
+    },
+
+    /** Get Even/Odd Sprite base,n,x,y To lines (L56/L57) — see `getSprite`. */
+    'get even sprite'(it) {
+      const base = it.evalInt()
+      it.expect(',')
+      const n = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect('to')
+      getSprite(rt, base, n, x, y, it.evalInt(), false)
+    },
+    'get odd sprite'(it) {
+      const base = it.evalInt()
+      it.expect(',')
+      const n = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect('to')
+      getSprite(rt, base, n, x, y, it.evalInt(), true)
+    },
+
+    /**
+     * F Sprite n To x,y,ysize,bank (L58, :2452). Points hardware sprite n at
+     * entry `bank` of the sprite buffer and fills in that sprite's four
+     * control bytes: VSTART, HSTART as x/2, VSTOP as y+ysize, then zero.
+     *
+     * It patches the copper list at `_SprPtBase + n*4 + 2`, but the eight
+     * sprite pointers are two MOVEs each and so eight bytes apart — the shift
+     * should be `Lsl.l #3`, not `#2`. Sprite 0 lands right; sprite 1 writes
+     * its high word into SPR0PTL and its low word into SPR1PTH, and so on.
+     * Kept, and tested.
+     *
+     * The buffer it points at is the one Get Even/Odd Sprite never fills.
+     */
+    'f sprite'(it) {
+      const n = it.evalInt()
+      it.expect('to')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const ysize = it.evalInt()
+      it.expect(',')
+      const bank = it.evalInt()
+      const s = rt.personnal
+      const at = s.sprPtBase + n * 4 + 2
+      const sprite = s.spriteBase + bank * 520
+      putW(rt, at, sprite >>> 16)
+      putW(rt, at + 4, sprite & 0xffff)
+      putB(rt, sprite, y)
+      putB(rt, sprite + 1, x >> 1)
+      putB(rt, sprite + 2, y + ysize)
+      putB(rt, sprite + 3, 0)
     },
 
     /**

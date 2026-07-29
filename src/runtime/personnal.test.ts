@@ -1193,3 +1193,204 @@ describe('Personnal: the five mosaics (L32-L36, :1316/:1373/:1444/:1517/:1591)',
     expect(leek(short, short.bankBase(10) + 256)).toBe(0x80000000)
   })
 })
+
+describe('Personnal: the mask blits (L53/L54/L59/L60) and the two whole-screen blits', () => {
+  const px = (rt: Runtime, n: number, x: number, y: number): number => rt.screens.get(n)!.point(x, y)
+
+  /** four 320-wide screens: 0 all ink 1, 1 empty, 2 a 16-wide mask, 3 empty */
+  const stage = (h: number, body: string[]): Runtime =>
+    run(
+      [
+        `Screen Open 0,320,${h},4,Lowres`,
+        'Cls 0 : Ink 1 : Bar 0,0 To 319,' + (h - 1),
+        `Screen Open 1,320,${h},4,Lowres`,
+        'Cls 0',
+        `Screen Open 2,320,${h},4,Lowres`,
+        'Cls 0 : Ink 1 : Bar 0,0 To 15,' + (h - 1),
+        `Screen Open 3,320,${h},4,Lowres`,
+        'Cls 0',
+        'Screen 0 : A0=Screen Base',
+        'Screen 1 : A1=Screen Base',
+        'Screen 2 : A2=Screen Base',
+        'Screen 3 : A3=Screen Base',
+        ...body,
+      ].join('\n'),
+    )
+
+  it('Double Mask writes (mask AND s1) OR (NOT mask AND s2) back over s2', () => {
+    // plane 0 of the MASK screen alone, against every plane of the other two
+    const rt = stage(32, ['Double Mask A2 To A0,A1'])
+    expect([px(rt, 1, 0, 0), px(rt, 1, 15, 0), px(rt, 1, 16, 0)]).toEqual([1, 1, 0])
+    expect(px(rt, 1, 0, 31)).toBe(1) // the whole screen, not just the first row
+    expect(px(rt, 0, 16, 0)).toBe(1) // s1 is read, never written
+  })
+
+  it('Blit Mask uses minterm $98, which is not the mask-select you would expect', () => {
+    // $98 is (B AND C) OR (A AND NOT B AND NOT C), so with A all ones and C
+    // empty the target lights up where the mask is CLEAR. A mask-select
+    // ($E2, B ? A : C) would have lit it where the mask is set.
+    const rt = stage(32, ['Blit Mask A0,A2,A1 To A3'])
+    expect([px(rt, 3, 0, 0), px(rt, 3, 15, 0), px(rt, 3, 16, 0), px(rt, 3, 319, 31)]).toEqual([0, 0, 1, 1])
+  })
+
+  it('L Double Mask takes yEnd-yStart rows and L Blit Mask takes yEnd of them', () => {
+    // Both are handed 16,32 on a 64-row screen. The CPU form subtracts and
+    // covers rows 16..31; the blitter form does not and covers 16..47. The
+    // demos pass the same numbers to both, so the divergence is real code,
+    // not a reading of it.
+    const cpu = stage(64, ['L Double Mask A2,16,32 To A0,A1'])
+    expect([px(cpu, 1, 0, 15), px(cpu, 1, 0, 16), px(cpu, 1, 0, 31), px(cpu, 1, 0, 32)]).toEqual([0, 1, 1, 0])
+    const blt = stage(64, ['L Blit Mask A0,A2,A1 To A3,16,32'])
+    expect([px(blt, 3, 16, 15), px(blt, 3, 16, 16), px(blt, 3, 16, 47), px(blt, 3, 16, 48)]).toEqual([0, 1, 1, 0])
+  })
+
+  it('a null screen base is error 4 for all four of them', () => {
+    for (const call of [
+      'Double Mask 0 To 1,1',
+      'L Double Mask 0,0,1 To 1,1',
+      'Blit Mask 1,1,1 To 0',
+      'L Blit Mask 1,1,0 To 1,0,1',
+      'Blitter Copy 0 To 1',
+    ]) {
+      expect(() => run(call)).toThrow(/bases ecran INVALIDE/)
+    }
+  })
+
+  it('Blitter Clear zeroes every plane of the screen it is given', () => {
+    const rt = run(
+      ['Screen Open 0,320,64,16,Lowres', 'Cls 0 : Ink 5 : Bar 0,0 To 319,63', 'B=Screen Base', 'Blitter Clear B'].join(
+        '\n',
+      ),
+    )
+    expect([px(rt, 0, 0, 0), px(rt, 0, 319, 63), px(rt, 0, 160, 32)]).toEqual([0, 0, 0])
+  })
+
+  it('Blitter Copy moves the planes across, sized from the source', () => {
+    const rt = run(
+      [
+        'Screen Open 0,320,64,16,Lowres',
+        'Cls 0 : Ink 5 : Bar 0,0 To 15,15',
+        'Screen Open 1,320,64,16,Lowres',
+        'Cls 0',
+        'Screen 0 : A0=Screen Base',
+        'Screen 1 : A1=Screen Base',
+        'Blitter Copy A0 To A1',
+      ].join('\n'),
+    )
+    expect([px(rt, 1, 0, 0), px(rt, 1, 15, 15), px(rt, 1, 16, 0)]).toEqual([5, 5, 0])
+  })
+})
+
+describe('Personnal: the S32 expansions (L83/L84, :3237/:3281)', () => {
+  const px = (rt: Runtime, x: number, y: number): number => rt.screens.get(0)!.point(x, y)
+
+  /** one pixel on row 0 and one on row 33, then one of the two expansions */
+  const shot = (call: string): Runtime =>
+    run(['Screen Open 0,320,64,4,Lowres', 'Cls 0', 'Ink 1', 'Plot 0,0', 'Plot 0,33', 'B=Screen Base', call].join('\n'))
+
+  it('both stretch a row leftmost longword across the whole row', () => {
+    for (const call of ['S32 Block To Screen B', 'S32 Vertice To Screen B']) {
+      const rt = shot(call)
+      expect([px(rt, 0, 0), px(rt, 32, 0), px(rt, 288, 0), px(rt, 1, 0)]).toEqual([1, 1, 1, 0])
+    }
+  })
+
+  it('Block tiles the top 32 rows down the screen; Vertice keeps every row its own', () => {
+    // Block resets the source to the plane base each 32-row band, so output
+    // row 32 comes from source row 0 and the pixel that was on row 33 is
+    // overwritten from the empty source row 1. Vertice never resets.
+    const block = shot('S32 Block To Screen B')
+    expect([px(block, 0, 32), px(block, 0, 33)]).toEqual([1, 0])
+    const vertice = shot('S32 Vertice To Screen B')
+    expect([px(vertice, 0, 32), px(vertice, 0, 33), px(vertice, 32, 33)]).toEqual([0, 1, 1])
+  })
+})
+
+describe('Personnal: the memory utilities (L62/L63/L64/L81, and routine 119)', () => {
+  const bank = ['Reserve As Work 10,4096', 'A=Start(10)']
+  const at = (rt: Runtime): number => rt.bankBase(10)
+
+  it('Octets Fill writes bytes over [start,end)', () => {
+    const rt = run([...bank, 'Loke A,0 : Loke A+4,0', 'Octets Fill $AB,A To A+6'].join('\n'))
+    expect(leek(rt, at(rt))).toBe(0xababab_ab)
+    expect(leek(rt, at(rt) + 4)).toBe(0xabab0000)
+    // end below start is the routine's own Bmi guard
+    const none = run([...bank, 'Loke A,0', 'Octets Fill $AB,A+4 To A'].join('\n'))
+    expect(leek(none, at(none))).toBe(0)
+  })
+
+  it('Word Switch byte-swaps every word in the range', () => {
+    const rt = run([...bank, 'Loke A,$11223344 : Loke A+4,$55667788', 'Word Switch A To A+8'].join('\n'))
+    expect([leek(rt, at(rt)), leek(rt, at(rt) + 4)]).toEqual([0x22114433, 0x66558877])
+    // the loop is a do-while, so one word always goes even when the range
+    // does not reach it
+    const one = run([...bank, 'Loke A,$11223344', 'Word Switch A To A'].join('\n'))
+    expect(leek(one, at(one))).toBe(0x22113344)
+  })
+
+  it('Low Filter.b caps a whole range; .w and .l cap exactly one element', () => {
+    // .b ends its loop with Bne and walks the range. .w and .l end theirs
+    // with `Cmp.l a0,a1 / Blt`, which asks whether the END pointer is below
+    // the current one — false on the first pass of any sane range. Both the
+    // source and the shipped binary say so.
+    const b = run([...bank, 'Loke A,$10203040', 'Low Filter.b $20 To A,A+4'].join('\n'))
+    expect(leek(b, at(b))).toBe(0x10202020)
+    const w = run([...bank, 'Loke A,$10203040 : Loke A+4,$50607080', 'Low Filter.w $2000 To A,A+8'].join('\n'))
+    expect([leek(w, at(w)), leek(w, at(w) + 4)]).toEqual([0x10203040, 0x50607080]) // $1020 < $2000, and it stops
+    const w2 = run([...bank, 'Loke A,$30204040', 'Low Filter.w $2000 To A,A+4'].join('\n'))
+    expect(leek(w2, at(w2))).toBe(0x20004040) // the first word only
+    const l = run([...bank, 'Loke A,$30000000 : Loke A+4,$30000000', 'Low Filter.l $20000000 To A,A+8'].join('\n'))
+    expect([leek(l, at(l)), leek(l, at(l) + 4)]).toEqual([0x20000000, 0x30000000])
+  })
+})
+
+describe('Personnal: the sprite quartet, which does not work (L55-L58)', () => {
+  const bank = ['Reserve As Work 10,24000', 'A=Start(10)', 'Create Standard A']
+
+  it('F Set Sprite Buffer records the buffer and insists on 8K', () => {
+    const rt = run([...bank, 'F Set Sprite Buffer A+16384,8192'].join('\n'))
+    expect(rt.personnal.spriteBase).toBe(rt.bankBase(10) + 16384)
+    expect(rt.personnal.spriteLength).toBe(8192)
+    expect(() => run([...bank, 'F Set Sprite Buffer A,8191'].join('\n'))).toThrow(/Banque memoire trop petite/)
+  })
+
+  it('Get Even Sprite writes over _SpriteBase instead of into the buffer', () => {
+    // `DLea _SpriteBase,a0 / Move.l a0,d1 / Move.l d1,a0` takes the ADDRESS of
+    // the variable and never dereferences it, so the sprite lands on the
+    // extension's own variables. The buffer stays empty and F Sprite, which
+    // does dereference, finds nothing. Confirmed at $4592 in the binary.
+    const rt = run(
+      [
+        'Screen Open 0,320,64,4,Lowres',
+        'Cls 0 : Ink 1 : Bar 0,0 To 15,15',
+        ...bank,
+        'F Set Sprite Buffer A+16384,8192',
+        'B=Screen Base',
+        'Get Even Sprite B,0,0,0 To 8',
+      ].join('\n'),
+    )
+    // the four-byte header, $0000 then the line count, landed on _SpriteBase
+    expect(rt.personnal.spriteBase).toBe(8 << 8)
+    // and the first plane-0 longword of the cut landed on _SpriteLength
+    expect(rt.personnal.spriteLength).toBe(0xffff0000)
+    // nothing at all reached the buffer the program reserved
+    expect(leek(rt, rt.bankBase(10) + 16384)).toBe(0)
+  })
+
+  it('F Sprite patches the copper list four bytes a sprite, where it needs eight', () => {
+    // _SprPtBase holds two MOVEs per sprite, so sprite n starts at n*8. The
+    // routine does `Lsl.l #2,d2`. Sprite 0 is right; sprite 1 writes its high
+    // word into SPR0PTL's value.
+    const rt = run([...bank, 'F Set Sprite Buffer A+16384,8192', 'F Sprite 0 To 128,50,16,0'].join('\n'))
+    const s = rt.personnal
+    const sprite = s.spriteBase
+    expect(getWord(rt, s.sprPtBase + 2)).toBe(sprite >>> 16)
+    expect(getWord(rt, s.sprPtBase + 6)).toBe(sprite & 0xffff)
+    // VSTART, HSTART as x/2, VSTOP as y+ysize, then the control byte
+    expect(leek(rt, sprite)).toBe(((50 << 24) | (64 << 16) | (66 << 8)) >>> 0)
+
+    const one = run([...bank, 'F Set Sprite Buffer A+16384,8192', 'F Sprite 1 To 128,50,16,0'].join('\n'))
+    expect(getWord(one, one.personnal.sprPtBase + 6)).toBe(one.personnal.spriteBase >>> 16) // SPR0PTL's slot
+    expect(getWord(one, one.personnal.sprPtBase + 10)).toBe(one.personnal.spriteBase & 0xffff)
+  })
+})
