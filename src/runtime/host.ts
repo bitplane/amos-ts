@@ -6,9 +6,9 @@
  * matters more than tidiness. The corpus census has to be reproducible, and
  * that guarantee is only as good as the weakest keyword handler — one stray
  * `Date.now()` anywhere in the runtime silently breaks it. Collecting every
- * outside-world capability here, each with a deterministic default, turns
- * "is a headless run reproducible?" into a question answered by reading a
- * single file.
+ * outside-world capability here turns "is a headless run reproducible?" into
+ * a question answered by reading a single file, and by checking that the
+ * census pins the one capability that varies (the clock).
  *
  * It also names the emulation boundary explicitly, and that list is the same
  * list as the `n/a` keyword classifications — they are two views of one fact.
@@ -40,7 +40,8 @@ export interface Clock {
 }
 
 /**
- * A fixed clock. The default, so headless runs are reproducible.
+ * A frozen clock, for callers that need a reproducible run — the corpus
+ * census passes one. NOT the default: see defaultHost().
  *
  * The date is a plausible one rather than the epoch on purpose: with days=0
  * every date path formats as 780101 and the interesting code — month and
@@ -51,7 +52,7 @@ export const FIXED_DATE: DateStamp = { days: 6036, mins: 870, ticks: 0 }
 
 export const fixedClock = (at: DateStamp = FIXED_DATE): Clock => ({ now: () => ({ ...at }) })
 
-/** A real clock, for a host that has one (the browser wires this up). */
+/** A real clock. The default — see defaultHost(). */
 export const systemClock = (): Clock => ({
   now(): DateStamp {
     const d = new Date()
@@ -81,7 +82,7 @@ export interface Host {
   audio?: AudioSink
   /** mirror of all console text, for transcripts and CLIs */
   onText?: (text: string) => void
-  /** wall-clock time; defaults to FIXED_DATE so runs stay reproducible */
+  /** wall-clock time; a real one by default, see defaultHost() */
   clock: Clock
   /**
    * Printer sink. AMOS's Lprint/Ldir and JD's 63 Prt keywords write here.
@@ -184,7 +185,30 @@ export interface PrinterPage {
   destRows: number
 }
 
-/** Every capability at its deterministic default. */
+/**
+ * Every capability at its default.
+ *
+ * The clock is a REAL one. A machine whose calendar is stuck in 1994 is a
+ * broken machine, and the default has to be right for the person embedding
+ * the runtime rather than for our own test harness.
+ *
+ * Who actually reads it is narrower than it looks: core AMOS Professional
+ * has no date or time keyword at all -- `Timer` counts vertical blanks and
+ * is deterministic by nature. The clock reaches BASIC only through LDos
+ * (`Lsys Stamp`, `Lsys Time`, `Ldate`) and through file datestamps. So this
+ * matters to a program using LDos or listing a directory, and to nothing
+ * else.
+ *
+ * Reproducibility is still required, but it belongs to the tool that needs
+ * it rather than to everybody else: src/cli/runreport.ts passes fixedClock()
+ * explicitly, because a census whose results depend on the day it ran is
+ * worthless. That used to be arranged by making the default frozen, which
+ * got it backwards -- the census was silently relying on a global default,
+ * and every other caller paid for it.
+ *
+ * Everything else stays absent by default, since a capability the host does
+ * not have cannot be conjured.
+ */
 export function defaultHost(): Host {
-  return { clock: fixedClock() }
+  return { clock: systemClock() }
 }

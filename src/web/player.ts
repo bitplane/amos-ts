@@ -341,7 +341,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
         banks: amos?.banks ?? [],
         audio,
         fs: vfs,
-        host: { clock: systemClock(), printerPage: printPage, serial: serialHost },
+        host: { clock: systemClock(), printer: printText, printerPage: printPage, serial: serialHost },
       })
       if (systemResource) rt.loadSystemResource(systemResource)
       status(`running ${name}`)
@@ -503,6 +503,73 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
  * the page is a separate document — and because printing must not disturb a
  * program that is still running.
  */
+/**
+ * Open a printable document in its own window and raise the print dialog.
+ *
+ * A separate document rather than a print stylesheet on the player, for two
+ * reasons: the player is a canvas the size of an Amiga screen and a page is
+ * not, and printing must not disturb a program that is still running. The
+ * dialog also gives Save as PDF for free, so "print it" and "keep it" are
+ * the same button.
+ */
+function printDocument(body: string, title: string): void {
+  const win = window.open('', '_blank')
+  if (!win) return
+  win.document.write(`<!doctype html><title>${title}</title>${body}`)
+  win.document.close()
+  const el = win.document.querySelector('img')
+  if (el) el.onload = (): void => win.print()
+  else win.print()
+}
+
+/**
+ * The TEXT printer: Lprint, and JD's Prt keywords.
+ *
+ * A real printer holds a page until something feeds it, and this does the
+ * same. Form feed (chr$ 12) ends a page immediately; otherwise an idle timer
+ * flushes, because a program that prints five lines and stops should still
+ * get paper rather than nothing. Without that a listing would sit in the
+ * buffer forever, which is the silent failure this whole thing replaces.
+ *
+ * The text goes into a <pre>: AMOS printer output is column-aligned by
+ * spaces, and a proportional font would destroy every table anyone ever
+ * printed from it.
+ */
+const PRINTER_IDLE_MS = 1500
+let printerBuf = ''
+let printerTimer: ReturnType<typeof setTimeout> | null = null
+
+function flushPrinterText(): void {
+  if (printerTimer !== null) {
+    clearTimeout(printerTimer)
+    printerTimer = null
+  }
+  const text = printerBuf
+  printerBuf = ''
+  if (text.length === 0) return
+  const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  printDocument(
+    `<style>@page{margin:1.5cm}body{margin:0}` +
+      `pre{font:12px/1.25 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;margin:0}</style>` +
+      `<pre>${esc}</pre>`,
+    'Printer',
+  )
+}
+
+function printText(text: string): void {
+  for (const ch of text) {
+    if (ch === '\f') {
+      // form feed: the page is finished, send it now
+      flushPrinterText()
+      continue
+    }
+    printerBuf += ch
+  }
+  if (printerBuf.length === 0) return
+  if (printerTimer !== null) clearTimeout(printerTimer)
+  printerTimer = setTimeout(flushPrinterText, PRINTER_IDLE_MS)
+}
+
 function printPage(page: import('../runtime/host').PrinterPage): void {
   const cv = document.createElement('canvas')
   cv.width = page.width
@@ -519,17 +586,10 @@ function printPage(page: import('../runtime/host').PrinterPage): void {
   const wide = page.width <= 400
   const w = page.width * (wide ? 2 : 1)
   const url = cv.toDataURL('image/png')
-  const win = window.open('', '_blank')
-  if (!win) return
-  win.document.write(
-    `<!doctype html><title>Printer Dump</title>` +
-      `<style>@page{margin:1cm}html,body{margin:0;padding:0}` +
+  printDocument(
+    `<style>@page{margin:1cm}html,body{margin:0;padding:0}` +
       `img{width:100%;max-width:${w * 2}px;image-rendering:pixelated;display:block}</style>` +
       `<img src="${url}">`,
+    'Printer Dump',
   )
-  win.document.close()
-  // let the image decode before the dialog measures the page
-  const el = win.document.querySelector('img')
-  if (el) el.onload = (): void => win.print()
-  else win.print()
 }

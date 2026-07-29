@@ -140,6 +140,25 @@ fileEl.addEventListener('change', () => {
   }
 })
 document.getElementById('restart')!.addEventListener('click', () => player.restart())
+
+// ---- serial ----
+// Web Serial's chooser needs a user gesture, which a running program has not
+// got — so granting is a button, and afterwards Serial Open finds the port on
+// its own. Hidden entirely where there is no Web Serial (Firefox, Safari,
+// mobile) rather than shown and failing, since nothing the user does there
+// could help.
+const serialEl = document.getElementById('serial') as HTMLButtonElement
+if (player.serialSupported) {
+  serialEl.hidden = false
+  serialEl.addEventListener('click', () => {
+    void player.requestSerialPort().then((ok) => {
+      serialEl.textContent = ok ? 'Serial port ✓' : 'Serial port…'
+      serialEl.title = ok
+        ? 'A port is granted. Serial Open will use it.'
+        : 'No port granted — Serial Open still works, on a port with nothing attached.'
+    })
+  })
+}
 turboEl.addEventListener('change', () => player.setTurbo(turboEl.checked))
 
 // ---- drag and drop (files, folders, zips) ----

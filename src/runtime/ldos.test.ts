@@ -6,6 +6,7 @@ import { EXTENSION_TOKENS } from '../ext/registry'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
+import { fixedClock } from './host'
 import { ldosKey } from './ldos'
 import { pp20Crunch } from '../loader/powerpacker'
 import { existsSync, readFileSync } from 'node:fs'
@@ -27,7 +28,10 @@ const extensions = new Map([
 
 const enc = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.charCodeAt(0)))
 
-function run(src: string): { out: string; fs: AmigaFS; rt: Runtime } {
+function run(
+  src: string,
+  extra: { host?: Partial<import('./host').Host> } = {},
+): { out: string; fs: AmigaFS; rt: Runtime } {
   const fs = new AmigaFS()
   fs.mountMemory('DH0')
   fs.mountMemory('ENV') // global environment variables are files in ENV:
@@ -38,6 +42,7 @@ function run(src: string): { out: string; fs: AmigaFS; rt: Runtime } {
     extensions,
     fs,
     onText: (t) => (out += t),
+    ...extra,
   })
   const r = rt.runHeadless(1_000)
   if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
@@ -668,11 +673,14 @@ describe('LDos environment variables and fonts (LdosV25.DOC)', () => {
     expect(fs.readFile('ENV:Editor')).toEqual(enc('ed'))
   })
 
-  it('Lsys Stamp and Lsys Time read the host clock, fixed by default', () => {
-    // The default clock is deterministic so a headless run is reproducible;
-    // a host with a real clock supplies one. FIXED_DATE is 12 July 1994,
-    // 14:30:00.
-    const { out } = run(['Print Ldate(Lsys Stamp)', 'Print Lsys Time'].join('\n'))
+  it('Lsys Stamp and Lsys Time read the host clock', () => {
+    // The default is a REAL clock, so this pins one rather than relying on
+    // the default being frozen -- which is what it used to do, and which
+    // quietly made every other caller live in 1994. FIXED_DATE is 12 July
+    // 1994, 14:30:00.
+    const { out } = run(['Print Ldate(Lsys Stamp)', 'Print Lsys Time'].join('\n'), {
+      host: { clock: fixedClock() },
+    })
     expect(out).toBe('940712\n143000\n')
   })
 

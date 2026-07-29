@@ -34,3 +34,19 @@ export { Runtime } from './runtime/runtime'
 export type { RuntimeOptions } from './runtime/runtime'
 export { Screen, DEFAULT_PALETTE } from './runtime/screen'
 export { FONT8 } from './runtime/font.gen'
+
+// The host boundary. RuntimeOptions.host is `Partial<Host>`, so without
+// these a consumer could pass an object literal but could not name the type,
+// write a helper, implement SerialHost, or reach the clocks -- which made
+// `clock` unsatisfiable from outside the package.
+export { defaultHost, fixedClock, systemClock, FIXED_DATE } from './runtime/host'
+export type {
+  Host,
+  Clock,
+  DateStamp,
+  Unavailable,
+  PrinterPage,
+  SerialHost,
+  SerialLineParams,
+  SerialPortHandle,
+} from './runtime/host'

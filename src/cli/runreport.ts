@@ -6,6 +6,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { hostPath, walkFiles } from './walk'
+import { fixedClock } from '../runtime/host'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -62,6 +63,9 @@ for (const file of walkFiles(root)) {
       onUnimplemented: 'skip',
       maxSteps: 120_000,
       banks: amos.banks,
+      // pinned, not inherited: a census whose numbers move with the calendar
+      // could not be compared against yesterday's run
+      host: { clock: fixedClock() },
       fs: fsForFile(path, path.includes('aga-releases') ? 'fixtures/aga-releases' : 'fixtures/official-amos'),
     })
     if (systemResource) rt.loadSystemResource(systemResource)
