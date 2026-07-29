@@ -1047,29 +1047,32 @@ describe('Personnal: HAM, EHB and collision control (L8/L9/L38/L40/L41/L44-46)',
   })
 
   it('the collision readers answer from a CLXDAT we do not have', () => {
-    // All three end the same way: -1 when the CLXDAT bit is CLEAR, which is
-    // the opposite of what their names suggest and is kept as found. There is
-    // no collision hardware here, so CLXDAT reads 0 and they all say -1.
+    // Both end the same way: -1 when the CLXDAT bit is CLEAR, which is the
+    // opposite of what their names suggest and is kept as found. There is no
+    // collision hardware here, so CLXDAT reads 0 and they both say -1.
     let out = ''
-    const src = 'Print Sprite Col(0,2);Playfields Col;Pf Sprites Col(1,0)'
-    const rt = new Runtime(tokenize(src, table, exts), table, {
+    const rt = new Runtime(tokenize('Print Playfields Col;Pf Sprites Col(1,0)', table, exts), table, {
       extensions: exts,
       maxSteps: 200_000,
       onText: (t) => (out += t),
     })
     rt.runHeadless(100)
-    expect(out).toBe('-1-1-1\n')
+    expect(out).toBe('-1-1\n')
   })
 
-  it('two sprites of one pair cannot collide, and answer 0', () => {
-    // both numbers lose bit 0 first, so 0 and 1 are the same pair
+  it('Sprite Col stays core\'s, because this table is keyed by name', () => {
+    // Personnal has its own Sprite Col(s1,s2). Core has one too
+    // (instr.ts:4136) with different arguments, and an extension handler
+    // spread after it silently replaces it — which broke two core sprite
+    // tests and cost the census two programs when it was first added. Core
+    // wins; the deviation is recorded rather than the collision repeated.
     let out = ''
-    const rt = new Runtime(tokenize('Print Sprite Col(0,1)', table, exts), table, {
+    const rt = new Runtime(tokenize('Print Sprite Col(0)', table, exts), table, {
       extensions: exts,
       maxSteps: 200_000,
       onText: (t) => (out += t),
     })
     rt.runHeadless(100)
-    expect(out).toBe(' 0\n')
+    expect(out).toBe(' 0\n') // core's arity, core's answer
   })
 })

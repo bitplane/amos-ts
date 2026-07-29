@@ -1443,19 +1443,16 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
       return VI(64)
     },
 
-    /**
-     * Sprite Col(s1,s2) (L44, :1958). Sprites collide in pairs, so both
-     * numbers lose bit 0 first; two sprites of the same pair cannot collide
-     * and answer 0. The pair combination picks a CLXDAT bit from 9 to 14.
-     */
-    'sprite col'(_, a): Value {
-      const s1 = int(a[0]!) & ~1
-      const s2 = int(a[1]!) & ~1
-      if (s1 === s2) return VI(0)
-      const key = (s1 << 4) | s2
-      const bit = { 0x02: 9, 0x04: 10, 0x06: 11, 0x24: 12, 0x26: 13, 0x46: 14 }[key]
-      return VI(clxBit(rt, bit ?? null))
-    },
+    // Sprite Col is NOT registered here, and must not be. Core AMOS has its
+    // own Sprite Col (instr.ts:4136) with different arguments, and this
+    // dispatch table is keyed by NAME — an extension handler spread after the
+    // core one silently replaces it, which is what happened when this was
+    // added: two core sprite tests broke and the census lost two programs.
+    //
+    // On a real machine the two are different tokens, core against ext13, and
+    // both exist. Here core wins, because core programs are the many and
+    // Personnal's collision readers answer a constant anyway (see clxBit).
+    // NOTES entry at closeout; the general problem is its own task.
 
     /** Playfields Col (L45, :1996) — CLXDAT bit 0, playfield against playfield */
     'playfields col'(): Value {
