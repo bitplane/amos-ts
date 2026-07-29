@@ -1056,14 +1056,19 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
      * two-argument one — which is why an absent mask means every colour.
      *
      * The screen may be omitted: `Get Palette,0` is in the corpus
-     * (APD470/HomeRun2). There is no defined value for an omitted slot —
-     * `New_Evalue` dispatches the comma's own routine, which does nothing and
-     * leaves d3 holding whatever the last evaluation put there, so the screen
-     * number is indeterminate register state. It does not matter here: mask 0
-     * means `PalRout`'s `btst d0,d3` never fires, every entry stays the $FFFF
-     * "unchanged" marker, and the call copies nothing whichever screen it
-     * picked. So the omitted slot resolves to the current screen, which is the
-     * one choice that cannot throw.
+     * (APD470/HomeRun2). An omitted slot has a defined value — the comma's
+     * FUNCTION routine is `FnNull` (+ILib.s:3754), which loads `EntNul`
+     * ($80000000, +Equ.s:67) into d3 and steps the token pointer back two so
+     * the collector's own comma-skip still lands right. Keywords that accept
+     * omission test for it: `Set Talk` and `Talk Misc` (+Music.s:2621/4395)
+     * compare every parameter against EntNul and leave the field alone.
+     *
+     * Get Palette does not test for it, so the sentinel reaches `L_GetEc` as
+     * a screen number. It does not matter: mask 0 means `PalRout`'s
+     * `btst d0,d3` never fires, every entry stays the $FFFF "unchanged"
+     * marker, and nothing is copied whichever screen was named. The omitted
+     * slot resolves to the current screen here, which is the one choice that
+     * cannot throw.
      */
     'get palette'(it) {
       const src = it.nm() === ',' ? scr() : byIndex(it.evalInt())
