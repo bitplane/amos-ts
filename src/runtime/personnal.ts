@@ -169,6 +169,13 @@ function putL(rt: Runtime, addr: number, v: number): void {
   m.data[m.off + 3] = v & 0xff
 }
 
+/** Longword at addr, unsigned — the counterpart of putL. */
+function getL(rt: Runtime, addr: number): number {
+  const m = rt.resolveAddr(addr)
+  if (!m || m.off + 3 >= m.data.length) return 0
+  return ((m.data[m.off]! << 24) | (m.data[m.off + 1]! << 16) | (m.data[m.off + 2]! << 8) | m.data[m.off + 3]!) >>> 0
+}
+
 /** Word at addr, for the read-modify-write patches. */
 function getW(rt: Runtime, addr: number): number {
   const m = rt.resolveAddr(addr)
@@ -372,6 +379,73 @@ function mplotDraw(rt: Runtime, it: { evalInt(): number; expect(t: string): void
       const a = plane + off
       const b = getB(rt, a)
       putB(rt, a, ink & (1 << p) ? b | (1 << bit) : b & ~(1 << bit))
+    }
+  }
+}
+
+/**
+ * The pixel-replication masks the five mosaics start from (_m3 :1352,
+ * _mb3 :1407, _mc3 :1479, _md3 :1553, _me3 :1627). Each keeps the leftmost
+ * pixel of every n-pixel group — bit 31 of a longword is the leftmost pixel,
+ * so the mask has a bit every n places down from 31.
+ */
+const MOSAIC_MASK: Record<number, number> = {
+  2: 0xaaaaaaaa,
+  4: 0x88888888,
+  8: 0x80808080,
+  16: 0x80008000,
+  32: 0x80000000,
+}
+
+/**
+ * Mosaic X2/X4/X8/X16/X32 base (L32-L36, :1316/:1373/:1444/:1517/:1591).
+ * Five copies of one routine at five scales, pixellating a screen in place.
+ *
+ * The argument is a screen control block — the demos pass `Screen Base`. The
+ * routine copies its first six longwords (EcLogic, the LOGICAL planes, so a
+ * double-buffered program follows with Screen Copy) into _MosaicPlanes, and
+ * reads EcTx/EcTy at +76/+78 for the size. Bytes per row is taken as the
+ * pixel width shifted right three, not EcTLigne.
+ *
+ * Per plane, per n rows, per longword: keep one pixel in n and smear it right
+ * across the group with `Lsr.l #1 / Or.l` repeated n-1 times, then write that
+ * longword to all n rows of the block. The plane loop stops dead at the first
+ * zero pointer (`Beq _mend`), so it never touches a plane past a gap.
+ *
+ * Two guards the original does not have, both against it running off the end
+ * of the bitmap rather than against anything a normal screen does:
+ *
+ *   - The height is rounded down to a multiple of n by an `Lsr/Lsl` pair, and
+ *     the row loop is a do-while (`Add.l #n,d1 / Cmp.l d1,d7 / Bne`). A screen
+ *     shorter than one block rounds to zero, so the compare never matches and
+ *     the 68k walks memory forever. Here that case does nothing.
+ *   - The column loop runs `Cmp.l a1,a3 / Bne` with a1 stepping four bytes, so
+ *     a row whose byte width is not a multiple of four steps straight past the
+ *     end marker. Here it stops at the last whole longword. Screen widths are
+ *     multiples of 16 pixels, so this bites only below 32 pixels wide.
+ */
+function mosaic(rt: Runtime, base: number, n: number): void {
+  const width = getW(rt, base + 76)
+  const height = getW(rt, base + 78)
+  const rowBytes = width >>> 3
+  const rows = height - (height % n)
+  const longs = rowBytes >>> 2
+  const mask = MOSAIC_MASK[n]!
+  for (let p = 0; p < 6; p++) {
+    const plane = getL(rt, base + p * 4)
+    if (plane === 0) return
+    for (let y = 0; y < rows; y += n) {
+      for (let i = 0; i < longs; i++) {
+        const off = y * rowBytes + i * 4
+        let d2 = getL(rt, plane + off) & mask
+        let d0 = d2
+        for (let k = 1; k < n; k++) {
+          d2 >>>= 1
+          d0 |= d2
+        }
+        d0 >>>= 0
+        for (let r = 0; r < n; r++) putL(rt, plane + off + r * rowBytes, d0)
+      }
     }
   }
 }
@@ -1311,6 +1385,25 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       if (s.bplConBase === 0) err(1)
       const a = s.bplConBase + 2
       putW(rt, a, on ? getW(rt, a) | 0x0800 : getW(rt, a) & ~0x0800)
+    },
+
+    /**
+     * The five mosaics (L32-L36). See `mosaic` for the routine they share.
+     */
+    'mosaic x2'(it) {
+      mosaic(rt, it.evalInt(), 2)
+    },
+    'mosaic x4'(it) {
+      mosaic(rt, it.evalInt(), 4)
+    },
+    'mosaic x8'(it) {
+      mosaic(rt, it.evalInt(), 8)
+    },
+    'mosaic x16'(it) {
+      mosaic(rt, it.evalInt(), 16)
+    },
+    'mosaic x32'(it) {
+      mosaic(rt, it.evalInt(), 32)
     },
 
     /**

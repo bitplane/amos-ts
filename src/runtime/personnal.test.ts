@@ -1076,3 +1076,120 @@ describe('Personnal: HAM, EHB and collision control (L8/L9/L38/L40/L41/L44-46)',
     expect(out).toBe(' 0\n') // core's arity, core's answer
   })
 })
+
+describe('Personnal: the five mosaics (L32-L36, :1316/:1373/:1444/:1517/:1591)', () => {
+  /** the logical screen the mosaics work on, read back through the mirror */
+  const px = (rt: Runtime, x: number, y: number): number => rt.screens.get(0)!.point(x, y)
+
+  /** a 320x64 four-colour screen, some pixels lit, then one mosaic over it */
+  const shot = (plots: string[], call: string): Runtime =>
+    run(['Screen Open 0,320,64,4,Lowres', 'Cls 0', 'Ink 1', ...plots, 'B=Screen Base', call].join('\n'))
+
+  it('X2 gives every pair of pixels the value of its left-hand one', () => {
+    // mask $AAAAAAAA keeps pixel 0 of each pair — bit 31 is the leftmost
+    // pixel of a longword — and Lsr/Or smears it one place right
+    const rt = shot(['Plot 0,0', 'Plot 2,0', 'Plot 5,0'], 'Mosaic X2 B')
+    expect([0, 1, 2, 3, 4, 5].map((x) => px(rt, x, 0))).toEqual([1, 1, 1, 1, 0, 0])
+  })
+
+  it('X2 gives every pair of rows the content of its upper one', () => {
+    const rt = shot(['Plot 0,0', 'Plot 8,1', 'Plot 0,2'], 'Mosaic X2 B')
+    // row 1 is overwritten by row 0, so the pixel plotted on it is gone
+    expect([px(rt, 0, 0), px(rt, 0, 1)]).toEqual([1, 1])
+    expect([px(rt, 8, 0), px(rt, 8, 1)]).toEqual([0, 0])
+    expect([px(rt, 0, 2), px(rt, 0, 3)]).toEqual([1, 1])
+  })
+
+  it('the scale is the group width and the block height together', () => {
+    for (const [n, call] of [
+      [4, 'Mosaic X4 B'],
+      [8, 'Mosaic X8 B'],
+      [16, 'Mosaic X16 B'],
+      [32, 'Mosaic X32 B'],
+    ] as Array<[number, string]>) {
+      const rt = shot(['Plot 0,0'], call)
+      expect([px(rt, n - 1, 0), px(rt, n, 0)]).toEqual([1, 0])
+      expect([px(rt, 0, n - 1), px(rt, 0, n)]).toEqual([1, 0])
+    }
+  })
+
+  it('X32 takes a whole longword from its leftmost pixel', () => {
+    // pixel 32 is bit 31 of the second longword, so it fills 32..63 and
+    // leaves 0..31 to be filled from pixel 0, which is clear
+    const rt = shot(['Plot 32,0'], 'Mosaic X32 B')
+    expect([px(rt, 0, 0), px(rt, 31, 0), px(rt, 32, 0), px(rt, 63, 0)]).toEqual([0, 0, 1, 1])
+  })
+
+  it('every plane is smeared, so the colour survives', () => {
+    const rt = run(
+      ['Screen Open 0,320,64,4,Lowres', 'Cls 0', 'Ink 3', 'Plot 0,0', 'B=Screen Base', 'Mosaic X4 B'].join('\n'),
+    )
+    expect([px(rt, 0, 0), px(rt, 3, 0), px(rt, 3, 3)]).toEqual([3, 3, 3])
+  })
+
+  it('the last block is the last whole one — a height of 64 is two X32 blocks', () => {
+    const rt = shot(['Plot 0,32'], 'Mosaic X32 B')
+    expect([px(rt, 0, 31), px(rt, 0, 32), px(rt, 0, 63)]).toEqual([0, 1, 1])
+  })
+
+  it('it works on the LOGICAL screen, which is why the demos follow with Screen Copy', () => {
+    // _MosaicPlanes is filled from EcLogic, the first six longwords of the
+    // control block — so under Double Buffer the mosaic lands on the back
+    // buffer and Simple_Mosaique.AMOS has to copy it forward itself.
+    const rt = run(
+      ['Screen Open 0,320,64,4,Lowres', 'Double Buffer', 'Cls 0', 'Ink 1', 'Plot 0,0', 'B=Screen Base', 'Mosaic X4 B'].join(
+        '\n',
+      ),
+    )
+    const s = rt.screens.get(0)!
+    expect([s.point(0, 0), s.point(3, 0), s.point(3, 3), s.point(4, 0)]).toEqual([1, 1, 1, 0])
+  })
+
+  it('a zero plane pointer abandons the whole keyword, not just that plane', () => {
+    // _m2's `Cmp.l #0,a1 / Beq _mend` leaves everything after the gap alone.
+    // Built by hand rather than from a screen, because a screen's control
+    // block only ever zeroes the tail of the list.
+    const rt = run(
+      [
+        'Reserve As Work 10,24000',
+        'A=Start(10)',
+        'Loke A,A+256 : Loke A+4,0 : Loke A+8,A+512',
+        'Doke A+76,32 : Doke A+78,4',
+        'Loke A+256,$80000000 : Loke A+512,$80000000',
+        'Mosaic X2 A',
+      ].join('\n'),
+    )
+    const a = rt.bankBase(10) // = Start(10)
+    expect(leek(rt, a + 256)).toBe(0xc0000000) // plane 0 smeared
+    expect(leek(rt, a + 512)).toBe(0x80000000) // plane 2 never reached
+  })
+
+  it('a screen too small for one block does nothing, where the 68k runs away', () => {
+    // Two guards the original lacks: the row loop is a do-while against a
+    // height rounded down to a multiple of n, so a height under n never
+    // matches and walks memory forever; and the column loop steps four bytes
+    // against an end marker at width/8, so an odd byte width steps past it.
+    const narrow = run(
+      [
+        'Reserve As Work 10,24000',
+        'A=Start(10)',
+        'Loke A,A+256',
+        'Doke A+76,16 : Doke A+78,4', // 2 bytes a row: no whole longword
+        'Loke A+256,$80000000',
+        'Mosaic X2 A',
+      ].join('\n'),
+    )
+    expect(leek(narrow, narrow.bankBase(10) + 256)).toBe(0x80000000)
+    const short = run(
+      [
+        'Reserve As Work 10,24000',
+        'A=Start(10)',
+        'Loke A,A+256',
+        'Doke A+76,32 : Doke A+78,1', // one row, and X2 wants two
+        'Loke A+256,$80000000',
+        'Mosaic X2 A',
+      ].join('\n'),
+    )
+    expect(leek(short, short.bankBase(10) + 256)).toBe(0x80000000)
+  })
+})
