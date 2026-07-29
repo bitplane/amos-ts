@@ -786,3 +786,69 @@ describe('Personnal: the AGA and CMAP half of colour (L71/L72/L73/L75/L80)', () 
     )
   })
 })
+
+describe('Personnal: the palette utilities (L66/L76/L77)', () => {
+  const pal = ['Reserve As Work 11,64 : B=Start(11)', 'Reserve As Work 12,64 : C=Start(12)']
+
+  it('Fade Palette steps each channel one towards the target, and stops there', () => {
+    let out = ''
+    const src = [
+      ...pal,
+      'Poke B,5 : Poke B+1,10 : Poke B+2,7',
+      'Poke C,8 : Poke C+1,10 : Poke C+2,0',
+      'Fade Palette 1,B,C',
+      'R1=Peek(B) : R2=Peek(B+1) : R3=Peek(B+2)',
+      'Print R1;R2;R3',
+    ].join('\n')
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, onText: (t) => (out += t) })
+    rt.runHeadless(200)
+    // 5 rose towards 8, 10 had already arrived, 7 fell towards 0
+    expect(out).toBe(' 6 10 6\n')
+  })
+
+  it('Attribute Palette adds per channel and clamps to 0..15', () => {
+    let out = ''
+    const src = [
+      ...pal,
+      'Poke B,2 : Poke B+1,14 : Poke B+2,8',
+      'Attribute Palette 1,-5,4,1,B To C',
+      'R1=Peek(C) : R2=Peek(C+1) : R3=Peek(C+2)',
+      'Print R1;R2;R3',
+    ].join('\n')
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, onText: (t) => (out += t) })
+    rt.runHeadless(200)
+    expect(out).toBe(' 0 15 9\n') // floored, ceilinged, and one that just moved
+    // and the source is untouched — it writes somewhere else
+    let out2 = ''
+    const rt2 = new Runtime(
+      tokenize([...pal, 'Poke B,2', 'Attribute Palette 1,5,0,0,B To C', 'R=Peek(B)', 'Print R'].join('\n'), table, exts),
+      table,
+      { extensions: exts, maxSteps: 500_000, onText: (t) => (out2 += t) },
+    )
+    rt2.runHeadless(200)
+    expect(out2).toBe(' 2\n')
+  })
+
+  it('Iff Color reads a CMAP entry, and scans differently from Cmap Base', () => {
+    // Iff Color steps +8 to the data; Cmap Base steps +4 to the length. Both
+    // kept, because a program using one then the other depends on the gap.
+    let out = ''
+    const src = [
+      'Reserve As Work 11,64 : B=Start(11)',
+      'Loke B,$434D4150 : Loke B+4,$0000000C', // "CMAP", length 12
+      'Poke B+8,$FF : Poke B+9,$80 : Poke B+10,$11',
+      'Poke B+11,$00 : Poke B+12,$F0 : Poke B+13,$0F',
+      'R1=Iff Color(B,0) : R2=Iff Color(B,1) : R3=Cmap Base(B)-B',
+      'Print R1;R2;R3',
+    ].join('\n')
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, onText: (t) => (out += t) })
+    rt.runHeadless(200)
+    expect(out).toBe(` ${0xf81} ${0x0f0} 4\n`)
+  })
+
+  it('Iff Color without a CMAP is ErrMess 6', () => {
+    expect(() => run(['Reserve As Work 11,64 : B=Start(11)', 'R=Iff Color(B,0)'].join('\n'))).toThrow(
+      /CMAP non trouve/,
+    )
+  })
+})

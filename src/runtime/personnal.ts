@@ -1009,6 +1009,64 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       cmapToCopper(rt, n, it.evalInt(), false)
     },
 
+    /**
+     * Fade Palette n,adr0,adr1 (L76, :2999). One step of a fade from the
+     * palette at adr0 towards the one at adr1, byte by byte: each channel
+     * moves one closer, or stays if it has arrived. Both are plain RGB byte
+     * triples, and the result is written back over adr0, so calling it in a
+     * loop walks the whole way.
+     *
+     * Unlike X Fade, which only ever heads for black, this reaches any
+     * palette from any other and stops there.
+     */
+    'fade palette'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      let src = it.evalInt()
+      it.expect(',')
+      let dst = it.evalInt()
+      for (let i = 0; i < n; i++) {
+        for (let c = 0; c < 3; c++) {
+          const from = getB(rt, src + c)
+          const to = getB(rt, dst + c)
+          putB(rt, src + c, from < to ? from + 1 : from > to ? from - 1 : from)
+        }
+        src += 3
+        dst += 3
+      }
+    },
+
+    /**
+     * Attribute Palette n,r,g,b,source To dest (L77, :3049). Adds a signed
+     * amount to each channel of n RGB triples, clamping to 0..15, and writes
+     * the result somewhere else — brightening or darkening a palette without
+     * touching the original.
+     *
+     * The clamp is per channel and one-sided in each direction: below zero
+     * becomes 0, sixteen or more becomes 15.
+     */
+    'attribute palette'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const dr = it.evalInt()
+      it.expect(',')
+      const dg = it.evalInt()
+      it.expect(',')
+      const db = it.evalInt()
+      it.expect(',')
+      let src = it.evalInt()
+      it.expect('to')
+      let dst = it.evalInt()
+      const clamp = (v: number): number => (v < 0 ? 0 : v >= 16 ? 15 : v)
+      for (let i = 0; i < n; i++) {
+        putB(rt, dst, clamp(getB(rt, src) + dr))
+        putB(rt, dst + 1, clamp(getB(rt, src + 1) + dg))
+        putB(rt, dst + 2, clamp(getB(rt, src + 2) + db))
+        src += 3
+        dst += 3
+      }
+    },
+
     /** Set Ntsc (L3, :524) — BEAMCON0 $DFF1DC = 0 */
     'set ntsc'() {
       rt.beamcon0 = 0x0000
@@ -1076,6 +1134,32 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
         const hi = getW(rt, p)
         const lo = getW(rt, p + 2)
         if (hi === 0x434d && lo === 0x4150) return VI(p + 4) // "CMAP"
+        p += 2
+      }
+      return err(6)
+    },
+
+    /**
+     * Iff Color(base, n) (L66, :2729). Colour n of a loaded IFF's CMAP,
+     * packed to RGB4 from the 8-bit bytes.
+     *
+     * It scans for the tag itself rather than calling Cmap Base, and the two
+     * do not agree: this one steps +8 to the DATA and gives up after 65536
+     * tries, where Cmap Base steps +4 to the LENGTH and gives up after 16384.
+     * Both are kept as they are — a program using one and then the other is
+     * relying on that difference.
+     */
+    'iff color'(_, a): Value {
+      let p = int(a[0]!)
+      const n = int(a[1]!)
+      for (let i = 0; i < 65536; i++) {
+        if (getW(rt, p) === 0x434d && getW(rt, p + 2) === 0x4150) {
+          const at = p + 8 + n * 3
+          const r = getB(rt, at) >> 4
+          const g = getB(rt, at + 1) >> 4
+          const b = getB(rt, at + 2) >> 4
+          return VI((r << 8) + (g << 4) + b)
+        }
         p += 2
       }
       return err(6)
