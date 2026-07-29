@@ -362,6 +362,87 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       rt.personnal.mpP = n
     },
 
+    /**
+     * Screen Position type,x,y (L27, :1097). Scrolls the display by moving
+     * the bitplane pointers, which is how you scroll when there is no screen
+     * object to ask.
+     *
+     * type 1 positions the first playfield, 2 the second, anything else
+     * both. The offsets live in _XYOff as X1,Y1,X2,Y2 — the source's own
+     * register comments at _S3 mislabel which register holds which, so the
+     * store order above is what settles it.
+     *
+     * A pixel X splits in two: (X>>4)*2 bytes of whole-word step added to the
+     * pointer, and 16-(X and 15) of BPLCON1 scroll for the remainder, zeroed
+     * when there is no remainder. The two playfields' scrolls pack as
+     * (scroll2<<4)|scroll1, and even-indexed planes take offset 1 while odd
+     * ones take offset 2 — the dual-playfield split.
+     *
+     * Scrolling also moves DDFSTRT a word earlier ($30 rather than $38) and
+     * takes 2 off both modulos to pay for the extra fetch, which overrides
+     * what Set Screen Sizes wrote there.
+     */
+    'screen position'(it) {
+      const type = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      const s = rt.personnal
+      s.d4 = type
+      if (type === 1) {
+        s.xyOff[0] = x
+        s.xyOff[1] = y
+      } else if (type === 2) {
+        s.xyOff[2] = x
+        s.xyOff[3] = y
+      } else {
+        s.xyOff = [x, y, x, y]
+      }
+
+      const [x1, y1, x2, y2] = s.xyOff
+      const rowBytes = s.xy[0] >> 3
+      // whole-word step plus the row, per playfield
+      let off1 = y1 * rowBytes + (x1 >> 4) * 2
+      let off2 = y2 * rowBytes + (x2 >> 4) * 2
+      // and the leftover pixels become BPLCON1 delay
+      const rem = (v: number): number => {
+        const r = 16 - (v - (v >> 4) * 16)
+        return r === 16 ? 0 : r
+      }
+      const scroll1 = rem(x1)
+      const scroll2 = rem(x2)
+      const bplcon1 = (scroll2 << 4) + scroll1
+
+      if ((s.planes[0] ?? 0) === 0) err(1)
+      // a playfield with no sub-word scroll steps back a word when the other
+      // one has some (Cmp.b #0,d4 / #0,d6 against _D4, :1170)
+      if (scroll1 === 0 && s.d4 !== 0) off1 -= 2
+      if (scroll2 === 0 && s.d4 !== 0) off2 -= 2
+
+      const shifted: number[] = []
+      for (let i = 0; i < 8; i++) shifted.push(((s.planes[i] ?? 0) + (i & 1 ? off2 : off1)) >>> 0)
+
+      // always sixteen words here, where Set Plane writes twelve unless the
+      // list is an Aga one (_S3d :1185 counts 15 unconditionally)
+      for (let i = 0; i < 16; i++) {
+        const a = shifted[i >> 1]!
+        putW(rt, s.bplPtBase + i * 4 + 2, i & 1 ? a & 0xffff : (a >>> 16) & 0xffff)
+      }
+      putW(rt, s.bplConBase + 6, bplcon1)
+
+      const mod = (s.xy[0] - 320) >> 3
+      if (bplcon1 !== 0) {
+        putW(rt, s.others + 10, 0x30) // DDFSTRT one word earlier
+        putW(rt, s.others + 18, mod - 2)
+        putW(rt, s.others + 22, mod - 2)
+      } else {
+        putW(rt, s.others + 10, 0x38)
+        putW(rt, s.others + 18, mod)
+        putW(rt, s.others + 22, mod)
+      }
+    },
+
     /** Set Ntsc (L3, :524) — BEAMCON0 $DFF1DC = 0 */
     'set ntsc'() {
       rt.beamcon0 = 0x0000

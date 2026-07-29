@@ -230,3 +230,59 @@ describe('Personnal: bitplanes (L16/L17/L21/L85/L86/L109)', () => {
     expect(() => run('Mplot Planes 9')).toThrow(/Valeur permise de 1 a 8 seulement/)
   })
 })
+
+describe('Personnal: Screen Position (L27, :1097)', () => {
+  const base = ['Create Standard A', 'Set Screen Sizes 640,192', 'Set Plane 1,$00100000', 'Set Plane 2,$00200000']
+
+  it('a whole-word X and a Y both move the pointer, by row and by word', () => {
+    // rowBytes is _XY[0]>>3 = 80; X 32 is two whole words, no scroll left over
+    const rt = run(withBank([...base, 'Screen Position 0,32,2']))
+    const s = rt.personnal
+    const want = (0x00100000 + 2 * 80 + (32 >> 4) * 2) >>> 0
+    expect(leek(rt, s.bplPtBase) & 0xffff).toBe((want >>> 16) & 0xffff)
+    expect(leek(rt, s.bplPtBase + 4) & 0xffff).toBe(want & 0xffff)
+    // no sub-word remainder, so BPLCON1 stays clear
+    expect(leek(rt, s.bplConBase + 4) & 0xffff).toBe(0)
+  })
+
+  it('the leftover pixels become BPLCON1 delay, as 16 minus the remainder', () => {
+    // X 5: (5>>4)*2 = 0 bytes, and 16-5 = 11 of scroll in both nibbles
+    const rt = run(withBank([...base, 'Screen Position 0,5,0']))
+    expect(leek(rt, rt.personnal.bplConBase + 4) & 0xffff).toBe((11 << 4) | 11)
+  })
+
+  it('the two playfields scroll independently, packed high nibble first', () => {
+    const rt = run(withBank([...base, 'Screen Position 1,5,0', 'Screen Position 2,3,0']))
+    // playfield 1 keeps 16-5, playfield 2 takes 16-3
+    expect(leek(rt, rt.personnal.bplConBase + 4) & 0xffff).toBe((13 << 4) | 11)
+  })
+
+  it('scrolling pulls DDFSTRT a word earlier and takes 2 off both modulos', () => {
+    const s0 = run(withBank([...base, 'Screen Position 0,0,0'])).personnal
+    const rt0 = run(withBank([...base, 'Screen Position 0,0,0']))
+    expect(leek(rt0, s0.others + 8) & 0xffff).toBe(0x38)
+    const mod = (640 - 320) >> 3
+    expect(leek(rt0, s0.others + 16) & 0xffff).toBe(mod)
+
+    const rt1 = run(withBank([...base, 'Screen Position 0,5,0']))
+    const s1 = rt1.personnal
+    expect(leek(rt1, s1.others + 8) & 0xffff).toBe(0x30)
+    expect(leek(rt1, s1.others + 16) & 0xffff).toBe(mod - 2)
+    expect(leek(rt1, s1.others + 20) & 0xffff).toBe(mod - 2)
+  })
+
+  it('even planes take the first offset and odd planes the second', () => {
+    // the dual-playfield split: _S3c adds d2 to one and d3 to the other
+    const rt = run(withBank([...base, 'Screen Position 1,0,1', 'Screen Position 2,0,3']))
+    const s = rt.personnal
+    // type 2 leaves _D4 = 2, so the no-scroll correction takes a word off each
+    const p1 = (0x00100000 + 1 * 80 - 2) >>> 0
+    const p2 = (0x00200000 + 3 * 80 - 2) >>> 0
+    expect(leek(rt, s.bplPtBase + 4) & 0xffff).toBe(p1 & 0xffff)
+    expect(leek(rt, s.bplPtBase + 12) & 0xffff).toBe(p2 & 0xffff)
+  })
+
+  it('positioning before any Set Plane is the error', () => {
+    expect(() => run(withBank(['Create Standard A', 'Screen Position 0,0,0']))).toThrow(/Copper list non reservee/)
+  })
+})
