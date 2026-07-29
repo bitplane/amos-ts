@@ -12,6 +12,39 @@ but to reimplement the language and runtime from it:
 - The token table in `+Lib.s` is the authoritative instruction inventory.
 - The Amiga hardware layer (`+W.s`) is replaced with Canvas/WebAudio.
 
+Run it now at **[amos.bitplane.net](https://amos.bitplane.net)** — drop a
+`.AMOS` file in and it plays. Every release is also pinned at
+`amos.bitplane.net/v/<version>/`, so a page can embed one build and keep it.
+
+## Install
+
+```sh
+npm install amos-ts
+```
+
+```js
+import { Runtime, TokenTable, CORE_TOKENS, tokenize, defaultExtensionTables } from 'amos-ts'
+
+const table = new TokenTable(CORE_TOKENS)
+const exts = defaultExtensionTables()   // the stock extension slots
+
+let out = ''
+const rt = new Runtime(tokenize('Print "Hello" : Print 42', table, exts), table, {
+  extensions: exts,
+  onText: (t) => (out += t),
+})
+rt.runHeadless(1000)
+console.log(out)   // "Hello\n 42\n" — the space before 42 is AMOS's, not a
+                   // typo: it writes one before every non-negative number
+```
+
+`runHeadless(n)` runs up to `n` steps and returns a status: `ended`, `blocked`
+(waiting on input, a `Wait`, or a resource still loading) or `running` if it
+hit the step cap. Nothing in the runtime blocks the thread — a driver calls it
+once per frame at 50 Hz, which is what the browser player does.
+
+To load a real program, `parseAmosFile` gives you its token stream and banks.
+
 ## Layout
 
 ```
@@ -183,3 +216,29 @@ so a plain `grep -r` will silently skip them if your `grep` is ugrep — pass
 `-a`, and run a positive control before believing a negative result. And
 `src/cli/amoscat.ts` detokenizes to stdout, so `rg --pre amoscat` greps AMOS
 source rather than token streams.
+
+## Releasing
+
+`npm run release [patch|minor|major]` runs the typecheck and the full suite,
+bumps the version, tags and pushes. That one tag fires both workflows: the
+library goes to npm (`publish.yml`) and the player to amos.bitplane.net
+(`release.yml`), at `/`, `/v/latest/` and an immutable `/v/<version>/`.
+
+CI runs on every push and pull request, but `fixtures/` is not committed, so
+most of the suite skips there — see above. **CI catches build breaks, not
+fidelity regressions.** Those need a local run with the corpus in place, plus
+the census.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE).
+
+Speech is [narrator-ts](https://www.npmjs.com/package/narrator-ts) (MIT), a
+reimplementation of the Amiga `narrator.device` and `translator.library`. It
+ships a free rebuilt voice, not the Amiga's own tables, which are not
+redistributable — so `Say` speaks, but it does not sound like a real Amiga.
+
+This repository contains no AMOS Professional code or data. The reference
+assembly is read from
+[AMOS-Professional-Official](https://github.com/Francaoz/AMOS-Professional-Official)
+and `fixtures/` is gitignored for the same reason.

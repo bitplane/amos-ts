@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run build:web
+
+      # `fixtures/` is gitignored — the AMOS libraries and the commercial
+      # extensions are not ours to redistribute — so every test that diffs
+      # against a real program or bank skips here. The faithfulness gate in
+      # src/coverage/gate.ts notices their absence and stands down rather
+      # than accusing ~200 keywords of being unproven.
+      #
+      # So this is a build-break catch, not a fidelity proof. Proving
+      # fidelity still needs a local run with the corpus in place, and the
+      # census (src/cli/runreport.ts) needs it too.
+      - run: npm test
+
+      # Whether the published package works is a different question from
+      # whether the tests pass, and the suite cannot answer it: the tests
+      # import from src/, so a wrong `types` path, a missing entry in
+      # `files`, or a dependency that did not survive bundling all go green
+      # here and fail the person who installs it. Pack it, install it into an
+      # empty project, and run a program.
+      #
+      # `Say` is in there deliberately. narrator-ts is bundled rather than
+      # external because the bundler drops the `with { type: 'json' }`
+      # attribute from its dynamic imports, and Node then refuses them —
+      # which does not throw, it just leaves the voice unloaded and Say
+      # silent. That failure is invisible from inside the repo. This is the
+      # only thing that catches it.
+      - name: The tarball works when installed
+        run: |
+          npm pack --pack-destination /tmp --ignore-scripts
+          mkdir -p /tmp/consumer && cd /tmp/consumer
+          npm init -y >/dev/null && npm pkg set type=module >/dev/null
+          npm install /tmp/amos-ts-*.tgz
+          cat > check.mjs <<'JS'
+          import { Runtime, TokenTable, CORE_TOKENS, tokenize, defaultExtensionTables } from 'amos-ts'
+
+          const table = new TokenTable(CORE_TOKENS)
+          const exts = defaultExtensionTables()
+
+          let out = ''
+          const src = 'Print "Hello" : Print 42\nSay "hello",1\nMouth Read'
+          const rt = new Runtime(tokenize(src, table, exts), table, {
+            extensions: exts,
+            maxSteps: 500_000,
+            onText: (t) => (out += t),
+          })
+          // the first Say blocks while narrator-ts is imported; runHeadless is
+          // synchronous, so the event loop has to turn between attempts
+          for (let i = 0; i < 40; i++) {
+            if (rt.runHeadless(200).status !== 'blocked') break
+            await new Promise((r) => setTimeout(r, 20))
+          }
+
+          const fail = (m) => { console.error('FAIL: ' + m); process.exit(1) }
+          if (out !== 'Hello\n 42\n') fail('Print gave ' + JSON.stringify(out))
+          if (rt.speech.lib === null) fail('narrator-ts never loaded — Say is silent')
+          if (!rt.speech.mouths?.length) fail('Say produced no mouth stream')
+          console.log('ok:', JSON.stringify(out), rt.speech.mouths.length, 'mouth frames')
+          JS
+          node check.mjs

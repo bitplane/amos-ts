@@ -4,19 +4,49 @@
   "description": "AMOS Professional interpreter and runtime for the web",
   "type": "module",
   "license": "MIT",
+  "author": "Gareth Davidson <gaz@bitplane.net>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bitplane/amos-ts.git"
+  },
+  "bugs": "https://github.com/bitplane/amos-ts/issues",
+  "homepage": "https://amos.bitplane.net",
+  "keywords": [
+    "amos",
+    "amos-professional",
+    "amiga",
+    "basic",
+    "interpreter",
+    "emulator",
+    "retrocomputing",
+    "retrogaming"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "main": "./dist/amos-ts.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/amos-ts.js"
+    },
+    "./package.json": "./package.json"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && tsc -p tsconfig.build.json",
     "build:web": "vite build --config vite.web.config.ts && vite build --config vite.lib.config.ts",
     "typecheck": "tsc --noEmit",
     "release": "npm version",
     "preversion": "npm run typecheck && npm test",
     "postversion": "git push --follow-tags",
+    "prepublishOnly": "npm run build && npm test",
     "test": "AMOS_COVERAGE_GATE=1 vitest run",
     "test:watch": "vitest",
     "cli": "tsx",
@@ -26,12 +56,10 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "narrator-ts": "^0.1.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0",
     "vite": "^7.0.0",
     "vitest": "^3.2.0"
-  },
-  "dependencies": {
-    "narrator-ts": "^0.1.0"
   }
 }

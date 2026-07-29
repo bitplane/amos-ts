@@ -1,0 +1,95 @@
+# Publish to npm on a v* tag.
+#
+# `npm run release [patch|minor|major|x.y.z]` bumps the version, runs the
+# gate, commits, tags and pushes. That one tag fires two workflows: this one,
+# which publishes the library to npm, and release.yml, which deploys the
+# player to amos.bitplane.net. They are independent — a failure in one does
+# not roll back the other.
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+  # Run the whole thing by hand, stopping short of the registry. A tag-driven
+  # publish cannot be rehearsed and cannot be taken back, so this exists to
+  # find the broken secret or the failing test on a run that does not count.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to check against package.json, e.g. 0.4.0"
+        required: true
+      publish:
+        description: "Actually publish? Leave false to dry run."
+        type: boolean
+        default: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required for npm provenance: the job signs an attestation tying the
+      # published tarball to this repository, commit and workflow.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm >= 11.5.1, and setup-node ships whatever
+      # npm came with the Node release -- so it has to be pinned. Not to
+      # @latest, though: npm 12.0.0's own tarball is missing the `sigstore`
+      # module that libnpmpublish requires, so it dies with MODULE_NOT_FOUND
+      # at the moment it tries to sign, *after* the tests have passed and the
+      # tarball is built. A dry run does not reach that code path and so does
+      # not catch it. 11.x bundles sigstore and is what this pins to.
+      - run: npm install -g npm@11
+      - run: npm --version
+
+      - run: npm ci
+
+      # Publishing v0.4.1 from a tree that says 0.4.0 is the mistake this
+      # catches, and it is unrecoverable afterwards: a version number cannot
+      # be reused once it has been on the registry.
+      - name: Version must match package.json
+        run: |
+          want="${{ inputs.version || github.ref_name }}"
+          want="${want#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$want" != "$pkg" ]; then
+            echo "asked for v$want, package.json says $pkg" >&2
+            exit 1
+          fi
+          echo "publishing $pkg"
+
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+
+      # prepublishOnly builds and tests again; that is deliberate. The steps
+      # above are there so a failure says which one, rather than dying inside
+      # a publish.
+      #
+      # No NODE_AUTH_TOKEN. Authentication is OIDC: the `id-token: write`
+      # permission above lets the job mint a short-lived credential that npm
+      # exchanges for publish rights, having been told on the package's
+      # settings page to trust this repository and this workflow file. There
+      # is no secret to leak, rotate, or forget to rotate -- which is the
+      # point, since npm caps write tokens at 90 days.
+      #
+      # This cannot be what publishes v0.4.0. npm only lets you nominate a
+      # trusted publisher on a package that already exists, so the first
+      # version goes up by hand and this workflow takes over from v0.4.1.
+      #
+      # A dry run cannot exercise any of that: it stops before authenticating.
+      # It checks the build, the tests and the tarball, not the trust config.
+      - name: Publish (dry run)
+        if: github.event_name == 'workflow_dispatch' && !inputs.publish
+        run: npm publish --access public --dry-run
+
+      - name: Publish
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        run: npm publish --access public

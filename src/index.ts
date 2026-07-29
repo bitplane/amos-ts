@@ -8,7 +8,18 @@ export type { Tok, TokenLine } from './tokens/stream'
 export { detokLine, detokSource } from './tokens/detok'
 export type { DetokOptions } from './tokens/detok'
 export { CORE_TOKENS } from './tokens/tables.gen'
-export { EXTENSION_TOKENS } from './ext/registry'
+// EXTENSION_TOKENS is slot -> raw token defs. `Runtime` and `tokenize` want
+// slot -> TokenTable, which is what defaultExtensionTables() builds — without
+// it a consumer of the package cannot use an extension at all.
+export {
+  EXTENSION_TOKENS,
+  REGISTRY,
+  extensionById,
+  allExtensions,
+  defaultSlotBindings,
+  defaultExtensionTables,
+} from './ext/registry'
+export type { Extension, ExtensionInfo } from './ext/registry'
 export type { TokenDef } from './tokens/tables.gen'
 export { tokenize, TokenizeError } from './tokens/tokenizer'
 export { Interp, AmosRuntimeError } from './interp/interp'
