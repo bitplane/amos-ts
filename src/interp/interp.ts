@@ -86,6 +86,8 @@ export type Block =
   | { type: 'dialog'; channel: number }
   | { type: 'fsel' }
   | { type: 'readtext' }
+  // the speech library is 88K of tables, imported on the first Say
+  | { type: 'speech' }
 
 /** Live input device state, owned by the runtime/driver and read by builtins. */
 export interface InputState {

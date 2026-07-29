@@ -1173,6 +1173,17 @@ export const FAITHFUL = new Set<string>([
   'screen mode',
   'ntsc',
 
+  // --- Music extension: speech (+Music.s) ---
+  // The AMOS side ported against the extension's own source; the synthesis is
+  // narrator-ts, which reimplements narrator.device and translator.library.
+  'say',
+  'set talk',
+  'talk misc',
+  'talk stop',
+  'mouth read',
+  'mouth width',
+  'mouth height',
+
   // --- Personnal (third-party extension, by Frederic Cordier / FireWorks) ---
   // Ported against the 1.1a source (+AMOSPro_Personnal.Lib.s) where it has
   // one, and against the disassembled 1.1 binary where it does not -- the
@@ -1719,5 +1730,18 @@ export const NOTES: Record<string, string> = {
     'steps rows by longs*4, its own `Lsl.l #2`, not the screen byte width, so a width that is not a whole number of longwords drifts — kept. A screen under 32 pixels wide gives the innermost do-while a count of zero and the 68k never leaves it; that case does nothing here',
   's32 vertice to screen': 'the same row-step drift and the same narrow-screen guard as S32 Block To Screen',
   'full view': 'does not step _CurrentLine after writing, alone among the appending keywords, so the next Copper Wait Line lays itself over the tail',
+
+
+  // --- Music extension speech ---
+  say: "the AMOS side is exact — the ~ phoneme form, the translator path, the range checks and the asynchronous form's mouths — but the VOICE is not the Amiga's. narrator-ts ships a free rebuild of the formant tables (voice-free.json) because narrator.device's own are not redistributable, so it speaks and does not sound like a real Amiga; supplying the original binary is the library's documented upgrade path. Two smaller deviations: the whole utterance plays on voice 0 where the device allocates its own channels through audio.device, and the synchronous form does not hold the interpreter for the length of the audio",
+  'mouth read':
+    'exact, including that every failure path writes ONE WORD over bytes 88 and 89 so Mouth Width and Mouth Height both read -1 together — which is what the demos loop on — and that it does nothing unless an asynchronous Say is in flight',
+  'mouth width': 'the low nibble of the frame the device packs at hunk+0x30a0, which it splits into byte 88',
+  'mouth height': 'the high nibble, byte 89',
+  'set talk': 'exact: sex and mode masked to a bit, pitch 65..320 and rate 40..400 refused rather than clamped, and any parameter omitted (EntNul) leaves its field alone',
+  'talk misc':
+    "exact, and note the bounds are AMOS's rather than the device's: volume 0..64 and sampfreq 5000..25000 where narrator-ts accepts up to 28000. Volume is recorded but not yet applied to the mix",
+  'talk stop':
+    'ends an asynchronous say and hands the voices back, as the routine does; there is no CheckIO/AbortIO race to model because the synthesis is not concurrent here',
 
 }

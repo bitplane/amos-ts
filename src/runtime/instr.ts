@@ -4,6 +4,7 @@ import type { Instr, Func } from '../interp/builtins'
 import { makeLdosFunctions, makeLdosInstructions } from './ldos'
 import { makeTurboFunctions, makeTurboInstructions, turboDefault } from './turbo'
 import { makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
+import { makeSpeechFunctions, makeSpeechInstructions } from './speech'
 import { makeTdFunctions, makeTdInstructions } from './td'
 import { parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
@@ -4853,6 +4854,7 @@ const INSTR_LAYERS: Array<[string, (rt: Runtime) => Record<string, Instr>]> = [
   ['turbo-plus', makeTurboInstructions],
   ['amos3d', makeTdInstructions],
   ['personnal', makePersonnalInstructions],
+  ['music-speech', makeSpeechInstructions],
 ]
 
 const FUNC_LAYERS: Array<[string, (rt: Runtime) => Record<string, Func>]> = [
@@ -4861,6 +4863,7 @@ const FUNC_LAYERS: Array<[string, (rt: Runtime) => Record<string, Func>]> = [
   ['turbo-plus', makeTurboFunctions],
   ['amos3d', makeTdFunctions],
   ['personnal', makePersonnalFunctions],
+  ['music-speech', makeSpeechFunctions],
 ]
 
 function mergeLayers<T>(rt: Runtime, layers: Array<[string, (rt: Runtime) => Record<string, T>]>): Record<string, T> {

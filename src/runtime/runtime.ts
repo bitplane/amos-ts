@@ -10,6 +10,7 @@ import type { Value } from '../interp/values'
 import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
 import { newPiConfig } from './piconfig.gen'
+import { newSpeechState, ensureLib, type SpeechState } from './speech'
 import { newPersonnalState, type PersonnalState } from './personnal'
 import type { PiConfig } from './piconfig.gen'
 import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlideStep, fselStore, slideOpen, slideShut } from './fsel'
@@ -555,6 +556,10 @@ export class Runtime {
    * persist from one call to the next within a session.
    */
   pi: PiConfig = newPiConfig()
+  /** the Music extension's narrator state (+Music.s); see speech.ts */
+  speech: SpeechState = newSpeechState()
+  /** tick at which a finished Say hands the music voices back, -1 when idle */
+  speechRestore = -1
   static readonly COPPER_LONG = 12 * 1024
   /** T_CopON: the system rebuilds and owns the display while true */
   copperOn = true
@@ -3479,6 +3484,9 @@ export class Runtime {
       if (!this.fsel || this.fsel.done) this.interp.blocked = null
     } else if (b.type === 'readtext') {
       if (!this.readText || this.readText.done) this.interp.blocked = null
+    } else if (b.type === 'speech') {
+      // ensureLib started the import; wake as soon as it lands, either way
+      if (ensureLib(this) || this.speech.failed) this.interp.blocked = null
     }
   }
 
