@@ -125,6 +125,14 @@ prints. That line counts only programs that *terminate*, and most AMOS
 programs are games and demos that never do — 233 hit the step cap and 139
 block waiting on input, both of which are correct behaviour, not failure.
 
+`--by-program` says what the 53 are blocked on. It counts programs per
+keyword rather than partitioning them, so these overlap: `dreg` blocks 29
+and `doscall` 14, both host/68k calls that are n/a by policy; the whole
+Intuition 1.3b vocabulary accounts for most of the rest, in a long tail
+where the widest single keyword (`iscreen_open`) blocks 9; IOPorts blocks 2.
+Hit counts are no guide here — `igadget read` is skipped 141,835 times
+across just 3 programs.
+
 **Reach is not correctness.** All of the above measures whether a program hits
 a missing keyword. It says nothing about whether the pixels are right — see
 `UNIMPLEMENTED.md` for every place the port knowingly falls short of the
