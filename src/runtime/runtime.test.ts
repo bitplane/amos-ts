@@ -117,6 +117,56 @@ describe('drawing', () => {
     expect(rt.screen.point(40, 60)).toBe(1) // border colour 4 contained it
   })
 
+  it('Paint terminates under Gr Writing 2 when the fill changes nothing', () => {
+    // TPaint fills over a mask, not the screen (PMask, +W.s:4657; tested at
+    // Pnt3/Pnt5, marked at Pnt7). Testing the pixels instead only terminates
+    // while a filled pixel stops matching the seed colour — and xor with
+    // pen 0 writes `old ^ 0`, so every pixel stays exactly as fillable as it
+    // was and the fill never ends.
+    //
+    // Not a contrived pen: _rndcircles2.amos on the AMOS PD Library CD
+    // (APD503) cycles `C=C+1 : If C=64 Then C=0 : Ink C` around a Circle /
+    // Paint loop under Gr Writing 2, so it reaches Ink 0 every 64 tiles. It
+    // took 2 GB of heap in ten seconds.
+    const prog = [
+      'Ink 4 : Box 50,50 To 70,70',
+      'Gr Writing 2',
+      'Ink 0 : Paint 60,60',
+    ].join('\n')
+    const rt = run(prog)
+    // xor with 0 leaves the screen alone; the point is that it came back
+    expect(rt.screen.point(60, 60)).toBe(1)
+    expect(rt.screen.point(51, 51)).toBe(1)
+  })
+
+  it('Paint xors its fill under Gr Writing 2', () => {
+    const prog = ['Ink 4 : Box 50,50 To 70,70', 'Gr Writing 2', 'Ink 7 : Paint 60,60'].join('\n')
+    const rt = run(prog)
+    expect(rt.screen.point(60, 60)).toBe(1 ^ 7) // paper xor ink, not ink
+    expect(rt.screen.point(40, 60)).toBe(1) // the box still contained it
+  })
+
+  it('Paint seeds one entry per run, so a large fill stays bounded', () => {
+    // The original pushes only on the transition into an available pixel (the
+    // bclr/bset #15,d5 edge flag at Pnt5/Pnt6). Pushing one per column made a
+    // whole-screen fill cost hundreds of megabytes.
+    const rt = run('Ink 7 : Paint 100,100')
+    // the seed colour was paper, so the fill covers everything unclipped
+    expect(rt.screen.point(0, 0)).toBe(7)
+    expect(rt.screen.point(319, 199)).toBe(7)
+  })
+
+  it('Paint honours Clip as a boundary and ignores a seed outside it', () => {
+    // TPaint compares the seed against all four clip edges and bails before
+    // allocating anything (+W.s:4341-4348)
+    const inside = run('Clip 40,40 To 80,80\nInk 7 : Paint 60,60')
+    expect(inside.screen.point(60, 60)).toBe(7)
+    expect(inside.screen.point(90, 60)).toBe(1) // clip contained the fill
+    const outside = run('Clip 40,40 To 80,80\nInk 7 : Paint 10,10')
+    expect(outside.screen.point(10, 10)).toBe(1) // nothing painted at all
+    expect(outside.screen.point(60, 60)).toBe(1)
+  })
+
   it('Fade steps nibbles once per delay toward targets (FadeI)', () => {
     const rt = boot('Fade 2,,$421')
     rt.runHeadless(3)

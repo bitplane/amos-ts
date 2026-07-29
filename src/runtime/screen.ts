@@ -748,29 +748,82 @@ export class Screen {
     }
   }
 
+  /**
+   * Paint x,y[,mode] — flood fill (TPaint, +W.s:4333).
+   *
+   * The fill runs over a mask, never over the screen. TPaint blits one into a
+   * tempras first (PMask, +W.s:4657, under the comment "Met a UN toutes les
+   * couleurs AUTRES" — set to ONE every colour *other* than the seed's), then
+   * walks it: `btst d7,(a0)` at Pnt3/Pnt5 asks whether a pixel is available
+   * and `bset d7,(a0)` at Pnt7 marks it done. The comparison colour is always
+   * the colour under the seed, read by L_RPoint before the call
+   * (+Lib.s:9962).
+   *
+   * Keeping the visited flags off the screen is what makes the fill
+   * terminate. Testing the pixels instead only works while a filled pixel
+   * reliably becomes `c` — which is true of Gr Writing 0 and false of
+   * Gr Writing 2, where plot() xors and the result is whatever it was ^ c.
+   * The fill would then find its own output still fillable and never finish:
+   * `_rndcircles2.amos` on the AMOS PD Library CD (APD503) took 2 GB of heap
+   * in ten seconds that way.
+   *
+   * One byte per pixel here against the original's one bit — the same idea,
+   * bounded by the clip region either way, and TPaint refuses a region larger
+   * than its tempras outright (+W.s:4380).
+   */
   paint(x: number, y: number, c = this.ink, borderMode = false): void {
     const target = this.point(x, y)
     if (target < 0 || target === (c & this.colorMask())) return
     const border = this.gBorder & this.colorMask()
     if (borderMode && target === border) return
-    // mode 0: fill the same-colour region; mode 1: fill until gBorder
-    const fillable = (px: number, py: number): boolean => {
-      const v = this.point(px, py)
-      if (v < 0) return false
-      return borderMode ? v !== border && v !== (c & this.colorMask()) : v === target
+    // outside the clip is not painted at all, as TPaint bails on the same
+    // four comparisons before it allocates anything (+W.s:4341-4348)
+    if (!this.inClip(x, y)) return
+
+    const cl = this.clip
+    const cx0 = Math.max(0, cl?.x1 ?? 0)
+    const cy0 = Math.max(0, cl?.y1 ?? 0)
+    const cx1 = Math.min(this.width - 1, cl?.x2 ?? this.width - 1)
+    const cy1 = Math.min(this.height - 1, cl?.y2 ?? this.height - 1)
+    const w = cx1 - cx0 + 1
+
+    // 1 = unavailable: a different colour (mode 0), the border colour
+    // (mode 1), or already filled. Built once, from the screen as it stands.
+    const blocked = new Uint8Array(w * (cy1 - cy0 + 1))
+    const fill = c & this.colorMask()
+    for (let py = cy0; py <= cy1; py++) {
+      for (let px = cx0; px <= cx1; px++) {
+        const v = this.pixels[py * this.width + px]!
+        const open = borderMode ? v !== border && v !== fill : v === target
+        if (!open) blocked[(py - cy0) * w + (px - cx0)] = 1
+      }
     }
-    const stack = [[x, y] as [number, number]]
+    const at = (px: number, py: number): number => (py - cy0) * w + (px - cx0)
+
+    // x and y interleaved rather than a pair per entry: the stack can hold one
+    // seed per run per row, and an array each would be the bulk of the cost
+    const stack: number[] = [x, y]
     while (stack.length > 0) {
-      const [px, py] = stack.pop()!
-      if (!this.inClip(px, py) || !fillable(px, py)) continue
+      const py = stack.pop()!
+      const px = stack.pop()!
+      if (blocked[at(px, py)] === 1) continue
       let x1 = px
-      while (x1 > 0 && fillable(x1 - 1, py) && this.inClip(x1 - 1, py)) x1--
+      while (x1 > cx0 && blocked[at(x1 - 1, py)] === 0) x1--
       let x2 = px
-      while (x2 < this.width - 1 && fillable(x2 + 1, py) && this.inClip(x2 + 1, py)) x2++
+      while (x2 < cx1 && blocked[at(x2 + 1, py)] === 0) x2++
+      for (let sx = x1; sx <= x2; sx++) blocked[at(sx, py)] = 1
       this.hline(x1, x2, py, c)
-      for (let sx = x1; sx <= x2; sx++) {
-        if (py > 0 && fillable(sx, py - 1)) stack.push([sx, py - 1])
-        if (py < this.height - 1 && fillable(sx, py + 1)) stack.push([sx, py + 1])
+      // one seed where a run starts, not one per column: TPaint pushes only on
+      // the transition into an available pixel, which is what the bclr/bset
+      // #15,d5 edge flag at Pnt5/Pnt6 is tracking
+      for (const ny of [py - 1, py + 1]) {
+        if (ny < cy0 || ny > cy1) continue
+        let inRun = false
+        for (let sx = x1; sx <= x2; sx++) {
+          const open = blocked[at(sx, ny)] === 0
+          if (open && !inRun) stack.push(sx, ny)
+          inRun = open
+        }
       }
     }
   }
