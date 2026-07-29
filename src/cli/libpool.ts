@@ -17,8 +17,9 @@
  * Node-only — this is why it lives under src/cli rather than src/ext.
  */
 import { createHash } from 'node:crypto'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { basename } from 'node:path'
+import { hostPath, walkFiles } from './walk'
 import { parseAmosLib, parseAmosLibOld, type TokenEntry } from '../tokens/libtok'
 import { TokenTable } from '../tokens/stream'
 import type { Extension } from '../ext/registry'
@@ -40,20 +41,6 @@ export interface ScannedLib {
 
 /** files that are Amiga hunk objects but not extension libraries */
 const isLibName = (p: string): boolean => /\.lib$/i.test(p)
-
-export function* walkFiles(p: string): Generator<string> {
-  let st
-  try {
-    st = statSync(p)
-  } catch {
-    return
-  }
-  if (st.isDirectory()) {
-    for (const e of readdirSync(p)) yield* walkFiles(join(p, e))
-  } else {
-    yield p
-  }
-}
 
 /** fingerprint of a token table: its shape, independent of where it was found */
 function tableHash(tokens: TokenEntry[]): string {
@@ -77,11 +64,12 @@ export function scanLibraries(roots: string[]): ScanResult {
   const byHash = new Map<string, ScannedLib>()
   const unreadable: string[] = []
   for (const root of roots) {
-    for (const file of walkFiles(root)) {
+    for (const entry of walkFiles(root)) {
+      const file = hostPath(entry)
       if (!isLibName(file)) continue
       let bytes: Uint8Array
       try {
-        bytes = readFileSync(file)
+        bytes = readFileSync(entry)
       } catch {
         unreadable.push(file)
         continue

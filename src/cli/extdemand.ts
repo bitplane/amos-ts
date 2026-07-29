@@ -20,7 +20,8 @@
  *
  * Run: npm run cli -- src/cli/extdemand.ts <dir>... [--libs dir] [--top N]
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
+import { hostPath, walkFiles } from './walk'
 import { join } from 'node:path'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
@@ -40,20 +41,6 @@ if (roots.length === 0) {
   process.exit(1)
 }
 
-function* walk(p: string): Generator<string> {
-  let st
-  try {
-    st = statSync(p)
-  } catch {
-    return
-  }
-  if (st.isDirectory()) {
-    for (const e of readdirSync(p)) yield* walk(join(p, e))
-  } else if (/\.amos$/i.test(p)) {
-    yield p
-  }
-}
-
 const core = new TokenTable(CORE_TOKENS)
 const scanned = libsAt >= 0 ? scanLibraries([args[libsAt + 1]!]).libs.map(libAsExtension) : []
 const pool: Extension[] = [...allExtensions(), ...scanned]
@@ -68,10 +55,12 @@ let withExt = 0
 let ambiguous = 0
 
 for (const root of roots) {
-  for (const file of walk(root)) {
+  for (const entry of walkFiles(root)) {
+    const file = hostPath(entry)
+    if (!/\.amos$/i.test(file)) continue
     let lines
     try {
-      const amos = parseAmosFile(readFileSync(file))
+      const amos = parseAmosFile(readFileSync(entry))
       if (amos.source.length === 0) continue
       lines = parseSource(amos.source, core)
     } catch {

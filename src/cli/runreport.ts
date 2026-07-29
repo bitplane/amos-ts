@@ -4,8 +4,8 @@
  *
  *   npm run cli -- src/cli/runreport.ts [fixturesDir] [--frames N]
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { hostPath, walkFiles } from './walk'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -17,14 +17,6 @@ const args = process.argv.slice(2)
 const fIdx = args.indexOf('--frames')
 const maxFrames = fIdx >= 0 ? parseInt(args[fIdx + 1] ?? '', 10) : 2_000
 const root = args.filter((a) => !a.startsWith('--') && a !== String(maxFrames))[0] ?? 'fixtures'
-
-function* walk(dir: string): Generator<string> {
-  for (const name of readdirSync(dir)) {
-    const p = join(dir, name)
-    if (statSync(p).isDirectory()) yield* walk(p)
-    else if (/\.amos$/i.test(name)) yield p
-  }
-}
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -51,11 +43,16 @@ const statuses = new Map<string, number>()
 const errors = new Map<string, number>()
 const unimpl = new Map<string, number>()
 
-for (const path of walk(root)) {
-  const amos = parseAmosFile(readFileSync(path))
-  if (amos.source.length === 0) continue
-  files++
+for (const file of walkFiles(root)) {
+  const path = hostPath(file)
+  if (!/\.amos$/i.test(path)) continue
+  // Parsing is inside the guard because a collection is not a fixtures tree:
+  // a truncated header or a bank length that runs past the end of the file is
+  // a program to report, not a reason to abandon the census.
   try {
+    const amos = parseAmosFile(readFileSync(file))
+    if (amos.source.length === 0) continue
+    files++
     const lines = parseSource(amos.source, table)
     const rt = new Runtime(lines, table, {
       extensions: extensionTablesFor(lines),

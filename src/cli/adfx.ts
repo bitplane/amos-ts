@@ -12,7 +12,8 @@
  *
  * Run: npm run cli -- src/cli/adfx.ts <dir|file>... [--out DIR] [--force]
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { hostPath, walkFiles } from './walk'
 import { basename, dirname, join } from 'node:path'
 import { adfInfo, isAdf, readAdf } from '../loader/adf'
 
@@ -26,28 +27,16 @@ if (roots.length === 0) {
   process.exit(1)
 }
 
-function* walk(p: string): Generator<string> {
-  let st
-  try {
-    st = statSync(p)
-  } catch {
-    return
-  }
-  if (st.isDirectory()) {
-    for (const e of readdirSync(p)) yield* walk(join(p, e))
-  } else if (/\.adf$/i.test(p)) {
-    yield p
-  }
-}
-
 let images = 0
 let files = 0
 let skipped = 0
 let failed = 0
 
 for (const root of roots) {
-  for (const image of walk(root)) {
-    const bytes = new Uint8Array(readFileSync(image))
+  for (const entry of walkFiles(root)) {
+    const image = hostPath(entry)
+    if (!/\.adf$/i.test(image)) continue
+    const bytes = new Uint8Array(readFileSync(entry))
     if (!isAdf(bytes)) {
       console.warn(`${image}: not an Amiga disk image (wrong size or signature)`)
       failed++

@@ -4,8 +4,9 @@
  * unknown tokens, failures with hexdump context.
  * Run: npm run cli -- src/cli/scan.ts [--freq] [--verbose]
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join, dirname, relative } from 'node:path'
+import { hostPath, walkFiles } from './walk'
 import { fileURLToPath } from 'node:url'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable, TokenStreamError } from '../tokens/stream'
@@ -16,14 +17,6 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const fixtures = join(root, 'fixtures')
 const verbose = process.argv.includes('--verbose')
 const freq = process.argv.includes('--freq')
-
-function* walk(dir: string): Generator<string> {
-  for (const name of readdirSync(dir)) {
-    const p = join(dir, name)
-    if (statSync(p).isDirectory()) yield* walk(p)
-    else if (/\.(amos|abk)$/i.test(name)) yield p
-  }
-}
 
 const table = new TokenTable(CORE_TOKENS)
 const agaTable = new TokenTable(AGA_CORE_TOKENS)
@@ -39,12 +32,14 @@ const extUse = new Map<string, number>()
 const failures: string[] = []
 const diagnostics = new Map<string, number>()
 
-for (const path of walk(fixtures)) {
+for (const entry of walkFiles(fixtures)) {
+  const path = hostPath(entry)
+  if (!/\.(amos|abk)$/i.test(path)) continue
   const rel = relative(fixtures, path)
   files++
   let amos
   try {
-    amos = parseAmosFile(readFileSync(path))
+    amos = parseAmosFile(readFileSync(entry))
   } catch (e) {
     failures.push(`${rel}: container: ${e instanceof Error ? e.message : e}`)
     continue

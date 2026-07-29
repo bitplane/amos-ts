@@ -20,7 +20,8 @@
  *
  * Run: npm run cli -- src/cli/extscan.ts <dir|file>... [--json out.json] [--libs dir]
  */
-import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { hostPath, walkFiles } from './walk'
 import { join } from 'node:path'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
@@ -41,20 +42,6 @@ if (roots.length === 0) {
   process.exit(1)
 }
 
-function* walk(p: string): Generator<string> {
-  let st
-  try {
-    st = statSync(p)
-  } catch {
-    return
-  }
-  if (st.isDirectory()) {
-    for (const e of readdirSync(p)) yield* walk(join(p, e))
-  } else if (/\.amos$/i.test(p)) {
-    yield p
-  }
-}
-
 const core = new TokenTable(CORE_TOKENS)
 // Registered extensions always; libraries found in the collection as well,
 // when asked. Scanned candidates are marked as such in the output so a lead
@@ -72,10 +59,12 @@ let scanned = 0
 let failed = 0
 
 for (const root of roots) {
-  for (const file of walk(root)) {
+  for (const entry of walkFiles(root)) {
+    const file = hostPath(entry)
+    if (!/\.amos$/i.test(file)) continue
     let lines
     try {
-      const amos = parseAmosFile(readFileSync(file))
+      const amos = parseAmosFile(readFileSync(entry))
       if (amos.source.length === 0) continue
       lines = parseSource(amos.source, core)
       scanned++
