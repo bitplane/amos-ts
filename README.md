@@ -98,12 +98,13 @@ Disassembly tools need `python3` with `capstone`.
 **Core AMOS Professional is complete.** Every core area in `KEYWORDS.md` reads
 100%: language, screens, drawing, menus, banks, text-io, objects, input, files,
 memory, system, interface, AMAL, copper, palette, rainbows, windows and zones.
-1051 keywords implemented, **1015 of them faithful** — verified against the 68k
-source, the official manual, or byte-exact artifacts. 1445 tests.
+1089 keywords implemented, **1044 of them faithful** — verified against the 68k
+source, the official manual, or byte-exact artifacts. 1486 tests.
 
-Four of the five extensions a stock AMOS Professional installs are complete —
-Music (49, including `Say` and the mouth stream), Compact, Compiler and
-Requester. The fifth, IOPorts, is the one gap.
+**Every extension a stock AMOS Professional installs is complete**: Music (49,
+including `Say` and the mouth stream), Compact, Compiler, Requester, and
+IOPorts (38 — Serial, Printer and Parallel, with `Printer Dump` rendering a
+page and `Serial Open` reaching real hardware through Web Serial).
 
 Four third-party extensions are complete: **AMOS 3D** (64 keywords, the engine
 reverse-engineered from `c3d.lib` — see `docs/amos3d/README.md`), **Personnal**
@@ -117,21 +118,20 @@ reverse-engineered from `c3d.lib` — see `docs/amos3d/README.md`), **Personnal*
 | | |
 |---|---|
 | run to a stop | 478 |
-| **run with nothing skipped** | **425 (89%)** |
-| hit something unimplemented | 53 |
+| **run with nothing skipped** | **429 (90%)** |
+| hit something unimplemented | 49 |
 
 Read the second row, not the "ended with nothing skipped" line the tool
 prints. That line counts only programs that *terminate*, and most AMOS
 programs are games and demos that never do — 233 hit the step cap and 139
 block waiting on input, both of which are correct behaviour, not failure.
 
-`--by-program` says what the 53 are blocked on. It counts programs per
+`--by-program` says what the 49 are blocked on. It counts programs per
 keyword rather than partitioning them, so these overlap: `dreg` blocks 29
-and `doscall` 14, both host/68k calls that are n/a by policy; the whole
-Intuition 1.3b vocabulary accounts for most of the rest, in a long tail
-where the widest single keyword (`iscreen_open`) blocks 9; IOPorts blocks 2.
-Hit counts are no guide here — `igadget read` is skipped 141,835 times
-across just 3 programs.
+and `doscall` 14, both host/68k calls that are n/a by policy; the rest is
+almost entirely Intuition 1.3b, in a long tail where the widest single
+keyword (`iscreen_open`) blocks 9. Hit counts are no guide here — `igadget
+read` is skipped 141,835 times across just 3 programs.
 
 **Reach is not correctness.** All of the above measures whether a program hits
 a missing keyword. It says nothing about whether the pixels are right — see
