@@ -4,6 +4,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { extensionById } from '../ext/registry'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
+import { AmigaFS } from './vfs'
 
 const table = new TokenTable(CORE_TOKENS)
 // Personnal is third-party, so no stock slot map binds it: the source puts
@@ -11,8 +12,19 @@ const table = new TokenTable(CORE_TOKENS)
 // the superset, so it detokenises both versions' programs.
 const exts = new Map([[13, extensionById('personnal-1.1')!.table]])
 
-function run(src: string): Runtime {
-  const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 2_000_000 })
+/** a machine with a writable RAM:, as every real one has */
+function withRam(): AmigaFS {
+  const fs = new AmigaFS()
+  fs.mountMemory('RAM')
+  return fs
+}
+
+function run(src: string, fs?: AmigaFS): Runtime {
+  const rt = new Runtime(tokenize(src, table, exts), table, {
+    extensions: exts,
+    maxSteps: 2_000_000,
+    ...(fs ? { fs } : {}),
+  })
   const r = rt.runHeadless(500)
   if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
   return rt
@@ -370,7 +382,7 @@ describe('Personnal: Mplot Draw and the field defines (L100/L105-107)', () => {
       'Mplot Planes 2',
       'Mplot Reserve 2',
       'Mplot Define 1,10,20,3',
-      'Mplot Draw 1 To 1',
+      'Mplot Draw 1 To 2',
       'R1=Point(10,20) : R2=Point(11,20)',
       'Print R1;R2',
     ])
@@ -388,7 +400,7 @@ describe('Personnal: Mplot Draw and the field defines (L100/L105-107)', () => {
       'Mplot Planes 2 : Mplot Reserve 1',
       'Ink 3 : Plot 10,20',
       'Mplot Define 1,10,20,1',
-      'Mplot Draw 1 To 1',
+      'Mplot Draw 1 To 2',
       'Print Point(10,20)',
     ])
     const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 1_000_000, onText: (t) => (out += t) })
@@ -404,7 +416,7 @@ describe('Personnal: Mplot Draw and the field defines (L100/L105-107)', () => {
       'Mplot Origin 100,50',
       'Mplot Define 1,5,5,1',
       'Mplot Define 2,-500,0,1',
-      'Mplot Draw 1 To 2',
+      'Mplot Draw 1 To 3',
       'R1=Point(105,55) : R2=Point(5,5)',
       'Print R1;R2',
     ])
@@ -420,7 +432,7 @@ describe('Personnal: Mplot Draw and the field defines (L100/L105-107)', () => {
       'Set Plane 1,P : Set Plane 2,P+8000',
       'Mplot Planes 4 : Mplot Reserve 1',
       'Mplot Define 1,10,20,15',
-      'Mplot Draw 1 To 1',
+      'Mplot Draw 1 To 2',
       'Print Point(10,20)',
     ])
     const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 1_000_000, onText: (t) => (out += t) })
@@ -453,5 +465,97 @@ describe('Personnal: Mplot Draw and the field defines (L100/L105-107)', () => {
   it('drawing or stepping without a bank is ErrMess 11', () => {
     expect(() => run('Mplot Draw 1 To 2')).toThrow(/Multi Plot bank non reservee/)
     expect(() => run('Mplot X Define 1,1')).toThrow(/Multi Plot bank non reservee/)
+  })
+})
+
+describe('Personnal: the Mplot range is exclusive, and the rest of batch 3', () => {
+  it('Mplot Draw stops short of the last point, as the source does', () => {
+    // Cmp.l a0,a1 / Bgt at _xxl (:4027) tests after the pointer has stepped a
+    // whole point, so the range ends before `last`. The guide says the
+    // opposite — "jusqu'au point LAST" — and every demo writes
+    // `Mplot Draw 1 To NUM` after reserving NUM, so the last point never
+    // draws on a real machine either. Source beats manual.
+    let out = ''
+    const src = [
+      'Screen Open 0,320,200,4,Lowres',
+      'Curs Off : Flash Off : Cls 0',
+      'P=Logbase(0)',
+      'Reserve As Work 10,24000 : A=Start(10)',
+      'Create Standard A',
+      'Set Plane 1,P : Mplot Planes 1',
+      'Mplot Reserve 2',
+      'Mplot Define 1,10,10,1',
+      'Mplot Define 2,20,10,1',
+      'Mplot Draw 1 To 2',
+      'R1=Point(10,10) : R2=Point(20,10)',
+      'Print R1;R2',
+    ].join('\n')
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 1_000_000, onText: (t) => (out += t) })
+    rt.runHeadless(300)
+    expect(out).toBe(' 1 0\n') // point 2 was named as the bound, so it is not drawn
+  })
+
+  it('Mplot Modify steps a whole range, wrapping each field on its own axis', () => {
+    const rt = run(
+      [
+        'Mplot Reserve 4',
+        'Mplot Define 1,10,10,1',
+        'Mplot Define 2,318,190,1',
+        'Mplot Define 3,50,50,1',
+        'Mplot Modify 1 To 3,5,5',
+      ].join('\n'),
+    )
+    const at = (n: number): number => rt.personnal.mpBase + 8 + (n - 1) * 6
+    expect(leek(rt, at(1)) >>> 16).toBe(15) // stepped
+    expect(leek(rt, at(1)) & 0xffff).toBe(15)
+    expect(leek(rt, at(2)) >>> 16).toBe(0) // 318+5 wrapped on the width
+    expect(leek(rt, at(2)) & 0xffff).toBe(0) // 190+5 wrapped on the height
+    expect(leek(rt, at(3)) >>> 16).toBe(50) // the bound itself is untouched
+  })
+
+  it('Mplot Save then Load round-trips the bank through the filesystem', () => {
+    const rt = run(
+      [
+        'Mplot Reserve 3',
+        'Mplot Define 1,11,22,3',
+        'Mplot Define 3,44,55,6',
+        'Mplot Save "RAM:pts.mp"',
+        'Mplot Erase',
+        'Mplot Load "RAM:pts.mp"',
+      ].join('\n'),
+      withRam(),
+    )
+    const s = rt.personnal
+    expect(s.mplots).toBe(3)
+    expect(leek(rt, s.mpBase)).toBe(0x462e4332) // the cookie came back
+    expect(leek(rt, s.mpBase + 8) >>> 16).toBe(11)
+    expect(leek(rt, s.mpBase + 8 + 12) >>> 16).toBe(44)
+  })
+
+  it('loading something that is not an Mplot file is ErrMess 10', () => {
+    const fs = withRam()
+    fs.writeFile('RAM:junk.bin', new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]))
+    expect(() => run('Mplot Load "RAM:junk.bin"', fs)).toThrow(/Fichier d'un format inconnu/)
+    // and a file too short to hold even the header
+    fs.writeFile('RAM:tiny.bin', new Uint8Array([1, 2]))
+    expect(() => run('Mplot Load "RAM:tiny.bin"', fs)).toThrow(/Fichier d'un format inconnu/)
+  })
+
+  it('Lsr Zone moves a block four bytes forward, backwards so it does not eat itself', () => {
+    // the assertions run inside AMOS so the test needs no bank internals
+    let out = ''
+    const src = [
+      'Reserve As Work 11,64 : B=Start(11)',
+      'Loke B,$11111111 : Loke B+4,$22222222 : Loke B+8,$33333333',
+      'Lsr Zone B To B+8',
+      'R1=Leek(B+8) : R2=Leek(B+4) : R3=Leek(B)',
+      'Print R1=$22222222;R2=$22222222;R3=$11111111',
+    ].join('\n')
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, onText: (t) => (out += t) })
+    rt.runHeadless(200)
+    // +4 moved up to +8; the walk then reaches the source and stops, so the
+    // longword at +4 keeps its own value and the one at the source never
+    // moves at all (Cmp.l a0,a1 / Bgt, :4260). One longword, not the block.
+    expect(out).toBe('-1-1-1\n')
   })
 })

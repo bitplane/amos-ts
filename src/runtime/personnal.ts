@@ -577,7 +577,13 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       const rowBytes = width >> 3
       const xMax = width - 1
       const yMax = height - 1
-      for (let n = first; n <= last; n++) {
+      // The range excludes `last`. The loop tests after the pointer has
+      // stepped a whole point (Cmp.l a0,a1 / Bgt at _xxl, :4027), so a range
+      // ending at the address of `last` stops just short of it. The guide
+      // says the opposite — "jusqu'au point LAST" — and every demo writes
+      // `Mplot Draw 1 To NUM` after reserving NUM, so the last point silently
+      // never draws. Source beats manual, and this is what the library does.
+      for (let n = first; n < Math.max(first + 1, last); n++) {
         const at = s.mpBase + 8 + (n - 1) * 6
         const sx = (w: number): number => (w & 0x8000 ? w | ~0xffff : w)
         const x = sx(getW(rt, at)) + s.origin[0]
@@ -615,6 +621,90 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       const n = it.evalInt()
       it.expect(',')
       defineAdd(rt, n, 4, it.evalInt(), 256)
+    },
+
+    /**
+     * Mplot Modify first To last,xadd,yadd (L104, :4090). The bulk form of
+     * the field defines: steps X and Y of every point in the range, wrapping
+     * each against its own screen dimension. Same exclusive upper bound as
+     * Mplot Draw, and for the same reason.
+     */
+    'mplot modify'(it) {
+      const first = it.evalInt()
+      it.expect('to')
+      const last = it.evalInt()
+      it.expect(',')
+      const xadd = it.evalInt()
+      it.expect(',')
+      const yadd = it.evalInt()
+      const s = rt.personnal
+      if (s.mpBase === 0) err(11)
+      for (let n = first; n < Math.max(first + 1, last); n++) {
+        defineAdd(rt, n, 0, xadd, s.xy[0])
+        defineAdd(rt, n, 2, yadd, s.xy[1])
+      }
+    },
+
+    /**
+     * Mplot Load name$ (L96, :3751). The file is the bank: "F.C2", the point
+     * count, then the points.
+     *
+     * The original reads back `count * 260` bytes into a buffer sized
+     * `count * 6 + 8` — 260 is the icon stride, left in from the icon loader
+     * this was copied from, and Mplot Save writes with 6. It only fails to
+     * overrun because the file ends first. We read what the points actually
+     * occupy.
+     */
+    'mplot load'(it) {
+      const name = it.evalStr()
+      const data = rt.vfs?.readFile(name) ?? null
+      if (!data || data.length < 8) err(10)
+      const d = data!
+      const cookie = String.fromCharCode(d[0]!, d[1]!, d[2]!, d[3]!)
+      if (cookie !== 'F.C2') err(10)
+      const count = ((d[4]! << 24) | (d[5]! << 16) | (d[6]! << 8) | d[7]!) >>> 0
+      const mem = new Uint8Array(count * 6 + 8)
+      mem.set(d.subarray(0, Math.min(d.length, mem.length)))
+      rt.personnalMem = mem
+      const s = rt.personnal
+      s.mplots = count
+      s.mpBase = Runtime.PERSONNAL_BASE
+    },
+
+    /** Mplot Save name$ (L97, :3847) — the header then count*6 bytes */
+    'mplot save'(it) {
+      const name = it.evalStr()
+      const s = rt.personnal
+      if (s.mplots === 0 || rt.personnalMem === null) err(11)
+      rt.vfs?.writeFile(name, rt.personnalMem!.subarray(0, s.mplots * 6 + 8))
+    },
+
+    /**
+     * Lsr Zone source To target (L110, :4248). Moves a block of memory four
+     * bytes forward, walking backwards from the top so an overlapping move
+     * does not eat itself. Both addresses are forced even first
+     * (And #$fffffffe) because the 68k cannot read a longword at an odd one.
+     *
+     * The longword at `source` itself is not moved — the walk stops as soon
+     * as it is reached.
+     */
+    'lsr zone'(it) {
+      const source = it.evalInt() & 0xfffffffe
+      it.expect('to')
+      const target = it.evalInt() & 0xfffffffe
+      let a1 = target - 4
+      let a2 = target
+      // a do-while: the first longword moves before anything is checked
+      for (;;) {
+        const m = rt.resolveAddr(a1)
+        if (m && m.off + 3 < m.data.length) {
+          const v = (m.data[m.off]! << 24) | (m.data[m.off + 1]! << 16) | (m.data[m.off + 2]! << 8) | m.data[m.off + 3]!
+          putL(rt, a2, v >>> 0)
+        }
+        a1 -= 4
+        a2 -= 4
+        if (a1 <= source) break
+      }
     },
 
     /** Mplot Origin x,y (L108, :4229) — where the coordinates are measured from */
