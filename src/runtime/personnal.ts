@@ -26,7 +26,7 @@
  */
 import { AmosError, VI, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
-import type { Runtime } from './runtime'
+import { Runtime } from './runtime'
 
 /**
  * The extension's own error table (ErrMess, +AMOSPro_Personnal.Lib.s:4485).
@@ -93,8 +93,14 @@ export interface PersonnalState {
   planes: number[]
   /** _BitsPlanesD (:447) — the back set Swap Planes exchanges with */
   planesD: number[]
-  /** _MpP — how many planes the Mplot engine draws into */
+  /** _MpP (:397) — how many planes the Mplot engine draws into; defaults to 8 */
   mpP: number
+  /** _Mplots (:394) — how many points the bank holds, 0 when unreserved */
+  mplots: number
+  /** _Origin (:396) — the x,y the Mplot coordinates are measured from */
+  origin: [number, number]
+  /** _MpBase (:395) — the point bank's address, 0 when unreserved */
+  mpBase: number
 }
 
 /**
@@ -122,7 +128,10 @@ export function newPersonnalState(): PersonnalState {
     d4: 0,
     planes: new Array(8).fill(0),
     planesD: new Array(8).fill(0),
-    mpP: 0,
+    mpP: 8,
+    mplots: 0,
+    origin: [0, 0],
+    mpBase: 0,
   }
 }
 
@@ -236,6 +245,14 @@ function writePlanePointers(rt: Runtime, s: PersonnalState): void {
     const w = i & 1 ? addr & 0xffff : (addr >>> 16) & 0xffff
     putW(rt, s.bplPtBase + i * 4 + 2, w)
   }
+}
+
+/** One sign-extended word of a point, shared by X/Y/C Mplot. */
+function mplotWord(rt: Runtime, n: number, field: number): number {
+  const s = rt.personnal
+  if (s.mpBase === 0) err(11)
+  const w = getW(rt, s.mpBase + 8 + (n - 1) * 6 + field)
+  return w & 0x8000 ? w | ~0xffff : w
 }
 
 export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
@@ -443,6 +460,70 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
 
+    /**
+     * Mplot Reserve n (L94, :3694). Allocates the point bank itself with
+     * AllocMem rather than reserving an AMOS bank — n*6+8 bytes of cleared
+     * chip memory, headed by the cookie "F.C2" and the point count, then six
+     * bytes a point: X word, Y word, ink word.
+     *
+     * Reserving twice is an error, and so is running out of memory; here only
+     * the first can happen.
+     */
+    'mplot reserve'(it) {
+      const n = it.evalInt()
+      const s = rt.personnal
+      if (s.mplots !== 0) err(12)
+      s.mplots = n
+      const mem = new Uint8Array(n * 6 + 8)
+      mem.set([0x46, 0x2e, 0x43, 0x32]) // "F.C2"
+      mem[4] = (n >>> 24) & 0xff
+      mem[5] = (n >>> 16) & 0xff
+      mem[6] = (n >>> 8) & 0xff
+      mem[7] = n & 0xff
+      rt.personnalMem = mem
+      s.mpBase = Runtime.PERSONNAL_BASE
+    },
+
+    /** Mplot Erase (L95, :3729). Frees the bank; erasing an unreserved one is quiet. */
+    'mplot erase'() {
+      const s = rt.personnal
+      if (s.mplots === 0) return
+      s.mplots = 0
+      s.mpBase = 0
+      rt.personnalMem = null
+    },
+
+    /**
+     * Mplot Define n,x,y,c (L98, :3904). Six bytes at base+8+(n-1)*6.
+     * A missing bank and an out-of-range point are different errors — 11 and
+     * 13 — and the count is checked against the header rather than the
+     * register, so it reads back what was actually allocated.
+     */
+    'mplot define'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const c = it.evalInt()
+      const s = rt.personnal
+      if (s.mpBase === 0) err(11)
+      if (n < 1 || n > s.mplots) err(13)
+      const at = s.mpBase + 8 + (n - 1) * 6
+      putW(rt, at, x & 0xffff)
+      putW(rt, at + 2, y & 0xffff)
+      putW(rt, at + 4, c & 0xffff)
+    },
+
+    /** Mplot Origin x,y (L108, :4229) — where the coordinates are measured from */
+    'mplot origin'(it) {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      rt.personnal.origin = [x, y]
+    },
+
     /** Set Ntsc (L3, :524) — BEAMCON0 $DFF1DC = 0 */
     'set ntsc'() {
       rt.beamcon0 = 0x0000
@@ -478,6 +559,29 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     },
     'screen y size'(): Value {
       return VI(Math.max(rt.personnal.xy[1], 192))
+    },
+
+    /** Mplot Base (L99, :3931) — the bank address, or 0 */
+    'mplot base'(): Value {
+      return VI(rt.personnal.mpBase)
+    },
+
+    /**
+     * X Mplot(n) / Y Mplot(n) / C Mplot(n) (L101-L103, :4033-:4073).
+     *
+     * Each reads its word out of the point and sign-extends it (Btst #15 then
+     * Or #$ffff0000), so a point placed off the left of the origin reads back
+     * negative. Only the missing bank is an error — the point number is not
+     * range-checked at all here, unlike Mplot Define.
+     */
+    'x mplot'(_, a): Value {
+      return VI(mplotWord(rt, int(a[0]!), 0))
+    },
+    'y mplot'(_, a): Value {
+      return VI(mplotWord(rt, int(a[0]!), 2))
+    },
+    'c mplot'(_, a): Value {
+      return VI(mplotWord(rt, int(a[0]!), 4))
     },
 
     /**

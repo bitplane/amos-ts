@@ -286,3 +286,62 @@ describe('Personnal: Screen Position (L27, :1097)', () => {
     expect(() => run(withBank(['Create Standard A', 'Screen Position 0,0,0']))).toThrow(/Copper list non reservee/)
   })
 })
+
+describe('Personnal: the Mplot point bank (L94/L95/L98/L99/L101-103/L108)', () => {
+  it('Mplot Reserve allocates n*6+8 bytes headed by "F.C2" and the count', () => {
+    const rt = run('Mplot Reserve 100')
+    const s = rt.personnal
+    expect(s.mplots).toBe(100)
+    expect(s.mpBase).toBe(Runtime.PERSONNAL_BASE)
+    expect(rt.personnalMem!.length).toBe(100 * 6 + 8)
+    expect(leek(rt, s.mpBase)).toBe(0x462e4332) // "F.C2"
+    expect(leek(rt, s.mpBase + 4)).toBe(100)
+  })
+
+  it('reserving twice is an error, erasing lets you start again', () => {
+    expect(() => run(['Mplot Reserve 10', 'Mplot Reserve 10'].join('\n'))).toThrow(/deja reservee/)
+    const rt = run(['Mplot Reserve 10', 'Mplot Erase', 'Mplot Reserve 20'].join('\n'))
+    expect(rt.personnal.mplots).toBe(20)
+    // erasing an unreserved bank says nothing at all
+    expect(run('Mplot Erase').personnal.mplots).toBe(0)
+  })
+
+  it('a point is six bytes: X, Y, ink', () => {
+    const rt = run(['Mplot Reserve 4', 'Mplot Define 2,100,50,7'].join('\n'))
+    const at = rt.personnal.mpBase + 8 + 6
+    expect(leek(rt, at) >>> 16).toBe(100)
+    expect(leek(rt, at) & 0xffff).toBe(50)
+    expect(leek(rt, at + 4) >>> 16).toBe(7)
+  })
+
+  it('X/Y/C Mplot read the point back, sign-extended', () => {
+    // Btst #15 / Or #$ffff0000 (:4045): a point left of the origin is negative
+    let out = ''
+    const src = ['Mplot Reserve 4', 'Mplot Define 1,-5,-9,3', 'Print X Mplot(1);Y Mplot(1);C Mplot(1)'].join('\n')
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, onText: (t) => (out += t) })
+    rt.runHeadless(200)
+    expect(out).toBe('-5-9 3\n')
+  })
+
+  it('the bank errors are its own, and different from each other', () => {
+    // 11 for no bank at all, 13 for a point outside what was reserved
+    expect(() => run('Mplot Define 1,0,0,0')).toThrow(/Multi Plot bank non reservee/)
+    expect(() => run(['Mplot Reserve 4', 'Mplot Define 5,0,0,0'].join('\n'))).toThrow(/HORS limite/)
+    expect(() => run(['Mplot Reserve 4', 'Mplot Define 0,0,0,0'].join('\n'))).toThrow(/HORS limite/)
+    expect(() => run('Print X Mplot(1)')).toThrow(/Multi Plot bank non reservee/)
+  })
+
+  it('Mplot Base answers the address, and Mplot Origin records the axes', () => {
+    let out = ''
+    const src = ['Mplot Reserve 2', 'Mplot Origin 160,100', 'Print Mplot Base>0'].join('\n')
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, onText: (t) => (out += t) })
+    rt.runHeadless(200)
+    expect(out).toBe('-1\n')
+    expect(rt.personnal.origin).toEqual([160, 100])
+  })
+
+  it('Mplot Planes defaults to eight, as _MpP does', () => {
+    // _MpP Dc.l 8 (:397) — the engine draws into all eight until told otherwise
+    expect(run('Mplot Reserve 1').personnal.mpP).toBe(8)
+  })
+})

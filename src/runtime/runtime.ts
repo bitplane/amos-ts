@@ -536,6 +536,15 @@ export class Runtime {
   tempBuffer: Uint8Array | null = null
 
   /**
+   * Personnal's own AllocMem'd blocks — the Mplot point bank, and the AGA
+   * icon bank in batch 9. The extension allocates chip memory itself rather
+   * than reserving an AMOS bank, and hands the program the address back
+   * through Mplot Base, so it has to live somewhere a Leek can reach it.
+   */
+  static readonly PERSONNAL_BASE = 0x70000000
+  personnalMem: Uint8Array | null = null
+
+  /**
    * The interpreter configuration block (PI_*, +Equ.s:1590-1650, defaults
    * from +Interpreter_Config.s). Editable defaults rather than constants:
    * the file selector stores its Sort/Size/Store toggles and its window
@@ -781,6 +790,10 @@ export class Runtime {
     const temp = this.tempBuffer
     if (temp && a >= Runtime.TEMP_BUFFER_BASE && a < Runtime.TEMP_BUFFER_BASE + temp.length) {
       return { data: temp, off: a - Runtime.TEMP_BUFFER_BASE }
+    }
+    const pmem = this.personnalMem
+    if (pmem && a >= Runtime.PERSONNAL_BASE && a < Runtime.PERSONNAL_BASE + pmem.length) {
+      return { data: pmem, off: a - Runtime.PERSONNAL_BASE }
     }
     for (const [kind, base] of [
       ['sprites', Runtime.SPRITE_BANK_BASE],
