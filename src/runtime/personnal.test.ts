@@ -256,8 +256,8 @@ describe('Personnal: bitplanes (L16/L17/L21/L85/L86/L109)', () => {
 
   it('Mplot Planes refuses a bad count out loud (ErrMess 14)', () => {
     expect(run('Mplot Planes 8').personnal.mpP).toBe(8)
-    expect(() => run('Mplot Planes 0')).toThrow(/Valeur permise de 1 a 8 seulement/)
-    expect(() => run('Mplot Planes 9')).toThrow(/Valeur permise de 1 a 8 seulement/)
+    expect(() => run('Mplot Planes 0')).toThrow(/Valeurs permises de 1 a 8 seulement/)
+    expect(() => run('Mplot Planes 9')).toThrow(/Valeurs permises de 1 a 8 seulement/)
   })
 })
 
@@ -1194,6 +1194,82 @@ describe('Personnal: the five mosaics (L32-L36, :1316/:1373/:1444/:1517/:1591)',
   })
 })
 
+describe('Personnal: the cruncher, the nibble peeks and the replayers (batch 11)', () => {
+  const bank = ['Reserve As Work 10,24000', 'A=Start(10)', 'Create Standard A']
+
+  it('Fpeek and Speek are the two nibbles of a byte', () => {
+    let out = ''
+    const rt = new Runtime(
+      tokenize(['Reserve As Work 10,64', 'A=Start(10)', 'Poke A,$C7', 'F=Fpeek(A) : S=Speek(A)', 'Print F;S'].join('\n'), table, exts),
+      table,
+      { extensions: exts, maxSteps: 200_000, onText: (t) => (out += t) },
+    )
+    rt.runHeadless(100)
+    expect(out).toBe(' 12 7\n')
+  })
+
+  it('Set Deform Value holds sixteen slots and nothing reads them', () => {
+    const rt = run([...bank, 'Set Deform Value 1,111', 'Set Deform Value 16,222'].join('\n'))
+    expect([rt.personnal.deform[0], rt.personnal.deform[15]]).toEqual([111, 222])
+    for (const n of [0, 17]) {
+      expect(() => run([...bank, `Set Deform Value ${n},1`].join('\n'))).toThrow(/1 a 16 seulement/)
+    }
+  })
+
+  it('Pic Pack and Pic Unpack round-trip a screen through the plane list', () => {
+    const rt = run(
+      [
+        'Screen Open 0,320,64,4,Lowres',
+        'Cls 0 : Ink 1 : Bar 0,0 To 63,31 : Plot 200,40',
+        ...bank,
+        'B=Screen Base',
+        'For P=1 To 8 : Set Plane P,Leek(B+(P-1)*4) : Next P',
+        'L=Pic Pack(B,A+8192)',
+        'Cls 0',
+        'Pic Unpack A+8192 To B',
+      ].join('\n'),
+    )
+    const s = rt.screens.get(0)!
+    // the Cls between them means only the unpack can have put these back
+    expect([s.point(0, 0), s.point(63, 31), s.point(64, 0), s.point(200, 40)]).toEqual([1, 1, 0, 1])
+    // and it compressed: a 320x64x2 screen is 5120 bytes of plane
+    expect(leek(rt, rt.bankBase(10) + 8192 + 4)).toBeLessThan(5120)
+    expect(leek(rt, rt.bankBase(10) + 8192 + 8)).toBe(2560) // bytes in one plane
+  })
+
+  it('Anim Unpack indexes a frame table in front of the same format', () => {
+    const rt = run(
+      [
+        'Screen Open 0,320,64,4,Lowres',
+        'Cls 0 : Ink 1 : Bar 0,0 To 31,31',
+        ...bank,
+        'B=Screen Base',
+        'For P=1 To 8 : Set Plane P,Leek(B+(P-1)*4) : Next P',
+        'L=Pic Pack(B,A+8192)',
+        // a one-entry frame table at +8, holding the offset FROM THE BANK
+        'Loke A+4096+8,16',
+        'For I=0 To L-1 : Poke A+4096+16+I,Peek(A+8192+I) : Next I',
+        'Cls 0',
+        'Anim Unpack A+4096,0 To B',
+      ].join('\n'),
+    )
+    const s = rt.screens.get(0)!
+    expect([s.point(0, 0), s.point(31, 31), s.point(32, 0)]).toEqual([1, 1, 0])
+  })
+
+  it('the replayers keep their state machine even though nothing sounds', () => {
+    // P61 and OMD are LVO calls into player61.library and octaplayer.library,
+    // neither of which is in the AMOS source. The checks the extension makes
+    // BEFORE calling them are its own, and those are reproduced.
+    expect(() => run([...bank, 'P61 Stop'].join('\n'))).toThrow(/ne joue pas de module/)
+    expect(() => run([...bank, 'P61 Play A', 'P61 Stop'].join('\n'))).not.toThrow()
+    expect(() => run([...bank, 'P61 Mvolume 64'].join('\n'))).toThrow(/volume vont de 0 a 63/)
+    expect(() => run([...bank, 'P61 Mvolume 63'].join('\n'))).not.toThrow()
+    expect(() => run([...bank, 'Omd Play'].join('\n'))).toThrow(/Aucun module MMDx/)
+    expect(() => run([...bank, 'Omd Load "RAM:nope.med"'].join('\n'), withRam())).toThrow(/Impossible de charger/)
+  })
+})
+
 describe('Personnal: trig, IFF headers and the input reads (batch 10)', () => {
   const bank = ['Reserve As Work 10,24000', 'A=Start(10)']
 
@@ -1371,7 +1447,7 @@ describe('Personnal: the two 1.1-only keywords (routines 120 and 122)', () => {
     const rt = run([...bank, 'Mplot Start Plane 3'].join('\n'))
     expect(rt.personnal.mpStartPlane).toBe(3)
     for (const n of [0, 9]) {
-      expect(() => run([...bank, `Mplot Start Plane ${n}`].join('\n'))).toThrow(/Valeur permise de 1 a 8/)
+      expect(() => run([...bank, `Mplot Start Plane ${n}`].join('\n'))).toThrow(/Valeurs permises de 1 a 8/)
     }
   })
 

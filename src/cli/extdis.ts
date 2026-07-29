@@ -217,7 +217,13 @@ function disassemble(label: string, n: number): void {
         'import sys',
         'from capstone import *',
         "c = open(sys.argv[1],'rb').read()",
-        'md = Cs(CS_ARCH_M68K, CS_MODE_BIG_ENDIAN | CS_MODE_M68K_000)',
+        // 020, not 000. Several extensions are assembled with the long form
+        // of Bcc -- an $FF displacement byte followed by a 32-bit offset --
+        // which the 68000 does not have. In 000 mode capstone emitted a
+        // `dc.w $67ff` and then resynced one word late, so every loop in the
+        // routine came out as a run of nonsense that looked like data. The
+        // instruction set is otherwise a superset, so nothing else changes.
+        'md = Cs(CS_ARCH_M68K, CS_MODE_BIG_ENDIAN | CS_MODE_M68K_020)',
         'start, end = int(sys.argv[2]), int(sys.argv[3])',
         'pos = start',
         'while pos < end:',

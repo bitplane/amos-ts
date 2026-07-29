@@ -43,14 +43,28 @@ export const PERSONNAL_ERRORS = [
   'Banque memoire trop petite.',
   'CMAP non trouve.Fichier IFF/ILBM corrompu.',
   '2e Ecran copper non cree.',
-  "Pas assez de memoire pour l'allocation!!!",
+  "Pas assez de memoire pour l'allocation.",
   'Aga Icon bank non reservee.',
   "Fichier d'un format inconnu.",
   'Multi Plot bank non reservee.',
   'Multi Plot bank deja reservee.',
   'Point demande HORS limite de reservation.',
-  'Valeur permise de 1 a 8 seulement.',
+  'Valeurs permises de 1 a 8 seulement.',
   'Aga Icon bank deja reservee.',
+  // 16 onwards exist only in the larger 1.1 build, alongside the keywords
+  // that raise them. Read out of that binary at $6a98; the 1.1a source's
+  // table stops at 15, and its wording of 8 and 14 differs by a full stop
+  // and a plural. This is the 1.1 wording throughout.
+  'Valeurs permises de 1 a 16 seulement.',
+  'Player61.library non trouvee.',
+  'Player61 ne peut pas jouer ce module.',
+  'Player61 ne joue pas de module.',
+  'Les valeurs de volume vont de 0 a 63.',
+  'OctaPlayer.library non trouvee.',
+  'Impossible de charger ce fichier.',
+  'Module MMDx 5-8 voix deja en memoire.',
+  "Impossible d'utiliser les CANAUX SONORES!.",
+  'Aucun module MMDx 5-8 voix en memoire.',
 ] as const
 
 const err = (n: number): never => {
@@ -124,6 +138,12 @@ export interface PersonnalState {
   bplcon2nd: number
   /** _BPlanesMask — which planes Allow/Forbid Plane Col have enabled */
   bplanesMask: number
+  /** the sixteen slots Set Deform Value writes (1.1 data bank +$70) */
+  deform: number[]
+  /** the module P61/OMD state machine believes is loaded, and whether it plays */
+  p61Playing: boolean
+  omdModule: number
+  omdPlaying: boolean
   /** _Icons (+$50) — how many icons the AGA icon bank holds, 0 when unreserved */
   icons: number
   /** _IcBase (+$54) — its address, 0 when unreserved */
@@ -172,6 +192,10 @@ export function newPersonnalState(): PersonnalState {
     bpl2: 0,
     bplcon2nd: 0,
     bplanesMask: 0,
+    deform: new Array(16).fill(0),
+    p61Playing: false,
+    omdModule: 0,
+    omdPlaying: false,
     icons: 0,
     icBase: 0,
     spriteBase: 0,
@@ -953,6 +977,129 @@ function iffConvert(rt: Runtime, addr: number): void {
       }
     }
   }
+}
+
+/**
+ * The picture cruncher's format, pinned from both ends — Pic Unpack decodes it
+ * (routine 115, $642a) and Pic Pack builds it (routine 114, $62be).
+ *
+ * A sixteen-byte header, of which two longwords are used: +4 is the packed
+ * length INCLUDING the header, +8 the number of bytes in one bitplane. The
+ * stream follows at +16, one plane's worth after another, and the destination
+ * is a plane-pointer list, not a screen.
+ *
+ * Control bytes: `n` up to $7F repeats the byte after it n times; anything
+ * above $7F copies `256 - n` literal bytes. Pic Pack reaches that by counting
+ * runs first and then walking its own output a second time, folding strings of
+ * one-byte runs into a literal block.
+ *
+ * Two edges of the decoder, both kept. A control byte of zero never satisfies
+ * `d3 == 0` after its first decrement, so it fills the rest of the PLANE with
+ * one byte rather than emitting nothing. And every read is guarded against the
+ * end of the packed block, so a truncated stream stops the whole keyword
+ * rather than running on.
+ *
+ * That guard is `>=` here where the 68k tests `Cmpa.l a2,a4 / Beq` for exact
+ * equality. A header whose length field points behind the data would step the
+ * cursor straight past the end and never match it — which is what a bad frame
+ * offset into Anim Unpack produces, and it hangs rather than stopping.
+ */
+function picUnpack(rt: Runtime, src: number, planeList: number): void {
+  const total = getL(rt, src + 4) - 16
+  const perPlane = getL(rt, src + 8)
+  let a2 = src + 16
+  const end = src + total
+  let list = planeList
+  for (;;) {
+    let a3 = getL(rt, list)
+    list += 4
+    let left = perPlane
+    for (;;) {
+      if (a2 >= end) return
+      const ctrl = getB(rt, a2)
+      if (ctrl > 0x7f) {
+        a2 += 1
+        if (a2 >= end) return
+        let d3 = ctrl
+        for (;;) {
+          putB(rt, a3++, getB(rt, a2++))
+          if (a2 >= end) return
+          d3 += 1
+          left -= 1
+          if (left === 0) break
+          if (d3 >= 0x100) break
+        }
+        if (left === 0) break
+      } else {
+        a2 += 1
+        if (a2 >= end) return
+        const v = getB(rt, a2)
+        a2 += 1
+        if (a2 >= end) return
+        let d3 = ctrl
+        for (;;) {
+          putB(rt, a3++, v)
+          d3 -= 1
+          left -= 1
+          if (left === 0) break
+          if (d3 === 0) break
+        }
+        if (left === 0) break
+      }
+    }
+  }
+}
+
+/**
+ * Pic Pack src To dst (routine 114, $62be). Packs a SCREEN, taking its
+ * geometry from the control block at +76 and its planes from the longwords
+ * at its start, into the format above.
+ *
+ * The library builds it in two passes: run-length first, capping runs at $7F,
+ * then a second walk over its own output that folds consecutive one-byte runs
+ * into a literal block of up to 128. This does the same two passes in the same
+ * order, so the boundaries fall where the library's do.
+ */
+function picPack(rt: Runtime, screen: number, dst: number): number {
+  const width = getW(rt, screen + 76)
+  const height = getW(rt, screen + 78)
+  const depth = getW(rt, screen + 80)
+  const perPlane = (width >> 3) * height
+  const pass1: number[] = []
+  for (let p = 0; p < depth; p++) {
+    let a = getL(rt, screen + p * 4)
+    let left = perPlane
+    while (left > 0) {
+      const v = getB(rt, a)
+      let n = 0
+      while (left > 0 && n < 0x7f && getB(rt, a) === v) {
+        n += 1
+        a += 1
+        left -= 1
+      }
+      pass1.push(n, v)
+    }
+  }
+  // second pass: runs of one become a literal block, counted down from zero
+  const out: number[] = []
+  for (let i = 0; i < pass1.length; ) {
+    if (pass1[i] !== 1) {
+      out.push(pass1[i]!, pass1[i + 1]!)
+      i += 2
+      continue
+    }
+    const lit: number[] = []
+    while (i < pass1.length && pass1[i] === 1 && lit.length < 0x80) {
+      lit.push(pass1[i + 1]!)
+      i += 2
+    }
+    out.push((256 - lit.length) & 0xff, ...lit)
+  }
+  const length = out.length + 16
+  putL(rt, dst + 4, length)
+  putL(rt, dst + 8, perPlane)
+  out.forEach((b, i) => putB(rt, dst + 16 + i, b))
+  return length
 }
 
 /** Allow/Forbid Plane Col (L40/L41). See the keyword comment for the Bset. */
@@ -1892,6 +2039,100 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       putW(rt, a, on ? getW(rt, a) | 0x0800 : getW(rt, a) & ~0x0800)
     },
 
+    /**
+     * Set Deform Value n,v (routine 121, $666a). Sixteen slots at the 1.1
+     * data bank +$70, indexed 1..16 or error 16. Nothing else in the library
+     * reads them — the only two instructions that touch +$70 are this write
+     * and its own bounds check — so whatever the deformation was going to be,
+     * it did not ship.
+     */
+    'set deform value'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const v = it.evalInt()
+      if (n < 1 || n > 16) err(16)
+      rt.personnal.deform[n - 1] = v
+    },
+
+    /** Pic Unpack src To planeList (routine 115) — see `picUnpack`. */
+    'pic unpack'(it) {
+      const src = it.evalInt()
+      it.expect('to')
+      picUnpack(rt, src, it.evalInt())
+    },
+
+    /**
+     * Anim Unpack bank,frame To planeList (routine 116, $650c). Pic Unpack
+     * with a frame table in front of it: the longword at `bank + 8 + frame*4`
+     * is the offset of that frame's packed block from the start of the bank.
+     */
+    'anim unpack'(it) {
+      const bank = it.evalInt()
+      it.expect(',')
+      const frame = it.evalInt()
+      it.expect('to')
+      const list = it.evalInt()
+      picUnpack(rt, bank + getL(rt, bank + 8 + frame * 4), list)
+    },
+
+    /**
+     * The Player 6.1 and OctaMED keywords (routines 124-131). Both groups are
+     * thin wrappers over libraries that are not part of AMOS and are not in
+     * the source tree — `player61.library` and `octaplayer.library` — reached
+     * by LVO through a base the extension opens and caches. Nothing here can
+     * decode a P61 module or an MMD2, so nothing sounds.
+     *
+     * What IS reproduced is the state machine around them, because it is
+     * visible to the program: stopping a player that is not playing is error
+     * 19, an out-of-range volume is error 20, freeing an OMD module that was
+     * never loaded is error 25. Those are the extension's own checks, made
+     * before it ever calls the library.
+     *
+     * They deliberately do NOT raise the library-not-found errors 17 and 21.
+     * A machine without those libraries would, but ours is missing a decoder,
+     * not a library, and dressing one up as the other would put a stop where
+     * the program expects music. NOTES entry at closeout; the closable path
+     * is a real P61 decoder, which `med play` already sets the precedent for.
+     */
+    'p61 play'(it) {
+      it.evalInt()
+      rt.personnal.p61Playing = true
+    },
+    'p61 stop'() {
+      if (!rt.personnal.p61Playing) err(19)
+      rt.personnal.p61Playing = false
+    },
+    'p61 mvolume'(it) {
+      const v = it.evalInt()
+      if (v < 0 || v > 63) err(20)
+    },
+    'p61 mpos'(it) {
+      it.evalInt()
+    },
+    'omd load'(it) {
+      const name = it.evalStr()
+      const s = rt.personnal
+      if (s.omdModule !== 0) err(23)
+      if ((rt.vfs?.readFile(name) ?? null) === null) err(22)
+      s.omdModule = 1
+    },
+    'omd play'() {
+      const s = rt.personnal
+      if (s.omdModule === 0) err(25)
+      s.omdPlaying = true
+    },
+    'omd stop'() {
+      const s = rt.personnal
+      if (!s.omdPlaying) err(25)
+      s.omdPlaying = false
+    },
+    'omd free'() {
+      const s = rt.personnal
+      if (s.omdModule === 0) err(25)
+      s.omdPlaying = false
+      s.omdModule = 0
+    },
+
     /** Iff Convert addr (L39, :1688) — see `iffConvert`. */
     'iff convert'(it) {
       iffConvert(rt, it.evalInt())
@@ -2465,6 +2706,23 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     /** =Aga Icon Base (L91, :3535) — _IcBase, zero when unreserved. */
     'aga icon base'(): Value {
       return VI(rt.personnal.icBase)
+    },
+
+    /** Pic Pack(src To dst) (routine 114) — see `picPack`; answers the size. */
+    'pic pack'(_, a): Value {
+      return VI(picPack(rt, int(a[0]!), int(a[1]!)))
+    },
+
+    /**
+     * Fpeek(addr) and Speek(addr) (routines 117/118, $6600/$660c). The two
+     * nibbles of a byte, high and low — the pair you need to read back what
+     * Iff8bits To Iff4bits packed.
+     */
+    fpeek(_, a): Value {
+      return VI(getB(rt, int(a[0]!)) >> 4)
+    },
+    speek(_, a): Value {
+      return VI(getB(rt, int(a[0]!)) & 0xf)
     },
 
     /** Fc Cos/Sin/Tan(angle) (L47/L48/L49) — see `fcTrig`. */
