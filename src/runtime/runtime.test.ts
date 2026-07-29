@@ -226,6 +226,18 @@ describe('drawing', () => {
     expect(rt.screens.get(0)!.palette[2]).toBe(0x333)
   })
 
+  it('Get Palette with the screen omitted copies nothing, whatever it picked', () => {
+    // `Get Palette,0` is in the PD corpus (APD470/HomeRun2) and used to reach
+    // keyword dispatch as a bare ",". There is no defined value for an omitted
+    // slot: New_Evalue dispatches the comma's own routine, which does nothing
+    // and leaves d3 holding whatever the last evaluation put there. It does
+    // not matter — mask 0 means PalRout's `btst d0,d3` never fires and every
+    // entry stays the $FFFF "unchanged" marker.
+    const rt = run(['Screen Open 1,320,200,16,Lowres', 'Palette $111,$222', 'Screen 0', 'Get Palette,0'].join('\n'))
+    expect(rt.screens.get(0)!.palette[0]).not.toBe(0x111)
+    expect(rt.screens.get(0)!.palette[1]).not.toBe(0x222)
+  })
+
   it('Colour Back paints the composite border', () => {
     const rt = run('Colour Back $F00\nScreen Display 0,140,60') // shift screen to expose border
     const { data } = rt.composite()

@@ -1050,8 +1050,23 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         i++
       } while (it.accept(','))
     },
+    /**
+     * Get Palette n[,mask] (InGetPalette1/2 +Lib.s:9273/9279). The one-argument
+     * form pushes the screen and sets the mask to -1, then falls into the
+     * two-argument one — which is why an absent mask means every colour.
+     *
+     * The screen may be omitted: `Get Palette,0` is in the corpus
+     * (APD470/HomeRun2). There is no defined value for an omitted slot —
+     * `New_Evalue` dispatches the comma's own routine, which does nothing and
+     * leaves d3 holding whatever the last evaluation put there, so the screen
+     * number is indeterminate register state. It does not matter here: mask 0
+     * means `PalRout`'s `btst d0,d3` never fires, every entry stays the $FFFF
+     * "unchanged" marker, and the call copies nothing whichever screen it
+     * picked. So the omitted slot resolves to the current screen, which is the
+     * one choice that cannot throw.
+     */
     'get palette'(it) {
-      const src = byIndex(it.evalInt())
+      const src = it.nm() === ',' ? scr() : byIndex(it.evalInt())
       const mask = it.accept(',') ? it.evalInt() : -1
       const dst = scr()
       for (let i = 0; i < 32; i++) if (mask & (1 << i)) dst.palette[i] = src.palette[i]!
