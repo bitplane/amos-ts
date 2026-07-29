@@ -87,7 +87,7 @@ describe('Personnal: building the copper list (L26/L10, +AMOSPro_Personnal.Lib.s
     expect(s.aga).toBe(0)
   })
 
-  it('Create Aga writes eight colour banks, each behind a BPLCON3 select', () => {
+  it('Create Aga writes eight colour banks, then eight more behind LOCT', () => {
     const rt = run(withBank(['Create Aga A']))
     const s = rt.personnal
     expect(s.aga).toBe(1)
@@ -96,8 +96,20 @@ describe('Personnal: building the copper list (L26/L10, +AMOSPro_Personnal.Lib.s
     expect(leek(rt, s.colorBase + 4)).toBe(0x01800000)
     expect(leek(rt, s.colorBase + 132)).toBe(0x01062000)
     expect(leek(rt, s.colorBase + 136)).toBe(0x01800000)
-    // eight banks of (1 + 32) moves
-    expect(s.bplPtBase - s.colorBase).toBe(8 * 33 * 4 + 8)
+    // after eight banks of (1 + 32) comes the complement set, the same eight
+    // again but with BPLCON3 bit 9 set — $0200, LOCT (_cd2, :606). That is
+    // how AGA carries 24 bits through 12-bit registers: each COLOR is written
+    // twice and LOCT says which half.
+    expect(s.colorBase2).toBe(s.colorBase + 8 * 33 * 4)
+    expect(leek(rt, s.colorBase2)).toBe(0x01060200)
+    expect(leek(rt, s.colorBase2 + 132)).toBe(0x01062200)
+    // and the bitplane pointers follow both sets
+    expect(s.bplPtBase - s.colorBase).toBe(16 * 33 * 4 + 8)
+  })
+
+  it('Create Standard has no complement block at all', () => {
+    const rt = run(withBank(['Create Standard A']))
+    expect(rt.personnal.colorBase2).toBe(0)
   })
 
   it('a zero address is the error the extension raises, in its own words', () => {
@@ -917,5 +929,77 @@ describe('Personnal: dual playfield (L28/L42/L43/L65/L111/L112)', () => {
   it('the dual-playfield draws need a bank like the ordinary one', () => {
     expect(() => run('Mplot Dpf1 Draw 1 To 2')).toThrow(/Multi Plot bank non reservee/)
     expect(() => run('Mplot Dpf2 Draw 1 To 2')).toThrow(/Multi Plot bank non reservee/)
+  })
+})
+
+describe('Personnal: the second screen (L67/L68/L69/L70/L78)', () => {
+  const bank = ['Reserve As Work 10,32000', 'A=Start(10)', 'Create Standard A']
+
+  it('Active Second Screen appends a whole second display and re-aims the line keywords', () => {
+    const rt = run([...bank, 'Active Second Screen'].join('\n'))
+    const s = rt.personnal
+    expect(s.second).toBe(1)
+    expect(s.pal2).toBeGreaterThan(0)
+    expect(s.bpl2).toBe(s.pal2 + 32 * 4)
+    expect(s.bplcon2nd).toBeGreaterThan(s.bpl2)
+    // its own colours and pointers
+    expect(leek(rt, s.pal2)).toBe(0x01800000)
+    expect(leek(rt, s.bpl2)).toBe(0x00e00000)
+    expect(leek(rt, s.bplcon2nd)).toBe(0x01000000)
+    // and it runs into the next field: the $FFD9 crossing then a wait for line 1
+    expect(leek(rt, s.bplcon2nd + 12)).toBe(0xffd9fffe)
+    expect(leek(rt, s.bplcon2nd + 16)).toBe(0x0103fffe)
+    // _Line moves to $14 and _CurrentLine sits on the second screen's tail
+    expect(s.line).toBe(0x14)
+    expect(leek(rt, s.currentLine)).toBe(0x1403fffe)
+  })
+
+  it('once a second screen exists the line keywords use its shorter tail', () => {
+    // appendWait branches on _2nd — a path that could not be reached until now
+    const rt = run([...bank, 'Active Second Screen', 'Copper Wait Line $80'].join('\n'))
+    const s = rt.personnal
+    expect(leek(rt, s.currentLine)).toBe(0x1403fffe)
+    expect(leek(rt, s.currentLine + 12)).toBe(0xfffffffe) // four longwords, not five
+  })
+
+  it('Set Second Planes writes one of five pointers, high word then low', () => {
+    const rt = run([...bank, 'Active Second Screen', 'Set Second Planes 2,$12345678'].join('\n'))
+    const s = rt.personnal
+    expect(getWord(rt, s.bpl2 + 8 + 2)).toBe(0x1234)
+    expect(getWord(rt, s.bpl2 + 12 + 2)).toBe(0x5678)
+  })
+
+  it('Set Second View and Set Second Color reach the second screen only', () => {
+    const rt = run(
+      [...bank, 'Set View Planes 2', 'Set Color 1,15,0,0', 'Active Second Screen', 'Set Second View 4', 'Set Second Color 1,0,15,0'].join('\n'),
+    )
+    const s = rt.personnal
+    expect(getWord(rt, s.bplcon2nd + 2) & 0x7010).toBe(0x4000) // four planes there
+    expect(getWord(rt, s.bplConBase + 2) & 0x7010).toBe(0x2000) // two here, untouched
+    expect(getWord(rt, s.pal2 + 6)).toBe(0x0f0)
+    expect(getWord(rt, s.colorBase + 6)).toBe(0xf00) // the first screen kept its red
+  })
+
+  it('the second-screen keywords raise ErrMess 7 before there is one', () => {
+    expect(() => run([...bank, 'Set Second Planes 1,$1000'].join('\n'))).toThrow(/2e Ecran copper non cree/)
+    expect(() => run([...bank, 'Set Second View 2'].join('\n'))).toThrow(/2e Ecran copper non cree/)
+    expect(() => run([...bank, 'Set Second Color 0,1,1,1'].join('\n'))).toThrow(/2e Ecran copper non cree/)
+  })
+
+  it('Second Y Size rewrites the tail wait, guarded on it being the second screen\'s', () => {
+    const rt = run([...bank, 'Active Second Screen', 'Second Y Size $30'].join('\n'))
+    expect(getWord(rt, rt.personnal.currentLine) >> 8).toBe(0x30 - 0xd)
+    // appending does not stop it: every append re-terminates, and a second
+    // screen's tail always begins $14 again, so it still applies
+    const after = run([...bank, 'Active Second Screen', 'Copper Wait Line $90', 'Second Y Size $30'].join('\n'))
+    expect(getWord(after, after.personnal.currentLine) >> 8).toBe(0x30 - 0xd)
+    // the guard bites on a first-screen list, whose tail begins $F2
+    const first = run([...bank, 'Second Y Size $30'].join('\n'))
+    expect(getWord(first, first.personnal.currentLine) >> 8).toBe(0xf2)
+  })
+
+  it('a size below $d is dropped rather than wrapped', () => {
+    const rt = run([...bank, 'Active Second Screen', 'Second Y Size 5'].join('\n'))
+    expect(getWord(rt, rt.personnal.currentLine) >> 8).toBe(0x14)
   })
 })

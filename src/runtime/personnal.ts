@@ -109,6 +109,12 @@ export interface PersonnalState {
   agaPalette: number[]
   /** _ColorBase2 — the LOCT block Set Aga Color puts low nibbles in */
   colorBase2: number
+  /** _2pal — the second screen's own 32 colours */
+  pal2: number
+  /** _2bpl — the second screen's bitplane pointers */
+  bpl2: number
+  /** _2bplcon — the second screen's BPLCON0 */
+  bplcon2nd: number
 }
 
 /**
@@ -144,6 +150,9 @@ export function newPersonnalState(): PersonnalState {
     currentPal: 0,
     agaPalette: new Array(256).fill(0),
     colorBase2: 0,
+    pal2: 0,
+    bpl2: 0,
+    bplcon2nd: 0,
   }
 }
 
@@ -200,6 +209,16 @@ function buildList(rt: Runtime, addr: number, aga: boolean): void {
   if (aga) {
     // eight banks: BPLCON3 selects, then 32 COLOR moves
     for (let bank = 0x01060000; bank !== 0x01070000; bank += 0x2000) {
+      put(bank)
+      for (let c = 0x01800000; c !== 0x01c00000; c += 0x20000) put(c)
+    }
+    // then the same eight again behind LOCT — BPLCON3 bit 9, $0200 (_cd2,
+    // :606). These hold the LOW nibble of each channel, which is how AGA
+    // reaches 24 bits through registers that only carry 12: the same COLOR
+    // register is written twice and LOCT says which half. Set Aga Color
+    // writes the pair, one into each block.
+    s.colorBase2 = p
+    for (let bank = 0x01060200; bank !== 0x01070200; bank += 0x2000) {
       put(bank)
       for (let c = 0x01800000; c !== 0x01c00000; c += 0x20000) put(c)
     }
@@ -1127,6 +1146,127 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
         src += 3
         dst += 3
       }
+    },
+
+    /**
+     * Active Second Screen (L67, :2763). Appends a whole second display to
+     * the list: its own 32 colours (_2pal), its own eight bitplane pointers
+     * (_2bpl), window and fetch, then BPLCON0 alone in _2bplcon.
+     *
+     * It runs past the bottom of the first — WAIT $f3, DMA back on, then the
+     * $FFD9 line-255 crossing and a WAIT for line 1 — so the second screen
+     * occupies the next field. _Line becomes $14 and _CurrentLine is wound
+     * back 12 bytes to sit on that tail, which is what makes the line
+     * keywords append into the second screen from here on, with the shorter
+     * tail appendWait() already knew to write.
+     */
+    'active second screen'() {
+      const s = rt.personnal
+      if (s.currentLine === 0) err(1)
+      let p = s.currentLine
+      const put = (v: number): void => {
+        putL(rt, p, v)
+        p += 4
+      }
+      put(0xf203fffe)
+      put(0x00960100)
+      s.pal2 = p
+      for (let c = 0x01800000; c !== 0x01c00000; c += 0x20000) put(c)
+      s.bpl2 = p
+      for (let d = 0x00e00000; d !== 0x01000000; d += 0x20000) put(d)
+      put(0x008e0181) // DIWSTRT
+      put(0x009037c1) // DIWSTOP
+      put(0x00920038) // DDFSTRT
+      put(0x009400d0) // DDFSTOP
+      put(0x01020000) // BPLCON1
+      put(0x01040000) // BPLCON2
+      put(0x01060000) // BPLCON3
+      put(0x01080000) // BPL1MOD
+      put(0x010a0000) // BPL2MOD
+      s.bplcon2nd = p
+      put(0x01000000) // BPLCON0
+      put(0xf303fffe)
+      put(0x00968300)
+      put(0xffd9fffe) // the line-255 crossing
+      put(0x0103fffe) // and on into the next field
+      putL(rt, p, 0x1403fffe)
+      putL(rt, p + 4, 0x01000000)
+      putL(rt, p + 8, 0x00960100)
+      putL(rt, p + 12, 0xfffffffe)
+      s.line = 0x14
+      // the source writes the last of the four tail longwords WITHOUT
+      // advancing, so its Sub.l #12,a0 lands back on the first — _CurrentLine
+      // sits on the $1403fffe, ready to be overwritten by the next append
+      s.currentLine = p
+      s.second = 1
+    },
+
+    /**
+     * Set Second Planes n,addr (L68, :2827). One of the second screen's five
+     * addressable pointers — the range check is 1..5, not 1..8. ErrMess 7
+     * when there is no second screen.
+     */
+    'set second planes'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const addr = it.evalInt()
+      const s = rt.personnal
+      if (n < 1 || n > 5) return
+      if (s.bpl2 === 0) err(7)
+      const a = s.bpl2 + (n - 1) * 8 + 2
+      putW(rt, a, (addr >>> 16) & 0xffff)
+      putW(rt, a + 4, addr & 0xffff)
+    },
+
+    /**
+     * Set Second View n (L69, :2852) — the second screen's BPLCON0 plane
+     * count, through the same _PlanesMask. Unlike Set View Planes this one
+     * does not range-check n at all, so a wild value indexes past the table.
+     * We clamp to the table rather than read whatever follows it.
+     */
+    'set second view'(it) {
+      const n = it.evalInt()
+      const s = rt.personnal
+      if (s.bplcon2nd === 0) err(7)
+      putW(rt, s.bplcon2nd + 2, PLANES_MASK[Math.max(0, Math.min(8, n))]!)
+    },
+
+    /** Set Second Color reg,r,g,b (L70, :2868) — Set Color, on _2pal */
+    'set second color'(it) {
+      const reg = it.evalInt()
+      it.expect(',')
+      const r = it.evalInt()
+      it.expect(',')
+      const g = it.evalInt()
+      it.expect(',')
+      const b = it.evalInt()
+      const s = rt.personnal
+      if (s.pal2 === 0) err(7)
+      let a = s.pal2
+      for (let seen = 0; seen <= reg; seen++) {
+        if (getW(rt, a) === 0x0106) a += 4
+        if (seen === reg) break
+        a += 4
+      }
+      putW(rt, a + 2, ((r << 8) | (g << 4) | b) & 0xffff)
+    },
+
+    /**
+     * Second Y Size n (L78, :3091). Moves where the second screen starts, by
+     * rewriting the line byte of the WAIT _CurrentLine is sitting on — but
+     * only if that byte is still $14, so it does nothing once anything else
+     * has been appended. n has $d taken off it and a negative result is
+     * dropped.
+     */
+    'second y size'(it) {
+      const n = it.evalInt()
+      const s = rt.personnal
+      if (s.currentLine === 0) return
+      const w = getW(rt, s.currentLine)
+      if ((w >> 8) !== 0x14) return
+      const line = n - 0xd
+      if (line < 0) return
+      putW(rt, s.currentLine, ((line & 0xff) << 8) | (w & 0xff))
     },
 
     /** Set Ntsc (L3, :524) — BEAMCON0 $DFF1DC = 0 */
