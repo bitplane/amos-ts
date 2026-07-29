@@ -31,6 +31,7 @@ import { AmigaFS, MemoryVolume } from '../runtime/vfs'
 import { readArchive, volumeFromEntries } from '../runtime/archive'
 import { systemClock } from '../runtime/host'
 import { WebAudioSink } from './audio'
+import { WebSerialHost, available as serialAvailable } from './serial'
 
 /** the release this player was built from; 'dev' outside a release build */
 export { VERSION }
@@ -126,6 +127,16 @@ export interface Player {
   setSystemResource(bytes: Uint8Array): void
   /** take the keyboard (what clicking on it does) */
   focus(): void
+  /**
+   * Ask the user for a serial port, so `Serial Open` can reach real
+   * hardware. MUST be called from a user gesture — Web Serial's chooser
+   * requires one, which is exactly why a program cannot do this itself.
+   * Resolves false where there is no Web Serial, or if the user dismissed
+   * the chooser. Programs run without it get the modelled port.
+   */
+  requestSerialPort(): Promise<boolean>
+  /** whether this browser has Web Serial at all (Chromium desktop, HTTPS) */
+  readonly serialSupported: boolean
   /** stop the loop and remove every listener; the container is left empty */
   destroy(): void
 }
@@ -157,6 +168,9 @@ export function pickProgram(paths: string[], run?: string): { path?: string; amb
 export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): Player {
   const table = new TokenTable(CORE_TOKENS)
   const audio = new WebAudioSink()
+  // one per player. Constructing it is free and prompts nothing — it only
+  // collects the ports the user has already granted to this origin.
+  const serialHost = new WebSerialHost()
   const status = opts.onStatus ?? ((): void => {})
   const fail = opts.onError ?? ((): void => {})
 
@@ -327,7 +341,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
         banks: amos?.banks ?? [],
         audio,
         fs: vfs,
-        host: { clock: systemClock(), printerPage: printPage },
+        host: { clock: systemClock(), printerPage: printPage, serial: serialHost },
       })
       if (systemResource) rt.loadSystemResource(systemResource)
       status(`running ${name}`)
@@ -447,6 +461,10 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     },
     focus(): void {
       container.focus()
+    },
+    serialSupported: serialAvailable(),
+    requestSerialPort(): Promise<boolean> {
+      return serialHost.requestAccess()
     },
     destroy(): void {
       alive = false

@@ -25,7 +25,7 @@ import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import type { Screen } from './screen'
 import { ED_RUN_MESSAGES } from './edmessages.gen'
-import type { PrinterPage } from './host'
+import type { PrinterPage, SerialPortHandle, SerialLineParams } from './host'
 
 /**
  * AMOS run-time error N, with the interpreter's own wording.
@@ -134,6 +134,11 @@ export interface SerialChannel {
   rx: number[]
   /** everything written, so a test or a host can see it */
   tx: number[]
+  /**
+   * The host's real port, when one was granted. Null means the modelled
+   * port: Serial Open still succeeded, there is simply nothing on the wire.
+   */
+  port: SerialPortHandle | null
 }
 
 export interface IoPortsState {
@@ -155,6 +160,7 @@ export function newIoPortsState(): IoPortsState {
       params: defaultSerialParams(),
       rx: [],
       tx: [],
+      port: null,
     })),
     printer: newSlot(PRINTER_ERR_BASE, 10),
     parallel: newSlot(PARALLEL_ERR_BASE, 7),
@@ -310,6 +316,40 @@ function dumpRegion(sc: Screen, x0: number, y0: number, w: number, h: number): U
   return out
 }
 
+
+/** The subset of the request a host port cares about. */
+function lineParams(p: SerialParams): SerialLineParams {
+  return {
+    baud: p.baud,
+    dataBits: p.dataBits,
+    stopBits: p.stopBits,
+    parity: p.parity,
+    rtsCts: p.sevenWire,
+    bufLen: p.bufLen,
+  }
+}
+
+/**
+ * Push the current settings at the port, which is what Stpar does
+ * (SDCMD_SETPARAMS). Every parameter keyword ends in it, so this is the one
+ * place the host is told anything changed.
+ */
+function stpar(ch: SerialChannel): void {
+  devDoIO(ch.dev)
+  ch.port?.setParams(lineParams(ch.params))
+}
+
+/**
+ * Drain the host port into the channel's queue.
+ *
+ * SDCMD_QUERY reports how many bytes are waiting, and both Serial Get and
+ * Serial Input$ ask before they read. Doing the drain here means the modelled
+ * and real ports answer that question the same way.
+ */
+function pump(ch: SerialChannel): void {
+  if (ch.port) ch.rx.push(...ch.port.read())
+}
+
 /* ------------------------------------------------------------------ *
  * Keywords
  * ------------------------------------------------------------------ */
@@ -355,6 +395,9 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       p.parity = 'even'
       p.xDisabled = true
     }
+    // ask the host last, so it is handed the settled parameters rather than
+    // the defaults it would then have to be told about again
+    ch.port = rt.host.serial?.open(physic, lineParams(p)) ?? null
   }
 
   return {
@@ -366,11 +409,16 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
      * own QUIT handler calls.
      */
     'serial close'(it) {
+      const shut = (ch: SerialChannel): void => {
+        ch.port?.close()
+        ch.port = null
+        devClose(ch.dev)
+      }
       if (it.atStmtEnd()) {
-        for (const ch of st().serial) devClose(ch.dev)
+        for (const ch of st().serial) shut(ch)
         return
       }
-      devClose(serialChannel(rt, it.evalInt()).dev)
+      shut(serialChannel(rt, it.evalInt()))
     },
 
     /** Serial Send ser,A$ — CMD_WRITE through SendIO, so asynchronous. */
@@ -380,7 +428,9 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       const s = it.evalStr()
       const ch = serialOpenChannel(rt, n)
       if (s.length === 0) throw ioFonc() // Rbeq L_IOFonc on a zero length
-      ch.tx.push(...bytesOf(s))
+      const bytes = bytesOf(s)
+      ch.tx.push(...bytes)
+      ch.port?.write(Uint8Array.from(bytes))
       devSendIO(ch.dev)
     },
 
@@ -395,7 +445,9 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const len = it.evalInt()
       const ch = serialOpenChannel(rt, n)
-      ch.tx.push(...outBlock(rt, addr, len))
+      const block = outBlock(rt, addr, len)
+      ch.tx.push(...block)
+      ch.port?.write(Uint8Array.from(block))
       devSendIO(ch.dev)
     },
 
@@ -406,7 +458,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       const baud = it.evalInt()
       const ch = serialOpenChannel(rt, n)
       ch.params.baud = baud
-      devDoIO(ch.dev)
+      stpar(ch)
     },
 
     /** Serial Bits ser,number,stop — READLEN and WRITELEN are set together. */
@@ -419,7 +471,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       const ch = serialOpenChannel(rt, n)
       ch.params.dataBits = bits & 0xff
       ch.params.stopBits = stop & 0xff
-      devDoIO(ch.dev)
+      stpar(ch)
     },
 
     /**
@@ -435,7 +487,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       const ch = serialOpenChannel(rt, n)
       ch.params.parity =
         p < 0 ? 'none' : p === 0 ? 'even' : p === 1 ? 'odd' : p === 2 ? 'space' : p === 3 ? 'mark' : 'none'
-      devDoIO(ch.dev)
+      stpar(ch)
     },
 
     /**
@@ -453,7 +505,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
         ch.params.xDisabled = false
         ch.params.ctlChar = v
       }
-      devDoIO(ch.dev)
+      stpar(ch)
     },
 
     /** Serial Buf ser,length — IO_RBUFLEN. */
@@ -463,7 +515,7 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       const len = it.evalInt()
       const ch = serialOpenChannel(rt, n)
       ch.params.bufLen = len
-      devDoIO(ch.dev)
+      stpar(ch)
     },
 
     /**
@@ -476,14 +528,14 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
       ch.params.xDisabled = true
       ch.params.dataBits = 8
       ch.params.radBoogie = true
-      devDoIO(ch.dev)
+      stpar(ch)
     },
 
     /** Serial Slow ser — clears RAD_BOOGIE and nothing else. */
     'serial slow'(it) {
       const ch = serialOpenChannel(rt, it.evalInt())
       ch.params.radBoogie = false
-      devDoIO(ch.dev)
+      stpar(ch)
     },
 
     /** Serial Abort ser. */
@@ -685,6 +737,7 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
     'serial get'(_, a): Value {
       const ch = serialOpenChannel(rt, int(a[0]!))
       devDoIO(ch.dev)
+      pump(ch)
       if (ch.rx.length === 0) return VI(-1)
       devDoIO(ch.dev)
       return VI(ch.rx.shift()! & 0xff)
@@ -698,6 +751,7 @@ export function makeIoPortsFunctions(rt: Runtime): Record<string, Func> {
     'serial input$'(_, a): Value {
       const ch = serialOpenChannel(rt, int(a[0]!))
       devDoIO(ch.dev)
+      pump(ch)
       const n = ch.rx.length
       if (n === 0) return VS('')
       if (n >= 65_536) throw ioFonc()

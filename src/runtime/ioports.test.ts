@@ -6,7 +6,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { makeIoPortsFunctions } from './ioports'
 import { VI, VS } from '../interp/values'
-import { fixedClock } from './host'
+import { fixedClock, type SerialHost, type SerialLineParams } from './host'
 
 const table = new TokenTable(CORE_TOKENS)
 // IOPorts is slot 6 (`ExtNb equ 6-1`, +IO_Ports.s:46)
@@ -327,5 +327,120 @@ describe('IOPorts: Printer Dump (InPrinterDump0/4/7, +IO_Ports.s:801/812/861)', 
     })
     rt.runHeadless(100_000)
     expect(seen).toEqual([320, 200])
+  })
+})
+
+describe('IOPorts: a real host port (Host.serial)', () => {
+  /** a stand-in for Web Serial: records writes, replays canned reads */
+  function stubHost(): {
+    host: SerialHost
+    written: number[]
+    incoming: number[]
+    params: SerialLineParams[]
+    closed: number
+    units: number[]
+  } {
+    const written: number[] = []
+    const incoming: number[] = []
+    const params: SerialLineParams[] = []
+    const units: number[] = []
+    const rec = { closed: 0 }
+    const host: SerialHost = {
+      open(unit, p) {
+        units.push(unit)
+        params.push(p)
+        return {
+          write: (b) => written.push(...b),
+          read: () => incoming.splice(0, incoming.length),
+          setParams: (q) => params.push(q),
+          close: () => (rec.closed += 1),
+        }
+      },
+    }
+    return {
+      host,
+      written,
+      incoming,
+      params,
+      units,
+      get closed() {
+        return rec.closed
+      },
+    }
+  }
+
+  function withHost(src: string, s: ReturnType<typeof stubHost>): Runtime {
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      maxSteps: 200_000,
+      host: { clock: fixedClock(), serial: s.host },
+    })
+    rt.runHeadless(100_000)
+    return rt
+  }
+
+  it('Serial Open asks for the physical unit and hands over settled parameters', () => {
+    const s = stubHost()
+    withHost('Serial Open 0,0', s)
+    // unit 0, and the Minitel defaults must already be applied — the host is
+    // asked last, so it is never told 9600 and then corrected
+    expect(s.units).toEqual([0])
+    expect(s.params[0]).toMatchObject({ baud: 1200, dataBits: 7, stopBits: 1, parity: 'even' })
+  })
+
+  it('writes reach the port and reads come back from it', () => {
+    const s = stubHost()
+    const rt = withHost('Serial Open 0,1\nSerial Send 0,"Hi"', s)
+    expect(s.written).toEqual([72, 105])
+    // and what the port has received turns up in Serial Input$
+    s.incoming.push(79, 75)
+    const fns = makeIoPortsFunctions(rt)
+    expect(fns['serial input$']!(rt.interp, [VI(0)])).toEqual(VS('OK'))
+  })
+
+  it('Serial Get takes one byte of what the port delivered', () => {
+    const s = stubHost()
+    const rt = withHost('Serial Open 0,1', s)
+    s.incoming.push(1, 2, 3)
+    const fns = makeIoPortsFunctions(rt)
+    expect(fns['serial get']!(rt.interp, [VI(0)])).toEqual(VI(1))
+    // the rest stay queued — the port was drained in one go, as SDCMD_QUERY
+    // reports everything waiting
+    expect(rt.ioports.serial[0]!.rx).toEqual([2, 3])
+  })
+
+  it('every parameter keyword pushes the settings at the port (Stpar)', () => {
+    const s = stubHost()
+    withHost('Serial Open 0,1\nSerial Speed 0,2400\nSerial Bits 0,7,2\nSerial Fast 0', s)
+    // one from the open, then one per parameter keyword
+    expect(s.params.length).toBe(4)
+    expect(s.params[1]).toMatchObject({ baud: 2400 })
+    expect(s.params[2]).toMatchObject({ dataBits: 7, stopBits: 2 })
+    expect(s.params[3]).toMatchObject({ dataBits: 8, parity: 'none' })
+  })
+
+  it('Serial Close releases the port, and closing all releases each', () => {
+    const s = stubHost()
+    withHost('Serial Open 0,1\nSerial Close 0', s)
+    expect(s.closed).toBe(1)
+
+    const t = stubHost()
+    withHost('Serial Open 0,1\nSerial Open 2,1\nSerial Close', t)
+    expect(t.closed).toBe(2)
+  })
+
+  it('a host with no port granted still opens, on the modelled port', () => {
+    // this is the important one: on a real Amiga serial.device opens with
+    // nothing in the socket, so a refused port must not fail Serial Open
+    const none: SerialHost = { open: () => null }
+    const rt = new Runtime(tokenize('Serial Open 0,1\nSerial Send 0,"x"', table, exts), table, {
+      extensions: exts,
+      maxSteps: 200_000,
+      host: { clock: fixedClock(), serial: none },
+    })
+    expect(() => rt.runHeadless(100_000)).not.toThrow()
+    expect(rt.ioports.serial[0]!.dev.open).toBe(true)
+    expect(rt.ioports.serial[0]!.port).toBe(null)
+    expect(rt.ioports.serial[0]!.tx).toEqual([120]) // still recorded
   })
 })

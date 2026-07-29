@@ -101,6 +101,57 @@ export interface Host {
    * browser can render the page to a canvas and open the print dialog.
    */
   printerPage?: (page: PrinterPage) => void
+  /**
+   * Real serial ports, when the host has any (Web Serial in the browser).
+   *
+   * Optional at two levels, and that is deliberate. A host may have no
+   * serial support at all, and a host that does may have no port granted
+   * yet — `open` returns null for the second case. Neither makes `Serial
+   * Open` fail, because on a real Amiga serial.device opens whether or not
+   * a cable is plugged in; without a port the modelled one stands in and
+   * the program sees a connection with nothing on the other end.
+   */
+  serial?: SerialHost
+}
+
+/** A serial port the host has opened on the program's behalf. */
+export interface SerialPortHandle {
+  /**
+   * Queue bytes for transmission. Deliberately not a promise: AMOS's Serial
+   * Send goes through Dev.SendIO and returns before the transfer completes,
+   * so fire-and-forget is the faithful shape rather than a convenience.
+   */
+  write(bytes: Uint8Array): void
+  /** Take everything that has arrived since the last call. */
+  read(): number[]
+  /** SDCMD_SETPARAMS — Serial Speed/Bits/Parity/X/Buf/Fast/Slow all land here. */
+  setParams(params: SerialLineParams): void
+  close(): void
+}
+
+/**
+ * The line settings, in the vocabulary both sides share. AMOS pokes these
+ * into an IOExtSer request; Web Serial takes them as `port.open()` options.
+ */
+export interface SerialLineParams {
+  baud: number
+  dataBits: number
+  stopBits: number
+  parity: 'none' | 'even' | 'odd' | 'space' | 'mark'
+  /** SERB_7WIRE — RTS/CTS handshaking */
+  rtsCts: boolean
+  /** IO_RBUFLEN */
+  bufLen: number
+}
+
+export interface SerialHost {
+  /**
+   * Open the unit'th port the user has already granted, or null if there is
+   * none. Must not prompt: a program calling Serial Open has no user gesture
+   * behind it, and Web Serial's requestPort() requires one. Granting is the
+   * host UI's job, and getPorts() afterwards needs no gesture.
+   */
+  open(unit: number, params: SerialLineParams): SerialPortHandle | null
 }
 
 /**

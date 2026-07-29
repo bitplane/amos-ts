@@ -1386,6 +1386,10 @@ export const NOTES: Record<string, string> = {
   // --- IOPorts: implemented, but reporting a port with nothing on it ---
   'serial error':
     "Returns 0. The real call reads io_Error from the request and maps it through the device's error table (base 145, 16 messages, from the Dev.Open call). With no hardware behind the port there is no transfer to fail, so no error is ever raised and the keyword can only report success. The mapping itself is modelled -- ioError() resolves those exact messages -- it just has nothing to map",
+  'serial x':
+    "The XON/XOFF characters are stored in IO_CTLCHAR and the enable flag is honoured, but Web Serial has no software flow control at all — it offers 'none' or 'hardware' only. So on a real port the setting is recorded and not applied, and a program relying on XON/XOFF to pace a slow device will not get it. SERB_7WIRE does map, to flowControl 'hardware'",
+  'serial parity':
+    "The five AMOS settings are all recorded, but Web Serial takes none/even/odd only. Space and mark (SEXTB_MSPON / SEXTB_MARK) degrade to no parity on a real port rather than refusing to open — the alternative is a program that works on the Amiga and dies here over a setting almost nothing uses. On the modelled port all five are kept exactly",
   'serial status':
     'Returns 0. Reads the modem control lines (CD, CTS, DSR, RI, DTR, RTS) from the serial request. Nothing is connected, so every line reads low. A real port with a real cable would report the handshake state and a program watching for carrier would see it here',
   'serial base':
