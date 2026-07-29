@@ -107,6 +107,8 @@ export interface PersonnalState {
   currentPal: number
   /** _AgaPalette — the 256-entry shadow Set Color(n) reads back from */
   agaPalette: number[]
+  /** _ColorBase2 — the LOCT block Set Aga Color puts low nibbles in */
+  colorBase2: number
 }
 
 /**
@@ -141,6 +143,7 @@ export function newPersonnalState(): PersonnalState {
     doubleCopper: 0,
     currentPal: 0,
     agaPalette: new Array(256).fill(0),
+    colorBase2: 0,
   }
 }
 
@@ -314,6 +317,24 @@ function appendWait(rt: Runtime, s: PersonnalState, line: number, hb: number): v
     putL(rt, p + 8, 0x00960100)
     putL(rt, p + 12, 0xf301fffe)
     putL(rt, p + 16, 0xfffffffe)
+  }
+}
+
+/** Shared by the two palette-to-copper keywords (_bi1 :2936, _bj1 :2980). */
+function cmapToCopper(rt: Runtime, n: number, src: number, eightBit: boolean): void {
+  const s = rt.personnal
+  if (s.colorBase === 0) err(1)
+  let a = s.colorBase
+  let p = src
+  for (let i = 0; i < n; i++) {
+    if (getW(rt, a) === 0x0106) a += 4
+    const shift = eightBit ? 4 : 0
+    const r = getB(rt, p) >> shift
+    const g = getB(rt, p + 1) >> shift
+    const b = getB(rt, p + 2) >> shift
+    p += 3
+    putW(rt, a + 2, ((r << 8) + (g << 4) + b) & 0xffff)
+    a += 4
   }
 }
 
@@ -908,6 +929,86 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
 
+    /**
+     * Set Aga Color reg,r,g,b (L80, :3124). AGA's 24-bit colour is two
+     * writes to the same register: the high nibble of each channel in the
+     * ordinary block, the low nibble in a second one selected by BPLCON3's
+     * LOCT bit. The routine computes both — d7 is (r>>4,g>>4,b>>4) and d4 the
+     * remainders — and stores them at the same offset into _ColorBase and
+     * _ColorBase2.
+     *
+     * Two things it does NOT share with Set Color. Its register is 1-based:
+     * `Set Aga Color 1` writes the entry `Set Color 0` writes. And its loop
+     * decrements before testing for zero (_80a, :3156), so a register of 0
+     * counts down past it and never terminates — we stop instead of hanging,
+     * which is the one place here that cannot be faithful.
+     *
+     * The low-nibble half is written but not displayed: the interpreter reads
+     * COLOR moves as 12-bit and does not honour LOCT, so the visible result
+     * is the high nibbles alone. NOTES entry at closeout.
+     */
+    'set aga color'(it) {
+      const reg = it.evalInt()
+      it.expect(',')
+      const r = it.evalInt()
+      it.expect(',')
+      const g = it.evalInt()
+      it.expect(',')
+      const b = it.evalInt()
+      const s = rt.personnal
+      if (s.colorBase === 0) err(1)
+      if (reg < 1) return // the source would spin; see above
+      const hi = (((r >> 4) & 15) << 8) | (((g >> 4) & 15) << 4) | ((b >> 4) & 15)
+      const lo = ((r & 15) << 8) | ((g & 15) << 4) | (b & 15)
+      let a = s.colorBase
+      for (let n = reg; ; ) {
+        if (getW(rt, a) === 0x0106) a += 4
+        a += 2
+        if (--n === 0) break
+        a += 2
+      }
+      putW(rt, a, hi)
+      if (s.colorBase2 !== 0) putW(rt, s.colorBase2 + (a - s.colorBase), lo)
+    },
+
+    /**
+     * Change Palette n,addr (L72, :2916). Copies n ready-made RGB4 words
+     * straight into the colour block, stepping over bank selects as the
+     * colour keywords do.
+     */
+    'change palette'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      let src = it.evalInt()
+      const s = rt.personnal
+      if (s.colorBase === 0) err(1)
+      let a = s.colorBase
+      for (let i = 0; i < n; i++) {
+        if (getW(rt, a) === 0x0106) a += 4
+        putW(rt, a + 2, getW(rt, src))
+        src += 2
+        a += 4
+      }
+    },
+
+    /**
+     * Iff8bits / Iff4bits Palette To Copper n,addr (L73/L75, :2932/:2973).
+     * The same loop over an IFF CMAP, differing only in what a byte means:
+     * an 8-bit CMAP is shifted down four bits a channel, a 4-bit one is used
+     * as it stands. Neither masks, so a 4-bit CMAP holding a byte above 15
+     * bleeds into the next channel, as it does on the Amiga.
+     */
+    'iff8bits palette to copper'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      cmapToCopper(rt, n, it.evalInt(), true)
+    },
+    'iff4bits palette to copper'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      cmapToCopper(rt, n, it.evalInt(), false)
+    },
+
     /** Set Ntsc (L3, :524) — BEAMCON0 $DFF1DC = 0 */
     'set ntsc'() {
       rt.beamcon0 = 0x0000
@@ -961,6 +1062,23 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
       if (n < 0 || n > 255) return VI(-1)
       if (s.aga === 0 && n > 31) return VI(-1)
       return VI(s.agaPalette[n] ?? 0)
+    },
+
+    /**
+     * Cmap Base(addr) (L71, :2897). Scans forward for the "CMAP" tag in
+     * TWO-byte steps, up to 16384 of them, and answers the address just past
+     * the tag — which is the chunk's length field, not its data. Callers add
+     * the 4 themselves. ErrMess 6 when there is no CMAP.
+     */
+    'cmap base'(_, a): Value {
+      let p = int(a[0]!)
+      for (let i = 0; i < 16384; i++) {
+        const hi = getW(rt, p)
+        const lo = getW(rt, p + 2)
+        if (hi === 0x434d && lo === 0x4150) return VI(p + 4) // "CMAP"
+        p += 2
+      }
+      return err(6)
     },
 
     /** Copper Base (L14, :744) and Copper Line (L20, :866) — plain readers */

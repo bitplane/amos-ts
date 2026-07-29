@@ -718,3 +718,71 @@ describe('Personnal: colour (L12/L18/L13/L22)', () => {
     expect(getWord(rt, rt.personnal.currentLine - 2)).toBe(0x333)
   })
 })
+
+describe('Personnal: the AGA and CMAP half of colour (L71/L72/L73/L75/L80)', () => {
+  const bank = ['Reserve As Work 10,24000', 'A=Start(10)']
+
+  it('Set Aga Color splits a 24-bit colour into the LOCT pair, 1-based', () => {
+    // d7 keeps the high nibbles, d4 the remainders (:3132). Register 1 writes
+    // the entry Set Color 0 writes — the two keywords disagree by one.
+    const rt = run([...bank, 'Create Standard A', 'Set Aga Color 1,$FF,$8C,$03'].join('\n'))
+    const s = rt.personnal
+    expect(getWord(rt, s.colorBase + 2)).toBe(0xf80) // high nibbles
+    // the low half has nowhere to go until a second block exists
+    expect(s.colorBase2).toBe(0)
+  })
+
+  it('register 0 stops instead of spinning, which the source would', () => {
+    // _80a decrements before testing for zero, so 0 counts down past it
+    const rt = run([...bank, 'Create Standard A', 'Set Aga Color 0,$FF,$FF,$FF'].join('\n'))
+    expect(getWord(rt, rt.personnal.colorBase + 2)).toBe(0)
+  })
+
+  it('Change Palette copies ready-made RGB4 words in, past bank selects', () => {
+    const rt = run(
+      [
+        ...bank,
+        'Reserve As Work 11,64 : B=Start(11)',
+        'Doke B,$F00 : Doke B+2,$0F0 : Doke B+4,$00F',
+        'Create Aga A',
+        'Change Palette 3,B',
+      ].join('\n'),
+    )
+    const s = rt.personnal
+    expect(leek(rt, s.colorBase)).toBe(0x01060000) // the bank select is still there
+    expect(getWord(rt, s.colorBase + 6)).toBe(0xf00) // and the colours went after it
+    expect(getWord(rt, s.colorBase + 10)).toBe(0x0f0)
+    expect(getWord(rt, s.colorBase + 14)).toBe(0x00f)
+  })
+
+  it('an 8-bit CMAP is shifted down four bits a channel, a 4-bit one is not', () => {
+    const src = [
+      ...bank,
+      'Reserve As Work 11,64 : B=Start(11)',
+      'Poke B,$FF : Poke B+1,$80 : Poke B+2,$11',
+      'Create Standard A',
+    ]
+    const eight = run([...src, 'Iff8bits Palette To Copper 1,B'].join('\n'))
+    expect(getWord(eight, eight.personnal.colorBase + 2)).toBe(0xf81)
+    const four = run([...src, 'Poke B,$0F : Poke B+1,$08 : Poke B+2,$01', 'Iff4bits Palette To Copper 1,B'].join('\n'))
+    expect(getWord(four, four.personnal.colorBase + 2)).toBe(0xf81)
+  })
+
+  it('Cmap Base finds the chunk and answers just past the tag', () => {
+    let out = ''
+    const src = [
+      'Reserve As Work 11,64 : B=Start(11)',
+      'Loke B,$464F524D : Loke B+4,$434D4150', // "FORM" then "CMAP"
+      'Print Cmap Base(B)-B',
+    ].join('\n')
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, onText: (t) => (out += t) })
+    rt.runHeadless(200)
+    expect(out).toBe(' 8\n') // the tag is at +4, so the length field is at +8
+  })
+
+  it('no CMAP anywhere is ErrMess 6', () => {
+    expect(() => run(['Reserve As Work 11,64 : B=Start(11)', 'C=Cmap Base(B)'].join('\n'))).toThrow(
+      /CMAP non trouve/,
+    )
+  })
+})
