@@ -39,9 +39,12 @@ try {
 let files = 0
 let ran = 0
 let cleanEnd = 0
+let ranClean = 0
 const statuses = new Map<string, number>()
 const errors = new Map<string, number>()
 const unimpl = new Map<string, number>()
+/** how many PROGRAMS each keyword blocks, as against how often it is reached */
+const byProgram = new Map<string, number>()
 
 for (const file of walkFiles(root)) {
   const path = hostPath(file)
@@ -68,20 +71,41 @@ for (const file of walkFiles(root)) {
     const status = result.status === 'paused' ? 'frameCap' : result.status
     statuses.set(status, (statuses.get(status) ?? 0) + 1)
     if (result.status === 'ended' && result.unimplemented.size === 0) cleanEnd++
-    for (const [name, n] of result.unimplemented) unimpl.set(name, (unimpl.get(name) ?? 0) + n)
+    // the figure that actually measures coverage: of the programs that ran to
+    // a stop, how many never hit an unimplemented keyword. "ended with nothing
+    // skipped" counts only programs that TERMINATE, and most AMOS programs are
+    // games and demos that never do.
+    if (result.unimplemented.size === 0) ranClean++
+    for (const [name, n] of result.unimplemented) {
+      unimpl.set(name, (unimpl.get(name) ?? 0) + n)
+      byProgram.set(name, (byProgram.get(name) ?? 0) + 1)
+    }
   } catch (e) {
     const msg = (e instanceof Error ? e.message : String(e)).split(' — at line')[0]!
     errors.set(msg, (errors.get(msg) ?? 0) + 1)
   }
 }
 
+const pct = ran === 0 ? 0 : Math.round((ranClean / ran) * 100)
 console.log(`programs: ${files}, ran to a stop: ${ran}, ended with nothing skipped: ${cleanEnd}`)
+console.log(`ran to a stop with nothing skipped: ${ranClean} of ${ran} — ${pct}%`)
 console.log('statuses:', Object.fromEntries(statuses))
 console.log('\ntop runtime errors:')
 for (const [msg, n] of [...errors].sort((a, b) => b[1] - a[1]).slice(0, args.includes("--all") ? 10000 : 25)) {
   console.log(`  ${String(n).padStart(4)}  ${msg}`)
 }
-console.log('\ntop skipped instructions (total occurrences):')
-for (const [name, n] of [...unimpl].sort((a, b) => b[1] - a[1]).slice(0, args.includes("--all") ? 10000 : 40)) {
-  console.log(`  ${String(n).padStart(8)}  ${name}`)
+const limit = args.includes('--all') ? 10000 : 40
+if (args.includes('--by-program')) {
+  // ranked by how many programs a keyword blocks rather than how often it is
+  // reached — a keyword inside a tight loop counts thousands of times and
+  // still only blocks one program
+  console.log('\ntop skipped instructions (programs blocked, then occurrences):')
+  for (const [name, p] of [...byProgram].sort((a, b) => b[1] - a[1] || (unimpl.get(b[0]) ?? 0) - (unimpl.get(a[0]) ?? 0)).slice(0, limit)) {
+    console.log(`  ${String(p).padStart(4)} prog  ${String(unimpl.get(name) ?? 0).padStart(8)} hits  ${name}`)
+  }
+} else {
+  console.log('\ntop skipped instructions (total occurrences):')
+  for (const [name, n] of [...unimpl].sort((a, b) => b[1] - a[1]).slice(0, limit)) {
+    console.log(`  ${String(n).padStart(8)}  ${name}`)
+  }
 }

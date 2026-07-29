@@ -3,7 +3,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { allExtensions } from '../ext/registry'
 import { INSTR, FUNCS, RAWFUNCS } from '../interp/builtins'
-import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from '../runtime/instr'
+import { makeAllInstructions, makeAllFunctions, makeRawFunctions, keywordLayerCollisions } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/tokenizer'
 import { FAITHFUL, NA, STRUCTURAL } from '../coverage/status'
@@ -33,6 +33,21 @@ for (const ext of allExtensions()) {
     if (n !== '') known.add(n)
   }
 }
+
+describe('dispatch layers', () => {
+  it('no two layers claim the same keyword name', () => {
+    // The dispatch tables are keyed by NAME, where the machine keys core
+    // keywords by token and extension keywords by (slot, id). Two layers
+    // claiming one name is therefore a port-only hazard, and a silent one:
+    // when Personnal's Sprite Col was added in a80e5bb it replaced core's,
+    // broke two sprite tests and cost the census two programs, with no error
+    // raised anywhere. mergeLayers resolves first-wins so core cannot be
+    // clobbered, but a collision means two different keywords are sharing
+    // one implementation and one of them is wrong. Fix it by not registering
+    // the loser and recording why, as sprite col and right click are.
+    expect(keywordLayerCollisions(rt)).toEqual([])
+  })
+})
 
 describe('coverage manifest consistency', () => {
   it('every registered handler matches a real keyword (no dead handlers)', () => {

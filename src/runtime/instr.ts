@@ -4805,10 +4805,65 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
  * plugged in. Both the Runtime and the coverage manifest build from here, so
  * a new extension file cannot be implemented-but-unreported.
  */
+/**
+ * The dispatch layers, innermost first.
+ *
+ * On a real machine this list could not collide: core keywords are core
+ * tokens and extension keywords are (slot, id) pairs, so `Sprite Col` from
+ * core and `Sprite Col` from ext13 are different tokens that coexist. Here
+ * both collapse onto a string, and a spread would let the later one silently
+ * replace the earlier — which is exactly what adding Personnal's Sprite Col
+ * did in a80e5bb: two unrelated sprite tests broke and the census lost two
+ * programs, with no error anywhere.
+ *
+ * So the merge is FIRST-wins, not last: core keeps its name, and between
+ * extensions the earlier-listed one keeps it. `keywordLayerCollisions` below
+ * reports anything that had to be resolved that way, and a test asserts the
+ * list is empty — a collision should be a red build, not a resolution rule
+ * quietly doing its job.
+ */
+const INSTR_LAYERS: Array<[string, (rt: Runtime) => Record<string, Instr>]> = [
+  ['core', makeInstructions],
+  ['ldos-2.5', makeLdosInstructions],
+  ['turbo-plus', makeTurboInstructions],
+  ['amos3d', makeTdInstructions],
+  ['personnal', makePersonnalInstructions],
+]
+
+const FUNC_LAYERS: Array<[string, (rt: Runtime) => Record<string, Func>]> = [
+  ['core', makeFunctions],
+  ['ldos-2.5', makeLdosFunctions],
+  ['turbo-plus', makeTurboFunctions],
+  ['amos3d', makeTdFunctions],
+  ['personnal', makePersonnalFunctions],
+]
+
+function mergeLayers<T>(rt: Runtime, layers: Array<[string, (rt: Runtime) => Record<string, T>]>): Record<string, T> {
+  const out: Record<string, T> = {}
+  for (const [, make] of layers) for (const [k, v] of Object.entries(make(rt))) if (!(k in out)) out[k] = v
+  return out
+}
+
+/** Every name claimed by more than one layer, with the layers that claim it. */
+export function keywordLayerCollisions(rt: Runtime): Array<{ table: string; name: string; layers: string[] }> {
+  const found: Array<{ table: string; name: string; layers: string[] }> = []
+  for (const [table, layers] of [
+    ['instructions', INSTR_LAYERS],
+    ['functions', FUNC_LAYERS],
+  ] as Array<[string, Array<[string, (rt: Runtime) => Record<string, unknown>]>]>) {
+    const owner = new Map<string, string[]>()
+    for (const [name, make] of layers) {
+      for (const k of Object.keys(make(rt))) owner.set(k, [...(owner.get(k) ?? []), name])
+    }
+    for (const [name, ls] of owner) if (ls.length > 1) found.push({ table, name, layers: ls })
+  }
+  return found
+}
+
 export function makeAllInstructions(rt: Runtime): Record<string, Instr> {
-  return { ...makeInstructions(rt), ...makeLdosInstructions(rt), ...makeTurboInstructions(rt), ...makeTdInstructions(rt), ...makePersonnalInstructions(rt) }
+  return mergeLayers(rt, INSTR_LAYERS)
 }
 
 export function makeAllFunctions(rt: Runtime): Record<string, Func> {
-  return { ...makeFunctions(rt), ...makeLdosFunctions(rt), ...makeTurboFunctions(rt), ...makeTdFunctions(rt), ...makePersonnalFunctions(rt) }
+  return mergeLayers(rt, FUNC_LAYERS)
 }
