@@ -36,6 +36,12 @@ function leek(rt: Runtime, addr: number): number {
   return (((m.data[m.off]! << 24) | (m.data[m.off + 1]! << 16) | (m.data[m.off + 2]! << 8) | m.data[m.off + 3]!) >>> 0)
 }
 
+/** big-endian word the program can see */
+function getWord(rt: Runtime, addr: number): number {
+  const m = rt.resolveAddr(addr)!
+  return ((m.data[m.off]! << 8) | m.data[m.off + 1]!) & 0xffff
+}
+
 /** 24 KB of work bank, then the list built into it */
 const withBank = (body: string[]): string => ['Reserve As Work 10,24000', 'A=Start(10)', ...body].join('\n')
 
@@ -643,5 +649,72 @@ describe('Personnal: the copper list keywords (L14/L15/L19/L20/L31/L37/L74)', ()
     )
     rt.composite()
     expect((rt as unknown as { copRegs: { bpu: number } }).copRegs.bpu).toBe(4)
+  })
+})
+
+describe('Personnal: colour (L12/L18/L13/L22)', () => {
+  const bank = ['Reserve As Work 10,24000', 'A=Start(10)']
+
+  it('Set Color writes RGB4 into the block, indexing past bank selects', () => {
+    // on a Standard list the entries are contiguous
+    const std = run([...bank, 'Create Standard A', 'Set Color 3,15,8,1'].join('\n'))
+    expect(leek(std, std.personnal.colorBase + 3 * 4) & 0xffff).toBe(0xf81)
+    // on an Aga list a BPLCON3 select sits before each bank of 32, and the
+    // walk steps over it (_sc2, :690) so register 32 is the first of bank 1
+    const aga = run([...bank, 'Create Aga A', 'Set Color 32,1,2,3'].join('\n'))
+    const b1 = aga.personnal.colorBase + 33 * 4 // bank 0's select + its 32
+    expect(leek(aga, b1)).toBe(0x01062000) // the select itself
+    expect(leek(aga, b1 + 4) & 0xffff).toBe(0x123)
+  })
+
+  it('Set Color() reads the shadow, which Set Color does not fill', () => {
+    // L18 (:810) reads _AgaPalette; L12 writes only the list. So a colour set
+    // through Set Color reads back as 0, and a bad register as -1. The
+    // library's own asymmetry, kept.
+    let out = ''
+    const src = [...bank, 'Create Standard A', 'Set Color 3,15,8,1', 'Print Set Color(3);Set Color(99)'].join('\n')
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, onText: (t) => (out += t) })
+    rt.runHeadless(200)
+    expect(out).toBe(' 0-1\n') // 0 from the empty shadow, -1 for 99 on a non-Aga list
+  })
+
+  it('New Color Value appends a COLOR move at the current line', () => {
+    const rt = run([...bank, 'Create Standard A', 'Copper Wait Line $60', 'New Color Value 1,15,0,0'].join('\n'))
+    const s = rt.personnal
+    const at = s.currentLine - 4
+    expect(getWord(rt, at)).toBe(0x0182) // COLOR01
+    expect(getWord(rt, at + 2)).toBe(0xf00)
+  })
+
+  it('a colour in another bank emits a BPLCON3 select first, once', () => {
+    const rt = run(
+      [...bank, 'Create Aga A', 'Copper Wait Line $60', 'New Color Value 33,1,1,1', 'New Color Value 34,2,2,2'].join('\n'),
+    )
+    const s = rt.personnal
+    // bank 1 selected once, then both colours; register 33 is COLOR01 of it
+    expect(leek(rt, s.currentLine - 12)).toBe(0x01062000)
+    expect(getWord(rt, s.currentLine - 8)).toBe(0x0182)
+    expect(getWord(rt, s.currentLine - 4)).toBe(0x0184) // no second select
+  })
+
+  it('a register outside 0..255 is ErrMess 2, not a silent miss', () => {
+    expect(() => run([...bank, 'Create Standard A', 'New Color Value 300,0,0,0'].join('\n'))).toThrow(
+      /Registre de couleur invalide/,
+    )
+  })
+
+  it('X Fade takes one step off every colour in the whole list', () => {
+    const rt = run([...bank, 'Create Standard A', 'Set Color 1,15,8,0', 'X Fade'].join('\n'))
+    // each non-zero nibble drops by one; the zero one stays put
+    expect(leek(rt, rt.personnal.colorBase + 4) & 0xffff).toBe(0xe70)
+    const twice = run([...bank, 'Create Standard A', 'Set Color 1,15,8,0', 'X Fade', 'X Fade'].join('\n'))
+    expect(leek(twice, twice.personnal.colorBase + 4) & 0xffff).toBe(0xd60)
+  })
+
+  it('X Fade reaches the colours New Color Value appended too', () => {
+    const rt = run(
+      [...bank, 'Create Standard A', 'Copper Wait Line $60', 'New Color Value 1,4,4,4', 'X Fade'].join('\n'),
+    )
+    expect(getWord(rt, rt.personnal.currentLine - 2)).toBe(0x333)
   })
 })

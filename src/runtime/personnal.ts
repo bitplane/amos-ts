@@ -103,6 +103,10 @@ export interface PersonnalState {
   mpBase: number
   /** _DoubleCopper — non-zero while a second list is being assembled */
   doubleCopper: number
+  /** _CurrentPal — the AGA colour bank the appended moves are in */
+  currentPal: number
+  /** _AgaPalette — the 256-entry shadow Set Color(n) reads back from */
+  agaPalette: number[]
 }
 
 /**
@@ -135,6 +139,8 @@ export function newPersonnalState(): PersonnalState {
     origin: [0, 0],
     mpBase: 0,
     doubleCopper: 0,
+    currentPal: 0,
+    agaPalette: new Array(256).fill(0),
   }
 }
 
@@ -803,6 +809,105 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       it.block({ type: 'wait', until: Math.floor(it.tick) + 1 })
     },
 
+    /**
+     * Set Color reg,r,g,b (L12, :671). Writes one entry of the colour block
+     * the builder laid down, packed as 12-bit RGB4.
+     *
+     * Finding entry `reg` is a walk rather than an index, because an Aga list
+     * has a BPLCON3 bank select every 33rd longword: the loop steps over any
+     * entry whose register word is $0106 before counting (_sc2, :690). One
+     * routine therefore addresses both list shapes.
+     */
+    'set color'(it) {
+      const reg = it.evalInt()
+      it.expect(',')
+      const r = it.evalInt()
+      it.expect(',')
+      const g = it.evalInt()
+      it.expect(',')
+      const b = it.evalInt()
+      const s = rt.personnal
+      if (s.colorBase === 0) err(1)
+      const rgb = ((r << 8) | (g << 4) | b) & 0xffff
+      let a = s.colorBase
+      for (let seen = 0; seen <= reg; seen++) {
+        if (getW(rt, a) === 0x0106) a += 4 // step over a bank select
+        if (seen === reg) break
+        a += 4
+      }
+      putW(rt, a + 2, rgb)
+    },
+
+    /**
+     * New Color Value reg,r,g,b (L22, :906). A colour change at the line the
+     * list has reached — the rainbow primitive. Appends over the tail, as the
+     * line keywords do.
+     *
+     * reg is 0..255 across eight banks of 32. When the bank differs from the
+     * last one used, a BPLCON3 select goes in first and _CurrentPal
+     * remembers it, so a run of colours in one bank costs one select rather
+     * than one each.
+     */
+    'new color value'(it) {
+      const reg = it.evalInt()
+      it.expect(',')
+      const r = it.evalInt()
+      it.expect(',')
+      const g = it.evalInt()
+      it.expect(',')
+      const b = it.evalInt()
+      const s = rt.personnal
+      if (s.doubleCopper !== 0) return
+      if (s.copperBase === 0) err(1)
+      if (reg < 0 || reg > 255) err(2)
+      const rgb = ((r << 8) | (g << 4) | b) & 0xffff
+      const bank = reg >> 5
+      let p = s.currentLine
+      if (bank !== s.currentPal) {
+        s.currentPal = bank
+        putL(rt, p, (0x01060000 + bank * 0x2000) >>> 0)
+        p += 4
+      }
+      putW(rt, p, 0x0180 + (reg - (bank << 5)) * 2)
+      putW(rt, p + 2, rgb)
+      p += 4
+      s.currentLine = p
+      putL(rt, p, 0xf201fffe)
+      putL(rt, p + 4, 0x01000000)
+      putL(rt, p + 8, 0x00960100)
+      putL(rt, p + 12, 0xf301fffe)
+      putL(rt, p + 16, 0xfffffffe)
+    },
+
+    /**
+     * X Fade (L13, :701). One step of a fade to black over the WHOLE list:
+     * every COLOR00..COLOR31 move in it loses one from each non-zero RGB
+     * nibble. Programs call it in a loop with a Wait between — the Rainbows
+     * demo runs `For I=1 To 16 : X Fade : Wait 4 : Next`.
+     *
+     * It walks to the $FFFFFFFE terminator, so it fades the per-line colours
+     * New Color Value appended as readily as the block ones.
+     */
+    'x fade'() {
+      const s = rt.personnal
+      if (s.copperBase === 0) err(1)
+      let a = s.copperBase
+      for (let guard = 0; guard < 0x4000; guard++) {
+        const reg = getW(rt, a)
+        const val = getW(rt, a + 2)
+        if (reg >= 0x0180 && reg <= 0x01be) {
+          let red = val & 0xf00
+          let green = val & 0x0f0
+          const blue = val & 0x00f
+          if (red !== 0) red -= 0x100
+          if (green !== 0) green -= 0x10
+          putW(rt, a + 2, red + green + (blue !== 0 ? blue - 1 : 0))
+        }
+        a += 4
+        if (((getW(rt, a) << 16) | getW(rt, a + 2)) >>> 0 === 0xfffffffe) break
+      }
+    },
+
     /** Set Ntsc (L3, :524) — BEAMCON0 $DFF1DC = 0 */
     'set ntsc'() {
       rt.beamcon0 = 0x0000
@@ -838,6 +943,24 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     },
     'screen y size'(): Value {
       return VI(Math.max(rt.personnal.xy[1], 192))
+    },
+
+    /**
+     * Set Color(n) (L18, :810). Reads the _AgaPalette shadow, not the list,
+     * and answers -1 for a register out of range — 0..255 on an Aga list,
+     * 0..31 otherwise.
+     *
+     * Note the asymmetry: the shadow is filled by the AGA colour keywords in
+     * this batch's second half, NOT by `Set Color reg,r,g,b`, which writes
+     * only the copper list. Reading back a colour set that way answers 0.
+     * That is the library's behaviour, not an omission here.
+     */
+    'set color'(_, a): Value {
+      const n = int(a[0]!)
+      const s = rt.personnal
+      if (n < 0 || n > 255) return VI(-1)
+      if (s.aga === 0 && n > 31) return VI(-1)
+      return VI(s.agaPalette[n] ?? 0)
     },
 
     /** Copper Base (L14, :744) and Copper Line (L20, :866) — plain readers */
