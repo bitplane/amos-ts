@@ -335,6 +335,14 @@ describe.skipIf(!existsSync(extFixtures))('the whole corpus identifies without a
       4: 'amos3d-1.0',
       5: 'amospro-compiler-2.0',
       6: 'amospro-ioports-2.0',
+      // Personnal's own two release archives, added with its fixtures: 69 demo
+      // programs, 68 of which drive slot 13 — where the source puts it
+      // (ExtNb Equ 13-1). 61 distinct ids, all inside the 1.1a table, so the
+      // later version wins outright rather than on a tiebreak.
+      13: 'personnal-1.1',
+      // and 32 of those same demos also use TURBO Plus, at the slot a stock
+      // AMOS Pro install gives it
+      12: 'turbo-plus-1.9',
       14: 'intuition-1.3b',
       // OS-DevKit's own documentation ships an example program, which came in
       // with the extension. Every id it uses lands in OS-DevKit's table, which

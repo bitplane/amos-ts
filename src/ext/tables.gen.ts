@@ -6119,34 +6119,42 @@ export const EXT_INFO: ExtensionInfo[] = [
     "id": "personal-1.0b",
     "name": "Personnal Extension",
     "version": "1.0b",
-    "author": "unknown",
+    "author": "Frederic Cordler (FireWorks)",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "source",
     "idBaseEvidence": "assumed",
-    "observedSlots": [],
+    "observedSlots": [
+      13
+    ],
     "titleStrings": [
       "Amos1.3/AmosPro Personnal Extension V1.0b",
-      "Amos 1.3 ET Amos Professionnal Personnal library"
+      "Amos 1.3 ET Amos Professionnal Personnal library",
+      "Version SHAREWARE de demonstration : 1.0b"
     ],
     "sha256": "c6b749b4d43cd4cca11dd7c386d29e572f4db716f3f45d18765ab6678d6ef81d",
     "provenance": "AMOS-Professional-Official/extensions/Personal-1.1a Distributed in a folder named 'Personal-1.1a' but the binary identifies itself as V1.0b and its own banner calls it the SHAREWARE demonstration version. The binary's self-report is taken as authoritative. Builds for both AMOS 1.3 and AMOS Professional.",
-    "notes": "Full assembler source ships alongside the binary, so behaviour can be read directly rather than inferred — one of three third-party extensions here with source-grade evidence, alongside Intuition and Misc. No corpus program uses it, so the legacy id base is assumed rather than calibrated."
+    "notes": "Full assembler source ships alongside the binary (AMOSPro_Personnal.Lib.s, 4534 lines), so behaviour can be read directly rather than inferred — one of three third-party extensions here with source-grade evidence, alongside Intuition and Misc. 111 entries, 110 named, 108 distinct names; `set color` and `copper base` each appear twice as arity variants. The source is NOT the binary beside it: its C_TITLE reads \"Amos1.3/AmosPro Personnal Extension V1.1\" / \"Version Enregistree COMPILABLE\" and its DLea/Dload macros are the ones commented \"COMPILABLES pour la version COMPLETE 1.1\", with the demo's deliberately broken variants commented out. It carries the same 111-entry table, none of the 18 keywords 1.1a adds, so it is the registered compilable build of this keyword set rather than a later one — which is why the file says 1.1 and the table says 1.0b. The banner credits FireWorks 1995; personnal-1.1's guide names Frederic Cordler. No program in the official corpus uses it, so the legacy id base is assumed rather than calibrated, but 68 programs in the wider collection sit at slot 13, which the source confirms as its home (ExtNb Equ 13-1). The registry id spells it \"personal\" where the extension spells itself \"Personnal\"; kept as-is because it keys the fixtures directory."
   },
   {
     "id": "personnal-1.1",
     "name": "Personnal",
-    "version": "1.1",
-    "author": "Frederic Cordler",
+    "version": "1.1a",
+    "author": "Frederic Cordler (FireWorks)",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
-    "observedSlots": [],
-    "titleStrings": [],
+    "observedSlots": [
+      13
+    ],
+    "titleStrings": [
+      "Amos1.3 & AmosPro Personnal Extension V1.1a",
+      "Version EXTRA-LINKS / 14 juillet 1996"
+    ],
     "sha256": "3deff9c32bc9acdb44ed987da851a5a32b0d51fae3153d4f531284dc6d3a8f63",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AmosPersonnal1.11. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Later than the 1.0b already registered (128 keywords against 110). An English guide documents 105 of them. The archive also holds Personnal-EXTRA.Lib, a two-keyword version-reporting stub with its own source, not registered separately. Not listed in Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
+    "notes": "Registered as 1.1 until the binary was read: it titles itself \"V1.1a\", \"Version EXTRA-LINKS / 14 juillet 1996\". 130 entries, 128 named, 126 distinct names — a strict superset of 1.0b's 111/110/108, adding 18: blitter clear, pic pack, pic unpack, anim unpack, fpeek, speek, word switch, mplot start plane, set deform value, full view, the four P61 replayer keywords and the four OctaMED ones. An English guide documents 105 of them. Note that the assembler source shipped with 1.0b titles itself V1.1 while carrying only the 111-entry table, so \"1.1\" in this family means the registered compilable edition of the 1.0b keyword set, not this one — see personal-1.0b. observedSlots is 13, from 68 programs in the wider corpus. The archive also holds Personnal-EXTRA.Lib, a two-keyword version-reporting stub with its own source, not registered separately. Not listed in Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs."
   },
   {
     "id": "powerbobs-1.0",

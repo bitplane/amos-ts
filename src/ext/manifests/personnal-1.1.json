@@ -1,8 +1,8 @@
 {
   "id": "personnal-1.1",
   "name": "Personnal",
-  "version": "1.1",
-  "author": "Frederic Cordler",
+  "version": "1.1a",
+  "author": "Frederic Cordler (FireWorks)",
   "source": "binary",
   "library": "AmosPro_Personnal.Lib",
   "sha256": "3deff9c32bc9acdb44ed987da851a5a32b0d51fae3153d4f531284dc6d3a8f63",
@@ -12,12 +12,15 @@
   "docs": [
     "Documentations/"
   ],
-  "titleStrings": [],
-  "observedSlots": [],
+  "titleStrings": [
+    "Amos1.3 & AmosPro Personnal Extension V1.1a",
+    "Version EXTRA-LINKS / 14 juillet 1996"
+  ],
+  "observedSlots": [13],
   "provenance": {
     "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AmosPersonnal1.11.",
     "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
-  "notes": "Later than the 1.0b already registered (128 keywords against 110). An English guide documents 105 of them. The archive also holds Personnal-EXTRA.Lib, a two-keyword version-reporting stub with its own source, not registered separately. Not listed in Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
+  "notes": "Registered as 1.1 until the binary was read: it titles itself \"V1.1a\", \"Version EXTRA-LINKS / 14 juillet 1996\". 130 entries, 128 named, 126 distinct names — a strict superset of 1.0b's 111/110/108, adding 18: blitter clear, pic pack, pic unpack, anim unpack, fpeek, speek, word switch, mplot start plane, set deform value, full view, the four P61 replayer keywords and the four OctaMED ones. An English guide documents 105 of them. Note that the assembler source shipped with 1.0b titles itself V1.1 while carrying only the 111-entry table, so \"1.1\" in this family means the registered compilable edition of the 1.0b keyword set, not this one — see personal-1.0b. observedSlots is 13, from 68 programs in the wider corpus. The archive also holds Personnal-EXTRA.Lib, a two-keyword version-reporting stub with its own source, not registered separately. Not listed in Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs."
 }
