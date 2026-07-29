@@ -15,11 +15,13 @@ demos that never do: 237 hit the step cap and 133 block waiting on input, both
 correct behaviour.
 
 The figure that matters — how many of those 478 run without hitting a single
-unimplemented keyword — needs a per-program view `runreport` does not yet
-print; it aggregates the skipped counts across the whole corpus. It stood at
-353 of 412 (86%) when the corpus was 419 programs, before the two Personnal
-releases added 69 of their own. Restating it is the point of the `--by-program`
-view.
+unimplemented keyword — is **419 of 478, 88%**, up from 353 of 412 (86%) when
+the corpus was 419 programs and before the two Personnal releases added 69 of
+their own. `runreport --by-program` prints it, and ranks the gaps by how many
+programs each blocks rather than how often it is reached. The two orders are
+not the same and the difference is large: `igadget read` tops the occurrence
+list at 141835 hits and blocks three programs, while `dreg` blocks
+twenty-nine on sixty hits and `iscreen_open` blocks nine on eleven.
 
 Occurrence counts below come from `runreport --all` and are statements
 actually reached, so a tight loop counts thousands of times. That makes them a

@@ -1471,10 +1471,15 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     border(it) {
-      // Border n[,paper][,pen]
+      // Border n[,paper][,pen], and n itself may be omitted: `Border,0,14`
+      // is legal and appears in the PD corpus (APD076/BomBase1_0 and four
+      // others). AMOS pushes a slot for every parameter in the spec whether
+      // it was typed or not, so the routine always pops the same count —
+      // which is why an empty leading slot parses there and used to reach
+      // keyword dispatch here as a bare "," (#90).
       const s = scr()
       const w = s.curWin
-      w.border = it.evalInt() & 31
+      if (it.nm() !== ',') w.border = it.evalInt() & 31
       if (it.accept(',')) {
         if (it.nm() !== ',' && !it.atStmtEnd()) w.borPap = it.evalInt()
         if (it.accept(',') && !it.atStmtEnd()) w.borPen = it.evalInt()
