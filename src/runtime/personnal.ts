@@ -27,6 +27,7 @@
 import { AmosError, VI, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import { Runtime } from './runtime'
+import { P_COS, P_SIN, P_TAN } from './personnal-trig.gen'
 
 /**
  * The extension's own error table (ErrMess, +AMOSPro_Personnal.Lib.s:4485).
@@ -824,6 +825,132 @@ function icon(rt: Runtime, n: number, x: number, y: number, paste: boolean): voi
       else putW(rt, at, getW(rt, a))
       at += 2
       a += rowBytes
+    }
+  }
+}
+
+/**
+ * Fc Cos / Fc Sin / Fc Tan (L47/L48/L49, :2036/:2062/:2088). Three copies of
+ * one routine: normalise the angle to whole degrees, index a 360-entry table
+ * of the function scaled by 1000, return it.
+ *
+ * The normalisation only works upwards. For an angle above 359 it is a plain
+ * `d0 mod 360`, spelt out as Divu/Mulu/Sub. For a NEGATIVE angle the same
+ * code runs first and it does not survive: `Divu` is unsigned, so a negative
+ * dividend is a huge number whose quotient overflows sixteen bits, which
+ * leaves the destination untouched and sets V. The following `Mulu` then
+ * multiplies the low word of the ORIGINAL angle by 360, and the subtraction
+ * produces a number that has nothing to do with the input. The `Not.w` and
+ * `Add.l #1` after it were meant to negate a small negative angle -- and
+ * would, on their own -- but they are applied to that wreckage.
+ *
+ * So a negative angle indexes far outside the table. On the Amiga that reads
+ * whatever memory follows it; here it answers 0, which is as close to
+ * "nothing meaningful" as this port can get without inventing the contents of
+ * someone else's RAM.
+ */
+function fcTrig(table: readonly number[], angle: number): number {
+  let d0 = angle | 0
+  if (d0 < 0) {
+    // Divu overflows and leaves d1 alone; Mulu then takes its low word
+    const d1 = Math.imul(d0 & 0xffff, 360)
+    d0 = (d0 - d1) | 0
+    d0 = ((d0 & ~0xffff) | (~d0 & 0xffff)) + 1 // Not.w, then Add.l #1
+  } else if (d0 > 359) {
+    d0 = d0 % 360
+  }
+  return table[d0] ?? 0
+}
+
+/**
+ * The chunk scan all four IFF keywords share. It does not walk the chunk
+ * chain — it steps two bytes at a time from the address it was given looking
+ * for the four ASCII bytes, which finds the tag wherever it sits as long as
+ * it is word-aligned. `tries` is the step budget: 32768 for the three header
+ * readers (L50-L52), 16384 for Iff Convert (L39). Returns the offset of the
+ * tag, or -1.
+ */
+function findIffChunk(rt: Runtime, addr: number, tag: string, tries: number): number {
+  const want = ((tag.charCodeAt(0) << 24) | (tag.charCodeAt(1) << 16) | (tag.charCodeAt(2) << 8) | tag.charCodeAt(3)) >>> 0
+  let a = addr
+  for (let i = 0; i < tries; i++) {
+    if (getL(rt, a) === want) return a
+    a += 2
+  }
+  return -1
+}
+
+/**
+ * Iff X Size / Iff Y Size / Iff Planes (L50/L51/L52, :2114/:2136/:2158).
+ * Find BMHD and read one field out of it — width at +8 from the tag, height
+ * at +10, and the plane count as a BYTE at +16. No BMHD in 32768 steps is
+ * error 3, "BMHD non trouve".
+ */
+function iffHeader(rt: Runtime, addr: number, field: 'w' | 'h' | 'd'): number {
+  const at = findIffChunk(rt, addr, 'BMHD', 32768)
+  if (at < 0) err(3)
+  if (field === 'd') return getB(rt, at + 16)
+  return getW(rt, at + (field === 'w' ? 8 : 10))
+}
+
+/**
+ * Iff Convert addr (L39, :1688). Decompresses an ILBM BODY straight into the
+ * plane list Set Plane built, row-interleaved: for each of the height rows,
+ * for each of the depth planes, width/8 bytes.
+ *
+ * It locates BMHD, CMAP and BODY independently, each by its own scan from the
+ * start, and gives up in SILENCE if any of the three is missing or if the
+ * plane list has no entry for the last plane the header asks for. Only the
+ * three header readers raise error 3; this one just returns.
+ *
+ * Two things about the decoder, both kept:
+ *
+ *   - It never looks at BMHD's compression byte. Everything is decoded as
+ *     ByteRun1, so an uncompressed ILBM comes out as noise.
+ *   - The literal/run split is `Cmp.l #$80,d3 / Bgt`, so a control byte of
+ *     exactly 128 takes the LITERAL path and copies 129 bytes. The format
+ *     reserves 128 as a no-op. Encoders do not emit it, which is why this
+ *     has never bitten.
+ *
+ * A run longer than one row's worth of bytes abandons the whole conversion
+ * (`_COMPRESSED`'s `Bgt _END`), leaving everything decoded so far in place.
+ */
+function iffConvert(rt: Runtime, addr: number): void {
+  const s = rt.personnal
+  const bmhd = findIffChunk(rt, addr, 'BMHD', 16384)
+  if (bmhd < 0) return
+  if (findIffChunk(rt, addr, 'CMAP', 16384) < 0) return
+  const body = findIffChunk(rt, addr, 'BODY', 16384)
+  if (body < 0) return
+
+  const width = getW(rt, bmhd + 8)
+  const height = getW(rt, bmhd + 10)
+  const depth = getB(rt, bmhd + 16)
+  if ((s.planes[depth - 1] ?? 0) === 0) return
+
+  // _BitsPlanes3 holds the write cursors, one per plane, advanced as it goes
+  const cur = s.planes.slice(0, 8)
+  const rowBytes = width >> 3
+  let a = body + 4
+  for (let row = 0; row < height; row++) {
+    for (let p = 0; p < depth; p++) {
+      let done = 0
+      while (done < rowBytes) {
+        const ctrl = getB(rt, a)
+        a += 1
+        const next = getB(rt, a)
+        a += 1
+        if (ctrl > 0x80) {
+          const n = 257 - ctrl
+          if (n > rowBytes) return // the run does not fit a row: abandon
+          for (let i = 0; i < n; i++) putB(rt, cur[p]!++, next)
+          done += n
+        } else {
+          a -= 1 // the second byte was a look-ahead; step back over it
+          for (let i = 0; i <= ctrl; i++) putB(rt, cur[p]!++, getB(rt, a++))
+          done += ctrl + 1
+        }
+      }
     }
   }
 }
@@ -1765,6 +1892,28 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       putW(rt, a, on ? getW(rt, a) | 0x0800 : getW(rt, a) & ~0x0800)
     },
 
+    /** Iff Convert addr (L39, :1688) — see `iffConvert`. */
+    'iff convert'(it) {
+      iffConvert(rt, it.evalInt())
+    },
+
+    /**
+     * Iff8bits To Iff4bits src,count To dst (L79, :3103). Shifts `count`
+     * RGB triples down four bits each — a 24-bit CMAP into the 12-bit form
+     * a COLOR register takes. Source and destination may be the same block;
+     * it walks forward a byte at a time either way.
+     */
+    'iff8bits to iff4bits'(it) {
+      let src = it.evalInt()
+      it.expect(',')
+      const count = it.evalInt()
+      it.expect('to')
+      let dst = it.evalInt()
+      for (let i = 0; i < count; i++) {
+        for (let c = 0; c < 3; c++) putB(rt, dst++, getB(rt, src++) >> 4)
+      }
+    },
+
     /**
      * Aga Reserve Icon n (L87, :3369). AllocMem's a chip block of
      * `n*260 + 8` and stamps it `"F.C1"` followed by the count. Reserving
@@ -2316,6 +2465,53 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     /** =Aga Icon Base (L91, :3535) — _IcBase, zero when unreserved. */
     'aga icon base'(): Value {
       return VI(rt.personnal.icBase)
+    },
+
+    /** Fc Cos/Sin/Tan(angle) (L47/L48/L49) — see `fcTrig`. */
+    'fc cos'(_, a): Value {
+      return VI(fcTrig(P_COS, int(a[0]!)))
+    },
+    'fc sin'(_, a): Value {
+      return VI(fcTrig(P_SIN, int(a[0]!)))
+    },
+    'fc tan'(_, a): Value {
+      return VI(fcTrig(P_TAN, int(a[0]!)))
+    },
+
+    /** Iff X Size/Y Size/Planes(addr) (L50/L51/L52) — see `iffHeader`. */
+    'iff x size'(_, a): Value {
+      return VI(iffHeader(rt, int(a[0]!), 'w'))
+    },
+    'iff y size'(_, a): Value {
+      return VI(iffHeader(rt, int(a[0]!), 'h'))
+    },
+    'iff planes'(_, a): Value {
+      return VI(iffHeader(rt, int(a[0]!), 'd'))
+    },
+
+    /**
+     * Fire(1,2) and Fire(1,3) (L6/L7, :541/:549). The second and third fire
+     * buttons of joystick port 1, read as POTGOR bits — `Btst` on a memory
+     * operand is byte-sized, so `#6` and `#4` of the byte at $DFF016 are bits
+     * 14 and 12 of the word, DATRY and DATRX, port 1 pins 9 and 5. Answer -1
+     * when the bit is CLEAR, which is what a pressed button pulls it to.
+     *
+     * Nothing here models a second or third button, so both read as the idle
+     * port does on real hardware, where the lines are pulled high: 0.
+     */
+    'fire(1,2)'(): Value {
+      return VI(0)
+    },
+    'fire(1,3)'(): Value {
+      return VI(0)
+    },
+
+    /**
+     * Test (L11, :666). Despite the name it is a probe: it returns _MpP,
+     * the plane count Mplot Planes set. Nothing else, no argument.
+     */
+    test(): Value {
+      return VI(rt.personnal.mpP)
     },
 
     /**

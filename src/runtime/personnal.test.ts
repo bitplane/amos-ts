@@ -1194,6 +1194,82 @@ describe('Personnal: the five mosaics (L32-L36, :1316/:1373/:1444/:1517/:1591)',
   })
 })
 
+describe('Personnal: trig, IFF headers and the input reads (batch 10)', () => {
+  const bank = ['Reserve As Work 10,24000', 'A=Start(10)']
+
+  /** print a list of integer expressions without drawing between reads */
+  const printed = (exprs: string[]): string => {
+    let out = ''
+    const src = exprs.map((e, i) => `V${i}=${e}`).join('\n') + '\nPrint ' + exprs.map((_, i) => `V${i}`).join(';')
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 200_000, onText: (t) => (out += t) })
+    rt.runHeadless(100)
+    return out
+  }
+
+  it('Fc Cos/Sin/Tan are the tables, not the formula', () => {
+    expect(printed(['Fc Cos(0)', 'Fc Cos(45)', 'Fc Cos(90)', 'Fc Cos(180)'])).toBe(' 1000 707 0-1000\n')
+    expect(printed(['Fc Sin(90)', 'Fc Sin(270)'])).toBe(' 1000-1000\n')
+    // both tan poles are $7FFFFFFF, positive in each direction
+    expect(printed(['Fc Tan(90)', 'Fc Tan(270)'])).toBe(' 2147483647 2147483647\n')
+    // and the ten entries that Math.trunc(fn*1000) would get wrong
+    expect(printed(['Fc Sin(150)', 'Fc Cos(300)', 'Fc Tan(45)'])).toBe(' 500 499 999\n')
+  })
+
+  it('angles above 359 wrap; negative ones fall off the table', () => {
+    expect(printed(['Fc Cos(360)', 'Fc Cos(405)', 'Fc Cos(725)'])).toBe(' 1000 707 996\n') // 725 mod 360 = 5
+    // the Divu that normalises is unsigned, so a negative angle overflows it
+    // and indexes far outside the table. Zero is this port's stand-in for
+    // whatever memory follows it on the Amiga.
+    expect(printed(['Fc Cos(-30)', 'Fc Sin(-90)'])).toBe(' 0 0\n')
+  })
+
+  it('the IFF header readers find BMHD and pull one field each', () => {
+    // BMHD tag, length, then w,h,x,y,planes — the scan steps two bytes at a
+    // time from the address it is given, so a tag anywhere word-aligned works
+    const src = [
+      ...bank,
+      'Loke A,0 : Loke A+4,0',
+      'Loke A+8,$424D4844', // "BMHD"
+      'Loke A+12,20',
+      'Doke A+16,320 : Doke A+18,200', // w,h
+      'Doke A+20,0 : Doke A+22,0', // x,y
+      'Poke A+24,5', // planes
+    ]
+    let out = ''
+    const rt = new Runtime(
+      tokenize([...src, 'X=Iff X Size(A) : Y=Iff Y Size(A) : D=Iff Planes(A)', 'Print X;Y;D'].join('\n'), table, exts),
+      table,
+      { extensions: exts, maxSteps: 200_000, onText: (t) => (out += t) },
+    )
+    rt.runHeadless(100)
+    expect(out).toBe(' 320 200 5\n')
+  })
+
+  it('no BMHD is error 3', () => {
+    expect(() => run([...bank, 'X=Iff X Size(A)'].join('\n'))).toThrow(/BMHD non trouve/)
+  })
+
+  it('Iff8bits To Iff4bits shifts every RGB byte down four', () => {
+    const rt = run([...bank, 'Loke A,$F0A05000 : Loke A+4,$00000000', 'Iff8bits To Iff4bits A,2 To A+8'].join('\n'))
+    const at = rt.bankBase(10)
+    // two triples: F0 A0 50 -> F A 5, then 00 00 00 -> 0 0 0
+    expect(leek(rt, at + 8) >>> 8).toBe(0x0f0a05)
+  })
+
+  it('Test returns the Mplot plane count, and the fire buttons read idle', () => {
+    expect(printed(['Test'])).toBe(' 8\n') // _MpP defaults to 8
+    expect(printed(['Fire(1,2)', 'Fire(1,3)'])).toBe(' 0 0\n')
+  })
+
+  it("Right Click stays TURBO's, because that table is keyed by name too", () => {
+    // Personnal's reads POTGOR bit 10 (DATLY, port 0 pin 9) and answers -1
+    // when clear; TURBO's reads the same button through the same abstraction
+    // here. Same name, same arity, same answer -- so the existing one stands
+    // rather than being replaced. See the Sprite Col note.
+    expect(printed(['Right Click'])).toBe(' 0\n')
+  })
+})
+
 describe('Personnal: the AGA icon bank (L87-L93, :3369-:3598)', () => {
   const bank = ['Reserve As Work 10,24000', 'A=Start(10)', 'Create Standard A']
 
