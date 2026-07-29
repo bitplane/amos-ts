@@ -95,6 +95,12 @@ export interface PersonnalState {
   planesD: number[]
   /** _MpP (:397) — how many planes the Mplot engine draws into; defaults to 8 */
   mpP: number
+  /**
+   * _MpStartPlane (1.1's data bank +$6c) — which plane Mplot Draw starts at.
+   * See the `mplot start plane` keyword for why this defaults to 1 here and
+   * to 0 in the shipped 1.1 library.
+   */
+  mpStartPlane: number
   /** _Mplots (:394) — how many points the bank holds, 0 when unreserved */
   mplots: number
   /** _Origin (:396) — the x,y the Mplot coordinates are measured from */
@@ -149,6 +155,7 @@ export function newPersonnalState(): PersonnalState {
     planes: new Array(8).fill(0),
     planesD: new Array(8).fill(0),
     mpP: 8,
+    mpStartPlane: 1,
     mplots: 0,
     origin: [0, 0],
     mpBase: 0,
@@ -1113,7 +1120,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
      * here.
      */
     'mplot draw'(it) {
-      mplotDraw(rt, it, 0, 1)
+      mplotDraw(rt, it, rt.personnal.mpStartPlane - 1, 1)
     },
 
     /**
@@ -1711,6 +1718,54 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       if (s.bplConBase === 0) err(1)
       const a = s.bplConBase + 2
       putW(rt, a, on ? getW(rt, a) | 0x0800 : getW(rt, a) & ~0x0800)
+    },
+
+    /**
+     * Mplot Start Plane n (routine 120, $6644). Which entry of _BitsPlanes
+     * Mplot Draw begins at: 1 to 8, or error 14. 1.1 only — the published
+     * 1.1a source compiles to the smaller binary, where the keyword does not
+     * exist and Mplot Draw always starts at plane 0.
+     *
+     * The 1.1 build reads it at $5bfc as `(_MpStartPlane - 1) * 4` added to
+     * _BitsPlanes, and only two instructions in the whole library touch the
+     * variable: that read and this write. Nothing initialises it, and its
+     * declared default is ZERO — so on a real 1.1, `Mplot Draw` without a
+     * preceding `Mplot Start Plane` indexes _BitsPlanes[-1], which is the
+     * longword at the base of the data bank: the ASCII "Fred", the author's
+     * own signature, taken as a bitplane address. None of the 69 shipped
+     * demos calls this keyword, so all of them hit that path on 1.1 and work
+     * only on 1.0b.
+     *
+     * DEVIATION: this port defaults it to 1, not 0. One handler serves both
+     * versions, 1.0b is what every demo is written against, and starting at
+     * plane 0 is what 1.0b does. Calling the keyword gives the 1.1 behaviour
+     * from then on.
+     */
+    'mplot start plane'(it) {
+      const n = it.evalInt()
+      if (n < 1 || n > 8) err(14)
+      rt.personnal.mpStartPlane = n
+    },
+
+    /**
+     * Full View (routine 122, $66a2). 1.1 only, and read off the binary for
+     * the same reason. Appends five longwords at _CurrentLine:
+     *
+     *   $FFBCFFFE / $0003FFFE   the pair that gets a copper past line 255,
+     *                           since its vertical compare is eight bits
+     *   $3103FFFE               wait for line $31
+     *   $00960100               DMACON, set bit 8
+     *   $FFFFFFFE               the end of the list
+     *
+     * Error 1 when there is no list. It does NOT advance _CurrentLine after
+     * writing, unlike every other appending keyword, so the next Copper Line
+     * lays itself over the top of this tail.
+     */
+    'full view'() {
+      const s = rt.personnal
+      if (s.currentLine === 0) err(1)
+      const tail = [0xffbcfffe, 0x0003fffe, 0x3103fffe, 0x00960100, 0xfffffffe]
+      tail.forEach((v, i) => putL(rt, s.currentLine + i * 4, v))
     },
 
     /**

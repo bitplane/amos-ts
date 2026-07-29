@@ -1194,6 +1194,47 @@ describe('Personnal: the five mosaics (L32-L36, :1316/:1373/:1444/:1517/:1591)',
   })
 })
 
+describe('Personnal: the two 1.1-only keywords (routines 120 and 122)', () => {
+  const bank = ['Reserve As Work 10,24000', 'A=Start(10)', 'Create Standard A']
+
+  it('Mplot Start Plane moves where Mplot Draw begins, and holds 1 to 8', () => {
+    const rt = run([...bank, 'Mplot Start Plane 3'].join('\n'))
+    expect(rt.personnal.mpStartPlane).toBe(3)
+    for (const n of [0, 9]) {
+      expect(() => run([...bank, `Mplot Start Plane ${n}`].join('\n'))).toThrow(/Valeur permise de 1 a 8/)
+    }
+  })
+
+  it('it defaults to 1 here, where the shipped 1.1 leaves it at 0', () => {
+    // The 1.1 build reads (_MpStartPlane-1)*4 off _BitsPlanes at $5bfc, and
+    // only two instructions in the library touch the variable: that read and
+    // the keyword's write. Nothing initialises it and its declared default is
+    // 0, so a plain Mplot Draw indexes _BitsPlanes[-1] -- the longword at the
+    // base of the data bank, which is the ASCII "Fred". No shipped demo calls
+    // the keyword, so all of them take that path on 1.1.
+    //
+    // One handler serves both versions here and 1.0b, which every demo is
+    // written against, always starts at plane 0. So this defaults to 1.
+    expect(run(bank.join('\n')).personnal.mpStartPlane).toBe(1)
+  })
+
+  it('Full View appends the past-line-255 tail, and leaves _CurrentLine alone', () => {
+    const rt = run([...bank, 'Copper Wait Line 100', 'Full View'].join('\n'))
+    const at = rt.personnal.currentLine
+    expect([0, 1, 2, 3, 4].map((i) => leek(rt, at + i * 4))).toEqual([
+      0xffbcfffe, 0x0003fffe, 0x3103fffe, 0x00960100, 0xfffffffe,
+    ])
+    // every other appending keyword steps _CurrentLine past what it wrote;
+    // this one does not, so the next Copper Wait Line lands back on top of it
+    const before = run([...bank, 'Copper Wait Line 100'].join('\n'))
+    expect(at).toBe(before.personnal.currentLine)
+  })
+
+  it('Full View without a list is error 1', () => {
+    expect(() => run('Full View')).toThrow(/Copper list non reservee/)
+  })
+})
+
 describe('Personnal: the mask blits (L53/L54/L59/L60) and the two whole-screen blits', () => {
   const px = (rt: Runtime, n: number, x: number, y: number): number => rt.screens.get(n)!.point(x, y)
 
