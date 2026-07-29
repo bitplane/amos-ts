@@ -35,6 +35,27 @@ export default defineConfig({
         entryFileNames: 'assets/amos-player.js',
         chunkFileNames: 'assets/[name].js',
         assetFileNames: 'assets/[name][extname]',
+        /**
+         * ONE FILE, no siblings. This is the artifact somebody downloads and
+         * links from their own page, so it has to work alone.
+         *
+         * Without this, Say's lazy import of the voice is split out to
+         * ./voice-free.js and friends, fetched relative to the script. Copy
+         * amos-player.js on its own and everything works until a program
+         * speaks, at which point the fetch 404s and Say goes silent rather
+         * than erroring — the worst kind of broken, because the page looks
+         * fine.
+         *
+         * The cost is the voice tables loading up front instead of on the
+         * first Say: about 17 kB gzipped on an 860 kB bundle. Worth it to
+         * make "grab this file" true.
+         *
+         * The standalone page (vite.web.config.ts) deliberately does NOT do
+         * this — it is deployed as a whole directory, so there the lazy
+         * fetch costs nothing and saves the voice on programs that never
+         * speak.
+         */
+        inlineDynamicImports: true,
       },
     },
   },

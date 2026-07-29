@@ -3,24 +3,30 @@ import { defineConfig } from 'vitest/config'
 /**
  * The npm library build: src/index.ts -> dist/amos-ts.js.
  *
- * narrator-ts is BUNDLED here rather than left external, which is the
- * opposite of what a library normally wants — so it is a devDependency, not
- * a dependency, and consumers get exactly one copy.
+ * narrator-ts is BUNDLED, deliberately, and is a devDependency rather than a
+ * dependency so nothing installs it twice. Do not "fix" this by making it
+ * external.
  *
- * The reason is `Say`'s dynamic imports of narrator-ts's two JSON tables.
- * Left external, the bundler drops the `with { type: 'json' }` attribute and
- * Node refuses the import with ERR_IMPORT_ATTRIBUTE_MISSING, so `Say` fails
- * to load the voice and goes permanently silent. (Forcing `target: 'esnext'`
- * keeps an attribute but emits the withdrawn `assert` spelling, which Node
- * 22+ rejects too.) Bundled, vite turns the JSON into ordinary JS chunks and
- * the question does not arise — verified by installing the tarball into a
- * clean project and speaking.
+ * Self-contained is the product, not a compromise. What ships is meant to be
+ * one thing you drop in and link — see vite.lib.config.ts, where the same
+ * decision is load-bearing enough that the player inlines its chunks too.
+ * The usual argument for externalizing a dependency (the consumer dedupes it
+ * against their own copy, and can swap the voice) assumes a wider ecosystem
+ * with two narrators in it, which is not what this targets. Anyone who does
+ * want a different voice can build their own.
  *
- * Code-splitting still applies, so the 45K voice table stays out of the main
- * chunk and is only fetched by a program that actually speaks.
+ * It also happens not to work. Left external, the bundler drops the
+ * `with { type: 'json' }` attribute from Say's dynamic imports and Node
+ * refuses them with ERR_IMPORT_ATTRIBUTE_MISSING — which does not throw, it
+ * just leaves the voice unloaded and Say permanently silent. Forcing
+ * `target: 'esnext'` keeps an attribute but emits the withdrawn `assert`
+ * spelling, which Node 22+ rejects too. That is a second reason, not the
+ * reason; fixing it upstream would not change the decision above.
  *
- * The fix that would let this go external is upstream: narrator-ts shipping
- * JS wrappers beside reference/*.json. Until then, bundling is what works.
+ * Code-splitting still applies here, so the 45K voice table stays out of the
+ * main chunk — a bundler consuming this package can drop it from builds that
+ * never speak. CI packs this, installs it into an empty project and speaks,
+ * because the failure mode is silent.
  */
 export default defineConfig({
   build: {
