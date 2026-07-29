@@ -1194,6 +1194,46 @@ describe('Personnal: the five mosaics (L32-L36, :1316/:1373/:1444/:1517/:1591)',
   })
 })
 
+describe('Personnal: the six the other blocks never reach', () => {
+  // every keyword promoted to FAITHFUL has to be dispatched by the suite or
+  // the coverage gate fails the run; these are the ones the behavioural
+  // tests above happen not to touch
+  const bank = ['Reserve As Work 10,24000', 'A=Start(10)', 'Create Standard A']
+
+  it('Vb Line Wait yields rather than spinning on a beam we do not have', () => {
+    expect(() => run([...bank, 'Vb Line Wait 100'].join('\n'))).not.toThrow()
+  })
+
+  it('Iff Convert gives up in silence when a chunk is missing', () => {
+    // no BMHD anywhere in the bank, so it returns rather than raising -- only
+    // the three header readers raise error 3
+    expect(() => run([...bank, 'Iff Convert A+8192'].join('\n'))).not.toThrow()
+  })
+
+  it('Get Odd Sprite cuts planes 2 and 3 where Get Even cuts 0 and 1', () => {
+    const rt = run(
+      [
+        'Screen Open 0,320,64,16,Lowres',
+        'Cls 0 : Ink 12 : Bar 0,0 To 15,15', // 12 = planes 2 and 3
+        ...bank,
+        'F Set Sprite Buffer A+16384,8192',
+        'B=Screen Base',
+        'Get Odd Sprite B,0,0,0 To 8',
+      ].join('\n'),
+    )
+    // the same clobber as Get Even: the header lands on _SpriteBase and the
+    // first plane-2 longword on _SpriteLength
+    expect(rt.personnal.spriteBase).toBe(8 << 8)
+    expect(rt.personnal.spriteLength).toBe(0xffff0000)
+  })
+
+  it('P61 Mpos, Omd Stop and Omd Free complete their state machine', () => {
+    expect(() => run([...bank, 'P61 Mpos 4'].join('\n'))).not.toThrow()
+    expect(() => run([...bank, 'Omd Stop'].join('\n'))).toThrow(/Aucun module MMDx/)
+    expect(() => run([...bank, 'Omd Free'].join('\n'))).toThrow(/Aucun module MMDx/)
+  })
+})
+
 describe('Personnal: the cruncher, the nibble peeks and the replayers (batch 11)', () => {
   const bank = ['Reserve As Work 10,24000', 'A=Start(10)', 'Create Standard A']
 

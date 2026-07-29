@@ -8,11 +8,18 @@ pipeline, the audio pipeline, the language, banks, files, menus, the Interface
 dialog engine and the file selector are all at 100%, as are the AMOS 3D,
 TURBO Plus and LDos 2.5 extensions.
 
-Census over the 419-program corpus: **412 run to a stop, and 353 of those —
-86% — run without hitting a single unimplemented keyword.** The census also
-prints "ended with nothing skipped" (76); ignore it. It counts only programs
-that *terminate*, and most AMOS programs are games and demos that never do:
-220 hit the step cap and 91 block waiting on input, both correct behaviour.
+Census over the 488-program corpus: **478 run to a stop.** The census also
+prints "ended with nothing skipped" (83); ignore it as a coverage measure. It
+counts only programs that *terminate*, and most AMOS programs are games and
+demos that never do: 237 hit the step cap and 133 block waiting on input, both
+correct behaviour.
+
+The figure that matters — how many of those 478 run without hitting a single
+unimplemented keyword — needs a per-program view `runreport` does not yet
+print; it aggregates the skipped counts across the whole corpus. It stood at
+353 of 412 (86%) when the corpus was 419 programs, before the two Personnal
+releases added 69 of their own. Restating it is the point of the `--by-program`
+view.
 
 Occurrence counts below come from `runreport --all` and are statements
 actually reached, so a tight loop counts thousands of times. That makes them a
@@ -56,7 +63,6 @@ extension keyword:
 | **Intuition 1.3b** | **183** | **ships assembler source; the largest remaining gap, ~17 corpus programs** |
 | Craft 1.0 | 136 | commercial (Black Legend) |
 | GUI 2.10 / 1.61 | 118 / 103 | |
-| Personnal 1.0b | 102 | ships assembler source |
 | Range 1.0 / 2.0 | 46 / 23 | |
 | AMOSPro Colours | 27 | ships its assembler source |
 | AGA 1.0 | 24 | |
@@ -65,6 +71,13 @@ extension keyword:
 
 `docs/extensions/README.md` explains the slot model and how an extension is
 identified by fingerprint when slots collide.
+
+**A caveat on those percentages.** Coverage is counted by keyword NAME, and
+several extensions share names. Porting Personnal moved `p61-1.2` to 22%,
+`amcaf-1.50` to 2% and `intuition-1.3b` to 1% without a line of either being
+written — the names collide and the count cannot tell them apart. It is the
+same name-keyed dispatch that let an extension keyword silently replace a core
+one; the table over-reports until that is fixed.
 
 ### IOPorts extension (serial/parallel/printer — area 0%, 38 keywords)
 `Serial *` (~14), `Parallel *` (~10), `Printer *` (~10). This is a stock

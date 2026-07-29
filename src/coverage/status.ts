@@ -1172,6 +1172,46 @@ export const FAITHFUL = new Set<string>([
   'default palette',
   'screen mode',
   'ntsc',
+
+  // --- Personnal (third-party extension, by Frederic Cordier / FireWorks) ---
+  // Ported against the 1.1a source (+AMOSPro_Personnal.Lib.s) where it has
+  // one, and against the disassembled 1.1 binary where it does not -- the
+  // published source compiles to the SMALLER build, so blitter clear, word
+  // switch, mplot start plane, full view, set deform value, the cruncher and
+  // the replayers exist only in the binary. Every routine cited in the tests.
+  // NOTES below record the two dozen places the library's own behaviour is
+  // surprising and has been kept, and the handful this port cannot reach.
+  'set ntsc', 'set pal', 'fire(1,2)', 'fire(1,3)',
+  'ham', 'ehb', 'create aga', 'test',
+  'set color', 'x fade', 'copper base', 'set plane',
+  'plane base', 'copper next line', 'copper line', 'set view planes',
+  'new color value', 'set screen sizes', 'screen x size', 'screen y size',
+  'create standard', 'screen position', 'set dual mode', 'set resolution',
+  'set lace', 'copper wait line', 'mosaic x2', 'mosaic x4',
+  'mosaic x8', 'mosaic x16', 'mosaic x32', 'active copper',
+  'ham mode', 'iff convert', 'allow plane col', 'forbid plane col',
+  'inverse playfields', 'normal playfields', 'playfields col', 'pf sprites col',
+  'fc cos', 'fc sin', 'fc tan', 'iff x size',
+  'iff y size', 'iff planes', 'double mask', 'l double mask',
+  'f set sprite buffer', 'get even sprite', 'get odd sprite', 'f sprite',
+  'blit mask', 'l blit mask', 'aga off', 'low filter.b',
+  'low filter.w', 'low filter.l', 'set dual palette', 'iff color',
+  'active second screen', 'set second planes', 'set second view', 'set second color',
+  'cmap base', 'change palette', 'iff8bits palette to copper', 'vb line wait',
+  'iff4bits palette to copper', 'fade palette', 'attribute palette', 'second y size',
+  'iff8bits to iff4bits', 'set aga color', 'octets fill', 'blitter copy',
+  's32 block to screen', 's32 vertice to screen', 'set d plane', 'swap planes',
+  'aga reserve icon', 'aga erase icon', 'aga get icon', 'aga paste icon',
+  'aga icon base', 'aga icon save', 'aga icon load', 'mplot reserve',
+  'mplot erase', 'mplot load', 'mplot save', 'mplot define',
+  'mplot base', 'mplot draw', 'x mplot', 'y mplot',
+  'c mplot', 'mplot modify', 'mplot x define', 'mplot y define',
+  'mplot c define', 'mplot origin', 'mplot planes', 'lsr zone',
+  'mplot dpf1 draw', 'mplot dpf2 draw', 'blitter clear', 'pic pack',
+  'pic unpack', 'anim unpack', 'fpeek', 'speek',
+  'word switch', 'mplot start plane', 'set deform value', 'full view',
+  'p61 play', 'p61 stop', 'p61 mvolume', 'p61 mpos',
+  'omd load', 'omd play', 'omd stop', 'omd free',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -1601,4 +1641,79 @@ export const NOTES: Record<string, string> = {
   'dual priority': 'the EcE27 error message text is a guess — the string is not in the source tree',
   'hrev block': "RevBloc +W.s:12620 mirrors the block; the visible result matches, but the port reverses pixels directly rather than via AMOS's stored orientation flag (bits $C000)",
   'vrev block': "RevBloc +W.s:12620 mirrors the block vertically; visible result matches, but via direct pixel reversal rather than AMOS's orientation-flag mechanism",
+
+  // --- Personnal ---------------------------------------------------------
+  // Library bugs reproduced rather than fixed. Each is what the shipped
+  // binary does; the tests pin them so they read as deliberate.
+  'allow plane col':
+    "reaches _BPlanesMask correctly but always sets CLXCON bit 0: the routine shifts the plane left six before `Bset d0,d1`, and Bset on a DATA register takes its bit number modulo 32, so n*64 is bit 0 for every n in range",
+  'forbid plane col': 'the same modulo-32 Bset as Allow Plane Col — every plane clears the same CLXCON bit',
+  'playfields col':
+    'answers -1 when the CLXDAT bit is CLEAR, the opposite of what the name suggests (Btst sets Z on a zero bit and the Bne skips the -1); and there is no collision hardware here, so CLXDAT reads 0 and it always answers -1',
+  'pf sprites col': 'the same inverted test as Playfields Col, and the same always--1 answer for want of CLXDAT',
+  'blit mask':
+    "BLTCON0 is \$0F98, minterm \$98 = (B AND C) OR (A AND NOT B AND NOT C) — NOT the \$E2 mask-select the name implies. Source and binary agree. There is no blitter, so the minterm is applied directly over a word loop; every one of these keywords uses zero modulos and full word masks, which is what makes that equivalent",
+  'l blit mask':
+    'blits yEnd rows starting at yStart where L Double Mask subtracts properly — the demos hand both 64,128 on a 192-row screen. Same \$98 minterm, computed rather than blitted',
+  'double mask': 'the CPU form; computed as the source computes it, longword by longword',
+  'l double mask': 'subtracts yStart from yEnd, unlike its blitter twin',
+  'blitter clear': 'BLTCON0 \$0100, minterm 0, computed rather than blitted; read off the 1.1 binary at routine 113, which the published source leaves as an empty label',
+  'blitter copy': 'BLTCON0 \$09F0, minterm \$F0, computed rather than blitted; the first plane is copied before any null check, so only the control block is guarded',
+  'low filter.w':
+    'filters exactly one element: the loop ends `Cmp.l a0,a1 / Blt`, which asks whether the END pointer is below the current one — false on the first pass of any sane range. Only the .b form loops',
+  'low filter.l': 'the same one-element Blt as Low Filter.w',
+  'f sprite':
+    'indexes the copper list by n*4 where the eight sprite pointers are two MOVEs and so eight bytes apart — `Lsl.l #2` should be `#3`. Sprite 0 lands right; sprite 1 writes its high word into SPR0PTL',
+  'get even sprite':
+    "writes over the extension's own variables instead of the reserved buffer: `DLea _SpriteBase,a0 / Move.l a0,d1 / Move.l d1,a0` takes the ADDRESS of the variable and never dereferences it (\$4592 in the binary). The buffer F Set Sprite Buffer was given is never touched, so F Sprite finds nothing. Modelled by clobbering _SpriteBase and _SpriteLength as the library does; the writes past those two land on variables this port does not keep as memory",
+  'get odd sprite': 'the same missing dereference as Get Even Sprite',
+  'mplot draw':
+    'the point range EXCLUDES `last` (:4027), where the guide says inclusive — every shipped demo writes `Mplot Draw 1 To NUM` after reserving NUM, so the last point never draws on a real machine either. Starts at plane _MpStartPlane-1 in the 1.1 build',
+  'mplot modify': 'the same exclusive range as Mplot Draw (:4136)',
+  'mplot start plane':
+    "1.1 defaults the variable to 0, which makes a plain Mplot Draw index _BitsPlanes[-1] — the longword at the base of the data bank, the ASCII \"Fred\". No shipped demo calls the keyword, so all of them take that path on 1.1. This port defaults it to 1 instead, because one handler serves both versions and 1.0b always starts at plane 0",
+  'mplot load':
+    'reads count*260 bytes into a buffer sized count*6+8 — 260 is the AGA icon stride and Mplot Save writes with 6. A copy-paste from the icon loader that only escapes overrunning because the file ends first',
+  'set deform value':
+    'writes sixteen slots that nothing in the library ever reads — the only instructions touching the 1.1 data bank +\$70 are this write and its own bounds check',
+  'iff convert':
+    "never reads BMHD's compression byte, so everything is decoded as ByteRun1 and an uncompressed ILBM comes out as noise; and its literal/run split is `Cmp.l #\$80,d3 / Bgt`, making a control byte of exactly 128 a 129-byte literal where the format reserves it as a no-op. Gives up in silence when BMHD, CMAP or BODY is missing",
+  'fc cos':
+    'a 360-entry table of the function scaled by 1000, included raw at :514 and not recomputable — Math.trunc(fn*1000) misses ten entries. Negative angles index far outside it: the Divu that normalises is unsigned, so a negative dividend overflows and the following Mulu multiplies the low word of the original angle by 360. They answer 0 here rather than whatever memory follows the table',
+  'fc sin': 'the same table lookup and the same broken normalisation for negative angles as Fc Cos',
+  'fc tan': 'the same again; both poles hold \$7FFFFFFF, positive in each direction',
+  'fire(1,2)':
+    "POTGOR bit 14, port 1 pin 9 — a second fire button nothing here models. Answers 0, which is what an idle port reads on hardware (the line is pulled high and the routine answers -1 only when clear)",
+  'fire(1,3)': 'POTGOR bit 12, port 1 pin 5; the same unmodelled second stick, the same idle 0',
+  'vb line wait': 'spins on VPOSR waiting for a beam position; there is no beam, so it yields the frame',
+  'aga reserve icon':
+    'writes _Icons BEFORE the allocation, so on a real machine a failed AllocMem leaves a count against a bank that does not exist. The allocation is a Uint8Array here and cannot fail, so error 8 is unreachable',
+  'aga erase icon': 'clears _Icons before testing _IcBase, so the error-9 path leaves both zero either way',
+  'pic pack':
+    "produces the format the library's own Pic Unpack decodes, by the same two passes in the same order; the run boundaries are proven by round-tripping through that decoder rather than against a reference file",
+  'pic unpack':
+    'a control byte of zero fills the rest of the PLANE rather than emitting nothing — its decrement never satisfies the test. The end guard is >= where the 68k tests exact equality, so a header pointing behind its data stops rather than hanging',
+  'anim unpack': 'Pic Unpack behind a frame table; the same zero-control-byte and end-guard behaviour',
+  'p61 play':
+    'an LVO call into player61.library, which is not part of AMOS and not in the source tree. The state machine around it is reproduced because the extension checks it before calling out, but NOTHING SOUNDS. It deliberately does not raise the library-not-found error: the gap here is a decoder, not a missing library. Closable by a real P61 decoder, as med play already is for MMD0/MMD1',
+  'p61 stop': 'the P61 state machine only — error 19 when nothing is playing; no audio',
+  'p61 mvolume': 'range-checks 0..63 as the library does; no audio',
+  'p61 mpos': 'accepted and recorded; no audio',
+  'omd load': 'octaplayer.library is not in the AMOS source; the load is checked and remembered, the module is not decoded',
+  'omd play': 'the OMD state machine only; no audio',
+  'omd stop': 'the OMD state machine only; no audio',
+  'omd free': 'the OMD state machine only; no audio',
+  'mosaic x2':
+    'gains two termination guards the original lacks, neither of which fires on a real screen: a height under one block, and a row byte width that is not a multiple of four, both walk memory forever on the 68k and do nothing here',
+  'mosaic x4': 'the same two guards as Mosaic X2',
+  'mosaic x8': 'the same two guards as Mosaic X2',
+  'mosaic x16': 'the same two guards as Mosaic X2',
+  'mosaic x32': 'the same two guards as Mosaic X2',
+  'octets fill': 'an end equal to the start passes the routine\'s own Bmi and then fills memory until it faults; it writes nothing here',
+  'word switch': 'a range ending at or below its start swaps one word and stops; the 68k keeps stepping until the pointer wraps',
+  's32 block to screen':
+    'steps rows by longs*4, its own `Lsl.l #2`, not the screen byte width, so a width that is not a whole number of longwords drifts — kept. A screen under 32 pixels wide gives the innermost do-while a count of zero and the 68k never leaves it; that case does nothing here',
+  's32 vertice to screen': 'the same row-step drift and the same narrow-screen guard as S32 Block To Screen',
+  'full view': 'does not step _CurrentLine after writing, alone among the appending keywords, so the next Copper Wait Line lays itself over the tail',
+
 }
