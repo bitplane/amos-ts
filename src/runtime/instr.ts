@@ -4715,7 +4715,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       const colour = a.length >= 5 ? int(a[4]!) : 0
       if (length <= 0 || colour < 0 || colour >= 32) throw new AmosError('Illegal function call', 23)
       if (a.length >= 4 && (speed < 256 || speed >= 4096)) throw new AmosError('Illegal function call', 23)
-      const m = rt.resolveAddr(address)
+      const m = rt.resolveWrite(address)
       if (!m) throw new AmosError('Address error', 25)
       const len = Math.min(length, m.data.length - m.off)
       const packed = squashBytes(m.data.slice(m.off, m.off + len), Math.min(speed, 4096))
@@ -4730,7 +4730,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       const address = int(a[0]!)
       const length = int(a[1]!)
       if (length <= 0) throw new AmosError('Illegal function call', 23)
-      const m = rt.resolveAddr(address)
+      const m = rt.resolveWrite(address)
       if (!m) throw new AmosError('Address error', 25)
       const comp = m.data.slice(m.off, m.off + Math.min(length, m.data.length - m.off))
       let out: Uint8Array

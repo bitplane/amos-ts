@@ -416,7 +416,7 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       const s = it.evalStr()
       it.expect(',')
       const addr = it.evalInt()
-      const m = rt.resolveAddr(addr)
+      const m = rt.resolveWrite(addr)
       if (!m) throw new AmosError('You can not call with an empty argument!')
       const n = Math.min(s.length, m.data.length - m.off)
       for (let i = 0; i < n; i++) m.data[m.off + i] = s.charCodeAt(i) & 0xff
@@ -482,7 +482,7 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       // the real thing writes DOS locks and a FileInfoBlock into those 264
       // bytes; the scan lives beside the bank here, and a cookie is written
       // so Lcat Pull can tell a pushed block from an empty one
-      const m = rt.resolveAddr(addr)
+      const m = rt.resolveWrite(addr)
       if (m && m.off < m.data.length) m.data[m.off] = 0x4c // 'L'
     },
     'lcat pull'(it) {
@@ -494,7 +494,7 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       if (!c) throw new AmosError('No more entries in this dir')
       rt.ldos.pushed.delete(addr)
       rt.ldos.cat = c
-      const m = rt.resolveAddr(addr)
+      const m = rt.resolveWrite(addr)
       if (m && m.off < m.data.length) m.data[m.off] = 0
     },
     lldir$(it) {
@@ -548,7 +548,7 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       it.expect('to')
       const dest = it.evalInt()
       const src = rt.resolveAddr(start)
-      const dst = rt.resolveAddr(dest)
+      const dst = rt.resolveWrite(dest)
       if (!src || !dst || end <= start) return
       const file = src.data.subarray(src.off, src.off + Math.min(end - start, src.data.length - src.off))
       let outBytes: Uint8Array
@@ -628,7 +628,7 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       const c = channel(rt, int(a[0] ?? VI(0)))
       const dest = int(a[1] ?? VI(0))
       const len = int(a[2] ?? VI(0))
-      const m = rt.resolveAddr(dest)
+      const m = rt.resolveWrite(dest)
       if (!m || len < 0) return VI(-1)
       const n = Math.max(0, Math.min(len, c.data.length - c.pos, m.data.length - m.off))
       m.data.set(c.data.subarray(c.pos, c.pos + n), m.off)

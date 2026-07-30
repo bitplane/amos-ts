@@ -109,3 +109,30 @@ describe('Prun — a second program run as an accessory', () => {
     expect(rt.screens.has(1)).toBe(true)
   })
 })
+
+describe('Run "file" leaves no state behind', () => {
+  /**
+   * `Run` swaps the program through replaceProgram, and three fields —
+   * breakHandler, errFrameDepth, everyReturnDepth — used to be reset only by
+   * pushProgram (Prun's path). So a break handler installed by the first
+   * program survived into the second, naming a procedure that no longer exists.
+   *
+   * Prun was never affected: it saves and restores all three. Two hand-kept
+   * reset lists for one operation was the actual defect; there is one now.
+   */
+  it('clears a break handler the previous program installed', () => {
+    const rt = new Runtime(tokenize('Print "a"', table), table, { maxSteps: 100_000 })
+    const i = rt.interp as unknown as {
+      breakHandler: unknown
+      errFrameDepth: number
+      everyReturnDepth: number
+    }
+    i.breakHandler = { kind: 'proc', target: 'GONE' }
+    i.errFrameDepth = 7
+    i.everyReturnDepth = 3
+    rt.runLines(tokenize('Print "b"', table))
+    expect(i.breakHandler).toBeNull()
+    expect(i.errFrameDepth).toBe(0)
+    expect(i.everyReturnDepth).toBe(0)
+  })
+})

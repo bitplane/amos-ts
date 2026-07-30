@@ -313,6 +313,14 @@ export class Interp {
     this.userFns = new Map()
     this.blocked = null
     this.status = null
+    // These three used to be reset by pushProgram only, so `Run "file"` — which
+    // calls replaceProgram directly — carried them into the new program. A
+    // breakHandler is the one that bites: On Break Proc names a procedure, and
+    // after Run that procedure no longer exists, so Ctrl-C jumped into nothing.
+    // One list rather than two is the actual fix; pushProgram now inherits it.
+    this.breakHandler = null
+    this.errFrameDepth = 0
+    this.everyReturnDepth = 0
   }
 
   /**
@@ -437,10 +445,8 @@ export class Interp {
   pushProgram(lines: TokenLine[], host: unknown, resumeAt?: Addr): void {
     const state = this.saveProgramState()
     if (resumeAt) state.pc = resumeAt
+    // replaceProgram resets breakHandler, errFrameDepth and everyReturnDepth
     this.replaceProgram(lines)
-    this.breakHandler = null
-    this.errFrameDepth = 0
-    this.everyReturnDepth = 0
     this.progStack.push({ state, host })
   }
 

@@ -370,4 +370,46 @@ describe('nothing writes the chunky cache behind the planes', () => {
     walk(root)
     expect(offenders, `write through the read-only chunky view — use pixelsW():\n  ${offenders.join('\n  ')}`).toEqual([])
   })
+  it('nothing writes through the READ address resolver', () => {
+    /**
+     * The same invariant from the other side. `resolveAddr` is
+     * `resolveInto(addr, false)`; `resolveWrite` is the same with `write=true`,
+     * which is what tells a Screen that a plane write has made its chunky cache
+     * stale. Writing through the read resolver therefore leaves a screen's
+     * planes and cache disagreeing — the bob bug's twin, and it was live in
+     * seven LDos keywords plus Squash and Unsquash.
+     *
+     * Scoped to the invariant rather than to a file, because the last three
+     * sweeps of this class each fixed only the files that happened to be open.
+     */
+    const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+    const offenders: string[] = []
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name)
+        if (e.isDirectory()) walk(p)
+        else if (e.name.endsWith('.ts') && !e.name.endsWith('.test.ts')) {
+          const lines = readFileSync(p, 'utf8').split('\n')
+          lines.forEach((line, i) => {
+            const m = /(?:const|let)\s+(\w+)\s*=\s*(?:rt|this)\.resolveAddr\(/.exec(line)
+            if (!m) return
+            const name = m[1]!
+            const indent = /^\s*/.exec(line)![0].length
+            const w = new RegExp(`\\b${name}\\.data(\\[[^\\]]*\\]!?\\s*(\\+|-|&|\\||\\^)?=[^=]|\\.set\\(|\\.fill\\()`)
+            for (let j = i + 1; j < Math.min(lines.length, i + 40); j++) {
+              const l = lines[j]!
+              if (l.trim() !== '' && /^\s*/.exec(l)![0].length < indent) break
+              if (w.test(l)) {
+                offenders.push(`${p.replace(root, 'src')}:${i + 1} -> written at :${j + 1}`)
+                break
+              }
+            }
+          })
+        }
+      }
+    }
+    walk(root)
+    expect(offenders, `write through resolveAddr — use resolveWrite():\n  ${offenders.join('\n  ')}`).toEqual([])
+  })
 })
+
