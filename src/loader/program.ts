@@ -20,8 +20,8 @@
 import { parseAmosFile, type AmosFile } from './amosfile'
 import { parseSource, TokenTable, type TokenLine } from '../tokens/stream'
 import { tokenize } from '../tokens/tokenizer'
-import { extensionTablesFor } from '../ext/identify'
-import { defaultExtensionTables } from '../ext/registry'
+import { extensionBindingsFor } from '../ext/identify'
+import { defaultSlotBindings, type Extension } from '../ext/registry'
 
 /** an AMOS program by content, not by name — plenty of them are extensionless */
 export function isAmosProgram(bytes: Uint8Array | null | undefined): boolean {
@@ -33,6 +33,12 @@ export interface LoadedProgram {
   lines: TokenLine[]
   /** slot -> token table, for both the tokenizer and the Runtime */
   extensions: Map<number, TokenTable>
+  /**
+   * slot -> which extension, by registry identity. The tables above are what
+   * the tokenizer needs; this is what dispatch needs, because a port's
+   * slot-qualified keywords must answer only where its own extension is bound.
+   */
+  bindings: Map<number, Extension>
   /** the parsed file, or null for a plain-text listing (which has no banks) */
   amos: AmosFile | null
 }
@@ -41,9 +47,17 @@ export function loadProgram(bytes: Uint8Array, table: TokenTable): LoadedProgram
   const amos = isAmosProgram(bytes) ? parseAmosFile(bytes) : null
   if (amos) {
     const lines = parseSource(amos.source, table)
-    return { lines, extensions: extensionTablesFor(lines), amos }
+    const bindings = extensionBindingsFor(lines)
+    return { lines, extensions: tablesOf(bindings), bindings, amos }
   }
-  const stock = defaultExtensionTables()
+  const bindings = defaultSlotBindings()
+  const stock = tablesOf(bindings)
   const lines = tokenize(new TextDecoder('latin1').decode(bytes), table, stock)
-  return { lines, extensions: stock, amos: null }
+  return { lines, extensions: stock, bindings, amos: null }
+}
+
+function tablesOf(bindings: Map<number, Extension>): Map<number, TokenTable> {
+  const m = new Map<number, TokenTable>()
+  for (const [slot, ext] of bindings) m.set(slot, ext.table)
+  return m
 }

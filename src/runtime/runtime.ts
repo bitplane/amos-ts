@@ -26,6 +26,7 @@ import { parseAmalBank } from '../loader/amalbank'
 import type { AmalBank } from '../loader/amalbank'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
 import type { ResourceBank } from '../loader/resource'
+import type { Extension } from '../ext/registry'
 import { DEFAULT_PALETTE, Screen, builtinPattern, sliderMetrics } from './screen'
 import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from './instr'
 import { defaultHost, type Host } from './host'
@@ -232,6 +233,13 @@ export interface StosMove {
 
 export interface RuntimeOptions {
   extensions?: Map<number, TokenTable>
+  /**
+   * slot -> which extension, by registry identity (loader/program.ts supplies
+   * it). Without it a port's slot-qualified keywords fall back to every slot
+   * the registry has seen that extension at; with it they answer only where it
+   * is actually bound. See ./extimpl.ts.
+   */
+  extBindings?: Map<number, Extension>
   onUnimplemented?: 'throw' | 'skip'
   maxSteps?: number
   /** statements executed per frame() before yielding (default 20000) */
@@ -301,6 +309,8 @@ export class Runtime {
   spriteBank: ObjectBank | null = null
   iconBank: ObjectBank | null = null
   memBanks = new Map<number, MemoryBank>()
+  /** which extension each slot holds, by registry identity, or null if unknown */
+  readonly extBindings: Map<number, Extension> | null
   bobs = new Map<number, Bob>()
   hwSprites = new Map<number, HwSprite>()
   /** bob pipeline: auto update each frame (Bob Update On/Off) */
@@ -2702,6 +2712,9 @@ export class Runtime {
 
   constructor(lines: TokenLine[], table: TokenTable, opts: RuntimeOptions = {}) {
     this.frameBudget = opts.frameBudget ?? 20_000
+    // before makeAllInstructions below: the ports' slot-qualified keywords are
+    // bound from this
+    this.extBindings = opts.extBindings ?? null
     // one composition point: the fs/audio/onText options are shorthand for
     // host members, and every default comes from defaultHost()
     this.host = { ...defaultHost(), ...opts.host }

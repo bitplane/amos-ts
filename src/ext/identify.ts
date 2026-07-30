@@ -24,7 +24,7 @@
  * program, which is worse than declining to guess.
  */
 import type { TokenLine, Tok, TokenTable } from '../tokens/stream'
-import { allExtensions, defaultExtensionTables, extensionById, type Extension } from './registry'
+import { allExtensions, defaultSlotBindings, extensionById, type Extension } from './registry'
 
 /** What was seen in one slot across a program. */
 export interface SlotUsage {
@@ -243,21 +243,35 @@ export interface IdentifyOptions {
 }
 
 /**
- * The extension token tables to run a program with.
+ * The extension bound to each slot to run a program with.
  *
  * Slots the program's own evidence identifies win; anything left over falls
  * back to the stock interpreter config, which is the right answer for programs
  * written on an unmodified installation and a harmless one otherwise (an
  * unidentified slot has no table either way).
+ *
+ * This is the identity, not just the table. Dispatch needs it: a port declares
+ * which registry identities it implements, and its slot-qualified keywords
+ * answer only where one of them is actually bound (see runtime/extimpl.ts).
  */
+export function extensionBindingsFor(
+  lines: readonly TokenLine[],
+  opts: IdentifyOptions = {},
+): Map<number, Extension> {
+  const bound = defaultSlotBindings()
+  for (const [slot, id] of identifyProgram(lines, opts)) {
+    if (id.best) bound.set(slot, id.best)
+  }
+  return bound
+}
+
+/** The same binding, as the slot -> token table map the tokenizer wants. */
 export function extensionTablesFor(
   lines: readonly TokenLine[],
   opts: IdentifyOptions = {},
 ): Map<number, TokenTable> {
-  const tables = defaultExtensionTables()
-  for (const [slot, id] of identifyProgram(lines, opts)) {
-    if (id.best) tables.set(slot, id.best.table)
-  }
+  const tables = new Map<number, TokenTable>()
+  for (const [slot, ext] of extensionBindingsFor(lines, opts)) tables.set(slot, ext.table)
   return tables
 }
 

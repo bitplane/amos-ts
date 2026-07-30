@@ -333,10 +333,11 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     lastDir = dir
     error = ''
     try {
-      const { lines, extensions, amos } = compileProgram(bytes, table)
+      const { lines, extensions, bindings, amos } = compileProgram(bytes, table)
       vfs.currentDir = dir.length > 0 ? `DH0:${dir.join('/')}` : 'DH0:'
       rt = new Runtime(lines, table, {
         extensions,
+        extBindings: bindings,
         onUnimplemented: 'skip',
         banks: amos?.banks ?? [],
         audio,

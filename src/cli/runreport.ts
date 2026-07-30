@@ -27,7 +27,7 @@ import { fixedClock } from '../runtime/host'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { extensionTablesFor } from '../ext/identify'
+import { extensionBindingsFor } from '../ext/identify'
 import { Runtime } from '../runtime/runtime'
 import { fsForFile } from './nodefs'
 
@@ -81,8 +81,10 @@ for (const { file, path } of roots.flatMap((r) => [...walkMatching(r, /\.amos$/i
     if (amos.source.length === 0) continue
     files++
     const lines = parseSource(amos.source, table)
+    const bindings = extensionBindingsFor(lines)
     const rt = new Runtime(lines, table, {
-      extensions: extensionTablesFor(lines),
+      extensions: new Map([...bindings].map(([slot, ext]) => [slot, ext.table])),
+      extBindings: bindings,
       onUnimplemented: 'skip',
       maxSteps: 120_000,
       banks: amos.banks,

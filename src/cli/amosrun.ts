@@ -28,10 +28,11 @@ if (!file) {
 
 const table = new TokenTable(CORE_TOKENS)
 const bytes = readFileSync(file)
-const { lines, extensions, amos } = loadProgram(bytes, table)
+const { lines, extensions, bindings, amos } = loadProgram(bytes, table)
 
 const rt = new Runtime(lines, table, {
   extensions,
+  extBindings: bindings,
   onUnimplemented: strict ? 'throw' : 'skip',
   onText: (t) => process.stdout.write(t),
   banks: amos?.banks ?? [],

@@ -1,14 +1,15 @@
 import { AmosError, VF, VI, VS, int, num, str, varType } from '../interp/values'
 import { varKey } from '../interp/prescan'
 import type { Instr, Func } from '../interp/builtins'
+import { implLabel, implSlots, qualifyForSlots, type ExtensionImpl } from './extimpl'
 import { makeLdosFunctions, makeLdosInstructions } from './ldos'
-import { makeTurboFunctions, makeTurboInstructions, turboDefault } from './turbo'
-import { makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
+import { TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions, turboDefault } from './turbo'
+import { PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
 import { makeSpeechFunctions, makeSpeechInstructions } from './speech'
 import { makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
 import { makeCtextFunctions, makeCtextInstructions } from './ctext'
 import { makeSticksFunctions, makeSticksInstructions } from './sticks'
-import { makeTdFunctions, makeTdInstructions } from './td'
+import { TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td'
 import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
 import { encodeIlbm, parseIlbm } from '../loader/iff'
@@ -4838,7 +4839,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
  * a new extension file cannot be implemented-but-unreported.
  */
 /**
- * The dispatch layers, innermost first.
+ * Core, then every ported extension, innermost first.
  *
  * On a real machine this list could not collide: core keywords are core
  * tokens and extension keywords are (slot, id) pairs, so `Sprite Col` from
@@ -4852,36 +4853,97 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
  * extensions the earlier-listed one keeps it. `keywordLayerCollisions` below
  * reports anything that had to be resolved that way, and a test asserts the
  * list is empty — a collision should be a red build, not a resolution rule
- * quietly doing its job.
+ * quietly doing its job. A port that legitimately needs a name another layer
+ * owns declares it in `qualified` instead and answers per slot; see
+ * ./extimpl.ts.
+ *
+ * The ids are registry identities, checked against the registry by
+ * extimpl.test.ts. They used to be free text, and six of the eight named no
+ * registered extension at all.
  */
-const INSTR_LAYERS: Array<[string, (rt: Runtime) => Record<string, Instr>]> = [
-  ['core', makeInstructions],
-  ['ldos-2.5', makeLdosInstructions],
-  ['turbo-plus', makeTurboInstructions],
-  ['amos3d', makeTdInstructions],
-  ['personnal', makePersonnalInstructions],
-  ['music-speech', makeSpeechInstructions],
-  ['ioports', makeIoPortsInstructions],
-  ['ctext-1.32', makeCtextInstructions],
-  ['sticks-1.01b', makeSticksInstructions],
+const EXT_IMPLS: readonly ExtensionImpl[] = [
+  {
+    ids: ['ldos-2.5', 'ldos-2.6'],
+    instructions: makeLdosInstructions,
+    functions: makeLdosFunctions,
+  },
+  {
+    ids: ['turbo-plus-1.0', 'turbo-plus-1.9', 'turbo-plus-2.15'],
+    instructions: makeTurboInstructions,
+    functions: makeTurboFunctions,
+    errors: TURBO_ERRORS,
+  },
+  {
+    ids: ['amos3d-1.0'],
+    instructions: makeTdInstructions,
+    functions: makeTdFunctions,
+    errors: TD_ERRORS,
+  },
+  {
+    ids: ['personal-1.0b', 'personnal-1.1'],
+    instructions: makePersonnalInstructions,
+    functions: makePersonnalFunctions,
+    // core owns Sprite Col and TURBO owns Right Click
+    qualified: ['sprite col', 'right click'],
+    errors: PERSONNAL_ERRORS,
+  },
+  {
+    // the speech slice of the Music extension: Say, and the mouth stream
+    ids: ['amospro-music-2.0'],
+    instructions: makeSpeechInstructions,
+    functions: makeSpeechFunctions,
+  },
+  {
+    ids: ['amospro-ioports-2.0'],
+    instructions: makeIoPortsInstructions,
+    functions: makeIoPortsFunctions,
+  },
+  {
+    // 'ctext-1.0' is the registry's stable key for CText; the library is 1.32
+    ids: ['ctext-1.0'],
+    instructions: makeCtextInstructions,
+    functions: makeCtextFunctions,
+  },
+  {
+    ids: ['sticks-1.01b'],
+    instructions: makeSticksInstructions,
+    functions: makeSticksFunctions,
+  },
 ]
 
-const FUNC_LAYERS: Array<[string, (rt: Runtime) => Record<string, Func>]> = [
-  ['core', makeFunctions],
-  ['ldos-2.5', makeLdosFunctions],
-  ['turbo-plus', makeTurboFunctions],
-  ['amos3d', makeTdFunctions],
-  ['personnal', makePersonnalFunctions],
-  ['music-speech', makeSpeechFunctions],
-  ['ioports', makeIoPortsFunctions],
-  ['ctext-1.32', makeCtextFunctions],
-  ['sticks-1.01b', makeSticksFunctions],
-]
+/** the ports, for the tests and docs that need to see the contract */
+export function extensionImpls(): readonly ExtensionImpl[] {
+  return EXT_IMPLS
+}
 
-function mergeLayers<T>(rt: Runtime, layers: Array<[string, (rt: Runtime) => Record<string, T>]>): Record<string, T> {
-  const out: Record<string, T> = {}
-  for (const [, make] of layers) for (const [k, v] of Object.entries(make(rt))) if (!(k in out)) out[k] = v
+/** every layer's table, labelled, with qualified names bound to their slots */
+function layers<T>(
+  rt: Runtime,
+  kind: 'instructions' | 'functions',
+  core: Record<string, T>,
+): Array<[string, Record<string, T>]> {
+  const out: Array<[string, Record<string, T>]> = [['core', core]]
+  for (const impl of EXT_IMPLS) {
+    const make = impl[kind] as ((rt: Runtime) => Record<string, T>) | undefined
+    if (!make) continue
+    const slots = implSlots(impl, rt.extBindings)
+    out.push([implLabel(impl), qualifyForSlots(make(rt), impl.qualified ?? [], slots)])
+  }
   return out
+}
+
+function mergeLayers<T>(layered: Array<[string, Record<string, T>]>): Record<string, T> {
+  const out: Record<string, T> = {}
+  for (const [, table] of layered) for (const [k, v] of Object.entries(table)) if (!(k in out)) out[k] = v
+  return out
+}
+
+function instrLayers(rt: Runtime): Array<[string, Record<string, Instr>]> {
+  return layers(rt, 'instructions', makeInstructions(rt))
+}
+
+function funcLayers(rt: Runtime): Array<[string, Record<string, Func>]> {
+  return layers(rt, 'functions', makeFunctions(rt))
 }
 
 /**
@@ -4921,21 +4983,23 @@ export const DECLARED_BUILTIN_SHADOWS = new Set<string>([
 /** builtins names the runtime layer overrides, computed from the live tables. */
 export function builtinsShadowedByRuntime(rt: Runtime): string[] {
   const out: string[] = []
-  for (const k of Object.keys(INSTR)) if (k in mergeLayers(rt, INSTR_LAYERS)) out.push(k)
-  for (const k of Object.keys(FUNCS)) if (k in mergeLayers(rt, FUNC_LAYERS)) out.push(k)
+  const instr = mergeLayers(instrLayers(rt))
+  const funcs = mergeLayers(funcLayers(rt))
+  for (const k of Object.keys(INSTR)) if (k in instr) out.push(k)
+  for (const k of Object.keys(FUNCS)) if (k in funcs) out.push(k)
   return out.sort()
 }
 
 /** Every name claimed by more than one layer, with the layers that claim it. */
 export function keywordLayerCollisions(rt: Runtime): Array<{ table: string; name: string; layers: string[] }> {
   const found: Array<{ table: string; name: string; layers: string[] }> = []
-  for (const [table, layers] of [
-    ['instructions', INSTR_LAYERS],
-    ['functions', FUNC_LAYERS],
-  ] as Array<[string, Array<[string, (rt: Runtime) => Record<string, unknown>]>]>) {
+  for (const [table, layered] of [
+    ['instructions', instrLayers(rt)],
+    ['functions', funcLayers(rt)],
+  ] as Array<[string, Array<[string, Record<string, unknown>]>]>) {
     const owner = new Map<string, string[]>()
-    for (const [name, make] of layers) {
-      for (const k of Object.keys(make(rt))) owner.set(k, [...(owner.get(k) ?? []), name])
+    for (const [name, tbl] of layered) {
+      for (const k of Object.keys(tbl)) owner.set(k, [...(owner.get(k) ?? []), name])
     }
     for (const [name, ls] of owner) if (ls.length > 1) found.push({ table, name, layers: ls })
   }
@@ -4943,9 +5007,9 @@ export function keywordLayerCollisions(rt: Runtime): Array<{ table: string; name
 }
 
 export function makeAllInstructions(rt: Runtime): Record<string, Instr> {
-  return mergeLayers(rt, INSTR_LAYERS)
+  return mergeLayers(instrLayers(rt))
 }
 
 export function makeAllFunctions(rt: Runtime): Record<string, Func> {
-  return mergeLayers(rt, FUNC_LAYERS)
+  return mergeLayers(funcLayers(rt))
 }
