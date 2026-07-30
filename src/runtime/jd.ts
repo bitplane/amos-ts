@@ -534,6 +534,143 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
 
 
     /**
+     * THE WAITERS. Jd Mwait, Jd Keywait, Jd Wait Amiga and Jd Wait Event all
+     * spin on the hardware — `dmouse: btst #6,$bfe001 / beq dmouse` is the
+     * shape of every one of them (+|jd.s:2031-2743). A browser cannot spin, so
+     * each blocks the interpreter with a `waitInput` reason and RE-RUNS its
+     * statement when the driver sees the input, which is how Wait Key already
+     * works. The keyword then reads the live state and answers.
+     *
+     * That is the same wait a program experiences, expressed the only way this
+     * host can express it.
+     */
+
+    /**
+     * =Jd Mwait — routine 25 (+|jd.s:2031). Waits for a mouse button and
+     * answers which: 1 left, 2 right, 3 both.
+     */
+    'jd mwait'(it): Value {
+      const k = rt.input.mouseK
+      if (k === 0) {
+        it.block({ type: 'waitInput', mouse: true, key: false }, true)
+        return VI(0)
+      }
+      return VI((k & 1 ? 1 : 0) | (k & 2 ? 2 : 0))
+    },
+
+    /**
+     * =Jd Keywait(allowed$) — routine 26 (+|jd.s:2053). Waits until one of the
+     * allowed characters is typed and answers it. An empty allowed string
+     * accepts anything.
+     */
+    'jd keywait'(it, a): Value {
+      const allowed = sarg(a, 0)
+      const q = rt.input.keyQueue
+      const hit = q.length > 0 && (allowed === '' || allowed.includes(q[0]!.ch))
+      if (!hit) {
+        it.block({ type: 'waitInput', mouse: false, key: true, keys: allowed }, true)
+        return VI(0)
+      }
+      return VI(q.shift()!.ch.charCodeAt(0))
+    },
+
+    /**
+     * =Jd Wait Amiga — routine 43 (+|jd.s:2507). Waits for an Amiga key held
+     * with another key, and answers the other one.
+     */
+    'jd wait amiga'(it): Value {
+      const q = rt.input.keyQueue
+      const amiga = rt.input.keys.has(0x66) || rt.input.keys.has(0x67)
+      if (!(amiga && q.length > 0)) {
+        it.block({ type: 'waitInput', mouse: false, key: true, amiga: true }, true)
+        return VI(0)
+      }
+      return VI(q.shift()!.ch.charCodeAt(0))
+    },
+
+    /**
+     * =Jd Keypress — routine 69 (+|jd.s:3705). NOT a waiter: the key held
+     * right now, or 0. Special keys included, which is what the manual means
+     * by "incl. special keys" — it reads the raw code rather than the
+     * translated character.
+     */
+    'jd keypress'(): Value {
+      const q = rt.input.keyQueue
+      return VI(q.length > 0 ? q[0]!.scan : 0)
+    },
+
+    /**
+     * =Jd Moff Click, =Jd Moff Key and =Jd Double Click — routines 141, 142
+     * and 145 (+|jd.s:5889, :5907, :5941).
+     *
+     * These exist because of Jd Multi Off, and knowing what that IS explains
+     * them: it is exec's Forbid (`jsr -132(a6)`), not an AMOS setting. With
+     * multitasking forbidden, input.device cannot run, so AMOS's own readers
+     * stop being updated — and JD provides three that go to the hardware
+     * instead: CIA-A PRA bit 6 and POTINP bit 2 for the buttons, the raw
+     * keyboard serial register at $bfec01 for the key.
+     *
+     * There is no Forbid here and one input path, so these read the same host
+     * state the ordinary keywords do. That makes them agree with their
+     * ordinary counterparts always, where on the machine they agree only until
+     * something calls Forbid — which is the direction that costs a program
+     * nothing.
+     */
+    'jd moff click'(): Value {
+      const k = rt.input.mouseK
+      return VI((k & 1 ? 1 : 0) | (k & 2 ? 2 : 0))
+    },
+    'jd moff key'(): Value {
+      const q = rt.input.keyQueue
+      return VI(q.length > 0 ? q[0]!.scan : 0)
+    },
+    'jd double click'(): Value {
+      // the routine times two presses of the left button against a counter;
+      // the host reports the button, and a double click is a pair of them
+      return VI(rt.input.mouseK & 1 ? 1 : 0)
+    },
+
+    /**
+     * =Jd Get String$(default$,maxlen) and =Jd Get Number(default,maxlen) —
+     * routines 44 and 37 (+|jd.s:2521, :2217). Editable input at the cursor,
+     * seeded with a default and bounded by a length; Get Number takes 254 when
+     * the length is 0 (`no_lim`, :2222).
+     *
+     * The routines are their own line editors: they print the default, blank
+     * the field, then loop on Inkey while watching the raw keyboard register
+     * for the delete key ($bfec01, code 115) and repositioning the cursor
+     * themselves. This port has one line editor already — the block the core's
+     * Input uses — and these go through it, so the host supplies the editing.
+     *
+     * DEVIATION, stated plainly: the field is not painted at a fixed width and
+     * the editing keys are the host's, not JD's. What a program gets back is
+     * the same string or number within the same length bound; what a person
+     * sees while typing it differs.
+     */
+    'jd get string$'(it, a): Value {
+      const dflt = sarg(a, 0)
+      const max = arg(a, 1)
+      const line = it.io.input ? it.io.input('') : undefined
+      if (line === undefined) {
+        it.block({ type: 'input', prompt: '' }, true)
+        return VS(dflt)
+      }
+      const v = line === '' ? dflt : line
+      return VS(max > 0 ? v.slice(0, max) : v)
+    },
+    'jd get number'(it, a): Value {
+      const dflt = arg(a, 0)
+      const max = arg(a, 1) === 0 ? 254 : arg(a, 1)
+      const line = it.io.input ? it.io.input('') : undefined
+      if (line === undefined) {
+        it.block({ type: 'input', prompt: '' }, true)
+        return VI(dflt)
+      }
+      const text = line.slice(0, max)
+      return VI(text.trim() === '' ? dflt : Number(text) || 0)
+    },
+
+    /**
      * THE ARRAY KEYWORDS work on an ADDRESS, not on an array reference. The
      * manual's own example says so — `A=ARRAY(VAR$(0)) : P=Jd Find(ARRAY,S$)`
      * — so a program passes what AMOS's =Array gives it, and JD walks the
@@ -996,6 +1133,59 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
      * other n/a keyword in this port does.
      */
 
+
+    /**
+     * Jd Spread "text",direction,delay — routine 46 (+|jd.s:2755) — and
+     * Jd Tscroll "text",direction,delay — routine 47 (:2863).
+     *
+     * Both animate through AMOS's Centre: Spread reveals a centred string a
+     * character at a time, Tscroll runs it past as a marquee. Each waits
+     * `delay` between frames through DOS's Delay (`jsr -198(a6)`), each takes
+     * 10 for a negative delay, and Tscroll ends when the left mouse button or
+     * a key arrives (`btst #6,$bfe001`, :2882).
+     *
+     * DEVIATION: the animation is not paced here. Spread writes its finished
+     * line — which is where the effect ends up — and Tscroll writes the text
+     * once and then blocks for the input that would have stopped it, so a
+     * program moves on at the same point in its own logic. What is lost is the
+     * motion between those two states, which is the port-wide timing deviation
+     * (#87) rather than a JD one; what is kept is the console state a program
+     * can observe afterwards and the input it waits for.
+     */
+    'jd spread'(it) {
+      const text = it.evalStr()
+      it.expect(',')
+      it.evalInt() // direction
+      it.expect(',')
+      it.evalInt() // delay, 10 when negative
+      const cols = rt.screen.cols
+      const pad = Math.max(0, Math.floor((cols - text.length) / 2))
+      it.write(' '.repeat(pad) + text + '\n')
+    },
+    'jd tscroll'(it) {
+      const text = it.evalStr()
+      it.expect(',')
+      it.evalInt() // direction: positive scrolls right, negative left
+      it.expect(',')
+      it.evalInt() // delay
+      if (rt.input.mouseK === 0 && rt.input.keyQueue.length === 0) {
+        it.block({ type: 'waitInput', mouse: true, key: true }, true)
+        return
+      }
+      const cols = rt.screen.cols
+      const pad = Math.max(0, Math.floor((cols - text.length) / 2))
+      it.write(' '.repeat(pad) + text + '\n')
+    },
+
+    /**
+     * Jd Wait Event — routine 45 (+|jd.s:2743). Blocks until a mouse button
+     * or a key, whichever comes first.
+     */
+    'jd wait event'(it) {
+      if (rt.input.mouseK === 0 && rt.input.keyQueue.length === 0) {
+        it.block({ type: 'waitInput', mouse: true, key: true }, true)
+      }
+    },
 
     /**
      * Jd Reduce Dim array,n / Jd Reset Dim array — routines 148 and 149

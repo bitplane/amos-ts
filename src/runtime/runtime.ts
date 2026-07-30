@@ -3391,6 +3391,18 @@ export class Runtime {
     else if (b.type === 'waitKey' && this.input.keyQueue.length > 0) {
       this.input.keyQueue.shift()
       this.interp.blocked = null
+    } else if (b.type === 'waitInput') {
+      // the JD waiters: a button, a key from an allowed set, or either. The
+      // statement re-runs on resume (block(..., true)), so the keyword itself
+      // reads the live state and answers — nothing is consumed here except
+      // the keystroke, as Wait Key consumes one.
+      const btn = b.mouse && this.input.mouseK !== 0
+      const keyed =
+        b.key &&
+        this.input.keyQueue.length > 0 &&
+        (b.keys === undefined || b.keys === '' || b.keys.includes(this.input.keyQueue[0]!.ch)) &&
+        (b.amiga !== true || (this.input.keys.has(0x66) || this.input.keys.has(0x67)))
+      if (btn || keyed) this.interp.blocked = null
     } else if (b.type === 'input' && this.pendingLine !== null) this.interp.blocked = null
     else if (b.type === 'dialog') {
       const d = this.dialogs.get(b.channel)

@@ -82,6 +82,13 @@ export interface Target {
 export type Block =
   | { type: 'wait'; until: number }
   | { type: 'waitKey' }
+  /**
+   * Waiting on the mouse, the keyboard, or either — what JD's Jd Mwait,
+   * Jd Keywait, Jd Wait Amiga and Jd Wait Event block on (+|jd.s:2031-2743).
+   * `keys` narrows it to a set of characters when the keyword takes one
+   * (Keywait's allowed list); `amiga` requires the Amiga key held with it.
+   */
+  | { type: 'waitInput'; mouse: boolean; key: boolean; keys?: string; amiga?: boolean }
   | { type: 'input'; prompt: string }
   | { type: 'dialog'; channel: number }
   | { type: 'fsel' }

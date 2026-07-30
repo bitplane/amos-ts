@@ -1304,6 +1304,17 @@ export const NA = new Set<string>([
   // count as implemented, which coverage.test.ts checks.
   'jd setdate',
   'jd setclock',
+  // JD: Multi Off and Multi On are exec's Forbid and Permit (`jsr -132(a6)`
+  // and `-138`, +|jd.s:5925, :5933) — the OS multitasking switch, not an AMOS
+  // setting. There is one task here and nothing to forbid, so there is no
+  // state to change and no way to change it. Jd Moff Click / Moff Key /
+  // Double Click, which exist BECAUSE Forbid stops input.device from running,
+  // are implemented: they read the same host input the ordinary keywords do.
+  'jd multi off',
+  'jd multi on',
+  // and the drive LED: CIA-A PRA bit 1 (:5970, :5977). No LED.
+  'jd dled off',
+  'jd dled on',
   // TURBO Plus: routine 132 points COP1LC at graphics.library's own copper
   // list and clears a flag in the AMOS workspace, handing the display back
   // to the system so a developer can see the machine underneath. There is

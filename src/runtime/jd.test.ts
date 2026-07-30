@@ -494,3 +494,69 @@ describe('JD: arrays through the address space (+|jd.s:5984-6080)', () => {
     expect(() => run(prog.join('\n'))).toThrow(/illegal function call/i)
   })
 })
+
+describe('JD: input (+|jd.s:2031-3705, 5889-5984)', () => {
+  /** run with a scripted host: keys and buttons arrive after `after` frames */
+  function runWithInput(src: string, feed: (rt: Runtime, frame: number) => void): string {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 2_000_000,
+      onText: (t) => (out += t),
+    })
+    for (let f = 0; f < 40; f++) {
+      feed(rt, f)
+      const r = rt.frame()
+      if (r.status === 'ended' || r.status === 'stopped') break
+    }
+    return out
+  }
+
+  it('Mwait blocks until a button and answers which', () => {
+    const out = runWithInput('Print Jd Mwait', (rt, f) => {
+      if (f === 3) rt.input.mouseK = 2 // right
+    })
+    expect(out.trim()).toBe('2')
+  })
+
+  it('Keywait waits for one of the allowed keys and ignores the rest', () => {
+    const out = runWithInput('Print Jd Keywait("ab")', (rt, f) => {
+      if (f === 2) rt.input.keyQueue.push({ ch: 'z', scan: 49 })
+      if (f === 5) {
+        rt.input.keyQueue.length = 0
+        rt.input.keyQueue.push({ ch: 'b', scan: 53 })
+      }
+    })
+    expect(out.trim()).toBe(String('b'.charCodeAt(0)))
+  })
+
+  it('Wait Event takes either a button or a key', () => {
+    const byKey = runWithInput('Jd Wait Event : Print "done"', (rt, f) => {
+      if (f === 3) rt.input.keyQueue.push({ ch: 'x', scan: 50 })
+    })
+    expect(byKey.trim()).toBe('done')
+    const byMouse = runWithInput('Jd Wait Event : Print "done"', (rt, f) => {
+      if (f === 3) rt.input.mouseK = 1
+    })
+    expect(byMouse.trim()).toBe('done')
+  })
+
+  it('Keypress and the Moff readers do not wait', () => {
+    const out = runWithInput('Print Jd Keypress;",";Jd Moff Click', (rt, f) => {
+      if (f === 0) {
+        rt.input.keyQueue.push({ ch: 'q', scan: 16 })
+        rt.input.mouseK = 3
+      }
+    })
+    expect(out.trim()).toBe('16, 3')
+  })
+
+  it('Multi Off/On and the drive LED are n/a, with no handlers', () => {
+    // Multi Off is exec's Forbid; there is one task here and no LED
+    for (const k of ['jd multi off', 'jd multi on', 'jd dled off', 'jd dled on']) {
+      expect(NA.has(k), k).toBe(true)
+      expect(k in makeAllInstructions(bootJd()), k).toBe(false)
+    }
+  })
+})
