@@ -3921,8 +3921,39 @@ export class Runtime {
     // activating it expects the change to show, and several do exactly that
     // inside their main loop.
     if (this.copList1Addr !== null) this.loadCopperFrom(this.copList1Addr)
-    // Copper Off: the display is whatever the user's physical list says
-    if (!this.copperOn) {
+    // The list IS the display now, so it has to be current before it is
+    // walked. frame() builds it each tick, but composite() is also called
+    // directly — a driver grabbing a frame, or a test — and those used to get
+    // the modelled renderer, which needed no list at all.
+    if (this.copperOn) this.buildCopperList()
+    /**
+     * THE COLLAPSE, staged. Interpreting the list is how the display is
+     * produced under Copper Off, and AMOS_LIST_DISPLAY=1 makes it the only
+     * renderer — the end state, where a display feature is implemented once
+     * in terms of the registers the hardware actually has.
+     *
+     * It is opt-in rather than the default because six things still differ,
+     * all of them outside the playfield fetch, and shipping a display that is
+     * six behaviours wrong to save one code path is a bad trade. What is left:
+     *
+     *  - the border. The modelled path fills gap lines from Colour Back (the
+     *    fond, EcCopBa) and the list does not carry it, so `Colour Back` and
+     *    a rainbow on colour 0 below the screen both come out wrong.
+     *  - sprite priority. With the copper on, the system list writes SPRxPT,
+     *    so the sprite side goes through drawListSprites, which does not
+     *    honour PF1P/PF2P the way drawHwSprites does — Sprite Priority 0,
+     *    a sprite showing through playfield colour 0, and PF2P placing a
+     *    sprite between the playfields of a dual pair all differ.
+     *  - the mouse pointer, which is hardware sprite 0 and rides the same
+     *    path.
+     *
+     * The playfield itself agrees on every scene in display.diff.test.ts
+     * including dual playfield, which is what Phase 4 was for. These six are
+     * the sprite and border layers around it, and each is a small piece of
+     * the same shape of work: teach the list to carry what the modelled path
+     * knows implicitly.
+     */
+    if (!this.copperOn || process.env.AMOS_LIST_DISPLAY === '1') {
       // no system list patches SPRxPT now, so the sprite side of the display
       // is whatever the user's list points at (TCopOn clears T_HsChange,
       // +W.s:6822). Until a list writes a sprite pointer the registers still
