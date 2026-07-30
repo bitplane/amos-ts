@@ -1315,6 +1315,18 @@ export const NA = new Set<string>([
   // and the drive LED: CIA-A PRA bit 1 (:5970, :5977). No LED.
   'jd dled off',
   'jd dled on',
+  // JD: `jmp $fc00d2` — a jump into Kickstart that reboots the machine
+  // (+|jd.s:3623). A page cannot reset the computer and should not be able to.
+  'jd reset',
+  // the BUG macro's ILLEGAL instruction, there to drop a debugger in
+  // (+|jd.s:835 with macros.s). No debugger, and deliberately crashing the
+  // interpreter is not a service to anyone.
+  'jd private',
+  // graphics.library's RastPort pointer (T_RastPort, +|jd.s:2340). The value
+  // is only useful to something that then calls graphics.library, which this
+  // port does not have; handing out a number that addresses nothing would be
+  // worse than saying so.
+  'jd rastport',
   // TURBO Plus: routine 132 points COP1LC at graphics.library's own copper
   // list and clears a flag in the AMOS workspace, handing the display back
   // to the system so a developer can see the machine underneath. There is

@@ -404,6 +404,14 @@ export class Display {
     const W = 640
     const H = Display.COMPOSITE_LINES * 2
     const data = out ?? new Uint8ClampedArray(W * H * 4)
+    // Jd Video Off cleared sprite, copper and bitplane DMA and blacked
+    // COLOR00 (+|jd.s:5145). With the copper stopped there is no list left to
+    // walk, so the display stays black until Jd Video On puts the three back.
+    if (this.rt.jd.videoOff) {
+      data.fill(0)
+      for (let o = 3; o < data.length; o += 4) data[o] = 255
+      return { width: W, height: H, data }
+    }
     this.activateRainbows()
     // Something has pointed COP1LC at a list of its own (Personnal's Active
     // Copper). The hardware re-reads from that address every frame, so copy

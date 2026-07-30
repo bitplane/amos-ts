@@ -560,3 +560,68 @@ describe('JD: input (+|jd.s:2031-3705, 5889-5984)', () => {
     }
   })
 })
+
+describe('JD: screen readbacks and drawing (+|jd.s:1479-6199)', () => {
+  it('reads the screen state AMOS holds', () => {
+    expect(run('Screen Open 1,320,200,32,Lowres : Print Jd Screen Planes').trim()).toBe('5')
+    expect(run('Screen Offset 0,7,9 : Print Jd Xoffset;",";Jd Yoffset').trim()).toBe('7, 9')
+  })
+
+  it('X Pos and Y Pos are polar, in degrees, truncated', () => {
+    expect(run('Print Jd X Pos(100,100,10,0)').trim()).toBe('110')
+    expect(run('Print Jd Y Pos(100,100,10,90)').trim()).toBe('110')
+    expect(run('Print Jd X Pos(100,100,10,180)').trim()).toBe('90')
+  })
+
+  it('Char X and Char Y follow Jd Textfont', () => {
+    expect(run('Print Jd Char X;",";Jd Char Y').trim()).toBe('8, 8')
+    expect(run('Jd Textfont "topaz",16 : Print Jd Char X;",";Jd Char Y').trim()).toBe('8, 16')
+  })
+
+  it('Draw Angle and Grid put ink on the screen', () => {
+    const drew = run([
+      'Screen Open 0,320,200,16,Lowres : Cls 0 : Ink 5',
+      'Jd Draw Angle 10,10,50,0',
+      'Print Point(30,10)',
+    ].join('\n'))
+    expect(drew.trim()).toBe('5')
+    const grid = run([
+      'Screen Open 0,320,200,16,Lowres : Cls 0 : Ink 3',
+      'Jd Grid 10,10,40,40,10,10',
+      'Print Point(10,20);",";Point(20,10)',
+    ].join('\n'))
+    expect(grid.trim()).toBe('3, 3')
+  })
+
+  it('Exdatazone hands out an address that resolves', () => {
+    const out = run('A=Jd Exdatazone(22) : Loke A,$1234 : Print Leek(A)').trim()
+    expect(out).toBe(String(0x1234))
+    expect(run('Print Jd Exdatazone(0)').trim()).toBe('0')
+  })
+
+  it('Video Off blanks the display until Video On', () => {
+    let out = ''
+    const rt = new Runtime(tokenize('Screen Open 0,320,200,16,Lowres : Cls 5 : Jd Video Off', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 200_000,
+      onText: (t) => (out += t),
+    })
+    rt.runHeadless(50)
+    const black = rt.composite().data
+    let lit = 0
+    for (let i = 0; i < black.length; i += 4) if (black[i]! | black[i + 1]! | black[i + 2]!) lit++
+    expect(lit).toBe(0)
+    rt.jd.videoOff = false
+    const back = rt.composite().data
+    let lit2 = 0
+    for (let i = 0; i < back.length; i += 4) if (back[i]! | back[i + 1]! | back[i + 2]!) lit2++
+    expect(lit2).toBeGreaterThan(0)
+  })
+
+  it('the machine-level keywords are n/a, with reasons', () => {
+    // a hard reset, an ILLEGAL instruction, and a graphics.library pointer
+    for (const k of ['jd reset', 'jd private', 'jd rastport']) expect(NA.has(k), k).toBe(true)
+    expect('jd reset' in makeAllInstructions(bootJd())).toBe(false)
+  })
+})

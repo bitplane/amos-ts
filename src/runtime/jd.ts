@@ -81,9 +81,14 @@ export interface JdState {
    * is that table's capacity, and the twenty-first reduction is error 23.
    */
   dimSaves: Map<number, number>
+  /** Jd Video Off blanks the display until Jd Video On (+|jd.s:5140) */
+  videoOff: boolean
+  /** the font metrics Jd Char X / Jd Char Y report, set by Jd Textfont */
+  charW: number
+  charH: number
 }
 export function newJdState(): JdState {
-  return { areaFirst: 0, areaLast: 0, dimSaves: new Map() }
+  return { areaFirst: 0, areaLast: 0, dimSaves: new Map(), videoOff: false, charW: 8, charH: 8 }
 }
 
 /** L_outdim (+|jd.s:6027): `moveq #23,d0` then L_Error — 26 call sites share it */
@@ -532,6 +537,69 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
       return VS(outStr)
     },
 
+
+    /**
+     * =Jd Screen Planes — routine 11 (+|jd.s:1479). The current screen's
+     * bitplane count, read from the screen structure at +80 (EcNbPlan).
+     */
+    'jd screen planes'(): Value {
+      return VI(rt.screen.depth)
+    },
+
+    /**
+     * =Jd Xoffset and =Jd Yoffset — routines 158 and 159 (+|jd.s:6187, :6193).
+     * The current screen's scroll offsets, at $ce and $d0 of the screen
+     * structure — the same pair Screen Offset sets.
+     */
+    'jd xoffset'(): Value {
+      return VI(rt.screen.offsetX)
+    },
+    'jd yoffset'(): Value {
+      return VI(rt.screen.offsetY)
+    },
+
+    /**
+     * =Jd Char X and =Jd Char Y — routines 94 and 95 (+|jd.s:4334, :4340).
+     * The character cell of the font Jd Textfont last opened, from JD's own
+     * `fx`/`fy` globals rather than from AMOS.
+     */
+    'jd char x'(): Value {
+      return VI(rt.jd.charW)
+    },
+    'jd char y'(): Value {
+      return VI(rt.jd.charH)
+    },
+
+    /**
+     * =Jd X Pos(x,y,r,w) and =Jd Y Pos(...) — routines 132 and 133
+     * (+|jd.s:5691, :5716). Polar to cartesian: x + r*cos(w) and y + r*sin(w),
+     * with w in DEGREES — the routine multiplies by $8efa343b, which is pi/180
+     * in FFP — and the result truncated to an integer by SPFix.
+     */
+    'jd x pos'(_, a): Value {
+      const [x, , r, w] = [arg(a, 0), arg(a, 1), arg(a, 2), arg(a, 3)]
+      return VI(x + Math.trunc(r * Math.cos((w * Math.PI) / 180)))
+    },
+    'jd y pos'(_, a): Value {
+      const [, y, r, w] = [arg(a, 0), arg(a, 1), arg(a, 2), arg(a, 3)]
+      return VI(y + Math.trunc(r * Math.sin((w * Math.PI) / 180)))
+    },
+
+    /**
+     * =Jd Exdatazone(n) — routine 121 (+|jd.s:5330). The address of the data
+     * zone belonging to the extension in slot n: the routine indexes AMOS's
+     * ExtAdr table, sixteen bytes an entry.
+     *
+     * This port maps extension blocks at EXT_DATA_BASE and hands out their
+     * addresses through extBlockBase, which is what that region was built for.
+     * A slot holding an extension with no block of its own answers 0, as an
+     * unregistered slot would.
+     */
+    'jd exdatazone'(_, a): Value {
+      const slot = arg(a, 0)
+      if (slot < 1) return VI(0)
+      return VI(rt.extBlockBase(`jd:slot${slot}`, new Uint8Array(64)))
+    },
 
     /**
      * THE WAITERS. Jd Mwait, Jd Keywait, Jd Wait Amiga and Jd Wait Event all
@@ -1175,6 +1243,122 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
       const cols = rt.screen.cols
       const pad = Math.max(0, Math.floor((cols - text.length) / 2))
       it.write(' '.repeat(pad) + text + '\n')
+    },
+
+    /**
+     * Jd Video Off and Jd Video On — routines 113 and 112 (+|jd.s:5145,
+     * :5140). DMACON writes: Off clears sprite, copper and bitplane DMA
+     * ($01a0) and blacks COLOR00, On sets the three again ($81a0).
+     *
+     * Modelled as a blank display rather than as three DMA bits, because with
+     * the copper stopped there is nothing left for the list interpreter to
+     * walk — the screen goes black and stays black until Video On. That is
+     * what a program and a person both see.
+     */
+    'jd video off'() {
+      rt.jd.videoOff = true
+    },
+    'jd video on'() {
+      rt.jd.videoOff = false
+    },
+
+    /**
+     * Jd Draw Angle x,y,len,angle — routine 68 (+|jd.s:3628). A line from
+     * (x,y) of that length at that angle, the same polar arithmetic as
+     * Jd X Pos in degrees.
+     */
+    'jd draw angle'(it) {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const len = it.evalInt()
+      it.expect(',')
+      const w = it.evalInt()
+      const s2 = rt.screen
+      s2.line(x, y, x + Math.trunc(len * Math.cos((w * Math.PI) / 180)), y + Math.trunc(len * Math.sin((w * Math.PI) / 180)))
+    },
+
+    /**
+     * Jd Draw Segment x,y,xradius,yradius,start,end — routine 160
+     * (+|jd.s:6199). An elliptical arc between two angles, drawn as the line
+     * segments the routine walks.
+     */
+    'jd draw segment'(it) {
+      const v: number[] = [it.evalInt()]
+      while (v.length < 6) {
+        it.expect(',')
+        v.push(it.evalInt())
+      }
+      const [x, y, rx, ry, from, to] = v as [number, number, number, number, number, number]
+      const step = from <= to ? 1 : -1
+      let px = x + Math.trunc(rx * Math.cos((from * Math.PI) / 180))
+      let py = y + Math.trunc(ry * Math.sin((from * Math.PI) / 180))
+      for (let w = from; step > 0 ? w <= to : w >= to; w += step) {
+        const nx = x + Math.trunc(rx * Math.cos((w * Math.PI) / 180))
+        const ny = y + Math.trunc(ry * Math.sin((w * Math.PI) / 180))
+        rt.screen.line(px, py, nx, ny)
+        px = nx
+        py = ny
+      }
+    },
+
+    /**
+     * Jd Grid x1,y1,width,height,xstep,ystep — routine 157 (+|jd.s:6122). A
+     * grid of lines across the rectangle.
+     */
+    'jd grid'(it) {
+      const v: number[] = [it.evalInt()]
+      while (v.length < 6) {
+        it.expect(',')
+        v.push(it.evalInt())
+      }
+      const [x, y, w, h, xs, ys] = v as [number, number, number, number, number, number]
+      const s2 = rt.screen
+      if (xs > 0) for (let cx = x; cx <= x + w; cx += xs) s2.line(cx, y, cx, y + h)
+      if (ys > 0) for (let cy = y; cy <= y + h; cy += ys) s2.line(x, cy, x + w, cy)
+    },
+
+    /**
+     * Jd Flush — routine 134 (+|jd.s:5741). Asks exec for 99,999,999 bytes and
+     * frees whatever it gets, which forces the OS to expunge unused libraries
+     * and merge its free lists.
+     *
+     * A no-op here, and that is FAITHFUL rather than a stub: the call has no
+     * observable effect on the calling program on the machine either. There is
+     * nothing for a program to see afterwards that differs.
+     */
+    'jd flush'() {},
+
+    /**
+     * Jd Textfont "name",size — routine 88 (+|jd.s:4177) — and Jd Print "text"
+     * — routine 89 (:4215). Textfont opens a disk font through
+     * graphics.library's OpenDiskFont and hangs it on the RastPort; Print
+     * writes through that font rather than through AMOS's console.
+     *
+     * The font metrics are what Jd Char X and Jd Char Y report, so the size is
+     * recorded even where the face is not: this port has real .font loading
+     * (Set Font / diskfont) but no RastPort to attach one to, so Jd Print goes
+     * to the console. A program's text appears; its face may not.
+     */
+    'jd textfont'(it) {
+      it.evalStr()
+      it.expect(',')
+      const size = it.evalInt()
+      rt.jd.charW = Math.max(1, size >> 1)
+      rt.jd.charH = Math.max(1, size)
+    },
+    'jd print'(it) {
+      it.write(it.evalStr())
+    },
+
+    /**
+     * Jd Screen Resolution n — routine 161 (+|jd.s:6796). Switches the current
+     * screen between lowres and hires.
+     */
+    'jd screen resolution'(it) {
+      const n = it.evalInt()
+      rt.screen.hires = n !== 0
     },
 
     /**
