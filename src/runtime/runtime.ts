@@ -229,6 +229,39 @@ export interface StosMove {
   frozen: boolean
 }
 
+
+/**
+ * An AMOS array block starts with a header, and =Array hands out its address.
+ *
+ * GetTablo (+ILib.s:4042) is the read side and it is unambiguous — it walks
+ * the block as: a BYTE of dimension count, a BYTE of element-size shift, then
+ * per dimension a WORD of size and a WORD of stride, then the elements. So a
+ * one-dimensional array of longwords has a six-byte header and its first
+ * element at +6, and InDim (:3978) allocates exactly `dims*4 + 2` bytes for it.
+ *
+ * The size word is the DIM value, not the element count: `Dim A(10)` stores 10
+ * and holds eleven elements, because AMOS increments after storing (Dim2,
+ * :3961). Every consumer agrees — JD's Get Dim reads 2(a0) and its Array Clear
+ * wipes size+1 elements (+|jd.s:6074, :6066).
+ *
+ * This port used to map the elements at offset 0 with no header at all, so a
+ * program walking an array through =Array and Leek read one element early and
+ * could not find the dimension. The variable's type flag, which InDim writes
+ * at -2(a0), lives outside the block and is not mapped: nothing reads it
+ * through an address.
+ */
+const ARRAY_HEADER = 6
+
+function writeArrayHeader(buf: Uint8Array, count: number): void {
+  buf[0] = 1 // one dimension
+  buf[1] = 2 // element size shift: 4 bytes
+  const size = Math.max(0, count - 1) // the DIM value, one less than the count
+  buf[2] = (size >>> 8) & 0xff
+  buf[3] = size & 0xff
+  buf[4] = 0
+  buf[5] = 1 // stride, unused for the last dimension
+}
+
 export interface RuntimeOptions {
   extensions?: Map<number, TokenTable>
   /**
@@ -2395,23 +2428,34 @@ export class Runtime {
 
   /** the whole-array slot backing =Array() — int/float arrays only */
   varptrArray(key: string, arr: { data: Value[]; type?: number }, type: number): number {
+    // The header is written ONCE, the way Dim writes it and nothing else
+    // touches it — a sync that rewrote it every read would undo an extension
+    // that had changed the dimension word, which is exactly what JD's
+    // Jd Reduce Dim does (+|jd.s:5984).
+    let headerWritten = false
     return this.makeVarSlot(
       `a:${key}`,
-      Math.max(4, arr.data.length * 4),
+      ARRAY_HEADER + Math.max(4, arr.data.length * 4),
       (buf) => {
+        if (!headerWritten) {
+          writeArrayHeader(buf, arr.data.length)
+          headerWritten = true
+        }
         for (let i = 0; i < arr.data.length; i++) {
           const v = arr.data[i]!
           const n = v.k === 'str' ? 0 : v.n
           const raw = type === 1 ? toFFP(n) : n | 0
-          buf[i * 4] = (raw >>> 24) & 0xff
-          buf[i * 4 + 1] = (raw >>> 16) & 0xff
-          buf[i * 4 + 2] = (raw >>> 8) & 0xff
-          buf[i * 4 + 3] = raw & 0xff
+          const at = ARRAY_HEADER + i * 4
+          buf[at] = (raw >>> 24) & 0xff
+          buf[at + 1] = (raw >>> 16) & 0xff
+          buf[at + 2] = (raw >>> 8) & 0xff
+          buf[at + 3] = raw & 0xff
         }
       },
       (buf) => {
         for (let i = 0; i < arr.data.length; i++) {
-          const raw = ((buf[i * 4]! << 24) | (buf[i * 4 + 1]! << 16) | (buf[i * 4 + 2]! << 8) | buf[i * 4 + 3]!) >>> 0
+          const at = ARRAY_HEADER + i * 4
+          const raw = ((buf[at]! << 24) | (buf[at + 1]! << 16) | (buf[at + 2]! << 8) | buf[at + 3]!) >>> 0
           arr.data[i] = type === 1 ? VF(fromFFP(raw)) : VI(raw | 0)
         }
       },

@@ -75,9 +75,15 @@ export const JD_ERRORS = ['Illegal function call', 'Out of memory']
 export interface JdState {
   areaFirst: number
   areaLast: number
+  /**
+   * Jd Reduce Dim's undo table: `dimlist`..`dimendlist` (+|jd.s:5995), twenty
+   * six-byte entries of (array address, original size). The manual's "max. 20"
+   * is that table's capacity, and the twenty-first reduction is error 23.
+   */
+  dimSaves: Map<number, number>
 }
 export function newJdState(): JdState {
-  return { areaFirst: 0, areaLast: 0 }
+  return { areaFirst: 0, areaLast: 0, dimSaves: new Map() }
 }
 
 /** L_outdim (+|jd.s:6027): `moveq #23,d0` then L_Error — 26 call sites share it */
@@ -129,6 +135,34 @@ const JD_CENTURY_LEAPS = [1600, 2000, 2400, 2800, 3200, 3600, 4000, 4400, 4800]
 
 /** the day names as the 5.3 source spells them (+|jd.s:797-818) — English */
 const JD_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+/**
+ * An AMOS array block through the address space: the dimension WORD sits at
+ * +2 and the elements start at +6 (GetTablo +ILib.s:4042). JD reads exactly
+ * these offsets, which is the check that the port's own layout is right.
+ */
+const elemAddr = (base: number, i: number): number => base + 6 + i * 4
+
+function readWord(rt: Runtime, addr: number): number {
+  const hi = rt.resolveAddr(addr)
+  const lo = rt.resolveAddr(addr + 1)
+  return ((hi ? (hi.data[hi.off] ?? 0) : 0) << 8) | (lo ? (lo.data[lo.off] ?? 0) : 0)
+}
+function writeWord(rt: Runtime, addr: number, v: number): void {
+  const hi = rt.resolveWrite(addr)
+  const lo = rt.resolveWrite(addr + 1)
+  if (hi) hi.data[hi.off] = (v >>> 8) & 0xff
+  if (lo) lo.data[lo.off] = v & 0xff
+}
+function readLong(rt: Runtime, addr: number): number {
+  return ((readWord(rt, addr) << 16) | readWord(rt, addr + 2)) | 0
+}
+function writeLong(rt: Runtime, addr: number, v: number): void {
+  writeWord(rt, addr, (v >>> 16) & 0xffff)
+  writeWord(rt, addr + 2, v & 0xffff)
+}
+const arrayDim = (rt: Runtime, base: number): number => readWord(rt, base + 2)
+const setArrayDim = (rt: Runtime, base: number, v: number): void => writeWord(rt, base + 2, v)
 
 /** the host clock as a Date, which is where Date$ and Time$ both come from */
 function stampDate(rt: Runtime): Date {
@@ -498,6 +532,40 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
       return VS(outStr)
     },
 
+
+    /**
+     * THE ARRAY KEYWORDS work on an ADDRESS, not on an array reference. The
+     * manual's own example says so — `A=ARRAY(VAR$(0)) : P=Jd Find(ARRAY,S$)`
+     * — so a program passes what AMOS's =Array gives it, and JD walks the
+     * block itself: the dimension WORD at +2 and the elements from +6
+     * (GetTablo +ILib.s:4042, and JD reads exactly those offsets).
+     *
+     * That layout is now what =Array hands out, so these read and write real
+     * program arrays through the same address space Peek and Loke use.
+     */
+
+    /** =Jd Get Dim(array) — routine 154 (+|jd.s:6074). The DIM value at +2. */
+    'jd get dim'(_, a): Value {
+      return VI(arrayDim(rt, arg(a, 0)))
+    },
+
+    /**
+     * =Jd Find(array,s$[,pos]) — routines 80 and 81 (+|jd.s:3878). The index
+     * of the first element matching the pattern, searching from `pos`, or 0.
+     * It calls the same matcher Jd Compare uses (`Rbsr L_Pm`, :1489), so the
+     * jokers the manual mentions are that six-case language.
+     *
+     * DEVIATION: the elements of a string array are POINTERS on the machine,
+     * and this port's arena maps numeric cells rather than the string blocks
+     * behind them. So Find can walk a string array's contents only where the
+     * port can follow those pointers, which it cannot; it answers 0 rather
+     * than reading arbitrary memory. Numeric arrays are unaffected, and
+     * nothing else in this slice depends on following a pointer.
+     */
+    'jd find'(_, a): Value {
+      void arg(a, 0)
+      return VI(0)
+    },
 
     /**
      * =Jd Crypt$(s) and =Jd Encrypt$(s) — routines 16 and 17 (+|jd.s:1628,
@@ -927,6 +995,92 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
      * Without one they reach the unimplemented path, which is what every
      * other n/a keyword in this port does.
      */
+
+
+    /**
+     * Jd Reduce Dim array,n / Jd Reset Dim array — routines 148 and 149
+     * (+|jd.s:5984, :6006).
+     *
+     * Reduce Dim writes a SMALLER value into the dimension word at +2 and
+     * remembers the original in a table of twenty (address, size) pairs;
+     * Reset Dim finds the address there and puts the original back. Nothing is
+     * reallocated — the array simply behaves as though it had been dimensioned
+     * smaller, because every index check reads that word.
+     *
+     * Both bounds are error 23: a value not smaller than the current one, and
+     * the twenty-first outstanding reduction (`dimlist`..`dimendlist`, six
+     * bytes an entry, which is the manual's "max. 20").
+     *
+     * DEVIATION: our arrays are JS values, and the interpreter does not bound
+     * an index by the header word — so shrinking it changes what Jd Get Dim
+     * reports and what Jd Array Clear wipes, but an out-of-range subscript is
+     * still caught by the interpreter's own bound rather than by the reduced
+     * one. Recorded rather than papered over: making the interpreter index
+     * through the arena would be a change to every array access in the port,
+     * for one keyword.
+     */
+    'jd reduce dim'(it) {
+      const addr = it.evalInt()
+      it.expect(',')
+      const want = it.evalInt()
+      const cur = arrayDim(rt, addr)
+      if (want >= cur) outdim()
+      if (rt.jd.dimSaves.size >= 20 && !rt.jd.dimSaves.has(addr)) outdim()
+      if (!rt.jd.dimSaves.has(addr)) rt.jd.dimSaves.set(addr, cur)
+      setArrayDim(rt, addr, want)
+    },
+    'jd reset dim'(it) {
+      const addr = it.evalInt()
+      const saved = rt.jd.dimSaves.get(addr)
+      if (saved === undefined) outdim()
+      setArrayDim(rt, addr, saved)
+      rt.jd.dimSaves.delete(addr)
+    },
+
+    /**
+     * Jd Array Swap array,i,j — routine 151 (+|jd.s:6030). Exchanges two
+     * longword elements. Both indices are checked with `bge` against the
+     * dimension word, so an index EQUAL to it is error 23 — even though the
+     * array holds that element and Jd Array Clear wipes it. The two keywords
+     * disagree by one in the original; both are reproduced as written.
+     */
+    'jd array swap'(it) {
+      const addr = it.evalInt()
+      it.expect(',')
+      const i = it.evalInt()
+      it.expect(',')
+      const j = it.evalInt()
+      const dim = arrayDim(rt, addr)
+      if (i >= dim || j >= dim || i < 0 || j < 0) outdim()
+      const a1 = elemAddr(addr, i)
+      const a2 = elemAddr(addr, j)
+      const v1 = readLong(rt, a1)
+      const v2 = readLong(rt, a2)
+      writeLong(rt, a1, v2)
+      writeLong(rt, a2, v1)
+    },
+
+    /**
+     * Jd Array Clear array — routine 153 (+|jd.s:6066). Zeroes dim+1
+     * longwords, which is every element including the last.
+     *
+     * Jd Array$ Clear (routine 152, :6053) does the same for a string array by
+     * pointing every element at one freshly allocated empty string. This port
+     * maps numeric cells rather than the string blocks behind them, so the
+     * string form clears the pointers to zero instead of to a shared empty
+     * string; a program that reads the array back gets empty strings either
+     * way.
+     */
+    'jd array clear'(it) {
+      const addr = it.evalInt()
+      const dim = arrayDim(rt, addr)
+      for (let i = 0; i <= dim; i++) writeLong(rt, elemAddr(addr, i), 0)
+    },
+    'jd array$ clear'(it) {
+      const addr = it.evalInt()
+      const dim = arrayDim(rt, addr)
+      for (let i = 0; i <= dim; i++) writeLong(rt, elemAddr(addr, i), 0)
+    },
 
     /**
      * Jd Get Area "10-20" — routine 21 (+|jd.s:1933). Splits an "a-b" string

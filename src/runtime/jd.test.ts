@@ -431,3 +431,66 @@ describe('JD: date and time (+|jd.s:1070-1300, 4346-4700)', () => {
     expect('jd setclock' in funcs).toBe(false)
   })
 })
+
+describe('JD: arrays through the address space (+|jd.s:5984-6080)', () => {
+  it('Get Dim reads the DIM value from the block header', () => {
+    // =Array gives the block address; the dimension word is at +2, which is
+    // the DIM value and one less than the element count
+    expect(run('Dim A(10) : B=Array(A(0)) : Print Jd Get Dim(B)').trim()).toBe('10')
+  })
+
+  it('Array Swap exchanges two elements in the program\'s own array', () => {
+    const out = run([
+      'Dim A(5)',
+      'A(1)=11 : A(2)=22',
+      'B=Array(A(0))',
+      'Jd Array Swap B,1,2',
+      'Print A(1);",";A(2)',
+    ].join('\n'))
+    expect(out.trim()).toBe('22, 11')
+  })
+
+  it('Array Swap refuses an index equal to the dimension, as bge does', () => {
+    // the checks are `cmp.w d2,d0 / Rbge L_outdim`, so index = dim is error 23
+    // even though Array Clear wipes that element
+    expect(() => run('Dim A(5) : B=Array(A(0)) : Jd Array Swap B,5,1')).toThrow(/illegal function call/i)
+  })
+
+  it('Array Clear zeroes every element including the last', () => {
+    const out = run([
+      'Dim A(3)',
+      'A(0)=1 : A(1)=2 : A(2)=3 : A(3)=4',
+      'B=Array(A(0))',
+      'Jd Array Clear B',
+      'Print A(0);",";A(1);",";A(2);",";A(3)',
+    ].join('\n'))
+    expect(out.trim()).toBe('0, 0, 0, 0')
+  })
+
+  it('Reduce Dim shrinks the header word and Reset Dim puts it back', () => {
+    const out = run([
+      'Dim A(10)',
+      'B=Array(A(0))',
+      'Jd Reduce Dim B,4',
+      'Print Jd Get Dim(B)',
+      'Jd Reset Dim B',
+      'Print Jd Get Dim(B)',
+    ].join('\n'))
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['4', '10'])
+  })
+
+  it('Reduce Dim refuses a value that is not smaller, and Reset Dim an unknown array', () => {
+    expect(() => run('Dim A(10) : B=Array(A(0)) : Jd Reduce Dim B,10')).toThrow(/illegal function call/i)
+    expect(() => run('Dim A(10) : B=Array(A(0)) : Jd Reduce Dim B,11')).toThrow(/illegal function call/i)
+    expect(() => run('Dim A(10) : B=Array(A(0)) : Jd Reset Dim B')).toThrow(/illegal function call/i)
+  })
+
+  it('the undo table holds twenty, which is what the manual\'s "max. 20" is', () => {
+    // dimlist..dimendlist is twenty six-byte entries; the twenty-first
+    // outstanding reduction is error 23
+    const prog = ['Dim A(30)', 'B=Array(A(0))']
+    for (let i = 0; i < 20; i++) prog.push(`Dim B${i}(10) : C=Array(B${i}(0)) : Jd Reduce Dim C,3`)
+    prog.push('Dim Z(10) : D=Array(Z(0)) : Jd Reduce Dim D,3')
+    expect(() => run(prog.join('\n'))).toThrow(/illegal function call/i)
+  })
+})

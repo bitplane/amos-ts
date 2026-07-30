@@ -285,17 +285,23 @@ describe('integration: Varptr / =Array arena (FnVarPtr +ILib.s:4087)', () => {
   })
 
   it('array elements get distinct stable slots; =Array maps the block', () => {
+    // =Array hands out the block ADDRESS, and an AMOS array block starts with
+    // a header: a byte of dimension count, a byte of element-size shift, then
+    // a size word and a stride word per dimension (GetTablo +ILib.s:4042). So
+    // element 0 is at +6 and element 2 at +14 — this port used to map the
+    // elements at +0 with no header, which put every read one element out.
     const prog = [
       'Dim A(3)',
       'A(2)=7',
       'Print Varptr(A(1))<>Varptr(A(2))',
       'B=Array(A(0))',
-      'Print Leek(B+8)',
-      'Loke B+8,55',
+      'Print Peek(B);",";Peek(B+1);",";Deek(B+2)', // dims, shift, the DIM value
+      'Print Leek(B+14)',
+      'Loke B+14,55',
       'Print A(2)',
     ].join('\n')
     const { out } = run(prog)
-    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['-1', '7', '55'])
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['-1', '1, 2, 3', '7', '55'])
   })
 })
 
