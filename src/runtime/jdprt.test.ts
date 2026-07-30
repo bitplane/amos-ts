@@ -1,0 +1,226 @@
+import { describe, expect, it } from 'vitest'
+import { TokenTable } from '../tokens/stream'
+import { CORE_TOKENS } from '../tokens/tables.gen'
+import { tokenize } from '../tokens/tokenizer'
+import { extensionById } from '../ext/registry'
+import { Runtime } from './runtime'
+import { PARAMETRIC_NAMES } from './jdprt'
+
+const table = new TokenTable(CORE_TOKENS)
+/** slot 21, from the library's own source: `ExtNb equ 21-1` */
+const prt = extensionById('jd-prt-1.4')!
+const prt13 = extensionById('jd-prt-1.3')!
+
+function runWith(def: typeof prt, src: string): { rt: Runtime; out: string } {
+  let out = ''
+  const exts = new Map([[21, def.table]])
+  const rt = new Runtime(tokenize(src, table, exts), table, {
+    extensions: exts,
+    extBindings: new Map([[21, def]]),
+    maxSteps: 2_000_000,
+    onText: (t) => (out += t),
+  })
+  const r = rt.runHeadless(500)
+  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  return { rt, out }
+}
+const run = (src: string): { rt: Runtime; out: string } => runWith(prt, src)
+/** the string a keyword RETURNS — these are functions, not instructions */
+const seq = (expr: string, def = prt): string => runWith(def, `Print ${expr}`).out.replace(/\n$/, '')
+
+const ESC = '\x1b'
+const CSI = `${ESC}[`
+
+describe('JD Prt: the keywords are string functions', () => {
+  /**
+   * The whole shape of the library. The token table declares every one of the
+   * sequence keywords "2" — a string function with no arguments — and routine
+   * 3 (get_str, +prt.s:445) copies a fixed string out of the data area.
+   * Nothing is sent anywhere; the program decides where the sequence goes,
+   * usually through Lprint.
+   */
+  it('every sequence keyword is a function, not an instruction', () => {
+    const sequenceKeywords = prt.tokens
+      .map((t) => t.name.replace(/^!/, '').trim())
+      .filter((n) => n && !PARAMETRIC_NAMES.includes(n))
+    expect(sequenceKeywords.length).toBe(64)
+    for (const n of sequenceKeywords) {
+      const t = prt.tokens.find((x) => x.name.replace(/^!/, '').trim() === n)!
+      expect(t.spec, n).toBe('2')
+      expect(t.instr, n).toBe(0xffff)
+    }
+  })
+
+  it('the value can be printed, concatenated and measured', () => {
+    expect(seq('Jd Prt Bold')).toBe(`${CSI}1m`)
+    expect(seq('Len(Jd Prt Bold)').trim()).toBe('4')
+    expect(seq('Jd Prt Bold+"x"+Jd Prt Bold Off')).toBe(`${CSI}1mx${CSI}22m`)
+  })
+
+  it('nothing reaches the printer stream — these keywords do not send', () => {
+    const { rt } = run('A$=Jd Prt Bold+Jd Prt Reset')
+    expect(rt.ioports.printerOut).toEqual([])
+  })
+
+  it('CSI is the two-byte ESC [ here, not the single byte $9B', () => {
+    const s = seq('Jd Prt Italics')
+    expect([...s].map((c) => c.charCodeAt(0))).toEqual([0x1b, 0x5b, 0x33, 0x6d])
+  })
+})
+
+describe('JD Prt: the sequences, out of the data area (+prt.s:206-438)', () => {
+  it('reset and init', () => {
+    expect(seq('Jd Prt Reset')).toBe(`${ESC}c`)
+    expect(seq('Jd Prt Init')).toBe(`${ESC}1`)
+  })
+
+  it('the style pairs are SGR', () => {
+    expect(seq('Jd Prt Italics')).toBe(`${CSI}3m`)
+    expect(seq('Jd Prt Italics Off')).toBe(`${CSI}23m`)
+    expect(seq('Jd Prt Under')).toBe(`${CSI}4m`)
+    expect(seq('Jd Prt Under Off')).toBe(`${CSI}24m`)
+    expect(seq('Jd Prt Bold Off')).toBe(`${CSI}22m`)
+  })
+
+  it('super and subscript are CSI nv, each with its OWN off', () => {
+    expect(seq('Jd Prt Super')).toBe(`${CSI}2v`)
+    expect(seq('Jd Prt Super Off')).toBe(`${CSI}1v`)
+    expect(seq('Jd Prt Sub')).toBe(`${CSI}4v`)
+    expect(seq('Jd Prt Sub Off')).toBe(`${CSI}3v`)
+  })
+
+  it('pitch is CSI nw and quality CSI n"z', () => {
+    expect(seq('Jd Prt Elite')).toBe(`${CSI}2w`)
+    expect(seq('Jd Prt Fine')).toBe(`${CSI}4w`)
+    expect(seq('Jd Prt Enlarged')).toBe(`${CSI}6w`)
+    expect(seq('Jd Prt Nlq')).toBe(`${CSI}2"z`)
+    expect(seq('Jd Prt Shadow')).toBe(`${CSI}6"z`)
+  })
+
+  it('the margins and tabs take no argument — they set AT the position', () => {
+    expect(seq('Jd Prt Set Lmargin')).toBe(`${ESC}#9`)
+    expect(seq('Jd Prt Set Rmargin')).toBe(`${ESC}#0`)
+    expect(seq('Jd Prt Set Htab')).toBe(`${ESC}H`)
+    expect(seq('Jd Prt Clr Htabs')).toBe(`${CSI}3g`)
+    expect(seq('Jd Prt Set Def Tabs')).toBe(`${ESC}#5`)
+  })
+
+  it("1.4's six additions, read out of its binary", () => {
+    expect(seq('Jd Prt Lf')).toBe(`${ESC}E`)
+    expect(seq('Jd Prt Reverse Lf')).toBe(`${ESC}M`)
+    expect(seq('Jd Prt Ff')).toBe('\f')
+    // doubleunder emits the doublestrike bytes and borders off the clr
+    // margins bytes -- the author's duplication, kept
+    expect(seq('Jd Prt Doubleunder')).toBe(seq('Jd Prt Double'))
+    expect(seq('Jd Prt Borders Off')).toBe(seq('Jd Prt Clr Margins'))
+  })
+})
+
+describe('JD Prt: the character sets identify the set', () => {
+  /**
+   * The sequences are ISO designators, and the KEYWORD ORDER is
+   * printer.device's own character-set numbering 1 to 11 — including the
+   * split of Danish into I and II at the two ends, which nothing would
+   * reproduce by accident.
+   */
+  const ORDER = [
+    ['us', 'B'],
+    ['french', 'R'],
+    ['german', 'K'],
+    ['uk', 'A'],
+    ['danishi', 'E'],
+    ['sweden', 'H'],
+    ['italian', 'Y'],
+    ['spanish', 'Z'],
+    ['japanese', 'J'],
+    ['norge', '6'],
+    ['danishii', 'C'],
+  ] as const
+
+  it('each is ESC ( followed by its designator', () => {
+    for (const [name, d] of ORDER) expect(seq(`Jd Prt Set ${name}`)).toBe(`${ESC}(${d}`)
+  })
+
+  it('the token table carries them in printer.device order', () => {
+    const names = prt.tokens
+      .map((t) => t.name.replace(/^!/, '').trim())
+      .filter((n) => n.startsWith('jd prt set ') && !n.includes('tab') && !n.includes('margin'))
+    expect(names).toEqual(ORDER.map(([n]) => `jd prt set ${n}`))
+  })
+})
+
+describe('JD Prt: 1.3 and 1.4 disagree on exactly two sequences', () => {
+  it('Center is [2 F in 1.3 and [3 F in 1.4', () => {
+    expect(seq('Jd Prt Center', prt13)).toBe(`${CSI}2 F`)
+    expect(seq('Jd Prt Center', prt)).toBe(`${CSI}3 F`)
+  })
+
+  it('Pline Up is ESC L in 1.3 and ESC I in 1.4', () => {
+    expect(seq('Jd Prt Pline Up', prt13)).toBe(`${ESC}L`)
+    expect(seq('Jd Prt Pline Up', prt)).toBe(`${ESC}I`)
+  })
+
+  it('everything else agrees', () => {
+    const shared = prt13.tokens
+      .map((t) => t.name.replace(/^!/, '').trim())
+      .filter((n) => n && !PARAMETRIC_NAMES.includes(n))
+      .filter((n) => n !== 'jd prt center' && n !== 'jd prt pline up')
+    expect(shared.length).toBe(56)
+    for (const n of shared) {
+      const call = `Jd Prt ${n.slice('jd prt '.length)}`
+      expect(seq(call, prt13), n).toBe(seq(call, prt))
+    }
+  })
+})
+
+describe('JD Prt: the five Preferences instructions', () => {
+  /**
+   * Not sequences at all: GetPrefs, poke one field, SetPrefs (+prt.s:803 and
+   * above). They configure the graphics dump a later Printer Dump performs.
+   */
+  it('each sets its Preferences field and sends nothing', () => {
+    const { rt } = run(
+      ['Jd Prt Aspect 1', 'Jd Prt Image 1', 'Jd Prt Threshold 9', 'Jd Prt Density 4'].join('\n'),
+    )
+    expect(rt.ioports.printerOut).toEqual([])
+    const p = rt.ioports.printerPrefs
+    expect([p.aspect, p.image, p.threshold, p.density]).toEqual([1, 1, 9, 4])
+  })
+
+  it('Shade 3 is the odd one: grey scale 2, stored as shade 1', () => {
+    const p = run('Jd Prt Shade 3').rt.ioports.printerPrefs
+    expect([p.shade, p.greyScale2]).toEqual([1, true])
+    const q = run('Jd Prt Shade 3\nJd Prt Shade 2').rt.ioports.printerPrefs
+    expect([q.shade, q.greyScale2]).toEqual([2, false])
+  })
+
+  it("every bound is the routine's own, and each is error 23", () => {
+    for (const bad of [
+      'Jd Prt Shade -1',
+      'Jd Prt Shade 4',
+      'Jd Prt Aspect 2',
+      'Jd Prt Image 2',
+      'Jd Prt Threshold 0',
+      'Jd Prt Threshold 16',
+      'Jd Prt Density 0',
+      'Jd Prt Density 8',
+    ]) {
+      expect(() => run(bad), bad).toThrow(/illegal function call/)
+    }
+    expect(() => run('Jd Prt Shade 0\nJd Prt Threshold 15\nJd Prt Density 7')).not.toThrow()
+  })
+})
+
+describe('JD Prt: every keyword is dispatched', () => {
+  it('all 69 of 1.4 and all 63 of 1.3 run', () => {
+    for (const def of [prt, prt13]) {
+      const names = def.tokens.map((t) => t.name.replace(/^!/, '').trim()).filter(Boolean)
+      expect(names.length).toBe(def === prt ? 69 : 63)
+      for (const n of names) {
+        const tail = n.slice('jd prt '.length)
+        const src = PARAMETRIC_NAMES.includes(n) ? `Jd Prt ${tail} 1` : `Print Jd Prt ${tail}`
+        expect(() => runWith(def, src), n).not.toThrow()
+      }
+    }
+  })
+})

@@ -11,6 +11,7 @@ import { makeCtextFunctions, makeCtextInstructions } from './ctext'
 import { makeSticksFunctions, makeSticksInstructions } from './sticks'
 import { JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
 import { makeJdColourFunctions, makeJdColourInstructions } from './jdcolour'
+import { makeJdPrtFunctions, makeJdPrtInstructions } from './jdprt'
 import { TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td'
 import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
@@ -4952,6 +4953,12 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     ids: ['jd-colour-1.4', 'jd-colour-2.0'],
     instructions: makeJdColourInstructions,
     functions: makeJdColourFunctions,
+  },
+  {
+    // the printer companion, slot 21 by its own manual
+    ids: ['jd-prt-1.3', 'jd-prt-1.4'],
+    instructions: makeJdPrtInstructions,
+    functions: makeJdPrtFunctions,
   },
 ]
 

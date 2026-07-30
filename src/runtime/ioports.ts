@@ -26,6 +26,7 @@ import type { Runtime } from './runtime'
 import type { Screen } from './screen'
 import { ED_RUN_MESSAGES } from './edmessages.gen'
 import type { PrinterPage, SerialPortHandle, SerialLineParams } from './host'
+import { defaultJdPrtPrefs, type JdPrtPrefs } from './jdprt'
 
 /**
  * AMOS run-time error N, with the interpreter's own wording.
@@ -151,6 +152,13 @@ export interface IoPortsState {
   parallelOut: number[]
   /** pages produced by Printer Dump, in order */
   pages: PrinterPage[]
+  /**
+   * The Preferences fields a graphics dump reads. JD Prt's five instructions
+   * are the only thing that writes them so far (GetPrefs, poke, SetPrefs);
+   * they live here rather than in that library because they are the system's
+   * printer settings, not the extension's.
+   */
+  printerPrefs: JdPrtPrefs
 }
 
 export function newIoPortsState(): IoPortsState {
@@ -167,6 +175,7 @@ export function newIoPortsState(): IoPortsState {
     printerOut: [],
     parallelOut: [],
     pages: [],
+    printerPrefs: defaultJdPrtPrefs(),
   }
 }
 
