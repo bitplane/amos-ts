@@ -4209,7 +4209,12 @@ export class Runtime {
             for (let p = 0; p < nPlanes; p++) {
               const ps = planeScr[p] ?? null
               pBuf[p] = ps === null ? planes : ps.planarView('log', false)
-              pBase[p] = (ps === null ? p * s.planeSize : 0) + planeOff[p]! + rowSkew
+              // TURBO's Plane Offset shifts one plane against the others. It
+              // used to be simulated by skewing a chunky lookup because there
+              // were no planes to offset; now it is what it always was on the
+              // hardware — a byte added to that plane's pointer.
+              const po = (ps ?? s).planeOffsets
+              pBase[p] = (ps === null ? p * s.planeSize : 0) + planeOff[p]! + rowSkew + (po ? po[p]! : 0)
             }
             // PF1 takes bitplanes 1,3,5 (indices 0,2,4) and PF2 takes 2,4,6.
             // Each is a 3-bit index of its own; PF2's pens live at 8-15, and

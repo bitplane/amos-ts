@@ -154,10 +154,15 @@ original, split into what can still be closed and what cannot.
   labels, error trapping, Input/Print. Control flow is recomputed by a prescan
   rather than trusting inline branch links. Never blocks: `Wait`, `Wait Key`,
   `Wait Vbl` and `Input` set a `blocked` state the 50 Hz driver releases.
-- **Display** — done to 100%. Screens, drawing, palette, rainbows, copper
-  (system-generated *and* user lists), menus, windows, zones, dual playfield,
-  HAM/EHB, hardware and STOS animation, a scanline compositor, and the
-  composited mouse pointer from the machine mouse bank.
+- **Display** — done to 100%, and **planar**. Screens and bank images are
+  Amiga bitplanes, with a chunky view derived from them, so `Logbase` pokes,
+  bitplane extensions and a copper list aiming planes anywhere all address
+  the real bytes rather than a translation. There is ONE renderer: the
+  display is produced by interpreting the copper list — system-generated or a
+  user's — walking BPLCON0/1/2/3, DDF/DIW, modulos, DMACON, the palette and
+  the sprite pointers per scanline. Screens, drawing, palette, rainbows,
+  menus, windows, zones, dual playfield, HAM/EHB, hardware and STOS
+  animation, and the composited mouse pointer from the machine mouse bank.
 - **Audio** — done. The three players (music bank, MOD tracker, MED) and the
   wavetable synth, ported from `+Music.s` over an `AudioSink`, with the
   faithful read-and-clear Vumeter, voice stealing and reclaim, Sam Swap
