@@ -1284,7 +1284,7 @@ export class Screen {
 
   /** raw paper-colour fill of a window region (the blit fills/ClFin) */
   private winFill(x: number, y: number, w: number, h: number, c: number): void {
-    const px = this.pixels
+    const px = this.pixelsW()
     for (let yy = y; yy < y + h; yy++) {
       if (yy < 0 || yy >= this.height) continue
       const row = yy * this.width

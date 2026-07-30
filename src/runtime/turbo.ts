@@ -570,7 +570,7 @@ function starsStep(
  */
 function starsPlotter(rt: Runtime, screen: number): (x: number, y: number) => void {
   const s = rt.screens.get(screen) ?? rt.screen
-  const px = s.pixels
+  const px = s.pixelsW()
   return (x, y) => {
     if (x < 0 || y < 0 || x >= s.width || y >= s.height) return
     px[y * s.width + x]! |= 1
@@ -895,7 +895,7 @@ function runBlit(rt: Runtime, d: BlitDef): void {
   const s = rt.screens.get(d.screen)
   if (!s) return // "a crash will be certain" — nothing here
   const mask = rt.screen.planeMask
-  const px = s.pixels
+  const px = s.pixelsW()
   const sw = s.width
   const w0 = Math.min(d.x1, sw) - d.x0
   const h = Math.min(d.y1, s.height) - d.y0
@@ -980,7 +980,7 @@ export function starsVbl(rt: Runtime): void {
   if (!s) return // the screen is closed: on the Amiga, the crash
   if (st.intClear) {
     // the blitter clears the first bitplane and only that one
-    const px = s.pixels
+    const px = s.pixelsW()
     for (let i = 0; i < px.length; i++) px[i]! &= ~1
   }
   starsStep(st, 0, st.count - 1, starsPlotter(rt, st.screen), true)
@@ -1826,7 +1826,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       const c = it.evalInt()
       if (c < 0 || r <= 0) funcCall()
       const col = c & ((1 << s.depth) - 1)
-      const px = s.pixels
+      const px = s.pixelsW()
       const put = (x: number, y: number): void => {
         if (x < 0 || y < 0 || x >= s.width || y >= s.height) return
         px[y * s.width + x] = col
@@ -2098,7 +2098,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       // Set Planes mask; naming a plane clears it whatever the mask says.
       const s = rt.screen
       const n = it.evalInt()
-      const px = s.pixels
+      const px = s.pixelsW()
       if (n < 0) {
         for (let p = 0; p < s.depth; p++) {
           if (!(s.planeMask & (1 << p))) continue

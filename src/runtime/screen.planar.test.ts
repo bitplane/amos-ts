@@ -234,6 +234,30 @@ describe('bulk operations move planes, not just the cache', () => {
     expect(fromPlanes(s, 0, 0)).toBe(7)
   })
 
+  it('a window scroll fills the vacated line in the planes', () => {
+    // Vscroll/Hscroll print control characters 16-22, which land in winFill.
+    // It bound `this.pixels` — the read-only cache — so the vacated line was
+    // repainted in the cache and never in the bitmap. Nothing was visible,
+    // because the display fetches planes and nothing else.
+    const s = scr()
+    s.cls(7)
+    s.windOpen(1, 0, 0, 8, 4, 0)
+    s.curWin.paper = 3
+    s.writeText('\x14') // ScBas: cursor line down one, cursor line cleared
+    expect(fromPlanes(s, 0, 0)).toBe(3)
+    agree(s, 'window vscroll')
+  })
+
+  it('a window hscroll fills the vacated column in the planes', () => {
+    const s = scr()
+    s.cls(7)
+    s.windOpen(1, 0, 0, 8, 4, 0)
+    s.curWin.paper = 5
+    s.writeText('\x13') // ScDWi: whole window right, left column paper
+    expect(fromPlanes(s, 0, 0)).toBe(5)
+    agree(s, 'window hscroll')
+  })
+
   it('clw clears the planes', () => {
     const s = scr()
     s.bar(0, 0, 63, 31, 9)

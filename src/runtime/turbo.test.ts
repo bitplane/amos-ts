@@ -5,6 +5,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
+import { getPixel } from './planar'
 
 /**
  * TURBO Plus, verified against TURBO_DocsV2.15.Asc — the extension's own
@@ -1670,5 +1671,57 @@ describe('TURBO scenes: the 32-pixel family (TURBO_DocsV2.15.Asc + routine 122)'
   it('Scene 32 Check shifts screen coordinates by 5', () => {
     expect(run([...map, 'Print Scene 32 Check(33,0)'].join('\n')).out).toBe(' 1\n')
     expect(run([...map, 'Print Scene 32 Check(31,0)'].join('\n')).out).toBe(' 0\n')
+  })
+})
+
+describe('TURBO drawing reaches the bitplanes, not just the chunky cache', () => {
+  /**
+   * The screen's chunky buffer is a CACHE of the bitplanes, and the display
+   * fetches planes and nothing else. So a keyword that writes `screen.pixels`
+   * — read-only by contract — draws nothing at all, while every test that
+   * reads back through `point()` or `pixels` still passes, because those read
+   * the same cache.
+   *
+   * Five TURBO routines were doing exactly that: the star plotter, the blit
+   * engine, the Stars-interrupt plane clear, F Circle and Blit Clear. Each
+   * test here reads the PLANES directly, which is the only way to tell.
+   */
+  const fromPlanes = (rt: Runtime, x: number, y: number): number => {
+    const s = rt.screen
+    return getPixel(s.planarView('log', false), s.planeSize, s.rowBytes, s.depth, x, y)
+  }
+
+  it('Display Stars sets the star in plane 0', () => {
+    const { rt } = run('Cls 0 : Reserve Stars 1 : Define Star 1,50,60,1,2 : Display Stars')
+    expect(fromPlanes(rt, 50, 60) & 1).toBe(1)
+  })
+
+  it('F Circle draws into the planes', () => {
+    const { rt } = run('Cls 0 : F Circle 60,60,20,5')
+    expect(fromPlanes(rt, 60, 40)).toBe(5)
+  })
+
+  it('Blit Left moves the planes it shifts', () => {
+    const { rt } = run(['Cls 0', 'Ink 3', 'Bar 0,0 To 40,40', 'Blit Left 0,0,0 To 320,200,4'].join('\n'))
+    // whatever the shift lands on, the planes and the cache must agree — a
+    // stranded blit leaves the planes holding the unshifted picture
+    for (const [x, y] of [
+      [0, 0],
+      [20, 20],
+      [44, 20],
+    ] as const) {
+      expect(fromPlanes(rt, x, y), `${x},${y}`).toBe(rt.screen.point(x, y))
+    }
+  })
+
+  it('Blit Clear clears a named plane in the planes', () => {
+    const { rt } = run(['Cls 0', 'Ink 3', 'Bar 0,0 To 40,40', 'Blit Clear 1'].join('\n'))
+    // plane 0 gone, plane 1 still standing: pen 3 becomes pen 2
+    expect(fromPlanes(rt, 20, 20)).toBe(2)
+  })
+
+  it('Blit Clear -1 clears every plane in the planes', () => {
+    const { rt } = run(['Cls 0', 'Ink 3', 'Bar 0,0 To 40,40', 'Blit Clear -1'].join('\n'))
+    expect(fromPlanes(rt, 20, 20)).toBe(0)
   })
 })

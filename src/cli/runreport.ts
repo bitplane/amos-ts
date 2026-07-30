@@ -43,6 +43,13 @@ let cleanEnd = 0
 let ranClean = 0
 const statuses = new Map<string, number>()
 const errors = new Map<string, number>()
+/**
+ * The first program to hit each error message. Without it the error tally is
+ * unactionable — "2 x file not found" says nothing about whether that is two
+ * programs asking for something the archive lacks or a regression in the
+ * loader, and UNIMPLEMENTED.md cannot describe the tail honestly.
+ */
+const errorWhere = new Map<string, string>()
 const unimpl = new Map<string, number>()
 /** how many PROGRAMS each keyword blocks, as against how often it is reached */
 const byProgram = new Map<string, number>()
@@ -87,6 +94,7 @@ for (const file of walkFiles(root)) {
   } catch (e) {
     const msg = (e instanceof Error ? e.message : String(e)).split(' — at line')[0]!
     errors.set(msg, (errors.get(msg) ?? 0) + 1)
+    if (!errorWhere.has(msg)) errorWhere.set(msg, path)
   }
 }
 
@@ -96,7 +104,7 @@ console.log(`ran to a stop with nothing skipped: ${ranClean} of ${ran} — ${pct
 console.log('statuses:', Object.fromEntries(statuses))
 console.log('\ntop runtime errors:')
 for (const [msg, n] of [...errors].sort((a, b) => b[1] - a[1]).slice(0, args.includes("--all") ? 10000 : 25)) {
-  console.log(`  ${String(n).padStart(4)}  ${msg}`)
+  console.log(`  ${String(n).padStart(4)}  ${msg}   [${errorWhere.get(msg) ?? '?'}]`)
 }
 const limit = args.includes('--all') ? 10000 : 40
 if (args.includes('--by-program')) {
