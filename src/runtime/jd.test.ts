@@ -579,6 +579,38 @@ describe('JD: screen readbacks and drawing (+|jd.s:1479-6199)', () => {
     expect(run('Jd Textfont "topaz",16 : Print Jd Char X;",";Jd Char Y').trim()).toBe('8, 16')
   })
 
+  it('Spline draws a curve from the FIRST pair to the SECOND, bent by the THIRD', () => {
+    // routine 84's de Casteljau: (x1,y1)->(x3,y3), (x3,y3)->(x2,y2), between.
+    // Straight control point, so the curve is the straight line and every
+    // segment lands on it -- which is what makes the endpoints checkable.
+    const out = run([
+      'Screen Open 0,320,200,16,Lowres : Cls 0 : Ink 7',
+      'Jd Spline 10,10,110,10,60,10,10',
+      'Print Point(10,10);",";Point(60,10);",";Point(110,10);",";Point(10,60)',
+    ].join('\n'))
+    expect(out.trim()).toBe('7, 7, 7, 0')
+  })
+
+  it('Spline bends towards the control point, and reaches the second pair', () => {
+    const out = run([
+      'Screen Open 0,320,200,16,Lowres : Cls 0 : Ink 4',
+      // control well below the chord: the midpoint of the curve sits at
+      // (0+2*100+200)/4 = 100 in x and (0+2*100+0)/4 = 50 in y
+      'Jd Spline 0,0,200,0,100,100,4',
+      'Print Point(200,0);",";Point(100,50);",";Point(100,100)',
+    ].join('\n'))
+    expect(out.trim()).toBe('4, 4, 0')
+  })
+
+  it('Spline with a step count below one draws nothing (`cmp.l d6,d7 / ble`)', () => {
+    const out = run([
+      'Screen Open 0,320,200,16,Lowres : Cls 0 : Ink 4',
+      'Jd Spline 10,10,110,10,60,10,0',
+      'Print Point(10,10);",";Point(110,10)',
+    ].join('\n'))
+    expect(out.trim()).toBe('0, 0')
+  })
+
   it('Draw Angle and Grid put ink on the screen', () => {
     const drew = run([
       'Screen Open 0,320,200,16,Lowres : Cls 0 : Ink 5',
@@ -712,5 +744,68 @@ describe('JD: files, memory and the device boundary (+|jd.s:2948-5769)', () => {
     ]) {
       expect(NA.has(k), k).toBe(true)
     }
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * The 5.9 delta — the five keywords that exist only in the later table,
+ * read out of the 5.9 BINARY (AMOSPro_JD.Lib) because the 5.3 source
+ * predates them. Bound at slot 22 as 5.9 rather than 5.3.
+ * ------------------------------------------------------------------ */
+const jd59 = extensionById('jd-5.9')!
+const exts59 = new Map([[22, jd59.table]])
+
+function run59(src: string): string {
+  let out = ''
+  const rt = new Runtime(tokenize(src, table, exts59), table, {
+    extensions: exts59,
+    extBindings: new Map([[22, jd59]]),
+    maxSteps: 2_000_000,
+    onText: (t) => (out += t),
+  })
+  const r = rt.runHeadless(500)
+  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  return out
+}
+const val59 = (expr: string): string => run59(`Print ${expr}`).trim()
+
+describe('JD 5.9: the keywords the later table added', () => {
+  it('Jd Pattern IS Jd Compare — same token id, same routine, new word', () => {
+    const a = jd.tokens.find((t) => t.name.replace(/^!/, '').trim() === 'jd compare')!
+    const b = jd59.tokens.find((t) => t.name.replace(/^!/, '').trim() === 'jd pattern')!
+    expect([b.id, b.spec, b.func]).toEqual([a.id, a.spec, a.func])
+    // and it behaves as Jd Compare does: the manual's own example
+    expect(val59('Jd Pattern("Test-String","*t-S*")')).toBe('1')
+    expect(val59('Jd Pattern("Test-String","*z*")')).toBe('0')
+  })
+
+  it('Jd Cpu, Jd Fpu and Jd Chipset answer for the machine this port models', () => {
+    // routine 162 adds $109a0 = 68000 to the 0/10/20/30/40 from AttnFlags,
+    // so the answer is the full part number. An A1200: 68020, no FPU, AA.
+    expect(val59('Jd Cpu')).toBe('68020')
+    expect(val59('Jd Fpu')).toBe('0')
+    expect(val59('Jd Chipset')).toBe('2')
+  })
+
+  it('Jd Dpath gives the 1-based position the filename starts at', () => {
+    expect(val59('Jd Dpath("df0:file")')).toBe('5')
+    expect(val59('Jd Dpath("dh0:games/amos/prog")')).toBe('16')
+    expect(val59('Jd Dpath("file")')).toBe('1')
+  })
+
+  it('Jd Dpath never examines character 0 — ":file" answers 1, not 2', () => {
+    // `subq.w #1,d3 / beq` leaves the loop before the first character is
+    // tested, so a path that is nothing but a separator and a name misses it
+    expect(val59('Jd Dpath(":file")')).toBe('1')
+    expect(val59('Jd Dpath("/file")')).toBe('1')
+    // one character further along and it is seen
+    expect(val59('Jd Dpath("a:file")')).toBe('3')
+  })
+
+  it('an empty path answers 1 rather than running off the end of the string', () => {
+    // the counter starts at zero, so the `beq` never fires and the routine
+    // walks backwards through memory. The deviation is recorded at the
+    // keyword; here it stops and gives the bare-filename answer.
+    expect(val59('Jd Dpath("")')).toBe('1')
   })
 })

@@ -93,7 +93,7 @@ export function newJdState(): JdState {
 }
 
 /** L_outdim (+|jd.s:6027): `moveq #23,d0` then L_Error — 26 call sites share it */
-function outdim(): never {
+export function outdim(): never {
   throw new AmosError('illegal function call', 23)
 }
 
@@ -489,6 +489,15 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
     'jd compare'(_, a): Value {
       return VI(jdCompare(sarg(a, 0), sarg(a, 1)) ? 1 : 0)
     },
+    /**
+     * =Jd Pattern(s,pattern) — 5.9's name for the same keyword. Same token id
+     * (6), same spec, same routine 3; only the word changed, and the 5.9
+     * manual shipped beside it still calls it Jd Compare. One handler, two
+     * names, because dispatch is by name.
+     */
+    'jd pattern'(_, a): Value {
+      return VI(jdCompare(sarg(a, 0), sarg(a, 1)) ? 1 : 0)
+    },
 
     /**
      * =Jd Linstr(s,find) — routine 82 (+|jd.s:3910). The position of the LAST
@@ -728,6 +737,82 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
       const slot = arg(a, 0)
       if (slot < 1) return VI(0)
       return VI(rt.extBlockBase(`jd:slot${slot}`, new Uint8Array(64)))
+    },
+
+    /**
+     * THE MACHINE QUESTIONS — the three keywords 5.9 added, and the only ones
+     * in the JD port read out of the 5.9 BINARY rather than the 5.3 source
+     * (which predates them). Disassembled from `AMOSPro_JD.Lib`.
+     *
+     * =Jd Cpu, routine 162 at $8084. exec's AttnFlags at ExecBase+$128, bit 3
+     * first down to bit 0, giving 40/30/20/10/0, then `addi.l #$109a0` — which
+     * is 68000 in decimal, so the answer is 68020 and friends rather than 20.
+     *
+     * =Jd Fpu, routine 163 at $80c2. The same flags: bit 4 answers $371 (881),
+     * bit 5 answers $372 (882), neither answers 0. Bit 4 is tested first and
+     * wins, so a machine flagged for both reports the 68881.
+     *
+     * =Jd Chipset, routine 164 at $80ee. A byte at $ec of GfxBase — its
+     * ChipRevBits0 — compared against $11 and $13: 0 for Original, 1 for ECS,
+     * anything else 2 for AA.
+     *
+     * WHAT THIS PORT ANSWERS is settled elsewhere and stays consistent with
+     * it: Chip Free and Fast Free answer for 2MB of chip and a fast board,
+     * TURBO's Cpu Info answers 20 and its Math Info 0. That machine is an
+     * A1200 — so 68020, no FPU, and AA. See the NOTES entry on cpu info.
+     */
+    'jd cpu'(): Value {
+      return VI(68020)
+    },
+    'jd fpu'(): Value {
+      return VI(0)
+    },
+    'jd chipset'(): Value {
+      return VI(2)
+    },
+
+    /**
+     * =Jd Dpath(path$) — routine 160 at $804e in the 5.9 binary, tail-jumping
+     * to the unnamed routine 161 at $807e (`ext.l d3 / moveq #0,d2 / rts`,
+     * six bytes) that returns it as an integer. The manual: "sucht Position
+     * des File-Namens".
+     *
+     * The scan starts at the byte ONE PAST the end of the string and walks
+     * backwards looking for ':' or '/', decrementing a counter that started
+     * at the length; it stops when the counter reaches zero. The answer is
+     * that counter plus two, or 1 when it ran out.
+     *
+     * That gives the 1-based position of the first character after the
+     * separator, which is what the manual promises — and two quirks that come
+     * with it and are kept:
+     *
+     *   - character 0 is NEVER examined. The `subq.w #1,d3 / beq` pair leaves
+     *     the loop before testing it, so ":file" answers 1 rather than 2.
+     *   - the byte one past the string IS examined, before any real character.
+     *     Here the string ends where it ends, so that read finds nothing; on
+     *     the machine it read whatever followed in the string bank.
+     *
+     * DEVIATION, and the one place this cannot follow: an EMPTY string starts
+     * the counter at zero, so the `beq` never fires and the routine walks
+     * backwards through memory until it chances on a ':' or a '/'. That is a
+     * runaway read, not an answer. Here it returns 1 — the position it would
+     * give for a bare filename, which is the sane reading of an empty path.
+     */
+    'jd dpath'(_, a): Value {
+      const s = sarg(a, 0)
+      if (s === '') return VI(1)
+      let d3 = s.length
+      for (;;) {
+        // (a0) at index d3 — index s.length is the byte past the end
+        const c = d3 < s.length ? s.charCodeAt(d3) : -1
+        if (c === 0x3a || c === 0x2f) break
+        d3 -= 1
+        if (d3 === 0) {
+          d3 = -1
+          break
+        }
+      }
+      return VI(((d3 + 2) << 16) >> 16)
     },
 
     /**
@@ -1466,6 +1551,64 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
         rt.screen.line(px, py, nx, ny)
         px = nx
         py = ny
+      }
+    },
+
+    /**
+     * Jd Spline x1,y1,x2,y2,x3,y3,step — routine 84 (+|jd.s:4028). A quadratic
+     * Bézier walked in `step` pieces and drawn as straight segments, through
+     * graphics.library's Move (-240) and Draw (-246) on the AMOS RastPort —
+     * the same pair Jd Draw Angle uses, so it draws in the current ink.
+     *
+     * WHICH POINT IS WHICH is the thing to get right, and de Casteljau in the
+     * source settles it against any reading of the parameter list: the first
+     * interpolation runs (x1,y1)→(x3,y3), the second (x3,y3)→(x2,y2), and the
+     * third between those. So the curve runs from the FIRST pair to the
+     * SECOND, and the THIRD is the control point that bends it — not the
+     * start, middle and end the argument order suggests.
+     *
+     * The arithmetic is 68k integer throughout: `muls` is 16×16 and `divs`
+     * 32÷16, and every stage ends `ext.l` on the low word, so each coordinate
+     * is truncated to sixteen bits before the next stage uses it. Kept, since
+     * it is visible — a long enough spline drifts.
+     */
+    'jd spline'(it) {
+      const v: number[] = [it.evalInt()]
+      while (v.length < 7) {
+        it.expect(',')
+        v.push(it.evalInt())
+      }
+      const [x1, y1, x2, y2, x3, y3, step] = v as [number, number, number, number, number, number, number]
+      // `cmp.l d6,d7 / ble` — a step count below one draws nothing at all,
+      // and a zero one would be `divs #0` on the machine, which is a trap
+      if (step < 1) return
+      const s16 = (n: number): number => (n << 16) >> 16
+      /** muls then divs: both operands to sixteen bits, quotient truncated */
+      const q = (n: number, t: number): number => Math.trunc((s16(n) * s16(t)) / s16(step))
+      const kon1 = x1 - x3
+      const kon2 = y1 - y3
+      const kon3 = x3 - x2
+      const kon4 = y3 - y2
+      let ox = x1
+      let oy = y1
+      for (let t = 0; t <= step; t++) {
+        const xs1 = s16(x1 - q(kon1, t))
+        const xs2 = s16(x3 - q(kon3, t))
+        const ys1 = s16(y1 - q(kon2, t))
+        const ys2 = s16(y3 - q(kon4, t))
+        const xs = s16(xs1 - q(xs1 - xs2, t))
+        const ys = s16(ys1 - q(ys1 - ys2, t))
+        // the first pass is `locit`, which only Moves — and it Moves to the
+        // RAW (x1,y1) rather than to the computed point, which is the same
+        // place unless the argument itself overflowed a word
+        if (t === 0) {
+          ox = x1
+          oy = y1
+          continue
+        }
+        rt.screen.line(ox, oy, xs, ys)
+        ox = xs
+        oy = ys
       }
     },
 
