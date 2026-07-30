@@ -252,6 +252,9 @@ export interface RuntimeOptions {
  * and the input devices. Drive it by calling frame() fifty times a second
  * (or in a tight loop headless).
  */
+/** stand-in for a plane pointer that resolved to nothing */
+const EMPTY_PLANE = new Uint8Array(0)
+
 export class Runtime {
   readonly interp: Interp
   readonly input: InputState = newInputState()
@@ -4118,6 +4121,11 @@ export class Runtime {
      * legitimately come from somewhere else. null = follow BPL1PT's screen.
      */
     const planeScr: Array<Screen | null> = new Array(8).fill(null)
+    // per-row scratch for the fetch: which buffer each plane reads, where its
+    // row starts in it, and the byte currently covering these eight pixels
+    const pBuf: Array<Uint8Array> = new Array(8).fill(EMPTY_PLANE)
+    const pBase = new Int32Array(8)
+    const pByte = new Int32Array(8)
     // BPLCON2 PFBA: which playfield is in front when both are on
     let pf2Front = (R.bplcon2 & 0x40) !== 0
     const bplH = Int32Array.from(R.bplH)
@@ -4194,6 +4202,15 @@ export class Runtime {
             // live in the partner bitmap and would all be skipped. Each
             // plane's read bounds-checks its own buffer instead.
             const nPlanes = Math.min(bpu, 8)
+            // resolve each plane's buffer and row base ONCE for the row. A
+            // plane with its own pointer reads from its own bitmap and out of
+            // plane 0 of it, because the pointer already named the plane; the
+            // rest index this screen's plane p.
+            for (let p = 0; p < nPlanes; p++) {
+              const ps = planeScr[p] ?? null
+              pBuf[p] = ps === null ? planes : ps.planarView('log', false)
+              pBase[p] = (ps === null ? p * s.planeSize : 0) + planeOff[p]! + rowSkew
+            }
             // PF1 takes bitplanes 1,3,5 (indices 0,2,4) and PF2 takes 2,4,6.
             // Each is a 3-bit index of its own; PF2's pens live at 8-15, and
             // colour 0 in either playfield shows what is behind it.
@@ -4205,16 +4222,20 @@ export class Runtime {
               if (hx < hstart || hx >= hstop) continue
               let pf1 = 0
               let pf2 = 0
+              // one byte per plane covers eight pixels, so the fetch happens
+              // on the byte boundary and the seven pixels after it read out of
+              // locals. Resolving the buffers per pixel per plane — which is
+              // what this did when it was written — cost 13-18ms a frame.
+              if ((i & 7) === 0) {
+                for (let p = 0; p < nPlanes; p++) {
+                  const at = pBase[p]! + (i >> 3)
+                  const buf = pBuf[p]!
+                  pByte[p] = at >= 0 && at < buf.length ? buf[at]! : 0
+                }
+              }
+              const bit = 0x80 >> (i & 7)
               for (let p = 0; p < nPlanes; p++) {
-                const ps = planeScr[p] ?? null
-                // a plane with its own pointer reads from its own bitmap and
-                // always out of plane 0 of it, because the pointer already
-                // named the plane; the rest index this screen's plane p
-                const buf = ps === null ? planes : ps.planarView('log', false)
-                const size = ps === null ? s.planeSize : ps.planeSize
-                const at = (ps === null ? p * size : 0) + planeOff[p]! + rowSkew + (i >> 3)
-                if (at < 0 || at >= buf.length) continue
-                if ((buf[at]! & (0x80 >> (i & 7))) === 0) continue
+                if ((pByte[p]! & bit) === 0) continue
                 if (!dblpf) pf1 |= 1 << p
                 else if ((p & 1) === 0) pf1 |= 1 << (p >> 1)
                 else pf2 |= 1 << (p >> 1)
