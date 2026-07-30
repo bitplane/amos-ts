@@ -3764,12 +3764,32 @@ export class Runtime {
         // line cancels the -1, pointing at the band's first row
         const rowOff = (L - f.displayY + f.offsetY) * f.rowBytes + ((f.offsetX >> 4) << 1)
         const base = this.screenChipBase(f.index) + (f.doubleBuffered ? Runtime.SCREEN_PHY_OFFSET : 0)
-        for (let pl = 0; pl < f.depth; pl++) {
-          const ad = (base + pl * f.planeSize + rowOff) >>> 0
+        /**
+         * Bitplane pointers.
+         *
+         * DUAL PLAYFIELD INTERLEAVES TWO BITMAPS. The hardware takes PF1 from
+         * bitplanes 1,3,5 (indices 0,2,4) and PF2 from 2,4,6, so a pair of
+         * AMOS screens has to be woven into one pointer set — the list used
+         * to emit only the front screen's planes, which is why nothing that
+         * replayed it could show the second playfield at all.
+         */
+        const pf2 = f.dualPartner !== null && !f.dualIsBack ? (this.screens.get(f.dualPartner) ?? null) : null
+        const emit = (pl: number, ad: number): void => {
           put(0x0e0 + pl * 4)
           put((ad >>> 16) & 0xffff)
           put(0x0e2 + pl * 4)
           put(ad & 0xffff)
+        }
+        if (pf2 !== null) {
+          const base2 = this.screenChipBase(pf2.index) + (pf2.doubleBuffered ? Runtime.SCREEN_PHY_OFFSET : 0)
+          const rowOff2 = (L - pf2.displayY + pf2.offsetY) * pf2.rowBytes + ((pf2.offsetX >> 4) << 1)
+          const n = Math.max(f.depth, pf2.depth)
+          for (let i = 0; i < n; i++) {
+            if (i < f.depth) emit(i * 2, (base + i * f.planeSize + rowOff) >>> 0)
+            if (i < pf2.depth) emit(i * 2 + 1, (base2 + i * pf2.planeSize + rowOff2) >>> 0)
+          }
+        } else {
+          for (let pl = 0; pl < f.depth; pl++) emit(pl, (base + pl * f.planeSize + rowOff) >>> 0)
         }
         const hwx = f.displayX + 1
         put(0x08e) // DIWSTRT
@@ -3804,7 +3824,19 @@ export class Runtime {
         put(0x10a)
         put(mod)
         put(0x100) // BPLCON0
-        put(((f.hires ? 0x8000 : 0) | (Math.min(f.depth, 7) << 12) | 0x0200 | (f.laced ? 4 : 0)) & 0xffff)
+        // Dual playfield fetches BOTH bitmaps, so BPU is the pair's combined
+        // depth and DBLPF (bit 10) is set — without either, a list replay
+        // sees one playfield's worth of planes and cannot know to split them.
+        const bpuTotal = pf2 !== null ? f.depth + pf2.depth : f.depth
+        put(
+          (((f.hires ? 0x8000 : 0) |
+            (Math.min(bpuTotal, 7) << 12) |
+            (pf2 !== null ? 0x0400 : 0) |
+            (f.ham ? 0x0800 : 0) |
+            0x0200 |
+            (f.laced ? 4 : 0)) &
+            0xffff) >>> 0,
+        )
         put(0x102)
         put(0)
         put(0x104)
@@ -4084,6 +4116,22 @@ export class Runtime {
     let screen: Screen | null = R.screenIdx >= 0 ? (this.screens.get(R.screenIdx) ?? null) : null
     let usePhy = R.usePhy
     let ptr = R.ptr
+    /**
+     * Byte offset of each plane's fetch inside its own plane of the resolved
+     * screen. The system list points every plane at base + p*planeSize +
+     * rowOff, so these normally all equal `ptr` — but they are tracked
+     * separately because BPL2PT..BPL8PT are real registers and a list is
+     * entitled to aim them independently.
+     */
+    const planeOff = new Int32Array(8).fill(R.ptr)
+    /**
+     * Which SCREEN each plane is fetched from. Normally all the same one, but
+     * dual playfield weaves two bitmaps into one pointer set, so a plane can
+     * legitimately come from somewhere else. null = follow BPL1PT's screen.
+     */
+    const planeScr: Array<Screen | null> = new Array(8).fill(null)
+    // BPLCON2 PFBA: which playfield is in front when both are on
+    let pf2Front = (R.bplcon2 & 0x40) !== 0
     const bplH = Int32Array.from(R.bplH)
     const bplL = Int32Array.from(R.bplL)
     const sprH = Int32Array.from(R.sprH)
@@ -4129,36 +4177,82 @@ export class Runtime {
             // was opened laced, or the list asked for it (Personnal's Set Lace
             // is Bset/Bclr #2 on this word and nothing else).
             const laced = s.laced || lace
-            const abs = ptr * 8 + (laced ? ri * rowPix : 0)
-            const pixels = usePhy ? s.displayBuffer : s.pixels
+            // The DMA reads BITPLANES. Each plane is fetched from its own
+            // pointer, and composing the index from those bits is what makes
+            // dual playfield, a list pointing planes at different rows, and
+            // any other pointer arrangement work — none of which the old
+            // chunky read could express.
+            // `usePhy` says the pointer landed in the physical half of the
+            // screen's slot. That only means a DIFFERENT bitmap when Autoback
+            // has actually split them — with the default Autoback 2 the two
+            // are kept identical and the logical one is what displayBuffer
+            // returned before, so following the pointer blindly here would
+            // show an empty back buffer.
+            const wantPhy = usePhy && s.doubleBuffered && s.autoback === 0
+            const planes = s.planarView(wantPhy ? 'phy' : 'log', false)
+            const rowSkew = laced ? ri * s.rowBytes : 0
             const pw = hires ? 1 : 2
             // where the first fetched pixel lands, in colour clocks
             const dataStart = ddfstrt * 2 + (hires ? 9 : 17) + (bplcon1 & 15)
             const originX = (dataStart - 1 - 128) * 2
             const colour = this.rowColours(s, hwPal, ham)
-            // BPU 0 fetches nothing at all; the screen's own depth caps the
-            // rest, since that is what its chunky buffer actually holds
-            const planeMask = bpu === 0 ? 0 : (1 << Math.min(bpu, s.depth)) - 1
+            // BPU alone decides how many planes are fetched. Capping this at
+            // the BPL1PT screen's depth was safe while every plane came from
+            // that one screen, and is wrong now: dual playfield's PF2 planes
+            // live in the partner bitmap and would all be skipped. Each
+            // plane's read bounds-checks its own buffer instead.
+            const nPlanes = Math.min(bpu, 8)
+            // PF1 takes bitplanes 1,3,5 (indices 0,2,4) and PF2 takes 2,4,6.
+            // Each is a 3-bit index of its own; PF2's pens live at 8-15, and
+            // colour 0 in either playfield shows what is behind it.
             const n = words * 16
+            const isCurRow = s === cs && s.cursorOn && cw !== null
             for (let i = 0; i < n; i++) {
-              const a = abs + i
-              const sy = Math.floor(a / rowPix)
-              const sx = a - sy * rowPix
-              if (sy < 0 || sy >= s.height || sx >= s.width) continue
               // DIW clips in colour clocks, so a hires pair shares one
               const hx = dataStart + (hires ? i >> 1 : i)
               if (hx < hstart || hx >= hstop) continue
-              // fetching n planes can only produce n bits of index. Planes are
-              // not composed here — the pointer resolved to a Screen and the
-              // value comes from its chunky buffer — so BPU bounds the index
-              // instead, which is the same thing the hardware ends up doing.
-              let pix = pixels[sy * s.width + sx]! & planeMask
-              const isCur = s === cs && s.cursorOn && cw !== null && sy >= curY0 && sy < curY0 + 8
-              if (isCur) {
-                const mask = CURSOR_SHAPE[sy - curY0]!
-                if (sx >= curX0 && sx < curX0 + 8 && (mask << (sx - curX0)) & 0x80) pix = cw!.cuCol & 63
+              let pf1 = 0
+              let pf2 = 0
+              for (let p = 0; p < nPlanes; p++) {
+                const ps = planeScr[p] ?? null
+                // a plane with its own pointer reads from its own bitmap and
+                // always out of plane 0 of it, because the pointer already
+                // named the plane; the rest index this screen's plane p
+                const buf = ps === null ? planes : ps.planarView('log', false)
+                const size = ps === null ? s.planeSize : ps.planeSize
+                const at = (ps === null ? p * size : 0) + planeOff[p]! + rowSkew + (i >> 3)
+                if (at < 0 || at >= buf.length) continue
+                if ((buf[at]! & (0x80 >> (i & 7))) === 0) continue
+                if (!dblpf) pf1 |= 1 << p
+                else if ((p & 1) === 0) pf1 |= 1 << (p >> 1)
+                else pf2 |= 1 << (p >> 1)
               }
-              const rgb4 = colour(pix)
+              // the text cursor is drawn by the console into the bitmap on the
+              // real machine; here it is still composited, so it needs the
+              // source coordinates the pointer implies
+              if (isCurRow) {
+                const a = planeOff[0]! * 8 + rowSkew * 8 + i
+                const sy = Math.floor(a / rowPix)
+                const sx = a - sy * rowPix
+                if (sy >= curY0 && sy < curY0 + 8 && sx >= curX0 && sx < curX0 + 8) {
+                  const mask = CURSOR_SHAPE[sy - curY0]!
+                  if ((mask << (sx - curX0)) & 0x80) pf1 = cw!.cuCol & 63
+                }
+              }
+              // back to front: PF2 behind PF1 unless PFBA says otherwise, and
+              // a zero pen in the front playfield lets the back one through
+              let rgb4: number
+              if (!dblpf) {
+                rgb4 = colour(pf1)
+              } else {
+                const front = pf2Front ? pf2 : pf1
+                const frontPal = pf2Front ? 8 : 0
+                const back = pf2Front ? pf1 : pf2
+                const backPal = pf2Front ? 0 : 8
+                if (front !== 0) rgb4 = hwPal[frontPal + front]! & 0xfff
+                else if (back !== 0) rgb4 = hwPal[backPal + back]! & 0xfff
+                else rgb4 = hwPal[0]! & 0xfff
+              }
               const cr = ((rgb4 >> 8) & 15) * 17
               const cg = ((rgb4 >> 4) & 15) * 17
               const cb = (rgb4 & 15) * 17
@@ -4176,7 +4270,12 @@ export class Runtime {
           }
         }
         // end of line: the modulo joins the fetched words (BPL1MOD, odd planes)
-        if (fetching) ptr += words * 2 + mod1
+        if (fetching) {
+          const step = words * 2
+          ptr += step + mod1
+          // bitplane ONE is index 0, and the odd bitplanes take BPL1MOD
+          for (let p = 0; p < 8; p++) planeOff[p] = planeOff[p]! + step + ((p & 1) === 0 ? mod1 : mod2)
+        }
       }
       if (to > line) line = end
     }
@@ -4204,6 +4303,16 @@ export class Runtime {
           const idx = (reg - 0xe0) >> 2
           if (reg & 2) bplL[idx] = w2
           else bplH[idx] = w2
+          if (idx > 0 && bplH[idx]! >= 0 && bplL[idx]! >= 0) {
+            // a plane aimed on its own, which dual playfield always does and
+            // which a hand-written list is entitled to do for shear effects
+            const ad = (((bplH[idx]! << 16) | bplL[idx]!) >>> 0)
+            const hit = this.resolvePlanePtr(ad)
+            if (hit) {
+              planeScr[idx] = hit.s
+              planeOff[idx] = hit.off
+            }
+          }
           if (idx === 0 && bplH[0]! >= 0 && bplL[0]! >= 0) {
             const ad = (((bplH[0]! << 16) | bplL[0]!) >>> 0)
             screen = null
@@ -4216,6 +4325,8 @@ export class Runtime {
                 if (usePhy) within -= Runtime.SCREEN_PHY_OFFSET
                 screen = s
                 ptr = within
+                planeOff.fill(within)
+                planeScr.fill(null)
               }
             }
           }
@@ -4241,6 +4352,7 @@ export class Runtime {
           bplcon1 = w2 & 0xff
         } else if (reg === 0x104) {
           bplcon2 = w2 & 0x7f
+          pf2Front = (w2 & 0x40) !== 0
         } else if (reg === 0x108) {
           mod1 = (w2 << 16) >> 16 // signed word
         } else if (reg === 0x10a) {
@@ -4480,6 +4592,25 @@ export class Runtime {
   }
 
   /** decode a screen id from Logic()/Physic() (bit 31 set, bit 30 = physic) */
+  /**
+   * Resolve a BPLxPT address to the screen and the byte offset WITHIN the
+   * plane it names.
+   *
+   * The address already picks out a plane, so the offset returned is relative
+   * to that plane's start — the caller reads it out of plane 0 of the buffer
+   * it gets back and does not add p*planeSize again.
+   */
+  private resolvePlanePtr(ad: number): { s: Screen; off: number } | null {
+    if (ad < Runtime.SCREEN_CHIP_BASE || ad >= Runtime.SCREEN_CHIP_BASE + 8 * Runtime.SCREEN_CHIP_SLOT) return null
+    const rel = ad - Runtime.SCREEN_CHIP_BASE
+    const s = this.screens.get(Math.floor(rel / Runtime.SCREEN_CHIP_SLOT))
+    if (!s) return null
+    let within = rel % Runtime.SCREEN_CHIP_SLOT
+    if (within >= Runtime.SCREEN_PHY_OFFSET) within -= Runtime.SCREEN_PHY_OFFSET
+    if (within < 0 || within >= s.depth * s.planeSize) return null
+    return { s, off: within }
+  }
+
   resolveScreenId(id: number, write = false): { s: Screen; buf: Uint8Array } {
     if (id < 0) {
       const physic = (id & 0x40000000) !== 0

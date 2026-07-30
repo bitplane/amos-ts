@@ -233,17 +233,18 @@ describe('display differential sweep: modelled path vs copper interpreter', () =
     expectIdentical(['Curs On', 'Locate 10,10', "Print \"AB\";"])
   })
 
-  // KNOWN DIVERGENCE — 17.66% of pixels, and the one this whole exercise is
-  // aimed at. compositeFromList decodes dblpf out of BPLCON0
-  // (runtime.ts:4221) and then never renders it: the fetch only ever draws
-  // the single screen BPL1PT resolves to, reading its chunky buffer, and
-  // BPL2PT-BPL8PT are tracked and ignored (4189-4207).
-  //
-  // Dual playfield is not a feature to bolt on — it falls out of a real
-  // per-plane fetch, odd planes PF1 and even planes PF2. THIS IS THE PHASE 4
-  // CHECKPOINT: when the planar display fetch lands, this passes and the
-  // `.fails` marker comes off.
-  it.fails('dual playfield — the interpreter has none', () => {
+  // WAS the Phase 4 checkpoint, and it is green. Three things had to be true
+  // together and none of them worked alone:
+  //   - the list has to EMIT both bitmaps, interleaved as the hardware wants
+  //     them (PF1 in bitplanes 1,3,5 and PF2 in 2,4,6). It used to emit only
+  //     the front screen's planes, so the second playfield was not in the
+  //     list at all.
+  //   - BPLCON0 has to carry the PAIR's combined depth and the DBLPF bit, or
+  //     a replay fetches one playfield's worth of planes and cannot know to
+  //     split them.
+  //   - the fetch must not cap the plane count at the BPL1PT screen's depth,
+  //     because PF2's planes live in the partner bitmap.
+  it('dual playfield', () => {
     expectIdentical([
       'Screen Open 0,320,200,8,Lowres : Curs Off : Cls 0',
       'Screen Open 1,320,200,8,Lowres : Curs Off : Cls 0',
