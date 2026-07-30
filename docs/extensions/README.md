@@ -251,12 +251,20 @@ assembles it back to the exact bytes the linker would have produced and parses
 them with the same `parseTokenTable` used for binaries. That makes a
 source-derived table byte-exact ground truth rather than a hand transcription.
 
-The Intuition extension is the worked example. Its distribution contains no
-`.Lib` at all, only `Intuition.lib.info`. Its table is assembled from
-`src/itokens.s`, and the id base is *proven* rather than assumed: exactly one
-offset in −2048..2048 (K=6) maps all 149 distinct slot-14 token ids observed
-across the corpus onto valid entry starts. One fit out of 2049 candidates is not
-a coincidence.
+The Intuition extension is the worked example. The copy in the
+AMOS-Professional-Official tree contains no `.Lib` at all, only
+`Intuition.lib.info`, so its table is assembled from `src/itokens.s`, and the id
+base is *proven* rather than assumed: exactly one offset in −2048..2048 (K=6)
+maps all 149 distinct slot-14 token ids observed across the corpus onto valid
+entry starts. One fit out of 2049 candidates is not a coincidence.
+
+A linked `Intuition.lib` **does** survive elsewhere — in the Ultimate Amiga
+archive, under `ie13b/Intuition/` — and it corroborates the assembly rather
+than contradicting it: 183 named entries against our 183, **zero** differing
+id-to-name pairs. It carries one extra unnamed entry at id `$0` that the
+source-assembled table does not, which is why a comparison keyed on whole id
+sets calls the two different. `libscan --gap` keys on named entries for exactly
+this reason and reports the padding difference separately.
 
 ## Adding an extension
 

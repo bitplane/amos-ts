@@ -14,6 +14,9 @@ import { describe, expect, it } from 'vitest'
 import { Screen } from './screen'
 import { getPixel } from './planar'
 import { BankImage } from './objects'
+import { readFileSync, readdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 /** read a pixel out of the raw bitplanes, without going near the cache */
 function fromPlanes(s: Screen, x: number, y: number): number {
@@ -326,5 +329,45 @@ describe('bank images are bitplanes too', () => {
     // practice, but the bank's convention is what a save has to reproduce.
     expect(new BankImage(32, 8, 4, 0, 0).rowBytes).toBe(4)
     expect(new BankImage(16, 8, 4, 0, 0).rowBytes).toBe(2)
+  })
+})
+
+describe('nothing writes the chunky cache behind the planes', () => {
+  /**
+   * The invariant, asserted against the SOURCE rather than one more code path.
+   *
+   * Three focused sweeps have now fixed this same class of bug — cls/scrollUp/clw,
+   * then winFill and five TURBO routines, then the per-frame bob restore — and each
+   * time the sweep was scoped to the files it happened to be reading. A write that
+   * lands in the cache and never in the planes passes every behavioural test,
+   * because the reads come back through the same cache. So the test has to be
+   * scoped to the invariant, and the only thing that covers every file is the text.
+   *
+   * `Screen.pixels` is read-only by contract; writers call `pixelsW()`. Blocks
+   * (rt.blocks / rt.cblocks) are plain buffers with no planar backing, so they are
+   * not part of this and their own `.pixels` is writable.
+   */
+  it('no source file mutates a Screen .pixels view', () => {
+    const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+    const offenders: string[] = []
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name)
+        if (e.isDirectory()) walk(p)
+        else if (e.name.endsWith('.ts') && !e.name.endsWith('.test.ts')) {
+          const src = readFileSync(p, 'utf8')
+          src.split('\n').forEach((line, i) => {
+            // a write through `<expr>.pixels`, but not through pixelsW()
+            if (!/\.pixels(\[[^\]]*\]!?\s*(\+|-|&|\||\^)?=[^=]|\.set\(|\.fill\(|\.copyWithin\(|\.sort\(|\.reverse\()/.test(line)) return
+            if (/pixelsW/.test(line)) return
+            // rt.blocks / rt.cblocks entries are not Screens
+            if (/\bb\.pixels|blocks\.get/.test(line)) return
+            offenders.push(`${p.replace(root, 'src')}:${i + 1}  ${line.trim()}`)
+          })
+        }
+      }
+    }
+    walk(root)
+    expect(offenders, `write through the read-only chunky view — use pixelsW():\n  ${offenders.join('\n  ')}`).toEqual([])
   })
 })

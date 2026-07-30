@@ -1460,7 +1460,7 @@ export class Runtime {
         if (sy < 0 || sy >= s.height || dy < 0 || dy >= s.height) continue
         const from = Math.max(0, x1)
         const to = Math.min(s.width, x2)
-        s.pixels.copyWithin(dy * s.width + from, sy * s.width + from, sy * s.width + to)
+        s.pixelsW().copyWithin(dy * s.width + from, sy * s.width + from, sy * s.width + to)
       }
     },
     setPen: (c) => {
@@ -4593,8 +4593,9 @@ export class Runtime {
     for (const [n, bg] of saved) {
       const s = this.screens.get(bg.screen)
       if (s) {
+        const px = s.pixelsW()
         for (let y = 0; y < bg.h; y++) {
-          s.pixels.set(bg.data.subarray(y * bg.w, (y + 1) * bg.w), (bg.y + y) * s.width + bg.x)
+          px.set(bg.data.subarray(y * bg.w, (y + 1) * bg.w), (bg.y + y) * s.width + bg.x)
         }
       }
       this.bobSaved.delete(n)
@@ -4684,8 +4685,9 @@ export class Runtime {
     for (const [n, bg] of saved) {
       const s = this.screens.get(bg.screen)
       if (s) {
+        const px = s.pixelsW()
         for (let y = 0; y < bg.h; y++) {
-          s.pixels.set(bg.data.subarray(y * bg.w, (y + 1) * bg.w), (bg.y + y) * s.width + bg.x)
+          px.set(bg.data.subarray(y * bg.w, (y + 1) * bg.w), (bg.y + y) * s.width + bg.x)
         }
       }
       this.bobSaved.delete(n)

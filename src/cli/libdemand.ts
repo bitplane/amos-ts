@@ -33,7 +33,7 @@ const args = process.argv.slice(2)
 const wantWanted = args.includes('--wanted')
 const libsAt = args.indexOf('--libs')
 const libsDir = libsAt >= 0 ? args[libsAt + 1] : undefined
-const positional = args.filter((a, i) => !a.startsWith('--') && i !== libsAt + 1)
+const positional = args.filter((a, i) => !a.startsWith('--') && !(libsAt >= 0 && i === libsAt + 1))
 const progDir = positional[0]
 if (!progDir) {
   console.error('usage: libdemand <progs-dir> [--libs dir] [--wanted]')

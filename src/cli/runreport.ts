@@ -2,7 +2,24 @@
  * Interpreter+runtime coverage census: run every corpus program headless
  * (screens in memory, blocking fast-forwarded) and report what stops us.
  *
- *   npm run cli -- src/cli/runreport.ts [fixturesDir] [--frames N]
+ *   npm run cli -- src/cli/runreport.ts [dir...] [--frames N]
+ *
+ * Several roots may be given. That matters because the demand data this
+ * project prioritises from comes from a much larger body of programs than the
+ * fixtures tree: `libdemand` ranks extensions over ~5,000 archive programs,
+ * while a fixtures-only census sees 488. Porting an extension against the
+ * first and measuring against the second means every result reads "census
+ * unchanged", which is exactly what happened to CText and Sticks.
+ *
+ *   # the committed baseline: reproducible, and what CI-adjacent runs use
+ *   npm run cli -- src/cli/runreport.ts --all
+ *
+ *   # the wide run: everything the archive holds as well
+ *   npm run cli -- src/cli/runreport.ts fixtures ../amos-files/sources --all
+ *
+ * Programs outside the fixtures tree still get PROG:/PARENT:/RAM: and the
+ * AMOSPro: volume, so an archive program with its own data files beside it
+ * runs the same way it would on a machine with AMOS Pro installed.
  */
 import { readFileSync } from 'node:fs'
 import { hostPath, walkFiles } from './walk'
@@ -17,7 +34,8 @@ import { fsForFile } from './nodefs'
 const args = process.argv.slice(2)
 const fIdx = args.indexOf('--frames')
 const maxFrames = fIdx >= 0 ? parseInt(args[fIdx + 1] ?? '', 10) : 2_000
-const root = args.filter((a) => !a.startsWith('--') && a !== String(maxFrames))[0] ?? 'fixtures'
+const roots = args.filter((a) => !a.startsWith('--') && a !== String(maxFrames))
+if (roots.length === 0) roots.push('fixtures')
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -54,7 +72,7 @@ const unimpl = new Map<string, number>()
 /** how many PROGRAMS each keyword blocks, as against how often it is reached */
 const byProgram = new Map<string, number>()
 
-for (const file of walkFiles(root)) {
+for (const file of roots.flatMap((r) => [...walkFiles(r)])) {
   const path = hostPath(file)
   if (!/\.amos$/i.test(path)) continue
   // Parsing is inside the guard because a collection is not a fixtures tree:
@@ -99,6 +117,7 @@ for (const file of walkFiles(root)) {
 }
 
 const pct = ran === 0 ? 0 : Math.round((ranClean / ran) * 100)
+console.log(`roots: ${roots.join(', ')}`)
 console.log(`programs: ${files}, ran to a stop: ${ran}, ended with nothing skipped: ${cleanEnd}`)
 console.log(`ran to a stop with nothing skipped: ${ranClean} of ${ran} — ${pct}%`)
 console.log('statuses:', Object.fromEntries(statuses))
