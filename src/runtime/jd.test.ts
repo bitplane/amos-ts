@@ -6,6 +6,7 @@ import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { NA } from '../coverage/status'
 import { makeAllInstructions } from './instr'
+import { AmigaFS } from './vfs'
 
 const table = new TokenTable(CORE_TOKENS)
 /**
@@ -623,5 +624,93 @@ describe('JD: screen readbacks and drawing (+|jd.s:1479-6199)', () => {
     // a hard reset, an ILLEGAL instruction, and a graphics.library pointer
     for (const k of ['jd reset', 'jd private', 'jd rastport']) expect(NA.has(k), k).toBe(true)
     expect('jd reset' in makeAllInstructions(bootJd())).toBe(false)
+  })
+})
+
+describe('JD: files, memory and the device boundary (+|jd.s:2948-5769)', () => {
+  /** a runtime with a writable RAM: to exercise the file half */
+  function runFs(src: string): string {
+    let out = ''
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 2_000_000,
+      fs,
+      onText: (t) => (out += t),
+    })
+    const r = rt.runHeadless(500)
+    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    return out
+  }
+
+  it('reads size and type through the same filesystem LDos uses', () => {
+    const out = runFs([
+      'Open Out 1,"RAM:t.txt" : Print #1,"hello" : Close 1',
+      'Print Jd File Size("RAM:t.txt")',
+      'Print Jd File Type("RAM:t.txt")',
+      'Print Jd File Size("RAM:nothere")',
+    ].join('\n'))
+    const lines = out.trim().split('\n').map((s) => s.trim())
+    expect(Number(lines[0])).toBeGreaterThan(0)
+    expect(lines[1]).toBe('-3') // negative for a file, AmigaDOS's convention
+    expect(lines[2]).toBe('-1')
+  })
+
+  it('round-trips the comment and protection bits', () => {
+    const out = runFs([
+      'Open Out 1,"RAM:t.txt" : Print #1,"x" : Close 1',
+      'A=Jd Set Comment("RAM:t.txt","a note")',
+      'B=Jd Set Protection("RAM:t.txt",7)',
+      'Print Jd File Comment$("RAM:t.txt")',
+      'Print Jd File Protection("RAM:t.txt")',
+    ].join('\n'))
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['a note', '7'])
+  })
+
+  it('copies a file and counts a directory', () => {
+    const out = runFs([
+      'Open Out 1,"RAM:a.txt" : Print #1,"data" : Close 1',
+      'Print Jd Copy("RAM:a.txt","RAM:b.txt")',
+      'Print Jd File Size("RAM:b.txt")>0',
+      'Print Jd Count Files("RAM:")',
+    ].join('\n'))
+    const lines = out.trim().split('\n').map((s) => s.trim())
+    expect(lines[0]).toBe('0')
+    expect(lines[1]).toBe('-1')
+    expect(Number(lines[2])).toBeGreaterThanOrEqual(2)
+  })
+
+  it('reports the memory pools AvailMem would', () => {
+    // a comparison prints without the leading space a number gets
+    const out = run('Print Jd Largest Chip Free>0;",";Jd Largest Fast Free>0').trim()
+    expect(out).toBe('-1,-1')
+  })
+
+  it('Ppfind Mem recognises the PP20 magic', () => {
+    const out = run([
+      'Reserve As Work 10,16',
+      'Loke Start(10),$50503230', // "PP20"
+      'Print Jd Ppfind Mem(Start(10))',
+      'Loke Start(10),0',
+      'Print Jd Ppfind Mem(Start(10))',
+    ].join('\n'))
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['-1', '0'])
+  })
+
+  it('the raw-floppy keywords are n/a — there is no block device under AmigaFS', () => {
+    for (const k of [
+      'jd read sector',
+      'jd write sector',
+      'jd install',
+      'jd format',
+      'jd shortformat',
+      'jd relabel',
+      'jd diskchange',
+      'jd squash',
+    ]) {
+      expect(NA.has(k), k).toBe(true)
+    }
   })
 })

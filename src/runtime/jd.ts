@@ -56,6 +56,7 @@ import { AmosError, VF, VI, VS, int, num, str, type Value } from '../interp/valu
 import type { Func, Instr } from '../interp/builtins'
 import { decodeFFP } from '../tokens/stream'
 import { JD_CRYPT } from './jd-crypt.gen'
+import { pp20Decrunch } from '../loader/powerpacker'
 import type { Runtime } from './runtime'
 
 /**
@@ -537,6 +538,134 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
       return VS(outStr)
     },
 
+
+    /**
+     * THE FILE HALF. Every one of these is metadata the port already models —
+     * LDos slices 3 to 5 built the comment, protection bits, datestamp and
+     * directory scanning that AmigaDOS keeps, and these read the same store
+     * through the same AmigaFS. What differs is JD's formats, which are its
+     * own and not LDos's.
+     */
+
+    /** =Jd File Size("f") — routine 117 (+|jd.s:5172). The length, or -1. */
+    'jd file size'(_, a): Value {
+      const data = rt.vfs?.readFile(sarg(a, 0)) ?? null
+      return VI(data ? data.length : -1)
+    },
+
+    /**
+     * =Jd File Type("f") — routine 118 (+|jd.s:5189). Positive for a
+     * directory, negative for a file, which is AmigaDOS's own convention for
+     * the type field of a FileInfoBlock.
+     */
+    'jd file type'(_, a): Value {
+      const path = sarg(a, 0)
+      const vfs = rt.vfs
+      if (!vfs) return VI(0)
+      if (vfs.listDir(path) !== null) return VI(2)
+      return VI(vfs.readFile(path) !== null ? -3 : 0)
+    },
+
+    /**
+     * =Jd File Protection("f") and =Jd Set Protection("f",bits) — routines 122
+     * and 125 (+|jd.s:5344, :5434). The AmigaDOS protection bits, the same
+     * store LDos reads and writes.
+     */
+    'jd file protection'(_, a): Value {
+      return VI(rt.vfs?.meta(sarg(a, 0)).protection ?? 0)
+    },
+    'jd set protection'(_, a): Value {
+      const ok = rt.vfs?.setMeta(sarg(a, 0), { protection: arg(a, 1) }) ?? false
+      return VI(ok ? 0 : -1)
+    },
+
+    /**
+     * =Jd File Comment$("f") and =Jd Set Comment("f","c") — routines 123 and
+     * 126 (+|jd.s:5360, :5450). The file note AmigaDOS keeps beside a file.
+     */
+    'jd file comment$'(_, a): Value {
+      return VS(rt.vfs?.meta(sarg(a, 0)).comment ?? '')
+    },
+    'jd set comment'(_, a): Value {
+      const ok = rt.vfs?.setMeta(sarg(a, 0), { comment: sarg(a, 1) }) ?? false
+      return VI(ok ? 0 : -1)
+    },
+
+    /**
+     * =Jd Count Dirs("path") and =Jd Count Files("path") — routines 136 and
+     * 137 (+|jd.s:5761, :5769). How many of each a directory holds.
+     */
+    'jd count dirs'(_, a): Value {
+      const es = rt.vfs?.listDir(sarg(a, 0)) ?? []
+      return VI(es.filter((e) => e.isDir).length)
+    },
+    'jd count files'(_, a): Value {
+      const es = rt.vfs?.listDir(sarg(a, 0)) ?? []
+      return VI(es.filter((e) => !e.isDir).length)
+    },
+
+    /**
+     * =Jd Copy("from","to") — routine 107 (+|jd.s:4809). Copies a file,
+     * answering 0 on success.
+     */
+    'jd copy'(_, a): Value {
+      const vfs = rt.vfs
+      const data = vfs?.readFile(sarg(a, 0)) ?? null
+      if (!data || !vfs) return VI(-1)
+      return VI(vfs.writeFile(sarg(a, 1), data) ? 0 : -1)
+    },
+
+    /**
+     * =Jd Hardware$, =Jd Volume$ and =Jd Logical$ — routines 90, 91 and 92
+     * (+|jd.s:4262, :4267, :4272). The three halves of the AmigaDOS device
+     * list: physical devices, mounted volume names, and assigns. Each answers
+     * one string of names.
+     */
+    'jd hardware$'(): Value {
+      return VS((rt.vfs?.volumeNames() ?? []).join(' '))
+    },
+    'jd volume$'(): Value {
+      return VS((rt.vfs?.volumeNames() ?? []).join(' '))
+    },
+    'jd logical$'(): Value {
+      return VS((rt.vfs?.assignNames() ?? []).join(' '))
+    },
+
+    /**
+     * =Jd Largest Chip Free and =Jd Largest Fast Free — routines 114 and 115
+     * (+|jd.s:5151, :5156). exec's AvailMem with MEMF_LARGEST and the chip or
+     * fast flag ($20002 / $20004). The port models both pools already.
+     */
+    'jd largest chip free'(): Value {
+      return VI(rt.chipFree())
+    },
+    'jd largest fast free'(): Value {
+      return VI(rt.fastFree())
+    },
+
+    /**
+     * =Jd Ppfind Mem(addr) — routine 119 (+|jd.s:5203). Whether the block at
+     * an address is PowerPacked, which is the "PP20" magic this port's own
+     * decruncher checks — the same one that opened JD's source.
+     */
+    'jd ppfind mem'(_, a): Value {
+      const addr = arg(a, 0)
+      let sig = ''
+      for (let i = 0; i < 4; i++) {
+        const m = rt.resolveAddr(addr + i)
+        sig += String.fromCharCode(m ? (m.data[m.off] ?? 0) : 0)
+      }
+      return VI(sig === 'PP20' ? -1 : 0)
+    },
+
+    /**
+     * =Jd Checkprt — routine 83 (+|jd.s:4002). Whether a printer is
+     * available. IOPorts settled where a printer lives for this port, and
+     * there is none attached unless the host says so.
+     */
+    'jd checkprt'(): Value {
+      return VI(0)
+    },
 
     /**
      * =Jd Screen Planes — routine 11 (+|jd.s:1479). The current screen's
@@ -1243,6 +1372,43 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
       const cols = rt.screen.cols
       const pad = Math.max(0, Math.floor((cols - text.length) / 2))
       it.write(' '.repeat(pad) + text + '\n')
+    },
+
+    /**
+     * Jd Ppdecrunch source,dest,len — routine 120 (+|jd.s:5216). Decrunches a
+     * PowerPacked block in memory. This port has the decruncher already
+     * (../loader/powerpacker.ts, which LDos slice 9 wired up and which
+     * unpacked JD's own source), so this is the same code the library calls.
+     */
+    'jd ppdecrunch'(it) {
+      const src = it.evalInt()
+      it.expect(',')
+      const dst = it.evalInt()
+      it.accept(',')
+      if (!it.atStmtEnd()) it.evalInt()
+      // read the crunched block through the address space, decrunch, write back
+      const head: number[] = []
+      for (let i = 0; i < 8; i++) {
+        const m = rt.resolveAddr(src + i)
+        head.push(m ? (m.data[m.off] ?? 0) : 0)
+      }
+      if (String.fromCharCode(...head.slice(0, 4)) !== 'PP20') return
+      const len = ((head[4]! << 24) | (head[5]! << 16) | (head[6]! << 8) | head[7]!) >>> 0
+      const raw = new Uint8Array(Math.min(len + 8, 1 << 20))
+      for (let i = 0; i < raw.length; i++) {
+        const m = rt.resolveAddr(src + i)
+        raw[i] = m ? (m.data[m.off] ?? 0) : 0
+      }
+      let out2: Uint8Array
+      try {
+        out2 = pp20Decrunch(raw)
+      } catch {
+        return
+      }
+      for (let i = 0; i < out2.length; i++) {
+        const m = rt.resolveWrite(dst + i)
+        if (m) m.data[m.off] = out2[i]!
+      }
     },
 
     /**

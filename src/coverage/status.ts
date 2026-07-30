@@ -1322,6 +1322,26 @@ export const NA = new Set<string>([
   // (+|jd.s:835 with macros.s). No debugger, and deliberately crashing the
   // interpreter is not a service to anyone.
   'jd private',
+  // JD's raw floppy access. Read Sector / Write Sector open trackdisk.device
+  // and move 512-byte blocks by sector number, bounded 0..1759 — one
+  // double-density floppy (+|jd.s:2948, :3002). Install writes a boot block,
+  // Format and Shortformat write a whole disk, Relabel renames a volume by
+  // rewriting its root block, and Diskchange waits for the drive's change
+  // line. AmigaFS is a filesystem, not a block device: there is no track
+  // buffer under it and no medium to format. A disk image the census can hold
+  // would answer Read Sector, but nothing here can answer the five that WRITE
+  // one, and implementing the reader alone would be a half-truth a program
+  // could not test for.
+  'jd read sector',
+  'jd write sector',
+  'jd install',
+  'jd format',
+  'jd shortformat',
+  'jd relabel',
+  'jd diskchange',
+  // Squash rewrites a file in place through trackdisk to defragment it
+  // (+|jd.s:5013) — the same missing block device.
+  'jd squash',
   // graphics.library's RastPort pointer (T_RastPort, +|jd.s:2340). The value
   // is only useful to something that then calls graphics.library, which this
   // port does not have; handing out a number that addresses nothing would be
