@@ -1808,7 +1808,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       const c = it.evalInt()
       if (c < 0) funcCall()
       if (x < 0 || y < 0 || x >= s.width || y >= s.height) return
-      s.pixels[y * s.width + x] = c & ((1 << s.depth) - 1)
+      s.putPixel(x, y, c & ((1 << s.depth) - 1))
     },
     'f circle'(it) {
       // F Circle x,y,radius,colour — routine 61. Eight-way symmetry, x

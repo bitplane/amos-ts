@@ -1475,7 +1475,7 @@ export class Runtime {
         if (dy < 0 || dy >= s.height) continue
         for (let c = 0; c < b.w; c++) {
           const dx = b.x + c
-          if (dx >= 0 && dx < s.width) s.pixels[dy * s.width + dx] = b.pix[r * b.w + c]!
+          if (dx >= 0 && dx < s.width) s.putPixel(dx, dy, b.pix[r * b.w + c]!)
         }
       }
     },
@@ -2760,8 +2760,8 @@ export class Runtime {
         const tx = dx + x
         if (tx < 0 || tx >= s.width) continue
         if (!s.inClip(tx, ty)) continue
-        const i = ty * s.width + tx
-        s.pixels[i] = planeMask === -1 ? v : (s.pixels[i]! & ~planeMask) | (v & planeMask)
+        const old = s.point(tx, ty)
+        s.putPixel(tx, ty, planeMask === -1 ? v : (old & ~planeMask) | (v & planeMask))
       }
     }
   }
@@ -4458,8 +4458,8 @@ export class Runtime {
         for (let x = x1; x < x2; x++) {
           const v = img.pixels[iy * img.width + (x - dx)]!
           if (v === 0 && !img.opaque) continue
-          const i = y * s.width + x
-          s.pixels[i] = planes === -1 ? v : (s.pixels[i]! & ~planes) | (v & planes)
+          const old = s.point(x, y)
+          s.putPixel(x, y, planes === -1 ? v : (old & ~planes) | (v & planes))
         }
       }
     }
@@ -4480,18 +4480,18 @@ export class Runtime {
   }
 
   /** decode a screen id from Logic()/Physic() (bit 31 set, bit 30 = physic) */
-  resolveScreenId(id: number): { s: Screen; buf: Uint8Array } {
+  resolveScreenId(id: number, write = false): { s: Screen; buf: Uint8Array } {
     if (id < 0) {
       const physic = (id & 0x40000000) !== 0
       const n = id & 0xff
       const useCurrent = (id & 0x3fffff00) === 0x3fffff00 // bare Logic/Physic (-1 based)
       const s = this.screens.get(useCurrent ? this.currentIndex : n)
       if (!s) throw new AmosError(`screen not opened: ${useCurrent ? this.currentIndex : n}`)
-      return { s, buf: s.bufferFor(physic ? 'physic' : 'logic') }
+      return { s, buf: s.bufferFor(physic ? 'physic' : 'logic', write) }
     }
     const s = this.screens.get(id)
     if (!s) throw new AmosError(`screen not opened: ${id}`)
-    return { s, buf: s.pixels }
+    return { s, buf: write ? s.pixelsW() : s.pixels }
   }
 
   /**

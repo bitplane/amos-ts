@@ -559,7 +559,7 @@ export function restoreRect(s: Screen, r: { x1: number; y1: number; x2: number; 
     if (sy < 0 || sy >= s.height) continue
     for (let x = 0; x < w; x++) {
       const sx = r.x1 + x
-      if (sx >= 0 && sx < s.width) s.pixels[sy * s.width + sx] = saved[y * w + x]!
+      if (sx >= 0 && sx < s.width) s.putPixel(sx, sy, saved[y * w + x]!)
     }
   }
 }

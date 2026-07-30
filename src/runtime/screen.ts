@@ -2,6 +2,13 @@ import { FONT8 } from './font.gen'
 import { AmosError } from '../interp/values'
 import { glyphBit, glyphMetrics } from '../loader/diskfont'
 import type { DiskFont } from '../loader/diskfont'
+import {
+  decode as decodePlanes,
+  encode as encodePlanes,
+  fillSpan as planarFillSpan,
+  getPixel as planarGet,
+  setPixel as planarSet,
+} from './planar'
 
 // ---- text-border glyphs (TEncadre +W.s:16725) -----------------------------
 // Border$ draws its box out of the AMOS charset's own characters. Those
@@ -124,40 +131,100 @@ export function sliderMetrics(span: number, total: number, pos: number, size: nu
 
 export class Screen {
   /**
-   * The chunky buffers are the drawing surface; each has a faithful planar
-   * mirror (Amiga bitplanes) that Logbase/Phybase/Screen Base address. Sync is
-   * lazy and lossless: `get pixels`/`get back` pull any plane pokes back into
-   * chunky (ensureChunky); resolving a plane address for reading encodes chunky
-   * -> planar (ensurePlanar); a plane write marks the chunky side stale.
+   * BITPLANES ARE THE BITMAP. The chunky array is a cache of them.
+   *
+   * This used to be the other way round — chunky was the drawing surface and
+   * the planes were a mirror encoded on demand — which meant `Logbase` pokes,
+   * bitplane extensions and anything reading a plane address were all served
+   * a translation of the truth rather than the truth. Now `planarLog` and
+   * `planarPhy` hold the pixels in the hardware's own layout, and everything
+   * that wants a byte per pixel gets a derived view.
+   *
+   * The cache exists because plenty of code legitimately wants chunky —
+   * `Point`, collision, `Zoom`, saving an IFF — and decoding per access would
+   * be silly. It is a cache and not a second source of truth: `pixels` hands
+   * back a read-only-by-contract view, `pixelsW()` is what a bulk chunky
+   * writer takes (and says so), and a plane write invalidates it outright.
+   *
+   * Invariant: for each buffer, `valid` and `dirty` are never both set.
+   * `valid` means the cache matches the planes; `dirty` means the cache has
+   * writes the planes have not seen yet, and `flush()` is what settles them.
    */
-  private _pixels: Uint8Array
-  private _back: Uint8Array | null = null
-  /** which representation is authoritative for each buffer */
-  private logSrc: 'chunky' | 'planar' = 'chunky'
-  private phySrc: 'chunky' | 'planar' = 'chunky'
-  /** the LOGICAL buffer — all drawing and Point read this */
+  private planarLog: Uint8Array
+  private planarPhy: Uint8Array | null = null
+  private chunkyLog: Uint8Array
+  private chunkyPhy: Uint8Array | null = null
+  private logValid = true
+  private logDirty = false
+  private phyValid = true
+  private phyDirty = false
+
+  /** push any pending chunky writes back into the planes */
+  private flushLog(): void {
+    if (!this.logDirty) return
+    encodePlanes(this.chunkyLog, this.planarLog, this.planeSize, this.rowBytes, this.depth, this.width, this.height)
+    this.logDirty = false
+    this.logValid = true
+  }
+  private flushPhy(): void {
+    if (!this.phyDirty || !this.chunkyPhy || !this.planarPhy) return
+    encodePlanes(this.chunkyPhy, this.planarPhy, this.planeSize, this.rowBytes, this.depth, this.width, this.height)
+    this.phyDirty = false
+    this.phyValid = true
+  }
+
+  /**
+   * The LOGICAL buffer as chunky bytes. READ-ONLY by contract — writing
+   * through this will be lost the next time the planes are touched. Bulk
+   * writers take `pixelsW()` instead, which says what it is doing.
+   */
   get pixels(): Uint8Array {
-    if (this.logSrc === 'planar') {
-      this.decode(this.planarLog, this._pixels)
-      this.logSrc = 'chunky'
+    if (!this.logValid) {
+      decodePlanes(this.planarLog, this.planeSize, this.rowBytes, this.depth, this.width, this.height, this.chunkyLog)
+      this.logValid = true
     }
-    return this._pixels
+    return this.chunkyLog
+  }
+  /** the logical chunky buffer, for a caller that is about to write to it */
+  pixelsW(): Uint8Array {
+    const p = this.pixels
+    this.logDirty = true
+    return p
   }
   set pixels(v: Uint8Array) {
-    this._pixels = v
-    this.logSrc = 'chunky'
+    this.chunkyLog = v
+    this.logValid = true
+    this.logDirty = true
+    this.flushLog()
   }
   /** the PHYSICAL buffer when double-buffered (what the beam shows) */
   get back(): Uint8Array | null {
-    if (this.phySrc === 'planar' && this._back && this.planarPhy) {
-      this.decode(this.planarPhy, this._back)
-      this.phySrc = 'chunky'
+    if (this.chunkyPhy === null || this.planarPhy === null) return null
+    if (!this.phyValid) {
+      decodePlanes(this.planarPhy, this.planeSize, this.rowBytes, this.depth, this.width, this.height, this.chunkyPhy)
+      this.phyValid = true
     }
-    return this._back
+    return this.chunkyPhy
+  }
+  /** the physical chunky buffer, for a caller that is about to write to it */
+  backW(): Uint8Array | null {
+    const p = this.back
+    if (p !== null) this.phyDirty = true
+    return p
   }
   set back(v: Uint8Array | null) {
-    this._back = v
-    this.phySrc = 'chunky'
+    if (v === null) {
+      this.chunkyPhy = null
+      this.planarPhy = null
+      this.phyValid = true
+      this.phyDirty = false
+      return
+    }
+    this.chunkyPhy = v
+    if (this.planarPhy === null) this.planarPhy = new Uint8Array(this.depth * this.planeSize)
+    this.phyValid = true
+    this.phyDirty = true
+    this.flushPhy()
   }
   // ---- Amiga planar layout (faithful: Taille plan +W.s:1856) ----
   /** bytes per bitplane row = ceil(width/16)*2 (word-aligned) */
@@ -166,10 +233,6 @@ export class Screen {
   readonly depth: number
   /** bytes per bitplane = rowBytes * height */
   readonly planeSize: number
-  /** planar mirror of the logical buffer; Logbase(n) = planarLog + n*planeSize */
-  private planarLog: Uint8Array
-  /** planar mirror of the physical buffer (allocated by Double Buffer) */
-  private planarPhy: Uint8Array | null = null
   /** Autoback mode: 2 (default) = fully automatic, 0/1 = manual-ish */
   autoback = 2
   palette = Uint16Array.from(DEFAULT_PALETTE)
@@ -259,11 +322,11 @@ export class Screen {
     readonly nColors: number,
     mode = 0,
   ) {
-    this._pixels = new Uint8Array(width * height)
     this.rowBytes = ((width + 15) >> 4) << 1
     this.depth = Math.max(1, Math.ceil(Math.log2(Math.max(2, nColors))))
     this.planeSize = this.rowBytes * height
     this.planarLog = new Uint8Array(this.depth * this.planeSize)
+    this.chunkyLog = new Uint8Array(width * height)
     this.hires = (mode & 0x8000) !== 0
     this.ham = (mode & 0x800) !== 0
     this.laced = (mode & 0x4) !== 0
@@ -340,81 +403,56 @@ export class Screen {
 
   // ---- chunky <-> planar bijection (Amiga bitplanes) ------------------
   /** pack a chunky index buffer into `depth` contiguous bitplanes */
-  private encode(chunky: Uint8Array, planar: Uint8Array): void {
-    const { width, height, rowBytes, depth, planeSize } = this
-    planar.fill(0)
-    for (let y = 0; y < height; y++) {
-      const rowBase = y * rowBytes
-      for (let x = 0; x < width; x++) {
-        const idx = chunky[y * width + x]!
-        if (idx === 0) continue
-        const byteOff = rowBase + (x >> 3)
-        const mask = 0x80 >> (x & 7)
-        for (let p = 0; p < depth; p++) {
-          if (idx & (1 << p)) planar[p * planeSize + byteOff] = planar[p * planeSize + byteOff]! | mask
-        }
-      }
-    }
-  }
-  /** unpack `depth` bitplanes back into a chunky index buffer */
-  private decode(planar: Uint8Array, chunky: Uint8Array): void {
-    const { width, height, rowBytes, depth, planeSize } = this
-    for (let y = 0; y < height; y++) {
-      const rowBase = y * rowBytes
-      for (let x = 0; x < width; x++) {
-        const byteOff = rowBase + (x >> 3)
-        const mask = 0x80 >> (x & 7)
-        let idx = 0
-        for (let p = 0; p < depth; p++) {
-          if (planar[p * planeSize + byteOff]! & mask) idx |= 1 << p
-        }
-        chunky[y * width + x] = idx
-      }
-    }
-  }
 
   /**
-   * The planar mirror of a buffer, addressable at Logbase/Phybase. `write`
-   * marks the chunky side stale so the next `.pixels`/`.back` access re-decodes
-   * (a plane poke); a read just refreshes the planar bytes from chunky.
+   * The bitplanes at Logbase/Phybase. These are the real bytes, not a mirror
+   * made for the occasion — the only thing to settle first is a bulk chunky
+   * write that has not been flushed yet. `write` invalidates the chunky cache,
+   * because a plane poke changes pixels the cache cannot know about.
    */
   planarView(kind: 'log' | 'phy', write: boolean): Uint8Array {
-    if (kind === 'phy' && this._back !== null) {
-      if (this.planarPhy === null) this.planarPhy = new Uint8Array(this.depth * this.planeSize)
-      if (this.phySrc === 'chunky') this.encode(this._back, this.planarPhy)
-      if (write) this.phySrc = 'planar'
+    if (kind === 'phy' && this.planarPhy !== null) {
+      this.flushPhy()
+      if (write) this.phyValid = false
       return this.planarPhy
     }
     // single-buffered Phybase aliases the logical bitmap, as on the hardware
-    if (this.logSrc === 'chunky') this.encode(this._pixels, this.planarLog)
-    if (write) this.logSrc = 'planar'
+    this.flushLog()
+    if (write) this.logValid = false
     return this.planarLog
   }
 
   /** true once Double Buffer has split the physical bitmap from the logical */
   get doubleBuffered(): boolean {
-    return this._back !== null
+    return this.planarPhy !== null
   }
 
-  /** Double Buffer: create the physical buffer */
+  /** Double Buffer: create the physical bitmap as a copy of the logical */
   doubleBuffer(): void {
-    if (this._back === null) {
-      this._back = this._pixels.slice()
-      this.phySrc = 'chunky'
-    }
+    if (this.planarPhy !== null) return
+    this.flushLog()
+    this.planarPhy = this.planarLog.slice()
+    this.chunkyPhy = new Uint8Array(this.width * this.height)
+    this.phyValid = false
+    this.phyDirty = false
   }
 
-  /** Screen Swap: exchange logical and physical */
+  /** Screen Swap: exchange logical and physical. A pointer swap now. */
   swap(): void {
-    if (this._back === null) return
-    // force both chunky sides current, then swap; the planar mirrors are
-    // marked stale ('chunky' authoritative) and re-encode on the next access
-    const log = this.pixels
-    const phy = this.back!
-    this._pixels = phy
-    this._back = log
-    this.logSrc = 'chunky'
-    this.phySrc = 'chunky'
+    if (this.planarPhy === null || this.chunkyPhy === null) return
+    // settle both sides first, or a pending write would follow the wrong
+    // bitmap across the swap
+    this.flushLog()
+    this.flushPhy()
+    const p = this.planarLog
+    this.planarLog = this.planarPhy
+    this.planarPhy = p
+    const c = this.chunkyLog
+    this.chunkyLog = this.chunkyPhy
+    this.chunkyPhy = c
+    const v = this.logValid
+    this.logValid = this.phyValid
+    this.phyValid = v
   }
 
   /** the buffer the display shows */
@@ -424,10 +462,18 @@ export class Screen {
     return this.back !== null && this.autoback === 0 ? this.back : this.pixels
   }
 
-  /** buffer selection for Logic()/Physic() screen ids */
-  bufferFor(kind: 'logic' | 'physic'): Uint8Array {
-    if (this.back === null) return this.pixels
-    return kind === 'logic' ? this.pixels : this.displayBuffer === this.pixels ? this.pixels : this.back
+  /**
+   * Buffer selection for Logic()/Physic() screen ids.
+   *
+   * `write` matters now that the planes are the bitmap: a caller that only
+   * reads gets the cache as it stands, and one that writes has to say so, or
+   * its pixels never reach the planes and Logbase serves stale bytes.
+   */
+  bufferFor(kind: 'logic' | 'physic', write = false): Uint8Array {
+    if (this.back === null) return write ? this.pixelsW() : this.pixels
+    const wantLog = kind === 'logic' || this.displayBuffer === this.pixels
+    if (wantLog) return write ? this.pixelsW() : this.pixels
+    return (write ? this.backW() : this.back)!
   }
 
   /** text columns/rows of the CURRENT WINDOW */
@@ -493,17 +539,30 @@ export class Screen {
     return c === null || (x >= c.x1 && y >= c.y1 && x <= c.x2 && y <= c.y2)
   }
 
+  /**
+   * The single pixel primitive. Everything else — line, box, bar, ellipse,
+   * fillPolygon, paint, cls, drawChar — reaches the bitmap through this or
+   * through `hline`, which is why the planar flip is two functions rather
+   * than a rewrite of the drawing API.
+   */
   plot(x: number, y: number, c = this.ink): void {
     if (!this.inClip(x, y)) return
-    const i = y * this.width + x
-    // Gr Writing 2 = COMPLEMENT: xor the destination
-    const old = this.pixels[i]!
-    this.pixels[i] = this.masked(old, this.grMode === 2 ? old ^ c : c)
+    // COMPLEMENT and a partial write mask both need the old pixel; a plain
+    // opaque plot does not, and that is the common case
+    const needsOld = this.grMode === 2 || this.planeMask !== 0xff
+    const old = needsOld ? this.point(x, y) : 0
+    const v = this.masked(old, this.grMode === 2 ? old ^ c : c)
+    // `masked` has already merged the write mask, so every plane is written
+    planarSet(this.planarLog, this.planeSize, this.rowBytes, this.depth, x, y, v)
+    this.touched(y * this.width + x, v)
   }
 
   point(x: number, y: number): number {
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return -1
-    return this.pixels[y * this.width + x]!
+    // the cache answers whenever it holds the pixel — decoding a whole
+    // bitmap to read one back would undo the point of having it
+    if (this.logValid || this.logDirty) return this.chunkyLog[y * this.width + x]!
+    return planarGet(this.planarLog, this.planeSize, this.rowBytes, this.depth, x, y)
   }
 
   hline(x1: number, x2: number, y: number, c = this.ink): void {
@@ -512,7 +571,44 @@ export class Screen {
     if (y < 0 || y >= this.height) return
     x1 = Math.max(0, x1)
     x2 = Math.min(this.width - 1, x2)
-    for (let x = x1; x <= x2; x++) this.plot(x, y, c)
+    if (x2 < x1) return
+    const cl = this.clip
+    if (cl !== null) {
+      if (y < cl.y1 || y > cl.y2) return
+      x1 = Math.max(x1, cl.x1)
+      x2 = Math.min(x2, cl.x2)
+      if (x2 < x1) return
+    }
+    // COMPLEMENT and a partial write mask both depend on what is already
+    // there, so they stay per-pixel; a plain opaque run is one word write
+    // per plane, which is where planar wins
+    if (this.grMode === 2 || this.planeMask !== 0xff) {
+      for (let x = x1; x <= x2; x++) this.plot(x, y, c)
+      return
+    }
+    const v = this.masked(0, c)
+    planarFillSpan(this.planarLog, this.planeSize, this.rowBytes, this.depth, y, x1, x2, v)
+    if (this.logValid || this.logDirty) {
+      this.chunkyLog.fill(v, y * this.width + x1, y * this.width + x2 + 1)
+    }
+  }
+
+  /**
+   * Keep the chunky cache in step with a single planar write.
+   *
+   * Write-through rather than invalidate: a plot would otherwise throw away
+   * the whole cache and the next Point would decode the entire bitmap to
+   * read one pixel back.
+   */
+  /** write an already-merged pixel value into the planes */
+  putPixel(x: number, y: number, v: number): void {
+    if (x < 0 || y < 0 || x >= this.width || y >= this.height) return
+    planarSet(this.planarLog, this.planeSize, this.rowBytes, this.depth, x, y, v)
+    this.touched(y * this.width + x, v)
+  }
+
+  private touched(i: number, v: number): void {
+    if (this.logValid || this.logDirty) this.chunkyLog[i] = v
   }
 
   line(x1: number, y1: number, x2: number, y2: number, c = this.ink): void {
@@ -838,7 +934,24 @@ export class Screen {
    */
   cls(c = this.paper, x1 = 0, y1 = 0, x2 = this.width - 1, y2 = this.height - 1): void {
     if (x1 === 0 && y1 === 0 && x2 === this.width - 1 && y2 === this.height - 1 && this.clip === null) {
-      this.pixels.fill(c & this.colorMask())
+      // whole screen: fill each plane outright rather than going row by row.
+      // The write mask still applies — Cls through a partial planeMask has to
+      // leave the excluded planes standing.
+      const v = c & this.colorMask()
+      for (let p = 0; p < this.depth; p++) {
+        if ((this.planeMask & (1 << p)) === 0) continue
+        this.planarLog.fill(v & (1 << p) ? 0xff : 0x00, p * this.planeSize, (p + 1) * this.planeSize)
+      }
+      if (this.planeMask === 0xff) {
+        // the cache can be filled to match; a partial mask would need the old
+        // pixels merged in, so just drop it and let the next read decode
+        this.chunkyLog.fill(v)
+        this.logValid = true
+        this.logDirty = false
+      } else {
+        this.logValid = false
+        this.logDirty = false
+      }
     } else {
       this.bar(x1, y1, x2, y2, c)
     }
@@ -890,20 +1003,19 @@ export class Screen {
   private writeMode(x: number, y: number, c: number, mode: number, clipped = false): void {
     if (clipped && !this.inClip(x, y)) return
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return
-    const i = y * this.width + x
-    const old = this.pixels[i]!
+    const old = this.point(x, y)
     switch (mode) {
       case 1:
-        this.pixels[i] = this.masked(old, old | c)
+        this.putPixel(x, y, this.masked(old, old | c))
         break
       case 2:
-        this.pixels[i] = this.masked(old, old ^ c)
+        this.putPixel(x, y, this.masked(old, old ^ c))
         break
       case 3:
-        this.pixels[i] = this.masked(old, old & c)
+        this.putPixel(x, y, this.masked(old, old & c))
         break
       default:
-        this.pixels[i] = this.masked(old, c)
+        this.putPixel(x, y, this.masked(old, c))
     }
   }
 
@@ -1370,7 +1482,7 @@ export class Screen {
           const px = bg.x + xx
           const py = bg.y + yy
           if (px >= 0 && py >= 0 && px < this.width && py < this.height) {
-            this.pixels[py * this.width + px] = bg.data[yy * bg.w + xx]!
+            this.putPixel(px, py, bg.data[yy * bg.w + xx]!)
           }
         }
       }

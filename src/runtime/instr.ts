@@ -887,7 +887,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         y2 = it.evalInt()
       }
       it.expect('to')
-      const dst = rt.resolveScreenId(it.evalInt())
+      const dst = rt.resolveScreenId(it.evalInt(), true)
       let dx = 0
       let dy = 0
       if (it.accept(',')) {
@@ -1595,7 +1595,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const [sx2, sy2] = pair(it)
       it.expect('to')
-      const dst = rt.resolveScreenId(it.evalInt())
+      const dst = rt.resolveScreenId(it.evalInt(), true)
       it.expect(',')
       const [dx1, dy1] = pair(it)
       it.expect(',')
@@ -1627,7 +1627,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // leaves pixels uncopied — the classic venetian/checker dissolves.
       const src = rt.resolveScreenId(it.evalInt())
       it.expect('to')
-      const dst = rt.resolveScreenId(it.evalInt())
+      const dst = rt.resolveScreenId(it.evalInt(), true)
       it.expect(',')
       const e = it.evalInt()
       const p = it.accept(',') ? it.evalInt() : 0
