@@ -1300,6 +1300,8 @@ export const NA = new Set<string>([
   // :1146) — not a request to the operating system to change the date. There
   // is no host equivalent, and setting the machine's clock is not something a
   // page should be able to do. Reading it (Jd Date$, Jd Time$) is unaffected.
+  // No handler is registered for either: an n/a keyword with a handler would
+  // count as implemented, which coverage.test.ts checks.
   'jd setdate',
   'jd setclock',
   // TURBO Plus: routine 132 points COP1LC at graphics.library's own copper

@@ -4,6 +4,8 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
+import { NA } from '../coverage/status'
+import { makeAllInstructions } from './instr'
 
 const table = new TokenTable(CORE_TOKENS)
 /**
@@ -26,6 +28,15 @@ function run(src: string): string {
   const r = rt.runHeadless(500)
   if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
   return out
+}
+
+/** a Runtime with JD bound, for the dispatch-level checks */
+function bootJd(): Runtime {
+  return new Runtime(tokenize('Rem', table, exts), table, {
+    extensions: exts,
+    extBindings: new Map([[22, jd]]),
+    maxSteps: 200_000,
+  })
 }
 
 /** the value of a single expression, as printed */
@@ -410,10 +421,13 @@ describe('JD: date and time (+|jd.s:1070-1300, 4346-4700)', () => {
     expect(val('Jd Day Of Year(1,3,1995)')).toBe('60')
   })
 
-  it('Setdate and Setclock parse their argument and change nothing', () => {
-    // they write the RTC chip at $DC0000; n/a here, and the call still has to
-    // be well formed
-    expect(() => run('Jd Setdate "24.12.94"')).not.toThrow()
-    expect(() => run('Jd Setclock "10:00:00"')).not.toThrow()
+  it('Setdate and Setclock are n/a, with no handler at all', () => {
+    // they poke the RTC chip at $DC0000; NA in status.ts, and an n/a keyword
+    // must not be dispatched — coverage.test.ts holds the two lists apart
+    expect(NA.has('jd setdate')).toBe(true)
+    expect(NA.has('jd setclock')).toBe(true)
+    const funcs = makeAllInstructions(bootJd())
+    expect('jd setdate' in funcs).toBe(false)
+    expect('jd setclock' in funcs).toBe(false)
   })
 })

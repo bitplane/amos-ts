@@ -919,28 +919,14 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
   return {
 
     /**
-     * Jd Setdate "DD.MM.YY" and Jd Setclock "HH:MM:SS" — routines 5 and 4
-     * (+|jd.s:1146, :1070). Both write the battery-backed clock chip: the
-     * routine converts each character to a nibble and pokes it straight into
-     * the MSM6242B's registers at $DC0000, two bytes apart (`ttl`, :1090).
-     *
-     * NOT APPLICABLE, and for a reason worth stating precisely rather than
-     * "browsers cannot do that". These do not ask the operating system to
-     * change the date — they write a hardware register on a chip that may not
-     * be fitted. There is no host equivalent to offer, and a program setting
-     * the machine's clock is not something a page should be able to do even if
-     * there were. The arguments are still parsed, so a malformed call is
-     * rejected as it would be, and then nothing happens.
-     *
-     * Reading the clock is unaffected: Jd Date$ and Jd Time$ go through the
-     * host clock, which the census pins.
+     * Jd Setdate and Jd Setclock are NOT here on purpose — see NA in
+     * coverage/status.ts. They write the battery-backed clock chip at
+     * $DC0000 nibble by nibble (routines 5 and 4, +|jd.s:1146, :1070), and an
+     * n/a keyword must have no handler at all: registering one that parses
+     * and shrugs would count as implemented and say so in KEYWORDS.md.
+     * Without one they reach the unimplemented path, which is what every
+     * other n/a keyword in this port does.
      */
-    'jd setdate'(it) {
-      it.evalStr()
-    },
-    'jd setclock'(it) {
-      it.evalStr()
-    },
 
     /**
      * Jd Get Area "10-20" — routine 21 (+|jd.s:1933). Splits an "a-b" string
