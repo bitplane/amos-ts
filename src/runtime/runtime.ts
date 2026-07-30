@@ -28,7 +28,8 @@ import { newLdosState, type LdosState } from './ldos'
 import { blitVbl, newTurboState, starsVbl, type TurboState } from './turbo'
 import { newTdState, type TdState } from './td'
 import { ObjectBank, imagesCollide } from './objects'
-import type { BankImage, Bob, HwSprite, Zone } from './objects'
+import { BankImage } from './objects'
+import type { Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from './fs'
 import { AmalChannel } from './amal'
 import type { AmalHost, ChannelTarget } from './amal'
@@ -2811,7 +2812,10 @@ export class Runtime {
       }
     }
     const depth = Math.max(1, Math.ceil(Math.log2(Math.max(2, s.nColors))))
-    return { width: w, height: h, depth, hotX: 0, hotY: 0, pixels, opaque: false }
+    const img = new BankImage(w, h, depth, 0, 0)
+    img.pixelsW().set(pixels)
+    img.flush()
+    return img
   }
 
   // ---- screens ----
@@ -4855,7 +4859,9 @@ function serializeObjectBank(magic: 'AmSp' | 'AmIc', bank: ObjectBank): Uint8Arr
   new DataView(head.buffer).setUint16(4, bank.images.length)
   parts.push(head)
   for (const img of bank.images) {
-    const widthWords = (img.width + 15) >> 4
+    // the image's OWN geometry, which is the bank's (width >> 4), not the
+    // screen's ceil(width/16) — writing the other one would change the bytes
+    const widthWords = img.rowBytes >> 1
     const hdr = new Uint8Array(10)
     const hv = new DataView(hdr.buffer)
     hv.setUint16(0, widthWords)
@@ -4864,19 +4870,11 @@ function serializeObjectBank(magic: 'AmSp' | 'AmIc', bank: ObjectBank): Uint8Arr
     hv.setUint16(6, img.hotX)
     hv.setUint16(8, img.hotY)
     parts.push(hdr)
-    const rowBytes = widthWords * 2
-    const planar = new Uint8Array(rowBytes * img.height * img.depth)
-    for (let plane = 0; plane < img.depth; plane++) {
-      const bit = 1 << plane
-      const planeBase = plane * rowBytes * img.height
-      for (let y = 0; y < img.height; y++) {
-        const rowBase = planeBase + y * rowBytes
-        for (let x = 0; x < img.width; x++) {
-          if (img.pixels[y * img.width + x]! & bit) planar[rowBase + (x >> 3)]! |= 1 << (7 - (x & 7))
-        }
-      }
-    }
-    parts.push(planar)
+    // The planes as they are, not re-derived from chunky. A bank that is
+    // loaded and saved untouched now comes back byte for byte, where the
+    // round trip through chunky could only promise "equivalent" — the padding
+    // bits past the width had nowhere to survive.
+    parts.push(img.planeBytes())
   }
   const pal = new Uint8Array(64)
   const pv = new DataView(pal.buffer)

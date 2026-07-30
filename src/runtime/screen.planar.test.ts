@@ -13,6 +13,7 @@
 import { describe, expect, it } from 'vitest'
 import { Screen } from './screen'
 import { getPixel } from './planar'
+import { BankImage } from './objects'
 
 /** read a pixel out of the raw bitplanes, without going near the cache */
 function fromPlanes(s: Screen, x: number, y: number): number {
@@ -263,5 +264,43 @@ describe('bulk operations move planes, not just the cache', () => {
     }
     expect(fromPlanes(b, 3, 3)).toBe(6)
     agree(b, 'screen copy')
+  })
+})
+
+describe('bank images are bitplanes too', () => {
+  it('keeps the planar bytes it was given, rather than deriving them back', () => {
+    // sprite and icon banks are already planar on disk. The load used to
+    // unpack every image to chunky and the save packed it again — a round
+    // trip that could only promise "equivalent", because the padding bits
+    // past the width had nowhere to survive.
+    const planes = new Uint8Array(2 * 4 * 3) // 16 wide, 4 tall, 3 planes
+    for (let i = 0; i < planes.length; i++) planes[i] = (i * 37) & 0xff
+    const img = new BankImage(16, 4, 3, 0, 0, planes.slice())
+    expect(Buffer.from(img.planeBytes()).equals(Buffer.from(planes))).toBe(true)
+  })
+
+  it('the chunky view is derived from the planes', () => {
+    const img = new BankImage(16, 2, 2, 0, 0)
+    // plane 0 bit for x=0,y=0; plane 1 bit for x=1,y=0
+    img.planes[0] = 0x80
+    img.planes[img.planeSize] = 0x40
+    expect(img.pixels[0]).toBe(1)
+    expect(img.pixels[1]).toBe(2)
+    expect(img.pixelAt(0, 0)).toBe(1)
+  })
+
+  it('a chunky edit reaches the planes through flush', () => {
+    const img = new BankImage(16, 2, 3, 0, 0)
+    const buf = img.pixelsW()
+    buf[1 * 16 + 5] = 0b101
+    expect(getPixel(img.planeBytes(), img.planeSize, img.rowBytes, img.depth, 5, 1)).toBe(0b101)
+  })
+
+  it('geometry follows the BANK, not a screen', () => {
+    // banks store widthWords = width >> 4, truncating, where a screen rounds
+    // up. Every AMOS sprite is a multiple of 16 wide so they agree in
+    // practice, but the bank's convention is what a save has to reproduce.
+    expect(new BankImage(32, 8, 4, 0, 0).rowBytes).toBe(4)
+    expect(new BankImage(16, 8, 4, 0, 0).rowBytes).toBe(2)
   })
 })

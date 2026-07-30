@@ -1,4 +1,5 @@
 import type { Sprite, SpriteBank } from '../loader/amosfile'
+import { decode as decodePlanes, encode as encodePlanes, getPixel as planarGet } from './planar'
 
 /**
  * Blitter objects, hardware sprites and detection zones.
@@ -9,36 +10,89 @@ import type { Sprite, SpriteBank } from '../loader/amosfile'
  * Paste Bob/Icon which stamp the framebuffer permanently.
  */
 
-export interface BankImage {
-  width: number
-  height: number
-  depth: number
-  hotX: number
-  hotY: number
-  /** chunky pixels; 0 = transparent unless opaque */
-  pixels: Uint8Array
+/**
+ * A bob or icon: BITPLANES, with a chunky cache derived from them.
+ *
+ * Sprite and icon banks are already planar on disk. This used to unpack every
+ * image to chunky on load and pack it back on save — a round trip for
+ * nothing, and it meant a bob blit composed chunky bytes where the blitter
+ * moved planes. The planes are now kept as they arrived, so a bank that is
+ * loaded and saved comes back byte for byte, and `set bob`'s write mask has
+ * real planes to mask.
+ *
+ * Same contract as Screen: `pixels` is a read-only-by-contract cache and
+ * `pixelsW()` is what a writer takes, so a bank edit cannot land in the cache
+ * and miss the planes.
+ *
+ * GEOMETRY IS THE BANK'S, NOT THE SCREEN'S. Sprite banks store
+ * `widthWords = width >> 4`, truncating rather than rounding up the way a
+ * screen's rowBytes does. Every AMOS sprite is a multiple of 16 wide so the
+ * two agree in practice, but the bank's own convention is what is preserved
+ * here — anything else would change the bytes a save produces.
+ */
+export class BankImage {
+  readonly rowBytes: number
+  readonly planeSize: number
+  /** the bitplanes, in the bank's layout */
+  planes: Uint8Array
+  private cache: Uint8Array
+  private cacheValid = false
+  private cacheDirty = false
   /** set by No Mask: colour 0 draws */
-  opaque: boolean
+  opaque = false
+
+  constructor(
+    readonly width: number,
+    readonly height: number,
+    readonly depth: number,
+    public hotX: number,
+    public hotY: number,
+    planes?: Uint8Array,
+  ) {
+    this.rowBytes = (width >> 4) * 2
+    this.planeSize = this.rowBytes * height
+    this.planes = planes ?? new Uint8Array(this.planeSize * depth)
+    this.cache = new Uint8Array(width * height)
+  }
+
+  /** chunky pixels; 0 = transparent unless opaque. READ-ONLY by contract. */
+  get pixels(): Uint8Array {
+    if (this.cacheValid || this.cacheDirty) return this.cache
+    decodePlanes(this.planes, this.planeSize, this.rowBytes, this.depth, this.width, this.height, this.cache)
+    this.cacheValid = true
+    return this.cache
+  }
+  /** the chunky buffer, for a caller about to write to it */
+  pixelsW(): Uint8Array {
+    const p = this.pixels
+    this.cacheDirty = true
+    return p
+  }
+  /** settle any chunky writes back into the planes */
+  flush(): void {
+    if (!this.cacheDirty) return
+    encodePlanes(this.cache, this.planes, this.planeSize, this.rowBytes, this.depth, this.width, this.height)
+    this.cacheDirty = false
+    this.cacheValid = true
+  }
+  /** the planes, with any pending chunky write settled first */
+  planeBytes(): Uint8Array {
+    this.flush()
+    return this.planes
+  }
+  pixelAt(x: number, y: number): number {
+    if (this.cacheValid || this.cacheDirty) return this.cache[y * this.width + x]!
+    return planarGet(this.planes, this.planeSize, this.rowBytes, this.depth, x, y)
+  }
 }
 
+/** Wrap a bank sprite. The planar bytes are kept, not converted. */
 export function decodeSprite(s: Sprite): BankImage {
-  const widthWords = s.width >> 4
-  const planeSize = widthWords * 2 * s.height
-  const pixels = new Uint8Array(s.width * s.height)
-  for (let p = 0; p < s.depth; p++) {
-    const bit = 1 << p
-    const base = p * planeSize
-    for (let y = 0; y < s.height; y++) {
-      const rowOff = base + y * widthWords * 2
-      for (let x = 0; x < s.width; x++) {
-        const byte = s.data[rowOff + (x >> 3)] ?? 0
-        if ((byte >> (7 - (x & 7))) & 1) {
-          pixels[y * s.width + x] = pixels[y * s.width + x]! | bit
-        }
-      }
-    }
-  }
-  return { width: s.width, height: s.height, depth: s.depth, hotX: s.hotX, hotY: s.hotY, pixels, opaque: false }
+  const img = new BankImage(s.width, s.height, s.depth, s.hotX, s.hotY)
+  // copy rather than alias: editing an image must not scribble on the bank
+  // the loader parsed, and a short record still yields a whole bitmap
+  img.planes.set(s.data.subarray(0, Math.min(s.data.length, img.planes.length)))
+  return img
 }
 
 export class ObjectBank {
@@ -66,19 +120,26 @@ export class ObjectBank {
     if (cached) return cached
     // BobCalc +W.s:1408-1413: a flipped image's effective hot spot is
     // width-hotX / height-hotY (no -1; width is the 16-padded pixel width)
-    const flipped: BankImage = {
-      ...base,
-      pixels: new Uint8Array(base.pixels.length),
-      hotX: flags & 0x8000 ? base.width - base.hotX : base.hotX,
-      hotY: flags & 0x4000 ? base.height - base.hotY : base.hotY,
-    }
+    const flipped = new BankImage(
+      base.width,
+      base.height,
+      base.depth,
+      flags & 0x8000 ? base.width - base.hotX : base.hotX,
+      flags & 0x4000 ? base.height - base.hotY : base.hotY,
+    )
+    flipped.opaque = base.opaque
+    // through the chunky view: a horizontal flip is a bit reversal per plane
+    // row, which is not cheaper than this and is easier to get wrong
+    const src = base.pixels
+    const dst = flipped.pixelsW()
     for (let y = 0; y < base.height; y++) {
       const sy = flags & 0x4000 ? base.height - 1 - y : y
       for (let x = 0; x < base.width; x++) {
         const sx = flags & 0x8000 ? base.width - 1 - x : x
-        flipped.pixels[y * base.width + x] = base.pixels[sy * base.width + sx]!
+        dst[y * base.width + x] = src[sy * base.width + sx]!
       }
     }
+    flipped.flush()
     this.flipCache.set(n, flipped)
     return flipped
   }
@@ -115,7 +176,7 @@ export class ObjectBank {
 }
 
 export function blankImage(): BankImage {
-  return { width: 0, height: 0, depth: 0, hotX: 0, hotY: 0, pixels: new Uint8Array(0), opaque: false }
+  return new BankImage(0, 0, 0, 0, 0)
 }
 
 export interface Bob {
