@@ -21,7 +21,7 @@
  * and `ambiguous` results are reported rather than resolved by guessing.
  */
 import { readFileSync } from 'node:fs'
-import { walkFiles, hostPath } from './walk'
+import { walkMatching } from './walk'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -55,9 +55,7 @@ let read = 0
 let unreadable = 0
 let usingExt = 0
 
-for (const f of walkFiles(progDir)) {
-  const path = hostPath(f)
-  if (!/\.amos$/i.test(path)) continue
+for (const { file: f, path } of walkMatching(progDir, /\.amos$/i)) {
   let usage
   try {
     const amos = parseAmosFile(readFileSync(f))

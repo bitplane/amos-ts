@@ -84,3 +84,32 @@ export class BinReader {
     this.seek(this.pos + n)
   }
 }
+
+/**
+ * Big-endian reads at an offset, for the parsers that index rather than stream.
+ *
+ * `BinReader` is a cursor: `u16()` advances it. Plenty of the format code needs
+ * the other shape — a value at a computed offset inside a loop — and every file
+ * that needed it grew its own two-line `u16`/`u32`. This is that helper, once.
+ *
+ * Out-of-range bytes read as 0, which is what `b[off]! << 8` already does when
+ * the index is past the end (`undefined << 8` is 0), so adopting these does not
+ * change behaviour at a truncated tail.
+ *
+ * NOT adopted in two places, deliberately:
+ *  - `planar.ts`'s decodeRow and the copper fetch in runtime.ts, which are the
+ *    per-pixel-per-plane hot path. A call per word there is a measurable cost;
+ *    that loop has already been the subject of one performance regression.
+ *  - `loader/amalbank.ts`, whose own helper returns 0 when the WHOLE read would
+ *    overrun rather than per byte. On a truncated bank that differs, and the
+ *    bank format is one where a truncated tail is a real case.
+ */
+export function be16(b: Uint8Array, off: number): number {
+  return (((b[off] ?? 0) << 8) | (b[off + 1] ?? 0)) >>> 0
+}
+
+export function be32(b: Uint8Array, off: number): number {
+  return (
+    (((b[off] ?? 0) << 24) | ((b[off + 1] ?? 0) << 16) | ((b[off + 2] ?? 0) << 8) | (b[off + 3] ?? 0)) >>> 0
+  )
+}

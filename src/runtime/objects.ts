@@ -1,5 +1,5 @@
 import type { Sprite, SpriteBank } from '../loader/amosfile'
-import { decode as decodePlanes, encode as encodePlanes, getPixel as planarGet } from './planar'
+import { decode as decodePlanes, encode as encodePlanes, getPixel as planarGet, bankRowBytesFor } from './planar'
 import { AmosError } from '../interp/values'
 
 /**
@@ -50,7 +50,7 @@ export class BankImage {
     public hotY: number,
     planes?: Uint8Array,
   ) {
-    this.rowBytes = (width >> 4) * 2
+    this.rowBytes = bankRowBytesFor(width)
     this.planeSize = this.rowBytes * height
     this.planes = planes ?? new Uint8Array(this.planeSize * depth)
     this.cache = new Uint8Array(width * height)

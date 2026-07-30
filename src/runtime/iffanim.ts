@@ -17,14 +17,14 @@
 
 import { AmosError } from '../interp/values'
 import type { Runtime } from './runtime'
+import { be16, be32 } from '../loader/binreader'
 
 const fourcc = (b: Uint8Array, off: number): string =>
   String.fromCharCode(b[off] ?? 0, b[off + 1] ?? 0, b[off + 2] ?? 0, b[off + 3] ?? 0)
 
-const u32 = (b: Uint8Array, off: number): number =>
-  (((b[off] ?? 0) << 24) | ((b[off + 1] ?? 0) << 16) | ((b[off + 2] ?? 0) << 8) | (b[off + 3] ?? 0)) >>> 0
 
-const u16 = (b: Uint8Array, off: number): number => (((b[off] ?? 0) << 8) | (b[off + 1] ?? 0)) >>> 0
+const u16 = be16
+const u32 = be32
 
 const pad = (n: number): number => (n + 1) & ~1
 

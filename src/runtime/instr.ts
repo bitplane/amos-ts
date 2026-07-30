@@ -4196,7 +4196,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
     },
     hzone(_, a) {
       const s = scr()
-      const x = (int(a[a.length - 2]!) - s.displayX) * (s.hires ? 2 : 1) + s.offsetX
+      const x = s.hardToScreenX(int(a[a.length - 2]!))
       const y = int(a[a.length - 1]!) - s.displayY + s.offsetY
       return VI(rt.zoneAt(x, y))
     },
@@ -4206,7 +4206,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       // screen offset); outside the screen the answer is 0
       void a
       const s = scr()
-      const x = (it.inp.mouseX - s.displayX) * (s.hires ? 2 : 1) + s.offsetX
+      const x = s.hardToScreenX(it.inp.mouseX)
       const y = it.inp.mouseY - s.displayY + s.offsetY
       if (x < 0 || y < 0 || x >= s.width || y >= s.height) return VI(0)
       return VI(rt.zoneAt(x, y))
@@ -4221,7 +4221,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       for (let i = rt.order.length - 1; i >= 0; i--) {
         const s = rt.screens.get(rt.order[i]!)
         if (!s || !s.visible) continue
-        const sx = (x - s.displayX) * (s.hires ? 2 : 1)
+        const sx = s.hardToScreenX(x) - s.offsetX
         const sy = y - s.displayY
         if (sx >= 0 && sy >= 0 && sx < s.width && sy < s.height) return VI(s.index)
       }
@@ -4787,7 +4787,7 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       for (let i = rt.order.length - 1; i >= 0; i--) {
         const s = rt.screens.get(rt.order[i]!)
         if (!s || !s.visible) continue
-        const sx = (it.inp.mouseX - s.displayX) * (s.hires ? 2 : 1)
+        const sx = s.hardToScreenX(it.inp.mouseX) - s.offsetX
         const sy = it.inp.mouseY - s.displayY
         if (sx >= 0 && sy >= 0 && sx < s.width && sy < s.height) return VI(s.index)
       }

@@ -43,6 +43,7 @@
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { VI, VS, int, str, type Value } from '../interp/values'
+import { be32 } from '../loader/binreader'
 
 /** offsets within the block, named as the disassembly uses them */
 export const CT = {
@@ -76,8 +77,6 @@ export function newCtextState(): CtextState {
   return { block }
 }
 
-const rd32 = (b: Uint8Array, off: number): number =>
-  ((b[off]! << 24) | (b[off + 1]! << 16) | (b[off + 2]! << 8) | b[off + 3]!) >>> 0
 
 const wr32 = (b: Uint8Array, off: number, v: number): void => {
   b[off] = (v >>> 24) & 0xff
@@ -109,28 +108,28 @@ function walk(
     // ESC sets the flag and draws nothing ($5a4 -> $628)
     if (ch === ESC) {
       wr32(block, CT.ESC_PENDING, 1)
-      x += rd32(block, CT.KERN_PENDING)
+      x += be32(block, CT.KERN_PENDING)
       wr32(block, CT.KERN_PENDING, 0)
       continue
     }
     // the byte after ESC is the kern amount, as '0'+n ($658: subi.l #$30,d0)
-    if (rd32(block, CT.ESC_PENDING) !== 0) {
+    if (be32(block, CT.ESC_PENDING) !== 0) {
       wr32(block, CT.KERN_PENDING, (ch - 0x30) | 0)
       wr32(block, CT.ESC_PENDING, 0)
-      x += rd32(block, CT.KERN_PENDING)
+      x += be32(block, CT.KERN_PENDING)
       wr32(block, CT.KERN_PENDING, 0)
       continue
     }
     const icon = block[CT.ICON + ch]!
     // `cmp.l #$0,d1 : ble` — an unmapped character advances but draws nothing
     if (icon > 0 && draw) {
-      const fixedH = rd32(block, CT.FIXED_H)
+      const fixedH = be32(block, CT.FIXED_H)
       const y = y0 - (fixedH !== 0 ? fixedH : block[CT.YOFF + ch]!)
       draw(icon, x, y)
     }
-    const fixedW = rd32(block, CT.FIXED_W)
+    const fixedW = be32(block, CT.FIXED_W)
     x += fixedW !== 0 ? fixedW : block[CT.WIDTH + ch]!
-    x += rd32(block, CT.KERN_PENDING)
+    x += be32(block, CT.KERN_PENDING)
     wr32(block, CT.KERN_PENDING, 0)
   }
   return x

@@ -6,7 +6,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join, dirname, relative } from 'node:path'
-import { hostPath, walkFiles } from './walk'
+import { walkMatching } from './walk'
 import { fileURLToPath } from 'node:url'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable, TokenStreamError } from '../tokens/stream'
@@ -30,9 +30,7 @@ const extUse = new Map<string, number>()
 const failures: string[] = []
 const diagnostics = new Map<string, number>()
 
-for (const entry of walkFiles(fixtures)) {
-  const path = hostPath(entry)
-  if (!/\.(amos|abk)$/i.test(path)) continue
+for (const { file: entry, path } of walkMatching(fixtures, /\.(amos|abk)$/i)) {
   const rel = relative(fixtures, path)
   files++
   let amos

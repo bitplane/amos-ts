@@ -31,7 +31,7 @@ import { blitVbl, newTurboState, starsVbl, type TurboState } from './turbo'
 import { newTdState, type TdState } from './td'
 import { ObjectBank, imagesCollide } from './objects'
 import { BankImage } from './objects'
-import { BLTCON0_DEFAULT, bobBltcon0, mintermBit } from './planar'
+import { BLTCON0_DEFAULT, bobBltcon0, mintermBit, rowBytesFor, bankRowBytesFor } from './planar'
 import type { Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from './fs'
 import { AmalChannel } from './amal'
@@ -1719,7 +1719,7 @@ export class Runtime {
   /** hardware mouse coords → coords on screen s (SyCall XyScr) */
   private mouseOnScreen(s: Screen): { x: number; y: number } {
     return {
-      x: (this.input.mouseX - s.displayX) * (s.hires ? 2 : 1) + s.offsetX,
+      x: s.hardToScreenX(this.input.mouseX),
       y: this.input.mouseY - s.displayY + s.offsetY,
     }
   }
@@ -1980,13 +1980,13 @@ export class Runtime {
       if (!s) return -1
       switch (kind) {
         case 'XS':
-          return (v - s.displayX) * (s.hires ? 2 : 1) + s.offsetX
+          return s.hardToScreenX(v)
         case 'YS':
-          return v - s.displayY + s.offsetY
+          return s.hardToScreenY(v)
         case 'XH':
-          return s.displayX + Math.trunc((v - s.offsetX) / (s.hires ? 2 : 1))
+          return s.screenToHardX(v)
         case 'YH':
-          return s.displayY + (v - s.offsetY)
+          return s.screenToHardY(v)
       }
     },
     amalBank: () => this.amalBank,
@@ -2242,11 +2242,13 @@ export class Runtime {
     for (const b of this.memBanks.values()) if (b.memType === 1) n += b.data.length
     for (const s of this.screens.values()) {
       // bitplanes are chip memory: a row is rounded up to a whole word
-      n += (((s.width + 15) >> 4) << 1) * s.height * s.depth
+      n += rowBytesFor(s.width) * s.height * s.depth
     }
     for (const bank of [this.spriteBank, this.iconBank]) {
       if (!bank) continue
-      for (const img of bank.images) n += (((img.width + 15) >> 4) << 1) * img.height * 2
+      // this used to round up like a screen and assume two planes; a bank
+      // image knows its own geometry, and it truncates
+      for (const img of bank.images) n += img.rowBytes * img.height * img.depth
     }
     return n
   }
@@ -2475,7 +2477,7 @@ export class Runtime {
     let size = 2 + count * 8 + 64
     for (const img of bank.images) {
       recOffsets.push(size)
-      size += 10 + (img.width >> 4) * 2 * img.height * img.depth
+      size += 10 + bankRowBytesFor(img.width) * img.height * img.depth
     }
     const base = kind === 'sprites' ? Runtime.SPRITE_BANK_BASE : Runtime.ICON_BANK_BASE
     const out = new Uint8Array(size)

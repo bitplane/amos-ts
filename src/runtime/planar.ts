@@ -19,9 +19,29 @@
  * all — which is the whole point of getting here.
  */
 
-/** bytes per plane row: pixels rounded up to a whole word */
+/**
+ * Bytes per plane row for a SCREEN: pixels rounded up to a whole word.
+ *
+ * There are two conventions and they are not interchangeable — see
+ * `bankRowBytesFor`. This one had a single caller (its own file) while the
+ * expression was written out longhand in seven other places, which is how the
+ * two came to be mixed up in `chipUsed`.
+ */
 export function rowBytesFor(width: number): number {
   return ((width + 15) >> 4) << 1
+}
+
+/**
+ * Bytes per plane row for a SPRITE OR ICON BANK: pixels TRUNCATED to a whole
+ * word, because that is what the bank format stores (`widthWords = width >> 4`).
+ *
+ * Every AMOS sprite is a multiple of 16 wide, so the two agree in practice and
+ * the difference only shows on a hand-made odd-width image — but the bank's own
+ * convention is what a byte-exact save has to reproduce, so it gets its own
+ * name rather than sharing the screen's.
+ */
+export function bankRowBytesFor(width: number): number {
+  return (width >> 4) * 2
 }
 
 /**

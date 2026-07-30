@@ -720,7 +720,7 @@ function parseWord(source: string, n: number, alternatives: string, notfound: nu
 /** `Hzone`'s mapping: hardware coordinates into the current screen */
 function hardZoneAt(rt: Runtime, x: number, y: number): number {
   const s = rt.screen
-  return rt.zoneAt((x - s.displayX) * (s.hires ? 2 : 1) + s.offsetX, y - s.displayY + s.offsetY)
+  return rt.zoneAt(s.hardToScreenX(x), s.hardToScreenY(y))
 }
 
 // ---- bitplanes and blocks ----

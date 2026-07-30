@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { parseAmosFile } from './amosfile'
 import { SCREEN_HEADER_SIZE, packBitmap, packScreen, parsePacPic } from './pacpic'
 import type { MemoryBank } from './amosfile'
+import { rowBytesFor } from '../runtime/planar'
 
 const FIXTURES = join(__dirname, '..', '..', 'fixtures')
 
@@ -39,7 +40,7 @@ function toPlanar(pixels: Uint8Array, width: number, height: number, nPlanes: nu
   rowBytes: number
   nPlanes: number
 } {
-  const rowBytes = ((width + 15) >> 4) << 1
+  const rowBytes = rowBytesFor(width)
   const planeSize = rowBytes * height
   const planar = new Uint8Array(planeSize * nPlanes)
   for (let y = 0; y < height; y++) {

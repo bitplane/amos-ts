@@ -8,6 +8,7 @@ import {
   fillSpan as planarFillSpan,
   getPixel as planarGet,
   setPixel as planarSet,
+  rowBytesFor,
 } from './planar'
 
 // ---- text-border glyphs (TEncadre +W.s:16725) -----------------------------
@@ -322,7 +323,7 @@ export class Screen {
     readonly nColors: number,
     mode = 0,
   ) {
-    this.rowBytes = ((width + 15) >> 4) << 1
+    this.rowBytes = rowBytesFor(width)
     this.depth = Math.max(1, Math.ceil(Math.log2(Math.max(2, nColors))))
     this.planeSize = this.rowBytes * height
     this.planarLog = new Uint8Array(this.depth * this.planeSize)
@@ -545,6 +546,34 @@ export class Screen {
    * through `hline`, which is why the planar flip is two functions rather
    * than a rewrite of the drawing API.
    */
+
+  /**
+   * Hardware coordinates to this screen's own, and back (SyZoHd, and AMAL's
+   * X Screen / Y Screen / X Hard / Y Hard).
+   *
+   * X is not symmetric with Y: a hires screen shows two pixels per colour
+   * clock, so hardware X scales by two coming in and divides (truncating)
+   * going out, while Y is a plain offset. Both then shift by the screen's own
+   * scroll offset.
+   *
+   * This was written out longhand in eight places -- instr.ts x4, sticks.ts,
+   * turbo.ts, runtime.ts x2 -- plus the AmalHost.xy switch, which was the only
+   * caller of anything resembling a helper. Every field it needs belongs to a
+   * Screen, so it belongs here.
+   */
+  hardToScreenX(hx: number): number {
+    return (hx - this.displayX) * (this.hires ? 2 : 1) + this.offsetX
+  }
+  hardToScreenY(hy: number): number {
+    return hy - this.displayY + this.offsetY
+  }
+  screenToHardX(sx: number): number {
+    return this.displayX + Math.trunc((sx - this.offsetX) / (this.hires ? 2 : 1))
+  }
+  screenToHardY(sy: number): number {
+    return this.displayY + (sy - this.offsetY)
+  }
+
   plot(x: number, y: number, c = this.ink): void {
     if (!this.inClip(x, y)) return
     // COMPLEMENT and a partial write mask both need the old pixel; a plain

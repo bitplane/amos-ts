@@ -1,4 +1,5 @@
 import { BinReader } from './binreader'
+import { rowBytesFor } from '../runtime/planar'
 
 /**
  * IFF ILBM picture loader (Load Iff): BMHD/CMAP/CAMG/BODY with ByteRun1
@@ -78,7 +79,7 @@ export function parseIlbm(bytes: Uint8Array): IlbmImage {
     }
   }
 
-  const rowBytes = ((width + 15) >> 4) * 2
+  const rowBytes = rowBytesFor(width)
   const planesPerRow = depth + (masking === 1 ? 1 : 0)
   const pixels = new Uint8Array(width * height)
   const row = new Uint8Array(rowBytes)
@@ -149,7 +150,7 @@ function packRow(row: Uint8Array): number[] {
  */
 export function encodeIlbm(img: IlbmImage): Uint8Array {
   const { width, height, depth, mode, palette, pixels } = img
-  const rowBytes = ((width + 15) >> 4) * 2
+  const rowBytes = rowBytesFor(width)
   const chunks: Array<[string, number[]]> = []
   chunks.push([
     'BMHD',

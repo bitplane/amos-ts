@@ -22,7 +22,7 @@
  * runs the same way it would on a machine with AMOS Pro installed.
  */
 import { readFileSync } from 'node:fs'
-import { hostPath, walkFiles } from './walk'
+import { walkMatching } from './walk'
 import { fixedClock } from '../runtime/host'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
@@ -72,9 +72,7 @@ const unimpl = new Map<string, number>()
 /** how many PROGRAMS each keyword blocks, as against how often it is reached */
 const byProgram = new Map<string, number>()
 
-for (const file of roots.flatMap((r) => [...walkFiles(r)])) {
-  const path = hostPath(file)
-  if (!/\.amos$/i.test(path)) continue
+for (const { file, path } of roots.flatMap((r) => [...walkMatching(r, /\.amos$/i)])) {
   // Parsing is inside the guard because a collection is not a fixtures tree:
   // a truncated header or a bank length that runs past the end of the file is
   // a program to report, not a reason to abandon the census.

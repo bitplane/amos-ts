@@ -21,7 +21,7 @@
  * Run: npm run cli -- src/cli/extscan.ts <dir|file>... [--json out.json] [--libs dir]
  */
 import { readFileSync, writeFileSync } from 'node:fs'
-import { hostPath, walkFiles } from './walk'
+import { walkMatching } from './walk'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -58,9 +58,7 @@ let scanned = 0
 let failed = 0
 
 for (const root of roots) {
-  for (const entry of walkFiles(root)) {
-    const file = hostPath(entry)
-    if (!/\.amos$/i.test(file)) continue
+  for (const { file: entry, path: file } of walkMatching(root, /\.amos$/i)) {
     let lines
     try {
       const amos = parseAmosFile(readFileSync(entry))

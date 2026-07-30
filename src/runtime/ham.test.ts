@@ -4,6 +4,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { AmigaFS } from './vfs'
+import { rowBytesFor } from './planar'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -26,7 +27,7 @@ function pix12(rt: Runtime, x: number, y: number): number {
 
 /** minimal uncompressed ILBM with the given chunky rows */
 function buildIlbm(width: number, height: number, depth: number, camg: number, cmap: number[], chunky: number[][]): Uint8Array {
-  const rowBytes = ((width + 15) >> 4) * 2
+  const rowBytes = rowBytesFor(width)
   const out: number[] = []
   const str = (s: string): void => {
     for (const c of s) out.push(c.charCodeAt(0))

@@ -50,3 +50,23 @@ export function* walkFiles(root: Buffer | string): Generator<Buffer> {
 export function hostPath(p: Buffer): string {
   return p.toString('latin1')
 }
+
+/**
+ * Every file under `root` whose path matches `re`, with the decoded path
+ * alongside the raw bytes.
+ *
+ * Callers were all writing the same two lines — decode with `hostPath`, then
+ * test an extension and `continue` — which is `walkFiles` stopping one step
+ * short of what anyone actually wanted. Both halves are handed back because
+ * `fs` needs the Buffer and the caller needs the string; returning only the
+ * string is how the ISO-8859-1 problem in the header above gets reintroduced.
+ */
+export function* walkMatching(
+  root: Buffer | string,
+  re: RegExp,
+): Generator<{ file: Buffer; path: string }> {
+  for (const file of walkFiles(root)) {
+    const path = hostPath(file)
+    if (re.test(path)) yield { file, path }
+  }
+}
