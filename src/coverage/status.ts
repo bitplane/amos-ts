@@ -1295,6 +1295,13 @@ export const STRUCTURAL = new Set([
  * stay "missing": they are portable to a host capability, just not built.)
  */
 export const NA = new Set<string>([
+  // JD: both write the battery-backed clock chip at $DC0000 directly, nibble
+  // by nibble into an MSM6242B that may not even be fitted (+|jd.s:1070,
+  // :1146) — not a request to the operating system to change the date. There
+  // is no host equivalent, and setting the machine's clock is not something a
+  // page should be able to do. Reading it (Jd Date$, Jd Time$) is unaffected.
+  'jd setdate',
+  'jd setclock',
   // TURBO Plus: routine 132 points COP1LC at graphics.library's own copper
   // list and clears a flag in the AMOS workspace, handing the display back
   // to the system so a developer can see the machine underneath. There is

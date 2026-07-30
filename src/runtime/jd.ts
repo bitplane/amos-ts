@@ -118,6 +118,39 @@ function shiftLoop(count: number, value: number, step: (v: number, x: number) =>
   return v | 0
 }
 
+
+/**
+ * The century years JD counts as leap, from its own table (`yeartable`,
+ * +|jd.s:822). It stops at 4800, so 5200 and beyond answer "not a leap year"
+ * where the calendar says otherwise — the table is the library's limit and
+ * reproducing it is the point.
+ */
+const JD_CENTURY_LEAPS = [1600, 2000, 2400, 2800, 3200, 3600, 4000, 4400, 4800]
+
+/** the day names as the 5.3 source spells them (+|jd.s:797-818) — English */
+const JD_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+/** the host clock as a Date, which is where Date$ and Time$ both come from */
+function stampDate(rt: Runtime): Date {
+  const st = rt.host.clock.now()
+  return new Date(Date.UTC(1978, 0, 1) + st.days * 86_400_000 + st.mins * 60_000 + Math.floor(st.ticks / 50) * 1000)
+}
+
+/** sortable YYYYMMDD from a "DD.MM.YYYY" string, for the Actual Date$ compare */
+function dateKey(v: string): string {
+  return v.length === 10 ? `${v.slice(6, 10)}${v.slice(3, 5)}${v.slice(0, 2)}` : v
+}
+
+/**
+ * One field of a date string. The three ...val routines each begin
+ * `cmp.w #10,(a0)+ / Rbne L_outdim`, so a string that is not exactly ten
+ * characters is error 23 rather than a best effort.
+ */
+function dateField(v: string, from: number, to: number): number {
+  if (v.length !== 10) outdim()
+  return Number(v.slice(from, to)) || 0
+}
+
 export function makeJdFunctions(rt: Runtime): Record<string, Func> {
   void rt
   const arg = (a: Value[], i: number): number => int(a[i]!)
@@ -612,6 +645,152 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
+     * =Jd Date$ — routine 7 (+|jd.s:1228). The system date, and the length
+     * word the routine writes is TEN (`move.w #10,(a0)+`, :1281), so the
+     * format is "DD.MM.YYYY" with a four-digit year. The manual says
+     * "DD.MM.YY" and is wrong — and it matters, because Jd Dayval, Jd Monthval
+     * and Jd Yearval all reject anything that is not exactly ten characters
+     * (each opens `cmp.w #10,(a0)+ / Rbne L_outdim`) and read the year from
+     * characters 6-9. Take the manual at its word and Jd Yearval(Jd Date$)
+     * raises error 23 on the library's own output.
+     *
+     * The routine reads DOS's DateStamp and converts days-since-1978 itself,
+     * counting leap years in a loop; the host clock is that same stamp here.
+     */
+    'jd date$'(): Value {
+      const d = stampDate(rt)
+      return VS(
+        `${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${d.getUTCFullYear()}`,
+      )
+    },
+
+    /**
+     * =Jd Time$ — routine 6 (+|jd.s:1205). "HH:MM:SS", eight characters.
+     *
+     * DEVIATION worth knowing: this does NOT ask the operating system. It
+     * reads the battery-backed clock chip at $DC0000 directly, nibble by
+     * nibble — an MSM6242B, which only exists on a machine that has one
+     * fitted. On an A500 without a clock the routine returns whatever the
+     * unmapped address space answers. Here it comes from the host clock, so it
+     * is always the real time, which is the useful reading of a hardware clock
+     * that is present.
+     */
+    'jd time$'(): Value {
+      const d = stampDate(rt)
+      return VS(
+        `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}:${String(d.getUTCSeconds()).padStart(2, '0')}`,
+      )
+    },
+
+    /**
+     * =Jd Actual Date$(a$,b$) and =Jd Actual Time$(a$,b$) — routines 65 and 66
+     * (+|jd.s:3531, :3578). "get most actual datum": the later of the two.
+     * Dates compare by year, then month, then day; times by the string, which
+     * works because "HH:MM:SS" is fixed-width.
+     */
+    'jd actual date$'(_, a): Value {
+      const [x, y] = [sarg(a, 0), sarg(a, 1)]
+      return VS(dateKey(x) >= dateKey(y) ? x : y)
+    },
+    'jd actual time$'(_, a): Value {
+      const [x, y] = [sarg(a, 0), sarg(a, 1)]
+      return VS(x >= y ? x : y)
+    },
+
+    /**
+     * =Jd Timesecs("hh:mm:ss") and =Jd Secstime$(n) — routines 130 and 131
+     * (+|jd.s:5559, :5601). Seconds since midnight, both ways. Timesecs
+     * insists on exactly eight characters (`cmp.w #8,d0 / bne ttserr`).
+     */
+    'jd timesecs'(_, a): Value {
+      const v = sarg(a, 0)
+      if (v.length !== 8) return VI(0)
+      const [h, m, sec] = [Number(v.slice(0, 2)), Number(v.slice(3, 5)), Number(v.slice(6, 8))]
+      return VI(h * 3600 + m * 60 + sec)
+    },
+    'jd secstime$'(_, a): Value {
+      const n = Math.max(0, int(a[0]!))
+      const h = Math.floor(n / 3600)
+      const m = Math.floor((n - h * 3600) / 60)
+      const sec = n - h * 3600 - m * 60
+      return VS(
+        `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`,
+      )
+    },
+
+    /**
+     * =Jd Leap Year(y) — routine 96 (+|jd.s:4346). Outside 1583..9999 is error
+     * 23. Divisible by four and not by a hundred is a leap year; a century
+     * year is looked up in a TABLE rather than divided by 400 (`yeartable`,
+     * :822).
+     *
+     * That table holds 1600, 2000, 2400, 2800, 3200, 3600, 4000, 4400 and
+     * 4800 — so from 5200 onwards it answers "not a leap year" for century
+     * years that are. The bound is the table, not the calendar, and it is
+     * reproduced: a program cannot get a different answer out of the real
+     * library.
+     */
+    'jd leap year'(_, a): Value {
+      const y = arg(a, 0)
+      if (y < 1583 || y > 9999) outdim()
+      if (y % 4 !== 0) return VI(0)
+      if (y % 100 !== 0) return VI(1)
+      return VI(JD_CENTURY_LEAPS.includes(y) ? 1 : 0)
+    },
+
+    /**
+     * =Jd Day Of Year(d,m,y) — routine 97 (+|jd.s:4377). Which day of the year
+     * a date is, February taking the leap day from the same rule above.
+     */
+    'jd day of year'(_, a): Value {
+      const [d, m, y] = [arg(a, 0), arg(a, 1), arg(a, 2)]
+      if (d === 0 || m < 1 || m > 12) outdim()
+      const leap = y % 4 === 0 && (y % 100 !== 0 || JD_CENTURY_LEAPS.includes(y)) ? 1 : 0
+      const lens = [31, 28 + leap, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+      let n = d
+      for (let i = 0; i < m - 1; i++) n += lens[i]!
+      return VI(n)
+    },
+
+    /**
+     * =Jd Day(d,m,y) — routine 98 (+|jd.s:4491) — and =Jd Day$(n) — routine 99
+     * (:4595). The weekday, 1 = Sunday through 7 = Saturday, and its name.
+     *
+     * The names in the 5.3 source are ENGLISH — 'Sunday', 'Monday' and so on
+     * at :797-818 — even though the labels around them are German (`sonntag`,
+     * `montag`). An earlier build presumably answered German; this one does
+     * not, and the shipped table is what a program sees. Day$ outside 1..7 is
+     * error 23.
+     */
+    'jd day'(_, a): Value {
+      const [d, m, y] = [arg(a, 0), arg(a, 1), arg(a, 2)]
+      if (d === 0) outdim()
+      // 0 = Sunday from getUTCDay, and JD numbers Sunday 1
+      return VI(new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 1)
+    },
+    'jd day$'(_, a): Value {
+      const n = arg(a, 0)
+      if (n < 1 || n > 7) outdim()
+      return VS(JD_DAY_NAMES[n - 1]!)
+    },
+
+    /**
+     * =Jd Dayval / Monthval / Yearval("DD.MM.YYYY") — routines 103, 104 and
+     * 102 (+|jd.s:4661, :4677, :4643). The three components, and each one
+     * demands a string of exactly ten characters or raises error 23. Yearval
+     * reads four digits, which is the other half of the Date$ evidence above.
+     */
+    'jd dayval'(_, a): Value {
+      return VI(dateField(sarg(a, 0), 0, 2))
+    },
+    'jd monthval'(_, a): Value {
+      return VI(dateField(sarg(a, 0), 3, 5))
+    },
+    'jd yearval'(_, a): Value {
+      return VI(dateField(sarg(a, 0), 6, 10))
+    },
+
+    /**
      * =Jd Limit(z,z1,z2) — routine 10 (+|jd.s:1464). 1 when z1 <= z <= z2.
      * `movem.l (a3)+,d0-d2` puts z2 in d0, z1 in d1 and z in d2; the tests are
      * `cmp.l d2,d0 / blt` (top below the value) and `cmp.l d2,d1 / bgt`
@@ -738,6 +917,31 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
 
 export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
   return {
+
+    /**
+     * Jd Setdate "DD.MM.YY" and Jd Setclock "HH:MM:SS" — routines 5 and 4
+     * (+|jd.s:1146, :1070). Both write the battery-backed clock chip: the
+     * routine converts each character to a nibble and pokes it straight into
+     * the MSM6242B's registers at $DC0000, two bytes apart (`ttl`, :1090).
+     *
+     * NOT APPLICABLE, and for a reason worth stating precisely rather than
+     * "browsers cannot do that". These do not ask the operating system to
+     * change the date — they write a hardware register on a chip that may not
+     * be fitted. There is no host equivalent to offer, and a program setting
+     * the machine's clock is not something a page should be able to do even if
+     * there were. The arguments are still parsed, so a malformed call is
+     * rejected as it would be, and then nothing happens.
+     *
+     * Reading the clock is unaffected: Jd Date$ and Jd Time$ go through the
+     * host clock, which the census pins.
+     */
+    'jd setdate'(it) {
+      it.evalStr()
+    },
+    'jd setclock'(it) {
+      it.evalStr()
+    },
+
     /**
      * Jd Get Area "10-20" — routine 21 (+|jd.s:1933). Splits an "a-b" string
      * into the pair Jd Area First / Jd Area Last read back. The manual's three

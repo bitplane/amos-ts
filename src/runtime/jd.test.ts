@@ -346,3 +346,74 @@ describe('JD: areas and the console (+|jd.s:1933-3520)', () => {
     expect(run('Set Tab 7 : Print Jd Get Tab').trim()).toBe('7')
   })
 })
+
+describe('JD: date and time (+|jd.s:1070-1300, 4346-4700)', () => {
+  it('Date$ is TEN characters with a four-digit year, whatever the manual says', () => {
+    const d = sval('Jd Date$')
+    expect(d).toMatch(/^\d\d\.\d\d\.\d{4}$/)
+    expect(d.length).toBe(10)
+  })
+
+  it('and that is why Dayval/Monthval/Yearval accept it', () => {
+    // each opens `cmp.w #10,(a0)+ / Rbne L_outdim`, so the 8-character form
+    // the manual documents would be error 23 on the library's own output
+    expect(run('D$=Jd Date$ : Print Jd Dayval(D$);",";Jd Monthval(D$);",";Jd Yearval(D$)')).toMatch(/\d/)
+    expect(val('Jd Dayval("24.12.1994")')).toBe('24')
+    expect(val('Jd Monthval("24.12.1994")')).toBe('12')
+    expect(val('Jd Yearval("24.12.1994")')).toBe('1994')
+    expect(() => run('Print Jd Yearval("24.12.94")')).toThrow(/illegal function call/i)
+  })
+
+  it('Time$ is eight characters', () => {
+    expect(sval('Jd Time$')).toMatch(/^\d\d:\d\d:\d\d$/)
+  })
+
+  it('Timesecs and Secstime$ are inverses, and Timesecs wants eight characters', () => {
+    expect(val('Jd Timesecs("01:02:03")')).toBe(String(3723))
+    expect(sval('Jd Secstime$(3723)')).toBe('01:02:03')
+    expect(val('Jd Timesecs("1:2:3")')).toBe('0')
+    expect(sval('Jd Secstime$(0)')).toBe('00:00:00')
+  })
+
+  it('Actual Date$/Time$ answer the later of the two', () => {
+    expect(sval('Jd Actual Date$("01.01.1994","02.01.1994")')).toBe('02.01.1994')
+    expect(sval('Jd Actual Date$("01.02.1994","28.01.1994")')).toBe('01.02.1994')
+    expect(sval('Jd Actual Time$("10:00:00","09:59:59")')).toBe('10:00:00')
+  })
+
+  it('Leap Year follows the table, including where the table runs out', () => {
+    expect(val('Jd Leap Year(1996)')).toBe('1')
+    expect(val('Jd Leap Year(1997)')).toBe('0')
+    expect(val('Jd Leap Year(1900)')).toBe('0') // a century that is not in the table
+    expect(val('Jd Leap Year(2000)')).toBe('1') // one that is
+    // 5200 IS a leap year by the calendar; the table stops at 4800, so the
+    // library says no and so do we
+    expect(val('Jd Leap Year(5200)')).toBe('0')
+    expect(() => run('Print Jd Leap Year(1582)')).toThrow(/illegal function call/i)
+    expect(() => run('Print Jd Leap Year(10000)')).toThrow(/illegal function call/i)
+  })
+
+  it('Day is 1=Sunday and Day$ names it in English', () => {
+    // 25.12.1994 was a Sunday
+    expect(val('Jd Day(25,12,1994)')).toBe('1')
+    expect(sval('Jd Day$(1)')).toBe('Sunday')
+    expect(sval('Jd Day$(7)')).toBe('Saturday')
+    expect(sval('Jd Day$(Jd Day(24,12,1994))')).toBe('Saturday')
+    expect(() => run('Print Jd Day$(8)')).toThrow(/illegal function call/i)
+  })
+
+  it('Day Of Year counts the leap day', () => {
+    expect(val('Jd Day Of Year(1,1,1994)')).toBe('1')
+    expect(val('Jd Day Of Year(31,12,1995)')).toBe('365')
+    expect(val('Jd Day Of Year(31,12,1996)')).toBe('366') // a leap year
+    expect(val('Jd Day Of Year(1,3,1996)')).toBe('61')
+    expect(val('Jd Day Of Year(1,3,1995)')).toBe('60')
+  })
+
+  it('Setdate and Setclock parse their argument and change nothing', () => {
+    // they write the RTC chip at $DC0000; n/a here, and the call still has to
+    // be well formed
+    expect(() => run('Jd Setdate "24.12.94"')).not.toThrow()
+    expect(() => run('Jd Setclock "10:00:00"')).not.toThrow()
+  })
+})
