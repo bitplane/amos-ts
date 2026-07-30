@@ -2566,7 +2566,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const enable = it.evalInt()
       it.expect(',')
       const match = it.evalInt()
-      rt.clxcon = (0xf << 12) | ((enable & 0x3f) << 6) | (match & 0x3f)
+      rt.collide.clxcon = (0xf << 12) | ((enable & 0x3f) << 6) | (match & 0x3f)
     },
     'set accessory'(it) {
       // The token table points this at L_InNull (+Lib.s:1474), and InNull

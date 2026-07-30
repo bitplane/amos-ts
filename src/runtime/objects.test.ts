@@ -476,7 +476,7 @@ describe('hardware collisions (HColSet/HColGet +W.s:10018/115)', () => {
 
   it('Set Hardcol builds CLXCON: $F odd-sprite enables, ENBP1-6, MVBP1-6', () => {
     const rt = run([...setup, 'Set Hardcol 3,1'].join('\n'))
-    expect(rt.clxcon).toBe((0xf << 12) | (3 << 6) | 1)
+    expect(rt.collide.clxcon).toBe((0xf << 12) | (3 << 6) | 1)
   })
 
   it('two sprite pairs overlapping set their pair-against-pair bit', () => {

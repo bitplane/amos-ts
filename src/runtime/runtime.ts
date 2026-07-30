@@ -9,6 +9,9 @@ import { AmosError, VF, VI } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
+import { Collide } from './collide'
+import { bufferRegion, claimedRegion, findRegion, slottedRegion, within } from './memmap'
+import type { MemRegion } from './memmap'
 import { newPiConfig } from './piconfig.gen'
 import { newSpeechState, ensureLib, type SpeechState } from './speech'
 import { newIoPortsState, type IoPortsState } from './ioports'
@@ -29,7 +32,7 @@ import { defaultHost, type Host } from './host'
 import { newLdosState, type LdosState } from './ldos'
 import { blitVbl, newTurboState, starsVbl, type TurboState } from './turbo'
 import { newTdState, type TdState } from './td'
-import { ObjectBank, imagesCollide } from './objects'
+import { ObjectBank } from './objects'
 import { BankImage } from './objects'
 import { Display } from './display'
 import { rowBytesFor, bankRowBytesFor } from './planar'
@@ -334,8 +337,6 @@ export class Runtime {
   bobLimits = new Map<number, { x1: number; y1: number; x2: number; y2: number }>()
   priorityReverse = false
   zones: Array<Zone | null> = []
-  /** objects hit by the last Bob Col/Sprite Col, read by Col() */
-  colSet = new Set<number>()
   priorityOn = false
   fs: AmosFS | null = null
   // ---- AMAL ----
@@ -857,78 +858,100 @@ export class Runtime {
     return this.resolveInto(addr, true)
   }
 
+  /**
+   * The address space, ordered by base. Every region a program can reach by
+   * address is here; `memRegions` is the only description of the map, and
+   * memmap.test.ts holds it to claiming no address twice.
+   *
+   * Memory banks are deliberately NOT regions: bankBase(n) is
+   * 0x01000000 + n*0x100000, so a bank number high enough walks into the
+   * regions above (bank 1008 lands exactly on SCREEN_CHIP_BASE). The regions
+   * win, as they did when this was an if-chain with the bank scan last, and
+   * the overlap check cannot see a base that depends on a bank number.
+   */
+  private readonly memRegions: readonly MemRegion[] = [
+    {
+      // VPOSR/VHPOSR beam counters, synthesized per read from the pseudo-beam
+      name: 'beam counters',
+      base: 0xdff004,
+      reserved: 4,
+      live: () => 4,
+      resolve: (off) => {
+        const line = this.interp.beamLine()
+        const vh = this.interp.beamWord()
+        // VPOSR: V8 in bit 0 of the low byte; VHPOSR: V7-0 / H8-1
+        return { data: Uint8Array.of(0, (line >> 8) & 1, (vh >> 8) & 0xff, vh & 0xff), off }
+      },
+    },
+    slottedRegion(
+      'screen bitplanes',
+      Runtime.SCREEN_CHIP_BASE,
+      Runtime.SCREEN_CHIP_SLOT,
+      8,
+      (index, off, write) => {
+        const s = this.screens.get(index)
+        if (!s) return null
+        const phy = off >= Runtime.SCREEN_PHY_OFFSET
+        return within(
+          s.planarView(phy ? 'phy' : 'log', write),
+          phy ? off - Runtime.SCREEN_PHY_OFFSET : off,
+        )
+      },
+    ),
+    slottedRegion(
+      'screen control blocks',
+      Runtime.SCREEN_CTRL_BASE,
+      Runtime.SCREEN_CTRL_SLOT,
+      8,
+      (index, off) => {
+        const s = this.screens.get(index)
+        // synthesized read-only block; writes land in a throwaway copy
+        return s ? within(this.screenCtrlBlock(s), off) : null
+      },
+    ),
+    slottedRegion('copper lists', Runtime.COPPER_BASE, Runtime.COPPER_SLOT, 2, (index, off) =>
+      within(index === 0 ? this.copBufA : this.copBufB, off),
+    ),
+    // =Mubase points at the music extension data zone; the vumeter bytes at
+    // MB+0..3 are the mapped part (FnMusicBase +Music.s:3907)
+    bufferRegion('Mubase', Runtime.MUBASE_ADDR, 4, () => this.vuBytes),
+    {
+      name: 'variable arena',
+      base: Runtime.VAR_BASE,
+      reserved: Runtime.SPRITE_BANK_BASE - Runtime.VAR_BASE,
+      live: () => this.varArenaNext - Runtime.VAR_BASE,
+      resolve: (off) => this.resolveVarSlot(Runtime.VAR_BASE + off),
+    },
+    claimedRegion('sprite bank image', Runtime.SPRITE_BANK_BASE, 0x04000000, () =>
+      this.objectBankImage('sprites'),
+    ),
+    claimedRegion('icon bank image', Runtime.ICON_BANK_BASE, 0x04000000, () =>
+      this.objectBankImage('icons'),
+    ),
+    bufferRegion('temp buffer', Runtime.TEMP_BUFFER_BASE, 0x04000000, () => this.tempBuffer),
+    bufferRegion('Personnal memory', Runtime.PERSONNAL_BASE, 0x04000000, () => this.personnalMem),
+    bufferRegion(
+      'Personnal icon bank',
+      Runtime.PERSONNAL_ICON_BASE,
+      0x04000000,
+      () => this.personnalIcons,
+    ),
+    slottedRegion(
+      'extension data blocks',
+      Runtime.EXT_DATA_BASE,
+      Runtime.EXT_DATA_SLOT,
+      256,
+      (index, off) => {
+        const block = this.extBlocks[index]
+        return block ? within(block, off) : null
+      },
+    ),
+  ]
+
   private resolveInto(addr: number, write: boolean): { data: Uint8Array; off: number } | null {
     const a = addr >>> 0
-    if (a >= 0xdff004 && a < 0xdff008) {
-      // VPOSR/VHPOSR beam counters, synthesized from the pseudo-beam
-      const line = this.interp.beamLine()
-      const vh = this.interp.beamWord()
-      // VPOSR: V8 in bit 0 of the low byte; VHPOSR: V7-0 / H8-1
-      const b = Uint8Array.of(0, (line >> 8) & 1, (vh >> 8) & 0xff, vh & 0xff)
-      return { data: b, off: a - 0xdff004 }
-    }
-    if (a >= Runtime.MUBASE_ADDR && a < Runtime.MUBASE_ADDR + 4) {
-      // =Mubase points at the music extension data zone; the vumeter
-      // bytes at MB+0..3 are the mapped part (FnMusicBase +Music.s:3907)
-      return { data: this.vuBytes, off: a - Runtime.MUBASE_ADDR }
-    }
-    if (a >= Runtime.VAR_BASE && a < this.varArenaNext) {
-      return this.resolveVarSlot(a)
-    }
-    const temp = this.tempBuffer
-    if (temp && a >= Runtime.TEMP_BUFFER_BASE && a < Runtime.TEMP_BUFFER_BASE + temp.length) {
-      return { data: temp, off: a - Runtime.TEMP_BUFFER_BASE }
-    }
-    const pmem = this.personnalMem
-    if (pmem && a >= Runtime.PERSONNAL_BASE && a < Runtime.PERSONNAL_BASE + pmem.length) {
-      return { data: pmem, off: a - Runtime.PERSONNAL_BASE }
-    }
-    const picons = this.personnalIcons
-    if (picons && a >= Runtime.PERSONNAL_ICON_BASE && a < Runtime.PERSONNAL_ICON_BASE + picons.length) {
-      return { data: picons, off: a - Runtime.PERSONNAL_ICON_BASE }
-    }
-    for (const [kind, base] of [
-      ['sprites', Runtime.SPRITE_BANK_BASE],
-      ['icons', Runtime.ICON_BANK_BASE],
-    ] as Array<['sprites' | 'icons', number]>) {
-      if (a >= base && a < base + 0x04000000) {
-        const img = this.objectBankImage(kind)
-        if (!img || a - base >= img.length) return null
-        return { data: img, off: a - base }
-      }
-    }
-    if (a >= Runtime.COPPER_BASE && a < Runtime.COPPER_BASE + 2 * Runtime.COPPER_SLOT) {
-      const rel = a - Runtime.COPPER_BASE
-      const buf = rel < Runtime.COPPER_SLOT ? this.copBufA : this.copBufB
-      const off = rel % Runtime.COPPER_SLOT
-      return off < buf.length ? { data: buf, off } : null
-    }
-    if (a >= Runtime.SCREEN_CTRL_BASE && a < Runtime.SCREEN_CTRL_BASE + 8 * Runtime.SCREEN_CTRL_SLOT) {
-      const rel = a - Runtime.SCREEN_CTRL_BASE
-      const s = this.screens.get(Math.floor(rel / Runtime.SCREEN_CTRL_SLOT))
-      if (!s) return null
-      const off = rel % Runtime.SCREEN_CTRL_SLOT
-      // synthesized read-only block; writes land in a throwaway copy
-      const block = this.screenCtrlBlock(s)
-      return off < block.length ? { data: block, off } : null
-    }
-    if (a >= Runtime.SCREEN_CHIP_BASE && a < Runtime.SCREEN_CHIP_BASE + 8 * Runtime.SCREEN_CHIP_SLOT) {
-      const rel = a - Runtime.SCREEN_CHIP_BASE
-      const s = this.screens.get(Math.floor(rel / Runtime.SCREEN_CHIP_SLOT))
-      if (!s) return null
-      const within = rel % Runtime.SCREEN_CHIP_SLOT
-      const phy = within >= Runtime.SCREEN_PHY_OFFSET
-      const off = phy ? within - Runtime.SCREEN_PHY_OFFSET : within
-      const planar = s.planarView(phy ? 'phy' : 'log', write)
-      return off < planar.length ? { data: planar, off } : null
-    }
-    if (a >= Runtime.EXT_DATA_BASE && a < Runtime.EXT_DATA_BASE + 256 * Runtime.EXT_DATA_SLOT) {
-      const rel = a - Runtime.EXT_DATA_BASE
-      const block = this.extBlocks[Math.floor(rel / Runtime.EXT_DATA_SLOT)]
-      if (!block) return null
-      const off = rel % Runtime.EXT_DATA_SLOT
-      return off < block.length ? { data: block, off } : null
-    }
+    const region = findRegion(this.memRegions, a)
+    if (region) return region.resolve(a - region.base, write)
     for (const [n, bank] of this.memBanks) {
       const base = this.bankBase(n) >>> 0
       if (a >= base && a < base + bank.data.length) return { data: bank.data, off: a - base }
@@ -2987,243 +3010,28 @@ export class Runtime {
     this.order.unshift(n)
   }
 
-  /**
-   * The un-flipped collision image: ColRout (+W.s:179) strips the flip
-   * flags, so collision always uses the raw hot spot and box even when the
-   * object is drawn flipped.
-   */
-  private colImage(image: number): BankImage | undefined {
-    return this.spriteBank?.image(image & 0x3fff)
-  }
-
-  /** Bob n vs bobs first..last on the same screen; fills colSet. -1/0. */
+  /** collision detection and the =Col() bits — see collide.ts */
+  readonly collide = new Collide(this)
   bobColCheck(n: number, first = -Infinity, last = Infinity): number {
-    this.colSet.clear()
-    const me = this.bobs.get(n)
-    const img = me && this.colImage(me.image)
-    if (!me || !img) return 0
-    for (const other of this.bobs.values()) {
-      if (other.n === n || other.n < first || other.n > last || other.screen !== me.screen) continue
-      const oimg = this.colImage(other.image)
-      if (oimg && imagesCollide(img, me.x, me.y, oimg, other.x, other.y)) this.colSet.add(other.n)
-    }
-    return this.colSet.size > 0 ? -1 : 0
+    return this.collide.bobColCheck(n, first, last)
   }
-
   spriteColCheck(n: number, first = -Infinity, last = Infinity): number {
-    this.colSet.clear()
-    const me = this.hwSprites.get(n)
-    const img = me && this.colImage(me.image)
-    if (!me || !img) return 0
-    for (const other of this.hwSprites.values()) {
-      if (other.n === n || other.n < first || other.n > last) continue
-      const oimg = this.colImage(other.image)
-      if (oimg && imagesCollide(img, me.x, me.y, oimg, other.x, other.y)) this.colSet.add(other.n)
-    }
-    return this.colSet.size > 0 ? -1 : 0
+    return this.collide.spriteColCheck(n, first, last)
   }
-
-  /**
-   * Map a bob's screen position into hardware-sprite coordinate space
-   * (CXyS +W.s:10840): X is halved in HIRES, Y is halved when INTERLACED —
-   * one hardware unit is one lowres pixel. Sprites already live in hardware
-   * coords, so this puts the bob alongside them for collision.
-   */
-  private bobToHw(bob: Bob): { x: number; y: number } {
-    const s = this.screens.get(bob.screen) ?? this.screen
-    return {
-      x: (s.hires ? bob.x >> 1 : bob.x) + s.displayX,
-      y: (s.laced ? bob.y >> 1 : bob.y) + s.displayY,
-    }
-  }
-
-  /** Bob n vs hardware sprites first..last (Bobsprite Col, GoToSp +W.s:415). */
   bobSpriteColCheck(n: number, first = 0, last = 63): number {
-    this.colSet.clear()
-    const me = this.bobs.get(n)
-    const img = me && this.colImage(me.image)
-    if (!me || !img) return 0
-    const p = this.bobToHw(me)
-    for (const sp of this.hwSprites.values()) {
-      if (sp.n < first || sp.n > last) continue
-      const oimg = this.colImage(sp.image)
-      if (oimg && imagesCollide(img, p.x, p.y, oimg, sp.x, sp.y)) this.colSet.add(sp.n)
-    }
-    return this.colSet.size > 0 ? -1 : 0
+    return this.collide.bobSpriteColCheck(n, first, last)
   }
-
-  /** Hardware sprite n vs bobs first..last (Spritebob Col, SpToBb +W.s:526). */
   spriteBobColCheck(n: number, first = 0, last = 10000): number {
-    this.colSet.clear()
-    const me = this.hwSprites.get(n)
-    const img = me && this.colImage(me.image)
-    if (!me || !img) return 0
-    for (const bob of this.bobs.values()) {
-      if (bob.n < first || bob.n > last) continue
-      const oimg = this.colImage(bob.image)
-      const p = this.bobToHw(bob)
-      if (oimg && imagesCollide(img, me.x, me.y, oimg, p.x, p.y)) this.colSet.add(bob.n)
-    }
-    return this.colSet.size > 0 ? -1 : 0
+    return this.collide.spriteBobColCheck(n, first, last)
   }
-
-  /**
-   * CLXCON, the collision control register (HColSet +W.s:10018).
-   *
-   * Set Hardcol enable,match writes it: bits 12-15 enable the odd sprite
-   * of each pair (AMOS always sets all four), bits 6-11 say which
-   * bitplanes take part, bits 0-5 the value those planes must carry for a
-   * playfield pixel to count as solid.
-   */
-  clxcon = 0
-
-  /**
-   * CLXDAT for the current sprite and playfield positions (HColGet
-   * +W.s:115).
-   *
-   * Bit 0 is playfield 1 against playfield 2; bits 1-4 are sprite pairs
-   * 0-3 against playfield 1 and bits 5-8 the same against playfield 2;
-   * bits 9-14 are the six pair-against-pair combinations. That is the
-   * layout HColT (+W.s:159) indexes, and it is the hardware's.
-   *
-   * Deviation: the real register accumulates whatever the beam passed over
-   * during the frame and clears when read. This samples the positions as
-   * they stand at the call. For the way programs use it — move, Wait Vbl,
-   * test — the two agree; for a sprite that has already been moved on
-   * within the same frame they do not.
-   */
   hardcolData(): number {
-    const en = (this.clxcon >> 6) & 0x3f
-    const mv = this.clxcon & 0x3f
-    const ensp = (this.clxcon >> 12) & 0xf
-    // sprite coverage per pair, as hardware pixel keys
-    const cover: Set<number>[] = [new Set(), new Set(), new Set(), new Set()]
-    const sprites = this.spriteUpdateOn ? [...this.hwSprites.values()] : (this.frozenSprites ?? [])
-    const channels = this.spriteChannels(sprites)
-    for (const sp of sprites) {
-      const img = this.spriteBank?.image(sp.image)
-      if (!img) continue
-      const ch = channels.get(sp.n) ?? 6
-      // an odd channel only takes part when its ENSPn bit is set
-      if (ch & 1 && !(ensp & (1 << (ch >> 1)))) continue
-      const set = cover[ch >> 1]!
-      const x0 = sp.x - img.hotX
-      const y0 = sp.y - img.hotY
-      for (let y = 0; y < img.height; y++) {
-        for (let x = 0; x < img.width; x++) {
-          if (img.pixels[y * img.width + x] !== 0) set.add((y0 + y) * 1024 + (x0 + x))
-        }
-      }
-    }
-    // a playfield pixel is solid when every enabled plane matches
-    const solid = (pix: number, planes: number[]): boolean => {
-      let e = 0
-      let m = 0
-      for (let i = 0; i < planes.length; i++) {
-        if (en & (1 << planes[i]!)) e |= 1 << i
-        if (mv & (1 << planes[i]!)) m |= 1 << i
-      }
-      return ((pix ^ m) & e) === 0
-    }
-    const ODD = [0, 2, 4]
-    const EVEN = [1, 3, 5]
-    const ALL = [0, 1, 2, 3, 4, 5]
-    /** the playfield values at a hardware pixel, or null outside every screen */
-    const pfAt = (hx: number, hy: number): { p1: boolean; p2: boolean; dual: boolean } | null => {
-      const f = this.frontAt(hy)
-      if (!f) return null
-      const back = !f.dualIsBack && f.dualPartner !== null ? (this.screens.get(f.dualPartner) ?? null) : null
-      const sx = (hx - f.displayX) * (f.hires ? 2 : 1) + f.offsetX
-      const sy = hy - f.displayY + f.offsetY
-      if (sx < 0 || sy < 0 || sx >= f.width || sy >= f.height) return null
-      const v1 = f.displayBuffer[sy * f.width + sx]! & 63
-      if (!back) return { p1: solid(v1, ALL), p2: false, dual: false }
-      const v2 = sx < back.width && sy < back.height ? back.displayBuffer[sy * back.width + sx]! & 7 : 0
-      return { p1: solid(v1 & 7, ODD), p2: solid(v2, EVEN), dual: true }
-    }
-    let dat = 0
-    // pair against pair — HColT's first four columns
-    const PAIRBIT = [
-      [-1, 9, 10, 11],
-      [9, -1, 12, 13],
-      [10, 12, -1, 14],
-      [11, 13, 14, -1],
-    ]
-    for (let a = 0; a < 4; a++) {
-      for (let b = a + 1; b < 4; b++) {
-        for (const k of cover[a]!) {
-          if (cover[b]!.has(k)) {
-            dat |= 1 << PAIRBIT[a]![b]!
-            break
-          }
-        }
-      }
-    }
-    // pair against playfield — columns 4 and 5 of HColT are bits 1+p and 5+p
-    for (let p = 0; p < 4; p++) {
-      for (const k of cover[p]!) {
-        const pf = pfAt(k % 1024, Math.floor(k / 1024))
-        if (!pf) continue
-        if (pf.p1) dat |= 1 << (1 + p)
-        if (pf.p2) dat |= 1 << (5 + p)
-        if (dat & (1 << (1 + p)) && dat & (1 << (5 + p))) break
-      }
-    }
-    // playfield against playfield, wherever a dual pair is on screen
-    outer: for (const s of this.screens.values()) {
-      if (!s.visible || s.dualIsBack || s.dualPartner === null) continue
-      for (let y = 0; y < s.height; y++) {
-        for (let x = 0; x < s.width; x++) {
-          const pf = pfAt(s.displayX + (s.hires ? x >> 1 : x), s.displayY + y)
-          if (pf?.dual && pf.p1 && pf.p2) {
-            dat |= 1
-            break outer
-          }
-        }
-      }
-    }
-    return dat
+    return this.collide.hardcolData()
   }
-
-  /**
-   * =Hardcol(n) (FnHardcol +Lib.s:12353 -> HColGet +W.s:115).
-   *
-   * n < 0 answers the playfield-against-playfield bit. Otherwise it walks
-   * HColT's row for sprite n's pair, building the two-bits-per-entry word
-   * the 68k byte-swaps into T_TColl for Col() to read, and returns true
-   * only when a *sprite* collision was among them — a playfield hit fills
-   * in the Col() bits without making the function itself true.
-   */
   hardcol(n: number): number {
-    const dat = this.hardcolData()
-    this.colSet.clear()
-    if (n < 0) return dat & 1 ? -1 : 0
-    const HCOL_T = [
-      [-1, 9, 10, 11, 1, 5],
-      [9, -1, 12, 13, 2, 6],
-      [10, 12, -1, 14, 3, 7],
-      [11, 13, 14, -1, 4, 8],
-    ]
-    const row = HCOL_T[(n & 6) >> 1]!
-    let hit = 0
-    for (let i = 0; i < row.length; i++) {
-      const bit = row[i]!
-      if (bit < 0 || !(dat & (1 << bit))) continue
-      // two adjacent Col() objects per entry, as the %11 mask gives
-      this.colSet.add(i * 2)
-      this.colSet.add(i * 2 + 1)
-      if (i < 4) hit = -1
-    }
-    return hit
+    return this.collide.hardcol(n)
   }
-
-  /** =Col(n): >=0 membership (-1/0); <0 the first colliding object number. */
   colGet(n: number): number {
-    if (n < 0) {
-      for (const m of this.colSet) return m
-      return 0
-    }
-    return this.colSet.has(n) ? -1 : 0
+    return this.collide.colGet(n)
   }
 
   /** 1-based index of the first zone containing (x,y) in screen coords, 0 if none. */
