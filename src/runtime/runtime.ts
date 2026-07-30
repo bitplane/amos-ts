@@ -4171,6 +4171,8 @@ export class Runtime {
      * legitimately come from somewhere else. null = follow BPL1PT's screen.
      */
     const planeScr: Array<Screen | null> = new Array(8).fill(null)
+    /** per-plane: did its own pointer land in the physical half? */
+    const planePhy: boolean[] = new Array(8).fill(false)
     // per-row scratch for the fetch: which buffer each plane reads, where its
     // row starts in it, and the byte currently covering these eight pixels
     const pBuf: Array<Uint8Array> = new Array(8).fill(EMPTY_PLANE)
@@ -4258,7 +4260,10 @@ export class Runtime {
             // rest index this screen's plane p.
             for (let p = 0; p < nPlanes; p++) {
               const ps = planeScr[p] ?? null
-              pBuf[p] = ps === null ? planes : ps.planarView('log', false)
+              // same Autoback rule as BPL1PT above: the physical half is only a
+              // different bitmap once Autoback 0 has stopped keeping them equal
+              const psPhy = ps !== null && planePhy[p]! && ps.doubleBuffered && ps.autoback === 0
+              pBuf[p] = ps === null ? planes : ps.planarView(psPhy ? 'phy' : 'log', false)
               // TURBO's Plane Offset shifts one plane against the others. It
               // used to be simulated by skewing a chunky lookup because there
               // were no planes to offset; now it is what it always was on the
@@ -4390,6 +4395,7 @@ export class Runtime {
             if (hit) {
               planeScr[idx] = hit.s
               planeOff[idx] = hit.off
+              planePhy[idx] = hit.phy
             }
           }
           if (idx === 0 && bplH[0]! >= 0 && bplL[0]! >= 0) {
@@ -4406,6 +4412,7 @@ export class Runtime {
                 ptr = within
                 planeOff.fill(within)
                 planeScr.fill(null)
+                planePhy.fill(false)
               }
             }
           }
@@ -4703,15 +4710,25 @@ export class Runtime {
    * to that plane's start — the caller reads it out of plane 0 of the buffer
    * it gets back and does not add p*planeSize again.
    */
-  private resolvePlanePtr(ad: number): { s: Screen; off: number } | null {
+  /**
+   * Decode a BPLxPT value to a screen, an offset and WHICH BITMAP.
+   *
+   * The `phy` flag used to be computed and thrown away, so BPL2PT-BPL8PT all
+   * read the logical bitmap however the list pointed them, while BPL1PT's own
+   * inline decode honoured it. A list that points one plane at the logical
+   * buffer and another at the physical one — which is what a program does to
+   * show a composite of both — rendered entirely from one of them.
+   */
+  private resolvePlanePtr(ad: number): { s: Screen; off: number; phy: boolean } | null {
     if (ad < Runtime.SCREEN_CHIP_BASE || ad >= Runtime.SCREEN_CHIP_BASE + 8 * Runtime.SCREEN_CHIP_SLOT) return null
     const rel = ad - Runtime.SCREEN_CHIP_BASE
     const s = this.screens.get(Math.floor(rel / Runtime.SCREEN_CHIP_SLOT))
     if (!s) return null
     let within = rel % Runtime.SCREEN_CHIP_SLOT
-    if (within >= Runtime.SCREEN_PHY_OFFSET) within -= Runtime.SCREEN_PHY_OFFSET
+    const phy = within >= Runtime.SCREEN_PHY_OFFSET
+    if (phy) within -= Runtime.SCREEN_PHY_OFFSET
     if (within < 0 || within >= s.depth * s.planeSize) return null
-    return { s, off: within }
+    return { s, off: within, phy }
   }
 
   resolveScreenId(id: number, write = false): { s: Screen; buf: Uint8Array } {

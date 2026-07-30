@@ -1452,7 +1452,7 @@ export class Screen {
   }
 
   windOpen(n: number, x: number, y: number, cols: number, rows: number, border: number): Wind {
-    if (this.windows.has(n) && n !== 0) throw new Error('window already opened')
+    if (this.windows.has(n) && n !== 0) throw new AmosError('Text window already opened', 55)
     const alignedX = (x >> 4) << 4
     const b = border !== 0 ? 8 : 0
     const src = this.curWin
@@ -1528,7 +1528,7 @@ export class Screen {
 
   selectWindow(n: number): void {
     const w = this.windows.get(n)
-    if (!w) throw new Error(`window not opened: ${n}`)
+    if (!w) throw new AmosError('Text window not opened', 54)
     this.curWin = w
   }
 

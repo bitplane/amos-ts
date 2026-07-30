@@ -38,14 +38,34 @@ export function ffpRound(n: number): number {
  * The AMOS runtime error table (.Error1 in +Editor_Config.s:849): Errn
  * returns the number, Err$ returns the message.
  *
- * Generated from the assembler source rather than transcribed, so it is
- * the whole table — 174 messages, where the hand-written version carried
- * the 73 that had come up. Indices are the error codes AMOS itself uses;
- * the block's first record is the empty one the source numbers 0, which
- * is why a code is one behind its Resource$(-5000-n) record.
+ * Generated from the assembler source rather than transcribed, so it is the
+ * whole table — 175 records, where the hand-written version carried the 73 that
+ * had come up.
+ *
+ * The index is NOT the error number throughout. For the core errors it is:
+ * index 23 is "Illegal function call", which is the code every funcCall() in
+ * this port throws, and the same holds for 1, 2, 7, 20, 21, 24 and 25 — eight
+ * for eight against the codes the runtime itself raises.
+ *
+ * From index 126 the DEVICE block begins, and there the error number runs 14
+ * ahead of the index. That is anchored in the library rather than inferred:
+ * +IO_Ports.s opens serial with `move.w #145,d3` and parallel with `#171`, and
+ * index 131 is "Serial device already in use" while 157 is "Parallel device
+ * already used" — the first message of each device's block. Dev.GetIO's 140 and
+ * 141 land the same way, on "Device already opened" and "Device not opened".
+ *
+ * Building this map by index alone therefore made Err$ lie after any trapped
+ * device error: Err$(145) answered "Break detected" and Err$(171) "No Arexx
+ * message waiting". Nothing in the port raises a code in 126..139, so shifting
+ * the whole block up by 14 costs no core message.
  */
+const DEVICE_BLOCK_START = 126
+const DEVICE_CODE_OFFSET = 14
+
 export const AMOS_ERRORS: Record<number, string> = Object.fromEntries(
-  ED_RUN_MESSAGES.map((m, i) => [i, m]).filter(([, m]) => m !== ''),
+  ED_RUN_MESSAGES.map((m, i) => [i < DEVICE_BLOCK_START ? i : i + DEVICE_CODE_OFFSET, m]).filter(
+    ([, m]) => m !== '',
+  ),
 )
 
 /** AMOS error codes used at throw sites (Errn / Err$ / Error). */

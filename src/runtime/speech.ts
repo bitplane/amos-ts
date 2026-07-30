@@ -20,6 +20,7 @@
 import { VI, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
+import { AmosError } from '../interp/values'
 
 /** narrator-ts, once the dynamic import has resolved. */
 export interface SpeechLib {
@@ -245,11 +246,11 @@ export function makeSpeechInstructions(rt: Runtime): Record<string, Instr> {
       if (sex !== undefined && sex !== ENT_NUL) s.sex = sex & 1
       if (mode !== undefined && mode !== ENT_NUL) s.mode = mode & 1
       if (pitch !== undefined && pitch !== ENT_NUL) {
-        if (pitch < 65 || pitch > 320) throw new Error('Illegal function call')
+        if (pitch < 65 || pitch > 320) throw new AmosError('Illegal function call', 23)
         s.pitch = pitch
       }
       if (rate !== undefined && rate !== ENT_NUL) {
-        if (rate < 40 || rate > 400) throw new Error('Illegal function call')
+        if (rate < 40 || rate > 400) throw new AmosError('Illegal function call', 23)
         s.rate = rate
       }
     },
@@ -263,11 +264,11 @@ export function makeSpeechInstructions(rt: Runtime): Record<string, Instr> {
       const s = rt.speech
       const [volume, freq] = slots(it, 2)
       if (volume !== undefined && volume !== ENT_NUL) {
-        if (volume < 0 || volume > 64) throw new Error('Illegal function call')
+        if (volume < 0 || volume > 64) throw new AmosError('Illegal function call', 23)
         s.volume = volume
       }
       if (freq !== undefined && freq !== ENT_NUL) {
-        if (freq < 5000 || freq > 25000) throw new Error('Illegal function call')
+        if (freq < 5000 || freq > 25000) throw new AmosError('Illegal function call', 23)
         s.sampfreq = freq
       }
     },

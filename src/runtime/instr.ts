@@ -175,9 +175,9 @@ function buildRainbowTable(len: number, seed: number, rs: string, gs: string, bs
           p++
           any = true
         }
-        if (!any) throw new Error('rainbow syntax')
+        if (!any) throw new AmosError('Illegal function call', 23)
       } else {
-        if (!/[0-9]/.test(ch)) throw new Error('rainbow syntax')
+        if (!/[0-9]/.test(ch)) throw new AmosError('Illegal function call', 23)
         v = ch.charCodeAt(0) - 48
         for (;;) {
           const d = sig[p] ?? ''
@@ -190,15 +190,15 @@ function buildRainbowTable(len: number, seed: number, rs: string, gs: string, bs
     }
     const groups: Array<[number, number, number]> = []
     while (p < sig.length) {
-      if (next() !== '(') throw new Error('rainbow syntax')
+      if (next() !== '(') throw new AmosError('Illegal function call', 23)
       const a = num()
-      if (a <= 0) throw new Error('rainbow syntax') // ble RainTE
-      if (next() !== ',') throw new Error('rainbow syntax')
+      if (a <= 0) throw new AmosError('Illegal function call', 23) // ble RainTE
+      if (next() !== ',') throw new AmosError('Illegal function call', 23)
       const b = num()
-      if (next() !== ',') throw new Error('rainbow syntax')
+      if (next() !== ',') throw new AmosError('Illegal function call', 23)
       const c = num()
-      if (c < 0) throw new Error('rainbow syntax') // blt RainTE
-      if (next() !== ')') throw new Error('rainbow syntax')
+      if (c < 0) throw new AmosError('Illegal function call', 23) // blt RainTE
+      if (next() !== ')') throw new AmosError('Illegal function call', 23)
       groups.push([a, b, c])
     }
     return groups

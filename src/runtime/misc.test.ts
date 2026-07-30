@@ -322,11 +322,24 @@ describe('Resource$ reaches all six message tables (FnResource +ILib.s:6699)', (
     expect(() => run('Print Resource$(-6001)')).toThrow(/Illegal function call/)
   })
 
-  it('Err$ now answers for the whole table, not just the transcribed part', () => {
-    // 'Instruction not implemented' (code 12) is one of the 101 messages
-    // the hand-written table never carried
+  it('Err$ answers for the whole table, not just the transcribed part', () => {
+    // 'Instruction not implemented' (code 12) is one of the 101 messages the
+    // hand-written table never carried. Core codes index the block directly.
     expect(runOut('Print Err$(12)')).toBe(ED_RUN_MESSAGES[12] + '\n')
-    expect(runOut('Print Err$(174)')).toBe(ED_RUN_MESSAGES[174] + '\n')
+  })
+
+  it('device codes read 14 rows below their number', () => {
+    // From index 126 the block's DEVICE section begins and the error number
+    // runs 14 ahead of the index. +IO_Ports.s anchors it twice --
+    // `move.w #145,d3` for serial and `#171` for parallel -- and Dev.GetIO's
+    // 140/141 land the same way. This test used to assert Err$(174) was
+    // ED_RUN_MESSAGES[174], which is exactly what made Err$ lie after any
+    // trapped device error.
+    expect(runOut('Print Err$(140)')).toBe('Device already opened\n')
+    expect(runOut('Print Err$(145)')).toBe('Serial device already in use\n')
+    expect(runOut('Print Err$(171)')).toBe('Parallel device already used\n')
+    // so the block's last record, index 174, is code 188
+    expect(runOut('Print Err$(188)')).toBe(ED_RUN_MESSAGES[174] + '\n')
   })
 })
 

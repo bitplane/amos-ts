@@ -106,14 +106,19 @@ function detectFontsDrawer(): void {
     if (rt) rt.discFontCache = null
   }
 }
-// the AMOS Pro resource bank (dialogs, Fsel$) is part of the machine but is
-// not ours to ship, so it is picked up from fixtures/ when running locally
-void fetch('fixtures/official-amos/APSystem/AMOSPro_Default_Resource.Abk')
-  .then((r) => (r.ok ? r.arrayBuffer() : null))
-  .then((buf) => {
-    if (buf) player.setSystemResource(new Uint8Array(buf))
-  })
-  .catch(() => {})
+// The AMOS Pro resource bank (dialogs, Fsel$) is part of the machine but is not
+// ours to ship, so it is picked up from fixtures/ when running locally. It is
+// never deployed, so on the public site this fetch was a guaranteed 404 in the
+// console of every page load — noise that trains people to ignore the console.
+// import.meta.env.DEV is the dev-server-only guard.
+if (import.meta.env.DEV) {
+  void fetch('fixtures/official-amos/APSystem/AMOSPro_Default_Resource.Abk')
+    .then((r) => (r.ok ? r.arrayBuffer() : null))
+    .then((buf) => {
+      if (buf) player.setSystemResource(new Uint8Array(buf))
+    })
+    .catch(() => {})
+}
 
 /**
  * Take one incoming file (picker or drop). `dir` is the relative folder

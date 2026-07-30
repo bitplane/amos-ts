@@ -7,6 +7,7 @@ import { Runtime } from './runtime'
 import { makeIoPortsFunctions } from './ioports'
 import { VI, VS } from '../interp/values'
 import { fixedClock, type SerialHost, type SerialLineParams } from './host'
+import { AMOS_ERRORS } from '../interp/values'
 
 const table = new TokenTable(CORE_TOKENS)
 // IOPorts is slot 6 (`ExtNb equ 6-1`, +IO_Ports.s:46)
@@ -442,5 +443,40 @@ describe('IOPorts: a real host port (Host.serial)', () => {
     expect(rt.ioports.serial[0]!.dev.open).toBe(true)
     expect(rt.ioports.serial[0]!.port).toBe(null)
     expect(rt.ioports.serial[0]!.tx).toEqual([120]) // still recorded
+  })
+})
+
+describe('Err$ resolves device errors, not the message 14 rows above them', () => {
+  /**
+   * `ED_RUN_MESSAGES` is the editor's message block and its index is NOT the
+   * AMOS error number throughout. Core errors index directly — 23 is "Illegal
+   * function call", the code every funcCall() raises. From index 126 the device
+   * block begins and the error number runs 14 ahead, which +IO_Ports.s anchors
+   * twice: it opens serial with `move.w #145,d3` and parallel with `#171`, and
+   * those are the first message of each device's block.
+   *
+   * AMOS_ERRORS was built by index alone, so Err$ lied after any trapped device
+   * error. Both ranges are pinned here because a single mapping cannot serve
+   * both and a future "simplification" would silently break one.
+   */
+  it('keeps the core range indexed directly', () => {
+    expect(AMOS_ERRORS[1]).toBe('RETURN without GOSUB')
+    expect(AMOS_ERRORS[23]).toBe('Illegal function call')
+    expect(AMOS_ERRORS[24]).toBe('Out of memory')
+  })
+
+  it('shifts the device block by the 14 the library documents', () => {
+    // Dev.GetIO's two, +Lib.s:3068-3260
+    expect(AMOS_ERRORS[140]).toBe('Device already opened')
+    expect(AMOS_ERRORS[141]).toBe('Device not opened')
+    // the two the source names outright
+    expect(AMOS_ERRORS[145]).toBe('Serial device already in use')
+    expect(AMOS_ERRORS[171]).toBe('Parallel device already used')
+  })
+
+  it('leaves no core message stranded at a device code', () => {
+    // the messages that used to answer these are the bug, not the fix
+    expect(AMOS_ERRORS[145]).not.toBe('Break detected')
+    expect(AMOS_ERRORS[171]).not.toBe('No Arexx message waiting')
   })
 })

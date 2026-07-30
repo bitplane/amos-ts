@@ -28,6 +28,38 @@ import { AmosError, VI, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import { Runtime } from './runtime'
 import { P_COS, P_SIN, P_TAN } from './personnal-trig.gen'
+import { allExtensions } from '../ext/registry'
+
+/**
+ * The slots to register Personnal's slot-qualified keywords under.
+ *
+ * Two keywords — Sprite Col and Right Click — have to be qualified because
+ * core and TURBO own the plain names. The qualified key the interpreter builds
+ * is `ext<slot>:<name>` from the slot the PROGRAM used (interp/names.ts:52), so
+ * a literal 'ext13:' only fires when Personnal happens to sit at 13.
+ *
+ * Thirteen is where the library expects to be — its own source says
+ * `ExtNb Equ 13-1` and 68 of the 69 shipped demos agree — but a slot is a
+ * per-machine config entry, so the set is derived from what the registry has
+ * actually recorded rather than written out as a magic number. Any slot a
+ * Personnal manifest records as observed, plus its recommended slot, gets a
+ * handler; 13 stays as the floor so behaviour cannot regress if a manifest
+ * loses its observedSlots.
+ */
+function personnalSlots(): number[] {
+  const slots = new Set<number>([13])
+  for (const e of allExtensions()) {
+    if (!/^personn?al-/.test(e.id)) continue
+    for (const s of e.observedSlots) slots.add(s)
+    if (e.defaultSlot !== undefined) slots.add(e.defaultSlot)
+  }
+  return [...slots].sort((a, b) => a - b)
+}
+
+/** spread a handler across every slot Personnal is known to occupy */
+function atPersonnalSlots<T>(name: string, handler: T): Record<string, T> {
+  return Object.fromEntries(personnalSlots().map((n) => [`ext${n}:${name}`, handler]))
+}
 
 /**
  * The extension's own error table (ErrMess, +AMOSPro_Personnal.Lib.s:4485).
@@ -2729,10 +2761,10 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
      * shipped demos agree. Bound anywhere else it falls back to the plain
      * name, which is core's — no worse than before.
      */
-    'ext13:sprite col'(_, a): Value {
+    ...atPersonnalSlots('sprite col', (_: unknown, a: Value[]): Value => {
       void a
       return VI(clxBit(rt, 0))
-    },
+    }),
 
     /**
      * Right Click (L5, $29aa) — POTGOR bit 10, DATLY, port 0 pin 9, answering
@@ -2743,9 +2775,7 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
      * so the agreement is a fact about the two libraries rather than a
      * dependency.
      */
-    'ext13:right click'(): Value {
-      return VI(rt.input.mouseK & 2 ? -1 : 0)
-    },
+    ...atPersonnalSlots('right click', (): Value => VI(rt.input.mouseK & 2 ? -1 : 0)),
 
     /** =Aga Icon Base (L91, :3535) — _IcBase, zero when unreserved. */
     'aga icon base'(): Value {
