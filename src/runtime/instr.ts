@@ -9,6 +9,7 @@ import { makeSpeechFunctions, makeSpeechInstructions } from './speech'
 import { makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
 import { makeCtextFunctions, makeCtextInstructions } from './ctext'
 import { makeSticksFunctions, makeSticksInstructions } from './sticks'
+import { JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
 import { TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td'
 import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
@@ -4936,6 +4937,14 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     ids: ['sticks-1.01b'],
     instructions: makeSticksInstructions,
     functions: makeSticksFunctions,
+  },
+  {
+    // 5.9 renumbered the token table but kept the vocabulary; dispatch is by
+    // name, so one port serves both (see jd.ts)
+    ids: ['jd-5.3', 'jd-5.9'],
+    instructions: makeJdInstructions,
+    functions: makeJdFunctions,
+    errors: JD_ERRORS,
   },
 ]
 
