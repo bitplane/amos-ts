@@ -596,3 +596,62 @@ describe('HAM from the copper list, not just from the screen', () => {
     expect(pix(rt, 2, 0)).toBe(0x000)
   })
 })
+
+describe('a screen whose window runs off the bottom (MkA9a/MkA11 +W.s:5967)', () => {
+  /**
+   * DMACON persists across the frame boundary, so the border above the
+   * topmost screen shows the fond only because the PREVIOUS frame's last band
+   * turned the bitplane DMA off. AMOS therefore records the end of a window
+   * that falls below T_EcYMax-1 at EcYMax-1 rather than dropping it.
+   *
+   * Coingrabber is the program that found this: a 265-line screen at line 50
+   * ends at 315, so no end band was emitted, and the frame after left the DMA
+   * running through the top of the display — fetching from wherever the
+   * pointers had stopped, one plane out of step, which reads as the top of the
+   * screen duplicated in the wrong colours.
+   */
+  const tall = [
+    'Flash Off : Curs Off : Hide On',
+    'Screen Open 0,320,265,16,Lowres',
+    'Palette $000,$0F0,$00F',
+    // pen 2 is plane TWO only, so a stale pointer that has walked one plane
+    // on reads it as plane one and shows pen 1 — the "same shapes, wrong
+    // colours" the game showed. Filling plane one instead would leave the
+    // stale read on zeros and prove nothing.
+    'Cls 2',
+  ].join('\n')
+
+  it('still ends the band, at EcYMax-1', () => {
+    const rt = run(tall)
+    rt.buildCopperList()
+    const l = rt.copPhysic
+    let lastWait = -1
+    let dmaOffAt = -1
+    let cross = 0
+    for (let p = 0; p + 4 <= l.length; p += 4) {
+      const w1 = word(l, p)
+      const w2 = word(l, p + 2)
+      if (w1 === 0xffff && w2 === 0xfffe) break
+      // the line-255 crossing marker (TCopWt +W.s:6884); waits after it carry
+      // only the low byte of the line
+      if (w1 === 0xffdf) cross = 256
+      else if (w1 & 1) lastWait = ((w1 >> 8) & 0xff) + cross
+      else if ((w1 & 0x1fe) === 0x096 && w2 === 0x0100) dmaOffAt = lastWait
+    }
+    // 310, not 315 (off the end of the list) and not 49 (the screen's own
+    // EcCopHo stop, which is followed by $8300 one line later)
+    expect(dmaOffAt).toBe(310)
+  })
+
+  it('leaves the border above the screen showing the fond on the next frame', () => {
+    const rt = run(tall)
+    // two frames: the first is what leaves DMACON behind for the second
+    rt.frame()
+    rt.composite()
+    rt.frame()
+    const { data } = rt.composite()
+    // hardware line 30, well above the screen at 50, must be the fond
+    const o = ((30 - Runtime.COMPOSITE_TOP) * 2 * 640 + 320) * 4
+    expect([data[o], data[o + 1], data[o + 2]]).toEqual([0, 0, 0])
+  })
+})

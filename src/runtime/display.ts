@@ -41,6 +41,14 @@ export class Display {
   static readonly COMPOSITE_TOP = 26
   static readonly COMPOSITE_LINES = 286
 
+  /**
+   * T_EcYMax (+W.s:2476): the last line the list may address, 311 on PAL —
+   * NTSC sets 261 there instead, which this does not model. The list builder
+   * clamps a window that runs off the bottom to EcYMax-1 rather than dropping
+   * its end band; see endBand in buildCopperList.
+   */
+  static readonly EC_Y_MAX = 311
+
   /** Compose all visible screens into a 640x572 RGBA frame (the PAL
    * overscan window, doubled). */
   /**
@@ -188,6 +196,31 @@ export class Display {
       .sort((a, b) => a[0] - b[0])
       .map(([, r]) => r)
       .filter((r) => r.table.length > 0 && r.h >= 0 && r.ty > 0)
+    /**
+     * EcCopBa (+W.s:6741): stop the DMA and put the fond back in colour 0.
+     *
+     * Clamped to T_EcYMax-1, which is what MkA9a/MkA11 (+W.s:5967-5985) do
+     * with a window whose end falls below the bottom of the display: the end
+     * is recorded at EcYMax-1 rather than dropped. It has to be, because
+     * DMACON persists across the frame boundary — the region above the
+     * topmost screen shows the fond only because the PREVIOUS frame's last
+     * band turned the bitplane DMA off and nothing turns it back on until the
+     * screen's own EcCopHo. Leave a screen running off the bottom with the DMA
+     * still on and the next frame fetches from wherever the pointers stopped,
+     * through the top 24 lines of the display.
+     *
+     * Found in Coingrabber, whose 265-line screen sits at line 50 and so ends
+     * at 315: a band above the picture showing the plane data one plane out of
+     * step, which reads as the top of the screen duplicated in the wrong
+     * colours.
+     */
+    const endBand = (line: number): void => {
+      wait(Math.min(line, Display.EC_Y_MAX - 1))
+      put(0x096)
+      put(0x0100)
+      put(0x180)
+      put(this.rt.colourBack & 0xfff)
+    }
     let front: Screen | null = null
     let curRb: Rainbow | null = null
     let emitted = false
@@ -300,12 +333,7 @@ export class Display {
           put(f.palette[i]! & 0xfff)
         }
       } else if (bandEnd) {
-        // EcCopBa (+W.s:6741)
-        wait(L)
-        put(0x096)
-        put(0x0100)
-        put(0x180)
-        put(this.rt.colourBack & 0xfff)
+        endBand(L)
       }
       front = f
       // the single-rainbow machine (CopBow), interleaved with the bands
@@ -344,6 +372,10 @@ export class Display {
       put(0x0100)
       put(0x180)
       put(this.rt.colourBack & 0xfff)
+    } else if (front !== null) {
+      // a screen still in front on the last line — its window runs off the
+      // bottom, so the end band is the clamped one (MkA11)
+      endBand(Display.EC_Y_MAX - 1)
     }
     put(0xffff)
     put(0xfffe)
