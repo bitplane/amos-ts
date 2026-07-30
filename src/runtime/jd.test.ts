@@ -31,6 +31,13 @@ function run(src: string): string {
 /** the value of a single expression, as printed */
 const val = (expr: string): string => run(`Print ${expr}`).trim()
 
+/** a string expression with its spaces intact — val() trims, which matters
+ *  for the keywords whose whole job is padding */
+const sval = (expr: string): string => {
+  const printed = run(`Print "["+${expr}+"]"`)
+  return printed.slice(printed.indexOf('[') + 1, printed.lastIndexOf(']'))
+}
+
 describe('JD: shifts and rotates (+|jd.s:3718-3800)', () => {
   it('shifts by the count, with the value as the SECOND argument', () => {
     // the manual: "parameters: quantity and number", and the routine pops the
@@ -149,5 +156,100 @@ describe('JD: Jd Arcus (+|jd.s:5508)', () => {
     expect(val('Jd Arcus(0,0 To 3,-2)')).toBe('304')
     // and 45 degrees exactly stays 45 rather than sliding to 44
     expect(val('Jd Arcus(0,0 To -1,-1)')).toBe('45')
+  })
+})
+
+describe('JD strings: the manual\'s own examples (+|jd.s:1341-2440)', () => {
+  it('reproduces every worked example the manual prints', () => {
+    expect(val('Jd Cut$("Test",2,2)')).toBe('Tt')
+    expect(val('Jd Insert$("Tt",2,"es")')).toBe('Test')
+    expect(val('Jd Paste$("Test","es","a")')).toBe('Tat')
+    expect(sval('Jd Extend$("Test",8,0)')).toBe('  Test  ')
+    expect(sval('Jd Extend$("Test",8,1)')).toBe('    Test')
+    expect(sval('Jd Extend$("Test",8,-1)')).toBe('Test    ')
+    expect(val('Jd Exval$(12,4,"0")')).toBe('0012')
+    expect(val('Jd Linstr("tester","te")')).toBe('4')
+  })
+})
+
+describe('JD strings: what the source says and the manual does not', () => {
+  it('Change$ SWAPS case rather than raising it', () => {
+    expect(sval('Jd Change$("Test 1")')).toBe('tEST 1')
+  })
+
+  it('Firstup$ treats only bytes outside \'0\'..\'z\' as word breaks', () => {
+    expect(sval('Jd Firstup$("hello world")')).toBe('Hello World')
+    // a full stop is below '0', so it breaks; a colon is not, so it does not
+    expect(val('Jd Firstup$("one.two")')).toBe('One.Two')
+    expect(val('Jd Firstup$("one:two")')).toBe('One:two')
+    // an initial that is already capital is left alone, not lowered
+    expect(val('Jd Firstup$("Test")')).toBe('Test')
+  })
+
+  it('Skip$ trims spaces only, at both ends', () => {
+    expect(sval('Jd Skip$("  a b  ")')).toBe('a b')
+  })
+
+  it('Count counts OVERLAPPING occurrences', () => {
+    // the search position advances by one on a match, not by the match length
+    expect(val('Jd Count("aaa","aa")')).toBe('2')
+    expect(val('Jd Count("Test","t")')).toBe('1')
+  })
+
+  it('Paste$ does not rescan what it just wrote', () => {
+    expect(val('Jd Paste$("aaa","a","aa")')).toBe('aaaaaa')
+  })
+
+  it('Cut$ clamps the count rather than failing past the end', () => {
+    expect(val('Jd Cut$("Test",3,99)')).toBe('Te')
+    // and returns the input for a zero position, zero count or empty string
+    expect(val('Jd Cut$("Test",0,2)')).toBe('Test')
+    expect(val('Jd Cut$("Test",2,0)')).toBe('Test')
+  })
+
+  it('Insert$ past the end appends, and Extend$ never truncates', () => {
+    expect(val('Jd Insert$("ab",99,"c")')).toBe('abc')
+    expect(val('Jd Extend$("Testing",4,0)')).toBe('Testing')
+  })
+
+  it('the rotates move one character round', () => {
+    expect(val('Jd Rol$("abcd")')).toBe('bcda')
+    expect(val('Jd Ror$("abcd")')).toBe('dabc')
+  })
+
+  it('Ninstr finds the first character that is NOT the one given', () => {
+    expect(val('Jd Ninstr("aaab","a")')).toBe('4')
+    expect(val('Jd Ninstr("aaaa","a")')).toBe('0')
+    expect(val('Jd Ninstr("abab","a",2)')).toBe('2')
+    // only the first byte of the second argument is used
+    expect(val('Jd Ninstr("aaab","az")')).toBe('4')
+  })
+
+  it('Detab pads to the next multiple of the tab width', () => {
+    expect(sval('Jd Detab("a"+Chr$(9)+"b",4)')).toBe('a   b')
+  })
+})
+
+describe('JD Compare: the six pattern cases (+|jd.s:864-940)', () => {
+  const cmp = (s: string, p: string): string => val(`Jd Compare("${s}","${p}")`)
+
+  it('handles all, exact, prefix, suffix, midfix and pre_suffix', () => {
+    expect(cmp('anything', '*')).toBe('1')
+    expect(cmp('Test', 'Test')).toBe('1')
+    expect(cmp('Test', 'Tes')).toBe('0')
+    expect(cmp('Testing', 'Test*')).toBe('1')
+    expect(cmp('Testing', 'ing*')).toBe('0')
+    expect(cmp('Testing', '*ing')).toBe('1')
+    expect(cmp('Testing', '*est*')).toBe('1')
+    expect(cmp('Testing', '*xyz*')).toBe('0')
+    expect(cmp('Testing', 'Te*ng')).toBe('1')
+    expect(cmp('Testing', 'Te*xx')).toBe('0')
+  })
+
+  it('? matches exactly one character, in every case', () => {
+    expect(cmp('Test', 'T?st')).toBe('1')
+    expect(cmp('Test', 'T??t')).toBe('1')
+    expect(cmp('Test', 'T?t')).toBe('0') // length still has to match
+    expect(cmp('Testing', '*i?g')).toBe('1')
   })
 })
