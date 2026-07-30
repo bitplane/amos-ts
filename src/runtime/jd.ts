@@ -657,6 +657,49 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
      * an address is PowerPacked, which is the "PP20" magic this port's own
      * decruncher checks — the same one that opened JD's source.
      */
+    /**
+     * =Jd Stream$(start,end,lf) — routine 121, in the 4.6 source only
+     * (+jd-4.6/jd.s:5293); 5.3 dropped it. The bytes at `start` up to but not
+     * including the first one equal to `lf`, truncated when the scan reaches
+     * `end`.
+     *
+     * Two of the routine's own oddities are visible and kept. The search for
+     * the terminator is NOT bounded by `end` — `cmplf` has no end check, so a
+     * missing terminator runs off into memory; here the scan stops where this
+     * port's address map does. And when `end` cuts the copy short the length
+     * word has already been written from the full count, so the string claims
+     * more than was copied.
+     *
+     * `start` equal to `end` takes the `terminate` path, which allocates four
+     * bytes and returns them WITHOUT writing a length — an uninitialised
+     * string on the machine. Here that is the empty string.
+     */
+    'jd stream$'(_, a): Value {
+      const start = arg(a, 0)
+      const end = arg(a, 1)
+      const lf = arg(a, 2) & 0xff
+      if (start === end) return VS('')
+      const byteAt = (addr: number): number | null => {
+        const m = rt.resolveAddr(addr)
+        return m ? (m.data[m.off] ?? 0) : null
+      }
+      // `cmplf`: count the bytes before the terminator, unbounded
+      let n = 0
+      for (;;) {
+        const c = byteAt(start + n)
+        if (c === null || c === lf) break
+        n += 1
+      }
+      // `clstr`: copy n bytes, stopping early when the pointer reaches `end`
+      let out = ''
+      for (let i = 0; i < n && start + i !== end; i++) {
+        const c = byteAt(start + i)
+        if (c === null) break
+        out += String.fromCharCode(c)
+      }
+      return VS(out)
+    },
+
     'jd ppfind mem'(_, a): Value {
       const addr = arg(a, 0)
       let sig = ''

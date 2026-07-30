@@ -769,6 +769,27 @@ function run59(src: string): string {
 }
 const val59 = (expr: string): string => run59(`Print ${expr}`).trim()
 
+/**
+ * 4.6, the version that answers slot 22's last unexplained ids. Its table is
+ * registered for identification; the port serves it by name like the others,
+ * and it carries three keywords 5.3 dropped.
+ */
+const jd46 = extensionById('jd-4.6')!
+const exts46 = new Map([[22, jd46.table]])
+
+function run46(src: string): string {
+  let out = ''
+  const rt = new Runtime(tokenize(src, table, exts46), table, {
+    extensions: exts46,
+    extBindings: new Map([[22, jd46]]),
+    maxSteps: 2_000_000,
+    onText: (t) => (out += t),
+  })
+  const r = rt.runHeadless(500)
+  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  return out
+}
+
 describe('JD 5.9: the keywords the later table added', () => {
   it('Jd Pattern IS Jd Compare — same token id, same routine, new word', () => {
     const a = jd.tokens.find((t) => t.name.replace(/^!/, '').trim() === 'jd compare')!
@@ -800,6 +821,26 @@ describe('JD 5.9: the keywords the later table added', () => {
     expect(val59('Jd Dpath("/file")')).toBe('1')
     // one character further along and it is seen
     expect(val59('Jd Dpath("a:file")')).toBe('3')
+  })
+
+  it('Jd Stream$ reads memory up to a terminator byte', () => {
+    // routine 121 in the 4.6 source, dropped by 5.3. Bank 10 gives a mapped
+    // address to read from; "AB" then a linefeed, then more
+    const out = run46([
+      'Reserve As Work 10,16',
+      'Loke Start(10),$41420A43',
+      'Print Jd Stream$(Start(10),Start(10)+16,10)',
+      // the copy stops at `end` while the length was already counted
+      'Print Len(Jd Stream$(Start(10),Start(10)+1,10))',
+      // start equal to end takes the `terminate` path
+      'Print Len(Jd Stream$(Start(10),Start(10),10))',
+    ].join('\n'))
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['AB', '1', '0'])
+  })
+
+  it('the two intuition base keywords are n/a, as Jd Rastport is', () => {
+    expect(NA.has('jd intscreen base')).toBe(true)
+    expect(NA.has('jd intwindow base')).toBe(true)
   })
 
   it('an empty path answers 1 rather than running off the end of the string', () => {
