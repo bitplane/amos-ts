@@ -87,9 +87,11 @@ CLI tools in `src/cli/`:
 | `scan.ts` | corpus parse census |
 | `genmanifest.ts` | regenerate `KEYWORDS.md` from `src/coverage/status.ts` |
 | `genextdoc.ts` | regenerate the registry table in `docs/extensions/README.md` |
-| `libdemand.ts` | rank extensions by how many programs identify to them |
 | `gentable.ts`, `genext.ts` | regenerate token tables from the original libraries |
-| `extscan.ts`, `extdis.ts`, `extdemand.ts` | extension discovery, disassembly and demand ranking |
+| `extscan.ts` | which extension each slot in a collection of programs held |
+| `libscan.ts` | what each `.Lib` in a collection contains (`--gap` vs the registry) |
+| `libdemand.ts` | rank extensions by how many programs identify to them |
+| `extdis.ts` | resolve an extension keyword to its 68k routine and disassemble it |
 | `tddis.ts` | AMOS 3D: resolve a keyword to its engine routine and disassemble it |
 | `adfx.ts` | read an Amiga floppy image |
 
