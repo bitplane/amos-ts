@@ -3992,8 +3992,9 @@ export class Runtime {
         if (R.sprSet && !this.copperOn) this.drawListSprites(data, W, H, frontPass)
         else this.drawHwSprites(data, W, H, frontPass, this.copperOn ? undefined : pf1p)
       }
+      this.compositeFromList(data, W, H, 'bg')
       spr(false)
-      this.compositeFromList(data, W, H)
+      this.compositeFromList(data, W, H, 'playfield')
       spr(true)
       return { width: W, height: H, data }
     }
@@ -4146,7 +4147,21 @@ export class Runtime {
    *
    * Registers persist across frames, as the hardware's do — see copRegs.
    */
-  private compositeFromList(data: Uint8ClampedArray, W: number, H: number): void {
+  /**
+   * Walk the list and paint one LAYER of the display.
+   *
+   * Two passes rather than one, because the sprites go between them: the
+   * hardware interleaves background, sprite pairs and playfields by
+   * PF1P/PF2P, so a single pass that painted background and playfield
+   * together would bury any sprite meant to sit behind the picture — and a
+   * playfield pen of 0 would paint over it instead of letting it through.
+   *
+   * 'bg' fills each line from COLOR00 as the list leaves it; 'playfield'
+   * draws the fetched pixels with pen 0 transparent. Walking twice costs a
+   * second register pass (~1.2ms worst case, measured) and buys the correct
+   * layering with no second renderer.
+   */
+  private compositeFromList(data: Uint8ClampedArray, W: number, H: number, layer: 'bg' | 'playfield' = 'bg'): void {
     void H
     const phys = this.copPhysic
     const R = this.copRegs
@@ -4219,11 +4234,14 @@ export class Runtime {
           const r0 = (line - Runtime.COMPOSITE_TOP) * 2
           for (let ri = 0; ri < 2; ri++) {
             const r = r0 + ri
-            for (let o = r * W * 4; o < (r + 1) * W * 4; o += 4) {
-              data[o] = bgR
-              data[o + 1] = bgG
-              data[o + 2] = bgB
-              data[o + 3] = 255
+            if (layer === 'bg') {
+              for (let o = r * W * 4; o < (r + 1) * W * 4; o += 4) {
+                data[o] = bgR
+                data[o + 1] = bgG
+                data[o + 2] = bgB
+                data[o + 3] = 255
+              }
+              continue
             }
             if (!fetching || words === 0) continue
             const s = screen!
@@ -4301,6 +4319,9 @@ export class Runtime {
               // a zero pen in the front playfield lets the back one through
               let rgb4: number
               if (!dblpf) {
+                // colour 0 shows whatever is behind the playfield — the
+                // background, or a sprite the back pass already drew
+                if (pf1 === 0) continue
                 rgb4 = colour(pf1)
               } else {
                 const front = pf2Front ? pf2 : pf1
@@ -4309,7 +4330,7 @@ export class Runtime {
                 const backPal = pf2Front ? 0 : 8
                 if (front !== 0) rgb4 = hwPal[frontPal + front]! & 0xfff
                 else if (back !== 0) rgb4 = hwPal[backPal + back]! & 0xfff
-                else rgb4 = hwPal[0]! & 0xfff
+                else continue // both playfields transparent here
               }
               const cr = ((rgb4 >> 8) & 15) * 17
               const cg = ((rgb4 >> 4) & 15) * 17
