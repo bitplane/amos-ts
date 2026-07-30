@@ -6060,8 +6060,8 @@ export const EXT_INFO: ExtensionInfo[] = [
       "$VER: 1.3"
     ],
     "sha256": "66db735b6c9378e7bdb9b0e4f06e245e5c6e67e56da8e9e79182994a2c541d14",
-    "provenance": "AMOS PD Library CD, APD599/APSystem. Shipped with JD on APD599, with its own manual and assembler source (SOURCES/|prt.s). Same author as JD; identified from the Ultimate Amiga AMOS Factory archive listing.",
-    "notes": "Printer control keywords (Jd Prt Init/Italics/Bold/Elite and so on) driving Epson-style escape sequences. Source tier. No host printer exists here, so a port would follow Lprint/Ldir and discard the output — the faithful part is the escape sequences and the state each keyword sets."
+    "provenance": "AMOS PD Library CD, APD599/APSystem. Shipped with JD on APD599, with its own manual and assembler source (SOURCES/|prt.s). Like its sibling that source is PowerPacked; pp20Decrunch unpacks it to 14.5 KB of commented 68k, 'JD prt_extension source code, V1.1' and 'This file is public domain' in its header, `ExtNb equ 21-1` fixing slot 21 from the author's own build. The fixture keeps prt.s as distributed and prt.s.unpacked derived from it. Same author as JD; identified from the Ultimate Amiga AMOS Factory archive listing.",
+    "notes": "The printer companion, ported in src/runtime/jdprt.ts. Not what the name suggests: all 58 sequence keywords are string FUNCTIONS declared \"2\" in the token table and implemented by one routine, get_str (+prt.s:445), which copies a fixed Amiga printer-ANSI string out of the data area — nothing is sent to a printer, the program decides where the sequence goes. The five numeric ones instead poke Preferences through GetPrefs/SetPrefs for a later Printer Dump. 1.4 changes exactly two sequences and adds six."
   },
   {
     "id": "jd-prt-1.4",
