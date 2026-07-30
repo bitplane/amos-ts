@@ -86,6 +86,7 @@ CLI tools in `src/cli/`:
 | `runreport.ts` | the interpreter coverage census, and the regression oracle |
 | `scan.ts` | corpus parse census |
 | `genmanifest.ts` | regenerate `KEYWORDS.md` from `src/coverage/status.ts` |
+| `genextdoc.ts` | regenerate the registry table in `docs/extensions/README.md` |
 | `gentable.ts`, `genext.ts` | regenerate token tables from the original libraries |
 | `extscan.ts`, `extdis.ts`, `extdemand.ts` | extension discovery, disassembly and demand ranking |
 | `tddis.ts` | AMOS 3D: resolve a keyword to its engine routine and disassemble it |
@@ -98,8 +99,8 @@ Disassembly tools need `python3` with `capstone`.
 **Core AMOS Professional is complete.** Every core area in `KEYWORDS.md` reads
 100%: language, screens, drawing, menus, banks, text-io, objects, input, files,
 memory, system, interface, AMAL, copper, palette, rainbows, windows and zones.
-1089 keywords implemented, **1044 of them faithful** — verified against the 68k
-source, the official manual, or byte-exact artifacts. 1486 tests.
+1089 keywords implemented, **1045 of them faithful** — verified against the 68k
+source, the official manual, or byte-exact artifacts. 1554 tests.
 
 **Every extension a stock AMOS Professional installs is complete**: Music (49,
 including `Say` and the mouth stream), Compact, Compiler, Requester, and

@@ -367,3 +367,20 @@ describe('every extension fixture is accounted for', () => {
     }
   })
 })
+
+describe('the documented registry table matches the registry', () => {
+  it('lists every registered extension', () => {
+    // This table was maintained by hand and drifted to listing 19 of 53
+    // extensions — the failure mode of any hand-copied index. It is generated
+    // now (src/cli/genextdoc.ts), so the only way it can go stale is somebody
+    // adding a manifest and not re-running the generator. That is what this
+    // catches; the fix is to run it.
+    const doc = readFileSync(join(root, 'docs', 'extensions', 'README.md'), 'utf8')
+    const table = doc.slice(doc.indexOf('<!-- BEGIN registry'), doc.indexOf('<!-- END registry'))
+    expect(table.length).toBeGreaterThan(0)
+    const missing = allExtensions()
+      .map((e) => e.id)
+      .filter((id) => !table.includes(`\`${id}\``))
+    expect(missing, 'run: npm run cli -- src/cli/genextdoc.ts').toEqual([])
+  })
+})
