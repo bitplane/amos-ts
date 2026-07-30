@@ -359,7 +359,7 @@ export function fselJump(rt: Runtime, f: FselState, d: DialogChannel, zone: numb
  * directory — PathAct on the Amiga — before the name is appended, so a later
  * bare-filename Load resolves against it. An empty name box is a Cancel.
  */
-function fselOk(rt: Runtime, f: FselState, d: DialogChannel): void {
+function fselOk(rt: Runtime, _f: FselState, d: DialogChannel): void {
   const split = nomDir(fselZoneText(d, FS_PATH_ZONE))
   const name = fselZoneText(d, FS_FILE_ZONE)
   if (name === '') {

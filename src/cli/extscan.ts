@@ -14,7 +14,7 @@
  *
  * `--libs <dir>` answers those requests from the collection itself. Anything
  * that ships programs alongside the `.Lib` files they needed can identify its
- * own slots: libscan reads the libraries, and they join the registry as
+ * own slots: libscan reads the libraries, and they  the registry as
  * identification candidates for this run only. A hit is a lead to write up by
  * hand, not a registry entry — see docs/extensions/README.md.
  *
@@ -22,7 +22,6 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { hostPath, walkFiles } from './walk'
-import { join } from 'node:path'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'

@@ -2,7 +2,7 @@ import type { Tok } from '../tokens/stream'
 import type { Addr } from './prescan'
 import { varKey } from './prescan'
 import type { Interp } from './interp'
-import { AMOS_ERRORS, AmosError, VF, VI, VS, amosErrorCode, display, int, num, str, truthy, varType } from './values'
+import { AMOS_ERRORS, AmosError, VF, VI, VS, amosErrorCode, int, num, str, truthy, varType } from './values'
 import type { Value } from './values'
 
 /**
@@ -216,7 +216,7 @@ export const INSTR: Record<string, Instr> = {
     if (it.tok()?.kind === 'str') {
       // prompt may be a full string expression: Input "GUESS"+Str$(N);T
       prompt = it.evalStr()
-      it.accept(';') || it.accept(',')
+      if (!it.accept(';')) it.accept(',')
     }
     const targets = [it.parseTarget()]
     while (it.accept(',')) targets.push(it.parseTarget())
@@ -232,7 +232,7 @@ export const INSTR: Record<string, Instr> = {
     let prompt = '? '
     if (it.tok()?.kind === 'str') {
       prompt = it.evalStr()
-      it.accept(';') || it.accept(',')
+      if (!it.accept(';')) it.accept(',')
     }
     const line = it.io.input ? it.io.input(prompt) : ''
     if (line === undefined) {
@@ -1228,7 +1228,7 @@ export const FUNCS: Record<string, Func> = {
     it.inp.mouseClickOld = it.inp.mouseK
     return VI(pressed)
   },
-  'mouse zone'(it, a) {
+  'mouse zone'(_it, a) {
     arity(a, 0)
     return VI(0) // zones arrive with the object/zone milestone
   },

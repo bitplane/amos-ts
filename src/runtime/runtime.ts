@@ -104,9 +104,8 @@ export function fromFFP(v: number): number {
   const exp = (v & 0x7f) - 0x40
   return sign * (mant / 0x1000000) * 2 ** exp
 }
-import { FONT8 } from './font.gen'
 import type { AudioSink, SampleEntry } from './audio'
-import { AmigaFS, amigaPattern } from './vfs'
+import { AmigaFS } from './vfs'
 
 /**
  * One rainbow (RainTable entry, +WEqu.s:169-183, NbRain = 4). The 12-bit
@@ -1960,7 +1959,6 @@ export class Runtime {
   onMenu: { kind: 'gosub' | 'proc'; targets: string[]; armed: boolean } | null = null
   /** LMB drag of a movable item or level (MnBGoch +Lib.s:16016) */
   private menuDrag: { kind: 'item' | 'level'; node: MenuNode | null; level: number; mx: number; my: number } | null = null
-  private lastRmb = false
   private sampleCache: { bank: MemoryBank; entries: SampleEntry[] } | null = null
   readonly amalHost: AmalHost = {
     globals: this.amalGlobals,
@@ -2460,17 +2458,18 @@ export class Runtime {
   // The 68k sprite bank: count.w, then 8 bytes per image (record ptr.l +
   // mask ptr.l), the 32-word palette, and the records themselves
   // (TX.w TY.w planes.w hotX.w hotY.w + planar data) in chip RAM
-  // (Bnk.Load LB_Sprites +Lib.s). Synthesized read-only; rebuilt when
-  // the image count changes (in-place pixel edits may serve a stale
-  // image until then — NOTES).
-
-  private objBankCache = new Map<string, { bank: ObjectBank; count: number; image: Uint8Array }>()
+  // (Bnk.Load LB_Sprites +Lib.s). Synthesized read-only on each access.
+  //
+  // This used to re-encode every image from its chunky bytes, plane by plane
+  // and pixel by pixel, and cache the result to hide the cost — with the
+  // staleness that implies, since an in-place pixel edit kept serving the old
+  // image until the image COUNT changed. BankImage stores the planes
+  // authoritatively now, so the records are a copy of `planeBytes()` and the
+  // cache is not needed: no encode, and no stale window.
 
   objectBankImage(kind: 'sprites' | 'icons'): Uint8Array | null {
     const bank = kind === 'sprites' ? this.spriteBank : this.iconBank
     if (!bank) return null
-    const cached = this.objBankCache.get(kind)
-    if (cached && cached.bank === bank && cached.count === bank.images.length) return cached.image
     const count = bank.images.length
     const recOffsets: number[] = []
     let size = 2 + count * 8 + 64
@@ -2502,20 +2501,10 @@ export class Runtime {
       w16(off + 4, img.depth)
       w16(off + 6, img.hotX)
       w16(off + 8, img.hotY)
-      const planeSize = widthWords * 2 * img.height
-      for (let p = 0; p < img.depth; p++) {
-        const bit = 1 << p
-        for (let y = 0; y < img.height; y++) {
-          for (let x = 0; x < img.width; x++) {
-            if (img.pixels[y * img.width + x]! & bit) {
-              const bo = off + 10 + p * planeSize + y * widthWords * 2 + (x >> 3)
-              out[bo] = out[bo]! | (1 << (7 - (x & 7)))
-            }
-          }
-        }
-      }
+      // the bank's own planar bytes, in the same layout the record wants:
+      // widthWords*2 per row, planeSize per plane, planes in order
+      out.set(img.planeBytes(), off + 10)
     })
-    this.objBankCache.set(kind, { bank, count, image: out })
     return out
   }
 
@@ -3310,7 +3299,6 @@ export class Runtime {
     const s = this.screens.get(t.screenNb >= 0 ? t.screenNb : this.currentIndex) ?? this.screens.get(this.currentIndex) ?? null
     if (!t.on || t.roots.length === 0 || !s) {
       if (this.menuOpen && s) this.closeMenu(s)
-      this.lastRmb = rmb
       return
     }
     if (!this.menuOpen) this.menuKeys()
@@ -3424,7 +3412,6 @@ export class Runtime {
       this.closeMenu(s)
       if (t.choice === -1 && this.onMenu?.armed) this.dispatchOnMenu(t.choix[0]! - 1)
     }
-    this.lastRmb = rmb
   }
 
   private closeMenu(s: Screen): void {
@@ -4927,11 +4914,6 @@ function resolveDialogPattern(rt: Runtime, n: number): Uint16Array | null {
     return bits
   }
   return rt.systemPattern(n)
-}
-
-/** "DH0:Games" + "Zybex" → "DH0:Games/Zybex"; volume roots need no slash */
-function amigaPatternRx(pattern: string): RegExp {
-  return amigaPattern(pattern)
 }
 
 /** join byte chunks into one Uint8Array */

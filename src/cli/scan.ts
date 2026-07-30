@@ -10,7 +10,7 @@ import { hostPath, walkFiles } from './walk'
 import { fileURLToPath } from 'node:url'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable, TokenStreamError } from '../tokens/stream'
-import { CORE_TOKENS, AGA_CORE_TOKENS } from '../tokens/tables.gen'
+import { CORE_TOKENS } from '../tokens/tables.gen'
 import { extensionTablesFor } from '../ext/identify'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -19,12 +19,10 @@ const verbose = process.argv.includes('--verbose')
 const freq = process.argv.includes('--freq')
 
 const table = new TokenTable(CORE_TOKENS)
-const agaTable = new TokenTable(AGA_CORE_TOKENS)
 
 let files = 0
 let sourceOk = 0
 let sourceFail = 0
-let agaParsed = 0
 const signatures = new Map<string, number>()
 const bankNames = new Map<string, number>()
 const tokenFreq = new Map<string, number>()
@@ -51,15 +49,10 @@ for (const entry of walkFiles(fixtures)) {
   }
   if (amos.source.length === 0) continue
   try {
-    let lines
-    let used = table
-    try {
-      lines = parseSource(amos.source, table)
-    } catch (e) {
-      lines = parseSource(amos.source, agaTable)
-      used = agaTable
-      agaParsed++
-    }
+    // there was a retry against the AGA release's core table here; it was
+    // byte-identical to this one, so the retry could never succeed
+    const used = table
+    const lines = parseSource(amos.source, table)
     sourceOk++
     // resolve each slot from the program's own evidence, not a fixed map
     const extTables = extensionTablesFor(lines)
@@ -86,7 +79,7 @@ for (const entry of walkFiles(fixtures)) {
   }
 }
 
-console.log(`files: ${files}, with source ok: ${sourceOk} (${agaParsed} via AGA table), failed: ${sourceFail}`)
+console.log(`files: ${files}, with source ok: ${sourceOk}, failed: ${sourceFail}`)
 console.log('signatures:', Object.fromEntries(signatures))
 console.log('banks:', Object.fromEntries([...bankNames.entries()].sort((a, b) => b[1] - a[1])))
 console.log('diagnostics:', Object.fromEntries(diagnostics))

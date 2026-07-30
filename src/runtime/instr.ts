@@ -16,7 +16,7 @@ import { packBitmap, packScreen, parsePacPic } from '../loader/pacpic'
 import { parseDiskFont, parseFontDescriptor } from '../loader/diskfont'
 import { ED_MESSAGES, ED_RUN_MESSAGES, ED_SYSTEME, ED_TST_MESSAGES, EDM_MESSAGES } from './edmessages.gen'
 import { DEFAULT_FLASH_SPEC, Runtime, SYS_MESSAGES, extractCodeHunk, parseFlashSpec } from './runtime'
-import { Screen, builtinPattern } from './screen'
+import { Screen } from './screen'
 import { ObjectBank } from './objects'
 import { AmalChannel, AmalCompileError, compileAmal } from './amal'
 import {

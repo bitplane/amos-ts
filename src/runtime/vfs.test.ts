@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AmigaFS, MemoryVolume, amigaPattern } from './vfs'
+import { AmigaFS, amigaPattern } from './vfs'
 import { readTar, readZip, volumeFromEntries } from './archive'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'

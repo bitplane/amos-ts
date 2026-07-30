@@ -193,14 +193,12 @@ export function compileAmal(src: string): AmalProgram {
         if (d === '1') return { k: 'K1' }
         if (d === '2') return { k: 'K2' }
         throw lx.err('K1 or K2')
-        break
       }
       case 'J': {
         const d = lx.next()
         if (d === '0') return { k: 'J0' }
         if (d === '1') return { k: 'J1' }
         throw lx.err('J0 or J1')
-        break
       }
       case 'O':
         return { k: 'O' }

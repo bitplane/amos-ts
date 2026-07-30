@@ -1607,7 +1607,7 @@ export function drawSliderZone(ch: DialogChannel, z: DialogZone, draw: DialogDra
  * (BASIC string arrays through =Array); flags bit0 prefixes "n - " index
  * numbers (bit1: 1-based); the selected row draws inverted.
  */
-export function drawListZone(ch: DialogChannel, z: DialogZone, host: DialogHost, draw: DialogDraw): void {
+export function drawListZone(_ch: DialogChannel, z: DialogZone, host: DialogHost, draw: DialogDraw): void {
   const wChars = z.sx >> 3
   const arr = z.handle ? host.resolveArray(z.handle) : null
   const numW = String(z.count ?? 0).length
@@ -1666,7 +1666,7 @@ export function splitHyperLines(text: string): string[] {
  * segments `{[keyword,pen,pap]shown}` drawn highlighted (default: colours
  * swapped) and recorded for hit-testing.
  */
-export function drawHyperZone(ch: DialogChannel, z: DialogZone, draw: DialogDraw): void {
+export function drawHyperZone(_ch: DialogChannel, z: DialogZone, draw: DialogDraw): void {
   const wChars = z.sx >> 3
   const pap = z.pap ?? 0
   const pen = z.pen ?? 1

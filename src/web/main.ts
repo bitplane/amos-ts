@@ -4,7 +4,6 @@
  * mouse. `npm run dev` and open the page.
  */
 import { createPlayer, isAmosProgram, VERSION, type JoyKeys } from './player'
-import { readArchive, volumeFromEntries } from '../runtime/archive'
 import { baseName, deleteEntry, moveEntry, newDrawer, relabelVolume, renameEntry, type FsResult } from './filemanager'
 
 const statusEl = document.getElementById('status')!

@@ -72,6 +72,7 @@ what cannot.
 ```
 npm test           # vitest
 npm run typecheck  # tsc --noEmit
+npm run lint       # oxlint — correctness and suspicious rules only
 npm run build      # vite lib build to dist/
 npm run cli -- src/cli/<tool>.ts <args>   # run a CLI tool via tsx
 ```
@@ -232,8 +233,10 @@ integration test and `src/cli/gentable.ts` expect `fixtures/official-amos`
 Two notes for anyone searching the corpus. Tokenized `.AMOS` files are binary,
 so a plain `grep -r` will silently skip them if your `grep` is ugrep — pass
 `-a`, and run a positive control before believing a negative result. And
-`src/cli/amoscat.ts` detokenizes to stdout, so `rg --pre amoscat` greps AMOS
-source rather than token streams.
+`src/cli/amoscat.ts` detokenizes to stdout, so it works as an `rg --pre`
+preprocessor and greps AMOS source rather than token streams — write a one-line
+wrapper that `exec`s it and point `--pre` at that. (There used to be a `bin/`
+script for this; it ran `dist/amoscat.cjs`, which no build ever produced.)
 
 ## Releasing
 
