@@ -253,3 +253,96 @@ describe('JD Compare: the six pattern cases (+|jd.s:864-940)', () => {
     expect(cmp('Testing', '*i?g')).toBe('1')
   })
 })
+
+describe('JD: crypt, dumps and checksums (+|jd.s:1628-3372)', () => {
+  it('Crypt$ and Encrypt$ are inverse table substitutions', () => {
+    // whatever the table maps, the round trip has to come back
+    const round = run('A$="Test 123" : Print "["+Jd Encrypt$(Jd Crypt$(A$))+"]"')
+    expect(round.slice(round.indexOf('[') + 1, round.lastIndexOf(']'))).toBe('Test 123')
+  })
+
+  it('Crypt$ puts German text in dictionary order', () => {
+    // the point of the table: crypted, a-umlaut sorts next to a rather than
+    // above z, so a plain string compare orders German correctly
+    const out = run([
+      'A$=Jd Crypt$("a") : B$=Jd Crypt$(Chr$(228)) : C$=Jd Crypt$("b") : D$=Jd Crypt$("z")',
+      'If A$<B$ and B$<C$ Then Print "ordered" Else Print "not"',
+      'If C$<D$ Then Print "bz ok"',
+    ].join('\n'))
+    expect(out).toContain('ordered')
+    expect(out).toContain('bz ok')
+  })
+
+  it('Dump$ dots the control ranges and keeps the rest', () => {
+    expect(sval('Jd Dump$("a"+Chr$(9)+"b"+Chr$(200))')).toBe(`a.b${String.fromCharCode(200)}`)
+    expect(sval('Jd Dump$("a"+Chr$(130)+"b")')).toBe('a.b')
+  })
+
+  it('the checksums insist on their block size', () => {
+    // 512 for a filesystem block, 1024 for a boot block; anything else is 0
+    expect(val('Jd Checksum("short")')).toBe('0')
+    expect(val('Jd Bootchecksum("short")')).toBe('0')
+    expect(val('Jd Checksum(String$(Chr$(0),512))')).toBe('0')
+  })
+
+  it('Checksum answers what makes a filesystem block sum to zero', () => {
+    // a block of $01010101 longwords: 128 of them sum to $80808080, less the
+    // one at offset 20, negated
+    const out = run([
+      'A$=String$(Chr$(1),512)',
+      'Print Jd Checksum(A$)',
+    ].join('\n'))
+    const want = -((0x01010101 * 128 - 0x01010101) | 0) | 0
+    expect(Number(out.trim())).toBe(want)
+  })
+})
+
+describe('JD: Oct$ and Deoct are an inverse pair, and not octal (+|jd.s:3202/3334)', () => {
+  it('round-trips every value, which is what they are for', () => {
+    for (const n of [0, 7, 8, 16, 63, 100, 1000]) {
+      expect(val(`Jd Deoct(Jd Oct$(${n}))`)).toBe(String(n))
+    }
+  })
+
+  it('agrees with real octal only below 64', () => {
+    expect(val('Jd Oct$(16)')).toBe('& 20') // 20 octal is 16 — correct here
+    expect(val('Jd Oct$(100)')).toBe('& 124') // 124 octal is 84, not 100
+    expect(val('Jd Deoct("&124")')).toBe('100') // and it reads its own back
+  })
+
+  it('applies the sign the manual example drops', () => {
+    // the manual prints Deoct(&-20) -> 16; the routine negates on d6
+    expect(val('Jd Deoct("&-20")')).toBe('-16')
+    expect(val('Jd Oct$(-16)')).toBe('&-20')
+  })
+})
+
+describe('JD: areas and the console (+|jd.s:1933-3520)', () => {
+  it('Get Area splits a range, with the manual\'s three shapes', () => {
+    expect(run('Jd Get Area "10-20" : Print Jd Area First;",";Jd Area Last').trim()).toBe('10, 20')
+    expect(run('Jd Get Area "10-" : Print Jd Area First;",";Jd Area Last').trim()).toBe('10, 0')
+    expect(run('Jd Get Area "-20" : Print Jd Area First;",";Jd Area Last').trim()).toBe('0, 20')
+  })
+
+  it('Reset Area clears both', () => {
+    expect(run('Jd Get Area "3-4" : Jd Reset Area : Print Jd Area First;",";Jd Area Last').trim()).toBe('0, 0')
+  })
+
+  it('Jd Type writes the string, sound argument or not', () => {
+    expect(run('Curs Off : Jd Type "hello",2,0').trim()).toBe('hello')
+    expect(run('Curs Off : Jd Type "hi",-1,1').trim()).toBe('hi')
+  })
+
+  it('Jd Hexdump reads through the same address space as Peek', () => {
+    const out = run([
+      'Reserve As Work 10,16',
+      'Loke Start(10),$41424344',
+      'Curs Off : Jd Hexdump 1,Start(10),4,4',
+    ].join('\n'))
+    expect(out.trim()).toBe('41 42 43 44')
+  })
+
+  it('Jd Get Tab reports the console tab width', () => {
+    expect(run('Set Tab 7 : Print Jd Get Tab').trim()).toBe('7')
+  })
+})

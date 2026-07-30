@@ -55,6 +55,7 @@
 import { AmosError, VF, VI, VS, int, num, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import { decodeFFP } from '../tokens/stream'
+import { JD_CRYPT } from './jd-crypt.gen'
 import type { Runtime } from './runtime'
 
 /**
@@ -63,6 +64,21 @@ import type { Runtime } from './runtime'
  * from the identity.
  */
 export const JD_ERRORS = ['Illegal function call', 'Out of memory']
+
+/**
+ * Jd Get Area's two values, which Jd Area First / Jd Area Last read back.
+ *
+ * The library keeps them in its own data zone, so they are per-extension state
+ * that outlives the call and is shared by every program in the session — the
+ * same lifetime as the block Jd Exdatazone hands out. One pair per Runtime.
+ */
+export interface JdState {
+  areaFirst: number
+  areaLast: number
+}
+export function newJdState(): JdState {
+  return { areaFirst: 0, areaLast: 0 }
+}
 
 /** L_outdim (+|jd.s:6027): `moveq #23,d0` then L_Error — 26 call sites share it */
 function outdim(): never {
@@ -449,6 +465,152 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
       return VS(outStr)
     },
 
+
+    /**
+     * =Jd Crypt$(s) and =Jd Encrypt$(s) — routines 16 and 17 (+|jd.s:1628,
+     * :1669). A pair of inverse table substitutions over the 256-byte
+     * permutation at `y` (:604), which jd-crypt.gen.ts carries.
+     *
+     * Crypt$ answers each byte's INDEX in the table, Encrypt$ the byte AT that
+     * index. The table is German dictionary order — digits, then letters in
+     * pairs with the umlauts interleaved beside the vowels they belong with —
+     * so crypting strings before sorting them sorts German text correctly,
+     * which is what the manual means by "for german sorting". A byte the loop
+     * cannot place is copied through unchanged (`cop`, :1662).
+     */
+    'jd crypt$'(_, a): Value {
+      const v = sarg(a, 0)
+      if (v === '') return VS(v)
+      return VS(
+        [...v]
+          .map((c) => {
+            const i = JD_CRYPT.indexOf(c.charCodeAt(0))
+            return i < 0 ? c : String.fromCharCode(i)
+          })
+          .join(''),
+      )
+    },
+    'jd encrypt$'(_, a): Value {
+      const v = sarg(a, 0)
+      if (v === '') return VS(v)
+      return VS([...v].map((c) => String.fromCharCode(JD_CRYPT[c.charCodeAt(0)] ?? c.charCodeAt(0))).join(''))
+    },
+
+    /**
+     * =Jd Dump$(s) — routine 55 (+|jd.s:3097). Replaces the bytes a console
+     * cannot show with '.', keeping $20-$7F and $A0-$FF. The three signed
+     * comparisons at `high` (:3113) are what pick out both control ranges: C0
+     * ($00-$1F) and C1 ($80-$9F).
+     */
+    'jd dump$'(_, a): Value {
+      const v = sarg(a, 0)
+      return VS(
+        [...v]
+          .map((c) => {
+            const b = c.charCodeAt(0) & 0xff
+            return b < 0x20 || (b >= 0x80 && b <= 0x9f) ? '.' : c
+          })
+          .join(''),
+      )
+    },
+
+    /**
+     * =Jd Checksum(s) — routine 56 (+|jd.s:3144). The ordinary Amiga
+     * filesystem block checksum, and it insists on exactly 512 bytes: the
+     * length word is compared with 512 and anything else answers 0.
+     *
+     * Sum all 128 longwords, subtract the one at offset 20 (the block's own
+     * checksum field, which `-492(a0)` reaches after the loop), negate.
+     */
+    'jd checksum'(_, a): Value {
+      const v = sarg(a, 0)
+      if (v.length !== 512) return VI(0)
+      let sum = 0
+      const long = (i: number): number =>
+        ((v.charCodeAt(i) << 24) | (v.charCodeAt(i + 1) << 16) | (v.charCodeAt(i + 2) << 8) | v.charCodeAt(i + 3)) | 0
+      for (let i = 0; i < 512; i += 4) sum = (sum + long(i)) | 0
+      return VI(-(sum - long(20)) | 0)
+    },
+
+    /**
+     * =Jd Bootchecksum(s) — routine 57 (+|jd.s:3163). The BOOT block variant,
+     * which differs in three ways and needs exactly 1024 bytes: it skips the
+     * checksum field at offset 4 rather than subtracting it, it adds with
+     * CARRY WRAPPED back in (`bcs overflow` adds the 1 again, :3175), and it
+     * finishes with +1 then negate — which is the ones-complement the Amiga
+     * boot block wants.
+     */
+    'jd bootchecksum'(_, a): Value {
+      const v = sarg(a, 0)
+      if (v.length !== 1024) return VI(0)
+      const long = (i: number): number =>
+        (v.charCodeAt(i) * 0x1000000 +
+          v.charCodeAt(i + 1) * 0x10000 +
+          v.charCodeAt(i + 2) * 0x100 +
+          v.charCodeAt(i + 3)) >>>
+        0
+      let sum = long(0)
+      for (let i = 8; i < 1024; i += 4) {
+        sum += long(i)
+        if (sum > 0xffffffff) sum = (sum >>> 0) + 1 // the carry comes back in
+      }
+      return VI(-((sum >>> 0) + 1) | 0)
+    },
+
+    /**
+     * =Jd Oct$(n) and =Jd Deoct(s) — routines 59 and 62 (+|jd.s:3202, :3334).
+     *
+     * They are an exact inverse pair, and they are NOT standard octal. Oct$
+     * writes "&", a sign, then n>>3 and n AND 7 each rendered in DECIMAL and
+     * concatenated (:3213-3226); Deoct takes the last character as a digit,
+     * reads everything before it as a DECIMAL number, multiplies by eight and
+     * adds the digit (:3358-3364).
+     *
+     * So Oct$(100) is "&124" and Deoct("&124") is 100 — the round trip always
+     * works — but 124 read as real octal is 84, not 100. Anything under 64
+     * looks like ordinary octal and everything above it does not. Reproduced
+     * as the pair the library actually is.
+     *
+     * The manual's example, Deoct(&-20) = 16, drops the sign; the routine
+     * applies it (`cmp.b #1,d6 / neg.l d0`, :3367), so the answer is -16.
+     */
+    'jd oct$'(_, a): Value {
+      const n = int(a[0]!)
+      const mag = Math.abs(n)
+      return VS(`&${n < 0 ? '-' : ' '}${mag >>> 3}${mag & 7}`)
+    },
+    'jd deoct'(_, a): Value {
+      const v = sarg(a, 0)
+      if (v === '') return VI(0)
+      const body = v.replace(/^&/, '')
+      const neg = body.startsWith('-')
+      const digits = body.replace(/^[- ]/, '')
+      if (digits === '') return VI(0)
+      const last = digits.charCodeAt(digits.length - 1) - 48
+      const head = digits.slice(0, -1)
+      const value = (head === '' ? 0 : Number(head) || 0) * 8 + last
+      return VI(neg ? -value : value)
+    },
+
+    /**
+     * =Jd Area First and =Jd Area Last — routines 23 and 24 (+|jd.s:2019,
+     * :2025). Read back what Jd Get Area last parsed.
+     */
+    'jd area first'(): Value {
+      return VI(rt.jd.areaFirst)
+    },
+    'jd area last'(): Value {
+      return VI(rt.jd.areaLast)
+    },
+
+    /**
+     * =Jd Get Tab — routine 140 (+|jd.s:5880). The console's tab width, which
+     * is the current window's (Set Tab sets it).
+     */
+    'jd get tab'(): Value {
+      return VI(rt.screen.curWin.tab)
+    },
+
     /**
      * =Jd Limit(z,z1,z2) — routine 10 (+|jd.s:1464). 1 when z1 <= z <= z2.
      * `movem.l (a3)+,d0-d2` puts z2 in d0, z1 in d1 and z in d2; the tests are
@@ -575,6 +737,102 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
 }
 
 export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
-  void rt
-  return {}
+  return {
+    /**
+     * Jd Get Area "10-20" — routine 21 (+|jd.s:1933). Splits an "a-b" string
+     * into the pair Jd Area First / Jd Area Last read back. The manual's three
+     * examples cover the shape completely: "10-20" gives 10 and 20, "10-"
+     * gives 10 and 0, "-20" gives 0 and 20 — the routine tests for a leading
+     * hyphen (`berbis`) and a trailing one (`bisber`) before splitting.
+     *
+     * An empty string leaves both zero (`nulnul`, :1939).
+     */
+    'jd get area'(it) {
+      const v = it.evalStr()
+      const cut = v.indexOf('-')
+      if (v === '') {
+        rt.jd.areaFirst = 0
+        rt.jd.areaLast = 0
+        return
+      }
+      if (cut < 0) {
+        // no hyphen at all: the whole string is the first element
+        rt.jd.areaFirst = parseInt(v, 10) || 0
+        rt.jd.areaLast = 0
+        return
+      }
+      rt.jd.areaFirst = parseInt(v.slice(0, cut), 10) || 0
+      rt.jd.areaLast = parseInt(v.slice(cut + 1), 10) || 0
+    },
+
+    /** Jd Reset Area — routine 22 (+|jd.s:2014). Both back to zero. */
+    'jd reset area'() {
+      rt.jd.areaFirst = 0
+      rt.jd.areaLast = 0
+    },
+
+    /**
+     * Jd Type "text",delay,sound — routine 64 (+|jd.s:3481). Writes the string
+     * to the console one character at a time.
+     *
+     * A NEGATIVE delay becomes 10 (`bpl d3ok`, :3496), which is the routine's
+     * own default rather than an error.
+     *
+     * DEVIATION: the sound argument. The routine's first act is to ask AMOS
+     * for eight bytes of chip RAM and copy a two-longword `table` into it
+     * (:3486) — a tiny square wave it plays as a keyclick per character. That
+     * is a raw audio-channel poke of a sample this port has no way to route,
+     * so the text is written and the click is not made. The argument is
+     * accepted and ignored rather than refused, because a program passing 1
+     * still wants its text.
+     *
+     * The per-character delay is likewise not paced here: the whole string
+     * reaches the console in one statement, where the real thing spreads it
+     * over delay*length vertical blanks. Timing is the port-wide deviation
+     * that #87 covers, not a JD one.
+     */
+    'jd type'(it) {
+      const text = it.evalStr()
+      it.expect(',')
+      const delay = it.evalInt()
+      it.accept(',')
+      if (!it.atStmtEnd()) it.evalInt() // the sound flag, read and dropped
+      void delay
+      it.write(text)
+    },
+
+    /**
+     * Jd Hexdump size,address,count,width — routine 63 (+|jd.s:3373). Writes a
+     * hex dump to the console: `size` is 1, 2 or 4 bytes per column, `count`
+     * columns in total, `width` per line.
+     *
+     * The addresses come from the same address space Peek and Leek use, so a
+     * dump of a bank or a screen shows what the program would read there.
+     */
+    'jd hexdump'(it) {
+      const size = it.evalInt()
+      it.expect(',')
+      const addr = it.evalInt()
+      it.expect(',')
+      const count = it.evalInt()
+      it.expect(',')
+      const width = Math.max(1, it.evalInt())
+      const step = size === 4 ? 4 : size === 2 ? 2 : 1
+      const digits = step * 2
+      let line = ''
+      for (let i = 0; i < count; i++) {
+        let v = 0
+        for (let b = 0; b < step; b++) {
+          const m = rt.resolveAddr(addr + i * step + b)
+          v = v * 256 + (m ? (m.data[m.off] ?? 0) : 0)
+        }
+        line += v.toString(16).toUpperCase().padStart(digits, '0') + ' '
+        if ((i + 1) % width === 0) {
+          it.write(line.trimEnd() + '\n')
+          line = ''
+        }
+      }
+      if (line !== '') it.write(line.trimEnd() + '\n')
+    },
+  }
 }

@@ -16,6 +16,7 @@ import { newPiConfig } from './piconfig.gen'
 import { newSpeechState, ensureLib, type SpeechState } from './speech'
 import { newIoPortsState, type IoPortsState } from './ioports'
 import { newCtextState, type CtextState } from './ctext'
+import { newJdState, type JdState } from './jd'
 import { newSticksState, type SticksState } from './sticks'
 import { newPersonnalState, type PersonnalState } from './personnal'
 import type { PiConfig } from './piconfig.gen'
@@ -615,6 +616,8 @@ export class Runtime {
   /** Serial, Printer and Parallel device state (IOPorts, slot 6) */
   ioports: IoPortsState = newIoPortsState()
   ctext: CtextState = newCtextState()
+  /** JD's own data zone: Get Area's pair, and what Exdatazone hands out */
+  jd: JdState = newJdState()
   sticks: SticksState = newSticksState()
   /** tick at which a finished Say hands the music voices back, -1 when idle */
   speechRestore = -1
