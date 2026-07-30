@@ -63,6 +63,12 @@ export interface Wind {
    * the next window a program opens, and two windows can disagree.
    */
   cursor: boolean
+  /**
+   * WiCuDraw: the cursor shape, eight bytes top row first, per window. WOpen
+   * resets it to DefCurs rather than inheriting it (+W.s:13772-13778), and
+   * Set Curs writes it for the current window only (WiSCur +W.s:14098).
+   */
+  curDraw: Uint8Array
   tab: number
   curX: number
   curY: number
@@ -392,6 +398,7 @@ export class Screen {
       paper: onePlane ? 0 : 1,
       cuCol: onePlane ? 1 : 3,
       cursor: true,
+      curDraw: Uint8Array.from(CURSOR_SHAPE),
       tab: 4,
       curX: 0,
       curY: 0,
@@ -1338,7 +1345,8 @@ export class Screen {
         const at = base + r * this.rowBytes
         const was = planes[at] ?? 0
         this.curSave[p * 8 + r] = was
-        planes[at] = set ? was | CURSOR_SHAPE[r]! : was & ~CURSOR_SHAPE[r]! & 0xff
+        const bits = w.curDraw[r]!
+        planes[at] = set ? was | bits : was & ~bits & 0xff
       }
     }
     this.curDrawnAt = off
@@ -1397,6 +1405,18 @@ export class Screen {
     }
   }
   private consoleDepth = 0
+
+  /**
+   * Set Curs (InSetCurs +Lib.s:13261 -> WiSCur +W.s:14098): eight bytes into
+   * the current window's WiCuDraw, bracketed by EffCur/AffCur so the shape
+   * that is on screen changes with it. The 68k takes the arguments as
+   * longwords and stores them with move.b, so each is simply truncated.
+   */
+  setCursShape(rows: readonly number[]): void {
+    this.console(() => {
+      for (let r = 0; r < 8; r++) this.curWin.curDraw[r] = (rows[r] ?? 0) & 0xff
+    })
+  }
 
   /**
    * Loca (+W.s:15364): coordinates outside the window's text area raise
@@ -1651,8 +1671,10 @@ export class Screen {
       paper: src.paper,
       cuCol: src.cuCol,
       // WOpen turns the cursor on for the window it creates, whatever the
-      // window it was opened from had (Wo4 +W.s:13778)
+      // window it was opened from had, and resets the shape to DefCurs
+      // rather than inheriting it (Wo4 +W.s:13772-13778)
       cursor: true,
+      curDraw: Uint8Array.from(CURSOR_SHAPE),
       tab: src.tab,
       curX: 0,
       curY: 0,

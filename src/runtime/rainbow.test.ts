@@ -253,6 +253,47 @@ describe('the out-of-the-box cursor (AffCur +W.s:13604 + Flash 3 +Lib.s:8989)', 
     expect(rt.screen.windows.get(1)!.cursor).toBe(true)
   })
 
+  /**
+   * WiCuDraw is per window too (Set Curs -> WiSCur +W.s:14098), and WOpen
+   * resets it to DefCurs rather than inheriting it (+W.s:13772).
+   */
+  it('Set Curs changes the shape of the cursor that is on screen', () => {
+    const src = 'Flash Off : Colour 3,$F0F : Locate 0,0 : '
+    // DefCurs is rows 6-7 only, so row 0 of the cell is clear
+    expect(pix12(boot(`${src}Rem`).rt, 0, 0)).not.toBe(0xf0f)
+    // a full block: every row of the cell is the cursor pen, and the shape
+    // takes effect on the cursor already drawn
+    const { rt } = boot(`${src}Set Curs 255,255,255,255,255,255,255,255`)
+    expect(pix12(rt, 0, 0)).toBe(0xf0f)
+    expect(pix12(rt, 0, 7 * 2)).toBe(0xf0f)
+    // truncated to a byte, as the 68k's move.b does
+    expect([...rt.screen.curWin.curDraw]).toEqual([255, 255, 255, 255, 255, 255, 255, 255])
+    // a new window starts from DefCurs again rather than inheriting it
+    const { rt: rt2 } = boot(`${src}Set Curs 255,255,255,255,255,255,255,255 : Wind Open 1,0,0,10,5`)
+    expect([...rt2.screen.curWin.curDraw]).toEqual([0, 0, 0, 0, 0, 0, 0xff, 0xff])
+  })
+
+  it('a cursor move takes the drawn cursor with it, leaving nothing behind', () => {
+    // Cright is the character chr(28) through the window writer (+Lib.s:13390),
+    // so it runs inside the EffCur/AffCur bracket. Poking curX instead left
+    // the cursor drawn in the cell it started in.
+    const { rt } = boot('Flash Off : Colour 3,$F0F : Locate 0,0 : Cright : Cright')
+    expect(pix12(rt, 2 * 8 * 2, 6 * 2)).toBe(0xf0f) // at the new cell
+    expect(pix12(rt, 0, 6 * 2)).not.toBe(0xf0f) // and gone from the old one
+    // Remember X is ESC "M1" and behaves the same way
+    const { rt: rt2 } = boot('Flash Off : Colour 3,$F0F : Locate 0,0 : Memorize X : Cright : Remember X')
+    expect(pix12(rt2, 0, 6 * 2)).toBe(0xf0f)
+    expect(pix12(rt2, 1 * 8 * 2, 6 * 2)).not.toBe(0xf0f)
+  })
+
+  it('Curs Pen recolours the cursor that is already drawn, and checks its range', () => {
+    // InCursPen sends ESC "D" + colour (+Lib.s:13330), inside the bracket
+    const { rt } = boot('Flash Off : Colour 7,$00F : Locate 0,0 : Curs Pen 7')
+    expect(pix12(rt, 0, 6 * 2)).toBe(0x00f)
+    // CurCol (+W.s:14807) refuses a colour the screen has not got
+    expect(() => boot('Curs Pen 99')).toThrow(/illegal text window parameter/)
+  })
+
   it('the cursor fades with a rainbow on its colour — the signature AMOS look', () => {
     const src = [
       'Flash Off : Colour 3,$000',

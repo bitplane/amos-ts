@@ -1375,17 +1375,19 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     cdown() {
       scr().newline()
     },
+    // Every cursor move is a console CHARACTER on the machine — InCup is
+    // `lea ChCUp` + GoWn with ChCUp = chr(30) (+Lib.s:13394) — so it runs
+    // inside WOutC's EffCur/AffCur bracket and the drawn cursor moves with
+    // it. Sending the character rather than poking curX/curY is both the
+    // faithful path and the one that cannot leave a cursor behind.
     cup() {
-      const s = scr()
-      s.curY = Math.max(0, s.curY - 1)
+      scr().writeText('\x1e') // ChCUp +Lib.s:13398
     },
     cleft() {
-      const s = scr()
-      s.curX = Math.max(0, s.curX - 1)
+      scr().writeText('\x1d') // ChCLf +Lib.s:13382
     },
     cright() {
-      const s = scr()
-      s.curX = Math.min(s.cols - 1, s.curX + 1)
+      scr().writeText('\x1c') // ChCRt +Lib.s:13390
     },
     cmove(it) {
       // relative cursor move; elided arguments mean 0 (WnCm1/WnCm3)
@@ -1399,24 +1401,29 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       void it
       scr().clw() // clears the current WINDOW only
     },
+    // the same again: ESC "M0".."M3" (+Lib.s:13502-13526)
     'memorize x'() {
-      const s = scr()
-      s.memX = s.curX
+      scr().writeText('\x1bM0')
     },
     'memorize y'() {
-      const s = scr()
-      s.memY = s.curY
+      scr().writeText('\x1bM2')
     },
     'remember x'() {
-      const s = scr()
-      s.curX = Math.min(s.cols - 1, s.memX)
+      scr().writeText('\x1bM1')
     },
     'remember y'() {
-      const s = scr()
-      s.curY = Math.min(s.rows - 1, s.memY)
+      scr().writeText('\x1bM3')
     },
     'set curs'(it) {
-      it.skipToStmtEnd() // cursor shape definition — cursor isn't rendered
+      // eight rows, top first (InSetCurs +Lib.s:13261). It used to skip the
+      // arguments because the cursor was a compositor overlay of one fixed
+      // shape; the cursor is in the bitmap now, so the shape is real.
+      const rows: number[] = [it.evalInt()]
+      while (rows.length < 8) {
+        it.expect(',')
+        rows.push(it.evalInt())
+      }
+      scr().setCursShape(rows)
     },
     cline(it) {
       const s = scr()
@@ -1424,8 +1431,13 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       s.bar(s.curX * 8, s.curY * 8, (s.curX + n) * 8 - 1, s.curY * 8 + 7, s.paper)
     },
     'curs pen'(it) {
-      // InCursPen +Lib.s:13330: the cursor colour register (WiCuCol)
-      scr().curWin.cuCol = it.evalInt()
+      // InCursPen (+Lib.s:13330) sends ESC "D" + the colour, so the change
+      // reaches the cursor that is already drawn — CurCol (+W.s:14807) sits
+      // inside the same bracket and refuses a colour the screen has not got
+      const n = it.evalInt()
+      const s = scr()
+      if (n < 0 || n >= s.nColors) throw new AmosError('illegal text window parameter', 60)
+      s.writeText(`\x1bD${String.fromCharCode(48 + n)}`)
     },
     'curs on'() {
       // InCursOn +Lib.s:13418 sends ESC "C1", and every console character
@@ -1481,21 +1493,28 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'wind move'(it) {
       const s = scr()
       const [x, y] = pair(it)
-      const w = s.curWin
-      const b = w.border !== 0 ? 8 : 0
-      w.x = ((x >> 4) << 4) + b
-      w.y = y + b
-      s.drawWindowFrame2()
+      // WiMv0 (+W.s:13909) brackets the move with EffCur/AffCur — without
+      // that the cursor stays drawn at the window's old position
+      s.console(() => {
+        const w = s.curWin
+        const b = w.border !== 0 ? 8 : 0
+        w.x = ((x >> 4) << 4) + b
+        w.y = y + b
+        s.drawWindowFrame2()
+      })
     },
     'wind size'(it) {
       // WiSize +W.s:13970: resize, redraw the frame, then Clw the interior
       // (the window is blanked to paper and the cursor homed)
       const s = scr()
       const [w2, h2] = pair(it)
-      s.curWin.cols = w2
-      s.curWin.rows = h2
-      s.drawWindowFrame2()
-      s.clw()
+      // WiSi0 (+W.s:13979), bracketed for the same reason as Wind Move
+      s.console(() => {
+        s.curWin.cols = w2
+        s.curWin.rows = h2
+        s.drawWindowFrame2()
+        s.clw()
+      })
     },
     window(it) {
       try {
