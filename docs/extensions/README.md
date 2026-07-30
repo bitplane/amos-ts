@@ -198,6 +198,7 @@ the config or the extension's own manual suggests, which is not.
 | `aga-1.0` | AMOS AGA | manual | 24 | — | recommends 20 |
 | `tft-0.6` | TFT | manual | 22 | — | recommends 25 |
 | `locale-0.26` | Locale | manual | 20 | — | recommends 17 |
+| `sticks-1.01b` | Sticks | manual | 16 | 17 | recommends 17 |
 | `lserial-2.1` | LSerial | manual | 15 | 11 | recommends 11 |
 | `ercole-1.7` | Ercole | manual | 11 | — | recommends 10 |
 | `jvp-1.01` | JVP NoKids | manual | 11 | — | recommends 25 |
@@ -214,7 +215,6 @@ the config or the extension's own manual suggests, which is not.
 | `amos3d-1.0` | AMOS 3D | table | 64 | 4 | recommends 4 |
 | `d-sam-1.01` | D-Sam | table | 50 | — | recommends 15 |
 | `range-1.0` | Range | table | 48 | — | recommends 9 |
-| `sticks-1.01b` | Sticks | table | 16 | — | recommends 17 |
 | `dump-1.0` | Dump | table | 8 | — | recommends 10 |
 
 <!-- END registry -->
@@ -223,7 +223,10 @@ Notes worth having on individual entries, which the table cannot carry:
 `turbo-plus-1.0` and `1.9` are different tables, not subsets of each other, and
 neither is a subset of `2.15`. `tome-4.0` has two versions on the disc and
 identification is ambiguous between them. `sticks-1.01b` is a shareware build
-that disables some of its own keywords. `dump-1.0` is low-level disc access,
+whose PD limitation is nag requesters, not disabled keywords — the one
+"Command not available in this version" guards the two-argument `Stick Fire`,
+which its own manual documents as a deliberate placeholder. Registration bought
+extra commands that are not in this table at all. `dump-1.0` is low-level disc access,
 much of it likely n/a here. `intuition-1.3b` ships no `.Lib` at all — see
 "Token tables from source" below.
 

@@ -77,7 +77,7 @@ tested against our own understanding. Percentages exclude n/a
 | screens | 31 | 29 | 1 | 0 | 100% |
 | sln-2.0 | 70 | 0 | 0 | 70 | 0% |
 | stars-2.33 | 11 | 0 | 0 | 11 | 0% |
-| sticks-1.01b | 16 | 0 | 0 | 16 | 0% |
+| sticks-1.01b | 16 | 16 | 0 | 0 | 100% |
 | system | 41 | 13 | 0 | 0 | 100% |
 | text-io | 37 | 36 | 1 | 0 | 100% |
 | tft-0.6 | 22 | 0 | 0 | 22 | 0% |
@@ -89,7 +89,7 @@ tested against our own understanding. Percentages exclude n/a
 | turbo-plus-2.15 | 17 | 17 | 0 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 4355 | 1051 | 44 | 3196 | 26% |
+| **total** | 4355 | 1067 | 44 | 3180 | 26% |
 
 ## aga-1.0 (0%)
 
@@ -378,9 +378,9 @@ tested against our own understanding. Percentages exclude n/a
 
 - **missing**: `cop current`, `cop palette`, `cop screen`, `cop true palette`, `stars blast`, `stars dir`, `stars off`, `stars on`, `stars reset`, `stars vbl`, `stars wibble`
 
-## sticks-1.01b (0%)
+## sticks-1.01b (100%)
 
-- **missing**: `mouse area`, `mouse button`, `mouse clip`, `mouse x`, `mouse y`, `multi fire`, `multi joy`, `stick down`, `stick fire`, `stick joy`, `stick left`, `stick right`, `stick scan`, `stick up`, `stick x`, `stick y`
+- **faithful**: `mouse area` *(Routine 28 ($c96): reads the tracked pair for that mouse and calls AMOS's own zone test at $48 off the library base. 'The same as Mouse Zone in AMOS except Mouse Zone can only read one mouse', so it goes through the same zone lookup and the same hardware-to-screen mapping)*, `mouse button` *(Routine 21 ($ab4). A bitmask, not a button number: the routine only ever does `ori.b #$1` and `ori.b #$2`, so 3 means both are down. The manual's table lists 3 as 'Middle Button Pressed', which the code does not support — no third line is read anywhere in the routine)*, `mouse clip` *(Routine 19 ($a66), both arities. The box may sit outside the screen — 'or even beyond the screen if you want' — so it is not clamped, only the position within it is. The one-argument form means 'the current screen size', which is also the default, so it clears the stored box rather than storing one; in hardware coordinates that default is where the screen is DISPLAYED, not 0,0)*, `mouse x` *(Routines 22/23 ($b16/$b46) and their function forms. A second, independent mouse position per port, held in the extension's block at $1f8(a5): +$c/+$e for mouse 0 and +$14/+$16 for mouse 1. Explicitly not AMOS's pointer — 'This function does not alter or read the AMOS pointer position'. The coordinates are AMOS HARDWARE coordinates, settled by the author's own Sticks-Demos/Mouse.AMOS, which passes the pair straight to `Sprite 1,X,Y,1` and clamps it to 142..434 by 64..236. The manual's BUGS entry corrects an earlier edition's syntax: 'instead of Mouse X = value (as stated) use Mouse X Mouse Number,value'. DEVIATION: on the real machine each mouse is its own accumulator fed from its own port, so mouse 0 and the AMOS pointer can drift apart; there is one pointer here so they cannot, and mouse 1 has nothing driving it and holds wherever it is put)*, `mouse y`, `multi fire` *(Routine 4 ($368). Note which argument is range-checked: the routine pops the BUTTON into d4 and the PORT into d5, and only d5 gets the blt/bgt pair, so an out-of-range button falls through every cmp.w and answers 0 rather than raising. Button 1 is the ordinary fire; 2, 3 and 4 need the adaptor and answer 0)*, `multi joy` *(Routine 3 ($260). Directions decode from JOYxDAT through a table at $2e6(pc); the buttons OR in above them, $80 from CIA-A PRA bit 7 then $40/$20/$10 from POTINP. The manual contradicts itself and the binary settles it: its diagram reads '76543210 / ABCDUDLR', which would order the low nibble U,D,L,R downward from bit 3, but its value table says 1=up 2=down 4=left 8=right 16=D 32=C 64=B 128=A. The code's $80/$40/$20/$10 proves the value table right and the diagram written backwards. Port 0 and port 1 are separate players and map to the host's two joystick states. DEVIATION: buttons B, C and D need a two- or four-button adaptor wired to the POT pins, and nothing is attached, so only button A can ever report pressed)*, `stick down`, `stick fire` *(Routine 16 ($8ce), CIA-B PRA bits 0 and 1. The TWO-argument form is a deliberate dead end and the manual owns up to it: 'I shouldn't really tell you this ... but if you enter =Stick Fire(Jport,button) it will return an error (This command has been provided so it can be easily updated to handle more buttons in later version)'. The binary carries the matching string, 'Command not available in this version'. So the error is shipped behaviour, faithfully reproduced, not a gap)*, `stick joy` *(Routine 5 ($432), reading CIA-A PRB ($bfe101) bits 0-3. The manual calls this the serial port throughout; the register says otherwise — CIA-A PRB is the parallel-port DATA register, and Stick Fire's $bfd000 bits 0-1 are BUSY and POUT, also parallel. This is the four-player parallel adaptor. Nothing is attached here, so it reports an unused port, the same answer IOPorts gives for a serial port with no cable in it. The port argument is still range-checked exactly as the routine does)*, `stick left`, `stick right`, `stick scan` *(Routine 6 ($4ea), two instructions: a POTGO write starting the paddle conversion that Stick X and Stick Y read a frame later. With no paddle attached there is no conversion to start, so it is observably nothing)*, `stick up`, `stick x` *(Routine 7 ($4f8): POT0DAT or POT1DAT, low byte. The register is computed as $12 + (jport AND 1) * 2, so this keyword MASKS its port argument where every other one range-checks it. Stick Y (routine 8, $520) reads the same register and takes the high byte with asr.l #$8 — one paddle register holds both axes. Nothing is attached, so both answer 0)*, `stick y`
 
 ## system (100%)
 

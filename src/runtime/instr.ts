@@ -7,6 +7,7 @@ import { makePersonnalFunctions, makePersonnalInstructions, personnalDefault } f
 import { makeSpeechFunctions, makeSpeechInstructions } from './speech'
 import { makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
 import { makeCtextFunctions, makeCtextInstructions } from './ctext'
+import { makeSticksFunctions, makeSticksInstructions } from './sticks'
 import { makeTdFunctions, makeTdInstructions } from './td'
 import { parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
@@ -4862,6 +4863,7 @@ const INSTR_LAYERS: Array<[string, (rt: Runtime) => Record<string, Instr>]> = [
   ['music-speech', makeSpeechInstructions],
   ['ioports', makeIoPortsInstructions],
   ['ctext-1.32', makeCtextInstructions],
+  ['sticks-1.01b', makeSticksInstructions],
 ]
 
 const FUNC_LAYERS: Array<[string, (rt: Runtime) => Record<string, Func>]> = [
@@ -4873,6 +4875,7 @@ const FUNC_LAYERS: Array<[string, (rt: Runtime) => Record<string, Func>]> = [
   ['music-speech', makeSpeechFunctions],
   ['ioports', makeIoPortsFunctions],
   ['ctext-1.32', makeCtextFunctions],
+  ['sticks-1.01b', makeSticksFunctions],
 ]
 
 function mergeLayers<T>(rt: Runtime, layers: Array<[string, (rt: Runtime) => Record<string, T>]>): Record<string, T> {

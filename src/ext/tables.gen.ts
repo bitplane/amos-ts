@@ -6244,19 +6244,21 @@ export const EXT_INFO: ExtensionInfo[] = [
     "id": "sticks-1.01b",
     "name": "Sticks",
     "version": "1.01b",
-    "author": "N. Critten",
+    "author": "Nigel Critten",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
-    "idBaseEvidence": "assumed",
+    "evidence": "manual",
+    "idBaseEvidence": "calibrated",
     "defaultSlot": 17,
-    "observedSlots": [],
+    "observedSlots": [
+      17
+    ],
     "titleStrings": [
       "$VER:Sticks Shareware v1.01b"
     ],
     "sha256": "669711695f3d02e032e85cc1fb48c72b282c4da83652e20b38b8ec1bd79767c3",
-    "provenance": "AMOS PD Library CD, Catalogue/Sticks/Library. Shareware. The binary carries registration nag strings ('Command not available in this version'), so this build is feature-limited by design.",
-    "notes": "Joystick and multi-player input keywords. Table tier. Note the binary itself disables some commands pending registration, so a faithful port of *this* build would have to reproduce the limitation rather than the full keyword set - the token table lists keywords the library refuses to run. Author from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs."
+    "provenance": "AMOS PD Library CD, Catalogue/Sticks/Library. Shareware, and the earlier claim that this build disables keywords was too broad. Its own ReadMe says the PD limitation is nag requesters: 'If you are using the PD version you will notice tiny little requesters :-) when you start AMOS and also when you Quit AMOS'. The binary does carry 'Command not available in this version', and the manual identifies what it guards — the two-argument form of Stick Fire, 'provided so it can be easily updated to handle more buttons in later version'. Registration bought extra commands (Smouse X/Y/Clip appear in SEE ALSO sections but not in this table), and the bundled Mouse.AMOS demo calls slot-17 ids beyond it, so that demo was written against the registered build.",
+    "notes": "Sixteen keywords, three unrelated input paths. (1) The two normal ports, read via JOY0DAT/JOY1DAT, CIA-A PRA and POTINP — Multi Joy, Multi Fire and Mouse Button, which map onto the host's mouse and joystick. (2) A four-player adaptor on the PARALLEL port, read via CIA-A PRB ($bfe101) and CIA-B PRA ($bfd000) — every Stick direction and fire keyword. The manual calls it the serial port; the registers say parallel, and the binary wins. (3) Analog paddles on POT0DAT/POT1DAT via Stick Scan/X/Y, where one register holds X in its low byte and Y in its high byte. Nothing is attached to (2) or (3) here, so they report an unused port. The Mouse family is a second mouse position per port in hardware coordinates, deliberately separate from AMOS's pointer, and its state, clipping and zone lookup are all reproduced. Full AutoDoc manual on the disc, one entry per command, which the earlier manifest missed."
   },
   {
     "id": "tft-0.6",

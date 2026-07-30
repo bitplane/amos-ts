@@ -1268,6 +1268,15 @@ export const FAITHFUL = new Set<string>([
   // font files on the AMOS PD CD, all of them 768 bytes.
   'ctext', 'font size', 'plen', 'font base',
   'font data', 'kern$',
+
+  // --- Sticks 1.01b (Nigel Critten): its own AutoDoc manual plus every
+  // routine in the 3,856-byte hunk. Raw custom-chip and CIA reads throughout,
+  // so what is faithful is the state, validation and encodings; what is
+  // reported is the true state of a machine with no adaptor plugged in.
+  'multi joy', 'multi fire', 'stick joy', 'stick up',
+  'stick down', 'stick left', 'stick right', 'stick fire',
+  'stick scan', 'stick x', 'stick y', 'mouse x',
+  'mouse y', 'mouse clip', 'mouse button', 'mouse area',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -1497,6 +1506,27 @@ export const NOTES: Record<string, string> = {
     "The token spec is I0,0t0,0 in 1.0, 1.9 and 2.15 alike, so only the To form exists — the manual's shorter 'F Draw X,Y' cannot be written and would not parse on the real machine either. Ignores the Set Line pattern, as the manual admits ('this will be corrected in a future update'), and the plane mask",
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
+  // --- Sticks 1.01b: manual plus disassembly; two places they disagree ---
+  'multi joy':
+    "Routine 3 (\$260). Directions decode from JOYxDAT through a table at \$2e6(pc); the buttons OR in above them, \$80 from CIA-A PRA bit 7 then \$40/\$20/\$10 from POTINP. The manual contradicts itself and the binary settles it: its diagram reads '76543210 / ABCDUDLR', which would order the low nibble U,D,L,R downward from bit 3, but its value table says 1=up 2=down 4=left 8=right 16=D 32=C 64=B 128=A. The code's \$80/\$40/\$20/\$10 proves the value table right and the diagram written backwards. Port 0 and port 1 are separate players and map to the host's two joystick states. DEVIATION: buttons B, C and D need a two- or four-button adaptor wired to the POT pins, and nothing is attached, so only button A can ever report pressed",
+  'multi fire':
+    'Routine 4 (\$368). Note which argument is range-checked: the routine pops the BUTTON into d4 and the PORT into d5, and only d5 gets the blt/bgt pair, so an out-of-range button falls through every cmp.w and answers 0 rather than raising. Button 1 is the ordinary fire; 2, 3 and 4 need the adaptor and answer 0',
+  'stick joy':
+    "Routine 5 (\$432), reading CIA-A PRB (\$bfe101) bits 0-3. The manual calls this the serial port throughout; the register says otherwise — CIA-A PRB is the parallel-port DATA register, and Stick Fire's \$bfd000 bits 0-1 are BUSY and POUT, also parallel. This is the four-player parallel adaptor. Nothing is attached here, so it reports an unused port, the same answer IOPorts gives for a serial port with no cable in it. The port argument is still range-checked exactly as the routine does",
+  'stick fire':
+    "Routine 16 (\$8ce), CIA-B PRA bits 0 and 1. The TWO-argument form is a deliberate dead end and the manual owns up to it: 'I shouldn't really tell you this ... but if you enter =Stick Fire(Jport,button) it will return an error (This command has been provided so it can be easily updated to handle more buttons in later version)'. The binary carries the matching string, 'Command not available in this version'. So the error is shipped behaviour, faithfully reproduced, not a gap",
+  'stick scan':
+    'Routine 6 (\$4ea), two instructions: a POTGO write starting the paddle conversion that Stick X and Stick Y read a frame later. With no paddle attached there is no conversion to start, so it is observably nothing',
+  'stick x':
+    'Routine 7 (\$4f8): POT0DAT or POT1DAT, low byte. The register is computed as \$12 + (jport AND 1) * 2, so this keyword MASKS its port argument where every other one range-checks it. Stick Y (routine 8, \$520) reads the same register and takes the high byte with asr.l #\$8 — one paddle register holds both axes. Nothing is attached, so both answer 0',
+  'mouse x':
+    "Routines 22/23 (\$b16/\$b46) and their function forms. A second, independent mouse position per port, held in the extension's block at \$1f8(a5): +\$c/+\$e for mouse 0 and +\$14/+\$16 for mouse 1. Explicitly not AMOS's pointer — 'This function does not alter or read the AMOS pointer position'. The coordinates are AMOS HARDWARE coordinates, settled by the author's own Sticks-Demos/Mouse.AMOS, which passes the pair straight to `Sprite 1,X,Y,1` and clamps it to 142..434 by 64..236. The manual's BUGS entry corrects an earlier edition's syntax: 'instead of Mouse X = value (as stated) use Mouse X Mouse Number,value'. DEVIATION: on the real machine each mouse is its own accumulator fed from its own port, so mouse 0 and the AMOS pointer can drift apart; there is one pointer here so they cannot, and mouse 1 has nothing driving it and holds wherever it is put",
+  'mouse clip':
+    "Routine 19 (\$a66), both arities. The box may sit outside the screen — 'or even beyond the screen if you want' — so it is not clamped, only the position within it is. The one-argument form means 'the current screen size', which is also the default, so it clears the stored box rather than storing one; in hardware coordinates that default is where the screen is DISPLAYED, not 0,0",
+  'mouse button':
+    "Routine 21 (\$ab4). A bitmask, not a button number: the routine only ever does `ori.b #\$1` and `ori.b #\$2`, so 3 means both are down. The manual's table lists 3 as 'Middle Button Pressed', which the code does not support — no third line is read anywhere in the routine",
+  'mouse area':
+    "Routine 28 (\$c96): reads the tracked pair for that mouse and calls AMOS's own zone test at \$48 off the library base. 'The same as Mouse Zone in AMOS except Mouse Zone can only read one mouse', so it goes through the same zone lookup and the same hardware-to-screen mapping",
   // --- CText 1.32: disassembly plus byte-exact font tables ---
   ctext:
     "Ctext x,y,text\$ — routine 7 (\$570). A font is an AMOS ICON BANK plus a 768-byte side table, which is what its own documentation describes ('easy to use icon based text displays', CText.FONTS/Please_Read_Me!). The block at \$168(a5) holds a fixed width at +\$a and fixed height at +\$e, each meaning 'use the per-character table instead' when zero, then three 256-byte tables from +\$1e: character to icon number, to advance width, and to Y offset. That the tables are 256 bytes each is not read from the code alone — all 254 .Cfnt files on the AMOS PD CD are exactly 768 bytes, and one dumped shows icons 1..96 for '!'..'z', widths 3..13, and Y offsets where ',' is 2 and '-' is 1. An unmapped character advances without drawing (`cmp.l #\$0,d1 : ble`). The per-character draw is AMOS's own icon paste, reached with the icon entry in a2 and a \$ff plane mask in d5, so Paste Icon is reused for it. DEVIATION: the callee is identified by what the surrounding code hands it rather than by name — `jsr \$11c(a0)` off `-\$4(a5)` resolves to no plausible entry under either table indexing, and AMOS's own source has no equate for that offset",

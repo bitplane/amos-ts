@@ -1,0 +1,306 @@
+/**
+ * Sticks 1.01b (shareware) — multi-player joystick and multi-mouse input, by
+ * Nigel Critten. Sixteen keywords.
+ *
+ * Evidence: the extension's own AutoDoc manual (Docs/Sticks.Doc on the AMOS PD
+ * CD, one entry per command) plus every routine in the 3,856-byte code hunk
+ * disassembled with `extdis sticks-1.01b`. Where the two disagree the binary
+ * wins, and both disagreements are recorded below.
+ *
+ * ## What this extension actually is
+ *
+ * Raw hardware, all of it. The routines read the custom chips and both CIAs
+ * directly:
+ *
+ *   $dff00c/$dff00a  JOY1DAT/JOY0DAT   digital joystick directions
+ *   $dff016          POTINP            the second/third/fourth buttons
+ *   $dff034          POTGO             starts an analog (paddle) conversion
+ *   $dff012/$dff014  POT0DAT/POT1DAT   analog X in the low byte, Y in the high
+ *   $bfe001          CIA-A PRA         fire buttons on the two normal ports
+ *   $bfe101          CIA-A PRB         parallel-port DATA lines
+ *   $bfd000          CIA-B PRA         parallel-port handshake lines
+ *
+ * So there are three quite different input paths, and they matter here because
+ * only one of them has a host equivalent:
+ *
+ *  1. **The two normal ports** — mouse port and joystick port. `Multi Joy`,
+ *     `Multi Fire` and `Mouse Button` read these. The port itself maps onto
+ *     the host's mouse and joystick, so these work.
+ *  2. **A parallel-port adaptor** for players three and four. Every `Stick *`
+ *     direction and fire keyword reads it. The manual calls it the "serial
+ *     port"; the registers say otherwise — CIA-A PRB is the parallel data
+ *     register and CIA-B PRA bits 0-1 are BUSY and POUT, also parallel. There
+ *     is no adaptor here, so these report an unused port, exactly as IOPorts
+ *     reports a serial port with no cable in it.
+ *  3. **Analog paddles** on POTnDAT, via `Stick Scan`/`Stick X`/`Stick Y`.
+ *     Nothing is attached to those either.
+ *
+ * The `Mouse *` family is the interesting part, and it is NOT AMOS's pointer.
+ * The manual is explicit: "This function does not alter or read the AMOS
+ * pointer position to do so you should use the X Mouse function." It is a
+ * second, independent position per mouse, held in the extension's own block at
+ * $1f8(a5) — `Mouse X n,v` writes +$c for mouse 0 and +$14 for mouse 1
+ * (routine 22, $b16), and `Mouse Area` reads the pair at +$c/+$e or +$14/+$16
+ * before calling AMOS's own zone test (routine 28, $c96). That state, its
+ * clipping and its zone lookup are all reproducible, so they are reproduced.
+ *
+ * The tracked position is in AMOS **hardware** coordinates, the same space as
+ * `X Mouse` and `Sprite`. The author's own Sticks-Demos/Mouse.AMOS settles it:
+ * it reads the pair and passes it straight to `Sprite 1,X,Y,1`, and clamps it
+ * to 142..434 by 64..236 — hardware ranges, not screen ones. The same demo
+ * loops "until the value changes", so mouse 0 genuinely follows the physical
+ * mouse; it is aliased to the host pointer here.
+ *
+ * DEVIATION: on the real machine each mouse is a separate accumulator fed from
+ * its own port, so mouse 0's position and the AMOS pointer can drift apart —
+ * the manual stresses they are different things. There is one pointer here, so
+ * they cannot diverge. Mouse 1 needs a second mouse in the joystick port and
+ * has nothing driving it, so it holds wherever a program puts it.
+ */
+import type { Runtime } from './runtime'
+import type { Func, Instr } from '../interp/builtins'
+import { VI, AmosError, int, type Value } from '../interp/values'
+
+const funcCall: () => never = () => {
+  throw new AmosError('Illegal function call', 23)
+}
+
+/** one of the two mice: a tracked position and the box it is held inside */
+interface StickMouse {
+  x: number
+  y: number
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  /** false until Mouse Clip or a screen has set a real box */
+  clipped: boolean
+}
+
+export interface SticksState {
+  mice: [StickMouse, StickMouse]
+}
+
+const newMouse = (): StickMouse => ({ x: 0, y: 0, x1: 0, y1: 0, x2: 0, y2: 0, clipped: false })
+
+export function newSticksState(): SticksState {
+  return { mice: [newMouse(), newMouse()] }
+}
+
+export function makeSticksInstructions(rt: Runtime): Record<string, Instr> {
+  /** every routine validates the port with `blt`/`bgt` against 0 and 1 */
+  const port = (n: number): number => {
+    if (n < 0 || n > 1) funcCall()
+    return n
+  }
+
+  /**
+   * The clip defaults to "the current screen", which is what the manual says
+   * of both Mouse Clip's one-argument form and the initial state: "defaults to
+   * the default screen size".
+   */
+  const clipOf = (m: StickMouse): { x1: number; y1: number; x2: number; y2: number } => {
+    if (m.clipped) return m
+    // hardware coordinates, so the default box is where the screen is DISPLAYED
+    const s = rt.screen
+    const w = s.hires ? s.width / 2 : s.width
+    return {
+      x1: s.displayX,
+      y1: s.displayY,
+      x2: s.displayX + w - 1,
+      y2: s.displayY + s.height - 1,
+    }
+  }
+
+  const setPos = (m: StickMouse, x: number | null, y: number | null): void => {
+    const c = clipOf(m)
+    if (x !== null) m.x = Math.max(c.x1, Math.min(c.x2, x))
+    if (y !== null) m.y = Math.max(c.y1, Math.min(c.y2, y))
+  }
+
+  return {
+    'mouse x'(it) {
+      // Mouse X n,v — routine 22 ($b16). The manual's own BUGS entry corrects
+      // an earlier edition: "instead of 'Mouse X = value' (as stated) use
+      // 'Mouse X Mouse Number,value'", which is the form the token spec has.
+      const n = port(it.evalInt())
+      it.expect(',')
+      const v = it.evalInt()
+      setPos(rt.sticks.mice[n]!, v, null)
+    },
+    'mouse y'(it) {
+      // Mouse Y n,v — routine 23 ($b46), the same shape writing +$e / +$16
+      const n = port(it.evalInt())
+      it.expect(',')
+      const v = it.evalInt()
+      setPos(rt.sticks.mice[n]!, null, v)
+    },
+    'mouse clip'(it) {
+      // Mouse Clip n,minx,miny To maxx,maxy, or Mouse Clip n on its own —
+      // routine 19 ($a66). The short form means "the current screen size",
+      // which is also the default, so it clears the box rather than storing one.
+      const n = port(it.evalInt())
+      const m = rt.sticks.mice[n]!
+      if (!it.accept(',')) {
+        m.clipped = false
+        setPos(m, m.x, m.y)
+        return
+      }
+      const x1 = it.evalInt()
+      it.expect(',')
+      const y1 = it.evalInt()
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      // "This will Limit the mouse to an area on the screen or even beyond the
+      // screen if you want" — so the box is not itself clamped to the screen
+      m.x1 = Math.min(x1, x2)
+      m.y1 = Math.min(y1, y2)
+      m.x2 = Math.max(x1, x2)
+      m.y2 = Math.max(y1, y2)
+      m.clipped = true
+      setPos(m, m.x, m.y)
+    },
+    'stick scan'() {
+      // Stick Scan — routine 6 ($4ea), two instructions: `move.w #$1,$34(a0)`,
+      // a POTGO write that starts the paddle conversion whose result Stick X
+      // and Stick Y read one frame later. With no paddle attached there is no
+      // conversion to start, so this is observably nothing.
+    },
+  }
+}
+
+export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
+  const port = (n: number): number => {
+    if (n < 0 || n > 1) funcCall()
+    return n
+  }
+  /** the host's state for one of the two real ports */
+  const joyBits = (n: number): number => (n === 0 ? rt.input.joy0 : rt.input.joy)
+
+  return {
+    'multi joy'(_, a): Value {
+      // =Multi Joy(jport) — routine 3 ($260). Directions come from JOYxDAT
+      // through a decode table at $2e6(pc); the buttons are OR'd in above
+      // them: $80 from CIA-A PRA bit 7, then $40/$20/$10 from POTINP.
+      //
+      // The manual contradicts itself here and the binary settles it. Its
+      // diagram reads "76543210 / ABCDUDLR", which would put the directions in
+      // the low nibble in the order U,D,L,R from bit 3 down — but its value
+      // table says 1=up, 2=down, 4=left, 8=right, 16=D, 32=C, 64=B, 128=A.
+      // The code ORs $80/$40/$20/$10 for the buttons, so the value table is
+      // right and the diagram is written backwards.
+      const n = port(int(a[0]!))
+      const j = joyBits(n)
+      // direction bits are the same encoding AMOS's own Joy() uses
+      let v = j & 0x0f
+      // button A is the ordinary fire on that port
+      if (j & 0x10) v |= 0x80
+      // B, C and D need a two- or four-button adaptor wired to the POT pins.
+      // Nothing is attached, and POTINP with an open pin reads as not-pressed.
+      return VI(v)
+    },
+    'multi fire'(_, a): Value {
+      // =Multi Fire(jport,button) — routine 4 ($368). Note which argument is
+      // checked: the routine pops button into d4 and jport into d5, and only
+      // d5 gets the `blt`/`bgt` pair. An out-of-range BUTTON therefore falls
+      // through every `cmp.w` and returns 0 rather than raising.
+      const button = int(a[0]!)
+      const n = port(int(a[1]!))
+      if (button === 1) return VI(joyBits(n) & 0x10 ? -1 : 0)
+      return VI(0) // B/C/D: no adaptor
+    },
+    'stick joy'(_, a): Value {
+      // =Stick Joy(jport) — routine 5 ($432), reading CIA-A PRB ($bfe101)
+      // bits 0-3 for the directions. That is the parallel-port data register:
+      // this is the four-player adaptor, not a normal joystick port.
+      port(int(a[0]!))
+      return VI(0)
+    },
+    'stick up'(_, a): Value {
+      port(int(a[0]!))
+      return VI(0)
+    },
+    'stick down'(_, a): Value {
+      port(int(a[0]!))
+      return VI(0)
+    },
+    'stick left'(_, a): Value {
+      port(int(a[0]!))
+      return VI(0)
+    },
+    'stick right'(_, a): Value {
+      port(int(a[0]!))
+      return VI(0)
+    },
+    'stick fire'(_, a): Value {
+      // =Stick Fire(jport) — routine 16 ($8ce), CIA-B PRA bits 0 and 1, which
+      // are the parallel port's BUSY and POUT lines.
+      //
+      // The two-argument form is a deliberate dead end, and the manual owns up
+      // to it: "I shouldn't really tell you this ... but if you enter =Stick
+      // Fire(Jport,button) it will return an error (This command has been
+      // provided so it can be easily updated to handle more buttons in later
+      // version)". The binary carries the matching string, "Command not
+      // available in this version". So the error is the shipped behaviour, not
+      // a gap in this port.
+      if (a.length > 1) funcCall()
+      port(int(a[0]!))
+      return VI(0)
+    },
+    'stick x'(_, a): Value {
+      // =Stick X(jport) — routine 7 ($4f8): POT0DAT or POT1DAT, low byte.
+      // The register pair is `$12 + (jport AND 1) * 2`, so the port argument is
+      // masked here rather than range-checked, unlike everywhere else.
+      void int(a[0]!)
+      return VI(0)
+    },
+    'stick y'(_, a): Value {
+      // =Stick Y(jport) — routine 8 ($520): the SAME register as Stick X, with
+      // `asr.l #$8` taking the high byte. One paddle register holds both axes.
+      void int(a[0]!)
+      return VI(0)
+    },
+    'mouse button'(_, a): Value {
+      // =Mouse Button(jport) — routine 21 ($ab4). A bitmask, not a button
+      // number: `ori.b #$1` for one line and `ori.b #$2` for the other, so 3
+      // means BOTH are down. The manual's table calls 3 "Middle Button
+      // Pressed", which the code does not support — there is no third line
+      // read anywhere in the routine.
+      const n = port(int(a[0]!))
+      if (n !== 0) {
+        // port 1 is the joystick port: its fire lines, not a mouse
+        return VI(joyBits(1) & 0x10 ? 1 : 0)
+      }
+      return VI(rt.input.mouseK & 3)
+    },
+    'mouse x'(_, a): Value {
+      // =Mouse X(n) — the function form of routine 22's counterpart. Mouse 0
+      // is the mouse port, so it follows the host pointer; mouse 1 would need
+      // a second mouse in the joystick port and holds wherever it was put.
+      const n = port(int(a[0]!))
+      if (n === 0) return VI(rt.input.mouseX)
+      return VI(rt.sticks.mice[1]!.x)
+    },
+    'mouse y'(_, a): Value {
+      const n = port(int(a[0]!))
+      if (n === 0) return VI(rt.input.mouseY)
+      return VI(rt.sticks.mice[1]!.y)
+    },
+    'mouse area'(_, a): Value {
+      // =Mouse Area(n) — routine 28 ($c96): reads the tracked pair for that
+      // mouse and calls AMOS's own zone test at $48 off the library base.
+      // "This function is the same as Mouse Zone in AMOS except Mouse Zone can
+      // only read one mouse", so it goes through the same zone lookup here.
+      const n = port(int(a[0]!))
+      const s = rt.screen
+      const mx = n === 0 ? rt.input.mouseX : rt.sticks.mice[1]!.x
+      const my = n === 0 ? rt.input.mouseY : rt.sticks.mice[1]!.y
+      const x = (mx - s.displayX) * (s.hires ? 2 : 1) + s.offsetX
+      const y = my - s.displayY + s.offsetY
+      if (x < 0 || y < 0 || x >= s.width || y >= s.height) return VI(0)
+      return VI(rt.zoneAt(x, y))
+    },
+  }
+}

@@ -13,6 +13,7 @@ import { newPiConfig } from './piconfig.gen'
 import { newSpeechState, ensureLib, type SpeechState } from './speech'
 import { newIoPortsState, type IoPortsState } from './ioports'
 import { newCtextState, type CtextState } from './ctext'
+import { newSticksState, type SticksState } from './sticks'
 import { newPersonnalState, type PersonnalState } from './personnal'
 import type { PiConfig } from './piconfig.gen'
 import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlideStep, fselStore, slideOpen, slideShut } from './fsel'
@@ -606,6 +607,7 @@ export class Runtime {
   /** Serial, Printer and Parallel device state (IOPorts, slot 6) */
   ioports: IoPortsState = newIoPortsState()
   ctext: CtextState = newCtextState()
+  sticks: SticksState = newSticksState()
   /** tick at which a finished Say hands the music voices back, -1 when idle */
   speechRestore = -1
   static readonly COPPER_LONG = 12 * 1024
