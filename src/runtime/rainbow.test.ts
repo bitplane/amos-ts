@@ -235,6 +235,24 @@ describe('the out-of-the-box cursor (AffCur +W.s:13604 + Flash 3 +Lib.s:8989)', 
     expect(pix12(rt, 16 * 2, 6 * 2)).toBe(0x0f0)
   })
 
+  /**
+   * WiSys bit 1 is a property of the WINDOW (+W.s:13605), not of the screen:
+   * WOpen sets it on every window it creates (bset #1,WiSys +W.s:13778, right
+   * before its AffCur), so Curs Off does not carry into the next window.
+   */
+  it('a new window comes up with the cursor on, whatever the last one had', () => {
+    const src = 'Flash Off : Colour 3,$F0F : Curs Off : '
+    // window 0, cursor off: nothing in the cell
+    expect(pix12(boot(`${src}Locate 0,0`).rt, 0, 6 * 2)).not.toBe(0xf0f)
+    // a window opened after Curs Off has its own cursor, and shows it
+    const { rt } = boot(`${src}Wind Open 1,0,0,10,5`)
+    expect(rt.screen.curWin.n).toBe(1)
+    expect(pix12(rt, 0, 6 * 2)).toBe(0xf0f)
+    // and window 0's flag was not disturbed by the one next door
+    expect(rt.screen.windows.get(0)!.cursor).toBe(false)
+    expect(rt.screen.windows.get(1)!.cursor).toBe(true)
+  })
+
   it('the cursor fades with a rainbow on its colour — the signature AMOS look', () => {
     const src = [
       'Flash Off : Colour 3,$000',

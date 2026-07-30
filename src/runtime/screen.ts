@@ -56,6 +56,13 @@ export interface Wind {
   pen: number
   paper: number
   cuCol: number
+  /**
+   * WiSys bit 1 (+W.s:13605): the cursor is a property of the WINDOW, not of
+   * the screen. WOpen sets it on every window it creates (`bset #1,WiSys` at
+   * +W.s:13778, right before its AffCur), so a Curs Off does not carry into
+   * the next window a program opens, and two windows can disagree.
+   */
+  cursor: boolean
   tab: number
   curX: number
   curY: number
@@ -300,7 +307,13 @@ export class Screen {
   curWin: Wind
   /** Wind Save: subsequently opened windows save their background */
   windSave = false
-  cursorOn = true
+  /** the CURRENT window's cursor flag — WiSys bit 1 of the window in hand */
+  get cursorOn(): boolean {
+    return this.curWin.cursor
+  }
+  set cursorOn(v: boolean) {
+    this.curWin.cursor = v
+  }
   /**
    * The text cursor lives IN the bitmap, as it does on the machine.
    *
@@ -378,6 +391,7 @@ export class Screen {
       pen: onePlane ? 1 : 2,
       paper: onePlane ? 0 : 1,
       cuCol: onePlane ? 1 : 3,
+      cursor: true,
       tab: 4,
       curX: 0,
       curY: 0,
@@ -1636,6 +1650,9 @@ export class Screen {
       pen: src.pen,
       paper: src.paper,
       cuCol: src.cuCol,
+      // WOpen turns the cursor on for the window it creates, whatever the
+      // window it was opened from had (Wo4 +W.s:13778)
+      cursor: true,
       tab: src.tab,
       curX: 0,
       curY: 0,
