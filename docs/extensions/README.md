@@ -172,6 +172,7 @@ the config or the extension's own manual suggests, which is not.
 | `p61-1.2` | P61 Music | source | 9 | — | recommends 25 |
 | `amospro-compact-2.0` | Compact | source | 3 | 2 | stock, slot 2 |
 | `amospro-request-2.0` | Request | source | 3 | 3 | stock, slot 3 |
+| `ctext-1.0` | CText | disassembly | 6 | 8 | recommends 8 |
 | `os-devkit-1.61` | OS-DevKit | manual | 1047 | 20 | recommends 20 |
 | `amcaf-1.50` | AMCAF | manual | 280 | — | recommends 8 |
 | `gui-2.10` | GUI | manual | 204 | — | recommends 24 |
@@ -215,7 +216,6 @@ the config or the extension's own manual suggests, which is not.
 | `range-1.0` | Range | table | 48 | — | recommends 9 |
 | `sticks-1.01b` | Sticks | table | 16 | — | recommends 17 |
 | `dump-1.0` | Dump | table | 8 | — | recommends 10 |
-| `ctext-1.0` | CText | table | 6 | — | recommends 8 |
 
 <!-- END registry -->
 

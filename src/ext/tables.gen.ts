@@ -5566,17 +5566,19 @@ export const EXT_INFO: ExtensionInfo[] = [
     "id": "ctext-1.0",
     "name": "CText",
     "version": "1.32",
-    "author": "unknown",
+    "author": "Aaron Fothergill (Shadow Software)",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
-    "idBaseEvidence": "assumed",
+    "evidence": "disassembly",
+    "idBaseEvidence": "calibrated",
     "defaultSlot": 8,
-    "observedSlots": [],
+    "observedSlots": [
+      8
+    ],
     "titleStrings": [],
     "sha256": "9435138841a5a0be029d72fff03f801ce7f025d68bc03009e2183da92b702f3b",
-    "provenance": "AMOS PD Library CD, APD426/AMOS_System. No documentation found on the disc.",
-    "notes": "Compressed/custom text rendering: font size, font base, font data, kerning and a proportional-length function. Table tier, six keywords. Version from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.; 1.0 was a placeholder."
+    "provenance": "AMOS PD Library CD, APD426/AMOS_System. No per-command manual survives. What does survive is CText.FONTS/Please_Read_Me! on the same disc, which names the author and sells the design: 'CTEXT is an AMOS extension with 5 new commands ... easy to use icon based text displays ... Use fonts of up to 64 colours ... Use any size of character ... Easily edit fonts (can be edited in SpriteX) ... Use masked fonts ... Use propotional text ... Use Kerning'. Distributed as Deja Vu licenseware at GBP 3.99. A successor with 16 commands was sold direct by the AMOS Club as CText 2 and used .mfnt fonts; two corpus programs use slot-8 ids beyond this table and are presumably that.",
+    "notes": "Six named keywords; the readme says five, and does not say which it is not counting. All twelve routines in the 1,816-byte code hunk were disassembled (extdis ctext-1.0). A font is an AMOS icon bank plus a 768-byte side table: three 256-byte blocks mapping character to icon number, to advance width, and to Y offset. That layout is corroborated byte-exactly rather than inferred — all 254 .Cfnt files on this disc are exactly 768 bytes, and one dumped shows icons 1..96 for '!'..'z', widths 3..13, and Y offsets where ',' is 2 and '-' is 1. Version from the binary's own lineage and Andrew Burton's AMOS Extensions List; the id 'ctext-1.0' was a placeholder and is kept as a stable key, with 1.32 the authoritative version field."
   },
   {
     "id": "d-sam-1.01",
@@ -5793,7 +5795,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     ],
     "sha256": "1063312c56e4ab1a84a47b62232fce30a5dc32d3d881d11f4dcf1b76119187ef",
     "provenance": "AMOS-Professional-Official/extensions/Intuition-41.95/Intuition Distributed as 'Intuition-41.95' — 41.95 is the intuition.library version it targets, not the extension version. intuition.guide and the makefile both say 1.3b. No linked .Lib ships with the distribution (only Intuition.lib.info), so the token table is assembled from its own src/itokens.s.",
-    "notes": "The id base is not a guess: exactly one offset in -2048..2048 (K=6) maps all 149 distinct slot-14 token ids observed across the 819-program corpus onto valid entry starts. See src/ext/registry.test.ts. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. lists slot 25 but asks 'Slot 14 originally?' — the corpus answers it: every program here that uses Intuition has it at slot 14."
+    "notes": "The id base is not a guess: exactly one offset in -2048..2048 (K=6) maps all 149 distinct slot-14 token ids observed across the 488-program corpus onto valid entry starts. See src/ext/registry.test.ts. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. lists slot 25 but asks 'Slot 14 originally?' — the corpus answers it: every program here that uses Intuition has it at slot 14."
   },
   {
     "id": "jd-5.3",

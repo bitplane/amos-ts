@@ -12,6 +12,7 @@ import { parseAmosFile } from '../loader/amosfile'
 import { newPiConfig } from './piconfig.gen'
 import { newSpeechState, ensureLib, type SpeechState } from './speech'
 import { newIoPortsState, type IoPortsState } from './ioports'
+import { newCtextState, type CtextState } from './ctext'
 import { newPersonnalState, type PersonnalState } from './personnal'
 import type { PiConfig } from './piconfig.gen'
 import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlideStep, fselStore, slideOpen, slideShut } from './fsel'
@@ -459,6 +460,42 @@ export class Runtime {
   static readonly SCREEN_CHIP_SLOT = 0x00100000
   static readonly SCREEN_PHY_OFFSET = 0x00080000
 
+  /**
+   * Private data blocks belonging to extensions, mapped so that a program can
+   * reach them by address.
+   *
+   * Real extensions keep their state in a block AMOS allocates for them and
+   * hand its address to BASIC, which then poke/Bloads through it — CText's
+   * `Bload ...".CFNT",Font Data` is the case that forced this. A block kept as
+   * private fields cannot serve that, so blocks that a keyword exposes an
+   * address for live here instead. One 64KB slot each, well clear of the
+   * screen region above and the bank region below. 0x78000000 because every
+   * lower slot is taken: copper lists are at 0x50000000, Mubase 0x58000000,
+   * variables 0x60000000, the sprite and icon banks 0x64/0x68000000, the temp
+   * buffer 0x6c000000 and Personnal's two blocks 0x70/0x74000000.
+   */
+  static readonly EXT_DATA_BASE = 0x78000000
+  static readonly EXT_DATA_SLOT = 0x00010000
+  /** insertion order fixes each block's slot; the address is stable per run */
+  private extBlocks: Uint8Array[] = []
+  private extBlockIndex = new Map<string, number>()
+
+  /** register (or look up) an extension's block and return its base address */
+  extBlockBase(id: string, block: Uint8Array): number {
+    let i = this.extBlockIndex.get(id)
+    if (i === undefined) {
+      i = this.extBlocks.length
+      this.extBlockIndex.set(id, i)
+      this.extBlocks.push(block)
+    }
+    return (Runtime.EXT_DATA_BASE + i * Runtime.EXT_DATA_SLOT) >>> 0
+  }
+
+  /** CText's block base — `Font Base` returns this, `Font Data` this + $1e */
+  ctextBase(): number {
+    return this.extBlockBase('ctext', this.ctext.block)
+  }
+
   /** base address of screen n's logical bitmap = Logbase(n=0) */
   screenChipBase(index: number): number {
     return (Runtime.SCREEN_CHIP_BASE + index * Runtime.SCREEN_CHIP_SLOT) >>> 0
@@ -568,6 +605,7 @@ export class Runtime {
   speech: SpeechState = newSpeechState()
   /** Serial, Printer and Parallel device state (IOPorts, slot 6) */
   ioports: IoPortsState = newIoPortsState()
+  ctext: CtextState = newCtextState()
   /** tick at which a finished Say hands the music voices back, -1 when idle */
   speechRestore = -1
   static readonly COPPER_LONG = 12 * 1024
@@ -881,6 +919,13 @@ export class Runtime {
       const off = phy ? within - Runtime.SCREEN_PHY_OFFSET : within
       const planar = s.planarView(phy ? 'phy' : 'log', write)
       return off < planar.length ? { data: planar, off } : null
+    }
+    if (a >= Runtime.EXT_DATA_BASE && a < Runtime.EXT_DATA_BASE + 256 * Runtime.EXT_DATA_SLOT) {
+      const rel = a - Runtime.EXT_DATA_BASE
+      const block = this.extBlocks[Math.floor(rel / Runtime.EXT_DATA_SLOT)]
+      if (!block) return null
+      const off = rel % Runtime.EXT_DATA_SLOT
+      return off < block.length ? { data: block, off } : null
     }
     for (const [n, bank] of this.memBanks) {
       const base = this.bankBase(n) >>> 0

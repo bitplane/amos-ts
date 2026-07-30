@@ -667,3 +667,24 @@ describe('two joystick ports (FJ +Lib.s:13716)', () => {
     expect(() => rt.runHeadless(10)).toThrow(/function call/)
   })
 })
+
+describe('the fake address space regions do not overlap', () => {
+  it('every region base is distinct and ordered', () => {
+    // EXT_DATA_BASE was first written as 0x50000000, which is COPPER_BASE. The
+    // copper branch runs earlier in the resolver, so it silently answered every
+    // read of the new region and only a pixel-level test noticed. A region map
+    // is cheap to assert and this is the assertion that would have caught it.
+    const regions: Array<[string, number, number]> = [
+      ['SCREEN_CHIP', Runtime.SCREEN_CHIP_BASE, 8 * Runtime.SCREEN_CHIP_SLOT],
+      ['SCREEN_CTRL', Runtime.SCREEN_CTRL_BASE, 8 * Runtime.SCREEN_CTRL_SLOT],
+      ['COPPER', Runtime.COPPER_BASE, 2 * Runtime.COPPER_SLOT],
+      ['EXT_DATA', Runtime.EXT_DATA_BASE, 256 * Runtime.EXT_DATA_SLOT],
+    ]
+    const sorted = [...regions].sort((a, b) => a[1] - b[1])
+    for (let i = 1; i < sorted.length; i++) {
+      const [pn, pb, pl] = sorted[i - 1]!
+      const [n, b] = sorted[i]!
+      expect(b, `${n} (0x${b.toString(16)}) overlaps ${pn} (0x${pb.toString(16)}+0x${pl.toString(16)})`).toBeGreaterThanOrEqual(pb + pl)
+    }
+  })
+})

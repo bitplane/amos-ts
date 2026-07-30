@@ -1261,6 +1261,13 @@ export const FAITHFUL = new Set<string>([
   'word switch', 'mplot start plane', 'set deform value', 'full view',
   'p61 play', 'p61 stop', 'p61 mvolume', 'p61 mpos',
   'omd load', 'omd play', 'omd stop', 'omd free',
+
+  // --- CText 1.32 (Aaron Fothergill / Shadow Software), read out of
+  // CTEXT.Lib: 1,816 bytes, twelve routines, every one disassembled. The
+  // three 256-byte tables are corroborated byte-exactly by the 254 .Cfnt
+  // font files on the AMOS PD CD, all of them 768 bytes.
+  'ctext', 'font size', 'plen', 'font base',
+  'font data', 'kern$',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -1490,6 +1497,19 @@ export const NOTES: Record<string, string> = {
     "The token spec is I0,0t0,0 in 1.0, 1.9 and 2.15 alike, so only the To form exists — the manual's shorter 'F Draw X,Y' cannot be written and would not parse on the real machine either. Ignores the Set Line pattern, as the manual admits ('this will be corrected in a future update'), and the plane mask",
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
+  // --- CText 1.32: disassembly plus byte-exact font tables ---
+  ctext:
+    "Ctext x,y,text\$ — routine 7 (\$570). A font is an AMOS ICON BANK plus a 768-byte side table, which is what its own documentation describes ('easy to use icon based text displays', CText.FONTS/Please_Read_Me!). The block at \$168(a5) holds a fixed width at +\$a and fixed height at +\$e, each meaning 'use the per-character table instead' when zero, then three 256-byte tables from +\$1e: character to icon number, to advance width, and to Y offset. That the tables are 256 bytes each is not read from the code alone — all 254 .Cfnt files on the AMOS PD CD are exactly 768 bytes, and one dumped shows icons 1..96 for '!'..'z', widths 3..13, and Y offsets where ',' is 2 and '-' is 1. An unmapped character advances without drawing (`cmp.l #\$0,d1 : ble`). The per-character draw is AMOS's own icon paste, reached with the icon entry in a2 and a \$ff plane mask in d5, so Paste Icon is reused for it. DEVIATION: the callee is identified by what the surrounding code hands it rather than by name — `jsr \$11c(a0)` off `-\$4(a5)` resolves to no plausible entry under either table indexing, and AMOS's own source has no equate for that offset",
+  'font size':
+    'Font Size w,h — routine 5 (\$4c4), five instructions writing the two longs to +\$a and +\$e. Zero in either restores the per-character table, which is how a program switches between fixed and proportional spacing mid-program',
+  plen:
+    'Plen(text\$) — routine 6 (\$4d6). Runs the same character walk as Ctext with nothing drawn: both routines `Rbsr routine 10` and then step the string identically, so the measurement cannot disagree with what Ctext will lay down. Shares one implementation here for the same reason',
+  'font base':
+    "Font Base — routine 8 (\$67e), three instructions handing back the block address so a program can poke the scalars directly. The block is mapped into the fake address space at Runtime.EXT_DATA_BASE rather than kept as private fields, because programs genuinely address it: the corpus writes `Bload Dir\$+\"FONTS/....ABK.CFNT\",Font Data`",
+  'font data':
+    'Font Data — routine 9 (\$688): the block address plus \$1e, the first of the three tables. This is the Bload target every CText program in the corpus uses to install a font',
+  'kern$':
+    "Kern\$(n) — routine 11 (\$6ca). Returns a two-character string, ESC then '0'+n, by writing the digit into a fixed buffer at +\$1a. So kerning travels INSIDE the text rather than as an argument, which is why both Ctext and Plen watch for \$1b: the escape sets a pending offset that is added to the pen at the next join and immediately cleared",
   'blit clear':
     "Faithful including the off-by-one, which contradicts the manual. Routine 48 (\$18b0) takes its plane count from `move.w \$50(a0),d7` on the screen structure at \$52c(a5), and that field is depth MINUS ONE — established by two routines using it as a `dbra` bound, this one's own all-planes loop and Blit Left's at \$1726, both of which must cover exactly the planes. The named-plane guard is then `subq.w #1,d0 : cmp.w d7,d0 : bge <error>`, so a named plane has to be strictly below d7 and **the top bitplane cannot be cleared by name**: on an 8-colour screen the manual's own wording, 'An 8 colour screen has 3 bitplanes, numbered 1 -> 3', fails on 3. The binary wins over the manual, the same rule that settled LDos's crypt routines. The argument's SIGN is tested on the long (`move.l (a3)+,d0 : bmi`) but the range check and the index are word-width, so only the low sixteen bits choose the plane, and the negative form is the one that honours the Set Planes mask. DEVIATION: where the low word is zero or negative the routine passes its own guard with d0 negative and walks 65536 plane pointers into memory; that is unreproducible corruption, so it is reported as the same error the in-range failure gives",
   'blit speed':

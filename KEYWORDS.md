@@ -25,7 +25,7 @@ tested against our own understanding. Percentages exclude n/a
 | banks | 20 | 19 | 1 | 0 | 100% |
 | copper | 8 | 8 | 0 | 0 | 100% |
 | craft-1.0 | 136 | 0 | 1 | 135 | 1% |
-| ctext-1.0 | 6 | 0 | 0 | 6 | 0% |
+| ctext-1.0 | 6 | 6 | 0 | 0 | 100% |
 | d-sam-1.01 | 50 | 0 | 0 | 50 | 0% |
 | delta-1.4 | 26 | 0 | 0 | 26 | 0% |
 | delta-1.6 | 20 | 0 | 0 | 20 | 0% |
@@ -89,7 +89,7 @@ tested against our own understanding. Percentages exclude n/a
 | turbo-plus-2.15 | 17 | 17 | 0 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 4355 | 1045 | 44 | 3202 | 25% |
+| **total** | 4355 | 1051 | 44 | 3196 | 26% |
 
 ## aga-1.0 (0%)
 
@@ -155,9 +155,9 @@ tested against our own understanding. Percentages exclude n/a
 - **approximated**: `amos pri` *(Records a task priority clamped to the documented -128..20. Nothing schedules against it)*
 - **missing**: `amos base`, `amos pro`, `b.swap`, `bank colour`, `beam wait`, `bw instr`, `chip max block`, `chr conv$`, `chr dump$`, `cli execute`, `cli here`, `cli print`, `craft version`, `db free`, `db size`, `db used`, `del bank colour`, `disc error`, `disc state`, `disc type$`, `dr comment$`, `dr fib`, `dr file$`, `dr forget`, `dr length`, `dr name$`, `dr next$`, `dr path$`, `dr protect`, `dr type`, `fast max block`, `file comment$`, `file length`, `file protect`, `file type`, `flip case$`, `fr colour`, `fr get colour`, `fr julia`, `fr mandelbrot`, `fr position`, `fr reset`, `fr scan`, `fr scan all`, `fr step`, `fr window`, `fr x position`, `fr x step`, `fr y position`, `fr y step`, `gr back`, `gr border`, `gr centre`, `gr ink`, `guru alert`, `guru meditation`, `hard reset`, `hex dump$`, `hw mouse key`, `l.swap`, `left trim$`, `lo case$`, `mem copy`, `mem scramble`, `mem str count`, `mem type`, `mem unscramble`, `multi off`, `multi on`, `pal blue`, `pal copy`, `pal count`, `pal from bank`, `pal green`, `pal red`, `pal swap`, `pal swap bank`, `pal to bank`, `reserve as palette`, `right trim$`, `set amos pri`, `set bank colour`, `set blue`, `set comment`, `set green`, `set protect`, `set red`, `set wb prefs`, `str count`, `str peek$`, `str poke`, `str scramble$`, `str unscramble$`, `sys request`, `tr angle`, `tr back`, `tr base`, `tr distance`, `tr draw`, `tr draw rel`, `tr error`, `tr exec`, `tr forw`, `tr forward`, `tr get angle`, `tr home`, `tr left`, `tr memorize a`, `tr memorize x`, `tr memorize y`, `tr move`, `tr move rel`, `tr pen down`, `tr pen state`, `tr pen up`, `tr proportions`, `tr remember a`, `tr remember x`, `tr remember y`, `tr reset`, `tr right`, `tr set home`, `tr towards`, `tr x home`, `tr x pos`, `tr y home`, `tr y pos`, `up case$`, `w.swap`, `warm reset`, `wb def prefs`, `wb prefs`, `wb to back`, `wb to front`, `y beam`
 
-## ctext-1.0 (0%)
+## ctext-1.0 (100%)
 
-- **missing**: `ctext`, `font base`, `font data`, `font size`, `kern$`, `plen`
+- **faithful**: `ctext` *(Ctext x,y,text$ — routine 7 ($570). A font is an AMOS ICON BANK plus a 768-byte side table, which is what its own documentation describes ('easy to use icon based text displays', CText.FONTS/Please_Read_Me!). The block at $168(a5) holds a fixed width at +$a and fixed height at +$e, each meaning 'use the per-character table instead' when zero, then three 256-byte tables from +$1e: character to icon number, to advance width, and to Y offset. That the tables are 256 bytes each is not read from the code alone — all 254 .Cfnt files on the AMOS PD CD are exactly 768 bytes, and one dumped shows icons 1..96 for '!'..'z', widths 3..13, and Y offsets where ',' is 2 and '-' is 1. An unmapped character advances without drawing (`cmp.l #$0,d1 : ble`). The per-character draw is AMOS's own icon paste, reached with the icon entry in a2 and a $ff plane mask in d5, so Paste Icon is reused for it. DEVIATION: the callee is identified by what the surrounding code hands it rather than by name — `jsr $11c(a0)` off `-$4(a5)` resolves to no plausible entry under either table indexing, and AMOS's own source has no equate for that offset)*, `font base` *(Font Base — routine 8 ($67e), three instructions handing back the block address so a program can poke the scalars directly. The block is mapped into the fake address space at Runtime.EXT_DATA_BASE rather than kept as private fields, because programs genuinely address it: the corpus writes `Bload Dir$+"FONTS/....ABK.CFNT",Font Data`)*, `font data` *(Font Data — routine 9 ($688): the block address plus $1e, the first of the three tables. This is the Bload target every CText program in the corpus uses to install a font)*, `font size` *(Font Size w,h — routine 5 ($4c4), five instructions writing the two longs to +$a and +$e. Zero in either restores the per-character table, which is how a program switches between fixed and proportional spacing mid-program)*, `kern$` *(Kern$(n) — routine 11 ($6ca). Returns a two-character string, ESC then '0'+n, by writing the digit into a fixed buffer at +$1a. So kerning travels INSIDE the text rather than as an argument, which is why both Ctext and Plen watch for $1b: the escape sets a pending offset that is added to the pen at the next join and immediately cleared)*, `plen` *(Plen(text$) — routine 6 ($4d6). Runs the same character walk as Ctext with nothing drawn: both routines `Rbsr routine 10` and then step the string identically, so the measurement cannot disagree with what Ctext will lay down. Shares one implementation here for the same reason)*
 
 ## d-sam-1.01 (0%)
 

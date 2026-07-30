@@ -103,7 +103,9 @@ describe('extension registry (src/ext/registry.ts)', () => {
   it('records provenance and an evidence tier for every extension', () => {
     for (const info of REGISTRY) {
       expect(info.provenance.length, info.id).toBeGreaterThan(10)
-      expect(['source', 'manual', 'table'], info.id).toContain(info.evidence)
+      // four tiers, as docs/extensions/README.md documents them. `disassembly`
+      // was missing here until CText became the first entry to claim it.
+      expect(['source', 'disassembly', 'manual', 'table'], info.id).toContain(info.evidence)
       expect(['calibrated', 'assumed'], info.id).toContain(info.idBaseEvidence)
     }
   })
