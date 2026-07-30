@@ -210,3 +210,58 @@ describe('geometry matches the hardware', () => {
     agree(s, 'odd width')
   })
 })
+
+describe('bulk operations move planes, not just the cache', () => {
+  it('scrollUp scrolls the planes', () => {
+    // scrollUp used to copyWithin the chunky array, which after the flip
+    // left the planes holding the UNscrolled picture — invisible to every
+    // test that reads back through the same cache
+    const s = scr()
+    s.bar(0, 0, 63, 7, 5) // a band at the top
+    s.scrollUp(8)
+    expect(fromPlanes(s, 2, 0)).toBe(0) // the band has gone
+    agree(s, 'scrollUp')
+  })
+
+  it('scrollUp in a window scrolls only that window', () => {
+    const s = scr()
+    s.bar(0, 0, 63, 31, 7)
+    s.windOpen(1, 8, 8, 4, 2, 0)
+    s.scrollUp(8)
+    agree(s, 'window scrollUp')
+    // outside the window is untouched
+    expect(fromPlanes(s, 0, 0)).toBe(7)
+  })
+
+  it('clw clears the planes', () => {
+    const s = scr()
+    s.bar(0, 0, 63, 31, 9)
+    s.clw()
+    agree(s, 'clw')
+    expect(fromPlanes(s, 4, 4)).toBe(s.curWin.paper)
+  })
+
+  it('cls with a partial write mask leaves the excluded planes standing', () => {
+    const s = scr()
+    s.cls(0b1111)
+    s.planeMask = 0b0001
+    s.cls(0b0000)
+    // only plane 0 cleared
+    expect(fromPlanes(s, 5, 5)).toBe(0b1110)
+    agree(s, 'masked cls')
+  })
+
+  it('Screen Copy through resolveScreenId lands in the planes', () => {
+    const a = scr()
+    const b = scr()
+    a.bar(0, 0, 15, 15, 6)
+    // emulate the instruction's write path: declare intent, then bulk write
+    const dst = b.pixelsW()
+    const src = a.pixels
+    for (let y = 0; y < 16; y++) {
+      for (let x = 0; x < 16; x++) dst[y * b.width + x] = src[y * a.width + x]!
+    }
+    expect(fromPlanes(b, 3, 3)).toBe(6)
+    agree(b, 'screen copy')
+  })
+})

@@ -1346,30 +1346,60 @@ export class Screen {
   }
 
   /** scroll the CURRENT WINDOW's text area up by px pixels */
+  /**
+   * Scroll the current window up by `px` pixels.
+   *
+   * Plane block moves, not a pixel loop. Text windows are character-aligned,
+   * so w.x and cols*8 are both multiples of 8 and every row copy is a whole
+   * number of bytes — the case that would need bit shifting cannot arise.
+   */
   scrollUp(px: number): void {
     const w = this.curWin
     const wPix = w.cols * 8
     const hPix = w.rows * 8
-    if (w.x === 0 && w.y === 0 && wPix === this.width && hPix === this.height) {
-      this.pixels.copyWithin(0, px * this.width)
-      this.pixels.fill(w.paper & this.colorMask(), (this.height - px) * this.width)
-      return
+    const paper = w.paper & this.colorMask()
+    const full = w.x === 0 && w.y === 0 && wPix === this.width && hPix === this.height
+    for (let p = 0; p < this.depth; p++) {
+      const base = p * this.planeSize
+      const on = (paper & (1 << p)) !== 0 ? 0xff : 0x00
+      if (full) {
+        this.planarLog.copyWithin(base, base + px * this.rowBytes, base + this.planeSize)
+        this.planarLog.fill(on, base + (this.height - px) * this.rowBytes, base + this.planeSize)
+        continue
+      }
+      const x0 = w.x >> 3
+      const nBytes = wPix >> 3
+      for (let y = 0; y < hPix - px; y++) {
+        const src = base + (w.y + y + px) * this.rowBytes + x0
+        this.planarLog.copyWithin(base + (w.y + y) * this.rowBytes + x0, src, src + nBytes)
+      }
+      for (let y = hPix - px; y < hPix; y++) {
+        const at = base + (w.y + y) * this.rowBytes + x0
+        this.planarLog.fill(on, at, at + nBytes)
+      }
     }
-    for (let y = 0; y < hPix - px; y++) {
-      const src = (w.y + y + px) * this.width + w.x
-      this.pixels.copyWithin((w.y + y) * this.width + w.x, src, src + wPix)
-    }
-    for (let y = hPix - px; y < hPix; y++) {
-      this.pixels.fill(w.paper & this.colorMask(), (w.y + y) * this.width + w.x, (w.y + y) * this.width + w.x + wPix)
-    }
+    this.logValid = false
+    this.logDirty = false
   }
 
   /** Clw: clear the current window's text area and home the cursor */
   clw(): void {
     const w = this.curWin
-    for (let y = 0; y < w.rows * 8; y++) {
-      this.pixels.fill(w.paper & this.colorMask(), (w.y + y) * this.width + w.x, (w.y + y) * this.width + w.x + w.cols * 8)
+    // byte-aligned like scrollUp, for the same reason: text windows sit on
+    // character boundaries
+    const paper = w.paper & this.colorMask()
+    const x0 = w.x >> 3
+    const nBytes = (w.cols * 8) >> 3
+    for (let p = 0; p < this.depth; p++) {
+      const base = p * this.planeSize
+      const on = (paper & (1 << p)) !== 0 ? 0xff : 0x00
+      for (let y = 0; y < w.rows * 8; y++) {
+        const at = base + (w.y + y) * this.rowBytes + x0
+        this.planarLog.fill(on, at, at + nBytes)
+      }
     }
+    this.logValid = false
+    this.logDirty = false
     w.curX = 0
     w.curY = 0
   }
