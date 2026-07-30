@@ -1720,6 +1720,24 @@ describe('TURBO drawing reaches the bitplanes, not just the chunky cache', () =>
     expect(fromPlanes(rt, 20, 20)).toBe(2)
   })
 
+  it('the top bitplane cannot be cleared by name, whatever the manual says', () => {
+    // routine 48: the guard is `cmp.w d7,d0 : bge <error>` where d7 is the
+    // screen's depth MINUS ONE, so a named plane must be strictly below it.
+    // The manual's own example — "An 8 colour screen has 3 bitplanes,
+    // numbered 1 -> 3" — therefore fails on 3.
+    const three = 'Screen Open 1,320,200,8,Lowres : Cls 0 : '
+    expect(() => run(three + 'Blit Clear 2')).not.toThrow()
+    expect(() => run(three + 'Blit Clear 3')).toThrow(/Illegal function call/)
+    expect(() => run(three + 'Blit Clear 0')).toThrow(/Illegal function call/)
+  })
+
+  it('only the low word of the argument chooses the plane', () => {
+    // the sign test is on the long (`move.l (a3)+,d0 : bmi`) but the range
+    // check and the index are word-width, so 65537 names plane 1
+    const { rt } = run(['Cls 0', 'Ink 3', 'Bar 0,0 To 40,40', 'Blit Clear 65537'].join('\n'))
+    expect(fromPlanes(rt, 20, 20)).toBe(2)
+  })
+
   it('Blit Clear -1 clears every plane in the planes', () => {
     const { rt } = run(['Cls 0', 'Ink 3', 'Bar 0,0 To 40,40', 'Blit Clear -1'].join('\n'))
     expect(fromPlanes(rt, 20, 20)).toBe(0)

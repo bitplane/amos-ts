@@ -31,7 +31,16 @@ const tierRank = (t: string): number => {
   return i < 0 ? TIERS.length : i
 }
 
-const named = (id: string): number => (EXT_TABLES[id] ?? []).filter((t) => t.name).length
+/**
+ * Distinct named entries — which is what KEYWORDS.md counts, so the two
+ * agree. A name can appear twice: IOPorts really does declare `serial speed`
+ * at both $0048 and $0086, in Europress's own +IO_Ports.s, both pointing at
+ * L_InSerialSpeed. Counting entries rather than names made this table say 39
+ * where KEYWORDS.md said 38, and that gap had to be explained away every time
+ * somebody compared them.
+ */
+const named = (id: string): number =>
+  new Set((EXT_TABLES[id] ?? []).filter((t) => t.name).map((t) => t.name)).size
 
 const rows = [...EXT_INFO]
   .sort(
@@ -51,11 +60,12 @@ const table = [
   BEGIN,
   '',
   `${EXT_INFO.length} extensions are registered, ${EXT_INFO.filter((e) => e.origin === 'stock').length} of them stock.`,
-  'Ordered by evidence tier, then by size. "Keywords" counts named table entries;',
-  'unnamed entries are argument-count and function-form variants of the keyword',
-  'above them. "Seen at" is the slots corpus programs actually used it in, which',
-  'is evidence; "Slot" is what the config or the extension\'s own manual suggests,',
-  'which is not.',
+  'Ordered by evidence tier, then by size. "Keywords" counts DISTINCT named table',
+  'entries, matching `KEYWORDS.md`: unnamed entries are argument-count and',
+  'function-form variants of the keyword above them, and a name can legitimately',
+  'appear twice (IOPorts declares `serial speed` at two ids). "Seen at" is the',
+  "slots corpus programs actually used it in, which is evidence; \"Slot\" is what",
+  "the config or the extension's own manual suggests, which is not.",
   '',
   '| id | name | evidence | keywords | seen at | slot |',
   '|---|---|---|---|---|---|',

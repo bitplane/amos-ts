@@ -184,6 +184,14 @@ difference.
   of `VHPOSR` until it equals the requested line. That is sub-frame beam
   racing, and there is no beam here to race.
 
+- `display stars` and `blit clear` — both reproduce their routine exactly
+  inside its valid range, and both routines leave that range by walking into
+  memory rather than by failing. A star plotted outside the screen writes over
+  whatever is there; `Blit Clear` given a plane number whose low word is zero
+  or negative passes its own guard with the counter negative and walks 65,536
+  plane pointers. Neither is reproducible, so the star is skipped and the
+  clear reports the error its in-range failure gives.
+
 - `say` and the `Mouth *` family — the AMOS side is exact: the `~` phoneme
   form, the translator path, the range checks and the asynchronous form's
   mouth stream. The **voice** is not the Amiga's. narrator-ts ships a free
@@ -219,11 +227,11 @@ Of the 488 programs, 478 reach a stop. Where the other work goes:
   demos idling in event loops. Correct behaviour.
 - **errors (6 kinds, 10 programs)**: `bank not reserved` (2), `Next without
   For` (2) and screens the program closed before drawing on them (2) all error
-  on real AMOS too. `file not found` (2) and one `Object file not found` are
-  archive gaps — `tinycube.3DO` is in no archive found so far, which is what
-  stops the AMOS 3D demo Spunt's Village. The last is `Blit Clear` with an
-  out-of-range plane, where it is not yet settled whether the range check is
-  the library's or ours.
+  on real AMOS too. So does the last one, `Blit Clear` given a screen address
+  where a plane number belongs — the range check is the library's, read out of
+  routine 48, and TURBO rejects it too. `file not found` (2) and one `Object
+  file not found` are archive gaps: `tinycube.3DO` is in no archive found so
+  far, which is what stops the AMOS 3D demo Spunt's Village.
 
 `runreport` names the first program to hit each error, so this list can be
 rebuilt rather than remembered.

@@ -2096,10 +2096,24 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       // If x >0, clear bitplane x. An 8 colour screen has 3 bitplanes,
       // numbered 1 -> 3." The all-planes form is the one that honours the
       // Set Planes mask; naming a plane clears it whatever the mask says.
+      //
+      // Routine 48 ($18b0), and it does not agree with its own manual. The
+      // plane count comes from `move.w $50(a0),d7` on the screen structure at
+      // $52c(a5), and that field is depth MINUS ONE: both this routine's
+      // all-planes loop and Blit Left's (routine 47, $1726) use it as a `dbra`
+      // bound, which runs d7+1 times. The named-plane guard is then
+      // `subq.w #1,d0 : cmp.w d7,d0 : bge <error>` — so a named plane must be
+      // strictly below d7, and **the top bitplane cannot be cleared by name**.
+      // On an 8-colour screen the manual's own example, Blit Clear 3, errors.
+      // The binary wins over the manual, as it did for LDos's crypt routines.
+      //
+      // The argument is read as a long and its SIGN tested (`move.l (a3)+,d0 :
+      // bmi`), but the range check and the plane index are WORD-width, so only
+      // the low sixteen bits choose the plane.
       const s = rt.screen
-      const n = it.evalInt()
+      const arg = it.evalInt() | 0
       const px = s.pixelsW()
-      if (n < 0) {
+      if (arg < 0) {
         for (let p = 0; p < s.depth; p++) {
           if (!(s.planeMask & (1 << p))) continue
           const bit = ~(1 << p)
@@ -2107,7 +2121,14 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
         }
         return
       }
-      if (n === 0 || n - 1 >= s.depth) funcCall()
+      if (arg === 0) funcCall()
+      // the low word, signed, is what `subq.w`/`cmp.w` operate on
+      const n = ((arg & 0xffff) << 16) >> 16
+      // DEVIATION: the routine errors for n-1 >= d7 and otherwise walks
+      // (n-1)+1 plane pointers, so a low word of 0 or below leaves it walking
+      // memory with d0 negative rather than erroring. That is unreproducible
+      // corruption, so it is reported as the error the in-range failure gives.
+      if (n < 1 || n - 1 >= s.depth - 1) funcCall()
       const bit = ~(1 << (n - 1))
       for (let i = 0; i < px.length; i++) px[i]! &= bit
     },
