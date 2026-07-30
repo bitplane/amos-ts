@@ -3949,181 +3949,81 @@ export class Runtime {
     // the modelled renderer, which needed no list at all.
     if (this.copperOn) this.buildCopperList()
     /**
-     * THE COLLAPSE, staged. Interpreting the list is how the display is
-     * produced under Copper Off, and AMOS_LIST_DISPLAY=1 makes it the only
-     * renderer — the end state, where a display feature is implemented once
-     * in terms of the registers the hardware actually has.
+     * ONE RENDERER. The display is produced by interpreting the copper list,
+     * whether the list is AMOS's own or a user's under Copper Off.
      *
-     * It is opt-in rather than the default because THREE things still differ,
-     * all of them sprite/border layering rather than the playfield fetch,
-     * which agrees on every scene in display.diff.test.ts including dual
-     * playfield and Screen Offset.
+     * There used to be two: this walk, and a compositor that worked in terms
+     * of Screen objects — frontAt() banding, displayX/Y, its own rainbow
+     * machine, dual playfield by dualPartner. Every display feature had to be
+     * built twice and kept agreeing, and only one of the two was exercised by
+     * most programs. display.diff.test.ts compared them scene by scene until
+     * they matched everywhere, and then the second one went.
      *
-     * What is left, and why it is one problem rather than three:
+     * What that cost, and what it bought: the modelled renderer was wrong
+     * about Screen Offset (it clipped at the screen edge where the hardware
+     * walks the pointer into the next row) and it could not be pointed at
+     * anything but a Screen. What it knew implicitly had to be moved into the
+     * list, which is where the hardware keeps it — the fond after the HsCop
+     * header, a rainbow's colour 0 restored to the fond over the border, and
+     * dual playfield's two bitmaps interleaved into one pointer set.
      *
-     * The layering ORDER is wrong. This walks the list painting background
-     * and playfield together, then the caller brackets it with a back and a
-     * front sprite pass — so the background fill lands on top of the back
-     * sprites, and a playfield pen of 0 paints over them instead of letting
-     * them through. The modelled path interleaves properly: background, then
-     * sprite pairs and playfields sorted by PF1P/PF2P, with colour 0
-     * transparent. Fixing it means the walk emitting per-line layers rather
-     * than pixels, so the sprite passes can slot in at their priority.
-     *
-     * That accounts for `a sprite behind the playfield shows through where
-     * the playfield is colour 0` and `PF2P puts a sprite between the two
-     * playfields of a dual pair`. The third, `a rainbow on colour 0
-     * recolours the border of gap lines below the screen`, is the same
-     * shape: the border is background, and background is what the ordering
-     * gets wrong.
-     *
-     * Everything else the collapse needed is done: the fond is emitted after
-     * the HsCop header (AMOS parks it at the bottom and leans on register
-     * carry-over, which leaves the first walk undefined), and AMOS's own
-     * sprites go to drawHwSprites rather than drawListSprites, because with
-     * the copper on the SPRxPT writes in the list are the system's own and
-     * only the object layer knows their Sprite Priority.
+     * Layers are painted back to front: background, then the four sprite
+     * pairs and the playfields sorted by PF1P/PF2P. EcCon2 does not say
+     * "sprites in front" or "behind" — each playfield names the pair it slots
+     * in behind, so a sprite can land between the two playfields of a dual
+     * pair, and only a sorted stack can express that.
      */
-    if (!this.copperOn || process.env.AMOS_LIST_DISPLAY === '1') {
-      // no system list patches SPRxPT now, so the sprite side of the display
-      // is whatever the user's list points at (TCopOn clears T_HsChange,
-      // +W.s:6822). Until a list writes a sprite pointer the registers still
-      // hold what the last system list left there, so AMOS's own sprites
-      // carry on showing — at the priority the list's BPLCON2 asks for.
-      const R = this.copRegs
-      const pf1p = R.bplcon2 & 7
-      const spr = (frontPass: boolean): void => {
-        // Whose sprites are these? Under Copper Off a user list has taken the
-        // pointers over and drawListSprites follows them. With the copper ON
-        // the SPRxPT writes in the list are AMOS's OWN — the system list put
-        // them there — so the sprites are the machine's sprite objects, and
-        // drawHwSprites is the renderer that knows their priority
-        // (Sprite Priority / HsPri, PF1P and PF2P), which the list layer has
-        // no way to recover from a bare pointer.
-        if (R.sprSet && !this.copperOn) this.drawListSprites(data, W, H, frontPass)
-        else this.drawHwSprites(data, W, H, frontPass, this.copperOn ? undefined : pf1p)
-      }
-      this.compositeFromList(data, W, H, 'bg')
+    // no system list patches SPRxPT now, so the sprite side of the display
+    // is whatever the user's list points at (TCopOn clears T_HsChange,
+    // +W.s:6822). Until a list writes a sprite pointer the registers still
+    // hold what the last system list left there, so AMOS's own sprites
+    // carry on showing — at the priority the list's BPLCON2 asks for.
+    const R = this.copRegs
+    const pf1p = R.bplcon2 & 7
+    const pf2Front = (R.bplcon2 & 0x40) !== 0
+    const spr = (frontPass: boolean): void => {
+      // Whose sprites are these? Under Copper Off a user list has taken the
+      // pointers over and drawListSprites follows them. With the copper ON
+      // the SPRxPT writes in the list are AMOS's OWN — the system list put
+      // them there — so the sprites are the machine's sprite objects, and
+      // drawHwSprites is the renderer that knows their priority
+      // (Sprite Priority / HsPri, PF1P and PF2P), which the list layer has
+      // no way to recover from a bare pointer.
+      if (R.sprSet && !this.copperOn) this.drawListSprites(data, W, H, frontPass)
+      else this.drawHwSprites(data, W, H, frontPass, this.copperOn ? undefined : pf1p)
+    }
+    // Background first — the walk also settles the register file, so the
+    // priorities below are the ones this frame's list actually asked for.
+    this.compositeFromList(data, W, H, 'bg')
+    if (!R.dblpf) {
       spr(false)
       this.compositeFromList(data, W, H, 'playfield')
       spr(true)
-      return { width: W, height: H, data }
-    }
-    // rainbows in slot order — the copper machine scans 0..NbRain-1
-    const rbs = [...this.rainbows.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([, r]) => r)
-      .filter((r) => r.table.length > 0 && r.h >= 0 && r.ty > 0)
-    const sprites = this.spriteList()
-
-    const winWOf = (s: Screen): number => this.winWOf(s)
-    // cursor cell of the current screen's current window (AffCur)
-    const cs = this.screens.get(this.currentIndex) ?? null
-    const cw = cs?.curWin ?? null
-    const curX0 = cw ? cw.x + cw.curX * 8 : 0
-    const curY0 = cw ? cw.y + cw.curY * 8 : 0
-
-    const hwPal = new Uint16Array(32)
-    hwPal[0] = this.colourBack & 0xfff
-    let front: Screen | null = null
-    let curRb: Rainbow | null = null
-
-    const drawRow = (s: Screen, r: number, pal: Uint16Array | null, clearZero: boolean, palOff = 0, posFrom: Screen = s): void => {
-      // pal = the live hardware palette. palOff 8 = a dual-playfield PF2
-      // pass: 3-bit pixels through palette entries 8-15, positioned by the
-      // FRONT screen (the playfields share the display window).
-      const pixels = s.displayBuffer
-      const pw = posFrom.hires ? 1 : 2
-      const ph = posFrom.laced ? 1 : 2
-      const baseX = (posFrom.displayX - 128) * 2
-      const baseY = (posFrom.displayY - Runtime.COMPOSITE_TOP) * 2
-      const sy = Math.floor((r - baseY) / ph) + s.offsetY
-      if (sy < 0 || sy >= s.height) return
-      const winW = winWOf(posFrom)
-      const isCur = s === cs && s.cursorOn && cw !== null && sy >= curY0 && sy < curY0 + 8
-      const mask = isCur ? CURSOR_SHAPE[sy - curY0]! : 0
-      const colour = this.rowColours(s, pal)
-      for (let x = 0; x < winW; x++) {
-        const sx = x + s.offsetX
-        if (sx < 0 || sx >= s.width) continue
-        let pix = (s.planeOffsets === null ? pixels[sy * s.width + sx]! : s.offsetPixel(pixels, sy, sx)) & (palOff ? 7 : 63)
-        if (mask !== 0 && sx >= curX0 && sx < curX0 + 8 && (mask << (sx - curX0)) & 0x80) pix = cw!.cuCol & 63
-        if (clearZero && pix === 0) continue
-        const rgb4 = palOff ? (pal ? pal[palOff + pix]! : s.palette[palOff + pix]! & 0xfff) : colour(pix)
-        const cr = ((rgb4 >> 8) & 15) * 17
-        const cg = ((rgb4 >> 4) & 15) * 17
-        const cb = (rgb4 & 15) * 17
-        const px = baseX + x * pw
-        if (px + pw <= 0 || px >= W) continue
-        for (let dx = 0; dx < pw; dx++) {
-          const tx = px + dx
-          if (tx < 0 || tx >= W) continue
-          const o = (r * W + tx) * 4
-          data[o] = cr
-          data[o + 1] = cg
-          data[o + 2] = cb
-          data[o + 3] = 255
-        }
-      }
-    }
-
-    for (let L = Runtime.COMPOSITE_TOP; L < Runtime.COMPOSITE_TOP + Runtime.COMPOSITE_LINES; L++) {
-      // the front screen band for this line (highest priority covering it;
-      // a dual-playfield pair displays as one, the front screen leading)
-      const f = this.frontAt(L)
-      if (f !== front) {
-        if (f) {
-          // band start: EcCopHo emits the screen's palette block
-          for (let i = 0; i < 32; i++) hwPal[i] = f.palette[i]! & 0xfff
-        } else {
-          // band end into a gap: EcCopBa restores the fond (T_EcFond)
-          hwPal[0] = this.colourBack & 0xfff
-        }
-        front = f
-      }
-      // the single-rainbow copper machine
-      if (curRb && L >= curRb.fy) {
-        if (front) hwPal[curRb.colour] = front.palette[curRb.colour]! & 0xfff
-        else hwPal[0] = this.colourBack & 0xfff
-        curRb = null
-      }
-      if (!curRb) curRb = rbs.find((r) => L >= r.dy && L < r.fy) ?? null
-      if (curRb) {
-        const t = curRb.table
-        hwPal[curRb.colour] = t[(L - curRb.dy + curRb.base) % t.length]!
-      }
-      // What is in front of what, back to front.
-      //
-      // EcCon2 does not say "sprites in front" or "sprites behind": PF1P and
-      // PF2P each name the sprite pair a playfield slots in behind, so the
-      // display is one interleaved stack — pair 0, pair 1, ... with each
-      // playfield inserted at its own threshold. Sorting on that alone gets
-      // the dual-playfield cases right, including the ones where the numbers
-      // put playfield 2 in front of playfield 1 without PFBA being set; a
-      // tie is what PFBA (Dual Priority) breaks.
-      const back = f && !f.dualIsBack && f.dualPartner !== null ? (this.screens.get(f.dualPartner) ?? null) : null
-      const stack: { key: number; layer: 'pf1' | 'pf2' | number }[] = [0, 1, 2, 3].map((p) => ({ key: p, layer: p }))
-      if (f) stack.push({ key: f.pf1p - 0.5 + (back && f.pf2Front ? 0.1 : 0), layer: 'pf1' })
-      if (f && back) stack.push({ key: f.pf2p - 0.5 + (f.pf2Front ? 0 : 0.1), layer: 'pf2' })
-      const layers = stack.sort((a, b) => b.key - a.key).map((e) => e.layer)
-      // render the two output rows of this hardware line
-      const bg = hwPal[0]!
-      const bgR = ((bg >> 8) & 15) * 17
-      const bgG = ((bg >> 4) & 15) * 17
-      const bgB = (bg & 15) * 17
-      const r0 = (L - Runtime.COMPOSITE_TOP) * 2
-      for (const r of [r0, r0 + 1]) {
-        for (let o = r * W * 4; o < (r + 1) * W * 4; o += 4) {
-          data[o] = bgR
-          data[o + 1] = bgG
-          data[o + 2] = bgB
-          data[o + 3] = 255
-        }
-        for (const layer of layers) {
-          if (layer === 'pf1') drawRow(f!, r, hwPal, true)
-          else if (layer === 'pf2') drawRow(back!, r, hwPal, true, 8, f!)
-          else this.blitSpriteRow(data, W, r, sprites, hwPal, (p) => p === layer)
-        }
+    } else {
+      /**
+       * Dual playfield: one interleaved stack, not two passes.
+       *
+       * EcCon2 does not say "sprites in front" or "sprites behind" — PF1P
+       * and PF2P each name the sprite pair a playfield slots in BEHIND, so
+       * a sprite can land between the two playfields. Three passes cannot
+       * express that; this sorts the four sprite pairs and the two
+       * playfields into one back-to-front order, which is the same stack
+       * the modelled renderer builds and the reason it got this right.
+       */
+      const p1 = R.bplcon2 & 7
+      const p2 = (R.bplcon2 >> 3) & 7
+      const stack: Array<{ key: number; layer: 'pf1' | 'pf2' | number }> = [0, 1, 2, 3].map((p) => ({
+        key: p,
+        layer: p,
+      }))
+      // the half-step puts a playfield just behind the pair it names, and
+      // the tenth breaks a tie the way PFBA does
+      stack.push({ key: p1 - 0.5 + (pf2Front ? 0.1 : 0), layer: 'pf1' })
+      stack.push({ key: p2 - 0.5 + (pf2Front ? 0 : 0.1), layer: 'pf2' })
+      for (const e of stack.sort((a, b) => b.key - a.key)) {
+        if (e.layer === 'pf1') this.compositeFromList(data, W, H, 'pf1')
+        else if (e.layer === 'pf2') this.compositeFromList(data, W, H, 'pf2')
+        else this.drawHwSprites(data, W, H, false, undefined, e.layer)
       }
     }
     return { width: W, height: H, data }
@@ -4172,7 +4072,7 @@ export class Runtime {
    * second register pass (~1.2ms worst case, measured) and buys the correct
    * layering with no second renderer.
    */
-  private compositeFromList(data: Uint8ClampedArray, W: number, H: number, layer: 'bg' | 'playfield' = 'bg'): void {
+  private compositeFromList(data: Uint8ClampedArray, W: number, H: number, layer: 'bg' | 'playfield' | 'pf1' | 'pf2' = 'bg'): void {
     void H
     const phys = this.copPhysic
     const R = this.copRegs
@@ -4245,7 +4145,8 @@ export class Runtime {
           const r0 = (line - Runtime.COMPOSITE_TOP) * 2
           for (let ri = 0; ri < 2; ri++) {
             const r = r0 + ri
-            if (layer === 'bg') {
+            const bgPass = layer === 'bg'
+            if (bgPass) {
               for (let o = r * W * 4; o < (r + 1) * W * 4; o += 4) {
                 data[o] = bgR
                 data[o + 1] = bgG
@@ -4339,7 +4240,15 @@ export class Runtime {
                 const frontPal = pf2Front ? 8 : 0
                 const back = pf2Front ? pf1 : pf2
                 const backPal = pf2Front ? 0 : 8
-                if (front !== 0) rgb4 = hwPal[frontPal + front]! & 0xfff
+                // a single-playfield pass draws only its own pixels, so the
+                // sprite layers sorted between the two can survive
+                if (layer === 'pf1') {
+                  if (pf1 === 0) continue
+                  rgb4 = hwPal[pf1]! & 0xfff
+                } else if (layer === 'pf2') {
+                  if (pf2 === 0) continue
+                  rgb4 = hwPal[8 + pf2]! & 0xfff
+                } else if (front !== 0) rgb4 = hwPal[frontPal + front]! & 0xfff
                 else if (back !== 0) rgb4 = hwPal[backPal + back]! & 0xfff
                 else continue // both playfields transparent here
               }
@@ -4796,10 +4705,19 @@ export class Runtime {
   }
 
   /** Hardware sprites draw over everything, colours 16-31, hw coords. */
-  private drawHwSprites(data: Uint8ClampedArray, W: number, H: number, frontPass: boolean, pf1pOverride?: number): void {
+  private drawHwSprites(
+    data: Uint8ClampedArray,
+    W: number,
+    H: number,
+    frontPass: boolean,
+    pf1pOverride?: number,
+    /** draw ONLY this channel pair, for walking a sorted layer stack */
+    onlyPair?: number,
+  ): void {
     const list = this.spriteList()
     for (let r = 0; r < H; r++) {
       this.blitSpriteRow(data, W, r, list, null, (pair) => {
+        if (onlyPair !== undefined) return pair === onlyPair
         const p = pf1pOverride ?? this.priorityUnder(Runtime.COMPOSITE_TOP + (r >> 1))
         return frontPass ? pair < p : pair >= p
       })

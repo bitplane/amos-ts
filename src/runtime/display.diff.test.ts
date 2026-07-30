@@ -159,13 +159,11 @@ describe('display differential sweep: modelled path vs copper interpreter', () =
     ])
   })
 
-  // The last divergence, and the modelled path is the wrong one: it clips at
-  // the screen edge (`sx >= s.width`) where the interpreter lets the pointer
-  // walk into the next row, as the hardware does. It therefore disappears
-  // exactly when the collapse is on and both sides are the interpreter — so
-  // the expectation follows the mode, and neither state can rot unnoticed.
-  const collapsed = process.env.AMOS_LIST_DISPLAY === '1'
-  ;(collapsed ? it : it.fails)('Screen Offset scrolling', () => {
+  // Was the last divergence, and the modelled path was the wrong one: it
+  // clipped at the screen edge (`sx >= s.width`) where the interpreter lets
+  // the pointer walk into the next row, as the hardware does. Gone with the
+  // renderer that got it wrong.
+  it('Screen Offset scrolling', () => {
     expectIdentical([
       'Screen Open 0,640,400,16,Lowres : Curs Off : Cls 0',
       'For I=0 To 15 : Ink I : Bar I*40,I*24 To I*40+38,I*24+22 : Next I',
