@@ -9,7 +9,7 @@ import { makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
 import { makeCtextFunctions, makeCtextInstructions } from './ctext'
 import { makeSticksFunctions, makeSticksInstructions } from './sticks'
 import { makeTdFunctions, makeTdInstructions } from './td'
-import { parseAmosNumber } from '../interp/builtins'
+import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
 import { encodeIlbm, parseIlbm } from '../loader/iff'
 import { packBitmap, packScreen, parsePacPic } from '../loader/pacpic'
@@ -4882,6 +4882,48 @@ function mergeLayers<T>(rt: Runtime, layers: Array<[string, (rt: Runtime) => Rec
   const out: Record<string, T> = {}
   for (const [, make] of layers) for (const [k, v] of Object.entries(make(rt))) if (!(k in out)) out[k] = v
   return out
+}
+
+/**
+ * Names that `src/interp/builtins.ts` defines AND a runtime layer redefines.
+ *
+ * builtins is the no-runtime fallback: `new Interp(...)` without an
+ * `instructions` option uses it, which interp.test.ts does. Runtime.interp is
+ * built as `{ ...INSTR, ...runtimeLayers }` — spread order, so the runtime wins
+ * — while mergeLayers below is first-wins. Two merge directions in one pipeline
+ * is confusing enough that the overlap has to be declared rather than
+ * discovered, especially since the builtins entries here are thin stubs over
+ * `it.io.*` and the runtime ones are the real ports (builtins `cls` calls
+ * `it.io.cls?.()`; the runtime `cls` is InCls +Lib.s:8722 with windows,
+ * regions and colours).
+ *
+ * These nine are deliberate. Nothing exercises them — a standalone Interp is
+ * only used by interp.test.ts and none of these appear there — so they are
+ * kept as the fallback contract, not as tested code. `genmanifest` unions
+ * builtins with the runtime layers when it decides what is implemented, so a
+ * TENTH entry appearing here would silently take coverage credit for a stub;
+ * builtinsShadowedByRuntime() plus its test is what stops that.
+ */
+export const DECLARED_BUILTIN_SHADOWS = new Set<string>([
+  // instructions
+  'centre',
+  'cls',
+  'curs on',
+  'curs off',
+  'set tab',
+  // functions
+  'at',
+  'mouse zone',
+  'command line$',
+  'display height',
+])
+
+/** builtins names the runtime layer overrides, computed from the live tables. */
+export function builtinsShadowedByRuntime(rt: Runtime): string[] {
+  const out: string[] = []
+  for (const k of Object.keys(INSTR)) if (k in mergeLayers(rt, INSTR_LAYERS)) out.push(k)
+  for (const k of Object.keys(FUNCS)) if (k in mergeLayers(rt, FUNC_LAYERS)) out.push(k)
+  return out.sort()
 }
 
 /** Every name claimed by more than one layer, with the layers that claim it. */

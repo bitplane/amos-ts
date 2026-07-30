@@ -812,8 +812,8 @@ export class Interp {
           this.advance()
           return this.callUserFn()
         }
-        if (name !== undefined) KEYWORD_PROBE?.add(name)
         if (name !== undefined && this.rawFuncs[name]) {
+          KEYWORD_PROBE?.add(name)
           this.advance()
           return this.rawFuncs[name]!(this)
         }
@@ -821,6 +821,7 @@ export class Interp {
           const qual = this.names.qualified(t)
           const fn = (qual === undefined ? undefined : this.funcs[qual]) ?? this.funcs[name]
           if (fn !== undefined) {
+            KEYWORD_PROBE?.add(name)
             this.advance()
             const args: Value[] = []
             if (this.accept('(')) {
@@ -1237,11 +1238,11 @@ export class Interp {
           this.advance()
           return
         }
-        if (name !== undefined) KEYWORD_PROBE?.add(name)
         // a slot-qualified handler wins over the plain name: see Names.qualified
         const qual = this.names.qualified(tok)
         const handler = (qual === undefined ? undefined : this.instr[qual]) ?? (name === undefined ? undefined : this.instr[name])
         if (handler) {
+          KEYWORD_PROBE?.add(name!)
           this.advance()
           // handlers that move the pc return 'jumped' and skip the
           // statement-boundary check (the new pc is a statement start)

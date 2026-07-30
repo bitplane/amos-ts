@@ -43,26 +43,62 @@ export function setup(): void {
  * sense when the tests that exercise them can run. Without this the gate
  * accuses ~200 keywords of being unproven, which is the first thing a new
  * contributor would see and is not true.
+ *
+ * But "unanswerable" is not the same as "assert nothing", which is what this
+ * used to do — and since CI never has fixtures, the gate was inert in the only
+ * place it runs automatically. 19 test files gate themselves on the corpus with
+ * `describe.skipIf`, so a harness break that stops them collecting is invisible:
+ * a skipped suite and a suite that silently stopped existing look identical.
+ *
+ * So both modes assert a FLOOR on how many distinct keywords actually reached a
+ * handler. Measured on 2026-07-30: 1080 with the corpus, 998 without. The floors
+ * sit a little under each, low enough not to trip on ordinary churn and high
+ * enough that a collapse — a setupFiles regression, a describe block that stops
+ * running, tests that no longer import the runtime — fails the run instead of
+ * passing quietly. Raise them when the real numbers move up.
  */
 const FIXTURES = join(process.cwd(), 'fixtures')
+const DISPATCH_FLOOR_WITH_CORPUS = 1050
+const DISPATCH_FLOOR_NO_CORPUS = 970
 
-export function teardown(): void {
-  if (!process.env.AMOS_COVERAGE_GATE) return
-  if (!existsSync(FIXTURES)) {
-    console.warn(
-      'faithfulness gate: fixtures/ is absent, so most of the suite was skipped ' +
-        'and keyword coverage cannot be judged. The gate is only meaningful in a ' +
-        'checkout with the corpus in place.',
-    )
-    return
-  }
+/** every distinct keyword name the probe saw reach a handler */
+function readProbe(): Set<string> {
   const dispatched = new Set<string>()
   if (existsSync(PROBE_DIR)) {
     for (const f of readdirSync(PROBE_DIR)) {
+      if (!f.endsWith('.json') || f === 'report.json') continue
       for (const n of JSON.parse(readFileSync(join(PROBE_DIR, f), 'utf8')) as string[]) {
         dispatched.add(n)
       }
     }
+  }
+  return dispatched
+}
+
+export function teardown(): void {
+  if (!process.env.AMOS_COVERAGE_GATE) return
+  if (!existsSync(FIXTURES)) {
+    const seen = readProbe()
+    console.warn(
+      `faithfulness gate: fixtures/ is absent, so most of the suite was skipped ` +
+        `and keyword coverage cannot be judged. ${seen.size} keywords still reached ` +
+        `a handler; the gate is only fully meaningful in a checkout with the corpus.`,
+    )
+    if (seen.size < DISPATCH_FLOOR_NO_CORPUS) {
+      throw new Error(
+        `faithfulness gate: only ${seen.size} keywords reached a handler, below the ` +
+          `no-corpus floor of ${DISPATCH_FLOOR_NO_CORPUS}. The suite has shrunk rather ` +
+          `than been skipped — check setupFiles and that the non-corpus tests still run.`,
+      )
+    }
+    return
+  }
+  const dispatched = readProbe()
+  if (dispatched.size < DISPATCH_FLOOR_WITH_CORPUS) {
+    throw new Error(
+      `faithfulness gate: only ${dispatched.size} keywords reached a handler, below the ` +
+        `floor of ${DISPATCH_FLOOR_WITH_CORPUS}. Tests are not running, not merely failing.`,
+    )
   }
   if (dispatched.size === 0) {
     throw new Error(

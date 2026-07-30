@@ -3,7 +3,14 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { allExtensions } from '../ext/registry'
 import { INSTR, FUNCS, RAWFUNCS } from '../interp/builtins'
-import { makeAllInstructions, makeAllFunctions, makeRawFunctions, keywordLayerCollisions } from '../runtime/instr'
+import {
+  makeAllInstructions,
+  makeAllFunctions,
+  makeRawFunctions,
+  keywordLayerCollisions,
+  builtinsShadowedByRuntime,
+  DECLARED_BUILTIN_SHADOWS,
+} from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/tokenizer'
 import { FAITHFUL, NA, STRUCTURAL } from '../coverage/status'
@@ -50,6 +57,26 @@ describe('dispatch layers', () => {
     // one implementation and one of them is wrong. Fix it by not registering
     // the loser and recording why, as sprite col and right click are.
     expect(keywordLayerCollisions(rt)).toEqual([])
+  })
+
+  it('every builtins entry the runtime overrides is a declared shadow', () => {
+    // keywordLayerCollisions only scans the runtime layers, so a name defined
+    // in BOTH src/interp/builtins.ts and a runtime layer was never checked. It
+    // matters because Runtime.interp merges `{ ...INSTR, ...runtimeLayers }`
+    // (runtime wins) while mergeLayers is first-wins, and because genmanifest
+    // unions builtins with the runtime layers when deciding what is
+    // implemented — so a new overlap would take coverage credit for a stub
+    // that never runs in the real product.
+    const shadowed = builtinsShadowedByRuntime(rt)
+    const undeclared = shadowed.filter((k) => !DECLARED_BUILTIN_SHADOWS.has(k))
+    expect(
+      undeclared,
+      'builtins entries the runtime silently overrides — either delete the ' +
+        'builtins stub or add it to DECLARED_BUILTIN_SHADOWS with a reason',
+    ).toEqual([])
+    // and the declared set must not rot: every entry still has to be a real overlap
+    const stale = [...DECLARED_BUILTIN_SHADOWS].filter((k) => !shadowed.includes(k))
+    expect(stale, 'declared shadows that no longer overlap — remove them').toEqual([])
   })
 })
 
