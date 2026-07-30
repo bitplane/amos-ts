@@ -3,8 +3,19 @@
  *
  * Every program that uses an extension names it only by slot number, which is
  * an index into the interpreter config of the machine it was saved on. This
- * walks a collection, groups the (slot, token id, argument count) evidence, and
- * asks the registry what each slot most plausibly held.
+ * walks a collection, asks the registry what each PROGRAM's slots held, and
+ * aggregates the answers.
+ *
+ * Per program, not per slot, and the difference is the whole tool. A slot
+ * number belongs to a machine, so two programs in one collection can hold
+ * different extensions — or different versions of one — at the same slot.
+ * Merging their token ids into a single fingerprint and identifying that
+ * fingerprint asks a question nothing has to answer, and the merged residue
+ * reads as a missing extension when the real answer is "these two programs
+ * disagree". Slot 12 of the local archive is the case that proved it: merged,
+ * 39 of 110 ids went unexplained and it looked like a fourth TURBO build; per
+ * program it is 105 programs on TURBO 1.9, 48 on 1.0 and one on 2.15, with
+ * nothing missing at all.
  *
  * The point is the unidentified rows. A slot the registry cannot explain is a
  * concrete, actionable request — "find the extension whose token table has an
@@ -25,7 +36,7 @@ import { walkMatching } from './walk'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
-import { collectUsage, identifySlot, type SlotUsage } from '../ext/identify'
+import { collectUsage, identifySlot } from '../ext/identify'
 import { allExtensions } from '../ext/registry'
 import { libAsExtension, scanLibraries } from './libpool'
 
@@ -52,8 +63,19 @@ if (libsDir !== undefined) {
   console.log(`${scannedLibs.length} distinct library table(s) read from ${libsDir}`)
 }
 
-/** Merged evidence per slot, plus which programs contributed it. */
-const merged = new Map<number, SlotUsage & { programs: Set<string> }>()
+/** What one program's slot was identified as, or the ids that stopped it. */
+interface Seen {
+  /** identity -> programs that resolve to it */
+  identities: Map<string, { label: string; programs: string[] }>
+  /** programs whose slot nothing explains, with the ids that did the ruling out */
+  stuck: Array<{ program: string; ids: number[] }>
+  programs: number
+  uses: number
+  ids: Set<number>
+  /** arities seen per id, for the wanted list */
+  arities: Map<number, Set<number>>
+}
+const slots = new Map<number, Seen>()
 let scanned = 0
 let failed = 0
 
@@ -70,82 +92,99 @@ for (const root of roots) {
       continue
     }
     for (const [slot, usage] of collectUsage(lines)) {
-      let m = merged.get(slot)
-      if (!m) merged.set(slot, (m = { slot, uses: new Map(), count: 0, programs: new Set() }))
-      m.programs.add(file)
-      m.count += usage.count
-      for (const [id, npars] of usage.uses) {
-        let s = m.uses.get(id)
-        if (!s) m.uses.set(id, (s = new Set()))
-        for (const n of npars) s.add(n)
+      let m = slots.get(slot)
+      if (!m) {
+        slots.set(
+          slot,
+          (m = { identities: new Map(), stuck: [], programs: 0, uses: 0, ids: new Set(), arities: new Map() }),
+        )
       }
+      m.programs++
+      m.uses += usage.count
+      for (const [id, npars] of usage.uses) {
+        m.ids.add(id)
+        let a = m.arities.get(id)
+        if (!a) m.arities.set(id, (a = new Set()))
+        for (const n of npars) a.add(n)
+      }
+      const id = identifySlot(usage, pool)
+      if (id.best === undefined) {
+        m.stuck.push({ program: file, ids: id.unresolvedIds })
+        continue
+      }
+      // a scanned library is a lead from this collection, not a registry
+      // entry: it names the table a slot held and nothing else
+      const key = `${id.best.id} [${id.confidence}]`
+      const label = scannedIds.has(id.best.id)
+        ? `${id.best.name} [${id.confidence}, UNREGISTERED lead from ${id.best.provenance.replace(/^scanned from /, '')}]`
+        : `${id.best.id} [${id.confidence}, ${id.best.evidence}-evidence]`
+      let e = m.identities.get(key)
+      if (!e) m.identities.set(key, (e = { label, programs: [] }))
+      e.programs.push(file)
     }
   }
 }
 
 console.log(`scanned ${scanned} programs (${failed} unreadable) from ${roots.join(', ')}`)
-if (merged.size === 0) {
+if (slots.size === 0) {
   console.log('no extension keywords used')
   process.exit(0)
 }
 
 interface WantedSlot {
   slot: number
+  /** only the programs nothing could identify — the rest are answered */
   programs: string[]
   distinctIds: number
   uses: number
-  confidence: string
-  identified?: string
-  /** ids no registered extension explains, with the arities seen for each */
-  unexplained: Array<{ id: string; arities: number[] }>
+  /** ids that appear ONLY in programs no candidate explains */
+  unexplained: Array<{ id: string; arities: number[]; programs: number }>
 }
 
 const wanted: WantedSlot[] = []
 console.log()
-for (const [slot, usage] of [...merged].sort((a, b) => a[0] - b[0])) {
-  const id = identifySlot(usage, pool)
+for (const [slot, m] of [...slots].sort((a, b) => a[0] - b[0])) {
   const markers = new Set<number>()
-  for (const s of usage.uses.values()) for (const v of s) markers.add(v)
+  for (const s2 of m.arities.values()) for (const v of s2) markers.add(v)
   const fmt = markers.has(0xff) && markers.size === 1 ? 'AP20' : 'legacy'
-  // a scanned library is a lead from this collection, not a registry entry:
-  // it names the table a slot held and nothing else about the extension
-  const label =
-    id.best === undefined
-      ? `?? (${id.confidence})`
-      : scannedIds.has(id.best.id)
-        ? `${id.best.name} [${id.confidence}, UNREGISTERED lead from ${id.best.provenance.replace(/^scanned from /, '')}]`
-        : `${id.best.id} [${id.confidence}, ${id.best.evidence}-evidence]`
   console.log(
-    `slot ${String(slot).padStart(2)}  ${String(usage.uses.size).padStart(4)} ids  ` +
-      `${String(usage.count).padStart(6)} uses  ${String(usage.programs.size).padStart(4)} progs  ` +
-      `${fmt.padEnd(6)} -> ${label}`,
+    `slot ${String(slot).padStart(2)}  ${String(m.ids.size).padStart(4)} ids  ` +
+      `${String(m.uses).padStart(6)} uses  ${String(m.programs).padStart(4)} progs  ${fmt}`,
   )
-  if (id.best === undefined) {
-    // show the runners-up so it is clear why nothing matched
-    for (const c of id.candidates.slice(0, 3)) {
-      console.log(`            ruled out ${c.ext.id}: ${c.rejected ?? 'tied with others'}`)
-    }
+  for (const [, e] of [...m.identities].sort((a, b) => b[1].programs.length - a[1].programs.length)) {
+    console.log(`         ${String(e.programs.length).padStart(5)}  ${e.label}`)
   }
-  if (id.unresolvedIds.length > 0) {
+  if (m.stuck.length > 0) {
+    console.log(`         ${String(m.stuck.length).padStart(5)}  ?? unidentified`)
+    // the ids that only unidentified programs use: those, and only those, are
+    // what this collection is actually missing
+    const only = new Map<number, number>()
+    for (const st of m.stuck) for (const id of st.ids) only.set(id, (only.get(id) ?? 0) + 1)
+    for (const [id, n] of [...only].sort((a, b) => b[1] - a[1]).slice(0, 6)) {
+      console.log(`                  $${id.toString(16).padStart(4, '0')} in ${n} of them`)
+    }
     wanted.push({
       slot,
-      programs: [...usage.programs].slice(0, 20),
-      distinctIds: usage.uses.size,
-      uses: usage.count,
-      confidence: id.confidence,
-      ...(id.best ? { identified: id.best.id } : {}),
-      unexplained: id.unresolvedIds.map((i) => ({
-        id: `$${i.toString(16).padStart(4, '0')}`,
-        arities: [...(usage.uses.get(i) ?? [])].filter((n) => n !== 0xff).sort((a, b) => a - b),
-      })),
+      programs: m.stuck.map((st) => st.program).slice(0, 20),
+      distinctIds: m.ids.size,
+      uses: m.uses,
+      unexplained: [...only]
+        .sort((a, b) => a[0] - b[0])
+        .map(([id, n]) => ({
+          id: `$${id.toString(16).padStart(4, '0')}`,
+          arities: [...(m.arities.get(id) ?? [])].filter((v) => v !== 0xff).sort((a, b) => a - b),
+          programs: n,
+        })),
     })
   }
 }
 
 if (wanted.length > 0) {
   const total = wanted.reduce((n, w) => n + w.unexplained.length, 0)
-  console.log(`\n${total} token ids across ${wanted.length} slot(s) are not explained by the registry.`)
-  console.log('Each is a request for a specific missing extension — see docs/extensions/README.md.')
+  const progs = wanted.reduce((n, w) => n + w.programs.length, 0)
+  console.log(`\n${total} token ids across ${wanted.length} slot(s) are not explained by the registry,`)
+  console.log(`in ${progs} program(s) of ${scanned}. Each is a request for a specific missing`)
+  console.log('extension — see docs/extensions/README.md.')
 }
 if (jsonOut) {
   writeFileSync(jsonOut, JSON.stringify({ scanned, failed, wanted }, null, 2))

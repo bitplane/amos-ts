@@ -330,6 +330,28 @@ id stays put so that generated tables and manifests keep matching up.
 
 ## Finding what is missing
 
+**Ask per program, never per slot.** A slot number belongs to the machine a
+program was saved on, so two programs in one collection routinely hold
+different extensions — or different versions of one — at the same slot. Merging
+their token ids into a single fingerprint and identifying *that* asks a
+question nothing has to answer, and it fails in a way that looks like a
+discovery: with no candidate surviving there is no table to subtract, so every
+id the slot ever used is reported as unexplained.
+
+The local 4,783-program archive measured both ways:
+
+| | merged per slot | per program |
+|---|---|---|
+| ids reported unexplained | 758 across 12 slots | 53 across 10 slots |
+| programs involved | — | 49 of 4,783 |
+| slot 12 | "39 of 110 ids missing — a fourth TURBO build" | 105 programs on TURBO 1.9, 48 on 1.0, 1 on 2.15 |
+| slot 14 | "10 of 159 ids missing" | 13 Intuition, 2 The Game Extension, 1 unknown id |
+| slot 22 | "5 of 47 ids missing" | 30 JD 5.3, 2 JD 4.6, 1 Jotre, 20 with one stray id |
+
+Nothing was missing in most of those slots; the programs simply disagreed with
+each other. `extscan` identifies per program and aggregates the answers, and
+`ext.test.ts` pins the trap so it cannot come back.
+
 `src/cli/extscan.ts` walks a tree of `.AMOS` files and reports what each slot
 most plausibly held:
 

@@ -218,6 +218,36 @@ describe.skipIf(!existsSync(extFixtures))('slot identification (src/ext/identify
     expect(identifySlot(moved).best?.id).toBe('intuition-1.3b')
   })
 
+  /**
+   * The trap that sweep phase 2 was chasing. A slot number belongs to the
+   * machine, so two programs can hold different extensions at the same one;
+   * merging their ids asks a question nothing has to answer. Slot 12 of the
+   * local archive read as a missing fourth TURBO build merged, and is 105
+   * programs on 1.9 plus 48 on 1.0 per program.
+   */
+  it('merging two programs that held different extensions in one slot identifies neither', () => {
+    const a = collectUsage(parseProgram(join(extFixtures, 'intuition-1.3b', 'progs', 'inttest.amos'))).get(14)!
+    // a second program in the same slot, using ids Intuition does not have
+    const b: SlotUsage = { slot: 14, uses: new Map([[0x1234, new Set([1])]]), count: 1 }
+    expect(identifySlot(a).best?.id).toBe('intuition-1.3b')
+    expect(identifySlot(b).best).toBeUndefined()
+
+    const mergedUses = new Map(a.uses)
+    for (const [id, n] of b.uses) mergedUses.set(id, n)
+    const merged: SlotUsage = { slot: 14, uses: mergedUses, count: a.count + b.count }
+    // merged, the program that WAS identified stops being: one stray id from
+    // its neighbour disqualifies the extension it actually used
+    const id = identifySlot(merged)
+    expect(id.best).toBeUndefined()
+    // and the damage is not one id but all of them. With nothing identified
+    // there is no table to subtract, so every id the slot ever used is
+    // reported as unexplained — which is how one stray id turned into a
+    // wanted list of 119. Across the local archive it was 758 ids; asking per
+    // program instead leaves 53.
+    expect(id.unresolvedIds).toContain(0x1234)
+    expect(id.unresolvedIds).toHaveLength(a.uses.size + 1)
+  })
+
   it('reports unknown rather than guessing when nothing explains the ids', () => {
     const usage = {
       slot: 9,
