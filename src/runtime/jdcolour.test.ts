@@ -24,6 +24,8 @@ function run(src: string): string {
   return out
 }
 const val = (expr: string): string => run(`Print ${expr}`).trim()
+/** the same without the trim, for the keywords where padding is the point */
+const sval = (expr: string): string => run(`Print ${expr}`).replace(/\n$/, '')
 
 describe('JD Colour: the nibble arithmetic (+|col.s:214-640)', () => {
   it('splits and rebuilds a 12-bit colour', () => {
@@ -68,10 +70,35 @@ describe('JD Colour: the nibble arithmetic (+|col.s:214-640)', () => {
     expect(val('Jd Separate Black($000)')).toBe('0')
   })
 
-  it('the swaps and Fit', () => {
-    expect(val('Hex$(Jd Bswap($1234))')).toBe('$3412')
-    expect(val('Jd Fit(10,5)')).toBe('-1')
+  it('each swap is one size smaller than its name suggests', () => {
+    // routines 63/64/65 in the 2.0 binary, which has no source: Bswap is the
+    // two NIBBLES of a byte, Wswap the two bytes of a word, Lswap the halves
+    // of the longword
+    expect(val('Hex$(Jd Bswap($1234))')).toBe('$43')
+    expect(val('Hex$(Jd Bswap($AB))')).toBe('$BA')
+    expect(val('Hex$(Jd Wswap($1234))')).toBe('$3412')
+    expect(val('Hex$(Jd Lswap($12345678))')).toBe('$56781234')
+  })
+
+  it('Fit answers 1 rather than AMOS true', () => {
+    // routine 55 is `move.l #1,d3` on the true path (+|col.s:1862), so a
+    // program comparing it against True gets the wrong answer
+    expect(val('Jd Fit(10,5)')).toBe('1')
     expect(val('Jd Fit(10,3)')).toBe('0')
+    expect(val('Jd Fit(10,0)')).toBe('0')
+  })
+
+  it('Cut Off$ SPREADS the string out; it does not cut anything off', () => {
+    // routine 56 (+|col.s:1876) writes each character then a space, then
+    // backs over the last one: 2n-1 characters
+    expect(sval('Jd Cut Off$("Test")')).toBe('T e s t')
+    expect(sval('Jd Cut Off$("a")')).toBe('a')
+  })
+
+  it('Cut Off$ raises error 23 on an empty string and at 128 characters', () => {
+    expect(() => run('Print Jd Cut Off$("")')).toThrow(/illegal function call/)
+    expect(() => run('Print Jd Cut Off$(String$("x",128))')).toThrow(/illegal function call/)
+    expect(sval('Jd Cut Off$(String$("x",127))').length).toBe(253)
   })
 })
 
@@ -97,15 +124,44 @@ describe('JD Colour: the palette instructions', () => {
     expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['$AAA', '0'])
   })
 
-  it('Spread Palette ramps between two entries', () => {
+  it('Spread Palette ramps between two entries, ends untouched', () => {
     const out = run([
       'Screen Open 0,320,200,16,Lowres',
-      'Colour 0,$000 : Colour 4,$FFF',
-      'Jd Spread Palette 0 To 4',
-      'Print Hex$(Colour(2))',
+      'Colour 1,$000 : Colour 5,$FFF',
+      'Jd Spread Palette 1 To 5',
+      'Print Hex$(Colour(3));",";Hex$(Colour(1));",";Hex$(Colour(5))',
     ].join('\n'))
-    // halfway between black and white
-    expect(out.trim()).toBe('$888')
+    // (15-0)/4 = 3.75 accumulated and truncated by SPFix at each entry:
+    // 3.75 -> 3, 7.5 -> 7, 11.25 -> 11. Hex$ does not zero-pad, hence "$0"
+    expect(out.trim()).toBe('$777,$0,$FFF')
+  })
+
+  it('Spread Palette rejects colour 0 outright — `cmp.l #0,d2 / ble _err`', () => {
+    const head = 'Screen Open 0,320,200,16,Lowres\n'
+    expect(() => run(head + 'Jd Spread Palette 0 To 4')).toThrow(/illegal function call/)
+    expect(() => run(head + 'Jd Spread Palette 1 To 32')).toThrow(/illegal function call/)
+  })
+
+  it('a reversed pair is swapped, and a gap under two does nothing', () => {
+    const out = run([
+      'Screen Open 0,320,200,16,Lowres',
+      'Colour 1,$000 : Colour 5,$FFF',
+      'Jd Spread Palette 5 To 1',
+      'Print Hex$(Colour(3))',
+      'Colour 7,$F00 : Colour 8,$00F : Jd Spread Palette 7 To 8',
+      'Print Hex$(Colour(7));",";Hex$(Colour(8))',
+    ].join('\n'))
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['$777', '$F00,$F'])
+  })
+
+  it('Pseudo Palette copies the fixed table, it does not generate a ramp', () => {
+    // `ppal` (+|col.s:185): 32 words, blue through green and yellow to red
+    const out = run([
+      'Screen Open 0,320,200,16,Lowres',
+      'Jd Pseudo Palette',
+      'Print Hex$(Colour(0));",";Hex$(Colour(1));",";Hex$(Colour(15));",";Hex$(Colour(9))',
+    ].join('\n'))
+    expect(out.trim()).toBe('$0,$F,$4F0,$FE')
   })
 
   it('Lightest and Darkest Colour scan the palette', () => {
@@ -115,7 +171,22 @@ describe('JD Colour: the palette instructions', () => {
       'Colour 5,$FFF : Colour 9,$111 : Colour 0,$222',
       'Print Jd Lightest Colour;",";Jd Darkest Colour',
     ].join('\n'))
-    expect(out.trim()).toBe('5, 1') // 1 is the first all-zero entry
+    // 5 is the brightest. The darkest is a tie among every all-zero entry,
+    // and routines 52/53 answer with the HIGHEST index of a tie -- the table
+    // they build is filled backwards and searched forwards
+    expect(out.trim()).toBe('5, 15')
+  })
+
+  it("the scan stops at the SCREEN's colour count, not the palette's", () => {
+    // `move.w $60(a0),d0 / sub.l #1,d0` off ScOnAd: a 4-colour screen looks
+    // at entries 0 to 3 and cannot answer with 5 however bright it is
+    const out = run([
+      'Screen Open 0,320,200,4,Lowres',
+      'For I=0 To 15 : Colour I,0 : Next I',
+      'Colour 2,$F00 : Colour 5,$FFF',
+      'Print Jd Lightest Colour',
+    ].join('\n'))
+    expect(out.trim()).toBe('2')
   })
 
   it('the window, requester and whole-screen keywords are n/a', () => {

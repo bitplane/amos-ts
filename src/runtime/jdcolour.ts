@@ -36,6 +36,7 @@
 import { VI, VS, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
+import { outdim } from './jd'
 
 /** zerlege (+|col.s:221): a 12-bit colour into red, green, blue nibbles */
 const split = (v: number): [number, number, number] => [(v >> 8) & 15, (v >> 4) & 15, v & 15]
@@ -43,11 +44,42 @@ const split = (v: number): [number, number, number] => [(v >> 8) & 15, (v >> 4) 
 const join = (r: number, g: number, b: number): number =>
   ((Math.min(15, Math.max(0, r)) << 8) | (Math.min(15, Math.max(0, g)) << 4) | Math.min(15, Math.max(0, b))) & 0xfff
 
+/** `ppal` (+|col.s:185) — the 32 words Jd Pseudo Palette copies in, verbatim */
+// prettier-ignore
+const PPAL = Uint16Array.from([
+  0x000, 0x00f, 0x04f, 0x06f, 0x0bf, 0x0cf, 0x0cf, 0x0ef,
+  0x0ef, 0x0fe, 0x0f8, 0x0f7, 0x0f7, 0x0f2, 0x1f0, 0x4f0,
+  0x4f0, 0x5f0, 0x8f0, 0x9f0, 0xaf0, 0xcf0, 0xef0, 0xfd0,
+  0xfd0, 0xfc0, 0xfa0, 0xf90, 0xf90, 0xf80, 0xf60, 0xf00,
+])
+
+/**
+ * The shared body of routines 52 and 53. `d0 = ScOnAd+$60 - 1`, and above 31
+ * it becomes 15 rather than clamping — the routine's own `cmp.l #31,d0 / ble
+ * / move.l #15,d0`. Equal totals answer with the highest index; see the
+ * keyword.
+ */
+function extremeColour(rt: Runtime, lightest: boolean): number {
+  const p = rt.screen.palette
+  let colnb = (1 << rt.screen.depth) - 1
+  if (colnb > 31) colnb = 15
+  let best = 0
+  let bestSum = lightest ? -1 : 0xfff
+  for (let i = 0; i <= colnb; i++) {
+    const [r, g, b] = split(p[i]! & 0xfff)
+    const sum = r + g + b
+    // >= / <= so the LAST index wins a tie, which is what the reversed
+    // table plus a forward search comes out as
+    if (lightest ? sum >= bestSum : sum <= bestSum) {
+      bestSum = sum
+      best = i
+    }
+  }
+  return best
+}
+
 export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
   const arg = (a: Value[], i: number): number => int(a[i]!)
-
-  /** the palette of the current screen, which the palette keywords work on */
-  const pal = (): Uint16Array => rt.screen.palette
 
   return {
     /**
@@ -165,68 +197,101 @@ export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * =Jd Lightest Colour and =Jd Darkest Colour. The palette entry with the
-     * greatest and least component total.
+     * =Jd Lightest Colour and =Jd Darkest Colour — routines 52 and 53
+     * (+|col.s:1752, :1792). The palette entry whose three nibbles add up to
+     * the most, and to the least.
+     *
+     * Three details out of the routine that a plain "max of the palette" gets
+     * wrong. The range is the SCREEN'S colour count from ScOnAd+$60 minus
+     * one, not the whole palette — and if that comes out above 31 the routine
+     * uses 15 instead. The sums are built into a private table walked
+     * DOWNWARDS (`dbra d0` from colnb while storing forwards), and the search
+     * for the extreme then walks that table forwards and answers with the
+     * dbra counter, which turns back into the colour index. What survives the
+     * reversal is the TIE-BREAK: equal totals answer with the HIGHEST index.
      */
     'jd lightest colour'(): Value {
-      const p = pal()
-      let best = 0
-      let bestSum = -1
-      for (let i = 0; i < p.length; i++) {
-        const [r, g, b] = split(p[i]! & 0xfff)
-        if (r + g + b > bestSum) {
-          bestSum = r + g + b
-          best = i
-        }
-      }
-      return VI(best)
+      return VI(extremeColour(rt, true))
     },
     'jd darkest colour'(): Value {
-      const p = pal()
-      let best = 0
-      let bestSum = 46
-      for (let i = 0; i < p.length; i++) {
-        const [r, g, b] = split(p[i]! & 0xfff)
-        if (r + g + b < bestSum) {
-          bestSum = r + g + b
-          best = i
-        }
-      }
-      return VI(best)
+      return VI(extremeColour(rt, false))
     },
 
-    /** =Jd Fit(n,divisor) — whether the division comes out whole */
+    /**
+     * =Jd Fit(n,divisor) — routine 55 (+|col.s:1862). `divs / muls / cmp`:
+     * whether dividing and multiplying back gives the number again.
+     *
+     * It answers 1 and 0, NOT AMOS's -1 and 0 — `move.l #1,d3` is the true
+     * case. A program writing `If Jd Fit(n,3)` cannot tell, one comparing
+     * against True can.
+     */
     'jd fit'(_, a): Value {
       const d = arg(a, 1)
-      return VI(d !== 0 && arg(a, 0) % d === 0 ? -1 : 0)
+      // `divs d1,d2` with a zero divisor is a trap on the machine
+      if (d === 0) return VI(0)
+      const n = arg(a, 0)
+      return VI(Math.trunc(n / d) * d === n ? 1 : 0)
     },
 
-    /** the 2.0 byte, word and longword swaps */
+    /**
+     * The three swaps 2.0 added — routines 63, 64 and 65 ($2720, $2730, $2740
+     * in AMOSPro_JDColour.Lib 2.0, which has no source and is disassembled).
+     *
+     * Each is one size SMALLER than the name suggests, and getting that wrong
+     * silently gives plausible answers. Bswap works inside a BYTE, swapping
+     * its two nibbles (`lsr.b #4 / lsl.b #4 / or.b`) and touching nothing
+     * above bit 7. Wswap swaps the two bytes of the low WORD. Lswap is a bare
+     * `swap d3` — the two halves of the longword.
+     */
     'jd bswap'(_, a): Value {
-      const v = arg(a, 0)
-      return VI(((v & 0xff) << 8) | ((v >> 8) & 0xff))
+      const v = arg(a, 0) & 0xff
+      return VI(((v & 0x0f) << 4) | (v >> 4))
     },
     'jd wswap'(_, a): Value {
-      const v = arg(a, 0)
-      return VI((((v & 0xffff) << 16) | ((v >>> 16) & 0xffff)) | 0)
+      const v = arg(a, 0) & 0xffff
+      return VI(((v & 0xff) << 8) | (v >> 8))
     },
     'jd lswap'(_, a): Value {
       const v = arg(a, 0)
-      return VI(
-        (((v & 0xff) << 24) | ((v & 0xff00) << 8) | ((v >>> 8) & 0xff00) | ((v >>> 24) & 0xff)) | 0,
-      )
+      return VI((((v & 0xffff) << 16) | ((v >>> 16) & 0xffff)) | 0)
     },
 
-    /** =Jd Key To Asc(scancode) — the raw code as a character code */
+    /**
+     * =Jd Key To Asc(code) — routine 78 at $2a32. A table lookup, not
+     * arithmetic: it walks a 44-byte key table at $1bc of the structure
+     * a5+$228 points at, comparing each byte against the argument, and answers
+     * with the byte at the matching position of a second table 44 bytes
+     * further on at $1e8. A zero byte in the first table ends the walk and the
+     * answer is 0.
+     *
+     * The manual's example is `Jd Key To Asc(253) -> 49`, the character '1',
+     * and 253 is not an Amiga rawkey — so the tables are AMOS's own, not the
+     * keyboard's. This port does not carry that pair, and inventing a mapping
+     * that happened to satisfy one documented example would be worse than
+     * answering what the routine answers for a code it cannot find. So this
+     * returns 0, always, and it is the one keyword in the Colour library whose
+     * behaviour is not reproduced. See NOTES.
+     */
     'jd key to asc'(_, a): Value {
-      return VI(arg(a, 0) & 0x7f)
+      void arg(a, 0)
+      return VI(0)
     },
 
-    /** =Jd Cut Off$(s,n) — the string truncated to n characters */
+    /**
+     * =Jd Cut Off$(s) — routine 56 (+|col.s:1876). Not a truncation, despite
+     * the name: it SPREADS the string out, putting a space after every
+     * character. `lop: move.b (a0)+,d0 / move.b d0,(a1)+ / move.b #' ',(a1)+`,
+     * then `move.b #0,-(a1)` backs over the trailing space — so the result is
+     * 2n-1 characters, "Test" coming back as "T e s t".
+     *
+     * Both bounds are error 23: an empty string (`beq error`) and one of 128
+     * characters or more (`cmp.l #128,d0 / bge error`), the second because the
+     * result would not fit the buffer it allocates.
+     */
     'jd cut off$'(_, a): Value {
       const v = String(a[0]!.k === 'str' ? a[0]!.s : '')
-      const n = arg(a, 1)
-      return VS(n >= 0 ? v.slice(0, n) : v)
+      if (v.length === 0 || v.length >= 128) outdim()
+      return VS(v.split('').join(' '))
     },
   }
 }
@@ -276,40 +341,54 @@ export function makeJdColourInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Jd Spread Palette a To b — the entries between two palette positions
-     * filled with a linear ramp between their colours.
+     * Jd Spread Palette a To b — routine 7 (+|col.s:261), the library's first
+     * and longest. The entries BETWEEN two palette positions get a linear ramp
+     * between their colours; the two ends are left alone.
+     *
+     * The guards are the routine's, and they are stricter than they look:
+     * both arguments must be 1 to 31 inclusive, so COLOUR 0 IS REJECTED
+     * (`cmp.l #0,d2 / ble _err`) — error 23, not a clamp. A reversed pair is
+     * swapped and retried (`doswap: exg d1,d2 / bra again`) rather than
+     * refused, and a gap smaller than two returns having done nothing, with
+     * no error at all.
+     *
+     * The ramp itself runs through the FFP library — one step per component
+     * computed as `(c2-c1)/diff` and ACCUMULATED, with SPFix at each entry.
+     * SPFix truncates toward zero, so the ramp is written with truncation
+     * rather than rounding, and it is accumulated here for the same reason:
+     * the drift is part of what the ramp looks like.
      */
     'jd spread palette'(it) {
-      const from = it.evalInt()
+      let from = it.evalInt()
       it.expect('to')
-      const to = it.evalInt()
+      let to = it.evalInt()
+      if (from > 31 || from <= 0 || to > 31 || to <= 0) outdim()
+      if (to < from) [from, to] = [to, from]
+      const diff = to - from
+      if (diff < 2) return
       const p = pal()
-      if (from < 0 || to < 0 || from >= p.length || to >= p.length || to === from) return
+      if (to >= p.length) return
       const [r1, g1, b1] = split(p[from]! & 0xfff)
       const [r2, g2, b2] = split(p[to]! & 0xfff)
-      const steps = Math.abs(to - from)
-      const dir = to > from ? 1 : -1
-      for (let i = 1; i < steps; i++) {
-        const t = i / steps
-        p[from + i * dir] = join(
-          Math.round(r1 + (r2 - r1) * t),
-          Math.round(g1 + (g2 - g1) * t),
-          Math.round(b1 + (b2 - b1) * t),
-        )
+      const step = [(r2 - r1) / diff, (g2 - g1) / diff, (b2 - b1) / diff]
+      let acc = [r1, g1, b1]
+      for (let i = from + 1; i < to; i++) {
+        acc = [acc[0]! + step[0]!, acc[1]! + step[1]!, acc[2]! + step[2]!]
+        p[i] = join(Math.trunc(acc[0]!), Math.trunc(acc[1]!), Math.trunc(acc[2]!))
       }
     },
 
     /**
-     * Jd Pseudo Palette — routine 25 (+|col.s:641). Fills the palette with a
-     * generated spread rather than a loaded one.
+     * Jd Pseudo Palette — routine 25 (+|col.s:641). Not a generated ramp: it
+     * copies the fixed 32-entry table `ppal` (+|col.s:185) into colours 0 to
+     * 31, unconditionally and whatever the screen's depth. The table is the
+     * false-colour spread a pseudo-colour image wants — blue through green
+     * and yellow to red — which is what makes it worth a keyword.
      */
     'jd pseudo palette'(it) {
       void it
       const p = pal()
-      for (let i = 0; i < p.length; i++) {
-        const t = p.length <= 1 ? 0 : i / (p.length - 1)
-        p[i] = join(Math.round(t * 15), Math.round(t * 15), Math.round(t * 15))
-      }
+      for (let i = 0; i < PPAL.length && i < p.length; i++) p[i] = PPAL[i]!
     },
   }
 }
