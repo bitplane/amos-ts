@@ -198,9 +198,6 @@ export function parseFlashSpec(spec: string): Array<{ rgb: number; ticks: number
   return seq.length > 16 ? null : seq
 }
 
-/** the default cursor shape: an underline (DefCurs +W.s:16736) */
-export const CURSOR_SHAPE = [0, 0, 0, 0, 0, 0, 0xff, 0xff]
-
 /** STOS Anim slot: (image,delay) pairs, L = loop (AniStos +W.s:7490) */
 export interface StosAnim {
   pairs: Array<[number, number]>

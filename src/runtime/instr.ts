@@ -1428,10 +1428,19 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       scr().curWin.cuCol = it.evalInt()
     },
     'curs on'() {
-      scr().cursorOn = true // InCursOn +Lib.s:13418 (WiSys bit1)
+      // InCursOn +Lib.s:13418 sends ESC "C1", and every console character
+      // runs inside WOutC's EffCur/AffCur bracket (+W.s:15385) — which is
+      // what lifts the drawn cursor out of the bitmap before the flag moves
+      const s = scr()
+      s.console(() => {
+        s.cursorOn = true
+      })
     },
     'curs off'() {
-      scr().cursorOn = false
+      const s = scr()
+      s.console(() => {
+        s.cursorOn = false
+      })
     },
     writing(it) {
       // Writing w1[,w2]: 0 replace/1 OR/2 XOR/3 AND/4 ignore; w2: 0 both,

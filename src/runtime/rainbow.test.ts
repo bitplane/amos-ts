@@ -215,6 +215,26 @@ describe('the out-of-the-box cursor (AffCur +W.s:13604 + Flash 3 +Lib.s:8989)', 
     expect(pix12(rt, 0, 2 * 2)).not.toBe(0xf0f) // upper cell rows untouched
   })
 
+  /**
+   * The cursor is IN the bitmap (AffCur +W.s:13604), not an overlay on the
+   * finished frame. It matters because an overlay cannot be painted over:
+   * eggit printed a message box, dismissed it, repainted the room, and the
+   * cursor went on floating over the artwork for the rest of the game.
+   */
+  it('graphics drawn over the cursor cell cover it, and it stays covered', () => {
+    const printed = 'Flash Off : Colour 3,$F0F : Colour 5,$0F0 : Locate 0,0 : Print "HI";'
+    // the cursor sits in the cell after "HI": screen x 16..23, underline rows
+    // 6-7 — and the composite is doubled, so screen x 16 is output x 32
+    expect(pix12(boot(printed).rt, 16 * 2, 6 * 2)).toBe(0xf0f)
+    // now a program draws over that cell, exactly as ROOMSET does
+    const { rt } = boot(`${printed} : Ink 5 : Bar 0,0 To 100,20`)
+    expect(pix12(rt, 16 * 2, 6 * 2)).toBe(0x0f0)
+    // and it must still be covered a frame later — the overlay came back
+    // every frame, which is what made it look like a shadow
+    rt.frame()
+    expect(pix12(rt, 16 * 2, 6 * 2)).toBe(0x0f0)
+  })
+
   it('the cursor fades with a rainbow on its colour — the signature AMOS look', () => {
     const src = [
       'Flash Off : Colour 3,$000',

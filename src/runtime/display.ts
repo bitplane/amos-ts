@@ -22,7 +22,7 @@
  * a separate change from moving the code, and doing both at once is how a
  * refactor this size goes wrong.
  */
-import { CURSOR_SHAPE, EMPTY_PLANE, Runtime } from './runtime'
+import { EMPTY_PLANE, Runtime } from './runtime'
 import type { Rainbow } from './runtime'
 import { AmosError } from '../interp/values'
 import type { Screen } from './screen'
@@ -595,10 +595,6 @@ export class Display {
     const bplL = Int32Array.from(R.bplL)
     const sprH = Int32Array.from(R.sprH)
     const sprL = Int32Array.from(R.sprL)
-    const cs = this.rt.screens.get(this.rt.currentIndex) ?? null
-    const cw = cs?.curWin ?? null
-    const curX0 = cw ? cw.x + cw.curX * 8 : 0
-    const curY0 = cw ? cw.y + cw.curY * 8 : 0
 
     const renderLines = (to: number): void => {
       const end = Math.min(to, 313)
@@ -632,7 +628,6 @@ export class Display {
             }
             if (!fetching || words === 0) continue
             const s = screen!
-            const rowPix = s.rowBytes * 8
             // the pointer is a byte address: whole rows plus a byte skew
             // BPLCON0's LACE means the same thing the screen's own flag does:
             // a field shows every other row, so the pointer advances a whole
@@ -686,7 +681,6 @@ export class Display {
             // Each is a 3-bit index of its own; PF2's pens live at 8-15, and
             // colour 0 in either playfield shows what is behind it.
             const n = words * 16
-            const isCurRow = s === cs && s.cursorOn && cw !== null
             for (let i = 0; i < n; i++) {
               // DIW clips in colour clocks, so a hires pair shares one
               const hx = dataStart + (hires ? i >> 1 : i)
@@ -710,18 +704,6 @@ export class Display {
                 if (!dblpf) pf1 |= 1 << p
                 else if ((p & 1) === 0) pf1 |= 1 << (p >> 1)
                 else pf2 |= 1 << (p >> 1)
-              }
-              // the text cursor is drawn by the console into the bitmap on the
-              // real machine; here it is still composited, so it needs the
-              // source coordinates the pointer implies
-              if (isCurRow) {
-                const a = planeOff[0]! * 8 + rowSkew * 8 + i
-                const sy = Math.floor(a / rowPix)
-                const sx = a - sy * rowPix
-                if (sy >= curY0 && sy < curY0 + 8 && sx >= curX0 && sx < curX0 + 8) {
-                  const mask = CURSOR_SHAPE[sy - curY0]!
-                  if ((mask << (sx - curX0)) & 0x80) pf1 = cw!.cuCol & 63
-                }
               }
               // back to front: PF2 behind PF1 unless PFBA says otherwise, and
               // a zero pen in the front playfield lets the back one through

@@ -40,6 +40,9 @@ export const DEFAULT_PALETTE = [
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ]
 
+/** the default cursor shape: an underline (DefCurs +W.s:16736) */
+export const CURSOR_SHAPE = [0, 0, 0, 0, 0, 0, 0xff, 0xff]
+
 /** A text window (WOpen): a character grid with its own console state. */
 export interface Wind {
   n: number
@@ -298,6 +301,38 @@ export class Screen {
   /** Wind Save: subsequently opened windows save their background */
   windSave = false
   cursorOn = true
+  /**
+   * The text cursor lives IN the bitmap, as it does on the machine.
+   *
+   * AffCur (+W.s:13604) writes the cursor shape into the bitplanes and saves
+   * the eight bytes per plane it covered; EffCur (+W.s:13642) puts them back.
+   * The pair brackets every console operation — 32 call sites in W.s — so
+   * between them the cursor is part of the picture.
+   *
+   * This used to be a compositor overlay, which is wrong in a way that shows:
+   * an overlay is drawn on top of the finished frame every frame, so NOTHING
+   * the program draws can cover it. eggit prints its message box, the box is
+   * dismissed and the room repainted, and the cursor stayed floating over the
+   * artwork for the rest of the game — the "shadow" that started this. In the
+   * bitmap it is just pixels: the next Bar or Paint over that cell wipes it,
+   * and it only comes back when the console next prints.
+   *
+   * One quirk comes with being faithful, and it is the machine's: EffCur puts
+   * back what it SAVED, not what is there now. Draw over the cursor cell with
+   * graphics and the next console operation restores the old eight bytes.
+   *
+   * Curs Off is clean, and the reason is worth recording because reading
+   * `Curs` (+W.s:14818) alone says otherwise: it only clears the WiSys bit,
+   * and EffCur is gated on that same bit, so it looks as though switching the
+   * cursor off while it is displayed would strand it. It does not, because
+   * Curs Off IS the escape ESC "C0" and every character goes through WOutC
+   * (+W.s:15385), which is EffCur -> COut -> AffCur. The erase happens before
+   * COut clears the bit. Hence `console()` below, and why the Curs On/Off
+   * instruction has to go through it too.
+   */
+  private curSave = new Uint8Array(8 * 8)
+  /** byte offset of the drawn cursor within a plane, or -1 when not drawn */
+  private curDrawnAt = -1
   /** Gr Writing: 0 JAM1 (transparent), 1 JAM2, 2 XOR */
   grMode = 1
   /**
@@ -1090,6 +1125,10 @@ export class Screen {
   // ---- text console (window-relative) ----
 
   putChar(ch: number): void {
+    this.console(() => this.putCharInner(ch))
+  }
+
+  private putCharInner(ch: number): void {
     const w = this.curWin
     this.drawChar(w.x + w.curX * 8, w.y + w.curY * 8, ch, w.pen, w.paper)
     w.curX++
@@ -1097,6 +1136,10 @@ export class Screen {
   }
 
   newline(): void {
+    this.console(() => this.newlineInner())
+  }
+
+  private newlineInner(): void {
     const w = this.curWin
     w.curX = 0
     w.curY++
@@ -1111,6 +1154,10 @@ export class Screen {
   }
 
   writeText(text: string): void {
+    this.console(() => this.writeTextInner(text))
+  }
+
+  private writeTextInner(text: string): void {
     for (let ti = 0; ti < text.length; ti++) {
       const ch = text[ti]!
       const c = ch.charCodeAt(0)
@@ -1254,13 +1301,99 @@ export class Screen {
   }
 
   /**
+   * AffCur (+W.s:13604): draw the cursor into the bitmap and save what it
+   * covered. Per plane, the cursor colour's bit decides OR (set) or AND-NOT
+   * (clear) — AfC2/AfC3 shift WiCuCol right one bit per plane.
+   */
+  private affCur(): void {
+    if (this.curDrawnAt >= 0 || !this.cursorOn) return
+    const w = this.curWin
+    const x0 = w.x + w.curX * 8
+    const y0 = w.y + w.curY * 8
+    if (x0 < 0 || y0 < 0 || x0 + 8 > this.width || y0 + 8 > this.height) return
+    // the planes directly, then the chunky cache pixel by pixel — 64 pixels
+    // is far cheaper than invalidating the cache and re-decoding the screen,
+    // which is what planarView(write) would do here
+    this.flushLog()
+    const planes = this.planarLog
+    const off = y0 * this.rowBytes + (x0 >> 3)
+    for (let p = 0; p < this.depth; p++) {
+      const base = p * this.planeSize + off
+      const set = (w.cuCol >> p) & 1
+      for (let r = 0; r < 8; r++) {
+        const at = base + r * this.rowBytes
+        const was = planes[at] ?? 0
+        this.curSave[p * 8 + r] = was
+        planes[at] = set ? was | CURSOR_SHAPE[r]! : was & ~CURSOR_SHAPE[r]! & 0xff
+      }
+    }
+    this.curDrawnAt = off
+    this.refreshCell(x0, y0)
+  }
+
+  /** re-derive the chunky cache for one 8x8 character cell */
+  private refreshCell(x0: number, y0: number): void {
+    if (!this.logValid && !this.logDirty) return
+    for (let r = 0; r < 8; r++) {
+      const row = (y0 + r) * this.rowBytes + (x0 >> 3)
+      const at = (y0 + r) * this.width + x0
+      for (let b = 0; b < 8; b++) {
+        let v = 0
+        for (let p = 0; p < this.depth; p++) {
+          if ((this.planarLog[p * this.planeSize + row]! >> (7 - b)) & 1) v |= 1 << p
+        }
+        this.chunkyLog[at + b] = v
+      }
+    }
+  }
+
+  /**
+   * EffCur (+W.s:13642): put back the bytes AffCur saved. Gated on the cursor
+   * flag exactly as the 68k is, which is why Curs Off freezes the cursor into
+   * the bitmap instead of erasing it.
+   */
+  private effCur(): void {
+    if (this.curDrawnAt < 0 || !this.cursorOn) return
+    this.flushLog()
+    const planes = this.planarLog
+    for (let p = 0; p < this.depth; p++) {
+      const base = p * this.planeSize + this.curDrawnAt
+      for (let r = 0; r < 8; r++) planes[base + r * this.rowBytes] = this.curSave[p * 8 + r]!
+    }
+    const y0 = Math.floor(this.curDrawnAt / this.rowBytes)
+    const x0 = (this.curDrawnAt % this.rowBytes) * 8
+    this.curDrawnAt = -1
+    this.refreshCell(x0, y0)
+  }
+
+  /**
+   * Run a console operation with the cursor lifted out of the bitmap and put
+   * back after — the EffCur/AffCur bracket the 68k writes around each of them.
+   * GRAPHICS operations deliberately do not use this: on the machine they draw
+   * straight over the cursor, and that is what makes the cursor coverable.
+   */
+  console<T>(op: () => T): T {
+    // re-entrant: writeText -> putChar -> newline -> scrollUp are all console
+    // operations, and only the outermost may lift and replace the cursor
+    if (this.consoleDepth++ === 0) this.effCur()
+    try {
+      return op()
+    } finally {
+      if (--this.consoleDepth === 0) this.affCur()
+    }
+  }
+  private consoleDepth = 0
+
+  /**
    * Loca (+W.s:15364): coordinates outside the window's text area raise
    * window error 16 -> "Illegal text window parameter" (error 60).
    */
   locate(x: number, y: number): void {
     if (x >= this.cols || y >= this.rows) throw new AmosError('illegal text window parameter', 60)
-    if (x >= 0) this.curX = x
-    if (y >= 0) this.curY = y
+    this.console(() => {
+      if (x >= 0) this.curX = x
+      if (y >= 0) this.curY = y
+    })
   }
 
   /** the Pen/Paper escapes error above the screen colour count (+W.s:14893) */
@@ -1413,6 +1546,10 @@ export class Screen {
 
   /** Clw: clear the current window's text area and home the cursor */
   clw(): void {
+    this.console(() => this.clwInner())
+  }
+
+  private clwInner(): void {
     const w = this.curWin
     // byte-aligned like scrollUp, for the same reason: text windows sit on
     // character boundaries
@@ -1481,6 +1618,10 @@ export class Screen {
   }
 
   windOpen(n: number, x: number, y: number, cols: number, rows: number, border: number): Wind {
+    return this.console(() => this.windOpenInner(n, x, y, cols, rows, border))
+  }
+
+  private windOpenInner(n: number, x: number, y: number, cols: number, rows: number, border: number): Wind {
     if (this.windows.has(n) && n !== 0) throw new AmosError('Text window already opened', 55)
     const alignedX = (x >> 4) << 4
     const b = border !== 0 ? 8 : 0
@@ -1532,6 +1673,10 @@ export class Screen {
   }
 
   windClose(): void {
+    this.console(() => this.windCloseInner())
+  }
+
+  private windCloseInner(): void {
     const w = this.curWin
     if (w.n === 0) return
     if (w.savedBg) {
@@ -1556,6 +1701,10 @@ export class Screen {
   }
 
   selectWindow(n: number): void {
+    this.console(() => this.selectWindowInner(n))
+  }
+
+  private selectWindowInner(n: number): void {
     const w = this.windows.get(n)
     if (!w) throw new AmosError('Text window not opened', 54)
     this.curWin = w

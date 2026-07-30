@@ -148,7 +148,9 @@ describe('faithfulness pass: text & fonts (vs +W.s / +Lib.s)', () => {
   it('Border$ wraps text in the Encadre escapes and the box is drawn (FnBorderD/Encadre)', () => {
     expect(() => run('X$=Border$("hi",0)')).toThrow(/illegal function call/i)
     expect(() => run('X$=Border$("hi",16)')).toThrow(/illegal function call/i)
-    const { rt } = run('Cls 0 : Pen 5 : Locate 2,2 : Print Border$("HELLO",2);')
+    // Curs Off first: the cursor is drawn INTO the bitmap now (AffCur), so it
+    // would sit in the last cell this checks and clear its bottom two rows
+    const { rt } = run('Curs Off : Cls 0 : Pen 5 : Locate 2,2 : Print Border$("HELLO",2);')
     // style 2 is TEncadre row 2: codes 128,129,130,132,135,134,133,131 —
     // AMOS's own glyphs, poked over the ROM font from bin/+WFont.bin
     // (+W.s:9640), so the drawn cells are those bitmaps byte for byte
