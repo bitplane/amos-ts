@@ -3874,10 +3874,21 @@ export class Runtime {
       front = f
       // the single-rainbow machine (CopBow), interleaved with the bands
       if (curRb && L >= curRb.fy) {
-        if (!bandStart && !bandEnd && front) {
-          wait(L)
-          put(0x180 + curRb.colour * 2)
-          put(front.palette[curRb.colour]! & 0xfff)
+        if (!bandStart && !bandEnd) {
+          if (front) {
+            wait(L)
+            put(0x180 + curRb.colour * 2)
+            put(front.palette[curRb.colour]! & 0xfff)
+          } else if (curRb.colour === 0) {
+            // RainNX: with no screen above, colour 0 goes back to the fond
+            // rather than to a screen palette there is none of. Only the list
+            // ever needed telling — the modelled renderer read colourBack
+            // directly, so a rainbow ending over the border left the register
+            // holding its last colour once the list became the display.
+            wait(L)
+            put(0x180)
+            put(this.colourBack & 0xfff)
+          }
         }
         curRb = null
       }
