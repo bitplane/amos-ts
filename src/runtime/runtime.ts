@@ -3737,6 +3737,17 @@ export class Runtime {
       put(r)
       put(0)
     }
+    // The fond, right after the HsCop header.
+    //
+    // AMOS parks it at the BOTTOM of the list (MCopX) and relies on a copper
+    // MOVE sticking across the frame boundary — the register is still the
+    // fond when the beam comes round again. That works on the hardware and it
+    // works here between frames, but it leaves the border undefined on the
+    // very first walk, and the modelled renderer papered over that by seeding
+    // hwPal[0] from colourBack before it started. Now that the list IS the
+    // display, it has to say so itself.
+    put(0x180)
+    put(this.colourBack & 0xfff)
     const rbs = [...this.rainbows.entries()]
       .sort((a, b) => a[0] - b[0])
       .map(([, r]) => r)
@@ -3932,26 +3943,35 @@ export class Runtime {
      * renderer — the end state, where a display feature is implemented once
      * in terms of the registers the hardware actually has.
      *
-     * It is opt-in rather than the default because six things still differ,
-     * all of them outside the playfield fetch, and shipping a display that is
-     * six behaviours wrong to save one code path is a bad trade. What is left:
+     * It is opt-in rather than the default because THREE things still differ,
+     * all of them sprite/border layering rather than the playfield fetch,
+     * which agrees on every scene in display.diff.test.ts including dual
+     * playfield and Screen Offset.
      *
-     *  - the border. The modelled path fills gap lines from Colour Back (the
-     *    fond, EcCopBa) and the list does not carry it, so `Colour Back` and
-     *    a rainbow on colour 0 below the screen both come out wrong.
-     *  - sprite priority. With the copper on, the system list writes SPRxPT,
-     *    so the sprite side goes through drawListSprites, which does not
-     *    honour PF1P/PF2P the way drawHwSprites does — Sprite Priority 0,
-     *    a sprite showing through playfield colour 0, and PF2P placing a
-     *    sprite between the playfields of a dual pair all differ.
-     *  - the mouse pointer, which is hardware sprite 0 and rides the same
-     *    path.
+     * What is left, and why it is one problem rather than three:
      *
-     * The playfield itself agrees on every scene in display.diff.test.ts
-     * including dual playfield, which is what Phase 4 was for. These six are
-     * the sprite and border layers around it, and each is a small piece of
-     * the same shape of work: teach the list to carry what the modelled path
-     * knows implicitly.
+     * The layering ORDER is wrong. This walks the list painting background
+     * and playfield together, then the caller brackets it with a back and a
+     * front sprite pass — so the background fill lands on top of the back
+     * sprites, and a playfield pen of 0 paints over them instead of letting
+     * them through. The modelled path interleaves properly: background, then
+     * sprite pairs and playfields sorted by PF1P/PF2P, with colour 0
+     * transparent. Fixing it means the walk emitting per-line layers rather
+     * than pixels, so the sprite passes can slot in at their priority.
+     *
+     * That accounts for `a sprite behind the playfield shows through where
+     * the playfield is colour 0` and `PF2P puts a sprite between the two
+     * playfields of a dual pair`. The third, `a rainbow on colour 0
+     * recolours the border of gap lines below the screen`, is the same
+     * shape: the border is background, and background is what the ordering
+     * gets wrong.
+     *
+     * Everything else the collapse needed is done: the fond is emitted after
+     * the HsCop header (AMOS parks it at the bottom and leans on register
+     * carry-over, which leaves the first walk undefined), and AMOS's own
+     * sprites go to drawHwSprites rather than drawListSprites, because with
+     * the copper on the SPRxPT writes in the list are the system's own and
+     * only the object layer knows their Sprite Priority.
      */
     if (!this.copperOn || process.env.AMOS_LIST_DISPLAY === '1') {
       // no system list patches SPRxPT now, so the sprite side of the display
@@ -3962,8 +3982,15 @@ export class Runtime {
       const R = this.copRegs
       const pf1p = R.bplcon2 & 7
       const spr = (frontPass: boolean): void => {
-        if (R.sprSet) this.drawListSprites(data, W, H, frontPass)
-        else this.drawHwSprites(data, W, H, frontPass, pf1p)
+        // Whose sprites are these? Under Copper Off a user list has taken the
+        // pointers over and drawListSprites follows them. With the copper ON
+        // the SPRxPT writes in the list are AMOS's OWN — the system list put
+        // them there — so the sprites are the machine's sprite objects, and
+        // drawHwSprites is the renderer that knows their priority
+        // (Sprite Priority / HsPri, PF1P and PF2P), which the list layer has
+        // no way to recover from a bare pointer.
+        if (R.sprSet && !this.copperOn) this.drawListSprites(data, W, H, frontPass)
+        else this.drawHwSprites(data, W, H, frontPass, this.copperOn ? undefined : pf1p)
       }
       spr(false)
       this.compositeFromList(data, W, H)

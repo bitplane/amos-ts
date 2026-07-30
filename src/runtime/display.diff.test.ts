@@ -159,20 +159,13 @@ describe('display differential sweep: modelled path vs copper interpreter', () =
     ])
   })
 
-  // KNOWN DIVERGENCE — 7.98% of pixels. `it.fails` so the suite stays green
-  // AND so this starts failing the moment the paths agree, which forces the
-  // marker off rather than letting a fixed bug sit here looking broken.
-  //
-  // The list is not at fault: buildCopperList folds both offsets into the
-  // plane pointer correctly (runtime.ts:3765, `(L - displayY + offsetY) *
-  // rowBytes + ((offsetX >> 4) << 1)`). The two paths disagree at the right
-  // EDGE. The modelled path clips — `if (sx >= s.width) continue` — where the
-  // interpreter lets the pointer walk on into the next row, which is what the
-  // hardware does, so the interpreter is the more faithful of the two.
-  //
-  // Not chased further here on purpose: Phase 4 replaces the fetch model with
-  // a real per-plane pointer walk and settles this by construction.
-  it.fails('Screen Offset scrolling — modelled clips at the edge, hardware wraps', () => {
+  // The last divergence, and the modelled path is the wrong one: it clips at
+  // the screen edge (`sx >= s.width`) where the interpreter lets the pointer
+  // walk into the next row, as the hardware does. It therefore disappears
+  // exactly when the collapse is on and both sides are the interpreter — so
+  // the expectation follows the mode, and neither state can rot unnoticed.
+  const collapsed = process.env.AMOS_LIST_DISPLAY === '1'
+  ;(collapsed ? it : it.fails)('Screen Offset scrolling', () => {
     expectIdentical([
       'Screen Open 0,640,400,16,Lowres : Curs Off : Cls 0',
       'For I=0 To 15 : Ink I : Bar I*40,I*24 To I*40+38,I*24+22 : Next I',
