@@ -3782,8 +3782,22 @@ export class Runtime {
         put(ds & 0xffff)
         put(0x094)
         put(de & 0xffff)
+        // BPL1MOD is added to the pointer at the end of every display line,
+        // so it has to make up the difference between what the DMA fetched
+        // and one screen row: rowBytes - fetch.
+        //
+        // `fetch` is already a BYTE count and is right in both modes — a
+        // 640-pixel hires line and a 320-pixel lores line both fetch
+        // width/8 bytes per plane; hires differs in how fast it fetches
+        // them, not how many. Halving it for hires (which this did) left
+        // mod=40 on an 80-byte row, so the pointer advanced 120 bytes per
+        // line and the picture walked one and a half rows per scanline.
+        // Invisible until something replays the list, because the modelled
+        // path ignores the modulo entirely — display.diff.test.ts is what
+        // caught it.
         const fetch = (this.winWOf(f) >> 4) << 1
-        let mod = Math.max(0, f.rowBytes - (f.hires ? fetch >> 1 : fetch))
+        let mod = Math.max(0, f.rowBytes - fetch)
+        // interlace shows every other row, so a field advances two
         if (f.laced) mod += f.rowBytes
         put(0x108)
         put(mod)
