@@ -199,3 +199,59 @@ export function encode(
     }
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * The blitter's logic function
+ * ------------------------------------------------------------------ */
+
+/**
+ * BLTCON0 as `Set Bob`'s fourth argument resolves to (BbS1a-BbS1d,
+ * +W.s:1425-1439).
+ *
+ * The SIGN of the argument chooses what it means, which no manual says:
+ *
+ *   0        the default, %0000111111001010 = $0FCA — channels A-D enabled
+ *            and the classic cookie-cut minterm $CA.
+ *   negative a minterm only. Bit 15 is cleared and $0F00 OR'd in, so AMOS
+ *            forces the channel-enable bits on whatever the caller passed.
+ *   positive the WHOLE control word, used verbatim (the `bpl` at BbS1a
+ *            jumps clean past the fixing-up). Callers who know the hardware
+ *            get it unmodified.
+ *
+ * `hasMask` is the `tst.l 4(a2)` in both branches: an image with no mask
+ * plane clears USEA (bit 11), giving $07CA by default. That is how `No Mask`
+ * works — with channel A switched off its data register is never loaded and
+ * reads as all ones, so $CA collapses from "D = A ? B : C" to "D = B" and
+ * colour 0 draws.
+ */
+export function bobBltcon0(arg: number, hasMask: boolean): number {
+  if (arg === 0) return hasMask ? 0x0fca : 0x07ca
+  if (arg > 0) return arg & 0xffff
+  let v = arg & 0xffff
+  v &= ~0x8000
+  v |= 0x0f00
+  if (!hasMask) v &= 0x07ff
+  return v
+}
+
+/** the classic cookie-cut: D = A ? B : C */
+export const BLTCON0_DEFAULT = 0x0fca
+
+/**
+ * One bit through the blitter's logic function.
+ *
+ * BLTCON0's low byte is the truth table, indexed by (A<<2)|(B<<1)|C — so bit
+ * 7 of it is the output when all three inputs are 1, and bit 0 when none are.
+ * A is the mask, B the source, C the destination.
+ *
+ * A channel switched off in bits 9-11 contributes a 1 rather than a 0: its
+ * data register is never loaded from memory and holds all ones. That is not a
+ * guess — it is what makes $07CA behave as `No Mask`, which is the case AMOS
+ * generates for a maskless image.
+ */
+export function mintermBit(bltcon0: number, a: number, b: number, c: number): number {
+  const useA = (bltcon0 & 0x0800) !== 0 ? a : 1
+  const useB = (bltcon0 & 0x0400) !== 0 ? b : 1
+  const useC = (bltcon0 & 0x0200) !== 0 ? c : 1
+  return (bltcon0 >> ((useA << 2) | (useB << 1) | useC)) & 1
+}

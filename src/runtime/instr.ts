@@ -1714,14 +1714,17 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       //          clears BbDecor so no background is kept), >0 restore with
       //          solid colour back-1
       // planes-> BbAPlan, the bitplane write mask; omitted is -1, all planes
-      // mask  -> BbACon, a raw blitter minterm control word — see NOTES
+      // mask  -> BbACon, the blitter control word. Its SIGN chooses what it
+      //          means (BbS1a +W.s:1425): 0 the default cookie-cut, negative
+      //          a minterm with the channel bits forced on, positive the
+      //          whole BLTCON0 verbatim. bobBltcon0 does the resolving.
       const n = it.evalInt()
       it.expect(',')
       const back = optInt(it, 0)
       rt.bobModes.set(n, back)
       if (it.accept(',')) {
         rt.bobPlanes.set(n, optInt(it, -1))
-        if (it.accept(',')) optInt(it, 0) // mask: the minterm, not honoured
+        if (it.accept(',')) rt.bobMinterms.set(n, optInt(it, 0))
       }
     },
     'limit bob'(it) {

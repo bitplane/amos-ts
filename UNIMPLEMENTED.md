@@ -135,12 +135,6 @@ saying which is how a list like this quietly becomes furniture.
 
 - `peek`/`poke`/`start`/`screen base` — there is no real address space, only
   banks and bitplanes mapped into a fake one.
-- `set bob`'s `mask` argument — a raw blitter minterm (BLTCON0/1). The
-  reason used to be that a chunky renderer has no minterm to override; that
-  is no longer true, since bobs and screens are both bitplanes now. It is
-  closable rather than impossible: the blit is still a per-pixel composite
-  and would have to become a real plane-to-plane blitter operation first.
-  Its `planes` argument *is* honoured.
 - `direct`/`edit` — no editor and no direct window. (`lprint` now reaches a
   printer: the host's text sink, which the browser prints.)
 - `request on`/`off`/`wb` — the port never shows AmigaOS system requesters,

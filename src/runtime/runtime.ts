@@ -29,6 +29,7 @@ import { blitVbl, newTurboState, starsVbl, type TurboState } from './turbo'
 import { newTdState, type TdState } from './td'
 import { ObjectBank, imagesCollide } from './objects'
 import { BankImage } from './objects'
+import { BLTCON0_DEFAULT, bobBltcon0, mintermBit } from './planar'
 import type { Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from './fs'
 import { AmalChannel } from './amal'
@@ -325,6 +326,8 @@ export class Runtime {
    * Omitted means -1, every plane.
    */
   bobPlanes = new Map<number, number>()
+  /** Set Bob's blitter control word, per bob (BbACon) */
+  bobMinterms = new Map<number, number>()
   /** Limit Bob rectangles: global (key -1) or per bob */
   bobLimits = new Map<number, { x1: number; y1: number; x2: number; y2: number }>()
   priorityReverse = false
@@ -4594,13 +4597,35 @@ export class Runtime {
       // bob can be confined to (say) the low two planes of a 16-colour screen
       // and leave the rest of the background showing through (BbAPlan).
       const planes = this.bobPlanes.get(bob.n) ?? -1
+      /**
+       * The blitter, per pixel.
+       *
+       * A is the mask (set where the bob is not colour 0, or everywhere for a
+       * No Mask image), B the source plane bit, C the destination. The
+       * default $0FCA reduces to "D = A ? B : C", which is the cookie-cut
+       * path below and stays a straight copy — a custom control word takes
+       * the general route and evaluates the truth table a plane at a time.
+       */
+      const con0 = bobBltcon0(this.bobMinterms.get(bob.n) ?? 0, !img.opaque)
+      const plain = con0 === BLTCON0_DEFAULT || con0 === 0x07ca
       for (let y = y1; y < y2; y++) {
         const iy = y - dy
         for (let x = x1; x < x2; x++) {
           const v = img.pixels[iy * img.width + (x - dx)]!
-          if (v === 0 && !img.opaque) continue
           const old = s.point(x, y)
-          s.putPixel(x, y, planes === -1 ? v : (old & ~planes) | (v & planes))
+          let out: number
+          if (plain) {
+            if (v === 0 && !img.opaque) continue
+            out = v
+          } else {
+            const a = v !== 0 || img.opaque ? 1 : 0
+            out = 0
+            for (let p = 0; p < s.depth; p++) {
+              const bit = 1 << p
+              if (mintermBit(con0, a, (v & bit) !== 0 ? 1 : 0, (old & bit) !== 0 ? 1 : 0)) out |= bit
+            }
+          }
+          s.putPixel(x, y, planes === -1 ? out : (old & ~planes) | (out & planes))
         }
       }
     }

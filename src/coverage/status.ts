@@ -455,6 +455,7 @@ export const FAITHFUL = new Set<string>([
   'priority off',
   'priority reverse on',
   'priority reverse off',
+  'set bob',
   'limit bob',
   'double buffer',
   'screen swap',
@@ -1642,7 +1643,7 @@ export const NOTES: Record<string, string> = {
   'set slider': 'system patterns come from the machine mouse bank (fixtures/machine); without it, dither stand-ins',
   'mouse zone': 'zones are a single global table, not per-screen (EcAZones)',
   'set bob':
-    'InSetBob +Lib.s:12225 -> ResBOB +W.s:988. back (BbEff) and planes (BbAPlan, the bitplane write mask) are both honoured. mask (BbACon) is not: it is a raw blitter minterm control word, poked into BLTCON0/1 at +W.s:1425-1448, and the chunky renderer has no minterm to override',
+    "InSetBob +Lib.s:12225 -> ResBOB +W.s:988. All four arguments are honoured now, including mask (BbACon), the blitter control word. Its SIGN chooses what it means, which the manual does not say and only BbS1a-BbS1d (+W.s:1425-1439) does: 0 is the default %0000111111001010 = $0FCA, negative is a minterm with bit 15 cleared and the channel-enable bits forced on, positive is the whole BLTCON0 used verbatim. An image with no mask clears USEA, giving $07CA, and that is how No Mask works — channel A is never loaded so it reads as all ones and $CA collapses from 'D = A ? B : C' to 'D = B'. DEVIATION: the blit evaluates the truth table per pixel per plane rather than per word, so the RESULT is the blitter's and the timing is not; and BLTCON1's shift, fill and descending-mode bits are ignored, since Set Bob only ever supplies BLTCON0",
   'amos to front': 'single-display host: the AMOS display is always at the front',
   'amos to back': 'single-display host: nothing to lower',
   'amos lock': 'the T_NoFlip flag is stored; no host flipping exists to suppress',

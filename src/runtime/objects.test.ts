@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { BLTCON0_DEFAULT, bobBltcon0, mintermBit } from './planar'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -518,5 +519,120 @@ describe('hardware collisions (HColSet/HColGet +W.s:10018/115)', () => {
   it('Hardcol(8) and above is a function call error (cmp.l #8 +Lib.s:12356)', () => {
     expect(() => run([...setup, 'Print Hardcol(8)'].join('\n'))).toThrow(/function call/)
     expect(() => run([...setup, 'Print Hardcol(-1)'].join('\n'))).not.toThrow()
+  })
+})
+
+describe("Set Bob's minterm (BbS1a-BbS1d +W.s:1425-1439)", () => {
+  it('resolves the control word by the SIGN of the argument', () => {
+    // 0 = the default cookie-cut with every channel on
+    expect(bobBltcon0(0, true)).toBe(0x0fca)
+    // an image with no mask clears USEA (bit 11), which is how No Mask works
+    expect(bobBltcon0(0, false)).toBe(0x07ca)
+    // negative = a minterm, with the channel bits forced on for you
+    expect(bobBltcon0(-0x7f36, true) & 0xff).toBe(0xca) // low byte survives
+    expect(bobBltcon0(-1, true) & 0x0f00).toBe(0x0f00)
+    expect(bobBltcon0(-1, true) & 0x8000).toBe(0) // bit 15 cleared
+    expect(bobBltcon0(-1, false) & 0x0800).toBe(0) // USEA off without a mask
+    // positive = the whole word verbatim, fixing-up skipped entirely
+    expect(bobBltcon0(0x0123, true)).toBe(0x0123)
+    expect(bobBltcon0(0x0030, true)).toBe(0x0030) // channels left OFF as asked
+  })
+
+  it('the default minterm is cookie-cut: D = A ? B : C', () => {
+    for (const b of [0, 1]) {
+      for (const c of [0, 1]) {
+        expect(mintermBit(0x0fca, 1, b, c), `A=1 B=${b} C=${c}`).toBe(b)
+        expect(mintermBit(0x0fca, 0, b, c), `A=0 B=${b} C=${c}`).toBe(c)
+      }
+    }
+  })
+
+  it('a channel switched off reads as all ones', () => {
+    // $07CA is what AMOS builds for a maskless image, and it has to behave as
+    // "colour 0 draws" — which it only does if the unloaded A register is 1
+    for (const b of [0, 1]) {
+      for (const c of [0, 1]) {
+        expect(mintermBit(0x07ca, 0, b, c), `B=${b} C=${c}`).toBe(b)
+      }
+    }
+  })
+
+  it('$00 clears and $FF sets, whatever the inputs', () => {
+    for (const a of [0, 1]) {
+      for (const b of [0, 1]) {
+        for (const c of [0, 1]) {
+          expect(mintermBit(0x0f00, a, b, c)).toBe(0)
+          expect(mintermBit(0x0fff, a, b, c)).toBe(1)
+        }
+      }
+    }
+  })
+
+  it('source XOR destination is $66, not the $3C people reach for', () => {
+    // worth pinning because the index order catches everyone out. The table
+    // is indexed (A<<2)|(B<<1)|C, so B xor C means bits 1,2,5,6 -> $66.
+    for (const a of [0, 1]) {
+      expect(mintermBit(0x0f66, a, 0, 0), 'B=0 C=0').toBe(0)
+      expect(mintermBit(0x0f66, a, 1, 0), 'B=1 C=0').toBe(1)
+      expect(mintermBit(0x0f66, a, 0, 1), 'B=0 C=1').toBe(1)
+      expect(mintermBit(0x0f66, a, 1, 1), 'B=1 C=1').toBe(0)
+    }
+    // $3C is A xor B — the destination does not appear in it at all
+    for (const c of [0, 1]) {
+      expect(mintermBit(0x0f3c, 0, 0, c)).toBe(0)
+      expect(mintermBit(0x0f3c, 0, 1, c)).toBe(1)
+      expect(mintermBit(0x0f3c, 1, 0, c)).toBe(1)
+      expect(mintermBit(0x0f3c, 1, 1, c)).toBe(0)
+    }
+  })
+})
+
+describe('the minterm reaches the screen', () => {
+  /** a 16x16 bob of solid pen 3, over a background of pen 5 */
+  const scene = (setBob: string): Runtime =>
+    run(
+      [
+        'Screen Open 0,320,200,16,Lowres : Curs Off : Flash Off : Cls 0',
+        'Ink 3 : Bar 0,0 To 15,15',
+        'Get Bob 1,0,0 To 16,16',
+        'Ink 5 : Bar 0,0 To 319,199',
+        setBob,
+        'Bob 1,100,100,1',
+        'Wait Vbl',
+      ].join('\n'),
+    )
+
+  it('the default replaces the destination where the bob is solid', () => {
+    const rt = scene('')
+    expect(rt.screen.point(104, 104)).toBe(3)
+  })
+
+  it('$00 writes zeroes — the bob punches a hole', () => {
+    // negative, so it is a minterm and AMOS forces the channels on
+    const rt = scene('Set Bob 1,0,-1,-32768') // $8000 -> minterm $00
+    expect(rt.screen.point(104, 104)).toBe(0)
+  })
+
+  it('$FF sets every plane — the bob writes solid white', () => {
+    const rt = scene('Set Bob 1,0,-1,' + String(-(0x8000 - 0xff)))
+    expect(rt.screen.point(104, 104)).toBe(15)
+  })
+
+  it('source XOR destination combines the bob with what is under it', () => {
+    // pen 3 over pen 5 -> 3 xor 5 = 6
+    const rt = scene('Set Bob 1,0,-1,' + String(-(0x8000 - 0x66)))
+    expect(rt.screen.point(104, 104)).toBe(3 ^ 5)
+  })
+
+  it('the plane write mask still applies on top of the minterm', () => {
+    // $FF would set all four planes; the mask lets only plane 0 through
+    const rt = scene('Set Bob 1,0,1,' + String(-(0x8000 - 0xff)))
+    expect(rt.screen.point(104, 104)).toBe((5 & ~1) | 1)
+  })
+
+  it('a positive argument is the whole control word, channels and all', () => {
+    // $0FCA is the default spelled out; it must behave as the default does
+    const rt = scene('Set Bob 1,0,-1,' + String(0x0fca))
+    expect(rt.screen.point(104, 104)).toBe(3)
   })
 })
