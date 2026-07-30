@@ -85,7 +85,22 @@ export type Tok =
    */
   | { kind: 'ext'; ext: number; id: number; nparams: number }
   | { kind: 'rem'; id: number; text: string }
-  | { kind: 'proc'; id: number; size: number; flags: number; endTarget: number }
+  | {
+      kind: 'proc'
+      id: number
+      size: number
+      /**
+       * The 16-bit word at offset 10 of the Procedure line, which the editor
+       * treats as a bitfield on its HIGH byte: bit 7 folded (Ed_ProcOpen
+       * `bchg #7,10(a2)`, +Edit.s:8862), bit 6 "cannot be opened" (`btst
+       * #6,10(a2)`, :8846). Bits 14 and 12 together are AMOS Pro's own
+       * machine-language procedure (`or.w #%0101000000000000,10(a3)`, :8759).
+       */
+      flags: number
+      /** the body is not token lines — see PROTECTED_PROC */
+      protectedBody?: Uint8Array
+      endTarget: number
+    }
   | {
       kind: 'apml'
       /** relative pointer back to the procedure's parameter list, 0 if none */
@@ -183,6 +198,15 @@ export class TokenStreamError extends Error {
 }
 
 /** Parse one tokenized source block (the part of a .AMOS file after the 20-byte header). */
+/**
+ * Bit 14 of the Procedure flags word — the editor's `btst #6,10(a2)` on the
+ * high byte, "this procedure cannot be opened" (+Edit.s:8846). Set for both
+ * machine-language and locked procedures, and for nothing else.
+ */
+export const PROTECTED_PROC = 0x4000
+/** and bit 12 alongside it means machine language rather than a cipher */
+export const MACHINE_CODE_PROC = 0x1000
+
 export function parseSource(src: Uint8Array, table: TokenTable): TokenLine[] {
   const lines: TokenLine[] = []
   let pos = 0
@@ -214,7 +238,64 @@ export function parseSource(src: Uint8Array, table: TokenTable): TokenLine[] {
     lines.push({ offset: pos, indent, tokens })
     pos = lineEnd
     for (const tok of tokens) {
-      if (tok.kind === 'proc') lastProcEnd = tok.endTarget
+      if (tok.kind === 'proc') {
+        lastProcEnd = tok.endTarget
+        // A PROTECTED procedure's body is not token lines. Two kinds exist
+        // and the flags word tells them apart at the same bit: AMOS Pro's own
+        // machine-language procedure (bits 14 and 12, Ed_ProcML +Edit.s:8759,
+        // which stores a hunk-loaded 68k image), and the AMOS 1.x locked
+        // procedure (bit 14 without 12), whose token content is enciphered so
+        // that it cannot be listed.
+        //
+        // The line LENGTHS survive in both — walking a locked body by its
+        // length bytes lands exactly on End Proc across every one in the
+        // corpus, over as many as 192 lines — because the editor still has to
+        // count and skip the lines it will not show. Only the content is
+        // gone: 7.9 bits of entropy per byte, all 256 values used, where
+        // token content is mostly zeros and a small set of ids.
+        //
+        // So the body is taken whole and the parse resumes at End Proc. The
+        // alternative is what this used to do: read the cipher as tokens,
+        // fail on the first word that is not a token, and lose the entire
+        // program over a procedure its author chose not to publish.
+        // An AMOS Pro machine-language procedure written by Ed_ProcML also
+        // starts its body with an `@_apml_@` line, and that path already
+        // works: the token carries the 68k image and the runtime reports the
+        // one feature it cannot honour. Only bodies with no such line — every
+        // one of the 1,619 in the corpus archive — need skipping.
+        const bodyStartsApml =
+          pos + 4 <= src.length && table.isApml((src[pos + 2]! << 8) | src[pos + 3]!)
+        if (tok.flags & PROTECTED_PROC && !bodyStartsApml) {
+          if (tok.endTarget <= pos || tok.endTarget > src.length) {
+            throw new TokenStreamError(
+              `protected procedure at ${pos} with bad End Proc target ${tok.endTarget}`,
+              pos,
+              src.subarray(pos, Math.min(pos + 64, src.length)),
+            )
+          }
+          tok.protectedBody = src.subarray(pos, tok.endTarget)
+          pos = tok.endTarget
+          // A LOCKED procedure's cipher runs one word past its own body: the
+          // End Proc line at endTarget keeps its length, indent and End Proc
+          // token in clear and has its EOL word enciphered along with the
+          // rest — 1,540 of the 1,554 in the corpus, against 65 machine-code
+          // ones whose End Proc line is untouched. So take the token and let
+          // the remainder of that line go with the body.
+          if (!(tok.flags & MACHINE_CODE_PROC)) {
+            const endLen = src[pos]
+            if (endLen === undefined || endLen < 2 || pos + endLen * 2 > src.length) {
+              throw new TokenStreamError(
+                `locked procedure at ${tok.endTarget} without an End Proc line`,
+                pos,
+                src.subarray(pos, Math.min(pos + 64, src.length)),
+              )
+            }
+            const endToks = parseLine(new BinReader(src.subarray(pos + 2, pos + 4)), table, pos + 2)
+            lines.push({ offset: pos, indent: src[pos + 1]!, tokens: endToks })
+            pos += endLen * 2
+          }
+        }
+      }
       if (tok.kind === 'apml') {
         // Raw 68k machine code follows this line, up to the enclosing
         // procedure's End Proc line (located via the Procedure size link).
@@ -302,9 +383,8 @@ function parseTok(id: number, r: BinReader, table: TokenTable, idOffset: number)
   }
   if (table.isProcedure(id)) {
     const size = r.u32()
-    r.skip(2) // saved seed used by the folding encryption
-    r.skip(1)
-    const flags = r.u8()
+    r.skip(2) // a per-procedure word the editor keeps; not the line count
+    const flags = r.u16()
     // size is the byte distance from just after the size field (id + 2 + 4)
     // to the start of the End Proc line
     return { kind: 'proc', id, size, flags, endTarget: idOffset + 6 + size }

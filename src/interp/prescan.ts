@@ -1,4 +1,5 @@
 import type { Tok, TokenLine } from '../tokens/stream'
+import { MACHINE_CODE_PROC } from '../tokens/stream'
 import { varType } from './values'
 import type { VarType } from './values'
 import type { Names } from './names'
@@ -40,6 +41,13 @@ export interface ProcInfo {
   body: Addr
   /** statement after End Proc — where a Procedure token jumps in normal flow */
   skip: Addr
+  /**
+   * Set when the Procedure's flags word says the body cannot be listed, so
+   * the token stream has none of it: AMOS Pro's machine-language procedure,
+   * or an AMOS 1.x locked one whose tokens are enciphered. The program still
+   * loads and everything outside runs; a CALL is what cannot be honoured.
+   */
+  protectedBody?: 'machine code' | 'locked'
 }
 
 export interface Program {
@@ -168,6 +176,12 @@ export function prescan(lines: TokenLine[], names: Names): Program {
           params,
           body: afterStatement(li, ti),
           skip: newAddr(),
+        }
+        // keyed on the body actually being absent, not on the flag: an
+        // AMOS Pro machine-language procedure carries its own `@_apml_@`
+        // line and keeps its body, and the runtime handles that one itself
+        if (tok.protectedBody) {
+          info.protectedBody = tok.flags & MACHINE_CODE_PROC ? 'machine code' : 'locked'
         }
         program.procs.set(info.name, info)
         program.ctrl.set(tok, { kind: 'proc', skip: info.skip })

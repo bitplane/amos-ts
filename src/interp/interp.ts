@@ -921,6 +921,12 @@ export class Interp {
   callProc(name: string, args: Value[]): void {
     const proc = this.program.procs.get(name)
     if (!proc) throw new AmosError(`procedure not defined: ${name.toUpperCase()}`)
+    // Its body was never in the token stream to begin with — see ProcInfo.
+    // Refusing the call is the honest answer: falling through to End Proc
+    // would return normally from a procedure that did none of its work.
+    if (proc.protectedBody) {
+      throw new AmosError(`${name.toUpperCase()} is a protected procedure (${proc.protectedBody})`)
+    }
     if (args.length !== proc.params.length) {
       throw new AmosError(`wrong number of parameters for ${name.toUpperCase()}`)
     }
