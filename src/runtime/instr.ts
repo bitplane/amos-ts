@@ -10,6 +10,7 @@ import { makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
 import { makeCtextFunctions, makeCtextInstructions } from './ctext'
 import { makeSticksFunctions, makeSticksInstructions } from './sticks'
 import { JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
+import { makeJdColourFunctions, makeJdColourInstructions } from './jdcolour'
 import { TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td'
 import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
@@ -4945,6 +4946,12 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeJdInstructions,
     functions: makeJdFunctions,
     errors: JD_ERRORS,
+  },
+  {
+    // the Colour companion, its own library at its own slot (ExtNb equ 20-1)
+    ids: ['jd-colour-1.4', 'jd-colour-2.0'],
+    instructions: makeJdColourInstructions,
+    functions: makeJdColourFunctions,
   },
 ]
 

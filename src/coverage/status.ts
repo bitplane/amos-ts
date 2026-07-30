@@ -1342,6 +1342,42 @@ export const NA = new Set<string>([
   // Squash rewrites a file in place through trackdisk to defragment it
   // (+|jd.s:5013) — the same missing block device.
   'jd squash',
+  // JD Colour: the keywords that need a window, a requester or a device of
+  // their own rather than a palette. Open/Close/Print/Input Con drive a CON:
+  // console window through DOS; Jd Request is a file requester; File$, Path$
+  // and Drive$ split an AmigaDOS path the way its own requester returns one;
+  // Jd Guru paints a fake guru meditation alert; Setoutput Amiga/Amos switch
+  // the output format between the two conventions; Jd Mouse counts Show/Hide
+  // nesting; Jd Rprint right-justifies through the printer path; Screen
+  // Border, Wait Raster, Screen Convert and the six Slide keywords animate or
+  // rewrite a whole screen through the RastPort; Load/Save Palette read and
+  // write a palette file whose format the source does not settle.
+  'jd open con',
+  'jd close con',
+  'jd print con',
+  'jd input con',
+  'jd request',
+  'jd file$',
+  'jd path$',
+  'jd drive$',
+  'jd guru',
+  'jd setoutput amiga',
+  'jd setoutput amos',
+  'jd mouse',
+  'jd rprint',
+  'jd screen border',
+  'jd wait raster',
+  'jd screen convert',
+  'jd slide x',
+  'jd slide y',
+  'jd slide left',
+  'jd slide right',
+  'jd slide up',
+  'jd slide down',
+  'jd load palette',
+  'jd save palette',
+  'jd change colours',
+  'jd fill colour',
   // graphics.library's RastPort pointer (T_RastPort, +|jd.s:2340). The value
   // is only useful to something that then calls graphics.library, which this
   // port does not have; handing out a number that addresses nothing would be
