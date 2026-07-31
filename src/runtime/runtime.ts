@@ -33,6 +33,7 @@ import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from './instr
 import { defaultHost, type Host } from './host'
 import { newLdosState, type LdosState } from './ldos'
 import { newTftState, tftVbl, type TftState } from './tft'
+import { newJvpState, type JvpState } from './jvp'
 import { blitVbl, newTurboState, starsVbl, type TurboState } from './turbo'
 import { newTdState, type TdState } from './td'
 import { ObjectBank } from './objects'
@@ -443,6 +444,8 @@ export class Runtime {
   /** LDos keeps its own channels, separate from Open In/Open Out */
   ldos: LdosState = newLdosState()
   tft: TftState = newTftState()
+  /** JVP-NoKids: sort type, the six string fields, and the message bank */
+  jvp: JvpState = newJvpState()
 
   /** TURBO Plus: its own Check zones, and the task priority Multi No sets */
   turbo: TurboState = newTurboState()

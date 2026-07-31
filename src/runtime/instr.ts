@@ -5,6 +5,7 @@ import { implLabel, implSlots, qualifyForSlots, type ExtensionImpl } from './ext
 import { makeLdosFunctions, makeLdosInstructions } from './ldos'
 import { makeJdK3Functions, makeJdK3Instructions } from './jdk3'
 import { makeTftFunctions, makeTftInstructions } from './tft'
+import { JVP_ERRORS, makeJvpFunctions, makeJvpInstructions } from './jvp'
 import { TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions, turboDefault } from './turbo'
 import { PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
 import { makeSpeechFunctions, makeSpeechInstructions } from './speech'
@@ -4899,6 +4900,12 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     ids: ['tft-0.6'],
     instructions: makeTftInstructions,
     functions: makeTftFunctions,
+  },
+  {
+    ids: ['jvp-1.01'],
+    instructions: makeJvpInstructions,
+    functions: makeJvpFunctions,
+    errors: JVP_ERRORS,
   },
   {
     ids: ['ldos-2.5', 'ldos-2.6'],

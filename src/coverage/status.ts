@@ -596,6 +596,22 @@ export const FAITHFUL = new Set<string>([
   'init cpu clear',
   'tft error$',
 
+  // --- JVP-NoKids 1.01 (third-party extension, by Jens Vang Petersen) ---
+  // Source tier: the author shipped 26KB of commented assembler beside the
+  // binary, and a 21KB doc that covers every keyword and the message-bank
+  // format. See src/runtime/jvp.ts.
+  'jvp bin sort',
+  'jvp bin sort type',
+  'jvp set str len',
+  'jvp set str sep',
+  'jvp str$',
+  'jvp cstr$',
+  'jvp set msg bank',
+  'jvp msg bank',
+  'jvp msg exists',
+  'jvp msg$',
+  'jvp version',
+
   // --- TURBO Plus (third-party extension, by Manuel Andre) ---
   // Verified against TURBO_DocsV2.15.Asc, the extension's own manual, and
   // where it is thin against the disassembled routine; see src/runtime/turbo.ts.
@@ -1968,6 +1984,12 @@ export const NOTES: Record<string, string> = {
     "Returns zero. This is a defect in the library rather than a limit of the port: the return register d4 is never initialised, and every failed validation branches straight to the exit that returns it, so most inputs hand back whatever the caller happened to leave in d4. Only one path -- third argument zero, second in 1..14 -- loads it at all, from a table at workspace+\$13a that no keyword ever fills, and the path for a positive third argument falls through its own bounds check without loading anything. Zero is what a cleared table gives, and there is no stale register here to hand back instead",
   'tft error$':
     "Returns the empty string, and the reason is the keyword's own premise. It splits its argument into a slot (the high byte, which must be 25) and an error number, then indexes a table of NUL-terminated strings at workspace+\$60 that AMOS supplies per extension. TFT ships no message file and the binary contains no message text at all -- the only strings in it are its own token table. The keyword exists precisely because of that gap: its demo explains that AMOS's own Error\$ 'giebt leider keine Text meldungen aus, wenn der fehler von einer Extension verursacht wird'. With no table loaded the routine falls to its empty fallback, which is what this answers. The same absence is why the wording of every TFT error raised by this port is the port's own descriptive text rather than the library's",
+  'jvp bin sort':
+    "Faithful, including two defects of the library's that a program can see. The first LOSES A RESULT: the read-out ends by climbing to the parent and, on finding itself back at the root, testing only foer[0] and efter[0] -- never skrevet[0] (source:312, binary \$3e2). The root is therefore emitted only by the branch that descends into a right child, so when element 0 is the list's MAXIMUM it has none and its index is never written to DEST. The gap is always the last entry, because a maximum sorts last, and it hides on a real machine because DEST is normally a fresh bank or an integer array -- both zero -- and the value missing is index 0, so the last row of a sorted listing quietly shows the first record. The second is the insert loop running once before its bound is tested (SO_LE1 adds 4 to d6 and only then compares), so ANT of 0 or 1 sorts a phantom element read four bytes past the address list and writes two longwords into a DEST the doc sizes at 4*ANT. Both are reproduced. What is NOT reproduced is what happens after either overruns its buffer: the doc's own warning is 'The memory area is NOT checked in any way, so make sure you got it right, or CRASH', and here reads outside a resolved region answer 0 and writes outside it are dropped. The two index-chasing loops also carry an iteration cap the library has no equivalent of, because a corrupted workspace that would crash a real Amiga would otherwise hang this",
+  'jvp str$':
+    "Faithful to the intent, and the shipped binary does not quite express the intent. The length pass reaches the StrLen table through `adda.l \$0.l,a0` at \$558 -- absolute address zero, not the extension workspace. The source line it came from is `add.l StrLen-MB,a0` (source:451), where StrLen-MB is 0, and the assembler took that as an absolute read of location \$0 rather than the intended add of a1. It works on the machine it shipped for only because location 0 on a booted Amiga holds 0: ExecBase lives at 4 and the reset vectors below it are dead once the ROM overlay is off, so a0 lands on the workspace after all. The second pass reads the same table through a1 correctly. This port does what the routine means; a program cannot tell the difference on real hardware, and there is no location 0 here to read",
+  'jvp msg bank':
+    "The bank number, recovered differently. The library reads `move.l -\$10(a0),d3` -- the longword sixteen bytes before the bank's data, which in AMOS's bank list is the number field (+Lib.s:7920 matches on `cmp.l 8(a1),d0` against a data address of node+24). Banks here have no list node in front of them, so the number comes from finding which reserved bank the stored address falls inside. Identical for a bank number, which is what the keyword is for; for a program that gave Set Msg Bank a raw address instead, this answers 0 where the library would hand back whatever sat in the sixteen bytes below it",
   'init bpl scroll':
     "The table is copied, the guard is honoured -- nine longs, error 6 if any is zero -- and the flag Start Int waits on is set, so the error behaviour a program can observe is exact. What does not happen is any scrolling: the interrupt this arms is 68k inside the library that rewrites copper bitplane pointers every frame, and there is no interrupt here to run it in. Marked '(Privat)' by the author, and reached in the demos only through Start Int's error path",
   'start int':
