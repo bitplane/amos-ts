@@ -15,7 +15,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { hostPath, walkFiles } from './walk'
 import { basename, dirname, join } from 'node:path'
-import { adfInfo, isAdf, readAdf } from '../loader/adf'
+import { adfInfo, isAdf, readAdf } from '../amiga/adf'
 
 const args = process.argv.slice(2)
 const outAt = args.indexOf('--out')

@@ -1,5 +1,5 @@
 import { MemoryVolume } from '../amiga/vfs'
-import { isAdf, readAdf } from '../loader/adf'
+import { isAdf, readAdf } from '../amiga/adf'
 
 /**
  * Dependency-free ZIP, TAR and ADF readers, for filling the virtual

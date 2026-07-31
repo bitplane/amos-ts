@@ -8,7 +8,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { fixedClock } from '../amiga/host'
 import { ldosKey } from './ldos'
-import { pp20Crunch } from '../loader/powerpacker'
+import { pp20Crunch } from '../amiga/powerpacker'
 import { existsSync, readFileSync } from 'node:fs'
 
 /**

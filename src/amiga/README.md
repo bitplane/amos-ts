@@ -65,11 +65,36 @@ really does differ from the real one and saying where is the whole job.
 |---|---|
 | `datestamp.ts` | the AmigaDOS `DateStamp` and its calendar arithmetic |
 | `vfs.ts` | `AmigaFS` — volumes, assigns, paths, file metadata |
+| `fs.ts` | `AmosFS`, the read interface a volume provider satisfies |
+| `adf.ts` | an OFS/FFS floppy image, one layer under `vfs.ts` |
 | `localelib.ts` | `locale.library` — catalogs, `FormatDate`, collation, case |
 | `localelib.gen.ts` | its data, generated from AROS by `src/cli/genlocale.ts` |
 | `dospattern.ts` | `dos.library`'s `ParsePattern`/`MatchPattern` grammar |
+| `hunk.ts` | the AmigaDOS object file format: `LoadSeg` and one-hunk reads |
+| `diskfont.ts` | `diskfont.library` and the graphics.library `TextFont` |
+| `powerpacker.ts` | `powerpacker.library`'s PP20 codec |
 | `host.ts` | the boundary *beneath* this layer: what the outside world supplies |
 
 `host.ts` is the odd one: it is not OS, it is what the OS sits on. It lives
 here because everything in this directory is defined against it, and because
 leaving it among the extension ports was worse.
+
+## The boundary is enforced
+
+`layer.test.ts` fails the build if anything here imports from `../runtime` or
+`../interp`. Both had already happened by the time it was written — `vfs.ts`
+and `host.ts` reached back for the two interfaces they are defined against,
+and `powerpacker.ts` threw an `AmosError` carrying AMOS error number 23 from
+inside a codec AMOS merely calls.
+
+Type-only imports with no runtime cost, every one, which is exactly why they
+survived: nothing failed and nothing got slower. A boundary nobody can cross
+by accident is worth more than one everybody remembers not to.
+
+Tests here may reach across — `vfs.test.ts` builds a Runtime to check a
+mounted archive is readable from AMOS, which is the right way to test a
+filesystem. The rule is about what ships.
+
+One outward dependency is allowed and listed in that test: `../loader/binreader`,
+a leaf byte-reader with no imports of its own, already shared by `src/tokens`
+and `src/runtime`. It is plumbing, not AMOS.

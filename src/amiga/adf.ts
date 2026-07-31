@@ -30,7 +30,18 @@
  * header on each, leaving 488 usable bytes and recording the real length;
  * FFS uses all 512 bytes as data, so the length comes from the file size.
  */
-import type { ArchiveEntry } from '../runtime/archive'
+/**
+ * One file read out of the image.
+ *
+ * Structurally identical to `ArchiveEntry` in ../runtime/archive.ts, and
+ * declared here rather than imported from it because that import was a cycle
+ * — archive.ts imports this module back — and pointed the wrong way besides:
+ * a filesystem does not depend on the caller that happens to mount it.
+ */
+export interface AdfFile {
+  path: string
+  data: Uint8Array
+}
 
 const BSIZE = 512
 /** longs 6..77 of a header block: the hash table / data block table */
@@ -167,7 +178,7 @@ function readFile(a: Adf, header: number): Uint8Array {
  * rest of the disk. Soft links and hard links are skipped too — they carry no
  * data of their own.
  */
-export function readAdf(bytes: Uint8Array): ArchiveEntry[] {
+export function readAdf(bytes: Uint8Array): AdfFile[] {
   if (!isAdf(bytes)) throw new Error('not an Amiga disk image')
   const a = new Adf(bytes)
   const root = Math.floor(a.blocks / 2)
@@ -175,7 +186,7 @@ export function readAdf(bytes: Uint8Array): ArchiveEntry[] {
     throw new Error('no Amiga root block — image may be non-DOS or damaged')
   }
 
-  const out: ArchiveEntry[] = []
+  const out: AdfFile[] = []
   const visited = new Set<number>()
 
   const walk = (dir: number, prefix: string): void => {

@@ -60,7 +60,7 @@ import type { Runtime } from './runtime'
  * the keyword.
  */
 import { amigaMatch, parsePatternResult } from '../amiga/dospattern'
-import { pp20Decrunch } from '../loader/powerpacker'
+import { pp20Decrunch } from '../amiga/powerpacker'
 import { DAY_MS, STAMP_EPOCH, stampToYmd as amigaStampToYmd } from '../amiga/datestamp'
 
 /**

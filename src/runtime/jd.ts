@@ -56,7 +56,7 @@ import { AmosError, VF, VI, VS, int, num, str, type Value } from '../interp/valu
 import type { Func, Instr } from '../interp/builtins'
 import { decodeFFP } from '../tokens/stream'
 import { JD_CRYPT } from './jd-crypt.gen'
-import { pp20Decrunch } from '../loader/powerpacker'
+import { pp20Decrunch } from '../amiga/powerpacker'
 import type { Runtime } from './runtime'
 import { stampToDate } from '../amiga/datestamp'
 

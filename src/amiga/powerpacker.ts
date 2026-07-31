@@ -1,6 +1,11 @@
 /**
- * PowerPacker (PP20) crunch/decrunch, plus the AMOS "PPbk" bank wrapper used
- * by Ppload/Ppsave (+CompExt.s:455-767).
+ * PowerPacker (PP20) crunch/decrunch — the codec only.
+ *
+ * The AMOS "PPbk" bank header that `Ppload`/`Ppsave` wrap around a crunched
+ * payload used to live here too, and does not belong: PP20 is a format a ROM
+ * library defines, PPbk is sixteen bytes AMOS invented to carry a bank number,
+ * defined in AMOS's own source (+CompExt.s:686-767). It is in
+ * ../runtime/ppbank.ts.
  *
  * IMPORTANT: the actual crunch/decrunch is powerpacker.library — a ROM library
  * that is NOT part of the AMOS source (AMOS only calls ppDecrunchBuffer /
@@ -24,11 +29,25 @@
  * one-byte count of padding bits in the first word read. The decoder reads the
  * words BACKWARD, rebuilding the output from its end; matches reference a
  * position ahead (already reconstructed).
+ *
+ * ## The errors are plain Errors, deliberately
+ *
+ * These used to be `AmosError('Not a powerpacked block', 23)` — AMOS error
+ * number 23, raised from inside a library AMOS merely calls. That is caller
+ * policy in a mechanism module, the same mistake as a shared `stampToYmd` that
+ * clamps because one of its callers documents a clamp (see ./README.md).
+ *
+ * It also was not what most callers wanted. Of the three, LDos's
+ * `Lpp Decrunch` and JD's `Jd Ppdecrunch` both catch and return quietly —
+ * their own documentation says no check is made and the caller is on their
+ * own — so only AMOS's own `Ppload` ever let it reach a program, and it
+ * raises error 23 itself one line later for the bank kinds it will not load.
+ * Translating there costs one try/catch and keeps the number where the
+ * decision about it lives.
  */
-import { AmosError } from '../interp/values'
 
 const PP20 = 0x50503230 // "PP20"
-const DEFAULT_EFFICIENCY = [9, 10, 12, 13] as const
+export const DEFAULT_EFFICIENCY = [9, 10, 12, 13] as const
 
 /** split `v` into groups of `bits` bits, all but the last equal to `cont`. */
 function countGroups(v: number, cont: number, _bits: number): number[] {
@@ -57,7 +76,7 @@ function usableLen(dist: number, len: number, eff: readonly number[]): number {
 /** Crunch a block into a PP20 file. */
 export function pp20Crunch(data: Uint8Array, eff: readonly number[] = DEFAULT_EFFICIENCY): Uint8Array {
   const n = data.length
-  if (n >= 1 << 24) throw new AmosError('Illegal function call', 23)
+  if (n >= 1 << 24) throw new Error('pp20: length exceeds the 24-bit header field')
 
   // R is the bit sequence the decoder will consume, in read order. We build it
   // by walking the input backward (the order the decoder produces output).
@@ -156,9 +175,9 @@ export function pp20Crunch(data: Uint8Array, eff: readonly number[] = DEFAULT_EF
 
 /** Decrunch a PP20 file back to the original block. */
 export function pp20Decrunch(file: Uint8Array): Uint8Array {
-  if (file.length < 12 || ((file.length - 12) & 3) !== 0) throw new AmosError('Not a powerpacked block', 23)
+  if (file.length < 12 || ((file.length - 12) & 3) !== 0) throw new Error('pp20: not a powerpacked block')
   const dv = new DataView(file.buffer, file.byteOffset, file.byteLength)
-  if (dv.getUint32(0) !== PP20) throw new AmosError('Not a powerpacked block', 23)
+  if (dv.getUint32(0) !== PP20) throw new Error('pp20: not a powerpacked block')
   const eff = [file[4]!, file[5]!, file[6]!, file[7]!]
   const end = file.length
   const n = (file[end - 4]! << 16) | (file[end - 3]! << 8) | file[end - 2]!
@@ -170,7 +189,7 @@ export function pp20Decrunch(file: Uint8Array): Uint8Array {
   const getBit = (): number => {
     if (left === 0) {
       pos -= 4
-      if (pos < 8) throw new AmosError('Not a powerpacked block', 23)
+      if (pos < 8) throw new Error('pp20: not a powerpacked block')
       word = dv.getUint32(pos) >>> 0
       left = 32
     }
@@ -197,7 +216,7 @@ export function pp20Decrunch(file: Uint8Array): Uint8Array {
         cnt += t
       } while (t === 3)
       while (cnt-- > 0) {
-        if (p <= 0) throw new AmosError('Not a powerpacked block', 23)
+        if (p <= 0) throw new Error('pp20: not a powerpacked block')
         out[--p] = getBits(8)
       }
       if (p === 0) break
@@ -218,52 +237,10 @@ export function pp20Decrunch(file: Uint8Array): Uint8Array {
       } while (t === 7)
     }
     while (len-- > 0) {
-      if (p <= 0 || p - 1 + dist >= n) throw new AmosError('Not a powerpacked block', 23)
+      if (p <= 0 || p - 1 + dist >= n) throw new Error('pp20: not a powerpacked block')
       out[p - 1] = out[p - 1 + dist]!
       p--
     }
   }
-  return out
-}
-
-// ---- AMOS "PPbk" bank container (+CompExt.s:686-767 / 492-553) -------------
-
-export interface PpBank {
-  /** the bank number recorded in the header */
-  number: number
-  /** the AMOS bank flag word (Bnk_Bit* bits) */
-  flags: number
-  /** the decrunched bank payload */
-  data: Uint8Array
-}
-
-/** Parse a PPbk file: header + a PP20-crunched payload. */
-export function parsePpBank(file: Uint8Array): PpBank {
-  if (file.length < 16) throw new AmosError('Not a powerpacked bank', 23)
-  const dv = new DataView(file.buffer, file.byteOffset, file.byteLength)
-  if (String.fromCharCode(file[0]!, file[1]!, file[2]!, file[3]!) !== 'PPbk') {
-    throw new AmosError('Not a powerpacked bank', 23)
-  }
-  const number = dv.getUint16(4)
-  const flags = dv.getUint16(6)
-  // header: PPbk(4) number(2) flags(2) bankLen(4) ppLen(4) then the PP20 file
-  const data = pp20Decrunch(file.subarray(16))
-  return { number, flags, data }
-}
-
-/** Build a PPbk file wrapping a PP20-crunched payload. */
-export function writePpBank(bank: PpBank, eff: readonly number[] = DEFAULT_EFFICIENCY): Uint8Array {
-  const pp = pp20Crunch(bank.data, eff)
-  const out = new Uint8Array(16 + pp.length)
-  const dv = new DataView(out.buffer)
-  out[0] = 0x50 // 'P'
-  out[1] = 0x50 // 'P'
-  out[2] = 0x62 // 'b'
-  out[3] = 0x6b // 'k'
-  dv.setUint16(4, bank.number & 0xffff)
-  dv.setUint16(6, bank.flags & 0xffff)
-  dv.setUint32(8, bank.data.length) // decrunched bank length
-  dv.setUint32(12, pp.length) // crunched PP20 length
-  out.set(pp, 16)
   return out
 }

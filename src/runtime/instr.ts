@@ -43,7 +43,7 @@ import { MF_BAR, MF_BOUGE, MF_FIXED, MF_OFF, MF_SEP, MF_TBOUGE, MF_TOTAL, bankTo
 import { ENV_BELL, ENV_BOOM, ENV_SHOOT } from './music'
 import { squash as squashBytes, unsquash as unsquashBytes } from './squash'
 import { formLoad, formPlay, formSize } from './iffanim'
-import { parsePpBank, writePpBank } from '../loader/powerpacker'
+import { parsePpBank, writePpBank } from './ppbank'
 
 /**
  * Graphics/screen instruction and function registries, bound to a Runtime.
@@ -3187,7 +3187,14 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const forced = it.accept(',') ? it.evalInt() : -1
       const bytes = rt.fs?.read(path)
       if (!bytes) throw new AmosError(`file not found: ${path}`)
-      const bank = parsePpBank(Uint8Array.from(bytes))
+      // the codec lives in ../amiga and raises plain Errors — an AMOS error
+      // number is this keyword's to choose, not powerpacker.library's
+      let bank
+      try {
+        bank = parsePpBank(Uint8Array.from(bytes))
+      } catch {
+        throw new AmosError('Not a powerpacked bank', 23)
+      }
       // bob/icon banks (flag bits 2/3) carry serialised objects — unsupported
       if (bank.flags & 0x0c) throw new AmosError('Not a powerpacked bank', 23)
       const num = forced >= 0 ? forced : bank.number
