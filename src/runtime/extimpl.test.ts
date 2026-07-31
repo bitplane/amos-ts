@@ -56,6 +56,41 @@ describe('the extension implementation contract', () => {
     }
   })
 
+  /**
+   * The same guard as `qualified` gets, for `aliases`.
+   *
+   * aliasForSlots skips an alias whose target has no handler, deliberately —
+   * a port may list a whole release's vocabulary without implementing all of
+   * it. That tolerance is what makes a typo invisible: misspell the target and
+   * the keyword is silently never registered, which is the exact failure the
+   * alias mechanism was built to fix.
+   */
+  it('every alias points at an identity the port serves', () => {
+    for (const impl of extensionImpls()) {
+      for (const id of Object.keys(impl.aliases ?? {})) {
+        expect(impl.ids, `${id} is aliased but not served by this port`).toContain(id)
+      }
+    }
+  })
+
+  it('every alias target is a name the port actually defines', () => {
+    const rt = bootAt(13, false)
+    for (const impl of extensionImpls()) {
+      const names = new Set([
+        ...Object.keys(impl.instructions?.(rt) ?? {}),
+        ...Object.keys(impl.functions?.(rt) ?? {}),
+      ])
+      for (const [id, map] of Object.entries(impl.aliases ?? {})) {
+        for (const [alias, canonical] of Object.entries(map)) {
+          expect(names, `${id}: ${alias} -> ${canonical} defines nothing`).toContain(canonical)
+          // an alias that is already a plain name would shadow itself onto a
+          // slot-qualified key for no reason, and hide which one answered
+          expect(names, `${id}: ${alias} is already a plain name`).not.toContain(alias)
+        }
+      }
+    }
+  })
+
   it('an error table is reachable from the identity that raises it', () => {
     const withErrors = extensionImpls().filter((i) => i.errors)
     expect(withErrors.length).toBeGreaterThan(0)
