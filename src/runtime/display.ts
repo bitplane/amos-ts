@@ -28,7 +28,7 @@ import { AmosError } from '../interp/values'
 import type { Screen } from './screen'
 import { BankImage } from './objects'
 import type { HwSprite } from './objects'
-import { BLTCON0_DEFAULT, bobBltcon0, mintermBit } from './planar'
+import { BLTCON0_DEFAULT, bobBltcon0, mintermBit } from '../amiga/planar'
 
 export class Display {
   constructor(private readonly rt: Runtime) {}

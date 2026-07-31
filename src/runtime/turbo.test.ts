@@ -5,7 +5,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
-import { getPixel } from './planar'
+import { getPixel } from '../amiga/planar'
 
 /**
  * TURBO Plus, verified against TURBO_DocsV2.15.Asc — the extension's own

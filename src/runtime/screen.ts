@@ -9,7 +9,7 @@ import {
   getPixel as planarGet,
   setPixel as planarSet,
   rowBytesFor,
-} from './planar'
+} from '../amiga/planar'
 
 // ---- text-border glyphs (TEncadre +W.s:16725) -----------------------------
 // Border$ draws its box out of the AMOS charset's own characters. Those

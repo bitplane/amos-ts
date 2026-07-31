@@ -1,5 +1,6 @@
 import type { Sprite, SpriteBank } from '../loader/amosfile'
-import { decode as decodePlanes, encode as encodePlanes, getPixel as planarGet, bankRowBytesFor } from './planar'
+import { bankRowBytesFor } from '../amiga/planar'
+import { BitMap } from '../amiga/graphics'
 import { AmosError } from '../interp/values'
 
 /**
@@ -32,13 +33,8 @@ import { AmosError } from '../interp/values'
  * here — anything else would change the bytes a save produces.
  */
 export class BankImage {
-  readonly rowBytes: number
-  readonly planeSize: number
-  /** the bitplanes, in the bank's layout */
-  planes: Uint8Array
-  private cache: Uint8Array
-  private cacheValid = false
-  private cacheDirty = false
+  /** the bitmap: planes in the BANK's layout, plus its chunky cache */
+  private readonly bm: BitMap
   /** set by No Mask: colour 0 draws */
   opaque = false
 
@@ -50,40 +46,45 @@ export class BankImage {
     public hotY: number,
     planes?: Uint8Array,
   ) {
-    this.rowBytes = bankRowBytesFor(width)
-    this.planeSize = this.rowBytes * height
-    this.planes = planes ?? new Uint8Array(this.planeSize * depth)
-    this.cache = new Uint8Array(width * height)
+    // bankRowBytesFor truncates where a screen's rowBytesFor rounds up; the
+    // BitMap takes whichever it is told rather than choosing, which is what
+    // lets a bank round-trip byte for byte
+    this.bm = new BitMap(width, height, depth, bankRowBytesFor(width), planes)
+  }
+
+  get rowBytes(): number {
+    return this.bm.bytesPerRow
+  }
+  get planeSize(): number {
+    return this.bm.planeSize
+  }
+  /** the bitplanes, in the bank's layout */
+  get planes(): Uint8Array {
+    return this.bm.planes
+  }
+  set planes(p: Uint8Array) {
+    this.bm.planes = p
+    this.bm.invalidate()
   }
 
   /** chunky pixels; 0 = transparent unless opaque. READ-ONLY by contract. */
   get pixels(): Uint8Array {
-    if (this.cacheValid || this.cacheDirty) return this.cache
-    decodePlanes(this.planes, this.planeSize, this.rowBytes, this.depth, this.width, this.height, this.cache)
-    this.cacheValid = true
-    return this.cache
+    return this.bm.pixels
   }
   /** the chunky buffer, for a caller about to write to it */
   pixelsW(): Uint8Array {
-    const p = this.pixels
-    this.cacheDirty = true
-    return p
+    return this.bm.pixelsW()
   }
   /** settle any chunky writes back into the planes */
   flush(): void {
-    if (!this.cacheDirty) return
-    encodePlanes(this.cache, this.planes, this.planeSize, this.rowBytes, this.depth, this.width, this.height)
-    this.cacheDirty = false
-    this.cacheValid = true
+    this.bm.flush()
   }
   /** the planes, with any pending chunky write settled first */
   planeBytes(): Uint8Array {
-    this.flush()
-    return this.planes
+    return this.bm.planeBytes()
   }
   pixelAt(x: number, y: number): number {
-    if (this.cacheValid || this.cacheDirty) return this.cache[y * this.width + x]!
-    return planarGet(this.planes, this.planeSize, this.rowBytes, this.depth, x, y)
+    return this.bm.pixelAt(x, y)
   }
 }
 

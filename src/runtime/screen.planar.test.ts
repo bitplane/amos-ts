@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { Screen } from './screen'
-import { getPixel } from './planar'
+import { getPixel } from '../amiga/planar'
 import { BankImage } from './objects'
 import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'

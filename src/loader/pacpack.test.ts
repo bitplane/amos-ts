@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { parseAmosFile } from './amosfile'
 import { SCREEN_HEADER_SIZE, packBitmap, packScreen, parsePacPic } from './pacpic'
 import type { MemoryBank } from './amosfile'
-import { rowBytesFor } from '../runtime/planar'
+import { rowBytesFor } from '../amiga/planar'
 
 const FIXTURES = join(__dirname, '..', '..', 'fixtures')
 

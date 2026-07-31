@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bobBltcon0, mintermBit } from './planar'
+import { bobBltcon0, mintermBit } from '../amiga/planar'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'

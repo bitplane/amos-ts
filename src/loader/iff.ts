@@ -1,5 +1,5 @@
 import { BinReader } from './binreader'
-import { rowBytesFor } from '../runtime/planar'
+import { rowBytesFor } from '../amiga/planar'
 
 /**
  * IFF ILBM picture loader (Load Iff): BMHD/CMAP/CAMG/BODY with ByteRun1

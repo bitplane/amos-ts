@@ -4,7 +4,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
-import { rowBytesFor } from './planar'
+import { rowBytesFor } from '../amiga/planar'
 
 const table = new TokenTable(CORE_TOKENS)
 
