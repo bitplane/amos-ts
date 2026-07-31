@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
-import { MemoryFS } from './fs'
+import { MemoryFS } from '../amiga/fs'
 import { Runtime } from './runtime'
 
 const table = new TokenTable(CORE_TOKENS)

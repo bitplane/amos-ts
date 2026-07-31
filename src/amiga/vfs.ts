@@ -1,4 +1,4 @@
-import type { AmosFS } from '../runtime/fs'
+import type { AmosFS } from './fs'
 
 /**
  * An Amiga-flavoured virtual filesystem:

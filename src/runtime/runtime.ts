@@ -42,7 +42,7 @@ import { BankImage } from './objects'
 import { Display } from './display'
 import { rowBytesFor, bankRowBytesFor } from './planar'
 import type { Bob, HwSprite, Zone } from './objects'
-import type { AmosFS } from './fs'
+import type { AmosFS } from '../amiga/fs'
 import { AmalChannel } from './amal'
 import type { AmalHost, ChannelTarget } from './amal'
 import {

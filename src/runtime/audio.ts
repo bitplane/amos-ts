@@ -21,22 +21,14 @@ export function periodToHz(period: number): number {
   return PAULA_CLOCK / Math.max(1, period)
 }
 
-export interface AudioSink {
-  /**
-   * (Re)trigger voice 0-3: signed 8-bit PCM at freqHz, volume 0-63. After
-   * the first pass, playback repeats [loopStart, loopEnd) (AUDxLC/LEN
-   * relatch); loopStart -1 = one-shot. loopEnd defaults to pcm.length.
-   */
-  play(voice: number, pcm: Int8Array, freqHz: number, volume63: number, loopStart: number, loopEnd?: number): void
-  stop(voice: number): void
-  setVolume(voice: number, volume63: number): void
-  /** per-tick rate change (AUDxPER write) without retriggering */
-  setFrequency(voice: number, freqHz: number): void
-  /** re-point the repeat region of the playing sample; loopStart -1 = play out and stop */
-  setLoop(voice: number, loopStart: number, loopEnd?: number): void
-  /** the power-LED low-pass filter ($BFE001 bit 1); on = filter engaged */
-  setFilter(on: boolean): void
-}
+/**
+ * The sink itself is a HOST capability and lives in ../amiga/host.ts beside
+ * `clock`, `printer` and `serial` — what the outside world supplies, rather
+ * than something AMOS owns. Re-exported here because every caller of the
+ * audio layer wants the two together.
+ */
+import type { AudioSink } from '../amiga/host'
+export type { AudioSink } from '../amiga/host'
 
 export interface AudioEvent {
   kind: 'play' | 'stop' | 'volume' | 'freq' | 'loop' | 'filter'

@@ -14,12 +14,39 @@
  * list as the `n/a` keyword classifications — they are two views of one fact.
  * A keyword is n/a because it needs something the host cannot give it.
  */
-import type { AmosFS } from '../runtime/fs'
-import type { AudioSink } from '../runtime/audio'
+import type { AmosFS } from './fs'
 
 import { dateToStamp, type DateStamp } from './datestamp'
 
 export type { DateStamp } from './datestamp'
+
+/**
+ * Where sound goes. Paula's four voices, as the outside world has to receive
+ * them: signed 8-bit PCM with a period-derived rate, a volume and a loop
+ * region.
+ *
+ * A host capability like `clock` and `serial`, and here for the same reason —
+ * a headless run records the event stream, a browser feeds Web Audio, and the
+ * runtime cannot tell which it has. The implementations live with their
+ * callers: `NullAudio` in ../runtime/audio.ts records for the player tests,
+ * the browser one in ../web/audio.ts.
+ */
+export interface AudioSink {
+  /**
+   * (Re)trigger voice 0-3: signed 8-bit PCM at freqHz, volume 0-63. After
+   * the first pass, playback repeats [loopStart, loopEnd) (AUDxLC/LEN
+   * relatch); loopStart -1 = one-shot. loopEnd defaults to pcm.length.
+   */
+  play(voice: number, pcm: Int8Array, freqHz: number, volume63: number, loopStart: number, loopEnd?: number): void
+  stop(voice: number): void
+  setVolume(voice: number, volume63: number): void
+  /** per-tick rate change (AUDxPER write) without retriggering */
+  setFrequency(voice: number, freqHz: number): void
+  /** re-point the repeat region of the playing sample; loopStart -1 = play out and stop */
+  setLoop(voice: number, loopStart: number, loopEnd?: number): void
+  /** the power-LED low-pass filter ($BFE001 bit 1); on = filter engaged */
+  setFilter(on: boolean): void
+}
 
 /**
  * Wall-clock time. Deliberately separate from AMOS's `Timer`, which counts
