@@ -560,6 +560,16 @@ export const FAITHFUL = new Set<string>([
   'lcust freq',
   'lfontsize freq',
   'lpp mem',
+  // 2.6's eight, from routines 83-90 of its own binary with the manual
+  // entries beside them in Documentation/ldos.text
+  'lcompress',
+  'ldecompress',
+  'lrol',
+  'lror',
+  'lhicol on',
+  'lhicol off',
+  'lstrcmp',
+  'lprot conv',
 
   // --- TURBO Plus (third-party extension, by Manuel Andre) ---
   // Verified against TURBO_DocsV2.15.Asc, the extension's own manual, and
@@ -1909,6 +1919,16 @@ export const NOTES: Record<string, string> = {
     "LdosV25.DOC documents the calling convention and says nothing whatever about the cipher, so this was read out of AMOSPro_Ldos.lib itself — Lcrypt at \$4400, disassembled with capstone. The key is built by add.b (low byte of d7 only), eori.l #3 and rol.l #1 per password character, then each longword is (value + \$20) XOR key. The byte-width of the add is the part a manual could never have conveyed and the part that matters: widen it and the key diverges after one character. The disassembly is short, unambiguous and its two routines are exact inverses, and the tests hand-simulate the 68k key loop as an independent check — but this is evidence of a different kind from source or a manual, and it is recorded as such",
   'ldecrypt':
     "The inverse of Lcrypt, at \$4436, and the only one of the pair that validates its argument: it opens cmp.w #4,d0 / bcc, while Lcrypt has no length check at all. So the manual's 'an error will be produced if the password is less than 4 characters long' is true of one of the two keywords, which the binary shows and the documentation does not. A short password given to Lcrypt on the real machine runs its dbra 65536 times off the end of the string",
+  lrol: "The manual calls it 'a logical shift left' and the library's own error message agrees -- 'You can only shift 31 bits a time!' -- but routine 85 (\$3af6) is `rol.l`, a rotate: the bits that leave the top come back in at the bottom. `Lrol(8,\$FF000000)` is \$FF here and would be 0 under the prose. The binary wins, the same rule that settled LDos's crypt routines. The 8-at-a-time loop above it is only the 68k's immediate-shift limit, not part of the meaning, and the bound `cmp.l #\$1f,d0` is UNSIGNED so a negative count fails it exactly as 32 does",
+  lror: 'The same rotate as Lrol, `ror.l` at \$3b1e, and the same note applies to the manual calling it a shift',
+  lstrcmp:
+    "Faithful to what the routine does, which is not what the manual sells. The prose promises national characters -- 'much better results than AMOS' built in routine, which doesn't know ANY national characters!' -- and the routine really does carry the table to do it with: 256 bytes at \$3bea holding the accented letters folded onto A, E, I, N, O, U and Y. It loads that table's address into a0 at \$3b6a and then never indexes it; the comparison at \$3ba6 reads the string bytes straight. So this build sorts by byte value, Chr\$(196) lands after 'Z' rather than beside 'A', and the feature is present in the file and absent from the behaviour. A second wrinkle, latent: taking the shorter length uses `move.b d1,d0` into a word register, so a string of 256 characters or more compares over the wrong length",
+  lcompress:
+    "The format is read out of routines 83 and 84 rather than documented anywhere -- LZ77 with a run case over a 16-bit control-word bitstream, distances to 4098, matches to 271. Faithful including the matcher, which is one candidate per position from a 4,096-slot hash of the next three bytes, so the packed bytes a program gets should be the packed bytes it got on the Amiga. NOT verified against a sample of real output, because none is to hand: the claim rests on the disassembly, not on a diff. The \$4000-byte table the original allocates is an implementation detail and is allocated inside the packer here; its failure error, 'Not enough memory to compress!', is kept because a program can see it",
+  ldecompress:
+    "Faithful, including a wart worth stating plainly. The decoder tests for end-of-input only when it refills a control word (`cmpa.l a5,a3`, \$3a20) and otherwise runs all sixteen items of the word; Lcompress does not pad its final group. So a stream whose last group is partial is decoded past its end, and Ldecompress writes up to fifteen extra bytes and returns a length that counts them -- which is what the manual's 'you must keep track of how large this bank need to be yourself' is really warning about. DEVIATION: on the Amiga those trailing bytes are whatever memory followed the compressed data and so are undefined; the reads past the end give zero here. The count matches, the contents cannot, and a program that trusted them was reading uninitialised memory on the real machine as well",
+  'lhicol on':
+    "The flag itself is a byte in LDos's workspace and does nothing on its own; what it gates is Lansi's handling of SGR 2, which raises pens into 8-15 (`add.b \$2b22(pc),d0`, \$2a32). The offset applies to the PEN only -- the paper path at \$2a1e has no counterpart -- so backgrounds stay in 0-7 in either mode, and SGR 0 clears it. 16-colour mode is the default, as the manual says, which is why the keyword that exists to be called is the Off one",
   'lset var':
     'Writes a file into ENV:, which is what a global environment variable actually is — SetVar with GVF_GLOBAL_ONLY does exactly this — so the value is visible to Dir, to the browser file panel and to anything else that reads the filesystem, and outlives the program the way it does on the real machine. The documented 50-character limits on name and value are enforced. Case-insensitivity comes free from the filesystem, which is case-insensitive for the same reason AmigaDOS is',
   'ldisk font':

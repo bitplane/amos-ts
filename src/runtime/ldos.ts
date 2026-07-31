@@ -17,10 +17,19 @@
  *
  * Version note: LDos 2.5's token table is a strict prefix of 2.6's — the same
  * 79 entries at the same offsets, with 8 keywords appended — so one set of
- * handlers serves both. 2.6's additions (`Lcompress`, `Ldecompress`, `Lrol`,
- * `Lror`, `Lhicol On/Off`, `Lstrcmp`, `Lprot Conv`) are documented nowhere in
- * the 325KB of LDos documentation available, so they are deliberately left
- * unimplemented rather than guessed at.
+ * handlers serves both. 2.6's additions are `Lcompress`, `Ldecompress`,
+ * `Lrol`, `Lror`, `Lhicol On/Off`, `Lstrcmp` and `Lprot Conv`. They are
+ * documented — `Documentation/ldos.text` and `LdosV25.guide` beside the 2.6
+ * library carry all eight, which the 2.5 fixture's documents do not — and
+ * routines 83 to 90 of the 2.6 binary settle what the prose leaves open.
+ *
+ * The two builds differ in more than keyword count, and each is the better
+ * evidence for something. 2.5 says `$VER:Ldos_V2.5_Registered` and calls
+ * itself "LDos Pro 1.0" internally, yet carries 68 copies of the shareware
+ * nag; 2.6 calls itself "LDos Pro 1.1", has no `$VER` at all and no nag, so
+ * the descriptive error messages the nag displaces in 2.5 are reachable in
+ * it. Three of them are new: "Not enough memory to compress!" (25), "You can
+ * only shift 31 bits a time!" (26) and "Can't Strcmp empty strings!" (27).
  *
  * ## Channels
  *
@@ -31,6 +40,7 @@
  * and writing. So these do not share Runtime.fileChans.
  */
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
+import { DEST_MARGIN, lcompress, ldecompress } from './ldoslz'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 
@@ -103,8 +113,15 @@ export function ansiToAmos(input: string, state: LdosState): string {
         // resets to pen 1, paper 0, no style
         for (const raw of nums) {
           const v = raw < 0 ? 0 : raw
-          if (v === 0) out += esc('P', 1) + esc('B', 0) + '\x1bW' + String.fromCharCode(48)
-          else if (v >= 30 && v <= 37) out += esc('P', v - 30)
+          if (v === 0) {
+            out += esc('P', 1) + esc('B', 0) + '\x1bW' + String.fromCharCode(48)
+            state.ansiBright = 0
+          }
+          // SGR 2 is the hi-col switch. Standard ANSI calls 2 "faint"; this
+          // library uses it for the BBS convention of a second bank of eight
+          // colours, and Lhicol Off is what makes it inert
+          else if (v === 2) state.ansiBright = state.hicol ? 8 : 0
+          else if (v >= 30 && v <= 37) out += esc('P', v - 30 + state.ansiBright)
           else if (v >= 40 && v <= 47) out += esc('B', v - 40)
           // Italics (shaded), Inverse and Underline are the supported
           // styles; the manual says other styles are simply ignored
@@ -266,6 +283,21 @@ export interface LdosState {
   freqFontSize: number
   /** the tail of an ANSI escape split across two Lansi calls */
   ansiPending: string
+  /**
+   * Lhicol On/Off (routines 87 and 88, $3b46 and $3b56), a byte in LDos's own
+   * workspace at [$188(a5)]+$5bc. It gates whether SGR 2 may raise Lansi's
+   * pens into 8-15; the manual says 16-colour mode is the default, and the
+   * keyword exists to turn it OFF.
+   */
+  hicol: boolean
+  /**
+   * The offset Lansi adds to a pen, 0 or 8 — a single byte the library keeps
+   * just below its output buffer ($2b22) and modifies in place. SGR 2 sets
+   * it when `hicol` allows, SGR 0 clears it, and only the PEN path adds it:
+   * `add.b $2b22(pc),d0` at $2a32 has no counterpart on the paper path at
+   * $2a1e, so backgrounds stay in 0-7 whatever the mode.
+   */
+  ansiBright: number
   /** the Ldev First/Ldev Next walk over volumes and assigns */
   devices: { names: string[]; index: number } | null
 
@@ -276,7 +308,8 @@ export interface LdosState {
 }
 
 export const newLdosState = (): LdosState => ({ chans: new Map(), cat: null, pushed: new Map(), cwd: null, freqDir: '', freqFile: '', freqX: 3, freqY: 11,
-  freqDevWidth: 12, freqFileWidth: 30, freqFiles: 14, freqFontSize: 0, ansiPending: '', devices: null, eoln: 10 })
+  freqDevWidth: 12, freqFileWidth: 30, freqFiles: 14, freqFontSize: 0, ansiPending: '', devices: null,
+  hicol: true, ansiBright: 0, eoln: 10 })
 
 /**
  * Resolve a path the way LDos does: against its own current directory when
@@ -371,8 +404,29 @@ function region(rt: Runtime, start: number, stop: number): { data: Uint8Array; f
   return { data: m.data, from: m.off, to: m.off + len }
 }
 
+/** the same, for a range about to be WRITTEN — see Runtime.resolveWrite */
+function regionWrite(rt: Runtime, start: number, stop: number): { data: Uint8Array; from: number; to: number } | null {
+  const m = rt.resolveWrite(start)
+  if (!m) return null
+  const len = Math.max(0, Math.min(stop - start, m.data.length - m.off))
+  return { data: m.data, from: m.off, to: m.off + len }
+}
+
 export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
   return {
+    /**
+     * Lhicol On — routine 87 ($3b46). "Force Lansi to use non-standard
+     * hi-col codes in ANSI sequence ... Note! 16 colour mode is now the
+     * default!" One byte in LDos's workspace; nothing else happens until
+     * Lansi meets an SGR 2.
+     */
+    'lhicol on'() {
+      rt.ldos.hicol = true
+    },
+    /** Lhicol Off — routine 88 ($3b56), the same byte cleared */
+    'lhicol off'() {
+      rt.ldos.hicol = false
+    },
     lopen(it) {
       // Lopen Channel,"Name",MODE — MODE 0 opens an existing file, 1 creates
       // a new one. "WARNING! If the file exist and MODE is 1 the file will be
@@ -912,6 +966,122 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       if (name === '' || /[:/]/.test(name)) return VI(0)
       return VI(rt.vfs?.deleteFile('ENV:' + name) ? -1 : 0)
     },
+    /**
+     * A=Lrol(POSITIONS,VAR) — routine 85 ($3af6). The manual calls it "a
+     * logical shift left" and the library's own error message says "You can
+     * only shift 31 bits a time!", but the instruction is `rol.l`: bits
+     * leaving the top come back in at the bottom. NOTE'd, because a program
+     * written against the prose will disagree with the machine for any value
+     * with bits set high enough to wrap.
+     *
+     * The bound is `cmp.l #$1f,d0` UNSIGNED, so a negative count fails it as
+     * surely as 32 does.
+     */
+    lrol(_, a) {
+      const positions = int(a[0] ?? VI(0))
+      const v = int(a[1] ?? VI(0))
+      if ((positions >>> 0) > 31) throw new AmosError('You can only shift 31 bits a time!')
+      const n = positions & 31
+      return VI((((v << n) | (v >>> (32 - n))) | 0) >> 0)
+    },
+    /** A=Lror(POSITIONS,VAR) — routine 86 ($3b1e), `ror.l`. See Lrol */
+    lror(_, a) {
+      const positions = int(a[0] ?? VI(0))
+      const v = int(a[1] ?? VI(0))
+      if ((positions >>> 0) > 31) throw new AmosError('You can only shift 31 bits a time!')
+      const n = positions & 31
+      return VI((((v >>> n) | (v << (32 - n))) | 0) >> 0)
+    },
+    /**
+     * FLAGS=Lprot Conv(MASK) — routine 90 ($3cea), four `bchg`s on bits 0 to
+     * 3. "Normally bit 0-3 in the protection mask is active low. To make
+     * things easier you can use this command to pretend all bits are active
+     * high", and since it toggles rather than sets, applying it twice gives
+     * the mask back — which is what the manual tells you to do before
+     * handing the result to Lset Prot.
+     */
+    'lprot conv'(_, a) {
+      return VI(int(a[0] ?? VI(0)) ^ 0x0f)
+    },
+    /**
+     * A=Lstrcmp(A$,B$) — routine 89 ($3b66). 1 if A$ sorts after B$, 2 if B$
+     * sorts after A$, 0 if they are equal: the shorter string's length is
+     * compared byte by byte, the first difference decides, and if neither
+     * runs out first the LONGER one wins.
+     *
+     * NOTE. The manual sells this on national characters — "they may contain
+     * national characters which are handled as far as possible ... much
+     * better results than AMOS' built in routine, which doesn't know ANY
+     * national characters!" — and the routine does carry a 256-byte folding
+     * table at $3bea, plainly holding the accented letters folded onto A, E,
+     * I, N, O, U and Y. It loads its address into a0 at $3b6a and then never
+     * indexes it: the comparison at $3ba6 reads the string bytes straight.
+     * So this build compares by byte value, and that is what is ported.
+     */
+    lstrcmp(_, a) {
+      const s1 = str(a[0] ?? VS(''))
+      const s2 = str(a[1] ?? VS(''))
+      // `cmp.w #0,d0; bne` on the shorter length, so either being empty is
+      // the error — the min is what gets tested
+      if (s1.length === 0 || s2.length === 0) throw new AmosError("Can't Strcmp empty strings!")
+      const n = Math.min(s1.length, s2.length)
+      for (let i = 0; i < n; i++) {
+        const d = s1.charCodeAt(i) - s2.charCodeAt(i)
+        if (d !== 0) return VI(d > 0 ? 1 : 2)
+      }
+      if (s1.length === s2.length) return VI(0)
+      return VI(s1.length > s2.length ? 1 : 2)
+    },
+    /**
+     * _LEN=Lcompress(START, INLENGTH To DESTINATION, DESTLENGTH) — routine 83
+     * ($382c). "If _LEN = 0 'Then data could not be compressed'. You should
+     * the NOT use the DESTINATION buffer for anything."
+     *
+     * The format and the matcher are in ldoslz.ts. The $4000-byte hash table
+     * the original allocates is an implementation detail of the packer and is
+     * allocated there; the error it raises when it cannot get the memory is
+     * kept, because a program can see it.
+     */
+    lcompress(_, a) {
+      const start = int(a[0] ?? VI(0))
+      const inLength = int(a[1] ?? VI(0))
+      const dest = int(a[2] ?? VI(0))
+      const destLength = int(a[3] ?? VI(0))
+      const src = region(rt, start, start + inLength)
+      const out = regionWrite(rt, dest, dest + destLength)
+      if (!src || !out) throw new AmosError('Not enough memory to compress!')
+      const input = src.data.subarray(src.from, src.to)
+      // the packer may run up to two bytes past its own limit between
+      // control words, which on the Amiga is what the 48-byte margin
+      // absorbs; give it the same room rather than a buffer it can leave
+      const scratch = new Uint8Array(out.to - out.from + 64)
+      const limit = Math.max(0, out.to - out.from - DEST_MARGIN)
+      const len = lcompress(input, scratch, limit)
+      if (len === 0 || len > out.to - out.from) return VI(0)
+      out.data.set(scratch.subarray(0, len), out.from)
+      return VI(len)
+    },
+    /**
+     * OUTLEN=Ldecompress(START, INLENGTH, DESTINATION) — routine 84 ($39d8).
+     * "NOTE! YOU MUST MAKE SURE THAT DATA IS COMPRESSED. If you use this
+     * command on bogus or uncompressed data it WILL crash!" It cannot crash
+     * here: the decoder is bounded by the destination region, and garbage in
+     * gives garbage out at whatever length the stream claims.
+     */
+    ldecompress(_, a) {
+      const start = int(a[0] ?? VI(0))
+      const inLength = int(a[1] ?? VI(0))
+      const dest = int(a[2] ?? VI(0))
+      const src = region(rt, start, start + inLength)
+      const out = rt.resolveWrite(dest)
+      if (!src || !out) return VI(0)
+      const room = out.data.length - out.off
+      const scratch = new Uint8Array(room)
+      const len = ldecompress(src.data.subarray(src.from, src.to), scratch)
+      const n = Math.min(len, room)
+      out.data.set(scratch.subarray(0, n), out.off)
+      return VI(len)
+    },
     lansi(_, a) {
       // S$=Lansi(A$) — "S$ will contain a sequence containing AMOS control
       // characters. A$ is a normal ANSI-sequence which doesn't have to be
@@ -1021,6 +1191,9 @@ export const LDOS_IMPLEMENTED: readonly string[] = [
   'lupbuffer', 'llobuffer', 'llargest free', 'lchk data', 'lchk boot',
   'lset var', 'lget var', 'ldelete var', 'ldisk font', 'lcrypt', 'ldecrypt',
   'lsys stamp', 'lsys time', 'lansi',
+  // 2.6's eight
+  'lcompress', 'ldecompress', 'lrol', 'lror',
+  'lhicol on', 'lhicol off', 'lstrcmp', 'lprot conv',
   'lfreq', 'lset freq dir', 'lget freq file', 'lget freq dir', 'lpos freq', 'lcust freq',
   'lfontsize freq', 'lpp mem', 'lpp decrunch',
 ]
