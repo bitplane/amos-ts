@@ -1,9 +1,15 @@
 /**
- * AmigaDOS pattern matching, as `Lmatch` exposes it.
+ * AmigaDOS pattern matching — dos.library's `ParsePattern`/`MatchPattern`.
+ *
+ * This is OS surface, not any one extension's: LDos exposes it as `Lmatch`
+ * and JD-K3 as `Jd Match`, and both are the same grammar because both are
+ * the same library underneath. It lived in `runtime/ldospat.ts` while only
+ * LDos used it and stayed there when JD-K3 became the second caller, which
+ * is how a subsystem ends up named after whoever needed it first.
  *
  * LdosV25.DOC documents the syntax exactly, and it is dos.library's own —
- * richer than the `#?` / `*` / `?` subset `amigaPattern` in vfs.ts handles for
- * filename globbing:
+ * richer than the `#?` / `*` / `?` subset `amigaPattern` in ./vfs.ts handles
+ * for filename globbing:
  *
  *     ?        Matches a single character.
  *     #        Matches the following expression 0 or more times.
@@ -19,6 +25,14 @@
  *
  * and defines "expression" as "either a single character (ex: "#?"), or an
  * alternation (ex: "#(ab|cd|ef)"), or a character class (ex: "#[a-zA-Z]")".
+ *
+ * NOTE on the overlap with `amigaPattern` in ./vfs.ts, which is deliberate
+ * for now. That one compiles a three-token subset to a case-INSENSITIVE
+ * RegExp because AmigaDOS filenames are case-insensitive, and it accepts `*`
+ * unconditionally; this one is case-sensitive with `*` behind a flag, and
+ * callers fold case themselves (JD-K3's `Jd Match Nocase` does). Collapsing
+ * them would change filename globbing, so it is a behaviour decision with
+ * its own tests rather than a side effect of moving a file.
  *
  * `~` is why this cannot be compiled to a RegExp: negation of an arbitrary
  * sub-pattern has no regex equivalent. Matching is therefore a backtracking

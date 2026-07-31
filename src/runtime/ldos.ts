@@ -59,7 +59,7 @@ import type { Runtime } from './runtime'
  * means to say, and because a nag is a property of one build rather than of
  * the keyword.
  */
-import { amigaMatch, parsePatternResult } from './ldospat'
+import { amigaMatch, parsePatternResult } from '../amiga/dospattern'
 import { pp20Decrunch } from '../loader/powerpacker'
 import { DAY_MS, STAMP_EPOCH, stampToYmd as amigaStampToYmd } from '../amiga/datestamp'
 

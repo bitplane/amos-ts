@@ -50,7 +50,7 @@
 import { VI, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
-import { amigaMatch } from './ldospat'
+import { amigaMatch } from '../amiga/dospattern'
 
 export function makeJdK3Instructions(rt: Runtime): Record<string, Instr> {
   return {

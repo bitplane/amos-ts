@@ -24,26 +24,21 @@ import { VI, VS, AmosError, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import type { Screen } from './screen'
-import { ED_RUN_MESSAGES } from './edmessages.gen'
+import {
+  devAbort,
+  devCheckIO,
+  devClose,
+  devDoIO,
+  devGetIO,
+  devOpen,
+  devSendIO,
+  newDevSlot,
+  type DevSlot,
+} from './device'
+
+export { ioError, type DevSlot } from './device'
 import type { PrinterPage, SerialPortHandle, SerialLineParams } from '../amiga/host'
 import { defaultJdPrtPrefs, type JdPrtPrefs } from './jdprt'
-
-/**
- * AMOS run-time error N, with the interpreter's own wording.
- *
- * ED_RUN_MESSAGES is generated from +Editor_Config.s and is offset by 14
- * from the numbers the assembler passes around: index 126 is error 140.
- * That offset is not a guess — the source opens serial with `move.w #145,d3`
- * and parallel with `#171`, and those land exactly on "Serial device already
- * in use" and "Parallel device already used", the first message of each
- * device's block.
- */
-const MSG_OFFSET = 14
-
-export function ioError(n: number): AmosError {
-  const text = ED_RUN_MESSAGES[n - MSG_OFFSET]
-  return new AmosError(text && text.length > 0 ? text : `Device error ${n}`, n)
-}
 
 /** Error 23, via L_IOFonc (+IO_Ports.s:1161). */
 function ioFonc(): AmosError {
@@ -57,29 +52,6 @@ export const N_SERIAL = 4
 const SERIAL_ERR_BASE = 145 // d3=145, d4=16  (+IO_Ports.s:328)
 const PARALLEL_ERR_BASE = 171 // d3=171, d4=7  (+IO_Ports.s:1024)
 const PRINTER_ERR_BASE = 161 // d3=161        (+IO_Ports.s:689)
-
-/**
- * The 12 bytes Dev.* operates on (+Lib.s:3068). Three longs in the source:
- * the IORequest and MsgPort pointers, then a flag byte, a state byte and the
- * two error-table bytes packed into the third long.
- */
-export interface DevSlot {
-  /** `8(a2)` — set once OpenDevice succeeded */
-  open: boolean
-  /**
-   * `9(a2)` — 0 no function ever issued, 1 one completed, 2 one launched and
-   * not yet waited for. Dev.SendIO and Dev.DoIO both wait first when this is
-   * 2, which is how a second write blocks behind an unfinished one.
-   */
-  state: 0 | 1 | 2
-  /** `10(a2)`/`11(a2)` — this device's error message base and count */
-  errBase: number
-  errCount: number
-}
-
-function newSlot(errBase: number, errCount: number): DevSlot {
-  return { open: false, state: 0, errBase, errCount }
-}
 
 /**
  * The serial parameters the keywords poke into the IOExtSer request. Named
@@ -164,14 +136,14 @@ export interface IoPortsState {
 export function newIoPortsState(): IoPortsState {
   return {
     serial: Array.from({ length: N_SERIAL }, () => ({
-      dev: newSlot(SERIAL_ERR_BASE, 16),
+      dev: newDevSlot(SERIAL_ERR_BASE, 16),
       params: defaultSerialParams(),
       rx: [],
       tx: [],
       port: null,
     })),
-    printer: newSlot(PRINTER_ERR_BASE, 10),
-    parallel: newSlot(PARALLEL_ERR_BASE, 7),
+    printer: newDevSlot(PRINTER_ERR_BASE, 10),
+    parallel: newDevSlot(PARALLEL_ERR_BASE, 7),
     printerOut: [],
     parallelOut: [],
     pages: [],
@@ -182,74 +154,6 @@ export function newIoPortsState(): IoPortsState {
 /* ------------------------------------------------------------------ *
  * The Dev.* layer (+Lib.s:3068-3260)
  * ------------------------------------------------------------------ */
-
-/**
- * Dev.Open (+Lib.s:3068). Opening a device that is already open is error
- * 140 — it does NOT silently succeed, and it does not reset the parameters.
- */
-function devOpen(slot: DevSlot): void {
-  if (slot.open) throw ioError(140)
-  slot.open = true
-  slot.state = 0
-}
-
-/**
- * Dev.GetIO (+Lib.s:3178). THE routine that decides what a closed device
- * does: anything touching one raises error 141, including the Check and
- * Status functions, which call through here first. A closed port does not
- * quietly report "not ready".
- */
-function devGetIO(slot: DevSlot): void {
-  if (!slot.open) throw ioError(141)
-}
-
-/** Dev.CloseA2. Closing a device that is not open is not an error. */
-function devClose(slot: DevSlot): void {
-  slot.open = false
-  slot.state = 0
-}
-
-/**
- * Dev.DoIO (+Lib.s:3213) — synchronous. Waits for any outstanding request
- * first, then runs this one to completion, leaving state 1.
- */
-function devDoIO(slot: DevSlot): void {
-  devGetIO(slot)
-  slot.state = 1
-}
-
-/**
- * Dev.SendIO (+Lib.s:3187) — asynchronous, leaving state 2. Serial Send and
- * Serial Out use this where the Parallel and Printer equivalents use DoIO,
- * so a serial write returns before it has gone out.
- *
- * DEVIATION: with no real port behind it the transfer completes instantly,
- * so the observable difference from DoIO is the state byte, which is what
- * Serial Check reads. On hardware the two genuinely differ in timing.
- */
-function devSendIO(slot: DevSlot): void {
-  devGetIO(slot)
-  slot.state = 2
-}
-
-/**
- * Dev.CheckIO (+Lib.s:3235). GetIO first — so a closed device errors — then
- * "no function ever issued" is reported as TRUE (-1), and otherwise the
- * request is asked whether it has finished.
- */
-function devCheckIO(slot: DevSlot): number {
-  devGetIO(slot)
-  if (slot.state === 0) return -1
-  // every modelled transfer completes immediately, so CheckIO always finds
-  // the request done
-  return -1
-}
-
-/** Dev.AbortIO. */
-function devAbort(slot: DevSlot): void {
-  devGetIO(slot)
-  slot.state = 1
-}
 
 /**
  * GetSerial (+IO_Ports.s:636). An UNSIGNED compare against NSerial, so a

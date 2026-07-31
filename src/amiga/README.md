@@ -24,6 +24,13 @@ LDos's LZ codec is LDos's. The Music extension's speech keywords are the AMOS
 side of `narrator.device`, not the device. If one extension owns it, it stays
 in `src/runtime` next to that extension.
 
+And "shared" is not enough on its own — it has to be shared *and* AmigaOS.
+AMOS's device layer (`Dev.Open` and friends, +Lib.s:3068) is shared by every
+port that drives a device, and it still does not belong here: those are
+`Lib_Def` routines in AMOS's own main library, a wrapper AMOS wrote over
+exec. It lives in `src/runtime/device.ts` — out of the IOPorts port that
+happened to need it first, but on the AMOS side of the line.
+
 ## The rule that matters: mechanism, not policy
 
 This layer holds **shared mechanism**. It must never hold a caller's **policy**,
@@ -51,6 +58,7 @@ ported gets to be as inconsistent as it actually was.
 | `vfs.ts` | `AmigaFS` — volumes, assigns, paths, file metadata |
 | `localelib.ts` | `locale.library` — catalogs, `FormatDate`, collation, case |
 | `localelib.gen.ts` | its data, generated from AROS by `src/cli/genlocale.ts` |
+| `dospattern.ts` | `dos.library`'s `ParsePattern`/`MatchPattern` grammar |
 | `host.ts` | the boundary *beneath* this layer: what the outside world supplies |
 
 `host.ts` is the odd one: it is not OS, it is what the OS sits on. It lives
