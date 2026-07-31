@@ -9,6 +9,7 @@
  * when loaded at 0 — verified against the fonts on the user's original
  * Amiga partition (2001/8, Pica/32, ...).
  */
+import { firstCodeHunk } from './hunk'
 
 export interface DiskFont {
   ySize: number
@@ -43,8 +44,6 @@ export interface FontContentsEntry {
 const FCH_ID = 0x0f00
 const TFCH_ID = 0x0f02 // tagged variant, same layout for our purposes
 const DFH_ID = 0x0f80
-const HUNK_HEADER = 0x3f3
-const HUNK_CODE = 0x3e9
 
 /** parse a `.font` descriptor; null when it isn't one (corrupt files
  * exist in the wild — the partition's Novell.font is garbage) */
@@ -72,17 +71,18 @@ export function parseFontDescriptor(bytes: Uint8Array): FontContentsEntry[] | nu
 
 /** parse a font size file (hunk executable with a DiskFontHeader) */
 export function parseDiskFont(bytes: Uint8Array): DiskFont | null {
-  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  if (bytes.length < 0x20 || v.getUint32(0) !== HUNK_HEADER) return null
-  // header: 0 resident names, table size, first, last, sizes[], then hunks
-  let p = 8
-  const tableSize = v.getUint32(p)
-  p += 12 + tableSize * 4 // table size, first, last, sizes
-  if (p + 8 > bytes.length || v.getUint32(p) !== HUNK_CODE) return null
-  const codeLen = v.getUint32(p + 4) * 4
-  const base = p + 8
-  if (base + codeLen > bytes.length) return null
-  const code = bytes.subarray(base, base + codeLen)
+  // a size file is a single-hunk executable; ./hunk.ts owns that format, and
+  // this used to walk the header itself — the third copy of the same twenty
+  // lines. It throws where this returns null, which is the contract that
+  // matters here: corrupt .font files exist in the wild and a font that will
+  // not parse is a font to skip, not a reason to fail the caller
+  let code: Uint8Array
+  try {
+    code = firstCodeHunk(bytes)
+  } catch {
+    return null
+  }
+  if (code.length < 0x60) return null
   const cv = new DataView(code.buffer, code.byteOffset, code.byteLength)
   // DiskFontHeader after the 4-byte stub + Node (14): dfh_FileID at +0x12
   if (cv.getUint16(0x12) !== DFH_ID) return null
@@ -102,13 +102,13 @@ export function parseDiskFont(bytes: Uint8Array): DiskFont | null {
   const charSpaceOff = cv.getUint32(tf + 24)
   const charKernOff = cv.getUint32(tf + 28)
   const nChars = hiChar - loChar + 2 // +1 for the "notdef" glyph
-  if (charDataOff + ySize * modulo > codeLen || charLocOff + nChars * 4 > codeLen) return null
+  if (charDataOff + ySize * modulo > code.length || charLocOff + nChars * 4 > code.length) return null
   const charLoc: Array<[number, number]> = []
   for (let i = 0; i < nChars; i++) {
     charLoc.push([cv.getUint16(charLocOff + i * 4), cv.getUint16(charLocOff + i * 4 + 2)])
   }
   const words = (off: number): Int16Array | null => {
-    if (off === 0 || off + nChars * 2 > codeLen) return null
+    if (off === 0 || off + nChars * 2 > code.length) return null
     const a = new Int16Array(nChars)
     for (let i = 0; i < nChars; i++) a[i] = cv.getInt16(off + i * 2)
     return a

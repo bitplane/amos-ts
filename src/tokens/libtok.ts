@@ -29,22 +29,13 @@ export interface TokenEntry {
   func: number
 }
 
-const HUNK_HEADER = 0x3f3
-const HUNK_CODE = 0x3e9
-
-/** Return the contents of the first code hunk of an Amiga hunk file. */
-export function firstCodeHunk(bytes: Uint8Array): Uint8Array {
-  const r = new BinReader(bytes)
-  if (r.u32() !== HUNK_HEADER) throw new Error('not an Amiga hunk file')
-  if (r.u32() !== 0) throw new Error('resident library names not supported')
-  const numHunks = r.u32()
-  r.skip(8) // first, last hunk numbers
-  r.skip(numHunks * 4) // size table
-  const type = r.u32() & 0x3fffffff
-  if (type !== HUNK_CODE) throw new Error(`expected first hunk to be code, got $${type.toString(16)}`)
-  const lenLongs = r.u32()
-  return r.raw(lenLongs * 4)
-}
+/**
+ * The AmigaDOS hunk reader lives in ../amiga — it is an OS executable format,
+ * not an AMOS one, and this module owning a copy of it was an accident of who
+ * needed it first. Re-exported because it is public API (see ../index.ts).
+ */
+export { firstCodeHunk } from '../amiga/hunk'
+import { firstCodeHunk } from '../amiga/hunk'
 
 export interface AmosLib {
   tokens: TokenEntry[]

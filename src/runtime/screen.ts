@@ -1,7 +1,7 @@
 import { FONT8 } from './font.gen'
 import { AmosError } from '../interp/values'
-import { glyphBit, glyphMetrics } from '../loader/diskfont'
-import type { DiskFont } from '../loader/diskfont'
+import { glyphBit, glyphMetrics } from '../amiga/diskfont'
+import type { DiskFont } from '../amiga/diskfont'
 import {
   decode as decodePlanes,
   encode as encodePlanes,

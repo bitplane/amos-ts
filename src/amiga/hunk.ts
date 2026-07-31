@@ -13,7 +13,7 @@
  * longs, the contents, and any number of relocation/symbol/debug blocks
  * before HUNK_END.
  */
-import { BinReader } from './binreader'
+import { BinReader } from '../loader/binreader'
 
 export const HUNK_UNIT = 0x3e7
 export const HUNK_NAME = 0x3e8
@@ -61,8 +61,18 @@ const align4 = (n: number): number => (n + 3) & ~3
  * relocated pointers can be told apart from small integers; the default is
  * high enough to be obvious in a disassembly and low enough to stay positive.
  */
-export function loadHunks(bytes: Uint8Array, base = 0x0021_0000): LoadedHunks {
-  const r = new BinReader(bytes)
+/**
+ * The header, up to and including the size table — the part every reader of
+ * this format needs and the part that used to be written out three times.
+ *
+ * The size table gives the space each hunk is ALLOCATED. That is not the same
+ * as the number of bytes stored for it: a HUNK_CODE block carries its own
+ * length, and a hunk may be allocated more than it stores, the remainder being
+ * implicitly zero. Both numbers are kept below, because callers want different
+ * ones — a loader wants the allocation, a reader of a single hunk's contents
+ * wants what was actually stored.
+ */
+function readHeader(r: BinReader): number[] {
   if (r.u32() !== HUNK_HEADER) throw new Error('not an Amiga hunk file')
   // resident library names: a list of length-prefixed strings, zero-terminated
   for (let len = r.u32(); len !== 0; len = r.u32()) r.skip(len * 4)
@@ -72,6 +82,38 @@ export function loadHunks(bytes: Uint8Array, base = 0x0021_0000): LoadedHunks {
   if (last < first || tableSize === 0) throw new Error('bad hunk header')
   const sizes: number[] = []
   for (let i = first; i <= last; i++) sizes.push((r.u32() & 0x0fff_ffff) * 4)
+  return sizes
+}
+
+/**
+ * The contents of the first code hunk, as stored — no relocation, no copy.
+ *
+ * This is what a reader of a LIBRARY wants rather than a loader: AMOS
+ * extensions are a single code hunk whose token table is read where it lies,
+ * and `parseAmosLib` then indexes into the returned view.
+ *
+ * It deliberately stops after that hunk's contents and never looks at the
+ * trailing relocation, symbol or debug blocks. `loadHunks` must parse those to
+ * completion and throws on anything it does not recognise, which is right for
+ * a loader and wrong here — the corpus tools (`libscan`, `libpool`, `genext`)
+ * run over user-supplied `.Lib` files from outside the fixture set, where
+ * being able to read the table out of a slightly odd file is the whole job.
+ *
+ * WIDENED relative to the version this replaces: that one rejected any file
+ * carrying a resident library name list, where `readHeader` skips it properly.
+ * Strictly more permissive, so no file that parsed before parses differently.
+ */
+export function firstCodeHunk(bytes: Uint8Array): Uint8Array {
+  const r = new BinReader(bytes)
+  readHeader(r)
+  const type = r.u32() & 0x0fff_ffff
+  if (type !== HUNK_CODE) throw new Error(`expected first hunk to be code, got $${type.toString(16)}`)
+  return r.raw(r.u32() * 4)
+}
+
+export function loadHunks(bytes: Uint8Array, base = 0x0021_0000): LoadedHunks {
+  const r = new BinReader(bytes)
+  const sizes = readHeader(r)
 
   // place them, in order, four-byte aligned
   const hunks: Hunk[] = []

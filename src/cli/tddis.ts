@@ -46,7 +46,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { firstCodeHunk } from '../tokens/libtok'
 import { extensionById } from '../ext/registry'
-import { hunkAt, loadHunks, readPtr } from '../loader/hunk'
+import { hunkAt, loadHunks, readPtr } from '../amiga/hunk'
 
 const args = process.argv.slice(2)
 const showTable = args.includes('--table')
