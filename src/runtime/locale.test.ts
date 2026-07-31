@@ -53,15 +53,22 @@ const chunk = (id: string, body: number[]): number[] => [
 
 /**
  * An AmigaOS message catalog: FORM....CTLG with LANG and STRS. Each STRS
- * entry is `ULONG id / ULONG length / bytes`, NUL-terminated and padded to a
- * multiple of four — which is what makes the length larger than the string.
+ * entry is `ULONG id / ULONG length / bytes`, the bytes NUL-terminated and
+ * the ENTRY then padded on to the next longword.
+ *
+ * The length is the string's OWN length, NUL included — the padding is NOT
+ * counted in it. That distinction is why this builder was wrong the first
+ * time: it wrote the padded length, which round-tripped happily against a
+ * reader that made the same mistake and misread every real catalog ever
+ * shipped. locale.corpus.test.ts is what caught it.
  */
 function catalog(language: string, strings: Array<[number, string]>): Uint8Array {
   const strs: number[] = []
   for (const [id, s] of strings) {
     const raw = [...cc(s), 0]
+    const len = raw.length
     while (raw.length % 4 !== 0) raw.push(0)
-    strs.push(...be32(id), ...be32(raw.length), ...raw)
+    strs.push(...be32(id), ...be32(len), ...raw)
   }
   const body = [
     ...cc('CTLG'),

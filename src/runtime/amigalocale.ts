@@ -261,13 +261,17 @@ const be32 = (b: Uint8Array, o: number): number =>
 /**
  * `OpenCatalog`'s file reader: `FORM....CTLG` with `FVER`, `LANG`, `CSET` and
  * `STRS` chunks. The strings live in STRS as a run of
- * `ULONG id / ULONG length / bytes[length]`, each entry NUL-terminated and
- * padded so the length is a multiple of four.
+ * `ULONG id / ULONG length / bytes[length]`, the bytes NUL-terminated and the
+ * ENTRY then padded on to the next multiple of four.
  *
- * NOTE. No `.catalog` file is in this archive and none ships with the Locale
- * extension, so this is written from the format rather than checked against a
- * Commodore-produced example. The tests build one byte by byte and read it
- * back, which pins the reader against the format as understood here.
+ * That padding is the whole subtlety, and it is why this is checked against
+ * 8,283 real catalogs (see locale.corpus.test.ts) rather than only against a
+ * file the tests build themselves. The length field is the string's OWN
+ * length, NUL included, and the padding is separate — `reqtools.catalog`
+ * opens with id 1, length 5, `" _Ok\0"`, then three bytes of padding before
+ * id 2. Reading the length as though it already included the padding
+ * misaligns the walk after the first entry, which a self-built fixture that
+ * pads its own lengths will happily fail to notice.
  */
 export function parseCatalog(data: Uint8Array): Catalog | null {
   if (data.length < 12 || fourcc(data, 0) !== 'FORM' || fourcc(data, 8) !== 'CTLG') return null
@@ -293,7 +297,7 @@ export function parseCatalog(data: Uint8Array): Catalog | null {
         let s = ''
         for (let i = 0; i < len && data[q + i] !== 0; i++) s += String.fromCharCode(data[q + i]!)
         cat.strings.set(strId, s)
-        q += len
+        q += (len + 3) & ~3 // the entry pads on to the next longword
       }
     }
     p = body + size + (size & 1) // IFF chunks pad to even
