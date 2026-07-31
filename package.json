@@ -54,6 +54,7 @@
     "gentables": "tsx src/cli/gentable.ts && tsx src/cli/genext.ts && tsx src/cli/genedmsg.ts && tsx src/cli/genmouse.ts",
     "extscan": "tsx src/cli/extscan.ts",
     "contested": "tsx src/cli/contested.ts",
+    "libcat": "tsx src/cli/libcat.ts",
     "lint": "oxlint"
   },
   "devDependencies": {
