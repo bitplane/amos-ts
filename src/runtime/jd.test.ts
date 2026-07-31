@@ -850,3 +850,259 @@ describe('JD 5.9: the keywords the later table added', () => {
     expect(val59('Jd Dpath("")')).toBe('1')
   })
 })
+
+/**
+ * The keywords the earlier slices classified FAITHFUL but never ran.
+ *
+ * The faithfulness gate found these: 27 keywords asserting they had been
+ * checked against the 68k, none of which the suite dispatched, so the claim
+ * rested on code review alone. Each test below runs the keyword and cites the
+ * routine the port was written from. One of them changed an answer rather than
+ * confirming it — see Jd Array$ Clear.
+ */
+describe('JD: the keywords the gate caught', () => {
+  /** run with a scripted host, as the input describe above does */
+  function runWithInput(src: string, feed: (rt: Runtime, frame: number) => void): string {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 2_000_000,
+      onText: (t) => (out += t),
+    })
+    for (let f = 0; f < 40; f++) {
+      feed(rt, f)
+      const r = rt.frame()
+      if (r.status === 'ended' || r.status === 'stopped') break
+    }
+    return out
+  }
+
+  /** a Runtime run to completion, for the keywords whose effect is state */
+  function runRt(src: string): Runtime {
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 2_000_000,
+    })
+    rt.runHeadless(500)
+    return rt
+  }
+
+  it('Asl IS Lsl — the 68000 has no arithmetic left shift that differs', () => {
+    // routine 76 (+|jd.s:3781) is `asl.l #1,d3`, and asl and lsl are the same
+    // instruction on the 68000: only the flags differ, and JD reads none
+    expect(val('Jd Asl(1,1)')).toBe('2')
+    expect(val('Jd Asl(1,-8)')).toBe('-16')
+    expect(val('Jd Asl(1,-8)')).toBe(val('Jd Lsl(1,-8)'))
+    // asr is the one that keeps the sign, and it is a different answer
+    expect(val('Jd Asr(1,-8)')).toBe('-4')
+  })
+
+  it('Find answers 0 on a string array, having no pointers to follow', () => {
+    // routine 80 (+|jd.s:3878) hands each element to Jd Compare's matcher; a
+    // string array's elements are pointers the arena does not map. See NOTES.
+    expect(run('Dim A(5) : B=Array(A(0)) : Print Jd Find(B,"x")').trim()).toBe('0')
+  })
+
+  it('Array$ Clear leaves a string array alone — it is not in the arena', () => {
+    // routine 152 (:6053) points every element at a fresh empty string, so on
+    // the machine a program reads the array back empty. Here Array(A$(0)) does
+    // not answer an arena address at all, so there is nothing to repoint and
+    // the contents survive. This test is why the comment above the handler now
+    // says so; it claimed the opposite.
+    const out = run([
+      'Dim A$(3)',
+      'A$(0)="x" : A$(3)="y"',
+      'B=Array(A$(0))',
+      'Jd Array$ Clear B',
+      'Print "["+A$(0)+"]["+A$(3)+"]"',
+    ].join('\n'))
+    expect(out.trim()).toBe('[x][y]')
+    // and the numeric form, which does map, still clears every element
+    expect(
+      run('Dim A(2) : A(0)=1 : A(2)=3 : B=Array(A(0)) : Jd Array Clear B : Print A(0);",";A(2)').trim(),
+    ).toBe('0, 0')
+  })
+
+  it('Checkprt answers 0 — nothing is attached', () => {
+    // routine 83 (+|jd.s:4002), and IOPorts already settled that this port has
+    // no printer unless the host supplies one
+    expect(val('Jd Checkprt')).toBe('0')
+  })
+
+  it('Flush is a no-op a program cannot observe', () => {
+    // routine 87 flushes the DOS buffers; there is nothing for a program to
+    // see afterwards that differs, which is why it is faithful rather than a
+    // stub. What is checked here is that it dispatches and does not throw.
+    expect(run('Jd Flush : Print "ok"').trim()).toBe('ok')
+  })
+
+  it('Print writes through the console when there is no RastPort font', () => {
+    // routine 89 (:4215) writes through the font Jd Textfont hung on the
+    // RastPort; there is no RastPort here, so the text goes to the console
+    expect(run('Jd Print "hi" : Print "|"').trim()).toBe('hi|')
+  })
+
+  it('Screen Resolution switches the current screen to hires and back', () => {
+    // routine 161 (+|jd.s:6796)
+    expect(runRt('Screen Open 0,320,200,16,Lowres : Jd Screen Resolution 1').screen.hires).toBe(true)
+    expect(runRt('Screen Open 0,640,200,16,Hires : Jd Screen Resolution 0').screen.hires).toBe(false)
+  })
+
+  it('Video On clears what Video Off set', () => {
+    // routines 112 and 113 (:5140, :5145) are DMACON writes; modelled as a
+    // blank display, because with the copper stopped there is nothing to walk
+    expect(runRt('Jd Video Off').jd.videoOff).toBe(true)
+    expect(runRt('Jd Video Off : Jd Video On').jd.videoOff).toBe(false)
+  })
+
+  it('Draw Segment walks the arc between the two angles', () => {
+    // routine 160 (+|jd.s:6199). Angle 0 is (x+rx, y), 90 is (x, y+ry), and a
+    // 0..90 segment covers both ends and nothing outside the quadrant
+    const out = run([
+      'Screen Open 0,320,200,16,Lowres : Cls 0 : Ink 7',
+      'Jd Draw Segment 100,100,50,50,0,90',
+      'Print Point(150,100);",";Point(100,150);",";Point(50,100)',
+    ].join('\n'))
+    expect(out.trim()).toBe('7, 7, 0')
+  })
+
+  it('Ppdecrunch leaves the destination alone when the source is not PP20', () => {
+    // routine 120 (:5216). The port runs the same decruncher LDos slice 9
+    // wired up, behind the signature check the routine makes first
+    const out = run([
+      'Reserve As Work 1,64 : Reserve As Work 2,64',
+      'Loke Start(2),$AABBCCDD',
+      'Jd Ppdecrunch Start(1),Start(2),64',
+      'Print Hex$(Leek(Start(2)))',
+    ].join('\n'))
+    expect(out.trim()).toBe('$AABBCCDD')
+  })
+
+  it('Spread writes its finished line, centred', () => {
+    // routine 46 (+|jd.s:2755) reveals a centred string a character at a time
+    // through AMOS's Centre. The motion is not paced here (see the DEVIATION);
+    // the finished line is what a program can observe afterwards.
+    const out = run('Jd Spread "hi",1,1')
+    expect(out.trimEnd().endsWith('hi')).toBe(true)
+    // centred on a 40-column screen: (40-2)/2 = 19 spaces
+    expect(out.indexOf('hi')).toBe(19)
+  })
+
+  it('Tscroll waits for the button or key that would have stopped it', () => {
+    // routine 47 (:2863) ends on `btst #6,$bfe001` or a key
+    const out = runWithInput('Jd Tscroll "go",1,1 : Print "|"', (rt, f) => {
+      if (f === 3) rt.input.mouseK = 1
+    })
+    expect(out).toContain('go')
+    expect(out).toContain('|')
+  })
+
+  it('Wait Amiga needs the Amiga key held as well as the other one', () => {
+    // routine 43 (+|jd.s:2507). A key on its own is not enough
+    const out = runWithInput('Print Jd Wait Amiga', (rt, f) => {
+      if (f === 2) rt.input.keyQueue.push({ ch: 'a', scan: 32 })
+      if (f === 5) {
+        rt.input.keys.add(0x66)
+        rt.input.keyQueue.length = 0
+        rt.input.keyQueue.push({ ch: 'b', scan: 53 })
+      }
+    })
+    expect(out.trim()).toBe(String('b'.charCodeAt(0)))
+  })
+
+  it('Moff Key and Double Click read the same host state as their neighbours', () => {
+    // routines 142 and 145 (:5907, :5941) go to the hardware because Jd Multi
+    // Off is exec's Forbid; there is no Forbid here and one input path, so
+    // they agree with the ordinary readers always
+    const out = runWithInput('Print Jd Moff Key;",";Jd Double Click', (rt, f) => {
+      if (f === 0) {
+        rt.input.keyQueue.push({ ch: 'q', scan: 16 })
+        rt.input.mouseK = 1
+      }
+    })
+    expect(out.trim()).toBe('16, 1')
+  })
+
+  it('Get String$ and Get Number take the line the host supplies', () => {
+    // routines 44 and 37 (:2521, :2217) are their own line editors; this port
+    // routes them through the one the core's Input uses (see the DEVIATION),
+    // so what is checked is the value and the length bound, not the editing
+    const rt = new Runtime(tokenize('A$=Jd Get String$("dflt",3)\nPrint "["+A$+"]"', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 2_000_000,
+      onText: (t) => (text += t),
+    })
+    let text = ''
+    rt.frame()
+    expect(rt.interp.blocked?.type).toBe('input')
+    rt.submitLine('abcdefgh')
+    rt.frame()
+    // bounded by maxlen, which is 3
+    expect(text).toContain('[abc]')
+  })
+
+  it('Get Number falls back to the default on an empty line, and takes 254 for 0', () => {
+    let text = ''
+    const rt = new Runtime(tokenize('Print Jd Get Number(42,0)', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 2_000_000,
+      onText: (t) => (text += t),
+    })
+    rt.frame()
+    expect(rt.interp.blocked?.type).toBe('input')
+    rt.submitLine('')
+    rt.frame()
+    // `no_lim` (:2222) takes 254 when the length is 0, so nothing truncates,
+    // and an empty line leaves the default standing
+    expect(text).toContain('42')
+  })
+})
+
+describe('JD: the device list and the directory counts (+|jd.s:4262-5769)', () => {
+  function runFs(src: string): string {
+    let out = ''
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 2_000_000,
+      fs,
+      onText: (t) => (out += t),
+    })
+    const r = rt.runHeadless(500)
+    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    return out
+  }
+
+  it('Count Dirs counts the directories where Count Files counts the rest', () => {
+    // routines 136 and 137 (+|jd.s:5761, :5769)
+    const out = runFs([
+      'Mkdir "RAM:one" : Mkdir "RAM:two"',
+      'Open Out 1,"RAM:f.txt" : Print #1,"x" : Close 1',
+      'Print Jd Count Dirs("RAM:")',
+      'Print Jd Count Files("RAM:")',
+    ].join('\n'))
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['2', '1'])
+  })
+
+  it('Hardware$, Volume$ and Logical$ are the three halves of the device list', () => {
+    // routines 90, 91 and 92 (:4262, :4267, :4272). Physical devices, mounted
+    // volumes and assigns; the first two answer the same list here because a
+    // mounted memory volume IS the device
+    const out = runFs([
+      'Print "["+Jd Volume$+"]"',
+      'Print "["+Jd Hardware$+"]"',
+      'Print "["+Jd Logical$+"]"',
+    ].join('\n'))
+    const lines = out.trim().split('\n').map((s) => s.trim())
+    expect(lines[0]).toContain('RAM')
+    expect(lines[1]).toContain('RAM')
+    // no assigns unless something makes one
+    expect(lines[2]).toBe('[]')
+  })
+})

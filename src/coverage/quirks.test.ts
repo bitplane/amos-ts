@@ -43,10 +43,14 @@ interface Marker {
 /**
  * Every DEVIATION/DEFECT in the tree, however it is spelled.
  *
+ * A marker OPENS a comment line — that is how every one of them is written,
+ * and it is what makes the set greppable. Mid-sentence the same word is
+ * ordinary prose: a test that says "see the DEVIATION above" is citing one,
+ * not declaring one, and demanding a colon there would only teach people to
+ * stop citing them.
+ *
  * Deliberately case-sensitive and deliberately loose about what follows the
- * word: this has to see the malformed ones to be able to reject them. The
- * word must stand alone, so "deviation" in running prose and `DEVIATIONS` are
- * both invisible to it.
+ * word: this has to see the malformed ones to be able to reject them.
  */
 function markers(): Marker[] {
   const out: Marker[] = []
@@ -54,9 +58,8 @@ function markers(): Marker[] {
     const rel = relative(src, file)
     const lines = readFileSync(file, 'utf8').split('\n')
     lines.forEach((line, i) => {
-      for (const m of line.matchAll(/\b(DEVIATION|DEFECT)\b(.?)/g)) {
-        out.push({ file: rel, line: i + 1, word: m[1]!, text: m[2]! })
-      }
+      const m = /^\s*(?:\*|\/\/)?\s*(DEVIATION|DEFECT)\b(.?)/.exec(line)
+      if (m) out.push({ file: rel, line: i + 1, word: m[1]!, text: m[2]! })
     })
   }
   return out

@@ -195,3 +195,42 @@ describe('JD Colour: the palette instructions', () => {
     }
   })
 })
+
+/**
+ * The Colour keywords the faithfulness gate found classified FAITHFUL with
+ * nothing dispatching them.
+ */
+describe('JD Colour: the separations the gate caught (+|col.s:519-640)', () => {
+  it('Magenta and Yellow follow Cyan\'s shape with a different channel forced', () => {
+    // Cyan (:617) is the model: the other two components average into green
+    // with a +1 rounding and the remaining channel is forced to $F. Magenta
+    // forces RED, Yellow forces BLUE, each keeping the channel Cyan drops.
+    // $F80 is r=15 g=8 b=0, so the average is (8+15+0+1)/3 = 8.
+    expect(val('Hex$(Jd Separate Cyan($F80))')).toBe('$F8F')
+    expect(val('Hex$(Jd Separate Magenta($F80))')).toBe('$F80')
+    expect(val('Hex$(Jd Separate Yellow($F80))')).toBe('$FF8')
+  })
+
+  it('the rounding is a real +1, not a truncation', () => {
+    // $111: (1+1+1+1)/3 = 1 where a plain average would also give 1, so use
+    // $222 where (2+2+2+1)/3 = 2 and $F00 where (0+15+0+1)/3 = 5
+    expect(val('Hex$(Jd Separate Magenta($F00))')).toBe('$F50')
+    expect(val('Hex$(Jd Separate Yellow($F00))')).toBe('$FF5')
+  })
+
+  it('Green keeps only its own channel, as Red and Blue do', () => {
+    // Hex$ does not pad, so the leading nibbles simply vanish from the text
+    expect(val('Hex$(Jd Separate Green($F80))')).toBe('$80')
+    expect(val('Hex$(Jd Separate Red($F80))')).toBe('$F00')
+    expect(val('Hex$(Jd Separate Blue($F8C))')).toBe('$C')
+  })
+
+  it('Key To Asc answers 0 — the pair of tables is not carried', () => {
+    // The manual's own example is Jd Key To Asc(253) -> 49, and 253 is not an
+    // Amiga rawkey, so the tables are AMOS's own rather than the keyboard's.
+    // Inventing a mapping to satisfy one example would be worse than what the
+    // routine answers for a code it cannot find. See the DEVIATION and NOTES.
+    expect(val('Jd Key To Asc(253)')).toBe('0')
+    expect(val('Jd Key To Asc(65)')).toBe('0')
+  })
+})

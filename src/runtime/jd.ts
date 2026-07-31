@@ -1804,11 +1804,16 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
      * longwords, which is every element including the last.
      *
      * Jd Array$ Clear (routine 152, :6053) does the same for a string array by
-     * pointing every element at one freshly allocated empty string. This port
-     * maps numeric cells rather than the string blocks behind them, so the
-     * string form clears the pointers to zero instead of to a shared empty
-     * string; a program that reads the array back gets empty strings either
-     * way.
+     * pointing every element at one freshly allocated empty string.
+     *
+     * DEVIATION: the string form does not clear anything. A string array is
+     * not in the address space this port maps at all — `Array(A$(0))` does not
+     * answer an arena address the way it does for a numeric array — so there
+     * are no element pointers here to point anywhere, and a program that reads
+     * the array back afterwards still finds what it put there. Same root cause
+     * as Jd Find, which answers 0 on a string array for want of the same
+     * pointers; the numeric Jd Array Clear is unaffected and matches the
+     * routine. See NOTES.
      */
     'jd array clear'(it) {
       const addr = it.evalInt()

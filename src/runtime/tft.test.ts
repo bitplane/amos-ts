@@ -235,3 +235,36 @@ describe('what the library cannot answer', () => {
     expect(val('Init Cpu Clear(1,1,0)')).toBe('0')
   })
 })
+
+describe('the hardware mouse readers ($8ec, $8f8)', () => {
+  /**
+   * Get Xmouse and Get Ymouse are the words TFT's interrupt leaves at +$08 and
+   * +$0a of its workspace. The doc marks both "(Privat)", and they are the
+   * HARDWARE position rather than AMOS's screen-relative X Mouse — so they are
+   * answered from the same place this port's own hardware reads come from.
+   */
+  it('answer the hardware position, not the AMOS screen one', () => {
+    let out = ''
+    const rt = new Runtime(tokenize('Print Get Xmouse;",";Get Ymouse', table, extensions), table, {
+      maxSteps: 2_000_000,
+      extensions,
+      onText: (t) => (out += t),
+    })
+    rt.input.mouseX = 300
+    rt.input.mouseY = 120
+    rt.runHeadless(200)
+    expect(out.trim()).toBe('300, 120')
+  })
+
+  it('are words — the reads are `move.w`, so they wrap at 16 bits', () => {
+    let out = ''
+    const rt = new Runtime(tokenize('Print Get Xmouse', table, extensions), table, {
+      maxSteps: 2_000_000,
+      extensions,
+      onText: (t) => (out += t),
+    })
+    rt.input.mouseX = 0x1_0005
+    rt.runHeadless(200)
+    expect(out.trim()).toBe('5')
+  })
+})
