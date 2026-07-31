@@ -294,6 +294,36 @@ a registered-but-unimplemented extension is useful on its own: programs using it
 detokenise with real keyword names instead of `{ext12:$02d4}`, and unimplemented
 functions return a type-correct default rather than a type mismatch.
 
+### Before you implement: ask what it contests
+
+```
+npm run contested -- eme
+```
+
+Dispatch is by name (that is what "a slot number is not an identity" forces),
+so two products spelling a keyword the same way is not a syntax error — it is
+one layer silently answering for the other, in every program, forever. The
+token tables know this before a line of the port is written:
+
+```
+eme (eme-3.0)
+59 keywords, 49 contested
+
+armed (49) — the other side is ported — porting this one collides
+  bell           amospro-music*
+  boom           amospro-music*
+  ...
+```
+
+Every collision needs a decision, and there are only two: the names mean the
+same thing and one implementation serves both, or they do not and the port
+declares them in `qualified` so each answers only on its own slot (see
+`src/runtime/extimpl.ts`). Finding that out afterwards means threading the
+declaration back through work that is already finished.
+
+Run it with no argument for the whole picture — `live` is what is misdispatching
+today, `armed` is what the next port sets off.
+
 ## The published list
 
 Andrew Burton maintained an AMOS Extensions List from the AMOS-LIST archives,
