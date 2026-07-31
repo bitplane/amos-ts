@@ -58,6 +58,7 @@ import { decodeFFP } from '../tokens/stream'
 import { JD_CRYPT } from './jd-crypt.gen'
 import { pp20Decrunch } from '../loader/powerpacker'
 import type { Runtime } from './runtime'
+import { stampToDate } from '../amiga/datestamp'
 
 /**
  * The two errors the library raises, by AMOS error number (L_outdim equ 150,
@@ -181,8 +182,7 @@ const setArrayDim = (rt: Runtime, base: number, v: number): void => writeWord(rt
 
 /** the host clock as a Date, which is where Date$ and Time$ both come from */
 function stampDate(rt: Runtime): Date {
-  const st = rt.host.clock.now()
-  return new Date(Date.UTC(1978, 0, 1) + st.days * 86_400_000 + st.mins * 60_000 + Math.floor(st.ticks / 50) * 1000)
+  return stampToDate(rt.host.clock.now())
 }
 
 /** sortable YYYYMMDD from a "DD.MM.YYYY" string, for the Actual Date$ compare */

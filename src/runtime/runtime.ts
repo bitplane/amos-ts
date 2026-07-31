@@ -30,7 +30,7 @@ import type { ResourceBank } from '../loader/resource'
 import type { Extension } from '../ext/registry'
 import { DEFAULT_PALETTE, Screen, builtinPattern, sliderMetrics } from './screen'
 import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from './instr'
-import { defaultHost, type Host } from './host'
+import { defaultHost, type Host } from '../amiga/host'
 import { newLdosState, type LdosState } from './ldos'
 import { newTftState, tftVbl, type TftState } from './tft'
 import { newJvpState, type JvpState } from './jvp'
@@ -114,7 +114,7 @@ export function fromFFP(v: number): number {
   return sign * (mant / 0x1000000) * 2 ** exp
 }
 import type { AudioSink, SampleEntry } from './audio'
-import { AmigaFS } from './vfs'
+import { AmigaFS } from '../amiga/vfs'
 
 /**
  * One rainbow (RainTable entry, +WEqu.s:169-183, NbRain = 4). The 12-bit

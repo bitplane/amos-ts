@@ -93,9 +93,9 @@ import {
   strnCmp,
   type Catalog,
   type Civil,
-} from './amigalocale'
+} from '../amiga/localelib'
 
-export { parseCatalog } from './amigalocale'
+export { parseCatalog } from '../amiga/localelib'
 
 /** `OpenLocale(NULL)` succeeded; the value only ever has to be non-zero */
 const LOCALE_PTR = 0x7f10_0000

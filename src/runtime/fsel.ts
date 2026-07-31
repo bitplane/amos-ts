@@ -16,7 +16,7 @@ import type { AmosArray } from '../interp/interp'
 import type { Runtime } from './runtime'
 import type { DialogChannel, DialogZone } from './dialog'
 import { drawEditZone, drawListZone, drawSliderZone } from './dialog'
-import { amigaPattern, fillSortKey, joinAmigaPath, parentAmigaPath } from './vfs'
+import { amigaPattern, fillSortKey, joinAmigaPath, parentAmigaPath } from '../amiga/vfs'
 
 /** zone numbers the script gives its widgets (Fs_PathN / Fs_FileN / Fs_ListN) */
 export const FS_PATH_ZONE = 14

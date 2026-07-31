@@ -61,6 +61,7 @@ import type { Runtime } from './runtime'
  */
 import { amigaMatch, parsePatternResult } from './ldospat'
 import { pp20Decrunch } from '../loader/powerpacker'
+import { DAY_MS, STAMP_EPOCH, stampToYmd as amigaStampToYmd } from '../amiga/datestamp'
 
 /**
  * Convert an ANSI escape sequence to the AMOS console's own control codes,
@@ -178,12 +179,15 @@ const latin1 = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.ch
 const FIB_ST_USERDIR = 2
 const FIB_ST_FILE = -3
 
-const STAMP_EPOCH = Date.UTC(1978, 0, 1)
-const DAY_MS = 86_400_000
-
+/**
+ * LDos's view of a datestamp: the shared calendar, with LDos's own clamp on
+ * top. The manual is explicit that `Ldate` floors at the epoch -- "If the
+ * date is before 1 Jan 1978, 1 Jan 1978 will still be returned" -- and that
+ * is LDos's rule, not AmigaDOS's, so it lives here rather than in
+ * ../amiga/datestamp.ts where it would silently apply to everyone.
+ */
 export function stampToYmd(days: number): [number, number, number] {
-  const d = new Date(STAMP_EPOCH + Math.max(0, days) * DAY_MS)
-  return [d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()]
+  return amigaStampToYmd(Math.max(0, days))
 }
 
 /**

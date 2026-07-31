@@ -25,7 +25,7 @@ import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import type { Screen } from './screen'
 import { ED_RUN_MESSAGES } from './edmessages.gen'
-import type { PrinterPage, SerialPortHandle, SerialLineParams } from './host'
+import type { PrinterPage, SerialPortHandle, SerialLineParams } from '../amiga/host'
 import { defaultJdPrtPrefs, type JdPrtPrefs } from './jdprt'
 
 /**

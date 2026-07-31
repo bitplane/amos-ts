@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AmigaFS } from '../runtime/vfs'
+import { AmigaFS } from '../amiga/vfs'
 import { baseName, deleteEntry, moveEntry, newDrawer, relabelVolume, renameEntry } from './filemanager'
 
 const enc = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.charCodeAt(0)))

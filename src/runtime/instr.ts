@@ -38,7 +38,7 @@ import {
   prescanDialog,
   updateZone,
 } from './dialog'
-import { amigaPattern, fillSortKey } from './vfs'
+import { amigaPattern, fillSortKey } from '../amiga/vfs'
 import { MF_BAR, MF_BOUGE, MF_FIXED, MF_OFF, MF_SEP, MF_TBOUGE, MF_TOTAL, bankToMenu, compileMenuObject, menuCalc, menuToBank } from './menu'
 import { ENV_BELL, ENV_BOOM, ENV_SHOOT } from './music'
 import { squash as squashBytes, unsquash as unsquashBytes } from './squash'

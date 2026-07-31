@@ -27,9 +27,9 @@ import { isAmosProgram, loadProgram as compileProgram } from '../loader/program'
 import { VERSION } from '../version'
 import { Runtime } from '../runtime/runtime'
 import { AmosRuntimeError } from '../interp/interp'
-import { AmigaFS, MemoryVolume } from '../runtime/vfs'
+import { AmigaFS, MemoryVolume } from '../amiga/vfs'
 import { readArchive, volumeFromEntries } from '../runtime/archive'
-import { systemClock } from '../runtime/host'
+import { systemClock } from '../amiga/host'
 import { WebAudioSink } from './audio'
 import { WebSerialHost, available as serialAvailable } from './serial'
 
@@ -571,7 +571,7 @@ function printText(text: string): void {
   printerTimer = setTimeout(flushPrinterText, PRINTER_IDLE_MS)
 }
 
-function printPage(page: import('../runtime/host').PrinterPage): void {
+function printPage(page: import('../amiga/host').PrinterPage): void {
   const cv = document.createElement('canvas')
   cv.width = page.width
   cv.height = page.height

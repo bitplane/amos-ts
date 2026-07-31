@@ -4,8 +4,8 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
-import { AmigaFS } from './vfs'
-import { fixedClock, FIXED_DATE } from './host'
+import { AmigaFS } from '../amiga/vfs'
+import { fixedClock, FIXED_DATE } from '../amiga/host'
 import { parseCatalog } from './locale'
 
 /**

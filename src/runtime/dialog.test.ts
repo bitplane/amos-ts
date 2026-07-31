@@ -10,7 +10,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { FS_MAX_STORE, fselAffF, fselFirst, fselJump, fselNext, fselStore, fselStoreList } from './fsel'
-import { AmigaFS } from './vfs'
+import { AmigaFS } from '../amiga/vfs'
 
 const FIXTURES = join(__dirname, '..', '..', 'fixtures')
 const DEFAULT_ABK = join(FIXTURES, 'official-amos', 'APSystem', 'AMOSPro_Default_Resource.Abk')

@@ -26,7 +26,7 @@ import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseCatalog } from './amigalocale'
+import { parseCatalog } from '../amiga/localelib'
 
 const corpus = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures', 'catalogs')
 

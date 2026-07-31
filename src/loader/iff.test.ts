@@ -4,7 +4,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from '../runtime/runtime'
-import { AmigaFS } from '../runtime/vfs'
+import { AmigaFS } from '../amiga/vfs'
 
 describe('ILBM encoder (Save Iff)', () => {
   it('round-trips pixels, palette, mode and dimensions through parseIlbm', () => {

@@ -34,9 +34,11 @@
  * that boundary protects. A `.language` file could be modelled later; the
  * table-driven shape below is what would make that possible.
  */
-import { LANGUAGE_STRINGS, LONG_ORDER, SHORT_ORDER, STR_ID, TO_LOWER, TO_UPPER } from './locale.gen'
+import { yearDay, type Civil } from './datestamp'
+import { LANGUAGE_STRINGS, LONG_ORDER, SHORT_ORDER, STR_ID, TO_LOWER, TO_UPPER } from './localelib.gen'
 
-export { DEFAULT_FORMATS, MAXSTRMSG, STR_ID } from './locale.gen'
+export { DEFAULT_FORMATS, MAXSTRMSG, STR_ID } from './localelib.gen'
+export { civilFromStamp, type Civil } from './datestamp'
 
 /** StrnCmp types — SC_ASCII, SC_COLLATE1, SC_COLLATE2 (libraries/locale.h) */
 export const SC_ASCII = 0
@@ -101,45 +103,6 @@ export function strnCmp(s1: string, s2: string, length: number, type: number): n
 }
 
 // ---- dates -----------------------------------------------------------------
-
-export interface Civil {
-  year: number
-  month: number // 1-12
-  day: number // 1-31
-  hour: number
-  min: number
-  sec: number
-  /** 0 = Sunday, matching DAY_1 */
-  weekday: number
-}
-
-/**
- * An AmigaDOS DateStamp — days since 1 January 1978, minutes since midnight,
- * ticks at 1/50s — as civil fields. 1 January 1978 was a Sunday, which is what
- * makes the weekday a plain remainder.
- */
-export function civilFromStamp(days: number, mins: number, ticks: number): Civil {
-  const d = new Date(Date.UTC(1978, 0, 1) + days * 86_400_000)
-  return {
-    year: d.getUTCFullYear(),
-    month: d.getUTCMonth() + 1,
-    day: d.getUTCDate(),
-    hour: Math.floor(mins / 60),
-    min: mins % 60,
-    sec: Math.floor(ticks / 50),
-    weekday: ((days % 7) + 7) % 7,
-  }
-}
-
-/** `dayspermonth` — days elapsed before the given month in a non-leap year */
-const DAYS_BEFORE = [0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
-
-const isLeap = (y: number): boolean => y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0)
-
-/** day of the year, 1-366 */
-function yearDay(t: Civil): number {
-  return t.day + DAYS_BEFORE[t.month]! + (isLeap(t.year) && t.month > 2 ? 1 : 0)
-}
 
 /**
  * `PrintDigits(number, fill, len)`. A fill of -1 means no padding at all,

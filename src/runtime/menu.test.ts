@@ -7,7 +7,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
-import { AmigaFS } from './vfs'
+import { AmigaFS } from '../amiga/vfs'
 
 const FIXTURES = join(__dirname, '..', '..', 'fixtures')
 const DATA_MENU = join(FIXTURES, 'official-amos', 'Tutorial', 'Tutorials', 'Menus', 'Data.Menu')

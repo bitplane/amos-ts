@@ -1,4 +1,4 @@
-import { MemoryVolume } from './vfs'
+import { MemoryVolume } from '../amiga/vfs'
 import { isAdf, readAdf } from '../loader/adf'
 
 /**

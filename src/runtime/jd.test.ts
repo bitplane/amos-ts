@@ -6,7 +6,7 @@ import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { NA } from '../coverage/status'
 import { makeAllInstructions } from './instr'
-import { AmigaFS } from './vfs'
+import { AmigaFS } from '../amiga/vfs'
 
 const table = new TokenTable(CORE_TOKENS)
 /**

@@ -5,8 +5,8 @@ import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
-import { AmigaFS } from './vfs'
-import { fixedClock } from './host'
+import { AmigaFS } from '../amiga/vfs'
+import { fixedClock } from '../amiga/host'
 import { ldosKey } from './ldos'
 import { pp20Crunch } from '../loader/powerpacker'
 import { existsSync, readFileSync } from 'node:fs'
@@ -30,7 +30,7 @@ const enc = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.charC
 
 function run(
   src: string,
-  extra: { host?: Partial<import('./host').Host> } = {},
+  extra: { host?: Partial<import('../amiga/host').Host> } = {},
 ): { out: string; fs: AmigaFS; rt: Runtime } {
   const fs = new AmigaFS()
   fs.mountMemory('DH0')

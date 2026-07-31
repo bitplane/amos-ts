@@ -14,22 +14,12 @@
  * list as the `n/a` keyword classifications — they are two views of one fact.
  * A keyword is n/a because it needs something the host cannot give it.
  */
-import type { AmosFS } from './fs'
-import type { AudioSink } from './audio'
+import type { AmosFS } from '../runtime/fs'
+import type { AudioSink } from '../runtime/audio'
 
-/**
- * An AmigaDOS DateStamp. This is the shape AmigaDOS itself uses and the
- * currency every dated thing in the system speaks: `Lsys Stamp`, `Lsys Time`,
- * `Lset File Date` and the datestamp on every file all want exactly this.
- */
-export interface DateStamp {
-  /** days since 1 January 1978 */
-  days: number
-  /** minutes since midnight */
-  mins: number
-  /** ticks elapsed in the current minute, at 1/50 s — a vertical blank */
-  ticks: number
-}
+import { dateToStamp, type DateStamp } from './datestamp'
+
+export type { DateStamp } from './datestamp'
 
 /**
  * Wall-clock time. Deliberately separate from AMOS's `Timer`, which counts
@@ -54,13 +44,7 @@ export const fixedClock = (at: DateStamp = FIXED_DATE): Clock => ({ now: () => (
 
 /** A real clock. The default — see defaultHost(). */
 export const systemClock = (): Clock => ({
-  now(): DateStamp {
-    const d = new Date()
-    const utcMidnight = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())
-    const days = Math.floor((utcMidnight - Date.UTC(1978, 0, 1)) / 86_400_000)
-    const mins = d.getHours() * 60 + d.getMinutes()
-    return { days, mins, ticks: Math.floor((d.getSeconds() * 1000 + d.getMilliseconds()) / 20) }
-  },
+  now: (): DateStamp => dateToStamp(new Date()),
 })
 
 /**

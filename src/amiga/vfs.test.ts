@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { AmigaFS, amigaPattern } from './vfs'
-import { readTar, readZip, volumeFromEntries } from './archive'
+import { readTar, readZip, volumeFromEntries } from '../runtime/archive'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
-import { Runtime } from './runtime'
+import { Runtime } from '../runtime/runtime'
 
 const enc = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.charCodeAt(0)))
 

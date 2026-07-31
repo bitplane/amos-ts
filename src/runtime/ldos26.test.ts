@@ -4,7 +4,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
-import { AmigaFS } from './vfs'
+import { AmigaFS } from '../amiga/vfs'
 import { ansiToAmos, newLdosState } from './ldos'
 import { lcompress, ldecompress } from './ldoslz'
 

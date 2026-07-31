@@ -8,7 +8,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { parseAmosFile } from '../loader/amosfile'
 import { Runtime } from './runtime'
 import { NullAudio, periodToHz } from './audio'
-import { AmigaFS } from './vfs'
+import { AmigaFS } from '../amiga/vfs'
 import type { MemoryBank } from '../loader/amosfile'
 
 const table = new TokenTable(CORE_TOKENS)

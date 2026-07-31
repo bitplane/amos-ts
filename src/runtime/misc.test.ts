@@ -4,7 +4,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { EXTENSION_TOKENS } from '../ext/registry'
-import { AmigaFS } from './vfs'
+import { AmigaFS } from '../amiga/vfs'
 import { ED_RUN_MESSAGES } from './edmessages.gen'
 
 const table = new TokenTable(CORE_TOKENS)

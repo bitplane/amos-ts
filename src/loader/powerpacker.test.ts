@@ -7,7 +7,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from '../runtime/runtime'
-import { AmigaFS } from '../runtime/vfs'
+import { AmigaFS } from '../amiga/vfs'
 import { pp20Crunch, pp20Decrunch, parsePpBank, writePpBank } from './powerpacker'
 
 function lcg(seed: number): () => number {

@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import { AmigaFS } from '../runtime/vfs'
-import type { DirEntry, Volume } from '../runtime/vfs'
+import { AmigaFS } from '../amiga/vfs'
+import type { DirEntry, Volume } from '../amiga/vfs'
 
 /** disk-backed read-only Volume with case-insensitive resolution */
 export class NodeVolume implements Volume {

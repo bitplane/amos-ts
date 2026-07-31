@@ -6,7 +6,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { makeIoPortsFunctions } from './ioports'
 import { VI, VS } from '../interp/values'
-import { fixedClock, type SerialHost, type SerialLineParams } from './host'
+import { fixedClock, type SerialHost, type SerialLineParams } from '../amiga/host'
 import { AMOS_ERRORS } from '../interp/values'
 
 const table = new TokenTable(CORE_TOKENS)

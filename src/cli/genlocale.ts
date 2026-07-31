@@ -1,5 +1,5 @@
 /**
- * Generate src/runtime/locale.gen.ts from the AROS locale.library sources.
+ * Generate src/amiga/localelib.gen.ts from the AROS locale.library sources.
  *
  * ## Why AROS is the right source for this
  *
@@ -25,7 +25,7 @@
  *
  * AROS is APL/LGPL. This generator EXTRACTS DATA — numeric tables, string ids
  * and format templates — and emits it as a data module; it copies no AROS
- * code, and the runtime behaviour in ../runtime/locale.ts is written against
+ * code, and the behaviour in ../amiga/localelib.ts is written against
  * the documented API rather than transcribed. Character-case tables and
  * collation orders for ISO-8859-1, the English names of the days and months,
  * and a struct's field order are interface facts, not creative expression.
@@ -260,9 +260,9 @@ ${list(longOrder)}
 ]
 `
 
-const dest = join(root, 'src', 'runtime', 'locale.gen.ts')
+const dest = join(root, 'src', 'amiga', 'localelib.gen.ts')
 writeFileSync(dest, out)
 console.log(
-  `locale.gen.ts written: ${strings.length} strings (MAXSTRMSG ${MAXSTRMSG}), ` +
+  `localelib.gen.ts written: ${strings.length} strings (MAXSTRMSG ${MAXSTRMSG}), ` +
     `4 x 256-entry tables, ${fmts.length} format strings`,
 )

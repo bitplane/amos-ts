@@ -39,7 +39,7 @@ export { FONT8 } from './runtime/font.gen'
 // these a consumer could pass an object literal but could not name the type,
 // write a helper, implement SerialHost, or reach the clocks -- which made
 // `clock` unsatisfiable from outside the package.
-export { defaultHost, fixedClock, systemClock, FIXED_DATE } from './runtime/host'
+export { defaultHost, fixedClock, systemClock, FIXED_DATE } from './amiga/host'
 export type {
   Host,
   Clock,
@@ -49,4 +49,4 @@ export type {
   SerialHost,
   SerialLineParams,
   SerialPortHandle,
-} from './runtime/host'
+} from './amiga/host'

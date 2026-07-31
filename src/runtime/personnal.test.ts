@@ -4,7 +4,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { extensionById } from '../ext/registry'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
-import { AmigaFS } from './vfs'
+import { AmigaFS } from '../amiga/vfs'
 
 const table = new TokenTable(CORE_TOKENS)
 // Personnal is third-party, so no stock slot map binds it: the source puts

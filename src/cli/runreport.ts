@@ -23,7 +23,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { walkMatching } from './walk'
-import { fixedClock } from '../runtime/host'
+import { fixedClock } from '../amiga/host'
 import { parseAmosFile } from '../loader/amosfile'
 import { parseSource, TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'

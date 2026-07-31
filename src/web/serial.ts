@@ -23,7 +23,7 @@
  * Availability: Chromium desktop over HTTPS. Firefox, Safari and mobile have
  * no Web Serial, and `available()` says so rather than throwing later.
  */
-import type { SerialHost, SerialLineParams, SerialPortHandle } from '../runtime/host'
+import type { SerialHost, SerialLineParams, SerialPortHandle } from '../amiga/host'
 
 /** The slice of the Web Serial API this uses, so the DOM lib is not required. */
 interface WebSerialPort {

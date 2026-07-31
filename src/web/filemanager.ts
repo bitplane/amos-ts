@@ -10,7 +10,7 @@
  *
  * Kept apart from main.ts so it can be tested without a DOM.
  */
-import { AmigaFS, joinAmigaPath, parentAmigaPath } from '../runtime/vfs'
+import { AmigaFS, joinAmigaPath, parentAmigaPath } from '../amiga/vfs'
 
 /** what happened, in a form the status line can show */
 export interface FsResult {
