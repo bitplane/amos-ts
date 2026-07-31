@@ -3,6 +3,7 @@ import { varKey } from '../interp/prescan'
 import type { Instr, Func } from '../interp/builtins'
 import { implLabel, implSlots, qualifyForSlots, type ExtensionImpl } from './extimpl'
 import { makeLdosFunctions, makeLdosInstructions } from './ldos'
+import { makeJdK3Functions, makeJdK3Instructions } from './jdk3'
 import { makeTftFunctions, makeTftInstructions } from './tft'
 import { TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions, turboDefault } from './turbo'
 import { PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
@@ -4952,6 +4953,17 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     ids: ['jd-5.3', 'jd-5.9'],
     instructions: makeJdInstructions,
     functions: makeJdFunctions,
+    errors: JD_ERRORS,
+  },
+  {
+    // the K3 companion at slot 19 — six keywords, sharing the JD state
+    ids: ['jd-k3-1.1'],
+    instructions: makeJdK3Instructions,
+    functions: makeJdK3Functions,
+    // K3's Jd Relabel is dos.library's; the main JD library's keyword of the
+    // same name rewrites a root block through trackdisk and stays n/a. Bound
+    // to K3's own slot so the two do not become one. See jdk3.ts.
+    qualified: ['jd relabel'],
     errors: JD_ERRORS,
   },
   {

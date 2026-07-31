@@ -50,7 +50,7 @@ tested against our own understanding. Percentages exclude n/a
 | jd-colour-1.4 | 38 | 26 | 0 | 0 | 100% |
 | jd-colour-2.0 | 12 | 4 | 0 | 0 | 100% |
 | jd-int-1.3 | 33 | 0 | 0 | 33 | 0% |
-| jd-k3-1.1 | 5 | 0 | 0 | 5 | 0% |
+| jd-k3-1.1 | 5 | 5 | 0 | 0 | 100% |
 | jd-prt-1.3 | 63 | 63 | 0 | 0 | 100% |
 | jd-prt-1.4 | 6 | 6 | 0 | 0 | 100% |
 | jotre-1.0 | 5 | 0 | 0 | 5 | 0% |
@@ -90,7 +90,7 @@ tested against our own understanding. Percentages exclude n/a
 | turbo-plus-2.15 | 17 | 17 | 0 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 4358 | 1313 | 44 | 2890 | 32% |
+| **total** | 4358 | 1318 | 44 | 2885 | 32% |
 
 ## aga-1.0 (0%)
 
@@ -264,9 +264,9 @@ tested against our own understanding. Percentages exclude n/a
 
 - **missing**: `jd close intscreen`, `jd close intwindow`, `jd intbar`, `jd intbox`, `jd intclass`, `jd intcls`, `jd intcolour`, `jd intcurs(x)`, `jd intcurs(y)`, `jd intdrawmode`, `jd intellipse`, `jd intevent`, `jd intfill`, `jd intline`, `jd intlocate`, `jd intmouse(x)`, `jd intmouse(y)`, `jd intmove`, `jd intpaper`, `jd intpen`, `jd intplot`, `jd intpoint`, `jd intprint`, `jd intscreen height`, `jd intscreen width`, `jd intzone`, `jd open intscreen`, `jd open intwindow`, `jd rem intzones`, `jd show intscreen`, `jd show intwindow`, `jd use intscreen`, `jd use intwindow`
 
-## jd-k3-1.1 (0%)
+## jd-k3-1.1 (100%)
 
-- **missing**: `jd match`, `jd match nocase`, `jd star joker off`, `jd star joker on`, `jd toggle click`
+- **faithful**: `jd match` *(Faithful, and worth recording because the library's own manual disagrees with itself. Two entries are HEADED 'Jd Compare' and 'Jd Compare Nocase', but their Syntax lines read `X=Jd Match(A$,B$)` and the token table names them `jd match` and `jd match nocase`. The headings are stale; the table is what a program tokenises against. The matcher is the AmigaDOS one LDos already needed, shared rather than written twice -- the manual documents the same syntax down to `%` matching nothing -- and the `star` flag it takes is precisely what Jd Star Joker On/Off sets)*, `jd match nocase`, `jd star joker off`, `jd star joker on`, `jd toggle click` *(The state is kept and nothing clicks. It toggles the noise a floppy drive makes while polling for a disk -- 'wechselt Status des Laufwerk-Klickens' -- and there is no drive here to make it. Recorded rather than dropped, the same treatment the printer and serial settings get: a program can set it, and it applies to hardware that is not attached)*
 
 ## jd-prt-1.3 (100%)
 
@@ -402,7 +402,7 @@ tested against our own understanding. Percentages exclude n/a
 
 ## tft-0.6 (100%)
 
-- **faithful**: `cpu clear`, `cpu clear ntsc`, `cpu clear pal`, `get high word`, `get low word`, `get timer`, `get xmouse`, `get ymouse`, `init bpl scroll`, `init cpu clear`, `init timer`, `qsort`, `set bpl`, `start int`, `start timer`, `stop int`, `stop timer`, `tft error$`, `tft version`, `var mask`
+- **faithful**: `cpu clear` *(Faithful, which here means it always fails. Routine 26 ($12c8) is not a clear of its own: it range-checks the address and then calls whatever routine pointer sits at the extension workspace+$132, raising error 12 when that is zero. Nothing in this library's twenty-two keywords ever writes $132 -- Init Cpu Clear reads a table at +$13a and returns a value without installing anything, and no other routine touches the field -- so unless the library's own init fills it, which this port has not established either way, error 12 is the only outcome. None of the eight demos calls it; they all use Cpu Clear Ntsc)*, `cpu clear ntsc`, `cpu clear pal`, `get high word` *(Faithful, and it is not what the doc says. `a=Get High Word(_adr)` reads like a memory fetch; routine 6 ($7ae) is `and.l #$ffff0000,d3 / swap d3`, which takes the high word of the VALUE and touches no memory. The demo settles it in the author's own words -- 'Entspricht - High=Wert/$10000' -- and adds that once compiled the plain division is faster, which only makes sense if no memory is involved. Get Low Word is the same story with `and.l #$ffff`)*, `get low word`, `get timer`, `get xmouse`, `get ymouse`, `init bpl scroll` *(The table is copied, the guard is honoured -- nine longs, error 6 if any is zero -- and the flag Start Int waits on is set, so the error behaviour a program can observe is exact. What does not happen is any scrolling: the interrupt this arms is 68k inside the library that rewrites copper bitplane pointers every frame, and there is no interrupt here to run it in. Marked '(Privat)' by the author, and reached in the demos only through Start Int's error path)*, `init cpu clear` *(Returns zero. This is a defect in the library rather than a limit of the port: the return register d4 is never initialised, and every failed validation branches straight to the exit that returns it, so most inputs hand back whatever the caller happened to leave in d4. Only one path -- third argument zero, second in 1..14 -- loads it at all, from a table at workspace+$13a that no keyword ever fills, and the path for a positive third argument falls through its own bounds check without loading anything. Zero is what a cleared table gives, and there is no stale register here to hand back instead)*, `init timer`, `qsort` *(Faithful, a Hoare partition over 32-bit values with the pivot from the middle element and a SIGNED comparison (`cmp.l`). `first` and `last` are element indices, which the routine shifts into byte offsets itself. The only argument check is `cmpa.w #0,a0` -- and CMPA.W sign-extends its immediate to a longword before comparing, so what it rejects is a zero ADDRESS, not an address whose low word happens to be zero, which is a distinction the port has to get right because bank addresses here are page-aligned)*, `set bpl`, `start int` *(Faithful. Worth recording because the first reading was wrong: it looked as though this gated the whole interrupt including the five timers, and it does not -- timer.amos and timer1.amos never call it, and their timers run. So the interrupt is installed when the library loads and always maintains the timers and the mouse words; the flag at workspace+$00 that Start Int sets gates the bitplane scrolling alone, which is why it refuses with error 5 until Init Bpl Scroll has given it a table)*, `start timer`, `stop int`, `stop timer`, `tft error$` *(Returns the empty string, and the reason is the keyword's own premise. It splits its argument into a slot (the high byte, which must be 25) and an error number, then indexes a table of NUL-terminated strings at workspace+$60 that AMOS supplies per extension. TFT ships no message file and the binary contains no message text at all -- the only strings in it are its own token table. The keyword exists precisely because of that gap: its demo explains that AMOS's own Error$ 'giebt leider keine Text meldungen aus, wenn der fehler von einer Extension verursacht wird'. With no table loaded the routine falls to its empty fallback, which is what this answers. The same absence is why the wording of every TFT error raised by this port is the port's own descriptive text rather than the library's)*, `tft version`, `var mask`
 - **n/a**: `mfm luecke`, `mfm read`
 
 ## the-game-0.9 (0%)

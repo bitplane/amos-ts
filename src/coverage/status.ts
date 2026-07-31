@@ -1441,6 +1441,16 @@ export const FAITHFUL = new Set<string>([
   // 4.6 only, dropped by 5.3 (+jd-4.6/jd.s:5293)
   'jd stream$',
 
+  // --- JD-K3 1.1, the smallest of the five at slot 19. Its own manual, in
+  // the same form as the rest of the JD set; see src/runtime/jdk3.ts.
+  // `jd relabel` is NOT here: the plain name belongs to the main JD library,
+  // whose version is n/a below, and K3's is registered slot-qualified.
+  'jd match',
+  'jd match nocase',
+  'jd star joker on',
+  'jd star joker off',
+  'jd toggle click',
+
   // --- JD Prt 1.3/1.4, from the author's own prt.s (PowerPacked, 14.5 KB
   // unpacked, public domain by its header) for the 63 in 1.3, and from the
   // 1.4 binary for the six it adds. Every sequence is the byte string in the
@@ -1964,6 +1974,10 @@ export const NOTES: Record<string, string> = {
     "Faithful. Worth recording because the first reading was wrong: it looked as though this gated the whole interrupt including the five timers, and it does not -- timer.amos and timer1.amos never call it, and their timers run. So the interrupt is installed when the library loads and always maintains the timers and the mouse words; the flag at workspace+\$00 that Start Int sets gates the bitplane scrolling alone, which is why it refuses with error 5 until Init Bpl Scroll has given it a table",
   qsort:
     "Faithful, a Hoare partition over 32-bit values with the pivot from the middle element and a SIGNED comparison (`cmp.l`). `first` and `last` are element indices, which the routine shifts into byte offsets itself. The only argument check is `cmpa.w #0,a0` -- and CMPA.W sign-extends its immediate to a longword before comparing, so what it rejects is a zero ADDRESS, not an address whose low word happens to be zero, which is a distinction the port has to get right because bank addresses here are page-aligned",
+  'jd toggle click':
+    "The state is kept and nothing clicks. It toggles the noise a floppy drive makes while polling for a disk -- 'wechselt Status des Laufwerk-Klickens' -- and there is no drive here to make it. Recorded rather than dropped, the same treatment the printer and serial settings get: a program can set it, and it applies to hardware that is not attached",
+  'jd match':
+    "Faithful, and worth recording because the library's own manual disagrees with itself. Two entries are HEADED 'Jd Compare' and 'Jd Compare Nocase', but their Syntax lines read `X=Jd Match(A\$,B\$)` and the token table names them `jd match` and `jd match nocase`. The headings are stale; the table is what a program tokenises against. The matcher is the AmigaDOS one LDos already needed, shared rather than written twice -- the manual documents the same syntax down to `%` matching nothing -- and the `star` flag it takes is precisely what Jd Star Joker On/Off sets",
   lrol: "The manual calls it 'a logical shift left' and the library's own error message agrees -- 'You can only shift 31 bits a time!' -- but routine 85 (\$3af6) is `rol.l`, a rotate: the bits that leave the top come back in at the bottom. `Lrol(8,\$FF000000)` is \$FF here and would be 0 under the prose. The binary wins, the same rule that settled LDos's crypt routines. The 8-at-a-time loop above it is only the 68k's immediate-shift limit, not part of the meaning, and the bound `cmp.l #\$1f,d0` is UNSIGNED so a negative count fails it exactly as 32 does",
   lror: 'The same rotate as Lrol, `ror.l` at \$3b1e, and the same note applies to the manual calling it a shift',
   lstrcmp:

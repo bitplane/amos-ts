@@ -29,6 +29,24 @@ const registries = {
 // implements is the part after the colon. See Names.qualified.
 const unqualify = (n: string): string => n.replace(/^ext\d+:/, '')
 const implemented = new Set(Object.values(registries).flat().map(unqualify))
+/**
+ * The same set WITHOUT the qualified entries, which is the right question to
+ * ask of NA. A qualified registration answers for one slot's keyword, not for
+ * the plain name every other layer shares — so it cannot contradict an n/a
+ * classification of that plain name.
+ *
+ * JD-K3's `Jd Relabel` is the case that needed this. Two libraries in the JD
+ * family use the name: K3's is dos.library renaming a volume, which AmigaFS
+ * can do, while the main JD library's rewrites a root block through
+ * trackdisk and is n/a with the rest of that block-device family. Collapsing
+ * the two would have forced a choice between overstating JD and dropping a
+ * keyword that works.
+ */
+const implementedPlain = new Set(
+  Object.values(registries)
+    .flat()
+    .filter((n) => !/^ext\d+:/.test(n)),
+)
 
 const known = new Set<string>()
 for (const e of CORE_TOKENS) {
@@ -96,7 +114,7 @@ describe('coverage manifest consistency', () => {
   it('NA entries are real tokens and never implemented', () => {
     const fake = [...NA].filter((n) => !known.has(n))
     expect(fake).toEqual([])
-    const contradiction = [...NA].filter((n) => implemented.has(n))
+    const contradiction = [...NA].filter((n) => implementedPlain.has(n))
     expect(contradiction).toEqual([])
   })
 })

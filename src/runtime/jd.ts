@@ -87,9 +87,18 @@ export interface JdState {
   /** the font metrics Jd Char X / Jd Char Y report, set by Jd Textfont */
   charW: number
   charH: number
+  /**
+   * JD-K3's Jd Star Joker On/Off: whether `*` is a DOS wildcard. Its manual
+   * records that `*` is "not available by default in 2.0. Available as an
+   * option that can be turned on", so it starts off. See jdk3.ts.
+   */
+  starJoker: boolean
+  /** JD-K3's Jd Toggle Click — kept, and nothing clicks; see jdk3.ts */
+  driveClick: boolean
 }
 export function newJdState(): JdState {
-  return { areaFirst: 0, areaLast: 0, dimSaves: new Map(), videoOff: false, charW: 8, charH: 8 }
+  return { areaFirst: 0, areaLast: 0, dimSaves: new Map(), videoOff: false, charW: 8, charH: 8,
+    starJoker: false, driveClick: true }
 }
 
 /** L_outdim (+|jd.s:6027): `moveq #23,d0` then L_Error — 26 call sites share it */
