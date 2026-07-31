@@ -50,6 +50,15 @@ If a change here would make a port's documented behaviour *more consistent*
 with something else, that is a warning sign, not a win. The library being
 ported gets to be as inconsistent as it actually was.
 
+The sharpest form of that rule is about bugs. A library that shipped wrong
+gets reproduced wrong, and `../runtime/README.md` sets out the `DEFECT:`
+marker those places carry — but a `DEFECT:` may never appear in this
+directory, and `../coverage/quirks.test.ts` enforces it. A bug belonging to
+one release of one library is the least shareable thing in the codebase; put
+it in a subsystem and every other caller silently inherits behaviour it has no
+source for. `DEVIATION:` *is* allowed here, because the modelled machine
+really does differ from the real one and saying where is the whole job.
+
 ## Contents
 
 | module | models |

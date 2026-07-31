@@ -353,10 +353,9 @@ export function makeJvpInstructions(rt: Runtime): Record<string, Instr> {
      * order — "you won't get any adresses or strings back, but an index-
      * number", to be used as the doc's `String$=T$(n(nr))`.
      *
-     * NOTE, and it is a defect of the library's rather than a deviation:
-     * the traversal never emits element 0 when element 0 is the list's
-     * MAXIMUM. Its exit test (source:312, binary $3e2) climbs to the parent
-     * and, on finding itself back at the root, checks only foer[0] and
+     * DEFECT: the traversal never emits element 0 when element 0 is the
+     * list's MAXIMUM. Its exit test (source:312, binary $3e2) climbs to the
+     * parent and, on finding itself back at the root, checks only foer[0] and
      * efter[0] — never skrevet[0]. The root is therefore emitted solely by
      * the branch that descends into a right child, and the maximum has none.
      * DEST is left one entry short, always the last one, since a maximum
@@ -365,8 +364,8 @@ export function makeJvpInstructions(rt: Runtime): Record<string, Instr> {
      * missing is index 0, so the last row of a sorted listing silently shows
      * the first record. Reproduced: nothing here writes that slot either.
      *
-     * NOTE, also the library's: the insert loop runs before its own
-     * bound is tested (`SO_LE1` adds 4 to d6 and only then compares), so
+     * DEFECT: a second one, in the same keyword. The insert loop runs before
+     * its own bound is tested (`SO_LE1` adds 4 to d6 and only then compares), so
      * ANT of 0 or 1 still inserts a phantom element 1, read from four bytes
      * past the address list. The tree then holds two nodes and the traversal
      * writes TWO longwords into a DEST the doc sizes at 4*ANT. Reproduced;
@@ -529,7 +528,8 @@ export function makeJvpFunctions(rt: Runtime): Record<string, Func> {
      * =Jvp Str$(ad1..ad6) (source:439) — six DOS strings AT ADDRESSES, each
      * "terminated by <chr$(32)". An address of 0 leaves that field blank.
      *
-     * NOTE, a defect in the shipped binary rather than a deviation. The
+     * NOTE — a defect in the shipped binary that a program cannot observe, so
+     * it carries neither marker (see ./README.md). The
      * length pass reads the StrLen table through `adda.l $0.l,a0`
      * (binary $558) — absolute address 0, not the workspace: the source's
      * `add.l StrLen-MB,a0` (source:451) has StrLen-MB = 0 and assembled as

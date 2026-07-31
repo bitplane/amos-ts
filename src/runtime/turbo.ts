@@ -489,8 +489,8 @@ function objectLoad(rt: Runtime, it: Interp): void {
   let idx = start - 1
   const last = u.getInt16(4, false) + idx
   if (t.limit === 0 || last > t.limit - 1) turboError(18)
-  // START below 1 indexes behind the pointer array on the real machine,
-  // which is memory corruption rather than behaviour worth reproducing
+  // DEVIATION: START below 1 indexes behind the pointer array on the real
+  // machine, which is memory corruption rather than behaviour to reproduce
   if (idx < 0) return
   let count = u.getInt16(6, false)
   let off = 8
@@ -1168,9 +1168,11 @@ function sceneDraw(rt: Runtime, it: Interp, big: boolean): void {
  * with `lsr.w #3`, and left y1 alone. `Scene Draw` and `Scene 16 Def`, which
  * compute their own destination, both still multiply — so the whole
  * viewport family, and only the viewport family, puts its top edge at line
- * `y1 / rowBytes` instead of line `y1`. It is reproduced rather than
- * corrected: a program written against the real 2.15 is drawing where this
- * puts it. `Scene 16/32 View scr,x1,0 To x2,y2` is unaffected.
+ * `y1 / rowBytes` instead of line `y1`.
+ *
+ * DEFECT: reproduced rather than corrected, because a program written against
+ * the real 2.15 is drawing where this puts it. `Scene 16/32 View scr,x1,0 To
+ * x2,y2` is unaffected.
  */
 function sceneViewCore(
   rt: Runtime,
@@ -2074,9 +2076,9 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       if (nr <= 0 || nr > 96) funcCall()
       const d = rt.turbo.blits[nr - 1]
       if (!d) turboError(12)
-      // `btst #0` then `btst #15` on the stored masks: a Blit Store Left
-      // zone with a shift below 8 matches neither, and the routine returns
-      // having changed nothing at all
+      // DEFECT: `btst #0` then `btst #15` on the stored masks — a Blit Store
+      // Left zone with a shift below 8 matches neither, so the routine
+      // returns having changed nothing at all. Reproduced.
       if ((d.masks & 1) === 0 && (d.masks & 0x8000) === 0) return
       d.shift = shift
     },

@@ -169,7 +169,7 @@ export function makeLocaleInstructions(rt: Runtime): Record<string, Instr> {
     /**
      * Close Catalog — routine 11 ($618), `CloseCatalog` and nothing else.
      *
-     * NOTE, a defect of the library's: it never clears the pointer at +$04.
+     * DEFECT: it never clears the pointer at +$04.
      * `Catalog Active` reads that field directly ($63e), so after Close
      * Catalog it goes on reporting a catalog that has been freed — the doc's
      * "returns 0 if no catalog is loaded" is not true once one has been

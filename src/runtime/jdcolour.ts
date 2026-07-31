@@ -268,9 +268,10 @@ export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
      * and 253 is not an Amiga rawkey — so the tables are AMOS's own, not the
      * keyboard's. This port does not carry that pair, and inventing a mapping
      * that happened to satisfy one documented example would be worse than
-     * answering what the routine answers for a code it cannot find. So this
-     * returns 0, always, and it is the one keyword in the Colour library whose
-     * behaviour is not reproduced. See NOTES.
+     * answering what the routine answers for a code it cannot find.
+     *
+     * DEVIATION: this returns 0, always, and it is the one keyword in the
+     * Colour library whose behaviour is not reproduced. See NOTES.
      */
     'jd key to asc'(_, a): Value {
       void arg(a, 0)

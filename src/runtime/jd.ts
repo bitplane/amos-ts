@@ -143,8 +143,10 @@ function shiftLoop(count: number, value: number, step: (v: number, x: number) =>
 
 /**
  * The century years JD counts as leap, from its own table (`yeartable`,
- * +|jd.s:822). It stops at 4800, so 5200 and beyond answer "not a leap year"
- * where the calendar says otherwise — the table is the library's limit and
+ * +|jd.s:822).
+ *
+ * DEFECT: it stops at 4800, so 5200 and beyond answer "not a leap year" where
+ * the calendar says otherwise. The table is the library's limit and
  * reproducing it is the point.
  */
 const JD_CENTURY_LEAPS = [1600, 2000, 2400, 2800, 3200, 3600, 4000, 4400, 4800]
@@ -439,10 +441,10 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
      * The three-argument form looks at the FIRST BYTE of pad$ only: '0' pads
      * with zeros, anything else with spaces (:1815).
      *
-     * DEVIATION, and it is the original's: the two-argument form does not set
-     * the pad at all — it branches straight into the shared routine, so it
-     * inherits whatever the last three-argument call left behind, and on a
-     * fresh library that is zero-padding. Reproducing a stale global across
+     * DEVIATION: from a defect of the original's. The two-argument form does
+     * not set the pad at all — it branches straight into the shared routine,
+     * so it inherits whatever the last three-argument call left behind, and on
+     * a fresh library that is zero-padding. Reproducing a stale global across
      * calls would be faithful to a bug that no program can be relying on
      * deliberately; this uses the initial state ('0') for the two-argument
      * form every time, which is what a program sees unless it has already
@@ -462,7 +464,7 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
      * One character round: Rol$ moves the first to the end, Ror$ the last to
      * the front.
      *
-     * DEVIATION on the empty string. The routines do not check for one: Ror$
+     * DEVIATION: on the empty string. The routines do not check for one: Ror$
      * reads `(a0,d0.w)` with d0 = -1, which is the high byte of the length
      * word, and then runs a dbra from -2 — 65,535 iterations over whatever
      * follows. That is a crash, not a behaviour, so an empty string comes back
@@ -844,7 +846,7 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
      *     Here the string ends where it ends, so that read finds nothing; on
      *     the machine it read whatever followed in the string bank.
      *
-     * DEVIATION, and the one place this cannot follow: an EMPTY string starts
+     * DEVIATION: the one place this cannot follow. An EMPTY string starts
      * the counter at zero, so the `beq` never fires and the routine walks
      * backwards through memory until it chances on a ':' or a '/'. That is a
      * runaway read, not an answer. Here it returns 1 — the position it would
@@ -976,7 +978,7 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
      * themselves. This port has one line editor already — the block the core's
      * Input uses — and these go through it, so the host supplies the editing.
      *
-     * DEVIATION, stated plainly: the field is not painted at a fixed width and
+     * DEVIATION: stated plainly, the field is not painted at a fixed width and
      * the editing keys are the host's, not JD's. What a program gets back is
      * the same string or number within the same length bound; what a person
      * sees while typing it differs.
@@ -1206,7 +1208,7 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
     /**
      * =Jd Time$ — routine 6 (+|jd.s:1205). "HH:MM:SS", eight characters.
      *
-     * DEVIATION worth knowing: this does NOT ask the operating system. It
+     * DEVIATION: worth knowing — this does NOT ask the operating system. It
      * reads the battery-backed clock chip at $DC0000 directly, nibble by
      * nibble — an MSM6242B, which only exists on a machine that has one
      * fitted. On an A500 without a clock the routine returns whatever the
@@ -1776,8 +1778,10 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
      * Jd Array Swap array,i,j — routine 151 (+|jd.s:6030). Exchanges two
      * longword elements. Both indices are checked with `bge` against the
      * dimension word, so an index EQUAL to it is error 23 — even though the
-     * array holds that element and Jd Array Clear wipes it. The two keywords
-     * disagree by one in the original; both are reproduced as written.
+     * array holds that element and Jd Array Clear wipes it.
+     *
+     * DEFECT: the two keywords disagree by one in the original; both are
+     * reproduced as written.
      */
     'jd array swap'(it) {
       const addr = it.evalInt()

@@ -30,18 +30,17 @@
  * (`cmpa.l a5,a3`, $3a20). Between refills it runs all sixteen items, whatever
  * the source pointer is doing.
  *
- * `Lcompress` does not pad its last group, so a stream almost always ends
- * part-way through one — and `Ldecompress` decodes the rest of that group
+ * DEFECT: `Lcompress` does not pad its last group, so a stream almost always
+ * ends part-way through one — and `Ldecompress` decodes the rest of that group
  * anyway, from bytes past the end of the compressed data. The result is up to
  * fifteen extra bytes written after the real output, and an OUTLEN that
- * counts them. This is the library's behaviour, not a defect in the reading of
- * it; the manual's "you must keep track of how large this bank need to be
- * yourself, since Lcompress saves no information about this" is exactly the
- * warning that goes with it.
+ * counts them. Reproduced; the manual's "you must keep track of how large this
+ * bank need to be yourself, since Lcompress saves no information about this"
+ * is exactly the warning that goes with it.
  *
- * NOTE. On the Amiga those trailing bytes are whatever memory followed the
- * compressed data, so their VALUES are undefined; here the reads past the end
- * give zero. The count matches, the contents cannot. A program that trusts
+ * DEVIATION: on the Amiga those trailing bytes are whatever memory followed
+ * the compressed data, so their VALUES are undefined; here the reads past the
+ * end give zero. The count matches, the contents cannot. A program that trusts
  * anything past the length it compressed was reading uninitialised memory on
  * the real machine too.
  *

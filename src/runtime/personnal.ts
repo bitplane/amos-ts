@@ -1108,7 +1108,8 @@ function planeCol(rt: Runtime, n: number, allow: boolean): void {
   if (s.others === 0) err(1)
   if (n < 1 || n > 6) return
   s.bplanesMask = allow ? s.bplanesMask | (1 << n) : s.bplanesMask & ~(1 << n)
-  // n<<6 taken modulo 32 is 0 for every n in range — the library's bug, kept
+  // DEFECT: n<<6 taken modulo 32 is 0 for every n in range, so the Bset
+  // always lands on bit 0 whichever plane was named. Reproduced.
   const a = s.others + 26
   putW(rt, a, allow ? getW(rt, a) | 1 : getW(rt, a) & ~1)
 }

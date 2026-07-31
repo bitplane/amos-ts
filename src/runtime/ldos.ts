@@ -468,8 +468,8 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
     },
     lbstr(it) {
       // Lbstr A$,START — copy a string into a bank. "No check is done to see
-      // whether the bufferlimit was exceeded or not", which the port cannot
-      // reproduce: writes are bounded by the region they land in rather than
+      // whether the bufferlimit was exceeded or not".
+      // DEVIATION: writes are bounded by the region they land in rather than
       // running on into whatever follows.
       const s = it.evalStr()
       it.expect(',')
@@ -597,9 +597,9 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
     },
     'lpp decrunch'(it) {
       // Lpp Decrunch START,END To DEST — "no test is done to see if the bank
-      // really contains a powerpacked file! Be careful!" That warning is
-      // reproduced as far as it can be: a bank that is not PP20 decrunches to
-      // nothing here rather than scribbling over memory.
+      // really contains a powerpacked file! Be careful!"
+      // DEVIATION: a bank that is not PP20 decrunches to nothing here rather
+      // than scribbling over memory, which is as far as the warning goes.
       const start = it.evalInt()
       it.expect(',')
       const end = it.evalInt()

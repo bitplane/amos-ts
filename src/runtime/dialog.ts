@@ -1371,9 +1371,10 @@ export class DialogExec {
 
   /**
    * Dia_GetRout +Lib.s:23878: a `[...]` routine — offset, or 0 when empty.
-   * (The 68k peek desynchronizes its bracket-depth count when the routine's
-   * first char is another `[`; that bug is not reproduced — we re-scan from
-   * the saved position, which is what the code plainly intends.)
+   *
+   * DEVIATION: the 68k peek desynchronizes its bracket-depth count when the
+   * routine's first char is another `[`. That bug is not reproduced — we
+   * re-scan from the saved position, which is what the code plainly intends.
    */
   private getRout(): number {
     const bracket = this.cur.next()

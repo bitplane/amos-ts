@@ -370,15 +370,17 @@ export function makeTftFunctions(rt: Runtime): Record<string, Func> {
      * Init Cpu Clear(a,b,c) — routine 27 ($1306). Validates, then reads one
      * long from a table at workspace+$13a indexed by its second argument.
      *
-     * NOTE, and it is a defect rather than a deviation: the return register
-     * d4 is never initialised, and every failed check branches straight to
-     * the exit that returns it. Only one path — third argument zero, second
-     * in 1..14 — ever loads it, and the path for a positive third argument
-     * falls through its own bounds check without loading anything. Nor does
-     * any keyword fill the table it reads. So in this build the routine
-     * returns a stale register on most inputs and a zero from the cleared
-     * table otherwise; zero is what this answers, since the port has no stale
-     * register to hand back.
+     * The library's own defect is that the return register d4 is never
+     * initialised, and every failed check branches straight to the exit that
+     * returns it. Only one path — third argument zero, second in 1..14 — ever
+     * loads it, and the path for a positive third argument falls through its
+     * own bounds check without loading anything. Nor does any keyword fill
+     * the table it reads. So in this build the routine returns a stale
+     * register on most inputs and a zero from the cleared table otherwise.
+     *
+     * DEVIATION: zero is what this answers on every input, because a stale
+     * register is not a value the port has. The defect is the library's and
+     * this is the one place it cannot be reproduced.
      */
     'init cpu clear'() {
       return VI(0)

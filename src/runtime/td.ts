@@ -276,7 +276,7 @@ const LINK_KIND: Record<number, { ext: string; missing: number; bad: number }> =
  * object that refers to it, which is why the engine looks each one up before
  * reading it off disc.
  *
- * Not reproduced: the engine gates the ".3DO" suffix on a flag at a4+$b1a
+ * DEVIATION: the engine gates the ".3DO" suffix on a flag at a4+$b1a
  * whose setter is not in any path traced so far. Every shipped demo loads by
  * bare name, so the suffix is always added here, and a name that already
  * carries an extension keeps it.
