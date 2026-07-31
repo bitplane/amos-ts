@@ -33,20 +33,63 @@ const extDir = join(root, 'fixtures', 'extensions')
  * AMOSPro_Interpreter_Config assigns them (+Interpreter_Config.s:152-157 —
  * message 15+n holds the filename for slot n).
  */
-const STOCK: Array<{ id: string; name: string; slot: number; file: string }> = [
-  { id: 'amospro-music-2.0', name: 'Music', slot: 1, file: 'AMOSPro_Music.Lib' },
-  { id: 'amospro-compact-2.0', name: 'Compact', slot: 2, file: 'AMOSPro_Compact.Lib' },
-  { id: 'amospro-request-2.0', name: 'Request', slot: 3, file: 'AMOSPro_Request.Lib' },
+const STOCK: Array<{ id: string; name: string; slot: number; file: string; earlier?: string }> = [
+  {
+    id: 'amospro-music-2.0',
+    name: 'Music',
+    slot: 1,
+    file: 'AMOSPro_Music.Lib',
+    earlier:
+      'An earlier build exists and is deliberately NOT registered: AMOSPro_Music.Lib $VER 1.0 on the AMOS PD CD (APD452/APSystem), 49 keywords whose names are all in this table and whose token IDS ARE IDENTICAL to it. The AMOS 1.3 Music at 38 keywords IS registered, as music-1.62, because its ids genuinely differ.',
+  },
+  {
+    id: 'amospro-compact-2.0',
+    name: 'Compact',
+    slot: 2,
+    file: 'AMOSPro_Compact.Lib',
+    earlier:
+      'An earlier build exists and is deliberately NOT registered: Compact.Lib $VER 1.2 from the Amiga Computing issue 66 coverdisk, same three keyword names and the same token ids.',
+  },
+  {
+    id: 'amospro-request-2.0',
+    name: 'Request',
+    slot: 3,
+    file: 'AMOSPro_Request.Lib',
+    earlier:
+      'An earlier build exists and is deliberately NOT registered: Request.Lib $VER 1.41 from the Amiga Computing issue 66 coverdisk, same three keyword names and the same token ids.',
+  },
   { id: 'amospro-compiler-2.0', name: 'Compiler', slot: 5, file: 'AMOSPro_Compiler.Lib' },
-  { id: 'amospro-ioports-2.0', name: 'IOPorts', slot: 6, file: 'AMOSPro_IOPorts.Lib' },
+  {
+    id: 'amospro-ioports-2.0',
+    name: 'IOPorts',
+    slot: 6,
+    file: 'AMOSPro_IOPorts.Lib',
+    earlier:
+      'An earlier build exists and is deliberately NOT registered: AMOSPro_IOPorts.Lib $VER 1.0 on the AMOS PD CD (APD452/APSystem), 39 entries, same names and same token ids. The AMOS 1.3 Serial.Lib 1.2 IS registered, as serial-1.2, because AMOS Pro folded serial, parallel and printer into one extension and renumbered, so its ids do differ.',
+  },
 ]
+
+/**
+ * Why an earlier build can be the wrong thing to register.
+ *
+ * Identification works from the token IDS a program used, because a tokenised
+ * program records (slot, id) and never a name. Two builds that share every id
+ * are therefore indistinguishable in a program, no matter how their keywords
+ * are spelled — so a second registry entry for one can never win an
+ * identification, and can only turn `exact` into `probable` or `ambiguous`.
+ *
+ * Measured, not assumed: registering five such builds took Intuition's own
+ * identification from exact to probable and cost it its `best` candidate
+ * altogether, which ext.test.ts caught. They are recorded here on the sibling
+ * instead, which loses no knowledge and keeps identification sharp.
+ */
 
 const sha = (b: Uint8Array): string => createHash('sha256').update(b).digest('hex')
 
 const infos: ExtensionInfo[] = []
 const tables = new Map<string, TokenEntry[]>()
 
-for (const { id, name, slot, file } of STOCK) {
+for (const { id, name, slot, file, earlier } of STOCK) {
   const raw = readFileSync(join(sys, file))
   const lib = parseAmosLib(raw)
   tables.set(id, lib.tokens)
@@ -64,7 +107,9 @@ for (const { id, name, slot, file } of STOCK) {
     titleStrings: [],
     sha256: sha(raw),
     provenance: `AMOS Professional system disc (APSystem/${file}); slot ${slot} per +Interpreter_Config.s message ${15 + slot}.`,
-    notes: 'Ships with AMOS Professional and is assigned this slot by the stock interpreter config, so in practice it is always found there — but the slot is still only a config entry a user may change.',
+    notes:
+      'Ships with AMOS Professional and is assigned this slot by the stock interpreter config, so in practice it is always found there — but the slot is still only a config entry a user may change.' +
+      (earlier === undefined ? '' : ` ${earlier}`),
   })
 }
 

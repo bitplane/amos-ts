@@ -1,0 +1,21 @@
+{
+  "id": "personnal-extra-1.3",
+  "name": "Personnal EXTRA",
+  "version": "1.3",
+  "author": "unattributed",
+  "source": "binary",
+  "library": "Personnal-EXTRA.Lib",
+  "sha256": "f2c5d5ecb1a283ba108de3c53d0698f9f70611848d41e60afeded6cdb2fccf0c",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "table",
+  "docs": [],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "ultimate-amiga-amos-factory/files/AmosPersonnal1.11/AmosPersonnal1.1/PersonnalEXTRA/Personnal-EXTRA.Lib",
+    "note": "A two-keyword companion shipped inside the Personnal 1.11 distribution, in its own PersonnalEXTRA drawer. Its only identity string is \"Amos1.3\", taken here as the AMOS version it targets rather than its own version, which it does not state. 444 bytes.",
+    "redistribution": "Third-party extension from the Ultimate Amiga AMOS Factory archive, redistribution terms unverified. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Shares NO keyword name with any other table in the registry, including Personnal itself, so it is genuinely separate rather than a Personnal build. Two keywords, neither ported. Identity is weak: no author, no version of its own, one string."
+}

@@ -1,0 +1,21 @@
+{
+  "id": "music-1.62",
+  "name": "Music (AMOS 1.3)",
+  "version": "1.62",
+  "author": "Europress Software",
+  "source": "binary",
+  "library": "Music.Lib",
+  "sha256": "aefa10082485f444c5b8b262399e7f07bd4d9f8aadef8033e4743407adfec068",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "source",
+  "docs": [],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "amiga-computing-ac66-1993-11/files/AMOS/AMOS_System/Music.Lib",
+    "note": "The AMOS 1.3 stock Music library, $VER 1.62, from the Amiga Computing issue 66 coverdisk. 38 keywords, all of whose names appear in AMOS Pro 2.0.",
+    "redistribution": "Amiga Computing issue 66 coverdisk (November 1993), a commercial magazine cover-mount carrying a licensed AMOS 1.3 distribution. Kept as a fixture for identification and reference only."
+  },
+  "notes": "Identifies AMOS 1.3-era programs. The port targets the AMOS Pro 2.0 table."
+}

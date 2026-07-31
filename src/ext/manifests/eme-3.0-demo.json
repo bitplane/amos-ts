@@ -1,0 +1,21 @@
+{
+  "id": "eme-3.0-demo",
+  "name": "Enhanced Music Extension (demo build)",
+  "version": "3.0DEMO",
+  "author": "unattributed",
+  "source": "binary",
+  "library": "Music.Lib",
+  "sha256": "a3f69e32ec3015f82fdb220aacc9f80bc9631425a464e6ac0a8119981e6bfb95",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "table",
+  "docs": [],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "amos-pd-library-cd-1994/files/576-600/APD600/eme/Music.Lib",
+    "note": "A demo build of EME 3.0, per its own $VER cookie, shipped on APD600. 53 of its 55 names are in the registered eme-3.0. EME replaces the stock Music.Lib in place, keeping the filename, which is why it arrives named Music.Lib.",
+    "redistribution": "The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
+  },
+  "notes": "55 keywords, none ported. The demo/full distinction is the library's own; what it withholds has not been established."
+}

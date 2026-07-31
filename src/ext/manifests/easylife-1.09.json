@@ -1,0 +1,21 @@
+{
+  "id": "easylife-1.09",
+  "name": "EasyLife",
+  "version": "1.09",
+  "author": "Paul Hickman",
+  "source": "binary",
+  "library": "AMOSPro_EasyLife.Lib",
+  "sha256": "f9db56e62755d5ac52c36107a74d9038cf9957511cf220d774452dd8aeecd5cf",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "table",
+  "docs": [],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "aminet-dev-amos/files/Easylife110_P1/Lib/AMOSPro_EasyLife.Lib",
+    "note": "The release before the registered 1.10, shipped in the same Aminet upload as 1.10 itself. 155 of its 156 keyword names carry over.",
+    "redistribution": "Uploaded to Aminet, whose terms require the submitter to state distribution conditions. Kept as a fixture for identification and reference only."
+  },
+  "notes": "EasyLife is the documented case of a keyword prefix changing between releases (znsx to elznsx). 157 keywords, none ported."
+}

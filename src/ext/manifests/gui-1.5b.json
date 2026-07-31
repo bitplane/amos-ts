@@ -1,0 +1,21 @@
+{
+  "id": "gui-1.5b",
+  "name": "GUI",
+  "version": "Beta 1.5",
+  "author": "unattributed",
+  "source": "binary",
+  "library": "AMOSPro_GUI.Lib",
+  "sha256": "a4ffb518a1d75c9b81ac7a693b9c7ca055b6efc6aa7dcfea83fbf906929f1324",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "table",
+  "docs": [],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "aminet-dev-amos/files/snc004/SnC-4/AMOS_Extension/AMOSPro_GUI.Lib",
+    "note": "Earlier than both registered GUI builds (1.61 and 2.10); its banner calls itself a beta. Found inside a disk magazine issue rather than a GUI distribution. 46 of its 48 names are in 1.61.",
+    "redistribution": "Uploaded to Aminet, whose terms require the submitter to state distribution conditions. Kept as a fixture for identification and reference only."
+  },
+  "notes": "48 keywords against 204 in 2.10, so the library grew fourfold after this. Explains three corpus programs at slot 24. None ported."
+}

@@ -1,0 +1,21 @@
+{
+  "id": "amcaf-1.40",
+  "name": "AMCAF",
+  "version": "1.40",
+  "author": "Chris Hodges",
+  "source": "binary",
+  "library": "AMOSPro_AMCAF.Lib",
+  "sha256": "501529ea1b0353f710c375bca55bd2c838b1d67063430292c4c13f7aac4ddd98",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "aminet-dev-amos/files/AMCAFExt140InD/AMCAF_Install/AMOSPro_AMCAF.Lib",
+    "note": "The release before the registered 1.50. Its banner dates it 26-Dec-95. 268 of its 269 keyword names are also in 1.50, so 1.50 is 1.40 plus additions rather than a reworking -- which is why the 1.50 manual documents 1.40 and its author notes he had no time to update it.",
+    "redistribution": "Uploaded to Aminet, whose terms require the submitter to state distribution conditions. Kept as a fixture for identification and reference only."
+  },
+  "notes": "269 keywords. AMCAF is freeware by its own manual. The registered 1.50 is the port target; this is here so a program built against 1.40 identifies as 1.40 rather than being mistaken for 1.50."
+}

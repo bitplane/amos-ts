@@ -1,0 +1,21 @@
+{
+  "id": "tome-3.1",
+  "name": "TOME",
+  "version": "3.1",
+  "author": "Shadow Software",
+  "source": "binary",
+  "library": "TOME.Lib",
+  "sha256": "fc9e01bbd6b543c065e5c3597c95bd7d24c10acc61fe24d6a317079cf1dee465",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "table",
+  "docs": [],
+  "titleStrings": [],
+  "observedSlots": [],
+  "provenance": {
+    "from": "amos-pd-library-cd-1994/files/426-450/APD435/AMOS_System/TOME.Lib",
+    "note": "The AMOS 1.3 era release, banner \"AMOS TOME V3.1\", against the registered tome-4.0. Installs into AMOS_System. 33 of its 34 names carry into 4.0.",
+    "redistribution": "The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
+  },
+  "notes": "TOME (The Overall Map Editor) is the map-and-tile system behind a number of real third-party games, and is the one demand row that is not self-referential. 34 keywords, none ported."
+}
