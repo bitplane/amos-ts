@@ -3,6 +3,7 @@ import { varKey } from '../interp/prescan'
 import type { Instr, Func } from '../interp/builtins'
 import { implLabel, implSlots, qualifyForSlots, type ExtensionImpl } from './extimpl'
 import { makeLdosFunctions, makeLdosInstructions } from './ldos'
+import { makeTftFunctions, makeTftInstructions } from './tft'
 import { TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions, turboDefault } from './turbo'
 import { PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
 import { makeSpeechFunctions, makeSpeechInstructions } from './speech'
@@ -4893,6 +4894,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
  * registered extension at all.
  */
 const EXT_IMPLS: readonly ExtensionImpl[] = [
+  {
+    ids: ['tft-0.6'],
+    instructions: makeTftInstructions,
+    functions: makeTftFunctions,
+  },
   {
     ids: ['ldos-2.5', 'ldos-2.6'],
     instructions: makeLdosInstructions,

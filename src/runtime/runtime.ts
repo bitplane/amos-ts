@@ -32,6 +32,7 @@ import { DEFAULT_PALETTE, Screen, builtinPattern, sliderMetrics } from './screen
 import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from './instr'
 import { defaultHost, type Host } from './host'
 import { newLdosState, type LdosState } from './ldos'
+import { newTftState, tftVbl, type TftState } from './tft'
 import { blitVbl, newTurboState, starsVbl, type TurboState } from './turbo'
 import { newTdState, type TdState } from './td'
 import { ObjectBank } from './objects'
@@ -441,6 +442,7 @@ export class Runtime {
 
   /** LDos keeps its own channels, separate from Open In/Open Out */
   ldos: LdosState = newLdosState()
+  tft: TftState = newTftState()
 
   /** TURBO Plus: its own Check zones, and the task priority Multi No sets */
   turbo: TurboState = newTurboState()
@@ -3123,6 +3125,8 @@ export class Runtime {
     this.interp.tick++
     // MusInt is the first VBL routine (Mus_Cold +Music.s:848)
     this.music.vbl()
+    // TFT's own VBL server, when a program has armed it with Start Int
+    tftVbl(this.tft)
     this.applyShifts()
     this.applyFades()
     this.applyFlashes()

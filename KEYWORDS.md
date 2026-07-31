@@ -81,7 +81,7 @@ tested against our own understanding. Percentages exclude n/a
 | sticks-1.01b | 16 | 16 | 0 | 0 | 100% |
 | system | 41 | 13 | 0 | 0 | 100% |
 | text-io | 37 | 36 | 1 | 0 | 100% |
-| tft-0.6 | 22 | 0 | 0 | 22 | 0% |
+| tft-0.6 | 22 | 20 | 0 | 0 | 100% |
 | the-game-0.9 | 103 | 0 | 0 | 103 | 0% |
 | tome-4.0 | 67 | 0 | 0 | 67 | 0% |
 | tools-1.01 | 32 | 0 | 0 | 32 | 0% |
@@ -90,7 +90,7 @@ tested against our own understanding. Percentages exclude n/a
 | turbo-plus-2.15 | 17 | 17 | 0 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 4358 | 1293 | 44 | 2912 | 31% |
+| **total** | 4358 | 1313 | 44 | 2890 | 32% |
 
 ## aga-1.0 (0%)
 
@@ -400,9 +400,10 @@ tested against our own understanding. Percentages exclude n/a
 - **faithful**: `cdown`, `centre` *(Border$ escapes inside the text are printed, not measured, when centring)*, `cleft`, `cline`, `cls`, `cmove`, `cright`, `cup`, `curs off`, `curs on`, `curs pen`, `home`, `inverse off`, `inverse on`, `locate`, `memorize x`, `memorize y`, `paper`, `pen`, `print` *(Print # channels unsupported)*, `print #`, `remember x`, `remember y`, `scroll`, `scroll off`, `scroll on`, `shade off`, `shade on` *(dither approximates the original shading)*, `tab$`, `text` *(single 8x8 face whatever Set Font selects; soft styles are synthesized approximations)*, `text base`, `text length`, `text styles`, `under off`, `under on`, `using` *(the '^' scientific-exponent slot is left literal (mantissa normalisation unverified))*
 - **approximated**: `lprint` *(InLPrint +ILib.s:5067 routes Print to the printer device; no printer host, so the arguments are evaluated (for side effects) then discarded)*
 
-## tft-0.6 (0%)
+## tft-0.6 (100%)
 
-- **missing**: `cpu clear`, `cpu clear ntsc`, `cpu clear pal`, `get high word`, `get low word`, `get timer`, `get xmouse`, `get ymouse`, `init bpl scroll`, `init cpu clear`, `init timer`, `mfm luecke`, `mfm read`, `qsort`, `set bpl`, `start int`, `start timer`, `stop int`, `stop timer`, `tft error$`, `tft version`, `var mask`
+- **faithful**: `cpu clear`, `cpu clear ntsc`, `cpu clear pal`, `get high word`, `get low word`, `get timer`, `get xmouse`, `get ymouse`, `init bpl scroll`, `init cpu clear`, `init timer`, `qsort`, `set bpl`, `start int`, `start timer`, `stop int`, `stop timer`, `tft error$`, `tft version`, `var mask`
+- **n/a**: `mfm luecke`, `mfm read`
 
 ## the-game-0.9 (0%)
 
