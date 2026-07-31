@@ -96,9 +96,20 @@ import {
 } from '../amiga/localelib'
 
 export { parseCatalog } from '../amiga/localelib'
+import { openLibrary } from '../amiga/exec'
 
-/** `OpenLocale(NULL)` succeeded; the value only ever has to be non-zero */
-const LOCALE_PTR = 0x7f10_0000
+/**
+ * `OpenLocale(NULL)` succeeded; the value only ever has to be non-zero.
+ *
+ * The library base itself comes from exec now rather than being a constant
+ * here — this extension's first act is `OpenLibrary("locale.library", 38)`,
+ * and that question having one answer is the point of ../amiga/exec.ts. A zero
+ * back would mean the library is absent, which for locale.library it is not:
+ * the port models it as present, deliberately, even though the extension is
+ * written to survive its absence (see the header).
+ */
+const LOCALE_BASE = openLibrary('locale.library', 38)
+const LOCALE_PTR = LOCALE_BASE
 /** the Catalog pointer Open Catalog reports through `Catalog Active` */
 const CATALOG_PTR = 0x7f20_0000
 

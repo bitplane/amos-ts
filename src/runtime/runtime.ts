@@ -43,6 +43,7 @@ import { Display } from './display'
 import { rowBytesFor, bankRowBytesFor } from './planar'
 import type { Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from '../amiga/fs'
+import { A1200_POOLS, MEMF, availMem, type MemoryInUse } from '../amiga/exec'
 import { AmalChannel } from './amal'
 import type { AmalHost, ChannelTarget } from './amal'
 import {
@@ -353,15 +354,16 @@ export class Runtime {
   bobSaved = new Map<number, { screen: number; x: number; y: number; w: number; h: number; data: Uint8Array }>()
   /** Set Bob background modes: 0 save/restore, <0 none, >0 fill colour-1 */
   /**
-   * The simulated machine's memory pools, in bytes. AvailMem has no meaning
-   * without a real allocator, but returning a constant is worse than useless:
-   * a program that reserves banks until Chip Free runs out never stops. These
-   * are an A1200's 2MB chip plus a modest fast board — generous enough that
-   * "have I room for this?" checks pass, while still responding to what the
-   * program actually allocates.
+   * The simulated machine's memory pools, in bytes.
+   *
+   * The sizes are exec's and live in ../amiga/exec.ts; these two are kept as
+   * aliases because `Jd Cpu`, `Jd Chipset` and `Cpu Info` all derive the
+   * machine's identity from them — 2MB of chip plus a fast board is what makes
+   * the answer an A1200 — and that reasoning is easier to follow when the
+   * numbers are named where those keywords can see them.
    */
-  static readonly CHIP_TOTAL = 2 * 1024 * 1024
-  static readonly FAST_TOTAL = 8 * 1024 * 1024
+  static readonly CHIP_TOTAL = A1200_POOLS.chip
+  static readonly FAST_TOTAL = A1200_POOLS.fast
   /**
    * The nominal BASIC variable region Free reports against (TabBas-HiChaine).
    * AMOS Pro's default buffer is 32K, grown by Set Buffer.
@@ -2301,15 +2303,26 @@ export class Runtime {
     }
   }
 
-  /** Chip bytes held by banks and by open screens' bitplanes. */
+  /**
+   * What the program has allocated, in the shape exec's `availMem` wants.
+   *
+   * The accounting stays here rather than in ../amiga/exec.ts because it is
+   * AMOS's: a bank is chip because an AMOS bank flag says so, and a screen's
+   * bitplanes are charged to chip because AMOS put them there. exec supplies
+   * the pool sizes and the arithmetic; only the Runtime knows what is in them.
+   */
+  memoryInUse(): MemoryInUse {
+    return { chip: this.chipUsed(), fast: this.fastUsed() }
+  }
+
   /** AvailMem(MEMF_CHIP) — what Chip Free reports, and Chip Largest with it */
   chipFree(): number {
-    return Math.max(0, Runtime.CHIP_TOTAL - this.chipUsed())
+    return availMem(A1200_POOLS, this.memoryInUse(), MEMF.CHIP)
   }
 
   /** AvailMem(MEMF_FAST) */
   fastFree(): number {
-    return Math.max(0, Runtime.FAST_TOTAL - this.fastUsed())
+    return availMem(A1200_POOLS, this.memoryInUse(), MEMF.FAST)
   }
 
   chipUsed(): number {

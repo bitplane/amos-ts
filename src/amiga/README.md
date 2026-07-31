@@ -31,6 +31,16 @@ port that drives a device, and it still does not belong here: those are
 exec. It lives in `src/runtime/device.ts` — out of the IOPorts port that
 happened to need it first, but on the AMOS side of the line.
 
+`exec.ts` is now the layer that wrapper sits *on*, which sharpens the same
+point rather than blunting it: exec owns the pool sizes and the arithmetic,
+while what is *in* a pool stays with the Runtime, because a bank is chip only
+because an AMOS bank flag says so. Mechanism here, accounting there.
+
+The other half of exec is deliberately absent. There is one task in this port,
+so Forbid and Permit have nothing to forbid and stay n/a; message ports and
+signals have no second task to talk to. Modelling them now would be inventing
+machinery to sit unused.
+
 ## The rule that matters: mechanism, not policy
 
 This layer holds **shared mechanism**. It must never hold a caller's **policy**,
@@ -63,6 +73,7 @@ really does differ from the real one and saying where is the whole job.
 
 | module | models |
 |---|---|
+| `exec.ts` | `AvailMem`'s pools and the library list — `OpenLibrary` |
 | `datestamp.ts` | the AmigaDOS `DateStamp` and its calendar arithmetic |
 | `vfs.ts` | `AmigaFS` — volumes, assigns, paths, file metadata |
 | `fs.ts` | `AmosFS`, the read interface a volume provider satisfies |

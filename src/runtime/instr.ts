@@ -4107,18 +4107,19 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(objBase(rt, 'sprites', int(a[0]!)))
     },
     // ---- machine memory (AvailMem) ----
-    // A constant here is worse than useless: a program that reserves banks
-    // until Chip Free runs out would never stop. These track what the program
-    // has actually allocated against a simulated A1200-sized pool.
+    // The pool sizes and the arithmetic are exec's (../amiga/exec.ts); the
+    // Runtime supplies what it has allocated. These used to inline
+    // `CHIP_TOTAL - rt.chipUsed()` rather than call rt.chipFree(), so there
+    // were two copies of the same subtraction free to drift apart.
     'chip free'(_, a) {
       // FnChipFree +Lib.s:2510 = AvailMem(MEMF_CHIP)
       void a
-      return VI(Math.max(0, Runtime.CHIP_TOTAL - rt.chipUsed()))
+      return VI(rt.chipFree())
     },
     'fast free'(_, a) {
       // FnFastFree +Lib.s:2517 = AvailMem(MEMF_FAST)
       void a
-      return VI(Math.max(0, Runtime.FAST_TOTAL - rt.fastUsed()))
+      return VI(rt.fastFree())
     },
     free(_, a) {
       // FnFree +Lib.s:13600 garbage-collects then reports TabBas-HiChaine,

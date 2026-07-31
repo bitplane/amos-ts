@@ -675,6 +675,16 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
   }
 }
 
+/**
+ * The single-block ceiling `Llargest Free` reports against.
+ *
+ * LDos's policy, not exec's, which is why it is here: exec models a pool that
+ * does not fragment, so its largest-block answer is the whole free total. This
+ * keyword's manual insists the two differ, and half a megabyte is a plausible
+ * largest bank on the machines LDos shipped for.
+ */
+const LDOS_LARGEST_BLOCK = 0x80000
+
 export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
   return {
     lload(_, a) {
@@ -1121,8 +1131,18 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       // as the AMOS commands Fast Free and Chip Free, they return total
       // unallocated memory-size, not the largest size you can allocate in one
       // bank."
+      //
+      // DEVIATION: nothing here fragments, so the largest free block genuinely
+      // IS the total free — which is what exec's availMem answers and what
+      // TURBO's Chip Largest returns. Answering that would make this keyword
+      // identical to Chip Free and contradict the sentence above, so the
+      // manual's distinction is honoured by capping at LDOS_LARGEST_BLOCK
+      // instead. That ceiling is this port's invention: LDos's own figure came
+      // from a real allocator walking a real free list, and there is no free
+      // list here to walk.
       const fast = int(a[0] ?? VI(0)) === 1
-      return VI(fast ? Math.max(0, 0x80000 - rt.fastUsed()) : Math.max(0, 0x80000 - rt.chipUsed()))
+      const free = fast ? rt.fastFree() : rt.chipFree()
+      return VI(Math.min(free, LDOS_LARGEST_BLOCK))
     },
     'lpp mem'(_, a) {
       // SIZE=Lpp Mem(END) — "END is the end of the previously loaded file.
