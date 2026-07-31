@@ -34,6 +34,7 @@ import { defaultHost, type Host } from './host'
 import { newLdosState, type LdosState } from './ldos'
 import { newTftState, tftVbl, type TftState } from './tft'
 import { newJvpState, type JvpState } from './jvp'
+import { newLocaleState, type LocaleState } from './locale'
 import { blitVbl, newTurboState, starsVbl, type TurboState } from './turbo'
 import { newTdState, type TdState } from './td'
 import { ObjectBank } from './objects'
@@ -446,6 +447,8 @@ export class Runtime {
   tft: TftState = newTftState()
   /** JVP-NoKids: sort type, the six string fields, and the message bank */
   jvp: JvpState = newJvpState()
+  /** Locale: the open catalog, and the emit description file */
+  locale: LocaleState = newLocaleState()
 
   /** TURBO Plus: its own Check zones, and the task priority Multi No sets */
   turbo: TurboState = newTurboState()

@@ -612,6 +612,32 @@ export const FAITHFUL = new Set<string>([
   'jvp msg$',
   'jvp version',
 
+  // --- Locale 0.26 (third-party extension, by Johan Ostling) ---
+  // Manual tier: locale_ext.doc lists every keyword and the whole Format
+  // Date$ directive set, with the binary settling the rest. The extension is
+  // a shim over locale.library v38, so the port implements the slice of that
+  // library it calls; see src/runtime/locale.ts.
+  'open catalog',
+  'close catalog',
+  'catalog string$',
+  'catalog active',
+  'emit catalog description',
+  'emit close',
+  'locale string$',
+  'locale active',
+  'locale compare',
+  'locale lower$',
+  'locale upper$',
+  'lowerchar',
+  'upperchar',
+  'format date$',
+  'date$',
+  'time$',
+  'datetime$',
+  'short date$',
+  'short time$',
+  'short datetime$',
+
   // --- TURBO Plus (third-party extension, by Manuel Andre) ---
   // Verified against TURBO_DocsV2.15.Asc, the extension's own manual, and
   // where it is thin against the disassembled routine; see src/runtime/turbo.ts.
@@ -1984,6 +2010,24 @@ export const NOTES: Record<string, string> = {
     "Returns zero. This is a defect in the library rather than a limit of the port: the return register d4 is never initialised, and every failed validation branches straight to the exit that returns it, so most inputs hand back whatever the caller happened to leave in d4. Only one path -- third argument zero, second in 1..14 -- loads it at all, from a table at workspace+\$13a that no keyword ever fills, and the path for a positive third argument falls through its own bounds check without loading anything. Zero is what a cleared table gives, and there is no stale register here to hand back instead",
   'tft error$':
     "Returns the empty string, and the reason is the keyword's own premise. It splits its argument into a slot (the high byte, which must be 25) and an error number, then indexes a table of NUL-terminated strings at workspace+\$60 that AMOS supplies per extension. TFT ships no message file and the binary contains no message text at all -- the only strings in it are its own token table. The keyword exists precisely because of that gap: its demo explains that AMOS's own Error\$ 'giebt leider keine Text meldungen aus, wenn der fehler von einer Extension verursacht wird'. With no table loaded the routine falls to its empty fallback, which is what this answers. The same absence is why the wording of every TFT error raised by this port is the port's own descriptive text rather than the library's",
+  'locale active':
+    "Non-zero, which is the port choosing to report locale.library as PRESENT. The extension is built to survive its absence -- 'This extension does NOT require locale.library to load', and Catalog String\$ tests LocaleBase with `move.l \$0(a2),d1 / beq` and hands back the caller's default when it is zero -- so answering 0 would have been a defensible reading of the binary. It is the wrong one: it would leave fourteen of the twenty keywords answering nothing, when the host genuinely does have a clock and calendar. The value itself is only ever used as a yes/no ('If Locale Active=0'), and on the machine it is the Locale structure OpenLocale(NULL) returned",
+  'catalog active':
+    "Faithful, including the defect. Close Catalog (routine 11, \$618) is `move.l \$0(a2),d0 / beq / movea.l \$4(a2),a0 / jsr -\$24(a6)` and nothing more -- it calls CloseCatalog and never clears the pointer at +\$04. Catalog Active reads that field directly (\$63e), so once a catalog has been closed it goes on reporting one, and the doc's 'returns 0 if no catalog is loaded' stops being true. Reproduced. NOT reproduced is a later Catalog String\$ following the dangling pointer into freed memory: here the catalog is gone and the caller's default comes back, which is what the routine would do if the field had been cleared properly",
+  'open catalog':
+    "The catalog is read and parsed here, because on the machine that is locale.library's job rather than the extension's -- OpenCatalogA is behind the shim. The reader follows the published FORM CTLG layout (FVER/LANG/CSET/STRS, each STRS entry a ULONG id, a ULONG length and NUL-terminated bytes padded to a multiple of four). NOTE that no .catalog file ships with the extension and none is in the archive, so nothing here has been checked against a real Commodore-produced catalog; the tests build one byte by byte and read it back, which pins the reader against the format as this port understands it and no further. The search path is the plain name then CATALOGS:<language>/<name>, omitting the PROGDIR: and LOCALE: entries that need a program directory this port does not model",
+  'format date$':
+    "Every directive the doc lists, with the compound ones (%c %C %D %r %R %T %x %X) expanded by recursion as its 'same as ...' wording says. Two NOTEs. %Z appears only inside %C's expansion and not in the directive list at all; there is no time zone here to name, so it expands to nothing and %C loses that field. And the locale supplying the month and day names is a FIXED English one rather than the host's: a real Amiga answers from whatever the user set in Locale prefs and JavaScript's Intl could imitate that, but host.ts exists to keep a census run reproducible and a date that changed with the machine running the suite would break precisely what that boundary protects",
+  'date\$':
+    "One of six keywords that are Format Date\$ with a locale-supplied format string. Date\$ is `move.l \$4c(a0),d3` on the Locale followed by the same formatter (\$782), and \$4c is loc_DateFormat; its neighbours at +\$48, +\$50, +\$54, +\$58 and +\$5c are DateTimeFormat, TimeFormat and the three Short ones, matching Datetime\$, Time\$, Short Datetime\$, Short Date\$ and Short Time\$ exactly. NOTE that the six format strings themselves are this port's own, in the AmigaOS shape (day-month-year, 24-hour): they live in a locale file, and no locale file ships with the extension",
+  'locale string\$':
+    "The day and month name blocks only, and this is the weakest claim in the port. GetLocaleStr indexes locale.library's own table of standard strings, whose ids are defined in Commodore's locale.h -- a header that is NOT in this archive. The extension's doc does not list them either; it tells you to go and find them ('try this command out with a FOR loop... This will probably fail when I reach about 50, but then you'll know'). So the four blocks taken from the published header layout are answered and every other id returns the empty string rather than a guess",
+  'locale compare':
+    "The comparison structure is exact -- it runs over the SHORTER of the two lengths (\$73e-\$756 picks it with `cmp.w d2,d3 / bcc`) and only falls back to comparing the lengths when StrnCmp calls that stretch equal, returning 1 or -1 (`moveq #\$ff,d0`, sign-extended). The level defaults to 1 (`moveq #\$1,d1` at \$720). NOTE the collation itself: levels 1 and 2 fold accents by decomposing to the base letter, which is not AmigaOS's collation table and cannot be, because that table lives in a locale file this port has none of. The author's own doc says the real one is wrong anyway -- the Swedish characters 'which _should_ be last in the swedish alphabet' are folded onto a and o instead. Level 0 is a plain byte compare and is exact",
+  'locale upper\$':
+    "Case folded over Latin-1, the code set an Amiga of this era used, and only where the pairing is unambiguous -- the German sharp s has no single-character upper case and is left alone, as ConvToUpper leaves it. Locale Lower\$, Upperchar and Lowerchar are the same conversion. NOTE that a real locale can override the mapping and this one cannot: there is no locale file here for it to come from",
+  'emit catalog description':
+    "Opens the file the way the routine does -- `move.l #\$3ee,d2` is MODE_NEWFILE and `jsr -\$1e(a6)` is dos.library Open, after `cmpi.w #\$25,\$14(a0)` checks for dos.library 37 or better, which is the doc's [2.0] marker -- and every Catalog String\$ call thereafter appends an entry, emitted BEFORE the lookup (\$57a precedes \$592) so the DEFAULT string is what gets recorded rather than the translation. NOTE that the entry LAYOUT is this port's own: routine 16 writes it, the disassembler loses that routine to AMOS's own call markers (the \$feXX words are macros, not 68k), and the binary holds no template string to read instead. What is written is the catcomp description shape the file exists to feed. A program that only hands the file to a translator will not notice; one that parses it byte for byte might",
   'jvp bin sort':
     "Faithful, including two defects of the library's that a program can see. The first LOSES A RESULT: the read-out ends by climbing to the parent and, on finding itself back at the root, testing only foer[0] and efter[0] -- never skrevet[0] (source:312, binary \$3e2). The root is therefore emitted only by the branch that descends into a right child, so when element 0 is the list's MAXIMUM it has none and its index is never written to DEST. The gap is always the last entry, because a maximum sorts last, and it hides on a real machine because DEST is normally a fresh bank or an integer array -- both zero -- and the value missing is index 0, so the last row of a sorted listing quietly shows the first record. The second is the insert loop running once before its bound is tested (SO_LE1 adds 4 to d6 and only then compares), so ANT of 0 or 1 sorts a phantom element read four bytes past the address list and writes two longwords into a DEST the doc sizes at 4*ANT. Both are reproduced. What is NOT reproduced is what happens after either overruns its buffer: the doc's own warning is 'The memory area is NOT checked in any way, so make sure you got it right, or CRASH', and here reads outside a resolved region answer 0 and writes outside it are dropped. The two index-chasing loops also carry an iteration cap the library has no equivalent of, because a corrupted workspace that would crash a real Amiga would otherwise hang this",
   'jvp str$':
