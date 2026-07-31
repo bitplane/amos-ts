@@ -4,7 +4,8 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
-import { PARAMETRIC_NAMES } from './jdprt'
+import { PARAMETRIC_NAMES, jdPrt11Aliases } from './jdprt'
+import { makeAllFunctions } from './instr'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 21, from the library's own source: `ExtNb equ 21-1` */
@@ -222,5 +223,81 @@ describe('JD Prt: every keyword is dispatched', () => {
         expect(() => runWith(def, src), n).not.toThrow()
       }
     }
+  })
+})
+
+/**
+ * 1.1 through the alias mechanism.
+ *
+ * The release renamed all 58 keywords by adding a `Jd ` prefix, so before
+ * `aliases` existed a 1.1 program reached no handler at all — silently, since
+ * an unimplemented function returns a type-correct default rather than
+ * erroring. These tests are the difference between that and working.
+ */
+describe('JD Prt 1.1: the release that spells everything differently', () => {
+  const prt11 = extensionById('jd-prt-1.1')!
+
+  it('answers for 1.1\'s unprefixed names', () => {
+    expect(seq('Prt Bold', prt11)).toBe(`${CSI}1m`)
+    expect(seq('Prt Under', prt11)).toBe(`${CSI}4m`)
+    expect(seq('Prt Reset', prt11)).toBe(`${ESC}c`)
+  })
+
+  it('gives 1.1 the same bytes 1.3 gives, keyword for keyword', () => {
+    // the two binaries carry the same 46 distinct sequences; the port must not
+    // let the rename change an answer
+    for (const [a, b] of [
+      ['Prt Italics', 'Jd Prt Italics'],
+      ['Prt Elite', 'Jd Prt Elite'],
+      ['Prt Set German', 'Jd Prt Set German'],
+      ['Prt Nlq Off', 'Jd Prt Nlq Off'],
+    ] as const) {
+      expect(seq(a, prt11), a).toBe(seq(b, prt13))
+    }
+  })
+
+  it('puts 1.1 on the pre-1.4 side of the two changed sequences', () => {
+    // 1.4 alone altered these; a 1.1 program must not get 1.4's bytes
+    expect(seq('Prt Center', prt11)).toBe(seq('Jd Prt Center', prt13))
+    expect(seq('Prt Pline Up', prt11)).toBe(seq('Jd Prt Pline Up', prt13))
+    expect(seq('Prt Center', prt11)).not.toBe(seq('Jd Prt Center', prt))
+  })
+
+  it('does not answer for the five keywords 1.3 added', () => {
+    // Shade/Aspect/Image/Threshold/Density are instructions 1.1 never had, so
+    // there is no alias for them and nothing should invent one
+    const aliases = jdPrt11Aliases()
+    for (const n of ['jd prt shade', 'jd prt aspect', 'jd prt image']) {
+      expect(Object.values(aliases), n).not.toContain(n)
+    }
+  })
+
+  it('the alias map matches the registered 1.1 table exactly', () => {
+    // the map is derived by rule rather than transcribed; this pins the rule
+    const aliases = jdPrt11Aliases()
+    const names = prt11.tokens
+      .map((t) => t.name.replace(/^!/, '').trim().toLowerCase())
+      .filter((n) => n !== '')
+    expect(Object.keys(aliases).sort()).toEqual([...new Set(names)].sort())
+    for (const [alias, canonical] of Object.entries(aliases)) {
+      expect(canonical, alias).toBe(`jd ${alias}`)
+      expect(alias.startsWith('jd '), alias).toBe(false)
+    }
+  })
+
+  it('aliases are slot-bound, not global', () => {
+    // `prt bold` must not become a plain name every layer can see: it belongs
+    // to Prt 1.1 at the slot Prt 1.1 occupies
+    const { rt } = runWith(prt11, 'Rem')
+    const all = makeAllFunctions(rt)
+    expect('ext21:prt bold' in all).toBe(true)
+    expect('prt bold' in all).toBe(false)
+  })
+
+  it('a 1.4 program does not inherit 1.1\'s spelling', () => {
+    const { rt } = runWith(prt, 'Rem')
+    const all = makeAllFunctions(rt)
+    expect('ext21:prt bold' in all).toBe(false)
+    expect('jd prt bold' in all).toBe(true)
   })
 })

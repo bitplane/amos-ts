@@ -44,6 +44,34 @@ export interface ExtensionImpl {
    */
   readonly qualified?: readonly string[]
   /**
+   * Keyword names one RELEASE spells differently, per identity.
+   *
+   * A port serves several identities of one product, and they do not always
+   * agree on what the keywords are called. JD's printer companion renamed
+   * every one of its 58 keywords between 1.1 and 1.3 — `Prt Bold` became
+   * `Jd Prt Bold` — so the two tables share not a single name, and a port
+   * written against either answers nothing at all for the other. Silently:
+   * dispatch is by name, a name nothing registered is simply unimplemented,
+   * and an unimplemented function hands back a type-correct default rather
+   * than complaining.
+   *
+   * So the port implements ONE set of names — whichever release it was
+   * written from — and declares here what the other releases call them. Keyed
+   * by identity, because the answer differs per release, and mapping the
+   * table's spelling to the handler's:
+   *
+   *     aliases: { 'jd-prt-1.1': { 'prt bold': 'jd prt bold', ... } }
+   *
+   * Each alias is bound to the slots where that identity was actually
+   * identified, exactly as `qualified` is, and for the same reason: `prt bold`
+   * belongs to Prt 1.1 at the slot Prt 1.1 sits in, and registering it as a
+   * plain name would hand it to whatever else spells a keyword that way.
+   *
+   * An alias whose target has no handler is skipped, so a port may list a
+   * whole release's vocabulary without implementing all of it.
+   */
+  readonly aliases?: Readonly<Record<string, Readonly<Record<string, string>>>>
+  /**
    * The extension's own error table, indexed the way its library indexes it.
    * A declaration point, not a mechanism: each port still raises its own
    * errors, but "which messages can this extension produce" is answerable from
@@ -71,15 +99,29 @@ export function implSlots(
   impl: ExtensionImpl,
   bound: ReadonlyMap<number, Extension> | null | undefined,
 ): number[] {
+  return slotsForIds(impl.ids, bound)
+}
+
+/**
+ * The slots holding any of these identities, by the same rule as `implSlots`.
+ *
+ * Split out because aliases resolve ONE identity at a time where `qualified`
+ * resolves the whole port: `prt bold` should answer only where Prt 1.1 sits,
+ * not wherever any Prt sits, or a 1.3 program would inherit 1.1's spelling.
+ */
+export function slotsForIds(
+  ids: readonly string[],
+  bound: ReadonlyMap<number, Extension> | null | undefined,
+): number[] {
   if (bound && bound.size > 0) {
     return [...bound]
-      .filter(([, ext]) => impl.ids.includes(ext.id))
+      .filter(([, ext]) => ids.includes(ext.id))
       .map(([slot]) => slot)
       .sort((a, b) => a - b)
   }
   const slots = new Set<number>()
   for (const ext of allExtensions()) {
-    if (!impl.ids.includes(ext.id)) continue
+    if (!ids.includes(ext.id)) continue
     if (ext.defaultSlot !== undefined) slots.add(ext.defaultSlot)
     for (const s of ext.observedSlots) slots.add(s)
   }
@@ -109,4 +151,40 @@ export function qualifyForSlots<T>(
     for (const slot of slots) out[`ext${slot}:${name}`] = handler
   }
   return out
+}
+
+/**
+ * Add a port's per-identity aliases as slot-qualified keys.
+ *
+ * `raw` is the port's table BEFORE `qualifyForSlots` has moved anything: an
+ * alias resolves to a handler by the port's own name for it, and once a
+ * qualified name has been rewritten to `ext13:sprite col` that name is gone.
+ * Looking the target up in the raw table keeps the two mechanisms independent,
+ * so a keyword can be both aliased and slot-qualified without either knowing
+ * about the other.
+ *
+ * Aliases are added to the result rather than replacing anything. The port's
+ * own names stay exactly as they were — this only makes another release's
+ * spelling reach the same handler, at the slots that release occupies.
+ */
+export function aliasForSlots<T>(
+  table: Record<string, T>,
+  raw: Record<string, T>,
+  aliases: ExtensionImpl['aliases'],
+  bound: ReadonlyMap<number, Extension> | null | undefined,
+): Record<string, T> {
+  if (aliases === undefined) return table
+  let out: Record<string, T> | null = null
+  for (const [id, map] of Object.entries(aliases)) {
+    const slots = slotsForIds([id], bound)
+    if (slots.length === 0) continue
+    for (const [alias, canonical] of Object.entries(map)) {
+      const handler = raw[canonical]
+      // a release may name keywords this port has not implemented
+      if (handler === undefined) continue
+      out ??= { ...table }
+      for (const slot of slots) out[`ext${slot}:${alias}`] = handler
+    }
+  }
+  return out ?? table
 }

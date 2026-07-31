@@ -1,0 +1,24 @@
+{
+  "id": "jd-prt-1.1",
+  "name": "JD Printer",
+  "version": "1.1",
+  "author": "Joerg Dommermuth",
+  "source": "binary",
+  "library": "AMOSPro_Prt.Lib",
+  "sha256": "ef92d682685a7a48a14a1da0fd0b44e974e6726dde894f07a690c50b1eaf4dc7",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "table",
+  "docs": [],
+  "titleStrings": [
+    "AMOSPro Prt_Extension V 1.1",
+    "$VER: 1.1"
+  ],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Aminet dev/amos/jdlib4_6.lha, APSystem/AMOSPro_Prt.Lib.",
+    "note": "The earliest Prt build held. 2,536 bytes, 58 keywords, against 3,580 bytes and 63 keywords for 1.3. The AMOS PD Library CD carries the same file under files/Aminet/JDLIB4_6.extracted/, byte-identical, so that is a mirror of this upload rather than a second source. The uploader's readme is Michael Cox rather than the author; it says the documentation is German and describes the archive as a whole, not this library.",
+    "redistribution": "Third-party extension, redistribution terms unverified. Uploaded to Aminet, whose upload terms require the submitter to state distribution conditions; none is stated for this library specifically. Kept as a fixture for identification and reference only."
+  },
+  "notes": "EVERY KEYWORD IS SPELLED DIFFERENTLY FROM 1.3. This build names them `Prt Reset`, `Prt Bold`, `Prt Under`; 1.3 and 1.4 name the same routines `Jd Prt Reset`, `Jd Prt Bold`, `Jd Prt Under`. The two tables share not one keyword name, so a port written against either answers nothing for the other -- which is what src/runtime/extimpl.ts `aliases` exists to fix, and this is its live case. Do not read the `V1.1` header on prt.s in the jd-prt-1.3 fixture as evidence about this build: that source declares 63 prefixed keywords and is 1.3's, carrying a version comment its author never bumped. The binary settles it, as it does for LDos's crypt routines and TURBO's plane check."
+}

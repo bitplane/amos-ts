@@ -1,7 +1,7 @@
 import { AmosError, VF, VI, VS, int, num, str, varType } from '../interp/values'
 import { varKey } from '../interp/prescan'
 import type { Instr, Func } from '../interp/builtins'
-import { implLabel, implSlots, qualifyForSlots, type ExtensionImpl } from './extimpl'
+import { aliasForSlots, implLabel, implSlots, qualifyForSlots, type ExtensionImpl } from './extimpl'
 import { makeLdosFunctions, makeLdosInstructions } from './ldos'
 import { makeJdK3Functions, makeJdK3Instructions } from './jdk3'
 import { makeTftFunctions, makeTftInstructions } from './tft'
@@ -15,7 +15,7 @@ import { makeCtextFunctions, makeCtextInstructions } from './ctext'
 import { makeSticksFunctions, makeSticksInstructions } from './sticks'
 import { JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
 import { makeJdColourFunctions, makeJdColourInstructions } from './jdcolour'
-import { makeJdPrtFunctions, makeJdPrtInstructions } from './jdprt'
+import { jdPrt11Aliases, makeJdPrtFunctions, makeJdPrtInstructions } from './jdprt'
 import { TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td'
 import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
@@ -4986,10 +4986,13 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     functions: makeJdColourFunctions,
   },
   {
-    // the printer companion, slot 21 by its own manual
-    ids: ['jd-prt-1.3', 'jd-prt-1.4'],
+    // the printer companion, slot 21 by its own manual. 1.1 is served through
+    // `aliases` rather than by a second table: it names every keyword without
+    // the `Jd ` prefix 1.3 added, and the sequences behind them are identical
+    ids: ['jd-prt-1.1', 'jd-prt-1.3', 'jd-prt-1.4'],
     instructions: makeJdPrtInstructions,
     functions: makeJdPrtFunctions,
+    aliases: { 'jd-prt-1.1': jdPrt11Aliases() },
   },
 ]
 
@@ -5009,7 +5012,11 @@ function layers<T>(
     const make = impl[kind] as ((rt: Runtime) => Record<string, T>) | undefined
     if (!make) continue
     const slots = implSlots(impl, rt.extBindings)
-    out.push([implLabel(impl), qualifyForSlots(make(rt), impl.qualified ?? [], slots)])
+    // `raw` is passed on to aliasForSlots because qualifyForSlots consumes the
+    // plain names it moves, and an alias resolves its target by plain name
+    const raw = make(rt)
+    const table = qualifyForSlots(raw, impl.qualified ?? [], slots)
+    out.push([implLabel(impl), aliasForSlots(table, raw, impl.aliases, rt.extBindings)])
   }
   return out
 }

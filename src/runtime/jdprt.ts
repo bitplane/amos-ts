@@ -55,6 +55,7 @@ import { VS, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { outdim } from './jd'
+import { extensionById } from '../ext/registry'
 
 const ESC = '\x1b'
 /** the Amiga's CSI as this library writes it: two bytes, ESC then '[' */
@@ -187,16 +188,25 @@ export const defaultJdPrtPrefs = (): JdPrtPrefs => ({
   density: 1,
 })
 
-/** whether the program bound 1.3 rather than 1.4, which changes two strings */
-function isV13(rt: Runtime): boolean {
-  for (const def of rt.extBindings?.values() ?? []) if (def.id === 'jd-prt-1.3') return true
+/**
+ * Whether the program bound a pre-1.4 release, which changes two strings.
+ *
+ * 1.1 belongs on this side with 1.3, and that is measured rather than assumed:
+ * the two binaries carry the same 46 distinct escape sequences, with zero on
+ * either side the other lacks. 1.4 is the release that altered two of them.
+ * Getting this wrong would hand a 1.1 program 1.4's bytes for those two.
+ */
+function isPre14(rt: Runtime): boolean {
+  for (const def of rt.extBindings?.values() ?? []) {
+    if (def.id === 'jd-prt-1.3' || def.id === 'jd-prt-1.1') return true
+  }
   return false
 }
 
 export function makeJdPrtFunctions(rt: Runtime): Record<string, Func> {
   const out: Record<string, Func> = {}
   for (const name of Object.keys(SEQUENCES)) {
-    out[name] = (): Value => VS((isV13(rt) ? V13[name] : undefined) ?? SEQUENCES[name]!)
+    out[name] = (): Value => VS((isPre14(rt) ? V13[name] : undefined) ?? SEQUENCES[name]!)
   }
   return out
 }
@@ -252,3 +262,27 @@ export const PARAMETRIC_NAMES = [
   'jd prt threshold',
   'jd prt density',
 ]
+
+/**
+ * What 1.1 calls the 58 keywords 1.3 renamed.
+ *
+ * Every keyword gained a `Jd ` prefix between the two releases and nothing
+ * else changed: all 58 of 1.1's names are 1.3's minus that prefix, no
+ * exceptions either way, and the escape sequences behind them are identical.
+ * So this is derived from the registered 1.1 table by the rule rather than
+ * transcribed — a hand-written list of 58 pairs would be 58 chances to make a
+ * typo that only shows up as a keyword silently doing nothing.
+ *
+ * Read off the registry, so if the 1.1 table ever changes this follows it, and
+ * jdprt.test.ts pins the rule against the table so the derivation cannot
+ * quietly stop matching.
+ */
+export function jdPrt11Aliases(): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const t of extensionById('jd-prt-1.1')?.tokens ?? []) {
+    const name = t.name.replace(/^!/, '').trim().toLowerCase()
+    if (name === '') continue
+    out[name] = `jd ${name}`
+  }
+  return out
+}
