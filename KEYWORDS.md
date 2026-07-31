@@ -23,6 +23,8 @@ tested against our own understanding. Percentages exclude n/a
 | amospro-music-2.0 | 49 | 48 | 1 | 0 | 100% |
 | amospro-request-2.0 | 3 | 0 | 3 | 0 | 100% |
 | banks | 20 | 19 | 1 | 0 | 100% |
+| bsdsocket-1.1.4 | 30 | 0 | 0 | 30 | 0% |
+| butility-1.21 | 15 | 0 | 0 | 15 | 0% |
 | copper | 8 | 8 | 0 | 0 | 100% |
 | craft-1.0 | 136 | 0 | 1 | 135 | 1% |
 | ctext-1.0 | 6 | 6 | 0 | 0 | 100% |
@@ -36,9 +38,11 @@ tested against our own understanding. Percentages exclude n/a
 | easylife-1.44 | 4 | 0 | 0 | 4 | 0% |
 | eme-3.0 | 10 | 0 | 0 | 10 | 0% |
 | ercole-1.7 | 10 | 0 | 0 | 10 | 0% |
+| fileid-1.0 | 6 | 0 | 0 | 6 | 0% |
 | files | 23 | 21 | 0 | 0 | 100% |
 | first-0.1 | 4 | 0 | 0 | 4 | 0% |
 | flow | 12 | 10 | 2 | 0 | 100% |
+| gamesupport-1.2 | 37 | 0 | 0 | 37 | 0% |
 | gui-1.61 | 103 | 0 | 0 | 103 | 0% |
 | gui-2.10 | 118 | 0 | 0 | 118 | 0% |
 | input | 18 | 17 | 1 | 0 | 100% |
@@ -51,6 +55,7 @@ tested against our own understanding. Percentages exclude n/a
 | jd-colour-2.0 | 12 | 4 | 0 | 0 | 100% |
 | jd-int-1.3 | 33 | 0 | 0 | 33 | 0% |
 | jd-k3-1.1 | 5 | 5 | 0 | 0 | 100% |
+| jd-prt-1.1 | 58 | 0 | 0 | 58 | 0% |
 | jd-prt-1.3 | 63 | 63 | 0 | 0 | 100% |
 | jd-prt-1.4 | 6 | 6 | 0 | 0 | 100% |
 | jotre-1.0 | 5 | 0 | 0 | 5 | 0% |
@@ -60,6 +65,7 @@ tested against our own understanding. Percentages exclude n/a
 | ldos-2.6 | 8 | 8 | 0 | 0 | 100% |
 | locale-0.26 | 20 | 20 | 0 | 0 | 100% |
 | lserial-2.1 | 15 | 0 | 0 | 15 | 0% |
+| make-1.30 | 32 | 0 | 0 | 32 | 0% |
 | med-7.1 | 25 | 0 | 0 | 25 | 0% |
 | memory | 14 | 12 | 2 | 0 | 100% |
 | menus | 24 | 24 | 0 | 0 | 100% |
@@ -90,7 +96,7 @@ tested against our own understanding. Percentages exclude n/a
 | turbo-plus-2.15 | 17 | 17 | 0 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 4358 | 1349 | 44 | 2854 | 33% |
+| **total** | 4536 | 1349 | 44 | 3032 | 31% |
 
 ## aga-1.0 (0%)
 
@@ -147,6 +153,14 @@ tested against our own understanding. Percentages exclude n/a
 - **faithful**: `bank shrink`, `bank swap`, `bank to menu`, `bgrab` *(the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply)*, `blength` *(the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply)*, `bload` *(bounded by the destination region; the real machine would overrun into raw memory)*, `bsave`, `bsend` *(the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply)*, `bstart` *(the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths apply)*, `erase`, `erase all`, `erase temp`, `length`, `list bank`, `reserve as chip data`, `reserve as chip work`, `reserve as data`, `reserve as work`, `reserve zone`
 - **approximated**: `start` *(fake address space: Start()-relative arithmetic works, absolute hardware addresses do not)*
 
+## bsdsocket-1.1.4 (0%)
+
+- **missing**: `dns get address by name$`, `socket accept`, `socket bind`, `socket close socket`, `socket connect`, `socket create inet socket`, `socket errno`, `socket fdset is set`, `socket fdset set`, `socket fdset zero`, `socket get debug area`, `socket get host`, `socket get port`, `socket getsockopt int`, `socket herrno`, `socket inet ntoa$`, `socket library close`, `socket library open`, `socket listen`, `socket recv`, `socket recv$`, `socket reuse addr`, `socket select`, `socket send`, `socket send$`, `socket set nonblocking`, `socket set timeout`, `socket setsockopt int`, `socket wait async reading`, `socket wait async writing`
+
+## butility-1.21 (0%)
+
+- **missing**: `basldir$`, `baslfile$`, `baslfilereq`, `bfilereq`, `bfilereqchg`, `bgetlong`, `bgetlongreq`, `bgetstr$`, `bgetstrreq`, `binforeq`, `breqdir$`, `breqfile$`, `bxpkerror$`, `bxpkpack`, `bxpkunpack`
+
 ## copper (100%)
 
 - **faithful**: `cop logic` *(a mapped chip-RAM address; the system list is regenerated every vbl (the T_Actualise change-gating is not modelled))*, `cop move`, `cop movel`, `cop reset`, `cop swap`, `cop wait`, `copper off` *(the interpreted list now takes its fetch geometry from the registers rather than from the screen the pointers happen to hit. BPL1PT is walked as a byte pointer, so its remainder inside a row is a horizontal skew of 8 pixels a byte; BPL1MOD is added at the end of every line, which is what makes a wrong modulo shear or repeat the picture and what interlace falls out of; DDFSTRT/DDFSTOP set the fetched width and where the data lands (first pixel at DDFSTRT*2+17 lores, +9 hires — the constants AMOS inverts at +W.s:6293); BPLCON1 PF1H delays the playfield; DIWSTRT/DIWSTOP window it; BPLCON2 PF1P decides which sprite pairs are in front; and SPRxPT are decoded as real Amiga sprite structures (POS/CTL, two bitplanes, ATTACH), which is what Copper Off hands the program when it clears T_HsChange (+W.s:6822). The register file persists across frames as the hardware's does, and the pointer is not reloaded at the vertical blank either — a list that sets it once really does march off the bitmap on its second frame. The handover resets to black, which is faithful: the OFF path swaps in a list that is nothing but an end marker. Remaining: BPL2MOD is tracked but a chunky screen has no independent even-plane pointer for it to move, so it only matters for a dual playfield, which this path does not render; and the real machine also hides the mouse pointer)*, `copper on`
@@ -200,6 +214,10 @@ tested against our own understanding. Percentages exclude n/a
 
 - **missing**: `cli`, `ext fire`, `ext joy`, `library close`, `library open`, `pad fire`, `paddle`, `prop off`, `prop on`, `yfire`
 
+## fileid-1.0 (0%)
+
+- **missing**: `id error`, `id fileinfo`, `id get high id`, `id get string`, `id identify adresse`, `id identify file`
+
 ## files (100%)
 
 - **faithful**: `append`, `close`, `close editor` *(no editor memory to free)*, `close workbench` *(no Workbench memory to free)*, `dir` *(plain listing; Set Dir width/filter cosmetic)*, `dir first$`, `dir next$`, `eof`, `field`, `get`, `input` *(line editing keys are host-side, not the AMOS line editor)*, `input #`, `kill`, `lof`, `mkdir`, `open in`, `open out`, `open random`, `pof`, `put`, `rename`
@@ -213,6 +231,10 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `end`, `end if`, `end proc`, `every` *(fires at each statement rather than only at control points, and after (not during) a Wait — a timing nuance tied to the blocking model)*, `every off`, `every on`, `stop`, `wait`, `wait key`, `wait vbl`
 - **approximated**: `direct` *(InDirect +ILib.s:1866 returns to direct mode (run-error 1001); no direct window exists in the port, so the program halts)*, `edit` *(InEdit +ILib.s:1858 returns to the AMOS editor (run-error 1000); there is no editor in the port, so the program halts)*
+
+## gamesupport-1.2 (0%)
+
+- **missing**: `gsc2pdebug`, `gsc2pinfo`, `gscallmod`, `gschunky2planar`, `gsclosec2plib`, `gscmd8data`, `gscontrollertype`, `gsfindattr`, `gsgetattr`, `gsiconify`, `gsloadcodemod`, `gsmousedx`, `gsmousedy`, `gsmulti off`, `gsmulti on`, `gsopenc2plib`, `gspasscode`, `gspassdecode`, `gspyth`, `gsreadport`, `gsreadsega`, `gssetattr`, `gssetc2pcolour`, `gssetc2pregion`, `gssetmousespeed`, `gssqr`, `gstimer`, `gstrack gosub`, `gstrack loop`, `gstrack loop defer`, `gstrack loop off`, `gstrack loop on`, `gstrack play`, `gstrack stop`, `gstrack transpose`, `gstrack volume`, `gsunloadcodemod`
 
 ## gui-1.61 (0%)
 
@@ -268,6 +290,10 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `jd match` *(Faithful, and worth recording because the library's own manual disagrees with itself. Two entries are HEADED 'Jd Compare' and 'Jd Compare Nocase', but their Syntax lines read `X=Jd Match(A$,B$)` and the token table names them `jd match` and `jd match nocase`. The headings are stale; the table is what a program tokenises against. The matcher is the AmigaDOS one LDos already needed, shared rather than written twice -- the manual documents the same syntax down to `%` matching nothing -- and the `star` flag it takes is precisely what Jd Star Joker On/Off sets)*, `jd match nocase`, `jd star joker off`, `jd star joker on`, `jd toggle click` *(The state is kept and nothing clicks. It toggles the noise a floppy drive makes while polling for a disk -- 'wechselt Status des Laufwerk-Klickens' -- and there is no drive here to make it. Recorded rather than dropped, the same treatment the printer and serial settings get: a program can set it, and it applies to hardware that is not attached)*
 
+## jd-prt-1.1 (0%)
+
+- **missing**: `prt bold`, `prt bold off`, `prt center`, `prt clr htab`, `prt clr htabs`, `prt clr margins`, `prt clr vtab`, `prt clr vtabs`, `prt double`, `prt double off`, `prt elite`, `prt elite off`, `prt enlarged`, `prt enlarged off`, `prt fine`, `prt fine off`, `prt fjustify`, `prt init`, `prt italics`, `prt italics off`, `prt justify off`, `prt ljustify`, `prt lspace eight`, `prt lspace six`, `prt nlq`, `prt nlq off`, `prt pline down`, `prt pline up`, `prt prop`, `prt prop off`, `prt reset`, `prt rjustiy`, `prt set bmargin`, `prt set danishi`, `prt set danishii`, `prt set def tabs`, `prt set french`, `prt set german`, `prt set htab`, `prt set italian`, `prt set japanese`, `prt set lmargin`, `prt set norge`, `prt set rmargin`, `prt set spanish`, `prt set sweden`, `prt set tmargin`, `prt set uk`, `prt set us`, `prt set vtab`, `prt shadow`, `prt shadow off`, `prt sub`, `prt sub off`, `prt super`, `prt super off`, `prt under`, `prt under off`
+
 ## jd-prt-1.3 (100%)
 
 - **faithful**: `jd prt aspect`, `jd prt bold`, `jd prt bold off`, `jd prt center` *(1.3 and 1.4 disagree, and the port answers per bound version rather than picking one. Center is `ESC [2 F` in the 1.3 source and `ESC [3 F` in the 1.4 binary -- 3 is the ANSI code for centring, so 1.4 fixed a bug. Jd Prt Pline Up is the other one: `ESC L` in 1.3, `ESC I` in 1.4. The remaining 56 shared sequences are byte-identical, and a test asserts that)*, `jd prt clr htab`, `jd prt clr htabs`, `jd prt clr margins`, `jd prt clr vtab`, `jd prt clr vtabs`, `jd prt density`, `jd prt double`, `jd prt double off`, `jd prt elite`, `jd prt elite off`, `jd prt enlarged`, `jd prt enlarged off`, `jd prt fine`, `jd prt fine off`, `jd prt fjustify`, `jd prt image`, `jd prt init`, `jd prt italics`, `jd prt italics off`, `jd prt justify off`, `jd prt ljustify`, `jd prt lspace eight`, `jd prt lspace six`, `jd prt nlq`, `jd prt nlq off`, `jd prt pline down`, `jd prt pline up`, `jd prt prop`, `jd prt prop off`, `jd prt reset`, `jd prt rjustiy`, `jd prt set bmargin`, `jd prt set danishi`, `jd prt set danishii`, `jd prt set def tabs`, `jd prt set french`, `jd prt set german`, `jd prt set htab`, `jd prt set italian`, `jd prt set japanese`, `jd prt set lmargin`, `jd prt set norge`, `jd prt set rmargin`, `jd prt set spanish`, `jd prt set sweden`, `jd prt set tmargin`, `jd prt set uk`, `jd prt set us`, `jd prt set vtab`, `jd prt shade` *(The five numeric Prt keywords call intuition's GetPrefs, poke one field of the Preferences structure and call SetPrefs. There is no system Preferences here, so they write rt.ioports.printerPrefs instead and nothing reads it yet -- Printer Dump does not consult the shade, aspect, image, threshold or density a program set. The bounds, the error 23 on each, and Shade 3's odd storage (grey scale 2 as a bit, with 1 in PrintShade) are the routines' own and are kept)*, `jd prt shadow`, `jd prt shadow off`, `jd prt sub`, `jd prt sub off`, `jd prt super`, `jd prt super off`, `jd prt threshold`, `jd prt under`, `jd prt under off`
@@ -307,6 +333,10 @@ tested against our own understanding. Percentages exclude n/a
 ## lserial-2.1 (0%)
 
 - **missing**: `lcarrier`, `linkey$`, `lser baud`, `lser brk`, `lser close`, `lser get`, `lser mul check`, `lser mul send`, `lser open`, `lser params`, `lser query`, `lser read`, `lser send`, `lser status`, `lxpr`
+
+## make-1.30 (0%)
+
+- **missing**: `ma addhead`, `ma addtail`, `ma allocmem`, `ma allocvec`, `ma extb`, `ma extw`, `ma fclose`, `ma filelen`, `ma first`, `ma fopen`, `ma fread`, `ma free`, `ma free all`, `ma freemem`, `ma freevec`, `ma fseek`, `ma fwrite`, `ma last`, `ma malloc`, `ma newlist`, `ma next`, `ma paste icon`, `ma plot`, `ma point`, `ma prev`, `ma realloc`, `ma remhead`, `ma remove`, `mem chip`, `mem clear`, `mem fast`, `mem public`
 
 ## med-7.1 (0%)
 

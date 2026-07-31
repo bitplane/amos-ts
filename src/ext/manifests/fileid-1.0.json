@@ -1,0 +1,27 @@
+{
+  "id": "fileid-1.0",
+  "name": "FileID",
+  "version": "1.0",
+  "author": "Haiko Lemser",
+  "source": "binary",
+  "library": "FileID.Lib",
+  "sha256": "3d9514f4e7a36573305d360aa76340e46d7e8804f4ca7ab20fe311b5faba392f",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "source",
+  "docs": [
+    "FileID.Lib.Guide",
+    "FileID.s",
+    "fileidex.readme"
+  ],
+  "titleStrings": [
+    "$VER: FileID Extension V1.0 by Haiko Lemser"
+  ],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Aminet dev/amos/fileidex.lha, FileIDExt/AMOS_System/FileID.Lib.",
+    "note": "The smallest extension in the registry at 6 keywords and 1,176 bytes. For AMOS 1.3 rather than AMOS Pro, per its own readme's Requires field, and it installs into AMOS_System rather than APSystem. Ships its assembler source and an AmigaGuide manual, both German.",
+    "redistribution": "Uploaded to Aminet by the author. No licence text ships with it, so terms beyond Aminet distribution are unstated."
+  },
+  "notes": "A wrapper over FileID.library, a third-party Amiga library that identifies a file's type by inspecting it. Six keywords. Its own manual is explicit that what it can recognise depends entirely on the version of FileID.library installed, not on this extension -- so a port would have to decide what a modelled FileID.library knows, which is a data question rather than a behaviour one, and one with no authoritative answer in the archive. Registered, not ported."
+}

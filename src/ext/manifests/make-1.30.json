@@ -1,0 +1,26 @@
+{
+  "id": "make-1.30",
+  "name": "Make",
+  "version": "1.30",
+  "author": "unattributed",
+  "source": "binary",
+  "library": "AMOSPro_Make.lib",
+  "sha256": "b6aa3bf1bc6c15c3dda2979cc07d8dc176ba11dbb4a951375e47891d8054e510",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "Make_lib.doc"
+  ],
+  "titleStrings": [
+    "$VER: 1.30"
+  ],
+  "recommendedSlot": 17,
+  "observedSlots": [],
+  "provenance": {
+    "from": "Aminet dev/amos/IntuiExtend20b.lha, distribution/bonus/makelib/AMOSPro_Make.lib. The same table also ships in IntuiExtend16.lha.",
+    "note": "Not part of IntuiExtend: it rides along in that archive's `bonus` drawer, which also carries builds of EasyLife and Misc by other authors again. Andrew Burton's AMOS Extensions List records it independently at slot 17 as 'Make Lib' version 1.3, and points at these same two archives as where to find it -- so the list and the artefact agree, and this is the list being followed to its stated source rather than a discovery. The binary's $VER says 1.30 where the list says 1.3; same release, and the cookie is kept. No author is named in the doc or the binary.",
+    "redistribution": "Carried in an Aminet upload as a bonus item. No licence text ships with it and its author is unrecorded, so terms are unstated."
+  },
+  "notes": "32 keywords with four example programs and a plain-text manual. Explains eight of the corpus's programs at slot 17, which is what turned it up: extscan could not account for that slot until this library was read. Registered, not ported."
+}

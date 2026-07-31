@@ -1,0 +1,26 @@
+{
+  "id": "butility-1.21",
+  "name": "BUtility",
+  "version": "1.21",
+  "author": "Mariusz Rycyk",
+  "source": "binary",
+  "library": "BUtility.Lib",
+  "sha256": "3853d14bedfcf45e98cde82a7e185feb30afab6da99b263c87be1b2606f642ba",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "BUtility.doc",
+    "BUtility.readme"
+  ],
+  "titleStrings": [
+    "$VER: 1.21"
+  ],
+  "observedSlots": [],
+  "provenance": {
+    "from": "Aminet dev/amos/BUtility.lha, BUtility/BUtility.Lib.",
+    "note": "For AMOS 1.3 rather than AMOS Pro, per its own readme. The upload's Replaces field names an earlier BUtility.lha, so this is at least the second release. Ships a plain-text manual and a demo program; no source. The archive also carries .sig files beside the library and the demo, which are signatures rather than anything this registry reads.",
+    "redistribution": "Uploaded to Aminet by the author. No licence text ships with it; terms beyond Aminet distribution are unstated."
+  },
+  "notes": "15 keywords wrapping three third-party Amiga libraries its own readme names: reqtools.library for requesters, asl.library for the system file and font requesters, and xpkmaster.library for compression. So it is a facade over other people's libraries rather than an implementation, and porting it means modelling those three -- reqtools and asl overlap what the core's Fsel$ and the dialog code already do, xpkmaster does not. Registered, not ported."
+}

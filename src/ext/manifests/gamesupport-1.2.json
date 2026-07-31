@@ -1,0 +1,28 @@
+{
+  "id": "gamesupport-1.2",
+  "name": "GameSupport",
+  "version": "1.2",
+  "author": "Alastair M. Robinson",
+  "source": "binary",
+  "library": "AMOSPro_GameSupport.Lib",
+  "sha256": "a7952d8a6a7ce1dd59ee2cb5a57675f103491c526b0f40aa59c4d0329f1018da",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "source",
+  "docs": [
+    "GameSupport.guide",
+    "GameSupport.s",
+    "GameSupport.readme"
+  ],
+  "titleStrings": [
+    "$VER: 1.2"
+  ],
+  "recommendedSlot": 23,
+  "observedSlots": [],
+  "provenance": {
+    "from": "Aminet dev/amos/GameSupport.lha.",
+    "note": "Released by its own author, who describes it in the upload as a previously-unreleased extension published so that his AMRWolf demo could be shared with source. The archive carries the full assembler source (Source/GameSupport.s) and an AmigaGuide manual, so behaviour can be read directly rather than inferred. Slot 23 comes from the guide and the readme, which agree. NOTE the version disagreement: the Aminet readme's Version field says 1.0 while the binary's own $VER cookie says 1.2. The cookie is taken as authoritative, as it is for LDos.",
+    "redistribution": "Distribution: Aminet, per the upload's own header, and released by the author himself with source. No licence text ships with it, so the terms beyond Aminet distribution are unstated."
+  },
+  "notes": "37 keywords. Author-released with source, which puts it in the small group that could reach faithful without disassembly -- the same tier as AMOS 3D's and JD's. Not ported. The name is a description rather than a product line: it is the handful of routines one game needed, not a general framework."
+}

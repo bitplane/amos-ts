@@ -1,0 +1,28 @@
+{
+  "id": "bsdsocket-1.1.4",
+  "name": "BSDSocket",
+  "version": "1.1.4-20240502",
+  "author": "John Bintz",
+  "source": "binary",
+  "library": "AMOSPro_BSDSocket.Lib",
+  "sha256": "b3edb8ee502c690cc3885692a79dc5bf4fd70312a969787ee84379e3bc2cc37d",
+  "format": "ap20",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "README.md",
+    "API.md",
+    "BSDSocket-Extension.readme"
+  ],
+  "titleStrings": [
+    "$VER: 1.1.4-20240502"
+  ],
+  "recommendedSlot": 18,
+  "observedSlots": [],
+  "provenance": {
+    "from": "Aminet dev/amos/BSDSocket-Extension.lha, BSDSocket-Extension/AMOSPro_BSDSocket.Lib.",
+    "note": "The newest extension held by a wide margin: the $VER cookie dates it 2024-05-02 and the licence is copyright 2023, against a corpus that is otherwise 1992-1996. Proof that AMOS Pro extensions are still being written. Its own README names slot 18. AP20 format, so it was built against the AMOS Pro 2.0 library layout rather than the legacy one most third-party extensions use.",
+    "redistribution": "MIT No Attribution, stated in the archive's own LICENSE file. The most permissive position of anything in this registry and the only one that needs no qualification -- every other third-party extension here is either unstated or shareware."
+  },
+  "notes": "A wrapper over bsdsocket.library, the TCP/IP interface an Amiga Internet stack provides, described by its README as letting an AMOS Professional program get online. 30 keywords. Porting is not a matter of reading the library: it needs a socket back-end under it and a decision about what a web page in a browser sandbox may connect to, which is a host-boundary question of the same kind as src/amiga/host.ts settles for the clock and the filesystem. Registered so the keywords are named and identifiable; not ported."
+}
