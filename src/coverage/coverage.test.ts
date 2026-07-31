@@ -13,7 +13,7 @@ import {
 } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/tokenizer'
-import { FAITHFUL, NA, STRUCTURAL } from '../coverage/status'
+import { FAITHFUL, NA, NOTES, STRUCTURAL } from '../coverage/status'
 
 const table = new TokenTable(CORE_TOKENS)
 const rt = new Runtime(tokenize('', table), table, {})
@@ -109,6 +109,16 @@ describe('coverage manifest consistency', () => {
     expect(notRegistered).toEqual([])
     const unknown = [...FAITHFUL].filter((n) => !known.has(n))
     expect(unknown).toEqual([])
+  })
+
+  it('every NOTES key names a real keyword', () => {
+    // A note keyed to a name no keyword has is dead documentation: it never
+    // reaches KEYWORDS.md and nothing says so. Three did exactly that -- the
+    // Locale port's notes for `date$`, `locale string$` and `locale upper$`
+    // were written through a script that escaped the '$' into the KEY as well
+    // as the value, so they sat inert as `date\$` until this test was added.
+    const phantom = [...Object.keys(NOTES)].filter((n) => !known.has(n))
+    expect(phantom).toEqual([])
   })
 
   it('NA entries are real tokens and never implemented', () => {

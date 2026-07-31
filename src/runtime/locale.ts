@@ -65,20 +65,37 @@
  * data, not GUI — no Intuition, no windows, no tasks — which is why this was
  * portable where Delta and JD-Int were not.
  *
- * ## Where the answers come from, and what that costs
+ * ## Where the answers come from
  *
- * The locale itself is FIXED English rather than read from the host. That is
- * deliberate and it is a deviation: a real Amiga answers from whatever the
- * user set in Locale prefs, and JavaScript's `Intl` could imitate that. But
- * host.ts exists to keep a census run reproducible, and a date format that
- * changed with the machine running the suite would break exactly what that
- * boundary protects. NOTE'd in status.ts, along with the format strings
- * below, which are this port's own choice — no locale file ships with the
- * extension for them to be read from.
+ * All of it through ./amigalocale.ts, the modelled locale.library, whose data
+ * is generated from the AROS sources by src/cli/genlocale.ts. Nothing about
+ * dates, collation, case or the standard strings is decided in this file any
+ * more -- it marshals arguments and gets out of the way, which is what the
+ * extension itself does.
+ *
+ * The locale is the built-in English one rather than the host's, deliberately:
+ * see amigalocale.ts.
  */
 import { VI, VS, int, str } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
+import {
+  DEFAULT_FORMATS,
+  civilFromStamp,
+  formatDate,
+  getCatalogStr,
+  getLocaleStr,
+  localeLower,
+  localeUpper,
+  convToLower,
+  convToUpper,
+  parseCatalog,
+  strnCmp,
+  type Catalog,
+  type Civil,
+} from './amigalocale'
+
+export { parseCatalog } from './amigalocale'
 
 /** `OpenLocale(NULL)` succeeded; the value only ever has to be non-zero */
 const LOCALE_PTR = 0x7f10_0000
@@ -86,199 +103,6 @@ const LOCALE_PTR = 0x7f10_0000
 const CATALOG_PTR = 0x7f20_0000
 
 const bytes = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.charCodeAt(0) & 0xff))
-
-// ---- the locale ------------------------------------------------------------
-
-/**
- * The built-in English locale. `loc_DateFormat` and its five neighbours are
- * the strings the date keywords read out of the Locale structure; with no
- * locale file present these are the port's own, chosen to match the shape
- * AmigaOS uses (day-month-year, 24-hour) rather than invented freely.
- */
-const FORMATS = {
-  dateTime: '%d-%b-%y %H:%M:%S', // +$48 loc_DateTimeFormat
-  date: '%d-%b-%y', // +$4c loc_DateFormat
-  time: '%H:%M:%S', // +$50 loc_TimeFormat
-  shortDateTime: '%d-%b-%y %H:%M', // +$54 loc_ShortDateTimeFormat
-  shortDate: '%d-%b-%y', // +$58 loc_ShortDateFormat
-  shortTime: '%H:%M', // +$5c loc_ShortTimeFormat
-}
-
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-const ABDAYS = DAYS.map((d) => d.slice(0, 3))
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-]
-const ABMONTHS = MONTHS.map((m) => m.slice(0, 3))
-
-/**
- * `GetLocaleStr` string ids.
- *
- * NOTE, and this is the weakest claim in the port: the id assignment is
- * locale.library's own, published in Commodore's `locale.h`, and that header
- * is NOT in this archive. The extension's doc does not list the ids either —
- * it tells you to go and find them ("try this command out with a FOR loop...
- * This will probably fail when I reach about 50, but then you'll know"). So
- * the four documented blocks below are from the published header layout and
- * everything outside them answers with the empty string rather than a guess.
- */
-function localeStr(id: number): string {
-  if (id >= 1 && id <= 7) return DAYS[id - 1]!
-  if (id >= 8 && id <= 14) return ABDAYS[id - 8]!
-  if (id >= 15 && id <= 26) return MONTHS[id - 15]!
-  if (id >= 27 && id <= 38) return ABMONTHS[id - 27]!
-  return ''
-}
-
-// ---- the clock -------------------------------------------------------------
-
-interface Civil {
-  year: number
-  month: number // 1-12
-  day: number // 1-31
-  hour: number
-  min: number
-  sec: number
-  weekday: number // 0 = Sunday
-  yday: number // 1-366
-}
-
-/**
- * An AmigaDOS DateStamp — days since 1 January 1978, minutes since midnight,
- * ticks at 1/50s — turned into fields the formatter can use. 1 January 1978
- * was a Sunday, which is what makes the weekday a plain remainder.
- */
-function civil(days: number, mins: number, ticks: number): Civil {
-  const d = new Date(Date.UTC(1978, 0, 1) + days * 86_400_000)
-  const jan1 = Date.UTC(d.getUTCFullYear(), 0, 1)
-  return {
-    year: d.getUTCFullYear(),
-    month: d.getUTCMonth() + 1,
-    day: d.getUTCDate(),
-    hour: Math.floor(mins / 60),
-    min: mins % 60,
-    sec: Math.floor(ticks / 50),
-    weekday: ((days % 7) + 7) % 7,
-    yday: Math.floor((d.getTime() - jan1) / 86_400_000) + 1,
-  }
-}
-
-const pad = (n: number, w = 2, c = '0'): string => String(n).padStart(w, c)
-
-/**
- * `FormatDate`. Every directive the doc lists, in the order it lists them —
- * the compound ones (%c, %C, %D, %r, %R, %T, %x, %X) are expanded by
- * recursion, which is what "same as ..." in the doc means.
- *
- * NOTE. %Z is referenced only inside %C's expansion ("%a %b %e %T %Z %Y") and
- * is not itself in the directive list; there is no time zone here to name, so
- * it expands to nothing and %C loses that field. An unknown directive emits
- * its own character, and a trailing '%' emits nothing.
- */
-function formatDate(fmt: string, t: Civil): string {
-  let out = ''
-  for (let i = 0; i < fmt.length; i++) {
-    if (fmt[i] !== '%') {
-      out += fmt[i]
-      continue
-    }
-    const c = fmt[++i]
-    if (c === undefined) break
-    switch (c) {
-      case 'a': out += ABDAYS[t.weekday]!; break
-      case 'A': out += DAYS[t.weekday]!; break
-      case 'b': case 'h': out += ABMONTHS[t.month - 1]!; break
-      case 'B': out += MONTHS[t.month - 1]!; break
-      case 'c': out += formatDate('%a %b %d %H:%M:%S %Y', t); break
-      case 'C': out += formatDate('%a %b %e %T %Z %Y', t); break
-      case 'd': out += pad(t.day); break
-      case 'D': out += formatDate('%m/%d/%y', t); break
-      case 'e': out += pad(t.day, 2, ' '); break
-      case 'H': out += pad(t.hour); break
-      case 'I': out += pad(t.hour % 12 === 0 ? 12 : t.hour % 12); break
-      case 'j': out += pad(t.yday, 3); break
-      case 'm': out += pad(t.month); break
-      case 'M': out += pad(t.min); break
-      case 'n': out += '\n'; break
-      case 'p': out += t.hour < 12 ? 'AM' : 'PM'; break
-      case 'r': out += formatDate('%I:%M:%S %p', t); break
-      case 'R': out += formatDate('%H:%M', t); break
-      case 'S': out += pad(t.sec); break
-      case 't': out += '\t'; break
-      case 'T': out += formatDate('%H:%M:%S', t); break
-      // "week number, taking Sunday as first day of week" — the days before
-      // the year's first Sunday are week 0, which is the C convention
-      case 'U': out += pad(Math.floor((t.yday + 6 - t.weekday) / 7)); break
-      case 'w': out += String(t.weekday); break
-      case 'W': out += pad(Math.floor((t.yday + 6 - ((t.weekday + 6) % 7)) / 7)); break
-      case 'x': out += formatDate('%m/%d/%y', t); break
-      case 'X': out += formatDate('%H:%M:%S', t); break
-      case 'y': out += pad(t.year % 100); break
-      case 'Y': out += pad(t.year, 4); break
-      case 'Z': break // no time zone to name here
-      default: out += c
-    }
-  }
-  return out
-}
-
-// ---- catalogs --------------------------------------------------------------
-
-export interface Catalog {
-  language: string
-  strings: Map<number, string>
-}
-
-const fourcc = (b: Uint8Array, o: number): string =>
-  String.fromCharCode(b[o] ?? 0, b[o + 1] ?? 0, b[o + 2] ?? 0, b[o + 3] ?? 0)
-const be32 = (b: Uint8Array, o: number): number =>
-  (((b[o] ?? 0) << 24) | ((b[o + 1] ?? 0) << 16) | ((b[o + 2] ?? 0) << 8) | (b[o + 3] ?? 0)) >>> 0
-
-/**
- * An AmigaOS message catalog: `FORM....CTLG` with `FVER`, `LANG`, `CSET` and
- * `STRS` chunks. The strings live in STRS as a run of
- * `ULONG id / ULONG length / bytes[length]`, each entry's data NUL-terminated
- * and padded so the length is a multiple of four.
- *
- * NOTE. This reader is written from the published CTLG layout, not from a
- * shipped catalog: the extension's archive contains no `.catalog` file, and
- * the parsing is locale.library's job rather than the extension's, so there
- * is nothing in these 2.4KB to check it against. The tests build a catalog
- * byte by byte and read it back, which pins the reader against the format as
- * this port understands it — not against a real Commodore-produced file.
- */
-export function parseCatalog(data: Uint8Array): Catalog | null {
-  if (data.length < 12 || fourcc(data, 0) !== 'FORM' || fourcc(data, 8) !== 'CTLG') return null
-  const cat: Catalog = { language: '', strings: new Map() }
-  let p = 12
-  const end = Math.min(data.length, 8 + be32(data, 4))
-  while (p + 8 <= end) {
-    const id = fourcc(data, p)
-    const size = be32(data, p + 4)
-    const body = p + 8
-    if (body + size > data.length) break
-    if (id === 'LANG') {
-      let s = ''
-      for (let i = 0; i < size && data[body + i] !== 0; i++) s += String.fromCharCode(data[body + i]!)
-      cat.language = s
-    } else if (id === 'STRS') {
-      let q = body
-      while (q + 8 <= body + size) {
-        const strId = be32(data, q) | 0
-        const len = be32(data, q + 4)
-        q += 8
-        if (q + len > body + size) break
-        let s = ''
-        for (let i = 0; i < len && data[q + i] !== 0; i++) s += String.fromCharCode(data[q + i]!)
-        cat.strings.set(strId, s)
-        q += len
-      }
-    }
-    p = body + size + (size & 1) // IFF chunks pad to even
-  }
-  return cat
-}
 
 // ---- state -----------------------------------------------------------------
 
@@ -399,7 +223,7 @@ export function makeLocaleFunctions(rt: Runtime): Record<string, Func> {
   const st = (): LocaleState => rt.locale
   const now = (): Civil => {
     const d = rt.host.clock.now()
-    return civil(d.days, d.mins, d.ticks)
+    return civilFromStamp(d.days, d.mins, d.ticks)
   }
 
   /** the date family: one formatter, six locale-supplied format strings */
@@ -421,7 +245,7 @@ export function makeLocaleFunctions(rt: Runtime): Record<string, Func> {
       const def = str(a[1] ?? VS(''))
       const s = st()
       if (s.emitPath !== null) s.emitText += `MSG_${id}\n${def}\n;\n`
-      return VS(s.catalog?.strings.get(id) ?? def)
+      return VS(getCatalogStr(s.catalog, id, def))
     },
 
     /** =Catalog Active — routine 13 ($63e), the raw field at +$04 */
@@ -440,7 +264,7 @@ export function makeLocaleFunctions(rt: Runtime): Record<string, Func> {
 
     /** =Locale String$(ID) — routine 6 ($53e), `GetLocaleStr` */
     'locale string$'(_, a) {
-      return VS(localeStr(int(a[0] ?? VI(0))))
+      return VS(getLocaleStr(int(a[0] ?? VI(0))))
     },
 
     /** =Format Date$(FORMAT$) — routine 20 ($770) */
@@ -449,27 +273,27 @@ export function makeLocaleFunctions(rt: Runtime): Record<string, Func> {
     },
     /** =Datetime$ — loc_DateTimeFormat, +$48 */
     datetime$() {
-      return dated(FORMATS.dateTime)
+      return dated(DEFAULT_FORMATS.dateTime)
     },
     /** =Date$ — loc_DateFormat, +$4c ($788) */
     date$() {
-      return dated(FORMATS.date)
+      return dated(DEFAULT_FORMATS.date)
     },
     /** =Time$ — loc_TimeFormat, +$50 */
     time$() {
-      return dated(FORMATS.time)
+      return dated(DEFAULT_FORMATS.time)
     },
     /** =Short Datetime$ — loc_ShortDateTimeFormat, +$54 ($7ce) */
     'short datetime$'() {
-      return dated(FORMATS.shortDateTime)
+      return dated(DEFAULT_FORMATS.shortDateTime)
     },
     /** =Short Date$ — loc_ShortDateFormat, +$58 */
     'short date$'() {
-      return dated(FORMATS.shortDate)
+      return dated(DEFAULT_FORMATS.shortDate)
     },
     /** =Short Time$ — loc_ShortTimeFormat, +$5c */
     'short time$'() {
-      return dated(FORMATS.shortTime)
+      return dated(DEFAULT_FORMATS.shortTime)
     },
 
     /**
@@ -477,34 +301,28 @@ export function makeLocaleFunctions(rt: Runtime): Record<string, Func> {
      * 17 and 18, LEVEL defaulting to 1 (`moveq #$1,d1` at $720).
      *
      * The routine compares over the SHORTER of the two lengths ($73e-$756
-     * picks it with `cmp.w d2,d3 / bcc`), and only if `StrnCmp` calls that
-     * equal does it fall back to the lengths — returning 1 when the first is
-     * longer and -1 (`moveq #$ff,d0`, sign-extended) when the second is.
+     * picks it with `cmp.w d2,d3 / bcc`), passes that length to StrnCmp, and
+     * only if StrnCmp calls the stretch equal does it fall back to the
+     * lengths — returning 1 when the first is longer and -1 (`moveq #$ff,d0`,
+     * sign-extended) when the second is. StrnCmp's own answer is passed
+     * through unchanged, so a difference from the collation table reaches
+     * BASIC raw rather than clamped to a sign; the doc promising "<0" and
+     * ">0" rather than -1 and 1 is describing exactly that.
      *
-     * NOTE. Levels 1 and 2 fold accents here by decomposing to the base
-     * letter, which is not AmigaOS's collation table and cannot be: the
-     * table lives in a locale file this port has none of. The author's own
-     * doc says the real one is wrong anyway — "the swedish characters aao,
-     * which _should_ be last in the swedish alphabet, is instead sorted in
-     * like this: a=a=a and o=o. This may be good for some languages. But not
-     * for swedish." Level 0 is a plain byte compare and is exact.
+     * NOTE on the levels, and it corrects the doc. Level 0 is SC_ASCII, which
+     * locale.library resolves through the to_UPPER table — so it is
+     * case-INSENSITIVE, not the "ordinary compare" the doc calls it, and the
+     * author's suggestion that "you could skip this function and use a
+     * straight If STRING1$=STRING2$ instead" is wrong. Levels 1 and 2 are the
+     * two collation orders, and they are the real ones now.
      */
     'locale compare'(_, a) {
       const s1 = str(a[0] ?? VS(''))
       const s2 = str(a[1] ?? VS(''))
       const level = a.length >= 3 ? int(a[2]!) : 1
-      const key = (s: string): string => {
-        if (level <= 0) return s
-        const flat = s.normalize('NFD').replace(/[̀-ͯ]/g, '')
-        return level === 1 ? flat.toLowerCase() : flat
-      }
-      const k1 = key(s1)
-      const k2 = key(s2)
-      const n = Math.min(k1.length, k2.length)
-      for (let i = 0; i < n; i++) {
-        const d = k1.charCodeAt(i) - k2.charCodeAt(i)
-        if (d !== 0) return VI(d < 0 ? -1 : 1)
-      }
+      const n = Math.min(s1.length, s2.length)
+      const d = strnCmp(s1, s2, n, level)
+      if (d !== 0) return VI(d)
       if (s1.length === s2.length) return VI(0)
       return VI(s1.length > s2.length ? 1 : -1)
     },
@@ -515,44 +333,25 @@ export function makeLocaleFunctions(rt: Runtime): Record<string, Func> {
      * like AMOS' normal Upper$ and Lower$, but converts letters like a or ae
      * or e correctly", so the accented range is what distinguishes them.
      *
-     * NOTE. Case is folded over Latin-1, which is the code set an Amiga of
-     * this era used, and only where the pairing is unambiguous — the German
-     * sharp s has no single-character upper case and is left alone, as the
-     * library leaves it.
+     * The mapping is locale.library's own code table, so the characters with
+     * no counterpart — the German sharp s, the division and multiplication
+     * signs sitting inside the accented runs — come back unchanged because
+     * the table maps them to themselves, not because of a special case here.
      */
     'locale lower$'(_, a) {
-      return VS(mapCase(str(a[0] ?? VS('')), false))
+      return VS(localeLower(str(a[0] ?? VS(''))))
     },
     'locale upper$'(_, a) {
-      return VS(mapCase(str(a[0] ?? VS('')), true))
+      return VS(localeUpper(str(a[0] ?? VS(''))))
     },
-    /** =Lowerchar(C) / =Upperchar(C) — routines 4 and 5, the same per character */
+    /** =Lowerchar(C) / =Upperchar(C) — routines 4 and 5, the same table */
     lowerchar(_, a) {
-      return VI(mapCase(String.fromCharCode(int(a[0] ?? VI(0)) & 0xff), false).charCodeAt(0))
+      return VI(convToLower(int(a[0] ?? VI(0))))
     },
     upperchar(_, a) {
-      return VI(mapCase(String.fromCharCode(int(a[0] ?? VI(0)) & 0xff), true).charCodeAt(0))
+      return VI(convToUpper(int(a[0] ?? VI(0))))
     },
   }
-}
-
-/** Latin-1 case folding, one character at a time as the library does it */
-function mapCase(s: string, up: boolean): string {
-  let out = ''
-  for (const ch of s) {
-    const c = ch.charCodeAt(0)
-    if (up) {
-      // a-z, and the accented run at $e0-$fe excluding the division sign
-      if (c >= 0x61 && c <= 0x7a) out += String.fromCharCode(c - 32)
-      else if (c >= 0xe0 && c <= 0xfe && c !== 0xf7) out += String.fromCharCode(c - 32)
-      else out += ch
-    } else {
-      if (c >= 0x41 && c <= 0x5a) out += String.fromCharCode(c + 32)
-      else if (c >= 0xc0 && c <= 0xde && c !== 0xd7) out += String.fromCharCode(c + 32)
-      else out += ch
-    }
-  }
-  return out
 }
 
 type VSResult = ReturnType<typeof VS>

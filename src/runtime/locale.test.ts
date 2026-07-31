@@ -192,7 +192,22 @@ describe('Locale Active and Locale String$', () => {
     )
   })
 
-  it('an id outside the blocks we can evidence is empty', () => {
+  it('and the rest of the table, up to FUTURESTR', () => {
+    // YESSTR 39, NOSTR 40, AM_STR 41, PM_STR 42, then the hyphens and quotes,
+    // then the relative day names at 47-50
+    expect(lines([
+      'Print Locale String$(39)', 'Print Locale String$(40)',
+      'Print Locale String$(41)', 'Print Locale String$(42)',
+      'Print Locale String$(48)', 'Print Locale String$(50)',
+    ]).slice(0, 6)).toEqual(['Yes', 'No', 'am', 'pm', 'Today', 'Future'])
+  })
+
+  it('runs out at FUTURESTR — id 51 is a V50 addition english.language lacks', () => {
+    // MAXSTRMSG is 52, but the English table stops at FUTURESTR (50); the id
+    // above it is LANG_NAME, which locale.h marks V50. The extension opens
+    // v38, so it could never have reached it. This is what the doc's "will
+    // probably fail when I reach about 50" was describing.
+    expect(val('Len(Locale String$(51))')).toBe('0')
     expect(val('Len(Locale String$(200))')).toBe('0')
     expect(val('Len(Locale String$(0))')).toBe('0')
   })
@@ -217,13 +232,13 @@ describe('Format Date$ — every directive the doc lists', () => {
     ['%j', '193'],
     ['%m', '07'],
     ['%M', '30'],
-    ['%p', 'PM'],
+    ['%p', 'pm'],
     ['%S', '00'],
     ['%w', '2'],
     ['%y', '94'],
     ['%Y', '1994'],
     ['%D', '07/12/94'],
-    ['%r', '02:30:00 PM'],
+    ['%r', '02:30:00 pm'],
     ['%R', '14:30'],
     ['%T', '14:30:00'],
     ['%x', '07/12/94'],
@@ -250,13 +265,33 @@ describe('Format Date$ — every directive the doc lists', () => {
 
   it('literal text passes through, and the doc\'s own example works', () => {
     expect(val('Format Date$("The time is %r and the month is %B")')).toBe(
-      'The time is 02:30:00 PM and the month is July',
+      'The time is 02:30:00 pm and the month is July',
     )
   })
 
   it('an unknown directive emits its own character', () => {
-    expect(val('Format Date$("%q")')).toBe('q')
+    // NB not %q: that is a real directive, just an undocumented one
+    expect(val('Format Date$("%z")')).toBe('z')
     expect(val('Format Date$("100%")')).toBe('100')
+  })
+
+  it('%q and %Q are real directives the doc never mentions', () => {
+    // PrintDigits with a fill of -1: the hour, and the 12-hour hour, unpadded.
+    // They matter because the default locale's own time formats are made of
+    // %Q -- without them Time$ would print a literal Q.
+    expect(val('Format Date$("%q")')).toBe('14')
+    expect(val('Format Date$("%Q")')).toBe('2')
+  })
+
+  it('%I is hour%12, so noon and midnight both print 00', () => {
+    // AROS's formatdate.c is `PrintDigits(cData.hour % 12, '0', 2)` with no
+    // 0-becomes-12 special case. Left as it is, and flagged: this is the one
+    // directive where a program's output looks wrong rather than different.
+    expect(val('Format Date$("%I")')).toBe('02') // 14:30
+  })
+
+  it('%p switches at noon', () => {
+    expect(val('Format Date$("%p")')).toBe('pm')
   })
 })
 
@@ -268,12 +303,12 @@ describe('the six date keywords are Format Date$ with the locale\'s format', () 
       'Print Date$', 'Print Time$', 'Print Datetime$',
       'Print Short Date$', 'Print Short Time$', 'Print Short Datetime$',
     ]).slice(0, 6)).toEqual([
-      '12-Jul-94',
-      '14:30:00',
-      '12-Jul-94 14:30:00',
-      '12-Jul-94',
-      '14:30',
-      '12-Jul-94 14:30',
+      'Tuesday July 12', // %A %B %e
+      '2:30:00 pm', // %Q:%M:%S %p
+      'Tuesday July 12 1994 2:30 pm', // %A %B %e %Y %Q:%M %p
+      '07/12/94', // %m/%d/%y
+      '2:30 pm', // %Q:%M %p
+      '07/12/94 2:30 pm', // %m/%d/%y %Q:%M %p
     ])
   })
 })
@@ -291,18 +326,45 @@ describe('Locale Compare', () => {
     expect(val('Locale Compare("ab","abc")')).toBe('-1')
   })
 
-  it('level 0 is a plain byte compare, so case still separates', () => {
-    expect(val('Locale Compare("A","a",0)<0')).toBe('-1')
+  it('level 0 is SC_ASCII, which is case-INSENSITIVE — the doc is wrong', () => {
+    // locale.library resolves SC_ASCII through __code_table_to_upper, so
+    // "ordinary compare. You could skip this function and use a straight
+    // If STRING1$=STRING2$ instead" is not what level 0 does.
+    expect(val('Locale Compare("A","a",0)')).toBe('0')
+    expect(val('Locale Compare("a","B",0)<0')).toBe('-1') // and it collates
   })
 
-  it('level 1 ignores case and accents — "Does not make any difference between e-acute and e"', () => {
+  it('the result is the raw table difference, not a clamped sign', () => {
+    // the extension passes StrnCmp's answer straight through (`move.l d0,d3`),
+    // and the doc promises "<0"/">0" rather than -1/1 for exactly that reason
+    expect(val('Locale Compare("a","c",0)')).toBe('-2')
+    expect(val('Locale Compare("d","a",0)')).toBe('3')
+  })
+
+  it('level 1 ignores case and accents — the doc\'s own words', () => {
+    // "locale light :) Does not make any difference between e-acute and e".
+    // __language_short_order_tab maps e, E and e-acute all to 69.
     expect(val('Locale Compare("A","a",1)')).toBe('0')
-    expect(val(`Locale Compare("e",Chr$(233),1)`)).toBe('0')
+    expect(val('Locale Compare("e",Chr$(233),1)')).toBe('0')
   })
 
-  it('level 2 folds the accent but keeps the case distinction', () => {
-    // "Will place e-acute before f, but not equal to e"
-    expect(val(`Locale Compare(Chr$(233),"f",2)<0`)).toBe('-1')
+  it('level 2 places e-acute AFTER e but BEFORE f — again the doc\'s words', () => {
+    // "locale standard. Will place e-acute before f, but not equal to e".
+    // __language_long_order_tab: e=101, E-acute=103, e-acute=107, f=111.
+    expect(val('Locale Compare("e",Chr$(233),2)<0')).toBe('-1')
+    expect(val('Locale Compare(Chr$(233),"f",2)<0')).toBe('-1')
+    expect(val('Locale Compare("e",Chr$(233),2)')).toBe('-6')
+  })
+
+  it("reproduces the author's Swedish complaint, because the table does", () => {
+    // "the swedish characters aao, which _should_ be last in the swedish
+    // alphabet, is instead sorted in like this: a-ring=a-umlaut=a and
+    // o-umlaut=o. This may be good for some languages. But not for swedish."
+    // Level 1's table folds a-ring (229) and a-umlaut (228) both onto 65,
+    // and o-umlaut (246) onto 79 -- exactly the bug he reported.
+    expect(val('Locale Compare(Chr$(229),"a",1)')).toBe('0')
+    expect(val('Locale Compare(Chr$(228),"a",1)')).toBe('0')
+    expect(val('Locale Compare(Chr$(246),"o",1)')).toBe('0')
   })
 
   it('the level defaults to 1 when the third argument is left off', () => {
@@ -324,9 +386,10 @@ describe('Locale Upper$ / Lower$ and Upperchar / Lowerchar', () => {
     expect(val('Asc(Locale Upper$(Chr$(230)))')).toBe('198') // ae -> AE
   })
 
-  it('leaves alone what has no counterpart', () => {
+  it('leaves alone what the code table maps to itself', () => {
     expect(val('Asc(Locale Upper$(Chr$(223)))')).toBe('223') // sharp s
     expect(val('Asc(Locale Upper$(Chr$(247)))')).toBe('247') // division sign
+    expect(val('Asc(Locale Upper$(Chr$(215)))')).toBe('215') // multiplication sign
     expect(val('Locale Upper$("123!")')).toBe('123!')
   })
 
