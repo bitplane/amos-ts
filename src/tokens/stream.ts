@@ -1,4 +1,5 @@
 import { BinReader } from '../loader/binreader'
+import { procode } from './procode'
 import type { TokenEntry } from './libtok'
 
 /** Special token ids — the first entries of the core token table. */
@@ -204,10 +205,20 @@ export class TokenStreamError extends Error {
  * machine-language and locked procedures, and for nothing else.
  */
 export const PROTECTED_PROC = 0x4000
+/**
+ * Bit 13 — the body is CURRENTLY enciphered. The verifier deciphers it in
+ * place and clears this bit (`bchg #5,8(a6)`, +Verif.s:5219), leaving bit 14
+ * set: the procedure stays closed to the editor, but its body is tokens
+ * again. See procode.ts.
+ */
+export const ENCIPHERED_PROC = 0x2000
 /** and bit 12 alongside it means machine language rather than a cipher */
 export const MACHINE_CODE_PROC = 0x1000
 
 export function parseSource(src: Uint8Array, table: TokenTable): TokenLine[] {
+  // As the verifier does before a program runs, and for the same reason: what
+  // follows cannot read a locked procedure until it has been deciphered.
+  src = decipherLocked(src, table) ?? src
   const lines: TokenLine[] = []
   let pos = 0
   let lastProcEnd = -1
@@ -240,32 +251,26 @@ export function parseSource(src: Uint8Array, table: TokenTable): TokenLine[] {
     for (const tok of tokens) {
       if (tok.kind === 'proc') {
         lastProcEnd = tok.endTarget
-        // A PROTECTED procedure's body is not token lines. Two kinds exist
-        // and the flags word tells them apart at the same bit: AMOS Pro's own
-        // machine-language procedure (bits 14 and 12, Ed_ProcML +Edit.s:8759,
-        // which stores a hunk-loaded 68k image), and the AMOS 1.x locked
-        // procedure (bit 14 without 12), whose token content is enciphered so
-        // that it cannot be listed.
+        // A body that is still not token lines by the time it gets here. Two
+        // kinds reach this point, and the flags word tells them apart:
         //
-        // The line LENGTHS survive in both — walking a locked body by its
-        // length bytes lands exactly on End Proc across every one in the
-        // corpus, over as many as 192 lines — because the editor still has to
-        // count and skip the lines it will not show. Only the content is
-        // gone: 7.9 bits of entropy per byte, all 256 values used, where
-        // token content is mostly zeros and a small set of ids.
+        //  - AMOS Pro's machine-language procedure (bits 14 and 12, Ed_ProcML
+        //    +Edit.s:8759), which stores a hunk-loaded 68k image. Most start
+        //    their body with an `@_apml_@` line and take the path below
+        //    instead; the ones that do not are skipped here.
+        //  - an AMOS 1.x locked procedure that `decipherLocked` could not
+        //    read — a truncated file, or a body that did not come back as
+        //    tokens. Bit 13 is still set on those, and only on those.
         //
-        // So the body is taken whole and the parse resumes at End Proc. The
-        // alternative is what this used to do: read the cipher as tokens,
-        // fail on the first word that is not a token, and lose the entire
-        // program over a procedure its author chose not to publish.
-        // An AMOS Pro machine-language procedure written by Ed_ProcML also
-        // starts its body with an `@_apml_@` line, and that path already
-        // works: the token carries the 68k image and the runtime reports the
-        // one feature it cannot honour. Only bodies with no such line — every
-        // one of the 1,619 in the corpus archive — need skipping.
+        // The line LENGTHS survive the cipher, so walking a locked body by
+        // its length bytes lands exactly on End Proc, and the body can be
+        // taken whole with the parse resuming there. That is what keeps the
+        // rest of the program: the alternative is to read the cipher as
+        // tokens, fail on the first word that is not one, and lose the lot.
         const bodyStartsApml =
           pos + 4 <= src.length && table.isApml((src[pos + 2]! << 8) | src[pos + 3]!)
-        if (tok.flags & PROTECTED_PROC && !bodyStartsApml) {
+        const unreadable = tok.flags & (ENCIPHERED_PROC | MACHINE_CODE_PROC)
+        if (tok.flags & PROTECTED_PROC && unreadable && !bodyStartsApml) {
           if (tok.endTarget <= pos || tok.endTarget > src.length) {
             throw new TokenStreamError(
               `protected procedure at ${pos} with bad End Proc target ${tok.endTarget}`,
@@ -275,12 +280,12 @@ export function parseSource(src: Uint8Array, table: TokenTable): TokenLine[] {
           }
           tok.protectedBody = src.subarray(pos, tok.endTarget)
           pos = tok.endTarget
-          // A LOCKED procedure's cipher runs one word past its own body: the
-          // End Proc line at endTarget keeps its length, indent and End Proc
-          // token in clear and has its EOL word enciphered along with the
-          // rest — 1,540 of the 1,554 in the corpus, against 65 machine-code
-          // ones whose End Proc line is untouched. So take the token and let
-          // the remainder of that line go with the body.
+          // A LOCKED procedure's cipher runs one line past its own body, so
+          // the End Proc line at endTarget keeps its length, indent and End
+          // Proc token in clear but has its EOL word enciphered along with
+          // the rest. Machine-code procedures leave that line untouched. So
+          // take the token and let the remainder of the line go with the
+          // body.
           if (!(tok.flags & MACHINE_CODE_PROC)) {
             const endLen = src[pos]
             if (endLen === undefined || endLen < 2 || pos + endLen * 2 > src.length) {
@@ -312,6 +317,102 @@ export function parseSource(src: Uint8Array, table: TokenTable): TokenLine[] {
     }
   }
   return lines
+}
+
+/**
+ * Decipher every locked procedure in a source block, the way the verifier
+ * does before the program runs (+Verif.s:1553). Returns a deciphered COPY, or
+ * null when there was nothing enciphered — which is all but 166 of the 5,131
+ * programs in the corpus archive, and the reason the copy is made lazily.
+ *
+ * Locked procedures nest: `TUSTMC.AMOS` has two whose headers lie inside an
+ * outer cipher and only become readable once the outer one is undone. Walking
+ * INTO each body as it is deciphered handles that in the one pass, because a
+ * nested header is an ordinary Procedure line by the time the walk reaches it.
+ */
+function decipherLocked(src: Uint8Array, table: TokenTable): Uint8Array | null {
+  let out: Uint8Array | null = null
+  let pos = 0
+  for (;;) {
+    const buf = out ?? src
+    if (pos + 12 > buf.length) break
+    const lenWords = buf[pos]!
+    if (lenWords < 2 || pos + lenWords * 2 > buf.length) break
+    if (!table.isProcedure((buf[pos + 2]! << 8) | buf[pos + 3]!)) {
+      pos += lenWords * 2
+      continue
+    }
+    const flags = (buf[pos + 10]! << 8) | buf[pos + 11]!
+    const size =
+      ((buf[pos + 4]! << 24) | (buf[pos + 5]! << 16) | (buf[pos + 6]! << 8) | buf[pos + 7]!) >>> 0
+    const endTarget = pos + 8 + size
+    // A machine-language body is a 68k image, and ProCode itself returns at
+    // once on bit 12; step over it rather than into it.
+    if (flags & MACHINE_CODE_PROC) {
+      if (endTarget <= pos || endTarget > buf.length) break
+      pos = endTarget
+      continue
+    }
+    if (!(flags & PROTECTED_PROC) || !(flags & ENCIPHERED_PROC)) {
+      pos += lenWords * 2
+      continue
+    }
+    if (endTarget <= pos || endTarget > buf.length) break
+    // first one found: from here on the work is done on a copy
+    if (!out) {
+      out = Uint8Array.from(src)
+      continue
+    }
+    const bodyStart = pos + lenWords * 2
+    const original = out.slice(bodyStart, Math.min(endTarget + 8, out.length))
+    if (procode(out, pos) && bodyIsTokens(out, table, bodyStart, endTarget)) {
+      out[pos + 10] = out[pos + 10]! & ~0x20 // bchg #5,8(a6), +Verif.s:5219
+      pos = bodyStart
+      continue
+    }
+    // The cipher is symmetric and unauthenticated, so a wrong key or a
+    // truncated file yields bytes rather than an error. Put the body back as
+    // it was, bit 13 and all, and let parseSource take it whole.
+    out.set(original, bodyStart)
+    pos = endTarget
+  }
+  return out
+}
+
+/**
+ * Does a just-deciphered body read as token lines? This is what tells a
+ * successful decipher from a plausible-looking failure: every line must parse
+ * and the walk must land exactly on the End Proc line.
+ *
+ * A procedure nested inside this one is stepped over rather than checked. Its
+ * own body is a separate question — and if it is locked it is still
+ * enciphered at this point, since the walk above has not reached it yet.
+ */
+function bodyIsTokens(src: Uint8Array, table: TokenTable, start: number, end: number): boolean {
+  let pos = start
+  while (pos < end) {
+    const lenWords = src[pos]!
+    const lineEnd = pos + lenWords * 2
+    if (lenWords < 2 || lineEnd > end) return false
+    const id = (src[pos + 2]! << 8) | src[pos + 3]!
+    try {
+      parseLine(new BinReader(src.subarray(pos + 2, lineEnd)), table, pos + 2)
+    } catch {
+      return false
+    }
+    if (table.isProcedure(id)) {
+      const size =
+        ((src[pos + 4]! << 24) | (src[pos + 5]! << 16) | (src[pos + 6]! << 8) | src[pos + 7]!) >>> 0
+      const inner = pos + 8 + size
+      if (inner <= pos || inner >= end) return false
+      const endLen = src[inner]!
+      if (endLen < 2 || inner + endLen * 2 > end) return false
+      pos = inner + endLen * 2
+      continue
+    }
+    pos = lineEnd
+  }
+  return pos === end
 }
 
 function parseLine(r: BinReader, table: TokenTable, lineDataOffset: number): Tok[] {

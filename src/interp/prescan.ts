@@ -42,10 +42,11 @@ export interface ProcInfo {
   /** statement after End Proc — where a Procedure token jumps in normal flow */
   skip: Addr
   /**
-   * Set when the Procedure's flags word says the body cannot be listed, so
-   * the token stream has none of it: AMOS Pro's machine-language procedure,
-   * or an AMOS 1.x locked one whose tokens are enciphered. The program still
-   * loads and everything outside runs; a CALL is what cannot be honoured.
+   * Set when the token stream has none of the body. That means AMOS Pro's
+   * machine-language procedure, whose body is a 68k image — or, rarely, an
+   * AMOS 1.x locked one that could not be deciphered, which on a sound file
+   * does not happen (see procode.ts). The program still loads and everything
+   * outside runs; a CALL is what cannot be honoured.
    */
   protectedBody?: 'machine code' | 'locked'
 }
@@ -177,9 +178,10 @@ export function prescan(lines: TokenLine[], names: Names): Program {
           body: afterStatement(li, ti),
           skip: newAddr(),
         }
-        // keyed on the body actually being absent, not on the flag: an
-        // AMOS Pro machine-language procedure carries its own `@_apml_@`
-        // line and keeps its body, and the runtime handles that one itself
+        // keyed on the body actually being absent, not on the flag: a locked
+        // procedure has been deciphered by now and reads as ordinary lines,
+        // and an AMOS Pro machine-language one carries its own `@_apml_@`
+        // line and keeps its body, which the runtime handles itself
         if (tok.protectedBody) {
           info.protectedBody = tok.flags & MACHINE_CODE_PROC ? 'machine code' : 'locked'
         }
