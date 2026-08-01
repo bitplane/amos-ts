@@ -14,6 +14,7 @@ import { makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
 import { makeCtextFunctions, makeCtextInstructions } from './ctext'
 import { makeSticksFunctions, makeSticksInstructions } from './sticks'
 import { makeStarsFunctions, makeStarsInstructions } from './stars'
+import { makeAgaFunctions, makeAgaInstructions } from './aga'
 import { JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
 import { makeJdColourFunctions, makeJdColourInstructions } from './jdcolour'
 import { jdPrt11Aliases, makeJdPrtFunctions, makeJdPrtInstructions } from './jdprt'
@@ -4980,6 +4981,13 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     ids: ['stars-2.33'],
     instructions: makeStarsInstructions,
     functions: makeStarsFunctions,
+  },
+  {
+    // AGA.lib and AMOSPro_AGA.lib share one token table, so this covers
+    // AMOS 1.3 and AMOS Pro; v0.09 shipped no library at all
+    ids: ['aga-1.0'],
+    instructions: makeAgaInstructions,
+    functions: makeAgaFunctions,
   },
   {
     // 5.9 renumbered the token table but kept the vocabulary; dispatch is by

@@ -1364,6 +1364,17 @@ export const FAITHFUL = new Set<string>([
   'stars off', 'stars wibble', 'stars dir', 'cop palette',
   'cop true palette', 'cop screen', 'cop current',
 
+  // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
+  // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
+  // faithful is the state, the validation and the packed-picture format;
+  // the drawing is our RastPort primitives standing in for the library's.
+  'aga screen open', 'aga screen close', 'aga screen', 'aga front screen',
+  'aga ink', 'aga clip', 'aga draw mode', 'aga sprite mode',
+  'aga cls', 'aga box', 'aga bar', 'aga text',
+  'aga use font', 'aga get block', 'aga put block', 'aga del block',
+  'aga screen copy', 'aga load bitplanes', 'aga spack', 'aga unpack',
+  'aga get palette', 'aga get bank palette', 'aga colour', 'aga point',
+
   // --- JD 5.3/5.9 (Joerg Dommermuth), ported line by line from the author's
   // own source: APD599/SOURCES/|jd.s, PowerPacked, 122 KB unpacked, public
   // domain by his statement. Every keyword cites its routine at the handler
@@ -1941,6 +1952,35 @@ export const NOTES: Record<string, string> = {
     "The token spec is I0,0t0,0 in 1.0, 1.9 and 2.15 alike, so only the To form exists — the manual's shorter 'F Draw X,Y' cannot be written and would not parse on the real machine either. Ignores the Set Line pattern, as the manual admits ('this will be corrected in a future update'), and the plane mask",
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
+  // --- AGA 1.0: doc plus disassembly; the doc loses three times ---
+  'aga screen open':
+    "Routine 2 (\$1050): 0..7 or error 5, must not already exist (error 1), always 320x256x8, brought to the front, and the default font selected on the way. DEVIATION: the original builds its OWN copper list outside AMOS's screen system, which is why the doc warns that 'Sprites,Bobs and Mouse related commands may react in a corrupting way on screen'. Here an AGA screen is an ordinary Screen of 256 colours, so it composes with sprites, bobs and the pointer instead of fighting them -- programs written around that warning look better than they did, and nothing they can do depends on the corruption",
+  'aga get palette':
+    "Routine 5 (\$11d8) is FOUR BYTES: `move.l (a3)+,d0 / rts`. It pops its argument and returns, and it is undocumented. It is NOT the keyword the doc's 'AGA Get Palette Bank' entry describes -- that entry is Aga Get Bank Palette, a different routine at \$1a94. Reproduced as the no-op it is",
+  'aga get bank palette':
+    "Routine 38 (\$1a94). The doc's synopsis is wrong three ways: it calls the keyword 'AGA Get Palette Bank', gives it a `To screen` argument, and implies the palette is per-screen. The token spec is `I0` -- one bank, no To, no screen -- and the routine reads 256 four-byte entries, DISCARDING the first byte of each (two `move.b (a0)+,d0` into the same register), so the bank is 0RGB longwords. The missing screen argument is the doc's own 'each screen has to share a common palette' showing through",
+  'aga colour':
+    "Routine 24 (\$158a) and its function form. Each 8-bit channel splits into a high-nibble word and a low-nibble word, poked into the copper list four bytes apart at +0 and +\$420 -- the AGA LOCT pair, the same technique Stars' Cop True Palette uses. `cmp.w #\$ff,d0 / bgt` skips a colour above 255 SILENTLY, with no error and no wrap. The function returns the 24-bit value the doc gives examples for: 'Red = \$00FF0000'",
+  'aga ink':
+    "Routine 9 (\$13a0): `move.b d0,\$0(a2)`. A byte, which is exactly why the doc says a value 'over 255 will wrap around again' -- it is truncation, not a range check",
+  'aga bar':
+    "Routine 7 (\$1236) = RectFill, but only after `cmp.w d0,d2 / ble` and `cmp.w d1,d3 / ble`, so an inverted or degenerate bar is error 3. AMOS's own Bar swaps the corners and draws; this one refuses",
+  'aga box':
+    'Routine 6 (\$11dc): Move to (x1,y1), then PolyDraw over four corners -- (x1,y2) (x2,y2) (x2,y1) (x1,y1). An outline, and unlike Aga Bar it does not check the corner order',
+  'aga sprite mode':
+    'Routine 36 (\$19fe): patches \$00, \$80 or \$c0 into a copper instruction for low, medium and high resolution sprites. The three cmp.w tests simply do not match anything else, leaving d3 at 0, so an out-of-range value is low res rather than an error',
+  'aga front screen':
+    "Routine 30 (\$1868). NOTE, unresolved: this routine indexes the screen table through a2 without ever loading a2, where every sibling does `movea.l \$228(a5),a2 / adda.w #\$96,a2` first. Whether that is a live defect depends on what the dispatcher leaves in a2, which cannot be settled without executing the 68k -- n/a by policy. Implemented as the doc and the routine's evident intent say, with the discrepancy recorded rather than guessed at",
+  'aga unpack':
+    "Routine 48 (\$1fd2), and the format is read off it rather than out of the doc, which describes none of it. A bank headed 'Aga.Pic' is 1024 bytes of palette -- 256 entries of a high-nibble word then a low-nibble word, poked into the copper \$420 apart -- followed by (count,value) byte pairs decoded into a 320x256 CHUNKY buffer, one byte a pixel, converted to bitplanes in one pass at the end. That last step is why the doc can say Akiko helps. A run never crosses a row: at x=320 the routine zeroes x and steps y, stopping at y=256. A count of zero still writes one pixel, because the store precedes the dbra, but advances x by nothing -- so a stream of zeroes never terminates, and the packer never emits one. Opens the destination screen if it is not already open",
+  'aga spack':
+    "Routine 47 (\$1dee), the inverse of Aga Unpack's format. The doc's warning is the RLE showing through: 'it is quite possible for the packed picture to be larger than the original RAW data'",
+  'aga load bitplanes':
+    'Routine 29 (\$1804): eight CopyMem calls of \$2800 bytes each, straight into the planes in order -- \$2800 is 320/8 * 256, one whole plane. Opens the destination screen if it is not open. The doc notes the bank no longer has to be in Chip RAM, "speeding up the screen display on 020+ machines as 020+ machines are faster than the Blitter for these operations"',
+  'aga get block':
+    "Routine 18 (\$1434): 0..4000 or error 8. The mask flag is the six-parameter form and is fixed at grab time -- 'You cannot allocate a mask afterwards'. DEVIATION: the doc says overwriting a block leaks the old one ('you will lose the memory that the previous block was using, so remember to AGA Del Block first'); a Map simply replaces it, so the leak is not reproduced",
+  'aga use font':
+    "Routine 54 (\$2324): OpenLibrary('diskfont.library') cached at \$ba, CloseFont on the previous face, a TextAttr built at \$c5 from name/ySize/style/flags, then OpenDiskFont. `adda.l #\$2,a0` steps over the AMOS string's length word. The style argument is accepted and not applied, which the doc owns up to for one case: 'You can't use the style parameter with scalable fonts yet'",
   // --- Stars 2.33: manual plus disassembly; three places they disagree ---
   'stars reset':
     "Routine 4 (\$1892), twelve bytes and undocumented: `movea.l \$f80000,a0 / movea.l 4(a0),a0 / jmp (a0)` — it reads the initial PC out of the Kickstart ROM header and jumps to it, which is a hard machine reset. DEVIATION: there is no machine to reboot, so the program ends, the same thing System and Edit do with AMOS's own leave-now keywords. Nothing in Stars.doc mentions this keyword at all, so no program can have been relying on the reboot in a way the manual sanctioned",
