@@ -221,7 +221,19 @@ export class Screen {
   }
   /** Autoback mode: 2 (default) = fully automatic, 0/1 = manual-ish */
   autoback = 2
-  palette = Uint16Array.from(DEFAULT_PALETTE)
+  /**
+   * The screen's own colour registers, 12-bit.
+   *
+   * 256 long, not 32: an eight-bitplane screen indexes all of them, and the
+   * renderer no longer masks the index down to five bits. The first 32 are
+   * AMOS's defaults and the rest start black, which is what a machine that
+   * has never written the upper banks shows.
+   */
+  palette = ((): Uint16Array => {
+    const p = new Uint16Array(256)
+    p.set(DEFAULT_PALETTE)
+    return p
+  })()
   hires: boolean
   laced: boolean
   /** HAM6 (Screen Open with 4096 colours; CAMG bit $800) */

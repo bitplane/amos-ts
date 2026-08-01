@@ -96,8 +96,33 @@ export class Display {
    * bitmap, and a list that sets it means it however the screen was made —
    * the same reasoning as LACE. Personnal's Ham Mode is exactly that bit.
    */
-  private rowColours(s: Screen, pal: Uint16Array | null, forceHam = false): (pix: number) => number {
-    const get = (i: number): number => (pal ? pal[i & 31]! : s.palette[i & 31]! & 0xfff)
+  private rowColours(
+    s: Screen,
+    pal: Uint16Array | null,
+    palLo: Uint16Array | null = null,
+    forceHam = false,
+  ): (pix: number) => number {
+    /*
+     * Returns a 24-BIT colour, not the 12-bit one this used to hand back.
+     * An AGA entry is two 12-bit halves — the high nibbles in COLORxx and
+     * the low nibbles behind LOCT — and there is no index left to look the
+     * second half up with by the time the renderer expands a pixel, so the
+     * join happens here.
+     *
+     * The index is no longer masked to 31. It was, which is why a bank-1
+     * pixel used to read back as its bank-0 twin.
+     */
+    const n = pal ? pal.length : s.palette.length
+    const hi = (i: number): number => (pal ? pal[i % n]! : s.palette[i % n]! & 0xfff)
+    const lo = (i: number): number => (palLo ? palLo[i % n]! : hi(i))
+    /** two 12-bit halves into 24 bits: high nibble then low, per component */
+    const join = (h: number, l: number): number =>
+      ((((h >> 8) & 15) << 4) | ((l >> 8) & 15)) * 65536 +
+      ((((h >> 4) & 15) << 4) | ((l >> 4) & 15)) * 256 +
+      (((h & 15) << 4) | (l & 15))
+    const get24 = (i: number): number => join(hi(i), lo(i))
+    /** HAM and EHB are ECS-only, and both do their arithmetic 12-bit */
+    const get = hi
     if (s.ham || forceHam) {
       let c = get(0)
       return (pix) => {
@@ -115,11 +140,13 @@ export class Display {
           default:
             c = (c & 0xf0f) | (dat << 4)
         }
-        return c
+        return join(c, c)
       }
     }
-    if (s.ehb) return (pix) => (pix >= 32 ? (get(pix - 32) >> 1) & 0x777 : get(pix))
-    return (pix) => get(pix)
+    if (s.ehb) {
+      return (pix) => (pix >= 32 ? join((get(pix - 32) >> 1) & 0x777, (get(pix - 32) >> 1) & 0x777) : get24(pix))
+    }
+    return (pix) => get24(pix)
   }
 
   private winWOf(s: Screen): number {
@@ -596,8 +623,10 @@ export class Display {
     void H
     const phys = this.rt.copPhysic
     const R = this.rt.copRegs
-    const hwPal = new Uint16Array(32)
+    const hwPal = new Uint16Array(256)
+    const hwPalLo = new Uint16Array(256)
     hwPal.set(R.pal)
+    hwPalLo.set(R.palLo)
     let p = 0
     let line = 0
     let cross = false
@@ -661,10 +690,13 @@ export class Display {
           if (words > 128) words = 128
         }
         if (line >= Display.COMPOSITE_TOP && line < Display.COMPOSITE_TOP + Display.COMPOSITE_LINES) {
+          // COLOR00 is a palette entry like any other, so it carries a LOCT
+          // half too — a background set through Cop True Palette is 24-bit
           const bg = hwPal[0]!
-          const bgR = ((bg >> 8) & 15) * 17
-          const bgG = ((bg >> 4) & 15) * 17
-          const bgB = (bg & 15) * 17
+          const bgLo = hwPalLo[0]!
+          const bgR = (((bg >> 8) & 15) << 4) | ((bgLo >> 8) & 15)
+          const bgG = (((bg >> 4) & 15) << 4) | ((bgLo >> 4) & 15)
+          const bgB = ((bg & 15) << 4) | (bgLo & 15)
           const r0 = (line - Display.COMPOSITE_TOP) * 2
           for (let ri = 0; ri < 2; ri++) {
             const r = r0 + ri
@@ -705,7 +737,17 @@ export class Display {
             // where the first fetched pixel lands, in colour clocks
             const dataStart = ddfstrt * 2 + (hires ? 9 : 17) + (bplcon1 & 15)
             const originX = (dataStart - 1 - 128) * 2
-            const colour = this.rowColours(s, hwPal, ham)
+            const colour = this.rowColours(s, hwPal, hwPalLo, ham)
+            /** one pen straight out of the register file, as 24 bits */
+            const pen24 = (i: number): number => {
+              const h = hwPal[i]!
+              const l = hwPalLo[i]!
+              return (
+                ((((h >> 8) & 15) << 4) | ((l >> 8) & 15)) * 65536 +
+                ((((h >> 4) & 15) << 4) | ((l >> 4) & 15)) * 256 +
+                (((h & 15) << 4) | (l & 15))
+              )
+            }
             // BPU alone decides how many planes are fetched. Capping this at
             // the BPL1PT screen's depth was safe while every plane came from
             // that one screen, and is wrong now: dual playfield's PF2 planes
@@ -759,6 +801,8 @@ export class Display {
               }
               // back to front: PF2 behind PF1 unless PFBA says otherwise, and
               // a zero pen in the front playfield lets the back one through
+              // 24-bit: the high nibbles from COLORxx and the low ones from
+              // the LOCT pass, already joined by `colour` / `pen24`
               let rgb4: number
               if (!dblpf) {
                 // colour 0 shows whatever is behind the playfield — the
@@ -774,17 +818,17 @@ export class Display {
                 // sprite layers sorted between the two can survive
                 if (layer === 'pf1') {
                   if (pf1 === 0) continue
-                  rgb4 = hwPal[pf1]! & 0xfff
+                  rgb4 = pen24(pf1)
                 } else if (layer === 'pf2') {
                   if (pf2 === 0) continue
-                  rgb4 = hwPal[8 + pf2]! & 0xfff
-                } else if (front !== 0) rgb4 = hwPal[frontPal + front]! & 0xfff
-                else if (back !== 0) rgb4 = hwPal[backPal + back]! & 0xfff
+                  rgb4 = pen24(8 + pf2)
+                } else if (front !== 0) rgb4 = pen24(frontPal + front)
+                else if (back !== 0) rgb4 = pen24(backPal + back)
                 else continue // both playfields transparent here
               }
-              const cr = ((rgb4 >> 8) & 15) * 17
-              const cg = ((rgb4 >> 4) & 15) * 17
-              const cb = (rgb4 & 15) * 17
+              const cr = (rgb4 >> 16) & 0xff
+              const cg = (rgb4 >> 8) & 0xff
+              const cb = rgb4 & 0xff
               const px = originX + i * pw
               for (let dx = 0; dx < pw; dx++) {
                 const tx = px + dx
@@ -825,7 +869,28 @@ export class Display {
       } else {
         const reg = w1 & 0x1fe
         if (reg >= 0x180 && reg < 0x1c0) {
-          hwPal[(reg - 0x180) >> 1] = w2 & 0xfff
+          /*
+           * AGA colour banking. There are only 32 colour registers; the
+           * other 224 entries are reached by putting a bank number in
+           * BPLCON3 bits 13-15 and writing the same registers again, and
+           * the LOCT bit ($200) redirects a write to the LOW nibbles of
+           * each component instead of the high ones.
+           *
+           * Both halves of that are what `Cop Palette` and `Cop True
+           * Palette` emit (runtime/stars.ts) — this is the reader for
+           * exactly the instructions that writer already produces.
+           *
+           * With LOCT clear the high nibble is replicated into the low
+           * one. That keeps every ECS list bit-identical, because
+           * `hi << 4 | hi` is the `hi * 17` this renderer expanded with
+           * before there was a low nibble.
+           */
+          const idx = (((bplcon3 >> 13) & 7) << 5) | ((reg - 0x180) >> 1)
+          if (bplcon3 & 0x200) hwPalLo[idx] = w2 & 0xfff
+          else {
+            hwPal[idx] = w2 & 0xfff
+            hwPalLo[idx] = w2 & 0xfff
+          }
           // through $0fe: $0f8-$0fe are BPL7/BPL8, which only AGA fetches.
           // bplH/bplL were already 8 wide; only this range test excluded them.
         } else if (reg >= 0x0e0 && reg <= 0x0fe) {
@@ -910,6 +975,7 @@ export class Display {
     renderLines(313)
     // carry the register file into the next frame
     R.pal.set(hwPal)
+    R.palLo.set(hwPalLo)
     R.dmaOn = dmaOn
     R.hires = hires
     R.bpu = bpu

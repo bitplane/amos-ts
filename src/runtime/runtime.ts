@@ -800,7 +800,25 @@ export class Runtime {
    * every frame made such a list display nothing at all.
    */
   copRegs = {
-    pal: new Uint16Array(32),
+    /**
+     * COLOR00..COLOR31 as written, but 256 of them: AGA reaches the other
+     * 224 by putting a bank number in BPLCON3 bits 13-15 and writing the
+     * same 32 registers again. The index is bank * 32 + (reg - $180) / 2.
+     */
+    pal: new Uint16Array(256),
+    /**
+     * The LOW nibbles of each component, which AGA writes to the same
+     * registers with BPLCON3's LOCT bit ($200) set. Held separately rather
+     * than as one 24-bit value because that is how the hardware is written
+     * to — two passes over the same registers, which is exactly what Stars'
+     * `Cop True Palette` emits (stars.ts).
+     *
+     * A write with LOCT clear sets BOTH, replicating the high nibble into
+     * the low one. That is the AGA compatibility rule, and it is what keeps
+     * every ECS screen bit-identical: `hi << 4 | hi` is `hi * 17`, the
+     * expansion the renderer used before there was a low nibble at all.
+     */
+    palLo: new Uint16Array(256),
     dmaOn: false,
     hires: false,
     /**
@@ -875,7 +893,9 @@ export class Runtime {
   private seedCopperRegs(): void {
     const r = this.copRegs
     r.pal.fill(0)
+    r.palLo.fill(0)
     r.pal[0] = this.colourBack & 0xfff
+    r.palLo[0] = r.pal[0]
     r.dmaOn = false
     r.hires = false
     // 6 planes, the most an OCS/ECS list can fetch: the handover blanks the
@@ -2988,7 +3008,16 @@ export class Runtime {
       colours = 64
       m |= 0x800
     } else {
-      if (![2, 4, 8, 16, 32, 64].includes(colours)) throw new AmosError('illegal number of colours')
+      /*
+       * 256 is not AMOS's — `Screen Open` on a real Amiga stops at 64,
+       * because AMOS predates AGA and never learned about it. It is here
+       * for the extensions that DO drive eight bitplanes: AGA 1.0's `Aga
+       * Screen Open` is 320x256x8, and Personnal's AGA icon bank works in
+       * the same space. Nothing reaches this with 256 unless an extension
+       * asked for it, so no AMOS program's error behaviour changes.
+       */
+      if (![2, 4, 8, 16, 32, 64, 256].includes(colours))
+        throw new AmosError('illegal number of colours')
       if (m & 0x8000 && colours > 16) throw new AmosError('function call error')
     }
     const s = new Screen(n, Math.max(8, w), Math.max(8, h), colours, m)
