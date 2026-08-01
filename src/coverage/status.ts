@@ -1967,6 +1967,10 @@ export const NOTES: Record<string, string> = {
     "Routine 7 (\$1236) = RectFill, but only after `cmp.w d0,d2 / ble` and `cmp.w d1,d3 / ble`, so an inverted or degenerate bar is error 3. AMOS's own Bar swaps the corners and draws; this one refuses",
   'aga box':
     'Routine 6 (\$11dc): Move to (x1,y1), then PolyDraw over four corners -- (x1,y2) (x2,y2) (x2,y1) (x1,y1). An outline, and unlike Aga Bar it does not check the corner order',
+  'aga text':
+    "Routine 8 (\$127e): TextExtent to measure, TextFit to clip, then the glyphs through rp_Font. The metrics are graphics.library's -- the glyph top is y - tf_Baseline and each character advances by its own width, so a proportional face sets correctly instead of on an 8-pixel grid. DEVIATION: with no face opened this draws nothing, where the machine's RastPort would inherit the screen's default topaz. The built-in 8x8 belongs to AMOS's console rather than to graphics.library, and the extension has no console to borrow it from",
+  'aga draw mode':
+    "Routine 35 (\$19e2) = SetDrMd(rp, n): Jam1 0, Jam2 1, XOR 2, INVERSVID 4, stored with no validation. The RastPort it sets is the EXTENSION's, not the focused AMOS screen's -- the state block at \$228(a5) holds one set of pens for the whole extension and \$8a says which screen's bitmap they act on, so AMOS's own Ink, Gr Writing and Set Planes cannot reach an AGA drawing operation and it cannot reach theirs",
   'aga sprite mode':
     'Routine 36 (\$19fe): patches \$00, \$80 or \$c0 into a copper instruction for low, medium and high resolution sprites. The three cmp.w tests simply do not match anything else, leaving d3 at 0, so an out-of-range value is low res rather than an error',
   'aga front screen':

@@ -84,9 +84,27 @@ describe('AGA drawing', () => {
   it('Aga Ink is a BYTE, so 256 wraps to 0 ($13a0)', () => {
     // the doc says so and the store is `move.b` -- truncation, not a check
     const { rt } = run(['Aga Screen Open 0', 'Aga Ink 256'])
-    expect(rt.aga.ink).toBe(0)
+    expect(rt.aga.rp.fgPen).toBe(0) // Aga Ink is rp_FgPen
     const b = run(['Aga Screen Open 0', 'Aga Ink 257 : Aga Bar 0,0 To 4,4'])
     expect(pix(b.rt, 0, 2, 2)).toBe(1)
+  })
+
+  it("the extension's RastPort is its own, so AMOS's pens do not reach it", () => {
+    // AGA screens are real AMOS Screens here, so the focused screen's own
+    // RastPort carries whatever Ink and Set Planes last set. The extension
+    // has one RastPort of its own at $228(a5) and draws through that, which
+    // is what keeps AMOS's drawing state out of a library that has none.
+    const { rt } = run([
+      'Aga Screen Open 0',
+      'Ink 7 : Set Line $F0F0', // AMOS's pen and dash, on screen 0's RastPort
+      'Aga Ink 200 : Aga Bar 0,0 To 9,9',
+      'Aga Ink 100 : Aga Box 20,20 To 40,40',
+    ])
+    expect(pix(rt, 0, 5, 5)).toBe(200) // Aga Ink, not AMOS's Ink 7
+    // the top edge is solid all the way across: Set Line dashed AMOS's
+    // rp_LinePtrn, and the extension's is still $FFFF
+    for (let x = 20; x <= 40; x++) expect(pix(rt, 0, x, 20)).toBe(100)
+    expect(rt.screens.get(0)!.ink).toBe(7) // and AMOS's own pen is untouched
   })
 
   it('Aga Bar refuses an inverted or degenerate rectangle ($124c)', () => {
@@ -170,7 +188,7 @@ describe('the AGA state keywords', () => {
       'Aga Ink 15',
       'Aga Text 10,20,"HI"',
     ])
-    expect(rt.aga.font).toBe(null) // nothing to open in a bare VFS
+    expect(rt.aga.rp.font).toBe(null) // rp_Font, and nothing to open in a bare VFS
     expect(trapped('Aga Text 10,20,"HI"')).toBe(false)
   })
 })
@@ -316,6 +334,9 @@ describe('AGA pictures', () => {
     ])
     expect(pix(rt, 5, 100, 100)).toBe(7)
     expect(pix(rt, 5, 20, 20)).toBe(200)
+    // "if the screen isn't opened then one will be opened for you" -- and it
+    // is opened the extension's way, with no AMOS console cursor on it
+    expect(rt.screens.get(5)!.cursorOn).toBe(false)
     // the palette rode along in the 1024-byte header, LOCT half included
     expect(rt.copRegs.pal[7]).toBe(0x135)
     expect(rt.copRegs.palLo[7]).toBe(0x246)

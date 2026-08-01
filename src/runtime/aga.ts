@@ -90,9 +90,9 @@
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { VI, AmosError, int, type Value } from '../interp/values'
-import { BitMap } from '../amiga/graphics'
-import { glyphBit, openDiskFont } from '../amiga/diskfont'
-import type { DiskFont } from '../amiga/diskfont'
+import { BitMap, RastPort, bltBitMap } from '../amiga/graphics'
+import { rowBytesFor } from '../amiga/planar'
+import { openDiskFont } from '../amiga/diskfont'
 
 /** every AGA screen is this size; nothing in the extension varies it */
 const AGA_W = 320
@@ -116,10 +116,8 @@ const agaErr: (n: number) => never = (n) => {
 }
 
 interface AgaBlock {
-  w: number
-  h: number
-  /** chunky pixels, w*h */
-  data: Uint8Array
+  /** the block's own bitmap, which is what Get Block really allocates */
+  bm: BitMap
   /** "You cannot allocate a mask afterwards" — decided at Get Block */
   mask: boolean
 }
@@ -129,94 +127,63 @@ export interface AgaState {
   screens: Int8Array
   /** $8a: the screen with the focus, -1 when none */
   current: number
-  /** $0: a BYTE, so 256 wraps to 0 */
-  ink: number
+  /**
+   * The extension's own RastPort — the state block at $228(a5) holds one set
+   * of pens, one draw mode and one font for the whole extension, and the
+   * screen with the focus supplies the bitmap they act on.
+   *
+   * Deliberately NOT the focused Screen's RastPort. AGA screens are real AMOS
+   * `Screen`s here, so `s.rp` carries whatever AMOS's own Ink, Gr Writing and
+   * Set Planes last set; drawing an extension's graphics through it would let
+   * AMOS's state into a library that has none of its own. A separate RastPort
+   * over the same BitMap starts at the library defaults — full write mask,
+   * solid line pattern — which is what the extension actually has.
+   *
+   * rp_FgPen is Aga Ink ($0, a BYTE, so 256 wraps to 0), rp_DrawMode is
+   * SetDrMd (0 JAM1, 1 JAM2, 2 COMPLEMENT, 4 INVERSVID) and rp_Font is $b6,
+   * the face Aga Use Font opened.
+   */
+  rp: RastPort
   /** $c4 */
   clip: boolean
-  /** SetDrMd: 0 JAM1, 1 JAM2, 2 COMPLEMENT, 4 INVERSVID */
-  drawMode: number
   /** 0 low, 1 medium, 2 high — patched into the copper as $00/$80/$c0 */
   spriteMode: number
   /** $b2, numbered 1..4000 */
   blocks: Map<number, AgaBlock>
-  /** $b6, the face Aga Use Font opened */
-  font: DiskFont | null
 }
 
 export function newAgaState(): AgaState {
+  // a placeholder surface until a screen takes the focus: every keyword that
+  // draws goes through `focus()`, which errors before the bitmap is read
+  const rp = new RastPort(new BitMap(1, 1, 1, 2))
+  rp.fgPen = 0
+  rp.drawMode = 0 // the extension's SetDrMd default is JAM1, not AMOS's JAM2
   return {
     screens: Int8Array.from([-1, -1, -1, -1, -1, -1, -1, -1]),
     current: -1,
-    ink: 0,
+    rp,
     clip: true,
-    drawMode: 0,
     spriteMode: 0,
     blocks: new Map(),
-    font: null,
   }
 }
 
 export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
-  /** the screen a keyword draws on, or the extension's error 0 */
-  const focus = (): { bm: BitMap; planes: Uint8Array } => {
+  /**
+   * The extension's RastPort, pointed at the screen with the focus — or the
+   * extension's error 0 when there is none.
+   *
+   * Repointing the bitmap rather than keeping a RastPort per screen is what
+   * the state block does: one set of pens at $228(a5), and $8a saying which
+   * screen they currently act on.
+   */
+  const focus = (): RastPort => {
     const st = rt.aga
     if (st.current < 0) agaErr(0)
     const s = rt.screens.get(st.current)
     if (!s) agaErr(0)
-    const bm = s.rp.bitMap
-    return { bm, planes: bm.planeBytes(true) }
-  }
-
-  /** chunky read/write straight into the planes, which is what the blits do */
-  const getPix = (bm: BitMap, planes: Uint8Array, x: number, y: number): number => {
-    if (x < 0 || y < 0 || x >= bm.width || y >= bm.height) return 0
-    let v = 0
-    const o = y * bm.bytesPerRow + (x >> 3)
-    const bit = 0x80 >> (x & 7)
-    for (let p = 0; p < bm.depth; p++) if (planes[p * bm.planeSize + o]! & bit) v |= 1 << p
-    return v
-  }
-  const setPix = (bm: BitMap, planes: Uint8Array, x: number, y: number, v: number): void => {
-    // clipping is a flag, and turning it off is documented as unchecked:
-    // "any graphics going over the boundary will cause a error"
-    if (x < 0 || y < 0 || x >= bm.width || y >= bm.height) return
-    const o = y * bm.bytesPerRow + (x >> 3)
-    const bit = 0x80 >> (x & 7)
-    for (let p = 0; p < bm.depth; p++) {
-      const at = p * bm.planeSize + o
-      if (v & (1 << p)) planes[at] = planes[at]! | bit
-      else planes[at] = planes[at]! & ~bit
-    }
-  }
-
-  /** SetDrMd's modes, applied to one pixel */
-  const drawPix = (bm: BitMap, planes: Uint8Array, x: number, y: number, pen: number): void => {
-    const st = rt.aga
-    if (st.drawMode & 2) setPix(bm, planes, x, y, getPix(bm, planes, x, y) ^ pen)
-    else setPix(bm, planes, x, y, pen)
-  }
-
-  const line = (bm: BitMap, planes: Uint8Array, x1: number, y1: number, x2: number, y2: number, pen: number): void => {
-    const dx = Math.abs(x2 - x1)
-    const dy = -Math.abs(y2 - y1)
-    const sx = x1 < x2 ? 1 : -1
-    const sy = y1 < y2 ? 1 : -1
-    let err = dx + dy
-    let x = x1
-    let y = y1
-    for (;;) {
-      drawPix(bm, planes, x, y, pen)
-      if (x === x2 && y === y2) break
-      const e2 = 2 * err
-      if (e2 >= dy) {
-        err += dy
-        x += sx
-      }
-      if (e2 <= dx) {
-        err += dx
-        y += sy
-      }
-    }
+    st.rp.bitMap = s.rp.bitMap
+    return st.rp
   }
 
   /** the AMOS bank a `bank` argument names, as raw bytes */
@@ -280,7 +247,7 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
     'aga ink'(it) {
       // routine 9 ($13a0): `move.b d0,$0(a2)`. A byte, so 256 is 0 --
       // "If it goes over 255 it will wrap around again"
-      rt.aga.ink = it.evalInt() & 0xff
+      rt.aga.rp.fgPen = it.evalInt() & 0xff
     },
     'aga clip'(it) {
       // routine 39 ($1ad2), a byte flag and no validation
@@ -288,7 +255,7 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
     },
     'aga draw mode'(it) {
       // routine 35 ($19e2) = SetDrMd(rp, n). Jam1 0, Jam2 1, XOR 2, INVV 4
-      rt.aga.drawMode = it.evalInt()
+      rt.aga.rp.drawMode = it.evalInt()
     },
     'aga sprite mode'(it) {
       // routine 36 ($19fe): patches $00 / $80 / $c0 into the copper for low,
@@ -301,13 +268,8 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
     'aga cls'(it) {
       // routine 12 ($13e2) = SetRast(rp, ink). The optional argument is the
       // second form at instr 13; without it the current Aga Ink is used
-      const { bm, planes } = focus()
-      const pen = it.atStmtEnd() ? rt.aga.ink : it.evalInt() & 0xff
-      for (let p = 0; p < bm.depth; p++) {
-        const on = (pen & (1 << p)) !== 0
-        planes.fill(on ? 0xff : 0, p * bm.planeSize, (p + 1) * bm.planeSize)
-      }
-      bm.invalidate()
+      const rp = focus()
+      rp.setRast(it.atStmtEnd() ? rp.fgPen : it.evalInt() & 0xff)
     },
     'aga box'(it) {
       // routine 6 ($11dc): Move to (x1,y1) then PolyDraw over four corners --
@@ -319,13 +281,11 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       const x2 = it.evalInt()
       it.expect(',')
       const y2 = it.evalInt()
-      const { bm, planes } = focus()
-      const pen = rt.aga.ink
-      line(bm, planes, x1, y1, x1, y2, pen)
-      line(bm, planes, x1, y2, x2, y2, pen)
-      line(bm, planes, x2, y2, x2, y1, pen)
-      line(bm, planes, x2, y1, x1, y1, pen)
-      bm.invalidate()
+      const rp = focus()
+      rp.draw(x1, y1, x1, y2)
+      rp.draw(x1, y2, x2, y2)
+      rp.draw(x2, y2, x2, y1)
+      rp.draw(x2, y1, x1, y1)
     },
     'aga bar'(it) {
       // routine 7 ($1236) = RectFill, but only after `cmp.w d0,d2 / ble` and
@@ -339,10 +299,7 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const y2 = it.evalInt()
       if (x2 <= x1 || y2 <= y1) agaErr(3)
-      const { bm, planes } = focus()
-      const pen = rt.aga.ink
-      for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) drawPix(bm, planes, x, y, pen)
-      bm.invalidate()
+      focus().rectFill(x1, y1, x2, y2)
     },
     'aga text'(it) {
       // routine 8 ($127e): TextExtent to measure, TextFit to clip, then the
@@ -352,21 +309,7 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       const y = it.evalInt()
       it.expect(',')
       const s = it.evalStr()
-      const { bm, planes } = focus()
-      const f = rt.aga.font
-      const pen = rt.aga.ink
-      const cw = f ? f.xSize : 8
-      const ch = f ? f.ySize : 8
-      for (let i = 0; i < s.length; i++) {
-        const code = s.charCodeAt(i)
-        const gx = x + i * cw
-        for (let row = 0; row < ch; row++) {
-          for (let col = 0; col < cw; col++) {
-            if (f && glyphBit(f, code, col, row)) drawPix(bm, planes, gx + col, y - ch + 1 + row, pen)
-          }
-        }
-      }
-      bm.invalidate()
+      focus().text(x, y, s)
     },
     'aga use font'(it) {
       // routine 54 ($2324): OpenLibrary("diskfont.library") cached at $ba,
@@ -379,7 +322,7 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const style = it.evalInt()
       void style // "You can't use the style parameter with scalable fonts yet"
-      rt.aga.font = openDiskFont((p) => rt.vfs?.read(p) ?? null, name, size)
+      rt.aga.rp.font = openDiskFont((p) => rt.vfs?.read(p) ?? null, name, size)
     },
     'aga get block'(it) {
       // routine 18 ($1434): 0..4000 or error 8. The mask argument is the
@@ -396,13 +339,16 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       let mask = false
       if (it.accept(',')) mask = it.evalInt() !== 0
       if (n < 0 || n > MAX_BLOCK) agaErr(8)
-      const { bm, planes } = focus()
-      const data = new Uint8Array(Math.max(0, w) * Math.max(0, h))
-      for (let ry = 0; ry < h; ry++)
-        for (let rx = 0; rx < w; rx++) data[ry * w + rx] = getPix(bm, planes, x + rx, y + ry)
+      const rp = focus()
+      // the block gets a bitmap of its own, which is what the routine
+      // allocates before blitting the rectangle into it
+      const bw = Math.max(0, w)
+      const bh = Math.max(0, h)
+      const bm = new BitMap(bw, bh, rp.depth, rowBytesFor(bw))
+      bltBitMap(rp.bitMap, x, y, bm, 0, 0, bw, bh)
       // "If you try to overwrite a block you will lose the memory that the
       // previous block was using" -- the original leaks; a Map just replaces
-      rt.aga.blocks.set(n, { w, h, data, mask })
+      rt.aga.blocks.set(n, { bm, mask })
     },
     'aga put block'(it) {
       // routine 20 ($1490): x < 320 and y < 256 or error, the block must
@@ -416,15 +362,8 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       if (x >= AGA_W || y >= AGA_H) agaErr(8)
       const b = rt.aga.blocks.get(n)
       if (!b) agaErr(0xa)
-      const { bm, planes } = focus()
-      for (let ry = 0; ry < b.h; ry++) {
-        for (let rx = 0; rx < b.w; rx++) {
-          const v = b.data[ry * b.w + rx]!
-          if (b.mask && v === 0) continue
-          drawPix(bm, planes, x + rx, y + ry, v)
-        }
-      }
-      bm.invalidate()
+      const rp = focus()
+      bltBitMap(b.bm, 0, 0, rp.bitMap, x, y, b.bm.width, b.bm.height, b.mask ? 0 : -1)
     },
     'aga del block'(it) {
       // routine 42 ($1c08): $ffff back from the lookup is error $a
@@ -461,18 +400,9 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       const st = rt.aga
       if (src < 0 || src > 7 || st.screens[src]! < 0) agaErr(0)
       if (dst < 0 || dst > 7 || st.screens[dst]! < 0) agaErr(0)
-      const ss = rt.screens.get(src)!
-      const ds = rt.screens.get(dst)!
-      const sbm = ss.rp.bitMap
-      const dbm = ds.rp.bitMap
-      const sp = sbm.planeBytes()
-      const dp = dbm.planeBytes(true)
       // "Screencopy and Blocks were known to misbehave if they went off the
       // screen anywhere, sanity checking has been put in to clip these"
-      const tmp = new Uint8Array(Math.max(0, w) * Math.max(0, h))
-      for (let ry = 0; ry < h; ry++) for (let rx = 0; rx < w; rx++) tmp[ry * w + rx] = getPix(sbm, sp, sx + rx, sy + ry)
-      for (let ry = 0; ry < h; ry++) for (let rx = 0; rx < w; rx++) setPix(dbm, dp, dx + rx, dy + ry, tmp[ry * w + rx]!)
-      dbm.invalidate()
+      bltBitMap(rt.screens.get(src)!.rp.bitMap, sx, sy, rt.screens.get(dst)!.rp.bitMap, dx, dy, w, h)
     },
     'aga load bitplanes'(it) {
       // routine 29 ($1804): eight CopyMem calls of $2800 bytes each, straight
@@ -484,7 +414,7 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       const st = rt.aga
       if (n < 0 || n > 7) agaErr(5)
       if (st.screens[n]! < 0) {
-        rt.openScreen(n, AGA_W, AGA_H, 256, 0)
+        openAgaScreen(rt, n)
         st.screens[n] = n
         st.current = n
       }
@@ -510,8 +440,7 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       const st = rt.aga
       if (n < 0 || n > 7 || st.screens[n]! < 0) agaErr(0)
       const s = rt.screens.get(n)!
-      const bm = s.rp.bitMap
-      const planes = bm.planeBytes()
+      const px = s.rp.bitMap.pixels
       const out: number[] = []
       for (let i = 0; i < 256; i++) {
         const hi = s.palette[i] ?? 0
@@ -519,11 +448,12 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
         out.push((hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff)
       }
       for (let y = 0; y < AGA_H; y++) {
+        const row = y * AGA_W
         let x = 0
         while (x < AGA_W) {
-          const v = getPix(bm, planes, x, y)
+          const v = px[row + x]!
           let run = 1
-          while (x + run < AGA_W && run < 255 && getPix(bm, planes, x + run, y) === v) run++
+          while (x + run < AGA_W && run < 255 && px[row + x + run] === v) run++
           out.push(run, v)
           x += run
         }
@@ -540,14 +470,13 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       const st = rt.aga
       if (n < 0 || n > 7) agaErr(5)
       if (st.screens[n]! < 0) {
-        rt.openScreen(n, AGA_W, AGA_H, 256, 0)
+        openAgaScreen(rt, n)
         st.screens[n] = n
         st.current = n
       }
       const src = bankBytes(bank)
       const s = rt.screens.get(n)!
       const bm = s.rp.bitMap
-      const planes = bm.planeBytes(true)
       // the palette: 256 entries of (high word, low word)
       for (let i = 0; i < 256; i++) {
         const o = i * 4
@@ -565,7 +494,7 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
         p += 2
         // the store precedes the dbra, so a count of 0 still writes one pixel
         const runs = Math.max(1, count)
-        for (let k = 0; k < runs; k++) setPix(bm, planes, x + k, y, value)
+        for (let k = 0; k < runs; k++) if (x + k < AGA_W) bm.writePixel(x + k, y, value)
         x += count
         if (x >= AGA_W) {
           x = 0
@@ -673,14 +602,9 @@ export function makeAgaFunctions(rt: Runtime): Record<string, Func> {
       if (st.current < 0) return VI(0)
       const s = rt.screens.get(st.current)
       if (!s) return VI(0)
-      const bm = s.rp.bitMap
-      const planes = bm.planeBytes()
-      if (x < 0 || y < 0 || x >= bm.width || y >= bm.height) return VI(0)
-      let v = 0
-      const o = y * bm.bytesPerRow + (x >> 3)
-      const bit = 0x80 >> (x & 7)
-      for (let p = 0; p < bm.depth; p++) if (planes[p * bm.planeSize + o]! & bit) v |= 1 << p
-      return VI(v)
+      st.rp.bitMap = s.rp.bitMap
+      const v = st.rp.point(x, y)
+      return VI(v < 0 ? 0 : v)
     },
   }
 }
