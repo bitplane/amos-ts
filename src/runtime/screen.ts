@@ -2,14 +2,8 @@ import { FONT8 } from './font.gen'
 import { AmosError } from '../interp/values'
 import { glyphBit, glyphMetrics } from '../amiga/diskfont'
 import type { DiskFont } from '../amiga/diskfont'
-import {
-  decode as decodePlanes,
-  encode as encodePlanes,
-  fillSpan as planarFillSpan,
-  getPixel as planarGet,
-  setPixel as planarSet,
-  rowBytesFor,
-} from '../amiga/planar'
+import { rowBytesFor } from '../amiga/planar'
+import { BitMap, RastPort, type ClipRect } from '../amiga/graphics'
 
 // ---- text-border glyphs (TEncadre +W.s:16725) -----------------------------
 // Border$ draws its box out of the AMOS charset's own characters. Those
@@ -167,27 +161,18 @@ export class Screen {
    * `valid` means the cache matches the planes; `dirty` means the cache has
    * writes the planes have not seen yet, and `flush()` is what settles them.
    */
-  private planarLog: Uint8Array
-  private planarPhy: Uint8Array | null = null
-  private chunkyLog: Uint8Array
-  private chunkyPhy: Uint8Array | null = null
-  private logValid = true
-  private logDirty = false
-  private phyValid = true
-  private phyDirty = false
+  /**
+   * The RastPort holds the LOGICAL bitmap and the drawing state; `phyBM` is
+   * the physical one once Double Buffer has split them. Both bitmaps and all
+   * twelve rp_ fields now live in ../amiga/graphics — this class keeps AMOS's
+   * own half: the console, the windows, and the shapes whose implementations
+   * are AMOS's rather than graphics.library's.
+   */
+  readonly rp: RastPort
+  private phyBM: BitMap | null = null
 
-  /** push any pending chunky writes back into the planes */
-  private flushLog(): void {
-    if (!this.logDirty) return
-    encodePlanes(this.chunkyLog, this.planarLog, this.planeSize, this.rowBytes, this.depth, this.width, this.height)
-    this.logDirty = false
-    this.logValid = true
-  }
-  private flushPhy(): void {
-    if (!this.phyDirty || !this.chunkyPhy || !this.planarPhy) return
-    encodePlanes(this.chunkyPhy, this.planarPhy, this.planeSize, this.rowBytes, this.depth, this.width, this.height)
-    this.phyDirty = false
-    this.phyValid = true
+  private get logBM(): BitMap {
+    return this.rp.bitMap
   }
 
   /**
@@ -196,60 +181,44 @@ export class Screen {
    * writers take `pixelsW()` instead, which says what it is doing.
    */
   get pixels(): Uint8Array {
-    if (!this.logValid) {
-      decodePlanes(this.planarLog, this.planeSize, this.rowBytes, this.depth, this.width, this.height, this.chunkyLog)
-      this.logValid = true
-    }
-    return this.chunkyLog
+    return this.logBM.pixels
   }
   /** the logical chunky buffer, for a caller that is about to write to it */
   pixelsW(): Uint8Array {
-    const p = this.pixels
-    this.logDirty = true
-    return p
-  }
-  set pixels(v: Uint8Array) {
-    this.chunkyLog = v
-    this.logValid = true
-    this.logDirty = true
-    this.flushLog()
+    return this.logBM.pixelsW()
   }
   /** the PHYSICAL buffer when double-buffered (what the beam shows) */
   get back(): Uint8Array | null {
-    if (this.chunkyPhy === null || this.planarPhy === null) return null
-    if (!this.phyValid) {
-      decodePlanes(this.planarPhy, this.planeSize, this.rowBytes, this.depth, this.width, this.height, this.chunkyPhy)
-      this.phyValid = true
-    }
-    return this.chunkyPhy
+    return this.phyBM === null ? null : this.phyBM.pixels
   }
   /** the physical chunky buffer, for a caller that is about to write to it */
   backW(): Uint8Array | null {
-    const p = this.back
-    if (p !== null) this.phyDirty = true
-    return p
+    return this.phyBM === null ? null : this.phyBM.pixelsW()
   }
-  set back(v: Uint8Array | null) {
-    if (v === null) {
-      this.chunkyPhy = null
-      this.planarPhy = null
-      this.phyValid = true
-      this.phyDirty = false
-      return
-    }
-    this.chunkyPhy = v
-    if (this.planarPhy === null) this.planarPhy = new Uint8Array(this.depth * this.planeSize)
-    this.phyValid = true
-    this.phyDirty = true
-    this.flushPhy()
+
+  /**
+   * Screen Clone: share this screen's bitmaps rather than copy them.
+   *
+   * "Shared bitmap" is what the keyword means and now what it does. It used
+   * to assign the chunky buffers across, which shared the cache but left each
+   * screen its own planes — and the planes are the bitmap.
+   */
+  shareBitmapsFrom(src: Screen): void {
+    this.rp.bitMap = src.rp.bitMap
+    this.phyBM = src.phyBM
   }
+
   // ---- Amiga planar layout (faithful: Taille plan +W.s:1856) ----
   /** bytes per bitplane row = ceil(width/16)*2 (word-aligned) */
-  readonly rowBytes: number
+  get rowBytes(): number {
+    return this.logBM.bytesPerRow
+  }
   /** number of bitplanes = ceil(log2(nColors)) */
   readonly depth: number
   /** bytes per bitplane = rowBytes * height */
-  readonly planeSize: number
+  get planeSize(): number {
+    return this.logBM.planeSize
+  }
   /** Autoback mode: 2 (default) = fully automatic, 0/1 = manual-ish */
   autoback = 2
   palette = Uint16Array.from(DEFAULT_PALETTE)
@@ -293,21 +262,71 @@ export class Screen {
   displayH = -1
   offsetX = 0
   offsetY = 0
-  // graphics state
-  ink = 2
+  /*
+   * The graphics state is the RastPort's. These accessors keep AMOS's names
+   * on it — `Ink` sets three pens, `Gr Writing` a draw mode — so the keyword
+   * implementations still read like the manual while the state itself has one
+   * home. rp_ names are on the right of each pair.
+   */
+  get ink(): number {
+    return this.rp.fgPen
+  }
+  set ink(v: number) {
+    this.rp.fgPen = v
+  }
   /** graphics background pen (Ink 2nd arg, BPen) — pattern 0-bits */
-  gPaper = 0
+  get gPaper(): number {
+    return this.rp.bgPen
+  }
+  set gPaper(v: number) {
+    this.rp.bgPen = v
+  }
   /** area outline pen (Ink 3rd arg, AOlPen) — Set Paint borders, Paint mode 1 */
-  gBorder = 0
+  get gBorder(): number {
+    return this.rp.aOlPen
+  }
+  set gBorder(v: number) {
+    this.rp.aOlPen = v
+  }
   /** Set Line: 16-bit line pattern, cycled per plotted pixel */
-  linePattern = 0xffff
+  get linePattern(): number {
+    return this.rp.linePtrn
+  }
+  set linePattern(v: number) {
+    this.rp.linePtrn = v
+  }
   /** Set Paint: outline filled shapes with gBorder */
-  outline = false
+  get outline(): boolean {
+    return this.rp.outline
+  }
+  set outline(v: boolean) {
+    this.rp.outline = v
+  }
   /** Set Pattern: 16-bit rows for area fills (null = solid) */
-  pattern: Uint16Array | null = null
-  grX = 0
-  grY = 0
-  clip: { x1: number; y1: number; x2: number; y2: number } | null = null
+  get pattern(): Uint16Array | null {
+    return this.rp.areaPtrn
+  }
+  set pattern(v: Uint16Array | null) {
+    this.rp.areaPtrn = v
+  }
+  get grX(): number {
+    return this.rp.cpX
+  }
+  set grX(v: number) {
+    this.rp.cpX = v
+  }
+  get grY(): number {
+    return this.rp.cpY
+  }
+  set grY(v: number) {
+    this.rp.cpY = v
+  }
+  get clip(): ClipRect | null {
+    return this.rp.clip
+  }
+  set clip(v: ClipRect | null) {
+    this.rp.clip = v
+  }
   // text state lives in windows; window 0 is the whole screen
   windows = new Map<number, Wind>()
   curWin: Wind
@@ -352,8 +371,13 @@ export class Screen {
   private curSave = new Uint8Array(8 * 8)
   /** byte offset of the drawn cursor within a plane, or -1 when not drawn */
   private curDrawnAt = -1
-  /** Gr Writing: 0 JAM1 (transparent), 1 JAM2, 2 XOR */
-  grMode = 1
+  /** Gr Writing: 0 JAM1 (transparent), 1 JAM2, 2 XOR — rp_DrawMode */
+  get grMode(): number {
+    return this.rp.drawMode
+  }
+  set grMode(v: number) {
+    this.rp.drawMode = v
+  }
   /**
    * Set Slider state (SliSet +W.s:5246), per screen: frame inks A/B/C +
    * pattern, inner (knob) inks + pattern. Defaults from screen creation
@@ -377,11 +401,10 @@ export class Screen {
     readonly nColors: number,
     mode = 0,
   ) {
-    this.rowBytes = rowBytesFor(width)
     this.depth = Math.max(1, Math.ceil(Math.log2(Math.max(2, nColors))))
-    this.planeSize = this.rowBytes * height
-    this.planarLog = new Uint8Array(this.depth * this.planeSize)
-    this.chunkyLog = new Uint8Array(width * height)
+    // rowBytesFor rounds a row up to a whole word — the SCREEN's convention;
+    // a sprite bank truncates instead, and BitMap takes whichever it is told
+    this.rp = new RastPort(new BitMap(width, height, this.depth, rowBytesFor(width)))
     this.hires = (mode & 0x8000) !== 0
     this.ham = (mode & 0x800) !== 0
     this.laced = (mode & 0x4) !== 0
@@ -468,48 +491,28 @@ export class Screen {
    * because a plane poke changes pixels the cache cannot know about.
    */
   planarView(kind: 'log' | 'phy', write: boolean): Uint8Array {
-    if (kind === 'phy' && this.planarPhy !== null) {
-      this.flushPhy()
-      if (write) this.phyValid = false
-      return this.planarPhy
-    }
     // single-buffered Phybase aliases the logical bitmap, as on the hardware
-    this.flushLog()
-    if (write) this.logValid = false
-    return this.planarLog
+    const bm = kind === 'phy' && this.phyBM !== null ? this.phyBM : this.logBM
+    return bm.planeBytes(write)
   }
 
   /** true once Double Buffer has split the physical bitmap from the logical */
   get doubleBuffered(): boolean {
-    return this.planarPhy !== null
+    return this.phyBM !== null
   }
 
   /** Double Buffer: create the physical bitmap as a copy of the logical */
   doubleBuffer(): void {
-    if (this.planarPhy !== null) return
-    this.flushLog()
-    this.planarPhy = this.planarLog.slice()
-    this.chunkyPhy = new Uint8Array(this.width * this.height)
-    this.phyValid = false
-    this.phyDirty = false
+    if (this.phyBM !== null) return
+    this.phyBM = this.logBM.clone()
   }
 
   /** Screen Swap: exchange logical and physical. A pointer swap now. */
   swap(): void {
-    if (this.planarPhy === null || this.chunkyPhy === null) return
-    // settle both sides first, or a pending write would follow the wrong
-    // bitmap across the swap
-    this.flushLog()
-    this.flushPhy()
-    const p = this.planarLog
-    this.planarLog = this.planarPhy
-    this.planarPhy = p
-    const c = this.chunkyLog
-    this.chunkyLog = this.chunkyPhy
-    this.chunkyPhy = c
-    const v = this.logValid
-    this.logValid = this.phyValid
-    this.phyValid = v
+    if (this.phyBM === null) return
+    const t = this.rp.bitMap
+    this.rp.bitMap = this.phyBM
+    this.phyBM = t
   }
 
   /** the buffer the display shows */
@@ -542,9 +545,6 @@ export class Screen {
     return this.curWin.rows
   }
 
-  private colorMask(): number {
-    return (1 << this.depth) - 1
-  }
 
   /**
    * rp_Mask, the RastPort write mask — which bitplanes a write may touch.
@@ -552,7 +552,12 @@ export class Screen {
    * operations to a number of bitplanes, defined by the MASK parameter. Each
    * bit represents a bitplane."
    */
-  planeMask = 0xff
+  get planeMask(): number {
+    return this.rp.mask
+  }
+  set planeMask(v: number) {
+    this.rp.mask = v
+  }
 
   /**
    * Per-plane display offsets, in bytes, as TURBO's `Plane Offset` sets them
@@ -586,14 +591,17 @@ export class Screen {
   }
 
   /** apply the write mask: bits it excludes keep what the pixel already had */
+  /** the pens this depth can hold — AMOS's shapes clamp against it too */
+  private colorMask(): number {
+    return (1 << this.depth) - 1
+  }
+
   private masked(old: number, next: number): number {
-    return (this.planeMask === 0xff ? next : (old & ~this.planeMask) | (next & this.planeMask)) & this.colorMask()
+    return this.rp.masked(old, next)
   }
 
   inClip(x: number, y: number): boolean {
-    if (x < 0 || y < 0 || x >= this.width || y >= this.height) return false
-    const c = this.clip
-    return c === null || (x >= c.x1 && y >= c.y1 && x <= c.x2 && y <= c.y2)
+    return this.rp.inClip(x, y)
   }
 
   /**
@@ -633,49 +641,15 @@ export class Screen {
   plot(x: number, y: number, c = this.ink): void {
     if (!this.inClip(x, y)) return
     // COMPLEMENT and a partial write mask both need the old pixel; a plain
-    // opaque plot does not, and that is the common case
-    const needsOld = this.grMode === 2 || this.planeMask !== 0xff
-    const old = needsOld ? this.point(x, y) : 0
-    const v = this.masked(old, this.grMode === 2 ? old ^ c : c)
-    // `masked` has already merged the write mask, so every plane is written
-    planarSet(this.planarLog, this.planeSize, this.rowBytes, this.depth, x, y, v)
-    this.touched(y * this.width + x, v)
+    this.rp.plot(x, y, c)
   }
 
   point(x: number, y: number): number {
-    if (x < 0 || y < 0 || x >= this.width || y >= this.height) return -1
-    // the cache answers whenever it holds the pixel — decoding a whole
-    // bitmap to read one back would undo the point of having it
-    if (this.logValid || this.logDirty) return this.chunkyLog[y * this.width + x]!
-    return planarGet(this.planarLog, this.planeSize, this.rowBytes, this.depth, x, y)
+    return this.rp.point(x, y)
   }
 
   hline(x1: number, x2: number, y: number, c = this.ink): void {
-    if (x1 > x2) [x1, x2] = [x2, x1]
-    // clamp to the drawable area so wild coordinates stay cheap
-    if (y < 0 || y >= this.height) return
-    x1 = Math.max(0, x1)
-    x2 = Math.min(this.width - 1, x2)
-    if (x2 < x1) return
-    const cl = this.clip
-    if (cl !== null) {
-      if (y < cl.y1 || y > cl.y2) return
-      x1 = Math.max(x1, cl.x1)
-      x2 = Math.min(x2, cl.x2)
-      if (x2 < x1) return
-    }
-    // COMPLEMENT and a partial write mask both depend on what is already
-    // there, so they stay per-pixel; a plain opaque run is one word write
-    // per plane, which is where planar wins
-    if (this.grMode === 2 || this.planeMask !== 0xff) {
-      for (let x = x1; x <= x2; x++) this.plot(x, y, c)
-      return
-    }
-    const v = this.masked(0, c)
-    planarFillSpan(this.planarLog, this.planeSize, this.rowBytes, this.depth, y, x1, x2, v)
-    if (this.logValid || this.logDirty) {
-      this.chunkyLog.fill(v, y * this.width + x1, y * this.width + x2 + 1)
-    }
+    this.rp.hline(x1, x2, y, c)
   }
 
   /**
@@ -688,13 +662,10 @@ export class Screen {
   /** write an already-merged pixel value into the planes */
   putPixel(x: number, y: number, v: number): void {
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return
-    planarSet(this.planarLog, this.planeSize, this.rowBytes, this.depth, x, y, v)
-    this.touched(y * this.width + x, v)
+    this.logBM.writePixel(x, y, v)
   }
 
-  private touched(i: number, v: number): void {
-    if (this.logValid || this.logDirty) this.chunkyLog[i] = v
-  }
+
 
   line(x1: number, y1: number, x2: number, y2: number, c = this.ink): void {
     this.grX = x2
@@ -1023,20 +994,16 @@ export class Screen {
       // The write mask still applies — Cls through a partial planeMask has to
       // leave the excluded planes standing.
       const v = c & this.colorMask()
+      const planes = this.logBM.planeBytes(true)
       for (let p = 0; p < this.depth; p++) {
         if ((this.planeMask & (1 << p)) === 0) continue
-        this.planarLog.fill(v & (1 << p) ? 0xff : 0x00, p * this.planeSize, (p + 1) * this.planeSize)
+        planes.fill(v & (1 << p) ? 0xff : 0x00, p * this.planeSize, (p + 1) * this.planeSize)
       }
-      if (this.planeMask === 0xff) {
-        // the cache can be filled to match; a partial mask would need the old
-        // pixels merged in, so just drop it and let the next read decode
-        this.chunkyLog.fill(v)
-        this.logValid = true
-        this.logDirty = false
-      } else {
-        this.logValid = false
-        this.logDirty = false
-      }
+      // planeBytes(write) has already dropped the cache. With every plane
+      // written the answer is uniform and can simply be refilled; a partial
+      // mask would need the old pixels merged in, so it stays dropped and the
+      // next read decodes
+      if (this.planeMask === 0xff) this.logBM.refillCache(v)
     } else {
       this.bar(x1, y1, x2, y2, c)
     }
@@ -1335,8 +1302,7 @@ export class Screen {
     // the planes directly, then the chunky cache pixel by pixel — 64 pixels
     // is far cheaper than invalidating the cache and re-decoding the screen,
     // which is what planarView(write) would do here
-    this.flushLog()
-    const planes = this.planarLog
+    const planes = this.logBM.planeBytes()
     const off = y0 * this.rowBytes + (x0 >> 3)
     for (let p = 0; p < this.depth; p++) {
       const base = p * this.planeSize + off
@@ -1355,18 +1321,7 @@ export class Screen {
 
   /** re-derive the chunky cache for one 8x8 character cell */
   private refreshCell(x0: number, y0: number): void {
-    if (!this.logValid && !this.logDirty) return
-    for (let r = 0; r < 8; r++) {
-      const row = (y0 + r) * this.rowBytes + (x0 >> 3)
-      const at = (y0 + r) * this.width + x0
-      for (let b = 0; b < 8; b++) {
-        let v = 0
-        for (let p = 0; p < this.depth; p++) {
-          if ((this.planarLog[p * this.planeSize + row]! >> (7 - b)) & 1) v |= 1 << p
-        }
-        this.chunkyLog[at + b] = v
-      }
-    }
+    this.logBM.refreshRect(x0, y0, 8, 8)
   }
 
   /**
@@ -1376,8 +1331,7 @@ export class Screen {
    */
   private effCur(): void {
     if (this.curDrawnAt < 0 || !this.cursorOn) return
-    this.flushLog()
-    const planes = this.planarLog
+    const planes = this.logBM.planeBytes()
     for (let p = 0; p < this.depth; p++) {
       const base = p * this.planeSize + this.curDrawnAt
       for (let r = 0; r < 8; r++) planes[base + r * this.rowBytes] = this.curSave[p * 8 + r]!
@@ -1555,27 +1509,28 @@ export class Screen {
     const hPix = w.rows * 8
     const paper = w.paper & this.colorMask()
     const full = w.x === 0 && w.y === 0 && wPix === this.width && hPix === this.height
+    const planes = this.logBM.planeBytes(true)
     for (let p = 0; p < this.depth; p++) {
       const base = p * this.planeSize
       const on = (paper & (1 << p)) !== 0 ? 0xff : 0x00
       if (full) {
-        this.planarLog.copyWithin(base, base + px * this.rowBytes, base + this.planeSize)
-        this.planarLog.fill(on, base + (this.height - px) * this.rowBytes, base + this.planeSize)
+        planes.copyWithin(base, base + px * this.rowBytes, base + this.planeSize)
+        planes.fill(on, base + (this.height - px) * this.rowBytes, base + this.planeSize)
         continue
       }
       const x0 = w.x >> 3
       const nBytes = wPix >> 3
       for (let y = 0; y < hPix - px; y++) {
         const src = base + (w.y + y + px) * this.rowBytes + x0
-        this.planarLog.copyWithin(base + (w.y + y) * this.rowBytes + x0, src, src + nBytes)
+        planes.copyWithin(base + (w.y + y) * this.rowBytes + x0, src, src + nBytes)
       }
       for (let y = hPix - px; y < hPix; y++) {
         const at = base + (w.y + y) * this.rowBytes + x0
-        this.planarLog.fill(on, at, at + nBytes)
+        planes.fill(on, at, at + nBytes)
       }
     }
-    this.logValid = false
-    this.logDirty = false
+    // planeBytes(write) already dropped the cache: a block move rewrites more
+    // pixels than it is worth tracking, and the next read decodes
   }
 
   /** Clw: clear the current window's text area and home the cursor */
@@ -1590,16 +1545,15 @@ export class Screen {
     const paper = w.paper & this.colorMask()
     const x0 = w.x >> 3
     const nBytes = (w.cols * 8) >> 3
+    const planes = this.logBM.planeBytes(true)
     for (let p = 0; p < this.depth; p++) {
       const base = p * this.planeSize
       const on = (paper & (1 << p)) !== 0 ? 0xff : 0x00
       for (let y = 0; y < w.rows * 8; y++) {
         const at = base + (w.y + y) * this.rowBytes + x0
-        this.planarLog.fill(on, at, at + nBytes)
+        planes.fill(on, at, at + nBytes)
       }
     }
-    this.logValid = false
-    this.logDirty = false
     w.curX = 0
     w.curY = 0
   }

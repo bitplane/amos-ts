@@ -2934,8 +2934,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const n = it.evalInt()
       const src = scr()
       const clone = rt.openScreen(n, src.width, src.height, src.ham ? 4096 : src.nColors, (src.hires ? 0x8000 : 0) | (src.laced ? 4 : 0))
-      clone.pixels = src.pixels // shared bitmap
-      clone.back = src.back
+      // a shared BITMAP, which is what the keyword means: the clone points at
+      // the same planes, so a write through either screen is visible from
+      // both. Assigning the chunky buffers across shared the cache and left
+      // each screen its own planes, and the planes are the bitmap
+      clone.shareBitmapsFrom(src)
       clone.palette = src.palette
       rt.setCurrent(src.index)
     },
