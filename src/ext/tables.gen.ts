@@ -6612,17 +6612,19 @@ export const EXT_INFO: ExtensionInfo[] = [
     "id": "aga-1.0",
     "name": "AMOS AGA",
     "version": "1.0",
-    "author": "Kevin Picone",
+    "author": "Nigel Critten",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "manual",
     "idBaseEvidence": "assumed",
     "defaultSlot": 20,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "$VER: AGA Extension © '95 N.Critten v1.00 Build 312"
+    ],
     "sha256": "36a27625e91c072145df6e62799a91084b75b783e3f2cb6d4a6581afbaacc577",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AGA. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "AGA chipset support — 256-colour screens, palettes, blocks. 24 keywords, 22 documented. The archive also holds v0.09, not registered separately. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AGA. Author corrected from the binary and the docs. The version string reads \"AGA Extension © '95 N.Critten v1.00 Build 312\" and AGA_Doc credits code to Nigel Critten, copyright to Michael Prince and distribution to F1 Licenceware; the manifest previously said Kevin Picone, which neither source supports. Nigel Critten also wrote Sticks 1.01b, already ported. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it.",
+    "notes": "AGA chipset support -- 256-colour 320x256x8 screens with their own copper list, palette, blocks and picture packer. 24 keyword names, 30 forms (five carry a leading '!' with the extra arities following as unnamed rows). The archive's v0.09 ships only a readme, a Guide and one example program -- there is no second library, so nothing to register separately. AGA.lib and AMOSPro_AGA.lib carry an identical token table, so one entry covers AMOS 1.3 and AMOS Pro. LICENCEWARE: 'Exclusive Worldwide distribution rights now F1 Licenceware as of Oct 20 1995'. Slot 20 is stated by the docs themselves ('Type in at line 20 ... AMOSPro_AGA.Lib'), not inferred from Andrew Burton's list."
   },
   {
     "id": "amcaf-1.40",
