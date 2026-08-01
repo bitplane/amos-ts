@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { execSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { adfInfo, isAdf, readAdf } from './adf'
+import { AdfVolume, adfInfo, isAdf, readAdf } from './adf'
+import { AmigaFS } from './vfs'
 
 const DD = 901_120
 const BSIZE = 512
@@ -175,6 +176,104 @@ describe('ADF disk images', () => {
   })
 })
 
+describe('AdfVolume — the image mounted as a filesystem', () => {
+  const built = (): DiskBuilder => {
+    const d = new DiskBuilder()
+    d.file(ROOT, 7, 900, 'first.amos', text('one'))
+    const sub = d.dir(ROOT, 9, 920, 'Music')
+    d.file(sub, 2, 930, 'theme.abk', text('tune'))
+    return d
+  }
+
+  it('reads, lists and resolves without flattening the disk', () => {
+    const v = new AdfVolume(built().bytes)
+    expect(v.label).toBe('TestDisk')
+    expect(v.read(['first.amos'])).toEqual(text('one'))
+    expect(v.read(['Music', 'theme.abk'])).toEqual(text('tune'))
+    expect(v.list([])?.map((e) => e.name).sort()).toEqual(['Music', 'first.amos'])
+    expect(v.list(['Music'])).toEqual([{ name: 'theme.abk', isDir: false, size: 4 }])
+    expect(v.exists([])).toBe('dir')
+    expect(v.exists(['Music'])).toBe('dir')
+    expect(v.exists(['first.amos'])).toBe('file')
+    expect(v.exists(['nope'])).toBe(null)
+    // reading a directory is not reading a file
+    expect(v.read(['Music'])).toBe(null)
+    expect(v.list(['first.amos'])).toBe(null)
+  })
+
+  it('names are matched case-insensitively, as AmigaDOS does', () => {
+    const v = new AdfVolume(built().bytes)
+    expect(v.read(['FIRST.AMOS'])).toEqual(text('one'))
+    expect(v.exists(['music', 'THEME.abk'])).toBe('file')
+  })
+
+  it('mounting does not touch a single data block', () => {
+    // the point of the class. A file whose data blocks are garbage must not
+    // stop the disk being mounted or listed — only reading THAT file fails,
+    // which is what proves construction stayed in the header blocks
+    const d = built()
+    d.bytes.fill(0xff, 901 * BSIZE, 902 * BSIZE) // first.amos's only data block
+    const v = new AdfVolume(d.bytes)
+    expect(v.list([])?.map((e) => e.name).sort()).toEqual(['Music', 'first.amos'])
+    expect(v.read(['Music', 'theme.abk'])).toEqual(text('tune'))
+  })
+
+  it('rejects a damaged image at construction rather than on first read', () => {
+    const d = built()
+    d.put(ROOT, 508, 0) // not ST_ROOT
+    expect(() => new AdfVolume(d.bytes)).toThrow(/root block/)
+    expect(() => new AdfVolume(new Uint8Array(1024))).toThrow(/not an Amiga disk image/)
+  })
+
+  it('survives a directory loop, like the flat reader', () => {
+    const d = new DiskBuilder()
+    const sub = d.dir(ROOT, 1, 900, 'Loop')
+    d.put(sub, 24, ROOT)
+    d.file(sub, 5, 910, 'ok.amos', text('data'))
+    const v = new AdfVolume(d.bytes)
+    expect(v.list(['Loop'])?.map((e) => e.name)).toEqual(['ok.amos'])
+  })
+
+  it('supplies its metadata through AmigaFS, under anything set explicitly', () => {
+    const d = built()
+    d.put(900, 320, 0x25) // protection
+    d.name(900, 328, 'a note')
+    d.put(900, 420, 4866) // days
+    d.put(900, 424, 1115) // mins
+    d.put(900, 428, 922) // ticks
+    const fs = new AmigaFS()
+    const v = new AdfVolume(d.bytes)
+    fs.mount(v.label, v)
+
+    expect(fs.meta('TestDisk:first.amos')).toEqual({
+      comment: 'a note',
+      protection: 0x25,
+      days: 4866,
+      mins: 1115,
+      ticks: 922,
+    })
+    // a file the image says nothing about still reads back as the defaults
+    expect(fs.meta('TestDisk:Music/theme.abk')).toEqual({ comment: '', protection: 0, days: 0, mins: 0, ticks: 0 })
+    // an explicit set outranks the image, and only for what it names
+    fs.setMeta('TestDisk:first.amos', { comment: 'mine' })
+    expect(fs.meta('TestDisk:first.amos')).toMatchObject({ comment: 'mine', protection: 0 })
+  })
+
+  it('a file written over the image does not inherit its metadata', () => {
+    // the overlay is a new file, not the 1991 one underneath it: it should
+    // not arrive already carrying that file's protection bits and DateStamp
+    const d = built()
+    d.put(900, 320, 0x25)
+    d.name(900, 328, 'a note')
+    d.put(900, 420, 4866)
+    const fs = new AmigaFS()
+    fs.mount('TestDisk', new AdfVolume(d.bytes))
+    expect(fs.meta('TestDisk:first.amos')).toMatchObject({ comment: 'a note', days: 4866 })
+    fs.writeFile('TestDisk:first.amos', text('replaced'))
+    expect(fs.meta('TestDisk:first.amos')).toEqual({ comment: '', protection: 0, days: 0, mins: 0, ticks: 0 })
+  })
+})
+
 // The corpus lives outside the repo (see amos-files); these run when it is
 // present and are skipped otherwise.
 const CORPUS = '/home/gaz/src/tmp/amos/amos-files/sources/amos-pd-library-cd-1994/files/TotallyAmos'
@@ -216,5 +315,74 @@ describe.skipIf(!existsSync(`${CORPUS}/Issue1.adf`))('against real disks', () =>
       expect(isAdf(bytes), f).toBe(true)
       expect(readAdf(bytes).length, f).toBeGreaterThan(0)
     }
+  })
+
+  const images = (): string[] => execSync(`find ${CORPUS}/.. -iname '*.adf'`).toString().trim().split('\n')
+
+  it('AdfVolume returns the same bytes as the flat reader, on every file of every disk', () => {
+    // The flat reader is the one checked against the CD's own 1994 extraction
+    // above, so agreeing with it file-for-file is what makes the volume's
+    // lazy path trustworthy. A hand-built fixture could only prove the reader
+    // agrees with the builder.
+    let files = 0
+    const differing: string[] = []
+    for (const f of images()) {
+      const bytes = new Uint8Array(readFileSync(f))
+      const v = new AdfVolume(bytes)
+      for (const e of readAdf(bytes)) {
+        files++
+        // compared by hand rather than through toEqual: a thousand deep
+        // array comparisons take twenty seconds, and the report wants the
+        // failing PATHS anyway
+        const got = v.read(e.path.split('/'))
+        if (got === null || got.length !== e.data.length || !e.data.every((b, i) => b === got[i])) {
+          differing.push(`${f} ${e.path}`)
+        }
+      }
+    }
+    expect(differing).toEqual([])
+    expect(files).toBeGreaterThan(1000)
+  })
+
+  it('the decoded DateStamps obey AmigaDOS\'s own bounds, which random bytes would not', () => {
+    // The sharpest available check on the header offsets: mins is minutes
+    // past midnight and ticks is fiftieths of a second within the minute, so
+    // a field read from the wrong place blows past 1440/3000 almost at once.
+    // Over the whole corpus the maxima come in at 1429 and 2999.
+    let n = 0
+    let inAmosYears = 0
+    for (const f of images()) {
+      const bytes = new Uint8Array(readFileSync(f))
+      const v = new AdfVolume(bytes)
+      for (const e of readAdf(bytes)) {
+        const m = v.meta(e.path.split('/'))!
+        expect(m.mins, `${f} ${e.path}`).toBeLessThan(1440)
+        expect(m.ticks, `${f} ${e.path}`).toBeLessThan(3000)
+        // and the protection long is used a byte wide by every keyword that
+        // reads it, so nothing may be lurking above it
+        expect(m.protection).toBeLessThan(256)
+        n++
+        const year = new Date(Date.UTC(1978, 0, 1) + m.days! * 86_400_000).getUTCFullYear()
+        if (year >= 1988 && year <= 1995) inAmosYears++
+      }
+    }
+    // these are AMOS-era floppies: the great majority date from when they
+    // were written, which a misaligned read would scatter at random
+    expect(inAmosYears / n).toBeGreaterThan(0.9)
+  })
+
+  it('reads real FileNotes as text, which is what fixes the comment offset', () => {
+    // 31 files across the corpus carry one. An offset one field out would
+    // give binary rubbish here, not English, so this is the load-bearing
+    // check on OFF.comment and on the 79-byte BCPL length
+    const v = new AdfVolume(new Uint8Array(readFileSync(`${CORPUS}/Issue1.adf`)))
+    expect(v.label).toBe('Totally_AMOS_Nov_91')
+    expect(v.meta(['PPmore'])).toEqual({
+      comment: 'More commando to Popwerpacker 2.3a',
+      protection: 0,
+      days: 4866, // 29 April 1991, on a disk labelled November 91
+      mins: 1115,
+      ticks: 922,
+    })
   })
 })

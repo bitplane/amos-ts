@@ -26,6 +26,15 @@ export interface Volume {
   read(segs: string[]): Uint8Array | null
   list(segs: string[]): DirEntry[] | null
   exists(segs: string[]): 'file' | 'dir' | null
+  /**
+   * The AmigaDOS metadata the volume carries in its own filesystem, for
+   * volumes that have one. A real disk image does: the protection bits, the
+   * FileNote and the DateStamp are in the header block beside the name. A zip
+   * or an uploaded tree does not, so this is optional and absent means "no
+   * opinion" — `AmigaFS.meta` falls back to `defaultMeta()`, and an explicit
+   * `setMeta` always outranks whatever the volume says.
+   */
+  meta?(segs: string[]): Partial<FileMeta> | null
 }
 
 interface MemDir {
@@ -546,7 +555,20 @@ export class AmigaFS implements AmosFS {
   meta(path: string): FileMeta {
     const r = this.resolve(path)
     if (!r) return defaultMeta()
-    return { ...defaultMeta(), ...this.metadata.get(this.tomb(r)) }
+    return { ...defaultMeta(), ...this.volumeMeta(r), ...this.metadata.get(this.tomb(r)) }
+  }
+
+  /**
+   * What the mounted volume itself says about a path, under anything set
+   * here. Layered exactly like the read side: the overlay wins, because a
+   * file written over a mounted floppy is a new file and does not inherit
+   * the image's protection bits or its 1992 DateStamp, and a tombstone hides
+   * the volume outright.
+   */
+  private volumeMeta(r: ResolvedPath): Partial<FileMeta> | null {
+    if (this.overlay.exists([r.volume, ...r.segs]) !== null) return null
+    if (this.hidden(r)) return null
+    return this.volumeOf(r.volume)?.meta?.(r.segs) ?? null
   }
 
   /** set part of a path's metadata; returns false if the path is unresolvable */

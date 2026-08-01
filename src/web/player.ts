@@ -28,6 +28,7 @@ import { VERSION } from '../version'
 import { Runtime } from '../runtime/runtime'
 import { AmosRuntimeError } from '../interp/interp'
 import { AmigaFS, MemoryVolume } from '../amiga/vfs'
+import { AdfVolume, isAdf } from '../amiga/adf'
 import { readArchive, volumeFromEntries } from '../runtime/archive'
 import { systemClock } from '../amiga/host'
 import { WebAudioSink } from './audio'
@@ -357,8 +358,21 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
 
   async function loadArchive(bytes: Uint8Array, name: string, run?: string): Promise<void> {
     const entries = await readArchive(bytes)
-    const vol = name.replace(/\.(zip|tar|tar\.gz|tgz|adf)$/i, '').replace(/[^A-Za-z0-9_]/g, '_')
-    vfs.mount(vol, volumeFromEntries(entries))
+    /**
+     * A floppy image is mounted as itself rather than flattened: it has a
+     * real filesystem, so it keeps its own name, its protection bits, its
+     * FileNote and its DateStamp, and its files are read when asked for.
+     * Everything else here is a flat archive with none of that.
+     *
+     * The label is what the disk was called, which is what a program written
+     * to load `MyDisk:data/pic.iff` is looking for — the host filename it
+     * happens to be stored under today is not. An unlabelled disk (they
+     * exist) falls back to the filename, mangled as before.
+     */
+    const adf = isAdf(bytes) ? new AdfVolume(bytes) : null
+    const fromName = name.replace(/\.(zip|tar|tar\.gz|tgz|adf)$/i, '').replace(/[^A-Za-z0-9_]/g, '_')
+    const vol = adf?.label.replace(/[:/]/g, '_').trim() || fromName
+    vfs.mount(vol, adf ?? volumeFromEntries(entries))
     // and into DH0: as well, keeping the layout, so a program's own relative
     // loads resolve exactly as they did on the machine it was written on
     for (const e of entries) {

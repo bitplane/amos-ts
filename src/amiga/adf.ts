@@ -30,6 +30,8 @@
  * header on each, leaving 488 usable bytes and recording the real length;
  * FFS uses all 512 bytes as data, so the length comes from the file size.
  */
+import type { DirEntry, FileMeta, Volume } from './vfs'
+
 /**
  * One file read out of the image.
  *
@@ -55,19 +57,35 @@ const TABLE_END = 308
  * disk, where `thrusts.info` hashed there and vanished.)
  */
 const TABLE_SLOTS = 72
-/** offsets from the start of a header block */
+/**
+ * Offsets from the start of a header block.
+ *
+ * A file header and a user directory block share their tail: the protection
+ * long, the FileNote, the DateStamp and the name all sit at the same place in
+ * both, which is why one set of offsets serves for either. `byteSize` is the
+ * exception — only a file has one, and a directory block leaves it zero.
+ */
 const OFF = {
   type: 0,
   headerKey: 4,
   highSeq: 8,
   firstData: 16,
+  protect: 320,
   byteSize: 324,
+  comment: 328,
+  days: 420,
+  mins: 424,
+  ticks: 428,
   nameLen: 432,
   hashChain: 496,
   parent: 500,
   extension: 504,
   secType: 508,
 } as const
+
+/** the FileNote is a BCPL string too, but 79 characters rather than 30 */
+const COMMENT_MAX = 79
+const NAME_MAX = 30
 
 const T_HEADER = 2
 const T_DATA = 8
@@ -120,9 +138,9 @@ class Adf {
   }
 
   /** the BCPL-style string at `off`: a length byte followed by the bytes */
-  name(block: number, off: number): string {
+  name(block: number, off: number, max: number = NAME_MAX): string {
     const base = block * BSIZE + off
-    const len = Math.min(this.bytes[base] ?? 0, 30)
+    const len = Math.min(this.bytes[base] ?? 0, max)
     let s = ''
     for (let i = 1; i <= len; i++) s += String.fromCharCode(this.bytes[base + i]!)
     return s
@@ -224,12 +242,168 @@ export function readAdf(bytes: Uint8Array): AdfFile[] {
 /** Volume label and filesystem flags, without reading any file data. */
 export function adfInfo(bytes: Uint8Array): AdfInfo {
   const a = new Adf(bytes)
-  const root = Math.floor(a.blocks / 2)
+  return infoOf(a, Math.floor(a.blocks / 2))
+}
+
+function infoOf(a: Adf, root: number): AdfInfo {
   return {
     label: a.name(root, OFF.nameLen),
     filesystem: a.ffs ? 'FFS' : 'OFS',
     intl: a.intl,
     dirCache: a.dirCache,
     blocks: a.blocks,
+  }
+}
+
+/** the block a name in some directory points at */
+interface AdfNode {
+  name: string
+  block: number
+  isDir: boolean
+  size: number
+}
+
+/**
+ * The image mounted as a volume: read on demand, and carrying the metadata
+ * the flat `readAdf` path throws away.
+ *
+ * `readAdf` exists for callers that want the whole disk as bytes — the
+ * extractor, and the tests. Everything else should mount this instead, for
+ * two reasons.
+ *
+ * ONE, it keeps what the disk actually says. A flat `{path, data}` pair has
+ * nowhere to put the volume label, the protection bits, the FileNote or the
+ * DateStamp, so mounting a flattened ADF meant `Dir$`, `Jd Protection` and
+ * LDos's whole metadata family answering with `defaultMeta()`'s zeros for a
+ * disk that has real values sitting in its header blocks. The label matters
+ * most: it is the name the disk was called, and a program written to load
+ * `MyDisk:data/pic.iff` cannot find a volume mounted under a mangled host
+ * filename.
+ *
+ * TWO, it reads a file when a file is asked for. Flattening decompresses the
+ * entire disk up front and then holds a second copy of it in a MemoryVolume;
+ * an 880K image where the program wants one 12K picture paid for all of it.
+ * Directory blocks are still walked eagerly — they are one block each and the
+ * listing has to exist to resolve a path — but data blocks are not touched
+ * until `read`.
+ *
+ * Read-only, which `Volume` already expects: writes land in
+ * `AmigaFS.overlay` with a tombstone, so a program can happily save over a
+ * file on a mounted floppy without the image changing.
+ */
+export class AdfVolume implements Volume {
+  private readonly a: Adf
+  private readonly rootBlock: number
+  /** directory listings, memoised by block — a disk is walked once */
+  private readonly listings = new Map<number, Map<string, AdfNode>>()
+  readonly info: AdfInfo
+
+  constructor(bytes: Uint8Array) {
+    if (!isAdf(bytes)) throw new Error('not an Amiga disk image')
+    this.a = new Adf(bytes)
+    this.rootBlock = Math.floor(this.a.blocks / 2)
+    if (this.a.u32(this.rootBlock, OFF.type) !== T_HEADER || this.a.i32(this.rootBlock, OFF.secType) !== ST_ROOT) {
+      throw new Error('no Amiga root block — image may be non-DOS or damaged')
+    }
+    this.info = infoOf(this.a, this.rootBlock)
+  }
+
+  /** the disk's own name, from the root block — what it should be mounted as */
+  get label(): string {
+    return this.info.label
+  }
+
+  /** one directory's entries, hash table plus collision chains */
+  private listing(dir: number): Map<string, AdfNode> {
+    const hit = this.listings.get(dir)
+    if (hit) return hit
+    const out = new Map<string, AdfNode>()
+    this.listings.set(dir, out) // before walking: a corrupt disk can loop back
+    const seen = new Set<number>([dir])
+    for (let slot = 0; slot < TABLE_SLOTS; slot++) {
+      let block = this.a.u32(dir, TABLE_START + slot * 4)
+      while (this.a.valid(block) && !seen.has(block)) {
+        seen.add(block)
+        const secType = this.a.i32(block, OFF.secType)
+        // links and anything unrecognised are skipped, as in readAdf: they
+        // carry no data of their own
+        if (secType === ST_USERDIR || secType === ST_FILE) {
+          const isDir = secType === ST_USERDIR
+          out.set(this.a.name(block, OFF.nameLen).toLowerCase(), {
+            name: this.a.name(block, OFF.nameLen),
+            block,
+            isDir,
+            size: isDir ? 0 : this.a.u32(block, OFF.byteSize),
+          })
+        }
+        block = this.a.u32(block, OFF.hashChain)
+      }
+    }
+    return out
+  }
+
+  /** the block of the directory `segs` names, or null if it is not one */
+  private dirBlock(segs: string[]): number | null {
+    let block = this.rootBlock
+    for (const seg of segs) {
+      const e = this.listing(block).get(seg.toLowerCase())
+      if (!e?.isDir) return null
+      block = e.block
+    }
+    return block
+  }
+
+  private nodeAt(segs: string[]): AdfNode | null {
+    if (segs.length === 0) return null
+    const parent = this.dirBlock(segs.slice(0, -1))
+    if (parent === null) return null
+    return this.listing(parent).get(segs[segs.length - 1]!.toLowerCase()) ?? null
+  }
+
+  read(segs: string[]): Uint8Array | null {
+    const n = this.nodeAt(segs)
+    if (!n || n.isDir) return null
+    try {
+      return readFile(this.a, n.block)
+    } catch {
+      // one bad block should not be a crash: these are thirty-year-old
+      // floppy images, and readAdf skips such a file rather than throwing
+      return null
+    }
+  }
+
+  list(segs: string[]): DirEntry[] | null {
+    const block = this.dirBlock(segs)
+    if (block === null) return null
+    return [...this.listing(block).values()].map((n) => ({ name: n.name, isDir: n.isDir, size: n.size }))
+  }
+
+  exists(segs: string[]): 'file' | 'dir' | null {
+    if (segs.length === 0) return 'dir'
+    const n = this.nodeAt(segs)
+    return n === null ? null : n.isDir ? 'dir' : 'file'
+  }
+
+  /**
+   * The AmigaDOS metadata in the header block.
+   *
+   * The protection long is masked to a byte: the defined bits are the low
+   * eight (hswa in the high nibble, rwed in the low, the latter active low)
+   * and that is the width the keywords reading it use.
+   *
+   * The root gets no answer. It has a DateStamp of its own — the last time
+   * the root directory changed — but no protection bits and no FileNote, and
+   * inventing them for the volume itself would be making something up.
+   */
+  meta(segs: string[]): Partial<FileMeta> | null {
+    const n = this.nodeAt(segs)
+    if (n === null) return null
+    return {
+      comment: this.a.name(n.block, OFF.comment, COMMENT_MAX),
+      protection: this.a.u32(n.block, OFF.protect) & 0xff,
+      days: this.a.u32(n.block, OFF.days),
+      mins: this.a.u32(n.block, OFF.mins),
+      ticks: this.a.u32(n.block, OFF.ticks),
+    }
   }
 }

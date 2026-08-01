@@ -79,7 +79,7 @@ really does differ from the real one and saying where is the whole job.
 | `datestamp.ts` | the AmigaDOS `DateStamp` and its calendar arithmetic |
 | `vfs.ts` | `AmigaFS` — volumes, assigns, paths, file metadata |
 | `fs.ts` | `AmosFS`, the read interface a volume provider satisfies |
-| `adf.ts` | an OFS/FFS floppy image, one layer under `vfs.ts` |
+| `adf.ts` | an OFS/FFS floppy image — `AdfVolume` mounts one into `vfs.ts` |
 | `localelib.ts` | `locale.library` — catalogs, `FormatDate`, collation, case |
 | `localelib.gen.ts` | its data, generated from AROS by `src/cli/genlocale.ts` |
 | `dospattern.ts` | `dos.library`'s `ParsePattern`/`MatchPattern` grammar |
