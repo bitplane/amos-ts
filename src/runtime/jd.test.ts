@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -7,6 +9,7 @@ import { Runtime } from './runtime'
 import { NA } from '../coverage/status'
 import { makeAllInstructions } from './instr'
 import { AmigaFS } from '../amiga/vfs'
+import { NodeVolume } from '../cli/nodefs'
 
 const table = new TokenTable(CORE_TOKENS)
 /**
@@ -574,9 +577,13 @@ describe('JD: screen readbacks and drawing (+|jd.s:1479-6199)', () => {
     expect(run('Print Jd X Pos(100,100,10,180)').trim()).toBe('90')
   })
 
-  it('Char X and Char Y follow Jd Textfont', () => {
+  it('Char X and Char Y do not move when the face cannot be opened', () => {
+    // set_font reads tf_XSize and tf_YSize out of the OPENED font, so with
+    // no Fonts: drawer mounted there is nothing to read. The 68k reads them
+    // through a null font_font anyway; the port declines that (DEVIATION at
+    // the handler) and leaves the previous metrics standing.
     expect(run('Print Jd Char X;",";Jd Char Y').trim()).toBe('8, 8')
-    expect(run('Jd Textfont "topaz",16 : Print Jd Char X;",";Jd Char Y').trim()).toBe('8, 16')
+    expect(run('Jd Textfont "topaz",16 : Print Jd Char X;",";Jd Char Y').trim()).toBe('8, 8')
   })
 
   it('Spline draws a curve from the FIRST pair to the SECOND, bent by the THIRD', () => {
@@ -938,10 +945,12 @@ describe('JD: the keywords the gate caught', () => {
     expect(run('Jd Flush : Print "ok"').trim()).toBe('ok')
   })
 
-  it('Print writes through the console when there is no RastPort font', () => {
-    // routine 89 (:4215) writes through the font Jd Textfont hung on the
-    // RastPort; there is no RastPort here, so the text goes to the console
+  it('Print writes through the console when no face has been opened', () => {
+    // routine 89 (:4215) tests font_font first and branches to nojdf when it
+    // is zero, which is an ordinary WiCall Print of the string
     expect(run('Jd Print "hi" : Print "|"').trim()).toBe('hi|')
+    // and a face that could not be opened leaves it zero
+    expect(run('Jd Textfont "nosuch.font",8 : Jd Print "hi" : Print "|"').trim()).toBe('hi|')
   })
 
   it('Screen Resolution switches the current screen to hires and back', () => {
@@ -1104,5 +1113,103 @@ describe('JD: the device list and the directory counts (+|jd.s:4262-5769)', () =
     expect(lines[1]).toContain('RAM')
     // no assigns unless something makes one
     expect(lines[2]).toBe('[]')
+  })
+})
+
+// ---- the real .font tree, when the original partition's fonts are present ----
+
+const FONTS = join(__dirname, '..', '..', 'fixtures', 'fonts')
+
+describe.skipIf(!existsSync(FONTS))('JD: Textfont and Print with a real face (+|jd.s:4177, :4215)', () => {
+  function boot(src: string): { rt: Runtime; out: string } {
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    fs.mount('FontDisc', new NodeVolume(FONTS))
+    fs.assign('Fonts', 'FontDisc:')
+    let out = ''
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 2_000_000,
+      fs,
+      onText: (t) => (out += t),
+    })
+    const r = rt.runHeadless(500)
+    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    return { rt, out }
+  }
+
+  it('opens the named face onto the screen\'s rp_Font', () => {
+    // SetFont(T_RastPort, font) -- and the manual is explicit that the face
+    // is "for writing with >>Text<< or >>Jd Print<<", which is what one
+    // rp_Font shared with AMOS's own Text means
+    const { rt } = boot('Screen Open 0,320,200,16,Lowres : Jd Textfont "2001.font",8')
+    expect(rt.screen.font).not.toBeNull()
+    expect(rt.screen.font!.ySize).toBe(8)
+    expect(rt.jd.font).toBe(rt.screen.font)
+  })
+
+  it('Char X and Char Y are the OPENED font\'s tf_XSize and tf_YSize', () => {
+    // `move.w 20(a0),d0 / move.w 24(a0),d1` off the TextFont struct, not the
+    // size the program asked for. Both of these refute the old size>>1 guess:
+    // 2001/8 is square at 8 wide rather than 4, and Pica/32 is 26 rather
+    // than 16 -- a proportional face whose nominal width is nothing like
+    // half its height.
+    expect(boot('Jd Textfont "2001.font",8 : Print Jd Char X;",";Jd Char Y').out.trim()).toBe('8, 8')
+    const pica = boot('Jd Textfont "Pica.font",32 : Print Jd Char X;",";Jd Char Y').out.trim()
+    expect(pica).toBe('26, 32')
+  })
+
+  it('the .font suffix is optional, because programs pass it either way', () => {
+    expect(boot('Jd Textfont "2001",8 : Print Jd Char X').out.trim()).toBe('8')
+  })
+
+  it('a size the family does not have opens nothing', () => {
+    // 2001.font holds one entry, ySize 8; OpenDiskFont answers NULL for 9
+    const { rt } = boot('Jd Textfont "2001.font",9')
+    expect(rt.jd.font).toBeNull()
+    expect(rt.screen.font).toBeNull()
+  })
+
+  it('Print draws glyphs at the text cursor and advances it by characters', () => {
+    // Move(rp, X*fx, (Y+1)*fy - 2) then Text, then Locate(X+len, Y). With
+    // 2001/8 that is a baseline of 6 for row 0, so the glyphs land in rows
+    // 0..7 of the screen -- where the console would have put them.
+    const { rt } = boot([
+      'Screen Open 0,320,200,16,Lowres : Cls 0 : Curs Off : Ink 5',
+      'Locate 2,0',
+      'Jd Textfont "2001.font",8',
+      'Jd Print "AB"',
+    ].join('\n'))
+    let lit = 0
+    for (let y = 0; y < 8; y++) for (let x = 16; x < 32; x++) if (rt.screen.point(x, y) === 5) lit++
+    expect(lit).toBeGreaterThan(10) // two real glyphs, drawn in the ink
+    // nothing before the cursor column
+    let before = 0
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 16; x++) if (rt.screen.point(x, y) !== 0) before++
+    expect(before).toBe(0)
+    // the cursor advanced by the CHARACTER count, not by the pixels drawn
+    expect([rt.screen.curX, rt.screen.curY]).toEqual([4, 0])
+  })
+
+  it('Print turns the text cursor off first, as the ESC "C0" it sends does', () => {
+    const { rt } = boot([
+      'Screen Open 0,320,200,16,Lowres : Curs On',
+      'Jd Textfont "2001.font",8',
+      'Jd Print "x"',
+    ].join('\n'))
+    expect(rt.screen.cursorOn).toBe(false)
+  })
+
+  it('AMOS\'s own Text draws through the face JD opened', () => {
+    // one rp_Font, two callers -- the manual's ">>Text<< or >>Jd Print<<"
+    const { rt } = boot([
+      'Screen Open 0,320,200,16,Lowres : Cls 0 : Ink 3',
+      'Jd Textfont "2001.font",8',
+      'Text 40,60,"A"',
+    ].join('\n'))
+    let lit = 0
+    for (let y = 50; y < 62; y++) for (let x = 40; x < 50; x++) if (rt.screen.point(x, y) === 3) lit++
+    expect(lit).toBeGreaterThan(5)
   })
 })

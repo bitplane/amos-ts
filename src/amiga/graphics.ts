@@ -255,9 +255,10 @@ export interface ClipRect {
  *   that `mask = 0b11` says directly. The 3D rasteriser now takes a RastPort
  *   of its own, which is also what keeps AMOS's draw mode off an engine that
  *   writes bitplanes directly.
- * - JD's `Jd Textfont` records a font size and throws the face away, because
- *   there was "no RastPort to attach one to". Still true, and now only for
- *   want of the wiring — see task #152.
+ * - JD's `Jd Textfont` recorded a font size and threw the face away, because
+ *   there was "no RastPort to attach one to". It opens a real one onto
+ *   `rp_Font` now, which is also how AMOS's own `Text` comes to draw through
+ *   it — one font field, two callers, exactly as the JD manual promised.
  *
  * ## What is NOT here
  *

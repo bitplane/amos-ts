@@ -59,6 +59,7 @@ import { JD_CRYPT } from './jd-crypt.gen'
 import { pp20Decrunch } from '../amiga/powerpacker'
 import type { Runtime } from './runtime'
 import { stampToDate } from '../amiga/datestamp'
+import { openDiskFont, type DiskFont } from '../amiga/diskfont'
 
 /**
  * The two errors the library raises, by AMOS error number (L_outdim equ 150,
@@ -89,6 +90,15 @@ export interface JdState {
   charW: number
   charH: number
   /**
+   * `font_font`: JD's OWN pointer to the face it opened, which is what Jd
+   * Print tests before deciding whether to draw or to print.
+   *
+   * Separate from the screen's rp_Font on purpose, because the library keeps
+   * it separately. A program that sets a face with AMOS's `Set Font` has an
+   * rp_Font but no font_font, so Jd Print still goes to the console.
+   */
+  font: DiskFont | null
+  /**
    * JD-K3's Jd Star Joker On/Off: whether `*` is a DOS wildcard. Its manual
    * records that `*` is "not available by default in 2.0. Available as an
    * option that can be turned on", so it starts off. See jdk3.ts.
@@ -99,7 +109,7 @@ export interface JdState {
 }
 export function newJdState(): JdState {
   return { areaFirst: 0, areaLast: 0, dimSaves: new Map(), videoOff: false, charW: 8, charH: 8,
-    starJoker: false, driveClick: true }
+    font: null, starJoker: false, driveClick: true }
 }
 
 /** L_outdim (+|jd.s:6027): `moveq #23,d0` then L_Error — 26 call sites share it */
@@ -1694,32 +1704,84 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
     'jd flush'() {},
 
     /**
-     * Jd Textfont "name",size — routine 88 (+|jd.s:4177) — and Jd Print "text"
-     * — routine 89 (:4215). Textfont opens a disk font through
-     * graphics.library's OpenDiskFont and hangs it on the RastPort; Print
-     * writes through that font rather than through AMOS's console.
+     * Jd Textfont "name",size — routine 88, `set_font` (+|jd.s:4177).
      *
-     * The font metrics are what Jd Char X and Jd Char Y report, so the size is
-     * recorded even where the face is not, and Jd Print goes to the console.
-     * A program's text appears; its face may not.
+     * OpenLibrary("diskfont.library"), CloseFont on whatever was open,
+     * OpenDiskFont on a TextAttr built from the two arguments, SetFont onto
+     * T_RastPort — so the face lands on the CURRENT SCREEN's RastPort and the
+     * manual is right that it is "for writing with >>Text<< or >>Jd Print<<".
+     * AMOS's own `Text` draws through rp_Font, so both get it.
      *
-     * THE BLOCKER HAS GONE, and this has not caught up yet. There IS a
-     * RastPort now (../amiga/graphics.ts) with an `rp_Font` field, and the
-     * core's `Set Font` already loads a real `.font` onto it, so the two
-     * halves this keyword needs both exist. What is missing is the wiring:
-     * resolving the named face through diskfont and pointing `Jd Print` at
-     * `Screen.text` instead of the console. That is new behaviour rather than
-     * a refactor, so it is its own task.
+     * The metrics come from the OPENED font, not from the argument:
+     *
+     *     Dmove font_font,a0
+     *     move.w 20(a0),d0        ; tf_YSize
+     *     move.w 24(a0),d1        ; tf_XSize
+     *     Dsave2 d1,d0,fx,fy
+     *
+     * so fx is tf_XSize and fy is tf_YSize, and those are what Jd Char X and
+     * Jd Char Y report. This used to record `size>>1` and `size` — a guess at
+     * the metrics standing in for a face it could not open — which is wrong
+     * for any font whose width is not half its height, and wrong for every
+     * proportional one.
+     *
+     * DEVIATION: a failed open is not reproduced. font_font is left 0, and
+     * the routine reads tf_YSize and tf_XSize from it anyway — a null
+     * dereference picking up whatever sits at $14 and $18, and a
+     * SetFont(rp, NULL) with it. The port clears the face and leaves the
+     * metrics as they were rather than inventing the garbage.
      */
     'jd textfont'(it) {
-      it.evalStr()
+      const name = it.evalStr()
       it.expect(',')
       const size = it.evalInt()
-      rt.jd.charW = Math.max(1, size >> 1)
-      rt.jd.charH = Math.max(1, size)
+      const font = openDiskFont((p) => rt.vfs?.read(p) ?? null, name, size)
+      rt.jd.font = font
+      rt.screen.font = font
+      if (font) {
+        rt.jd.charW = font.xSize
+        rt.jd.charH = font.ySize
+      }
     },
+
+    /**
+     * Jd Print "text" — routine 89, `pri` (:4215).
+     *
+     * With no face open it branches to `nojdf` and prints through the window
+     * like any other AMOS text. With one it draws instead:
+     *
+     *     Dlea cuoff,a1 / WiCall Print      ; ESC "C0" -- cursor off
+     *     Move(rp, X*fx, (Y+1)*fy - 2)
+     *     Text(rp, string, len)
+     *     Locate(X + len, Y)
+     *
+     * X and Y are the TEXT cursor, in character cells, so the drawn text
+     * lands where the console would have put it and the cursor advances by
+     * the character count rather than by the pixels drawn. A proportional
+     * face therefore leaves the cursor somewhere the glyphs did not reach;
+     * that is the routine's own arithmetic and it is kept.
+     *
+     * Two quirks, both the library's and both reproduced. The baseline is
+     * `(Y+1)*fy - 2` rather than the font's own tf_Baseline, which is right
+     * for the eight-pixel faces JD was written against and approximate for
+     * anything else. And the position is window-relative while the RastPort
+     * is the screen's, so text printed inside a moved window is drawn at the
+     * screen coordinates the cell would have had at the origin.
+     */
     'jd print'(it) {
-      it.write(it.evalStr())
+      const s = it.evalStr()
+      const scr = rt.screen
+      if (!rt.jd.font) {
+        it.write(s)
+        return
+      }
+      scr.console(() => {
+        scr.cursorOn = false
+      })
+      const x = scr.curX
+      const y = scr.curY
+      scr.text(x * rt.jd.charW, (y + 1) * rt.jd.charH - 2, s)
+      scr.locate(x + s.length, y)
     },
 
     /**
