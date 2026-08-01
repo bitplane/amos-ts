@@ -13,6 +13,7 @@ import { makeSpeechFunctions, makeSpeechInstructions } from './speech'
 import { makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
 import { makeCtextFunctions, makeCtextInstructions } from './ctext'
 import { makeSticksFunctions, makeSticksInstructions } from './sticks'
+import { makeStarsFunctions, makeStarsInstructions } from './stars'
 import { JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
 import { makeJdColourFunctions, makeJdColourInstructions } from './jdcolour'
 import { jdPrt11Aliases, makeJdPrtFunctions, makeJdPrtInstructions } from './jdprt'
@@ -4972,6 +4973,13 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     ids: ['sticks-1.01b'],
     instructions: makeSticksInstructions,
     functions: makeSticksFunctions,
+  },
+  {
+    // stars.lib (AMOS 1.3) and starspro.lib (AMOS Pro) are different binaries
+    // with a byte-identical token table, so one port answers for both
+    ids: ['stars-2.33'],
+    instructions: makeStarsInstructions,
+    functions: makeStarsFunctions,
   },
   {
     // 5.9 renumbered the token table but kept the vocabulary; dispatch is by

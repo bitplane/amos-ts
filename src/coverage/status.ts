@@ -1355,6 +1355,15 @@ export const FAITHFUL = new Set<string>([
   'stick scan', 'stick x', 'stick y', 'mouse x',
   'mouse y', 'mouse clip', 'mouse button', 'mouse area',
 
+  // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
+  // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
+  // an identical token table, so this covers AMOS 1.3 and AMOS Pro alike.
+  // Three keywords carry a NOTES entry; the rest are the routine's own
+  // arithmetic, including the index-derived parallax speed nothing documents.
+  'stars blast', 'stars reset', 'stars vbl', 'stars on',
+  'stars off', 'stars wibble', 'stars dir', 'cop palette',
+  'cop true palette', 'cop screen', 'cop current',
+
   // --- JD 5.3/5.9 (Joerg Dommermuth), ported line by line from the author's
   // own source: APD599/SOURCES/|jd.s, PowerPacked, 122 KB unpacked, public
   // domain by his statement. Every keyword cites its routine at the handler
@@ -1932,6 +1941,29 @@ export const NOTES: Record<string, string> = {
     "The token spec is I0,0t0,0 in 1.0, 1.9 and 2.15 alike, so only the To form exists — the manual's shorter 'F Draw X,Y' cannot be written and would not parse on the real machine either. Ignores the Set Line pattern, as the manual admits ('this will be corrected in a future update'), and the plane mask",
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
+  // --- Stars 2.33: manual plus disassembly; three places they disagree ---
+  'stars reset':
+    "Routine 4 (\$1892), twelve bytes and undocumented: `movea.l \$f80000,a0 / movea.l 4(a0),a0 / jmp (a0)` — it reads the initial PC out of the Kickstart ROM header and jumps to it, which is a hard machine reset. DEVIATION: there is no machine to reboot, so the program ends, the same thing System and Edit do with AMOS's own leave-now keywords. Nothing in Stars.doc mentions this keyword at all, so no program can have been relying on the reboot in a way the manual sanctioned",
+  'stars wibble':
+    "Routine 8 (\$19f2): `move.l a4,-(a7) / movea.l (a7)+,a4 / rts`. A prologue and an epilogue with the body gone — it does not even load the extension's data pointer, which every other routine does first. Identical in starspro.lib at the identical offset, so it survived a rebuild for a different host. Undocumented, and the doc's list of full-version extras (Cop Screen, Stars Rain) does not include it. Reproduced as a no-op that must still EXIST, because the keyword dispatches and the original raises no error",
+  'stars vbl':
+    "Routine 5 (\$189e). Documented as 'the same as Wait Vbl, but shows idle processor time', and it does that by busy-looping on COLOR00 between \$000 and \$800 until the VBL server flips the flag at +6 of the extension's block. DEVIATION: the wait is reproduced and the colour bar is not — the bar's width measures how long the 68k sat in that loop, which is a property of the host's speed rather than of the program",
+  'stars on':
+    "Routine 6 (\$18d8). Parameters pop off a3 in REVERSE declaration order, confirmed three ways by the bounds checks that follow: screen 0..7 and open, direction 0..4 (stored into the same field Stars Dir writes), count 1..128. Places all 128 stars whatever the count, then activates. The PRNG (\$19ca) folds VHPOSR into its state on every call, so on the real machine the field depended on where the beam was; we model the beam, so the sequence is reproduced rather than approximated and simply becomes repeatable. Speed is not a parameter and is not documented: the movement loop counts DOWN while walking the arrays UP and takes ((i AND 7) + 1) pixels a frame from the counter, so a field is eight interleaved parallax layers",
+  'stars off':
+    'Routine 7 (\$19e2): clears the count and nothing else, so the stars already drawn stay on the screen until something overwrites them. It does NOT erase them',
+  'stars blast':
+    "Routine 3 (\$181a). Eight passes over every bitplane; each pass shifts every even row's bytes left by one and every odd row's right by one, with the masks \$fefefefe and \$7f7f7f7f stopping a bit crossing into the next byte. Per byte, not per row, which is why it shreds rather than slides. After eight passes the planes hold nothing, which is the doc's 'fancy fade effect'",
+  'stars dir':
+    'Routine 9 (\$19f8): 0..4 into the same field Stars On writes. Direction 4 is Stationary, and it is spelled by matching none of the four cmpi.w tests in the mover and falling through to its rts',
+  'cop palette':
+    "Routine 10 (\$1a1c). Builds copper MOVEs for 12-bit colours read a word at a time, through AMOS's own Cop Move. AGA-aware: the register address lives in one bank of 32 (\$180..\$1be) and the other 224 registers are reached by writing the bank into BPLCON3 (\$106) whenever the address wraps, with \$c40 restoring bank 0 on the way out. The doc says a and b 'can be in the range 0-255, but a < b'; the routine checks b < 256 and b >= a, so a == b is accepted and a single colour can be written",
+  'cop true palette':
+    "Routine 11 (\$1aba), the 24-bit form: two passes over the same R,G,B bytes, high nibbles into the colour registers and low nibbles behind AGA's LOCT. DEFECT: the first register is computed with `lsl.w #4,d3` where Cop Palette has `lsl.w #1,d3` (\$1ae8 against \$1a40, confirmed byte-for-byte as E94B against E34B). A register offset is the index doubled, so this is right only when a is 0 and otherwise starts sixteen registers per index along, wrapping inside the bank; every colour after the first is still consecutive because the loop advances by 2. Reproduced, because a program written against this extension was written against this",
+  'cop screen':
+    "Routine 12 (\$1bd8). Stars.doc lists this among the extras 'found in the full version', and the shareware build does carry 204 bytes for it — but they pop all eight parameters, range-check every one, store them into a static block at \$1c92 and return having emitted nothing. So the doc is right about the feature and the token table is misleading about it. Validates and does nothing, faithfully. Stars Rain, the doc's other full-version extra, is genuinely absent from the token table",
+  'cop current':
+    "Routine 13 (\$1ca4), two instructions: `move.l -\$804(a5),d3`, AMOS's own copper build pointer. Exactly where the next Cop Move would put its word, which is what the doc means by 'makes poking straight into it easier'",
   // --- Sticks 1.01b: manual plus disassembly; two places they disagree ---
   'multi joy':
     "Routine 3 (\$260). Directions decode from JOYxDAT through a table at \$2e6(pc); the buttons OR in above them, \$80 from CIA-A PRA bit 7 then \$40/\$20/\$10 from POTINP. The manual contradicts itself and the binary settles it: its diagram reads '76543210 / ABCDUDLR', which would order the low nibble U,D,L,R downward from bit 3, but its value table says 1=up 2=down 4=left 8=right 16=D 32=C 64=B 128=A. The code's \$80/\$40/\$20/\$10 proves the value table right and the diagram written backwards. Port 0 and port 1 are separate players and map to the host's two joystick states. DEVIATION: buttons B, C and D need a two- or four-button adaptor wired to the POT pins, and nothing is attached, so only button A can ever report pressed",

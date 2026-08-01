@@ -18,6 +18,7 @@ import { newIoPortsState, type IoPortsState } from './ioports'
 import { newCtextState, type CtextState } from './ctext'
 import { newJdState, type JdState } from './jd'
 import { newSticksState, type SticksState } from './sticks'
+import { newStarsState, starfieldVbl, type StarsState } from './stars'
 import { newPersonnalState, type PersonnalState } from './personnal'
 import type { PiConfig } from './piconfig.gen'
 import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlideStep, fselStore, slideOpen, slideShut } from './fsel'
@@ -662,6 +663,8 @@ export class Runtime {
   /** JD's own data zone: Get Area's pair, and what Exdatazone hands out */
   jd: JdState = newJdState()
   sticks: SticksState = newSticksState()
+  /** Stars 2.33's interrupt-driven starfield, slot 20 */
+  stars: StarsState = newStarsState()
   /** tick at which a finished Say hands the music voices back, -1 when idle */
   speechRestore = -1
   static readonly COPPER_LONG = 12 * 1024
@@ -3168,6 +3171,9 @@ export class Runtime {
     // AMOS's own vertical blank work
     blitVbl(this)
     starsVbl(this)
+    // Stars 2.33 installs its own VBL server ($1ca); it runs after TURBO's
+    // because nothing orders the two and this keeps the existing chain fixed
+    starfieldVbl(this)
     this.unblock()
     let result: RunResult
     if (!this.interp.done && this.interp.blocked === null) {
