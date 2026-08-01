@@ -228,6 +228,107 @@ describe('copper registers persist across frames, as the hardware\'s do', () => 
 })
 
 
+describe('a window off the top or bottom of the raster is not shown (MkA8 +W.s:5955)', () => {
+  /**
+   * MkA8 drops a window whose stored start boundary (EcWY-1) is above
+   * EcYStrt-1 (+Equ.s:575, EcYBase+26) or at/below T_EcYMax-2 (+W.s:2476,
+   * 311+EcYBase on PAL). No band is written and the screen does not appear
+   * anywhere, not even the part of it that would have been on the raster.
+   *
+   * The AMOS Pro Object Editor uses this as a hide idiom: it opens an 8-row
+   * status strip and parks it with `Screen Display 4,,20,,` before its main
+   * loop, then moves it to 45 or 45+SYWORK each frame.
+   */
+  const strip = (y: number): Runtime =>
+    run(
+      [
+        'Flash Off : Curs Off : Hide On',
+        'Screen Open 1,320,8,2,Lowres',
+        'Palette $000,$F00',
+        'Cls 1',
+        `Screen Display 1,,${y},,`,
+        'Wait Vbl',
+      ].join('\n'),
+    )
+
+  /** lit canvas pixels over the two rows hardware line `line` maps to */
+  const litOn = (rt: Runtime, line: number): number => {
+    const { data } = rt.composite()
+    let lit = 0
+    for (let r = (line - 26) * 2; r < (line - 26) * 2 + 2; r++) {
+      for (let x = 0; x < 640; x++) {
+        const o = (r * 640 + x) * 4
+        if (data[o]! || data[o + 1]! || data[o + 2]!) lit++
+      }
+    }
+    return lit
+  }
+  // a 320-wide lowres screen fills the canvas, and each hardware line is two
+  // canvas rows
+  const FULL = 640 * 2
+
+  it('a strip parked at line 20 shows nothing, where line 26 shows it', () => {
+    // the whole point: at 20 the band is dropped, so the two of its eight
+    // rows that WOULD land inside the composite window (26..27) go with it
+    expect(litOn(strip(20), 26)).toBe(0)
+    expect(litOn(strip(20), 27)).toBe(0)
+    expect(litOn(strip(26), 26)).toBe(FULL)
+  })
+
+  it('the top edge is exact: 26 displays, 25 does not', () => {
+    // bcs on EcYStrt-1 is unsigned less-than, so a boundary OF 25 survives —
+    // that is a screen at line 26, and one line higher vanishes entirely
+    expect(litOn(strip(26), 27)).toBe(FULL)
+    expect(litOn(strip(25), 26)).toBe(0)
+    expect(litOn(strip(25), 27)).toBe(0)
+  })
+
+  /**
+   * Every WAIT line in the list just built, in order.
+   *
+   * copPhysic, not copLogic: MCopSw makes the freshly built buffer the
+   * physical one, so copLogic is the frame before.
+   *
+   * wait() truncates the line to eight bits and emits the $FFDF crossing
+   * once before the first line past 255 (TCopWt +W.s:6884), so reading a
+   * line back means putting the high bit on again.
+   */
+  const waits = (rt: Runtime): number[] => {
+    const l = rt.copPhysic
+    const out: number[] = []
+    let hi = 0
+    for (let p = 0; p + 4 <= l.length; p += 4) {
+      const w1 = word(l, p)
+      const w2 = word(l, p + 2)
+      if (w1 === 0xffff && w2 === 0xfffe) break
+      if (w2 !== 0xfffe) continue
+      if (w1 === 0xffdf) hi = 256
+      else if ((w1 & 0xff) === 0x03) out.push(hi + (w1 >> 8))
+    }
+    return out
+  }
+
+  it('the bottom edge is exact: 309 displays, 310 does not', () => {
+    // bcc on T_EcYMax-2 = 309: a start boundary of 308 survives, 309 does not.
+    // Read from the list rather than the pixels, because both of these run
+    // off the bottom and the end-band clamp (MkA11) puts a DMA-off at 310
+    // either way — that would hide the difference the test is looking for
+    expect(waits(strip(309))).toContain(308)
+    expect(litOn(strip(309), 309)).toBe(FULL)
+    expect(waits(strip(310))).not.toContain(309)
+  })
+
+  it('the end band is still written when the start band was dropped (MkA9 +W.s:5967)', () => {
+    // the boundary list is built either way and MkA9 walks it independently
+    // of MkA8, so a window above the raster leaves an end marker and no
+    // start. Its own top test (MkA9a) only spares a window that ends up
+    // there too — this one ends at line 28, so the marker stands.
+    const w = waits(strip(20))
+    expect(w).not.toContain(19) // the start band's setup line, EcWY-1
+    expect(w).toContain(28) // EcWY + height, the end boundary
+  })
+})
+
 describe('BPLCON0 past HIRES, and BPLCON3', () => {
   /**
    * A list over a 4-plane screen whose row 0 is drawn in pen 3, so the

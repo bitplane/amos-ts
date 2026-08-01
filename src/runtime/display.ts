@@ -49,6 +49,15 @@ export class Display {
    */
   static readonly EC_Y_MAX = 311
 
+  /**
+   * EcYStrt (+Equ.s:575, EcYBase+26): the first line a window may START on.
+   *
+   * Both off-raster tests in the band writer are expressed against this and
+   * EC_Y_MAX rather than written out as 26/309/310, because on NTSC only
+   * T_EcYMax moves (261, +W.s:2480) and the two must move with it.
+   */
+  static readonly EC_Y_STRT = 26
+
   /** Compose all visible screens into a 640x572 RGBA frame (the PAL
    * overscan window, doubled). */
   /**
@@ -228,7 +237,41 @@ export class Display {
       const f = this.frontAt(L)
       const bandStart = f !== front && f !== null
       const bandEnd = f !== front && f === null
-      if (bandStart && f) {
+      /**
+       * OFF THE RASTER: THE WINDOW IS NOT SHOWN AT ALL.
+       *
+       * MkA8 (+W.s:5955-5961) reads the boundary the band splitter stored
+       * (EcWY-1, MkD2 +W.s:5830) and branches straight to MkA10 — the next
+       * boundary — when it is above EcYStrt-1 or at/below T_EcYMax-2. No
+       * band is written, so the screen simply does not appear. MkA9a
+       * (+W.s:5973) applies the same top test to the END boundary, which is
+       * why a window entirely above the raster leaves no trace in the list
+       * at all rather than an orphaned DMA-off.
+       *
+       * This is not the end-band clamp above. That one moves a window whose
+       * END runs off the bottom (MkA11); this one drops a window whose START
+       * is out of range, and the two are separate branches of the same walk.
+       *
+       * Programs use it deliberately. Object_Editor.AMOS opens an 8-row
+       * status strip and parks it with `Screen Display 4,,20,,` before the
+       * main loop, then moves it to 45 or 45+SYWORK every frame — Y=20 is
+       * how it hides the thing. Without this test the builder emitted a band
+       * from line 20, and since the compositor paints from COMPOSITE_TOP the
+       * strip showed as two rows of the wrong screen across the top of the
+       * editor for its whole life.
+       *
+       * The end band is still written when its own boundary is in range: the
+       * boundary list is built either way and MkA9 walks it independently, so
+       * a dropped start followed by a live end is exactly what AMOS produces.
+       */
+      const startDropped =
+        bandStart && (L - 1 < Display.EC_Y_STRT - 1 || L - 1 >= Display.EC_Y_MAX - 2)
+      const endDropped = bandEnd && L < Display.EC_Y_STRT - 1
+      // did the band writer emit a wait() for this line? the rainbow machine
+      // below has to know, and a dropped band emits nothing
+      const didStart = bandStart && !startDropped
+      const didEnd = bandEnd && !endDropped
+      if (didStart && f) {
         emitted = true
         // EcCopHo head (+W.s:6293) — the band splitter stores boundaries
         // at EcWY-1 (MkD2 +W.s:5830), so the setup runs on the line BEFORE
@@ -332,13 +375,13 @@ export class Display {
           put(0x180 + i * 2)
           put(f.palette[i]! & 0xfff)
         }
-      } else if (bandEnd) {
+      } else if (didEnd) {
         endBand(L)
       }
       front = f
       // the single-rainbow machine (CopBow), interleaved with the bands
       if (curRb && L >= curRb.fy) {
-        if (!bandStart && !bandEnd) {
+        if (!didStart && !didEnd) {
           if (front) {
             wait(L)
             put(0x180 + curRb.colour * 2)
@@ -358,8 +401,9 @@ export class Display {
       }
       if (!curRb) curRb = rbs.find((r) => L >= r.dy && L < r.fy) ?? null
       if (curRb) {
-        // at a band start the beam already sits at L after FiniCop
-        if (!bandStart) wait(L)
+        // at a band start the beam already sits at L after FiniCop — but only
+        // if the band was actually written
+        if (!didStart) wait(L)
         const t = curRb.table
         put(0x180 + curRb.colour * 2)
         put(t[(L - curRb.dy + curRb.base) % t.length]!)

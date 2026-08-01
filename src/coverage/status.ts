@@ -2264,7 +2264,8 @@ export const NOTES: Record<string, string> = {
   'dual playfield':
     'pairing is per-screen (EcDual) as on the hardware, so several pairs coexist down the display, each in its own copper band, each with its own Dual Priority, and sprites layer between the two playfields per EcCon2\'s PF1P/PF2P. Remaining approximation: the pair renders under the system copper walk, so a Copper Off user list shows only the front playfield',
   'screen open': 'width masked to /16; the 1..1023 size bounds of EcCree are not enforced',
-  'screen display': 'the visible window w/h clips the composite; hardware scaling is not modelled',
+  'screen display':
+    'the visible window w/h clips the composite; hardware scaling is not modelled. A Y below 26 or at/above 310 hides the screen COMPLETELY rather than clipping it, which is the original\'s own rule and not a bug here: MkA8 (+W.s:5955) drops the whole band when its start boundary falls outside EcYStrt-1..T_EcYMax-2. Programs use it as a hide idiom -- the Object Editor parks an 8-row strip with Screen Display 4,,20,, before positioning it each frame',
   'screen colour': 'HAM reports 64 — the real EcNbCol is stored as 64 by InScreenOpen, never 4096',
   'screen base': 'a read-only synthesized Ec control block (EcLogic/EcPhysic, geometry, EcNbCol, live EcPal, EcTLigne...); pokes into it are ignored',
   'set font': 'real Amiga diskfonts render when a Fonts: drawer is mounted (drop one in the browser); without one, the synthetic Workbench list with the 8x8 face stands in',
