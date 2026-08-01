@@ -34,9 +34,28 @@
  *   next `/`, so `#?.iff/#?.abk` is two patterns tried in turn.
  * - **`#` is an ordinary character.** `#?` is dos.library's "zero or more",
  *   and means nothing here — it matches a literal `#` followed by any
- *   non-dot. The old RegExp read it as `.*`, which is the single most
- *   misleading thing it did, because `#?.iff` is exactly what an Amiga
- *   programmer writes.
+ *   non-dot.
+ *
+ * ## What programs actually write, measured
+ *
+ * 6,794 programs across the archive detokenise; 1,209 of them call one of the
+ * five filtering keywords, giving 2,184 literal filters and 227 distinct ones.
+ * Three things in that count are worth keeping, because two of them refute
+ * guesses this file used to make:
+ *
+ * - **`#` never appears. Not once.** The note here used to argue that reading
+ *   `#` as dos.library's "zero or more" was the old RegExp's most damaging
+ *   error "because `#?.iff` is exactly what an Amiga programmer writes". They
+ *   write it at the Shell; they do not write it in AMOS, where the manual only
+ *   ever documents `*` and `?`. `?` itself appears in exactly one filter in
+ *   the whole archive ("AMOSPr?").
+ * - **`/` is never used as alternation either** — every `/` in all 227 is a
+ *   path separator, and the callers split the path off before Joker sees it.
+ * - **The dot rule is where the real difference lands.** `*.abk` and friends
+ *   are 161 of the 227, `*.*` alone is 53 uses and `**` 104. Against a name
+ *   carrying a second dot — `Data.Bank.abk`, `my.pic.iff` — the old RegExp
+ *   listed it and Joker does not. That is the change users will see, and it
+ *   is the routine's, not ours.
  *
  * ## Not the caller's job to pass "everything"
  *

@@ -48,9 +48,11 @@ describe('Joker — AMOS\'s own filename filter (+Lib.s:6631)', () => {
   })
 
   it('`#` is an ordinary character, so `#?` is a hash and a non-dot', () => {
-    // dos.library's "zero or more" means nothing to this routine, and `#?`
-    // is exactly what an Amiga programmer writes -- so the old RegExp read
-    // the commonest filter in the corpus backwards
+    // dos.library's "zero or more" means nothing to this routine. This case
+    // used to be annotated "`#?` is exactly what an Amiga programmer writes",
+    // which a sweep of the archive refutes: `#` appears in none of the 227
+    // distinct filters, and `?` in exactly one. It is a Shell habit, not an
+    // AMOS one -- the manual documents only `*` and `?` for Dir
     expect(joker('#?.iff', 'picture.iff')).toBe(false)
     expect(joker('#?.iff', '#a.iff')).toBe(true)
     expect(joker('#?', '#a')).toBe(true)
@@ -85,6 +87,28 @@ describe('Joker — AMOS\'s own filename filter (+Lib.s:6631)', () => {
     // of nothing but '/' runs out rather than looping
     expect(joker('///', 'x')).toBe(false)
     expect(joker('/', '')).toBe(true)
+  })
+
+  it('the filters real programs write, and what changed for them', () => {
+    // every case here is a literal taken from the archive sweep, with the
+    // use count it has there. `*.*` is the one worth staring at: 53 call
+    // sites, and it does NOT mean "everything" -- it means exactly one dot
+    expect(joker('*.*', 'picture.iff')).toBe(true) // Fsel$("*.*") x53
+    expect(joker('*.*', 'readme')).toBe(false) // no dot: not shown
+    expect(joker('*.*', 'Data.Bank.abk')).toBe(false) // two dots: not shown
+    expect(joker('**', 'anything')).toBe(true) // Fsel$("**") x104
+    expect(joker('*.ABK', 'sprites.abk')).toBe(true) // the commonest wildcard
+    expect(joker('*.ABK', 'Data.Bank.abk')).toBe(false) // the visible change
+
+    // the only three filters in the archive with more than one dot in the
+    // file part, and all three read correctly only under the no-cross rule
+    expect(joker('*.*.*', 'a.b.c')).toBe(true) // Dir First$("*.*.*")
+    expect(joker('tpw.*.c', 'tpw.gandalf.c')).toBe(true) // a character name
+    expect(joker('tpw.*.c', 'tpw.gan.dalf.c')).toBe(false) // with no dot in it
+    expect(joker('Rally-X.Map.*', 'Rally-X.Map.3')).toBe(true)
+
+    // and the one filter in the archive that uses '?' at all
+    expect(joker('AMOSPr?', 'AMOSPro')).toBe(true)
   })
 
   it('an empty filter is not matched at all, it is skipped', () => {
