@@ -74,6 +74,8 @@ really does differ from the real one and saying where is the whole job.
 | module | models |
 |---|---|
 | `exec.ts` | `AvailMem`'s pools and the library list — `OpenLibrary` |
+| `graphics.ts` | `BitMap` and `RastPort` — bitplanes, pens, and the two pixel funnels |
+| `planar.ts` | the chunky/planar bijection and the word-at-a-time span ops |
 | `datestamp.ts` | the AmigaDOS `DateStamp` and its calendar arithmetic |
 | `vfs.ts` | `AmigaFS` — volumes, assigns, paths, file metadata |
 | `fs.ts` | `AmosFS`, the read interface a volume provider satisfies |

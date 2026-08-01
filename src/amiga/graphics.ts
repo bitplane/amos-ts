@@ -210,6 +210,23 @@ export class BitMap {
 }
 
 
+/** the drawing state, saved so a caller can put it back — see snapshot() */
+export interface RastPortState {
+  fgPen: number
+  bgPen: number
+  aOlPen: number
+  drawMode: number
+  linePtrn: number
+  areaPtrn: Uint16Array | null
+  outline: boolean
+  cpX: number
+  cpY: number
+  mask: number
+  clip: ClipRect | null
+  algoStyle: number
+  font: DiskFont | null
+}
+
 /** the clipping rectangle a Layer imposes on the RastPort's geometry ops */
 export interface ClipRect {
   x1: number
@@ -277,6 +294,53 @@ export class RastPort {
   algoStyle = 0
   /** rp_Font — null is the built-in 8x8 face */
   font: DiskFont | null = null
+
+  /**
+   * The drawing state, to put back afterwards.
+   *
+   * Callers that draw "with these pens, then restore" were writing the field
+   * list out by hand, and the lists did not agree: menu.ts saved five fields
+   * around a `bar` and one around a `line`, so a keyword reading anything
+   * else — the draw mode, the graphics cursor — leaked its change out of the
+   * menu. Enumerating the fields HERE means the set cannot drift from the
+   * class that owns them.
+   *
+   * The bitmap is deliberately not part of it: this saves the pens, not the
+   * surface.
+   */
+  snapshot(): RastPortState {
+    return {
+      fgPen: this.fgPen,
+      bgPen: this.bgPen,
+      aOlPen: this.aOlPen,
+      drawMode: this.drawMode,
+      linePtrn: this.linePtrn,
+      areaPtrn: this.areaPtrn,
+      outline: this.outline,
+      cpX: this.cpX,
+      cpY: this.cpY,
+      mask: this.mask,
+      clip: this.clip,
+      algoStyle: this.algoStyle,
+      font: this.font,
+    }
+  }
+
+  restore(s: RastPortState): void {
+    this.fgPen = s.fgPen
+    this.bgPen = s.bgPen
+    this.aOlPen = s.aOlPen
+    this.drawMode = s.drawMode
+    this.linePtrn = s.linePtrn
+    this.areaPtrn = s.areaPtrn
+    this.outline = s.outline
+    this.cpX = s.cpX
+    this.cpY = s.cpY
+    this.mask = s.mask
+    this.clip = s.clip
+    this.algoStyle = s.algoStyle
+    this.font = s.font
+  }
 
   get width(): number {
     return this.bitMap.width

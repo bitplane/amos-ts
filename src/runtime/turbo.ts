@@ -588,15 +588,15 @@ function starsPlotter(rt: Runtime, screen: number): (x: number, y: number) => vo
  * update".
  */
 function rawDraw(s: Screen, body: () => void): void {
-  const mask = s.planeMask
-  const pattern = s.linePattern
-  s.planeMask = 0xff
-  s.linePattern = 0xffff
+  // bypass the RastPort, which is exactly what the F keywords do: neutralise
+  // rp_Mask and rp_LinePtrn for the duration, then put the whole state back
+  const saved = s.rp.snapshot()
+  s.rp.mask = 0xff
+  s.rp.linePtrn = 0xffff
   try {
     body()
   } finally {
-    s.planeMask = mask
-    s.linePattern = pattern
+    s.rp.restore(saved)
   }
 }
 
@@ -2163,8 +2163,10 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       // Set Planes mask — "Restricts most drawing operations to a number of
       // bitplanes, defined by the MASK parameter. Each bit represents a
       // bitplane. Ex.: Set Planes %101, enables planes 1 and 3." It writes
-      // rp_Mask, so it belongs to the screen rather than to TURBO.
-      rt.screen.planeMask = it.evalInt() & 0xff
+      // rp_Mask, so it belongs to the screen rather than to TURBO -- and now
+      // literally is the RastPort's field rather than a Screen one named
+      // after it.
+      rt.screen.rp.mask = it.evalInt() & 0xff
     },
     'reserve check'(it) {
       // "Reserves x check ZONES for TURBO zone (CHECK) routines. Execute

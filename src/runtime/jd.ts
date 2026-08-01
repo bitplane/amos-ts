@@ -1700,9 +1700,16 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
      * writes through that font rather than through AMOS's console.
      *
      * The font metrics are what Jd Char X and Jd Char Y report, so the size is
-     * recorded even where the face is not: this port has real .font loading
-     * (Set Font / diskfont) but no RastPort to attach one to, so Jd Print goes
-     * to the console. A program's text appears; its face may not.
+     * recorded even where the face is not, and Jd Print goes to the console.
+     * A program's text appears; its face may not.
+     *
+     * THE BLOCKER HAS GONE, and this has not caught up yet. There IS a
+     * RastPort now (../amiga/graphics.ts) with an `rp_Font` field, and the
+     * core's `Set Font` already loads a real `.font` onto it, so the two
+     * halves this keyword needs both exist. What is missing is the wiring:
+     * resolving the named face through diskfont and pointing `Jd Print` at
+     * `Screen.text` instead of the console. That is new behaviour rather than
+     * a refactor, so it is its own task.
      */
     'jd textfont'(it) {
       it.evalStr()

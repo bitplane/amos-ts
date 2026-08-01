@@ -414,24 +414,28 @@ export function runMenuObject(
         break
       case 'bar': {
         if (s) {
-          const saved = { ink: s.ink, gPaper: s.gPaper, gBorder: s.gBorder, pattern: s.pattern, outline: s.outline }
+          // a menu draws with its own pens and leaves the screen's alone. The
+          // RastPort enumerates its own fields, so this cannot miss one the
+          // way a hand-written list did — these two sites used to save five
+          // fields and one respectively
+          const saved = s.rp.snapshot()
           s.ink = st.inks[0]
           s.gPaper = st.inks[1]
           s.gBorder = st.inks[2]
           s.pattern = st.pattern
           s.outline = st.outline
           s.bar(ox + st.x, oy + st.y, ox + op.x, oy + op.y)
-          Object.assign(s, saved)
+          s.rp.restore(saved)
         }
         extend(op.x + 1, op.y + 1)
         break
       }
       case 'line':
         if (s) {
-          const lp = s.linePattern
+          const saved = s.rp.snapshot()
           s.linePattern = st.linePattern
           s.line(ox + st.x, oy + st.y, ox + op.x, oy + op.y, st.inks[0])
-          s.linePattern = lp
+          s.rp.restore(saved)
         }
         st.x = op.x
         st.y = op.y
@@ -589,13 +593,13 @@ export function drawMenuBranch(list: MenuNode[], s: Screen, host: MenuHost, absX
   const saved = saveRect(s, bounds)
   const first = list[0]
   if (first && !first.obF) {
-    const savedGfx = { ink: s.ink, gPaper: s.gPaper, gBorder: s.gBorder, pattern: s.pattern, outline: s.outline }
+    const savedGfx = s.rp.snapshot()
     s.ink = first.inks1[1]
     s.gBorder = first.inks1[2] === first.inks1[1] ? first.inks1[0] : first.inks1[2]
     s.pattern = null
     s.outline = true
     s.bar(bounds.x1, bounds.y1, bounds.x2, bounds.y2)
-    Object.assign(s, savedGfx)
+    s.rp.restore(savedGfx)
   }
   for (const n of list) drawMenuCell(n, s, host, false)
   return { list, bounds, saved, ox: absX, oy: absY }
