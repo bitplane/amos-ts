@@ -119,25 +119,30 @@ reverse-engineered from `c3d.lib` — see `docs/amos3d/README.md`), **Personnal*
 
 ### Corpus census
 
-`npx tsx src/cli/runreport.ts --all` runs all 488 corpus programs headless.
+`npx tsx src/cli/runreport.ts --all` runs all 490 corpus programs headless.
 
 | | |
 |---|---|
-| run to a stop | 478 |
-| **run with nothing skipped** | **429 (90%)** |
-| hit something unimplemented | 49 |
+| run to a stop | 480 |
+| **run with nothing skipped** | **430 (90%)** |
+| hit something unimplemented | 50 |
 
 Read the second row, not the "ended with nothing skipped" line the tool
 prints. That line counts only programs that *terminate*, and most AMOS
-programs are games and demos that never do — 233 hit the step cap and 139
+programs are games and demos that never do — 234 hit the step cap and 139
 block waiting on input, both of which are correct behaviour, not failure.
 
-`--by-program` says what the 49 are blocked on. It counts programs per
-keyword rather than partitioning them, so these overlap: `dreg` blocks 29
-and `doscall` 14, both host/68k calls that are n/a by policy; the rest is
-almost entirely Intuition 1.3b, in a long tail where the widest single
-keyword (`iscreen_open`) blocks 9. Hit counts are no guide here — `igadget
-read` is skipped 141,835 times across just 3 programs.
+`--by-program` says what the 50 are blocked on, but it counts programs per
+keyword rather than partitioning them, so its rows overlap and cannot be
+added up. Partitioned, the 50 are: **38 blocked with no extension keyword
+involved** — overwhelmingly `dreg`/`areg`/`doscall`/`call`, the host and 68k
+escapes that are n/a by policy — and **12 that reach Intuition 1.3b, every
+one of which is Intuition's own bundled test suite** (`inttest1`..`6`,
+`bug1`, `bug2`, `bcollin`, `intuiviewer`, `test0`). No program in the corpus
+that someone wrote to *use* is blocked on an extension.
+
+Hit counts are no guide at all here: `igadget read` is skipped 141,835 times
+across 3 programs, all of them those same self-tests looping.
 
 **Reach is not correctness.** All of the above measures whether a program hits
 a missing keyword. It says nothing about whether the pixels are right — see

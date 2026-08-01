@@ -18,21 +18,26 @@ AMOS 3D, Personnal, TURBO Plus and LDos 2.5.
 
 ### The census
 
-`npx tsx src/cli/runreport.ts --all` runs all 488 corpus programs headless.
-**478 run to a stop, and 429 of those — 90% — do it without hitting a single
+`npx tsx src/cli/runreport.ts --all` runs all 490 corpus programs headless.
+**480 run to a stop, and 430 of those — 90% — do it without hitting a single
 unimplemented keyword.** That second figure is the coverage measure.
 
 The tool also prints "ended with nothing skipped" (83). Ignore it: it counts
 only programs that *terminate*, and most AMOS programs are games and demos
-that never do. Of the 478, 233 hit the step cap and 139 block waiting on
+that never do. Of the 480, 234 hit the step cap and 139 block waiting on
 input — both correct behaviour, not failure.
 
-`--by-program` ranks the remaining 49 by how many programs each gap blocks,
+`--by-program` ranks the remaining 50 by how many programs each gap blocks,
 rather than by how often it is reached. The two orders are not the same and
 the difference is large: `igadget read` tops the occurrence list at 141,835
 hits and blocks three programs, while `dreg` blocks twenty-nine on sixty hits
 and `iscreen_open` blocks nine on eleven. Occurrence counts are a measure of
 how hot a gap is, never of how much it costs.
+
+Those rows overlap and must not be summed. Partitioned, the 50 are **38 with
+no extension keyword involved at all** — almost entirely the n/a host and 68k
+escapes below — and **12 that are one extension's own test suite**, which the
+next section takes apart.
 
 ## Not implemented
 
@@ -57,7 +62,7 @@ extension keyword:
 | extension | keywords | note |
 |---|---|---|
 | AMCAF 1.50 | 278 | freeware, ships an AmigaGuide manual |
-| **Intuition 1.3b** | **183** | **ships assembler source; the largest remaining gap** |
+| Intuition 1.3b | 183 | ships assembler source; needs `intuition.library` first |
 | Craft 1.0 | 136 | commercial (Black Legend) |
 | GUI 2.10 / 1.61 | 118 / 103 | |
 | Range 1.0 / 2.0 | 46 / 23 | |
@@ -66,8 +71,22 @@ extension keyword:
 | Misc 1.0 | 10 | public domain, source is the whole extension |
 | LDos 2.6 | 8 | the delta over 2.5 |
 
-Intuition is what almost all of the census tail is: a long spread where the
-widest single keyword, `iscreen_open`, blocks nine programs.
+**Intuition's census weight is an artefact, and this document used to report
+it as the largest remaining gap.** It is not. Twelve corpus programs reach an
+Intuition keyword and all twelve are Intuition's own bundled test suite —
+`inttest1`..`6`, `bug1`, `bug2`, `bcollin`, `intuiviewer`, `test0` — which
+arrived in `fixtures/extensions/intuition-1.3b/progs/` with the extension
+archive. Zero programs written to *use* it are in the corpus, and the huge
+occurrence counts are those self-tests looping.
+
+It is also the extension least able to move: its 183 keywords are windows,
+gadgets, menus and requesters, so nearly all of them would land as n/a until
+`intuition.library` exists in `src/amiga/`. That back-end, not the keyword
+list, is the actual prerequisite — see `src/amiga/README.md`.
+
+Coverage in the wild is a signal, not a target. Most AMOS programs were never
+published online, so a census over what *was* published measures the archive
+as much as the port.
 
 The evidence behind the four that *are* done varies, and it is recorded per
 extension rather than assumed: Personnal ships full assembler source. TURBO
