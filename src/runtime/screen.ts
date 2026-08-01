@@ -679,69 +679,9 @@ export class Screen {
 
 
 
+  /** Draw, with Set Line's pattern — the graphics cursor is rp_cp_x/y */
   line(x1: number, y1: number, x2: number, y2: number, c = this.ink): void {
-    this.grX = x2
-    this.grY = y2
-    // Liang-Barsky clip to the screen so far-off endpoints don't cost
-    // millions of Bresenham steps
-    const dx = x2 - x1
-    const dy = y2 - y1
-    let t0 = 0
-    let t1 = 1
-    const edges: Array<[number, number]> = [
-      [-dx, x1],
-      [dx, this.width - 1 - x1],
-      [-dy, y1],
-      [dy, this.height - 1 - y1],
-    ]
-    for (const [p, q] of edges) {
-      if (p === 0) {
-        if (q < 0) return
-        continue
-      }
-      const r = q / p
-      if (p < 0) {
-        if (r > t1) return
-        if (r > t0) t0 = r
-      } else {
-        if (r < t0) return
-        if (r < t1) t1 = r
-      }
-    }
-    const cx1 = Math.round(x1 + t0 * dx)
-    const cy1 = Math.round(y1 + t0 * dy)
-    const cx2 = Math.round(x1 + t1 * dx)
-    const cy2 = Math.round(y1 + t1 * dy)
-    this.rawLine(cx1, cy1, cx2, cy2, c)
-  }
-
-  /** dash-pattern phase; box carries it across its four edges (PolyDraw) */
-  private lineBit = 15
-  private lineCont = false
-
-  private rawLine(x1: number, y1: number, x2: number, y2: number, c: number): void {
-    const dx = Math.abs(x2 - x1)
-    const dy = -Math.abs(y2 - y1)
-    const sx = x1 < x2 ? 1 : -1
-    const sy = y1 < y2 ? 1 : -1
-    let err = dx + dy
-    if (!this.lineCont) this.lineBit = 15 // Set Line pattern rotates from the top bit
-    let bit = this.lineBit
-    for (;;) {
-      if ((this.linePattern >> bit) & 1) this.plot(x1, y1, c)
-      bit = bit === 0 ? 15 : bit - 1
-      this.lineBit = bit
-      if (x1 === x2 && y1 === y2) break
-      const e2 = 2 * err
-      if (e2 >= dy) {
-        err += dy
-        x1 += sx
-      }
-      if (e2 <= dx) {
-        err += dx
-        y1 += sy
-      }
-    }
+    this.rp.draw(x1, y1, x2, y2, c)
   }
 
   /**
@@ -752,13 +692,13 @@ export class Screen {
   box(x1: number, y1: number, x2: number, y2: number, c = this.ink): void {
     let sy = y1 + 1
     if (sy >= y2) sy = y1 - 1
-    this.lineBit = 15
-    this.lineCont = true
+    this.rp.linePatCnt = 15
+    this.rp.linePtrnCont = true
     this.line(x1, sy, x1, y2, c)
     this.line(x1, y2, x2, y2, c)
     this.line(x2, y2, x2, y1, c)
     this.line(x2, y1, x1, y1, c)
-    this.lineCont = false
+    this.rp.linePtrnCont = false
   }
 
   bar(x1: number, y1: number, x2: number, y2: number, c = this.ink): void {
@@ -767,8 +707,10 @@ export class Screen {
     const cy1 = Math.max(0, y1)
     const cy2 = Math.min(this.height - 1, y2)
     if (this.pattern === null) {
-      for (let y = cy1; y <= cy2; y++) this.hline(x1, x2, y, c)
+      this.rp.rectFill(x1, y1, x2, y2, c)
     } else {
+      // rp_AreaPtrn is AMOS's Set Pattern here: the 0-bits take the graphics
+      // paper rather than being left alone, which is why this is not RectFill
       const rows = this.pattern.length
       const cx1 = Math.max(0, x1)
       const cx2 = Math.min(this.width - 1, x2)
@@ -788,31 +730,7 @@ export class Screen {
   }
 
   ellipse(cx: number, cy: number, rx: number, ry: number, c = this.ink, fill = false): void {
-    if (rx <= 0 || ry <= 0) {
-      this.plot(cx, cy, c)
-      return
-    }
-    if (fill) {
-      const yLo = Math.max(-ry, -cy)
-      const yHi = Math.min(ry, this.height - 1 - cy)
-      for (let y = yLo; y <= yHi; y++) {
-        const w = Math.floor(rx * Math.sqrt(Math.max(0, 1 - (y * y) / (ry * ry))))
-        this.hline(cx - w, cx + w, cy + y, c)
-      }
-      return
-    }
-    // sampled parametric outline is fine at these resolutions
-    let px = cx + rx
-    let py = cy
-    const steps = Math.min(4096, Math.max(16, (rx + ry) * 2))
-    for (let i = 1; i <= steps; i++) {
-      const a = (i / steps) * 2 * Math.PI
-      const x = cx + Math.round(rx * Math.cos(a))
-      const y = cy + Math.round(ry * Math.sin(a))
-      this.line(px, py, x, y, c)
-      px = x
-      py = y
-    }
+    this.rp.ellipse(cx, cy, rx, ry, c, fill)
   }
 
   /**

@@ -44,6 +44,7 @@ import {
   getPixel as planarGet,
   setPixel as planarSet,
 } from './planar'
+import { glyphBit, glyphMetrics } from './diskfont'
 import type { DiskFont } from './diskfont'
 
 export class BitMap {
@@ -225,6 +226,8 @@ export interface RastPortState {
   clip: ClipRect | null
   algoStyle: number
   font: DiskFont | null
+  linePatCnt: number
+  linePtrnCont: boolean
 }
 
 /** the clipping rectangle a Layer imposes on the RastPort's geometry ops */
@@ -281,6 +284,16 @@ export class RastPort {
   drawMode = 1
   /** rp_LinePtrn (SetDrPt) — 16 bits, cycled per plotted pixel */
   linePtrn = 0xffff
+  /**
+   * rp_linpatcnt — which bit of the pattern the next plotted pixel takes.
+   *
+   * A field rather than a local because a PolyDraw's dash has to run
+   * unbroken from one edge into the next: `Draw` resets it, and only a
+   * caller that sets `linePtrnCont` keeps the phase across calls.
+   */
+  linePatCnt = 15
+  /** hold rp_linpatcnt across the next Draw, the way PolyDraw does */
+  linePtrnCont = false
   /** rp_AreaPtrn (SetAfPt) — 16-bit rows; null is solid */
   areaPtrn: Uint16Array | null = null
   /** AREAOUTLINE in rp_Flags — Set Paint */
@@ -328,6 +341,8 @@ export class RastPort {
       clip: this.clip,
       algoStyle: this.algoStyle,
       font: this.font,
+      linePatCnt: this.linePatCnt,
+      linePtrnCont: this.linePtrnCont,
     }
   }
 
@@ -345,6 +360,8 @@ export class RastPort {
     this.clip = s.clip
     this.algoStyle = s.algoStyle
     this.font = s.font
+    this.linePatCnt = s.linePatCnt
+    this.linePtrnCont = s.linePtrnCont
   }
 
   get width(): number {
@@ -422,4 +439,229 @@ export class RastPort {
     }
     this.bitMap.fillSpan(y, x1, x2, this.masked(0, c))
   }
+
+  /**
+   * SetRast — every pixel of the bitmap to one pen, ignoring the clip.
+   *
+   * Plane-at-a-time rather than pixel-at-a-time: a pen's bit is either set
+   * in a plane or it is not, so each plane is one `fill`.
+   */
+  setRast(c = this.fgPen): void {
+    const bm = this.bitMap
+    const v = this.masked(0, c)
+    const planes = bm.planeBytes(true)
+    for (let p = 0; p < bm.depth; p++) {
+      planes.fill(v & (1 << p) ? 0xff : 0, p * bm.planeSize, (p + 1) * bm.planeSize)
+    }
+    bm.invalidate()
+  }
+
+  /**
+   * RectFill — a solid rectangle, corners in either order.
+   *
+   * The area pattern is NOT applied here. rp_AreaPtrn belongs to AreaFill,
+   * and AMOS's `Bar` is the caller that wants it; keeping it out means this
+   * is one `hline` per row and stays word-at-a-time.
+   */
+  rectFill(x1: number, y1: number, x2: number, y2: number, c = this.fgPen): void {
+    if (x1 > x2) [x1, x2] = [x2, x1]
+    if (y1 > y2) [y1, y2] = [y2, y1]
+    const yLo = Math.max(0, y1)
+    const yHi = Math.min(this.height - 1, y2)
+    for (let y = yLo; y <= yHi; y++) this.hline(x1, x2, y, c)
+  }
+
+  /**
+   * Draw — a line from (x1,y1) to (x2,y2), leaving the graphics cursor at
+   * the far end.
+   *
+   * Clipped parametrically (Liang-Barsky) BEFORE Bresenham rather than
+   * per-pixel inside it, because a program may name coordinates millions of
+   * pixels off-screen and every one of those steps would otherwise be walked
+   * and thrown away.
+   */
+  draw(x1: number, y1: number, x2: number, y2: number, c = this.fgPen): void {
+    this.cpX = x2
+    this.cpY = y2
+    const dx = x2 - x1
+    const dy = y2 - y1
+    let t0 = 0
+    let t1 = 1
+    const edges: Array<[number, number]> = [
+      [-dx, x1],
+      [dx, this.width - 1 - x1],
+      [-dy, y1],
+      [dy, this.height - 1 - y1],
+    ]
+    for (const [p, q] of edges) {
+      if (p === 0) {
+        if (q < 0) return
+        continue
+      }
+      const r = q / p
+      if (p < 0) {
+        if (r > t1) return
+        if (r > t0) t0 = r
+      } else {
+        if (r < t0) return
+        if (r < t1) t1 = r
+      }
+    }
+    this.bresenham(
+      Math.round(x1 + t0 * dx),
+      Math.round(y1 + t0 * dy),
+      Math.round(x1 + t1 * dx),
+      Math.round(y1 + t1 * dy),
+      c,
+    )
+  }
+
+  /** the pattern-cycling Bresenham walk, on already-clipped endpoints */
+  private bresenham(x1: number, y1: number, x2: number, y2: number, c: number): void {
+    const dx = Math.abs(x2 - x1)
+    const dy = -Math.abs(y2 - y1)
+    const sx = x1 < x2 ? 1 : -1
+    const sy = y1 < y2 ? 1 : -1
+    let err = dx + dy
+    if (!this.linePtrnCont) this.linePatCnt = 15 // SetDrPt rotates from the top bit
+    let bit = this.linePatCnt
+    for (;;) {
+      if ((this.linePtrn >> bit) & 1) this.plot(x1, y1, c)
+      bit = bit === 0 ? 15 : bit - 1
+      this.linePatCnt = bit
+      if (x1 === x2 && y1 === y2) break
+      const e2 = 2 * err
+      if (e2 >= dy) {
+        err += dy
+        x1 += sx
+      }
+      if (e2 <= dx) {
+        err += dx
+        y1 += sy
+      }
+    }
+  }
+
+  /**
+   * An ellipse about (cx,cy), outline or filled.
+   *
+   * The outline is a sampled parametric walk joined by `draw` rather than a
+   * midpoint tracer: at these radii the sample count is bounded by the
+   * perimeter, and going through `draw` is what makes the line pattern and
+   * the draw mode apply to it.
+   */
+  ellipse(cx: number, cy: number, rx: number, ry: number, c = this.fgPen, fill = false): void {
+    if (rx <= 0 || ry <= 0) {
+      this.plot(cx, cy, c)
+      return
+    }
+    if (fill) {
+      const yLo = Math.max(-ry, -cy)
+      const yHi = Math.min(ry, this.height - 1 - cy)
+      for (let y = yLo; y <= yHi; y++) {
+        const w = Math.floor(rx * Math.sqrt(Math.max(0, 1 - (y * y) / (ry * ry))))
+        this.hline(cx - w, cx + w, cy + y, c)
+      }
+      return
+    }
+    let px = cx + rx
+    let py = cy
+    const steps = Math.min(4096, Math.max(16, (rx + ry) * 2))
+    for (let i = 1; i <= steps; i++) {
+      const a = (i / steps) * 2 * Math.PI
+      const x = cx + Math.round(rx * Math.cos(a))
+      const y = cy + Math.round(ry * Math.sin(a))
+      this.draw(px, py, x, y, c)
+      px = x
+      py = y
+    }
+  }
+
+  /**
+   * Text — the glyphs of `s` with their baseline on `y`, through rp_Font.
+   *
+   * NOTE: a null rp_Font draws nothing and advances 8 pixels a character.
+   * The built-in face is the AMOS console's, not graphics.library's, and it
+   * lives with the console; a RastPort with no font set has nothing to draw
+   * with. Callers wanting the system font open one.
+   */
+  text(x: number, y: number, s: string, c = this.fgPen): void {
+    const f = this.font
+    if (!f) {
+      this.cpX = x + s.length * 8
+      this.cpY = y
+      return
+    }
+    let penX = x
+    const top = y - f.baseline
+    for (let i = 0; i < s.length; i++) {
+      const ch = s.charCodeAt(i)
+      const m = glyphMetrics(f, ch)
+      for (let gy = 0; gy < f.ySize; gy++) {
+        for (let gx = 0; gx < m.width; gx++) {
+          if (glyphBit(f, ch, gx, gy)) this.plot(penX + m.kern + gx, top + gy, c)
+        }
+      }
+      penX += m.advance
+    }
+    this.cpX = penX
+    this.cpY = y
+  }
+
+  /** TextLength — the advance width of `s` in rp_Font */
+  textLength(s: string): number {
+    const f = this.font
+    if (!f) return s.length * 8
+    let len = 0
+    for (let i = 0; i < s.length; i++) len += glyphMetrics(f, s.charCodeAt(i)).advance
+    return len
+  }
+}
+
+/**
+ * BltBitMapRastPort — a rectangle of one bitmap into another.
+ *
+ * `transparent` is the difference between the two calls AMOS extensions
+ * make: -1 is minterm $c0, a straight copy, and a pen number is
+ * BltMaskBitMapRastPort with that pen standing in for the mask, which is how
+ * a blit gets a transparent colour 0.
+ *
+ * Always through a chunky staging buffer, because source and destination are
+ * routinely the SAME bitmap with overlapping rectangles — a screen scrolling
+ * itself — and a straight forward copy would smear.
+ */
+export function bltBitMap(
+  src: BitMap,
+  sx: number,
+  sy: number,
+  dst: BitMap,
+  dx: number,
+  dy: number,
+  w: number,
+  h: number,
+  transparent = -1,
+): void {
+  if (w <= 0 || h <= 0) return
+  const tmp = new Uint8Array(w * h)
+  for (let ry = 0; ry < h; ry++) {
+    const y = sy + ry
+    if (y < 0 || y >= src.height) continue
+    for (let rx = 0; rx < w; rx++) {
+      const x = sx + rx
+      if (x < 0 || x >= src.width) continue
+      tmp[ry * w + rx] = src.pixelAt(x, y)
+    }
+  }
+  for (let ry = 0; ry < h; ry++) {
+    const y = dy + ry
+    if (y < 0 || y >= dst.height) continue
+    for (let rx = 0; rx < w; rx++) {
+      const x = dx + rx
+      if (x < 0 || x >= dst.width) continue
+      const v = tmp[ry * w + rx]!
+      if (v === transparent) continue
+      dst.writePixel(x, y, v)
+    }
+  }
+  dst.invalidate()
 }
