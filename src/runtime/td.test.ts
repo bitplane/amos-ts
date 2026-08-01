@@ -1306,6 +1306,51 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D rasteriser (screen mapping $2126b6/$2126
     expect(seen.size).toBeGreaterThan(1)
   })
 
+  it('the engine writes bitplanes, so AMOS\'s draw mode does not reach it', () => {
+    // Td Redraw ($211418) checks the screen's depth and width for itself
+    // precisely because it does not go through AMOS's drawing at all. The
+    // rasteriser therefore holds its OWN RastPort -- JAM1, rp_Mask %11 --
+    // and Gr Writing 2 over the top of it changes nothing. Borrowing the
+    // screen's would have XORed the whole 3D area.
+    const prog = (mode: string): Set<number> => {
+      const { rt } = run(`
+        Td Screen Height 150
+        Screen Open 0,320,200,16,0
+        Td Load "dice"
+        Td Object 1,"dice",0,0,1500,0,0,0
+        Ink 12 : Bar 0,0 To 319,149
+        ${mode}
+        Td Redraw
+      `, objectAndLinks('dice.3DO'))
+      const s = rt.screen
+      const seen = new Set<number>()
+      for (let y = 1; y < 150; y++) for (let x = 0; x < 320; x++) seen.add(s.point(x, y) * 100_000 + x)
+      return seen
+    }
+    expect(prog('Gr Writing 2')).toEqual(prog(''))
+  })
+
+  it('and it leaves AMOS\'s own drawing state exactly as it found it', () => {
+    // the other half of holding a separate RastPort: the two-plane mask the
+    // 3D needs is on the rasteriser's, so the screen's is still %11111111
+    // afterwards and an ordinary Bar goes on covering every plane. Setting
+    // rp_Mask on the screen instead -- which is what TURBO's Set Planes
+    // writes -- would have leaked the 3D's mask into the whole program.
+    const { rt } = run(`
+      Td Screen Height 150
+      Screen Open 0,320,200,16,0
+      Td Load "dice"
+      Td Object 1,"dice",0,0,1500,0,0,0
+      Ink 12 : Bar 0,0 To 319,149
+      Td Redraw
+      Ink 15 : Bar 0,160 To 319,190
+    `, objectAndLinks('dice.3DO'))
+    expect(rt.screen.rp.mask).toBe(0xff)
+    expect(rt.screen.rp.drawMode).toBe(1) // JAM2, the default; not the 3D's JAM1
+    // and the bar below the 3D area really did reach all four planes
+    expect(rt.screen.point(160, 170)).toBe(15)
+  })
+
   it('Td Cls wipes what Td Redraw drew', () => {
     const { rt } = run(`
       Td Screen Height 150

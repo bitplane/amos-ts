@@ -246,14 +246,18 @@ export interface ClipRect {
  * write mask"). Keeping them there conflated three Amiga structures in one
  * object — a BitMap, a RastPort and an AMOS console — which cost real things:
  *
- * - `menu.ts` saves and restores five of these by hand around every draw,
- *   because there is one set per screen and a menu needs its own.
+ * - `menu.ts` saved and restored five of these by hand around every draw,
+ *   because there is one set per screen and a menu needs its own — and the
+ *   two lists it kept did not agree. It uses snapshot/restore now.
  * - `dialog.ts` grew `interface DialogDraw`, a hand-rolled RastPort with
  *   setPen/setBPen/setOutlinePen/rectFill/line/ellipse, discovered by need.
- * - `td.ts` has `TdRaster`, and `tdPen` hand-rolls a two-plane write mask
- *   that `mask = 0b11` says directly.
+ * - `td.ts` had `TdRaster`, and `tdPen` hand-rolled the two-plane write mask
+ *   that `mask = 0b11` says directly. The 3D rasteriser now takes a RastPort
+ *   of its own, which is also what keeps AMOS's draw mode off an engine that
+ *   writes bitplanes directly.
  * - JD's `Jd Textfont` records a font size and throws the face away, because
- *   there was "no RastPort to attach one to".
+ *   there was "no RastPort to attach one to". Still true, and now only for
+ *   want of the wiring — see task #152.
  *
  * ## What is NOT here
  *

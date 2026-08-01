@@ -33,6 +33,7 @@
  * our own scanline code and that deviation carries a NOTES entry.
  */
 import { AmosError, VI, int } from '../interp/values'
+import { RastPort } from '../amiga/graphics'
 import { parseStosMove } from './instr'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
@@ -678,8 +679,9 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       tdStepAnims(t)
       // tdRedrawFaces hands back the engine's order, front-most first; a
       // painter has to go the other way for the front-most to end up on top
+      const rp = tdRastPort(s2)
       for (const inst of tdRedrawFaces(t).reverse()) {
-        for (const f of inst.faces) tdDrawFace(s2, t.screenHeight, f)
+        for (const f of inst.faces) tdDrawFace(rp, t.screenHeight, f)
       }
     },
     'td quit'() {
@@ -2363,24 +2365,32 @@ export function tdScanFill(points: Array<{ x: number; y: number }>, span: (y: nu
   }
 }
 
-/** what the rasteriser needs of a screen: the low two planes of a pixel */
-export interface TdRaster {
-  width: number
-  height: number
-  point(x: number, y: number): number
-  plot(x: number, y: number, c: number): void
-}
-
 /**
- * Put one pixel down in one of the bottom four pens.
+ * The rasteriser's own RastPort, over the screen's bitmap.
  *
- * A pen is a two-bit plane mask — $21042a and $210438 btst bit 0 and bit 1
- * and EOR into plane 0 and plane 1 — so only the bottom two planes of the
- * pixel are touched and whatever the upper ones hold, a `Td Background` for
- * instance, survives underneath.
+ * A 3D pen is a two-bit plane mask — $21042a and $210438 btst bit 0 and bit 1
+ * and EOR into plane 0 and plane 1 — so only the bottom two planes of a pixel
+ * are touched and whatever the upper ones hold, a `Td Background` for
+ * instance, survives underneath. That is `rp_Mask = %11`, and it used to be
+ * written out longhand as a read-merge-write in a `tdPen` helper over a
+ * hand-rolled two-method `TdRaster` interface.
+ *
+ * Its OWN RastPort rather than the screen's, and that is the substantive part.
+ * The engine writes bitplanes directly — which is exactly why `Td Redraw`
+ * ($211418) has to check the screen's depth and width itself instead of
+ * letting a draw fail — so AMOS's drawing state never applied to it. Borrowing
+ * `screen.rp` would newly subject the 3D area to `Gr Writing 2` and to
+ * TURBO's `Set Planes`, neither of which the engine consults.
+ *
+ * Built per redraw, not cached: `Screen Swap` swaps `rp.bitMap` under a
+ * double-buffered screen, and a kept RastPort would go on drawing into the
+ * buffer that is now on the display.
  */
-function tdPen(t: TdRaster, x: number, y: number, pen: number): void {
-  t.plot(x, y, (t.point(x, y) & ~3) | (pen & 3))
+function tdRastPort(s: { rp: RastPort }): RastPort {
+  const rp = new RastPort(s.rp.bitMap)
+  rp.mask = 0b11
+  rp.drawMode = 0 // JAM1: opaque, and never the caller's COMPLEMENT
+  return rp
 }
 
 /**
@@ -2395,7 +2405,7 @@ function tdPen(t: TdRaster, x: number, y: number, pen: number): void {
  * pinned down, because it is decided inside the blitter fill this does not
  * reproduce; getting it backwards swaps colour 1 with colour 10.
  */
-export function tdDrawFace(t: TdRaster, height: number, f: TdScreenFace): void {
+export function tdDrawFace(t: RastPort, height: number, f: TdScreenFace): void {
   const rows = Math.min(height, t.height)
   const px = (p: { x: number; y: number }) => ({ x: tdScreenX(p.x), y: tdScreenY(height, p.y) })
   const paint = (poly: Array<{ x: number; y: number }>, pen: (x: number, y: number) => number): void => {
@@ -2403,7 +2413,9 @@ export function tdDrawFace(t: TdRaster, height: number, f: TdScreenFace): void {
       // row zero is outside the engine's own bounds, and so is anything past
       // the 3D area or either side of the 320 columns
       if (y < 1 || y >= rows) return
-      for (let x = Math.max(0, x0); x <= Math.min(TD_SCREEN_WIDTH - 1, x1); x++) tdPen(t, x, y, pen(x, y))
+      // rp_Mask does the plane merge: the write lands in planes 0 and 1 and
+      // leaves the rest of the pixel alone
+      for (let x = Math.max(0, x0); x <= Math.min(TD_SCREEN_WIDTH - 1, x1); x++) t.plot(x, y, pen(x, y))
     })
   }
   const [a, b] = f.colour
