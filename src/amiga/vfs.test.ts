@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AmigaFS, amigaPattern } from './vfs'
+import { AmigaFS } from './vfs'
 import { readTar, readZip, volumeFromEntries } from '../runtime/archive'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -139,13 +139,6 @@ describe('Amiga path resolution', () => {
     expect(fs.readFile('Res:level1.iff')).toEqual(enc('LEVEL1')) // assign retargeted
     expect(fs.readFile('DH0:Games/Zybex/level1.iff')).toBeNull() // old name is gone
     expect(fs.renameVolume('Work', 'a/b')).toBe(false)
-  })
-
-  it('matches AmigaDOS patterns', () => {
-    expect(amigaPattern('#?.IFF').test('picture.iff')).toBe(true)
-    expect(amigaPattern('*.iff').test('a.IFF')).toBe(true)
-    expect(amigaPattern('level?.iff').test('level1.iff')).toBe(true)
-    expect(amigaPattern('*.abk').test('a.iff')).toBe(false)
   })
 })
 

@@ -7,9 +7,7 @@
  * LDos used it and stayed there when JD-K3 became the second caller, which
  * is how a subsystem ends up named after whoever needed it first.
  *
- * LdosV25.DOC documents the syntax exactly, and it is dos.library's own —
- * richer than the `#?` / `*` / `?` subset `amigaPattern` in ./vfs.ts handles
- * for filename globbing:
+ * LdosV25.DOC documents the syntax exactly, and it is dos.library's own:
  *
  *     ?        Matches a single character.
  *     #        Matches the following expression 0 or more times.
@@ -26,13 +24,18 @@
  * and defines "expression" as "either a single character (ex: "#?"), or an
  * alternation (ex: "#(ab|cd|ef)"), or a character class (ex: "#[a-zA-Z]")".
  *
- * NOTE on the overlap with `amigaPattern` in ./vfs.ts, which is deliberate
- * for now. That one compiles a three-token subset to a case-INSENSITIVE
- * RegExp because AmigaDOS filenames are case-insensitive, and it accepts `*`
- * unconditionally; this one is case-sensitive with `*` behind a flag, and
- * callers fold case themselves (JD-K3's `Jd Match Nocase` does). Collapsing
- * them would change filename globbing, so it is a behaviour decision with
- * its own tests rather than a side effect of moving a file.
+ * THIS IS NOT WHAT AMOS FILTERS FILENAMES WITH, and the note that used to
+ * stand here said otherwise — it called `amigaPattern` in ./vfs.ts "the
+ * subset" of this grammar and left the overlap as something to collapse one
+ * day. Both halves were wrong. AMOS's own filter is `Joker` (+Lib.s:6631,
+ * ported to ../runtime/joker.ts): `*` stops at a dot, `?` refuses to match
+ * one, `/` separates alternatives, and `#` is an ordinary character, so `#?`
+ * — this grammar's "zero or more" — means a literal hash there. Two engines
+ * is the right answer, because two libraries really are involved: `Dir` and
+ * the file selector are AMOS's, `Lmatch` and `Jd Match` are dos.library's.
+ *
+ * This one is case-SENSITIVE with `*` behind a flag; callers fold case
+ * themselves, as JD-K3's `Jd Match Nocase` does.
  *
  * `~` is why this cannot be compiled to a RegExp: negation of an arbitrary
  * sub-pattern has no regex equivalent. Matching is therefore a backtracking

@@ -38,7 +38,8 @@ import {
   prescanDialog,
   updateZone,
 } from './dialog'
-import { amigaPattern, fillSortKey } from '../amiga/vfs'
+import { fillSortKey } from '../amiga/vfs'
+import { joker, matchesJoker } from './joker'
 import { MF_BAR, MF_BOUGE, MF_FIXED, MF_OFF, MF_SEP, MF_TBOUGE, MF_TOTAL, bankToMenu, compileMenuObject, menuCalc, menuToBank } from './menu'
 import { ENV_BELL, ENV_BOOM, ENV_SHOOT } from './music'
 import { squash as squashBytes, unsquash as unsquashBytes } from './squash'
@@ -470,9 +471,8 @@ function devFirst(rt: Runtime, filter: string): string {
     ...(first === 'A' ? [] : vfs.volumeNames()),
     ...(first === 'D' ? [] : vfs.assignNames()),
   ].map((n) => `${n}:`)
-  const rx = amigaPattern(filter === '' ? '*' : filter)
   const entries = names
-    .filter((n) => rx.test(n))
+    .filter((n) => matchesJoker(filter, n))
     .map((n) => fillEntry(rt, ' ', n, null))
     .sort((a, b) => (fillSortKey(a) < fillSortKey(b) ? -1 : 1))
   rt.devIter = { entries, idx: 0 }
@@ -4397,11 +4397,13 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       const dirPart = slash >= 0 ? pattern.slice(0, slash + 1) : ''
       const filePart = slash >= 0 ? pattern.slice(slash + 1) : pattern
       const entries = vfs.listDir(dirPart === '' ? vfs.currentDir : dirPart) ?? []
-      const rx = amigaPattern(filePart === '' ? '*' : filePart)
       // positive joker + Set Dir's negative filter apply to FILES only —
       // directories always list (FillNxt +Lib.s:6213: tst.w 4(a2) bpl)
-      const neg = rt.dirNegFilter === '' ? null : amigaPattern(rt.dirNegFilter)
-      const kept = entries.filter((e) => e.isDir || (rx.test(e.name) && !(neg && neg.test(e.name))))
+      const kept = entries.filter(
+        (e) =>
+          e.isDir ||
+          (matchesJoker(filePart, e.name) && !(rt.dirNegFilter !== '' && joker(rt.dirNegFilter, e.name))),
+      )
       kept.sort((a2, b) => {
         const ka = fillSortKey((a2.isDir ? '*' : ' ') + a2.name)
         const kb = fillSortKey((b.isDir ? '*' : ' ') + b.name)

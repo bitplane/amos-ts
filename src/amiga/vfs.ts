@@ -625,20 +625,18 @@ export function fillSortKey(s: string): string {
   return k
 }
 
-export function amigaPattern(pattern: string): RegExp {
-  let rx = ''
-  for (let i = 0; i < pattern.length; i++) {
-    const c = pattern[i]!
-    if (c === '#' && pattern[i + 1] === '?') {
-      rx += '.*'
-      i++
-    } else if (c === '*') {
-      rx += '.*'
-    } else if (c === '?') {
-      rx += '.'
-    } else {
-      rx += c.replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    }
-  }
-  return new RegExp(`^${rx}$`, 'i')
-}
+/*
+ * `amigaPattern` used to live here: twenty lines compiling `#?` / `*` / `?`
+ * to a case-insensitive RegExp, and every AMOS-side glob went through it.
+ *
+ * It is gone, and nothing replaces it in this directory. Filename filtering
+ * in AMOS is `Joker` (+Lib.s:6631), which is neither this nor dos.library's
+ * grammar — `*` stops at a dot, `?` will not match one, `/` separates
+ * alternatives and `#` is an ordinary character. It is a Lib_Def routine in
+ * AMOS's own main library, so it belongs on the AMOS side of the line:
+ * ../runtime/joker.ts. `dospattern.ts` here stays what it always was, the
+ * real ParsePattern/MatchPattern behind LDos's Lmatch and JD-K3's Jd Match.
+ *
+ * Being in this directory is part of what made the old one look like a
+ * subset of dos.library rather than a different language.
+ */

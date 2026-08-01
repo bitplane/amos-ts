@@ -404,7 +404,10 @@ describe('integration: Run and the environment cluster', () => {
       'Mkdir "DH0:sub"',
       'Open Out 1,"DH0:zz.dat" : Print #1,"12345" : Close 1',
       'Open Out 1,"DH0:aa.dat" : Print #1,"x" : Close 1',
-      'A$=Dir First$("*")',
+      // "" is how AMOS asks for everything: the filter is skipped outright
+      // (FillNxt +Lib.s:6215 `tst.b (a0) / beq`). "*" would NOT do it --
+      // Joker's star stops at a dot, so it matches neither .dat file
+      'A$=Dir First$("")',
       'While A$<>"" : Print "[";A$;"]" : A$=Dir Next$ : Wend',
       'Set Dir 10',
       'Print "[";Dir First$("*.dat");"]"',

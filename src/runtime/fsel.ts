@@ -16,7 +16,8 @@ import type { AmosArray } from '../interp/interp'
 import type { Runtime } from './runtime'
 import type { DialogChannel, DialogZone } from './dialog'
 import { drawEditZone, drawListZone, drawSliderZone } from './dialog'
-import { amigaPattern, fillSortKey, joinAmigaPath, parentAmigaPath } from '../amiga/vfs'
+import { fillSortKey, joinAmigaPath, parentAmigaPath } from '../amiga/vfs'
+import { joker, matchesJoker } from './joker'
 
 /** zone numbers the script gives its widgets (Fs_PathN / Fs_FileN / Fs_ListN) */
 export const FS_PATH_ZONE = 14
@@ -196,12 +197,14 @@ export function fselFirst(rt: Runtime, f: FselState): void {
     return
   }
   const all = rt.vfs.listDir(f.path) ?? []
-  const rx = f.filter === '' ? null : amigaPattern(f.filter)
-  const neg = rt.dirNegFilter === '' ? null : amigaPattern(rt.dirNegFilter)
   // FillNxt (+Lib.s:6213) applies both jokers to files only — directories
   // always list, which is what makes a filtered view still navigable
   f.pending = all
-    .filter((e) => e.isDir || ((!rx || rx.test(e.name)) && !(neg && neg.test(e.name))))
+    .filter(
+      (e) =>
+        e.isDir ||
+        (matchesJoker(f.filter, e.name) && !(rt.dirNegFilter !== '' && joker(rt.dirNegFilter, e.name))),
+    )
     .map((e) => ({ name: e.name, isDir: e.isDir, size: e.size }))
   f.dirOn = true
   fselShowPath(rt, f)
