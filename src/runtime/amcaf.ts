@@ -126,6 +126,18 @@ export interface AmcafState {
   /** whether colours are read as 24-bit $RRGGBB rather than 12-bit $RGB */
   agaNotation: boolean
   /**
+   * Shade Bob state.
+   *
+   * `shadePlanes` is how many bitplanes a shade bob cycles through --
+   * "protect the graphics in higher bitplanes from the influences of Shade
+   * Bobs ... must be a value between 1 and 6" -- and `shadeMask` chooses
+   * whether the bob's mask or its first bitplane says where it touches.
+   */
+  shadePlanes: number
+  shadeMask: boolean
+  /** the bank Ptile blocks come from */
+  ptileBank: number
+  /**
    * The eight "interior palette memory" buffers Pal Get/Set address.
    *
    * "palnr must be range from 0 to 7", and each holds a whole screen's worth
@@ -150,6 +162,9 @@ export function newAmcafState(): AmcafState {
     ioError: 0,
     spritePriority: 0,
     agaNotation: false,
+    shadePlanes: 6,
+    shadeMask: true,
+    ptileBank: 0,
     palettes: Array.from({ length: 8 }, () => new Uint16Array(256)),
     present: true,
   }
@@ -750,6 +765,161 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       scr.rp.bitMap.invalidate()
     },
 
+
+    /**
+     * Shade Bob Planes n — "'amount' sets the number of bitplanes, that
+     * should be drawn in and must be a value between 1 and 6", which is how
+     * a program protects the graphics in the higher planes.
+     */
+    'shade bob planes'(it) {
+      const n = it.evalInt()
+      if (n < 1 || n > 6) amcafErr()
+      rt.amcaf.shadePlanes = n
+    },
+
+    /**
+     * Shade Bob Mask flag — "Either the mask or the first bitplane of the
+     * object is used", and this is the switch.
+     */
+    'shade bob mask'(it) {
+      rt.amcaf.shadeMask = it.evalInt() !== 0
+    },
+
+    /** Shade Bob Up / Down screen,x,y,image — the bob shape as a shade stamp */
+    'shade bob up'(it) {
+      shadeBob(rt, it, 1)
+    },
+    'shade bob down'(it) {
+      shadeBob(rt, it, -1)
+    },
+
+    /**
+     * Shade Pix x,y[,planes] — one pixel of the same idea.
+     *
+     * "increases the colour value at the given point ... If the highest
+     * colour is reached, the colour is resetted to be cycled" — so it wraps
+     * within the plane count rather than clamping, which is what separates
+     * the Shade family from Pix Brighten and Pix Darken.
+     */
+    'shade pix'(it) {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      const planes = it.accept(',') ? it.evalInt() : rt.amcaf.shadePlanes
+      const s = rt.screen
+      if (!s) return
+      const v = s.rp.point(x, y)
+      if (v < 0) return // clipped since V1.30, like Turbo Plot
+      const mask = (1 << planes) - 1
+      s.rp.putPixel(x, y, (v & ~mask) | ((v + 1) & mask))
+    },
+
+    /**
+     * Pix Shift Up / Down and Pix Brighten / Darken —
+     * `screen,c1,c2,x1,y1 To x2,y2[,bank]`.
+     *
+     * "you can increase the colour indexes in the rectangular area ... 'c1'
+     * and 'c2' hold the border colours, which should be taken into account
+     * for the colour cycling, other colours are not affected."
+     *
+     * The pair of pairs is the whole point: Shift wraps within c1..c2 and
+     * Brighten/Darken stop at the ends. That is why the manual introduces
+     * them as the slower, limitable alternative to Shade Bobs, which "cannot
+     * limit the colours to a certain range but only the amount of bitplanes".
+     */
+    'pix shift up'(it) {
+      pixShift(rt, it, 1, true)
+    },
+    'pix shift down'(it) {
+      pixShift(rt, it, -1, true)
+    },
+    'pix brighten'(it) {
+      pixShift(rt, it, 1, false)
+    },
+    'pix darken'(it) {
+      pixShift(rt, it, -1, false)
+    },
+
+    /**
+     * Make Pix Mask screen,x1,y1 To x2,y2,bank — "Grabs a specific part of
+     * the screen and saves it into the bank ... can be used to create a mask
+     * for the Pix Shift instruction. If you use such a mask, the size must be
+     * exactly the same like the limits you specify with the Pix Shift
+     * commands."
+     */
+    'make pix mask'(it) {
+      const s = rt.screens.get(it.evalInt())
+      it.expect(',')
+      const x1 = it.evalInt()
+      it.expect(',')
+      const y1 = it.evalInt()
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      it.expect(',')
+      const bank = it.evalInt()
+      if (!s) amcafErr()
+      const w = x2 - x1 + 1
+      const h = y2 - y1 + 1
+      if (w <= 0 || h <= 0) amcafErr()
+      rt.reserveBank(bank, w * h, 'PixMask ')
+      const d = rt.memBanks.get(bank)!.data
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const v = s.rp.point(x1 + x, y1 + y)
+          d[y * w + x] = v > 0 ? 1 : 0
+        }
+      }
+    },
+
+    /**
+     * Ptile Bank bank — and the manual's own view of the feature is worth
+     * keeping: "Actually, you should not read this command description. The
+     * Ptile commands seem to be only of very low use and are rather
+     * uninteresting for you."
+     */
+    'ptile bank'(it) {
+      rt.amcaf.ptileBank = it.evalInt()
+    },
+
+    /**
+     * Paste Ptile x,y,t — "Places a Ptile block at the position x,y. These
+     * coordinates must be given as block positions", so 1,4 is the second
+     * block across and the fifth down rather than a pixel.
+     */
+    'paste ptile'(it) {
+      const bx = it.evalInt()
+      it.expect(',')
+      const by = it.evalInt()
+      it.expect(',')
+      const t = it.evalInt()
+      const bank = rt.memBanks.get(rt.amcaf.ptileBank)
+      const s = rt.screen
+      if (!bank || !s) amcafErr()
+      const TILE = 16
+      const src = t * TILE * TILE
+      for (let y = 0; y < TILE; y++) {
+        for (let x = 0; x < TILE; x++) {
+          const v = bank.data[src + y * TILE + x]
+          if (v !== undefined) s.rp.putPixel(bx * TILE + x, by * TILE + y, v)
+        }
+      }
+      s.rp.bitMap.invalidate()
+    },
+
+    /**
+     * Exchange Bob i1,i2 / Exchange Icon i1,i2 — "simply swaps the two images
+     * ... i1 and i2 must exist as a valid image, otherwise an error will be
+     * reported."
+     */
+    'exchange bob'(it) {
+      exchangeImage(rt, it, true)
+    },
+    'exchange icon'(it) {
+      exchangeImage(rt, it, false)
+    },
+
     /** Nop — routine 21 ($231a) is two bytes: `rts`. "has no effect et al" */
     nop() {},
 
@@ -1274,6 +1444,94 @@ function planeOf(rt: Runtime, screen: number, plane: number): { bm: BitMap; plan
   const bm = s.rp.bitMap
   if (plane < 0 || plane >= bm.depth) amcafErr()
   return { bm, planes: bm.planeBytes(true), base: plane * bm.planeSize }
+}
+
+/* ------------------------------------------------------------------ *
+ * Slice 8: the effect engines
+ * ------------------------------------------------------------------ */
+
+/**
+ * The shared body of Shade Bob Up and Down.
+ *
+ * A shade bob is not a bob: it takes an image's SHAPE and uses it to bump the
+ * colour index of whatever it lands on, cycling within the plane count. The
+ * manual is explicit that it "supports the hot spot of the bob image" and
+ * that "Shade Bobs may leave the screen boundaries".
+ */
+function shadeBob(rt: Runtime, it: Interp, dir: number): void {
+  const s = rt.screens.get(it.evalInt())
+  it.expect(',')
+  const x = it.evalInt()
+  it.expect(',')
+  const y = it.evalInt()
+  it.expect(',')
+  const img = rt.spriteBank?.image(it.evalInt())
+  if (!s || !img) amcafErr()
+  const mask = (1 << rt.amcaf.shadePlanes) - 1
+  const px = img.pixels
+  for (let iy = 0; iy < img.height; iy++) {
+    for (let ix = 0; ix < img.width; ix++) {
+      // the mask, or the first bitplane, decides where the bob touches
+      const on = rt.amcaf.shadeMask ? px[iy * img.width + ix]! !== 0 : (px[iy * img.width + ix]! & 1) !== 0
+      if (!on) continue
+      const sx = x + ix - img.hotX
+      const sy = y + iy - img.hotY
+      const v = s.rp.point(sx, sy)
+      if (v < 0) continue
+      s.rp.putPixel(sx, sy, (v & ~mask) | ((v + dir) & mask))
+    }
+  }
+  s.rp.bitMap.invalidate()
+}
+
+/**
+ * The shared body of the four Pix commands.
+ *
+ * `cyclic` is the difference between the pairs: Pix Shift Up/Down wrap round
+ * the c1..c2 range, Pix Brighten/Darken stop at its ends. Colours outside the
+ * range are "not affected" either way.
+ */
+function pixShift(rt: Runtime, it: Interp, dir: number, cyclic: boolean): void {
+  const s = rt.screens.get(it.evalInt())
+  it.expect(',')
+  const c1 = it.evalInt()
+  it.expect(',')
+  const c2 = it.evalInt()
+  it.expect(',')
+  const x1 = it.evalInt()
+  it.expect(',')
+  const y1 = it.evalInt()
+  it.expect('to')
+  const x2 = it.evalInt()
+  it.expect(',')
+  const y2 = it.evalInt()
+  const bank = it.accept(',') ? rt.memBanks.get(it.evalInt()) : undefined
+  if (!s || c2 < c1) amcafErr()
+  const w = x2 - x1 + 1
+  const span = c2 - c1 + 1
+  for (let y = y1; y <= y2; y++) {
+    for (let x = x1; x <= x2; x++) {
+      if (bank && !bank.data[(y - y1) * w + (x - x1)]) continue
+      const v = s.rp.point(x, y)
+      if (v < 0 || v < c1 || v > c2) continue
+      const next = v + dir
+      if (cyclic) s.rp.putPixel(x, y, c1 + (((next - c1) % span) + span) % span)
+      else s.rp.putPixel(x, y, Math.max(c1, Math.min(c2, next)))
+    }
+  }
+  s.rp.bitMap.invalidate()
+}
+
+/** Exchange Bob / Exchange Icon: swap two images inside one bank */
+function exchangeImage(rt: Runtime, it: Interp, sprites: boolean): void {
+  const a = it.evalInt()
+  it.expect(',')
+  const b = it.evalInt()
+  const list = (sprites ? rt.spriteBank : rt.iconBank)?.images
+  if (!list || !list[a - 1] || !list[b - 1]) amcafErr()
+  const tmp = list[a - 1]!
+  list[a - 1] = list[b - 1]!
+  list[b - 1] = tmp
 }
 
 export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {

@@ -848,3 +848,65 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
     expect(run(['Set Sprite Priority 5']).rt.amcaf.spritePriority).toBe(5)
   })
 })
+
+describe('slice 8: the effect engines', () => {
+  const scr = ['Screen Open 0,64,32,16,Lowres', 'Cls 0']
+
+  it('Shade Pix bumps a colour index and CYCLES at the top', () => {
+    // "If the highest colour is reached, the colour is resetted to be cycled"
+    const { rt } = run([...scr, 'Shade Bob Planes 2', 'Turbo Plot 5,5,3', 'Shade Pix 5,5'])
+    expect(rt.screens.get(0)!.rp.point(5, 5)).toBe(0) // 3 wraps to 0 in 2 planes
+    const b = run([...scr, 'Shade Bob Planes 2', 'Turbo Plot 5,5,1', 'Shade Pix 5,5'])
+    expect(b.rt.screens.get(0)!.rp.point(5, 5)).toBe(2)
+  })
+
+  it('Shade Bob Planes is bounded 1..6, as the manual states', () => {
+    expect(run([...scr, 'Shade Bob Planes 6']).rt.amcaf.shadePlanes).toBe(6)
+    expect(() => run([...scr, 'Shade Bob Planes 0'])).toThrow(/Illegal function call/)
+    expect(() => run([...scr, 'Shade Bob Planes 7'])).toThrow(/Illegal function call/)
+  })
+
+  it('Pix Shift wraps within c1..c2 where Pix Brighten stops at the top', () => {
+    // this pair is the whole distinction the manual draws: Shade Bobs cannot
+    // "limit the colours to a certain range", the Pix commands can
+    const setup = [...scr, 'Turbo Plot 2,2,5']
+    const wrap = run([...setup, 'Pix Shift Up 0,3,5,0,0 To 9,9'])
+    expect(wrap.rt.screens.get(0)!.rp.point(2, 2)).toBe(3) // 5 wraps to 3
+    const stop = run([...setup, 'Pix Brighten 0,3,5,0,0 To 9,9'])
+    expect(stop.rt.screens.get(0)!.rp.point(2, 2)).toBe(5) // stays at the top
+    const down = run([...setup, 'Pix Darken 0,3,5,0,0 To 9,9'])
+    expect(down.rt.screens.get(0)!.rp.point(2, 2)).toBe(4)
+  })
+
+  it('a colour outside c1..c2 is "not affected"', () => {
+    const { rt } = run([...scr, 'Turbo Plot 2,2,1', 'Pix Shift Up 0,3,5,0,0 To 9,9'])
+    expect(rt.screens.get(0)!.rp.point(2, 2)).toBe(1)
+  })
+
+  it('Make Pix Mask grabs a region, and Pix Shift honours it', () => {
+    const { rt } = run([
+      ...scr,
+      'Turbo Plot 0,0,1', // one set pixel inside the mask region
+      'Make Pix Mask 0,0,0 To 3,3,9',
+      'Cls 0',
+      'Ink 5 : Bar 0,0 To 3,3',
+      'Pix Shift Up 0,0,15,0,0 To 3,3,9',
+    ])
+    const s = rt.screens.get(0)!
+    expect(rt.memBanks.get(9)!.data.length).toBe(16)
+    expect(s.rp.point(0, 0)).toBe(6) // masked in: shifted
+    expect(s.rp.point(1, 1)).toBe(5) // masked out: untouched
+  })
+
+  it('Ptile Bank and Paste Ptile place a block by block coordinates', () => {
+    // "These coordinates must be given as block positions"
+    const { rt } = run([
+      ...scr,
+      'Reserve As Work 4,512',
+      'Poke Start(4),9',
+      'Ptile Bank 4',
+      'Paste Ptile 1,0,0',
+    ])
+    expect(rt.screens.get(0)!.rp.point(16, 0)).toBe(9)
+  })
+})

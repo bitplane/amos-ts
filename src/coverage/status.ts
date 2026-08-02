@@ -1408,6 +1408,10 @@ export const FAITHFUL = new Set<string>([
   'count pixels', 'font style', 'cop pos', 'mask copy', 'bzoom',
   'c2p convert', 'raster wait', 'set sprite priority',
   'amcaf aga notation on', 'amcaf aga notation off',
+  // slice 8: the effect engines
+  'shade bob planes', 'shade bob mask', 'shade bob up', 'shade bob down',
+  'shade pix', 'pix shift up', 'pix shift down', 'pix brighten', 'pix darken',
+  'make pix mask', 'ptile bank', 'paste ptile', 'exchange bob', 'exchange icon',
 
   // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
   // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
@@ -1998,7 +2002,15 @@ export const NOTES: Record<string, string> = {
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
   // --- AGA 1.0: doc plus disassembly; the doc loses three times ---
-  // --- AMCAF slices 1-7 ---
+  // --- AMCAF slices 1-8 ---
+  'shade pix':
+    "'increases the colour value at the given point ... If the highest colour is reached, the colour is resetted to be cycled', so it WRAPS within the plane count rather than clamping -- which is what separates the Shade family from Pix Brighten and Pix Darken",
+  'pix shift up':
+    "'c1 and c2 hold the border colours, which should be taken into account for the colour cycling, other colours are not affected'. Shift WRAPS within that range where Brighten and Darken stop at its ends, and the manual introduces the family as the slower, limitable alternative to Shade Bobs, which 'cannot limit the colours to a certain range but only the amount of bitplanes'",
+  'shade bob planes':
+    "'amount sets the number of bitplanes, that should be drawn in and must be a value between 1 and 6' -- the range is the routine's, and it is how a program protects the graphics in the higher planes from a shade bob",
+  'ptile bank':
+    "Kept for the manual's own assessment of the feature, which is unusually candid: 'Actually, you should not read this command description. The Ptile commands seem to be only of very low use and are rather uninteresting for you'",
   'count pixels':
     "Note the sense, which the manual states and the name hides: it 'Counts the pixels ... that DON'T have the colour index colour'. A caller measuring how much of a region is painted passes the background colour",
   'raster wait':
