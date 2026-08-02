@@ -1,6 +1,7 @@
 import type { Sprite, SpriteBank } from '../loader/amosfile'
 import { bankRowBytesFor } from '../amiga/planar'
 import { BitMap } from '../amiga/graphics'
+import { COOKIE_CUT } from '../amiga/blitter'
 import { AmosError } from '../interp/values'
 
 /**
@@ -230,4 +231,38 @@ export function imagesCollide(
     }
   }
   return false
+}
+
+/**
+ * BLTCON0 as `Set Bob`'s fourth argument resolves to (BbS1a-BbS1d,
+ * +W.s:1425-1439).
+ *
+ * The SIGN of the argument chooses what it means, which no manual says:
+ *
+ *   0        the default, %0000111111001010 = $0FCA — channels A-D enabled
+ *            and the classic cookie-cut minterm $CA.
+ *   negative a minterm only. Bit 15 is cleared and $0F00 OR'd in, so AMOS
+ *            forces the channel-enable bits on whatever the caller passed.
+ *   positive the WHOLE control word, used verbatim (the `bpl` at BbS1a
+ *            jumps clean past the fixing-up). Callers who know the hardware
+ *            get it unmodified.
+ *
+ * `hasMask` is the `tst.l 4(a2)` in both branches: an image with no mask
+ * plane clears USEA (bit 11), giving $07CA by default. That is how `No Mask`
+ * works — with channel A switched off its data register is never loaded and
+ * reads as all ones, so $CA collapses from "D = A ? B : C" to "D = B" and
+ * colour 0 draws.
+ *
+ * This is AMOS's calling convention, not the chip's, which is why it lives
+ * here and not in `src/amiga/blitter.ts` — the blitter has no opinion about
+ * what the sign of an AMOS argument means.
+ */
+export function bobBltcon0(arg: number, hasMask: boolean): number {
+  if (arg === 0) return hasMask ? COOKIE_CUT : 0x07ca
+  if (arg > 0) return arg & 0xffff
+  let v = arg & 0xffff
+  v &= ~0x8000
+  v |= 0x0f00
+  if (!hasMask) v &= 0x07ff
+  return v
 }

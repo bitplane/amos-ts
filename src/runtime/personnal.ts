@@ -28,6 +28,7 @@ import { AmosError, VI, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import { Runtime } from './runtime'
 import { P_COS, P_SIN, P_TAN } from './personnal-trig.gen'
+import { bltSize, mintermWord } from '../amiga/blitter'
 
 /**
  * The extension's own error table (ErrMess, +AMOSPro_Personnal.Lib.s:4485).
@@ -534,22 +535,6 @@ const wrL = (v: Uint8Array, i: number, x: number): void => {
  * value the same way, `rows<<6 + words` truncated to a word, so decoding it
  * back keeps whatever their arithmetic overflowed into.
  */
-function bltSize(v: number): { rows: number; words: number } {
-  return { rows: (v >>> 6) & 0x3ff || 1024, words: (v & 0x3f) || 64 }
-}
-
-function bltMinterm(lf: number, a: number, b: number, c: number): number {
-  let d = 0
-  if (lf & 0x80) d |= a & b & c
-  if (lf & 0x40) d |= a & b & ~c
-  if (lf & 0x20) d |= a & ~b & c
-  if (lf & 0x10) d |= a & ~b & ~c
-  if (lf & 0x08) d |= ~a & b & c
-  if (lf & 0x04) d |= ~a & b & ~c
-  if (lf & 0x02) d |= ~a & ~b & c
-  if (lf & 0x01) d |= ~a & ~b & ~c
-  return d & 0xffff
-}
 
 /**
  * Double Mask mask To s1,s2 (L53, :2180) and its Y-limited form (L54, :2264).
@@ -648,10 +633,10 @@ function blitMask(
     const C = bytesAt(rt, c, bytes, false)
     const D = bytesAt(rt, d, bytes, true)
     if (A && B && C && D) {
-      for (let i = 0; i < bytes; i += 2) wrW(D, i, bltMinterm(0x98, rdW(A, i), rdW(B, i), rdW(C, i)))
+      for (let i = 0; i < bytes; i += 2) wrW(D, i, mintermWord(0x98, rdW(A, i), rdW(B, i), rdW(C, i)))
     } else {
       for (let i = 0; i < bytes; i += 2) {
-        putW(rt, d + i, bltMinterm(0x98, getW(rt, a + i), getW(rt, b + i), getW(rt, c + i)))
+        putW(rt, d + i, mintermWord(0x98, getW(rt, a + i), getW(rt, b + i), getW(rt, c + i)))
       }
     }
   }
@@ -736,7 +721,7 @@ function blitPlanes(rt: Runtime, src: number, dst: number, geom: number, copy: b
     if (copy) {
       const A = bytesAt(rt, a, bytes, false)
       if (A && D) D.set(A)
-      else for (let i = 0; i < bytes; i += 2) putW(rt, d + i, bltMinterm(0xf0, getW(rt, a + i), 0, 0))
+      else for (let i = 0; i < bytes; i += 2) putW(rt, d + i, mintermWord(0xf0, getW(rt, a + i), 0, 0))
       // the next pair decides whether there is another plane, not this one
       if (getL(rt, src + (p + 1) * 4) === 0 || getL(rt, dst + (p + 1) * 4) === 0) return
     } else if (D) D.fill(0)

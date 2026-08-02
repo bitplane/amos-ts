@@ -46,7 +46,7 @@ machinery to sit unused.
 This layer holds **shared mechanism**. It must never hold a caller's **policy**,
 because a port's quirks are usually the point of the port.
 
-Two live examples, both of which would have been easy to "clean up" wrongly:
+Three live examples, all of which would have been easy to "clean up" wrongly:
 
 - **`stampToYmd` does not clamp.** LDos's `Ldate` clamps below the epoch
   because its manual says "if the date is before 1 Jan 1978, 780101 will be
@@ -55,6 +55,13 @@ Two live examples, both of which would have been easy to "clean up" wrongly:
 - **JD's day names stay in JD.** Its 5.3 source hardcodes English, so it must
   print English even when a locale is loaded. Routing it through
   `getLocaleStr` would be a faithfulness regression dressed as a cleanup.
+- **`bobBltcon0` went the other way, OUT of this directory.** It reads the
+  sign of `Set Bob`'s fourth argument to decide whether the value is a
+  minterm, a whole control word or a request for the default — an AMOS
+  calling convention the blitter knows nothing about. It had settled in
+  `planar.ts` because that was convenient for its one caller, which is
+  exactly how policy gets into a mechanism layer. It lives in
+  `../runtime/objects.ts` now, beside the bobs it speaks for.
 
 If a change here would make a port's documented behaviour *more consistent*
 with something else, that is a warning sign, not a win. The library being
@@ -76,6 +83,7 @@ really does differ from the real one and saying where is the whole job.
 | `exec.ts` | `AvailMem`'s pools and the library list — `OpenLibrary` |
 | `graphics.ts` | `BitMap` and `RastPort` — bitplanes, pens, and the two pixel funnels |
 | `planar.ts` | the chunky/planar bijection and the word-at-a-time span ops |
+| `blitter.ts` | BLTCON0/1, the logic function, BLTSIZE and `BltBitMapRastPort` |
 | `datestamp.ts` | the AmigaDOS `DateStamp` and its calendar arithmetic |
 | `vfs.ts` | `AmigaFS` — volumes, assigns, paths, file metadata |
 | `fs.ts` | `AmosFS`, the read interface a volume provider satisfies |

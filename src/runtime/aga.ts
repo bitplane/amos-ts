@@ -90,7 +90,8 @@
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { VI, AmosError, int, type Value } from '../interp/values'
-import { BitMap, RastPort, bltBitMap } from '../amiga/graphics'
+import { BitMap, RastPort } from '../amiga/graphics'
+import { bltBitMap } from '../amiga/blitter'
 import { rowBytesFor } from '../amiga/planar'
 import { openDiskFont } from '../amiga/diskfont'
 

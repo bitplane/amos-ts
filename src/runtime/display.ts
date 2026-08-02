@@ -28,7 +28,8 @@ import { AmosError } from '../interp/values'
 import type { Screen } from './screen'
 import { BankImage } from './objects'
 import type { HwSprite } from './objects'
-import { BLTCON0_DEFAULT, bobBltcon0, mintermBit } from '../amiga/planar'
+import { COOKIE_CUT, mintermBit } from '../amiga/blitter'
+import { bobBltcon0 } from './objects'
 
 export class Display {
   constructor(private readonly rt: Runtime) {}
@@ -1173,7 +1174,7 @@ export class Display {
        * the general route and evaluates the truth table a plane at a time.
        */
       const con0 = bobBltcon0(this.rt.bobMinterms.get(bob.n) ?? 0, !img.opaque)
-      const plain = con0 === BLTCON0_DEFAULT || con0 === 0x07ca
+      const plain = con0 === COOKIE_CUT || con0 === 0x07ca
       for (let y = y1; y < y2; y++) {
         const iy = y - dy
         for (let x = x1; x < x2; x++) {
