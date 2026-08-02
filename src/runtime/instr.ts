@@ -4970,9 +4970,13 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     ids: ['amcaf-1.40', 'amcaf-1.50'],
     instructions: makeAmcafInstructions,
     functions: makeAmcafFunctions,
-    // `qualified` cannot be declared ahead of the keywords: extimpl.test.ts
-    // requires every qualified name to be one the port actually defines, so
-    // the eight arrive with their slices (5 for Sload/Ssave, 7 for the rest)
+    /*
+     * The armed contested names, registered per slot. Personnal keeps the
+     * plain ones; on the machine these are different tokens at different
+     * slots and coexist, which is what ext8: reproduces. Sload/Ssave are not
+     * here yet -- they are undocumented 1.50 additions and land in slice 10.
+     */
+    qualified: ['set ntsc', 'set pal'],
   },
   {
     // the speech slice of the Music extension: Say, and the mouth stream

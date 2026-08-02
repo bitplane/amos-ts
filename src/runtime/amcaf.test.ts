@@ -689,3 +689,90 @@ describe('slice 6: colour and palette', () => {
     expect(dst.rp.bitMap.pixels[0]).toBeLessThan(3)
   })
 })
+
+describe('slice 7: graphics', () => {
+    // 16 colours: the tests use pens up to 7, and a 4-colour screen would mask
+  // them down to the palette's range
+  const scr = ['Screen Open 0,64,32,16,Lowres', 'Cls 0']
+
+  it('Blitter Fill fills the gap between two dots on a line', () => {
+    // the manual's own rule: "It does only fill the gap between two dots of a
+    // horizontal line. Therefore the limiting lines may only be one pixel
+    // th[ick]. These lines can be either created using Turbo Draw or Bcircle."
+    const { rt } = run([...scr, 'Turbo Plot 2,5,1', 'Turbo Plot 9,5,1', 'Blitter Fill 0,0'])
+    const s = rt.screens.get(0)!
+    const px = s.rp.bitMap.pixels
+    expect(px[5 * 64 + 1]! & 1).toBe(0) // outside the pair
+    expect(px[5 * 64 + 2]! & 1).toBe(1) // the left dot survives
+    expect(px[5 * 64 + 5]! & 1).toBe(1) // the gap is filled
+    expect(px[5 * 64 + 9]! & 1).toBe(1) // the right dot survives
+    expect(px[5 * 64 + 10]! & 1).toBe(0)
+  })
+
+  it('Blitter Fill works one bitplane at a time, which is why plane is an argument', () => {
+    const { rt } = run([...scr, 'Turbo Plot 2,5,2', 'Turbo Plot 9,5,2', 'Blitter Fill 0,1'])
+    const px = rt.screens.get(0)!.rp.bitMap.pixels
+    expect(px[5 * 64 + 5]! & 2).toBe(2) // plane 1 filled
+    expect(px[5 * 64 + 5]! & 1).toBe(0) // plane 0 untouched
+  })
+
+  it('Turbo Plot and Turbo Point are the fast Plot and Point, and clip', () => {
+    // "Added clipping for Turbo Plot, Shade Pix and Turbo Point. Now they are
+    // as secure as the normal Plot and Point commands" (V1.30)
+    const { out } = run([...scr, 'Turbo Plot 3,4,5', 'Print Turbo Point(3,4)', 'Print Turbo Point(999,999)'])
+    const l = out.trim().split('\n').map((x) => x.trim())
+    expect(l[0]).toBe('5')
+    expect(l[1]).toBe('0')
+    expect(() => run([...scr, 'Turbo Plot -5,-5,1'])).not.toThrow()
+  })
+
+  it('Turbo Draw draws a line', () => {
+    const { rt } = run([...scr, 'Turbo Draw 0,0 To 10,0,3'])
+    const px = rt.screens.get(0)!.rp.bitMap.pixels
+    expect(px[5]).toBe(3)
+    expect(px[11]).toBe(0)
+  })
+
+  it('Fcircle and Fellipse fill, where AMOS Circle only outlines', () => {
+    const { rt } = run([...scr, 'Fcircle 20,16,8,7'])
+    const px = rt.screens.get(0)!.rp.bitMap.pixels
+    expect(px[16 * 64 + 20]).toBe(7) // the centre is filled
+    const e = run([...scr, 'Fellipse 20,16,10,4,5'])
+    expect(e.rt.screens.get(0)!.rp.bitMap.pixels[16 * 64 + 20]).toBe(5)
+  })
+
+  it('Bcircle draws an outline into ONE plane, which Blitter Fill can then fill', () => {
+    const { rt } = run([...scr, 'Bcircle 20,16,8,0', 'Blitter Fill 0,0'])
+    const px = rt.screens.get(0)!.rp.bitMap.pixels
+    expect(px[16 * 64 + 20]! & 1).toBe(1) // inside is filled
+    expect(px[16 * 64 + 40]! & 1).toBe(0) // well outside is not
+  })
+
+  it('Blitter Busy is never true, and Blitter Wait has nothing to wait for', () => {
+    expect(run([...scr, 'Print Blitter Busy']).out.trim()).toBe('0')
+    expect(() => run([...scr, 'Blitter Wait'])).not.toThrow()
+  })
+
+  it('Vclip clamps where Vmod wraps — the manual pairs them', () => {
+    expect(run(['Print Vclip(11,1 To 10)']).out.trim()).toBe('10')
+    expect(run(['Print Vclip(0,1 To 10)']).out.trim()).toBe('1')
+    expect(run(['Print Vclip(5,1 To 10)']).out.trim()).toBe('5')
+    // the contrast that makes the pair worth having
+    expect(run(['Print Vmod(11,1 To 10)']).out.trim()).toBe('1')
+  })
+
+  it('Aga Detect is true, because the modelled machine really is an A1200', () => {
+    expect(run(['Print Aga Detect']).out.trim()).toBe('-1')
+  })
+
+  it('Set Ntsc and Set Pal write BEAMCON0, and do not displace Personnal', () => {
+    expect(run(['Set Ntsc']).rt.beamcon0).toBe(0)
+    expect(run(['Set Pal']).rt.beamcon0).toBe(0x20)
+  })
+
+  it('the Scrn structure pointers answer 0 rather than a plausible lie', () => {
+    for (const k of ['Scrn Rastport', 'Scrn Bitmap', 'Scrn Layer', 'Scrn Layerinfo', 'Scrn Region']) {
+      expect(run([...scr, `Print ${k}`]).out.trim()).toBe('0')
+    }
+  })
+})

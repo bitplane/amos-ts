@@ -1399,6 +1399,11 @@ export const FAITHFUL = new Set<string>([
   'pal get', 'pal set', 'pal get screen', 'pal set screen', 'pal spread',
   'ham colour', 'ham best', 'ham point', 'ham fade out',
   'convert grey', 'rain fade', 'set rain colour',
+  // slice 7: graphics. The Scrn structure pointers are APPROXIMATED.
+  'blitter fill', 'blitter wait', 'blitter busy',
+  'turbo plot', 'turbo point', 'turbo draw',
+  'fcircle', 'fellipse', 'bcircle', 'vclip', 'aga detect',
+  'x raster', 'y raster',
 
   // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
   // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
@@ -1989,7 +1994,19 @@ export const NOTES: Record<string, string> = {
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
   // --- AGA 1.0: doc plus disassembly; the doc loses three times ---
-  // --- AMCAF slices 1-6 ---
+  // --- AMCAF slices 1-7 ---
+  'blitter fill':
+    "Routine 74, and the manual is the specification of the chip's area-fill mode: 'It does only fill the gap between two dots of a horizontal line. Therefore the limiting lines may only be one pixel th[ick]. These lines can be either created using Turbo Draw or Bcircle.' That sentence is what `fillRow` in ../amiga/blitter.ts implements, and it is the oracle that module was waiting for -- the seam was left open there precisely because which boundary bit a fill keeps cannot be written from memory. ONE BITPLANE at a time, which is why the plane is an argument",
+  'blitter busy':
+    "'returns -1 (True), if the Blitter chip is currently busy'. Nothing here overlaps a blit with the program, so it never is -- and Blitter Wait therefore has nothing to wait for. FAITHFUL rather than stubs: a program cannot observe a difference afterwards",
+  'turbo plot':
+    "'Fast replacement for Plot'. The V1.30 changelog records the clipping arriving: 'Added clipping for Turbo Plot, Shade Pix and Turbo Point. Now they are as secure as the normal Plot and Point commands' -- so in the releases we hold an off-screen coordinate is dropped rather than corrupting memory",
+  'bcircle':
+    "A circle outline into ONE bitplane, which is the odd argument and the point of the keyword: the manual lists it beside Turbo Draw as the way to draw the one-pixel boundary Blitter Fill then fills",
+  'x raster':
+    "'This function returns the current X position of the raster beam in hardware coordinates.' The manual is candid about the value: 'This value is not very accurate because the raster beam is very fast, sigh'",
+  'scrn rastport':
+    "'Here are some more commands for Assembler and C freaks' -- a program gets the address of the current screen's structure to poke directly. NOTE: this port has a RastPort and a BitMap as objects rather than bytes at an address, and models no Layer or LayerInfo at all. Returning a plausible pointer would invite exactly the poking the manual warns about, into memory whose layout is not the machine's, so these answer 0 -- which a program checking before use reads as 'not available'. APPROXIMATED",
   'rgb to rrggbb':
     "12 bits to 24, and 'The missing bits are set to zeros' -- so \$FFF becomes \$F0F0F0 rather than \$FFFFFF, and the round trip through Rrggbb To Rgb is lossless while the value itself is not full-range",
   'ham colour':

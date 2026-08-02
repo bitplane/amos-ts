@@ -32,15 +32,18 @@
  * where its one caller found it convenient, which is how policy gets into a
  * mechanism layer.
  *
- * ## What is deliberately absent: area fill
+ * ## Area fill, which arrived with its caller
  *
- * BLTCON1's IFE, EFE and FCI bits are decoded here and nothing implements
- * them, because there is no caller and therefore no oracle. AMCAF's
- * `Blitter Fill` is the first keyword that would want it; the honest place to
- * write it is beside that port, tested against a program whose output can be
- * compared, rather than now from memory of what the hardware manual says
- * about which boundary bit an exclusive fill includes. The constants are here
- * so the seam is visible; the logic waits for its evidence.
+ * BLTCON1's IFE, EFE and FCI bits were decoded here with nothing implementing
+ * them, because there was no caller and therefore no oracle — and the one
+ * detail that matters, which boundary bit the fill includes, is exactly what
+ * cannot be written from memory.
+ *
+ * AMCAF's `Blitter Fill` supplied both. Its manual states the rule in plain
+ * English: *"It does only fill the gap between two dots of a horizontal line.
+ * Therefore the limiting lines may only be one pixel th[ick]."* So the span
+ * between a pair of set bits fills and BOTH set bits survive, which is what
+ * `fillRow` does and what a test pins.
  *
  * Cycle timing, the line-drawing mode and the barrel shifter's cross-word
  * carry are absent for the same reason: every caller today walks its own
@@ -159,6 +162,42 @@ export function logicWord(bltcon0: number, a: number, b: number, c: number): num
  */
 export function bltSize(v: number): { rows: number; words: number } {
   return { rows: (v >>> 6) & 0x3ff || 1024, words: (v & 0x3f) || 64 }
+}
+
+/* ------------------------------------------------------------------ *
+ * Area fill
+ * ------------------------------------------------------------------ */
+
+/**
+ * One row through the fill logic, in place.
+ *
+ * A carry toggles at every set bit and the output is `carry OR bit`, so a
+ * pair of set bits fills the span between them and BOTH ends survive — which
+ * is the rule AMCAF's manual states: *"It does only fill the gap between two
+ * dots of a horizontal line."*
+ *
+ * `carryIn` is BLTCON1's FCI, which starts a row already inside a shape: the
+ * case where a polygon's left edge lies outside the region being filled.
+ *
+ * Walked left to right, MSB of each byte first, because that is pixel order.
+ * The chip runs it the other way in descending mode; the direction only
+ * decides which end an UNPAIRED bit floods toward, and a row with an odd
+ * number of boundary bits is the "limiting lines may only be one pixel
+ * th[ick]" case the manual warns about rather than a case with a right
+ * answer.
+ */
+export function fillRow(row: Uint8Array, carryIn = false): void {
+  let carry = carryIn
+  for (let byte = 0; byte < row.length; byte++) {
+    const v = row[byte]!
+    let out = 0
+    for (let bit = 0; bit < 8; bit++) {
+      const mask = 0x80 >> bit
+      if (v & mask) carry = !carry
+      if (carry || v & mask) out |= mask
+    }
+    row[byte] = out
+  }
 }
 
 /* ------------------------------------------------------------------ *

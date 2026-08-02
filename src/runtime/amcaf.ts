@@ -93,6 +93,8 @@ import type { Interp } from '../interp/interp'
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import { DAY_MS, STAMP_EPOCH, TICKS_PER_SECOND, stampToYmd } from '../amiga/datestamp'
 import { MAX_COMMENT, blocksFor, entryType, protectionString } from '../amiga/dos'
+import { fillRow } from '../amiga/blitter'
+import { BitMap } from '../amiga/graphics'
 import { amigaMatch } from '../amiga/dospattern'
 import { joinAmigaPath } from '../amiga/vfs'
 
@@ -414,6 +416,163 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const rgb = it.evalInt() & 0xfff
       if (!rb) amcafErr()
       for (let i = 0; i < rb.table.length; i++) rb.table[i] = fadeStep(rb.table[i]!, rgb)
+    },
+
+
+    /**
+     * Blitter Fill screen,bitplane[,x1,y1,x2,y2][ To ts,tp] — routine 74.
+     *
+     * "With Blitter Fill you can fill polygons. However ... It does only fill
+     * the gap between two dots of a horizontal line. Therefore the limiting
+     * lines may only be one pixel th[ick]. These lines can be either created
+     * using Turbo Draw or Bcircle."
+     *
+     * That sentence is the specification of the chip's area-fill mode, and it
+     * is what `fillRow` in the blitter back-end implements. ONE BITPLANE at a
+     * time, which is why the plane is an argument.
+     */
+    'blitter fill'(it) {
+      const src = planeOf(rt, it.evalInt(), (it.expect(','), it.evalInt()))
+      let x1 = 0
+      let y1 = 0
+      let x2 = src.bm.width - 1
+      let y2 = src.bm.height - 1
+      if (it.accept(',')) {
+        x1 = it.evalInt()
+        it.expect(',')
+        y1 = it.evalInt()
+        it.expect(',')
+        x2 = it.evalInt()
+        it.expect(',')
+        y2 = it.evalInt()
+      }
+      let dst = src
+      if (it.accept('to')) {
+        const ts = it.evalInt()
+        it.expect(',')
+        dst = planeOf(rt, ts, it.evalInt())
+      }
+      const bpr = src.bm.bytesPerRow
+      const b1 = Math.max(0, x1 >> 3)
+      const b2 = Math.min(bpr - 1, x2 >> 3)
+      for (let y = Math.max(0, y1); y <= Math.min(src.bm.height - 1, y2); y++) {
+        const row = src.planes.subarray(src.base + y * bpr + b1, src.base + y * bpr + b2 + 1)
+        const work = row.slice()
+        fillRow(work)
+        dst.planes.set(work, dst.base + y * bpr + b1)
+      }
+      dst.bm.invalidate()
+    },
+
+    /**
+     * Blitter Wait — "waits until the blitter has finished".
+     *
+     * Every blit here completes before the keyword returns, so there is never
+     * anything to wait for. FAITHFUL rather than a stub: a program cannot
+     * observe a difference afterwards.
+     */
+    'blitter wait'() {},
+
+    /**
+     * Turbo Plot x,y,c — "Fast replacement for Plot".
+     *
+     * "Added clipping for Turbo Plot, Shade Pix and Turbo Point. Now they are
+     * as secure as the normal Plot and Point commands" (V1.30 changelog), so
+     * an off-screen coordinate is dropped rather than corrupting memory.
+     */
+    'turbo plot'(it) {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const c = it.evalInt()
+      rt.screen?.rp.plot(x, y, c)
+    },
+
+    /** Turbo Draw x1,y1 To x2,y2,c — "Fast replacement for Draw" */
+    'turbo draw'(it) {
+      const x1 = it.evalInt()
+      it.expect(',')
+      const y1 = it.evalInt()
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      it.expect(',')
+      const c = it.evalInt()
+      if (it.accept(',')) it.evalInt() // the six-argument form's extra plane select
+      rt.screen?.rp.draw(x1, y1, x2, y2, c)
+    },
+
+    /** Fcircle x,y,r,c — a filled circle, which AMOS's Circle is not */
+    'fcircle'(it) {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const r = it.evalInt()
+      it.expect(',')
+      const c = it.evalInt()
+      rt.screen?.rp.ellipse(x, y, r, r, c, true)
+    },
+
+    /** Fellipse x,y,rx,ry,c — the filled ellipse */
+    'fellipse'(it) {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const rx = it.evalInt()
+      it.expect(',')
+      const ry = it.evalInt()
+      it.expect(',')
+      const c = it.evalInt()
+      rt.screen?.rp.ellipse(x, y, rx, ry, c, true)
+    },
+
+    /**
+     * Bcircle x,y,r,plane — a circle outline into ONE bitplane.
+     *
+     * The odd argument is the point: the manual lists it beside Turbo Draw as
+     * the way to draw the one-pixel boundary Blitter Fill then fills.
+     */
+    'bcircle'(it) {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const r = it.evalInt()
+      it.expect(',')
+      const plane = it.evalInt()
+      const s = rt.screen
+      if (!s) return
+      const p = planeOf(rt, -1, plane)
+      const steps = Math.max(16, r * 8)
+      for (let i = 0; i < steps; i++) {
+        const a = (i / steps) * 2 * Math.PI
+        const px = x + Math.round(r * Math.cos(a))
+        const py = y + Math.round(r * Math.sin(a))
+        if (px < 0 || py < 0 || px >= p.bm.width || py >= p.bm.height) continue
+        const off = p.base + py * p.bm.bytesPerRow + (px >> 3)
+        p.planes[off] = p.planes[off]! | (0x80 >> (px & 7))
+      }
+      p.bm.invalidate()
+    },
+
+    /**
+     * Set Ntsc / Set Pal — 60Hz and 50Hz.
+     *
+     * BEAMCON0 ($DFF1DC) is 0 for NTSC and $0020 for PAL, which is the same
+     * register Personnal's pair of the same names writes. These are two of
+     * the six ARMED contested names: both extensions do the same thing here,
+     * but they are still different tokens at different slots on the machine,
+     * so both register and `qualified` resolves them by slot.
+     */
+    'set ntsc'() {
+      rt.beamcon0 = 0x0000
+    },
+    'set pal'() {
+      rt.beamcon0 = 0x0020
     },
 
     /** Nop — routine 21 ($231a) is two bytes: `rts`. "has no effect et al" */
@@ -921,6 +1080,25 @@ function hamBest(want: number, prev: number, palette: Uint16Array): number {
 const fadeStep = (from: number, to: number): number => {
   const step = (a: number, b: number): number => (a < b ? a + 1 : a > b ? a - 1 : a)
   return glue(step(rV(from), rV(to)), step(gV(from), gV(to)), step(bV(from), bV(to)))
+}
+
+/* ------------------------------------------------------------------ *
+ * Slice 7: graphics
+ * ------------------------------------------------------------------ */
+
+/**
+ * One bitplane of a screen, as the blitter keywords address it.
+ *
+ * Several of these take a screen AND a plane number, because they work a
+ * plane at a time — Blitter Fill fills one, Bcircle draws the boundary into
+ * one. A screen number below zero means the current screen.
+ */
+function planeOf(rt: Runtime, screen: number, plane: number): { bm: BitMap; planes: Uint8Array; base: number } {
+  const s = screen < 0 ? rt.screen : rt.screens.get(screen)
+  if (!s) amcafErr()
+  const bm = s.rp.bitMap
+  if (plane < 0 || plane >= bm.depth) amcafErr()
+  return { bm, planes: bm.planeBytes(true), base: plane * bm.planeSize }
 }
 
 export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
@@ -1438,6 +1616,62 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
       for (let i = 0; i <= x; i++) rgb = hamApply(px[y * s.width + i]! & 63, rgb, s.palette)
       return VI(rgb)
     },
+
+
+    /**
+     * =Blitter Busy — "returns -1 (True), if the Blitter chip is currently
+     * busy". Nothing here overlaps a blit with the program, so it never is.
+     */
+    'blitter busy': () => VI(0),
+
+    /** =Turbo Point(x,y) — "Fast replacement for Point", clipped since V1.30 */
+    'turbo point': (_, a) => {
+      const v = rt.screen?.rp.point(i0(a, 0), i0(a, 1)) ?? -1
+      return VI(v < 0 ? 0 : v)
+    },
+
+    /**
+     * =X Raster / =Y Raster — the beam position in hardware coordinates.
+     *
+     * The manual is refreshingly honest about the value: "This value is not
+     * very accurate because the raster beam is very fast, sigh."
+     */
+    'x raster': () => VI((rt.interp.beamWord() & 0xff) << 1),
+    'y raster': () => VI((rt.interp.beamWord() >> 8) & 0x1ff),
+
+    /**
+     * =Vclip(val,lower To upper) — the CLAMPING sibling of Vmod, which wraps.
+     * The manual pairs them deliberately.
+     */
+    vclip: (_, a) => VI(Math.max(i0(a, 1), Math.min(i0(a, 2), i0(a, 0)))),
+
+    /**
+     * =Aga Detect — whether the machine has AGA.
+     *
+     * The modelled machine is an A1200, which does; the 256-colour screens
+     * and the LOCT palette the AGA port added are what make that true here
+     * rather than a claim.
+     */
+    'aga detect': () => VI(-1),
+
+    /**
+     * =Scrn Rastport / Bitmap / Layer / Layerinfo / Region.
+     *
+     * "Here are some more commands for Assembler and C freaks" — a program
+     * gets the address of the current screen's structure to poke directly.
+     *
+     * NOTE: this port has a RastPort and a BitMap as objects, not as bytes at
+     * an address a program could walk, and it models no Layer or LayerInfo at
+     * all. Returning a plausible pointer would invite exactly the poking the
+     * manual warns about, into memory whose layout is not the machine's, so
+     * these answer 0 — which is also what a program checking before using one
+     * would treat as "not available". APPROXIMATED.
+     */
+    'scrn rastport': () => VI(0),
+    'scrn bitmap': () => VI(0),
+    'scrn layer': () => VI(0),
+    'scrn layerinfo': () => VI(0),
+    'scrn region': () => VI(0),
 
     /** =Nfn — routine 22. "returns nothing useful ... used in speed testing" */
     nfn: () => VI(0),

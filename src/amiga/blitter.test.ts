@@ -10,6 +10,7 @@ import {
   logicFunction,
   logicWord,
   mintermBit,
+  fillRow,
   mintermWord,
   shiftA,
   shiftB,
@@ -156,5 +157,59 @@ describe('BltBitMapRastPort', () => {
     bltBitMap(src, 0, 0, dst, 0, 0, 0, 4)
     bltBitMap(src, 0, 0, dst, 0, 0, 4, -1)
     expect(dst.pixelAt(0, 0)).toBe(1)
+  })
+})
+
+describe('area fill', () => {
+  const row = (bits: string): Uint8Array => {
+    const out = new Uint8Array(Math.ceil(bits.length / 8))
+    for (let i = 0; i < bits.length; i++) if (bits[i] === 'X') out[i >> 3]! |= 0x80 >> (i & 7)
+    return out
+  }
+  const show = (r: Uint8Array, n: number): string => {
+    let s = ''
+    for (let i = 0; i < n; i++) s += r[i >> 3]! & (0x80 >> (i & 7)) ? 'X' : '.'
+    return s
+  }
+
+  /**
+   * The rule the AMCAF manual states, and the reason this function exists:
+   * "It does only fill the gap between two dots of a horizontal line."
+   */
+  it('fills between a pair of bits and keeps both ends', () => {
+    const r = row('.X....X.')
+    fillRow(r)
+    expect(show(r, 8)).toBe('.XXXXXX.')
+  })
+
+  it('adjacent bits leave nothing to fill', () => {
+    const r = row('.XX.....')
+    fillRow(r)
+    expect(show(r, 8)).toBe('.XX.....')
+  })
+
+  it('two pairs fill independently', () => {
+    const r = row('X..X.X.X')
+    fillRow(r)
+    expect(show(r, 8)).toBe('XXXX.XXX')
+  })
+
+  it('crosses a byte boundary', () => {
+    const r = row('.....X....X.....')
+    fillRow(r)
+    expect(show(r, 16)).toBe('.....XXXXXX.....')
+  })
+
+  it('an empty row stays empty', () => {
+    const r = row('........')
+    fillRow(r)
+    expect(show(r, 8)).toBe('........')
+  })
+
+  it('FCI starts the row already inside a shape', () => {
+    // a polygon whose left edge lies outside the filled region
+    const r = row('....X...')
+    fillRow(r, true)
+    expect(show(r, 8)).toBe('XXXXX...')
   })
 })
