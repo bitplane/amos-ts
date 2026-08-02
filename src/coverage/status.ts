@@ -1423,6 +1423,11 @@ export const FAITHFUL = new Set<string>([
   'td stars init', 'td stars move', 'td stars draw',
   'td stars single do', 'td stars double do',
   'td stars single del', 'td stars double del',
+  // slice 10: vectors and internals. Vec Rot X/Y/Z and Amcaf Version$ are
+  // APPROXIMATED; the Ext* trio is n/a.
+  'vec rot angles', 'vec rot pos', 'vec rot precalc',
+  'speek', 'sdeek', 'amos cli', 'audio lock', 'audio free',
+  'flush libs', 'open workbench',
 
   // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
   // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
@@ -2013,7 +2018,19 @@ export const NOTES: Record<string, string> = {
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
   // --- AGA 1.0: doc plus disassembly; the doc loses three times ---
-  // --- AMCAF slices 1-9 ---
+  // --- AMCAF slices 1-10 ---
+  'vec rot precalc':
+    "Builds the rotation matrix once so the per-point functions need not. Nothing here caches a matrix, so it is a no-op -- FAITHFUL rather than a stub, because the only thing a program can observe afterwards is that the following Vec Rot X/Y/Z give the same answers either way, and a test asserts exactly that",
+  'vec rot x':
+    "Three arguments rotate a point and cache all three results; none reads the cache, which is why the trio has a no-argument form -- 'If you call the function with the parameters x,y,z all three new coordinates are calculated'. The projection is 'automatically projected from 3D to 2D by dividing it through the distance'. NOTE: the rotation ORDER was not recovered from the binary, and the changelog records the author fixing the maths once ('There was a bug in the vector rotation calculation with negative positions'), so the conventions had at least one earlier life. X then Y then Z is what this applies. APPROXIMATED",
+  'speek':
+    "'exactly the AMOS function Peek. However, Bit 7 is used as sign bit so the result will be a value between -128 and 127.' One of the armed contested names -- Personnal has a Speek too, and until this one was declared `qualified` Personnal's answered for it, which a test caught",
+  'audio lock':
+    "'When you start AMOS, the audio.device will be not informed, that AMOS wants to have the audio channels. Due to this flaw, other programs that are running in the background can replay a sound at any time.' There is no other program in the background here and no audio.device to arbitrate with, so a no-op is FAITHFUL: the observable effect on the calling program is the same",
+  'open workbench':
+    "'Tries to open the workbench again, if it has been closed previously' with AMOS's Close Workbench. There is no Workbench screen to reopen and closing it here frees nothing, so there is nothing to undo",
+  'amcaf version$':
+    "NOTE: the binary holds no printable text at all, so the string the library returned was not recovered. This answers the identity the registry holds, which is the question a program asking is really asking. APPROXIMATED",
   'splinters bank':
     "'Reserves a memory bank for a maximum of splinum Splinters. Each Splinter requires 22 bytes of memory' -- the figure is documented and the reservation matches it, so a program checking Length(bank) sees what the machine showed",
   'coords read':

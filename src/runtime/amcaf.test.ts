@@ -73,11 +73,11 @@ describe('the slice-0 wiring', () => {
     // 'skip' is how runreport sees past a missing keyword to count what the
     // rest of a program does. The spec's return-type code decides the type,
     // which matters for the string-returning keywords with no `$` in the name
-    const { out, rt } = run(['Print Amcaf Length', 'Print Amcaf Version$'], 'skip')
+    const { out, rt } = run(['Print Amcaf Length', 'Print Extpath$("x")'], 'skip')
     // " 0" is AMOS's leading space for a non-negative number; the second line
-    // is empty because Amcaf Version$ has spec "2" and defaults to a string
+    // is empty because Extpath$ has spec "2" and defaults to a string
     expect(out).toBe(' 0\n\n')
-    expect([...rt.interp.unimplemented.keys()].sort()).toEqual(['amcaf length', 'amcaf version$'])
+    expect([...rt.interp.unimplemented.keys()].sort()).toEqual(['amcaf length', 'extpath$'])
   })
 
   it('displaced nothing: the armed contested names still reach Personnal', () => {
@@ -1031,5 +1031,72 @@ describe('slice 9: Splinters and Td Stars', () => {
       'Td Stars Single Del',
     ])
     expect(cleared.rt.screens.get(0)!.rp.point(32, 16)).toBe(0)
+  })
+})
+
+describe('slice 10: vectors and the extension internals', () => {
+  const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
+
+  it('Vec Rot with no rotation is a plain perspective divide', () => {
+    const { out } = run([
+      'Vec Rot Angles 0,0,0',
+      'Vec Rot Pos 0,0,0',
+      'A=Vec Rot X(100,50,256)',
+      'Print A;",";Vec Rot Y;",";Vec Rot Z',
+    ])
+    // z = 256 is unit distance, so x and y come back unchanged
+    expect(out.trim().replace(/\s+/g, '')).toBe('100,50,256')
+  })
+
+  it('the bare form reads the cache the three-argument form filled', () => {
+    // "If you call the function with the parameters x,y,z all three new
+    // coordinates are calculated, i.e the y,z position too"
+    const { out } = run([
+      'Vec Rot Angles 0,0,0 : Vec Rot Pos 0,0,0',
+      'A=Vec Rot X(40,80,256)',
+      'Print Vec Rot X;",";Vec Rot Y',
+    ])
+    expect(out.trim().replace(/\s+/g, '')).toBe('40,80')
+  })
+
+  it('a quarter turn about Z swaps the axes', () => {
+    const { out } = run([
+      'Vec Rot Pos 0,0,0',
+      'Vec Rot Angles 0,0,256',
+      'A=Vec Rot X(256,0,256)',
+      'Print Vec Rot Y',
+    ])
+    // 1024 units to the turn, so 256 is 90 degrees: x moves onto y
+    expect(Number(out.trim())).toBeGreaterThan(200)
+  })
+
+  it('Vec Rot Precalc changes no answer, which is why it can be a no-op', () => {
+    const a = run(['Vec Rot Angles 100,200,300 : Vec Rot Pos 0,0,0', 'Print Vec Rot X(50,60,300)'])
+    const b = run([
+      'Vec Rot Angles 100,200,300 : Vec Rot Pos 0,0,0',
+      'Vec Rot Precalc',
+      'Print Vec Rot X(50,60,300)',
+    ])
+    expect(a.out.trim()).toBe(b.out.trim())
+  })
+
+  it('Speek and Sdeek read memory as SIGNED, which Peek and Deek do not', () => {
+    // "Bit 7 is used as sign bit so the result will be a value between -128
+    // and 127 ... use this function instead of Peek if you have poked a
+    // negative value"
+    const { out } = run([
+      'Reserve As Work 3,16',
+      'Poke Start(3),$FF : Doke Start(3)+2,$FFFE',
+      'Print Speek(Start(3));",";Peek(Start(3));",";Sdeek(Start(3)+2)',
+    ])
+    expect(out.trim().replace(/\s+/g, '')).toBe('-1,255,-2')
+  })
+
+  it('Amos Cli is zero, because nothing started this from a shell', () => {
+    expect(p('Amos Cli')).toBe('0')
+  })
+
+  it('Audio Lock, Flush Libs and Open Workbench have nothing to do here', () => {
+    expect(() => run(['Audio Lock', 'Audio Free', 'Flush Libs', 'Open Workbench'])).not.toThrow()
   })
 })

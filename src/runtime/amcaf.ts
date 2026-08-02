@@ -191,6 +191,8 @@ export interface AmcafState {
   /** the two particle engines, which share a command shape but not a model */
   splinters: SplinterState
   stars: TdStarState
+  /** Vec Rot's angles, position and the last computed projection */
+  vec: { ax: number; ay: number; az: number; px: number; py: number; pz: number; x: number; y: number; z: number }
   /**
    * The eight "interior palette memory" buffers Pal Get/Set address.
    *
@@ -228,6 +230,7 @@ export function newAmcafState(): AmcafState {
       bank: 0, max: 0, s: [], gx: 0, gy: 0,
       accelerate: false, ox: 160, oy: 100, planes: 6, limit: null,
     },
+    vec: { ax: 0, ay: 0, az: 0, px: 0, py: 0, pz: 256, x: 0, y: 0, z: 0 },
     palettes: Array.from({ length: 8 }, () => new Uint16Array(256)),
     present: true,
   }
@@ -1254,6 +1257,91 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       drawStars(rt, true)
     },
 
+
+    /* ---- vector rotation ---- */
+
+    /**
+     * Vec Rot Angles ax,ay,az — the rotation about all three axes, in the
+     * same 1024-to-the-turn units Qsin and Qcos use.
+     */
+    'vec rot angles'(it) {
+      const v = rt.amcaf.vec
+      v.ax = it.evalInt()
+      it.expect(',')
+      v.ay = it.evalInt()
+      it.expect(',')
+      v.az = it.evalInt()
+    },
+
+    /**
+     * Vec Rot Pos x,y,z — the viewpoint. `z` is the distance the projection
+     * divides by, which is what turns a rotated 3D point into a 2D one.
+     */
+    'vec rot pos'(it) {
+      const v = rt.amcaf.vec
+      v.px = it.evalInt()
+      it.expect(',')
+      v.py = it.evalInt()
+      it.expect(',')
+      v.pz = it.evalInt()
+    },
+
+    /**
+     * Vec Rot Precalc — builds the rotation matrix once so the per-point
+     * functions do not have to.
+     *
+     * Nothing here caches a matrix, so this is a no-op — FAITHFUL rather than
+     * a stub, because the only thing a program can observe afterwards is that
+     * the following Vec Rot X/Y/Z give the same answers either way.
+     */
+    'vec rot precalc'() {},
+
+    /* ---- extension internals ---- */
+
+    /**
+     * Extremove / Extreinit / Extdefault extnb.
+     *
+     * "The Extremove command removes the extension in the slot from memory
+     * like when exiting AMOS", and the manual is candid about what that
+     * costs: "Otherwise, you can lose memory or even crash your computer."
+     *
+     * n/a here. An extension is a set of registered handlers rather than a
+     * loaded library that can be unlinked, and the whole point of the trio is
+     * to reclaim memory this port does not model as scarce. Reproducing them
+     * would mean unregistering keywords mid-program to no observable end.
+     */
+
+    /**
+     * Audio Lock / Audio Free — reserve the four channels from audio.device.
+     *
+     * "When you start AMOS, the audio.device will be not informed, that AMOS
+     * wants to have the audio channels. Due to this flaw, other programs that
+     * are running in the background can replay a sound at any time."
+     *
+     * There is no other program in the background here and no audio.device to
+     * arbitrate with, so there is nothing to lock. FAITHFUL as a no-op: the
+     * observable effect on the calling program is the same.
+     */
+    'audio lock'() {},
+    'audio free'() {},
+
+    /**
+     * Flush Libs — asks exec to expunge unused libraries.
+     *
+     * The same idea as Jd Flush, and a no-op for the same reason: nothing a
+     * program can see afterwards differs.
+     */
+    'flush libs'() {},
+
+    /**
+     * Open Workbench — "Tries to open the workbench again, if it has been
+     * closed previously" with AMOS's Close Workbench, to get the memory back.
+     *
+     * There is no Workbench screen to reopen, and closing it here frees
+     * nothing, so this has nothing to undo.
+     */
+    'open workbench'() {},
+
     /** Nop — routine 21 ($231a) is two bytes: `rts`. "has no effect et al" */
     nop() {},
 
@@ -1951,6 +2039,41 @@ function drawStars(rt: Runtime, on: boolean): void {
   s.rp.bitMap.invalidate()
 }
 
+/* ------------------------------------------------------------------ *
+ * Slice 10: vector rotation
+ * ------------------------------------------------------------------ */
+
+/**
+ * Rotate a point about all three axes and project it, caching the result.
+ *
+ * With three arguments all three coordinates are computed at once — "If you
+ * call the function with the parameters x,y,z all three new coordinates are
+ * calculated" — and a bare call reads the cache, which is why the trio has a
+ * no-argument form.
+ */
+function vecRot(rt: Runtime, a: Value[]): { x: number; y: number; z: number } {
+  const v = rt.amcaf.vec
+  if (a.length < 3) return { x: v.x, y: v.y, z: v.z }
+  let x = int(a[0]!) - v.px
+  let y = int(a[1]!) - v.py
+  let z = int(a[2]!) - v.pz
+  const rot = (p: number, q: number, ang: number): [number, number] => {
+    // the same 1024-to-the-turn units and 256-scaled table Qsin uses
+    const si = SIN256[ang & 0x3ff]!
+    const co = SIN256[(ang + 256) & 0x3ff]!
+    return [(p * co - q * si) / 256, (p * si + q * co) / 256]
+  }
+  ;[y, z] = rot(y, z, v.ax)
+  ;[x, z] = rot(x, z, v.ay)
+  ;[x, y] = rot(x, y, v.az)
+  // "automatically projected from 3D to 2D by dividing it through the distance"
+  const d = z === 0 ? 1 : z
+  v.x = Math.round((x * 256) / d)
+  v.y = Math.round((y * 256) / d)
+  v.z = Math.round(z)
+  return { x: v.x, y: v.y, z: v.z }
+}
+
 export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
   void rt
   const i0 = (a: Value[], n: number): number => int(a[n] ?? VI(0))
@@ -2558,6 +2681,61 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
 
     /** =Splinters Active — how many splinters are still alive */
     'splinters active': () => VI(rt.amcaf.splinters.p.length),
+
+
+    /**
+     * =Vec Rot X/Y/Z — with three arguments they rotate a point and cache all
+     * three results; with none they return the cached one.
+     *
+     * "This coordinate is automatically projected from 3D to 2D by dividing
+     * it through the distance", which is the `Vec Rot Pos` z.
+     *
+     * NOTE: the rotation order was not recovered from the binary, and the
+     * changelog records the author fixing it once ("There was a bug in the
+     * vector rotation calculation with negative positions"), so the sign
+     * conventions had at least one life before this one. X then Y then Z is
+     * what this applies. APPROXIMATED.
+     */
+    'vec rot x': (_, a) => VI(vecRot(rt, a).x),
+    'vec rot y': (_, a) => VI(vecRot(rt, a).y),
+    'vec rot z': (_, a) => VI(vecRot(rt, a).z),
+
+    /**
+     * =Speek(address) — "exactly the AMOS function Peek. However, Bit 7 is
+     * used as sign bit so the result will be a value between -128 and 127."
+     *
+     * One of the six armed contested names: Personnal has a Speek too.
+     */
+    speek: (_, a) => {
+      const m = rt.resolveAddr(i0(a, 0))
+      return VI(m ? ((m.data[m.off] ?? 0) << 24) >> 24 : 0)
+    },
+    /** =Sdeek(address) — the same idea a word wide, -32768..32767 */
+    sdeek: (_, a) => {
+      const m = rt.resolveAddr(i0(a, 0))
+      if (!m) return VI(0)
+      return VI(((((m.data[m.off] ?? 0) << 8) | (m.data[m.off + 1] ?? 0)) << 16) >> 16)
+    },
+
+    /**
+     * =Amos Cli — "the number of the cli process out of which the program has
+     * been started off or zero, if AMOS has been started from Workbench."
+     *
+     * Nothing started this from a CLI, so zero — which the manual gives a use
+     * for: "This gives you the choice to either interprete options from the
+     * command line or from the tool types of the appropriate icon."
+     */
+    'amos cli': () => VI(0),
+
+    /**
+     * =Amcaf Version$ — the extension's own version string.
+     *
+     * NOTE: the binary holds no printable text at all, so the string the
+     * library returned was not recovered. This answers the identity the
+     * registry holds, which is the question a program asking is really
+     * asking. APPROXIMATED.
+     */
+    'amcaf version$': () => VS('AMCAF 1.50'),
 
     /** =Nfn — routine 22. "returns nothing useful ... used in speed testing" */
     nfn: () => VI(0),
