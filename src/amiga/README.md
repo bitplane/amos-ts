@@ -91,6 +91,7 @@ really does differ from the real one and saying where is the whole job.
 | `adf.ts` | an OFS/FFS floppy image — `AdfVolume` mounts one into `vfs.ts` |
 | `localelib.ts` | `locale.library` — catalogs, `FormatDate`, collation, case |
 | `localelib.gen.ts` | its data, generated from AROS by `src/cli/genlocale.ts` |
+| `dos.ts` | `dos.library`'s FileInfoBlock: entry types, protection bits, offsets |
 | `dospattern.ts` | `dos.library`'s `ParsePattern`/`MatchPattern` grammar |
 | `hunk.ts` | the AmigaDOS object file format: `LoadSeg` and one-hunk reads |
 | `diskfont.ts` | `diskfont.library` and the graphics.library `TextFont` |

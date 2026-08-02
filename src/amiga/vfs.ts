@@ -114,10 +114,13 @@ export interface FileMeta {
   /** the FileNote, up to 79 characters; empty when unset */
   comment: string
   /**
-   * Protection bits. The high nibble is active HIGH (bit 7 hidden, 6 script,
+   * `fib_Protection`. The high nibble is active HIGH (bit 7 hidden, 6 script,
    * 5 pure, 4 archived) and the low nibble is active LOW (bit 3 readable,
    * 2 writable, 1 executable, 0 deleteable) — a set bit in the low nibble
    * *denies* the permission. 0 is therefore the default `----rwed`.
+   *
+   * The flags themselves are `FIBF_*` in `./dos.ts`, with `permits()` for the
+   * inverted nibble; this field is just where the byte is kept.
    */
   protection: number
   /** days since 1 Jan 1978 */

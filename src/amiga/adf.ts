@@ -31,6 +31,7 @@
  * FFS uses all 512 bytes as data, so the length comes from the file size.
  */
 import type { DirEntry, FileMeta, Volume } from './vfs'
+import { MAX_COMMENT, ST_FILE, ST_ROOT, ST_USERDIR } from './dos'
 
 /**
  * One file read out of the image.
@@ -83,15 +84,23 @@ const OFF = {
   secType: 508,
 } as const
 
-/** the FileNote is a BCPL string too, but 79 characters rather than 30 */
-const COMMENT_MAX = 79
+/**
+ * The FileNote is a BCPL string too, but 79 characters rather than 30 — the
+ * same 79 `fib_Comment` holds, because this block is what Examine copies it
+ * out of.
+ */
+const COMMENT_MAX = MAX_COMMENT
 const NAME_MAX = 30
 
 const T_HEADER = 2
 const T_DATA = 8
-const ST_ROOT = 1
-const ST_USERDIR = 2
-const ST_FILE = -3
+/*
+ * The secondary type at offset 508 is the SAME numbering as
+ * `fib_DirEntryType`, and not by coincidence: Examine reports what the header
+ * block says. ST_ROOT, ST_USERDIR and ST_FILE come from ./dos.ts rather than
+ * being declared a third time — this file had its own copies, LDos had named
+ * ones and JD wrote the bare numbers.
+ */
 
 export interface AdfInfo {
   /** volume label from the root block */

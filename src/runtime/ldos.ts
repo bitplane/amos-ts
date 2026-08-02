@@ -62,6 +62,7 @@ import type { Runtime } from './runtime'
 import { amigaMatch, parsePatternResult } from '../amiga/dospattern'
 import { pp20Decrunch } from '../amiga/powerpacker'
 import { DAY_MS, STAMP_EPOCH, stampToYmd as amigaStampToYmd } from '../amiga/datestamp'
+import { MAX_COMMENT, ST_FILE, ST_USERDIR, blocksFor } from '../amiga/dos'
 
 /**
  * Convert an ANSI escape sequence to the AMOS console's own control codes,
@@ -168,16 +169,12 @@ const latin1 = (s: string): Uint8Array => Uint8Array.from([...s].map((c) => c.ch
  * between that and a "YYMMDD" string; the manual caps the useful range at
  * 2099 ("which should be enough?").
  */
-/**
- * AmigaDOS FileInfoBlock entry types. The Lcat accessors read a real
- * FileInfoBlock field by field — verified by disassembly, where every one of
- * them indexes the documented offset: type at +4, protection at +116 ($74),
- * size at +124 ($7c), blocks at +128 ($80), date at +132 ($84) and comment
- * at +144 ($90). Which also explains Lcat Push's otherwise odd 264 bytes:
- * a 4-byte lock plus a 260-byte FileInfoBlock.
+/*
+ * The Lcat accessors read a real FileInfoBlock field by field — verified by
+ * disassembly, where every one of them indexes the documented offset. The
+ * struct itself, its entry types and its protection bits are
+ * ../amiga/dos.ts; what stays here is which of them each keyword reports.
  */
-const FIB_ST_USERDIR = 2
-const FIB_ST_FILE = -3
 
 /**
  * LDos's view of a datestamp: the shared calendar, with LDos's own clamp on
@@ -518,7 +515,7 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       const path = it.evalStr()
       it.expect(',')
       const comment = it.evalStr()
-      rt.vfs?.setMeta(path, { comment: comment.slice(0, 79) })
+      rt.vfs?.setMeta(path, { comment: comment.slice(0, MAX_COMMENT) })
     },
     'lset prot'(it) {
       // Lset Prot "FileName",MASK — 'MASK is a bitpattern like above',
@@ -744,7 +741,7 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       // is -3, so those are the values, not 1 and -1.
       const path = ldosPath(rt, str(a[0] ?? VS('')))
       const kind = rt.vfs?.exists(path) ?? (rt.fs?.read(path) != null ? 'file' : null)
-      return VI(kind === 'dir' ? FIB_ST_USERDIR : FIB_ST_FILE)
+      return VI(kind === 'dir' ? ST_USERDIR : ST_FILE)
     },
     lwords(_, a) {
       // NUM=Lwords(STRING$). "If STRING$ is empty zero is returned."
@@ -868,7 +865,7 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       // so what comes back is fib_DirEntryType itself: 2 for a directory,
       // -3 for a file.
       const e = catAt(rt)
-      return VI(e === null ? 0 : e.isDir ? FIB_ST_USERDIR : FIB_ST_FILE)
+      return VI(e === null ? 0 : e.isDir ? ST_USERDIR : ST_FILE)
     },
     'lcat size'(_) {
       // "it is fully legal to call this command even if the current 'file' is
@@ -881,7 +878,7 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
     'lcat blocks'(_) {
       // "FFS can hold 512 bytes of data in one block"
       const e = catAt(rt)
-      return VI(e === null || e.isDir ? 0 : Math.ceil(e.size / 512))
+      return VI(e === null || e.isDir ? 0 : blocksFor(e.size))
     },
     'lcat prot'(_) {
       const e = catAt(rt)

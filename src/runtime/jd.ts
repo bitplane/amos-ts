@@ -60,6 +60,7 @@ import { pp20Decrunch } from '../amiga/powerpacker'
 import type { Runtime } from './runtime'
 import { stampToDate } from '../amiga/datestamp'
 import { openDiskFont, type DiskFont } from '../amiga/diskfont'
+import { ST_FILE, ST_USERDIR } from '../amiga/dos'
 
 /**
  * The two errors the library raises, by AMOS error number (L_outdim equ 150,
@@ -592,8 +593,8 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
       const path = sarg(a, 0)
       const vfs = rt.vfs
       if (!vfs) return VI(0)
-      if (vfs.listDir(path) !== null) return VI(2)
-      return VI(vfs.readFile(path) !== null ? -3 : 0)
+      if (vfs.listDir(path) !== null) return VI(ST_USERDIR)
+      return VI(vfs.readFile(path) !== null ? ST_FILE : 0)
     },
 
     /**
