@@ -90,6 +90,7 @@
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
+import { DAY_MS, STAMP_EPOCH, TICKS_PER_SECOND, stampToYmd } from '../amiga/datestamp'
 
 export interface AmcafState {
   /**
@@ -218,6 +219,31 @@ function padNum(v: number, n: number, pad: string): string {
   return digits.length > n ? digits.slice(digits.length - n) : digits.padStart(n, pad)
 }
 
+/* ------------------------------------------------------------------ *
+ * Slice 3: date and time
+ * ------------------------------------------------------------------ */
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MONTHS_FULL = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+/** Cd Weekday is 1 = Monday .. 7 = Sunday, and day 0 (1 Jan 1978) is a Sunday */
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+/**
+ * AMCAF's packed time, which the manual spells out rather than leaving to be
+ * guessed: *"the time is created out of Wordswap(minutes)+ticks"*.
+ *
+ * So the minutes since midnight sit in the HIGH word and the ticks — fiftieths
+ * of a second within the minute, 0..2999 — in the low one. It says why, too:
+ * *"This is NOT a value in the standard DOS-format as this one would require
+ * two longwords."*
+ */
+const packTime = (mins: number, ticks: number): number => (((mins & 0xffff) << 16) | (ticks & 0xffff)) | 0
+const timeMins = (t: number): number => (t >>> 16) & 0xffff
+const timeTicks = (t: number): number => t & 0xffff
+
 export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
   void rt
   const i0 = (a: Value[], n: number): number => int(a[n] ?? VI(0))
@@ -343,6 +369,123 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * scancode, an empty string will be returned."
      */
     'scanstr$': (_, a) => VS(KEY_NAMES[i0(a, 0)] ?? ''),
+
+
+    /**
+     * =Current Date — "counts the days passed since 1st January 1978", which
+     * is the AmigaDOS DateStamp day count exactly.
+     */
+    'current date': () => VI(rt.host.clock.now().days),
+
+    /** =Current Time — the packed minutes/ticks pair described above */
+    'current time': () => {
+      const st = rt.host.clock.now()
+      return VI(packTime(st.mins, st.ticks))
+    },
+
+    /** =Cd Day(date) — "a value between 1 and 31" */
+    'cd day': (_, a) => VI(stampToYmd(i0(a, 0))[2]),
+    /** =Cd Month(date) — "lies between 1 and 12" */
+    'cd month': (_, a) => VI(stampToYmd(i0(a, 0))[1]),
+    /** =Cd Year(date) — the year out of the stamp */
+    'cd year': (_, a) => VI(stampToYmd(i0(a, 0))[0]),
+
+    /**
+     * =Cd Weekday(date) — "can range between 1 (monday) and 7 (sunday)".
+     *
+     * Day zero is 1 January 1978, which was a Sunday, so the count starts at
+     * 7 and not at 1.
+     */
+    'cd weekday': (_, a) => VI((((i0(a, 0) % 7) + 7) % 7 === 0 ? 7 : ((i0(a, 0) % 7) + 6) % 7 + 1)),
+
+    /** =Cd Date$(date) — "the format 'WWW DD-MMM-YY'" */
+    'cd date$': (_, a) => {
+      const d = i0(a, 0)
+      const [y, m, day] = stampToYmd(d)
+      const wd = WEEKDAYS[(((d % 7) + 7) % 7 + 6) % 7]!.slice(0, 3)
+      const yy = String(y % 100).padStart(2, '0')
+      return VS(`${wd} ${String(day).padStart(2, '0')}-${MONTHS[m - 1]}-${yy}`)
+    },
+
+    /**
+     * =Cd String(date$) — dos.library's StrToDate, which is why the manual
+     * says "This command only works on OS2.0 and higher".
+     *
+     * "DD-MMM-YY" or "DD-month-YY", plus the relative words the library
+     * accepts: Today, Tomorrow, Yesterday and a weekday name, where
+     * "weekday strings refer to the last occurence of the week, i.e 'Monday'
+     * represents last monday and not next monday". -1 when it will not parse.
+     */
+    'cd string': (_, a) => {
+      const t = s0(a, 0).trim().toLowerCase()
+      const today = rt.host.clock.now().days
+      if (t === 'today') return VI(today)
+      if (t === 'tomorrow') return VI(today + 1)
+      if (t === 'yesterday') return VI(today - 1)
+      const wd = WEEKDAYS.findIndex((w) => w.toLowerCase() === t)
+      if (wd >= 0) {
+        // the LAST occurrence, so step back until the weekday matches
+        for (let i = 1; i <= 7; i++) {
+          const d = today - i
+          if ((((d % 7) + 7) % 7 + 6) % 7 === wd) return VI(d)
+        }
+      }
+      const m = /^(\d{1,2})-([a-z]+)-(\d{2,4})$/.exec(t)
+      if (!m) return VI(-1)
+      const mon = MONTHS.findIndex((x) => x.toLowerCase() === m[2])
+      const monFull = MONTHS_FULL.findIndex((x) => x.toLowerCase() === m[2])
+      const mi = mon >= 0 ? mon : monFull
+      if (mi < 0) return VI(-1)
+      const day = Number(m[1])
+      let year = Number(m[3])
+      // a two-digit year is 1978..2077, the range a DateStamp can hold
+      if (year < 100) year += year < 78 ? 2000 : 1900
+      const days = Math.floor((Date.UTC(year, mi, day) - STAMP_EPOCH) / DAY_MS)
+      if (!Number.isFinite(days) || days < 0) return VI(-1)
+      const [cy, cm, cd] = stampToYmd(days)
+      if (cy !== year || cm !== mi + 1 || cd !== day) return VI(-1) // 31-Feb and friends
+      return VI(days)
+    },
+
+    /** =Ct Hour(time) — "Separates the hour from the packed time" */
+    'ct hour': (_, a) => VI(Math.floor(timeMins(i0(a, 0)) / 60)),
+    /** =Ct Minute(time) — the minutes within the hour */
+    'ct minute': (_, a) => VI(timeMins(i0(a, 0)) % 60),
+    /** =Ct Second(time) — the ticks resolved to whole seconds */
+    'ct second': (_, a) => VI(Math.floor(timeTicks(i0(a, 0)) / TICKS_PER_SECOND)),
+
+    /**
+     * =Ct Tick(time) — "Calculates the number of vertical blanks (=1/50 of a
+     * second) from the parameter 'time'".
+     *
+     * NOTE: that sentence does not say whether the count is within the second
+     * or within the minute, and the field itself is the whole low word. The
+     * low word is what this returns, so Ct Tick and Ct Second read the same
+     * field at two resolutions rather than partitioning it.
+     */
+    'ct tick': (_, a) => VI(timeTicks(i0(a, 0))),
+
+    /** =Ct Time$(time) — "a string in the format 'HH:MM:SS'" */
+    'ct time$': (_, a) => {
+      const t = i0(a, 0)
+      const mins = timeMins(t)
+      const two = (n: number): string => String(n).padStart(2, '0')
+      return VS(`${two(Math.floor(mins / 60))}:${two(mins % 60)}:${two(Math.floor(timeTicks(t) / TICKS_PER_SECOND))}`)
+    },
+
+    /**
+     * =Ct String(time$) — dos.library's StrToTime, "HH:MM" or "HH:MM:SS",
+     * and -1 when it will not parse. OS2.0 and higher, like Cd String.
+     */
+    'ct string': (_, a) => {
+      const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(s0(a, 0).trim())
+      if (!m) return VI(-1)
+      const h = Number(m[1])
+      const mi = Number(m[2])
+      const sec = m[3] === undefined ? 0 : Number(m[3])
+      if (h > 23 || mi > 59 || sec > 59) return VI(-1)
+      return VI(packTime(h * 60 + mi, sec * TICKS_PER_SECOND))
+    },
 
     /** =Nfn — routine 22. "returns nothing useful ... used in speed testing" */
     nfn: () => VI(0),

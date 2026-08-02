@@ -1372,6 +1372,10 @@ export const FAITHFUL = new Set<string>([
   // slice 2: strings. Scanstr$ is APPROXIMATED (no name table in the hunk).
   'chr.w$', 'chr.l$', 'asc.w', 'asc.l', 'lsstr$', 'lzstr$',
   'insstr$', 'cutstr$', 'replacestr$', 'itemstr$',
+  // slice 3: date and time
+  'current date', 'current time', 'cd day', 'cd month', 'cd year',
+  'cd weekday', 'cd date$', 'cd string', 'ct hour', 'ct minute',
+  'ct second', 'ct tick', 'ct time$', 'ct string',
 
   // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
   // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
@@ -1962,7 +1966,15 @@ export const NOTES: Record<string, string> = {
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
   // --- AGA 1.0: doc plus disassembly; the doc loses three times ---
-  // --- AMCAF slices 1-2 ---
+  // --- AMCAF slices 1-3 ---
+  'current time':
+    "The manual spells the format out rather than leaving it to be guessed: 'the time is created out of Wordswap(minutes)+ticks', so minutes since midnight sit in the HIGH word and ticks -- fiftieths of a second within the minute -- in the low one. It says why, too: 'This is NOT a value in the standard DOS-format as this one would require two longwords'",
+  'ct tick':
+    "'Calculates the number of vertical blanks (=1/50 of a second) from the parameter time'. NOTE: that sentence does not say whether the count is within the second or within the minute, and the field itself is the whole low word, so the low word is what comes back -- Ct Tick and Ct Second read one field at two resolutions rather than partitioning it",
+  'cd weekday':
+    "'weekday can range between 1 (monday) and 7 (sunday)'. Day zero is 1 January 1978, which was a Sunday, so the count starts at 7 rather than at 1",
+  'cd string':
+    "dos.library's StrToDate, which is why the manual says 'This command only works on OS2.0 and higher'. Takes 'DD-MMM-YY' or 'DD-month-YY' plus the relative words the library accepts, where 'weekday strings refer to the last occurence of the week, i.e Monday represents last monday and not next monday'. A date that does not exist (31-Feb) is -1, like any other unparseable string",
   'insstr$':
     "Routine 187 (\$4a44). `pos` is a COUNT OF LEADING CHARACTERS KEPT rather than a 1-based index: the routine errors on a negative one and on `pos > len` (`cmp.w d5,d7 / Rbhi`), so 0..len is the legal range and 0 inserts at the front. The manual's example agrees -- 'dear ' at 6 into 'Hello Ben!' keeps 'Hello ' and gives 'Hello dear Ben!'. An empty insert returns the original untouched, which the routine takes before allocating",
   'cutstr$':

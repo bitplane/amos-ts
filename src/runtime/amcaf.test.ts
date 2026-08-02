@@ -284,3 +284,70 @@ describe('slice 2: strings', () => {
     expect(p('"["+Scanstr$($7F)+"]"')).toBe('[]')
   })
 })
+
+describe('slice 3: date and time', () => {
+  const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
+
+  it('day zero is 1 January 1978, and it was a Sunday', () => {
+    expect(p('Cd Day(0)')).toBe('1')
+    expect(p('Cd Month(0)')).toBe('1')
+    expect(p('Cd Year(0)')).toBe('1978')
+    // "1 (monday) and 7 (sunday)" -- the epoch starts at 7, not at 1
+    expect(p('Cd Weekday(0)')).toBe('7')
+    expect(p('Cd Weekday(1)')).toBe('1')
+    expect(p('Cd Weekday(7)')).toBe('7')
+  })
+
+  it("Cd Date$ is 'WWW DD-MMM-YY'", () => {
+    expect(p('Cd Date$(0)')).toBe('Sun 01-Jan-78')
+    expect(p('Cd Date$(31)')).toBe('Wed 01-Feb-78')
+  })
+
+  it('the packed time is Wordswap(minutes)+ticks, as the manual states', () => {
+    // "the time is created out of Wordswap(minutes)+ticks"
+    const t = 'Ct String("13:45:30")'
+    expect(p(`Ct Hour(${t})`)).toBe('13')
+    expect(p(`Ct Minute(${t})`)).toBe('45')
+    expect(p(`Ct Second(${t})`)).toBe('30')
+    expect(p(`Ct Time$(${t})`)).toBe('13:45:30')
+    // minutes really are in the high word
+    expect(p(`Wordswap(${t}) and $FFFF`)).toBe(String(13 * 60 + 45))
+  })
+
+  it('Ct Tick is the tick field itself, at 50 to the second', () => {
+    expect(p('Ct Tick(Ct String("00:00:10"))')).toBe('500')
+    expect(p('Ct Second(Ct String("00:00:10"))')).toBe('10')
+  })
+
+  it('Ct String takes HH:MM or HH:MM:SS, and -1 for anything else', () => {
+    expect(p('Ct Time$(Ct String("09:05"))')).toBe('09:05:00')
+    expect(p('Ct String("25:00")')).toBe('-1')
+    expect(p('Ct String("9-5")')).toBe('-1')
+    expect(p('Ct String("")')).toBe('-1')
+  })
+
+  it('Cd String parses DD-MMM-YY and the full month name', () => {
+    expect(p('Cd Date$(Cd String("01-Jan-78"))')).toBe('Sun 01-Jan-78')
+    expect(p('Cd Date$(Cd String("25-December-99"))')).toBe('Sat 25-Dec-99')
+    expect(p('Cd String("31-Feb-90")')).toBe('-1') // a date that does not exist
+    expect(p('Cd String("hello")')).toBe('-1')
+  })
+
+  it('Cd String takes Today/Tomorrow, and a weekday means the LAST one', () => {
+    // "weekday strings refer to the last occurence of the week, i.e 'Monday'
+    // represents last monday and not next monday"
+    expect(p('Cd String("Today")-Current Date')).toBe('0')
+    expect(p('Cd String("Tomorrow")-Current Date')).toBe('1')
+    expect(p('Cd String("Yesterday")-Current Date')).toBe('-1')
+    const back = Number(p('Current Date-Cd String("Monday")'))
+    expect(back).toBeGreaterThanOrEqual(1)
+    expect(back).toBeLessThanOrEqual(7)
+    expect(p('Cd Weekday(Cd String("Monday"))')).toBe('1')
+  })
+
+  it('Current Date and Current Time agree with the host clock', () => {
+    expect(Number(p('Current Date'))).toBeGreaterThan(16000) // well past 1978
+    expect(Number(p('Ct Hour(Current Time)'))).toBeLessThan(24)
+    expect(Number(p('Ct Minute(Current Time)'))).toBeLessThan(60)
+  })
+})
