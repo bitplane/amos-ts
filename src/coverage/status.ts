@@ -1364,6 +1364,12 @@ export const FAITHFUL = new Set<string>([
   'stars off', 'stars wibble', 'stars dir', 'cop palette',
   'cop true palette', 'cop screen', 'cop current',
 
+  // --- AMCAF slice 1 (Chris Hodges): maths and bit operations, read off
+  // AMCAF.Guide plus the routines in the 45,532-byte hunk. The three trig
+  // functions are APPROXIMATED, not here: their table is not in the hunk.
+  'even', 'odd', 'wordswap', 'lsl', 'lsr', 'binexp', 'binlog',
+  'qsqr', 'qrnd', 'vin', 'vmod', 'nop', 'nfn', 'cpu', 'fpu',
+
   // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
   // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
   // faithful is the state, the validation and the packed-picture format;
@@ -1953,6 +1959,27 @@ export const NOTES: Record<string, string> = {
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
   // --- AGA 1.0: doc plus disassembly; the doc loses three times ---
+  // --- AMCAF slice 1 ---
+  'lsr':
+    "Routine 197 (\$4cec). DEVIATION: the keyword is named for a LOGICAL shift and the instruction is `asr.l`, an ARITHMETIC shift, so the sign bit is replicated and a negative value stays negative. That also makes the manual's 'does the same as a division by 2^n' false for negatives -- ASR rounds toward minus infinity where division rounds toward zero, so Lsr(-3,1) is -2 rather than -1. Reproduced as the library has it",
+  'lsl':
+    "Routine 196 (\$4ce2) is `asl.l d0,d3`. The manual says 'Rotates the number v to the left', which it does not -- bits leaving the top are lost. Its own worked description (v*2, v*4, v*8) is the shift, so the word is loose writing rather than a second behaviour",
+  'binlog':
+    "Routine 195 (\$4cc2), and the routine is the specification: zero takes the `Rbeq` error branch, then it shifts right counting until bit 0 is set, shifts once more and errors if ANYTHING is left (`tst.l d0 / Rbne`). So a value that is not exactly a power of two is an error rather than a floor, which is what the manual promises",
+  'qsqr':
+    'Routine 271 (\$6286): an integer square root by Newton\'s method over a scaled start, with no maths library involved. Zero returns zero before anything else and a negative value takes the `Rbmi` error branch',
+  'qrnd':
+    "Routine 272. The manual says it is 'totally identical to the Rnd function, with the only difference, that this one is much faster', so it uses AMOS's own generator rather than a second one -- which is also what makes a Randomize seed reach it",
+  'vmod':
+    "Routines 185 and 186 (\$49e6), two token forms of one idea. It WRAPS where Vclip clamps: 'If val exceeds upper by 1, it will be set to lower ... If it goes deeper than lower by 1, it will be set to upper'. The routine divides by upper+1, so the span includes both ends. NOTE: the two-bound form's disassembly runs into data the disassembler renders as `dc.b \"BCHCNuD\"` and could not be read straight through; the single-bound path is legible and the two-bound one follows the manual's worked description",
+  'cpu':
+    "Routine 216 (\$5026) reads ExecBase+\$128 (AttnFlags) and maps the bits onto 68000/68010/68020/68030/68040/68060 -- d3 starts as the longword \$109a0, which is 68000 in decimal, and each hit overwrites only the low WORD so \$9b4 turns it into \$109b4 = 68020. The modelled machine is an A1200, so bit 1: the same identity Jd Cpu reports and the same one the 2MB chip / fast-board pools answer for",
+  'fpu':
+    'Routine 217. Zero when nothing is fitted, which is the A1200 as modelled; Jd Fpu agrees. The manual notes that on 68040/68060 the cpu contains the fpu and those numbers come back instead',
+  'nop':
+    "Routine 21 (\$231a) is two bytes: `rts`. 'This command has no effect et al. It's only use is for speed testing routines' -- so a no-op here is FAITHFUL rather than a stub, because there is nothing for a program to observe afterwards that differs",
+  'nfn':
+    "Routine 22, the function half of the same idea: 'This function returns nothing useful. It's only used, like Nop, in speed testing routines'",
   'aga screen open':
     "Routine 2 (\$1050): 0..7 or error 5, must not already exist (error 1), always 320x256x8, brought to the front, and the default font selected on the way. DEVIATION: the original builds its OWN copper list outside AMOS's screen system, which is why the doc warns that 'Sprites,Bobs and Mouse related commands may react in a corrupting way on screen'. Here an AGA screen is an ordinary Screen of 256 colours, so it composes with sprites, bobs and the pointer instead of fighting them -- programs written around that warning look better than they did, and nothing they can do depends on the corruption",
   'aga get palette':
