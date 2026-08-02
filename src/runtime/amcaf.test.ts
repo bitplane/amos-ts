@@ -351,3 +351,91 @@ describe('slice 3: date and time', () => {
     expect(Number(p('Ct Minute(Current Time)'))).toBeLessThan(60)
   })
 })
+
+describe('slice 4: banks', () => {
+  const setup = ['Reserve As Work 5,64', 'Loke Start(5),$12345678']
+
+  it('Bank Name sets an eight-character id, and Bank Name$ reads it back', () => {
+    // "the AMOS Tracker commands require a bank named 'Tracker '"
+    const { out } = run([...setup, 'Bank Name 5,"Tracker"', 'Print "["+Bank Name$(5)+"]"'])
+    expect(out.trim()).toBe('[Tracker ]')
+  })
+
+  it('Bank Permanent and Bank Temporary flip the Data/Work flag', () => {
+    const { rt } = run([...setup, 'Bank Permanent 5'])
+    expect(rt.memBanks.get(5)!.flags & 1).toBe(1)
+    const b = run([...setup, 'Bank Permanent 5', 'Bank Temporary 5'])
+    expect(b.rt.memBanks.get(5)!.flags & 1).toBe(0)
+  })
+
+  it('Bank To Chip and Bank To Fast move the bank between the pools', () => {
+    expect(run([...setup, 'Bank To Chip 5']).rt.memBanks.get(5)!.memType).toBe(1)
+    expect(run([...setup, 'Bank To Chip 5', 'Bank To Fast 5']).rt.memBanks.get(5)!.memType).toBe(0)
+  })
+
+  it('Bank Stretch resizes and keeps what was there', () => {
+    const { rt } = run([...setup, 'Bank Stretch 5 To 256'])
+    const b = rt.memBanks.get(5)!
+    expect(b.data.length).toBe(256)
+    expect(b.data[0]).toBe(0x12) // the Loke survived the realloc
+    expect(b.data[3]).toBe(0x78)
+  })
+
+  it('Bank Copy duplicates a whole bank', () => {
+    const { rt } = run([...setup, 'Reserve As Work 6,64', 'Bank Copy 5 To 6'])
+    expect([...rt.memBanks.get(6)!.data.subarray(0, 4)]).toEqual([0x12, 0x34, 0x56, 0x78])
+  })
+
+  it('Bank Delta Encode and Decode are inverses, and do not change the length', () => {
+    // "Delta encoding just stores the difference from one byte to the next"
+    const { rt } = run([...setup, 'Bank Delta Encode 5'])
+    const enc = rt.memBanks.get(5)!.data
+    expect(enc.length).toBe(64)
+    expect(enc[0]).toBe(0x12) // first byte is the difference from zero
+    expect(enc[1]).toBe((0x34 - 0x12) & 0xff)
+    const back = run([...setup, 'Bank Delta Encode 5', 'Bank Delta Decode 5'])
+    expect([...back.rt.memBanks.get(5)!.data.subarray(0, 4)]).toEqual([0x12, 0x34, 0x56, 0x78])
+  })
+
+  it('Bank Checksum is a longword sum XORed with $FACEFACE ($2782)', () => {
+    const { out } = run([...setup, 'Print Bank Checksum(5)'])
+    // 64 bytes: one $12345678 longword and fifteen zeros
+    expect(out.trim()).toBe(String((0x12345678 ^ 0xfaceface) | 0))
+  })
+
+  it('Bank Code Xor decodes with the same code, Add with the negative', () => {
+    const xor = run([...setup, 'Bank Code Xor.b $AA,5', 'Bank Code Xor.b $AA,5'])
+    expect([...xor.rt.memBanks.get(5)!.data.subarray(0, 4)]).toEqual([0x12, 0x34, 0x56, 0x78])
+    const add = run([...setup, 'Bank Code Add.b 7,5', 'Bank Code Add.b -7,5'])
+    expect([...add.rt.memBanks.get(5)!.data.subarray(0, 4)]).toEqual([0x12, 0x34, 0x56, 0x78])
+    // and Add really did change it in between
+    const once = run([...setup, 'Bank Code Add.b 7,5'])
+    expect(once.rt.memBanks.get(5)!.data[0]).toBe(0x19)
+  })
+
+  it('Bank Code Rol and Ror undo each other', () => {
+    const r = run([...setup, 'Bank Code Rol.b 3,5', 'Bank Code Ror.b 3,5'])
+    expect([...r.rt.memBanks.get(5)!.data.subarray(0, 4)]).toEqual([0x12, 0x34, 0x56, 0x78])
+    const rol = run([...setup, 'Bank Code Rol.b 4,5'])
+    expect(rol.rt.memBanks.get(5)!.data[0]).toBe(0x21) // $12 rotated by a nibble
+  })
+
+  it('Bank Code Mix is a walking key, so the same code decodes it ($25d2)', () => {
+    // d1 = code XOR $AA, then the key ADVANCES by d1 per element -- which is
+    // why two identical bytes do not encode to the same thing
+    const { rt } = run([...setup, 'Bank Code Mix.b 1,5'])
+    const d = rt.memBanks.get(5)!.data
+    expect(d[4]).not.toBe(d[5]) // both were zero before
+    const back = run([...setup, 'Bank Code Mix.b 1,5', 'Bank Code Mix.b 1,5'])
+    expect([...back.rt.memBanks.get(5)!.data.subarray(0, 4)]).toEqual([0x12, 0x34, 0x56, 0x78])
+  })
+
+  it('the word forms use $FACE where the byte forms use $AA', () => {
+    // only the binary says this -- $AAAA would have been the obvious guess
+    const w = run([...setup, 'Bank Code Mix.w 1,5', 'Bank Code Mix.w 1,5'])
+    expect([...w.rt.memBanks.get(5)!.data.subarray(0, 4)]).toEqual([0x12, 0x34, 0x56, 0x78])
+    const one = run([...setup, 'Bank Code Mix.w 0,5'])
+    // key starts at 0 and advances by (0 XOR $FACE) = $FACE
+    expect((one.rt.memBanks.get(5)!.data[0]! << 8) | one.rt.memBanks.get(5)!.data[1]!).toBe(0x1234 ^ 0xface)
+  })
+})

@@ -89,6 +89,7 @@
 
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
+import type { Interp } from '../interp/interp'
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import { DAY_MS, STAMP_EPOCH, TICKS_PER_SECOND, stampToYmd } from '../amiga/datestamp'
 
@@ -122,6 +123,126 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
   return {
     /** Nop — routine 21 ($231a) is two bytes: `rts`. "has no effect et al" */
     nop() {},
+
+    /**
+     * Bank Permanent / Bank Temporary — routines 25 and 26.
+     *
+     * AMOS's bank flag bit 0 is the Data/Work distinction: a permanent bank
+     * "will stay resident in your program until it is erased", a temporary
+     * one goes at Default. The manual notes this "also has use on
+     * MED-Modules ... and on Power and Imploder unpacked banks", which is
+     * exactly the case of a bank built at run time that should outlive the
+     * command that made it.
+     */
+    'bank permanent'(it) {
+      const b = rt.memBanks.get(it.evalInt())
+      if (!b) amcafErr()
+      b.flags |= 1
+    },
+    'bank temporary'(it) {
+      const b = rt.memBanks.get(it.evalInt())
+      if (!b) amcafErr()
+      b.flags &= ~1
+    },
+
+    /**
+     * Bank To Chip / Bank To Fast — routines 27 and 28. The bank moves and
+     * "will get a new starting address"; here the memory type is a flag on
+     * the bank rather than a real pool, so the move is the flag.
+     *
+     * The manual's warning belongs to the machine and not to us: "Do not try
+     * to replay musics or sounds that resist in fast ram."
+     */
+    'bank to chip'(it) {
+      const b = rt.memBanks.get(it.evalInt())
+      if (!b) amcafErr()
+      b.memType = 1
+    },
+    'bank to fast'(it) {
+      const b = rt.memBanks.get(it.evalInt())
+      if (!b) amcafErr()
+      b.memType = 0
+    },
+
+    /** Bank Name bank,name$ — routine 58. "the 8 characters long name" */
+    'bank name'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const name = it.evalStr()
+      const b = rt.memBanks.get(n)
+      if (!b) amcafErr()
+      // "Most AMOS commands ignore this ID, but e.g the AMOS Tracker commands
+      // require a bank named 'Tracker '" -- which is why it pads to eight
+      b.name = name.slice(0, 8).padEnd(8, ' ')
+    },
+
+    /**
+     * Bank Stretch bank To length — routine 53. "Extents the bank ... to the
+     * given new length", and "During this process, the starting address of
+     * the bank is changed", which is a realloc.
+     */
+    'bank stretch'(it) {
+      const n = it.evalInt()
+      it.expect('to')
+      const len = it.evalInt()
+      const b = rt.memBanks.get(n)
+      if (!b || len < 0) amcafErr()
+      const next = new Uint8Array(len)
+      next.set(b.data.subarray(0, Math.min(len, b.data.length)))
+      b.data = next
+    },
+
+    /** Bank Copy source To target, or start,end To target — routine 57/56 */
+    'bank copy'(it) {
+      const first = it.evalInt()
+      let src: Uint8Array
+      if (it.accept(',')) {
+        const end = it.evalInt()
+        it.expect('to')
+        src = bankRegion(rt, first, end)
+      } else {
+        it.expect('to')
+        src = bankRegion(rt, first, null)
+      }
+      const target = it.evalInt()
+      const dst = rt.memBanks.get(target)
+      if (!dst) {
+        rt.reserveBank(target, src.length, 'Amcaf   ')
+        rt.memBanks.get(target)!.data.set(src)
+        return
+      }
+      const next = new Uint8Array(src.length)
+      next.set(src)
+      dst.data = next
+    },
+
+    /**
+     * Bank Delta Encode / Decode — routines 30/29 and 32/31.
+     *
+     * "Delta encoding just stores the difference from one byte to the next,
+     * so it certain hull curve patterns in samples can be seen more 'clearly'
+     * for packing algorithms." Not a packer itself: the length never changes.
+     */
+    'bank delta encode'(it) {
+      const r = bankArgs(rt, it)
+      let prev = 0
+      for (let i = 0; i < r.length; i++) {
+        const v = r[i]!
+        r[i] = (v - prev) & 0xff
+        prev = v
+      }
+    },
+    'bank delta decode'(it) {
+      const r = bankArgs(rt, it)
+      let prev = 0
+      for (let i = 0; i < r.length; i++) {
+        prev = (prev + r[i]!) & 0xff
+        r[i] = prev
+      }
+    },
+
+    ...bankCodeOps(rt),
+
   }
 }
 
@@ -138,7 +259,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
  * observe through `Trap` is that the call failed, so it fails as AMOS's own
  * generic — the same choice the AGA port made for the same reason.
  */
-const amcafErr = (): never => {
+const amcafErr: () => never = () => {
   throw new AmosError('Illegal function call', 23)
 }
 
@@ -243,6 +364,116 @@ const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
 const packTime = (mins: number, ticks: number): number => (((mins & 0xffff) << 16) | (ticks & 0xffff)) | 0
 const timeMins = (t: number): number => (t >>> 16) & 0xffff
 const timeTicks = (t: number): number => t & 0xffff
+
+/* ------------------------------------------------------------------ *
+ * Slice 4: banks
+ * ------------------------------------------------------------------ */
+
+/**
+ * The two forms every bank command has: a bank number, or an explicit
+ * `startaddress To endaddress` pair.
+ *
+ * The workers do not care which — they are handed a pointer and a length and
+ * derive the count with `sub.l a0,d7`, so one region helper serves both. The
+ * end address is EXCLUSIVE in that arithmetic.
+ */
+function bankRegion(rt: Runtime, a: number, b: number | null): Uint8Array {
+  if (b === null) {
+    const bank = rt.memBanks.get(a)
+    if (!bank) amcafErr()
+    return bank.data
+  }
+  const len = b - a
+  if (len <= 0) amcafErr()
+  const head = rt.resolveAddr(a)
+  if (!head) amcafErr()
+  const avail = head.data.length - head.off
+  return head.data.subarray(head.off, head.off + Math.min(len, avail))
+}
+
+/** the `bank` / `start To end` argument pair every Bank Code command takes */
+function bankArgs(rt: Runtime, it: Interp): Uint8Array {
+  const first = it.evalInt()
+  if (it.accept('to')) return bankRegion(rt, first, it.evalInt())
+  return bankRegion(rt, first, null)
+}
+
+/**
+ * The ten `Bank Code` encoders — five algorithms over bytes and words.
+ *
+ * Xor, Add, Rol and Ror are what their names say and the manual describes;
+ * MIX is the one that needed the binary, and it is a small stream cipher
+ * rather than a per-element operation (routines 37 and 47):
+ *
+ *     d1 = code XOR $AA          ; $FACE in the word version
+ *     loop: d0 = d0 + d1         ; the key evolves every element
+ *           (a0)+ = (a0) XOR d0
+ *
+ * So the key walks, which is why "So coded banks should be hard to decode"
+ * and why decoding is the same command with the same code rather than the
+ * negative one. The word form's constant is $FACE and NOT $AAAA, which is
+ * the sort of thing only the binary tells you.
+ *
+ * Rol and Ror take a rotate count, so the manual bounds `code` to 1..7 on
+ * `.b` and 1..15 on `.w`, and "To decode a bank either use the negative code
+ * with the same instruction or the same key code along with the ... Ror
+ * command" -- a negative count rotates the other way.
+ */
+function bankCodeOps(rt: Runtime): Record<string, Instr> {
+  const out: Record<string, Instr> = {}
+  const each = (r: Uint8Array, wide: boolean, f: (v: number, i: number) => number): void => {
+    if (!wide) {
+      for (let i = 0; i < r.length; i++) r[i] = f(r[i]!, i) & 0xff
+      return
+    }
+    for (let i = 0; i + 1 < r.length; i += 2) {
+      const v = f((r[i]! << 8) | r[i + 1]!, i >> 1) & 0xffff
+      r[i] = (v >> 8) & 0xff
+      r[i + 1] = v & 0xff
+    }
+  }
+  const rot = (v: number, n: number, bits: number): number => {
+    const mask = (1 << bits) - 1
+    const k = ((n % bits) + bits) % bits
+    return ((v << k) | (v >>> (bits - k))) & mask
+  }
+  for (const wide of [false, true]) {
+    const sfx = wide ? '.w' : '.b'
+    const bits = wide ? 16 : 8
+    const mixConst = wide ? 0xface : 0xaa
+    out[`bank code xor${sfx}`] = (it) => {
+      const code = it.evalInt()
+      it.expect(',')
+      each(bankArgs(rt, it), wide, (v) => v ^ code)
+    }
+    out[`bank code add${sfx}`] = (it) => {
+      const code = it.evalInt()
+      it.expect(',')
+      each(bankArgs(rt, it), wide, (v) => v + code)
+    }
+    out[`bank code mix${sfx}`] = (it) => {
+      const code = it.evalInt()
+      it.expect(',')
+      const step = (code ^ mixConst) & ((1 << bits) - 1)
+      let k = code & ((1 << bits) - 1)
+      each(bankArgs(rt, it), wide, (v) => {
+        k = (k + step) & ((1 << bits) - 1)
+        return v ^ k
+      })
+    }
+    out[`bank code rol${sfx}`] = (it) => {
+      const code = it.evalInt()
+      it.expect(',')
+      each(bankArgs(rt, it), wide, (v) => rot(v, code, bits))
+    }
+    out[`bank code ror${sfx}`] = (it) => {
+      const code = it.evalInt()
+      it.expect(',')
+      each(bankArgs(rt, it), wide, (v) => rot(v, -code, bits))
+    }
+  }
+  return out
+}
 
 export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
   void rt
@@ -485,6 +716,35 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
       const sec = m[3] === undefined ? 0 : Number(m[3])
       if (h > 23 || mi > 59 || sec > 59) return VI(-1)
       return VI(packTime(h * 60 + mi, sec * TICKS_PER_SECOND))
+    },
+
+
+    /**
+     * =Bank Checksum(bank) or (start To end) — routines 55 and 54 ($2782).
+     *
+     * A plain LONGWORD SUM of the region, then `eori.l #$faceface`. The
+     * author liked that constant: the word-wide Bank Code Mix uses $FACE and
+     * the byte-wide one $AA.
+     *
+     * The region is measured in longwords (`lsr.l #2`), so a trailing byte,
+     * word or three bytes are not counted.
+     */
+    'bank checksum': (_, a) => {
+      const r = bankRegion(rt, i0(a, 0), a.length > 1 ? i0(a, 1) : null)
+      let sum = 0
+      const longs = r.length >>> 2
+      for (let i = 0; i < longs; i++) {
+        const o = i * 4
+        sum = (sum + (((r[o]! << 24) | (r[o + 1]! << 16) | (r[o + 2]! << 8) | r[o + 3]!) | 0)) | 0
+      }
+      return VI((sum ^ 0xfaceface) | 0)
+    },
+
+    /** =Bank Name$(bank) — routine 59 */
+    'bank name$': (_, a) => {
+      const b = rt.memBanks.get(i0(a, 0))
+      if (!b) amcafErr()
+      return VS(b.name)
     },
 
     /** =Nfn — routine 22. "returns nothing useful ... used in speed testing" */

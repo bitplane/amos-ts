@@ -1376,6 +1376,14 @@ export const FAITHFUL = new Set<string>([
   'current date', 'current time', 'cd day', 'cd month', 'cd year',
   'cd weekday', 'cd date$', 'cd string', 'ct hour', 'ct minute',
   'ct second', 'ct tick', 'ct time$', 'ct string',
+  // slice 4: banks
+  'bank permanent', 'bank temporary', 'bank to chip', 'bank to fast',
+  'bank name', 'bank name$', 'bank stretch', 'bank copy',
+  'bank delta encode', 'bank delta decode', 'bank checksum',
+  'bank code xor.b', 'bank code add.b', 'bank code mix.b',
+  'bank code rol.b', 'bank code ror.b',
+  'bank code xor.w', 'bank code add.w', 'bank code mix.w',
+  'bank code rol.w', 'bank code ror.w',
 
   // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
   // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
@@ -1966,7 +1974,17 @@ export const NOTES: Record<string, string> = {
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
   // --- AGA 1.0: doc plus disassembly; the doc loses three times ---
-  // --- AMCAF slices 1-3 ---
+  // --- AMCAF slices 1-4 ---
+  'bank code mix.b':
+    "Routine 37 (\$25d2), and the only one of the five encoders the manual does not describe. It is a small STREAM CIPHER rather than a per-element operation: `d1 = code XOR \$AA` once, then every element does `d0 = d0 + d1` before `eor`ing into the data, so the key walks. That is why 'So coded banks should be hard to decode' and why decoding is the same command with the SAME code rather than the negative one",
+  'bank code mix.w':
+    "Routine 47 (\$2690), the word form of the walking key -- and its constant is \$FACE, NOT \$AAAA. Only the binary says so; the byte form's \$AA makes \$AAAA the obvious guess and it is wrong. The same constant turns up again as Bank Checksum's \$FACEFACE",
+  'bank checksum':
+    "Routines 55 and 54 (\$2782): a plain LONGWORD SUM of the region, then `eori.l #\$faceface`. The region is measured in longwords (`lsr.l #2`), so a trailing byte, word or three bytes are not counted",
+  'bank code rol.b':
+    "Rotate, not shift. The manual bounds the count to 1..7 on `.b` and 1..15 on `.w`, and 'To decode a bank either use the negative code with the same instruction or the same key code along with the Bank Code Ror command' -- so a negative count rotates the other way",
+  'bank to chip':
+    'Routine 27. On the machine the bank is reallocated and "will get a new starting address"; here the memory type is a flag on the bank rather than a real pool, so the move is the flag. The manual\'s warning belongs to the hardware and not to us: "Do not try to replay musics or sounds that resist in fast ram"',
   'current time':
     "The manual spells the format out rather than leaving it to be guessed: 'the time is created out of Wordswap(minutes)+ticks', so minutes since midnight sit in the HIGH word and ticks -- fiftieths of a second within the minute -- in the low one. It says why, too: 'This is NOT a value in the standard DOS-format as this one would require two longwords'",
   'ct tick':
