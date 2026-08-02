@@ -1437,6 +1437,10 @@ export const FAITHFUL = new Set<string>([
   'pt sam volume', 'pt sam freq', 'pt instr play', 'pt raw play',
   'pt cpos', 'pt cpattern', 'pt cnote', 'pt cinstr', 'pt vu', 'pt signal',
   'pt instr address', 'pt instr length', 'pt free voice',
+  // slice 13: the closeout remainder. Amcaf Base/Length, Amos Task,
+  // Extpath$ and the two C2P variants are APPROXIMATED.
+  'smouse x', 'smouse y', 'blitter copy limit', 'write cli',
+  'ppunpack', 'ppfromdisk', 'c2p shift', 'c2p fire',
 
   // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
   // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
@@ -2027,7 +2031,17 @@ export const NOTES: Record<string, string> = {
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
   // --- AGA 1.0: doc plus disassembly; the doc loses three times ---
-  // --- AMCAF slices 1-12 ---
+  // --- AMCAF slices 1-13 ---
+  'c2p shift':
+    "One of the two undocumented variants beside C2p Convert, named only in the changelog. Shift moves the chunky buffer as it converts and Fire subtracts, which is the classic fire-effect decay. NOTE: neither has a manual entry, and the changelog records related work as unfinished ('Trans C2p chkbuf NOT YET IMPLEMENTED'), so these follow the names and argument shapes rather than a specification. APPROXIMATED",
+  'amcaf base':
+    "'Gives back the address of the AMCAF data base' and Amcaf Length its size, for the 'Assembler and C freaks' the manual addresses. The init routine allocates \$23b6 bytes, so the LENGTH is real and read off the binary; the ADDRESS is 0, because the state here is objects rather than a block at an address -- the same choice the Scrn pointers made. APPROXIMATED",
+  'extpath$':
+    "Where an extension was loaded from. Extensions here are compiled-in ports rather than files loaded off a disk, so there is no path, and the empty string is what the machine returns for a slot holding nothing",
+  'ppfromdisk':
+    "Loads a PowerPacked file, decrunching it through ../amiga/powerpacker.ts -- PP20 is a real powerpacker.library format rather than something AMCAF invented, which is why the codec was already here. A file that is not PowerPacked is taken as it is. Pptodisk is NOT implemented: this port has a PP20 decoder and no encoder, which LDos's Ppsave already records",
+  'write cli':
+    "Writes to the CLI the program was started from. Amos Cli is zero here, so there is no shell to write to and the text goes to the AMOS console -- which is where a program running without one would see it anyway",
   'pt stop':
     "The changelog records the bug that makes this worth stating: 'Fixed a bug in Pt Stop which cut off the channels, even if no music had been playing.' So a Stop with nothing playing must leave the sample channels alone, and a test asserts it",
   'pt cia speed':

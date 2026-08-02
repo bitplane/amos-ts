@@ -65,19 +65,20 @@ describe('the slice-0 wiring', () => {
     // the name in the error is the proof. `amcaf length` is nothing core
     // knows, so it can only have come from slot 8's table -- identity, slot
     // binding and tokenisation all worked, and only the handler is missing
-    // (it arrives in slice 10)
-    expect(() => run(['Print Amcaf Length'])).toThrow(/unimplemented function: amcaf length/)
+    // Rnp is deliberately never implemented -- it has no manual entry and
+    // belongs to the RNC packer, whose codec this port does not have
+    expect(() => run(['Print Rnp'])).toThrow(/unimplemented function: rnp/)
   })
 
   it('under the census policy it yields a typed default instead of throwing', () => {
     // 'skip' is how runreport sees past a missing keyword to count what the
     // rest of a program does. The spec's return-type code decides the type,
     // which matters for the string-returning keywords with no `$` in the name
-    const { out, rt } = run(['Print Amcaf Length', 'Print Extpath$("x")'], 'skip')
-    // " 0" is AMOS's leading space for a non-negative number; the second line
-    // is empty because Extpath$ has spec "2" and defaults to a string
-    expect(out).toBe(' 0\n\n')
-    expect([...rt.interp.unimplemented.keys()].sort()).toEqual(['amcaf length', 'extpath$'])
+    const { out, rt } = run(['Print Rnp'], 'skip')
+    // " 0" is AMOS's leading space for a non-negative number, and the spec's
+    // return-type code is what chose an integer rather than a string
+    expect(out).toBe(' 0\n')
+    expect([...rt.interp.unimplemented.keys()]).toEqual(['rnp'])
   })
 
   it('displaced nothing: the armed contested names still reach Personnal', () => {

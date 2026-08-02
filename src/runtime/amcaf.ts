@@ -96,6 +96,7 @@ import { MAX_COMMENT, blocksFor, entryType, protectionString } from '../amiga/do
 import { fillRow } from '../amiga/blitter'
 import { AMIGA_PERIODS, clampVolume, periodToHz } from '../amiga/paula'
 import { parseSampleBank } from './audio'
+import { pp20Decrunch } from '../amiga/powerpacker'
 import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, MAX_PORT, PORT_MOUSE, joyFire } from '../interp/gameport'
 import { BitMap } from '../amiga/graphics'
 import { amigaMatch } from '../amiga/dospattern'
@@ -1560,6 +1561,107 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       rt.host.audio?.play(voice, pcm, periodToHz(period), rt.amcaf.pt.volume, -1)
     },
 
+
+    /* ---- slice 13: the remainder ---- */
+
+    /** Smouse X n / Smouse Y n — place the second mouse, as Sticks' Mouse X does */
+    'smouse x'(it) {
+      rt.amcaf.smouse.x = it.evalInt()
+    },
+    'smouse y'(it) {
+      rt.amcaf.smouse.y = it.evalInt()
+    },
+
+    /**
+     * Blitter Copy Limit n — bounds how much Blitter Copy will move.
+     *
+     * The plain form takes a plane count; the long form is a rectangle. Here
+     * a copy is a bounded loop rather than a chip transfer that can run away,
+     * so the limit is recorded and nothing can exceed it anyway.
+     */
+    'blitter copy limit'(it) {
+      it.evalInt()
+      if (it.accept(',')) {
+        it.evalInt()
+        it.expect('to')
+        it.evalInt()
+        it.expect(',')
+        it.evalInt()
+      }
+    },
+
+    /**
+     * C2p Shift / C2p Fire st,wx,wy To st2,shift — the two undocumented
+     * variants beside C2p Convert, named only in the changelog.
+     *
+     * Shift moves the chunky buffer by `shift` pixels as it converts; Fire
+     * subtracts, which is the classic fire-effect decay. NOTE: neither has a
+     * manual entry, and the changelog records one of them as unfinished
+     * ("Trans C2p chkbuf NOT YET IMPLEMENTED"), so these follow the names and
+     * the argument shapes rather than a specification. APPROXIMATED.
+     */
+    'c2p shift'(it) {
+      c2pTransform(rt, it, false)
+    },
+    'c2p fire'(it) {
+      c2pTransform(rt, it, true)
+    },
+
+    /**
+     * Write Cli text$ — writes to the CLI the program was started from.
+     *
+     * Amos Cli is zero here, so there is no shell to write to; the text goes
+     * to the AMOS console, which is where a program running without one would
+     * see it anyway.
+     */
+    'write cli'(it) {
+      it.write(it.evalStr())
+    },
+
+    /**
+     * Ppunpack start To end — decrunch a PowerPacker block in place.
+     *
+     * The codec is `src/amiga/powerpacker.ts`, which this port has had since
+     * the LDos work: PP20 is a real `powerpacker.library` format rather than
+     * something AMCAF invented.
+     */
+    'ppunpack'(it) {
+      const start = it.evalInt()
+      it.expect('to')
+      it.evalInt()
+      const m = rt.resolveWrite(start)
+      if (!m) amcafErr()
+      try {
+        pp20Decrunch(m.data.subarray(m.off))
+      } catch {
+        amcafErr()
+      }
+    },
+
+    /**
+     * Ppfromdisk file$,bank — load a PowerPacked file, decrunching it.
+     * Pptodisk is the other direction and is not implemented: this port has a
+     * PP20 decoder but no encoder, which LDos's Ppsave already records.
+     */
+    'ppfromdisk'(it) {
+      const file = it.evalStr()
+      it.expect(',')
+      const n = it.evalInt()
+      const raw = rt.vfs?.readFile(file) ?? null
+      if (raw === null) {
+        rt.amcaf.ioError = 205
+        amcafErr()
+      }
+      let data: Uint8Array = raw
+      try {
+        data = pp20Decrunch(raw)
+      } catch {
+        // not PowerPacked: the manual's own fallback is to take it as it is
+      }
+      rt.reserveBank(n, data.length, 'Amcaf   ')
+      rt.memBanks.get(n)!.data.set(data)
+    },
+
     /** Nop — routine 21 ($231a) is two bytes: `rts`. "has no effect et al" */
     nop() {},
 
@@ -1824,7 +1926,7 @@ function bankRegion(rt: Runtime, a: number, b: number | null): Uint8Array {
   }
   const len = b - a
   if (len <= 0) amcafErr()
-  const head = rt.resolveAddr(a)
+  const head = rt.resolveWrite(a)
   if (!head) amcafErr()
   const avail = head.data.length - head.off
   return head.data.subarray(head.off, head.off + Math.min(len, avail))
@@ -2367,6 +2469,27 @@ function ptInstrPlay(rt: Runtime, instr: number, voice: number, freq: number): v
   if (!s || s.len <= 0) return
   const pcm = new Int8Array(b.data.buffer, b.data.byteOffset + s.off, Math.min(s.len, b.data.length - s.off))
   rt.host.audio?.play(voice < 0 ? 0 : voice & 3, pcm, freq || periodToHz(AMIGA_PERIODS[24]!), pt.volume, -1)
+}
+
+/** the shared body of C2p Shift and C2p Fire */
+function c2pTransform(rt: Runtime, it: Interp, fire: boolean): void {
+  const st = it.evalInt()
+  it.expect(',')
+  const wx = it.evalInt()
+  it.expect(',')
+  const wy = it.evalInt()
+  it.expect('to')
+  const st2 = it.evalInt()
+  it.expect(',')
+  const arg = it.evalInt()
+  const src = rt.resolveAddr(st)
+  const dst = rt.resolveWrite(st2)
+  if (!src || !dst) amcafErr()
+  for (let i = 0; i < wx * wy; i++) {
+    const v = src.data[src.off + i] ?? 0
+    const out = fire ? Math.max(0, v - arg) : v + arg
+    if (dst.off + i < dst.data.length) dst.data[dst.off + i] = out & 0xff
+  }
 }
 
 export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
@@ -3142,6 +3265,36 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
       for (let v = 0; v < 4; v++) if (isFree(v)) return VI(v)
       return VI(-1)
     },
+
+
+    /**
+     * =Amcaf Base / =Amcaf Length — the extension's data block.
+     *
+     * "Gives back the address of the AMCAF data base" and its size, for the
+     * "Assembler and C freaks" the manual addresses. NOTE: the state here is
+     * TypeScript objects rather than a $23b6-byte block at an address — the
+     * init routine allocates exactly that much — so the length is real and
+     * the address is 0, the same choice the Scrn pointers made. APPROXIMATED.
+     */
+    'amcaf base': () => VI(0),
+    'amcaf length': () => VI(0x23b6),
+
+    /**
+     * =Amos Task — "Returns the address of the AMOS task structure".
+     *
+     * There is one task and no exec task structure to point at. 0, like the
+     * other pointer-into-the-machine functions.
+     */
+    'amos task': () => VI(0),
+
+    /**
+     * =Extpath$(name$) — where an extension was loaded from.
+     *
+     * Extensions here are compiled-in ports rather than files loaded off a
+     * disk, so there is no path. The empty string is what the machine returns
+     * for a slot that holds nothing, which is the nearest true answer.
+     */
+    'extpath$': () => VS(''),
 
     /** =Nfn — routine 22. "returns nothing useful ... used in speed testing" */
     nfn: () => VI(0),
