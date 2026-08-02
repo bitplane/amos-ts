@@ -41,6 +41,19 @@ so Forbid and Permit have nothing to forbid and stay n/a; message ports and
 signals have no second task to talk to. Modelling them now would be inventing
 machinery to sit unused.
 
+**The gameport is the case that failed both halves of this test**, and it is
+worth recording because it was planned as a module here and should not have
+been. What is genuinely shared between AMOS's `Joy()`, Sticks' `Multi Joy`,
+the web player's two keyboard presets and its gamepad reader is the packing
+`1` up, `2` down, `4` left, `8` right, `16` fire — and that is AMOS's surface,
+not the machine's. The hardware holds quadrature counters in JOY0DAT/JOY1DAT
+and fire buttons active low in CIA-A PRA, and none of those numbers appear in
+it. The AmigaOS half — decoding that quadrature, `POTGO`, `gameport.device` —
+has no caller at all, because `input.joy` already arrives in AMOS's packing
+from the host. So the shared thing went to `../interp/gameport.ts` and the
+unshared thing was not written. Same call as the device layer, one directory
+further down.
+
 ## The rule that matters: mechanism, not policy
 
 This layer holds **shared mechanism**. It must never hold a caller's **policy**,

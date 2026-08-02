@@ -4,6 +4,7 @@ import { varKey } from './prescan'
 import type { Interp } from './interp'
 import { AMOS_ERRORS, AmosError, VF, VI, VS, amosErrorCode, int, num, str, truthy, varType } from './values'
 import type { Value } from './values'
+import { MAX_PORT, PORT_MOUSE } from './gameport'
 
 /**
  * Instruction handlers. Called with the cursor just past the instruction
@@ -918,8 +919,8 @@ function midStore(tg: { get(): Value; set(v: Value): void }, rawPos: number, cou
  * FJ +Lib.s:13716 errors on a port > 1) */
 function joyPort(it: Parameters<Func>[0], portArg: Value): number {
   const p = int(portArg)
-  if (p >>> 0 > 1) throw new AmosError('function call error')
-  return p === 0 ? it.inp.joy0 : it.inp.joy
+  if (p >>> 0 > MAX_PORT) throw new AmosError('function call error')
+  return p === PORT_MOUSE ? it.inp.joy0 : it.inp.joy
 }
 
 function arity(args: Value[], min: number, max = min): void {

@@ -113,7 +113,7 @@ export interface InputState {
   mouseK: number
   /** button state at the last Mouse Click read, for edge detection */
   mouseClickOld: number
-  /** port-1 joystick bits (Joy(1)): 1 up, 2 down, 4 left, 8 right, 16 fire */
+  /** port-1 joystick bits (Joy(1)) — the `JOY_*` packing in ./gameport.ts */
   joy: number
   /** port-0 joystick bits (Joy(0)) — the mouse port; a distinct player */
   joy0: number

@@ -60,6 +60,7 @@
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { VI, AmosError, int, type Value } from '../interp/values'
+import { MAX_PORT, PORT_MOUSE, joyDirections, joyFire } from '../interp/gameport'
 
 const funcCall: () => never = () => {
   throw new AmosError('Illegal function call', 23)
@@ -90,7 +91,7 @@ export function newSticksState(): SticksState {
 export function makeSticksInstructions(rt: Runtime): Record<string, Instr> {
   /** every routine validates the port with `blt`/`bgt` against 0 and 1 */
   const port = (n: number): number => {
-    if (n < 0 || n > 1) funcCall()
+    if (n < 0 || n > MAX_PORT) funcCall()
     return n
   }
 
@@ -173,11 +174,11 @@ export function makeSticksInstructions(rt: Runtime): Record<string, Instr> {
 
 export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
   const port = (n: number): number => {
-    if (n < 0 || n > 1) funcCall()
+    if (n < 0 || n > MAX_PORT) funcCall()
     return n
   }
   /** the host's state for one of the two real ports */
-  const joyBits = (n: number): number => (n === 0 ? rt.input.joy0 : rt.input.joy)
+  const joyBits = (n: number): number => (n === PORT_MOUSE ? rt.input.joy0 : rt.input.joy)
 
   return {
     'multi joy'(_, a): Value {
@@ -194,9 +195,10 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
       const n = port(int(a[0]!))
       const j = joyBits(n)
       // direction bits are the same encoding AMOS's own Joy() uses
-      let v = j & 0x0f
-      // button A is the ordinary fire on that port
-      if (j & 0x10) v |= 0x80
+      let v = joyDirections(j)
+      // button A is the ordinary fire on that port -- note the remap: AMOS's
+      // single fire is $10, which is button D's bit here
+      if (joyFire(j)) v |= 0x80
       // B, C and D need a two- or four-button adaptor wired to the POT pins.
       // Nothing is attached, and POTINP with an open pin reads as not-pressed.
       return VI(v)
@@ -208,7 +210,7 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
       // through every `cmp.w` and returns 0 rather than raising.
       const button = int(a[0]!)
       const n = port(int(a[1]!))
-      if (button === 1) return VI(joyBits(n) & 0x10 ? -1 : 0)
+      if (button === 1) return VI(joyFire(joyBits(n)) ? -1 : 0)
       return VI(0) // B/C/D: no adaptor
     },
     'stick joy'(_, a): Value {

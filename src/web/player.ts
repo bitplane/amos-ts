@@ -27,6 +27,7 @@ import { isAmosProgram, loadProgram as compileProgram } from '../loader/program'
 import { VERSION } from '../version'
 import { Runtime } from '../runtime/runtime'
 import { AmosRuntimeError } from '../interp/interp'
+import { JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP } from '../interp/gameport'
 import { AmigaFS, MemoryVolume } from '../amiga/vfs'
 import { AdfVolume, isAdf } from '../amiga/adf'
 import { readArchive, volumeFromEntries } from '../runtime/archive'
@@ -64,8 +65,20 @@ export const SPECIAL_CH: Record<string, string> = {
 }
 
 /** joystick bits: 1 up, 2 down, 4 left, 8 right, 16 fire */
-export const KB_ARROWS: Record<string, number> = { ArrowUp: 1, ArrowDown: 2, ArrowLeft: 4, ArrowRight: 8, Space: 16 }
-export const KB_WASD: Record<string, number> = { KeyW: 1, KeyS: 2, KeyA: 4, KeyD: 8, ShiftLeft: 16 }
+export const KB_ARROWS: Record<string, number> = {
+  ArrowUp: JOY_UP,
+  ArrowDown: JOY_DOWN,
+  ArrowLeft: JOY_LEFT,
+  ArrowRight: JOY_RIGHT,
+  Space: JOY_FIRE,
+}
+export const KB_WASD: Record<string, number> = {
+  KeyW: JOY_UP,
+  KeyS: JOY_DOWN,
+  KeyA: JOY_LEFT,
+  KeyD: JOY_RIGHT,
+  ShiftLeft: JOY_FIRE,
+}
 
 /** a keyboard-to-joystick mapping: a preset name, or DOM code -> bits */
 export type JoyKeys = 'arrows' | 'wasd' | 'none' | Record<string, number>
@@ -311,19 +324,20 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   overlay.addEventListener('click', onStart)
 
   // ---- gamepads ----
+  /** a gamepad's sticks and d-pad, as the digital port bits AMOS reads */
   function padBits(gp: Gamepad | null): number {
     if (!gp) return 0
     let b = 0
     const ax = gp.axes
-    if ((ax[1] ?? 0) < -0.5) b |= 1
-    if ((ax[1] ?? 0) > 0.5) b |= 2
-    if ((ax[0] ?? 0) < -0.5) b |= 4
-    if ((ax[0] ?? 0) > 0.5) b |= 8
-    if (gp.buttons[12]?.pressed) b |= 1
-    if (gp.buttons[13]?.pressed) b |= 2
-    if (gp.buttons[14]?.pressed) b |= 4
-    if (gp.buttons[15]?.pressed) b |= 8
-    if (gp.buttons[0]?.pressed || gp.buttons[1]?.pressed) b |= 16
+    if ((ax[1] ?? 0) < -0.5) b |= JOY_UP
+    if ((ax[1] ?? 0) > 0.5) b |= JOY_DOWN
+    if ((ax[0] ?? 0) < -0.5) b |= JOY_LEFT
+    if ((ax[0] ?? 0) > 0.5) b |= JOY_RIGHT
+    if (gp.buttons[12]?.pressed) b |= JOY_UP
+    if (gp.buttons[13]?.pressed) b |= JOY_DOWN
+    if (gp.buttons[14]?.pressed) b |= JOY_LEFT
+    if (gp.buttons[15]?.pressed) b |= JOY_RIGHT
+    if (gp.buttons[0]?.pressed || gp.buttons[1]?.pressed) b |= JOY_FIRE
     return b
   }
 
