@@ -910,3 +910,126 @@ describe('slice 8: the effect engines', () => {
     expect(rt.screens.get(0)!.rp.point(16, 0)).toBe(9)
   })
 })
+
+describe('slice 9: Splinters and Td Stars', () => {
+  const scr = ['Screen Open 0,64,32,16,Lowres', 'Cls 0']
+
+  it('Coords Read gathers every dot that is NOT the background colour', () => {
+    const { rt } = run([
+      ...scr,
+      'Turbo Plot 1,1,5',
+      'Turbo Plot 2,2,6',
+      'Coords Bank 4,100',
+      'Coords Read 0,0,0,0 To 9,9,4,0',
+    ])
+    // two dots found, four bytes each
+    const d = rt.memBanks.get(4)!.data
+    expect((d[0]! << 8) | d[1]!).toBe(1)
+    expect((d[2]! << 8) | d[3]!).toBe(1)
+    expect((d[4]! << 8) | d[5]!).toBe(2)
+  })
+
+  it('Splinters Init takes the colour of the pixel it lifts', () => {
+    // "they don't destroy the background and use the colour of the pixel
+    // they have removed"
+    const { rt } = run([
+      ...scr,
+      'Turbo Plot 3,3,7',
+      'Coords Bank 4,100',
+      'Coords Read 0,0,0,0 To 9,9,4,0',
+      'Splinters Bank 5,50',
+      'Splinters Colour 0,4',
+      'Splinters Init',
+    ])
+    const sp = rt.amcaf.splinters
+    expect(sp.p).toHaveLength(1)
+    expect(sp.p[0]!.c).toBe(7)
+  })
+
+  it('Splinters Bank reserves 22 bytes a splinter, as documented', () => {
+    const { rt } = run([...scr, 'Splinters Bank 5,10'])
+    expect(rt.memBanks.get(5)!.data.length).toBe(220)
+  })
+
+  it('Splinters Gravity drifts them, and Fuel kills them off', () => {
+    const setup = [
+      ...scr,
+      'Turbo Plot 3,3,7',
+      'Coords Bank 4,100',
+      'Coords Read 0,0,0,0 To 9,9,4,0',
+      'Splinters Bank 5,50',
+      'Splinters Init',
+    ]
+    const drift = run([...setup, 'Splinters Gravity 1,0', 'Splinters Move', 'Print Splinters Active'])
+    expect(drift.rt.amcaf.splinters.p[0]!.x).toBe(4) // moved right by the gravity
+    // "the number of steps the splinters are moved before they vanish"
+    const gone = run([...setup, 'Splinters Fuel 1', 'Splinters Init', 'Splinters Move', 'Splinters Move'])
+    expect(gone.rt.amcaf.splinters.p).toHaveLength(0)
+  })
+
+  it('Splinters Back and Single Del put the background back', () => {
+    const { rt } = run([
+      ...scr,
+      'Ink 9 : Bar 0,0 To 9,9',
+      'Coords Bank 4,200',
+      'Coords Read 0,0,0,0 To 3,3,4,0',
+      'Splinters Bank 5,50',
+      'Splinters Init',
+      'Splinters Back',
+      'Splinters Gravity 0,1',
+      'Splinters Move',
+      'Splinters Draw',
+      'Splinters Single Del',
+    ])
+    // the saved background is restored where the splinters started
+    expect(rt.screens.get(0)!.rp.point(0, 0)).toBe(9)
+  })
+
+  it('Td Stars Bank reserves 12 bytes a star, and Init spreads them', () => {
+    const { rt } = run([...scr, 'Td Stars Bank 6,20', 'Td Stars Origin 32,16', 'Td Stars Init'])
+    expect(rt.memBanks.get(6)!.data.length).toBe(240)
+    const st = rt.amcaf.stars
+    expect(st.s).toHaveLength(20)
+    // "the stars are moved by random values to avoid that they all start in
+    // the origin" -- so their velocities differ
+    expect(new Set(st.s.map((q) => q.vx)).size).toBeGreaterThan(1)
+  })
+
+  it('Td Stars Move sends them outward and recycles at the limit', () => {
+    const { rt } = run([
+      ...scr,
+      'Td Stars Bank 6,8',
+      'Td Stars Origin 32,16',
+      'Td Stars Accelerate On',
+      'Td Stars Init',
+      'For I=1 To 60 : Td Stars Move : Next I',
+    ])
+    // every star is still inside the screen: one that left was put back at
+    // the origin, which is what "as soon as they have left the screen" means
+    for (const q of rt.amcaf.stars.s) {
+      expect(q.x | 0).toBeGreaterThanOrEqual(0)
+      expect(q.x | 0).toBeLessThan(64)
+    }
+  })
+
+  it('Td Stars Draw marks the screen and Single Del clears it again', () => {
+    const { rt } = run([
+      ...scr,
+      'Td Stars Bank 6,4',
+      'Td Stars Planes 4',
+      'Td Stars Origin 32,16',
+      'Td Stars Init',
+      'Td Stars Draw',
+    ])
+    expect(rt.screens.get(0)!.rp.point(32, 16)).toBeGreaterThan(0)
+    const cleared = run([
+      ...scr,
+      'Td Stars Bank 6,4',
+      'Td Stars Origin 32,16',
+      'Td Stars Init',
+      'Td Stars Draw',
+      'Td Stars Single Del',
+    ])
+    expect(cleared.rt.screens.get(0)!.rp.point(32, 16)).toBe(0)
+  })
+})

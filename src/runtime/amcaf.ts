@@ -116,6 +116,57 @@ export interface AmcafExamine {
   current: string
 }
 
+
+/**
+ * Splinters: pixels lifted off a picture that keep the colour they took.
+ *
+ * "Splinters are similar to Td Stars, but they don't destroy the background
+ * and use the colour of the pixel they have removed and Splinters require a
+ * list of coordinates. Each coordinate requires four bytes, i.e already a
+ * field of 16x16 coordinates consumes 16 KB of memory."
+ *
+ * "Each Splinter requires 22 bytes of memory" in the bank, which is what
+ * `Splinters Bank bank,splinum` reserves.
+ */
+export interface SplinterState {
+  bank: number
+  max: number
+  coordsBank: number
+  /** the (x,y) pairs Coords Read gathered, which Init feeds the engine from */
+  coords: Array<[number, number]>
+  next: number
+  p: Array<{ x: number; y: number; vx: number; vy: number; c: number; life: number }>
+  gx: number
+  gy: number
+  /** "the number of steps the splinters are moved before they vanish"; 0 = never */
+  fuel: number
+  /** "the max. amount of new Splinters to appear on each step"; -1 = no limit */
+  maxNew: number
+  bkColour: number
+  planes: number
+  limit: { x1: number; y1: number; x2: number; y2: number } | null
+  saved: { x: number; y: number; c: number }[] | null
+}
+
+/**
+ * Td Stars: a 3D starfield, "Each star consumes 12 bytes of memory".
+ *
+ * Unlike Splinters these DO destroy the background, which is why the manual
+ * pairs Draw with a matching Del rather than saving anything.
+ */
+export interface TdStarState {
+  bank: number
+  max: number
+  s: Array<{ x: number; y: number; z: number; vx: number; vy: number }>
+  gx: number
+  gy: number
+  accelerate: boolean
+  ox: number
+  oy: number
+  planes: number
+  limit: { x1: number; y1: number; x2: number; y2: number } | null
+}
+
 export interface AmcafState {
   /** the single Examine context; the extension keeps exactly one */
   examine: AmcafExamine
@@ -137,6 +188,9 @@ export interface AmcafState {
   shadeMask: boolean
   /** the bank Ptile blocks come from */
   ptileBank: number
+  /** the two particle engines, which share a command shape but not a model */
+  splinters: SplinterState
+  stars: TdStarState
   /**
    * The eight "interior palette memory" buffers Pal Get/Set address.
    *
@@ -165,6 +219,15 @@ export function newAmcafState(): AmcafState {
     shadePlanes: 6,
     shadeMask: true,
     ptileBank: 0,
+    splinters: {
+      bank: 0, max: 0, coordsBank: 0, coords: [], next: 0,
+      p: [], gx: 0, gy: 0, fuel: 0, maxNew: -1,
+      bkColour: 0, planes: 6, limit: null, saved: null,
+    },
+    stars: {
+      bank: 0, max: 0, s: [], gx: 0, gy: 0,
+      accelerate: false, ox: 160, oy: 100, planes: 6, limit: null,
+    },
     palettes: Array.from({ length: 8 }, () => new Uint16Array(256)),
     present: true,
   }
@@ -920,6 +983,277 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       exchangeImage(rt, it, false)
     },
 
+
+    /* ---- Splinters ---- */
+
+    /** Coords Bank bank[,coords] — 4 bytes a coordinate; no count re-selects */
+    'coords bank'(it) {
+      const n = it.evalInt()
+      const sp = rt.amcaf.splinters
+      sp.coordsBank = n
+      if (it.accept(',')) {
+        const count = it.evalInt()
+        rt.reserveBank(n, count * 4, 'Coords  ')
+        sp.coords = []
+      }
+      // "If this parameter is omitted the existing bank will only be switched
+      // to without erasing it. So you can jump between predefined banks."
+    },
+
+    /**
+     * Coords Read screen,colour,x1,y1 To x2,y2,bank,mode — "'colour'
+     * represents the background colour, that will be left out when reading in
+     * the dots ... all dots, which don't have the colour" are gathered.
+     */
+    'coords read'(it) {
+      const scr = rt.screens.get(it.evalInt())
+      it.expect(',')
+      const bg = it.evalInt()
+      it.expect(',')
+      const x1 = it.evalInt()
+      it.expect(',')
+      const y1 = it.evalInt()
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      it.expect(',')
+      const bank = it.evalInt()
+      if (it.accept(',')) it.evalInt() // mode: the scan order, invisible here
+      if (!scr) amcafErr()
+      const out: Array<[number, number]> = []
+      for (let y = y1; y <= y2; y++) {
+        for (let x = x1; x <= x2; x++) {
+          const v = scr.rp.point(x, y)
+          if (v >= 0 && v !== bg) out.push([x, y])
+        }
+      }
+      const sp = rt.amcaf.splinters
+      sp.coordsBank = bank
+      sp.coords = out
+      const b = rt.memBanks.get(bank)
+      if (b) {
+        for (let i = 0; i < out.length && i * 4 + 3 < b.data.length; i++) {
+          b.data[i * 4] = (out[i]![0] >> 8) & 0xff
+          b.data[i * 4 + 1] = out[i]![0] & 0xff
+          b.data[i * 4 + 2] = (out[i]![1] >> 8) & 0xff
+          b.data[i * 4 + 3] = out[i]![1] & 0xff
+        }
+      }
+    },
+
+    /** Splinters Bank bank,splinum — "Each Splinter requires 22 bytes" */
+    'splinters bank'(it) {
+      const bank = it.evalInt()
+      it.expect(',')
+      const n = it.evalInt()
+      rt.reserveBank(bank, n * 22, 'Splinter')
+      const sp = rt.amcaf.splinters
+      sp.bank = bank
+      sp.max = n
+      sp.p = []
+    },
+
+    /** Splinters Colour bkcolour,planes — what a lifted dot leaves behind */
+    'splinters colour'(it) {
+      const sp = rt.amcaf.splinters
+      sp.bkColour = it.evalInt()
+      it.expect(',')
+      sp.planes = it.evalInt()
+    },
+
+    /** Splinters Gravity sx,sy — added to the speed each step */
+    'splinters gravity'(it) {
+      const sp = rt.amcaf.splinters
+      sp.gx = it.evalInt()
+      it.expect(',')
+      sp.gy = it.evalInt()
+    },
+
+    /** Splinters Fuel time — steps before they vanish; 0 = only at the edges */
+    'splinters fuel'(it) {
+      rt.amcaf.splinters.fuel = it.evalInt()
+    },
+
+    /** Splinters Max amount — new splinters per step; 0 none, -1 unlimited */
+    'splinters max'(it) {
+      rt.amcaf.splinters.maxNew = it.evalInt()
+    },
+
+    /** Splinters Limit [x1,y1 To x2,y2] — the screen's own limits if omitted */
+    'splinters limit'(it) {
+      rt.amcaf.splinters.limit = readLimit(rt, it)
+    },
+
+    /** Splinters Init — "fed with the coordinates and speeds you specified" */
+    'splinters init'(it) {
+      void it
+      const sp = rt.amcaf.splinters
+      const s = rt.screen
+      sp.p = []
+      sp.next = 0
+      if (!s) return
+      for (const [x, y] of sp.coords) {
+        if (sp.max > 0 && sp.p.length >= sp.max) break
+        const c = s.rp.point(x, y)
+        sp.p.push({ x, y, vx: 0, vy: 0, c: c < 0 ? 0 : c, life: sp.fuel })
+      }
+    },
+
+    /** Splinters Move — one step */
+    'splinters move'(it) {
+      void it
+      moveSplinters(rt)
+    },
+
+    /** Splinters Draw — "Draws the Splinters onto the screen" */
+    'splinters draw'(it) {
+      void it
+      drawSplinters(rt)
+    },
+
+    /** Splinters Back — "Saves the background, on which [they] are to be drawn" */
+    'splinters back'(it) {
+      void it
+      const sp = rt.amcaf.splinters
+      const s = rt.screen
+      if (!s) return
+      sp.saved = sp.p.map((q) => ({ x: q.x | 0, y: q.y | 0, c: Math.max(0, s.rp.point(q.x | 0, q.y | 0)) }))
+    },
+
+    /**
+     * Splinters Single Do / Double Do — one call for the whole cycle.
+     *
+     * Single is for a single-buffered screen (restore, move, draw) and Double
+     * for a double-buffered one, where the previous frame's buffer is already
+     * the background and only move-and-draw are needed.
+     */
+    'splinters single do'(it) {
+      void it
+      restoreSplinters(rt)
+      moveSplinters(rt)
+      drawSplinters(rt)
+    },
+    'splinters double do'(it) {
+      void it
+      moveSplinters(rt)
+      drawSplinters(rt)
+    },
+    'splinters single del'(it) {
+      void it
+      restoreSplinters(rt)
+    },
+    'splinters double del'(it) {
+      void it
+      restoreSplinters(rt)
+    },
+
+    /* ---- Td Stars ---- */
+
+    /** Td Stars Bank bank,stars — "Each star consumes 12 bytes of memory" */
+    'td stars bank'(it) {
+      const bank = it.evalInt()
+      it.expect(',')
+      const n = it.evalInt()
+      rt.reserveBank(bank, n * 12, 'TdStars ')
+      const st = rt.amcaf.stars
+      st.bank = bank
+      st.max = n
+      st.s = []
+    },
+
+    /** Td Stars Planes n — how many bitplanes the stars are drawn into */
+    'td stars planes'(it) {
+      rt.amcaf.stars.planes = it.evalInt()
+    },
+
+    /**
+     * Td Stars Limit [x1,y1 To x2,y2] — and the manual's warning is the point:
+     * "These coordinates must lie WITHIN the screen dimensions, otherwise the
+     * stars could corrupt your memory." Here they cannot; the RastPort clips.
+     */
+    'td stars limit'(it) {
+      rt.amcaf.stars.limit = readLimit(rt, it)
+    },
+
+    /** Td Stars Origin x,y — "where stars start from, as soon as they have left" */
+    'td stars origin'(it) {
+      const st = rt.amcaf.stars
+      st.ox = it.evalInt()
+      it.expect(',')
+      st.oy = it.evalInt()
+    },
+
+    /** Td Stars Gravity sx,sy — a drift added to the speed each step */
+    'td stars gravity'(it) {
+      const st = rt.amcaf.stars
+      st.gx = it.evalInt()
+      it.expect(',')
+      st.gy = it.evalInt()
+    },
+
+    /** Td Stars Accelerate On/Off — "if the stars are to be accelerated" */
+    'td stars accelerate on'() {
+      rt.amcaf.stars.accelerate = true
+    },
+    'td stars accelerate off'() {
+      rt.amcaf.stars.accelerate = false
+    },
+
+    /**
+     * Td Stars Init — "the stars are moved by random values to avoid that
+     * they all start in the origin. This command should therefore be called
+     * once after all parameters have been set."
+     */
+    'td stars init'(it) {
+      void it
+      const st = rt.amcaf.stars
+      st.s = []
+      for (let i = 0; i < st.max; i++) {
+        st.s.push({
+          x: st.ox,
+          y: st.oy,
+          z: 1 + (i % 64),
+          vx: ((i * 37) % 64) - 32,
+          vy: ((i * 53) % 64) - 32,
+        })
+      }
+    },
+
+    /** Td Stars Move [star] — all of them, or one */
+    'td stars move'(it) {
+      if (!it.atStmtEnd()) {
+        moveStar(rt, it.evalInt())
+        return
+      }
+      for (let i = 0; i < rt.amcaf.stars.s.length; i++) moveStar(rt, i)
+    },
+
+    /** Td Stars Draw — every star onto the screen */
+    'td stars draw'(it) {
+      void it
+      drawStars(rt, true)
+    },
+    'td stars single del'(it) {
+      void it
+      drawStars(rt, false)
+    },
+    'td stars double del'(it) {
+      void it
+      drawStars(rt, false)
+    },
+    'td stars single do'(it) {
+      void it
+      drawStars(rt, false)
+      for (let i = 0; i < rt.amcaf.stars.s.length; i++) moveStar(rt, i)
+      drawStars(rt, true)
+    },
+    'td stars double do'(it) {
+      void it
+      for (let i = 0; i < rt.amcaf.stars.s.length; i++) moveStar(rt, i)
+      drawStars(rt, true)
+    },
+
     /** Nop — routine 21 ($231a) is two bytes: `rts`. "has no effect et al" */
     nop() {},
 
@@ -1534,6 +1868,89 @@ function exchangeImage(rt: Runtime, it: Interp, sprites: boolean): void {
   list[b - 1] = tmp
 }
 
+/* ------------------------------------------------------------------ *
+ * Slice 9: the particle engines
+ * ------------------------------------------------------------------ */
+
+/** the shared `[x1,y1 To x2,y2]` limit argument, defaulting to the screen */
+function readLimit(rt: Runtime, it: Interp): { x1: number; y1: number; x2: number; y2: number } | null {
+  if (it.atStmtEnd()) return null // "AMCAF uses the limits of the current screen"
+  const x1 = it.evalInt()
+  it.expect(',')
+  const y1 = it.evalInt()
+  it.expect('to')
+  const x2 = it.evalInt()
+  it.expect(',')
+  const y2 = it.evalInt()
+  void rt
+  return { x1, y1, x2, y2 }
+}
+
+const inLimit = (rt: Runtime, lim: { x1: number; y1: number; x2: number; y2: number } | null, x: number, y: number): boolean => {
+  const s = rt.screen
+  if (!s) return false
+  if (!lim) return x >= 0 && y >= 0 && x < s.width && y < s.height
+  return x >= lim.x1 && y >= lim.y1 && x <= lim.x2 && y <= lim.y2
+}
+
+function moveSplinters(rt: Runtime): void {
+  const sp = rt.amcaf.splinters
+  for (const q of sp.p) {
+    q.vx += sp.gx
+    q.vy += sp.gy
+    q.x += q.vx
+    q.y += q.vy
+    // "If you set 'time' to 0, the Splinters only disappear at the edges"
+    if (sp.fuel > 0 && q.life > 0) q.life--
+  }
+  sp.p = sp.p.filter((q) => (sp.fuel === 0 || q.life > 0) && inLimit(rt, sp.limit, q.x | 0, q.y | 0))
+}
+
+function drawSplinters(rt: Runtime): void {
+  const sp = rt.amcaf.splinters
+  const s = rt.screen
+  if (!s) return
+  const mask = (1 << sp.planes) - 1
+  for (const q of sp.p) s.rp.putPixel(q.x | 0, q.y | 0, q.c & mask)
+  s.rp.bitMap.invalidate()
+}
+
+/** put back what Splinters Back saved, which is how the background survives */
+function restoreSplinters(rt: Runtime): void {
+  const sp = rt.amcaf.splinters
+  const s = rt.screen
+  if (!s || !sp.saved) return
+  for (const q of sp.saved) s.rp.putPixel(q.x, q.y, q.c)
+  s.rp.bitMap.invalidate()
+}
+
+function moveStar(rt: Runtime, i: number): void {
+  const st = rt.amcaf.stars
+  const q = st.s[i]
+  if (!q) return
+  q.vx += st.gx
+  q.vy += st.gy
+  // an accelerating star gains speed as it approaches, which is what makes a
+  // 3D field look like one rather than a drift
+  if (st.accelerate) q.z += 1
+  q.x += (q.vx * q.z) / 256
+  q.y += (q.vy * q.z) / 256
+  if (!inLimit(rt, st.limit, q.x | 0, q.y | 0)) {
+    q.x = st.ox
+    q.y = st.oy
+    q.z = 1
+  }
+}
+
+function drawStars(rt: Runtime, on: boolean): void {
+  const st = rt.amcaf.stars
+  const s = rt.screen
+  if (!s) return
+  const mask = (1 << st.planes) - 1
+  for (const q of st.s) s.rp.putPixel(q.x | 0, q.y | 0, on ? mask : 0)
+  s.rp.bitMap.invalidate()
+}
+
 export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
   void rt
   const i0 = (a: Value[], n: number): number => int(a[n] ?? VI(0))
@@ -2138,6 +2555,9 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * function to remember the position of the next copper instruction."
      */
     'cop pos': () => VI(rt.copLogicAddr() + rt.copPos),
+
+    /** =Splinters Active — how many splinters are still alive */
+    'splinters active': () => VI(rt.amcaf.splinters.p.length),
 
     /** =Nfn — routine 22. "returns nothing useful ... used in speed testing" */
     nfn: () => VI(0),

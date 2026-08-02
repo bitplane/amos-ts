@@ -1412,6 +1412,17 @@ export const FAITHFUL = new Set<string>([
   'shade bob planes', 'shade bob mask', 'shade bob up', 'shade bob down',
   'shade pix', 'pix shift up', 'pix shift down', 'pix brighten', 'pix darken',
   'make pix mask', 'ptile bank', 'paste ptile', 'exchange bob', 'exchange icon',
+  // slice 9: the particle engines
+  'coords bank', 'coords read', 'splinters bank', 'splinters colour',
+  'splinters gravity', 'splinters fuel', 'splinters max', 'splinters limit',
+  'splinters init', 'splinters move', 'splinters draw', 'splinters back',
+  'splinters active', 'splinters single do', 'splinters double do',
+  'splinters single del', 'splinters double del',
+  'td stars bank', 'td stars planes', 'td stars limit', 'td stars origin',
+  'td stars gravity', 'td stars accelerate on', 'td stars accelerate off',
+  'td stars init', 'td stars move', 'td stars draw',
+  'td stars single do', 'td stars double do',
+  'td stars single del', 'td stars double del',
 
   // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
   // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
@@ -2002,7 +2013,19 @@ export const NOTES: Record<string, string> = {
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
   // --- AGA 1.0: doc plus disassembly; the doc loses three times ---
-  // --- AMCAF slices 1-8 ---
+  // --- AMCAF slices 1-9 ---
+  'splinters bank':
+    "'Reserves a memory bank for a maximum of splinum Splinters. Each Splinter requires 22 bytes of memory' -- the figure is documented and the reservation matches it, so a program checking Length(bank) sees what the machine showed",
+  'coords read':
+    "'colour represents the background colour, that will be left out when reading in the dots ... all dots, which don't have the colour' are gathered. Splinters need this list because, unlike Td Stars, 'they don't destroy the background and use the colour of the pixel they have removed'",
+  'splinters fuel':
+    "'the number of steps the splinters are moved before they vanish. If you set time to 0, the Splinters only disappear at the edges of the screen' -- so zero is unlimited life rather than instant death",
+  'td stars bank':
+    "'Each star consumes 12 bytes of memory.' Td Stars DO destroy the background, which is why the manual pairs Draw with a matching Del rather than saving anything -- the opposite of Splinters",
+  'td stars limit':
+    "'These coordinates must lie WITHIN the screen dimensions, otherwise the stars could corrupt your memory.' DEVIATION: they cannot here, because every write goes through the RastPort and is clipped. A program relying on the corruption -- there is no reason to -- would not see it",
+  'td stars init':
+    "'the stars are moved by random values to avoid that they all start in the origin. This command should therefore be called once after all parameters have been set'",
   'shade pix':
     "'increases the colour value at the given point ... If the highest colour is reached, the colour is resetted to be cycled', so it WRAPS within the plane count rather than clamping -- which is what separates the Shade family from Pix Brighten and Pix Darken",
   'pix shift up':
