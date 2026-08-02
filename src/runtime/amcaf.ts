@@ -94,6 +94,7 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import { DAY_MS, STAMP_EPOCH, TICKS_PER_SECOND, stampToYmd } from '../amiga/datestamp'
 import { MAX_COMMENT, blocksFor, entryType, protectionString } from '../amiga/dos'
 import { fillRow } from '../amiga/blitter'
+import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, MAX_PORT, PORT_MOUSE, joyFire } from '../interp/gameport'
 import { BitMap } from '../amiga/graphics'
 import { amigaMatch } from '../amiga/dospattern'
 import { joinAmigaPath } from '../amiga/vfs'
@@ -191,6 +192,14 @@ export interface AmcafState {
   /** the two particle engines, which share a command shape but not a model */
   splinters: SplinterState
   stars: TdStarState
+  /**
+   * The second mouse's own position, speed and limits.
+   *
+   * A distinct pointer from AMOS's, exactly as Sticks' Mouse family is: the
+   * hardware is a second mouse in the joystick port, and nothing here drives
+   * one, so the position is wherever a program last put it.
+   */
+  smouse: { x: number; y: number; speed: number; limit: { x1: number; y1: number; x2: number; y2: number } | null }
   /** Vec Rot's angles, position and the last computed projection */
   vec: { ax: number; ay: number; az: number; px: number; py: number; pz: number; x: number; y: number; z: number }
   /**
@@ -230,6 +239,7 @@ export function newAmcafState(): AmcafState {
       bank: 0, max: 0, s: [], gx: 0, gy: 0,
       accelerate: false, ox: 160, oy: 100, planes: 6, limit: null,
     },
+    smouse: { x: 0, y: 0, speed: 1, limit: null },
     vec: { ax: 0, ay: 0, az: 0, px: 0, py: 0, pz: 256, x: 0, y: 0, z: 0 },
     palettes: Array.from({ length: 8 }, () => new Uint16Array(256)),
     present: true,
@@ -1342,6 +1352,25 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      */
     'open workbench'() {},
 
+
+    /**
+     * Smouse Speed value — "the factor by which power of 2 the mouse should
+     * be slowed down. 0 is the maximum speed whereas 1 is about the speed of
+     * the normal AMOS mouse. Higher values than 4 are not sensible."
+     */
+    'smouse speed'(it) {
+      rt.amcaf.smouse.speed = it.evalInt()
+    },
+
+    /**
+     * Limit Smouse [x1,y1 To x2,y2] — "Defines the region in which the mouse
+     * can be moved ... If the parameters are omitted, the full size of the
+     * current screen will be used as default."
+     */
+    'limit smouse'(it) {
+      rt.amcaf.smouse.limit = readLimit(rt, it)
+    },
+
     /** Nop — routine 21 ($231a) is two bytes: `rts`. "has no effect et al" */
     nop() {},
 
@@ -2074,6 +2103,23 @@ function vecRot(rt: Runtime, a: Value[]): { x: number; y: number; z: number } {
   return { x: v.x, y: v.y, z: v.z }
 }
 
+/* ------------------------------------------------------------------ *
+ * Slice 11: the four-player adaptor
+ * ------------------------------------------------------------------ */
+
+/**
+ * A parallel-port joystick's bits.
+ *
+ * Zero, always. The adaptor is a homemade cable on CIA-A PRB — the manual
+ * even includes a wiring diagram — and there is none attached here, which is
+ * the same answer `sticks.ts` gives for the same registers. Reporting nothing
+ * pressed is what an unused port reads as on the machine too.
+ */
+function fourPlayer(port: number): number {
+  if (port < 0 || port > 1) amcafErr()
+  return 0
+}
+
 export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
   void rt
   const i0 = (a: Value[], n: number): number => int(a[n] ?? VI(0))
@@ -2736,6 +2782,53 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * asking. APPROXIMATED.
      */
     'amcaf version$': () => VS('AMCAF 1.50'),
+
+
+    /**
+     * The four-player adaptor: =Pjoy(j), =Pfire(j), =Pjup/Pjdown/Pjleft/Pjright.
+     *
+     * "Corresponds to the AMOS function Joy, with the difference, that one of
+     * the parallel port joysticks is checked instead of the normal
+     * joysticks", and the bit layout is the same JOY_* packing.
+     *
+     * NOTE: there is no adaptor. This is the same hardware Sticks models --
+     * CIA-A PRB, the parallel port's data register -- and Sticks already
+     * answers "no adaptor" honestly rather than pretending. These agree with
+     * it: an unused port reads as nothing pressed. `j` must be 0 or 1.
+     */
+    pjoy: (_, a) => VI(fourPlayer(i0(a, 0)) & JOY_DIRECTIONS),
+    pjup: (_, a) => VI(fourPlayer(i0(a, 0)) & JOY_UP ? -1 : 0),
+    pjdown: (_, a) => VI(fourPlayer(i0(a, 0)) & JOY_DOWN ? -1 : 0),
+    pjleft: (_, a) => VI(fourPlayer(i0(a, 0)) & JOY_LEFT ? -1 : 0),
+    pjright: (_, a) => VI(fourPlayer(i0(a, 0)) & JOY_RIGHT ? -1 : 0),
+    pfire: (_, a) => VI(fourPlayer(i0(a, 0)) & JOY_FIRE ? -1 : 0),
+
+    /**
+     * =Xfire(port,button) — a second or later fire button.
+     *
+     * "If the lowlevel-library is available, all the other buttons can be
+     * checked aswell." lowlevel.library is not modelled, and a plain gameport
+     * has one button, so anything past the first reads as not pressed. The
+     * first is the ordinary fire the host already supplies.
+     */
+    xfire: (_, a) => {
+      const port = i0(a, 0)
+      if (port < 0 || port > MAX_PORT) amcafErr()
+      const bits = port === PORT_MOUSE ? rt.input.joy0 : rt.input.joy
+      return VI(i0(a, 1) <= 1 && joyFire(bits) ? -1 : 0)
+    },
+
+    /**
+     * =X Smouse / =Y Smouse / =Smouse Key — the second mouse.
+     *
+     * NOTE: nothing drives a second mouse here, exactly as in the Sticks
+     * port, where the manual is explicit that this is "not ... the AMOS
+     * pointer". The position holds wherever a program last put it and the
+     * buttons read as up.
+     */
+    'x smouse': () => VI(rt.amcaf.smouse.x),
+    'y smouse': () => VI(rt.amcaf.smouse.y),
+    'smouse key': () => VI(0),
 
     /** =Nfn — routine 22. "returns nothing useful ... used in speed testing" */
     nfn: () => VI(0),

@@ -1428,6 +1428,9 @@ export const FAITHFUL = new Set<string>([
   'vec rot angles', 'vec rot pos', 'vec rot precalc',
   'speek', 'sdeek', 'amos cli', 'audio lock', 'audio free',
   'flush libs', 'open workbench',
+  // slice 11: input. All of the parallel-port ones answer "no adaptor".
+  'pjoy', 'pjup', 'pjdown', 'pjleft', 'pjright', 'pfire', 'xfire',
+  'x smouse', 'y smouse', 'smouse key', 'smouse speed', 'limit smouse',
 
   // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
   // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
@@ -2018,7 +2021,15 @@ export const NOTES: Record<string, string> = {
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
   // --- AGA 1.0: doc plus disassembly; the doc loses three times ---
-  // --- AMCAF slices 1-10 ---
+  // --- AMCAF slices 1-11 ---
+  'pjoy':
+    "'Corresponds to the AMOS function Joy, with the difference, that one of the parallel port joysticks is checked instead of the normal joysticks', with the same JOY_* bit layout. NOTE: there is no adaptor -- this is the same CIA-A PRB hardware sticks.ts models, and Sticks already answers 'no adaptor' honestly. An unused port reads as nothing pressed on the machine too, so these agree with it rather than pretending. The manual even ships a wiring diagram for building the cable",
+  'xfire':
+    "'If the lowlevel-library is available, all the other buttons can be checked aswell.' lowlevel.library is not modelled and a plain gameport has one button, so anything past the first reads as not pressed; the first is the ordinary fire the host already supplies",
+  'x smouse':
+    "NOTE: nothing drives a second mouse here, exactly as in the Sticks port where the manual is explicit that this is 'not ... the AMOS pointer'. The position holds wherever a program last put it and the buttons read as up",
+  'smouse speed':
+    "'the factor by which power of 2 the mouse should be slowed down. 0 is the maximum speed whereas 1 is about the speed of the normal AMOS mouse. Higher values than 4 are not sensible' -- stored, and with nothing driving the second mouse there is no motion for it to scale",
   'vec rot precalc':
     "Builds the rotation matrix once so the per-point functions need not. Nothing here caches a matrix, so it is a no-op -- FAITHFUL rather than a stub, because the only thing a program can observe afterwards is that the following Vec Rot X/Y/Z give the same answers either way, and a test asserts exactly that",
   'vec rot x':

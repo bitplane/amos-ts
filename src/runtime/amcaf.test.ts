@@ -1100,3 +1100,50 @@ describe('slice 10: vectors and the extension internals', () => {
     expect(() => run(['Audio Lock', 'Audio Free', 'Flush Libs', 'Open Workbench'])).not.toThrow()
   })
 })
+
+describe('slice 11: the four-player adaptor and the second mouse', () => {
+  const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
+
+  it('the parallel-port joysticks report nothing, as Sticks does for the same wires', () => {
+    // CIA-A PRB with no adaptor attached: an unused port reads as nothing
+    // pressed on the machine too
+    for (const j of [0, 1]) {
+      expect(p(`Pjoy(${j})`)).toBe('0')
+      expect(p(`Pfire(${j})`)).toBe('0')
+      expect(p(`Pjup(${j})`)).toBe('0')
+      expect(p(`Pjdown(${j})`)).toBe('0')
+      expect(p(`Pjleft(${j})`)).toBe('0')
+      expect(p(`Pjright(${j})`)).toBe('0')
+    }
+  })
+
+  it("'j' must be either 0 or 1, which the manual states", () => {
+    expect(() => p('Pjoy(2)')).toThrow(/Illegal function call/)
+    expect(() => p('Pjoy(-1)')).toThrow(/Illegal function call/)
+  })
+
+  it('Xfire reads the ordinary fire for button 1 and nothing beyond', () => {
+    const { rt } = run(['Print 1'])
+    rt.input.joy = 16 // fire on the joystick port
+    expect(run(['Print 1']).rt).toBeTruthy()
+    // button 2 and up need lowlevel.library, which is not modelled
+    expect(p('Xfire(1,2)')).toBe('0')
+    expect(p('Xfire(1,4)')).toBe('0')
+    expect(() => p('Xfire(3,1)')).toThrow(/Illegal function call/)
+  })
+
+  it('the second mouse holds where a program put it and reads no buttons', () => {
+    // "not ... the AMOS pointer" -- a distinct position with nothing driving it
+    expect(p('X Smouse')).toBe('0')
+    expect(p('Y Smouse')).toBe('0')
+    expect(p('Smouse Key')).toBe('0')
+  })
+
+  it('Smouse Speed and Limit Smouse hold their settings', () => {
+    expect(run(['Smouse Speed 3']).rt.amcaf.smouse.speed).toBe(3)
+    const { rt } = run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse 1,2 To 30,20'])
+    expect(rt.amcaf.smouse.limit).toEqual({ x1: 1, y1: 2, x2: 30, y2: 20 })
+    // "If the parameters are omitted, the full size of the current screen"
+    expect(run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse']).rt.amcaf.smouse.limit).toBe(null)
+  })
+})
