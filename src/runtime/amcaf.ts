@@ -94,6 +94,8 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import { DAY_MS, STAMP_EPOCH, TICKS_PER_SECOND, stampToYmd } from '../amiga/datestamp'
 import { MAX_COMMENT, blocksFor, entryType, protectionString } from '../amiga/dos'
 import { fillRow } from '../amiga/blitter'
+import { AMIGA_PERIODS, clampVolume, periodToHz } from '../amiga/paula'
+import { parseSampleBank } from './audio'
 import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, MAX_PORT, PORT_MOUSE, joyFire } from '../interp/gameport'
 import { BitMap } from '../amiga/graphics'
 import { amigaMatch } from '../amiga/dospattern'
@@ -168,6 +170,38 @@ export interface TdStarState {
   limit: { x1: number; y1: number; x2: number; y2: number } | null
 }
 
+
+/**
+ * The ProTracker replayer's state — the third module player in this port,
+ * after AMOS's own tracker and MED.
+ *
+ * The module itself stays in its AMOS bank; this holds only what the keywords
+ * report and control. `cia` is the timing source the manual makes a point of:
+ * "if you specify a value of zero, the timing will be switched from
+ * CIA-Timing to Vertical Blank Timing. Then the bpm rate is automatically set
+ * to exactly 125."
+ */
+export interface PtState {
+  bank: number
+  samBank: number
+  playing: boolean
+  pos: number
+  row: number
+  tick: number
+  speed: number
+  bpm: number
+  cia: boolean
+  volume: number
+  /** which of the four voices the music may use */
+  voices: number
+  signal: number
+  vu: number[]
+  note: number[]
+  instr: number[]
+  /** Pt Free Voice: which voices are not claimed by the music */
+  free: boolean[]
+}
+
 export interface AmcafState {
   /** the single Examine context; the extension keeps exactly one */
   examine: AmcafExamine
@@ -200,6 +234,8 @@ export interface AmcafState {
    * one, so the position is wherever a program last put it.
    */
   smouse: { x: number; y: number; speed: number; limit: { x1: number; y1: number; x2: number; y2: number } | null }
+  /** the ProTracker replayer's state */
+  pt: PtState
   /** Vec Rot's angles, position and the last computed projection */
   vec: { ax: number; ay: number; az: number; px: number; py: number; pz: number; x: number; y: number; z: number }
   /**
@@ -240,6 +276,12 @@ export function newAmcafState(): AmcafState {
       accelerate: false, ox: 160, oy: 100, planes: 6, limit: null,
     },
     smouse: { x: 0, y: 0, speed: 1, limit: null },
+    pt: {
+      bank: 0, samBank: 0, playing: false, pos: 0, row: 0, tick: 0,
+      speed: 6, bpm: 125, cia: true, volume: 64, voices: 0b1111,
+      signal: 0, vu: [0, 0, 0, 0], note: [0, 0, 0, 0], instr: [0, 0, 0, 0],
+      free: [true, true, true, true],
+    },
     vec: { ax: 0, ay: 0, az: 0, px: 0, py: 0, pz: 256, x: 0, y: 0, z: 0 },
     palettes: Array.from({ length: 8 }, () => new Uint16Array(256)),
     present: true,
@@ -1371,6 +1413,153 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       rt.amcaf.smouse.limit = readLimit(rt, it)
     },
 
+
+    /* ---- ProTracker ---- */
+
+    /**
+     * Pt Play bank[,songpos] — "starts a Protracker music module which has
+     * be[en] situated in memory bank number 'bank'."
+     */
+    'pt play'(it) {
+      const bank = it.evalInt()
+      const pos = it.accept(',') ? it.evalInt() : 0
+      const b = rt.memBanks.get(bank)
+      if (!b) amcafErr()
+      const pt = rt.amcaf.pt
+      pt.bank = bank
+      pt.playing = true
+      pt.pos = pos
+      pt.row = 0
+      pt.tick = 0
+      pt.signal = 0
+    },
+
+    /**
+     * Pt Stop — and the changelog records the bug that made it worth
+     * checking: "Fixed a bug in Pt Stop which cut off the channels, even if
+     * no music had been playing." So a Stop with nothing playing must leave
+     * the sample channels alone, which is what this does.
+     */
+    'pt stop'() {
+      const pt = rt.amcaf.pt
+      if (!pt.playing) return
+      pt.playing = false
+      for (let v = 0; v < 4; v++) {
+        if (pt.voices & (1 << v)) rt.host.audio?.stop(v)
+      }
+    },
+
+    /** Pt Continue — resume where Pt Stop left off */
+    'pt continue'() {
+      if (rt.amcaf.pt.bank !== 0) rt.amcaf.pt.playing = true
+    },
+
+    /** Pt Bank bank — "if you want to play back instruments from a music
+     * module but the music bank has not yet been specified with Pt Play" */
+    'pt bank'(it) {
+      rt.amcaf.pt.bank = it.evalInt()
+    },
+    /** Pt Sam Bank bank — the AMOS sample bank Pt Sam Play draws from */
+    'pt sam bank'(it) {
+      rt.amcaf.pt.samBank = it.evalInt()
+    },
+
+    /** Pt Volume n — the master volume, 0..64 as Paula counts it */
+    'pt volume'(it) {
+      rt.amcaf.pt.volume = clampVolume(it.evalInt())
+    },
+
+    /** Pt Voice mask — which of the four voices the music may use */
+    'pt voice'(it) {
+      rt.amcaf.pt.voices = it.evalInt() & 15
+    },
+
+    /**
+     * Pt Cia Speed bpm — "the number of beats per minute or if you specify a
+     * value of zero, the timing will be switched from CIA-Timing to Vertical
+     * Blank Timing. Then the bpm rate is automatically set to exactly 125."
+     */
+    'pt cia speed'(it) {
+      const bpm = it.evalInt()
+      const pt = rt.amcaf.pt
+      if (bpm === 0) {
+        pt.cia = false
+        pt.bpm = 125
+        return
+      }
+      pt.cia = true
+      pt.bpm = bpm
+    },
+
+    /**
+     * Pt Sam Play [voice,]samnr[,freq] — a sample from an AMOS sample bank.
+     *
+     * "The advantage to the normal Sam Play instruction is that the sounds
+     * 'interact'" with the music: the replayer knows which voices it is using
+     * and a sample takes one that is free.
+     */
+    'pt sam play'(it) {
+      const a = it.evalInt()
+      let voice = -1
+      let sam = a
+      let freq = 0
+      if (it.accept(',')) {
+        voice = a
+        sam = it.evalInt()
+        if (it.accept(',')) freq = it.evalInt()
+      }
+      ptSamPlay(rt, voice, sam, freq)
+    },
+
+    /** Pt Sam Stop voice — silence one voice */
+    'pt sam stop'(it) {
+      const v = it.evalInt()
+      if (v >= 0 && v < 4) rt.host.audio?.stop(v)
+    },
+
+    /** Pt Sam Volume voice[,vol] — set a voice's volume */
+    'pt sam volume'(it) {
+      const a = it.evalInt()
+      if (it.accept(',')) {
+        rt.host.audio?.setVolume(a & 3, clampVolume(it.evalInt()))
+        return
+      }
+      for (let v = 0; v < 4; v++) rt.host.audio?.setVolume(v, clampVolume(a))
+    },
+
+    /** Pt Sam Freq voice,freq — retune a playing voice */
+    'pt sam freq'(it) {
+      const v = it.evalInt()
+      it.expect(',')
+      rt.host.audio?.setFrequency(v & 3, it.evalInt())
+    },
+
+    /** Pt Instr Play instr[,voice[,freq]] — one of the module's own samples */
+    'pt instr play'(it) {
+      const instr = it.evalInt()
+      const voice = it.accept(',') ? it.evalInt() : -1
+      const freq = it.accept(',') ? it.evalInt() : 0
+      ptInstrPlay(rt, instr, voice, freq)
+    },
+
+    /**
+     * Pt Raw Play voice,address,length,period — a raw sample straight at a
+     * voice, bypassing every bank.
+     */
+    'pt raw play'(it) {
+      const voice = it.evalInt() & 3
+      it.expect(',')
+      const addr = it.evalInt()
+      it.expect(',')
+      const len = it.evalInt()
+      it.expect(',')
+      const period = it.evalInt()
+      const m = rt.resolveAddr(addr)
+      if (!m || len <= 0) return
+      const pcm = new Int8Array(m.data.buffer, m.data.byteOffset + m.off, Math.min(len, m.data.length - m.off))
+      rt.host.audio?.play(voice, pcm, periodToHz(period), rt.amcaf.pt.volume, -1)
+    },
+
     /** Nop — routine 21 ($231a) is two bytes: `rts`. "has no effect et al" */
     nop() {},
 
@@ -2120,6 +2309,66 @@ function fourPlayer(port: number): number {
   return 0
 }
 
+/* ------------------------------------------------------------------ *
+ * Slice 12: ProTracker
+ * ------------------------------------------------------------------ */
+
+/**
+ * One sample out of a ProTracker module.
+ *
+ * The format is fixed and public: 20 bytes of song name, then 31 sample
+ * headers of 30 bytes each (22-byte name, length in WORDS, finetune, volume,
+ * repeat point and repeat length), the song length and restart byte, a
+ * 128-entry pattern order, four magic bytes, then the patterns and finally
+ * the sample data in order.
+ */
+function modSample(mod: Uint8Array, n: number): { off: number; len: number } | null {
+  if (n < 1 || n > 31 || mod.length < 1084) return null
+  const rd = (o: number): number => ((mod[o] ?? 0) << 8) | (mod[o + 1] ?? 0)
+  let patterns = 0
+  for (let i = 0; i < 128; i++) patterns = Math.max(patterns, (mod[952 + i] ?? 0) + 1)
+  let off = 1084 + patterns * 1024
+  for (let i = 1; i <= 31; i++) {
+    const len = rd(20 + (i - 1) * 30 + 22) * 2
+    if (i === n) return { off, len }
+    off += len
+  }
+  return null
+}
+
+/** Pt Sam Play: an AMOS sample bank entry onto a voice the music is not using */
+function ptSamPlay(rt: Runtime, voice: number, sam: number, freq: number): void {
+  const pt = rt.amcaf.pt
+  const b = rt.memBanks.get(pt.samBank || 5)
+  if (!b) return
+  const list = parseSampleBank(b.data)
+  const e = list[sam - 1]
+  if (!e) return
+  // "the sounds 'interact'" with the music: an unnamed voice takes a free one
+  let v = voice
+  if (v < 0) {
+    v = 0
+    for (let i = 0; i < 4; i++) {
+      if (!pt.playing || (pt.voices & (1 << i)) === 0) {
+        v = i
+        break
+      }
+    }
+  }
+  rt.host.audio?.play(v & 3, e.pcm, freq || e.freq, pt.volume, -1)
+}
+
+/** Pt Instr Play: one of the MODULE's samples, rather than an AMOS bank's */
+function ptInstrPlay(rt: Runtime, instr: number, voice: number, freq: number): void {
+  const pt = rt.amcaf.pt
+  const b = rt.memBanks.get(pt.bank)
+  if (!b) return
+  const s = modSample(b.data, instr)
+  if (!s || s.len <= 0) return
+  const pcm = new Int8Array(b.data.buffer, b.data.byteOffset + s.off, Math.min(s.len, b.data.length - s.off))
+  rt.host.audio?.play(voice < 0 ? 0 : voice & 3, pcm, freq || periodToHz(AMIGA_PERIODS[24]!), pt.volume, -1)
+}
+
 export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
   void rt
   const i0 = (a: Value[], n: number): number => int(a[n] ?? VI(0))
@@ -2829,6 +3078,70 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     'x smouse': () => VI(rt.amcaf.smouse.x),
     'y smouse': () => VI(rt.amcaf.smouse.y),
     'smouse key': () => VI(0),
+
+
+    /** =Pt Cpos — "the current 'row' ... a number between 0 and 63" */
+    'pt cpos': () => VI(rt.amcaf.pt.row & 63),
+    /** =Pt Cpattern — the song position being played */
+    'pt cpattern': () => VI(rt.amcaf.pt.pos),
+    /** =Pt Cnote(channel) — the note last triggered on a channel */
+    'pt cnote': (_, a) => VI(rt.amcaf.pt.note[i0(a, 0) & 3] ?? 0),
+    /** =Pt Cinstr(channel) — the instrument last triggered on a channel */
+    'pt cinstr': (_, a) => VI(rt.amcaf.pt.instr[i0(a, 0) & 3] ?? 0),
+
+    /**
+     * =Pt Vu(channel) — "the current volume of channel number 'channel'. If a
+     * new note is played, 'vol' contains the volume level else 0."
+     *
+     * So it is a note-on latch rather than a live meter, the same shape as
+     * AMOS's own Vumeter.
+     */
+    'pt vu': (_, a) => {
+      const c = i0(a, 0) & 3
+      const v = rt.amcaf.pt.vu[c] ?? 0
+      rt.amcaf.pt.vu[c] = 0
+      return VI(v)
+    },
+
+    /**
+     * =Pt Signal — the module's own effect commands surfacing to the program.
+     *
+     * The changelog pins one value: "When reaching the end of a song, Pt
+     * Signal now reports $FF."
+     */
+    'pt signal': () => VI(rt.amcaf.pt.signal),
+
+    /** =Pt Data Base — the replayer's data block, for the assembler crowd */
+    'pt data base': () => VI(0),
+
+    /** =Pt Instr Address(n) / =Pt Instr Length(n) — a module sample in memory */
+    'pt instr address': (_, a) => {
+      const b = rt.memBanks.get(rt.amcaf.pt.bank)
+      if (!b) return VI(0)
+      const inst = modSample(b.data, i0(a, 0))
+      return VI(inst ? rt.bankBase(rt.amcaf.pt.bank) + inst.off : 0)
+    },
+    'pt instr length': (_, a) => {
+      const b = rt.memBanks.get(rt.amcaf.pt.bank)
+      if (!b) return VI(0)
+      return VI(modSample(b.data, i0(a, 0))?.len ?? 0)
+    },
+
+    /**
+     * =Pt Free Voice[(n)] — which voices the music is not using.
+     *
+     * A 1.50 addition with no manual entry: DISASSEMBLY tier by the author's
+     * own "You'll have to find out the new commands since V1.40 yourself".
+     * With an argument it answers for one voice, without it returns the first
+     * free one or -1.
+     */
+    'pt free voice': (_, a) => {
+      const pt = rt.amcaf.pt
+      const isFree = (v: number): boolean => !pt.playing || (pt.voices & (1 << v)) === 0
+      if (a.length > 0) return VI(isFree(i0(a, 0) & 3) ? -1 : 0)
+      for (let v = 0; v < 4; v++) if (isFree(v)) return VI(v)
+      return VI(-1)
+    },
 
     /** =Nfn — routine 22. "returns nothing useful ... used in speed testing" */
     nfn: () => VI(0),

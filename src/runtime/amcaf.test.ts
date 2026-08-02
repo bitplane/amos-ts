@@ -1147,3 +1147,81 @@ describe('slice 11: the four-player adaptor and the second mouse', () => {
     expect(run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse']).rt.amcaf.smouse.limit).toBe(null)
   })
 })
+
+describe('slice 12: ProTracker replay', () => {
+  /** the smallest legal module: 31 sample headers, one pattern, one sample */
+  const modBank = (): string[] => [
+    'Reserve As Work 3,3000',
+    'Poke Start(3)+20+22,0 : Poke Start(3)+20+23,4', // sample 1 length = 4 words
+    'Poke Start(3)+950,1', // song length 1
+    'Poke Start(3)+952,0', // order[0] = pattern 0
+    'Poke Start(3)+1080,Asc("M") : Poke Start(3)+1081,Asc(".")',
+    'Poke Start(3)+1082,Asc("K") : Poke Start(3)+1083,Asc(".")',
+    'Poke Start(3)+1084+1024,77', // the first sample byte, after one pattern
+  ]
+
+  it('Pt Play marks the module playing and Pt Stop stops it', () => {
+    const { rt } = run([...modBank(), 'Pt Play 3'])
+    expect(rt.amcaf.pt.playing).toBe(true)
+    expect(rt.amcaf.pt.bank).toBe(3)
+    expect(run([...modBank(), 'Pt Play 3', 'Pt Stop']).rt.amcaf.pt.playing).toBe(false)
+  })
+
+  it('Pt Stop with nothing playing leaves the channels alone', () => {
+    // the changelog records this as a real bug: "Fixed a bug in Pt Stop which
+    // cut off the channels, even if no music had been playing"
+    expect(() => run(['Pt Stop'])).not.toThrow()
+    expect(run(['Pt Stop']).rt.amcaf.pt.playing).toBe(false)
+  })
+
+  it('Pt Continue resumes, but only once a module has been loaded', () => {
+    expect(run(['Pt Continue']).rt.amcaf.pt.playing).toBe(false)
+    const r = run([...modBank(), 'Pt Play 3', 'Pt Stop', 'Pt Continue'])
+    expect(r.rt.amcaf.pt.playing).toBe(true)
+  })
+
+  it('Pt Cia Speed 0 switches to VBL timing and pins the rate at 125', () => {
+    // "if you specify a value of zero, the timing will be switched from
+    // CIA-Timing to Vertical Blank Timing. Then the bpm rate is automatically
+    // set to exactly 125"
+    const vbl = run(['Pt Cia Speed 0']).rt.amcaf.pt
+    expect(vbl.cia).toBe(false)
+    expect(vbl.bpm).toBe(125)
+    const cia = run(['Pt Cia Speed 140']).rt.amcaf.pt
+    expect(cia.cia).toBe(true)
+    expect(cia.bpm).toBe(140)
+  })
+
+  it('Pt Instr Length reads the module sample table', () => {
+    // sample 1's header says 4 words, so 8 bytes
+    expect(run([...modBank(), 'Pt Play 3', 'Print Pt Instr Length(1)']).out.trim()).toBe('8')
+    expect(run([...modBank(), 'Pt Play 3', 'Print Pt Instr Address(1)>0']).out.trim()).toBe('-1')
+    // out of range is nothing
+    expect(run([...modBank(), 'Pt Play 3', 'Print Pt Instr Length(0)']).out.trim()).toBe('0')
+    expect(run([...modBank(), 'Pt Play 3', 'Print Pt Instr Length(32)']).out.trim()).toBe('0')
+  })
+
+  it('Pt Volume clamps to the chip range, not to AMOS 0..63', () => {
+    expect(run(['Pt Volume 200']).rt.amcaf.pt.volume).toBe(64)
+    expect(run(['Pt Volume -5']).rt.amcaf.pt.volume).toBe(0)
+  })
+
+  it('Pt Vu is a note-on latch that clears when read, like AMOS Vumeter', () => {
+    const { out } = run([...modBank(), 'Pt Play 3', 'Print Pt Vu(0);",";Pt Vu(0)'])
+    expect(out.trim().replace(/\s+/g, '')).toBe('0,0')
+  })
+
+  it('Pt Free Voice reports what the music is not using', () => {
+    // nothing playing: every voice is free, so the first is 0
+    expect(run(['Print Pt Free Voice']).out.trim()).toBe('0')
+    expect(run(['Print Pt Free Voice(2)']).out.trim()).toBe('-1')
+    // with the music holding voices 0 and 1, the first free one is 2
+    const { out } = run([...modBank(), 'Pt Play 3', 'Pt Voice 3', 'Print Pt Free Voice'])
+    expect(out.trim()).toBe('2')
+  })
+
+  it('Pt Cpos stays inside a pattern, 0 to 63', () => {
+    const { out } = run([...modBank(), 'Pt Play 3', 'Print Pt Cpos;",";Pt Cpattern'])
+    expect(out.trim().replace(/\s+/g, '')).toBe('0,0')
+  })
+})

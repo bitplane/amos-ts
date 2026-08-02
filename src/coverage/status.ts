@@ -1431,6 +1431,12 @@ export const FAITHFUL = new Set<string>([
   // slice 11: input. All of the parallel-port ones answer "no adaptor".
   'pjoy', 'pjup', 'pjdown', 'pjleft', 'pjright', 'pfire', 'xfire',
   'x smouse', 'y smouse', 'smouse key', 'smouse speed', 'limit smouse',
+  // slice 12: ProTracker. Pt Data Base is APPROXIMATED (answers 0).
+  'pt play', 'pt stop', 'pt continue', 'pt bank', 'pt sam bank',
+  'pt volume', 'pt voice', 'pt cia speed', 'pt sam play', 'pt sam stop',
+  'pt sam volume', 'pt sam freq', 'pt instr play', 'pt raw play',
+  'pt cpos', 'pt cpattern', 'pt cnote', 'pt cinstr', 'pt vu', 'pt signal',
+  'pt instr address', 'pt instr length', 'pt free voice',
 
   // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
   // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
@@ -2021,7 +2027,23 @@ export const NOTES: Record<string, string> = {
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
   // --- AGA 1.0: doc plus disassembly; the doc loses three times ---
-  // --- AMCAF slices 1-11 ---
+  // --- AMCAF slices 1-12 ---
+  'pt stop':
+    "The changelog records the bug that makes this worth stating: 'Fixed a bug in Pt Stop which cut off the channels, even if no music had been playing.' So a Stop with nothing playing must leave the sample channels alone, and a test asserts it",
+  'pt cia speed':
+    "'the number of beats per minute or if you specify a value of zero, the timing will be switched from CIA-Timing to Vertical Blank Timing. Then the bpm rate is automatically set to exactly 125' -- so zero is a MODE SWITCH rather than a speed of nothing",
+  'pt vu':
+    "'the current volume of channel number channel. If a new note is played, vol contains the volume level else 0' -- a note-on latch rather than a live meter, the same shape as AMOS's own Vumeter, and it clears when read",
+  'pt signal':
+    "The module's own effect commands surfacing to the program. The changelog pins one value: 'When reaching the end of a song, Pt Signal now reports \$FF'",
+  'pt sam play':
+    "'The advantage to the normal Sam Play instruction is that the sounds interact' with the music: the replayer knows which voices it holds, so a Pt Sam Play without an explicit voice takes one the music is not using",
+  'pt instr length':
+    "Reads the module's own sample table -- 20 bytes of song name, then 31 headers of 30 bytes each with the length in WORDS, so the byte count is doubled. The sample data itself follows the patterns, which is why the pattern count has to be derived from the order table first",
+  'pt free voice':
+    "A 1.50 addition with no manual entry, so DISASSEMBLY tier by the author's own admission that he had no time to document what 1.50 added. With an argument it answers for one voice, without it returns the first free one or -1",
+  'pt data base':
+    "The replayer's data block, offered for the same 'Assembler and C freaks' the Scrn pointers are. NOTE: answers 0 for the same reason those do -- there is no byte layout here for a program to walk. APPROXIMATED",
   'pjoy':
     "'Corresponds to the AMOS function Joy, with the difference, that one of the parallel port joysticks is checked instead of the normal joysticks', with the same JOY_* bit layout. NOTE: there is no adaptor -- this is the same CIA-A PRB hardware sticks.ts models, and Sticks already answers 'no adaptor' honestly. An unused port reads as nothing pressed on the machine too, so these agree with it rather than pretending. The manual even ships a wiring diagram for building the cable",
   'xfire':
