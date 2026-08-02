@@ -1,4 +1,5 @@
-import type { AudioSink } from '../runtime/audio'
+import { volumeGain } from '../amiga/paula'
+import type { AudioSink } from '../amiga/paula'
 
 /**
  * WebAudio implementation of the 4-voice Amiga output. Best-effort: the
@@ -53,7 +54,16 @@ export class WebAudioSink implements AudioSink {
     }
   }
 
-  private voiceGain(v: number, volume63: number): GainNode | null {
+  /**
+   * AUDxVOL is 0..64, and 64 is unity — not 63.
+   *
+   * This divided by 63, which came from AMOS's own range: its keywords stop
+   * at 63 and never reach full scale on the machine either. MED does not —
+   * `med.ts` computes `Math.min(64, ...)`, which is right for the chip — so a
+   * MED voice at full volume asked for 64/63 of unity and every AMOS voice
+   * was rendered one step too loud. `volumeGain` is the chip's scale.
+   */
+  private voiceGain(v: number, volume: number): GainNode | null {
     const out = this.output()
     if (!this.ctx || !out) return null
     const slot = this.voices[v]!
@@ -61,11 +71,11 @@ export class WebAudioSink implements AudioSink {
       slot.gain = this.ctx.createGain()
       slot.gain.connect(out)
     }
-    slot.gain.gain.value = (volume63 / 63) * 0.4
+    slot.gain.gain.value = volumeGain(volume) * 0.4
     return slot.gain
   }
 
-  play(voice: number, pcm: Int8Array, freqHz: number, volume63: number, loopStart: number, loopEnd?: number): void {
+  play(voice: number, pcm: Int8Array, freqHz: number, volume: number, loopStart: number, loopEnd?: number): void {
     if (!this.ctx || this.ctx.state !== 'running') return
     this.stop(voice)
     const rate = Math.max(8000, Math.min(96000, freqHz))
@@ -80,7 +90,7 @@ export class WebAudioSink implements AudioSink {
       src.loopStart = loopStart / rate
       src.loopEnd = (loopEnd ?? pcm.length) / rate
     }
-    const gain = this.voiceGain(voice, volume63)
+    const gain = this.voiceGain(voice, volume)
     if (!gain) return
     src.connect(gain)
     src.start()
@@ -102,8 +112,8 @@ export class WebAudioSink implements AudioSink {
     }
   }
 
-  setVolume(voice: number, volume63: number): void {
-    this.voiceGain(voice, volume63)
+  setVolume(voice: number, volume: number): void {
+    this.voiceGain(voice, volume)
   }
 
   setFrequency(voice: number, freqHz: number): void {

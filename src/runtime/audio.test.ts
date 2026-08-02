@@ -4,7 +4,8 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
-import { NullAudio, parseSampleBank, samPeriod, periodToHz, PAULA_CLOCK } from './audio'
+import { parseSampleBank } from './audio'
+import { NullAudio, samPeriod, periodToHz, PAULA_CLOCK } from '../amiga/paula'
 import type { MemoryBank } from '../loader/amosfile'
 
 const table = new TokenTable(CORE_TOKENS)

@@ -24,9 +24,9 @@
  */
 
 import { AmosError } from '../interp/values'
-import { PAULA_CLOCK, periodToHz, samPeriod } from './audio'
+import { PAULA_CLOCK, periodToHz, samPeriod } from '../amiga/paula'
 import { MedPlayer } from './med'
-import type { AudioSink } from './audio'
+import type { AudioSink } from '../amiga/paula'
 
 /** what the player needs from the runtime */
 export interface MusicHost {

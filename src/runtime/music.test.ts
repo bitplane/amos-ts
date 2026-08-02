@@ -7,7 +7,7 @@ import { EXTENSION_TOKENS } from '../ext/registry'
 import { tokenize } from '../tokens/tokenizer'
 import { parseAmosFile } from '../loader/amosfile'
 import { Runtime } from './runtime'
-import { NullAudio, periodToHz } from './audio'
+import { NullAudio, periodToHz } from '../amiga/paula'
 import { AmigaFS } from '../amiga/vfs'
 import type { MemoryBank } from '../loader/amosfile'
 

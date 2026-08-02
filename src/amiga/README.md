@@ -84,6 +84,7 @@ really does differ from the real one and saying where is the whole job.
 | `graphics.ts` | `BitMap` and `RastPort` — bitplanes, pens, and the two pixel funnels |
 | `planar.ts` | the chunky/planar bijection and the word-at-a-time span ops |
 | `blitter.ts` | BLTCON0/1, the logic function, BLTSIZE and `BltBitMapRastPort` |
+| `paula.ts` | the four voices: clock, AUDxPER, AUDxVOL, and the sink boundary |
 | `datestamp.ts` | the AmigaDOS `DateStamp` and its calendar arithmetic |
 | `vfs.ts` | `AmigaFS` — volumes, assigns, paths, file metadata |
 | `fs.ts` | `AmosFS`, the read interface a volume provider satisfies |

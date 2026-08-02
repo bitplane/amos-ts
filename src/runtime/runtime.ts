@@ -80,7 +80,8 @@ import {
   MF_BAR,
 } from './menu'
 import type { MenuHost, MenuNode, OpenLevel } from './menu'
-import { NullAudio, parseSampleBank, periodToHz, samPeriod } from './audio'
+import { parseSampleBank } from './audio'
+import { NullAudio, periodToHz, samPeriod } from '../amiga/paula'
 import { MusicPlayer } from './music'
 
 /**
@@ -116,7 +117,8 @@ export function fromFFP(v: number): number {
   const exp = (v & 0x7f) - 0x40
   return sign * (mant / 0x1000000) * 2 ** exp
 }
-import type { AudioSink, SampleEntry } from './audio'
+import type { SampleEntry } from './audio'
+import type { AudioSink } from '../amiga/paula'
 import { AmigaFS } from '../amiga/vfs'
 
 /**

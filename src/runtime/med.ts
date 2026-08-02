@@ -24,8 +24,8 @@
  */
 
 import { AmosError } from '../interp/values'
-import { periodToHz } from './audio'
-import type { AudioSink } from './audio'
+import { periodToHz } from '../amiga/paula'
+import type { AudioSink } from '../amiga/paula'
 
 /** the standard 3-octave Amiga period table (856..113), C-1 at index 0 */
 const MED_PERIODS = [
