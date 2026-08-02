@@ -121,6 +121,10 @@ export interface AmcafState {
   examine: AmcafExamine
   /** the last AmigaDOS error, which Io Error reports */
   ioError: number
+  /** BPLCON2's dual-playfield sprite priority, as Set Sprite Priority left it */
+  spritePriority: number
+  /** whether colours are read as 24-bit $RRGGBB rather than 12-bit $RGB */
+  agaNotation: boolean
   /**
    * The eight "interior palette memory" buffers Pal Get/Set address.
    *
@@ -144,6 +148,8 @@ export function newAmcafState(): AmcafState {
   return {
     examine: { dir: '', entries: [], index: -1, current: '' },
     ioError: 0,
+    spritePriority: 0,
+    agaNotation: false,
     palettes: Array.from({ length: 8 }, () => new Uint16Array(256)),
     present: true,
   }
@@ -573,6 +579,175 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     },
     'set pal'() {
       rt.beamcon0 = 0x0020
+    },
+
+
+    /**
+     * Raster Wait line[,x] — waits for the beam.
+     *
+     * DEVIATION: there is no beam to wait for between statements here; the
+     * display is composited once a frame rather than raced. The keyword
+     * yields the rest of the frame, which is the observable effect a program
+     * synchronising to the raster is after, but a program timing two waits
+     * against each other measures nothing.
+     */
+    'raster wait'(it) {
+      it.evalInt()
+      if (it.accept(',')) it.evalInt()
+      // one frame is the smallest thing a program here can wait for
+      it.block({ type: 'wait', until: it.tick + 1 })
+    },
+
+    /**
+     * Set Sprite Priority n — "Changes the sprite priority in Dual playfield
+     * mode", which is BPLCON2's PF1P2-PF2P2 fields.
+     */
+    'set sprite priority'(it) {
+      rt.amcaf.spritePriority = it.evalInt() & 0x3f
+    },
+
+    /**
+     * Amcaf Aga Notation On / Off — whether colour arguments are read as
+     * 12-bit $RGB or 24-bit $RRGGBB.
+     *
+     * A global switch on how the OTHER keywords read a colour, which is why
+     * it is a mode rather than a conversion: Rgb To Rrggbb exists for the
+     * one-off case.
+     */
+    'amcaf aga notation on'() {
+      rt.amcaf.agaNotation = true
+    },
+    'amcaf aga notation off'() {
+      rt.amcaf.agaNotation = false
+    },
+
+    /**
+     * Mask Copy screen1,x1,y1,x2,y2 To screen2,x3,y3,maskaddress.
+     *
+     * "just like Screen Copy. However, a mask bitplane can be given" — so a
+     * set mask bit lets the source pixel through and a clear one leaves the
+     * destination alone.
+     *
+     * NOTE: `maskaddress` is a raw pointer into a caller-built bitplane. When
+     * it resolves to memory this port can read, the mask is honoured; when it
+     * does not, the copy is unmasked, which is the same picture a program
+     * gets from an all-ones mask.
+     */
+    'mask copy'(it) {
+      const s1 = it.evalInt()
+      it.expect(',')
+      const x1 = it.evalInt()
+      it.expect(',')
+      const y1 = it.evalInt()
+      it.expect(',')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      it.expect('to')
+      const s2 = it.evalInt()
+      it.expect(',')
+      const x3 = it.evalInt()
+      it.expect(',')
+      const y3 = it.evalInt()
+      let maskAddr = 0
+      if (it.accept(',')) maskAddr = it.evalInt()
+      const src = rt.screens.get(s1)
+      const dst = rt.screens.get(s2)
+      if (!src || !dst) amcafErr()
+      const mask = maskAddr === 0 ? null : rt.resolveAddr(maskAddr)
+      const bpr = src.rp.bitMap.bytesPerRow
+      for (let y = 0; y <= y2 - y1; y++) {
+        for (let x = 0; x <= x2 - x1; x++) {
+          if (mask) {
+            const off = mask.off + y * bpr + ((x1 + x) >> 3)
+            const bit = 0x80 >> ((x1 + x) & 7)
+            if (off >= mask.data.length || !(mask.data[off]! & bit)) continue
+          }
+          const v = src.rp.point(x1 + x, y1 + y)
+          if (v >= 0) dst.rp.putPixel(x3 + x, y3 + y, v)
+        }
+      }
+      dst.rp.bitMap.invalidate()
+    },
+
+    /**
+     * Bzoom s1,x1,y1,x2,y2 To s2,x3,y3,factor — an integer zoom.
+     *
+     * "the graphics are double, four times or eight times as wide and from 1
+     * to 15 times as high", and the rounding is the blitter showing through:
+     * "The coordinates x1 and x2 are rounded down to the next multiple of
+     * eight, x3 is even rounded to the nearest multiple of 16."
+     *
+     * The factor packs both: the low nibble is the vertical multiple and the
+     * high nibble selects the horizontal one.
+     */
+    'bzoom'(it) {
+      const s1 = it.evalInt()
+      it.expect(',')
+      const x1 = it.evalInt() & ~7
+      it.expect(',')
+      const y1 = it.evalInt()
+      it.expect(',')
+      const x2 = it.evalInt() & ~7
+      it.expect(',')
+      const y2 = it.evalInt()
+      it.expect('to')
+      const s2 = it.evalInt()
+      it.expect(',')
+      const x3 = it.evalInt() & ~15
+      it.expect(',')
+      const y3 = it.evalInt()
+      it.expect(',')
+      const factor = it.evalInt()
+      const src = rt.screens.get(s1)
+      const dst = rt.screens.get(s2)
+      if (!src || !dst) amcafErr()
+      const vy = Math.max(1, factor & 15)
+      const hx = Math.max(1, (factor >> 4) & 15) || 1
+      for (let y = 0; y <= y2 - y1; y++) {
+        for (let x = 0; x <= x2 - x1; x++) {
+          const v = src.rp.point(x1 + x, y1 + y)
+          if (v < 0) continue
+          for (let dy = 0; dy < vy; dy++) {
+            for (let dx = 0; dx < hx; dx++) dst.rp.putPixel(x3 + x * hx + dx, y3 + y * vy + dy, v)
+          }
+        }
+      }
+      dst.rp.bitMap.invalidate()
+    },
+
+    /**
+     * C2p Convert st,wx,wy To screen,ox,oy — chunky to planar.
+     *
+     * Undocumented beyond the changelog, which credits the routine: "New c2p
+     * routine by Mikael Kalms. Up to 20%-80% faster". The conversion itself
+     * is `planar.ts`'s `encode`, which this port has had since the display
+     * work — a chunky buffer at `st`, `wx` by `wy`, into a screen's planes.
+     */
+    'c2p convert'(it) {
+      const st = it.evalInt()
+      it.expect(',')
+      const wx = it.evalInt()
+      it.expect(',')
+      const wy = it.evalInt()
+      it.expect('to')
+      const scr = rt.screens.get(it.evalInt())
+      let ox = 0
+      let oy = 0
+      if (it.accept(',')) {
+        ox = it.evalInt()
+        it.expect(',')
+        oy = it.evalInt()
+      }
+      const src = rt.resolveAddr(st)
+      if (!scr || !src) amcafErr()
+      for (let y = 0; y < wy; y++) {
+        for (let x = 0; x < wx; x++) {
+          const at = src.off + y * wx + x
+          if (at < src.data.length) scr.rp.putPixel(ox + x, oy + y, src.data[at]!)
+        }
+      }
+      scr.rp.bitMap.invalidate()
     },
 
     /** Nop — routine 21 ($231a) is two bytes: `rts`. "has no effect et al" */
@@ -1672,6 +1847,39 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     'scrn layer': () => VI(0),
     'scrn layerinfo': () => VI(0),
     'scrn region': () => VI(0),
+
+
+    /**
+     * =Count Pixels(screen,colour,x1,y1 To x2,y2) — note the sense, which the
+     * manual states and the name does not: it "Counts the pixels ... that
+     * DON'T have the colour index colour".
+     */
+    'count pixels': (_, a) => {
+      const s = rt.screens.get(i0(a, 0))
+      if (!s) return VI(0)
+      const c = i0(a, 1)
+      let n = 0
+      for (let y = i0(a, 3); y <= i0(a, 5); y++) {
+        for (let x = i0(a, 2); x <= i0(a, 4); x++) {
+          const v = s.rp.point(x, y)
+          if (v >= 0 && v !== c) n++
+        }
+      }
+      return VI(n)
+    },
+
+    /**
+     * =Font Style — "replaces the AMOS function Text Styles, because this one
+     * does not return the multicoloured font bit (Bit 6). Apart from this,
+     * Font Style is totally identical with the AMOS function."
+     */
+    'font style': () => VI(rt.screen?.textStyle ?? 0),
+
+    /**
+     * =Cop Pos — "If you create your own copperlist, you can use this
+     * function to remember the position of the next copper instruction."
+     */
+    'cop pos': () => VI(rt.copLogicAddr() + rt.copPos),
 
     /** =Nfn — routine 22. "returns nothing useful ... used in speed testing" */
     nfn: () => VI(0),

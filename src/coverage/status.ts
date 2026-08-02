@@ -1404,6 +1404,10 @@ export const FAITHFUL = new Set<string>([
   'turbo plot', 'turbo point', 'turbo draw',
   'fcircle', 'fellipse', 'bcircle', 'vclip', 'aga detect',
   'x raster', 'y raster',
+  // slice 7b. Raster Wait carries a DEVIATION; Mask Copy a NOTE.
+  'count pixels', 'font style', 'cop pos', 'mask copy', 'bzoom',
+  'c2p convert', 'raster wait', 'set sprite priority',
+  'amcaf aga notation on', 'amcaf aga notation off',
 
   // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
   // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
@@ -1995,6 +1999,18 @@ export const NOTES: Record<string, string> = {
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
   // --- AGA 1.0: doc plus disassembly; the doc loses three times ---
   // --- AMCAF slices 1-7 ---
+  'count pixels':
+    "Note the sense, which the manual states and the name hides: it 'Counts the pixels ... that DON'T have the colour index colour'. A caller measuring how much of a region is painted passes the background colour",
+  'raster wait':
+    "DEVIATION: there is no beam to wait for between statements here -- the display is composited once a frame rather than raced -- so the keyword yields the rest of the frame. That is the observable effect a program synchronising to the raster is after, but a program timing two waits against each other measures nothing",
+  'mask copy':
+    "'just like Screen Copy. However, a mask bitplane can be given', so a set mask bit lets the source pixel through. NOTE: `maskaddress` is a raw pointer into a caller-built bitplane; where it resolves to memory this port can read the mask is honoured, and where it does not the copy is unmasked -- the same picture an all-ones mask gives",
+  'bzoom':
+    "'the graphics are double, four times or eight times as wide and from 1 to 15 times as high'. The rounding is the blitter showing through and the manual spells it out: 'The coordinates x1 and x2 are rounded down to the next multiple of eight, x3 is even rounded to the nearest multiple of 16'",
+  'c2p convert':
+    "Undocumented beyond the changelog, which credits it: 'New c2p routine by Mikael Kalms. Up to 20%-80% faster'. The conversion itself is ../amiga/planar.ts's chunky-to-planar, which this port has had since the display work -- so the keyword is plumbing rather than an algorithm",
+  'font style':
+    "'replaces the AMOS function Text Styles, because this one does not return the multicoloured font bit (Bit 6). Apart from this, Font Style is totally identical with the AMOS function'",
   'blitter fill':
     "Routine 74, and the manual is the specification of the chip's area-fill mode: 'It does only fill the gap between two dots of a horizontal line. Therefore the limiting lines may only be one pixel th[ick]. These lines can be either created using Turbo Draw or Bcircle.' That sentence is what `fillRow` in ../amiga/blitter.ts implements, and it is the oracle that module was waiting for -- the seam was left open there precisely because which boundary bit a fill keeps cannot be written from memory. ONE BITPLANE at a time, which is why the plane is an argument",
   'blitter busy':

@@ -776,3 +776,75 @@ describe('slice 7: graphics', () => {
     }
   })
 })
+
+describe('slice 7b: zoom, masks, C2P and the rest', () => {
+  const scr = ['Screen Open 0,64,32,16,Lowres', 'Cls 0']
+
+  it('Count Pixels counts what is NOT the colour, which the name hides', () => {
+    // "Counts the pixels ... that DON'T have the colour index colour"
+    const { out } = run([...scr, 'Ink 3 : Bar 0,0 To 9,9', 'Print Count Pixels(0,0,0,0 To 9,9)'])
+    expect(out.trim()).toBe('100') // all 100 are non-zero
+    expect(run([...scr, 'Ink 3 : Bar 0,0 To 9,9', 'Print Count Pixels(0,3,0,0 To 9,9)']).out.trim()).toBe('0')
+  })
+
+  it('Bzoom scales by an integer factor and rounds x down to a multiple of 8', () => {
+    // "The coordinates x1 and x2 are rounded down to the next multiple of
+    // eight, x3 is even rounded to the nearest multiple of 16."
+    const { rt } = run([
+      'Screen Open 0,64,32,16,Lowres',
+      'Screen Open 1,64,32,16,Lowres',
+      'Screen 0 : Cls 0 : Ink 5 : Bar 0,0 To 7,1',
+      'Bzoom 0,0,0,7,1 To 1,0,0,$22',
+    ])
+    const px = rt.screens.get(1)!.rp.bitMap.pixels
+    expect(px[0]).toBe(5)
+    expect(px[1]).toBe(5) // doubled horizontally
+    expect(px[64]).toBe(5) // and vertically
+  })
+
+  it('Mask Copy without a mask is a plain Screen Copy', () => {
+    const { rt } = run([
+      'Screen Open 0,64,32,16,Lowres',
+      'Screen Open 1,64,32,16,Lowres',
+      'Screen 0 : Cls 0 : Ink 6 : Bar 0,0 To 3,3',
+      'Mask Copy 0,0,0,3,3 To 1,10,10,0',
+    ])
+    expect(rt.screens.get(1)!.rp.bitMap.pixels[10 * 64 + 10]).toBe(6)
+  })
+
+  it('C2p Convert writes a chunky buffer into a screen', () => {
+    const { rt } = run([
+      'Screen Open 0,64,32,16,Lowres : Cls 0',
+      'Reserve As Work 9,64',
+      'Poke Start(9),7 : Poke Start(9)+1,3',
+      'C2p Convert Start(9),2,1 To 0,0,0',
+    ])
+    const px = rt.screens.get(0)!.rp.bitMap.pixels
+    expect(px[0]).toBe(7)
+    expect(px[1]).toBe(3)
+  })
+
+  it('Font Style reports the style byte, including bit 6', () => {
+    // "replaces the AMOS function Text Styles, because this one does not
+    // return the multicoloured font bit (Bit 6)"
+    expect(run([...scr, 'Set Text 1', 'Print Font Style']).out.trim()).toBe('1')
+  })
+
+  it('Cop Pos gives the address of the next copper instruction', () => {
+    // Cop Reset needs the system copper out of the way first, which is what
+    // "If you create your own copperlist" in the manual assumes
+    const { out } = run(['Copper Off', 'Cop Reset', 'Cop Move $180,$F00', 'Print Cop Pos'])
+    expect(Number(out.trim())).toBeGreaterThan(0)
+  })
+
+  it('Raster Wait yields rather than racing a beam that is not there', () => {
+    expect(() => run([...scr, 'Raster Wait 100'])).not.toThrow()
+    expect(() => run([...scr, 'Raster Wait 100,20'])).not.toThrow()
+  })
+
+  it('Amcaf Aga Notation and Set Sprite Priority hold their state', () => {
+    expect(run(['Amcaf Aga Notation On']).rt.amcaf.agaNotation).toBe(true)
+    expect(run(['Amcaf Aga Notation On', 'Amcaf Aga Notation Off']).rt.amcaf.agaNotation).toBe(false)
+    expect(run(['Set Sprite Priority 5']).rt.amcaf.spritePriority).toBe(5)
+  })
+})
