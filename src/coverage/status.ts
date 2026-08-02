@@ -1369,6 +1369,9 @@ export const FAITHFUL = new Set<string>([
   // functions are APPROXIMATED, not here: their table is not in the hunk.
   'even', 'odd', 'wordswap', 'lsl', 'lsr', 'binexp', 'binlog',
   'qsqr', 'qrnd', 'vin', 'vmod', 'nop', 'nfn', 'cpu', 'fpu',
+  // slice 2: strings. Scanstr$ is APPROXIMATED (no name table in the hunk).
+  'chr.w$', 'chr.l$', 'asc.w', 'asc.l', 'lsstr$', 'lzstr$',
+  'insstr$', 'cutstr$', 'replacestr$', 'itemstr$',
 
   // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
   // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
@@ -1959,7 +1962,17 @@ export const NOTES: Record<string, string> = {
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
   // --- AGA 1.0: doc plus disassembly; the doc loses three times ---
-  // --- AMCAF slice 1 ---
+  // --- AMCAF slices 1-2 ---
+  'insstr$':
+    "Routine 187 (\$4a44). `pos` is a COUNT OF LEADING CHARACTERS KEPT rather than a 1-based index: the routine errors on a negative one and on `pos > len` (`cmp.w d5,d7 / Rbhi`), so 0..len is the legal range and 0 inserts at the front. The manual's example agrees -- 'dear ' at 6 into 'Hello Ben!' keeps 'Hello ' and gives 'Hello dear Ben!'. An empty insert returns the original untouched, which the routine takes before allocating",
+  'cutstr$':
+    "Routine 188 (\$4aae), an INCLUSIVE 1-based run: 7 To 11 out of 'Hello dear Ben!' removes the five characters 'dear '. NOTE: the routine's middle runs into bytes the disassembler cannot separate from code -- the same misdecode Vmod hits -- so its bound checks are legible but the exact arithmetic is not, and the manual's worked example is what this follows",
+  'asc.w':
+    "Routine 181. UNSIGNED, 0..65535, where the sibling Asc.l is signed -- the one asymmetry in the group, and both the manual and the routine agree on it. A string shorter than two characters is an error",
+  'lsstr$':
+    "Routine 178 (\$488e). Right-justified in exactly n characters with n bounded to 1..10 by `Rbeq` and `cmp.w #\$a / Rbhi`, and the SIGN IS NEVER PRINTED. The routine walks n positions of a power-of-ten table, so a number too big for the field loses its leading digits rather than overflowing it",
+  'itemstr$':
+    "Routines 190 and 191. Items are numbered FROM ZERO and separated by '|' unless a single character is given. 'Empty strings for s\$ are not allowed and will create an error message, however, empty items can be used without hesitation. Trying to access a item, that does not exist, will create an error aswell'",
   'lsr':
     "Routine 197 (\$4cec). DEVIATION: the keyword is named for a LOGICAL shift and the instruction is `asr.l`, an ARITHMETIC shift, so the sign bit is replicated and a negative value stays negative. That also makes the manual's 'does the same as a division by 2^n' false for negatives -- ASR rounds toward minus infinity where division rounds toward zero, so Lsr(-3,1) is -2 rather than -1. Reproduced as the library has it",
   'lsl':

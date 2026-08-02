@@ -89,7 +89,7 @@
 
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
-import { AmosError, VI, int, type Value } from '../interp/values'
+import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 
 export interface AmcafState {
   /**
@@ -178,10 +178,172 @@ function qtrig(angle: number, radius: number, quarterTurn: number): number {
   return extW((p >> 8) + ((p >> 7) & 1))
 }
 
+
+/* ------------------------------------------------------------------ *
+ * Slice 2: strings
+ * ------------------------------------------------------------------ */
+
+/**
+ * Scancode to key name, for `Scanstr$`.
+ *
+ * NOTE: AMCAF's own spellings were not recovered. The extension ships no
+ * string table at all — a search of the whole hunk for "Space", "Escape",
+ * "Return" and friends finds nothing — so the names must come from AMOS or
+ * the keymap, neither of which is modelled as text here. These are the Amiga
+ * rawkey names for the codes the port already tracks, which answers the
+ * question a program is asking ("what key is this?") without claiming to be
+ * character-for-character what the library printed. Classified APPROXIMATED.
+ */
+const KEY_NAMES: Record<number, string> = {
+  0x45: 'Esc', 0x40: 'Space', 0x44: 'Return', 0x41: 'Backspace', 0x42: 'Tab', 0x46: 'Del',
+  0x4c: 'Up', 0x4d: 'Down', 0x4e: 'Right', 0x4f: 'Left',
+  0x60: 'Shift', 0x61: 'Shift', 0x63: 'Ctrl', 0x64: 'Alt', 0x65: 'Alt',
+  0x10: 'Q', 0x11: 'W', 0x12: 'E', 0x13: 'R', 0x14: 'T', 0x15: 'Y', 0x16: 'U', 0x17: 'I', 0x18: 'O', 0x19: 'P',
+  0x20: 'A', 0x21: 'S', 0x22: 'D', 0x23: 'F', 0x24: 'G', 0x25: 'H', 0x26: 'J', 0x27: 'K', 0x28: 'L',
+  0x31: 'Z', 0x32: 'X', 0x33: 'C', 0x34: 'V', 0x35: 'B', 0x36: 'N', 0x37: 'M',
+  0x01: '1', 0x02: '2', 0x03: '3', 0x04: '4', 0x05: '5',
+  0x06: '6', 0x07: '7', 0x08: '8', 0x09: '9', 0x0a: '0',
+  0x50: 'F1', 0x51: 'F2', 0x52: 'F3', 0x53: 'F4', 0x54: 'F5',
+  0x55: 'F6', 0x56: 'F7', 0x57: 'F8', 0x58: 'F9', 0x59: 'F10',
+}
+
+/** the shared body of Lsstr$ and Lzstr$ (routines 178 and 177, $488e) */
+function padNum(v: number, n: number, pad: string): string {
+  // `Rbeq` on zero and `cmp.w #$a / Rbhi` bound n to 1..10
+  if (n < 1 || n > 10) amcafErr()
+  // "The sign of the number will not be printed"
+  const digits = String(Math.abs(v))
+  // the routine walks exactly n positions of a power-of-ten table, so digits
+  // past the field are never emitted rather than overflowing it
+  return digits.length > n ? digits.slice(digits.length - n) : digits.padStart(n, pad)
+}
+
 export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
   void rt
   const i0 = (a: Value[], n: number): number => int(a[n] ?? VI(0))
+  const s0 = (a: Value[], n: number): string => str(a[n] ?? VS(''))
   return {
+
+    /**
+     * =Chr.w$(v) / =Chr.l$(v) — routines 179 and 180. A number as its raw
+     * bytes, big-endian, "Using this technique, you can save numbers as
+     * normal strings". Chr.w$ ignores the upper 16 bits.
+     */
+    'chr.w$': (_, a) => {
+      const v = i0(a, 0) & 0xffff
+      return VS(String.fromCharCode((v >> 8) & 0xff, v & 0xff))
+    },
+    'chr.l$': (_, a) => {
+      const v = i0(a, 0)
+      return VS(String.fromCharCode((v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff))
+    },
+
+    /**
+     * =Asc.w(s$) / =Asc.l(s$) — routines 181 and 182, the way back.
+     *
+     * Asc.w is UNSIGNED ("the result will be between 0 and 65535") and Asc.l
+     * is SIGNED ("can range between -2147483648 and +2147483647"), which is
+     * the only asymmetry in the group. A string too short to hold the value
+     * is an error in both.
+     */
+    'asc.w': (_, a) => {
+      const t = s0(a, 0)
+      if (t.length < 2) amcafErr()
+      return VI(((t.charCodeAt(0) & 0xff) << 8) | (t.charCodeAt(1) & 0xff))
+    },
+    'asc.l': (_, a) => {
+      const t = s0(a, 0)
+      if (t.length < 4) amcafErr()
+      let v = 0
+      for (let i = 0; i < 4; i++) v = ((v << 8) | (t.charCodeAt(i) & 0xff)) >>> 0
+      return VI(v | 0)
+    },
+
+    /**
+     * =Lsstr$(v,n) / =Lzstr$(v,n) — routines 178 and 177 ($488e).
+     *
+     * A number right-justified in exactly n characters. Lsstr$ pads with
+     * spaces and Lzstr$ with zeros, and NEITHER prints the sign — the
+     * manual says so and the routine never emits one.
+     */
+    'lsstr$': (_, a) => VS(padNum(i0(a, 0), i0(a, 1), ' ')),
+    'lzstr$': (_, a) => VS(padNum(i0(a, 0), i0(a, 1), '0')),
+
+    /**
+     * =Insstr$(a$,b$,pos) — routine 187 ($4a44).
+     *
+     * `pos` is a COUNT OF LEADING CHARACTERS KEPT, not a 1-based index: the
+     * routine errors on a negative one (`Rbmi`) and on `pos > len(a$)`
+     * (`cmp.w d5,d7 / Rbhi`), so the legal range is 0..len inclusive. The
+     * manual's example agrees — inserting "dear " at 6 into "Hello Ben!"
+     * keeps the six characters "Hello " and gives "Hello dear Ben!".
+     *
+     * An empty b$ returns a$ untouched, which the routine takes as a special
+     * case before allocating anything.
+     */
+    'insstr$': (_, a) => {
+      const base = s0(a, 0)
+      const ins = s0(a, 1)
+      const pos = i0(a, 2)
+      if (pos < 0 || pos > base.length) amcafErr()
+      if (ins === '') return VS(base)
+      return VS(base.slice(0, pos) + ins + base.slice(pos))
+    },
+
+    /**
+     * =Cutstr$(s$,pos1 To pos2) — routine 188 ($4aae). Removes the run from
+     * pos1 to pos2 INCLUSIVE, counting from 1: the manual's example cuts
+     * 7 To 11 out of "Hello dear Ben!" and gets "Hello Ben!", which is the
+     * five characters "dear ".
+     *
+     * NOTE: the routine's middle runs into bytes the disassembler cannot
+     * separate from code — the same misdecode `Vmod` hits — so the bound
+     * checks it makes (`Rbmi` on a negative position, on pos2 < pos1, and on
+     * pos1 past the end) are legible but the exact arithmetic is not. The
+     * worked example is unambiguous and is what this follows.
+     */
+    'cutstr$': (_, a) => {
+      const t = s0(a, 0)
+      const p1 = i0(a, 1)
+      const p2 = i0(a, 2)
+      if (p1 < 0 || p2 < p1 || p1 > t.length) amcafErr()
+      return VS(t.slice(0, Math.max(0, p1 - 1)) + t.slice(p2))
+    },
+
+    /** =Replacestr$(s$,search$ To replace$) — routine 189, every occurrence */
+    'replacestr$': (_, a) => {
+      const t = s0(a, 0)
+      const find = s0(a, 1)
+      if (find === '') return VS(t)
+      return VS(t.split(find).join(s0(a, 2)))
+    },
+
+    /**
+     * =Itemstr$(s$,n) and =Itemstr$(s$,n,sep$) — routines 190 and 191.
+     *
+     * Items are numbered FROM ZERO and separated by '|' unless a single
+     * character is given. "Empty strings for s$ are not allowed and will
+     * create an error message, however, empty items can be used without
+     * hesitation. Trying to access a item, that does not exist, will create
+     * an error aswell."
+     */
+    'itemstr$': (_, a) => {
+      const t = s0(a, 0)
+      const n = i0(a, 1)
+      const sep = a.length > 2 ? s0(a, 2) : '|'
+      if (t === '' || n < 0 || sep === '') amcafErr()
+      const parts = t.split(sep[0]!)
+      if (n >= parts.length) amcafErr()
+      return VS(parts[n]!)
+    },
+
+    /**
+     * =Scanstr$(scancode) — routine 278. "returns the name of a key
+     * according to the parameter 'scancode' ... If there is no key for the
+     * scancode, an empty string will be returned."
+     */
+    'scanstr$': (_, a) => VS(KEY_NAMES[i0(a, 0)] ?? ''),
+
     /** =Nfn — routine 22. "returns nothing useful ... used in speed testing" */
     nfn: () => VI(0),
 

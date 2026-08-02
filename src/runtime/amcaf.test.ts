@@ -205,3 +205,82 @@ describe('slice 1: maths and bit operations', () => {
     expect(p('Fpu')).toBe('0')
   })
 })
+
+describe('slice 2: strings', () => {
+  const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
+
+  it('Chr.w$/Chr.l$ and Asc.w/Asc.l round-trip a number through bytes', () => {
+    expect(p('Len(Chr.w$(1))')).toBe('2')
+    expect(p('Len(Chr.l$(1))')).toBe('4')
+    expect(p('Asc.w(Chr.w$(12345))')).toBe('12345')
+    expect(p('Asc.l(Chr.l$(1234567))')).toBe('1234567')
+    // Asc.w is unsigned, Asc.l is signed -- the one asymmetry in the group
+    expect(p('Asc.w(Chr.w$(65535))')).toBe('65535')
+    expect(p('Asc.l(Chr.l$(-1))')).toBe('-1')
+    // "The upper 16 bits of the value are ignored"
+    expect(p('Asc.w(Chr.w$($1F0F0))')).toBe(String(0xf0f0))
+  })
+
+  it('Asc.w and Asc.l refuse a string too short to hold the value', () => {
+    expect(() => p('Asc.w("A")')).toThrow(/Illegal function call/)
+    expect(() => p('Asc.l("ABC")')).toThrow(/Illegal function call/)
+  })
+
+  it('Lsstr$ pads with spaces and Lzstr$ with zeros, neither with a sign', () => {
+    expect(p('"["+Lsstr$(42,5)+"]"')).toBe('[   42]')
+    expect(p('"["+Lzstr$(42,5)+"]"')).toBe('[00042]')
+    // "The sign of the number will not be printed"
+    expect(p('"["+Lsstr$(-42,5)+"]"')).toBe('[   42]')
+    expect(p('"["+Lzstr$(-42,5)+"]"')).toBe('[00042]')
+  })
+
+  it("Lsstr$ bounds n to 1..10, which is the routine's own check ($488e)", () => {
+    expect(() => p('Lsstr$(1,0)')).toThrow(/Illegal function call/)
+    expect(() => p('Lsstr$(1,11)')).toThrow(/Illegal function call/)
+    expect(p('Len(Lsstr$(1,10))')).toBe('10')
+  })
+
+  it("Insstr$ counts LEADING CHARACTERS KEPT, not a 1-based index ($4a44)", () => {
+    // the manual's own example, and the routine's `cmp.w d5,d7 / Rbhi` bound
+    expect(p('Insstr$("Hello Ben!","dear ",6)')).toBe('Hello dear Ben!')
+    expect(p('Insstr$("BC","A",0)')).toBe('ABC') // 0 is legal: insert at the front
+    expect(p('Insstr$("AB","C",2)')).toBe('ABC') // len is legal: append
+    expect(() => p('Insstr$("AB","C",3)')).toThrow(/Illegal function call/)
+    expect(() => p('Insstr$("AB","C",-1)')).toThrow(/Illegal function call/)
+    expect(p('Insstr$("AB","",1)')).toBe('AB') // empty insert returns it untouched
+  })
+
+  it('Cutstr$ removes an inclusive 1-based run', () => {
+    expect(p('Cutstr$("Hello dear Ben!",7 To 11)')).toBe('Hello Ben!')
+    expect(p('Cutstr$("ABCDE",1 To 1)')).toBe('BCDE')
+    expect(p('Cutstr$("ABCDE",5 To 5)')).toBe('ABCD')
+    expect(() => p('Cutstr$("ABC",3 To 1)')).toThrow(/Illegal function call/)
+  })
+
+  it('Replacestr$ replaces every occurrence', () => {
+    expect(p('Replacestr$("a-b-c","-" To "+")')).toBe('a+b+c')
+    expect(p('Replacestr$("aaa","aa" To "b")')).toBe('ba')
+    expect(p('Replacestr$("abc","x" To "y")')).toBe('abc')
+  })
+
+  it('Itemstr$ numbers items FROM ZERO, with | as the default separator', () => {
+    // the manual's three worked examples
+    expect(p('Itemstr$("Ben|Semprini|Petri|Andy",1)')).toBe('Semprini')
+    expect(p('Itemstr$("The quick brown fox",2," ")')).toBe('brown')
+    expect(p('Itemstr$("zero|one|two||four|five",5)')).toBe('five')
+    // "empty items can be used without hesitation"
+    expect(p('"["+Itemstr$("zero|one|two||four|five",3)+"]"')).toBe('[]')
+  })
+
+  it('Itemstr$ errors on an empty string or a missing item', () => {
+    expect(() => p('Itemstr$("",0)')).toThrow(/Illegal function call/)
+    expect(() => p('Itemstr$("a|b",5)')).toThrow(/Illegal function call/)
+  })
+
+  it('Scanstr$ names a key, and answers empty for an unused code', () => {
+    expect(p('Scanstr$($40)')).toBe('Space')
+    expect(p('Scanstr$($20)')).toBe('A')
+    expect(p('Scanstr$($50)')).toBe('F1')
+    expect(p('"["+Scanstr$($7F)+"]"')).toBe('[]')
+  })
+})
