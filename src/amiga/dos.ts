@@ -31,10 +31,15 @@
  * so the scan stays with the port until there are two of them to compare and
  * something to say about what they share beyond the loop.
  *
- * The **protection string** (`hsparwed`) is not here either, for the reason
- * area fill is absent from `blitter.ts`: nothing calls it yet. AMCAF's
- * `Object Protection$` is the keyword that will want it, and it can arrive
- * with a test.
+ * The **protection string** (`hsparwed`) arrived with its caller, exactly as
+ * planned: AMCAF's `Object Protection$` is documented as converting "this
+ * numeric value into a string in the format 'hsparwed'", which is the format
+ * `protectionString` produces and a test pins.
+ *
+ * The scan now has its second caller too — AMCAF's `Examine Dir`/`Next$` beside
+ * LDos's `Lcat First`/`Next` — so unifying them is justified where it was not
+ * before. Deferred rather than done: the two disagree on ordering, and picking
+ * a winner is a decision with a right answer to find rather than a merge.
  */
 
 /* ------------------------------------------------------------------ *
@@ -154,6 +159,25 @@ export const MAX_COMMENT = 79
 export function blocksFor(size: number, dataBytesPerBlock = 512): number {
   if (!(size > 0) || !(dataBytesPerBlock > 0)) return 0
   return Math.ceil(size / dataBytesPerBlock)
+}
+
+/**
+ * `fib_Protection` as AmigaDOS lists it: eight characters, `hsparwed`.
+ *
+ * The high nibble reads normally — a set bit shows its letter — and the low
+ * nibble is INVERTED, so a set bit means the permission is denied and shows a
+ * dash. Protection 0 is therefore `----rwed`, everything permitted and nothing
+ * flagged, which is the default a freshly written file has.
+ */
+export function protectionString(protection: number): string {
+  const HIGH = [FIBF_HIDDEN, FIBF_SCRIPT, FIBF_PURE, FIBF_ARCHIVE]
+  const LOW = [FIBF_READ, FIBF_WRITE, FIBF_EXECUTE, FIBF_DELETE]
+  const letters = 'hsparwed'
+  let out = ''
+  ;[...HIGH, ...LOW].forEach((flag, i) => {
+    out += permits(protection, flag) ? letters[i]! : '-'
+  })
+  return out
 }
 
 /** data bytes per block on the two filesystems */

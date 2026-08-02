@@ -4,6 +4,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
+import { AmigaFS } from '../amiga/vfs'
 
 /**
  * AMCAF (Chris Hodges), against `AMCAF.Guide` and `AMOSPro_AMCAF.Lib`
@@ -437,5 +438,140 @@ describe('slice 4: banks', () => {
     const one = run([...setup, 'Bank Code Mix.w 0,5'])
     // key starts at 0 and advances by (0 XOR $FACE) = $FACE
     expect((one.rt.memBanks.get(5)!.data[0]! << 8) | one.rt.memBanks.get(5)!.data[1]!).toBe(0x1234 ^ 0xface)
+  })
+})
+
+describe('slice 5: disk and DOS objects', () => {
+  const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
+
+  /** a Runtime with one writable volume, which the file keywords need */
+  function runFs(src: string[]): { out: string; rt: Runtime } {
+    const fs = new AmigaFS()
+    fs.mountMemory('Work')
+    fs.currentDir = 'Work:'
+    let out = ''
+    const rt = new Runtime(tokenize(src.join('\n'), table, extensions), table, {
+      maxSteps: 1_000_000,
+      extensions,
+      fs,
+      onText: (t) => (out += t),
+    })
+    const r = rt.runHeadless(200)
+    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    return { out, rt }
+  }
+
+  it('Object Protection$ formats the byte as hsparwed', () => {
+    // "converts this numeric value into a string in the format 'hsparwed'"
+    expect(p('Object Protection$(0)')).toBe('----rwed') // nothing denied
+    expect(p('Object Protection$($FF)')).toBe('hspa----') // everything denied
+    expect(p('Object Protection$(4)')).toBe('----r-ed') // bit 2 denies write
+    expect(p('Object Protection$($80)')).toBe('h---rwed')
+  })
+
+  it('Filename$ and Path$ split a mixed path, per the manual examples', () => {
+    expect(p('Filename$("DH2:AMOS/AMOSPro")')).toBe('AMOSPro')
+    expect(p('Path$("DH2:AMOS/AMOSPro")')).toBe('DH2:AMOS')
+    expect(p('Filename$("DF0:Game")')).toBe('Game')
+    expect(p('Path$("DF0:Game")')).toBe('DF0:')
+    expect(p('Filename$("bare")')).toBe('bare')
+  })
+
+  it('Pattern Match turns * into #? and answers -1 or 0', () => {
+    // "a asterik (*) will be converted into '#?' automatically"
+    expect(p('Pattern Match("hello.iff","*.iff")')).toBe('-1')
+    expect(p('Pattern Match("hello.abk","*.iff")')).toBe('0')
+    expect(p('Pattern Match("hello","#?")')).toBe('-1')
+  })
+
+  it('Disk Type calls DFn: a device', () => {
+    expect(p('Disk Type("DF0:")')).toBe('0')
+    expect(p('Disk Type("Workbench:")')).toBe('2')
+  })
+
+  it('Io Error$ gives dos.library text, and empty for an unused number', () => {
+    // "Returns a dos errorstring" -- and "If no error number exists, an empty
+    // string will be returned"
+    expect(p('Io Error$(205)')).toBe('object not found')
+    expect(p('Io Error$(214)')).toBe('disk write protected')
+    expect(p('"["+Io Error$(9999)+"]"')).toBe('[]')
+  })
+
+  it('Dos Hash lands every name in a 0..71 bucket', () => {
+    for (const n of ['a', 'thrusts.info', 'AMOSPro', 'x'.repeat(30)]) {
+      const h = Number(p(`Dos Hash("${n}")`))
+      expect(h).toBeGreaterThanOrEqual(0)
+      expect(h).toBeLessThan(72)
+    }
+  })
+
+  it('Examine Dir then Examine Next$ walks a drawer and closes at the end', () => {
+    const { out } = runFs([
+      'Dir$="Work:"',
+      'Open Out 1,"Work:one.txt" : Print #1,"x" : Close 1',
+      'Examine Dir "Work:"',
+      'A$=Examine Next$',
+      'Print A$',
+      'B$=Examine Next$',
+      'Print "["+B$+"]"',
+    ])
+    const lines = out.trim().split('\n')
+    expect(lines[0]).toBe('one.txt')
+    // "If the end of the directory list is reached, file$ will contain an
+    // empty string and the drawer will be closed"
+    expect(lines[1]).toBe('[]')
+  })
+
+  it('the Object accessors read whatever Examine last described', () => {
+    const { out } = runFs([
+      'Open Out 1,"Work:two.txt" : Print #1,"hello" : Close 1',
+      'Examine Object "Work:two.txt"',
+      'Print Object Name$',
+      'Print Object Type',
+      'Print Object Size',
+      'Print Object Blocks',
+    ])
+    const l = out.trim().split('\n').map((x) => x.trim())
+    expect(l[0]).toBe('two.txt')
+    expect(l[1]).toBe('-3') // negative for a file
+    expect(Number(l[2])).toBeGreaterThan(0)
+    expect(l[3]).toBe('1') // under one 512-byte block
+  })
+
+  it('Protect Object and Set Object Comment round-trip through the metadata', () => {
+    const { out } = runFs([
+      'Open Out 1,"Work:three.txt" : Print #1,"x" : Close 1',
+      'Protect Object "Work:three.txt",$85',
+      'Set Object Comment "Work:three.txt","a note"',
+      'Print Object Protection("Work:three.txt")',
+      'Print Object Comment$("Work:three.txt")',
+      'Print Object Protection$(Object Protection("Work:three.txt"))',
+    ])
+    const l = out.trim().split('\n').map((x) => x.trim())
+    expect(l[0]).toBe(String(0x85))
+    expect(l[1]).toBe('a note')
+    // $85 is hidden, plus write and delete DENIED by the inverted low nibble
+    expect(l[2]).toBe('h---r-e-')
+  })
+
+  it('Wload and Wsave move a whole file through a bank', () => {
+    const { rt } = runFs([
+      'Open Out 1,"Work:four.bin" : Print #1,"ABCD" : Close 1',
+      'Wload "Work:four.bin",7',
+      'Wsave "Work:copy.bin",7',
+    ])
+    expect(rt.memBanks.get(7)!.data.length).toBeGreaterThan(0)
+    expect(rt.vfs!.readFile('Work:copy.bin')).not.toBe(null)
+  })
+
+  it('File Copy duplicates a file', () => {
+    const { rt } = runFs([
+      'Open Out 1,"Work:five.bin" : Print #1,"ZZZ" : Close 1',
+      'File Copy "Work:five.bin" To "Work:six.bin"',
+    ])
+    const a = rt.vfs!.readFile('Work:five.bin')
+    const b = rt.vfs!.readFile('Work:six.bin')
+    expect(b).not.toBe(null)
+    expect([...b!]).toEqual([...a!])
   })
 })

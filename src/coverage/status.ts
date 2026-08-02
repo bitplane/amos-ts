@@ -1384,6 +1384,15 @@ export const FAITHFUL = new Set<string>([
   'bank code rol.b', 'bank code ror.b',
   'bank code xor.w', 'bank code add.w', 'bank code mix.w',
   'bank code rol.w', 'bank code ror.w',
+  // slice 5: disk and DOS objects. Disk Type and Command Name$ are
+  // APPROXIMATED (assigns are not distinguished; no program name is kept).
+  'examine dir', 'examine object', 'examine stop', 'examine next$',
+  'object type', 'object size', 'object blocks', 'object name$',
+  'object date', 'object time', 'object protection', 'object protection$',
+  'object comment$', 'protect object', 'set object comment', 'set object date',
+  'file copy', 'filename$', 'path$', 'pattern match', 'dos hash',
+  'io error', 'io error$', 'disk state', 'tool types$',
+  'wload', 'dload', 'wsave', 'dsave',
 
   // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
   // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
@@ -1974,7 +1983,21 @@ export const NOTES: Record<string, string> = {
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
   // --- AGA 1.0: doc plus disassembly; the doc loses three times ---
-  // --- AMCAF slices 1-4 ---
+  // --- AMCAF slices 1-5 ---
+  'object protection$':
+    "Note the argument: this takes the NUMERIC VALUE, not a path -- 'Object Protection\$ function converts this numeric value into a string in the format hsparwed'. The low nibble is inverted, so \$85 (hidden, plus write and delete denied) prints as `h---r-e-` and protection 0 prints as `----rwed`",
+  'examine next$':
+    "'If the end of the directory list is reached, file\$ will contain an empty string and the drawer will be closed' -- so the walk cleans up after itself and a further call starts from nothing rather than repeating the last entry",
+  'pattern match':
+    "dos.library's ParsePattern and MatchPattern, which is why 'This command only works on OS2.0 and higher'. 'The pattern may contain any regular DOS jokers[;] a asterik (*) will be converted into #? automatically', so the conversion happens before the matcher sees it",
+  'tool types$':
+    "NOTE: `.info` files are Workbench DiskObjects and this port does not decode them, so a program asking for tool types gets the empty string -- the same answer the manual gives for a file with no icon. The manual's own note is worth keeping: 'The supplied file must not have a .info appended!'",
+  'command name$':
+    "NOTE: nothing records the file a program was loaded from under a name the program itself could have used, so this answers empty. Its documented purpose is 'to read the own Tool Types', and Tool Types\$ answers empty too, so the pair stays consistent. APPROXIMATED",
+  'disk type':
+    "0 a real device, 1 an assign, 2 a volume name. NOTE: an assign and a volume are not told apart here -- the distinction is a dos.library device-list walk and AmigaFS keeps its assign map private -- so anything that is not a floppy device answers 2. APPROXIMATED",
+  'disk state':
+    "Bit 0 write-protected or validating, bit 1 in use. Nothing here is write protected, being read from a mounted volume, and nothing is mid-write when a keyword can observe it. The manual is candid about the third case: 'If no disk is in the drive, it normally should return -1, but I'm afraid...'",
   'bank code mix.b':
     "Routine 37 (\$25d2), and the only one of the five encoders the manual does not describe. It is a small STREAM CIPHER rather than a per-element operation: `d1 = code XOR \$AA` once, then every element does `d0 = d0 + d1` before `eor`ing into the data, so the key walks. That is why 'So coded banks should be hard to decode' and why decoding is the same command with the SAME code rather than the negative one",
   'bank code mix.w':

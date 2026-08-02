@@ -92,8 +92,33 @@ import type { Func, Instr } from '../interp/builtins'
 import type { Interp } from '../interp/interp'
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import { DAY_MS, STAMP_EPOCH, TICKS_PER_SECOND, stampToYmd } from '../amiga/datestamp'
+import { MAX_COMMENT, blocksFor, entryType, protectionString } from '../amiga/dos'
+import { amigaMatch } from '../amiga/dospattern'
+import { joinAmigaPath } from '../amiga/vfs'
+
+/**
+ * The FileInfoBlock the Examine family fills in.
+ *
+ * `Examine Dir` "loads all information about the drawer into the
+ * FileInfoBlock", `Examine Next$` steps it to each entry in turn, and
+ * `Examine Object` fills it for one named object. The `Object *` accessors
+ * then read whichever object it currently describes — which is why they all
+ * have a no-argument form as well as a path one.
+ */
+export interface AmcafExamine {
+  /** the directory being walked, or '' after Examine Stop */
+  dir: string
+  entries: string[]
+  index: number
+  /** the path the accessors currently answer for */
+  current: string
+}
 
 export interface AmcafState {
+  /** the single Examine context; the extension keeps exactly one */
+  examine: AmcafExamine
+  /** the last AmigaDOS error, which Io Error reports */
+  ioError: number
   /**
    * Placeholder for the extension's data base.
    *
@@ -106,7 +131,11 @@ export interface AmcafState {
 }
 
 export function newAmcafState(): AmcafState {
-  return { present: true }
+  return {
+    examine: { dir: '', entries: [], index: -1, current: '' },
+    ioError: 0,
+    present: true,
+  }
 }
 
 /**
@@ -121,6 +150,117 @@ export function newAmcafState(): AmcafState {
 export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
   void rt
   return {
+
+    /**
+     * Examine Dir directory$ — "loads all information about the drawer into
+     * the FileInfoBlock. Additionally, the contents of the directory can be
+     * read out by Examine Next$."
+     */
+    'examine dir'(it) {
+      const dir = it.evalStr()
+      const entries = rt.vfs?.listDir(dir) ?? null
+      if (entries === null) {
+        rt.amcaf.ioError = 205 // ERROR_OBJECT_NOT_FOUND
+        amcafErr()
+      }
+      rt.amcaf.examine = { dir, entries: entries.map((e) => e.name), index: -1, current: dir }
+      rt.amcaf.ioError = 0
+    },
+
+    /**
+     * Examine Object file$ — "supplies you with all available information
+     * about the [object], [readable through] the functions without any
+     * parameters."
+     */
+    'examine object'(it) {
+      const path = it.evalStr()
+      if (!rt.vfs || rt.vfs.exists(path) === null) {
+        rt.amcaf.ioError = 205
+        amcafErr()
+      }
+      rt.amcaf.examine.current = path
+      rt.amcaf.ioError = 0
+    },
+
+    /**
+     * Examine Stop — "Aborts the reading process of a directory. After this
+     * command, you may not make any further calls to Examine Next$."
+     */
+    'examine stop'() {
+      rt.amcaf.examine = { dir: '', entries: [], index: -1, current: '' }
+    },
+
+    /** Protect Object pathfile$,prot — the bitmapped value straight through */
+    'protect object'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      rt.vfs?.setMeta(path, { protection: it.evalInt() & 0xff })
+    },
+
+    /** Set Object Comment pathfile$,comment$ — the FileNote, 79 characters */
+    'set object comment'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      rt.vfs?.setMeta(path, { comment: it.evalStr().slice(0, MAX_COMMENT) })
+    },
+
+    /**
+     * Set Object Date pathfile$,date,time — the DateStamp, in the same two
+     * packed values Current Date and Current Time hand out. "This command
+     * only works on OS2.0 and higher."
+     */
+    'set object date'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const days = it.evalInt()
+      it.expect(',')
+      const t = it.evalInt()
+      rt.vfs?.setMeta(path, { days, mins: timeMins(t), ticks: timeTicks(t) })
+    },
+
+    /**
+     * File Copy sourcefile$ To targetfile$.
+     *
+     * "This command allows you to even copy a file of 3 MB in size, even if
+     * you only got 100 KB of free memory" — the machine streams it in
+     * chunks; there is no such limit here, and the result is the same file.
+     */
+    'file copy'(it) {
+      const from = it.evalStr()
+      it.expect('to')
+      const to = it.evalStr()
+      const data = rt.vfs?.readFile(from) ?? null
+      if (data === null) {
+        rt.amcaf.ioError = 205
+        amcafErr()
+      }
+      rt.vfs?.writeFile(to, data)
+      rt.amcaf.ioError = 0
+    },
+
+    /**
+     * Wload / Dload file$,bank — "loads the file named file$ completely into
+     * memory", the manual even giving the long way round:
+     * `Open In 1,FILE$ : LE=Lof(1) : Close 1 : Reserve As Work BANK,LE ...`
+     *
+     * The pair differ only in the bank kind, Work against Data, which is the
+     * Bank Temporary / Bank Permanent distinction again.
+     */
+    'wload'(it) {
+      loadToBank(rt, it, false)
+    },
+    'dload'(it) {
+      loadToBank(rt, it, true)
+    },
+
+    /** Wsave / Dsave file$,bank — "Dsave is exactly the same as Wsave" */
+    'wsave'(it) {
+      saveBank(rt, it)
+    },
+    'dsave'(it) {
+      saveBank(rt, it)
+    },
+
     /** Nop — routine 21 ($231a) is two bytes: `rts`. "has no effect et al" */
     nop() {},
 
@@ -475,6 +615,100 @@ function bankCodeOps(rt: Runtime): Record<string, Instr> {
   return out
 }
 
+/* ------------------------------------------------------------------ *
+ * Slice 5: disk and DOS objects
+ * ------------------------------------------------------------------ */
+
+/**
+ * Which object an `Object *` accessor answers for.
+ *
+ * Every one has two forms — with a path and without — and the no-argument
+ * form reads whatever the Examine context currently describes. That is the
+ * whole point of the family: walk a directory with Examine Next$ and read
+ * each entry's details without naming it again.
+ */
+function objPath(rt: Runtime, a: Value[]): string {
+  if (a.length > 0) return str(a[0]!)
+  return rt.amcaf.examine.current
+}
+
+function objSize(rt: Runtime, path: string): number {
+  if (!rt.vfs || rt.vfs.exists(path) !== 'file') return 0
+  return rt.vfs.readFile(path)?.length ?? 0
+}
+
+/** Wload / Dload: the whole file into a bank, Work or Data */
+function loadToBank(rt: Runtime, it: Interp, dataBank: boolean): void {
+  const file = it.evalStr()
+  it.expect(',')
+  const n = it.evalInt()
+  const bytes = rt.vfs?.readFile(file) ?? null
+  if (bytes === null) {
+    rt.amcaf.ioError = 205
+    amcafErr()
+  }
+  rt.reserveBank(n, bytes.length, 'Amcaf   ', dataBank)
+  rt.memBanks.get(n)!.data.set(bytes)
+  rt.amcaf.ioError = 0
+}
+
+/** Wsave / Dsave: "Dsave is exactly the same as Wsave in every aspect" */
+function saveBank(rt: Runtime, it: Interp): void {
+  const file = it.evalStr()
+  it.expect(',')
+  const b = rt.memBanks.get(it.evalInt())
+  if (!b) amcafErr()
+  rt.vfs?.writeFile(file, b.data)
+  rt.amcaf.ioError = 0
+}
+
+/**
+ * `Io Error$` texts.
+ *
+ * These are dos.library's, not the extension's — AMCAF ships no strings at
+ * all, and the manual says the function "Returns a dos errorstring". Only the
+ * codes a modelled filesystem can actually produce are listed; anything else
+ * gets the empty string the manual describes for an unknown number ("If no
+ * error number exists, an empty string will be returned").
+ */
+const DOS_ERRORS: Record<number, string> = {
+  103: 'insufficient free store',
+  105: 'task table full',
+  120: 'argument line invalid or too long',
+  121: 'file is not an object module',
+  202: 'object in use',
+  203: 'object already exists',
+  204: 'directory not found',
+  205: 'object not found',
+  206: 'invalid window',
+  210: 'invalid stream component name',
+  212: 'object not of required type',
+  213: 'disk not validated',
+  214: 'disk write protected',
+  216: 'directory not empty',
+  218: 'device not mounted',
+  221: 'disk full',
+  222: 'file is protected from deletion',
+  223: 'file is write protected',
+  224: 'file is read protected',
+  225: 'not a valid DOS disk',
+  226: 'no disk in drive',
+}
+const dosErrorText = (n: number): string => DOS_ERRORS[n] ?? ''
+
+/**
+ * The tool types of an icon, one per line.
+ *
+ * NOTE: `.info` files are Workbench icons and this port does not decode them.
+ * A program asking for tool types it did not write gets an empty string,
+ * which is the same answer the manual gives for a file with no icon.
+ */
+function toolTypes(rt: Runtime, name: string): string {
+  // the icon has to exist for there to be anything to say; its contents are
+  // a Workbench DiskObject this port does not decode
+  return rt.vfs?.readFile(`${name}.info`) === null ? '' : ''
+}
+
 export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
   void rt
   const i0 = (a: Value[], n: number): number => int(a[n] ?? VI(0))
@@ -745,6 +979,148 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
       const b = rt.memBanks.get(i0(a, 0))
       if (!b) amcafErr()
       return VS(b.name)
+    },
+
+
+    /**
+     * =Examine Next$ — the next entry's name, and "If the end of the
+     * directory list is reached, file$ will contain an empty string and the
+     * drawer will be closed."
+     */
+    'examine next$': () => {
+      const e = rt.amcaf.examine
+      e.index++
+      const name = e.entries[e.index]
+      if (name === undefined) {
+        rt.amcaf.examine = { dir: '', entries: [], index: -1, current: '' }
+        return VS('')
+      }
+      e.current = joinAmigaPath(e.dir, name)
+      return VS(name)
+    },
+
+    /** =Object Type — positive for a directory, negative for a file */
+    'object type': (_, a) => {
+      const p = objPath(rt, a)
+      const k = rt.vfs?.exists(p) ?? null
+      return VI(k === null ? 0 : entryType(k === 'dir'))
+    },
+    /** =Object Size — zero for a directory, which has no byte size */
+    'object size': (_, a) => VI(objSize(rt, objPath(rt, a))),
+    /** =Object Blocks — "the number of blocks the object uses on a volume" */
+    'object blocks': (_, a) => VI(blocksFor(objSize(rt, objPath(rt, a)))),
+    /** =Object Name$ — the object's own name, without its path */
+    'object name$': (_, a) => {
+      const p = objPath(rt, a)
+      const cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf(':'))
+      return VS(cut >= 0 ? p.slice(cut + 1) : p)
+    },
+    /** =Object Date — the DateStamp day count */
+    'object date': (_, a) => VI(rt.vfs?.meta(objPath(rt, a)).days ?? 0),
+    /** =Object Time — the same packed minutes/ticks Current Time uses */
+    'object time': (_, a) => {
+      const m = rt.vfs?.meta(objPath(rt, a))
+      return VI(packTime(m?.mins ?? 0, m?.ticks ?? 0))
+    },
+    /** =Object Protection — the raw bitmap */
+    'object protection': (_, a) => VI(rt.vfs?.meta(objPath(rt, a)).protection ?? 0),
+    /** =Object Comment$ — the FileNote */
+    'object comment$': (_, a) => VS(rt.vfs?.meta(objPath(rt, a)).comment ?? ''),
+
+    /**
+     * =Object Protection$(prot) — note the argument: this takes the NUMERIC
+     * VALUE, not a path. "Object Protection$ function converts this numeric
+     * value into a string in the format 'hsparwed'."
+     */
+    'object protection$': (_, a) => VS(protectionString(i0(a, 0) & 0xff)),
+
+    /** =Filename$("DH2:AMOS/AMOSPro") is "AMOSPro" */
+    'filename$': (_, a) => {
+      const p = s0(a, 0)
+      const cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf(':'))
+      return VS(cut >= 0 ? p.slice(cut + 1) : p)
+    },
+    /** =Path$("DH2:AMOS/AMOSPro") is "DH2:AMOS" — "a kind of Parent$" */
+    'path$': (_, a) => {
+      const p = s0(a, 0)
+      const slash = p.lastIndexOf('/')
+      if (slash >= 0) return VS(p.slice(0, slash))
+      const colon = p.lastIndexOf(':')
+      return VS(colon >= 0 ? p.slice(0, colon + 1) : '')
+    },
+
+    /**
+     * =Pattern Match(source$,pattern$) — dos.library's ParsePattern and
+     * MatchPattern, which is why "This command only works on OS2.0 and
+     * higher". "The pattern may contain any regular DOS jokers[;] a asterik
+     * (*) will be converted into '#?' automatically."
+     */
+    'pattern match': (_, a) => VI(amigaMatch(s0(a, 0), s0(a, 1).replace(/\*/g, '#?')) ? -1 : 0),
+
+    /**
+     * =Disk Type(directory$) — 0 a real device, 1 an assign, 2 a volume name.
+     * "Using this function you can filter specific disk types out of a
+     * device list."
+     */
+    'disk type': (_, a) => {
+      // NOTE: an assign and a volume are not told apart here. The distinction
+      // is a dos.library device-list walk, and this port's AmigaFS keeps its
+      // assign map private, so a name that is not a floppy device answers 2.
+      // APPROXIMATED for that reason.
+      const name = s0(a, 0).replace(/:.*$/, '')
+      return VI(/^df\d$/i.test(name) ? 0 : 2)
+    },
+
+    /**
+     * =Disk State(directory$) — bit 0 write-protected or validating, bit 1
+     * in use. The manual is candid about the third case: "If no disk is in
+     * the drive, it normally should return -1, but I'm afraid..."
+     *
+     * Nothing here is write protected, being read from a mounted volume, and
+     * nothing is mid-write when a keyword can observe it.
+     */
+    'disk state': (_, a) => VI(rt.vfs?.exists(s0(a, 0)) === null ? -1 : 0),
+
+    /** =Io Error / =Io Error$ — the last AmigaDOS error, not an AMOS one */
+    'io error': () => VI(rt.amcaf.ioError),
+    'io error$': (_, a) => VS(dosErrorText(i0(a, 0))),
+
+    /**
+     * =Command Name$ — "the file name of the program under which AMOS or the
+     * compiled program has been started. This is required for example to
+     * read the own Tool Types."
+     */
+    'command name$': () => {
+      // NOTE: nothing records the file a program was loaded from under a name
+      // the program itself could have used, so this answers empty. A program
+      // using it to find its own Tool Types gets the same nothing Tool Types$
+      // gives, which at least keeps the pair consistent. APPROXIMATED.
+      return VS('')
+    },
+
+    /**
+     * =Tool Types$(filename$) — an icon's tool types, one per line.
+     *
+     * "The supplied file must not have a '.info' appended!" and "The various
+     * Tool Types are seperated by a line feed character (Chr$(10)). So they
+     * can be printed out easily using Print."
+     */
+    'tool types$': (_, a) => VS(toolTypes(rt, s0(a, 0))),
+
+    /**
+     * =Dos Hash(file$) — "Returns the hash value of a file. Only for
+     * advanced users who want to read directly from dos disks."
+     *
+     * The AmigaDOS directory hash: fold the name, case-insensitively, into
+     * a bucket. Its one caller is somebody walking a real disk's hash chains.
+     */
+    'dos hash': (_, a) => {
+      const name = s0(a, 0)
+      let h = name.length
+      for (let i = 0; i < name.length; i++) {
+        h = (h * 13 + (name.charCodeAt(i) & 0xff)) & 0x7ff
+      }
+      return VI(h % 72)
     },
 
     /** =Nfn — routine 22. "returns nothing useful ... used in speed testing" */
