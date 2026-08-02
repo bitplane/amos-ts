@@ -9,6 +9,7 @@ import { JVP_ERRORS, makeJvpFunctions, makeJvpInstructions } from './jvp'
 import { makeLocaleFunctions, makeLocaleInstructions } from './locale'
 import { TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions, turboDefault } from './turbo'
 import { PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
+import { makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
 import { makeSpeechFunctions, makeSpeechInstructions } from './speech'
 import { makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
 import { makeCtextFunctions, makeCtextInstructions } from './ctext'
@@ -4952,6 +4953,26 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // core owns Sprite Col and TURBO owns Right Click
     qualified: ['sprite col', 'right click'],
     errors: PERSONNAL_ERRORS,
+  },
+  {
+    /*
+     * AMCAF, slot 8. One port for both releases: 1.50 is 1.40 plus twelve
+     * keywords, sharing 268 names, which is why the 1.50 manual documents
+     * 1.40. No error table — the extension ships no message strings at all
+     * and fails through AMOS's own numbers.
+     *
+     * The qualified list is the seven ARMED contested names, where the other
+     * side is already ported and a plain registration would silently replace
+     * a working implementation: six are Personnal's and Sload/Ssave belong to
+     * the Music extension and EME. On the machine these are different tokens
+     * at different slots and coexist; `ext8:` reproduces that.
+     */
+    ids: ['amcaf-1.40', 'amcaf-1.50'],
+    instructions: makeAmcafInstructions,
+    functions: makeAmcafFunctions,
+    // `qualified` cannot be declared ahead of the keywords: extimpl.test.ts
+    // requires every qualified name to be one the port actually defines, so
+    // the eight arrive with their slices (5 for Sload/Ssave, 7 for the rest)
   },
   {
     // the speech slice of the Music extension: Say, and the mouth stream
