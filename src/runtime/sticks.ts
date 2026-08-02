@@ -60,7 +60,7 @@
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { VI, AmosError, int, type Value } from '../interp/values'
-import { MAX_PORT, PORT_MOUSE, joyDirections, joyFire } from '../interp/gameport'
+import { MAX_PORT, PORT_JOYSTICK, PORT_MOUSE, joyDirections, joyFire } from '../interp/gameport'
 
 const funcCall: () => never = () => {
   throw new AmosError('Illegal function call', 23)
@@ -273,7 +273,7 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
       const n = port(int(a[0]!))
       if (n !== 0) {
         // port 1 is the joystick port: its fire lines, not a mouse
-        return VI(joyBits(1) & 0x10 ? 1 : 0)
+        return VI(joyFire(joyBits(PORT_JOYSTICK)) ? 1 : 0)
       }
       return VI(rt.input.mouseK & 3)
     },

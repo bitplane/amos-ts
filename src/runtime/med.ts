@@ -24,15 +24,9 @@
  */
 
 import { AmosError } from '../interp/values'
-import { periodToHz } from '../amiga/paula'
+import { AMIGA_PERIODS, periodToHz } from '../amiga/paula'
 import type { AudioSink } from '../amiga/paula'
 
-/** the standard 3-octave Amiga period table (856..113), C-1 at index 0 */
-const MED_PERIODS = [
-  856, 808, 762, 720, 678, 640, 604, 570, 538, 508, 480, 453,
-  428, 404, 381, 360, 339, 320, 302, 285, 269, 254, 240, 226,
-  214, 202, 190, 180, 170, 160, 151, 143, 135, 127, 120, 113,
-]
 
 const SINUS = [
   0, 24, 49, 74, 97, 120, 141, 161, 180, 197, 212, 224, 235, 244, 250, 253,
@@ -273,8 +267,8 @@ export class MedPlayer {
     const strans = (this.b(this.song + (instr - 1) * 8 + 7) << 24) >> 24
     let idx = note - 1 + strans + this.transp
     if (idx < 0) idx = 0
-    if (idx >= MED_PERIODS.length) idx = MED_PERIODS.length - 1
-    return MED_PERIODS[idx]!
+    if (idx >= AMIGA_PERIODS.length) idx = AMIGA_PERIODS.length - 1
+    return AMIGA_PERIODS[idx]!
   }
 
   private trigger(v: number, note: number): void {
@@ -346,8 +340,8 @@ export class MedPlayer {
         if (V.data === 0) break
         const sel = this.tickCount % 3
         const half = sel === 1 ? V.data >> 4 : sel === 2 ? V.data & 0xf : 0
-        const idx = Math.max(0, Math.min(MED_PERIODS.length - 1, V.note - 1 + half + this.transp))
-        this.host.audio.setFrequency(v, periodToHz(MED_PERIODS[idx]!))
+        const idx = Math.max(0, Math.min(AMIGA_PERIODS.length - 1, V.note - 1 + half + this.transp))
+        this.host.audio.setFrequency(v, periodToHz(AMIGA_PERIODS[idx]!))
         break
       }
       case 0x1:

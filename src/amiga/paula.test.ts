@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AMIGA_PERIODS,
   MAX_VOLUME,
   MIN_PERIOD,
   NullAudio,
@@ -79,6 +80,34 @@ describe('volume', () => {
     // med.ts computes up to 64 and the old 63-divisor turned that into 1.016
     expect(volumeGain(64)).toBeLessThanOrEqual(1)
     expect(volumeGain(100)).toBe(1)
+  })
+})
+
+describe('the period table', () => {
+  it('is three octaves, C-1 to B-3, 856 down to 113', () => {
+    expect(AMIGA_PERIODS).toHaveLength(36)
+    expect(AMIGA_PERIODS[0]).toBe(856)
+    expect(AMIGA_PERIODS[35]).toBe(113)
+  })
+
+  it('descends, and halves exactly an octave apart', () => {
+    for (let i = 1; i < AMIGA_PERIODS.length; i++) {
+      expect(AMIGA_PERIODS[i]!, `index ${i}`).toBeLessThan(AMIGA_PERIODS[i - 1]!)
+    }
+    // an octave up is half the period, to the rounding the table shipped with
+    for (let i = 0; i + 12 < AMIGA_PERIODS.length; i++) {
+      expect(Math.abs(AMIGA_PERIODS[i]! / 2 - AMIGA_PERIODS[i + 12]!)).toBeLessThanOrEqual(0.5)
+    }
+  })
+
+  it('the top two notes are BELOW the DMA limit, and the table keeps them', () => {
+    // A#-3 (120) and B-3 (113) are shorter periods than Paula can service
+    // cleanly. Every tracker shipped them anyway, so the table is not clamped
+    // — samPeriod clamps a REQUESTED RATE, which is a different question, and
+    // a module that plays the top of octave 3 gets what the machine gave it.
+    const below = AMIGA_PERIODS.filter((p) => p < MIN_PERIOD)
+    expect(below).toEqual([120, 113])
+    expect(AMIGA_PERIODS.filter((p) => p >= MIN_PERIOD)).toHaveLength(34)
   })
 })
 

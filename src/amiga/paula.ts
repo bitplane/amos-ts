@@ -76,6 +76,33 @@ export function periodToHz(period: number, clock = PAULA_CLOCK): number {
   return clock / Math.max(1, period)
 }
 
+/**
+ * The standard three-octave Amiga period table, C-1 at index 0.
+ *
+ * Equal temperament against the PAL clock, 856 down to 113 — the table every
+ * tracker on the machine shipped, because a ProTracker module stores these
+ * numbers literally and a replayer has to map a note back onto one.
+ *
+ * It was written out twice: `med.ts` in decimal and `music.ts` in hex, 36
+ * entries each and identical value for value. AMOS's own copy is at
+ * +Music.s:2150.
+ *
+ * AMOS's assembled table carries TWO ZEROS after these, which its arpeggio
+ * lookup reads past the end into — that padding is AMOS's and stays in
+ * `music.ts` with the code that depends on it.
+ *
+ * NOTE: the last two entries, 120 and 113, are SHORTER than `MIN_PERIOD`.
+ * The top of octave 3 is faster than Paula's DMA can service cleanly, and
+ * every tracker shipped the notes anyway. The table is therefore not clamped
+ * — `samPeriod` clamps a requested sample RATE, which is a different
+ * question, and a module playing B-3 gets whatever the machine gave it.
+ */
+export const AMIGA_PERIODS: readonly number[] = [
+  856, 808, 762, 720, 678, 640, 604, 570, 538, 508, 480, 453,
+  428, 404, 381, 360, 339, 320, 302, 285, 269, 254, 240, 226,
+  214, 202, 190, 180, 170, 160, 151, 143, 135, 127, 120, 113,
+]
+
 /** AUDxVOL as the chip sees it: 0..64, saturating rather than wrapping */
 export function clampVolume(v: number): number {
   return v < 0 ? 0 : v > MAX_VOLUME ? MAX_VOLUME : v

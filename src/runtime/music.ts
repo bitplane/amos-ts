@@ -24,7 +24,7 @@
  */
 
 import { AmosError } from '../interp/values'
-import { PAULA_CLOCK, periodToHz, samPeriod } from '../amiga/paula'
+import { AMIGA_PERIODS, PAULA_CLOCK, periodToHz, samPeriod } from '../amiga/paula'
 import { MedPlayer } from './med'
 import type { AudioSink } from '../amiga/paula'
 
@@ -70,13 +70,16 @@ interface MuSong {
 
 const TEMPO_BASE = 100 // PAL (MusDef +Music.s:852)
 
-/** Periods table (+Music.s:2150) — arpeggio semitone lookup */
-const PERIODS = [
-  0x0358, 0x0328, 0x02fa, 0x02d0, 0x02a6, 0x0280, 0x025c, 0x023a, 0x021a, 0x01fc, 0x01e0,
-  0x01c5, 0x01ac, 0x0194, 0x017d, 0x0168, 0x0153, 0x0140, 0x012e, 0x011d, 0x010d, 0x00fe,
-  0x00f0, 0x00e2, 0x00d6, 0x00ca, 0x00be, 0x00b4, 0x00aa, 0x00a0, 0x0097, 0x008f, 0x0087,
-  0x007f, 0x0078, 0x0071, 0x0000, 0x0000,
-]
+/**
+ * Periods table (+Music.s:2150) — arpeggio semitone lookup.
+ *
+ * The 36 periods are the standard Amiga table, shared with every other
+ * replayer (../amiga/paula.ts). The TWO ZEROS are AMOS's own: its assembled
+ * table has them, and the arpeggio lookup below indexes `i + nibble`, which
+ * runs past the last note and reads them. They are padding this code depends
+ * on, so they stay here rather than going into the shared table.
+ */
+const PERIODS = [...AMIGA_PERIODS, 0, 0]
 
 /** Sinus table (+Music.s:2146) — vibrato waveform, unsigned half-sine */
 const SINUS = [
