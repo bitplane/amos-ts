@@ -120,6 +120,14 @@ export interface AmcafState {
   /** the last AmigaDOS error, which Io Error reports */
   ioError: number
   /**
+   * The eight "interior palette memory" buffers Pal Get/Set address.
+   *
+   * "palnr must be range from 0 to 7", and each holds a whole screen's worth
+   * of 12-bit entries: "This command is used to quickly store a specific
+   * palette of a screen in a buffer."
+   */
+  palettes: Uint16Array[]
+  /**
    * Placeholder for the extension's data base.
    *
    * `Amcaf Base` returns its address and `Amcaf Length` its size, so a
@@ -134,6 +142,7 @@ export function newAmcafState(): AmcafState {
   return {
     examine: { dir: '', entries: [], index: -1, current: '' },
     ioError: 0,
+    palettes: Array.from({ length: 8 }, () => new Uint16Array(256)),
     present: true,
   }
 }
@@ -259,6 +268,152 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     },
     'dsave'(it) {
       saveBank(rt, it)
+    },
+
+
+    /** Pal Set palnr,index,colour — "palnr must be range from 0 to 7" */
+    'pal set'(it) {
+      const pal = it.evalInt()
+      it.expect(',')
+      const idx = it.evalInt()
+      it.expect(',')
+      const col = it.evalInt()
+      if (pal < 0 || pal > 7 || idx < 0 || idx > 255) amcafErr()
+      rt.amcaf.palettes[pal]![idx] = col & 0xfff
+    },
+
+    /** Pal Get Screen palnr,screen — a whole palette into a buffer */
+    'pal get screen'(it) {
+      const pal = it.evalInt()
+      it.expect(',')
+      const s = rt.screens.get(it.evalInt())
+      if (pal < 0 || pal > 7 || !s) amcafErr()
+      rt.amcaf.palettes[pal]!.set(s.palette.subarray(0, 256))
+    },
+
+    /** Pal Set Screen palnr,screen — "Writes back the previously stored palette" */
+    'pal set screen'(it) {
+      const pal = it.evalInt()
+      it.expect(',')
+      const s = rt.screens.get(it.evalInt())
+      if (pal < 0 || pal > 7 || !s) amcafErr()
+      const buf = rt.amcaf.palettes[pal]!
+      for (let i = 0; i < s.palette.length && i < 256; i++) s.palette[i] = buf[i]!
+    },
+
+    /**
+     * Pal Spread c1,rgb1 To c2,rgb2 — "Creates a smooth blend between the two
+     * colours ... The resulting colour set will be stored between c1 and c2."
+     */
+    'pal spread'(it) {
+      const c1 = it.evalInt()
+      it.expect(',')
+      const rgb1 = it.evalInt()
+      it.expect('to')
+      const c2 = it.evalInt()
+      it.expect(',')
+      const rgb2 = it.evalInt()
+      const s = rt.screen
+      if (!s || c2 < c1) amcafErr()
+      const span = c2 - c1
+      for (let i = 0; i <= span; i++) {
+        const t = span === 0 ? 0 : i / span
+        const mix = (f: (v: number) => number): number => Math.round(f(rgb1) + (f(rgb2) - f(rgb1)) * t)
+        if (c1 + i < s.palette.length) s.palette[c1 + i] = glue(mix(rV), mix(gV), mix(bV))
+      }
+    },
+
+    /**
+     * Convert Grey sourcescreen To targetscreen — "convert any screen into a
+     * grey scale image ... The number of colours in the target screen will be
+     * taken in account, but it makes no sense to open a HAM screen for that
+     * purpose."
+     *
+     * The source palette decides each pixel's luminance; the target's own
+     * palette becomes an even grey ramp and every pixel is remapped onto it.
+     */
+    'convert grey'(it) {
+      const src = rt.screens.get(it.evalInt())
+      it.expect('to')
+      const dst = rt.screens.get(it.evalInt())
+      if (!src || !dst) amcafErr()
+      const levels = 1 << dst.rp.bitMap.depth
+      for (let i = 0; i < levels && i < dst.palette.length; i++) {
+        const v = Math.round((i * 15) / Math.max(1, levels - 1))
+        dst.palette[i] = glue(v, v, v)
+      }
+      const sp = src.rp.bitMap.pixels
+      const dp = dst.rp.bitMap.pixelsW()
+      const w = Math.min(src.width, dst.width)
+      const h = Math.min(src.height, dst.height)
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const rgb = src.palette[sp[y * src.width + x]!] ?? 0
+          // the usual luma weighting, in the 0..15 space the palette uses
+          const lum = (rV(rgb) * 77 + gV(rgb) * 151 + bV(rgb) * 28) >> 8
+          dp[y * dst.width + x] = Math.min(levels - 1, Math.round((lum * (levels - 1)) / 15))
+        }
+      }
+      dst.rp.bitMap.invalidate()
+    },
+
+    /**
+     * Ham Fade Out screen — "darkens the screen by one single step. After
+     * calling it 16 times, the Ham screen is completely black."
+     *
+     * "Technically, it's not possible to fade in a ham screen without enormous
+     * processor power, but for fading out, a modified Shade Bobs routine is"
+     * enough — because darkening is monotone and needs no search.
+     */
+    'ham fade out'(it) {
+      const s = rt.screens.get(it.evalInt())
+      if (!s) amcafErr()
+      for (let i = 0; i < s.palette.length; i++) {
+        const c = s.palette[i]!
+        s.palette[i] = glue(Math.max(0, rV(c) - 1), Math.max(0, gV(c) - 1), Math.max(0, bV(c) - 1))
+      }
+    },
+
+    /**
+     * Set Rain Colour rainbownr,newcolour — "you can change the colour index
+     * of a rainbow ... This means that you can remove the irretating limit to
+     * the first 16 colours and are now able to access all 32 colours."
+     *
+     * And the trick the manual is proud of: "A colour index of -63 enables you
+     * to alter the hardware scrolling register, so you can create fancy water
+     * and wobbel effects." That one is a copper poke at a register this port
+     * models through the display list rather than by address, so the index is
+     * stored and the scroll case is not reproduced.
+     */
+    'set rain colour'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const c = it.evalInt()
+      const rb = rt.rainbows.get(n)
+      if (!rb) amcafErr()
+      rb.colour = c
+    },
+
+    /**
+     * Rain Fade rainbownr,$RGB or rainbownr To targetrainbow.
+     *
+     * "Rain Fade works step by step only. Therefore you need a maximum of 16
+     * calls to reach the new colour values" — one unit per channel per call,
+     * which is the same ramp Ham Fade Out uses.
+     */
+    'rain fade'(it) {
+      const n = it.evalInt()
+      const rb = rt.rainbows.get(n)
+      if (it.accept('to')) {
+        const target = rt.rainbows.get(it.evalInt())
+        if (!rb || !target) amcafErr()
+        for (let i = 0; i < rb.table.length; i++) rb.table[i] = fadeStep(rb.table[i]!, target.table[i] ?? 0)
+        return
+      }
+      it.expect(',')
+      const rgb = it.evalInt() & 0xfff
+      if (!rb) amcafErr()
+      for (let i = 0; i < rb.table.length; i++) rb.table[i] = fadeStep(rb.table[i]!, rgb)
     },
 
     /** Nop — routine 21 ($231a) is two bytes: `rts`. "has no effect et al" */
@@ -709,6 +864,65 @@ function toolTypes(rt: Runtime, name: string): string {
   return rt.vfs?.readFile(`${name}.info`) === null ? '' : ''
 }
 
+/* ------------------------------------------------------------------ *
+ * Slice 6: colour and palette
+ * ------------------------------------------------------------------ */
+
+const rV = (rgb: number): number => (rgb >> 8) & 15
+const gV = (rgb: number): number => (rgb >> 4) & 15
+const bV = (rgb: number): number => rgb & 15
+const glue = (r: number, g: number, b: number): number => ((r & 15) << 8) | ((g & 15) << 4) | (b & 15)
+
+/**
+ * HAM6's control byte, which is what `Ham Colour` decodes.
+ *
+ * Bits 4-5 choose: 00 take the palette entry whole, 01 replace BLUE, 10
+ * replace RED, 11 replace GREEN, with the low four bits as the new component.
+ * That is why the manual says a HAM pixel's colour depends on "the colour of
+ * the pixel exactly before the current dot".
+ */
+function hamApply(c: number, oldRgb: number, palette: Uint16Array): number {
+  const v = c & 15
+  switch ((c >> 4) & 3) {
+    case 1:
+      return glue(rV(oldRgb), gV(oldRgb), v)
+    case 2:
+      return glue(v, gV(oldRgb), bV(oldRgb))
+    case 3:
+      return glue(rV(oldRgb), v, bV(oldRgb))
+    default:
+      return palette[v] ?? 0
+  }
+}
+
+/**
+ * The inverse: which control byte gets closest to `want` from `prev`.
+ *
+ * "As you cannot achieve the desired colour by plotting only one pixel in
+ * [HAM]" — so the routine picks the best of the 64, and a caller walking a
+ * scanline feeds each answer back in as the next `oldrgb`.
+ */
+function hamBest(want: number, prev: number, palette: Uint16Array): number {
+  let best = 0
+  let bestD = Infinity
+  for (let c = 0; c < 64; c++) {
+    const got = hamApply(c, prev, palette)
+    const d =
+      (rV(got) - rV(want)) ** 2 + (gV(got) - gV(want)) ** 2 + (bV(got) - bV(want)) ** 2
+    if (d < bestD) {
+      bestD = d
+      best = c
+    }
+  }
+  return best
+}
+
+/** one fade step toward a target, which is what "step by step only" means */
+const fadeStep = (from: number, to: number): number => {
+  const step = (a: number, b: number): number => (a < b ? a + 1 : a > b ? a - 1 : a)
+  return glue(step(rV(from), rV(to)), step(gV(from), gV(to)), step(bV(from), bV(to)))
+}
+
 export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
   void rt
   const i0 = (a: Value[], n: number): number => int(a[n] ?? VI(0))
@@ -1121,6 +1335,108 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
         h = (h * 13 + (name.charCodeAt(i) & 0xff)) & 0x7ff
       }
       return VI(h % 72)
+    },
+
+
+    /** =Red Val / =Green Val / =Blue Val — "separate the colour into its three contents" */
+    'red val': (_, a) => VI(rV(i0(a, 0))),
+    'green val': (_, a) => VI(gV(i0(a, 0))),
+    'blue val': (_, a) => VI(bV(i0(a, 0))),
+    /** =Glue Colour(r,g,b) — the way back */
+    'glue colour': (_, a) => VI(glue(i0(a, 0), i0(a, 1), i0(a, 2))),
+
+    /**
+     * =Rgb To Rrggbb(rgb) — 12 bits to 24, and "The missing bits are set to
+     * zeros", so $FFF becomes $F0F0F0 rather than $FFFFFF.
+     */
+    'rgb to rrggbb': (_, a) => {
+      const c = i0(a, 0)
+      return VI((rV(c) << 20) | (gV(c) << 12) | (bV(c) << 4))
+    },
+    /** =Rrggbb To Rgb(rrggbb) — 24 to 12, "the other 12 bits will be discarded" */
+    'rrggbb to rgb': (_, a) => {
+      const c = i0(a, 0)
+      return VI(glue((c >> 20) & 15, (c >> 12) & 15, (c >> 4) & 15))
+    },
+
+    /**
+     * =Mix Colour(rgb1,rgb2) mixes two colours; the three-argument form
+     * "added to the colour value 'oldrgb', if 'addrgb' is a positive value or
+     * subtracted, if the value is negative", clamped between lrgb and urgb.
+     */
+    'mix colour': (_, a) => {
+      if (a.length < 3) {
+        const x = i0(a, 0)
+        const y = i0(a, 1)
+        return VI(glue((rV(x) + rV(y)) >> 1, (gV(x) + gV(y)) >> 1, (bV(x) + bV(y)) >> 1))
+      }
+      const old = i0(a, 0)
+      const add = i0(a, 1)
+      const lo = i0(a, 2)
+      const up = i0(a, 3)
+      const ch = (f: (v: number) => number): number =>
+        Math.max(f(lo), Math.min(f(up), f(old) + (add < 0 ? -f(-add) : f(add))))
+      return VI(glue(ch(rV), ch(gV), ch(bV)))
+    },
+
+    /**
+     * =Best Pen($RGB) or ($RGB,c1 To c2) — "acquires the pen which is nearest
+     * to the colour ... can be used to recolour pictures with limited
+     * palette."
+     */
+    'best pen': (_, a) => {
+      const want = i0(a, 0)
+      const s = rt.screen
+      if (!s) return VI(0)
+      const lo = a.length > 1 ? i0(a, 1) : 0
+      const hi = a.length > 2 ? i0(a, 2) : (1 << s.rp.bitMap.depth) - 1
+      let best = lo
+      let bestD = Infinity
+      for (let i = lo; i <= hi && i < s.palette.length; i++) {
+        const c = s.palette[i]!
+        const d = (rV(c) - rV(want)) ** 2 + (gV(c) - gV(want)) ** 2 + (bV(c) - bV(want)) ** 2
+        if (d < bestD) {
+          bestD = d
+          best = i
+        }
+      }
+      return VI(best)
+    },
+
+    /** =Pal Get(palnr,index) — read one entry back out of a buffer */
+    'pal get': (_, a) => {
+      const pal = i0(a, 0)
+      const idx = i0(a, 1)
+      if (pal < 0 || pal > 7 || idx < 0 || idx > 255) amcafErr()
+      return VI(rt.amcaf.palettes[pal]![idx]!)
+    },
+
+    /** =Ham Colour(c,oldrgb) — the colour a HAM pixel becomes */
+    'ham colour': (_, a) => {
+      const s = rt.screen
+      return VI(hamApply(i0(a, 0) & 63, i0(a, 1), s ? s.palette : new Uint16Array(16)))
+    },
+    /** =Ham Best(newrgb,oldrgb) — the control byte that gets closest */
+    'ham best': (_, a) => {
+      const s = rt.screen
+      return VI(hamBest(i0(a, 0), i0(a, 1), s ? s.palette : new Uint16Array(16)))
+    },
+
+    /**
+     * =Ham Point(x,y) — the real colour at a point, which in HAM needs the
+     * whole line before it. "Ham Point can access any point on the screen
+     * indiviually without preprocessing", and "If the point x,y is not on the
+     * screen, rgb will contain -1".
+     */
+    'ham point': (_, a) => {
+      const x = i0(a, 0)
+      const y = i0(a, 1)
+      const s = rt.screen
+      if (!s || x < 0 || y < 0 || x >= s.width || y >= s.height) return VI(-1)
+      const px = s.rp.bitMap.pixels
+      let rgb = s.palette[0] ?? 0
+      for (let i = 0; i <= x; i++) rgb = hamApply(px[y * s.width + i]! & 63, rgb, s.palette)
+      return VI(rgb)
     },
 
     /** =Nfn — routine 22. "returns nothing useful ... used in speed testing" */

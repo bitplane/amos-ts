@@ -1393,6 +1393,12 @@ export const FAITHFUL = new Set<string>([
   'file copy', 'filename$', 'path$', 'pattern match', 'dos hash',
   'io error', 'io error$', 'disk state', 'tool types$',
   'wload', 'dload', 'wsave', 'dsave',
+  // slice 6: colour and palette
+  'red val', 'green val', 'blue val', 'glue colour',
+  'rgb to rrggbb', 'rrggbb to rgb', 'mix colour', 'best pen',
+  'pal get', 'pal set', 'pal get screen', 'pal set screen', 'pal spread',
+  'ham colour', 'ham best', 'ham point', 'ham fade out',
+  'convert grey', 'rain fade', 'set rain colour',
 
   // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
   // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
@@ -1983,7 +1989,19 @@ export const NOTES: Record<string, string> = {
   'blit left':
     "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one stream, rows joined end to end, shifted by the barrel-shift amount. That reproduces the part everyone notices — the pixels shifted off the end of a row reappear at the start of the next, because the shifter carries across the modulo — and leaves out BLTAFWM/BLTALWM, the first and last word masks, which the routine sets to \$ff<<shift and which affect at most sixteen pixels at the very start and end of the whole blit. Off-screen destination rows are skipped where the real one would write into whatever follows the bitmap",
   // --- AGA 1.0: doc plus disassembly; the doc loses three times ---
-  // --- AMCAF slices 1-5 ---
+  // --- AMCAF slices 1-6 ---
+  'rgb to rrggbb':
+    "12 bits to 24, and 'The missing bits are set to zeros' -- so \$FFF becomes \$F0F0F0 rather than \$FFFFFF, and the round trip through Rrggbb To Rgb is lossless while the value itself is not full-range",
+  'ham colour':
+    "HAM6's control byte decoded against the previous pixel: bits 4-5 choose 00 take the palette entry whole, 01 replace BLUE, 10 replace RED, 11 replace GREEN, with the low four bits as the new component. That is why the manual describes it as 'the colour value that is created, when plotting a pixel in colour c directly behind the last point'",
+  'ham best':
+    "The inverse search. 'As you cannot achieve the desired colour by plotting only one pixel in [HAM]' the routine picks the closest of the 64 control bytes, and a caller walking a scanline feeds each answer back as the next oldrgb",
+  'ham fade out':
+    "'darkens the screen by one single step. After calling it 16 times, the Ham screen is completely black.' The manual explains the asymmetry: 'Technically, it's not possible to fade in a ham screen without enormous processor power, but for fading out, a modified Shade Bobs routine is' enough -- darkening is monotone and needs no search",
+  'set rain colour':
+    "Changes a rainbow's colour index, which 'remove[s] the irretating limit to the first 16 colours'. DEVIATION: the manual's other use -- 'A colour index of -63 enables you to alter the hardware scrolling register, so you can create fancy water and wobbel effects' -- is a copper poke at a register this port reaches through the display list rather than by address, so the index is stored and the scroll case is not reproduced",
+  'rain fade':
+    "'Rain Fade works step by step only. Therefore you need a maximum of 16 calls to reach the new colour values' -- one unit per channel per call, the same ramp Ham Fade Out uses",
   'object protection$':
     "Note the argument: this takes the NUMERIC VALUE, not a path -- 'Object Protection\$ function converts this numeric value into a string in the format hsparwed'. The low nibble is inverted, so \$85 (hidden, plus write and delete denied) prints as `h---r-e-` and protection 0 prints as `----rwed`",
   'examine next$':

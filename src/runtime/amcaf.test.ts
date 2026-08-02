@@ -575,3 +575,117 @@ describe('slice 5: disk and DOS objects', () => {
     expect([...b!]).toEqual([...a!])
   })
 })
+
+describe('slice 6: colour and palette', () => {
+  const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
+  const scr = ['Screen Open 0,320,200,16,Lowres']
+
+  it('the Val functions and Glue Colour are inverses', () => {
+    expect(p('Red Val($1A5)')).toBe('1')
+    expect(p('Green Val($1A5)')).toBe('10')
+    expect(p('Blue Val($1A5)')).toBe('5')
+    expect(p('Glue Colour(1,10,5)')).toBe(String(0x1a5))
+  })
+
+  it('Rgb To Rrggbb zero-fills the missing bits, and back discards them', () => {
+    // "The missing bits are set to zeros" -- so $FFF is $F0F0F0, not $FFFFFF
+    expect(p('Rgb To Rrggbb($FFF)')).toBe(String(0xf0f0f0))
+    expect(p('Rgb To Rrggbb($123)')).toBe(String(0x102030))
+    expect(p('Rrggbb To Rgb($F0F0F0)')).toBe(String(0xfff))
+    expect(p('Rrggbb To Rgb(Rgb To Rrggbb($8AC))')).toBe(String(0x8ac))
+  })
+
+  it('Mix Colour averages, and its three-argument form clamps', () => {
+    expect(p('Mix Colour($000,$FFF)')).toBe(String(0x777))
+    expect(p('Mix Colour($888,$888)')).toBe(String(0x888))
+    // "added ... if positive or subtracted, if the value is negative",
+    // bounded by lrgb and urgb
+    expect(p('Mix Colour($888,$111,$000 To $FFF)')).toBe(String(0x999))
+    expect(p('Mix Colour($EEE,$333,$000 To $FFF)')).toBe(String(0xfff))
+  })
+
+  it('Pal Get Screen stores a palette and Pal Set Screen puts it back', () => {
+    const { out } = run([
+      ...scr,
+      'Colour 1,$F00',
+      'Pal Get Screen 3,0',
+      'Colour 1,$00F',
+      'Print Colour(1)',
+      'Pal Set Screen 3,0',
+      'Print Colour(1)',
+      'Print Pal Get(3,1)',
+    ])
+    const l = out.trim().split('\n').map((x) => x.trim())
+    expect(l[0]).toBe(String(0x00f))
+    expect(l[1]).toBe(String(0xf00))
+    expect(l[2]).toBe(String(0xf00))
+  })
+
+  it('Pal Set writes one buffer entry, and the buffer number is bounded 0..7', () => {
+    expect(run([...scr, 'Pal Set 7,5,$ABC', 'Print Pal Get(7,5)']).out.trim()).toBe(String(0xabc))
+    expect(() => run([...scr, 'Pal Set 8,0,$FFF'])).toThrow(/Illegal function call/)
+  })
+
+  it('Pal Spread blends between two colours across a range', () => {
+    const { out } = run([
+      ...scr,
+      'Pal Spread 0,$000 To 4,$888',
+      'Print Colour(0);Colour(2);Colour(4)',
+    ])
+    const l = out.trim()
+    expect(l).toContain('0') // the low end stays black
+    expect(run([...scr, 'Pal Spread 0,$000 To 4,$888', 'Print Colour(4)']).out.trim()).toBe(String(0x888))
+    expect(run([...scr, 'Pal Spread 0,$000 To 4,$888', 'Print Colour(2)']).out.trim()).toBe(String(0x444))
+  })
+
+  it('Best Pen finds the nearest entry, and honours a range', () => {
+    // every entry the test reasons about is set, so the default palette
+    // cannot supply a closer one and change the answer
+    const pal = [...scr, 'Colour 1,$F00', 'Colour 2,$800', 'Colour 3,$00F']
+    expect(run([...pal, 'Print Best Pen($E00)']).out.trim()).toBe('1')
+    // restricted to 2..3 the exact match is out of reach and $800 wins
+    expect(run([...pal, 'Print Best Pen($E00,2 To 3)']).out.trim()).toBe('2')
+  })
+
+  it('Ham Colour decodes the HAM control byte against the previous pixel', () => {
+    // bits 4-5: 01 replaces blue, 10 red, 11 green; 00 takes the palette entry
+    expect(p('Ham Colour($1F,$000)')).toBe(String(0x00f)) // modify blue to 15
+    expect(p('Ham Colour($2F,$000)')).toBe(String(0xf00)) // modify red
+    expect(p('Ham Colour($3F,$000)')).toBe(String(0x0f0)) // modify green
+    expect(p('Ham Colour($15,$FFF)')).toBe(String(0xff5)) // only blue changes
+  })
+
+  it('Ham Best picks a byte that Ham Colour turns back into the target', () => {
+    const { out } = run([...scr, 'C=Ham Best($0F0,$000)', 'Print Ham Colour(C,$000)'])
+    expect(out.trim()).toBe(String(0x0f0))
+  })
+
+  it('Ham Fade Out darkens by one step, sixteen calls to black', () => {
+    // "darkens the screen by one single step. After calling it 16 times, the
+    // Ham screen is completely black"
+    expect(run([...scr, 'Colour 1,$FFF', 'Ham Fade Out 0', 'Print Colour(1)']).out.trim()).toBe(String(0xeee))
+    const { out } = run([...scr, 'Colour 1,$FFF', 'For I=1 To 16 : Ham Fade Out 0 : Next I', 'Print Colour(1)'])
+    expect(out.trim()).toBe('0')
+  })
+
+  it('Ham Point is -1 off the screen', () => {
+    expect(run([...scr, 'Print Ham Point(-1,0)']).out.trim()).toBe('-1')
+    expect(run([...scr, 'Print Ham Point(0,999)']).out.trim()).toBe('-1')
+  })
+
+  it('Convert Grey builds a grey ramp and remaps onto it', () => {
+    const { rt } = run([
+      'Screen Open 0,64,32,4,Lowres',
+      'Screen Open 1,64,32,4,Lowres',
+      'Screen 0 : Colour 1,$F00 : Ink 1 : Bar 0,0 To 9,9',
+      'Convert Grey 0 To 1',
+    ])
+    const dst = rt.screens.get(1)!
+    // the target palette is an even grey ramp
+    expect(dst.palette[0]).toBe(0)
+    expect(dst.palette[3]).toBe(0xfff)
+    // and red mapped to something darker than white
+    expect(dst.rp.bitMap.pixels[0]).toBeGreaterThan(0)
+    expect(dst.rp.bitMap.pixels[0]).toBeLessThan(3)
+  })
+})
