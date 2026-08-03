@@ -4425,18 +4425,50 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * =Ham Point(x,y) — the real colour at a point, which in HAM needs the
-     * whole line before it. "Ham Point can access any point on the screen
-     * indiviually without preprocessing", and "If the point x,y is not on the
-     * screen, rgb will contain -1".
+     * =Ham Point(x,y) — routine 160 ($4312), 248 bytes. The real colour at a
+     * point, which in HAM needs the whole line before it: "Ham Point can
+     * access any point on the screen indiviually without preprocessing".
+     *
+     * `move.l (a3)+,d7` takes the last argument and is multiplied by the row
+     * length, so d7 is y and the d6 popped after it is x.
+     *
+     * DEVIATION: the manual says "If the point x,y is not on the screen, rgb
+     * will contain -1". The routine returns the RGB of palette entry 0. Both
+     * the y guard and the x guard land on the same three instructions —
+     *
+     *   $4334  moveq #$0,d3 / move.w (a0),d3 / moveq #$0,d2 / rts
+     *
+     * — where a0 is `$62(a1)`, the palette, so the answer is `Colour(0)`.
+     * There is no -1 anywhere in the routine. On a screen whose colour 0 is
+     * black that reads as 0, which is presumably how the manual's claim
+     * survived. An earlier pass took the manual's word for it.
+     *
+     * The routine scans BACKWARDS from x, carrying a mask in d0 of which
+     * nibbles are already settled and stopping early once `cmp.w #$fff,d0`
+     * says all three are; running off the left edge takes the remaining
+     * nibbles from palette entry 0 (`bra $4394` with d2 zeroed). Walking
+     * forwards from 0 as below reaches the same colour — each nibble is set
+     * by the last pixel at or before x that writes it — so the scan direction
+     * is a cost difference, not a behavioural one.
+     *
+     * NOTE: two things here are deliberately not reproduced. The routine
+     * reads six plane pointers (`$0`/`$4`/`$8`/`$c`/`$10`/`$14` of the
+     * screen) unconditionally, so on a screen shallower than 6 planes it
+     * btsts through whatever those slots hold; the chunky read below yields a
+     * control of 0 instead. And both bounds are `cmp.w`, a WORD compare
+     * against `$4c`/`$4e`, after only the LONG's sign has been tested — so a
+     * coordinate of 65536 passes as 0 and one of 32768 passes as negative and
+     * then indexes far outside the bitmap. The full-width check below is kept
+     * rather than reproducing an out-of-bounds read.
      */
     'ham point': (_, a) => {
       const x = i0(a, 0)
       const y = i0(a, 1)
       const s = rt.screen
-      if (!s || x < 0 || y < 0 || x >= s.width || y >= s.height) return VI(-1)
+      const bg = s?.palette[0] ?? 0
+      if (!s || x < 0 || y < 0 || x >= s.width || y >= s.height) return VI(bg)
       const px = s.rp.bitMap.pixels
-      let rgb = s.palette[0] ?? 0
+      let rgb = bg
       for (let i = 0; i <= x; i++) rgb = hamApply(px[y * s.width + i]! & 63, rgb, s.palette)
       return VI(rgb)
     },

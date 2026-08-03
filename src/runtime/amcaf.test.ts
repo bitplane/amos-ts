@@ -1259,9 +1259,42 @@ describe('slice 6: colour and palette', () => {
     expect(out.trim()).toBe('0')
   })
 
-  it('Ham Point is -1 off the screen', () => {
-    expect(run([...scr, 'Print Ham Point(-1,0)']).out.trim()).toBe('-1')
-    expect(run([...scr, 'Print Ham Point(0,999)']).out.trim()).toBe('-1')
+  /**
+   * The manual promises -1 off the screen. Routine 160 has no -1 in it: both
+   * out-of-range guards fall on `move.w (a0),d3` with a0 = `$62(a1)`, so the
+   * answer is the RGB of palette entry 0. Colour 0 is black by default, which
+   * is why "-1" was never caught by eye — so the test sets it to something
+   * that cannot be confused with either 0 or -1.
+   */
+  it('Ham Point off the screen returns colour 0, not -1', () => {
+    const off = [...scr, 'Colour 0,$4A7']
+    expect(run([...off, 'Print Ham Point(-1,0)']).out.trim()).toBe(String(0x4a7))
+    expect(run([...off, 'Print Ham Point(0,999)']).out.trim()).toBe(String(0x4a7))
+    expect(run([...off, 'Print Ham Point(999,0)']).out.trim()).toBe(String(0x4a7))
+    expect(run([...off, 'Print Ham Point(0,-1)']).out.trim()).toBe(String(0x4a7))
+  })
+
+  /**
+   * And on the screen: colour 0 is the implicit colour before the left edge,
+   * so a run of modify pixels builds off it. `$21` is control 2 (set RED) with
+   * a nibble of 1, `$11` control 1 (set BLUE) with a nibble of 1.
+   */
+  it('Ham Point carries the line forward from colour 0', () => {
+    // six planes, because the routine takes the control from planes 4 and 5
+    const prog = [
+      'Screen Open 0,64,32,64,Lowres',
+      'Cls 0',
+      'Colour 0,$4A7',
+      'Ink $21 : Plot 0,0',
+      'Ink $11 : Plot 1,0',
+      // read the whole row before printing: Print draws at the cursor, which
+      // is row 0, and would scribble over the pixels still to be read
+      'A=Ham Point(0,0) : B=Ham Point(1,0) : C=Ham Point(2,0)',
+      'Print A;" ";B;" ";C',
+    ]
+    // x=0 takes RED from colour 0's $4A7; x=1 then takes BLUE; x=2 is a
+    // plain index 0, which replaces the whole colour again
+    expect(run(prog).out.replace(/\s+/g, ' ').trim()).toBe(`${0x1a7} ${0x1a1} ${0x4a7}`)
   })
 
   it('Convert Grey builds a grey ramp and remaps onto it', () => {
