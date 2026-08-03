@@ -248,8 +248,14 @@ export interface AmcafState {
   ioError: number
   /** BPLCON2's dual-playfield sprite priority, as Set Sprite Priority left it */
   spritePriority: number
-  /** whether colours are read as 24-bit $RRGGBB rather than 12-bit $RGB */
-  agaNotation: boolean
+  /**
+   * The word at $2d2 of the extension's block — BITS PER GUN, not a flag.
+   *
+   * 4 means a 12-bit $RGB argument and 8 a 24-bit $RRGGBB one, and the
+   * extension's own init routine sets it to 4, which is the manual's "the
+   * default setting is 12 bit". Only Red Val, Green Val and Blue Val read it.
+   */
+  notationBits: number
   /**
    * Shade Bob state.
    *
@@ -313,7 +319,7 @@ export function newAmcafState(): AmcafState {
     examine: { dir: '', entries: [], index: -1, current: '' },
     ioError: 0,
     spritePriority: 0,
-    agaNotation: false,
+    notationBits: 4,
     shadePlanes: 6,
     shadeMask: true,
     qseed: 0,
@@ -337,7 +343,7 @@ export function newAmcafState(): AmcafState {
       free: [true, true, true, true],
     },
     vec: { ax: 0, ay: 0, az: 0, px: 0, py: 0, pz: 256, x: 0, y: 0, z: 0 },
-    palettes: Array.from({ length: 8 }, () => new Uint16Array(256)),
+    palettes: Array.from({ length: 8 }, () => new Uint16Array(32)),
     present: true,
   }
 }
@@ -536,54 +542,107 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     },
 
 
-    /** Pal Set palnr,index,colour — "palnr must be range from 0 to 7" */
+    /**
+     * Pal Set palnr,index,colour — routine 338 ($74e6). "Palnr must be range
+     * from 0 to 7", and the routine agrees: `cmp.w #$8,d0 / Rbge`.
+     *
+     * The INDEX bound is the one the manual leaves out and an earlier pass got
+     * wrong. `cmp.w #$20,d1 / Rbge` — thirty-two, not 256 — and the address it
+     * works out confirms it: `add.w d1,d1 / lsl.w #$6,d0 / or.w d0,d1` is
+     * `pal*64 + index*2` into a block at $4aa(a2), which is eight palettes of
+     * thirty-two WORDS and no more. Both bounds also reject a negative.
+     */
     'pal set'(it) {
       const pal = it.evalInt()
       it.expect(',')
       const idx = it.evalInt()
       it.expect(',')
       const col = it.evalInt()
-      if (pal < 0 || pal > 7 || idx < 0 || idx > 255) amcafErr()
-      rt.amcaf.palettes[pal]![idx] = col & 0xfff
+      if (pal < 0 || pal > 7 || idx < 0 || idx > 31) amcafErr()
+      rt.amcaf.palettes[pal]![idx] = col & 0xffff
     },
 
-    /** Pal Get Screen palnr,screen — a whole palette into a buffer */
+    /**
+     * Pal Get Screen palnr,screen / Pal Set Screen palnr,screen — routines 335
+     * ($744c) and 336 ($747c), "Writes back the previously stored palette".
+     *
+     * Both are the same eight instructions with the `move.l` reversed, and
+     * both copy `moveq #$f,d7` plus a `dbra` — SIXTEEN LONGWORDS, which is
+     * **thirty-two colours** and no more. An earlier pass copied up to 256, so
+     * on a 64- or 256-colour screen it was saving and restoring entries the
+     * extension never touches. The buffer it copies into is the same 32-word
+     * block Pal Get and Pal Set index, which is why the two agree.
+     *
+     * Pal Set Screen ends `movea.l -$8(a5),a0 / jsr $4(a0)` — a View, so the
+     * change is on screen without the program asking. Pal Get Screen does not.
+     */
     'pal get screen'(it) {
       const pal = it.evalInt()
       it.expect(',')
       const s = rt.screens.get(it.evalInt())
       if (pal < 0 || pal > 7 || !s) amcafErr()
-      rt.amcaf.palettes[pal]!.set(s.palette.subarray(0, 256))
+      const buf = rt.amcaf.palettes[pal]!
+      for (let i = 0; i < 32; i++) buf[i] = s.palette[i] ?? 0
     },
 
-    /** Pal Set Screen palnr,screen — "Writes back the previously stored palette" */
     'pal set screen'(it) {
       const pal = it.evalInt()
       it.expect(',')
       const s = rt.screens.get(it.evalInt())
       if (pal < 0 || pal > 7 || !s) amcafErr()
       const buf = rt.amcaf.palettes[pal]!
-      for (let i = 0; i < s.palette.length && i < 256; i++) s.palette[i] = buf[i]!
+      for (let i = 0; i < 32 && i < s.palette.length; i++) s.palette[i] = buf[i]!
     },
 
     /**
-     * Pal Spread c1,rgb1 To c2,rgb2 — "Creates a smooth blend between the two
-     * colours ... The resulting colour set will be stored between c1 and c2."
+     * Pal Spread c1,rgb1 To c2,rgb2 — routine 334 ($736a). "Creates a smooth
+     * blend between the two colours ... The resulting colour set will be
+     * stored between c1 and c2."
+     *
+     * Both pen numbers are checked against 32, and then `cmp.w d6,d7 / bgt`
+     * with an `exg` pair behind it: **the ends are SWAPPED if they are the
+     * wrong way round** rather than refused, so `Pal Spread 8,$FFF To 2,$000`
+     * is the same blend as `2,$000 To 8,$FFF`. An earlier pass errored on it.
+     * A span of zero writes the one entry and returns.
+     *
+     * Each gun is worked out at DOUBLE scale and halved with the carry added
+     * back — `lsr.w #$1,d1 / addx.w d2,d1` — which is round-to-nearest rather
+     * than the truncation a plain shift would give, and both halves are
+     * rounded separately before being summed. The sum is then clamped to 15
+     * (`cmp.w #$f,d2 / ble / moveq #$f,d2`), which matters because two rounded
+     * halves can add to 16.
+     *
+     * It ends with a View, so the blend appears without the program asking.
      */
     'pal spread'(it) {
-      const c1 = it.evalInt()
+      let c1 = it.evalInt()
       it.expect(',')
-      const rgb1 = it.evalInt()
+      let rgb1 = it.evalInt()
       it.expect('to')
-      const c2 = it.evalInt()
+      let c2 = it.evalInt()
       it.expect(',')
-      const rgb2 = it.evalInt()
+      let rgb2 = it.evalInt()
       const s = rt.screen
-      if (!s || c2 < c1) amcafErr()
+      if (!s) amcafErr()
+      if (c1 < 0 || c1 > 31 || c2 < 0 || c2 > 31) amcafErr()
+      if (c2 <= c1) {
+        ;[c1, c2] = [c2, c1]
+        ;[rgb1, rgb2] = [rgb2, rgb1]
+      }
       const span = c2 - c1
+      if (span === 0) {
+        if (c1 < s.palette.length) s.palette[c1] = rgb1 & 0xffff
+        return
+      }
+      // `mulu.w d7,d1 / divu.w d6,d1 / lsr.w #$1 / addx.w` — the gun doubled,
+      // scaled, then halved with the shifted-out bit added back
+      const half = (gun: number, num: number): number => {
+        const q = Math.floor((gun * 2 * num) / span)
+        return (q >> 1) + (q & 1)
+      }
       for (let i = 0; i <= span; i++) {
-        const t = span === 0 ? 0 : i / span
-        const mix = (f: (v: number) => number): number => Math.round(f(rgb1) + (f(rgb2) - f(rgb1)) * t)
+        const mix = (f: (v: number) => number): number =>
+          Math.min(15, half(f(rgb1), span - i) + half(f(rgb2), i))
         if (c1 + i < s.palette.length) s.palette[c1 + i] = glue(mix(rV), mix(gV), mix(bV))
       }
     },
@@ -864,18 +923,33 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Amcaf Aga Notation On / Off — whether colour arguments are read as
-     * 12-bit $RGB or 24-bit $RRGGBB.
+     * Amcaf Aga Notation On / Off — routines 80 ($307c) and 81 ($3088), each
+     * twelve bytes, each a single `move.w #n,$2d2(a2)`.
      *
-     * A global switch on how the OTHER keywords read a colour, which is why
-     * it is a mode rather than a conversion: Rgb To Rrggbb exists for the
-     * one-off case.
+     * The manual says: *"After calling Amcaf Aga Notation On, all AMCAF
+     * commands and functions take 24 bit values... The default setting is
+     * 12 bit."*
+     *
+     * DEFECT: the two are the wrong way round. `On` writes **4** and `Off`
+     * writes **8**, and the readers (`cmp.w #$4,d0`) take 4 as the 12-bit
+     * path. The extension's own init routine writes 4 as well — the sequence
+     * at $1eba is `Rbsr routine 24 / move.w #$4,$2d2(a2)` — which is the
+     * manual's 12-bit default, so `Amcaf Aga Notation On` sets the mode it was
+     * already in and does nothing, and `Off` is the only way to reach 24-bit.
+     * Reproduced, because a program calling `On` and then passing $RRGGBB gets
+     * AMCAF's answer, not the manual's.
+     *
+     * NOTE: "all AMCAF commands and functions" is wrong too. The flag is read
+     * from exactly three places in the whole hunk — $3284, $32a4 and $32ca,
+     * which are Red Val, Green Val and Blue Val. So the manual's careful
+     * exception for Rgb To Rrggbb and Rrggbb To Rgb is redundant: nothing else
+     * consults it either.
      */
     'amcaf aga notation on'() {
-      rt.amcaf.agaNotation = true
+      rt.amcaf.notationBits = 4
     },
     'amcaf aga notation off'() {
-      rt.amcaf.agaNotation = false
+      rt.amcaf.notationBits = 8
     },
 
     /**
@@ -2789,6 +2863,19 @@ const bV = (rgb: number): number => rgb & 15
 const glue = (r: number, g: number, b: number): number => ((r & 15) << 8) | ((g & 15) << 4) | (b & 15)
 
 /**
+ * Best Pen's colour distance, sixteen bytes at $3170 read straight out of the
+ * hunk: `00 01 03 05 08 0c 10 14 1e 28 32 3c 46 50 5a 64`.
+ *
+ * Indexed by the absolute difference of ONE gun and summed over three, so it
+ * is a hand-drawn curve rather than any standard metric — flat at the bottom
+ * (a difference of 1 costs 1 where a square would cost 1 and a difference of 2
+ * costs 3 where a square would cost 4) and steep above 7, where it jumps from
+ * 20 to 30 and then climbs by tens. The effect is that it forgives being a
+ * little wrong in every gun and punishes being badly wrong in one.
+ */
+const BEST_PEN_WEIGHT = [0, 1, 3, 5, 8, 12, 16, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+
+/**
  * HAM6's control byte, which is what `Ham Colour` decodes.
  *
  * Bits 4-5 choose: 00 take the palette entry whole, 01 replace BLUE, 10
@@ -3896,11 +3983,32 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     },
 
 
-    /** =Red Val / =Green Val / =Blue Val — "separate the colour into its three contents" */
-    'red val': (_, a) => VI(rV(i0(a, 0))),
-    'green val': (_, a) => VI(gV(i0(a, 0))),
-    'blue val': (_, a) => VI(bV(i0(a, 0))),
-    /** =Glue Colour(r,g,b) — the way back */
+    /**
+     * =Red Val / =Green Val / =Blue Val — routines 87, 88 and 89 ($327a),
+     * "separate the colour into its three contents".
+     *
+     * These three are the ONLY readers of the Amcaf Aga Notation flag in the
+     * whole hunk, and each opens the same four instructions:
+     *
+     *   movea.l $168(a5), a2
+     *   move.w  $2d2(a2), d0
+     *   cmp.w   #$4, d0
+     *   bne.b   ...
+     *
+     * With the flag at 4 they take a nibble each — Red is `lsl.l #$8` then a
+     * clear-and-swap, which is a shift right by eight; with anything else they
+     * take a byte each. Nothing checks that the argument fits.
+     */
+    'red val': (_, a) => VI(rt.amcaf.notationBits === 4 ? (i0(a, 0) >>> 8) & 0xffff : (i0(a, 0) >>> 16) & 0xffff),
+    'green val': (_, a) => VI(rt.amcaf.notationBits === 4 ? (i0(a, 0) >>> 4) & 0xf : (i0(a, 0) >>> 8) & 0xff),
+    'blue val': (_, a) => VI(rt.amcaf.notationBits === 4 ? i0(a, 0) & 0xf : i0(a, 0) & 0xff),
+
+    /**
+     * =Glue Colour(r,g,b) — routine 86 ($3260), the way back, and it does NOT
+     * consult the notation flag: `moveq #$f,d0` then an `and` per gun, so
+     * every component is masked to four bits and the answer is always 12-bit
+     * whatever Red Val would have been reading.
+     */
     'glue colour': (_, a) => VI(glue(i0(a, 0), i0(a, 1), i0(a, 2))),
 
     /**
@@ -3924,9 +4032,17 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      */
     'mix colour': (_, a) => {
       if (a.length < 3) {
-        const x = i0(a, 0)
-        const y = i0(a, 1)
-        return VI(glue((rV(x) + rV(y)) >> 1, (gV(x) + gV(y)) >> 1, (bV(x) + bV(y)) >> 1))
+        // routine 84 ($3180): each gun added BYTE-wide and then halved
+        // WORD-wide, so the two-colour form is the plain average as long as
+        // the arguments are twelve bits, and wraps at 256 per gun if they are
+        // not. The reds are taken as `(v & $ffff) >> 8` with no mask, so a
+        // value wider than twelve bits carries its extra bits into the red.
+        const x = i0(a, 0) & 0xffff
+        const y = i0(a, 1) & 0xffff
+        const r = ((x >> 8) + (y >> 8)) & 0xff
+        const g = (((x >> 4) & 0xf) + ((y >> 4) & 0xf)) & 0xff
+        const b = ((x & 0xf) + (y & 0xf)) & 0xff
+        return VI(((((r >> 1) << 8) | ((g >> 1) << 4) | (b >> 1)) & 0xffff) | 0)
       }
       const old = i0(a, 0)
       const add = i0(a, 1)
@@ -3938,9 +4054,34 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * =Best Pen($RGB) or ($RGB,c1 To c2) — "acquires the pen which is nearest
-     * to the colour ... can be used to recolour pictures with limited
-     * palette."
+     * =Best Pen($RGB) or ($RGB,c1 To c2) — routines 82 ($3094) and 83
+     * ($30aa). "Acquires the pen which is nearest to the colour ... can be
+     * used to recolour pictures with limited palette."
+     *
+     * The short form is six instructions that push `0` and `(1 << depth) - 1`
+     * onto the argument stack and fall into the ranged one, so the two are
+     * literally the same search. Both bounds must be 0..63 and the high one no
+     * lower than the low, or it is error 23.
+     *
+     * Two things the port was guessing:
+     *
+     * **The metric is a lookup table, not a squared distance.** Sixteen bytes
+     * at $3170 — `0 1 3 5 8 12 16 20 30 40 50 60 70 80 90 100` — indexed by
+     * the absolute difference of one gun, summed over three. It is steeper
+     * than a square at the top and shallower at the bottom, so it prefers a
+     * pen that is a little wrong everywhere over one that is badly wrong in a
+     * single gun. A search that runs out at 1000 (`move.l #$3e8,d4`) finds
+     * nothing, and an exact match returns immediately without finishing.
+     *
+     * **Pens 32-63 are Extra Half-Brite.** `cmp.w #$1f,d6 / bls` sends any
+     * index above 31 to `move.w -$42(a0),d0 / andi.w #$eee / lsr.w #$1` —
+     * the entry 32 lower with the low bit of each gun dropped and the rest
+     * halved, which is what the hardware displays for those pens. So Best Pen
+     * over the full 0..63 range considers 32 colours that are not in the
+     * palette at all.
+     *
+     * A tie takes the LAST pen, not the first: the comparison is `cmp.w d0,d4
+     * / blt`, which skips only when the incumbent is STRICTLY better.
      */
     'best pen': (_, a) => {
       const want = i0(a, 0)
@@ -3948,12 +4089,21 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
       if (!s) return VI(0)
       const lo = a.length > 1 ? i0(a, 1) : 0
       const hi = a.length > 2 ? i0(a, 2) : (1 << s.rp.bitMap.depth) - 1
-      let best = lo
-      let bestD = Infinity
-      for (let i = lo; i <= hi && i < s.palette.length; i++) {
-        const c = s.palette[i]!
-        const d = (rV(c) - rV(want)) ** 2 + (gV(c) - gV(want)) ** 2 + (bV(c) - bV(want)) ** 2
-        if (d < bestD) {
+      if (lo < 0 || lo > 63 || hi < 0 || hi > 63 || hi < lo) amcafErr()
+      const entry = (i: number): number => {
+        if (i <= 31) return s.palette[i] ?? 0
+        return ((s.palette[i - 32] ?? 0) & 0xeee) >> 1
+      }
+      let best = 0
+      let bestD = 1000 // `move.l #$3e8,d4`
+      for (let i = lo; i <= hi; i++) {
+        const c = entry(i)
+        if (c === want) return VI(i) // the exact match short-circuits
+        const d =
+          BEST_PEN_WEIGHT[Math.abs(rV(c) - rV(want))]! +
+          BEST_PEN_WEIGHT[Math.abs(gV(c) - gV(want))]! +
+          BEST_PEN_WEIGHT[Math.abs(bV(c) - bV(want))]!
+        if (bestD >= d) {
           bestD = d
           best = i
         }
@@ -3961,11 +4111,15 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
       return VI(best)
     },
 
-    /** =Pal Get(palnr,index) — read one entry back out of a buffer */
+    /**
+     * =Pal Get(palnr,index) — routine 337 ($74b4), Pal Set's twin with the
+     * `move.w` the other way round. Same two bounds: palette 0..7, index
+     * 0..31.
+     */
     'pal get': (_, a) => {
       const pal = i0(a, 0)
       const idx = i0(a, 1)
-      if (pal < 0 || pal > 7 || idx < 0 || idx > 255) amcafErr()
+      if (pal < 0 || pal > 7 || idx < 0 || idx > 31) amcafErr()
       return VI(rt.amcaf.palettes[pal]![idx]!)
     },
 

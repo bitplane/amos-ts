@@ -1092,13 +1092,94 @@ describe('slice 6: colour and palette', () => {
     expect(run([...scr, 'Pal Spread 0,$000 To 4,$888', 'Print Colour(2)']).out.trim()).toBe(String(0x444))
   })
 
-  it('Best Pen finds the nearest entry, and honours a range', () => {
-    // every entry the test reasons about is set, so the default palette
-    // cannot supply a closer one and change the answer
+  /**
+   * Routine 334 ($736a), three things the manual does not mention.
+   *
+   * `cmp.w d6,d7 / bgt` with an `exg` pair behind it SWAPS the two ends when
+   * they arrive the wrong way round, so a descending spread is the same blend
+   * as the ascending one. The port used to refuse it.
+   *
+   * Each gun is worked at double scale and halved with the carry added back
+   * (`lsr.w #$1,d1 / addx.w d2,d1`), so both halves round to nearest before
+   * being summed, and the sum is then clamped to 15 — which matters, because
+   * two separately rounded halves can add to 16.
+   *
+   * Both pen numbers are checked against 32, like every other palette keyword
+   * in the slice.
+   */
+  it('Pal Spread swaps its ends, rounds each half, and clamps to 15', () => {
+    // descending is the same blend as ascending
+    const up = run([...scr, 'Pal Spread 0,$000 To 4,$888', 'Print Colour(1);Colour(2);Colour(3)']).out.trim()
+    const down = run([...scr, 'Pal Spread 4,$888 To 0,$000', 'Print Colour(1);Colour(2);Colour(3)']).out.trim()
+    expect(down).toBe(up)
+    // a span of zero writes the single entry and returns -- and the swap test
+    // is `bgt`, so EQUAL pens swap too and it is the SECOND colour that lands
+    expect(run([...scr, 'Pal Spread 3,$ABC To 3,$000', 'Print Colour(3)']).out.trim()).toBe('0')
+    expect(run([...scr, 'Pal Spread 3,$000 To 3,$ABC', 'Print Colour(3)']).out.trim()).toBe(String(0xabc))
+    // both ends are bounded at 32
+    expect(() => run([...scr, 'Pal Spread 0,$000 To 32,$FFF'])).toThrow()
+    expect(() => run([...scr, 'Pal Spread -1,$000 To 4,$FFF'])).toThrow()
+    // rounding is to NEAREST, not down: three steps from 0 to $FFF puts the
+    // middle at 8 rather than 7
+    expect(run([...scr, 'Pal Spread 0,$000 To 2,$FFF', 'Print Colour(1)']).out.trim()).toBe(String(0x888))
+  })
+
+  /**
+   * Pal Get/Set take an index bounded by `cmp.w #$20` -- thirty-two, not the
+   * 256 the port allowed -- and the address arithmetic agrees: `pal*64 +
+   * index*2` into a 512-byte block, which is eight palettes of 32 WORDS.
+   * Pal Get Screen and Pal Set Screen copy `moveq #$f,d7` longwords, which is
+   * the same 32 colours.
+   */
+  it('the Pal buffers are 32 entries, not 256', () => {
+    expect(() => run([...scr, 'Pal Set 0,32,$FFF'])).toThrow()
+    expect(() => run([...scr, 'Print Pal Get(0,32)'])).toThrow()
+    expect(run([...scr, 'Pal Set 0,31,$ABC', 'Print Pal Get(0,31)']).out.trim()).toBe(String(0xabc))
+    // and the palette numbers are 0..7 either way
+    expect(() => run([...scr, 'Pal Set 8,0,$FFF'])).toThrow()
+  })
+
+  /**
+   * Routine 83 ($30aa). Three things the port was guessing before the routine
+   * was read:
+   *
+   * The metric is a sixteen-byte LOOKUP TABLE at $3170 indexed by one gun's
+   * absolute difference and summed over three — `0 1 3 5 8 12 16 20 30 40 50
+   * 60 70 80 90 100` — not a squared distance. It is shallower than a square
+   * below 4 and much steeper above 7.
+   *
+   * A TIE takes the LAST pen. The comparison is `cmp.w d0,d4 / blt`, which
+   * computes best - candidate and skips only on a strictly negative result, so
+   * an equal distance overwrites. AMOS's default 16-colour palette has $F00 at
+   * both pen 1 and pen 4, and Best Pen($E00) answers 4 for that reason.
+   *
+   * An exact match returns immediately (`cmp.w d0,d5 / bne`), without
+   * finishing the range, so it is the one case where the first wins.
+   */
+  it('Best Pen scores by the table at $3170, and a tie takes the last pen', () => {
     const pal = [...scr, 'Colour 1,$F00', 'Colour 2,$800', 'Colour 3,$00F']
-    expect(run([...pal, 'Print Best Pen($E00)']).out.trim()).toBe('1')
-    // restricted to 2..3 the exact match is out of reach and $800 wins
+    // pens 1 and 4 are both $F00, one gun out by one, so both score 1
+    expect(run([...pal, 'Print Best Pen($E00)']).out.trim()).toBe('4')
+    // an exact match short-circuits, so it beats a later tie
+    expect(run([...pal, 'Print Best Pen($800)']).out.trim()).toBe('2')
+    // restricted to 2..3 the near match is out of reach and $800 wins
     expect(run([...pal, 'Print Best Pen($E00,2 To 3)']).out.trim()).toBe('2')
+    // the bounds are checked against 63 either way, and crossed bounds fail
+    expect(() => run([...pal, 'Print Best Pen($E00,0 To 64)'])).toThrow()
+    expect(() => run([...pal, 'Print Best Pen($E00,5 To 2)'])).toThrow()
+  })
+
+  /**
+   * `cmp.w #$1f,d6 / bls` sends any pen above 31 to `move.w -$42(a0),d0 /
+   * andi.w #$eee / lsr.w #$1` — the entry 32 lower, low bit of each gun
+   * dropped and the rest halved. That is Extra Half-Brite, so a search over
+   * the full 0..63 range weighs 32 colours that are not in the palette.
+   */
+  it('Best Pen treats pens 32-63 as Extra Half-Brite', () => {
+    const pal = [...scr, 'Colour 1,$F00']
+    // $700 is nothing in the palette, but it is half of pen 1's $F00, which
+    // is what pen 33 displays
+    expect(run([...pal, 'Print Best Pen($700,32 To 63)']).out.trim()).toBe('33')
   })
 
   it('Ham Colour decodes the HAM control byte against the previous pixel', () => {
@@ -1407,9 +1488,36 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
     expect(run(['Shade Bob Mask -1']).rt.amcaf.shadeMask).toBe(true)
   })
 
-  it('Amcaf Aga Notation and Set Sprite Priority hold their state', () => {
-    expect(run(['Amcaf Aga Notation On']).rt.amcaf.agaNotation).toBe(true)
-    expect(run(['Amcaf Aga Notation On', 'Amcaf Aga Notation Off']).rt.amcaf.agaNotation).toBe(false)
+  /**
+   * The manual: *"After calling Amcaf Aga Notation On, all AMCAF commands and
+   * functions take 24 bit values... The default setting is 12 bit."*
+   *
+   * Both halves of that are wrong, and the routines are twelve bytes each so
+   * there is nowhere for the disagreement to hide. `On` (routine 80) writes
+   * **4** and `Off` (routine 81) writes **8**; the readers take 4 as the
+   * 12-bit path; and the extension's own init routine writes 4 as well — the
+   * sequence at $1eba. So `On` sets the mode it was already in and `Off` is
+   * the only way to reach 24-bit. Reproduced.
+   *
+   * "All AMCAF commands and functions" is wrong too: the flag is read from
+   * exactly three addresses in the hunk, and they are these three functions.
+   */
+  it('DEFECT: Amcaf Aga Notation On and Off are the wrong way round', () => {
+    // the default is 12-bit, which the manual gets right
+    expect(run(['Print Red Val($1A5)']).out.trim()).toBe('1')
+    expect(run(['Print Green Val($1A5)']).out.trim()).toBe('10')
+    expect(run(['Print Blue Val($1A5)']).out.trim()).toBe('5')
+    // "On" is a no-op -- it writes the 4 that was already there
+    expect(run(['Amcaf Aga Notation On', 'Print Red Val($1A5)']).out.trim()).toBe('1')
+    expect(run(['Amcaf Aga Notation On']).rt.amcaf.notationBits).toBe(4)
+    // "Off" is what actually selects 24-bit
+    expect(run(['Amcaf Aga Notation Off']).rt.amcaf.notationBits).toBe(8)
+    expect(run(['Amcaf Aga Notation Off', 'Print Red Val($123456)']).out.trim()).toBe('18')
+    expect(run(['Amcaf Aga Notation Off', 'Print Green Val($123456)']).out.trim()).toBe('52')
+    expect(run(['Amcaf Aga Notation Off', 'Print Blue Val($123456)']).out.trim()).toBe('86')
+    // Glue Colour does NOT consult the flag: `moveq #$f,d0` and an `and` per
+    // gun, so it is always 12-bit
+    expect(run(['Amcaf Aga Notation Off', 'Print Glue Colour(1,10,5)']).out.trim()).toBe(String(0x1a5))
     expect(run(['Set Sprite Priority 5']).rt.amcaf.spritePriority).toBe(5)
   })
 })
