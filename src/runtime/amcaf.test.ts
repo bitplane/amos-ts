@@ -1232,6 +1232,20 @@ describe('slice 6: colour and palette', () => {
     expect(p('Ham Colour($15,$FFF)')).toBe(String(0xff5)) // only blue changes
   })
 
+  /**
+   * Routine 161's last arm is an open `else`, not a fourth range, so a control
+   * above 63 stays in the green branch instead of wrapping round to the
+   * palette. `subi.w #$30,d0 / lsl.b #$4,d0` is a BYTE shift: 64 becomes $10
+   * and shifts clean out of the byte, so the green nibble is 0 — where an
+   * earlier pass masked with `& 63`, turning 64 into 0 and reading palette
+   * entry 0 instead.
+   */
+  it('Ham Colour does not mask the control to 63', () => {
+    expect(p('Ham Colour(64,$FFF)')).toBe(String(0xf0f)) // green cleared, not palette[0]
+    expect(p('Ham Colour(65,$FFF)')).toBe(String(0xf1f)) // 65-48 = 17, low nibble 1
+    expect(p('Ham Colour($3F,$FFF)')).toBe(String(0xfff)) // 63 is still green 15
+  })
+
   it('Ham Best picks a byte that Ham Colour turns back into the target', () => {
     const { out } = run([...scr, 'C=Ham Best($0F0,$000)', 'Print Ham Colour(C,$000)'])
     expect(out.trim()).toBe(String(0x0f0))

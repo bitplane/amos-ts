@@ -3162,17 +3162,24 @@ const BEST_PEN_WEIGHT = [0, 1, 3, 5, 8, 12, 16, 20, 30, 40, 50, 60, 70, 80, 90, 
  * the pixel exactly before the current dot".
  */
 function hamApply(c: number, oldRgb: number, palette: Uint16Array): number {
-  const v = c & 15
-  switch ((c >> 4) & 3) {
-    case 1:
-      return glue(rV(oldRgb), gV(oldRgb), v)
-    case 2:
-      return glue(v, gV(oldRgb), bV(oldRgb))
-    case 3:
-      return glue(rV(oldRgb), v, bV(oldRgb))
-    default:
-      return palette[v] ?? 0
-  }
+  // Routine 161 ($440a) does NOT decode this as two bits and a nibble. It is
+  // a chain of unsigned WORD compares whose last arm is an open `else`, not a
+  // range check, so the control is not confined to 0..63 and an earlier pass
+  // masking it with `& 63` gave a different answer above that:
+  //
+  //   d0 <= $f    add.w d0,d0 / move.w $62(a1,d0.w),d3   palette, 16 entries
+  //   d0 <= $1f   subi #$10 / andi.b #$f0,d3 / or.b      set BLUE
+  //   d0 <= $2f   subi #$20 / lsl.w #8 / andi.w #$ff,d3  set RED
+  //   else        subi #$30 / lsl.b #4 / andi.b #$f,d3   set GREEN
+  //
+  // The last arm's shift is `lsl.b`, a BYTE, so a control of 64 becomes
+  // 64-48 = $10 and shifts clean out of the byte for a green of 0 — where the
+  // mask turned 64 into 0 and took the palette branch instead.
+  const w = c & 0xffff
+  if (w <= 0x0f) return palette[w] ?? 0
+  if (w <= 0x1f) return glue(rV(oldRgb), gV(oldRgb), w - 0x10)
+  if (w <= 0x2f) return glue(w - 0x20, gV(oldRgb), bV(oldRgb))
+  return glue(rV(oldRgb), (w - 0x30) & 0x0f, bV(oldRgb))
 }
 
 /**
@@ -4395,9 +4402,21 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /** =Ham Colour(c,oldrgb) — the colour a HAM pixel becomes */
+    /**
+     * =Ham Colour(control,rgb) — routine 161 ($440a), 82 bytes. The pops
+     * settle the order: `move.l (a3)+,d3` takes the SECOND argument and
+     * `move.l (a3)+,d0` the first, so d0 is the control and d3 the old
+     * colour. No masking — see hamApply for why that matters.
+     *
+     * NOTE: only the palette-index arm touches the screen, and it guards with
+     * `Rbeq routine 394`, AMOS error 47. The fallback palette below is never
+     * reached, because reading `rt.screen` with no screen open raises the
+     * core's own error first — the same unsettled question as the Scrn
+     * pointers, and it wants fixing once in the core rather than here.
+     */
     'ham colour': (_, a) => {
       const s = rt.screen
-      return VI(hamApply(i0(a, 0) & 63, i0(a, 1), s ? s.palette : new Uint16Array(16)))
+      return VI(hamApply(i0(a, 0), i0(a, 1), s ? s.palette : new Uint16Array(16)))
     },
     /** =Ham Best(newrgb,oldrgb) — the control byte that gets closest */
     'ham best': (_, a) => {
