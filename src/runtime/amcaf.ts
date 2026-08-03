@@ -862,11 +862,15 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
         it.expect(',')
         dst = planeOf(rt, ts, it.evalInt())
       }
+      // routine 75's region decode is routine 71's, so the same word
+      // granularity, exclusive far corner and silent bail — see amcafRegion
+      const box = amcafRegion(x1, y1, x2, y2)
+      if (!box) return
       const bpr = src.bm.bytesPerRow
-      const b1 = Math.max(0, x1 >> 3)
-      const b2 = Math.min(bpr - 1, x2 >> 3)
-      for (let y = Math.max(0, y1); y <= Math.min(src.bm.height - 1, y2); y++) {
-        const row = src.planes.subarray(src.base + y * bpr + b1, src.base + y * bpr + b2 + 1)
+      const b1 = Math.max(0, box.x >> 3)
+      const b2 = Math.min(bpr, (box.x + box.w) >> 3)
+      for (let y = Math.max(0, box.y); y < Math.min(src.bm.height, box.y + box.h); y++) {
+        const row = src.planes.subarray(src.base + y * bpr + b1, src.base + y * bpr + b2)
         const work = row.slice()
         fillRow(work)
         dst.planes.set(work, dst.base + y * bpr + b1)
@@ -1455,6 +1459,28 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * exactly the same like the limits you specify with the Pix Shift
      * commands."
      */
+    /**
+     * Make Pix Mask screen,x1,y1 To x2,y2,bank — routine 225 ($51ce), 140
+     * bytes. Three things here were wrong.
+     *
+     * The far corner is EXCLUSIVE, and the bank is sized from it before the
+     * dbra adjustment: `sub.w d4,d6 / sub.w d5,d7 / move.w d6,d2 /
+     * mulu.w d7,d2` reserves (x2-x1) * (y2-y1) bytes, and only then does
+     * `subq.w #$1,d6 / subq.w #$1,d7` turn the extents into loop counts.
+     *
+     * The bank's name is the literal at $5252, which is **"Pix Mask"** with a
+     * space in the middle — not the "PixMask " an earlier pass guessed.
+     *
+     * And the mask is built from BITPLANE 0 alone. `movea.l (a2),a2` takes
+     * the first plane pointer and `btst.l d4,(a2,d3.l)` tests that one bit,
+     * writing `move.b #$1,(a1)+` or `clr.b (a1)+`. The port tested the whole
+     * pixel value, so on any screen deeper than one plane a pixel of colour 2
+     * masked in where the routine masks it out.
+     *
+     * NOTE: the Reserve is `Rjsr routine 1103` guarded by `Rbeq routine 389`,
+     * so a failure is error 24 rather than the 23 this port's reserveBank
+     * raises for a non-positive length. Only reachable for a degenerate box.
+     */
     'make pix mask'(it) {
       const s = rt.screens.get(it.evalInt())
       it.expect(',')
@@ -1468,15 +1494,18 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const bank = it.evalInt()
       if (!s) amcafErr()
-      const w = x2 - x1 + 1
-      const h = y2 - y1 + 1
+      const w = x2 - x1
+      const h = y2 - y1
       if (w <= 0 || h <= 0) amcafErr()
-      rt.reserveBank(bank, w * h, 'PixMask ')
+      rt.reserveBank(bank, w * h, 'Pix Mask')
       const d = rt.memBanks.get(bank)!.data
+      const bm = s.rp.bitMap
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
-          const v = s.rp.point(x1 + x, y1 + y)
-          d[y * w + x] = v > 0 ? 1 : 0
+          const px = x1 + x
+          const py = y1 + y
+          const inside = px >= 0 && py >= 0 && px < bm.width && py < bm.height
+          d[y * w + x] = inside && (bm.pixelAt(px, py) & 1) !== 0 ? 1 : 0
         }
       }
     },
@@ -2432,7 +2461,20 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const x2 = it.evalInt()
       it.expect(',')
       const y2 = it.evalInt()
-      rt.amcaf.bltLimit = { x1: first, y1, x2, y2, cx: 0, cy: 0 }
+      /*
+       * Routine 61 ($289e) decodes the region exactly as Blitter Clear and
+       * Blitter Fill do — see amcafRegion — so x is word-granular and y2 is
+       * exclusive. The one difference is what happens when it bails: those
+       * two return quietly, this one does `Rbra routine 157`, an ERROR.
+       *
+       * The stored form is `$358` x1 in words, `$35a` y1, `$35c` the word
+       * count and `$35e` the row count. It is kept here as an inclusive box
+       * because that is what every reader of bltLimit expects; the conversion
+       * is exact.
+       */
+      const box = amcafRegion(first, y1, x2, y2)
+      if (!box) amcafErr()
+      rt.amcaf.bltLimit = { x1: box.x, y1: box.y, x2: box.x + box.w - 1, y2: box.y + box.h - 1, cx: 0, cy: 0 }
     },
 
     /**
@@ -2504,8 +2546,12 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
         r = { x1, y1, x2, y2 }
       }
       if (plane < 0 || plane >= s.rp.bitMap.depth) amcafErr()
-      for (let y = Math.max(0, r.y1); y <= Math.min(s.height - 1, r.y2); y++) {
-        for (let x = Math.max(0, r.x1); x <= Math.min(s.width - 1, r.x2); x++) {
+      // `sub.w d4,d6 / beq / bmi` and the same for the rows: routine 71 bails
+      // with `addq.l #$8,a3 / rts`, which is a no-op and not an error
+      const box = amcafRegion(r.x1, r.y1, r.x2, r.y2)
+      if (!box) return
+      for (let y = Math.max(0, box.y); y < Math.min(s.height, box.y + box.h); y++) {
+        for (let x = Math.max(0, box.x); x < Math.min(s.width, box.x + box.w); x++) {
           s.rp.bitMap.writePixel(x, y, s.rp.bitMap.pixelAt(x, y) & ~(1 << plane))
         }
       }
@@ -3604,18 +3650,35 @@ function shadeBob(rt: Runtime, it: Interp, dir: number): void {
 }
 
 /**
- * The shared body of the four Pix commands.
+ * The shared body of the four Pix commands — routines 226/227 (Shift Up),
+ * 228/229 (Shift Down), 230/231 (Brighten) and 232/233 (Darken), each a pair
+ * with and without the mask bank.
  *
  * `cyclic` is the difference between the pairs: Pix Shift Up/Down wrap round
  * the c1..c2 range, Pix Brighten/Darken stop at its ends. Colours outside the
- * range are "not affected" either way.
+ * range are "not affected" either way — `cmp.b $10(a7),d4 / bmi` and
+ * `cmp.b $12(a7),d4 / bhi` skip the pixel, and the wrap is `addq.b #$1,d4 /
+ * cmp.b $12(a7),d4 / ble` falling through to `move.b $10(a7),d4`.
+ *
+ * The far corner is EXCLUSIVE: `sub.w d4,d6 / sub.w d5,d7 / subq.w #$1,d6 /
+ * subq.w #$1,d7` and then dbra. An earlier pass had it inclusive, and the
+ * `subq` pair was invisible because extdis rendered those six bytes as the
+ * text run "SFSG?F" — see the note in src/cli/extdis.ts.
+ *
+ * NOTE: c1 and c2 are stored as BYTES (`move.b d1,(a7)` and `move.b d2,
+ * $2(a7)`), so a colour above 255 wraps into range. NOTE: the two range
+ * comparisons are not the same kind — `bmi` against c1 is SIGNED and `bhi`
+ * against c2 is UNSIGNED — which cannot be told apart within a byte's 0..63
+ * of real colours. NOTE: a degenerate box does not error; the subq underflows
+ * to $ffff and the dbra runs 65536 times, the same runaway Bzoom has. Doing
+ * nothing is this port's answer to that.
  */
 function pixShift(rt: Runtime, it: Interp, dir: number, cyclic: boolean): void {
   const s = rt.screens.get(it.evalInt())
   it.expect(',')
-  const c1 = it.evalInt()
+  const c1 = it.evalInt() & 0xff
   it.expect(',')
-  const c2 = it.evalInt()
+  const c2 = it.evalInt() & 0xff
   it.expect(',')
   const x1 = it.evalInt()
   it.expect(',')
@@ -3626,10 +3689,12 @@ function pixShift(rt: Runtime, it: Interp, dir: number, cyclic: boolean): void {
   const y2 = it.evalInt()
   const bank = it.accept(',') ? rt.memBanks.get(it.evalInt()) : undefined
   if (!s || c2 < c1) amcafErr()
-  const w = x2 - x1 + 1
+  const w = x2 - x1
+  const h = y2 - y1
+  if (w <= 0 || h <= 0) return // see the NOTE on the runaway
   const span = c2 - c1 + 1
-  for (let y = y1; y <= y2; y++) {
-    for (let x = x1; x <= x2; x++) {
+  for (let y = y1; y < y1 + h; y++) {
+    for (let x = x1; x < x1 + w; x++) {
       if (bank && !bank.data[(y - y1) * w + (x - x1)]) continue
       const v = s.rp.point(x, y)
       if (v < 0 || v < c1 || v > c2) continue
@@ -3738,6 +3803,39 @@ const inLimit = (rt: Runtime, lim: Limit | null, x: number, y: number): boolean 
   if (!s) return false
   if (!lim) return x >= 0 && y >= 0 && x < s.width && y < s.height
   return x >= lim.x1 && y >= lim.y1 && x <= lim.x2 && y <= lim.y2
+}
+
+/**
+ * AMCAF's region decode, which routines 61, 71 and 75 share instruction for
+ * instruction — Blitter Copy Limit, Blitter Clear and Blitter Fill:
+ *
+ *     move.l (a3)+,d5 / move.w d5,$33e(a2)     y1, kept
+ *     move.l (a3)+,d4 / lsr.w #$4,d4           x1 DOWN to a 16-pixel boundary
+ *     addi.w #$f,d6 / lsr.w #$4,d6             x2 UP to one
+ *     sub.w d4,d6 / beq bail / bmi bail        the WORD count
+ *     sub.w d5,d7 / beq bail / bmi bail        the ROW count
+ *
+ * So x is word-granular in both directions and y2 is exclusive, and a zero or
+ * reversed extent bails before anything happens. The port worked in whole
+ * pixels and treated both corners as inclusive.
+ *
+ * Returns null when the routine would bail; the CALLER decides what that
+ * means, because the three do not agree: Blitter Clear and Blitter Fill do
+ * `addq.l #$8,a3 / rts`, popping their remaining arguments and doing nothing,
+ * while Blitter Copy Limit does `Rbra routine 157` — an error.
+ */
+function amcafRegion(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): { x: number; y: number; w: number; h: number } | null {
+  const wx1 = (x1 & 0xffff) >> 4
+  const wx2 = ((x2 & 0xffff) + 0xf) >> 4
+  const words = ((wx2 - wx1) << 16) >> 16
+  const rows = ((y2 - y1) << 16) >> 16
+  if (words <= 0 || rows <= 0) return null
+  return { x: wx1 * 16, y: y1, w: words * 16, h: rows }
 }
 
 /**

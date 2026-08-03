@@ -1536,9 +1536,10 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
    * table. The port errors instead of reading out of bounds — a corruption
    * that cannot be reproduced meaningfully.
    *
-   * Blitter Copy Limit (routine 305) stores the rectangle Blitter Copy works
-   * within; C2p Shift/Fire and Pix Shift Down and the Shade Bob pair are the
-   * effect engines' remaining entry points.
+   * Blitter Copy Limit (routines 60 and 61 — an earlier pass cited 305, which
+   * is Splinters territory) stores the rectangle Blitter Copy works within;
+   * C2p Shift/Fire and Pix Shift Down and the Shade Bob pair are the effect
+   * engines' remaining entry points.
    */
   it('the remaining graphics keywords dispatch against their routines', () => {
     const bobs = [...scr, 'Get Bob 1,0,0 To 8,8', 'Get Bob 2,8,0 To 16,8']
@@ -1549,6 +1550,50 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
 
     expect(() => run([...scr, 'Blitter Copy Limit 0'])).not.toThrow()
     expect(() => run([...scr, 'Blitter Copy Limit 0,0 To 31,15'])).not.toThrow()
+  })
+
+  /**
+   * Routines 61, 71 and 75 share one region decode, instruction for
+   * instruction:
+   *
+   *     move.l (a3)+,d4 / lsr.w #$4,d4        x1 DOWN to a 16-pixel boundary
+   *     addi.w #$f,d6 / lsr.w #$4,d6          x2 UP to one
+   *     sub.w d4,d6 / beq bail / bmi bail     the WORD count
+   *     sub.w d5,d7 / beq bail / bmi bail     the ROW count
+   *
+   * so x is word-granular in BOTH directions and y2 is exclusive. The port
+   * worked in whole pixels with both corners inclusive.
+   */
+  it('the blitter region is whole words wide and stops before y2', () => {
+    const { rt } = run([
+      'Screen Open 0,64,32,16,Lowres',
+      'Ink 1 : Bar 0,0 To 63,31', // plane 0 set everywhere
+      'Blitter Clear 0,0,4,0 To 12,2',
+    ])
+    const s = rt.screens.get(0)!
+    const p = (x: number, y: number): number => s.rp.point(x, y) & 1
+    expect(p(0, 0)).toBe(0) // x1 of 4 rounds DOWN, so pixel 0 goes too
+    expect(p(15, 0)).toBe(0) // x2 of 12 rounds UP, so the whole word goes
+    expect(p(16, 0)).toBe(1) // and the next word does not
+    expect(p(0, 1)).toBe(0)
+    expect(p(0, 2)).toBe(1) // two rows from y1 = 0, so y2 is exclusive
+  })
+
+  /**
+   * The three do NOT agree on what an empty region means. Blitter Clear and
+   * Blitter Fill bail with `addq.l #$8,a3 / rts` — they pop their remaining
+   * arguments and do nothing. Blitter Copy Limit bails with `Rbra routine
+   * 157`, which is a four-byte jump to routine 390: an error.
+   */
+  it('an empty blitter region is a no-op for Clear and an error for Copy Limit', () => {
+    const { rt } = run([
+      'Screen Open 0,64,32,16,Lowres',
+      'Ink 1 : Bar 0,0 To 63,31',
+      'Blitter Clear 0,0,0,0 To 0,8', // zero words wide
+    ])
+    expect(rt.screens.get(0)!.rp.point(0, 0) & 1).toBe(1)
+    expect(() => run([...scr, 'Blitter Copy Limit 0,0 To 0,8'])).toThrow(/illegal function call/i)
+    expect(() => run([...scr, 'Blitter Copy Limit 0,8 To 32,0'])).toThrow(/illegal function call/i)
 
     /**
      * Blitter Copy s1,p1 To s2,p2[,minterm] — routine 62 ($28a0) pushes the
@@ -2002,9 +2047,30 @@ describe('slice 8: the effect engines', () => {
       'Pix Shift Up 0,0,15,0,0 To 3,3,9',
     ])
     const s = rt.screens.get(0)!
-    expect(rt.memBanks.get(9)!.data.length).toBe(16)
+    // `move.w d6,d2 / mulu.w d7,d2` sizes the bank from the extents BEFORE
+    // the subq pair turns them into dbra counts, so 0,0 To 3,3 is 3x3
+    expect(rt.memBanks.get(9)!.data.length).toBe(9)
     expect(s.rp.point(0, 0)).toBe(6) // masked in: shifted
     expect(s.rp.point(1, 1)).toBe(5) // masked out: untouched
+  })
+
+  /**
+   * `movea.l (a2),a2` takes the FIRST plane pointer and `btst.l d4,(a2,d3.l)`
+   * tests that one bit, so the mask is bitplane 0 and not the pixel value —
+   * a colour of 2 has plane 0 clear and does not mask in, where an earlier
+   * pass's `point(x,y) > 0` said it did.
+   */
+  it('Make Pix Mask reads bitplane 0 only, not the pixel value', () => {
+    const { rt } = run([
+      ...scr,
+      'Turbo Plot 0,0,1', // plane 0 alone
+      'Turbo Plot 1,0,2', // plane 1 alone — plane 0 is clear
+      'Turbo Plot 2,0,3', // both planes
+      'Make Pix Mask 0,0,0 To 4,1,9',
+    ])
+    const b = rt.memBanks.get(9)!
+    expect(Array.from(b.data)).toEqual([1, 0, 1, 0])
+    expect(b.name).toBe('Pix Mask') // the literal at $5252, not "PixMask "
   })
 
   /**
