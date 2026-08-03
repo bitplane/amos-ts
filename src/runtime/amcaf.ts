@@ -1805,34 +1805,81 @@ const amcafErr: () => never = () => {
 }
 
 /**
- * The quarter-degree sine table, 1024 units to the turn, scaled by 256.
+ * The sine table, 1024 units to the turn, scaled by 256.
  *
- * `Qsin` reads a word from a table whose pointer sits at `$6aa` in the
- * extension's data block, multiplies by the radius and shifts right by 8
- * ($6326: `move.w (a0,d1.w),d3 / muls.w d0,d3 / asr.l #8,d3`). The shift
+ * `Qsin` (routine 260, $643a) reads a WORD from a table whose pointer sits at
+ * `$696` in the extension's data block, multiplies by the radius and shifts
+ * right by 8: `move.w (a0,d1.w),d3 / muls.w d0,d3 / asr.l #8,d3`. The shift
  * proves the scale is 256 and the `andi.w #$3ff` proves the length is 1024.
  *
- * NOTE: the table's CONTENTS were not recovered. It is not static data in the
- * code hunk — a search for it under three plausible scalings found nothing —
- * and the pointer is filled in by an init path that trampolines out of the
- * extension's own routine table. So the per-entry rounding here is ours, not
- * the library's, and Qsin/Qcos/Qarc are classified APPROXIMATED rather than
- * FAITHFUL: the scale and period are proven, individual entries may differ by
- * one from what the machine held.
+ * The CONTENTS are the library's, not a reconstruction. An earlier pass could
+ * not find the table and generated `round(256*sin)` instead, which disagreed
+ * with the shipped one at 770 of its 1024 entries — by up to 3. The changelog
+ * is what gave it away: *"Sine-Table moved and shortened, so I save about 1536
+ * Bytes"*, and 2048 - 512 is exactly 1536, so what ships is a QUARTER table of
+ * 256 words. It is at $a3a8 in 1.40 and $ab82 in 1.50, both byte-identical to
+ *
+ *     Q[i] = floor(256 * sin(pi * i / 512))
+ *
+ * at all 256 entries, which is why this derives the quarter rather than
+ * embedding it. Note `floor`, not `round`.
+ *
+ * The init at $a2d8 expands it, and the expansion is the part no one would
+ * guess:
+ *
+ *     move.w #$fe,d1 / move.w (a0)+,(a1)+     255 entries, full[0..254]
+ *     move.w #$100,(a1)+                      full[255] = 256
+ *     addq.l #2,a0 / move.w -(a0),(a1)+       256, full[256..511] = Q[255..0]
+ *     move.w (a0)+,(a1) / neg.w (a1)+         255, full[512..766] = -Q[0..254]
+ *     move.w #$ff00,(a1)+                     full[767] = -256
+ *     addq.l #2,a0 / move.w -(a0),(a1)/neg.w  256, full[768..] = -Q[255..0]
+ *
+ * So the PEAK lands at index 255 and the trough at 767 — the table is not
+ * symmetric about 256 — and the negative half is `-floor(x)` rather than
+ * `floor(-x)`, which differ wherever x is not an integer.
  */
-const SIN256 = Int16Array.from({ length: 1024 }, (_, i) => Math.round(Math.sin((2 * Math.PI * i) / 1024) * 256))
+const SIN256 = ((): Int16Array => {
+  const q = Array.from({ length: 256 }, (_, i) => Math.floor(256 * Math.sin((Math.PI * i) / 512)))
+  const t = new Int16Array(1024)
+  let n = 0
+  for (let i = 0; i < 255; i++) t[n++] = q[i]!
+  t[n++] = 256
+  for (let j = 0; j < 256; j++) t[n++] = q[255 - j]!
+  for (let i = 0; i < 255; i++) t[n++] = -q[i]!
+  t[n++] = -256
+  for (let j = 0; j < 256; j++) t[n++] = -q[255 - j]!
+  return t
+})()
 
 /** sign-extend a word, which is what `ext.l d3` does to the result */
 const extW = (v: number): number => (v << 16) >> 16
 
 /**
- * The shared tail of Qsin and Qcos ($6326, $6300).
+ * `Qarc`'s arctangent table — 513 BYTES at $a5a8 in 1.40, pointer at $69a.
+ *
+ * Indexed by `(min(|dx|,|dy|) << 9) / max(...)`, so the domain is a ratio in
+ * $000..$200 and the range is 0..128 — an eighth of the 1024-unit turn, which
+ * is why the routine mirrors about 256 for the steep half. Byte-identical to
+ * `floor(atan(i/512) * 1024 / 2pi)` at all 513 entries, `floor` again.
+ *
+ * The changelog dates it: *"Sine-Table moved and shortened ... added
+ * Arctan-Table"*, the same entry that shortened the sine one.
+ */
+const QARC = Uint8Array.from({ length: 513 }, (_, i) => Math.floor((Math.atan(i / 512) * 1024) / (2 * Math.PI)))
+
+/**
+ * The shared tail of Qsin (routine 260, $643a) and Qcos (259, $6428).
  *
  * A radius of zero returns zero WITHOUT reading the angle — the routine tests
  * it first and steps `a3` past the second argument by hand. The `addx.w d2,d3`
  * after the shift adds the bit the `asr` pushed into X, so the result is
  * rounded on bit 7 rather than truncated, and the final `ext.l` narrows it to
  * a word: a radius large enough to overflow 16 bits wraps.
+ *
+ * Qcos is four instructions — `addi.w #$100,$6(a3)` then `Rbra` into Qsin —
+ * so the quarter turn is applied to the ANGLE on the parameter stack, and
+ * $6(a3) is the low word of the second longword because Qsin pops the radius
+ * first.
  */
 function qtrig(angle: number, radius: number, quarterTurn: number): number {
   if (radius === 0) return 0
@@ -3402,15 +3449,40 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     qcos: (_, a) => VI(qtrig(i0(a, 0), i0(a, 1), 256)),
 
     /**
-     * =Qarc(deltax,deltay) — routine 275. The inverse of the pair: the angle
-     * to a relative point, in the same 1024-to-the-turn units, "normally used
-     * for all kinds of 'aiming-at' routines".
+     * =Qarc(deltax,deltay) — routine 261 ($646c). The inverse of the pair:
+     * the angle to a relative point, in the same 1024-to-the-turn units,
+     * "normally used for all kinds of 'aiming-at' routines".
+     *
+     * A table lookup, not an arctangent. The routine divides the SMALLER
+     * magnitude by the larger to get a ratio in $0..$200, indexes the 513-byte
+     * table at $69a(a2), and fixes up the quadrant afterwards:
+     *
+     *     cmp.l d5,d4 / bpl        |dx| >= |dy| ?
+     *     lsl.l #8,d4 / add.l d4,d4 / divu.w d5,d4      ratio = (min<<9)/max
+     *     move.b (a0,d4.w),d3      the table is BYTES
+     *     neg.w d3 / addi.w #$100,d3   the steep half mirrors about 256
+     *
+     * An earlier pass used `Math.atan2` with `Math.round`, which is a
+     * different function: the shipped table is floor(atan(i/512)*1024/2pi) at
+     * all 513 entries, so rounding disagreed across most of the circle.
+     *
+     * DEFECT: the quadrant is decided by `tst.w`, a WORD test, while the
+     * magnitudes were taken as longs. A delta whose low word looks positive
+     * but whose long is negative — 65536 and beyond — lands in the wrong
+     * quadrant. Reproduced.
      */
     qarc: (_, a) => {
-      const dx = i0(a, 0)
-      const dy = i0(a, 1)
-      const t = Math.round((Math.atan2(dy, dx) / (2 * Math.PI)) * 1024)
-      return VI(t & 0x3ff)
+      const dx = i0(a, 0) | 0
+      const dy = i0(a, 1) | 0
+      if (dx === 0 && extW(dy) === 0) return VI(0)
+      const ax = Math.abs(dx)
+      const ay = Math.abs(dy)
+      let d3: number
+      if (ax < ay) d3 = 256 - QARC[Math.floor((ax * 512) / ay)]!
+      else d3 = QARC[Math.floor((ay * 512) / ax)]!
+      if (extW(dx) < 0) d3 = extW(dy) < 0 ? d3 - 512 : 512 - d3
+      else if (extW(dy) < 0) d3 = -d3
+      return VI(d3 & 0x3ff)
     },
 
     /**

@@ -1366,9 +1366,12 @@ export const FAITHFUL = new Set<string>([
 
   // --- AMCAF slice 1 (Chris Hodges): maths and bit operations, read off
   // AMCAF.Guide plus the routines in the 45,532-byte hunk. The three trig
-  // functions are APPROXIMATED, not here: their table is not in the hunk.
+  // functions were APPROXIMATED until both their tables were found: the
+  // sine one is a QUARTER table at $a3a8 (1.40) / $ab82 (1.50) and the
+  // arctangent a 513-byte one at $a5a8, and both are reproduced exactly.
   'even', 'odd', 'wordswap', 'lsl', 'lsr', 'binexp', 'binlog',
   'qsqr', 'qrnd', 'vin', 'vmod', 'nop', 'nfn', 'cpu', 'fpu',
+  'qsin', 'qcos', 'qarc',
   // slice 2: strings. Scanstr$ is APPROXIMATED (no name table in the hunk).
   'chr.w$', 'chr.l$', 'asc.w', 'asc.l', 'lsstr$', 'lzstr$',
   'insstr$', 'cutstr$', 'replacestr$', 'itemstr$',
@@ -2184,6 +2187,12 @@ export const NOTES: Record<string, string> = {
     "Routine 195 (\$4cc2), and the routine is the specification: zero takes the `Rbeq` error branch, then it shifts right counting until bit 0 is set, shifts once more and errors if ANYTHING is left (`tst.l d0 / Rbne`). So a value that is not exactly a power of two is an error rather than a floor, which is what the manual promises",
   'qsqr':
     'Routine 271 (\$6286): an integer square root by Newton\'s method over a scaled start, with no maths library involved. Zero returns zero before anything else and a negative value takes the `Rbmi` error branch',
+  'qsin':
+    "Routine 260 (\$643a), and now FAITHFUL rather than APPROXIMATED because the table was found. An earlier pass concluded it was not in the hunk and generated `round(256*sin)` over a symmetric 1024 entries, which disagreed with the shipped table at 770 of 1024 -- by up to 3. The changelog is what located it: 'Sine-Table moved and shortened, so I save about 1536 Bytes', and 2048-512 is exactly 1536, so a QUARTER table of 256 words ships at \$a3a8 (1.40) / \$ab82 (1.50). It is byte-identical to `floor(256*sin(pi*i/512))` at all 256 entries -- floor, not round -- so the port derives it rather than embedding someone else's data. DEFECT: the expansion at \$a2d8 copies 255 entries, writes \$100 as the 256th and mirrors, which puts the PEAK at index 255 and 767 rather than 256 and 768 and leaves DOUBLED zeros at 0/1023 and 511/512. So a quarter turn is one step short of the maximum and `Qcos(0,r)` returns 996 for r=1000 rather than r. Reproduced, because a program that plots a circle with these gets AMCAF's circle",
+  'qcos':
+    'Routine 259 (\$6428), four instructions: `addi.w #\$100,\$6(a3)` then `Rbra` into Qsin. The quarter turn is applied to the ANGLE on the parameter stack rather than to the result, and \$6(a3) is the low word of the second longword because Qsin pops the radius first. Inherits the table DEFECT recorded under Qsin',
+  'qarc':
+    "Routine 261 (\$646c). A table lookup, NOT an arctangent: it divides the smaller magnitude by the larger for a ratio in \$0..\$200, indexes a 513-BYTE table at \$a5a8 (pointer \$69a), and mirrors about 256 for the steep half. The table is `floor(atan(i/512)*1024/2pi)` at all 513 entries. An earlier pass used `Math.atan2` with `Math.round`, which differs at 3808 of the 6561 points in an 81x81 grid -- the four axis cases both agree on, which is why the original test could not tell them apart. DEFECT: the quadrant is chosen by `tst.w`, a WORD test, while the magnitudes were taken as longs, so a delta past 65535 whose low word reads positive lands in the wrong quadrant. Reproduced",
   'qrnd':
     "Routine 272. The manual says it is 'totally identical to the Rnd function, with the only difference, that this one is much faster', so it uses AMOS's own generator rather than a second one -- which is also what makes a Randomize seed reach it",
   'vmod':

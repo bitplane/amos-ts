@@ -176,15 +176,36 @@ describe('slice 1: maths and bit operations', () => {
 
   it('Qsin and Qcos run 1024 units to the turn, scaled by the radius', () => {
     expect(p('Qsin(0,1000)')).toBe('0')
-    expect(p('Qsin(256,1000)')).toBe('1000') // a quarter turn is 90 degrees
     expect(p('Qsin(512,1000)')).toBe('0')
-    expect(p('Qsin(768,1000)')).toBe('-1000')
-    expect(p('Qcos(0,1000)')).toBe('1000')
-    expect(p('Qcos(256,1000)')).toBe('0')
     // the angle is masked to 10 bits, so a full turn is transparent
     expect(p('Qsin(1024+256,1000)')).toBe(p('Qsin(256,1000)'))
     // a zero radius returns zero without reading the table
     expect(p('Qsin(123,0)')).toBe('0')
+  })
+
+  /**
+   * DEFECT: AMCAF's table peaks ONE STEP EARLY, so a quarter turn is 255
+   * rather than 256 and `Qcos(0)` is not the radius.
+   *
+   * The init at $a2d8 copies 255 quarter-table entries, writes $100 as the
+   * 256th, then mirrors — which puts the maximum at index 255 and 767 and
+   * leaves DOUBLED zeros at 0/1023 and 511/512. An earlier pass here
+   * generated `round(256*sin)` over a symmetric 1024 and disagreed with the
+   * shipped table at 770 of 1024 entries.
+   *
+   * Reproduced rather than corrected: a program that plots a circle with
+   * Qsin/Qcos gets AMCAF's circle, one unit out of round in the same place
+   * the Amiga put it.
+   */
+  it('the sine table peaks one step early, so Qcos(0) is not the radius', () => {
+    expect(p('Qsin(255,1000)')).toBe('1000') // the real maximum
+    expect(p('Qsin(256,1000)')).toBe('996') // what "a quarter turn" gives
+    expect(p('Qsin(767,1000)')).toBe('-1000')
+    expect(p('Qcos(0,1000)')).toBe('996') // cos(0) * r is NOT r
+    expect(p('Qcos(255,1000)')).toBe('0')
+    // the doubled zero: 511 and 512 both land on it, as do 0 and 1023
+    expect(p('Qsin(511,1000)')).toBe('0')
+    expect(p('Qsin(512,1000)')).toBe('0')
   })
 
   it('Qarc is the inverse: the angle to a relative point', () => {
@@ -192,6 +213,20 @@ describe('slice 1: maths and bit operations', () => {
     expect(p('Qarc(0,1)')).toBe('256')
     expect(p('Qarc(-1,0)')).toBe('512')
     expect(p('Qarc(0,-1)')).toBe('768')
+  })
+
+  /**
+   * The four axes above pass under an arctangent OR the library's table, so
+   * they cannot tell the two apart — and an earlier pass here used
+   * `Math.atan2` with `Math.round`, which disagrees with the shipped table at
+   * 3808 of the 6561 points in a 81x81 grid. These are angles where they
+   * differ, so the test fails if anyone swaps the table back for a formula.
+   */
+  it('Qarc reads the floored table, which is not round(atan2)', () => {
+    expect(p('Qarc(100,37)')).toBe('57') // atan2 rounds this to 58
+    expect(p('Qarc(-70,-24)')).toBe('565') // and this to 566
+    // the eighth-turn mirror: |dy| > |dx| takes the 256-t branch
+    expect(p('Qarc(37,100)')).toBe('199')
   })
 
   it('Nop and Nfn do nothing, which is their documented purpose', () => {
@@ -1045,8 +1080,10 @@ describe('slice 10: vectors and the extension internals', () => {
       'A=Vec Rot X(100,50,256)',
       'Print A;",";Vec Rot Y;",";Vec Rot Z',
     ])
-    // z = 256 is unit distance, so x and y come back unchanged
-    expect(out.trim().replace(/\s+/g, '')).toBe('100,50,256')
+    // z = 256 is unit distance, so x and y would come back unchanged if
+    // cos(0) were 1 — but it is 255/256 (see the table DEFECT above), and
+    // three successive rotations each scale by it
+    expect(out.trim().replace(/\s+/g, '')).toBe('100,50,254')
   })
 
   it('the bare form reads the cache the three-argument form filled', () => {
