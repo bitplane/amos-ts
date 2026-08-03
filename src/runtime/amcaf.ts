@@ -224,6 +224,13 @@ export interface AmcafState {
    */
   shadePlanes: number
   shadeMask: boolean
+  /**
+   * Qrnd's own generator state — a seed stirred by the beam register, and the
+   * last result, which `Qrnd(0)` hands back. NOT AMOS's Rnd, whatever the
+   * manual says: see the keyword.
+   */
+  qseed: number
+  qlast: number
   /** the bank Ptile blocks come from */
   ptileBank: number
   /** the two particle engines, which share a command shape but not a model */
@@ -268,6 +275,8 @@ export function newAmcafState(): AmcafState {
     agaNotation: false,
     shadePlanes: 6,
     shadeMask: true,
+    qseed: 0,
+    qlast: 0,
     ptileBank: 0,
     splinters: {
       bank: 0, max: 0, coordsBank: 0, coords: [], next: 0,
@@ -1662,12 +1671,27 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
 
     /* ---- slice 13: the remainder ---- */
 
-    /** Smouse X n / Smouse Y n — place the second mouse, as Sticks' Mouse X does */
+    /**
+     * Smouse X n / Smouse Y n — place the second mouse.
+     *
+     * Routines 154 and 155 ($4650, $466a) SCALE what they are given by the
+     * stored Smouse Speed before storing it:
+     *
+     *     move.l (a3)+, d0
+     *     move.w $2ee(a2), d1      the speed
+     *     asl.w  d1, d0            ...as a shift
+     *     move.w d0, $2f4(a2)
+     *
+     * so the coordinate is kept in the same speed-multiplied units the
+     * counter reads accumulate in, and `Smouse X 10` under `Smouse Speed 2`
+     * puts the pointer at 40. Storing the raw value, as an earlier pass did,
+     * puts it somewhere else entirely whenever the speed is not 1.
+     */
     'smouse x'(it) {
-      rt.amcaf.smouse.x = it.evalInt()
+      rt.amcaf.smouse.x = extW(it.evalInt() << (rt.amcaf.smouse.speed & 15))
     },
     'smouse y'(it) {
-      rt.amcaf.smouse.y = it.evalInt()
+      rt.amcaf.smouse.y = extW(it.evalInt() << (rt.amcaf.smouse.speed & 15))
     },
 
     /**
@@ -2674,7 +2698,17 @@ function modSample(mod: Uint8Array, n: number): { off: number; len: number } | n
   return null
 }
 
-/** Pt Sam Play: an AMOS sample bank entry onto a voice the music is not using */
+/**
+ * Pt Sam Play: an AMOS sample bank entry onto the voices a MASK names.
+ *
+ * "The 'voice' parameter contains a bitmask, that describes, on which
+ * channels the sample number 'samnr' should be replayed" — the manual is
+ * explicit, and Pt Sam Freq / Pt Sam Stop / Pt Instr Play share the shape.
+ * An earlier pass took it as an index in all four.
+ *
+ * "If it is omitted" the replayer picks: "the sounds 'interact' with the
+ * Protracker music", so a bare call takes a channel the music is not holding.
+ */
 function ptSamPlay(rt: Runtime, voice: number, sam: number, freq: number): void {
   const pt = rt.amcaf.pt
   const b = rt.memBanks.get(pt.samBank || 5)
@@ -2682,18 +2716,19 @@ function ptSamPlay(rt: Runtime, voice: number, sam: number, freq: number): void 
   const list = parseSampleBank(b.data)
   const e = list[sam - 1]
   if (!e) return
-  // "the sounds 'interact'" with the music: an unnamed voice takes a free one
-  let v = voice
-  if (v < 0) {
-    v = 0
+  if (voice < 0) {
+    // omitted: take a channel the music is not using
+    let v = 0
     for (let i = 0; i < 4; i++) {
       if (!pt.playing || (pt.voices & (1 << i)) === 0) {
         v = i
         break
       }
     }
+    rt.host.audio?.play(v, e.pcm, freq || e.freq, pt.volume, -1)
+    return
   }
-  rt.host.audio?.play(v & 3, e.pcm, freq || e.freq, pt.volume, -1)
+  for (let i = 0; i < 4; i++) if (voice & (1 << i)) rt.host.audio?.play(i, e.pcm, freq || e.freq, pt.volume, -1)
 }
 
 /** Pt Instr Play: one of the MODULE's samples, rather than an AMOS bank's */
@@ -2704,7 +2739,13 @@ function ptInstrPlay(rt: Runtime, instr: number, voice: number, freq: number): v
   const s = modSample(b.data, instr)
   if (!s || s.len <= 0) return
   const pcm = new Int8Array(b.data.buffer, b.data.byteOffset + s.off, Math.min(s.len, b.data.length - s.off))
-  rt.host.audio?.play(voice < 0 ? 0 : voice & 3, pcm, freq || periodToHz(AMIGA_PERIODS[24]!), pt.volume, -1)
+  // the same bitmask as Pt Sam Play, not an index
+  const hz = freq || periodToHz(AMIGA_PERIODS[24]!)
+  if (voice < 0) {
+    rt.host.audio?.play(0, pcm, hz, pt.volume, -1)
+    return
+  }
+  for (let i = 0; i < 4; i++) if (voice & (1 << i)) rt.host.audio?.play(i, pcm, hz, pt.volume, -1)
 }
 
 /** the shared body of C2p Shift and C2p Fire */
@@ -3681,11 +3722,42 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * =Qrnd(max) — routine 272. "totally identical to the Rnd function, with
-     * the only difference, that this one is much faster", so it is the same
-     * generator AMOS's own Rnd uses rather than a second one.
+     * =Qrnd(max) — routine 258 ($63f0), and the manual is wrong about it.
+     *
+     * "Totally identical to the Rnd function, with the only difference, that
+     * this one is much faster" — so an earlier pass routed it to AMOS's own
+     * generator. It is a different generator entirely:
+     *
+     *     move.w $dff006.l, d0
+     *     add.w  d0, $292(a2)        stir the seed with the BEAM
+     *     move.l (a3)+, d0 / beq     Qrnd(0) -> the last result at $294
+     *     move.w $292(a2), d3
+     *     moveq  #$f, d1
+     *     lsr.w  #1, d3              15 bits of seed
+     *     mulu.w d0, d3              times max, 32 bits wide
+     *     lsr.l  d1, d3              back down by 15
+     *     addx.l d2, d3              plus the bit that fell out: rounding
+     *     move.w d3, $294(a2)
+     *
+     * so it is a scale-a-15-bit-fraction idiom rather than a linear
+     * congruential step, and its randomness comes entirely from where the
+     * raster happened to be. This port models the beam deterministically, so
+     * the sequence is reproduced exactly rather than approximated — the same
+     * argument Stars' nextRandom already makes.
+     *
+     * Qrnd(0) returning the previous result is the one thing it does share
+     * with Rnd, and the seed is stirred even on that path.
      */
-    qrnd: (it, a) => VI(it.rndInt(i0(a, 0))),
+    qrnd: (it, a) => {
+      const st = rt.amcaf
+      // the seed is stirred by VHPOSR on EVERY call, including Qrnd(0)
+      st.qseed = (st.qseed + it.beamWord()) & 0xffff
+      const n = i0(a, 0) & 0xffff
+      if (n === 0) return VI(st.qlast)
+      const prod = (st.qseed >>> 1) * n
+      st.qlast = ((prod >>> 15) + ((prod >>> 14) & 1)) & 0xffff
+      return VI(st.qlast)
+    },
 
     /** =Qsin(angle,radius) — routine 274 ($6326); 1024 units to the turn */
     qsin: (_, a) => VI(qtrig(i0(a, 0), i0(a, 1), 0)),

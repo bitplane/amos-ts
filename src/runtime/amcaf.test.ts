@@ -629,6 +629,103 @@ describe('slice 5: disk and DOS objects', () => {
     expect(lines[1]).toBe('[]')
   })
 
+  /**
+   * The DateStamp trio, each against its routine.
+   *
+   * Object Date (120, $3c5c) hands back a whole longword from $184 — the day
+   * count. Object Time (122, $3c80) reads TWO WORDS four bytes apart:
+   *
+   *     lea.l  $18a(a2), a0
+   *     move.w (a0), d3 / swap d3 / move.w $4(a0), d3
+   *
+   * which is the low word of the DateStamp's minutes above the low word of
+   * its ticks — the same `Wordswap(minutes)+ticks` packing Current Time uses,
+   * confirmed here from the other end.
+   *
+   * Examine Stop (109, $3b4e) has no prologue at all and is idempotent: it
+   * tests the stored lock at $37c, calls dos.library -$5a (UnLock) only if it
+   * is non-zero, then clears it.
+   */
+  it('Object Date and Object Time are a split DateStamp, and Examine Stop is idempotent', () => {
+    const { out } = runFs([
+      'Open Out 1,"Work:d.txt" : Print #1,"x" : Close 1',
+      'Examine Object "Work:d.txt"',
+      'Print Object Date',
+      'T=Object Time',
+      // the packing: minutes in the HIGH word, ticks in the low
+      'Print T/65536;",";T mod 65536',
+    ])
+    const lines = out.trim().split('\n')
+    expect(Number(lines[0])).toBeGreaterThanOrEqual(0)
+    const [mins, ticks] = lines[1]!.split(',').map((s) => Number(s.trim()))
+    expect(mins).toBeGreaterThanOrEqual(0)
+    expect(mins).toBeLessThan(1440) // minutes in a day
+    expect(ticks).toBeLessThan(3000) // fiftieths in a minute
+
+    // Set Object Date (130, $3d8c) writes the pair back
+    const set = runFs([
+      'Open Out 1,"Work:e.txt" : Print #1,"x" : Close 1',
+      // "Set Object Date pathfile$,date,time" — the time arrives PACKED, and
+      // routine 130 splits it back with `move.w d0,$38a / swap d0 / move.w
+      // d0,$386`: ticks low, minutes high
+      'Set Object Date "Work:e.txt",1000,60*65536+25',
+      'Examine Object "Work:e.txt"',
+      'Print Object Date;",";Object Time',
+    ])
+    expect(set.out.trim().replace(/\s+/g, '')).toBe(`1000,${60 * 65536 + 25}`)
+
+    // Examine Stop with nothing open takes the `beq` past the UnLock
+    expect(() => runFs(['Examine Stop'])).not.toThrow()
+    expect(() => runFs(['Examine Dir "Work:"', 'Examine Stop', 'Examine Stop'])).not.toThrow()
+  })
+
+  /**
+   * The host-boundary group, each against the dos.library offset its routine
+   * calls: Io Error (160, $4762) is `jsr -$84(a6)` — IoErr; Write Cli (202,
+   * $50f2) is `jsr -$3c(a6)` — Output — then a write to that handle; Disk
+   * State (101, $37d2) scans the name to its ':' and takes a shared Lock via
+   * `moveq #$fe,d2 / jsr -$54(a6)`; Tool Types$ (328, $78ca) opens a library
+   * through ExecBase (`jsr -$228(a6)`) before reading the icon.
+   */
+  it('the host-boundary keywords dispatch and answer in range', () => {
+    const { out } = runFs([
+      'Open Out 1,"Work:f.txt" : Print #1,"x" : Close 1',
+      'Print "io=";Io Error',
+      'Write Cli "hello"',
+      'Print "ds=";Disk State("Work:")',
+      'Print "tt=["+Tool Types$("Work:f.txt","X")+"]"',
+    ])
+    const field = (k: string): string => {
+      const line = out.split('\n').find((l) => l.includes(`${k}=`))
+      return (line ?? '').split(`${k}=`)[1]!.trim()
+    }
+    expect(Number(field('io'))).toBe(0) // nothing has failed yet
+    expect(out).toContain('hello') // Write Cli reached the CLI handle
+    expect(Number.isFinite(Number(field('ds')))).toBe(true)
+    expect(field('tt')).toBe('[]') // no .info, so no tool types
+  })
+
+  /**
+   * Dload/Dsave (the raw block pair) and the PowerPacker pair. Ppunpack
+   * decrunches in place through ../amiga/powerpacker.ts; Ppfromdisk loads and
+   * decrunches in one step, taking a file that is not PowerPacked as it is.
+   */
+  it('Dload, Dsave and the PowerPacker pair round-trip a bank', () => {
+    const { rt } = runFs([
+      'Reserve As Work 7,64',
+      'Poke Start(7),$AB : Poke Start(7)+1,$CD',
+      'Dsave "Work:raw.bin",7',
+      'Dload "Work:raw.bin",8',
+      'Ppfromdisk "Work:raw.bin",9',
+    ])
+    expect([...rt.memBanks.get(8)!.data.subarray(0, 2)]).toEqual([0xab, 0xcd])
+    // a file that is not PP20 comes through unchanged
+    expect([...rt.memBanks.get(9)!.data.subarray(0, 2)]).toEqual([0xab, 0xcd])
+    // Ppunpack wants a real PP20 header; plain data is an error, where
+    // Ppfromdisk above is documented as taking an unpacked file as it is
+    expect(() => runFs(['Reserve As Work 7,64', 'Reserve As Work 8,64', 'Ppunpack Start(7) To Start(8)'])).toThrow()
+  })
+
   it('the Object accessors read whatever Examine last described', () => {
     const { out } = runFs([
       'Open Out 1,"Work:two.txt" : Print #1,"hello" : Close 1',
@@ -886,6 +983,53 @@ describe('slice 7: graphics', () => {
 
 describe('slice 7b: zoom, masks, C2P and the rest', () => {
   const scr = ['Screen Open 0,64,32,16,Lowres', 'Cls 0']
+
+  /**
+   * The last of the FAITHFUL-but-undispatched list, each against its routine.
+   *
+   * Exchange Bob/Icon (200/201, $5052/$50a2) share a shape: resolve the bank
+   * through routine 1101/1102, read the count from `(a0)+`, then range-check
+   * BOTH indices with `cmp.w d2,dn / Rbhi 372` and return early when they are
+   * equal (`cmp.l d0,d1 / bne` past an `rts`).
+   *
+   * DEVIATION: that check is `bhi`, UNSIGNED, so index 0 passes it and the
+   * following `subq.w #1 / lsl.w #3` then indexes eight bytes BEFORE the
+   * table. The port errors instead of reading out of bounds — a corruption
+   * that cannot be reproduced meaningfully.
+   *
+   * Blitter Copy Limit (routine 305) stores the rectangle Blitter Copy works
+   * within; C2p Shift/Fire and Pix Shift Down and the Shade Bob pair are the
+   * effect engines' remaining entry points.
+   */
+  it('the remaining graphics keywords dispatch against their routines', () => {
+    const bobs = [...scr, 'Get Bob 1,0,0 To 8,8', 'Get Bob 2,8,0 To 16,8']
+    expect(() => run([...bobs, 'Exchange Bob 1,2'])).not.toThrow()
+    expect(() => run([...bobs, 'Exchange Bob 1,1'])).not.toThrow() // equal: early rts
+    expect(() => run([...bobs, 'Exchange Bob 1,99'])).toThrow() // past the count
+    expect(() => run([...bobs, 'Exchange Bob 0,1'])).toThrow() // see the DEVIATION above
+
+    expect(() => run([...scr, 'Blitter Copy Limit 0'])).not.toThrow()
+    expect(() => run([...scr, 'Blitter Copy Limit 0,0 To 31,15'])).not.toThrow()
+
+    expect(() => run([...scr, 'Ink 7 : Bar 0,0 To 31,15', 'Pix Shift Down 0,1,7,0,0 To 31,15'])).not.toThrow()
+    expect(() => run([...scr, 'Shade Bob Planes 4', 'Shade Bob Mask 0'])).not.toThrow()
+
+    // Shade Bob Up/Down (272/271, $67b8) take screen,x,y,image and shift the
+    // colour indexes under the bob's mask one way or the other
+    const shade = [...scr, 'Ink 7 : Bar 0,0 To 15,15', 'Get Bob 1,0,0 To 8,8']
+    expect(() => run([...shade, 'Shade Bob Up 0,0,0,1'])).not.toThrow()
+    expect(() => run([...shade, 'Shade Bob Down 0,0,0,1'])).not.toThrow()
+
+    // Exchange Icon (201, $50a2) is Exchange Bob against the icon bank
+    const icons = [...scr, 'Get Icon 1,0,0 To 8,8', 'Get Icon 2,8,0 To 16,8']
+    expect(() => run([...icons, 'Exchange Icon 1,2'])).not.toThrow()
+    expect(() => run([...icons, 'Exchange Icon 1,99'])).toThrow()
+
+    // C2p Shift / C2p Fire — the chunky-to-planar pair, st,wx,wy To st2,n
+    const c2p = ['Screen Open 0,64,32,16,Lowres', 'Reserve As Work 5,4096', 'Reserve As Work 6,4096']
+    expect(() => run([...c2p, 'C2p Shift Start(5),8,8 To Start(6),1'])).not.toThrow()
+    expect(() => run([...c2p, 'C2p Fire Start(5),8,8 To Start(6),1'])).not.toThrow()
+  })
 
   it('Count Pixels counts what is NOT the colour, which the name hides', () => {
     // "Counts the pixels ... that DON'T have the colour index colour"
@@ -1362,6 +1506,50 @@ describe('slice 10: vectors and the extension internals', () => {
 describe('slice 11: the four-player adaptor and the second mouse', () => {
   const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
 
+  /**
+   * Smouse X/Y (154/155, $4650) are the SETTERS, and they scale: the popped
+   * value is shifted left by the stored Smouse Speed —
+   * `move.w $2ee(a2),d1 / asl.w d1,d0` — before being stored at $2f4/$2f6.
+   */
+  it('Smouse X and Y scale the value they are given by the speed', () => {
+    expect(run(['Smouse Speed 0', 'Smouse X 10', 'Smouse Y 20']).rt.amcaf.smouse.x).toBe(10)
+    const fast = run(['Smouse Speed 2', 'Smouse X 10', 'Smouse Y 20']).rt.amcaf.smouse
+    expect([fast.x, fast.y]).toEqual([40, 80])
+  })
+
+  /**
+   * Qrnd (258, $63f0) is NOT AMOS's Rnd, whatever the manual says: it stirs a
+   * seed with VHPOSR and scales a 15-bit fraction. Qrnd(0) hands back the
+   * previous result. The beam is modelled deterministically here, so the
+   * sequence is reproducible.
+   */
+  it('Qrnd stays in range, varies, and Qrnd(0) repeats the last result', () => {
+    const { out } = run([
+      'For I=0 To 40',
+      'A=Qrnd(100) : If A<0 or A>=100 Then Print "BAD" : End',
+      'S=S+A : Next I',
+      'B=Qrnd(100)',
+      'Print S;",";B;",";Qrnd(0)',
+    ])
+    const [sum, b, again] = out.trim().split(',').map((t) => Number(t.trim()))
+    expect(sum).toBeGreaterThan(0) // not stuck on zero
+    expect(again).toBe(b) // Qrnd(0) is the previous result
+  })
+
+  /**
+   * Set Rain Colour (189, $4dce) and Rain Fade (190, $4dfe) both range-check
+   * the rainbow with `Rbmi 372` / `cmp.w #4 / Rbge 372` — there are four, at
+   * $18 bytes each from -$868(a5) — and Rain Fade additionally errors when
+   * the rainbow's height word at $a(a1) is zero.
+   */
+  it('the rainbow pair check their index', () => {
+    const setup = ['Screen Open 0,64,32,16,Lowres', 'Set Rainbow 0,0,16,"","",""', 'Rainbow 0,0,10,20']
+    expect(() => run([...setup, 'Set Rain Colour 0,$F00'])).not.toThrow()
+    expect(() => run([...setup, 'Rain Fade 0,$F00'])).not.toThrow()
+    expect(() => run([...setup, 'Set Rain Colour 4,$F00'])).toThrow()
+    expect(() => run([...setup, 'Rain Fade -1,$F00'])).toThrow()
+  })
+
   it('the parallel-port joysticks report nothing, as Sticks does for the same wires', () => {
     // CIA-A PRB with no adaptor attached: an unused port reads as nothing
     // pressed on the machine too
@@ -1534,8 +1722,16 @@ describe('slice 12: ProTracker replay', () => {
       const { audio } = runAudio([...modBank(), 'Pt Play 3', src])
       return audio.events.filter((e) => e.kind === 'play').map((e) => e.voice)
     }
-    expect(played('Pt Instr Play 1,0').length).toBeGreaterThan(0)
+    // the voice argument is a MASK here too — "on which channels the sample
+    // number should be replayed" — so 0 plays nowhere and 5 plays on 0 and 2
+    expect(played('Pt Instr Play 1,0')).toEqual([])
+    expect(played('Pt Instr Play 1,5')).toEqual([0, 2])
+    expect(played('Pt Instr Play 1')).toEqual([0]) // omitted: a free channel
     expect(played('Pt Raw Play 0,Start(3),8,428').length).toBeGreaterThan(0)
+    // Pt Sam Play takes the same mask; its bank is Pt Sam Bank's, not the
+    // module's, so with none set it falls back and simply reaches the sink
+    expect(() => runAudio([...modBank(), 'Pt Play 3', 'Pt Sam Bank 3', 'Pt Sam Play 1,1'])).not.toThrow()
+    expect(() => runAudio([...modBank(), 'Pt Play 3', 'Pt Sam Play 1'])).not.toThrow()
     // Pt Sam Volume's 0..64 clamp, which is Paula's own saturating range
     const { audio } = runAudio([...modBank(), 'Pt Play 3', 'Pt Sam Volume 0,999', 'Pt Sam Volume 0,-5'])
     const vols = audio.events.filter((e) => e.kind === 'volume').map((e) => e.volume)
