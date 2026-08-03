@@ -3196,9 +3196,28 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      *
      * The manual is refreshingly honest about the value: "This value is not
      * very accurate because the raster beam is very fast, sigh."
+     *
+     * X (routine 192, $4f68) reads ONE byte, $dff007, and doubles it:
+     *
+     *     move.b $dff007.l, d3 / add.w d3, d3
+     *
+     * because HPOS counts colour clocks, which are two lores pixels each.
+     *
+     * Y (routine 193, $4f7e) is a NINE-bit read, and that is the part an
+     * earlier pass got wrong:
+     *
+     *     lea.l $dff005.l, a0
+     *     move.b (a0)+, d3      VPOSR's low byte — bit 0 is V8
+     *     lsl.w  #8, d3
+     *     move.b (a0), d3       VHPOSR's high byte — VPOS bits 7..0
+     *
+     * It was `(beamWord() >> 8) & 0x1ff`, and beamWord is sixteen bits, so
+     * the shift left at most eight and bit 8 could never be set. On a
+     * 312-line PAL frame that wrapped Y Raster at 256 — the machine's does
+     * not, which is exactly what V8 is for.
      */
     'x raster': () => VI((rt.interp.beamWord() & 0xff) << 1),
-    'y raster': () => VI((rt.interp.beamWord() >> 8) & 0x1ff),
+    'y raster': () => VI(rt.interp.beamLine() & 0x1ff),
 
     /**
      * =Vclip(val,lower To upper) — the CLAMPING sibling of Vmod, which wraps.

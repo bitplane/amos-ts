@@ -927,6 +927,44 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
     expect(() => run([...scr, 'Raster Wait 100,20'])).not.toThrow()
   })
 
+  /**
+   * X Raster (192, $4f68) reads $dff007 and doubles it, because HPOS counts
+   * colour clocks and each is two lores pixels. Y Raster (193, $4f7e) is a
+   * NINE-bit read — $dff005 supplies V8 above $dff006's eight — which is why
+   * a PAL frame's 312 lines fit. An earlier pass shifted a sixteen-bit word
+   * right by eight and masked with $1ff, so bit 8 could never be set and Y
+   * wrapped at 256.
+   */
+  it('X Raster doubles the colour clock, Y Raster is nine bits wide', () => {
+    // the modelled beam advances a line every 64 steps, so it takes a real
+    // loop to sweep a frame rather than a handful of statements
+    const { rt, out } = run([
+      ...scr,
+      'Hi=0',
+      'For I=0 To 24000',
+      'A=Y Raster : If A>Hi Then Hi=A',
+      'Next I',
+      'Print Hi;",";X Raster',
+    ])
+    const [hi, xr] = out.trim().split(',').map(Number)
+    expect(hi).toBeGreaterThan(255) // impossible under an eight-bit read
+    expect(hi).toBeLessThan(313) // and still inside a PAL frame
+    expect(xr! % 2).toBe(0) // always even: the value is doubled
+    expect(xr).toBeLessThanOrEqual(510)
+    expect(rt).toBeTruthy()
+  })
+
+  /**
+   * Shade Bob Mask (routine 270, $6774) normalises to exactly 0 or 1 —
+   * `move.l (a3)+,d0 / beq` then either `move.w #$1,$284(a2)` or
+   * `clr.w $284(a2)` — so it does not store the value it was given.
+   */
+  it('Shade Bob Mask stores a flag, not the value', () => {
+    expect(run(['Shade Bob Mask 99']).rt.amcaf.shadeMask).toBe(true)
+    expect(run(['Shade Bob Mask 0']).rt.amcaf.shadeMask).toBe(false)
+    expect(run(['Shade Bob Mask -1']).rt.amcaf.shadeMask).toBe(true)
+  })
+
   it('Amcaf Aga Notation and Set Sprite Priority hold their state', () => {
     expect(run(['Amcaf Aga Notation On']).rt.amcaf.agaNotation).toBe(true)
     expect(run(['Amcaf Aga Notation On', 'Amcaf Aga Notation Off']).rt.amcaf.agaNotation).toBe(false)
