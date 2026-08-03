@@ -1633,11 +1633,63 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
       'Screen Open 0,64,32,16,Lowres : Cls 0',
       'Reserve As Work 9,64',
       'Poke Start(9),7 : Poke Start(9)+1,3',
-      'C2p Convert Start(9),2,1 To 0,0,0',
+      'C2p Convert Start(9),32,1 To 0,0,0',
     ])
     const px = rt.screens.get(0)!.rp.bitMap.pixels
     expect(px[0]).toBe(7)
     expect(px[1]).toBe(3)
+  })
+
+  /**
+   * Routine 382's entry checks all branch to $a0ba, which is `movem.l
+   * (a7)+,d2-d7/a2-a6 / rts`. Bad arguments do nothing at all — they are not
+   * an error, so a program with the wrong width just sees an unchanged
+   * screen. `andi.w #$1f,d4` is the width, `andi.w #$7,d5` the x offset.
+   */
+  it('C2p Convert silently does nothing on an unaligned width or offset', () => {
+    const px = (prog: string): number => {
+      const { rt } = run([
+        'Screen Open 0,64,32,16,Lowres : Cls 0',
+        'Reserve As Work 9,64',
+        'Poke Start(9),7',
+        prog,
+      ])
+      return rt.screens.get(0)!.rp.bitMap.pixels[0]!
+    }
+    expect(px('C2p Convert Start(9),32,1 To 0,0,0')).toBe(7) // the control
+    expect(px('C2p Convert Start(9),16,1 To 0,0,0')).toBe(0) // width not a multiple of 32
+    expect(px('C2p Convert Start(9),32,0 To 0,0,0')).toBe(0) // no rows
+    expect(px('C2p Convert Start(9),96,1 To 0,0,0')).toBe(0) // wider than the bitmap
+  })
+
+  /**
+   * `movem.l $8(a1),a3-a6` — four plane pointers out of the BitMap, so the
+   * converter writes planes 0-3 and only the low nibble of each source byte.
+   * That is what the `cmp.w #$4,d4` depth gate is guarding, and it is why a
+   * deeper screen keeps whatever planes 4 and up already held.
+   */
+  it('C2p Convert writes four planes, leaving the rest of the pixel alone', () => {
+    const { rt } = run([
+      'Screen Open 0,64,32,64,Lowres : Cls 0',
+      'Ink $30 : Plot 0,0', // planes 4 and 5 set under the first pixel
+      'Reserve As Work 9,64',
+      'Poke Start(9),$27',
+      'C2p Convert Start(9),32,1 To 0,0,0',
+    ])
+    // the source byte's high bits are dropped and the screen's high planes
+    // survive: $30 | ($27 and $0F) = $37
+    expect(rt.screens.get(0)!.rp.bitMap.pixels[0]).toBe(0x37)
+  })
+
+  /** the depth gate itself: message 18, `At least 4 planes required!` */
+  it('C2p Convert refuses a screen shallower than four planes', () => {
+    expect(() =>
+      run([
+        'Screen Open 0,64,32,4,Lowres : Cls 0',
+        'Reserve As Work 9,64',
+        'C2p Convert Start(9),32,1 To 0,0,0',
+      ]),
+    ).toThrow(/At least 4 planes required/)
   })
 
   /**

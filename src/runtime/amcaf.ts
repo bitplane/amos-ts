@@ -1185,12 +1185,45 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * C2p Convert st,wx,wy To screen,ox,oy — chunky to planar.
+     * C2p Convert st,wx,wy To screen,ox,oy — chunky to planar. Routine 78
+     * ($3036) is the 66-byte front-end; routine 382 ($9d0c) is 2044 bytes of
+     * actual converter.
      *
-     * Undocumented beyond the changelog, which credits the routine: "New c2p
-     * routine by Mikael Kalms. Up to 20%-80% faster". The conversion itself
-     * is `planar.ts`'s `encode`, which this port has had since the display
-     * work — a chunky buffer at `st`, `wx` by `wy`, into a screen's planes.
+     * Undocumented beyond the changelog, which credits it: "New c2p routine
+     * by Mikael Kalms. Up to 20%-80% faster".
+     *
+     * All SIX arguments are required. The spec is `I0,0,0t0,0,0` and routine
+     * 78 pops six longs unconditionally with no short-form entry pushing
+     * defaults, so the offsets an earlier pass made optional cannot be
+     * omitted.
+     *
+     * Two gates before any work happens:
+     *
+     *   movea.l $4.w,a0 / move.w $128(a0),d0 / btst #$1,d0    AFB_68020
+     *   moveq #$13,d0 / Rbra routine 156                      message 19
+     *   move.w $50(a0),d4 / cmp.w #$4,d4 / bge                the DEPTH
+     *   moveq #$12,d0 / Rbra routine 156                      message 18
+     *
+     * and then routine 382's own entry checks, every one of which branches to
+     * $a0ba — `movem.l (a7)+,d2-d7/a2-a6 / rts`, a plain return. Bad arguments
+     * do NOTHING; they are not an error:
+     *
+     *   andi.w #$1f,d4    wx must be a multiple of 32
+     *   andi.w #$7,d5     ox must be a multiple of 8
+     *   move.w d0,$0(a2) / beq          wx of 0
+     *   move.w d1,$2(a2) / beq          wy of 0
+     *   lsl.w #$3,d4 / sub.w d0,d4 / bmi   wx wider than the bitmap
+     *
+     * And the part that was simply wrong: `movem.l $8(a1),a3-a6` loads FOUR
+     * plane pointers from the BitMap, so it writes planes 0-3 and nothing else —
+     * the low nibble of each source byte. That is what the depth gate is
+     * guarding, and it means a deeper screen keeps whatever planes 4 and up
+     * already held. The port wrote whole pixel values through every plane.
+     *
+     * NOTE: `oy` is never range-checked, and `ox` is added to the row offset
+     * after the width check, so the real routine will run off the end of the
+     * bitmap or into the following row. The bounds test below is the port's,
+     * not the routine's.
      */
     'c2p convert'(it) {
       const st = it.evalInt()
@@ -1200,22 +1233,30 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const wy = it.evalInt()
       it.expect('to')
       const scr = rt.screens.get(it.evalInt())
-      let ox = 0
-      let oy = 0
-      if (it.accept(',')) {
-        ox = it.evalInt()
-        it.expect(',')
-        oy = it.evalInt()
-      }
+      it.expect(',')
+      const ox = it.evalInt()
+      it.expect(',')
+      const oy = it.evalInt()
       const src = rt.resolveAddr(st)
       if (!scr || !src) amcafErr()
+      // NOTE: the 68020 gate is not expressible here — the modelled machine is
+      // an A1200, so AttnFlags bit 1 is always set and message 19 (`MC68020 or
+      // higher required!`) can never fire. Cpu answers 68020 for the same
+      // reason.
+      const bm = scr.rp.bitMap
+      if (bm.depth < 4) amcafMsg(18)
+      if ((wx & 31) !== 0 || (ox & 7) !== 0 || wx === 0 || wy === 0) return
+      if (wx > bm.bytesPerRow * 8) return
+
+      const px = bm.pixelsW()
       for (let y = 0; y < wy; y++) {
         for (let x = 0; x < wx; x++) {
           const at = src.off + y * wx + x
-          if (at < src.data.length) scr.rp.putPixel(ox + x, oy + y, src.data[at]!)
+          const to = (oy + y) * bm.width + ox + x
+          if (at >= src.data.length || to < 0 || to >= px.length) continue
+          px[to] = (px[to]! & ~0x0f) | (src.data[at]! & 0x0f)
         }
       }
-      scr.rp.bitMap.invalidate()
     },
 
 
