@@ -3041,10 +3041,10 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * the argument shapes rather than a specification. APPROXIMATED.
      */
     'c2p shift'(it) {
-      c2pTransform(rt, it, false)
+      c2pShift(rt, it)
     },
     'c2p fire'(it) {
-      c2pTransform(rt, it, true)
+      c2pFire(rt, it)
     },
 
     /**
@@ -5206,8 +5206,32 @@ function ptInstrPlay(rt: Runtime, instr: number, voice: number, freq: number): v
   for (let i = 0; i < 4; i++) if (voice & (1 << i)) rt.host.audio?.play(i, pcm, hz, pt.volume, -1)
 }
 
-/** the shared body of C2p Shift and C2p Fire */
-function c2pTransform(rt: Runtime, it: Interp, fire: boolean): void {
+/**
+ * C2p Shift src,wx,wy To dst,shift — routine 77 ($2ff2).
+ *
+ * A per-BYTE right shift done four bytes at a time, which the port had as an
+ * ADD. The mask is the interesting part:
+ *
+ *     moveq #$ff,d0 / lsr.b d7,d0        what survives one byte's shift
+ *     move.b d0,d1
+ *     lsl.w #$8,d0 / move.b d1,d0
+ *     lsl.l #$8,d0 / move.b d1,d0
+ *     lsl.l #$8,d0 / move.b d1,d0        ...in all four
+ *  L: move.l (a0)+,d1 / lsr.l d7,d1 / and.l d0,d1 / move.l d1,(a2)+
+ *
+ * `lsr.l` on the whole longword would drag each byte's low bits into the byte
+ * above it; the mask clears exactly those. So the result is `b >> shift` for
+ * every byte, computed a longword at a time.
+ *
+ * `beq $3022` gives a shift of zero its own arm, a plain `move.l (a0)+,(a2)+`
+ * copy — which matters because `lsr.b #$0` would leave the mask at $ff and
+ * work anyway, so the branch is speed rather than correctness.
+ *
+ * NOTE: the count is `wx * wy` divided by four with `lsr.l #$2`, so a size
+ * that is not a multiple of four leaves its last one to three bytes
+ * UNTOUCHED. Reproduced.
+ */
+function c2pShift(rt: Runtime, it: Interp): void {
   const st = it.evalInt()
   it.expect(',')
   const wx = it.evalInt()
@@ -5216,14 +5240,83 @@ function c2pTransform(rt: Runtime, it: Interp, fire: boolean): void {
   it.expect('to')
   const st2 = it.evalInt()
   it.expect(',')
-  const arg = it.evalInt()
+  const shift = it.evalInt()
   const src = rt.resolveAddr(st)
   const dst = rt.resolveWrite(st2)
   if (!src || !dst) amcafErr()
-  for (let i = 0; i < wx * wy; i++) {
+  const longs = ((wx * wy) >>> 2) >>> 0
+  for (let i = 0; i < longs * 4; i++) {
     const v = src.data[src.off + i] ?? 0
-    const out = fire ? Math.max(0, v - arg) : v + arg
-    if (dst.off + i < dst.data.length) dst.data[dst.off + i] = out & 0xff
+    if (dst.off + i < dst.data.length) dst.data[dst.off + i] = (v >> (shift & 7)) & 0xff
+  }
+}
+
+/**
+ * C2p Fire src,wx,wy To dst,decay — routine 76 ($2fa2), and it is a FLAME
+ * filter rather than the plain decrement the port had.
+ *
+ *     move.b (a0,d5.w),d0        the byte one row BELOW  (+wx)
+ *     move.b (a0,d4.w),d1        one row above           (-wx)
+ *     move.b -$1(a0),d2          left
+ *     add.w  d1,d0
+ *     move.b (a0)+,d3            itself, and advance
+ *     add.w  d2,d0
+ *     move.b (a0),d1             right
+ *     add.w  d3,d0 / add.w d1,d0
+ *     move.b (a2,d0.w),d0        the sum through a table at $1cb2(a2)
+ *     sub.w  d7,d0
+ *     bpl / clr.b (a1)+          ... clamped at zero
+ *     move.b d0,(a1)+
+ *
+ * Five neighbours summed, averaged through a table, then the decay taken off
+ * and clamped — which is what makes a chunky buffer look like fire when it is
+ * seeded along one edge. The port subtracted the decay from each byte on its
+ * own and produced a fade, not a flame.
+ *
+ * The table is at `$1cb2` of the extension's runtime block, and routine 396
+ * ($aa92) — reached from the init through routine 159 — builds it:
+ *
+ *     lea    $1cb2(a2),a1 / move.w #$ff,d7 / moveq #$0,d0
+ *  L: move.b d0,(a1)+ / move.b d0,(a1)+ / move.b d0,(a1)+
+ *     cmp.b  #$ff,d0 / beq skip
+ *     addq.w #$1,d0
+ *  skip: move.b d0,(a1)+ / move.b d0,(a1)+
+ *     dbra   d7,L
+ *
+ * Five bytes per pass and 256 passes, so 1280 entries ending exactly where
+ * the string buffer at `$21b2` begins. The value steps up between the THIRD
+ * and fourth byte of each group, so entry `i` is `k` for `i % 5 < 3` and
+ * `k + 1` above it, where `k = i / 5` — which is `i / 5` ROUNDED TO NEAREST,
+ * since 2/5 rounds down and 3/5 up. Not floored, which is what a first
+ * reading of "average" would have given.
+ *
+ * The `cmp.b #$ff,d0` caps it at 255, though the largest reachable sum is
+ * 5 * 255 = 1275 and rounds to 255 anyway.
+ *
+ * NOTE: the routine reads one row either side of the buffer without checking,
+ * so the first and last rows sample memory outside it. The port reads zero
+ * there instead of whatever the heap held.
+ */
+function c2pFire(rt: Runtime, it: Interp): void {
+  const st = it.evalInt()
+  it.expect(',')
+  const wx = it.evalInt()
+  it.expect(',')
+  const wy = it.evalInt()
+  it.expect('to')
+  const st2 = it.evalInt()
+  it.expect(',')
+  const decay = it.evalInt()
+  const src = rt.resolveAddr(st)
+  const dst = rt.resolveWrite(st2)
+  if (!src || !dst) amcafErr()
+  const n = wx * wy
+  const at = (i: number): number => (i < 0 || i >= n ? 0 : (src.data[src.off + i] ?? 0))
+  for (let i = 0; i < n; i++) {
+    const sum = at(i + wx) + at(i - wx) + at(i - 1) + at(i) + at(i + 1)
+    const k = (sum / 5) | 0
+    const v = Math.min(255, sum % 5 < 3 ? k : k + 1) - decay
+    if (dst.off + i < dst.data.length) dst.data[dst.off + i] = v < 0 ? 0 : v & 0xff
   }
 }
 

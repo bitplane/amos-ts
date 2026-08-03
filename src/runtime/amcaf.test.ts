@@ -1838,6 +1838,88 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
   })
 
   /**
+   * Routine 77 ($2ff2) shifts every BYTE right, four at a time, and the mask
+   * is what makes it a per-byte shift rather than a longword one:
+   *
+   *     moveq #$ff,d0 / lsr.b d7,d0     what survives one byte's shift
+   *     ...replicated into all four...
+   *  L: move.l (a0)+,d1 / lsr.l d7,d1 / and.l d0,d1 / move.l d1,(a2)+
+   *
+   * An earlier pass had it ADDING its last argument to each byte, which is
+   * neither the name nor the code.
+   */
+  it('C2p Shift shifts each byte right, and leaves a partial longword alone', () => {
+    const peek = (prog: string[], n: number): number[] => {
+      const { rt } = run([
+        'Reserve As Work 3,64 : Reserve As Work 4,64',
+        'Poke Start(3),128 : Poke Start(3)+1,64 : Poke Start(3)+2,32 : Poke Start(3)+3,16',
+        'Poke Start(3)+4,255 : Poke Start(3)+5,255',
+        'Poke Start(4)+4,17 : Poke Start(4)+5,18',
+        ...prog,
+      ])
+      const d = rt.memBanks.get(4)!.data
+      return Array.from({ length: n }, (_, i) => d[i]!)
+    }
+    // 128>>2, 64>>2, 32>>2, 16>>2
+    expect(peek(['C2p Shift Start(3),4,1 To Start(4),2'], 4)).toEqual([32, 16, 8, 4])
+    // a shift of zero is the plain copy arm at $3022
+    expect(peek(['C2p Shift Start(3),4,1 To Start(4),0'], 4)).toEqual([128, 64, 32, 16])
+    // `lsr.l #$2,d6` counts LONGWORDS, so six bytes is one longword and the
+    // last two are never written -- the markers survive
+    expect(peek(['C2p Shift Start(3),6,1 To Start(4),1'], 6)).toEqual([64, 32, 16, 8, 17, 18])
+  })
+
+  /**
+   * Routine 76 ($2fa2) is a FLAME filter: five neighbours summed -- the byte
+   * one row below, one row above, left, itself and right -- averaged through
+   * a table, then the decay taken off and clamped at zero. An earlier pass
+   * subtracted the decay from each byte on its own, which is a fade.
+   *
+   * NOTE: the routine walks the buffer FLAT, so "left" and "right" cross row
+   * boundaries, and it reads a row either side of the buffer without
+   * checking. Both reproduced, the second as zero rather than as heap.
+   */
+  it('C2p Fire averages five neighbours before it decays', () => {
+    const { rt } = run([
+      'Reserve As Work 3,64 : Reserve As Work 4,64',
+      // a 4x3 buffer with the middle row bright
+      'For I=4 To 7 : Poke Start(3)+I,100 : Next I',
+      'C2p Fire Start(3),4,3 To Start(4),0',
+    ])
+    const d = rt.memBanks.get(4)!.data
+    // row 0 col 0: only the byte below it is lit, so 100/5
+    expect(d[0]).toBe(20)
+    // row 1 col 1: left, self and right are all lit, so 300/5
+    expect(d[5]).toBe(60)
+    // row 1 col 0: self and right, plus the flat walk's "left" from row 0
+    expect(d[4]).toBe(40)
+    // the table rounds to NEAREST rather than flooring: routine 396 steps the
+    // value up between the third and fourth byte of each five-byte group, so
+    // a sum of 3 gives 1 where a floor would give 0
+    const odd = run([
+      'Reserve As Work 3,64 : Reserve As Work 4,64',
+      'Poke Start(3)+4,1 : Poke Start(3)+5,1 : Poke Start(3)+6,1',
+      'C2p Fire Start(3),4,3 To Start(4),0',
+    ])
+    expect(odd.rt.memBanks.get(4)!.data[5]).toBe(1) // sum 3, and 3/5 rounds to 1
+    const two = run([
+      'Reserve As Work 3,64 : Reserve As Work 4,64',
+      'Poke Start(3)+4,1 : Poke Start(3)+5,1',
+      'C2p Fire Start(3),4,3 To Start(4),0',
+    ])
+    expect(two.rt.memBanks.get(4)!.data[5]).toBe(0) // sum 2, and 2/5 rounds to 0
+    // and the decay comes off after the average, clamped at zero
+    const dark = run([
+      'Reserve As Work 3,64 : Reserve As Work 4,64',
+      'For I=4 To 7 : Poke Start(3)+I,100 : Next I',
+      'C2p Fire Start(3),4,3 To Start(4),25',
+    ])
+    const e = dark.rt.memBanks.get(4)!.data
+    expect(e[0]).toBe(0) // 20 - 25 clamps
+    expect(e[5]).toBe(35) // 60 - 25
+  })
+
+  /**
    * `movem.l $8(a1),a3-a6` — four plane pointers out of the BitMap, so the
    * converter writes planes 0-3 and only the low nibble of each source byte.
    * That is what the `cmp.w #$4,d4` depth gate is guarding, and it is why a
