@@ -1164,22 +1164,35 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Shade Pix x,y[,planes] — one pixel of the same idea.
+     * Shade Pix x,y — routines 223 ($5180) and 224. "Increases the colour
+     * value at the given point ... If the highest colour is reached, the
+     * colour is resetted to be cycled."
      *
-     * "increases the colour value at the given point ... If the highest
-     * colour is reached, the colour is resetted to be cycled" — so it wraps
-     * within the plane count rather than clamping, which is what separates
-     * the Shade family from Pix Brighten and Pix Darken.
+     * Routine 223 is EIGHT BYTES — `moveq #$6,d0 / move.l d0,-(a3)` and a
+     * branch into the worker — so the plane count is a hardcoded **SIX**, not
+     * `Shade Bob Planes` and not an argument. The token table agrees: `I0,0`,
+     * two parameters. An earlier pass gave it an optional third and read the
+     * Shade Bob setting when it was absent.
+     *
+     * The worker is a ripple adder rather than an arithmetic increment: per
+     * plane, `btst` the bit, `bclr` and carry on if it was set, `bset` and
+     * stop if it was not. The wrap the manual describes falls out of that —
+     * 63 clears all six and runs out of planes — and so does the early stop:
+     * `move.l a0,d0 / beq` bails on a null plane pointer, so a four-plane
+     * screen carries through four planes and no further.
+     *
+     * Bounds are the same silent `bmi` / `cmp.w $4e(a2)` / `cmp.w $4c(a2)`
+     * pair Turbo Plot uses, which is the clipping the V1.30 changelog added.
      */
     'shade pix'(it) {
       const x = it.evalInt()
       it.expect(',')
       const y = it.evalInt()
-      const planes = it.accept(',') ? it.evalInt() : rt.amcaf.shadePlanes
       const s = rt.screen
       if (!s) return
       const v = s.rp.point(x, y)
       if (v < 0) return // clipped since V1.30, like Turbo Plot
+      const planes = Math.min(6, s.rp.bitMap.depth)
       const mask = (1 << planes) - 1
       s.rp.putPixel(x, y, (v & ~mask) | ((v + 1) & mask))
     },
@@ -1254,9 +1267,28 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Paste Ptile x,y,t — "Places a Ptile block at the position x,y. These
-     * coordinates must be given as block positions", so 1,4 is the second
-     * block across and the fifth down rather than a pixel.
+     * Paste Ptile x,y,t — routine 270 ($61e0). "Places a Ptile block at the
+     * position x,y. These coordinates must be given as block positions, that
+     * means that position 1,4 corresponds to the screen coordinates 16,64."
+     *
+     * The bank format is the part an earlier pass had wrong: it read the tiles
+     * as CHUNKY bytes, and they are PLANAR. The routine's opening reads two
+     * header words —
+     *
+     *   move.l  (a3)+, d7        ; the tile number
+     *   cmp.w   (a0)+, d7        ; word 0 is the tile COUNT
+     *   Rbge    routine 390
+     *   move.w  (a0)+, d0        ; word 1 is planes - 1
+     *   lsl.l   #$5, d7          ; tile * 32
+     *   ...     add.l d7,d6 / dbra d0
+     *
+     * so a tile is 32 bytes per plane — sixteen rows of one word — and its
+     * planes are contiguous, giving a stride of `32 * planes`. The paste is
+     * then a plain unrolled `movem.w (a1)+` into `movea.l (a0)+,a2` down the
+     * SCREEN's plane pointers, opaque, with no mask and no write mode.
+     *
+     * The count check is `Rbge`, which is SIGNED, so a NEGATIVE tile number
+     * passes it and indexes backwards out of the bank.
      */
     'paste ptile'(it) {
       const bx = it.evalInt()
@@ -1267,15 +1299,26 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const bank = rt.memBanks.get(rt.amcaf.ptileBank)
       const s = rt.screen
       if (!bank || !s) amcafErr()
-      const TILE = 16
-      const src = t * TILE * TILE
-      for (let y = 0; y < TILE; y++) {
-        for (let x = 0; x < TILE; x++) {
-          const v = bank.data[src + y * TILE + x]
-          if (v !== undefined) s.rp.putPixel(bx * TILE + x, by * TILE + y, v)
+      const d = bank.data
+      const count = ((d[0]! << 8) | d[1]!) & 0xffff
+      const planes = (((d[2]! << 8) | d[3]!) & 0xffff) + 1
+      if (t >= count) amcafErr()
+      const bm = s.rp.bitMap
+      const bytes = bm.planeBytes(true)
+      const tile = 4 + t * 32 * planes
+      for (let p = 0; p < planes && p < bm.depth; p++) {
+        const base = p * bm.planeSize
+        for (let row = 0; row < 16; row++) {
+          const at = tile + p * 32 + row * 2
+          const y = by * 16 + row
+          if (y < 0 || y >= bm.height) continue
+          const off = base + y * bm.bytesPerRow + bx * 2
+          if (off < 0 || off + 1 >= bytes.length) continue
+          bytes[off] = d[at] ?? 0
+          bytes[off + 1] = d[at + 1] ?? 0
         }
       }
-      s.rp.bitMap.invalidate()
+      bm.invalidate()
     },
 
     /**

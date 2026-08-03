@@ -1581,12 +1581,31 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
 describe('slice 8: the effect engines', () => {
   const scr = ['Screen Open 0,64,32,16,Lowres', 'Cls 0']
 
-  it('Shade Pix bumps a colour index and CYCLES at the top', () => {
-    // "If the highest colour is reached, the colour is resetted to be cycled"
+  /**
+   * Routine 223 is EIGHT bytes — `moveq #$6,d0 / move.l d0,-(a3)` and a branch
+   * into the worker — so the plane count is a hardcoded SIX, not Shade Bob
+   * Planes and not an argument. The token table agrees at `I0,0`. An earlier
+   * pass gave it an optional third parameter and read the Shade Bob setting
+   * when it was absent, which made Shade Bob Planes look like it applied here.
+   *
+   * The worker (224) is a ripple adder, not an arithmetic increment: per
+   * plane, `btst` the bit, `bclr` and carry on if set, `bset` and stop if not.
+   * The manual's "if the highest colour is reached, the colour is resetted to
+   * be cycled" falls out of that, and so does the early stop — `move.l a0,d0 /
+   * beq` bails on a null plane pointer, so a screen with fewer than six planes
+   * carries only as far as it has.
+   */
+  it('Shade Pix always carries through six planes, whatever Shade Bob Planes says', () => {
+    // Shade Bob Planes 2 does not bound it: 3 carries into plane 3
     const { rt } = run([...scr, 'Shade Bob Planes 2', 'Turbo Plot 5,5,3', 'Shade Pix 5,5'])
-    expect(rt.screens.get(0)!.rp.point(5, 5)).toBe(0) // 3 wraps to 0 in 2 planes
-    const b = run([...scr, 'Shade Bob Planes 2', 'Turbo Plot 5,5,1', 'Shade Pix 5,5'])
+    expect(rt.screens.get(0)!.rp.point(5, 5)).toBe(4)
+    const b = run([...scr, 'Turbo Plot 5,5,1', 'Shade Pix 5,5'])
     expect(b.rt.screens.get(0)!.rp.point(5, 5)).toBe(2)
+    // the screen's own depth is the real limit: 15 on four planes runs out
+    const c = run([...scr, 'Turbo Plot 5,5,15', 'Shade Pix 5,5'])
+    expect(c.rt.screens.get(0)!.rp.point(5, 5)).toBe(0)
+    // a third argument does not parse
+    expect(() => run([...scr, 'Shade Pix 5,5,2'])).toThrow(/syntax/)
   })
 
   it('Shade Bob Planes is bounded 1..6, as the manual states', () => {
@@ -1627,16 +1646,36 @@ describe('slice 8: the effect engines', () => {
     expect(s.rp.point(1, 1)).toBe(5) // masked out: untouched
   })
 
-  it('Ptile Bank and Paste Ptile place a block by block coordinates', () => {
-    // "These coordinates must be given as block positions"
+  /**
+   * "These coordinates must be given as block positions, that means that
+   * position 1,4 corresponds to the screen coordinates 16,64."
+   *
+   * The bank format is PLANAR, which an earlier pass had as chunky. Routine
+   * 270's opening reads two header words — the tile COUNT and `planes - 1` —
+   * then `lsl.l #$5,d7` and a `dbra` accumulation, which makes a tile 32 bytes
+   * per plane (sixteen rows of one word) with its planes contiguous. The paste
+   * is an unrolled `movem.w (a1)+` into the screen's own plane pointers, so it
+   * is opaque: no mask, no write mode.
+   */
+  it('Paste Ptile reads a PLANAR tile bank with a two-word header', () => {
     const { rt } = run([
       ...scr,
       'Reserve As Work 4,512',
-      'Poke Start(4),9',
+      // word 0 = one tile, word 1 = planes - 1 = 0, so a single bitplane
+      'Doke Start(4),1 : Doke Start(4)+2,0',
+      // the tile's first row: bits 15 and 14 of plane 0
+      'Doke Start(4)+4,$C000',
       'Ptile Bank 4',
       'Paste Ptile 1,0,0',
     ])
-    expect(rt.screens.get(0)!.rp.point(16, 0)).toBe(9)
+    const s = rt.screens.get(0)!
+    expect(s.rp.point(16, 0)).toBe(1)
+    expect(s.rp.point(17, 0)).toBe(1)
+    expect(s.rp.point(18, 0)).toBe(0)
+    // the tile number is bounded by the header's count
+    expect(() =>
+      run([...scr, 'Reserve As Work 4,512', 'Doke Start(4),1', 'Ptile Bank 4', 'Paste Ptile 0,0,1']),
+    ).toThrow(/Illegal function call/)
   })
 })
 
