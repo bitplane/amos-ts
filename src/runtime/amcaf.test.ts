@@ -2216,103 +2216,310 @@ describe('slice 9: Splinters and Td Stars', () => {
     expect(shuffled).not.toEqual(plain) // in a different order
   })
 
-  it('Splinters Init takes the colour of the pixel it lifts', () => {
-    // "they don't destroy the background and use the colour of the pixel
-    // they have removed"
-    const { rt } = run([
-      ...scr,
-      'Turbo Plot 3,3,7',
-      'Coords Bank 4,100',
-      'Coords Read 0,0,0,0 To 9,9,4,0',
-      'Splinters Bank 5,50',
-      'Splinters Colour 0,4',
-      'Splinters Init',
-    ])
-    const sp = rt.amcaf.splinters
-    expect(sp.p).toHaveLength(1)
-    expect(sp.p[0]!.c).toBe(7)
-  })
+  /**
+   * The 22-byte record routines 385 and 386 define. Everything the engine
+   * knows about a splinter is in the bank, so the bank is what these tests
+   * read — there is no parallel state to inspect.
+   */
+  const splinters = (rt: { memBanks: Map<number, { data: Uint8Array }> }, bank: number, count: number) => {
+    const d = rt.memBanks.get(bank)!.data
+    const v = new DataView(d.buffer, d.byteOffset, d.byteLength)
+    return Array.from({ length: count }, (_, i) => {
+      const o = i * 22
+      return {
+        x: v.getInt16(o), y: v.getInt16(o + 2),
+        idx: v.getUint32(o + 4), pidx: v.getUint32(o + 8),
+        vx: v.getInt16(o + 12), vy: v.getInt16(o + 14),
+        colour: v.getUint8(o + 16), back: v.getUint8(o + 17),
+        pback: v.getUint8(o + 18), fresh: v.getUint8(o + 19),
+        life: v.getUint16(o + 20),
+      }
+    })
+  }
+
+  /** two dots to lift, the bank to lift them into, and a table to lift them onto */
+  const lift = [
+    'Turbo Plot 3,3,7',
+    'Turbo Plot 5,5,6',
+    'Coords Bank 4,100',
+    'Coords Read 0,0,0,0 To 9,9,4,0',
+    'Splinters Bank 5,4',
+    'Splinters Colour 0,4',
+    'Splinters Limit',
+    'Splinters Max -1',
+    'Splinters Fuel 10',
+    'Splinters Init',
+  ]
 
   it('Splinters Bank reserves 22 bytes a splinter, as documented', () => {
     const { rt } = run([...scr, 'Splinters Bank 5,10'])
     expect(rt.memBanks.get(5)!.data.length).toBe(220)
   })
 
-  it('Splinters Gravity drifts them, and Fuel kills them off', () => {
-    const setup = [
-      ...scr,
-      'Turbo Plot 3,3,7',
-      'Coords Bank 4,100',
-      'Coords Read 0,0,0,0 To 9,9,4,0',
-      'Splinters Bank 5,50',
-      'Splinters Init',
-    ]
-    const drift = run([...setup, 'Splinters Gravity 1,0', 'Splinters Move', 'Print Splinters Active'])
-    expect(drift.rt.amcaf.splinters.p[0]!.x).toBe(4) // moved right by the gravity
-    // "the number of steps the splinters are moved before they vanish"
-    const gone = run([...setup, 'Splinters Fuel 1', 'Splinters Init', 'Splinters Move', 'Splinters Move'])
-    expect(gone.rt.amcaf.splinters.p).toHaveLength(0)
+  /**
+   * Routine 295 ($6a60) is thirty-six bytes: `moveq #$ff,d0` — which is -1 —
+   * and `move.l d0,(a0)` over `+$10..+$13` of every record. It marks the table
+   * FREE and does nothing else.
+   *
+   * An earlier pass read the manual's "the Splinters are fed with the
+   * coordinates and speeds you specified" as a description of this call and
+   * seeded a particle array from the coordinate bank here. That took every
+   * coordinate at once, ignored Splinters Max, and never advanced the bank's
+   * cursor — so the engine could not run out, which is the one thing the real
+   * one does.
+   */
+  it('Splinters Init only marks the table free — it reads nothing', () => {
+    const { rt } = run([...scr, 'Turbo Plot 3,3,7', 'Coords Bank 4,100', 'Coords Read 0,0,0,0 To 9,9,4,0',
+      'Splinters Bank 5,3', 'Splinters Init'])
+    for (const s of splinters(rt, 5, 3)) {
+      expect([s.colour, s.back, s.pback, s.fresh]).toEqual([0xff, 0xff, 0xff, 0xff])
+      // the coordinates, speeds and life are untouched — still the zeros
+      // Reserve left, because Init never looks at them
+      expect([s.x, s.y, s.idx, s.vx, s.vy, s.life]).toEqual([0, 0, 0, 0, 0, 0])
+    }
+    // and the coordinate bank's cursor has not moved: only routine 385 does that
+    expect(bankWords(rt, 4).w(2)).toBe(0)
   })
 
-  it('Splinters Back and Single Del put the background back', () => {
-    const { rt } = run([
-      ...scr,
-      'Ink 9 : Bar 0,0 To 9,9',
-      'Coords Bank 4,200',
-      'Coords Read 0,0,0,0 To 3,3,4,0',
-      'Splinters Bank 5,50',
-      'Splinters Init',
-      'Splinters Back',
-      'Splinters Gravity 0,1',
-      'Splinters Move',
-      'Splinters Draw',
-      'Splinters Single Del',
-    ])
-    // the saved background is restored where the splinters started
-    expect(rt.screens.get(0)!.rp.point(0, 0)).toBe(9)
+  /** `movea.l $26a(a2),a0 / move.l a0,d0 / Rbeq routine 390` opens all nine routines */
+  it('Splinters Init without a bank is an error', () => {
+    expect(() => run([...scr, 'Splinters Init'])).toThrow(/illegal function call/i)
   })
 
   /**
-   * Routines 282 and 283 ($6c48, $6c60) are each FOUR calls — del, move,
-   * back, draw — and the two differ only in which del. An earlier pass had
-   * Single Do as restore-move-draw and Double Do as move-draw, reasoning that
-   * a double-buffered screen already carries the last frame as background;
-   * the routines and the manual both disagree.
-   *
-   * Double Del "must wipe the pre-last pixels ... (when using Double
-   * Buffering)", so Back keeps two generations and the two Dels put back
-   * different ones. With a single generation they were the same call, and a
-   * test could not tell them apart.
+   * Routine 385 ($a88a) is where a splinter gets its coordinates, and it is
+   * reached from routine 386 when one is found FREE, DEAD or out of bounds —
+   * never from Init. It hands out ONE coordinate and advances both the
+   * cursor at `+2` of the bank and the byte offset at `+4`.
    */
-  it('Single Do and Double Do are del-move-back-draw, from different generations', () => {
-    const base = [
-      ...scr,
-      'Ink 9 : Bar 0,0 To 19,19',
-      'Coords Bank 4,200',
-      'Coords Read 0,0,0,0 To 1,1,4,0',
-      'Splinters Bank 5,50',
-      'Splinters Init',
-      'Splinters Gravity 0,1',
+  it('a Move spawns from the coordinate bank, one entry at a time', () => {
+    const { rt } = run([...scr, ...lift, 'Splinters Move'])
+    const s = splinters(rt, 5, 4)
+
+    // two coordinates, two splinters, in the order Coords Read wrote them
+    expect([s[0]!.x, s[0]!.y]).toEqual([3 << 4, 5 << 4].slice(0, 1).concat([3 << 4])) // 3,3
+    expect([s[1]!.x, s[1]!.y]).toEqual([5 << 4, 5 << 4])
+    // `move.l d0,$4(a0)` — the flat pixel index, on a 64-pixel-wide screen
+    expect([s[0]!.idx, s[1]!.idx]).toEqual([3 * 64 + 3, 5 * 64 + 5])
+    // `clr.b $10(a0) / st.b $13(a0) / st.b $11(a0)` and the fuel from $27e
+    expect([s[0]!.colour, s[0]!.fresh, s[0]!.back, s[0]!.life]).toEqual([0, 0xff, 0xff, 10])
+    // a speed each from VHPOSR, `andi.w #$3f` less $1f, so never zero-zero
+    expect(s[0]!.vx).toBeGreaterThanOrEqual(-30)
+    expect(s[0]!.vx).toBeLessThanOrEqual(32)
+
+    // the list ran out, so the last two are marked dead rather than spawned
+    expect([s[2]!.colour, s[2]!.back]).toEqual([0xff, 0xff])
+    expect([s[3]!.colour, s[3]!.back]).toEqual([0xff, 0xff])
+
+    // the bank's own cursor and offset are the engine's state, and they moved
+    const { w } = bankWords(rt, 4)
+    expect(w(2)).toBe(2)
+    expect((w(4) << 16) | w(6)).toBe(8 + 2 * 4)
+  })
+
+  /**
+   * `move.w $282(a2),d5` once per Move, and routine 385 decrements it — so
+   * "the max. amount of new Splinters to appear on each step" is an allowance
+   * shared by the whole table, not a per-splinter test.
+   */
+  it('Splinters Max caps the spawns in one Move', () => {
+    const { rt } = run([...scr, ...lift.map((l) => (l === 'Splinters Max -1' ? 'Splinters Max 1' : l)), 'Splinters Move'])
+    expect(bankWords(rt, 4).w(2)).toBe(1)
+    const s = splinters(rt, 5, 4)
+    expect(s[0]!.colour).toBe(0) // spawned
+    expect(s[1]!.colour).toBe(0xff) // the allowance was gone
+  })
+
+  /**
+   * Routine 301 ($6c74) reads the screen at `+$4` into `+$11`, and then:
+   *
+   *     cmpi.b #$ff,$13(a0) / bne next / move.b d5,$10(a0)
+   *
+   * A splinter freshly out of routine 385 has `+$13` set, so its first Back
+   * is also where it takes its colour — "they don't destroy the background
+   * and use the colour of the pixel they have removed". Nothing else in the
+   * extension ever writes `+$10` to anything but 0 or $ff.
+   */
+  it('a fresh splinter takes its colour from the screen on the first Back', () => {
+    const { rt } = run([...scr, ...lift, 'Splinters Move', 'Splinters Back'])
+    const s = splinters(rt, 5, 4)
+    expect([s[0]!.colour, s[0]!.back]).toEqual([7, 7])
+    expect([s[1]!.colour, s[1]!.back]).toEqual([6, 6])
+  })
+
+  /**
+   * The second pass of routine 298 ($6b0c onwards), which nothing in the
+   * manual prepares you for: a splinter that has just been lifted leaves a
+   * HOLE, and the hole is filled with `$27b(a2)` — the byte Splinters Colour
+   * stored — once, on the first Del after the spawn.
+   */
+  it('Single Del punches the hole in Splinters Colour, once', () => {
+    const prog = (bk: number): string[] => [
+      ...scr, 'Turbo Plot 3,3,7', 'Coords Bank 4,100', 'Coords Read 0,0,0,0 To 9,9,4,0',
+      'Splinters Bank 5,2', `Splinters Colour ${bk},4`, 'Splinters Limit', 'Splinters Max -1',
+      'Splinters Fuel 10', 'Splinters Init', 'Splinters Move', 'Splinters Back', 'Splinters Draw',
+      'Splinters Single Del',
     ]
-    // Do runs Back itself, so the background keeps advancing and a following
-    // Single Del cleans up the frame just drawn
-    const single = run([...base, 'Splinters Single Do', 'Splinters Single Do', 'Splinters Single Del'])
-    const px = single.rt.screens.get(0)!.rp
-    for (let y = 0; y < 4; y++) for (let x = 0; x < 2; x++) expect(px.point(x, y), `${x},${y}`).toBe(9)
+    const black = run(prog(0))
+    expect(black.rt.screens.get(0)!.rp.point(3, 3)).toBe(0)
+    expect(splinters(black.rt, 5, 1)[0]!.fresh).toBe(0) // `clr.b $13(a0)` — only once
 
-    // the two Dels work on different generations. After ONE Do there is a
-    // current generation and no previous one, so Double Del has nothing to
-    // put back — which is exactly the frame-behind it models.
+    const blue = run(prog(5))
+    expect(blue.rt.screens.get(0)!.rp.point(3, 3)).toBe(5)
+  })
+
+  /**
+   * Routines 296 and 297 ($6a84, $6a94) are sixteen bytes each: del, move,
+   * back, draw. An earlier pass had Single Do as restore-move-draw and Double
+   * Do as move-draw, on the reasoning that a double-buffered screen already
+   * carries the last frame as its background; both routines disagree.
+   *
+   * `+$13` is what makes the two Dels different. Single clears it outright;
+   * Double steps it `$ff -> 1 -> 0`, so the hole is punched into BOTH buffers
+   * before the marker goes.
+   */
+  it('Single Do and Double Do are del-move-back-draw, and stage the spawn marker differently', () => {
+    const base = [...scr, 'Ink 9 : Bar 0,0 To 19,19', 'Coords Bank 4,200',
+      'Coords Read 0,0,0,0 To 2,2,4,0', 'Splinters Bank 5,8', 'Splinters Colour 0,4',
+      'Splinters Limit', 'Splinters Max -1', 'Splinters Fuel 50', 'Splinters Init']
+
+    // one Do spawns and draws; the marker is still $ff because Del ran first
     const one = run([...base, 'Splinters Single Do'])
-    expect(one.rt.amcaf.splinters.saved).not.toBe(null)
-    expect(one.rt.amcaf.splinters.savedPrev).toBe(null)
+    expect(splinters(one.rt, 5, 4).map((s) => s.fresh)).toEqual([0xff, 0xff, 0xff, 0xff])
 
-    // after TWO, the generations hold different positions, a frame apart
+    // the second Do's Del clears it, and the hole appears
     const two = run([...base, 'Splinters Single Do', 'Splinters Single Do'])
-    const sp = two.rt.amcaf.splinters
-    const at = (g: typeof sp.saved): string => (g ?? []).map((q) => `${q.x},${q.y}`).join(' ')
-    expect(at(sp.savedPrev)).not.toBe(at(sp.saved))
-    expect(at(sp.savedPrev)).not.toBe('')
+    expect(splinters(two.rt, 5, 4).map((s) => s.fresh)).toEqual([0, 0, 0, 0])
+
+    // Double Del takes two passes to get there, one per buffer
+    const dbl1 = run([...base, 'Splinters Double Do', 'Splinters Double Do'])
+    expect(splinters(dbl1.rt, 5, 4).map((s) => s.fresh)).toEqual([1, 1, 1, 1])
+    const dbl2 = run([...base, 'Splinters Double Do', 'Splinters Double Do', 'Splinters Double Do'])
+    expect(splinters(dbl2.rt, 5, 4).map((s) => s.fresh)).toEqual([0, 0, 0, 0])
+  })
+
+  /**
+   * `move.l $4(a0),$8(a0) / move.b $11(a0),$12(a0)` at the very top of routine
+   * 386 — the two generations Double Del needs cost six bytes a splinter and
+   * shift on every Move, whether or not the splinter goes anywhere.
+   */
+  it('a Move shifts the position and background into the previous generation', () => {
+    const base = [...scr, 'Ink 9 : Bar 0,0 To 19,19', 'Coords Bank 4,200',
+      'Coords Read 0,0,0,0 To 2,2,4,0', 'Splinters Bank 5,4', 'Splinters Colour 0,4',
+      'Splinters Limit', 'Splinters Max -1', 'Splinters Fuel 50', 'Splinters Init']
+    const cycle = ['Splinters Single Del', 'Splinters Move', 'Splinters Back', 'Splinters Draw']
+    const before = splinters(run([...base, ...cycle, ...cycle]).rt, 5, 4)
+    const after = splinters(run([...base, ...cycle, ...cycle, ...cycle]).rt, 5, 4)
+    for (let i = 0; i < 4; i++) {
+      expect(after[i]!.pidx, `${i}`).toBe(before[i]!.idx)
+      expect(after[i]!.pback, `${i}`).toBe(before[i]!.back)
+    }
+  })
+
+  /**
+   * The arithmetic of routine 386, in the units it actually uses:
+   *
+   *     move.w (a0),d2 / add.w $c(a0),d2         x += vx
+   *     move.w $276(a2),d2 / add.w d2,$c(a0)     vx += gravity, AFTER the move
+   *
+   * All of it is sixteenths of a pixel and all of it is a WORD, so
+   * `Splinters Gravity 1,1` is a sixteenth of a pixel per step per step, not a
+   * pixel — sixteen times gentler than whole-pixel arithmetic made it.
+   */
+  it('a Move adds the speed to the position and the gravity to the speed, in sixteenths', () => {
+    // the dots start in the middle of the screen, because a splinter that
+    // leaves the limit box respawns and its old position is gone
+    const base = [...scr, 'Ink 9 : Bar 0,0 To 39,29', 'Coords Bank 4,200',
+      'Coords Read 0,0,20,14 To 22,16,4,0', 'Splinters Bank 5,4', 'Splinters Colour 0,4',
+      'Splinters Limit', 'Splinters Max -1', 'Splinters Fuel 50', 'Splinters Gravity 3,-2',
+      'Splinters Init']
+    const cycle = ['Splinters Single Del', 'Splinters Move', 'Splinters Back', 'Splinters Draw']
+    const before = splinters(run([...base, ...cycle, ...cycle]).rt, 5, 4)
+    const after = splinters(run([...base, ...cycle, ...cycle, ...cycle]).rt, 5, 4)
+    for (let i = 0; i < 4; i++) {
+      expect(after[i]!.x, `x${i}`).toBe(before[i]!.x + before[i]!.vx)
+      expect(after[i]!.y, `y${i}`).toBe(before[i]!.y + before[i]!.vy)
+      expect(after[i]!.vx, `vx${i}`).toBe(before[i]!.vx + 3)
+      expect(after[i]!.vy, `vy${i}`).toBe(before[i]!.vy - 2)
+    }
+  })
+
+  /**
+   * Leaving the limit box does NOT delete a splinter — routine 386's four
+   * clip tests all `Rbra routine 385`, the same respawn a dead one gets, which
+   * is what makes an endless field endless.
+   *
+   * `Splinters Limit 0,0 To 0,0` is the deterministic way to prove it: the
+   * high corner takes a `subq.l #$1` after the shift, so x2 is -1, and
+   * `cmp.w $272(a2),d2 / bpl` puts EVERY position outside. The unsigned
+   * `cmp.w d0,d2 / bhi` that orders the pair leaves it that way, because
+   * $ffff is higher than 0.
+   */
+  it('leaving the limit respawns rather than deletes, and the list is what runs out', () => {
+    const base = [...scr, 'Ink 9 : Bar 0,0 To 19,19', 'Coords Bank 4,4',
+      'Coords Read 0,0,0,0 To 2,2,4,0', 'Splinters Bank 5,1', 'Splinters Colour 0,4',
+      'Splinters Limit 0,0 To 0,0', 'Splinters Max -1', 'Splinters Fuel 50', 'Splinters Init']
+    const cycles = (n: number): string[] => Array.from({ length: n }, () => 'Splinters Single Do').flat()
+
+    const lim = run([...base]).rt.amcaf.splinters.limit
+    expect(lim).toEqual({ x1: 0, y1: 0, x2: -1, y2: -1 })
+
+    // one record, four coordinates: each cycle after the first hands out one more
+    for (const [n, cursor] of [[1, 1], [2, 2], [3, 3], [4, 4]] as const) {
+      expect(bankWords(run([...base, ...cycles(n)]).rt, 4).w(2), `${n} cycles`).toBe(cursor)
+    }
+
+    // the fifth finds the list exhausted and marks the splinter free
+    const spent = run([...base, ...cycles(5)])
+    expect(splinters(spent.rt, 5, 1)[0]!.colour).toBe(0xff)
+  })
+
+  /**
+   * Routine 303 ($6d4a) counts a splinter unless ALL THREE colour bytes are
+   * $ff — `cmp.w $10(a0),d0` covers `+$10` and `+$11` at once, then
+   * `cmp.b $12(a0),d0`. So one routine 385 has just given up on still counts
+   * for one more Move, which is exactly how long its pixels are still on the
+   * screen. Counting the length of a particle array cannot express that.
+   */
+  it('Splinters Active counts the three colour bytes, not a list', () => {
+    const base = [...scr, 'Ink 9 : Bar 0,0 To 19,19', 'Coords Bank 4,2',
+      'Coords Read 0,0,0,0 To 2,2,4,0', 'Splinters Bank 5,2', 'Splinters Colour 0,4',
+      'Splinters Limit 0,0 To 0,0', 'Splinters Max -1', 'Splinters Fuel 50', 'Splinters Init']
+    const active = (extra: string[]): number =>
+      Number(run([...base, ...extra, 'Print Splinters Active']).out.trim())
+
+    expect(active([])).toBe(0) // straight after Init, all $ff
+    expect(active(['Splinters Single Do'])).toBe(2) // both spawned
+    // the second cycle moves them both out of the box, finds the two-entry
+    // list already spent, and marks them free — `st.b $10 / st.b $11`. They
+    // still COUNT, because `+$12` remembers the background from the frame
+    // before and their pixels are still on the screen until the next Del.
+    expect(active(['Splinters Single Do', 'Splinters Single Do'])).toBe(2)
+    // the third Move shifts that $ff into `+$12` as well, and now all three
+    // agree. One frame of grace, which counting a list cannot express.
+    expect(active(Array.from({ length: 3 }, () => 'Splinters Single Do'))).toBe(0)
+  })
+
+  /**
+   * "protect the graphics in higher bitplanes from the influences of Shade
+   * Bobs" is the sister keyword's wording; here the same idea is `$27c(a2)`,
+   * the `planes - 1` Splinters Colour stores, used as the `dbra` bound in
+   * every one of the four drawing loops. Planes above it are never addressed.
+   */
+  it('Splinters Draw touches only the planes Splinters Colour named', () => {
+    const prog = (planes: number): number => {
+      const { rt } = run([...scr, 'Ink 15 : Bar 0,0 To 9,9', 'Turbo Plot 3,3,7',
+        'Coords Bank 4,100', 'Coords Read 0,0,3,3 To 4,4,4,0', 'Splinters Bank 5,1',
+        `Splinters Colour 0,${planes}`, 'Splinters Limit', 'Splinters Max -1',
+        'Splinters Fuel 10', 'Splinters Init', 'Splinters Move', 'Splinters Back',
+        'Splinters Single Del'])
+      return rt.screens.get(0)!.rp.point(3, 3)
+    }
+    // the lifted pixel is 7. With all four planes the hole is colour 0 outright
+    expect(prog(4)).toBe(0)
+    // with two, planes 2 and 3 are never addressed, so 0b0111 keeps its top
+    // bit and the hole reads back as 4 rather than 0
+    expect(prog(2)).toBe(4)
   })
 
   it('Td Stars Bank reserves 12 bytes a star, and Init spreads them', () => {
@@ -2329,9 +2536,9 @@ describe('slice 9: Splinters and Td Stars', () => {
    * DEFECT: Td Stars Limit silently overwrites Td Stars Origin, and the
    * explicit form computes the replacement wrongly.
    *
-   * Routine 293 (Td Stars Origin) stores its pair at $256/$258. Routine 291
+   * Routine 307 (Td Stars Origin) stores its pair at $256/$258. Routine 305
    * (the bare Limit) writes a LONGWORD to $256 — the same two words — so a
-   * limit re-centres the field. Routine 292 (the `x1,y1 To x2,y2` form) then
+   * limit re-centres the field. Routine 306 (the `x1,y1 To x2,y2` form) then
    * derives that centre as
    *
    *     add.w d1,d0 / lsr.w #1,d0     ->  $256 = (x1 + y1) / 2
@@ -2360,19 +2567,23 @@ describe('slice 9: Splinters and Td Stars', () => {
 
   /**
    * The rest of the two engines' surface, each dispatched against its routine:
-   * Splinters Limit/Max (277/275), Splinters Double Do/Del (283/285), and
-   * Td Stars Gravity (295, two words at $25a/$25c), Accelerate Off (297, a
-   * `clr.w $25e`), Single/Double Do (299/300 — del, move, draw, and NO back
-   * step, unlike the Splinters pair) and Double Del (302).
+   * Splinters Limit/Max (291-292/289), Splinters Double Do/Del (297/299), and
+   * Td Stars Gravity (309, two words at $25a/$25c), Accelerate Off (311, a
+   * `clr.w $25e`), Single/Double Do (313/314 — del, move, draw, and NO back
+   * step, unlike the Splinters pair) and Double Del (316).
+   *
+   * Splinters Limit's four corners are stored in SIXTEENTHS (`lsl.w #$4`)
+   * with one taken off the high pair, so `2,3 To 20,15` is 32,48 To 319,239.
    */
   it('the rest of the two engines dispatch and hold their state', () => {
     const sp = run([...scr, 'Splinters Bank 5,10', 'Splinters Limit 2,3 To 20,15', 'Splinters Max 7'])
-    expect(sp.rt.amcaf.splinters.limit).toMatchObject({ x1: 2, y1: 3, x2: 19, y2: 14 })
+    expect(sp.rt.amcaf.splinters.limit).toEqual({ x1: 32, y1: 48, x2: 319, y2: 239 })
     expect(sp.rt.amcaf.splinters.maxNew).toBe(7)
 
     // Double Do and Double Del run without a prior generation to restore
     expect(() =>
-      run([...scr, 'Splinters Bank 5,10', 'Splinters Init', 'Splinters Double Do', 'Splinters Double Del']),
+      run([...scr, 'Coords Bank 4,4', 'Splinters Bank 5,10', 'Splinters Init',
+        'Splinters Double Do', 'Splinters Double Del']),
     ).not.toThrow()
 
     const st = run([

@@ -207,33 +207,52 @@ export interface AmcafExamine {
  * list of coordinates. Each coordinate requires four bytes, i.e already a
  * field of 16x16 coordinates consumes 16 KB of memory."
  *
- * "Each Splinter requires 22 bytes of memory" in the bank, which is what
- * `Splinters Bank bank,splinum` reserves.
+ * THE PARTICLES ARE NOT HERE. "Each Splinter requires 22 bytes of memory" in
+ * the bank `Splinters Bank` reserves, and that bank is the whole engine's
+ * working store — every one of the nine routines walks it with a `dbra` and
+ * reads and writes the 22-byte records in place. See `SPL_*` below for the
+ * layout, which comes out of routines 385 and 386.
+ *
+ * What this holds is the rest of the extension's private block: the fields
+ * from `$266` to `$282`. Each is named with its offset, because they are the
+ * engine's only other state and several of them are read by routines that
+ * never mention the keyword that set them.
+ *
+ * AllocMem at routine 0 ($1c32) passes `#$10001` — MEMF_PUBLIC|MEMF_CLEAR —
+ * so every one of these starts at ZERO, and the zeros matter: an untouched
+ * limit box is `0,0 To 0,0`, which routine 386 treats as "nowhere", and an
+ * untouched `maxNew` is zero, which stops routine 385 from ever spawning.
+ * A program that forgets Splinters Limit gets nothing on the machine too.
  */
 export interface SplinterState {
+  /** `$26a` — the bank holding the 22-byte records; 0 before Splinters Bank */
   bank: number
+  /** `$280` + 1: how many records the table holds */
   max: number
   /**
-   * `$266` of the private block — the pointer Coords Bank stores. The
-   * coordinates themselves live in the bank and nowhere else; there is no
-   * parallel copy, because routine 385 hands them out by advancing the
-   * cursor and offset in the bank's own header.
+   * `$266` — the pointer Coords Bank stores. The coordinates themselves live
+   * in the bank and nowhere else; there is no parallel copy, because routine
+   * 385 hands them out by advancing the cursor and offset in the bank's own
+   * header.
    */
   coordsBank: number
-  next: number
-  p: Array<{ x: number; y: number; vx: number; vy: number; c: number; life: number }>
+  /**
+   * `$26e`/`$270`/`$272`/`$274`, in SIXTEENTHS of a pixel — the same units the
+   * positions are in. Routine 386 tests `bmi` against the low pair and `bpl`
+   * against the high, so x1/y1 are inclusive and x2/y2 EXCLUSIVE.
+   */
+  limit: { x1: number; y1: number; x2: number; y2: number }
+  /** `$276`/`$278` — sixteenths added to the speed each step, not pixels */
   gx: number
   gy: number
-  /** "the number of steps the splinters are moved before they vanish"; 0 = never */
+  /** `$27e` — the life a respawned splinter starts with, counted down by 386 */
   fuel: number
-  /** "the max. amount of new Splinters to appear on each step"; -1 = no limit */
+  /** `$282` — how many splinters may respawn in ONE Move; -1 is $ffff, so 65535 */
   maxNew: number
+  /** `$27a` — "what a lifted dot leaves behind", written by the Del routines */
   bkColour: number
-  planes: number
-  limit: Limit | null
-  saved: { x: number; y: number; c: number }[] | null
-  /** the generation before `saved` — what a Double Del puts back */
-  savedPrev: { x: number; y: number; c: number }[] | null
+  /** `$27c` — the TOP plane the engine touches, stored as `planes - 1` */
+  topPlane: number
 }
 
 /**
@@ -372,10 +391,11 @@ export function newAmcafState(): AmcafState {
     qlast: 0,
     bltLimit: null,
     ptileBank: 0,
+    // every one of these is a field of the MEMF_CLEAR block, so zero
     splinters: {
-      bank: 0, max: 0, coordsBank: 0, next: 0,
-      p: [], gx: 0, gy: 0, fuel: 0, maxNew: -1,
-      bkColour: 0, planes: 6, limit: null, saved: null, savedPrev: null,
+      bank: 0, max: 0, coordsBank: 0,
+      limit: { x1: 0, y1: 0, x2: 0, y2: 0 },
+      gx: 0, gy: 0, fuel: 0, maxNew: 0, bkColour: 0, topPlane: 0,
     },
     stars: {
       bank: 0, max: 0, s: [], gx: 0, gy: 0,
@@ -1772,7 +1792,11 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const sp = rt.amcaf.splinters
       sp.bank = bank
       sp.max = n
-      sp.p = []
+      // NOTE: the records are NOT initialised here. The bank arrives zeroed
+      // from Reserve, and a zero at +$10 means colour 0 rather than the $ff
+      // that means free — so every splinter is "alive" at pixel 0 until
+      // Splinters Init marks them free. That is the machine's behaviour too:
+      // routine 288 stores the pointer and the count and returns.
     },
 
     /**
@@ -1794,126 +1818,199 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       if (!s) throw new AmosError('Screen not opened', 47)
       if (s.rp.bitMap.depth <= planes - 1) amcafErr()
       sp.bkColour = bk
-      sp.planes = planes
-    },
-
-    /** Splinters Gravity sx,sy — routine 293 ($6a26), added to the speed each step */
-    'splinters gravity'(it) {
-      const sp = rt.amcaf.splinters
-      sp.gx = it.evalInt()
-      it.expect(',')
-      sp.gy = it.evalInt()
-    },
-
-    /** Splinters Fuel time — steps before they vanish; 0 = only at the edges */
-    'splinters fuel'(it) {
-      rt.amcaf.splinters.fuel = it.evalInt()
-    },
-
-    /** Splinters Max amount — new splinters per step; 0 none, -1 unlimited */
-    'splinters max'(it) {
-      rt.amcaf.splinters.maxNew = it.evalInt()
-    },
-
-    /** Splinters Limit [x1,y1 To x2,y2] — the screen's own limits if omitted */
-    'splinters limit'(it) {
-      rt.amcaf.splinters.limit = readLimit(rt, it, 4)
-    },
-
-    /** Splinters Init — "fed with the coordinates and speeds you specified" */
-    'splinters init'(it) {
-      void it
-      const sp = rt.amcaf.splinters
-      const s = rt.screen
-      sp.p = []
-      sp.next = 0
-      if (!s) return
-      // the coordinates come out of the bank, which is the only place the
-      // real engine keeps them — see COORDS_HEADER above
-      for (const [x, y] of readCoordsBank(rt, sp.coordsBank)) {
-        if (sp.max > 0 && sp.p.length >= sp.max) break
-        const c = s.rp.point(x, y)
-        sp.p.push({ x, y, vx: 0, vy: 0, c: c < 0 ? 0 : c, life: sp.fuel })
-      }
-    },
-
-    /** Splinters Move — one step */
-    'splinters move'(it) {
-      void it
-      moveSplinters(rt)
-    },
-
-    /** Splinters Draw — "Draws the Splinters onto the screen" */
-    'splinters draw'(it) {
-      void it
-      drawSplinters(rt)
+      sp.topPlane = planes - 1
     },
 
     /**
-     * Splinters Back — "Saves the background, on which [they] are to be
-     * drawn in the next step".
+     * Splinters Gravity sx,sy — routine 293 ($6a26), added to the speed each
+     * step.
      *
-     * Keeps TWO generations, because Double Del wipes the PRE-last pixels
-     * rather than the last ones — see the Del pair below.
+     * NOTE: the pair is stored RAW, and the speeds it is added to are in
+     * sixteenths of a pixel (routine 386: `add.w $c(a0),d2` where d2 is the
+     * `x<<4` position). So `Splinters Gravity 1,1` is a sixteenth of a pixel
+     * per step per step, not a pixel — sixteen times gentler than the port's
+     * whole-pixel arithmetic made it. Nothing scales it; only Limit and the
+     * coordinates get the `lsl.w #$4`.
      */
+    'splinters gravity'(it) {
+      const sp = rt.amcaf.splinters
+      sp.gx = extW(it.evalInt())
+      it.expect(',')
+      sp.gy = extW(it.evalInt())
+    },
+
+    /**
+     * Splinters Fuel time — "the number of steps the splinters are moved
+     * before they vanish". Routine 290 ($69be) narrows it to a word at $27e,
+     * which routine 385 copies into each respawned splinter's `+$14`.
+     *
+     * Zero does not mean "never": routine 386 tests `tst.w $14(a0)` BEFORE it
+     * decrements, so a life of zero respawns the splinter on its first Move.
+     * The manual's "If you set 'time' to 0, the Splinters only disappear at
+     * the edges" describes what a zero fuel looks like once the coordinate
+     * list is exhausted — every splinter dies at once and stays dead.
+     */
+    'splinters fuel'(it) {
+      rt.amcaf.splinters.fuel = it.evalInt() & 0xffff
+    },
+
+    /**
+     * Splinters Max amount — "the max. amount of new Splinters to appear on
+     * each step". Routine 289 ($69b2) narrows it to a word at $282.
+     *
+     * Routine 300 loads that word into d5 once per Move and routine 385
+     * decrements it, `tst.w d5 / beq` refusing to spawn at zero — so it is an
+     * UNSIGNED word allowance, and the manual's "-1 for no limit" works only
+     * because -1 narrows to $ffff, which is 65535 spawns rather than infinity.
+     */
+    'splinters max'(it) {
+      rt.amcaf.splinters.maxNew = it.evalInt() & 0xffff
+    },
+
+    /**
+     * Splinters Limit [x1,y1 To x2,y2] — routine 291 ($69ca) bare, routine
+     * 292 ($69f4) with the four corners. A `!` multi-arity entry, which is why
+     * both forms exist as separate routines.
+     *
+     * Both store SIXTEENTHS, because that is what routine 386 compares
+     * against. The bare form takes the current screen:
+     *
+     *     clr.l $26e(a2)                      x1 = y1 = 0
+     *     move.w $4c(a0),d0 / lsl.w #$4,d0 / subq.w #$1,d0 / swap d0
+     *     move.w $4e(a0),d0 / lsl.w #$4,d0 / subq.w #$1,d0
+     *     move.l d0,$272(a2)                  x2, y2
+     *
+     * so the far corner is `width * 16 - 1`, one sixteenth short of the pixel
+     * past the edge. With no screen open it is error 47 (routine 394).
+     *
+     * The explicit form shifts all four the same way, takes one off the high
+     * pair, and then ORDERS each axis with an UNSIGNED compare — `cmp.w d0,d2
+     * / bhi / exg.l d0,d2` — so a reversed rectangle is swapped rather than
+     * rejected, and a negative x1 sorts as a very large one.
+     */
+    'splinters limit'(it) {
+      const sp = rt.amcaf.splinters
+      if (it.atStmtEnd()) {
+        const s = rt.screen
+        if (!s) throw new AmosError('Screen not opened', 47)
+        sp.limit = { x1: 0, y1: 0, x2: extW(s.width * 16 - 1), y2: extW(s.height * 16 - 1) }
+        return
+      }
+      let x1 = extW(it.evalInt() << 4)
+      it.expect(',')
+      let y1 = extW(it.evalInt() << 4)
+      it.expect('to')
+      let x2 = extW((it.evalInt() << 4) - 1)
+      it.expect(',')
+      let y2 = extW((it.evalInt() << 4) - 1)
+      // `cmp.w d0,d2 / bhi` — UNSIGNED, and the exchange is the whole long
+      if (!((x2 & 0xffff) > (x1 & 0xffff))) [x1, x2] = [x2, x1]
+      if (!((y2 & 0xffff) > (y1 & 0xffff))) [y1, y2] = [y2, y1]
+      sp.limit = { x1, y1, x2, y2 }
+    },
+
+    /**
+     * Splinters Init — routine 295 ($6a60), and it is THIRTY-SIX BYTES:
+     *
+     *     movea.l $26a(a2),a0 / Rbeq routine 390
+     *     move.w  $280(a2),d7
+     *     moveq   #$ff,d0                     ...which is moveq #-1
+     *     lea     $10(a0),a0
+     *  L: move.l  d0,(a0) / lea $16(a0),a0 / dbra d7,L
+     *
+     * It writes $ffffffff over `+$10..+$13` of every record and returns. That
+     * is the whole keyword: mark every splinter FREE, with no saved
+     * background and no pending spawn. It does not look at the screen, the
+     * coordinate list, the fuel or the speeds.
+     *
+     * The manual's "the Splinters are fed with the coordinates and speeds you
+     * specified" describes the ENGINE, not this call — the feeding happens one
+     * splinter at a time in routine 385, when a free or dead splinter is found
+     * by a Move. An earlier pass read the manual and seeded a particle array
+     * from the coordinate bank here, which is a different design: it took
+     * every coordinate at once, ignored Splinters Max, and never advanced the
+     * bank's cursor, so the engine had no way to run out.
+     *
+     * With no bank it is error 23 (routine 390).
+     */
+    'splinters init'(it) {
+      void it
+      const v = splinterTable(rt)
+      if (!v) amcafErr()
+      const sp = rt.amcaf.splinters
+      for (let i = 0; i < sp.max; i++) v.setUint32(i * SPL + SPL_COLOUR, 0xffffffff)
+    },
+
+    /** Splinters Move — routine 300 ($6c32), one step for the whole table */
+    'splinters move'(it) {
+      void it
+      splintersMove(rt)
+    },
+
+    /** Splinters Draw — routine 302 ($6ce2), "Draws the Splinters onto the screen" */
+    'splinters draw'(it) {
+      void it
+      splintersDraw(rt)
+    },
+
+    /** Splinters Back — routine 301 ($6c74), and it does two jobs; see below */
     'splinters back'(it) {
       void it
-      backSplinters(rt)
+      splintersBack(rt)
     },
 
     /**
      * Splinters Single Do / Double Do — one call for the whole cycle.
      *
-     * Routines 282 and 283 ($6c48, $6c60) spell the order out, and it is
-     * FOUR steps, not two:
+     * Routines 296 and 297 ($6a84, $6a94) are sixteen bytes each and spell the
+     * order out. It is FOUR steps, not two:
      *
-     *     Rbsr 284 (single del) / Rbsr 285 (double del)
-     *     Rbsr 286 (move)
-     *     Rbsr 287 (back)          <- save the background at the NEW places
-     *     Rbra 288 (draw)
+     *     Rbsr routine 298 (single del) / Rbsr routine 299 (double del)
+     *     Rbsr routine 300 (move)
+     *     Rbsr routine 301 (back)      <- save the background at the NEW places
+     *     Rbra routine 302 (draw)
      *
      * which is exactly what the manual tells a caller doing it by hand:
      * "Splinters Single Del or Splinters Double Del, then Splinters Move,
      * Splinters Back and Splinters Draw in this order".
-     *
-     * An earlier pass had Single Do as restore-move-draw and Double Do as
-     * move-draw, on the reasoning that a double-buffered screen already has
-     * the previous frame as its background. Both the routine and the manual
-     * say otherwise: Double Do deletes too, just from the other generation.
-     * Without the Back step the saved background never advanced, so the next
-     * Del restored stale pixels.
      */
     'splinters single do'(it) {
       void it
-      restoreSplinters(rt, false)
-      moveSplinters(rt)
-      backSplinters(rt)
-      drawSplinters(rt)
+      splintersDel(rt, false)
+      splintersMove(rt)
+      splintersBack(rt)
+      splintersDraw(rt)
     },
     'splinters double do'(it) {
       void it
-      restoreSplinters(rt, true)
-      moveSplinters(rt)
-      backSplinters(rt)
-      drawSplinters(rt)
+      splintersDel(rt, true)
+      splintersMove(rt)
+      splintersBack(rt)
+      splintersDraw(rt)
     },
 
     /**
-     * Splinters Single Del / Double Del — and they are NOT the same call.
+     * Splinters Single Del / Double Del — routines 298 ($6aa4) and 299
+     * ($6b66), and they are NOT the same call.
      *
      * "As the clearing process must either wipe the pre-last pixels from the
      * screen (when using Double Buffering), or the last pixels (with Single
      * Buffered screens), you have to take the appropriate command for the
-     * right screen type." A double-buffered target was last drawn TWO frames
-     * ago, so it is the older generation that has to be put back.
+     * right screen type."
+     *
+     * Which is done by reading a different pair of fields. Single Del restores
+     * `+$11` — the background under the CURRENT position — at `+$4`; Double Del
+     * restores `+$12`, the generation before it, at `+$8`. Routine 386 shifts
+     * one into the other at the top of every Move, so the two generations cost
+     * six bytes a splinter rather than a second array.
      */
     'splinters single del'(it) {
       void it
-      restoreSplinters(rt, false)
+      splintersDel(rt, false)
     },
     'splinters double del'(it) {
       void it
-      restoreSplinters(rt, true)
+      splintersDel(rt, true)
     },
 
     /* ---- Td Stars ---- */
@@ -1975,9 +2072,10 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const st = rt.amcaf.stars
       st.limit = readLimit(rt, it, 6)
       // DEFECT: both forms also overwrite the ORIGIN, and nothing documents
-      // it — routine 291 stores a longword at $256, which is exactly where
-      // `Td Stars Origin` puts its pair, so setting a limit silently
-      // re-centres the starfield. Worse, the explicit form (292) computes
+      // it — routine 305 stores a longword at $256, which is exactly where
+      // `Td Stars Origin` (routine 307) puts its pair, so setting a limit
+      // silently re-centres the starfield. Worse, the explicit form (306)
+      // computes
       // that centre as `add.w d1,d0 / lsr.w #1,d0` and `add.w d3,d2 / lsr.w
       // #1,d2` — which averages x1 with y1 and x2 with y2, MIXING THE AXES
       // rather than taking the middle of each. Identical in 1.50, so it was
@@ -2251,18 +2349,29 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * Pt Bank bank — "if you want to play back instruments from a music
      * module but the music bank has not yet been specified with Pt Play".
      *
-     * Routine 249 ($61f0) does two things beyond storing the number. It calls
-     * `Rbsr 253` — Pt Stop — BEFORE reading its argument, so naming a bank
-     * silences whatever was playing. And after resolving the bank's address
-     * it checks where that address landed:
+     * Routine 263 ($610c) is thirty-four bytes and does no such thing as the
+     * Pt Stop an earlier pass credited it with — there is no `Rbsr` in it at
+     * all. What it does:
      *
-     *     cmpa.l #$200000, a0
-     *     Rbge   routine 372
+     *     Rjsr    routine 1121            resolve the bank to an address
+     *     move.l  d0, $2bc(a2)            keep it, as Pt Continue reads
+     *     cmpa.l  #$200000, a0
+     *     Rbge    routine 390             at or above 2MB is error 23
+     *     moveq   #$0, d1 / moveq #$1, d0
+     *     Rbra    routine 381             into the replayer, selector 1
      *
-     * which is an error if the bank resolved at or above 2MB — outside chip
-     * RAM, where Paula cannot fetch it.
+     * Selector 1 of routine 381 ($8a16) is the module SET-UP, and it starts by
+     * checking the signature at `$438(a0)` against `M.K.` ($4d2e4b2e) and
+     * `M!K!` ($4d214b21) — anything else is error 23. Naming a bank that is
+     * not a ProTracker module stops the program.
      *
-     * DEVIATION: that check is NOT reproduced. It compares a real address,
+     * It then resets the replayer: `move.b #$6,-$e(a5)` is speed 6,
+     * `move.w #$7d,(a5)` is 125 bpm, and position, row and the four channel
+     * states are cleared. `move.b d7,-$c(a5)` stores the d1 the caller passed
+     * — ZERO here, one for Pt Play — so Pt Bank prepares a module without
+     * starting it.
+     *
+     * DEVIATION: the 2MB check is NOT reproduced. It compares a real address,
      * and this port models memory type as a flag on the bank rather than an
      * address space, so the nearest equivalent would reject every
      * `Reserve As Work` bank — including on the many machines where all
@@ -2271,8 +2380,14 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      */
     'pt bank'(it) {
       const n = it.evalInt()
-      rt.amcaf.pt.playing = false
-      rt.amcaf.pt.bank = n
+      const pt = rt.amcaf.pt
+      pt.bank = n
+      pt.playing = false
+      pt.pos = 0
+      pt.row = 0
+      pt.tick = 0
+      pt.speed = 6
+      pt.bpm = 125
     },
     /** Pt Sam Bank bank — the AMOS sample bank Pt Sam Play draws from */
     'pt sam bank'(it) {
@@ -2329,7 +2444,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     /**
      * Pt Sam Stop chan — silence the channels in a MASK, not one voice.
      *
-     * Routine 233 ($5ecc) is the same four-pass shape as Pt Sam Freq:
+     * Routine 247 ($5e50) is the same four-pass shape as Pt Sam Freq:
      *
      *     moveq #1,d1 / moveq #3,d7
      *     btst.b #0,d0 / beq
@@ -2359,7 +2474,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     /**
      * Pt Sam Freq chan,freq — retune whatever is playing.
      *
-     * Routine 232 ($5e70), and two things it does that the manual's "channel
+     * Routine 246 ($5df6), and two things it does that the manual's "channel
      * chan" does not suggest:
      *
      *   - `chan` is a BITMASK, not an index. The routine loops four times,
@@ -2412,7 +2527,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     /**
      * Smouse X n / Smouse Y n — place the second mouse.
      *
-     * Routines 154 and 155 ($4650, $466a) SCALE what they are given by the
+     * Routines 166 and 167 ($465e, $4670) SCALE what they are given by the
      * stored Smouse Speed before storing it:
      *
      *     move.l (a3)+, d0
@@ -3905,40 +4020,390 @@ function coordsView(rt: Runtime, n: number): DataView | null {
   return new DataView(b.data.buffer, b.data.byteOffset, b.data.byteLength)
 }
 
-/** the coordinates a Coords bank holds, in whole pixels */
-function readCoordsBank(rt: Runtime, n: number): Array<[number, number]> {
-  const v = coordsView(rt, n)
-  if (!v) return []
-  const out: Array<[number, number]> = []
-  const count = v.getUint16(0)
-  for (let i = 0; i < count; i++) {
-    const at = COORDS_HEADER + i * 4
-    if (at + 4 > v.byteLength) break
-    out.push([v.getUint16(at) >> 4, v.getUint16(at + 2) >> 4])
-  }
-  return out
+/* ------------------------------------------------------------------ *
+ * The Splinters engine
+ * ------------------------------------------------------------------ */
+
+/**
+ * A splinter is twenty-two bytes in the bank, and every field below is read
+ * straight out of routines 385 ($a88a) and 386 ($a904).
+ *
+ *     +$00 word  x, in sixteenths of a pixel
+ *     +$02 word  y, in sixteenths
+ *     +$04 long  the flat BIT index of the pixel: (y>>4)*width + (x>>4)
+ *     +$08 long  the previous +$04, saved at the top of every Move
+ *     +$0c word  vx, sixteenths per step
+ *     +$0e word  vy
+ *     +$10 byte  the splinter's own colour; $ff means FREE
+ *     +$11 byte  the background under +$04; $ff means nothing saved
+ *     +$12 byte  the background under +$08 — the generation before it
+ *     +$13 byte  the spawn marker: $ff fresh, 1 half-cleared, 0 settled
+ *     +$14 word  life, counted down by every Move
+ *
+ * The four bytes from $10 to $13 are one longword to routine 295, which
+ * writes $ffffffff over them to free the whole table, and the pair at $10/$11
+ * is one word to routine 303, which counts a splinter as active unless all
+ * three colour bytes are $ff.
+ */
+const SPL = 22
+const SPL_X = 0x00
+const SPL_Y = 0x02
+const SPL_IDX = 0x04
+const SPL_PIDX = 0x08
+const SPL_VX = 0x0c
+const SPL_VY = 0x0e
+const SPL_COLOUR = 0x10
+const SPL_BACK = 0x11
+const SPL_PBACK = 0x12
+const SPL_FRESH = 0x13
+const SPL_LIFE = 0x14
+
+/** the splinter table, or null when no bank has been named — error 23 to callers */
+function splinterTable(rt: Runtime): DataView | null {
+  const sp = rt.amcaf.splinters
+  if (!sp.bank) return null
+  const b = rt.memBanks.get(sp.bank)
+  if (!b || b.kind !== 'memory' || b.data.length < sp.max * SPL) return null
+  return new DataView(b.data.buffer, b.data.byteOffset, b.data.byteLength)
 }
 
-function moveSplinters(rt: Runtime): void {
-  const sp = rt.amcaf.splinters
-  for (const q of sp.p) {
-    q.vx += sp.gx
-    q.vy += sp.gy
-    q.x += q.vx
-    q.y += q.vy
-    // "If you set 'time' to 0, the Splinters only disappear at the edges"
-    if (sp.fuel > 0 && q.life > 0) q.life--
+/**
+ * A pixel by FLAT BIT INDEX, which is how all four drawing routines address
+ * the screen:
+ *
+ *     move.l  $4(a0),d1
+ *     move.b  d1,d2 / not.b d2          the bit, counted from the left
+ *     lsr.l   #$3,d1                    the byte
+ *     movea.l (a1)+,a2                  plane 0, then 1, then 2 ...
+ *     bclr.b  d2,(a2,d1.l)  /  bset.b d2,(a2,d1.l)
+ *
+ * — one `dbra` over `$27c(a2)+1` planes, so only the planes Splinters Colour
+ * named are touched and anything above them survives, which is the point of
+ * that keyword's second argument.
+ *
+ * Routine 386 builds the index as `(y>>4) * $4c(a4) + (x>>4)`, and `$4c` is
+ * the screen's WIDTH IN PIXELS. That is only the same as the bitplane row
+ * width when the width is a multiple of eight, and AMOS rounds screen widths
+ * up to sixteen — but a bank image with an odd width would skew, and it skews
+ * here the same way, because the index is computed the same way.
+ *
+ * NOTE: the range check is the port's. The 68k writes wherever the index
+ * lands, which is exactly what the manual warns about for the sister engine —
+ * "These coordinates must lie WITHIN the screen dimensions, otherwise the
+ * stars could corrupt your memory". Here an index outside the planes is
+ * dropped rather than allowed to corrupt the heap.
+ */
+function splPeek(bm: BitMap, idx: number, top: number): number {
+  const p = bm.planeBytes()
+  const byte = idx >>> 3
+  const bit = ~idx & 7
+  let c = 0
+  for (let n = 0; n <= top && n < bm.depth; n++) {
+    const at = n * bm.planeSize + byte
+    if (at >= p.length) break
+    if (p[at]! & (1 << bit)) c |= 1 << n
   }
-  sp.p = sp.p.filter((q) => (sp.fuel === 0 || q.life > 0) && inLimit(rt, sp.limit, q.x | 0, q.y | 0))
+  return c
 }
 
-function drawSplinters(rt: Runtime): void {
+function splPoke(bm: BitMap, idx: number, colour: number, top: number): void {
+  const p = bm.planeBytes(true)
+  const byte = idx >>> 3
+  const bit = ~idx & 7
+  for (let n = 0; n <= top && n < bm.depth; n++) {
+    const at = n * bm.planeSize + byte
+    if (at >= p.length) break
+    if (colour & (1 << n)) p[at]! |= 1 << bit
+    else p[at]! &= ~(1 << bit)
+  }
+}
+
+/**
+ * Routine 385 ($a88a) — give one splinter a new life from the coordinate bank.
+ *
+ * `d5` is the allowance routine 300 loaded from `$282` once per Move and
+ * every respawn decrements, so it is passed and returned here. Two ways to
+ * fail, and both mark the splinter dead rather than raising anything:
+ *
+ *     tst.w d5 / beq  dead              the Splinters Max allowance is spent
+ *     move.w (a3),d0 / move.w $2(a3),d1 / cmp.w d0,d1 / beq dead
+ *                                       the coordinate list is exhausted
+ *  dead:
+ *     st.b $10(a0) / st.b $11(a0)       free, with no background to restore
+ *
+ * A live respawn takes the next four bytes the bank's cursor points at —
+ * `move.l (a3,d0.l),(a0)` copies x and y across in ONE instruction, because a
+ * bank coordinate and a splinter coordinate are the same sixteenths — then
+ * advances both the cursor and the byte offset, clears the colour, marks the
+ * splinter fresh with `st.b $13(a0)`, blanks the saved background, takes the
+ * fuel from `$27e` and rolls two speeds off the beam.
+ */
+function splinterSpawn(rt: Runtime, v: DataView, o: number, cv: DataView | null, allowance: number): number {
   const sp = rt.amcaf.splinters
+  const dead = (): number => {
+    v.setUint8(o + SPL_COLOUR, 0xff)
+    v.setUint8(o + SPL_BACK, 0xff)
+    return allowance
+  }
+  if (allowance === 0 || !cv) return dead()
+  const count = cv.getUint16(0)
+  const cursor = cv.getUint16(2)
+  if (cursor === count) return dead()
+  const off = cv.getUint32(4)
+  if (off + 4 > cv.byteLength) return dead()
+
+  cv.setUint16(2, (cursor + 1) & 0xffff)
+  const x = cv.getUint16(off)
+  const y = cv.getUint16(off + 2)
+  cv.setUint32(4, off + 4)
+  v.setUint16(o + SPL_X, x)
+  v.setUint16(o + SPL_Y, y)
+  v.setUint32(o + SPL_IDX, splIndex(rt, x, y))
+  v.setUint8(o + SPL_COLOUR, 0)
+  v.setUint8(o + SPL_FRESH, 0xff)
+  v.setUint8(o + SPL_BACK, 0xff)
+  v.setUint16(o + SPL_LIFE, sp.fuel)
+  v.setInt16(o + SPL_VX, splRandomSpeed(rt))
+  v.setInt16(o + SPL_VY, splRandomSpeed(rt))
+  return allowance - 1
+}
+
+/** `(y>>4) * $4c(a4) + (x>>4)` — the `lsr.w` is logical, so the words are unsigned */
+function splIndex(rt: Runtime, x: number, y: number): number {
+  const w = rt.screen?.width ?? 0
+  return (((y & 0xffff) >>> 4) * w + ((x & 0xffff) >>> 4)) >>> 0
+}
+
+/**
+ * `andi.w #$3f` off the beam, retried while zero, then `subi.w #$1f`:
+ *
+ *     add.w   (a1),d6 / move.w d6,d0 / andi.w #$3f,d0 / beq (retry)
+ *     subi.w  #$1f,d0
+ *
+ * so a speed is 1..63 less 31 — anything from -30 to +32 sixteenths a step,
+ * and never a dead stop. `a1` is $dff006, VHPOSR.
+ *
+ * The retry is the guard's reason. On the machine the beam has moved by the
+ * time the loop comes round, so a zero is always transient; the modelled beam
+ * stands still inside a keyword, so if `beamWord() & $3f` is zero the
+ * accumulator never changes and the loop never ends. Sixty-four attempts is
+ * more than the hardware would ever need, and taking the zero after that
+ * gives -31, which is inside the range the routine produces anyway.
+ */
+function splRandomSpeed(rt: Runtime): number {
+  let d0 = 0
+  for (let i = 0; i < 64; i++) {
+    splBeam = (splBeam + rt.interp.beamWord()) & 0xffff
+    d0 = splBeam & 0x3f
+    if (d0 !== 0) break
+  }
+  return extW(d0 - 0x1f)
+}
+
+/** d6 in routine 300 — seeded from VHPOSR each Move, then carried down the table */
+let splBeam = 0
+
+/**
+ * Routine 300 ($6c32) plus routine 386 ($a904), one step for the whole table.
+ *
+ * Routine 300 is the loop and the argument setup: the table at `$26a`, the
+ * count at `$280`, the coordinate bank at `$266` — a missing one is error 23
+ * before anything moves — the allowance from `$282`, and the beam into d6.
+ * Then `Rbsr routine 386` once per splinter with `lea $16(a0),a0` between.
+ *
+ * Routine 386 itself:
+ *
+ *     move.l  $4(a0),$8(a0)             the generations shift, ALWAYS, even
+ *     move.b  $11(a0),$12(a0)           for a splinter about to respawn
+ *     move.b  $10(a0),d0 / cmp.b #$ff,d0 / Rbeq routine 385
+ *     tst.b   $13(a0) / beq / rts       a fresh splinter sits still one step
+ *     tst.w   $14(a0) / Rbeq routine 385
+ *     subq.w  #$1,$14(a0)
+ *     move.w  (a0),d2 / add.w $c(a0),d2         x += vx, as WORDS
+ *     cmp.w   $26e(a2),d2 / bmi  out            x <  x1
+ *     cmp.w   $272(a2),d2 / bpl  out            x >= x2   <- EXCLUSIVE
+ *     ... and the same pair for y ...
+ *     move.w  $276(a2),d2 / add.w d2,$c(a0)     gravity, after the move
+ *  out: Rbra routine 385
+ *
+ * Three things the port had wrong beyond the model. The far corner is
+ * exclusive, so a splinter reaching x2 respawns rather than sitting on the
+ * edge. Leaving the limit does not DELETE a splinter — it respawns it, which
+ * is what makes an endless field endless. And the arithmetic is 16-bit
+ * throughout: `add.w` wraps, and the comparisons are signed words.
+ */
+function splintersMove(rt: Runtime): void {
+  const sp = rt.amcaf.splinters
+  const v = splinterTable(rt)
+  if (!v) amcafErr()
+  if (!sp.coordsBank) amcafErr()
+  const cv = coordsView(rt, sp.coordsBank)
+  /*
+   * NOTE: routine 300 loads `$52c(a5)` into a4 and never tests it, so with no
+   * screen open routine 386's `mulu.w $4c(a4),d3` reads through a null
+   * pointer. Error 47 stands in for a machine that would take a bus error;
+   * every other routine in the family checks, and 300 is the one that forgot.
+   */
+  if (!rt.screen) throw new AmosError('Screen not opened', 47)
+
+  splBeam = rt.interp.beamWord() & 0xffff
+  let allowance = sp.maxNew & 0xffff
+  const lim = sp.limit
+
+  for (let i = 0; i < sp.max; i++) {
+    const o = i * SPL
+    v.setUint32(o + SPL_PIDX, v.getUint32(o + SPL_IDX))
+    v.setUint8(o + SPL_PBACK, v.getUint8(o + SPL_BACK))
+
+    if (v.getUint8(o + SPL_COLOUR) === 0xff) {
+      allowance = splinterSpawn(rt, v, o, cv, allowance)
+      continue
+    }
+    if (v.getUint8(o + SPL_FRESH) !== 0) continue
+    if (v.getUint16(o + SPL_LIFE) === 0) {
+      allowance = splinterSpawn(rt, v, o, cv, allowance)
+      continue
+    }
+    v.setUint16(o + SPL_LIFE, v.getUint16(o + SPL_LIFE) - 1)
+
+    const x = extW(v.getInt16(o + SPL_X) + v.getInt16(o + SPL_VX))
+    const y = extW(v.getInt16(o + SPL_Y) + v.getInt16(o + SPL_VY))
+    if (x < lim.x1 || y < lim.y1 || x >= lim.x2 || y >= lim.y2) {
+      allowance = splinterSpawn(rt, v, o, cv, allowance)
+      continue
+    }
+    v.setInt16(o + SPL_X, x)
+    v.setInt16(o + SPL_Y, y)
+    v.setUint32(o + SPL_IDX, splIndex(rt, x, y))
+    v.setInt16(o + SPL_VX, extW(v.getInt16(o + SPL_VX) + sp.gx))
+    v.setInt16(o + SPL_VY, extW(v.getInt16(o + SPL_VY) + sp.gy))
+  }
+}
+
+/**
+ * Routine 301 ($6c74) — Splinters Back, which does TWO jobs.
+ *
+ *     move.b  $10(a0),d5 / cmp.b #$ff,d5 / beq next     skip the free ones
+ *     ... read the pixel at $4(a0) across $27c+1 planes into d5 ...
+ *     move.b  d5,$11(a0)                                the background
+ *     cmpi.b  #$ff,$13(a0) / bne next
+ *     move.b  d5,$10(a0)                                <- and the COLOUR
+ *
+ * The second is the whole engine's premise: "they don't destroy the
+ * background and use the colour of the pixel they have removed". A splinter
+ * takes its colour on the first Back after it spawns, from whatever was on the
+ * screen where the coordinate list put it. The colour is not in the bank and
+ * nothing else supplies it — which is why the manual insists Back comes
+ * before Draw in the cycle.
+ */
+function splintersBack(rt: Runtime): void {
+  const sp = rt.amcaf.splinters
+  const v = splinterTable(rt)
+  if (!v) amcafErr()
   const s = rt.screen
-  if (!s) return
-  const mask = (1 << sp.planes) - 1
-  for (const q of sp.p) s.rp.putPixel(q.x | 0, q.y | 0, q.c & mask)
+  if (!s) throw new AmosError('Screen not opened', 47)
+
+  for (let i = 0; i < sp.max; i++) {
+    const o = i * SPL
+    if (v.getUint8(o + SPL_COLOUR) === 0xff) continue
+    const c = splPeek(s.rp.bitMap, v.getUint32(o + SPL_IDX), sp.topPlane)
+    v.setUint8(o + SPL_BACK, c)
+    if (v.getUint8(o + SPL_FRESH) === 0xff) v.setUint8(o + SPL_COLOUR, c)
+  }
+}
+
+/** Routine 302 ($6ce2) — the colour at `+$10` onto the pixel at `+$4`, free ones skipped */
+function splintersDraw(rt: Runtime): void {
+  const sp = rt.amcaf.splinters
+  const v = splinterTable(rt)
+  if (!v) amcafErr()
+  const s = rt.screen
+  if (!s) throw new AmosError('Screen not opened', 47)
+
+  for (let i = 0; i < sp.max; i++) {
+    const o = i * SPL
+    const c = v.getUint8(o + SPL_COLOUR)
+    if (c === 0xff) continue
+    splPoke(s.rp.bitMap, v.getUint32(o + SPL_IDX), c, sp.topPlane)
+  }
   s.rp.bitMap.invalidate()
+}
+
+/**
+ * Routines 298 ($6aa4) and 299 ($6b66) — Splinters Single Del and Double Del.
+ *
+ * Each is TWO passes over the table, and the second is the one nothing in the
+ * manual prepares you for.
+ *
+ * The first pass puts the background back: Single reads the colour at `+$11`
+ * and the position at `+$4`, Double reads `+$12` and `+$8`. A saved colour of
+ * $ff means there is nothing to restore. Single additionally skips any
+ * splinter whose `+$13` is set, because a fresh one has never been drawn.
+ *
+ * The second pass is the HOLE. A splinter lifted its colour off the picture,
+ * so where it came from has to be filled with `$27b` — the byte Splinters
+ * Colour stored — and that happens once, on the first Del after the spawn:
+ *
+ *     tst.b   $13(a0) / beq next          only a fresh splinter
+ *     move.b  $11(a0),d0 / cmp.b #$ff,d0 / beq next
+ *     clr.b   $13(a0)                     ... and only once
+ *     ... write $27b(a2) at $4(a0) ...
+ *
+ * Double Del does the same with a two-stage counter instead, `$ff -> 1 -> 0`,
+ * so the hole is punched into BOTH buffers of a double-buffered screen before
+ * the marker clears. That is the only difference between the two second
+ * passes, and it is the reason `+$13` holds $ff rather than a plain flag.
+ */
+function splintersDel(rt: Runtime, double: boolean): void {
+  const sp = rt.amcaf.splinters
+  const v = splinterTable(rt)
+  if (!v) amcafErr()
+  const s = rt.screen
+  if (!s) throw new AmosError('Screen not opened', 47)
+  const bm = s.rp.bitMap
+
+  for (let i = 0; i < sp.max; i++) {
+    const o = i * SPL
+    const saved = v.getUint8(o + (double ? SPL_PBACK : SPL_BACK))
+    if (saved === 0xff) continue
+    if (!double && v.getUint8(o + SPL_FRESH) !== 0) continue
+    splPoke(bm, v.getUint32(o + (double ? SPL_PIDX : SPL_IDX)), saved, sp.topPlane)
+  }
+
+  for (let i = 0; i < sp.max; i++) {
+    const o = i * SPL
+    const fresh = v.getUint8(o + SPL_FRESH)
+    if (fresh === 0) continue
+    if (v.getUint8(o + SPL_BACK) === 0xff) continue
+    if (double) v.setUint8(o + SPL_FRESH, fresh === 0xff ? 1 : 0)
+    else v.setUint8(o + SPL_FRESH, 0)
+    splPoke(bm, v.getUint32(o + SPL_IDX), sp.bkColour & 0xff, sp.topPlane)
+  }
+  bm.invalidate()
+}
+
+/**
+ * =Splinters Active — routine 303 ($6d4a), and it counts by a rule of its own:
+ *
+ *     moveq   #$ff,d0                    ...which is -1, so d0.w is $ffff
+ *     cmp.w   $10(a0),d0 / bne  count     the colour AND the background
+ *     cmp.b   $12(a0),d0 / bne  count     and the older background
+ *
+ * A splinter is active unless all THREE colour bytes are $ff. So one that
+ * routine 385 has just given up on — `st.b $10 / st.b $11`, leaving `+$12`
+ * from the frame before — still counts for one more Del, which is exactly how
+ * long its pixels are still on the screen.
+ */
+function splintersActive(rt: Runtime): number {
+  const sp = rt.amcaf.splinters
+  const v = splinterTable(rt)
+  if (!v) amcafErr()
+  let n = 0
+  for (let i = 0; i < sp.max; i++) {
+    const o = i * SPL
+    if (v.getUint16(o + SPL_COLOUR) !== 0xffff || v.getUint8(o + SPL_PBACK) !== 0xff) n++
+  }
+  return n
 }
 
 /**
@@ -4004,31 +4469,6 @@ function bltCopyPlanes(
 /** the truth table indexed by (A<<2)|(B<<1)|C, which is what a minterm IS */
 const mintermBit2 = (lf: number, a: number, b: number, c: number): number =>
   (lf >> ((a << 2) | (b << 1) | c)) & 1
-
-/** Splinters Back: snapshot the pixels under the CURRENT positions */
-function backSplinters(rt: Runtime): void {
-  const sp = rt.amcaf.splinters
-  const s = rt.screen
-  if (!s) return
-  sp.savedPrev = sp.saved
-  sp.saved = sp.p.map((q) => ({ x: q.x | 0, y: q.y | 0, c: Math.max(0, s.rp.point(q.x | 0, q.y | 0)) }))
-}
-
-/**
- * Put back what Splinters Back saved, which is how the background survives.
- *
- * `prev` picks the older generation, for the double-buffered Del: the buffer
- * being cleared was last drawn two frames ago, so the pixels under it are the
- * ones saved two Backs ago.
- */
-function restoreSplinters(rt: Runtime, prev: boolean): void {
-  const sp = rt.amcaf.splinters
-  const s = rt.screen
-  const from = prev ? sp.savedPrev : sp.saved
-  if (!s || !from) return
-  for (const q of from) s.rp.putPixel(q.x, q.y, q.c)
-  s.rp.bitMap.invalidate()
-}
 
 function moveStar(rt: Runtime, i: number): void {
   const st = rt.amcaf.stars
@@ -5180,8 +5620,8 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      */
     'cop pos': () => VI(rt.copLogicAddr() + rt.copPos),
 
-    /** =Splinters Active — how many splinters are still alive */
-    'splinters active': () => VI(rt.amcaf.splinters.p.length),
+    /** =Splinters Active — routine 303 ($6d4a); see splintersActive for the rule */
+    'splinters active': () => VI(splintersActive(rt)),
 
 
     /**
