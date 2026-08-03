@@ -1251,6 +1251,45 @@ describe('slice 6: colour and palette', () => {
     expect(out.trim()).toBe(String(0x0f0))
   })
 
+  // every palette entry far from anything the tests aim at, so only the one
+  // entry each test sets is in contention
+  const flat = [...scr, 'For I=0 To 15 : Colour I,$00F : Next I']
+
+  /**
+   * Routine 162 measures with Best Pen's weight table (`lea $458a(pc),a2`),
+   * not a sum of squares. The two disagree here by one step in each
+   * direction: the palette entry is 4 and 7 off in green and blue, weighing
+   * 8+20 = 28, and the RED arm is 8 off in blue alone, weighing 30 — but
+   * squared the palette entry costs 16+49 = 65 against the arm's 64.
+   */
+  it('Ham Best weighs candidates with the Best Pen table, not squares', () => {
+    expect(run([...flat, 'Colour 1,$FC7', 'Print Ham Best($F80,$088)']).out.trim()).toBe('1')
+  })
+
+  /**
+   * Ties go to whoever is measured LAST — `cmp.w d0,d5 / blt` skips only on a
+   * strictly better incumbent — and the palette is measured before the three
+   * arms. Palette entry 1 is 4 off in red, the RED arm 4 off in blue, so both
+   * weigh 8 and the arm takes it: $20 + the wanted red nibble.
+   */
+  it('Ham Best gives a tie to the modify arm, not the palette', () => {
+    expect(run([...flat, 'Colour 1,$370', 'Print Ham Best($770,$074)']).out.trim()).toBe(
+      String(0x27),
+    )
+  })
+
+  /**
+   * `cmp.w d6,d7 / beq` answers before the palette is ever read: asking for
+   * the colour that is already there gives control 1 with the blue already
+   * in place, even when a palette entry matches exactly and would have been
+   * the shorter answer.
+   */
+  it('Ham Best short-circuits an unchanged colour to a blue modify', () => {
+    expect(run([...flat, 'Colour 3,$555', 'Print Ham Best($555,$555)']).out.trim()).toBe(
+      String(0x15),
+    )
+  })
+
   it('Ham Fade Out darkens by one step, sixteen calls to black', () => {
     // "darkens the screen by one single step. After calling it 16 times, the
     // Ham screen is completely black"

@@ -3154,6 +3154,20 @@ const TURBO_DRAW_PLANES = [0x01, 0x03, 0x07, 0x0f, 0x1f, 0x3f, 0x24, 0x6d]
 const BEST_PEN_WEIGHT = [0, 1, 3, 5, 8, 12, 16, 20, 30, 40, 50, 60, 70, 80, 90, 100]
 
 /**
+ * How far apart two 12-bit colours are, by that table.
+ *
+ * The binary carries the table TWICE — `lea $3170(pc),a2` in routine 83
+ * (Best Pen) and `lea $458a(pc),a2` in routine 162 (Ham Best) — and the
+ * sixteen bytes at those two addresses are identical, as is the code that
+ * reads them: three `move.b (a2,dn.w)` on the absolute per-gun differences,
+ * summed as words. So it is one metric with two copies, not two metrics.
+ */
+const penDist = (a: number, b: number): number =>
+  BEST_PEN_WEIGHT[Math.abs(rV(a) - rV(b))]! +
+  BEST_PEN_WEIGHT[Math.abs(gV(a) - gV(b))]! +
+  BEST_PEN_WEIGHT[Math.abs(bV(a) - bV(b))]!
+
+/**
  * HAM6's control byte, which is what `Ham Colour` decodes.
  *
  * Bits 4-5 choose: 00 take the palette entry whole, 01 replace BLUE, 10
@@ -3184,21 +3198,60 @@ function hamApply(c: number, oldRgb: number, palette: Uint16Array): number {
 
 /**
  * The inverse: which control byte gets closest to `want` from `prev`.
+ * Routine 162 ($445c), 318 bytes.
  *
  * "As you cannot achieve the desired colour by plotting only one pixel in
- * [HAM]" — so the routine picks the best of the 64, and a caller walking a
- * scanline feeds each answer back in as the next `oldrgb`.
+ * [HAM]", so the routine searches — but it does NOT try all 64 controls, and
+ * it does not measure with a sum of squares. An earlier pass did both.
+ *
+ * There are only NINETEEN candidates: the sixteen palette entries, and one
+ * per modify arm. A modify arm has exactly one sensible nibble, the one the
+ * target already asks for, so the routine builds each candidate directly —
+ * `move.w d6,d4 / andi.w #$f00,d4 / move.w d7,d0 / andi.w #$ff,d0 / or.w d4,d0`
+ * is the RED arm: the wanted red over the previous green and blue.
+ *
+ * The metric is `penDist`, shared with Best Pen (`lea $458a(pc),a2`).
+ *
+ * The order matters, because ties go to whoever is measured LAST — every
+ * comparison is `cmp.w d0,d5 / blt`, which skips only on a strictly better
+ * incumbent. The order is: palette 15 DOWN to 0 (`lea $82(a1),a0` then
+ * `move.w -(a0),d0` with `dbra d4` from $f), then RED ($20), GREEN ($30),
+ * BLUE ($10). So a tie between palette entries goes to the lower index, and a
+ * tie between a palette entry and a modify goes to the modify.
+ *
+ * Any candidate that matches exactly returns at once, so a palette entry that
+ * hits the target beats an equally exact modify.
  */
 function hamBest(want: number, prev: number, palette: Uint16Array): number {
+  // `cmp.w d6,d7 / beq` — nothing to change. It asks for the blue that is
+  // already there rather than searching, and answers before the palette is
+  // even looked at. NOTE: the return is built with `move.l d6,d3 /
+  // andi.w #$f,d3 / addi.w #$10,d3`, a LONG move narrowed by word operations,
+  // so the high word of the argument survives into the result — the only
+  // path in the routine that leaks it.
+  if ((want & 0xffff) === (prev & 0xffff)) return (want & ~0xffff) | (0x10 + (want & 0xf))
+
   let best = 0
-  let bestD = Infinity
-  for (let c = 0; c < 64; c++) {
-    const got = hamApply(c, prev, palette)
-    const d =
-      (rV(got) - rV(want)) ** 2 + (gV(got) - gV(want)) ** 2 + (bV(got) - bV(want)) ** 2
-    if (d < bestD) {
+  let bestD = 1000 // `move.w #$3e8,d5`
+  for (let i = 15; i >= 0; i--) {
+    const d = penDist(palette[i] ?? 0, want)
+    if (d === 0) return i
+    if (bestD >= d) {
       bestD = d
-      best = c
+      best = i
+    }
+  }
+  const arms: [number, number][] = [
+    [0x20 + rV(want), (want & 0xf00) | (prev & 0x0ff)], // set RED
+    [0x30 + gV(want), (want & 0x0f0) | (prev & 0xf0f)], // set GREEN
+    [0x10 + bV(want), (want & 0x00f) | (prev & 0xff0)], // set BLUE
+  ]
+  for (const [control, got] of arms) {
+    const d = penDist(got, want)
+    if (d === 0) return control
+    if (bestD >= d) {
+      bestD = d
+      best = control
     }
   }
   return best
@@ -4377,10 +4430,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
       for (let i = lo; i <= hi; i++) {
         const c = entry(i)
         if (c === want) return VI(i) // the exact match short-circuits
-        const d =
-          BEST_PEN_WEIGHT[Math.abs(rV(c) - rV(want))]! +
-          BEST_PEN_WEIGHT[Math.abs(gV(c) - gV(want))]! +
-          BEST_PEN_WEIGHT[Math.abs(bV(c) - bV(want))]!
+        const d = penDist(c, want)
         if (bestD >= d) {
           bestD = d
           best = i
@@ -4418,7 +4468,17 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
       const s = rt.screen
       return VI(hamApply(i0(a, 0), i0(a, 1), s ? s.palette : new Uint16Array(16)))
     },
-    /** =Ham Best(newrgb,oldrgb) — the control byte that gets closest */
+    /**
+     * =Ham Best(newrgb,oldrgb) — routine 162 ($445c), the control byte that
+     * gets closest. `move.l (a3)+,d7` takes oldrgb and the d6 popped after it
+     * is newrgb, which is the one every candidate is measured against.
+     *
+     * See `hamBest`: nineteen candidates weighed by Best Pen's table, not
+     * sixty-four weighed by a sum of squares.
+     *
+     * NOTE: the routine reads `$52c(a5)` with no guard at all. The fallback
+     * palette below is unreachable for the same reason as Ham Colour's.
+     */
     'ham best': (_, a) => {
       const s = rt.screen
       return VI(hamBest(i0(a, 0), i0(a, 1), s ? s.palette : new Uint16Array(16)))
