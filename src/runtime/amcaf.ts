@@ -259,19 +259,48 @@ export interface SplinterState {
  * Td Stars: a 3D starfield, "Each star consumes 12 bytes of memory".
  *
  * Unlike Splinters these DO destroy the background, which is why the manual
- * pairs Draw with a matching Del rather than saving anything.
+ * pairs Draw with a matching Del rather than saving anything — and, like
+ * Splinters, the stars live in the bank rather than here. See `TD_*` below.
+ *
+ * THERE IS NO Z. A twelve-byte star is a position, the position before it and
+ * a speed, and the depth is entirely an illusion built from the speed:
+ * routine 388 multiplies the speed by 17/16 every step when Accelerate is on,
+ * and routine 319 draws a star's BRIGHTNESS from how fast it is going. A star
+ * that has been running longer is faster, so it is brighter and moving further
+ * each frame — which reads as "coming towards you" without a third axis
+ * anywhere. The port had a `z` and scaled the speed by it, which is a
+ * different way to get a similar picture and matches none of the arithmetic.
+ *
+ * Everything here is a field of the same MEMF_CLEAR block Splinters uses, so
+ * all of it starts at zero — including the limit box, which routine 388 then
+ * treats as nowhere.
  */
 export interface TdStarState {
+  /** `$24a` — the bank holding the 12-byte records; 0 before Td Stars Bank */
   bank: number
+  /** `$264` + 1 */
   max: number
-  s: Array<{ x: number; y: number; z: number; vx: number; vy: number }>
+  /**
+   * `$24e`..`$254`, in SIXTY-FOURTHS of a pixel. Routine 388 compares with
+   * `bcs`/`bcc` — UNSIGNED, where Splinters uses signed `bmi`/`bpl` — so a
+   * negative position does not sort below x1, it sorts above x2.
+   */
+  limit: { x1: number; y1: number; x2: number; y2: number }
+  /** `$25a`/`$25c` — added to the speed each step, raw sixty-fourths */
   gx: number
   gy: number
-  accelerate: boolean
+  /** `$25e` — a WORD, though Accelerate On writes only its high byte */
+  accelerate: number
+  /** `$256`/`$258` — where a star is (re)born, in sixty-fourths */
   ox: number
   oy: number
-  planes: number
-  limit: Limit | null
+  /**
+   * `$260`/`$262` — the two planes Td Stars Planes named, each stored
+   * MULTIPLIED BY FOUR, because that is the offset of a plane pointer in the
+   * screen structure and routine 319 indexes with it directly.
+   */
+  planeA: number
+  planeB: number
 }
 
 
@@ -358,8 +387,37 @@ export interface AmcafState {
   smouse: { x: number; y: number; speed: number; limit: { x1: number; y1: number; x2: number; y2: number } | null }
   /** the ProTracker replayer's state */
   pt: PtState
-  /** Vec Rot's angles, position and the last computed projection */
-  vec: { ax: number; ay: number; az: number; px: number; py: number; pz: number; x: number; y: number; z: number }
+  /**
+   * Vec Rot's block, `$300`..`$32e`, and the shape of it is the point.
+   *
+   * The angles are NOT used by the projection. Routine 373 reads only the
+   * nine-word MATRIX at `$31e`, and the only thing that writes that matrix is
+   * Vec Rot Precalc. So an angle set and not followed by a Precalc has no
+   * effect at all, and a program that never calls Precalc projects through
+   * the all-zero matrix the cleared block starts with. The port used to
+   * recompute from the angles on every call, which quietly made Precalc
+   * unnecessary — see the keyword.
+   */
+  vec: {
+    /** `$300`/`$302`/`$304` — Vec Rot Pos, added AFTER the rotation */
+    px: number
+    py: number
+    pz: number
+    /**
+     * `$306`/`$308`/`$30a` — the angles, masked to 1023 and DOUBLED, because
+     * they are byte offsets into a 1024-entry word table. `$306` takes the
+     * LAST argument of the three.
+     */
+    angA: number
+    angB: number
+    angC: number
+    /** `$31e`..`$32e` — the nine-word rotation matrix Precalc builds */
+    m: Int16Array
+    /** `$30c`/`$30e`/`$310` — the last projection, which the bare forms read */
+    x: number
+    y: number
+    z: number
+  }
   /**
    * The eight "interior palette memory" buffers Pal Get/Set address.
    *
@@ -397,9 +455,10 @@ export function newAmcafState(): AmcafState {
       limit: { x1: 0, y1: 0, x2: 0, y2: 0 },
       gx: 0, gy: 0, fuel: 0, maxNew: 0, bkColour: 0, topPlane: 0,
     },
+    // as for Splinters, every one of these is a field of the cleared block
     stars: {
-      bank: 0, max: 0, s: [], gx: 0, gy: 0,
-      accelerate: false, ox: 160, oy: 100, planes: 6, limit: null,
+      bank: 0, max: 0, limit: { x1: 0, y1: 0, x2: 0, y2: 0 },
+      gx: 0, gy: 0, accelerate: 0, ox: 0, oy: 0, planeA: 0, planeB: 0,
     },
     smouse: { x: 0, y: 0, speed: 1, limit: null },
     pt: {
@@ -408,7 +467,9 @@ export function newAmcafState(): AmcafState {
       signal: 0, vu: [0, 0, 0, 0], note: [0, 0, 0, 0], instr: [0, 0, 0, 0],
       free: [true, true, true, true],
     },
-    vec: { ax: 0, ay: 0, az: 0, px: 0, py: 0, pz: 256, x: 0, y: 0, z: 0 },
+    // MEMF_CLEAR again, matrix included: without a Vec Rot Precalc the
+    // projection runs through all nine zeros, exactly as it does on the machine
+    vec: { px: 0, py: 0, pz: 0, angA: 0, angB: 0, angC: 0, m: new Int16Array(9), x: 0, y: 0, z: 0 },
     palettes: Array.from({ length: 8 }, () => new Uint16Array(32)),
     present: true,
   }
@@ -1391,6 +1452,14 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * a program protects the graphics in the higher planes.
      */
     'shade bob planes'(it) {
+      /*
+       * Routine 285 ($6626) checks the count THREE times before storing it:
+       * `Rbeq routine 390` on zero, `Rbmi routine 390` on negative, and
+       * `moveq #$6,d1 / cmp.l d1,d0 / Rbhi routine 390` on anything above six
+       * — an unsigned compare against the whole LONG, so the manual's "must
+       * be a value between 1 and 6" is enforced at both ends. `subq.w #$1,d0`
+       * then stores it minus one, as the dbra bound the shading loop uses.
+       */
       const n = it.evalInt()
       if (n < 1 || n > 6) amcafErr()
       rt.amcaf.shadePlanes = n
@@ -1401,6 +1470,9 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * object is used", and this is the switch.
      */
     'shade bob mask'(it) {
+      // Routine 284 ($6610) normalises to 0 or 1 rather than storing the
+      // argument: `move.l (a3)+,d0 / beq` then either `move.w #$1,$284(a2)`
+      // or `clr.w $284(a2)`. Any non-zero value means the same thing.
       rt.amcaf.shadeMask = it.evalInt() !== 0
     },
 
@@ -2031,7 +2103,6 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const st = rt.amcaf.stars
       st.bank = bank
       st.max = n
-      st.s = []
     },
 
     /**
@@ -2050,7 +2121,15 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * — fifteen, which is **"At least 4 colours required in screen"**. Then
      * each plane number is bounded against that same depth (`cmp.w dN,d0 /
      * Rble routine 390`), so a plane at or above the depth is error 23, and
-     * each is stored multiplied by four.
+     * each is stored MULTIPLIED BY FOUR — `add.w d1,d1` twice — because that
+     * is the offset of a plane pointer in the screen structure and routine
+     * 319 indexes with it directly. Which is also why there are two of them
+     * and not a count: they are the two planes a star's BRIGHTNESS is spread
+     * across. See `tdStarsDraw`.
+     *
+     * `move.l (a3)+,d2` pops the SECOND argument first, so p1 lands at $260
+     * and p2 at $262 — the order matters, because the dim end of the scale
+     * lights p1 alone and the middle lights p2 alone.
      */
     'td stars planes'(it) {
       const a = it.evalInt()
@@ -2060,147 +2139,300 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       if (!s) throw new AmosError('Screen not opened', 47)
       if (s.rp.bitMap.depth < 2) amcafMsg(15)
       if (s.rp.bitMap.depth <= a || s.rp.bitMap.depth <= b) amcafErr()
-      rt.amcaf.stars.planes = Math.max(a, b) + 1
+      rt.amcaf.stars.planeA = a * 4
+      rt.amcaf.stars.planeB = b * 4
     },
 
     /**
-     * Td Stars Limit [x1,y1 To x2,y2] — and the manual's warning is the point:
-     * "These coordinates must lie WITHIN the screen dimensions, otherwise the
-     * stars could corrupt your memory." Here they cannot; the RastPort clips.
+     * Td Stars Limit [x1,y1 To x2,y2] — routines 305 ($6dba) and 306 ($6df2),
+     * the sixty-fourths twin of Splinters Limit. "These coordinates must lie
+     * WITHIN the screen dimensions, otherwise the stars could corrupt your
+     * memory": here they cannot, because `tdStarsPoke` drops an index outside
+     * the planes.
      */
     'td stars limit'(it) {
       const st = rt.amcaf.stars
-      st.limit = readLimit(rt, it, 6)
-      // DEFECT: both forms also overwrite the ORIGIN, and nothing documents
-      // it — routine 305 stores a longword at $256, which is exactly where
-      // `Td Stars Origin` (routine 307) puts its pair, so setting a limit
-      // silently re-centres the starfield. Worse, the explicit form (306)
-      // computes
-      // that centre as `add.w d1,d0 / lsr.w #1,d0` and `add.w d3,d2 / lsr.w
-      // #1,d2` — which averages x1 with y1 and x2 with y2, MIXING THE AXES
-      // rather than taking the middle of each. Identical in 1.50, so it was
-      // never noticed. Reproduced: a program calling Td Stars Limit after
-      // Td Stars Origin loses the origin it asked for, on the machine too.
-      st.ox = Math.floor(st.limit.cx)
-      st.oy = Math.floor(st.limit.cy)
-    },
-
-    /** Td Stars Origin x,y — "where stars start from, as soon as they have left" */
-    'td stars origin'(it) {
-      const st = rt.amcaf.stars
-      st.ox = it.evalInt()
+      if (it.atStmtEnd()) {
+        const s = rt.screen
+        if (!s) throw new AmosError('Screen not opened', 47)
+        const x2 = extW(s.width * 64 - 1)
+        const y2 = extW(s.height * 64 - 1)
+        st.limit = { x1: 0, y1: 0, x2, y2 }
+        // the bare form's origin is `lsr.w #$1` of the SIZE before the
+        // subtract — `move.w d0,d1 / subq.w #$1,d0 / lsr.w #$1,d1` — so it is
+        // the true centre, unlike the explicit form below
+        st.ox = extW((s.width * 64) >> 1)
+        st.oy = extW((s.height * 64) >> 1)
+        return
+      }
+      let x1 = extW(it.evalInt() << 6)
       it.expect(',')
-      st.oy = it.evalInt()
-    },
-
-    /** Td Stars Gravity sx,sy — a drift added to the speed each step */
-    'td stars gravity'(it) {
-      const st = rt.amcaf.stars
-      st.gx = it.evalInt()
+      let y1 = extW(it.evalInt() << 6)
+      it.expect('to')
+      let x2 = extW((it.evalInt() << 6) - 1)
       it.expect(',')
-      st.gy = it.evalInt()
-    },
-
-    /** Td Stars Accelerate On/Off — "if the stars are to be accelerated" */
-    'td stars accelerate on'() {
-      rt.amcaf.stars.accelerate = true
-    },
-    'td stars accelerate off'() {
-      rt.amcaf.stars.accelerate = false
+      let y2 = extW((it.evalInt() << 6) - 1)
+      if (!((x2 & 0xffff) > (x1 & 0xffff))) [x1, x2] = [x2, x1]
+      if (!((y2 & 0xffff) > (y1 & 0xffff))) [y1, y2] = [y2, y1]
+      st.limit = { x1, y1, x2, y2 }
+      /*
+       * DEFECT: both forms also overwrite the ORIGIN, and nothing documents
+       * it — routine 305 stores a LONGWORD at $256, which is exactly where
+       * Td Stars Origin (routine 307) puts its pair, so setting a limit
+       * silently re-centres the starfield. Worse, the explicit form computes
+       * that centre as
+       *
+       *     add.w d1,d0 / lsr.w #$1,d0      ->  $256 = (x1 + y1) / 2
+       *     add.w d3,d2 / lsr.w #$1,d2      ->  $258 = (x2 + y2) / 2
+       *
+       * which averages x against y instead of each axis against its own pair.
+       * Byte-identical in 1.50, so it survived every release. Reproduced: a
+       * program calling Td Stars Limit after Td Stars Origin loses the origin
+       * it asked for, on the machine too.
+       */
+      st.ox = extW(((x1 + y1) & 0xffff) >>> 1)
+      st.oy = extW(((x2 + y2) & 0xffff) >>> 1)
     },
 
     /**
-     * Td Stars Init — "the stars are moved by random values to avoid that
-     * they all start in the origin. This command should therefore be called
-     * once after all parameters have been set."
+     * Td Stars Origin x,y — routine 307 ($6e30), "where stars start from, as
+     * soon as they have left". Both are shifted into sixty-fourths, and
+     * routine 387 copies the pair into a new star with a single `move.l`.
+     */
+    'td stars origin'(it) {
+      const st = rt.amcaf.stars
+      st.ox = extW(it.evalInt() << 6)
+      it.expect(',')
+      st.oy = extW(it.evalInt() << 6)
+    },
+
+    /**
+     * Td Stars Gravity sx,sy — routine 309 ($6e80), added to the speed each
+     * step and stored RAW, so like Splinters Gravity the unit is the engine's
+     * fixed point: a sixty-fourth of a pixel per step per step.
+     */
+    'td stars gravity'(it) {
+      const st = rt.amcaf.stars
+      st.gx = extW(it.evalInt())
+      it.expect(',')
+      st.gy = extW(it.evalInt())
+    },
+
+    /**
+     * Td Stars Accelerate On / Off — routines 310 ($6e92) and 311 ($6e9c),
+     * "if the stars are to be accelerated".
+     *
+     * NOTE: the pair is asymmetric. On is `st.b $25e(a2)`, which writes $ff to
+     * the HIGH byte of the word; Off is `clr.w $25e(a2)`, which clears both.
+     * Routine 388 tests `tst.w`, so the two still pair up correctly — $ff00 is
+     * non-zero — but a program peeking $25f would find On had left it alone.
+     */
+    'td stars accelerate on'() {
+      rt.amcaf.stars.accelerate = 0xff00
+    },
+    'td stars accelerate off'() {
+      rt.amcaf.stars.accelerate = 0
+    },
+
+    /**
+     * Td Stars Init — routine 308 ($6e46), and the manual's sentence is
+     * literal: "the stars are moved by random values to avoid that they all
+     * start in the origin."
+     *
+     *     L: Rbsr routine 387            spawn this star at the origin
+     *        clr.l $4(a0)                and give it no previous position
+     *        add.w (a1),d5 / andi.w #$1f,d5
+     *     M: Rbsr routine 388            ...then step it, 0 to 31 times
+     *        dbra d5,M
+     *        lea $c(a0),a0 / dbra d7,L
+     *
+     * So every star really is spawned at the origin and then run forward by
+     * the SAME move routine Td Stars Move uses, which is what spreads them
+     * out along their own tracks rather than scattering them. An earlier pass
+     * invented `z: 1 + (i % 64)` and two multiplicative velocities here, a
+     * different design that matches none of the arithmetic.
+     *
+     * NOTE: d5 is never initialised before the first star — `add.w (a1),d5`
+     * reads whatever the interpreter left in it. `andi.w #$1f` bounds the
+     * damage to 0..31 either way, and after the first `dbra` runs it to -1
+     * every later star is deterministic. Modelled as zero.
      */
     'td stars init'(it) {
       void it
       const st = rt.amcaf.stars
-      st.s = []
+      const v = tdStarTable(rt)
+      if (!v) amcafErr()
+      const d6 = { v: rt.interp.beamWord() & 0xffff }
+      let d5 = 0
       for (let i = 0; i < st.max; i++) {
-        st.s.push({
-          x: st.ox,
-          y: st.oy,
-          z: 1 + (i % 64),
-          vx: ((i * 37) % 64) - 32,
-          vy: ((i * 53) % 64) - 32,
-        })
+        const o = i * TD
+        tdStarSpawn(rt, v, o, d6)
+        v.setUint32(o + TD_PREV, 0)
+        d5 = (d5 + rt.interp.beamWord()) & 0x1f
+        for (let k = 0; k <= d5; k++) tdStarMove(rt, v, o, d6)
+        d5 = 0xffff // what the dbra leaves behind, for the next star
       }
     },
 
-    /** Td Stars Move [star] — all of them, or one */
+    /**
+     * Td Stars Move [star] — routines 317 ($6fd4) for the whole table and 318
+     * ($6ffc) for one.
+     *
+     * DEFECT: the indexed form's bound is right and its stride is not.
+     * `cmp.w d0,d7 / Rbmi routine 390` refuses an index past the count, then
+     *
+     *     lsl.w #$4, d0
+     *     adda.w d0, a0
+     *
+     * multiplies it by SIXTEEN. A star is TWELVE bytes — routine 304 sizes the
+     * bank with `mulu.w #$c` and every other loop steps `lea $c(a0),a0`. So
+     * `Td Stars Move 1` lands four bytes into star 1's record and moves a
+     * star made of star 1's speeds and star 2's position; by star 3 it is
+     * off the end of the bank. Only index 0 is right. Reproduced.
+     */
     'td stars move'(it) {
+      const st = rt.amcaf.stars
+      const v = tdStarTable(rt)
+      if (!v) amcafErr()
+      const d6 = { v: 0 }
       if (!it.atStmtEnd()) {
-        moveStar(rt, it.evalInt())
+        const n = it.evalInt()
+        if (st.max - 1 - ((n << 16) >> 16) < 0) amcafErr()
+        d6.v = rt.interp.beamWord() & 0xffff
+        tdStarMove(rt, v, (n & 0xffff) << 4, d6)
         return
       }
-      for (let i = 0; i < rt.amcaf.stars.s.length; i++) moveStar(rt, i)
+      d6.v = rt.interp.beamWord() & 0xffff
+      for (let i = 0; i < st.max; i++) tdStarMove(rt, v, i * TD, d6)
     },
 
-    /** Td Stars Draw — every star onto the screen */
+    /** Td Stars Draw — routine 319 ($7026); the brightness rule is in tdStarsDraw */
     'td stars draw'(it) {
       void it
-      drawStars(rt, true)
+      tdStarsDraw(rt)
     },
+
+    /**
+     * Td Stars Single Del / Double Del — routines 315 ($6efe) and 316 ($6f68).
+     *
+     * Both clear the bit in BOTH named planes, and the only difference is
+     * WHERE: Single reads the position at `(a0)`, Double the one at `+$4`
+     * that routine 388 saved before it moved. Same double-buffer reasoning as
+     * the Splinters pair, done with four bytes instead of a second table --
+     * and much simpler here, because a star destroys what it lands on and has
+     * nothing to put back.
+     */
     'td stars single del'(it) {
       void it
-      drawStars(rt, false)
+      tdStarsDel(rt, false)
     },
     'td stars double del'(it) {
       void it
-      drawStars(rt, false)
+      tdStarsDel(rt, true)
     },
+
+    /**
+     * Td Stars Single Do / Double Do — routines 313 ($6ee6) and 314 ($6ef2),
+     * twelve bytes each:
+     *
+     *     Rbsr routine 315 (single del) / Rbsr routine 316 (double del)
+     *     Rbsr routine 317 (move)
+     *     Rbra routine 319 (draw)
+     *
+     * THREE calls where the Splinters pair has four -- there is no Back step,
+     * because a star keeps nothing. An earlier pass had Double Do skip the
+     * del entirely, which is the one thing neither routine does.
+     */
     'td stars single do'(it) {
       void it
-      drawStars(rt, false)
-      for (let i = 0; i < rt.amcaf.stars.s.length; i++) moveStar(rt, i)
-      drawStars(rt, true)
+      tdStarsDel(rt, false)
+      tdStarsMoveAll(rt)
+      tdStarsDraw(rt)
     },
     'td stars double do'(it) {
       void it
-      for (let i = 0; i < rt.amcaf.stars.s.length; i++) moveStar(rt, i)
-      drawStars(rt, true)
+      tdStarsDel(rt, true)
+      tdStarsMoveAll(rt)
+      tdStarsDraw(rt)
     },
 
 
     /* ---- vector rotation ---- */
 
     /**
-     * Vec Rot Angles ax,ay,az — the rotation about all three axes, in the
-     * same 1024-to-the-turn units Qsin and Qcos use.
+     * Vec Rot Angles ax,ay,az — routine 3 ($1f6c), the rotation about all
+     * three axes in the same 1024-to-the-turn units Qsin and Qcos use.
+     *
+     *     move.l (a3)+,d0 / andi.w #$3ff,d0 / add.w d0,d0 / move.w d0,$306(a2)
+     *
+     * three times over. Each angle is masked to 1023 and DOUBLED, because it
+     * is kept as a byte offset into the 1024-entry word sine table rather than
+     * as an angle — so a program peeking $306 finds twice what it set.
+     *
+     * The pop order matters: `(a3)+` takes the LAST argument first, so `$306`
+     * holds `az` and `$30a` holds `ax`. Routine 4 then uses `$306`'s sine and
+     * cosine as the FIRST of the three it composes.
      */
     'vec rot angles'(it) {
       const v = rt.amcaf.vec
-      v.ax = it.evalInt()
+      const a = it.evalInt()
       it.expect(',')
-      v.ay = it.evalInt()
+      const b = it.evalInt()
       it.expect(',')
-      v.az = it.evalInt()
+      const c = it.evalInt()
+      v.angC = (a & 0x3ff) * 2
+      v.angB = (b & 0x3ff) * 2
+      v.angA = (c & 0x3ff) * 2
     },
 
     /**
-     * Vec Rot Pos x,y,z — the viewpoint. `z` is the distance the projection
-     * divides by, which is what turns a rotated 3D point into a 2D one.
+     * Vec Rot Pos x,y,z — routine 2 ($1f54), three words at `$300`.
+     *
+     * NOT subtracted from the point before the rotation, which is how the
+     * port had it. Routine 373 ADDS it afterwards: x and y scaled up by 256
+     * to match the matrix products, and z at its face value into the divisor.
+     * So it translates the CAMERA in rotated space, and its z is what pushes
+     * the scene away from the eye.
      */
     'vec rot pos'(it) {
       const v = rt.amcaf.vec
-      v.px = it.evalInt()
+      v.px = extW(it.evalInt())
       it.expect(',')
-      v.py = it.evalInt()
+      v.py = extW(it.evalInt())
       it.expect(',')
-      v.pz = it.evalInt()
+      v.pz = extW(it.evalInt())
     },
 
     /**
-     * Vec Rot Precalc — builds the rotation matrix once so the per-point
-     * functions do not have to.
+     * Vec Rot Precalc — routine 4 ($1f96), 236 bytes, and IT IS NOT A NO-OP.
      *
-     * Nothing here caches a matrix, so this is a no-op — FAITHFUL rather than
-     * a stub, because the only thing a program can observe afterwards is that
-     * the following Vec Rot X/Y/Z give the same answers either way.
+     * An earlier pass wrote "Nothing here caches a matrix, so this is a no-op
+     * — FAITHFUL rather than a stub, because the only thing a program can
+     * observe afterwards is that the following Vec Rot X/Y/Z give the same
+     * answers either way." That is exactly backwards. Routine 373, which is
+     * every Vec Rot X/Y/Z with arguments, reads ONLY the nine-word matrix at
+     * `$31e` — it never looks at an angle. This routine is the only thing
+     * that writes that matrix.
+     *
+     * So on the machine:
+     *
+     *   - Vec Rot Angles followed by Vec Rot X gives the OLD rotation
+     *   - Vec Rot X with no Precalc ever called projects through the zeros
+     *     the cleared block starts with, and every point collapses
+     *
+     * The port recomputed from the angles on each call, which made the
+     * keyword unnecessary and quietly fixed a program that had forgotten it.
+     *
+     * The build itself is transcribed rather than re-derived: it looks up six
+     * table entries into `$312`..`$31c` (sine at the angle, cosine a quarter
+     * turn on, `addi.w #$200 / andi.w #$7fe`) and then composes them with
+     * `muls.w` and `asr.l #$8` throughout. `asr` is a FLOOR, not a truncation
+     * toward zero, and at 8-bit fixed point that bias is visible in the
+     * output, so it is reproduced with `>>`.
      */
-    'vec rot precalc'() {},
+    'vec rot precalc'() {
+      vecRotPrecalc(rt)
+    },
 
     /* ---- extension internals ---- */
 
@@ -2617,7 +2849,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       if (!it.accept(',')) {
         const s = rt.screens.get(first)
         if (!s) amcafErr()
-        rt.amcaf.bltLimit = { x1: 0, y1: 0, x2: s.width - 1, y2: s.height - 1, cx: 0, cy: 0 }
+        rt.amcaf.bltLimit = { x1: 0, y1: 0, x2: s.width - 1, y2: s.height - 1 }
         return
       }
       const y1 = it.evalInt()
@@ -2638,7 +2870,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
        */
       const box = amcafRegion(first, y1, x2, y2)
       if (!box) amcafErr()
-      rt.amcaf.bltLimit = { x1: box.x, y1: box.y, x2: box.x + box.w - 1, y2: box.y + box.h - 1, cx: 0, cy: 0 }
+      rt.amcaf.bltLimit = { x1: box.x, y1: box.y, x2: box.x + box.w - 1, y2: box.y + box.h - 1 }
     },
 
     /**
@@ -3895,83 +4127,6 @@ export interface Limit {
   y1: number
   x2: number
   y2: number
-  /** the origin routines 305/306 store at $256/$258 — see `td stars limit` */
-  cx: number
-  cy: number
-}
-
-/**
- * The `[x1,y1 To x2,y2]` limit argument, as Td Stars reads it.
- *
- * NOT shared with the other two Limit keywords, though it once was here.
- * AMCAF has three and they agree on nothing: Td Stars (routines 305/306) uses
- * sixty-fourths, Splinters (291/292) sixteenths, and Limit Smouse (168/169)
- * whole pixels with no subtract and no normalising at all. Reading one and
- * assuming the others got two of the three wrong; each now has its own.
- *
- * The bare form is *"If you don't give any parameters, AMCAF uses the limits
- * of the current screen"*, and routine 305 ($6dba) shows it SNAPSHOTS them
- * rather than deferring:
- *
- *     movea.l $52c(a5), a0        the current screen
- *     move.l  a0, d0 / Rbeq 394   ...and error if there is not one
- *     clr.l   $24e(a2)            low bound is 0,0
- *     move.w  $4c(a0), d0 / lsl.w #6, d0 / subq.w #1, d0
- *     move.w  $4e(a0), d0 / lsl.w #6, d0 / subq.w #1, d0
- *     move.l  d0, $252(a2)
- *
- * so the high bound is the screen size in SIXTY-FOURTHS of a pixel less one —
- * the engine's own fixed point — which in whole pixels is `width - 1`. Taking
- * the size at call time is the visible difference: a program that resizes the
- * screen afterwards keeps the limits it asked for.
- *
- * `shift` is the engine's fixed point. It matters because the `To` bound has
- * 1 subtracted in those units, which makes it EXCLUSIVE in whole pixels.
- *
- * The explicit form also NORMALISES: `cmp.w d0,d2 / bhi / exg.l d0,d2` per
- * axis, so `30,20 To 1,2` is accepted and read backwards. The swap happens
- * after the subtract, so the two orderings are not quite mirror images —
- * ascending gives x1..x2-1 and descending gives x2..x1.
- *
- * `cx`/`cy` are the origin the Td Stars forms then store. See TdStarLimit.
- */
-function readLimit(rt: Runtime, it: Interp, shift: number): Limit {
-  const u = 1 << shift
-  if (it.atStmtEnd()) {
-    const s = rt.screen
-    if (!s) amcafErr()
-    return { x1: 0, y1: 0, x2: s.width - 1, y2: s.height - 1, cx: s.width / 2, cy: s.height / 2 }
-  }
-  const a = it.evalInt()
-  it.expect(',')
-  const b = it.evalInt()
-  it.expect('to')
-  const c = it.evalInt()
-  it.expect(',')
-  const d = it.evalInt()
-
-  // In sub-pixel units, exactly as the routine holds them: `lsl.w #n` then
-  // `subq.l #1` on the high pair, then `cmp.w`/`exg.l` to order each axis.
-  let lx = a * u
-  let hx = c * u - 1
-  let ly = b * u
-  let hy = d * u - 1
-  if (!(hx > lx)) [lx, hx] = [hx, lx]
-  if (!(hy > ly)) [ly, hy] = [hy, ly]
-
-  // The origin the routine then computes — and it MIXES THE AXES.
-  const cx = (lx + ly) / 2 / u
-  const cy = (hx + hy) / 2 / u
-  // Positions are truncated to whole pixels before being tested, so the
-  // sub-pixel bounds collapse: `c*u - 1` excludes pixel c, `a*u` includes a.
-  return { x1: Math.ceil(lx / u), y1: Math.ceil(ly / u), x2: Math.floor(hx / u), y2: Math.floor(hy / u), cx, cy }
-}
-
-const inLimit = (rt: Runtime, lim: Limit | null, x: number, y: number): boolean => {
-  const s = rt.screen
-  if (!s) return false
-  if (!lim) return x >= 0 && y >= 0 && x < s.width && y < s.height
-  return x >= lim.x1 && y >= lim.y1 && x <= lim.x2 && y <= lim.y2
 }
 
 /**
@@ -4530,31 +4685,235 @@ function bltCopyPlanes(
 const mintermBit2 = (lf: number, a: number, b: number, c: number): number =>
   (lf >> ((a << 2) | (b << 1) | c)) & 1
 
-function moveStar(rt: Runtime, i: number): void {
+/* ------------------------------------------------------------------ *
+ * The Td Stars engine
+ * ------------------------------------------------------------------ */
+
+/**
+ * Twelve bytes a star, read out of routines 387 ($a982) and 388 ($a9be).
+ *
+ *     +$00 word  x, in sixty-fourths of a pixel
+ *     +$02 word  y, in sixty-fourths
+ *     +$04 long  the previous (x,y) PAIR, saved as one long by routine 388
+ *     +$08 word  vx, sixty-fourths per step
+ *     +$0a word  vy
+ *
+ * That is the whole star. There is no z and no colour: the depth cue is the
+ * SPEED, which routine 388 grows by a sixteenth every step when Accelerate is
+ * on, and routine 319 turns into a two-plane brightness.
+ */
+const TD = 12
+const TD_X = 0x0
+const TD_Y = 0x2
+const TD_PREV = 0x4
+const TD_VX = 0x8
+const TD_VY = 0xa
+
+function tdStarTable(rt: Runtime): DataView | null {
   const st = rt.amcaf.stars
-  const q = st.s[i]
-  if (!q) return
-  q.vx += st.gx
-  q.vy += st.gy
-  // an accelerating star gains speed as it approaches, which is what makes a
-  // 3D field look like one rather than a drift
-  if (st.accelerate) q.z += 1
-  q.x += (q.vx * q.z) / 256
-  q.y += (q.vy * q.z) / 256
-  if (!inLimit(rt, st.limit, q.x | 0, q.y | 0)) {
-    q.x = st.ox
-    q.y = st.oy
-    q.z = 1
+  if (!st.bank) return null
+  const b = rt.memBanks.get(st.bank)
+  if (!b || b.kind !== 'memory' || b.data.length < st.max * TD) return null
+  return new DataView(b.data.buffer, b.data.byteOffset, b.data.byteLength)
+}
+
+/**
+ * Routine 387 ($a982) — put a star at the origin with a usable speed.
+ *
+ *     move.l  $256(a2),(a0)               the origin pair, in one move
+ *  L: add.w   (a1),d6 / move.w d6,d0
+ *     andi.w  #$7f,d0 / subi.w #$3f,d0    -63..64
+ *     move.w  d0,d2 / bpl / not.w d2      ...roughly its magnitude
+ *     ... the same for d1 into d3 ...
+ *     add.w   d3,d2 / cmp.w #$10,d2 / blt L
+ *     move.w  d0,$8(a0) / move.w d1,$a(a0)
+ *
+ * The retry is the interesting part: a star whose two speeds add up to less
+ * than sixteen sixty-fourths — a quarter of a pixel a step — is REJECTED and
+ * rolled again, so no star ever crawls. That is what stops the field piling
+ * up at the origin, and it is why Init's random number of steps spreads them
+ * along tracks rather than into a cloud.
+ *
+ * `not.w` rather than `neg.w` for the magnitude, so a negative speed counts
+ * as one less than its size. Reproduced; routine 319 uses `neg.w` for the
+ * same job and the two disagree by one.
+ *
+ * NOTE: the same beam guard as the Splinters spawn. The retry terminates on
+ * the machine because VHPOSR has moved; here the modelled beam stands still
+ * inside a keyword, so it is bounded at 64 attempts.
+ */
+function tdStarSpawn(rt: Runtime, v: DataView, o: number, d6: { v: number }): void {
+  const st = rt.amcaf.stars
+  v.setInt16(o + TD_X, st.ox)
+  v.setInt16(o + TD_Y, st.oy)
+  let d0 = 0
+  let d1 = 0
+  for (let i = 0; i < 64; i++) {
+    d6.v = (d6.v + rt.interp.beamWord()) & 0xffff
+    d0 = extW((d6.v & 0x7f) - 0x3f)
+    d6.v = (d6.v + rt.interp.beamWord()) & 0xffff
+    d1 = extW((d6.v & 0x7f) - 0x3f)
+    const m0 = d0 >= 0 ? d0 : extW(~d0)
+    const m1 = d1 >= 0 ? d1 : extW(~d1)
+    if (extW(m0 + m1) >= 0x10) break
+  }
+  v.setInt16(o + TD_VX, d0)
+  v.setInt16(o + TD_VY, d1)
+}
+
+/**
+ * Routine 388 ($a9be) — one step for one star.
+ *
+ *     move.l  (a0),$4(a0)                 the previous position, always
+ *     move.w  (a0),d2 / add.w $8(a0),d2   x += vx
+ *     cmp.w   $24e(a2),d2 / bcs  out      x <  x1   UNSIGNED
+ *     cmp.w   $252(a2),d2 / bcc  out      x >= x2   UNSIGNED, exclusive
+ *     ... the same pair for y ...
+ *     move.w  $25a(a2),d2 / add.w d2,$8(a0)   gravity, after the move
+ *     tst.w   $25e(a2) / bne / rts            Accelerate?
+ *     ... v += v/16, sign-aware ...
+ *  out: Rbra  routine 387
+ *
+ * Two things worth naming. The clip is UNSIGNED where the Splinters engine's
+ * is signed, so a star that walks off the left does not compare below x1 — it
+ * wraps to a huge positive and fails the x2 test instead. Same outcome, and
+ * only the same because both ends respawn.
+ *
+ * And the acceleration is multiplicative: `move.w d2,d0 / lsr.w #$4,d0 /
+ * add.w d0,d2` is v * 17/16 a step, with the negative arm doing the mirror
+ * through `not.w`. Compounding is what makes a star appear to rush past — an
+ * earlier pass added a constant to a `z` instead, which grows linearly.
+ */
+function tdStarMove(rt: Runtime, v: DataView, o: number, d6: { v: number }): void {
+  const st = rt.amcaf.stars
+  if (o + TD > v.byteLength) return
+  v.setUint32(o + TD_PREV, v.getUint32(o + TD_X))
+  const x = extW(v.getInt16(o + TD_X) + v.getInt16(o + TD_VX))
+  const y = extW(v.getInt16(o + TD_Y) + v.getInt16(o + TD_VY))
+  const u = (n: number): number => n & 0xffff
+  if (u(x) < u(st.limit.x1) || u(y) < u(st.limit.y1) || u(x) >= u(st.limit.x2) || u(y) >= u(st.limit.y2)) {
+    tdStarSpawn(rt, v, o, d6)
+    return
+  }
+  v.setInt16(o + TD_X, x)
+  v.setInt16(o + TD_Y, y)
+  v.setInt16(o + TD_VX, extW(v.getInt16(o + TD_VX) + st.gx))
+  v.setInt16(o + TD_VY, extW(v.getInt16(o + TD_VY) + st.gy))
+  if (st.accelerate === 0) return
+  for (const at of [TD_VX, TD_VY]) {
+    const s = v.getInt16(o + at)
+    v.setInt16(o + at, s >= 0 ? extW(s + ((s & 0xffff) >>> 4)) : extW(s - ((extW(~s) & 0xffff) >>> 4)))
   }
 }
 
-function drawStars(rt: Runtime, on: boolean): void {
+function tdStarsMoveAll(rt: Runtime): void {
   const st = rt.amcaf.stars
+  const v = tdStarTable(rt)
+  if (!v) amcafErr()
+  const d6 = { v: rt.interp.beamWord() & 0xffff }
+  for (let i = 0; i < st.max; i++) tdStarMove(rt, v, i * TD, d6)
+}
+
+/**
+ * The pixel address routines 315, 316 and 319 share, and it is NOT the flat
+ * bit index the Splinters engine uses:
+ *
+ *     move.w  $4c(a1),d6 / lsr.w #$3,d6       the screen width in BYTES
+ *     move.w  (a0),d0 / lsr.w #$6,d0          x, into whole pixels
+ *     move.b  d0,d2 / not.b d2                the bit, from the left
+ *     lsr.w   #$3,d0 / ext.l d0               the byte within the row
+ *     move.w  $2(a0),d1 / lsr.w #$6,d1
+ *     mulu.w  d6,d1 / add.l d0,d1             the byte offset
+ *     bset.b  d2,(a2,d1.l)
+ *
+ * so the row stride is `width / 8` bytes rather than the BitMap's own
+ * bytesPerRow. The two agree for every AMOS screen, whose width is a multiple
+ * of sixteen, and this reproduces the routine's arithmetic rather than the
+ * BitMap's so a screen where they differ differs the same way.
+ *
+ * The range check is the port's; the 68k writes wherever the offset lands,
+ * which is exactly the corruption the manual warns about for this keyword.
+ */
+function tdStarPoke(rt: Runtime, bm: BitMap, x: number, y: number, plane: number, on: boolean): void {
+  void rt
+  const stride = (bm.width & 0xffff) >>> 3
+  const px = (x & 0xffff) >>> 6
+  const py = (y & 0xffff) >>> 6
+  const bit = ~px & 7
+  const at = (plane >> 2) * bm.planeSize + py * stride + (px >>> 3)
+  const p = bm.planeBytes(true)
+  if (at < 0 || at >= p.length) return
+  if (on) p[at]! |= 1 << bit
+  else p[at]! &= ~(1 << bit)
+}
+
+/** the depth guard routines 315, 316 and 319 all open with */
+function tdStarsScreen(rt: Runtime): Screen {
   const s = rt.screen
-  if (!s) return
-  const mask = (1 << st.planes) - 1
-  for (const q of st.s) s.rp.putPixel(q.x | 0, q.y | 0, on ? mask : 0)
-  s.rp.bitMap.invalidate()
+  if (!s) throw new AmosError('Screen not opened', 47)
+  if (s.rp.bitMap.depth < 2) amcafMsg(15)
+  return s
+}
+
+/** Routines 315 ($6efe) and 316 ($6f68) — clear both planes, here or a frame back */
+function tdStarsDel(rt: Runtime, prev: boolean): void {
+  const st = rt.amcaf.stars
+  const v = tdStarTable(rt)
+  if (!v) amcafErr()
+  const bm = tdStarsScreen(rt).rp.bitMap
+  for (let i = 0; i < st.max; i++) {
+    const o = i * TD + (prev ? TD_PREV : 0)
+    if (o + 4 > v.byteLength) continue
+    const x = v.getInt16(o)
+    const y = v.getInt16(o + 2)
+    tdStarPoke(rt, bm, x, y, st.planeA, false)
+    tdStarPoke(rt, bm, x, y, st.planeB, false)
+  }
+  bm.invalidate()
+}
+
+/**
+ * Routine 319 ($7026) — and a star's BRIGHTNESS is its speed.
+ *
+ *     move.w  $8(a0),d3 / bpl / neg.w d3      |vx|
+ *     move.w  $a(a0),d4 / bpl / neg.w d4      |vy|
+ *     add.w   d4,d3 / lsr.w #$6,d3            whole pixels a step
+ *     cmp.w   #$3,d3 / bge   -> bset both planes
+ *     cmp.w   #$2,d3 / bge   -> bclr A, bset B
+ *                     else   -> bclr B, bset A
+ *
+ * Three levels across the two planes Td Stars Planes named, which is why that
+ * keyword takes two plane NUMBERS and refuses a screen with fewer than four
+ * colours. A fast star is bright, and Accelerate makes a star faster the
+ * longer it has been running, so a field brightens towards the edges without
+ * anything ever storing a depth. An earlier pass drew every star as a solid
+ * `(1 << planes) - 1` and had no brightness at all.
+ */
+function tdStarsDraw(rt: Runtime): void {
+  const st = rt.amcaf.stars
+  const v = tdStarTable(rt)
+  if (!v) amcafErr()
+  const bm = tdStarsScreen(rt).rp.bitMap
+  for (let i = 0; i < st.max; i++) {
+    const o = i * TD
+    if (o + TD > v.byteLength) continue
+    const x = v.getInt16(o + TD_X)
+    const y = v.getInt16(o + TD_Y)
+    const vx = v.getInt16(o + TD_VX)
+    const vy = v.getInt16(o + TD_VY)
+    const speed = (extW(Math.abs(vx) + Math.abs(vy)) & 0xffff) >>> 6
+    if (speed >= 3) {
+      tdStarPoke(rt, bm, x, y, st.planeA, true)
+      tdStarPoke(rt, bm, x, y, st.planeB, true)
+    } else if (speed >= 2) {
+      tdStarPoke(rt, bm, x, y, st.planeA, false)
+      tdStarPoke(rt, bm, x, y, st.planeB, true)
+    } else {
+      tdStarPoke(rt, bm, x, y, st.planeB, false)
+      tdStarPoke(rt, bm, x, y, st.planeA, true)
+    }
+  }
+  bm.invalidate()
 }
 
 /* ------------------------------------------------------------------ *
@@ -4562,33 +4921,112 @@ function drawStars(rt: Runtime, on: boolean): void {
  * ------------------------------------------------------------------ */
 
 /**
- * Rotate a point about all three axes and project it, caching the result.
+ * Routine 4 ($1f96) — build the nine-word rotation matrix at `$31e`.
  *
- * With three arguments all three coordinates are computed at once — "If you
- * call the function with the parameters x,y,z all three new coordinates are
- * calculated" — and a bare call reads the cache, which is why the trio has a
- * no-argument form.
+ * Transcribed instruction for instruction rather than re-derived as an Euler
+ * composition, because the arithmetic is where the behaviour is: every stage
+ * is `muls.w` on the low WORDS and `asr.l #$8`, so each intermediate is
+ * truncated to sixteen bits and floored at 8-bit fixed point before the next
+ * multiply sees it. A clean matrix built in floating point and rounded at the
+ * end would agree to within a unit or two and disagree constantly.
+ *
+ * The six table lookups it starts with are the sine at each angle and the
+ * cosine a quarter turn on — `addi.w #$200,d0 / andi.w #$7fe,d0`, which is
+ * 256 entries of two bytes, wrapped into the 2048-byte table.
+ */
+function vecRotPrecalc(rt: Runtime): void {
+  const v = rt.amcaf.vec
+  const tab = (off: number): number => SIN256[(off >> 1) & 0x3ff]!
+  // $312..$31c: sin and cos of each of the three angles
+  const s1 = tab(v.angA)
+  const c1 = tab(v.angA + 0x200)
+  const s2 = tab(v.angB)
+  const c2 = tab(v.angB + 0x200)
+  const s3 = tab(v.angC)
+  const c3 = tab(v.angC + 0x200)
+  const mul = (p: number, q: number): number => Math.imul(extW(p), extW(q))
+  const m = v.m
+
+  // row 0: `muls.w`/`asr.l #$8` on c2 against s1 and c1, then s2 straight
+  m[0] = extW(mul(c1, c2) >> 8)
+  m[1] = extW(mul(s1, c2) >> 8)
+  m[2] = extW(s2)
+
+  // row 1, where the `neg.w` on the second and third terms lives
+  const d4 = mul(s3, s2) >> 8
+  const d5 = mul(d4, s1)
+  const r10 = mul(s1, c3) + mul(d4, c1)
+  const r11 = mul(c1, c3) - d5
+  m[3] = extW(r10 >> 8)
+  m[4] = extW(-extW(r11 >> 8))
+  m[5] = extW(-extW(mul(s3, c2) >> 8))
+
+  // row 2, the same shape with c3 and s3 exchanged
+  const e0 = mul(c3, s2) >> 8
+  const r20 = mul(s3, s1) - mul(e0, c1)
+  const r21 = mul(s3, c1) + mul(e0, s1)
+  m[6] = extW(r20 >> 8)
+  m[7] = extW(-extW(r21 >> 8))
+  m[8] = extW(mul(c3, c2) >> 8)
+}
+
+/**
+ * Routine 373 ($84e4) — rotate a point through the matrix and project it.
+ *
+ *     move.l (a3)+,d3                     the LAST argument, z
+ *     muls.w $31e(a2),d3 / muls.w $324(a2),d4 / muls.w $32a(a2),d5
+ *     ... then y against $320/$326/$32c, then x against $322/$328/$32e ...
+ *     move.w $300(a2),d0 / ext.l d0 / asl.l d7,d0 / add.l d0,d3
+ *     move.w $302(a2),d0 / ext.l d0 / asl.l d7,d0 / add.l d0,d4
+ *     asr.l  d7,d5 / addx.w d2,d5 / add.w $304(a2),d5
+ *     move.w d5,$310(a2)
+ *     tst.w  d5 / Rbeq routine 390        a zero distance is error 23
+ *     divs.w d5,d3 / move.w d3,$30c(a2)
+ *     divs.w d5,d4 / move.w d4,$30e(a2)
+ *
+ * Three things the port had differently. The position is ADDED after the
+ * rotation, not subtracted before it. The x and y sums are left at the
+ * matrix's 256x scale and divided by the plain z, which IS the projection —
+ * there is no separate multiply by 256. And a resulting z of zero is an
+ * ERROR, where the port substituted 1 and carried on.
+ *
+ * DEFECT: the arguments reach the matrix BACKWARDS. `(a3)+` pops the last
+ * argument first — the same order Qcos relies on when it adds a quarter turn
+ * to `$6(a3)` — so the first pop is `z`, and the first pop is what multiplies
+ * `$31e`, `$324` and `$32a`, the first COLUMN. Routine 4 builds that column
+ * as `[c1*c2, ..., ...]` and the third as `[s2, ..., c3*c2]`, which is the
+ * standard shape for a first column pairing with x and a third pairing with
+ * z. So `Vec Rot X(x,y,z)` rotates the vector (z, y, x). Identical in 1.40
+ * and 1.50; nothing in the manual mentions it, and a caller who fed a
+ * symmetric point would never see it. Reproduced.
+ *
+ * `addx.w d2,d5` with d2 zeroed adds the bit `asr.l` pushed into X, so the
+ * distance is rounded on bit 7 rather than floored — the same idiom Qsin
+ * uses. `divs.w` is 32-by-16: NOTE that a quotient too big for a word leaves
+ * the register untouched on the 68000 and sets V, which nothing here tests,
+ * so a point very close to the eye reports the PREVIOUS x or y. Reproduced.
  */
 function vecRot(rt: Runtime, a: Value[]): { x: number; y: number; z: number } {
   const v = rt.amcaf.vec
   if (a.length < 3) return { x: v.x, y: v.y, z: v.z }
-  let x = int(a[0]!) - v.px
-  let y = int(a[1]!) - v.py
-  let z = int(a[2]!) - v.pz
-  const rot = (p: number, q: number, ang: number): [number, number] => {
-    // the same 1024-to-the-turn units and 256-scaled table Qsin uses
-    const si = SIN256[ang & 0x3ff]!
-    const co = SIN256[(ang + 256) & 0x3ff]!
-    return [(p * co - q * si) / 256, (p * si + q * co) / 256]
-  }
-  ;[y, z] = rot(y, z, v.ax)
-  ;[x, z] = rot(x, z, v.ay)
-  ;[x, y] = rot(x, y, v.az)
-  // "automatically projected from 3D to 2D by dividing it through the distance"
-  const d = z === 0 ? 1 : z
-  v.x = Math.round((x * 256) / d)
-  v.y = Math.round((y * 256) / d)
-  v.z = Math.round(z)
+  const x = extW(int(a[0]!))
+  const y = extW(int(a[1]!))
+  const z = extW(int(a[2]!))
+  const m = v.m
+  const mul = (p: number, q: number): number => Math.imul(extW(p), extW(q))
+  let d3 = mul(z, m[0]!) + mul(y, m[1]!) + mul(x, m[2]!)
+  let d4 = mul(z, m[3]!) + mul(y, m[4]!) + mul(x, m[5]!)
+  const d5raw = mul(z, m[6]!) + mul(y, m[7]!) + mul(x, m[8]!)
+  d3 += v.px << 8
+  d4 += v.py << 8
+  const d5 = extW((d5raw >> 8) + ((d5raw >> 7) & 1) + v.pz)
+  v.z = d5
+  if (d5 === 0) amcafErr()
+  // `divs.w`, so the quotient is a word and an overflow leaves the old value
+  const qx = (d3 / d5) | 0
+  const qy = (d4 / d5) | 0
+  if (qx === extW(qx)) v.x = qx
+  if (qy === extW(qy)) v.y = qy
   return { x: v.x, y: v.y, z: v.z }
 }
 
@@ -5113,6 +5551,25 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * whatever the block holds, including before any Examine at all.
      */
     'object type': () => VI(rt.amcaf.examine.fib.type),
+    /*
+     * Routines 114, 118, 120, 122 and 124 ($3b20, $3b4c, $3b60, $3b74,
+     * $3b88), and every one is a dozen bytes reading a FIXED OFFSET into the
+     * FileInfoBlock the last Examine filled at $100(a2). None of them takes a
+     * path, which is what #186 settled; these add the offsets.
+     *
+     *     $17c = FIB +$7c   fib_Size
+     *     $180 = FIB +$80   fib_NumBlocks
+     *     $184 = FIB +$84   fib_Date.ds_Days
+     *     $108 = FIB +$08   fib_FileName, returned through routine 366 (d2=2)
+     *
+     * Object Time is the only one that computes anything:
+     *
+     *     lea $18a(a2),a0 / move.w (a0),d3 / swap d3 / move.w $4(a0),d3
+     *
+     * — $18a and $18e are the LOW WORDS of ds_Minute and ds_Tick, packed into
+     * one long with the minutes above the ticks. Both fit a word (1440 and
+     * 3000), so nothing is lost, and it is the same packing Ct Time$ uses.
+     */
     'object size': () => VI(rt.amcaf.examine.fib.size),
     'object blocks': () => VI(rt.amcaf.examine.fib.blocks),
     'object name$': () => VS(rt.amcaf.examine.fib.name),

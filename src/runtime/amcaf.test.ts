@@ -2522,14 +2522,128 @@ describe('slice 9: Splinters and Td Stars', () => {
     expect(prog(2)).toBe(4)
   })
 
-  it('Td Stars Bank reserves 12 bytes a star, and Init spreads them', () => {
-    const { rt } = run([...scr, 'Td Stars Bank 6,20', 'Td Stars Origin 32,16', 'Td Stars Init'])
+  /** the 12-byte record routines 387 and 388 define — no z, and no colour */
+  const stars = (rt: { memBanks: Map<number, { data: Uint8Array }> }, bank: number, count: number) => {
+    const d = rt.memBanks.get(bank)!.data
+    const v = new DataView(d.buffer, d.byteOffset, d.byteLength)
+    return Array.from({ length: count }, (_, i) => {
+      const o = i * 12
+      return {
+        x: v.getInt16(o), y: v.getInt16(o + 2),
+        px: v.getInt16(o + 4), py: v.getInt16(o + 6),
+        vx: v.getInt16(o + 8), vy: v.getInt16(o + 10),
+      }
+    })
+  }
+
+  const field = [
+    'Td Stars Bank 6,8', 'Td Stars Planes 0,1', 'Td Stars Limit',
+    'Td Stars Origin 32,16', 'Td Stars Init',
+  ]
+
+  it('Td Stars Bank reserves 12 bytes a star', () => {
+    const { rt } = run([...scr, 'Td Stars Bank 6,20'])
     expect(rt.memBanks.get(6)!.data.length).toBe(240)
-    const st = rt.amcaf.stars
-    expect(st.s).toHaveLength(20)
-    // "the stars are moved by random values to avoid that they all start in
-    // the origin" -- so their velocities differ
-    expect(new Set(st.s.map((q) => q.vx)).size).toBeGreaterThan(1)
+  })
+
+  /**
+   * Routine 308 ($6e46) spawns each star at the ORIGIN and then runs it
+   * forward 0..31 steps with the same routine 388 that Td Stars Move uses —
+   * "the stars are moved by random values to avoid that they all start in the
+   * origin", which turns out to be literal.
+   *
+   * An earlier pass invented `z: 1 + (i % 64)` and two multiplicative
+   * velocities here. There is no z in a 12-byte star.
+   */
+  it('Td Stars Init spawns at the origin and steps each star along its own track', () => {
+    const { rt } = run([...scr, ...field])
+    const s = stars(rt, 6, 8)
+    // the step counts differ, so the stars end up strung out rather than
+    // heaped at the origin
+    expect(new Set(s.map((q) => `${q.x},${q.y}`)).size).toBeGreaterThan(1)
+    // with a limit box nothing can be inside, every spawn leaves immediately
+    // and respawns, so Init leaves every star exactly at the origin — which
+    // is stored in sixty-fourths and copied in by one `move.l`
+    const out = stars(run([...scr, 'Td Stars Bank 6,8', 'Td Stars Planes 0,1',
+      'Td Stars Limit 1000,1000 To 1001,1001', 'Td Stars Origin 32,16', 'Td Stars Init']).rt, 6, 8)
+    for (const q of out) expect([q.x, q.y]).toEqual([32 * 64, 16 * 64])
+    // routine 387 refuses a star whose two speeds add to less than sixteen
+    // sixty-fourths, so none of them crawls
+    for (const q of s) expect(Math.abs(q.vx) + Math.abs(q.vy)).toBeGreaterThanOrEqual(15)
+  })
+
+  /**
+   * Routine 388's acceleration is MULTIPLICATIVE — `move.w d2,d0 / lsr.w
+   * #$4,d0 / add.w d0,d2`, so v * 17/16 a step. Compounding is what makes a
+   * star appear to rush past; an earlier pass added a constant to a `z`,
+   * which grows linearly.
+   */
+  it('Td Stars Accelerate multiplies the speed by 17/16 a step', () => {
+    const base = [...scr, 'Td Stars Bank 6,1', 'Td Stars Planes 0,1', 'Td Stars Limit',
+      'Td Stars Origin 32,16', 'Td Stars Init']
+    const before = stars(run([...base]).rt, 6, 1)[0]!
+    const off = stars(run([...base, 'Td Stars Move']).rt, 6, 1)[0]!
+    const on = stars(run([...base, 'Td Stars Accelerate On', 'Td Stars Move']).rt, 6, 1)[0]!
+    // with Accelerate off the speed is untouched (no gravity is set)
+    expect(off.vx).toBe(before.vx)
+    // with it on, a positive speed gains v>>4 and a negative one loses it
+    const grow = (v: number): number => (v >= 0 ? v + (v >> 4) : v - ((~v & 0xffff) >>> 4))
+    expect(on.vx).toBe(grow(before.vx))
+    expect(on.vy).toBe(grow(before.vy))
+  })
+
+  /**
+   * `move.l (a0),$4(a0)` at the top of routine 388 — the previous position,
+   * saved as one long, which is all Double Del needs.
+   */
+  it('a Move saves the position Double Del will clear', () => {
+    const base = [...scr, ...field]
+    const before = stars(run(base).rt, 6, 8)
+    const after = stars(run([...base, 'Td Stars Move']).rt, 6, 8)
+    for (let i = 0; i < 8; i++) {
+      expect(after[i]!.px, `${i}`).toBe(before[i]!.x)
+      expect(after[i]!.py, `${i}`).toBe(before[i]!.y)
+    }
+  })
+
+  /**
+   * Routine 319 draws a star's BRIGHTNESS from its speed, across the two
+   * planes Td Stars Planes named:
+   *
+   *     |vx| + |vy| >> 6   >= 3  -> both planes
+   *                        >= 2  -> plane B alone
+   *                        else  -> plane A alone
+   *
+   * which is why the keyword takes two plane NUMBERS and refuses a screen
+   * with fewer than four colours. An earlier pass drew every star as a solid
+   * `(1 << planes) - 1` and had no brightness at all.
+   */
+  it('Td Stars Draw spreads a star over two planes by its speed', () => {
+    // one star, no acceleration, a limit box wide enough that it survives
+    const seen = new Set<number>()
+    for (let n = 1; n <= 12; n++) {
+      const { rt } = run([
+        'Screen Open 0,320,64,16,Lowres', 'Cls 0',
+        'Td Stars Bank 6,24', 'Td Stars Planes 0,1', 'Td Stars Limit',
+        'Td Stars Origin 160,32', 'Td Stars Accelerate On', 'Td Stars Init',
+        `For I=1 To ${n} : Td Stars Move : Next I`, 'Td Stars Draw',
+      ])
+      const px = rt.screens.get(0)!.rp
+      for (let y = 0; y < 64; y++) for (let x = 0; x < 320; x++) {
+        const c = px.point(x, y)
+        if (c > 0) seen.add(c & 3)
+      }
+    }
+    // all three brightnesses appear: plane 0 alone, plane 1 alone, and both
+    expect([...seen].sort()).toEqual([1, 2, 3])
+  })
+
+  /** `add.w d1,d1` twice — the plane numbers are stored MULTIPLIED BY FOUR */
+  it('Td Stars Planes keeps the plane offsets, not a count', () => {
+    const { rt } = run([...scr, 'Td Stars Bank 6,4', 'Td Stars Planes 1,3'])
+    expect([rt.amcaf.stars.planeA, rt.amcaf.stars.planeB]).toEqual([4, 12])
+    // and each is bounded against the screen's own depth
+    expect(() => run([...scr, 'Td Stars Bank 6,4', 'Td Stars Planes 0,4'])).toThrow(/illegal function call/i)
   })
 
   /**
@@ -2549,20 +2663,23 @@ describe('slice 9: Splinters and Td Stars', () => {
    * manual mentions that Limit touches the origin at all.
    */
   it('Td Stars Limit clobbers the origin, and the explicit form mixes the axes', () => {
-    // the bare form re-centres on the screen, discarding an earlier Origin
+    // Everything below is in SIXTY-FOURTHS, which is what the engine stores.
+    // The bare form re-centres on the screen, discarding an earlier Origin,
+    // and takes the true middle: `move.w d0,d1` BEFORE the `subq`, then
+    // `lsr.w #$1,d1`. On a 64x32 screen that is 64*64/2 and 32*64/2.
     const bare = run([...scr, 'Td Stars Bank 6,20', 'Td Stars Origin 5,7', 'Td Stars Limit'])
-    expect([bare.rt.amcaf.stars.ox, bare.rt.amcaf.stars.oy]).toEqual([32, 16]) // a 64x32 screen
+    expect([bare.rt.amcaf.stars.ox, bare.rt.amcaf.stars.oy]).toEqual([2048, 1024])
 
-    // the explicit form: x1=10,y1=20 To x2=40,y2=30 should centre on (25,25).
-    // It gives ((10+20)/2, (39+29)/2) = (15,34) — the second is off the
-    // rectangle entirely, and below the screen.
+    // the explicit form: 10,20 To 40,30 should centre on (25,25) — 1600,1600.
+    // It gives ((640+1280)/2, (2559+1919)/2) = (960,2239), and the second is
+    // off the rectangle entirely and below the screen.
     const expl = run([...scr, 'Td Stars Bank 6,20', 'Td Stars Origin 5,7', 'Td Stars Limit 10,20 To 40,30'])
-    expect([expl.rt.amcaf.stars.ox, expl.rt.amcaf.stars.oy]).toEqual([15, 34])
+    expect([expl.rt.amcaf.stars.ox, expl.rt.amcaf.stars.oy]).toEqual([960, 2239])
 
     // ordering the call the other way round keeps the origin, which is the
     // only way to get the one you asked for
     const ok = run([...scr, 'Td Stars Bank 6,20', 'Td Stars Limit', 'Td Stars Origin 5,7'])
-    expect([ok.rt.amcaf.stars.ox, ok.rt.amcaf.stars.oy]).toEqual([5, 7])
+    expect([ok.rt.amcaf.stars.ox, ok.rt.amcaf.stars.oy]).toEqual([5 * 64, 7 * 64])
   })
 
   /**
@@ -2595,30 +2712,60 @@ describe('slice 9: Splinters and Td Stars', () => {
       'Td Stars Accelerate Off',
     ])
     expect([st.rt.amcaf.stars.gx, st.rt.amcaf.stars.gy]).toEqual([2, -3])
-    expect(st.rt.amcaf.stars.accelerate).toBe(false)
+    // NOTE the asymmetry: routine 310 is `st.b $25e(a2)`, which writes $ff to
+    // the HIGH byte, and routine 311 is `clr.w`, which clears both
+    expect(st.rt.amcaf.stars.accelerate).toBe(0)
+    const on = run([...scr, 'Td Stars Bank 6,10', 'Td Stars Accelerate On'])
+    expect(on.rt.amcaf.stars.accelerate).toBe(0xff00)
 
     // the Do pair is del + move + draw — three calls, where Splinters has four
     expect(() =>
-      run([...scr, 'Td Stars Bank 6,10', 'Td Stars Init', 'Td Stars Single Do', 'Td Stars Double Do']),
+      run([...scr, 'Td Stars Bank 6,10', 'Td Stars Planes 0,1', 'Td Stars Limit', 'Td Stars Init',
+        'Td Stars Single Do', 'Td Stars Double Do']),
     ).not.toThrow()
-    expect(() => run([...scr, 'Td Stars Bank 6,10', 'Td Stars Init', 'Td Stars Double Del'])).not.toThrow()
+    expect(() => run([...scr, 'Td Stars Bank 6,10', 'Td Stars Planes 0,1', 'Td Stars Limit',
+      'Td Stars Init', 'Td Stars Double Del'])).not.toThrow()
   })
 
-  it('Td Stars Move sends them outward and recycles at the limit', () => {
-    const { rt } = run([
-      ...scr,
-      'Td Stars Bank 6,8',
-      'Td Stars Origin 32,16',
-      'Td Stars Accelerate On',
-      'Td Stars Init',
-      'For I=1 To 60 : Td Stars Move : Next I',
-    ])
-    // every star is still inside the screen: one that left was put back at
-    // the origin, which is what "as soon as they have left the screen" means
-    for (const q of rt.amcaf.stars.s) {
-      expect(q.x | 0).toBeGreaterThanOrEqual(0)
-      expect(q.x | 0).toBeLessThan(64)
+  /**
+   * A star that leaves the limit box is RESPAWNED at the origin by routine
+   * 388's `Rbra routine 387`, which is what "as soon as they have left the
+   * screen" means — the field never empties and never escapes.
+   */
+  it('Td Stars Move recycles a star that leaves the limit', () => {
+    const { rt } = run([...scr, ...field, 'Td Stars Accelerate On',
+      'For I=1 To 60 : Td Stars Move : Next I'])
+    for (const q of stars(rt, 6, 8)) {
+      expect(q.x >> 6).toBeGreaterThanOrEqual(0)
+      expect(q.x >> 6).toBeLessThan(64)
+      expect(q.y >> 6).toBeGreaterThanOrEqual(0)
+      expect(q.y >> 6).toBeLessThan(32)
     }
+  })
+
+  /**
+   * DEFECT: the indexed form of Td Stars Move has the wrong stride. Routine
+   * 318 ($6ffc) bounds the index correctly against `$264(a2)` and then does
+   *
+   *     lsl.w #$4, d0 / adda.w d0, a0
+   *
+   * multiplying it by SIXTEEN where a star is TWELVE bytes -- routine 304
+   * sizes the bank with `mulu.w #$c` and every other loop steps `lea
+   * $c(a0),a0`. So only index 0 addresses a whole star; index 1 lands four
+   * bytes in, and moves a record made of star 1's speeds and star 2's
+   * position. Reproduced.
+   */
+  it('Td Stars Move n uses a stride of sixteen for a twelve-byte star', () => {
+    const base = [...scr, ...field]
+    const before = stars(run(base).rt, 6, 8)
+    const after = stars(run([...base, 'Td Stars Move 1']).rt, 6, 8)
+    // star 1 proper is untouched: its own record starts at byte 12
+    expect(after[1]!.x).toBe(before[1]!.x)
+    // ...but bytes 16..27 moved, which is the tail of star 1 and the head of 2
+    expect(after.map((q) => q.px)).not.toEqual(before.map((q) => q.px))
+    // index 0 is the one that works
+    const zero = stars(run([...base, 'Td Stars Move 0']).rt, 6, 8)
+    expect(zero[0]!.px).toBe(before[0]!.x)
   })
 
   /**
@@ -2696,49 +2843,126 @@ describe('slice 9: Splinters and Td Stars', () => {
 describe('slice 10: vectors and the extension internals', () => {
   const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
 
-  it('Vec Rot with no rotation is a plain perspective divide', () => {
+  /**
+   * Routine 373 ($84e4) reads ONLY the nine-word matrix at $31e. Nothing else
+   * in the extension writes that matrix, and the extension's block arrives
+   * from `AllocMem #$10001` — MEMF_CLEAR. So a program that never calls
+   * Vec Rot Precalc projects every point through nine zeros: the rotated z is
+   * zero, `tst.w d5 / Rbeq routine 390` fires, and the program STOPS.
+   *
+   * An earlier pass made Precalc a no-op and recomputed from the angles on
+   * every call, and wrote a test asserting that it "changes no answer, which
+   * is why it can be a no-op". It changes every answer, including whether
+   * there is one.
+   */
+  it('Vec Rot without a Precalc projects through the zero matrix, and errors', () => {
+    expect(() => run(['Vec Rot Angles 0,0,0', 'Vec Rot Pos 0,0,0', 'Print Vec Rot X(100,50,256)']))
+      .toThrow(/illegal function call/i)
+    // a Vec Rot Pos with a non-zero z keeps the divide alive, and every point
+    // then collapses onto the position, because the matrix contributes nothing
     const { out } = run([
-      'Vec Rot Angles 0,0,0',
-      'Vec Rot Pos 0,0,0',
+      'Vec Rot Angles 0,0,0 : Vec Rot Pos 7,9,256',
+      'A=Vec Rot X(100,50,300)',
+      'Print A;",";Vec Rot Y;",";Vec Rot Z',
+    ])
+    expect(out.trim().replace(/\s+/g, '')).toBe('7,9,256')
+  })
+
+  /** with the matrix built, an identity rotation is a plain perspective divide */
+  it('Vec Rot Precalc builds the matrix the projection runs on', () => {
+    const { out } = run([
+      'Vec Rot Angles 0,0,0 : Vec Rot Pos 0,0,0 : Vec Rot Precalc',
       'A=Vec Rot X(100,50,256)',
       'Print A;",";Vec Rot Y;",";Vec Rot Z',
     ])
-    // z = 256 is unit distance, so x and y would come back unchanged if
-    // cos(0) were 1 — but it is 255/256 (see the table DEFECT above), and
-    // three successive rotations each scale by it
-    expect(out.trim().replace(/\s+/g, '')).toBe('100,50,254')
+    /*
+     * DEFECT: the arguments reach the matrix BACKWARDS, so this is the
+     * projection of (256, 50, 100) rather than (100, 50, 256).
+     *
+     * `(a3)+` pops the last argument first — the order Qcos depends on when
+     * it adds a quarter turn to `$6(a3)` — and the first pop is what
+     * multiplies `$31e`, the first COLUMN, which routine 4 builds as
+     * `c1*c2`. With zero angles the matrix is diag(254, -254, 254), so:
+     *
+     *     X = z*254 / dist = 256*254 / 99  = 656
+     *     Y = y*-254 / dist = 50*-254 / 99 = -128
+     *     dist = x*254 >> 8, rounded      = 99
+     *
+     * The Y sign is the `neg.w d3` in routine 4's second row, also faithful.
+     */
+    expect(out.trim().replace(/\s+/g, '')).toBe('656,-128,99')
+  })
+
+  /**
+   * The consequence a program can actually trip over: changing the angles
+   * changes NOTHING until the next Precalc.
+   */
+  it('Vec Rot Angles has no effect until the next Precalc', () => {
+    const before = run([
+      'Vec Rot Pos 0,0,0 : Vec Rot Angles 0,0,0 : Vec Rot Precalc',
+      'Print Vec Rot X(256,0,256)',
+    ]).out.trim()
+    const stale = run([
+      'Vec Rot Pos 0,0,0 : Vec Rot Angles 0,0,0 : Vec Rot Precalc',
+      'Vec Rot Angles 0,0,256',
+      'Print Vec Rot X(256,0,256)',
+    ]).out.trim()
+    const fresh = run([
+      'Vec Rot Pos 0,0,0 : Vec Rot Angles 0,0,0 : Vec Rot Precalc',
+      'Vec Rot Angles 0,0,256 : Vec Rot Precalc',
+      'Print Vec Rot X(256,0,256)',
+    ]).out.trim()
+    expect(stale).toBe(before)
+    expect(fresh).not.toBe(before)
+  })
+
+  /** `add.w d0,d0` — the angles are kept DOUBLED, as table byte offsets */
+  it('Vec Rot Angles masks to 1023 and doubles', () => {
+    const { rt } = run(['Vec Rot Angles 1,2,3'])
+    // and the LAST argument lands at $306, which is angA
+    expect([rt.amcaf.vec.angA, rt.amcaf.vec.angB, rt.amcaf.vec.angC]).toEqual([6, 4, 2])
+    const wrap = run(['Vec Rot Angles 1024,1025,-1'])
+    expect(wrap.rt.amcaf.vec.angC).toBe(0)
+    expect(wrap.rt.amcaf.vec.angB).toBe(2)
+    expect(wrap.rt.amcaf.vec.angA).toBe(1023 * 2)
   })
 
   it('the bare form reads the cache the three-argument form filled', () => {
     // "If you call the function with the parameters x,y,z all three new
     // coordinates are calculated, i.e the y,z position too"
     const { out } = run([
-      'Vec Rot Angles 0,0,0 : Vec Rot Pos 0,0,0',
+      'Vec Rot Angles 0,0,0 : Vec Rot Pos 0,0,0 : Vec Rot Precalc',
       'A=Vec Rot X(40,80,256)',
       'Print Vec Rot X;",";Vec Rot Y',
     ])
-    expect(out.trim().replace(/\s+/g, '')).toBe('40,80')
+    // again through the reversed argument order: (256, 80, 40) projected
+    expect(out.trim().replace(/\s+/g, '')).toBe('1625,-508')
   })
 
-  it('a quarter turn about Z swaps the axes', () => {
+  it('a quarter turn about the first angle swaps the axes', () => {
     const { out } = run([
       'Vec Rot Pos 0,0,0',
-      'Vec Rot Angles 0,0,256',
+      'Vec Rot Angles 0,0,256 : Vec Rot Precalc',
       'A=Vec Rot X(256,0,256)',
       'Print Vec Rot Y',
     ])
     // 1024 units to the turn, so 256 is 90 degrees: x moves onto y
-    expect(Number(out.trim())).toBeGreaterThan(200)
+    expect(Math.abs(Number(out.trim()))).toBeGreaterThan(200)
   })
 
-  it('Vec Rot Precalc changes no answer, which is why it can be a no-op', () => {
-    const a = run(['Vec Rot Angles 100,200,300 : Vec Rot Pos 0,0,0', 'Print Vec Rot X(50,60,300)'])
-    const b = run([
-      'Vec Rot Angles 100,200,300 : Vec Rot Pos 0,0,0',
-      'Vec Rot Precalc',
-      'Print Vec Rot X(50,60,300)',
-    ])
-    expect(a.out.trim()).toBe(b.out.trim())
+  /**
+   * `tst.w d5 / Rbeq routine 390` — a rotated distance of zero is error 23,
+   * where the port used to substitute 1 and carry on.
+   */
+  it('a projected distance of zero is an error', () => {
+    expect(() =>
+      // and it is the FIRST argument that has to be zero, not the third,
+      // because of the reversal above
+      run(['Vec Rot Angles 0,0,0 : Vec Rot Pos 0,0,0 : Vec Rot Precalc', 'Print Vec Rot X(0,10,10)']),
+    ).toThrow(/illegal function call/i)
+    expect(() =>
+      run(['Vec Rot Angles 0,0,0 : Vec Rot Pos 0,0,0 : Vec Rot Precalc', 'Print Vec Rot X(10,10,0)']),
+    ).not.toThrow()
   })
 
   it('Speek and Sdeek read memory as SIGNED, which Peek and Deek do not', () => {
