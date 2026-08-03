@@ -38,6 +38,7 @@ import { existsSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { firstCodeHunk } from '../tokens/libtok'
+import { routineAddresses } from '../ext/routines'
 import { extensionById, REGISTRY } from '../ext/registry'
 import { AMOS_CALL_KINDS, AMOS_CALL_LOW, AMOS_CALL_MARKER, AMOS_CALL_SEL_J, AMOS_CALL_SEL_T, AMOS_ROUTINES } from '../ext/amoscalls.gen'
 
@@ -69,7 +70,6 @@ if (!libFile) {
 }
 const code = firstCodeHunk(new Uint8Array(readFileSync(join(dir, libFile))))
 const view = new DataView(code.buffer, code.byteOffset, code.byteLength)
-const u16 = (o: number): number => view.getUint16(o, false)
 
 /** the highest routine number any keyword refers to */
 let maxRoutine = 0
@@ -96,6 +96,8 @@ for (const t of ext.tokens) {
 const jumpSize = view.getUint32(0, false)
 const tokenSize = view.getUint32(4, false)
 const cal = { at: 18, first: 18 + jumpSize + tokenSize }
+// the walk itself lives in ../ext/routines.ts so the citation checker and
+// this disassembler agree by construction rather than by both getting it right
 if (cal.first >= code.length) {
   console.error(`header implies routine 0 at $${cal.first.toString(16)}, past the ${code.length}-byte hunk`)
   process.exit(1)
@@ -107,9 +109,7 @@ if (cal.first >= code.length) {
  * 333` — into a shared worker that no token names. Building the whole table
  * (jumpSize/2 entries) is what makes those reachable, via `#333`.
  */
-const entries = jumpSize / 2
-const addr: number[] = [cal.first]
-for (let i = 0; i + 1 < entries; i++) addr.push(addr[i]! + u16(cal.at + i * 2) * 2)
+const addr = routineAddresses(code)
 
 /**
  * Decode an AMOS call pseudo-instruction at `off`, if there is one.
@@ -232,21 +232,19 @@ console.log(`jump table at +${cal.at} (delta-encoded words), routine 0 at $${cal
  *
  * `--map` only lists routines a token entry names, which is most of what a
  * reader wants but useless for the other job: checking that the citations in
- * the port still agree with the binary. The port's convention is to write
- * "routine 296 ($6a84)", so the whole file can be checked against this in one
- * pass:
+ * the port still agree with the binary. That job used to be a shell recipe
+ * living here, built on this output. It is now `src/cli/citecheck.ts` and
+ * `src/ext/citations.test.ts`, which do it across every extension at once and
+ * handle what the recipe could not — an address INSIDE the cited routine, a
+ * version-qualified citation, and the continuation forms its regex silently
+ * skipped.
  *
- *     npx tsx src/cli/extdis.ts amcaf-1.50 --addr > /tmp/a.txt
- *     grep -ohE "[Rr]outines? [0-9]+ \(\\$[0-9a-f]+\)" src/runtime/amcaf.ts |
- *       sed -E 's/.*routines? ([0-9]+) \(\\?\$([0-9a-f]+)\)/\1 \2/' | sort -u |
- *       awk 'NR==FNR{a[$1]=$2;next}{if(a[$1]!="$"$2) print}' /tmp/a.txt -
- *
- * #188 found twenty-four stale citations across AMCAF that way. Most were
- * fourteen low on the number — the numbering that predates the jump-table fix
- * in #176 — and one, Limit Smouse, turned out to be pointing at a routine
- * whose behaviour the port had then copied. A wrong citation is not a
- * cosmetic problem: it is how a reading gets attributed to code that never
- * said it.
+ * The recipe found twenty-four stale citations across AMCAF in #188. Most
+ * were fourteen low on the number — the numbering that predates the
+ * jump-table fix in #176 — and one, Limit Smouse, turned out to be pointing
+ * at a routine whose behaviour the port had then copied. A wrong citation is
+ * not a cosmetic problem: it is how a reading gets attributed to code that
+ * never said it.
  */
 if (args.includes('--addr')) {
   // `addr.length`, not `maxRoutine` — the latter is the highest routine a
@@ -365,8 +363,8 @@ if (keyword) {
   const byNumber = /^#(\d+)$/.exec(keyword)
   if (byNumber) {
     const n = Number(byNumber[1])
-    if (n >= entries) {
-      console.error(`\n${id} has ${entries} routines; ${n} is out of range`)
+    if (n >= addr.length) {
+      console.error(`\n${id} has ${addr.length} routines; ${n} is out of range`)
       process.exit(1)
     }
     disassemble(routineName(n), n)

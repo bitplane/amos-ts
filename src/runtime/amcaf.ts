@@ -3817,7 +3817,7 @@ const KEY_NAMES: Record<number, string> = {
   0x55: 'F6', 0x56: 'F7', 0x57: 'F8', 0x58: 'F9', 0x59: 'F10',
 }
 
-/** the shared body of Lsstr$ and Lzstr$ (routines 178 and 177, $488e) */
+/** the shared body of Lsstr$ ($488e) and Lzstr$ ($47ea), routines 178 and 177 */
 function padNum(v: number, n: number, pad: string): string {
   // `Rbeq` on zero and `cmp.w #$a / Rbhi` bound n to 1..10
   if (n < 1 || n > 10) amcafErr()
@@ -5941,7 +5941,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * =Lsstr$(v,n) / =Lzstr$(v,n) — routines 178 and 177 ($488e).
+     * =Lsstr$(v,n) / =Lzstr$(v,n) — routine 178 ($488e) and routine 177 ($47ea).
      *
      * A number right-justified in exactly n characters. Lsstr$ pads with
      * spaces and Lzstr$ with zeros, and NEITHER prints the sign — the
@@ -6231,7 +6231,8 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
 
 
     /**
-     * =Bank Checksum(bank) or (start To end) — routines 55 and 54 ($2782).
+     * =Bank Checksum(bank) or (start To end) — routine 55 ($27a6), which
+     * tails into the worker at routine 54 ($2782).
      *
      * A plain LONGWORD SUM of the region, then `eori.l #$faceface`. The
      * author liked that constant: the word-wide Bank Code Mix uses $FACE and
@@ -6543,7 +6544,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
 
 
     /**
-     * =Red Val / =Green Val / =Blue Val — routines 87, 88 and 89 ($327a),
+     * =Red Val / =Green Val / =Blue Val — routines 87 ($327a), 88 ($329a) and 89 ($32c0),
      * "separate the colour into its three contents".
      *
      * These three are the ONLY readers of the Amcaf Aga Notation flag in the
@@ -6814,14 +6815,15 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * The manual is refreshingly honest about the value: "This value is not
      * very accurate because the raster beam is very fast, sigh."
      *
-     * X (routine 192, $4f68) reads ONE byte, $dff007, and doubles it:
+     * X (routine 204, $4e9a; 1.40's routine 192, $4f68) reads ONE byte,
+     * $dff007, and doubles it:
      *
      *     move.b $dff007.l, d3 / add.w d3, d3
      *
      * because HPOS counts colour clocks, which are two lores pixels each.
      *
-     * Y (routine 193, $4f7e) is a NINE-bit read, and that is the part an
-     * earlier pass got wrong:
+     * Y (routine 205, $4ea8; 1.40's routine 193, $4f7e) is a NINE-bit read,
+     * and that is the part an earlier pass got wrong:
      *
      *     lea.l $dff005.l, a0
      *     move.b (a0)+, d3      VPOSR's low byte — bit 0 is V8
