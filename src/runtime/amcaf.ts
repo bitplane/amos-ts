@@ -876,9 +876,17 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * stored and the scroll case is not reproduced.
      */
     'set rain colour'(it) {
+      /*
+       * Routine 201 ($4d18): the rainbow number is bounded to 0..3 before
+       * anything else — `Rbmi routine 390` then `cmp.w #$4,d0 / Rbge routine
+       * 390` — and the colour lands at `+$8` of a 24-byte record in AMOS's
+       * own rainbow table at `-$868(a5)`, walked `lea $18(a1),a1` at a time.
+       * Four rainbows, which is what AMOS has.
+       */
       const n = it.evalInt()
       it.expect(',')
       const c = it.evalInt()
+      if (n < 0 || n >= 4) amcafErr()
       const rb = rt.rainbows.get(n)
       if (!rb) amcafErr()
       rb.colour = c
@@ -892,10 +900,30 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * which is the same ramp Ham Fade Out uses.
      */
     'rain fade'(it) {
+      /*
+       * A `!` multi-arity entry: id $1348 spec `I0,0` is routine 202 ($4d40)
+       * and id $135c spec `I0t0` is routine 203 ($4dd0).
+       *
+       * Both bound the rainbow number to 0..3 the way Set Rain Colour does,
+       * and routine 203 adds one more check the port did not have:
+       *
+       *     cmp.w d0,d1 / Rbeq routine 390
+       *
+       * — fading a rainbow TO ITSELF is error 23, not a no-op. Routine 202
+       * also refuses a rainbow whose length word at `+$a` is zero.
+       *
+       * The step is one unit per gun per call, compared a nibble at a time
+       * (`andi.w #$f00` then `subi.w #$100` or `addi.w #$100`), which is what
+       * the manual means by "Rain Fade works step by step only. Therefore you
+       * need a maximum of 16 calls to reach the new colour values".
+       */
       const n = it.evalInt()
+      if (n < 0 || n >= 4) amcafErr()
       const rb = rt.rainbows.get(n)
       if (it.accept('to')) {
-        const target = rt.rainbows.get(it.evalInt())
+        const t = it.evalInt()
+        if (t < 0 || t >= 4 || t === n) amcafErr()
+        const target = rt.rainbows.get(t)
         if (!rb || !target) amcafErr()
         for (let i = 0; i < rb.table.length; i++) rb.table[i] = fadeStep(rb.table[i]!, target.table[i] ?? 0)
         return
@@ -1653,6 +1681,10 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * uninteresting for you."
      */
     'ptile bank'(it) {
+      // Routine 269 ($61d4) is twelve bytes and stores the bank NUMBER at
+      // $360, not a resolved address: `move.l (a3)+,d0 / move.l d0,$360(a2)`.
+      // Paste Ptile resolves it each time, so erasing and re-reserving the
+      // bank between calls works, where a cached pointer would dangle.
       rt.amcaf.ptileBank = it.evalInt()
     },
 
@@ -3023,6 +3055,10 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * see it anyway.
      */
     'write cli'(it) {
+      // Routine 214 ($4fd4). DEVIATION: it writes to the process's own
+      // output stream through dos.library, and Amos Cli is zero here, so
+      // there is no shell to write to. The text goes to the AMOS console,
+      // which is where a program running without one would see it anyway.
       it.write(it.evalStr())
     },
 
@@ -3061,8 +3097,10 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * breaks saved programs — so 1.40 and 1.50 still list them and neither
      * does anything. 1.50's routines are the whole story:
      *
-     *     rnc unpack ($63c0, 6 bytes)   move.l (a3)+,d5 / move.l (a3)+,d0 / rts
-     *     rnp        ($63c6, 2 bytes)   rts
+     *     rnc unpack (routine 276, $63c0, 6 bytes)
+     *         move.l (a3)+,d5 / move.l (a3)+,d0 / rts
+     *     rnp        (routine 277, $63c6, 2 bytes)
+     *         rts
      *
      * They pop their arguments and return. 1.40's are the same shape behind
      * the standard prologue, except its `rnp` has no `rts` at all and falls
@@ -6015,8 +6053,32 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
 
     /** =Turbo Point(x,y) — "Fast replacement for Point", clipped since V1.30 */
     'turbo point': (_, a) => {
-      const v = rt.screen?.rp.point(i0(a, 0), i0(a, 1)) ?? -1
-      return VI(v < 0 ? 0 : v)
+      /*
+       * Routine 349 ($7a8e), and the manual's "clipped since V1.30" means it
+       * ANSWERS -1 rather than that it declines to read:
+       *
+       *     move.l (a3)+,d2 / bpl        the LAST argument, y
+       *     addq.l #$4,a3               ...and if it is negative, skip x
+       *  bad: moveq #$0,d2 / moveq #$ff,d3 / rts        -1
+       *     move.l (a3)+,d1 / bmi bad                   x < 0
+       *     cmp.w $4e(a0),d2 / bge bad                  y >= height
+       *     move.w $4c(a0),d0 / cmp.w d0,d1 / bge bad   x >= width
+       *
+       * The port answered 0, which is a real colour and indistinguishable
+       * from a black pixel inside the screen. `Point` proper returns -1 too,
+       * so this was the odd one out.
+       *
+       * NOTE: the address is `(y * (width >> 3)) * 8 + x` in bits, the screen
+       * WIDTH again rather than the BitMap's bytesPerRow, and a depth-1
+       * screen takes a separate arm returning 0 or 1.
+       */
+      const s = rt.screen
+      if (!s) return VI(-1)
+      const x = i0(a, 0)
+      const y = i0(a, 1)
+      if (x < 0 || y < 0 || y >= s.height || x >= s.width) return VI(-1)
+      const v = s.rp.point(x, y)
+      return VI(v < 0 ? -1 : v)
     },
 
     /**

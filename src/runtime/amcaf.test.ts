@@ -1410,13 +1410,25 @@ describe('slice 7: graphics', () => {
     expect(px[5 * 64 + 5]! & 1).toBe(0) // plane 0 untouched
   })
 
-  it('Turbo Plot and Turbo Point are the fast Plot and Point, and clip', () => {
-    // "Added clipping for Turbo Plot, Shade Pix and Turbo Point. Now they are
-    // as secure as the normal Plot and Point commands" (V1.30)
-    const { out } = run([...scr, 'Turbo Plot 3,4,5', 'Print Turbo Point(3,4)', 'Print Turbo Point(999,999)'])
+  /**
+   * "Added clipping for Turbo Plot, Shade Pix and Turbo Point. Now they are
+   * as secure as the normal Plot and Point commands" (V1.30) — and routine
+   * 349 ($7a8e) shows what "secure" means: it ANSWERS -1 rather than
+   * declining to read. Every one of its four range tests branches to
+   * `moveq #$0,d2 / moveq #$ff,d3 / rts`, and $ff through moveq is -1.
+   *
+   * The port answered 0, which is a real colour and indistinguishable from a
+   * black pixel inside the screen. AMOS's own Point returns -1 too, so this
+   * was the odd one out.
+   */
+  it('Turbo Point answers -1 outside the screen, not 0', () => {
+    const { out } = run([...scr, 'Turbo Plot 3,4,5', 'Print Turbo Point(3,4)',
+      'Print Turbo Point(999,999)', 'Print Turbo Point(-1,4)', 'Print Turbo Point(3,-1)',
+      'Print Turbo Point(64,4)', 'Print Turbo Point(3,32)'])
     const l = out.trim().split('\n').map((x) => x.trim())
-    expect(l[0]).toBe('5')
-    expect(l[1]).toBe('0')
+    expect(l).toEqual(['5', '-1', '-1', '-1', '-1', '-1'])
+    // and the last pixel inside is still readable, so the bound is exclusive
+    expect(run([...scr, 'Turbo Plot 63,31,7', 'Print Turbo Point(63,31)']).out.trim()).toBe('7')
     expect(() => run([...scr, 'Turbo Plot -5,-5,1'])).not.toThrow()
   })
 
