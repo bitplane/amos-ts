@@ -2,21 +2,33 @@
 // Source: +CEqu.s (the call encoding), AMOSPro Sources/+lib_Labels.s (names).
 
 /**
- * How an extension calls back into AMOS: a four-byte pseudo-instruction of
- * $FE, kind*16+$01, then a word holding the AMOS routine number. Not a real
- * 68k opcode, which is why a disassembler chokes on it.
+ * How an extension calls back into AMOS: a pseudo-instruction of $FE,
+ * kind*16+$01, optionally a SELECTOR byte pair, then a word holding the
+ * routine number. Not a real 68k opcode, which is why a disassembler
+ * chokes on it — and in 020 mode capstone is worse than useless here,
+ * because it decodes the $F-line word as a coprocessor instruction and
+ * silently swallows whatever follows.
  */
 export const AMOS_CALL_MARKER = 0xfe
 export const AMOS_CALL_LOW = 0x01
 
+/** C_CodeT — the selector on Rjmpt/Rjsrt/Rlea; second byte is a register */
+export const AMOS_CALL_SEL_T = 0xf5
+/** C_CodeJ — the selector on Rjmp/Rjsr/Ljmp/Ljsr; second byte is a library */
+export const AMOS_CALL_SEL_J = 0xf7
+
 /**
- * kind nibble -> the two forms it can take. `plain` is an intra-library
- * call whose word is a routine number in the CALLING library; `viaLib`
- * carries a C_CodeJ library selector first and targets another library.
+ * kind nibble -> the forms it can take, keyed by selector.
+ *
+ * `plain` is four bytes and targets a routine in the CALLING library.
+ * `t` and `j` are SIX, the extra pair being the selector and its operand.
+ * Kinds 0 and 1 have no plain form at all — every macro that uses them
+ * carries a selector — so a decoder that treats them as four bytes runs
+ * two bytes out of step for the rest of the routine.
  */
-export const AMOS_CALL_KINDS: Record<number, { plain?: string; viaLib?: string }> = {
-  0: { plain: "Rjmpt", viaLib: "Rjmp" },
-  1: { plain: "Rjsrt", viaLib: "Rjsr" },
+export const AMOS_CALL_KINDS: Record<number, { plain?: string; t?: string; j?: string }> = {
+  0: { t: "Rjmpt", j: "Rjmp" },
+  1: { t: "Rjsrt", j: "Rjsr" },
   2: { plain: "Rbra" },
   3: { plain: "Rbsr" },
   4: { plain: "Rbeq" },

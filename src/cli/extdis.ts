@@ -39,7 +39,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { firstCodeHunk } from '../tokens/libtok'
 import { extensionById, REGISTRY } from '../ext/registry'
-import { AMOS_CALL_KINDS, AMOS_CALL_LOW, AMOS_CALL_MARKER, AMOS_ROUTINES } from '../ext/amoscalls.gen'
+import { AMOS_CALL_KINDS, AMOS_CALL_LOW, AMOS_CALL_MARKER, AMOS_CALL_SEL_J, AMOS_CALL_SEL_T, AMOS_ROUTINES } from '../ext/amoscalls.gen'
 
 const args = process.argv.slice(2)
 const showMap = args.includes('--map')
@@ -115,8 +115,15 @@ for (let i = 0; i + 1 < entries; i++) addr.push(addr[i]! + u16(cal.at + i * 2) *
  * Decode an AMOS call pseudo-instruction at `off`, if there is one.
  *
  * These are why a plain disassembler gives up mid-routine: they are not 68k
- * opcodes at all but four (or six) bytes of $FE, kind*16+$01, an optional
- * library selector, and a routine word. +CEqu.s:39-150 defines them.
+ * opcodes at all but four or six bytes of $FE, kind*16+$01, an optional
+ * selector pair, and a routine word. +CEqu.s:39-150 defines them.
+ *
+ * The SIZE is the whole point. Kinds 0 and 1 always carry a selector and are
+ * always six bytes; everything else is four. Reading an `Rjsr` as four bytes
+ * puts the decoder two bytes out of step for the rest of the routine, and
+ * because the wrong stream still disassembles into plausible instructions,
+ * nothing announces it. That was this file's bug, and it is the reason a
+ * citation had to be checkable rather than merely present.
  */
 function decodeCall(off: number): { text: string; size: number } | null {
   if (code[off] !== AMOS_CALL_MARKER) return null
@@ -124,18 +131,30 @@ function decodeCall(off: number): { text: string; size: number } | null {
   if ((second & 0x0f) !== AMOS_CALL_LOW) return null
   const form = AMOS_CALL_KINDS[second >> 4]
   if (!form) return null
-  const viaLib = code[off + 2] !== undefined && form.viaLib !== undefined && code[off + 2] === 0xff
-  if (form.viaLib && !form.plain) {
+
+  const sel = code[off + 2]
+  if (sel === AMOS_CALL_SEL_J && form.j) {
+    // C_CodeJ: the operand byte selects the LIBRARY. Library 0 is AMOS
+    // itself, so its routine numbers are the +lib_Labels.s ones.
     const lib = code[off + 3] ?? 0
     const n = view.getUint16(off + 4, false)
     const name = lib === 0 ? (AMOS_ROUTINES[n] ?? `routine ${n}`) : `lib${lib} routine ${n}`
-    return { text: `${form.viaLib.padEnd(10)} ${name}`, size: 6 }
+    return { text: `${form.j.padEnd(10)} ${name}`, size: 6 }
   }
-  void viaLib
+  if (sel === AMOS_CALL_SEL_T && form.t) {
+    // C_CodeT: the operand byte is a register index, and bit 3 marks Rlea
+    // (load the address instead of jumping to it)
+    const op = code[off + 3] ?? 0
+    const n = view.getUint16(off + 4, false)
+    const mnem = form.t === 'Rjsrt' && op & 8 ? 'Rlea' : form.t
+    const reg = (op & 7) !== 0 ? `, a${op & 7}` : ''
+    return { text: `${mnem.padEnd(10)} ${AMOS_ROUTINES[n] ?? `routine ${n}`}${reg}`, size: 6 }
+  }
+  if (!form.plain) return null
+
   const n = view.getUint16(off + 2, false)
   // a plain call targets THIS library's own routine table
-  const own = routineName(n)
-  return { text: `${(form.plain ?? '?').padEnd(10)} ${own}`, size: 4 }
+  return { text: `${form.plain.padEnd(10)} ${routineName(n)}`, size: 4 }
 }
 
 /**
@@ -226,19 +245,31 @@ function disassemble(label: string, n: number): void {
         'md = Cs(CS_ARCH_M68K, CS_MODE_BIG_ENDIAN | CS_MODE_M68K_020)',
         'start, end = int(sys.argv[2]), int(sys.argv[3])',
         'pos = start',
+        // The AMOS call pseudo-instructions are checked BEFORE capstone at
+        // every boundary, and never handed to it. In 020 mode an $F-line word
+        // is a legal coprocessor opcode, so capstone consumes the pseudo-op
+        // AND whatever follows, then resyncs mid-instruction. Letting it see
+        // one at all is what desynced the listing; rewriting its output
+        // afterwards could not fix that, because by then the boundaries were
+        // already wrong. Sizes come from +CEqu.s: kinds 0 and 1 carry a
+        // selector pair and are six bytes, the rest are four.
         'while pos < end:',
-        '    got = False',
+        '    if c[pos] == 0xFE and (c[pos + 1] & 0x0F) == 0x01:',
+        '        k = c[pos + 1] >> 4',
+        '        size = 6 if k in (0, 1) else 4',
+        '        print("  %07x  .amoscall  %d" % (pos, size)); pos += size; continue',
+        '    hit = False',
         '    for i in md.disasm(c[pos:end], pos):',
         '        print("  %07x  %-10s %s" % (i.address, i.mnemonic, i.op_str))',
-        '        pos = i.address + i.size; got = True',
-        '    if not got:',
+        '        pos = i.address + i.size; hit = True; break',
+        '    if not hit:',
         '        print("  %07x  .dc.w      $%04x" % (pos, (c[pos] << 8) | c[pos + 1])); pos += 2',
       ].join('\n')
       const tmp = join(process.env.TMPDIR ?? '/tmp', 'extdis-' + String(process.pid) + '.bin')
       writeFileSync(tmp, code)
       const raw = execFileSync('python3', ['-c', py, tmp, String(start), String(end)], { encoding: 'utf8' }).trimEnd()
-      // capstone cannot decode the AMOS call pseudo-instructions, so it
-      // emits .dc.w for them (and then resyncs badly); rewrite those here
+      // the walk marks each pseudo-instruction as `.amoscall <size>` and
+      // steps over it; naming it is all that is left to do here
       const runs = textRuns(start, end)
       const lines: string[] = []
       let skipUntil = -1

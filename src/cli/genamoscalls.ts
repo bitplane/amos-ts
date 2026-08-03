@@ -24,20 +24,36 @@ const root = process.argv[2] ?? '../AMOS-Professional-Official'
 const cequ = readFileSync(join(root, '+CEqu.s'), 'latin1')
 
 /**
- * kind nibble -> macro name. Several macros share a nibble and are told
- * apart by whether a C_CodeJ library-selector byte pair follows, so the key
- * is (kind, hasSelector) and the plain intra-library form is preferred as
- * the display name.
+ * kind nibble -> macro name, keyed by which SELECTOR byte follows.
+ *
+ * There are exactly three shapes, and the selector is what tells them apart:
+ *
+ *   none     $FE kk01 wwww                 4 bytes — Rbra, Rbsr, Rbcc, ...
+ *   C_CodeT  $FE kk01 $F5 rr wwww          6 bytes — Rjmpt, Rjsrt, Rlea
+ *   C_CodeJ  $FE kk01 $F7 ll wwww          6 bytes — Rjmp, Rjsr, Ljmp, Ljsr
+ *
+ * Reading this off `dc.b C_CodeJ` alone was the bug: C_CodeT is a selector
+ * too, so every kind-0 and kind-1 macro carrying one was filed as the plain
+ * four-byte form. `Rjsr` is the commonest call in extension code, and a
+ * disassembler that reads it as four bytes runs two bytes out of step for
+ * the whole rest of the routine.
  */
-const kinds = new Map<string, { kind: number; name: string; extra: number }>()
+const kinds = new Map<string, { kind: number; name: string; sel: 'plain' | 't' | 'j' }>()
 for (const m of cequ.matchAll(/^(\w+)\s+MACRO\s*\n((?:.*\n){1,4}?)\s+ENDM/gm)) {
   const [, name, body] = m
   const enc = /dc\.b\s+C_Code1,\s*(\d+)\*16\+C_Code2/.exec(body!)
   if (!enc) continue
-  const extra = /dc\.b\s+C_CodeJ/.test(body!) ? 2 : 0
-  const key = `${enc[1]}:${extra}`
-  // keep the first, which is the plain form; later ones are variants
-  if (!kinds.has(key)) kinds.set(key, { kind: Number(enc[1]), name: name!, extra })
+  const sel = /dc\.b\s+C_CodeJ/.test(body!) ? 'j' : /dc\.b\s+C_CodeT/.test(body!) ? 't' : 'plain'
+  const key = `${enc[1]}:${sel}`
+  // keep the first of each shape: Rjmpt before RjmptR, Rjmp before Ljmp
+  if (!kinds.has(key)) kinds.set(key, { kind: Number(enc[1]), name: name!, sel })
+}
+
+/** the selector byte values, read from +CEqu.s rather than assumed */
+const selValue = (which: 'T' | 'J'): number => {
+  const m = new RegExp(`^C_Code${which}\\s+equ\\s+\\$([0-9A-Fa-f]+)`, 'm').exec(cequ)
+  if (!m) throw new Error(`C_Code${which} not found in +CEqu.s`)
+  return parseInt(m[1]!, 16)
 }
 
 const labels = readFileSync(join(root, 'AMOSPro Sources', '+lib_Labels.s'), 'latin1')
@@ -49,27 +65,39 @@ const out = [
   '// Source: +CEqu.s (the call encoding), AMOSPro Sources/+lib_Labels.s (names).',
   '',
   '/**',
-  ' * How an extension calls back into AMOS: a four-byte pseudo-instruction of',
-  ' * $FE, kind*16+$01, then a word holding the AMOS routine number. Not a real',
-  ' * 68k opcode, which is why a disassembler chokes on it.',
+  ' * How an extension calls back into AMOS: a pseudo-instruction of $FE,',
+  ' * kind*16+$01, optionally a SELECTOR byte pair, then a word holding the',
+  ' * routine number. Not a real 68k opcode, which is why a disassembler',
+  ' * chokes on it — and in 020 mode capstone is worse than useless here,',
+  ' * because it decodes the $F-line word as a coprocessor instruction and',
+  ' * silently swallows whatever follows.',
   ' */',
   'export const AMOS_CALL_MARKER = 0xfe',
   'export const AMOS_CALL_LOW = 0x01',
   '',
+  '/** C_CodeT — the selector on Rjmpt/Rjsrt/Rlea; second byte is a register */',
+  `export const AMOS_CALL_SEL_T = 0x${selValue('T').toString(16)}`,
+  '/** C_CodeJ — the selector on Rjmp/Rjsr/Ljmp/Ljsr; second byte is a library */',
+  `export const AMOS_CALL_SEL_J = 0x${selValue('J').toString(16)}`,
+  '',
   '/**',
-  ' * kind nibble -> the two forms it can take. `plain` is an intra-library',
-  ' * call whose word is a routine number in the CALLING library; `viaLib`',
-  ' * carries a C_CodeJ library selector first and targets another library.',
+  ' * kind nibble -> the forms it can take, keyed by selector.',
+  ' *',
+  ' * `plain` is four bytes and targets a routine in the CALLING library.',
+  ' * `t` and `j` are SIX, the extra pair being the selector and its operand.',
+  ' * Kinds 0 and 1 have no plain form at all — every macro that uses them',
+  ' * carries a selector — so a decoder that treats them as four bytes runs',
+  ' * two bytes out of step for the rest of the routine.',
   ' */',
-  'export const AMOS_CALL_KINDS: Record<number, { plain?: string; viaLib?: string }> = {',
+  'export const AMOS_CALL_KINDS: Record<number, { plain?: string; t?: string; j?: string }> = {',
   ...[...new Set([...kinds.values()].map((k) => k.kind))]
     .sort((a, b) => a - b)
     .map((kind) => {
-      const plain = [...kinds.values()].find((k) => k.kind === kind && k.extra === 0)
-      const viaLib = [...kinds.values()].find((k) => k.kind === kind && k.extra === 2)
       const parts: string[] = []
-      if (plain) parts.push(`plain: ${JSON.stringify(plain.name)}`)
-      if (viaLib) parts.push(`viaLib: ${JSON.stringify(viaLib.name)}`)
+      for (const sel of ['plain', 't', 'j'] as const) {
+        const hit = [...kinds.values()].find((k) => k.kind === kind && k.sel === sel)
+        if (hit) parts.push(`${sel}: ${JSON.stringify(hit.name)}`)
+      }
       return `  ${kind}: { ${parts.join(', ')} },`
     }),
   '}',
