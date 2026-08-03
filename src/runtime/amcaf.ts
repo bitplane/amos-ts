@@ -784,32 +784,75 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * taken in account, but it makes no sense to open a HAM screen for that
      * purpose."
      *
-     * The source palette decides each pixel's luminance; the target's own
-     * palette becomes an even grey ramp and every pixel is remapped onto it.
+     * Routine 79 is a four-byte `Rbra routine 356`; 356 ($7f10) is 690 bytes
+     * and does far more than remap. It reads a pixel out of the source's
+     * planes, resolves it to an RGB through the SOURCE's palette, adds the
+     * three nibbles, scales the sum by the destination's depth and looks the
+     * result up in a ramp table it builds on the stack frame each call:
+     *
+     *     moveq #$0,d0 / moveq #$3f,d1
+     *   L:move.b d0,(a0)+ / move.b d0,(a0)+ / addq.b #$1,d0 / move.b d0,(a0)+
+     *     dbra d1,L
+     *
+     * 64 passes of `k, k, k+1` at $21b2, so entry i is i/3 ROUNDED TO NEAREST
+     * — the same round-not-floor idiom that C2p Fire's table turned out to
+     * use. Three nibbles summed and divided by three is a flat average of R, G
+     * and B, not a weighted luma; an earlier pass used the usual 77/151/28
+     * weights and also rewrote the destination's palette into a grey ramp,
+     * which this routine never touches. It also wrote the chunky cache and
+     * then called `invalidate()`, which threw the whole conversion away.
+     *
+     * Three source paths, chosen once by `move.w $50(a1),d5 / subq.w #$1,d5 /
+     * cmp.w #$5,d5` and then `move.w $48(a1),d0 / btst #$b,d0`:
+     *
+     *   - a six-plane HAM source decodes hold-and-modify inline ($811c), the
+     *     hold starting each ROW from `move.w $62(a1),d5`, palette entry 0
+     *   - a six-plane non-HAM source is EHB, and colours 32..63 read
+     *     `$22(a1,d3.w)` with d3 = colour*2, which is palette[colour-32], then
+     *     divide by SIXTEEN rather than eight — that `lsr.w #$4,d3` against
+     *     the other paths' `lsr.w #$3,d3` is the half-brightness
+     *   - anything else is a plain palette lookup at `$62(a1,d3.w)`
      */
     'convert grey'(it) {
       const src = rt.screens.get(it.evalInt())
       it.expect('to')
       const dst = rt.screens.get(it.evalInt())
       if (!src || !dst) amcafErr()
-      const levels = 1 << dst.rp.bitMap.depth
-      for (let i = 0; i < levels && i < dst.palette.length; i++) {
-        const v = Math.round((i * 15) / Math.max(1, levels - 1))
-        dst.palette[i] = glue(v, v, v)
+      const ramp = new Uint8Array(192)
+      for (let k = 0, i = 0; k < 64; k++) {
+        ramp[i++] = k
+        ramp[i++] = k
+        ramp[i++] = k + 1
       }
+      // `move.w $2(a7),d4 / lsl.w d4,d3` — the destination's depth LESS ONE
+      const shift = dst.rp.bitMap.depth - 1
+      const keep = (1 << dst.rp.bitMap.depth) - 1
+      const deep = src.rp.bitMap.depth === 6
       const sp = src.rp.bitMap.pixels
       const dp = dst.rp.bitMap.pixelsW()
       const w = Math.min(src.width, dst.width)
       const h = Math.min(src.height, dst.height)
       for (let y = 0; y < h; y++) {
+        let hold = src.palette[0] ?? 0
         for (let x = 0; x < w; x++) {
-          const rgb = src.palette[sp[y * src.width + x]!] ?? 0
-          // the usual luma weighting, in the 0..15 space the palette uses
-          const lum = (rV(rgb) * 77 + gV(rgb) * 151 + bV(rgb) * 28) >> 8
-          dp[y * dst.width + x] = Math.min(levels - 1, Math.round((lum * (levels - 1)) / 15))
+          const c = sp[y * src.width + x]!
+          let rgb = src.palette[c] ?? 0
+          let half = false
+          if (deep && src.ham) {
+            // the byte-width masks are why green leaves red alone
+            if (c < 0x10) hold = src.palette[c] ?? 0
+            else if (c < 0x20) hold = (hold & 0xff0) | (c & 15)
+            else if (c < 0x30) hold = (hold & 0x0ff) | ((c & 15) << 8)
+            else hold = (hold & 0xf0f) | ((c & 15) << 4)
+            rgb = hold
+          } else if (deep && c > 31) {
+            rgb = src.palette[c - 32] ?? 0
+            half = true
+          }
+          const sum = rV(rgb) + gV(rgb) + bV(rgb)
+          dp[y * dst.width + x] = (ramp[(sum << shift) >> (half ? 4 : 3)] ?? 0) & keep
         }
       }
-      dst.rp.bitMap.invalidate()
     },
 
     /**
@@ -4094,12 +4137,40 @@ function planeOf(rt: Runtime, screen: number, plane: number): { bm: BitMap; plan
  * ------------------------------------------------------------------ */
 
 /**
- * The shared body of Shade Bob Up and Down.
+ * The shared body of Shade Bob Up and Down — routines 286 ($6644) and 287
+ * ($67e2), which share their whole set-up with routine 384 ($a7c6).
  *
  * A shade bob is not a bob: it takes an image's SHAPE and uses it to bump the
- * colour index of whatever it lands on, cycling within the plane count. The
- * manual is explicit that it "supports the hot spot of the bob image" and
- * that "Shade Bobs may leave the screen boundaries".
+ * colour index of whatever it lands on. The bump is a bit-serial ripple carry
+ * across the bitplanes, and it is the one place the two routines differ:
+ *
+ *     move.w (a1),d0 / move.w d0,d2      Up, at $66d0
+ *     eor.w  d1,d0   / move.w d0,(a1)
+ *     and.w  d2,d1                       carry out = the mask AND the OLD bits
+ *
+ *     move.w (a1),d0                     Down, at $686e
+ *     eor.w  d1,d0   / move.w d0,(a1)
+ *     and.w  d0,d1                       borrow  = the mask AND the NEW bits
+ *
+ * XOR is the sum bit either way; `d1 & old` propagates a carry (an add of one)
+ * and `d1 & new` propagates a borrow (a subtract of one). `dbra d5` runs it
+ * over `Shade Bob Planes` planes, so it WRAPS within them rather than
+ * saturating, and leaves the planes above untouched.
+ *
+ * The set-up in 384 pops last-argument-first — image, y, x, screen — reads the
+ * image record's five-word header, and subtracts the hot spot, which is how
+ * the manual's "supports the hot spot of the bob image" is done. It then walks
+ * the screen's plane pointers looking for the first NULL and lowers the plane
+ * count to match, so a six-plane setting on a three-plane screen shades three;
+ * that clamp needs no code here, because writing a value wider than the screen
+ * drops the high bits to the same effect.
+ *
+ * Clipping is by whole words on the left and right and by whole rows top and
+ * bottom, with a barrel shift ($67a0) for an x that is not a multiple of 16 —
+ * the net effect is an exact clip to the screen, which `point`/`putPixel`
+ * already give. Neither the RastPort clip nor Set Planes is consulted: the
+ * routine walks the plane pointers itself, which is why `putPixel` is the
+ * right primitive and not `plot`.
  */
 function shadeBob(rt: Runtime, it: Interp, dir: number): void {
   const s = rt.screens.get(it.evalInt())
@@ -4110,6 +4181,22 @@ function shadeBob(rt: Runtime, it: Interp, dir: number): void {
   it.expect(',')
   const img = rt.spriteBank?.image(it.evalInt())
   if (!s || !img) amcafErr()
+  /*
+   * DEFECT: the hot spot X is truncated to a signed byte and the hot spot Y is
+   * not. Routine 384 reads the two adjacent header words the same way and then
+   * sign-extends only one of them:
+   *
+   *     move.w $8(a1),d0            the hot spot Y, a whole word
+   *     move.l (a3)+,d1 / sub.w d0,d1 / move.w d1,$248(a2)
+   *     move.w $6(a1),d0 / ext.w d0     ($a80c is 48 80, EXT.W D0)
+   *     move.l (a3)+,d1 / sub.w d0,d1 / move.w d1,$246(a2)
+   *
+   * Bob images are usually narrower than 128 pixels, so a hot spot inside the
+   * shape is unaffected and the bug stays invisible. On a wider image it is
+   * not: a hot spot X of 160 reads as -96, and the shade lands 256 pixels to
+   * the right of where every other AMOS command puts the same bob.
+   */
+  const hotX = (img.hotX << 24) >> 24
   const mask = (1 << rt.amcaf.shadePlanes) - 1
   const px = img.pixels
   for (let iy = 0; iy < img.height; iy++) {
@@ -4117,7 +4204,7 @@ function shadeBob(rt: Runtime, it: Interp, dir: number): void {
       // the mask, or the first bitplane, decides where the bob touches
       const on = rt.amcaf.shadeMask ? px[iy * img.width + ix]! !== 0 : (px[iy * img.width + ix]! & 1) !== 0
       if (!on) continue
-      const sx = x + ix - img.hotX
+      const sx = x + ix - hotX
       const sy = y + iy - img.hotY
       const v = s.rp.point(sx, sy)
       if (v < 0) continue

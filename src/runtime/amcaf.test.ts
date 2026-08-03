@@ -1367,20 +1367,75 @@ describe('slice 6: colour and palette', () => {
     expect(run(prog).out.replace(/\s+/g, ' ').trim()).toBe(`${0x1a7} ${0x1a1} ${0x4a7}`)
   })
 
-  it('Convert Grey builds a grey ramp and remaps onto it', () => {
+  /*
+   * Routine 356 ($7f10) sums the three nibbles and divides by three: a flat
+   * average, not a weighted luma. The divide is a 192-byte ramp built on entry
+   * from 64 passes of `k, k, k+1`, so entry i is i/3 rounded to nearest. And
+   * it never touches the destination's palette -- an earlier pass overwrote it
+   * with a grey ramp, and wrote the chunky cache only to `invalidate()` it,
+   * which threw the conversion away before anything could read it.
+   */
+  const grey = (rt: Runtime, x: number): number => rt.screens.get(1)!.rp.point(x, 0)
+
+  it('Convert Grey averages R+G+B in thirds and leaves the palette alone', () => {
     const { rt } = run([
-      'Screen Open 0,64,32,4,Lowres',
-      'Screen Open 1,64,32,4,Lowres',
-      'Screen 0 : Colour 1,$F00 : Ink 1 : Bar 0,0 To 9,9',
+      'Screen Open 0,64,32,16,Lowres',
+      'Screen Open 1,64,32,16,Lowres',
+      'Screen 1 : Colour 3,$0F0',
+      'Screen 0 : Cls 0',
+      'Colour 0,$000 : Colour 1,$F00 : Colour 2,$FFF : Colour 3,$888',
+      'Ink 1 : Bar 0,0 To 3,3 : Ink 2 : Bar 4,0 To 7,3 : Ink 3 : Bar 8,0 To 11,3',
       'Convert Grey 0 To 1',
     ])
-    const dst = rt.screens.get(1)!
-    // the target palette is an even grey ramp
-    expect(dst.palette[0]).toBe(0)
-    expect(dst.palette[3]).toBe(0xfff)
-    // and red mapped to something darker than white
-    expect(dst.rp.bitMap.pixels[0]).toBeGreaterThan(0)
-    expect(dst.rp.bitMap.pixels[0]).toBeLessThan(3)
+    expect(grey(rt, 20)).toBe(0) // $000, sum 0
+    expect(grey(rt, 0)).toBe(5) // $F00, sum 15, and 15/3 is 5
+    expect(grey(rt, 4)).toBe(15) // $FFF, sum 45 -- white reaches the top here
+    expect(grey(rt, 8)).toBe(8) // $888, sum 24, and 25/3 rounds to 8
+    // the destination palette is untouched
+    expect(rt.screens.get(1)!.palette[3]).toBe(0x0f0)
+  })
+
+  it('Convert Grey scales by the DESTINATION depth, and 32 colours falls short', () => {
+    // `lsl.w d4,d3` shifts by depth-1 and `lsr.w #$3,d3` divides by eight, so
+    // five planes index the ramp at sum*2: white is 90, which reads back 30
+    const { rt } = run([
+      'Screen Open 0,64,32,16,Lowres',
+      'Screen Open 1,64,32,32,Lowres',
+      'Screen 0 : Cls 0 : Colour 1,$FFF : Ink 1 : Bar 0,0 To 3,3',
+      'Convert Grey 0 To 1',
+    ])
+    expect(grey(rt, 0)).toBe(30)
+  })
+
+  it('Convert Grey halves an EHB source above colour 31', () => {
+    // colours 32..63 read `$22(a1,d3.w)` with d3 = colour*2, which is
+    // palette[colour-32], and then `lsr.w #$4,d3` instead of #$3
+    const { rt } = run([
+      'Screen Open 0,64,32,64,Lowres',
+      'Screen Open 1,64,32,16,Lowres',
+      'Screen 0 : Cls 0 : Colour 1,$F00',
+      'Ink 1 : Bar 0,0 To 3,3 : Ink 33 : Bar 4,0 To 7,3',
+      'Convert Grey 0 To 1',
+    ])
+    expect(grey(rt, 0)).toBe(5) // sum 15, divided by eight then by three
+    expect(grey(rt, 4)).toBe(2) // the same colour at half brightness
+  })
+
+  it('Convert Grey decodes a HAM source, holding across the row', () => {
+    // "it makes no sense to open a HAM screen for that purpose" is about the
+    // TARGET; the source arm at $80c6 decodes hold-and-modify properly, and
+    // `move.w $62(a1),d5` restarts the hold from colour 0 on every row
+    const { rt } = run([
+      'Screen Open 0,64,32,4096,Lowres',
+      'Screen Open 1,64,32,16,Lowres',
+      'Screen 0 : Cls 0 : Colour 0,$000',
+      'Ink $2F : Plot 0,0', // modify RED to 15: the hold becomes $F00
+      'Ink $1F : Plot 1,0', // then modify BLUE: $F0F, carried from the last
+      'Convert Grey 0 To 1',
+    ])
+    expect(grey(rt, 0)).toBe(5) // sum 15
+    expect(grey(rt, 1)).toBe(10) // sum 30, and 31/3 rounds to 10
+    expect(grey(rt, 2)).toBe(0) // index 0 sets the whole colour again
   })
 })
 
@@ -1636,8 +1691,9 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
     expect(() => run([...scr, 'Ink 7 : Bar 0,0 To 31,15', 'Pix Shift Down 0,1,7,0,0 To 31,15'])).not.toThrow()
     expect(() => run([...scr, 'Shade Bob Planes 4', 'Shade Bob Mask 0'])).not.toThrow()
 
-    // Shade Bob Up/Down (272/271, $67b8) take screen,x,y,image and shift the
-    // colour indexes under the bob's mask one way or the other
+    // Shade Bob Up/Down (routines 286 and 287, $6644 and $67e2) take
+    // screen,x,y,image and shift the colour indexes under the bob's mask one
+    // way or the other
     const shade = [...scr, 'Ink 7 : Bar 0,0 To 15,15', 'Get Bob 1,0,0 To 8,8']
     expect(() => run([...shade, 'Shade Bob Up 0,0,0,1'])).not.toThrow()
     expect(() => run([...shade, 'Shade Bob Down 0,0,0,1'])).not.toThrow()
@@ -2016,7 +2072,7 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
   })
 
   /**
-   * Shade Bob Mask (routine 270, $6774) normalises to exactly 0 or 1 —
+   * Shade Bob Mask (routine 284, $6610) normalises to exactly 0 or 1 —
    * `move.l (a3)+,d0 / beq` then either `move.w #$1,$284(a2)` or
    * `clr.w $284(a2)` — so it does not store the value it was given.
    */
@@ -2122,6 +2178,75 @@ describe('slice 8: the effect engines', () => {
     expect(run([...scr, 'Shade Bob Planes 6']).rt.amcaf.shadePlanes).toBe(6)
     expect(() => run([...scr, 'Shade Bob Planes 0'])).toThrow(/Illegal function call/)
     expect(() => run([...scr, 'Shade Bob Planes 7'])).toThrow(/Illegal function call/)
+  })
+
+  /*
+   * Routines 286 ($6644) and 287 ($67e2) differ in exactly one instruction.
+   * Both do `eor.w d1,d0 / move.w d0,(a1)` for the sum bit; Up then propagates
+   * `and.w d2,d1` against the OLD word and Down `and.w d0,d1` against the NEW
+   * one, which is a carry and a borrow. `dbra d5` over Shade Bob Planes planes
+   * means it wraps within them and leaves the planes above alone.
+   */
+  const stamp = [...scr, 'Ink 1 : Bar 0,0 To 15,15', 'Get Bob 1,0,0 To 16,16', 'Cls 0']
+
+  it('Shade Bob Up is a ripple carry that wraps inside Shade Bob Planes', () => {
+    const { rt } = run([
+      ...stamp,
+      'Shade Bob Planes 2',
+      'Plot 32,20,0 : Plot 33,20,3 : Plot 34,20,7 : Plot 35,20,15',
+      'Shade Bob Up 0,32,20,1',
+    ])
+    const rp = rt.screens.get(0)!.rp
+    expect(rp.point(32, 20)).toBe(1) // 0 -> 1
+    expect(rp.point(33, 20)).toBe(0) // 3 wraps to 0 within two planes
+    expect(rp.point(34, 20)).toBe(4) // 7 wraps to 4: plane 2 is untouched
+    expect(rp.point(35, 20)).toBe(12) // and 15 keeps planes 2 and 3
+  })
+
+  it('Shade Bob Down is the same loop borrowing instead of carrying', () => {
+    const { rt } = run([
+      ...stamp,
+      'Shade Bob Planes 2',
+      'Plot 32,20,0 : Plot 33,20,3 : Plot 34,20,4 : Plot 35,20,15',
+      'Shade Bob Down 0,32,20,1',
+    ])
+    const rp = rt.screens.get(0)!.rp
+    expect(rp.point(32, 20)).toBe(3) // 0 borrows round to 3
+    expect(rp.point(33, 20)).toBe(2)
+    expect(rp.point(34, 20)).toBe(7) // 4 -> 7, the high plane held
+    expect(rp.point(35, 20)).toBe(14)
+  })
+
+  it('Shade Bob clips to the screen rather than running into the next row', () => {
+    // the routine drops whole words off either edge and barrel-shifts the rest
+    // ($67a0), which comes to an exact clip; nothing spills into row+1
+    const { rt } = run([
+      ...stamp,
+      'Shade Bob Planes 4',
+      'Plot 63,20,5 : Plot 0,21,5',
+      'Shade Bob Up 0,56,20,1', // 56..71 across a 64-wide screen
+    ])
+    const rp = rt.screens.get(0)!.rp
+    expect(rp.point(63, 20)).toBe(6)
+    expect(rp.point(0, 21)).toBe(5)
+  })
+
+  /*
+   * DEFECT: routine 384 ($a7c6) reads the two hot spot words alike and then
+   * sign-extends only one of them -- `move.w $6(a1),d0 / ext.w d0` for X
+   * against a plain `move.w $8(a1),d0` for Y. $a80c really is 48 80.
+   */
+  it('Shade Bob truncates the hot spot X to a signed byte, and not the Y', () => {
+    // 130 reads back as -126, so the stamp lands at 130+126 = 256, off a
+    // 64-wide screen, where the honest reading would put it at x=0
+    const bad = run([...stamp, 'Hot Spot 1,130,0', 'Plot 0,20,5', 'Shade Bob Up 0,130,20,1'])
+    expect(bad.rt.screens.get(0)!.rp.point(0, 20)).toBe(5)
+    // one below the byte's edge and it behaves: 130-127 = 3
+    const ok = run([...stamp, 'Hot Spot 1,127,0', 'Plot 3,20,5', 'Shade Bob Up 0,130,20,1'])
+    expect(ok.rt.screens.get(0)!.rp.point(3, 20)).toBe(6)
+    // the Y is a whole word, so 130 there is just 130 and moves the stamp up
+    const y = run([...stamp, 'Hot Spot 1,0,130', 'Plot 4,20,5', 'Shade Bob Up 0,4,150,1'])
+    expect(y.rt.screens.get(0)!.rp.point(4, 20)).toBe(6)
   })
 
   it('Pix Shift wraps within c1..c2 where Pix Brighten stops at the top', () => {
@@ -3413,3 +3538,4 @@ describe('slice 12: ProTracker replay', () => {
     expect(out.trim().replace(/\s+/g, '')).toBe('0,0')
   })
 })
+
