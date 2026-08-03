@@ -1891,11 +1891,61 @@ describe('slice 9: Splinters and Td Stars', () => {
     }
   })
 
+  /**
+   * Both Bank keywords check the COUNT and not the bank number: `move.l
+   * (a3)+,d2 / Rbeq routine 390` refuses a zero amount before anything else.
+   * The per-entry sizes are `mulu.w #$16` for a splinter and `mulu.w #$c` for
+   * a star, and the eight-character bank names are literals in the binary —
+   * "Splinter" and "Stars   ", where the port had invented "TdStars ".
+   *
+   * Splinters Colour bounds its plane count against the CURRENT SCREEN rather
+   * than against six: `move.w $50(a1),d0 / subq.w #$1,d2 / cmp.w d2,d0 /
+   * Rble routine 390`.
+   */
+  it('the Bank keywords refuse a zero count and name their banks from the binary', () => {
+    expect(() => run([...scr, 'Splinters Bank 5,0'])).toThrow(/Illegal function call/)
+    expect(() => run([...scr, 'Td Stars Bank 6,0'])).toThrow(/Illegal function call/)
+    const { rt } = run([...scr, 'Splinters Bank 5,4', 'Td Stars Bank 6,4'])
+    expect(rt.memBanks.get(5)!.name).toBe('Splinter')
+    expect(rt.memBanks.get(6)!.name).toBe('Stars   ')
+    // 22 bytes a splinter, 12 a star
+    expect(rt.memBanks.get(5)!.data.length).toBe(4 * 22)
+    expect(rt.memBanks.get(6)!.data.length).toBe(4 * 12)
+  })
+
+  it('Splinters Colour bounds its plane count by the screen depth', () => {
+    expect(() => run([...scr, 'Splinters Colour 0,5'])).toThrow(/Illegal function call/)
+    expect(() => run([...scr, 'Splinters Colour 0,4'])).not.toThrow()
+    // a two-colour screen only has room for one
+    const two = ['Screen Open 0,64,32,2,Lowres', 'Cls 0']
+    expect(() => run([...two, 'Splinters Colour 0,2'])).toThrow(/Illegal function call/)
+    expect(() => run([...two, 'Splinters Colour 0,1'])).not.toThrow()
+  })
+
+  /**
+   * Td Stars Planes takes TWO plane numbers, not a count — token spec `I0,0`,
+   * and routine 312 pops two and bounds each against the screen's depth
+   * (`cmp.w dN,d0 / Rble routine 390`), storing each times four. Its opening
+   * depth check is the clearest use of AMCAF's own message table anywhere:
+   * `cmp.w #$2,d0 / bge` else `moveq #$f,d0 / Rbra routine 397`, and message
+   * fifteen is "At least 4 colours required in screen".
+   */
+  it('Td Stars Planes takes two plane numbers and needs four colours', () => {
+    const two = ['Screen Open 0,64,32,2,Lowres', 'Cls 0'] // depth 1
+    expect(() => run([...two, 'Td Stars Planes 0,0'])).toThrow(/At least 4 colours required/)
+    // each plane number must be below the screen's depth
+    expect(() => run([...scr, 'Td Stars Planes 0,4'])).toThrow(/Illegal function call/)
+    expect(() => run([...scr, 'Td Stars Planes 4,0'])).toThrow(/Illegal function call/)
+    expect(() => run([...scr, 'Td Stars Planes 0,3'])).not.toThrow()
+    // and a single argument does not parse
+    expect(() => run([...scr, 'Td Stars Planes 2'])).toThrow(/expected ","/)
+  })
+
   it('Td Stars Draw marks the screen and Single Del clears it again', () => {
     const { rt } = run([
       ...scr,
       'Td Stars Bank 6,4',
-      'Td Stars Planes 4',
+      'Td Stars Planes 0,3',
       'Td Stars Origin 32,16',
       'Td Stars Init',
       'Td Stars Draw',

@@ -1393,10 +1393,23 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /** Splinters Bank bank,splinum — "Each Splinter requires 22 bytes" */
+    /**
+     * Splinters Bank bank,amount — routine 288 ($697c).
+     *
+     * The COUNT is checked and the bank number is not: `move.l (a3)+,d2 /
+     * Rbeq routine 390` refuses a zero amount before it looks at anything
+     * else. Then `mulu.w #$16,d2` — **22 bytes a splinter** — and AMOS's own
+     * Reserve with the eight-character name **"Splinter"**, which is a literal
+     * in the binary. A Reserve that comes back empty is error 24.
+     *
+     * It stores `amount - 1` as the loop bound, which is why every walk of the
+     * table is a `dbra`.
+     */
     'splinters bank'(it) {
       const bank = it.evalInt()
       it.expect(',')
       const n = it.evalInt()
+      if (n === 0) amcafErr()
       rt.reserveBank(bank, n * 22, 'Splinter')
       const sp = rt.amcaf.splinters
       sp.bank = bank
@@ -1404,15 +1417,29 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       sp.p = []
     },
 
-    /** Splinters Colour bkcolour,planes — what a lifted dot leaves behind */
+    /**
+     * Splinters Colour bkcolour,planes — routine 294 ($6a38), "what a lifted
+     * dot leaves behind".
+     *
+     * The plane count is bounded against the CURRENT SCREEN rather than
+     * against six: `move.w $50(a1),d0` is the depth, `subq.w #$1,d2 / cmp.w
+     * d2,d0 / Rble routine 390`, so `planes` above the screen's depth is error
+     * 23 — and with no screen open at all it is error 47 (routine 394) before
+     * that. Nothing bounds it below, and `planes - 1` is what gets stored.
+     */
     'splinters colour'(it) {
       const sp = rt.amcaf.splinters
-      sp.bkColour = it.evalInt()
+      const bk = it.evalInt()
       it.expect(',')
-      sp.planes = it.evalInt()
+      const planes = it.evalInt()
+      const s = rt.screen
+      if (!s) throw new AmosError('Screen not opened', 47)
+      if (s.rp.bitMap.depth <= planes - 1) amcafErr()
+      sp.bkColour = bk
+      sp.planes = planes
     },
 
-    /** Splinters Gravity sx,sy — added to the speed each step */
+    /** Splinters Gravity sx,sy — routine 293 ($6a26), added to the speed each step */
     'splinters gravity'(it) {
       const sp = rt.amcaf.splinters
       sp.gx = it.evalInt()
@@ -1531,21 +1558,52 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
 
     /* ---- Td Stars ---- */
 
-    /** Td Stars Bank bank,stars — "Each star consumes 12 bytes of memory" */
+    /**
+     * Td Stars Bank bank,stars — routine 304 ($6d84), Splinters Bank's twin.
+     * "Each star consumes 12 bytes of memory", and `mulu.w #$c,d2` says so.
+     * A count of ZERO is error 23 before anything else, and the eight-character
+     * bank name is the literal **"Stars   "** rather than the port's invented
+     * "TdStars ". A Reserve that comes back empty is error 24.
+     */
     'td stars bank'(it) {
       const bank = it.evalInt()
       it.expect(',')
       const n = it.evalInt()
-      rt.reserveBank(bank, n * 12, 'TdStars ')
+      if (n === 0) amcafErr()
+      rt.reserveBank(bank, n * 12, 'Stars   ')
       const st = rt.amcaf.stars
       st.bank = bank
       st.max = n
       st.s = []
     },
 
-    /** Td Stars Planes n — how many bitplanes the stars are drawn into */
+    /**
+     * Td Stars Planes p1,p2 — routine 312 ($6ea6), and it takes TWO plane
+     * numbers rather than a count, which an earlier pass read as one.
+     *
+     * It opens with a depth check that is the clearest use of AMCAF's own
+     * message table in the whole extension:
+     *
+     *   move.w  $50(a1), d0
+     *   cmp.w   #$2, d0
+     *   bge.b   ...
+     *   moveq   #$f, d0
+     *   Rbra    routine 397
+     *
+     * — fifteen, which is **"At least 4 colours required in screen"**. Then
+     * each plane number is bounded against that same depth (`cmp.w dN,d0 /
+     * Rble routine 390`), so a plane at or above the depth is error 23, and
+     * each is stored multiplied by four.
+     */
     'td stars planes'(it) {
-      rt.amcaf.stars.planes = it.evalInt()
+      const a = it.evalInt()
+      it.expect(',')
+      const b = it.evalInt()
+      const s = rt.screen
+      if (!s) throw new AmosError('Screen not opened', 47)
+      if (s.rp.bitMap.depth < 2) amcafMsg(15)
+      if (s.rp.bitMap.depth <= a || s.rp.bitMap.depth <= b) amcafErr()
+      rt.amcaf.stars.planes = Math.max(a, b) + 1
     },
 
     /**

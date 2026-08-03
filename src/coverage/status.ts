@@ -2101,8 +2101,6 @@ export const NOTES: Record<string, string> = {
     "'Tries to open the workbench again, if it has been closed previously' with AMOS's Close Workbench. There is no Workbench screen to reopen and closing it here frees nothing, so there is nothing to undo",
   'amcaf version$':
     "NOTE: the binary holds no printable text at all, so the string the library returned was not recovered. This answers the identity the registry holds, which is the question a program asking is really asking. APPROXIMATED",
-  'splinters bank':
-    "'Reserves a memory bank for a maximum of splinum Splinters. Each Splinter requires 22 bytes of memory' -- the figure is documented and the reservation matches it, so a program checking Length(bank) sees what the machine showed",
   'coords read':
     "'colour represents the background colour, that will be left out when reading in the dots ... all dots, which don't have the colour' are gathered. Splinters need this list because, unlike Td Stars, 'they don't destroy the background and use the colour of the pixel they have removed'",
   'splinters fuel':
@@ -2149,6 +2147,12 @@ export const NOTES: Record<string, string> = {
     "'darkens the screen by one single step. After calling it 16 times, the Ham screen is completely black.' The manual explains the asymmetry: 'Technically, it's not possible to fade in a ham screen without enormous processor power, but for fading out, a modified Shade Bobs routine is' enough -- darkening is monotone and needs no search",
   'set rain colour':
     "Changes a rainbow's colour index, which 'remove[s] the irretating limit to the first 16 colours'. DEVIATION: the manual's other use -- 'A colour index of -63 enables you to alter the hardware scrolling register, so you can create fancy water and wobbel effects' -- is a copper poke at a register this port reaches through the display list rather than by address, so the index is stored and the scroll case is not reproduced",
+  'splinters bank':
+    "Routines 288 (\$697c) and 304 (\$6d84) are twins. Both check the COUNT and not the bank number -- `move.l (a3)+,d2 / Rbeq routine 390` refuses a zero amount before anything else -- and both take the per-entry size from a `mulu.w`: \$16 for a splinter, \$c for a star. The eight-character bank NAMES are literals in the binary, `Splinter` and `Stars   `, where the port had invented `TdStars `. A Reserve that comes back empty is error 24, and each stores `amount - 1` as the loop bound, which is why every walk of the table is a `dbra`",
+  'splinters colour':
+    "Routine 294 (\$6a38): the plane count is bounded against the CURRENT SCREEN rather than against six. `move.w \$50(a1),d0` is the depth and `subq.w #\$1,d2 / cmp.w d2,d0 / Rble routine 390` refuses anything above it, with no screen open at all giving error 47 first. Nothing bounds it below, and `planes - 1` is what gets stored",
+  'td stars planes':
+    "Routine 312 (\$6ea6) takes TWO plane numbers, not a count -- token spec `I0,0` -- and its opening depth check is the clearest use of AMCAF's own message table anywhere in the extension: `cmp.w #\$2,d0 / bge` else `moveq #\$f,d0 / Rbra routine 397`, and message fifteen is 'At least 4 colours required in screen'. Each plane number is then bounded against that same depth (`cmp.w dN,d0 / Rble routine 390`) and stored multiplied by four",
   'shade pix':
     "Routine 223 (\$5180) is EIGHT BYTES -- `moveq #\$6,d0 / move.l d0,-(a3)` and a branch into routine 224 -- so the plane count is a hardcoded SIX, not Shade Bob Planes and not an argument. The token table agrees at `I0,0`; an earlier pass gave it an optional third parameter and read the Shade Bob setting when it was absent, which made Shade Bob Planes look as if it applied here. The worker is a ripple adder rather than an arithmetic increment: per plane, `btst` the bit, `bclr` and carry on if set, `bset` and stop if not. The manual's 'if the highest colour is reached, the colour is resetted to be cycled' falls out of that, and so does the early stop -- `move.l a0,d0 / beq` bails on a null plane pointer, so a screen with fewer than six planes carries only as far as it has",
   'paste ptile':
