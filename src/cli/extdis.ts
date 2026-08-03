@@ -227,7 +227,37 @@ for (const t of ext.tokens) {
 console.log(`${id}: ${libFile}, ${code.length} byte code hunk`)
 console.log(`jump table at +${cal.at} (delta-encoded words), routine 0 at $${cal.first.toString(16)}, ${maxRoutine + 1} routines`)
 
-if (showMap || !keyword) {
+/*
+ * `--addr` dumps EVERY routine's address, named or not, one per line.
+ *
+ * `--map` only lists routines a token entry names, which is most of what a
+ * reader wants but useless for the other job: checking that the citations in
+ * the port still agree with the binary. The port's convention is to write
+ * "routine 296 ($6a84)", so the whole file can be checked against this in one
+ * pass:
+ *
+ *     npx tsx src/cli/extdis.ts amcaf-1.50 --addr > /tmp/a.txt
+ *     grep -ohE "[Rr]outines? [0-9]+ \(\\$[0-9a-f]+\)" src/runtime/amcaf.ts |
+ *       sed -E 's/.*routines? ([0-9]+) \(\\?\$([0-9a-f]+)\)/\1 \2/' | sort -u |
+ *       awk 'NR==FNR{a[$1]=$2;next}{if(a[$1]!="$"$2) print}' /tmp/a.txt -
+ *
+ * #188 found twenty-four stale citations across AMCAF that way. Most were
+ * fourteen low on the number — the numbering that predates the jump-table fix
+ * in #176 — and one, Limit Smouse, turned out to be pointing at a routine
+ * whose behaviour the port had then copied. A wrong citation is not a
+ * cosmetic problem: it is how a reading gets attributed to code that never
+ * said it.
+ */
+if (args.includes('--addr')) {
+  // `addr.length`, not `maxRoutine` — the latter is the highest routine a
+  // TOKEN names, and the shared workers that no keyword names sit above it
+  for (let n = 0; n < addr.length; n++) {
+    const nm = routineName(n).replace(/^routine \d+ ?/, '')
+    console.log(`${n}\t$${(addr[n] ?? 0).toString(16)}\t${nm}`)
+  }
+}
+
+if (showMap || (!keyword && !args.includes('--addr'))) {
   console.log()
   for (const [name, e] of [...byName].sort((a, b) => (a[1].instr ?? a[1].func ?? 0) - (b[1].instr ?? b[1].func ?? 0))) {
     const parts: string[] = []

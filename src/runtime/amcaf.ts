@@ -218,7 +218,7 @@ export interface AmcafExamine {
  * engine's only other state and several of them are read by routines that
  * never mention the keyword that set them.
  *
- * AllocMem at routine 0 ($1c32) passes `#$10001` — MEMF_PUBLIC|MEMF_CLEAR —
+ * AllocMem inside routine 0, at $1c32, passes `#$10001` — MEMF_PUBLIC|MEMF_CLEAR —
  * so every one of these starts at ZERO, and the zeros matter: an untouched
  * limit box is `0,0 To 0,0`, which routine 386 treats as "nowhere", and an
  * untouched `maxNew` is zero, which stops routine 385 from ever spawning.
@@ -2280,9 +2280,58 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * Limit Smouse [x1,y1 To x2,y2] — "Defines the region in which the mouse
      * can be moved ... If the parameters are omitted, the full size of the
      * current screen will be used as default."
+     *
+     * Routines 168 ($4682) and 169 ($46c4), and they share NOTHING with the
+     * other two Limit keywords. The port borrowed Splinters' reader for all
+     * three; only Splinters and Td Stars actually work that way.
+     *
+     * The explicit form is thirty bytes and stores the four arguments as they
+     * arrive:
+     *
+     *     move.l (a3)+,d3 / move.l (a3)+,d2 / move.l (a3)+,d1 / move.l (a3)+,d0
+     *     move.w d0,$2f8(a2) / move.w d1,$2fa(a2)
+     *     move.w d2,$2fc(a2) / move.w d3,$2fe(a2)
+     *
+     * No `lsl.w #$4` — the second mouse's box is in WHOLE PIXELS, unlike the
+     * particle engines' sixteenths. No `subq`, so the far corner is
+     * INCLUSIVE. And no `cmp.w`/`exg.l`, so a reversed rectangle is stored
+     * reversed rather than normalised, which is a box nothing can be inside.
+     *
+     * The bare form is the bigger surprise. It does not start at 0,0:
+     *
+     *     move.w $52(a0),d0 / move.w $54(a0),d1
+     *     andi.w #$3ff,d0 / andi.w #$3ff,d1        the screen's DISPLAY position
+     *     move.w $4c(a0),d2 / move.w $4e(a0),d3
+     *     add.w d0,d2 / add.w d1,d3
+     *     subq.w #$1,d2 / subq.w #$1,d3
+     *
+     * — the box is the screen's place on the HARDWARE display, so a screen
+     * put at 190,80 by Screen Display limits the second mouse to 190..190+w-1.
+     * That is consistent with the rest of the family: Smouse X/Y and X Smouse
+     * are in the same hardware coordinates AMOS's own X Mouse uses, not in
+     * screen pixels. `andi.w #$3ff` is the copper's ten-bit horizontal field.
+     *
+     * NOTE: routine 168 loads `$52c(a5)` without testing it, where the two
+     * particle Limits both check. With no screen open it reads through a null
+     * pointer; the port answers with the default 128,50 origin instead.
      */
     'limit smouse'(it) {
-      rt.amcaf.smouse.limit = readLimit(rt, it, 4)
+      const sm = rt.amcaf.smouse
+      const s = rt.screen
+      if (it.atStmtEnd()) {
+        const x = (s?.displayX ?? 128) & 0x3ff
+        const y = (s?.displayY ?? 50) & 0x3ff
+        sm.limit = { x1: x, y1: y, x2: extW(x + (s?.width ?? 0) - 1), y2: extW(y + (s?.height ?? 0) - 1) }
+        return
+      }
+      const x1 = extW(it.evalInt())
+      it.expect(',')
+      const y1 = extW(it.evalInt())
+      it.expect('to')
+      const x2 = extW(it.evalInt())
+      it.expect(',')
+      const y2 = extW(it.evalInt())
+      sm.limit = { x1, y1, x2, y2 }
     },
 
 
@@ -2360,7 +2409,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *     moveq   #$0, d1 / moveq #$1, d0
      *     Rbra    routine 381             into the replayer, selector 1
      *
-     * Selector 1 of routine 381 ($8a16) is the module SET-UP, and it starts by
+     * Selector 1 of routine 381, the arm at $8a16, is the module SET-UP, and it starts by
      * checking the signature at `$438(a0)` against `M.K.` ($4d2e4b2e) and
      * `M!K!` ($4d214b21) — anything else is error 23. Naming a bank that is
      * not a ProTracker module stops the program.
@@ -2596,14 +2645,14 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * Blitter Copy s1,p1[,s2,p2[,s3,p3]] To s4,p4[,minterm] — one BITPLANE
      * into another, optionally combining two or three through a minterm.
      *
-     * Routine 62 ($28a0) is the short form: it pushes `#$f0` — D = A, a plain
+     * Routine 62 ($28d4) is the short form: it pushes `#$f0` — D = A, a plain
      * copy — and falls into routine 63, which is the explicit-minterm one.
      * Routine 63 resolves each screen with `L_SaveBMHD` and then does the
      * check that matters:
      *
      *     move.w $50(a0), d4        the screen's DEPTH
      *     cmp.w  d4, d7
-     *     Rbge   routine 372        plane >= depth is an error
+     *     Rbge   routine 157        plane >= depth is an error, via 390
      *     lsl.l  #2, d7
      *     move.l (a0, d7.w), $330(a2)   the plane pointer itself
      *
@@ -2637,7 +2686,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * Blitter Clear screen,bitplane[,x1,y1 To x2,y2] — wipe ONE bitplane.
      *
      * "In comparison to the AMOS command Cls, Blitter Clear allows you to wipe
-     * single bitplane instead of all." Routine 70 ($2d0a) is the short form
+     * single bitplane instead of all." Routine 70 ($2cfe) is the short form
      * and it is written as the long one with the screen's own bounds pushed:
      * `move.w $4c(a0),d0` and `$4e(a0)` are its width and height.
      *
@@ -3208,7 +3257,7 @@ function amcafYear(days: number): { year: number; rest: number } {
 }
 
 /**
- * The month splitter — routine 338 ($811e), which no token names: Cd Month
+ * The month splitter — 1.40's routine 338 ($811e), which no token names: Cd Month
  * ends `Rbra` into it and Cd Day reaches it through Cd Month.
  *
  * Takes the year (for the leap flag) and the remaining days from `amcafYear`,
@@ -3261,7 +3310,7 @@ function amcafTwoDigits(n: number): string {
 }
 
 /**
- * Cd Weekday — routine 311 ($73ec): `(days + 6) divu 7`, remainder plus one.
+ * Cd Weekday — routine 325 ($7140), 1.40's 311 ($73ec): `(days + 6) divu 7`, remainder plus one.
  *
  * Day 0 is 1 January 1978, a Sunday, so the +6 rotates the count onto a
  * Monday-first week and the answer is 7 rather than 1.
@@ -3846,33 +3895,38 @@ export interface Limit {
   y1: number
   x2: number
   y2: number
-  /** the origin routines 291/292 store at $256/$258 — see `td stars limit` */
+  /** the origin routines 305/306 store at $256/$258 — see `td stars limit` */
   cx: number
   cy: number
 }
 
 /**
- * The shared `[x1,y1 To x2,y2]` limit argument.
+ * The `[x1,y1 To x2,y2]` limit argument, as Td Stars reads it.
+ *
+ * NOT shared with the other two Limit keywords, though it once was here.
+ * AMCAF has three and they agree on nothing: Td Stars (routines 305/306) uses
+ * sixty-fourths, Splinters (291/292) sixteenths, and Limit Smouse (168/169)
+ * whole pixels with no subtract and no normalising at all. Reading one and
+ * assuming the others got two of the three wrong; each now has its own.
  *
  * The bare form is *"If you don't give any parameters, AMCAF uses the limits
- * of the current screen"*, and routine 277 ($6b66) shows it SNAPSHOTS them
+ * of the current screen"*, and routine 305 ($6dba) shows it SNAPSHOTS them
  * rather than deferring:
  *
  *     movea.l $52c(a5), a0        the current screen
- *     move.l  a0, d0 / Rbeq 376   ...and error if there is not one
- *     clr.l   $26e(a2)            low bound is 0,0
- *     move.w  $4c(a0), d0 / lsl.w #4, d0 / subq.w #1, d0
- *     move.w  $4e(a0), d0 / lsl.w #4, d0 / subq.w #1, d0
- *     move.l  d0, $272(a2)
+ *     move.l  a0, d0 / Rbeq 394   ...and error if there is not one
+ *     clr.l   $24e(a2)            low bound is 0,0
+ *     move.w  $4c(a0), d0 / lsl.w #6, d0 / subq.w #1, d0
+ *     move.w  $4e(a0), d0 / lsl.w #6, d0 / subq.w #1, d0
+ *     move.l  d0, $252(a2)
  *
- * so the high bound is the screen size in SIXTEENTHS of a pixel less one —
+ * so the high bound is the screen size in SIXTY-FOURTHS of a pixel less one —
  * the engine's own fixed point — which in whole pixels is `width - 1`. Taking
  * the size at call time is the visible difference: a program that resizes the
  * screen afterwards keeps the limits it asked for.
  *
- * `shift` is the engine's fixed point: 4 for Splinters (routines 277/278), 6
- * for Td Stars (291/292). It matters because the `To` bound has 1 subtracted
- * in those units, which makes it EXCLUSIVE in whole pixels.
+ * `shift` is the engine's fixed point. It matters because the `To` bound has
+ * 1 subtracted in those units, which makes it EXCLUSIVE in whole pixels.
  *
  * The explicit form also NORMALISES: `cmp.w d0,d2 / bhi / exg.l d0,d2` per
  * axis, so `30,20 To 1,2` is accepted and read backwards. The swap happens
@@ -4138,7 +4192,14 @@ function splPoke(bm: BitMap, idx: number, colour: number, top: number): void {
  * splinter fresh with `st.b $13(a0)`, blanks the saved background, takes the
  * fuel from `$27e` and rolls two speeds off the beam.
  */
-function splinterSpawn(rt: Runtime, v: DataView, o: number, cv: DataView | null, allowance: number): number {
+function splinterSpawn(
+  rt: Runtime,
+  v: DataView,
+  o: number,
+  cv: DataView | null,
+  allowance: number,
+  d6: { v: number },
+): number {
   const sp = rt.amcaf.splinters
   const dead = (): number => {
     v.setUint8(o + SPL_COLOUR, 0xff)
@@ -4163,8 +4224,8 @@ function splinterSpawn(rt: Runtime, v: DataView, o: number, cv: DataView | null,
   v.setUint8(o + SPL_FRESH, 0xff)
   v.setUint8(o + SPL_BACK, 0xff)
   v.setUint16(o + SPL_LIFE, sp.fuel)
-  v.setInt16(o + SPL_VX, splRandomSpeed(rt))
-  v.setInt16(o + SPL_VY, splRandomSpeed(rt))
+  v.setInt16(o + SPL_VX, splRandomSpeed(rt, d6))
+  v.setInt16(o + SPL_VY, splRandomSpeed(rt, d6))
   return allowance - 1
 }
 
@@ -4190,18 +4251,15 @@ function splIndex(rt: Runtime, x: number, y: number): number {
  * more than the hardware would ever need, and taking the zero after that
  * gives -31, which is inside the range the routine produces anyway.
  */
-function splRandomSpeed(rt: Runtime): number {
+function splRandomSpeed(rt: Runtime, d6: { v: number }): number {
   let d0 = 0
   for (let i = 0; i < 64; i++) {
-    splBeam = (splBeam + rt.interp.beamWord()) & 0xffff
-    d0 = splBeam & 0x3f
+    d6.v = (d6.v + rt.interp.beamWord()) & 0xffff
+    d0 = d6.v & 0x3f
     if (d0 !== 0) break
   }
   return extW(d0 - 0x1f)
 }
-
-/** d6 in routine 300 — seeded from VHPOSR each Move, then carried down the table */
-let splBeam = 0
 
 /**
  * Routine 300 ($6c32) plus routine 386 ($a904), one step for the whole table.
@@ -4246,7 +4304,9 @@ function splintersMove(rt: Runtime): void {
    */
   if (!rt.screen) throw new AmosError('Screen not opened', 47)
 
-  splBeam = rt.interp.beamWord() & 0xffff
+  // d6 and d5 are registers routine 300 holds for the length of ONE Move and
+  // routines 385/386 update as they go; they do not outlive the keyword
+  const d6 = { v: rt.interp.beamWord() & 0xffff }
   let allowance = sp.maxNew & 0xffff
   const lim = sp.limit
 
@@ -4256,12 +4316,12 @@ function splintersMove(rt: Runtime): void {
     v.setUint8(o + SPL_PBACK, v.getUint8(o + SPL_BACK))
 
     if (v.getUint8(o + SPL_COLOUR) === 0xff) {
-      allowance = splinterSpawn(rt, v, o, cv, allowance)
+      allowance = splinterSpawn(rt, v, o, cv, allowance, d6)
       continue
     }
     if (v.getUint8(o + SPL_FRESH) !== 0) continue
     if (v.getUint16(o + SPL_LIFE) === 0) {
-      allowance = splinterSpawn(rt, v, o, cv, allowance)
+      allowance = splinterSpawn(rt, v, o, cv, allowance, d6)
       continue
     }
     v.setUint16(o + SPL_LIFE, v.getUint16(o + SPL_LIFE) - 1)
@@ -4269,7 +4329,7 @@ function splintersMove(rt: Runtime): void {
     const x = extW(v.getInt16(o + SPL_X) + v.getInt16(o + SPL_VX))
     const y = extW(v.getInt16(o + SPL_Y) + v.getInt16(o + SPL_VY))
     if (x < lim.x1 || y < lim.y1 || x >= lim.x2 || y >= lim.y2) {
-      allowance = splinterSpawn(rt, v, o, cv, allowance)
+      allowance = splinterSpawn(rt, v, o, cv, allowance, d6)
       continue
     }
     v.setInt16(o + SPL_X, x)
@@ -4409,8 +4469,8 @@ function splintersActive(rt: Runtime): number {
 /**
  * The channel argument the Pt query functions take, range-checked as they do.
  *
- * Routines 228 and 229 both open `move.l (a3)+,d7 / Rbmi 372` then
- * `cmp.b #4,d7 / Rbge 372`, so a negative channel or one past 3 is an ERROR
+ * Routines 228 and 229 both open `move.l (a3)+,d7 / Rbmi 390` then
+ * `cmp.b #4,d7 / Rbge 390`, so a negative channel or one past 3 is an ERROR
  * rather than something to mask. An earlier pass wrote `& 3`, which silently
  * answered for channel 0 where the machine stops the program.
  */
@@ -4441,7 +4501,7 @@ function bltCopyPlanes(
   if (!dst || dp < 0 || dp >= dst.rp.bitMap.depth) amcafErr()
   const planes = src.map(([sn, pn]) => {
     const s = rt.screens.get(sn)
-    // `cmp.w d4,d7 / Rbge 372` — the plane must be inside the screen's depth
+    // `cmp.w d4,d7 / Rbge 390` — the plane must be inside the screen's depth
     if (!s || pn < 0 || pn >= s.rp.bitMap.depth) amcafErr()
     return { bm: s.rp.bitMap, pn }
   })
@@ -4798,7 +4858,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * =Cd Day(date) — routine 324 ($713e) / 310 ($73da). "A value between 1
+     * =Cd Day(date) — routine 324 ($7136) / 1.40's 310 ($73da). "A value between 1
      * and 31."
      *
      * `Rbsr` into Cd Month and then `move.l d0,d3 / addq.b #$1,d3`: the day is
@@ -4810,18 +4870,18 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
       return VI((amcafMonth(year, rest).rest + 1) | 0)
     },
     /**
-     * =Cd Month(date) — routine 323 ($712e) / 309 ($73ca). "Lies between 1 and
+     * =Cd Month(date) — routine 323 ($712e) / 1.40's 309 ($73ca). "Lies between 1 and
      * 12": six bytes of `Rbsr` Cd Year, `Rbra` the month splitter.
      */
     'cd month': (_, a) => {
       const { year, rest } = amcafYear(i0(a, 0))
       return VI(amcafMonth(year, rest).month)
     },
-    /** =Cd Year(date) — routine 322 ($7104) / 308 ($7398), the loop above */
+    /** =Cd Year(date) — routine 322 ($7104) / 1.40's 308 ($7398), the loop above */
     'cd year': (_, a) => VI(amcafYear(i0(a, 0)).year),
 
     /**
-     * =Cd Weekday(date) — routine 325 ($7150) / 311 ($73ec). "Can range
+     * =Cd Weekday(date) — routine 325 ($7140) / 1.40's 311 ($73ec). "Can range
      * between 1 (monday) and 7 (sunday)."
      */
     'cd weekday': (_, a) => VI(amcafWeekday(i0(a, 0))),
@@ -4850,7 +4910,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * =Cd String(date$) — routine 327 ($7464), and it really is dos.library:
+     * =Cd String(date$) — routine 327 ($71a8), and it really is dos.library:
      * `movea.l $2b8(a5),a6 / jsr -$2ee(a6)` is StrToDate, which is why the
      * manual says "This command only works on OS2.0 and higher" and why a
      * `cmp.w #$25,$14(a0)` against ExecBase's LIB_VERSION guards the entry.
@@ -4907,25 +4967,25 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * =Ct Hour(time) — routine 329 ($758a). "Separates the hour from the
+     * =Ct Hour(time) — routine 329 ($72be). "Separates the hour from the
      * packed time": clear the low word, `swap`, `divu.w #$3c` and keep the
      * QUOTIENT. So the minutes-since-midnight field divided by sixty.
      */
     'ct hour': (_, a) => VI(Math.floor(timeMins(i0(a, 0)) / 60)),
     /**
-     * =Ct Minute(time) — routine 330 ($75a4). The same divide, keeping the
+     * =Ct Minute(time) — routine 330 ($72d0). The same divide, keeping the
      * REMAINDER instead: `move.w d2,d3 / swap d3` lifts it out of the high
      * word. Minutes within the hour.
      */
     'ct minute': (_, a) => VI(timeMins(i0(a, 0)) % 60),
     /**
-     * =Ct Second(time) — routine 331 ($75be). `move.w d0,d1 / divu.w #$32,d1`
+     * =Ct Second(time) — routine 331 ($72e2). `move.w d0,d1 / divu.w #$32,d1`
      * on the LOW word, quotient kept: the ticks field divided by fifty.
      */
     'ct second': (_, a) => VI(Math.floor(timeTicks(i0(a, 0)) / TICKS_PER_SECOND)),
 
     /**
-     * =Ct Tick(time) — routine 332 ($75d8). "Calculates the number of vertical
+     * =Ct Tick(time) — routine 332 ($72f4). "Calculates the number of vertical
      * blanks (=1/50 of a second) from the parameter 'time'".
      *
      * That sentence does not say whether the count is within the second or
@@ -4938,7 +4998,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     'ct tick': (_, a) => VI(timeTicks(i0(a, 0)) % TICKS_PER_SECOND),
 
     /**
-     * =Ct Time$(time) — routine 333 ($75f2). "A string in the format
+     * =Ct Time$(time) — routine 333 ($7306). "A string in the format
      * 'HH:MM:SS'", with a length word of 8 written before any digit is.
      *
      * Hours and minutes come from one `divu.w #$3c` (quotient then, after a
@@ -4953,7 +5013,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * =Ct String(time$) — routine 326 ($7406), Cd String's twin: the same
+     * =Ct String(time$) — routine 326 ($7152), Cd String's twin: the same
      * StrToDate call with dat_StrTime filled in and dat_StrDate cleared, then
      * `move.w $386(a2),d3 / swap / move.w $38a(a2),d3` to pack ds_Minute over
      * ds_Tick the way Current Time does. "HH:MM" or "HH:MM:SS", -1 when it
@@ -5747,8 +5807,8 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * =Pt Cnote(chan) — "the frequency of an instrument being played on music
      * channel chan at that very moment", NOT a note number.
      *
-     * Routine 229 ($5dc6) range-checks first — `Rbmi 372` on negative and
-     * `cmp.b #4 / Rbge 372` — then indexes the replayer's per-channel state
+     * Routine 243 ($5d5e) range-checks first — `Rbmi 390` on negative and
+     * `cmp.b #4 / Rbge 390` — then indexes the replayer's per-channel state
      * at 44 ($2c) bytes a channel, reads the period WORD at +$10, returns 0
      * if it is zero, and otherwise divides:
      *
@@ -5767,7 +5827,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * =Pt Cinstr(chan) — "a value between 0 and 31, whereas 0 tells you that
      * no sample has been trigged".
      *
-     * Routine 228 ($5d94), the same range check, then `move.b $2(a0,d7.w),d3`
+     * Routine 242 ($5d34), the same range check, then `move.b $2(a0,d7.w),d3`
      * and `lsr.w #4`. NOTE: a byte shifted right by four can only produce
      * 0..15, so the routine cannot return the 16..31 its own manual promises
      * — the high bit of a ProTracker instrument number lives in the other
@@ -5797,7 +5857,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * Signal now reports $FF."
      */
     'pt signal': () => {
-      // Routine 254 ($62e0) CLEARS the byte as it reads it —
+      // Routine 268 ($61bc) CLEARS the byte as it reads it —
       // `move.b $2(a0),d3 / clr.b $2(a0)` — so a signal is consumed by the
       // first read and a second one gives 0. Pt Vu (255) has the same shape
       // and this port already had that one; this one it did not.
@@ -5970,7 +6030,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * =Qrnd(max) — routine 258 ($63f0), and the manual is wrong about it.
+     * =Qrnd(max) — routine 272 ($62ea), and the manual is wrong about it.
      *
      * "Totally identical to the Rnd function, with the only difference, that
      * this one is much faster" — so an earlier pass routed it to AMOS's own
@@ -6013,7 +6073,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     qcos: (_, a) => VI(qtrig(i0(a, 0), i0(a, 1), 256)),
 
     /**
-     * =Qarc(deltax,deltay) — routine 261 ($646c). The inverse of the pair:
+     * =Qarc(deltax,deltay) — routine 275 ($6350). The inverse of the pair:
      * the angle to a relative point, in the same 1024-to-the-turn units,
      * "normally used for all kinds of 'aiming-at' routines".
      *

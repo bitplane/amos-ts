@@ -389,7 +389,7 @@ describe('slice 3: date and time', () => {
   })
 
   /**
-   * Routine 332 ($75d8): `divu.w #$32,d3` then `move.w d2,d3 / swap d3` keeps
+   * Routine 332 ($72f4): `divu.w #$32,d3` then `move.w d2,d3 / swap d3` keeps
    * the REMAINDER, exactly as Ct Minute keeps the remainder of its divide by
    * sixty. Ct Second (routine 331) keeps the quotient of the same divide, so
    * the two partition the field rather than reading it at two resolutions --
@@ -1528,7 +1528,7 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
    *
    * Exchange Bob/Icon (200/201, $5052/$50a2) share a shape: resolve the bank
    * through routine 1101/1102, read the count from `(a0)+`, then range-check
-   * BOTH indices with `cmp.w d2,dn / Rbhi 372` and return early when they are
+   * BOTH indices with `cmp.w d2,dn / Rbhi 390` and return early when they are
    * equal (`cmp.l d0,d1 / bne` past an `rts`).
    *
    * DEVIATION: that check is `bhi`, UNSIGNED, so index 0 passes it and the
@@ -1596,10 +1596,10 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
     expect(() => run([...scr, 'Blitter Copy Limit 0,8 To 32,0'])).toThrow(/illegal function call/i)
 
     /**
-     * Blitter Copy s1,p1 To s2,p2[,minterm] — routine 62 ($28a0) pushes the
+     * Blitter Copy s1,p1 To s2,p2[,minterm] — routine 62 ($28d4) pushes the
      * default minterm $F0 (D = A) and falls into 63, which range-checks each
      * plane against its screen's depth with `move.w $50(a0),d4 / cmp.w d4,d7
-     * / Rbge 372`.
+     * / Rbge 390`.
      */
     const copied = run([
       // 16 COLOURS is four planes; `Screen Open ...,4,...` would be two
@@ -2797,7 +2797,7 @@ describe('slice 11: the four-player adaptor and the second mouse', () => {
 
   /**
    * Set Rain Colour (189, $4dce) and Rain Fade (190, $4dfe) both range-check
-   * the rainbow with `Rbmi 372` / `cmp.w #4 / Rbge 372` — there are four, at
+   * the rainbow with `Rbmi 390` / `cmp.w #4 / Rbge 390` — there are four, at
    * $18 bytes each from -$868(a5) — and Rain Fade additionally errors when
    * the rainbow's height word at $a(a1) is zero.
    */
@@ -2844,32 +2844,43 @@ describe('slice 11: the four-player adaptor and the second mouse', () => {
     expect(p('Smouse Key')).toBe('0')
   })
 
-  it('Smouse Speed and Limit Smouse hold their settings', () => {
+  /**
+   * Routines 168 ($4682) and 169 ($46c4), which share NOTHING with the other
+   * two Limit keywords — the port borrowed Splinters' reader for all three.
+   *
+   * The explicit form is a plain store of four words: no `lsl.w #$4`, so the
+   * box is in WHOLE PIXELS rather than sixteenths; no `subq`, so the far
+   * corner is INCLUSIVE; and no `cmp.w`/`exg.l`, so a reversed rectangle
+   * stays reversed instead of being normalised into a usable one.
+   */
+  it('Limit Smouse stores whole pixels, inclusive, and does not normalise', () => {
     expect(run(['Smouse Speed 3']).rt.amcaf.smouse.speed).toBe(3)
-    // the To bound is EXCLUSIVE: routine 278 shifts both corners into
-    // sixteenths and then `subq.l #1` the high pair, so pixel 30 is outside
     const { rt } = run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse 1,2 To 30,20'])
-    expect(rt.amcaf.smouse.limit).toMatchObject({ x1: 1, y1: 2, x2: 29, y2: 19 })
-    // ...and the corners are normalised, `cmp.w` + `exg.l` per axis. The swap
-    // happens after the subtract, so descending is not quite the mirror of
-    // ascending: it gives 30..1 where ascending gave 1..29
+    expect(rt.amcaf.smouse.limit).toEqual({ x1: 1, y1: 2, x2: 30, y2: 20 })
+    // reversed in, reversed out — a box nothing can be inside
     const back = run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse 30,20 To 1,2'])
-    expect(back.rt.amcaf.smouse.limit).toMatchObject({ x1: 1, y1: 2, x2: 30, y2: 20 })
-    // "If the parameters are omitted, the full size of the current screen" —
-    // and routine 277 ($6b66) SNAPSHOTS it rather than deferring, reading
-    // $4c/$4e off the current screen and storing (size << 4) - 1, which in
-    // whole pixels is size - 1
-    expect(run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse']).rt.amcaf.smouse.limit).toMatchObject({
-      x1: 0,
-      y1: 0,
-      x2: 63,
-      y2: 31,
+    expect(back.rt.amcaf.smouse.limit).toEqual({ x1: 30, y1: 20, x2: 1, y2: 2 })
+  })
+
+  /**
+   * And the bare form does not start at 0,0. Routine 168 reads `$52(a0)` and
+   * `$54(a0)` masked to the copper's ten bits — the screen's DISPLAY position
+   * — and adds the size to it, so the box is where the screen sits on the
+   * HARDWARE display. That is consistent with the rest of the family: X
+   * Smouse and Smouse X are in the same coordinates AMOS's own X Mouse uses.
+   */
+  it('Limit Smouse takes the box from where the screen is DISPLAYED', () => {
+    // a screen opens at the default 128,50
+    expect(run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse']).rt.amcaf.smouse.limit).toEqual({
+      x1: 128, y1: 50, x2: 128 + 63, y2: 50 + 31,
     })
-    // ...so a later resize does not move the limits
+    // ...and moving it moves the box with it
+    expect(
+      run(['Screen Open 0,64,32,4,Lowres', 'Screen Display 0,190,80,,', 'Limit Smouse']).rt.amcaf.smouse.limit,
+    ).toEqual({ x1: 190, y1: 80, x2: 190 + 63, y2: 80 + 31 })
+    // it SNAPSHOTS, so a later screen does not move the limits
     const resized = run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse', 'Screen Open 1,320,200,4,Lowres'])
-    expect(resized.rt.amcaf.smouse.limit).toMatchObject({ x1: 0, y1: 0, x2: 63, y2: 31 })
-    // with no screen at all the routine takes its `Rbeq 376` error branch
-    expect(() => run(['Screen Close 0', 'Limit Smouse'])).toThrow()
+    expect(resized.rt.amcaf.smouse.limit).toEqual({ x1: 128, y1: 50, x2: 191, y2: 81 })
   })
 })
 
@@ -2893,7 +2904,7 @@ describe('slice 12: ProTracker replay', () => {
   })
 
   /**
-   * Routine 254 ($62e0) reads the signal byte and CLEARS it in the same
+   * Routine 268 ($61bc) reads the signal byte and CLEARS it in the same
    * breath — `move.b $2(a0),d3 / clr.b $2(a0)` — so a signal is consumed by
    * whoever reads it first. Pt Vu (255) has the identical shape and this port
    * already cleared that one; Pt Signal it did not, so a program polling it
@@ -2905,8 +2916,8 @@ describe('slice 12: ProTracker replay', () => {
   })
 
   /**
-   * Routines 228/229 range-check the channel — `Rbmi 372` on negative,
-   * `cmp.b #4 / Rbge 372` past three — where the port had `& 3` and silently
+   * Routines 228/229 range-check the channel — `Rbmi 390` on negative,
+   * `cmp.b #4 / Rbge 390` past three — where the port had `& 3` and silently
    * answered for channel 0.
    */
   it('the Pt query functions error on a channel outside 0..3', () => {
@@ -2916,7 +2927,7 @@ describe('slice 12: ProTracker replay', () => {
   })
 
   /**
-   * Routine 232 ($5e70): `chan` is a BITMASK — `btst.b #0,d0` / `lsr.w #1,d0`
+   * Routine 246 ($5df6): `chan` is a BITMASK — `btst.b #0,d0` / `lsr.w #1,d0`
    * four times, stepping $10 bytes through the AUDxPER registers — and the
    * frequency is clamped to $190..$7530 before the period is derived.
    */
@@ -2938,7 +2949,7 @@ describe('slice 12: ProTracker replay', () => {
   })
 
   /**
-   * Routine 233 ($5ecc) is Pt Sam Freq's shape again — four passes of
+   * Routine 247 ($5e50) is Pt Sam Freq's shape again — four passes of
    * `btst.b #0,d0` / `lsr.w #1,d0`, each clearing one DMACON bit and one
    * AUDxVOL — so the argument is a MASK. The port took it as an index, which
    * silenced channel 3 where the machine silences 0 and 1.
@@ -2955,22 +2966,34 @@ describe('slice 12: ProTracker replay', () => {
   })
 
   /**
-   * Routine 249 ($61f0) calls `Rbsr 253` — Pt Stop — before it even reads its
-   * argument, and then range-checks where the bank landed:
+   * Routine 263 ($610c) does no such thing as the `Rbsr` into Pt Stop an
+   * earlier pass credited it with — there is no `Rbsr` in it at all. Thirty
+   * four bytes: resolve the bank, keep the address at $2bc, range-check it,
+   * and tail into the replayer.
    *
    *     cmpa.l #$200000, a0
-   *     Rbge   routine 372
+   *     Rbge   routine 390
+   *     moveq  #$0, d1 / moveq #$1, d0
+   *     Rbra   routine 381
    *
-   * so a module at or above 2MB — outside chip RAM, where Paula cannot reach
-   * it — is an error. That half is a DEVIATION: it compares a real address
-   * and this port has a flag, so enforcing it would reject every
-   * `Reserve As Work` bank, including on machines where all memory is chip
-   * and the original is happy. The Pt Stop half is reproduced.
+   * The 2MB test is a DEVIATION: it compares a real address and this port has
+   * a flag, so enforcing it would reject every `Reserve As Work` bank,
+   * including on machines where all memory is chip and the original is happy.
+   *
+   * Selector 1 of the replayer ($8a16) is the module SET-UP. It checks the
+   * signature at $438(a0) against `M.K.` and `M!K!`, then resets speed to 6
+   * (`move.b #$6,-$e(a5)`), the tempo to 125 (`move.w #$7d,(a5)`) and the
+   * position, and stores the caller's d1 — zero here, one for Pt Play — as
+   * the playing flag. So Pt Bank prepares a module without starting it, which
+   * looks like a stop but is not one.
    */
-  it('Pt Bank stops the music before it reads its argument', () => {
+  it('Pt Bank prepares the module and does not start it', () => {
     const stopped = run([...modBank(), 'Pt Play 3', 'Pt Bank 3'])
     expect(stopped.rt.amcaf.pt.playing).toBe(false)
     expect(stopped.rt.amcaf.pt.bank).toBe(3)
+    // the replayer reset, which the Pt Stop reading never explained
+    expect([stopped.rt.amcaf.pt.speed, stopped.rt.amcaf.pt.bpm]).toEqual([6, 125])
+    expect([stopped.rt.amcaf.pt.pos, stopped.rt.amcaf.pt.row]).toEqual([0, 0])
   })
 
   it('Pt Sam Bank and the sample players reach the audio sink', () => {
