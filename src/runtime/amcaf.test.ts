@@ -388,9 +388,86 @@ describe('slice 3: date and time', () => {
     expect(p(`Wordswap(${t}) and $FFFF`)).toBe(String(13 * 60 + 45))
   })
 
-  it('Ct Tick is the tick field itself, at 50 to the second', () => {
-    expect(p('Ct Tick(Ct String("00:00:10"))')).toBe('500')
+  /**
+   * Routine 332 ($75d8): `divu.w #$32,d3` then `move.w d2,d3 / swap d3` keeps
+   * the REMAINDER, exactly as Ct Minute keeps the remainder of its divide by
+   * sixty. Ct Second (routine 331) keeps the quotient of the same divide, so
+   * the two partition the field rather than reading it at two resolutions --
+   * which is what the manual's "the number of vertical blanks (=1/50 of a
+   * second)" was read as before the routine was followed.
+   */
+  it('Ct Second and Ct Tick partition the ticks field, quotient and remainder', () => {
     expect(p('Ct Second(Ct String("00:00:10"))')).toBe('10')
+    expect(p('Ct Tick(Ct String("00:00:10"))')).toBe('0')
+    // a tick count that is not a whole second: 505 ticks is 10s and 5 ticks
+    expect(p('Ct Tick(Wordswap(0)+505)')).toBe('5')
+    expect(p('Ct Second(Wordswap(0)+505)')).toBe('10')
+    // never 50 or more, whatever the field holds
+    expect(p('Ct Tick(Wordswap(0)+2999)')).toBe('49')
+  })
+
+  /**
+   * Cd Year is routine 322 ($7104), a subtract-a-year-at-a-time loop whose
+   * leap test is `move.b d3,d4 / andi.b #$3,d4` -- `year & 3` and nothing
+   * else. 2100 is not a leap year under the calendar everyone else uses and
+   * AMCAF gives it a 29 February, so from 1 March 2100 its dates run a day
+   * behind. Reproduced, because a program that prints a date wants the date
+   * AMCAF printed.
+   */
+  it('DEFECT: the leap rule is year AND 3, so 2100 gets a 29 February', () => {
+    // 1 Jan 2100 is day 44560 counting from 1 Jan 1978 with the real calendar
+    const y2100 = Math.floor((Date.UTC(2100, 0, 1) - Date.UTC(1978, 0, 1)) / 86400000)
+    expect(p(`Cd Year(${y2100})`)).toBe('2100')
+    // AMCAF believes in 29-Feb-2100; the real calendar says 1 March
+    expect(p(`Cd Date$(${y2100 + 59})`)).toBe('Mon 29-Feb-00')
+    expect(p(`Cd Day(${y2100 + 59})`)).toBe('29')
+    expect(p(`Cd Month(${y2100 + 59})`)).toBe('2')
+    // and 1980, 2000 and 2004 -- the years the two rules agree on -- still work
+    expect(p('Cd Date$(789)')).toBe('Fri 29-Feb-80')
+  })
+
+  /**
+   * Nothing in the year loop or the month splitter bounds its input. A
+   * negative day count fails the very first `cmp.l d1,d0` and drops straight
+   * out with the remainder untouched, so the answer is 1978, month 1, and a
+   * day number of `days + 1`.
+   */
+  it('a date before the epoch is reported as January 1978 with a day of zero', () => {
+    expect(p('Cd Year(-1)')).toBe('1978')
+    expect(p('Cd Month(-1)')).toBe('1')
+    expect(p('Cd Day(-1)')).toBe('0')
+    expect(p('Cd Day(-5)')).toBe('-4')
+  })
+
+  /**
+   * Cd Weekday is `(days+6) divu 7` (routine 325), and `divu.w` is a 32-by-16
+   * divide: past day 458745 the quotient will not fit a word, so the 68000
+   * leaves the operand alone and sets V. The routine never looks, and goes on
+   * to clear the low word, swap and increment a byte -- so the answer becomes
+   * the TOP HALF of the day count rather than a weekday.
+   */
+  it('DEFECT: Cd Weekday past day 458745 returns half the day count', () => {
+    expect(p('Cd Weekday(458745)')).toBe('7') // the last day that still divides
+    expect(p('Cd Weekday(458746)')).toBe('8') // (458752 >> 16) + 1
+    expect(p('Cd Weekday(1000000)')).toBe('16') // (1000006 >> 16) + 1 = 15 + 1
+  })
+
+  /**
+   * The two-digit printer at $7514 and $7638 starts each character at '0' and
+   * counts up, byte-wide, with no upper bound. Its tens test is `cmp.b #$a,d0`
+   * with a SIGNED branch, so a byte of $80..$FF skips the tens loop and is
+   * counted out one unit at a time instead.
+   */
+  it('DEFECT: the two-digit printer walks past 9 rather than widening', () => {
+    // the minutes field is sixteen bits, so an hour count of 25 is ordinary
+    expect(p('Ct Time$(Wordswap(25*60))')).toBe('25:00:00')
+    // at 100 hours the tens character counts ten past '0' and lands on ':',
+    // and the string is still the eight characters the length word promised
+    expect(p('Ct Time$(Wordswap(100*60))')).toBe(':0:00:00')
+    expect(p('Ct Time$(Wordswap(100*60))').length).toBe(8)
+    // 128 seconds of ticks reads as a NEGATIVE byte, so the tens loop is
+    // skipped entirely and the units character is counted up 128 times
+    expect(p('Ct Time$(Wordswap(0)+128*50)')).toBe(`00:00:0${String.fromCharCode(0x30 + 128)}`)
   })
 
   it('Ct String takes HH:MM or HH:MM:SS, and -1 for anything else', () => {

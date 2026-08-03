@@ -29,6 +29,25 @@
  * Where the two disagree the binary wins. `extdis amcaf-1.50` decodes a
  * 45,532-byte code hunk, jump table at +18, 354 routines from $1c28.
  *
+ * ## The 1.40 binary we hold is the DEMO build, and 1.50 is the better oracle
+ *
+ * Found while following the date routines. Almost every routine in 1.40 opens
+ *
+ *     tst.w   -$16(a5)
+ *     Rbmi    routine 144
+ *
+ * and routine 144 is `moveq #$0,d0 / Rbra routine 379`, which puts up a
+ * requester reading **"Demo Version! Nicht kompilierbar!"** — not compilable.
+ * The same file carries "AMCAF Demoversion! Please register!" in its init
+ * routine. **1.50 has neither string and none of the guards**: its Cd Year is
+ * the identical loop with the four-byte preamble simply absent.
+ *
+ * So `amcaf-1.40` is the shareware release and `amcaf-1.50` the freeware final
+ * the author announced. Nothing about the arithmetic differs — the two agree
+ * instruction for instruction once the preamble is discounted — but citations
+ * should prefer 1.50, and the guard itself is n/a: it fires only under the
+ * AMOS Professional Compiler, which this port does not model.
+ *
  * ## The Guide's history node is a primary source
  *
  * Unusually, the manual carries a dated changelog going back to 1993, and it
@@ -2195,6 +2214,133 @@ const MONTHS_FULL = [
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 /**
+ * The two tables Cd Date$ builds its string from, laid out the way routine 328
+ * ($74bc in 1.40) indexes them — and they OVERLAP.
+ *
+ * `lea $7556(pc,d6.w)` reads the month with d6 = month*4, so month 1 lands at
+ * $755a and month 0 would land on $7556 — which is the SEVENTH weekday entry,
+ * "Sun ". One four-byte slot serves as both the last weekday and the unused
+ * month zero, which is why the month table starts with a hyphen and the
+ * weekday one with a trailing space: they are one run of bytes read two ways.
+ */
+const CD_WEEK4 = ['Mon ', 'Tue ', 'Wed ', 'Thu ', 'Fri ', 'Sat ', 'Sun ']
+const CD_MON4 = ['Sun ', '-Jan', '-Feb', '-Mar', '-Apr', '-May', '-Jun', '-Jul', '-Aug', '-Sep', '-Oct', '-Nov', '-Dec']
+
+/**
+ * The month-length table at $814a, dumped rather than assumed.
+ *
+ *   63 1c 1f 1e 1f 1e 1f 1f 1e 1f 1e 1f
+ *
+ * Index 0 is $63, a byte of the `rts` padding that is never read — the loop
+ * increments its index BEFORE the first load, having already subtracted
+ * January's 31 from a `moveq`. So entry 1 is February and entry 11 December.
+ */
+const AMCAF_MONTH_LEN = [0x63, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+/**
+ * Cd Year — routine 322 ($7104) in 1.50, 308 ($7398) in 1.40.
+ *
+ * A subtract-a-year-at-a-time loop from 1978 rather than a calendar formula,
+ * and it leaves the REMAINING days behind for the month splitter, which is why
+ * Cd Month is `Rbsr` into this and Cd Day is `Rbsr` into Cd Month.
+ *
+ * DEFECT: the leap test is `move.b d3,d4 / andi.b #$3,d4` — a bare `year & 3`,
+ * with no hundred-or-four-hundred correction. 2100 is not a leap year and
+ * AMCAF says it is, so from 1 March 2100 (day 44984) every date it reports is
+ * one day out. Reproduced: a program that prints a date gets AMCAF's calendar.
+ *
+ * The year is a WORD (`move.w #$7ba,d3` then `addq.w #1,d3`), so it wraps at
+ * 65536, and a negative day count exits before the first iteration and reports
+ * 1978 with the negative remainder intact.
+ */
+function amcafYear(days: number): { year: number; rest: number } {
+  let year = 0x7ba // 1978
+  let rest = days | 0
+  let len = 365
+  while (rest >= len) {
+    year = (year + 1) & 0xffff
+    rest -= len
+    len = (year & 3) === 0 ? 366 : 365
+  }
+  return { year, rest }
+}
+
+/**
+ * The month splitter — routine 338 ($811e), which no token names: Cd Month
+ * ends `Rbra` into it and Cd Day reaches it through Cd Month.
+ *
+ * Takes the year (for the leap flag) and the remaining days from `amcafYear`,
+ * and returns the 1-based month with the days left over. February's extra day
+ * is added to the table entry in place (`addq.b #$1,d1`) only when the index
+ * is 1 and `year & 3` is zero, so it inherits `amcafYear`'s 2100 defect.
+ */
+function amcafMonth(year: number, restIn: number): { month: number; rest: number } {
+  let rest = restIn
+  let idx = 0
+  let len = 31 // January, from the `moveq #$1f,d1` before the loop
+  while (rest >= len) {
+    idx++
+    rest -= len
+    len = AMCAF_MONTH_LEN[idx] ?? 0
+    if ((year & 3) === 0 && idx === 1) len++
+  }
+  return { month: (idx + 1) & 0xff, rest }
+}
+
+/**
+ * The two-digit printer shared by Cd Date$ ($7514) and Ct Time$ ($7638) —
+ * byte for byte the same routine, assembled twice.
+ *
+ * It is not a formatter: it starts each digit at `'0'` and counts up, tens by
+ * repeated subtraction of ten and units by repeated subtraction of one, with
+ * every add and subtract BYTE-wide. There is no upper bound, so a value of 100
+ * or more walks the tens character past `'9'` into punctuation rather than
+ * growing the string, and the caller's length word stays 8 or 13 regardless.
+ *
+ * DEFECT: the tens test is `cmp.b #$a,d0` followed by `blt` — a SIGNED byte
+ * compare. A byte of $80..$FF reads as negative, skips the tens loop entirely,
+ * and then the units loop counts it down to zero one character at a time, so
+ * `Ct Time$` of a time whose seconds byte is 200 emits `'0'` plus 200.
+ */
+function amcafTwoDigits(n: number): string {
+  let v = n & 0xff
+  let tens = 0x30
+  let units = 0x30
+  const signed = (b: number): number => (b << 24) >> 24
+  while (signed(v) >= 10) {
+    tens = (tens + 1) & 0xff
+    v = (v - 10) & 0xff
+  }
+  while (v !== 0) {
+    units = (units + 1) & 0xff
+    v = (v - 1) & 0xff
+  }
+  return String.fromCharCode(tens, units)
+}
+
+/**
+ * Cd Weekday — routine 311 ($73ec): `(days + 6) divu 7`, remainder plus one.
+ *
+ * Day 0 is 1 January 1978, a Sunday, so the +6 rotates the count onto a
+ * Monday-first week and the answer is 7 rather than 1.
+ *
+ * DEFECT: `divu.w` is a 32-by-16 divide, and the 68000 leaves its operand
+ * UNTOUCHED and sets V when the quotient will not fit a word. Past day 458745
+ * — 3 April 3234 — the quotient overflows, and the code takes no notice: it
+ * clears the low word, swaps, and increments a byte, so the answer becomes the
+ * top half of the day count instead of a weekday. The same path catches any
+ * day below -6, where the value read as unsigned is enormous.
+ */
+function amcafWeekday(days: number): number {
+  const v = (days + 6) >>> 0
+  if (Math.floor(v / 7) > 0xffff) {
+    const hi = v >>> 16
+    return (hi & 0xff00) | ((hi + 1) & 0xff)
+  }
+  return (v % 7) + 1
+}
+
+/**
  * AMCAF's packed time, which the manual spells out rather than leaving to be
  * guessed: *"the time is created out of Wordswap(minutes)+ticks"*.
  *
@@ -3080,49 +3226,105 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
 
 
     /**
-     * =Current Date — "counts the days passed since 1st January 1978", which
-     * is the AmigaDOS DateStamp day count exactly.
+     * =Current Date — routine 320 ($70c4) in 1.50, 306 ($7348) in 1.40.
+     *
+     * `DateStamp()` (dos.library -$c0) into the extension's own block at
+     * $380(a2), then `move.l (a2),d3` — the ds_Days longword and nothing else.
+     * "Counts the days passed since 1st January 1978", which is the DateStamp
+     * epoch exactly.
      */
     'current date': () => VI(rt.host.clock.now().days),
 
-    /** =Current Time — the packed minutes/ticks pair described above */
+    /**
+     * =Current Time — routine 321 ($70e0) / 307 ($736c), the same DateStamp
+     * call read differently: `move.w $6(a2),d3 / swap d3 / move.w $a(a2),d3`.
+     *
+     * $380+6 is the LOW WORD of ds_Minute and $380+$a the low word of ds_Tick,
+     * so the pair packs minutes over ticks and the two high words are dropped
+     * rather than checked.
+     */
     'current time': () => {
       const st = rt.host.clock.now()
       return VI(packTime(st.mins, st.ticks))
     },
 
-    /** =Cd Day(date) — "a value between 1 and 31" */
-    'cd day': (_, a) => VI(stampToYmd(i0(a, 0))[2]),
-    /** =Cd Month(date) — "lies between 1 and 12" */
-    'cd month': (_, a) => VI(stampToYmd(i0(a, 0))[1]),
-    /** =Cd Year(date) — the year out of the stamp */
-    'cd year': (_, a) => VI(stampToYmd(i0(a, 0))[0]),
+    /**
+     * =Cd Day(date) — routine 324 ($713e) / 310 ($73da). "A value between 1
+     * and 31."
+     *
+     * `Rbsr` into Cd Month and then `move.l d0,d3 / addq.b #$1,d3`: the day is
+     * whatever the month splitter left behind, made 1-based. Nothing bounds
+     * it, so a negative date reports day 0.
+     */
+    'cd day': (_, a) => {
+      const { year, rest } = amcafYear(i0(a, 0))
+      return VI((amcafMonth(year, rest).rest + 1) | 0)
+    },
+    /**
+     * =Cd Month(date) — routine 323 ($712e) / 309 ($73ca). "Lies between 1 and
+     * 12": six bytes of `Rbsr` Cd Year, `Rbra` the month splitter.
+     */
+    'cd month': (_, a) => {
+      const { year, rest } = amcafYear(i0(a, 0))
+      return VI(amcafMonth(year, rest).month)
+    },
+    /** =Cd Year(date) — routine 322 ($7104) / 308 ($7398), the loop above */
+    'cd year': (_, a) => VI(amcafYear(i0(a, 0)).year),
 
     /**
-     * =Cd Weekday(date) — "can range between 1 (monday) and 7 (sunday)".
-     *
-     * Day zero is 1 January 1978, which was a Sunday, so the count starts at
-     * 7 and not at 1.
+     * =Cd Weekday(date) — routine 325 ($7150) / 311 ($73ec). "Can range
+     * between 1 (monday) and 7 (sunday)."
      */
-    'cd weekday': (_, a) => VI((((i0(a, 0) % 7) + 7) % 7 === 0 ? 7 : ((i0(a, 0) % 7) + 6) % 7 + 1)),
+    'cd weekday': (_, a) => VI(amcafWeekday(i0(a, 0))),
 
-    /** =Cd Date$(date) — "the format 'WWW DD-MMM-YY'" */
+    /**
+     * =Cd Date$(date) — routine 328 ($74bc in 1.40). "The format
+     * 'WWW DD-MMM-YY'", and the length word it writes is a fixed 13.
+     *
+     * Built from the two overlapping four-byte tables rather than formatted:
+     * weekday slot, two digits, month slot, a literal '-', two digits of
+     * `year mod 100`. The weekday is read with `move.l (a3),d0` — WITHOUT
+     * popping — because Cd Year is then called on the same argument.
+     *
+     * NOTE: it works the weekday out inline rather than calling Cd Weekday,
+     * and uses the `divu` REMAINDER as the table index with no +1. Past the
+     * overflow day the index becomes the top half of the day count shifted
+     * left two, which reads whatever follows the tables; this port keeps the
+     * remainder rather than inventing bytes for it.
+     */
     'cd date$': (_, a) => {
       const d = i0(a, 0)
-      const [y, m, day] = stampToYmd(d)
-      const wd = WEEKDAYS[(((d % 7) + 7) % 7 + 6) % 7]!.slice(0, 3)
-      const yy = String(y % 100).padStart(2, '0')
-      return VS(`${wd} ${String(day).padStart(2, '0')}-${MONTHS[m - 1]}-${yy}`)
+      const { year, rest } = amcafYear(d)
+      const { month, rest: dayIdx } = amcafMonth(year, rest)
+      const wd = CD_WEEK4[((d + 6) >>> 0) % 7] ?? CD_WEEK4[6]!
+      return VS(`${wd}${amcafTwoDigits(dayIdx + 1)}${CD_MON4[month] ?? ''}-${amcafTwoDigits(year % 100)}`)
     },
 
     /**
-     * =Cd String(date$) — dos.library's StrToDate, which is why the manual
-     * says "This command only works on OS2.0 and higher".
+     * =Cd String(date$) — routine 327 ($7464), and it really is dos.library:
+     * `movea.l $2b8(a5),a6 / jsr -$2ee(a6)` is StrToDate, which is why the
+     * manual says "This command only works on OS2.0 and higher" and why a
+     * `cmp.w #$25,$14(a0)` against ExecBase's LIB_VERSION guards the entry.
+     * NOTE: that gate is not modelled — the machine this port describes is an
+     * A1200, so version 39, and the check can only pass.
      *
-     * "DD-MMM-YY" or "DD-month-YY", plus the relative words the library
-     * accepts: Today, Tomorrow, Yesterday and a weekday name, where
-     * "weekday strings refer to the last occurence of the week, i.e 'Monday'
-     * represents last monday and not next monday". -1 when it will not parse.
+     * The DateTime it builds is `clr.w $c(a1)` — dat_Format 0 (FORMAT_DOS) and
+     * dat_Flags 0 — with dat_StrDate set and dat_StrTime cleared, so the two
+     * String keywords are one call site parameterised by which pointer is
+     * filled in. On failure the library returns 0 and the routine answers -1.
+     *
+     * "DD-MMM-YY" or "DD-month-YY", plus Today, Tomorrow, Yesterday and a
+     * weekday name, where "weekday strings refer to the last occurence of the
+     * week, i.e 'Monday' represents last monday and not next monday" — which
+     * AROS's StrToDate confirms is not a flag: DTF_SUBST governs DateToStr,
+     * and only DTF_FUTURE would move a weekday forwards.
+     *
+     * DEVIATION: the library matches those words with `Strnicmp(table[t], ptr,
+     * strlen(table[t]))`, a case-insensitive PREFIX test, so "Todayish" is
+     * Today and "12-November-89" matches "Nov" and then fails on the leftover
+     * "ember". This port matches the whole word and accepts the full month
+     * names the manual promises, which is the union of the two: no string a
+     * real machine accepted is refused here.
      */
     'cd string': (_, a) => {
       const t = s0(a, 0).trim().toLowerCase()
@@ -3155,35 +3357,66 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
       return VI(days)
     },
 
-    /** =Ct Hour(time) — "Separates the hour from the packed time" */
+    /**
+     * =Ct Hour(time) — routine 329 ($758a). "Separates the hour from the
+     * packed time": clear the low word, `swap`, `divu.w #$3c` and keep the
+     * QUOTIENT. So the minutes-since-midnight field divided by sixty.
+     */
     'ct hour': (_, a) => VI(Math.floor(timeMins(i0(a, 0)) / 60)),
-    /** =Ct Minute(time) — the minutes within the hour */
+    /**
+     * =Ct Minute(time) — routine 330 ($75a4). The same divide, keeping the
+     * REMAINDER instead: `move.w d2,d3 / swap d3` lifts it out of the high
+     * word. Minutes within the hour.
+     */
     'ct minute': (_, a) => VI(timeMins(i0(a, 0)) % 60),
-    /** =Ct Second(time) — the ticks resolved to whole seconds */
+    /**
+     * =Ct Second(time) — routine 331 ($75be). `move.w d0,d1 / divu.w #$32,d1`
+     * on the LOW word, quotient kept: the ticks field divided by fifty.
+     */
     'ct second': (_, a) => VI(Math.floor(timeTicks(i0(a, 0)) / TICKS_PER_SECOND)),
 
     /**
-     * =Ct Tick(time) — "Calculates the number of vertical blanks (=1/50 of a
-     * second) from the parameter 'time'".
+     * =Ct Tick(time) — routine 332 ($75d8). "Calculates the number of vertical
+     * blanks (=1/50 of a second) from the parameter 'time'".
      *
-     * NOTE: that sentence does not say whether the count is within the second
-     * or within the minute, and the field itself is the whole low word. The
-     * low word is what this returns, so Ct Tick and Ct Second read the same
-     * field at two resolutions rather than partitioning it.
+     * That sentence does not say whether the count is within the second or
+     * within the minute, and an earlier pass read it as the whole low word —
+     * which made Ct Tick and Ct Second two resolutions of one field. The
+     * routine settles it: `divu.w #$32,d3` then `move.w d2,d3 / swap d3`
+     * keeps the REMAINDER, the same shape as Ct Minute. So the pair partition
+     * the field, and Ct Tick is 0..49.
      */
-    'ct tick': (_, a) => VI(timeTicks(i0(a, 0))),
+    'ct tick': (_, a) => VI(timeTicks(i0(a, 0)) % TICKS_PER_SECOND),
 
-    /** =Ct Time$(time) — "a string in the format 'HH:MM:SS'" */
+    /**
+     * =Ct Time$(time) — routine 333 ($75f2). "A string in the format
+     * 'HH:MM:SS'", with a length word of 8 written before any digit is.
+     *
+     * Hours and minutes come from one `divu.w #$3c` (quotient then, after a
+     * `swap`, remainder) and seconds from `divu.w #$32` on the ticks, each
+     * rendered by the count-up printer above rather than by a formatter.
+     */
     'ct time$': (_, a) => {
       const t = i0(a, 0)
       const mins = timeMins(t)
-      const two = (n: number): string => String(n).padStart(2, '0')
+      const two = amcafTwoDigits
       return VS(`${two(Math.floor(mins / 60))}:${two(mins % 60)}:${two(Math.floor(timeTicks(t) / TICKS_PER_SECOND))}`)
     },
 
     /**
-     * =Ct String(time$) — dos.library's StrToTime, "HH:MM" or "HH:MM:SS",
-     * and -1 when it will not parse. OS2.0 and higher, like Cd String.
+     * =Ct String(time$) — routine 326 ($7406), Cd String's twin: the same
+     * StrToDate call with dat_StrTime filled in and dat_StrDate cleared, then
+     * `move.w $386(a2),d3 / swap / move.w $38a(a2),d3` to pack ds_Minute over
+     * ds_Tick the way Current Time does. "HH:MM" or "HH:MM:SS", -1 when it
+     * will not parse.
+     *
+     * NOTE: both String keywords copy the AMOS string to the START of the
+     * extension's own block with no length check (`move.w (a0)+,d0` then a
+     * `dbra` copy), and the DateTime they then fill in sits at +$380 of that
+     * same block. A string of 896 characters or more overwrites the structure
+     * it is about to be parsed into. Not reproduced — there is no block here
+     * to overrun — but it is why an over-long argument on a real machine
+     * misbehaves rather than simply failing.
      */
     'ct string': (_, a) => {
       const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(s0(a, 0).trim())
