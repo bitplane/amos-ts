@@ -3445,6 +3445,26 @@ describe('slice 12: ProTracker replay', () => {
   })
 
   /**
+   * Selector 1 of routine 381 checks `$438(a0)` against `M.K.` ($4d2e4b2e)
+   * and `M!K!` ($4d214b21) before it touches anything, and `Rbra routine 390`
+   * on anything else. Both Pt Play and Pt Bank go through it, so naming a
+   * bank that is not a ProTracker module stops the program rather than
+   * quietly playing silence, which is what the port did.
+   *
+   * It also does `ori.b #$2,$bfe001` — the power LED off, which on the real
+   * machine DISENGAGES the low-pass filter. Loading a module changes how the
+   * whole Amiga sounds, and that reaches the sink here.
+   */
+  it('Pt Play refuses a bank that is not M.K. or M!K!, and drops the filter', () => {
+    expect(() => run(['Reserve As Work 3,3000', 'Pt Play 3'])).toThrow()
+    expect(() => run(['Reserve As Work 3,3000', 'Pt Bank 3'])).toThrow()
+    // one `.` a line, so this is the same module signed M!K!
+    expect(() => run([...modBank().map((l) => l.replace('Asc(".")', 'Asc("!")')), 'Pt Play 3'])).not.toThrow()
+    const { audio } = runAudio([...modBank(), 'Pt Play 3'])
+    expect(audio.events.filter((e) => e.kind === 'filter').map((e) => e.filter)).toEqual([false])
+  })
+
+  /**
    * Routine 268 ($61bc) reads the signal byte and CLEARS it in the same
    * breath — `move.b $2(a0),d3 / clr.b $2(a0)` — so a signal is consumed by
    * whoever reads it first. Pt Vu (255) has the identical shape and this port
@@ -3471,10 +3491,14 @@ describe('slice 12: ProTracker replay', () => {
    * Routine 246 ($5df6): `chan` is a BITMASK — `btst.b #0,d0` / `lsr.w #1,d0`
    * four times, stepping $10 bytes through the AUDxPER registers — and the
    * frequency is clamped to $190..$7530 before the period is derived.
+   *
+   * The third thing, missed last pass: `tst.b (a1) / bne` guards every write,
+   * so only a channel actually playing an AMCAF sample is retuned. The
+   * `Pt Instr Play 15,1` is what puts one on all four.
    */
   it('Pt Sam Freq takes a channel MASK and clamps the frequency', () => {
     const freqs = (src: string[]): Array<[number, number]> => {
-      const { audio } = runAudio([...modBank(), 'Pt Play 3', ...src])
+      const { audio } = runAudio([...modBank(), 'Pt Play 3', 'Pt Instr Play 15,1', ...src])
       return audio.events.filter((e) => e.kind === 'freq').map((e) => [e.voice, e.freq ?? 0])
     }
     // mask 3 is channels 0 AND 1 — not "channel 3"
@@ -3487,6 +3511,9 @@ describe('slice 12: ProTracker replay', () => {
     expect(freqs(['Pt Sam Freq 2,99999'])).toEqual([[1, 30000]])
     // a negative is floored to zero first, then pulled up by the low clamp
     expect(freqs(['Pt Sam Freq 8,-5'])).toEqual([[3, 400]])
+    // ...and nothing at all where no sample is running
+    const idle = runAudio([...modBank(), 'Pt Play 3', 'Pt Sam Freq 15,8000'])
+    expect(idle.audio.events.filter((e) => e.kind === 'freq')).toEqual([])
   })
 
   /**
@@ -3537,28 +3564,116 @@ describe('slice 12: ProTracker replay', () => {
     expect([stopped.rt.amcaf.pt.pos, stopped.rt.amcaf.pt.row]).toEqual([0, 0])
   })
 
-  it('Pt Sam Bank and the sample players reach the audio sink', () => {
-    // Pt Sam Bank (235, $5f24) just resolves the bank and stores its address
-    expect(run([...modBank(), 'Pt Sam Bank 3']).rt.amcaf.pt.samBank).toBe(3)
-    // and the three play paths each reach a voice
+  /**
+   * The three play paths all `Rbra routine 375`, and the entries above it are
+   * only there to work out the four registers it wants. Routines 254/255/256
+   * make that explicit for Pt Instr Play: the one-argument form pushes $f for
+   * the voice and $3d09 for the frequency before falling into the three-
+   * argument one. So the OPTIONAL argument is the leading one, and
+   * `Pt Instr Play 1,5` is voice 1, instrument 5 — not instrument 1 on a mask
+   * of 5, which is how the port read it.
+   */
+  it('Pt Instr Play takes voice FIRST, and defaults it to all four', () => {
     const played = (src: string): number[] => {
       const { audio } = runAudio([...modBank(), 'Pt Play 3', src])
       return audio.events.filter((e) => e.kind === 'play').map((e) => e.voice)
     }
-    // the voice argument is a MASK here too — "on which channels the sample
-    // number should be replayed" — so 0 plays nowhere and 5 plays on 0 and 2
-    expect(played('Pt Instr Play 1,0')).toEqual([])
-    expect(played('Pt Instr Play 1,5')).toEqual([0, 2])
-    expect(played('Pt Instr Play 1')).toEqual([0]) // omitted: a free channel
-    expect(played('Pt Raw Play 0,Start(3),8,428').length).toBeGreaterThan(0)
-    // Pt Sam Play takes the same mask; its bank is Pt Sam Bank's, not the
-    // module's, so with none set it falls back and simply reaches the sink
-    expect(() => runAudio([...modBank(), 'Pt Play 3', 'Pt Sam Bank 3', 'Pt Sam Play 1,1'])).not.toThrow()
-    expect(() => runAudio([...modBank(), 'Pt Play 3', 'Pt Sam Play 1'])).not.toThrow()
-    // Pt Sam Volume's 0..64 clamp, which is Paula's own saturating range
-    const { audio } = runAudio([...modBank(), 'Pt Play 3', 'Pt Sam Volume 0,999', 'Pt Sam Volume 0,-5'])
-    const vols = audio.events.filter((e) => e.kind === 'volume').map((e) => e.volume)
-    expect(vols).toEqual([64, 0])
+    // one argument: the INSTRUMENT, on every channel
+    expect(played('Pt Instr Play 1')).toEqual([0, 1, 2, 3])
+    // two: voice mask 5 is channels 0 and 2, instrument 1
+    expect(played('Pt Instr Play 5,1')).toEqual([0, 2])
+    // a zero mask plays nowhere: `tst.w d2 / beq / rts` in routine 375
+    expect(played('Pt Instr Play 0,1')).toEqual([])
+    // and instrument 0 is error 23, from Pt Instr Address's own range check
+    expect(() => runAudio([...modBank(), 'Pt Play 3', 'Pt Instr Play 1,0'])).toThrow()
+  })
+
+  /**
+   * `moveq #$f,d1 / move.l d1,-(a3) / move.l d0,-(a3) / move.l #$3d09,-(a3)`
+   * — 15625 Hz flat for an instrument with no frequency given, where the port
+   * used the period table's C-3. And routine 375's own `cmp.w #$190` /
+   * `cmp.w #$7530` clamp applies to every launch, not just Pt Sam Freq's.
+   */
+  it('an instrument with no frequency plays at 15625 Hz', () => {
+    const hz = (src: string): number[] => {
+      const { audio } = runAudio([...modBank(), 'Pt Play 3', src])
+      return audio.events.filter((e) => e.kind === 'play').map((e) => e.freq ?? 0)
+    }
+    expect(hz('Pt Instr Play 1,1')).toEqual([15625])
+    expect(hz('Pt Instr Play 1,1,8000')).toEqual([8000])
+    expect(hz('Pt Instr Play 1,1,99999')).toEqual([30000])
+    expect(hz('Pt Instr Play 1,1,-5')).toEqual([400])
+  })
+
+  /**
+   * Routine 375's only volume write is `move.w $2d0(a2),$8(a4)`, and $2d0 is
+   * Pt SAM Volume's word — routine 244 stores it and nothing else does. Pt
+   * Volume is the music's `$4(a0)` and never reaches a sample at all. The
+   * port passed the music volume to every launch and had the two Pt Sam
+   * Volume forms the wrong way round besides: one argument sets the stored
+   * default, two write AUDxVOL for a currently-playing channel.
+   */
+  it('a sample plays at Pt Sam Volume, and Pt Volume does not reach it', () => {
+    const vol = (src: string[]): number | undefined => {
+      const { audio } = runAudio([...modBank(), 'Pt Play 3', ...src, 'Pt Instr Play 1,1'])
+      return audio.events.find((e) => e.kind === 'play')?.volume
+    }
+    expect(vol([])).toBe(64) // the .Lib's own initial $40
+    expect(vol(['Pt Sam Volume 20'])).toBe(20)
+    expect(vol(['Pt Volume 20'])).toBe(64) // the music knob, not this one
+    expect(vol(['Pt Sam Volume 999'])).toBe(64)
+    expect(vol(['Pt Sam Volume -5'])).toBe(0)
+    // the two-argument form is a live AUDxVOL write, and only for a channel
+    // that has something playing: `tst.b (a1) / bne next`
+    const live = runAudio([...modBank(), 'Pt Play 3', 'Pt Instr Play 1,1', 'Pt Sam Volume 3,30'])
+    expect(live.audio.events.filter((e) => e.kind === 'volume').map((e) => [e.voice, e.volume])).toEqual([[0, 30]])
+    const idle = runAudio([...modBank(), 'Pt Play 3', 'Pt Sam Volume 15,30'])
+    expect(idle.audio.events.filter((e) => e.kind === 'volume')).toEqual([])
+  })
+
+  /**
+   * Routine 248 ($5e90) pops freq, length, address, voice — so the fourth
+   * argument is the frequency in HERTZ, which routine 375 clamps and turns
+   * into a period. The port ran the conversion the other way, treating it as
+   * a period, so a program asking for 8363 Hz got 428.
+   */
+  it('Pt Raw Play takes a frequency in Hertz, not a period', () => {
+    const { audio } = runAudio([...modBank(), 'Pt Sam Bank 3', 'Pt Raw Play 2,Start(3),8,8363'])
+    expect(audio.events.filter((e) => e.kind === 'play').map((e) => [e.voice, e.freq])).toEqual([[1, 8363]])
+  })
+
+  /**
+   * Every Pt Sam Play form opens `move.l $2c4(a2),d0 / Rbeq routine 390`, and
+   * `cmp.w (a0),d7 / Rbhi routine 390` bounds the number against the bank's
+   * own count word. The port returned silently on all three.
+   */
+  it('Pt Sam Play errors without a bank, on sample 0, and past the count', () => {
+    // the AMOS sample bank format routine 250 walks: a count word, count
+    // longs of offsets, then name[8], freq.w, length.l and the PCM
+    const samBank = (): string[] => [
+      'Reserve As Work 4,64',
+      'Poke Start(4)+1,1', // one sample
+      'Poke Start(4)+5,6', // its record at +6
+      'Doke Start(4)+6+8,8000', // freq
+      'Loke Start(4)+6+10,4', // four bytes of PCM
+    ]
+    expect(() => run([...modBank(), 'Pt Play 3', 'Pt Sam Play 1,1'])).toThrow()
+    expect(() => run([...samBank(), 'Pt Sam Bank 4', 'Pt Sam Play 1,0'])).toThrow()
+    expect(() => run([...samBank(), 'Pt Sam Bank 4', 'Pt Sam Play 1,2'])).toThrow()
+    // and the frequency comes from the bank's own header when none is given
+    const { audio } = runAudio([...samBank(), 'Pt Sam Bank 4', 'Pt Sam Play 1,1'])
+    expect(audio.events.filter((e) => e.kind === 'play').map((e) => [e.voice, e.freq])).toEqual([[0, 8000]])
+  })
+
+  /**
+   * Pt Voice does not merely record a mask. Routine 262 silences every
+   * channel it turns off there and then — `move.w #$1,$96(a1)` on DMACON and
+   * `clr.w $a8(a1)` on AUDxVOL, at $b8/$c8/$d8 for the rest.
+   */
+  it('Pt Voice silences the channels it takes away', () => {
+    const { audio, rt } = runAudio([...modBank(), 'Pt Play 3', 'Pt Voice 3'])
+    expect(rt.amcaf.pt.voices).toBe(3)
+    expect(audio.events.filter((e) => e.kind === 'stop').map((e) => e.voice)).toEqual([2, 3])
   })
 
   it('Pt Stop with nothing playing leaves the channels alone', () => {
@@ -3593,18 +3708,31 @@ describe('slice 12: ProTracker replay', () => {
     expect(cia.bpm).toBe(140)
   })
 
-  it('Pt Instr Length reads the module sample table', () => {
+  /**
+   * Routines 257 and 258 both open `move.l $2bc(a2),d0 / Rbeq routine 390`
+   * and both range-check with `Rbmi / Rbeq / cmp.w #$1f,d0 / Rbhi`. All four
+   * are error 23; the port answered 0 for every one of them.
+   */
+  it('Pt Instr Length reads the module sample table, and errors off it', () => {
     // sample 1's header says 4 words, so 8 bytes
     expect(run([...modBank(), 'Pt Play 3', 'Print Pt Instr Length(1)']).out.trim()).toBe('8')
     expect(run([...modBank(), 'Pt Play 3', 'Print Pt Instr Address(1)>0']).out.trim()).toBe('-1')
-    // out of range is nothing
-    expect(run([...modBank(), 'Pt Play 3', 'Print Pt Instr Length(0)']).out.trim()).toBe('0')
-    expect(run([...modBank(), 'Pt Play 3', 'Print Pt Instr Length(32)']).out.trim()).toBe('0')
+    expect(() => run([...modBank(), 'Pt Play 3', 'Print Pt Instr Length(0)'])).toThrow()
+    expect(() => run([...modBank(), 'Pt Play 3', 'Print Pt Instr Length(32)'])).toThrow()
+    expect(() => run([...modBank(), 'Pt Play 3', 'Print Pt Instr Address(-1)'])).toThrow()
+    // with no Pt Play or Pt Bank there is no module at all
+    expect(() => run(['Print Pt Instr Length(1)'])).toThrow()
   })
 
-  it('Pt Volume clamps to the chip range, not to AMOS 0..63', () => {
+  /**
+   * `bpl` tests the whole long and `cmp.w #$40,d0 / bls` only the low word,
+   * so 65536 is positive, has a low word of zero, and stores silence.
+   */
+  it('Pt Volume clamps to the chip range, and truncates to a word first', () => {
     expect(run(['Pt Volume 200']).rt.amcaf.pt.volume).toBe(64)
     expect(run(['Pt Volume -5']).rt.amcaf.pt.volume).toBe(0)
+    expect(run(['Pt Volume 65536']).rt.amcaf.pt.volume).toBe(0)
+    expect(run(['Pt Volume 65600']).rt.amcaf.pt.volume).toBe(64)
   })
 
   it('Pt Vu is a note-on latch that clears when read, like AMOS Vumeter', () => {
@@ -3612,13 +3740,52 @@ describe('slice 12: ProTracker replay', () => {
     expect(out.trim().replace(/\s+/g, '')).toBe('0,0')
   })
 
-  it('Pt Free Voice reports what the music is not using', () => {
-    // nothing playing: every voice is free, so the first is 0
-    expect(run(['Print Pt Free Voice']).out.trim()).toBe('0')
-    expect(run(['Print Pt Free Voice(2)']).out.trim()).toBe('-1')
-    // with the music holding voices 0 and 1, the first free one is 2
-    const { out } = run([...modBank(), 'Pt Play 3', 'Pt Voice 3', 'Print Pt Free Voice'])
-    expect(out.trim()).toBe('2')
+  /**
+   * Routine 239 answers with a BITMASK — `moveq #$1,d3` through
+   * `moveq #$8,d3`, zero for none — where the port answered 0..3 with -1 for
+   * none. A program feeding the answer straight back to Pt Sam Play, which is
+   * the only reason to ask, therefore asked for the wrong channel every time
+   * and for no channel at all when the answer was 0.
+   */
+  it('Pt Free Voice answers with a mask, not an index', () => {
+    // nothing playing: all four free, so the lowest bit
+    expect(run(['Print Pt Free Voice']).out.trim()).toBe('1')
+    // a mask naming exactly one voice is handed straight back, unexamined:
+    // `cmp.w #$1,d7 / beq` for each of 1, 2, 4 and 8
+    expect(run(['Print Pt Free Voice(2)']).out.trim()).toBe('2')
+    expect(run(['Print Pt Free Voice(8)']).out.trim()).toBe('8')
+    // ...and a mask of zero is zero
+    expect(run(['Print Pt Free Voice(0)']).out.trim()).toBe('0')
+    // with the music holding channels 0 and 1, the first channel it is not
+    // using is 2 — bit 2, which is the value 4
+    expect(run([...modBank(), 'Pt Play 3', 'Pt Voice 3', 'Print Pt Free Voice']).out.trim()).toBe('4')
+    // and a voice with a sample on it is no longer free: `clr.b $e(a1)`
+    expect(run([...modBank(), 'Pt Play 3', 'Pt Instr Play 3,1', 'Print Pt Free Voice']).out.trim()).toBe('4')
+    // Pt Sam Stop hands it back — `st.b (a1)`
+    expect(
+      run([...modBank(), 'Pt Play 3', 'Pt Instr Play 3,1', 'Pt Sam Stop 1', 'Print Pt Free Voice']).out.trim(),
+    ).toBe('1')
+  })
+
+  /**
+   * With every masked voice busy the routine steals one, and which one is the
+   * countdown word routine 375 leaves at `$12`: `length/2 * 100 / freq + 1`,
+   * in fiftieths of a second, or -2 for a looping sample. `move.w #$ffff,d4`
+   * with a signed `cmp.w d0,d4 / bpl` keeps the LARGEST, so a loop always
+   * loses to a one-shot — and when every candidate is looping the answer is
+   * zero and routine 375 drops the sample rather than interrupting anything.
+   */
+  it('with no voice free, Pt Free Voice steals the one running longest', () => {
+    // instrument 1 is 8 bytes; at 15625 Hz that is 4 samples, so 1 tick, and
+    // at 400 Hz it is 100/400*4 + 1 = 2. Channel 1 gets the longer one.
+    const busy = ['Pt Instr Play 1,1', 'Pt Instr Play 2,1,400']
+    expect(run([...modBank(), 'Pt Play 3', ...busy, 'Print Pt Free Voice(3)']).out.trim()).toBe('2')
+    // a negative instrument number LOOPS, and a loop is never worth stealing
+    const loop = ['Pt Instr Play 1,-1', 'Pt Instr Play 2,1']
+    expect(run([...modBank(), 'Pt Play 3', ...loop, 'Print Pt Free Voice(3)']).out.trim()).toBe('2')
+    // ...and if they all loop there is nothing to take
+    const allLoop = ['Pt Instr Play 1,-1', 'Pt Instr Play 2,-1']
+    expect(run([...modBank(), 'Pt Play 3', ...allLoop, 'Print Pt Free Voice(3)']).out.trim()).toBe('0')
   })
 
   it('Pt Cpos stays inside a pattern, 0 to 63', () => {

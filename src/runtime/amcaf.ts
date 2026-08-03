@@ -130,7 +130,6 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import { DAY_MS, STAMP_EPOCH, TICKS_PER_SECOND, stampToYmd } from '../amiga/datestamp'
 import { MAX_COMMENT, blocksFor, entryType, protectionString } from '../amiga/dos'
 import { fillRow } from '../amiga/blitter'
-import { AMIGA_PERIODS, clampVolume, periodToHz } from '../amiga/paula'
 import { parseSampleBank } from './audio'
 import { pp20Decrunch } from '../amiga/powerpacker'
 import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, MAX_PORT, PORT_MOUSE, joyFire } from '../interp/gameport'
@@ -325,15 +324,32 @@ export interface PtState {
   speed: number
   bpm: number
   cia: boolean
+  /** the MUSIC's volume, `$4` of the replay block — Pt Volume's */
   volume: number
-  /** which of the four voices the music may use */
+  /**
+   * The SAMPLE volume, `$2d0` of the extension block — Pt Sam Volume's, and
+   * the one every sample launch actually uses. Routine 375's only volume
+   * write is `move.w $2d0(a2),$8(a4)`, so Pt Volume does not reach a sample
+   * and Pt Sam Volume does not reach the music. They are two knobs.
+   */
+  samVolume: number
+  /** which of the four voices the music may use — `$a`..`$d` */
   voices: number
   signal: number
   vu: number[]
   note: number[]
   instr: number[]
-  /** Pt Free Voice: which voices are not claimed by the music */
+  /** `$e`..`$11`: false while a sample launched by this port holds the voice */
   free: boolean[]
+  /**
+   * `$12`..`$19`: how much longer each voice's sample has to run.
+   *
+   * Routine 375 works it out as `length/2 * 100 / freq + 1`, which is the
+   * duration in FIFTIETHS of a second — vertical blanks — and stores -2
+   * instead for a looping sample, since a loop never ends. Pt Free Voice
+   * reads it when it has to steal a voice.
+   */
+  ticks: number[]
 }
 
 export interface AmcafState {
@@ -459,11 +475,18 @@ export function newAmcafState(): AmcafState {
       gx: 0, gy: 0, accelerate: 0, ox: 0, oy: 0, planeA: 0, planeB: 0,
     },
     smouse: { x: 0, y: 0, speed: 1, limit: null },
+    // Unlike every other engine here, the ProTracker state is NOT part of the
+    // cleared $23b6 block. Selector 4 of routine 381 is two instructions —
+    // `lea $9cea(pc),a0 / move.l a0,$2cc(a2)` — so the replayer's data lives
+    // inside the LIBRARY's own code hunk and starts at whatever the .Lib file
+    // holds there. Dumping $9cea gives 00 7d, 00 00, 00 40, then twelve $ff:
+    // 125 bpm, no signal, volume 64, and all four voices both enabled for the
+    // music ($a..$d) and free for effects ($e..$11).
     pt: {
       bank: 0, samBank: 0, playing: false, pos: 0, row: 0, tick: 0,
-      speed: 6, bpm: 125, cia: true, volume: 64, voices: 0b1111,
+      speed: 6, bpm: 125, cia: true, volume: 64, samVolume: 64, voices: 0b1111,
       signal: 0, vu: [0, 0, 0, 0], note: [0, 0, 0, 0], instr: [0, 0, 0, 0],
-      free: [true, true, true, true],
+      free: [true, true, true, true], ticks: [0, 0, 0, 0],
     },
     // MEMF_CLEAR again, matrix included: without a Vec Rot Precalc the
     // projection runs through all nine zeros, exactly as it does on the machine
@@ -2743,36 +2766,57 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     /* ---- ProTracker ---- */
 
     /**
-     * Pt Play bank[,songpos] — "starts a Protracker music module which has
-     * be[en] situated in memory bank number 'bank'."
+     * Pt Play bank[,songpos] — routines 264 ($612e) and 265.
+     *
+     *     264: clr.l -(a3)              the bare form pushes song position 0
+     *     265: Rbsr routine 267         Pt STOP, first thing
+     *          move.l (a3)+,d7          the position
+     *          move.l (a3)+,d0
+     *          move.l d0,$2c0(a2)       the bank NUMBER is kept too
+     *          Rjsr routine 1121        ...and resolved to an address
+     *          move.l d0,$2bc(a2)
+     *          cmpa.l #$200000,a0 / Rbge routine 390
+     *          move.l d7,d1 / moveq #$1,d0 / Rbsr routine 381
+     *          tst.w $296(a2)
+     *          Rbeq routine 377         CIA timing: install the CIA interrupt
+     *          Rbra routine 376         VBL timing: install the VBL one
+     *
+     * So it stops whatever was playing before it does anything else, and the
+     * d1 it hands the replayer is the SONG POSITION, not a playing flag — an
+     * earlier reading of the selector-1 arm had that back to front. Which
+     * interrupt it ends in is Pt Cia Speed's `$296`, the two paths being why
+     * the manual says to choose the timing before Pt Play rather than after.
+     *
+     * The 2MB chip-RAM check is the same DEVIATION Pt Bank records.
      */
     'pt play'(it) {
       const bank = it.evalInt()
       const pos = it.accept(',') ? it.evalInt() : 0
-      const b = rt.memBanks.get(bank)
-      if (!b) amcafErr()
-      const pt = rt.amcaf.pt
-      pt.bank = bank
-      pt.playing = true
-      pt.pos = pos
-      pt.row = 0
-      pt.tick = 0
-      pt.signal = 0
+      ptStop(rt)
+      ptSetup(rt, bank, pos)
+      rt.amcaf.pt.playing = true
     },
 
     /**
-     * Pt Stop — and the changelog records the bug that made it worth
-     * checking: "Fixed a bug in Pt Stop which cut off the channels, even if
-     * no music had been playing." So a Stop with nothing playing must leave
-     * the sample channels alone, which is what this does.
+     * Pt Stop — routine 267 ($6196), and the changelog records the bug that
+     * made it worth checking: "Fixed a bug in Pt Stop which cut off the
+     * channels, even if no music had been playing."
+     *
+     *     tst.w $2ba(a2) / bne stop        the CIA interrupt installed?
+     *     tst.w $2b8(a2) / bne stop        or the VBL one?
+     *     rts                              neither: leave the channels alone
+     *   stop:
+     *     Rbsr routine 379 / Rbsr routine 378     remove both
+     *     moveq #$3,d0 / Rbra routine 381
+     *
+     * That is the fix in the source. Selector 3 of the replayer is four
+     * `clr.w` on AUDxVOL and `move.w #$f,$96(a5)` on DMACON, so when it DOES
+     * stop it silences all four channels — not just the ones Pt Voice gave
+     * the music, which is what the port had. A sound effect started with Pt
+     * Sam Play on a channel the music never touches is cut off too.
      */
     'pt stop'() {
-      const pt = rt.amcaf.pt
-      if (!pt.playing) return
-      pt.playing = false
-      for (let v = 0; v < 4; v++) {
-        if (pt.voices & (1 << v)) rt.host.audio?.stop(v)
-      }
+      ptStop(rt)
     },
 
     /**
@@ -2833,35 +2877,96 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * records the same limitation from the other side.
      */
     'pt bank'(it) {
-      const n = it.evalInt()
-      const pt = rt.amcaf.pt
-      pt.bank = n
-      pt.playing = false
-      pt.pos = 0
-      pt.row = 0
-      pt.tick = 0
-      pt.speed = 6
-      pt.bpm = 125
+      ptSetup(rt, it.evalInt(), 0)
+      rt.amcaf.pt.playing = false
     },
-    /** Pt Sam Bank bank — the AMOS sample bank Pt Sam Play draws from */
+    /**
+     * Pt Sam Bank bank — routine 249 ($5ea4), three instructions: pop the
+     * bank number, `Rjsr routine 1121` to resolve it to an address, and keep
+     * that at `$2c4(a2)`. It is the ADDRESS that is kept, so a later
+     * `Erase` leaves Pt Sam Play pointing at freed memory; this port keeps
+     * the number, which is the closer thing it has to a stable handle.
+     */
     'pt sam bank'(it) {
       rt.amcaf.pt.samBank = it.evalInt()
     },
 
-    /** Pt Volume n — the master volume, 0..64 as Paula counts it */
+    /**
+     * Pt Volume n — routine 261 ($6084), the MUSIC's volume at `$4(a0)`.
+     *
+     *     move.l (a3)+,d0
+     *     bpl.b keep / moveq #$0,d0        negative floors to zero
+     *     cmp.w #$40,d0 / bls.b keep       ...and an UNSIGNED word compare
+     *     moveq #$40,d0
+     *     move.w d0, $4(a0)
+     *
+     * NOTE: the sign test is on the whole long and the range test on the low
+     * word alone, so `Pt Volume 65536` is positive, has a low word of zero
+     * and stores SILENCE. Reproduced; it is one mask.
+     *
+     * This is not the volume a sample plays at — see Pt Sam Volume.
+     */
     'pt volume'(it) {
-      rt.amcaf.pt.volume = clampVolume(it.evalInt())
-    },
-
-    /** Pt Voice mask — which of the four voices the music may use */
-    'pt voice'(it) {
-      rt.amcaf.pt.voices = it.evalInt() & 15
+      const v = it.evalInt()
+      rt.amcaf.pt.volume = v < 0 ? 0 : (v & 0xffff) > 64 ? 64 : v & 0xffff
     },
 
     /**
-     * Pt Cia Speed bpm — "the number of beats per minute or if you specify a
-     * value of zero, the timing will be switched from CIA-Timing to Vertical
-     * Blank Timing. Then the bpm rate is automatically set to exactly 125."
+     * Pt Voice mask — routine 262 ($60a2), "defines the channels which should
+     * be used for the music and which should be free for e.g sound effects".
+     *
+     *     moveq #$ff,d1 / move.l d1,$a(a0)      all four on, then turn off
+     *     btst.b #$0,d0 / bne skip
+     *       move.w #$1,$96(a1)                  DMACON: kill the channel
+     *       clr.w  $a8(a1)                      AUDxVOL: and silence it
+     *       clr.b  $a(a0)
+     *     ...for bits 1, 2 and 3, at $b8/$c8/$d8
+     *
+     * So it does not merely record a mask: the channels it turns OFF are
+     * silenced there and then, which is how `Pt Voice %0011` frees two
+     * channels mid-tune. The port recorded the mask and left the audio
+     * running.
+     */
+    'pt voice'(it) {
+      const m = it.evalInt() & 15
+      rt.amcaf.pt.voices = m
+      for (let v = 0; v < 4; v++) if (!(m & (1 << v))) rt.host.audio?.stop(v)
+    },
+
+    /**
+     * Pt Cia Speed bpm — routine 259 ($6016), "the number of beats per minute
+     * or if you specify a value of zero, the timing will be switched from
+     * CIA-Timing to Vertical Blank Timing. Then the bpm rate is automatically
+     * set to exactly 125."
+     *
+     * The routine is a swap between two interrupt sources, and `$296(a2)` is
+     * which one is wanted:
+     *
+     *     move.l (a3)+,d1 / beq vbl
+     *     clr.w  $296(a2)                  CIA
+     *     tst.w  $2b8(a2) / beq store      the VBL interrupt running?
+     *       moveq #$4,d0 / Rbsr 381        then hand it over:
+     *       move.w d1,(a0)
+     *       Rbsr routine 378               remove the VBL interrupt
+     *       Rbsr routine 377               install the CIA one
+     *   store:
+     *     move.w d1,(a0) / moveq #$5,d0 / Rbra routine 381
+     *   vbl:
+     *     move.w #$ffff,$296(a2)
+     *     tst.w  $2ba(a2) / beq rts        the CIA interrupt running?
+     *       Rbsr routine 379 / Rbra routine 376     hand it back
+     *
+     * Selector 5 is where the value is finally sanitised, and it is not the
+     * clamp the manual implies: `cmp.w #$20,d0 / bge / moveq #$20,d0` puts a
+     * FLOOR at 32 bpm, and then `andi.w #$ff,d0` masks to a byte with no
+     * ceiling test at all. So 300 bpm becomes 44, and 256 becomes 0 — which
+     * the very next instruction divides by.
+     *
+     * NOTE: the zero arm never writes 125 anywhere. VBL timing is 50 ticks a
+     * second whatever the word holds, which at the ProTracker default of six
+     * ticks a row IS 125 bpm; the manual is describing the effect, not a
+     * store. This port keeps the effective rate, since nothing here reads the
+     * stale word.
      */
     'pt cia speed'(it) {
       const bpm = it.evalInt()
@@ -2872,27 +2977,20 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
         return
       }
       pt.cia = true
-      pt.bpm = bpm
+      pt.bpm = (bpm < 32 ? 32 : bpm) & 0xff
     },
 
     /**
      * Pt Sam Play [voice,]samnr[,freq] — a sample from an AMOS sample bank.
-     *
-     * "The advantage to the normal Sam Play instruction is that the sounds
-     * 'interact'" with the music: the replayer knows which voices it is using
-     * and a sample takes one that is free.
+     * The reading is in `ptSamPlay`; the shape is that the OPTIONAL argument
+     * is the leading one, so a single argument is the sample number and the
+     * routine supplies $f for the voice itself.
      */
     'pt sam play'(it) {
       const a = it.evalInt()
-      let voice = -1
-      let sam = a
-      let freq = 0
-      if (it.accept(',')) {
-        voice = a
-        sam = it.evalInt()
-        if (it.accept(',')) freq = it.evalInt()
-      }
-      ptSamPlay(rt, voice, sam, freq)
+      if (!it.accept(',')) return ptSamPlay(rt, 15, a, 0)
+      const sam = it.evalInt()
+      ptSamPlay(rt, a, sam, it.accept(',') ? it.evalInt() : 0)
     },
 
     /**
@@ -2912,17 +3010,53 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      */
     'pt sam stop'(it) {
       const mask = it.evalInt()
-      for (let v = 0; v < 4; v++) if (mask & (1 << v)) rt.host.audio?.stop(v)
+      for (let v = 0; v < 4; v++) {
+        if (!(mask & (1 << v))) continue
+        // `st.b (a1)` — the voice goes back on Pt Free Voice's free list
+        rt.amcaf.pt.free[v] = true
+        rt.host.audio?.stop(v)
+      }
     },
 
-    /** Pt Sam Volume voice[,vol] — set a voice's volume */
+    /**
+     * Pt Sam Volume [voice,]volume — two routines, and two different things.
+     *
+     * Routine 244 ($5d98), the one-argument form, touches no hardware at all:
+     * it clamps and stores to `$2d0(a2)`, which is the volume routine 375
+     * gives every LATER sample launch. Routine 245 ($5db0) is the two-
+     * argument form and writes AUDxVOL directly:
+     *
+     *     lea $e(a0),a1                     the busy flags
+     *     lea $dff0a0.l,a0
+     *     btst.b #$0,d0 / beq next
+     *       tst.b (a1) / bne next           only a voice that IS playing
+     *       move.w d3,$8(a0)                AUDxVOL
+     *     addq.l #$1,a1 / lea $10(a0),a0 / lsr.w #$1,d0
+     *
+     * — which is the manual, exactly: "if you specify the optional parameter
+     * 'voice', the command only has effect on the currently played sample,
+     * but not on the following samples". `voice` is a MASK like everywhere
+     * else here, and a channel with nothing playing is skipped.
+     *
+     * The port had the two forms the other way round, setting all four live
+     * volumes for one argument and indexing a single voice for two.
+     *
+     * NOTE: the clamp is `bpl` then `cmp.w #$40,d0 / ble`, a SIGNED word
+     * compare where Pt Volume's is unsigned. So `Pt Sam Volume 32768` has a
+     * low word of $8000, which reads as negative, passes the ceiling test and
+     * is stored whole. Reproduced.
+     */
     'pt sam volume'(it) {
       const a = it.evalInt()
-      if (it.accept(',')) {
-        rt.host.audio?.setVolume(a & 3, clampVolume(it.evalInt()))
+      const clamp = (v: number): number => (v < 0 ? 0 : ((v & 0xffff) << 16) >> 16 > 64 ? 64 : v & 0xffff)
+      if (!it.accept(',')) {
+        rt.amcaf.pt.samVolume = clamp(a)
         return
       }
-      for (let v = 0; v < 4; v++) rt.host.audio?.setVolume(v, clampVolume(a))
+      const vol = clamp(it.evalInt())
+      for (let v = 0; v < 4; v++) {
+        if (a & (1 << v) && !rt.amcaf.pt.free[v]) rt.host.audio?.setVolume(v, vol)
+      }
     },
 
     /**
@@ -2939,6 +3073,10 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *
      * A negative frequency becomes 0 first (`bpl` / `moveq #0,d1`) and is
      * then pulled up to 400 by the low clamp.
+     *
+     * The third thing, missed last pass: `tst.b (a1) / bne` guards each write
+     * exactly as Pt Sam Volume's does, so a channel with nothing playing is
+     * skipped. Retuning silence does nothing.
      */
     'pt sam freq'(it) {
       const mask = it.evalInt()
@@ -2946,33 +3084,65 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       let freq = it.evalInt()
       if (freq < 0) freq = 0
       freq = Math.min(30000, Math.max(400, freq))
-      for (let v = 0; v < 4; v++) if (mask & (1 << v)) rt.host.audio?.setFrequency(v, freq)
-    },
-
-    /** Pt Instr Play instr[,voice[,freq]] — one of the module's own samples */
-    'pt instr play'(it) {
-      const instr = it.evalInt()
-      const voice = it.accept(',') ? it.evalInt() : -1
-      const freq = it.accept(',') ? it.evalInt() : 0
-      ptInstrPlay(rt, instr, voice, freq)
+      for (let v = 0; v < 4; v++) {
+        if (mask & (1 << v) && !rt.amcaf.pt.free[v]) rt.host.audio?.setFrequency(v, freq)
+      }
     },
 
     /**
-     * Pt Raw Play voice,address,length,period — a raw sample straight at a
-     * voice, bypassing every bank.
+     * Pt Instr Play [voice,]instnr[,freq] — one of the module's own samples.
+     * The reading is in `ptInstrPlay`; like Pt Sam Play, the argument that
+     * can be left off is the LEADING one, so one argument is the instrument.
+     */
+    'pt instr play'(it) {
+      const a = it.evalInt()
+      if (!it.accept(',')) return ptInstrPlay(rt, 15, a, 15625)
+      const instr = it.evalInt()
+      ptInstrPlay(rt, a, instr, it.accept(',') ? it.evalInt() : 15625)
+    },
+
+    /**
+     * Pt Raw Play voice,address,length,freq — a raw sample straight at a
+     * voice, bypassing every bank. Routine 248 ($5e90) is twenty bytes:
+     *
+     *     moveq   #$0, d6
+     *     move.l  (a3)+, d1        freq        (the LAST argument)
+     *     move.l  (a3)+, d0        length
+     *     bpl.b   $5e9c
+     *     neg.l   d7                           <- d7. not d0
+     *     moveq   #$1, d6
+     *     movea.l (a3)+, a0        address
+     *     move.l  (a3)+, d2        voice
+     *     Rbra    routine 375
+     *
+     * The fourth parameter is a FREQUENCY IN HERTZ — "'freq' holds the
+     * replaying speed in Hertz", and routine 375 clamps it to 400..30000 and
+     * derives the period as $369E99/freq. The port was converting it the
+     * other way, as if it were a period, so `Pt Raw Play 1,a,l,428` asked for
+     * 8363 Hz and got 428.
+     *
+     * DEFECT: the negative-length idiom is broken. Every other launcher here
+     * spells it `bpl / neg.l d7 / moveq #$1,d6` because d7 is where they hold
+     * the number; this one holds the length in d0 and negates d7 anyway. d7
+     * is whatever the last keyword left there, so the loop flag is set as
+     * intended but the length stays NEGATIVE. Routine 375 passes it (`tst.l`
+     * is only against zero), `lsr.l #$1,d0` turns it into a length near 2GB
+     * and Paula is handed a two-gigabyte loop. Not reproduced: this port has
+     * no address space to run off the end of, so a negative length loops the
+     * sample as the author meant it to, and the difference is recorded here.
      */
     'pt raw play'(it) {
-      const voice = it.evalInt() & 3
+      const voice = it.evalInt()
       it.expect(',')
       const addr = it.evalInt()
       it.expect(',')
       const len = it.evalInt()
       it.expect(',')
-      const period = it.evalInt()
+      const freq = it.evalInt()
       const m = rt.resolveAddr(addr)
-      if (!m || len <= 0) return
-      const pcm = new Int8Array(m.data.buffer, m.data.byteOffset + m.off, Math.min(len, m.data.length - m.off))
-      rt.host.audio?.play(voice, pcm, periodToHz(period), rt.amcaf.pt.volume, -1)
+      if (!m) return
+      const n = Math.min(Math.abs(len), m.data.length - m.off)
+      ptLaunch(rt, new Int8Array(m.data.buffer, m.data.byteOffset + m.off, Math.max(0, n)), freq, voice, len < 0)
     },
 
 
@@ -5374,53 +5544,245 @@ function modSample(mod: Uint8Array, n: number): { off: number; len: number } | n
 }
 
 /**
- * Pt Sam Play: an AMOS sample bank entry onto the voices a MASK names.
+ * Pt Sam Play — routines 250 ($5eb6), 251 and 252, the one-, two- and
+ * three-argument forms of `Pt Sam Play voice,samnr,freq`.
  *
  * "The 'voice' parameter contains a bitmask, that describes, on which
  * channels the sample number 'samnr' should be replayed" — the manual is
  * explicit, and Pt Sam Freq / Pt Sam Stop / Pt Instr Play share the shape.
  * An earlier pass took it as an index in all four.
  *
- * "If it is omitted" the replayer picks: "the sounds 'interact' with the
- * Protracker music", so a bare call takes a channel the music is not holding.
+ * Every one of the three starts `move.l $2c4(a2),d0 / Rbeq routine 390`, so
+ * playing without a Pt Sam Bank is error 23 rather than the silent return the
+ * port had. Sample 0 is an error and so is a number past the bank's count
+ * word (`cmp.w (a0),d7 / Rbhi`).
+ *
+ * The bare form is NOT the auto-pick: routine 250 loads `moveq #$f,d2`, all
+ * four channels, which is the manual's "if it is ommitted, the sound effect
+ * will be played on all four sound channels". The interaction with the music
+ * is what a NEGATIVE mask buys, through routine 239.
+ *
+ * `add.w d7,d7 / add.w d7,d7 / adda.l -$2(a0,d7.w),a0 / addq.l #$8,a0` is the
+ * AMOS sample bank walked exactly as `parseSampleBank` walks it: a count
+ * word, count longs of offsets, then eight bytes of name, the frequency word
+ * and the length long. A negative sample number LOOPS.
  */
 function ptSamPlay(rt: Runtime, voice: number, sam: number, freq: number): void {
-  const pt = rt.amcaf.pt
-  const b = rt.memBanks.get(pt.samBank || 5)
-  if (!b) return
+  const b = rt.memBanks.get(rt.amcaf.pt.samBank)
+  if (!b) amcafErr()
+  if (sam === 0) amcafErr()
+  const loop = sam < 0
+  const n = loop ? -sam : sam
   const list = parseSampleBank(b.data)
-  const e = list[sam - 1]
+  if (n > list.length) amcafErr()
+  const e = list[n - 1]
   if (!e) return
-  if (voice < 0) {
-    // omitted: take a channel the music is not using
-    let v = 0
-    for (let i = 0; i < 4; i++) {
-      if (!pt.playing || (pt.voices & (1 << i)) === 0) {
-        v = i
-        break
-      }
-    }
-    rt.host.audio?.play(v, e.pcm, freq || e.freq, pt.volume, -1)
-    return
-  }
-  for (let i = 0; i < 4; i++) if (voice & (1 << i)) rt.host.audio?.play(i, e.pcm, freq || e.freq, pt.volume, -1)
+  ptLaunch(rt, e.pcm, freq || e.freq, voice, loop)
 }
 
-/** Pt Instr Play: one of the MODULE's samples, rather than an AMOS bank's */
-function ptInstrPlay(rt: Runtime, instr: number, voice: number, freq: number): void {
+/**
+ * Pt Instr Play — routines 254 ($5f6c), 255 and 256, the same three forms of
+ * `Pt Instr Play voice,instnr,freq`.
+ *
+ * Routine 256 does the work, and the two shorter entries are worth reading
+ * because they are where the defaults come from:
+ *
+ *     254: move.l (a3)+,d0 / moveq #$f,d1 / move.l d1,-(a3)
+ *          move.l d0,-(a3) / move.l #$3d09,-(a3) / Rbra routine 256
+ *
+ * — voice $f, all four channels, and frequency $3d09 = 15625 Hz flat. The
+ * port used the period table's C-3 instead, which is a different rate.
+ *
+ * Routine 256 then calls Pt Instr Address and Pt Instr Length in turn, so the
+ * instrument range check and the "no module bank" error are theirs, and a
+ * negative instrument number loops, as in Pt Sam Play.
+ */
+function ptInstrPlay(rt: Runtime, voice: number, instr: number, freq: number): void {
+  const loop = instr < 0
+  const b = ptModule(rt)
+  const s = modSample(b.data, ptInstrNo(loop ? -instr : instr))
+  if (!s) amcafErr()
+  const len = Math.max(0, Math.min(s.len, b.data.length - s.off))
+  ptLaunch(rt, new Int8Array(b.data.buffer, b.data.byteOffset + s.off, len), freq, voice, loop)
+}
+
+/**
+ * Selector 1 of routine 381, the arm at $8a16 — installing a module. Both
+ * Pt Play and Pt Bank end here, and the only difference between them is the
+ * d1 they arrive with, which is the SONG POSITION.
+ *
+ *     move.l $438(a0),d0
+ *     cmp.l  #$4d2e4b2e,d0 / beq ok        "M.K."
+ *     cmp.l  #$4d214b21,d0 / beq ok        "M!K!"
+ *     Rbra   routine 390                   anything else is error 23
+ *   ok: move.b d1,d7 / bsr $8a62
+ *
+ * and $8a62 is the set-up proper: cache the module base at `-$12(a5)`, scan
+ * the 128-byte pattern order for its maximum to learn the pattern count,
+ * then walk the 31 sample headers filling the pointer cache Pt Instr Address
+ * reads. After that,
+ *
+ *     ori.b  #$2,$bfe001              the audio filter OFF
+ *     move.b #$6,-$e(a5)              speed 6
+ *     move.w #$7d,(a5)                125 bpm
+ *     clr.b  -$d(a5) / move.b d7,-$c(a5)   row 0, song position d7
+ *     moveq  #$ff,d0 / move.l d0,$e(a5)    all four voices free again
+ *     clr.l  $1a(a5) / clr.w $2(a5)        VU meters and the signal
+ *     ...and the four channel structures at $9bac
+ *
+ * The `ori.b #$2,$bfe001` is a real side effect worth having: bit 1 set is
+ * the power LED off, which disengages the low-pass filter. Loading a module
+ * changes how the whole machine sounds.
+ */
+function ptSetup(rt: Runtime, bank: number, pos: number): void {
+  const b = rt.memBanks.get(bank)
+  if (!b) amcafErr()
+  const sig = String.fromCharCode(...b.data.subarray(1080, 1084))
+  if (sig !== 'M.K.' && sig !== 'M!K!') amcafErr()
   const pt = rt.amcaf.pt
-  const b = rt.memBanks.get(pt.bank)
-  if (!b) return
-  const s = modSample(b.data, instr)
-  if (!s || s.len <= 0) return
-  const pcm = new Int8Array(b.data.buffer, b.data.byteOffset + s.off, Math.min(s.len, b.data.length - s.off))
-  // the same bitmask as Pt Sam Play, not an index
-  const hz = freq || periodToHz(AMIGA_PERIODS[24]!)
-  if (voice < 0) {
-    rt.host.audio?.play(0, pcm, hz, pt.volume, -1)
-    return
+  pt.bank = bank
+  pt.pos = pos
+  pt.row = 0
+  pt.tick = 0
+  pt.speed = 6
+  pt.bpm = 125
+  pt.signal = 0
+  pt.vu = [0, 0, 0, 0]
+  pt.free = [true, true, true, true]
+  rt.host.audio?.setFilter(false)
+}
+
+/** Pt Stop, and Pt Play's first act — see the keyword for routine 267 */
+function ptStop(rt: Runtime): void {
+  const pt = rt.amcaf.pt
+  if (!pt.playing) return
+  pt.playing = false
+  for (let v = 0; v < 4; v++) rt.host.audio?.stop(v)
+}
+
+/** `move.l $2bc(a2),d0 / Rbeq routine 390` — no Pt Play or Pt Bank yet */
+function ptModule(rt: Runtime): { data: Uint8Array } {
+  const b = rt.memBanks.get(rt.amcaf.pt.bank)
+  if (!b) amcafErr()
+  return b
+}
+
+/** `Rbmi / Rbeq / cmp.w #$1f,d0 / Rbhi`, shared by routines 257 and 258 */
+function ptInstrNo(n: number): number {
+  if (n <= 0 || n > 31) amcafErr()
+  return n
+}
+
+/**
+ * Routine 239 ($5b88) — which voice a sample should take. `=Pt Free Voice`
+ * is the same routine, and routine 238 is its bare form, which pushes $f.
+ *
+ * It answers with a BITMASK, not an index: `moveq #$1,d3` through
+ * `moveq #$8,d3`, and zero for "none". The port had it returning 0..3 with -1
+ * for none, so a program feeding the answer to Pt Sam Play's voice argument
+ * asked for channel 0 when it meant channel 1, and for nothing at all when it
+ * meant channel 0.
+ *
+ * The cascade, in the order the routine takes it:
+ *
+ *   - mask 0 answers 0, and a mask naming exactly ONE voice is handed
+ *     straight back unexamined — `cmp.w #$1,d7 / beq` for 1, 2, 4 and 8. So
+ *     `Pt Free Voice(1)` is 1 whether or not channel 0 is busy.
+ *   - count the free voices in the mask, testing bit 3 down to bit 0 so `d3`
+ *     ends holding the LOWEST. Exactly one free answers with it.
+ *   - none free: steal. `move.w #$ffff,d4` then a signed `cmp.w d0,d4 / bpl`
+ *     across the four countdown words keeps the LARGEST — the voice with the
+ *     longest still to run. A looping sample's -2 loses to any one-shot, and
+ *     if every masked voice is looping the answer is 0 and routine 375 drops
+ *     the sample on the floor.
+ *   - more than one free and no replayer interrupt installed: the lowest.
+ *   - more than one free with the music running: prefer a free voice the
+ *     music is not using (`tst.b $a(a1)`), lowest first.
+ *
+ * DEVIATION: the last arm, for when every free voice is one the music holds,
+ * walks the four channel structures at `-$13e(a1)` minimising the word at
+ * +$e and then the one at +$8 — the quietest music channel. This port does
+ * not step the patterns, so there is no live channel state to minimise over,
+ * and it falls back to the lowest free voice. `pt cnote` records the same
+ * limit from the other side.
+ */
+function ptPickVoice(rt: Runtime, mask: number): number {
+  const pt = rt.amcaf.pt
+  if ((mask & 0xffff) === 0) return 0
+  const m = mask & 15
+  if (m === 1 || m === 2 || m === 4 || m === 8) return m
+  let count = 0
+  let pick = 0
+  for (let i = 3; i >= 0; i--) {
+    if (m & (1 << i) && pt.free[i]) {
+      pick = 1 << i
+      count++
+    }
   }
-  for (let i = 0; i < 4; i++) if (voice & (1 << i)) rt.host.audio?.play(i, pcm, hz, pt.volume, -1)
+  if (count === 1) return pick
+  if (count === 0) {
+    let best = -1
+    let steal = 0
+    for (let i = 0; i < 4; i++) {
+      const t = ((pt.ticks[i] ?? 0) << 16) >> 16
+      if (m & (1 << i) && best < t) {
+        best = t
+        steal = 1 << i
+      }
+    }
+    return steal
+  }
+  // `btst #$0 / #$1 / #$2` with 8 as the fallthrough, so an empty set answers 8
+  const lowest = (set: number): number => (set & 1 ? 1 : set & 2 ? 2 : set & 4 ? 4 : 8)
+  let freeSet = 0
+  for (let i = 0; i < 4; i++) if (pt.free[i]) freeSet |= 1 << i
+  freeSet &= m
+  if (!pt.playing) return lowest(freeSet)
+  let spare = 0
+  for (let i = 0; i < 4; i++) if (!(pt.voices & (1 << i))) spare |= 1 << i
+  spare &= freeSet
+  return lowest(spare !== 0 ? spare : freeSet)
+}
+
+/**
+ * Routine 375 ($86b2) — the one path every AMCAF sample launch ends in. Pt
+ * Sam Play, Pt Instr Play and Pt Raw Play all `Rbra routine 375`.
+ *
+ * Entry is a0 = the data, d0 = length in BYTES, d1 = frequency in HERTZ,
+ * d2 = the voice mask and d6 = the loop flag. Five things the port did not
+ * have:
+ *
+ *   - a zero length or a zero mask returns without touching anything, and a
+ *     NEGATIVE mask means "pick for me": `neg.w d2 / andi.w #$f,d2` and into
+ *     routine 239 with what is left.
+ *   - the frequency is clamped to $190..$7530 here as well as in Pt Sam Freq.
+ *   - the volume is `$2d0(a2)`, which is Pt SAM Volume's. Pt Volume is the
+ *     music's `$4(a0)` and never reaches a sample.
+ *   - each chosen voice is marked busy (`clr.b $e(a1)`) and given a countdown
+ *     `length/2 * 100 / freq + 1`, in fiftieths of a second.
+ *   - the tail. `bsr $87c4` spins on VHPOSR for six reads — about a scanline,
+ *     long enough for Paula to latch — and then, for a ONE-SHOT, re-points
+ *     every chosen channel at `$23b2(a2)` with AUDxLEN 1. That is a two-byte
+ *     silence buffer, so the sample plays once and then repeats nothing. A
+ *     looping sample skips that and keeps repeating itself.
+ */
+function ptLaunch(rt: Runtime, pcm: Int8Array, freq: number, mask: number, loop: boolean): void {
+  const pt = rt.amcaf.pt
+  if (pcm.length === 0) return
+  let m = (mask << 16) >> 16
+  if (m === 0) return
+  if (m < 0) m = ptPickVoice(rt, -m & 15)
+  m &= 15
+  const hz = Math.min(30000, Math.max(400, freq))
+  // `mulu.w #$64,d4` multiplies only the low word, so a sample past 128K of
+  // samples wraps its own countdown
+  const dur = loop ? -2 : Math.floor((((pcm.length >> 1) & 0xffff) * 100) / hz) + 1
+  for (let i = 0; i < 4; i++) {
+    if (!(m & (1 << i))) continue
+    pt.free[i] = false
+    pt.ticks[i] = dur
+    rt.host.audio?.play(i, pcm, hz, pt.samVolume, loop ? 0 : -1)
+  }
 }
 
 /**
@@ -6782,7 +7144,10 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * AMOS's own Vumeter.
      */
     'pt vu': (_, a) => {
-      const c = i0(a, 0) & 3
+      // routine 260 ($605e) range-checks like Pt Cnote and Pt Cinstr do --
+      // `Rbmi routine 390` and `cmp.b #$4,d7 / Rbge routine 390` -- where the
+      // port masked with `& 3` and answered for channel 0
+      const c = ptChan(i0(a, 0))
       const v = rt.amcaf.pt.vu[c] ?? 0
       rt.amcaf.pt.vu[c] = 0
       return VI(v)
@@ -6812,37 +7177,65 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      */
     rnp: () => VI(0),
 
-    /** =Pt Data Base — the replayer's data block, for the assembler crowd */
+    /**
+     * =Pt Data Base — "the starting address of the internal datatable of the
+     * protracker replay routine". Routine 253 ($5f5a) is
+     * `moveq #$4,d0 / Rbsr routine 381 / move.l $2cc(a2),d3`.
+     *
+     * Selector 4 of routine 381 is the surprise, and it is two instructions:
+     *
+     *     lea    $9cea(pc), a0
+     *     move.l a0, $2cc(a2)
+     *     move.l a2, $1e(a0)
+     *
+     * — the replayer's state is NOT in the extension's `AllocMem`'d block
+     * like every other engine here. It is a fixed area inside the library's
+     * own code hunk, which is why dumping the .Lib at $9cea gives its initial
+     * values directly: 125 bpm, volume 64, twelve $ff. The block runs from
+     * $9bac (four channel structures of $2c) through the 31 sample pointers
+     * at $9c5c to the header at $9cea.
+     *
+     * APPROXIMATED: this port has no address space to hand back, the same
+     * choice `amcaf base` and the Scrn pointers made.
+     */
     'pt data base': () => VI(0),
 
-    /** =Pt Instr Address(n) / =Pt Instr Length(n) — a module sample in memory */
+    /**
+     * =Pt Instr Address(n) / =Pt Instr Length(n) — a module sample in memory.
+     *
+     * Routines 257 ($5fb2) and 258 ($5fe6), and they agree on the checks:
+     * `move.l $2bc(a2),d0 / Rbeq routine 390` for no module bank, then
+     * `Rbmi / Rbeq / cmp.w #$1f,d0 / Rbhi` on the instrument. All four are
+     * error 23, where the port answered 0 and carried on.
+     *
+     * They reach the number two different ways, which is worth knowing:
+     * Length reads the module's own header word, `move.w $c(a0,d0.w)` at 30
+     * bytes an entry, doubled because ProTracker counts in words. Address
+     * reads a CACHE — 31 longs at `-$92(a5)` that selector 1 fills when Pt
+     * Play or Pt Bank sets the module up, by summing the sample lengths from
+     * `module + 1084 + patterns*1024`. So the address only exists once a
+     * module has been installed, and `$2bc` non-zero is exactly that test.
+     */
     'pt instr address': (_, a) => {
-      const b = rt.memBanks.get(rt.amcaf.pt.bank)
-      if (!b) return VI(0)
-      const inst = modSample(b.data, i0(a, 0))
+      const b = ptModule(rt)
+      const inst = modSample(b.data, ptInstrNo(i0(a, 0)))
       return VI(inst ? rt.bankBase(rt.amcaf.pt.bank) + inst.off : 0)
     },
     'pt instr length': (_, a) => {
-      const b = rt.memBanks.get(rt.amcaf.pt.bank)
-      if (!b) return VI(0)
-      return VI(modSample(b.data, i0(a, 0))?.len ?? 0)
+      const b = ptModule(rt)
+      return VI(modSample(b.data, ptInstrNo(i0(a, 0)))?.len ?? 0)
     },
 
     /**
-     * =Pt Free Voice[(n)] — which voices the music is not using.
+     * =Pt Free Voice[(mask)] — which voice a sound effect should take.
      *
      * A 1.50 addition with no manual entry: DISASSEMBLY tier by the author's
      * own "You'll have to find out the new commands since V1.40 yourself".
-     * With an argument it answers for one voice, without it returns the first
-     * free one or -1.
+     * Routine 238 ($5b80) is the bare form and pushes $f before falling into
+     * routine 239, so `Pt Free Voice` is `Pt Free Voice(15)`. The reading of
+     * 239 — and of what it answers WITH — is on `ptPickVoice`.
      */
-    'pt free voice': (_, a) => {
-      const pt = rt.amcaf.pt
-      const isFree = (v: number): boolean => !pt.playing || (pt.voices & (1 << v)) === 0
-      if (a.length > 0) return VI(isFree(i0(a, 0) & 3) ? -1 : 0)
-      for (let v = 0; v < 4; v++) if (isFree(v)) return VI(v)
-      return VI(-1)
-    },
+    'pt free voice': (_, a) => VI(ptPickVoice(rt, a.length > 0 ? i0(a, 0) : 15)),
 
 
     /**
