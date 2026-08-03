@@ -740,9 +740,44 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     'ham fade out'(it) {
       const s = rt.screens.get(it.evalInt())
       if (!s) amcafErr()
-      for (let i = 0; i < s.palette.length; i++) {
+      // `move.w $48(a0),d0 / btst #$b,d0 / Rbeq routine 390` — bit 11 of the
+      // screen's mode is HAM, and a screen without it is an error rather than
+      // a no-op. An earlier pass had no check here at all.
+      if (!s.ham) amcafErr()
+
+      // `moveq #$f,d7` — SIXTEEN entries, not the whole palette
+      for (let i = 0; i < 16; i++) {
         const c = s.palette[i]!
         s.palette[i] = glue(Math.max(0, rV(c) - 1), Math.max(0, gV(c) - 1), Math.max(0, bV(c) - 1))
+      }
+
+      /*
+       * And then the half that was missing, which is what "a modified Shade
+       * Bobs routine" in the manual actually refers to: the MODIFY NIBBLES in
+       * the bitmap are darkened too, six planes at a time —
+       *
+       *   move.l (a5)+,d0 / or.l (a6)+,d0        control bits: is it a modify?
+       *   move.l (a1),d1 / or.l (a2)... (a4)     is the nibble non-zero?
+       *   and.l d1,d0                            decrement only where both
+       *   eor.l d0,d2 / move.l d2,(a1)+          plane 0 flips
+       *   and.l d2,d0 / eor.l d0,d3 ...          borrow into planes 1, 2, 3
+       *
+       * a bitwise 4-bit decrement with borrow. Fading only the palette leaves
+       * every modify pixel at its original brightness, so the manual's "after
+       * calling it 16 times, the Ham screen is completely black" would not
+       * have held on a picture that uses any.
+       *
+       * NOTE: the walk is a flat longword count, `(($4c(a0) >> 5) * $4e(a0))`,
+       * so on a screen whose width is not a multiple of 32 it covers less than
+       * the bitmap and drifts out of step with the rows. Reproduced as-is —
+       * the pixel order of a plane is the pixel order of the chunky cache
+       * while the row length is a whole number of bytes.
+       */
+      const px = s.rp.bitMap.pixelsW()
+      const n = (s.width >> 5) * s.height * 32
+      for (let i = 0; i < n; i++) {
+        const p = px[i]!
+        if ((p & 0x30) !== 0 && (p & 0x0f) !== 0) px[i] = p - 1
       }
     },
 

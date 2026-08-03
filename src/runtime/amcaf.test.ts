@@ -1290,12 +1290,43 @@ describe('slice 6: colour and palette', () => {
     )
   })
 
+  // 4096 colours is how AMOS asks for HAM; `btst #$b` on the mode is the
+  // only thing routine 163 will accept
+  const hamScr = ['Screen Open 0,64,32,4096,Lowres', 'Cls 0']
+
   it('Ham Fade Out darkens by one step, sixteen calls to black', () => {
     // "darkens the screen by one single step. After calling it 16 times, the
     // Ham screen is completely black"
-    expect(run([...scr, 'Colour 1,$FFF', 'Ham Fade Out 0', 'Print Colour(1)']).out.trim()).toBe(String(0xeee))
-    const { out } = run([...scr, 'Colour 1,$FFF', 'For I=1 To 16 : Ham Fade Out 0 : Next I', 'Print Colour(1)'])
+    expect(run([...hamScr, 'Colour 1,$FFF', 'Ham Fade Out 0', 'Print Colour(1)']).out.trim()).toBe(String(0xeee))
+    const { out } = run([...hamScr, 'Colour 1,$FFF', 'For I=1 To 16 : Ham Fade Out 0 : Next I', 'Print Colour(1)'])
     expect(out.trim()).toBe('0')
+  })
+
+  /**
+   * `move.w $48(a0),d0 / btst #$b,d0 / Rbeq routine 390` — a screen that is
+   * not HAM is an error, not a no-op. The tests above used to fade a plain
+   * 16-colour screen quite happily.
+   */
+  it('Ham Fade Out refuses a screen that is not HAM', () => {
+    expect(() => run([...scr, 'Ham Fade Out 0'])).toThrow(/illegal function call/i)
+  })
+
+  /**
+   * The half the port was missing: the modify nibbles in the bitmap darken
+   * too, by a bitwise 4-bit decrement with borrow across planes 0-3, and only
+   * where the control bits (planes 4 and 5) say the pixel IS a modify and the
+   * nibble is not already zero.
+   */
+  it('Ham Fade Out darkens the modify nibbles in the bitmap', () => {
+    const { rt } = run([
+      ...hamScr,
+      'Ink $2F : Plot 0,0', // modify RED, nibble 15 -> 14
+      'Ink $10 : Plot 1,0', // modify BLUE, nibble 0  -> left alone
+      'Ink $0F : Plot 2,0', // a palette index, not a modify -> left alone
+      'Ham Fade Out 0',
+    ])
+    const px = rt.screens.get(0)!.rp.bitMap.pixels
+    expect([px[0], px[1], px[2]]).toEqual([0x2e, 0x10, 0x0f])
   })
 
   /**
