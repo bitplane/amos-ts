@@ -2327,9 +2327,31 @@ function exchangeImage(rt: Runtime, it: Interp, sprites: boolean): void {
  * Slice 9: the particle engines
  * ------------------------------------------------------------------ */
 
-/** the shared `[x1,y1 To x2,y2]` limit argument, defaulting to the screen */
-function readLimit(rt: Runtime, it: Interp): { x1: number; y1: number; x2: number; y2: number } | null {
-  if (it.atStmtEnd()) return null // "AMCAF uses the limits of the current screen"
+/**
+ * The shared `[x1,y1 To x2,y2]` limit argument.
+ *
+ * The bare form is *"If you don't give any parameters, AMCAF uses the limits
+ * of the current screen"*, and routine 277 ($6b66) shows it SNAPSHOTS them
+ * rather than deferring:
+ *
+ *     movea.l $52c(a5), a0        the current screen
+ *     move.l  a0, d0 / Rbeq 376   ...and error if there is not one
+ *     clr.l   $26e(a2)            low bound is 0,0
+ *     move.w  $4c(a0), d0 / lsl.w #4, d0 / subq.w #1, d0
+ *     move.w  $4e(a0), d0 / lsl.w #4, d0 / subq.w #1, d0
+ *     move.l  d0, $272(a2)
+ *
+ * so the high bound is the screen size in SIXTEENTHS of a pixel less one —
+ * the engine's own fixed point — which in whole pixels is `width - 1`. Taking
+ * the size at call time is the visible difference: a program that resizes the
+ * screen afterwards keeps the limits it asked for.
+ */
+function readLimit(rt: Runtime, it: Interp): { x1: number; y1: number; x2: number; y2: number } {
+  if (it.atStmtEnd()) {
+    const s = rt.screen
+    if (!s) amcafErr()
+    return { x1: 0, y1: 0, x2: s.width - 1, y2: s.height - 1 }
+  }
   const x1 = it.evalInt()
   it.expect(',')
   const y1 = it.evalInt()
@@ -2337,7 +2359,6 @@ function readLimit(rt: Runtime, it: Interp): { x1: number; y1: number; x2: numbe
   const x2 = it.evalInt()
   it.expect(',')
   const y2 = it.evalInt()
-  void rt
   return { x1, y1, x2, y2 }
 }
 

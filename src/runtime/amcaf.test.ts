@@ -475,6 +475,55 @@ describe('slice 4: banks', () => {
     // key starts at 0 and advances by (0 XOR $FACE) = $FACE
     expect((one.rt.memBanks.get(5)!.data[0]! << 8) | one.rt.memBanks.get(5)!.data[1]!).toBe(0x1234 ^ 0xface)
   })
+
+  /**
+   * Routines 44/46/50/52 ($25a8, $25dc, $2648, $2680) are six-byte trampolines
+   * — `Rbsr 353` to resolve the bank, then `Rbra` into workers 43/45/49/51 —
+   * and each worker is the same shape as its `.b` sibling with the length
+   * taken in WORDS (`lsr.l #1`) and a `.w` operation:
+   *
+   *     43  eor.w d0,(a0)+          45  add.w d0,(a0)+
+   *     49  move.w (a0),d1 / rol.w d0,d1 / move.w d1,(a0)+
+   *     51  ... ror.w d0,d1 ...
+   *
+   * All four were classified FAITHFUL with nothing dispatching them.
+   */
+  it('the .w encoders work a word at a time ($2584, $25b8, $2620, $2658)', () => {
+    const first = (r: ReturnType<typeof run>): number => {
+      const d = r.rt.memBanks.get(5)!.data
+      return (d[0]! << 8) | d[1]!
+    }
+    expect(first(run([...setup, 'Bank Code Xor.w $FFFF,5']))).toBe(0x1234 ^ 0xffff)
+    expect(first(run([...setup, 'Bank Code Add.w 1,5']))).toBe(0x1235)
+    // a word rotate, not two byte rotates: $1234 by 4 is $2341, not $2143
+    expect(first(run([...setup, 'Bank Code Rol.w 4,5']))).toBe(0x2341)
+    expect(first(run([...setup, 'Bank Code Ror.w 4,5']))).toBe(0x4123)
+    // each is undone by its partner, which is what the manual promises
+    for (const [enc, dec] of [
+      ['Bank Code Xor.w 999,5', 'Bank Code Xor.w 999,5'],
+      ['Bank Code Add.w 999,5', 'Bank Code Add.w -999,5'],
+      ['Bank Code Rol.w 7,5', 'Bank Code Ror.w 7,5'],
+      ['Bank Code Ror.w 7,5', 'Bank Code Rol.w 7,5'],
+    ]) {
+      const r = run([...setup, enc!, dec!])
+      expect([...r.rt.memBanks.get(5)!.data.subarray(0, 4)], enc).toEqual([0x12, 0x34, 0x56, 0x78])
+    }
+  })
+
+  /**
+   * `rol.w Dx,Dy` takes its count as `Dx mod 64`, and rotating sixteen bits by
+   * k is k mod 16 — so a negative code rotates the other way, which is what
+   * "use the negative code with the same instruction" rests on. -1 is 63 in
+   * the low six bits, and 63 mod 16 is 15, one short of a full turn.
+   */
+  it('a negative rotate count is the other direction', () => {
+    const first = (r: ReturnType<typeof run>): number => {
+      const d = r.rt.memBanks.get(5)!.data
+      return (d[0]! << 8) | d[1]!
+    }
+    expect(first(run([...setup, 'Bank Code Rol.w -1,5']))).toBe(first(run([...setup, 'Bank Code Rol.w 15,5'])))
+    expect(first(run([...setup, 'Bank Code Rol.w 16,5']))).toBe(0x1234) // a full turn is identity
+  })
 })
 
 describe('slice 5: disk and DOS objects', () => {
@@ -1181,8 +1230,21 @@ describe('slice 11: the four-player adaptor and the second mouse', () => {
     expect(run(['Smouse Speed 3']).rt.amcaf.smouse.speed).toBe(3)
     const { rt } = run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse 1,2 To 30,20'])
     expect(rt.amcaf.smouse.limit).toEqual({ x1: 1, y1: 2, x2: 30, y2: 20 })
-    // "If the parameters are omitted, the full size of the current screen"
-    expect(run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse']).rt.amcaf.smouse.limit).toBe(null)
+    // "If the parameters are omitted, the full size of the current screen" —
+    // and routine 277 ($6b66) SNAPSHOTS it rather than deferring, reading
+    // $4c/$4e off the current screen and storing (size << 4) - 1, which in
+    // whole pixels is size - 1
+    expect(run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse']).rt.amcaf.smouse.limit).toEqual({
+      x1: 0,
+      y1: 0,
+      x2: 63,
+      y2: 31,
+    })
+    // ...so a later resize does not move the limits
+    const resized = run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse', 'Screen Open 1,320,200,4,Lowres'])
+    expect(resized.rt.amcaf.smouse.limit).toEqual({ x1: 0, y1: 0, x2: 63, y2: 31 })
+    // with no screen at all the routine takes its `Rbeq 376` error branch
+    expect(() => run(['Screen Close 0', 'Limit Smouse'])).toThrow()
   })
 })
 
