@@ -1500,10 +1500,32 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       if (rt.amcaf.pt.bank !== 0) rt.amcaf.pt.playing = true
     },
 
-    /** Pt Bank bank — "if you want to play back instruments from a music
-     * module but the music bank has not yet been specified with Pt Play" */
+    /**
+     * Pt Bank bank — "if you want to play back instruments from a music
+     * module but the music bank has not yet been specified with Pt Play".
+     *
+     * Routine 249 ($61f0) does two things beyond storing the number. It calls
+     * `Rbsr 253` — Pt Stop — BEFORE reading its argument, so naming a bank
+     * silences whatever was playing. And after resolving the bank's address
+     * it checks where that address landed:
+     *
+     *     cmpa.l #$200000, a0
+     *     Rbge   routine 372
+     *
+     * which is an error if the bank resolved at or above 2MB — outside chip
+     * RAM, where Paula cannot fetch it.
+     *
+     * DEVIATION: that check is NOT reproduced. It compares a real address,
+     * and this port models memory type as a flag on the bank rather than an
+     * address space, so the nearest equivalent would reject every
+     * `Reserve As Work` bank — including on the many machines where all
+     * memory is chip and the original passes. Bank To Chip's note already
+     * records the same limitation from the other side.
+     */
     'pt bank'(it) {
-      rt.amcaf.pt.bank = it.evalInt()
+      const n = it.evalInt()
+      rt.amcaf.pt.playing = false
+      rt.amcaf.pt.bank = n
     },
     /** Pt Sam Bank bank — the AMOS sample bank Pt Sam Play draws from */
     'pt sam bank'(it) {
@@ -1557,10 +1579,24 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       ptSamPlay(rt, voice, sam, freq)
     },
 
-    /** Pt Sam Stop voice — silence one voice */
+    /**
+     * Pt Sam Stop chan — silence the channels in a MASK, not one voice.
+     *
+     * Routine 233 ($5ecc) is the same four-pass shape as Pt Sam Freq:
+     *
+     *     moveq #1,d1 / moveq #3,d7
+     *     btst.b #0,d0 / beq
+     *       st.b (a1)                 mark the channel free again
+     *       move.w d1,$dff096         DMACON: clear this channel's DMA bit
+     *       clr.w $8(a0)              and its AUDxVOL
+     *     lsl.w #1,d1 / addq.l #1,a1 / lea $10(a0),a0 / lsr.w #1,d0
+     *
+     * so `Pt Sam Stop 3` silences channels 0 and 1. Taking the argument as an
+     * index silenced channel 3 instead.
+     */
     'pt sam stop'(it) {
-      const v = it.evalInt()
-      if (v >= 0 && v < 4) rt.host.audio?.stop(v)
+      const mask = it.evalInt()
+      for (let v = 0; v < 4; v++) if (mask & (1 << v)) rt.host.audio?.stop(v)
     },
 
     /** Pt Sam Volume voice[,vol] — set a voice's volume */

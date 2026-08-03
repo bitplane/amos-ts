@@ -1216,6 +1216,41 @@ describe('slice 9: Splinters and Td Stars', () => {
     expect([ok.rt.amcaf.stars.ox, ok.rt.amcaf.stars.oy]).toEqual([5, 7])
   })
 
+  /**
+   * The rest of the two engines' surface, each dispatched against its routine:
+   * Splinters Limit/Max (277/275), Splinters Double Do/Del (283/285), and
+   * Td Stars Gravity (295, two words at $25a/$25c), Accelerate Off (297, a
+   * `clr.w $25e`), Single/Double Do (299/300 — del, move, draw, and NO back
+   * step, unlike the Splinters pair) and Double Del (302).
+   */
+  it('the rest of the two engines dispatch and hold their state', () => {
+    const sp = run([...scr, 'Splinters Bank 5,10', 'Splinters Limit 2,3 To 20,15', 'Splinters Max 7'])
+    expect(sp.rt.amcaf.splinters.limit).toMatchObject({ x1: 2, y1: 3, x2: 19, y2: 14 })
+    expect(sp.rt.amcaf.splinters.maxNew).toBe(7)
+
+    // Double Do and Double Del run without a prior generation to restore
+    expect(() =>
+      run([...scr, 'Splinters Bank 5,10', 'Splinters Init', 'Splinters Double Do', 'Splinters Double Del']),
+    ).not.toThrow()
+
+    const st = run([
+      ...scr,
+      'Td Stars Bank 6,10',
+      'Td Stars Init',
+      'Td Stars Gravity 2,-3',
+      'Td Stars Accelerate On',
+      'Td Stars Accelerate Off',
+    ])
+    expect([st.rt.amcaf.stars.gx, st.rt.amcaf.stars.gy]).toEqual([2, -3])
+    expect(st.rt.amcaf.stars.accelerate).toBe(false)
+
+    // the Do pair is del + move + draw — three calls, where Splinters has four
+    expect(() =>
+      run([...scr, 'Td Stars Bank 6,10', 'Td Stars Init', 'Td Stars Single Do', 'Td Stars Double Do']),
+    ).not.toThrow()
+    expect(() => run([...scr, 'Td Stars Bank 6,10', 'Td Stars Init', 'Td Stars Double Del'])).not.toThrow()
+  })
+
   it('Td Stars Move sends them outward and recycles at the limit', () => {
     const { rt } = run([
       ...scr,
@@ -1453,6 +1488,58 @@ describe('slice 12: ProTracker replay', () => {
     expect(freqs(['Pt Sam Freq 2,99999'])).toEqual([[1, 30000]])
     // a negative is floored to zero first, then pulled up by the low clamp
     expect(freqs(['Pt Sam Freq 8,-5'])).toEqual([[3, 400]])
+  })
+
+  /**
+   * Routine 233 ($5ecc) is Pt Sam Freq's shape again — four passes of
+   * `btst.b #0,d0` / `lsr.w #1,d0`, each clearing one DMACON bit and one
+   * AUDxVOL — so the argument is a MASK. The port took it as an index, which
+   * silenced channel 3 where the machine silences 0 and 1.
+   */
+  it('Pt Sam Stop takes a channel mask too', () => {
+    const stops = (src: string): number[] => {
+      const { audio } = runAudio([...modBank(), 'Pt Play 3', src])
+      return audio.events.filter((e) => e.kind === 'stop').map((e) => e.voice)
+    }
+    expect(stops('Pt Sam Stop 3')).toEqual([0, 1])
+    expect(stops('Pt Sam Stop 8')).toEqual([3])
+    expect(stops('Pt Sam Stop 15')).toEqual([0, 1, 2, 3])
+    expect(stops('Pt Sam Stop 0')).toEqual([])
+  })
+
+  /**
+   * Routine 249 ($61f0) calls `Rbsr 253` — Pt Stop — before it even reads its
+   * argument, and then range-checks where the bank landed:
+   *
+   *     cmpa.l #$200000, a0
+   *     Rbge   routine 372
+   *
+   * so a module at or above 2MB — outside chip RAM, where Paula cannot reach
+   * it — is an error. That half is a DEVIATION: it compares a real address
+   * and this port has a flag, so enforcing it would reject every
+   * `Reserve As Work` bank, including on machines where all memory is chip
+   * and the original is happy. The Pt Stop half is reproduced.
+   */
+  it('Pt Bank stops the music before it reads its argument', () => {
+    const stopped = run([...modBank(), 'Pt Play 3', 'Pt Bank 3'])
+    expect(stopped.rt.amcaf.pt.playing).toBe(false)
+    expect(stopped.rt.amcaf.pt.bank).toBe(3)
+  })
+
+  it('Pt Sam Bank and the sample players reach the audio sink', () => {
+    // Pt Sam Bank (235, $5f24) just resolves the bank and stores its address
+    expect(run([...modBank(), 'Pt Sam Bank 3']).rt.amcaf.pt.samBank).toBe(3)
+    // and the three play paths each reach a voice
+    const played = (src: string): number[] => {
+      const { audio } = runAudio([...modBank(), 'Pt Play 3', src])
+      return audio.events.filter((e) => e.kind === 'play').map((e) => e.voice)
+    }
+    expect(played('Pt Instr Play 1,0').length).toBeGreaterThan(0)
+    expect(played('Pt Raw Play 0,Start(3),8,428').length).toBeGreaterThan(0)
+    // Pt Sam Volume's 0..64 clamp, which is Paula's own saturating range
+    const { audio } = runAudio([...modBank(), 'Pt Play 3', 'Pt Sam Volume 0,999', 'Pt Sam Volume 0,-5'])
+    const vols = audio.events.filter((e) => e.kind === 'volume').map((e) => e.volume)
+    expect(vols).toEqual([64, 0])
   })
 
   it('Pt Stop with nothing playing leaves the channels alone', () => {
