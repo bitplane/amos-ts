@@ -340,8 +340,6 @@ export interface AmcafState {
   examine: AmcafExamine
   /** the last AmigaDOS error, which Io Error reports */
   ioError: number
-  /** BPLCON2's dual-playfield sprite priority, as Set Sprite Priority left it */
-  spritePriority: number
   /**
    * The word at $2d2 of the extension's block — BITS PER GUN, not a flag.
    *
@@ -441,7 +439,6 @@ export function newAmcafState(): AmcafState {
   return {
     examine: { dir: '', entries: [], index: -1, current: '', fib: EMPTY_FIB },
     ioError: 0,
-    spritePriority: 0,
     notationBits: 4,
     shadePlanes: 6,
     shadeMask: true,
@@ -1117,6 +1114,20 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * but they are still different tokens at different slots on the machine,
      * so both register and `qualified` resolves them by slot.
      */
+    /*
+     * Routines 208 ($4f04) and 209 ($4f18), twenty bytes each, and each does
+     * TWO things:
+     *
+     *     move.w #$0,$dff1dc.l        BEAMCON0: 0 is NTSC, $20 is PAL
+     *     movea.l $4.w,a0
+     *     move.b #$3c,$212(a0)        ExecBase->VBlankFrequency: 60 or 50
+     *
+     * DEVIATION: only the BEAMCON0 half is reproduced. `$212(a0)` is a field
+     * of the real ExecBase, which this port does not model as memory — and
+     * nothing here reads a frame rate from it, because the interpreter's tick
+     * is its own clock. A program that pokes ExecBase to find out would see
+     * the old value on the machine change and here not.
+     */
     'set ntsc'() {
       rt.beamcon0 = 0x0000
     },
@@ -1135,18 +1146,51 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * against each other measures nothing.
      */
     'raster wait'(it) {
+      /*
+       * TWO token entries under the SAME name, not a `!` multi-arity pair:
+       * id $0346 spec `I0` is routine 206 ($4eba) and id $0358 spec `I0,0` is
+       * routine 207 ($4ed8). The one-argument form spins on the vertical
+       * beam alone; the two-argument form then spins on the horizontal.
+       *
+       *     lea    $dff004.l,a0            VPOSR/VHPOSR as a long
+       *     move.l (a0),d0 / lsr.l #$8,d0  the vertical position
+       *     cmp.w  d3,d0 / blt (loop)      wait for the line
+       *     move.b (a1),d0 / cmp.b d2,d0 / blt (loop)    then the column
+       *
+       * `lsr.l #$1,d2` halves the x argument, because VHPOSR counts colour
+       * clocks and the manual's x is in lowres pixels; and d3 is the LAST
+       * argument, so `Raster Wait x,y` waits for line y at column x.
+       *
+       * DEVIATION: this port has no beam to spin on inside a keyword — the
+       * modelled VHPOSR only advances between statements — so both forms wait
+       * one frame instead. A program using Raster Wait to split a copper
+       * effect mid-frame gets frame granularity here.
+       */
       it.evalInt()
       if (it.accept(',')) it.evalInt()
-      // one frame is the smallest thing a program here can wait for
       it.block({ type: 'wait', until: it.tick + 1 })
     },
 
     /**
-     * Set Sprite Priority n — "Changes the sprite priority in Dual playfield
-     * mode", which is BPLCON2's PF1P2-PF2P2 fields.
+     * Set Sprite Priority n — routine 210 ($4f2c), sixteen bytes:
+     *
+     *     move.l  (a3)+, d0
+     *     movea.l $52c(a5), a0        the CURRENT screen
+     *     andi.w  #$3f, d0
+     *     move.w  d0, $4a(a0)
+     *
+     * "Changes the sprite priority in Dual playfield mode", which is BPLCON2's
+     * PF1P0-2 and PF2P0-2 fields — and it is PER SCREEN, at `$4a` of the
+     * screen structure, two words before the width at `$4c`. The port kept it
+     * as one global, so two screens could not differ.
+     *
+     * NOTE: the screen pointer is not tested. With none open the routine
+     * writes through null; the port drops the write.
      */
     'set sprite priority'(it) {
-      rt.amcaf.spritePriority = it.evalInt() & 0x3f
+      const n = it.evalInt() & 0x3f
+      const s = rt.screen
+      if (s) s.spritePriority = n
     },
 
     /**
@@ -5956,6 +6000,16 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     /**
      * =Blitter Busy — "returns -1 (True), if the Blitter chip is currently
      * busy". Nothing here overlaps a blit with the program, so it never is.
+     */
+    /**
+     * =Blitter Busy — routine 68 ($2cce), twenty bytes:
+     * `btst.b #$6,$dff002.l` is bit 14 of DMACONR, BBUSY, and the answer is
+     * `moveq #$ff,d3` (which is -1) when set and zero when clear.
+     *
+     * Always zero here, and FAITHFUL rather than a stub: every blitter
+     * operation in this port completes inside the keyword that started it, so
+     * there is never a moment when a program could observe one running. The
+     * -1 arm is unreachable for the same reason.
      */
     'blitter busy': () => VI(0),
 

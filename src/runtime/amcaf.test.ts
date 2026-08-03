@@ -1980,7 +1980,17 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
     // Glue Colour does NOT consult the flag: `moveq #$f,d0` and an `and` per
     // gun, so it is always 12-bit
     expect(run(['Amcaf Aga Notation Off', 'Print Glue Colour(1,10,5)']).out.trim()).toBe(String(0x1a5))
-    expect(run(['Set Sprite Priority 5']).rt.amcaf.spritePriority).toBe(5)
+    // routine 210 writes `$4a(a0)` of the CURRENT SCREEN, not a global:
+    // `movea.l $52c(a5),a0 / andi.w #$3f,d0 / move.w d0,$4a(a0)`
+    const sp = run(['Screen Open 0,64,32,4,Lowres', 'Set Sprite Priority 5'])
+    expect(sp.rt.screens.get(0)!.spritePriority).toBe(5)
+    // ...so two screens hold their own, which one global could not express
+    const two = run(['Screen Open 0,64,32,4,Lowres', 'Set Sprite Priority 5',
+      'Screen Open 1,64,32,4,Lowres', 'Set Sprite Priority 9'])
+    expect([two.rt.screens.get(0)!.spritePriority, two.rt.screens.get(1)!.spritePriority]).toEqual([5, 9])
+    // and the six-bit mask is the routine's own `andi.w #$3f`
+    const m = run(['Screen Open 0,64,32,4,Lowres', 'Set Sprite Priority 255'])
+    expect(m.rt.screens.get(0)!.spritePriority).toBe(0x3f)
   })
 })
 

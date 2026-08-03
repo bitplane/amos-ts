@@ -266,6 +266,14 @@ export class Screen {
   dualIsBack = false
   /** BPLCON2 PFBA: the back playfield draws in front (Dual Priority). */
   pf2Front = false
+  /**
+   * BPLCON2's low six bits — the sprite-versus-playfield priority fields,
+   * PF1P0-2 and PF2P0-2. AMOS keeps them at `$4a` of the screen structure,
+   * which is where AMCAF's Set Sprite Priority writes: `andi.w #$3f,d0 /
+   * move.w d0,$4a(a0)` on the CURRENT screen, so it is per-screen state and
+   * not a global. Nothing in the modelled display reads it yet.
+   */
+  spritePriority = 0
   /** display position in AMOS hardware coords (default 128,50 = top-left) */
   displayX = 128
   displayY = 50
