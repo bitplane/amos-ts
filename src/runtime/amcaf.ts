@@ -1573,11 +1573,28 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       for (let v = 0; v < 4; v++) rt.host.audio?.setVolume(v, clampVolume(a))
     },
 
-    /** Pt Sam Freq voice,freq — retune a playing voice */
+    /**
+     * Pt Sam Freq chan,freq — retune whatever is playing.
+     *
+     * Routine 232 ($5e70), and two things it does that the manual's "channel
+     * chan" does not suggest:
+     *
+     *   - `chan` is a BITMASK, not an index. The routine loops four times,
+     *     `btst.b #0,d0` then `lsr.w #1,d0`, stepping `lea $10(a0),a0` through
+     *     the AUDxPER registers from $dff0a0 — so 3 retunes channels 0 and 1.
+     *   - `freq` is CLAMPED to $190..$7530, 400..30000 Hz, before the period
+     *     is derived as $369E99 / freq (the NTSC Paula clock again).
+     *
+     * A negative frequency becomes 0 first (`bpl` / `moveq #0,d1`) and is
+     * then pulled up to 400 by the low clamp.
+     */
     'pt sam freq'(it) {
-      const v = it.evalInt()
+      const mask = it.evalInt()
       it.expect(',')
-      rt.host.audio?.setFrequency(v & 3, it.evalInt())
+      let freq = it.evalInt()
+      if (freq < 0) freq = 0
+      freq = Math.min(30000, Math.max(400, freq))
+      for (let v = 0; v < 4; v++) if (mask & (1 << v)) rt.host.audio?.setFrequency(v, freq)
     },
 
     /** Pt Instr Play instr[,voice[,freq]] — one of the module's own samples */
@@ -2475,6 +2492,19 @@ function drawSplinters(rt: Runtime): void {
   const mask = (1 << sp.planes) - 1
   for (const q of sp.p) s.rp.putPixel(q.x | 0, q.y | 0, q.c & mask)
   s.rp.bitMap.invalidate()
+}
+
+/**
+ * The channel argument the Pt query functions take, range-checked as they do.
+ *
+ * Routines 228 and 229 both open `move.l (a3)+,d7 / Rbmi 372` then
+ * `cmp.b #4,d7 / Rbge 372`, so a negative channel or one past 3 is an ERROR
+ * rather than something to mask. An earlier pass wrote `& 3`, which silently
+ * answered for channel 0 where the machine stops the program.
+ */
+function ptChan(v: number): number {
+  if (v < 0 || v >= 4) amcafErr()
+  return v
 }
 
 /** Splinters Back: snapshot the pixels under the CURRENT positions */
@@ -3396,10 +3426,38 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     'pt cpos': () => VI(rt.amcaf.pt.row & 63),
     /** =Pt Cpattern — the song position being played */
     'pt cpattern': () => VI(rt.amcaf.pt.pos),
-    /** =Pt Cnote(channel) — the note last triggered on a channel */
-    'pt cnote': (_, a) => VI(rt.amcaf.pt.note[i0(a, 0) & 3] ?? 0),
-    /** =Pt Cinstr(channel) — the instrument last triggered on a channel */
-    'pt cinstr': (_, a) => VI(rt.amcaf.pt.instr[i0(a, 0) & 3] ?? 0),
+    /**
+     * =Pt Cnote(chan) — "the frequency of an instrument being played on music
+     * channel chan at that very moment", NOT a note number.
+     *
+     * Routine 229 ($5dc6) range-checks first — `Rbmi 372` on negative and
+     * `cmp.b #4 / Rbge 372` — then indexes the replayer's per-channel state
+     * at 44 ($2c) bytes a channel, reads the period WORD at +$10, returns 0
+     * if it is zero, and otherwise divides:
+     *
+     *     move.l #$369e99, d0 / divu.w d0, d3
+     *
+     * $369E99 is 3,579,545 — the NTSC Paula clock — so the answer is a
+     * sample rate in Hz, and it uses the NTSC constant whatever the machine.
+     *
+     * APPROXIMATED, and the reason is structural rather than arithmetic: this
+     * port starts a module but does not step its patterns, so there is no
+     * live period to divide. The range check and the error are reproduced;
+     * the value is whatever was last triggered.
+     */
+    'pt cnote': (_, a) => VI(rt.amcaf.pt.note[ptChan(i0(a, 0))] ?? 0),
+    /**
+     * =Pt Cinstr(chan) — "a value between 0 and 31, whereas 0 tells you that
+     * no sample has been trigged".
+     *
+     * Routine 228 ($5d94), the same range check, then `move.b $2(a0,d7.w),d3`
+     * and `lsr.w #4`. NOTE: a byte shifted right by four can only produce
+     * 0..15, so the routine cannot return the 16..31 its own manual promises
+     * — the high bit of a ProTracker instrument number lives in the other
+     * half of the note word. Recorded rather than corrected: the port has no
+     * live channel state to read either way. APPROXIMATED.
+     */
+    'pt cinstr': (_, a) => VI(rt.amcaf.pt.instr[ptChan(i0(a, 0))] ?? 0),
 
     /**
      * =Pt Vu(channel) — "the current volume of channel number 'channel'. If a
@@ -3421,7 +3479,15 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * The changelog pins one value: "When reaching the end of a song, Pt
      * Signal now reports $FF."
      */
-    'pt signal': () => VI(rt.amcaf.pt.signal),
+    'pt signal': () => {
+      // Routine 254 ($62e0) CLEARS the byte as it reads it —
+      // `move.b $2(a0),d3 / clr.b $2(a0)` — so a signal is consumed by the
+      // first read and a second one gives 0. Pt Vu (255) has the same shape
+      // and this port already had that one; this one it did not.
+      const v = rt.amcaf.pt.signal
+      rt.amcaf.pt.signal = 0
+      return VI(v)
+    },
 
     /** =Pt Data Base — the replayer's data block, for the assembler crowd */
     'pt data base': () => VI(0),

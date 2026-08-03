@@ -3,6 +3,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
+import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 
@@ -18,6 +19,27 @@ const extensions = new Map([
   ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
   [AMCAF_SLOT, extensionById('amcaf-1.50')!.table] as const,
 ])
+
+/**
+ * The same harness with a real audio sink attached.
+ *
+ * `run` builds a Runtime with no `audio:`, so `rt.host.audio?.` is undefined
+ * and every Pt/Sam call through it is a silent no-op — which is why nothing
+ * about the replayer's channel handling could be asserted before.
+ */
+function runAudio(src: string[]): { out: string; rt: Runtime; audio: NullAudio } {
+  let out = ''
+  const audio = new NullAudio()
+  const rt = new Runtime(tokenize(src.join('\n'), table, extensions), table, {
+    maxSteps: 1_000_000,
+    extensions,
+    audio,
+    onText: (t) => (out += t),
+  })
+  const r = rt.runHeadless(200)
+  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  return { out, rt, audio }
+}
 
 function run(src: string | string[], onUnimplemented?: 'throw' | 'skip'): { out: string; rt: Runtime } {
   let out = ''
@@ -1386,6 +1408,51 @@ describe('slice 12: ProTracker replay', () => {
     expect(rt.amcaf.pt.playing).toBe(true)
     expect(rt.amcaf.pt.bank).toBe(3)
     expect(run([...modBank(), 'Pt Play 3', 'Pt Stop']).rt.amcaf.pt.playing).toBe(false)
+  })
+
+  /**
+   * Routine 254 ($62e0) reads the signal byte and CLEARS it in the same
+   * breath — `move.b $2(a0),d3 / clr.b $2(a0)` — so a signal is consumed by
+   * whoever reads it first. Pt Vu (255) has the identical shape and this port
+   * already cleared that one; Pt Signal it did not, so a program polling it
+   * saw the same signal for ever.
+   */
+  it('Pt Signal is consumed by reading it', () => {
+    const { out } = run([...modBank(), 'Pt Play 3', 'Print Pt Signal;",";Pt Signal'])
+    expect(out.trim().split(',')[1]!.trim()).toBe('0')
+  })
+
+  /**
+   * Routines 228/229 range-check the channel — `Rbmi 372` on negative,
+   * `cmp.b #4 / Rbge 372` past three — where the port had `& 3` and silently
+   * answered for channel 0.
+   */
+  it('the Pt query functions error on a channel outside 0..3', () => {
+    expect(() => run([...modBank(), 'Pt Play 3', 'A=Pt Cnote(4)'])).toThrow()
+    expect(() => run([...modBank(), 'Pt Play 3', 'A=Pt Cinstr(-1)'])).toThrow()
+    expect(() => run([...modBank(), 'Pt Play 3', 'A=Pt Cnote(3)'])).not.toThrow()
+  })
+
+  /**
+   * Routine 232 ($5e70): `chan` is a BITMASK — `btst.b #0,d0` / `lsr.w #1,d0`
+   * four times, stepping $10 bytes through the AUDxPER registers — and the
+   * frequency is clamped to $190..$7530 before the period is derived.
+   */
+  it('Pt Sam Freq takes a channel MASK and clamps the frequency', () => {
+    const freqs = (src: string[]): Array<[number, number]> => {
+      const { audio } = runAudio([...modBank(), 'Pt Play 3', ...src])
+      return audio.events.filter((e) => e.kind === 'freq').map((e) => [e.voice, e.freq ?? 0])
+    }
+    // mask 3 is channels 0 AND 1 — not "channel 3"
+    expect(freqs(['Pt Sam Freq 3,8000'])).toEqual([
+      [0, 8000],
+      [1, 8000],
+    ])
+    // clamped to $190..$7530 before the period is derived
+    expect(freqs(['Pt Sam Freq 1,10'])).toEqual([[0, 400]])
+    expect(freqs(['Pt Sam Freq 2,99999'])).toEqual([[1, 30000]])
+    // a negative is floored to zero first, then pulled up by the low clamp
+    expect(freqs(['Pt Sam Freq 8,-5'])).toEqual([[3, 400]])
   })
 
   it('Pt Stop with nothing playing leaves the channels alone', () => {

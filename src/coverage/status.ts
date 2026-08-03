@@ -1434,11 +1434,15 @@ export const FAITHFUL = new Set<string>([
   // slice 11: input. All of the parallel-port ones answer "no adaptor".
   'pjoy', 'pjup', 'pjdown', 'pjleft', 'pjright', 'pfire', 'xfire',
   'x smouse', 'y smouse', 'smouse key', 'smouse speed', 'limit smouse',
-  // slice 12: ProTracker. Pt Data Base is APPROXIMATED (answers 0).
+  // slice 12: ProTracker. Pt Data Base is APPROXIMATED (answers 0), and so
+  // are the four LIVE-STATE queries -- Pt Cpos, Pt Cpattern, Pt Cnote and
+  // Pt Cinstr. This port starts a module but does not step its patterns, so
+  // there is no current row to report; their range checks and error
+  // behaviour are reproduced, the values are not.
   'pt play', 'pt stop', 'pt continue', 'pt bank', 'pt sam bank',
   'pt volume', 'pt voice', 'pt cia speed', 'pt sam play', 'pt sam stop',
   'pt sam volume', 'pt sam freq', 'pt instr play', 'pt raw play',
-  'pt cpos', 'pt cpattern', 'pt cnote', 'pt cinstr', 'pt vu', 'pt signal',
+  'pt vu', 'pt signal',
   'pt instr address', 'pt instr length', 'pt free voice',
   // slice 13: the closeout remainder. Amcaf Base/Length, Amos Task,
   // Extpath$ and the two C2P variants are APPROXIMATED.
@@ -2051,8 +2055,6 @@ export const NOTES: Record<string, string> = {
     "'the number of beats per minute or if you specify a value of zero, the timing will be switched from CIA-Timing to Vertical Blank Timing. Then the bpm rate is automatically set to exactly 125' -- so zero is a MODE SWITCH rather than a speed of nothing",
   'pt vu':
     "'the current volume of channel number channel. If a new note is played, vol contains the volume level else 0' -- a note-on latch rather than a live meter, the same shape as AMOS's own Vumeter, and it clears when read",
-  'pt signal':
-    "The module's own effect commands surfacing to the program. The changelog pins one value: 'When reaching the end of a song, Pt Signal now reports \$FF'",
   'pt sam play':
     "'The advantage to the normal Sam Play instruction is that the sounds interact' with the music: the replayer knows which voices it holds, so a Pt Sam Play without an explicit voice takes one the music is not using",
   'pt instr length':
@@ -2187,6 +2189,14 @@ export const NOTES: Record<string, string> = {
     "Routine 195 (\$4cc2), and the routine is the specification: zero takes the `Rbeq` error branch, then it shifts right counting until bit 0 is set, shifts once more and errors if ANYTHING is left (`tst.l d0 / Rbne`). So a value that is not exactly a power of two is an error rather than a floor, which is what the manual promises",
   'qsqr':
     'Routine 271 (\$6286): an integer square root by Newton\'s method over a scaled start, with no maths library involved. Zero returns zero before anything else and a negative value takes the `Rbmi` error branch',
+  'pt signal':
+    "Routine 254 (\$62e0) CLEARS the byte as it reads it -- `move.b \$2(a0),d3 / clr.b \$2(a0)` -- so a signal is consumed by the first read and a second gives 0. The port had Pt Vu (255), which is the identical shape, clearing already and this one not, so a program polling Pt Signal saw the same value for ever. The changelog pins the one documented value: 'When reaching the end of a song, Pt Signal now reports \$FF'",
+  'pt cnote':
+    "Routine 229 (\$5dc6). Returns a FREQUENCY, not a note number -- the manual says 'the frequency of an instrument being played' and the routine divides \$369E99 (3,579,545, the NTSC Paula clock, used whatever the machine) by the channel's period word at +\$10 of a 44-byte per-channel block, answering 0 when the period is zero. The channel is range-checked and a bad one is an ERROR: `Rbmi 372` on negative, `cmp.b #4 / Rbge 372` past three, where the port had `& 3` and silently answered for channel 0. APPROXIMATED: the range check and the error are reproduced, but this port does not step patterns, so there is no live period to divide",
+  'pt cinstr':
+    "Routine 228 (\$5d94), the same range check, then `move.b \$2(a0,d7.w),d3 / lsr.w #4`. NOTE: a byte shifted right by four yields 0..15, so the routine cannot return the 16..31 its own manual promises -- the high bit of a ProTracker instrument number lives in the other half of the note word. APPROXIMATED for the same reason as Pt Cnote",
+  'pt sam freq':
+    "Routine 232 (\$5e70), and two things the manual's 'channel chan' hides. The channel is a BITMASK: the routine loops four times with `btst.b #0,d0` and `lsr.w #1,d0`, stepping `lea \$10(a0),a0` through the AUDxPER registers from \$dff0a0, so 3 retunes channels 0 AND 1. And the frequency is CLAMPED to \$190..\$7530 -- 400..30000 Hz -- before the period is taken as \$369E99/freq; a negative is floored to zero first and then pulled up to 400. The port took the argument as an index and did not clamp",
   'qsin':
     "Routine 260 (\$643a), and now FAITHFUL rather than APPROXIMATED because the table was found. An earlier pass concluded it was not in the hunk and generated `round(256*sin)` over a symmetric 1024 entries, which disagreed with the shipped table at 770 of 1024 -- by up to 3. The changelog is what located it: 'Sine-Table moved and shortened, so I save about 1536 Bytes', and 2048-512 is exactly 1536, so a QUARTER table of 256 words ships at \$a3a8 (1.40) / \$ab82 (1.50). It is byte-identical to `floor(256*sin(pi*i/512))` at all 256 entries -- floor, not round -- so the port derives it rather than embedding someone else's data. DEFECT: the expansion at \$a2d8 copies 255 entries, writes \$100 as the 256th and mirrors, which puts the PEAK at index 255 and 767 rather than 256 and 768 and leaves DOUBLED zeros at 0/1023 and 511/512. So a quarter turn is one step short of the maximum and `Qcos(0,r)` returns 996 for r=1000 rather than r. Reproduced, because a program that plots a circle with these gets AMCAF's circle",
   'qcos':
