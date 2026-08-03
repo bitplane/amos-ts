@@ -1545,6 +1545,24 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
   })
 
   /**
+   * The header of amcaf.ts used to say the hunk held no printable text at all.
+   * It holds the version string, four instructions into routine 19, length
+   * word and all — and the two releases differ in LANGUAGE as well as version:
+   *
+   *   1.40, $2176:  "AMCAF Erweiterung V1.40 26-Dec-95 von Chris Hodges."
+   *   1.50, $22d8:  "AMCAF extension V1.50beta4 11-Jan-98 by Chris Hodges."
+   *
+   * the shareware build in German, the freeware final in English — the same
+   * split the demo guards showed. One body of code serves both here and the
+   * token tables carry no registry id, so this answers with 1.50's.
+   */
+  it('Amcaf Version$ is the string in the binary, not a made-up one', () => {
+    expect(run(['Print Amcaf Version$']).out.trim()).toBe(
+      'AMCAF extension V1.50beta4 11-Jan-98 by Chris Hodges.',
+    )
+  })
+
+  /**
    * The manual: *"After calling Amcaf Aga Notation On, all AMCAF commands and
    * functions take 24 bit values... The default setting is 12 bit."*
    *

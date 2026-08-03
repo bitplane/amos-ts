@@ -2087,8 +2087,6 @@ export const NOTES: Record<string, string> = {
     "'If the lowlevel-library is available, all the other buttons can be checked aswell.' lowlevel.library is not modelled and a plain gameport has one button, so anything past the first reads as not pressed; the first is the ordinary fire the host already supplies",
   'x smouse':
     "NOTE: nothing drives a second mouse here, exactly as in the Sticks port where the manual is explicit that this is 'not ... the AMOS pointer'. The position holds wherever a program last put it and the buttons read as up",
-  'smouse speed':
-    "'the factor by which power of 2 the mouse should be slowed down. 0 is the maximum speed whereas 1 is about the speed of the normal AMOS mouse. Higher values than 4 are not sensible' -- stored, and with nothing driving the second mouse there is no motion for it to scale",
   'vec rot precalc':
     "Builds the rotation matrix once so the per-point functions need not. Nothing here caches a matrix, so it is a no-op -- FAITHFUL rather than a stub, because the only thing a program can observe afterwards is that the following Vec Rot X/Y/Z give the same answers either way, and a test asserts exactly that",
   'vec rot x':
@@ -2099,8 +2097,6 @@ export const NOTES: Record<string, string> = {
     "'When you start AMOS, the audio.device will be not informed, that AMOS wants to have the audio channels. Due to this flaw, other programs that are running in the background can replay a sound at any time.' There is no other program in the background here and no audio.device to arbitrate with, so a no-op is FAITHFUL: the observable effect on the calling program is the same",
   'open workbench':
     "'Tries to open the workbench again, if it has been closed previously' with AMOS's Close Workbench. There is no Workbench screen to reopen and closing it here frees nothing, so there is nothing to undo",
-  'amcaf version$':
-    "NOTE: the binary holds no printable text at all, so the string the library returned was not recovered. This answers the identity the registry holds, which is the question a program asking is really asking. APPROXIMATED",
   'coords read':
     "'colour represents the background colour, that will be left out when reading in the dots ... all dots, which don't have the colour' are gathered. Splinters need this list because, unlike Td Stars, 'they don't destroy the background and use the colour of the pixel they have removed'",
   'splinters fuel':
@@ -2147,6 +2143,10 @@ export const NOTES: Record<string, string> = {
     "'darkens the screen by one single step. After calling it 16 times, the Ham screen is completely black.' The manual explains the asymmetry: 'Technically, it's not possible to fade in a ham screen without enormous processor power, but for fading out, a modified Shade Bobs routine is' enough -- darkening is monotone and needs no search",
   'set rain colour':
     "Changes a rainbow's colour index, which 'remove[s] the irretating limit to the first 16 colours'. DEVIATION: the manual's other use -- 'A colour index of -63 enables you to alter the hardware scrolling register, so you can create fancy water and wobbel effects' -- is a copper poke at a register this port reaches through the display list rather than by address, so the index is stored and the scroll case is not reproduced",
+  'amcaf version$':
+    "Routine 19, and the string IS in the binary -- an earlier pass reported the hunk held no printable text at all and was looking in the wrong place. Four instructions and then the literal with its length word: 1.40 at \$2176 answers **'AMCAF Erweiterung V1.40 26-Dec-95 von Chris Hodges.'** and 1.50 at \$22d8 **'AMCAF extension V1.50beta4 11-Jan-98 by Chris Hodges.'** -- the shareware build in GERMAN and the freeware final in English, the same split the demo guards showed. DEVIATION: one body of code serves both releases here and the token tables carry no registry id, so this cannot tell which was bound and answers with 1.50's. The port's own 'AMCAF 1.50' was never on any machine",
+  'smouse speed':
+    "Routine 170 (\$46e2) is not a plain store. The pointer's position is held pre-shifted, so changing the factor RESCALES it -- `asr.w d3,d0` by the old shift and `asl.w d4,d0` by the new, on both axes -- which keeps the pointer where it is rather than jumping it. Nothing bounds the value, so the manual's 'higher values than 4 are not sensible' is advice rather than a check. NOTE: no test pins the rescale, because nothing in a headless run moves a second mouse and zero rescales to zero",
   'splinters bank':
     "Routines 288 (\$697c) and 304 (\$6d84) are twins. Both check the COUNT and not the bank number -- `move.l (a3)+,d2 / Rbeq routine 390` refuses a zero amount before anything else -- and both take the per-entry size from a `mulu.w`: \$16 for a splinter, \$c for a star. The eight-character bank NAMES are literals in the binary, `Splinter` and `Stars   `, where the port had invented `TdStars `. A Reserve that comes back empty is error 24, and each stores `amount - 1` as the loop bound, which is why every walk of the table is a `dbra`",
   'splinters colour':

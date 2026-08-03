@@ -1792,12 +1792,30 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
 
 
     /**
-     * Smouse Speed value — "the factor by which power of 2 the mouse should
-     * be slowed down. 0 is the maximum speed whereas 1 is about the speed of
-     * the normal AMOS mouse. Higher values than 4 are not sensible."
+     * Smouse Speed value — routine 170 ($46e2). "The factor by which power of
+     * 2 the mouse should be slowed down. 0 is the maximum speed whereas 1 is
+     * about the speed of the normal AMOS mouse. Higher values than 4 are not
+     * sensible."
+     *
+     * It is not a plain store. The pointer's position is held pre-shifted, so
+     * changing the factor RESCALES it — `asr.w d3,d0` by the old shift and
+     * `asl.w d4,d0` by the new, on both axes — which keeps the pointer where
+     * it is on screen instead of jumping it. Nothing bounds the value, so the
+     * manual's "higher values than 4 are not sensible" is advice rather than
+     * a check, and a shift of 15 or more loses the position entirely.
+     *
+     * NOTE: no test pins the rescale, because nothing in a headless run moves
+     * a second mouse — the position is always zero when the keyword is
+     * reached, and zero rescales to zero. The arithmetic is here because a
+     * program driving a real second mouse would see it.
      */
     'smouse speed'(it) {
-      rt.amcaf.smouse.speed = it.evalInt()
+      const sm = rt.amcaf.smouse
+      const next = it.evalInt()
+      const old = sm.speed
+      sm.x = (sm.x >> old) << next
+      sm.y = (sm.y >> old) << next
+      sm.speed = next
     },
 
     /**
@@ -4502,12 +4520,25 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     /**
      * =Amcaf Version$ — the extension's own version string.
      *
-     * NOTE: the binary holds no printable text at all, so the string the
-     * library returned was not recovered. This answers the identity the
-     * registry holds, which is the question a program asking is really
-     * asking. APPROXIMATED.
+     * Routine 19, and the string IS in the binary — an earlier pass said the
+     * hunk held no printable text at all and was looking in the wrong place.
+     * Four instructions and then the literal, length word and all:
+     *
+     *   1.40, $2176:  0035 minus two -- 51 characters --
+     *                 "AMCAF Erweiterung V1.40 26-Dec-95 von Chris Hodges."
+     *   1.50, $22d8:  53 characters --
+     *                 "AMCAF extension V1.50beta4 11-Jan-98 by Chris Hodges."
+     *
+     * The shareware release answered in GERMAN and the freeware final in
+     * English, which is the same 1.40/1.50 split the demo guards showed.
+     *
+     * DEVIATION: this port cannot tell which release a program bound — one
+     * body of code serves both and the token tables do not carry the registry
+     * id — so it answers with 1.50's, the release the clean binary and the
+     * manual both come from. The port's own "AMCAF 1.50" was never on any
+     * machine.
      */
-    'amcaf version$': () => VS('AMCAF 1.50'),
+    'amcaf version$': () => VS('AMCAF extension V1.50beta4 11-Jan-98 by Chris Hodges.'),
 
 
     /**
