@@ -1950,7 +1950,50 @@ describe('slice 8: the effect engines', () => {
 describe('slice 9: Splinters and Td Stars', () => {
   const scr = ['Screen Open 0,64,32,16,Lowres', 'Cls 0']
 
-  it('Coords Read gathers every dot that is NOT the background colour', () => {
+  /** the bank as words, which is how all three routines address it */
+  const bankWords = (rt: { memBanks: Map<number, { data: Uint8Array }> }, n: number) => {
+    const d = rt.memBanks.get(n)!.data
+    return { len: d.length, w: (at: number): number => (d[at]! << 8) | d[at + 1]! }
+  }
+
+  /**
+   * Routine 94 ($33e6): `lsl.l #$2,d2 / addq.l #$8,d2` then Reserve, and the
+   * header it writes is `move.w d7,(a0)+ / clr.w (a0)+ / moveq #$8,d0 /
+   * move.l d0,(a0)` — count, cursor, and the offset of the first entry. An
+   * earlier pass reserved count*4 and wrote no header at all.
+   */
+  it('Coords Bank reserves an eight-byte header and initialises it', () => {
+    const { rt } = run([...scr, 'Coords Bank 4,100'])
+    const { len, w } = bankWords(rt, 4)
+    expect(len).toBe(8 + 100 * 4)
+    expect(w(0)).toBe(100) // the count, which Coords Read reads as its limit
+    expect(w(2)).toBe(0) // the cursor
+    expect((w(4) << 16) | w(6)).toBe(8) // the offset of the first entry
+    expect(rt.memBanks.get(4)!.name).toBe('Coords  ')
+  })
+
+  /** `move.l (a3)+,d2 / Rbeq routine 390` — a count of zero, before anything */
+  it('Coords Bank refuses a count of zero', () => {
+    expect(() => run([...scr, 'Coords Bank 4,0'])).toThrow(/illegal function call/i)
+  })
+
+  /**
+   * Routine 93 ($33d4) is eighteen bytes that resolve the bank and store the
+   * pointer: "the existing bank will only be switched to without erasing it.
+   * So you can jump between predefined banks."
+   */
+  it('Coords Bank without a count does not erase the bank', () => {
+    const { rt } = run([
+      ...scr,
+      'Turbo Plot 1,1,5',
+      'Coords Bank 4,100',
+      'Coords Read 0,0,0,0 To 9,9,4,0',
+      'Coords Bank 4',
+    ])
+    expect(bankWords(rt, 4).w(0)).toBe(1) // the count Coords Read left
+  })
+
+  it('Coords Read fills the bank behind its header, in sixteenths of a pixel', () => {
     const { rt } = run([
       ...scr,
       'Turbo Plot 1,1,5',
@@ -1958,11 +2001,60 @@ describe('slice 9: Splinters and Td Stars', () => {
       'Coords Bank 4,100',
       'Coords Read 0,0,0,0 To 9,9,4,0',
     ])
-    // two dots found, four bytes each
-    const d = rt.memBanks.get(4)!.data
-    expect((d[0]! << 8) | d[1]!).toBe(1)
-    expect((d[2]! << 8) | d[3]!).toBe(1)
-    expect((d[4]! << 8) | d[5]!).toBe(2)
+    const { w } = bankWords(rt, 4)
+    expect(w(0)).toBe(2) // the count found, replacing the limit
+    expect(w(2)).toBe(0) // the cursor, which only routine 385 moves
+    expect([w(8), w(10)]).toEqual([1 << 4, 1 << 4])
+    expect([w(12), w(14)]).toEqual([2 << 4, 2 << 4])
+  })
+
+  /**
+   * `cmp.w (a0),d3 / beq $34fa` re-reads the bank's first word every hit, so
+   * the count Coords Bank put there is a hard limit on the scan — and the
+   * count written back at the end then becomes the NEXT read's limit.
+   */
+  it("Coords Read stops at the bank's count, which then limits the next read", () => {
+    const prog = [...scr, 'Turbo Plot 1,1,5', 'Turbo Plot 2,2,6', 'Turbo Plot 3,3,7']
+    const { rt } = run([...prog, 'Coords Bank 4,2', 'Coords Read 0,0,0,0 To 9,9,4,0'])
+    expect(bankWords(rt, 4).w(0)).toBe(2) // three dots, room for two
+
+    const { rt: rt2 } = run([
+      ...prog,
+      'Coords Bank 4,100',
+      'Coords Read 0,0,0,0 To 2,2,4,0', // finds only (1,1)
+      'Coords Read 0,0,0,0 To 9,9,4,0', // now capped at 1, not 100
+    ])
+    expect(bankWords(rt2, 4).w(0)).toBe(1)
+  })
+
+  /** the scanner is Count Pixels', so it carries the same two findings */
+  it('Coords Read has an exclusive far corner and errors on an empty box', () => {
+    const prog = [...scr, 'Turbo Plot 1,1,5', 'Turbo Plot 5,5,6', 'Coords Bank 4,100']
+    // 0,0 To 5,5 covers x,y 0..4, so the dot at 5,5 is outside
+    expect(bankWords(run([...prog, 'Coords Read 0,0,0,0 To 5,5,4,0']).rt, 4).w(0)).toBe(1)
+    expect(bankWords(run([...prog, 'Coords Read 0,0,0,0 To 6,6,4,0']).rt, 4).w(0)).toBe(2)
+    expect(() => run([...prog, 'Coords Read 0,0,5,5 To 5,9,4,0'])).toThrow(/illegal function call/i)
+  })
+
+  /**
+   * `move.w (a7),d0 / bne $3504` — a non-zero mode SHUFFLES the finished
+   * list, not "the scan order" an earlier pass assumed. The permutation
+   * itself is driven by VHPOSR and cannot be pinned here (see the NOTE on the
+   * handler: the modelled beam stands still inside a keyword), so what is
+   * pinned is that the same coordinates come back in a different order.
+   */
+  it('Coords Read shuffles the list when mode is not zero', () => {
+    const dots = ['Turbo Plot 1,1,5', 'Turbo Plot 2,2,5', 'Turbo Plot 3,3,5', 'Turbo Plot 4,4,5', 'Turbo Plot 5,5,5', 'Turbo Plot 6,6,5']
+    const read = (mode: number): number[] => {
+      const { rt } = run([...scr, ...dots, 'Coords Bank 4,100', `Coords Read 0,0,0,0 To 9,9,4,${mode}`])
+      const { w } = bankWords(rt, 4)
+      return Array.from({ length: w(0) }, (_, i) => w(8 + i * 4) >> 4)
+    }
+    const plain = read(0)
+    const shuffled = read(1)
+    expect(plain).toEqual([1, 2, 3, 4, 5, 6])
+    expect([...shuffled].sort((a, b) => a - b)).toEqual(plain) // the same six
+    expect(shuffled).not.toEqual(plain) // in a different order
   })
 
   it('Splinters Init takes the colour of the pixel it lifts', () => {

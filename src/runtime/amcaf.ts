@@ -212,9 +212,13 @@ export interface AmcafExamine {
 export interface SplinterState {
   bank: number
   max: number
+  /**
+   * `$266` of the private block — the pointer Coords Bank stores. The
+   * coordinates themselves live in the bank and nowhere else; there is no
+   * parallel copy, because routine 385 hands them out by advancing the
+   * cursor and offset in the bank's own header.
+   */
   coordsBank: number
-  /** the (x,y) pairs Coords Read gathered, which Init feeds the engine from */
-  coords: Array<[number, number]>
   next: number
   p: Array<{ x: number; y: number; vx: number; vy: number; c: number; life: number }>
   gx: number
@@ -368,7 +372,7 @@ export function newAmcafState(): AmcafState {
     bltLimit: null,
     ptileBank: 0,
     splinters: {
-      bank: 0, max: 0, coordsBank: 0, coords: [], next: 0,
+      bank: 0, max: 0, coordsBank: 0, next: 0,
       p: [], gx: 0, gy: 0, fuel: 0, maxNew: -1,
       bkColour: 0, planes: 6, limit: null, saved: null, savedPrev: null,
     },
@@ -1460,29 +1464,93 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
 
     /* ---- Splinters ---- */
 
-    /** Coords Bank bank[,coords] — 4 bytes a coordinate; no count re-selects */
+    /**
+     * Coords Bank bank[,coords] — TWO token entries and two routines. The
+     * table carries `!coords bank` (id $0d10, spec `I0`, routine 93) followed
+     * by an empty-named continuation (id $0d24, spec `I0,0`, routine 94),
+     * which is how AMOS spells one keyword with two arities — `!track play`
+     * and its two blank followers are the same shape.
+     *
+     * Routine 93 ($33d4) is eighteen bytes and reserves NOTHING:
+     *
+     *     movea.l $168(a5),a2 / move.l (a3)+,d0 / Rjsr routine 1121
+     *     move.l d0,$266(a2) / rts
+     *
+     * It resolves the bank to an address and stores the pointer, which is
+     * exactly the manual's "the existing bank will only be switched to
+     * without erasing it. So you can jump between predefined banks."
+     *
+     * Routine 94 ($33e6) is the one that allocates:
+     *
+     *     move.l (a3)+,d2 / Rbeq routine 390      a count of zero is an error
+     *     lsl.l #$2,d2 / addq.l #$8,d2            four bytes each, plus a header
+     *     lea $341a(pc),a0 / Rjsr routine 1103    Reserve, named "Coords  "
+     *     Rbeq routine 389                        and out of memory if it fails
+     *     move.w d7,(a0)+ / clr.w (a0)+ / moveq #$8,d0 / move.l d0,(a0)
+     *
+     * An earlier pass reserved `count * 4` with no header at all, which is
+     * eight bytes short and left every reader of the bank without a count.
+     *
+     * NOTE: `move.w d2,d4 / move.l d4,d7` narrows the count to a WORD before
+     * it is stored, while `lsl.l #$2,d2` sizes the Reserve from the full
+     * long. Above 65535 the two disagree in the binary too, and that is
+     * reproduced.
+     */
     'coords bank'(it) {
       const n = it.evalInt()
-      const sp = rt.amcaf.splinters
-      sp.coordsBank = n
       if (it.accept(',')) {
         const count = it.evalInt()
-        rt.reserveBank(n, count * 4, 'Coords  ')
-        sp.coords = []
+        if (count === 0) amcafErr()
+        rt.reserveBank(n, COORDS_HEADER + count * 4, 'Coords  ')
+        const v = coordsView(rt, n)
+        if (v) {
+          v.setUint16(0, count & 0xffff) // the count
+          v.setUint16(2, 0) // the cursor
+          v.setUint32(4, COORDS_HEADER) // the offset of the first entry
+        }
       }
-      // "If this parameter is omitted the existing bank will only be switched
-      // to without erasing it. So you can jump between predefined banks."
+      rt.amcaf.splinters.coordsBank = n
     },
 
     /**
-     * Coords Read screen,colour,x1,y1 To x2,y2,bank,mode — "'colour'
-     * represents the background colour, that will be left out when reading in
-     * the dots ... all dots, which don't have the colour" are gathered.
+     * Coords Read screen,colour,x1,y1 To x2,y2,bank,mode — routine 95
+     * ($3422), 276 bytes. "'colour' represents the background colour, that
+     * will be left out when reading in the dots ... all dots, which don't
+     * have the colour" are gathered.
+     *
+     * The scanner from $3486 to $34f0 is Count Pixels' scanner instruction
+     * for instruction, so it carries the same two findings: the far corner is
+     * EXCLUSIVE, and an empty or reversed box is an error before any work —
+     * here through routine 157, which is a four-byte `Rbra routine 390`.
+     * The colour is likewise a byte (`move.b d2,$2(a7)` / `cmp.b $a(a7),d0`).
+     *
+     * All EIGHT arguments are required; routine 95 pops eight longs and the
+     * spec is `I0,0,0,0t0,0,0,0`. An earlier pass had `mode` optional.
+     *
+     * Each hit is written as `x<<4` and `y<<4` at the bank's next slot:
+     *
+     *     move.w d3,d2 / addq.l #$2,d2 / lsl.l #$2,d2 / adda.l d2,a0
+     *     move.w d1,d2 / lsl.w #$4,d2 / move.w d2,(a0)
+     *     move.w $a(a7),d2 / sub.w d7,d2 / add.w $6(a7),d2
+     *     lsl.w #$4,d2 / move.w d2,$2(a0)
+     *
+     * — `(count + 2) * 4` is the eight-byte header plus four bytes an entry,
+     * and the y arithmetic recovers the row from the countdown register. The
+     * port wrote raw pixel coordinates at offset zero.
+     *
+     * `cmp.w (a0),d3 / beq` stops the scan when the count reaches the LIMIT
+     * the bank's first word holds, which Coords Bank put there; `move.w
+     * d3,(a0)` then replaces it with what was actually found. NOTE: that
+     * means a second Coords Read into the same bank is limited by the FIRST
+     * one's result, not by the bank's capacity — a real quirk, reproduced.
+     *
+     * NOTE: nothing bounds-checks the bank against its own length; the
+     * routine trusts the limit word. The length test below is the port's.
      */
     'coords read'(it) {
       const scr = rt.screens.get(it.evalInt())
       it.expect(',')
-      const bg = it.evalInt()
+      const bg = it.evalInt() & 0xff
       it.expect(',')
       const x1 = it.evalInt()
       it.expect(',')
@@ -1493,27 +1561,67 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const y2 = it.evalInt()
       it.expect(',')
       const bank = it.evalInt()
-      if (it.accept(',')) it.evalInt() // mode: the scan order, invisible here
+      it.expect(',')
+      const mode = it.evalInt()
       if (!scr) amcafErr()
-      const out: Array<[number, number]> = []
-      for (let y = y1; y <= y2; y++) {
-        for (let x = x1; x <= x2; x++) {
-          const v = scr.rp.point(x, y)
-          if (v >= 0 && v !== bg) out.push([x, y])
+      const w = ((x2 - x1) << 16) >> 16 // sub.w, so a WORD difference
+      const h = ((y2 - y1) << 16) >> 16
+      if (w <= 0 || h <= 0) amcafErr()
+      const v = coordsView(rt, bank)
+      if (!v) amcafErr()
+
+      const limit = v.getUint16(0)
+      let n = 0
+      scan: for (let y = y1; y < y1 + h; y++) {
+        for (let x = x1; x < x1 + w; x++) {
+          const p = scr.rp.point(x, y)
+          if (p < 0 || (p & 0xff) === bg) continue
+          if (n === limit) break scan
+          const at = COORDS_HEADER + n * 4
+          if (at + 4 > v.byteLength) break scan
+          v.setUint16(at, (x << 4) & 0xffff)
+          v.setUint16(at + 2, (y << 4) & 0xffff)
+          n++
         }
       }
-      const sp = rt.amcaf.splinters
-      sp.coordsBank = bank
-      sp.coords = out
-      const b = rt.memBanks.get(bank)
-      if (b) {
-        for (let i = 0; i < out.length && i * 4 + 3 < b.data.length; i++) {
-          b.data[i * 4] = (out[i]![0] >> 8) & 0xff
-          b.data[i * 4 + 1] = out[i]![0] & 0xff
-          b.data[i * 4 + 2] = (out[i]![1] >> 8) & 0xff
-          b.data[i * 4 + 3] = out[i]![1] & 0xff
+      v.setUint16(0, n & 0xffff)
+
+      /*
+       * And what `mode` actually is. `move.w (a7),d0 / bne $3504` — a
+       * non-zero mode SHUFFLES the finished list, swapping each entry with a
+       * randomly chosen one:
+       *
+       *   lea $dff006.l,a1
+       *   add.w (a1),d6 / move.w d6,d5 / mulu.w d7,d5 / swap d5
+       *   ext.l d5 / lsl.l #$2,d5
+       *   move.l $8(a0,d5.l),d0 / move.l (a2),$8(a0,d5.l) / move.l d0,(a2)+
+       *
+       * $dff006 is VHPOSR, the raster beam, used as the entropy source; d7
+       * holds the count and the index is the high word of accumulator *
+       * count. d6 arrives as $ffff, the value the x loop's `dbra` left.
+       *
+       * An earlier pass parsed `mode` and threw it away as "the scan order".
+       *
+       * NOTE: the modelled beam does not advance while a keyword runs, so
+       * `beamWord()` returns the same value every iteration here and the
+       * shuffle is a fixed permutation where the real one is not. Reading
+       * VHPOSR is faithful; the standing-still is the port's clock.
+       */
+      if (mode !== 0 && n > 0) {
+        let acc = 0xffff
+        for (let i = 0; i < n; i++) {
+          acc = (acc + rt.interp.beamWord()) & 0xffff
+          const j = Math.floor((acc * n) / 0x10000)
+          const a = COORDS_HEADER + i * 4
+          const b = COORDS_HEADER + j * 4
+          if (a + 4 > v.byteLength || b + 4 > v.byteLength) continue
+          const t = v.getUint32(b)
+          v.setUint32(b, v.getUint32(a))
+          v.setUint32(a, t)
         }
       }
+
+      rt.amcaf.splinters.coordsBank = bank
     },
 
     /** Splinters Bank bank,splinum — "Each Splinter requires 22 bytes" */
@@ -1594,7 +1702,9 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       sp.p = []
       sp.next = 0
       if (!s) return
-      for (const [x, y] of sp.coords) {
+      // the coordinates come out of the bank, which is the only place the
+      // real engine keeps them — see COORDS_HEADER above
+      for (const [x, y] of readCoordsBank(rt, sp.coordsBank)) {
         if (sp.max > 0 && sp.p.length >= sp.max) break
         const c = s.rp.point(x, y)
         sp.p.push({ x, y, vx: 0, vy: 0, c: c < 0 ? 0 : c, life: sp.fuel })
@@ -3531,6 +3641,53 @@ const inLimit = (rt: Runtime, lim: Limit | null, x: number, y: number): boolean 
   if (!s) return false
   if (!lim) return x >= 0 && y >= 0 && x < s.width && y < s.height
   return x >= lim.x1 && y >= lim.y1 && x <= lim.x2 && y <= lim.y2
+}
+
+/**
+ * The Coords bank's eight-byte header, which three routines agree on.
+ *
+ * Routine 94 ($33e6) lays it down —
+ *
+ *     move.w d7,(a0)+ / clr.w (a0)+ / moveq #$8,d0 / move.l d0,(a0)
+ *
+ * routine 95 ($3422) fills the entries and rewrites the count, and routine
+ * 385 ($a88a) hands them out one at a time:
+ *
+ *     move.w (a3),d0 / move.w $2(a3),d1 / cmp.w d0,d1 / beq    exhausted
+ *     addq.w #$1,$2(a3) / move.l $4(a3),d0
+ *     move.l (a3,d0.l),(a0) / addq.l #$4,$4(a3)
+ *
+ *     +0  word  the COUNT of coordinates
+ *     +2  word  the CURSOR — how many have been handed out
+ *     +4  long  the byte offset of the next entry, starting at 8
+ *     +8..      four bytes each: x<<4 then y<<4, as words
+ *
+ * The `<<4` is not decoration. Routine 386 moves a splinter in the same
+ * units — `move.w (a0),d2 / add.w $c(a0),d2` and then `lsr.w #$4,d2` to
+ * reach a pixel — so a bank coordinate IS a splinter coordinate, in
+ * sixteenths of a pixel, and routine 385 copies one straight across with a
+ * single `move.l`.
+ */
+const COORDS_HEADER = 8
+
+function coordsView(rt: Runtime, n: number): DataView | null {
+  const b = rt.memBanks.get(n)
+  if (!b || b.kind !== 'memory' || b.data.length < COORDS_HEADER) return null
+  return new DataView(b.data.buffer, b.data.byteOffset, b.data.byteLength)
+}
+
+/** the coordinates a Coords bank holds, in whole pixels */
+function readCoordsBank(rt: Runtime, n: number): Array<[number, number]> {
+  const v = coordsView(rt, n)
+  if (!v) return []
+  const out: Array<[number, number]> = []
+  const count = v.getUint16(0)
+  for (let i = 0; i < count; i++) {
+    const at = COORDS_HEADER + i * 4
+    if (at + 4 > v.byteLength) break
+    out.push([v.getUint16(at) >> 4, v.getUint16(at + 2) >> 4])
+  }
+  return out
 }
 
 function moveSplinters(rt: Runtime): void {
