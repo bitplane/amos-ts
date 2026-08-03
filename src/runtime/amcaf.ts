@@ -231,6 +231,11 @@ export interface AmcafState {
    */
   qseed: number
   qlast: number
+  /**
+   * The rectangle Blitter Copy works within — "Before you can call Blitter
+   * Copy, you MUST set the limits of the operation using Blitter Copy Limit".
+   */
+  bltLimit: Limit | null
   /** the bank Ptile blocks come from */
   ptileBank: number
   /** the two particle engines, which share a command shape but not a model */
@@ -277,6 +282,7 @@ export function newAmcafState(): AmcafState {
     shadeMask: true,
     qseed: 0,
     qlast: 0,
+    bltLimit: null,
     ptileBank: 0,
     splinters: {
       bank: 0, max: 0, coordsBank: 0, coords: [], next: 0,
@@ -1695,21 +1701,112 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Blitter Copy Limit n — bounds how much Blitter Copy will move.
+     * Blitter Copy Limit screen | x1,y1 To x2,y2 — the rectangle Blitter Copy
+     * will move, and it is not optional: *"Before you can call Blitter Copy,
+     * you MUST set the limits of the operation using Blitter Copy Limit"*.
      *
-     * The plain form takes a plane count; the long form is a rectangle. Here
-     * a copy is a bounded loop rather than a chip transfer that can run away,
-     * so the limit is recorded and nothing can exceed it anyway.
+     * "If you only specify the 'screen' parameter, the full screen dimensions
+     * of the screen numbered 'screen' will be taken. Otherwise x1,y1
+     * represents the upper left corner and x2,y2 the lower right ... This area
+     * will be used for ALL screens."
+     *
+     * An earlier pass parsed both forms and threw the values away, on the
+     * reasoning that a copy here is a bounded loop rather than a chip transfer
+     * that can run away. That is true of the SAFETY and false of the
+     * SEMANTICS: the rectangle is what Blitter Copy copies, so discarding it
+     * left the keyword with nothing to work on.
      */
     'blitter copy limit'(it) {
-      it.evalInt()
-      if (it.accept(',')) {
-        it.evalInt()
-        it.expect('to')
-        it.evalInt()
-        it.expect(',')
-        it.evalInt()
+      const first = it.evalInt()
+      if (!it.accept(',')) {
+        const s = rt.screens.get(first)
+        if (!s) amcafErr()
+        rt.amcaf.bltLimit = { x1: 0, y1: 0, x2: s.width - 1, y2: s.height - 1, cx: 0, cy: 0 }
+        return
       }
+      const y1 = it.evalInt()
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      rt.amcaf.bltLimit = { x1: first, y1, x2, y2, cx: 0, cy: 0 }
+    },
+
+    /**
+     * Blitter Copy s1,p1[,s2,p2[,s3,p3]] To s4,p4[,minterm] — one BITPLANE
+     * into another, optionally combining two or three through a minterm.
+     *
+     * Routine 62 ($28a0) is the short form: it pushes `#$f0` — D = A, a plain
+     * copy — and falls into routine 63, which is the explicit-minterm one.
+     * Routine 63 resolves each screen with `L_SaveBMHD` and then does the
+     * check that matters:
+     *
+     *     move.w $50(a0), d4        the screen's DEPTH
+     *     cmp.w  d4, d7
+     *     Rbge   routine 372        plane >= depth is an error
+     *     lsl.l  #2, d7
+     *     move.l (a0, d7.w), $330(a2)   the plane pointer itself
+     *
+     * so a plane number outside the screen stops the program rather than
+     * reading somewhere else.
+     *
+     * CONTESTED: Personnal has a `Blitter Copy` too, and means something
+     * entirely different by it — an address form with BLTCON0 $09F0. Dispatch
+     * is by name, so this is declared in `qualified` and binds to the slot the
+     * program actually loaded. Before that declaration existed, every AMCAF
+     * program calling Blitter Copy got Personnal's handler and its argument
+     * shape.
+     */
+    'blitter copy'(it) {
+      const src: Array<[number, number]> = []
+      for (;;) {
+        const s = it.evalInt()
+        it.expect(',')
+        src.push([s, it.evalInt()])
+        if (!it.accept(',')) break
+      }
+      it.expect('to')
+      const ds = it.evalInt()
+      it.expect(',')
+      const dp = it.evalInt()
+      const minterm = it.accept(',') ? it.evalInt() : 0xf0
+      bltCopyPlanes(rt, src, ds, dp, minterm)
+    },
+
+    /**
+     * Blitter Clear screen,bitplane[,x1,y1 To x2,y2] — wipe ONE bitplane.
+     *
+     * "In comparison to the AMOS command Cls, Blitter Clear allows you to wipe
+     * single bitplane instead of all." Routine 70 ($2d0a) is the short form
+     * and it is written as the long one with the screen's own bounds pushed:
+     * `move.w $4c(a0),d0` and `$4e(a0)` are its width and height.
+     *
+     * CONTESTED with Personnal's `Blitter Clear`, same as Blitter Copy.
+     */
+    'blitter clear'(it) {
+      const sn = it.evalInt()
+      it.expect(',')
+      const plane = it.evalInt()
+      const s = rt.screens.get(sn)
+      if (!s) amcafErr()
+      let r = { x1: 0, y1: 0, x2: s.width - 1, y2: s.height - 1 }
+      if (it.accept(',')) {
+        const x1 = it.evalInt()
+        it.expect(',')
+        const y1 = it.evalInt()
+        it.expect('to')
+        const x2 = it.evalInt()
+        it.expect(',')
+        const y2 = it.evalInt()
+        r = { x1, y1, x2, y2 }
+      }
+      if (plane < 0 || plane >= s.rp.bitMap.depth) amcafErr()
+      for (let y = Math.max(0, r.y1); y <= Math.min(s.height - 1, r.y2); y++) {
+        for (let x = Math.max(0, r.x1); x <= Math.min(s.width - 1, r.x2); x++) {
+          s.rp.bitMap.writePixel(x, y, s.rp.bitMap.pixelAt(x, y) & ~(1 << plane))
+        }
+      }
+      s.rp.bitMap.invalidate()
     },
 
     /**
@@ -1758,6 +1855,41 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       } catch {
         amcafErr()
       }
+    },
+
+    /**
+     * Rnc Unpack address To address / =Rnp — the RNC ProPack pair, and both
+     * are DEAD in every version this port carries.
+     *
+     * The author removed them, put them back, and removed them again:
+     *
+     *   V0.990 01-Jul-94  Removed some command to shrink the extension:
+     *                     Rnc Unpack / =Rnp
+     *   V1.00             Reimplemented some commands: Rnc Unpack and =Rnp.
+     *   V1.31 03-Oct-95   Finally removed Rnc Unpack and =Rnp.
+     *
+     * The tokens had to stay — deleting one shifts every later token id and
+     * breaks saved programs — so 1.40 and 1.50 still list them and neither
+     * does anything. 1.50's routines are the whole story:
+     *
+     *     rnc unpack ($63c0, 6 bytes)   move.l (a3)+,d5 / move.l (a3)+,d0 / rts
+     *     rnp        ($63c6, 2 bytes)   rts
+     *
+     * They pop their arguments and return. 1.40's are the same shape behind
+     * the standard prologue, except its `rnp` has no `rts` at all and falls
+     * into `Scanstr$`.
+     *
+     * So these are implemented AS THE STUBS THEY ARE. Wiring a real RNC
+     * decompressor in — the obvious reading of the manual, which still
+     * documents them — would be LESS faithful: a program calling Rnc Unpack
+     * on the machine gets nothing back. A sweep of the whole corpus for the
+     * RNC signature found no packed file either, so there is no second
+     * consumer to serve.
+     */
+    'rnc unpack'(it) {
+      it.evalInt()
+      it.expect('to')
+      it.evalInt()
     },
 
     /**
@@ -2566,6 +2698,57 @@ function ptChan(v: number): number {
   if (v < 0 || v >= 4) amcafErr()
   return v
 }
+
+/**
+ * Blitter Copy's worker: one bitplane into another through a minterm.
+ *
+ * The A/B/C channels are the one, two or three sources in order, and a
+ * channel with no source reads as all-ones — the same rule `mintermBit` in
+ * ../amiga/blitter.ts documents, and what makes $F0 (D = A) a plain copy
+ * whatever the other two are doing.
+ */
+function bltCopyPlanes(
+  rt: Runtime,
+  src: Array<[number, number]>,
+  ds: number,
+  dp: number,
+  minterm: number,
+): void {
+  const lim = rt.amcaf.bltLimit
+  // "Before you can call Blitter Copy, you MUST set the limits"
+  if (!lim) amcafErr()
+  const dst = rt.screens.get(ds)
+  if (!dst || dp < 0 || dp >= dst.rp.bitMap.depth) amcafErr()
+  const planes = src.map(([sn, pn]) => {
+    const s = rt.screens.get(sn)
+    // `cmp.w d4,d7 / Rbge 372` — the plane must be inside the screen's depth
+    if (!s || pn < 0 || pn >= s.rp.bitMap.depth) amcafErr()
+    return { bm: s.rp.bitMap, pn }
+  })
+  const bit = (i: number, x: number, y: number): number => {
+    const p = planes[i]
+    if (!p) return 1 // an absent channel reads as all ones
+    if (x < 0 || y < 0 || x >= p.bm.width || y >= p.bm.height) return 0
+    return (p.bm.pixelAt(x, y) >> p.pn) & 1
+  }
+  const x1 = Math.max(0, lim.x1)
+  const y1 = Math.max(0, lim.y1)
+  const x2 = Math.min(dst.width - 1, lim.x2)
+  const y2 = Math.min(dst.height - 1, lim.y2)
+  const mask = 1 << dp
+  for (let y = y1; y <= y2; y++) {
+    for (let x = x1; x <= x2; x++) {
+      const d = mintermBit2(minterm, bit(0, x, y), bit(1, x, y), bit(2, x, y))
+      const v = dst.rp.bitMap.pixelAt(x, y)
+      dst.rp.bitMap.writePixel(x, y, d ? v | mask : v & ~mask)
+    }
+  }
+  dst.rp.bitMap.invalidate()
+}
+
+/** the truth table indexed by (A<<2)|(B<<1)|C, which is what a minterm IS */
+const mintermBit2 = (lf: number, a: number, b: number, c: number): number =>
+  (lf >> ((a << 2) | (b << 1) | c)) & 1
 
 /** Splinters Back: snapshot the pixels under the CURRENT positions */
 function backSplinters(rt: Runtime): void {
@@ -3565,6 +3748,14 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
       rt.amcaf.pt.signal = 0
       return VI(v)
     },
+
+    /**
+     * =Rnp — the dead half of the RNC pair. 1.50's routine 277 ($63c6) is a
+     * bare `rts`, so it hands back whatever the result register held; 0 is the
+     * only answer this port can give for that. See `rnc unpack` for why these
+     * are stubs rather than a decompressor.
+     */
+    rnp: () => VI(0),
 
     /** =Pt Data Base — the replayer's data block, for the assembler crowd */
     'pt data base': () => VI(0),

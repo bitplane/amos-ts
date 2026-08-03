@@ -4976,7 +4976,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
      * slots and coexist, which is what ext8: reproduces. Sload/Ssave are not
      * here yet -- they are undocumented 1.50 additions and land in slice 10.
      */
-    qualified: ['set ntsc', 'set pal', 'speek', 'blitter copy limit'],
+    qualified: ['set ntsc', 'set pal', 'speek', 'blitter copy limit', 'blitter copy', 'blitter clear'],
   },
   {
     // the speech slice of the Music extension: Say, and the mouth stream

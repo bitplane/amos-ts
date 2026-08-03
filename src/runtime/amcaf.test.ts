@@ -84,36 +84,51 @@ describe('AMCAF identity', () => {
 
 describe('the slice-0 wiring', () => {
   it('binds at slot 8: an AMCAF keyword resolves to its own name', () => {
-    // the name in the error is the proof. `amcaf length` is nothing core
-    // knows, so it can only have come from slot 8's table -- identity, slot
-    // binding and tokenisation all worked, and only the handler is missing
-    // Rnp is deliberately never implemented -- it has no manual entry and
-    // belongs to the RNC packer, whose codec this port does not have
-    expect(() => run(['Print Rnp'])).toThrow(/unimplemented function: rnp/)
+    // the name in the error is the proof: a keyword nothing core knows can
+    // only have come from slot 8's table, so identity, slot binding and
+    // tokenisation all worked and only the handler is missing
+    expect(() => run(['Reset Computer'])).toThrow(/unimplemented: reset computer/)
   })
 
   it('under the census policy it yields a typed default instead of throwing', () => {
     // 'skip' is how runreport sees past a missing keyword to count what the
     // rest of a program does. The spec's return-type code decides the type,
     // which matters for the string-returning keywords with no `$` in the name
-    const { out, rt } = run(['Print Rnp'], 'skip')
+    const { out, rt } = run(['Print Extbase'], 'skip')
     // " 0" is AMOS's leading space for a non-negative number, and the spec's
     // return-type code is what chose an integer rather than a string
     expect(out).toBe(' 0\n')
-    expect([...rt.interp.unimplemented.keys()]).toEqual(['rnp'])
+    expect([...rt.interp.unimplemented.keys()]).toEqual(['extbase'])
   })
 
-  it('displaced nothing: the armed contested names still reach Personnal', () => {
-    // the eight qualified declarations arrive with their slices. Until then
-    // AMCAF must not have taken a name off a port that works. Personnal's
-    // Blitter Clear zeroes a screen's planes through its control block, and
-    // an empty AMCAF registering the plain name would have silenced it
-    const { rt } = run([
-      'Screen Open 0,320,200,2,Lowres : Ink 1 : Bar 0,0 To 9,9',
-      'Blitter Clear Logbase(0)',
+  /**
+   * The contested names now resolve BY SLOT, which is what `qualified` is for.
+   *
+   * Personnal's `Blitter Clear` takes an address and zeroes a screen's planes
+   * through its control block; AMCAF's takes `screen,bitplane`. They are
+   * different keywords that happen to share a spelling, and dispatch is by
+   * name — so until AMCAF declared them, every AMCAF program calling either
+   * one silently got Personnal's handler and its argument shape.
+   *
+   * Both still work, each under the slot its own program bound.
+   */
+  it('the contested blitter names resolve by slot, not first-wins', () => {
+    // this harness binds AMCAF at slot 8, so the name now reaches AMCAF's
+    // screen,bitplane form — which is the whole point. Personnal's address
+    // form is covered in personnal.test.ts, under a binding that loads
+    // Personnal and not AMCAF.
+    const amcaf = run([
+      'Screen Open 0,64,32,4,Lowres : Cls 0 : Ink 3 : Bar 0,0 To 9,9',
+      'Blitter Clear 0,0',
       'Print Point(5,5)',
     ])
-    expect(rt).toBeTruthy()
+    // plane 0 wiped, so colour 3 (binary 11) becomes 2
+    expect(amcaf.out.trim()).toBe('2')
+
+    // and Personnal's ADDRESS form is a syntax error here, because the two
+    // keywords take different arguments — the divergence the shared spelling
+    // was hiding for the whole of the AMCAF port
+    expect(() => run(['Screen Open 0,320,200,2,Lowres', 'Blitter Clear Logbase(0)'])).toThrow()
   })
 })
 
@@ -710,6 +725,34 @@ describe('slice 5: disk and DOS objects', () => {
    * decrunches in place through ../amiga/powerpacker.ts; Ppfromdisk loads and
    * decrunches in one step, taking a file that is not PowerPacked as it is.
    */
+  /**
+   * DEFECT: Rnc Unpack and =Rnp do nothing, and are reproduced that way.
+   *
+   * The author removed them twice — "V0.990 Removed some command to shrink
+   * the extension: Rnc Unpack / =Rnp", reinstated at V1.00, then "V1.31
+   * Finally removed Rnc Unpack and =Rnp". The tokens had to stay, because
+   * deleting one shifts every later token id, so 1.40 and 1.50 both list them
+   * and neither does anything:
+   *
+   *     rnc unpack ($63c0, 6 bytes)  move.l (a3)+,d5 / move.l (a3)+,d0 / rts
+   *     rnp        ($63c6, 2 bytes)  rts
+   *
+   * Wiring a real RNC decompressor in — the obvious reading of the manual,
+   * which still documents both — would be LESS faithful. A sweep of the whole
+   * corpus for the RNC signature found nothing packed either.
+   */
+  it('Rnc Unpack and Rnp are the dead stubs the binary says they are', () => {
+    const { rt } = runFs([
+      'Reserve As Work 7,64',
+      'Poke Start(7),$AB',
+      'Rnc Unpack Start(7) To Start(7)+32',
+      'Print Rnp',
+    ])
+    // it consumed its arguments and touched nothing
+    expect(rt.memBanks.get(7)!.data[0]).toBe(0xab)
+    expect(rt.memBanks.get(7)!.data[32]).toBe(0)
+  })
+
   it('Dload, Dsave and the PowerPacker pair round-trip a bank', () => {
     const { rt } = runFs([
       'Reserve As Work 7,64',
@@ -1010,6 +1053,32 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
 
     expect(() => run([...scr, 'Blitter Copy Limit 0'])).not.toThrow()
     expect(() => run([...scr, 'Blitter Copy Limit 0,0 To 31,15'])).not.toThrow()
+
+    /**
+     * Blitter Copy s1,p1 To s2,p2[,minterm] — routine 62 ($28a0) pushes the
+     * default minterm $F0 (D = A) and falls into 63, which range-checks each
+     * plane against its screen's depth with `move.w $50(a0),d4 / cmp.w d4,d7
+     * / Rbge 372`.
+     */
+    const copied = run([
+      // 16 COLOURS is four planes; `Screen Open ...,4,...` would be two
+      'Screen Open 0,64,32,16,Lowres : Cls 0',
+      'Screen Open 1,64,32,16,Lowres : Cls 0',
+      'Screen 0 : Ink 1 : Bar 0,0 To 7,7', // plane 0 set
+      'Blitter Copy Limit 0,0 To 15,15',
+      'Blitter Copy 0,0 To 1,2', // plane 0 of screen 0 -> plane 2 of screen 1
+    ])
+    // read the bitmap rather than Print: a Print would draw its own text onto
+    // the screen being sampled. Colour 4 is plane 2 alone, and outside the
+    // source rectangle the minterm writes 0 rather than leaving the pixel.
+    const dst1 = copied.rt.screens.get(1)!.rp
+    expect(dst1.point(3, 3)).toBe(4)
+    expect(dst1.point(12, 3)).toBe(0)
+
+    // the plane must be inside the screen's depth
+    expect(() => run([...scr, 'Blitter Copy Limit 0', 'Blitter Copy 0,9 To 0,0'])).toThrow()
+    // and the limit is not optional: "you MUST set the limits of the operation"
+    expect(() => run(['Screen Open 0,64,32,16,Lowres', 'Blitter Copy 0,0 To 0,1'])).toThrow()
 
     expect(() => run([...scr, 'Ink 7 : Bar 0,0 To 31,15', 'Pix Shift Down 0,1,7,0,0 To 31,15'])).not.toThrow()
     expect(() => run([...scr, 'Shade Bob Planes 4', 'Shade Bob Mask 0'])).not.toThrow()
