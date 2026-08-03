@@ -1863,9 +1863,28 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
 
-    /** Pt Continue — resume where Pt Stop left off */
+    /**
+     * Pt Continue — routine 266 ($616e), "resume where Pt Stop left off", and
+     * it is stricter than the port had it.
+     *
+     *   move.l  $2bc(a2), d0      ; the module address the last Pt Play kept
+     *   Rbeq    routine 390       ; nothing to continue -> error 23
+     *   cmp.l   #$200000, d0
+     *   Rbge    routine 390       ; and it must be in the low 2MB
+     *
+     * So calling it with nothing ever played is an ERROR rather than a
+     * no-op — the port silently did nothing. The 2MB test is Pt Bank's
+     * chip-RAM check again, and carries the same DEVIATION: this port models
+     * memory type as a flag on the bank rather than as an address, so the
+     * comparison has nothing real to make and is not reproduced.
+     *
+     * Which of routines 376 and 377 it ends in depends on `$296(a2)`, the
+     * CIA-versus-VBL flag Pt Cia Speed sets, so the two timings resume through
+     * different code.
+     */
     'pt continue'() {
-      if (rt.amcaf.pt.bank !== 0) rt.amcaf.pt.playing = true
+      if (rt.amcaf.pt.bank === 0) amcafErr()
+      rt.amcaf.pt.playing = true
     },
 
     /**

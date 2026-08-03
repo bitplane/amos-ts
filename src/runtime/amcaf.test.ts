@@ -2292,8 +2292,15 @@ describe('slice 12: ProTracker replay', () => {
     expect(run(['Pt Stop']).rt.amcaf.pt.playing).toBe(false)
   })
 
-  it('Pt Continue resumes, but only once a module has been loaded', () => {
-    expect(run(['Pt Continue']).rt.amcaf.pt.playing).toBe(false)
+  /**
+   * Routine 266 opens `move.l $2bc(a2),d0 / Rbeq routine 390`, so continuing
+   * with nothing ever played is an ERROR rather than the no-op the port had —
+   * which matters because Pt Stop, its counterpart, deliberately is a no-op
+   * (the changelog records that as a fixed bug). The two are not symmetric.
+   */
+  it('Pt Continue with nothing ever played is an error, unlike Pt Stop', () => {
+    expect(() => run(['Pt Continue'])).toThrow(/Illegal function call/)
+    expect(() => run(['Pt Stop'])).not.toThrow()
     const r = run([...modBank(), 'Pt Play 3', 'Pt Stop', 'Pt Continue'])
     expect(r.rt.amcaf.pt.playing).toBe(true)
   })
