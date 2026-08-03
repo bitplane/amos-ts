@@ -1268,12 +1268,47 @@ describe('slice 7: graphics', () => {
     expect(px[11]).toBe(0)
   })
 
-  it('Fcircle and Fellipse fill, where AMOS Circle only outlines', () => {
-    const { rt } = run([...scr, 'Fcircle 20,16,8,7'])
+  /**
+   * Neither takes a COLOUR, which an earlier pass gave both. Fcircle is ten
+   * bytes — `move.l (a3),-(a3)` to duplicate the radius, then straight into
+   * Fellipse — and Fellipse pops exactly four longs into d0-d3 for
+   * `AreaEllipse(rp, xc, yc, a, b)` on GfxBase (-$ba), followed by AreaEnd
+   * (-$108). So the fill takes the RastPort's FgPen, which is AMOS's Ink, and
+   * the token table says the same: `I0,0,0` and `I0,0,0,0`.
+   */
+  it('Fcircle and Fellipse fill in Ink, and take no colour argument', () => {
+    const { rt } = run([...scr, 'Ink 7', 'Fcircle 20,16,8'])
     const px = rt.screens.get(0)!.rp.bitMap.pixels
-    expect(px[16 * 64 + 20]).toBe(7) // the centre is filled
-    const e = run([...scr, 'Fellipse 20,16,10,4,5'])
+    expect(px[16 * 64 + 20]).toBe(7) // the centre is filled, in Ink
+    const e = run([...scr, 'Ink 5', 'Fellipse 20,16,10,4'])
     expect(e.rt.screens.get(0)!.rp.bitMap.pixels[16 * 64 + 20]).toBe(5)
+    // a colour argument is one too many and does not parse
+    expect(() => run([...scr, 'Fcircle 20,16,8,7'])).toThrow(/syntax/)
+    expect(() => run([...scr, 'Fellipse 20,16,10,4,5'])).toThrow(/syntax/)
+  })
+
+  /**
+   * Routine 346 is thirty bytes: look the default plane mask up and fall into
+   * the six-argument routine. The table at $7778 is `01 03 07 0f 1f 3f` — SIX
+   * bytes, indexed by `depth - 1`. A depth of 7 or 8 reads the two bytes after
+   * it, which are the first half of the next routine's `movea.l $168(a5),a2`:
+   * $24 and $6d. So on an AGA screen the default mask is 36 or 109 rather than
+   * 127 or 255, and the line comes out in the wrong colour. Reproduced.
+   *
+   * A mask of ZERO draws nothing: routine 347 opens `move.l (a3)+,d6 / bne`
+   * and the fall-through skips the five remaining arguments and returns.
+   */
+  it('DEFECT: Turbo Draw has only six default plane masks, so AGA reads past them', () => {
+    const wide = ['Screen Open 0,64,32,256,Lowres', 'Cls 0'] // depth 8
+    const { rt } = run([...wide, 'Turbo Draw 0,0 To 20,0,255'])
+    // 255 asked for, the byte after the table -- $6d = 109 -- delivered
+    expect(rt.screens.get(0)!.rp.point(10, 0)).toBe(109)
+    // a plane mask of zero draws nothing at all
+    const none = run([...scr, 'Turbo Draw 0,0 To 20,0,7,0'])
+    expect(none.rt.screens.get(0)!.rp.point(10, 0)).toBe(0)
+    // and a six-plane screen still gets every plane
+    const six = run([...scr, 'Turbo Draw 0,0 To 20,0,7'])
+    expect(six.rt.screens.get(0)!.rp.point(10, 0)).toBe(7)
   })
 
   it('Bcircle draws an outline into ONE plane, which Blitter Fill can then fill', () => {
@@ -1432,10 +1467,31 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
     expect(px[1]).toBe(3)
   })
 
-  it('Font Style reports the style byte, including bit 6', () => {
-    // "replaces the AMOS function Text Styles, because this one does not
-    // return the multicoloured font bit (Bit 6)"
-    expect(run([...scr, 'Set Text 1', 'Print Font Style']).out.trim()).toBe('1')
+  /**
+   * The manual: *"This function replaces the AMOS function Text Styles,
+   * because this one does not return the multicoloured font bit (Bit 6). Apart
+   * from this, Font Style is totally identical with the AMOS function."*
+   *
+   * Routine 145 is seven instructions and reads TextFont + $17. AMOS's Text
+   * Styles is `move.b 56(a1),d3` off the RASTPORT (FnTextStyle, +Lib.s:9896),
+   * which is rp_AlgoStyle. The colour-font bit the manual wants is
+   * FSF_COLORFONT, bit 6 of **tf_Style** at TextFont + $16.
+   *
+   * $17 is tf_FLAGS, one byte further on: ROMFONT/DISKFONT/REVPATH/TALLDOT/
+   * WIDEDOT/PROPORTIONAL/DESIGNED/REMOVED. So Font Style never reports a style
+   * at all, and Set Text cannot move it. Bit 6 there is FPF_DESIGNED, which is
+   * set on essentially every real font — which is presumably why an off-by-one
+   * survived three years of releases: the bit the manual promises always looks
+   * set. Reproduced.
+   */
+  it('DEFECT: Font Style reads tf_Flags, one byte past the style it documents', () => {
+    // Set Text writes rp_AlgoStyle, which this never looks at
+    expect(run([...scr, 'Set Text 1', 'Print Font Style']).out.trim()).toBe(
+      run([...scr, 'Print Font Style']).out.trim(),
+    )
+    // what comes back is the font's flags, not a style
+    const { rt, out } = run([...scr, 'Print Font Style'])
+    expect(out.trim()).toBe(String(rt.screens.get(0)!.rp.font?.flags ?? 0))
   })
 
   it('Cop Pos gives the address of the next copper instruction', () => {

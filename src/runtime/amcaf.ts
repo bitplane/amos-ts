@@ -796,11 +796,23 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     'blitter wait'() {},
 
     /**
-     * Turbo Plot x,y,c — "Fast replacement for Plot".
+     * Turbo Plot x,y,c — routine 348 ($7a16), "Fast replacement for Plot".
      *
      * "Added clipping for Turbo Plot, Shade Pix and Turbo Point. Now they are
-     * as secure as the normal Plot and Point commands" (V1.30 changelog), so
-     * an off-screen coordinate is dropped rather than corrupting memory.
+     * as secure as the normal Plot and Point commands" (V1.30 changelog) — and
+     * the clipping is only what the changelog says: `bmi` on each coordinate
+     * and `cmp.w $4e(a0)` / `cmp.w $4c(a0)` against the screen's own height and
+     * width. An out-of-range point is a SILENT no-op, not an error.
+     *
+     * "Fast" means it bypasses the RastPort altogether. The loop is
+     * `movea.l (a0)+,a1` down the plane pointers with `bset.b`/`bclr.b` chosen
+     * by `btst.l d1,d0` on the colour, so it honours neither Gr Writing, nor
+     * the plane mask, nor the Clip — which `rp.plot` all obey. `putPixel` is
+     * that primitive: bounds only, no mode, no mask, no clip.
+     *
+     * NOTE: the row stride is `lsr.w #$3` of the screen WIDTH, so it truncates
+     * where a real BitMap rounds up to a word. Every AMOS screen is a multiple
+     * of sixteen wide, so the two agree on anything reachable.
      */
     'turbo plot'(it) {
       const x = it.evalInt()
@@ -808,10 +820,27 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const y = it.evalInt()
       it.expect(',')
       const c = it.evalInt()
-      rt.screen?.rp.plot(x, y, c)
+      rt.screen?.rp.putPixel(x, y, c)
     },
 
-    /** Turbo Draw x1,y1 To x2,y2,c — "Fast replacement for Draw" */
+    /**
+     * Turbo Draw x1,y1 To x2,y2,c[,planes] — routines 346 ($7760) and 347.
+     *
+     * The five-argument form is thirty bytes that look the plane mask up and
+     * fall into the six-argument one, so the two are the same routine. That
+     * lookup is a SIX-BYTE table at $7778 — `01 03 07 0f 1f 3f` — indexed by
+     * `depth - 1`, which is every plane of a screen up to six deep.
+     *
+     * DEFECT: the table stops at six. `move.b -$1(a0,d1.w),d0` with a depth of
+     * 7 or 8 reads the two bytes after it, which are the first half of the
+     * next routine's `movea.l $168(a5),a2` — $24 and $6d. So on an AGA screen
+     * Turbo Draw's default plane mask is 36 or 109 rather than 127 or 255, and
+     * the line comes out in the wrong colour. Reproduced.
+     *
+     * A plane mask of ZERO draws nothing at all: routine 347 opens `move.l
+     * (a3)+,d6 / bne`, and the fall-through skips the five remaining arguments
+     * and returns.
+     */
     'turbo draw'(it) {
       const x1 = it.evalInt()
       it.expect(',')
@@ -822,34 +851,59 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const y2 = it.evalInt()
       it.expect(',')
       const c = it.evalInt()
-      if (it.accept(',')) it.evalInt() // the six-argument form's extra plane select
-      rt.screen?.rp.draw(x1, y1, x2, y2, c)
+      const s = rt.screen
+      const depth = s ? s.rp.bitMap.depth : 1
+      const planes = it.accept(',') ? it.evalInt() : (TURBO_DRAW_PLANES[depth - 1] ?? 0)
+      if (planes === 0 || !s) return
+      const was = s.rp.mask
+      s.rp.mask = planes & 0xff
+      try {
+        s.rp.draw(x1, y1, x2, y2, c)
+      } finally {
+        s.rp.mask = was
+      }
     },
 
-    /** Fcircle x,y,r,c — a filled circle, which AMOS's Circle is not */
+    /**
+     * Fcircle x,y,r — routine 350 ($7afa), TEN BYTES: `move.l (a3),-(a3)` to
+     * duplicate the radius on the argument stack, then straight into Fellipse.
+     * "A command which has been missed in AMOS for a long time."
+     *
+     * Neither takes a COLOUR. Routine 351 pops exactly four longs into d0-d3
+     * and hands them to `jsr -$ba(a6)` on GfxBase — `AreaEllipse(rp, xc, yc,
+     * a, b)` — followed by `AreaEnd` at -$108, so the fill uses the RastPort's
+     * FgPen and AreaPtrn, which is AMOS's `Ink` and `Set Pattern`. The token
+     * table agrees: `I0,0,0` for Fcircle and `I0,0,0,0` for Fellipse.
+     *
+     * An earlier pass read the last argument of each as a colour, which is one
+     * argument too many for Fcircle and made Fellipse's `b` the colour.
+     *
+     * A failing AreaEllipse or AreaEnd is error 23, which is how a fill too
+     * big for the TmpRas reports itself.
+     */
     'fcircle'(it) {
       const x = it.evalInt()
       it.expect(',')
       const y = it.evalInt()
       it.expect(',')
       const r = it.evalInt()
-      it.expect(',')
-      const c = it.evalInt()
-      rt.screen?.rp.ellipse(x, y, r, r, c, true)
+      const s = rt.screen
+      if (!s) return
+      s.rp.ellipse(x, y, r, r, s.rp.fgPen, true)
     },
 
-    /** Fellipse x,y,rx,ry,c — the filled ellipse */
+    /** Fellipse x,y,a,b — the filled ellipse, from routine 351 */
     'fellipse'(it) {
       const x = it.evalInt()
       it.expect(',')
       const y = it.evalInt()
       it.expect(',')
-      const rx = it.evalInt()
+      const a = it.evalInt()
       it.expect(',')
-      const ry = it.evalInt()
-      it.expect(',')
-      const c = it.evalInt()
-      rt.screen?.rp.ellipse(x, y, rx, ry, c, true)
+      const b = it.evalInt()
+      const s = rt.screen
+      if (!s) return
+      s.rp.ellipse(x, y, a, b, s.rp.fgPen, true)
     },
 
     /**
@@ -2863,6 +2917,17 @@ const bV = (rgb: number): number => rgb & 15
 const glue = (r: number, g: number, b: number): number => ((r & 15) << 8) | ((g & 15) << 4) | (b & 15)
 
 /**
+ * Turbo Draw's default plane mask, six bytes at $7778 — `01 03 07 0f 1f 3f`.
+ *
+ * `move.b -$1(a0,d1.w),d0` indexes it by `depth - 1`, so it is every plane of
+ * a screen up to six deep. It STOPS at six: a depth of 7 or 8 reads the two
+ * bytes that follow, which are the opening `movea.l $168(a5),a2` of the next
+ * routine — $24 and $6d. Those are kept here because that is what an AGA
+ * screen gets.
+ */
+const TURBO_DRAW_PLANES = [0x01, 0x03, 0x07, 0x0f, 0x1f, 0x3f, 0x24, 0x6d]
+
+/**
  * Best Pen's colour distance, sixteen bytes at $3170 read straight out of the
  * hunk: `00 01 03 05 08 0c 10 14 1e 28 32 3c 46 50 5a 64`.
  *
@@ -4251,7 +4316,33 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * does not return the multicoloured font bit (Bit 6). Apart from this,
      * Font Style is totally identical with the AMOS function."
      */
-    'font style': () => VI(rt.screen?.textStyle ?? 0),
+    /**
+     * =Font Style — routine 145 ($40fe), seven instructions:
+     *
+     *   movea.l $52c(a5), a1     ; the current screen
+     *   movea.l $148(a1), a1     ; its RastPort
+     *   movea.l $34(a1), a1      ; rp_Font
+     *   move.b  $17(a1), d3      ; the byte at TextFont + 23
+     *
+     * The manual: *"This function replaces the AMOS function Text Styles,
+     * because this one does not return the multicoloured font bit (Bit 6).
+     * Apart from this, Font Style is totally identical with the AMOS
+     * function."*
+     *
+     * DEFECT: it reads the wrong byte, by one. AMOS's Text Styles is
+     * `move.b 56(a1),d3` off the RastPort (`FnTextStyle`, +Lib.s:9896) — that
+     * is rp_AlgoStyle, whose bits are UNDERLINED/BOLD/ITALIC/EXTENDED. The
+     * "multicoloured font bit" is FSF_COLORFONT, bit 6 of **tf_Style**, which
+     * is TextFont + 22 = $16. AMCAF reads TextFont + 23 = $17, which is
+     * **tf_Flags** — ROMFONT/DISKFONT/REVPATH/TALLDOT/WIDEDOT/PROPORTIONAL/
+     * DESIGNED/REMOVED, a different set of bits entirely.
+     *
+     * So it never returns the style at all, and bit 6 (FPF_DESIGNED) is set on
+     * essentially every real font — which is probably why the mistake survived
+     * three years of releases: the bit the manual promises always looks set.
+     * Reproduced.
+     */
+    'font style': () => VI(rt.screen?.rp.font?.flags ?? 0),
 
     /**
      * =Cop Pos — "If you create your own copperlist, you can use this
