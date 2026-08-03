@@ -135,6 +135,7 @@ import { parseSampleBank } from './audio'
 import { pp20Decrunch } from '../amiga/powerpacker'
 import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, MAX_PORT, PORT_MOUSE, joyFire } from '../interp/gameport'
 import { BitMap } from '../amiga/graphics'
+import type { Screen } from './screen'
 import { amigaMatch } from '../amiga/dospattern'
 import { joinAmigaPath } from '../amiga/vfs'
 
@@ -1094,19 +1095,67 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Mask Copy screen1,x1,y1,x2,y2 To screen2,x3,y3,maskaddress.
+     * Mask Copy — THREE token entries and three routines. The table carries
+     * `!mask copy` (id $086c, spec `I0t0,0`, routine 174) and two empty-named
+     * continuations: `I0,0,0,0,0t0,0,0,0` (routine 175) and
+     * `I0,0,0,0,0t0,0,0,0,0` (routine 176). An earlier pass implemented only
+     * the middle one, made its mask optional, and never parsed the minterm.
      *
-     * "just like Screen Copy. However, a mask bitplane can be given" — so a
-     * set mask bit lets the source pixel through and a clear one leaves the
-     * destination alone.
+     * All three end in the same OS call:
      *
-     * NOTE: `maskaddress` is a raw pointer into a caller-built bitplane. When
-     * it resolves to memory this port can read, the mask is honoured; when it
-     * does not, the copy is unmasked, which is the same picture a program
-     * gets from an all-ones mask.
+     *     movea.l -$18ae(a5), a6      graphics.library
+     *     jsr     -$27c(a6)           BltMaskBitMapRastPort
+     *
+     * with a0 = the source's BitMap ($150), a1 = the destination's RastPort
+     * ($148), a2 = the mask, d0/d1 = xSrc/ySrc, d2/d3 = xDest/yDest,
+     * d4/d5 = xSize/ySize and d6 = the minterm. "just like Screen Copy.
+     * However, a mask bitplane can be given" — a set mask bit lets the source
+     * pixel through and a clear one leaves the destination alone.
+     *
+     * Routine 174, `Mask Copy s1 To s2,mask`, is the whole-screen form: it
+     * zeroes all four coordinates and takes the sizes from the source,
+     * `move.w $4c(a0),d4 / move.w $4e(a0),d5`.
+     *
+     * Routine 175 is twelve bytes — `moveq #$0,d0 / move.b #$e0,d0 /
+     * move.l d0,-(a3) / Rbra routine 176`. It pushes the DEFAULT MINTERM $E0
+     * and falls into the ten-argument form, so the nine- and ten-argument
+     * spellings are one routine with one optional trailing minterm.
+     *
+     * Routine 176 sizes the blit with `sub.l d0,d4 / sub.l d1,d5`, so xSize =
+     * x2-x1 and ySize = y2-y1 — the far corner is EXCLUSIVE, as it is in
+     * Count Pixels, Coords Read and Bzoom.
+     *
+     * DEVIATION: a minterm other than $E0 is not reproduced. Which of A, B
+     * and C carries the mask, the source and the destination is decided
+     * inside graphics.library's BltMaskBitMapRastPort, not in this binary,
+     * and the AROS material here is a partial checkout with no rom/graphics
+     * sources — so there is nothing to verify a general minterm against. The
+     * $E0 behaviour the manual describes is what is implemented for every
+     * value.
+     *
+     * NOTE: the mask is a raw pointer into a caller-built plane. When it
+     * resolves to memory this port can read, it is honoured; when it does
+     * not, the copy is unmasked, which is the same picture a program gets
+     * from an all-ones mask. Its stride is the SOURCE bitmap's, and it is
+     * indexed by the source coordinates — that follows from the autodoc's
+     * "mask plane of same dimensions as the source bitmap" rather than from
+     * the AMCAF binary, which only passes the pointer through. An earlier
+     * pass indexed the mask's rows from zero while indexing its columns from
+     * x1, which registers the mask with the source only when y1 is 0.
      */
     'mask copy'(it) {
       const s1 = it.evalInt()
+      // routine 174: `Mask Copy s1 To s2,mask`, the whole source at 0,0
+      if (it.accept('to')) {
+        const s2 = it.evalInt()
+        it.expect(',')
+        const maskAddr = it.evalInt()
+        const src = rt.screens.get(s1)
+        const dst = rt.screens.get(s2)
+        if (!src || !dst) amcafErr()
+        maskBlit(rt, src, dst, 0, 0, src.width, src.height, 0, 0, maskAddr)
+        return
+      }
       it.expect(',')
       const x1 = it.evalInt()
       it.expect(',')
@@ -1121,25 +1170,13 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const x3 = it.evalInt()
       it.expect(',')
       const y3 = it.evalInt()
-      let maskAddr = 0
-      if (it.accept(',')) maskAddr = it.evalInt()
+      it.expect(',')
+      const maskAddr = it.evalInt()
+      if (it.accept(',')) it.evalInt() // the minterm — see the DEVIATION above
       const src = rt.screens.get(s1)
       const dst = rt.screens.get(s2)
       if (!src || !dst) amcafErr()
-      const mask = maskAddr === 0 ? null : rt.resolveAddr(maskAddr)
-      const bpr = src.rp.bitMap.bytesPerRow
-      for (let y = 0; y <= y2 - y1; y++) {
-        for (let x = 0; x <= x2 - x1; x++) {
-          if (mask) {
-            const off = mask.off + y * bpr + ((x1 + x) >> 3)
-            const bit = 0x80 >> ((x1 + x) & 7)
-            if (off >= mask.data.length || !(mask.data[off]! & bit)) continue
-          }
-          const v = src.rp.point(x1 + x, y1 + y)
-          if (v >= 0) dst.rp.putPixel(x3 + x, y3 + y, v)
-        }
-      }
-      dst.rp.bitMap.invalidate()
+      maskBlit(rt, src, dst, x1, y1, x2 - x1, y2 - y1, x3, y3, maskAddr)
     },
 
     /**
@@ -3701,6 +3738,40 @@ const inLimit = (rt: Runtime, lim: Limit | null, x: number, y: number): boolean 
   if (!s) return false
   if (!lim) return x >= 0 && y >= 0 && x < s.width && y < s.height
   return x >= lim.x1 && y >= lim.y1 && x <= lim.x2 && y <= lim.y2
+}
+
+/**
+ * BltMaskBitMapRastPort, graphics.library -$27c — which is the whole of what
+ * all three Mask Copy routines do once they have marshalled their arguments.
+ * See the `mask copy` handler for the marshalling and for why the minterm is
+ * not honoured.
+ */
+function maskBlit(
+  rt: Runtime,
+  src: Screen,
+  dst: Screen,
+  xs: number,
+  ys: number,
+  w: number,
+  h: number,
+  xd: number,
+  yd: number,
+  maskAddr: number,
+): void {
+  const mask = maskAddr === 0 ? null : rt.resolveAddr(maskAddr)
+  const bpr = src.rp.bitMap.bytesPerRow
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (mask) {
+        const off = mask.off + (ys + y) * bpr + ((xs + x) >> 3)
+        const bit = 0x80 >> ((xs + x) & 7)
+        if (off >= mask.data.length || !(mask.data[off]! & bit)) continue
+      }
+      const v = src.rp.point(xs + x, ys + y)
+      if (v >= 0) dst.rp.putPixel(xd + x, yd + y, v)
+    }
+  }
+  dst.rp.bitMap.invalidate()
 }
 
 /**

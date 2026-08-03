@@ -1693,6 +1693,59 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
     expect(rt.screens.get(1)!.rp.bitMap.pixels[10 * 64 + 10]).toBe(6)
   })
 
+  /**
+   * `sub.l d0,d4 / sub.l d1,d5` gives BltMaskBitMapRastPort its xSize and
+   * ySize, so the far corner is exclusive here as it is in Count Pixels,
+   * Coords Read and Bzoom. A 4x4 Bar copied 0,0 To 3,3 lands 3x3.
+   */
+  it('Mask Copy has an exclusive far corner', () => {
+    const { rt } = run([
+      'Screen Open 0,64,32,16,Lowres',
+      'Screen Open 1,64,32,16,Lowres',
+      'Screen 1 : Cls 0',
+      'Screen 0 : Cls 0 : Ink 6 : Bar 0,0 To 3,3',
+      'Mask Copy 0,0,0,3,3 To 1,10,10,0',
+    ])
+    const px = rt.screens.get(1)!.rp.bitMap.pixels
+    expect(px[10 * 64 + 12]).toBe(6) // the third column arrives
+    expect(px[10 * 64 + 13]).toBe(0) // the fourth does not
+    expect(px[12 * 64 + 10]).toBe(6)
+    expect(px[13 * 64 + 10]).toBe(0)
+  })
+
+  /**
+   * Routine 174 ($4756) is the whole-screen form the port did not have:
+   * `Mask Copy s1 To s2,mask`, with all four coordinates zeroed and the sizes
+   * taken from `move.w $4c(a0),d4 / move.w $4e(a0),d5`.
+   */
+  it('Mask Copy takes a whole-screen form with no coordinates at all', () => {
+    const { rt } = run([
+      'Screen Open 0,64,32,16,Lowres',
+      'Screen Open 1,64,32,16,Lowres',
+      'Screen 1 : Cls 0',
+      'Screen 0 : Cls 0 : Ink 6 : Bar 0,0 To 3,3 : Plot 63,31',
+      'Mask Copy 0 To 1,0',
+    ])
+    const px = rt.screens.get(1)!.rp.bitMap.pixels
+    expect(px[0]).toBe(6)
+    expect(px[31 * 64 + 63]).toBe(6) // the far corner of the screen too
+  })
+
+  /**
+   * Routine 175 is twelve bytes that push $E0 and fall into 176, so the
+   * minterm is an optional tenth argument rather than a separate form.
+   */
+  it('Mask Copy accepts an explicit minterm as a tenth argument', () => {
+    const { rt } = run([
+      'Screen Open 0,64,32,16,Lowres',
+      'Screen Open 1,64,32,16,Lowres',
+      'Screen 1 : Cls 0',
+      'Screen 0 : Cls 0 : Ink 6 : Bar 0,0 To 3,3',
+      'Mask Copy 0,0,0,3,3 To 1,10,10,0,$E0',
+    ])
+    expect(rt.screens.get(1)!.rp.bitMap.pixels[10 * 64 + 10]).toBe(6)
+  })
+
   it('C2p Convert writes a chunky buffer into a screen', () => {
     const { rt } = run([
       'Screen Open 0,64,32,16,Lowres : Cls 0',
