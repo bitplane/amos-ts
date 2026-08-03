@@ -2498,6 +2498,11 @@ const amcafMemErr: () => never = () => {
   throw new AmosError('Out of memory', 24)
 }
 
+/** routine 394 — the guard on `$52c(a5)`, taken when no screen is open */
+const amcafScreenErr: () => never = () => {
+  throw new AmosError('Screen not opened', 47)
+}
+
 /**
  * AMCAF's own messages, which an earlier pass reported did not exist.
  *
@@ -2972,6 +2977,15 @@ function bankCodeOps(rt: Runtime): Record<string, Instr> {
  * values tracked the live filesystem where the real extension reports whatever
  * the last Examine captured.
  */
+/**
+ * What all five Scrn pointers do: raise error 47 with no screen open, and
+ * otherwise answer 0 because there is no address space to point into.
+ */
+function scrnPtr(rt: Runtime): Value {
+  if (!rt.screen) amcafScreenErr()
+  return VI(0)
+}
+
 function captureFib(rt: Runtime, path: string): AmcafFib {
   const kind = rt.vfs?.exists(path) ?? null
   if (kind === null) return EMPTY_FIB
@@ -4477,11 +4491,36 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * these answer 0 — which is also what a program checking before using one
      * would treat as "not available". APPROXIMATED.
      */
-    'scrn rastport': () => VI(0),
-    'scrn bitmap': () => VI(0),
-    'scrn layer': () => VI(0),
-    'scrn layerinfo': () => VI(0),
-    'scrn region': () => VI(0),
+    /**
+     * The Scrn pointers — routines 279 to 283, which are the SAME eighteen
+     * byte routine five times over:
+     *
+     *   movea.l $52c(a5), a0     ; the current screen
+     *   move.l  a0, d0
+     *   Rbeq    routine 394      ; error 47, "Screen not opened"
+     *   move.l  $xxx(a0), d3     ; one fixed offset, and that is all
+     *
+     * with the offset the only difference between them — RastPort $148,
+     * BitMap $150, LayerInfo $140, Layer $144, Region $14c.
+     *
+     * The value stays 0 for the reason the NOTES entry gives: this port holds
+     * a RastPort and a BitMap as objects rather than bytes at an address, and
+     * models no Layer or LayerInfo at all, so there is no address to hand
+     * back.
+     *
+     * NOTE: the guard below does not currently fire. Reading `rt.screen` with
+     * no screen open raises the core's own 'screen not opened' first, so a
+     * program does get an error where an earlier pass returned 0 — but it is
+     * not error 47 and not this code. Left in place deliberately: it is what
+     * routine 394 does, and it becomes live the moment the core hands back a
+     * missing screen instead of throwing. Every extension that reads
+     * $52c(a5) has the same question and it should be settled once.
+     */
+    'scrn rastport': () => scrnPtr(rt),
+    'scrn bitmap': () => scrnPtr(rt),
+    'scrn layer': () => scrnPtr(rt),
+    'scrn layerinfo': () => scrnPtr(rt),
+    'scrn region': () => scrnPtr(rt),
 
 
     /**

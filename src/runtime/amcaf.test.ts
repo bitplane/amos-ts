@@ -1387,6 +1387,20 @@ describe('slice 7: graphics', () => {
       expect(run([...scr, `Print ${k}`]).out.trim()).toBe('0')
     }
   })
+
+  /**
+   * Routines 279 to 283 open `movea.l $52c(a5),a0 / move.l a0,d0 / Rbeq
+   * routine 394`, and 394 is `moveq #$2f,d0` into L_ScCopy — AMOS error 47,
+   * "Screen not opened". The pointer this port cannot supply is approximated
+   * as 0, but the guard in front of it is real behaviour and is reproduced.
+   */
+  it('the Scrn pointers raise Screen not opened when there is none', () => {
+    for (const k of ['Scrn Rastport', 'Scrn Bitmap', 'Scrn Layer', 'Scrn Layerinfo', 'Scrn Region']) {
+      // assigned, not printed: Print needs a screen of its own, so printing
+      // would prove nothing about the guard inside the routine
+      expect(() => run(['Screen Close 0', `A=${k}`])).toThrow(/screen not opened/i)
+    }
+  })
 })
 
 describe('slice 7b: zoom, masks, C2P and the rest', () => {
