@@ -3794,3 +3794,163 @@ describe('slice 12: ProTracker replay', () => {
   })
 })
 
+
+/**
+ * The 1.50 transition engine — routines 146-154, the block at $496..$4a6.
+ *
+ * "Transition", not transparency. Every one of these is read out of the
+ * library, because the Guide documents them in nine lines of changelog and
+ * nowhere else: there is no manual entry for any of them, no argument
+ * description, and two of the four verbs the author advertised do not work in
+ * the shipped binary either.
+ */
+describe('AMCAF transitions', () => {
+  /** a 64-pixel two-plane screen (four colours), so the row stride is 8 bytes */
+  const scr = ['Screen Open 0,64,8,4,Lowres', 'Cls 0']
+  /**
+   * A source that answers 1 for the middle entry and 0 for the one above it.
+   *
+   * The middle is where a map word of 0 lands: `lea $7ffe(a0),a0 / addq.l
+   * #$2,a0` biases the pointer by $8000 and `(a0,d4.w)` sign-extends, so
+   * `Source[w ^ $8000]` is the byte a map entry `w` selects.
+   */
+  const src = ['Alloc Trans Source 9', 'Poke Start(9)+32768,1']
+  /** 32 pixels wide, one row — exactly one output longword */
+  const map = ['Alloc Trans Map 10,32,1']
+
+  it('Alloc Trans Source reserves 64K, named and flagged as the routine says', () => {
+    const { rt } = run(['Alloc Trans Source 9'])
+    const b = rt.memBanks.get(9)!
+    // `moveq #$1,d2 / swap d2` is the size and it is not a parameter: the map
+    // reaches every entry either side of the bias, so 64K is the only size
+    expect(b.kind === 'memory' && b.data.length).toBe(0x10000)
+    expect(b.name).toBe('TransSrc')
+    // `moveq #$0,d1` -- a WORK bank, the same d1 Wload passes where Dload
+    // passes 1 (routines 103/104, $3806 and $3860)
+    expect(b.kind === 'memory' && b.flags).toBe(0)
+  })
+
+  it('Alloc Trans Map rounds the width UP to 32 and takes two bytes a pixel', () => {
+    // `addi.w #$1f,d2 / andi.w #$ffe0,d2`, then `mulu.w d3,d2 / add.l d2,d2`
+    const { rt } = run(['Alloc Trans Map 10,33,2'])
+    const b = rt.memBanks.get(10)!
+    expect(b.kind === 'memory' && b.data.length).toBe(64 * 2 * 2)
+    expect(b.name).toBe('TransMap')
+    expect(b.kind === 'memory' && b.flags).toBe(0)
+  })
+
+  it('Alloc Code Bank keeps the size it is given, and reserves it', () => {
+    const { rt } = run(['Alloc Code Bank 11,256'])
+    const b = rt.memBanks.get(11)!
+    expect(b.kind === 'memory' && b.data.length).toBe(256)
+    expect(b.name).toBe('CodeBank')
+  })
+
+  it('a map of zeros paints the whole longword from the middle of the source', () => {
+    const { rt } = run([...scr, ...src, ...map, 'Trans Screen Runtime 0,0,0,0'])
+    const s = rt.screens.get(0)!
+    for (const x of [0, 1, 15, 16, 31]) expect(s.rp.point(x, 0)).toBe(1)
+    expect(s.rp.point(32, 0)).toBe(0) // 32 pixels wide, and no further
+  })
+
+  it('only BIT 0 of the source byte is the pixel', () => {
+    // `lsr.w #$1,d3 / addx.l d0,d0` -- the carry out is bit 0 and nothing else
+    const even = run([...scr, ...src, ...map, 'Poke Start(9)+32769,2', 'Doke Start(10),1', 'Trans Screen Runtime 0,0,0,0'])
+    expect(even.rt.screens.get(0)!.rp.point(0, 0)).toBe(0) // 2 -> bit 0 clear
+    const odd = run([...scr, ...src, ...map, 'Poke Start(9)+32769,3', 'Doke Start(10),1', 'Trans Screen Runtime 0,0,0,0'])
+    expect(odd.rt.screens.get(0)!.rp.point(0, 0)).toBe(1) // 3 -> bit 0 set
+  })
+
+  it('the map word is SIGNED: -1 reads below the bias, not above it', () => {
+    const { rt } = run([
+      ...scr,
+      'Alloc Trans Source 9',
+      'Poke Start(9)+32767,1', // one BELOW the middle
+      ...map,
+      'Doke Start(10),-1', // $ffff, which sign-extends to -1
+      'Trans Screen Runtime 0,0,0,0',
+    ])
+    expect(rt.screens.get(0)!.rp.point(0, 0)).toBe(1)
+    expect(rt.screens.get(0)!.rp.point(1, 0)).toBe(0) // word 1 is still 0 -> the middle, which is 0 here
+  })
+
+  it('the first map word in memory is the LEFTMOST pixel', () => {
+    // `move.l (a3)+,d4` takes two entries; the HIGH word -- first in memory --
+    // is shifted in first and so lands further left
+    const { rt } = run([...scr, ...src, ...map, 'Doke Start(10),1', 'Trans Screen Runtime 0,0,0,0'])
+    const s = rt.screens.get(0)!
+    expect(s.rp.point(0, 0)).toBe(0) // the one entry pointed away from the 1
+    expect(s.rp.point(1, 0)).toBe(1)
+  })
+
+  it('Ox is snapped DOWN to a multiple of 16', () => {
+    // `andi.w #$fff0,d5 / lsr.w #$3,d5` -- 20 becomes 16, a two-byte offset
+    const { rt } = run([...scr, ...src, ...map, 'Trans Screen Runtime 0,0,20,0'])
+    const s = rt.screens.get(0)!
+    expect(s.rp.point(15, 0)).toBe(0)
+    expect(s.rp.point(16, 0)).toBe(1)
+  })
+
+  it('Oy steps by the screen width over eight', () => {
+    const { rt } = run([...scr, ...src, ...map, 'Trans Screen Runtime 0,0,0,3'])
+    const s = rt.screens.get(0)!
+    expect(s.rp.point(0, 2)).toBe(0)
+    expect(s.rp.point(0, 3)).toBe(1)
+  })
+
+  it('the bitplane chooses the plane, so the colour is a power of two', () => {
+    const { rt } = run([...scr, ...src, ...map, 'Trans Screen Runtime 0,1,0,0'])
+    expect(rt.screens.get(0)!.rp.point(0, 0)).toBe(2)
+  })
+
+  it('a bitplane outside 0..6 is error 23', () => {
+    // `Rbmi routine 157` then `cmp.w #$6,d4 / Rbhi routine 157`, and both go
+    // to 390 -- checked BEFORE the screen is even resolved
+    expect(() => run([...scr, ...src, ...map, 'Trans Screen Runtime 0,7,0,0'])).toThrow(/Illegal function call/)
+    expect(() => run([...scr, ...src, ...map, 'Trans Screen Runtime 0,-1,0,0'])).toThrow(/Illegal function call/)
+  })
+
+  it('DEVIATION: a plane inside 0..6 but past the screen depth is refused', () => {
+    // the routine checks six and not `$50(a0)`, so the machine writes through
+    // a plane pointer AMOS left null; this port raises instead
+    expect(() => run([...scr, ...src, ...map, 'Trans Screen Runtime 0,5,0,0'])).toThrow(/Illegal function call/)
+  })
+
+  it('NOTE: an unset map or source is refused, where the machine walks from zero', () => {
+    expect(() => run([...scr, ...src, 'Trans Screen Runtime 0,0,0,0'])).toThrow(/Illegal function call/)
+    expect(() => run([...scr, ...map, 'Trans Screen Runtime 0,0,0,0'])).toThrow(/Illegal function call/)
+  })
+
+  it('Set Trans Map records the rounded width without reserving', () => {
+    const { rt } = run([...scr, ...src, 'Reserve As Work 10,128', 'Set Trans Map 10,32,2', 'Trans Screen Runtime 0,0,0,0'])
+    const s = rt.screens.get(0)!
+    expect(s.rp.point(0, 0)).toBe(1)
+    expect(s.rp.point(0, 1)).toBe(1) // two rows, from the height it was given
+    expect(s.rp.point(0, 2)).toBe(0)
+  })
+
+  it('Set Trans Source points at a bank that is already there', () => {
+    const { rt } = run([
+      ...scr,
+      'Reserve As Work 9,65536',
+      'Poke Start(9)+32768,1',
+      'Set Trans Source 9',
+      ...map,
+      'Trans Screen Runtime 0,0,0,0',
+    ])
+    expect(rt.screens.get(0)!.rp.point(0, 0)).toBe(1)
+  })
+
+  it('Trans Screen Static is a bare rts, but still takes its four arguments', () => {
+    // routine 154 ($42fc) is two bytes; the changelog says "NOT YET
+    // IMPLEMENTED" and means it
+    const { rt } = run([...scr, ...src, ...map, 'Trans Screen Static 0,0,0,0'])
+    expect(rt.screens.get(0)!.rp.point(0, 0)).toBe(0)
+  })
+
+  it('Trans Screen Dynamic is still unimplemented, and says so', () => {
+    // it emits 68000 code into the Code Bank for `Call` to run, and `Call` is
+    // n/a here -- the one keyword of the eight that cannot be closed
+    expect(() => run([...scr, 'Trans Screen Dynamic 0,0,0,0'])).toThrow(/unimplemented: trans screen dynamic/)
+  })
+})

@@ -434,6 +434,38 @@ export interface AmcafState {
     z: number
   }
   /**
+   * The 1.50 transition engine's block, `$496`..`$4a6`.
+   *
+   * "Transition", not transparency: the changelog calls these "the new
+   * transition commands" and the code paints ONE BITPLANE from a lookup, so
+   * what it makes is a dissolve or a wipe, never a blend.
+   *
+   * The whole engine is one expression, built in routine 152 at $4248:
+   *
+   *     pixel(x,y) = Source[ Map[y][x] + $8000 ] & 1
+   *
+   * `Alloc Trans Source` reserves `moveq #$1,d2 / swap d2` bytes — exactly
+   * $10000 — and the map holds one SIGNED WORD per pixel, so a map entry is
+   * an offset either side of the middle of a 64K table. That biasing is the
+   * design: the map is a static per-pixel ordering (distance from centre,
+   * noise, a diagonal ramp) and the source is a threshold a program slides
+   * between frames, which is how one map yields a whole transition.
+   */
+  trans: {
+    /** `$496` — Trans Source. The machine keeps an ADDRESS; this keeps a bank */
+    source: number
+    /** `$49a` — Trans Map, likewise a bank number here */
+    map: number
+    /** `$49e` — the map's width, rounded UP to a multiple of 32 */
+    width: number
+    /** `$4a0` — the map's height */
+    height: number
+    /** `$4a2` — the Code Bank, which only Trans Screen Dynamic reads */
+    code: number
+    /** `$4a6` — its size, stored and never checked against */
+    codeSize: number
+  }
+  /**
    * The eight "interior palette memory" buffers Pal Get/Set address.
    *
    * "palnr must be range from 0 to 7", and each holds a whole screen's worth
@@ -491,6 +523,9 @@ export function newAmcafState(): AmcafState {
     // MEMF_CLEAR again, matrix included: without a Vec Rot Precalc the
     // projection runs through all nine zeros, exactly as it does on the machine
     vec: { px: 0, py: 0, pz: 0, angA: 0, angB: 0, angC: 0, m: new Int16Array(9), x: 0, y: 0, z: 0 },
+    // $496..$4a6 of the same cleared block, so nothing is set up until a
+    // program says so — and none of the four verbs checks that it was
+    trans: { source: 0, map: 0, width: 0, height: 0, code: 0, codeSize: 0 },
     palettes: Array.from({ length: 8 }, () => new Uint16Array(32)),
     present: true,
   }
@@ -3315,6 +3350,167 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
+     * Alloc Trans Source bank — routine 146 ($411a), forty bytes.
+     *
+     *     moveq   #$1,d2 / swap d2        $00010000 -- the SIZE, 64K exactly
+     *     move.l  (a3)+,d0                the bank number
+     *     lea     $413a(pc),a0            "TransSrc"
+     *     moveq   #$0,d1
+     *     Rjsr    routine 1103            Reserve
+     *     Rbeq    routine 158             ... which tails into 389, error 24
+     *     move.l  d0,$496(a2)
+     *
+     * The size is not a parameter and cannot be: the map indexes this table
+     * with a sign-extended word, so it is addressed as $8000 either side of
+     * the pointer and every one of the 65,536 entries is reachable.
+     *
+     * `moveq #$0,d1` is the bank FLAGS, and zero means a WORK bank — the same
+     * d1 Wload passes with "Work    " where Dload passes 1 with "Datas   "
+     * (routines 103/104, $3806 and $3860). So Erase Temp takes it back.
+     */
+    'alloc trans source'(it) {
+      const bank = it.evalInt()
+      rt.reserveBank(bank, 0x10000, 'TransSrc', false)
+      rt.amcaf.trans.source = bank
+    },
+    /**
+     * Set Trans Source bank/address — routine 147 ($4142), eighteen bytes:
+     * pop, `Rjsr routine 1121` to resolve a bank number to its address, and
+     * keep that at `$496(a2)`.
+     *
+     * DEVIATION: the machine keeps the ADDRESS, so the keyword takes a raw
+     * pointer as happily as a bank and a later Erase leaves it dangling. This
+     * port has no address space to hand one, so it keeps the bank NUMBER —
+     * exactly the trade Pt Sam Bank already records against the same routine
+     * 1121.
+     */
+    'set trans source'(it) {
+      rt.amcaf.trans.source = it.evalInt()
+    },
+    /**
+     * Alloc Trans Map bank,width,height — routine 148 ($4154), sixty bytes.
+     * The pops are last-argument-first, so height lands first:
+     *
+     *     move.l  (a3)+,d3 / move.w d3,$4a0(a2)      height
+     *     move.l  (a3)+,d2
+     *     addi.w  #$1f,d2 / andi.w #$ffe0,d2         width, UP to a multiple of 32
+     *     move.w  d2,$49e(a2)
+     *     mulu.w  d3,d2 / add.l d2,d2                w * h * 2 bytes
+     *     lea     $4188(pc),a0                       "TransMap"
+     *     moveq   #$0,d1 / move.l (a3)+,d0
+     *     Rjsr    routine 1103 / Rbeq routine 158
+     *
+     * TWO bytes a pixel, and the rounding is why: routine 152 emits a
+     * longword at a time, so the width has to be a whole number of 32-pixel
+     * groups. The rounding is `.w`, so a width within 31 of 65536 wraps.
+     *
+     * NOTE: a zero width or height reserves nothing and the machine carries
+     * on with a bank of length 0; reserveBank raises error 23 for that, where
+     * the Reserve failing here would be the 24 of routine 389.
+     */
+    'alloc trans map'(it) {
+      const bank = it.evalInt()
+      it.expect(',')
+      const width = it.evalInt()
+      it.expect(',')
+      const height = it.evalInt()
+      const t = rt.amcaf.trans
+      t.height = height & 0xffff
+      t.width = (width + 0x1f) & 0xffe0 & 0xffff
+      rt.reserveBank(bank, t.width * t.height * 2, 'TransMap', false)
+      t.map = bank
+    },
+    /**
+     * Set Trans Map bank/address,width,height — routine 149 ($4190). The same
+     * three pops and the same rounding as Alloc Trans Map, then routine 1121
+     * instead of a Reserve. The bank-versus-address deviation is Set Trans
+     * Source's.
+     */
+    'set trans map'(it) {
+      const bank = it.evalInt()
+      it.expect(',')
+      const width = it.evalInt()
+      it.expect(',')
+      const height = it.evalInt()
+      const t = rt.amcaf.trans
+      t.height = height & 0xffff
+      t.width = (width + 0x1f) & 0xffe0 & 0xffff
+      t.map = bank
+    },
+    /**
+     * Alloc Code Bank bank,size — routine 150 ($41b6), forty-two bytes. Size
+     * pops first into `$4a6(a2)`, then the bank number, then a Reserve named
+     * "CodeBank" with `moveq #$0,d1` — a Work bank again.
+     *
+     * It exists for one caller: Trans Screen Dynamic writes 68000 code into
+     * it. The size is stored and NEVER READ — nothing compares against
+     * `$4a6` anywhere in the hunk — which is precisely the author's warning,
+     * "Allocating the Code bank to small will cause memory overwrites".
+     */
+    'alloc code bank'(it) {
+      const bank = it.evalInt()
+      it.expect(',')
+      const size = it.evalInt()
+      const t = rt.amcaf.trans
+      t.codeSize = size
+      rt.reserveBank(bank, size, 'CodeBank', false)
+      t.code = bank
+    },
+    /**
+     * Trans Screen Runtime scr,bitplane,ox,oy — routine 152 ($4220), which
+     * opens `Rbsr routine 151` for the destination and then walks the map:
+     *
+     *     movea.l $49a(a2),a3                the map
+     *     movea.l $496(a2),a0
+     *     lea     $7ffe(a0),a0 / addq.l #$2,a0    source + $8000, in two steps
+     *     ...                                     because $8000 will not fit
+     *     move.l  (a3)+,d4                   TWO map entries
+     *     move.b  (a0,d4.w),d3               the low word's source byte
+     *     swap    d4
+     *     move.b  (a0,d4.w),d1               the high word's
+     *     lsr.w   #$1,d1 / addx.l d0,d0      bit 0 of each, shifted into d0
+     *     lsr.w   #$1,d3 / addx.l d0,d0
+     *     dbra    d2,...                     sixteen times = 32 pixels
+     *     move.l  d0,(a1)+
+     *
+     * `(a0,d4.w)` sign-extends, so a map word `w` reads `Source[w ^ $8000]`.
+     * The high word goes in first and is therefore the LEFT pixel, which is
+     * the same order the words sit in memory.
+     */
+    'trans screen runtime'(it) {
+      const dst = transTarget(rt, it)
+      transWalk(rt, (bits, row, col) => transPoke(dst, row, col, bits))
+    },
+    /**
+     * Trans Screen Static scr,bitplane,ox,oy — routine 154 ($42fc) is TWO
+     * BYTES, `rts`, and the changelog says why: "Trans Screen Static NOT YET
+     * IMPLEMENTED". Doing nothing is the behaviour, not a gap in the port.
+     *
+     * DEFECT: it does not do nothing. Its token declares four parameters
+     * (`spec: "I0,0,0,0"`, the same as Runtime and Dynamic) and the AMOS
+     * interpreter pushes all four onto the parameter stack before jumping —
+     * `move.l d3,-(a3)`, +ILib.s:6862 — leaving the ROUTINE to pop them, as
+     * +Lib.s:18517 spells out: `lea 4*4(a3),a3   Depile les parametres`.
+     * Every other routine in this library pops exactly as many longs as its
+     * spec declares; 146 pops one, 148 and 149 three, 150 two, 151 four.
+     * Routine 154 pops none, so each call leaks sixteen bytes of parameter
+     * stack and a program calling it in a loop eventually runs AMOS out.
+     *
+     * NOT REPRODUCED: this port evaluates arguments as it parses rather than
+     * onto a stack, so there is nothing to leak. The four arguments are still
+     * consumed, because the spec is what the parser follows.
+     */
+    'trans screen static'(it) {
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+    },
+
+    /**
      * Write Cli text$ — writes to the CLI the program was started from.
      *
      * Amos Cli is zero here, so there is no shell to write to; the text goes
@@ -4430,6 +4626,143 @@ function planeOf(rt: Runtime, screen: number, plane: number): { bm: BitMap; plan
   const bm = s.rp.bitMap
   if (plane < 0 || plane >= bm.depth) amcafErr()
   return { bm, planes: bm.planeBytes(true), base: plane * bm.planeSize }
+}
+
+/* ------------------------------------------------------------------ *
+ * The 1.50 transition engine
+ * ------------------------------------------------------------------ */
+
+/** where a Trans Screen verb writes: one plane, and the bytes to skip a row */
+interface TransTarget {
+  planes: Uint8Array
+  /** first byte of the destination, already inside the chosen plane */
+  at: number
+  /** the plane's last byte plus one, so a stray write can be dropped */
+  end: number
+  /** the screen's row stride in bytes */
+  stride: number
+}
+
+/**
+ * Routine 151 ($41e0), the sixty-four bytes Trans Screen Runtime and Dynamic
+ * both open with. It is not a keyword and no token names it.
+ *
+ *     move.l  (a3)+,d7                        oy
+ *     move.l  (a3)+,d5
+ *     andi.w  #$fff0,d5 / lsr.w #$3,d5        ox, SNAPPED DOWN TO 16
+ *     move.l  (a3)+,d4
+ *     Rbmi    routine 157                     a negative plane is error 23
+ *     cmp.w   #$6,d4 / Rbhi routine 157       ... and so is one above six
+ *     move.l  (a3)+,d1
+ *     Rjsr    L_SaveBMHD                      a0 = the screen's bitmap header
+ *     move.w  $4c(a0),d6 / lsr.w #$3,d6       the WIDTH in pixels, over eight
+ *     mulu.w  d6,d7 / add.l d5,d7
+ *     move.w  $49e(a2),d5 / lsr.w #$3,d5
+ *     sub.w   d5,d6                           the row advance, less the map
+ *     lsl.w   #$2,d4 / movea.l (a0,d4.w),a1   the plane pointer itself
+ *     adda.l  d7,a1
+ *
+ * Two things it does NOT do. There is no clip — nothing compares ox or oy, or
+ * the map's extent, against the screen, and the author says as much: "Wrong
+ * or stupid parameter values are not checked for validity." And the plane
+ * check stops at six rather than at the screen's own depth, where the
+ * library's Blitter Copy (routine 63) does `cmp.w $50(a0),d4 / Rbge` and
+ * refuses. So naming plane 5 of a three-plane screen reads a plane pointer
+ * AMOS left null and writes through it.
+ *
+ * DEVIATION: plane-beyond-depth raises error 23 here. Reproducing it would
+ * mean writing to address zero, and `planeOf` is this port's existing answer
+ * to the same question everywhere else in the file.
+ *
+ * NOTE: the row stride is the screen's width over eight, exactly as `$4c`
+ * gives it, not the bitmap's own bytesPerRow. Those agree for every screen
+ * AMOS opens, because it rounds widths up to sixteen; they part company for a
+ * bank image of an odd width, and this skews where the machine skews.
+ */
+function transTarget(rt: Runtime, it: Interp): TransTarget {
+  const screen = it.evalInt()
+  it.expect(',')
+  const plane = it.evalInt()
+  it.expect(',')
+  const ox = it.evalInt()
+  it.expect(',')
+  const oy = it.evalInt()
+  // the plane is checked before the screen is even resolved
+  if (plane < 0 || (plane & 0xffff) > 6) amcafErr()
+  const { bm, planes, base } = planeOf(rt, screen, plane)
+  const stride = bm.width >> 3
+  // `andi.w`/`lsr.w`/`mulu.w` are all word operations, so a negative ox wraps
+  // to a large positive byte offset rather than moving left
+  const x = ((ox & 0xfff0) & 0xffff) >>> 3
+  const at = base + (oy & 0xffff) * stride + x
+  return { planes, at, end: base + bm.planeSize, stride }
+}
+
+/** one longword of 32 pixels, dropped if it would leave the chosen plane */
+function transPoke(dst: TransTarget, row: number, col: number, bits: number): void {
+  const at = dst.at + row * dst.stride + col * 4
+  if (at < 0 || at + 4 > dst.end) return
+  dst.planes[at] = (bits >>> 24) & 0xff
+  dst.planes[at + 1] = (bits >>> 16) & 0xff
+  dst.planes[at + 2] = (bits >>> 8) & 0xff
+  dst.planes[at + 3] = bits & 0xff
+}
+
+/**
+ * The map walk, which is the engine. Routine 152's inner loop at $4248:
+ *
+ *     move.l  (a3)+,d4                   TWO map entries at once
+ *     move.b  (a0,d4.w),d3               the LOW word's source byte
+ *     swap    d4
+ *     move.b  (a0,d4.w),d1               the HIGH word's
+ *     lsr.w   #$1,d1 / addx.l d0,d0      bit 0 of each into d0 ...
+ *     lsr.w   #$1,d3 / addx.l d0,d0
+ *     dbra    d2,$4248                   ... sixteen times, so 32 pixels
+ *
+ * `(a0,d4.w)` sign-extends the word, and a0 is the source plus $8000, so the
+ * byte a map entry `w` selects is `Source[w ^ $8000]` — the whole 64K table
+ * reachable, biased to the middle. Only BIT 0 of that byte is used.
+ *
+ * The high word is shifted in first and so ends up further left; it is also
+ * the first word in memory, so the map reads left to right as you would hope.
+ *
+ * d0 is never cleared, and does not need to be: thirty-two `addx.l d0,d0`
+ * replace every bit of it before the `move.l d0,(a1)+`.
+ *
+ * NOTE: the machine checks neither pointer. With no Trans Map set it walks
+ * from address zero, and with a source shorter than 64K it reads past the
+ * end. Both raise error 23 here, which is what the library's own guard on the
+ * Code Bank (`move.l $4a2(a2),d0 / Rbeq routine 157`) uses for the same kind
+ * of "you did not set this up".
+ */
+function transWalk(rt: Runtime, each: (bits: number, row: number, col: number) => void): void {
+  const t = rt.amcaf.trans
+  const map = transBank(rt, t.map, t.width * t.height * 2)
+  const src = transBank(rt, t.source, 0)
+  if (!map || !src) amcafErr()
+  const longs = t.width >>> 5
+  let m = 0
+  for (let row = 0; row < t.height; row++) {
+    for (let col = 0; col < longs; col++) {
+      let bits = 0
+      for (let i = 0; i < 16; i++) {
+        const hi = ((map[m]! << 8) | map[m + 1]!) ^ 0x8000
+        const lo = ((map[m + 2]! << 8) | map[m + 3]!) ^ 0x8000
+        m += 4
+        bits = ((bits << 1) | ((src[hi] ?? 0) & 1)) >>> 0
+        bits = ((bits << 1) | ((src[lo] ?? 0) & 1)) >>> 0
+      }
+      each(bits >>> 0, row, col)
+    }
+  }
+}
+
+/** a bank's bytes, or null if it is not set, not memory, or too short */
+function transBank(rt: Runtime, n: number, need: number): Uint8Array | null {
+  if (!n) return null
+  const b = rt.memBanks.get(n)
+  if (!b || b.kind !== 'memory' || b.data.length < need) return null
+  return b.data
 }
 
 /* ------------------------------------------------------------------ *
