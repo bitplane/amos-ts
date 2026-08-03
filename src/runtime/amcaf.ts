@@ -63,17 +63,34 @@
  * recorded because a program written against an older AMCAF may have been
  * built around them.
  *
- * ## There is no error message table
+ * ## There are TWO failure mechanisms, and one of them has a message table
  *
- * Unlike Personnal, JVP, TURBO and AMOS 3D, this extension ships **no error
- * strings at all** — the whole 45KB hunk contains no printable message text.
- * Failures go through AMOS's own error numbers, which the manual confirms
- * when it blames one on the host: *"this is a problem of AMOS"*.
+ * This section used to say the extension ships no error strings at all. It
+ * does, and the correction is worth stating because the original claim was
+ * made from a genuine reading — it just stopped one branch short.
  *
- * The one exception points the other way: `Io Error` and `Io Error$` return
- * **AmigaDOS** error codes and strings, not AMOS ones — *"Returns the last
- * dos error code"*, *"Returns a dos errorstring"*. Those belong to
- * `dos.library` and are slice 5's problem, not an extension error table.
+ * Failures reach `L_ScCopy` with an AMOS error NUMBER, which is a trappable
+ * AMOS error and has no text of its own. Four of those are in use:
+ *
+ *   routine 389 → 24  Out of memory
+ *   routine 390 → 23  Illegal function call
+ *   routine 391 → 81  File format not recognised
+ *   routine 392 → 94  Next without For in animation string
+ *
+ * The last two read as nonsense because they are: the numbers are borrowed and
+ * the AMOS text has nothing to do with what failed. That is still what a
+ * program's `Errn` reports.
+ *
+ * But routine 397 goes to `L_Dia_ScCopy` instead — a REQUESTER — with a
+ * message index in d0 and a NUL-separated list of nineteen strings at $af94,
+ * from "Can't reopen Workbench" to "MC68020 or higher required!". `AMCAF_ERRORS`
+ * below holds them. The list starts on the terminator before the first string,
+ * so the index is 1-based; the OS-2.0 gate passing `moveq #$c,d0` and landing
+ * on "Kickstart 2.04 or greater required" is the proof.
+ *
+ * `Io Error` and `Io Error$` are a third thing again, and belong to neither:
+ * they return **AmigaDOS** codes and strings — *"Returns the last dos error
+ * code"*, *"Returns a dos errorstring"*.
  *
  * ## Contested names
  *
@@ -339,62 +356,118 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
   return {
 
     /**
-     * Examine Dir directory$ — "loads all information about the drawer into
-     * the FileInfoBlock. Additionally, the contents of the directory can be
-     * read out by Examine Next$."
+     * Examine Dir directory$ — routine 109 ($3a32). "Loads all information
+     * about the drawer into the FileInfoBlock. Additionally, the contents of
+     * the directory can be read out by Examine Next$."
+     *
+     * It opens with `Rbsr` into Examine Stop, so starting a second walk closes
+     * the first rather than leaking its lock. Then `Lock(name, -2)` — a SHARED
+     * lock — which failing is error 81, and `Examine()` into the block's own
+     * FileInfoBlock at +$100, which failing is error 94.
+     *
+     * The check an earlier pass had no reason to expect is the last one:
+     *
+     *   tst.l  $4(a2)       ; fib_DirEntryType
+     *   bmi.b  $3a70        ; negative -- a FILE -- so stop and fail
+     *
+     * so Examine Dir handed a plain file locks it, examines it, then throws it
+     * away as error 94 rather than treating it as an empty directory.
      */
     'examine dir'(it) {
-      const dir = it.evalStr()
-      const entries = rt.vfs?.listDir(dir) ?? null
-      if (entries === null) {
+      const dir = amcafPath(it.evalStr())
+      const kind = rt.vfs?.exists(dir) ?? null
+      if (kind === null) {
         rt.amcaf.ioError = 205 // ERROR_OBJECT_NOT_FOUND
-        amcafErr()
+        amcafDosErr()
       }
+      if (kind !== 'dir') {
+        rt.amcaf.examine = { dir: '', entries: [], index: -1, current: '' }
+        rt.amcaf.ioError = 212 // ERROR_OBJECT_WRONG_TYPE
+        amcafExamineErr()
+      }
+      const entries = rt.vfs?.listDir(dir) ?? []
       rt.amcaf.examine = { dir, entries: entries.map((e) => e.name), index: -1, current: dir }
       rt.amcaf.ioError = 0
     },
 
     /**
-     * Examine Object file$ — "supplies you with all available information
-     * about the [object], [readable through] the functions without any
-     * parameters."
+     * Examine Object file$ — routine 112 ($3ad6). "Supplies you with all
+     * available information about the [object], [readable through] the
+     * functions without any parameters."
+     *
+     * The same Lock and Examine as Examine Dir, but it `UnLock`s straight away
+     * and keeps nothing, so it works on a file as happily as on a directory
+     * and leaves any directory walk in progress alone. Lock failing is error
+     * 81 and Examine failing error 94.
      */
     'examine object'(it) {
-      const path = it.evalStr()
+      const path = amcafPath(it.evalStr())
       if (!rt.vfs || rt.vfs.exists(path) === null) {
         rt.amcaf.ioError = 205
-        amcafErr()
+        amcafDosErr()
       }
       rt.amcaf.examine.current = path
       rt.amcaf.ioError = 0
     },
 
     /**
-     * Examine Stop — "Aborts the reading process of a directory. After this
-     * command, you may not make any further calls to Examine Next$."
+     * Examine Stop — routine 111 ($3ab6). "Aborts the reading process of a
+     * directory. After this command, you may not make any further calls to
+     * Examine Next$."
+     *
+     * `UnLock` and clear, wrapped in a `movem.l` of everything it touches —
+     * it is written to be called as a subroutine, which Examine Dir and
+     * Examine Next$ both do.
      */
     'examine stop'() {
       rt.amcaf.examine = { dir: '', entries: [], index: -1, current: '' }
     },
 
-    /** Protect Object pathfile$,prot — the bitmapped value straight through */
+    /**
+     * Protect Object pathfile$,prot — routine 130 ($3c02), `SetProtection`
+     * (dos.library -$ba) with the value straight through.
+     *
+     * `move.l (a3)+,d2` takes the whole LONGWORD, so bits above the eight
+     * AmigaDOS names reach the library untouched; an earlier pass masked to a
+     * byte. Failure is error 81, the same as every other dos.library call here.
+     */
     'protect object'(it) {
       const path = it.evalStr()
       it.expect(',')
-      rt.vfs?.setMeta(path, { protection: it.evalInt() & 0xff })
-    },
-
-    /** Set Object Comment pathfile$,comment$ — the FileNote, 79 characters */
-    'set object comment'(it) {
-      const path = it.evalStr()
-      it.expect(',')
-      rt.vfs?.setMeta(path, { comment: it.evalStr().slice(0, MAX_COMMENT) })
+      const prot = it.evalInt()
+      if (!rt.vfs || rt.vfs.exists(amcafPath(path)) === null) amcafDosErr()
+      rt.vfs.setMeta(path, { protection: prot })
     },
 
     /**
-     * Set Object Date pathfile$,date,time — the DateStamp, in the same two
-     * packed values Current Date and Current Time hand out. "This command
-     * only works on OS2.0 and higher."
+     * Set Object Comment pathfile$,comment$ — routine 131 ($3c20),
+     * `SetComment` (dos.library -$b4).
+     *
+     * NOTE: the routine copies the AMOS string to its own block with a plain
+     * `dbra` loop and no length check at all, so the 79-character FileNote
+     * limit is the LIBRARY's rather than the extension's — an over-long
+     * comment reaches SetComment, which refuses it, and the result is error 81
+     * rather than a silently truncated note. That is what this now does; the
+     * earlier port truncated and reported success.
+     */
+    'set object comment'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const comment = it.evalStr()
+      if (!rt.vfs || rt.vfs.exists(amcafPath(path)) === null) amcafDosErr()
+      if (comment.length > MAX_COMMENT) amcafDosErr()
+      rt.vfs.setMeta(path, { comment })
+    },
+
+    /**
+     * Set Object Date pathfile$,date,time — routine 132 ($3c54),
+     * `SetFileDate` (dos.library -$18c). "This command only works on OS2.0 and
+     * higher", which is a real `cmp.w #$25` against ExecBase's LIB_VERSION.
+     *
+     * The arguments unwind time-first, and only the LOW WORDS of ds_Minute and
+     * ds_Tick are written (`move.w d0,$38a(a2)`, `swap`, `move.w d0,$386`) —
+     * the high words of both are left holding whatever the last DateStamp call
+     * put there.
      */
     'set object date'(it) {
       const path = it.evalStr()
@@ -402,26 +475,40 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const days = it.evalInt()
       it.expect(',')
       const t = it.evalInt()
-      rt.vfs?.setMeta(path, { days, mins: timeMins(t), ticks: timeTicks(t) })
+      if (!rt.vfs || rt.vfs.exists(amcafPath(path)) === null) amcafDosErr()
+      rt.vfs.setMeta(path, { days, mins: timeMins(t), ticks: timeTicks(t) })
     },
 
     /**
-     * File Copy sourcefile$ To targetfile$.
+     * File Copy sourcefile$ To targetfile$ — routine 108 ($395e).
      *
      * "This command allows you to even copy a file of 3 MB in size, even if
-     * you only got 100 KB of free memory" — the machine streams it in
-     * chunks; there is no such limit here, and the result is the same file.
+     * you only got 100 KB of free memory", and the routine shows exactly how:
+     * it asks `AllocMem` for the whole file, and on failure HALVES the request
+     * and asks again, giving up only below $2800 — ten kilobytes — at which
+     * point it raises its own out-of-memory error rather than 81. Then it
+     * copies in buffer-sized chunks.
+     *
+     * A source it cannot open is error 81 and so is a destination; a Read or
+     * Write that fails part way through is error 94. A file of length zero
+     * takes a short path that opens and closes the destination without
+     * allocating anything, so the copy of an empty file is an empty file
+     * rather than a failure.
+     *
+     * NOTE: there is no memory pressure here and no chunking, so the halving
+     * loop and its floor are behaviour this port cannot reach — the result is
+     * the same file either way.
      */
     'file copy'(it) {
       const from = it.evalStr()
       it.expect('to')
       const to = it.evalStr()
-      const data = rt.vfs?.readFile(from) ?? null
+      const data = rt.vfs?.readFile(amcafPath(from)) ?? null
       if (data === null) {
         rt.amcaf.ioError = 205
-        amcafErr()
+        amcafDosErr()
       }
-      rt.vfs?.writeFile(to, data)
+      rt.vfs?.writeFile(amcafPath(to), data)
       rt.amcaf.ioError = 0
     },
 
@@ -2061,20 +2148,112 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
 }
 
 /**
- * The extension's failure path.
+ * The extension's failure paths — three of them, and the numbers are now read
+ * rather than assumed.
  *
- * Every range check in the library ends in the same branch — the
- * disassembler renders it `Rbmi routine 390` / `Rbeq routine 390` — and that
- * index is past the end of AMCAF's own 354-entry jump table, so it is a call
- * out of the extension rather than into it. With no message table anywhere in
- * the hunk there is nothing to read a text from.
+ * Every range check ends in a branch to one of a small group of routines past
+ * the keyword-named ones, which an earlier pass could only describe as "a call
+ * out of the extension". They are inside it, and each is three instructions:
  *
- * NOTE: which AMOS error it raises was not recovered. What a program can
- * observe through `Trap` is that the call failed, so it fails as AMOS's own
- * generic — the same choice the AGA port made for the same reason.
+ *   routine 390  Rbsr 354 / moveq #$17,d0 / Rjmp L_ScCopy   -- error 23
+ *   routine 391  Rbsr 354 / moveq #$51,d0 / Rjmp L_ScCopy   -- error 81
+ *   routine 392  Rbsr 354 / moveq #$5e,d0 / Rjmp L_ScCopy   -- error 94
+ *
+ * `L_ScCopy` is AMOS's own error raiser and d0 is the AMOS error NUMBER, so
+ * the messages a program sees are AMOS's: 23 "Illegal function call", 81
+ * "File format not recognised", 94 "Next without For in animation string".
+ *
+ * The last two read as nonsense here because they are — the extension ships no
+ * message table (there is no printable error text anywhere in the hunk) and
+ * borrows numbers whose AMOS text has nothing to do with what failed. That is
+ * what a program's `Errn` sees, so it is what these raise.
  */
 const amcafErr: () => never = () => {
   throw new AmosError('Illegal function call', 23)
+}
+/** routine 391 — the one every failed dos.library call raises */
+const amcafDosErr: () => never = () => {
+  throw new AmosError('File format not recognised', 81)
+}
+/** routine 392 — Examine failing, or Examine Dir handed something that is not one */
+const amcafExamineErr: () => never = () => {
+  throw new AmosError('Next without For in animation string', 94)
+}
+/** routine 389 — Reserve or AllocMem coming back empty */
+const amcafMemErr: () => never = () => {
+  throw new AmosError('Out of memory', 24)
+}
+
+/**
+ * AMCAF's own messages, which an earlier pass reported did not exist.
+ *
+ * The header used to say "this extension ships no error strings at all",
+ * having found no printable text where the failure branches led. It was
+ * looking in the wrong place: the raisers above go to `L_ScCopy` with an AMOS
+ * error NUMBER, but there is a second mechanism — routine 397 —
+ *
+ *     lea.l  $af94(pc), a0
+ *     moveq  #$0, d1
+ *     moveq  #$0, d3
+ *     moveq  #$7, d2
+ *     Rjmp   L_Dia_ScCopy
+ *
+ * which puts up a REQUESTER, and $af94 is the head of a NUL-separated list of
+ * nineteen strings. The index is d0 from the caller and the list starts on the
+ * terminator BEFORE the first string, so it is 1-based — proved by the OS-2.0
+ * gate (routine 395, `moveq #$c,d0`) landing on "Kickstart 2.04 or greater
+ * required", which is exactly what that gate is for.
+ *
+ * So the extension has two failure paths, not one: a trappable AMOS error and
+ * a requester of its own. These are the requester's texts, in the binary's
+ * order, with index 0 left as the empty string the table itself begins with.
+ */
+export const AMCAF_ERRORS = [
+  '',
+  "Can't reopen Workbench",
+  'Not an RNC-packed file',
+  "Couldn't allocate channels",
+  'No icons- or spritesbanks allowed',
+  'No powerpacker.library',
+  'Crunching error',
+  'File/bank is encrypted',
+  'Not a PowerPacker/Imploder-Bank',
+  'No diskfont.library',
+  "Couldn't open font",
+  "Couldn't launch process",
+  'Kickstart 2.04 or greater required',
+  'No icon.library',
+  'Serious error during reinitialision',
+  'At least 4 colours required in screen',
+  'No CIA-Timer available',
+  'Cannot open lowlevel.library',
+  'At least 4 planes required!',
+  'MC68020 or higher required!',
+]
+
+/** routine 397 — the requester, by the index the caller puts in d0 */
+const amcafMsg: (n: number) => never = (n) => {
+  throw new AmosError(AMCAF_ERRORS[n] ?? `AMCAF error ${n}`)
+}
+
+/**
+ * Routine 363, the AMOS-string-to-C-string converter every path argument goes
+ * through, and the reason a path here has a length limit at all.
+ *
+ * It is four instructions of check before it copies anything:
+ *
+ *   move.w  (a0)+, d0
+ *   subq.w  #$1, d0
+ *   cmp.w   #$80, d0
+ *   Rbcc    routine 390
+ *
+ * `Rbcc` is UNSIGNED, so a length of zero underflows to $FFFF and fails the
+ * same test a length of 129 fails. The legal range is 1..128 characters, and
+ * an EMPTY path is an error 23 rather than a lookup that fails.
+ */
+function amcafPath(s: string): string {
+  if (s.length < 1 || s.length > 128) amcafErr()
+  return s
 }
 
 /**
@@ -2486,27 +2665,70 @@ function objSize(rt: Runtime, path: string): number {
 }
 
 /** Wload / Dload: the whole file into a bank, Work or Data */
+/**
+ * Wload / Dload — routines 104 ($384a) and 103 ($37f0), which differ in two
+ * constants and nothing else.
+ *
+ * Open the file (a failure is error 81), take its length, and hand AMOS's own
+ * `Reserve` a bank name and a type: `moveq #$0,d1` with **"Work    "** for
+ * Wload and `moveq #$1,d1` with **"Datas   "** for Dload, both eight
+ * characters. Both names are in the binary as literals, so the port's invented
+ * "Amcaf   " was never on a real bank.
+ *
+ * Then the sign check the manual does document and an earlier pass missed:
+ *
+ *   move.l  d5, d0        ; the bank NUMBER
+ *   bpl.b   ...
+ *   neg.w   d0            ; (Dload spells it `not.l d0 / addq.w #$1,d0`)
+ *   addq.w  #$2, d1       ; +2 on the Reserve type -- the CHIP flag
+ *
+ * "If 'bank' is a negative number, the file is loaded into Chip ram instead."
+ *
+ * A Reserve that comes back empty closes the file and raises error 24, and a
+ * Read that fails part way is error 94.
+ */
 function loadToBank(rt: Runtime, it: Interp, dataBank: boolean): void {
   const file = it.evalStr()
   it.expect(',')
-  const n = it.evalInt()
-  const bytes = rt.vfs?.readFile(file) ?? null
+  const arg = it.evalInt()
+  const chip = arg < 0
+  const n = chip ? -arg : arg
+  const bytes = rt.vfs?.readFile(amcafPath(file)) ?? null
   if (bytes === null) {
     rt.amcaf.ioError = 205
-    amcafErr()
+    amcafDosErr()
   }
-  rt.reserveBank(n, bytes.length, 'Amcaf   ', dataBank)
+  if (bytes.length === 0) amcafMemErr() // Reserve of nothing comes back empty
+  rt.reserveBank(n, bytes.length, dataBank ? 'Datas   ' : 'Work    ', dataBank, chip)
   rt.memBanks.get(n)!.data.set(bytes)
   rt.amcaf.ioError = 0
 }
 
-/** Wsave / Dsave: "Dsave is exactly the same as Wsave in every aspect" */
+/**
+ * Wsave / Dsave — routine 105 ($38a2). "Dsave is exactly the same as Wsave in
+ * every aspect", and the token table agrees: both names share the routine.
+ *
+ * It checks the bank before it opens anything:
+ *
+ *   move.w  -$c(a0), d0
+ *   andi.w  #$c, d0
+ *   bne     ...           ; moveq #$4,d0 / Rbra routine 397
+ *
+ * so a bank whose header carries either of those two type bits is refused with
+ * AMCAF's own requester rather than an AMOS error — message 4, **"No icons- or
+ * spritesbanks allowed"**, which names exactly what those bits mark.
+ *
+ * The length written is `move.l -$14(a0),d0` less SIXTEEN (`subq.l #$8` twice)
+ * — the bank's own header, which is not part of what a program put there. An
+ * output file it cannot open, and a Write that fails, are both error 94.
+ */
 function saveBank(rt: Runtime, it: Interp): void {
   const file = it.evalStr()
   it.expect(',')
   const b = rt.memBanks.get(it.evalInt())
   if (!b) amcafErr()
-  rt.vfs?.writeFile(file, b.data)
+  if (b.kind !== 'memory') amcafMsg(4)
+  rt.vfs?.writeFile(amcafPath(file), b.data)
   rt.amcaf.ioError = 0
 }
 
@@ -3459,12 +3681,21 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
 
 
     /**
-     * =Examine Next$ — the next entry's name, and "If the end of the
-     * directory list is reached, file$ will contain an empty string and the
-     * drawer will be closed."
+     * =Examine Next$ — routine 110 ($3a80). "If the end of the directory list
+     * is reached, file$ will contain an empty string and the drawer will be
+     * closed."
+     *
+     * With no lock held it is error 23 rather than an empty string, which is
+     * the manual's "you may not make any further calls to Examine Next$" made
+     * enforceable. `ExNext` succeeding tail-calls straight into Object Name$
+     * (`Rbne routine 114`), so the name it returns and the name the accessor
+     * would return are literally the same instruction — and the whole
+     * FileInfoBlock is left describing the entry, which is what makes the
+     * walk-and-read idiom work.
      */
     'examine next$': () => {
       const e = rt.amcaf.examine
+      if (e.dir === '') amcafErr()
       e.index++
       const name = e.entries[e.index]
       if (name === undefined) {
@@ -3475,63 +3706,112 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
       return VS(name)
     },
 
-    /** =Object Type — positive for a directory, negative for a file */
+    /**
+     * The `Object *` accessors — routines 114 to 129, and every one of them is
+     * three or four instructions reading a fixed offset of the FileInfoBlock
+     * the last Examine filled in:
+     *
+     *   Object Type        $104(a2)  fib+4    fib_DirEntryType, raw
+     *   Object Name$       $108(a2)  fib+8    fib_FileName
+     *   Object Protection  $174(a2)  fib+116  fib_Protection
+     *   Object Size        $17c(a2)  fib+124  fib_Size
+     *   Object Blocks      $180(a2)  fib+128  fib_NumBlocks
+     *   Object Date        $184(a2)  fib+132  fib_Date.ds_Days
+     *   Object Time        $18a/$18e fib+138/142  the LOW WORDS of the pair
+     *   Object Comment$    $190(a2)  fib+144  fib_Comment
+     *
+     * Not one of them takes an argument or checks anything — the token table
+     * agrees, giving every one a spec of `"0"` or `"2"`. So they answer for
+     * whatever the block holds, including before any Examine at all.
+     */
     'object type': (_, a) => {
       const p = objPath(rt, a)
       const k = rt.vfs?.exists(p) ?? null
       return VI(k === null ? 0 : entryType(k === 'dir'))
     },
-    /** =Object Size — zero for a directory, which has no byte size */
     'object size': (_, a) => VI(objSize(rt, objPath(rt, a))),
-    /** =Object Blocks — "the number of blocks the object uses on a volume" */
     'object blocks': (_, a) => VI(blocksFor(objSize(rt, objPath(rt, a)))),
-    /** =Object Name$ — the object's own name, without its path */
     'object name$': (_, a) => {
       const p = objPath(rt, a)
       const cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf(':'))
       return VS(cut >= 0 ? p.slice(cut + 1) : p)
     },
-    /** =Object Date — the DateStamp day count */
     'object date': (_, a) => VI(rt.vfs?.meta(objPath(rt, a)).days ?? 0),
-    /** =Object Time — the same packed minutes/ticks Current Time uses */
     'object time': (_, a) => {
       const m = rt.vfs?.meta(objPath(rt, a))
       return VI(packTime(m?.mins ?? 0, m?.ticks ?? 0))
     },
-    /** =Object Protection — the raw bitmap */
     'object protection': (_, a) => VI(rt.vfs?.meta(objPath(rt, a)).protection ?? 0),
-    /** =Object Comment$ — the FileNote */
     'object comment$': (_, a) => VS(rt.vfs?.meta(objPath(rt, a)).comment ?? ''),
 
     /**
-     * =Object Protection$(prot) — note the argument: this takes the NUMERIC
-     * VALUE, not a path. "Object Protection$ function converts this numeric
-     * value into a string in the format 'hsparwed'."
+     * =Object Protection$(prot) — routine 127 ($3bb0). Note the argument: this
+     * takes the NUMERIC VALUE, not a path, and unlike its neighbours it never
+     * touches the FileInfoBlock. "Converts this numeric value into a string in
+     * the format 'hsparwed'."
+     *
+     * The table it reads is twelve bytes at $3be0 — **"dewr----apsh"** — and
+     * the loop counts d0 from 7 down to 0 taking `table[d0]` when the bit is
+     * CLEAR and `table[d0+4]` when it is SET. The two halves overlap on the
+     * four hyphens in the middle, which is how one table serves both the
+     * inverted low four bits and the plain high four.
      */
     'object protection$': (_, a) => VS(protectionString(i0(a, 0) & 0xff)),
 
-    /** =Filename$("DH2:AMOS/AMOSPro") is "AMOSPro" */
+    /**
+     * =Filename$("DH2:AMOS/AMOSPro") is "AMOSPro" — routine 96 ($3536).
+     *
+     * One left-to-right scan recording the position after the LAST ':' or '/'
+     * it sees, so a separator of either kind counts and the last one wins.
+     * Neither this nor Path$ goes through the path converter, so neither has
+     * the 1..128 limit and an empty argument gives an empty answer rather than
+     * an error.
+     */
     'filename$': (_, a) => {
       const p = s0(a, 0)
       const cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf(':'))
       return VS(cut >= 0 ? p.slice(cut + 1) : p)
     },
-    /** =Path$("DH2:AMOS/AMOSPro") is "DH2:AMOS" — "a kind of Parent$" */
+    /**
+     * =Path$("DH2:AMOS/AMOSPro") is "DH2:AMOS" — routine 97 ($358e), "a kind
+     * of Parent$".
+     *
+     * The same scan, with the one asymmetry that makes a device name work:
+     * ':' records the position AFTER itself and '/' records the position
+     * before (`move.w d3,d2 / subq.w #$1,d2`), so a colon is kept and a slash
+     * dropped. Both are the same scan, so it is the LAST separator of either
+     * kind that decides — "DH2:a/b:c" cuts at the second colon, not the slash.
+     */
     'path$': (_, a) => {
       const p = s0(a, 0)
       const slash = p.lastIndexOf('/')
-      if (slash >= 0) return VS(p.slice(0, slash))
       const colon = p.lastIndexOf(':')
-      return VS(colon >= 0 ? p.slice(0, colon + 1) : '')
+      if (colon > slash) return VS(p.slice(0, colon + 1))
+      return VS(slash >= 0 ? p.slice(0, slash) : '')
     },
 
     /**
-     * =Pattern Match(source$,pattern$) — dos.library's ParsePattern and
-     * MatchPattern, which is why "This command only works on OS2.0 and
-     * higher". "The pattern may contain any regular DOS jokers[;] a asterik
-     * (*) will be converted into '#?' automatically."
+     * =Pattern Match(source$,pattern$) — routine 102 ($377a). "The pattern may
+     * contain any regular DOS jokers[;] a asterik (*) will be converted into
+     * '#?' automatically", and "only works on OS2.0 and higher", which is a
+     * real `cmp.w #$25` on ExecBase's LIB_VERSION.
+     *
+     * The library calls are `jsr -$3c6(a6)` and `-$3cc(a6)` — the **NoCase**
+     * pair, `ParsePatternNoCase` and `MatchPatternNoCase`, not the plain ones
+     * an earlier pass assumed. So the match is case-INSENSITIVE, unlike LDos's
+     * on the same matcher, which its own manual is explicit about.
+     *
+     * The conversion loop also treats an EMPTY pattern as `#?` rather than as
+     * a pattern matching only the empty string: `move.w (a0)+,d0 / bne` falls
+     * through to `move.w #$233f,(a1)+`, which is those two characters.
+     *
+     * A pattern ParsePattern refuses is error 23 (`moveq #$ff,d1 / cmp.l d1,d0
+     * / Rbeq routine 390`), and the buffer it parses into is 512 bytes.
      */
-    'pattern match': (_, a) => VI(amigaMatch(s0(a, 0), s0(a, 1).replace(/\*/g, '#?')) ? -1 : 0),
+    'pattern match': (_, a) => {
+      const pat = s0(a, 1)
+      return VI(amigaMatch(s0(a, 0), pat === '' ? '#?' : pat.replace(/\*/g, '#?'), false, true) ? -1 : 0)
+    },
 
     /**
      * =Disk Type(directory$) — 0 a real device, 1 an assign, 2 a volume name.
@@ -3584,17 +3864,33 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     'tool types$': (_, a) => VS(toolTypes(rt, s0(a, 0))),
 
     /**
-     * =Dos Hash(file$) — "Returns the hash value of a file. Only for
-     * advanced users who want to read directly from dos disks."
+     * =Dos Hash(file$) — routine 99 ($365a). "Returns the hash value of a
+     * file. Only for advanced users who want to read directly from dos disks."
      *
-     * The AmigaDOS directory hash: fold the name, case-insensitively, into
-     * a bucket. Its one caller is somebody walking a real disk's hash chains.
+     * The AmigaDOS directory hash, instruction for instruction: seed with the
+     * length, then per character `mulu.w #$d,d3 / add.l d2,d3 / andi.l
+     * #$7ff,d3`, and finally `divu.w #$48,d3` keeping the remainder. $48 is
+     * 72, which is 512/4 - 56 — the bucket count of a standard block.
+     *
+     * The case fold is the part an earlier pass missed:
+     *
+     *   cmp.b   #$61, d2      ; 'a'
+     *   bcs.b   $368a
+     *   cmp.b   #$7a, d2      ; 'z'
+     *   bhi.b   $368a
+     *   subi.b  #$20, d2
+     *
+     * so a lowercase letter is raised before it is folded in, and only ASCII
+     * a..z — an accented character keeps its own byte, which is why two names
+     * AmigaDOS considers the same can still land in different buckets.
      */
     'dos hash': (_, a) => {
       const name = s0(a, 0)
-      let h = name.length
+      let h = name.length & 0xffff
       for (let i = 0; i < name.length; i++) {
-        h = (h * 13 + (name.charCodeAt(i) & 0xff)) & 0x7ff
+        let c = name.charCodeAt(i) & 0xff
+        if (c >= 0x61 && c <= 0x7a) c -= 0x20
+        h = (h * 13 + c) & 0x7ff
       }
       return VI(h % 72)
     },

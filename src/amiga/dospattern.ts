@@ -207,16 +207,42 @@ function matchNode(n: Node, s: string, at: number, k: (at: number) => boolean): 
 }
 
 /**
+ * dos.library's ToUpper, which is not JavaScript's.
+ *
+ * It raises ASCII a..z and the Latin-1 accented lowercase range $E0..$FE,
+ * skipping $F7 because that is the division sign rather than a letter. Nothing
+ * else moves — in particular $DF, the sharp s, has no single-character
+ * uppercase and the library leaves it alone where `toUpperCase()` turns it
+ * into two characters and changes the string's length.
+ */
+function dosUpper(s: string): string {
+  let out = ''
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    const up = (c >= 0x61 && c <= 0x7a) || (c >= 0xe0 && c <= 0xfe && c !== 0xf7)
+    out += String.fromCharCode(up ? c - 0x20 : c)
+  }
+  return out
+}
+
+/**
  * Whole-string match, which is what dos.library's MatchPattern does — the
  * pattern must account for the entire source, not merely occur inside it.
- * Case-sensitive, as the manual states ("use Upper$ or Lower$ if required").
+ *
+ * Case-sensitive by default, as LDos's manual states ("use Upper$ or Lower$ if
+ * required"). `noCase` selects the OTHER pair of library entry points,
+ * `ParsePatternNoCase` (-$3c6) and `MatchPatternNoCase` (-$3cc), which AMCAF's
+ * Pattern Match uses: the parser raises the pattern and the matcher raises each
+ * source character, so a range like `[a-z]` is folded along with everything
+ * else rather than being left behind.
  */
-export function amigaMatch(source: string, pattern: string, star = false): boolean {
+export function amigaMatch(source: string, pattern: string, star = false, noCase = false): boolean {
   let seq: Node[]
   try {
-    seq = parseAmigaPattern(pattern, star)
+    seq = parseAmigaPattern(noCase ? dosUpper(pattern) : pattern, star)
   } catch {
     return false
   }
-  return matchSeq(seq, source, 0, (at) => at === source.length)
+  const s = noCase ? dosUpper(source) : source
+  return matchSeq(seq, s, 0, (at) => at === s.length)
 }

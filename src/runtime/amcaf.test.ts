@@ -683,6 +683,25 @@ describe('slice 5: disk and DOS objects', () => {
     expect(p('Pattern Match("hello","#?")')).toBe('-1')
   })
 
+  /**
+   * Routine 102 calls `jsr -$3c6(a6)` and `-$3cc(a6)` — ParsePatternNoCase and
+   * MatchPatternNoCase, not the plain pair. So AMCAF's matcher folds case
+   * where LDos's, on the same code here, does not; LDos's manual is explicit
+   * that it does not ("use Upper$ or Lower$ if required").
+   */
+  it('Pattern Match is case-insensitive, and an empty pattern is #?', () => {
+    expect(p('Pattern Match("HELLO.IFF","*.iff")')).toBe('-1')
+    expect(p('Pattern Match("hello.iff","*.IFF")')).toBe('-1')
+    expect(p('Pattern Match("MiXeD","mixed")')).toBe('-1')
+    // the range in a class is folded with everything else, so [a-z] takes
+    // uppercase letters too
+    expect(p('Pattern Match("Q","[a-z]")')).toBe('-1')
+    // `move.w (a0)+,d0 / bne` falls through to `move.w #$233f,(a1)+`, which is
+    // the two characters '#' and '?' -- so an empty pattern matches anything
+    expect(p('Pattern Match("anything","")')).toBe('-1')
+    expect(p('Pattern Match("","")')).toBe('-1')
+  })
+
   it('Disk Type calls DFn: a device', () => {
     expect(p('Disk Type("DF0:")')).toBe('0')
     expect(p('Disk Type("Workbench:")')).toBe('2')
@@ -704,6 +723,40 @@ describe('slice 5: disk and DOS objects', () => {
     }
   })
 
+  /**
+   * Routine 99 ($365a) raises a lowercase letter before folding it in:
+   *
+   *   cmp.b #$61,d2 / bcs / cmp.b #$7a,d2 / bhi / subi.b #$20,d2
+   *
+   * which an earlier pass left out, so the port hashed by case. AmigaDOS
+   * directory lookup is case-insensitive and depends on this, so a program
+   * walking real hash chains was being sent to the wrong bucket.
+   */
+  it('Dos Hash folds case, and only ASCII a..z', () => {
+    expect(p('Dos Hash("AMOSPro")')).toBe(p('Dos Hash("amospro")'))
+    expect(p('Dos Hash("MixedCase.iff")')).toBe(p('Dos Hash("MIXEDCASE.IFF")'))
+    // the seed is the length, so an empty name is bucket zero
+    expect(p('Dos Hash("")')).toBe('0')
+    // only a..z is raised: an accented byte keeps its own value, so two names
+    // AmigaDOS would call the same can still land apart
+    expect(p('Dos Hash(Chr$(228))')).not.toBe(p('Dos Hash(Chr$(196))'))
+  })
+
+  /**
+   * Both splitters are one left-to-right scan recording the last ':' or '/'
+   * (routines 96 and 97), so a separator of EITHER kind wins if it comes
+   * last. The port checked for a slash first, which gets "DH2:a/b:c" wrong.
+   */
+  it('Path$ cuts at the last separator of either kind', () => {
+    expect(p('Path$("DH2:a/b:c")')).toBe('DH2:a/b:')
+    expect(p('Filename$("DH2:a/b:c")')).toBe('c')
+    // the asymmetry that makes a device name work: a colon is kept, a slash
+    // dropped (`move.w d3,d2` against `move.w d3,d2 / subq.w #$1,d2`)
+    expect(p('Path$("DF0:Game")')).toBe('DF0:')
+    expect(p('Path$("a/b")')).toBe('a')
+    expect(p('"["+Path$("bare")+"]"')).toBe('[]')
+  })
+
   it('Examine Dir then Examine Next$ walks a drawer and closes at the end', () => {
     const { out } = runFs([
       'Dir$="Work:"',
@@ -719,6 +772,53 @@ describe('slice 5: disk and DOS objects', () => {
     // "If the end of the directory list is reached, file$ will contain an
     // empty string and the drawer will be closed"
     expect(lines[1]).toBe('[]')
+  })
+
+  /**
+   * The three failure paths, which are three distinct AMOS error numbers
+   * rather than the one generic the port used to raise. Routines 390, 391 and
+   * 392 are each `Rbsr 354 / moveq #n,d0 / Rjmp L_ScCopy`, and d0 is the AMOS
+   * error number: $17 = 23, $51 = 81, $5e = 94. The texts are AMOS's own and
+   * have nothing to do with what failed — the extension ships no message
+   * table — but they are what a program's `Errn` reports.
+   */
+  it('a failed dos.library call is error 81, not the generic 23', () => {
+    expect(() => runFs(['Examine Object "Work:nosuch.txt"'])).toThrow(/File format not recognised/)
+    expect(() => runFs(['Examine Dir "Work:nosuchdir"'])).toThrow(/File format not recognised/)
+    expect(() => runFs(['File Copy "Work:nosuch" To "Work:x"'])).toThrow(/File format not recognised/)
+  })
+
+  /**
+   * `tst.l $4(a2) / bmi` at the end of Examine Dir (routine 109): a negative
+   * fib_DirEntryType is a FILE, and the routine unlocks and fails rather than
+   * treating it as a drawer with nothing in it.
+   */
+  it('Examine Dir handed a file locks it, examines it, then fails as error 94', () => {
+    expect(() =>
+      runFs(['Open Out 1,"Work:plain.txt" : Print #1,"x" : Close 1', 'Examine Dir "Work:plain.txt"']),
+    ).toThrow(/Next without For/)
+  })
+
+  /**
+   * Routine 363, the path converter every path argument goes through:
+   *
+   *   move.w (a0)+, d0 / subq.w #$1, d0 / cmp.w #$80, d0 / Rbcc routine 390
+   *
+   * `Rbcc` is unsigned, so a length of zero underflows to $FFFF and fails the
+   * same test 129 fails. 1..128 characters, and an empty path is error 23
+   * rather than a lookup that comes back empty-handed.
+   */
+  it('a path is 1..128 characters, and an empty one is error 23', () => {
+    expect(() => runFs(['Examine Object ""'])).toThrow(/Illegal function call/)
+    expect(() => runFs([`Examine Object "Work:${'x'.repeat(130)}"`])).toThrow(/Illegal function call/)
+    // Filename$ and Path$ do NOT go through it -- they scan the AMOS string
+    // in place -- so an empty argument is an empty answer
+    expect(p('"["+Filename$("")+"]"')).toBe('[]')
+  })
+
+  /** Examine Next$ with no walk open is error 23 (`Rbeq routine 390`) */
+  it('Examine Next$ without a directory open is an error, not an empty string', () => {
+    expect(() => runFs(['A$=Examine Next$'])).toThrow(/Illegal function call/)
   })
 
   /**
@@ -828,6 +928,36 @@ describe('slice 5: disk and DOS objects', () => {
     // it consumed its arguments and touched nothing
     expect(rt.memBanks.get(7)!.data[0]).toBe(0xab)
     expect(rt.memBanks.get(7)!.data[32]).toBe(0)
+  })
+
+  /**
+   * Routines 104 and 103 differ in two constants: the Reserve type (0 or 1)
+   * and an eight-character bank name that is a literal in the binary,
+   * "Work    " for Wload and "Datas   " for Dload. The port had invented
+   * "Amcaf   ", which was never on a real bank and which a program reading
+   * Bank$ or saving the bank back out would see.
+   */
+  it('Wload and Dload name their banks Work and Datas, and a negative bank is chip', () => {
+    const { rt } = runFs([
+      'Open Out 1,"Work:b.bin" : Print #1,"xyz" : Close 1',
+      'Wload "Work:b.bin",5',
+      'Dload "Work:b.bin",6',
+      // "If 'bank' is a negative number, the file is loaded into Chip ram
+      // instead" -- `neg.w d0 / addq.w #$2,d1` on the Reserve type
+      'Wload "Work:b.bin",-7',
+    ])
+    const b5 = rt.memBanks.get(5)!
+    const b6 = rt.memBanks.get(6)!
+    const b7 = rt.memBanks.get(7)!
+    expect(b5.name).toBe('Work    ')
+    expect(b6.name).toBe('Datas   ')
+    // and the type each Reserve asks for: Work banks clear the Data bit
+    expect(b5.kind === 'memory' && b5.flags).toBe(0)
+    expect(b6.kind === 'memory' && b6.flags).toBe(1)
+    // the negative form landed on bank 7, in chip
+    expect(b7.name).toBe('Work    ')
+    expect(b7.kind === 'memory' && b7.memType).toBe(1)
+    expect(b5.kind === 'memory' && b5.memType).toBe(0)
   })
 
   it('Dload, Dsave and the PowerPacker pair round-trip a bank', () => {
