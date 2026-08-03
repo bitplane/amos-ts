@@ -147,6 +147,45 @@ import { joinAmigaPath } from '../amiga/vfs'
  * then read whichever object it currently describes — which is why they all
  * have a no-argument form as well as a path one.
  */
+/**
+ * The FileInfoBlock the extension keeps at $100 of its private block, which
+ * is the ONLY thing the `Object *` accessors read.
+ *
+ * The offsets in the routines are that base plus the AmigaDOS field offsets:
+ * $104 = fib+4 fib_DirEntryType, $108 = fib+8 fib_FileName, $174 = fib+116
+ * fib_Protection, $17c = fib+124 fib_Size, $180 = fib+128 fib_NumBlocks,
+ * $184 = fib+132 fib_Date.
+ *
+ * Keeping a snapshot rather than a path is the whole point: Examine fills the
+ * block once and the accessors read it back with no filesystem access at all,
+ * so they answer for the object as it was when it was examined even if it has
+ * since changed or gone.
+ */
+export interface AmcafFib {
+  type: number
+  name: string
+  protection: number
+  size: number
+  blocks: number
+  days: number
+  mins: number
+  ticks: number
+  comment: string
+}
+
+/** what the block holds before any Examine has filled it in */
+export const EMPTY_FIB: AmcafFib = {
+  type: 0,
+  name: '',
+  protection: 0,
+  size: 0,
+  blocks: 0,
+  days: 0,
+  mins: 0,
+  ticks: 0,
+  comment: '',
+}
+
 export interface AmcafExamine {
   /** the directory being walked, or '' after Examine Stop */
   dir: string
@@ -154,6 +193,8 @@ export interface AmcafExamine {
   index: number
   /** the path the accessors currently answer for */
   current: string
+  /** the block Examine filled in, which is what the accessors read */
+  fib: AmcafFib
 }
 
 
@@ -316,7 +357,7 @@ export interface AmcafState {
 
 export function newAmcafState(): AmcafState {
   return {
-    examine: { dir: '', entries: [], index: -1, current: '' },
+    examine: { dir: '', entries: [], index: -1, current: '', fib: EMPTY_FIB },
     ioError: 0,
     spritePriority: 0,
     notationBits: 4,
@@ -387,12 +428,18 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
         amcafDosErr()
       }
       if (kind !== 'dir') {
-        rt.amcaf.examine = { dir: '', entries: [], index: -1, current: '' }
+        rt.amcaf.examine = { dir: '', entries: [], index: -1, current: '', fib: EMPTY_FIB }
         rt.amcaf.ioError = 212 // ERROR_OBJECT_WRONG_TYPE
         amcafExamineErr()
       }
       const entries = rt.vfs?.listDir(dir) ?? []
-      rt.amcaf.examine = { dir, entries: entries.map((e) => e.name), index: -1, current: dir }
+      rt.amcaf.examine = {
+        dir,
+        entries: entries.map((e) => e.name),
+        index: -1,
+        current: dir,
+        fib: captureFib(rt, dir),
+      }
       rt.amcaf.ioError = 0
     },
 
@@ -413,6 +460,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
         amcafDosErr()
       }
       rt.amcaf.examine.current = path
+      rt.amcaf.examine.fib = captureFib(rt, path)
       rt.amcaf.ioError = 0
     },
 
@@ -426,7 +474,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * Examine Next$ both do.
      */
     'examine stop'() {
-      rt.amcaf.examine = { dir: '', entries: [], index: -1, current: '' }
+      rt.amcaf.examine = { dir: '', entries: [], index: -1, current: '', fib: EMPTY_FIB }
     },
 
     /**
@@ -2913,21 +2961,34 @@ function bankCodeOps(rt: Runtime): Record<string, Instr> {
  * ------------------------------------------------------------------ */
 
 /**
- * Which object an `Object *` accessor answers for.
+ * Fill the FileInfoBlock, which is what `Examine` actually does — the
+ * accessors afterwards are pure reads of it.
  *
- * Every one has two forms — with a path and without — and the no-argument
- * form reads whatever the Examine context currently describes. That is the
- * whole point of the family: walk a directory with Examine Next$ and read
- * each entry's details without naming it again.
+ * NOTE: an earlier pass gave every accessor an optional path argument and had
+ * it re-query the VFS on each call. The routines take no argument at all (12
+ * to 20 bytes each, no library call in any of them) and the token table agrees,
+ * specifying `"0"` or `"2"` — zero parameters — for all eight. Both halves of
+ * that were wrong: the syntax accepted an argument AMOS never passes, and the
+ * values tracked the live filesystem where the real extension reports whatever
+ * the last Examine captured.
  */
-function objPath(rt: Runtime, a: Value[]): string {
-  if (a.length > 0) return str(a[0]!)
-  return rt.amcaf.examine.current
-}
-
-function objSize(rt: Runtime, path: string): number {
-  if (!rt.vfs || rt.vfs.exists(path) !== 'file') return 0
-  return rt.vfs.readFile(path)?.length ?? 0
+function captureFib(rt: Runtime, path: string): AmcafFib {
+  const kind = rt.vfs?.exists(path) ?? null
+  if (kind === null) return EMPTY_FIB
+  const m = rt.vfs?.meta(path)
+  const size = kind === 'file' ? (rt.vfs?.readFile(path)?.length ?? 0) : 0
+  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf(':'))
+  return {
+    type: entryType(kind === 'dir'),
+    name: cut >= 0 ? path.slice(cut + 1) : path,
+    protection: m?.protection ?? 0,
+    size,
+    blocks: blocksFor(size),
+    days: m?.days ?? 0,
+    mins: m?.mins ?? 0,
+    ticks: m?.ticks ?? 0,
+    comment: m?.comment ?? '',
+  }
 }
 
 /** Wload / Dload: the whole file into a bank, Work or Data */
@@ -3989,10 +4050,11 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
       e.index++
       const name = e.entries[e.index]
       if (name === undefined) {
-        rt.amcaf.examine = { dir: '', entries: [], index: -1, current: '' }
+        rt.amcaf.examine = { dir: '', entries: [], index: -1, current: '', fib: EMPTY_FIB }
         return VS('')
       }
       e.current = joinAmigaPath(e.dir, name)
+      e.fib = captureFib(rt, e.current)
       return VS(name)
     },
 
@@ -4014,25 +4076,17 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * agrees, giving every one a spec of `"0"` or `"2"`. So they answer for
      * whatever the block holds, including before any Examine at all.
      */
-    'object type': (_, a) => {
-      const p = objPath(rt, a)
-      const k = rt.vfs?.exists(p) ?? null
-      return VI(k === null ? 0 : entryType(k === 'dir'))
+    'object type': () => VI(rt.amcaf.examine.fib.type),
+    'object size': () => VI(rt.amcaf.examine.fib.size),
+    'object blocks': () => VI(rt.amcaf.examine.fib.blocks),
+    'object name$': () => VS(rt.amcaf.examine.fib.name),
+    'object date': () => VI(rt.amcaf.examine.fib.days),
+    'object time': () => {
+      const f = rt.amcaf.examine.fib
+      return VI(packTime(f.mins, f.ticks))
     },
-    'object size': (_, a) => VI(objSize(rt, objPath(rt, a))),
-    'object blocks': (_, a) => VI(blocksFor(objSize(rt, objPath(rt, a)))),
-    'object name$': (_, a) => {
-      const p = objPath(rt, a)
-      const cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf(':'))
-      return VS(cut >= 0 ? p.slice(cut + 1) : p)
-    },
-    'object date': (_, a) => VI(rt.vfs?.meta(objPath(rt, a)).days ?? 0),
-    'object time': (_, a) => {
-      const m = rt.vfs?.meta(objPath(rt, a))
-      return VI(packTime(m?.mins ?? 0, m?.ticks ?? 0))
-    },
-    'object protection': (_, a) => VI(rt.vfs?.meta(objPath(rt, a)).protection ?? 0),
-    'object comment$': (_, a) => VS(rt.vfs?.meta(objPath(rt, a)).comment ?? ''),
+    'object protection': () => VI(rt.amcaf.examine.fib.protection),
+    'object comment$': () => VS(rt.amcaf.examine.fib.comment),
 
     /**
      * =Object Protection$(prot) — routine 127 ($3bb0). Note the argument: this

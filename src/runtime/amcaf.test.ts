@@ -992,20 +992,62 @@ describe('slice 5: disk and DOS objects', () => {
     expect(l[3]).toBe('1') // under one 512-byte block
   })
 
+  /**
+   * The accessors take NO argument — routines 114 to 129 are 12 to 20 byte
+   * reads of the FileInfoBlock at $100 of the extension's block, and the token
+   * table gives every one a spec of `"0"` or `"2"`. So the round-trip has to
+   * go through Examine Object (routine 112, spec `I2`), which is what fills
+   * the block in the first place.
+   */
   it('Protect Object and Set Object Comment round-trip through the metadata', () => {
     const { out } = runFs([
       'Open Out 1,"Work:three.txt" : Print #1,"x" : Close 1',
       'Protect Object "Work:three.txt",$85',
       'Set Object Comment "Work:three.txt","a note"',
-      'Print Object Protection("Work:three.txt")',
-      'Print Object Comment$("Work:three.txt")',
-      'Print Object Protection$(Object Protection("Work:three.txt"))',
+      'Examine Object "Work:three.txt"',
+      'Print Object Protection',
+      'Print Object Comment$',
+      'Print Object Protection$(Object Protection)',
     ])
     const l = out.trim().split('\n').map((x) => x.trim())
     expect(l[0]).toBe(String(0x85))
     expect(l[1]).toBe('a note')
     // $85 is hidden, plus write and delete DENIED by the inverted low nibble
     expect(l[2]).toBe('h---r-e-')
+  })
+
+  /**
+   * The block is a SNAPSHOT, which is the whole consequence of the accessors
+   * being field reads: not one of routines 114 to 129 contains a library call,
+   * so nothing re-reads the filesystem between an Examine and an accessor.
+   * A change made after the Examine is invisible until the next Examine.
+   */
+  it('the Object accessors answer from the block, not the live filesystem', () => {
+    const { out } = runFs([
+      'Open Out 1,"Work:snap.txt" : Print #1,"x" : Close 1',
+      'Protect Object "Work:snap.txt",$80',
+      'Examine Object "Work:snap.txt"',
+      'Protect Object "Work:snap.txt",$85',
+      'Print Object Protection', // still what the Examine captured
+      'Examine Object "Work:snap.txt"',
+      'Print Object Protection', // now the new value
+    ])
+    const l = out.trim().split('\n').map((x) => x.trim())
+    expect(l[0]).toBe(String(0x80))
+    expect(l[1]).toBe(String(0x85))
+  })
+
+  /**
+   * Before any Examine the block is still zero, and the routines read it
+   * regardless — "they answer for whatever the block holds, including before
+   * any Examine at all". Nothing checks, so nothing errors.
+   */
+  it('the Object accessors read the empty block before any Examine', () => {
+    const { out } = runFs(['Print Object Size', 'Print Object Type', 'Print Len(Object Name$)'])
+    const l = out.trim().split('\n').map((x) => x.trim())
+    expect(l[0]).toBe('0')
+    expect(l[1]).toBe('0')
+    expect(l[2]).toBe('0')
   })
 
   it('Wload and Wsave move a whole file through a bank', () => {
