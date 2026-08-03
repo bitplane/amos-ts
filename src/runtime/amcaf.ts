@@ -4711,19 +4711,45 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
 
 
     /**
-     * =Count Pixels(screen,colour,x1,y1 To x2,y2) — note the sense, which the
-     * manual states and the name does not: it "Counts the pixels ... that
-     * DON'T have the colour index colour".
+     * =Count Pixels(screen,colour,x1,y1 To x2,y2) — routine 92 ($3336), 158
+     * bytes. Note the sense, which the manual states and the name does not:
+     * it "Counts the pixels ... that DON'T have the colour index colour".
+     *
+     * The far corner is EXCLUSIVE, which an earlier pass had inclusive:
+     *
+     *   sub.w d4,d6 / Rbeq routine 390 / Rbmi routine 390    x2 - x1
+     *   sub.w d5,d7 / Rbeq routine 390 / Rbmi routine 390    y2 - y1
+     *   subq.w #$1,d6 / subq.w #$1,d7                        dbra counts
+     *
+     * so the inner `dbra d6` runs x2-x1 times from x1, covering x1..x2-1. And
+     * because a zero extent fails `Rbeq` before that, an empty region is AMOS
+     * error 23 rather than a count of nothing — the two `Rbmi`s make a
+     * reversed one an error too.
+     *
+     * The colour is compared as a BYTE — `move.b d2,$2(a7)` on the way in and
+     * `cmp.b $a(a7),d0` in the loop (the offset differs because `movem.w
+     * d0-d1/d4-d5,-(a7)` has pushed eight bytes by then) — so anything above
+     * 255 wraps into range.
+     *
+     * NOTE: the routine has no clipping whatever. It walks plane memory from
+     * `y1 * ($4c >> 3)` with no test against the screen, so a region off the
+     * edge counts whatever is next in memory. Skipping out-of-range points
+     * below is the port's, not the routine's.
      */
     'count pixels': (_, a) => {
       const s = rt.screens.get(i0(a, 0))
-      if (!s) return VI(0)
-      const c = i0(a, 1)
+      if (!s) amcafErr()
+      const c = i0(a, 1) & 0xff
+      const x1 = i0(a, 2)
+      const y1 = i0(a, 3)
+      const w = ((i0(a, 4) - x1) << 16) >> 16 // sub.w, so a WORD difference
+      const h = ((i0(a, 5) - y1) << 16) >> 16
+      if (w <= 0 || h <= 0) amcafErr()
       let n = 0
-      for (let y = i0(a, 3); y <= i0(a, 5); y++) {
-        for (let x = i0(a, 2); x <= i0(a, 4); x++) {
+      for (let y = y1; y < y1 + h; y++) {
+        for (let x = x1; x < x1 + w; x++) {
           const v = s.rp.point(x, y)
-          if (v >= 0 && v !== c) n++
+          if (v >= 0 && (v & 0xff) !== c) n++
         }
       }
       return VI(n)

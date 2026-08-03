@@ -1596,11 +1596,36 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
     expect(() => run([...c2p, 'C2p Fire Start(5),8,8 To Start(6),1'])).not.toThrow()
   })
 
-  it('Count Pixels counts what is NOT the colour, which the name hides', () => {
+  /**
+   * The far corner is EXCLUSIVE: `sub.w d4,d6 / subq.w #$1,d6` then `dbra d6`
+   * runs x2-x1 times from x1, so a 10x10 Bar counted 0,0 To 9,9 gives 81 and
+   * not the 100 an earlier pass expected. Counting the whole block needs
+   * 10,10.
+   */
+  it('Count Pixels counts what is NOT the colour, over a half-open box', () => {
     // "Counts the pixels ... that DON'T have the colour index colour"
-    const { out } = run([...scr, 'Ink 3 : Bar 0,0 To 9,9', 'Print Count Pixels(0,0,0,0 To 9,9)'])
-    expect(out.trim()).toBe('100') // all 100 are non-zero
-    expect(run([...scr, 'Ink 3 : Bar 0,0 To 9,9', 'Print Count Pixels(0,3,0,0 To 9,9)']).out.trim()).toBe('0')
+    const bar = [...scr, 'Ink 3 : Bar 0,0 To 9,9']
+    expect(run([...bar, 'Print Count Pixels(0,0,0,0 To 9,9)']).out.trim()).toBe('81')
+    expect(run([...bar, 'Print Count Pixels(0,0,0,0 To 10,10)']).out.trim()).toBe('100')
+    expect(run([...bar, 'Print Count Pixels(0,3,0,0 To 10,10)']).out.trim()).toBe('0')
+  })
+
+  /**
+   * `Rbeq routine 390` fires before any counting, so an empty box is AMOS
+   * error 23 and not a count of nothing; `Rbmi` makes a reversed one an error
+   * as well.
+   */
+  it('Count Pixels errors on an empty or reversed box', () => {
+    expect(() => run([...scr, 'Print Count Pixels(0,0,5,5 To 5,9)'])).toThrow(/illegal function call/i)
+    expect(() => run([...scr, 'Print Count Pixels(0,0,5,5 To 9,5)'])).toThrow(/illegal function call/i)
+    expect(() => run([...scr, 'Print Count Pixels(0,0,5,5 To 1,9)'])).toThrow(/illegal function call/i)
+  })
+
+  /** `move.b d2,$2(a7)` / `cmp.b $a(a7),d0` — the colour is a byte */
+  it('Count Pixels compares the colour as a byte', () => {
+    const bar = [...scr, 'Ink 3 : Bar 0,0 To 9,9']
+    // 259 truncates to 3, so the whole block matches and nothing is counted
+    expect(run([...bar, 'Print Count Pixels(0,259,0,0 To 10,10)']).out.trim()).toBe('0')
   })
 
   it('Bzoom scales by an integer factor and rounds x down to a multiple of 8', () => {
