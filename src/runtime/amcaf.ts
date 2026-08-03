@@ -148,8 +148,10 @@ export interface SplinterState {
   maxNew: number
   bkColour: number
   planes: number
-  limit: { x1: number; y1: number; x2: number; y2: number } | null
+  limit: Limit | null
   saved: { x: number; y: number; c: number }[] | null
+  /** the generation before `saved` — what a Double Del puts back */
+  savedPrev: { x: number; y: number; c: number }[] | null
 }
 
 /**
@@ -168,7 +170,7 @@ export interface TdStarState {
   ox: number
   oy: number
   planes: number
-  limit: { x1: number; y1: number; x2: number; y2: number } | null
+  limit: Limit | null
 }
 
 
@@ -270,7 +272,7 @@ export function newAmcafState(): AmcafState {
     splinters: {
       bank: 0, max: 0, coordsBank: 0, coords: [], next: 0,
       p: [], gx: 0, gy: 0, fuel: 0, maxNew: -1,
-      bkColour: 0, planes: 6, limit: null, saved: null,
+      bkColour: 0, planes: 6, limit: null, saved: null, savedPrev: null,
     },
     stars: {
       bank: 0, max: 0, s: [], gx: 0, gy: 0,
@@ -1138,7 +1140,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
 
     /** Splinters Limit [x1,y1 To x2,y2] — the screen's own limits if omitted */
     'splinters limit'(it) {
-      rt.amcaf.splinters.limit = readLimit(rt, it)
+      rt.amcaf.splinters.limit = readLimit(rt, it, 4)
     },
 
     /** Splinters Init — "fed with the coordinates and speeds you specified" */
@@ -1168,40 +1170,71 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       drawSplinters(rt)
     },
 
-    /** Splinters Back — "Saves the background, on which [they] are to be drawn" */
+    /**
+     * Splinters Back — "Saves the background, on which [they] are to be
+     * drawn in the next step".
+     *
+     * Keeps TWO generations, because Double Del wipes the PRE-last pixels
+     * rather than the last ones — see the Del pair below.
+     */
     'splinters back'(it) {
       void it
-      const sp = rt.amcaf.splinters
-      const s = rt.screen
-      if (!s) return
-      sp.saved = sp.p.map((q) => ({ x: q.x | 0, y: q.y | 0, c: Math.max(0, s.rp.point(q.x | 0, q.y | 0)) }))
+      backSplinters(rt)
     },
 
     /**
      * Splinters Single Do / Double Do — one call for the whole cycle.
      *
-     * Single is for a single-buffered screen (restore, move, draw) and Double
-     * for a double-buffered one, where the previous frame's buffer is already
-     * the background and only move-and-draw are needed.
+     * Routines 282 and 283 ($6c48, $6c60) spell the order out, and it is
+     * FOUR steps, not two:
+     *
+     *     Rbsr 284 (single del) / Rbsr 285 (double del)
+     *     Rbsr 286 (move)
+     *     Rbsr 287 (back)          <- save the background at the NEW places
+     *     Rbra 288 (draw)
+     *
+     * which is exactly what the manual tells a caller doing it by hand:
+     * "Splinters Single Del or Splinters Double Del, then Splinters Move,
+     * Splinters Back and Splinters Draw in this order".
+     *
+     * An earlier pass had Single Do as restore-move-draw and Double Do as
+     * move-draw, on the reasoning that a double-buffered screen already has
+     * the previous frame as its background. Both the routine and the manual
+     * say otherwise: Double Do deletes too, just from the other generation.
+     * Without the Back step the saved background never advanced, so the next
+     * Del restored stale pixels.
      */
     'splinters single do'(it) {
       void it
-      restoreSplinters(rt)
+      restoreSplinters(rt, false)
       moveSplinters(rt)
+      backSplinters(rt)
       drawSplinters(rt)
     },
     'splinters double do'(it) {
       void it
+      restoreSplinters(rt, true)
       moveSplinters(rt)
+      backSplinters(rt)
       drawSplinters(rt)
     },
+
+    /**
+     * Splinters Single Del / Double Del — and they are NOT the same call.
+     *
+     * "As the clearing process must either wipe the pre-last pixels from the
+     * screen (when using Double Buffering), or the last pixels (with Single
+     * Buffered screens), you have to take the appropriate command for the
+     * right screen type." A double-buffered target was last drawn TWO frames
+     * ago, so it is the older generation that has to be put back.
+     */
     'splinters single del'(it) {
       void it
-      restoreSplinters(rt)
+      restoreSplinters(rt, false)
     },
     'splinters double del'(it) {
       void it
-      restoreSplinters(rt)
+      restoreSplinters(rt, true)
     },
 
     /* ---- Td Stars ---- */
@@ -1229,7 +1262,19 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * stars could corrupt your memory." Here they cannot; the RastPort clips.
      */
     'td stars limit'(it) {
-      rt.amcaf.stars.limit = readLimit(rt, it)
+      const st = rt.amcaf.stars
+      st.limit = readLimit(rt, it, 6)
+      // DEFECT: both forms also overwrite the ORIGIN, and nothing documents
+      // it — routine 291 stores a longword at $256, which is exactly where
+      // `Td Stars Origin` puts its pair, so setting a limit silently
+      // re-centres the starfield. Worse, the explicit form (292) computes
+      // that centre as `add.w d1,d0 / lsr.w #1,d0` and `add.w d3,d2 / lsr.w
+      // #1,d2` — which averages x1 with y1 and x2 with y2, MIXING THE AXES
+      // rather than taking the middle of each. Identical in 1.50, so it was
+      // never noticed. Reproduced: a program calling Td Stars Limit after
+      // Td Stars Origin loses the origin it asked for, on the machine too.
+      st.ox = Math.floor(st.limit.cx)
+      st.oy = Math.floor(st.limit.cy)
     },
 
     /** Td Stars Origin x,y — "where stars start from, as soon as they have left" */
@@ -1411,7 +1456,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * current screen will be used as default."
      */
     'limit smouse'(it) {
-      rt.amcaf.smouse.limit = readLimit(rt, it)
+      rt.amcaf.smouse.limit = readLimit(rt, it, 4)
     },
 
 
@@ -2328,6 +2373,20 @@ function exchangeImage(rt: Runtime, it: Interp, sprites: boolean): void {
  * ------------------------------------------------------------------ */
 
 /**
+ * A limit rectangle in whole pixels, plus the origin the Td Stars forms
+ * derive from it.
+ */
+export interface Limit {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  /** the origin routines 291/292 store at $256/$258 — see `td stars limit` */
+  cx: number
+  cy: number
+}
+
+/**
  * The shared `[x1,y1 To x2,y2]` limit argument.
  *
  * The bare form is *"If you don't give any parameters, AMCAF uses the limits
@@ -2345,24 +2404,51 @@ function exchangeImage(rt: Runtime, it: Interp, sprites: boolean): void {
  * the engine's own fixed point — which in whole pixels is `width - 1`. Taking
  * the size at call time is the visible difference: a program that resizes the
  * screen afterwards keeps the limits it asked for.
+ *
+ * `shift` is the engine's fixed point: 4 for Splinters (routines 277/278), 6
+ * for Td Stars (291/292). It matters because the `To` bound has 1 subtracted
+ * in those units, which makes it EXCLUSIVE in whole pixels.
+ *
+ * The explicit form also NORMALISES: `cmp.w d0,d2 / bhi / exg.l d0,d2` per
+ * axis, so `30,20 To 1,2` is accepted and read backwards. The swap happens
+ * after the subtract, so the two orderings are not quite mirror images —
+ * ascending gives x1..x2-1 and descending gives x2..x1.
+ *
+ * `cx`/`cy` are the origin the Td Stars forms then store. See TdStarLimit.
  */
-function readLimit(rt: Runtime, it: Interp): { x1: number; y1: number; x2: number; y2: number } {
+function readLimit(rt: Runtime, it: Interp, shift: number): Limit {
+  const u = 1 << shift
   if (it.atStmtEnd()) {
     const s = rt.screen
     if (!s) amcafErr()
-    return { x1: 0, y1: 0, x2: s.width - 1, y2: s.height - 1 }
+    return { x1: 0, y1: 0, x2: s.width - 1, y2: s.height - 1, cx: s.width / 2, cy: s.height / 2 }
   }
-  const x1 = it.evalInt()
+  const a = it.evalInt()
   it.expect(',')
-  const y1 = it.evalInt()
+  const b = it.evalInt()
   it.expect('to')
-  const x2 = it.evalInt()
+  const c = it.evalInt()
   it.expect(',')
-  const y2 = it.evalInt()
-  return { x1, y1, x2, y2 }
+  const d = it.evalInt()
+
+  // In sub-pixel units, exactly as the routine holds them: `lsl.w #n` then
+  // `subq.l #1` on the high pair, then `cmp.w`/`exg.l` to order each axis.
+  let lx = a * u
+  let hx = c * u - 1
+  let ly = b * u
+  let hy = d * u - 1
+  if (!(hx > lx)) [lx, hx] = [hx, lx]
+  if (!(hy > ly)) [ly, hy] = [hy, ly]
+
+  // The origin the routine then computes — and it MIXES THE AXES.
+  const cx = (lx + ly) / 2 / u
+  const cy = (hx + hy) / 2 / u
+  // Positions are truncated to whole pixels before being tested, so the
+  // sub-pixel bounds collapse: `c*u - 1` excludes pixel c, `a*u` includes a.
+  return { x1: Math.ceil(lx / u), y1: Math.ceil(ly / u), x2: Math.floor(hx / u), y2: Math.floor(hy / u), cx, cy }
 }
 
-const inLimit = (rt: Runtime, lim: { x1: number; y1: number; x2: number; y2: number } | null, x: number, y: number): boolean => {
+const inLimit = (rt: Runtime, lim: Limit | null, x: number, y: number): boolean => {
   const s = rt.screen
   if (!s) return false
   if (!lim) return x >= 0 && y >= 0 && x < s.width && y < s.height
@@ -2391,12 +2477,28 @@ function drawSplinters(rt: Runtime): void {
   s.rp.bitMap.invalidate()
 }
 
-/** put back what Splinters Back saved, which is how the background survives */
-function restoreSplinters(rt: Runtime): void {
+/** Splinters Back: snapshot the pixels under the CURRENT positions */
+function backSplinters(rt: Runtime): void {
   const sp = rt.amcaf.splinters
   const s = rt.screen
-  if (!s || !sp.saved) return
-  for (const q of sp.saved) s.rp.putPixel(q.x, q.y, q.c)
+  if (!s) return
+  sp.savedPrev = sp.saved
+  sp.saved = sp.p.map((q) => ({ x: q.x | 0, y: q.y | 0, c: Math.max(0, s.rp.point(q.x | 0, q.y | 0)) }))
+}
+
+/**
+ * Put back what Splinters Back saved, which is how the background survives.
+ *
+ * `prev` picks the older generation, for the double-buffered Del: the buffer
+ * being cleared was last drawn two frames ago, so the pixels under it are the
+ * ones saved two Backs ago.
+ */
+function restoreSplinters(rt: Runtime, prev: boolean): void {
+  const sp = rt.amcaf.splinters
+  const s = rt.screen
+  const from = prev ? sp.savedPrev : sp.saved
+  if (!s || !from) return
+  for (const q of from) s.rp.putPixel(q.x, q.y, q.c)
   s.rp.bitMap.invalidate()
 }
 

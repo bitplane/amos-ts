@@ -1070,6 +1070,49 @@ describe('slice 9: Splinters and Td Stars', () => {
     expect(rt.screens.get(0)!.rp.point(0, 0)).toBe(9)
   })
 
+  /**
+   * Routines 282 and 283 ($6c48, $6c60) are each FOUR calls — del, move,
+   * back, draw — and the two differ only in which del. An earlier pass had
+   * Single Do as restore-move-draw and Double Do as move-draw, reasoning that
+   * a double-buffered screen already carries the last frame as background;
+   * the routines and the manual both disagree.
+   *
+   * Double Del "must wipe the pre-last pixels ... (when using Double
+   * Buffering)", so Back keeps two generations and the two Dels put back
+   * different ones. With a single generation they were the same call, and a
+   * test could not tell them apart.
+   */
+  it('Single Do and Double Do are del-move-back-draw, from different generations', () => {
+    const base = [
+      ...scr,
+      'Ink 9 : Bar 0,0 To 19,19',
+      'Coords Bank 4,200',
+      'Coords Read 0,0,0,0 To 1,1,4,0',
+      'Splinters Bank 5,50',
+      'Splinters Init',
+      'Splinters Gravity 0,1',
+    ]
+    // Do runs Back itself, so the background keeps advancing and a following
+    // Single Del cleans up the frame just drawn
+    const single = run([...base, 'Splinters Single Do', 'Splinters Single Do', 'Splinters Single Del'])
+    const px = single.rt.screens.get(0)!.rp
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 2; x++) expect(px.point(x, y), `${x},${y}`).toBe(9)
+
+    // the two Dels work on different generations. After ONE Do there is a
+    // current generation and no previous one, so Double Del has nothing to
+    // put back — which is exactly the frame-behind it models.
+    const one = run([...base, 'Splinters Single Do'])
+    expect(one.rt.amcaf.splinters.saved).not.toBe(null)
+    expect(one.rt.amcaf.splinters.savedPrev).toBe(null)
+
+    // after TWO, the generations hold different positions, a frame apart
+    const two = run([...base, 'Splinters Single Do', 'Splinters Single Do'])
+    const sp = two.rt.amcaf.splinters
+    const at = (g: typeof sp.saved): string => (g ?? []).map((q) => `${q.x},${q.y}`).join(' ')
+    expect(at(sp.savedPrev)).not.toBe(at(sp.saved))
+    expect(at(sp.savedPrev)).not.toBe('')
+  })
+
   it('Td Stars Bank reserves 12 bytes a star, and Init spreads them', () => {
     const { rt } = run([...scr, 'Td Stars Bank 6,20', 'Td Stars Origin 32,16', 'Td Stars Init'])
     expect(rt.memBanks.get(6)!.data.length).toBe(240)
@@ -1078,6 +1121,39 @@ describe('slice 9: Splinters and Td Stars', () => {
     // "the stars are moved by random values to avoid that they all start in
     // the origin" -- so their velocities differ
     expect(new Set(st.s.map((q) => q.vx)).size).toBeGreaterThan(1)
+  })
+
+  /**
+   * DEFECT: Td Stars Limit silently overwrites Td Stars Origin, and the
+   * explicit form computes the replacement wrongly.
+   *
+   * Routine 293 (Td Stars Origin) stores its pair at $256/$258. Routine 291
+   * (the bare Limit) writes a LONGWORD to $256 — the same two words — so a
+   * limit re-centres the field. Routine 292 (the `x1,y1 To x2,y2` form) then
+   * derives that centre as
+   *
+   *     add.w d1,d0 / lsr.w #1,d0     ->  $256 = (x1 + y1) / 2
+   *     add.w d3,d2 / lsr.w #1,d2     ->  $258 = (x2 + y2) / 2
+   *
+   * which averages x against y instead of each axis against its own pair.
+   * Byte-identical in 1.50, so it survived every release. Nothing in the
+   * manual mentions that Limit touches the origin at all.
+   */
+  it('Td Stars Limit clobbers the origin, and the explicit form mixes the axes', () => {
+    // the bare form re-centres on the screen, discarding an earlier Origin
+    const bare = run([...scr, 'Td Stars Bank 6,20', 'Td Stars Origin 5,7', 'Td Stars Limit'])
+    expect([bare.rt.amcaf.stars.ox, bare.rt.amcaf.stars.oy]).toEqual([32, 16]) // a 64x32 screen
+
+    // the explicit form: x1=10,y1=20 To x2=40,y2=30 should centre on (25,25).
+    // It gives ((10+20)/2, (39+29)/2) = (15,34) — the second is off the
+    // rectangle entirely, and below the screen.
+    const expl = run([...scr, 'Td Stars Bank 6,20', 'Td Stars Origin 5,7', 'Td Stars Limit 10,20 To 40,30'])
+    expect([expl.rt.amcaf.stars.ox, expl.rt.amcaf.stars.oy]).toEqual([15, 34])
+
+    // ordering the call the other way round keeps the origin, which is the
+    // only way to get the one you asked for
+    const ok = run([...scr, 'Td Stars Bank 6,20', 'Td Stars Limit', 'Td Stars Origin 5,7'])
+    expect([ok.rt.amcaf.stars.ox, ok.rt.amcaf.stars.oy]).toEqual([5, 7])
   })
 
   it('Td Stars Move sends them outward and recycles at the limit', () => {
@@ -1228,13 +1304,20 @@ describe('slice 11: the four-player adaptor and the second mouse', () => {
 
   it('Smouse Speed and Limit Smouse hold their settings', () => {
     expect(run(['Smouse Speed 3']).rt.amcaf.smouse.speed).toBe(3)
+    // the To bound is EXCLUSIVE: routine 278 shifts both corners into
+    // sixteenths and then `subq.l #1` the high pair, so pixel 30 is outside
     const { rt } = run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse 1,2 To 30,20'])
-    expect(rt.amcaf.smouse.limit).toEqual({ x1: 1, y1: 2, x2: 30, y2: 20 })
+    expect(rt.amcaf.smouse.limit).toMatchObject({ x1: 1, y1: 2, x2: 29, y2: 19 })
+    // ...and the corners are normalised, `cmp.w` + `exg.l` per axis. The swap
+    // happens after the subtract, so descending is not quite the mirror of
+    // ascending: it gives 30..1 where ascending gave 1..29
+    const back = run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse 30,20 To 1,2'])
+    expect(back.rt.amcaf.smouse.limit).toMatchObject({ x1: 1, y1: 2, x2: 30, y2: 20 })
     // "If the parameters are omitted, the full size of the current screen" —
     // and routine 277 ($6b66) SNAPSHOTS it rather than deferring, reading
     // $4c/$4e off the current screen and storing (size << 4) - 1, which in
     // whole pixels is size - 1
-    expect(run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse']).rt.amcaf.smouse.limit).toEqual({
+    expect(run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse']).rt.amcaf.smouse.limit).toMatchObject({
       x1: 0,
       y1: 0,
       x2: 63,
@@ -1242,7 +1325,7 @@ describe('slice 11: the four-player adaptor and the second mouse', () => {
     })
     // ...so a later resize does not move the limits
     const resized = run(['Screen Open 0,64,32,4,Lowres', 'Limit Smouse', 'Screen Open 1,320,200,4,Lowres'])
-    expect(resized.rt.amcaf.smouse.limit).toEqual({ x1: 0, y1: 0, x2: 63, y2: 31 })
+    expect(resized.rt.amcaf.smouse.limit).toMatchObject({ x1: 0, y1: 0, x2: 63, y2: 31 })
     // with no screen at all the routine takes its `Rbeq 376` error branch
     expect(() => run(['Screen Close 0', 'Limit Smouse'])).toThrow()
   })
