@@ -169,6 +169,19 @@ function textRuns(from: number, to: number): Array<{ at: number; end: number; te
    * Object worker is `bne.b` + `movea.l` + `movea.w`, and reads as "f0$N,x".
    * A real message is mostly letters and spaces; opcodes that happen to be
    * printable are mostly punctuation.
+   *
+   * This test alone is NOT enough either, and believing it cost two wrong
+   * readings. `53 46 53 47 3f 46` is `subq.w #$1,d6 / subq.w #$1,d7 /
+   * move.w d6,$8(a7)` and reads as "SFSG?F" — six bytes, five of them
+   * letters, so 83% and through the filter. It appears in ELEVEN AMCAF
+   * routines (92, 95, 225, 226-233) and it is the very instruction that
+   * decides whether a region's far corner is inclusive, so hiding it hid the
+   * answer. `4c 61 74 4a 40 66` in Ham Best is "LatJ@f" and is
+   * `bsr / tst.w d0 / bne`.
+   *
+   * The caller therefore also requires the run to sit where control cannot
+   * FALL IN — after an rts, a bra or a jmp. That is where a real inline
+   * string lives, and no reachable instruction can be mistaken for one.
    */
   const looksLikeProse = (s: string): boolean =>
     s.length >= 12 || [...s].filter((c) => /[A-Za-z ]/.test(c)).length >= s.length * 0.75
@@ -273,13 +286,28 @@ function disassemble(label: string, n: number): void {
       const runs = textRuns(start, end)
       const lines: string[] = []
       let skipUntil = -1
+      /**
+       * Whether control can fall into the next address. A text run is only
+       * believed where it cannot — see `textRuns` for the two readings that
+       * believing the character test alone got wrong.
+       *
+       * The routine's first instruction is entered, so this starts false. A
+       * genuine inline string usually begins ON the `rts` that precedes it
+       * (`4e 75` is "Nu", which is why so many of them read as "NuWork    "),
+       * and that falls out here for free: the rts is emitted as an
+       * instruction, sets the flag, and the run is taken from the address
+       * after it.
+       */
+      const BREAKS = /^(rts|rte|rtr|bra|jmp)(\.[bwl])?$/
+      let unreachable = false
       for (const line of raw.split('\n')) {
-        const m = /^\s*([0-9a-f]+)\s/.exec(line)
+        const m = /^\s*([0-9a-f]+)\s+(\S+)/.exec(line)
         const at = m ? parseInt(m[1]!, 16) : -1
         if (at >= 0 && at < skipUntil) continue
-        const run = runs.find((r) => at >= r.at && at < r.end)
+        const run = unreachable ? runs.find((r) => at >= r.at && at < r.end) : undefined
         if (run) {
-          lines.push(`  ${run.at.toString(16).padStart(7, '0')}  dc.b       ${JSON.stringify(run.text)}`)
+          const text = run.text.slice(at - run.at)
+          lines.push(`  ${at.toString(16).padStart(7, '0')}  dc.b       ${JSON.stringify(text)}`)
           skipUntil = run.end
           continue
         }
@@ -287,7 +315,11 @@ function disassemble(label: string, n: number): void {
         if (call) {
           lines.push(`  ${at.toString(16).padStart(7, '0')}  ${call.text}`)
           skipUntil = at + call.size
-        } else lines.push(line)
+          unreachable = /^R(bra|jmp)\b/.test(call.text)
+        } else {
+          lines.push(line)
+          unreachable = BREAKS.test(m ? m[2]! : '')
+        }
       }
       console.log(lines.join('\n'))
       unlinkSync(tmp)
