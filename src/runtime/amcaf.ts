@@ -135,6 +135,7 @@ import { parseSampleBank } from './audio'
 import { pp20Decrunch } from '../amiga/powerpacker'
 import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, MAX_PORT, PORT_MOUSE, joyFire } from '../interp/gameport'
 import { BitMap } from '../amiga/graphics'
+import { AmigaFS } from '../amiga/vfs'
 import type { Screen } from './screen'
 import { amigaMatch } from '../amiga/dospattern'
 import { joinAmigaPath } from '../amiga/vfs'
@@ -3106,23 +3107,58 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Ppunpack start To end — decrunch a PowerPacker block in place.
+     * Ppunpack sourcebank To destinationbank — decrunch a PowerPacker BANK
+     * into a freshly reserved one. An earlier pass read the two arguments as
+     * ADDRESSES and decrunched in place, which is not what routine 236
+     * ($59ec) does with either of them:
      *
-     * The codec is `src/amiga/powerpacker.ts`, which this port has had since
-     * the LDos work: PP20 is a real `powerpacker.library` format rather than
-     * something AMCAF invented.
+     *     move.l (a3)+,d7 / move.l (a3)+,d0    the destination, then the source
+     *     cmp.l  d0,d7 / Rbeq routine 390      the same bank twice is error 23
+     *     Rjsr   routine 1121                  resolve the SOURCE to an address
+     *     ...
+     *     lea    $5a78(pc),a0                  "Work    "
+     *     Rjsr   routine 1103                  RESERVE the destination
+     *
+     * The size it reserves is the decrunched length, which PP20 keeps in the
+     * top three bytes of its last long -- `move.l -$4(a0,d6.l),d2 / lsr.l
+     * #$8,d2`, where d6 is the bank's own length less sixteen. The decrunch
+     * itself is powerpacker.library's, `movea.l $36c(a2),a6 / jsr -$24(a6)`,
+     * which is ppDecrunchBuffer; `src/amiga/powerpacker.ts` has had the codec
+     * since the LDos work.
+     *
+     * A NEGATIVE destination means chip memory, the same `bpl.b / neg.l d0`
+     * convention Wload uses -- here the sign chooses the type it passes to
+     * Reserve, `moveq #$2,d1`.
+     *
+     * The three requester messages come straight off the checks: `move.w
+     * -$c(a0),d0 / andi.w #$c,d0` rejects an icon or sprite bank with message
+     * 4, "PX20" is message 7 ("File/bank is encrypted"), and anything that is
+     * neither is message 8. None of them existed here.
      */
     'ppunpack'(it) {
-      const start = it.evalInt()
+      const src = it.evalInt()
       it.expect('to')
-      it.evalInt()
-      const m = rt.resolveWrite(start)
-      if (!m) amcafErr()
+      const arg = it.evalInt()
+      if (src === arg) amcafErr()
+      // NOTE: the kind bits live in the bank header twelve bytes below the
+      // data, which this port has no equivalent of; banks 1 and 2 are the
+      // sprite and icon banks by AMOS convention and stand in for them
+      if ((src === 1 && rt.spriteBank) || (src === 2 && rt.iconBank)) amcafMsg(4)
+      const bank = rt.memBanks.get(src)
+      if (!bank) amcafErr()
+      const sig = String.fromCharCode(...bank.data.subarray(0, 4))
+      if (sig === 'PX20') amcafMsg(7)
+      if (sig !== 'PP20') amcafMsg(8)
+      let out: Uint8Array
       try {
-        pp20Decrunch(m.data.subarray(m.off))
+        out = pp20Decrunch(bank.data)
       } catch {
-        amcafErr()
+        amcafMsg(8)
       }
+      const chip = arg < 0
+      const n = chip ? -arg : arg
+      rt.reserveBank(n, out.length, 'Work    ', false, chip)
+      rt.memBanks.get(n)!.data.set(out)
     },
 
     /**
@@ -3924,36 +3960,57 @@ function saveBank(rt: Runtime, it: Interp): void {
 }
 
 /**
- * `Io Error$` texts.
+ * `Io Error$` texts — AMCAF's OWN table, read out of the binary.
  *
- * These are dos.library's, not the extension's — AMCAF ships no strings at
- * all, and the manual says the function "Returns a dos errorstring". Only the
- * codes a modelled filesystem can actually produce are listed; anything else
- * gets the empty string the manual describes for an unknown number ("If no
- * error number exists, an empty string will be returned").
+ * An earlier pass wrote "AMCAF ships no strings at all" and listed dos.library
+ * codes from memory. It ships twenty-six of them. Routine 173 is a four-byte
+ * `Rbra routine 383`, and 383 ($a508) opens with a Kickstart check:
+ *
+ *     Rbsr routine 372                 movea.l $4.w,a0 / move.w $14(a0),d0
+ *     cmp.w #$25,d0 / blt.b $a53c      exec.library's version, against 2.0
+ *
+ * At 37 or above it calls dos.library Fault() at `jsr -$1d4(a6)` with an EMPTY
+ * header (four zero bytes at $a562), a 128-byte buffer at $21b2, and then
+ * takes the result from $21b4 -- two bytes in, because Fault writes ": " in
+ * front of the text even when the header is empty. Below 37 it walks this
+ * table instead: a code byte, a NUL-terminated string, and a zero code to end.
+ * It runs to $a7c6, which is exactly where routine 384 begins.
+ *
+ * The strings below are that table, character for character. DEVIATION: the
+ * modelled machine is a Kickstart 3 A1200, so the real routine would take the
+ * Fault() arm and dos.library's wording would win where the two differ. There
+ * is no Fault() here to call, and this table is at least the same extension's
+ * idea of the same errors. Anything not listed gets the empty string, which is
+ * what both arms give: "If no error number exists, an empty string will be
+ * returned".
  */
 const DOS_ERRORS: Record<number, string> = {
-  103: 'insufficient free store',
-  105: 'task table full',
-  120: 'argument line invalid or too long',
-  121: 'file is not an object module',
-  202: 'object in use',
+  49: 'file not executable',
+  103: 'not enough memory available',
+  121: 'file is not executable',
+  202: 'object is in use',
   203: 'object already exists',
   204: 'directory not found',
   205: 'object not found',
-  206: 'invalid window',
-  210: 'invalid stream component name',
-  212: 'object not of required type',
-  213: 'disk not validated',
-  214: 'disk write protected',
+  207: 'object is too large',
+  210: 'object name invalid',
+  211: 'invalid object lock',
+  212: 'object is not of required type',
+  213: 'disk is not validated',
+  214: 'disk is write-protected',
+  215: 'rename across devices attempted',
   216: 'directory not empty',
-  218: 'device not mounted',
+  217: 'too many levels',
+  218: 'device (or volume) is not mounted',
+  219: 'seek failure',
+  220: 'comment is too long',
   221: 'disk full',
-  222: 'file is protected from deletion',
+  222: 'object is protected from deletion',
   223: 'file is write protected',
   224: 'file is read protected',
   225: 'not a valid DOS disk',
   226: 'no disk in drive',
+  232: 'no more entries in directory',
 }
 const dosErrorText = (n: number): string => DOS_ERRORS[n] ?? ''
 
@@ -5916,14 +5973,31 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * =Disk Type(directory$) — 0 a real device, 1 an assign, 2 a volume name.
      * "Using this function you can filter specific disk types out of a
      * device list."
+     *
+     * Routine 100 ($3694) walks the real DosList, and the walk is what settles
+     * the three answers: `$2b8(a5)` is DOSBase, `$22` its dl_Root, `$18` the
+     * RootNode's rn_Info, `$4` the DosInfo's di_DevInfo, each a BPTR turned
+     * into a pointer by `adda.l a1,a1` twice, and then `move.l $4(a1),d3` off
+     * the matching entry is dol_Type verbatim. The names are BSTRs at `$28`,
+     * compared with `bclr.b #$5` on both sides, so the match is
+     * case-insensitive.
+     *
+     * Two checks the port did not have. The string is truncated to the first
+     * colon (`clr.b (a1)` one past it) and the compare then requires
+     * `cmpi.b #$3a,(a0)+` right after the device name, so a name with NO colon
+     * runs off the end of the string into `Rbeq routine 390`, AMOS error 23.
+     * And running off the end of the DosList without a match is routine 391,
+     * error 81, rather than a guess.
      */
     'disk type': (_, a) => {
-      // NOTE: an assign and a volume are not told apart here. The distinction
-      // is a dos.library device-list walk, and this port's AmigaFS keeps its
-      // assign map private, so a name that is not a floppy device answers 2.
-      // APPROXIMATED for that reason.
-      const name = s0(a, 0).replace(/:.*$/, '')
-      return VI(/^df\d$/i.test(name) ? 0 : 2)
+      const arg = s0(a, 0)
+      if (!arg.includes(':')) amcafErr()
+      const name = arg.slice(0, arg.indexOf(':'))
+      const has = (list: string[]): boolean => list.some((n) => n.toLowerCase() === name.toLowerCase())
+      if (has([...AmigaFS.DRIVES])) return VI(0)
+      if (has(rt.vfs?.assignNames() ?? [])) return VI(1)
+      if (has(rt.vfs?.volumeNames() ?? [])) return VI(2)
+      amcafDosErr()
     },
 
     /**
@@ -5931,10 +6005,30 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * in use. The manual is candid about the third case: "If no disk is in
      * the drive, it normally should return -1, but I'm afraid..."
      *
-     * Nothing here is write protected, being read from a mounted volume, and
-     * nothing is mid-write when a keyword can observe it.
+     * Routine 101 ($3706) truncates at the colon exactly as Disk Type does and
+     * then does the real three-call dance: `Lock(name, -2)` at `-$54` with
+     * `moveq #$fe,d2` for SHARED_LOCK, `Info(lock, $168(a5))` at `-$72` into
+     * the extension block's own first bytes, and `UnLock` at `-$5a`. A failed
+     * Lock is routine 391 (error 81) and a failed Info routine 392 (error 94);
+     * the port answered -1 for a name that does not resolve, which is the one
+     * case the manual reserves for a drive with no disk in it.
+     *
+     * The three answers come straight off the InfoData: `move.l $18(a2),d0`
+     * against `moveq #$ff,d1` -- id_DiskType against ID_NO_DISK_PRESENT, -1
+     * because moveq sign-extends -- then `move.l $8(a2),d0 / cmp.b #$52,d0` is
+     * id_DiskState against ID_VALIDATED, and `tst.l $20(a2)` is id_InUse.
+     *
+     * NOTE: nothing modelled here is write protected, mid-validation or in
+     * use, so a volume that resolves answers 0. The shape of the test is the
+     * routine's; the state it reads has nowhere to come from yet.
      */
-    'disk state': (_, a) => VI(rt.vfs?.exists(s0(a, 0)) === null ? -1 : 0),
+    'disk state': (_, a) => {
+      const arg = s0(a, 0)
+      if (!arg.includes(':')) amcafErr()
+      const name = arg.slice(0, arg.indexOf(':') + 1)
+      if (rt.vfs?.exists(name) === null) amcafDosErr()
+      return VI(0)
+    },
 
     /** =Io Error / =Io Error$ — the last AmigaDOS error, not an AMOS one */
     'io error': () => VI(rt.amcaf.ioError),
@@ -5946,10 +6040,28 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * read the own Tool Types."
      */
     'command name$': () => {
-      // NOTE: nothing records the file a program was loaded from under a name
-      // the program itself could have used, so this answers empty. A program
-      // using it to find its own Tool Types gets the same nothing Tool Types$
-      // gives, which at least keeps the pair consistent. APPROXIMATED.
+      /*
+       * Routine 340 ($752c) asks three sources in order, and each is a real
+       * structure walk:
+       *
+       *     suba.l a1,a1 / movea.l $4.w,a6 / jsr -$126(a6)   FindTask(NULL)
+       *     tst.l $8c(a0) / beq                              pr_TaskNum
+       *     movea.l $ac(a0),a0 ... movea.l $10(a0),a0        pr_CLI, then
+       *                                                      cli_CommandName
+       *     movea.l $2d8(a5),a0 / movea.l $24(a0),a0         the WBStartup
+       *     movea.l $4(a0),a0                                sm_ArgList, wa_Name
+       *     movea.l $424(a5),a0 / addq.l #$8 / addq.l #$4    and AMOS's own
+       *
+       * both BPTRs turned into pointers by the `adda.l a0,a0` pairs, and the
+       * three tails differing only in routine 367 for a BSTR against 366 for
+       * a C string.
+       *
+       * DEVIATION: nothing here records the file a program was loaded from
+       * under a name the program itself could have used, so all three sources
+       * are empty and this answers empty. A program using it to find its own
+       * Tool Types gets the same nothing Tool Types$ gives, which at least
+       * keeps the pair consistent.
+       */
       return VS('')
     },
 

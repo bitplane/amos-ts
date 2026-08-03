@@ -6,6 +6,7 @@ import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
+import { pp20Crunch } from '../amiga/powerpacker'
 
 /**
  * AMCAF (Chris Hodges), against `AMCAF.Guide` and `AMOSPro_AMCAF.Lib`
@@ -702,17 +703,41 @@ describe('slice 5: disk and DOS objects', () => {
     expect(p('Pattern Match("","")')).toBe('-1')
   })
 
-  it('Disk Type calls DFn: a device', () => {
-    expect(p('Disk Type("DF0:")')).toBe('0')
-    expect(p('Disk Type("Workbench:")')).toBe('2')
+  /*
+   * Routine 100 ($3694) walks the real DosList -- DOSBase, dl_Root, rn_Info,
+   * di_DevInfo, each a BPTR -- and returns dol_Type off the matching entry, so
+   * a device, an assign and a volume are three genuinely different answers.
+   * Running off the end of the list is routine 391, and a string with no colon
+   * in it runs off the end of the string into routine 390.
+   */
+  it('Disk Type answers off the device list, and errors when a name is not on it', () => {
+    expect(runFs(['Print Disk Type("DF0:")']).out.trim()).toBe('0')
+    expect(runFs(['Print Disk Type("Work:")']).out.trim()).toBe('2')
+    expect(runFs(['Assign "Data:" To "Work:"', 'Print Disk Type("Data:")']).out.trim()).toBe('1')
+    // everything after the colon is cut, so a path answers for its device
+    expect(runFs(['Print Disk Type("Work:some/file")']).out.trim()).toBe('2')
+    expect(() => runFs(['Print Disk Type("Nowhere:")'])).toThrow(/File format not recognised/)
+    expect(() => runFs(['Print Disk Type("Work")'])).toThrow(/Illegal function call/)
   })
 
-  it('Io Error$ gives dos.library text, and empty for an unused number', () => {
-    // "Returns a dos errorstring" -- and "If no error number exists, an empty
-    // string will be returned"
+  it('Disk State errors on a name that does not resolve, not -1', () => {
+    // -1 is reserved for a drive with no disk in it: `move.l $18(a2),d0`
+    // against `moveq #$ff,d1` is id_DiskType against ID_NO_DISK_PRESENT. A
+    // failed Lock is routine 391 and a failed Info routine 392
+    expect(runFs(['Print Disk State("Work:")']).out.trim()).toBe('0')
+    expect(() => runFs(['Print Disk State("Nowhere:")'])).toThrow(/File format not recognised/)
+    expect(() => runFs(['Print Disk State("Work")'])).toThrow(/Illegal function call/)
+  })
+
+  it('Io Error$ gives the extension its OWN texts, and empty for an unused number', () => {
+    // twenty-six of them, at $a56a, ending exactly where routine 384 begins
     expect(p('Io Error$(205)')).toBe('object not found')
-    expect(p('Io Error$(214)')).toBe('disk write protected')
+    expect(p('Io Error$(214)')).toBe('disk is write-protected')
+    expect(p('Io Error$(218)')).toBe('device (or volume) is not mounted')
+    expect(p('Io Error$(232)')).toBe('no more entries in directory')
     expect(p('"["+Io Error$(9999)+"]"')).toBe('[]')
+    // 206 is a real dos.library code the extension's table simply omits
+    expect(p('"["+Io Error$(206)+"]"')).toBe('[]')
   })
 
   it('Dos Hash lands every name in a 0..71 bucket', () => {
@@ -971,9 +996,36 @@ describe('slice 5: disk and DOS objects', () => {
     expect([...rt.memBanks.get(8)!.data.subarray(0, 2)]).toEqual([0xab, 0xcd])
     // a file that is not PP20 comes through unchanged
     expect([...rt.memBanks.get(9)!.data.subarray(0, 2)]).toEqual([0xab, 0xcd])
-    // Ppunpack wants a real PP20 header; plain data is an error, where
-    // Ppfromdisk above is documented as taking an unpacked file as it is
-    expect(() => runFs(['Reserve As Work 7,64', 'Reserve As Work 8,64', 'Ppunpack Start(7) To Start(8)'])).toThrow()
+  })
+
+  /*
+   * Routine 236 ($59ec) takes BANK NUMBERS, not addresses -- `Rjsr routine
+   * 1121` resolves the source and `Rjsr routine 1103` RESERVES the
+   * destination, with the name "Work    " sitting at $5a78 right after the
+   * code. The size comes off PP20's last long, `move.l -$4(a0,d6.l),d2 /
+   * lsr.l #$8,d2`. An earlier pass read both arguments as addresses and
+   * decrunched in place.
+   */
+  it('Ppunpack decrunches one BANK into another it reserves itself', () => {
+    const packed = pp20Crunch(new Uint8Array(64).fill(0x5a))
+    const pokes = [...packed].map((b, i) => `Poke Start(7)+${i},${b}`)
+    const { rt } = runFs([`Reserve As Work 7,${packed.length}`, ...pokes, 'Ppunpack 7 To 8'])
+    const out = rt.memBanks.get(8)!.data
+    expect(out.length).toBe(64)
+    expect([...out.subarray(0, 4)]).toEqual([0x5a, 0x5a, 0x5a, 0x5a])
+    // and a negative destination is the same chip-memory convention Wload uses
+    const chip = runFs([`Reserve As Work 7,${packed.length}`, ...pokes, 'Ppunpack 7 To -8'])
+    expect(chip.rt.memBanks.get(8)!.data.length).toBe(64)
+  })
+
+  it('Ppunpack has three requester messages and one AMOS error', () => {
+    // the same bank twice is `cmp.l d0,d7 / Rbeq routine 390`
+    expect(() => runFs(['Reserve As Work 7,64', 'Ppunpack 7 To 7'])).toThrow(/Illegal function call/)
+    // anything that is not PP20 is message 8
+    expect(() => runFs(['Reserve As Work 7,64', 'Ppunpack 7 To 8'])).toThrow(/Not a PowerPacker/)
+    // and "PX20" is message 7, the encrypted variant
+    const px = ['Poke Start(7),80', 'Poke Start(7)+1,88', 'Poke Start(7)+2,50', 'Poke Start(7)+3,48']
+    expect(() => runFs(['Reserve As Work 7,64', ...px, 'Ppunpack 7 To 8'])).toThrow(/encrypted/)
   })
 
   it('the Object accessors read whatever Examine last described', () => {
