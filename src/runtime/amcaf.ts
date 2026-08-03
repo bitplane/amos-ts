@@ -1143,49 +1143,109 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Bzoom s1,x1,y1,x2,y2 To s2,x3,y3,factor — an integer zoom.
+     * Bzoom s1,x1,y1,x2,y2 To s2,x3,y3,factor — routine 352 ($7b56), 638
+     * bytes. An integer zoom.
      *
      * "the graphics are double, four times or eight times as wide and from 1
      * to 15 times as high", and the rounding is the blitter showing through:
      * "The coordinates x1 and x2 are rounded down to the next multiple of
      * eight, x3 is even rounded to the nearest multiple of 16."
      *
-     * The factor packs both: the low nibble is the vertical multiple and the
-     * high nibble selects the horizontal one.
+     * The factor packs both nibbles, and an earlier pass had them THE WRONG
+     * WAY ROUND. The routine validates the mode before it touches anything
+     * else, which is what settles it:
+     *
+     *   move.l (a3)+,d0 / Rbmi routine 390          a negative mode
+     *   move.w d0,d1 / andi.w #$f0,d0 / tst.w d0 / Rbeq routine 390
+     *   lsr.w #$4,d0 / subq.w #$1,d0 / move.w d0,$342(a2)
+     *   andi.w #$f,d1 / cmp #$1 / #$2 / #$4 / #$8 / Rbne routine 390
+     *   move.w d1,$340(a2)
+     *
+     * `$342` is the HIGH nibble minus one, and it is read as `move.w
+     * $342(a2),d1` for the count of extra times each finished destination row
+     * is copied — so the HIGH nibble is the VERTICAL multiplier, 1 to 15.
+     * `$340` is the LOW nibble and it selects between four whole code paths:
+     *
+     *   1  move.b (a4)+,(a5)+                            1x
+     *   2  move.b (a4)+,d0 / add.w d0,d0
+     *      / move.w $eb2(a2,d0.w),(a5)+                  2x, a 256-word table
+     *   4  lsl.w #$2,d0 / move.l $10b2(a2,d0.w),(a5)+    4x, 256 longs
+     *   8  lsl.w #$3,d0 / two longs from $14b2(a2)       8x, 256 pairs
+     *
+     * so the LOW nibble is the HORIZONTAL one, and only 1, 2, 4 and 8 exist
+     * because each needs its own bit-stretching table. The three tables are
+     * contiguous — $eb2 + 256*2 = $10b2, + 256*4 = $14b2 — which is what
+     * confirms the reading rather than just fitting it.
+     *
+     * Both far corners are EXCLUSIVE. `sub.l d3,d5 / subq.l #$1,d5` and
+     * `sub.l d2,d4 / lsr.w #$3,d4 / subq.w #$1,d4` are dbra counts, so the
+     * copy is (y2-y1) rows of (x2-x1)/8 bytes from x1,y1.
+     *
+     * DEVIATION: those two `subq`s are also why a degenerate box does not
+     * error — a zero extent underflows to $ffff and the dbra runs 65536
+     * times, scribbling far past both bitmaps. Doing nothing is not what the
+     * routine does; reproducing it is not something this port can do.
+     *
+     * NOTE: the masks are `andi.w`, so they clear the low bits of the WORD
+     * and leave the high word alone — `& 0xff8` and `& 0xff0` rather than
+     * `& ~7` and `& ~15`, which differ for a negative coordinate (-8 becomes
+     * 4088, not -8). Reproduced.
+     *
+     * NOTE: the plane count is `move.w $50(a0),$334(a2)` off the SOURCE, and
+     * six plane pointers are loaded for each screen regardless, so a
+     * destination shallower than the source is written past the end of its
+     * planes. The port masks to the source's depth instead, which also keeps
+     * a deeper destination's upper planes — the routine leaves them alone
+     * too. And there is no clipping at either end.
      */
     'bzoom'(it) {
       const s1 = it.evalInt()
       it.expect(',')
-      const x1 = it.evalInt() & ~7
+      const x1 = it.evalInt() & 0xff8
       it.expect(',')
       const y1 = it.evalInt()
       it.expect(',')
-      const x2 = it.evalInt() & ~7
+      const x2 = it.evalInt() & 0xff8
       it.expect(',')
       const y2 = it.evalInt()
       it.expect('to')
       const s2 = it.evalInt()
       it.expect(',')
-      const x3 = it.evalInt() & ~15
+      const x3 = it.evalInt() & 0xff0
       it.expect(',')
       const y3 = it.evalInt()
       it.expect(',')
-      const factor = it.evalInt()
+      const mode = it.evalInt()
+      // the mode is popped and checked before any other argument is even read
+      if (mode < 0) amcafErr()
+      const vy = (mode >> 4) & 0xf
+      const hx = mode & 0xf
+      if (vy === 0) amcafErr()
+      if (hx !== 1 && hx !== 2 && hx !== 4 && hx !== 8) amcafErr()
       const src = rt.screens.get(s1)
       const dst = rt.screens.get(s2)
       if (!src || !dst) amcafErr()
-      const vy = Math.max(1, factor & 15)
-      const hx = Math.max(1, (factor >> 4) & 15) || 1
-      for (let y = 0; y <= y2 - y1; y++) {
-        for (let x = 0; x <= x2 - x1; x++) {
-          const v = src.rp.point(x1 + x, y1 + y)
-          if (v < 0) continue
+      if (x2 - x1 <= 0 || y2 - y1 <= 0) return // see the DEVIATION above
+
+      const sbm = src.rp.bitMap
+      const dbm = dst.rp.bitMap
+      const sp = sbm.pixels
+      const dp = dbm.pixelsW()
+      const mask = (1 << sbm.depth) - 1
+      for (let y = 0; y < y2 - y1; y++) {
+        for (let x = 0; x < x2 - x1; x++) {
+          const from = (y1 + y) * sbm.width + x1 + x
+          if (from < 0 || from >= sp.length) continue
+          const v = sp[from]! & mask
           for (let dy = 0; dy < vy; dy++) {
-            for (let dx = 0; dx < hx; dx++) dst.rp.putPixel(x3 + x * hx + dx, y3 + y * vy + dy, v)
+            for (let dx = 0; dx < hx; dx++) {
+              const to = (y3 + y * vy + dy) * dbm.width + x3 + x * hx + dx
+              if (to < 0 || to >= dp.length) continue
+              dp[to] = (dp[to]! & ~mask) | v
+            }
           }
         }
       }
-      dst.rp.bitMap.invalidate()
     },
 
     /**

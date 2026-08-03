@@ -1628,19 +1628,59 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
     expect(run([...bar, 'Print Count Pixels(0,259,0,0 To 10,10)']).out.trim()).toBe('0')
   })
 
-  it('Bzoom scales by an integer factor and rounds x down to a multiple of 8', () => {
-    // "The coordinates x1 and x2 are rounded down to the next multiple of
-    // eight, x3 is even rounded to the nearest multiple of 16."
+  /**
+   * A single lit pixel at the left of the source row, so the two multipliers
+   * can be told apart. The box is 0,0 To 8,1 — both far corners exclusive —
+   * which copies the eight pixels of row 0. The destination lands at 0,16 to
+   * keep clear of the console cursor screen 1 draws into its own bitmap.
+   */
+  const zoom = (mode: string): number[] => {
     const { rt } = run([
       'Screen Open 0,64,32,16,Lowres',
       'Screen Open 1,64,32,16,Lowres',
-      'Screen 0 : Cls 0 : Ink 5 : Bar 0,0 To 7,1',
-      'Bzoom 0,0,0,7,1 To 1,0,0,$22',
+      'Screen 1 : Cls 0',
+      'Screen 0 : Cls 0 : Ink 5 : Plot 0,0',
+      `Bzoom 0,0,0,8,1 To 1,0,16,${mode}`,
     ])
     const px = rt.screens.get(1)!.rp.bitMap.pixels
-    expect(px[0]).toBe(5)
-    expect(px[1]).toBe(5) // doubled horizontally
-    expect(px[64]).toBe(5) // and vertically
+    const at = (x: number, y: number): number => px[(16 + y) * 64 + x]!
+    return [at(0, 0), at(1, 0), at(2, 0), at(0, 1), at(0, 2)]
+  }
+
+  /**
+   * The two nibbles were the wrong way round. `$342(a2)` is the HIGH nibble
+   * minus one and counts extra copies of each finished destination ROW;
+   * `$340(a2)` is the LOW nibble and picks between four bit-stretching
+   * tables, which is why only 1, 2, 4 and 8 exist horizontally. The manual
+   * agrees once it is read the same way: "double, four times or eight times
+   * as wide and from 1 to 15 times as high".
+   */
+  it('Bzoom takes its width from the low nibble and its height from the high', () => {
+    //                      x0 x1 x2  y1 y2
+    expect(zoom('$12')).toEqual([5, 5, 0, 0, 0]) // 2 wide, 1 high
+    expect(zoom('$21')).toEqual([5, 0, 0, 5, 0]) // 1 wide, 2 high
+    expect(zoom('$31')).toEqual([5, 0, 0, 5, 5]) // 1 wide, 3 high
+    expect(zoom('$14')).toEqual([5, 5, 5, 0, 0]) // 4 wide, 1 high
+    expect(zoom('$22')).toEqual([5, 5, 0, 5, 0]) // the old test's factor, symmetric
+  })
+
+  /**
+   * The mode is popped and validated before any other argument is read:
+   * `Rbmi routine 390` on the whole long, `andi.w #$f0,d0 / tst.w d0 / Rbeq`
+   * on the vertical, and four `cmp.w`s with an `Rbne` on the horizontal.
+   */
+  it('Bzoom validates both nibbles of the factor', () => {
+    const bad = (mode: string): void => {
+      run([
+        'Screen Open 0,64,32,16,Lowres',
+        'Screen Open 1,64,32,16,Lowres',
+        `Bzoom 0,0,0,8,1 To 1,0,0,${mode}`,
+      ])
+    }
+    expect(() => bad('$13')).toThrow(/illegal function call/i) // 3 is not 1,2,4,8
+    expect(() => bad('$02')).toThrow(/illegal function call/i) // a zero height
+    expect(() => bad('-1')).toThrow(/illegal function call/i) // Rbmi
+    expect(() => bad('$F8')).not.toThrow() // 15 high, 8 wide is the maximum
   })
 
   it('Mask Copy without a mask is a plain Screen Copy', () => {
