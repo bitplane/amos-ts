@@ -1596,6 +1596,42 @@ describe('slice 7: graphics', () => {
     expect(px[16 * 64 + 40]! & 1).toBe(0) // well outside is not
   })
 
+  /*
+   * Routine 353 ($7dd4) is a per-scanline circle whose only write is
+   * `bchg.b d0,(a1,d1.w)`. An earlier pass swept it parametrically and OR-ed.
+   */
+  it('Bcircle toggles, which is why the same circle twice erases it', () => {
+    const one = run([...scr, 'Bcircle 20,10,5,0'])
+    expect(one.rt.screens.get(0)!.rp.point(15, 10)).toBe(1)
+    const twice = run([...scr, 'Bcircle 20,10,5,0', 'Bcircle 20,10,5,0'])
+    expect(twice.rt.screens.get(0)!.rp.point(15, 10)).toBe(0)
+    expect(twice.rt.screens.get(0)!.rp.point(17, 6)).toBe(0)
+  })
+
+  it('Bcircle leaves the very top and bottom pixels undrawn', () => {
+    // at dy = r the four plots are two pairs at the same x and cancel; the two
+    // plots before the loop exist to survive the same cancellation at dy = 0
+    const rp = run([...scr, 'Bcircle 20,10,5,0']).rt.screens.get(0)!.rp
+    expect(rp.point(20, 5)).toBe(0)
+    expect(rp.point(20, 15)).toBe(0)
+    expect(rp.point(15, 10)).toBe(1)
+    expect(rp.point(25, 10)).toBe(1)
+    // and the Newton root rounds rather than flooring: 25-16 = 9 gives 3, but
+    // 25-4 = 21 gives 5 where a floor would give 4
+    expect(rp.point(17, 6)).toBe(1)
+    expect(rp.point(15, 8)).toBe(1)
+  })
+
+  it('Bcircle clamps x to the right edge instead of clipping it', () => {
+    // `cmp.w d3,d0 / blt / move.w d3,d0 / subq.w #$1,d0` -- a circle off the
+    // right edge leaves a stripe down the last column
+    const rp = run([...scr, 'Bcircle 62,10,5,0']).rt.screens.get(0)!.rp
+    expect(rp.point(63, 8)).toBe(1)
+    expect(rp.point(63, 9)).toBe(1)
+    expect(rp.point(63, 10)).toBe(1)
+    expect(rp.point(63, 12)).toBe(1)
+  })
+
   it('Blitter Busy is never true, and Blitter Wait has nothing to wait for', () => {
     expect(run([...scr, 'Print Blitter Busy']).out.trim()).toBe('0')
     expect(() => run([...scr, 'Blitter Wait'])).not.toThrow()

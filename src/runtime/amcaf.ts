@@ -1153,6 +1153,34 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *
      * The odd argument is the point: the manual lists it beside Turbo Draw as
      * the way to draw the one-pixel boundary Blitter Fill then fills.
+     *
+     * Routine 353 ($7dd4), 216 bytes, and an earlier pass had it as a
+     * trigonometric sweep that OR-ed pixels in. Three things it is not.
+     *
+     * It is a per-scanline circle, not a parametric one: `move.l d7,d4 /
+     * mulu.w d4,d4` takes r squared once, then for each dy from r down to 0
+     * `move.l d7,d2 / mulu.w d2,d2 / neg.l d2 / add.l d4,d2` gives the
+     * remainder and $7e2a takes its square root by Newton -- and that square
+     * root is not a floor. `lsr.l #$1,d2 / addx.l d0,d2` folds the bit the
+     * shift dropped back in, so each step rounds, and it answers 5 for 24 and
+     * 2 for 2 where a floor would answer 4 and 1.
+     *
+     * It TOGGLES. `bchg.b d0,(a1,d1.w)` is the only write in the routine, so
+     * drawing the same circle twice erases it -- which is what a blitter area
+     * fill wants, since it fills between pairs of set bits. That also explains
+     * the two plots before the loop: at dy = 0 the four plots toggle the two
+     * ends of the middle row twice each and cancel, and those two leave them
+     * set. At dy = r the same cancellation runs with nothing to undo it, so
+     * the very top and bottom pixels of the circle are never drawn.
+     *
+     * And x is CLAMPED, not clipped: `cmp.w d3,d0 / blt / move.w d3,d0 /
+     * subq.w #$1,d0` pins anything at or past the width to width-1, so a
+     * circle running off the right edge leaves a stripe down the last column.
+     * y is clipped properly at both ends and x is dropped when negative.
+     *
+     * `move.w $4c(a2),d3 / lsr.w #$3,d3` is the row stride, the screen's WIDTH
+     * rather than the BitMap's bytesPerRow, and `(a1,d1.w)` indexes it with a
+     * WORD -- which is what the string "32K-LIMIT!" at $7ea2 is about.
      */
     'bcircle'(it) {
       const x = it.evalInt()
@@ -1162,17 +1190,42 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const r = it.evalInt()
       it.expect(',')
       const plane = it.evalInt()
-      const s = rt.screen
-      if (!s) return
+      // `cmp.w #$6,d3 / Rbge routine 390` first, then the plane pointer being
+      // null is error 23 too -- which planeOf gives for a plane past the depth
+      if (plane >= 6) amcafErr()
       const p = planeOf(rt, -1, plane)
-      const steps = Math.max(16, r * 8)
-      for (let i = 0; i < steps; i++) {
-        const a = (i / steps) * 2 * Math.PI
-        const px = x + Math.round(r * Math.cos(a))
-        const py = y + Math.round(r * Math.sin(a))
-        if (px < 0 || py < 0 || px >= p.bm.width || py >= p.bm.height) continue
-        const off = p.base + py * p.bm.bytesPerRow + (px >> 3)
-        p.planes[off] = p.planes[off]! | (0x80 >> (px & 7))
+      if (r < 0) amcafErr()
+      if (r === 0) return // `addq.l #$8,a3 / rts` -- the other two are popped
+      const stride = p.bm.width >> 3
+      const flip = (px: number, py: number): void => {
+        if (px < 0 || py < 0 || py >= p.bm.height) return
+        const cx = px >= p.bm.width ? p.bm.width - 1 : px
+        const off = p.base + py * stride + (cx >> 3)
+        p.planes[off] = p.planes[off]! ^ (0x80 >> (cx & 7))
+      }
+      const isqrt = (n: number): number => {
+        if (n === 0) return 0
+        let d1 = n
+        let d2 = n
+        // the routine has no bound; sixty-four is ours, and it never bites
+        for (let guard = 0; guard < 64; guard++) {
+          d1 = d2
+          const sum = (Math.floor(n / d1) & 0xffff) + d1
+          d2 = (sum >> 1) + (sum & 1)
+          if (d2 === d1) break
+        }
+        return d2
+      }
+      flip(x - r, y)
+      flip(x + r, y)
+      const rr = r * r
+      for (let dy = r; ; dy--) {
+        const dx = isqrt(rr - dy * dy)
+        flip(x - dx, y - dy)
+        flip(x + dx, y - dy)
+        flip(x - dx, y + dy)
+        flip(x + dx, y + dy)
+        if (dy === 0) break
       }
       p.bm.invalidate()
     },
@@ -3202,6 +3255,27 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * Ppfromdisk file$,bank — load a PowerPacked file, decrunching it.
      * Pptodisk is the other direction and is not implemented: this port has a
      * PP20 decoder but no encoder, which LDos's Ppsave already records.
+     *
+     * Routine 237 ($5a80), 256 bytes, is a universal loader rather than a
+     * PowerPacker one. It opens the file (routine 357, failing to 391), takes
+     * its size (359) and reads EIGHT bytes (360, failing to 392 after a
+     * close), and then branches on the signature four ways:
+     *
+     *     cmpi.l #$50503230,(a0) / beq        "PP20", the AllocMem-and-
+     *                                         decrunch path below
+     *     cmpi.l #$50583230,(a0) / beq        "PX20" -> requester 7
+     *     cmpi.l #$494d5021,(a0) / beq        "IMP!" -> routine 138,
+     *                                         Imploder Load
+     *     Rbsr routine 362 / Rbra routine 104 anything else -> Wload
+     *
+     * so a plain file really is "taken as it is", by handing the whole thing
+     * to Wload; each arm closes the file first with routine 362 and lets the
+     * other keyword reopen it.
+     *
+     * DEVIATION: the "IMP!" arm cannot be reproduced. Imploder Load and
+     * Imploder Unpack are AMCAF keywords this port has not implemented, and
+     * there is no Imploder decoder here to route to, so an imploded file falls
+     * through to the raw load Wload would give.
      */
     'ppfromdisk'(it) {
       const file = it.evalStr()
@@ -3209,15 +3283,14 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const n = it.evalInt()
       const raw = rt.vfs?.readFile(file) ?? null
       if (raw === null) {
+        // `Rbsr routine 357 / Rbeq routine 391` -- a failed open is error 81
         rt.amcaf.ioError = 205
-        amcafErr()
+        amcafDosErr()
       }
+      const sig = String.fromCharCode(...raw.subarray(0, 4))
+      if (sig === 'PX20') amcafMsg(7)
       let data: Uint8Array = raw
-      try {
-        data = pp20Decrunch(raw)
-      } catch {
-        // not PowerPacked: the manual's own fallback is to take it as it is
-      }
+      if (sig === 'PP20') data = pp20Decrunch(raw)
       rt.reserveBank(n, data.length, 'Amcaf   ')
       rt.memBanks.get(n)!.data.set(data)
     },
