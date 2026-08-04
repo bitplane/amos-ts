@@ -2730,13 +2730,49 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       extSlot(it.evalInt())
     },
 
-    /*
-     * Extreinit, the fourth of the extension-table keywords, is n/a: it ends
-     * by calling the extension's own init code, which is the never-execute-68k
-     * boundary rather than a missing hook. The reading is in the NA entry in
-     * ../coverage/status.ts, where an n/a keyword's case belongs, and there is
-     * deliberately no handler here.
+    /**
+     * Extreinit extnb — routine 136 ($3d08), 96 bytes. *"Reinitialises the
+     * extension, like when starting AMOS."*
+     *
+     * The other three read a pointer straight out of the slot's sixteen
+     * bytes. This one has no pointer to read, so it finds the code by walking
+     * the slot's TOKEN TABLE (`$24(a5)`, four bytes a slot) to its end:
+     *
+     *     move.w  (a1)+,d0 / beq             ; a zero length ends the table
+     *     addq.l  #$2,a1                     ; past the routine word
+     *   scan: move.b (a1)+,d0
+     *     cmp.b   #$f6,d0 / bcs scan         ; name bytes, terminator >= $f6
+     *     move.l  a1,d0 / addq.l #$1,d0
+     *     andi.b  #$fe,d0                    ; round up to even, and again
+     *
+     * and then takes the first non-zero word after it, which is where the
+     * extension's code begins:
+     *
+     *     move.l  #$41506578,d1              ; 'APex', the caller's identity
+     *     jsr     (a1)
+     *     moveq   #$ff,d1 / cmp.l d1,d0 / bne  ; $ff is failure
+     *     moveq   #$e,d0 / Rbra routine 397  ; message 14
+     *
+     * DEVIATION: the walk finds an entry point this port has no equivalent
+     * for, so what is reproduced is what running it DOES -- the extension's
+     * state as at load. That is the port's `init` hook (../runtime/extimpl.ts),
+     * the same one the Runtime calls when it builds, and it is a hook rather
+     * than a state assignment here precisely so this keyword can call it a
+     * second time.
+     *
+     * This was recorded as n/a on the grounds that the routine ends in a
+     * `jsr` into extension code. That was a claim about the MECHANISM, and
+     * every other keyword in the group is modelled by its effect -- Extdefault
+     * `jsr`s a pointer too. The distinction did not survive being asked about.
+     *
+     * NOTE: message 14 cannot fire. It is the extension answering $ff to say
+     * its own reinit failed, and a hook that rebuilds a state object has no
+     * way to fail. `Serious error during reinitialision` is the extension's
+     * spelling, kept as it ships.
      */
+    'extreinit'(it) {
+      rt.extSlotImpls().get(extSlot(it.evalInt()))?.init?.(rt)
+    },
 
     /**
      * Audio Lock / Audio Free — reserve the four channels from audio.device.

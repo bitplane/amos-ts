@@ -37,6 +37,29 @@ export interface ExtensionImpl {
   instructions?: (rt: Runtime) => Record<string, Instr>
   functions?: (rt: Runtime) => Record<string, Func>
   /**
+   * Build this extension's state, as it is the moment the library loads.
+   *
+   * Called once when the Runtime is built — which is what a port's state
+   * FIELD used to do, `amcaf: AmcafState = newAmcafState()` and fifteen more
+   * like it on the Runtime. Uniform, but owned by the wrong object and
+   * impossible to run twice, and both of those are the same problem: an
+   * extension's startup was not something a port could declare, so nothing
+   * could ask for it again.
+   *
+   * AMCAF's Extreinit asks for exactly that. It is `init` and not `defaults`
+   * because the two are different sizes: TURBO's default routine puts back
+   * two settings, where its init builds the whole TurboState.
+   *
+   * NOTE: AMOS's own shape for this is subscriber LISTS rather than one
+   * routine per extension — `Sys_ClearRoutines`, `Sys_DefaultRoutines` and
+   * `Sys_ErrorRoutines` (+Equ.s:1215, :1242-3), joined with `AddRoutine`
+   * (SyCall 98) and walked with `CallRoutines` (99); one subsystem may sit in
+   * all three, as the menus do at +Lib.s:17355. Only the default list has a
+   * caller here, so only it is modelled, and this init has no AMOS list
+   * behind it at all — it is where the port's own construction lives.
+   */
+  init?: (rt: Runtime) => void
+  /**
    * Put this extension's own settings back to what they are at boot.
    *
    * Every extension slot holds three pointers on the machine (`$f8(a5)`, 16

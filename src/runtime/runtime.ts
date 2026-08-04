@@ -13,15 +13,15 @@ import { Collide } from './collide'
 import { bufferRegion, claimedRegion, findRegion, slottedRegion, within } from './memmap'
 import type { MemRegion } from './memmap'
 import { newPiConfig } from './piconfig.gen'
-import { newSpeechState, ensureLib, type SpeechState } from './speech'
-import { newIoPortsState, type IoPortsState } from './ioports'
-import { newCtextState, type CtextState } from './ctext'
-import { newJdState, type JdState } from './jd'
-import { newSticksState, type SticksState } from './sticks'
-import { newStarsState, starfieldVbl, type StarsState } from './stars'
-import { newAgaState, type AgaState } from './aga'
-import { newAmcafState, type AmcafState } from './amcaf'
-import { newPersonnalState, type PersonnalState } from './personnal'
+import { ensureLib, type SpeechState } from './speech'
+import { type IoPortsState } from './ioports'
+import { type CtextState } from './ctext'
+import { type JdState } from './jd'
+import { type SticksState } from './sticks'
+import { starfieldVbl, type StarsState } from './stars'
+import { type AgaState } from './aga'
+import { type AmcafState } from './amcaf'
+import { type PersonnalState } from './personnal'
 import type { PiConfig } from './piconfig.gen'
 import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlideStep, fselStore, slideOpen, slideShut } from './fsel'
 import type { SlideState } from './fsel'
@@ -37,12 +37,12 @@ import { implsBySlot, type ExtensionImpl } from './extimpl'
 import { defaultHost, type Host } from '../amiga/host'
 import { Machine } from '../amiga/machine'
 import { BNK, BOB_BANK, BOB_BANK_FLAGS, ICON_BANK, ICON_BANK_FLAGS, type BankRef } from './banks'
-import { newLdosState, type LdosState } from './ldos'
-import { newTftState, tftVbl, type TftState } from './tft'
-import { newJvpState, type JvpState } from './jvp'
-import { newLocaleState, type LocaleState } from './locale'
-import { blitVbl, newTurboState, starsVbl, type TurboState } from './turbo'
-import { newTdState, type TdState } from './td'
+import { type LdosState } from './ldos'
+import { tftVbl, type TftState } from './tft'
+import { type JvpState } from './jvp'
+import { type LocaleState } from './locale'
+import { blitVbl, starsVbl, type TurboState } from './turbo'
+import { type TdState } from './td'
 import { ObjectBank } from './objects'
 import { BankImage } from './objects'
 import { Display } from './display'
@@ -330,8 +330,15 @@ export class Runtime {
   /**
    * Personnal's memory registers. The extension builds its own copper list
    * and keeps pointers into it; see personnal.ts.
+   *
+   * The `!` here and on the fourteen other port states is not a loose end:
+   * each is built by its own port's `init` (./extimpl.ts), which the
+   * constructor runs for every port before anything can reach one. They used
+   * to be `= newPersonnalState()` initialisers, which meant an extension's
+   * startup belonged to this class and could only ever happen once — and
+   * AMCAF's Extreinit is a request to do it again.
    */
-  personnal: PersonnalState = newPersonnalState()
+  personnal!: PersonnalState
   /**
    * BEAMCON0 ($DFF1DC). Personnal's Set Pal/Set Ntsc write it directly and
    * nothing here reads it yet — the composite window is a PAL monitor either
@@ -471,17 +478,17 @@ export class Runtime {
   machine: Machine = new Machine()
 
   /** LDos keeps its own channels, separate from Open In/Open Out */
-  ldos: LdosState = newLdosState()
-  tft: TftState = newTftState()
+  ldos!: LdosState
+  tft!: TftState
   /** JVP-NoKids: sort type, the six string fields, and the message bank */
-  jvp: JvpState = newJvpState()
+  jvp!: JvpState
   /** Locale: the open catalog, and the emit description file */
-  locale: LocaleState = newLocaleState()
+  locale!: LocaleState
 
   /** TURBO Plus: its own Check zones, and the task priority Multi No sets */
-  turbo: TurboState = newTurboState()
+  turbo!: TurboState
   /** AMOS 3D's loaded objects and settings */
-  td: TdState = newTdState()
+  td!: TdState
 
   fileChans = new Map<
     number,
@@ -722,19 +729,19 @@ export class Runtime {
    */
   pi: PiConfig = newPiConfig()
   /** the Music extension's narrator state (+Music.s); see speech.ts */
-  speech: SpeechState = newSpeechState()
+  speech!: SpeechState
   /** Serial, Printer and Parallel device state (IOPorts, slot 6) */
-  ioports: IoPortsState = newIoPortsState()
-  ctext: CtextState = newCtextState()
+  ioports!: IoPortsState
+  ctext!: CtextState
   /** JD's own data zone: Get Area's pair, and what Exdatazone hands out */
-  jd: JdState = newJdState()
-  sticks: SticksState = newSticksState()
+  jd!: JdState
+  sticks!: SticksState
   /** Stars 2.33's interrupt-driven starfield, slot 20 */
-  stars: StarsState = newStarsState()
+  stars!: StarsState
   /** AGA 1.0's 256-colour screens, blocks and shared palette, slot 20 */
-  aga: AgaState = newAgaState()
+  aga!: AgaState
   /** AMCAF's Examine context and last DOS error (slot 8) */
-  amcaf: AmcafState = newAmcafState()
+  amcaf!: AmcafState
   /** tick at which a finished Say hands the music voices back, -1 when idle */
   speechRestore = -1
   static readonly COPPER_LONG = 12 * 1024
@@ -2949,6 +2956,13 @@ export class Runtime {
     // before makeAllInstructions below: the ports' slot-qualified keywords are
     // bound from this
     this.extBindings = opts.extBindings ?? null
+    // and before anything can reach a port's state: every port builds its own,
+    // which is the `init` an extension's startup used to be fifteen field
+    // initialisers on this class. EVERY port, not just the bound ones --
+    // dispatch is by name, so a port's keywords are reachable whether or not
+    // identify.ts placed it in a slot, and they must not find state missing.
+    // AMCAF's Extreinit calls one of these again; see ./extimpl.ts.
+    for (const impl of extensionImpls()) impl.init?.(this)
     // one composition point: the fs/audio/onText options are shorthand for
     // host members, and every default comes from defaultHost()
     this.host = { ...defaultHost(), ...opts.host }

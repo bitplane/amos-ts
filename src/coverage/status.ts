@@ -1437,10 +1437,9 @@ export const FAITHFUL = new Set<string>([
   'td stars single del', 'td stars double del',
   // slice 10: vectors and internals. Vec Rot X/Y/Z and Amcaf Version$ are
   // APPROXIMATED, and so is Extbase -- it answers the right PREDICATE (an
-  // empty slot reads 0) off a synthetic address. Of the four extension-table
-  // keywords only Extreinit is n/a, and it is the only one that runs the
-  // extension's own code.
-  'extdefault', 'extremove',
+  // empty slot reads 0) off a synthetic address. The other three
+  // extension-table keywords are faithful; none of the four is n/a.
+  'extdefault', 'extremove', 'extreinit',
   'vec rot angles', 'vec rot pos', 'vec rot precalc',
   'speek', 'sdeek', 'amos cli', 'audio lock', 'audio free',
   'flush libs', 'open workbench',
@@ -1934,15 +1933,6 @@ export const NA = new Set<string>([
   // Its whole output is machine code for a machine this is not, and running it
   // is the boundary `call` already draws. No handler is registered.
   'trans screen dynamic',
-  // Extreinit (routine 136) is the odd one of AMCAF's four extension-table
-  // keywords. Extbase, Extdefault and Extremove read a POINTER out of the
-  // table at $f8(a5) and are implemented; this one walks the slot's token
-  // table at $24(a5) to find where it ends, then calls whatever code follows
-  // it with `d1 = 'APex'`. That is entering an extension's init at an address
-  // it computed by parsing, which is the same never-execute-68k boundary
-  // `call`, `execall` and `lib call` sit behind -- not a missing hook. No
-  // handler is registered.
-  'extreinit',
   // the native AMOS compiler overlay (LoadSeg APCMP + jsr, +CompExt.s:219,349)
   'compile',
   'cmpcall',
@@ -2189,6 +2179,8 @@ export const NOTES: Record<string, string> = {
     "Routine 133 (\$3c8e), 30 bytes: `lsl.w #\$4,d0 / lea \$f8(a5),a0 / move.l (a0,d0.w),d3` -- AMOS's extension table, 16 bytes a slot, and this reads the base at +\$0 where Extdefault reads +\$4 and Extremove +\$8. The bounds are the same in all three and are the only check any of them makes: `subq.l #\$1,d0 / Rbmi` and `moveq #\$1a,d1 / cmp.l d1,d0 / Rbge`, so slots are 1..26 and anything else is error 23. Twenty-six is the same 26 the registry describes. An EMPTY slot reads the zero the table starts as, which is the keyword's real use -- `If Extbase(8)=0` asks whether AMCAF is loaded -- and that answer is exact here. DEVIATION: the VALUE is synthetic. Extension code in this port is TypeScript, so there is no hunk to point at; the address is distinct per slot, obviously synthetic, and deliberately mapped by nothing, so a program that Peeks through it fails rather than reading plausible rubbish",
   'extdefault':
     "Routine 134 (\$3cac), 44 bytes. 'Calls the default routine of the extension, like the AMOS command Default does', and the bytes agree exactly: it indexes the same table `Default` walks (`movea.l \$4(a0,d0.w),a1`) and calls the same pointer, one slot instead of every one. That hook is now declared on the port (../runtime/extimpl.ts) rather than called by name from the core, which is what made this implementable -- `Default` had `turboDefault(rt)` and `personnalDefault(rt)` hard-coded, so there was no way to ask for one slot's. A slot whose extension has no default routine is `beq` past the call on the machine and a port with no hook here, not an error either way",
+  'extreinit':
+    "Routine 136 (\$3d08), 96 bytes. 'Reinitialises the extension, like when starting AMOS.' The other three extension-table keywords read a pointer out of the slot's sixteen bytes; this one has none to read, so it walks the slot's TOKEN table at \$24(a5) to its end -- `move.w (a1)+,d0 / beq` for the length, skip the routine word, scan name bytes until one is `>= \$f6`, round up to even -- and calls the first non-zero word after it with `d1 = 'APex'`, raising message 14 if it answers \$ff. DEVIATION: that entry point has no equivalent here, so what is reproduced is what running it DOES: the extension's state as at load, through the port's `init` hook. This was recorded as n/a on the grounds that it ends in a `jsr` into extension code -- a claim about the MECHANISM, where every other keyword in the group is modelled by its effect, Extdefault's `jsr` through a pointer included. NOTE: message 14 cannot fire; it is the extension reporting its own reinit failed, and rebuilding a state object has no way to",
   'extremove':
     "Routine 135 (\$3cd8), 48 bytes: `movea.l \$8(a0,d0.w),a1 / clr.l \$8(a0,d0.w)` and then a call through it if it was not null. 'Removes the extension in the slot from memory like when exiting AMOS', with the manual candid about the price -- 'Otherwise, you can lose memory or even crash your computer.' NOTE: a no-op past the bounds check, and FAITHFUL for the reason Audio Free is. What the remove routine does is hand memory back and nothing here models memory as scarce; what the `clr.l` does is make a SECOND Extremove do nothing, which is already true of the first. The observable effect on the calling program is the same. Note what it does not touch: +\$0 is left alone, so Extbase still answers after a remove, and this port matches",
   'coords bank':

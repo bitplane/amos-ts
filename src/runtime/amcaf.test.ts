@@ -93,8 +93,10 @@ describe('the slice-0 wiring', () => {
     // only have come from slot 8's table, so identity, slot binding and
     // tokenisation all worked and only the handler is missing. Any AMCAF
     // keyword still without one will do -- this was Reset Computer until the
-    // machine layer gave it one
-    expect(() => run(['Extreinit 1'])).toThrow(/unimplemented: extreinit/)
+    // machine layer gave it one, then Extreinit until the slot lifecycle did.
+    // The Imploder pair are the last two, so when they land this test needs a
+    // different subject or a different proof
+    expect(() => run(['Imploder Load 1,"x"'])).toThrow(/unimplemented: imploder load/)
   })
 
   it('under the census policy it is skipped instead of throwing', () => {
@@ -4625,6 +4627,28 @@ describe('AMCAF: the extension table', () => {
   it('the core Default calls the same hook, for every occupied slot', () => {
     const set = (rt: Runtime): void => void (rt.turbo.scene.iconBank = 5)
     expect(runBound(['Default'], set).rt.turbo.scene.iconBank).toBe(2)
+  })
+
+  it('Extreinit rebuilds the whole state, where Extdefault resets settings', () => {
+    // the difference is the point: TURBO's default routine puts back Scene
+    // Icon Bank and the mask palette, and its init builds a fresh TurboState.
+    // Anything that is NOT one of those two settings survives one and not
+    // the other
+    const set = (rt: Runtime): void => {
+      rt.turbo.scene.iconBank = 5
+      rt.turbo.objects.limit = 8
+    }
+    const def = runBound(['Extdefault 12'], set).rt
+    expect(def.turbo.scene.iconBank).toBe(2)
+    expect(def.turbo.objects.limit).toBe(8)
+
+    const re = runBound(['Extreinit 12'], set).rt
+    expect(re.turbo.scene.iconBank).toBe(2)
+    expect(re.turbo.objects.limit).toBe(0)
+  })
+
+  it('Extreinit on a slot whose port declares no init does nothing', () => {
+    expect(() => runBound(['Extreinit 1'])).not.toThrow()
   })
 
   it('Extremove leaves the base alone — it clears +$8, not +$0', () => {

@@ -4,24 +4,24 @@ import { DOSFALSE, execute } from '../amiga/process'
 import { BNK, isObjectBank } from './banks'
 import type { Instr, Func } from '../interp/builtins'
 import { aliasForSlots, implLabel, implSlots, qualifyForSlots, type ExtensionImpl } from './extimpl'
-import { makeLdosFunctions, makeLdosInstructions } from './ldos'
+import { newLdosState, makeLdosFunctions, makeLdosInstructions } from './ldos'
 import { makeJdK3Functions, makeJdK3Instructions } from './jdk3'
-import { makeTftFunctions, makeTftInstructions } from './tft'
-import { JVP_ERRORS, makeJvpFunctions, makeJvpInstructions } from './jvp'
-import { makeLocaleFunctions, makeLocaleInstructions } from './locale'
-import { TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions, turboDefault } from './turbo'
-import { PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
-import { makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
-import { makeSpeechFunctions, makeSpeechInstructions } from './speech'
-import { makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
-import { makeCtextFunctions, makeCtextInstructions } from './ctext'
-import { makeSticksFunctions, makeSticksInstructions } from './sticks'
-import { makeStarsFunctions, makeStarsInstructions } from './stars'
-import { makeAgaFunctions, makeAgaInstructions } from './aga'
-import { JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
+import { newTftState, makeTftFunctions, makeTftInstructions } from './tft'
+import { newJvpState, JVP_ERRORS, makeJvpFunctions, makeJvpInstructions } from './jvp'
+import { newLocaleState, makeLocaleFunctions, makeLocaleInstructions } from './locale'
+import { newTurboState, TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions, turboDefault } from './turbo'
+import { newPersonnalState, PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
+import { newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
+import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions } from './speech'
+import { newIoPortsState, makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
+import { newCtextState, makeCtextFunctions, makeCtextInstructions } from './ctext'
+import { newSticksState, makeSticksFunctions, makeSticksInstructions } from './sticks'
+import { newStarsState, makeStarsFunctions, makeStarsInstructions } from './stars'
+import { newAgaState, makeAgaFunctions, makeAgaInstructions } from './aga'
+import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
 import { makeJdColourFunctions, makeJdColourInstructions } from './jdcolour'
 import { jdPrt11Aliases, makeJdPrtFunctions, makeJdPrtInstructions } from './jdprt'
-import { TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td'
+import { newTdState, TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td'
 import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
 import { parseAmosFile } from '../loader/amosfile'
 import { encodeIlbm, parseIlbm } from '../loader/iff'
@@ -4953,27 +4953,42 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
 const EXT_IMPLS: readonly ExtensionImpl[] = [
   {
     ids: ['tft-0.6'],
+    init: (rt) => {
+      rt.tft = newTftState()
+    },
     instructions: makeTftInstructions,
     functions: makeTftFunctions,
   },
   {
     ids: ['locale-0.26'],
+    init: (rt) => {
+      rt.locale = newLocaleState()
+    },
     instructions: makeLocaleInstructions,
     functions: makeLocaleFunctions,
   },
   {
     ids: ['jvp-1.01'],
+    init: (rt) => {
+      rt.jvp = newJvpState()
+    },
     instructions: makeJvpInstructions,
     functions: makeJvpFunctions,
     errors: JVP_ERRORS,
   },
   {
     ids: ['ldos-2.5', 'ldos-2.6'],
+    init: (rt) => {
+      rt.ldos = newLdosState()
+    },
     instructions: makeLdosInstructions,
     functions: makeLdosFunctions,
   },
   {
     ids: ['turbo-plus-1.0', 'turbo-plus-1.9', 'turbo-plus-2.15'],
+    init: (rt) => {
+      rt.turbo = newTurboState()
+    },
     instructions: makeTurboInstructions,
     functions: makeTurboFunctions,
     defaults: turboDefault,
@@ -4981,12 +4996,18 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
   },
   {
     ids: ['amos3d-1.0'],
+    init: (rt) => {
+      rt.td = newTdState()
+    },
     instructions: makeTdInstructions,
     functions: makeTdFunctions,
     errors: TD_ERRORS,
   },
   {
     ids: ['personal-1.0b', 'personnal-1.1'],
+    init: (rt) => {
+      rt.personnal = newPersonnalState()
+    },
     instructions: makePersonnalInstructions,
     functions: makePersonnalFunctions,
     defaults: personnalDefault,
@@ -5008,6 +5029,9 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
      * at different slots and coexist; `ext8:` reproduces that.
      */
     ids: ['amcaf-1.40', 'amcaf-1.50'],
+    init: (rt) => {
+      rt.amcaf = newAmcafState()
+    },
     instructions: makeAmcafInstructions,
     functions: makeAmcafFunctions,
     /*
@@ -5021,22 +5045,34 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
   {
     // the speech slice of the Music extension: Say, and the mouth stream
     ids: ['amospro-music-2.0'],
+    init: (rt) => {
+      rt.speech = newSpeechState()
+    },
     instructions: makeSpeechInstructions,
     functions: makeSpeechFunctions,
   },
   {
     ids: ['amospro-ioports-2.0'],
+    init: (rt) => {
+      rt.ioports = newIoPortsState()
+    },
     instructions: makeIoPortsInstructions,
     functions: makeIoPortsFunctions,
   },
   {
     // 'ctext-1.0' is the registry's stable key for CText; the library is 1.32
     ids: ['ctext-1.0'],
+    init: (rt) => {
+      rt.ctext = newCtextState()
+    },
     instructions: makeCtextInstructions,
     functions: makeCtextFunctions,
   },
   {
     ids: ['sticks-1.01b'],
+    init: (rt) => {
+      rt.sticks = newSticksState()
+    },
     instructions: makeSticksInstructions,
     functions: makeSticksFunctions,
   },
@@ -5044,6 +5080,9 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // stars.lib (AMOS 1.3) and starspro.lib (AMOS Pro) are different binaries
     // with a byte-identical token table, so one port answers for both
     ids: ['stars-2.33'],
+    init: (rt) => {
+      rt.stars = newStarsState()
+    },
     instructions: makeStarsInstructions,
     functions: makeStarsFunctions,
   },
@@ -5051,6 +5090,9 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // AGA.lib and AMOSPro_AGA.lib share one token table, so this covers
     // AMOS 1.3 and AMOS Pro; v0.09 shipped no library at all
     ids: ['aga-1.0'],
+    init: (rt) => {
+      rt.aga = newAgaState()
+    },
     instructions: makeAgaInstructions,
     functions: makeAgaFunctions,
   },
@@ -5058,6 +5100,9 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // 5.9 renumbered the token table but kept the vocabulary; dispatch is by
     // name, so one port serves both (see jd.ts)
     ids: ['jd-5.3', 'jd-5.9'],
+    init: (rt) => {
+      rt.jd = newJdState()
+    },
     instructions: makeJdInstructions,
     functions: makeJdFunctions,
     errors: JD_ERRORS,
