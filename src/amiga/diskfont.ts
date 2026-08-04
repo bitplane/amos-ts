@@ -12,6 +12,8 @@
 import { firstCodeHunk } from './hunk'
 
 export interface DiskFont {
+  /** dfh_Name, the descriptor's own 32-byte name ("topaz.font") */
+  name: string
   ySize: number
   style: number
   flags: number
@@ -113,7 +115,13 @@ export function parseDiskFont(bytes: Uint8Array): DiskFont | null {
     for (let i = 0; i < nChars; i++) a[i] = cv.getInt16(off + i * 2)
     return a
   }
+  // dfh_Name: the DiskFontHeader starts 4 bytes in (past the moveq/rts stub)
+  // and the field is 32 bytes at struct + 22. tf_Message.mn_Node.ln_Name
+  // points here, which is what AMCAF's Make Bank Font copies out
+  let name = ''
+  for (let i = 0x1a; i < 0x1a + 32 && code[i]; i++) name += String.fromCharCode(code[i]!)
   return {
+    name,
     ySize,
     style,
     flags,

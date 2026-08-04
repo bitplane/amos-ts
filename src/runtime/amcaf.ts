@@ -136,6 +136,9 @@ import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, MAX_PO
 import { BitMap } from '../amiga/graphics'
 import { AmigaFS } from '../amiga/vfs'
 import type { Screen } from './screen'
+import { FONT8 } from './font.gen'
+import { openDiskFont } from '../amiga/diskfont'
+import type { DiskFont } from '../amiga/diskfont'
 import type { MemoryBank } from '../loader/amosfile'
 import { amigaMatch } from '../amiga/dospattern'
 import { joinAmigaPath } from '../amiga/vfs'
@@ -3355,6 +3358,285 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
+     * Change Font "name.font" [,height [,style]] — routines 142, 143 and 144.
+     *
+     * Three arities, two of them one-line trampolines that push a default and
+     * fall through, which is how the whole family is spelled:
+     *
+     *     142 ($4022)  moveq #$8,d0 / move.l d0,-(a3) / Rbra routine 143
+     *     143 ($402a)  clr.l -(a3)                    / Rbra routine 144
+     *
+     * so the default height is 8 and the default style 0.
+     *
+     * Routine 144 ($4030) is graphics.library and diskfont.library, nothing
+     * else. It closes the font the RastPort already has, builds a TextAttr,
+     * opens the new one and installs it:
+     *
+     *     movea.l $52c(a5),a1 / move.l a1,d0 / Rbeq routine 394
+     *     movea.l $148(a1),a1 / movea.l $34(a1),a1     ; Ec_RastPort, rp_Font
+     *     movea.l -$18ae(a5),a6 / jsr -$4e(a6)         ; CloseFont
+     *     lea     $422(a2),a0                          ; a TextAttr
+     *     move.b  d0,$6(a0)                            ; ta_Style
+     *     move.w  d0,$4(a0)                            ; ta_YSize
+     *     move.b  #$2,$7(a0)                           ; ta_Flags = FPF_DISKFONT
+     *     ... copy the name, then append ".font" unless it ends in a dot ...
+     *     jsr     -$228(a6)                            ; OpenLibrary
+     *     jsr     -$1e(a6)                             ; OpenDiskFont
+     *     jsr     -$42(a6)                             ; SetFont(rp, font)
+     *
+     * The suffix is appended by `cmpi.b #$2e,-$5(a1) / beq` then five literal
+     * bytes — and the changelog dates it: *"Change Font now adds '.font'
+     * automatically, if needed. (Thx Markus)"*. `openDiskFont` here already
+     * did that, worked out from other callers; the binary agrees exactly.
+     *
+     * The two failures are AMCAF's own requester, not AMOS errors: a missing
+     * diskfont.library is message 9 and a font that will not open is 10.
+     *
+     * NOTE: message 9 cannot fire here. diskfont.library is modelled, so it is
+     * never absent, where the real one is a 51,200-byte file on the Fonts disk
+     * that a program could genuinely be running without.
+     *
+     * NOTE: `style` is stored into ta_Style and then decided inside
+     * OpenDiskFont, which weighs it and will accept a near miss. This port's
+     * openDiskFont matches on the SIZE alone, so the style is parsed, bounded
+     * and ignored -- as its own header already says.
+     */
+    'change font'(it) {
+      const name = it.evalStr()
+      let height = 8
+      let style = 0
+      if (it.accept(',')) {
+        height = it.evalInt()
+        if (it.accept(',')) style = it.evalInt()
+      }
+      void style
+      const s = rt.screen
+      if (!s) amcafScreenErr()
+      const f = openDiskFont((p) => rt.vfs?.read(p) ?? null, name, height & 0xffff)
+      if (!f) amcafMsg(10) // "Couldn't open font"
+      s.rp.font = f
+    },
+
+    /**
+     * Make Bank Font bank — routine 139 ($3e78), 246 bytes. *"Using this
+     * powerful command you can store any amiga font in a memory bank. The
+     * current font on the current screen will be taken"*, and the current font
+     * is `movea.l $52c(a5),a0 / movea.l $148(a0),a0 / movea.l $34(a0),a2` --
+     * screen, Ec_RastPort, rp_Font.
+     *
+     * It writes AMCAF's own container, and the layout is not guesswork: this
+     * routine builds it and routine 140 reads it back, so every field is
+     * pinned from both ends.
+     *
+     *     +$00  'FONT'                       move.l #$464f4e54,(a1)+
+     *     +$04  0                            clr.l (a1)+
+     *     +$08  $6a, the glyph data offset   moveq #$6a,d0 / move.l d0,(a1)+
+     *     +$0c  the CharLoc offset           add.l d7,d0 (d7 = YSize*Modulo)
+     *     +$10  CharSpace offset, or 0
+     *     +$14  CharKern offset, or 0
+     *     +$18  the TextFont itself, $34 bytes: moveq #$c,d0 / 13 x move.l
+     *     +$4c  30 bytes from ln_Name        movea.l $a(a2),a0 / 15 x move.w
+     *     +$6a  YSize*Modulo glyph bytes, then CharLoc, CharSpace, CharKern
+     *
+     * The size is `$6a + YSize*Modulo + 2*d6` plus `d6` again for each of
+     * CharSpace and CharKern, where `d6 = (HiChar - LoChar + 2) * 2` -- twice
+     * the character count, because CharLoc entries are longs and the other two
+     * tables are words. The `+2` is the one extra "no such glyph" entry every
+     * Amiga font carries past HiChar.
+     *
+     * The last instruction is `move.w #$270f,$36(a0)`, and $36 is $1e into the
+     * copied TextFont: **tf_Accessors = 9999**. Nothing may ever close it.
+     *
+     * The bank is `moveq #$3,d1` -- Data AND Chip, the only Reserve in the
+     * whole extension that asks for both.
+     *
+     * DEVIATION: with no Change Font done, rp_Font on the machine is whatever
+     * the screen opened with, in practice topaz.font. This port has no copy of
+     * topaz unless the running program's own disk carries one, so a null
+     * rp_Font serialises the interpreter's built-in 8x8 face instead -- same
+     * YSize, same XSize, a font of the same shape but not the same glyphs.
+     *
+     * NOTE: neither `$52c(a5)` nor `$34(a0)` is tested before it is followed,
+     * so on the machine this is two null dereferences waiting for a program
+     * with no screen open. Here they are error 23.
+     *
+     * NOTE: the thirty bytes at +$4c are usually blank. They come from
+     * `movea.l $a(a2),a0`, the Node's ln_Name, which OpenDiskFont points at
+     * dfh_Name in the loadable size file -- and all eight fonts on the
+     * original partition leave that field zero, because the name a program
+     * asks by lives in the `.font` DESCRIPTOR rather than the size file. So
+     * routine 140 dutifully points ln_Name at an empty string. Reproduced.
+     *
+     * NOTE: the copied TextFont keeps four fields this port does not model --
+     * ln_Type, ln_Pri, mn_ReplyPort and mn_Length -- and writes them as zero.
+     * Routine 140 clears the two Node links and mn_ReplyPort on the way back
+     * in, so nothing reads them; a program that pokes into the bank would see
+     * the difference and nothing else would.
+     */
+    'make bank font'(it) {
+      const bank = it.evalInt()
+      const s = rt.screen
+      if (!s) amcafErr()
+      const data = encodeFontBank(s.rp.font ?? builtinTextFont())
+      // `moveq #$3,d1` at $3eb4 -- Data and Chip, against "BankFont" at $3f66
+      rt.reserveBank(bank, data.length, 'BankFont', true, true)
+      rt.memBanks.get(bank)!.data.set(data)
+    },
+
+    /**
+     * Change Bank Font bank — routine 140 ($3f6e), 158 bytes. *"sets the text
+     * font on the current screen to the one saved in the memory bank"*.
+     *
+     * It resolves the bank (`Rjsr routine 1121`), checks
+     * `cmpi.l #$464f4e54,(a0)` and refuses anything else with error 23, then
+     * turns the stored OFFSETS back into pointers -- which is the whole reason
+     * the container exists, since a bank moves every time it is loaded:
+     *
+     *     move.l $8(a0),d0 / add.l a0,d0 / move.l d0,$3a(a0)   ; tf_CharData
+     *     move.l $c(a0),d0 / add.l a0,d0 / move.l d0,$40(a0)   ; tf_CharLoc
+     *     move.l $10(a0),d0 / beq / ... $44(a0)                ; tf_CharSpace
+     *     moveq #$4c,d0 / add.l a0,d0 / move.l d0,$22(a0)      ; ln_Name
+     *
+     * ($3a, $40, $44 and $22 are $22, $28, $2c and $a into the TextFont at
+     * +$18 -- CharData, CharLoc, CharSpace and the Node's name.)
+     *
+     * It also unlinks the embedded Node, `clr.l $18(a0) / clr.l $1c(a0) /
+     * clr.l $26(a0)`, and re-flags the font `andi.b #$7d,$2f(a0) / ori.b
+     * #$1,$2f(a0)` -- $2f is tf_Flags, so FPF_DISKFONT and FPF_REMOVED go and
+     * **FPF_ROMFONT** arrives. A bank font claims to be in ROM, which is
+     * exactly right: nothing may free it.
+     *
+     * Then `movea.l -$18ae(a5),a6 / jsr -$42(a6)`, SetFont.
+     *
+     * The CharKern arm looks broken and is not. `clr.l $48(a0)` at $3fd2 runs
+     * unconditionally -- the branch above it has no `bra` over it, unlike the
+     * CharSpace arm at $3fc0 -- so the store four instructions earlier is dead
+     * and tf_CharKern is always zeroed. But after SetFont the routine goes
+     * back for it, `move.l $14(a0),d0 / adda.l d0,a0 / move.l a0,$30(a1)`,
+     * and $30 off the live rp_Font is the same address. Net: kerning survives.
+     *
+     * NOTE: unlike Change Font this one never tests `$52c(a5)`, so with no
+     * screen open the machine follows a null pointer. Here it is error 23.
+     */
+    'change bank font'(it) {
+      const b = fontBank(rt, it.evalInt())
+      const f = decodeFontBank(b)
+      if (!f) amcafErr() // `cmpi.l #$464f4e54,(a0) / Rbne routine 390`
+      const s = rt.screen
+      if (!s) amcafErr()
+      s.rp.font = f
+    },
+
+    /**
+     * Change Print Font bank — routine 141 ($400c), and at 22 bytes the whole
+     * keyword is one store:
+     *
+     *     move.l  (a3)+,d0 / Rjsr routine 1121   ; the bank, as an address
+     *     movea.l $52c(a5),a1                    ; the current screen
+     *     movea.l $aa(a1),a1                     ; EcWindow  (+Equ.s:507)
+     *     move.l  a0,$8(a1)                      ; WiFont    (+Equ.s:686)
+     *
+     * That is the AMOS console's own charset pointer, and AMOS's character
+     * blitter reads it exactly the way the manual describes the bank:
+     * *"always 8x8 pixels big and contains 256 characters ... exactly 2 KB"*.
+     * `COut` (+W.s:15661) is `lsl.w #3,d1 / move.l WiFont(a5),a2 /
+     * add.w d1,a2`, so the byte value times eight indexes it with no LoChar
+     * and no control-code exception. The default WiFont is `T_JeuDefo`, which
+     * WOpen installs on every window it makes (+W.s:13702).
+     *
+     * It stores the ADDRESS, so the window goes on reading the bank: a program
+     * that pokes the bank afterwards changes the printed glyphs, which this
+     * port reproduces by keeping the bank's own array rather than a copy.
+     *
+     * NOTE: nothing is checked -- not the "exactly 2 KB", not the screen
+     * pointer. A bank of 100 bytes leaves the console reading past its end on
+     * the machine; here a character past the end prints blank.
+     */
+    'change print font'(it) {
+      const b = fontBank(rt, it.evalInt())
+      const s = rt.screen
+      if (!s) amcafErr()
+      s.curWin.font8 = b
+    },
+
+    /**
+     * Turbo Text x,y,text$ [,unused [,planemask]] — routines 343 ($762a), 344
+     * ($7630) and 345 ($7638), and the Guide does not mention it ANYWHERE. Not
+     * a node, not a command list, not even the changelog that at least named
+     * the transition family. The binary is the only account of it.
+     *
+     * Two trampolines and a worker again, and the defaults come out of them:
+     *
+     *     343  clr.l -(a3)                    / Rbra routine 344
+     *     344  moveq #$ff,d0 / move.l d0,-(a3) / Rbra routine 345
+     *
+     * so the fourth argument defaults to 0 and the fifth to $ff.
+     *
+     * It is AMOS's own `COut` (+W.s:15646) inlined and unrolled: same charset,
+     * same eight `move.b (a2)+,(a3) / add.l d4,a3` down the rows, same
+     * per-plane decomposition of pen and paper. What it skips is the console
+     * -- no cursor, no window clipping, no scrolling, no control codes -- and
+     * that is the "turbo".
+     *
+     *     movea.l $aa(a0),a2 / movea.l $8(a2),a2   ; EcWindow, WiFont
+     *     movea.l $148(a0),a6                      ; Ec_RastPort
+     *     move.b  $19(a6),d6 / move.b $1a(a6),d0   ; rp_FgPen, rp_BgPen
+     *     movea.l a0,a3                            ; EcLogic, the planes
+     *
+     * The geometry, all of it word arithmetic:
+     *   - `move.w $4c(a0),d1 / lsr.w #$3,d1` -- EcTx over eight is both the
+     *     row stride AND the number of character cells across.
+     *   - y is a PIXEL row, not a text row: `mulu.w d1,d4`. It is bounded
+     *     `cmp.w d0,d4 / Rbhi` against EcTy - 8, unsigned, so the last legal
+     *     row is height-8; a negative y was already error 23 from `Rbmi`.
+     *   - x must be a MULTIPLE OF 8: `andi.w #$7,d0 / tst.w d0 / bne` reaches
+     *     two `rts` in a row, so anything else silently does nothing. A
+     *     negative x is error 23.
+     *   - a string running off the right is clipped, not wrapped:
+     *     `move.w d1,d5 / sub.w d3,d5 / subq.w #$1,d5`.
+     *
+     * DEFECT: the per-plane decomposition is wrong in two of its four cases.
+     * AMOS's COut has four arms behind the WiColor jump table -- CNorm (the
+     * glyph), CInv (`not.b`, the glyph inverted), CUn (`st.b`) and CZero
+     * (`clr.b`). AMCAF has three, and dispatches on the PAPER bit first:
+     * `asr.w #$1,d0 / bcs` sends a plane whose BgPen bit is set to `st.b` or
+     * `clr.b` by its FgPen bit, and everything else jams the glyph in --
+     * `lsr.w #$1,d6` at $76f8 then throws that plane's FgPen bit away unread.
+     * So a plane with pen bit 0 and paper bit 0, which should be cleared, gets
+     * the glyph, and one with pen 0 and paper 1, which should get the glyph
+     * inverted, gets zeros. There is no `not.b` in the routine at all. The
+     * upshot is that it only agrees with Print when every pen bit inside the
+     * plane mask is set: Ink 3 on four colours, Ink 15 on sixteen. Reproduced.
+     *
+     * DEFECT: the clip subtracts without checking the sign. An x at or past
+     * the right edge makes `d5` negative, and `dbra` on a negative word counts
+     * down from 65535 instead of stopping -- tens of thousands of characters
+     * poked past the end of the bitplanes. NOT REPRODUCED: nothing is drawn.
+     *
+     * NOTE: the fourth argument is dead. It is popped into d6 at $7642 and d6
+     * is overwritten with rp_FgPen at $76c4 before anything reads it, so the
+     * four-argument spelling differs from the three-argument one in no way.
+     *
+     * NOTE: it walks `EcLogic`, the plane pointers at offset 0, where COut
+     * uses `EcCurrent` ($30). On a double-buffered screen those differ and
+     * Turbo Text would write to the logical screen while Print writes to the
+     * current one.
+     */
+    'turbo text'(it) {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const text = it.evalStr()
+      let planes = 0xff
+      if (it.accept(',')) {
+        it.evalInt() // popped into d6, then clobbered by rp_FgPen -- dead
+        if (it.accept(',')) planes = it.evalInt()
+      }
+      turboText(rt, x, y, text, planes)
+    },
+
+    /**
      * Alloc Trans Source bank — routine 146 ($411a), forty bytes.
      *
      *     moveq   #$1,d2 / swap d2        $00010000 -- the SIZE, 64K exactly
@@ -4657,6 +4939,230 @@ function planeOf(rt: Runtime, screen: number, plane: number): { bm: BitMap; plan
   const bm = s.rp.bitMap
   if (plane < 0 || plane >= bm.depth) amcafErr()
   return { bm, planes: bm.planeBytes(true), base: plane * bm.planeSize }
+}
+
+/* ------------------------------------------------------------------ *
+ * Fonts: the "FONT" bank, and Turbo Text
+ * ------------------------------------------------------------------ */
+
+/** the container's fixed offsets, all of them written by routine 139 */
+const FB_MAGIC = 0x464f4e54 // 'FONT'
+/** where the copied TextFont starts; every $xx(a0) in routine 140 is this + n */
+const FB_TF = 0x18
+/** 30 bytes of ln_Name text; routine 140 points the Node's name here */
+const FB_NAME = 0x4c
+/** `moveq #$6a,d0` -- the glyph bitmap always starts here */
+const FB_DATA = 0x6a
+
+/** a bank, as Change Bank Font and Change Print Font resolve one (routine 1121) */
+function fontBank(rt: Runtime, n: number): Uint8Array {
+  const b = rt.memBanks.get(n)
+  if (!b || b.kind !== 'memory') amcafErr()
+  return b.data
+}
+
+/**
+ * The interpreter's own 8x8 set, dressed as a TextFont.
+ *
+ * Make Bank Font wants an Amiga font and this port's screens carry none until
+ * a program opens one, so this stands in for the topaz the machine would find
+ * on rp_Font. The glyphs are `FONT8`, which is AMOS's `T_JeuDefo` baked out of
+ * bin/+WFont.bin, laid out the way graphics.library expects: one row of all
+ * 256 characters side by side, so the modulo is 256 and character `c` starts
+ * at bit `c*8` of every row.
+ */
+function builtinTextFont(): DiskFont {
+  const charData = new Uint8Array(8 * 256)
+  for (let ch = 0; ch < 256; ch++) {
+    const g = FONT8[ch] ?? FONT8[32]!
+    for (let row = 0; row < 8; row++) charData[row * 256 + ch] = g[row] ?? 0
+  }
+  const charLoc: Array<[number, number]> = []
+  for (let i = 0; i < 257; i++) charLoc.push([Math.min(i, 255) * 8, 8])
+  return {
+    // what AMOS calls its own set, and what lands in the bank's name field
+    name: 'amos.font',
+    ySize: 8,
+    style: 0,
+    // FPF_ROMFONT | FPF_DESIGNED, which is what a built-in face claims
+    flags: 0x41,
+    xSize: 8,
+    // the built-in path in Screen.text draws at y - 6, so the baseline is 6
+    baseline: 6,
+    loChar: 0,
+    hiChar: 255,
+    proportional: false,
+    modulo: 256,
+    charData,
+    charLoc,
+    charSpace: null,
+    charKern: null,
+  }
+}
+
+/** Make Bank Font's container, laid out byte for byte as routine 139 writes it */
+function encodeFontBank(f: DiskFont): Uint8Array {
+  // `move.w $14(a2),d7 / mulu.w $26(a2),d7` -- YSize * Modulo
+  const glyphs = f.ySize * f.modulo
+  // `move.b $21(a2),d6 / sub.b $20(a2),d6 / addq.w #$2,d6 / add.w d6,d6`
+  const chars = f.hiChar - f.loChar + 2
+  const d6 = chars * 2
+  const locAt = FB_DATA + glyphs
+  const spaceAt = f.charSpace ? locAt + 2 * d6 : 0
+  const kernAt = f.charKern ? (f.charSpace ? spaceAt : locAt + 2 * d6) + d6 : 0
+  const size = FB_DATA + glyphs + 2 * d6 + (f.charSpace ? d6 : 0) + (f.charKern ? d6 : 0)
+  const out = new Uint8Array(size)
+  const v = new DataView(out.buffer)
+  v.setUint32(0x00, FB_MAGIC)
+  v.setUint32(0x04, 0)
+  v.setUint32(0x08, FB_DATA)
+  v.setUint32(0x0c, locAt)
+  v.setUint32(0x10, spaceAt)
+  v.setUint32(0x14, kernAt)
+  // the TextFont, at its Amiga offsets from FB_TF: the 20-byte Message first,
+  // which routine 140 clears the links of anyway
+  v.setUint16(FB_TF + 0x14, f.ySize)
+  out[FB_TF + 0x16] = f.style & 0xff
+  out[FB_TF + 0x17] = f.flags & 0xff
+  v.setUint16(FB_TF + 0x18, f.xSize)
+  v.setUint16(FB_TF + 0x1a, f.baseline)
+  // tf_Accessors: `move.w #$270f,$36(a0)`, 9999, so nothing ever closes it
+  v.setUint16(FB_TF + 0x1e, 0x270f)
+  out[FB_TF + 0x20] = f.loChar & 0xff
+  out[FB_TF + 0x21] = f.hiChar & 0xff
+  v.setUint16(FB_TF + 0x26, f.modulo)
+  // the pointer fields stay as the OFFSETS routine 140 turns back into
+  // addresses; on the machine they hold live pointers until then
+  v.setUint32(FB_TF + 0x22, FB_DATA)
+  v.setUint32(FB_TF + 0x28, locAt)
+  v.setUint32(FB_TF + 0x2c, spaceAt)
+  v.setUint32(FB_TF + 0x30, kernAt)
+  // `movea.l $a(a2),a0 / 15 x move.w (a0)+,(a1)+` -- thirty bytes of ln_Name
+  for (let i = 0; i < 30 && i < f.name.length; i++) out[FB_NAME + i] = f.name.charCodeAt(i) & 0xff
+  out.set(f.charData.subarray(0, glyphs), FB_DATA)
+  for (let i = 0; i < chars; i++) {
+    const [off, w] = f.charLoc[i] ?? [0, 0]
+    v.setUint16(locAt + i * 4, off)
+    v.setUint16(locAt + i * 4 + 2, w)
+  }
+  if (f.charSpace) for (let i = 0; i < chars; i++) v.setInt16(spaceAt + i * 2, f.charSpace[i] ?? 0)
+  if (f.charKern) for (let i = 0; i < chars; i++) v.setInt16(kernAt + i * 2, f.charKern[i] ?? 0)
+  return out
+}
+
+/** Change Bank Font's read of the same container; null is `Rbne routine 390` */
+function decodeFontBank(b: Uint8Array): DiskFont | null {
+  if (b.length < FB_DATA) return null
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength)
+  if (v.getUint32(0) !== FB_MAGIC) return null
+  const dataAt = v.getUint32(0x08)
+  const locAt = v.getUint32(0x0c)
+  const spaceAt = v.getUint32(0x10)
+  const kernAt = v.getUint32(0x14)
+  const ySize = v.getUint16(FB_TF + 0x14)
+  const flags = b[FB_TF + 0x17]!
+  const loChar = b[FB_TF + 0x20]!
+  const hiChar = b[FB_TF + 0x21]!
+  const modulo = v.getUint16(FB_TF + 0x26)
+  const chars = hiChar - loChar + 2
+  if (dataAt + ySize * modulo > b.length || locAt + chars * 4 > b.length) return null
+  const charLoc: Array<[number, number]> = []
+  for (let i = 0; i < chars; i++) charLoc.push([v.getUint16(locAt + i * 4), v.getUint16(locAt + i * 4 + 2)])
+  const words = (at: number): Int16Array | null => {
+    if (at === 0 || at + chars * 2 > b.length) return null
+    const a = new Int16Array(chars)
+    for (let i = 0; i < chars; i++) a[i] = v.getInt16(at + i * 2)
+    return a
+  }
+  let name = ''
+  for (let i = FB_NAME; i < FB_NAME + 30 && b[i]; i++) name += String.fromCharCode(b[i]!)
+  return {
+    ySize,
+    style: b[FB_TF + 0x16]!,
+    // `andi.b #$7d,$2f(a0) / ori.b #$1,$2f(a0)`: FPF_DISKFONT and FPF_REMOVED
+    // off, FPF_ROMFONT on -- a bank font claims to live in ROM so that nothing
+    // tries to free it
+    flags: (flags & 0x7d) | 0x01,
+    xSize: v.getUint16(FB_TF + 0x18),
+    baseline: v.getUint16(FB_TF + 0x1a),
+    loChar,
+    hiChar,
+    proportional: (flags & 0x20) !== 0,
+    modulo,
+    charData: b.slice(dataAt, dataAt + ySize * modulo),
+    charLoc,
+    charSpace: words(spaceAt),
+    charKern: words(kernAt),
+    name,
+  }
+}
+
+/** one row of the console charset, WiFont or `T_JeuDefo` behind it */
+function glyphRow(font: Uint8Array | null, ch: number, row: number): number {
+  if (font) return font[ch * 8 + row] ?? 0
+  return (FONT8[ch] ?? FONT8[32]!)[row] ?? 0
+}
+
+/** routine 345 ($7638): COut unrolled, straight into the logical bitplanes */
+function turboText(rt: Runtime, x: number, y: number, text: string, planes: number): void {
+  // `move.l (a3)+,d7 / bne` -- a zero mask pops the rest and returns
+  if (planes === 0) return
+  // `move.w (a1)+,d5 / bne` -- so does an empty string
+  if (text.length === 0) return
+  if (y < 0) amcafErr() // `Rbmi routine 390`
+  const s = rt.screen
+  if (!s) amcafErr() // `move.l a0,d0 / Rbeq routine 390`
+  const bm = s.rp.bitMap
+  // `move.w $4c(a0),d1 / lsr.w #$3,d1` -- EcTx, the screen's PIXEL width, over
+  // eight. NOTE: it is the row stride too, and on a screen whose width is not
+  // a multiple of 16 that is one byte short of the bitmap's real stride, which
+  // would skew the render. Screen Open rounds to a word, so it does not arise.
+  const stride = (bm.width >>> 3) & 0xffff
+  // `move.w $4e(a0),d0 / subq.w #$8,d0 / cmp.w d0,d4 / Rbhi` -- unsigned
+  if ((y & 0xffff) > ((bm.height - 8) & 0xffff)) amcafErr()
+  if (x < 0) amcafErr() // `Rbmi routine 390`
+  // `andi.w #$7,d0 / tst.w d0 / bne` lands on two `rts` in a row
+  if ((x & 7) !== 0) return
+  const col = (x & 0xffff) >>> 3
+  // `move.w d3,d0 / add.w d5,d0 / cmp.w d0,d1 / bgt` else clip to the edge
+  let count = text.length
+  if (stride <= col + count - 1) count = stride - col
+  // DEFECT: a negative count wraps the `dbra` to 65535 characters. Not here.
+  if (count <= 0) return
+  let at = ((y & 0xffff) * stride + col) | 0
+  const fg = s.rp.fgPen & 0xff
+  const bg = s.rp.bgPen & 0xff
+  const font = s.curWin.font8
+  const bytes = bm.planeBytes(true)
+  for (let i = 0; i < count; i++) {
+    const ch = text.charCodeAt(i) & 0xff
+    let mask = planes & 0xffff
+    let pen = fg
+    let paper = bg
+    for (let p = 0; p < bm.depth; p++) {
+      const take = (mask & 1) !== 0
+      mask >>= 1
+      if (!take) {
+        // `$774c lsr.w #$1,d0 / lsr.w #$1,d6` -- both bits still consumed
+        paper >>= 1
+        pen >>= 1
+        continue
+      }
+      const paperBit = paper & 1
+      paper >>= 1
+      const penBit = pen & 1
+      pen >>= 1
+      const base = p * bm.planeSize
+      for (let row = 0; row < 8; row++) {
+        const to = base + at + row * stride
+        if (to < base || to >= base + bm.planeSize) continue
+        // paper bit clear jams the glyph whatever the pen bit says; set picks
+        // all-ones or all-zeros off the pen bit. See the DEFECT above.
+        bytes[to] = paperBit === 0 ? glyphRow(font, ch, row) : penBit ? 0xff : 0x00
+      }
+    }
+    at += 1
+  }
 }
 
 /* ------------------------------------------------------------------ *

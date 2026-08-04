@@ -63,6 +63,17 @@ export interface Wind {
    * Set Curs writes it for the current window only (WiSCur +W.s:14098).
    */
   curDraw: Uint8Array
+  /**
+   * WiFont (+Equ.s:686, `WiFont equ WiNext+4` — offset 8 into the window):
+   * the 8x8 charset the CONSOLE prints with, 8 bytes a character indexed
+   * straight by the byte, 2KB for the 256 of them.
+   *
+   * `null` is `T_JeuDefo`, the interpreter's own set, which is what WOpen
+   * installs on every window it makes (`move.l T_JeuDefo(a3),WiFont(a5)`,
+   * +W.s:13702) — so a new window does NOT inherit a replaced charset. The
+   * only thing that replaces it is AMCAF's Change Print Font.
+   */
+  font8: Uint8Array | null
   tab: number
   curX: number
   curY: number
@@ -442,6 +453,7 @@ export class Screen {
       cuCol: onePlane ? 1 : 3,
       cursor: true,
       curDraw: Uint8Array.from(CURSOR_SHAPE),
+      font8: null,
       tab: 4,
       curX: 0,
       curY: 0,
@@ -959,11 +971,16 @@ export class Screen {
       pen = paper
       paper = t
     }
-    const glyph = FONT8[ch & 0xff] ?? FONT8[32]!
+    // COut (+W.s:15661) is `lsl.w #3,d1 / move.l WiFont(a5),a2 / add.w d1,a2`
+    // — the charset is indexed by the raw byte, and Change Print Font can
+    // have replaced it with a 2KB bank
+    const glyph = w.font8 ? w.font8.subarray((ch & 0xff) * 8, (ch & 0xff) * 8 + 8) : (FONT8[ch & 0xff] ?? FONT8[32]!)
     const bg = w.writing2 === 2 ? 0 : paper
     const style = styleFrom ?? w.style
     for (let row = 0; row < 8; row++) {
-      let bits = glyph[row]!
+      // a Change Print Font bank shorter than the 2KB the manual demands
+      // reads off its end on the machine; here it prints blank
+      let bits = glyph[row] ?? 0
       if (style & 2) bits |= bits >> 1 // bold
       if (style & 4) bits = row < 4 ? (bits >> 1) & 0xff : bits // italic (slanted top)
       if (style & 1 && row === 7) bits = 0xff // underline
@@ -1009,8 +1026,23 @@ export class Screen {
     }
   }
 
-  /** the graphics font set by Set Font (TSFont) — null = the 8x8 face */
-  font: DiskFont | null = null
+  /**
+   * The graphics font set by Set Font (TSFont) — null = the built-in 8x8 face.
+   *
+   * This IS `rp_Font`, and says so rather than shadowing it. There were two
+   * fields: a `font` here that Set Font wrote and `Text` read, and the
+   * RastPort's, which nothing on an AMOS screen ever assigned — so AMCAF's
+   * `=Font Style`, which reads `movea.l $34(a1),a1` off the RastPort, could
+   * only ever answer 0. AMCAF's Change Font and Change Bank Font both end in
+   * graphics.library SetFont (`jsr -$42(a6)`), so they have to land on the
+   * same field Set Font does, and on the Amiga there is only ever one.
+   */
+  get font(): DiskFont | null {
+    return this.rp.font
+  }
+  set font(f: DiskFont | null) {
+    this.rp.font = f
+  }
 
   /** Graphics text (Text x,y,s$): y is the baseline, drawn with ink. */
   text(x: number, y: number, s: string): void {
@@ -1567,6 +1599,8 @@ export class Screen {
       // rather than inheriting it (Wo4 +W.s:13772-13778)
       cursor: true,
       curDraw: Uint8Array.from(CURSOR_SHAPE),
+      // WOpen re-installs T_JeuDefo rather than inheriting src.font8
+      font8: null,
       tab: src.tab,
       curX: 0,
       curY: 0,

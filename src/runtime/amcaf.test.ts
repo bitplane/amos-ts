@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -7,6 +9,7 @@ import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { pp20Crunch } from '../amiga/powerpacker'
+import { NodeVolume } from '../cli/nodefs'
 
 /**
  * AMCAF (Chris Hodges), against `AMCAF.Guide` and `AMOSPro_AMCAF.Lib`
@@ -4027,5 +4030,332 @@ describe('AMCAF transitions', () => {
     // code for a machine this is not, and the only keyword that could reach it
     // is `Call`, n/a since the core port. So: no handler, deliberately
     expect(() => run([...scr, 'Trans Screen Dynamic 0,0,0,0'])).toThrow(/unimplemented: trans screen dynamic/)
+  })
+})
+
+/**
+ * The font group: Change Font, Make Bank Font, Change Bank Font, Change Print
+ * Font and Turbo Text.
+ *
+ * Routines 139-144 and 343-345. Four of the five are graphics.library and
+ * diskfont.library reached through AMOS's structures — `$aa(screen)` is
+ * EcWindow (+Equ.s:507) and `$8(window)` is WiFont (+Equ.s:686) — and the
+ * fifth, Turbo Text, is AMOS's own COut (+W.s:15646) unrolled.
+ */
+describe('AMCAF fonts', () => {
+  // four colours, so the per-plane decomposition has two planes to disagree on
+  const fscr = ['Screen Open 0,64,32,4,Lowres', 'Cls 0']
+
+  /** the eight bytes of one character out of a Change Print Font bank */
+  const glyph = (n: number, ch: number) => [0, 1, 2, 3, 4, 5, 6, 7].map((r) => `Poke Start(${n})+${ch * 8 + r},255`)
+
+  it('Change Print Font replaces the charset the console prints with', () => {
+    // routine 141 ($400c) stores the bank address straight into WiFont, and
+    // COut indexes it by `lsl.w #3` off the raw byte -- no LoChar, no control
+    // codes. A character of all-ones bytes prints as a solid 8x8 block.
+    const { rt } = run([
+      ...fscr,
+      'Reserve As Work 5,2048',
+      ...glyph(5, 65), // "A"
+      'Change Print Font 5',
+      'Pen 1 : Paper 0 : Locate 0,0 : Print "A";',
+    ])
+    const s = rt.screens.get(0)!
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) expect(s.rp.point(x, y)).toBe(1)
+  })
+
+  it('Change Print Font keeps the bank ITSELF, so poking it changes the glyphs', () => {
+    // `move.l a0,$8(a1)` is an address, not a copy
+    const { rt } = run([
+      ...fscr,
+      'Reserve As Work 5,2048',
+      'Change Print Font 5',
+      ...glyph(5, 66), // poked AFTER the Change Print Font
+      'Pen 1 : Locate 0,0 : Print "B";',
+    ])
+    expect(rt.screens.get(0)!.rp.point(0, 0)).toBe(1)
+  })
+
+  it('a new window goes back to the interpreter charset, as WOpen does', () => {
+    // `move.l T_JeuDefo(a3),WiFont(a5)` (+W.s:13702) -- WiFont is not inherited
+    const { rt } = run([
+      'Screen Open 0,320,64,4,Lowres',
+      'Reserve As Work 5,2048',
+      ...glyph(5, 65),
+      'Change Print Font 5',
+      'Wind Open 2,0,0,10,2',
+      'Pen 1 : Paper 0 : Print "A";',
+    ])
+    const s = rt.screens.get(0)!
+    // the real "A" has a blank top row; the all-ones stand-in does not
+    let lit = 0
+    for (let x = 0; x < 8; x++) if (s.rp.point(x, 0) === 1) lit++
+    expect(lit).toBeLessThan(8)
+  })
+
+  it('Make Bank Font writes a "FONT" container, Data AND Chip, named BankFont', () => {
+    // routine 139: `moveq #$3,d1` against the literal "BankFont" at $3f66 --
+    // the only Reserve in the extension that asks for both bits
+    const { rt } = run([...fscr, 'Make Bank Font 7'])
+    const b = rt.memBanks.get(7)!
+    expect(b.name).toBe('BankFont')
+    expect(b.kind === 'memory' && b.flags).toBe(1) // Data
+    expect(b.kind === 'memory' && b.memType).toBe(1) // Chip
+    const d = b.kind === 'memory' ? b.data : new Uint8Array()
+    expect(String.fromCharCode(...d.subarray(0, 4))).toBe('FONT')
+    const v = new DataView(d.buffer, d.byteOffset, d.byteLength)
+    expect(v.getUint32(4)).toBe(0) // `clr.l (a1)+`
+    expect(v.getUint32(8)).toBe(0x6a) // `moveq #$6a,d0` -- always
+    // tf_Accessors = 9999, `move.w #$270f,$36(a0)`: never close this font
+    expect(v.getUint16(0x18 + 0x1e)).toBe(0x270f)
+  })
+
+  it('the bank is sized $6a + YSize*Modulo + 2*d6, where d6 is twice the char count', () => {
+    // `moveq #$6a,d5 / add.l d7,d5 / add.l d6,d5 / add.l d6,d5`, with
+    // d7 = YSize*Modulo and d6 = (HiChar - LoChar + 2) * 2
+    const { rt } = run([...fscr, 'Make Bank Font 7'])
+    const d = rt.memBanks.get(7)!.data
+    const v = new DataView(d.buffer, d.byteOffset, d.byteLength)
+    const ySize = v.getUint16(0x18 + 0x14)
+    const modulo = v.getUint16(0x18 + 0x26)
+    const chars = d[0x18 + 0x21]! - d[0x18 + 0x20]! + 2
+    expect(d.length).toBe(0x6a + ySize * modulo + 4 * chars)
+    // and the CharLoc offset is exactly past the glyphs
+    expect(v.getUint32(0x0c)).toBe(0x6a + ySize * modulo)
+    // no CharSpace and no CharKern on this face, so both offsets are zero
+    expect(v.getUint32(0x10)).toBe(0)
+    expect(v.getUint32(0x14)).toBe(0)
+  })
+
+  it('Change Bank Font reads its own container back and sets rp_Font', () => {
+    const { rt } = run([...fscr, 'Make Bank Font 7', 'Change Bank Font 7'])
+    const f = rt.screens.get(0)!.rp.font
+    expect(f).not.toBeNull()
+    expect(f!.ySize).toBe(8)
+    expect(f!.xSize).toBe(8)
+    // `andi.b #$7d,$2f(a0) / ori.b #$1,$2f(a0)` -- FPF_ROMFONT arrives,
+    // FPF_DISKFONT and FPF_REMOVED go, so nothing ever frees a bank font
+    expect(f!.flags & 0x01).toBe(1)
+    expect(f!.flags & 0x02).toBe(0)
+    expect(f!.flags & 0x80).toBe(0)
+    // the thirty bytes of ln_Name survive the trip
+    expect(f!.name).toBe('amos.font')
+  })
+
+  it('Change Bank Font refuses a bank that is not one', () => {
+    // `cmpi.l #$464f4e54,(a0) / Rbne routine 390` -- error 23
+    expect(() => run([...fscr, 'Reserve As Work 7,64', 'Change Bank Font 7'])).toThrow(/Illegal function call/)
+    expect(() => run([...fscr, 'Change Bank Font 9'])).toThrow(/Illegal function call/)
+  })
+
+  it('=Font Style answers off the same rp_Font the pair install', () => {
+    // it reads `movea.l $34(a1),a1 / move.b $17(a1),d3` -- tf_Flags, which is
+    // the DEFECT recorded on that keyword. Before this slice the port never
+    // assigned rp_Font on an AMOS screen at all, so it could only answer 0
+    const { out } = run([...fscr, 'Make Bank Font 7', 'Change Bank Font 7', 'Print Font Style'])
+    expect(out.trim()).toBe('65') // FPF_ROMFONT | FPF_DESIGNED
+  })
+
+  it('Turbo Text draws the charset glyphs straight into the bitplanes', () => {
+    const { rt } = run([
+      ...fscr,
+      'Reserve As Work 5,2048',
+      ...glyph(5, 65),
+      'Change Print Font 5',
+      'Ink 3 : Turbo Text 0,0,"A"',
+    ])
+    const s = rt.screens.get(0)!
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) expect(s.rp.point(x, y)).toBe(3)
+  })
+
+  it('DEFECT: with a pen bit clear the glyph still lands in that plane', () => {
+    // three arms where COut has four. `asr.w #$1,d0 / bcs` dispatches on the
+    // PAPER bit, and a plane whose paper bit is clear jams the glyph in
+    // whatever rp_FgPen says -- `lsr.w #$1,d6` at $76f8 discards that bit
+    // unread. So Ink 1 on four colours paints colour 3, not colour 1
+    const { rt } = run([
+      ...fscr,
+      'Reserve As Work 5,2048',
+      ...glyph(5, 65),
+      'Change Print Font 5',
+      'Ink 1 : Turbo Text 0,0,"A"',
+    ])
+    expect(rt.screens.get(0)!.rp.point(0, 0)).toBe(3)
+  })
+
+  it('the plane mask picks planes, and zero does nothing at all', () => {
+    const one = run([
+      ...fscr,
+      'Reserve As Work 5,2048',
+      ...glyph(5, 65),
+      'Change Print Font 5',
+      'Ink 3 : Turbo Text 0,0,"A",0,1',
+    ])
+    expect(one.rt.screens.get(0)!.rp.point(0, 0)).toBe(1)
+    const none = run([
+      ...fscr,
+      'Reserve As Work 5,2048',
+      ...glyph(5, 65),
+      'Change Print Font 5',
+      'Ink 3 : Turbo Text 0,0,"A",0,0',
+    ])
+    expect(none.rt.screens.get(0)!.rp.point(0, 0)).toBe(0)
+  })
+
+  it('NOTE: the fourth argument is dead — d6 is clobbered by rp_FgPen', () => {
+    const a = run([...fscr, 'Ink 3 : Turbo Text 0,0,"A"'])
+    const b = run([...fscr, 'Ink 3 : Turbo Text 0,0,"A",12345'])
+    const pa = [...Array(8).keys()].map((x) => a.rt.screens.get(0)!.rp.point(x, 0))
+    const pb = [...Array(8).keys()].map((x) => b.rt.screens.get(0)!.rp.point(x, 0))
+    expect(pb).toEqual(pa)
+  })
+
+  it('y is a PIXEL row, not a text row', () => {
+    // `mulu.w d1,d4` with d1 = EcTx>>3 -- so y steps one pixel, not eight
+    const { rt } = run([
+      ...fscr,
+      'Reserve As Work 5,2048',
+      ...glyph(5, 65),
+      'Change Print Font 5',
+      'Ink 3 : Turbo Text 0,3,"A"',
+    ])
+    const s = rt.screens.get(0)!
+    expect(s.rp.point(0, 2)).toBe(0)
+    expect(s.rp.point(0, 3)).toBe(3)
+    expect(s.rp.point(0, 10)).toBe(3)
+    expect(s.rp.point(0, 11)).toBe(0)
+  })
+
+  it('x must be a multiple of 8, and anything else silently does nothing', () => {
+    // `andi.w #$7,d0 / tst.w d0 / bne` reaches two `rts` in a row
+    const { rt } = run([
+      ...fscr,
+      'Reserve As Work 5,2048',
+      ...glyph(5, 65),
+      'Change Print Font 5',
+      'Ink 3 : Turbo Text 4,0,"A"',
+    ])
+    const s = rt.screens.get(0)!
+    for (let x = 0; x < 16; x++) expect(s.rp.point(x, 0)).toBe(0)
+  })
+
+  it('a negative coordinate is error 23, and so is a y past height minus eight', () => {
+    // `Rbmi routine 390` on each, then `cmp.w d0,d4 / Rbhi` against EcTy-8
+    expect(() => run([...fscr, 'Turbo Text -8,0,"A"'])).toThrow(/Illegal function call/)
+    expect(() => run([...fscr, 'Turbo Text 0,-1,"A"'])).toThrow(/Illegal function call/)
+    expect(() => run([...fscr, 'Turbo Text 0,25,"A"'])).toThrow(/Illegal function call/)
+    expect(() => run([...fscr, 'Turbo Text 0,24,"A"'])).not.toThrow() // 32 - 8
+  })
+
+  it('a string running off the right edge is clipped, not wrapped', () => {
+    // `move.w d1,d5 / sub.w d3,d5 / subq.w #$1,d5` -- the count is cut to the
+    // cells that are left, and 64 pixels wide is eight of them
+    const { rt } = run([
+      ...fscr,
+      'Reserve As Work 5,2048',
+      ...glyph(5, 65),
+      'Change Print Font 5',
+      'Ink 3 : Turbo Text 48,0,"AAAA"',
+    ])
+    const s = rt.screens.get(0)!
+    expect(s.rp.point(48, 0)).toBe(3)
+    expect(s.rp.point(56, 0)).toBe(3)
+    // nothing wrapped onto the next row
+    expect(s.rp.point(0, 1)).toBe(0)
+  })
+
+  it('an empty string pops its arguments and returns', () => {
+    // `move.w (a1)+,d5 / bne` else `addq.l #$8,a3 / rts`
+    const { rt } = run([...fscr, 'Ink 3 : Turbo Text 0,0,""'])
+    expect(rt.screens.get(0)!.rp.point(0, 0)).toBe(0)
+  })
+})
+
+/**
+ * Change Font against the real `.font` tree off the original partition —
+ * routine 144 ($4030) is OpenDiskFont and SetFont and nothing else, so this is
+ * the only one of the five that needs a font to exist.
+ */
+const AMCAF_FONTS = join(__dirname, '..', '..', 'fixtures', 'fonts')
+
+describe.skipIf(!existsSync(AMCAF_FONTS))('AMCAF: Change Font with a real face (routine 144, $4030)', () => {
+  function boot(src: string[]): Runtime {
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    fs.mount('FontDisc', new NodeVolume(AMCAF_FONTS))
+    fs.assign('Fonts', 'FontDisc:')
+    const rt = new Runtime(tokenize(src.join('\n'), table, extensions), table, {
+      maxSteps: 1_000_000,
+      extensions,
+      fs,
+    })
+    const r = rt.runHeadless(200)
+    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    return rt
+  }
+
+  it('opens the named face onto rp_Font, the field Set Font writes', () => {
+    const rt = boot(['Screen Open 0,320,64,4,Lowres', 'Change Font "2001.font",8'])
+    expect(rt.screen.rp.font).not.toBeNull()
+    expect(rt.screen.rp.font!.ySize).toBe(8)
+    // Screen.font IS rp_Font, so AMOS's own Text sees what AMCAF installed
+    expect(rt.screen.font).toBe(rt.screen.rp.font)
+  })
+
+  it('the height defaults to 8, which is routine 142 pushing it', () => {
+    // `moveq #$8,d0 / move.l d0,-(a3) / Rbra routine 143`
+    const rt = boot(['Screen Open 0,320,64,4,Lowres', 'Change Font "2001.font"'])
+    expect(rt.screen.rp.font!.ySize).toBe(8)
+  })
+
+  it('the ".font" suffix is added when it is missing', () => {
+    // `cmpi.b #$2e,-$5(a1) / beq` then five literal bytes at $4080-$4090, and
+    // the changelog dates it: "Change Font now adds '.font' automatically"
+    const rt = boot(['Screen Open 0,320,64,4,Lowres', 'Change Font "2001",8'])
+    expect(rt.screen.rp.font).not.toBeNull()
+  })
+
+  it('a size the family has not got is requester message 10', () => {
+    // `jsr -$1e(a6) / tst.l d0 / bne` else `moveq #$a,d0 / Rbra routine 397`,
+    // and message 10 is "Couldn't open font"
+    expect(() => boot(['Screen Open 0,320,64,4,Lowres', 'Change Font "2001.font",9'])).toThrow(/Couldn't open font/)
+  })
+
+  it('Make Bank Font round-trips a real face through the bank and back', () => {
+    // the point of the pair: "These banks don't require the 'diskfont.library'
+    // or other disk access any more, once they have been created"
+    const rt = boot([
+      'Screen Open 0,320,64,4,Lowres',
+      'Change Font "2001.font",8',
+      'Make Bank Font 7',
+      'Change Font "2001.font",8', // put something else on rp_Font first
+      'Change Bank Font 7',
+    ])
+    const f = rt.screen.rp.font!
+    expect(f.ySize).toBe(8)
+    expect(f.xSize).toBe(8)
+    // dfh_Name is BLANK in every one of the eight size files on this disc --
+    // the name lives in the `.font` descriptor, not the loadable file -- so
+    // `movea.l $a(a2),a0 / 15 x move.w` copies thirty zero bytes on the
+    // machine too. Faithful, and not much of a name
+    expect(f.name).toBe('')
+    // the glyphs themselves came back byte for byte
+    const src = rt.memBanks.get(7)!.data
+    const v = new DataView(src.buffer, src.byteOffset, src.byteLength)
+    expect(f.charData.length).toBe(f.ySize * f.modulo)
+    expect([...f.charData]).toEqual([...src.subarray(v.getUint32(8), v.getUint32(8) + f.charData.length)])
+  })
+
+  it('a proportional face keeps its CharSpace, and the bank grows for it', () => {
+    // Pica/32 is proportional, so `tst.l $2c(a2)` is non-zero and the size
+    // gains another d6 -- two bytes a character
+    const rt = boot(['Screen Open 0,320,64,4,Lowres', 'Change Font "Pica.font",32', 'Make Bank Font 7', 'Change Bank Font 7'])
+    const f = rt.screen.rp.font!
+    expect(f.ySize).toBe(32)
+    expect(f.proportional).toBe(true)
+    expect(f.charSpace).not.toBeNull()
+    const d = rt.memBanks.get(7)!.data
+    const v = new DataView(d.buffer, d.byteOffset, d.byteLength)
+    expect(v.getUint32(0x10)).toBeGreaterThan(0) // the CharSpace offset is set
   })
 })
