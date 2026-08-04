@@ -1,6 +1,7 @@
 import { AmosError, VF, VI, VS, int, num, str, varType } from '../interp/values'
 import { varKey } from '../interp/prescan'
 import { DOSFALSE, execute } from '../amiga/process'
+import { BNK, isObjectBank } from './banks'
 import type { Instr, Func } from '../interp/builtins'
 import { aliasForSlots, implLabel, implSlots, qualifyForSlots, type ExtensionImpl } from './extimpl'
 import { makeLdosFunctions, makeLdosInstructions } from './ldos'
@@ -3053,17 +3054,8 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     'reserve as chip data': reserve('Datas', true, true),
     'reserve as chip work': reserve('Work', false, true),
     erase(it) {
-      const n = it.evalInt()
-      if (n === 1 && rt.spriteBank) {
-        rt.spriteBank = null
-        return
-      }
-      if (n === 2 && rt.iconBank) {
-        rt.iconBank = null
-        return
-      }
       // InErase +Lib.s:2210 has no error path — a missing bank is a no-op
-      rt.memBanks.delete(n)
+      rt.eraseBank(it.evalInt())
     },
     'erase all'() {
       rt.memBanks.clear()
@@ -3071,17 +3063,23 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.iconBank = null
     },
     'erase temp'() {
-      // Bnk.EffTemp +Lib.s:8059: erase every bank whose Data flag (bit 0)
-      // is clear — i.e. Work banks; Data/Bob/Icon banks are kept
-      for (const [n, b] of [...rt.memBanks]) {
-        if ((b.flags & 1) === 0) rt.memBanks.delete(n)
+      // Bnk.EffTemp +Lib.s:8059 tests `btst #Bnk_BitData,d0` and NOTHING
+      // else, so what survives is Data banks. A Bob or Icon bank survives
+      // because Bnk.ResBob/ResIco (+Lib.s:8153/8145) build their flags as
+      // `(1<<Bnk_BitBob)+(1<<Bnk_BitData)` -- it is a Data bank -- and not
+      // because the sweep knows about object banks at all
+      for (const b of rt.bankRefs()) {
+        if ((b.flags & BNK.DATA) === 0) rt.eraseBank(b.number)
       }
     },
     'bank swap'(it) {
       const a = it.evalInt()
       it.expect(',')
       const b = it.evalInt()
-      // banks 1/2 are the sprite/icon object banks
+      // NOTE: InBankSwap swaps the NUMBER fields in the one chain, so on the
+      // machine `Bank Swap 1,5` leaves a Bob bank numbered 5. The two
+      // representations here cannot express that -- an ObjectBank is parsed
+      // images, not bytes -- so only the 1<->2 case is modelled
       if ((a === 1 || a === 2) && (b === 1 || b === 2) && a !== b) {
         const t = rt.spriteBank
         rt.spriteBank = rt.iconBank
@@ -3102,8 +3100,12 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const n = it.evalInt()
       it.expect('to')
       const len = it.evalInt()
-      const bank = rt.memBanks.get(n)
-      if (!bank) throw new AmosError('bank not reserved')
+      const ref = rt.bankRef(n)
+      if (!ref) throw new AmosError('bank not reserved')
+      // `btst #Bnk_BitBob,d0  Pas une banque de bobs!` then the same for
+      // Icon: an object bank is a function call error, not "not reserved"
+      if (isObjectBank(ref)) throw new AmosError('function call error')
+      const bank = rt.memBanks.get(n)!
       if (len > bank.data.length || len < 0) throw new AmosError('function call error')
       bank.data = bank.data.subarray(0, len)
     },
@@ -3111,15 +3113,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // InListBank/Bnk.List +Lib.s:2194/8616: ascending bank number;
       // "NN - name8 S: $XXXXXXXX L: len" — numbers under 10 get a
       // leading space, bob/icon banks list their image COUNT as L:
-      const lines: Array<[number, string, number]> = []
-      if (rt.spriteBank) lines.push([1, 'Sprites', rt.spriteBank.images.length])
-      if (rt.iconBank) lines.push([2, 'Icons', rt.iconBank.images.length])
-      for (const [n, b] of rt.memBanks) lines.push([n, b.name, b.data.length])
-      lines.sort((x, y2) => x[0] - y2[0])
-      for (const [n, name, len] of lines) {
-        const num = (n < 10 ? ' ' : '') + n
-        const hex = rt.bankBase(n).toString(16).toUpperCase().padStart(8, '0')
-        it.write(`${num} - ${name.padEnd(8).slice(0, 8)} S: $${hex} L: ${len}\n`)
+      for (const b of rt.bankRefs()) {
+        const num = (b.number < 10 ? ' ' : '') + b.number
+        const hex = b.address.toString(16).toUpperCase().padStart(8, '0')
+        it.write(`${num} - ${b.name.padEnd(8).slice(0, 8)} S: $${hex} L: ${b.length}\n`)
       }
     },
     poke(it) {
@@ -4329,10 +4326,10 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(m)
     },
     length(_, a) {
-      const n = int(a[0]!)
-      if (n === 1) return VI(rt.spriteBank?.images.length ?? 0)
-      if (n === 2) return VI(rt.iconBank?.images.length ?? 0)
-      return VI(rt.memBanks.get(n)?.data.length ?? 0)
+      // FnLength +Lib.s:2491 takes the byte length and then, for a Bob or Icon
+      // bank, replaces it with `move.w (a1),d3` -- the image COUNT. bankRef
+      // carries that rule so nothing else has to know it
+      return VI(rt.bankRef(int(a[0]!))?.length ?? 0)
     },
 
     // ---- AMAL ----
@@ -4785,9 +4782,13 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(0)
     },
     start(_, a) {
-      const n = int(a[0]!)
-      if (!rt.memBanks.has(n)) throw new AmosError('bank not reserved')
-      return VI(rt.bankBase(n))
+      // FnStart +Lib.s:2481 is `Rbsr L_Bnk.GetAdr / Rbeq L_BkNoRes / move.l
+      // a1,d3` -- ONE list, so a Bob or Icon bank answers like any other. It
+      // used to look only in memBanks and threw for a bank that plainly
+      // existed. See ./banks.ts
+      const ref = rt.bankRef(int(a[0]!))
+      if (!ref) throw new AmosError('bank not reserved')
+      return VI(ref.address)
     },
     peek(_, a) {
       const m = rt.resolveAddr(int(a[0]!))

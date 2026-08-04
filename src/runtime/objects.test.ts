@@ -5,6 +5,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
+import { BNK } from './banks'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -635,5 +636,83 @@ describe('the minterm reaches the screen', () => {
     // $0FCA is the default spelled out; it must behave as the default does
     const rt = scene('Set Bob 1,0,-1,' + String(0x0fca))
     expect(rt.screen.point(104, 104)).toBe(3)
+  })
+})
+
+/**
+ * The bank list is ONE list.
+ *
+ * AMOS keeps every bank in a single chain and says what each one is in a flags
+ * word (+Equ.s:1864-8); `L_Bnk.GetAdr` finds a Bob bank the same way it finds
+ * a Reserve'd block. This port used to keep object banks beside `memBanks`,
+ * so each keyword special-cased 1 and 2 by hand and they disagreed. See
+ * src/runtime/banks.ts.
+ */
+describe('object banks are in the bank list (banks.ts)', () => {
+  const GRAB1 = 'Screen Open 0,320,200,16,Lowres : Ink 5 : Bar 0,0 To 7,7\nGet Sprite 1,0,0 To 8,8'
+
+  it('Start() answers for a Bob bank, where it used to say "bank not reserved"', () => {
+    // FnStart +Lib.s:2481 is `Rbsr L_Bnk.GetAdr / Rbeq L_BkNoRes / move.l
+    // a1,d3` -- one list, so a Bob bank answers like any other
+    const rt = run(GRAB1)
+    expect(rt.bankRef(1)?.address).toBe(rt.bankBase(1))
+    expect(runOut(`${GRAB1}\nPrint Start(1)`).trim()).toBe(String(rt.bankBase(1)))
+  })
+
+  it('and Start() still refuses a bank that really is not there', () => {
+    expect(() => run(`${GRAB1}\nPrint Start(9)`)).toThrow(/bank not reserved/)
+  })
+
+  it('Length() is the IMAGE COUNT for an object bank, as FnLength says', () => {
+    // +Lib.s:2499-2503 computes the byte length, then for a Bob or Icon bank
+    // replaces it with `move.w (a1),d3`
+    expect(runOut(`${GRAB1}\nGet Sprite 2,0,0 To 8,8\nPrint Length(1)`).trim()).toBe('2')
+  })
+
+  it('the flags are the ones Bnk.ResBob and Bnk.ResIco build', () => {
+    // `moveq #(1<<Bnk_BitBob)+(1<<Bnk_BitData),d2` (+Lib.s:8153) and the
+    // Icon twin at :8145 -- both carry Data
+    const rt = run(`${GRAB1}\nGet Icon 1,0,0 To 8,8`)
+    expect(rt.bankRef(1)?.flags).toBe(BNK.BOB | BNK.DATA)
+    expect(rt.bankRef(2)?.flags).toBe(BNK.ICON | BNK.DATA)
+  })
+
+  it('Erase Temp keeps them BECAUSE they are Data banks, not by special case', () => {
+    // Bnk.EffTemp +Lib.s:8059 tests `btst #Bnk_BitData,d0` and nothing else
+    const rt = run(`${GRAB1}\nReserve As Work 5,64\nReserve As Data 6,64\nErase Temp`)
+    expect(rt.bankRef(1)).not.toBeNull() // the Bob bank carries Data
+    expect(rt.bankRef(5)).toBeNull() // Work: gone
+    expect(rt.bankRef(6)).not.toBeNull()
+  })
+
+  it('List Bank prints all of them from the one list, in number order', () => {
+    const out = runOut(`${GRAB1}\nReserve As Work 5,64\nList Bank`)
+    const lines = out.split('\n')
+    // "numbers under 10 get a leading space"
+    expect(lines[0]).toMatch(/^ 1 - Sprites /)
+    expect(lines[1]).toMatch(/^ 5 - /)
+    // and the image count, not the byte length
+    expect(lines[0]!.endsWith('L: 1')).toBe(true)
+  })
+
+  it('Bank Shrink refuses an object bank with error 23, not "not reserved"', () => {
+    // Bnk.Schrink +Lib.s:8271: `btst #Bnk_BitBob,d0  Pas une banque de bobs!`
+    expect(() => run(`${GRAB1}\nBank Shrink 1 To 4`)).toThrow(/function call error/)
+  })
+
+  it('Start(1) resolves to bytes, and the first word is the image count', () => {
+    // that word is what FnLength reads, so the payload has to begin with it
+    const rt = run(`${GRAB1}\nGet Sprite 2,0,0 To 8,8`)
+    const bytes = rt.bankPayload(1)!
+    expect((bytes[0]! << 8) | bytes[1]!).toBe(2)
+    expect(rt.resolveAddr(rt.bankBase(1))?.data[0]).toBe(0)
+  })
+
+  it('DEVIATION: writes into an object bank are refused rather than lost', () => {
+    // the bytes are generated from the parsed images and nothing reads them
+    // back, so accepting a Poke would silently drop it
+    const rt = run(GRAB1)
+    expect(rt.resolveAddr(rt.bankBase(1))).not.toBeNull()
+    expect(rt.resolveWrite(rt.bankBase(1))).toBeNull()
   })
 })

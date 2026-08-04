@@ -35,6 +35,7 @@ import { DEFAULT_PALETTE, Screen, builtinPattern, sliderMetrics } from './screen
 import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from './instr'
 import { defaultHost, type Host } from '../amiga/host'
 import { Machine } from '../amiga/machine'
+import { BNK, BOB_BANK, BOB_BANK_FLAGS, ICON_BANK, ICON_BANK_FLAGS, type BankRef } from './banks'
 import { newLdosState, type LdosState } from './ldos'
 import { newTftState, tftVbl, type TftState } from './tft'
 import { newJvpState, type JvpState } from './jvp'
@@ -1059,7 +1060,83 @@ export class Runtime {
       const base = this.bankBase(n) >>> 0
       if (a >= base && a < base + bank.data.length) return { data: bank.data, off: a - base }
     }
+    // the object banks are in the same address space, because they are in the
+    // same bank list — `Start(1)` has to point at something
+    if (!write) {
+      for (const n of [BOB_BANK, ICON_BANK]) {
+        const base = this.bankBase(n) >>> 0
+        if (a < base) continue
+        const bytes = this.bankPayload(n)
+        if (bytes && a < base + bytes.length) return { data: bytes, off: a - base }
+      }
+    }
     return null
+  }
+
+  /**
+   * The bytes a Bob or Icon bank has at `Start(n)`, built on demand.
+   *
+   * The payload is what the AmSp/AmIc file carries after its four-byte magic:
+   * an image count word, then the image records, then the 32-colour palette.
+   * The count coming first is not a guess — FnLength reads exactly that word
+   * (`move.w (a1),d3`, +Lib.s:2503) to answer `=Length()` for these banks.
+   *
+   * DEVIATION: this is READ-ONLY. On the machine a program may Poke into its
+   * sprite bank and the next Bob draw shows the change; here the bytes are
+   * generated from the parsed images and nothing reads them back, so a write
+   * would be silently lost. `resolveInto` refuses writes to this range rather
+   * than accept one it cannot honour, which surfaces as an Address error.
+   */
+  bankPayload(n: number): Uint8Array | null {
+    const bank = n === BOB_BANK ? this.spriteBank : n === ICON_BANK ? this.iconBank : null
+    if (!bank) return null
+    // no cache: the images change under Get/Del/Ins Sprite and a stale buffer
+    // would be worse than rebuilding one that almost nothing asks for
+    return serializeObjectBank(n === BOB_BANK ? 'AmSp' : 'AmIc', bank).subarray(4)
+  }
+
+  /**
+   * One entry of the bank list, whichever list it used to be in.
+   *
+   * This is `L_Bnk.GetAdr` (+Lib.s), which walks a single chain and finds a
+   * Reserve'd block, the Bob bank or the Icon bank without caring which. See
+   * ./banks.ts for why that mattered and what the flags words are.
+   */
+  bankRef(n: number): BankRef | null {
+    const mem = this.memBanks.get(n)
+    if (mem) {
+      return { number: n, flags: mem.flags | (mem.memType === 1 ? BNK.CHIP : 0), name: mem.name, length: mem.data.length, address: this.bankBase(n) }
+    }
+    if (n === BOB_BANK && this.spriteBank) {
+      // FnLength returns the IMAGE COUNT for an object bank, not the bytes
+      return { number: n, flags: BOB_BANK_FLAGS, name: 'Sprites', length: this.spriteBank.images.length, address: this.bankBase(n) }
+    }
+    if (n === ICON_BANK && this.iconBank) {
+      return { number: n, flags: ICON_BANK_FLAGS, name: 'Icons', length: this.iconBank.images.length, address: this.bankBase(n) }
+    }
+    return null
+  }
+
+  /** every bank there is, in ascending number — Bnk.List's order */
+  bankRefs(): BankRef[] {
+    const out: BankRef[] = []
+    for (const n of this.memBanks.keys()) {
+      const r = this.bankRef(n)
+      if (r) out.push(r)
+    }
+    for (const n of [BOB_BANK, ICON_BANK]) {
+      if (this.memBanks.has(n)) continue
+      const r = this.bankRef(n)
+      if (r) out.push(r)
+    }
+    return out.sort((a, b) => a.number - b.number)
+  }
+
+  /** erase one bank, whichever list it is in (InErase +Lib.s:2210) */
+  eraseBank(n: number): void {
+    if (n === BOB_BANK && this.spriteBank) this.spriteBank = null
+    else if (n === ICON_BANK && this.iconBank) this.iconBank = null
+    this.memBanks.delete(n)
   }
 
   reserveBank(n: number, length: number, name: string, dataBank = true, chip = false): void {

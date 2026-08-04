@@ -133,6 +133,7 @@ import { fillRow } from '../amiga/blitter'
 import { parseSampleBank } from './audio'
 import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 import { launch } from '../amiga/process'
+import { isObjectBank } from './banks'
 import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, MAX_PORT, PORT_MOUSE, joyFire } from '../interp/gameport'
 import { BitMap } from '../amiga/graphics'
 import { AmigaFS } from '../amiga/vfs'
@@ -3847,10 +3848,9 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       it.expect('to')
       const arg = it.evalInt()
       if (src === arg) amcafErr()
-      // NOTE: the kind bits live in the bank header twelve bytes below the
-      // data, which this port has no equivalent of; banks 1 and 2 are the
-      // sprite and icon banks by AMOS convention and stand in for them
-      if ((src === 1 && rt.spriteBank) || (src === 2 && rt.iconBank)) amcafMsg(4)
+      // the same `andi.w #$c` check, through the one bank list
+      const srcRef = rt.bankRef(src)
+      if (srcRef && isObjectBank(srcRef)) amcafMsg(4)
       const bank = rt.memBanks.get(src)
       if (!bank) amcafErr()
       const sig = String.fromCharCode(...bank.data.subarray(0, 4))
@@ -4044,12 +4044,9 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const file = it.evalStr()
       it.expect(',')
       const bank = it.evalInt()
-      // NOTE: `move.w -$c(a0),d0 / andi.w #$c,d0 / bne` reads the kind bits
-      // from the bank header twelve bytes below the data, which this port has
-      // no equivalent of -- `memBanks` holds memory banks and nothing else.
-      // Banks 1 and 2 are the sprite and icon banks by AMOS convention and
-      // stand in for them, the same way Ppunpack's check does
-      if ((bank === 1 && rt.spriteBank) || (bank === 2 && rt.iconBank)) amcafMsg(4)
+      // `move.w -$c(a0),d0 / andi.w #$c,d0 / bne` -- the Bob and Icon bits
+      const ref = rt.bankRef(bank)
+      if (ref && isObjectBank(ref)) amcafMsg(4)
       const b = rt.memBanks.get(bank)
       // `moveq #$4,d0` in routine 235 -- "best, but slow" is the default
       let eff = 4
@@ -4871,9 +4868,15 @@ function loadToBank(rt: Runtime, it: Interp, dataBank: boolean): void {
 function saveBank(rt: Runtime, it: Interp): void {
   const file = it.evalStr()
   it.expect(',')
-  const b = rt.memBanks.get(it.evalInt())
-  if (!b) amcafErr()
-  if (b.kind !== 'memory') amcafMsg(4)
+  const n = it.evalInt()
+  const ref = rt.bankRef(n)
+  if (!ref) amcafErr()
+  // `move.w -$c(a0),d0 / andi.w #$c,d0 / bne` -- Bnk_BitBob or Bnk_BitIcon.
+  // This used to test `kind !== 'memory'` on a map that cannot hold anything
+  // else, so the refusal it documents could never fire and a program saving
+  // the sprite bank got error 23 from the missing-bank path instead
+  if (isObjectBank(ref)) amcafMsg(4)
+  const b = rt.memBanks.get(n)!
   rt.vfs?.writeFile(amcafPath(file), b.data)
   rt.amcaf.ioError = 0
 }
