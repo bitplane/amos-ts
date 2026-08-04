@@ -361,6 +361,10 @@ export function checkSelfCitation(
  */
 export const CITED_BY: Record<string, string[]> = {
   'src/runtime/amcaf.ts': ['amcaf-1.50', 'amcaf-1.40'],
+  // the core's Sload/Ssave answer for AMCAF's too, and their doc block cites
+  // AMCAF's routines 106 and 107 to record where the two diverge -- so the
+  // core file is checked against AMCAF's binary for those two citations
+  'src/runtime/instr.ts': ['amcaf-1.50'],
   'src/runtime/amcaf.test.ts': ['amcaf-1.50', 'amcaf-1.40'],
   'src/runtime/aga.ts': ['aga-1.0'],
   'src/runtime/aga.test.ts': ['aga-1.0'],

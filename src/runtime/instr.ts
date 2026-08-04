@@ -2356,6 +2356,31 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const pcm = new Int8Array(m.data.buffer, m.data.byteOffset + m.off, Math.min(len, m.data.length - m.off))
       rt.music.samSwap(mask & 15, pcm)
     },
+    /*
+     * Sload / Ssave are the Music extension's, and they answer for AMCAF's
+     * too. AMCAF 1.50 ships its own pair -- routines 106 ($38e8) and 107
+     * ($3922) -- and its changelog says why they exist rather than what they
+     * do: "V1.43 - Added Sload/Ssave. Just the same commands like in the
+     * music extension. Now you can really remove it!" One handler for both is
+     * the author's intent, so AMCAF deliberately registers neither; see
+     * ALLOWED_UNDECLARED in ../runtime/contested.test.ts.
+     *
+     * The two are not byte-identical, and the differences are AMCAF's:
+     *
+     *   - the channel is 1..9 there and 1..10 here. `cmp.l #$a,d0 / Rbcc` on
+     *     routine 106 rejects ten, where Music's takes it.
+     *   - AMCAF checks no MODE. It takes the handle out of the table at
+     *     $8bc(a5) and calls Read or Write on whatever it finds, so its
+     *     Sload on an output channel reaches dos.library; Music's refuses.
+     *   - AMCAF does not reject a zero length. Ssave's `sub.l d0,d3` just
+     *     yields nought and writes nothing, where `end - start <= 0` here is
+     *     error 23.
+     *
+     * NOTE: this handler keeps Music's contract, because Music is the one
+     * with source (+Music.s) and AMCAF's is the clone of it. A program
+     * written against AMCAF that uses channel 10, an unopened mode or a zero
+     * length therefore meets Music's answer, not AMCAF's.
+     */
     sload(it) {
       // InSload +Music.s:3239: Sload f To address,length — reads raw
       // bytes from an open sequential channel into memory
