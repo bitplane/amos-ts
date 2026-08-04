@@ -368,11 +368,25 @@ describe('slice 2: strings', () => {
     expect(() => p('Itemstr$("a|b",5)')).toThrow(/Illegal function call/)
   })
 
-  it('Scanstr$ names a key, and answers empty for an unused code', () => {
-    expect(p('Scanstr$($40)')).toBe('Space')
-    expect(p('Scanstr$($20)')).toBe('A')
-    expect(p('Scanstr$($50)')).toBe('F1')
-    expect(p('"["+Scanstr$($7F)+"]"')).toBe('[]')
+  it('Scanstr$ answers the library\'s own names, which are German and lower case', () => {
+    // the table at $63f8, extracted rather than invented -- this port used to
+    // answer Amiga rawkey names of its own ("Space", "A", "F1") on the belief
+    // that AMCAF shipped no table, which it does
+    expect(p('Scanstr$($40)')).toBe('space')
+    expect(p('Scanstr$($20)')).toBe('a')
+    // padded to three columns in the library: "F 1".."F 9", then "F10"
+    expect(p('Scanstr$($50)')).toBe('F 1')
+    expect(p('Scanstr$($59)')).toBe('F10')
+    expect(p('Scanstr$($67)')).toBe('r-amiga')
+    expect(p('Scanstr$($0B)')).toBe('\u00df')
+  })
+
+  it('Scanstr$ raises error 23 above 103 and on an empty entry', () => {
+    // `cmp.w #$67,d0 / Rbhi routine 390`, and `tst.b (a0) / Rbeq routine 390`
+    // -- where the manual promises an empty string for an unused code
+    expect(() => run(['Print Scanstr$($68)'])).toThrow(/Illegal function call/)
+    expect(() => run(['Print Scanstr$(12)'])).toThrow(/Illegal function call/)
+    expect(() => run(['Print Scanstr$(-1)'])).toThrow(/Illegal function call/)
   })
 })
 
@@ -3396,14 +3410,36 @@ describe('slice 11: the four-player adaptor and the second mouse', () => {
   const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
 
   /**
-   * Smouse X/Y (154/155, $4650) are the SETTERS, and they scale: the popped
-   * value is shifted left by the stored Smouse Speed —
+   * Smouse X/Y (routines 166 and 167, $465e and $4670) are the SETTERS, and
+   * they scale: the popped value is shifted left by the stored Smouse Speed —
    * `move.w $2ee(a2),d1 / asl.w d1,d0` — before being stored at $2f4/$2f6.
    */
   it('Smouse X and Y scale the value they are given by the speed', () => {
     expect(run(['Smouse Speed 0', 'Smouse X 10', 'Smouse Y 20']).rt.amcaf.smouse.x).toBe(10)
     const fast = run(['Smouse Speed 2', 'Smouse X 10', 'Smouse Y 20']).rt.amcaf.smouse
     expect([fast.x, fast.y]).toEqual([40, 80])
+  })
+
+  /**
+   * ...and routines 164 and 165 ($4636, $464a) shift it back out again with
+   * `asr.w d0,d3 / ext.l d3`, which this port was not doing at all. The pair
+   * has to round-trip: what Smouse X stores, X Smouse gives back.
+   */
+  it('X Smouse and Y Smouse undo the speed shift the setter applied', () => {
+    for (const speed of [0, 1, 2, 5]) {
+      const { out } = run([`Smouse Speed ${speed}`, 'Smouse X 10', 'Smouse Y -20', 'Print X Smouse;",";Y Smouse'])
+      expect(`${speed}:${out.trim()}`).toBe(`${speed}:10,-20`)
+    }
+  })
+
+  /**
+   * `asr.w`/`asl.w` take their count modulo 64 and work on sixteen bits, so a
+   * shift of 16 or more is not the no-op JS's `<<` would make of a count of 32
+   * -- everything goes, and the sign is all that is left.
+   */
+  it('a speed of 16 or more shifts the whole word away', () => {
+    expect(run(['Smouse Speed 16', 'Smouse X 10']).rt.amcaf.smouse.x).toBe(0)
+    expect(run(['Smouse Speed 32', 'Smouse X 10']).rt.amcaf.smouse.x).toBe(0)
   })
 
   /**
@@ -3457,20 +3493,54 @@ describe('slice 11: the four-player adaptor and the second mouse', () => {
     expect(() => p('Pjoy(-1)')).toThrow(/Illegal function call/)
   })
 
-  it('Xfire reads the ordinary fire for button 1 and nothing beyond', () => {
-    const { rt } = run(['Print 1'])
-    rt.input.joy = 16 // fire on the joystick port
-    expect(run(['Print 1']).rt).toBeTruthy()
-    // button 2 and up need lowlevel.library, which is not modelled
+  /**
+   * Routine 11 ($20d4) tests the WHOLE long against zero but only the low BYTE
+   * against one — `beq.b` after the `move.l`, then `cmp.b #$1,d0`. So the
+   * manual's "either 0 or 1" is true of the byte and not of the argument, and
+   * 257 gets in where 256 does not.
+   */
+  it('the port check is a byte compare, so Pjoy(257) is port 1 and Pjoy(256) is not', () => {
+    expect(p('Pjoy(257)')).toBe('0') // accepted, as port 1
+    expect(p('Pfire(513)')).toBe('0') // low byte 1 again
+    expect(() => p('Pjoy(256)')).toThrow(/Illegal function call/)
+    expect(() => p('Pjoy(258)')).toThrow(/Illegal function call/)
+  })
+
+  /**
+   * Xfire is routine 17 ($21e2). Its two arguments are checked in the order
+   * they are POPPED, and +Music.s:2341 says that is the reverse of the syntax,
+   * so `=Xfire(port,button)` validates the BUTTON first: 0..6 by `cmp.w #$7`,
+   * then the port 0..1 by `cmp.w #$2`.
+   */
+  it('Xfire bounds the button 0..6 and the port 0..1', () => {
+    expect(p('Xfire(0,0)')).toBe('0')
+    expect(p('Xfire(1,6)')).toBe('0')
+    expect(() => p('Xfire(0,7)')).toThrow(/Illegal function call/)
+    expect(() => p('Xfire(2,0)')).toThrow(/Illegal function call/)
+    expect(() => p('Xfire(0,-1)')).toThrow(/Illegal function call/)
+    expect(() => p('Xfire(-1,0)')).toThrow(/Illegal function call/)
+  })
+
+  it('the sign is tested on the long and the range on the word, which leaves a hole', () => {
+    // `Rbmi` sees a positive long; `cmp.w` sees a low word of 0
+    expect(p('Xfire(65536,65536)')).toBe('0')
+    // ...and a low word of -32768, which is below every limit
+    expect(p('Xfire(32768,32768)')).toBe('0')
+  })
+
+  it('Xfire answers not-pressed past button 0, where nothing drives the wires', () => {
+    // button 1 is the paddle-port line and 2..6 need lowlevel.library
+    expect(p('Xfire(1,1)')).toBe('0')
     expect(p('Xfire(1,2)')).toBe('0')
     expect(p('Xfire(1,4)')).toBe('0')
-    expect(() => p('Xfire(3,1)')).toThrow(/Illegal function call/)
   })
 
   it('the second mouse holds where a program put it and reads no buttons', () => {
     // "not ... the AMOS pointer" -- a distinct position with nothing driving it
     expect(p('X Smouse')).toBe('0')
     expect(p('Y Smouse')).toBe('0')
+    // routine 171 builds a BITMAP -- 1 from CIA-A PRA bit 7, 2 and 4 from
+    // POTINP bits 6 and 4 -- and all three float high with no mouse attached
     expect(p('Smouse Key')).toBe('0')
   })
 

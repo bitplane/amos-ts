@@ -1445,6 +1445,13 @@ export const FAITHFUL = new Set<string>([
   'extpath$',
   // slice 14: the Imploder pair, on ../amiga/imploder.ts
   'imploder load', 'imploder unpack',
+  // Rnc Unpack is routine 276, six bytes that pop both arguments and return.
+  // The port pops both arguments and returns. A stub reproduced as the stub
+  // it is, is faithful; =Rnp is not, and keeps its NOTE.
+  'rnc unpack',
+  // Scanstr$ was APPROXIMATED on the belief that AMCAF shipped no name table.
+  // It ships one, at $63f8, and routine 278 is now reproduced from it.
+  'scanstr$',
   'vec rot angles', 'vec rot pos', 'vec rot precalc',
   'speek', 'sdeek', 'amos cli', 'audio lock', 'audio free',
   'flush libs', 'open workbench',
@@ -2366,6 +2373,9 @@ export const NOTES: Record<string, string> = {
     "Routine 266 (\$616e) is stricter than the port had it: `move.l \$2bc(a2),d0 / Rbeq routine 390` makes continuing with nothing ever played an ERROR rather than a no-op, which matters because Pt Stop -- its counterpart -- deliberately IS a no-op, a fix the changelog records. The two are not symmetric. It then does `cmp.l #\$200000,d0 / Rbge routine 390`, Pt Bank's chip-RAM check again, carrying the same DEVIATION: this port models memory type as a flag on the bank rather than as an address, so that comparison is not reproduced. Which of routines 376 and 377 it ends in depends on \$296(a2), the CIA-versus-VBL flag, so the two timings resume through different code",
   'pt voice':
     "Routine 262 (\$60a2) sets all four per-voice bytes to \$FF first (`moveq #\$ff,d1 / move.l d1,\$a(a0)`) and then CLEARS the ones whose mask bit is clear, silencing each with `move.w #bit,\$96(a1)` on DMACON and `clr.w` on that voice's AUDxVOL at \$a8/\$b8/\$c8/\$d8. So a set bit means the music may use the voice, and a clear bit both silences it THERE AND THEN and releases it -- the port recorded the mask and left the audio running, which is the difference between `Pt Voice %0011` freeing two channels mid-tune and doing nothing audible at all. Pt Free Voice reads the same four bytes back",
+  'scanstr$':
+    "Routine 278 (\\$63c8) reads a table of 105 NUL-terminated strings at \\$63f8..\\$65b6 -- the extension's own data, now extracted rather than invented. An earlier pass here concluded AMCAF shipped no table, having searched the hunk for 'Space', 'Escape' and 'Return': the names are German and lower case ('space', 'F 1', 'l-amiga', 'caps lock', '\\u00df'), so the search was looking for the wrong strings and its silence was read as absence. DEFECT: ten codes have an EMPTY entry (12, 14, 28, 44, 59, 71, 72, 73, 75, 104) and the routine refuses them with `tst.b (a0) / Rbeq routine 390`, AMOS error 23, where the manual promises an empty string for a code with no name; the library contradicts its documentation and this port follows the library. The range check is unsigned -- `cmp.w #\\$67,d0 / Rbhi routine 390` -- so a negative code errors on the same arm rather than indexing backwards",
+  rnp: "The dead half of the RNC pair -- the author removed the two commands, put them back, and removed them again, but the tokens had to stay because deleting one shifts every later token id. 1.50's routine 277 (\\$63c6) is a bare `rts`: no prologue, no body, so it hands the caller whatever the result register happened to hold at the call. 1.40's routine 263 (\\$64f2) is the same behind the shareware guard, `tst.w -\\$16(a5) / Rbmi routine 144`, and that arm is a `moveq #\\$0,d0` -- so an unregistered 1.40 answers 0 and everything else answers a stale register. DEVIATION: this port answers 0 always, which is 1.40's demo path exactly and the only defined value available for the other case. Rnc Unpack is the same story and needs no note: it pops both its arguments and returns, and so does the port, which makes a stub reproduced as a stub",
   'amcaf version$':
     "Routine 19, and the string IS in the binary -- an earlier pass reported the hunk held no printable text at all and was looking in the wrong place. Four instructions and then the literal with its length word: 1.40 at \$2176 answers **'AMCAF Erweiterung V1.40 26-Dec-95 von Chris Hodges.'** and 1.50 at \$22d8 **'AMCAF extension V1.50beta4 11-Jan-98 by Chris Hodges.'** -- the shareware build in GERMAN and the freeware final in English, the same split the demo guards showed. DEVIATION: one body of code serves both releases here and the token tables carry no registry id, so this cannot tell which was bound and answers with 1.50's. The port's own 'AMCAF 1.50' was never on any machine",
   'smouse speed':

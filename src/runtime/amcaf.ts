@@ -135,7 +135,7 @@ import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 import { explode, isImploded } from '../amiga/imploder'
 import { launch } from '../amiga/process'
 import { isObjectBank } from './banks'
-import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, MAX_PORT, PORT_MOUSE, joyFire } from '../interp/gameport'
+import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, PORT_MOUSE, joyFire } from '../interp/gameport'
 import { BitMap } from '../amiga/graphics'
 import { AmigaFS } from '../amiga/vfs'
 import type { Screen } from './screen'
@@ -3295,10 +3295,10 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * puts it somewhere else entirely whenever the speed is not 1.
      */
     'smouse x'(it) {
-      rt.amcaf.smouse.x = extW(it.evalInt() << (rt.amcaf.smouse.speed & 15))
+      rt.amcaf.smouse.x = aslW(it.evalInt(), rt.amcaf.smouse.speed)
     },
     'smouse y'(it) {
-      rt.amcaf.smouse.y = extW(it.evalInt() << (rt.amcaf.smouse.speed & 15))
+      rt.amcaf.smouse.y = aslW(it.evalInt(), rt.amcaf.smouse.speed)
     },
 
     /**
@@ -3973,9 +3973,20 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *     rnp        (routine 277, $63c6, 2 bytes)
      *         rts
      *
-     * They pop their arguments and return. 1.40's are the same shape behind
-     * the standard prologue, except its `rnp` has no `rts` at all and falls
-     * into `Scanstr$`.
+     * They pop their arguments and return. 1.40's are the same two behind the
+     * shareware guard, and both do end in an `rts`:
+     *
+     *     rnc unpack (1.40's routine 262, $64e4, 14 bytes)
+     *         tst.w -$16(a5) / Rbmi routine 144
+     *         move.l (a3)+,d5 / move.l (a3)+,d0 / rts
+     *     rnp        (1.40's routine 263, $64f2, 10 bytes)
+     *         tst.w -$16(a5) / Rbmi routine 144
+     *         rts
+     *
+     * (An earlier pass here claimed 1.40's `rnp` had no `rts` and fell through
+     * into `Scanstr$`. It does not; that reading was of the wrong routine,
+     * 1.50's numbering applied to 1.40's table, which is shifted by fourteen.
+     * 1.40's routine 144 is the unregistered-copy arm, `moveq #0,d0` and out.)
      *
      * So these are implemented AS THE STUBS THEY ARE. Wiring a real RNC
      * decompressor in — the obvious reading of the manual, which still
@@ -4635,6 +4646,18 @@ const SIN256 = ((): Int16Array => {
 const extW = (v: number): number => (v << 16) >> 16
 
 /**
+ * `asl.w dn,dm` and `asr.w dn,dm` — a WORD shifted by a REGISTER count.
+ *
+ * JS cannot spell either directly. `<<` and `>>` work on 32 bits and take the
+ * count modulo 32, where the 68000 takes it modulo 64 and operates on 16 bits,
+ * so a count of 16 -- which JS would treat as a real 16-bit shift, or a count
+ * of 32, which JS would treat as no shift at all -- must land on the 68000's
+ * answer: everything shifted out, leaving 0 for `asl` and the sign for `asr`.
+ */
+const aslW = (v: number, n: number): number => (n % 64 >= 16 ? 0 : extW(v << (n % 64)))
+const asrW = (v: number, n: number): number => (n % 64 >= 16 ? (extW(v) < 0 ? -1 : 0) : extW(v) >> (n % 64))
+
+/**
  * `Qarc`'s arctangent table — 513 BYTES at $a5a8 in 1.40, pointer at $69a.
  *
  * Indexed by `(min(|dx|,|dy|) << 9) / max(...)`, so the domain is a ratio in
@@ -4674,28 +4697,47 @@ function qtrig(angle: number, radius: number, quarterTurn: number): number {
  * ------------------------------------------------------------------ */
 
 /**
- * Scancode to key name, for `Scanstr$`.
+ * The key names Scanstr$ answers with, taken out of the library at $63f8.
  *
- * NOTE: AMCAF's own spellings were not recovered. The extension ships no
- * string table at all — a search of the whole hunk for "Space", "Escape",
- * "Return" and friends finds nothing — so the names must come from AMOS or
- * the keymap, neither of which is modelled as text here. These are the Amiga
- * rawkey names for the codes the port already tracks, which answers the
- * question a program is asking ("what key is this?") without claiming to be
- * character-for-character what the library printed. Classified APPROXIMATED.
+ * 105 NUL-terminated strings, indexed by the scancode, ending at $65b6 where
+ * routine 278 ends. Extracted rather than written: this is the extension's own
+ * data, and it is the only thing that can make Scanstr$ answer what the
+ * machine answers.
+ *
+ * This port used to say "AMCAF ships no string table at all -- a search of the
+ * whole hunk for 'Space', 'Escape', 'Return' and friends finds nothing", and
+ * answered with Amiga rawkey names of its own instead. The table was always
+ * there. The search failed because Chris Hodges is German and the names are
+ * lowercase: "ß", "ü", "keypad 0", "l-amiga", "caps lock". A negative search
+ * result was taken as evidence of absence when it was evidence of looking for
+ * the wrong string -- the same trap as the corpus greps that cannot see binary
+ * files, wearing a different hat.
+ *
+ * DEFECT: ten entries are EMPTY (12, 14, 28, 44, 59, 71, 72, 73, 75, 104) and
+ * routine 278 refuses them -- `tst.b (a0) / Rbeq routine 390`, error 23 --
+ * where the manual promises an empty string for a code with no name. The
+ * library contradicts its own documentation, and this port follows the library.
  */
-const KEY_NAMES: Record<number, string> = {
-  0x45: 'Esc', 0x40: 'Space', 0x44: 'Return', 0x41: 'Backspace', 0x42: 'Tab', 0x46: 'Del',
-  0x4c: 'Up', 0x4d: 'Down', 0x4e: 'Right', 0x4f: 'Left',
-  0x60: 'Shift', 0x61: 'Shift', 0x63: 'Ctrl', 0x64: 'Alt', 0x65: 'Alt',
-  0x10: 'Q', 0x11: 'W', 0x12: 'E', 0x13: 'R', 0x14: 'T', 0x15: 'Y', 0x16: 'U', 0x17: 'I', 0x18: 'O', 0x19: 'P',
-  0x20: 'A', 0x21: 'S', 0x22: 'D', 0x23: 'F', 0x24: 'G', 0x25: 'H', 0x26: 'J', 0x27: 'K', 0x28: 'L',
-  0x31: 'Z', 0x32: 'X', 0x33: 'C', 0x34: 'V', 0x35: 'B', 0x36: 'N', 0x37: 'M',
-  0x01: '1', 0x02: '2', 0x03: '3', 0x04: '4', 0x05: '5',
-  0x06: '6', 0x07: '7', 0x08: '8', 0x09: '9', 0x0a: '0',
-  0x50: 'F1', 0x51: 'F2', 0x52: 'F3', 0x53: 'F4', 0x54: 'F5',
-  0x55: 'F6', 0x56: 'F7', 0x57: 'F8', 0x58: 'F9', 0x59: 'F10',
-}
+const KEY_NAMES: readonly string[] = [
+  "`", "1", "2", "3", "4", "5",
+  "6", "7", "8", "9", "0", "ß",
+  "", "\\", "", "keypad 0", "q", "w",
+  "e", "r", "t", "z", "u", "i",
+  "o", "p", "ü", "+", "", "keypad 1",
+  "keypad 2", "keypad 3", "a", "s", "d", "f",
+  "g", "h", "j", "k", "l", "ö",
+  "ä", "#", "", "keypad 4", "keypad 5", "keypad 6",
+  "<", "y", "x", "c", "v", "b",
+  "n", "m", ",", ".", "-", "",
+  "keypad .", "keypad 7", "keypad 8", "keypad 9", "space", "backspace",
+  "tab", "enter", "return", "escape", "del", "",
+  "", "", "keypad -", "", "curs up", "curs down",
+  "curs right", "curs left", "F 1", "F 2", "F 3", "F 4",
+  "F 5", "F 6", "F 7", "F 8", "F 9", "F10",
+  "keypad [", "keypad ]", "keypad /", "keypad *", "keypad +", "help",
+  "l-shift", "r-shift", "caps lock", "ctrl", "l-alt", "r-alt",
+  "l-amiga", "r-amiga", "",
+]
 
 /** the shared body of Lsstr$ ($488e) and Lzstr$ ($47ea), routines 178 and 177 */
 function padNum(v: number, n: number, pad: string): string {
@@ -6759,8 +6801,40 @@ function vecRot(rt: Runtime, a: Value[]): { x: number; y: number; z: number } {
  * pressed is what an unused port reads as on the machine too.
  */
 function fourPlayer(port: number): number {
-  if (port < 0 || port > 1) amcafErr()
+  // Routine 11 ($20d4) and its siblings all guard the port the same way:
+  //
+  //     move.l (a3)+, d0
+  //     beq.b  .port0            the WHOLE long tested against zero
+  //     cmp.b  #$1, d0           ...but only the low BYTE against one
+  //     Rbne   routine 157       -> routine 390, AMOS error 23
+  //
+  // DEFECT: the two halves of that check are not the same width, so Pjoy(257)
+  // is accepted as port 1 where Pjoy(256) is rejected, and the manual's "'j'
+  // must be either 0 or 1" holds only for the low byte. Reproduced.
+  if (port !== 0 && (port & 0xff) !== 1) amcafErr()
   return 0
+}
+
+/**
+ * The `Rbmi` / `cmp.w` pair AMCAF guards a small integer argument with, as
+ * Xfire's routine 17 ($21e2) spells it twice over:
+ *
+ *     move.l (a3)+, d6
+ *     Rbmi   routine 157        the SIGN, off the whole long
+ *     cmp.w  #$7, d6
+ *     Rbge   routine 157        the RANGE, off the low word only
+ *
+ * DEFECT: mixing the widths leaves a hole. 65536 is a positive long whose low
+ * word is 0, so it passes as argument 0; 32768 is a positive long whose low
+ * word is -32768, which is below every limit, so it passes as well and is then
+ * used as a non-zero selector. Reproduced, and returned as the word the
+ * routine goes on to use.
+ */
+function amcafSmall(v: number, limit: number): number {
+  if (v < 0) amcafErr()
+  const w = extW(v)
+  if (w >= limit) amcafErr()
+  return w
 }
 
 /* ------------------------------------------------------------------ *
@@ -7266,11 +7340,36 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * =Scanstr$(scancode) — routine 278. "returns the name of a key
-     * according to the parameter 'scancode' ... If there is no key for the
-     * scancode, an empty string will be returned."
+     * =Scanstr$(scancode) — routine 278 ($63c8), 494 bytes, of which 446 are
+     * the string table (see KEY_NAMES).
+     *
+     *     move.l (a3)+,d0
+     *     cmp.w  #$67,d0 / Rbhi routine 390   ; above 103, error 23
+     *     andi.b #$7f,d0
+     *     lea    $63f8(pc),a0
+     *     tst.b  d0 / beq .got                ; index 0 is the first string
+     *   .skip: tst.b (a0)+ / bne .skip        ; walk to the next NUL
+     *     subq.b #$1,d0 / beq .got / bra .skip
+     *   .got: tst.b (a0) / Rbeq routine 390   ; an EMPTY entry, error 23
+     *     moveq #$2,d2 / Rbra routine 366
+     *
+     * DEFECT: the manual says *"If there is no key for the scancode, an empty
+     * string will be returned"* and this port did that. The routine does not.
+     * A scancode above 103 and a scancode whose table entry is empty both
+     * take `Rbra routine 390` — error 23. The binary wins over the manual,
+     * and here they disagree outright.
+     *
+     * The `cmp.w` is on a WORD, so a negative argument reads as $ffff and is
+     * refused by the same branch rather than wrapping into the table.
      */
-    'scanstr$': (_, a) => VS(KEY_NAMES[i0(a, 0)] ?? ''),
+    'scanstr$': (_, a) => {
+      const n = i0(a, 0)
+      // `cmp.w #$67,d0 / Rbhi` — unsigned, so negatives fail here too
+      if ((n & 0xffff) > 0x67) amcafErr()
+      const name = KEY_NAMES[n & 0x7f] ?? ''
+      if (name === '') amcafErr()
+      return VS(name)
+    },
 
 
     /**
@@ -8348,10 +8447,25 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * the parallel port joysticks is checked instead of the normal
      * joysticks", and the bit layout is the same JOY_* packing.
      *
-     * NOTE: there is no adaptor. This is the same hardware Sticks models --
-     * CIA-A PRB, the parallel port's data register -- and Sticks already
-     * answers "no adaptor" honestly rather than pretending. These agree with
-     * it: an unused port reads as nothing pressed. `j` must be 0 or 1.
+     * Routine 11 ($20d4) is Pjoy and the family all share its shape. The
+     * directions come from CIA-A PRB, the parallel port's data register, one
+     * nibble per stick:
+     *
+     *     move.b (a1), d3          $bfe101
+     *     neg.b  d3
+     *     lsr.b  #$4, d3           port 1 -- the HIGH nibble
+     *     btst.l d2, (a0)          $bfd000 bit 0, port 1's fire
+     *     bne.b  .out
+     *     addi.b #$10, d3          not set means pressed: JOY_FIRE
+     *
+     * and port 0 takes `andi.b #$f,d3` with its fire on bit 2 instead. Pjup
+     * (routine 14) and Pfire (routine 16) are the same registers read one bit
+     * at a time, answering $ff rather than a bitmap.
+     *
+     * NOTE: there is no adaptor. This is the hardware Sticks already models,
+     * and Sticks answers "no adaptor" honestly rather than pretending; these
+     * agree with it and read as nothing pressed. What IS reproduced is the
+     * argument check, which the port did not have before -- see `fourPlayer`.
      */
     pjoy: (_, a) => VI(fourPlayer(i0(a, 0)) & JOY_DIRECTIONS),
     pjup: (_, a) => VI(fourPlayer(i0(a, 0)) & JOY_UP ? -1 : 0),
@@ -8361,30 +8475,82 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     pfire: (_, a) => VI(fourPlayer(i0(a, 0)) & JOY_FIRE ? -1 : 0),
 
     /**
-     * =Xfire(port,button) — a second or later fire button.
+     * =Xfire(port,button) — a second or later fire button. Routine 17 ($21e2),
+     * 228 bytes, and much more than the port was crediting it with.
      *
-     * "If the lowlevel-library is available, all the other buttons can be
-     * checked aswell." lowlevel.library is not modelled, and a plain gameport
-     * has one button, so anything past the first reads as not pressed. The
-     * first is the ordinary fire the host already supplies.
+     * The two arguments are checked in the order they are POPPED, which
+     * +Music.s:2341 says is the reverse of the syntax -- "you unpile them in
+     * REVERSE order than the instruction syntax" -- so `button` is validated
+     * first and a program that gets both wrong sees the button's error:
+     *
+     *     move.l (a3)+, d6 / Rbmi / cmp.w #$7, d6 / Rbge      button 0..6
+     *     move.l (a3)+, d7 / Rbmi / cmp.w #$2, d7 / Rbge      port   0..1
+     *
+     * The manual's button list confirms which is which -- 0 the ordinary fire,
+     * 1 "the blue button on a gamepad", then yellow, green, reverse, forward
+     * and play/pause -- seven buttons across two gameports, not seven ports.
+     * This port had `port` bounded by MAX_PORT and `button` not bounded at
+     * all, so Xfire(0,99) quietly answered 0 where the machine raises 23.
+     *
+     * Buttons 0 and 1 are read straight off the hardware and need no library:
+     *
+     *     button 0    btst.b #$6 / #$7, $bfe001.l        CIA-A PRA, port 0 / 1
+     *     button 1    move.w #$f000, $34(a0)             POTGO
+     *                 btst.b #$2 / #$6, $16(a0)          POTINP, port 0 / 1
+     *
+     * NOTE: only button 0 has anything behind it here -- the ordinary fire the
+     * host supplies. Button 1 is the paddle-port line, which nothing drives,
+     * and 2 to 6 go through `$378(a2)`, lowlevel.library, which this port does
+     * not model; all of them read as not pressed.
      */
     xfire: (_, a) => {
-      const port = i0(a, 0)
-      if (port < 0 || port > MAX_PORT) amcafErr()
+      const button = amcafSmall(i0(a, 1), 7)
+      const port = amcafSmall(i0(a, 0), 2)
       const bits = port === PORT_MOUSE ? rt.input.joy0 : rt.input.joy
-      return VI(i0(a, 1) <= 1 && joyFire(bits) ? -1 : 0)
+      return VI(button === 0 && joyFire(bits) ? -1 : 0)
     },
 
     /**
-     * =X Smouse / =Y Smouse / =Smouse Key — the second mouse.
+     * =X Smouse / =Y Smouse — the second mouse's position.
      *
-     * NOTE: nothing drives a second mouse here, exactly as in the Sticks
-     * port, where the manual is explicit that this is "not ... the AMOS
-     * pointer". The position holds wherever a program last put it and the
-     * buttons read as up.
+     * Routines 164 and 165 ($4636, $464a) are the exact inverse of the Smouse
+     * X / Smouse Y setters, and this port was only doing half of the pair:
+     *
+     *     move.w $2f4(a2), d3      the position, held PRE-SHIFTED
+     *     move.w $2ee(a2), d0      the speed
+     *     asr.w  d0, d3            ...shifted back out again
+     *     ext.l  d3
+     *
+     * The setter here already stored `value << speed`, off routine 166, but
+     * the reader handed that stored number straight back, so under any speed
+     * but the default `Smouse X 10 : Print X Smouse` printed 10 shifted left
+     * once for every step of the speed. The two now agree, and the round trip
+     * is what the test pins.
+     *
+     * NOTE: nothing DRIVES a second mouse here, exactly as in the Sticks port,
+     * where the manual is explicit that this is "not ... the AMOS pointer".
+     * The position holds wherever a program last put it.
      */
-    'x smouse': () => VI(rt.amcaf.smouse.x),
-    'y smouse': () => VI(rt.amcaf.smouse.y),
+    'x smouse': () => VI(asrW(rt.amcaf.smouse.x, rt.amcaf.smouse.speed)),
+    'y smouse': () => VI(asrW(rt.amcaf.smouse.y, rt.amcaf.smouse.speed)),
+
+    /**
+     * =Smouse Key — the second mouse's buttons, as a BITMAP and not a flag.
+     *
+     * Routine 171 ($470a) reads three different pieces of hardware and adds a
+     * different weight for each, all active low:
+     *
+     *     move.w #$f000, $34(a0)             POTGO, pot pins driven high
+     *     btst.b #$7, $bfe001.l   +1         CIA-A PRA bit 7, port 1's button
+     *     btst.b #$6, $16(a0)     +2         POTINP bit 6
+     *     btst.b #$4, $16(a0)     +4         POTINP bit 4
+     *
+     * so 1 is left, 2 and 4 the right and middle buttons read through the
+     * paddle port -- three bits, where this port had a bare 0 standing in for
+     * a boolean. NOTE: with no second mouse attached every line floats high,
+     * which is "not pressed" on all three, so the answer is still 0; it is 0
+     * for the hardware's reason now rather than by assumption.
+     */
     'smouse key': () => VI(0),
 
 
