@@ -13,7 +13,7 @@ import {
 } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/tokenizer'
-import { FAITHFUL, NA, NOTES, STRUCTURAL } from '../coverage/status'
+import { FAITHFUL, NA, NOTES, SHARED_NOTES, STRUCTURAL } from '../coverage/status'
 
 const table = new TokenTable(CORE_TOKENS)
 const rt = new Runtime(tokenize('', table), table, {})
@@ -119,6 +119,21 @@ describe('coverage manifest consistency', () => {
     // as the value, so they sat inert as `date\$` until this test was added.
     const phantom = [...Object.keys(NOTES)].filter((n) => !known.has(n))
     expect(phantom).toEqual([])
+  })
+
+  it('every SHARED_NOTES entry names a real keyword and a note that exists', () => {
+    // A group whose holder loses its note documents nothing while still
+    // looking documented, which is worse than the flat map was -- so both
+    // ends are checked. The keyword must exist, and the name it points at
+    // must actually carry a reading.
+    const bad: string[] = []
+    for (const [name, holder] of Object.entries(SHARED_NOTES)) {
+      if (!known.has(name)) bad.push(`${name} is not a keyword`)
+      if (!known.has(holder)) bad.push(`${name} points at ${holder}, which is not a keyword`)
+      if (!NOTES[holder]) bad.push(`${name} points at ${holder}, which has no NOTE`)
+      if (NOTES[name]) bad.push(`${name} has its own NOTE and a SHARED_NOTES entry`)
+    }
+    expect(bad).toEqual([])
   })
 
   it('NA entries are real tokens and never implemented', () => {

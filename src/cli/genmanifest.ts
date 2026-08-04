@@ -12,7 +12,7 @@ import { INSTR, FUNCS, RAWFUNCS } from '../interp/builtins'
 import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/tokenizer'
-import { FAITHFUL, NA, NOTES, STRUCTURAL } from '../coverage/status'
+import { FAITHFUL, NA, STRUCTURAL, noteFor } from '../coverage/status'
 
 
 const table = new TokenTable(CORE_TOKENS)
@@ -113,14 +113,14 @@ interface Row {
 
 const rows: Row[] = []
 for (const n of keywordNames(CORE_TOKENS.filter((e) => e.id >= 0x54))) {
-  rows.push({ name: n, status: classify(n), ext: 'core', note: NOTES[n] ?? '' })
+  rows.push({ name: n, status: classify(n), ext: 'core', note: noteFor(n) ?? '' })
 }
 // Extensions are reported under their identity, not the slot they happened to
 // occupy on somebody's machine — see docs/extensions/README.md.
 for (const ext of allExtensions()) {
   for (const n of keywordNames(ext.tokens)) {
     if (rows.some((r) => r.name === n)) continue
-    rows.push({ name: n, status: classify(n), ext: ext.id, note: NOTES[n] ?? '' })
+    rows.push({ name: n, status: classify(n), ext: ext.id, note: noteFor(n) ?? '' })
   }
 }
 

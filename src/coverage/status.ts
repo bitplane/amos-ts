@@ -1990,7 +1990,15 @@ export const NA = new Set<string>([
   'port',
 ])
 
-/** Known simplifications worth surfacing next to a keyword. */
+/**
+ * Known simplifications worth surfacing next to a keyword.
+ *
+ * One entry per READING, not per keyword. Where a single routine serves
+ * several names -- `Scrn Rastport` and its four siblings are literally the
+ * same eighteen bytes five times -- the reading is written once and the
+ * others point at it through SHARED_NOTES below. Read through `noteFor`,
+ * never by indexing this directly, or the siblings look undocumented.
+ */
 export const NOTES: Record<string, string> = {
   // --- IOPorts: implemented, but reporting a port with nothing on it ---
   'serial error':
@@ -2997,4 +3005,34 @@ export const NOTES: Record<string, string> = {
   'talk stop':
     'ends an asynchronous say and hands the voices back, as the routine does; there is no CheckIO/AbortIO race to model because the synthesis is not concurrent here',
 
+}
+
+/**
+ * Keywords whose reading lives under another keyword's name.
+ *
+ * The flat NOTES map could not say "these five share one routine", so a
+ * reading that covered a group appeared to document only whichever member
+ * happened to hold it. That is not cosmetic: it made a third of AMCAF's
+ * approximated set read as unexplained in KEYWORDS.md and in the #199 audit,
+ * and sent a pass looking for readings that had already been done.
+ *
+ * The value is the keyword that HOLDS the reading. coverage.test.ts checks
+ * both ends -- that the name is real and that the target actually has a NOTE
+ * -- so a group cannot rot into pointing at nothing.
+ */
+export const SHARED_NOTES: Record<string, string> = {
+  // routines 279 to 283 are the same eighteen bytes five times, each handing
+  // back a different field of the current screen
+  'scrn bitmap': 'scrn rastport',
+  'scrn layerinfo': 'scrn rastport',
+  'scrn layer': 'scrn rastport',
+  'scrn region': 'scrn rastport',
+  // "Gives back the address of the AMCAF data base" and its size -- one
+  // reading covering the pair
+  'amcaf length': 'amcaf base',
+}
+
+/** The reading for a keyword, following SHARED_NOTES to whoever holds it. */
+export function noteFor(name: string): string | undefined {
+  return NOTES[name] ?? NOTES[SHARED_NOTES[name] ?? '']
 }

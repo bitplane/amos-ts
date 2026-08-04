@@ -10,7 +10,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { findAnchors } from '../ext/citations'
-import { FAITHFUL, NA, NOTES } from '../coverage/status'
+import { FAITHFUL, NA, noteFor } from '../coverage/status'
 import { extensionById } from '../ext/registry'
 import { Runtime } from '../runtime/runtime'
 import { makeAmcafInstructions, makeAmcafFunctions } from '../runtime/amcaf'
@@ -61,7 +61,7 @@ const uncited: string[] = []
 const cited = new Set<string>()
 for (const a of anchors) {
   const d = docFor(a.at)
-  const note = NOTES[a.name]
+  const note = noteFor(a.name)
   if ((d && CITES.test(d)) || (note && CITES.test(note))) cited.add(a.name)
   else uncited.push(a.name)
 }
@@ -95,9 +95,9 @@ console.log('--- APPROXIMATED, split by whether it was actually read ---')
 const readNotVerified = approx.filter((n) => cited.has(n))
 const unread = approx.filter((n) => !cited.has(n))
 console.log(`read (cites its routine), value approximated: ${readNotVerified.length}`)
-for (const n of readNotVerified) console.log(`   ${n}${NOTES[n] ? '' : '   [no NOTE]'}`)
+for (const n of readNotVerified) console.log(`   ${n}${noteFor(n) ? '' : '   [no NOTE]'}`)
 console.log(`NOT read (no citation anywhere in its block):  ${unread.length}`)
-for (const n of unread) console.log(`   ${n}${NOTES[n] ? '' : '   [no NOTE]'}`)
+for (const n of unread) console.log(`   ${n}${noteFor(n) ? '' : '   [no NOTE]'}`)
 console.log()
 console.log('--- every uncited handler, approximated or not ---')
 for (const n of uncited) console.log(`   ${n}${FAITHFUL.has(n) ? '  (marked FAITHFUL!)' : ''}`)
