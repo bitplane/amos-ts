@@ -37,6 +37,23 @@ export interface ExtensionImpl {
   instructions?: (rt: Runtime) => Record<string, Instr>
   functions?: (rt: Runtime) => Record<string, Func>
   /**
+   * Put this extension's own settings back to what they are at boot.
+   *
+   * Every extension slot holds three pointers on the machine (`$f8(a5)`, 16
+   * bytes each): its base, a DEFAULT routine at +$4 and a REMOVE routine at
+   * +$8. `Default` (InDefault +Lib.s:8710) calls the +$4 of every occupied
+   * slot after it reopens screen 0, which is how TURBO's Scene Icon Bank and
+   * Scene Mask Palette go back to their boot values without the core knowing
+   * either keyword exists.
+   *
+   * Declared here rather than called by name because it had been discovered
+   * twice: `default()` imported `turboDefault` and `personnalDefault` and
+   * invoked them directly, so a port that needed the hook had to edit the
+   * core to get it, and AMCAF's `Extdefault` — which is the SAME +$4 pointer,
+   * reached by slot instead of all at once — had no way to ask for it at all.
+   */
+  defaults?: (rt: Runtime) => void
+  /**
    * Keywords this port must answer for under a slot-qualified key rather than
    * its plain name, because another layer owns the plain one (see
    * interp/names.ts:qualified). Declared by plain name here and rewritten to
@@ -100,6 +117,28 @@ export function implSlots(
   bound: ReadonlyMap<number, Extension> | null | undefined,
 ): number[] {
   return slotsForIds(impl.ids, bound)
+}
+
+/**
+ * Which port sits in which slot — the inverse of `implSlots`.
+ *
+ * AMOS's extension table is indexed BY SLOT, so anything reaching a single
+ * extension through its slot number needs this direction: AMCAF's Extbase,
+ * Extdefault and Extremove are `$f8(a5) + 16*(n-1)` and nothing else.
+ *
+ * Last-wins on a collision, which cannot happen with real bindings — a slot
+ * holds one extension — and is arbitrary without them, where `implSlots`
+ * falls back to every slot an identity has ever been seen at and two ports may
+ * claim one. That fallback is for source listings and tests, which is also the
+ * case where no program can be asking about a slot it did not name.
+ */
+export function implsBySlot(
+  impls: readonly ExtensionImpl[],
+  bound: ReadonlyMap<number, Extension> | null | undefined,
+): Map<number, ExtensionImpl> {
+  const out = new Map<number, ExtensionImpl>()
+  for (const impl of impls) for (const slot of implSlots(impl, bound)) out.set(slot, impl)
+  return out
 }
 
 /**

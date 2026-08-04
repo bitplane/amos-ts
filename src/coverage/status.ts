@@ -1436,7 +1436,11 @@ export const FAITHFUL = new Set<string>([
   'td stars single do', 'td stars double do',
   'td stars single del', 'td stars double del',
   // slice 10: vectors and internals. Vec Rot X/Y/Z and Amcaf Version$ are
-  // APPROXIMATED; the Ext* trio is n/a.
+  // APPROXIMATED, and so is Extbase -- it answers the right PREDICATE (an
+  // empty slot reads 0) off a synthetic address. Of the four extension-table
+  // keywords only Extreinit is n/a, and it is the only one that runs the
+  // extension's own code.
+  'extdefault', 'extremove',
   'vec rot angles', 'vec rot pos', 'vec rot precalc',
   'speek', 'sdeek', 'amos cli', 'audio lock', 'audio free',
   'flush libs', 'open workbench',
@@ -1930,6 +1934,15 @@ export const NA = new Set<string>([
   // Its whole output is machine code for a machine this is not, and running it
   // is the boundary `call` already draws. No handler is registered.
   'trans screen dynamic',
+  // Extreinit (routine 136) is the odd one of AMCAF's four extension-table
+  // keywords. Extbase, Extdefault and Extremove read a POINTER out of the
+  // table at $f8(a5) and are implemented; this one walks the slot's token
+  // table at $24(a5) to find where it ends, then calls whatever code follows
+  // it with `d1 = 'APex'`. That is entering an extension's init at an address
+  // it computed by parsing, which is the same never-execute-68k boundary
+  // `call`, `execall` and `lib call` sit behind -- not a missing hook. No
+  // handler is registered.
+  'extreinit',
   // the native AMOS compiler overlay (LoadSeg APCMP + jsr, +CompExt.s:219,349)
   'compile',
   'cmpcall',
@@ -2172,6 +2185,12 @@ export const NOTES: Record<string, string> = {
     "'When you start AMOS, the audio.device will be not informed, that AMOS wants to have the audio channels. Due to this flaw, other programs that are running in the background can replay a sound at any time.' There is no other program in the background here and no audio.device to arbitrate with, so a no-op is FAITHFUL: the observable effect on the calling program is the same",
   'open workbench':
     "'Tries to open the workbench again, if it has been closed previously' with AMOS's Close Workbench. There is no Workbench screen to reopen and closing it here frees nothing, so there is nothing to undo",
+  'extbase':
+    "Routine 133 (\$3c8e), 30 bytes: `lsl.w #\$4,d0 / lea \$f8(a5),a0 / move.l (a0,d0.w),d3` -- AMOS's extension table, 16 bytes a slot, and this reads the base at +\$0 where Extdefault reads +\$4 and Extremove +\$8. The bounds are the same in all three and are the only check any of them makes: `subq.l #\$1,d0 / Rbmi` and `moveq #\$1a,d1 / cmp.l d1,d0 / Rbge`, so slots are 1..26 and anything else is error 23. Twenty-six is the same 26 the registry describes. An EMPTY slot reads the zero the table starts as, which is the keyword's real use -- `If Extbase(8)=0` asks whether AMCAF is loaded -- and that answer is exact here. DEVIATION: the VALUE is synthetic. Extension code in this port is TypeScript, so there is no hunk to point at; the address is distinct per slot, obviously synthetic, and deliberately mapped by nothing, so a program that Peeks through it fails rather than reading plausible rubbish",
+  'extdefault':
+    "Routine 134 (\$3cac), 44 bytes. 'Calls the default routine of the extension, like the AMOS command Default does', and the bytes agree exactly: it indexes the same table `Default` walks (`movea.l \$4(a0,d0.w),a1`) and calls the same pointer, one slot instead of every one. That hook is now declared on the port (../runtime/extimpl.ts) rather than called by name from the core, which is what made this implementable -- `Default` had `turboDefault(rt)` and `personnalDefault(rt)` hard-coded, so there was no way to ask for one slot's. A slot whose extension has no default routine is `beq` past the call on the machine and a port with no hook here, not an error either way",
+  'extremove':
+    "Routine 135 (\$3cd8), 48 bytes: `movea.l \$8(a0,d0.w),a1 / clr.l \$8(a0,d0.w)` and then a call through it if it was not null. 'Removes the extension in the slot from memory like when exiting AMOS', with the manual candid about the price -- 'Otherwise, you can lose memory or even crash your computer.' NOTE: a no-op past the bounds check, and FAITHFUL for the reason Audio Free is. What the remove routine does is hand memory back and nothing here models memory as scarce; what the `clr.l` does is make a SECOND Extremove do nothing, which is already true of the first. The observable effect on the calling program is the same. Note what it does not touch: +\$0 is left alone, so Extbase still answers after a remove, and this port matches",
   'coords bank':
     "TWO token entries and two routines. The table carries `!coords bank` (id \$0d10, spec `I0`, routine 93) followed by an empty-named continuation (id \$0d24, spec `I0,0`, routine 94), which is how AMOS spells one keyword with two arities -- `!track play` and its two blank followers are the same shape. Routine 93 (\$33d4) is eighteen bytes and reserves NOTHING: `movea.l \$168(a5),a2 / move.l (a3)+,d0 / Rjsr routine 1121 / move.l d0,\$266(a2) / rts`, which resolves the bank to an address and stores the pointer -- exactly the manual's 'the existing bank will only be switched to without erasing it. So you can jump between predefined banks.' Routine 94 (\$33e6) is the one that allocates: `move.l (a3)+,d2 / Rbeq routine 390` makes a count of zero an error, `lsl.l #\$2,d2 / addq.l #\$8,d2` sizes it at four bytes each plus an EIGHT-BYTE HEADER, `lea \$341a(pc),a0 / Rjsr routine 1103` Reserves it under the name 'Coords  ' with `Rbeq routine 389` for out of memory, and `move.w d7,(a0)+ / clr.w (a0)+ / moveq #\$8,d0 / move.l d0,(a0)` writes the header: +0 the COUNT, +2 the CURSOR of how many have been handed out, +4 the byte offset of the next entry, starting at 8. An earlier pass reserved `count * 4` with no header at all, eight bytes short and leaving every reader without a count. NOTE: `move.w d2,d4 / move.l d4,d7` narrows the count to a WORD before storing it while `lsl.l #\$2,d2` sizes the Reserve from the full long, so above 65535 the two disagree in the binary too; that is reproduced",
   'coords read':

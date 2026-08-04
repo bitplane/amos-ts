@@ -765,10 +765,11 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       for (const n of [...rt.screens.keys()]) rt.closeScreen(n)
       rt.openScreen(0, 320, 200, 16, 0)
       rt.installSystemFlash()
-      // extensions hook Default to re-initialise their own settings; TURBO
-      // Plus puts Scene Icon Bank and Scene Mask Palette back here
-      turboDefault(rt)
-      personnalDefault(rt)
+      // then every occupied slot's +$4 routine: extensions hook Default to
+      // re-initialise their own settings, and TURBO Plus puts Scene Icon Bank
+      // and Scene Mask Palette back here. AMCAF's Extdefault is this same
+      // hook reached one slot at a time -- see extimpl.ts
+      for (const impl of new Set(rt.extSlotImpls().values())) impl.defaults?.(rt)
     },
     'default palette'(it) {
       // InDefaultPalette +ILib.s:5389: colours for subsequently opened
@@ -4975,6 +4976,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     ids: ['turbo-plus-1.0', 'turbo-plus-1.9', 'turbo-plus-2.15'],
     instructions: makeTurboInstructions,
     functions: makeTurboFunctions,
+    defaults: turboDefault,
     errors: TURBO_ERRORS,
   },
   {
@@ -4987,6 +4989,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     ids: ['personal-1.0b', 'personnal-1.1'],
     instructions: makePersonnalInstructions,
     functions: makePersonnalFunctions,
+    defaults: personnalDefault,
     // core owns Sprite Col and TURBO owns Right Click
     qualified: ['sprite col', 'right click'],
     errors: PERSONNAL_ERRORS,

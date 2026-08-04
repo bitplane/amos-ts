@@ -32,7 +32,8 @@ import { isResourceBankName, parseResourceBank } from '../loader/resource'
 import type { ResourceBank } from '../loader/resource'
 import type { Extension } from '../ext/registry'
 import { DEFAULT_PALETTE, Screen, builtinPattern, sliderMetrics } from './screen'
-import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from './instr'
+import { extensionImpls, makeAllInstructions, makeAllFunctions, makeRawFunctions } from './instr'
+import { implsBySlot, type ExtensionImpl } from './extimpl'
 import { defaultHost, type Host } from '../amiga/host'
 import { Machine } from '../amiga/machine'
 import { BNK, BOB_BANK, BOB_BANK_FLAGS, ICON_BANK, ICON_BANK_FLAGS, type BankRef } from './banks'
@@ -572,6 +573,47 @@ export class Runtime {
   /** CText's block base — `Font Base` returns this, `Font Data` this + $1e */
   ctextBase(): number {
     return this.extBlockBase('ctext', this.ctext.block)
+  }
+
+  /**
+   * An extension's loaded CODE, as an address — what `=Extbase(n)` answers.
+   *
+   * Not the same thing as `extBlockBase` above, which is an extension's DATA
+   * and has bytes behind it because a program Bloads through it. This is the
+   * library itself, and there is nothing behind it: extension code in this
+   * port is TypeScript, so the address is deliberately un-dereferenceable and
+   * is not registered as a memory region. Peeking it fails, which is the
+   * truth. What it is FOR is the comparison every program actually makes —
+   * `If Extbase(8)=0`, "is AMCAF loaded" — and that answer is exact.
+   *
+   * Slots are 1..26 (AMOS loads 26 extensions; ../ext/registry.ts). A slot
+   * with nothing in it reads 0, because AMOS's table starts zeroed and only a
+   * loaded extension writes its base there.
+   */
+  static readonly EXT_CODE_BASE = 0x7c000000
+  static readonly EXT_CODE_SLOT = 0x00010000
+  static readonly EXT_SLOTS = 26
+
+  /** whether slot n holds an extension at all */
+  extSlotFilled(slot: number): boolean {
+    return this.extBindings?.has(slot) ?? this.interp.names.extensions.has(slot)
+  }
+
+  /** =Extbase(n) — the slot's base address, or 0 if the slot is empty */
+  extSlotBase(slot: number): number {
+    if (!this.extSlotFilled(slot)) return 0
+    return (Runtime.EXT_CODE_BASE + (slot - 1) * Runtime.EXT_CODE_SLOT) >>> 0
+  }
+
+  /**
+   * Which port answers for each extension slot — AMOS's extension table, as
+   * far as this port has one.
+   *
+   * The single place the slot -> port direction is worked out, for `Default`
+   * (every occupied slot's routine) and AMCAF's Extdefault (one of them).
+   */
+  extSlotImpls(): Map<number, ExtensionImpl> {
+    return implsBySlot(extensionImpls(), this.extBindings)
   }
 
   /** base address of screen n's logical bitmap = Logbase(n=0) */

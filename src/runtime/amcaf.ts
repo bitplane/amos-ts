@@ -123,7 +123,7 @@
  * adds the fields its keywords need.
  */
 
-import type { Runtime } from './runtime'
+import { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import type { Interp } from '../interp/interp'
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
@@ -2678,16 +2678,64 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     /* ---- extension internals ---- */
 
     /**
-     * Extremove / Extreinit / Extdefault extnb.
+     * Extdefault extnb — routine 134 ($3cac), 44 bytes.
      *
-     * "The Extremove command removes the extension in the slot from memory
-     * like when exiting AMOS", and the manual is candid about what that
-     * costs: "Otherwise, you can lose memory or even crash your computer."
+     * *"calls the default routine of the extension, like the AMOS command
+     * Default does"*, and that is exactly what the bytes say: it indexes the
+     * same table `Default` walks and calls the same pointer, one slot instead
+     * of all of them.
      *
-     * n/a here. An extension is a set of registered handlers rather than a
-     * loaded library that can be unlinked, and the whole point of the trio is
-     * to reclaim memory this port does not model as scarce. Reproducing them
-     * would mean unregistering keywords mid-program to no observable end.
+     *     move.l  (a3)+,d0 / subq.l #$1,d0 / Rbmi routine 390
+     *     moveq   #$1a,d1 / cmp.l d1,d0 / Rbge routine 390
+     *     lsl.w   #$4,d0 / lea $f8(a5),a0        ; 16 bytes per slot
+     *     movea.l $4(a0,d0.w),a1                 ; the slot's DEFAULT routine
+     *     move.l  a1,d0 / beq                    ; a slot with none: nothing
+     *     movem.l a3-a6,-(a7) / jsr (a1) / movem.l (a7)+,a3-a6
+     *
+     * The port calls the `defaults` hook the port at that slot declares
+     * (../runtime/extimpl.ts), which is the same hook the core `Default`
+     * calls for every slot at once — TURBO's Scene Icon Bank and Scene Mask
+     * Palette go back to their boot values, and so on.
+     *
+     * A slot holding an extension with no default routine is not an error on
+     * the machine (`beq` past the call) and is not one here: a port that
+     * declares no hook is the null pointer.
+     */
+    'extdefault'(it) {
+      rt.extSlotImpls().get(extSlot(it.evalInt()))?.defaults?.(rt)
+    },
+
+    /**
+     * Extremove extnb — routine 135 ($3cd8), 48 bytes. Same index again, this
+     * time `+$8`, and it clears the pointer BEFORE calling through it:
+     *
+     *     movea.l $8(a0,d0.w),a1     ; the slot's REMOVE routine
+     *     clr.l   $8(a0,d0.w)        ; ... and it is gone
+     *     move.l  a1,d0 / beq / jsr (a1)
+     *
+     * *"removes the extension in the slot from memory like when exiting
+     * AMOS"*, with the manual candid about the cost: *"Otherwise, you can
+     * lose memory or even crash your computer."*
+     *
+     * NOTE: a no-op beyond the bounds check, and FAITHFUL for the reason
+     * Audio Free is. What the remove routine does is give memory back, and
+     * nothing here models memory as scarce; what the `clr.l` does is make a
+     * second Extremove do nothing, which is already true of a first one. So
+     * the observable effect on the calling program is the same. The one thing
+     * it does NOT do on the machine is unregister the keywords — `+$0` is
+     * left alone, so `Extbase` still answers after a remove, and this port
+     * matches that.
+     */
+    'extremove'(it) {
+      extSlot(it.evalInt())
+    },
+
+    /*
+     * Extreinit, the fourth of the extension-table keywords, is n/a: it ends
+     * by calling the extension's own init code, which is the never-execute-68k
+     * boundary rather than a missing hook. The reading is in the NA entry in
+     * ../coverage/status.ts, where an n/a keyword's case belongs, and there is
+     * deliberately no handler here.
      */
 
     /**
@@ -4303,6 +4351,25 @@ const amcafMemErr: () => never = () => {
 /** routine 394 — the guard on `$52c(a5)`, taken when no screen is open */
 const amcafScreenErr: () => never = () => {
   throw new AmosError('Screen not opened', 47)
+}
+
+/**
+ * The extension-slot bounds check Extbase, Extdefault and Extremove share.
+ *
+ * Byte for byte the same in all three (routines 133, 134, 135), and it is the
+ * ONLY validation any of them does — nothing checks that the slot is occupied,
+ * because an empty one reads as the zero the table starts as:
+ *
+ *     move.l (a3)+,d0 / subq.l #$1,d0 / Rbmi routine 390
+ *     moveq  #$1a,d1  / cmp.l  d1,d0  / Rbge routine 390
+ *
+ * So the slot is 1..26 — `$1a` is 26, compared AFTER the decrement — and
+ * anything outside is error 23. Twenty-six is the same twenty-six
+ * ../ext/registry.ts describes: AMOS Professional loads 26 extensions.
+ */
+function extSlot(n: number): number {
+  if (n < 1 || n > Runtime.EXT_SLOTS) amcafErr()
+  return n
 }
 
 /**
@@ -7877,6 +7944,32 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      */
     'x raster': () => VI((rt.interp.beamWord() & 0xff) << 1),
     'y raster': () => VI(rt.interp.beamLine() & 0x1ff),
+
+    /**
+     * =Extbase(extnb) — routine 133 ($3c8e), 30 bytes. The same index and the
+     * same bounds as Extdefault and Extremove (see `extSlot`), reading `+$0`
+     * instead of `+$4` or `+$8`:
+     *
+     *     lsl.w #$4,d0 / moveq #$0,d2 / lea $f8(a5),a0
+     *     move.l (a0,d0.w),d3        ; d3 is the long result, d2=0 says integer
+     *
+     * *"returns the base address of the extension"*, and an empty slot reads
+     * the zero AMOS's table starts as — which is what makes the keyword
+     * useful. `If Extbase(8)=0` is how a program asks whether AMCAF is loaded
+     * at all, and that answer is exact here.
+     *
+     * Note also what it does NOT do: Extremove clears the slot's `+$8` and
+     * leaves `+$0` alone, so a removed extension still answers its base. This
+     * port matches, because it has no removal state to answer differently.
+     *
+     * DEVIATION: the VALUE is synthetic. Extension code here is TypeScript, so
+     * there is no loaded hunk to point at. `extSlotBase` answers a distinct,
+     * obviously-synthetic address per slot and NOTHING maps it, so a program
+     * that Peeks through it gets an unmapped address rather than
+     * plausible-looking rubbish: one that reaches into a library's code or
+     * patches it cannot work here, and should not appear to.
+     */
+    'extbase': (_, a) => VI(rt.extSlotBase(extSlot(i0(a, 0)))),
 
     /**
      * =Vclip(val,lower To upper) — the CLAMPING sibling of Vmod, which wraps.

@@ -97,15 +97,19 @@ describe('the slice-0 wiring', () => {
     expect(() => run(['Extreinit 1'])).toThrow(/unimplemented: extreinit/)
   })
 
-  it('under the census policy it yields a typed default instead of throwing', () => {
+  it('under the census policy it is skipped instead of throwing', () => {
     // 'skip' is how runreport sees past a missing keyword to count what the
-    // rest of a program does. The spec's return-type code decides the type,
-    // which matters for the string-returning keywords with no `$` in the name
-    const { out, rt } = run(['Print Extbase'], 'skip')
-    // " 0" is AMOS's leading space for a non-negative number, and the spec's
-    // return-type code is what chose an integer rather than a string
-    expect(out).toBe(' 0\n')
-    expect([...rt.interp.unimplemented.keys()]).toEqual(['extbase'])
+    // rest of a program does.
+    //
+    // This asserted a typed DEFAULT until the extension-table pass, using
+    // `Print Extbase` -- the spec's return-type code choosing an integer over
+    // a string, which matters for the string-returning keywords with no `$`
+    // in the name. AMCAF has no unimplemented function left to demonstrate it
+    // with: the three keywords still without a handler are Extreinit, which
+    // is n/a, and the Imploder pair, and all three are instructions.
+    const { out, rt } = run(['Imploder Load 1,"x"', 'Print 42'], 'skip')
+    expect(out).toBe(' 42\n')
+    expect([...rt.interp.unimplemented.keys()]).toEqual(['imploder load'])
   })
 
   /**
@@ -4545,5 +4549,90 @@ describe('AMCAF: Pptodisk (routines 234 and 235)', () => {
 
   it('a bank that was never reserved is error 23', () => {
     expect(() => boot(['Pptodisk "Work:x.pp",9'])).toThrow(/Illegal function call/)
+  })
+})
+
+/**
+ * The extension table at `$f8(a5)` — Extbase, Extdefault and Extremove, which
+ * index it 16 bytes to the slot and read `+$0`, `+$4` and `+$8`. Routines 133
+ * ($3c8e), 134 ($3cac) and 135 ($3cd8); Extreinit, routine 136 ($3d08), is n/a
+ * because it calls the extension's own init code.
+ *
+ * These need real BINDINGS, not just token tables: the whole point of the
+ * group is that a slot number resolves to a particular extension.
+ */
+describe('AMCAF: the extension table', () => {
+  const TURBO_SLOT = 12
+  const turbo = extensionById('turbo-plus-2.15')!
+  const amcaf = extensionById('amcaf-1.50')!
+  const bound = new Map([
+    [AMCAF_SLOT, amcaf],
+    [TURBO_SLOT, turbo],
+  ])
+  const tables = new Map([
+    [AMCAF_SLOT, amcaf.table],
+    [TURBO_SLOT, turbo.table],
+  ])
+
+  /** `prepare` runs before the program, so a test can set state to reset */
+  function runBound(src: string[], prepare?: (rt: Runtime) => void): { out: string; rt: Runtime } {
+    let out = ''
+    const rt = new Runtime(tokenize(src.join('\n'), table, tables), table, {
+      maxSteps: 1_000_000,
+      extensions: tables,
+      extBindings: bound,
+      onText: (t) => (out += t),
+    })
+    prepare?.(rt)
+    const r = rt.runHeadless(200)
+    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    return { out, rt }
+  }
+
+  it('an occupied slot answers non-zero and an empty one answers 0', () => {
+    // the comparison every program actually makes -- "is AMCAF loaded"
+    const { out } = runBound(['Print Extbase(8)<>0', 'Print Extbase(4)'])
+    expect(out.split('\n').slice(0, 2)).toEqual(['-1', ' 0'])
+  })
+
+  it('each slot gets a distinct base', () => {
+    const { out } = runBound(['Print Extbase(8)<>Extbase(12)'])
+    expect(out.trim()).toBe('-1')
+  })
+
+  it('slot 0 and slot 27 are error 23, in all three', () => {
+    // `subq.l #$1,d0 / Rbmi` and `moveq #$1a,d1 / cmp.l d1,d0 / Rbge`, the
+    // same six instructions in routines 133, 134 and 135
+    for (const src of ['Print Extbase(0)', 'Extdefault 0', 'Extremove 0']) {
+      expect(() => runBound([src])).toThrow(/Illegal function call/)
+    }
+    for (const src of ['Print Extbase(27)', 'Extdefault 27', 'Extremove 27']) {
+      expect(() => runBound([src])).toThrow(/Illegal function call/)
+    }
+    // 1 and 26 are the far ends and are legal
+    expect(() => runBound(['Extdefault 1', 'Extdefault 26'])).not.toThrow()
+  })
+
+  it("Extdefault runs that slot's default routine and only that one", () => {
+    // TURBO's +$4: "Scene Icon Bank is set to 2 ... when you call Default"
+    const set = (rt: Runtime): void => void (rt.turbo.scene.iconBank = 5)
+    expect(runBound(['Extdefault 12'], set).rt.turbo.scene.iconBank).toBe(2)
+    // AMCAF's own slot declares no default routine, which on the machine is
+    // the null pointer at +$4 -- `beq` past the call, nothing touched
+    expect(runBound(['Extdefault 8'], set).rt.turbo.scene.iconBank).toBe(5)
+  })
+
+  it('the core Default calls the same hook, for every occupied slot', () => {
+    const set = (rt: Runtime): void => void (rt.turbo.scene.iconBank = 5)
+    expect(runBound(['Default'], set).rt.turbo.scene.iconBank).toBe(2)
+  })
+
+  it('Extremove leaves the base alone — it clears +$8, not +$0', () => {
+    const { out } = runBound(['Extremove 8', 'Print Extbase(8)<>0'])
+    expect(out.trim()).toBe('-1')
+  })
+
+  it('a second Extremove is not an error either', () => {
+    expect(() => runBound(['Extremove 8', 'Extremove 8'])).not.toThrow()
   })
 })
