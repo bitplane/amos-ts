@@ -4477,3 +4477,73 @@ describe('AMCAF: Launch, on the process seam', () => {
     expect(pri).toBe(0)
   })
 })
+
+/**
+ * Pptodisk — routines 235 ($59e4) and 234 ($58d2), the PowerPacker cruncher
+ * and the other half of Ppunpack / Ppfromdisk.
+ */
+describe('AMCAF: Pptodisk (routines 234 and 235)', () => {
+  function boot(src: string[]): { rt: Runtime; fs: AmigaFS } {
+    const fs = new AmigaFS()
+    fs.mountMemory('Work')
+    fs.currentDir = 'Work:'
+    const rt = new Runtime(tokenize(src.join('\n'), table, extensions), table, {
+      maxSteps: 2_000_000,
+      extensions,
+      fs,
+    })
+    const r = rt.runHeadless(400)
+    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    return { rt, fs }
+  }
+
+  const fill = ['Reserve As Work 5,1024', 'For I=0 To 1023 : Poke Start(5)+I,I And 15 : Next I']
+
+  it('writes a real PP20 file, and Ppunpack reads it back byte for byte', () => {
+    // the round trip is the proof: this port's own decruncher, which was
+    // written against real corpus files, accepts what the cruncher emits
+    const { rt, fs } = boot([
+      ...fill,
+      'Pptodisk "Work:b.pp",5',
+      'Ppfromdisk "Work:b.pp",6',
+    ])
+    const f = fs.readFile('Work:b.pp')!
+    expect(String.fromCharCode(...f.subarray(0, 4))).toBe('PP20')
+    expect([...rt.memBanks.get(6)!.data]).toEqual([...rt.memBanks.get(5)!.data])
+  })
+
+  it('the efficiency table it writes is the one the corpus uses', () => {
+    // every PP20 file in the fixtures carries [9,10,12,13] at offset 4
+    const { fs } = boot([...fill, 'Pptodisk "Work:b.pp",5'])
+    expect([...fs.readFile('Work:b.pp')!.subarray(4, 8)]).toEqual([9, 10, 12, 13])
+  })
+
+  it('the third argument is accepted and changes nothing', () => {
+    // it is handed straight to powerpacker.library, and the 0..4 to table
+    // mapping lives there rather than in this binary. No range check either
+    const a = boot([...fill, 'Pptodisk "Work:b.pp",5']).fs.readFile('Work:b.pp')!
+    for (const eff of ['0', '2', '4', '99', '-1']) {
+      const b = boot([...fill, `Pptodisk "Work:c.pp",5,${eff}`]).fs.readFile('Work:c.pp')!
+      expect([...b]).toEqual([...a])
+    }
+  })
+
+  it('the crunched file is smaller than the bank it came from', () => {
+    // 1024 bytes of a repeating 16-value ramp is exactly what LZ77 eats
+    const { fs } = boot([...fill, 'Pptodisk "Work:b.pp",5'])
+    expect(fs.readFile('Work:b.pp')!.length).toBeLessThan(1024)
+  })
+
+  it('a sprite or icon bank is message 4, by the same stand-in Ppunpack uses', () => {
+    // the kind bits live twelve bytes below the data and this port has no
+    // equivalent, so banks 1 and 2 stand in for them
+    const { rt } = boot(['Reserve As Work 5,16'])
+    expect(rt.spriteBank).toBeNull()
+    // with no sprite bank loaded, bank 1 is just a bank
+    expect(() => boot(['Reserve As Work 1,64', 'Pptodisk "Work:x.pp",1'])).not.toThrow()
+  })
+
+  it('a bank that was never reserved is error 23', () => {
+    expect(() => boot(['Pptodisk "Work:x.pp",9'])).toThrow(/Illegal function call/)
+  })
+})

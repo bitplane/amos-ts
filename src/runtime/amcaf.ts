@@ -131,7 +131,7 @@ import { DAY_MS, STAMP_EPOCH, TICKS_PER_SECOND, stampToYmd } from '../amiga/date
 import { MAX_COMMENT, blocksFor, entryType, protectionString } from '../amiga/dos'
 import { fillRow } from '../amiga/blitter'
 import { parseSampleBank } from './audio'
-import { pp20Decrunch } from '../amiga/powerpacker'
+import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 import { launch } from '../amiga/process'
 import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, MAX_PORT, PORT_MOUSE, joyFire } from '../interp/gameport'
 import { BitMap } from '../amiga/graphics'
@@ -3991,6 +3991,82 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * NOTE: on success the routine never UnLoadSegs, leaving the segment to
      * the process it started. Nothing to reproduce while nothing starts.
      */
+    /**
+     * Pptodisk file$,bank [,efficiency] — routines 235 ($59e4) and 234
+     * ($58d2). *"crunches and saves the bank numbered 'bank' into the file
+     * 'file\$' using the PowerPacker algorithm"*, and *"Sorry for the name
+     * 'Pptodisk' but 'Ppsave' has already been used by AMOS."*
+     *
+     * 235 is the two-argument form and is three instructions -- `moveq #$4,d0
+     * / move.l d0,-(a3) / Rbra routine 234` -- so the DEFAULT EFFICIENCY IS 4,
+     * the manual's *"best, but slow"*, not 0.
+     *
+     * 234 in order, with the helper routines all confirmed by reading them:
+     *
+     *   Rbsr 354            free any buffer a previous call left: if $368(a2)
+     *                       is set, FreeMem($364(a2), $368(a2)) and clear both
+     *   Rbsr 368            OpenLibrary("powerpacker.library", 35) into
+     *                       $36c(a2); failing to `moveq #$5,d0 / Rbra 397`,
+     *                       message 5 "No powerpacker.library"
+     *   pop efficiency, bank, file$   -- then `move.l d1,-(a3)` puts the
+     *                       efficiency straight back as scratch, and it is
+     *                       peeked at $5964 and popped at $5976
+     *   Rjsr 1121           the bank, as an address
+     *   move.w -$c(a0),d0 / andi.w #$c,d0 / bne  -> message 4, the same
+     *                       "No icons- or spritesbanks allowed" Wsave raises
+     *   Rbsr 358            Open(file, 1006) -- MODE_NEWFILE; failing to 392,
+     *                       error 94
+     *   length = -$14(a0) less SIXTEEN, the bank's own header
+     *   AllocMem($10001)    failing: close, then error 24
+     *   copy the bank in, then four powerpacker.library calls at -$72, -$60,
+     *   -$6c and -$66, the third taking (a0 = the handle from -$60, a1 = the
+     *   buffer, d0 = its length) and answering the crunched length
+     *   a non-positive answer -> close, free, `moveq #$6,d0`, message 6,
+     *                       "Crunching error"
+     *   Rbsr 361            Write, which compares the count it got back and
+     *                       leaves Z clear on a short write
+     *   Rbsr 362 / -$66 / Rbsr 354      close, free the handle, free the buffer
+     *   tst.b d5 / Rbne 392             a short write is error 94
+     *
+     * NOTE: the efficiency is accepted and does not change the output. It is
+     * passed straight to powerpacker.library, which turns 0..4 into the
+     * four-byte table a PP20 file carries at offset 4 -- and that mapping is
+     * inside that library, not in this binary, so there is nothing here to
+     * read it from. This port crunches at [9,10,12,13], which is the table
+     * every PP20 file in the corpus actually carries. There is also no range
+     * check: the routine hands whatever it was given to the library.
+     *
+     * NOTE: message 5 cannot fire. The PP20 codec is ours (../amiga/
+     * powerpacker.ts), so powerpacker.library is never absent -- where on the
+     * machine it is a separate file a program may be running without.
+     */
+    'pptodisk'(it) {
+      const file = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      // NOTE: `move.w -$c(a0),d0 / andi.w #$c,d0 / bne` reads the kind bits
+      // from the bank header twelve bytes below the data, which this port has
+      // no equivalent of -- `memBanks` holds memory banks and nothing else.
+      // Banks 1 and 2 are the sprite and icon banks by AMOS convention and
+      // stand in for them, the same way Ppunpack's check does
+      if ((bank === 1 && rt.spriteBank) || (bank === 2 && rt.iconBank)) amcafMsg(4)
+      const b = rt.memBanks.get(bank)
+      // `moveq #$4,d0` in routine 235 -- "best, but slow" is the default
+      let eff = 4
+      if (it.accept(',')) eff = it.evalInt()
+      void eff
+      if (!b) amcafErr()
+      let out: Uint8Array
+      try {
+        out = pp20Crunch(b.data)
+      } catch {
+        amcafMsg(6) // "Crunching error"
+      }
+      // a failed Open and a short Write are both `Rbra routine 392`
+      if (!rt.vfs?.writeFile(amcafPath(file), out)) amcafExamineErr()
+      rt.amcaf.ioError = 0
+    },
+
     'launch'(it) {
       const file = amcafPath(it.evalStr())
       // `move.w #$1000,d0` -- 4096, and the argument is a LONG when given
