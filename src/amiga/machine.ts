@@ -66,7 +66,8 @@
  *       LIB_VERSION: Kickstart 37+ takes `jmp -$2d6(a6)` — exec ColdReboot —
  *       and below 37 goes Supervisor and hand-rolls it, walking back from
  *       $01000000 by the ROM size at -$14, fetching the initial PC at +4,
- *       `RESET`, `jmp (a0)`.
+ *       backing off two bytes so the `jmp (a0)` is already in the prefetch
+ *       queue when the bus goes down, then `RESET` and `jmp (a0)`.
  *   craft 1.0 r188/r189           `Hard Reset` / `Warm Reset`  above.
  *   misc 1.0 r10                  `Reset`  source tier, above. Cold.
  *   the-game 0.9 r4               `G Reboot`  three instructions:

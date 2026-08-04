@@ -71,6 +71,14 @@ const LEAD = String.raw`(?:([0-9]+\.[0-9]+[a-z0-9]*)'s\s+(?:[Rr]outines?\s+)?|[R
  * them to the wrong routine while looking checked, which is the precise
  * failure this file exists to prevent.
  *
+ * The PARALLEL list is the exception, and it is not a guess. "Routines 114,
+ * 118, 120, 122 and 124 ($3b20, $3b4c, $3b60, $3b74, $3b88)" gives as many
+ * addresses as numbers, so position pins each pair with nothing left over to
+ * decide. Only an equal-length list is read this way; anything else still
+ * falls to `findAmbiguous`. This shape was invisible to both checks until the
+ * re-verification in #195 went looking for it — five real citations that
+ * nothing had ever confirmed.
+ *
  * `\$` as well as `$` because status.ts holds its text in TypeScript string
  * literals, where the dollar is escaped.
  */
@@ -85,6 +93,19 @@ export function parseCitations(text: string): Citation[] {
       line: countLines(text, m.index),
       text: m[0],
     })
+  }
+  const par = new RegExp(
+    String.raw`[Rr]outines\s+([0-9]{1,4}(?:\s*,\s*[0-9]{1,4})*\s*(?:,|and|&)\s*[0-9]{1,4})\s*\(((?:\\?\$[0-9a-fA-F]{1,6}\s*,\s*)+\\?\$[0-9a-fA-F]{1,6})\)`,
+    'g',
+  )
+  for (const m of text.matchAll(par)) {
+    const nums = m[1]!.split(/\s*(?:,|and|&)\s*/).filter(Boolean).map(Number)
+    const addrs = m[2]!.split(/\s*,\s*/).map((a) => parseInt(a.replace(/\\?\$/, ''), 16))
+    // unequal is exactly the ambiguity this refuses to resolve; leave it
+    if (nums.length !== addrs.length) continue
+    for (let i = 0; i < nums.length; i++) {
+      out.push({ routine: nums[i]!, addr: addrs[i]!, line: countLines(text, m.index), text: m[0] })
+    }
   }
   return out
 }
@@ -199,7 +220,9 @@ export function citedRoutines(text: string): number[] {
 /** the same, keeping where each mention was, which the attribution needs */
 export function citedRoutinesAt(text: string): Array<{ at: number; routines: number[] }> {
   const out: Array<{ at: number; routines: number[] }> = []
-  for (const m of text.matchAll(/([0-9]+\.[0-9]+[a-z0-9]*'s\s+)?[Rr]outines?\s+([0-9]{1,4})(?:\s*(?:to|through|-|–)\s*([0-9]{1,4}))?/g)) {
+  const re =
+    /([0-9]+\.[0-9]+[a-z0-9]*'s\s+)?[Rr]outines?\s+([0-9]{1,4})(?:\s*(?:to|through|-|–)\s*([0-9]{1,4}))?((?:\s*,\s*[0-9]{1,4})*(?:\s*(?:and|&)\s*[0-9]{1,4})?)/g
+  for (const m of text.matchAll(re)) {
     // "1.40's routine 192" is a number in ANOTHER version's table, so it says
     // nothing about which keyword owns 192 here
     if (m[1] !== undefined) continue
@@ -207,6 +230,10 @@ export function citedRoutinesAt(text: string): Array<{ at: number; routines: num
     const to = m[3] === undefined ? from : Number(m[3])
     // a descending or absurd span is prose that happens to have two numbers
     const routines = to < from || to - from > 64 ? [from] : Array.from({ length: to - from + 1 }, (_, i) => from + i)
+    // "Routines 114, 118, 120, 122 and 124" — a list, not a span. The comma
+    // must sit against the digits, so "routine 1121, the bank" does not read
+    // "the bank" as a number and prose cannot wander in.
+    for (const n of m[4]?.match(/[0-9]{1,4}/g) ?? []) routines.push(Number(n))
     out.push({ at: m.index, routines })
   }
   return out
@@ -260,6 +287,16 @@ export function findAnchors(text: string, known: (name: string) => boolean): Anc
  * Silence is the expected result and a flag is a question, not a verdict: a
  * keyword may legitimately be explained through a sibling's routine. What it
  * may not do is explain itself ONLY through one.
+ *
+ * "Never its own" is a claim about the KEYWORD, so the verdict is reached per
+ * keyword and not per citation. The first version decided it per citation site
+ * and so contradicted its own sentence: a doc block that opens by citing its
+ * own routine and then explains a sibling's was flagged once for every later
+ * mention. `make bank font` cites routine 139 on its first line and was
+ * flagged three times for citing 140 below it, which is exactly the shape of a
+ * block that is doing the right thing. A keyword is now flagged only if NO
+ * citation anywhere in its prose names a routine of its own, and the report
+ * then names the first place it went looking elsewhere.
  */
 export function checkSelfCitation(
   text: string,
@@ -269,7 +306,9 @@ export function checkSelfCitation(
 ): Array<{ name: string; line: number; cited: number[] }> {
   if (anchors.length === 0) return []
   const blocks = [...text.matchAll(/\/\*[\s\S]*?\*\//g)].map((m) => ({ from: m.index, to: m.index + m[0].length }))
-  const out: Array<{ name: string; line: number; cited: number[] }> = []
+  // keyed by the anchor's position, which is unique within one file where a
+  // keyword NAME need not be — an extension may implement the same name twice
+  const found = new Map<number, { name: string; line: number | null; cited: number[]; self: boolean }>()
   for (const m of citedRoutinesAt(text)) {
     const cited = m.routines
     if (cited.length === 0) continue
@@ -286,10 +325,24 @@ export function checkSelfCitation(
     const gap = Math.abs(countLines(text, Math.max(anchor.at, m.at)) - countLines(text, Math.min(anchor.at, m.at)))
     if (gap > 60) continue
     const mine = own.get(anchor.name) ?? new Set<number>()
-    if (cited.some((c) => mine.has(c))) continue
-    const others = cited.filter((c) => named.has(c) && !mine.has(c))
-    if (others.length === 0) continue
-    out.push({ name: anchor.name, line: countLines(text, m.at), cited: others })
+    const q = found.get(anchor.at) ?? { name: anchor.name, line: null, cited: [], self: false }
+    found.set(anchor.at, q)
+    if (cited.some((c) => mine.has(c))) {
+      q.self = true
+      continue
+    }
+    for (const c of cited) {
+      if (!named.has(c) || mine.has(c)) continue
+      // the line reported is where it FIRST went looking elsewhere, so a
+      // mention of some unnamed helper does not claim the report's one line
+      q.line ??= countLines(text, m.at)
+      if (!q.cited.includes(c)) q.cited.push(c)
+    }
+  }
+  const out: Array<{ name: string; line: number; cited: number[] }> = []
+  for (const q of found.values()) {
+    if (q.self || q.line === null || q.cited.length === 0) continue
+    out.push({ name: q.name, line: q.line, cited: q.cited })
   }
   return out
 }
