@@ -7,8 +7,9 @@ import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { NullAudio } from '../amiga/paula'
 import { Runtime } from './runtime'
-import { AmigaFS } from '../amiga/vfs'
+import { AmigaFS, MemoryVolume } from '../amiga/vfs'
 import { pp20Crunch } from '../amiga/powerpacker'
+import { implode } from '../amiga/imploder'
 import { NodeVolume } from '../cli/nodefs'
 import { Machine } from '../amiga/machine'
 
@@ -91,12 +92,15 @@ describe('the slice-0 wiring', () => {
   it('binds at slot 8: an AMCAF keyword resolves to its own name', () => {
     // the name in the error is the proof: a keyword nothing core knows can
     // only have come from slot 8's table, so identity, slot binding and
-    // tokenisation all worked and only the handler is missing. Any AMCAF
-    // keyword still without one will do -- this was Reset Computer until the
-    // machine layer gave it one, then Extreinit until the slot lifecycle did.
-    // The Imploder pair are the last two, so when they land this test needs a
-    // different subject or a different proof
-    expect(() => run(['Imploder Load 1,"x"'])).toThrow(/unimplemented: imploder load/)
+    // tokenisation all worked and only the handler is missing.
+    //
+    // Every AMCAF keyword that was MISSING now has a handler -- this was
+    // Reset Computer, then Extreinit, then the Imploder pair, and the
+    // extension is complete. What is left without one is the n/a set, where
+    // the absence is deliberate and permanent (coverage.test.ts asserts an
+    // n/a keyword has no handler), so Trans Screen Dynamic is the stable
+    // subject this test always wanted
+    expect(() => run(['Trans Screen Dynamic 1,2,3,4'])).toThrow(/unimplemented: trans screen dynamic/)
   })
 
   it('under the census policy it is skipped instead of throwing', () => {
@@ -106,12 +110,12 @@ describe('the slice-0 wiring', () => {
     // This asserted a typed DEFAULT until the extension-table pass, using
     // `Print Extbase` -- the spec's return-type code choosing an integer over
     // a string, which matters for the string-returning keywords with no `$`
-    // in the name. AMCAF has no unimplemented function left to demonstrate it
-    // with: the three keywords still without a handler are Extreinit, which
-    // is n/a, and the Imploder pair, and all three are instructions.
-    const { out, rt } = run(['Imploder Load 1,"x"', 'Print 42'], 'skip')
+    // in the name. No AMCAF keyword can demonstrate that any more: the
+    // extension is fully implemented, and everything left without a handler
+    // is n/a and an instruction.
+    const { out, rt } = run(['Trans Screen Dynamic 1,2,3,4', 'Print 42'], 'skip')
     expect(out).toBe(' 42\n')
-    expect([...rt.interp.unimplemented.keys()]).toEqual(['imploder load'])
+    expect([...rt.interp.unimplemented.keys()]).toEqual(['trans screen dynamic'])
   })
 
   /**
@@ -4658,5 +4662,66 @@ describe('AMCAF: the extension table', () => {
 
   it('a second Extremove is not an error either', () => {
     expect(() => runBound(['Extremove 8', 'Extremove 8'])).not.toThrow()
+  })
+})
+
+/**
+ * The Imploder pair, on ../amiga/imploder.ts. The exploder was validated
+ * against the twenty real `IMP!` files in the corpus (all twenty decrunched
+ * to their declared length); what is checkable here is the keyword wiring and
+ * a round trip through our own encoder.
+ */
+describe('AMCAF: Imploder Load and Imploder Unpack', () => {
+  const payload = Uint8Array.from({ length: 600 }, (_, i) => (i * 7) & 0xff)
+
+  function bootImp(src: string[]): { rt: Runtime; fs: AmigaFS } {
+    const fs = new AmigaFS()
+    fs.mount('WORK', new MemoryVolume())
+    fs.writeFile('Work:m.imp', implode(payload))
+    fs.writeFile('Work:plain.dat', payload)
+    let out = ''
+    const rt = new Runtime(tokenize(src.join('\n'), table, extensions), table, {
+      maxSteps: 1_000_000,
+      extensions,
+      fs,
+      onText: (t) => (out += t),
+    })
+    const r = rt.runHeadless(200)
+    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    return { rt, fs }
+  }
+
+  it('Imploder Load explodes an IMP! file into the bank', () => {
+    const { rt } = bootImp(['Imploder Load "Work:m.imp",5'])
+    expect([...rt.memBanks.get(5)!.data]).toEqual([...payload])
+  })
+
+  it('a file that is not crunched loads raw, as Wload would', () => {
+    // `Rbsr routine 362 / Rbra routine 104` -- the fall-through arm
+    const { rt } = bootImp(['Imploder Load "Work:plain.dat",6'])
+    expect([...rt.memBanks.get(6)!.data]).toEqual([...payload])
+  })
+
+  // the crunched file, loaded into a bank so Imploder Unpack has a source
+  const load7 = ['Reserve As Work 7,646', 'Bload "Work:m.imp",7']
+
+  it('Imploder Unpack explodes bank to bank', () => {
+    const { rt } = bootImp([...load7, 'Imploder Unpack 7 To 8'])
+    expect([...rt.memBanks.get(8)!.data]).toEqual([...payload])
+  })
+
+  it('the same bank twice is error 23', () => {
+    expect(() => bootImp([...load7, 'Imploder Unpack 7 To 7'])).toThrow(/Illegal function call/)
+  })
+
+  it('a bank that is not imploded raises the RNC message, which is the wrong one', () => {
+    // DEFECT: `moveq #$2,d0` is "Not an RNC-packed file" where 8, "Not a
+    // PowerPacker/Imploder-Bank", is the message that fits. Reproduced
+    expect(() => bootImp(['Reserve As Work 7,64', 'Imploder Unpack 7 To 8'])).toThrow(/RNC-packed/)
+  })
+
+  it('Ppfromdisk routes an IMP! file to the same decoder', () => {
+    const { rt } = bootImp(['Ppfromdisk "Work:m.imp",9'])
+    expect([...rt.memBanks.get(9)!.data]).toEqual([...payload])
   })
 })

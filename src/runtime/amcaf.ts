@@ -132,6 +132,7 @@ import { MAX_COMMENT, blocksFor, entryType, protectionString } from '../amiga/do
 import { fillRow } from '../amiga/blitter'
 import { parseSampleBank } from './audio'
 import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
+import { explode, isImploded } from '../amiga/imploder'
 import { launch } from '../amiga/process'
 import { isObjectBank } from './banks'
 import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, MAX_PORT, PORT_MOUSE, joyFire } from '../interp/gameport'
@@ -4010,10 +4011,9 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * to Wload; each arm closes the file first with routine 362 and lets the
      * other keyword reopen it.
      *
-     * DEVIATION: the "IMP!" arm cannot be reproduced. Imploder Load and
-     * Imploder Unpack are AMCAF keywords this port has not implemented, and
-     * there is no Imploder decoder here to route to, so an imploded file falls
-     * through to the raw load Wload would give.
+     * The "IMP!" arm used to be a DEVIATION here, for want of an Imploder
+     * decoder to route to. ../amiga/imploder.ts is that decoder, so the arm
+     * now dispatches as the binary does.
      */
     'ppfromdisk'(it) {
       const file = it.evalStr()
@@ -4034,8 +4034,95 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       if (sig === 'PX20') amcafMsg(7)
       let data: Uint8Array = raw
       if (sig === 'PP20') data = pp20Decrunch(raw)
+      // `cmpi.l #$494d5021,(a0) / beq` -> routine 138, which reserves and
+      // explodes exactly as Imploder Load does
+      else if (isImploded(raw)) data = explodeOrFail(raw)
       rt.reserveBank(n, data.length, 'Work    ', false, chip)
       rt.memBanks.get(n)!.data.set(data)
+    },
+
+    /**
+     * Imploder Load file$,bank — routine 138 ($3dd0), 168 bytes, and it is a
+     * universal loader in the same shape as Ppfromdisk. It opens the file,
+     * reads TWELVE bytes and branches on the signature three ways:
+     *
+     *     cmpi.l #$494d5021,(a0) / beq        "IMP!", the path below
+     *     cmpi.l #$50503230,(a0) / beq        "PP20" -> routine 237,
+     *                                         Ppfromdisk
+     *     Rbsr routine 362 / Rbra routine 104 anything else -> Wload
+     *
+     * The imploded path takes the decrunched length out of the twelve bytes
+     * it already has -- `move.l $3e68(pc),d2`, the long at +$4 -- Reserves a
+     * bank that size under the name "Work    " (`Rjsr routine 1103`, failing
+     * to 389, out of memory), copies the header it read into the front, and
+     * then reads `L2 + $26` more bytes on top. Twelve plus L2 plus 38 is the
+     * whole file, so the bank ends up holding the crunched file at its base
+     * with room above, which is exactly what the decruncher wants: routine
+     * 374 works backwards in place. See ../amiga/imploder.ts.
+     *
+     * A negative bank number means chip memory, the `bpl.b / neg.l d0 /
+     * moveq #$2,d1` convention Wload and Ppfromdisk also use.
+     *
+     * NOTE: unlike Ppfromdisk there is no "PX20" arm, so an encrypted
+     * PowerPacker file reaches this keyword and is handed to Ppfromdisk only
+     * if it says PP20 -- a PX20 file falls through to Wload and loads raw.
+     * Reproduced.
+     */
+    'imploder load'(it) {
+      const file = it.evalStr()
+      it.expect(',')
+      const arg = it.evalInt()
+      const chip = arg < 0
+      const n = chip ? -arg : arg
+      const raw = rt.vfs?.readFile(amcafPath(file)) ?? null
+      if (raw === null) {
+        // `Rbsr routine 357 / Rbeq routine 391`
+        rt.amcaf.ioError = 205
+        amcafDosErr()
+      }
+      const sig = String.fromCharCode(...raw.subarray(0, 4))
+      let data: Uint8Array = raw
+      if (isImploded(raw)) data = explodeOrFail(raw)
+      else if (sig === 'PP20') data = pp20Decrunch(raw)
+      rt.reserveBank(n, data.length, 'Work    ', false, chip)
+      rt.memBanks.get(n)!.data.set(data)
+    },
+
+    /**
+     * Imploder Unpack source To dest — routine 137 ($3d68), 104 bytes, the
+     * bank-to-bank form:
+     *
+     *     move.l (a3)+,d5 / move.l (a3)+,d0
+     *     cmp.l  d0,d5 / Rbeq routine 390     ; the same bank twice, error 23
+     *     Rjsr   routine 1121                 ; resolve the SOURCE
+     *     cmp.l  d0,d5 / Rbeq routine 390     ; and again, against the address
+     *     cmpi.l #$494d5021,(a0)+ / beq
+     *     moveq  #$2,d0 / Rbra routine 397    ; not imploded
+     *     move.l (a0)+,d2                     ; the decrunched length
+     *     ... Reserve "Work    ", copy the crunched bank in, Rbra 374
+     *
+     * DEFECT: `moveq #$2,d0` is the WRONG requester. Message 2 is "Not an
+     * RNC-packed file", which has nothing to do with this keyword; message 8,
+     * "Not a PowerPacker/Imploder-Bank", is the one that fits and is what
+     * Ppunpack raises in the same situation. Reproduced.
+     *
+     * NOTE: no `andi.w #$c` here, so unlike Ppunpack this one does NOT refuse
+     * a sprite or icon bank -- it just fails the magic test and raises the
+     * requester above.
+     */
+    'imploder unpack'(it) {
+      const src = it.evalInt()
+      it.expect('to')
+      const arg = it.evalInt()
+      if (src === arg) amcafErr()
+      const bank = rt.memBanks.get(src)
+      if (!bank) amcafErr()
+      if (!isImploded(bank.data)) amcafMsg(2)
+      const out = explodeOrFail(bank.data)
+      const chip = arg < 0
+      const n = chip ? -arg : arg
+      rt.reserveBank(n, out.length, 'Work    ', false, chip)
+      rt.memBanks.get(n)!.data.set(out)
     },
 
     /**
@@ -4387,6 +4474,23 @@ const amcafMemErr: () => never = () => {
 /** routine 394 — the guard on `$52c(a5)`, taken when no screen is open */
 const amcafScreenErr: () => never = () => {
   throw new AmosError('Screen not opened', 47)
+}
+
+/**
+ * Explode, turning a codec refusal into the requester the extension raises.
+ *
+ * The decoder throws on a header it cannot read or a stream that runs out;
+ * both are "this is not a bank I can unpack", which is message 8 --
+ * "Not a PowerPacker/Imploder-Bank", the one Ppunpack raises for the same
+ * thing. (Imploder Unpack's own magic test raises 2 instead, and that is the
+ * binary's mistake, not this one's.)
+ */
+function explodeOrFail(data: Uint8Array): Uint8Array {
+  try {
+    return explode(data)
+  } catch {
+    return amcafMsg(8)
+  }
 }
 
 /**

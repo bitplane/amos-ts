@@ -1440,6 +1440,8 @@ export const FAITHFUL = new Set<string>([
   // empty slot reads 0) off a synthetic address. The other three
   // extension-table keywords are faithful; none of the four is n/a.
   'extdefault', 'extremove', 'extreinit',
+  // slice 14: the Imploder pair, on ../amiga/imploder.ts
+  'imploder load', 'imploder unpack',
   'vec rot angles', 'vec rot pos', 'vec rot precalc',
   'speek', 'sdeek', 'amos cli', 'audio lock', 'audio free',
   'flush libs', 'open workbench',
