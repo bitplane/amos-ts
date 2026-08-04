@@ -3040,6 +3040,7 @@ export const SHARED_NOTES: Record<string, string> = {
   // "Gives back the address of the AMCAF data base" and its size -- one
   // reading covering the pair
   'amcaf length': 'amcaf base',
+  'exchange icon': 'exchange bob',
 }
 
 /** The reading for a keyword, following SHARED_NOTES to whoever holds it. */

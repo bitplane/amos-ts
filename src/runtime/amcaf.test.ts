@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
@@ -25,6 +25,16 @@ const extensions = new Map([
   ...[...EXTENSION_TOKENS].map(([slot, defs]) => [slot, new TokenTable(defs)] as const),
   [AMCAF_SLOT, extensionById('amcaf-1.50')!.table] as const,
 ])
+
+/**
+ * A real Workbench icon that carries tool types, for Tool Types$ to read.
+ *
+ * Written by Workbench on an Amiga and shipped inside the EasyLife archive --
+ * not built here, because an icon built by this repo would only show that the
+ * reader agrees with whatever wrote it.
+ */
+const ICON_PATH = 'fixtures/extensions/easylife-1.10/Docs/applications/Tabifier.Guide.info'
+const ICON_WITH_TOOLTYPES = existsSync(ICON_PATH) ? new Uint8Array(readFileSync(ICON_PATH)) : null
 
 /**
  * The same harness with a real audio sink attached.
@@ -730,10 +740,11 @@ describe('slice 5: disk and DOS objects', () => {
   const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
 
   /** a Runtime with one writable volume, which the file keywords need */
-  function runFs(src: string[]): { out: string; rt: Runtime } {
+  function runFs(src: string[], seed?: Record<string, Uint8Array>): { out: string; rt: Runtime } {
     const fs = new AmigaFS()
     fs.mountMemory('Work')
     fs.currentDir = 'Work:'
+    for (const [path, data] of Object.entries(seed ?? {})) fs.writeFile(path, data)
     let out = ''
     const rt = new Runtime(tokenize(src.join('\n'), table, extensions), table, {
       maxSteps: 1_000_000,
@@ -995,7 +1006,6 @@ describe('slice 5: disk and DOS objects', () => {
       'Print "io=";Io Error',
       'Write Cli "hello"',
       'Print "ds=";Disk State("Work:")',
-      'Print "tt=["+Tool Types$("Work:f.txt","X")+"]"',
     ])
     const field = (k: string): string => {
       const line = out.split('\n').find((l) => l.includes(`${k}=`))
@@ -1004,7 +1014,34 @@ describe('slice 5: disk and DOS objects', () => {
     expect(Number(field('io'))).toBe(0) // nothing has failed yet
     expect(out).toContain('hello') // Write Cli reached the CLI handle
     expect(Number.isFinite(Number(field('ds')))).toBe(true)
-    expect(field('tt')).toBe('[]') // no .info, so no tool types
+  })
+
+  /**
+   * Tool Types$ was a stub with two branches that both returned "" -- it never
+   * read the icon and never failed. Routine 328 ($78ca in 1.40, 342 at $7596
+   * in 1.50) calls GetDiskObject and walks do_ToolTypes at $36, which is the
+   * offset that pinned the DiskObject layout in ../amiga/icon.ts.
+   */
+  it('Tool Types$ reads a real Workbench icon, and terminates each with CR LF', () => {
+    const icon = ICON_WITH_TOOLTYPES
+    if (!icon) return // the archive is not present
+    const { out } = runFs(['Print "["+Tool Types$("Work:thing","X")+"]"'], { 'Work:thing.info': icon })
+    const got = out.trim().slice(1, -1)
+    // the manual promises Chr$(10) alone; the routine writes #$d then #$a, and
+    // writes them after EVERY entry rather than between them
+    expect(got.endsWith('\r\n')).toBe(true)
+    expect(got.split('\r\n').filter(Boolean).length).toBeGreaterThan(0)
+    expect(got).toContain('FILETYPE=')
+  })
+
+  it('Tool Types$ refuses an empty name, and a file that is not an icon', () => {
+    // `move.w (a0)+,d0 / Rbeq routine 390` is error 23; a failed GetDiskObject
+    // goes to routine 392, which is error 94 -- the same one Examine raises
+    expect(() => runFs(['Print Tool Types$("","X")'])).toThrow(/Illegal function call/)
+    expect(() => runFs(['Print Tool Types$("Work:nope","X")'])).toThrow()
+    expect(() =>
+      runFs(['Print Tool Types$("Work:junk","X")'], { 'Work:junk.info': new Uint8Array(200) }),
+    ).toThrow()
   })
 
   /**

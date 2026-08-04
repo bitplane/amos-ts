@@ -130,6 +130,7 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import { DAY_MS, STAMP_EPOCH, TICKS_PER_SECOND, stampToYmd } from '../amiga/datestamp'
 import { MAX_COMMENT, blocksFor, entryType, protectionString } from '../amiga/dos'
 import { fillRow } from '../amiga/blitter'
+import { iconToolTypes } from '../amiga/icon'
 import { parseSampleBank } from './audio'
 import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 import { explode, isImploded } from '../amiga/imploder'
@@ -1910,6 +1911,25 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * Exchange Bob i1,i2 / Exchange Icon i1,i2 — "simply swaps the two images
      * ... i1 and i2 must exist as a valid image, otherwise an error will be
      * reported."
+     *
+     * Routine 213 ($4f8c) fetches the bank, takes the image count from its
+     * first word, and swaps two EIGHT-byte entries:
+     *
+     *     move.w (a0)+, d2              ; how many images
+     *     move.l (a3)+, d1 / move.l (a3)+, d0
+     *     cmp.w  d2, d0 / Rbhi routine 390
+     *     cmp.w  d2, d1 / Rbhi routine 390
+     *     cmp.l  d0, d1 / beq .out      ; swapping one with itself does nothing
+     *     subq.w #$1, d0 / lsl.w #$3, d0
+     *
+     * DEFECT: `Rbhi` is unsigned, so it catches an index above the count and
+     * nothing below it. Image 0 passes the check, `subq.w #$1` makes it -1 and
+     * `lsl.w #$3` makes that -8, and the swap reads and writes the eight bytes
+     * BEFORE the table -- the count word and whatever precedes it. The manual's
+     * "must exist as a valid image" is enforced at one end only. NOT reproduced:
+     * images are objects in a list here, so there is nothing below the table to
+     * corrupt, and image 0 raises error 23. Routine 212 ($4f44) is Exchange Bob,
+     * the same 72 bytes against the other bank.
      */
     'exchange bob'(it) {
       exchangeImage(rt, it, true)
@@ -2782,9 +2802,21 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * wants to have the audio channels. Due to this flaw, other programs that
      * are running in the background can replay a sound at any time."
      *
-     * There is no other program in the background here and no audio.device to
-     * arbitrate with, so there is nothing to lock. FAITHFUL as a no-op: the
-     * observable effect on the calling program is the same.
+     * Routine 23 ($2320) really does open the device, and at the highest
+     * priority there is: FindTask(NULL) for the reply port (`suba.l a1,a1 /
+     * jsr -$126(a6)`), AddPort (`jsr -$162(a6)`), then an IOAudio at $44a(a2)
+     * with `move.b #$7f,$9(a0)` -- ln_Pri 127, which is how it wins every
+     * channel against anything already playing. Routine 24 ($23c6) undoes it
+     * with io_Command 9, DoIO (`jsr -$1c8(a6)`), CloseDevice (`-$1c2`) and
+     * RemPort (`-$168`).
+     *
+     * Both guard on the same flag at $490(a2), so Audio Lock twice locks once
+     * and Audio Free without a lock does nothing.
+     *
+     * NOTE: there is no other program in the background here and no
+     * audio.device to arbitrate with, so there is nothing to take the channels
+     * from. FAITHFUL as a no-op, including the idempotence: the observable
+     * effect on the calling program is the same.
      */
     'audio lock'() {},
     'audio free'() {},
@@ -2792,8 +2824,22 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     /**
      * Flush Libs — asks exec to expunge unused libraries.
      *
-     * The same idea as Jd Flush, and a no-op for the same reason: nothing a
-     * program can see afterwards differs.
+     * Routine 219 ($50c6) does it the traditional way, by asking for memory it
+     * knows it cannot have:
+     *
+     *     moveq #$0, d1
+     *     moveq #$7f, d0 / swap d0      ; $007f0000, just over 8MB
+     *     jsr   -$c6(a6)                ; AllocMem
+     *     tst.l d0 / bne .free          ; if it somehow WORKED, hand it back
+     *
+     * because exec's failure path flushes every library and device with no
+     * openers before it gives up. It first closes AMCAF's OWN two cached
+     * library bases at $36c(a2) and $374(a2) with CloseLibrary (`jsr -$19e`),
+     * so that they are among the ones that can go.
+     *
+     * NOTE: the same idea as Jd Flush, and a no-op for the same reason --
+     * nothing a program can see afterwards differs. This port opens no
+     * libraries to close and expunges nothing.
      */
     'flush libs'() {},
 
@@ -2801,7 +2847,20 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * Open Workbench — "Tries to open the workbench again, if it has been
      * closed previously" with AMOS's Close Workbench, to get the memory back.
      *
-     * There is no Workbench screen to reopen, and closing it here frees
+     * Routine 220 ($5112) is intuition's OpenWorkBench and one bookkeeping
+     * store:
+     *
+     *     movea.l -$18a6(a5), a6        ; IntuitionBase
+     *     jsr     -$d2(a6)              ; OpenWorkBench
+     *     tst.l   d0 / bpl.b .ok
+     *     moveq   #$1, d0 / Rbra routine 397
+     *  .ok: clr.b $4f1(a5)              ; AMOS's own "workbench is shut" flag
+     *
+     * The test is `bpl` and not `bne`, so only a NEGATIVE return is an error;
+     * OpenWorkBench answering NULL -- which is what it does when it cannot --
+     * is zero, passes, and clears the flag anyway.
+     *
+     * NOTE: there is no Workbench screen to reopen, and closing it here frees
      * nothing, so this has nothing to undo.
      */
     'open workbench'() {},
@@ -3887,15 +3946,25 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     /**
      * Write Cli text$ — writes to the CLI the program was started from.
      *
-     * Amos Cli is zero here, so there is no shell to write to; the text goes
-     * to the AMOS console, which is where a program running without one would
-     * see it anyway.
+     * Routine 214 ($4fd4) is four dos.library instructions and no check at
+     * all:
+     *
+     *     movea.l $2b8(a5), a6          ; DOSBase
+     *     jsr     -$3c(a6)              ; Output()
+     *     move.l  d0, d1                ; ...the handle, whatever it is
+     *     movea.l (a3)+, a0             ; the AMOS string: length word first
+     *     move.w  (a0)+, d3
+     *     move.l  a0, d2
+     *     jsr     -$30(a6)              ; Write(handle, buffer, length)
+     *
+     * DEVIATION: on the machine a program started from Workbench has no output
+     * stream, so `Output()` answers zero, the `Write` goes nowhere and the text
+     * is simply lost. This port has no shell either, but sends the text to the
+     * AMOS console rather than dropping it -- a program that used Write Cli to
+     * report something has somewhere to report it, which is the more useful of
+     * two answers that are equally unfaithful to a CLI that does not exist.
      */
     'write cli'(it) {
-      // Routine 214 ($4fd4). DEVIATION: it writes to the process's own
-      // output stream through dos.library, and Amos Cli is zero here, so
-      // there is no shell to write to. The text goes to the AMOS console,
-      // which is where a program running without one would see it anyway.
       it.write(it.evalStr())
     },
 
@@ -5192,10 +5261,48 @@ const dosErrorText = (n: number): string => DOS_ERRORS[n] ?? ''
  * A program asking for tool types it did not write gets an empty string,
  * which is the same answer the manual gives for a file with no icon.
  */
+/**
+ * =Tool Types$'s body — routine 342 ($7596), which is a real GetDiskObject
+ * call and not the stub this port had (two branches both returning "").
+ *
+ * The routine opens icon.library, raising AMOS error 13 if it cannot, refuses
+ * an empty name with `move.w (a0)+,d0 / Rbeq routine 390`, and calls
+ * GetDiskObject at `jsr -$4e(a6)`; a failure there goes to routine 392, the
+ * same error 94 Examine raises. Then it walks `movea.l $36(a1),a1`, the
+ * do_ToolTypes array, and copies each string out:
+ *
+ *     .next: movea.l (a1)+, a2      the next entry
+ *            move.l  a2, d0
+ *            beq.b   .done          NULL terminates the array
+ *     .char: move.b  (a2)+, d0
+ *            bne.b   .put
+ *            move.b  #$d, (a0)+     end of this one: CR
+ *            move.b  #$a, (a0)+     ...and LF
+ *            bra.b   .next
+ *     .put:  move.b  d0, (a0)+
+ *            bra.b   .char
+ *
+ * DEFECT: the manual says the tool types are "seperated by a line feed
+ * character (Chr$(10))". The code writes CR and LF, and writes them after
+ * EVERY entry including the last, so the result is terminated rather than
+ * separated. The binary wins over the manual, and a program splitting on
+ * Chr$(10) still works because the LF is there -- it just finds a stray CR at
+ * the end of each piece.
+ *
+ * The decode itself is ../amiga/icon.ts, which is icon.library's business
+ * rather than AMOS's. NOTE: this port has no icon.library to fail to open, so
+ * error 13 is unreachable; a file that is not a DiskObject is the failed
+ * GetDiskObject, error 94.
+ */
 function toolTypes(rt: Runtime, name: string): string {
-  // the icon has to exist for there to be anything to say; its contents are
-  // a Workbench DiskObject this port does not decode
-  return rt.vfs?.readFile(`${name}.info`) === null ? '' : ''
+  if (name === '') amcafErr()
+  // "The supplied file must not have a '.info' appended!" -- GetDiskObject
+  // appends it, so this does too
+  const bytes = rt.vfs?.readFile(`${name}.info`)
+  if (!bytes) amcafExamineErr()
+  const types = iconToolTypes(bytes)
+  if (types === null) amcafExamineErr()
+  return types.map((t) => `${t}\r\n`).join('')
 }
 
 /* ------------------------------------------------------------------ *
@@ -7853,6 +7960,9 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * "The supplied file must not have a '.info' appended!" and "The various
      * Tool Types are seperated by a line feed character (Chr$(10)). So they
      * can be printed out easily using Print."
+     *
+     * Routine 342 ($7596) and the whole of its contract are in `toolTypes`
+     * above, including the CR the manual does not mention.
      */
     'tool types$': (_, a) => VS(toolTypes(rt, s0(a, 0))),
 
@@ -8410,9 +8520,18 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * =Amos Cli — "the number of the cli process out of which the program has
      * been started off or zero, if AMOS has been started from Workbench."
      *
-     * Nothing started this from a CLI, so zero — which the manual gives a use
-     * for: "This gives you the choice to either interprete options from the
-     * command line or from the tool types of the appropriate icon."
+     * Routine 341 ($757e) is FindTask and one field:
+     *
+     *     suba.l  a1, a1
+     *     movea.l $4.w, a6 / jsr -$126(a6)     ; FindTask(NULL)
+     *     movea.l d0, a0
+     *     move.l  $8c(a0), d3                  ; pr_CLI, a BPTR
+     *
+     * so it is not a "number" but the Process's CLI pointer, which is zero
+     * exactly when there is no CLI. Nothing started this from one, so zero --
+     * which the manual gives a use for: "This gives you the choice to either
+     * interprete options from the command line or from the tool types of the
+     * appropriate icon."
      */
     'amos cli': () => VI(0),
 
