@@ -3953,6 +3953,44 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       rt.memBanks.get(n)!.data.set(data)
     },
 
+    /**
+     * Reset Computer — routine 203 in 1.40, 215 ($4ff0) in 1.50, 54 bytes,
+     * and it reboots the machine two different ways depending on the ROM:
+     *
+     *     Rbsr    routine 372            ; exec LIB_VERSION
+     *     cmp.w   #$25,d0 / blt          ; Kickstart 37?
+     *     movea.l $4.w,a6 / jmp -$2d6(a6)      ; 37+: ColdReboot
+     *   below:
+     *     lea     $5012(pc),a5
+     *     movea.l $4.w,a6 / jmp -$1e(a6)       ; Supervisor, running:
+     *     lea     $1000000.l,a0
+     *     suba.l  -$14(a0),a0            ; back off by the ROM size at $FFFFEC
+     *     movea.l $4(a0),a0              ; the ROM's initial PC
+     *     subq.l  #$2,a0
+     *     reset / jmp (a0)
+     *
+     * Both arms are a COLD boot: ColdReboot is documented as one, and the
+     * hand-rolled path enters Kickstart through its own reset vector.
+     *
+     * It asks the machine rather than doing it. On the Amiga the keyword never
+     * returns, and nothing here can reproduce that literally -- performing the
+     * reset means starting a program, which means building a Runtime, which is
+     * the thing being torn down. So the request is recorded on the machine and
+     * the program ends, exactly as `System` ends it (InSystem +ILib.s:1849),
+     * and whoever owns the frame loop brings the machine back. See
+     * ../amiga/machine.ts, which also carries the readings for the four other
+     * extensions that ship one of these.
+     *
+     * NOTE: a program that resets is counted as having ENDED, not crashed --
+     * which is what it did. The census would otherwise report every one of
+     * them as a failure.
+     */
+    'reset computer'(it) {
+      rt.machine.requestReset('cold', 'reset computer')
+      it.halt('ended')
+      return 'jumped'
+    },
+
     /** Nop — routine 21 ($231a) is two bytes: `rts`. "has no effect et al" */
     nop() {},
 

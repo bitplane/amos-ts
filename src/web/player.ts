@@ -32,6 +32,7 @@ import { AmigaFS, MemoryVolume } from '../amiga/vfs'
 import { AdfVolume, isAdf } from '../amiga/adf'
 import { readArchive, volumeFromEntries } from '../runtime/archive'
 import { systemClock } from '../amiga/host'
+import { Machine, type ResetKind } from '../amiga/machine'
 import { WebAudioSink } from './audio'
 import { WebSerialHost, available as serialAvailable } from './serial'
 
@@ -132,7 +133,16 @@ export interface Player {
   loadArchive(bytes: Uint8Array, name: string, run?: string): Promise<void>
   /** run one program, with `dir` as its drawer inside DH0: */
   loadProgram(bytes: Uint8Array, name: string, dir?: string[]): void
+  /** rebuild the environment, keeping the filesystem: a cold reset */
   restart(): void
+  /**
+   * Reset the machine from outside, the way a front-panel button would.
+   * `restart()` is this with `'cold'`; see ../amiga/machine.ts for what the
+   * two kinds mean and why they currently do the same thing.
+   */
+  reset(kind?: ResetKind): void
+  /** power and pending-reset state, shared by every Runtime this builds */
+  readonly machine: Machine
   /** change a port's keyboard mapping after construction */
   setJoystick(port: 0 | 1, keys: JoyKeys): void
   /** run flat out instead of at 50Hz — a development aid, not a feature */
@@ -238,6 +248,15 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   let lastBytes: Uint8Array | null = null
   let lastName = ''
   let lastDir: string[] = []
+  /**
+   * The machine every Runtime here runs on.
+   *
+   * Made once, at player construction, and never replaced -- a reset destroys
+   * the environment and not the machine, and this is what makes that true
+   * rather than merely said. It is also what a reset keyword reaches to ask
+   * for one. See ../amiga/machine.ts.
+   */
+  const machine = new Machine()
   let error = ''
   let running = opts.autoplay !== false
   let focused = false
@@ -353,6 +372,9 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       rt = new Runtime(lines, table, {
         extensions,
         extBindings: bindings,
+        // one machine, many Runtimes: it is what a reset destroys the
+        // environment ON, so it outlives every environment built here
+        machine,
         onUnimplemented: 'skip',
         banks: amos?.banks ?? [],
         audio,
@@ -421,6 +443,26 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     loadProgram(file.data, segs[segs.length - 1]!, dir)
   }
 
+  /**
+   * Carry out a reset: build the machine's environment again.
+   *
+   * The filesystem is deliberately NOT rebuilt. A reset clears memory, not
+   * disks, so `vfs` and `dh0` survive both kinds and a program that wrote a
+   * high-score file before rebooting still finds it -- which is what happens
+   * on the Amiga, where the write went to a floppy.
+   *
+   * NOTE: cold and warm do the same thing here. What they differ over on the
+   * machine is RAM that is BUILT to survive a reset -- the resident list, a
+   * recoverable RAM disk -- and this port has none, so there is nothing for
+   * the warm one to keep. The distinction is carried rather than invented: the
+   * keywords already ask for the right kind, so the day there is something to
+   * preserve, only this function changes.
+   */
+  function reboot(kind: ResetKind): void {
+    void kind
+    if (lastBytes) loadProgram(lastBytes, lastName, lastDir)
+  }
+
   // ---- the 50Hz loop ----
   let acc = 0
   let last = performance.now()
@@ -459,6 +501,15 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
         return
       }
     }
+    // A reset keyword records the request and stops the program; carrying it
+    // out is this loop's job, because it means building a new Runtime and the
+    // keyword was running inside the old one. Read AFTER the frames, so the
+    // program that asked has already stopped.
+    const req = machine.takeReset()
+    if (req) {
+      reboot(req.kind)
+      return
+    }
     rt.composite(img.data as unknown as Uint8ClampedArray)
     ctx.putImageData(img, 0, 0)
   }
@@ -474,7 +525,13 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
     loadArchive,
     loadProgram,
     restart(): void {
-      if (lastBytes) loadProgram(lastBytes, lastName, lastDir)
+      reboot('cold')
+    },
+    reset(kind: ResetKind = 'cold'): void {
+      reboot(kind)
+    },
+    get machine() {
+      return machine
     },
     setJoystick(port: 0 | 1, keys: JoyKeys): void {
       KB_PORT[port] = joyMap(keys)

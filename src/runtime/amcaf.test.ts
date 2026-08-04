@@ -10,6 +10,7 @@ import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { pp20Crunch } from '../amiga/powerpacker'
 import { NodeVolume } from '../cli/nodefs'
+import { Machine } from '../amiga/machine'
 
 /**
  * AMCAF (Chris Hodges), against `AMCAF.Guide` and `AMOSPro_AMCAF.Lib`
@@ -90,8 +91,10 @@ describe('the slice-0 wiring', () => {
   it('binds at slot 8: an AMCAF keyword resolves to its own name', () => {
     // the name in the error is the proof: a keyword nothing core knows can
     // only have come from slot 8's table, so identity, slot binding and
-    // tokenisation all worked and only the handler is missing
-    expect(() => run(['Reset Computer'])).toThrow(/unimplemented: reset computer/)
+    // tokenisation all worked and only the handler is missing. Any AMCAF
+    // keyword still without one will do -- this was Reset Computer until the
+    // machine layer gave it one
+    expect(() => run(['Extreinit 1'])).toThrow(/unimplemented: extreinit/)
   })
 
   it('under the census policy it yields a typed default instead of throwing', () => {
@@ -4357,5 +4360,52 @@ describe.skipIf(!existsSync(AMCAF_FONTS))('AMCAF: Change Font with a real face (
     const d = rt.memBanks.get(7)!.data
     const v = new DataView(d.buffer, d.byteOffset, d.byteLength)
     expect(v.getUint32(0x10)).toBeGreaterThan(0) // the CharSpace offset is set
+  })
+})
+
+/**
+ * Reset Computer — routine 203 (1.40) / 215 ($4ff0, 1.50). Both of its arms
+ * are a cold boot: ColdReboot on Kickstart 37+, and below that a hand-rolled
+ * entry through the ROM's own reset vector.
+ */
+describe('AMCAF: Reset Computer, and the machine underneath it', () => {
+  it('asks the machine for a COLD reset and ends the program there', () => {
+    const { rt, out } = run(['Print "before"', 'Reset Computer', 'Print "after"'])
+    expect(rt.machine.pendingReset).toEqual({ kind: 'cold', by: 'reset computer' })
+    // it never returns on the machine; here the program stops, as System does
+    expect(out).toContain('before')
+    expect(out).not.toContain('after')
+  })
+
+  it('a reset ENDS the program rather than failing it', () => {
+    // the census would otherwise report every rebooting program as a crash
+    let out = ''
+    const rt = new Runtime(tokenize('Reset Computer', table, extensions), table, {
+      maxSteps: 1_000_000,
+      extensions,
+      onText: (t) => (out += t),
+    })
+    expect(rt.runHeadless(20).status).toBe('ended')
+  })
+
+  it('the machine outlives the Runtime when a caller supplies one', () => {
+    // the whole point of passing it in: a reset destroys the environment and
+    // not the thing it ran on, so the request survives to be acted on
+    const machine = new Machine()
+    const first = new Runtime(tokenize('Reset Computer', table, extensions), table, { extensions, machine })
+    first.runHeadless(20)
+    expect(machine.pendingReset?.kind).toBe('cold')
+    const second = new Runtime(tokenize('Print "up"', table, extensions), table, { extensions, machine })
+    expect(second.machine).toBe(machine)
+    expect(second.machine.takeReset()?.by).toBe('reset computer')
+    expect(machine.pendingReset).toBeNull()
+  })
+
+  it('without one, each Runtime gets its own and nothing leaks between them', () => {
+    const a = new Runtime(tokenize('Reset Computer', table, extensions), table, { extensions })
+    a.runHeadless(20)
+    const b = new Runtime(tokenize('Print "up"', table, extensions), table, { extensions })
+    expect(a.machine.pendingReset).not.toBeNull()
+    expect(b.machine.pendingReset).toBeNull()
   })
 })

@@ -34,6 +34,7 @@ import type { Extension } from '../ext/registry'
 import { DEFAULT_PALETTE, Screen, builtinPattern, sliderMetrics } from './screen'
 import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from './instr'
 import { defaultHost, type Host } from '../amiga/host'
+import { Machine } from '../amiga/machine'
 import { newLdosState, type LdosState } from './ldos'
 import { newTftState, tftVbl, type TftState } from './tft'
 import { newJvpState, type JvpState } from './jvp'
@@ -299,6 +300,12 @@ export interface RuntimeOptions {
    * defaults live there, which is what keeps a headless run reproducible.
    */
   host?: Partial<Host>
+  /**
+   * The machine to run on. Supply one to keep power and reset state across
+   * the Runtimes a reset builds; omit it and this environment gets its own,
+   * which is right for anything that never resets.
+   */
+  machine?: Machine
 }
 
 /**
@@ -448,6 +455,18 @@ export class Runtime {
    * no keyword handler has to remember to be deterministic.
    */
   host: Host = defaultHost()
+
+  /**
+   * The machine this environment runs on — power state and a pending reset.
+   *
+   * It is passed in rather than owned, because it OUTLIVES the Runtime: a
+   * reset destroys the environment and not the machine, so a caller that
+   * wants the two to be distinguishable (the web player, which keeps its
+   * filesystem across one) makes the machine first and hands the same one to
+   * every Runtime it builds. Callers that never reset get a fresh one and
+   * never look at it. See ../amiga/machine.ts.
+   */
+  machine: Machine = new Machine()
 
   /** LDos keeps its own channels, separate from Open In/Open Out */
   ldos: LdosState = newLdosState()
@@ -2814,6 +2833,7 @@ export class Runtime {
     // one composition point: the fs/audio/onText options are shorthand for
     // host members, and every default comes from defaultHost()
     this.host = { ...defaultHost(), ...opts.host }
+    if (opts.machine) this.machine = opts.machine
     if (opts.fs) this.host.fs = opts.fs
     if (opts.audio) this.host.audio = opts.audio
     if (opts.onText) this.host.onText = opts.onText
