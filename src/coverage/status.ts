@@ -1879,6 +1879,20 @@ export const NA = new Set<string>([
   'areg',
   'dreg',
   'lvo',
+  // AMCAF 1.50: Trans Screen Dynamic is a JIT, and the code it writes is only
+  // ever reached through `Call`, which is n/a immediately above. Routine 153
+  // ($4272) does not paint anything -- it walks the Trans Map exactly as Trans
+  // Screen Runtime does, and instead of storing each longword it ASSEMBLES a
+  // 68000 subroutine into the Code Bank: `movea.l #dest,a0` (`move.w #$207c`
+  // then the address), one `move.l #imm32,d16(a0)` per non-zero longword
+  // (`#$217c`, the data, the displacement -- all-zero longs are skipped, which
+  // is the whole point of the technique), a closing `rts` (`#$4e75`), and then
+  // exec.library CacheClearU at `movea.l $4.w,a6 / jsr -$27c(a6)` so the 68020+
+  // instruction cache sees the freshly written code. The single 16-bit
+  // displacement off one base register is why it is limited to +/-32K of plane.
+  // Its whole output is machine code for a machine this is not, and running it
+  // is the boundary `call` already draws. No handler is registered.
+  'trans screen dynamic',
   // the native AMOS compiler overlay (LoadSeg APCMP + jsr, +CompExt.s:219,349)
   'compile',
   'cmpcall',
@@ -2198,7 +2212,7 @@ export const NOTES: Record<string, string> = {
   'pix shift up':
     "Routines 226/227 (Shift Up), 228/229 (Shift Down), 230/231 (Brighten) and 232/233 (Darken), each a pair with and without the mask bank. 'c1 and c2 hold the border colours, which should be taken into account for the colour cycling, other colours are not affected'. Shift WRAPS within that range where Brighten and Darken stop at its ends, and the manual introduces the family as the slower, limitable alternative to Shade Bobs, which 'cannot limit the colours to a certain range but only the amount of bitplanes'. The skip and the wrap are `cmp.b \$10(a7),d4 / bmi` against c1, `cmp.b \$12(a7),d4 / bhi` against c2, and then `addq.b #\$1,d4 / cmp.b \$12(a7),d4 / ble` falling through to `move.b \$10(a7),d4`. The far corner is EXCLUSIVE -- `sub.w d4,d6 / sub.w d5,d7 / subq.w #\$1,d6 / subq.w #\$1,d7` then dbra -- which an earlier pass had inclusive, the subq pair having been invisible while src/cli/extdis.ts rendered those six bytes as the text run 'SFSG?F'. NOTE: c1 and c2 are stored as BYTES (`move.b d1,(a7)`, `move.b d2,\$2(a7)`), so a colour above 255 wraps into range. NOTE: the two range comparisons are not the same kind, `bmi` against c1 being signed and `bhi` against c2 unsigned, which cannot be told apart within the 0..63 of real colours. NOTE: a degenerate box does not error -- the subq underflows to \$ffff and the dbra runs 65536 times, the same runaway Bzoom has; doing nothing is this port's answer",
   'ppfromdisk':
-    "Routine 237 (\$5a80), 256 bytes, is a universal loader and not a PowerPacker one. It opens the file (routine 357, failing to 391, error 81), takes its size (359) and reads EIGHT bytes (360, failing to 392 after a close), then branches four ways on the signature: 'PP20' takes the AllocMem-and-decrunch path, 'PX20' is requester 7, 'IMP!' is `Rbra routine 138`, Imploder Load, and anything else is `Rbra routine 104`, Wload -- so the manual's 'a file that is not PowerPacked is taken as it is' is literally a hand-off to another keyword, each arm closing the file first with routine 362 and letting the other one reopen it. DEVIATION: the 'IMP!' arm cannot be reproduced. Imploder Load and Imploder Unpack are AMCAF keywords this port has not implemented and there is no Imploder decoder here to route to, so an imploded file falls through to the raw load Wload would give",
+    "Routine 237 (\$5a80), 256 bytes, is a universal loader and not a PowerPacker one. It opens the file (routine 357, failing to 391, error 81), takes its size (359) and reads EIGHT bytes (360, failing to 392 after a close), then branches four ways on the signature: 'PP20' takes the AllocMem-and-decrunch path, 'PX20' is requester 7, 'IMP!' is `Rbra routine 138`, Imploder Load, and anything else is `Rbra routine 104`, Wload -- so the manual's 'a file that is not PowerPacked is taken as it is' is literally a hand-off to another keyword, each arm closing the file first with routine 362 and letting the other one reopen it. DEVIATION: the 'IMP!' arm cannot be reproduced. Imploder Load and Imploder Unpack are AMCAF keywords this port has not implemented and there is no Imploder decoder here to route to, so an imploded file falls through to the raw load Wload would give. The PP20 arm's own Reserve is `moveq #\$0,d1 / move.l (a3)+,d0 / bpl / neg.l d0 / moveq #\$2,d1` at \$5b38 against the literal \"Work    \" at \$5b78 -- a WORK bank, and a negative bank number means the same bank in chip, exactly as Ppunpack does it at \$5a46. An earlier pass reserved a Data bank called \"Amcaf   \" and ignored the sign",
   'object name$':
     "Routine 114 (\$3b20) is sixteen bytes and reads a FIXED offset: `lea \$108(a2),a0 / moveq #\$2,d2 / Rbsr routine 366`, so \$108 is fib_FileName eight bytes into the cached FileInfoBlock at \$100 -- the accessors read whatever Examine Object last described and never take a path of their own",
   'object date':

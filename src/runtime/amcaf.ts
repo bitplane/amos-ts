@@ -136,6 +136,7 @@ import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, MAX_PO
 import { BitMap } from '../amiga/graphics'
 import { AmigaFS } from '../amiga/vfs'
 import type { Screen } from './screen'
+import type { MemoryBank } from '../loader/amosfile'
 import { amigaMatch } from '../amiga/dospattern'
 import { joinAmigaPath } from '../amiga/vfs'
 
@@ -1816,7 +1817,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const w = x2 - x1
       const h = y2 - y1
       if (w <= 0 || h <= 0) amcafErr()
-      rt.reserveBank(bank, w * h, 'Pix Mask')
+      // `moveq #$0,d1` at $51f4 -- a WORK bank, so Erase Temp takes it away
+      rt.reserveBank(bank, w * h, 'Pix Mask', false)
       const d = rt.memBanks.get(bank)!.data
       const bm = s.rp.bitMap
       for (let y = 0; y < h; y++) {
@@ -1950,7 +1952,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       if (it.accept(',')) {
         const count = it.evalInt()
         if (count === 0) amcafErr()
-        rt.reserveBank(n, COORDS_HEADER + count * 4, 'Coords  ')
+        // `moveq #$0,d1` at $33f0 -- a WORK bank, not a Data one
+        rt.reserveBank(n, COORDS_HEADER + count * 4, 'Coords  ', false)
         const v = coordsView(rt, n)
         if (v) {
           v.setUint16(0, count & 0xffff) // the count
@@ -2091,7 +2094,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const n = it.evalInt()
       if (n === 0) amcafErr()
-      rt.reserveBank(bank, n * 22, 'Splinter')
+      // `moveq #$0,d1` at $6986 -- a WORK bank, not a Data one
+      rt.reserveBank(bank, n * 22, 'Splinter', false)
       const sp = rt.amcaf.splinters
       sp.bank = bank
       sp.max = n
@@ -2330,7 +2334,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const n = it.evalInt()
       if (n === 0) amcafErr()
-      rt.reserveBank(bank, n * 12, 'Stars   ')
+      // `moveq #$0,d1` at $6d8e -- a WORK bank, not a Data one
+      rt.reserveBank(bank, n * 12, 'Stars   ', false)
       const st = rt.amcaf.stars
       st.bank = bank
       st.max = n
@@ -3646,7 +3651,12 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     'ppfromdisk'(it) {
       const file = it.evalStr()
       it.expect(',')
-      const n = it.evalInt()
+      const arg = it.evalInt()
+      // `moveq #$0,d1 / move.l (a3)+,d0 / bpl / neg.l d0 / moveq #$2,d1` at
+      // $5b38: a WORK bank named "Work    ", and a negative number means the
+      // same bank in chip. Identical to Ppunpack's own sequence at $5a46
+      const chip = arg < 0
+      const n = chip ? -arg : arg
       const raw = rt.vfs?.readFile(file) ?? null
       if (raw === null) {
         // `Rbsr routine 357 / Rbeq routine 391` -- a failed open is error 81
@@ -3657,7 +3667,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       if (sig === 'PX20') amcafMsg(7)
       let data: Uint8Array = raw
       if (sig === 'PP20') data = pp20Decrunch(raw)
-      rt.reserveBank(n, data.length, 'Amcaf   ')
+      rt.reserveBank(n, data.length, 'Work    ', false, chip)
       rt.memBanks.get(n)!.data.set(data)
     },
 
@@ -3732,28 +3742,49 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       b.data = next
     },
 
-    /** Bank Copy source To target, or start,end To target — routine 57/56 */
+    /**
+     * Bank Copy source To target, or start,end To target — routine 57/56.
+     *
+     * Routine 57 ($281a) is twelve bytes: it pops the target, hands the source
+     * bank number to routine 370 to be pushed back as a start/end pair, and
+     * falls into 56 — so both spellings are one routine taking three longs.
+     *
+     * The new bank is INHERITED rather than invented, which an earlier pass
+     * had as a bank named "Amcaf   ". Routine 56 reads the source's header:
+     *
+     *     move.w -$c(a0),d1 / andi.w #$fff0,d1 / tst.w d1 / bne
+     *
+     * and on a plain memory bank (no type bits set) takes the branch that does
+     * `move.l -$10(a0),d1 / cmp.l d1,d7 / Rbeq routine 157` — copying a bank
+     * onto ITSELF is error 23 — then `move.w -$c(a0),d1` for the Reserve flags
+     * and `subq.l #$8,a0` for the NAME, eight bytes back from the data. So the
+     * copy carries the original's name and its Data/Work bit. Anything with a
+     * type bit set instead takes `moveq #$0,d1 / lea $2812(pc),a0`, a Work bank
+     * named "Work    ", and the address form has no header to read at all.
+     *
+     * There is no conditional in the routine either: it Reserves whatever the
+     * target is, where an earlier pass kept an existing target bank and swapped
+     * its payload, leaving the old name and flags on replaced contents.
+     */
     'bank copy'(it) {
       const first = it.evalInt()
       let src: Uint8Array
+      let from: MemoryBank | null = null
       if (it.accept(',')) {
         const end = it.evalInt()
         it.expect('to')
         src = bankRegion(rt, first, end)
       } else {
         it.expect('to')
+        const b = rt.memBanks.get(first)
+        if (b && b.kind === 'memory') from = b
         src = bankRegion(rt, first, null)
       }
       const target = it.evalInt()
-      const dst = rt.memBanks.get(target)
-      if (!dst) {
-        rt.reserveBank(target, src.length, 'Amcaf   ')
-        rt.memBanks.get(target)!.data.set(src)
-        return
-      }
-      const next = new Uint8Array(src.length)
-      next.set(src)
-      dst.data = next
+      if (from && from.number === target) amcafErr()
+      const keep = new Uint8Array(src) // Reserve wipes the target first
+      rt.reserveBank(target, keep.length, from ? from.name : 'Work    ', from ? (from.flags & 1) !== 0 : false, from ? from.memType === 1 : false)
+      rt.memBanks.get(target)!.data.set(keep)
     },
 
     /**

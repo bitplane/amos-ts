@@ -538,6 +538,61 @@ describe('slice 4: banks', () => {
     expect([...rt.memBanks.get(6)!.data.subarray(0, 4)]).toEqual([0x12, 0x34, 0x56, 0x78])
   })
 
+  it('Bank Copy inherits the source bank name and its Data bit, and refuses a self-copy', () => {
+    // routine 56 reads the source header: `move.w -$c(a0),d1` for the Reserve
+    // flags and `subq.l #$8,a0` for the name, so the copy is the original's
+    // twin rather than a bank called "Amcaf   "
+    const work = run([...setup, 'Bank Name 5,"Tracker"', 'Bank Copy 5 To 6']).rt.memBanks.get(6)!
+    expect(work.name).toBe('Tracker ')
+    expect(work.kind === 'memory' && work.flags).toBe(0)
+    const data = run(['Reserve As Data 5,64', 'Bank Copy 5 To 6']).rt.memBanks.get(6)!
+    expect(data.kind === 'memory' && data.flags).toBe(1)
+    // `move.l -$10(a0),d1 / cmp.l d1,d7 / Rbeq routine 157` -- error 23
+    expect(() => run([...setup, 'Bank Copy 5 To 5'])).toThrow(/Illegal function call/)
+  })
+
+  it('every AMCAF Reserve asks for the bank type its `moveq #$n,d1` names', () => {
+    // Eighteen call sites of routine 1103 in the 1.50 hunk were re-read for
+    // this. d1 is the Reserve flags -- bit 0 Data, bit 1 Chip, pinned by
+    // Dload's `moveq #$1,d1` against Wload's `moveq #$0,d1` -- and four
+    // engine banks were being made Data against a `moveq #$0,d1`. It is not
+    // cosmetic: Bnk_BitData (+Equ.s:1865) is what makes a bank survive
+    // Erase Temp, so these used to outlive it and on the machine do not.
+    const { rt } = run([
+      'Screen Open 0,64,64,4,Lowres',
+      'Make Pix Mask 0,0,0 To 8,8,5', // routine 225, `moveq #$0,d1` at $51f4
+      'Coords Bank 6,4', //              routine  94, $33f0
+      'Splinters Bank 7,4', //           routine 288, $6986
+      'Td Stars Bank 8,4', //            routine 304, $6d8e
+      'Alloc Trans Map 9,32,1', //       routine 148, $4174 -- already right
+    ])
+    const want: [number, string][] = [
+      [5, 'Pix Mask'],
+      [6, 'Coords  '],
+      [7, 'Splinter'],
+      [8, 'Stars   '],
+      [9, 'TransMap'],
+    ]
+    for (const [n, name] of want) {
+      const b = rt.memBanks.get(n)!
+      expect(b.name).toBe(name)
+      expect(b.kind === 'memory' && b.flags).toBe(0)
+    }
+    // Erase Temp is the observable consequence
+    const after = run(['Splinters Bank 7,4', 'Erase Temp'])
+    expect(after.rt.memBanks.get(7)).toBeUndefined()
+  })
+
+  it('Bank Copy over an existing bank Reserves rather than keeping its identity', () => {
+    // the target used to keep the name and flags it had, which routine 56
+    // never does -- there is one unconditional `Rjsr routine 1103` in it
+    const { rt } = run([...setup, 'Reserve As Data 6,8', 'Bank Name 6,"Old"', 'Bank Copy 5 To 6'])
+    const b = rt.memBanks.get(6)!
+    expect(b.name).toBe('Work') // bank 5's, which Reserve As Work left unpadded
+    expect(b.kind === 'memory' && b.flags).toBe(0)
+    expect(b.data.length).toBe(64)
+  })
+
   it('Bank Delta Encode and Decode are inverses, and do not change the length', () => {
     // "Delta encoding just stores the difference from one byte to the next"
     const { rt } = run([...setup, 'Bank Delta Encode 5'])
@@ -996,6 +1051,24 @@ describe('slice 5: disk and DOS objects', () => {
     expect([...rt.memBanks.get(8)!.data.subarray(0, 2)]).toEqual([0xab, 0xcd])
     // a file that is not PP20 comes through unchanged
     expect([...rt.memBanks.get(9)!.data.subarray(0, 2)]).toEqual([0xab, 0xcd])
+    // and Ppfromdisk's own Reserve is `moveq #$0,d1 / lea "Work    ",a0` at
+    // $5b38/$5b44, the same pair Ppunpack uses -- not a bank called "Amcaf   "
+    const b9 = rt.memBanks.get(9)!
+    expect(b9.name).toBe('Work    ')
+    expect(b9.kind === 'memory' && b9.flags).toBe(0)
+  })
+
+  it('Ppfromdisk takes a negative bank number as the same bank in chip', () => {
+    // `move.l (a3)+,d0 / bpl / neg.l d0 / moveq #$2,d1` at $5b3a
+    const { rt } = runFs([
+      'Reserve As Work 7,64',
+      'Poke Start(7),$AB',
+      'Dsave "Work:raw.bin",7',
+      'Ppfromdisk "Work:raw.bin",-9',
+    ])
+    const b = rt.memBanks.get(9)!
+    expect(b.kind === 'memory' && b.memType).toBe(1)
+    expect(b.kind === 'memory' && b.flags).toBe(0)
   })
 
   /*
@@ -3948,9 +4021,11 @@ describe('AMCAF transitions', () => {
     expect(rt.screens.get(0)!.rp.point(0, 0)).toBe(0)
   })
 
-  it('Trans Screen Dynamic is still unimplemented, and says so', () => {
-    // it emits 68000 code into the Code Bank for `Call` to run, and `Call` is
-    // n/a here -- the one keyword of the eight that cannot be closed
+  it('Trans Screen Dynamic is n/a — it assembles 68000 code, and Call runs it', () => {
+    // routine 153 ($4272) emits `movea.l #dest,a0`, one `move.l #imm32,d16(a0)`
+    // per non-zero longword, `rts`, then CacheClearU. Its output is machine
+    // code for a machine this is not, and the only keyword that could reach it
+    // is `Call`, n/a since the core port. So: no handler, deliberately
     expect(() => run([...scr, 'Trans Screen Dynamic 0,0,0,0'])).toThrow(/unimplemented: trans screen dynamic/)
   })
 })
