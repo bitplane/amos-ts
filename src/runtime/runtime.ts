@@ -2699,9 +2699,31 @@ export class Runtime {
    * it again. Each program structure owns its own bank list — Prg_SetBanks
    * (+Verif.s:4742) just repoints Cur_Banks — so the accessory's banks
    * replace the caller's for the duration and are swapped back on the way
-   * out. The display is not reinitialised (DefRunAcc, the d0=-1 arm of
-   * Prg_RunIt at 4398): screens, and whatever is drawn on them, survive in
-   * both directions.
+   * out. The display is not reinitialised: `tst.w d2 / beq .Nor / bmi .PRun`
+   * (+Verif.s:4396) sends the accessory to DefRunAcc where a normal program
+   * goes to DefRun1 and DefRun2, so screens and whatever is drawn on them
+   * survive in both directions.
+   *
+   * What DefRunAcc does NOT skip is the extensions. It opens with the
+   * Sys_DefaultRoutines list and, thirty lines later, `Rbsr
+   * L_DefRunExtensions` (+ILib.s:403) — the same call DefRun1 makes at :312.
+   * That routine is the extension table itself (+ILib.s:415):
+   *
+   *     lea     ExtAdr(a5),a0 / moveq #26-1,d0
+   *   L:move.l  4(a0),d1 / beq          ; the slot's DEFAULT routine, or none
+   *     move.l  d1,a1 / jsr (a1)
+   *     lea     16(a0),a0 / dbra d0,L   ; sixteen bytes a slot, twenty-six
+   *
+   * and `ExtAdr: rs.l 26*4` (+Equ.s:1185) is the table AMCAF's Extbase and
+   * Extdefault index as `$f8(a5)` — the same twenty-six slots, the same
+   * sixteen bytes, the same `+$4`. So an accessory starts with every
+   * extension's settings back at boot, and this port ran none of them until
+   * the reading above.
+   *
+   * NOTE: the return trip does not repeat it. Only the forward call reaches
+   * Prg_RunIt; the accessory's End goes through Prg_Pull, which restores the
+   * caller's data without touching the extensions. So a caller resumes with
+   * whatever the accessory left its settings as, and that is reproduced.
    */
   prun(path: string, resumeAt: Addr): void {
     // an accessory cannot Prun another one (PRun_Acc, +ILib.s:1600)
@@ -2711,6 +2733,9 @@ export class Runtime {
     const file = parseAmosFile(bytes)
     if (file.source.length === 0) throw new AmosError('file not found')
     const lines = parseSource(file.source, this.table)
+    // DefRunAcc's `Rbsr L_DefRunExtensions` -- every occupied slot's +$4,
+    // the same hook Default runs and AMCAF's Extdefault reaches one at a time
+    for (const impl of new Set(this.extSlotImpls().values())) impl.defaults?.(this)
     const saved = { memBanks: this.memBanks, spriteBank: this.spriteBank, iconBank: this.iconBank }
     this.memBanks = new Map()
     this.spriteBank = null

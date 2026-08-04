@@ -136,3 +136,19 @@ describe('Run "file" leaves no state behind', () => {
     expect(i.everyReturnDepth).toBe(0)
   })
 })
+
+/**
+ * DefRunAcc runs the extension default hooks where it skips the display
+ * reinit — `Rbsr L_DefRunExtensions` (+ILib.s:403), the same call DefRun1
+ * makes, over the twenty-six-slot table at ExtAdr (+Equ.s:1185) that AMCAF
+ * indexes as `$f8(a5)`.
+ */
+describe('Prun and the extension slots', () => {
+  it("runs every occupied slot's default routine before the accessory", () => {
+    const { rt } = boot('Prun "acc"', { acc: amosFile([['print', { s: 'x' }]]) })
+    rt.turbo.scene.iconBank = 5
+    rt.runHeadless(200)
+    // TURBO's +$4 puts Scene Icon Bank back to 2
+    expect(rt.turbo.scene.iconBank).toBe(2)
+  })
+})
