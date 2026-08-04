@@ -318,6 +318,7 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/locale.ts': ['locale-0.26'],
   'src/runtime/locale.test.ts': ['locale-0.26'],
   'src/runtime/ldos.ts': ['ldos-2.6', 'ldos-2.5'],
+  'src/runtime/ldos.test.ts': ['ldos-2.6', 'ldos-2.5'],
   'src/runtime/ldoslz.ts': ['ldos-2.6', 'ldos-2.5'],
   'src/runtime/ctext.ts': ['ctext-1.0'],
   'src/runtime/ctext.test.ts': ['ctext-1.0'],

@@ -388,6 +388,54 @@ describe('integration: Run and the environment cluster', () => {
     expect(out).not.toContain('B')
   })
 
+  it('Exec runs the command DETACHED — both handles are the NIL: it opens', () => {
+    // InExec +Lib.s:3392: `move.l d5,d2 / move.l d5,d3`, the same handle for
+    // input and output, which is why nothing a command prints is ever seen
+    let seen = ''
+    let detached = false
+    const rt = new Runtime(tokenize('Exec "c:list df0:"', table), table, {
+      maxSteps: 100_000,
+      host: {
+        process: {
+          execute(req) {
+            seen = req.command
+            detached = req.io.input === null && req.io.output === null
+            return true
+          },
+        },
+      },
+    })
+    expect(rt.runHeadless(10).status).toBe('ended')
+    expect(seen).toBe('c:list df0:')
+    expect(detached).toBe(true)
+  })
+
+  it('an empty command is error 23, before anything is opened', () => {
+    // `move.w (a2)+,d2 / Rbeq L_FonCall`
+    const rt = new Runtime(tokenize('Exec ""', table), table, { maxSteps: 100_000 })
+    expect(() => rt.runHeadless(10)).toThrow(/Illegal function call/)
+  })
+
+  it('a DOSFALSE from Execute is error 87, "Disc error"', () => {
+    // `tst.l d3 / Rbeq L_DiskError`. With no host process capability nothing
+    // can run, so every command takes the branch the routine takes for a
+    // command that does not exist
+    const rt = new Runtime(tokenize('Exec "c:list"', table), table, { maxSteps: 100_000 })
+    expect(() => rt.runHeadless(10)).toThrow(/Disc error/)
+  })
+
+  it('the command line is truncated at 510 characters, as ChVerBuf does', () => {
+    // +Lib.s:3683 `cmp.w #510,d0 / bcs.s Chv1 / move.w #509,d0` -- at most
+    // 510 bytes are copied before the NUL
+    let seen = ''
+    const rt = new Runtime(tokenize('Exec String$("x",600)', table), table, {
+      maxSteps: 100_000,
+      host: { process: { execute: (r) => ((seen = r.command), true) } },
+    })
+    rt.runHeadless(10)
+    expect(seen.length).toBe(510)
+  })
+
   it('Dev/Prg First$/Next$ enumerate the device list (FnPrgFirst=FnDevFirst +Lib.s:5539)', () => {
     const prog = ['Print Dev First$("*")', 'Print Dev Next$', 'Print Prg First$("*")'].join('\n')
     const { out } = run(prog)

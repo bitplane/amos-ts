@@ -1,5 +1,6 @@
 import { AmosError, VF, VI, VS, int, num, str, varType } from '../interp/values'
 import { varKey } from '../interp/prescan'
+import { DOSFALSE, execute } from '../amiga/process'
 import type { Instr, Func } from '../interp/builtins'
 import { aliasForSlots, implLabel, implSlots, qualifyForSlots, type ExtensionImpl } from './extimpl'
 import { makeLdosFunctions, makeLdosInstructions } from './ldos'
@@ -2570,6 +2571,41 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const path = it.evalStr()
       rt.prun(path, it.afterCurrentStatement())
       return 'jumped'
+    },
+    exec(it) {
+      /*
+       * Exec "command" — InExec (+Lib.s:3392), source tier and complete:
+       *
+       *     move.l  d3,a2 / move.w (a2)+,d2
+       *     Rbeq    L_FonCall               ; an empty string is error 23
+       *     Rbsr    L_ChVerBuf              ; into Buffer(a5), NUL-terminated
+       *     lea     .Nil(pc),a1 / move.l #1005,d2
+       *     jsr     _LVOOpen(a6)            ; open NIL:
+       *     move.l  Buffer(a5),d1
+       *     move.l  d5,d2 / move.l d5,d3    ; input AND output are that NIL:
+       *     jsr     _LVOExecute(a6)
+       *     ... _LVOClose ...
+       *     tst.l   d3 / Rbeq L_DiskError   ; DOSFALSE is error 87
+       *
+       * So AMOS's own Exec runs the command DETACHED -- both handles are the
+       * NIL: it just opened, which is why nothing a command prints ever
+       * appears. LDos's Lexecute and EasyLife's Elexec pass a literal 0 for
+       * the same effect; Craft's Cli Execute is the one that does not.
+       *
+       * ChVerBuf (+Lib.s:3677) truncates at 510 characters: `cmp.w #510,d0 /
+       * bcs / move.w #509,d0` copies at most 510 bytes and then the NUL.
+       *
+       * NOTE: nothing can run a command here, so Execute always answers
+       * DOSFALSE and this always raises "Disc error". That is the branch the
+       * routine itself takes for a command that does not exist -- which is
+       * what every command is on a machine with no shell -- rather than a
+       * stub. The seam is `host.process`; see ../amiga/process.ts.
+       */
+      const cmd = it.evalStr()
+      if (cmd.length === 0) throw new AmosError('Illegal function call', 23)
+      const command = cmd.slice(0, 510)
+      const r = execute(rt.host.process, { command, io: { input: null, output: null } })
+      if (r === DOSFALSE) throw new AmosError('Disc error', 87)
     },
     system(it) {
       // InSystem +ILib.s:1849: run-error 1002 — leave AMOS entirely; in

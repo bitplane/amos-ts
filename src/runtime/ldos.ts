@@ -61,6 +61,7 @@ import type { Runtime } from './runtime'
  */
 import { amigaMatch, parsePatternResult } from '../amiga/dospattern'
 import { pp20Decrunch } from '../amiga/powerpacker'
+import { execute } from '../amiga/process'
 import { DAY_MS, STAMP_EPOCH, stampToYmd as amigaStampToYmd } from '../amiga/datestamp'
 import { MAX_COMMENT, ST_FILE, ST_USERDIR, blocksFor } from '../amiga/dos'
 
@@ -962,6 +963,76 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       const value = str(a[1] ?? VS(''))
       if (name === '' || name.length > 50 || value.length > 50 || /[:/]/.test(name)) return VI(0)
       return VI(rt.vfs?.writeFile('ENV:' + name, latin1(value)) ? -1 : 0)
+    },
+    'lrun'(_, a) {
+      /*
+       * A=Lrun("commands","WINDOW") — routine 50 ($33ca), and it is a script
+       * runner rather than a single command. *"Since a new CLI is opened to
+       * execute your program(s) ... After every command a linefeed, Chr$(10)
+       * MUST follow"*, and *"you should NOT use EndCli as the last command,
+       * Ldos will automatically append this"*.
+       *
+       * The routine, in order:
+       *
+       *   AllocSignal(-1), FindTask(NULL), AddPort()   a port named "ldos"
+       *   build "NewCli " + window + " from t:ld.t"    contiguous from $3502
+       *   Open("t:ld.t", 1006) / Write(commands)
+       *   Write("t:sig_ldos\nEndCli >NIL:\n", 24)      the promised tail
+       *   Close
+       *   Open("t:sig_ldos", 1006) / Write(109 bytes) / Close
+       *   Execute(that NewCli line, 0, 0)
+       *   WaitPort / GetMsg / FreeSignal / RemPort
+       *
+       * which is why the manual demands `c:Run`, `c:NewCli`, `c:EndCli` and an
+       * assigned `t:`. The script file and the exact command line ARE built
+       * here, so most of the keyword is real and testable; only the Execute
+       * needs a host (../amiga/process.ts).
+       *
+       * DEFECT: the return value is meaningless. The last thing before `rts`
+       * is `jsr -$168(a6)` -- RemPort, which returns nothing -- and then
+       * `move.l d0,d3` hands whatever it left to AMOS. The manual knows:
+       * *"A will contain any number (see Technote below)"*. Reproduced as 0,
+       * since one arbitrary value is as faithful as another.
+       *
+       * DEVIATION: `t:sig_ldos` is not written. It is 109 bytes of AmigaDOS
+       * executable embedded in the library at $35c2 -- the helper that signals
+       * the "ldos" port when the script finishes -- and this port neither
+       * redistributes the library's code nor executes 68k, so writing it would
+       * put someone else's binary in the tree for nothing to run.
+       *
+       * DEVIATION: it does not block. WaitPort waits for that helper, and with
+       * no CLI started nothing will ever signal, so reproducing it would hang
+       * the interpreter -- the same hang the manual warns about when a command
+       * fails and *"the Shell/CLI-window will never be closed"*.
+       */
+      const commands = str(a[0] ?? VS(''))
+      const window = str(a[1] ?? VS(''))
+      // `Write(commands)` then 24 bytes at $359f, byte for byte
+      rt.vfs?.writeFile('t:ld.t', latin1(commands + 't:sig_ldos\nEndCli >NIL:\n'))
+      // "NewCli " at $3502 runs straight into the window string at $3509
+      execute(rt.host.process, {
+        command: `NewCli ${window} from t:ld.t`,
+        io: { input: null, output: null },
+      })
+      return VI(0)
+    },
+    'lexecute'(_, a) {
+      /*
+       * A=Lexecute("programname") — routine 51 ($3630), twelve instructions:
+       * copy the string NUL-terminated into a buffer at $c off LDos's block,
+       * `moveq #$0,d2 / moveq #$0,d3`, `jsr -$de(a6)` Execute, and hand d0
+       * straight back. *"A will be True if successful, False otherwise."*
+       *
+       * Both handles are zero, which is exactly what the manual means by
+       * *"The program to be run can not use any CLI-I/O"* -- the same detached
+       * call AMOS's own Exec and EasyLife's Elexec make.
+       *
+       * NOTE: the copy has no length check, so on the machine a long enough
+       * name overruns the block it is copied into. Nothing to reproduce here,
+       * where the string is a string.
+       */
+      const prog = str(a[0] ?? VS(''))
+      return VI(execute(rt.host.process, { command: prog, io: { input: null, output: null } }))
     },
     'lget var'(_, a) {
       // A$=Lget Var("Name") — "If A$ is empty the variable didn't exist."

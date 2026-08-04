@@ -965,3 +965,97 @@ describe('LDos PowerPacker (LdosV25.DOC)', () => {
     expect(out).toBe('untouched\n')
   })
 })
+
+/**
+ * Lrun and Lexecute — routines 50 ($33ca) and 51 ($3630), both dos.library
+ * Execute on the seam in src/amiga/process.ts.
+ */
+describe('LDos: Lrun and Lexecute (LdosV25.DOC, routines 50 and 51)', () => {
+  /**
+   * The same harness with `t:` mounted, because Lrun writes its script there
+   * and the manual is explicit: *"You also must have assigned t: to somewhere
+   * or have a directory named 't' on the disk and have the disk write
+   * enabled."*
+   */
+  function runT(
+    src: string,
+    extra: { host?: Partial<import('../amiga/host').Host> } = {},
+  ): { out: string; fs: AmigaFS } {
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    fs.mountMemory('T')
+    fs.currentDir = 'DH0:'
+    let out = ''
+    const rt = new Runtime(tokenize(src, table, extensions), table, {
+      maxSteps: 200_000,
+      extensions,
+      fs,
+      onText: (t) => (out += t),
+      ...extra,
+    })
+    const r = rt.runHeadless(1_000)
+    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    return { out, fs }
+  }
+
+  it('Lexecute is Execute(name, 0, 0) and answers False when nothing starts', () => {
+    // `moveq #$0,d2 / moveq #$0,d3 / jsr -$de(a6)` then d0 straight back --
+    // "A will be True if successful, False otherwise"
+    expect(run('Print Lexecute("SYS:Utilities/Clock")').out.trim()).toBe('0')
+  })
+
+  it('and True when a host does start it, with the command it was given', () => {
+    let seen = ''
+    let detached = false
+    const { out } = run('Print Lexecute("dh0:MyEditor")', {
+      host: {
+        process: {
+          execute(req) {
+            seen = req.command
+            detached = req.io.input === null && req.io.output === null
+            return true
+          },
+        },
+      },
+    })
+    expect(out.trim()).toBe('-1') // DOSTRUE
+    expect(seen).toBe('dh0:MyEditor')
+    // "The program to be run can not use any CLI-I/O" -- both handles zero
+    expect(detached).toBe(true)
+  })
+
+  it('Lrun writes the script to t:ld.t with the EndCli the manual promises', () => {
+    // `Write(commands)` then the twenty-four bytes at $359f, and the docs:
+    // "you should NOT use EndCli as the last command, Ldos will automatically
+    // append this"
+    const { fs } = runT('A$="Failat 10000"+Chr$(10)+"Dir"+Chr$(10) : A=Lrun(A$,"CON:0/0/640/200/Out")')
+    const f = fs.readFile('t:ld.t')
+    expect(f).not.toBeNull()
+    expect(String.fromCharCode(...f!)).toBe('Failat 10000\nDir\nt:sig_ldos\nEndCli >NIL:\n')
+  })
+
+  it('and Executes exactly the NewCli line the routine builds', () => {
+    // "NewCli " at $3502 runs contiguously into the window string at $3509,
+    // and " from t:ld.t" is appended after it
+    let seen = ''
+    runT('A=Lrun("Dir"+Chr$(10),"CON:10/10/600/180/AMOS-Output")', {
+      host: { process: { execute: (r) => ((seen = r.command), true) } },
+    })
+    expect(seen).toBe('NewCli CON:10/10/600/180/AMOS-Output from t:ld.t')
+  })
+
+  it('DEFECT: the return value is meaningless — RemPort left it there', () => {
+    // the last call before `rts` is `jsr -$168(a6)`, RemPort, which returns
+    // nothing, and `move.l d0,d3` hands that to AMOS. The manual: "A will
+    // contain any number (see Technote below)"
+    expect(runT('Print Lrun("Dir"+Chr$(10),"CON:0/0/1/1/x")').out.trim()).toBe('0')
+  })
+
+  it('DEVIATION: t:sig_ldos is not written, and nothing blocks', () => {
+    // it is 109 bytes of AmigaDOS executable embedded at $35c2 -- the helper
+    // that signals the port -- which this port neither redistributes nor
+    // could run. And WaitPort would wait for it forever
+    const { fs } = runT('A=Lrun("Dir"+Chr$(10),"CON:0/0/1/1/x")')
+    expect(fs.readFile('t:sig_ldos')).toBeNull()
+  })
+})
