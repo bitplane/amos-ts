@@ -19,6 +19,8 @@ import type { AmosFS } from './fs'
 import { dateToStamp, type DateStamp } from './datestamp'
 
 export type { DateStamp } from './datestamp'
+import type { ProcessHost } from './process'
+export type { ProcessHost, ExecuteRequest, LaunchRequest } from './process'
 
 /**
  * Where sound goes. Paula's four voices, as the outside world has to receive
@@ -124,6 +126,18 @@ export interface Host {
    * the program sees a connection with nothing on the other end.
    */
   serial?: SerialHost
+  /**
+   * Starting a program that is not this one — `Execute()` a shell command, or
+   * LoadSeg+CreateProc a binary. See ./process.ts for the two calls and the
+   * six keywords that want them.
+   *
+   * Absent rather than impossible, and by some distance the clearest case of
+   * that distinction in this interface: a browser tab has no subprocesses at
+   * all, while the CLI tools and the census run under Node, where it is an
+   * ordinary thing to do. Nothing supplies one today, and every caller takes
+   * its own failure branch when nothing does.
+   */
+  process?: ProcessHost
 }
 
 /** A serial port the host has opened on the program's behalf. */

@@ -109,6 +109,7 @@ really does differ from the real one and saying where is the whole job.
 | `hunk.ts` | the AmigaDOS object file format: `LoadSeg` and one-hunk reads |
 | `diskfont.ts` | `diskfont.library` and the graphics.library `TextFont` |
 | `powerpacker.ts` | `powerpacker.library`'s PP20 codec |
+| `process.ts` | `Execute()` and LoadSeg+CreateProc — starting a program that is not this one |
 | `machine.ts` | power state and reset kinds — the layer *beneath* one running environment |
 | `host.ts` | the boundary *beneath* this layer: what the outside world supplies |
 

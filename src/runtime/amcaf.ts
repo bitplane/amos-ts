@@ -132,6 +132,7 @@ import { MAX_COMMENT, blocksFor, entryType, protectionString } from '../amiga/do
 import { fillRow } from '../amiga/blitter'
 import { parseSampleBank } from './audio'
 import { pp20Decrunch } from '../amiga/powerpacker'
+import { launch } from '../amiga/process'
 import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, MAX_PORT, PORT_MOUSE, joyFire } from '../interp/gameport'
 import { BitMap } from '../amiga/graphics'
 import { AmigaFS } from '../amiga/vfs'
@@ -3951,6 +3952,58 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       if (sig === 'PP20') data = pp20Decrunch(raw)
       rt.reserveBank(n, data.length, 'Work    ', false, chip)
       rt.memBanks.get(n)!.data.set(data)
+    },
+
+    /**
+     * Launch file$ [,stacksize] — routines 221 ($512e) and 222 ($513a), and it
+     * starts an AmigaDOS binary as its own process:
+     *
+     *     221  moveq #$0,d0 / move.w #$1000,d0 / move.l d0,-(a3)
+     *          Rbra routine 222                 ; the default stack, 4096
+     *     222  move.l  (a3)+,d4                 ; stackSize
+     *          movea.l (a3)+,a0 / Rbsr 363      ; the name
+     *          movea.l $2b8(a5),a6              ; DOSBase
+     *          jsr     -$96(a6)                 ; LoadSeg  -> d3
+     *          Rbeq    routine 391              ; nothing loaded -> error 81
+     *          move.l  d6,d1 / moveq #$0,d2
+     *          jsr     -$8a(a6)                 ; CreateProc(name,0,seg,stack)
+     *          tst.l   d5 / beq / rts           ; started: return
+     *          jsr     -$9c(a6)                 ; UnLoadSeg
+     *          moveq   #$b,d0 / Rbra routine 397; message 11
+     *
+     * so the priority is always 0 and message 11 is "Couldn't launch process".
+     *
+     * The two failures are DIFFERENT and both are reproduced. A file that will
+     * not LoadSeg -- missing, or not an AmigaDOS binary -- is an AmigaDOS
+     * error, which AMCAF reports as AMOS error 81. A file that loads and then
+     * will not start is the requester. Telling them apart needs the load
+     * actually attempted, so it is: ../amiga/process.ts runs the bytes through
+     * `hunk.ts`, the same reader every extension library goes through.
+     *
+     * NOTE: nothing can start a process here, so a real binary always reaches
+     * the second failure. That is the branch the routine itself takes when
+     * CreateProc returns NULL -- out of memory on the machine -- rather than a
+     * stub, and a program that guards its Launch behaves as it would there.
+     * The seam is `host.process`; see ../amiga/process.ts for the five other
+     * keywords across the core and three extensions that want the same two
+     * calls.
+     *
+     * NOTE: on success the routine never UnLoadSegs, leaving the segment to
+     * the process it started. Nothing to reproduce while nothing starts.
+     */
+    'launch'(it) {
+      const file = amcafPath(it.evalStr())
+      // `move.w #$1000,d0` -- 4096, and the argument is a LONG when given
+      let stack = 0x1000
+      if (it.accept(',')) stack = it.evalInt()
+      const bytes = rt.vfs?.readFile(file) ?? null
+      const why = launch(rt.host.process, bytes, { name: file, priority: 0, stackSize: stack })
+      if (why === 'noseg') {
+        // `Rbeq routine 391` -- AMCAF's AmigaDOS-error path, AMOS error 81
+        rt.amcaf.ioError = 205
+        amcafDosErr()
+      }
+      if (why === 'noproc') amcafMsg(11) // "Couldn't launch process"
     },
 
     /**

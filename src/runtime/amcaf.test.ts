@@ -4409,3 +4409,71 @@ describe('AMCAF: Reset Computer, and the machine underneath it', () => {
     expect(b.machine.pendingReset).toBeNull()
   })
 })
+
+/**
+ * Launch — routines 209 (1.40) and 221/222 ($512e/$513a): LoadSeg then
+ * CreateProc, on the seam in src/amiga/process.ts.
+ */
+describe('AMCAF: Launch, on the process seam', () => {
+  /** the smallest thing hunk.ts accepts as an AmigaDOS binary */
+  const BINARY = Uint8Array.from([
+    0, 0, 3, 0xf3, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    0, 0, 3, 0xe9, 0, 0, 0, 1, 0x4e, 0x75, 0, 0, 0, 0, 3, 0xf2,
+  ])
+
+  function boot(src: string[], host?: Partial<Runtime['host']>): Runtime {
+    const fs = new AmigaFS()
+    const vol = fs.mountMemory('Work')
+    vol.write(['real'], BINARY)
+    vol.write(['junk'], Uint8Array.from([1, 2, 3, 4]))
+    fs.currentDir = 'Work:'
+    const rt = new Runtime(tokenize(src.join('\n'), table, extensions), table, {
+      maxSteps: 1_000_000,
+      extensions,
+      fs,
+      ...(host ? { host } : {}),
+    })
+    const r = rt.runHeadless(200)
+    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    return rt
+  }
+
+  it('a file that will not LoadSeg is an AmigaDOS error, not the requester', () => {
+    // `jsr -$96(a6)` LoadSeg then `Rbeq routine 391` -- AMCAF's dos-error
+    // path, which is AMOS error 81
+    // error 81 is what routine 391 raises everywhere in this port -- the same
+    // one Ppfromdisk and the Object accessors reach
+    expect(() => boot(['Launch "nothere"'])).toThrow(/File format not recognised/)
+    // and a file that exists but is not a binary fails the same way
+    expect(() => boot(['Launch "junk"'])).toThrow(/File format not recognised/)
+  })
+
+  it('a file that DOES load reaches the other failure — message 11', () => {
+    // the segment loaded, so `jsr -$8a(a6)` CreateProc is what returned NULL,
+    // and that is `moveq #$b,d0 / Rbra routine 397`. Nothing here can start a
+    // process, so this is the branch the routine itself takes when the machine
+    // is out of memory -- a real answer, not a stub
+    expect(() => boot(['Launch "real"'])).toThrow(/Couldn't launch process/)
+  })
+
+  it('with a host that can start one, it just returns', () => {
+    const rt = boot(['Launch "real"', 'Print "after"'], { process: { launch: () => true } })
+    expect(rt).toBeTruthy()
+  })
+
+  it('the default stack is 4096, and the second argument replaces it', () => {
+    // `moveq #$0,d0 / move.w #$1000,d0` in routine 221
+    const seen: number[] = []
+    const host = { process: { launch: (r: { stackSize: number }) => (seen.push(r.stackSize), true) } }
+    boot(['Launch "real"', 'Launch "real",65536'], host)
+    expect(seen).toEqual([0x1000, 65536])
+  })
+
+  it('the priority is always 0 — the routine never takes one', () => {
+    // `moveq #$0,d2` before CreateProc; there is no third argument
+    let pri = -1
+    const host = { process: { launch: (r: { priority: number }) => ((pri = r.priority), true) } }
+    boot(['Launch "real"'], host)
+    expect(pri).toBe(0)
+  })
+})

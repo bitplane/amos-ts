@@ -1467,6 +1467,10 @@ export const FAITHFUL = new Set<string>([
   // layer underneath the interpreter. Four other extensions ship one of these
   // and none of them is ported; their readings are recorded in that file.
   'reset computer',
+  // Launch, routine 209/221. LoadSeg then CreateProc, on the process seam in
+  // src/amiga/process.ts -- where the core's Exec, LDos's Lrun/Lexecute and
+  // Craft's and EasyLife's Execute pair will land when those are ported.
+  'launch',
 
   // --- AGA 1.0 (Nigel Critten, F1 Licenceware): AGA_Doc plus every routine
   // in the 9,904-byte hunk. A thin veneer over graphics.library, so what is
@@ -1740,9 +1744,17 @@ export const STRUCTURAL = new Set([
  * that execute raw 68k machine code, call Amiga ROM library vectors, drive the
  * native compiler overlay, or open arbitrary exec devices. None of these can
  * run without *being* an Amiga, so they are n/a rather than "missing" — no
- * program's logic depends on them producing a result here. (Hardware features
- * that are meaningful but unrendered — the copper list, serial/printer/ARexx —
- * stay "missing": they are portable to a host capability, just not built.)
+ * program's logic depends on them producing a result here.
+ *
+ * The line is whether a HOST could supply it. Things that are meaningful but
+ * unrendered stay "missing", because they are portable to a host capability
+ * and merely unbuilt: the copper list, serial, the printer, and — since the
+ * process seam went in — running another program, which a browser tab cannot
+ * do and Node does every day (`Exec`, `Lrun`, `Lexecute`; see
+ * ../amiga/process.ts). ARexx is n/a and not an example of that, whatever an
+ * earlier version of this paragraph claimed: it needs a language runtime and a
+ * resident rexxmast, which is a subsystem to write rather than a capability to
+ * plug in.
  */
 export const NA = new Set<string>([
   // TFT: both bit-bang the floppy drive. Mfm Read sets up INTENA at $9a(a5)
@@ -1919,8 +1931,6 @@ export const NA = new Set<string>([
   'dev abort',
   'dev base',
   'dev check',
-  // AmigaDOS shell-out (Execute() a CLI command, +Lib.s:3392) — no web analog
-  'exec',
   // the ARexx host bridge (rexxsyslib.library message ports) — no ARexx
   // system exists outside AmigaOS
   // --- LDos (third-party) ---
@@ -1932,6 +1942,9 @@ export const NA = new Set<string>([
   // like — which is n/a above as `dev open`. Both are classified here rather
   // than left as "missing" because no amount of work makes them possible;
   // reporting them as unimplemented would overstate what is left to do.
+  // Lrun and Lexecute used to sit here too and no longer do: they are
+  // dos.library Execute and LoadSeg+CreateProc, which ../amiga/process.ts
+  // models and a host CAN supply, so they are missing rather than n/a.
   'lrexx make host',
   'lrexx remove host',
   'lrexx get msg',
@@ -1944,11 +1957,6 @@ export const NA = new Set<string>([
   'ldevice close',
   'ldevice',
   'ldevice error',
-  // Lrun opens a Shell/CLI to run AmigaDOS commands and Lexecute starts a
-  // separate executable; both need a host operating system to run something
-  // in, which is the same boundary `exec` and `call` are n/a for above.
-  'lrun',
-  'lexecute',
 
   'arexx open',
   'arexx close',
@@ -2224,6 +2232,8 @@ export const NOTES: Record<string, string> = {
     "Routines 310 (\$6e92) and 311 (\$6e9c), 'if the stars are to be accelerated'. NOTE: the pair is asymmetric -- On is `st.b \$25e(a2)`, which writes \$ff to the HIGH byte of the word, and Off is `clr.w \$25e(a2)`, which clears both. Routine 388 tests `tst.w` so the two still pair up correctly, \$ff00 being non-zero, but a program peeking \$25f would find On had left it alone. Reproduced",
   'pix shift up':
     "Routines 226/227 (Shift Up), 228/229 (Shift Down), 230/231 (Brighten) and 232/233 (Darken), each a pair with and without the mask bank. 'c1 and c2 hold the border colours, which should be taken into account for the colour cycling, other colours are not affected'. Shift WRAPS within that range where Brighten and Darken stop at its ends, and the manual introduces the family as the slower, limitable alternative to Shade Bobs, which 'cannot limit the colours to a certain range but only the amount of bitplanes'. The skip and the wrap are `cmp.b \$10(a7),d4 / bmi` against c1, `cmp.b \$12(a7),d4 / bhi` against c2, and then `addq.b #\$1,d4 / cmp.b \$12(a7),d4 / ble` falling through to `move.b \$10(a7),d4`. The far corner is EXCLUSIVE -- `sub.w d4,d6 / sub.w d5,d7 / subq.w #\$1,d6 / subq.w #\$1,d7` then dbra -- which an earlier pass had inclusive, the subq pair having been invisible while src/cli/extdis.ts rendered those six bytes as the text run 'SFSG?F'. NOTE: c1 and c2 are stored as BYTES (`move.b d1,(a7)`, `move.b d2,\$2(a7)`), so a colour above 255 wraps into range. NOTE: the two range comparisons are not the same kind, `bmi` against c1 being signed and `bhi` against c2 unsigned, which cannot be told apart within the 0..63 of real colours. NOTE: a degenerate box does not error -- the subq underflows to \$ffff and the dbra runs 65536 times, the same runaway Bzoom has; doing nothing is this port's answer",
+  'launch':
+    "Routines 209 (1.40) and 221/222 (\$512e/\$513a): `Launch file\$[,stacksize]`, and it starts an AmigaDOS binary as its own process. 221 pushes the default stack -- `move.w #\$1000,d0`, 4096 -- and 222 does `jsr -\$96(a6)` LoadSeg, `Rbeq routine 391` on failure, then `jsr -\$8a(a6)` CreateProc(name, 0, segList, stackSize), and on failure `jsr -\$9c(a6)` UnLoadSeg followed by `moveq #\$b,d0 / Rbra routine 397`, message 11 'Couldn't launch process'. The priority is always 0. The two failures are DIFFERENT and both are reproduced: a file that will not LoadSeg -- absent, or not an AmigaDOS binary -- is an AmigaDOS error reported as AMOS error 81, while a file that loads and will not start is the requester. Telling them apart needs the load actually attempted, so it is, through the same hunk.ts reader every extension library goes through. NOTE: nothing in this port can start a process, so a real binary always reaches the second failure -- which is the branch the routine itself takes when CreateProc returns NULL, out of memory on the machine, rather than a stub. The seam is `host.process` (src/amiga/process.ts), and it is absent rather than impossible: a browser tab has no subprocesses, the CLI and census run under Node where it is ordinary. NOTE: on success the routine never UnLoadSegs, leaving the segment to the process it started; nothing to reproduce while nothing starts",
   'reset computer':
     "Routine 203 in 1.40, 215 (\$4ff0) in 1.50, and it reboots two different ways: `Rbsr routine 372` reads exec's LIB_VERSION and `cmp.w #\$25,d0` sends Kickstart 37+ to `jmp -\$2d6(a6)`, ColdReboot, while below 37 it goes Supervisor (`jmp -\$1e(a6)`) and hand-rolls it -- `lea \$1000000,a0 / suba.l -\$14(a0),a0` backs off by the ROM size stored at \$FFFFEC, `movea.l \$4(a0),a0` takes the ROM's initial PC, then `reset / jmp (a0)`. Both arms are a COLD boot. It asks the machine rather than doing it: on the Amiga the keyword never returns, and performing a reset here means building a Runtime, which is the thing being torn down -- so the request is recorded on src/amiga/machine.ts and the program ends exactly as System does (InSystem +ILib.s:1849), leaving the frame loop to bring the machine back. NOTE: a program that resets is counted as having ENDED rather than crashed, which is what it did; the census would otherwise report every one as a failure. NOTE: the web player carries the reset out by rebuilding the environment and KEEPING the filesystem, because a reset clears memory and not disks -- and cold and warm do the same thing there, since this port has no reset-survivable RAM for a warm boot to preserve. The distinction is carried rather than synthesised: Craft ships both and its two routines differ by one instruction, `clr.l \$4.w`",
   'turbo text':
