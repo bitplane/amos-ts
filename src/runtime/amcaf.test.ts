@@ -4725,3 +4725,36 @@ describe('AMCAF: Imploder Load and Imploder Unpack', () => {
     expect([...rt.memBanks.get(9)!.data]).toEqual([...payload])
   })
 })
+
+/**
+ * Extpath$ — routine 98 ($35e2). A path-separator appender, not the
+ * "where was this extension loaded from" the name suggests and this port
+ * once implemented. The token spec is `"22"`: string in, string out.
+ */
+describe('AMCAF: Extpath$', () => {
+  const ep = (s: string): string => run([`Print Extpath$(${JSON.stringify(s)})`]).out.trim()
+
+  it('appends a slash to a bare name', () => {
+    expect(ep('Data')).toBe('Data/')
+  })
+
+  it('leaves one that already ends in a slash', () => {
+    // `cmpi.b #$2f,-$1(a2,d3.w) / beq`
+    expect(ep('Data/')).toBe('Data/')
+  })
+
+  it('leaves a volume, which ends in a colon', () => {
+    // `cmpi.b #$3a,-$1(a2,d3.w) / beq` -- ':' is a separator too, so
+    // Extpath$("DF0:") must not become "DF0:/"
+    expect(ep('DF0:')).toBe('DF0:')
+  })
+
+  it('appends to a path below a volume', () => {
+    expect(ep('DF0:Sounds')).toBe('DF0:Sounds/')
+  })
+
+  it('leaves the empty string alone', () => {
+    // `move.w (a2)+,d3 / beq` takes the unchanged arm before either test
+    expect(ep('')).toBe('')
+  })
+})

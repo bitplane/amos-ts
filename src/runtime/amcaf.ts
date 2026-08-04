@@ -8266,11 +8266,25 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * "This coordinate is automatically projected from 3D to 2D by dividing
      * it through the distance", which is the `Vec Rot Pos` z.
      *
+     * Six routines, a trampoline and a reader each. The readers are fourteen
+     * bytes apiece and differ only in which word of the extension block they
+     * take, so the three cached results are adjacent:
+     *
+     *     routine 6  ($208e)  move.w $30c(a2),d3 / ext.l d3    Vec Rot X
+     *     routine 8  ($20aa)  move.w $30e(a2),d3 / ext.l d3    Vec Rot Y
+     *     routine 10 ($20c6)  move.w $310(a2),d3 / ext.l d3    Vec Rot Z
+     *
+     * and routines 5, 7 and 9 are the three-argument forms that fill them.
+     * `ext.l` is the reason a rotated coordinate comes back SIGNED from a
+     * word: the cache is sixteen bits wide and the sign is carried out of it
+     * deliberately.
+     *
      * NOTE: the rotation order was not recovered from the binary, and the
      * changelog records the author fixing it once ("There was a bug in the
      * vector rotation calculation with negative positions"), so the sign
      * conventions had at least one life before this one. X then Y then Z is
-     * what this applies. APPROXIMATED.
+     * what this applies. APPROXIMATED, and it is the ORDER that is
+     * approximated -- the three readers above are exact.
      */
     'vec rot x': (_, a) => VI(vecRot(rt, a).x),
     'vec rot y': (_, a) => VI(vecRot(rt, a).y),
@@ -8374,9 +8388,30 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     'smouse key': () => VI(0),
 
 
-    /** =Pt Cpos — "the current 'row' ... a number between 0 and 63" */
+    /**
+     * =Pt Cpos — "the current 'row' ... a number between 0 and 63" — routine
+     * 241 ($5d20), twenty bytes:
+     *
+     *     movea.l $2cc(a2),a0 / move.w -$4(a0),d3 / lsr.w #$4,d3
+     *
+     * a WORD four back from the replayer's live pointer, shifted down four,
+     * so the row is a packed field rather than a plain counter. The `& 63`
+     * below is the manual's stated range, not the routine's, which masks
+     * nothing at all.
+     *
+     * APPROXIMATED, and unavoidably: `$2cc(a2)` points into a module this
+     * port loads but does not step, so there is no live row to report. The
+     * routine is exact and the value is not.
+     */
     'pt cpos': () => VI(rt.amcaf.pt.row & 63),
-    /** =Pt Cpattern — the song position being played */
+    /**
+     * =Pt Cpattern — the song position — routine 240 ($5d0e), eighteen bytes:
+     *
+     *     movea.l $2cc(a2),a0 / move.b -$c(a0),d3
+     *
+     * a BYTE twelve back from the same live pointer. Same reason for the
+     * approximation as Pt Cpos above.
+     */
     'pt cpattern': () => VI(rt.amcaf.pt.pos),
     /**
      * =Pt Cnote(chan) — "the frequency of an instrument being played on music
@@ -8528,19 +8563,49 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     /**
      * =Amos Task — "Returns the address of the AMOS task structure".
      *
-     * There is one task and no exec task structure to point at. 0, like the
-     * other pointer-into-the-machine functions.
+     * Routine 339 ($7518), twenty bytes and nothing but the call:
+     *
+     *     suba.l  a1,a1 / movea.l $4.w,a6
+     *     jsr     -$126(a6)        ; FindTask(NULL) -- this task
+     *     move.l  d0,d3 / moveq #$0,d2
+     *
+     * There is one task and no exec Task structure to point at. 0, like the
+     * other pointer-into-the-machine functions -- see `scrnPtr`, Amcaf Base
+     * and Pt Data Base, which all answer the same way for the same reason.
+     *
+     * NOTE: zero is a value FindTask never returns for a running task, so a
+     * program testing `If Amos Task<>0` takes the other branch here. Extbase
+     * answers a synthetic non-zero instead precisely because that comparison
+     * is its documented use; nothing documents one for this.
      */
     'amos task': () => VI(0),
 
     /**
-     * =Extpath$(name$) — where an extension was loaded from.
+     * =Extpath$(a$) — routine 98 ($35e2), 120 bytes. Append a path separator
+     * unless the string already ends in one.
      *
-     * Extensions here are compiled-in ports rather than files loaded off a
-     * disk, so there is no path. The empty string is what the machine returns
-     * for a slot that holds nothing, which is the nearest true answer.
+     *     movea.l (a3)+,a2 / moveq #$0,d3 / move.w (a2)+,d3
+     *     beq.b   .same                        ; empty: unchanged
+     *     cmpi.b  #$2f,-$1(a2,d3.w) / beq.b .same   ; already ends '/'
+     *     cmpi.b  #$3a,-$1(a2,d3.w) / beq.b .same   ; or ':'
+     *     ... copy, then `move.b #$2f,(a0)+`   ; else append '/'
+     *
+     * DEFECT: the name was read as "the path an
+     * extension was loaded from" and the keyword answered the empty string
+     * for every argument. The token spec is `"22"` -- string in, string out --
+     * and routine 98 never touches the extension table at all. It is a string
+     * function, and `Extpath$("Data")` is "Data/" where this returned "".
+     *
+     * Reproduced correctly here now. That is the Limit Smouse shape from #188
+     * again: a reading taken from the keyword's NAME, written up confidently,
+     * and contradicted by the bytes the moment anyone looked. Nothing in the
+     * corpus exercised it, so nothing caught it.
      */
-    'extpath$': () => VS(''),
+    'extpath$': (_, a) => {
+      const t = s0(a, 0)
+      const last = t.slice(-1)
+      return VS(t === '' || last === '/' || last === ':' ? t : t + '/')
+    },
 
     /** =Nfn — routine 22. "returns nothing useful ... used in speed testing" */
     nfn: () => VI(0),

@@ -39,7 +39,8 @@ const blocks = [...txt.matchAll(/\/\*[\s\S]*?\*\//g)]
 /**
  * The doc block that GOVERNS a handler. A block documents the handler after
  * it and every sibling that follows before the next block -- `object name$`,
- * `object date` and four more share one block citing routines 114..124, and
+ * `object date` and four more share one block that cites the whole run of
+ * them at once, and
  * crediting only the first would report five phantom gaps.
  */
 function docFor(at: number): string | null {
@@ -49,11 +50,19 @@ function docFor(at: number): string | null {
 
 const CITES = /\broutines?\s+\d{1,4}|\$[0-9a-fA-F]{3,6}\b|\+\|?[\w.]+\.s:\d+/
 
+/**
+ * A reading counts wherever it was written down. Several keywords carry the
+ * routine in their status.ts NOTE rather than in the doc block above the
+ * handler -- `command name$` is one, and reading only the doc block called it
+ * unread when its NOTE opens by naming the routine and address it was read
+ * from. Both places are evidence; only "neither" is a gap.
+ */
 const uncited: string[] = []
 const cited = new Set<string>()
 for (const a of anchors) {
   const d = docFor(a.at)
-  if (d && CITES.test(d)) cited.add(a.name)
+  const note = NOTES[a.name]
+  if ((d && CITES.test(d)) || (note && CITES.test(note))) cited.add(a.name)
   else uncited.push(a.name)
 }
 

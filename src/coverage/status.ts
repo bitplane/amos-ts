@@ -1440,6 +1440,9 @@ export const FAITHFUL = new Set<string>([
   // empty slot reads 0) off a synthetic address. The other three
   // extension-table keywords are faithful; none of the four is n/a.
   'extdefault', 'extremove', 'extreinit',
+  // Extpath$ was APPROXIMATED on a misreading of its name; routine 98 is a
+  // string function and is now reproduced exactly
+  'extpath$',
   // slice 14: the Imploder pair, on ../amiga/imploder.ts
   'imploder load', 'imploder unpack',
   'vec rot angles', 'vec rot pos', 'vec rot precalc',
@@ -2117,8 +2120,18 @@ export const NOTES: Record<string, string> = {
     "Routine 326 (\$7152), Cd String's twin: the same StrToDate call with dat_StrTime filled in and dat_StrDate cleared, then ds_Minute packed over ds_Tick the way Current Time does. NOTE: both String keywords copy the AMOS string to the START of the extension's own block with no length check, and the DateTime they fill in sits at +\$380 of that same block, so an argument of 896 characters or more overwrites the structure it is about to be parsed into. Not reproduced -- there is no block here to overrun -- but it is why an over-long argument on a real machine misbehaves rather than simply failing",
   'amcaf base':
     "'Gives back the address of the AMCAF data base' and Amcaf Length its size, for the 'Assembler and C freaks' the manual addresses. The init routine allocates \$23b6 bytes, so the LENGTH is real and read off the binary; the ADDRESS is 0, because the state here is objects rather than a block at an address -- the same choice the Scrn pointers made. APPROXIMATED",
+  'amos task':
+    "Routine 339 (\$7518), twenty bytes and nothing but the call: `suba.l a1,a1 / movea.l \$4.w,a6 / jsr -\$126(a6)` is FindTask(NULL), and its result is the answer. There is one task here and no exec Task structure to point at, so this answers 0 as the other pointer-into-the-machine functions do -- scrnPtr, Amcaf Base and Pt Data Base all take the same line. NOTE: zero is a value FindTask never returns for a running task, so `If Amos Task<>0` takes the other branch here; Extbase answers a synthetic non-zero instead precisely because that comparison is its documented use, and nothing documents one for this",
+  'vec rot y':
+    "Routine 8 (\$20aa), fourteen bytes: `movea.l \$168(a5),a2 / move.w \$30e(a2),d3 / ext.l d3`. One of three readers that differ only in which word of the extension block they take -- \$30c for X (routine 6), \$30e for Y, \$310 for Z (routine 10) -- with routines 5, 7 and 9 the three-argument forms that fill them. The `ext.l` is why a rotated coordinate comes back signed from a sixteen-bit cache. APPROXIMATED refers to the rotation ORDER, which was not recovered; these three readers are exact",
+  'vec rot z':
+    "Routine 10 (\$20c6), fourteen bytes: `move.w \$310(a2),d3 / ext.l d3`, the third of the three adjacent cache words. See Vec Rot Y for the group",
+  'pt cpattern':
+    "Routine 240 (\$5d0e), eighteen bytes: `movea.l \$2cc(a2),a0 / move.b -\$c(a0),d3` -- a BYTE taken twelve back from the replayer's live pointer, and masked by nothing. APPROXIMATED unavoidably: \$2cc(a2) points into a module this port loads but does not step, so there is no live song position to report. The routine is exact and the value is not",
+  'pt cpos':
+    "Routine 241 (\$5d20), twenty bytes: `movea.l \$2cc(a2),a0 / move.w -\$4(a0),d3 / lsr.w #\$4,d3` -- a WORD four back from the live pointer, shifted down four, so the row is a packed field rather than a plain counter. The `& 63` in the port is the manual's stated range ('a number between 0 and 63'), not the routine's, which masks nothing. APPROXIMATED for the same reason as Pt Cpattern: nothing steps the patterns here",
   'extpath$':
-    "Where an extension was loaded from. Extensions here are compiled-in ports rather than files loaded off a disk, so there is no path, and the empty string is what the machine returns for a slot holding nothing",
+    "Routine 98 (\$35e2), 120 bytes, and it has nothing to do with extensions. It appends a path separator: `move.w (a2)+,d3 / beq` leaves an empty string alone, `cmpi.b #\$2f,-\$1(a2,d3.w)` and `cmpi.b #\$3a,-\$1(a2,d3.w)` leave one already ending '/' or ':', and anything else is copied with `move.b #\$2f,(a0)+` on the end. So Extpath\$(\"Data\") is \"Data/\" and Extpath\$(\"DF0:\") is \"DF0:\". DEFECT: this port read the NAME as 'where an extension was loaded from', answered the empty string for every argument, and never looked at routine 98 -- the token spec is `\"22\"`, string in and string out, which the old reading could not have explained. The same shape as Limit Smouse in #188, and now reproduced exactly",
   'write cli':
     "Writes to the CLI the program was started from. Amos Cli is zero here, so there is no shell to write to and the text goes to the AMOS console -- which is where a program running without one would see it anyway",
   'pt stop':
