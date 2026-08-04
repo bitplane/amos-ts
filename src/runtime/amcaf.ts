@@ -722,7 +722,14 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * `Open In 1,FILE$ : LE=Lof(1) : Close 1 : Reserve As Work BANK,LE ...`
      *
      * The pair differ only in the bank kind, Work against Data, which is the
-     * Bank Temporary / Bank Permanent distinction again.
+     * Bank Temporary / Bank Permanent distinction again -- and they really are
+     * two routines, 103 ($37f0) for Dload and 104 ($384a) for Wload, not one
+     * routine with a flag. Both Open (routine 357), take the length from the
+     * FileInfoBlock (359), reserve through the AMOS call at 1103, Read (360)
+     * and Close (362); a failed open is routine 391 and a short read is 392.
+     *
+     * A negative length is `not.l d0 / addq.w #$1, d0 / addq.w #$2, d1`, so
+     * the sign is turned into a bank-kind adjustment rather than an error.
      */
     'wload'(it) {
       loadToBank(rt, it, false)
@@ -731,7 +738,19 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       loadToBank(rt, it, true)
     },
 
-    /** Wsave / Dsave file$,bank — "Dsave is exactly the same as Wsave" */
+    /**
+     * Wsave / Dsave file$,bank — "Dsave is exactly the same as Wsave", and the
+     * manual is being literal: BOTH tokens dispatch to routine 105 ($38a2).
+     * There is one routine, not two that happen to agree.
+     *
+     * It fetches the bank through the AMOS call at 1121 and then refuses the
+     * ones that are not raw memory:
+     *
+     *     move.w -$c(a0), d0        the bank's kind word
+     *     andi.w #$c, d0
+     *     tst.w  d0 / beq .ok
+     *     moveq  #$4, d0 / Rbra routine 397     AMOS error 4
+     */
     'wsave'(it) {
       saveBank(rt, it)
     },
@@ -984,6 +1003,20 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * and wobbel effects." That one is a copper poke at a register this port
      * models through the display list rather than by address, so the index is
      * stored and the scroll case is not reproduced.
+     *
+     * Routine 201 ($4d18) is forty bytes and all of it is the walk:
+     *
+     *     move.l (a3)+, d7 / move.l (a3)+, d0
+     *     Rbmi   routine 390                     negative rainbow
+     *     cmp.w  #$4, d0 / Rbge routine 390      ...and four is too many
+     *     lea    -$868(a5), a1
+     *     tst.w  d0 / beq .there
+     *     subq.w #$1, d0
+     *  .step: lea $18(a1), a1 / dbra d0, .step
+     *  .there: move.w d7, $8(a1)
+     *
+     * so there are four rainbows, $18 bytes apart, and the colour index lives
+     * at +$8 of one.
      */
     'set rain colour'(it) {
       /*
@@ -1008,6 +1041,14 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * "Rain Fade works step by step only. Therefore you need a maximum of 16
      * calls to reach the new colour values" — one unit per channel per call,
      * which is the same ramp Ham Fade Out uses.
+     *
+     * Routine 202 ($4d40) opens with Set Rain Colour's bounds check, the same
+     * `Rbmi` and `cmp.w #$4 / Rbge` against four rainbows $18 bytes apart, and
+     * then adds one of its own that its sibling has no need for:
+     *
+     *     move.w $a(a1), d7
+     *     Rbeq   routine 390      a rainbow of no height is error 23
+     *     lsr.w  #$1, d7
      */
     'rain fade'(it) {
       /*
@@ -1097,9 +1138,20 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     /**
      * Blitter Wait — "waits until the blitter has finished".
      *
-     * Every blit here completes before the keyword returns, so there is never
-     * anything to wait for. FAITHFUL rather than a stub: a program cannot
-     * observe a difference afterwards.
+     * Routine 69 ($2ce2) does not merely wait, it makes the blitter greedy for
+     * the duration:
+     *
+     *     move.w #$8400, $96(a1)     DMACON, SET | BLTPRI -- blitter nasty
+     *  .spin: btst.b #$6, $2(a1)     DMACONR bit 14, BBUSY
+     *         bne.b  .spin
+     *     move.w #$400, $96(a1)      CLEAR BLTPRI again
+     *
+     * so the CPU is starved while the blit finishes and normal priority is
+     * restored on the way out.
+     *
+     * NOTE: every blit here completes before the keyword returns, so there is
+     * never anything to wait for and no bus to arbitrate. FAITHFUL rather than
+     * a stub: a program cannot observe a difference afterwards.
      */
     'blitter wait'() {},
 
@@ -1711,7 +1763,22 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       rt.amcaf.shadeMask = it.evalInt() !== 0
     },
 
-    /** Shade Bob Up / Down screen,x,y,image — the bob shape as a shade stamp */
+    /**
+     * Shade Bob Up / Down screen,x,y,image — the bob shape as a shade stamp.
+     *
+     * Routines 286 ($6644, 414 bytes) and 287 ($67e2, 410) are one engine
+     * written twice, up and down. Both open the same way: routine 384 fetches
+     * the image, a negative result leaves silently, and then
+     *
+     *     move.w $246(a2), d0
+     *     andi.w #$f, d0
+     *     tst.w  d0 / bne .out       a non-multiple-of-16 x is REFUSED
+     *     move.w $4c(a0), d0 / lsr.w #$3, d0
+     *     mulu.w d0, d3              ...and y scaled by the row bytes
+     *
+     * so the stamp is word-aligned by construction rather than by clipping,
+     * which is what makes it fast enough to be worth having beside Pix Shift.
+     */
     'shade bob up'(it) {
       shadeBob(rt, it, 1)
     },
@@ -1765,6 +1832,21 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * Brighten/Darken stop at the ends. That is why the manual introduces
      * them as the slower, limitable alternative to Shade Bobs, which "cannot
      * limit the colours to a certain range but only the amount of bitplanes".
+     *
+     * Four routines, all the same 16-byte frame and the same seven arguments
+     * popped in reverse: Pix Shift Up 227 ($5346), Down 229 ($5510), Pix
+     * Brighten 231 ($56ae), Pix Darken 233 ($5820). Each stages the rectangle
+     * on the stack before calling AMOS's own `L_SaveBMHD`:
+     *
+     *     lea    -$10(a7), a7
+     *     move.l (a3)+, d7 ... move.l (a3)+, d1      seven longs
+     *     move.w d5, $6(a7) / move.w d4, $4(a7)      y1, x1
+     *     move.b d2, $2(a7) / move.b d1, (a7)        c2, c1 -- BYTES
+     *     Rjsr   L_SaveBMHD
+     *     sub.w  d4, d6 / sub.w d5, d7               ...to width and height
+     *
+     * The two colour bounds are stored as BYTES, so they are the low eight
+     * bits of whatever the program passed.
      */
     'pix shift up'(it) {
       pixShift(rt, it, 1, true)
@@ -1843,6 +1925,10 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * keeping: "Actually, you should not read this command description. The
      * Ptile commands seem to be only of very low use and are rather
      * uninteresting for you."
+     *
+     * Routine 269 ($61d4) agrees about the effort involved. Twelve bytes,
+     * `move.l (a3)+,d0 / move.l d0,$360(a2)`, and no check of any kind -- the
+     * bank number is stored as given and whatever uses it later finds out.
      */
     'ptile bank'(it) {
       // Routine 269 ($61d4) is twelve bytes and stores the bank NUMBER at
@@ -8045,6 +8131,20 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * =Mix Colour(rgb1,rgb2) mixes two colours; the three-argument form
      * "added to the colour value 'oldrgb', if 'addrgb' is a positive value or
      * subtracted, if the value is negative", clamped between lrgb and urgb.
+     *
+     * The two-argument form is routine 84 ($3180), and "mix" means a plain
+     * truncating average per gun. Each colour is taken apart a nibble at a
+     * time with `moveq #$f,d7` as the mask and `moveq #$4,d3` as the shift,
+     * then:
+     *
+     *     add.b  d0, d4 / add.b d1, d5 / add.b d2, d6
+     *     lsr.w  #$1, d4 / lsr.w #$1, d5 / lsr.w #$1, d6
+     *     move.w d6, d3 / lsl.w #$4, d5 / or.w d5, d3
+     *     lsl.w  #$8, d4 / or.w d4, d3
+     *
+     * The adds are byte-wide and two nibbles cannot exceed 30, so nothing
+     * carries between the guns; the halving discards the odd bit rather than
+     * rounding, so mixing $F00 with $000 gives $700 and not $800.
      */
     'mix colour': (_, a) => {
       if (a.length < 3) {
@@ -8235,27 +8335,28 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      */
     'blitter busy': () => VI(0),
 
-    /** =Turbo Point(x,y) — "Fast replacement for Point", clipped since V1.30 */
+    /**
+     * =Turbo Point(x,y) — "Fast replacement for Point", clipped since V1.30.
+     *
+     * Routine 349 ($7a8e), and the manual's "clipped since V1.30" means it
+     * ANSWERS -1 rather than that it declines to read:
+     *
+     *     move.l (a3)+, d2 / bpl        the LAST argument, y
+     *     addq.l #$4, a3               ...and if it is negative, skip x
+     *  bad: moveq #$0,d2 / moveq #$ff,d3 / rts        -1
+     *     move.l (a3)+, d1 / bmi bad                  x < 0
+     *     cmp.w $4e(a0),d2 / bge bad                  y >= height
+     *     move.w $4c(a0),d0 / cmp.w d0,d1 / bge bad   x >= width
+     *
+     * The port answered 0, which is a real colour and indistinguishable from a
+     * black pixel inside the screen. `Point` proper returns -1 too, so this was
+     * the odd one out.
+     *
+     * NOTE: the address is `(y * (width >> 3)) * 8 + x` in bits, the screen
+     * WIDTH again rather than the BitMap's bytesPerRow, and a depth-1 screen
+     * takes a separate arm returning 0 or 1.
+     */
     'turbo point': (_, a) => {
-      /*
-       * Routine 349 ($7a8e), and the manual's "clipped since V1.30" means it
-       * ANSWERS -1 rather than that it declines to read:
-       *
-       *     move.l (a3)+,d2 / bpl        the LAST argument, y
-       *     addq.l #$4,a3               ...and if it is negative, skip x
-       *  bad: moveq #$0,d2 / moveq #$ff,d3 / rts        -1
-       *     move.l (a3)+,d1 / bmi bad                   x < 0
-       *     cmp.w $4e(a0),d2 / bge bad                  y >= height
-       *     move.w $4c(a0),d0 / cmp.w d0,d1 / bge bad   x >= width
-       *
-       * The port answered 0, which is a real colour and indistinguishable
-       * from a black pixel inside the screen. `Point` proper returns -1 too,
-       * so this was the odd one out.
-       *
-       * NOTE: the address is `(y * (width >> 3)) * 8 + x` in bits, the screen
-       * WIDTH again rather than the BitMap's bytesPerRow, and a depth-1
-       * screen takes a separate arm returning 0 or 1.
-       */
       const s = rt.screen
       if (!s) return VI(-1)
       const x = i0(a, 0)
@@ -8323,13 +8424,40 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     /**
      * =Vclip(val,lower To upper) — the CLAMPING sibling of Vmod, which wraps.
      * The manual pairs them deliberately.
+     *
+     * Routine 183 ($49b6) is eleven instructions, and the ORDER of the two
+     * clamps is the part worth writing down:
+     *
+     *     move.l (a3)+, d1     upper      (popped in reverse, so last first)
+     *     move.l (a3)+, d0     lower
+     *     move.l (a3)+, d3     the value
+     *     cmp.l  d1, d3 / ble  .lo
+     *     move.l d1, d3                   clamp DOWN to upper first
+     *  .lo: cmp.l d3, d0 / ble .out
+     *     move.l d0, d3                   ...then UP to lower
+     *
+     * The lower bound is applied second and therefore wins: `Vclip(5,20 To 10)`
+     * is 20, not 10. Comparisons are `cmp.l`, full longs, with no word
+     * truncation anywhere.
      */
     vclip: (_, a) => VI(Math.max(i0(a, 1), Math.min(i0(a, 2), i0(a, 0)))),
 
     /**
      * =Aga Detect — whether the machine has AGA.
      *
-     * The modelled machine is an A1200, which does; the 256-colour screens
+     * Routine 218 ($50a4) asks graphics.library twice, and both have to agree:
+     *
+     *     movea.l -$18ae(a5), a0     GfxBase
+     *     move.w  $14(a0), d0        lib_Version
+     *     cmp.w   #$27, d0 / blt     ...39, so Kickstart 3.0 or later
+     *     move.b  $ec(a0), d0        gb_ChipRevBits0
+     *     btst.b  #$2, d0 / beq      ...and the AA_ALICE bit
+     *     moveq   #$ff, d3
+     *
+     * so a 3.0 ROM on an ECS machine answers false; it is the chipset that is
+     * being detected, with the version only as a gate on the field existing.
+     *
+     * The modelled machine is an A1200, which has both; the 256-colour screens
      * and the LOCT palette the AGA port added are what make that true here
      * rather than a claim.
      */
@@ -8461,6 +8589,12 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     /**
      * =Cop Pos — "If you create your own copperlist, you can use this
      * function to remember the position of the next copper instruction."
+     *
+     * Routine 211 ($4f3c) is eight bytes -- `move.l -$804(a5),d3` and out. It
+     * hands back AMOS's own write pointer, not a copy or a computed offset,
+     * which is why Cop Move and friends can be interleaved with it freely.
+     * NOTE: this port keeps that pointer as a list index rather than an
+     * address, so the answer is composed from the logical base and the index.
      */
     'cop pos': () => VI(rt.copLogicAddr() + rt.copPos),
 
@@ -8503,13 +8637,20 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * =Speek(address) — "exactly the AMOS function Peek. However, Bit 7 is
      * used as sign bit so the result will be a value between -128 and 127."
      *
+     * Routine 200 ($4d0a) is the sign extension and nothing else: `move.b
+     * (a0),d3 / ext.w d3 / ext.l d3`. There is no address check of any kind,
+     * here or in Sdeek -- a bad pointer is a Guru on the machine.
+     *
      * One of the six armed contested names: Personnal has a Speek too.
      */
     speek: (_, a) => {
       const m = rt.resolveAddr(i0(a, 0))
       return VI(m ? ((m.data[m.off] ?? 0) << 24) >> 24 : 0)
     },
-    /** =Sdeek(address) — the same idea a word wide, -32768..32767 */
+    /**
+     * =Sdeek(address) — the same idea a word wide, -32768..32767. Routine 199
+     * ($4cfe), `move.w (a0),d3 / ext.l d3`, twelve bytes.
+     */
     sdeek: (_, a) => {
       const m = rt.resolveAddr(i0(a, 0))
       if (!m) return VI(0)

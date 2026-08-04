@@ -1284,7 +1284,10 @@ describe('slice 6: colour and palette', () => {
   })
 
   it('Mix Colour averages, and its three-argument form clamps', () => {
+    // `add.b` per gun then `lsr.w #$1` -- the odd bit is DISCARDED, not
+    // rounded, so $F and $0 average to 7 rather than 8
     expect(p('Mix Colour($000,$FFF)')).toBe(String(0x777))
+    expect(p('Mix Colour($100,$200)')).toBe(String(0x100)) // 1+2 = 3, halved to 1
     expect(p('Mix Colour($888,$888)')).toBe(String(0x888))
     // "added ... if positive or subtracted, if the value is negative",
     // bounded by lrgb and urgb
@@ -1781,6 +1784,10 @@ describe('slice 7: graphics', () => {
     expect(run(['Print Vclip(11,1 To 10)']).out.trim()).toBe('10')
     expect(run(['Print Vclip(0,1 To 10)']).out.trim()).toBe('1')
     expect(run(['Print Vclip(5,1 To 10)']).out.trim()).toBe('5')
+    // routine 183 clamps DOWN to the upper bound first and UP to the lower
+    // second, so an inverted pair is resolved in the lower bound's favour
+    expect(run(['Print Vclip(5,20 To 10)']).out.trim()).toBe('20')
+    expect(run(['Print Vclip(50,20 To 10)']).out.trim()).toBe('20')
     // the contrast that makes the pair worth having
     expect(run(['Print Vmod(11,1 To 10)']).out.trim()).toBe('1')
   })
