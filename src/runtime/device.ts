@@ -105,9 +105,11 @@ export function devDoIO(slot: DevSlot): void {
 }
 
 /**
- * Dev.SendIO (+Lib.s:3187) — asynchronous, leaving state 2. Serial Send and
- * Serial Out use this where the Parallel and Printer equivalents use DoIO,
- * so a serial write returns before it has gone out.
+ * Dev.SendIO (+Lib.s:3187) — asynchronous, leaving state 2. Serial Send/Out
+ * and PRINTER Send/Out both end `Rjmp L_Dev.SendIO`; only the Parallel pair
+ * uses DoIO. This comment used to claim the printer was synchronous like the
+ * parallel port, which +IO_Ports.s:741 and :757 contradict, and ioports.ts
+ * had been written to match the comment rather than the source.
  *
  * DEVIATION: with no real port behind it the transfer completes instantly,
  * so the observable difference from DoIO is the state byte, which is what

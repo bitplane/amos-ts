@@ -2017,12 +2017,12 @@ export const NOTES: Record<string, string> = {
   'serial parity':
     "The five AMOS settings are all recorded, but Web Serial takes none/even/odd only. Space and mark (SEXTB_MSPON / SEXTB_MARK) degrade to no parity on a real port rather than refusing to open — the alternative is a program that works on the Amiga and dies here over a setting almost nothing uses. On the modelled port all five are kept exactly",
   'serial status':
-    'Returns 0. Reads the modem control lines (CD, CTS, DSR, RI, DTR, RTS) from the serial request. Nothing is connected, so every line reads low. A real port with a real cable would report the handshake state and a program watching for carrier would see it here',
+    "Returns 0. FnSerialStatus (+IO_Ports.s:598) issues SDCMD_QUERY and reads the WORD at IO_STATUS -- the modem control lines (CD, CTS, DSR, RI, DTR, RTS) as serial.device reports them, where Parallel Status reads a single byte. Nothing is connected, so every line reads low. A real port with a real cable would report the handshake state and a program watching for carrier would see it here",
   'serial base':
     'Returns 0. Hands back the address of the IOExtSer request so a program can poke the structure directly. There is no such structure in this port -- the parameters live in a SerialParams object, not in emulated memory -- so there is no address to give. A program that only calls Serial Base to pass it on is unaffected; one that peeks the request is not',
   'printer error': 'Returns 0, for the same reason as Serial Error: nothing is attached, so nothing fails',
   'printer online':
-    "Returns 0, meaning not online. The source's failure path is `moveq #-1,d3`, so the two states are distinguishable, and this reports the one that is true of a machine with no printer plugged in. A program that waits for the printer to come online will wait, exactly as it would on such a machine",
+    "Returns 0, meaning not online — and 0 is the DEFAULT in FnPrinterOnline (+IO_Ports.s:780), not its failure path as this note used to say. `moveq #\$0,d3` is loaded first and `moveq #-1,d3` is reached only when BOTH tests pass: PRD_QUERY must have answered exactly one byte (`cmp.l #\$1,IO_ACTUAL(a1) / bne`) and bit 0 of that byte must be CLEAR (`btst #\$0,(a0) / bne`). So the keyword means \"one byte of status came back and it does not say offline\", and 0 is what a machine with nothing plugged in reports. A program that waits for the printer to come online will wait, exactly as it would on such a machine",
   'printer base':
     'Returns 0 -- the PrinterData/IORequest address, which does not exist here. See Serial Base',
   'parallel error': 'Returns 0. See Serial Error; the parallel error table is base 171 with 7 messages',

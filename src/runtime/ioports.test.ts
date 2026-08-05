@@ -66,16 +66,18 @@ describe('IOPorts: Serial (+IO_Ports.s:295-655)', () => {
     expect(() => run('Serial Open 3,0')).not.toThrow()
   })
 
-  it('physical port 0 gets the French Minitel defaults', () => {
+  it('every unit BUT 0 gets the French Minitel defaults', () => {
     // "If NOT user-serial (#0), default settings for French MINITEL:
-    // 1200/7/1 Stop/EVEN parity" — only the source records this
-    const { rt } = run('Serial Open 0,0')
+    // 1200/7/1 Stop/EVEN parity" — and `beq.s .PaSet` SKIPS them for unit 0,
+    // which is the machine's own port. These tests quoted that sentence and
+    // asserted its opposite until the source was read.
+    const { rt } = run('Serial Open 0,1')
     const p = rt.ioports.serial[0]!.params
     expect([p.baud, p.dataBits, p.stopBits, p.parity]).toEqual([1200, 7, 1, 'even'])
   })
 
-  it('a user port keeps the device defaults instead', () => {
-    const { rt } = run('Serial Open 1,1')
+  it('unit 0, the user serial port, keeps the device defaults instead', () => {
+    const { rt } = run('Serial Open 1,0')
     const p = rt.ioports.serial[1]!.params
     expect(p.baud).toBe(9600)
     expect(p.dataBits).toBe(8)
@@ -98,6 +100,15 @@ describe('IOPorts: Serial (+IO_Ports.s:295-655)', () => {
     }
   })
 
+  it('the parity dispatch is WORD-sized, so 65536 is EVEN', () => {
+    // `tst.w d1` then `cmp.w #1,d1` and the rest: only the low word decides.
+    // This port compared the full long and made 65536 'none'
+    expect(run('Serial Open 0,1\nSerial Parity 0,65536').rt.ioports.serial[0]!.params.parity).toBe('even')
+    expect(run('Serial Open 0,1\nSerial Parity 0,65537').rt.ioports.serial[0]!.params.parity).toBe('odd')
+    // ...and the sign test is a word test too, so $8000 reads as negative
+    expect(run('Serial Open 0,1\nSerial Parity 0,32768').rt.ioports.serial[0]!.params.parity).toBe('none')
+  })
+
   it('Serial Bits sets read and write length together', () => {
     const { rt } = run('Serial Open 0,1\nSerial Bits 0,7,2')
     const p = rt.ioports.serial[0]!.params
@@ -106,14 +117,14 @@ describe('IOPorts: Serial (+IO_Ports.s:295-655)', () => {
 
   it('Serial Fast is not only a speed change', () => {
     // it clears parity, disables XON/XOFF, forces 8 bits and sets RAD_BOOGIE
-    const { rt } = run('Serial Open 0,0\nSerial Fast 0')
+    const { rt } = run('Serial Open 0,1\nSerial Fast 0')
     const p = rt.ioports.serial[0]!.params
     expect(p.parity).toBe('none') // the Minitel even parity is undone
     expect(p.dataBits).toBe(8)
     expect(p.xDisabled).toBe(true)
     expect(p.radBoogie).toBe(true)
 
-    const slow = run('Serial Open 0,0\nSerial Fast 0\nSerial Slow 0')
+    const slow = run('Serial Open 0,1\nSerial Fast 0\nSerial Slow 0')
     // Serial Slow clears RAD_BOOGIE and nothing else
     expect(slow.rt.ioports.serial[0]!.params.radBoogie).toBe(false)
     expect(slow.rt.ioports.serial[0]!.params.dataBits).toBe(8)
@@ -169,16 +180,21 @@ describe('IOPorts: Printer and Parallel (+IO_Ports.s:656-1090)', () => {
     expect(out).toBe(' 0 0 0')
   })
 
-  it('Parallel Send is synchronous where Serial Send is not', () => {
-    // InParallelSend ends `Rjmp L_Dev.DoIO`, InSerialSend `Rjmp L_Dev.SendIO`
-    const { rt } = run('Parallel Open\nParallel Send "AB"')
-    expect(rt.ioports.parallelOut).toEqual([65, 66])
-    expect(rt.ioports.parallel.state).toBe(1)
-  })
+  it('PARALLEL alone is synchronous — serial and printer are not', () => {
+    // InParallelSend/Out end `Rjmp L_Dev.DoIO` (+IO_Ports.s:1044, :1060);
+    // InSerialSend and InPrinterSend both end `Rjmp L_Dev.SendIO` (:369,
+    // :741). This port had the printer on DoIO, and device.ts's own comment
+    // asserted the printer was synchronous "like the parallel port"
+    const par = run('Parallel Open\nParallel Send "AB"')
+    expect(par.rt.ioports.parallelOut).toEqual([65, 66])
+    expect(par.rt.ioports.parallel.state).toBe(1) // DoIO
 
-  it('Printer Send writes bytes through', () => {
-    const { rt } = run('Printer Open\nPrinter Send "Hi"')
-    expect(rt.ioports.printerOut).toEqual([72, 105])
+    const prt = run('Printer Open\nPrinter Send "Hi"')
+    expect(prt.rt.ioports.printerOut).toEqual([72, 105])
+    expect(prt.rt.ioports.printer.state).toBe(2) // SendIO
+
+    const ser = run('Serial Open 0,1\nSerial Send 0,"Hi"')
+    expect(ser.rt.ioports.serial[0]!.dev.state).toBe(2) // SendIO
   })
 
   it('an empty string to Send is error 23', () => {
@@ -382,10 +398,10 @@ describe('IOPorts: a real host port (Host.serial)', () => {
 
   it('Serial Open asks for the physical unit and hands over settled parameters', () => {
     const s = stubHost()
-    withHost('Serial Open 0,0', s)
-    // unit 0, and the Minitel defaults must already be applied — the host is
-    // asked last, so it is never told 9600 and then corrected
-    expect(s.units).toEqual([0])
+    withHost('Serial Open 0,1', s)
+    // the Minitel defaults must already be applied — the host is asked last,
+    // so it is never told 9600 and then corrected
+    expect(s.units).toEqual([1])
     expect(s.params[0]).toMatchObject({ baud: 1200, dataBits: 7, stopBits: 1, parity: 'even' })
   })
 
