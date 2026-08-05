@@ -847,9 +847,11 @@ function shiftArgs(rt: Runtime, it: Interp): { s: Screen; from: number; to: numb
   const from = it.evalInt()
   it.expect('to')
   const to = it.evalInt()
-  const s = screenForPlanes(rt, nr, [from, to])
-  if (to < from) funcCall()
-  return { s, from: from - 1, to: to - 1 }
+  // `cmp.w d6,d7 / Rble routine 62` in routines 79 and 80: the range has to
+  // be at least two planes wide. Shifting one plane onto itself is an error,
+  // not a no-op, which is where this port used to differ.
+  if (to <= from) funcCall()
+  return { s: screenForPlanes(rt, nr, [from, to]), from: from - 1, to: to - 1 }
 }
 
 /**
@@ -886,20 +888,36 @@ function permutePlanes(s: Screen, src: (p: number) => number): void {
  * them the mask. There is no blitter here and no CPU to be faster than it,
  * so what is left is the chopping and the masking.
  */
-function fIcon(rt: Runtime, it: Interp, chop: boolean, noMask = false): void {
+function fIcon(rt: Runtime, it: Interp, chop: 'none' | 'x' | 'xy', opts: { bounded?: boolean; noMask?: boolean } = {}): void {
   const x = it.evalInt()
   it.expect(',')
   const y = it.evalInt()
   it.expect(',')
   const n = it.evalInt()
   const s = rt.screen
-  const img = rt.iconBank?.image(n)
-  if (!img) return
+  // every one of the five opens `Rble routine 62` on the icon number and
+  // walks the bank list itself, routine 130 when there is no icon bank
+  if (n <= 0) funcCall()
+  const bank = rt.iconBank
+  if (!bank) throw new AmosError('Bank not reserved', 36)
+  const img = bank.image(n)
+  // and only F Paste Icon then bounds it — `cmp.w (a2),d1 / Rbhi routine 131`
+  // and a null slot test the four width-specialised routines simply do not
+  // make, reading whatever the table holds instead
+  if (!img) {
+    if (opts.bounded) throw new AmosError('Icon not defined', 74)
+    return
+  }
+  const px = chop === 'none' ? x : x & 0xfff0
+  const py = chop === 'xy' ? y & 0xfff0 : y
   // "If X < 0 no Icon is displayed... If X > width of screen, no Icon is
-  // displayed" — off the near edge it is dropped whole, off the far edge it
-  // is clipped
-  if (x < 0 || y < 0 || x >= s.width || y >= s.height) return
-  rt.blit(s, img, chop ? x & 0xfff0 : x, y, noMask || img.opaque)
+  // displayed" — true of F Paste Icon and of the two processor ones, which
+  // test the coordinate and branch straight out. F 16 Icon and F 32 Icon do
+  // not: they subtract the overlap off the icon's own height and width and
+  // draw what is left, which is the near-edge clipping the others lack.
+  if (chop !== 'none' && (px < 0 || py < 0)) return
+  if (px >= s.width || py >= s.height) return
+  rt.blit(s, img, px, py, opts.noMask || img.opaque)
 }
 
 /** `F Put Block` and `F Put Static Block`, which differ only in the lookup */
@@ -2069,26 +2087,38 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       else dst.data.set(src.data.subarray(src.off, src.off + len), dst.off)
     },
     'f paste icon'(it) {
-      // F Paste Icon x,y,icon — "The X coordinate is chopped to ly on a 16
-      // bit boundary, and only partial clipping is supported... Masks are
-      // now supported!"
-      fIcon(rt, it, true)
+      // F Paste Icon x,y,icon — routine 82 ($244a). "The X coordinate is
+      // chopped to ly on a 16 bit boundary, and only partial clipping is
+      // supported... Masks are now supported!" It is also the ONLY one of the
+      // five that bounds the icon number against the bank's count and refuses
+      // an empty slot; the four below index the table and take what is there.
+      fIcon(rt, it, 'x', { bounded: true })
     },
     'f 16 icon'(it) {
       // "This routine can only be used to display Icons that are 16 pixels
       // wide... The X and Y coordinates are no longer chopped to ly on a 16
-      // bit boundary."
-      fIcon(rt, it, false)
+      // bit boundary." Routine 84 ($2c94), and neither is the icon: a
+      // negative coordinate is subtracted off the icon's own height or width
+      // and the remainder is drawn from the screen edge, where F Paste Icon
+      // and the two processor ones branch straight out.
+      fIcon(rt, it, 'none')
     },
     'f 32 icon'(it) {
-      fIcon(rt, it, false)
+      // routine 83 ($258a), the same 1800 bytes at four bytes a row
+      fIcon(rt, it, 'none')
     },
     'f 16proc icon'(it) {
-      // the processor versions chop X again, and "Masking is not supported!"
-      fIcon(rt, it, true, true)
+      // Routine 85 ($3156). The processor versions chop X again — and Y with
+      // it: `andi.w #$fff0` is applied to BOTH coordinates, so the icon lands
+      // on a sixteen-line boundary as well as a sixteen-pixel one, which no
+      // other member of the family does and the manual never mentions.
+      // "Masking is not supported!"
+      fIcon(rt, it, 'xy', { noMask: true })
     },
     'f 32proc icon'(it) {
-      fIcon(rt, it, true, true)
+      // routine 86 ($320e), the same pair of `andi.w #$fff0` masks at four
+      // bytes a row
+      fIcon(rt, it, 'xy', { noMask: true })
     },
     'plane offset'(it) {
       // Plane Offset scrnr,planenr,xoffset,yoffset — routine 77. The stored
@@ -2118,9 +2148,10 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       table[plane - 1] = off === 0 ? 0 : (table[plane - 1] ?? 0) + off
     },
     'plane swap'(it) {
-      // Plane Swap scrnr,plane1,plane2 — the pointers are exchanged in all
-      // three tables of the screen structure, so what swaps is which memory
-      // each plane reads and writes: in a chunky buffer, the two bits
+      // Plane Swap scrnr,plane1,plane2 — routine 78 ($2272). The pointers are
+      // exchanged in all THREE plane tables of the screen structure, at (a0),
+      // $18(a0) and $30(a0), so what swaps is which memory each plane reads
+      // and writes: in a chunky buffer, the two bits
       const nr = it.evalInt()
       it.expect(',')
       const p1 = it.evalInt()
@@ -2130,22 +2161,35 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       permutePlanes(s, (p) => (p === p1 - 1 ? p2 - 1 : p === p2 - 1 ? p1 - 1 : p))
     },
     'plane shift up'(it) {
-      // Plane Shift Up scrnr,start To end — "Shifts the planes up by 1":
-      // plane 1 takes plane 3's data, plane 2 takes plane 1's, and so on
+      // Plane Shift Up scrnr,start To end — routine 79 ($22ea). "Shifts the
+      // planes up by 1": plane 1 takes plane 3's data, plane 2 takes plane
+      // 1's, and so on. One saved pointer and a `dbra` that walks the three
+      // tables downwards together, which is a rotate by one.
       const { s, from, to } = shiftArgs(rt, it)
       const n = to - from + 1
       permutePlanes(s, (p) => (p < from || p > to ? p : from + (((p - from - 1) % n) + n) % n))
     },
     'plane shift down'(it) {
-      // "Does the opposite thing of Plane Shift Up..."
+      // "Does the opposite thing of Plane Shift Up..." — routine 80 ($235e),
+      // the same 116 bytes walking the other way
       const { s, from, to } = shiftArgs(rt, it)
       const n = to - from + 1
       permutePlanes(s, (p) => (p < from || p > to ? p : from + ((p - from + 1) % n)))
     },
     'plane update'(it) {
       // "This command is used to reflect the changes made with the Plane
-      // commands." The routine biases the plane pointers by the offset
-      // table, rebuilds the display, and puts the pointers straight back.
+      // commands." Routine 81 ($23d2) CopyMems the screen's $48-byte header
+      // aside, adds the six-long offset table at $248 + screen*$18 into all
+      // three plane tables, asks AMOS to rebuild the display (`jsr $20(a0)`),
+      // and CopyMems the header straight back.
+      //
+      // DEFECT: `move.w $50(a2),d0` loads the depth and the `dbra` that
+      // follows runs depth+1 times, where F Point's identical loop does the
+      // `subq.w #$1` first. So it reads a seventh offset — past the end of a
+      // table that is six longs — and adds it to a seventh plane pointer.
+      // Not reproducible here: this port carries the offsets on the screen
+      // rather than biasing pointers in a shared array, so there is no
+      // neighbouring table to run into.
       const nr = it.evalInt()
       const s = rt.screens.get(nr)
       if (!s) funcCall()
@@ -2153,35 +2197,49 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       s.planeOffsets = table && table.some((v) => v !== 0) ? Int32Array.from(table) : null
     },
     'f put block'(it) {
-      // F Put Block block,x,y — "The X coordinate is chopped to ly on a 16
-      // bit boundary, and only partial clipping is supported."
+      // F Put Block block,x,y — routine 92 ($343a). "The X coordinate is
+      // chopped to ly on a 16 bit boundary, and only partial clipping is
+      // supported." It walks AMOS's own block list at -$189e(a5) for an entry
+      // whose number matches and returns quietly when there is none; the
+      // block number itself is `Rble routine 62`.
       fPutBlock(rt, it, false)
     },
     'reserve static block'(it) {
       // "Reserves X*8 bytes of memory for converting the linked block-list
       // into a static block-list. (4 bytes for address block data and 4
-      // bytes for it's mask)"
+      // bytes for it's mask)" — routine 93 ($3578), and all three of its
+      // guards are here: already reserved, a count at or below zero, and
+      // `cmp.l #$7d00 / Rbhi` for a count over 32000. The memory is chip and
+      // cleared ($10002).
       const n = it.evalInt()
       if (rt.turbo.staticBlocks) funcCall()
       if (n <= 0 || n > 32000) funcCall()
       rt.turbo.staticBlocks = { size: n, built: new Set() }
     },
     'static block erase'() {
-      // "Returns the memory back to the system" — and refuses when there is
-      // none to return
+      // "Returns the memory back to the system" — routine 94 ($35bc), which
+      // refuses with `Rbeq routine 62` when there is none to return
       if (!rt.turbo.staticBlocks) funcCall()
       rt.turbo.staticBlocks = null
     },
     'build static block'() {
-      // "Converts the linked block-list into a static block-list." It walks
-      // AMOS's own list and indexes each block by its number, with no bounds
-      // check at all — "Be sure that you have reserved enough memory for all
-      // entries!"
+      // "Converts the linked block-list into a static block-list." Routine 95
+      // ($35e8) walks AMOS's own block list at -$189e(a5), takes each entry's
+      // number from $8 and copies its data and mask pointers ($14 and $18)
+      // into slot number-1 of the table, eight bytes apiece. There is no
+      // bounds check at all — "Be sure that you have reserved enough memory
+      // for all entries!" — and no check that a table was ever reserved
+      // either, so with none it writes through a null pointer. This returns
+      // instead.
       const t = rt.turbo.staticBlocks
       if (!t) return
       t.built = new Set(rt.blocks.keys())
     },
     'f put static block'(it) {
+      // Routine 96 ($3616) is the same 286 bytes with the linked-list walk
+      // replaced by `movem.l (a2,d3.l),a2-a3` off the table Reserve Static
+      // Block allocated — which is the whole point of it, and also why it
+      // checks nothing: no bounds, and no test that a table exists at all.
       fPutBlock(rt, it, true)
     },
     'blit store left'(it) {

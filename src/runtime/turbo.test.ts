@@ -976,6 +976,16 @@ describe('TURBO bitplane rearranging (Turbo_Plane_doc.asc + disassembly)', () =>
     )
     expect([down.rt.screen.point(0, 0), down.rt.screen.point(1, 0), down.rt.screen.point(2, 0)]).toEqual([4, 1, 2])
   })
+
+  it('a one-plane shift range is an error, not a no-op', () => {
+    // `cmp.w d6,d7 / Rble routine 62` in routines 79 and 80 — the range has
+    // to be at least two planes wide, where Plane Swap happily swaps a plane
+    // with itself
+    expect(() => run('Plane Shift Up 0,2 To 2')).toThrow(/Illegal function call/)
+    expect(() => run('Plane Shift Down 0,2 To 2')).toThrow(/Illegal function call/)
+    expect(() => run('Plane Shift Up 0,3 To 2')).toThrow(/Illegal function call/)
+    expect(() => run('Plane Swap 0,2,2')).not.toThrow()
+  })
 })
 
 describe('TURBO Plane Offset (Turbo_Plane_doc.asc + disassembly)', () => {
@@ -1312,6 +1322,37 @@ describe('TURBO icons (Turbo_Icon_doc.asc + disassembly)', () => {
     let lit = 0
     for (let y = 0; y < 200; y++) for (let x = 0; x < 320; x++) if (off.rt.screen.point(x, y) !== 0) lit++
     expect(lit).toBe(0)
+  })
+
+  it('the processor routines chop Y as well as X', () => {
+    // `andi.w #$fff0` on BOTH coordinates in routines 85 and 86 — nothing
+    // else in the family does it and the manual never mentions it
+    // an eight-line icon asked for y=50 lands at 48, covering 48..55 — so
+    // row 48 is lit and row 56, which an unchopped y would have reached, is not
+    const { rt } = run([...grab, 'F 16proc Icon 100,50,1'].join('\n'))
+    expect(rt.screen.point(96, 48)).toBe(3)
+    expect(rt.screen.point(96, 56)).toBe(0)
+    const wide = run([...grab, 'F 32proc Icon 100,50,1'].join('\n'))
+    expect(wide.rt.screen.point(96, 48)).toBe(3)
+  })
+
+  it('F 16 Icon clips at the near edge where F Paste Icon drops the lot', () => {
+    // routine 84 subtracts the overlap off the icon's own height and draws
+    // what is left from the screen edge; routine 82 branches straight out
+    const { rt } = run([...grab, 'F 16 Icon 0,-4,1'].join('\n'))
+    expect(rt.screen.point(0, 0)).toBe(3)
+    expect(rt.screen.point(0, 3)).toBe(3)
+    const paste = run([...grab, 'F Paste Icon 0,-4,1'].join('\n'))
+    expect(paste.rt.screen.point(0, 0)).toBe(0)
+  })
+
+  it('the icon number is checked by F Paste Icon and by nobody else', () => {
+    // `cmp.w (a2),d1 / Rbhi routine 131` is in routine 82 only. All five
+    // share the `Rble routine 62` on the number and routine 130 for no bank.
+    expect(() => run([...grab, 'F Paste Icon 0,0,9'].join('\n'))).toThrow(/Icon not defined/)
+    expect(() => run([...grab, 'F 16 Icon 0,0,9'].join('\n'))).not.toThrow()
+    expect(() => run([...grab, 'F Paste Icon 0,0,0'].join('\n'))).toThrow(/Illegal function call/)
+    expect(() => run('F 32 Icon 0,0,1')).toThrow(/Bank not reserved/)
   })
 
   it('the width-specialised routines do not chop X', () => {
