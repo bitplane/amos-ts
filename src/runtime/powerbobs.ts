@@ -169,6 +169,30 @@ export interface PowerBobsState {
   colSS: Uint8Array
   colSB: Uint8Array
   /**
+   * $20-$2b — THREE counter pairs, each a countdown and its reload, and
+   * Psync Every writes all six at once while Psync Every Pbob writes only
+   * $28/$2a and Psync Every Psprite only $24/$26. All are stored as the
+   * period LESS ONE (`subq.w #$1,d0`), so `Psync Every 1` means every call.
+   * The pair at $20/$22 belongs to no keyword this port has found.
+   */
+  syncBob: { n: number; reload: number }
+  syncSpr: { n: number; reload: number }
+  syncOther: { n: number; reload: number }
+  /**
+   * Which AMAL channel drives which object. Pchannel To Pbob walks AMOS's own
+   * channel list at -$182e(a5) looking for `$a(a1) == channel * 4`, so the
+   * channel has to exist before it can be attached.
+   */
+  chanBob: Map<number, number>
+  chanSpr: Map<number, number>
+  /**
+   * $23c and $24c — the CONVERTED sprite table and its count. Convert Sprites
+   * turns AMOS's sprite bank into PowerBobs' own chip-memory copy, and only
+   * the height of each is observable from BASIC (through the collision box).
+   */
+  sprHeights: number[]
+  sprCount: number
+  /**
    * $2c — how many hardware sprites are available, which is what Set Psprite
    * Colours really chooses: 8 for four-colour sprites, 4 for sixteen-colour
    * ones, because sixteen colours costs an attached pair. Ships as 8.
@@ -202,6 +226,13 @@ export const newPowerBobsState = (): PowerBobsState => ({
   colBS: new Uint8Array(65),
   colSS: new Uint8Array(65),
   colSB: new Uint8Array(65),
+  syncBob: { n: 0, reload: 0 },
+  syncSpr: { n: 0, reload: 0 },
+  syncOther: { n: 0, reload: 0 },
+  chanBob: new Map(),
+  chanSpr: new Map(),
+  sprHeights: [],
+  sprCount: 0,
   psprHw: 8,
   rInc: newRange(),
   rDec: newRange(),
@@ -698,6 +729,209 @@ export function makePowerBobsInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
+     * Psync Every n / Psync Every Pbob n / Psync Every Psprite n — routines
+     * 42 ($34d4), 49 ($376a) and 48 ($374a).
+     *
+     * How often the matching Psync actually runs its channels. All three
+     * store the period LESS ONE, so `Psync Every 1` means every call, and all
+     * three bound it with `Rble` and `cmp.l #$7fff,d0 / Rbhi`.
+     *
+     * The difference is reach: routine 42 writes SIX words, $20 through $2a,
+     * which is three countdown-and-reload pairs at once; routine 49 writes
+     * only $28/$2a and routine 48 only $24/$26. So the general form sets
+     * everything and the two specific ones override a half.
+     */
+    'psync every'(it) {
+      const n = syncPeriod(it)
+      const s = st()
+      for (const p of [s.syncBob, s.syncSpr, s.syncOther]) {
+        p.n = n
+        p.reload = n
+      }
+    },
+    'psync every pbob'(it) {
+      const n = syncPeriod(it)
+      st().syncBob.n = n
+      st().syncBob.reload = n
+    },
+    'psync every psprite'(it) {
+      const n = syncPeriod(it)
+      st().syncSpr.n = n
+      st().syncSpr.reload = n
+    },
+
+    /**
+     * Pchannel To Pbob c To n / Pchannel To Psprite c To n — routines 40
+     * ($340a) and 44 ($352c).
+     *
+     * Attaches an AMAL channel to an object, so the channel's X and Y drive
+     * that Pbob or Psprite. The channel number is bounded at 63 (`cmp.l
+     * #$3f,d1 / Rbhi`), and the routine then WALKS AMOS's own channel list at
+     * -$182e(a5) comparing `$a(a1)` against the channel times four: an empty
+     * list, or a channel that is not in it, is error 23. So the channel has
+     * to exist before it can be attached.
+     */
+    'pchannel to pbob'(it) {
+      attachChannel(rt, it, st().chanBob, st().count)
+    },
+    'pchannel to psprite'(it) {
+      attachChannel(rt, it, st().chanSpr, st().psprMax + 1)
+    },
+
+    /**
+     * Psync Pbob start To end / Psync Psprite start To end — routines 41
+     * ($3460) and 45 ($3580).
+     *
+     * Runs the attached channels for a range of objects, but only when the
+     * countdown has expired: `tst.w $28(a2) / bne` skips the whole thing and
+     * `move.w $2a(a2),$28(a2)` reloads it. An empty object table or an AMAL
+     * list that does not exist is error 23 before anything else happens.
+     *
+     * DEVIATION: the channel is stepped through the core AMAL interpreter
+     * rather than through PowerBobs' own copy of it. The doc's headline claim
+     * for this family is "a New Amal command allowing all 64 channels to run
+     * under interrupts", and the interrupt half has nowhere to land here ---
+     * there is one thread and Psync is what advances a channel. What a
+     * program observes, the channel advancing when the period expires, is
+     * reproduced; the timing it would have had under a real vertical blank is
+     * not.
+     */
+    'psync pbob'(it) {
+      psync(rt, it, st().chanBob, st().count, st().syncBob)
+    },
+    'psync psprite'(it) {
+      psync(rt, it, st().chanSpr, st().psprMax + 1, st().syncSpr)
+    },
+
+    /**
+     * Convert Sprites n — routine 28 ($2a34), 776 bytes.
+     *
+     * Takes AMOS's sprite bank and builds PowerBobs' own copy in CHIP memory
+     * --- one `AllocMem($4e20, MEMF_CHIP|MEMF_CLEAR)`, twenty thousand bytes,
+     * carved into sixteen chunks of $4e2 whose addresses go into the tables at
+     * $1bc and $1fc. No sprite bank at all is routine 115's AMOS 36, and a
+     * bank with a zero count is error 23. Calling it twice erases first
+     * (`tst.w $24c(a2) / beq` then `Rbsr routine 29`).
+     *
+     * NOTE: only the per-sprite HEIGHT survives into anything a program can
+     * observe --- it is what Psprite Fastcol adds to a box. The converted
+     * pixel data feeds Psprite Update's copper list, which this port drives
+     * through the runtime's own hardware sprites instead.
+     */
+    'convert sprites'(it) {
+      const which = it.evalInt()
+      void which // d0 selects the bank; only the sprite bank is modelled
+      const bank = rt.spriteBank
+      if (!bank) throw new AmosError('Bank not reserved', 36)
+      const n = bank.images.length
+      if (n === 0) funcCall() // move.w (a0),d7 / Rbeq routine 125
+      const s = st()
+      if (s.sprCount !== 0) eraseSprites(s) // Rbsr routine 29
+      s.sprCount = n
+      s.sprHeights = bank.images.map((im) => im?.height ?? 16)
+    },
+
+    /**
+     * Psprite n,x,y,image — routine 30 ($2e20), 66 bytes, plus the array form
+     * at routine 51 ($37da). Both are unnamed alternates under `!psprite`.
+     *
+     * The image is bounded by the CONVERTED count at $24c and the number by
+     * Psprite Max at $24e, then `move.l (a0,d7.w),$4(a1,d0.w)` copies that
+     * sprite's data pointer into the entry and `movem.w d5-d6,(a1,d0.w)`
+     * writes the position --- d5, the THIRD argument, into +0 and d6, the
+     * second, into +2. So y lands first and x second, which is the layout X
+     * Psprite and Psprite Fastcol both read back.
+     */
+    psprite(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const image = it.evalInt()
+      const s = st()
+      if (image <= 0) funcCall() // Rble
+      if (image > s.sprCount) funcCall() // cmp.w $24c(a2),d7 / Rbhi
+      if (n < 0) funcCall() // Rblt
+      if (n > s.psprMax) funcCall() // cmp.w $24e(a2),d0 / Rbhi
+      const p = s.psprites[n]
+      if (!p) return
+      p.y = y & 0xffff
+      p.x = x & 0xffff
+      p.image = image
+      p.height = s.sprHeights[image - 1] ?? 16 // `subq.w #$1,d7` -- 1-based
+    },
+
+    /**
+     * Psprite Off — routines 32 ($2e80), 31 ($2e62) and 33 ($2e9e).
+     *
+     * `clr.l (a1,d0.w)` over the entry's first LONG, which is y AND x
+     * together, so a Psprite turned off goes to (0,0) rather than being
+     * flagged. The range form checks both ends and `cmp.l d0,d1 / Rblt`
+     * refuses a reversed pair.
+     */
+    'psprite off'(it) {
+      const s = st()
+      const kill = (i: number): void => {
+        const p = s.psprites[i]
+        if (p) {
+          p.y = 0
+          p.x = 0
+        }
+      }
+      if (it.atStmtEnd()) {
+        for (let i = 0; i <= s.psprMax; i++) kill(i)
+        return
+      }
+      const first = it.evalInt()
+      if (first < 0) funcCall()
+      if (!it.accept('to')) {
+        if (first > s.psprMax) funcCall()
+        kill(first)
+        return
+      }
+      const last = it.evalInt()
+      if (last < 0) funcCall()
+      if (last < first) funcCall() // cmp.l d0,d1 / Rblt
+      if (last > s.psprMax) funcCall()
+      for (let i = first; i <= last; i++) kill(i)
+    },
+
+    /**
+     * Psprite Erase — routine 29 ($2d3c), 228 bytes: FreeMem over the
+     * converted table and the twenty-thousand-byte chip block, then the
+     * count. Routine 0's reset hook calls it, so a program start clears it.
+     */
+    'psprite erase'() {
+      eraseSprites(st())
+    },
+
+    /**
+     * Psprite Update — routine 34 ($2ed0), 1194 bytes and the largest routine
+     * in the extension after Pbob Draw.
+     *
+     * Pushes every Psprite onto the hardware. The real routine builds the
+     * sprite control words and pokes the copper list; `tst.w $24c(a2) / Rbeq`
+     * makes it error 23 before Convert Sprites has run.
+     *
+     * DEVIATION: this hands each entry to the runtime's own hardware sprites
+     * instead. The observable result --- which sprite is where, showing which
+     * image --- is the same; the copper list the routine writes is not
+     * reproduced, because the display path here is a copper interpreter that
+     * the core sprite system already feeds.
+     */
+    'psprite update'() {
+      const s = st()
+      if (s.sprCount === 0) funcCall() // Rbeq routine 125
+      for (let i = 0; i <= s.psprMax; i++) {
+        const p = s.psprites[i]
+        if (!p || p.image === 0) continue
+        rt.hwSprites.set(i, { n: i, x: (p.x << 16) >> 16, y: (p.y << 16) >> 16, image: p.image })
+      }
+    },
+
+    /**
      * Psprite Max n — routine 35 ($337a), 28 bytes.
      *
      * `cmp.l #$80,d0 / Rbhi` caps it at 128 and `subq.l #$1,d0` stores the
@@ -1084,6 +1318,69 @@ function setRange(rt: Runtime, it: Parameters<Instr>[0], pick: (s: PowerBobsStat
   r.lo = lo | 0
   r.hi = hi | 0
   r.on = true
+}
+
+/** routine 29's body, shared with Convert Sprites which calls it first */
+function eraseSprites(s: PowerBobsState): void {
+  s.sprCount = 0
+  s.sprHeights = []
+}
+
+/** the bound every Psync Every form shares: 1..32767, stored less one */
+function syncPeriod(it: Parameters<Instr>[0]): number {
+  const n = it.evalInt()
+  if (n <= 0) funcCall() // Rble
+  if (n > 0x7fff) funcCall() // cmp.l #$7fff,d0 / Rbhi
+  return n - 1 // subq.w #$1,d0
+}
+
+/** `Pchannel To Xxx c To n` — routines 40 and 44 */
+function attachChannel(
+  rt: Runtime,
+  it: Parameters<Instr>[0],
+  map: Map<number, number>,
+  limit: number,
+): void {
+  const chan = it.evalInt()
+  it.expect('to')
+  const obj = it.evalInt()
+  if (limit <= 0) funcCall() // move.w $c(a2),d7 / Rble
+  if (obj > limit) funcCall()
+  if (chan < 0) funcCall() // Rbmi
+  if (chan > 0x3f) funcCall() // cmp.l #$3f,d1 / Rbhi
+  // the routine walks AMOS's channel list and errors when the channel is not
+  // in it --- `move.l -$182e(a5),d0 / Rbeq` for an empty list
+  if (!rt.channels.has(chan)) funcCall()
+  map.set(chan, obj)
+}
+
+/** `Psync Xxx start To end` — routines 41 and 45, gated by the countdown */
+function psync(
+  rt: Runtime,
+  it: Parameters<Instr>[0],
+  map: Map<number, number>,
+  limit: number,
+  tick: { n: number; reload: number },
+): void {
+  const lo = it.evalInt()
+  it.expect('to')
+  const hi = it.evalInt()
+  if (limit <= 0) funcCall()
+  if (rt.channels.size === 0) funcCall() // tst.l -$182e(a5) / Rbeq
+  // `move.l (a3)+,d0` is the END (popped first), `cmp.w d7,d0 / Rbhi` bounds
+  // it against the count, then `cmp.w d0,d6 / Rbhi` refuses a start past it
+  if (hi > limit) funcCall()
+  if (lo > hi) funcCall()
+  if (tick.n !== 0) {
+    tick.n = (tick.n - 1) & 0xffff
+    return
+  }
+  tick.n = tick.reload
+  for (const [chan, obj] of map) {
+    if (obj < lo || obj > hi) continue
+    const ch = rt.channels.get(chan)
+    if (ch && ch.on && !ch.frozen) ch.step(rt.amalHost)
+  }
 }
 
 /** `jsr $30(a0)` — the hardware-to-screen conversion X Screen/Y Screen use. */

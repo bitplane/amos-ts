@@ -1981,6 +1981,19 @@ export const FAITHFUL = new Set<string>([
   'pfast bobsprcol',
   'pfast sprcol',
   'pfast sprbobcol',
+  // slice 5: the AMAL bridge and the Psprite draw family -- the last of it
+  'psync every',
+  'psync every pbob',
+  'psync every psprite',
+  'pchannel to pbob',
+  'pchannel to psprite',
+  'psync pbob',
+  'psync psprite',
+  'convert sprites',
+  'psprite',
+  'psprite off',
+  'psprite erase',
+  'psprite update',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -2014,6 +2027,13 @@ export const NA = new Set<string>([
   // scope by policy, so there is nothing to implement rather than something
   // approximated.
   'pdebug',
+  // Routine 47 ($3632), 280 bytes, hunts the literal 'Amal' ($416d616c) in a
+  // bank and PATCHES the machine code it finds, so 64 AMAL channels can run
+  // under interrupts on an 020. It rewrites 68k instructions; there is no 68k
+  // here to rewrite and executing it is out of scope by policy. Nothing to
+  // approximate -- a program that calls it wants faster AMAL, and AMAL here
+  // is already an interpreter running at whatever speed the host gives it.
+  'set 68020 amal',
   // TFT: both bit-bang the floppy drive. Mfm Read sets up INTENA at $9a(a5)
   // on the custom chips and drives CIA-B's PRB at $bfd100 for motor, select,
   // side, direction and step; Mfm Track Luecke picks the gap out of the raw
@@ -2295,6 +2315,20 @@ export const NOTES: Record<string, string> = {
     "Routines 16 (\\$22c0) and 17 (\\$2332) for Pbob-vs-Pbob, with the same pair in 20/19 (Pbob vs Psprite), 52/53 (Psprite vs Psprite) and 56/55 (Psprite vs Pbob). Every one has two forms: `Xxx Fastcol(a,b)` is a straight pair test answering \\$ff or 0 and touching no table, and `Xxx Fastcol(n,start To end)` walks the range, writes a flag per object into that pairing's table with index 0 as \"anything at all\", and answers the same flag. An off-screen source takes the arm at \\$23fe, which CLEARS the range rather than testing it. The four tables were read out of the readers and are separate: \\$134 bob-bob, \\$2e bob-sprite, \\$b0 sprite-sprite, \\$178 sprite-bob. The test is a box overlap with no mask and no pixel check --- the doc's \"superfast collision detection for each type of object using coordinate checking\" --- and both edges are INCLUSIVE, `blt` and `bgt` rather than `ble` and `bge`, so boxes that touch exactly do collide. A Pbob's box is its icon's WORD-ROUNDED width (`move.w (a0)+,d2 / lsl.w #\\$4,d2`) by its real height; a Psprite's is SIXTEEN WIDE by the height out of its sprite data (`addi.w #\\$10` against `add.w (a1),d?`), which is what a hardware sprite is and is the independent confirmation that a Psprite entry holds y at +0 and x at +2",
   'pfast bobcol':
     "Routines 18 (\\$2426), 50, 54 and 57 --- one reader a pairing, picking up what the matching Fastcol left in its table. A non-negative argument tests index 0 first (`tst.b (a0) / beq`, the \"anything at all\" flag) and then that object, answering \\$ff or 0; a NEGATIVE one scans for the first flag set and answers its index instead, so a program can ask \"what did I hit\" without a loop. An empty object table answers 0 rather than erroring, `move.w \\$c(a2),d1 / beq`",
+  'psync every':
+    "Routines 42 (\\$34d4), 49 (\\$376a) and 48 (\\$374a). How often the matching Psync actually runs its channels, stored as the period LESS ONE so `Psync Every 1` means every call, and all three bounded by `Rble` and `cmp.l #\\$7fff,d0 / Rbhi`. The difference is reach: routine 42 writes SIX words, \\$20 through \\$2a --- three countdown-and-reload pairs at once --- where routine 49 writes only \\$28/\\$2a and routine 48 only \\$24/\\$26. So the general form sets everything and the two specific ones override a half. The pair at \\$20/\\$22 belongs to no keyword found in this table",
+  'pchannel to pbob':
+    "Routines 40 (\\$340a) and 44 (\\$352c): attach an AMAL channel to a Pbob or Psprite so the channel's movement drives it. The channel is bounded at 63 (`cmp.l #\\$3f,d1 / Rbhi`) and the routine then WALKS AMOS's own channel list at -\\$182e(a5) comparing \\$a(a1) against the channel times four --- an empty list, or a channel not in it, is error 23. So the channel has to exist before it can be attached, which is why a program writes its `Amal` first",
+  'psync pbob':
+    "Routines 41 (\\$3460) and 45 (\\$3580): run the attached channels over a range of objects, but only when the countdown at \\$28 (or \\$24) has expired --- `tst.w \\$28(a2) / bne` skips the whole thing and `move.w \\$2a(a2),\\$28(a2)` reloads it. An empty object table or a missing AMAL list is error 23 before anything else. The END is popped first and bounded against the count, then the start against the end. DEVIATION: the channel is stepped through the core AMAL interpreter rather than PowerBobs' own copy. The doc's headline for this family is \"a New Amal command allowing all 64 channels to run under interrupts\", and the interrupt half has nowhere to land --- there is one thread here and Psync is what advances a channel. What a program observes, the channel moving when the period expires, is reproduced; the vertical-blank timing it would have had is not",
+  'convert sprites':
+    "Routine 28 (\\$2a34), 776 bytes: AMOS's sprite bank turned into PowerBobs' own chip-memory copy, one `AllocMem(\\$4e20, MEMF_CHIP|MEMF_CLEAR)` carved into sixteen chunks of \\$4e2 whose addresses fill the tables at \\$1bc and \\$1fc. No sprite bank is AMOS 36; a bank with a zero count is error 23; calling it twice erases first. NOTE: only the per-sprite HEIGHT survives into anything a program can observe --- it is what Psprite Fastcol adds to a collision box. The converted pixel data exists to feed Psprite Update's copper list, which this port does not build",
+  'psprite':
+    "Routine 30 (\\$2e20), 66 bytes, with the array form at routine 51 (\\$37da); both are unnamed alternates under `!psprite`. The image is bounded by the CONVERTED sprite count at \\$24c and the number by Psprite Max at \\$24e, then `move.l (a0,d7.w),\\$4(a1,d0.w)` copies that sprite's data pointer into the entry and `movem.w d5-d6,(a1,d0.w)` writes the position --- d5, the THIRD argument, into +0 and d6, the second, into +2. So y lands first and x second, the layout X Psprite and Psprite Fastcol both read back",
+  'psprite off':
+    "Routines 32 (\\$2e80), 31 (\\$2e62) and 33 (\\$2e9e), three forms of one keyword. All do `clr.l (a1,d0.w)` over the entry's first LONG, which is y AND x together --- so a Psprite turned off goes to (0,0) rather than being flagged out, which is the opposite of how Pbob Off works. The range form checks both ends and `cmp.l d0,d1 / Rblt` refuses a reversed pair",
+  'psprite update':
+    "Routine 34 (\\$2ed0), 1194 bytes and the largest routine in the extension after Pbob Draw. Pushes every Psprite onto the hardware by building the sprite control words and poking the copper list, and `tst.w \\$24c(a2) / Rbeq` makes it error 23 before Convert Sprites has run. DEVIATION: this hands each entry to the runtime's own hardware sprites instead. Which sprite is where, showing which image, is the same; the copper list the routine writes is not reproduced, because the display path here is a copper interpreter the core sprite system already feeds",
   // --- IOPorts: implemented, but reporting a port with nothing on it ---
   'serial error':
     "Returns 0. The real call reads io_Error from the request and maps it through the device's error table (base 145, 16 messages, from the Dev.Open call). With no hardware behind the port there is no transfer to fail, so no error is ever raised and the keyword can only report success. The mapping itself is modelled -- ioError() resolves those exact messages -- it just has nothing to map",
@@ -3384,6 +3418,11 @@ export const NOTES: Record<string, string> = {
  * -- so a group cannot rot into pointing at nothing.
  */
 export const SHARED_NOTES: Record<string, string> = {
+  'psync every pbob': 'psync every',
+  'psync every psprite': 'psync every',
+  'pchannel to psprite': 'pchannel to pbob',
+  'psync psprite': 'psync pbob',
+  'psprite erase': 'convert sprites',
   'pbobsprite fastcol': 'pbob fastcol',
   'psprite fastcol': 'pbob fastcol',
   'pspritebob fastcol': 'pbob fastcol',

@@ -717,3 +717,142 @@ describe('PowerBobs: collision (routines 16-20, 50, 52-57)', () => {
     expect(() => draw(`${setup}\nPrint Pbob Fastcol(0,1)`)).toThrow(/Illegal function call/)
   })
 })
+
+describe('PowerBobs: the AMAL bridge (routines 40-42, 44, 45, 48, 49)', () => {
+  // an AMAL channel only exists once `Amal n,"..."` has compiled one into it
+  const setup = 'Reserve Pbobs 4\nPbob Height 1,8\nPbob Height 2,8\nAmal 3,"Loop: Pause ; Jump Loop"'
+
+  it('Psync Every writes all six words, the specific forms only their pair', () => {
+    // routine 42 sets $20-$2a; routine 49 only $28/$2a and 48 only $24/$26
+    const all = run('Psync Every 5')
+    expect([all.powerbobs.syncBob.reload, all.powerbobs.syncSpr.reload]).toEqual([4, 4])
+    const bob = run('Psync Every 5\nPsync Every Pbob 2')
+    expect([bob.powerbobs.syncBob.reload, bob.powerbobs.syncSpr.reload]).toEqual([1, 4])
+    const spr = run('Psync Every 5\nPsync Every Psprite 3')
+    expect([spr.powerbobs.syncBob.reload, spr.powerbobs.syncSpr.reload]).toEqual([4, 2])
+  })
+
+  it('the period is stored LESS ONE, so Psync Every 1 means every call', () => {
+    expect(run('Psync Every 1').powerbobs.syncBob.reload).toBe(0)
+    expect(() => run('Psync Every 0')).toThrow(/Illegal function call/)
+    expect(() => run('Psync Every 32768')).toThrow(/Illegal function call/)
+  })
+
+  it('Pchannel To Pbob refuses a channel that does not exist', () => {
+    // `move.l -$182e(a5),d0 / Rbeq` -- the routine walks AMOS's own channel
+    // list, so the channel has to be there before it can be attached
+    expect(() => run(`${setup}\nPchannel To Pbob 3 To 1`)).not.toThrow()
+    expect(() => run(`${setup}\nPchannel To Pbob 7 To 1`)).toThrow(/Illegal function call/)
+    expect(() => run(`${setup}\nPchannel To Pbob 64 To 1`)).toThrow(/Illegal function call/)
+    expect(() => run(`${setup}\nPchannel To Pbob 3 To 9`)).toThrow(/Illegal function call/)
+  })
+
+  it('the attachment is recorded per channel', () => {
+    const rt = run(`${setup}\nPchannel To Pbob 3 To 2`)
+    expect(rt.powerbobs.chanBob.get(3)).toBe(2)
+  })
+
+  it('Psync Pbob only runs when the countdown expires', () => {
+    // `tst.w $28(a2) / bne` skips, `move.w $2a(a2),$28(a2)` reloads
+    const rt = run(`${setup}\nPsync Every Pbob 3\nPchannel To Pbob 3 To 1\nPsync Pbob 1 To 2`)
+    expect(rt.powerbobs.syncBob.n).toBe(1) // 2 -> counted down, did not fire
+    const fired = run(
+      `${setup}\nPsync Every Pbob 1\nPchannel To Pbob 3 To 1\nPsync Pbob 1 To 2`,
+    )
+    expect(fired.powerbobs.syncBob.n).toBe(0) // period 1: fires and reloads to 0
+  })
+
+  it('Psync refuses a reversed range and one past the count', () => {
+    const prog = `${setup}\nPchannel To Pbob 3 To 1`
+    expect(() => run(`${prog}\nPsync Pbob 2 To 1`)).toThrow(/Illegal function call/)
+    expect(() => run(`${prog}\nPsync Pbob 1 To 9`)).toThrow(/Illegal function call/)
+  })
+
+  it('Psync Psprite and Pchannel To Psprite dispatch on their own tables', () => {
+    const rt = run(`${setup}\nPsprite Max 4\nPchannel To Psprite 3 To 2\nPsync Psprite 0 To 3`)
+    expect(rt.powerbobs.chanSpr.get(3)).toBe(2)
+    expect(rt.powerbobs.chanBob.size).toBe(0)
+  })
+})
+
+describe('PowerBobs: the Psprite draw family (routines 28-34, 51)', () => {
+  /** the sprite bank Convert Sprites reads, four sprites of differing heights */
+  function withSprites(src: string, heights = [8, 16, 24, 32]): Runtime {
+    const exts = new Map([[13, pb.table]])
+    printed = ''
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[13, pb]]),
+      maxSteps: 200_000,
+      onText: (t) => (printed += t),
+    })
+    const b = new ObjectBank()
+    b.images = heights.map((h) => new BankImage(16, h, 2, 0, 0))
+    rt.spriteBank = b
+    const r = rt.runHeadless(500)
+    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    return rt
+  }
+
+  it('Convert Sprites records the count and each height', () => {
+    const rt = withSprites('Convert Sprites 0')
+    expect(rt.powerbobs.sprCount).toBe(4)
+    expect(rt.powerbobs.sprHeights).toEqual([8, 16, 24, 32])
+  })
+
+  it('no sprite bank is AMOS 36, an empty one is error 23', () => {
+    expect(() => run('Convert Sprites 0')).toThrow(/Bank not reserved/)
+    expect(() => withSprites('Convert Sprites 0', [])).toThrow(/Illegal function call/)
+  })
+
+  it('Psprite writes y first and x second, and takes the height from the sprite', () => {
+    // `movem.w d5-d6,(a1,d0.w)` -- the THIRD argument lands at +0
+    const rt = withSprites('Convert Sprites 0 : Psprite Max 4 : Psprite 1,30,40,3')
+    const p = rt.powerbobs.psprites[1]!
+    expect([p.x, p.y, p.image, p.height]).toEqual([30, 40, 3, 24])
+  })
+
+  it('the image is bounded by the CONVERTED count, not the bank', () => {
+    expect(() =>
+      withSprites('Convert Sprites 0 : Psprite Max 4 : Psprite 1,0,0,4'),
+    ).not.toThrow()
+    expect(() => withSprites('Convert Sprites 0 : Psprite Max 4 : Psprite 1,0,0,5')).toThrow(
+      /Illegal function call/,
+    )
+    expect(() => withSprites('Convert Sprites 0 : Psprite Max 4 : Psprite 9,0,0,1')).toThrow(
+      /Illegal function call/,
+    )
+  })
+
+  it('Psprite Off sends it to (0,0) rather than flagging it out', () => {
+    // `clr.l (a1,d0.w)` clears y AND x together -- the opposite of Pbob Off,
+    // which sets a flag and leaves the position alone
+    const rt = withSprites('Convert Sprites 0 : Psprite Max 4 : Psprite 1,30,40,3 : Psprite Off 1')
+    expect([rt.powerbobs.psprites[1]!.x, rt.powerbobs.psprites[1]!.y]).toEqual([0, 0])
+    expect(rt.powerbobs.psprites[1]!.image).toBe(3) // the image survives
+  })
+
+  it('Psprite Off takes a range and a bare form', () => {
+    const prog = 'Convert Sprites 0 : Psprite Max 4 : Psprite 1,10,10,1 : Psprite 2,20,20,1'
+    const range = withSprites(`${prog} : Psprite Off 1 To 2`)
+    expect([range.powerbobs.psprites[1]!.x, range.powerbobs.psprites[2]!.x]).toEqual([0, 0])
+    const all = withSprites(`${prog} : Psprite Off`)
+    expect(all.powerbobs.psprites[1]!.x).toBe(0)
+    expect(() => withSprites(`${prog} : Psprite Off 2 To 1`)).toThrow(/Illegal function call/)
+  })
+
+  it('Psprite Erase drops the converted table, and Convert Sprites re-erases', () => {
+    const rt = withSprites('Convert Sprites 0 : Psprite Erase')
+    expect(rt.powerbobs.sprCount).toBe(0)
+    const again = withSprites('Convert Sprites 0 : Convert Sprites 0')
+    expect(again.powerbobs.sprCount).toBe(4)
+  })
+
+  it('Psprite Update pushes onto the hardware sprites, and needs a conversion first', () => {
+    const rt = withSprites(
+      'Convert Sprites 0 : Psprite Max 4 : Psprite 1,30,40,3 : Psprite Update',
+    )
+    expect(rt.hwSprites.get(1)).toEqual({ n: 1, x: 30, y: 40, image: 3 })
+    expect(() => run('Psprite Update')).toThrow(/Illegal function call/)
+  })
+})
