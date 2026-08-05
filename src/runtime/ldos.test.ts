@@ -466,11 +466,26 @@ describe('LDos file metadata (LdosV25.DOC)', () => {
         'Lset Comment "DH0:cdir","a drawer note"',
         'Print Lget Comment("DH0:c.dat")',
         'Print Lget Comment("DH0:cdir")',
-        'Lset Comment "DH0:c.dat",String$("x",100)',
-        'Print Len(Lget Comment("DH0:c.dat"))', // clipped to 79
       ].join('\n'),
     )
-    expect(out).toBe('[]\nhello there\na drawer note\n 79\n')
+    expect(out).toBe('[]\nhello there\na drawer note\n')
+  })
+
+  it('a comment over 79 characters is an error, not a truncation', () => {
+    // `cmp.l #$4e,d0` against the length LESS ONE in routine 15 ($11e8), then
+    // `moveq #$5` — this port was quietly cutting it at MAX_COMMENT
+    const setup = 'Lopen 1,"DH0:c2.dat",1 : Lclose 1\n'
+    expect(() => run(`${setup}Lset Comment "DH0:c2.dat",String$("x",80)`)).toThrow(/Invalid comment/)
+    expect(run(`${setup}Lset Comment "DH0:c2.dat",String$("x",79)\nPrint Len(Lget Comment("DH0:c2.dat"))`).out).toBe(
+      ' 79\n',
+    )
+  })
+
+  it('Lset Prot has the two error arms routine 17 gives it', () => {
+    // empty name is error 3, and SetProtection answering zero — which is what
+    // a name that is not there gives — is error 6
+    expect(() => run('Lset Prot "",%0')).toThrow(/Invalid filename/)
+    expect(() => run('Lset Prot "DH0:nosuch.dat",%0')).toThrow(/Unable to set protection/)
   })
 
   it('protection bits default to ----rwed and round-trip', () => {
@@ -549,7 +564,16 @@ describe('LDos directory scanning (LdosV25.DOC + Lrecursive.AMOS)', () => {
     const { out } = run(
       [...tree, 'Print Lcat First("DH0:top")', 'Print Lcat Next', 'Print Lcat Next', 'Print Lcat Next', 'Print "["+Lcat Next+"]"'].join('\n'),
     )
-    expect(out).toBe('DH0:top\na.txt\nb.txt\nsub\n[]\n')
+    // ...and what it returns is fib_FileName, the NAME of the locked object,
+    // not the path: routine 20 builds its string from the FIB's +$8. The
+    // manual's "returns the path, requested by you" is near enough for a bare
+    // device and wrong for anything nested
+    expect(out).toBe('top\na.txt\nb.txt\nsub\n[]\n')
+  })
+
+  it('Lcat First on a volume root answers the volume name, without the colon', () => {
+    expect(run([...tree, 'Print Lcat First("DH0:")'].join('\n')).out).toBe('DH0\n')
+    expect(() => run('A$=Lcat First("")')).toThrow(/Invalid filename/)
   })
 
   /**
@@ -627,10 +651,23 @@ describe('LDos directory scanning (LdosV25.DOC + Lrecursive.AMOS)', () => {
     expect(out).toBe('a.txt\n[]\nb.txt\n')
   })
 
-  it('Lcat Pull on a bank holding nothing is the documented error', () => {
+  it('Lcat Pull on a bank holding nothing errors at the ACCESSOR, not the pull', () => {
     // "If ADR points to NULLs (empty bank) you will receive the errormessage
-    // 'No more entries in this dir!'"
-    expect(() => run(['Reserve As Work 11,264', 'Lcat Pull Start(11)'].join('\n'))).toThrow(/No more entries/)
+    // 'No more entries in this dir!'" — true, but routines 70 and 71 check
+    // nothing whatever. The zero lands at $294 and the NEXT Lcat keyword
+    // takes its own error-7 arm, so the pull itself is silent
+    const pull = ['Reserve As Work 11,264', 'Lcat Pull Start(11)'].join('\n')
+    expect(run(`${pull}\nPrint "ran"`).out).toBe('ran\n')
+    expect(() => run(`${pull}\nPrint Lcat Type`)).toThrow(/No more entries/)
+  })
+
+  it('pushing with no catalogue open pushes a null lock, and pulling it back is empty', () => {
+    // routine 70 does not test the lock before storing it
+    const { out } = run(
+      [...tree, 'Reserve As Work 11,264', 'A$=Lcat First("DH0:top")', 'Lcat Push Start(11)', 'Lcat Pull Start(11)',
+       'Print Lcat Type', 'Lcat Push Start(11)', 'Lcat Push Start(11)', 'Lcat Pull Start(11)', 'Print "ran"'].join('\n'),
+    )
+    expect(out).toBe(' 2\nran\n')
   })
 
   it('Lcat First on a directory that is not there is an Invalid Filename', () => {

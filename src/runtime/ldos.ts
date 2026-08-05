@@ -257,7 +257,8 @@ export interface LdosState {
   /** the current Lcat scan, if any */
   cat: LcatScan | null
   /** scans parked by Lcat Push, keyed by the bank address given to it */
-  pushed: Map<number, LcatScan>
+  /** null where an unopened catalogue was pushed — a zero lock, faithfully */
+  pushed: Map<number, LcatScan | null>
   /**
    * LDos tracks its own current directory. The manual is explicit that it
    * does not see AMOS's: "If you change the dir using the Dir$-command and
@@ -344,6 +345,20 @@ function catAt(rt: Runtime): { name: string; isDir: boolean; size: number; path:
   if (!e) return null
   const base = c.dir.endsWith(':') || c.dir.endsWith('/') ? c.dir : `${c.dir}/`
   return { ...e, path: base + e.name }
+}
+
+/**
+ * What AmigaDOS would put in `fib_FileName` for a locked path.
+ *
+ * `Lcat First` answers this rather than the path it was given -- routine 20
+ * builds its string from the FIB's +$8, and a lock knows the object's name
+ * and not the route taken to it. A volume root reports the volume's own name,
+ * without the colon.
+ */
+function fibFileName(path: string): string {
+  const cut = path.replace(/[/:]+$/, '')
+  const at = Math.max(cut.lastIndexOf('/'), cut.lastIndexOf(':'))
+  return at < 0 ? cut : cut.slice(at + 1)
 }
 
 /**
@@ -629,54 +644,139 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
         if (b >= low && b <= high) r.data[i] = swap
       }
     },
+    /**
+     * Lset Comment "FileName","Comment" — routine 15 ($11e8). '"Comment" may
+     * not be longer than 79 characters and also works on directories as
+     * well.'
+     *
+     *     Rbsr    routine 14                  the shared lock-and-Examine
+     *     cmpa.l  #$0, a0 / bne .ok
+     *     Rbra    routine 91                  ...with routine 14's own d0
+     *  .ok: lea $90(a0), a0                   fib_Comment
+     *     move.w (a1)+, d0 / subq.w #$1, d0
+     *     cmp.l  #$4e, d0 / bls .fits
+     *     moveq  #$5, d0 / Rbra 91            error 5, "Invalid comment"
+     *  .fits: ...copy into the FIB, then jsr -$b4(a6)   SetComment
+     *
+     * The 79 is `cmp.l #$4e` against the length LESS ONE, so it is exact and
+     * it is an ERROR rather than a truncation -- this port was silently
+     * cutting the comment at MAX_COMMENT. The comment is staged in the shared
+     * FileInfoBlock's own comment field before SetComment is called, which is
+     * why an Lcat scan in progress loses its comment when this runs; that is
+     * invisible here because the scan holds its entries rather than a FIB.
+     */
     'lset comment'(it) {
-      // Lset Comment "FileName","Comment" — '"Comment" may not be longer
-      // than 79 characters and also works on directories as well.'
       const path = it.evalStr()
       it.expect(',')
       const comment = it.evalStr()
-      rt.vfs?.setMeta(path, { comment: comment.slice(0, MAX_COMMENT) })
+      if (comment.length > MAX_COMMENT) throw new AmosError('Invalid comment')
+      rt.vfs?.setMeta(path, { comment })
     },
+    /**
+     * Lset Prot "FileName",MASK — routine 17 ($129c). 'MASK is a bitpattern
+     * like above', e.g. %00000000 meaning ----rwed.
+     *
+     *     move.l (a3)+, d2 / movea.l (a3)+, a0     MASK, then the name
+     *     move.w (a0)+, d0 / subq.w #$1, d0 / bpl .ok
+     *     moveq  #$3, d0 / Rbra 91                 error 3, empty name
+     *  .ok: ...copy the name... / jsr -$ba(a6)     SetProtection
+     *     tst.l d0 / bne .done
+     *     moveq  #$6, d0 / Rbra 91                 error 6
+     *
+     * Two error arms this port had neither of: an empty name is error 3, and
+     * SetProtection answering zero -- which is what a name that does not
+     * exist gives -- is error 6, "Unable to set protection-flags". Unlike
+     * Lset Comment it does not lock or Examine first; it hands the name
+     * straight to dos.library.
+     *
+     * DEVIATION: the mask is passed to SetProtection as a full longword and
+     * is stored as a byte here, so the four AmigaDOS-reserved upper bits do
+     * not survive. Nothing reads them: Lget Prot reads fib_Protection back
+     * through the same byte.
+     */
     'lset prot'(it) {
-      // Lset Prot "FileName",MASK — 'MASK is a bitpattern like above',
-      // e.g. %00000000 meaning ----rwed
       const path = it.evalStr()
       it.expect(',')
-      rt.vfs?.setMeta(path, { protection: it.evalInt() & 0xff })
+      const mask = it.evalInt() & 0xff
+      if (path.length === 0) throw new AmosError('Invalid filename')
+      // SetProtection answers zero for a name that is not there, and `setMeta`
+      // answers true for any resolvable path, so existence is the real test
+      if (rt.vfs?.exists(path) == null) throw new AmosError('Unable to set protection-flags')
+      rt.vfs.setMeta(path, { protection: mask })
     },
+    /**
+     * Lcat Push ADR / Lcat Pull ADR — routines 70 ($32f4) and 71 ($3336),
+     * mirror images and neither of them checks anything at all:
+     *
+     *   push: movea.l (a3)+, a1
+     *         move.l  $294(...), (a1)+          the lock, four bytes
+     *         move.l  #$0, $294(...)            ...then cleared
+     *         move.l  #$104, d0 / subq.w #$1, d0
+     *         move.b  (a0)+, (a1)+ / dbra       260 bytes of the FIB
+     *
+     * 4 + 260 = the 264 the manual quotes: "Each time you push something 264
+     * bytes are used and the next datas should thus be copied to ADR+264".
+     * Pull is the same two moves the other way round.
+     *
+     * Push does NOT test the lock first, so pushing with no scan open stores
+     * a zero and a stale FileInfoBlock -- and pull does not test it either.
+     * The manual's "If ADR points to NULLs (empty bank) you will receive the
+     * errormessage 'No more entries in this dir'" is therefore describing
+     * something that happens LATER: the zero lands at $294 and the next Lcat
+     * accessor takes its own error-7 arm. This port raised at the Lcat Pull
+     * line instead, which reports the right thing at the wrong statement.
+     *
+     * DEVIATION: the 264 bytes written are a cookie rather than a real lock
+     * and FileInfoBlock, because the scan is held beside the bank here. A
+     * program that pushes and pulls sees no difference; one that reads the
+     * bank's bytes would.
+     */
     'lcat push'(it) {
-      // Lcat Push ADR — "Each time you push something 264 bytes are used and
-      // the next datas should thus be copied to ADR+264 ... Using Lcat Push
-      // you simply move this internal data to a bank reserved by you. You may
-      // now use Lcat on a different device/directory."
       const addr = it.evalInt()
       const c = rt.ldos.cat
-      if (!c) return
       rt.ldos.pushed.set(addr, c)
       rt.ldos.cat = null
-      // the real thing writes DOS locks and a FileInfoBlock into those 264
-      // bytes; the scan lives beside the bank here, and a cookie is written
-      // so Lcat Pull can tell a pushed block from an empty one
       const m = rt.resolveWrite(addr)
-      if (m && m.off < m.data.length) m.data[m.off] = 0x4c // 'L'
+      if (m && m.off < m.data.length) m.data[m.off] = c ? 0x4c : 0 // 'L'
     },
     'lcat pull'(it) {
-      // Lcat Pull ADR — "if this address not contains Lcat-data AmigaDOS MAY
-      // crash if you're unlucky!! If ADR points to NULLs (empty bank) you
-      // will receive the errormessage 'No more entries in this dir'"
       const addr = it.evalInt()
-      const c = rt.ldos.pushed.get(addr)
-      if (!c) throw new AmosError('No more entries in this dir')
+      // an address never pushed to reads as a bank full of zeros, which is a
+      // null lock — the same state pushing an unopened catalogue leaves
+      rt.ldos.cat = rt.ldos.pushed.get(addr) ?? null
       rt.ldos.pushed.delete(addr)
-      rt.ldos.cat = c
       const m = rt.resolveWrite(addr)
       if (m && m.off < m.data.length) m.data[m.off] = 0
     },
+    /**
+     * LLdir$ "new-dir" — routine 82 ($37de). LDos keeps its own current
+     * directory, because on the real machine it never sees AMOS's Dir$
+     * changes; the manual's own advice is "Set Dir\$ to desired value, and
+     * call LLdir\$ Dir\$".
+     *
+     *     move.w (a0)+, d0 / cmp.w #$0, d0 / bls .bad
+     *     ...copy the name...
+     *     move.l #$fffffffe, d2 / jsr -$54(a6)     Lock, ACCESS_READ
+     *     beq .nodir
+     *     move.l d0, d1 / jsr -$7e(a6)             CurrentDir
+     *  .bad:  moveq #$12, d0 / Rbra 91             error 18
+     *  .nodir: moveq #$16, d0 / Rbra 91            error 22
+     *
+     * Two error arms, neither of them in this port: an empty string is error
+     * 18 and a directory that will not lock is error 22, "LLdir\$ can't find
+     * directory!". Anything lockable is accepted -- Lock does not care
+     * whether it is a directory -- so the error's wording is broader than
+     * what it tests.
+     *
+     * NOTE: the lock is never released, and neither is the one CurrentDir
+     * hands back. That is a leak per call in the library and there is nothing
+     * to reproduce here, where the current directory is a string.
+     */
     lldir$(it) {
-      // LLdir$ "new-dir" — LDos keeps its own current directory, because on
-      // the real machine it never sees AMOS's Dir$ changes. The manual's own
-      // advice is "Set Dir$ to desired value, and call LLdir$ Dir$".
-      rt.ldos.cwd = it.evalStr()
+      const dir = it.evalStr()
+      if (dir.length === 0) throw new AmosError('You can not call with an empty argument!')
+      if (rt.vfs?.exists(dir) == null) throw new AmosError("LLdir$ can't find directory!")
+      rt.ldos.cwd = dir
     },
     lcrypt(it) {
       // Lcrypt START,LONGS,"password" — "LONGS is the length divided by four.
@@ -1206,15 +1306,43 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       })
       return VI(ok ? -1 : 0)
     },
+    /**
+     * F$=Lcat First("Directory") — routine 20 ($1466), 222 bytes, and a lock
+     * rather than a first entry. "If the directory didn't exist the error
+     * 'Invalid filename' will be produced".
+     *
+     *     tst.l $294(...) / beq .fresh
+     *     jsr -$5a(a6)                        UnLock any previous scan first
+     *  .fresh: move.w (a0)+, d0 / subq.w #$1, d0 / bpl .named
+     *     moveq #$3, d0 / Rbra 91             error 3, empty name
+     *  .named: move.l #$fffffffe, d2 / jsr -$54(a6)    Lock, ACCESS_READ
+     *     tst.l d0 / bne .locked
+     *     moveq #$3, d0 / Rbra 91             error 3 again
+     *  .locked: move.l d0, (a1)               ...stored at $294
+     *     jsr -$66(a6)                        Examine, into the shared FIB
+     *     lea $8(a0), a0                      fib_FileName
+     *     ...strlen, then build the AMOS string...
+     *
+     * The returned string is fib_FileName -- the NAME of the locked object,
+     * as AmigaDOS reports it -- and NOT the path the caller gave. The manual
+     * says Lcat First "actually returns the path, requested by you", which is
+     * near enough for `Lcat First("df0:")` and wrong for anything nested: a
+     * lock on "DH0:top" answers "top". The binary wins over the manual, and
+     * this port was returning the argument.
+     *
+     * Examine's own result is not tested. A lock that Examine fails on leaves
+     * the FIB holding whatever the last scan put there, which is unreachable
+     * here because the entries are held rather than a struct.
+     */
     'lcat first'(_, a) {
-      // F$=Lcat First("Directory") — a lock, not a first entry. "If the
-      // directory didn't exist the error 'Invalid filename' will be produced".
-      const dir = ldosPath(rt, str(a[0] ?? VS('')))
+      const arg = str(a[0] ?? VS(''))
+      if (arg.length === 0) throw new AmosError('Invalid filename')
+      const dir = ldosPath(rt, arg)
       const entries = rt.vfs?.listDir(dir) ?? null
       if (entries === null) throw new AmosError('Invalid filename')
       const sorted = [...entries].sort((x, y) => x.name.localeCompare(y.name))
       rt.ldos.cat = { dir, entries: sorted, index: -1 }
-      return VS(dir)
+      return VS(fibFileName(dir))
     },
     /**
      * THE Lcat FAMILY — Lcat First, Lcat Next, Lcat Type, Lcat Size, Lcat
