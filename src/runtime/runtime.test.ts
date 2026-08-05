@@ -310,6 +310,46 @@ describe('text', () => {
     expect(rt.screen.curY).toBe(24) // stuck on last row
   })
 
+  /**
+   * The console control table is +W.s:16570 (CCont). Three of its entries had
+   * no counterpart here and fell through to putChar, printing a glyph where
+   * the real machine cleared something: 7 ClEol, 24 Home and 26 ClLine.
+   * LDos's Lansi is what found them — routine 69 emits all three.
+   */
+  it('control code 7 clears to the end of the cursor line, and no further', () => {
+    // ClEol's count is `WiX`, which AdCurs (+W.s:15601) shows is the cells
+    // REMAINING — `WiTx - WiX` is the column — so it runs to the right edge
+    const rt = run('Pen 5 : Locate 0,0 : Print "ABCD"; : Locate 2,0 : Print Chr$(7);')
+    const s = rt.screen
+    const litIn = (cx: number): number => {
+      let n = 0
+      for (let y = 0; y < 8; y++) for (let x = cx * 8; x < cx * 8 + 8; x++) if (s.point(x, y) === 5) n++
+      return n
+    }
+    expect(litIn(0) > 0).toBe(true) // A and B survive
+    expect(litIn(1) > 0).toBe(true)
+    expect(litIn(2)).toBe(0) // C and D are gone
+    expect(litIn(3)).toBe(0)
+  })
+
+  it('control code 26 clears the whole cursor line and leaves the rest', () => {
+    const rt = run('Pen 5 : Locate 0,0 : Print "AA" : Print "BB"; : Locate 0,1 : Print Chr$(26);')
+    const s = rt.screen
+    const litInRow = (row: number): number => {
+      let n = 0
+      for (let y = row * 8; y < row * 8 + 8; y++) for (let x = 0; x < 16; x++) if (s.point(x, y) === 5) n++
+      return n
+    }
+    expect(litInRow(0) > 0).toBe(true) // row 0 untouched
+    expect(litInRow(1)).toBe(0) // the cursor line is cleared
+    expect(rt.screen.curX).toBe(0) // ...and the cursor does not move
+  })
+
+  it('control code 24 is a second Home, like 12', () => {
+    const rt = run('Locate 10,5 : Print Chr$(24);')
+    expect([rt.screen.curX, rt.screen.curY]).toEqual([0, 0])
+  })
+
   it('draws graphics text with Text at a baseline', () => {
     const rt = run('Ink 6 : Text 100,50,"HI"')
     let found = 0

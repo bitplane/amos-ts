@@ -1044,9 +1044,24 @@ describe('Lansi: ANSI to AMOS control codes (LdosV25.DOC)', () => {
     // BBS-programs (and AmigaDOS + others) use this"
     const { out } = run(
       [`A$=Lansi("hi"+Chr$(10)+Chr$(8)) : Print Len(A$);Asc(Mid$(A$,3,1));Asc(Mid$(A$,4,1))`,
-       `B$=Lansi(Chr$(12)) : Print Len(B$)`].join('\n'),
+       `B$=Lansi(Chr$(12)) : Print Len(B$);Asc(B$)`].join('\n'),
     )
-    expect(out).toBe(' 4 10 8\n 6\n') // text passes through; $C becomes Clw/Home
+    // `move.b #$19,(a2)+` in routine 69: form feed becomes ONE byte, Clw —
+    // not the two-escape locate this port used to emit
+    expect(out).toBe(' 4 10 8\n 1 25\n')
+  })
+
+  it('the five clear/insert forms emit bare console control codes', () => {
+    // routine 69 gives each as a single `move.b`: ClEol, ClLine, Clw, ScBas
+    // and ScDLine repeated — +W.s:16570's own table, not ESC sequences
+    const { out } = run(
+      [
+        `E$=Chr$(27)+"["`,
+        `Print Asc(Lansi(E$+"K"));Asc(Lansi(E$+"M"));Asc(Lansi(E$+"J"));Asc(Lansi(E$+"L"))`,
+        `A$=Lansi(E$+"3@") : Print Len(A$);Asc(A$)`,
+      ].join('\n'),
+    )
+    expect(out).toBe(' 7 26 25 20\n 3 18\n')
   })
 })
 

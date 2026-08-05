@@ -1208,7 +1208,11 @@ export class Screen {
           if (next < this.cols) this.curX = next
           break
         }
+        case 7: // ClEol — clear to the end of the cursor line (+W.s:14452)
+          this.clEol()
+          break
         case 12: // Home — cursor to top-left, NO clear (ChHom in +Lib.s)
+        case 24: // ...and again at 24, which CCont maps to the same routine
           this.curX = 0
           this.curY = 0
           break
@@ -1239,6 +1243,9 @@ export class Screen {
           break
         case 25: // Clw — clear the window (ChClw)
           this.clw()
+          break
+        case 26: // ClLine — clear the cursor line (+W.s:14495)
+          this.clLine()
           break
         case 28: // cursor right (Cright$)
           this.curX = Math.min(this.cols - 1, this.curX + 1)
@@ -1526,6 +1533,53 @@ export class Screen {
     }
     w.curX = 0
     w.curY = 0
+  }
+
+  /**
+   * Clear a run of character cells on one text row, in the window's paper.
+   *
+   * The shape ClEol, ClLine and Clw all share: `ClFin` (+W.s:14503) takes a
+   * start address, a height in pixels and a WIDTH IN CHARACTERS, and the three
+   * callers differ only in what they pass. A character is eight pixels, so a
+   * character count is a byte count in every plane.
+   */
+  private clRun(row: number, col: number, cols: number): void {
+    const w = this.curWin
+    const n = Math.min(cols, w.cols - col)
+    if (n <= 0 || row < 0 || row >= w.rows) return
+    const paper = w.paper & this.colorMask()
+    const x0 = (w.x >> 3) + col
+    const planes = this.logBM.planeBytes(true)
+    for (let p = 0; p < this.depth; p++) {
+      const base = p * this.planeSize
+      const on = (paper & (1 << p)) !== 0 ? 0xff : 0x00
+      for (let y = 0; y < 8; y++) {
+        const at = base + (w.y + row * 8 + y) * this.rowBytes + x0
+        planes.fill(on, at, at + n)
+      }
+    }
+  }
+
+  /**
+   * ClEol (+W.s:14452) — clear from the cursor to the right edge of the line.
+   *
+   * The count it passes to ClFin is `WiX`, which is NOT the cursor column:
+   * `AdCurs` (+W.s:15601) derives the column as `WiTx - WiX`, `CRight`
+   * DECREMENTS it, and `Home` sets it to `WiTx`. So WiX is the number of
+   * cells from the cursor to the right edge, the cursor's own included, and
+   * passing it is exactly a clear-to-end-of-line.
+   *
+   * The routine's odd-address branch is a blitter constraint with nothing
+   * behind it here: an odd `WiAdCur` cannot start a word blit, so it erases
+   * the cursor's own byte with RazCur first and blits from the next one.
+   */
+  clEol(): void {
+    this.console(() => this.clRun(this.curWin.curY, this.curWin.curX, this.curWin.cols))
+  }
+
+  /** ClLine (+W.s:14495) — the whole cursor line, cursor left where it is */
+  clLine(): void {
+    this.console(() => this.clRun(this.curWin.curY, 0, this.curWin.cols))
   }
 
   // ---- window management (WOpen/WinDel/QWindow/MoveWi/SBord/STitle) ----

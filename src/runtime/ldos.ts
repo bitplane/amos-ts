@@ -89,8 +89,9 @@ export function ansiToAmos(input: string, state: LdosState): string {
     const c = src[i]!
     if (c !== '\x1b') {
       // $C is not an ANSI code at all, but the manual supports it "since many
-      // BBS-programs (and AmigaDOS + others) use this"
-      if (c === '\x0c') out += '\x1bX0\x1bY0' // Clw/Home
+      // BBS-programs (and AmigaDOS + others) use this". Routine 69 answers it
+      // with `move.b #$19,(a2)+` -- chr 25, Clw -- and not a locate
+      if (c === '\x0c') out += '\x19'
       else out += c // linefeed, carriage return and backspace pass through
       i++
       continue
@@ -145,13 +146,19 @@ export function ansiToAmos(input: string, state: LdosState): string {
         out += esc('X', Math.max(0, x - 1)) + esc('Y', Math.max(0, y - 1))
         break
       }
-      case '@': out += ' '.repeat(Math.max(0, n())); break // insert x spaces
-      case 'J': out += '\x1bX0\x1bY0'; break // "even if only ESC[J ... the whole window is cleared"
-      case 'K':
-      case 'L':
-      case 'M':
+      // The five arms below emit BARE console control codes rather than ESC
+      // sequences, and routine 69 gives each of them as a single `move.b` --
+      // `#$7` for K, `#$1a` for M, `#$19` for J, `#$14` for L, and `#$12`
+      // repeated for @. Those are ClEol, ClLine, Clw, ScBas and ScDLine in
+      // AMOS's own control table (+W.s:16570), so the translation is exact
+      // and this port was dropping four of the five.
+      case '@': out += '\x12'.repeat(Math.max(0, n())); break // ScDLine, n times
+      case 'J': out += '\x19'; break // "even if only ESC[J ... the whole window is cleared"
+      case 'K': out += '\x07'; break // ClEol
+      case 'L': out += '\x14'; break // ScBas — open a line at the cursor
+      case 'M': out += '\x1a'; break // ClLine
       case 'p':
-        break // clear-line and cursor-visibility forms the manual lists as ignored
+        break // the cursor-visibility form, which routine 69 also ignores
       default:
         break
     }
