@@ -13,8 +13,20 @@
  *
  * `TURBO_DocsV2.15.Asc`, the extension's own manual, documents 128 of its
  * 152 keywords — and, measured against the corpus, 62 of the 63 keywords
- * programs actually call. Where the manual is thin the routine is read out
- * of the binary with `extdis`; those cases say so individually.
+ * programs actually call. It is not the authority here. Every keyword has
+ * since been read routine by routine out of the 2.15 binary with `extdis`
+ * and cites the routine it was read from, and where the two disagree the
+ * binary wins: the manual says Hit Bob Check subtracts its displacement and
+ * the routine adds it, says Check "returns 1" when it returns the zone's own
+ * number, and never mentions that the two processor icon keywords quantise
+ * Y as well as X.
+ *
+ * The pattern behind almost every divergence found that way is one author
+ * writing a keyword by copying its neighbour and editing imperfectly. Reset
+ * Check is Set Check with the bound moved by one. Plane Update is F Point's
+ * plane loop without the `subq.w #$1`. Word Hunt is Byte Hunt with `bge`
+ * changed to `bgt`. Reading one member of a family and assuming the rest
+ * inherit is exactly how those get missed.
  *
  * ## What TURBO was for
  *

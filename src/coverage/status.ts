@@ -648,8 +648,9 @@ export const FAITHFUL = new Set<string>([
   'short datetime$',
 
   // --- TURBO Plus (third-party extension, by Manuel Andre) ---
-  // Verified against TURBO_DocsV2.15.Asc, the extension's own manual, and
-  // where it is thin against the disassembled routine; see src/runtime/turbo.ts.
+  // Every keyword read routine by routine out of the 2.15 binary and citing
+  // the routine it was read from; the manual is corroboration, not authority,
+  // and loses to the binary wherever they disagree. See src/runtime/turbo.ts.
   'left click',
   'right click',
   'raw key',
