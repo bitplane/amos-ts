@@ -151,9 +151,23 @@ export interface PowerBobsState {
    * which is the order X Psprite and Y Psprite read them back in and NOT the
    * order the names suggest.
    */
-  psprites: Array<{ y: number; x: number; image: number }>
+  psprites: Array<{ y: number; x: number; image: number; height: number }>
   /** $24e — Psprite Max, stored as the count LESS ONE. Ships as 63. */
   psprMax: number
+  /**
+   * The four collision result tables, one per pairing, each read back by its
+   * own Pfast function. Index 0 is "anything collided at all" and index n is
+   * that object. Read out of the readers rather than guessed:
+   *
+   *   $134  Pbob   vs Pbob      Pfast Bobcol
+   *   $2e   Pbob   vs Psprite   Pfast Bobsprcol
+   *   $b0   Psprite vs Psprite  Pfast Sprcol
+   *   $178  Psprite vs Pbob     Pfast Sprbobcol
+   */
+  colBB: Uint8Array
+  colBS: Uint8Array
+  colSS: Uint8Array
+  colSB: Uint8Array
   /**
    * $2c — how many hardware sprites are available, which is what Set Psprite
    * Colours really chooses: 8 for four-colour sprites, 4 for sixteen-colour
@@ -184,6 +198,10 @@ export const newPowerBobsState = (): PowerBobsState => ({
   updateSel: 0,
   psprites: [],
   psprMax: 63,
+  colBB: new Uint8Array(65),
+  colBS: new Uint8Array(65),
+  colSS: new Uint8Array(65),
+  colSB: new Uint8Array(65),
   psprHw: 8,
   rInc: newRange(),
   rDec: newRange(),
@@ -693,7 +711,9 @@ export function makePowerBobsInstructions(rt: Runtime): Record<string, Instr> {
       if (n > 128) funcCall() // cmp.l #$80,d0 / Rbhi
       const s = st()
       s.psprMax = n - 1
-      s.psprites = new Array(Math.max(0, n)).fill(null).map(() => ({ y: 0, x: 0, image: 0 }))
+      s.psprites = new Array(Math.max(0, n))
+        .fill(null)
+        .map(() => ({ y: 0, x: 0, image: 0, height: 16 }))
     },
 
     /**
@@ -1080,6 +1100,111 @@ function psprField(rt: Runtime, n: number, read: (p: { y: number; x: number }) =
   return VI(p ? ((read(p) << 16) >> 16) : 0)
 }
 
+/* ------------------------------------------------------------------ *
+ * Collision
+ * ------------------------------------------------------------------ */
+
+/** a Pbob's box: x, y from the structure and the size from its icon. */
+function bobBox(rt: Runtime, n: number): { x: number; y: number; w: number; h: number } | null {
+  const s = rt.powerbobs
+  if (n <= 0 || n > s.count) funcCall() // Rble / Rbhi
+  const b = s.bobs[n - 1]
+  if (!b) return null
+  const img = rt.iconBank?.image(b.iconEntry)
+  if (!img) return null
+  // `move.w (a0)+,d2 / lsl.w #$4,d2` --- the image's WORD width times sixteen,
+  // then `add.w (a0),d3` is the height out of the next word
+  return {
+    x: (b.x << 16) >> 16,
+    y: (b.y << 16) >> 16,
+    w: Math.ceil(img.width / 16) * 16,
+    h: img.height,
+  }
+}
+
+/**
+ * A Psprite's box.
+ *
+ * `addi.w #$10` for the width and `add.w (a1),d?` for the height, where a1 is
+ * the sprite data --- so a Psprite is always SIXTEEN WIDE and variably tall,
+ * which is what a hardware sprite is. That is also the independent
+ * confirmation that the entry holds y at +0 and x at +2: the height is added
+ * to the first field and the fixed 16 to the second.
+ */
+function sprBox(rt: Runtime, n: number): { x: number; y: number; w: number; h: number } | null {
+  const s = rt.powerbobs
+  if (n > s.psprMax) funcCall() // cmp.w $24e(a2),d7 / Rbhi
+  const p = s.psprites[n]
+  if (!p) return null
+  return { x: (p.x << 16) >> 16, y: (p.y << 16) >> 16, w: 16, h: p.height }
+}
+
+/**
+ * The overlap test itself, and both edges are INCLUSIVE.
+ *
+ *     cmp.w d4,d2 / blt      the far edge BELOW the near one misses
+ *     cmp.w d6,d0 / bgt      the near edge PAST the far one misses
+ *
+ * `blt` and `bgt` rather than `ble` and `bge`, so two boxes that touch
+ * exactly do collide. Every one of the four pairings uses the same four
+ * comparisons over boxes built the same way.
+ */
+const hits = (
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+): boolean => a.x + a.w >= b.x && b.x + b.w >= a.x && a.y + a.h >= b.y && b.y + b.h >= a.y
+
+/**
+ * The two forms every Fastcol keyword has.
+ *
+ * `Xxx Fastcol(a,b)` is a straight pair test answering $ff or 0 and touching
+ * no table. `Xxx Fastcol(n,start To end)` walks the range, writes a flag per
+ * object into that pairing's table with index 0 as "anything at all", and
+ * answers the same flag. An off-screen source (`tst.b $12(a1) / bne`) clears
+ * the whole range instead of testing it.
+ */
+function fastcol(
+  a: Value[],
+  boxA: (n: number) => { x: number; y: number; w: number; h: number } | null,
+  boxB: (n: number) => { x: number; y: number; w: number; h: number } | null,
+  table: Uint8Array,
+): Value {
+  const n = int(a[0]!)
+  if (a.length === 2) {
+    const p = boxA(n)
+    const q = boxB(int(a[1]!))
+    return VI(p && q && hits(p, q) ? 0xff : 0)
+  }
+  const lo = int(a[1]!)
+  const hi = int(a[2]!)
+  table.fill(0)
+  const p = boxA(n)
+  if (!p) return VI(0) // the off-screen arm at $23fe clears and answers 0
+  let any = 0
+  for (let i = lo; i <= hi; i++) {
+    const q = boxB(i)
+    if (!q || !hits(p, q)) continue
+    if (i >= 0 && i < table.length) table[i] = 0xff
+    any = 0xff
+  }
+  table[0] = any
+  return VI(any)
+}
+
+/** the Pfast readers: index 0 first, then the object, or a scan when negative */
+function pfast(n: number, table: Uint8Array, limit: number): Value {
+  if (n >= 0) {
+    if (limit === 0) return VI(0) // `move.w $c(a2),d1 / beq` --- nothing defined
+    if (n > limit) funcCall() // cmp.w d1,d0 / Rbhi
+    if (table[0] === 0) return VI(0) // `tst.b (a0) / beq` --- the any flag first
+    return VI(table[n] ? 0xff : 0)
+  }
+  // the negative arm scans for the first flag and answers its index
+  if (table[0] === 0) return VI(0)
+  for (let i = 1; i < table.length; i++) if (table[i]) return VI(i)
+  return VI(0)
+}
+
 export function makePowerBobsFunctions(rt: Runtime): Record<string, Func> {
   /**
    * X Pbob(n) / Y Pbob(n) / I Pbob(n) — routines 13 ($20d0), 14 ($20f4) and
@@ -1119,6 +1244,36 @@ export function makePowerBobsFunctions(rt: Runtime): Record<string, Func> {
      * vertical position leads a sprite's control words --- and is the reverse
      * of what the keyword names suggest.
      */
+    /**
+     * The four Fastcol pairings — routines 16/17, 20/19, 52/53 and 56/55 —
+     * and the four Pfast readers that pick their answers back up, 18, 50, 54
+     * and 57. Each pairing has its own result table, and they were read out
+     * of the readers rather than assumed: $134 bob-bob, $2e bob-sprite, $b0
+     * sprite-sprite, $178 sprite-bob.
+     *
+     * The doc calls it "superfast collision detection for each type of object
+     * using coordinate checking", and that is exactly what it is --- a box
+     * overlap, no mask and no pixel test, which is why a Pbob's collision box
+     * is its icon's WORD-ROUNDED width rather than its real one.
+     */
+    'pbob fastcol': (_, a): Value =>
+      fastcol(a, (n) => bobBox(rt, n), (n) => bobBox(rt, n), rt.powerbobs.colBB),
+    'pbobsprite fastcol': (_, a): Value =>
+      fastcol(a, (n) => bobBox(rt, n), (n) => sprBox(rt, n), rt.powerbobs.colBS),
+    'psprite fastcol': (_, a): Value =>
+      fastcol(a, (n) => sprBox(rt, n), (n) => sprBox(rt, n), rt.powerbobs.colSS),
+    'pspritebob fastcol': (_, a): Value =>
+      fastcol(a, (n) => sprBox(rt, n), (n) => bobBox(rt, n), rt.powerbobs.colSB),
+
+    'pfast bobcol': (_, a): Value =>
+      pfast(int(a[0]!), rt.powerbobs.colBB, rt.powerbobs.count),
+    'pfast bobsprcol': (_, a): Value =>
+      pfast(int(a[0]!), rt.powerbobs.colBS, rt.powerbobs.count),
+    'pfast sprcol': (_, a): Value =>
+      pfast(int(a[0]!), rt.powerbobs.colSS, rt.powerbobs.psprMax + 1),
+    'pfast sprbobcol': (_, a): Value =>
+      pfast(int(a[0]!), rt.powerbobs.colSB, rt.powerbobs.psprMax + 1),
+
     'x psprite': (_, a): Value => psprField(rt, int(a[0]!), (p) => p.x),
     'y psprite': (_, a): Value => psprField(rt, int(a[0]!), (p) => p.y),
 

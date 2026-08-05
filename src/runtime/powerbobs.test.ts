@@ -615,7 +615,7 @@ describe('PowerBobs: the Psprite accessors (routines 24-27, 35-37, 43)', () => {
     // X Psprite reads $2(a1,d0.w) and Y Psprite reads (a1,d0.w) -- the
     // hardware sprite convention, vertical position leading
     const rt = run('Psprite Max 2')
-    rt.powerbobs.psprites[0] = { y: 40, x: 20, image: 1 }
+    rt.powerbobs.psprites[0] = { y: 40, x: 20, image: 1, height: 16 }
     expect([rt.powerbobs.psprites[0]!.y, rt.powerbobs.psprites[0]!.x]).toEqual([40, 20])
   })
 
@@ -632,5 +632,88 @@ describe('PowerBobs: the Psprite accessors (routines 24-27, 35-37, 43)', () => {
     expect(Number(printed.trim())).toBe(rt.input.mouseX - 128 + rt.screen.offsetX)
     run('Screen Open 0,320,200,8,Lowres : Print Yscr Mouse')
     expect(Number(printed.trim())).toBe(rt.input.mouseY - 50 + rt.screen.offsetY)
+  })
+})
+
+describe('PowerBobs: collision (routines 16-20, 50, 52-57)', () => {
+  const setup = 'Reserve Pbobs 4\nPbob Height 1,8\nPbob Height 2,8\nPbob Height 3,8'
+
+  it('two overlapping Pbobs collide, two apart do not', () => {
+    // a coordinate box test, no mask and no pixel check -- the doc's
+    // "superfast collision detection ... using coordinate checking"
+    expect(
+      Number(
+        (draw(`${setup}\nPbob 1,0,0,1\nPbob 2,8,0,1\nPrint Pbob Fastcol(1,2)`), printed.trim()),
+      ),
+    ).toBe(255)
+    expect(
+      Number((draw(`${setup}\nPbob 1,0,0,1\nPbob 2,80,0,1\nPrint Pbob Fastcol(1,2)`), printed.trim())),
+    ).toBe(0)
+  })
+
+  it('the edges are INCLUSIVE, so boxes that just touch collide', () => {
+    // `blt` and `bgt` rather than `ble` and `bge`. A 16-wide bob at x=0 spans
+    // 0..16 inclusive, so one starting at 16 still counts.
+    expect(
+      Number((draw(`${setup}\nPbob 1,0,0,1\nPbob 2,16,0,1\nPrint Pbob Fastcol(1,2)`), printed.trim())),
+    ).toBe(255)
+    expect(
+      Number((draw(`${setup}\nPbob 1,0,0,1\nPbob 2,17,0,1\nPrint Pbob Fastcol(1,2)`), printed.trim())),
+    ).toBe(0)
+  })
+
+  it('the range form fills the table Pfast Bobcol reads', () => {
+    const rt = draw(
+      `${setup}\nPbob 1,0,0,1\nPbob 2,8,0,1\nPbob 3,200,0,1\nPrint Pbob Fastcol(1,2 To 3)`,
+    )
+    expect(Number(printed.trim())).toBe(255)
+    expect(rt.powerbobs.colBB[0]).toBe(255) // index 0 is "anything at all"
+    expect(rt.powerbobs.colBB[2]).toBe(255)
+    expect(rt.powerbobs.colBB[3]).toBe(0)
+  })
+
+  it('Pfast Bobcol answers per object, and scans when asked negatively', () => {
+    const prog = `${setup}\nPbob 1,0,0,1\nPbob 2,8,0,1\nPbob 3,200,0,1\nA=Pbob Fastcol(1,2 To 3)`
+    expect(Number((draw(`${prog}\nPrint Pfast Bobcol(2)`), printed.trim()))).toBe(255)
+    expect(Number((draw(`${prog}\nPrint Pfast Bobcol(3)`), printed.trim()))).toBe(0)
+    expect(Number((draw(`${prog}\nPrint Pfast Bobcol(-1)`), printed.trim()))).toBe(2)
+  })
+
+  it('with nothing colliding the whole table reads zero', () => {
+    const prog = `${setup}\nPbob 1,0,0,1\nPbob 2,200,0,1\nA=Pbob Fastcol(1,2 To 2)`
+    expect(Number((draw(`${prog}\nPrint Pfast Bobcol(2)`), printed.trim()))).toBe(0)
+    expect(Number((draw(`${prog}\nPrint Pfast Bobcol(-1)`), printed.trim()))).toBe(0)
+  })
+
+  it('a Psprite box is SIXTEEN WIDE and variably tall', () => {
+    // `addi.w #$10` for the width and `add.w (a1),d?` for the height out of
+    // the sprite data -- which is what a hardware sprite is
+    const rt = draw('Psprite Max 4')
+    rt.powerbobs.psprites[0] = { y: 0, x: 0, image: 1, height: 8 }
+    rt.powerbobs.psprites[1] = { y: 0, x: 16, image: 1, height: 8 }
+    rt.powerbobs.psprites[2] = { y: 0, x: 40, image: 1, height: 8 }
+    expect(rt.powerbobs.psprites[1]!.x).toBe(16)
+  })
+
+  it('the four pairings keep four separate tables', () => {
+    // $134 bob-bob, $2e bob-sprite, $b0 sprite-sprite, $178 sprite-bob
+    const rt = draw(`${setup}\nPsprite Max 4\nPbob 1,0,0,1\nPbob 2,8,0,1\nA=Pbob Fastcol(1,2 To 2)`)
+    expect(rt.powerbobs.colBB[0]).toBe(255)
+    expect([rt.powerbobs.colBS[0], rt.powerbobs.colSS[0], rt.powerbobs.colSB[0]]).toEqual([0, 0, 0])
+  })
+
+  it('the cross pairings dispatch and answer', () => {
+    const prog = `${setup}\nPsprite Max 4\nPbob 1,0,0,1`
+    expect(() => draw(`${prog}\nPrint Pbobsprite Fastcol(1,0 To 1)`)).not.toThrow()
+    expect(() => draw(`${prog}\nPrint Psprite Fastcol(0,0 To 1)`)).not.toThrow()
+    expect(() => draw(`${prog}\nPrint Pspritebob Fastcol(0,1 To 1)`)).not.toThrow()
+    expect(() => draw(`${prog}\nPrint Pfast Bobsprcol(1)`)).not.toThrow()
+    expect(() => draw(`${prog}\nPrint Pfast Sprcol(0)`)).not.toThrow()
+    expect(() => draw(`${prog}\nPrint Pfast Sprbobcol(0)`)).not.toThrow()
+  })
+
+  it('a Pbob number past the count is error 23', () => {
+    expect(() => draw(`${setup}\nPrint Pbob Fastcol(9,1)`)).toThrow(/Illegal function call/)
+    expect(() => draw(`${setup}\nPrint Pbob Fastcol(0,1)`)).toThrow(/Illegal function call/)
   })
 })

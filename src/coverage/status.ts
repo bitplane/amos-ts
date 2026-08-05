@@ -1972,6 +1972,15 @@ export const FAITHFUL = new Set<string>([
   'yscr mouse',
   'xscr sprite',
   'yscr sprite',
+  // slice 4b: collision -- four pairings, four result tables, four readers
+  'pbob fastcol',
+  'pbobsprite fastcol',
+  'psprite fastcol',
+  'pspritebob fastcol',
+  'pfast bobcol',
+  'pfast bobsprcol',
+  'pfast sprcol',
+  'pfast sprbobcol',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -2282,6 +2291,10 @@ export const NOTES: Record<string, string> = {
     "Routines 36 (\\$3396) and 37 (\\$33b8). Both check `Rbmi` for a negative number and `cmp.w \\$24e(a2),d0 / Rbhi` against Psprite Max, then index the table at \\$244 by eight. The field order is the thing to state plainly: X Psprite reads `\\$2(a1,d0.w)` and Y Psprite reads `(a1,d0.w)`, so Y comes FIRST in the entry. That is the hardware sprite convention --- the vertical position leads a sprite's control words --- and it is the reverse of what the keyword names suggest. It is also a different layout from the AMOS sprite table Xscr Sprite reads, where x is at +2 and y at +4",
   'xscr mouse':
     "Routines 24 (\\$29ac) and 25 (\\$29c2), 22 bytes each: AMOS's own mouse position out of \\$-1580(a5) and \\$-157e(a5), handed to `jsr \\$30(a0)` through -\\$4(a5), which is the hardware-to-screen conversion X Screen and Y Screen also use. So they are exactly `X Screen(X Mouse)` and `Y Screen(Y Mouse)`, saved as one call because a game does it every frame. Xscr Sprite and Yscr Sprite (routines 26 and 27) are the same conversion applied to a HARDWARE sprite instead, read out of AMOS's sprite table at -\\$17fe(a5) with x at +2 and y at +4, bounded by `cmp.w #\\$40,d1 / Rbhi` at 64",
+  'pbob fastcol':
+    "Routines 16 (\\$22c0) and 17 (\\$2332) for Pbob-vs-Pbob, with the same pair in 20/19 (Pbob vs Psprite), 52/53 (Psprite vs Psprite) and 56/55 (Psprite vs Pbob). Every one has two forms: `Xxx Fastcol(a,b)` is a straight pair test answering \\$ff or 0 and touching no table, and `Xxx Fastcol(n,start To end)` walks the range, writes a flag per object into that pairing's table with index 0 as \"anything at all\", and answers the same flag. An off-screen source takes the arm at \\$23fe, which CLEARS the range rather than testing it. The four tables were read out of the readers and are separate: \\$134 bob-bob, \\$2e bob-sprite, \\$b0 sprite-sprite, \\$178 sprite-bob. The test is a box overlap with no mask and no pixel check --- the doc's \"superfast collision detection for each type of object using coordinate checking\" --- and both edges are INCLUSIVE, `blt` and `bgt` rather than `ble` and `bge`, so boxes that touch exactly do collide. A Pbob's box is its icon's WORD-ROUNDED width (`move.w (a0)+,d2 / lsl.w #\\$4,d2`) by its real height; a Psprite's is SIXTEEN WIDE by the height out of its sprite data (`addi.w #\\$10` against `add.w (a1),d?`), which is what a hardware sprite is and is the independent confirmation that a Psprite entry holds y at +0 and x at +2",
+  'pfast bobcol':
+    "Routines 18 (\\$2426), 50, 54 and 57 --- one reader a pairing, picking up what the matching Fastcol left in its table. A non-negative argument tests index 0 first (`tst.b (a0) / beq`, the \"anything at all\" flag) and then that object, answering \\$ff or 0; a NEGATIVE one scans for the first flag set and answers its index instead, so a program can ask \"what did I hit\" without a loop. An empty object table answers 0 rather than erroring, `move.w \\$c(a2),d1 / beq`",
   // --- IOPorts: implemented, but reporting a port with nothing on it ---
   'serial error':
     "Returns 0. The real call reads io_Error from the request and maps it through the device's error table (base 145, 16 messages, from the Dev.Open call). With no hardware behind the port there is no transfer to fail, so no error is ever raised and the keyword can only report success. The mapping itself is modelled -- ioError() resolves those exact messages -- it just has nothing to map",
@@ -3371,6 +3384,12 @@ export const NOTES: Record<string, string> = {
  * -- so a group cannot rot into pointing at nothing.
  */
 export const SHARED_NOTES: Record<string, string> = {
+  'pbobsprite fastcol': 'pbob fastcol',
+  'psprite fastcol': 'pbob fastcol',
+  'pspritebob fastcol': 'pbob fastcol',
+  'pfast bobsprcol': 'pfast bobcol',
+  'pfast sprcol': 'pfast bobcol',
+  'pfast sprbobcol': 'pfast bobcol',
   'y psprite': 'x psprite',
   'yscr mouse': 'xscr mouse',
   'xscr sprite': 'xscr mouse',
