@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { existsSync, readFileSync } from 'node:fs'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -6,6 +7,7 @@ import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
 import { fixedClock, FIXED_DATE } from '../amiga/host'
+import { parseLanguage, type Language } from '../amiga/language'
 import { parseCatalog } from './locale'
 
 /**
@@ -22,7 +24,11 @@ const extensions = new Map([
   [LOCALE_SLOT, extensionById('locale-0.26')!.table] as const,
 ])
 
-function run(src: string, files: Record<string, Uint8Array> = {}): { out: string; rt: Runtime; fs: AmigaFS } {
+function run(
+  src: string,
+  files: Record<string, Uint8Array> = {},
+  language: Language | null = null,
+): { out: string; rt: Runtime; fs: AmigaFS } {
   const fs = new AmigaFS()
   fs.mountMemory('DH0')
   fs.currentDir = 'DH0:'
@@ -32,7 +38,7 @@ function run(src: string, files: Record<string, Uint8Array> = {}): { out: string
     maxSteps: 500_000,
     extensions,
     fs,
-    host: { clock: fixedClock() },
+    host: { clock: fixedClock(), language },
     onText: (t) => (out += t),
   })
   const r = rt.runHeadless(200)
@@ -488,5 +494,60 @@ describe('every Locale keyword is dispatched', () => {
       expect(calls[n], `no call written for ${n}`).toBeDefined()
       expect(() => run(calls[n]!), n).not.toThrow()
     }
+  })
+})
+
+/**
+ * The whole point of Host.language, end to end: the same program, the same
+ * frozen clock, a different `.language` file underneath it.
+ *
+ * These are Commodore's own Workbench 2.1 binaries rather than anything built
+ * here — see ../amiga/language.test.ts for why that matters — and the check is
+ * that AMOS keywords answer in the language, not merely that the reader parsed
+ * one. FIXED_DATE is 12 July 1994, a Tuesday.
+ */
+const LANGUAGES = '/home/gaz/src/tmp/amos/amos-files/sources/amos-pd-library-cd-1994/files/WB-2.1/Locale/Languages'
+const language = (name: string): Language | null => {
+  const p = Buffer.from(`${LANGUAGES}/${name}.language`, 'latin1')
+  if (!existsSync(p)) return null
+  return parseLanguage(new Uint8Array(readFileSync(p)))
+}
+
+describe.skipIf(language('deutsch') === null)('Host.language, against the real Workbench 2.1 files', () => {
+  it('Format Date$ names the day and month in the chosen language', () => {
+    // 12 July 1994 was a Tuesday
+    expect(run('Print Format Date$("%A %d %B %Y")').out.trim()).toBe('Tuesday 12 July 1994')
+    expect(run('Print Format Date$("%A %d %B %Y")', {}, language('deutsch')).out.trim()).toBe(
+      'Dienstag 12 Juli 1994',
+    )
+    expect(run('Print Format Date$("%A %d %B %Y")', {}, language('svenska')).out.trim()).toBe(
+      'Tisdag 12 Juli 1994',
+    )
+    expect(run('Print Format Date$("%A %d %B %Y")', {}, language('français')).out.trim()).toBe(
+      'Mardi 12 Juillet 1994',
+    )
+  })
+
+  it('Locale String$ answers from the language, by GetLocaleStr id', () => {
+    expect(run('Print Locale String$(1)', {}, language('deutsch')).out.trim()).toBe('Sonntag')
+    expect(run('Print Locale String$(15)', {}, language('deutsch')).out.trim()).toBe('Januar')
+    // id 3 is März -- latin-1 through the whole stack, reader to Print
+    expect(run('Print Locale String$(17)', {}, language('deutsch')).out.trim()).toBe('März')
+  })
+
+  it('the abbreviated forms move too, so %a and %b are not silently english', () => {
+    // German abbreviates the days to two letters -- So Mo Di Mi Do Fr Sa
+    expect(run('Print Format Date$("%a %b")', {}, language('deutsch')).out.trim()).toBe('Di Jul')
+    expect(run('Print Format Date$("%a %b")').out.trim()).toBe('Tue Jul')
+  })
+
+  /**
+   * The default has to stay english, or every existing test and the corpus
+   * census would move underneath us -- which is the reason this is a host
+   * setting and not `navigator.language`.
+   */
+  it('a host that says nothing is still english', () => {
+    expect(run('Print Format Date$("%A")').out.trim()).toBe('Tuesday')
+    expect(run('Print Locale String$(1)').out.trim()).toBe('Sunday')
   })
 })

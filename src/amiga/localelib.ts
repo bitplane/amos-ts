@@ -35,6 +35,7 @@
  * table-driven shape below is what would make that possible.
  */
 import { yearDay, type Civil } from './datestamp'
+import type { Language } from './language'
 import { LANGUAGE_STRINGS, LONG_ORDER, SHORT_ORDER, STR_ID, TO_LOWER, TO_UPPER } from './localelib.gen'
 
 export { DEFAULT_FORMATS, MAXSTRMSG, STR_ID } from './localelib.gen'
@@ -52,8 +53,13 @@ export const SC_COLLATE2 = 2
  * Out of range answers with the empty string, as GetLangString's own
  * `if (id < MAXSTRMSG) ... else return NULL` does.
  */
-export function getLocaleStr(id: number): string {
-  return LANGUAGE_STRINGS[id] ?? ''
+export function getLocaleStr(id: number, lang?: Language | null): string {
+  // the chosen language first, english underneath it. A `.language` library
+  // that has no word for an id returns NULL and locale.library falls back, so
+  // english is the floor rather than the alternative -- and in practice this
+  // only shows at id 51, LANG_NAME, which no v38 language file carries at all.
+  const own = lang?.strings[id]
+  return own !== undefined && own !== '' ? own : (LANGUAGE_STRINGS[id] ?? '')
 }
 
 /** `ConvToUpper` / `ConvToLower`, one character through the code table */
@@ -148,8 +154,8 @@ function printDigits(n: number, fill: string | null, len: number): string {
  * marks it "Unimplemented in 3.1", so %C loses that field on a real machine
  * too.
  */
-export function formatDate(fmt: string, t: Civil): string {
-  const rec = (f: string): string => formatDate(f, t)
+export function formatDate(fmt: string, t: Civil, lang?: Language | null): string {
+  const rec = (f: string): string => formatDate(f, t, lang)
   let out = ''
   for (let i = 0; i < fmt.length; i++) {
     if (fmt[i] !== '%') {
@@ -159,10 +165,10 @@ export function formatDate(fmt: string, t: Civil): string {
     const c = fmt[++i]
     if (c === undefined) break // a trailing '%' emits nothing (case 0)
     switch (c) {
-      case 'a': out += getLocaleStr(STR_ID.ABDAY_1 + t.weekday); break
-      case 'A': out += getLocaleStr(STR_ID.DAY_1 + t.weekday); break
-      case 'b': case 'h': out += getLocaleStr(STR_ID.ABMON_1 + t.month - 1); break
-      case 'B': out += getLocaleStr(STR_ID.MON_1 + t.month - 1); break
+      case 'a': out += getLocaleStr(STR_ID.ABDAY_1 + t.weekday, lang); break
+      case 'A': out += getLocaleStr(STR_ID.DAY_1 + t.weekday, lang); break
+      case 'b': case 'h': out += getLocaleStr(STR_ID.ABMON_1 + t.month - 1, lang); break
+      case 'B': out += getLocaleStr(STR_ID.MON_1 + t.month - 1, lang); break
       case 'c': out += rec('%a %b %d %H:%M:%S %Y'); break
       case 'C': out += rec('%a %b %e %T %Z %Y'); break
       case 'd': out += printDigits(t.day, '0', 2); break
@@ -174,7 +180,7 @@ export function formatDate(fmt: string, t: Civil): string {
       case 'm': out += printDigits(t.month, '0', 2); break
       case 'M': out += printDigits(t.min, '0', 2); break
       case 'n': out += '\n'; break
-      case 'p': out += getLocaleStr(t.hour < 12 ? STR_ID.AM_STR : STR_ID.PM_STR); break
+      case 'p': out += getLocaleStr(t.hour < 12 ? STR_ID.AM_STR : STR_ID.PM_STR, lang); break
       case 'q': out += printDigits(t.hour, null, 2); break
       case 'Q': out += printDigits(t.hour % 12, null, 2); break
       case 'r': out += rec('%I:%M:%S %p'); break

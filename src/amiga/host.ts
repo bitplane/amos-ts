@@ -20,6 +20,7 @@ import { dateToStamp, type DateStamp } from './datestamp'
 
 export type { DateStamp } from './datestamp'
 import type { ProcessHost } from './process'
+import type { Language } from './language'
 export type { ProcessHost, ExecuteRequest, LaunchRequest } from './process'
 
 /**
@@ -77,6 +78,27 @@ export const systemClock = (): Clock => ({
 })
 
 /**
+ * The language locale.library answers from, or `null` for english.
+ *
+ * A machine-level setting and not a per-program one, exactly like `clock`:
+ * on an Amiga it is Locale prefs, set once and read by everything. English is
+ * the default because it is the one language this port has WITHOUT a file --
+ * localelib.gen.ts carries it, extracted from AROS -- so a host that says
+ * nothing behaves as it always has.
+ *
+ * Deliberately a parsed `Language` and not a name or a path. Resolving
+ * "deutsch" to `LOCALE:Languages/deutsch.language` is the caller's business,
+ * the way choosing a clock is; this layer only needs the words. See
+ * ./language.ts for the reader.
+ *
+ * NOT taken from `navigator.language`, and that is the whole point of putting
+ * it here. host.ts exists so a census run is reproducible, and a date that
+ * moved with the machine running the suite would break exactly what this
+ * boundary protects. A user who wants their own locale sets it explicitly.
+ */
+export type { Language } from './language'
+
+/**
  * Why a capability is unavailable — the distinction the `n/a` classification
  * could not previously express.
  *
@@ -97,6 +119,11 @@ export interface Host {
   onText?: (text: string) => void
   /** wall-clock time; a real one by default, see defaultHost() */
   clock: Clock
+  /**
+   * the language locale.library answers from; english when absent, and never
+   * inferred from the browser — see the note above `Unavailable`
+   */
+  language?: Language | null
   /**
    * Printer sink. AMOS's Lprint/Ldir and JD's 63 Prt keywords write here.
    * Absent rather than impossible: there is no printer in a headless run,

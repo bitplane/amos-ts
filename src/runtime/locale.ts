@@ -97,6 +97,7 @@ import {
 
 export { parseCatalog } from '../amiga/localelib'
 import { openLibrary } from '../amiga/exec'
+import type { Language } from '../amiga/language'
 
 /**
  * `OpenLocale(NULL)` succeeded; the value only ever has to be non-zero.
@@ -238,7 +239,13 @@ export function makeLocaleFunctions(rt: Runtime): Record<string, Func> {
   }
 
   /** the date family: one formatter, six locale-supplied format strings */
-  const dated = (fmt: string): VSResult => VS(formatDate(fmt, now()))
+  /**
+   * The language the host was configured with, read at CALL time rather than
+   * captured: `Host.language` is machine-level state, like the clock, and a
+   * program that outlives a change to it should see the change.
+   */
+  const lang = (): Language | null => rt.host.language ?? null
+  const dated = (fmt: string): VSResult => VS(formatDate(fmt, now(), lang()))
 
   return {
     /**
@@ -275,34 +282,61 @@ export function makeLocaleFunctions(rt: Runtime): Record<string, Func> {
 
     /** =Locale String$(ID) — routine 6 ($53e), `GetLocaleStr` */
     'locale string$'(_, a) {
-      return VS(getLocaleStr(int(a[0] ?? VI(0))))
+      return VS(getLocaleStr(int(a[0] ?? VI(0)), lang()))
     },
 
     /** =Format Date$(FORMAT$) — routine 20 ($770) */
     'format date$'(_, a) {
-      return VS(formatDate(str(a[0] ?? VS('')), now()))
+      return VS(formatDate(str(a[0] ?? VS('')), now(), lang()))
     },
-    /** =Datetime$ — loc_DateTimeFormat, +$48 */
+    /**
+     * The six date keywords, which are one routine each and all fourteen bytes:
+     *
+     *     =Date$           routine 21 ($782)   loc_DateFormat          +$4c
+     *     =Time$           routine 22 ($790)   loc_TimeFormat          +$50
+     *     =Datetime$       routine 23 ($79e)   loc_DateTimeFormat      +$48
+     *     =Short Date$     routine 24 ($7ac)   loc_ShortDateFormat     +$58
+     *     =Short Time$     routine 25 ($7ba)   loc_ShortTimeFormat     +$5c
+     *     =Short Datetime$ routine 26 ($7c8)   loc_ShortDateTimeFormat +$54
+     *
+     * Each is the shared prologue, one `move.l $XX(a0),d3` picking a format
+     * template out of `struct Locale`, and a tail-call into routine 27. They
+     * pick the TEMPLATE; they do not format anything themselves.
+     *
+     * Routine 27 ($7d6) is where the work is, and it is worth writing down
+     * because it settles what these six answer with -- a formatted date, not
+     * the template they selected:
+     *
+     *     movea.l $2b8(a5), a6           DOSBase
+     *     move.l  $1f8(a5), d1
+     *     addi.w  #$10, d1               a DateStamp buffer in the ext's data
+     *     jsr     -$c0(a6)               DateStamp() -- the time NOW
+     *     movea.l $0(a3), a6             LocaleBase
+     *     movea.l d3, a1                 ...the template chosen above
+     *     movea.l $8(a3), a0             the Locale
+     *     movea.l $1c(a3), a3            the PutChar hook
+     *     jsr     -$3c(a6)               FormatDate()
+     *
+     * so every one of the six is "read the clock, format it with this field",
+     * which is exactly `dated`. The templates themselves are AROS-extracted
+     * (DEFAULT_FORMATS), because a Locale here is data rather than a struct at
+     * an address, and they move with Host.language like everything else.
+     */
     datetime$() {
       return dated(DEFAULT_FORMATS.dateTime)
     },
-    /** =Date$ — loc_DateFormat, +$4c ($788) */
     date$() {
       return dated(DEFAULT_FORMATS.date)
     },
-    /** =Time$ — loc_TimeFormat, +$50 */
     time$() {
       return dated(DEFAULT_FORMATS.time)
     },
-    /** =Short Datetime$ — loc_ShortDateTimeFormat, +$54 ($7ce) */
     'short datetime$'() {
       return dated(DEFAULT_FORMATS.shortDateTime)
     },
-    /** =Short Date$ — loc_ShortDateFormat, +$58 */
     'short date$'() {
       return dated(DEFAULT_FORMATS.shortDate)
     },
-    /** =Short Time$ — loc_ShortTimeFormat, +$5c */
     'short time$'() {
       return dated(DEFAULT_FORMATS.shortTime)
     },
