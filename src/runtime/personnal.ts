@@ -1586,12 +1586,37 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       s.mpBase = Runtime.PERSONNAL_BASE
     },
 
-    /** Mplot Save name$ (L97, +AMOSPro_Personnal.Lib.s:3847) — the header then count*6 bytes */
+    /**
+     * Mplot Save name$ (L97, +AMOSPro_Personnal.Lib.s:3847). It never sees its
+     * filename.
+     *
+     *     Move.l  (a3)+,a0        ; A0=Name Base
+     *     DLea    _MpBase,a0      ; ... and a0 is gone
+     *     Move.l  (a0),d0
+     *     Cmp.l   #$0,d0
+     *     Beq     NOMP
+     *     Clr.l   d0
+     *     Move.w  (a0)+,d0        ; D0=Name Length
+     *
+     * Aga Icon Save, which this is copied from, loads the base check into a2
+     * and keeps the name in a0 (:3544). Here the second DLea overwrites the
+     * argument, so the "name length" is the HIGH WORD of the _MpBase pointer
+     * and the name itself is read from the bytes of that pointer onward. Both
+     * shipped binaries do it — `movea.l (a3)+,a0 / movea.l $1b8(a5),a0 /
+     * lea $58(a0),a0` at $4b64 in 1.0b and $59e6 in 1.1 — and Mplot Load,
+     * fifty lines above, gets it right, so it is this routine alone.
+     *
+     * DEFECT: the file the program asked for is never written. A chip
+     * pointer's high word is almost always inside the 1..95 the length check
+     * allows, so the routine proceeds, opens a name made of binary junk, and
+     * ignores the failure — DosOpen's result goes straight into DosWrite as a
+     * handle without a test. Modelled as writing nothing. The error-11 arm
+     * for an unreserved bank is real and kept.
+     */
     'mplot save'(it) {
-      const name = it.evalStr()
+      void it.evalStr()
       const s = rt.personnal
       if (s.mplots === 0 || rt.personnalMem === null) err(11)
-      rt.vfs?.writeFile(name, rt.personnalMem!.subarray(0, s.mplots * 6 + 8))
     },
 
     /**

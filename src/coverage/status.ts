@@ -2982,6 +2982,8 @@ export const NOTES: Record<string, string> = {
     "1.1 defaults the variable to 0, which makes a plain Mplot Draw index _BitsPlanes[-1] — the longword at the base of the data bank, the ASCII \"Fred\". No shipped demo calls the keyword, so all of them take that path on 1.1. This port defaults it to 1 instead, because one handler serves both versions and 1.0b always starts at plane 0",
   'mplot load':
     'reads count*260 bytes into a buffer sized count*6+8 — 260 is the AGA icon stride and Mplot Save writes with 6. A copy-paste from the icon loader that only escapes overrunning because the file ends first',
+  'mplot save':
+    "never sees its filename. `Move.l (a3)+,a0` takes the name, then `DLea _MpBase,a0` overwrites a0 with the address of that variable, so the length comes from the HIGH WORD of the _MpBase pointer and the name from the pointer's own bytes. Aga Icon Save, which this is copied from, loads the base into a2 and keeps the name in a0 (:3544); Mplot Load fifty lines above is correct too, so it is this routine alone. Both binaries agree ($4b64 in 1.0b, $59e6 in 1.1). A chip pointer's high word is almost always inside the 1..95 the length check allows, so it proceeds, opens a name made of binary junk, and ignores the failure — DosOpen's result goes into DosWrite as a handle untested. Modelled as writing nothing, which is what a save-then-load round trip gets on a real machine; the error-11 arm for an unreserved bank is real and kept",
   'set deform value':
     'writes sixteen slots that nothing in the library ever reads — the only instructions touching the 1.1 data bank +\$70 are this write and its own bounds check',
   'iff convert':

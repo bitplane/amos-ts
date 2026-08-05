@@ -552,23 +552,35 @@ describe('Personnal: the Mplot range is exclusive, and the rest of batch 3', () 
     expect(leek(rt, at(3)) >>> 16).toBe(50) // the bound itself is untouched
   })
 
-  it('Mplot Save then Load round-trips the bank through the filesystem', () => {
-    const rt = run(
-      [
-        'Mplot Reserve 3',
-        'Mplot Define 1,11,22,3',
-        'Mplot Define 3,44,55,6',
-        'Mplot Save "RAM:pts.mp"',
-        'Mplot Erase',
-        'Mplot Load "RAM:pts.mp"',
-      ].join('\n'),
-      withRam(),
-    )
-    const s = rt.personnal
-    expect(s.mplots).toBe(3)
-    expect(leek(rt, s.mpBase)).toBe(0x462e4332) // the cookie came back
-    expect(leek(rt, s.mpBase + 8) >>> 16).toBe(11)
-    expect(leek(rt, s.mpBase + 8 + 12) >>> 16).toBe(44)
+  it('Mplot Save never writes the file it was given — Mplot Load reads one', () => {
+    // Routine 97 loads the name pointer into a0 and then overwrites a0 with
+    // the address of _MpBase, so its "name length" is the high word of that
+    // pointer and the name is the pointer's own bytes. Both binaries do it
+    // ($4b64 in 1.0b, $59e6 in 1.1); Aga Icon Save, which it is copied from,
+    // uses a2 for the base and gets it right. So a save-then-load round trip
+    // cannot work on a real machine either.
+    const fs = withRam()
+    expect(() =>
+      run(
+        ['Mplot Reserve 3', 'Mplot Define 1,11,22,3', 'Mplot Save "RAM:pts.mp"', 'Mplot Erase', 'Mplot Load "RAM:pts.mp"'].join('\n'),
+        fs,
+      ),
+    ).toThrow(/Fichier d'un format inconnu/) // nothing was written, so the load fails
+    expect(fs.readFile('RAM:pts.mp')).toBeNull()
+
+    // and an unreserved bank is still error 11, which is the routine's own
+    expect(() => run('Mplot Save "RAM:x.mp"', withRam())).toThrow(/Multi Plot bank non reservee/)
+
+    // Mplot Load itself is fine, against a bank this port writes by hand
+    const fs2 = withRam()
+    const bytes = new Uint8Array(3 * 6 + 8)
+    bytes.set([0x46, 0x2e, 0x43, 0x32, 0, 0, 0, 3])
+    bytes[8] = 0
+    bytes[9] = 11
+    const rt = run(['Mplot Load "RAM:hand.mp"'].join('\n'), (fs2.writeFile('RAM:hand.mp', bytes), fs2))
+    expect(rt.personnal.mplots).toBe(3)
+    expect(leek(rt, rt.personnal.mpBase)).toBe(0x462e4332)
+    expect(leek(rt, rt.personnal.mpBase + 8) >>> 16).toBe(11)
   })
 
   it('loading something that is not an Mplot file is ErrMess 10', () => {
