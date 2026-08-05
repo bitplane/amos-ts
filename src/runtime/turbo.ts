@@ -1456,6 +1456,11 @@ function sceneRestore(rt: Runtime, it: Interp): void {
  * reads zero past the end of the array.
  */
 function sceneIndex(d: Uint8Array, x: number, y: number): number {
+  // The bounds are `cmp.w d2,d0 / Rbhi` against the width word and `cmp.w
+  // (a0)+,d1 / Rbhi` against the height, in routines 98, 99, 100, 101, 106
+  // and 107 alike. `Rbhi` is strictly greater, so a coordinate EQUAL to the
+  // width or the height gets through and reads or writes one tile past that
+  // row — the far corner is inclusive by one. Reproduced.
   if (x < 0 || y < 0) funcCall()
   if ((x & 0xffff) > sceneW(d) || (y & 0xffff) > sceneH(d)) funcCall()
   return 4 + ((y & 0xffff) * sceneW(d) + (x & 0xffff)) * 2
@@ -2469,6 +2474,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
     // ---- scenes ----
 
     'reserve scene'(it) {
+      // routine 158 ($4de4)
       // Reserve Scene BANKNR,WIDTH,HEIGHT — routine 158. WIDTH*HEIGHT words
       // and a four-byte header, reserved under the name "Scenery " so that
       // "the Listbank command will display the type of the bank as Scenery".
@@ -2486,6 +2492,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       setTileAt(d, 2, height)
     },
     'scene bank'(it) {
+      // routine 97 ($3734)
       // "Make sure you have both a scene bank and icon bank in memory or
       // this command will return a Bank Not Reserved error" — it resolves
       // the icon bank as well as the scene bank, so the icon bank's absence
@@ -2497,6 +2504,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       rt.turbo.scene.bank = n
     },
     'scene icon bank'(it) {
+      // routine 148 ($4ad2)
       // The number is stored before it is validated, so a rejected bank
       // still replaces the setting and the next Scene Bank fails too.
       const n = it.evalInt()
@@ -2504,6 +2512,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       sceneIcons(rt, n)
     },
     'scene load'(it) {
+      // routine 139 ($480a)
       // Scene Load "file",bank — routine 314. It reserves a bank the size of
       // the file and reads the lot: no header is parsed and nothing is
       // converted, so "this command is able to cope with both 'BYTE' and
@@ -2520,6 +2529,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       rt.memBanks.get(n)!.data.set(bytes)
     },
     'scene convert'(it) {
+      // routine 160 ($4e98)
       // Scene Convert BANK_FROM To BANK_TO — routine 160, the V1.0 byte
       // format widened to words. It reserves BANK_TO itself at the source's
       // dimensions and copies width*height bytes across.
@@ -2540,6 +2550,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       for (let i = 0; i < width * height; i++) setTileAt(d, 4 + i * 2, src.data[4 + i] ?? 0)
     },
     'scene change'(it) {
+      // routine 100 ($37e6)
       // Scene Change x,y,v — scene coordinates straight into the bank
       const x = it.evalInt()
       it.expect(',')
@@ -2548,51 +2559,71 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       const v = it.evalInt()
       setTileAt(sceneData(rt), sceneIndex(sceneData(rt), x, y), v)
     },
+    /**
+     * Scene 16 Change and Scene 32 Change — routines 101 ($3816) and 107
+     * ($3d98), which are Scene Change with one `lsr.w #$4` or `lsr.w #$5` in
+     * front of the same bounds and the same word write.
+     */
     'scene 16 change': sceneChange(rt, 4),
     'scene 32 change': sceneChange(rt, 5),
     'scene 16 draw'(it) {
+      // routine 102 ($384a)
       sceneDraw(rt, it, false)
     },
     'scene 32 draw'(it) {
+      // routine 108 ($3dcc)
       sceneDraw(rt, it, true)
     },
     'scene 16 view'(it) {
+      // routine 109 ($3fd6)
       sceneView(rt, it, false)
     },
     'scene 32 view'(it) {
+      // routine 110 ($4088)
       sceneView(rt, it, true)
     },
     'scene 16 do'(it) {
+      // routine 111 ($413a)
       sceneViewEdge(rt, it, false, '')
     },
     'scene 32 do'(it) {
+      // routine 112 ($4150)
       sceneViewEdge(rt, it, true, '')
     },
     'scene 16 top'(it) {
+      // routine 113 ($4166)
       sceneViewEdge(rt, it, false, 't')
     },
     'scene 32 top'(it) {
+      // routine 114 ($417e)
       sceneViewEdge(rt, it, true, 't')
     },
     'scene 16 bottom'(it) {
+      // routine 115 ($4196)
       sceneViewEdge(rt, it, false, 'b')
     },
     'scene 32 bottom'(it) {
+      // routine 116 ($41be)
       sceneViewEdge(rt, it, true, 'b')
     },
     'scene 16 left'(it) {
+      // routine 117 ($41e6)
       sceneViewEdge(rt, it, false, 'l')
     },
     'scene 32 left'(it) {
+      // routine 118 ($41fe)
       sceneViewEdge(rt, it, true, 'l')
     },
     'scene 16 right'(it) {
+      // routine 119 ($4216)
       sceneViewEdge(rt, it, false, 'r')
     },
     'scene 32 right'(it) {
+      // routine 120 ($423e)
       sceneViewEdge(rt, it, true, 'r')
     },
     'scene 16 limit'(it) {
+      // routine 105 ($3cda)
       // "X is the amount of definitions. When X is set to zero, the memory
       // is given back to the system." 78 bytes each, AllocMem'd cleared.
       const n = it.evalInt()
@@ -2608,12 +2639,15 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       sc.defs = Array.from({ length: n }, () => null)
     },
     'scene 16 def'(it) {
+      // routine 103 ($3a42)
       sceneDef(rt, it)
     },
     'scene 16 restore'(it) {
+      // routine 104 ($3b58)
       sceneRestore(rt, it)
     },
     'scene replace'(it) {
+      // routine 161 ($4ed8)
       // Scene Replace SC_BNK,XSTART,YSTART,XAMOUNT,YAMOUNT,IC_SEARCH,
       // IC_REPLACE — "a SUPERFAST search and replace" over a rectangle,
       // on a named bank rather than the Scene Bank one.
@@ -2643,6 +2677,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     'scene fill'(it) {
+      // routine 157 ($4d74)
       // Scene Fill BANK,SCENEX,SCENEY,AMOUNTX,AMOUNTY,VALUE
       const bank = it.evalInt()
       it.expect(',')
@@ -2663,6 +2698,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) setTileAt(b.data, off + r * srb + c * 2, v)
     },
     'scene copy'(it) {
+      // routine 156 ($4cba)
       // Scene Copy BANK_FROM,SCENEX,SCENEY,AMOUNTX,AMOUNTY To BANK_TO,
       // SCENEX,SCENEY. "The Scene Banks may have different width and
       // height, everything is checked for" — the rectangle is clipped
@@ -2701,12 +2737,14 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
     'scene mask palette'(it) {
+      // routine 152 ($4ba6)
       // "Each BIT represents a colour. If a bit is set, the screen color
       // will be replaced by the Scene Icon Bank color upon execution of the
       // Scene Palette command."
       rt.turbo.scene.maskPalette = it.evalInt()
     },
     'scene palette'(it) {
+      // routine 151 ($4b3a)
       // Scene Palette X — routine 151. It builds all 32 entries, writing
       // $FFFF (AMOS's "leave this one alone") wherever the mask bit is
       // clear, and hands the lot to the palette-setting routine. Created
@@ -2728,6 +2766,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
     // ---- the background loader ----
 
     'multi bload'(it) {
+      // routine 172 ($5082)
       // Multi Bload "file","bankname",bank — undocumented, and the only
       // keyword in the extension that is genuinely concurrent: it CreateProc()s
       // an AmigaDOS process (up to five at once) which opens the file,
@@ -2843,12 +2882,15 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       if (!bob) return VI(0)
       return VI(checkHit(rt, s!, e!, bob.x + dx!, bob.y + dy!))
     },
-    // Lsl.b, Lsl.w, Lsl.l, Lsr.b, Lsr.w and Lsr.l — routines 4 to 9 ($f82,
-    // $f8c, $f96, $fa0, $faa, $fb4) — are ten bytes each and identical but for
-    // the instruction: pop the count into d0, pop the value into d3, one
-    // `lsl`/`lsr` of the stated size, and return d3. The shift is on a register the routine does not otherwise
-    // touch, so a byte shift leaves the top 24 bits of the value exactly as
-    // they were. "A=Lsl.b(5,1) gives A=10".
+    /**
+     * Lsl.b, Lsl.w, Lsl.l, Lsr.b, Lsr.w and Lsr.l — routines 4 to 9 ($f82,
+     * $f8c, $f96, $fa0, $faa, $fb4) — are ten bytes each and identical but
+     * for the instruction: pop the count into d0, pop the value into d3, one
+     * `lsl`/`lsr` of the stated size, and return d3. The shift is on a
+     * register the routine does not otherwise touch, so a byte shift leaves
+     * the top 24 bits of the value exactly as they were. "A=Lsl.b(5,1) gives
+     * A=10".
+     */
     'lsl.b': (_, a) => VI(shiftOp(a, 8, false)),
     'lsl.w': (_, a) => VI(shiftOp(a, 16, false)),
     'lsl.l': (_, a) => VI(shiftOp(a, 32, false)),
@@ -3163,29 +3205,36 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
     // ---- scenes ----
 
     'scene x'(_) {
+      // routine 123 ($45de)
       // width and height straight out of the bank header. Neither checks
       // that a Scene Bank was ever set — with the pointer still zero they
       // read low memory; here they say so.
       return VI(sceneW(sceneData(rt)))
     },
     'scene y'(_) {
+      // routine 124 ($45ee)
       return VI(sceneH(sceneData(rt)))
     },
     'scene check'(_, a) {
+      // routine 98 ($377e)
       // "Returns Icon number in the scene at scene coordinates X,Y, minus 1"
       const d = sceneData(rt)
       return VI(tileAt(d, sceneIndex(d, int(a[0] ?? VI(0)), int(a[1] ?? VI(0)))))
     },
     'scene 16 check'(_, a) {
+      // routine 99 ($37b0)
       return VI(sceneCheckScreen(rt, a, 4))
     },
     'scene 32 check'(_, a) {
+      // routine 106 ($3d62)
       return VI(sceneCheckScreen(rt, a, 5))
     },
     'scene scan x'(_, a) {
+      // routine 154 ($4bb8)
       return VI(sceneScan(rt, a, false))
     },
     'scene scan y'(_, a) {
+      // routine 155 ($4c38)
       return VI(sceneScan(rt, a, true))
     },
     'multi bl ended'(_) {
