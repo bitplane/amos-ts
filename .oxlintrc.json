@@ -14,7 +14,10 @@
     "no-control-regex": "off",
     "no-useless-escape": "off",
     "no-shadow": "off",
-    "no-underscore-dangle": "off"
+    "no-underscore-dangle": "off",
+    // fired 8 times, wrong 8 times: cursors, streams and poll loops, where
+    // the next item does not exist until the current one resolves
+    "no-await-in-loop": "off"
   },
   "ignorePatterns": ["dist", "dist-web", "fixtures", "**/*.gen.ts"]
 }
