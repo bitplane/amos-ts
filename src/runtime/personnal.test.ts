@@ -107,6 +107,27 @@ describe('Personnal: building the copper list (L26/L10, +AMOSPro_Personnal.Lib.s
     expect(s.bplPtBase - s.colorBase).toBe(16 * 33 * 4 + 8)
   })
 
+  it('Create Aga starts at eight planes where Create Standard starts at one', () => {
+    // The two builders differ in more than the colour block, and the rest is
+    // easy to miss because they are otherwise line-for-line the same:
+    // BPLCON0 $0010 (BPU3) against $1000 (BPU=1), BPLCON2 $0224 (KILLEHB)
+    // against $0024, BPLCON3 $1000 against $0c00 (:640 against :1065).
+    const rt = run(withBank(['Create Aga A']))
+    const s = rt.personnal
+    expect(leek(rt, s.bplConBase)).toBe(0x01000010)
+    expect(leek(rt, s.bplConBase + 4)).toBe(0x01020000)
+    expect(leek(rt, s.bplConBase + 8)).toBe(0x01040224)
+    expect(leek(rt, s.bplConBase + 12)).toBe(0x01061000)
+    // and the tail: after WAIT $32 / DMACON on comes one more WAIT, for line
+    // $31 — BEHIND the $32 just waited for (:647) — and the list ends without
+    // the BPLCON3 = 0 Create Standard writes back "for AMOS" (:1077)
+    expect(leek(rt, s.bplConBase + 16)).toBe(0x3203fffe)
+    expect(leek(rt, s.bplConBase + 20)).toBe(0x00968300)
+    expect(leek(rt, s.bplConBase + 24)).toBe(0x3103fffe)
+    expect(s.currentLine).toBe(s.bplConBase + 28)
+    expect(leek(rt, s.currentLine + 12)).toBe(0xfffffffe)
+  })
+
   it('Create Standard has no complement block at all', () => {
     const rt = run(withBank(['Create Standard A']))
     expect(rt.personnal.colorBase2).toBe(0)
@@ -679,15 +700,17 @@ describe('Personnal: colour (L12/L18/L13/L22)', () => {
     expect(leek(aga, b1 + 4) & 0xffff).toBe(0x123)
   })
 
-  it('Set Color() reads the shadow, which Set Color does not fill', () => {
-    // L18 (:810) reads _AgaPalette; L12 writes only the list. So a colour set
-    // through Set Color reads back as 0, and a bad register as -1. The
-    // library's own asymmetry, kept.
+  it('Set Color() is dispatched to Set Ntsc, not to the palette reader', () => {
+    // The token table's function field is 1 (both binaries), and routine 1 is
+    // L1 falling through into L3 — `Move.w #$0000,$DFF1DC`. So the register
+    // number is ignored, the answer is not a colour, and BEAMCON0 goes to 0.
+    // L18, the reader the author meant, is unreachable.
     let out = ''
-    const src = [...bank, 'Create Standard A', 'Set Color 3,15,8,1', 'Print Set Color(3);Set Color(99)'].join('\n')
+    const src = [...bank, 'Create Standard A', 'Set Pal', 'Set Color 3,15,8,1', 'Print Set Color(3);Set Color(99)'].join('\n')
     const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, onText: (t) => (out += t) })
     rt.runHeadless(200)
-    expect(out).toBe(' 0-1\n') // 0 from the empty shadow, -1 for 99 on a non-Aga list
+    expect(out).toBe(' 0 0\n')
+    expect(rt.beamcon0).toBe(0x0000) // Set Pal undone by reading a "colour"
   })
 
   it('New Color Value appends a COLOR move at the current line', () => {

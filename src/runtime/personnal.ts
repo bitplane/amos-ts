@@ -127,8 +127,6 @@ export interface PersonnalState {
   doubleCopper: number
   /** _CurrentPal — the AGA colour bank the appended moves are in */
   currentPal: number
-  /** _AgaPalette — the 256-entry shadow Set Color(n) reads back from */
-  agaPalette: number[]
   /** _ColorBase2 — the LOCT block Set Aga Color puts low nibbles in */
   colorBase2: number
   /** _2pal — the second screen's own 32 colours */
@@ -187,7 +185,6 @@ export function newPersonnalState(): PersonnalState {
     mpBase: 0,
     doubleCopper: 0,
     currentPal: 0,
-    agaPalette: new Array(256).fill(0),
     colorBase2: 0,
     pal2: 0,
     bpl2: 0,
@@ -236,12 +233,29 @@ function putW(rt: Runtime, addr: number, v: number): void {
 }
 
 /**
- * Create Standard addr (L26, :1008) and Create Aga addr (L10, :566).
+ * Create Standard addr (L26, +AMOSPro_Personnal.Lib.s:1008) and Create Aga
+ * addr (L10, +AMOSPro_Personnal.Lib.s:566).
  *
- * The two builders are the same list except for the colour block: Standard
- * writes one bank of 32 COLOR moves, Aga writes eight, each preceded by a
- * BPLCON3 bank select ($0106, +$2000 a bank) — which is how AGA addresses
- * 256 colours through 32 registers.
+ * The colour block is the difference the name advertises: Standard writes one
+ * bank of 32 COLOR moves, Aga writes eight, each preceded by a BPLCON3 bank
+ * select ($0106, +$2000 a bank) — which is how AGA addresses 256 colours
+ * through 32 registers — and then eight more behind LOCT.
+ *
+ * It is not the only difference, though, and the rest are easy to miss because
+ * the two routines are otherwise line-for-line the same. The four BPLCON
+ * defaults differ, and so does the tail:
+ *
+ *              Create Standard (:1065)   Create Aga (:640)
+ *   BPLCON0    $1000  BPU=1              $0010  BPU3 — eight planes
+ *   BPLCON1    $0000                     $0000
+ *   BPLCON2    $0024                     $0224  KILLEHB
+ *   BPLCON3    $0c00                     $1000
+ *
+ * and after the WAIT $32 / DMACON pair, Aga emits one more WAIT — for line
+ * $31, which is BEHIND the $32 just waited for (:647) — before _CurrentLine,
+ * and ends without the `BPLCON3 = 0` that Standard writes back "for AMOS"
+ * (:1077). So a program that builds an Aga list gets eight planes and a
+ * killed EHB before it sets anything, where a Standard list starts at one.
  */
 function buildList(rt: Runtime, addr: number, aga: boolean): void {
   if (addr === 0) err(0)
@@ -296,18 +310,26 @@ function buildList(rt: Runtime, addr: number, aga: boolean): void {
   put(0x0098ffc0) // CLXCON
 
   s.bplConBase = p
-  put(0x01001000) // BPLCON0 — one plane
-  put(0x01020000) // BPLCON1
-  put(0x01040024) // BPLCON2
-  put(0x01060c00) // BPLCON3 — $c00 for the PAL second field
+  if (aga) {
+    put(0x01000010) // BPLCON0 — BPU3, eight planes
+    put(0x01020000) // BPLCON1
+    put(0x01040224) // BPLCON2 — KILLEHB
+    put(0x01061000) // BPLCON3 — $1000 for the second playfield's palette
+  } else {
+    put(0x01001000) // BPLCON0 — one plane
+    put(0x01020000) // BPLCON1
+    put(0x01040024) // BPLCON2
+    put(0x01060c00) // BPLCON3 — $c00 for the PAL second field
+  }
 
   put(0x3203fffe) // WAIT line $32
   put(0x00968300) // DMACON: bitplane DMA back on
+  if (aga) put(0x3103fffe) // and a WAIT for $31, already behind us (:647)
   s.currentLine = p
   put(0xf203fffe) // WAIT line $F2
   put(0x00960100) // off again below the display
   put(0xf303fffe) // WAIT line $F3
-  put(0x01060000) // BPLCON3 back to AMOS's default
+  if (!aga) put(0x01060000) // BPLCON3 back to AMOS's default — Standard only
   put(0xfffffffe) // end
 
   s.line = 0x32
@@ -1119,7 +1141,7 @@ function clxBit(rt: Runtime, bit: number | null): number {
 /** Shared by the two palette-to-copper keywords (_bi1 :2936, _bj1 :2980). */
 function cmapToCopper(rt: Runtime, n: number, src: number, eightBit: boolean): void {
   const s = rt.personnal
-  if (s.colorBase === 0) err(1)
+  // no _ColorBase check here either — see Change Palette
   let a = s.colorBase
   let p = src
   for (let i = 0; i < n; i++) {
@@ -1705,7 +1727,9 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       if (s.doubleCopper !== 0) return
       if (s.copperBase === 0) err(1)
       if (reg < 0 || reg > 255) err(2)
-      const rgb = ((r << 8) | (g << 4) | b) & 0xffff
+      // ADD, where Set Color ORs (:927 against :678) — a channel above 15
+      // therefore carries into the one above it rather than overlaying it
+      const rgb = ((r << 8) + (g << 4) + b) & 0xffff
       const bank = reg >> 5
       let p = s.currentLine
       if (bank !== s.currentPal) {
@@ -1741,7 +1765,10 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
         const reg = getW(rt, a)
         const val = getW(rt, a + 2)
         if (reg >= 0x0180 && reg <= 0x01be) {
-          let red = val & 0xf00
+          // d2 is (value>>8)<<8, so the top nibble rides along with red rather
+          // than being masked off (:717) — it only shows on a value word a
+          // program poked above $0fff, but that is what the routine does
+          let red = val & 0xff00
           let green = val & 0x0f0
           const blue = val & 0x00f
           if (red !== 0) red -= 0x100
@@ -1782,8 +1809,11 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       const s = rt.personnal
       if (s.colorBase === 0) err(1)
       if (reg < 1) return // the source would spin; see above
-      const hi = (((r >> 4) & 15) << 8) | (((g >> 4) & 15) << 4) | ((b >> 4) & 15)
-      const lo = ((r & 15) << 8) | ((g & 15) << 4) | (b & 15)
+      // no masking on the way in, only the Move.w at the end (:3161): the
+      // channels are shifted into place and OR-ed, so a channel above 255
+      // spills upward before the word truncates it
+      const hi = (((((r >> 4) << 4) | (g >> 4)) << 4) | (b >> 4)) & 0xffff
+      const lo = ((((r & 15) << 4) | (g & 15)) << 4) | (b & 15)
       let a = s.colorBase
       for (let n = reg; ; ) {
         if (getW(rt, a) === 0x0106) a += 4
@@ -1796,16 +1826,22 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Change Palette n,addr (L72, :2916). Copies n ready-made RGB4 words
-     * straight into the colour block, stepping over bank selects as the
-     * colour keywords do.
+     * Change Palette n,addr (L72, +AMOSPro_Personnal.Lib.s:2916). Copies n
+     * ready-made RGB4 words straight into the colour block, stepping over
+     * bank selects as the colour keywords do.
+     *
+     * The three palette-block keywords — this, and the two Palette To Copper
+     * forms — read _ColorBase without checking it, unlike every keyword that
+     * patches the list by name. With no list built they write from address 0
+     * onward, which on the Amiga walks over the exception vectors. Here that
+     * lands outside any mapped region and is dropped; nothing is raised,
+     * because the library raises nothing.
      */
     'change palette'(it) {
       const n = it.evalInt()
       it.expect(',')
       let src = it.evalInt()
       const s = rt.personnal
-      if (s.colorBase === 0) err(1)
       let a = s.colorBase
       for (let i = 0; i < n; i++) {
         if (getW(rt, a) === 0x0106) a += 4
@@ -1849,11 +1885,16 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       let src = it.evalInt()
       it.expect(',')
       let dst = it.evalInt()
+      // Cmp.b / Blt (:3018) — a SIGNED byte compare, so a channel of 128 or
+      // more reads as negative and steps the wrong way. Invisible on the
+      // 0..15 palettes the neighbouring keywords produce, which is presumably
+      // why it survived.
+      const sb = (v: number): number => (v << 24) >> 24
       for (let i = 0; i < n; i++) {
         for (let c = 0; c < 3; c++) {
           const from = getB(rt, src + c)
-          const to = getB(rt, dst + c)
-          putB(rt, src + c, from < to ? from + 1 : from > to ? from - 1 : from)
+          const to = sb(getB(rt, dst + c))
+          putB(rt, src + c, sb(from) < to ? from + 1 : sb(from) > to ? from - 1 : from)
         }
         src += 3
         dst += 3
@@ -2588,21 +2629,34 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * Set Color(n) (L18, :810). Reads the _AgaPalette shadow, not the list,
-     * and answers -1 for a register out of range — 0..255 on an Aga list,
-     * 0..31 otherwise.
+     * Set Color(n) — the FUNCTION form, and it does not read a colour.
      *
-     * Note the asymmetry: the shadow is filled by the AGA colour keywords in
-     * this batch's second half, NOT by `Set Color reg,r,g,b`, which writes
-     * only the copper list. Reading back a colour set that way answers 0.
-     * That is the library's behaviour, not an omission here.
+     * The palette reader the author wrote is at L18
+     * (+AMOSPro_Personnal.Lib.s:810): it indexes the _AgaPalette shadow,
+     * bounds the register at 255, or at 31 when the list is not an Aga one,
+     * and answers -1 outside that. Nothing reaches it. Its label says
+     *
+     *     L_COLORREAD		Equ	1
+     *
+     * where every other label in the file names the routine it sits above,
+     * so the token table's function field for `set color` is 1, not 18 —
+     * and routine 1 is `L1`, a bare label that falls through `L2` into L3,
+     * `Move.w #$0000,$DFF1DC / Rts`. That is Set Ntsc's body. Both shipped
+     * binaries agree, 1.0b and 1.1 alike (`{"name":"set color","spec":"00",
+     * "func":1}` in each), so this is what the library does, not what one
+     * listing says.
+     *
+     * DEFECT: reading a colour back switches the display to NTSC and answers
+     * nothing in particular. The routine never touches d3, so the value AMOS
+     * takes as the result is whatever the previous call left there; 0 stands
+     * in for it here because an emulator has to answer something. It also
+     * never pops its parameter, which on the Amiga leaves AMOS's expression
+     * stack four bytes high — that has no analogue here, where arguments
+     * arrive already evaluated.
      */
-    'set color'(_, a): Value {
-      const n = int(a[0]!)
-      const s = rt.personnal
-      if (n < 0 || n > 255) return VI(-1)
-      if (s.aga === 0 && n > 31) return VI(-1)
-      return VI(s.agaPalette[n] ?? 0)
+    'set color'(): Value {
+      rt.beamcon0 = 0x0000
+      return VI(0)
     },
 
     /**

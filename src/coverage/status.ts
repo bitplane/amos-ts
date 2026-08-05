@@ -2935,6 +2935,18 @@ export const NOTES: Record<string, string> = {
     "Personnal's own, registered under its slot (`ext13:sprite col`) because core owns the plain name and asks a different question of different arguments — core's `Sprite Col(n[,first[,last]])` really checks a sprite against a range. Personnal's maps the PAIR onto one CLXDAT bit and answers -1 when it is clear, which is always, since nothing writes CLXDAT here. A program that bound Personnal at any other slot falls back to core's",
   'right click':
     "Personnal's is registered under its slot too, though TURBO Plus's reads the same button (POTGOR bit 10, DATLY, port 0 pin 9) to the same answer — the agreement is a fact about the two libraries rather than something to depend on",
+  'set color':
+    "the FUNCTION form does not read a colour. Its label is `L_COLORREAD Equ 1` where every other label in the file names the routine below it, so the token table's function field is 1, not the 18 the palette reader sits at — and routine 1 is a bare `L1` falling through `L2` into L3, `Move.w #\$0000,\$DFF1DC / Rts`, which is Set Ntsc's body. Both shipped binaries agree, 1.0b and 1.1. So reading a colour back switches the display to NTSC and answers whatever d3 held; 0 stands in for that here, because an emulator has to answer something. The routine never pops its parameter either, which on the Amiga leaves AMOS's expression stack four bytes high — no analogue here. _AgaPalette, the 256-longword shadow the dead reader indexes, is written by nothing in the library, so this port no longer keeps it. The INSTRUCTION form, `Set Color reg,r,g,b`, is routine 12 and is fine",
+  'create aga':
+    'differs from Create Standard in more than the colour block, which is easy to miss because the two routines are otherwise line-for-line the same. BPLCON0 starts at \$0010 — BPU3, eight planes — against Standard\'s \$1000, BPLCON2 at \$0224 (KILLEHB) against \$0024, BPLCON3 at \$1000 against \$0c00. Its tail emits one more WAIT after the WAIT \$32 / DMACON pair, for line \$31, which is BEHIND the line just waited for; and it ends without the `BPLCON3 = 0` Standard writes back "for AMOS". An earlier pass gave both builders Standard\'s registers',
+  'change palette':
+    'reads _ColorBase without checking it, unlike every keyword that patches the list by name — with no list built it writes from address 0 onward, over the exception vectors. Those addresses are outside any mapped region here and the writes are dropped; nothing is raised, because the library raises nothing',
+  'iff8bits palette to copper': 'the same unchecked _ColorBase as Change Palette',
+  'iff4bits palette to copper': 'the same unchecked _ColorBase as Change Palette, and no mask on the way in, so a 4-bit CMAP byte above 15 bleeds into the channel above it',
+  'fade palette':
+    'steps each channel with a SIGNED byte compare (`Cmp.b` / `Blt`), so a channel of 128 or more reads as negative and moves away from its target rather than towards it. Invisible on the 0..15 palettes the neighbouring keywords produce, which is presumably why it survived',
+  'new color value':
+    'packs the channels with ADD where Set Color ORs, so a channel above 15 carries into the one above it instead of overlaying it',
   'playfields col':
     'answers -1 when the CLXDAT bit is CLEAR, the opposite of what the name suggests (Btst sets Z on a zero bit and the Bne skips the -1); and there is no collision hardware here, so CLXDAT reads 0 and it always answers -1',
   'pf sprites col': 'the same inverted test as Playfields Col, and the same always--1 answer for want of CLXDAT',
