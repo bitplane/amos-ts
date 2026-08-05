@@ -209,7 +209,7 @@ per keyword.
 | `fileid-1.0` | FileID | source | 6 | — | — |
 | `amospro-compact-2.0` | Compact | source | 3 | 2 | stock, slot 2 |
 | `amospro-request-2.0` | Request | source | 3 | 3 | stock, slot 3 |
-| `personnal-extra-1.3` | Personnal EXTRA | source | 2 | — | — |
+| `personnal-extra-1.0a` | Personnal EXTRA | source | 2 | — | — |
 | `os-devkit-1.61` | OS-DevKit | disassembly | 1047 | 20 | recommends 20 |
 | `amcaf-1.50` | AMCAF | disassembly | 280 | — | recommends 8 |
 | `amcaf-1.40` | AMCAF | disassembly | 268 | — | — |

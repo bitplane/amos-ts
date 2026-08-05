@@ -394,8 +394,8 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/jdk3.test.ts': ['jd-k3-1.1'],
   'src/runtime/jdprt.ts': ['jd-prt-1.4', 'jd-prt-1.3', 'jd-prt-1.1'],
   'src/runtime/jvp.ts': ['jvp-1.01'],
-  'src/runtime/personnal.ts': ['personnal-1.1', 'personal-1.0b', 'personnal-extra-1.3'],
-  'src/runtime/personnal.test.ts': ['personnal-1.1', 'personal-1.0b', 'personnal-extra-1.3'],
+  'src/runtime/personnal.ts': ['personnal-1.1', 'personal-1.0b', 'personnal-extra-1.0a'],
+  'src/runtime/personnal.test.ts': ['personnal-1.1', 'personal-1.0b', 'personnal-extra-1.0a'],
   'src/runtime/td.ts': ['amos3d-1.0'],
   'src/runtime/ioports.ts': ['serial-1.2'],
 }
