@@ -1,6 +1,21 @@
 /**
  * The synthesized address space, as a registry of regions.
  *
+ * This is the ONE path by which an address becomes a buffer and an offset.
+ * Every keyword in every extension that takes an address -- and there are
+ * eighty-odd call sites across twelve files -- reaches it through
+ * `Runtime.resolveAddr` or `resolveWrite`, which are two lines each over
+ * `resolveInto`, which is `findRegion` over the single `memRegions` table.
+ * Nothing else resolves an address, and a port that tried to would have no
+ * way to see the screen mirrors or the bank scan.
+ *
+ * It lives in src/amiga rather than src/runtime because there is no AMOS in
+ * it: a region table, a lookup and an overlap invariant, with no imports at
+ * all. The REGIONS are AMOS's and stay in runtime.ts, handed in as data --
+ * the same split as Volume and AmosFS. If a real memory model ever replaces
+ * the synthesized map, this is the file it replaces, and the layer test is
+ * what keeps it from growing a dependency on its own caller in the meantime.
+ *
  * A real AMOS program reaches things by address: Peek/Poke, Leek/Loke,
  * `Bload ...,Font Data`, `Cop Logic` patching, `Varptr`, `Screen Base`. The
  * port has no flat 68k memory to hand them, so it maps each thing a program

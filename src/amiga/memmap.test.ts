@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
-import { Runtime } from './runtime'
+import { Runtime } from '../runtime/runtime'
 import { findRegion, regionOverlaps, type MemRegion } from './memmap'
 
 const table = new TokenTable(CORE_TOKENS)
