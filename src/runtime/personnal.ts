@@ -417,7 +417,7 @@ function appendWait(rt: Runtime, s: PersonnalState, line: number, hb: number): v
 }
 
 /**
- * The Mplot plotting engine (L100, :3937), shared with the two dual-playfield
+ * The Mplot plotting engine (L100, +AMOSPro_Personnal.Lib.s:3937), shared with the two dual-playfield
  * forms. `start` and `stride` choose which of _BitsPlanes it walks.
  */
 function mplotDraw(rt: Runtime, it: { evalInt(): number; expect(t: string): void }, start: number, stride: number): void {
@@ -465,7 +465,7 @@ const MOSAIC_MASK: Record<number, number> = {
 }
 
 /**
- * Mosaic X2/X4/X8/X16/X32 base (L32-L36, :1316/:1373/:1444/:1517/:1591).
+ * Mosaic X2/X4/X8/X16/X32 base (L32-L36, +AMOSPro_Personnal.Lib.s:1316/:1373/:1444/:1516/:1588).
  * Five copies of one routine at five scales, pixellating a screen in place.
  *
  * The argument is a screen control block — the demos pass `Screen Base`. The
@@ -559,7 +559,7 @@ const wrL = (v: Uint8Array, i: number, x: number): void => {
  */
 
 /**
- * Double Mask mask To s1,s2 (L53, :2180) and its Y-limited form (L54, :2264).
+ * Double Mask mask To s1,s2 (L53, +AMOSPro_Personnal.Lib.s:2180) and its Y-limited form (L54, +AMOSPro_Personnal.Lib.s:2264).
  *
  * The CPU half of the pair: `(mask AND s1) OR (NOT mask AND s2)` a longword at
  * a time, written back over s2. Geometry comes from the MASK screen's control
@@ -607,7 +607,7 @@ function doubleMask(rt: Runtime, mask: number, s1: number, s2: number, yStart: n
 }
 
 /**
- * Blit Mask fore,mask,back To target (L59, :2480) and L Blit Mask (L60, :2571).
+ * Blit Mask fore,mask,back To target (L59, +AMOSPro_Personnal.Lib.s:2480) and L Blit Mask (L60, +AMOSPro_Personnal.Lib.s:2571).
  *
  * The blitter half. A is the first screen, B the mask, C the third and D the
  * target, with BLTCON0 = $0F98 — all four channels on, minterm $98. That
@@ -665,7 +665,7 @@ function blitMask(
 }
 
 /**
- * S32 Block To Screen (L83, :3237) and S32 Vertice To Screen (L84, :3281).
+ * S32 Block To Screen (L83, +AMOSPro_Personnal.Lib.s:3237) and S32 Vertice To Screen (L84, +AMOSPro_Personnal.Lib.s:3281).
  *
  * Both walk up to six planes in place, and both do the same thing to a row:
  * take its leftmost longword and repeat it across the whole row, so 32 pixels
@@ -714,7 +714,7 @@ function s32Expand(rt: Runtime, base: number, tile: boolean): void {
 
 /**
  * Blitter Clear base (routine 113) and Blitter Copy source To target
- * (L82, :3183). Both walk up to six planes of a screen with the blitter and
+ * (L82, +AMOSPro_Personnal.Lib.s:3183). Both walk up to six planes of a screen with the blitter and
  * both take their size from EcTx/EcTy of the screen they are handed.
  *
  * Clear sets BLTCON0 to $0100 — D alone, minterm 0 — which writes zeros; it is
@@ -752,7 +752,7 @@ function blitPlanes(rt: Runtime, src: number, dst: number, geom: number, copy: b
 }
 
 /**
- * Low Filter.b/.w/.l value To start,end (L62/L63/L64, :2677/:2690/:2703).
+ * Low Filter.b/.w/.l value To start,end (L62/L63/L64, +AMOSPro_Personnal.Lib.s:2677/:2690/:2703).
  * A ceiling: anything that compares greater than or equal to `value` is
  * replaced by it, signed, element by element.
  *
@@ -781,7 +781,7 @@ function lowFilter(rt: Runtime, value: number, start: number, end: number, size:
 }
 
 /**
- * Get Even Sprite / Get Odd Sprite base,n,x,y To lines (L56/L57, :2375/:2413).
+ * Get Even Sprite / Get Odd Sprite base,n,x,y To lines (L56/L57, +AMOSPro_Personnal.Lib.s:2375/:2413).
  * Cut a 16-pixel-wide, two-plane sprite out of a screen: Even takes planes 0
  * and 1, Odd takes 2 and 3, and the two planes interleave a longword at a time
  * behind a four-byte header of `$0000, lines, $00`.
@@ -822,7 +822,7 @@ function getSprite(rt: Runtime, base: number, n: number, x: number, y: number, l
 }
 
 /**
- * Aga Get Icon / Aga Paste Icon icon,x,y (L89/L90, :3426/:3479). One routine
+ * Aga Get Icon / Aga Paste Icon icon,x,y (L89/L90, +AMOSPro_Personnal.Lib.s:3426/:3479). One routine
  * run in two directions.
  *
  * An icon is 16 pixels wide and 16 lines tall over EIGHT planes: sixteen
@@ -861,7 +861,7 @@ function icon(rt: Runtime, n: number, x: number, y: number, paste: boolean): voi
 }
 
 /**
- * Fc Cos / Fc Sin / Fc Tan (L47/L48/L49, :2036/:2062/:2088). Three copies of
+ * Fc Cos / Fc Sin / Fc Tan (L47/L48/L49, +AMOSPro_Personnal.Lib.s:2036/:2062/:2088). Three copies of
  * one routine: normalise the angle to whole degrees, index a 360-entry table
  * of the function scaled by 1000, return it.
  *
@@ -912,7 +912,7 @@ function findIffChunk(rt: Runtime, addr: number, tag: string, tries: number): nu
 }
 
 /**
- * Iff X Size / Iff Y Size / Iff Planes (L50/L51/L52, :2114/:2136/:2158).
+ * Iff X Size / Iff Y Size / Iff Planes (L50/L51/L52, +AMOSPro_Personnal.Lib.s:2114/:2136/:2158).
  * Find BMHD and read one field out of it — width at +8 from the tag, height
  * at +10, and the plane count as a BYTE at +16. No BMHD in 32768 steps is
  * error 3, "BMHD non trouve".
@@ -925,7 +925,7 @@ function iffHeader(rt: Runtime, addr: number, field: 'w' | 'h' | 'd'): number {
 }
 
 /**
- * Iff Convert addr (L39, :1688). Decompresses an ILBM BODY straight into the
+ * Iff Convert addr (L39, +AMOSPro_Personnal.Lib.s:1688). Decompresses an ILBM BODY straight into the
  * plane list Set Plane built, row-interleaved: for each of the height rows,
  * for each of the depth planes, width/8 bytes.
  *
@@ -1122,7 +1122,7 @@ function planeCol(rt: Runtime, n: number, allow: boolean): void {
 }
 
 /**
- * The three collision readers (L44/L45/L46, :1958/:1996/:2000) all end the
+ * The three collision readers (L44/L45/L46, +AMOSPro_Personnal.Lib.s:1958/:1992/:2000) all end the
  * same way: pick a CLXDAT bit, read $DFF00E, and answer -1 when that bit is
  * CLEAR — Btst sets Z on a zero bit and the Bne skips the -1 when it is set.
  * That is the opposite of what the names suggest and is kept as found.
@@ -1166,17 +1166,17 @@ function mplotWord(rt: Runtime, n: number, field: number): number {
 
 export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
   return {
-    /** Create Standard addr (L26, :1008) */
+    /** Create Standard addr (L26, +AMOSPro_Personnal.Lib.s:1008) */
     'create standard'(it) {
       buildList(rt, it.evalInt(), false)
     },
-    /** Create Aga addr (L10, :566) */
+    /** Create Aga addr (L10, +AMOSPro_Personnal.Lib.s:566) */
     'create aga'(it) {
       buildList(rt, it.evalInt(), true)
     },
 
     /**
-     * Set Screen Sizes x,y (L23, :961). X floors at 320 and Y at 192 — the
+     * Set Screen Sizes x,y (L23, +AMOSPro_Personnal.Lib.s:961). X floors at 320 and Y at 192 — the
      * routine compares and substitutes rather than clamping upward, so a
      * smaller request simply becomes the minimum. The size then goes into the
      * list as the two modulos, (X-320)>>3 at _Others+18 and +22.
@@ -1193,7 +1193,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       putW(rt, s.others + 22, mod)
     },
 
-    /** Set Resolution n (L29, :1246) — BPLCON0 bit 15, HIRES */
+    /** Set Resolution n (L29, +AMOSPro_Personnal.Lib.s:1246) — BPLCON0 bit 15, HIRES */
     'set resolution'(it) {
       const hi = it.evalInt() !== 0
       const s = rt.personnal
@@ -1202,7 +1202,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       putW(rt, a, hi ? getW(rt, a) | 0x8000 : getW(rt, a) & ~0x8000)
     },
 
-    /** Set Lace n (L30, :1264) — BPLCON0 bit 2, LACE */
+    /** Set Lace n (L30, +AMOSPro_Personnal.Lib.s:1264) — BPLCON0 bit 2, LACE */
     'set lace'(it) {
       const on = it.evalInt() !== 0
       const s = rt.personnal
@@ -1212,7 +1212,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Set Plane n,address (L16, :758). Records the address and rewrites every
+     * Set Plane n,address (L16, +AMOSPro_Personnal.Lib.s:758). Records the address and rewrites every
      * pointer in the list, not just this one. A plane number outside 1-8 is
      * ignored in silence — the routine branches straight to its RTS — where
      * no list at all is the error.
@@ -1229,7 +1229,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Set D Plane n,address (L85, :3325). The back set. It only records —
+     * Set D Plane n,address (L85, +AMOSPro_Personnal.Lib.s:3325). The back set. It only records —
      * nothing reaches the list until Swap Planes, and it raises nothing at
      * all, not even for a missing list.
      */
@@ -1242,7 +1242,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Swap Planes (L86, :3339). Exchanges all eight addresses with the back
+     * Swap Planes (L86, +AMOSPro_Personnal.Lib.s:3339). Exchanges all eight addresses with the back
      * set and rewrites the pointers — the double buffer flip. Guarded on the
      * first plane rather than on the list: an unset _BitsPlanes[0] is what
      * raises "Copper list non reservee.", so swapping before any Set Plane
@@ -1260,7 +1260,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Set View Planes n (L21, :872). How many planes the display fetches,
+     * Set View Planes n (L21, +AMOSPro_Personnal.Lib.s:872). How many planes the display fetches,
      * through BPLCON0's BPU. Above six is ignored unless the list was built
      * by Create Aga. The mask comes from _PlanesMask, and the routine clears
      * bit 4 along with 12-14 before OR-ing it in, because eight planes is
@@ -1278,7 +1278,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Mplot Planes n (L109, :4236). How many planes the point engine draws
+     * Mplot Planes n (L109, +AMOSPro_Personnal.Lib.s:4236). How many planes the point engine draws
      * into. Unlike the plane setters this one refuses a bad count out loud,
      * with ErrMess 14.
      */
@@ -1289,7 +1289,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Screen Position type,x,y (L27, :1097). Scrolls the display by moving
+     * Screen Position type,x,y (L27, +AMOSPro_Personnal.Lib.s:1097). Scrolls the display by moving
      * the bitplane pointers, which is how you scroll when there is no screen
      * object to ask.
      *
@@ -1370,7 +1370,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Mplot Reserve n (L94, :3694). Allocates the point bank itself with
+     * Mplot Reserve n (L94, +AMOSPro_Personnal.Lib.s:3694). Allocates the point bank itself with
      * AllocMem rather than reserving an AMOS bank — n*6+8 bytes of cleared
      * chip memory, headed by the cookie "F.C2" and the point count, then six
      * bytes a point: X word, Y word, ink word.
@@ -1393,7 +1393,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       s.mpBase = Runtime.PERSONNAL_BASE
     },
 
-    /** Mplot Erase (L95, :3729). Frees the bank; erasing an unreserved one is quiet. */
+    /** Mplot Erase (L95, +AMOSPro_Personnal.Lib.s:3729). Frees the bank; erasing an unreserved one is quiet. */
     'mplot erase'() {
       const s = rt.personnal
       if (s.mplots === 0) return
@@ -1403,7 +1403,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Mplot Define n,x,y,c (L98, :3904). Six bytes at base+8+(n-1)*6.
+     * Mplot Define n,x,y,c (L98, +AMOSPro_Personnal.Lib.s:3904). Six bytes at base+8+(n-1)*6.
      * A missing bank and an out-of-range point are different errors — 11 and
      * 13 — and the count is checked against the header rather than the
      * register, so it reads back what was actually allocated.
@@ -1426,7 +1426,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Mplot Draw first To last (L100, :3937). The engine, and the reason the
+     * Mplot Draw first To last (L100, +AMOSPro_Personnal.Lib.s:3937). The engine, and the reason the
      * bank exists — a starfield redraws by walking the whole range every
      * frame.
      *
@@ -1451,7 +1451,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Mplot Dpf1 Draw / Mplot Dpf2 Draw (L111/L112, :4264/:4360). The same
+     * Mplot Dpf1 Draw / Mplot Dpf2 Draw (L111/L112, +AMOSPro_Personnal.Lib.s:4264/:4360). The same
      * engine over half the plane list: Dpf1 walks _BitsPlanes from the start
      * and Dpf2 from its second entry, both striding two (a_Mpp :4330,
      * b_Mpp :4426). That splits the planes into the two playfields — the
@@ -1468,7 +1468,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Set Dual Mode n (L28, :1336) — BPLCON0 bit 10, DBLPF. Splits the
+     * Set Dual Mode n (L28, +AMOSPro_Personnal.Lib.s:1228) — BPLCON0 bit 10, DBLPF. Splits the
      * planes into two independent playfields.
      */
     'set dual mode'(it) {
@@ -1480,7 +1480,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Inverse Playfields / Normal Playfields (L42/L43, :1932/:1945) —
+     * Inverse Playfields / Normal Playfields (L42/L43, +AMOSPro_Personnal.Lib.s:1932/:1945) —
      * BPLCON2 bit 6, PF2PRI, which of the two is in front.
      */
     'inverse playfields'() {
@@ -1495,7 +1495,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Set Dual Palette n (L65, :2716) — n<<10 into BPLCON3, the PF2OF field,
+     * Set Dual Palette n (L65, +AMOSPro_Personnal.Lib.s:2716) — n<<10 into BPLCON3, the PF2OF field,
      * which picks the 16-colour bank the second playfield reads.
      *
      * It writes the whole register rather than the field, so it also clears
@@ -1510,7 +1510,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Mplot X/Y/C Define n,add (L105/L106/L107). One field of one point,
+     * Mplot X/Y/C Define n,add (L105/L106/L107, +AMOSPro_Personnal.Lib.s:4142/:4171/:4201). One field of one point,
      * stepped and wrapped — X against the screen width, Y against its height,
      * C against 256.
      */
@@ -1531,7 +1531,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Mplot Modify first To last,xadd,yadd (L104, :4090). The bulk form of
+     * Mplot Modify first To last,xadd,yadd (L104, +AMOSPro_Personnal.Lib.s:4090). The bulk form of
      * the field defines: steps X and Y of every point in the range, wrapping
      * each against its own screen dimension. Same exclusive upper bound as
      * Mplot Draw, and for the same reason.
@@ -1553,7 +1553,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Mplot Load name$ (L96, :3751). The file is the bank: "F.C2", the point
+     * Mplot Load name$ (L96, +AMOSPro_Personnal.Lib.s:3751). The file is the bank: "F.C2", the point
      * count, then the points.
      *
      * The original reads back `count * 260` bytes into a buffer sized
@@ -1578,7 +1578,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       s.mpBase = Runtime.PERSONNAL_BASE
     },
 
-    /** Mplot Save name$ (L97, :3847) — the header then count*6 bytes */
+    /** Mplot Save name$ (L97, +AMOSPro_Personnal.Lib.s:3847) — the header then count*6 bytes */
     'mplot save'(it) {
       const name = it.evalStr()
       const s = rt.personnal
@@ -1587,7 +1587,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Lsr Zone source To target (L110, :4248). Moves a block of memory four
+     * Lsr Zone source To target (L110, +AMOSPro_Personnal.Lib.s:4248). Moves a block of memory four
      * bytes forward, walking backwards from the top so an overlapping move
      * does not eat itself. Both addresses are forced even first
      * (And #$fffffffe) because the 68k cannot read a longword at an odd one.
@@ -1614,7 +1614,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
 
-    /** Mplot Origin x,y (L108, :4229) — where the coordinates are measured from */
+    /** Mplot Origin x,y (L108, +AMOSPro_Personnal.Lib.s:4229) — where the coordinates are measured from */
     'mplot origin'(it) {
       const x = it.evalInt()
       it.expect(',')
@@ -1623,7 +1623,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Active Copper (L37, :1660) — `Move.l d0,$dff080`, COP1LC. The single
+     * Active Copper (L37, +AMOSPro_Personnal.Lib.s:1660) — `Move.l d0,$dff080`, COP1LC. The single
      * instruction that makes everything the other keywords built visible.
      *
      * It does not turn AMOS's own copper off; the programs do that themselves
@@ -1637,13 +1637,13 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       rt.copList1Addr = s.copperBase
     },
 
-    /** Copper Base addr (L15, :751) — point the extension at an existing list */
+    /** Copper Base addr (L15, +AMOSPro_Personnal.Lib.s:751) — point the extension at an existing list */
     'copper base'(it) {
       rt.personnal.copperBase = it.evalInt()
     },
 
     /**
-     * Copper Next Line (L19, :830) and Copper Wait Line n (L31, :1282).
+     * Copper Next Line (L19, +AMOSPro_Personnal.Lib.s:830) and Copper Wait Line n (L31, +AMOSPro_Personnal.Lib.s:1282).
      * Both append a WAIT and re-terminate. Next Line waits for the line after
      * the last one, wrapping past $100; Wait Line takes the line outright.
      * The second byte of the wait differs, $01 against $03, which is the
@@ -1666,7 +1666,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Vb Line Wait n (L74, :2961) spins on VPOSR until the beam reaches the
+     * Vb Line Wait n (L74, +AMOSPro_Personnal.Lib.s:2961) spins on VPOSR until the beam reaches the
      * line, clamping past 381 to 383. There is no beam here and nothing to
      * spin on, so this yields the frame instead — the effect a program wants
      * from it, without the wait it actually performs.
@@ -1677,7 +1677,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Set Color reg,r,g,b (L12, :671). Writes one entry of the colour block
+     * Set Color reg,r,g,b (L12, +AMOSPro_Personnal.Lib.s:671). Writes one entry of the colour block
      * the builder laid down, packed as 12-bit RGB4.
      *
      * Finding entry `reg` is a walk rather than an index, because an Aga list
@@ -1706,7 +1706,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * New Color Value reg,r,g,b (L22, :906). A colour change at the line the
+     * New Color Value reg,r,g,b (L22, +AMOSPro_Personnal.Lib.s:906). A colour change at the line the
      * list has reached — the rainbow primitive. Appends over the tail, as the
      * line keywords do.
      *
@@ -1749,7 +1749,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * X Fade (L13, :701). One step of a fade to black over the WHOLE list:
+     * X Fade (L13, +AMOSPro_Personnal.Lib.s:701). One step of a fade to black over the WHOLE list:
      * every COLOR00..COLOR31 move in it loses one from each non-zero RGB
      * nibble. Programs call it in a loop with a Wait between — the Rainbows
      * demo runs `For I=1 To 16 : X Fade : Wait 4 : Next`.
@@ -1781,7 +1781,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Set Aga Color reg,r,g,b (L80, :3124). AGA's 24-bit colour is two
+     * Set Aga Color reg,r,g,b (L80, +AMOSPro_Personnal.Lib.s:3124). AGA's 24-bit colour is two
      * writes to the same register: the high nibble of each channel in the
      * ordinary block, the low nibble in a second one selected by BPLCON3's
      * LOCT bit. The routine computes both — d7 is (r>>4,g>>4,b>>4) and d4 the
@@ -1852,7 +1852,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Iff8bits / Iff4bits Palette To Copper n,addr (L73/L75, :2932/:2973).
+     * Iff8bits / Iff4bits Palette To Copper n,addr (L73/L75, +AMOSPro_Personnal.Lib.s:2932/:2973).
      * The same loop over an IFF CMAP, differing only in what a byte means:
      * an 8-bit CMAP is shifted down four bits a channel, a 4-bit one is used
      * as it stands. Neither masks, so a 4-bit CMAP holding a byte above 15
@@ -1870,7 +1870,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Fade Palette n,adr0,adr1 (L76, :2999). One step of a fade from the
+     * Fade Palette n,adr0,adr1 (L76, +AMOSPro_Personnal.Lib.s:2999). One step of a fade from the
      * palette at adr0 towards the one at adr1, byte by byte: each channel
      * moves one closer, or stays if it has arrived. Both are plain RGB byte
      * triples, and the result is written back over adr0, so calling it in a
@@ -1902,7 +1902,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Attribute Palette n,r,g,b,source To dest (L77, :3049). Adds a signed
+     * Attribute Palette n,r,g,b,source To dest (L77, +AMOSPro_Personnal.Lib.s:3049). Adds a signed
      * amount to each channel of n RGB triples, clamping to 0..15, and writes
      * the result somewhere else — brightening or darkening a palette without
      * touching the original.
@@ -1933,7 +1933,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Active Second Screen (L67, :2763). Appends a whole second display to
+     * Active Second Screen (L67, +AMOSPro_Personnal.Lib.s:2763). Appends a whole second display to
      * the list: its own 32 colours (_2pal), its own eight bitplane pointers
      * (_2bpl), window and fetch, then BPLCON0 alone in _2bplcon.
      *
@@ -1986,7 +1986,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Set Second Planes n,addr (L68, :2827). One of the second screen's five
+     * Set Second Planes n,addr (L68, +AMOSPro_Personnal.Lib.s:2827). One of the second screen's five
      * addressable pointers — the range check is 1..5, not 1..8. ErrMess 7
      * when there is no second screen.
      */
@@ -2003,7 +2003,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Set Second View n (L69, :2852) — the second screen's BPLCON0 plane
+     * Set Second View n (L69, +AMOSPro_Personnal.Lib.s:2852) — the second screen's BPLCON0 plane
      * count, through the same _PlanesMask. Unlike Set View Planes this one
      * does not range-check n at all, so a wild value indexes past the table.
      * We clamp to the table rather than read whatever follows it.
@@ -2015,7 +2015,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       putW(rt, s.bplcon2nd + 2, PLANES_MASK[Math.max(0, Math.min(8, n))]!)
     },
 
-    /** Set Second Color reg,r,g,b (L70, :2868) — Set Color, on _2pal */
+    /** Set Second Color reg,r,g,b (L70, +AMOSPro_Personnal.Lib.s:2868) — Set Color, on _2pal */
     'set second color'(it) {
       const reg = it.evalInt()
       it.expect(',')
@@ -2036,7 +2036,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Second Y Size n (L78, :3091). Moves where the second screen starts, by
+     * Second Y Size n (L78, +AMOSPro_Personnal.Lib.s:3091). Moves where the second screen starts, by
      * rewriting the line byte of the WAIT _CurrentLine is sitting on — but
      * only if that byte is still $14, so it does nothing once anything else
      * has been appended. n has $d taken off it and a negative result is
@@ -2054,7 +2054,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Ham Mode n (L38, :1670) — BPLCON0 bit 11. The list interpreter honours
+     * Ham Mode n (L38, +AMOSPro_Personnal.Lib.s:1670) — BPLCON0 bit 11. The list interpreter honours
      * it since b219d4b, so this genuinely turns HAM on for a screen that was
      * not opened as one.
      */
@@ -2134,17 +2134,38 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       if (it.accept(',')) it.evalInt()
       rt.personnal.p61Playing = true
     },
+    /**
+     * P61 Stop (routine 125, $6788 in the 1.1 binary). No library is error
+     * 17, no module error 19; then P61_End at $24(a6) and the module pointer
+     * at the data block's +$de is cleared. Only that pointer is modelled.
+     */
     'p61 stop'() {
       if (!rt.personnal.p61Playing) err(19)
       rt.personnal.p61Playing = false
     },
+    /**
+     * P61 Mvolume n (routine 126, $67e4) and P61 Mpos n (routine 127, $6860)
+     * are the same routine twice over: the SAME 0..63 range check raising the
+     * same error 20 — whose message is "Les valeurs de volume vont de 0 a
+     * 63.", about volume, in both — then the library and module checks, then
+     * $30(a6) or $2a(a6). Mpos had neither check here.
+     */
     'p61 mvolume'(it) {
       const v = it.evalInt()
       if (v < 0 || v > 63) err(20)
+      if (!rt.personnal.p61Playing) err(19)
     },
     'p61 mpos'(it) {
-      it.evalInt()
+      const v = it.evalInt()
+      if (v < 0 || v > 63) err(20)
+      if (!rt.personnal.p61Playing) err(19)
     },
+    /**
+     * Omd Load name$ (routine 128, $68d2). The name is copied into the data
+     * block at +$75e and NUL-terminated, then: no octaplayer.library is
+     * error 21, a module already loaded at +$102 is error 23, and a zero from
+     * LoadModule (-$3c) is error 22.
+     */
     'omd load'(it) {
       const name = it.evalStr()
       const s = rt.personnal
@@ -2152,30 +2173,46 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       if ((rt.vfs?.readFile(name) ?? null) === null) err(22)
       s.omdModule = 1
     },
+    /**
+     * Omd Play (routine 129, $696e). No library is error 21; a non-zero from
+     * the channel grab at -$1e(a6) is error 24; no module at +$102 releases
+     * the channels again (-$24) and raises 25. Success sets the playing flag
+     * at +$fe to -1.
+     */
     'omd play'() {
       const s = rt.personnal
       if (s.omdModule === 0) err(25)
       s.omdPlaying = true
     },
+    /**
+     * Omd Stop (routine 130, $69e8) and Omd Free (routine 131, $6a30). Both
+     * raise error 21 for a missing library and NOTHING ELSE: Stop tests the
+     * playing flag and simply returns when it is not -1, Free tests the
+     * module pointer and simply returns when it is zero. This port raised
+     * error 25 in both places, which the library raises only from Omd Play.
+     *
+     * Free unloads through -$42(a6) and clears the module pointer; it does
+     * not touch the playing flag, so a module freed while playing leaves the
+     * flag set and a later Omd Stop still calls -$36/-$24. Kept.
+     */
     'omd stop'() {
       const s = rt.personnal
-      if (!s.omdPlaying) err(25)
+      if (!s.omdPlaying) return
       s.omdPlaying = false
     },
     'omd free'() {
       const s = rt.personnal
-      if (s.omdModule === 0) err(25)
-      s.omdPlaying = false
+      if (s.omdModule === 0) return
       s.omdModule = 0
     },
 
-    /** Iff Convert addr (L39, :1688) — see `iffConvert`. */
+    /** Iff Convert addr (L39, +AMOSPro_Personnal.Lib.s:1688) — see `iffConvert`. */
     'iff convert'(it) {
       iffConvert(rt, it.evalInt())
     },
 
     /**
-     * Iff8bits To Iff4bits src,count To dst (L79, :3103). Shifts `count`
+     * Iff8bits To Iff4bits src,count To dst (L79, +AMOSPro_Personnal.Lib.s:3103). Shifts `count`
      * RGB triples down four bits each — a 24-bit CMAP into the 12-bit form
      * a COLOR register takes. Source and destination may be the same block;
      * it walks forward a byte at a time either way.
@@ -2192,7 +2229,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Aga Reserve Icon n (L87, :3369). AllocMem's a chip block of
+     * Aga Reserve Icon n (L87, +AMOSPro_Personnal.Lib.s:3369). AllocMem's a chip block of
      * `n*260 + 8` and stamps it `"F.C1"` followed by the count. Reserving
      * over a live bank is error 15; a failed AllocMem is error 8, which
      * cannot happen here because the allocation is a Uint8Array.
@@ -2216,7 +2253,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Aga Erase Icon (L88, :3403). Frees the bank. With no bank at all it
+     * Aga Erase Icon (L88, +AMOSPro_Personnal.Lib.s:3403). Frees the bank. With no bank at all it
      * returns in silence, but a count with no base is error 9 — and note the
      * count is cleared before that test, so the error leaves both registers
      * zero either way.
@@ -2230,7 +2267,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       rt.personnalIcons = null
     },
 
-    /** Aga Get Icon / Aga Paste Icon icon,x,y (L89/L90) — see `icon`. */
+    /** Aga Get Icon / Aga Paste Icon icon,x,y (L89/L90, +AMOSPro_Personnal.Lib.s:3426/:3479) — see `icon`. */
     'aga get icon'(it) {
       const n = it.evalInt()
       it.expect(',')
@@ -2247,7 +2284,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Aga Icon Save name$ (L92, :3541). Writes the whole bank, header and
+     * Aga Icon Save name$ (L92, +AMOSPro_Personnal.Lib.s:3541). Writes the whole bank, header and
      * all, so the file is exactly what Aga Icon Load expects back. No bank
      * is error 9; a name outside 1..95 characters returns in silence,
      * because that is the length the routine's own _IcN buffer holds.
@@ -2261,7 +2298,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Aga Icon Load name$ (L93, :3598). Reads the eight-byte header, checks
+     * Aga Icon Load name$ (L93, +AMOSPro_Personnal.Lib.s:3598). Reads the eight-byte header, checks
      * the `"F.C1"` cookie, allocates from the count it carries and reads the
      * rest in behind a freshly written header.
      *
@@ -2338,27 +2375,32 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * The five mosaics (L32-L36). See `mosaic` for the routine they share.
+     * The five mosaics (L32-L36, +AMOSPro_Personnal.Lib.s:1316/:1373/:1444/:1516/:1588). See
+     * `mosaic` for the routine they share.
      */
     'mosaic x2'(it) {
       mosaic(rt, it.evalInt(), 2)
     },
+    /** Mosaic X4 (L33, +AMOSPro_Personnal.Lib.s:1373) */
     'mosaic x4'(it) {
       mosaic(rt, it.evalInt(), 4)
     },
+    /** Mosaic X8 (L34, +AMOSPro_Personnal.Lib.s:1444) */
     'mosaic x8'(it) {
       mosaic(rt, it.evalInt(), 8)
     },
+    /** Mosaic X16 (L35, +AMOSPro_Personnal.Lib.s:1516) */
     'mosaic x16'(it) {
       mosaic(rt, it.evalInt(), 16)
     },
+    /** Mosaic X32 (L36, +AMOSPro_Personnal.Lib.s:1588) */
     'mosaic x32'(it) {
       mosaic(rt, it.evalInt(), 32)
     },
 
     /**
-     * Double Mask mask To s1,s2 (L53, :2180) and
-     * L Double Mask mask,ystart,yend To s1,s2 (L54, :2264).
+     * Double Mask mask To s1,s2 (L53, +AMOSPro_Personnal.Lib.s:2180) and
+     * L Double Mask mask,ystart,yend To s1,s2 (L54, +AMOSPro_Personnal.Lib.s:2264).
      * See `doubleMask`. The result is written back over s2.
      */
     'double mask'(it) {
@@ -2381,8 +2423,8 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Blit Mask a,mask,c To target (L59, :2480) and
-     * L Blit Mask a,mask,c To target,ystart,yend (L60, :2571). See `blitMask`
+     * Blit Mask a,mask,c To target (L59, +AMOSPro_Personnal.Lib.s:2480) and
+     * L Blit Mask a,mask,c To target,ystart,yend (L60, +AMOSPro_Personnal.Lib.s:2571). See `blitMask`
      * for the minterm and for the L form's row count.
      */
     'blit mask'(it) {
@@ -2413,7 +2455,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       const b = it.evalInt()
       blitPlanes(rt, 0, b, b, false)
     },
-    /** Blitter Copy source To target (L82, :3183) — see `blitPlanes`. */
+    /** Blitter Copy source To target (L82, +AMOSPro_Personnal.Lib.s:3183) — see `blitPlanes`. */
     'blitter copy'(it) {
       const src = it.evalInt()
       it.expect('to')
@@ -2422,7 +2464,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       blitPlanes(rt, src, dst, src, true)
     },
 
-    /** S32 Block To Screen / S32 Vertice To Screen (L83/L84) — see `s32Expand`. */
+    /** S32 Block To Screen / S32 Vertice To Screen (L83/L84, +AMOSPro_Personnal.Lib.s:3237/:3281) — see `s32Expand`. */
     's32 block to screen'(it) {
       s32Expand(rt, it.evalInt(), true)
     },
@@ -2431,7 +2473,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Octets Fill value,start To end (L81, :3171). A byte memset over
+     * Octets Fill value,start To end (L81, +AMOSPro_Personnal.Lib.s:3171). A byte memset over
      * [start,end), skipped entirely when end is below start.
      *
      * `end` equal to `start` passes the `Bmi` and then never satisfies the
@@ -2450,7 +2492,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       else for (let p = start; p < end; p++) putB(rt, p, v)
     },
 
-    /** Low Filter.b/.w/.l value To start,end (L62/L63/L64) — see `lowFilter`. */
+    /** Low Filter.b/.w/.l value To start,end (L62/L63/L64, +AMOSPro_Personnal.Lib.s:2677/:2690/:2703) — see `lowFilter`. */
     'low filter.b'(it) {
       const v = it.evalInt()
       it.expect('to')
@@ -2458,6 +2500,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       lowFilter(rt, v, start, it.evalInt(), 1)
     },
+    /** Low Filter.w (L63, +AMOSPro_Personnal.Lib.s:2690) */
     'low filter.w'(it) {
       const v = it.evalInt()
       it.expect('to')
@@ -2465,6 +2508,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       lowFilter(rt, v, start, it.evalInt(), 2)
     },
+    /** Low Filter.l (L64, +AMOSPro_Personnal.Lib.s:2703) */
     'low filter.l'(it) {
       const v = it.evalInt()
       it.expect('to')
@@ -2499,7 +2543,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * F Set Sprite Buffer base,length (L55, :2362). Records where the hardware
+     * F Set Sprite Buffer base,length (L55, +AMOSPro_Personnal.Lib.s:2362). Records where the hardware
      * sprites live; the buffer has to be at least 8K or it raises error 5,
      * "Banque memoire trop petite".
      */
@@ -2512,7 +2556,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       rt.personnal.spriteLength = len
     },
 
-    /** Get Even/Odd Sprite base,n,x,y To lines (L56/L57) — see `getSprite`. */
+    /** Get Even/Odd Sprite base,n,x,y To lines (L56/L57, +AMOSPro_Personnal.Lib.s:2375/:2413) — see `getSprite`. */
     'get even sprite'(it) {
       const base = it.evalInt()
       it.expect(',')
@@ -2537,7 +2581,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * F Sprite n To x,y,ysize,bank (L58, :2452). Points hardware sprite n at
+     * F Sprite n To x,y,ysize,bank (L58, +AMOSPro_Personnal.Lib.s:2452). Points hardware sprite n at
      * entry `bank` of the sprite buffer and fills in that sprite's four
      * control bytes: VSTART, HSTART as x/2, VSTOP as y+ysize, then zero.
      *
@@ -2571,7 +2615,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Allow Plane Col n / Forbid Plane Col n (L40/L41, :1890/:1911). Which
+     * Allow Plane Col n / Forbid Plane Col n (L40/L41, +AMOSPro_Personnal.Lib.s:1890/:1911). Which
      * bitplanes take part in collision detection: a bit in the extension's
      * own _BPlanesMask, and a bit of CLXCON at _Others+26.
      *
@@ -2591,17 +2635,17 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       planeCol(rt, it.evalInt(), false)
     },
 
-    /** Set Ntsc (L3, :524) — BEAMCON0 $DFF1DC = 0 */
+    /** Set Ntsc (L3, +AMOSPro_Personnal.Lib.s:524) — BEAMCON0 $DFF1DC = 0 */
     'set ntsc'() {
       rt.beamcon0 = 0x0000
     },
-    /** Set Pal (L4, :528) — BEAMCON0 = $0020, PAL */
+    /** Set Pal (L4, +AMOSPro_Personnal.Lib.s:528) — BEAMCON0 = $0020, PAL */
     'set pal'() {
       rt.beamcon0 = 0x0020
     },
 
     /**
-     * Aga Off (L61, :2672). Two direct register writes, not a list patch:
+     * Aga Off (L61, +AMOSPro_Personnal.Lib.s:2672). Two direct register writes, not a list patch:
      * FMODE $DFF1FC = 0 turns double scanning off, BPLCON3 $DFF106 = 0 puts
      * the colour bank back to 0-31 so AMOS's own palette means what it says
      * again.
@@ -2616,7 +2660,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
 export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
   return {
     /**
-     * Screen X Size (L24, :989) and Screen Y Size (L25, :998).
+     * Screen X Size (L24, +AMOSPro_Personnal.Lib.s:989) and Screen Y Size (L25, +AMOSPro_Personnal.Lib.s:998).
      *
      * Both re-apply the floor when they read rather than trusting what was
      * stored, so they answer 320/192 even if _XY somehow holds less.
@@ -2660,7 +2704,7 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * Cmap Base(addr) (L71, :2897). Scans forward for the "CMAP" tag in
+     * Cmap Base(addr) (L71, +AMOSPro_Personnal.Lib.s:2897). Scans forward for the "CMAP" tag in
      * TWO-byte steps, up to 16384 of them, and answers the address just past
      * the tag — which is the chunk's length field, not its data. Callers add
      * the 4 themselves. ErrMess 6 when there is no CMAP.
@@ -2677,7 +2721,7 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * Iff Color(base, n) (L66, :2729). Colour n of a loaded IFF's CMAP,
+     * Iff Color(base, n) (L66, +AMOSPro_Personnal.Lib.s:2729). Colour n of a loaded IFF's CMAP,
      * packed to RGB4 from the 8-bit bytes.
      *
      * It scans for the tag itself rather than calling Cmap Base, and the two
@@ -2703,7 +2747,7 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * Ham (L8, :556) and Ehb (L9, :561) are named constants, not tests —
+     * Ham (L8, +AMOSPro_Personnal.Lib.s:556) and Ehb (L9, +AMOSPro_Personnal.Lib.s:561) are named constants, not tests —
      * $1000 and $40, the screen-mode flags a program passes to Screen Open.
      */
     ham(): Value {
@@ -2724,13 +2768,13 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     // Personnal's collision readers answer a constant anyway (see clxBit).
     // NOTES entry at closeout; the general problem is its own task.
 
-    /** Playfields Col (L45, :1996) — CLXDAT bit 0, playfield against playfield */
+    /** Playfields Col (L45, +AMOSPro_Personnal.Lib.s:1992) — CLXDAT bit 0, playfield against playfield */
     'playfields col'(): Value {
       return VI(clxBit(rt, 0))
     },
 
     /**
-     * Pf Sprites Col(pf,spr) (L46, :2000) — playfield against sprite pair,
+     * Pf Sprites Col(pf,spr) (L46, +AMOSPro_Personnal.Lib.s:2000) — playfield against sprite pair,
      * CLXDAT bits 1-4 for playfield 1 and 5-8 for playfield 2.
      */
     'pf sprites col'(_, a): Value {
@@ -2739,7 +2783,7 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
       return VI(clxBit(rt, bit ?? null))
     },
 
-    /** Copper Base (L14, :744) and Copper Line (L20, :866) — plain readers */
+    /** Copper Base (L14, +AMOSPro_Personnal.Lib.s:744) and Copper Line (L20, +AMOSPro_Personnal.Lib.s:866) — plain readers */
     'copper base'(): Value {
       return VI(rt.personnal.copperBase)
     },
@@ -2747,13 +2791,13 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.personnal.line)
     },
 
-    /** Mplot Base (L99, :3931) — the bank address, or 0 */
+    /** Mplot Base (L99, +AMOSPro_Personnal.Lib.s:3931) — the bank address, or 0 */
     'mplot base'(): Value {
       return VI(rt.personnal.mpBase)
     },
 
     /**
-     * Sprite Col(s1,s2) (L44, :1958), registered under Personnal's own slot
+     * Sprite Col(s1,s2) (L44, +AMOSPro_Personnal.Lib.s:1958), registered under Personnal's own slot
      * because core owns the plain name and asks a different question of
      * different arguments — core's is `Sprite Col(n[,first[,last]])`, a real
      * sprite-against-sprites check. A Personnal program calling this used to
@@ -2788,7 +2832,7 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
      */
     'right click': (): Value => VI(rt.input.mouseK & 2 ? -1 : 0),
 
-    /** =Aga Icon Base (L91, :3535) — _IcBase, zero when unreserved. */
+    /** =Aga Icon Base (L91, +AMOSPro_Personnal.Lib.s:3535) — _IcBase, zero when unreserved. */
     'aga icon base'(): Value {
       return VI(rt.personnal.icBase)
     },
@@ -2810,7 +2854,7 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
       return VI(getB(rt, int(a[0]!)) & 0xf)
     },
 
-    /** Fc Cos/Sin/Tan(angle) (L47/L48/L49) — see `fcTrig`. */
+    /** Fc Cos/Sin/Tan(angle) (L47/L48/L49, +AMOSPro_Personnal.Lib.s:2036/:2062/:2088) — see `fcTrig`. */
     'fc cos'(_, a): Value {
       return VI(fcTrig(P_COS, int(a[0]!)))
     },
@@ -2821,7 +2865,7 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
       return VI(fcTrig(P_TAN, int(a[0]!)))
     },
 
-    /** Iff X Size/Y Size/Planes(addr) (L50/L51/L52) — see `iffHeader`. */
+    /** Iff X Size/Y Size/Planes(addr) (L50/L51/L52, +AMOSPro_Personnal.Lib.s:2114/:2136/:2158) — see `iffHeader`. */
     'iff x size'(_, a): Value {
       return VI(iffHeader(rt, int(a[0]!), 'w'))
     },
@@ -2833,7 +2877,7 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * Fire(1,2) and Fire(1,3) (L6/L7, :541/:549). The second and third fire
+     * Fire(1,2) and Fire(1,3) (L6/L7, +AMOSPro_Personnal.Lib.s:541/:549). The second and third fire
      * buttons of joystick port 1, read as POTGOR bits — `Btst` on a memory
      * operand is byte-sized, so `#6` and `#4` of the byte at $DFF016 are bits
      * 14 and 12 of the word, DATRY and DATRX, port 1 pins 9 and 5. Answer -1
@@ -2850,7 +2894,7 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * Test (L11, :666). Despite the name it is a probe: it returns _MpP,
+     * Test (L11, +AMOSPro_Personnal.Lib.s:666). Despite the name it is a probe: it returns _MpP,
      * the plane count Mplot Planes set. Nothing else, no argument.
      */
     test(): Value {
@@ -2858,7 +2902,7 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * X Mplot(n) / Y Mplot(n) / C Mplot(n) (L101-L103, :4033-:4073).
+     * X Mplot(n) / Y Mplot(n) / C Mplot(n) (L101-L103, +AMOSPro_Personnal.Lib.s:4033-:4073).
      *
      * Each reads its word out of the point and sign-extends it (Btst #15 then
      * Or #$ffff0000), so a point placed off the left of the origin reads back
@@ -2876,7 +2920,7 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * Plane Base(n) (L17, :794). The address Set Plane recorded, or 0 for a
+     * Plane Base(n) (L17, +AMOSPro_Personnal.Lib.s:794). The address Set Plane recorded, or 0 for a
      * plane outside 1-8 — the routine zeroes d3 before it validates, so an
      * out-of-range ask is answered rather than refused.
      */

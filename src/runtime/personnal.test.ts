@@ -1292,9 +1292,13 @@ describe('Personnal: the six the other blocks never reach', () => {
   })
 
   it('P61 Mpos, Omd Stop and Omd Free complete their state machine', () => {
-    expect(() => run([...bank, 'P61 Mpos 4'].join('\n'))).not.toThrow()
-    expect(() => run([...bank, 'Omd Stop'].join('\n'))).toThrow(/Aucun module MMDx/)
-    expect(() => run([...bank, 'Omd Free'].join('\n'))).toThrow(/Aucun module MMDx/)
+    // Mpos is routine 126 twice over: the 0..63 check AND the module check,
+    // neither of which this port had. Stop and Free raise nothing of their
+    // own — with no module they return, where error 25 was raised here.
+    expect(() => run([...bank, 'P61 Mpos 4'].join('\n'))).toThrow(/ne joue pas de module/)
+    expect(() => run([...bank, 'P61 Play A', 'P61 Mpos 4'].join('\n'))).not.toThrow()
+    expect(() => run([...bank, 'Omd Stop'].join('\n'))).not.toThrow()
+    expect(() => run([...bank, 'Omd Free'].join('\n'))).not.toThrow()
   })
 })
 
@@ -1368,9 +1372,18 @@ describe('Personnal: the cruncher, the nibble peeks and the replayers (batch 11)
     expect(() => run([...bank, 'P61 Stop'].join('\n'))).toThrow(/ne joue pas de module/)
     expect(() => run([...bank, 'P61 Play A', 'P61 Stop'].join('\n'))).not.toThrow()
     expect(() => run([...bank, 'P61 Mvolume 64'].join('\n'))).toThrow(/volume vont de 0 a 63/)
-    expect(() => run([...bank, 'P61 Mvolume 63'].join('\n'))).not.toThrow()
+    // the range is checked before the module is, and both Mvolume and Mpos
+    // check both — routines 126 and 127 are the same code twice, down to
+    // reusing the volume message for the position range
+    expect(() => run([...bank, 'P61 Mvolume 63'].join('\n'))).toThrow(/ne joue pas de module/)
+    expect(() => run([...bank, 'P61 Mpos 64'].join('\n'))).toThrow(/volume vont de 0 a 63/)
+    expect(() => run([...bank, 'P61 Play A', 'P61 Mvolume 63', 'P61 Mpos 8'].join('\n'))).not.toThrow()
     expect(() => run([...bank, 'Omd Play'].join('\n'))).toThrow(/Aucun module MMDx/)
     expect(() => run([...bank, 'Omd Load "RAM:nope.med"'].join('\n'), withRam())).toThrow(/Impossible de charger/)
+    // Omd Stop and Omd Free raise nothing of their own: with no module they
+    // simply return, where this port used to raise error 25 (routines 130
+    // and 131, $69e8 and $6a30)
+    expect(() => run([...bank, 'Omd Stop', 'Omd Free'].join('\n'))).not.toThrow()
   })
 })
 

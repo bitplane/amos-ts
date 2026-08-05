@@ -3001,12 +3001,15 @@ export const NOTES: Record<string, string> = {
   'p61 play':
     'an LVO call into player61.library, which is not part of AMOS and not in the source tree. The state machine around it is reproduced because the extension checks it before calling out, but NOTHING SOUNDS. It deliberately does not raise the library-not-found error: the gap here is a decoder, not a missing library. Closable by a real P61 decoder, as med play already is for MMD0/MMD1. It also has TWO table entries, `I0` and an unnamed `I0,0` arity variant that TokenTable.name resolves back to it — routine 124 is byte for byte routine 123 with an extra pop at the front, so the second argument is read and ignored; both forms parse here',
   'p61 stop': 'the P61 state machine only — error 19 when nothing is playing; no audio',
-  'p61 mvolume': 'range-checks 0..63 as the library does; no audio',
-  'p61 mpos': 'accepted and recorded; no audio',
+  'p61 mvolume': 'range-checks 0..63 and then the module, in that order, as routine 126 does; no audio',
+  'p61 mpos':
+    "routine 127 is routine 126 twice over — the SAME 0..63 range check raising the same error 20, whose message is 'Les valeurs de volume vont de 0 a 63.' and is about volume in both, then the same library and module checks. This port had neither check on Mpos; a position of 64 was accepted and one with no module loaded was too",
   'omd load': 'octaplayer.library is not in the AMOS source; the load is checked and remembered, the module is not decoded',
   'omd play': 'the OMD state machine only; no audio',
-  'omd stop': 'the OMD state machine only; no audio',
-  'omd free': 'the OMD state machine only; no audio',
+  'omd stop':
+    'raises nothing of its own. Routine 130 checks the library (error 21) and then simply returns when the playing flag at +$fe is not -1; this port raised error 25, which only Omd Play raises',
+  'omd free':
+    'the same: routine 131 returns in silence when the module pointer at +$102 is zero, where this port raised error 25. It also does not touch the playing flag, so a module freed while playing leaves it set and a later Omd Stop still calls the library',
   'mosaic x2':
     'gains two termination guards the original lacks, neither of which fires on a real screen: a height under one block, and a row byte width that is not a multiple of four, both walk memory forever on the 68k and do nothing here',
   'mosaic x4': 'the same two guards as Mosaic X2',
