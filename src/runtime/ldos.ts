@@ -775,7 +775,11 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       const pattern = trim(str(a[1] ?? VS('')))
       // ParsePattern runs first and its failure is the documented overflow
       if (parsePatternResult(pattern) < 0) throw new AmosError('To long pattern/overflow/or no pattern')
-      return VI(amigaMatch(trim(str(a[0] ?? VS(''))), pattern) ? -1 : 0)
+      // RNF_WILDSTAR is a property of the machine's RootNode, not of whoever
+      // set it: ParsePattern consults it on every call, so a program that has
+      // used JD-K3's Jd Star Joker On gets `*` here too. See
+      // ../amiga/machine.ts, and jdk3.ts routines 11 and 12 for where it is set
+      return VI(amigaMatch(trim(str(a[0] ?? VS(''))), pattern, rt.machine.wildStar) ? -1 : 0)
     },
     lskip(_, a) {
       // ADR=Lskip(CHAR,START To STOP). "ADR will contain the address AFTER

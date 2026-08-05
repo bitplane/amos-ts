@@ -385,6 +385,8 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/jd.test.ts': ['jd-5.9', 'jd-5.3', 'jd-4.6'],
   'src/runtime/jdcolour.ts': ['jd-colour-2.0', 'jd-colour-1.4'],
   'src/runtime/jdcolour.test.ts': ['jd-colour-2.0', 'jd-colour-1.4'],
+  'src/runtime/jdk3.ts': ['jd-k3-1.1'],
+  'src/runtime/jdk3.test.ts': ['jd-k3-1.1'],
   'src/runtime/jdprt.ts': ['jd-prt-1.4', 'jd-prt-1.3', 'jd-prt-1.1'],
   'src/runtime/jvp.ts': ['jvp-1.01'],
   'src/runtime/personnal.ts': ['personnal-1.1', 'personal-1.0b', 'personnal-extra-1.3'],

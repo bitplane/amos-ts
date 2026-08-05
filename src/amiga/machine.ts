@@ -125,6 +125,31 @@ export interface ResetRequest {
 export class Machine {
   power: PowerState = 'on'
 
+  /**
+   * `RNF_WILDSTAR` — whether `*` is a synonym for `#?` in DOS patterns.
+   *
+   * A GLOBAL AmigaDOS setting and not an extension's private flag, which is
+   * why it lives here rather than on a port. JD-K3's `Jd Star Joker On` is
+   * sixteen bytes and all of them are reaching for it:
+   *
+   *     movea.l $2b8(a5), a0      DOSBase
+   *     movea.l $22(a0), a0       dl_Root, the RootNode
+   *     bset.b  #$18, $34(a0)     rn_Flags, bit 24 -- RNF_WILDSTAR
+   *
+   * (`bset` on memory is byte-sized and takes the bit modulo 8, so bit 24 of
+   * the longword is bit 0 of the byte at +$34, which is its most significant
+   * on a big-endian machine. Off is `bclr` and nothing else.)
+   *
+   * Everything that parses a pattern consults it, so turning it on for JD-K3
+   * turns it on for LDos's `Lwild` too -- one machine, one RootNode. It is a
+   * Machine field for the same reason the power state is: it outlives the
+   * Runtime, and a caller that keeps a machine across programs keeps this.
+   *
+   * Off at boot, which the K3 manual says of `*` in as many words: "not
+   * available by default in 2.0. Available as an option that can be turned on."
+   */
+  wildStar = false
+
   private request: ResetRequest | null = null
 
   /**
