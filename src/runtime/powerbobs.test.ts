@@ -73,10 +73,11 @@ describe('PowerBobs: Pbob Height (routine 7, $1146)', () => {
   })
 
   it('initialises the four non-zero fields the routine writes', () => {
-    // `moveq #$ff,d0` then $8, $12 as words and $1f as a byte
+    // `moveq #$ff,d0` SIGN-EXTENDS to $FFFFFFFF, so the two `move.w` stores
+    // write $FFFF and only the `move.b` into $1f writes $FF
     const rt = run('Reserve Pbobs 1 : Pbob Height 1,8')
     const b = rt.powerbobs.bobs[0]!
-    expect([b.f8, b.f12, b.planeMask]).toEqual([0xff, 0xff, 0xff])
+    expect([b.f8, b.f12, b.planeMask]).toEqual([0xffff, 0xffff, 0xff])
     expect([b.x, b.y, b.image8, b.replace]).toEqual([0, 0, 0, 0])
   })
 

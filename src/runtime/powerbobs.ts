@@ -72,8 +72,18 @@ export interface Pbob {
   /** $0 / $2 — where the last Pbob call put it, as signed words */
   x: number
   y: number
-  /** $8 and $12 — two words routine 7 initialises to $ff. Purpose unread. */
+  /**
+   * $8 — a word routine 7 initialises to $FFFF. Pbob (routine 2) overwrites
+   * it with the image height.
+   */
   f8: number
+  /**
+   * $12 — a word, initialised to $FFFF, and it is really TWO flag bytes.
+   * `$12` is "this Pbob is off screen", set by Pbob's clip test; `$13` is
+   * "there is nothing drawn to restore", which Pbob Clear tests first. Both
+   * start set, which is what stops a Pbob Clear before any Pbob Draw from
+   * restoring a buffer that has never been saved into.
+   */
   f12: number
   /** $14 — the maximum height Pbob Height was given */
   maxHeight: number
@@ -134,8 +144,10 @@ function newPbob(maxHeight: number): Pbob {
   return {
     x: 0,
     y: 0,
-    f8: 0xff, // moveq #$ff,d0 / move.w d0,$8(a0)
-    f12: 0xff, // move.w d0,$12(a0)
+    // `moveq #$ff,d0` SIGN-EXTENDS: d0 is $FFFFFFFF, not $000000FF. So the
+    // two `move.w` stores write $FFFF and only the `move.b` writes $FF.
+    f8: 0xffff,
+    f12: 0xffff,
     maxHeight,
     image8: 0,
     replace: 0,
