@@ -1918,6 +1918,19 @@ export const FAITHFUL = new Set<string>([
   'map an point',
   'map an at',
   'map an move',
+  // --- PowerBobs 1.0, slice 1: the structures and the accessors ---
+  // The SHAREWARE build. Reserve Pbobs carries the 64 cap the binary states,
+  // and Pbob Erase carries the DEVIATION for the startup screen this port
+  // does not reproduce; X Pbob carries the one for the missing null check.
+  'reserve pbobs',
+  'pbob height',
+  'pbob erase',
+  'pbob dbuf',
+  'set pbob',
+  'set fastpbob mode',
+  'x pbob',
+  'y pbob',
+  'i pbob',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -2187,6 +2200,12 @@ export const NOTES: Record<string, string> = {
     "Routine 56 (\\$1e52), 40 bytes: two word stores into \\$0 and \\$2 of the animation record, and nothing else. DEFECT: the map offset at \\$e is NOT recomputed. The stepper's ordinary arm pokes through \\$e, so a plain animation moved this way keeps drawing at the cell it was defined at while Map An At and Map An Point report the new position; only a movement animation recovers, because its arm rebuilds \\$e from x and y on its next fire. Reproduced -- a game built on the real library either used it on movement animations or worked around it, and either way needs the same behaviour here",
   'map an point':
     "Routine 54 (\\$1dde), 36 bytes: the animation's current frame index, straight out of \\$c. DEVIATION: out of range it sets neither d3 nor d2 -- it returns with the result registers holding whatever the last extension function left there, so the answer is the previous call's value WITH the previous call's type, and a string function ahead of it would make `=Map An Point(999)` evaluate to a string. That is not behaviour a program can rely on and not something a typed port can produce; 0 is returned instead",
+  'reserve pbobs':
+    "Routine 6 (\\$10e2), 100 bytes. `Rbsr routine 10` (Pbob Erase) is the FIRST instruction, so reserving always throws the previous table away; then three range checks, all to routine 125's AMOS error 23. Two allocations follow, both `AllocMem` with MEMF_PUBLIC|MEMF_CLEAR --- `n * 8` for the Pbob table at \\$0 and `n * 4` for a second table at \\$4 that this slice does not read --- and either returning null is routine 123's error 24, \"Out of memory\". The eight bytes a Pbob are TWO PBOB_STRUCTURE pointers, the second used only when Pbob Dbuf is on. NOTE: the cap is 64, `cmp.l #\\$40,d0 / Rbhi`, and that is a property of the SHAREWARE build we hold; the doc says a registered copy does 256 and that copy is not here to read. Reproduced as the binary has it. NOTE: the `tst.w \\$c(a2) / Rbne routine 125` at \\$10ea is dead code --- the Pbob Erase two instructions earlier ends with `clr.w \\$c(a2)`, so the field it tests is always zero by the time it is tested. Transcribed as the dead branch it is",
+  'pbob erase':
+    "Routine 10 (\\$15cc), 138 bytes. Frees every PBOB_STRUCTURE and its save buffer, then both tables, then zeroes the count. The walk steps by FOUR over a table of eight-byte slots (`addq.l #\\$4,d6` against `count * 8`), so one loop covers the normal and double-buffered structures without distinguishing them. DEVIATION, and it is the significant one in this extension: routine 0 installs a reset hook at \\$6e0 into both \\$1bc(a5) and \\$1c0(a5), and that hook calls Pbob Erase and Psprite Erase --- both reproduced --- but FIRST calls \\$7e6, which opens Screen 0 at 320x200x4 Lowres, prints \"PowerBobs  V1.0\", \"Unregistered version.\", \"(c) PowerSoft\" and \"Press the Enter key to continue.\" (strings at \\$900/\\$910/\\$926/\\$932) and then spins `cmp.w #\\$d,d1 / bne \\$8b4` until Return arrives. Not reproduced. It is the shareware nag, the registered build does not have it, and reproducing it would block every program that loads this extension --- on a key the doc itself tells the user to press. The reading is recorded here so the omission is visible rather than silent",
+  'x pbob':
+    "Routines 13 (\\$20d0), 14 (\\$20f4) and 5 (\\$10ba) --- X Pbob, Y Pbob and I Pbob, thirty-six to forty bytes each and the same shape. All three do `Rble routine 125` for a number that is zero or negative, `cmp.w \\$c(a2),d0 / Rbhi routine 125` for one past the reserved count, then `subq.w #\\$1,d0 / lsl.w #\\$3,d0` because the numbering is 1-BASED and the table stride is eight. X and Y read the signed words at \\$0 and \\$2; I Pbob reads the word at \\$1c and does `lsr.w #\\$3`, because the image number is kept multiplied by eight --- the stride of AMOS's icon table, so the draw path never has to multiply. DEVIATION: none of the three tests the structure pointer, where Set Pbob does. A Pbob that was reserved but never given a Pbob Height has a null pointer, and the real routines then read addresses \\$0, \\$2 and \\$1c, which on a 68000 is the bottom of the exception vector table --- whatever the machine happens to hold, not a value a program could rely on. This port answers 0. The range checks either side of it are reproduced exactly",
   // --- IOPorts: implemented, but reporting a port with nothing on it ---
   'serial error':
     "Returns 0. The real call reads io_Error from the request and maps it through the device's error table (base 145, 16 messages, from the Dev.Open call). With no hardware behind the port there is no transfer to fail, so no error is ever raised and the keyword can only report success. The mapping itself is modelled -- ioError() resolves those exact messages -- it just has nothing to map",
@@ -3276,6 +3295,9 @@ export const NOTES: Record<string, string> = {
  * -- so a group cannot rot into pointing at nothing.
  */
 export const SHARED_NOTES: Record<string, string> = {
+  // routines 13, 14 and 5 are the same accessor three times, over three fields
+  'y pbob': 'x pbob',
+  'i pbob': 'x pbob',
   // routines 279 to 283 are the same eighteen bytes five times, each handing
   // back a different field of the current screen
   'scrn bitmap': 'scrn rastport',

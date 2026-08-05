@@ -13,6 +13,7 @@ import { newTurboState, TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions,
 import { newPersonnalState, PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
 import { newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
 import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions, ensureLib } from './speech'
+import { makePowerBobsFunctions, makePowerBobsInstructions, newPowerBobsState } from './powerbobs'
 import { makeTomeFunctions, makeTomeInstructions, newTomeState } from './tome'
 import { SpeakBuffer, isSpeakPath, parseSpeakOptions, type SpeakOptions } from '../amiga/speak'
 import { newIoPortsState, makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
@@ -5048,6 +5049,17 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     functions: makeTurboFunctions,
     defaults: turboDefault,
     errors: TURBO_ERRORS,
+  },
+  {
+    // PowerBobs 1.0 at slot 13, by the author of TURBO Plus. The SHAREWARE
+    // build: 64 Pbobs, and a startup screen this port does not reproduce.
+    // See powerbobs.ts.
+    ids: ['powerbobs-1.0'],
+    init: (rt) => {
+      rt.powerbobs = newPowerBobsState()
+    },
+    instructions: makePowerBobsInstructions,
+    functions: makePowerBobsFunctions,
   },
   {
     // TOME 4.23 and 3.1 share one port: 3.1's table is a strict prefix of

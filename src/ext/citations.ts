@@ -401,6 +401,8 @@ export const CITED_BY: Record<string, string[]> = {
   // 4.23 FIRST: 3.1 is a strict PREFIX of it -- same ids, specs and routine
   // numbers for its 35 entries -- so every citation holds for either, and the
   // longer table is the one that can resolve all of them
+  'src/runtime/powerbobs.ts': ['powerbobs-1.0'],
+  'src/runtime/powerbobs.test.ts': ['powerbobs-1.0'],
   'src/runtime/tome.ts': ['tome-4.23', 'tome-3.1'],
   'src/runtime/tome.test.ts': ['tome-4.23', 'tome-3.1'],
 }
