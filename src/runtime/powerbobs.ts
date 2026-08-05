@@ -146,6 +146,20 @@ export interface PowerBobsState {
   drawHi: number
   /** $16 — Pbob Update's own selector, a THIRD one beside draw and clear */
   updateSel: number
+  /**
+   * $244 — the Psprite table, eight bytes an entry with Y at +0 and X at +2,
+   * which is the order X Psprite and Y Psprite read them back in and NOT the
+   * order the names suggest.
+   */
+  psprites: Array<{ y: number; x: number; image: number }>
+  /** $24e — Psprite Max, stored as the count LESS ONE. Ships as 63. */
+  psprMax: number
+  /**
+   * $2c — how many hardware sprites are available, which is what Set Psprite
+   * Colours really chooses: 8 for four-colour sprites, 4 for sixteen-colour
+   * ones, because sixteen colours costs an attached pair. Ships as 8.
+   */
+  psprHw: number
   /** the four wrapping ranges: $504/$51c/$534/$54c and $554/$557/$55a/$55d */
   rInc: PRange
   rDec: PRange
@@ -168,6 +182,9 @@ export const newPowerBobsState = (): PowerBobsState => ({
   drawLo: 0,
   drawHi: 0,
   updateSel: 0,
+  psprites: [],
+  psprMax: 63,
+  psprHw: 8,
   rInc: newRange(),
   rDec: newRange(),
   rAdd: newRange(),
@@ -663,6 +680,42 @@ export function makePowerBobsInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
+     * Psprite Max n — routine 35 ($337a), 28 bytes.
+     *
+     * `cmp.l #$80,d0 / Rbhi` caps it at 128 and `subq.l #$1,d0` stores the
+     * count LESS ONE at $24e, which is why the shipped 63 means 64 Psprites.
+     * Every Psprite accessor compares against that field with `Rbhi`, so the
+     * stored value is an inclusive maximum.
+     */
+    'psprite max'(it) {
+      const n = it.evalInt()
+      if (n < 0) funcCall() // Rblt
+      if (n > 128) funcCall() // cmp.l #$80,d0 / Rbhi
+      const s = st()
+      s.psprMax = n - 1
+      s.psprites = new Array(Math.max(0, n)).fill(null).map(() => ({ y: 0, x: 0, image: 0 }))
+    },
+
+    /**
+     * Set Psprite Colours n — routine 43 ($3504), 40 bytes, and it takes 16
+     * or 4 and nothing else: anything but those two is error 23.
+     *
+     * What it stores is not the colour count but the number of HARDWARE
+     * SPRITES that many colours leaves available --- `move.w #$4,$2c(a2)` for
+     * sixteen colours and `#$8` for four --- because a sixteen-colour sprite
+     * costs an attached pair. Psprite Erase then branches on `cmpi.w #$8,
+     * $2c(a2)` to free the right shape of table. The block ships with 8, so
+     * four colours is the default.
+     */
+    'set psprite colours'(it) {
+      const n = it.evalInt()
+      const s = st()
+      if (n === 16) s.psprHw = 4
+      else if (n === 4) s.psprHw = 8
+      else funcCall() // Rbne routine 125
+    },
+
+    /**
      * Set Pbob nr,replace,planemask — routine 23 ($2960), 76 bytes.
      *
      * `replace` is normalised: `cmp.l #$0,d6 / beq` keeps zero and anything
@@ -1013,6 +1066,20 @@ function setRange(rt: Runtime, it: Parameters<Instr>[0], pick: (s: PowerBobsStat
   r.on = true
 }
 
+/** `jsr $30(a0)` — the hardware-to-screen conversion X Screen/Y Screen use. */
+const hardToScreenX = (rt: Runtime, x: number): number =>
+  (x - 128) * (rt.screen.hires ? 2 : 1) + rt.screen.offsetX
+const hardToScreenY = (rt: Runtime, y: number): number => y - 50 + rt.screen.offsetY
+
+/** the range check X Psprite and Y Psprite share, against Psprite Max */
+function psprField(rt: Runtime, n: number, read: (p: { y: number; x: number }) => number): Value {
+  const s = rt.powerbobs
+  if (n < 0) funcCall() // Rbmi
+  if (n > s.psprMax) funcCall() // cmp.w $24e(a2),d0 / Rbhi
+  const p = s.psprites[n]
+  return VI(p ? ((read(p) << 16) >> 16) : 0)
+}
+
 export function makePowerBobsFunctions(rt: Runtime): Record<string, Func> {
   /**
    * X Pbob(n) / Y Pbob(n) / I Pbob(n) — routines 13 ($20d0), 14 ($20f4) and
@@ -1039,6 +1106,54 @@ export function makePowerBobsFunctions(rt: Runtime): Record<string, Func> {
     'x pbob': (_, a): Value => field(int(a[0]!), (b) => (b.x << 16) >> 16),
     'y pbob': (_, a): Value => field(int(a[0]!), (b) => (b.y << 16) >> 16),
     'i pbob': (_, a): Value => field(int(a[0]!), (b) => (b.image8 & 0xffff) >>> 3),
+
+    /**
+     * =X Psprite(n) / =Y Psprite(n) — routines 36 ($3396) and 37 ($33b8).
+     *
+     * Both check `Rbmi` for a negative number and `cmp.w $24e(a2),d0 / Rbhi`
+     * against Psprite Max, then index the table at $244 by eight.
+     *
+     * The field order is the surprise and it is worth stating plainly: X
+     * Psprite reads `$2(a1,d0.w)` and Y Psprite reads `(a1,d0.w)`. Y comes
+     * FIRST in the entry, which is the hardware sprite convention --- the
+     * vertical position leads a sprite's control words --- and is the reverse
+     * of what the keyword names suggest.
+     */
+    'x psprite': (_, a): Value => psprField(rt, int(a[0]!), (p) => p.x),
+    'y psprite': (_, a): Value => psprField(rt, int(a[0]!), (p) => p.y),
+
+    /**
+     * =Xscr Mouse / =Yscr Mouse — routines 24 ($29ac) and 25 ($29c2), 22
+     * bytes each: AMOS's own mouse position out of `-$1580(a5)` and
+     * `-$157e(a5)`, then `jsr $30(a0)` through `-$4(a5)`, which is the
+     * hardware-to-screen conversion `X Screen` and `Y Screen` also use.
+     *
+     * So these are exactly `X Screen(X Mouse)` and `Y Screen(Y Mouse)`, saved
+     * as one call because a game does it every frame.
+     */
+    'xscr mouse': (): Value => VI(hardToScreenX(rt, rt.input.mouseX)),
+    'yscr mouse': (): Value => VI(hardToScreenY(rt, rt.input.mouseY)),
+
+    /**
+     * =Xscr Sprite(n) / =Yscr Sprite(n) — routines 26 ($29d8) and 27 ($2a06),
+     * 46 bytes each: the same conversion applied to a HARDWARE sprite rather
+     * than the mouse.
+     *
+     * The sprite table is AMOS's, at `-$17fe(a5)`, eight bytes an entry with
+     * x at +2 and y at +4 --- a different layout from the Psprite table two
+     * functions above, which is why both are spelled out. `cmp.w #$40,d1 /
+     * Rbhi` bounds it at 64 sprites and a negative number is `Rbmi`.
+     */
+    'xscr sprite': (_, a): Value => {
+      const n = int(a[0]!)
+      if (n < 0 || n > 64) funcCall()
+      return VI(hardToScreenX(rt, rt.hwSprites.get(n)?.x ?? 0))
+    },
+    'yscr sprite': (_, a): Value => {
+      const n = int(a[0]!)
+      if (n < 0 || n > 64) funcCall()
+      return VI(hardToScreenY(rt, rt.hwSprites.get(n)?.y ?? 0))
+    },
 
     /**
      * =Same — routine 68 ($3cf4), TEN bytes and no arguments:

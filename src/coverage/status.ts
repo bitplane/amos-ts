@@ -1962,6 +1962,16 @@ export const FAITHFUL = new Set<string>([
   'unset pinc range',
   'unset pdec range',
   'unset padd range',
+  // slice 4a: the Psprite accessors. The Psprite draw family itself is not
+  // here yet -- see the note on 'psprite max'.
+  'psprite max',
+  'set psprite colours',
+  'x psprite',
+  'y psprite',
+  'xscr mouse',
+  'yscr mouse',
+  'xscr sprite',
+  'yscr sprite',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -2264,6 +2274,14 @@ export const NOTES: Record<string, string> = {
     "Routine 62 (\\$3bd8), with Pmul Shift routine 63 and Pdiv routine 77. The multiply is built by hand out of `mulu.w` and `swap` because the 68000 has no 32x32 multiply --- the halves are crossed and added --- and is reproduced here as a plain 32-bit multiply, which is the same answer. Pdiv checks its divisor when the argument is POPPED, `move.l (a3)+,d4 / Rbeq routine 125`, so a zero divisor is error 23 rather than the trap the processor would take. NOTE: `adda.l d6,a1` at \\$3efc adds the start offset to a1, which Pdiv never loads and never reads --- three pointers adjusted where only two were popped. Harmless dead code, and a sign the routine was copied from a three-array version",
   'same':
     "Routine 68 (\\$3cf4), TEN bytes and no arguments: `move.l #\\$80000000,d3 / moveq #\\$0,d2 / rts`. A constant, -2147483648, which is the most negative long there is --- which is exactly why it serves as the \"leave this one alone\" marker the array operations are given, since no screen coordinate can collide with it",
+  'psprite max':
+    "Routine 35 (\\$337a), 28 bytes: `cmp.l #\\$80,d0 / Rbhi` caps it at 128 and `subq.l #\\$1,d0` stores the count LESS ONE at \\$24e, which is why the block's shipped 63 means 64 Psprites. Every Psprite accessor compares against that field with `Rbhi`, so what is stored is an inclusive maximum",
+  'set psprite colours':
+    "Routine 43 (\\$3504), 40 bytes, and it accepts 16 or 4 and nothing else --- `Rbne routine 125` for anything third. What it stores is not the colour count but the number of HARDWARE SPRITES that many colours leaves available: `move.w #\\$4,\\$2c(a2)` for sixteen colours and `#\\$8` for four, because a sixteen-colour sprite costs an attached pair. Psprite Erase then branches on `cmpi.w #\\$8,\\$2c(a2)` to free the right shape of table. The block ships with 8, so four colours is the default",
+  'x psprite':
+    "Routines 36 (\\$3396) and 37 (\\$33b8). Both check `Rbmi` for a negative number and `cmp.w \\$24e(a2),d0 / Rbhi` against Psprite Max, then index the table at \\$244 by eight. The field order is the thing to state plainly: X Psprite reads `\\$2(a1,d0.w)` and Y Psprite reads `(a1,d0.w)`, so Y comes FIRST in the entry. That is the hardware sprite convention --- the vertical position leads a sprite's control words --- and it is the reverse of what the keyword names suggest. It is also a different layout from the AMOS sprite table Xscr Sprite reads, where x is at +2 and y at +4",
+  'xscr mouse':
+    "Routines 24 (\\$29ac) and 25 (\\$29c2), 22 bytes each: AMOS's own mouse position out of \\$-1580(a5) and \\$-157e(a5), handed to `jsr \\$30(a0)` through -\\$4(a5), which is the hardware-to-screen conversion X Screen and Y Screen also use. So they are exactly `X Screen(X Mouse)` and `Y Screen(Y Mouse)`, saved as one call because a game does it every frame. Xscr Sprite and Yscr Sprite (routines 26 and 27) are the same conversion applied to a HARDWARE sprite instead, read out of AMOS's sprite table at -\\$17fe(a5) with x at +2 and y at +4, bounded by `cmp.w #\\$40,d1 / Rbhi` at 64",
   // --- IOPorts: implemented, but reporting a port with nothing on it ---
   'serial error':
     "Returns 0. The real call reads io_Error from the request and maps it through the device's error table (base 145, 16 messages, from the Dev.Open call). With no hardware behind the port there is no transfer to fail, so no error is ever raised and the keyword can only report success. The mapping itself is modelled -- ioError() resolves those exact messages -- it just has nothing to map",
@@ -3353,6 +3371,10 @@ export const NOTES: Record<string, string> = {
  * -- so a group cannot rot into pointing at nothing.
  */
 export const SHARED_NOTES: Record<string, string> = {
+  'y psprite': 'x psprite',
+  'yscr mouse': 'xscr mouse',
+  'xscr sprite': 'xscr mouse',
+  'yscr sprite': 'xscr mouse',
   // the arithmetic block is one reading over twenty routines
   'pdec': 'pinc',
   'padd': 'pinc',

@@ -582,3 +582,55 @@ describe('PowerBobs: the array arithmetic block (routines 58-77)', () => {
     expect(val('Print Same')).toBe(-2147483648)
   })
 })
+
+describe('PowerBobs: the Psprite accessors (routines 24-27, 35-37, 43)', () => {
+  it('Psprite Max stores the count LESS ONE, and caps at 128', () => {
+    // `subq.l #$1,d0` into $24e -- which is why the shipped 63 means 64
+    expect(run('Psprite Max 10').powerbobs.psprMax).toBe(9)
+    expect(() => run('Psprite Max 128')).not.toThrow()
+    expect(() => run('Psprite Max 129')).toThrow(/Illegal function call/)
+    expect(() => run('Psprite Max -1')).toThrow(/Illegal function call/)
+  })
+
+  it('the block ships with 63, so 64 Psprites before Psprite Max is called', () => {
+    expect(run('').powerbobs.psprMax).toBe(63)
+  })
+
+  it('Set Psprite Colours stores the HARDWARE SPRITE count, not the colours', () => {
+    // 16 colours costs an attached pair, so only four are left
+    expect(run('Set Psprite Colours 16').powerbobs.psprHw).toBe(4)
+    expect(run('Set Psprite Colours 4').powerbobs.psprHw).toBe(8)
+    expect(run('').powerbobs.psprHw).toBe(8) // the shipped default
+    expect(() => run('Set Psprite Colours 8')).toThrow(/Illegal function call/)
+  })
+
+  it('X Psprite and Y Psprite are bounded by Psprite Max', () => {
+    expect(val('Psprite Max 4 : Print X Psprite(0)')).toBe(0)
+    expect(val('Psprite Max 4 : Print Y Psprite(3)')).toBe(0)
+    expect(() => run('Psprite Max 4 : Print X Psprite(4)')).toThrow(/Illegal function call/)
+    expect(() => run('Psprite Max 4 : Print Y Psprite(-1)')).toThrow(/Illegal function call/)
+  })
+
+  it('Y comes FIRST in a Psprite entry, which the names do not suggest', () => {
+    // X Psprite reads $2(a1,d0.w) and Y Psprite reads (a1,d0.w) -- the
+    // hardware sprite convention, vertical position leading
+    const rt = run('Psprite Max 2')
+    rt.powerbobs.psprites[0] = { y: 40, x: 20, image: 1 }
+    expect([rt.powerbobs.psprites[0]!.y, rt.powerbobs.psprites[0]!.x]).toEqual([40, 20])
+  })
+
+  it('Xscr Sprite and Yscr Sprite are bounded at 64', () => {
+    expect(() => run('Print Xscr Sprite(65)')).toThrow(/Illegal function call/)
+    expect(() => run('Print Yscr Sprite(-1)')).toThrow(/Illegal function call/)
+    expect(() => run('Print Xscr Sprite(0)')).not.toThrow()
+  })
+
+  it('Xscr Mouse and Yscr Mouse apply the X Screen conversion', () => {
+    // routines 24 and 25 read AMOS's own mouse and hand it to the same
+    // hardware-to-screen call X Screen uses
+    const rt = run('Screen Open 0,320,200,8,Lowres : Print Xscr Mouse')
+    expect(Number(printed.trim())).toBe(rt.input.mouseX - 128 + rt.screen.offsetX)
+    run('Screen Open 0,320,200,8,Lowres : Print Yscr Mouse')
+    expect(Number(printed.trim())).toBe(rt.input.mouseY - 50 + rt.screen.offsetY)
+  })
+})
