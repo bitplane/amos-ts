@@ -52,7 +52,10 @@ function icons(n: number): ObjectBank {
 
 let printed = ''
 
-function run(src: string, opts: { map?: Uint8Array; briks?: Uint8Array; nIcons?: number; ext?: typeof tome } = {}): Runtime {
+function run(
+  src: string,
+  opts: { map?: Uint8Array; briks?: Uint8Array; types?: Uint8Array; nIcons?: number; ext?: typeof tome } = {},
+): Runtime {
   const ext = opts.ext ?? tome
   const exts = new Map([[7, ext.table]])
   printed = ''
@@ -64,6 +67,7 @@ function run(src: string, opts: { map?: Uint8Array; briks?: Uint8Array; nIcons?:
   })
   if (opts.map) rt.memBanks.set(1, { kind: 'memory', number: 1, memType: 0, name: 'Map', flags: 0, data: opts.map })
   if (opts.briks) rt.memBanks.set(2, { kind: 'memory', number: 2, memType: 0, name: 'Brik', flags: 0, data: opts.briks })
+  if (opts.types) rt.memBanks.set(3, { kind: 'memory', number: 3, memType: 0, name: 'Type', flags: 0, data: opts.types })
   rt.iconBank = icons(opts.nIcons ?? 8)
   const r = rt.runHeadless(500)
   if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
@@ -788,5 +792,291 @@ describe('TOME: Tiny Map and Map Scan (routines 8, 9, 29, 30)', () => {
     // (0,0) is tile 0, found immediately -- the point is that asking for a
     // 40x30 range over a 4x3 map is not refused
     expect(val('Map Bank 1 : Print Map Scan X(200,0,0 To 40,30,0)', { map: m() })).toBe(-1)
+  })
+})
+
+describe('TOME: the animations (routines 42-45, 52-56)', () => {
+  const head = ['Screen Open 0,320,200,8,Lowres', 'Cls 0', 'Map Bank 1', 'Tile Size 1,1', 'Map View 0,0 To 4,3']
+  const m = () => mapBank(4, 3, [0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3])
+  /** four updates then four 64-byte animation records, all in bank 2 */
+  const bank = () => new Uint8Array(4 + 4 * 8 + 4 * 64)
+  // `Map Do` is not decoration: $16/$18 are caches only the draws write, and
+  // Map Anim reads $16 to build the map offset at $e
+  const setup = ['Map Anim Bank 2,4,4', 'Map Do 0,0']
+  /** the record fields, at the offset Map Anim Bank wrote into the head */
+  const rec = (b: Uint8Array, n: number, off: number): number => {
+    const base = new DataView(b.buffer, b.byteOffset).getUint32(0)
+    return (b[base + n * 64 + off]! << 8) | b[base + n * 64 + off + 1]!
+  }
+
+  it('Map Anim lays the record out and copies the frame string into it', () => {
+    // routine 44 ($163e): x, y, cycles, speed, speed again, then the length
+    // word at $a and the bytes from $14
+    const b = bank()
+    // Map Do first: $16 is a cache, and Map Anim reads it to build $e
+    run([...head, ...setup, 'Map Do 0,0', 'Map Anim 1,2,1,3,5,Chr$(4)+Chr$(6)'].join('\n'), { map: m(), briks: b })
+    expect(rec(b, 1, 0)).toBe(2) // x
+    expect(rec(b, 1, 2)).toBe(1) // y
+    expect(rec(b, 1, 4)).toBe(3) // cycles
+    expect(rec(b, 1, 6)).toBe(5) // the reload
+    expect(rec(b, 1, 8)).toBe(5) // and the live countdown, the same
+    expect(rec(b, 1, 0xa)).toBe(2) // two frames
+    expect(rec(b, 1, 0xc)).toBe(0) // starting at the first
+    expect(rec(b, 1, 0x12)).toBe(0) // a positive number is not a mover
+    const base = new DataView(b.buffer).getUint32(0)
+    expect([b[base + 64 + 0x14], b[base + 64 + 0x15]]).toEqual([4, 6])
+    // $e is y * mapWidth + x, a LONG, and the cell routine 45 pokes
+    expect(rec(b, 1, 0xe) * 0x10000 + rec(b, 1, 0x10)).toBe(1 * 4 + 2)
+  })
+
+  it('a NEGATIVE animation number is the movement mode', () => {
+    // `tst.l d3 / blt $16c8` then `neg.w d3 / moveq #$1,d0` -- the sign picks
+    // the engine and the magnitude is still the animation number
+    const b = bank()
+    run([...head, ...setup, 'Map Anim -2,0,0,-1,1,Chr$(1)+Chr$(0)+Chr$(5)'].join('\n'), { map: m(), briks: b })
+    expect(rec(b, 2, 0x12)).toBe(1) // the flag is set on animation 2
+    expect(rec(b, 2, 4)).toBe(0xffff) // cycles -1: it never runs out
+  })
+
+  it('an animation is stepped by Map Update, and pokes the MAP not the screen', () => {
+    // routine 45 is reached only through `tst.w $70(a0) / bne $154a` at the
+    // head of Map Update, which then falls back into its own draw
+    const data = m()
+    const b = bank()
+    const rt = run(
+      [...head, ...setup, 'Map Update On', 'Map Anim On', 'Map Anim 0,1,1,-1,1,Chr$(6)', 'Map Update 0,0'].join('\n'),
+      { map: data, briks: b },
+    )
+    expect(data[4 + 1 * 4 + 1]).toBe(6) // the map byte was rewritten
+    expect(at(rt, 1, 1)).toBe(7) // tile 6 -> icon 7, drawn by the same call
+  })
+
+  it('the countdown at $8 is what paces it, and reloads from $6', () => {
+    // `move.w $8(a1),d2 / subq.w #$1,d2 / tst.w d2 / beq` -- speed 3 fires on
+    // the third Map Update, not the first
+    const data = m()
+    const b = bank()
+    const prog = [...head, ...setup, 'Map Anim On', 'Map Anim 0,0,0,-1,3,Chr$(6)']
+    run([...prog, 'Map Update 0,0'].join('\n'), { map: data, briks: b })
+    expect(data[4]).toBe(0) // not yet
+    run([...prog, 'Map Update 0,0', 'Map Update 0,0'].join('\n'), { map: data, briks: b })
+    expect(data[4]).toBe(0)
+    const third = m()
+    run([...prog, 'Map Update 0,0', 'Map Update 0,0', 'Map Update 0,0'].join('\n'), { map: third, briks: bank() })
+    expect(third[4]).toBe(6)
+  })
+
+  it('cycles count DOWN as the frame list wraps, and $ffff never does', () => {
+    // $17e4: `move.w $4(a1),d6 / cmp.w #$ffff,d6 / beq` skips the decrement
+    const b = bank()
+    const prog = [...head, ...setup, 'Map Anim On', 'Map Anim 0,0,0,2,1,Chr$(1)+Chr$(2)']
+    // two frames, so the wrap comes on the third step and takes one cycle
+    run([...prog, ...new Array(3).fill('Map Update 0,0')].join('\n'), { map: m(), briks: b })
+    expect(rec(b, 0, 4)).toBe(1)
+    const forever = bank()
+    run(
+      [...head, ...setup, 'Map Anim On', 'Map Anim 0,0,0,-1,1,Chr$(1)+Chr$(2)', ...new Array(9).fill('Map Update 0,0')]
+        .join('\n'),
+      { map: m(), briks: forever },
+    )
+    expect(rec(forever, 0, 4)).toBe(0xffff)
+  })
+
+  it('a movement animation reads its frames as dx, dy, tile triples', () => {
+    // $17a6: `ext.w d2 / add.w d2,d4` then the same for y, then the third
+    // byte is the tile, and $e is rebuilt from the new position
+    const data = m()
+    const b = bank()
+    run(
+      [...head, ...setup, 'Map Anim On', 'Map Anim -1,0,0,-1,1,Chr$(1)+Chr$(1)+Chr$(5)', 'Map Update 0,0'].join('\n'),
+      { map: data, briks: b },
+    )
+    expect(rec(b, 1, 0)).toBe(1) // moved one right
+    expect(rec(b, 1, 2)).toBe(1) // and one down
+    expect(data[4 + 1 * 4 + 1]).toBe(5) // the tile landed at (1,1)
+  })
+
+  it('Map An At searches downwards and only sees running animations', () => {
+    // `move.l $76(a0),d0 / subq.l #$1,d0` then dbra, and both $4 and $a must
+    // be non-zero for a record to count
+    const prog = [...head, ...setup, 'Map Anim 1,2,2,-1,1,Chr$(1)', 'Map Anim 3,2,2,-1,1,Chr$(1)']
+    expect(val([...prog, 'Print Map An At(2,2)'].join('\n'), { map: m(), briks: bank() })).toBe(3)
+    expect(val([...prog, 'Print Map An At(0,3)'].join('\n'), { map: m(), briks: bank() })).toBe(-1)
+    // cycles 0 means it never runs, so it is not there to be found
+    expect(
+      val([...head, ...setup, 'Map Anim 1,2,2,0,1,Chr$(1)', 'Print Map An At(2,2)'].join('\n'), {
+        map: m(),
+        briks: bank(),
+      }),
+    ).toBe(-1)
+  })
+
+  it('Map An Freeze parks the cycle count in $8 and Unfreeze reloads $8 from $6', () => {
+    // routines 52 and 53, 48 bytes each and not symmetric: the countdown does
+    // not survive, it is rebuilt from the speed
+    const b = bank()
+    run([...head, ...setup, 'Map Anim 0,0,0,7,4,Chr$(1)', 'Map An Freeze 0'].join('\n'), { map: m(), briks: b })
+    expect(rec(b, 0, 4)).toBe(0) // stopped
+    expect(rec(b, 0, 8)).toBe(7) // with the cycle count parked
+    const c = bank()
+    run([...head, ...setup, 'Map Anim 0,0,0,7,4,Chr$(1)', 'Map An Freeze 0', 'Map An Unfreeze 0'].join('\n'), {
+      map: m(),
+      briks: c,
+    })
+    expect(rec(c, 0, 4)).toBe(7) // running again
+    expect(rec(c, 0, 8)).toBe(4) // but on a FULL countdown, from $6
+  })
+
+  it('Map An Point reports the frame index the next step will use', () => {
+    const prog = [...head, ...setup, 'Map Anim On', 'Map Anim 0,0,0,-1,1,Chr$(1)+Chr$(2)+Chr$(3)']
+    expect(val([...prog, 'Print Map An Point(0)'].join('\n'), { map: m(), briks: bank() })).toBe(0)
+    expect(val([...prog, 'Map Update 0,0', 'Print Map An Point(0)'].join('\n'), { map: m(), briks: bank() })).toBe(1)
+  })
+
+  it('Map An Move changes x and y but NOT the cell the tile is poked into', () => {
+    // DEFECT: reproduced -- routine 56 writes $0 and $2 and leaves the map
+    // offset at $e alone, so a plain animation keeps drawing where it was
+    // defined while Map An At reports where it was moved to
+    const data = m()
+    const b = bank()
+    run(
+      [...head, ...setup, 'Map Anim On', 'Map Anim 0,0,0,-1,1,Chr$(6)', 'Map An Move 0,3,2', 'Map Update 0,0'].join(
+        '\n',
+      ),
+      { map: data, briks: b },
+    )
+    expect(rec(b, 0, 0)).toBe(3) // it says it is at (3,2)
+    expect(data[4 + 2 * 4 + 3]).toBe(3) // but (3,2) still holds its own tile
+    expect(data[4]).toBe(6) // and (0,0) is what got the frame
+  })
+
+  it('Map Anim On and Off leave every record alone', () => {
+    // routines 42 and 43 are one `move.w` each -- switching off and on again
+    // resumes exactly where it stopped, unlike Map An Freeze
+    const b = bank()
+    run([...head, ...setup, 'Map Anim 0,0,0,5,9,Chr$(1)', 'Map Anim On', 'Map Anim Off'].join('\n'), {
+      map: m(),
+      briks: b,
+    })
+    expect(rec(b, 0, 4)).toBe(5)
+    expect(rec(b, 0, 8)).toBe(9)
+  })
+})
+
+describe('TOME: scrolling and the map editors (routines 47, 48, 50, 51)', () => {
+  const head = ['Screen Open 0,320,200,8,Lowres', 'Cls 0', 'Map Bank 1', 'Tile Size 1,1', 'Map View 0,0 To 4,3']
+  const m = () => mapBank(4, 3, [0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3])
+  const bank = () => new Uint8Array(4 + 8 * 8 + 4 * 64)
+
+  it('Map Handle Init forces the next call to redraw the lot', () => {
+    // routine 48 writes $ffffffff across BOTH remembered words, and routine
+    // 47 tests `cmpi.w #$ffff,d0` on the first of them
+    const rt = run([...head, 'Map Handle Init', 'Map Handle 0,0,0'].join('\n'), { map: m() })
+    expect(rt.tome.handleOldX).toBe(0) // and the marker is spent
+    expect([at(rt, 0, 0), at(rt, 1, 0), at(rt, 2, 0), at(rt, 3, 0)]).toEqual([1, 2, 3, 4])
+  })
+
+  it('a scroll blits the screen over itself and redraws only the new column', () => {
+    // $1884 hands the blit source (tileW,0) and destination (0,0), then
+    // $1932 calls Map Right for the strip that just came into view
+    const rt = run([...head, 'Map Handle Init', 'Map Handle 0,0,0', 'Map Handle 0,1,0'].join('\n'), { map: m() })
+    // the first three columns are the old second, third and fourth...
+    expect([at(rt, 0, 0), at(rt, 1, 0), at(rt, 2, 0)]).toEqual([2, 3, 4])
+    // ...and the last is Map Right's, which wraps to map column 0
+    expect(at(rt, 3, 0)).toBe(1)
+    expect(rt.tome.handleOldX).toBe(1)
+  })
+
+  it('the block ships the remembered position as 0, not -1', () => {
+    // so without Map Handle Init the first Map Handle to (0,0) decides
+    // nothing moved and draws NOTHING at all
+    const rt = run([...head, 'Map Handle 0,0,0'].join('\n'), { map: m() })
+    expect(at(rt, 0, 0)).toBe(0)
+  })
+
+  it('Map Fall drops a tile one cell and reads tile-type table 2', () => {
+    // routine 50: `Rbsr routine 68 / adda.l #$100,a2` -- table 1 is skipped
+    // entirely. Type 0 is empty and type 3 or more falls into it.
+    const data = mapBank(4, 4, [1, 1, 1, 1, 1, 9, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1])
+    const typ = new Uint8Array(512)
+    typ[0x100 + 1] = 1 // solid
+    typ[0x100 + 9] = 3 // falls
+    run([...head, 'Tile Typ Bank 3', 'Map Anim Bank 2,8,0', 'Map Do 0,0', 'Map Fall 0'].join('\n'), {
+      map: data,
+      briks: bank(),
+      types: typ,
+      nIcons: 16,
+    })
+    expect(data[4 + 2 * 4 + 1]).toBe(9) // it moved down one row
+    expect(data[4 + 1 * 4 + 1]).toBe(0) // and left the argument behind
+  })
+
+  it('a tile rolls off a rounded one, and the update record names the wrong cell', () => {
+    // type 2 is a rounded top: $1be2 tries the left, then the right, and each
+    // needs BOTH the side cell and the one below it empty.
+    // DEFECT: reproduced -- `bsr $1bb2` is reached with d0 still the column
+    // loop variable, so the arrival is recorded at the column it left.
+    const data = mapBank(5, 5, [
+      1, 1, 1, 1, 1, 1, 0, 9, 1, 1, 1, 0, 7, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    ])
+    const typ = new Uint8Array(512)
+    typ[0x100 + 1] = 1
+    typ[0x100 + 7] = 2 // rounded
+    typ[0x100 + 9] = 3 // falls
+    const list = bank()
+    run([...head, 'Tile Typ Bank 3', 'Map Anim Bank 2,8,0', 'Map Do 0,0', 'Map Fall 0'].join('\n'), {
+      map: data,
+      briks: list,
+      types: typ,
+      nIcons: 16,
+    })
+    expect(data[4 + 1 * 5 + 1]).toBe(9) // rolled left, same row
+    expect(data[4 + 1 * 5 + 2]).toBe(0)
+    const v = new DataView(list.buffer)
+    expect(v.getUint16(4)).toBe(9) // the tile that arrived...
+    expect(v.getUint16(6)).toBe(2) // ...recorded at column 2, where it LEFT
+    expect(v.getUint16(4 + 8 + 2)).toBe(2) // and the vacated cell, also at 2
+  })
+
+  it('Map Fall records updates whether or not Map Update On was called', () => {
+    // $1bb2 has no `tst.w $68(a0)`, where routine 45 and Map Swap Tile do
+    const data = mapBank(4, 4, [1, 1, 1, 1, 1, 9, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1])
+    const typ = new Uint8Array(512)
+    typ[0x100 + 1] = 1
+    typ[0x100 + 9] = 3
+    const rt = run([...head, 'Tile Typ Bank 3', 'Map Anim Bank 2,8,0', 'Map Do 0,0', 'Map Fall 0'].join('\n'), {
+      map: data,
+      briks: bank(),
+      types: typ,
+      nIcons: 16,
+    })
+    expect(rt.tome.updCount).toBe(2)
+    expect(rt.tome.updArmed).toBe(1)
+    expect(rt.tome.updOn).toBe(0) // it was never switched on
+  })
+
+  it('Map Swap Tile exchanges both ways in one backwards pass', () => {
+    // the scan runs from the last cell down, so a rewritten cell is never
+    // revisited and the swap does not undo itself
+    const data = mapBank(4, 3, [1, 2, 1, 2, 2, 1, 2, 1, 1, 1, 2, 2])
+    run([...head, 'Map Anim Bank 2,8,0', 'Map Do 0,0', 'Map Swap Tile 1,2'].join('\n'), {
+      map: data,
+      briks: bank(),
+    })
+    expect([...data.slice(4)]).toEqual([2, 1, 2, 1, 1, 2, 1, 2, 2, 2, 1, 1])
+  })
+
+  it('Map Swap Tile records only while Map Update On', () => {
+    // `tst.w $68(a0) / beq` guards both arms, unlike Map Fall
+    const off = run([...head, 'Map Anim Bank 2,8,0', 'Map Do 0,0', 'Map Swap Tile 1,2'].join('\n'), {
+      map: mapBank(2, 1, [1, 2]),
+      briks: bank(),
+    })
+    expect(off.tome.updCount).toBe(0)
+    const on = run(
+      [...head, 'Map Anim Bank 2,8,0', 'Map Do 0,0', 'Map Update On', 'Map Swap Tile 1,2'].join('\n'),
+      { map: mapBank(2, 1, [1, 2]), briks: bank() },
+    )
+    expect(on.tome.updCount).toBe(2)
   })
 })

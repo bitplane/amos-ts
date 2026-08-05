@@ -29,8 +29,8 @@
  *
  * ## The state block
  *
- * Everything hangs off `$158(a5)`, the extension's data block. The fields this
- * slice touches, all read out of the routines that write them:
+ * Everything hangs off `$158(a5)`, the extension's data block. The fields,
+ * all read out of the routines that write them:
  *
  *   $4   icon table base, and $8 the icon COUNT — both set by routine 70
  *   $a   map cursor x, $c map cursor y (words)
@@ -41,6 +41,21 @@
  *   $1a  the map bank number
  *   $20  $24 $28 $2c   view x1, y1, x2, y2 (longs)
  *   $48  one bit per tag slot, and $4a the Tile Tags flag that fills it
+ *   $3c  Map Fall's replacement tile
+ *   $68  $6a $6c   Map Update on, armed, and how many records are pending
+ *   $70  Map Anim on, tested only at the head of Map Update
+ *   $72  $76 $7a   the animation bank, and its two capacities
+ *   $7e  a sub-block: Map Handle at $0-$8, Tiny Map at $24-$2c, the tile
+ *        tags at $30/$38/$48
+ *
+ * ## The animation bank
+ *
+ * One bank holds two systems. A long at its head says where the animation
+ * records begin -- `updates * 8 + 4`, which Map Anim Bank writes and Map Ab
+ * Length computes -- so the update list runs from byte 4 at eight bytes a
+ * record and the 64-byte animation records follow it. Map Plot, Map Fall, Map
+ * Swap Tile and the animation stepper all append to the same list, and Map
+ * Update drains it.
  *
  * ## The map bank
  *
@@ -62,6 +77,7 @@
  *               followed by `Rbhi`, which is UNSIGNED strictly-greater, so a
  *               tile whose icon number equals the count is legal.
  */
+import { bltBitMap } from '../amiga/blitter'
 import { AmosError, VI, VS, int } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
@@ -114,6 +130,33 @@ export interface TomeState {
   updArmed: number
   /** $6c — how many records the list holds */
   updCount: number
+  /**
+   * $70 — Map Anim On/Off. Read in exactly one place: Map Update's first
+   * instruction after loading the block, `tst.w $70(a0) / bne $154a`, which
+   * runs the animation stepper and then falls back into the ordinary update
+   * draw. So an animation is stepped BY Map Update and its new tiles are
+   * drawn by the same call that stepped them.
+   */
+  animOn: number
+  /** $3c — the tile Map Fall leaves behind, its only argument */
+  fallEmpty: number
+  /**
+   * $7e+$0 .. $7e+$8 — Map Handle's own five fields, in the sub-block the
+   * tile tags and Tiny Map also live in.
+   *
+   *   $0/$2  the map position this call was given
+   *   $4/$6  the position the LAST call was given, which is what makes the
+   *          keyword a scroll manager rather than a draw
+   *   $8     the screen number, a long, handed to AMOS to resolve
+   *
+   * Map Handle Init writes $ffffffff over $4, so both halves read -1 and the
+   * next call takes the full-redraw arm.
+   */
+  handleX: number
+  handleY: number
+  handleOldX: number
+  handleOldY: number
+  handleScreen: number
   /**
    * $4a — TILE TAGS on. Every map draw tests it and takes a slower path that
    * watches for tagged tiles; it is not an animation flag, whatever the
@@ -177,6 +220,13 @@ export const newTomeState = (): TomeState => ({
   updOn: 0,
   updArmed: 0,
   updCount: 0,
+  animOn: 0,
+  fallEmpty: 0,
+  handleX: 0,
+  handleY: 0,
+  handleOldX: 0,
+  handleOldY: 0,
+  handleScreen: 0,
   tagsOn: 0,
   tagSeen: 0,
   tagTile: [0, 0, 0, 0, 0, 0, 0, 0],
@@ -314,11 +364,17 @@ const wrap = (v: number, n: number): number => {
   return x
 }
 
-/** Shared preamble: pop the cursor, resolve both banks, cache the header. */
-function begin(rt: Runtime, it: Parameters<Instr>[0]): { m: ReturnType<typeof mapData>; count: number } {
-  const x = it.evalInt()
-  it.expect(',')
-  const y = it.evalInt()
+/**
+ * Shared preamble: take the cursor, resolve both banks, cache the header.
+ *
+ * Map Handle calls the five draws as SUBROUTINES rather than as keywords --
+ * `bsr.w $1962` pushes its own x and y onto AMOS's argument stack and then
+ * `Rbsr routine 15` (or 16, 17, 18, 19) enters the keyword at its first
+ * instruction, which pops them straight back off. The argument stack is the
+ * calling convention, so a draw cannot tell the difference; this split is
+ * what lets the port make the same call.
+ */
+function beginAt(rt: Runtime, x: number, y: number): { m: ReturnType<typeof mapData>; count: number } {
   const st = rt.tome
   st.cursorX = (x << 16) >> 16 // move.w d4,$a(a0) — a WORD store
   st.cursorY = (y << 16) >> 16
@@ -375,8 +431,283 @@ function tinyIcons(rt: Runtime): number {
   return rt.iconBank!.images.length
 }
 
+/* ------------------------------------------------------------------ *
+ * The animation bank
+ * ------------------------------------------------------------------ */
+
+/**
+ * Word and long access into a bank, out of range included.
+ *
+ * The animation routines index their bank by numbers the CALLER chose --- the
+ * animation number against a capacity the caller also chose, and a frame
+ * count taken from the length of the caller's string. None of the three is
+ * checked against the bank's actual size, so a program can and does address
+ * past the end. On the Amiga that reads or writes whatever is next in chip
+ * RAM; here a read answers 0 and a write is dropped.
+ *
+ * NOTE: that is the one place this slice cannot be faithful, and it is not a
+ * defect being papered over --- the library's behaviour past the end of the
+ * bank is not defined by the library, it is defined by what the program
+ * happened to allocate next. See `map anim` on the frame count, which is the
+ * reachable case and IS declared.
+ */
+const rdW = (b: Uint8Array, at: number): number => ((b[at] ?? 0) << 8) | (b[at + 1] ?? 0)
+const rdL = (b: Uint8Array, at: number): number => (rdW(b, at) * 0x10000 + rdW(b, at + 2)) >>> 0
+const wrW = (b: Uint8Array, at: number, v: number): void => {
+  if (at < 0 || at + 1 >= b.length) return
+  b[at] = (v >> 8) & 0xff
+  b[at + 1] = v & 0xff
+}
+const wrL = (b: Uint8Array, at: number, v: number): void => {
+  wrW(b, at, (v >>> 16) & 0xffff)
+  wrW(b, at + 2, v & 0xffff)
+}
+/** `ext.w` on a byte, and a word read as signed — both appear in routine 45. */
+const sb = (v: number): number => (v << 24) >> 24
+const sw = (v: number): number => (v << 16) >> 16
+
+/** 64 bytes an animation: `asl.l #$6,d3` in every routine that indexes one. */
+const ANIM = 64
+
+/**
+ * Where the animation records start.
+ *
+ * Routine 66 resolves $72 through Start(), and then every animation routine
+ * does the same two instructions on the result: `move.l $0(a2),d0 / adda.l
+ * d0,a2`. The long at the head is what Map Anim Bank wrote there --- the
+ * update list's length plus its four-byte header --- so ONE bank holds both
+ * systems, the update list first and the animations after it.
+ */
+function animBase(rt: Runtime): { list: Uint8Array; base: number } {
+  const list = bankBytes(rt, rt.tome.animBank)
+  return { list, base: rdL(list, 0) }
+}
+
+/**
+ * One update record appended — the tail routine 45, Map Fall and Map Swap
+ * Tile share, at $1778, $1bb2 and $1d1a.
+ *
+ * All three write through the bank's own base with the fields at $4/$6/$8,
+ * which is the same place Map Plot writes with a base four bytes in and
+ * fields at $0/$2/$4. The record is tile, map x, map y as words, and two
+ * bytes spare.
+ *
+ * `$6a` is set BEFORE the capacity test in all three, so a full list still
+ * arms Map Update; only the record is dropped.
+ */
+function record(rt: Runtime, list: Uint8Array, tile: number, mx: number, my: number): void {
+  const s = rt.tome
+  s.updArmed = 1
+  if (s.updCount >= s.updCap) return
+  const at = 4 + s.updCount * 8
+  s.updCount++
+  wrW(list, at, tile)
+  wrW(list, at + 2, mx)
+  wrW(list, at + 4, my)
+}
+
+/**
+ * Routine 45 ($16d0), 304 bytes — the animation stepper. Not a keyword: Map
+ * Update reaches it through `tst.w $70(a0) / bne $154a` and then falls back
+ * into its own drawing loop, so a stepped animation is drawn by the very call
+ * that stepped it.
+ *
+ * A 64-byte record, laid out by Map Anim and read here:
+ *
+ *   $0/$2   map x, map y
+ *   $4      cycles left; 0 stops the animation and $ffff never runs out
+ *   $6      the reload, and $8 the countdown that reaches zero to fire
+ *   $a      how many frame bytes, $c which one is next
+ *   $e      a LONG, y * mapWidth + x, the map cell to poke
+ *   $12     the movement flag
+ *   $14..   up to 44 frame bytes
+ *
+ * The step itself pokes a tile INTO THE MAP BANK and appends an update
+ * record. It never draws: an animation is a map edit that Map Update happens
+ * to redraw, which is why an animated tile survives a Map Do that scrolls
+ * past it and why one that is off screen costs a byte store and nothing else.
+ *
+ * The movement flag turns the frame string from a list of tiles into a list
+ * of TRIPLES -- signed dx, signed dy, then the tile -- so `Map Anim -n` walks
+ * a tile across the map and `Map Anim n` cycles one in place. That is what
+ * the negative animation number in Map Anim buys.
+ *
+ * Transcribed as a jump table on the 68k address rather than restructured,
+ * because the movement arm falls THROUGH into the ordinary one and both of
+ * them fall into the same poke; a structured rewrite has to duplicate the
+ * poke or invert a loop, and either way stops being checkable against the
+ * listing. The addresses are the labels.
+ */
+function stepAnims(rt: Runtime): void {
+  const s = rt.tome
+  const { list, base } = animBase(rt) // Rbsr routine 66
+  const map = bankBytes(rt, s.mapBank) // Rbsr routine 67
+  for (let n = 0; n < s.animCap; n++) {
+    const r = base + n * ANIM
+    if (rdW(list, r + 4) === 0) continue // $16fa — out of cycles
+    let d1 = rdW(list, r + 0xa) // $1704 — the frame count
+    if (d1 === 0) continue
+    const tick = (rdW(list, r + 8) - 1) & 0xffff // $170e — subq.w #$1
+    if (tick !== 0) {
+      wrW(list, r + 8, tick)
+      continue
+    }
+    // $1730 — it fires
+    wrW(list, r + 8, rdW(list, r + 6))
+    let d4 = rdW(list, r + 0)
+    let d5 = rdW(list, r + 2)
+    let d6 = rdW(list, r + 0xc)
+    let d2 = list[r + 0x14 + d6] ?? 0
+    let pc = rdW(list, r + 0x12) !== 0 ? 0x17a6 : 0x1756
+    for (;;) {
+      if (pc === 0x17a6) {
+        // the movement arm: dx, dy, tile
+        d4 = (d4 + sb(d2)) & 0xffff
+        d6 = (d6 + 1) & 0xffff
+        if (sw(d6) >= sw(d1)) {
+          pc = 0x17e4
+          continue
+        }
+        d5 = (d5 + sb(list[r + 0x14 + d6] ?? 0)) & 0xffff
+        d2 = 0 // clr.l d2 — so a triple cut short here pokes tile 0
+        d6 = (d6 + 1) & 0xffff
+        if (sw(d6) >= sw(d1)) {
+          pc = 0x17e4
+          continue
+        }
+        d2 = list[r + 0x14 + d6] ?? 0
+        wrW(list, r + 0, d4) // only NOW is the move committed
+        wrW(list, r + 2, d5)
+        wrL(list, r + 0xe, (d5 * (s.mapW & 0xffff) + d4) >>> 0)
+        d1 = rdW(list, r + 0xa)
+        pc = 0x1756
+        continue
+      }
+      if (pc === 0x1756) {
+        d6 = (d6 + 1) & 0xffff
+        if (sw(d6) >= sw(d1)) {
+          pc = 0x17e4
+          continue
+        }
+        wrW(list, r + 0xc, d6)
+        pc = 0x1762
+        continue
+      }
+      if (pc === 0x17e4) {
+        // the frame list ran out: back to frame 0, and one cycle gone
+        wrW(list, r + 0xc, 0)
+        const cycles = rdW(list, r + 4)
+        if (cycles !== 0xffff) wrW(list, r + 4, (cycles - 1) & 0xffff)
+        pc = 0x1762
+        continue
+      }
+      // $1762 — poke the frame into the map, and tell Map Update about it
+      const off = rdL(list, r + 0xe)
+      if (4 + off < map.length) map[4 + off] = d2 & 0xff
+      if (s.updOn !== 0) record(rt, list, d2, d4, d5)
+      break
+    }
+  }
+}
+
 export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): TomeState => rt.tome
+
+  /**
+   * The five map draws, as the subroutines Map Handle calls them as.
+   *
+   * Each is the body of its keyword with the argument pop hoisted out; see
+   * `beginAt`. Keeping one definition rather than two is the point --- Map
+   * Handle's whole job is to pick which of these runs, and a second copy
+   * would be a second thing to keep in step with the binary.
+   */
+  const draw = {
+    /** routine 15 ($95c) — the whole view */
+    do(x: number, y: number): void {
+      const { m, count } = beginAt(rt, x, y)
+      const s = st()
+      let my = wrap(s.cursorY, m.h)
+      let sy = s.viewY1
+      do {
+        let mx = wrap(s.cursorX, m.w)
+        let sx = s.viewX1
+        do {
+          const tile = m.data[4 + my * m.w + mx]!
+          tagCheck(rt, tile, mx, my)
+          pasteTile(rt, tile, sx, sy, count)
+          mx = mx + 1 >= m.w ? 0 : mx + 1
+          sx += s.tileW
+        } while (sx < s.viewX2)
+        my = my + 1 >= m.h ? 0 : my + 1
+        sy += s.tileH
+      } while (sy < s.viewY2)
+    },
+    /** routine 16 ($aa2) — the column at the view's left edge */
+    left(x: number, y: number): void {
+      const { m, count } = beginAt(rt, x, y)
+      const s = st()
+      const mx = wrap(s.cursorX, m.w)
+      let my = wrap(s.cursorY, m.h)
+      let sy = s.viewY1
+      do {
+        tagCheck(rt, m.data[4 + my * m.w + mx]!, mx, my)
+        pasteTile(rt, m.data[4 + my * m.w + mx]!, s.viewX1, sy, count)
+        my = my + 1 >= m.h ? 0 : my + 1
+        sy += s.tileH
+      } while (sy < s.viewY2)
+    },
+    /** routine 17 ($bae) — the column at the far edge, found by division */
+    right(x: number, y: number): void {
+      const { m, count } = beginAt(rt, x, y)
+      const s = st()
+      const cols = s.tileW > 0 ? Math.floor((s.viewX2 - s.viewX1) / s.tileW) : 0
+      const mx = wrap(s.cursorX + cols - 1, m.w)
+      let my = wrap(s.cursorY, m.h)
+      let sy = s.viewY1
+      do {
+        tagCheck(rt, m.data[4 + my * m.w + mx]!, mx, my)
+        pasteTile(rt, m.data[4 + my * m.w + mx]!, s.viewX2 - s.tileW, sy, count)
+        my = my + 1 >= m.h ? 0 : my + 1
+        sy += s.tileH
+      } while (sy < s.viewY2)
+    },
+    /** routine 18 ($cdc) — the row at the view's top edge */
+    top(x: number, y: number): void {
+      const { m, count } = beginAt(rt, x, y)
+      const s = st()
+      const my = wrap(s.cursorY, m.h)
+      let mx = wrap(s.cursorX, m.w)
+      let sx = s.viewX1
+      do {
+        tagCheck(rt, m.data[4 + my * m.w + mx]!, mx, my)
+        pasteTile(rt, m.data[4 + my * m.w + mx]!, sx, s.viewY1, count)
+        mx = mx + 1 >= m.w ? 0 : mx + 1
+        sx += s.tileW
+      } while (sx < s.viewX2)
+    },
+    /** routine 19 ($df2) — the row at the far edge */
+    bottom(x: number, y: number): void {
+      const { m, count } = beginAt(rt, x, y)
+      const s = st()
+      const rows = s.tileH > 0 ? Math.floor((s.viewY2 - s.viewY1) / s.tileH) : 0
+      const my = wrap(s.cursorY + rows - 1, m.h)
+      let mx = wrap(s.cursorX, m.w)
+      let sx = s.viewX1
+      do {
+        tagCheck(rt, m.data[4 + my * m.w + mx]!, mx, my)
+        pasteTile(rt, m.data[4 + my * m.w + mx]!, sx, s.viewY2 - s.tileH, count)
+        mx = mx + 1 >= m.w ? 0 : mx + 1
+        sx += s.tileW
+      } while (sx < s.viewX2)
+    },
+  }
+
+  /** `bsr.w $1962` — pop the two the keyword expects, then enter it. */
+  const args2 = (it: Parameters<Instr>[0]): [number, number] => {
+    const x = it.evalInt()
+    it.expect(',')
+    return [x, it.evalInt()]
+  }
 
   return {
     /**
@@ -684,23 +1015,7 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
      * caller moves it.
      */
     'map do'(it) {
-      const { m, count } = begin(rt, it)
-      const s = st()
-      let my = wrap(s.cursorY, m.h)
-      let sy = s.viewY1
-      do {
-        let mx = wrap(s.cursorX, m.w)
-        let sx = s.viewX1
-        do {
-          const tile = m.data[4 + my * m.w + mx]!
-          tagCheck(rt, tile, mx, my)
-          pasteTile(rt, tile, sx, sy, count)
-          mx = mx + 1 >= m.w ? 0 : mx + 1
-          sx += s.tileW
-        } while (sx < s.viewX2)
-        my = my + 1 >= m.h ? 0 : my + 1
-        sy += s.tileH
-      } while (sy < s.viewY2)
+      draw.do(...args2(it))
     },
 
     /**
@@ -795,6 +1110,383 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
+     * Map Anim On / Off — routines 42 ($1626) and 43 ($1632), twelve bytes
+     * each, a single `move.w` of 1 or 0 into $70.
+     *
+     * Neither touches the animation records, so switching off and on again
+     * resumes every animation exactly where it stopped; the countdowns simply
+     * stop being decremented in between. That is not the same as Map An
+     * Freeze, which is per-animation and does move state around.
+     */
+    'map anim on'() {
+      st().animOn = 1
+    },
+    'map anim off'() {
+      st().animOn = 0
+    },
+
+    /**
+     * Map Anim n,x,y,cycles,speed,f$ — routine 44 ($163e), 146 bytes.
+     *
+     * Defines one animation. `f$` is the frame list, one byte a frame, copied
+     * into the record at $14 --- the only string argument anywhere in TOME.
+     *
+     * A NEGATIVE animation number is the movement mode, and this is the one
+     * thing about the extension no table or name could have told us:
+     *
+     *     tst.l d3 / blt.w $16c8
+     *     $16c8: neg.w d3 / moveq #$1,d0 / bra.w $1656
+     *
+     * so `Map Anim -3,...` defines animation 3 with $12 set, and routine 45
+     * then reads the frame list in TRIPLES of dx, dy, tile instead of one
+     * tile a frame. Same keyword, two engines, selected by a sign.
+     *
+     * `speed` is stored twice, at $6 as the reload and $8 as the live
+     * countdown, so the first fire takes `speed` calls like every one after
+     * it. `cycles` is how many times the frame list is played; $ffff (-1)
+     * never runs out and 0 means the animation is off from the start.
+     *
+     * DEFECT: `neg.w` on a LONG register leaves the high word alone, so a
+     * negative number reaches `cmp.l $76(a0),d3` still looking negative and
+     * PASSES the capacity test whatever the capacity is. `Map Anim -900,...`
+     * with room for ten writes 900 records in. Only the positive arm is
+     * bounded. Reproduced -- `wrW` drops the out-of-range stores rather than
+     * corrupting the next bank, which is the closest a typed array gets.
+     *
+     * NOTE: `$e` is built with `mulu.w $16(a0),d5`, and $16 is a CACHE that
+     * only the drawing routines and Map Scan ever write. Before any of those
+     * has run it still holds the shipped 200, so `Map Anim` called first
+     * computes an offset for a 200-wide map whatever the bank says. Map Fall
+     * and Map Swap Tile read the same two fields and never write them, so all
+     * three want a draw to have happened. Not a defect -- the map size is
+     * genuinely cached rather than looked up -- but it is the order a program
+     * has to get right, and nothing warns it.
+     *
+     * DEFECT: the frame COUNT stored at $a is the string's own length, but
+     * the copy loop stops at 44 (`cmp.l #$2c,d1 / bge`). A longer string
+     * leaves $a claiming more frames than were copied and routine 45 reads
+     * the difference out of the NEXT record's fields. Reproduced: the bank is
+     * one flat array here too, so the same bytes get read.
+     */
+    'map anim'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const cycles = it.evalInt()
+      it.expect(',')
+      const speed = it.evalInt()
+      it.expect(',')
+      const frames = it.evalStr()
+      const s = st()
+      let d3 = n | 0
+      let move = 0
+      if (d3 < 0) {
+        // neg.w — the low word only, which is what leaves the high word $ffff
+        d3 = (d3 & ~0xffff) | (-(d3 & 0xffff) & 0xffff)
+        move = 1
+      }
+      if (d3 >= s.animCap) return // cmp.l $76(a0),d3 / bge — silent
+      const { list, base } = animBase(rt)
+      const r = base + (d3 & 0xffff) * ANIM
+      wrW(list, r + 0, x)
+      wrW(list, r + 2, y)
+      wrW(list, r + 4, cycles)
+      wrW(list, r + 6, speed)
+      wrW(list, r + 8, speed)
+      wrW(list, r + 0xc, 0)
+      wrW(list, r + 0x12, move)
+      wrL(list, r + 0xe, ((y & 0xffff) * (s.mapW & 0xffff) + (x & 0xffff)) >>> 0)
+      wrW(list, r + 0xa, frames.length & 0xffff)
+      if (frames.length === 0) return
+      for (let i = 0; i < frames.length && i < 0x2c; i++) {
+        const at = r + 0x14 + i
+        if (at >= 0 && at < list.length) list[at] = frames.charCodeAt(i) & 0xff
+      }
+    },
+
+    /**
+     * Map Handle screen,x,y — routine 47 ($1824), 662 bytes, a fifth of the
+     * library and the reason the other four draws exist.
+     *
+     * It remembers where the map was last time and does the cheap thing:
+     * BltBitMap the screen over itself by one tile in the direction moved,
+     * then call Map Left, Map Right, Map Top or Map Bottom to fill the strip
+     * that just became visible. A scroll costs one blit and one row or column
+     * of tiles instead of a whole `Map Do`.
+     *
+     * The direction tests are `cmp.w` against the remembered position at
+     * $7e+$4, and both axes are handled in the SAME blit -- a diagonal move
+     * offsets source x and source y together -- then both edges are drawn.
+     *
+     * The blit is `BltBitMap` with minterm $cc and mask $ff, source and
+     * destination the same bitmap. Its size arguments start as the view's FAR
+     * corner rather than a width and height, and $1a28's `sub.w d0,d4` turns
+     * them into one; the near corner never appears. So the scroll acts on the
+     * screen from (0,0), not from the view rectangle Map View set.
+     *
+     * DEVIATION: the corner arrives as `$4c(a0)`/`$4e(a0)` off AMOS's screen
+     * structure, clipped and clamped by $19c8-$1a50 before the blit. Our
+     * `bltBitMap` clips against the bitmap itself, so the clamping is the
+     * back-end's rather than transcribed; the reachable results agree because
+     * both stop at the same edge.
+     *
+     * NOTE: `Rjsr <AMOS routine ...>` at $1990 is printed as `L_SaveBMHD` by
+     * extdis and it is not that -- it takes a screen NUMBER in d1 and returns
+     * that screen's plane table in d0 with its structure in a0. Same class of
+     * wrong name as `bankBytes` documents.
+     *
+     * NOTE: the block ships $7e+$4 as ZERO, not -1. Without a Map Handle Init
+     * first, the very first Map Handle compares against (0,0) and scrolls
+     * rather than redrawing; only Map Handle Init arms the full-redraw arm.
+     */
+    'map handle'(it) {
+      const screen = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      const s = st()
+      s.handleScreen = screen
+      s.handleX = x & 0xffff // move.w d0,$0(a0)
+      s.handleY = y & 0xffff
+      const oldX = sw(s.handleOldX)
+      const oldY = sw(s.handleOldY)
+      const newX = sw(s.handleX)
+      const newY = sw(s.handleY)
+      const settle = (): void => {
+        s.handleOldX = s.handleX // $18e8
+        s.handleOldY = s.handleY
+      }
+      if (s.handleOldX === 0xffff) {
+        // $1844 — Map Handle Init's marker: the whole view, no blit
+        draw.do(x, y)
+        settle()
+        return
+      }
+      if (oldX === newX && oldY === newY) {
+        settle() // $1974 — nothing moved
+        return
+      }
+      // $1850-$1922 — which way, and so which corner the blit reads from
+      const srcX = oldX < newX ? s.tileW : 0
+      const dstX = oldX > newX ? s.tileW : 0
+      const srcY = oldY < newY ? s.tileH : 0
+      const dstY = oldY > newY ? s.tileH : 0
+      const bm = rt.screens.get(screen)?.rp.bitMap
+      if (bm) bltBitMap(bm, srcX, srcY, bm, dstX, dstY, s.viewX2 - srcX, s.viewY2 - srcY)
+      if (oldX > newX) draw.left(x, y) // $1926
+      else if (oldX < newX) draw.right(x, y) // $1932
+      if (oldY > newY) draw.top(x, y) // $193e
+      else if (oldY < newY) draw.bottom(x, y) // $194a
+      settle()
+    },
+
+    /**
+     * Map Handle Init — routine 48 ($1aba), twenty bytes:
+     * `move.l #$ffffffff,$4(a0)` over the sub-block at $7e.
+     *
+     * One long across BOTH remembered words, so old x and old y read -1 and
+     * the next Map Handle takes the full-redraw arm. The only way to arm it.
+     */
+    'map handle init'() {
+      const s = st()
+      s.handleOldX = 0xffff
+      s.handleOldY = 0xffff
+    },
+
+    /**
+     * Map Fall empty — routine 50 ($1ae2), 458 bytes. Boulder Dash, in one
+     * keyword.
+     *
+     * Every column from 1 to width-2 is walked from the BOTTOM up. A tile
+     * falls one cell if its type is 3 or more and the cell below is type 0;
+     * if the cell below is type 2 or 4 -- a rounded top -- it rolls sideways
+     * instead, but only where the side cell AND the one diagonally below are
+     * both type 0. `empty` is the tile number left behind. Both the border
+     * column and row 0 are excluded, which is why no bounds test is needed.
+     *
+     * The types come from the tile-type bank at `Rbsr routine 68` plus $100,
+     * so Map Fall reads TABLE 2, never table 1. Table 1 stays free for
+     * whatever Tile Val is being used for.
+     *
+     * DEFECT: after a tile falls, `movem.l (a7)+,d5-d6` restores the FALLING
+     * tile's type and $1b38 copies it into the landing type, though the cell
+     * it names now holds `empty`. So the scan believes the vacated cell is
+     * still solid and the tile above it will not fall in the same call. A
+     * column collapses one cell a call rather than all at once -- reproduced,
+     * because the fall rate of a stack is the visible behaviour of the game.
+     *
+     * DEFECT: a sideways roll writes the update record with `d0`, the COLUMN
+     * LOOP variable, so the record names the cell the tile came FROM and not
+     * the one it went to. The vacated cell is recorded twice and the arrival
+     * never. Under Map Update a rolling tile leaves a trail. Reproduced.
+     *
+     * NOTE: unlike routine 45 and Map Swap Tile, the recorder at $1bb2 never
+     * tests $68 -- Map Fall appends to the update list whether or not Map
+     * Update On was ever called, and arms it.
+     */
+    'map fall'(it) {
+      const empty = it.evalInt()
+      const s = st()
+      s.fallEmpty = empty & 0xffff
+      const { list } = animBase(rt) // routine 66, for the update records
+      const map = bankBytes(rt, s.mapBank) // routine 67
+      const typ = bankBytes(rt, s.tileTypBank) // routine 68
+      const table = 0x100 // adda.l #$100,a2 — the SECOND table
+      const w = s.mapW & 0xffff
+      const h = s.mapH & 0xffff
+      const typeAt = (cell: number): number => typ[table + (map[4 + cell] ?? 0)] ?? 0
+      for (let x = 1; x < w - 1; x++) {
+        // $1b1a — one column, bottom upwards
+        let row = h - 1
+        let below = row * w + x
+        let belowType = typeAt(below)
+        for (;;) {
+          row -= 1
+          const here = below - w
+          if (row < 1) break // cmpi.l #$1,d1 / blt
+          const tile = map[4 + here] ?? 0
+          const type = typeAt(here)
+          if (type < 3) {
+            below = here // it is not a faller: it becomes the landing
+            belowType = type
+            continue
+          }
+          if (belowType === 0) {
+            // $1b82 — straight down
+            map[4 + below] = tile
+            record(rt, list, tile, x, row + 1)
+            map[4 + here] = s.fallEmpty & 0xff
+            record(rt, list, s.fallEmpty, x, row)
+            below = here
+            belowType = type // DEFECT: the type of what LEFT, not of `empty`
+            continue
+          }
+          if (belowType === 2 || belowType === 4) {
+            // $1be2 — try to roll, left first
+            const side = (dir: -1 | 1): boolean => {
+              if (typeAt(here + dir) !== 0) return false
+              if (typeAt(below + dir) !== 0) return false
+              map[4 + here + dir] = tile
+              record(rt, list, tile, x, row) // DEFECT: x, not x + dir
+              map[4 + here] = s.fallEmpty & 0xff
+              record(rt, list, s.fallEmpty, x, row)
+              return true
+            }
+            if (!side(-1)) side(1) // $1be2 tries left, then $1c00 the right
+          }
+          below = here // $1b38 — either way, this cell is the next landing
+          belowType = type
+        }
+      }
+    },
+
+    /**
+     * Map Swap Tile a,b — routine 51 ($1cac), 210 bytes. Every `a` in the map
+     * becomes `b` and every `b` becomes `a`, in one pass.
+     *
+     * The scan runs BACKWARDS from the last cell, which is what makes the
+     * swap symmetric in a single pass: a cell is tested against both numbers
+     * and rewritten once, so a rewritten cell is never revisited.
+     *
+     * Records each change into the update list, but only when Map Update On
+     * is set (`tst.w $68(a0)`), where Map Fall records unconditionally.
+     */
+    'map swap tile'(it) {
+      const a = it.evalInt()
+      it.expect(',')
+      const b = it.evalInt()
+      const s = st()
+      const { list } = animBase(rt)
+      const map = bankBytes(rt, s.mapBank)
+      const w = s.mapW & 0xffff
+      const h = s.mapH & 0xffff
+      for (let cell = w * h - 1; cell >= 0; cell--) {
+        const x = cell % w
+        const y = (cell - x) / w
+        const tile = map[4 + cell] ?? 0
+        // cmp.b — the low bytes, so 256 and 0 are the same tile here
+        if (tile === (b & 0xff)) {
+          map[4 + cell] = a & 0xff
+          if (s.updOn !== 0) record(rt, list, a, x, y)
+        } else if (tile === (a & 0xff)) {
+          map[4 + cell] = b & 0xff
+          if (s.updOn !== 0) record(rt, list, b, x, y)
+        }
+      }
+    },
+
+    /**
+     * Map An Freeze n — routine 52 ($1d7e), 48 bytes.
+     *
+     * Stops one animation by moving its cycle count out of $4 and into $8,
+     * the countdown, and zeroing $4 -- so routine 45's first test skips it.
+     * $8 is safe to borrow because a stopped animation never reads it.
+     *
+     * Freezing an already-frozen animation does nothing (`tst.w $4(a2,d0.w) /
+     * beq`), so the saved count cannot be overwritten with zero.
+     */
+    'map an freeze'(it) {
+      const n = it.evalInt()
+      const s = st()
+      if (n >= s.animCap) return
+      const { list, base } = animBase(rt)
+      const r = base + n * ANIM
+      const cycles = rdW(list, r + 4)
+      if (cycles === 0) return
+      wrW(list, r + 8, cycles)
+      wrW(list, r + 4, 0)
+    },
+
+    /**
+     * Map An Unfreeze n — routine 53 ($1dae), 48 bytes. Freeze reversed:
+     * $4 comes back from $8, and $8 is reloaded from the speed at $6.
+     *
+     * So the animation restarts with a FULL countdown rather than the
+     * fraction it had left when it stopped, and its frame index is untouched.
+     * Refuses if $4 is not zero, which makes a stray Unfreeze harmless.
+     */
+    'map an unfreeze'(it) {
+      const n = it.evalInt()
+      const s = st()
+      if (n >= s.animCap) return
+      const { list, base } = animBase(rt)
+      const r = base + n * ANIM
+      if (rdW(list, r + 4) !== 0) return
+      wrW(list, r + 4, rdW(list, r + 8))
+      wrW(list, r + 8, rdW(list, r + 6))
+    },
+
+    /**
+     * Map An Move n,x,y — routine 56 ($1e52), 40 bytes: two word stores into
+     * $0 and $2, and nothing else.
+     *
+     * DEFECT: the map offset at $e is NOT recomputed. Routine 45's ordinary
+     * arm pokes through $e, so a plain animation moved this way keeps drawing
+     * at the cell it was defined at while Map An At and Map An Point report
+     * the new position. Only a movement animation recovers, because its arm
+     * rebuilds $e from x and y on its next fire. Reproduced -- a game built on
+     * the real library either used it on movement animations or worked around
+     * it, and either way needs the same behaviour here.
+     */
+    'map an move'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      const s = st()
+      if (n >= s.animCap) return
+      const { list, base } = animBase(rt)
+      const r = base + n * ANIM
+      wrW(list, r + 0, x)
+      wrW(list, r + 2, y)
+    },
+
+    /**
      * Map Update x,y — routine 40 ($1476), 298 bytes. Redraws only the tiles
      * Map Plot recorded, at the map cursor given, and then empties the list.
      *
@@ -811,14 +1503,19 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
      * keywords share the field, which is harmless only because Map Paste
      * rewrites all four of $54-$60 every call.
      *
-     * NOTE: `tst.w $70(a0) / bne` runs the animation stepper (routine 45)
-     * first when Map Anim On has been called. That keyword is not in this
-     * slice, so the arm is unreachable rather than unimplemented. The other
-     * branch, `tst.w $4a(a0)`, is the tile-tag check and IS live -- routine
-     * 40's arm at $1552 does `subq.l #$1,d1` first because its d1 has already
-     * been incremented, which is how the raw tile is what gets compared.
+     * `tst.w $70(a0) / bne $154a` runs the animation stepper (routine 45)
+     * BEFORE the arguments are even popped, and `bra.w $1484` comes straight
+     * back -- so with Map Anim On set this keyword steps every animation and
+     * then draws what the stepping just recorded, in that order and in one
+     * call. Nothing else calls routine 45; Map Update is the clock.
+     *
+     * NOTE: the other branch, `tst.w $4a(a0)`, is the tile-tag check and is
+     * live too -- routine 40's arm at $1552 does `subq.l #$1,d1` first
+     * because its d1 has already been incremented, which is how the raw tile
+     * is what gets compared.
      */
     'map update'(it) {
+      if (st().animOn !== 0) stepAnims(rt) // $147a, before the arguments
       const cx = it.evalInt()
       it.expect(',')
       const cy = it.evalInt()
@@ -941,17 +1638,7 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
      * $2c(a0),d7 / blt.b $af0`.
      */
     'map left'(it) {
-      const { m, count } = begin(rt, it)
-      const s = st()
-      const mx = wrap(s.cursorX, m.w)
-      let my = wrap(s.cursorY, m.h)
-      let sy = s.viewY1
-      do {
-        tagCheck(rt, m.data[4 + my * m.w + mx]!, mx, my)
-        pasteTile(rt, m.data[4 + my * m.w + mx]!, s.viewX1, sy, count)
-        my = my + 1 >= m.h ? 0 : my + 1
-        sy += s.tileH
-      } while (sy < s.viewY2)
+      draw.left(...args2(it))
     },
 
     /**
@@ -975,18 +1662,7 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
      * initialised with. Not reproduced as a trap.
      */
     'map right'(it) {
-      const { m, count } = begin(rt, it)
-      const s = st()
-      const cols = s.tileW > 0 ? Math.floor((s.viewX2 - s.viewX1) / s.tileW) : 0
-      const mx = wrap(s.cursorX + cols - 1, m.w)
-      let my = wrap(s.cursorY, m.h)
-      let sy = s.viewY1
-      do {
-        tagCheck(rt, m.data[4 + my * m.w + mx]!, mx, my)
-        pasteTile(rt, m.data[4 + my * m.w + mx]!, s.viewX2 - s.tileW, sy, count)
-        my = my + 1 >= m.h ? 0 : my + 1
-        sy += s.tileH
-      } while (sy < s.viewY2)
+      draw.right(...args2(it))
     },
 
     /**
@@ -994,17 +1670,7 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
      * walking x: `addq.w #$1,d4 / add.l $e(a0),d6 / cmp.l $28(a0),d6 / blt`.
      */
     'map top'(it) {
-      const { m, count } = begin(rt, it)
-      const s = st()
-      const my = wrap(s.cursorY, m.h)
-      let mx = wrap(s.cursorX, m.w)
-      let sx = s.viewX1
-      do {
-        tagCheck(rt, m.data[4 + my * m.w + mx]!, mx, my)
-        pasteTile(rt, m.data[4 + my * m.w + mx]!, sx, s.viewY1, count)
-        mx = mx + 1 >= m.w ? 0 : mx + 1
-        sx += s.tileW
-      } while (sx < s.viewX2)
+      draw.top(...args2(it))
     },
 
     /**
@@ -1014,18 +1680,7 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
      * height long at $12.
      */
     'map bottom'(it) {
-      const { m, count } = begin(rt, it)
-      const s = st()
-      const rows = s.tileH > 0 ? Math.floor((s.viewY2 - s.viewY1) / s.tileH) : 0
-      const my = wrap(s.cursorY + rows - 1, m.h)
-      let mx = wrap(s.cursorX, m.w)
-      let sx = s.viewX1
-      do {
-        tagCheck(rt, m.data[4 + my * m.w + mx]!, mx, my)
-        pasteTile(rt, m.data[4 + my * m.w + mx]!, sx, s.viewY2 - s.tileH, count)
-        mx = mx + 1 >= m.w ? 0 : mx + 1
-        sx += s.tileW
-      } while (sx < s.viewX2)
+      draw.bottom(...args2(it))
     },
   }
 }
@@ -1316,6 +1971,69 @@ export function makeTomeFunctions(rt: Runtime): Record<string, Func> {
      * update record is EIGHT bytes and an animation record SIXTY-FOUR, plus
      * a four-byte header -- the sizing companion to Map Anim Bank, and the
      * two agree exactly on where the animation records start.
+     */
+    /**
+     * =Map An Point(n) — routine 54 ($1dde), 36 bytes: the animation's
+     * current frame index, straight out of $c.
+     *
+     * DEVIATION: out of range it does not set d3 OR d2 -- it `rts` with the
+     * result registers holding whatever the last extension function left
+     * there, so the answer is the previous call's, with the previous call's
+     * TYPE. A string function ahead of it would make `=Map An Point(999)`
+     * evaluate to a string. That is not behaviour a program can rely on and
+     * not something a typed port can produce; 0 is returned instead.
+     */
+    'map an point': (_, a): Value => {
+      const n = int(a[0]!)
+      const s = rt.tome
+      if (n >= s.animCap) return VI(0)
+      const { list, base } = animBase(rt)
+      return VI(rdW(list, base + n * ANIM + 0xc))
+    },
+
+    /**
+     * =Map An At(x,y) — routine 55 ($1e02), 80 bytes. Which animation is at a
+     * map cell, or -1.
+     *
+     * Searches from the HIGHEST animation number DOWN (`move.l $76(a0),d0 /
+     * subq.l #$1,d0` then `dbra`), so where two animations sit on one cell
+     * the higher number wins -- the same rule Map Zone uses.
+     *
+     * Only counts animations that are RUNNING: both `tst.w $4(a2,d1.w)` and
+     * `tst.w $a(a2,d1.w)` must be non-zero, so one that has used up its
+     * cycles, or that Map An Freeze stopped, is invisible here even though
+     * its x and y are still in the record.
+     *
+     * NOTE: with a capacity of zero the 68k's `dbra` runs 65,536 times over
+     * memory before the record index, because the loop counter starts at -1
+     * and dbra tests the low word. Not reproduced -- the loop simply does not
+     * run -- and unreachable anyway, since a zero capacity means Map Anim
+     * never wrote a record to find.
+     */
+    'map an at': (_, a): Value => {
+      const x = int(a[0]!) & 0xffff
+      const y = int(a[1]!) & 0xffff
+      const s = rt.tome
+      const { list, base } = animBase(rt)
+      for (let n = s.animCap - 1; n >= 0; n--) {
+        const r = base + n * ANIM
+        if (rdW(list, r + 4) === 0) continue
+        if (rdW(list, r + 0xa) === 0) continue
+        if (rdW(list, r + 0) !== x) continue
+        if (rdW(list, r + 2) !== y) continue
+        return VI(n)
+      }
+      return VI(-1)
+    },
+
+    /**
+     * =Map Ab Length(updates,anims) — routine 49 ($1ace), twenty bytes:
+     * `asl.l #$3` on the first, `asl.l #$6` on the second, add, `addq #$4`.
+     *
+     * How big to Reserve the shared bank, and the three constants that fix
+     * its layout: eight bytes an update record, 64 an animation record, and a
+     * four-byte header holding the offset where the animations begin. Map
+     * Anim Bank writes that same `updates * 8 + 4` into the head.
      */
     'map ab length': (_, a): Value => VI((((int(a[0]!) & 0xffff) << 3) + ((int(a[1]!) & 0xffff) << 6) + 4) | 0),
 
