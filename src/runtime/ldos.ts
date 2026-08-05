@@ -812,11 +812,24 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
         v.setUint32(i * 4, (((v.getUint32(i * 4, false) ^ key) >>> 0) - 0x20) >>> 0, false)
       }
     },
+    /**
+     * Lpp Decrunch START,END To DEST — routine 41 ($1b02), 190 bytes, and the
+     * PowerPacker decoder inlined rather than called: `move.l $4(a2),d0`
+     * takes the four efficiency bytes from the file's own header, `move.l
+     * -(a0),d5` starts at the END and walks BACKWARDS, and the bit reader at
+     * $1ba2 is `lsr.l #$1,d5 / roxl.l #$1,d1` refilling from `move.l -(a0),d5`
+     * every 32 bits. That is PP20 exactly as ../amiga/powerpacker.ts decodes
+     * it, so the shared decoder is the right one and its proof carries over.
+     *
+     * The three arguments unpile to a2 = the file START (where the header
+     * is), a0 = its END, a1 = the destination END.
+     *
+     * "no test is done to see if the bank really contains a powerpacked file!
+     * Be careful!" is literal -- there is no check anywhere in the routine.
+     * DEVIATION: a bank that is not PP20 decrunches to nothing here rather
+     * than scribbling over memory, which is as far as the warning goes.
+     */
     'lpp decrunch'(it) {
-      // Lpp Decrunch START,END To DEST — "no test is done to see if the bank
-      // really contains a powerpacked file! Be careful!"
-      // DEVIATION: a bank that is not PP20 decrunches to nothing here rather
-      // than scribbling over memory, which is as far as the warning goes.
       const start = it.evalInt()
       it.expect(',')
       const end = it.evalInt()
@@ -835,10 +848,32 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       const n = Math.min(outBytes.length, dst.data.length - dst.off)
       dst.data.set(outBytes.subarray(0, n), dst.off)
     },
+    /**
+     * THE REQUESTER SETTINGS — Lset Freq Dir, Lpos Freq, Lcust Freq, and the
+     * three readers Lget Freq Dir/File and Lfontsize Freq beside Lfreq below.
+     *
+     * All six are pure field access on LDos's workspace, and the routines are
+     * short enough to be quoted whole. The map, from routines 34 ($19fe), 72
+     * ($3372), 73 ($3390), 36 ($1a32), 37 ($1a7e) and 75 ($33d6):
+     *
+     *     +$314 +$316 +$318   Lcust Freq's three words, stored in REVERSE
+     *                         argument order
+     *     +$368 +$36a         Lpos Freq's two, first argument to $368
+     *     +$36c               the font size Lfontsize Freq reads
+     *     +$502               Lset Freq Dir's path, NUL-terminated
+     *     +$586               the selected filename Lget Freq File reads
+     *
+     * None of them validates anything: Lset Freq Dir's copy is the same
+     * `subq.w #$1,d0` dbra that overruns on an empty string, and the two
+     * readers scan for a NUL with no ceiling. Both readers answer the shared
+     * empty string when the field's first byte is zero, which is how the
+     * manual's "A\$ will NOT empty even if the user clicked CANCEL" is
+     * implemented -- nothing clears the field, rather than anything
+     * remembering it.
+     */
     'lset freq dir'(it) {
-      // Lset Freq Dir "Path" — "If you haven't set path, the filerequester
-      // will use your programs current directory ... This path does not
-      // affect AMOS's (Dir$) path in any way."
+      // "If you haven't set path, the filerequester will use your programs
+      // current directory ... This path does not affect AMOS's (Dir$) path"
       rt.ldos.freqDir = it.evalStr()
     },
     'lpos freq'(it) {
@@ -1462,9 +1497,36 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       const e = catNow(rt)
       return VI(rt.vfs?.meta(e.path).days ?? 0)
     },
+    /**
+     * A$=Ldev First(ADR) and A$=Ldev Next(ADR) — routines 76 ($33e8) and 77
+     * ($3496). "Please note that the devicename (like DF0: etc.) NOT contains
+     * a colon", which is the BSTR's own content: the name comes from
+     * dn_Name at +$28 and the leading length byte is stepped over.
+     *
+     * The walk is AmigaDOS's device list, followed by hand:
+     *
+     *     movea.l $22(a6), a0        DosLibrary->dl_Root
+     *     move.l $18(a0), d0 / asl.l #$2, d0     rn_Info    -> DosInfo
+     *     move.l $4(a0), d0  / asl.l #$2, d0     di_DevInfo -> DeviceNode
+     *     move.l a0, $80(a4)                     ...remembered as the cursor
+     *
+     * and Ldev Next follows dn_Next at +$0. ADR receives twenty longwords:
+     * dn_Type, then -- when dn_Startup at +$1c is above 2, i.e. a real BPTR
+     * rather than a handler's flag -- fssm_Unit, a pointer to the device
+     * name, and seventeen longs of DosEnvec. When it is not, or when
+     * fssm_Environ is null, the rest is filled with zeros instead.
+     *
+     * Exhaustion has two steps, and this port had neither. A null dn_Next
+     * writes -1 into the cursor and returns the EMPTY string; a call after
+     * that finds the -1 and raises error 20, "No more devices in system!".
+     * So the end of the walk can be read once and only once.
+     *
+     * DEVIATION: the twenty longwords are not written. The volume list here
+     * has no DeviceNode behind it -- no unit number, no handler name, no
+     * DosEnvec geometry -- so ADR is accepted and ignored, and a program that
+     * reads the block back gets whatever was in its bank.
+     */
     'ldev first'(_) {
-      // A$=Ldev First(ADR) — "the devicename (like DF0: etc.) NOT contains a
-      // colon". ADR receives a block of device info this port does not model.
       const names = [...(rt.vfs?.volumeNames() ?? []), ...(rt.vfs?.assignNames() ?? [])]
       rt.ldos.devices = { names, index: 0 }
       return VS(names[0] ?? '')
@@ -1472,18 +1534,27 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
     'ldev next'(_) {
       const d = rt.ldos.devices
       if (!d) return VS('')
+      // `cmpa.l #$ffffffff,a0 / beq` -> error 20, one call past the end
+      if (d.index >= d.names.length) throw new AmosError('No more devices in system!')
       d.index++
       return VS(d.names[d.index] ?? '')
     },
+    /**
+     * A$=Lfreq("Title",FLAGS) -- routine 30 ($1818). "A$ will contain the
+     * full path and filename after the call. If the user clicked cancel, A$
+     * will be empty."
+     */
     lfreq(it, a) {
-      // A$=Lfreq("Title",FLAGS) — "A$ will contain the full path and
-      // filename after the call. If the user clicked cancel, A$ will be
-      // empty."
+      // Routine 30 ($1818) confirms the manual's aside ("Currently the
+      // req.library doesn't support CG-fonts"): the FLAGS go to the workspace
+      // at +$31a, the title is copied to +$c and its pointer to +$2fe, a
+      // 256-byte result buffer at +$460 is handed over at +$30a, and the
+      // whole thing is one `jsr -$54(a6)` on the library base cached at +$74
+      // -- req.library, not ASL. A zero result answers the shared empty
+      // string; otherwise the NUL-terminated buffer becomes the answer.
       //
-      // LDos puts up req.library's requester (the manual gives that away:
-      // "Currently the req.library doesn't support CG-fonts"). There is no
-      // req.library here, so AMOS's own Fsel$ stands in — see the NOTES
-      // entry. The FLAGS are accepted and mostly cannot be honoured.
+      // There is no req.library here, so AMOS's own Fsel$ stands in — see the
+      // NOTES entry. The FLAGS are accepted and mostly cannot be honoured.
       if (rt.fsel) {
         if (rt.fsel.done) {
           const r = rt.fsel.result
@@ -1506,17 +1577,28 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       it.block({ type: 'fsel' }, true)
       return VS('')
     },
+    /**
+     * Lget Freq File, Lget Freq Dir and Lfontsize Freq -- routines 36
+     * ($1a32), 37 ($1a7e) and 75 ($33d6), the read side of the requester
+     * settings mapped above.
+     *
+     * The first two scan a NUL-terminated field (+$586 and +$502) with no
+     * ceiling and answer the shared empty string when its first byte is zero;
+     * the third is `move.w $36c(...),d3` and nothing else. That is how the
+     * manual's "A$ will hold the LAST selected file. A$ will NOT empty even
+     * if the user clicked CANCEL, and something has been selected before"
+     * works -- nothing CLEARS the field, rather than anything remembering it.
+     * Likewise "you must set the filerequester to font-mode ($8-flag) in
+     * order to update this field": routine 75 reports whatever last wrote
+     * there, and nothing but a font-mode requester does.
+     */
     'lget freq file'(_) {
-      // "A$ will hold the LAST selected file. A$ will NOT empty even if the
-      // user clicked CANCEL, and something has been selected before."
       return VS(rt.ldos.freqFile)
     },
     'lget freq dir'(_) {
       return VS(rt.ldos.freqDir)
     },
     'lfontsize freq'(_) {
-      // "you must set the filerequester to font-mode ($8-flag) in order to
-      // update this field"
       return VI(rt.ldos.freqFontSize)
     },
     /**
@@ -1768,44 +1850,98 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       // complete if the rest of the sequence follow in the next call(s)."
       return VS(ansiToAmos(str(a[0] ?? VS('')), rt.ldos))
     },
+    /**
+     * A=Lsys Stamp — routine 47 ($1d50), thirteen instructions: it aligns a
+     * scratch DateStamp in its workspace, calls dos.library DateStamp at
+     * -$c0, and returns `move.l (a2),d3` -- ds_Days and nothing else.
+     */
     'lsys stamp'(_) {
-      // A=Lsys Stamp — "A will contain a datestamp which can be used in
-      // conjunction with Ldate to print the current date."
       return VI(rt.host.clock.now().days)
     },
+    /**
+     * A$=Lsys Time — routine 46 ($1cac), the same DateStamp call and then six
+     * digits built by hand. "A\$ will be in the form "HHMMSS", hours,
+     * minutes, seconds. No extra ":","." or "-" is added".
+     *
+     *     move.l (a2)+, d0 / move.l (a2)+, d3 / move.l (a2), d5
+     *     divu.w #$3c, d3            ds_Minute / 60  -> hours
+     *     mulu.w #$3c, d6 / sub.l d6, d4            -> minutes
+     *     divu.w #$32, d5            ds_Tick / 50    -> seconds
+     *
+     * so the tick rate is the PAL 50, not 60, and the seconds field is a
+     * whole-second truncation. The two-digit helper at $1d24 reduces mod 100
+     * first, which is unreachable for a real clock and is why no hour above
+     * 99 is worried about here either.
+     */
     'lsys time'(_) {
-      // A$=Lsys Time — "A$ will be in the form "HHMMSS", hours, minutes,
-      // seconds. No extra ":","." or "-" is added"
       const { mins, ticks } = rt.host.clock.now()
       const pad = (n: number): string => String(n).padStart(2, '0')
       return VS(`${pad(Math.floor(mins / 60) % 24)}${pad(mins % 60)}${pad(Math.floor(ticks / 50) % 60)}`)
     },
+    /**
+     * A=Ldisk Font("name.font",SIZE) — routine 52 ($2080). "name is the
+     * fontname, '.font' MUST follow it ... A will be >0 if the font loaded
+     * OK. If a <1 the font wasn't on the disk or already in memory."
+     *
+     *     lea $20e8(pc), a0 / move.l a4, (a0)+ / move.w d0, (a0)
+     *                                       a TextAttr: ta_Name, ta_YSize
+     *     move.w (a0)+, d0 / tst.w d0 / bne .named
+     *     moveq #$12, d0 / Rbra 91          error 18, empty name
+     *  .named: lea $20f0(pc), a1 / jsr -$198(a6)    OpenLibrary("diskfont")
+     *     bne .open
+     *     moveq #$b, d0 / Rbra 91           error 11
+     *  .open: jsr -$1e(a6)                  OpenDiskFont(TextAttr)
+     *     move.l d0, d3                     ...the FONT POINTER
+     *
+     * so the value is a `struct TextFont *`, not a flag -- the manual's ">0"
+     * is a pointer being described as a truth value. A non-zero constant is
+     * within that and is what this answers, there being no font structure to
+     * hand back. NOTE: the font is opened and never closed, one leak per
+     * call, and the manual's ".font MUST follow it" is its own advice rather
+     * than a check: the routine hands the name to OpenDiskFont, which fails
+     * on its own for anything else.
+     *
+     * The disc-font list invalidation below has no counterpart in routine 52.
+     * It is how the effect the keyword exists for -- "makes the font directly
+     * available to Get Rom Fonts" -- reaches AMOS here, where the real one
+     * got it from having the font open in the system font list.
+     */
     'ldisk font'(_, a) {
-      // A=Ldisk Font("name.font",SIZE) — "name is the fontname, '.font' MUST
-      // follow it ... A will be >0 if the font loaded OK. If a <1 the font
-      // wasn't on the disk or already in memory." It makes the font directly
-      // available to Get Rom Fonts, so the disc font list is invalidated and
-      // rebuilt from the Fonts: drawer.
       const name = str(a[0] ?? VS(''))
+      if (name === '') throw new AmosError('You can not call with an empty argument!')
       if (!/\.font$/i.test(name)) return VI(0)
       if (rt.vfs?.read('Fonts:' + name) == null) return VI(0)
       rt.discFontCache = null
       return VI(1)
     },
+    /**
+     * A=Llargest Free(TYPE), 0 CHIP or 1 FAST -- routine 49 ($1db4), which is
+     * exec and nothing else: `cmp.l #$1,d1 / bne` picks $20004 or $20002,
+     * MEMF_LARGEST with FAST or CHIP, and calls AvailMem at -$d8. See the
+     * body for the ceiling this port puts on the answer.
+     */
     'llargest free'(_, a) {
-      // A=Llargest Free(TYPE), 0 CHIP or 1 FAST. "This value is NOT the same
+      // "This value is NOT the same
       // as the AMOS commands Fast Free and Chip Free, they return total
       // unallocated memory-size, not the largest size you can allocate in one
       // bank."
       //
+      //
+      // Routine 49 ($1db4) is exec and nothing else: `cmp.l #$1,d1 / bne`
+      // picks $20004 or $20002 -- MEMF_LARGEST with FAST or CHIP -- and calls
+      // AvailMem at -$d8. So the argument really is 1 for fast and anything
+      // else for chip, and the keyword has no opinion of its own.
+      //
       // DEVIATION: nothing here fragments, so the largest free block genuinely
-      // IS the total free — which is what exec's availMem answers and what
-      // TURBO's Chip Largest returns. Answering that would make this keyword
-      // identical to Chip Free and contradict the sentence above, so the
-      // manual's distinction is honoured by capping at LDOS_LARGEST_BLOCK
-      // instead. That ceiling is this port's invention: LDos's own figure came
-      // from a real allocator walking a real free list, and there is no free
-      // list here to walk.
+      // IS the total free — which is what exec's availMem answers for
+      // MEMF_LARGEST and what TURBO's Chip Largest returns. Answering that
+      // would make this keyword identical to Chip Free and contradict the
+      // sentence above, so the manual's distinction is honoured by capping at
+      // LDOS_LARGEST_BLOCK instead. That ceiling is this port's invention:
+      // LDos's own figure came from a real allocator walking a real free
+      // list, and there is no free list here to walk. src/amiga/exec.ts says
+      // the same from its side — a caller wanting fragmentation has to decide
+      // its own ceiling, and this is the caller that does.
       const fast = int(a[0] ?? VI(0)) === 1
       const free = fast ? rt.fastFree() : rt.chipFree()
       return VI(Math.min(free, LDOS_LARGEST_BLOCK))
