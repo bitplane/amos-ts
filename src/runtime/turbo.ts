@@ -1570,6 +1570,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       t.counts = Array.from({ length: n }, () => 0)
     },
     'reserve object'(it) {
+      // routine 28 ($124c), a six-byte trampoline into routine 333
       reserveObject(rt, it)
     },
     'reserve object chip'(it) {
@@ -1580,6 +1581,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       reserveObject(rt, it)
     },
     'reserve object fast'(it) {
+      // 1.9's routine 29, MEMF_FAST where 28 asks for MEMF_CHIP; same worker
       reserveObject(rt, it)
     },
     'define draw'(it) {
@@ -1697,6 +1699,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       rt.vfs?.writeFile(name, Uint8Array.from(parts))
     },
     'object load'(it) {
+      // routine 40 ($1558), a six-byte trampoline into routine 326
       objectLoad(rt, it)
     },
     'object load chip'(it) {
@@ -1738,11 +1741,17 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       st.data.set([x, y, dx, dy], (nr - 1) * 4)
     },
     'display stars'() {
-      // "Displays the 'STARS' onto the screen and computes the next position"
+      // Routine 54 ($1a70): "Displays the 'STARS' onto the screen and computes
+      // the next position". `move.w $1fc(a2),d7 / Rbeq routine 62` first, so
+      // no stars reserved is an illegal function call rather than TURBO's own
+      // "Stars not reserved"
       const st = starfield(rt)
       starsStep(st, 0, st.count - 1, starsPlotter(rt, rt.currentIndex))
     },
     'stars draw'() {
+      // Routine 57 ($1b98), the same `Rbeq routine 62` guard and then one
+      // `bset.b` per star into the FIRST plane only — which is why the stars
+      // are always colour 1 and no keyword offers to change it
       starsDraw(rt)
     },
     'f stars'() {
@@ -2755,10 +2764,10 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       if (!bob) return VI(0)
       return VI(checkHit(rt, s!, e!, bob.x + dx!, bob.y + dy!))
     },
-    // The shift group — routines 4-9 ($f82, $f8c, $f96, $fa0, $faa, $fb4) —
-    // is ten bytes each and identical but for the instruction: pop the count
-    // into d0, pop the value into d3, one `lsl`/`lsr` of the stated size, and
-    // return d3. The shift is on a register the routine does not otherwise
+    // Lsl.b, Lsl.w, Lsl.l, Lsr.b, Lsr.w and Lsr.l — routines 4 to 9 ($f82,
+    // $f8c, $f96, $fa0, $faa, $fb4) — are ten bytes each and identical but for
+    // the instruction: pop the count into d0, pop the value into d3, one
+    // `lsl`/`lsr` of the stated size, and return d3. The shift is on a register the routine does not otherwise
     // touch, so a byte shift leaves the top 24 bits of the value exactly as
     // they were. "A=Lsl.b(5,1) gives A=10".
     'lsl.b': (_, a) => VI(shiftOp(a, 8, false)),
@@ -2979,11 +2988,17 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
     },
     'hit spr zone'(_, a) {
       // "This command does the same thing as: A=Hzone(X Sprite(n)+dx,
-      // Y Sprite(n)+dy)" — hardware coordinates, so a hardware zone lookup
+      // Y Sprite(n)+dy)" — hardware coordinates, so a hardware zone lookup.
+      //
+      // Routine 19 ($1074) bounds the sprite number itself before it indexes:
+      // `Rbmi` for a negative one and `cmp.w #$40,d1 / Rbhi` for anything over
+      // 64. Inside that range it reads the sprite table at -$17fe(a5) whether
+      // the sprite is defined or not, so an undefined one is at 0,0 rather
+      // than an error or a refusal.
       const [dx, dy, n] = [0, 1, 2].map((i) => int(a[i] ?? VI(0)))
+      if (n! < 0 || n! > 64) funcCall()
       const spr = rt.hwSprites.get(n!)
-      if (!spr) return VI(0)
-      return VI(hardZoneAt(rt, spr.x + dx!, spr.y + dy!))
+      return VI(hardZoneAt(rt, (spr?.x ?? 0) + dx!, (spr?.y ?? 0) + dy!))
     },
     'hit bob zone'(_, a) {
       // "the same as: A=Zone(X Bob(n)+dx,Y Bob(n)+dy)" — screen coordinates
@@ -3045,7 +3060,10 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
     },
     'f point'(_, a) {
       // "returns the colour register of the pixel located on screen at
-      // coordinates X,Y" — and, like AMOS's own Point, -1 off the screen
+      // coordinates X,Y" — and, like AMOS's own Point, -1 off the screen.
+      // Routine 51 ($1a12) loads -1 first and only clears it once both
+      // coordinates are inside, then walks the planes with `btst`/`bset`
+      // building the colour a bit at a time.
       return VI(rt.screen.point(int(a[0] ?? VI(0)), int(a[1] ?? VI(0))))
     },
     'hit spr check'(_, a) {
@@ -3092,8 +3110,9 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       return VI(sceneScan(rt, a, true))
     },
     'multi bl ended'(_) {
-      // -1 while the pending-load count is zero. With the loads done
-      // synchronously the count is never anything else.
+      // Routine 174 ($541a) is twenty-two bytes: -1 while the pending-load
+      // count word at $6d4 of the extension data block is zero, 0 otherwise.
+      // With the loads done synchronously the count is never anything else.
       return VI(-1)
     },
   } as Record<string, Func>
