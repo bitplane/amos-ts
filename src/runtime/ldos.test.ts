@@ -327,9 +327,29 @@ describe('LDos pattern matching (LdosV25.DOC)', () => {
   it('matches the whole string, not a substring', () => {
     const z = '+Chr$(0)'
     const { out } = run(
-      [`Print Lmatch("readme.txt"${z},"read"${z})`, `Print Lmatch("readme.txt"${z},"read#?"${z})`].join('\n'),
+      [`Print Lmatch("readme.txt"${z},"rea#?e"${z})`, `Print Lmatch("readme.txt"${z},"read#?"${z})`].join('\n'),
     )
     expect(out).toBe(' 0\n-1\n')
+  })
+
+  it('a pattern with no wildcards in it is rejected — the "or no pattern" arm', () => {
+    // `cmp.l #$0,d0 / bne` after ParsePattern in routine 61 ($23c4): a return
+    // of 0 takes the SAME error arm as an overflow. The manual never says so,
+    // and this port accepted a plain string and compared it literally
+    expect(() => run('Print Lmatch("abc"+Chr$(0),"abc"+Chr$(0))')).toThrow(/no pattern/)
+    expect(() => run(`Print Lmatch("abc"+Chr$(0),"${'a'.repeat(50)}"+Chr$(0))`)).toThrow(/To long pattern/)
+    // ...and Lwild, which shares the length check, has no such objection: it
+    // exists precisely to report whether a string is a pattern at all
+    expect(run('Print Lwild("abc")').out).toBe(' 0\n')
+    expect(() => run(`Print Lwild("${'a'.repeat(51)}")`)).toThrow(/To long pattern/)
+  })
+
+  it('both strings must be NUL-terminated, and that is checked', () => {
+    // "PLEASE NOTE THAT BOTH STRINGS MUST BE NULL-TERMINATED (+Chr$(0))" —
+    // `cmpi.b #$0,(a0,d0.w)` on each, error 23. Not a convention to absorb
+    expect(() => run('Print Lmatch("abc"+Chr$(0),"a#?")')).toThrow(/NULL-terminated/)
+    expect(() => run('Print Lmatch("abc","a#?"+Chr$(0))')).toThrow(/NULL-terminated/)
+    expect(run('Print Lmatch("abc"+Chr$(0),"a#?"+Chr$(0))').out).toBe('-1\n')
   })
 })
 
@@ -361,17 +381,48 @@ describe('LDos memory scanning (LdosV25.DOC)', () => {
   })
 
   it('Lskip returns the address after the last skipped character', () => {
-    // "ADR will contain the address AFTER the last CHAR"
+    // "ADR will contain the address AFTER the last CHAR" — and running out of
+    // range answers STOP-1, not STOP: `move.b -(a0),d5` in routine 48 ($1d84)
+    // sits on the shared exit and fires on a path with no increment to undo
     const { out } = run(
       [
         'Reserve As Work 10,64',
         'Lbstr Chr$(10)+Chr$(10)+"x",Start(10)',
         'Print Lskip(10,Start(10) To Start(10)+8)-Start(10)',
         'Lbstr Chr$(10)+Chr$(10)+Chr$(10)+Chr$(10),Start(10)',
-        'Print Lskip(10,Start(10) To Start(10)+3)-Start(10)',
+        'Print Lskip(10,Start(10) To Start(10)+3)-Start(10)', // reaches STOP: 3-1
+        'Print Lskip(10,Start(10) To Start(10))-Start(10)', // empty range: -1
       ].join('\n'),
     )
-    expect(out).toBe(' 2\n 3\n')
+    expect(out).toBe(' 2\n 2\n-1\n')
+  })
+
+  it('the range keywords reject a STOP below START, each with its own error', () => {
+    // `suba.l a0,a2 / bpl` then `moveq #$8` in routines 42, 43 and 48 — but
+    // Lback Hunt, whose range runs the other way, uses 18 instead
+    const p = 'Reserve As Work 10,64\n'
+    expect(() => run(`${p}Lreplace 9,32,Start(10)+4 To Start(10)`)).toThrow(/Start is greater than max/)
+    expect(() => run(`${p}Lfilter 9,32,45,Start(10)+4 To Start(10)`)).toThrow(/Start is greater than max/)
+    expect(() => run(`${p}Print Lskip(10,Start(10)+4 To Start(10))`)).toThrow(/Start is greater than max/)
+    expect(() => run(`${p}Print Lback Hunt(10,Start(10) To Start(10)+4)`)).toThrow(/empty argument/)
+  })
+
+  it('STOP is inclusive for Lreplace and Lfilter', () => {
+    // routine 42's walk is `move.b -(a0),d5` before the loop and `(a0)+`
+    // inside it, so the byte AT stop has already been tested when a0 reaches
+    // it — this port had the far end exclusive
+    const { out } = run(
+      [
+        'Reserve As Work 10,64',
+        'Lbstr "aaaa",Start(10)',
+        'Lreplace Asc("a"),Asc("b"),Start(10) To Start(10)+2',
+        'Print Lstr(Start(10) To Start(10)+4)',
+        'Lbstr "aaaa",Start(10)',
+        'Lfilter Asc("a"),Asc("a"),Asc("c"),Start(10) To Start(10)+2',
+        'Print Lstr(Start(10) To Start(10)+4)',
+      ].join('\n'),
+    )
+    expect(out).toBe('bbba\nccca\n')
   })
 
   it('Lback Hunt searches backwards from START down to STOP', () => {
@@ -385,6 +436,20 @@ describe('LDos memory scanning (LdosV25.DOC)', () => {
       ].join('\n'),
     )
     expect(out).toBe(' 5\n 0\n')
+  })
+
+  it('Lback Hunt never examines START itself', () => {
+    // `cmp.b -(a0),d0` is a PRE-decrement, so the range walked is
+    // STOP..START-1 — a match sitting exactly on START is not found
+    const { out } = run(
+      [
+        'Reserve As Work 10,64',
+        'Lbstr "ab*",Start(10)',
+        'Print Lback Hunt(Asc("*"),Start(10)+2 To Start(10))-Start(10)', // START is the *
+        'Print Lback Hunt(Asc("*"),Start(10)+3 To Start(10))-Start(10)',
+      ].join('\n'),
+    )
+    expect(out).toBe(' 0\n 2\n')
   })
 })
 
@@ -840,7 +905,7 @@ describe('LDos pattern keywords are dos.library wrappers (disassembly)', () => {
     // ParsePattern itself first, so a pattern that will not parse produces
     // the library's own message rather than a silent false.
     const z = '+Chr$(0)'
-    const { out } = run([`Print Lmatch("abc"${z},"a?c"${z})`, `Print Lmatch("abc"${z},"axc"${z})`].join('\n'))
+    const { out } = run([`Print Lmatch("abc"${z},"a?c"${z})`, `Print Lmatch("axc"${z},"a?d"${z})`].join('\n'))
     expect(out).toBe('-1\n 0\n')
     expect(() => run(`Print Lmatch("abc"${z},"(unclosed"${z})`)).toThrow(/To long pattern/)
   })

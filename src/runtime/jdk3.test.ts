@@ -197,9 +197,12 @@ describe('the star joker is the machine’s flag, not JD-K3’s', () => {
   })
 
   it('turning it on for JD-K3 turns it on for LDos’s Lmatch too', () => {
-    // one RootNode: ParsePattern consults the same bit whoever called it
+    // one RootNode: ParsePattern consults the same bit whoever called it, and
+    // it decides Lmatch's "or no pattern" arm too — with the bit clear
+    // `*.txt` parses as a plain string, ParsePattern answers 0, and routine
+    // 61 raises rather than comparing it literally
     const machine = new Machine()
-    expect(lmatch('*.txt', 'notes.txt', machine)).toBe('0')
+    expect(() => lmatch('*.txt', 'notes.txt', machine)).toThrow(/no pattern/)
     runOn(machine, 'Jd Star Joker On')
     expect(lmatch('*.txt', 'notes.txt', machine)).toBe('-1')
   })

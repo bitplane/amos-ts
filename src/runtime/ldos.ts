@@ -562,9 +562,29 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       const n = Math.min(s.length, m.data.length - m.off)
       for (let i = 0; i < n; i++) m.data[m.off + i] = s.charCodeAt(i) & 0xff
     },
+    /**
+     * Lreplace SEARCH,SWAP,START To STOP — routine 42 ($1bc0). "If SEARCH is
+     * found it will be replaced by the SWAP-value."
+     *
+     *     movea.l (a3)+, a1 / movea.l (a3)+, a0     STOP, then START
+     *     move.l  (a3)+, d1 / move.l (a3)+, d0      SWAP, then SEARCH
+     *     movea.l a1, a2 / suba.l a0, a2 / bpl .ok
+     *     moveq   #$8, d0 / Rbra 91                 error 8
+     *  .ok: move.b -(a0), d5                        step BEFORE the range
+     *  .loop: cmpa.l a1, a0 / beq .end
+     *     move.b (a0)+, d5 / cmp.b (a0), d0 / bne .loop
+     *     move.b d1, (a0) / bra .loop
+     *
+     * The pre-decrement and the post-increment together make STOP INCLUSIVE:
+     * the byte examined each pass is the one at the address a0 was just
+     * advanced TO, and the loop only exits once a0 has reached STOP, by which
+     * point STOP's own byte has already been tested. This port had it
+     * exclusive.
+     *
+     * The `move.b -(a0),d5` before the loop reads one byte below START and
+     * throws it away, which is harmless but is why the walk lines up.
+     */
     lreplace(it) {
-      // Lreplace SEARCH,SWAP,START To STOP — "If SEARCH is found it will be
-      // replaced by the SWAP-value."
       const search = it.evalInt() & 0xff
       it.expect(',')
       const swap = it.evalInt() & 0xff
@@ -572,13 +592,26 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       const start = it.evalInt()
       it.expect('to')
       const stop = it.evalInt()
-      const r = region(rt, start, stop)
+      if (stop < start) throw new AmosError('Start is greater than max limit!')
+      const r = region(rt, start, stop + 1)
       if (!r) return
       for (let i = r.from; i < r.to; i++) if (r.data[i] === search) r.data[i] = swap
     },
+    /**
+     * Lfilter LOW,HIGH,SWAP,START To STOP — routine 43 ($1bf6), the same walk
+     * as Lreplace with a two-sided test. "Everything between LOW and HIGH
+     * (INCLUDING LOW and HIGH) will be replaced by SWAP."
+     *
+     *     cmp.b (a0), d0 / bhi .next        LOW  above the byte: skip
+     *     cmp.b (a0), d1 / bcs .next        HIGH below the byte: skip
+     *     move.b d2, (a0)
+     *
+     * `bhi` and `bcs` are the unsigned pair, so the range is over 0..255 and
+     * the manual's "INCLUDING LOW and HIGH" is exact -- both comparisons skip
+     * only on a strict inequality. STOP is inclusive here too, and a STOP
+     * below START is error 8.
+     */
     lfilter(it) {
-      // Lfilter LOW,HIGH,SWAP,START To STOP — "Everything between LOW and
-      // HIGH (INCLUDING LOW and HIGH) will be replaced by SWAP."
       const low = it.evalInt() & 0xff
       it.expect(',')
       const high = it.evalInt() & 0xff
@@ -588,7 +621,8 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       const start = it.evalInt()
       it.expect('to')
       const stop = it.evalInt()
-      const r = region(rt, start, stop)
+      if (stop < start) throw new AmosError('Start is greater than max limit!')
+      const r = region(rt, start, stop + 1)
       if (!r) return
       for (let i = r.from; i < r.to; i++) {
         const b = r.data[i]!
@@ -760,6 +794,30 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
  */
 const LDOS_LARGEST_BLOCK = 0x80000
 
+/**
+ * The longest pattern `Lwild` and `Lmatch` will hand to ParsePattern.
+ *
+ * `cmp.w #$32,d0 / bls` in routines 80 and 61. The destination is 98 bytes
+ * (`moveq #$62,d3`) at the workspace scratch buffer, and ParsePattern needs
+ * rather more than twice the source, so fifty is the author sizing his check
+ * to his buffer rather than to anything in dos.library.
+ */
+const LDOS_PATTERN_MAX = 50
+
+/**
+ * dos.library 37+ is present, so the guard three keywords share never fires.
+ *
+ * `Lwild`, `Lmatch` and `Lset File Date` all open with `tst.w $2fa(...)` on
+ * LDos's workspace and raise error 15, "You need dos.library 37+", when it is
+ * zero. The word is set by the library's own init from the version it found;
+ * ParsePattern, MatchPattern and SetFileDate are all V36/V37 entry points and
+ * LDos will not call them on a 1.3 machine. The modelled machine is a 2.0+
+ * one throughout -- src/amiga/exec.ts answers for the libraries -- so the
+ * flag is set and error 15 is unreachable here. It is documented rather than
+ * implemented because there is no way to reach it, not because it was
+ * skipped: see the NOTES entries on all three keywords.
+ */
+
 export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
   return {
     /**
@@ -906,52 +964,148 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       if (n < 1 || n > words.length) throw new AmosError('No enough words in string!')
       return VS(words[n - 1]!)
     },
+    /**
+     * TEST=Lwild(A$) — routine 80 ($3724), a thin wrapper over dos.library
+     * ParsePattern with two guards in front of it:
+     *
+     *     movea.l $188(a5), a1 / adda.l #$2fa, a1
+     *     tst.w  (a1) / bne .have37
+     *     moveq  #$f, d0 / Rbra 91           error 15, dos.library 37+
+     *  .have37: movea.l (a3)+, a0
+     *     move.w (a0)+, d0
+     *     cmp.w  #$32, d0 / bls .ok
+     *     moveq  #$10, d0 / Rbra 91          error 16, pattern too long
+     *  .ok: moveq #$62, d3                   98 bytes of destination
+     *     move.l a0, d1 / jsr -$348(a6)      ParsePattern, NOT ...NoCase
+     *     move.l d0, d3
+     *
+     * so the answer is ParsePattern's verbatim -- 0 no wildcards, 1
+     * wildcards, -1 unparseable -- and the LVO settles that the matching is
+     * CASE SENSITIVE. LDos never calls the NoCase pair at -$3cc/-$3d2, which
+     * AMCAF and jd-k3 both do.
+     *
+     * NOTE: unlike Lmatch below, routine 80 does NOT check that the string is
+     * NUL-terminated -- it hands ParsePattern a pointer into the middle of
+     * AMOS's string space and lets it read on until it happens to find a zero
+     * byte. Here the string ends where it ends. A caller who follows the
+     * manual and appends Chr$(0) gets the same answer either way.
+     */
     lwild(_, a) {
-      // TEST=Lwild(A$). The routine is a thin wrapper: jsr -$348(a6) —
-      // dos.library ParsePattern — and `move.l d0,d3`, so the result is
-      // ParsePattern's verbatim. 0 no wildcards, 1 wildcards, -1 unparseable.
-      return VI(parsePatternResult(str(a[0] ?? VS(''))))
+      const pattern = str(a[0] ?? VS(''))
+      if (pattern.length > LDOS_PATTERN_MAX) throw new AmosError('To long pattern/overflow/or no pattern')
+      // ParsePattern consults RNF_WILDSTAR, so whether `*` counts as a
+      // wildcard here depends on the machine — see Lmatch below
+      return VI(parsePatternResult(pattern, rt.machine.wildStar))
     },
+    /**
+     * L=Lmatch(SOURCE$,S$) — routine 61 ($23c4), 156 bytes, and it checks far
+     * more than Lwild does. The pattern is popped FIRST (it is the last
+     * argument), the source is held in d7:
+     *
+     *     tst.w $2fa(...) / beq -> error 15         dos.library 37+
+     *     movea.l (a3)+, a0 / move.l (a3)+, d7      PATTERN, then SOURCE
+     *     move.w (a0)+, d0 / subq.w #$1, d0
+     *     cmpi.b #$0, (a0, d0.w) / beq .term
+     *     moveq  #$17, d0 / Rbra 91                 error 23
+     *  .term: addq.w #$1, d0 / cmp.w #$32, d0 / bls .fits
+     *     moveq  #$10, d0 / Rbra 91                 error 16
+     *  .fits: jsr -$348(a6)                         ParsePattern
+     *     cmp.l  #$0, d0 / bne .wild
+     *     moveq  #$10, d0 / Rbra 91                 error 16 AGAIN
+     *  .wild: ...the same NUL check on SOURCE, error 23...
+     *     jsr -$34e(a6)                             MatchPattern
+     *
+     * Three things this port had wrong. The manual's "PLEASE NOTE THAT BOTH
+     * STRINGS MUST BE NULL-TERMINATED (+Chr\$(0))" is not a calling
+     * convention to be quietly absorbed -- it is CHECKED, on both strings,
+     * and a string without one is error 23. And ParsePattern answering 0
+     * takes the error arm too: a pattern with no wildcards in it is rejected,
+     * which is what the "or no pattern" in error 16's text means. The port
+     * stripped the terminator and accepted a plain string as a pattern.
+     *
+     * The length limit of 50 counts the terminator, because it is measured
+     * after the `addq.w #$1` that undoes the index adjustment.
+     */
     lmatch(_, a) {
-      // L=Lmatch(SOURCE$,S$). The routine calls dos.library ParsePattern
-      // (-$348) and then MatchPattern (-$34e), returning the latter's result
-      // verbatim — so the answer is DOSTRUE (-1) or DOSFALSE (0), and the
-      // pattern grammar is dos.library's own rather than anything LDos
-      // invented. "PLEASE NOTE THAT BOTH STRINGS MUST BE NULL-TERMINATED
-      // (+Chr$(0))" is that calling convention showing through; the caller
-      // appends it, so it is stripped here rather than matched against.
-      const trim = (v: string): string => (v.endsWith('\0') ? v.slice(0, -1) : v)
-      const pattern = trim(str(a[1] ?? VS('')))
-      // ParsePattern runs first and its failure is the documented overflow
-      if (parsePatternResult(pattern) < 0) throw new AmosError('To long pattern/overflow/or no pattern')
+      const nul = (v: string): string => {
+        if (!v.endsWith('\0')) throw new AmosError('Command need NULL-terminated string!')
+        return v.slice(0, -1)
+      }
+      const raw = str(a[1] ?? VS(''))
+      const pattern = nul(raw)
+      if (raw.length > LDOS_PATTERN_MAX) throw new AmosError('To long pattern/overflow/or no pattern')
       // RNF_WILDSTAR is a property of the machine's RootNode, not of whoever
       // set it: ParsePattern consults it on every call, so a program that has
       // used JD-K3's Jd Star Joker On gets `*` here too. See
-      // ../amiga/machine.ts, and jdk3.ts routines 11 and 12 for where it is set
-      return VI(amigaMatch(trim(str(a[0] ?? VS(''))), pattern, rt.machine.wildStar) ? -1 : 0)
+      // ../amiga/machine.ts, and jdk3.ts routines 11 and 12 for where it is
+      // set. It decides the "no pattern" arm as well: `*.txt` is a pattern on
+      // a machine with the bit set and a plain string on one without
+      if (parsePatternResult(pattern, rt.machine.wildStar) <= 0) {
+        throw new AmosError('To long pattern/overflow/or no pattern')
+      }
+      const source = nul(str(a[0] ?? VS('')))
+      return VI(amigaMatch(source, pattern, rt.machine.wildStar) ? -1 : 0)
     },
+    /**
+     * ADR=Lskip(CHAR,START To STOP) — routine 48 ($1d84). "ADR will contain
+     * the address AFTER the last CHAR".
+     *
+     *     movea.l a1, a2 / suba.l a0, a2 / bpl .ok
+     *     moveq  #$8, d0 / Rbra 91           error 8
+     *  .ok: cmpa.l a1, a0 / beq .done
+     *     cmp.b  (a0)+, d0 / beq .ok
+     *  .done: move.b -(a0), d5               ...unconditionally
+     *     move.l a0, d3
+     *
+     * DEFECT: the step back at `.done` is on the shared exit, so it undoes
+     * the post-increment of the byte that did NOT match -- which is right --
+     * but it also fires on the path where the scan simply reached STOP, where
+     * there was no increment to undo. Every byte from START to STOP-1 being
+     * CHAR therefore answers STOP-1, not STOP, and `Lskip(c, X To X)` answers
+     * X-1. Reproduced: the manual's "will stop at STOP" is what the author
+     * meant and not what he wrote, and a program that walks a buffer with
+     * this will sit on the same byte forever at the end of it.
+     */
     lskip(_, a) {
-      // ADR=Lskip(CHAR,START To STOP). "ADR will contain the address AFTER
-      // the last CHAR", stopping at STOP if every byte is CHAR.
       const ch = int(a[0] ?? VI(0)) & 0xff
       const start = int(a[1] ?? VI(0))
       const stop = int(a[2] ?? VI(0))
+      if (stop < start) throw new AmosError('Start is greater than max limit!')
       const r = region(rt, start, stop)
-      if (!r) return VI(start)
+      if (!r) return VI(start - 1)
       let i = r.from
       while (i < r.to && r.data[i] === ch) i++
-      return VI(start + (i - r.from))
+      const at = start + (i - r.from)
+      return VI(at === stop ? at - 1 : at)
     },
+    /**
+     * ADR=Lback Hunt(CHAR,START To STOP) — routine 74 ($33a8). "Note that
+     * START is greater than STOP since this routine works backwards."
+     *
+     *     movea.l a0, a2 / suba.l a1, a2 / bpl .ok
+     *     bra .bad                          -> moveq #$12 = error 18
+     *  .ok: cmpa.l a0, a1 / beq .done
+     *     cmp.b  -(a0), d0 / bne .ok
+     *  .done: move.l a0, d3
+     *
+     * The comparison is PRE-decrement, so START's own byte is never examined
+     * -- the range walked is STOP..START-1, and this port was including
+     * START. The reversed argument order gets its own error: a STOP above
+     * START is 18, "You can not call with an empty argument!", where every
+     * other range keyword here uses 8.
+     *
+     * A miss answers STOP, which is also what a hit AT STOP answers; the
+     * routine has no way to distinguish them and neither does this.
+     */
     'lback hunt'(_, a) {
-      // ADR=Lback Hunt(CHAR,START To STOP). "Note that START is greater than
-      // STOP since this routine works backwards."
       const ch = int(a[0] ?? VI(0)) & 0xff
       const start = int(a[1] ?? VI(0))
       const stop = int(a[2] ?? VI(0))
+      if (start < stop) throw new AmosError('You can not call with an empty argument!')
       const m = rt.resolveAddr(stop)
       if (!m) return VI(stop)
       const span = Math.max(0, Math.min(start - stop, m.data.length - m.off))
-      for (let i = span; i >= 0; i--) {
+      for (let i = span - 1; i >= 0; i--) {
         if (m.data[m.off + i] === ch) return VI(stop + i)
       }
       return VI(stop)
@@ -1017,11 +1171,32 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
     lstamp(_, a) {
       return VI(ymdToStamp(int(a[0] ?? VI(0)), int(a[1] ?? VI(1)), int(a[2] ?? VI(1))))
     },
+    /**
+     * TEST=Lset File Date("name",STAMP,MIN,TICKS) — routine 81 ($3772).
+     * "TEST will be true (-1) if the call was successful ... MIN are the
+     * number of minutes that have passed since midnight. TICKS are the number
+     * of ticks that have passed during the last minute (1 tick is the same as
+     * a VBL = 1/50 sec)".
+     *
+     * The three values are stored straight into a DateStamp at the workspace
+     * scratch buffer +$50 -- `move.l (a3)+,$8(a0)` TICKS, `$4(a0)` MINUTE,
+     * `(a0)` DAYS, in that pop order -- and the whole thing goes to
+     * dos.library SetFileDate at -$18c, whose result is returned verbatim. So
+     * a name that does not exist answers 0 because SetFileDate fails, which
+     * is the same answer the existence check here gives.
+     *
+     * It opens with the shared `tst.w $2fa(...)` dos.library 37+ guard, error
+     * 15; see the constant above for why that cannot fire here.
+     *
+     * DEFECT: the empty-name check below it is dead code and is not
+     * reproduced. `move.w (a1)+,d0 / cmp.w #$0,d0 / bcc` was meant to reject
+     * a zero length, but `bcc` on a comparison against zero is always taken
+     * -- nothing is ever unsigned-below zero -- so the error-18 arm at $37ba
+     * can never be reached. What an empty name actually does is run the same
+     * `subq.w #$1,d0` dbra overrun Lopen has, 65536 bytes across LDos's own
+     * workspace, and that is not reproducible either.
+     */
     'lset file date'(_, a) {
-      // TEST=Lset File Date("name",STAMP,MIN,TICKS). "TEST will be true (-1)
-      // if the call was successful ... MIN are the number of minutes that
-      // have passed since midnight. TICKS are the number of ticks that have
-      // passed during the last minute (1 tick is the same as a VBL = 1/50 sec)"
       const path = str(a[0] ?? VS(''))
       if (rt.vfs?.exists(path) == null) return VI(0)
       const ok = rt.vfs.setMeta(path, {

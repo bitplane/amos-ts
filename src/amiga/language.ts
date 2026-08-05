@@ -71,7 +71,7 @@ export function parseLanguage(bytes: Uint8Array): Language | null {
   let best: number[] = []
   let run: number[] = []
   for (const o of offsets) {
-    if (run.length > 0 && o - run[run.length - 1]! === 4) run.push(o)
+    if (run.length > 0 && o - (run[run.length - 1] ?? 0) === 4) run.push(o)
     else run = [o]
     if (run.length > best.length) best = [...run]
   }
