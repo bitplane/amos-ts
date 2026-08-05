@@ -716,30 +716,69 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       c.dirty = true
       return VI(n)
     },
+    /**
+     * P=Lseek(Channel,POS) — 2.6's routine 6 ($fb4), 96 bytes. "Offsets are
+     * relative to the BEGINNING of the file ... If POS is <0 no movement will
+     * take place, and the current position in the file will be returned."
+     *
+     * The channel check is shared with Lload and Lsave, routine 5, and it is
+     * a clamp rather than a test: `cmp.w #$3,d5 / bls` then `cmp.w #$1,d5 /
+     * bcc`, and anything outside 1..3 is forced to zero. The caller then sees
+     * the zero and takes its own error arm:
+     *
+     *     tst.w d5 / bne .ok
+     *     moveq #$0, d0 / Rbra routine 91      bad channel NUMBER
+     *  .ok: subq.w #$1, d5 / mulu.w #$4, d5    ...into the table at $188(a5)
+     *     tst.l (a4) / bne .open
+     *     moveq #$2, d0 / Rbra routine 91      channel not OPEN
+     *
+     * so a number outside 1..3 and a number that is simply not open are two
+     * different errors, 0 and 2.
+     *
+     * READ AGAINST 2.6, deliberately. 2.5's same routine is 408 bytes because
+     * the error arms are replaced by the shareware nag -- a COLOR00/BPLCON1
+     * colour storm and a printed "UNREGISTERED SHAREWARE" banner. The header
+     * above explains why 2.6 is the better evidence for everything except the
+     * version string.
+     */
     lseek(_, a) {
-      // P=Lseek(Channel,POS). "Offsets are relative to the BEGINNING of the
-      // file ... If POS is <0 no movement will take place, and the current
-      // position in the file will be returned."
       const c = channel(rt, int(a[0] ?? VI(0)))
       const pos = int(a[1] ?? VI(0))
       if (pos < 0) return VI(c.pos)
       c.pos = pos
       return VI(pos)
     },
+    /**
+     * S=Lsize("FileName") — 2.6's routine 28 ($17cc), and in the clean build
+     * it is twelve instructions:
+     *
+     *     movea.l (a3)+, a0
+     *     Rbsr    routine 14          lock and Examine into a FileInfoBlock
+     *     tst.l   (a0) / bne .ok
+     *     Rbra    routine 91          nothing there
+     *  .ok: move.l $7c(a0), d3        fib_Size
+     *
+     * $7c is fib_Size in `struct FileInfoBlock` (../amiga/dos.ts), which is
+     * also why the manual's "if 'FileName' is a directory zero is always
+     * returned" needs no special case in the library: AmigaDOS leaves fib_Size
+     * zero for a directory, so the same field answers both.
+     */
     lsize(_, a) {
-      // S=Lsize("FileName"). "The file do not need to be open ... it is legal
-      // to specify a directory as well. If "FileName" is a directory zero is
-      // always returned."
       const path = str(a[0] ?? VS(''))
       if (rt.vfs?.exists(path) === 'dir') return VI(0)
       return VI(rt.fs?.read(path)?.length ?? 0)
     },
+    /**
+     * A=Lfile Type("FileName") — 2.6's routine 29 ($17f0), Lsize's twin: the
+     * same lock-and-Examine through routine 14, the same null check, and then
+     * one different offset, `move.l $4(a0),d3` where Lsize takes $7c.
+     *
+     * $4 is fib_DirEntryType. So the manual's "A is greater than 0 if it is a
+     * directory, or negative if it is a file" is AmigaDOS's own field handed
+     * straight back, which fixes the VALUES as well as the signs: ST_USERDIR
+     * is 2 and ST_FILE is -3, not 1 and -1.
+     */
     'lfile type'(_, a) {
-      // A=Lfile Type("FileName"). "A is greater than 0 if it is a directory,
-      // or negative if it is a file" — which is true of AmigaDOS's own
-      // fib_DirEntryType, and that is literally what the sibling Lcat Type
-      // hands back (verified by disassembly). ST_USERDIR is 2 and ST_FILE
-      // is -3, so those are the values, not 1 and -1.
       const path = ldosPath(rt, str(a[0] ?? VS('')))
       const kind = rt.vfs?.exists(path) ?? (rt.fs?.read(path) != null ? 'file' : null)
       return VI(kind === 'dir' ? ST_USERDIR : ST_FILE)
