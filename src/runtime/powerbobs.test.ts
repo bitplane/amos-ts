@@ -462,3 +462,123 @@ describe('PowerBobs: the draw engine (routines 8, 9, 22)', () => {
     expect(two.powerbobs.drawSel).toBe(4)
   })
 })
+
+describe('PowerBobs: the array arithmetic block (routines 58-77)', () => {
+  /**
+   * These walk a CONTIGUOUS block of longs. A memory bank is one; the arena
+   * a `Varptr` hands out is not (see the note on `elem`), so the tests use a
+   * bank, which is the doc's own second option.
+   */
+  const bank = (op: string, fill: number[] = [1, 2, 3, 4, 5]): number[] => {
+    const src = [
+      `Reserve As Work 5,${fill.length * 4}`,
+      ...fill.map((v, i) => `Loke Start(5)+${i * 4},${v}`),
+      op,
+      `For I=0 To ${fill.length - 1} : Print Leek(Start(5)+I*4);"," ; : Next I`,
+    ].join('\n')
+    run(src)
+    return printed
+      .split(',')
+      .filter((t) => t.trim() !== '')
+      .map(Number)
+  }
+
+  it('Pinc and Pdec step every element in the range', () => {
+    expect(bank('Pinc Start(5),1 To 3')).toEqual([1, 3, 4, 5, 5])
+    expect(bank('Pdec Start(5),0 To 4')).toEqual([0, 1, 2, 3, 4])
+  })
+
+  it('Padd and Psum add a constant', () => {
+    expect(bank('Padd Start(5),10,0 To 2')).toEqual([11, 12, 13, 4, 5])
+    expect(bank('Psum Start(5),100,3 To 4')).toEqual([1, 2, 3, 104, 105])
+  })
+
+  it('a range WRAPS rather than clamping — the whole point of it', () => {
+    // `cmp.l d1,d0 / blt` stores the HIGH limit and `cmp.l d2,d0 / bgt` the
+    // LOW one, so a counter that runs off the end comes back round
+    expect(bank('Set Pinc Range 1 To 3\nPinc Start(5),0 To 4')).toEqual([2, 3, 1, 1, 1])
+    expect(bank('Set Pdec Range 2 To 4\nPdec Start(5),0 To 4')).toEqual([4, 4, 2, 3, 4])
+  })
+
+  it('Unset turns the range off again', () => {
+    expect(bank('Set Pinc Range 1 To 3\nUnset Pinc Range\nPinc Start(5),0 To 4')).toEqual([
+      2, 3, 4, 5, 6,
+    ])
+  })
+
+  it('the four shifts are long shifts, and Pasr keeps the sign', () => {
+    expect(bank('Plsl Start(5),2,0 To 4')).toEqual([4, 8, 12, 16, 20])
+    expect(bank('Pasl Start(5),2,0 To 4')).toEqual([4, 8, 12, 16, 20]) // asl.l == lsl.l
+    expect(bank('Plsr Start(5),1,0 To 4', [8, 4, 2, 16, 32])).toEqual([4, 2, 1, 8, 16])
+    expect(bank('Pasr Start(5),1,0 To 4', [-8, -4, -2, 2, 4])).toEqual([-4, -2, -1, 1, 2])
+  })
+
+  it('Pmul Shift multiplies then shifts down, for fixed point', () => {
+    // routine 63 is Pmul with one more argument: the shift applied after the
+    // hand-built 32x32 multiply
+    const src = [
+      'Reserve As Work 5,20 : Reserve As Work 6,20',
+      'For I=0 To 4 : Loke Start(5)+I*4,(I+1)*256 : Next I',
+      'Pmul Shift Start(6),Start(5),3,8,0 To 4',
+      'For I=0 To 4 : Print Leek(Start(6)+I*4);"," ; : Next I',
+    ].join('\n')
+    run(src)
+    expect(
+      printed
+        .split(',')
+        .filter((t) => t.trim() !== '')
+        .map(Number),
+    ).toEqual([3, 6, 9, 12, 15])
+  })
+
+  it('all four ranges set and unset independently', () => {
+    // Psum $55d/$54c, Pdec $557/$51c, Pinc $554/$504, Padd $55a/$534 -- four
+    // separate flags and limit pairs, read out of routines 64 to 67
+    expect(bank('Set Psum Range 1 To 3\nPsum Start(5),10,0 To 4')).toEqual([1, 1, 1, 1, 1])
+    expect(bank('Set Psum Range 1 To 3\nUnset Psum Range\nPsum Start(5),10,0 To 2')).toEqual([
+      11, 12, 13, 4, 5,
+    ])
+    expect(bank('Set Pdec Range 1 To 9\nUnset Pdec Range\nPdec Start(5),0 To 1')).toEqual([
+      0, 1, 3, 4, 5,
+    ])
+    // Padd's range has no named setter in the table, only an unset
+    expect(bank('Unset Padd Range\nPadd Start(5),5,0 To 1')).toEqual([6, 7, 3, 4, 5])
+  })
+
+  it('Pmul reads one block and writes another', () => {
+    const src = [
+      'Reserve As Work 5,20 : Reserve As Work 6,20',
+      'For I=0 To 4 : Loke Start(5)+I*4,I+1 : Next I',
+      'Pmul Start(6),Start(5),3,0 To 4',
+      'For I=0 To 4 : Print Leek(Start(6)+I*4);"," ; : Next I',
+    ].join('\n')
+    run(src)
+    expect(
+      printed
+        .split(',')
+        .filter((t) => t.trim() !== '')
+        .map(Number),
+    ).toEqual([3, 6, 9, 12, 15])
+  })
+
+  it('Pdiv refuses a zero divisor rather than trapping', () => {
+    // `move.l (a3)+,d4 / Rbeq routine 125` -- error 23, checked when the
+    // argument is popped, not per element
+    expect(() =>
+      run('Reserve As Work 5,20 : Reserve As Work 6,20\nPdiv Start(6),Start(5),0,0 To 4'),
+    ).toThrow(/Illegal function call/)
+  })
+
+  it('a reversed or negative range is error 23', () => {
+    expect(() => run('Reserve As Work 5,20\nPinc Start(5),3 To 1')).toThrow(/Illegal function call/)
+    expect(() => run('Reserve As Work 5,20\nPinc Start(5),-1 To 2')).toThrow(
+      /Illegal function call/,
+    )
+  })
+
+  it('=Same is the constant $80000000', () => {
+    // routine 68 is ten bytes: the most negative long there is, which is why
+    // it works as a "leave this one alone" marker no coordinate can collide with
+    expect(val('Print Same')).toBe(-2147483648)
+  })
+})

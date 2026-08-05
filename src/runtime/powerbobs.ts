@@ -146,6 +146,11 @@ export interface PowerBobsState {
   drawHi: number
   /** $16 — Pbob Update's own selector, a THIRD one beside draw and clear */
   updateSel: number
+  /** the four wrapping ranges: $504/$51c/$534/$54c and $554/$557/$55a/$55d */
+  rInc: PRange
+  rDec: PRange
+  rAdd: PRange
+  rSum: PRange
   /** $1b9, and the $1c/$1e pair Pdraw 25fps loads with 2 when it is on */
   fps25: boolean
   fps25a: number
@@ -163,6 +168,10 @@ export const newPowerBobsState = (): PowerBobsState => ({
   drawLo: 0,
   drawHi: 0,
   updateSel: 0,
+  rInc: newRange(),
+  rDec: newRange(),
+  rAdd: newRange(),
+  rSum: newRange(),
   fps25: false,
   fps25a: 0,
   fps25b: 0,
@@ -561,6 +570,99 @@ export function makePowerBobsInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
+     * The array arithmetic block — routines 58-77, and the fastest way to
+     * move a whole table of Pbob coordinates in one statement.
+     *
+     * Every one takes a Varptr rather than an array, steps by FOUR because
+     * the doc requires longwords, and offsets the pointer by `start * 4`
+     * before a `dbra` over `end - start`. A reversed pair is `sub.w d6,d7 /
+     * Rbmi routine 125`, error 23; a negative start is the same. Nothing
+     * checks the array's LENGTH, which the doc says outright.
+     *
+     * Pinc, Pdec, Padd and Psum each consult a wrapping range if one is set.
+     * The wrap is a CYCLE and not a clamp --- `cmp.l d1,d0 / blt` stores the
+     * HIGH limit and `cmp.l d2,d0 / bgt` the LOW one --- which is what makes
+     * them useful for animation counters that have to come back round.
+     */
+    pinc(it) {
+      arrayOp(rt, it, 0, (v, _k, s) => wrapInto(v + 1, s.rInc))
+    },
+    pdec(it) {
+      arrayOp(rt, it, 0, (v, _k, s) => wrapInto(v - 1, s.rDec))
+    },
+    padd(it) {
+      arrayOp(rt, it, 1, (v, k, s) => wrapInto(v + k, s.rAdd))
+    },
+    psum(it) {
+      arrayOp(rt, it, 1, (v, k, s) => wrapInto(v + k, s.rSum))
+    },
+    plsl(it) {
+      arrayOp(rt, it, 1, (v, k) => (v << (k & 31)) | 0)
+    },
+    plsr(it) {
+      arrayOp(rt, it, 1, (v, k) => (v >>> (k & 31)) | 0)
+    },
+    pasl(it) {
+      arrayOp(rt, it, 1, (v, k) => (v << (k & 31)) | 0)
+    },
+    pasr(it) {
+      arrayOp(rt, it, 1, (v, k) => v >> (k & 31))
+    },
+
+    /**
+     * Pmul dest,src,factor,start To end — routine 62 ($3bd8), 64 bytes, and
+     * Pmul Shift is routine 63 with an extra shift argument.
+     *
+     * The multiply is done by hand out of `mulu.w` and `swap`, because the
+     * 68000 has no 32x32 multiply: the two halves are crossed and added.
+     * Reproduced as a plain 32-bit multiply, which is the same answer.
+     */
+    pmul(it) {
+      arrayOp2(rt, it, 0, (v, k) => Math.imul(v, k))
+    },
+    'pmul shift'(it) {
+      arrayOp2(rt, it, 1, (v, k, sh) => Math.imul(v, k) >> (sh & 31))
+    },
+
+    /**
+     * Pdiv dest,src,divisor,start To end — routine 77 ($3ede), 152 bytes.
+     *
+     * A zero divisor is `Rbeq routine 125`, error 23, rather than the trap
+     * the 68000 would take.
+     *
+     * NOTE: `adda.l d6,a1` at $3efc adds the start offset to a1, which this
+     * routine never loads and never reads --- three pointers are adjusted
+     * where only two were popped. Harmless dead code, and a sign the routine
+     * was copied from a three-array version.
+     */
+    pdiv(it) {
+      arrayOp2(rt, it, 0, (v, k) => (v / k) | 0, true)
+    },
+
+    /** Set/Unset the four wrapping ranges — routines 58-61 and 64-67. */
+    'set psum range'(it) {
+      setRange(rt, it, (s) => s.rSum)
+    },
+    'set pinc range'(it) {
+      setRange(rt, it, (s) => s.rInc)
+    },
+    'set pdec range'(it) {
+      setRange(rt, it, (s) => s.rDec)
+    },
+    'unset psum range'() {
+      st().rSum.on = false
+    },
+    'unset pinc range'() {
+      st().rInc.on = false
+    },
+    'unset pdec range'() {
+      st().rDec.on = false
+    },
+    'unset padd range'() {
+      st().rAdd.on = false
+    },
+
+    /**
      * Set Pbob nr,replace,planemask — routine 23 ($2960), 76 bytes.
      *
      * `replace` is normalised: `cmp.l #$0,d6 / beq` keeps zero and anything
@@ -747,6 +849,82 @@ function clearPass(rt: Runtime, lo: number, hi: number, sel: number): void {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * The array arithmetic block
+ * ------------------------------------------------------------------ */
+
+/**
+ * The four wrapping ranges, and where each keeps its flag and its two limits.
+ *
+ * Read out of the setters and the users rather than assumed --- they are not
+ * in an obvious order, and Padd's setter has no NAMED table entry at all:
+ *
+ *   Psum  flag $55d  limits $54c/$550   set by routine 64, unset by 61
+ *   Pdec  flag $557  limits $51c/$520   set by routine 65, unset by 58
+ *   Pinc  flag $554  limits $504/$508   set by routine 66, unset by 59
+ *   Padd  flag $55a  limits $534/$538   set by routine 67, unset by 60
+ */
+export interface PRange {
+  on: boolean
+  lo: number
+  hi: number
+}
+
+const newRange = (): PRange => ({ on: false, lo: 0, hi: 0 })
+
+/**
+ * A range applied, and it WRAPS rather than clamping.
+ *
+ *     cmp.l d1,d0 / blt  -> store d2      below the low limit, take the HIGH
+ *     cmp.l d2,d0 / bgt  -> store d1      above the high limit, take the LOW
+ *
+ * That is a cycle, not a clamp, and it is what makes these useful for
+ * animation counters: a frame number that runs off the end comes back at the
+ * start without the program testing for it.
+ */
+function wrapInto(v: number, r: PRange): number {
+  if (!r.on) return v | 0
+  if (v < r.lo) return r.hi | 0
+  if (v > r.hi) return r.lo | 0
+  return v | 0
+}
+
+/**
+ * One element of the addressed array, as a signed long.
+ *
+ * Every one of these keywords takes an address rather than an array, and
+ * steps by four: `add.w d6,d6 / add.w d6,d6 / adda.l d6,a0` is the start
+ * index times four. The doc is explicit that the values must be LONGWORDS,
+ * and that the array length is never checked --- "It has been carefully
+ * optimised to give the best speed possible".
+ *
+ * DEVIATION: this reaches whatever the address space makes CONTIGUOUS, which
+ * is memory banks --- the doc's own second option, "It is also possible to
+ * use AMOS/Pro banks for storing the X/Y coordinates and the Image of the
+ * Pbob's" --- but NOT a `Varptr` into a BASIC array. Varptr here hands out a
+ * padded arena slot per variable cell rather than a view into one contiguous
+ * array, so `Varptr(A(0)) + 4` does not arrive at `A(1)` and the walk stops
+ * after the first element. That is a property of the arena, not of this
+ * extension, and it is the one form the doc leads with. A program that uses
+ * a bank gets the whole operation; one that uses Varptr gets one element.
+ */
+function elem(rt: Runtime, addr: number, i: number): number | null {
+  const m = rt.resolveAddr(addr + i * 4)
+  if (!m || m.off + 3 >= m.data.length) return null
+  const d = m.data
+  return ((d[m.off]! << 24) | (d[m.off + 1]! << 16) | (d[m.off + 2]! << 8) | d[m.off + 3]!) | 0
+}
+
+function setElem(rt: Runtime, addr: number, i: number, v: number): void {
+  const m = rt.resolveWrite(addr + i * 4)
+  if (!m || m.off + 3 >= m.data.length) return
+  const d = m.data
+  d[m.off] = (v >>> 24) & 0xff
+  d[m.off + 1] = (v >>> 16) & 0xff
+  d[m.off + 2] = (v >>> 8) & 0xff
+  d[m.off + 3] = v & 0xff
+}
+
 /**
  * Routine 10's body, shared with Reserve Pbobs which calls it first.
  *
@@ -758,6 +936,81 @@ function eraseAll(s: PowerBobsState): void {
   s.bobs = []
   s.bobsDbuf = []
   s.count = 0 // clr.w $c(a2)
+}
+
+/**
+ * `<op> ptr[,k] start To end` — the shape all of Pinc, Pdec, Padd, Psum and
+ * the four shifts share.
+ *
+ * `extra` is how many scalars sit between the pointer and the range. The pops
+ * come off in reverse, so `end` is first and the pointer last.
+ */
+function arrayOp(
+  rt: Runtime,
+  it: Parameters<Instr>[0],
+  extra: number,
+  f: (v: number, k: number, s: PowerBobsState) => number,
+): void {
+  const addr = it.evalInt()
+  it.expect(',')
+  let k = 0
+  for (let i = 0; i < extra; i++) {
+    k = it.evalInt()
+    it.expect(',')
+  }
+  const start = it.evalInt()
+  it.expect('to')
+  const end = it.evalInt()
+  if (start < 0) funcCall() // Rbmi
+  if (end - start < 0) funcCall() // sub.w d6,d7 / Rbmi
+  const s = rt.powerbobs
+  for (let i = start; i <= end; i++) {
+    const v = elem(rt, addr, i)
+    if (v === null) return // past the end of the region: the real one runs on
+    setElem(rt, addr, i, f(v, k, s))
+  }
+}
+
+/** Pmul, Pmul Shift and Pdiv: a source array and a separate destination. */
+function arrayOp2(
+  rt: Runtime,
+  it: Parameters<Instr>[0],
+  extra: number,
+  f: (v: number, k: number, sh: number) => number,
+  guardK = false,
+): void {
+  const dst = it.evalInt()
+  it.expect(',')
+  const src = it.evalInt()
+  it.expect(',')
+  const k = it.evalInt()
+  if (guardK && k === 0) funcCall() // Pdiv: `move.l (a3)+,d4 / Rbeq routine 125`
+  it.expect(',')
+  let sh = 0
+  for (let i = 0; i < extra; i++) {
+    sh = it.evalInt()
+    it.expect(',')
+  }
+  const start = it.evalInt()
+  it.expect('to')
+  const end = it.evalInt()
+  if (start < 0 || end - start < 0) funcCall()
+  for (let i = start; i <= end; i++) {
+    const v = elem(rt, src, i)
+    if (v === null) return
+    setElem(rt, dst, i, f(v, k, sh))
+  }
+}
+
+/** `Set P* Range lo To hi` — two longs and the flag, routines 64 to 67. */
+function setRange(rt: Runtime, it: Parameters<Instr>[0], pick: (s: PowerBobsState) => PRange): void {
+  const lo = it.evalInt()
+  it.expect('to')
+  const hi = it.evalInt()
+  const r = pick(rt.powerbobs)
+  r.lo = lo | 0
+  r.hi = hi | 0
+  r.on = true
 }
 
 export function makePowerBobsFunctions(rt: Runtime): Record<string, Func> {
@@ -786,5 +1039,15 @@ export function makePowerBobsFunctions(rt: Runtime): Record<string, Func> {
     'x pbob': (_, a): Value => field(int(a[0]!), (b) => (b.x << 16) >> 16),
     'y pbob': (_, a): Value => field(int(a[0]!), (b) => (b.y << 16) >> 16),
     'i pbob': (_, a): Value => field(int(a[0]!), (b) => (b.image8 & 0xffff) >>> 3),
+
+    /**
+     * =Same — routine 68 ($3cf4), TEN bytes and no arguments:
+     * `move.l #$80000000,d3 / moveq #$0,d2 / rts`.
+     *
+     * A constant. -2147483648 is the most negative long there is, which is
+     * why it works as the "leave this one alone" marker the array operations
+     * are given: no coordinate can collide with it.
+     */
+    same: (): Value => VI(-0x80000000),
   }
 }

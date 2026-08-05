@@ -1942,6 +1942,26 @@ export const FAITHFUL = new Set<string>([
   'pbob clear',
   'pbob draw',
   'pbob update',
+  // slice 3: the array arithmetic block, routines 58-77
+  'pinc',
+  'pdec',
+  'padd',
+  'psum',
+  'plsl',
+  'plsr',
+  'pasl',
+  'pasr',
+  'pmul',
+  'pmul shift',
+  'pdiv',
+  'same',
+  'set psum range',
+  'set pinc range',
+  'set pdec range',
+  'unset psum range',
+  'unset pinc range',
+  'unset pdec range',
+  'unset padd range',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -1968,6 +1988,13 @@ export const STRUCTURAL = new Set([
  * plug in.
  */
 export const NA = new Set<string>([
+  // PowerBobs routine 116 ($4212) is fourteen bytes and the last two matter:
+  // `jsr $120(a0)` through -$8(a5), then `illegal #$4afc`. It deliberately
+  // takes the 68000 ILLEGAL trap to drop into a machine-code debugger. There
+  // is no debugger here and no trap to take, and executing 68k is out of
+  // scope by policy, so there is nothing to implement rather than something
+  // approximated.
+  'pdebug',
   // TFT: both bit-bang the floppy drive. Mfm Read sets up INTENA at $9a(a5)
   // on the custom chips and drives CIA-B's PRB at $bfd100 for motor, select,
   // side, direction and step; Mfm Track Luecke picks the gap out of the raw
@@ -2231,6 +2258,12 @@ export const NOTES: Record<string, string> = {
     "Routine 8 (\\$1246), 210 bytes: the save buffers back onto the screen, over the range given, through the CLEAR selector at \\$14(a2) that Pswap Clear flips. Two skips make it safe to call before any draw --- `tst.b \\$13(a2) / bne` steps over a Pbob that was off screen or never drawn, and Pbob Height leaves that byte SET, so a Pbob Clear issued first restores nothing. The second is `move.w \\$1e(a2),d3 / bmi`, which reads \\$1e and \\$1f TOGETHER as a word: bit 15 is Set Pbob's replace flag and the low byte is the plane mask the restore then walks with `lsr.b #\\$1,d3 / bcc`. Same opaque BLTCON0 as the draw",
   'pbob update':
     "Routine 22 (\\$264e), 786 bytes: Pbob Clear and Pbob Draw over EVERY Pbob in one call, through a THIRD selector at \\$16(a2) --- draw has \\$12 and clear has \\$14. The doc: \"Does the same thing as the Amos Bob Update command, except that the Logical and Physical Screens are not swapped. This allows a better control on the updating process if you are using multiple double buffered screens\", and Pdraw 25fps deliberately does not reach it. `move.w \\$c(a2),d7 / Rbeq routine 125` makes an empty table error 23, where Pbob Clear and Pbob Draw would simply have had an empty range",
+  'pinc':
+    "Routines 58-77, the array arithmetic block, and the fastest way a program moves a whole table of Pbob coordinates. Each takes an ADDRESS rather than an array and steps by FOUR --- `add.w d6,d6 / add.w d6,d6 / adda.l d6,a0` is the start index times four --- then `dbra` over `end - start`. A reversed pair or a negative start is `Rbmi routine 125`, error 23; the array's LENGTH is never checked, which the doc states outright as the price of the speed. Pinc, Pdec, Padd and Psum each consult a wrapping range when one is set, and the wrap is a CYCLE not a clamp: `cmp.l d1,d0 / blt` stores the HIGH limit and `cmp.l d2,d0 / bgt` the LOW one, which is what makes them useful for animation counters that have to come back round. The four ranges keep their flags and limits apart, and not in an obvious order --- Psum \\$55d and \\$54c, Pdec \\$557 and \\$51c, Pinc \\$554 and \\$504, Padd \\$55a and \\$534. DEVIATION: these reach whatever the address space makes CONTIGUOUS, which is memory banks --- the doc's own second option, \"It is also possible to use AMOS/Pro banks for storing the X/Y coordinates and the Image of the Pbob's\" --- but NOT a Varptr into a BASIC array. Varptr here hands out a padded arena slot per variable cell rather than a view into one contiguous array, so `Varptr(A(0)) + 4` does not arrive at `A(1)` and the walk stops after the first element. That is a property of the arena, not of this extension, and it is the form the doc leads with",
+  'pmul':
+    "Routine 62 (\\$3bd8), with Pmul Shift routine 63 and Pdiv routine 77. The multiply is built by hand out of `mulu.w` and `swap` because the 68000 has no 32x32 multiply --- the halves are crossed and added --- and is reproduced here as a plain 32-bit multiply, which is the same answer. Pdiv checks its divisor when the argument is POPPED, `move.l (a3)+,d4 / Rbeq routine 125`, so a zero divisor is error 23 rather than the trap the processor would take. NOTE: `adda.l d6,a1` at \\$3efc adds the start offset to a1, which Pdiv never loads and never reads --- three pointers adjusted where only two were popped. Harmless dead code, and a sign the routine was copied from a three-array version",
+  'same':
+    "Routine 68 (\\$3cf4), TEN bytes and no arguments: `move.l #\\$80000000,d3 / moveq #\\$0,d2 / rts`. A constant, -2147483648, which is the most negative long there is --- which is exactly why it serves as the \"leave this one alone\" marker the array operations are given, since no screen coordinate can collide with it",
   // --- IOPorts: implemented, but reporting a port with nothing on it ---
   'serial error':
     "Returns 0. The real call reads io_Error from the request and maps it through the device's error table (base 145, 16 messages, from the Dev.Open call). With no hardware behind the port there is no transfer to fail, so no error is ever raised and the keyword can only report success. The mapping itself is modelled -- ioError() resolves those exact messages -- it just has nothing to map",
@@ -3320,6 +3353,23 @@ export const NOTES: Record<string, string> = {
  * -- so a group cannot rot into pointing at nothing.
  */
 export const SHARED_NOTES: Record<string, string> = {
+  // the arithmetic block is one reading over twenty routines
+  'pdec': 'pinc',
+  'padd': 'pinc',
+  'psum': 'pinc',
+  'plsl': 'pinc',
+  'plsr': 'pinc',
+  'pasl': 'pinc',
+  'pasr': 'pinc',
+  'set psum range': 'pinc',
+  'set pinc range': 'pinc',
+  'set pdec range': 'pinc',
+  'unset psum range': 'pinc',
+  'unset pinc range': 'pinc',
+  'unset pdec range': 'pinc',
+  'unset padd range': 'pinc',
+  'pmul shift': 'pmul',
+  'pdiv': 'pmul',
   // routines 13, 14 and 5 are the same accessor three times, over three fields
   'y pbob': 'x pbob',
   'i pbob': 'x pbob',
