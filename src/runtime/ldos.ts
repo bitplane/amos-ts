@@ -346,8 +346,17 @@ function catAt(rt: Runtime): { name: string; isDir: boolean; size: number; path:
   return { ...e, path: base + e.name }
 }
 
-/** `Lopen` accepts channels 1..3 (manual: "Channel can range from 1 to 3") */
+/**
+ * The open channel `n`, or the library's own error for why there isn't one.
+ *
+ * Routine 5 clamps the number to zero unless it is 1..3 and every caller then
+ * takes two separate arms — `moveq #$0` for a number that was never a channel,
+ * `moveq #$2` for one that is simply not open. Error 0 is "Invalid Lchannel"
+ * and error 2 is "LFile not open" in the table at $3d14; answering the second
+ * for both would tell a program the wrong thing about `Lload(9,...)`.
+ */
 function channel(rt: Runtime, n: number): LdosChannel {
+  if (n < 1 || n > 3) throw new AmosError('Invalid Lchannel')
   const c = rt.ldos.chans.get(n)
   if (!c) throw new AmosError('LFile not open')
   return c
@@ -441,46 +450,110 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
     'lhicol off'() {
       rt.ldos.hicol = false
     },
+    /**
+     * Lopen Channel,"Name",MODE — routine 1 ($e4c), 122 bytes. "WARNING! If
+     * the file exist and MODE is 1 the file will be erased. (the file will be
+     * 0 bytes long)"
+     *
+     *     move.l (a3)+, d4 / movea.l (a3)+, a0 / move.l (a3)+, d5
+     *     Rbsr   routine 5                 the shared clamp
+     *     tst.w  d5 / bne .num
+     *     moveq  #$0, d0 / Rbra 91         error 0: not a channel NUMBER
+     *  .num: lea $c(a2), a1 / lea (a2,d5.w), a4
+     *     tst.l (a4) / beq .free
+     *     moveq  #$1, d0 / Rbra 91         error 1: already assigned
+     *  .free: ...copy the name...
+     *     tst.w d4 / bne .new
+     *     move.l #$3ed, d2 / bra .open     MODE_OLDFILE 1005
+     *  .new: move.l #$3ee, d2              MODE_NEWFILE 1006
+     *  .open: jsr -$1e(a6)                 dos.library Open
+     *     tst.l d0 / bne .ok
+     *     moveq  #$2, d0 / Rbra 91         error 2: LFile not open
+     *
+     * Three things the manual does not say. Reopening a channel that is
+     * already open is error 1 rather than a silent replacement. The mode is
+     * tested with `tst.w`, so it is any non-zero WORD that creates, not the
+     * literal 1 -- which is what makes `Lcreate` below usable as the
+     * argument. And a failed Open is error 2, the same "LFile not open" a
+     * later Lload would give, not a filename error.
+     *
+     * NOTE: an empty name is a buffer overrun in the library and cannot be
+     * reproduced. The copy is `move.w (a0)+,d0 / subq.w #$1,d0` then a
+     * `dbra` loop, so a zero length underflows to $FFFF and writes 65536
+     * bytes over LDos's own workspace at $188(a5)+$c. Here it copies nothing.
+     */
     lopen(it) {
-      // Lopen Channel,"Name",MODE — MODE 0 opens an existing file, 1 creates
-      // a new one. "WARNING! If the file exist and MODE is 1 the file will be
-      // erased. (the file will be 0 bytes long)"
       const n = it.evalInt()
       it.expect(',')
       const path = ldosPath(rt, it.evalStr())
       it.expect(',')
       const mode = it.evalInt()
       if (n < 1 || n > 3) throw new AmosError('Invalid Lchannel')
+      if (rt.ldos.chans.has(n)) throw new AmosError('LFile already assigned to channel')
+      const create = (mode & 0xffff) !== 0
       let data: Uint8Array
-      if (mode === 1) {
+      if (create) {
         data = new Uint8Array(0)
         rt.vfs?.writeFile(path, data) // created, and truncated if it existed
         rt.stampFile(path)
       } else {
         const existing = rt.fs?.read(path) ?? null
-        if (existing === null) throw new AmosError('Invalid filename')
+        if (existing === null) throw new AmosError('LFile not open')
         data = Uint8Array.from(existing)
       }
-      rt.ldos.chans.set(n, { path, data, pos: 0, dirty: mode === 1 })
+      rt.ldos.chans.set(n, { path, data, pos: 0, dirty: create })
     },
+    /**
+     * Lclose Channel — routine 2 ($ec6), 70 bytes. "Do not ever forget to
+     * close a file ... otherwise the file, or even the whole disk can be
+     * corrupt!!!" -- here closing is what commits the written bytes.
+     *
+     * It does NOT error on a channel that is not open, where every other
+     * channel keyword does:
+     *
+     *     tst.l (a2) / bne .open
+     *     movem.l (a7)+, a4-a6 / rts       nothing to close, and no error
+     *  .open: move.l (a2), d1 / move.l #$0, (a2)
+     *     jsr -$24(a6)                     Close, after the slot is cleared
+     *
+     * so `Lclose 1 : Lclose 1` is legal and only the number itself, error 0,
+     * is rejected. The slot is cleared BEFORE the Close, which is why a
+     * failing Close still frees the channel.
+     */
     lclose(it) {
-      // "Do not ever forget to close a file ... otherwise the file, or even
-      // the whole disk can be corrupt!!!" — here closing is what commits the
-      // written bytes back to the filesystem.
       const n = it.evalInt()
-      const c = channel(rt, n)
-      flush(rt, c)
+      if (n < 1 || n > 3) throw new AmosError('Invalid Lchannel')
+      const c = rt.ldos.chans.get(n)
+      if (!c) return
       rt.ldos.chans.delete(n)
+      flush(rt, c)
     },
+    /**
+     * Lset Eoln NUM — routine 38 ($1aca), four instructions and no checking:
+     * `movea.l $188(a5),a1 / adda.l #$2f6,a1 / move.l (a3)+,(a1)`.
+     *
+     * The manual's "NUM may range from 0 to 255" is a description of what is
+     * useful rather than a limit the library imposes -- it stores the whole
+     * longword and `Lstr` compares it with `cmp.b`, so only the low byte is
+     * ever consulted. Masking here is the same thing observed.
+     */
     'lset eoln'(it) {
-      // "NUM may range from 0 to 255. Default is 10"
       rt.ldos.eoln = it.evalInt() & 0xff
     },
+    /**
+     * Lbstr A$,START — routine 10 ($1084), 32 bytes and the thinnest keyword
+     * in the extension: it pops the address and the string, takes the length
+     * word, and is a straight `jsr -$270(a6)` to exec's CopyMem. A zero
+     * length skips the call entirely; nothing else is checked, which is the
+     * manual's "No check is done to see whether the bufferlimit was exceeded
+     * or not".
+     *
+     * DEVIATION: writes are bounded by the region they land in rather than
+     * running on into whatever follows, and an address in no region at all
+     * raises error 18 where the library would simply scribble. There is no
+     * error arm in routine 10 to be faithful to.
+     */
     lbstr(it) {
-      // Lbstr A$,START — copy a string into a bank. "No check is done to see
-      // whether the bufferlimit was exceeded or not".
-      // DEVIATION: writes are bounded by the region they land in rather than
-      // running on into whatever follows.
       const s = it.evalStr()
       it.expect(',')
       const addr = it.evalInt()
@@ -673,14 +746,6 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
         const b = r.data[i]!
         if (b >= 0x41 && b <= 0x5a) r.data[i] = b + 32
       }
-    },
-    lold() {
-      // "Lold - MAY CURRENTLY NOT BE USED!!  These are here for future
-      // versions". Documented as unusable, so doing nothing is what the
-      // manual describes; see the NOTES entry.
-    },
-    lcreate() {
-      // "Lcreate - MAY CURRENTLY NOT BE USED!!" — as Lold.
     },
   }
 }
@@ -1413,13 +1478,52 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       }
       return VI(~sum | 0)
     },
+    /**
+     * Lold and Lcreate — routines 7 ($1014) and 8 ($101a), three instructions
+     * each and both FUNCTIONS in the token table:
+     *
+     *     lold:    moveq #$0,d2 / moveq #$0,d3 / rts      integer 0
+     *     lcreate: moveq #$1,d3 / moveq #$0,d2 / rts      integer 1
+     *
+     * (d2 is the AMOS result type, 0 for integer; d3 is the value.)
+     *
+     * The manual says "Lold - MAY CURRENTLY NOT BE USED!! These are here for
+     * future versions", and this port took that literally and made them
+     * no-op INSTRUCTIONS. The binary disagrees on both counts: they are the
+     * two MODE constants `Lopen` takes, and `Lopen 1,"x",Lcreate` is a
+     * working line. The binary wins over the manual, and the manual's
+     * warning is stale prose about a feature that shipped.
+     */
+    lold() {
+      return VI(0)
+    },
+    lcreate() {
+      return VI(1)
+    },
+    /**
+     * A$=Lstr(START To MAX) — routine 9 ($1020), 100 bytes. Reads from START
+     * up to the end-of-line byte (`Lset Eoln`, default 10) or MAX. "The
+     * end-of-line-terminator is NOT copied into the string, so the new
+     * startaddress of the next line will be START+Len(A$)+1".
+     *
+     *     movea.l (a3)+, a4 / movea.l (a3)+, a0      MAX, then START
+     *     movea.l a4, a6 / suba.l a2, a6 / bpl .ok
+     *     moveq  #$8, d0 / Rbra 91                   error 8
+     *  .ok: cmp.b (a1), d6 / beq .empty              already at the terminator
+     *  .scan: cmpa.l a4, a1 / beq .len               stop AT max
+     *     cmp.b  (a1)+, d6 / bne .scan
+     *
+     * The range check is a real error arm the manual does not mention: MAX
+     * below START is error 8, "Start is greater than max limit!". Equal is
+     * allowed and yields the empty string.
+     *
+     * The scan stops at MAX rather than after it, so MAX is exclusive -- a
+     * four-byte window reads three bytes if none of them terminate.
+     */
     lstr(_, a) {
-      // A$=Lstr(START To MAX). Reads from START up to the end-of-line byte
-      // (Lset Eoln, default 10) or MAX. "The end-of-line-terminator is NOT
-      // copied into the string, so the new startaddress of the next line
-      // will be START+Len(A$)+1".
       const start = int(a[0] ?? VI(0))
       const max = int(a[1] ?? VI(0))
+      if (max < start) throw new AmosError('Start is greater than max limit!')
       const m = rt.resolveAddr(start)
       if (!m) return VS('')
       const limit = Math.min(m.data.length - m.off, Math.max(0, max - start))

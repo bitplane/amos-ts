@@ -68,9 +68,36 @@ describe('LDos file channels (LdosV25.DOC)', () => {
     expect(fs.readFile('DH0:new.dat')).toEqual(new Uint8Array(0))
   })
 
-  it('Lopen mode 0 on a missing file is an error, and channels are 1 to 3', () => {
-    expect(() => run('Lopen 1,"DH0:nope",0')).toThrow(/Invalid filename/)
+  it('Lopen has four separate error arms, and a failed Open is not a filename error', () => {
+    // routine 1 ($e4c): error 0 for the number, error 1 for a channel that is
+    // already assigned, error 2 when dos.library's Open answers zero
     expect(() => run('Lopen 4,"DH0:x",1')).toThrow(/Invalid Lchannel/)
+    expect(() => run('Lopen 0,"DH0:x",1')).toThrow(/Invalid Lchannel/)
+    expect(() => run('Lopen 1,"DH0:nope",0')).toThrow(/LFile not open/)
+    expect(() => run('Lopen 1,"DH0:a.dat",1 : Lopen 1,"DH0:b.dat",1')).toThrow(/LFile already assigned/)
+  })
+
+  it('the MODE is any non-zero word, not the literal 1', () => {
+    // `tst.w d4 / bne` — routine 1 picks MODE_NEWFILE for anything non-zero,
+    // which is what lets Lcreate (which answers 1) stand in for it
+    const { fs } = run(['Lopen 1,"DH0:two.dat",2', 'Lclose 1'].join('\n'))
+    expect(fs.readFile('DH0:two.dat')).toEqual(new Uint8Array(0))
+  })
+
+  it('Lclose accepts a channel that is not open, but not a bad number', () => {
+    // routine 2 ($ec6) is alone among the channel keywords in having no
+    // not-open arm: `tst.l (a2) / bne .open` falls straight through to rts
+    expect(run('Lclose 1 : Lclose 2 : Print "ran"').out).toBe('ran\n')
+    expect(run('Lopen 1,"DH0:c1.dat",1 : Lclose 1 : Lclose 1 : Print "ran"').out).toBe('ran\n')
+    expect(() => run('Lclose 4')).toThrow(/Invalid Lchannel/)
+  })
+
+  it('a channel number outside 1 to 3 is error 0, not error 2', () => {
+    // routine 5 clamps to zero and the caller then tests: "Invalid Lchannel"
+    // for a number that never was one, "LFile not open" only for 1..3
+    expect(() => run('A=Lload(9,0,4)')).toThrow(/Invalid Lchannel/)
+    expect(() => run('A=Lload(2,0,4)')).toThrow(/LFile not open/)
+    expect(() => run('A=Lseek(0,0)')).toThrow(/Invalid Lchannel/)
   })
 
   it('Lclose is what commits written bytes to the filesystem', () => {
@@ -196,13 +223,27 @@ describe('LDos string handling (LdosV25.DOC)', () => {
   })
 })
 
-describe('LDos keywords the manual declares unusable', () => {
-  it('Lold and Lcreate do nothing, as documented', () => {
-    // "Lold - MAY CURRENTLY NOT BE USED!!" / "Lcreate - MAY CURRENTLY NOT BE
-    // USED!! These are here for future versions" — so a program calling them
-    // must not fail, and nothing observable may happen.
-    const { out } = run('Lold : Lcreate : Print "ran"')
-    expect(out).toBe('ran\n')
+describe('the two keywords the manual declares unusable, which are not', () => {
+  it('Lold and Lcreate are functions answering the two Lopen modes', () => {
+    // "Lold - MAY CURRENTLY NOT BE USED!! ... These are here for future
+    // versions" — but routines 7 ($1014) and 8 ($101a) are three instructions
+    // each and both return a value: `moveq #$0,d3` and `moveq #$1,d3`, with
+    // d2 = 0 for integer. The binary wins over the manual.
+    expect(run('Print Lold;" ";Lcreate').out).toBe(' 0  1\n')
+  })
+
+  it('Lcreate can be used as the MODE argument, which is what it is for', () => {
+    const { fs } = run(['Lopen 1,"DH0:made.dat",Lcreate', 'Lclose 1'].join('\n'))
+    expect(fs.readFile('DH0:made.dat')).toEqual(new Uint8Array(0))
+  })
+
+  it('Lstr rejects a MAX below START — error 8, which the manual omits', () => {
+    // `movea.l a4,a6 / suba.l a2,a6 / bpl` in routine 9 ($1020)
+    expect(() => run('Reserve As Work 10,64\nPrint Lstr(Start(10)+4 To Start(10))')).toThrow(
+      /Start is greater than max limit/,
+    )
+    // equal is allowed, and reads nothing
+    expect(run('Reserve As Work 10,64\nPrint Len(Lstr(Start(10) To Start(10)))').out).toBe(' 0\n')
   })
 })
 
