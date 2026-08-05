@@ -75,6 +75,12 @@ function run(src: string, opts: { map?: Uint8Array; nIcons?: number; ext?: typeo
  */
 const at = (rt: Runtime, x: number, y: number): number => rt.screen.point(x, y)
 
+/** run `<setup> : Print <expr>` and read the number back off the console */
+function val(src: string, opts: Parameters<typeof run>[1] = {}): number {
+  run(src, opts)
+  return Number(printed.trim())
+}
+
 describe('TOME: the state the setters write', () => {
   it('Tile Size wraps into 1..32 rather than checking the range', () => {
     // routine 10 ($8ec): `subq.l #$1 / andi.l #$1f / addq.l #$1` on each
@@ -91,6 +97,28 @@ describe('TOME: the state the setters write', () => {
     // routine 14 ($93e) is four stores and an rts
     const rt = run('Map View 10,20 To 110,120')
     expect(rt.tome).toMatchObject({ viewX1: 10, viewY1: 20, viewX2: 110, viewY2: 120 })
+  })
+
+  it('the block ships with the author\'s defaults, not zeroes', () => {
+    // routine 0 ($59c) does not build the block: it points $158(a5) at static
+    // data at $5f2 and clears only $68, $6c, $4a and eight animation bytes.
+    // Everything else is what was assembled -- and $64/$66 do NOT agree with
+    // $e/$12 there, which is why Map Hx and Map Fx answer for different tile
+    // sizes until the first Tile Size call.
+    expect(run('').tome).toMatchObject({
+      tileW: 32, tileH: 32, tileWordW: 5, tileWordH: 5,
+      mapBank: 6, brikBank: 7, tileTypBank: 8,
+      viewX1: 0, viewY1: 0, viewX2: 320, viewY2: 192,
+    })
+    expect(val('Print Map Hx(32)')).toBe(6) // 32 / 5, off $64
+    expect(val('Print Map Fx(32)')).toBe(0) // 32 AND 31, off $e
+  })
+
+  it('a map bank that is not reserved is AMOS\'s error, not one of TOME\'s two', () => {
+    // routine 67 is `move.l $1a(a0),-(a3) / Rjsr <AMOS 431> / movea.l d3,a1`,
+    // which is =Start(n) -- so the failure is FnStart's "bank not reserved"
+    // and not the extension's 23 or 74
+    expect(() => run('Map Bank 9 : Print Map X')).toThrow(/bank not reserved/i)
   })
 
   it('Map Bank keeps the NUMBER, not an address', () => {
@@ -259,11 +287,6 @@ describe('TOME 3.1 is 4.23 with one keyword renamed', () => {
 })
 
 describe('TOME: the query functions', () => {
-  /** run `<setup> : Print <expr>` and read the number back off the console */
-  function val(src: string, opts: Parameters<typeof run>[1] = {}): number {
-    run(src, opts)
-    return Number(printed.trim())
-  }
   const m = () => mapBank(4, 3, [0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3])
 
   it('Xtile and Ytile divide the pixel by the tile, relative to the view', () => {

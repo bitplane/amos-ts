@@ -52,7 +52,8 @@
  *
  * ## Errors
  *
- * Two, both raised through `L_ScCopy`:
+ * Two, both raised by jumping to AMOS routine 1024 with the error number in
+ * d0 (see `bankBytes` on why the label file's name for it is not evidence):
  *
  *   routine 81  error $17 (23), "Illegal function call" — no icon bank, or
  *               its first longword is not the cookie `Icon`
@@ -77,9 +78,20 @@ export interface TomeState {
   /** $a / $c — the map cursor the last draw was given */
   cursorX: number
   cursorY: number
-  /** $e / $12 — tile size in pixels */
+  /** $e / $12 — tile size in pixels, as LONGS */
   tileW: number
   tileH: number
+  /**
+   * $64 / $66 — Tile Size's WORD copies of the same two numbers.
+   *
+   * Not redundant, because the block does not ship them agreeing: the static
+   * block at $5f2 starts with $e/$12 = 32 and $64/$66 = 5. Map Hx/Hy divide
+   * by these while Map Fx/Fy mask with those, so before any Tile Size call
+   * the two halves of that pair answer for different tile sizes. After one
+   * they agree forever.
+   */
+  tileWordW: number
+  tileWordH: number
   /** $20 $24 $28 $2c — the view rectangle in screen pixels */
   viewX1: number
   viewY1: number
@@ -90,23 +102,42 @@ export interface TomeState {
   mapH: number
 }
 
+/**
+ * The block as the library SHIPS it, not as a zeroed struct.
+ *
+ * Routine 0 does not build this: it points $158(a5) at a static area inside
+ * the code hunk at $5f2 and then clears only four things -- $68, $6c, $4a and
+ * eight bytes of the animation table. Everything else is whatever the author
+ * assembled, so these are Aaron Fothergill's own defaults, read straight out
+ * of the bytes at $5f2 rather than guessed:
+ *
+ *   tile 32 x 32, map 200 x 50 tiles, view 0,0 to 320,192, and banks
+ *   6 (map), 7 (brik), 8 (tile types), 9 (update list)
+ *
+ * The $64/$66 pair does NOT agree with $e/$12 in the shipped block -- 5
+ * against 32 -- so a program that reads Map Hx before setting a tile size
+ * gets an answer for a five-pixel tile. Kept, because it is what the library
+ * does; see `tileWordW`.
+ */
 export const newTomeState = (): TomeState => ({
-  mapBank: 0,
-  brikBank: 0,
-  tileTypBank: 0,
+  mapBank: 6,
+  brikBank: 7,
+  tileTypBank: 8,
   cursorX: 0,
   cursorY: 0,
-  tileW: 16,
-  tileH: 16,
+  tileW: 32,
+  tileH: 32,
+  tileWordW: 5,
+  tileWordH: 5,
   viewX1: 0,
   viewY1: 0,
-  viewX2: 0,
-  viewY2: 0,
-  mapW: 0,
-  mapH: 0,
+  viewX2: 320,
+  viewY2: 192,
+  mapW: 200,
+  mapH: 50,
 })
 
-/** AMOS error 23, routine 81's `moveq #$17,d0 / Rjmp L_ScCopy`. */
+/** AMOS error 23, routine 81's `moveq #$17,d0 / Rjmp <AMOS 1024>`. */
 const funcCall = (): never => {
   throw new AmosError('Illegal function call', 23)
 }
@@ -116,19 +147,47 @@ const iconUndef = (): never => {
 }
 
 /**
- * The map bank's header and data.
+ * A bank number to its bytes, the way routines 66-69 do it.
  *
- * Routine 67 pushes `$1a(a0)` and calls into AMOS to turn the bank number
- * into an address, so the bank is resolved at every use rather than cached —
- * which is why erasing the map bank between draws is an error here rather
- * than a read of freed memory.
+ * All four are the same twenty-six bytes against a different field -- $1a the
+ * map (67), $30 the briks (69), $34 the tile types (68), $72 the update list
+ * (66). Each pushes its bank NUMBER onto AMOS's argument stack, calls back
+ * into AMOS, and takes an address out of d3:
+ *
+ *     move.l $1a(a0),-(a3)
+ *     Rjsr   <AMOS routine 431>
+ *     movea.l d3,a1
+ *
+ * d3 is AMOS's function-result register, so this is `=Start(n)` -- which is
+ * why a bank is resolved at EVERY use rather than cached, and why erasing the
+ * map bank between two draws is an error rather than a read of freed memory.
+ * The error is AMOS's own, "bank not reserved", and not one of TOME's two.
+ *
+ * NOTE: `+lib_Labels.s` names AMOS routine 431 `L_InSetPaint`, which cannot be
+ * what this is -- Set Paint takes a flag and returns nothing. The label file
+ * is a 1993 listing of the interpreter's own labels and its numbering is not
+ * the one extensions were assembled against, so the NAMES extdis prints for
+ * cross-library calls are not evidence. The behaviour above is, and it is what
+ * this follows. Same caution applies to the `L_ScCopy` in the error helpers.
  */
+function bankBytes(rt: Runtime, n: number): Uint8Array {
+  const mem = rt.memBanks.get(n)
+  // FnStart +Lib.s:2481 is `Rbsr L_Bnk.GetAdr / Rbeq L_BkNoRes`
+  if (!mem) {
+    // NOTE: Start() answers for the sprite and icon banks too, and TOME would
+    // then read an object bank's bytes as map data. Those banks are objects
+    // here rather than a flat image, so that reading cannot be reproduced;
+    // it takes the not-reserved arm instead.
+    throw new AmosError('bank not reserved')
+  }
+  return mem.data
+}
+
+/** The map bank's header and data — `move.w $0(a1)` / `move.w $2(a1)`. */
 function mapData(rt: Runtime): { data: Uint8Array; w: number; h: number } {
-  const bank = rt.memBanks.get(rt.tome.mapBank)
-  if (!bank || bank.data.length < 4) funcCall()
-  const data = bank!.data
-  const w = (data[0]! << 8) | data[1]!
-  const h = (data[2]! << 8) | data[3]!
+  const data = bankBytes(rt, rt.tome.mapBank)
+  const w = ((data[0] ?? 0) << 8) | (data[1] ?? 0)
+  const h = ((data[2] ?? 0) << 8) | (data[3] ?? 0)
   return { data, w, h }
 }
 
@@ -229,8 +288,13 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
      *
      * Each argument goes through `subq.l #$1 / andi.l #$1f / addq.l #$1`,
      * which is `((n - 1) & 31) + 1`. That is a WRAP into 1..32, not a range
-     * check: 33 becomes 1 and 0 becomes 32, with no error either way. Both
-     * are stored twice, as a long at $e/$12 and as a word at $64/$66.
+     * check: 33 becomes 1 and 0 becomes 32, with no error either way.
+     *
+     * Both are stored TWICE, as a long at $e/$12 and as a word at $64/$66,
+     * and different keywords read different copies -- Map Right takes the low
+     * word of $e, Map Hx takes $64, Map Fx masks with $e. The two copies only
+     * differ before the first call, because the shipped block has 32 in one
+     * and 5 in the other; see `newTomeState`.
      */
     'tile size'(it) {
       const w = it.evalInt()
@@ -238,6 +302,8 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
       const h = it.evalInt()
       st().tileW = (((w - 1) & 0x1f) + 1) | 0
       st().tileH = (((h - 1) & 0x1f) + 1) | 0
+      st().tileWordW = st().tileW // move.w d1,$64(a0)
+      st().tileWordH = st().tileH // move.w d2,$66(a0)
     },
 
     /**
@@ -454,9 +520,13 @@ export function makeTomeFunctions(rt: Runtime): Record<string, Func> {
      * these are the absolute pixel-to-tile divide where Xtile is the relative
      * one -- the "H" pair and the "F" pair below are a whole-and-fraction
      * split of a pixel coordinate.
+     *
+     * NOTE: $64/$66, not $e/$12, and in the shipped block those hold 5 where
+     * $e/$12 hold 32. Before any Tile Size call this pair therefore answers
+     * for a different tile size than Map Fx/Fy does.
      */
-    'map hx': (_, a): Value => VI(divuw(int(a[0]!), st().tileW)),
-    'map hy': (_, a): Value => VI(divuw(int(a[0]!), st().tileH)),
+    'map hx': (_, a): Value => VI(divuw(int(a[0]!), st().tileWordW)),
+    'map hy': (_, a): Value => VI(divuw(int(a[0]!), st().tileWordH)),
 
     /**
      * =Map Fx(x) — routine 34 ($1310) — and =Map Fy(y), routine 35 ($1322).
