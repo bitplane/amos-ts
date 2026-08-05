@@ -2044,7 +2044,19 @@ export const NOTES: Record<string, string> = {
   'is raw key':
     "Returns the last scancode seen. The manual warns 'it gives different values if the key is pressed or released', the difference being the release bit; this port records the press code, so a program distinguishing the two would differ",
   'check':
-    "TURBO's own zone system, which the manual is explicit is 'not compatible with the normal Zone commands'. Note it returns 1 and 0 rather than AMOS's -1 and 0, as documented",
+    "TURBO's own zone system, which the manual is explicit is 'not compatible with the normal Zone commands'. The manual's \"Returns 1 is the result is true, 0 if not\" is true of zone 1 and of nothing else: routine 335 writes the zone's own number into the entry's leading word and routine 16 returns that word, so a hit on zone 7 answers 7. Reproduced, as are the three things around it — nothing reserved is TURBO's error 1 rather than a quiet zero, a range outside 1..count is an illegal function call rather than a clamp, and the scan stops at the first containing zone, so a zone reserved and never Set (leading word 0, rectangle 0,0 to 0,0) swallows the origin and hides any later zone that covers it",
+  'reserve check':
+    'Routine 337 ($6dee) refuses to reserve twice — TURBO error 0, "Check allready reserved" — and bounds the count at 32000 BEFORE that test. Both reproduced. Not reproduced: a negative count passes the signed bound and then goes through `mulu.w #$a`, which reads it unsigned and asks AllocMem for six hundred kilobytes; this treats it as zero',
+  'reset check':
+    'Routine 334 ($6d4c) bounds the zone number LESS ONE against the count, where Set Check next door bounds the number itself. So Reset Check accepts one zone past the end and writes its -1 ten bytes outside the allocation. Reproduced as far as the model allows: the write lands one past the array, which is harmless here and was not on the machine',
+  'set check':
+    '`movem.w d0-d4,(a0)` stores the zone number and the four coordinates exactly as they were pushed. There is no ordering pass, so a rectangle given the other way round is stored the other way round and can never contain anything — where this port used to sort the pairs. Every coordinate is also `Rbmi`-checked, so a negative edge is an illegal function call',
+  'hit bob check':
+    "The manual calls dx and dy \"a displacement in opposite to the bob's hot spot\", and routine 136 ($472a) is `add.l (a3)+,d2 / add.l (a3)+,d1` — it ADDS them, in the same direction Hit Bob Zone does. The binary wins. A bob number that names nothing answers 0 here, where the routine goes through AMOS's own bob-position call and gets AMOS's error",
+  'hit spr check':
+    "Routine 21 ($10ce) is Hit Bob Check with one extra instruction, `jsr $30(a0)` after the displacement is added: Check zones are screen rectangles — 'Define a rectangular screen area' — and a sprite's position is in hardware coordinates, so the pair is converted before the scan, the same conversion Hzone makes for Hit Spr Zone",
+  'x icon':
+    "Routines 87-89 ($330e, $334e, $3390) walk the bank list for type 2 themselves rather than asking AMOS, and every step of the way out is an error: `Rble routine 62` for a number at or below zero, routine 130 (AMOS error 36, Bank not reserved) for no icon bank, routine 131 (error 74, Icon not defined) for a number past the count or a hole in the table. This port used to answer 0 for all three. Note they ask for the icon bank unconditionally where Icon Check reads its bank number out of the Scene Icon Bank setting, so the two disagree about which bank 'the icons' means",
   'workbench open':
     'The counterpart to Close Workbench, which this port already treats as faithful because there is no Workbench memory to free. Reopening it is the same nothing in reverse',
   'memory fill':
@@ -3082,6 +3094,10 @@ export const SHARED_NOTES: Record<string, string> = {
   // reading covering the pair
   'amcaf length': 'amcaf base',
   'exchange icon': 'exchange bob',
+  // TURBO routines 87, 88 and 89 are the same sixty bytes, differing only in
+  // which word of the image header the last instruction reads
+  'y icon': 'x icon',
+  'planes icon': 'x icon',
   'td surface points off': 'td surface points',
   'jd star joker off': 'jd star joker on',
 }

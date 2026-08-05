@@ -29,7 +29,7 @@
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Interp } from '../interp/interp'
-import type { ObjectBank } from './objects'
+import type { BankImage, ObjectBank } from './objects'
 import type { Runtime } from './runtime'
 import type { Screen } from './screen'
 
@@ -93,13 +93,23 @@ const funcCall: () => never = () => {
   throw new AmosError('Illegal function call', 23)
 }
 
-/** a TURBO Check zone: its own rectangle system, not AMOS's */
+/**
+ * A TURBO Check zone: its own rectangle system, not AMOS's.
+ *
+ * Five words in the library, laid down by `movem.w d0-d4,(a0)` in routine 335
+ * — the zone's own number, then x1, x2, y1, y2 — and read back by routine 16
+ * in that order. The leading word is a value, not a flag: `Reset Check` writes
+ * -1 into it and `Check` skips any entry whose word is negative (`bmi`), while
+ * a hit returns the word itself. So `value` is what the keyword answers with,
+ * and a freshly reserved zone that has never been Set carries 0.
+ */
 export interface CheckZone {
   x1: number
   y1: number
   x2: number
   y2: number
-  set: boolean
+  /** the leading word: the zone number for a Set zone, -1 for a Reset one */
+  value: number
 }
 
 /**
@@ -409,20 +419,40 @@ function objectWalk(rt: Runtime, n: number, xf: (x: number, y: number) => [numbe
 }
 
 /**
- * `Check`, `Hit Bob Check` and `Hit Spr Check` all share this scan.
+ * `Check` (routine 16, $1000), `Hit Bob Check` (136, $472a) and `Hit Spr
+ * Check` (21, $10ce) all end in the same twenty-two instructions, and they
+ * are byte-for-byte the same scan three times over.
  *
  * Zone numbers are 1-based, as they are for core AMOS `Set Zone` — the TURBO
  * manual says Set Check "does the same thing as the Set Zone command" — so
  * `Reserve Check 650` numbers them 1..650 and the array is indexed one lower.
+ *
+ * Three things the manual does not say, all of them in the twenty-two
+ * instructions:
+ *
+ *   - nothing reserved is TURBO's own error 1, "Check not reserved", not a
+ *     quiet zero (`cmpi.w #$0,$8(a1) / beq` into routine 338)
+ *   - an end past the count, a start below 1, or an end below the start are
+ *     each an illegal function call, not a clamp
+ *   - the ANSWER is the zone's leading word, which Set Check filled with the
+ *     zone's own number. The manual's "Returns 1 is the result is true" is
+ *     true of zone 1 and of nothing else: Check(1 To 10,x,y) hitting zone 7
+ *     answers 7.
+ *
+ * The scan stops at the first zone that contains the point, so a zone that
+ * has been reserved and never Set — leading word 0, rectangle 0,0 to 0,0 —
+ * swallows the point (0,0) and answers 0, which is indistinguishable from a
+ * miss and hides any later zone that would have matched it.
  */
 function checkHit(rt: Runtime, from: number, to: number, x: number, y: number): number {
   const zones = rt.turbo.checks
-  const lo = Math.max(0, Math.min(from, to) - 1)
-  const hi = Math.min(zones.length - 1, Math.max(from, to) - 1)
-  for (let i = lo; i <= hi; i++) {
-    const z = zones[i]
-    if (!z?.set) continue
-    if (x >= z.x1 && x <= z.x2 && y >= z.y1 && y <= z.y2) return 1
+  if (zones.length === 0) turboError(1)
+  if (to > zones.length || from < 1 || to < from) funcCall()
+  for (let i = from - 1; i <= to - 1; i++) {
+    const z = zones[i]!
+    if (z.value < 0) continue
+    // all four edges inclusive: bgt/blt out, so equality stays in
+    if (x >= z.x1 && x <= z.x2 && y >= z.y1 && y <= z.y2) return z.value
   }
   return 0
 }
@@ -744,6 +774,25 @@ function parseWord(source: string, n: number, alternatives: string, notfound: nu
     if (alts[k] !== '' && alts[k] === got) return k + 1
   }
   return notfound
+}
+
+/**
+ * The header word `X Icon`, `Y Icon` and `Planes Icon` want, and the three
+ * errors they raise on the way to it.
+ *
+ * Routines 87-89 walk the bank list themselves rather than asking AMOS, and
+ * they look for type 2 — the icon bank, unconditionally. That is worth
+ * saying out loud because `Icon Check` next door reads its bank number out of
+ * the Scene Icon Bank setting instead, so the two disagree about which bank
+ * "the icons" means.
+ */
+function iconField(rt: Runtime, n: number, pick: (img: BankImage) => number): number {
+  if (n <= 0) funcCall() // Rble routine 62
+  const bank = rt.iconBank
+  if (!bank) throw new AmosError('Bank not reserved', 36) // Rbeq routine 130 -> $24
+  const img = bank.image(n)
+  if (!img) throw new AmosError('Icon not defined', 74) // Rbhi/Rbeq routine 131 -> $4a
+  return pick(img)
 }
 
 /** `Hzone`'s mapping: hardware coordinates into the current screen */
@@ -2220,25 +2269,52 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
     },
     'reserve check'(it) {
       // "Reserves x check ZONES for TURBO zone (CHECK) routines. Execute
-      // this command before Setting any Check zones."
+      // this command before Setting any Check zones." Routine 14 ($ff4) is a
+      // trampoline into routine 337 ($6dee): bound the count, refuse to
+      // reserve twice, then AllocMem ten bytes a zone, cleared.
       const n = it.evalInt()
-      if (n < 0) throw new AmosError('Illegal function call')
-      rt.turbo.checks = Array.from({ length: n }, () => ({ x1: 0, y1: 0, x2: 0, y2: 0, set: false }))
+      // `cmp.l #$7d01,d0 / Rbge` — 32000 zones is the documented ceiling,
+      // and it is checked BEFORE the already-reserved test
+      if (n >= 32001) funcCall()
+      if (rt.turbo.checks.length !== 0) turboError(0) // "Check allready reserved"
+      rt.turbo.checks = Array.from({ length: Math.max(0, n) }, () => ({ x1: 0, y1: 0, x2: 0, y2: 0, value: 0 }))
     },
     'check erase'() {
       // "releases the memory used by Reserve Check and erases all
       // definitions. You must Reserve more Check zones before Setting any
-      // after this command."
+      // after this command." Routine 15 ($ffa) into routine 336 ($6dc2),
+      // which reports error 1 rather than doing nothing when there is
+      // nothing to free.
+      if (rt.turbo.checks.length === 0) turboError(1)
       rt.turbo.checks = []
     },
     'reset check'(it) {
       // "Erases a Check zone's definition. You must give the zone number."
-      const z = rt.turbo.checks[it.evalInt() - 1]
-      if (z) z.set = false
+      // Routine 18 ($106e) into routine 334 ($6d4c), which writes $ffff into
+      // the zone's leading word — that is what Check's `bmi` skips on.
+      //
+      // DEFECT: the bound is `subq.w #$1,d0 / cmp.w $8(a1),d0 / Rbhi`, so it
+      // is the zone number LESS ONE that is compared against the count. Set
+      // Check next door compares the number itself. Reset Check therefore
+      // accepts one zone past the end and writes ten bytes outside the
+      // allocation. Here that lands one past the array, which is harmless.
+      const n = it.evalInt()
+      const zones = rt.turbo.checks
+      if (zones.length === 0) turboError(1)
+      if (n < 1 || n - 1 > zones.length) funcCall()
+      const z = zones[n - 1]
+      if (z) z.value = -1
+      else zones[n - 1] = { x1: 0, y1: 0, x2: 0, y2: 0, value: -1 }
     },
     'set check'(it) {
       // Set Check z,x1,y1 To x2,y2 — "Does the same thing as the Set Zone
-      // command."
+      // command." Routine 17 ($1068) into routine 335 ($6d80).
+      //
+      // Every coordinate is `Rbmi`-checked, so a negative one is an error,
+      // and the zone number is `Rble` then `Rbhi` against the count. Then
+      // `movem.w d0-d4,(a0)` writes the number and the four coordinates AS
+      // GIVEN — there is no ordering pass, so a rectangle handed over
+      // backwards is stored backwards and can never contain anything.
       const n = it.evalInt()
       it.expect(',')
       const x1 = it.evalInt()
@@ -2248,14 +2324,10 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       const x2 = it.evalInt()
       it.expect(',')
       const y2 = it.evalInt()
+      if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0) funcCall()
       // 1-based, like Set Zone — Reserve Check 650 numbers them 1..650
-      const z = rt.turbo.checks[n - 1]
-      if (!z) throw new AmosError('Illegal function call')
-      z.x1 = Math.min(x1, x2)
-      z.y1 = Math.min(y1, y2)
-      z.x2 = Math.max(x1, x2)
-      z.y2 = Math.max(y1, y2)
-      z.set = true
+      if (n < 1 || n > rt.turbo.checks.length) funcCall()
+      rt.turbo.checks[n - 1] = { x1, y1, x2, y2, value: n }
     },
 
     // ---- scenes ----
@@ -2619,17 +2691,21 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.input.lastScan)
     },
     check(_, a) {
-      // x=Check(start To end,x,y) — "Returns 1 is the result is true, 0 if
-      // not." Note 1, not AMOS's -1.
+      // x=Check(start To end,x,y) — routine 16 ($1000). "Returns 1 is the
+      // result is true, 0 if not", which is true of zone 1 only; checkHit
+      // above has the reading.
       return VI(checkHit(rt, int(a[0] ?? VI(0)), int(a[1] ?? VI(0)), int(a[2] ?? VI(0)), int(a[3] ?? VI(0))))
     },
     'hit bob check'(_, a) {
-      // x=Hit Bob Check(start To end,dx,dy,n) — "dx and dy are optional and
-      // give a displacement in opposite to the bob's hot spot"
+      // x=Hit Bob Check(start To end,dx,dy,n) — routine 136 ($472a). "dx and
+      // dy are optional and give a displacement in opposite to the bob's hot
+      // spot", but the routine is `add.l (a3)+,d2 / add.l (a3)+,d1` on the
+      // position AMOS hands back: the displacement is ADDED, in the same
+      // direction Hit Bob Zone next door adds it. The binary wins.
       const [s, e, dx, dy, n] = [0, 1, 2, 3, 4].map((i) => int(a[i] ?? VI(0)))
       const bob = rt.bobs.get(n!)
       if (!bob) return VI(0)
-      return VI(checkHit(rt, s!, e!, bob.x - dx!, bob.y - dy!))
+      return VI(checkHit(rt, s!, e!, bob.x + dx!, bob.y + dy!))
     },
     // The shift group — routines 4-9 ($f82, $f8c, $f96, $fa0, $faa, $fb4) —
     // is ten bytes each and identical but for the instruction: pop the count
@@ -2874,19 +2950,25 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       if (!bob) return VI(0)
       return VI(rt.zoneAt(bob.x + dx!, bob.y + dy!))
     },
+    // Routines 87, 88 and 89 ($330e, $334e, $3390) are sixty-odd bytes each
+    // and identical but for the last instruction: walk the bank list for the
+    // one whose type longword is 2 — the icon bank, always, never Scene Icon
+    // Bank's choice — index it, and read word 0, word 2 or word 4 of the
+    // image header. Width comes back in WORDS because that is how the header
+    // stores it. Every step raises: `Rble routine 62` for a number at or
+    // below zero, routine 130 for no icon bank, routine 131 for a number past
+    // the count or a hole in the table.
     'x icon'(_, a) {
-      // "returns the width (in words) of a particular Icon" — words, not
-      // pixels, because that is how the bank stores it
-      const img = rt.iconBank?.image(int(a[0] ?? VI(0)))
-      return VI(img ? img.width >> 4 : 0)
+      // "returns the width (in words) of a particular Icon"
+      return VI(iconField(rt, int(a[0] ?? VI(0)), (img) => img.width >> 4)) // move.w (a2),d3
     },
     'y icon'(_, a) {
       // "returns the height (in lines)"
-      return VI(rt.iconBank?.image(int(a[0] ?? VI(0)))?.height ?? 0)
+      return VI(iconField(rt, int(a[0] ?? VI(0)), (img) => img.height)) // move.w $2(a2),d3
     },
     'planes icon'(_, a) {
       // "how many planes the Icon is made of"
-      return VI(rt.iconBank?.image(int(a[0] ?? VI(0)))?.depth ?? 0)
+      return VI(iconField(rt, int(a[0] ?? VI(0)), (img) => img.depth)) // move.w $4(a2),d3
     },
     'icon check'(_, a) {
       // "-1 indicates that the Icon is defined, and it has NO MASK. 1
@@ -2925,12 +3007,18 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.screen.point(int(a[0] ?? VI(0)), int(a[1] ?? VI(0))))
     },
     'hit spr check'(_, a) {
-      // x=Hit Spr Check(start To end,dx,dy,n) — as above, for a sprite, and
-      // the manual gives the displacement the other way round
+      // x=Hit Spr Check(start To end,dx,dy,n) — routine 21 ($10ce), the same
+      // scan for a sprite. The one instruction that separates it from Hit Bob
+      // Check is the extra `jsr $30(a0)` after the displacement is added:
+      // Check zones are screen rectangles ("Define a rectangular screen
+      // area") and a sprite's position is in hardware coordinates, so the
+      // pair is converted before the scan — the same conversion Hzone makes
+      // for Hit Spr Zone.
       const [s, e, dx, dy, n] = [0, 1, 2, 3, 4].map((i) => int(a[i] ?? VI(0)))
       const spr = rt.hwSprites.get(n!)
       if (!spr) return VI(0)
-      return VI(checkHit(rt, s!, e!, spr.x + dx!, spr.y + dy!))
+      const sc = rt.screen
+      return VI(checkHit(rt, s!, e!, sc.hardToScreenX(spr.x + dx!), sc.hardToScreenY(spr.y + dy!)))
     },
 
     // ---- scenes ----

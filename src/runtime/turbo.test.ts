@@ -125,59 +125,106 @@ describe('TURBO Check zones (TURBO_DocsV2.15.Asc)', () => {
   // inclusive, which only fits if n zones are numbered 1..n.
   const setup = ['Reserve Check 4', 'Set Check 1,10,10 To 50,50', 'Set Check 2,100,100 To 120,120']
 
-  it('Check reports 1 inside a zone and 0 outside — not AMOS truth', () => {
-    // "Returns 1 is the result is true, 0 if not" — note 1, not -1
+  it('Check answers the ZONE NUMBER, not 1', () => {
+    // "Returns 1 is the result is true, 0 if not" is true of zone 1 and of
+    // nothing else. Routine 335 writes the zone's own number into the entry's
+    // leading word (`movem.w d0-d4,(a0)` with d0 = the number) and routine
+    // 16 returns that word on a hit (`move.w d7,d3`).
     const { out } = run(
       [...setup, 'Print Check(1 To 4,20,20)', 'Print Check(1 To 4,200,200)', 'Print Check(1 To 4,110,110)'].join('\n'),
     )
-    expect(out).toBe(' 1\n 0\n 1\n')
+    expect(out).toBe(' 1\n 0\n 2\n')
   })
 
   it('the start/end range excludes zones outside it', () => {
     // "The START and END parameters indicate which zones you want to check.
     // Ideal if there are many zones and you want to exclude some zones."
     const { out } = run([...setup, 'Print Check(1 To 1,110,110)', 'Print Check(2 To 2,110,110)'].join('\n'))
-    expect(out).toBe(' 0\n 1\n')
+    expect(out).toBe(' 0\n 2\n')
   })
 
   it('the last reserved zone is usable — Reserve Check 4 gives 1..4', () => {
     // the off-by-one this file used to encode: zone 4 of 4 read past the end
     // and answered "Illegal function call"
     const { out } = run(['Reserve Check 4', 'Set Check 4,10,10 To 50,50', 'Print Check(1 To 4,20,20)'].join('\n'))
-    expect(out).toBe(' 1\n')
+    expect(out).toBe(' 4\n')
   })
 
-  it('Reset Check erases one definition, Check Erase all of them', () => {
+  it('a zone reserved and never Set swallows the origin, and hides what follows', () => {
+    // AllocMem clears, so an untouched entry is a live zone whose leading
+    // word is 0 and whose rectangle is 0,0 to 0,0. Check stops at the first
+    // containing zone, so it answers 0 — a miss, as far as the caller can
+    // tell — and never reaches the zone that really covers the point.
     const { out } = run(
-      [...setup, 'Reset Check 1', 'Print Check(1 To 4,20,20)', 'Check Erase', 'Print Check(1 To 4,110,110)'].join('\n'),
+      ['Reserve Check 4', 'Set Check 4,0,0 To 50,50', 'Print Check(1 To 4,0,0)', 'Print Check(4 To 4,0,0)'].join('\n'),
     )
-    expect(out).toBe(' 0\n 0\n')
+    expect(out).toBe(' 0\n 4\n')
   })
 
-  it('Set Check without reserving first is an error', () => {
+  it('nothing reserved is TURBO error 1, and a bad range is error 23', () => {
+    expect(() => run('Print Check(1 To 4,0,0)')).toThrow(/Check not reserved/)
+    expect(() => run('Check Erase')).toThrow(/Check not reserved/)
+    expect(() => run('Reserve Check 4 : Reserve Check 4')).toThrow(/Check allready reserved/)
+    // end past the count, start below one, end below start
+    expect(() => run('Reserve Check 4 : Print Check(1 To 5,0,0)')).toThrow(/Illegal function call/)
+    expect(() => run('Reserve Check 4 : Print Check(0 To 4,0,0)')).toThrow(/Illegal function call/)
+    expect(() => run('Reserve Check 4 : Print Check(3 To 2,0,0)')).toThrow(/Illegal function call/)
+  })
+
+  it('Reset Check erases one definition, and accepts one zone past the end', () => {
+    const { out } = run([...setup, 'Reset Check 1', 'Print Check(1 To 4,20,20)'].join('\n'))
+    expect(out).toBe(' 0\n')
+    // the library's own overrun, reproduced: routine 334 bounds the number
+    // LESS ONE against the count where Set Check bounds the number itself,
+    // so n = count+1 gets through and writes ten bytes outside the allocation
+    expect(() => run('Reserve Check 4 : Reset Check 5')).not.toThrow()
+    expect(() => run('Reserve Check 4 : Reset Check 6')).toThrow(/Illegal function call/)
+    expect(() => run('Reserve Check 4 : Set Check 5,0,0 To 1,1')).toThrow(/Illegal function call/)
+  })
+
+  it('Set Check without reserving first is an error, and so is a negative edge', () => {
     // "Execute this command before Setting any Check zones."
     expect(() => run('Set Check 1,0,0 To 10,10')).toThrow(/Illegal function call/)
+    // every coordinate is Rbmi-checked
+    expect(() => run('Reserve Check 1 : Set Check 1,0,-1 To 10,10')).toThrow(/Illegal function call/)
   })
 
-  it('Hit Bob Check and Hit Spr Check test an object against the zones', () => {
-    // "x=Hit Bob Check(START To END,DX,DY,BOB)" — dx and dy "give a
-    // displacement in opposite to the bob's hot spot", so they are
-    // subtracted from the bob's position and added to the sprite's
+  it('Hit Bob Check ADDS the displacement, and Hit Spr Check converts first', () => {
+    // The manual calls dx and dy "a displacement in opposite to the bob's hot
+    // spot", but routine 136 is `add.l (a3)+,d2 / add.l (a3)+,d1` — the same
+    // direction Hit Bob Zone adds them. Routine 21 does the same and then
+    // `jsr $30(a0)`, converting the sprite's hardware position to screen
+    // coordinates, because Check zones are screen rectangles.
     const src = [
       'Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 0', // a bob image to place
+      'Get Sprite 1,0,0 To 8,8 : Cls 0',
       'Reserve Check 2',
-      'Set Check 1,10,10 To 50,50',
+      'Set Check 1,60,60 To 90,90',
       'Bob 1,30,30,1',
-      'Sprite 8,30,30,1',
-      'Print Hit Bob Check(1 To 2,0,0,1);Hit Bob Check(1 To 2,100,100,1)',
-      'Print Hit Spr Check(1 To 2,0,0,8);Hit Spr Check(1 To 2,100,100,8)',
+      'Sprite 8,128+70,50+70,1',
+      'Print Hit Bob Check(1 To 2,40,40,1);Hit Bob Check(1 To 2,-40,-40,1)',
+      'Print Hit Spr Check(1 To 2,0,0,8)',
     ]
-    expect(run(src.join('\n')).out).toBe(' 1 0\n 1 0\n')
+    expect(run(src.join('\n')).out).toBe(' 1 0\n 1\n')
   })
 
-  it('Set Check normalises a rectangle given the other way round', () => {
+  it('Set Check does NOT normalise a rectangle given the other way round', () => {
+    // `movem.w d0-d4,(a0)` stores the four coordinates exactly as pushed, so
+    // a backwards rectangle is stored backwards and contains nothing
     const { out } = run(['Reserve Check 1', 'Set Check 1,50,50 To 10,10', 'Print Check(1 To 1,20,20)'].join('\n'))
-    expect(out).toBe(' 1\n')
+    expect(out).toBe(' 0\n')
+  })
+
+  it('X Icon, Y Icon and Planes Icon raise where they used to answer zero', () => {
+    // routines 87-89: `Rble routine 62` for a number at or below zero,
+    // routine 130 ($24, Bank not reserved) for no icon bank, routine 131
+    // ($4a, Icon not defined) for a number past the count
+    expect(() => run('Print X Icon(1)')).toThrow(/Bank not reserved/)
+    const grab = 'Ink 3 : Bar 0,0 To 31,7 : Get Icon 1,0,0 To 32,8'
+    // 32 pixels is two words, eight lines, and the default screen's depth
+    expect(run([grab, 'Print X Icon(1);Y Icon(1);Planes Icon(1)'].join('\n')).out).toBe(' 2 8 4\n')
+    expect(() => run([grab, 'Print X Icon(2)'].join('\n'))).toThrow(/Icon not defined/)
+    expect(() => run([grab, 'Print X Icon(0)'].join('\n'))).toThrow(/Illegal function call/)
   })
 })
 
