@@ -723,6 +723,41 @@ describe('LDos buffers and checksums (LdosV25.DOC)', () => {
     expect(out).toBe('AB3Z-Q\nab3z-q\n')
   })
 
+  it('DEFECT: Llobuffer’s bounds are one out at both ends, where Lupbuffer’s are exact', () => {
+    // routine 45 ($1c72) tests `bls #$3f` and `bcc #$5c`, which pass $40..$5b
+    // — "@" and "[" either side of A-Z. Routine 44's `bls #$60` / `bcc #$7b`
+    // are exactly a-z, which is what makes this a slip and not a convention
+    const { out } = run(
+      [
+        'Reserve As Work 10,64',
+        'Lbstr "@AZ[",Start(10)',
+        'Llobuffer Start(10) To Start(10)+3',
+        'Print Lstr(Start(10) To Start(10)+4)',
+        'Lbstr "`az{",Start(10)',
+        'Lupbuffer Start(10) To Start(10)+4',
+        'Print Lstr(Start(10) To Start(10)+4)',
+      ].join('\n'),
+    )
+    expect(out).toBe('`az{\n`AZ{\n')
+  })
+
+  it('Llobuffer includes STOP and Lupbuffer excludes it', () => {
+    // one instruction apart: routine 44 increments before the end test,
+    // routine 45 after it
+    const { out } = run(
+      [
+        'Reserve As Work 10,64',
+        'Lbstr "AAA",Start(10)',
+        'Llobuffer Start(10) To Start(10)+2',
+        'Print Lstr(Start(10) To Start(10)+3)',
+        'Lbstr "aaa",Start(10)',
+        'Lupbuffer Start(10) To Start(10)+2',
+        'Print Lstr(Start(10) To Start(10)+3)',
+      ].join('\n'),
+    )
+    expect(out).toBe('aaa\nAAa\n')
+  })
+
   it('Llargest Free reports a single-block figure, not the total', () => {
     // "This value is NOT the same as the AMOS commands Fast Free and Chip
     // Free, they return total unallocated memory-size, not the largest size
@@ -825,12 +860,20 @@ describe('LDos environment variables and fonts (LdosV25.DOC)', () => {
     expect(out).toBe('-1\ned\n[]\n-1\n 0\n[]\n')
   })
 
-  it('rejects names and values over the documented 50 characters', () => {
-    // "must not exceed 50 characters" for both
+  it('the manual’s 50-character limit is advice, not a check', () => {
+    // "must not exceed 50 characters" for both — but routine 64 ($24da) only
+    // measures the value's length to pass it to SetVar and counts to nothing
     const { out } = run(
       ['Print Lset Var(String$("n",51),"v")', 'Print Lset Var("ok",String$("v",51))', 'Print Lset Var("ok",String$("v",50))'].join('\n'),
     )
-    expect(out).toBe(' 0\n 0\n-1\n')
+    expect(out).toBe('-1\n-1\n-1\n')
+  })
+
+  it('Ldelete Var errors on an empty name where Lset Var does not', () => {
+    // `tst.w d0 / bne` then `moveq #$12` in routine 66 ($25dc); routine 64
+    // has no equivalent and hands its empty name straight to SetVar
+    expect(() => run('Print Ldelete Var("")')).toThrow(/empty argument/)
+    expect(run('Print Lset Var("","v")').out).toBe(' 0\n')
   })
 
   it('environment variables really are files in ENV:', () => {

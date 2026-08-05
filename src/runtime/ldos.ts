@@ -856,29 +856,68 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       rt.ldos.freqFiles = it.evalInt()
     },
+    /**
+     * Lupbuffer START To STOP — routine 44 ($1c34). "Just like AMOS Upper\$
+     * this routine won't handle national characters (due to AMOS isn't using
+     * a standard keymap). Only A-Z and a-z are processed."
+     *
+     *     movea.l a1, a2 / suba.l a0, a2 / bpl .ok
+     *     moveq  #$8, d0 / Rbra 91         error 8, as the other ranges
+     *  .ok: move.b -(a0), d5
+     *  .loop: move.b (a0)+, d5             advance FIRST...
+     *     cmpa.l a0, a1 / beq .end         ...then test for the end
+     *     cmpi.b #$60, (a0) / bls .loop
+     *     cmpi.b #$7b, (a0) / bcc .loop
+     *     subi.b #$20, (a0) / bra .loop
+     *
+     * The bounds are exact: `bls #$60` passes $61 and up, `bcc #$7b` passes
+     * $7a and down, so the range really is a-z. Llobuffer's are not.
+     *
+     * STOP is EXCLUSIVE here, and INCLUSIVE in Llobuffer below. The two
+     * routines are otherwise the same loop; the difference is one
+     * instruction's position -- Lupbuffer increments before the end test and
+     * Llobuffer after it -- and it means `Lupbuffer a To b` covers a..b-1
+     * where `Llobuffer a To b` covers a..b. The manual describes them in one
+     * shared sentence and cannot distinguish them.
+     */
     lupbuffer(it) {
-      // Lupbuffer START To STOP — "Just like AMOS Upper$ this routine won't
-      // handle national characters (due to AMOS isn't using a standard
-      // keymap). Only A-Z and a-z are processed."
       const start = it.evalInt()
       it.expect('to')
-      const r = region(rt, start, it.evalInt())
+      const stop = it.evalInt()
+      if (stop < start) throw new AmosError('Start is greater than max limit!')
+      const r = region(rt, start, stop)
       if (!r) return
       for (let i = r.from; i < r.to; i++) {
         const b = r.data[i]!
         if (b >= 0x61 && b <= 0x7a) r.data[i] = b - 32
       }
     },
+    /**
+     * Llobuffer START To STOP — routine 45 ($1c72). The manual calls it
+     * "Llowbuffer"; the token table says Llobuffer, and the table is what a
+     * program is written against.
+     *
+     *     cmpi.b #$3f, (a0) / bls .loop
+     *     cmpi.b #$5c, (a0) / bcc .loop
+     *     addi.b #$20, (a0)
+     *
+     * DEFECT: those bounds are one out at BOTH ends. `bls #$3f` passes $40
+     * and up where A is $41, and `bcc #$5c` passes $5b and down where Z is
+     * $5a -- so `@` becomes a backtick and `[` becomes `{`, and the manual's
+     * "Only A-Z and a-z are processed" is untrue of this half of the pair.
+     * Lupbuffer's equivalents are exact, which is what makes it a slip rather
+     * than a convention. Reproduced.
+     */
     llobuffer(it) {
-      // The manual calls this "Llowbuffer"; the token table says Llobuffer,
-      // and the table is what a program is written against.
       const start = it.evalInt()
       it.expect('to')
-      const r = region(rt, start, it.evalInt())
+      const stop = it.evalInt()
+      if (stop < start) throw new AmosError('Start is greater than max limit!')
+      const r = region(rt, start, stop + 1) // ...and here STOP is inclusive
       if (!r) return
       for (let i = r.from; i < r.to; i++) {
         const b = r.data[i]!
-        if (b >= 0x41 && b <= 0x5a) r.data[i] = b + 32
+        if (b >= 0x40 && b <= 0x5b) r.data[i] = b + 32
       }
     },
   }
@@ -1480,18 +1519,35 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       // update this field"
       return VI(rt.ldos.freqFontSize)
     },
+    /**
+     * T=Lset Var("Name","VALUE") — routine 64 ($24da). "This function will
+     * return true if successful. Name of the variable is not case-sensitive."
+     *
+     *     tst.w $2fa(...) / beq -> error 15        dos.library 37+
+     *     movea.l (a3)+, a0 / movea.l (a3)+, a1    VALUE, then NAME
+     *     ...copy the name to the scratch buffer...
+     *     moveq #$0, d3 / move.w (a0)+, d3         the value's LENGTH
+     *     move.l #$100, d4                         GVF_GLOBAL_ONLY
+     *     move.l a0, d2 / jsr -$384(a6)            SetVar
+     *
+     * A global environment variable on the Amiga is a FILE in ENV:, which is
+     * what SetVar with GVF_GLOBAL_ONLY writes -- so that is where these go.
+     * Dir "ENV:" lists them and the browser's file panel shows them, exactly
+     * as on the real machine.
+     *
+     * NOTE: the manual's "must not exceed 50 characters" for both name and
+     * value is advice, not a check. Routine 64 measures the value's length
+     * and hands both straight to SetVar, whose own limits apply; nothing in
+     * the routine counts to fifty. This port used to reject at 50 and now
+     * does not.
+     */
     'lset var'(_, a) {
-      // T=Lset Var("Name","VALUE") — 'Name' at most 50 characters, 'VALUE'
-      // likewise, "This function will return true if successful. Name of the
-      // variable is not case-sensitive."
-      //
-      // A global environment variable on the Amiga is a FILE in ENV:, which
-      // is what SetVar with GVF_GLOBAL_ONLY writes — so that is where these
-      // go. Dir "ENV:" lists them and the browser's file panel shows them,
-      // exactly as on the real machine.
       const name = str(a[0] ?? VS(''))
       const value = str(a[1] ?? VS(''))
-      if (name === '' || name.length > 50 || value.length > 50 || /[:/]/.test(name)) return VI(0)
+      // DEVIATION: a name with a path separator in it would make a
+      // subdirectory of ENV: on the real machine; here it is refused, because
+      // the alternative is writing outside the variable namespace
+      if (name === '' || /[:/]/.test(name)) return VI(0)
       return VI(rt.vfs?.writeFile('ENV:' + name, latin1(value)) ? -1 : 0)
     },
     'lrun'(_, a) {
@@ -1571,11 +1627,23 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       const bytes = rt.vfs?.readFile('ENV:' + name)
       return VS(bytes ? String.fromCharCode(...bytes) : '')
     },
+    /**
+     * T=Ldelete Var("Name") — routine 66 ($25dc). "T will be true if a
+     * variable with the name 'Name' was found and removed. If T is zero the
+     * variable didn't exist."
+     *
+     *     tst.w $2fa(...) / beq -> error 15
+     *     move.w (a0)+, d0 / tst.w d0 / bne .named
+     *     moveq #$12, d0 / Rbra 91                 error 18
+     *  .named: ...copy... / move.l #$100, d2 / jsr -$390(a6)   DeleteVar
+     *
+     * An empty name is an ERROR here where Lset Var simply hands its empty
+     * name to SetVar -- the pair are not symmetrical.
+     */
     'ldelete var'(_, a) {
-      // T=Ldelete Var("Name") — "T will be true if a variable with the name
-      // 'Name' was found and removed. If T is zero the variable didn't exist."
       const name = str(a[0] ?? VS(''))
-      if (name === '' || /[:/]/.test(name)) return VI(0)
+      if (name === '') throw new AmosError('You can not call with an empty argument!')
+      if (/[:/]/.test(name)) return VI(0)
       return VI(rt.vfs?.deleteFile('ENV:' + name) ? -1 : 0)
     },
     /**
@@ -1749,16 +1817,37 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       // may differ from the actual filesize)". A PP20 file records its
       // decrunched length in the top 24 bits of its final longword, which is
       // why the exact end matters rather than the bank's.
+      //
+      // Routine 40 ($1aec) is nine instructions and does no checking at all:
+      // `subq.l #$4,d0 / movea.l d0,a0 / move.l (a0),d0 /
+      //  andi.l #$ffffff00,d0 / asr.l #$8,d0`. The shift is ARITHMETIC, so a
+      // trailer whose top bit is set answers a NEGATIVE size rather than a
+      // large one -- which cannot arise from a real PP20 file, whose length
+      // fits in 24 bits, but does from arbitrary data, and the manual's "It
+      // does no validity checking" is exactly that.
       const end = int(a[0] ?? VI(0))
       const m = rt.resolveAddr(end - 4)
       if (!m || m.data.length - m.off < 4) return VI(0)
       const v = new DataView(m.data.buffer, m.data.byteOffset + m.off, 4)
-      return VI(v.getUint32(0, false) >>> 8)
+      return VI(v.getInt32(0, false) >> 8)
     },
+    /**
+     * CHK=Lchk Data(ADR) — routine 67 ($2634), 36 bytes. "ADR points to a
+     * buffer containing the datablock (512 bytes)". The manual gives no
+     * algorithm; the routine is the whole specification:
+     *
+     *     move.l (a0)+, d3 / add.l (a0)+, d3 ... four more   longs 0..4
+     *     move.l (a0)+, d2                                   long 5, SKIPPED
+     *     move.l #$79, d0
+     *  .loop: add.l (a0)+, d3 / dbra d0, .loop               longs 6..127
+     *     neg.l d3
+     *
+     * 5 + 1 + 122 = 128 longs, and the one held out is index 5 -- offset 20,
+     * where an AmigaDOS data block keeps its checksum. Plain two's-complement
+     * negation with no end-around carry, which is what separates it from
+     * Lchk Boot below.
+     */
     'lchk data'(_, a) {
-      // CHK=Lchk Data(ADR) — "ADR points to a buffer containing the datablock
-      // (512 bytes)". The manual gives no algorithm; this is the standard
-      // AmigaDOS block checksum, verified against real disks in the tests.
       const m = rt.resolveAddr(int(a[0] ?? VI(0)))
       if (!m || m.data.length - m.off < 512) return VI(0)
       const v = new DataView(m.data.buffer, m.data.byteOffset + m.off, 512)
@@ -1766,10 +1855,33 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       for (let i = 0; i < 128; i++) if (i !== 5) sum = (sum + v.getUint32(i * 4, false)) >>> 0
       return VI((-sum | 0))
     },
+    /**
+     * CHK=Lchk Boot(ADR) — routine 68 ($2658), 42 bytes. "the bootchecksum
+     * isn't calculated in the same way as the checksum of other blocks ...
+     * the bootblock actually consists of TWO blocks ... and ADR should thus
+     * point to the TWO first".
+     *
+     *     move.l #$100, d5 / subq.w #$3, d5        253, so 254 dbra passes
+     *     move.l (a1)+, d3                         long 0
+     *     move.l (a1)+, d0                         long 1, SKIPPED
+     *  .loop: add.l (a1)+, d3 / bcc .next
+     *     addi.l #$1, d3                           the end-around carry
+     *  .next: dbra d5, .loop
+     *     neg.l d3 / beq .done
+     *     subq.l #$1, d3                           ...making it NOT
+     *  .done:
+     *
+     * 1 + 1 + 254 = 256 longs, the two blocks, and the one held out is index
+     * 1 -- offset 4, the bootblock's own checksum. `neg` then `subq #1` is
+     * one's complement, which is what a bootblock checksum is.
+     *
+     * DEFECT: the `beq` skips the decrement, so a block whose other 255 longs
+     * sum to exactly zero answers 0 where the complement rule says -1. It is
+     * a special case with nothing behind it -- the negation happens to be
+     * zero, not the checksum -- and Lchk Data has no equivalent because it
+     * never decrements. Reproduced.
+     */
     'lchk boot'(_, a) {
-      // CHK=Lchk Boot(ADR) — "the bootchecksum isn't calculated in the same
-      // way as the checksum of other blocks ... the bootblock actually
-      // consists of TWO blocks ... and ADR should thus point to the TWO first"
       const m = rt.resolveAddr(int(a[0] ?? VI(0)))
       if (!m || m.data.length - m.off < 1024) return VI(0)
       const v = new DataView(m.data.buffer, m.data.byteOffset + m.off, 1024)
@@ -1779,7 +1891,8 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
         sum += v.getUint32(i * 4, false)
         if (sum > 0xffffffff) sum = (sum + 1) >>> 0 // end-around carry
       }
-      return VI(~sum | 0)
+      const neg = -sum | 0
+      return VI(neg === 0 ? 0 : neg - 1) // `neg.l / beq / subq.l #$1`
     },
     /**
      * Lold and Lcreate — routines 7 ($1014) and 8 ($101a), three instructions
