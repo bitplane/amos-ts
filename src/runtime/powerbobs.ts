@@ -95,6 +95,14 @@ export interface Pbob {
   planeMask: number
   /** $28 — `AllocMem(maxHeight * 36, CHIP)`, six bytes a line per bitplane */
   save: Uint8Array
+  /**
+   * $a — the left clip limit, and it is NEGATIVE: `moveq #$f0` sign-extends
+   * to -16 for a one-word image and `moveq #$e0` to -32 for a two-word one.
+   * A Pbob at an x at or left of it is entirely off the screen.
+   */
+  leftLimit: number
+  /** $24 — which icon table entry the last Pbob call resolved to, or -1 */
+  iconEntry: number
 }
 
 /** The extension data block at `$1b8(a5)`, as far as this slice reads it. */
@@ -111,6 +119,24 @@ export interface PowerBobsState {
   dbuf: number
   /** $1ba — Set Fastpbob Mode, the global "never save the background" switch */
   fastMode: boolean
+  /**
+   * $12 and $14 — the buffer selectors, and they are SEPARATE.
+   *
+   * Each is 0 or 4, added to a Pbob's table index so it lands on the normal
+   * structure or the double-buffered one. Pbob Draw adds $12, Pbob Clear
+   * adds $14, and Pswap Clear flips only the second with `eori.w #$4,$14`.
+   * Two selectors rather than one is what lets a program clear the buffer it
+   * is about to leave while drawing into the one it is about to show.
+   */
+  drawSel: number
+  clearSel: number
+  /** $18 / $1a — the range the last Pbob Draw was given, kept for its loop */
+  drawLo: number
+  drawHi: number
+  /** $1b9, and the $1c/$1e pair Pdraw 25fps loads with 2 when it is on */
+  fps25: boolean
+  fps25a: number
+  fps25b: number
 }
 
 export const newPowerBobsState = (): PowerBobsState => ({
@@ -119,6 +145,13 @@ export const newPowerBobsState = (): PowerBobsState => ({
   count: 0,
   dbuf: 0,
   fastMode: false,
+  drawSel: 0,
+  clearSel: 0,
+  drawLo: 0,
+  drawHi: 0,
+  fps25: false,
+  fps25a: 0,
+  fps25b: 0,
 })
 
 /** Routine 125: `moveq #$17,d0` — AMOS 23. Every range check lands here. */
@@ -153,6 +186,8 @@ function newPbob(maxHeight: number): Pbob {
     replace: 0,
     planeMask: 0xff, // move.b d0,$1f(a0)
     save: new Uint8Array(maxHeight * SAVE_BYTES_PER_LINE),
+    leftLimit: 0,
+    iconEntry: -1,
   }
 }
 
@@ -276,6 +311,158 @@ export function makePowerBobsInstructions(rt: Runtime): Record<string, Instr> {
      */
     'set fastpbob mode'(it) {
       st().fastMode = it.evalInt() !== 0
+    },
+
+    /**
+     * Pbob nr,x,y,image — routine 2 ($f64), 246 bytes, and the array form
+     * `Pbob ax,ay,ai,start To end` is routine 15 ($211a). Neither appears in
+     * extdis's --list, because both are unnamed alternate table entries under
+     * the `!pbob` primary.
+     *
+     * It DEFINES rather than draws. Every field the blitter path will need is
+     * worked out here and stored, and Pbob Draw walks the table later; that
+     * split is the whole design, and it is why a Pbob survives a Screen Swap
+     * without being restated.
+     *
+     * Five checks, in the order the routine makes them:
+     *   no icon bank at all is routine 115's AMOS 36, "Bank not reserved"
+     *   image <= 0, number <= 0, number > count  --- error 23
+     *   image > the icon count (`cmp.w (a0),d7 / Rbhi`) --- error 23
+     *   an image WIDER THAN TWO WORDS --- `cmp.w #$2,d1 / Rbhi` --- error 23,
+     *     which is the doc's "the maximum width of the IMAGE is 32 pixels"
+     *   an image TALLER than this Pbob's maximum --- routine 112, which the
+     *     doc describes as a certain crash if the colours exceed the screen
+     *
+     * The clip test is four comparisons and it decides the flag at $12, not
+     * whether anything is stored: the fields are written either way, and the
+     * flag is what Pbob Draw tests. The left limit is NEGATIVE and comes from
+     * the width --- `moveq #$f0` sign-extends to -16 for a one-word image,
+     * `moveq #$e0` to -32 for a two-word one --- so a Pbob is off the left
+     * only once its whole width has passed the edge.
+     *
+     * With Pbob Dbuf on, every field is written to BOTH structures.
+     */
+    pbob(it) {
+      const nr = it.evalInt()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const image = it.evalInt()
+      const s = st()
+      const bank = rt.iconBank
+      // `moveq #$1,d0 / Rjsr <AMOS> / Rbeq routine 115` — AMOS 36
+      if (!bank) throw new AmosError('Bank not reserved', 36)
+      if (image <= 0) funcCall() // the LAST argument is popped first
+      if (nr <= 0) funcCall()
+      if (nr > s.count) funcCall()
+      if (image > bank.images.length) funcCall() // cmp.w (a0),d7 / Rbhi
+      const img = bank.image(image)
+      if (!img) funcCall()
+      const widthWords = Math.ceil(img!.width / 16)
+      if (widthWords > 2) funcCall() // cmp.w #$2,d1 / Rbhi — 32 pixels
+      const b = s.bobs[nr - 1]
+      if (!b) funcCall() // move.l (a1,d4.w),d2 / Rbeq routine 111
+      const height = img!.height
+      if (height > b!.maxHeight) throw new AmosError('Illegal function call', 23)
+      const leftLimit = widthWords === 2 ? -32 : -16
+      // the four clip tests, at $fce-$fe4, against the CURRENT screen
+      const scr = rt.screen
+      const off = x <= leftLimit || y + height <= 0 || x >= scr.width || y >= scr.height
+      const write = (t: Pbob): void => {
+        t.f12 = off ? 0xff00 | (t.f12 & 0xff) : t.f12 & 0xff // st.b/sf.b $12
+        t.x = x & 0xffff
+        t.y = y & 0xffff
+        t.f8 = height & 0xffff
+        t.leftLimit = leftLimit
+        t.image8 = (image << 3) & 0xffff
+        t.iconEntry = image
+      }
+      write(b!)
+      if (s.dbuf !== 0 && s.bobsDbuf[nr - 1]) write(s.bobsDbuf[nr - 1]!)
+    },
+
+    /**
+     * Pbob Off — routines 3 ($105a), 4 ($108a) and 21 ($25fe), three forms of
+     * one keyword and 48 to 80 bytes each.
+     *
+     * All three do the same single thing: `st.b $12(a1)`, the off-screen flag
+     * Pbob's clip test writes, so a Pbob turned off is one Pbob Draw steps
+     * over. Nothing is freed and no position is lost --- the doc's "Does the
+     * same thing as the Amos Bob Off NR command".
+     *
+     * The bare form refuses outright when nothing is reserved (`move.w
+     * $c(a2),d7 / Rble routine 125`), and the range form checks both ends
+     * against the count and then `sub.w d5,d6 / Rbmi` for a reversed pair.
+     *
+     * DEVIATION: like X Pbob, none of the three tests the structure pointer
+     * before writing through it, so on the real machine `Pbob Off` over a
+     * reserved-but-undefined Pbob writes a byte to address $12. Skipped here.
+     */
+    'pbob off'(it) {
+      const s = st()
+      const kill = (n: number): void => {
+        const b = s.bobs[n - 1]
+        if (b) b.f12 = 0xff00 | (b.f12 & 0xff)
+        if (s.dbuf !== 0) {
+          const d = s.bobsDbuf[n - 1]
+          if (d) d.f12 = 0xff00 | (d.f12 & 0xff)
+        }
+      }
+      if (it.atStmtEnd()) {
+        if (s.count <= 0) funcCall() // routine 3: Rble
+        for (let n = 1; n <= s.count; n++) kill(n)
+        return
+      }
+      const first = it.evalInt()
+      if (!it.accept('to')) {
+        if (first <= 0) funcCall() // routine 4
+        if (first > s.count) funcCall()
+        kill(first)
+        return
+      }
+      const last = it.evalInt() // routine 21
+      if (s.count <= 0) funcCall()
+      if (last <= 0 || first <= 0) funcCall()
+      if (last > s.count || first > s.count) funcCall()
+      if (last - first < 0) funcCall() // sub.w d5,d6 / Rbmi
+      for (let n = first; n <= last; n++) kill(n)
+    },
+
+    /**
+     * Pdraw 25fps flag — routine 38 ($33da), 36 bytes.
+     *
+     * True sets the byte at $1b9 and loads TWO with 2, at $1c and $1e; false
+     * clears the byte and both words with one `clr.l $1c(a2)`. The doc gives
+     * the reason rather than the mechanism: "In ProjectX and Alien Breed and
+     * quite a lot of other games, the main Sprite etc., is updated at 50
+     * frames per second, but the Bobs are only updated at 25". It is reset to
+     * 50fps every time a program runs, and it does not affect Pbob Update.
+     */
+    'pdraw 25fps'(it) {
+      const s = st()
+      if (it.evalInt() !== 0) {
+        s.fps25 = true
+        s.fps25a = 2
+        s.fps25b = 2
+      } else {
+        s.fps25 = false
+        s.fps25a = 0
+        s.fps25b = 0
+      }
+    },
+
+    /**
+     * Pswap Clear — routine 39 ($33fe), TWELVE bytes: `eori.w #$4,$14(a2)`.
+     *
+     * Flips the buffer the next Pbob Clear will restore from, and only that
+     * one --- Pbob Draw reads its own selector at $12. Two independent
+     * selectors are what let a double-buffered program clear the buffer it is
+     * leaving while drawing into the one it is about to show.
+     */
+    'pswap clear'() {
+      st().clearSel ^= 4
     },
 
     /**

@@ -4,6 +4,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
+import { BankImage, ObjectBank } from './objects'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 13 — where the doc puts it: "Uses extension slot 13." */
@@ -202,5 +203,146 @@ describe('PowerBobs: X Pbob, Y Pbob, I Pbob (routines 13, 14, 5)', () => {
     // Height reads addresses $0/$2/$1c -- the 68000 exception vectors.
     expect(val('Reserve Pbobs 2 : Print X Pbob(1)')).toBe(0)
     expect(val('Reserve Pbobs 2 : Print I Pbob(2)')).toBe(0)
+  })
+})
+
+/** an icon bank of n images, `w` pixels wide and `h` tall, colour i each */
+function icons(n: number, w = 16, h = 4): ObjectBank {
+  const b = new ObjectBank()
+  b.images = []
+  for (let i = 1; i <= n; i++) {
+    const img = new BankImage(w, h, 8, 0, 0)
+    img.pixelsW()[0] = i
+    img.flush()
+    b.images.push(img)
+  }
+  return b
+}
+
+/** the same runner, with a screen open and an icon bank in place */
+function draw(src: string, opts: { n?: number; w?: number; h?: number } = {}): Runtime {
+  const exts = new Map([[13, pb.table]])
+  printed = ''
+  const prog = ['Screen Open 0,320,200,8,Lowres', 'Cls 0', ...src.split('\n')].join('\n')
+  const rt = new Runtime(tokenize(prog, table, exts), table, {
+    extensions: exts,
+    extBindings: new Map([[13, pb]]),
+    maxSteps: 200_000,
+    onText: (t) => (printed += t),
+  })
+  rt.iconBank = icons(opts.n ?? 8, opts.w ?? 16, opts.h ?? 4)
+  const r = rt.runHeadless(500)
+  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  return rt
+}
+
+describe('PowerBobs: Pbob defines, it does not draw (routine 2, $f64)', () => {
+  it('stores the position, the height and the image times eight', () => {
+    const rt = draw('Reserve Pbobs 2\nPbob Height 1,16\nPbob 1,30,40,3')
+    const b = rt.powerbobs.bobs[0]!
+    expect([b.x, b.y]).toEqual([30, 40])
+    expect(b.f8).toBe(4) // the IMAGE height, over the max height of 16
+    expect(b.image8).toBe(3 * 8)
+  })
+
+  it('X Pbob and I Pbob read back what Pbob stored', () => {
+    const ask = (f: string): number => {
+      draw(`Reserve Pbobs 1\nPbob Height 1,8\nPbob 1,12,34,2\nPrint ${f}(1)`)
+      return Number(printed.trim())
+    }
+    expect([ask('X Pbob'), ask('Y Pbob'), ask('I Pbob')]).toEqual([12, 34, 2])
+  })
+
+  it('refuses an image wider than two words — the 32-pixel rule', () => {
+    // `cmp.w #$2,d1 / Rbhi routine 125`, and the doc says the same
+    expect(() => draw('Reserve Pbobs 1\nPbob Height 1,8\nPbob 1,0,0,1', { w: 32 })).not.toThrow()
+    expect(() => draw('Reserve Pbobs 1\nPbob Height 1,8\nPbob 1,0,0,1', { w: 48 })).toThrow(
+      /Illegal function call/,
+    )
+  })
+
+  it('refuses an image taller than the Pbob Height it was given', () => {
+    expect(() => draw('Reserve Pbobs 1\nPbob Height 1,4\nPbob 1,0,0,1', { h: 4 })).not.toThrow()
+    expect(() => draw('Reserve Pbobs 1\nPbob Height 1,4\nPbob 1,0,0,1', { h: 5 })).toThrow(
+      /Illegal function call/,
+    )
+  })
+
+  it('refuses an image number past the bank, and a Pbob with no height', () => {
+    expect(() => draw('Reserve Pbobs 1\nPbob Height 1,8\nPbob 1,0,0,9', { n: 8 })).toThrow(
+      /Illegal function call/,
+    )
+    expect(() => draw('Reserve Pbobs 2\nPbob 1,0,0,1')).toThrow(/Illegal function call/)
+  })
+
+  it('no icon bank at all is AMOS 36, not one of the range errors', () => {
+    // `Rjsr <AMOS> / Rbeq routine 115` and routine 115 is `moveq #$24,d0`
+    const exts = new Map([[13, pb.table]])
+    const rt = new Runtime(tokenize('Reserve Pbobs 1 : Pbob Height 1,8 : Pbob 1,0,0,1', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[13, pb]]),
+      maxSteps: 200_000,
+    })
+    expect(() => rt.runHeadless(500)).toThrow(/Bank not reserved/)
+  })
+
+  it('the clip flag is set for a Pbob off any edge, and the fields still land', () => {
+    // the left limit is NEGATIVE and comes from the width: -16 for one word
+    const on = draw('Reserve Pbobs 1\nPbob Height 1,8\nPbob 1,-15,0,1')
+    expect(on.powerbobs.bobs[0]!.f12 & 0xff00).toBe(0) // still on screen
+    const off = draw('Reserve Pbobs 1\nPbob Height 1,8\nPbob 1,-16,0,1')
+    expect(off.powerbobs.bobs[0]!.f12 & 0xff00).toBe(0xff00)
+    expect(off.powerbobs.bobs[0]!.x).toBe(0xffff & -16) // written anyway
+    const right = draw('Reserve Pbobs 1\nPbob Height 1,8\nPbob 1,320,0,1')
+    expect(right.powerbobs.bobs[0]!.f12 & 0xff00).toBe(0xff00)
+    const below = draw('Reserve Pbobs 1\nPbob Height 1,8\nPbob 1,0,200,1')
+    expect(below.powerbobs.bobs[0]!.f12 & 0xff00).toBe(0xff00)
+  })
+
+  it('a 32-pixel image gets a left limit of -32, so it clips later', () => {
+    const at31 = draw('Reserve Pbobs 1\nPbob Height 1,8\nPbob 1,-31,0,1', { w: 32 })
+    expect(at31.powerbobs.bobs[0]!.leftLimit).toBe(-32)
+    expect(at31.powerbobs.bobs[0]!.f12 & 0xff00).toBe(0)
+  })
+})
+
+describe('PowerBobs: Pbob Off, Pdraw 25fps, Pswap Clear (routines 3/4/21, 38, 39)', () => {
+  const setup = 'Reserve Pbobs 4\nPbob Height 1,8\nPbob Height 2,8\nPbob Height 3,8\nPbob Height 4,8'
+  const lit = (rt: Runtime, n: number): boolean => (rt.powerbobs.bobs[n - 1]!.f12 & 0xff00) !== 0
+
+  it('the bare form turns every Pbob off', () => {
+    const rt = draw(`${setup}\nPbob 1,0,0,1\nPbob 2,0,0,1\nPbob Off`)
+    expect([lit(rt, 1), lit(rt, 2)]).toEqual([true, true])
+  })
+
+  it('the numbered form turns off just that one', () => {
+    const rt = draw(`${setup}\nPbob 1,0,0,1\nPbob 2,0,0,1\nPbob Off 1`)
+    expect([lit(rt, 1), lit(rt, 2)]).toEqual([true, false])
+  })
+
+  it('the range form turns off an inclusive span', () => {
+    const rt = draw(`${setup}\nPbob 1,0,0,1\nPbob 2,0,0,1\nPbob 3,0,0,1\nPbob 4,0,0,1\nPbob Off 2 To 3`)
+    expect([lit(rt, 1), lit(rt, 2), lit(rt, 3), lit(rt, 4)]).toEqual([false, true, true, false])
+  })
+
+  it('a reversed range is an error, and so is one past the count', () => {
+    expect(() => draw(`${setup}\nPbob Off 3 To 2`)).toThrow(/Illegal function call/)
+    expect(() => draw(`${setup}\nPbob Off 1 To 9`)).toThrow(/Illegal function call/)
+    expect(() => draw('Pbob Off')).toThrow(/Illegal function call/) // nothing reserved
+  })
+
+  it('Pdraw 25fps loads the pair, and False clears both with one long', () => {
+    const on = draw('Pdraw 25fps True')
+    expect([on.powerbobs.fps25, on.powerbobs.fps25a, on.powerbobs.fps25b]).toEqual([true, 2, 2])
+    const off = draw('Pdraw 25fps True\nPdraw 25fps False')
+    expect([off.powerbobs.fps25, off.powerbobs.fps25a, off.powerbobs.fps25b]).toEqual([false, 0, 0])
+  })
+
+  it('Pswap Clear flips the CLEAR selector and leaves the draw one alone', () => {
+    // `eori.w #$4,$14(a2)` -- Pbob Draw reads $12, Pbob Clear reads $14
+    const one = draw('Pswap Clear')
+    expect([one.powerbobs.clearSel, one.powerbobs.drawSel]).toEqual([4, 0])
+    const two = draw('Pswap Clear\nPswap Clear')
+    expect([two.powerbobs.clearSel, two.powerbobs.drawSel]).toEqual([0, 0])
   })
 })
