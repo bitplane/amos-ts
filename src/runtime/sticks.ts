@@ -120,17 +120,30 @@ export function makeSticksInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   return {
+    /**
+     * Mouse X n,v and Mouse Y n,v — routines 22 ($b16) and 23 ($b46), 48 bytes
+     * each and the same shape:
+     *
+     *     movea.l $1f8(a5), a0       the extension's data block
+     *     move.l  (a3)+, d1          popped in reverse: the VALUE first
+     *     move.l  (a3)+, d0          ...then the mouse number
+     *     cmp.w   #$0, d0 / blt -> error
+     *     cmp.w   #$1, d0 / bgt -> error
+     *     move.w  d1, $e(a0)         mouse 0   ($16 for mouse 1)
+     *
+     * so the position is a WORD per mouse per axis, and the pair are setters
+     * despite reading like the core's `X Mouse`. The manual's own BUGS entry
+     * corrects an earlier edition on exactly that: "instead of 'Mouse X =
+     * value' (as stated) use 'Mouse X Mouse Number,value'", which is the form
+     * the token spec has.
+     */
     'mouse x'(it) {
-      // Mouse X n,v — routine 22 ($b16). The manual's own BUGS entry corrects
-      // an earlier edition: "instead of 'Mouse X = value' (as stated) use
-      // 'Mouse X Mouse Number,value'", which is the form the token spec has.
       const n = port(it.evalInt())
       it.expect(',')
       const v = it.evalInt()
       setPos(rt.sticks.mice[n]!, v, null)
     },
     'mouse y'(it) {
-      // Mouse Y n,v — routine 23 ($b46), the same shape writing +$e / +$16
       const n = port(it.evalInt())
       it.expect(',')
       const v = it.evalInt()
@@ -220,6 +233,30 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
       port(int(a[0]!))
       return VI(0)
     },
+    /**
+     * =Stick Left / Right / Up / Down(jport) — routines 12 ($7ee), 13 ($826),
+     * 14 ($85e) and 15 ($896), 56 bytes each and identical but for one bit
+     * number. Up is the whole shape:
+     *
+     *     move.l (a3)+, d1
+     *     cmp.w  #$0, d1 / blt  -> the error tail at $de6
+     *     cmp.w  #$1, d1 / bgt  -> the same
+     *     cmp.w  #$1, d1 / beq  .one
+     *     btst.b #$0, $bfe101.l      port 0
+     *     bne.b  .out
+     *     moveq  #$ff, d3            clear means PRESSED
+     *  .one: btst.b #$4, $bfe101.l   port 1
+     *
+     * so port 0 takes bits 0..3 of CIA-A PRB and port 1 bits 4..7, active low.
+     * That is the same register and the same split AMCAF's Pjup reads through
+     * its own routine 14 — two extensions by different authors, read
+     * independently, agreeing bit for bit. The range check is `cmp.w` on a long
+     * that was popped whole, so only the low word is examined.
+     *
+     * NOTE: nothing drives the parallel port here, and an unused one floats
+     * high, which is "not pressed" on every line. Answering 0 is what the
+     * hardware would give, not a stand-in for it.
+     */
     'stick up'(_, a): Value {
       port(int(a[0]!))
       return VI(0)
@@ -251,16 +288,33 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
       port(int(a[0]!))
       return VI(0)
     },
+    /**
+     * =Stick X / Stick Y(jport) — routines 7 ($4f8) and 8 ($520), and they are
+     * not joystick reads at all. Both compute the register the same way:
+     *
+     *     movea.l #$dff000, a0
+     *     move.l  (a3)+, d0
+     *     andi.l  #$1, d0            the port, MASKED and not range-checked
+     *     asl.l   #$1, d0
+     *     addi.l  #$12, d0           $dff012 POT0DAT, $dff014 POT1DAT
+     *     move.w  (a0, d0.w), d3
+     *
+     * and then Stick X keeps the low byte (`andi.l #$ff`) while Stick Y shifts
+     * first (`asr.l #$8`). One paddle register holds both axes, X in the low
+     * byte and Y in the high, so these are ANALOGUE paddle positions rather
+     * than the digital directions Stick Up and friends read off CIA-A PRB.
+     *
+     * The masking is worth noting because it is the exception: every other
+     * keyword here range-checks its port and errors, and these two silently
+     * take `jport AND 1`.
+     *
+     * NOTE: no paddles, so no counts. Both read 0.
+     */
     'stick x'(_, a): Value {
-      // =Stick X(jport) — routine 7 ($4f8): POT0DAT or POT1DAT, low byte.
-      // The register pair is `$12 + (jport AND 1) * 2`, so the port argument is
-      // masked here rather than range-checked, unlike everywhere else.
       void int(a[0]!)
       return VI(0)
     },
     'stick y'(_, a): Value {
-      // =Stick Y(jport) — routine 8 ($520): the SAME register as Stick X, with
-      // `asr.l #$8` taking the high byte. One paddle register holds both axes.
       void int(a[0]!)
       return VI(0)
     },

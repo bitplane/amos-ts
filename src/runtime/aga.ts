@@ -207,10 +207,16 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       st.current = n
       rt.currentIndex = n
     },
+    /**
+     * Aga Screen Close n — routine 22 ($1540), 28 bytes: look the screen up
+     * (routine 28), `cmp.w #$0,d0 / beq` to the error tail at routine 68 if it
+     * is not open, and otherwise routine 33 to close it.
+     *
+     * The doc's warning stands -- "if you close the top screen you will have to
+     * use AGA Front Screen to bring a new screen to the front" -- so nothing is
+     * promoted.
+     */
     'aga screen close'(it) {
-      // routine 22 ($1540): error 0 if it was not open. The doc's warning
-      // stands -- "if you close the top screen you will have to use AGA Front
-      // Screen to bring a new screen to the front" -- so nothing is promoted
       const n = it.evalInt()
       const st = rt.aga
       if (n < 0 || n > 7 || st.screens[n]! < 0) agaErr(0)
@@ -218,9 +224,25 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       st.screens[n] = -1
       if (st.current === n) st.current = -1
     },
+    /**
+     * Aga Screen n — routine 23 ($155c), the focus, so "all future drawing
+     * operations will be carried out on this screen". It does NOT bring it to
+     * the front.
+     *
+     *     move.l  (a3)+, d1
+     *     movea.l $228(a5), a2 / adda.w #$96, a2     the screen pointer table
+     *     move.l  d1, d0 / asl.w #$2, d0
+     *     movea.l (a2, d0.l), a2
+     *     tst.l   a2 / beq -> routine 68             only a NULL check
+     *     move.l  a2, $8a(a1)                        the current screen
+     *
+     * DEVIATION: the index is scaled and used with no range check at all --
+     * only the pointer it lands on is tested -- so `Aga Screen 99` reads past
+     * the eight-entry table on the machine and `Aga Screen -1` reads before it.
+     * This port bounds it to 0..7 and raises the same error 0, for the reason
+     * Exchange Icon does: there is no table behind it to read off the end of.
+     */
     'aga screen'(it) {
-      // routine 23 ($155c): the focus, so "all future drawing operations will
-      // be carried out on this screen". It does NOT bring it to the front
       const n = it.evalInt()
       const st = rt.aga
       if (n < 0 || n > 7 || st.screens[n]! < 0) agaErr(0)
@@ -250,9 +272,18 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       // "If it goes over 255 it will wrap around again"
       rt.aga.rp.fgPen = it.evalInt() & 0xff
     },
+    /**
+     * Aga Clip n — routine 39 ($1ad2), twelve bytes and a byte store:
+     * `move.l (a3)+,d0 / movea.l $228(a5),a2 / move.b d0,$c4(a2)`.
+     *
+     * DEFECT: it is the LOW BYTE that lands in the flag, so `Aga Clip 256`
+     * turns clipping OFF rather than on -- the same truncation Aga Ink has and
+     * which the doc owns up to there ("If it goes over 255 it will wrap around
+     * again"), but nothing says it here. This port tested the whole value and
+     * so disagreed with the library on every multiple of 256.
+     */
     'aga clip'(it) {
-      // routine 39 ($1ad2), a byte flag and no validation
-      rt.aga.clip = it.evalInt() !== 0
+      rt.aga.clip = (it.evalInt() & 0xff) !== 0
     },
     'aga draw mode'(it) {
       // routine 35 ($19e2) = SetDrMd(rp, n). Jam1 0, Jam2 1, XOR 2, INVV 4
@@ -266,9 +297,12 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       const n = it.evalInt()
       rt.aga.spriteMode = n === 1 || n === 2 ? n : 0
     },
+    /**
+     * Aga Cls [ink] — routine 12 ($13e2), which is `SetRast(rp, ink)`. The
+     * optional argument is a second token entry at instruction 13; without it
+     * the current Aga Ink is used.
+     */
     'aga cls'(it) {
-      // routine 12 ($13e2) = SetRast(rp, ink). The optional argument is the
-      // second form at instr 13; without it the current Aga Ink is used
       const rp = focus()
       rp.setRast(it.atStmtEnd() ? rp.fgPen : it.evalInt() & 0xff)
     },
@@ -351,10 +385,12 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       // previous block was using" -- the original leaks; a Map just replaces
       rt.aga.blocks.set(n, { bm, mask })
     },
+    /**
+     * Aga Put Block n,x,y — routine 20 ($1490): x < 320 and y < 256 or error,
+     * the block must exist, and a masked block goes through
+     * BltMaskBitMapRastPort so colour 0 is transparent.
+     */
     'aga put block'(it) {
-      // routine 20 ($1490): x < 320 and y < 256 or error, the block must
-      // exist, and a masked block goes through BltMaskBitMapRastPort so
-      // colour 0 is transparent
       const n = it.evalInt()
       it.expect(',')
       const x = it.evalInt()
@@ -366,15 +402,18 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
       const rp = focus()
       bltBitMap(b.bm, 0, 0, rp.bitMap, x, y, b.bm.width, b.bm.height, b.mask ? 0 : -1)
     },
+    /** Aga Del Block n — routine 42 ($1c08): $ffff back from the lookup is error $a */
     'aga del block'(it) {
-      // routine 42 ($1c08): $ffff back from the lookup is error $a
       const n = it.evalInt()
       if (!rt.aga.blocks.delete(n)) agaErr(0xa)
     },
+    /**
+     * Aga Screen Copy src To dst — routine 3 ($10e8), which is
+     * BltBitMapRastPort. The five-argument form is a second token entry at
+     * instruction 4 and copies a clipped sub-rectangle; the whole-screen form
+     * hardcodes 320x256, minterm $c0 and mask $ff.
+     */
     'aga screen copy'(it) {
-      // routine 3 ($10e8) = BltBitMapRastPort, and the five-argument form at
-      // instr 4 is the clipped sub-rectangle. The whole-screen form hardcodes
-      // 320x256, minterm $c0, mask $ff
       const src = it.evalInt()
       let sx = 0
       let sy = 0
@@ -595,8 +634,13 @@ export function makeAgaFunctions(rt: Runtime): Record<string, Func> {
       const b = ((hi & 15) << 4) | (lo & 15)
       return VI(r * 65536 + g * 256 + b)
     },
+    /**
+     * =Aga Point(x,y) — routine 55 ($23f6), thirty-four bytes ending in
+     * `movea.l -$18ae(a5),a6 / jsr -$13e(a6)`: GfxBase and ReadPixel, against
+     * the current screen's RastPort at `$8a(a2)`. The arguments pop in reverse,
+     * so d1 is y and d0 is x.
+     */
     'aga point'(_, a): Value {
-      // routine 55 ($23f6) = ReadPixel(rp, x, y)
       const x = int(a[0]!)
       const y = int(a[1]!)
       const st = rt.aga

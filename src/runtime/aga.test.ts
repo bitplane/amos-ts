@@ -171,6 +171,19 @@ describe('the AGA state keywords', () => {
     expect(run(['Aga Screen Open 0', 'Aga Clip -1']).rt.aga.clip).toBe(true)
   })
 
+  /**
+   * It is `move.b` into the flag, so only the LOW BYTE reaches it. This port
+   * tested the whole value and therefore disagreed with the library on every
+   * multiple of 256 -- Aga Ink has the same truncation and the doc admits to it
+   * there ("If it goes over 255 it will wrap around again"), but says nothing
+   * about it here.
+   */
+  it('Aga Clip keeps only the low byte, so 256 turns clipping OFF', () => {
+    expect(run(['Aga Screen Open 0', 'Aga Clip 256']).rt.aga.clip).toBe(false)
+    expect(run(['Aga Screen Open 0', 'Aga Clip 512']).rt.aga.clip).toBe(false)
+    expect(run(['Aga Screen Open 0', 'Aga Clip 257']).rt.aga.clip).toBe(true)
+  })
+
   it('Aga Sprite Mode falls back to low res rather than erroring ($19fe)', () => {
     // the three cmp.w tests match 0, 1 and 2 and leave d3 at 0 otherwise, so
     // an out-of-range resolution is silently low res
