@@ -44,7 +44,21 @@ const SOURCES = readdirSync(RUNTIME_DIR).filter((f) => f.endsWith('.ts') && !f.e
 /** Every layer's answer, for the MISSING test below. */
 const answered = new Set([...Object.keys(makeAllInstructions(rt)), ...Object.keys(makeAllFunctions(rt))])
 
-const CITES = /\broutines?\s+\d{1,4}|\$[0-9a-fA-F]{3,6}\b|\+\|?[\w.]+\.s:\d+/
+/**
+ * The four ways this tree cites code: a jump-table routine, a raw address, a
+ * line of AMOS's own source, and a line of an extension's OWN shipped source.
+ *
+ * That last form matters more than it looks. JVP ships 27KB of commented
+ * assembler and its port cites it as `source:387`, which is the STRONGEST
+ * evidence tier there is -- and this tool called all six of those keywords
+ * unread, because the pattern only knew the other three. A measure that cannot
+ * see the best evidence in the tree reports the best-documented port as the
+ * worst, which is exactly the failure the tool exists to prevent.
+ *
+ * `source:` is unambiguous in context: CITED_BY already maps each file to the
+ * extension that owns it, and a port's header names the source it means.
+ */
+const CITES = /\broutines?\s+\d{1,4}|\$[0-9a-fA-F]{3,6}\b|\+\|?[\w.]+\.s:\d+|\bsource:\d+/
 
 const plain = (n: string): string => n.replace(/^ext\d+:/, '')
 
