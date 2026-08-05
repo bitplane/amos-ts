@@ -512,3 +512,109 @@ describe('TOME: the two strings the library ships (routines 26 and 27)', () => {
     expect(shipped(0xd6)).toContain('by Aaron Fothergill')
   })
 })
+
+describe('TOME: the update list (routines 20, 36, 37, 38, 40, 41, 46, 49)', () => {
+  const head = ['Screen Open 0,320,200,8,Lowres', 'Cls 0', 'Map Bank 1', 'Tile Size 1,1', 'Map View 0,0 To 4,3']
+  const m = () => mapBank(4, 3, [0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3])
+  /** the shared anim/update bank, in bank 2 */
+  const listBank = () => new Uint8Array(4 + 16 * 8)
+
+  it('Map Plot takes the TILE first, not the coordinates', () => {
+    // routine 20 ($f20): the pops are d5, d4, d6 and d5 is tested against the
+    // map height, so the first argument is the one that is not a coordinate
+    const data = m()
+    run('Map Bank 1 : Map Plot 7,1,2', { map: data })
+    expect(data[4 + 2 * 4 + 1]).toBe(7)
+  })
+
+  it('Map Ab Length and Map Anim Bank agree on the record sizes', () => {
+    // routine 49 ($1ace) is `asl.l #$3 / asl.l #$6 / add / addq #$4`, and
+    // routine 46 ($1800) writes `updates * 8 + 4` into the bank's own head --
+    // the offset where the animation records start
+    expect(val('Print Map Ab Length(10,2)')).toBe(10 * 8 + 2 * 64 + 4)
+    const list = listBank()
+    run('Map Anim Bank 2,10,2', { briks: list })
+    expect(new DataView(list.buffer).getUint32(0)).toBe(10 * 8 + 4)
+  })
+
+  it('records a plot only while Map Update On, and redraws just those tiles', () => {
+    // Map Plot appends tile/x/y as three words eight bytes apart; Map Update
+    // turns each back into a screen position relative to the cursor it is
+    // given and pastes it, then empties the list
+    const data = m()
+    const rt = run(
+      [...head, 'Map Anim Bank 2,16,0', 'Map Update On', 'Map Plot 6,1,1', 'Map Plot 2,3,0', 'Map Update 0,0'].join(
+        '\n',
+      ),
+      { map: data, briks: listBank() },
+    )
+    expect(at(rt, 1, 1)).toBe(7) // tile 6 -> icon 7
+    expect(at(rt, 3, 0)).toBe(3) // tile 2 -> icon 3
+    expect(at(rt, 0, 0)).toBe(0) // and nothing else was drawn
+    expect(rt.tome.updCount).toBe(0) // the list is emptied
+  })
+
+  it('a plot outside the view is recorded and then dropped', () => {
+    // `sub.l d4,d2 / tst.l d2 / blt` drops one before the near edge and
+    // `cmp.l $28(a0),d2 / bge` one at or past the far edge
+    const data = mapBank(8, 8, new Array(64).fill(0))
+    const rt = run(
+      [...head, 'Map Anim Bank 2,16,0', 'Map Update On', 'Map Plot 5,6,6', 'Map Plot 3,1,1', 'Map Update 0,0'].join(
+        '\n',
+      ),
+      { map: data, briks: listBank() },
+    )
+    expect(at(rt, 1, 1)).toBe(4) // (1,1) is inside the 4x3 view
+    expect(at(rt, 6, 6)).toBe(0) // (6,6) is not, so it never drew
+  })
+
+  it('without Map Anim Bank a recorded plot fails two different ways', () => {
+    // the shipped block has $72 = 9 and $7a = 0, and Map Plot resolves the
+    // bank BEFORE it tests the capacity. So a missing bank 9 is Start()'s
+    // error, and a bank 9 that exists just refuses every record.
+    expect(() => run([...head, 'Map Update On', 'Map Plot 6,1,1'].join('\n'), { map: m() })).toThrow(
+      /bank not reserved/i,
+    )
+    const rt = run([...head, 'Map Anim Bank 2,0,0', 'Map Update On', 'Map Plot 6,1,1'].join('\n'), {
+      map: m(),
+      briks: listBank(),
+    })
+    expect(rt.tome.updCount).toBe(0)
+  })
+
+  it('Map Update Off keeps the list, Map Update On discards it', () => {
+    // routine 38 clears $68 alone; routine 37 also clears $6a and $6c
+    const kept = run([...head, 'Map Anim Bank 2,16,0', 'Map Update On', 'Map Plot 6,1,1', 'Map Update Off'].join('\n'), {
+      map: m(),
+      briks: listBank(),
+    })
+    expect(kept.tome.updCount).toBe(1)
+    const cleared = run(
+      [...head, 'Map Anim Bank 2,16,0', 'Map Update On', 'Map Plot 6,1,1', 'Map Update On'].join('\n'),
+      { map: m(), briks: listBank() },
+    )
+    expect(cleared.tome.updCount).toBe(0)
+  })
+
+  it('Map Paste draws into a rectangle of its own without touching Map View', () => {
+    // routine 36 ($1334) is Map Do with $5c/$60 in place of $28/$2c
+    const rt = run([...head, 'Map Paste 0,0,10,10 To 12,11'].join('\n'), { map: m() })
+    expect(at(rt, 10, 10)).toBe(1)
+    expect(at(rt, 11, 10)).toBe(2)
+    expect(at(rt, 0, 0)).toBe(0) // Map View's rectangle is untouched
+    expect(rt.tome).toMatchObject({ viewX1: 0, viewY1: 0, viewX2: 4, viewY2: 3 })
+  })
+
+  it('List Tile lays the icons out with a one-pixel gutter and stops at the count', () => {
+    // routine 41 ($15a0): `addi.l #$1,d6 / add.l $e(a0),d6` is the step, and
+    // running past the count loads the 9999 sentinel instead of raising 74
+    const rt = run(
+      ['Screen Open 0,320,200,8,Lowres', 'Cls 0', 'Tile Size 1,1', 'Map View 0,0 To 20,4', 'List Tile'].join('\n'),
+      { nIcons: 3 },
+    )
+    expect(at(rt, 0, 0)).toBe(1)
+    expect(at(rt, 2, 0)).toBe(2) // 1 + tileW = 2 apart, not 1
+    expect(at(rt, 4, 0)).toBe(3)
+    expect(at(rt, 6, 0)).toBe(0) // three icons, so it stopped
+  })
+})

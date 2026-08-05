@@ -1862,6 +1862,17 @@ export const FAITHFUL = new Set<string>([
   'paste brik',
   'tme ver$',
   'tme credit$',
+  // the update pipeline: routines 20, 36, 37, 38, 40, 41, 46 and 49. Map Plot
+  // carries a DEVIATION (in NOTES); List Tile is the one place in the whole
+  // extension where running past the icon count is not error 74.
+  'map plot',
+  'map update on',
+  'map update off',
+  'map update',
+  'map anim bank',
+  'map ab length',
+  'map paste',
+  'list tile',
   'tile count',
   'map check',
   'map view',
@@ -2121,6 +2132,8 @@ export const NA = new Set<string>([
 export const NOTES: Record<string, string> = {
   'paste brik':
     "Routine 24 (\$1048), 170 bytes. A brik drawn to the SCREEN rather than stamped into the map, cell by cell as icons, stepping x by the tile width at \$e and y by the tile height at \$12, through the same icon paste and the same `cmp.w \$8(a0),d1 / Rbhi routine 82` count check the map draws use. There is no view: Map View bounds the map draws and not this one, so a brik is pasted wherever it is asked for. DEFECT: x and y are taken UNSIGNED. They are stored as words at \$a/\$c and read back with `clr.l d2 / move.w \$a(a0),d2`, which zero-extends, so `Paste Brik 1,-1,0` starts at x = 65535 rather than one pixel left of the screen and the brik simply does not appear. Reproduced -- a program scrolling a brik off the left edge on the real machine saw it vanish rather than slide, and that is the behaviour it was written against",
+  'map plot':
+    "Routine 20 (\\$f20), 120 bytes, and the argument order is the surprise: the pops are d5, d4, d6, and d5 is tested against \\$18 (the map height) and d4 against \\$16, so the FIRST argument is the tile -- `Map Plot t,x,y` and not `Map Plot x,y,t`. One byte written into the map, `andi.l #\\$ff,d6` first so only the low eight bits land, and then, if Map Update On has been called, the plot is appended to the update list at the shared animation bank as three words (tile, x, y) eight bytes apart. That pairing is the point of the whole family: Map Update redraws exactly the tiles that were plotted rather than the whole view. DEVIATION: only the far edges are checked, `cmp.w \\$18(a0),d5 / Rbge` and the same for x, with nothing testing for a negative one; a negative y then goes through an unsigned `mulu.w` and the write lands before the map bank. Not reproduced, as in Map Brik. NOTE: the bank is resolved through routine 66 BEFORE the capacity at \\$7a is tested, so a program that records without calling Map Anim Bank first gets Start()'s \"bank not reserved\" if the shipped default bank 9 does not exist, and silence if it does",
   'map brik':
     "Routine 23 (\$fbc), 140 bytes, the map-editing counterpart of Paste Brik: the brik's cells are stamped into the MAP at (x,y) instead of drawn. Clipping is by falling out of the loops rather than by arithmetic -- `cmp.w \$16(a0),d4 / bge` ends a row early and the next one picks up from the stored cursor at \$a, `cmp.w \$18(a0),d5 / bge` returns outright -- so a brik hanging off the right edge is truncated per row and one hanging off the bottom simply stops. DEVIATION: only the FAR edges are checked. A negative x or y passes the signed `bge` and is then used in `mulu.w`, unsigned, so the real routine writes somewhere before the map bank. Not reproduced: there is no memory before a bank here to scribble on, and the cells that would land outside are skipped",
   'map base':

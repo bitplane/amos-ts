@@ -100,6 +100,20 @@ export interface TomeState {
   /** $16 / $18 — cached from the bank header by every drawing routine */
   mapW: number
   mapH: number
+  /**
+   * $72 / $7a / $76 — the ANIMATION bank and the two capacities Map Anim Bank
+   * writes into it. The update list shares this bank: routine 46 stores the
+   * number at $72 and the update capacity at $7a, and Map Plot appends its
+   * records four bytes in.
+   */
+  animBank: number
+  updCap: number
+  animCap: number
+  /** $68 — Map Update On/Off; $6a — armed, set by the first recorded plot */
+  updOn: number
+  updArmed: number
+  /** $6c — how many records the list holds */
+  updCount: number
 }
 
 /**
@@ -135,6 +149,12 @@ export const newTomeState = (): TomeState => ({
   viewY2: 192,
   mapW: 200,
   mapH: 50,
+  animBank: 9,
+  updCap: 0,
+  animCap: 0,
+  updOn: 0,
+  updArmed: 0,
+  updCount: 0,
 })
 
 /** AMOS error 23, routine 81's `moveq #$17,d0 / Rjmp <AMOS 1024>`. */
@@ -456,6 +476,230 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
         my = my + 1 >= m.h ? 0 : my + 1
         sy += s.tileH
       } while (sy < s.viewY2)
+    },
+
+    /**
+     * Map Plot tile,x,y — routine 20 ($f20), 120 bytes, and the argument
+     * order is the surprise: the pops are d5, d4, d6, and d5 is tested
+     * against $18 (the map height) and d4 against $16, so d6 -- the FIRST
+     * argument -- is the tile. `Map Plot t,x,y`, not `Map Plot x,y,t`.
+     *
+     * One tile byte written into the map bank, `andi.l #$ff,d6` first so only
+     * the low byte lands. Then, if Map Update On has been called, the plot is
+     * APPENDED to the update list so Map Update can redraw just this tile
+     * instead of the whole view -- that is the whole point of the pair.
+     *
+     * DEVIATION: only the far edges are checked, `cmp.w $18(a0),d5 / Rbge`
+     * and the same for x, with no test for a negative one. A negative y then
+     * goes through `mulu.w`, unsigned, and the write lands before the map.
+     * Not reproduced, for the same reason as Map Brik's.
+     */
+    'map plot'(it) {
+      const tile = it.evalInt() & 0xff
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      const m = mapData(rt)
+      const s = st()
+      s.mapW = m.w
+      s.mapH = m.h
+      if (y >= m.h || x >= m.w) funcCall()
+      if (x < 0 || y < 0) return // see the DEVIATION above
+      m.data[4 + y * m.w + x] = tile
+      if (s.updOn === 0) return
+      // `move.w #$1,$6a(a0)` -- armed by the first recorded plot, which is
+      // what Map Update tests before it bothers to resolve the bank
+      s.updArmed = 1
+      const list = bankBytes(rt, s.animBank)
+      if (s.updCount >= s.updCap) return // `cmp.l $7a(a0),d0 / bge`
+      const at = 4 + s.updCount * 8 // `adda.l #$4,a2 / asl.l #$3,d1`
+      const v = new DataView(list.buffer, list.byteOffset, list.byteLength)
+      v.setUint16(at, tile)
+      v.setUint16(at + 2, x & 0xffff)
+      v.setUint16(at + 4, y & 0xffff)
+      s.updCount++
+    },
+
+    /**
+     * Map Update On — routine 37 ($1440) — and Map Update Off, routine 38
+     * ($145a). Twenty-six bytes and twelve: On sets $68 and clears both $6a
+     * and the record count at $6c, Off clears $68 alone. So switching
+     * recording off does NOT discard a list already collected; only switching
+     * it on again does.
+     */
+    'map update on'() {
+      const s = st()
+      s.updOn = 1
+      s.updArmed = 0
+      s.updCount = 0
+    },
+    'map update off'() {
+      st().updOn = 0
+    },
+
+    /**
+     * Map Anim Bank bank,updates,anims — routine 46 ($1800), 36 bytes.
+     *
+     * ONE bank serves two systems. The number goes to $72, the update
+     * capacity to $7a and the animation capacity to $76, and then the routine
+     * writes `updates * 8 + 4` into the bank's own first longword -- the
+     * offset at which the animation records begin, past the header and the
+     * update list. Which is exactly what Map Ab Length computes.
+     *
+     * NOTE: the shipped block has $72 = 9 and $7a = 0, so a program that
+     * turns recording on without calling this first fails in two different
+     * ways. If bank 9 does not exist, Map Plot's `Rbsr routine 66` resolves
+     * it through Start() and raises "bank not reserved" -- the resolve comes
+     * BEFORE the capacity test. If it does exist, the zero capacity means
+     * `cmp.l $7a(a0),d0 / bge` refuses every record, silently.
+     */
+    'map anim bank'(it) {
+      const bank = it.evalInt()
+      it.expect(',')
+      const updates = it.evalInt()
+      it.expect(',')
+      const anims = it.evalInt()
+      const s = st()
+      s.animBank = bank
+      const list = bankBytes(rt, bank)
+      s.animCap = anims
+      s.updCap = updates
+      const v = new DataView(list.buffer, list.byteOffset, list.byteLength)
+      v.setUint32(0, ((updates << 3) + 4) | 0)
+    },
+
+    /**
+     * Map Update x,y — routine 40 ($1476), 298 bytes. Redraws only the tiles
+     * Map Plot recorded, at the map cursor given, and then empties the list.
+     *
+     * Each eight-byte record is tile, map x, map y as words. The record's map
+     * position is turned into a screen one relative to the cursor -- `sub.l
+     * d4,d2 / mulu.w d6,d2 / add.l $20(a0),d2` -- and DROPPED if it lands
+     * before the view's near edge or at or past its far one. So a plot
+     * outside the visible window costs nothing to record and nothing to draw.
+     *
+     * Two early-outs, and both still clear the list: $6a zero (nothing was
+     * ever recorded since Map Update On) and $6c zero (nothing pending).
+     *
+     * NOTE: $54 is the loop index here and Map Paste's x1 there. The two
+     * keywords share the field, which is harmless only because Map Paste
+     * rewrites all four of $54-$60 every call.
+     *
+     * NOTE: `tst.w $70(a0) / bne` runs the animation stepper (routine 45)
+     * first when Map Anim On has been called, and `tst.w $4a(a0)` diverts the
+     * tile fetch into 4.23's animation path. Neither flag can be set yet --
+     * the keywords that set them are not in this slice -- so both arms are
+     * unreachable rather than unimplemented.
+     */
+    'map update'(it) {
+      const cx = it.evalInt()
+      it.expect(',')
+      const cy = it.evalInt()
+      const s = st()
+      if (s.updArmed === 0 || s.updCount === 0) {
+        s.updCount = 0
+        return
+      }
+      const list = bankBytes(rt, s.animBank)
+      const v = new DataView(list.buffer, list.byteOffset, list.byteLength)
+      const count = iconCount(rt)
+      for (let i = 0; i < s.updCount; i++) {
+        const at = 4 + i * 8
+        const tile = v.getUint16(at)
+        const mx = v.getUint16(at + 2)
+        const my = v.getUint16(at + 4)
+        const dx = (mx - cx) | 0
+        if (dx < 0) continue
+        const sx = (dx * s.tileW + s.viewX1) | 0
+        if (sx >= s.viewX2) continue
+        const dy = (my - cy) | 0
+        if (dy < 0) continue
+        const sy = (dy * s.tileH + s.viewY1) | 0
+        if (sy >= s.viewY2) continue
+        pasteTile(rt, tile, sx, sy, count)
+      }
+      s.updCount = 0
+    },
+
+    /**
+     * Map Paste mx,my,x1,y1 To x2,y2 — routine 36 ($1334), 268 bytes.
+     *
+     * Map Do into a rectangle the call names, without disturbing Map View.
+     * The four corners are stashed at $54-$60 and the loops compare against
+     * $5c/$60 where Map Do compares against $28/$2c; everything else --- the
+     * wrap, the do-while, the icon paste, the error 74 --- is Map Do's code
+     * copied with two operands changed.
+     *
+     * The six arguments pop in two groups, which is why the map cursor is
+     * LAST in register order but first in the source: `Map Paste x,y,x1,y1 To
+     * x2,y2`.
+     */
+    'map paste'(it) {
+      const cx = it.evalInt()
+      it.expect(',')
+      const cy = it.evalInt()
+      it.expect(',')
+      const x1 = it.evalInt()
+      it.expect(',')
+      const y1 = it.evalInt()
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      const s = st()
+      s.cursorX = (cx << 16) >> 16
+      s.cursorY = (cy << 16) >> 16
+      const m = mapData(rt)
+      const count = iconCount(rt)
+      s.mapW = m.w
+      s.mapH = m.h
+      let my = wrap(s.cursorY, m.h)
+      let sy = y1
+      do {
+        let mx = wrap(s.cursorX, m.w)
+        let sx = x1
+        do {
+          pasteTile(rt, m.data[4 + my * m.w + mx]!, sx, sy, count)
+          mx = mx + 1 >= m.w ? 0 : mx + 1
+          sx += s.tileW
+        } while (sx < x2)
+        my = my + 1 >= m.h ? 0 : my + 1
+        sy += s.tileH
+      } while (sy < y2)
+    },
+
+    /**
+     * List Tile — routine 41 ($15a0), 134 bytes and no arguments. Lays every
+     * icon in the bank out across the view, left to right and top to bottom,
+     * one per cell, starting at icon 1.
+     *
+     * Two things only the binary says. The step is the tile size PLUS ONE --
+     * `addi.l #$1,d6 / add.l $e(a0),d6` and the same on y -- so the icons are
+     * laid out with a one-pixel gutter rather than butted together. And this
+     * is the ONE place in the extension where running past the icon count is
+     * not an error: the check is a plain `bhi` to a local label that loads
+     * 9999 into the y register as a sentinel and falls into the loop tail,
+     * where `cmp.l #$270f,d3 / beq` ends the routine. Everywhere else the
+     * same comparison is `Rbhi routine 82`.
+     */
+    'list tile'() {
+      const s = st()
+      const count = iconCount(rt)
+      let icon = 1
+      let x = s.viewX1
+      let y = s.viewY1
+      for (;;) {
+        if (icon > count) return // the 9999 sentinel arm at $161c
+        const img = rt.iconBank?.image(icon)
+        if (img) rt.blit(rt.screen, img, x, y, true)
+        icon++
+        x += 1 + s.tileW
+        if (x < s.viewX2) continue
+        y += 1 + s.tileH
+        x = s.viewX1
+        if (y >= s.viewY2) return
+      }
     },
 
     /**
@@ -808,6 +1052,15 @@ export function makeTomeFunctions(rt: Runtime): Record<string, Func> {
         '\x1bX9\x1bY:\x1bP3AMOS TOME Series IV\x1bP2\x1bX8\x1bY;(c) Shadow Software 1990' +
           '\x1bX6\x1bY<by Aaron Fothergill\r\n',
       ),
+
+    /**
+     * =Map Ab Length(updates,anims) — routine 49 ($1ace), twenty bytes:
+     * `asl.l #$3,d1 / asl.l #$6,d3 / add.l d1,d3 / addq.l #$4,d3`. So an
+     * update record is EIGHT bytes and an animation record SIXTY-FOUR, plus
+     * a four-byte header -- the sizing companion to Map Anim Bank, and the
+     * two agree exactly on where the animation records start.
+     */
+    'map ab length': (_, a): Value => VI((((int(a[0]!) & 0xffff) << 3) + ((int(a[1]!) & 0xffff) << 6) + 4) | 0),
 
     /**
      * =Map Base — routine 28 ($1158), ten bytes: `movea.l $158(a5),a0 /
