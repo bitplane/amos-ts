@@ -48,11 +48,13 @@ describe('TURBO task priority (TURBO_DocsV2.15.Asc + disassembly)', () => {
     expect(run('Multi No : Multi Yes').rt.turbo.priority).toBe(0)
   })
 
-  it('Amos Pri clamps to the documented range', () => {
-    // "Value ranges from -128 to 20"
+  it('Amos Pri IGNORES a value outside the documented range', () => {
+    // "Value ranges from -128 to 20" — and routine 125 ($4600) branches to
+    // its own rts when either bound fails, so an out-of-range value neither
+    // clamps nor raises. It simply does not happen.
     expect(run('Amos Pri 5').rt.turbo.priority).toBe(5)
-    expect(run('Amos Pri 100').rt.turbo.priority).toBe(20)
-    expect(run('Amos Pri -200').rt.turbo.priority).toBe(-128)
+    expect(run('Amos Pri 5 : Amos Pri 100').rt.turbo.priority).toBe(5)
+    expect(run('Amos Pri 5 : Amos Pri -200').rt.turbo.priority).toBe(5)
   })
 })
 
@@ -1050,6 +1052,36 @@ describe('TURBO numeric helpers (TURBO_DocsV2.15.Asc + disassembly)', () => {
     expect(run('Print Between(1,5,10);Between(1,1,10);Between(10,5,1)').out).toBe('-1 0-1\n')
   })
 
+  it('T Clip is a WORD divide, and overflows into nonsense', () => {
+    // routine 149 ($4b0c) is `divs.w d0,d3 / muls.w d0,d3` on a longword
+    // variable. A quotient too big for sixteen bits overflows the divide,
+    // which leaves d3 alone, and the multiply then squares up the variable's
+    // own low word instead: 100000 is $186a0, low word -31072, times 2.
+    expect(run('Print T Clip(100000,2)').out).toBe('-62144\n')
+    // just under the overflow it is the plain answer
+    expect(run('Print T Clip(65534,2)').out).toBe(' 65534\n')
+  })
+
+  it('F Sqr sign-extends its own answer and wraps negative', () => {
+    // routine 65 ($1f18) ends `ext.l d1` on a root that can reach 46341
+    expect(run('Print F Sqr(144);F Sqr(1073676289)').out).toBe(' 12 32767\n')
+    expect(run('Print F Sqr(1073741824)').out).toBe('-32768\n')
+  })
+
+  it('Bit Field Ext and Ins do not look at the start bit when the width is zero', () => {
+    // width is popped and Rbmi-checked first; a width masking to zero takes
+    // the early exit at $4722/$46e4 having never seen the start bit
+    expect(run('Print Bit Field Ext($1234,-5,0)').out).toBe(' 4660\n')
+    expect(run('Print Bit Field Ins($1234,-5,0,$ff)').out).toBe(' 4660\n')
+    // with a width it is an error again
+    expect(() => run('Print Bit Field Ext($1234,-5,4)')).toThrow(/Illegal function call/)
+    // "Both the STARTBIT and the WIDTH are interpreted mod 31"
+    expect(run('Print Bit Field Ext($ff00,8,8);Bit Field Ins(0,4,4,$f)').out).toBe(' 255 240\n')
+    // Ins refuses a field running off the top; Ext has no such test
+    expect(() => run('Print Bit Field Ins(0,30,8,1)')).toThrow(/Illegal function call/)
+    expect(run('Print Bit Field Ext(-1,30,8)').out).toBe(' 3\n')
+  })
+
   it('Cpu Info and Math Info answer for the machine this port models', () => {
     // 2MB chip and a fast board is an A1200, so a 68020 and no FPU
     expect(run('Print Cpu Info;Math Info').out).toBe(' 20 0\n')
@@ -1080,17 +1112,37 @@ describe('TURBO numeric helpers (TURBO_DocsV2.15.Asc + disassembly)', () => {
     expect(run('Print Parse$("take the lamp, now",4,"now|then",7)').out).toBe(' 1\n')
     expect(run('Print Parse$("",1,"a|b",5)').out).toBe(' 5\n')
   })
+
+  it('Parse$ can never return the LAST alternative', () => {
+    // Having matched every byte, $54be demands a "|" after the alternative
+    // and falls through to the not-found tail without one — so the final
+    // entry of the list is unreachable unless the list ends with a bar.
+    expect(run('Print Parse$("go east",2,"south|north|east",0)').out).toBe(' 0\n')
+    expect(run('Print Parse$("go east",2,"south|north|east|",0)').out).toBe(' 3\n')
+    // one alternative and no bar at all matches nothing
+    expect(run('Print Parse$("east",1,"east",0)').out).toBe(' 0\n')
+  })
 })
 
 describe('TURBO memory keywords (TURBO_DocsV2.15.Asc + disassembly)', () => {
   const bank = 'Reserve As Work 7,64'
 
-  it('Memory Fill repeats a string through the region', () => {
+  it('Memory Fill repeats a string, and writes the END address too', () => {
     // the manual's own example fills a bank with 0123401234...
-    // the region is END-START bytes, as AMOS's own Fill is
+    //
+    // Both loops in routine 140 ($4810) decrement the count after writing and
+    // carry on while it is not yet negative, so the span is inclusive: nine
+    // bytes for Start(7) To Start(7)+8. That is why the manual's own
+    // `Memory Fill Start(6) to Bank End (6),A$` puts one byte past the bank.
     const { rt } = run([bank, 'Memory Fill Start(7) To Start(7)+8,"AB"'].join('\n'))
     const m = rt.resolveAddr(rt.bankBase(7))!
-    expect([...m.data.subarray(m.off, m.off + 9)]).toEqual([65, 66, 65, 66, 65, 66, 65, 66, 0])
+    expect([...m.data.subarray(m.off, m.off + 10)]).toEqual([65, 66, 65, 66, 65, 66, 65, 66, 65, 0])
+  })
+
+  it('Memory Fill raises on an empty string rather than doing nothing', () => {
+    // `move.w (a2)+,d7 / Rbeq routine 62` — the length is checked before
+    // either address is looked at
+    expect(() => run([bank, 'Memory Fill Start(7) To Start(7)+8,""'].join('\n'))).toThrow(/Illegal function call/)
   })
 
   it('Byte Hunt finds a value, a range, or nothing', () => {
@@ -1111,6 +1163,44 @@ describe('TURBO memory keywords (TURBO_DocsV2.15.Asc + disassembly)', () => {
     expect(run([...setup, 'Print String Hunt(Start(7) To Start(7)+16,0,1,"CD")-Start(7)'].join('\n')).out).toBe(' 2\n')
     // "When step is negative, this routine will search from end to start!"
     expect(run([...setup, 'Print String Hunt(Start(7) To Start(7)+16,0,-1,"CD")-Start(7)'].join('\n')).out).toBe(' 14\n')
+  })
+
+  it('Byte Hunt covers the end byte and Word Hunt stops one word short', () => {
+    // `subq.l #$1,d1 / bge` against `subq.l #$2,d1 / bgt` — the same loop
+    // with one branch changed, so the two disagree about their far corner
+    const setup = [bank, 'Memory Fill Start(7) To Start(7)+7,"AAAAAAAZ"']
+    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+7,0,90,0)-Start(7)'].join('\n')).out).toBe(' 7\n')
+    // the Z is in the last word of the span, which Word Hunt never reads
+    expect(run([...setup, 'Print Word Hunt(Start(7) To Start(7)+7,0,$415a,0)'].join('\n')).out).toBe(' 0\n')
+    expect(run([...setup, 'Print Word Hunt(Start(7) To Start(7)+9,0,$415a,0)-Start(7)'].join('\n')).out).toBe(' 6\n')
+  })
+
+  it('Byte Hunt compares SIGNED bytes, and never orders VAL1 against VAL2', () => {
+    // `cmp.b` with `blt`/`bgt`: as signed bytes 200 is -56, so the "inside"
+    // range 100 To 200 runs from 100 down to -56 — empty — and matches
+    // nothing. A raw 0 here is the not-found answer, not an address.
+    const setup = [bank, 'Memory Fill Start(7) To Start(7)+3,Chr$(150)']
+    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+3,1,100 To 200,0)'].join('\n')).out).toBe(' 0\n')
+    // the byte itself is 150, which signed is -106, and that IS inside
+    // -128 To 0 — found at the first byte of the span
+    expect(run([...setup, 'Print Byte Hunt(Start(7) To Start(7)+3,1,-128 To 0,0)-Start(7)'].join('\n')).out).toBe(' 0\n')
+  })
+
+  it('String Hunt with a non-zero action wants NO byte to match', () => {
+    // any non-zero action takes the `beq`-out compare at $5010, which is not
+    // "the string is absent here" but "not one byte of it matches here"
+    const setup = [bank, 'Memory Fill Start(7) To Start(7)+7,"ABCDABCD"']
+    // "AB" differs from "CD" in both bytes; "AD" shares its second byte with
+    // "CD" at offset 2, so that position is rejected
+    expect(run([...setup, 'Print String Hunt(Start(7) To Start(7)+7,1,1,"CX")-Start(7)'].join('\n')).out).toBe(' 0\n')
+    expect(run([...setup, 'Print String Hunt(Start(7) To Start(7)+7,1,1,"AB")-Start(7)'].join('\n')).out).toBe(' 1\n')
+    // a step of zero, and an end at or below the start, are both errors
+    expect(() => run([...setup, 'Print String Hunt(Start(7) To Start(7)+7,0,0,"AB")'].join('\n'))).toThrow(
+      /Illegal function call/,
+    )
+    expect(() => run([...setup, 'Print String Hunt(Start(7) To Start(7),0,1,"AB")'].join('\n'))).toThrow(
+      /Illegal function call/,
+    )
   })
 
   it('Move Mem copies a region and refuses an empty one', () => {

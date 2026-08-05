@@ -643,34 +643,51 @@ function shiftOp(a: Value[], width: 8 | 16 | 32, right: boolean): number {
 }
 
 /**
- * `Byte Hunt` and `Word Hunt`. "If ACTION=0 the Byte Hunt command behaves
- * just like the normal Hunt command. Only VAL1 is checked for. If ACTION=-1
- * ... any value lying outside the values VAL1 to VAL2, inclusive. If
- * ACTION=1 ... any value lying inside".
+ * `Byte Hunt` (routine 137, $47a2) and `Word Hunt` (routine 159, $4e36).
+ * "If ACTION=0 the Byte Hunt command behaves just like the normal Hunt
+ * command. Only VAL1 is checked for. If ACTION=-1 ... any value lying
+ * outside the values VAL1 to VAL2, inclusive. If ACTION=1 ... any value
+ * lying inside".
+ *
+ * The two are the same ninety-odd bytes with the operand size changed, and
+ * three things follow from that which the manual does not say:
+ *
+ *   - the tests are `cmp.b`/`cmp.w`, so memory AND both bounds are read
+ *     SIGNED at that width. `Byte Hunt(...,1,200,250)` looks for a byte
+ *     between -56 and -6, which is an empty range, and finds nothing.
+ *   - VAL1 and VAL2 are never compared with each other, so passing them the
+ *     wrong way round makes the inside test match nothing and the outside
+ *     test match everything.
+ *   - the loop bounds differ. Byte Hunt decrements the count after the test
+ *     and carries on while it is not negative, so it covers [start, end]
+ *     inclusive; Word Hunt carries on only while it is positive, so it stops
+ *     one word short of the end. Both read at least once, whatever the span.
  */
 function memHunt(rt: Runtime, a: Value[], unit: 1 | 2): number {
   let from = int(a[0] ?? VI(0))
   let to = int(a[1] ?? VI(0))
   const action = int(a[2] ?? VI(0))
-  const v1 = int(a[3] ?? VI(0))
-  const v2 = int(a[4] ?? VI(0))
-  // "If START is greater than END the addresses are swapped so that the
-  // command still works"
-  if (from > to) [from, to] = [to, from]
-  // "START and END adress are made automatically even"
+  const sw = unit === 1 ? (v: number): number => (v << 24) >> 24 : (v: number): number => (v << 16) >> 16
+  const v1 = sw(int(a[3] ?? VI(0)))
+  const v2 = sw(int(a[4] ?? VI(0)))
+  // "START and END adress are made automatically even" — `bclr #0` on both,
+  // before the comparison that may swap them
   if (unit === 2) {
     from &= ~1
     to &= ~1
   }
+  // "If START is greater than END the addresses are swapped so that the
+  // command still works"
+  if (from > to) [from, to] = [to, from]
   const m = rt.resolveAddr(from)
   if (!m) return 0
-  const n = Math.min(to - from, m.data.length - m.off)
-  const lo = Math.min(v1, v2)
-  const hi = Math.max(v1, v2)
-  for (let i = 0; i + unit <= n; i += unit) {
+  const span = to - from
+  const last = unit === 1 ? span : Math.max(0, span - 2)
+  for (let i = 0; i <= last; i += unit) {
     const at = m.off + i
-    const val = unit === 1 ? m.data[at]! : (m.data[at]! << 8) | m.data[at + 1]!
-    const hit = action === 0 ? val === (unit === 1 ? v1 & 0xff : v1 & 0xffff) : action > 0 ? val >= lo && val <= hi : val < lo || val > hi
+    if (at + unit > m.data.length) break
+    const val = sw(unit === 1 ? m.data[at]! : (m.data[at]! << 8) | m.data[at + 1]!)
+    const hit = action === 0 ? val === v1 : action > 0 ? val >= v1 && val <= v2 : val < v1 || val > v2
     if (hit) return from + i
   }
   return 0
@@ -681,10 +698,22 @@ function memHunt(rt: Runtime, a: Value[], unit: 1 | 2): number {
  * name: routine 180 leaves an integer in d3.
  *
  * `Parse$(source$, n, alternatives$, notfound)` takes word `n` of the source
- * — words being separated by space, comma or full stop — and matches it
- * against a list of alternatives separated by `|`, returning which one
- * matched, counting from one, or `notfound`. A command parser for text
- * adventures, in one keyword.
+ * — words being separated by space, comma or full stop, the three literals
+ * `move.b #$20/#$2c/#$2e` at $544a — and matches it against a list of
+ * alternatives separated by `|`, returning which one matched, counting from
+ * one, or `notfound`. A command parser for text adventures, in one keyword.
+ * A word number of zero or less is `Rble routine 62`.
+ *
+ * DEFECT: an alternative is only accepted if a `|` follows it. Having
+ * matched every byte of the word, $54be checks `cmp.b (a0),d1` for the
+ * separator and falls to the not-found tail when it is missing — so the LAST
+ * alternative in the list can never be returned unless the list ends with a
+ * trailing `|`. `Parse$(a$,1,"north|south|east",0)` answers 1 and 2 and
+ * never 3.
+ *
+ * An empty alternative — two bars together — is stepped over at $54ca with
+ * the counter incremented and no comparison made, so it takes a number and
+ * matches nothing.
  *
  * One departure: the two early exits for an empty source or an empty
  * alternatives list jump to the routine's common tail, which pops a long
@@ -709,10 +738,10 @@ function parseWord(source: string, n: number, alternatives: string, notfound: nu
   let end = i
   while (end < source.length && !sep(source[end]!)) end++
   const got = source.slice(i, end)
-  let k = 1
-  for (const alt of alternatives.split('|')) {
-    if (alt === got) return k
-    k++
+  const alts = alternatives.split('|')
+  // `alts.length - 1`: only the alternatives a bar follows are reachable
+  for (let k = 0; k < alts.length - 1; k++) {
+    if (alts[k] !== '' && alts[k] === got) return k + 1
   }
   return notfound
 }
@@ -1414,29 +1443,35 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
   return {
     'multi yes'() {
       // "Sets the priority to normal (0). Normal multitasking takes place."
-      // SetTaskPri(FindTask(NULL), 0) in the binary.
+      // Routine 2 ($f52) is SetTaskPri(FindTask(NULL), 0) and nothing else.
       rt.turbo.priority = 0
     },
     'multi no'() {
-      // The routine is exactly SetTaskPri(FindTask(NULL), 20) — exec
-      // FindTask (-$126) then SetTaskPri (-$12c), with 20 in d0 — which is
-      // what the manual describes: "Under AMOS Pro, Multi No sets the
-      // priority of AMOS Pro to 20, blocking most tasks, but not blocking
-      // the VITAL task."
+      // Routine 3 ($f6a) is the same twenty-four bytes with `moveq #$14,d0` —
+      // exec FindTask (-$126) then SetTaskPri (-$12c) — which is what the
+      // manual describes: "Under AMOS Pro, Multi No sets the priority of AMOS
+      // Pro to 20, blocking most tasks, but not blocking the VITAL task."
       rt.turbo.priority = 20
     },
     'amos pri'(it) {
-      // "Set the priority of AMOS. Value ranges from -128 to 20"
-      rt.turbo.priority = Math.max(-128, Math.min(20, it.evalInt()))
+      // "Set the priority of AMOS. Value ranges from -128 to 20". Routine 125
+      // ($4600) tests both bounds and branches to its own `rts` when either
+      // fails, so a value outside the range is IGNORED rather than clamped
+      // and rather than raising anything.
+      const p = it.evalInt()
+      if (p < -128 || p > 20) return
+      rt.turbo.priority = p
     },
     'workbench open'() {
-      // The counterpart to AMOS's Close Workbench, which this port already
-      // treats as faithful because there is no Workbench memory to free.
-      // Reopening it is the same nothing in reverse.
+      // Routine 138 ($47fc) is fourteen bytes: `jsr -$d2(a6)` on the
+      // intuition base AMOS keeps at -$18a6(a5), which is OpenWorkBench. The
+      // counterpart to AMOS's Close Workbench, which this port already treats
+      // as faithful because there is no Workbench memory to free. Reopening
+      // it is the same nothing in reverse.
     },
     'vbl wait'(it) {
       // Vbl Wait x — "Wait until the raster beam has reached a given value".
-      // The routine is a four-instruction busy-wait on the low byte of
+      // Routine 13 ($fe6) is a four-instruction busy-wait on the low byte of
       // VHPOSR: move.b $dff006,d1 / cmp.b d0,d1 / bne. Sub-frame beam racing
       // has no meaning against a compositor that draws once per frame, so
       // this waits a frame like Wait Vbl does; see the NOTES entry.
@@ -1878,26 +1913,41 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       s.line(s.grX, s.grY, px(x1, z1), py(y1, z1))
     },
     'memory fill'(it) {
-      // Memory Fill start To end,a$ — "Fill the memory between START and END
-      // address with the data held in 'string variable'... If START is
-      // greater than END the addresses are swapped so that the command still
-      // works."
+      // Memory Fill start To end,a$ — routine 140 ($4810). "Fill the memory
+      // between START and END address with the data held in 'string
+      // variable'... If START is greater than END the addresses are swapped
+      // so that the command still works."
+      //
+      // An empty string is `Rbeq routine 62`, not a quiet nothing: the
+      // routine reads the length word off the string and errors on zero
+      // before it has looked at either address.
+      //
+      // DEFECT: both fill loops — the one-character one at $483c and the
+      // repeating one at $482a — decrement the count AFTER writing and carry
+      // on while it is still not negative, so they write end-start+1 bytes.
+      // The manual's own example, `Memory Fill Start(6) to Bank End (6),A$`,
+      // therefore puts one byte past the end of the bank, because Bank End
+      // is already one past the last byte.
       let start = it.evalInt()
       it.expect('to')
       let end = it.evalInt()
       it.expect(',')
       const s = it.evalStr()
+      if (s.length === 0) funcCall()
       if (start > end) [start, end] = [end, start]
-      if (s.length === 0) return
       const m = rt.resolveWrite(start)
       if (!m) return
-      const len = Math.min(end - start, m.data.length - m.off)
+      const len = Math.min(end - start + 1, m.data.length - m.off)
       for (let i = 0; i < len; i++) m.data[m.off + i] = s.charCodeAt(i % s.length) & 0xff
     },
     'move mem'(it) {
-      // Move Mem start,end To dest — routine 181, a memmove that picks its
-      // direction from the addresses so an overlapping move stays right.
-      // An end at or below the start is an illegal function call (Rbls).
+      // Move Mem start,end To dest — routine 181 ($54f2), a memmove that
+      // picks its direction from the addresses so an overlapping move stays
+      // right, and unrolls eight moves at a time (longwords when source and
+      // destination are both even, bytes otherwise). The count is `end -
+      // start` with no +1, so unlike Memory Fill above it stops short of the
+      // end address. An end at or below the start is an illegal function
+      // call — `Rbls`, so the test is unsigned.
       const start = it.evalInt()
       it.expect(',')
       const end = it.evalInt()
@@ -2531,28 +2581,41 @@ function sceneChange(rt: Runtime, shift: number): Instr {
 export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
   return {
     'left click'(_) {
-      // Eight instructions in the binary: btst.b #6,$bfe001 — CIA-A port A
-      // bit 6, the left mouse button — then -1 if clear (pressed) and 0 if
-      // set. "Returns TRUE if left mouse is pressed."
+      // Routine 60 ($1c16), eight instructions: btst.b #6,$bfe001 — CIA-A
+      // port A bit 6, the left mouse button — then -1 if clear (pressed) and
+      // 0 if set. "Returns TRUE if left mouse is pressed."
       return VI(rt.input.mouseK & 1 ? -1 : 0)
     },
     'right click'(_) {
-      // "See Left Click function, but then for right mousebutton."
+      // "See Left Click function, but then for right mousebutton." Routine
+      // 170 ($505c) is the same shape off a different register: btst #10 of
+      // POTGOR, $dff016, which is where the right button lands.
       return VI(rt.input.mouseK & 2 ? -1 : 0)
     },
     'raw key'(_, a) {
       // x=Raw Key(n) — "Does the same thing as the Key State function but
       // works even if multitasking is disabled. Returns true (-1) if key N
-      // is being pressed. N is the Scancode." The real routine reads CIA-A's
-      // keyboard serial register directly, which is how it survives Multi
-      // No; here the key state is the same state Key State reads, and there
-      // is no multitasking to survive.
+      // is being pressed. N is the Scancode."
+      //
+      // Routine 22 ($1150) reads CIA-A's keyboard serial register directly
+      // and hand-shakes it — set the handshake bit, `dbra d7` a hundred times
+      // for the 85µs the keyboard needs, clear it — which is how it survives
+      // Multi No. It then `not.b`/`ror.b #1`s the byte into a scancode and
+      // compares. Note `addi.w #$100,d1 / ext.w d1`: the ext throws the added
+      // $100 straight back away and sign-extends the byte, so the comparison
+      // is against a SIGNED scancode and a key-up code (bit 7 set) reads
+      // negative.
+      //
+      // Here the key state is the same state Key State reads, and there is
+      // no multitasking to survive; see the NOTES entry.
       return VI(rt.input.keys.has(int(a[0] ?? VI(0)) & 0xff) ? -1 : 0)
     },
     'is raw key'(_) {
       // "Returns the last key press in raw format. Beware! It gives
-      // different values if the key is pressed or released." The raw code
-      // differs by the release bit, bit 7, which a key-up sets.
+      // different values if the key is pressed or released." Routine 171
+      // ($5072) is the same `not.b`/`ror.b #1` on $bfec01 with no handshake
+      // and no sign extension, so it answers 0..255 with the release bit
+      // still in place.
       return VI(rt.input.lastScan)
     },
     check(_, a) {
@@ -2568,9 +2631,12 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       if (!bob) return VI(0)
       return VI(checkHit(rt, s!, e!, bob.x - dx!, bob.y - dy!))
     },
-    // The shift group is one 68k instruction each, on a register the routine
-    // does not otherwise touch — so a byte shift leaves the top 24 bits of
-    // the value exactly as they were. "A=Lsl.b(5,1) gives A=10".
+    // The shift group — routines 4-9 ($f82, $f8c, $f96, $fa0, $faa, $fb4) —
+    // is ten bytes each and identical but for the instruction: pop the count
+    // into d0, pop the value into d3, one `lsl`/`lsr` of the stated size, and
+    // return d3. The shift is on a register the routine does not otherwise
+    // touch, so a byte shift leaves the top 24 bits of the value exactly as
+    // they were. "A=Lsl.b(5,1) gives A=10".
     'lsl.b': (_, a) => VI(shiftOp(a, 8, false)),
     'lsl.w': (_, a) => VI(shiftOp(a, 16, false)),
     'lsl.l': (_, a) => VI(shiftOp(a, 32, false)),
@@ -2578,97 +2644,138 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
     'lsr.w': (_, a) => VI(shiftOp(a, 16, true)),
     'lsr.l': (_, a) => VI(shiftOp(a, 32, true)),
     'l swap'(_, a) {
-      // "Swap the lower half of the longword with the upper half."
+      // "Swap the lower half of the longword with the upper half." Routine 10
+      // ($fbe) is eight bytes: pop, `swap d3`, return.
       const v = int(a[0] ?? VI(0))
       return VI(((v << 16) | ((v >>> 16) & 0xffff)) | 0)
     },
     'test.b'(_, a) {
       // "Compares the lower 8 bits of a variable with a given value.
-      // Returns 0 if false, -1 if true."
+      // Returns 0 if false, -1 if true." Routine 11 ($fc6): `cmp.b d0,d1`
+      // and `moveq #$ff,d3`, which is -1 sign-extended, not 255.
       return VI((int(a[0] ?? VI(0)) & 0xff) === (int(a[1] ?? VI(0)) & 0xff) ? -1 : 0)
     },
     'test.w'(_, a) {
+      // routine 12 ($fd6), the same sixteen bytes with `cmp.w`
       return VI((int(a[0] ?? VI(0)) & 0xffff) === (int(a[1] ?? VI(0)) & 0xffff) ? -1 : 0)
     },
     'cpu info'(_) {
-      // Reads AttnFlags at ExecBase+$128 and reports 0, 10, 20, 30 or 40.
-      // The machine this port models has 2MB of chip and a fast board — an
-      // A1200 — so it answers 20; see the NOTES entry.
+      // Routine 90 ($33d2) reads AttnFlags at ExecBase+$128 and tests bits 3,
+      // 2, 1 and 0 in that order for 40, 30, 20 and 10, answering 0 if none
+      // is set. The machine this port models has 2MB of chip and a fast
+      // board — an A1200 — so it answers 20; see the NOTES entry.
       return VI(20)
     },
     'math info'(_) {
-      // 0, 881 or 882 from the same flags. A stock A1200 has no FPU.
+      // Routine 91 ($340c), the same flags word: bit 4 first for 881 ($371),
+      // then bit 5 for 882 ($372), else 0. A stock A1200 has no FPU.
       return VI(0)
     },
     'bit field ext'(_, a) {
-      // x=Bit Field Ext(var,startbit,width) — "Both the STARTBIT and the
-      // WIDTH are interpreted mod 31", which in the routine is `andi.l #$1f`
+      // x=Bit Field Ext(var,startbit,width) — routine 135 ($46ec). "Both the
+      // STARTBIT and the WIDTH are interpreted mod 31", which in the routine
+      // is `andi.l #$1f` on each. The mask itself comes out of a table the
+      // extension keeps at +$3bc, indexed by the width.
+      //
+      // The two sign checks are NOT made together. Width is popped and
+      // `Rbmi`-checked first; a width that masks to zero then takes the
+      // `movem.l (a3)+,d2-d3` early exit at $4722, which returns the variable
+      // having never looked at the start bit. So a negative start with a zero
+      // width is not an error.
       const v = int(a[0] ?? VI(0))
       const start = int(a[1] ?? VI(0))
       const width = int(a[2] ?? VI(0))
-      if (start < 0 || width < 0) funcCall()
+      if (width < 0) funcCall()
       const wd = width & 31
-      // a width of zero pops the remaining arguments and hands back the
-      // variable untouched
       if (wd === 0) return VI(v)
-      return VI((v >>> (start & 31)) & (wd === 32 ? -1 : (1 << wd) - 1))
+      if (start < 0) funcCall()
+      // no start+width bound here — Bit Field Ins has one and this does not,
+      // so a field running off the top simply loses the bits `asl.l` shifts out
+      return VI((v >>> (start & 31)) & (((1 << wd) - 1) | 0))
     },
     'bit field ins'(_, a) {
-      // x=Bit Field Ins(var,startbit,width,value)
+      // x=Bit Field Ins(var,startbit,width,value) — routine 134 ($4698), the
+      // same shape one argument longer, and the same zero-width early exit at
+      // $46e4 that never checks the start bit.
       const v = int(a[0] ?? VI(0))
       const start = int(a[1] ?? VI(0))
       const width = int(a[2] ?? VI(0))
       const val = int(a[3] ?? VI(0))
-      if (start < 0 || width < 0) funcCall()
+      if (width < 0) funcCall()
       const wd = width & 31
       if (wd === 0) return VI(v)
+      if (start < 0) funcCall()
       const st = start & 31
-      // a field running off the end of the longword is refused outright
+      // `cmp.w #$20,d4 / Rbhi` — a field running off the end is refused here
       if (st + wd > 32) funcCall()
-      const mask = ((wd === 32 ? -1 : (1 << wd) - 1) << st) | 0
+      const mask = ((((1 << wd) - 1) | 0) << st) | 0
       return VI(((v & ~mask) | ((val << st) & mask)) | 0)
     },
     'byte hunt'(_, a) {
+      // routine 137 ($47a2); memHunt above has the reading
       return VI(memHunt(rt, a, 1))
     },
     'word hunt'(_, a) {
       // "See Byte Hunt(params) but now for word hunting... START and END
-      // adress are made automatically even."
+      // adress are made automatically even." Routine 159 ($4e36) — the same
+      // code at word size, and it stops one word short of the end where
+      // Byte Hunt covers its last byte.
       return VI(memHunt(rt, a, 2))
     },
     'string hunt'(_, a) {
-      // x=String Hunt(start To end,action,step,string) — "The step parameter
-      // is used to skip a certain amount of bytes for each comparison. When
-      // step is negative, this routine will search from end to start!"
-      let from = int(a[0] ?? VI(0))
-      let to = int(a[1] ?? VI(0))
+      // x=String Hunt(start To end,action,step,string) — routine 169 ($4f84).
+      // "The step parameter is used to skip a certain amount of bytes for
+      // each comparison. When step is negative, this routine will search from
+      // end to start!"
+      //
+      // Four copies of one loop, picked by the signs of ACTION and STEP, and
+      // the ACTION test is not what the name suggests. Action zero is the
+      // `bne`-out compare — every byte must match. Any NON-zero action is the
+      // `beq`-out compare at $5010, which reports the first position where NO
+      // byte of the string matches memory, rather than the first where the
+      // string is merely absent. There is no ACTION=1/ACTION=-1 distinction
+      // at all: `tst.l d1 / bne` is the only test made on it.
+      //
+      // A step of zero and an end at or below the start are both `routine 62`.
+      // Neither the range nor the step accounts for the string's length, so a
+      // hit found near the end reads past it, and the backward arm starts at
+      // the end address itself rather than a string's length short of it.
+      const from = int(a[0] ?? VI(0))
+      const to = int(a[1] ?? VI(0))
       const action = int(a[2] ?? VI(0))
       const step = int(a[3] ?? VI(0))
       const needle = str(a[4] ?? VS(''))
-      if (from > to) [from, to] = [to, from]
-      if (needle.length === 0 || step === 0) return VI(0)
+      if (step === 0) funcCall()
+      if (to <= from) funcCall()
+      // the length word is read and never checked: an empty string leaves
+      // `dbra` a counter of -1 and it walks 65536 bytes. There is nothing
+      // useful in reproducing that, so this answers not-found.
+      if (needle.length === 0) return VI(0)
       const m = rt.resolveAddr(from)
       if (!m) return VI(0)
-      const n = Math.min(to - from, m.data.length - m.off)
-      const at = (i: number): boolean => {
+      let at = step < 0 ? to : from
+      let left = to - from
+      for (;;) {
+        let allEqual = true
+        let anyEqual = false
         for (let k = 0; k < needle.length; k++) {
-          if (m.data[m.off + i + k] !== (needle.charCodeAt(k) & 0xff)) return false
+          const off = m.off + (at - from) + k
+          const b = off >= 0 && off < m.data.length ? m.data[off]! : 0
+          if (b === (needle.charCodeAt(k) & 0xff)) anyEqual = true
+          else allEqual = false
         }
-        return true
+        if (action === 0 ? allEqual : !anyEqual) return VI(at)
+        at += step
+        left -= Math.abs(step)
+        if (left < 0) return VI(0)
       }
-      const inside = (i: number): boolean => (action === 0 || action === 1 ? at(i) : !at(i))
-      if (step > 0) {
-        for (let i = 0; i + needle.length <= n; i += step) if (inside(i)) return VI(from + i)
-      } else {
-        for (let i = n - needle.length; i >= 0; i += step) if (inside(i)) return VI(from + i)
-      }
-      return VI(0)
     },
     range(_, a) {
-      // x=Range(var, lowvalue To highvalue) — "It is important to make sure
-      // lowvalue is less than highvalue or this function returns erroneous
-      // values", which is true: the two tests are made in order and never
-      // compared with each other
+      // x=Range(var, lowvalue To highvalue) — routine 143 ($4896), twenty-
+      // eight bytes. "It is important to make sure lowvalue is less than
+      // highvalue or this function returns erroneous values", which is true:
+      // it tests against the high bound first, then the low, and never
+      // compares the two with each other. Both compares are signed longs.
       const v = int(a[0] ?? VI(0))
       const lo = int(a[1] ?? VI(0))
       const hi = int(a[2] ?? VI(0))
@@ -2677,23 +2784,41 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       return VI(v)
     },
     texp(_, a) {
-      // x=Texp(ex, true val, false val). The test is against zero, so any
-      // non-zero expression counts as true, not only -1.
+      // x=Texp(ex, true val, false val) — routine 144 ($48b2). The test is
+      // the flags left by popping the expression itself, so it is against
+      // zero: any non-zero expression counts as true, not only -1.
       return VI(int(a[0] ?? VI(0)) !== 0 ? int(a[1] ?? VI(0)) : int(a[2] ?? VI(0)))
     },
     't clip'(_, a) {
       // "T Clip(var,32) will make var a multiple of 32... Print T Clip
-      // (50,15) returns 45". divs.w then muls.w, so it truncates towards
-      // zero rather than flooring: T Clip(-50,15) is -45.
+      // (50,15) returns 45". Routine 149 ($4b0c) is sixteen bytes: `Rble`
+      // on the divisor, then `divs.w d0,d3` and `muls.w d0,d3`, so it
+      // truncates towards zero rather than flooring — T Clip(-50,15) is -45.
+      //
+      // DEFECT: both halves are WORD operations on a longword variable, and
+      // the guard in front of them is a longword test. A divisor above 65535
+      // passes `Rble` and then divides by its low word; a quotient that will
+      // not fit in sixteen bits overflows `divs.w`, which leaves d3 untouched
+      // and hands the variable's own low word to the multiply. T Clip(100000,2)
+      // is -62144 on the machine, not 100000.
       const v = int(a[0] ?? VI(0))
       const at = int(a[1] ?? VI(0))
       if (at <= 0) funcCall()
-      return VI(Math.trunc(v / at) * at)
+      const d = (at << 16) >> 16
+      // a divisor whose low word is zero takes the 68k divide-by-zero
+      // exception; there is no trap here, so it is the same error the guard
+      // above would have raised
+      if (d === 0) funcCall()
+      const q = Math.trunc(v / d)
+      if (q < -0x8000 || q > 0x7fff) return VI((((v << 16) >> 16) * d) | 0)
+      return VI((q * d) | 0)
     },
     between(_, a) {
-      // x=Between(low,value,high) — "If high is smaller than low, then these
-      // values are exchanged so the function still works", and the
-      // comparisons are strict: ((low<value) and (value<high))
+      // x=Between(low,value,high) — routine 150 ($4b1c). "If high is smaller
+      // than low, then these values are exchanged so the function still
+      // works" — `cmp.l d6,d4 / bgt` keeps the order only when high is
+      // strictly greater, so an equal pair is exchanged too, harmlessly. The
+      // comparisons are then strict: ((low<value) and (value<high)).
       let lo = int(a[0] ?? VI(0))
       const v = int(a[1] ?? VI(0))
       let hi = int(a[2] ?? VI(0))
@@ -2703,8 +2828,14 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
     'bank end'(_, a) {
       // "If you ask for the Bank End of a Sprite or Icon bank the result
       // will be NEGATIVE. It gives the negative amount of Sprite/Icon
-      // definitions stored in the bank." The routine tells them apart by
-      // the four-character name in the bank header.
+      // definitions stored in the bank." Routine 153 ($4bb2) is a six-byte
+      // trampoline into routine 312 ($5dc4), which asks AMOS for the bank
+      // address and then compares the longword at a0-8 — the first half of
+      // the eight-character bank name — with 'Icon' and 'Spri'. On a match
+      // it returns the word at (a0) sign-extended and negated, which is the
+      // image count; otherwise the length longword at a0-$14, less $10,
+      // plus the address. Bank numbers 1 and 2 are the only banks that can
+      // carry those names in this port's model, which is what it keys on.
       const n = int(a[0] ?? VI(0))
       if (n === 1 && rt.spriteBank) return VI(-rt.spriteBank.images.length)
       if (n === 2 && rt.iconBank) return VI(-rt.iconBank.images.length)
@@ -2716,13 +2847,16 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.bankBase(n) + b.data.length)
     },
     'chip largest'(_) {
-      // AvailMem(MEMF_CHIP|MEMF_LARGEST)
+      // routine 167 ($4f54): AvailMem (`jsr -$d8(a6)`) with d1 = $20002,
+      // MEMF_CHIP|MEMF_LARGEST
       return VI(rt.chipFree())
     },
     'fast largest'(_) {
+      // routine 168 ($4f6c), the same call with $20004, MEMF_FAST|MEMF_LARGEST
       return VI(rt.fastFree())
     },
     'parse$'(_, a) {
+      // routine 180 ($5430); parseWord above has the reading
       return VI(parseWord(str(a[0] ?? VS('')), int(a[1] ?? VI(0)), str(a[2] ?? VS('')), int(a[3] ?? VI(0))))
     },
     'hit spr zone'(_, a) {
@@ -2776,9 +2910,14 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       return VI(img.opaque ? -1 : 1)
     },
     'f sqr'(_, a) {
-      // Undocumented; routine 65 is a digit-by-digit integer square root
-      // over a long, rounding up when the remainder reaches the root
-      return VI(turboSqrt(int(a[0] ?? VI(0)), 32))
+      // Undocumented; routine 65 ($1f18) is a digit-by-digit integer square
+      // root over a long, rounding up when the remainder reaches the root.
+      //
+      // DEFECT: it finishes with `ext.l d1` before returning, which
+      // sign-extends the low WORD of a root that can legitimately reach
+      // 46341. So F Sqr answers correctly up to 32767*32767 and then wraps
+      // negative: F Sqr(1073741824) is -32768, not 32768.
+      return VI(((turboSqrt(int(a[0] ?? VI(0)), 32) << 16) >> 16) | 0)
     },
     'f point'(_, a) {
       // "returns the colour register of the pixel located on screen at

@@ -2036,7 +2036,7 @@ export const NOTES: Record<string, string> = {
   'multi yes':
     'The counterpart, SetTaskPri(..., 0). Inert here for the same reason as Multi No',
   'amos pri':
-    'Records a task priority clamped to the documented -128..20. Nothing schedules against it',
+    'Records a task priority. Nothing schedules against it. Routine 125 ($4600) tests both ends of the documented -128..20 range and branches to its own rts when either fails, so an out-of-range value is silently IGNORED — neither clamped nor reported — and that is reproduced: set 100 and the priority stays where it was',
   'vbl wait':
     "Four instructions in the binary: a busy-wait on the low byte of VHPOSR (\$dff006) until it equals the requested line. That is sub-frame beam racing, and its whole purpose — the manual's example scrolls only the top 100 lines and then waits for line 101, so the work happens in scanlines the display is not using — has no meaning against a compositor that draws once per frame. This waits one frame, like Wait Vbl. Programs still run correctly; what they lose is the smoothness the keyword existed to buy",
   'raw key':
@@ -2047,6 +2047,16 @@ export const NOTES: Record<string, string> = {
     "TURBO's own zone system, which the manual is explicit is 'not compatible with the normal Zone commands'. Note it returns 1 and 0 rather than AMOS's -1 and 0, as documented",
   'workbench open':
     'The counterpart to Close Workbench, which this port already treats as faithful because there is no Workbench memory to free. Reopening it is the same nothing in reverse',
+  'memory fill':
+    'Both fill loops in routine 140 ($4810) decrement the count after writing and continue while it is not yet negative, so the region is inclusive of the END address: Memory Fill a To b writes b-a+1 bytes. The manual\'s own example, "Memory Fill Start(6) to Bank End (6),A$", therefore writes one byte past the bank, because Bank End is already one past the last byte. Reproduced. Move Mem next door counts the other way, end-start with no +1, which is what makes this a slip rather than a convention',
+  'byte hunt':
+    'Byte Hunt and Word Hunt are the same ninety bytes at two operand sizes, and three things follow that the manual does not say. The tests are cmp.b/cmp.w, so memory and both bounds are read SIGNED at that width — Byte Hunt(...,1,100 To 200,) is asking for a byte between 100 and -56 and finds nothing. VAL1 and VAL2 are never compared with each other, so the wrong way round means the inside test matches nothing and the outside test matches everything. And the loop bounds differ between the two: Byte Hunt covers its end byte (subq/bge) where Word Hunt stops one word short (subq/bgt). All three reproduced',
+  'string hunt':
+    'Two deviations, both at the edges. Routine 169 ($4f84) never checks the string length, so an empty string leaves dbra a counter of -1 and walks 65536 bytes of whatever follows; this answers not-found instead. And the search is clamped to the memory block the start address resolves to, where the routine would happily run off the end of one — it accounts for neither the string length nor the region when stepping. The ACTION semantics ARE reproduced: any non-zero action takes the beq-out compare at $5010, which reports the first position where NO byte of the string matches, not the first where the string is absent, and there is no ACTION=1 against ACTION=-1 distinction anywhere in the routine',
+  't clip':
+    "Routine 149 ($4b0c) is divs.w then muls.w on a longword variable, guarded by a longword test. The overflow is reproduced: a quotient too big for sixteen bits leaves divs.w's destination untouched and the multiply squares up the variable's own low word instead, so T Clip(100000,2) is -62144. What is not reproduced is the divisor above 65535 whose low word is zero — that passes the guard and then takes the 68k divide-by-zero exception, and with no trap to take it raises the same illegal function call the guard would have",
+  'bank end':
+    "Routine 312 ($5dc4) tells a sprite or icon bank from a data bank by comparing the longword at a0-8 — the first half of the eight-character bank name — with 'Icon' and 'Spri', and answers the negated image count for those. Image banks are not addressable memory in this port's model, so it keys on the bank number instead: 1 is the sprite bank and 2 the icon bank, which is the only way those names can arise",
   'f 16proc icon':
     "The five F icon keywords differ in what they refuse to do rather than in what they draw: the width-specialised ones skip the 16-pixel chop of X, and the two processor ones drive the CPU instead of the blitter and lose the mask with it ('Masking is not supported!'). Both of those survive here. What cannot is the point of them — there is no blitter to be faster than, so F 16proc Icon and F 32proc Icon are the same speed as the rest, where on a real machine choosing the wrong one for your CPU was the difference the manual spends a page on",
   'icon check':
@@ -2098,7 +2108,7 @@ export const NOTES: Record<string, string> = {
   'cpu info':
     "Reports 20, a 68020. There is no 68000 here to ask, so the answer has to come from the machine this port models — and that is settled elsewhere already: Chip Free and Fast Free answer for 2MB of chip and a fast board, which is an A1200. Math Info answers 0 to match, a stock A1200 having no FPU. A program that branches on the CPU will take its 020 path",
   'parse$':
-    "Undocumented, and it does not return a string despite the name: routine 180 leaves an integer in d3 — which alternative of a '|' separated list matched word N of the source, counting from one, or the fourth argument when none did. One departure: an empty source or an empty list jumps to the routine's common tail, which pops a long nothing pushed and returns into it. That is a crash; here it is the not-found value",
+    "Undocumented, and it does not return a string despite the name: routine 180 ($5430) leaves an integer in d3 — which alternative of a '|' separated list matched word N of the source, counting from one, or the fourth argument when none did. Reproduced: having matched every byte of the word, $54be demands a '|' after the alternative and falls to the not-found tail without one, so the LAST alternative of a list is unreachable unless the list ends with a trailing bar. Parse$(a$,1,\"north|south|east\",0) answers 1 and 2 and never 3. One departure: an empty source or an empty list jumps to the routine's common tail, which pops a long nothing pushed and returns into it. That is a crash; here it is the not-found value",
   'chip largest':
     "AvailMem(MEMF_CHIP|MEMF_LARGEST). With no fragmenting allocator behind it, the largest contiguous block is the whole of what is free, so this equals Chip Free; the same goes for Fast Largest",
   'plane offset':
@@ -2108,7 +2118,7 @@ export const NOTES: Record<string, string> = {
   'f circle':
     "Eight-way symmetry with the column height taken from an integer square root computed in WORDS, which is the whole of the documented bug: 'do not use a radius above 180...there will be no crash, but the result is definitely not a circle!' — r*r-x*x stops fitting in sixteen bits at 182, and this overflows where the routine overflows. Not modelled: the manual's other caveat, that a hires screen turns the circle into an ellipse, because that is a property of the pixel aspect of the display rather than of the pixels written",
   'f sqr':
-    "Undocumented, and faithful including its off-by-one: the routine rounds up when the remainder REACHES the root rather than exceeds it, so F Sqr(0) is 1 and every n*n+n comes out a step high. Away from that boundary it is an ordinary integer square root",
+    "Undocumented, and faithful including both of routine 65's ($1f18) defects. It rounds up when the remainder REACHES the root rather than exceeds it, so F Sqr(0) is 1 and every n*n+n comes out a step high. And it finishes with ext.l on a root that can legitimately reach 46341, so the answer wraps negative above 32767: F Sqr(1073741824) is -32768, not 32768. Away from those two boundaries it is an ordinary integer square root",
   'f draw':
     "The token spec is I0,0t0,0 in 1.0, 1.9 and 2.15 alike, so only the To form exists — the manual's shorter 'F Draw X,Y' cannot be written and would not parse on the real machine either. Ignores the Set Line pattern, as the manual admits ('this will be corrected in a future update'), and the plane mask",
   'blit left':
