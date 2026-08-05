@@ -4,6 +4,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { extensionById } from '../ext/registry'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
+import { AmigaFS } from '../amiga/vfs'
 
 const table = new TokenTable(CORE_TOKENS)
 // the speech keywords are the Music extension's, not core; slot 1 is its home
@@ -142,5 +143,80 @@ describe('Music extension: Set Talk, Talk Misc, Talk Stop', () => {
 
   it('Talk Stop does nothing when nothing is speaking', async () => {
     await expect(run('Talk Stop')).resolves.toBeTruthy()
+  })
+})
+
+/**
+ * `SPEAK:` — the AmigaOS speech handler, reached as a file.
+ *
+ * The rules being pinned live in src/amiga/speak.ts and are unit-tested there
+ * without a voice. These are the wiring: that a SPEAK: open is a device and
+ * not a file, that writing to it reaches the synthesiser, and that the path's
+ * options rather than Set Talk decide the voice.
+ */
+describe('SPEAK: the speech handler as a file', () => {
+  /** a runner with a real filesystem, so "did it write a file" is answerable */
+  async function runFs(src: string): Promise<{ rt: Runtime; fs: AmigaFS }> {
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0')
+    const rt = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, fs })
+    for (let i = 0; i < 20; i++) {
+      const r = rt.runHeadless(200)
+      if (r.status !== 'blocked') return { rt, fs }
+      await new Promise((res) => setTimeout(res, 5))
+    }
+    return { rt, fs }
+  }
+
+  it('opens as a device, and writes no file', async () => {
+    // the point of the handler: a program gets speech through the file
+    // keywords it already uses, and SPEAK: is not a path on any volume
+    const { fs } = await runFs('Open Out 1,"SPEAK:" : Print #1,"Hello there." : Close 1')
+    expect(fs.read('SPEAK:')).toBe(null)
+    expect(fs.read('DH0:SPEAK:')).toBe(null)
+  })
+
+  it('a plain file open is untouched by any of this', async () => {
+    const { fs } = await runFs('Open Out 1,"DH0:notes.txt" : Print #1,"Hello there." : Close 1')
+    const data = fs.read('DH0:notes.txt')
+    expect(data).not.toBe(null)
+    expect(String.fromCharCode(...data!)).toBe('Hello there.\r\n')
+  })
+
+  it('takes its voice from the path, not from Set Talk', async () => {
+    // two separate opens of narrator.device on the machine, so Set Talk's
+    // state and the handler's are different things
+    const { rt } = await runFs('Set Talk 1,1,300,90 : Open Out 1,"SPEAK:OPT p200 r95" : Close 1')
+    const c = rt.fileChans.get(1)
+    // Close removed it, so re-open to inspect: the assertion that matters is
+    // that the parsed voice is the path's
+    expect(c).toBeUndefined()
+    const { rt: rt2 } = await runFs('Set Talk 1,1,300,90 : Open Out 1,"SPEAK:OPT p200 r95"')
+    expect(rt2.fileChans.get(1)!.speak!.voice).toMatchObject({ pitch: 200, rate: 95 })
+    expect(rt2.speech.pitch).toBe(300) // Set Talk's, untouched
+  })
+
+  it('holds a semicolon-continued sentence until it is terminated', async () => {
+    const { rt } = await runFs(
+      ['Open Out 1,"SPEAK:"', 'Print #1,"hello ";', 'Print #1,"there";'].join('\n'),
+    )
+    // nothing terminated it, so nothing has been spoken and it is still held
+    expect(rt.fileChans.get(1)!.speak).toBeTruthy()
+    expect(rt.fileChans.get(1)!.out.length).toBe(11)
+  })
+
+  it('speaks, and the audio reaches voice 0', async () => {
+    // the end-to-end path: text -> translator -> narrator -> playPcm. The
+    // channel is what proves it got as far as audio.
+    const { rt } = await runFs('Open Out 1,"SPEAK:" : Print #1,"hello there." : Close 1')
+    expect(rt.speech.lib).not.toBe(null)
+    expect(rt.speechRestore).toBeGreaterThan(0)
+  })
+
+  it('Append to SPEAK: is Open Out to SPEAK:', async () => {
+    // there is nothing to append to; a real handler has no existing contents
+    const { rt } = await runFs('Append 1,"SPEAK:OPT/r"')
+    expect(rt.fileChans.get(1)!.speak!.voice.raw).toBe(true)
+    expect(rt.fileChans.get(1)!.out.length).toBe(0)
   })
 })

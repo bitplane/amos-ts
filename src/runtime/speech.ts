@@ -129,6 +129,56 @@ function latin1(text: string): Uint8Array {
   return out
 }
 
+/**
+ * Speak one utterance for the `SPEAK:` handler.
+ *
+ * Separate from `Say` because the two share only narrator-ts. `Say` is a
+ * Music-extension keyword reading the IO-request state that `Set Talk` and
+ * `Talk Misc` write; `SPEAK:` is an AmigaDOS handler whose voice comes from
+ * its own path (`src/amiga/speak.ts`), so a program using both is not two
+ * things fighting over one set of registers — on the machine they are two
+ * separate opens of narrator.device, and here they are two separate calls.
+ *
+ * The caller must have established that the library is ready; a call made
+ * before that says nothing rather than blocking, since a handler write has no
+ * statement to re-run.
+ */
+export function speakOne(rt: Runtime, text: string, opts: SpeakVoice): void {
+  const s = rt.speech
+  if (s.lib === null) return
+  const lib = s.lib
+  // `/r` means the program supplies phonemes; otherwise translator.library
+  const phonemes = opts.raw ? latin1(`${text}Q#U\0\0`) : latin1(lib.translate(text, lib.rules).phonemes)
+
+  let out
+  try {
+    out = lib.speak(phonemes, lib.voice, {
+      pitch: opts.pitch,
+      mode: opts.mode,
+      sex: opts.sex,
+      rate: opts.rate,
+      sampfreq: s.sampfreq,
+      mouths: false,
+    })
+  } catch {
+    // not pronounceable: the device reports it in io_Error and says nothing
+    return
+  }
+  if (out.pcm.length === 0) return
+  rt.stopVoices(0b0001)
+  rt.playPcm(0b0001, out.pcm, out.sampleRate, false)
+  rt.speechRestore = rt.interp.tick + Math.ceil((out.pcm.length / out.sampleRate) * 50)
+}
+
+/** The voice settings a SPEAK: path carries — structurally SpeakOptions. */
+export interface SpeakVoice {
+  rate: number
+  pitch: number
+  sex: number
+  mode: number
+  raw: boolean
+}
+
 /** EntNul — the value an omitted parameter carries (+Equ.s:67). */
 const ENT_NUL = -0x80000000
 

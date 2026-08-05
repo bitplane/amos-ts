@@ -106,6 +106,7 @@ really does differ from the real one and saying where is the whole job.
 | `localelib.gen.ts` | its data, generated from AROS by `src/cli/genlocale.ts` |
 | `dos.ts` | `dos.library`'s FileInfoBlock: entry types, protection bits, offsets |
 | `dospattern.ts` | `dos.library`'s `ParsePattern`/`MatchPattern` grammar |
+| `speak.ts` | `SPEAK:`, the speech handler — MODELLED, see its own header |
 | `hunk.ts` | the AmigaDOS object file format: `LoadSeg` and one-hunk reads |
 | `diskfont.ts` | `diskfont.library` and the graphics.library `TextFont` |
 | `powerpacker.ts` | `powerpacker.library`'s PP20 codec |
@@ -116,6 +117,17 @@ really does differ from the real one and saying where is the whole job.
 `host.ts` is the odd one: it is not OS, it is what the OS sits on. It lives
 here because everything in this directory is defined against it, and because
 leaving it among the extension ports was worse.
+
+`speak.ts` is the other odd one, and for the opposite reason: everything else
+here is ported from something readable — AmigaOS source, AROS data, a shipped
+binary — and `SPEAK:` is not. No Speak-Handler binary or source is held, so
+its two decisions (when an utterance is released, and what the `OPT` letters
+mean) are MODELLED from the AmigaDOS description of the handler rather than
+read off anything. Its header says so at length, and it is the one file in
+this directory a reader should distrust first. It is here rather than in
+`src/runtime` because it is an AmigaOS device and not an AMOS one, and because
+keeping it pure — the caller supplies the synthesis — is what lets the release
+rule be tested without a voice.
 
 ## The boundary is enforced
 

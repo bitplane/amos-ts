@@ -13,7 +13,8 @@ import { Collide } from './collide'
 import { bufferRegion, claimedRegion, findRegion, slottedRegion, within } from '../amiga/memmap'
 import type { MemRegion } from '../amiga/memmap'
 import { newPiConfig } from './piconfig.gen'
-import { ensureLib, type SpeechState } from './speech'
+import { ensureLib, speakOne, type SpeechState } from './speech'
+import { SpeakBuffer, type SpeakOptions } from '../amiga/speak'
 import { type IoPortsState } from './ioports'
 import { type CtextState } from './ctext'
 import { type JdState } from './jd'
@@ -503,6 +504,12 @@ export class Runtime {
       recSize?: number
       /** file size, snapshotted at Field time, grown by Put */
       fileSize?: number
+      /**
+       * `SPEAK:` — the channel is the speech handler rather than a file, so
+       * `out` accumulates for nobody and nothing is written at Close. See
+       * src/amiga/speak.ts.
+       */
+      speak?: { buf: SpeakBuffer; voice: SpeakOptions }
     }
   >()
   /** Set Input line terminator pair (default CR, skip LF) */
@@ -2404,9 +2411,27 @@ export class Runtime {
     return out
   }
 
+  /**
+   * Hand text written to a `SPEAK:` channel to the synthesiser, one utterance
+   * at a time. Silent — rather than an error — when narrator-ts is absent or
+   * still loading, because a handler write is not a statement that can be
+   * re-run the way `Say` is.
+   */
+  speakWrite(c: { speak?: { buf: SpeakBuffer; voice: SpeakOptions } }, text: string): void {
+    if (!c.speak) return
+    for (const utterance of c.speak.buf.feed(text)) speakOne(this, utterance, c.speak.voice)
+  }
+
   closeChannel(n: number): void {
     const c = this.fileChans.get(n)
     if (!c) return
+    if (c.speak) {
+      // whatever was written without a terminator is spoken at Close, so a
+      // program that never ends its last line still says it
+      for (const utterance of c.speak.buf.flush()) speakOne(this, utterance, c.speak.voice)
+      this.fileChans.delete(n)
+      return
+    }
     if (c.mode === 'out') {
       if (!this.vfs?.writeFile(c.path, Uint8Array.from(c.out))) {
         this.fileChans.delete(n)

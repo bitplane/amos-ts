@@ -12,7 +12,8 @@ import { newLocaleState, makeLocaleFunctions, makeLocaleInstructions } from './l
 import { newTurboState, TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions, turboDefault } from './turbo'
 import { newPersonnalState, PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
 import { newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
-import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions } from './speech'
+import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions, ensureLib } from './speech'
+import { SpeakBuffer, isSpeakPath, parseSpeakOptions, type SpeakOptions } from '../amiga/speak'
 import { newIoPortsState, makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
 import { newCtextState, makeCtextFunctions, makeCtextInstructions } from './ctext'
 import { newSticksState, makeSticksFunctions, makeSticksInstructions } from './sticks'
@@ -59,6 +60,19 @@ import { parsePpBank, writePpBank } from './ppbank'
 type It = Parameters<Instr>[0]
 
 /** optional integer argument: elided (",," or end) yields def */
+/**
+ * The extra channel state a `SPEAK:` open needs, or nothing for a real file.
+ *
+ * Opening starts the narrator-ts import so the wait lands here rather than on
+ * the first Print — a program that opens the handler is going to speak, and
+ * the load is 88K of voice table it should not pay for otherwise.
+ */
+function speakChannel(rt: Runtime, path: string): { speak?: { buf: SpeakBuffer; voice: SpeakOptions } } {
+  if (!isSpeakPath(path)) return {}
+  ensureLib(rt)
+  return { speak: { buf: new SpeakBuffer(), voice: parseSpeakOptions(path) } }
+}
+
 function optInt(it: It, def: number): number {
   if (it.atStmtEnd() || it.nm() === ',' || it.nm() === ')') return def
   return it.evalInt()
@@ -3396,12 +3410,17 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const n = it.evalInt()
       it.expect(',')
       const path = it.evalStr()
-      rt.fileChans.set(n, { mode: 'out', path, data: new Uint8Array(0), pos: 0, out: [] })
+      rt.fileChans.set(n, { mode: 'out', path, data: new Uint8Array(0), pos: 0, out: [], ...speakChannel(rt, path) })
     },
     append(it) {
       const n = it.evalInt()
       it.expect(',')
       const path = it.evalStr()
+      // Append to SPEAK: is Open Out to SPEAK: — there is nothing to append to
+      if (isSpeakPath(path)) {
+        rt.fileChans.set(n, { mode: 'out', path, data: new Uint8Array(0), pos: 0, out: [], ...speakChannel(rt, path) })
+        return
+      }
       const existing = rt.fs?.read(path)
       rt.fileChans.set(n, { mode: 'out', path, data: new Uint8Array(0), pos: 0, out: existing ? [...existing] : [] })
     },
@@ -3416,9 +3435,18 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const n = it.evalInt()
       const c = rt.chan(n)
       if (c.mode !== 'out') throw new AmosError('file type mismatch')
+      // A write to SPEAK: needs the voice loaded. Block and re-run the whole
+      // statement, exactly as Say does — the arguments have not been consumed
+      // yet, so this is the one point where the wait is free.
+      if (c.speak && !ensureLib(rt) && !rt.speech.failed) {
+        it.block({ type: 'speech' }, true)
+        return
+      }
       it.accept(',')
+      const spoken: string[] = []
       const put = (t: string): void => {
         for (let i = 0; i < t.length; i++) c.out.push(t.charCodeAt(i) & 0xff)
+        if (c.speak) spoken.push(t)
       }
       let nl = true
       while (!it.atStmtEnd()) {
@@ -3435,6 +3463,7 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         nl = true
       }
       if (nl) put('\r\n') // sp14: CR+LF line ends
+      if (c.speak) rt.speakWrite(c, spoken.join(''))
     },
     'input #'(it) {
       const n = it.evalInt()
