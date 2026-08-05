@@ -346,3 +346,119 @@ describe('PowerBobs: Pbob Off, Pdraw 25fps, Pswap Clear (routines 3/4/21, 38, 39
     expect([two.powerbobs.clearSel, two.powerbobs.drawSel]).toEqual([0, 0])
   })
 })
+
+describe('PowerBobs: the draw engine (routines 8, 9, 22)', () => {
+  const at = (rt: Runtime, x: number, y: number): number => rt.screen.point(x, y)
+  const setup = 'Reserve Pbobs 4\nPbob Height 1,8\nPbob Height 2,8'
+
+  it('Pbob Draw puts the image on screen where Pbob said', () => {
+    const rt = draw(`${setup}\nPbob 1,10,20,3\nPbob Draw 1 To 1`, { w: 16, h: 4 })
+    expect(at(rt, 10, 20)).toBe(3) // icon 3 paints colour 3 at its pixel 0
+  })
+
+  it('a Pbob is an OPAQUE rectangle — colour 0 is drawn like any other', () => {
+    // BLTCON0 is $09f0 in all three routines: USEA and USED only, minterm
+    // $f0, D = A. No B channel and no mask, so unlike an AMOS bob there is
+    // no transparency. Only the register value says this.
+    const rt = draw(`Cls 5\n${setup}\nPbob 1,10,20,3\nPbob Draw 1 To 1`, { w: 16, h: 4 })
+    expect(at(rt, 10, 20)).toBe(3) // the lit pixel
+    expect(at(rt, 11, 20)).toBe(0) // and colour 0 WIPED the colour-5 paper
+  })
+
+  it('Pbob Clear puts the background back', () => {
+    const rt = draw(`Cls 5\n${setup}\nPbob 1,10,20,3\nPbob Draw 1 To 1\nPbob Clear 1 To 1`, {
+      w: 16,
+      h: 4,
+    })
+    expect(at(rt, 10, 20)).toBe(5)
+    expect(at(rt, 11, 20)).toBe(5)
+  })
+
+  it('Pbob Clear before any draw does nothing, because $13 starts set', () => {
+    // `tst.b $13(a2) / bne` -- Pbob Height leaves $12/$13 as $FFFF, so the
+    // low byte is set and there is nothing to restore
+    const rt = draw(`Cls 5\n${setup}\nPbob Clear 1 To 2`, { w: 16, h: 4 })
+    expect(at(rt, 0, 0)).toBe(5)
+  })
+
+  it('the save happens for EVERY Pbob before any is drawn', () => {
+    // two passes, not one: with overlapping Pbobs a single pass would save
+    // the first bob's pixels as the second one's background
+    const rt = draw(
+      `Cls 5\n${setup}\nPbob 1,10,20,3\nPbob 2,10,20,4\nPbob Draw 1 To 2\nPbob Clear 1 To 2`,
+      { w: 16, h: 4 },
+    )
+    expect(at(rt, 10, 20)).toBe(5) // fully restored, not left holding bob 1
+  })
+
+  it('Set Pbob replace mode stops the save, so Clear leaves the bob there', () => {
+    const rt = draw(
+      `Cls 5\n${setup}\nSet Pbob 1,1,255\nPbob 1,10,20,3\nPbob Draw 1 To 1\nPbob Clear 1 To 1`,
+      { w: 16, h: 4 },
+    )
+    expect(at(rt, 10, 20)).toBe(3) // never saved, so never restored
+  })
+
+  it('Set Fastpbob Mode stops the save globally', () => {
+    const rt = draw(
+      `Cls 5\nSet Fastpbob Mode True\n${setup}\nPbob 1,10,20,3\nPbob Draw 1 To 1\nPbob Clear 1 To 1`,
+      { w: 16, h: 4 },
+    )
+    expect(at(rt, 10, 20)).toBe(3)
+  })
+
+  it('the plane mask decides which bits reach the screen', () => {
+    // `lsr.b #$1,d3 / bcc` walks $1f one bit a plane; a skipped plane keeps
+    // whatever the screen had
+    const rt = draw(`Cls 0\n${setup}\nSet Pbob 1,0,%1\nPbob 1,10,20,3\nPbob Draw 1 To 1`, {
+      w: 16,
+      h: 4,
+    })
+    expect(at(rt, 10, 20)).toBe(1) // colour 3 through a one-plane mask
+  })
+
+  it('an off-screen Pbob draws nothing and is not cleared', () => {
+    const rt = draw(`Cls 5\n${setup}\nPbob 1,-40,20,3\nPbob Draw 1 To 1\nPbob Clear 1 To 1`, {
+      w: 16,
+      h: 4,
+    })
+    expect(at(rt, 0, 20)).toBe(5)
+  })
+
+  it('a partly off-screen Pbob draws its visible part', () => {
+    const rt = draw(`Cls 5\n${setup}\nPbob 1,-8,20,3\nPbob Draw 1 To 1`, { w: 16, h: 4 })
+    // the clipped rectangle is the visible eight columns only: image pixel 0
+    // (the lit one) is at x = -8 and never lands, columns 0..7 take the
+    // image's colour-0 pixels, and column 8 is past the bob entirely
+    expect(at(rt, 0, 20)).toBe(0)
+    expect(at(rt, 7, 20)).toBe(0)
+    expect(at(rt, 8, 20)).toBe(5)
+  })
+
+  it('refuses a reversed range and one past the count', () => {
+    expect(() => draw(`${setup}\nPbob Draw 2 To 1`)).toThrow(/Illegal function call/)
+    expect(() => draw(`${setup}\nPbob Draw 1 To 9`)).toThrow(/Illegal function call/)
+    expect(() => draw(`${setup}\nPbob Clear 2 To 1`)).toThrow(/Illegal function call/)
+  })
+
+  it('Pbob Update covers every Pbob, and refuses when none is reserved', () => {
+    const rt = draw(`Cls 5\n${setup}\nPbob 1,10,20,3\nPbob 2,40,20,4\nPbob Update`, { w: 16, h: 4 })
+    expect([at(rt, 10, 20), at(rt, 40, 20)]).toEqual([3, 4])
+    expect(() => draw('Pbob Update')).toThrow(/Illegal function call/)
+  })
+
+  it('Pbob Draw flips both selectors only when Pbob Dbuf is on', () => {
+    const off = draw(`${setup}\nPbob Draw 1 To 1`)
+    expect([off.powerbobs.drawSel, off.powerbobs.clearSel]).toEqual([0, 0])
+    const on = draw(`Pbob Dbuf True\n${setup}\nPbob Draw 1 To 1`)
+    expect([on.powerbobs.drawSel, on.powerbobs.clearSel]).toEqual([4, 4])
+  })
+
+  it('in 25fps mode the flip happens every OTHER draw', () => {
+    // `subq.w #$1,$1e(a2) / bne` then a reload of 2
+    const one = draw(`Pbob Dbuf True\nPdraw 25fps True\n${setup}\nPbob Draw 1 To 1`)
+    expect(one.powerbobs.drawSel).toBe(0) // counted down from 2 to 1: no flip
+    const two = draw(`Pbob Dbuf True\nPdraw 25fps True\n${setup}\nPbob Draw 1 To 1\nPbob Draw 1 To 1`)
+    expect(two.powerbobs.drawSel).toBe(4)
+  })
+})

@@ -103,6 +103,17 @@ export interface Pbob {
   leftLimit: number
   /** $24 — which icon table entry the last Pbob call resolved to, or -1 */
   iconEntry: number
+  /**
+   * $20 / $18 / $16 / $1a as this port keeps them: the blitter fields are a
+   * destination byte offset, a BLTSIZE, a modulo and a plane count, all of
+   * which say the same thing as the clipped rectangle the save covers. Kept
+   * as the rectangle, because nothing reads them from BASIC and the pixels
+   * are what has to match.
+   */
+  saveX: number
+  saveY: number
+  saveW: number
+  saveH: number
 }
 
 /** The extension data block at `$1b8(a5)`, as far as this slice reads it. */
@@ -133,6 +144,8 @@ export interface PowerBobsState {
   /** $18 / $1a — the range the last Pbob Draw was given, kept for its loop */
   drawLo: number
   drawHi: number
+  /** $16 — Pbob Update's own selector, a THIRD one beside draw and clear */
+  updateSel: number
   /** $1b9, and the $1c/$1e pair Pdraw 25fps loads with 2 when it is on */
   fps25: boolean
   fps25a: number
@@ -149,6 +162,7 @@ export const newPowerBobsState = (): PowerBobsState => ({
   clearSel: 0,
   drawLo: 0,
   drawHi: 0,
+  updateSel: 0,
   fps25: false,
   fps25a: 0,
   fps25b: 0,
@@ -188,6 +202,10 @@ function newPbob(maxHeight: number): Pbob {
     save: new Uint8Array(maxHeight * SAVE_BYTES_PER_LINE),
     leftLimit: 0,
     iconEntry: -1,
+    saveX: 0,
+    saveY: 0,
+    saveW: 0,
+    saveH: 0,
   }
 }
 
@@ -466,6 +484,83 @@ export function makePowerBobsInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
+     * Pbob Clear start To end — routine 8 ($1246), 210 bytes.
+     *
+     * Restores the backgrounds the last draw took, over the range given. The
+     * index gets `$14(a2)` added --- the CLEAR selector, which Pswap Clear
+     * flips --- so a double-buffered program restores from the structure that
+     * belongs to the buffer it is about to leave.
+     *
+     * Two skips, and they are what make it safe to call before any draw:
+     * `tst.b $13(a2) / bne` steps over a Pbob that was off screen or never
+     * drawn, and `move.w $1e(a2),d3 / bmi` over one whose Set Pbob replace
+     * mode is on. That second one reads $1e and $1f TOGETHER as a word, so
+     * bit 15 is the replace flag and the low byte is the plane mask the
+     * restore then walks.
+     */
+    'pbob clear'(it) {
+      const lo = it.evalInt()
+      it.expect('to')
+      const hi = it.evalInt()
+      const s = st()
+      if (hi < lo) funcCall() // cmp.w d6,d7 / Rblt
+      if (hi > s.count) funcCall() // cmp.w $c(a2),d7 / Rbhi
+      clearPass(rt, lo, hi, s.clearSel)
+    },
+
+    /**
+     * Pbob Draw start To end — routine 9 ($1318), 692 bytes, the biggest
+     * routine in the extension.
+     *
+     * Two passes over the range. The first takes every background --- BLTDPT
+     * is the save buffer and BLTAPT the screen plane, so the blit runs screen
+     * into buffer --- and only then does the second draw the images. Doing it
+     * in that order is what makes a group of OVERLAPPING Pbobs come out
+     * right: no image is on the screen yet when the last background is taken.
+     *
+     * Between the passes sits the buffer flip, and it is not unconditional:
+     * only with Pbob Dbuf on, and in 25fps mode only every other call, by
+     * counting `$1e(a2)` down from 2. Both selectors flip together there,
+     * which is the one place Pbob Draw touches the clear side.
+     *
+     * The index gets `$12(a2)` added, the DRAW selector. Set Fastpbob Mode
+     * takes a separate hundred-byte path at $1562 that skips the save
+     * entirely, which this port expresses by skipping pass one.
+     */
+    'pbob draw'(it) {
+      const lo = it.evalInt()
+      it.expect('to')
+      const hi = it.evalInt()
+      const s = st()
+      if (hi < lo) funcCall()
+      if (hi > s.count) funcCall()
+      s.drawLo = lo
+      s.drawHi = hi
+      drawPass(rt, lo, hi, s.drawSel)
+    },
+
+    /**
+     * Pbob Update — routine 22 ($264e), 786 bytes.
+     *
+     * Pbob Clear and Pbob Draw over EVERY Pbob at once, through a THIRD
+     * selector at `$16(a2)` --- draw has $12 and clear has $14. The doc: "Does
+     * the same thing as the Amos Bob Update command, except that the Logical
+     * and Physical Screens are not swapped. This allows a better control on
+     * the updating process if you are using multiple double buffered
+     * screens", and `Pdraw 25fps` deliberately does not reach it.
+     *
+     * `move.w $c(a2),d7 / Rbeq routine 125` --- with nothing reserved this is
+     * error 23, where Pbob Clear and Pbob Draw would simply have an empty
+     * range.
+     */
+    'pbob update'() {
+      const s = st()
+      if (s.count === 0) funcCall() // Rbeq, not Rble: only zero is refused
+      clearPass(rt, 1, s.count, s.updateSel)
+      drawPass(rt, 1, s.count, s.updateSel)
+    },
+
+    /**
      * Set Pbob nr,replace,planemask — routine 23 ($2960), 76 bytes.
      *
      * `replace` is normalised: `cmp.l #$0,d6 / beq` keeps zero and anything
@@ -503,6 +598,152 @@ export function makePowerBobsInstructions(rt: Runtime): Record<string, Instr> {
         }
       }
     },
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * The draw engine
+ * ------------------------------------------------------------------ */
+
+/**
+ * A Pbob's rectangle, clipped to the screen exactly where the routine clips.
+ *
+ * Pbob Draw does the clipping in blitter terms: `move.w $2(a2),d4 / bgt` sends
+ * a y at or above zero down the ordinary path and a negative one to `add.w
+ * d4,d1`, which SHORTENS the height by the overhang and then zeroes the row
+ * offset; the bottom is `move.w $4e(a4),d0 / sub.w d4,d0 / cmp.w d0,d1 / ble`,
+ * clamping the height to what is left of the screen. The horizontal side
+ * works in words --- `andi.w #$fff0,d5` is the x rounded down to a word,
+ * `sub.w d5,d2 / lsr.w #$4,d2` the words that fit, and `cmp.w d3,d5 / beq`
+ * adds one more when the x is not word aligned, which is the shift margin.
+ *
+ * All of that says: the visible rectangle, clipped to the screen. It is kept
+ * as a rectangle here rather than as BLTSIZE and a modulo because nothing
+ * reads those from BASIC and the pixels are what has to match.
+ */
+function clipRect(
+  b: Pbob,
+  w: number,
+  h: number,
+  sw: number,
+  sh: number,
+): { x: number; y: number; w: number; h: number; sx: number; sy: number } {
+  const bx = (b.x << 16) >> 16
+  const by = (b.y << 16) >> 16
+  const x = Math.max(0, bx)
+  const y = Math.max(0, by)
+  return {
+    x,
+    y,
+    w: Math.min(bx + w, sw) - x,
+    h: Math.min(by + h, sh) - y,
+    sx: x - bx, // where in the image the visible part starts
+    sy: y - by,
+  }
+}
+
+/**
+ * The plane mask, applied the way a plane-selective blit applies it.
+ *
+ * `lsr.b #$1,d3 / bcc` walks the byte at $1f one bit a plane and skips the
+ * planes whose bit is clear, so a plane that is skipped keeps whatever the
+ * screen already had. Copying plane p means the destination's bit p becomes
+ * the source's, which over a whole pixel is exactly this.
+ */
+const merge = (dst: number, src: number, mask: number): number => (dst & ~mask) | (src & mask)
+
+/**
+ * Pbob Draw's two passes, and Pbob Update's.
+ *
+ * Pass one SAVES: `move.l $28(a2),$52(a1)` puts the save buffer in BLTDPT and
+ * `move.l a3,(a5)` the screen plane in BLTAPT, so the blit runs screen ->
+ * buffer. Pass two draws the image the other way. Between them sits the
+ * buffer flip. Two passes rather than one is what makes a group of
+ * overlapping Pbobs come out right: every background is taken before any
+ * image lands on top of another one's.
+ *
+ * NOTE: BLTCON0 is $09f0 in all three routines --- USEA and USED only, with
+ * minterm $f0, D = A. There is no B channel and no mask, so a Pbob is an
+ * OPAQUE RECTANGLE and colour 0 is drawn like any other. That is the sharpest
+ * difference from an AMOS bob, it is not in the doc, and only the register
+ * value says it.
+ */
+function drawPass(rt: Runtime, lo: number, hi: number, sel: number): void {
+  const s = rt.powerbobs
+  const scr = rt.screen
+  const pick = (n: number): Pbob | null => (sel === 0 ? s.bobs[n - 1] : s.bobsDbuf[n - 1]) ?? null
+  const bank = rt.iconBank
+
+  // pass one --- take every background before anything is drawn over it
+  if (!s.fastMode) {
+    for (let n = lo; n <= hi; n++) {
+      const b = pick(n)
+      if (!b || (b.f12 & 0xff00) !== 0) continue // tst.b $12(a2) / bne
+      if (b.replace !== 0) continue // tst.b $1e(a2) --- saving is switched off
+      const img = bank?.image(b.iconEntry)
+      if (!img) continue
+      const r = clipRect(b, img.width, img.height, scr.width, scr.height)
+      b.saveX = r.x
+      b.saveY = r.y
+      b.saveW = Math.max(0, r.w)
+      b.saveH = Math.max(0, r.h)
+      for (let dy = 0; dy < b.saveH; dy++) {
+        for (let dx = 0; dx < b.saveW; dx++) {
+          b.save[dy * SAVE_BYTES_PER_LINE + dx] = scr.point(r.x + dx, r.y + dy)
+        }
+      }
+    }
+  }
+
+  // the flip, at $14fc: only with Pbob Dbuf on, and in 25fps mode only every
+  // other call --- `subq.w #$1,$1e(a2) / bne` then a reload of 2
+  if (s.dbuf !== 0) {
+    let flip = true
+    if (s.fps25) {
+      s.fps25b = (s.fps25b - 1) & 0xffff
+      if (s.fps25b !== 0) flip = false
+      else s.fps25b = 2
+    }
+    if (flip) {
+      s.drawSel ^= 4
+      s.clearSel ^= 4
+    }
+  }
+
+  // pass two --- and $12 is copied into $13 first, which is how Pbob Clear
+  // later knows whether this Pbob left anything behind to restore
+  for (let n = lo; n <= hi; n++) {
+    const b = pick(n)
+    if (!b) continue
+    b.f12 = (b.f12 & 0xff00) | ((b.f12 >> 8) & 0xff) // move.b $12(a4),d0 / move.b d0,$13(a4)
+    if ((b.f12 & 0xff00) !== 0) continue
+    const img = bank?.image(b.iconEntry)
+    if (!img) continue
+    const r = clipRect(b, img.width, img.height, scr.width, scr.height)
+    for (let dy = 0; dy < r.h; dy++) {
+      for (let dx = 0; dx < r.w; dx++) {
+        const src = img.pixelAt(r.sx + dx, r.sy + dy)
+        scr.putPixel(r.x + dx, r.y + dy, merge(scr.point(r.x + dx, r.y + dy), src, b.planeMask))
+      }
+    }
+  }
+}
+
+/** Pbob Clear's single pass: the save buffer back onto the screen. */
+function clearPass(rt: Runtime, lo: number, hi: number, sel: number): void {
+  const s = rt.powerbobs
+  const scr = rt.screen
+  for (let n = lo; n <= hi; n++) {
+    const b = (sel === 0 ? s.bobs[n - 1] : s.bobsDbuf[n - 1]) ?? null
+    if (!b) continue
+    if ((b.f12 & 0xff) !== 0) continue // tst.b $13(a2) / bne --- nothing was drawn
+    if (b.replace !== 0) continue // move.w $1e(a2),d3 / bmi --- reads $1e AND $1f
+    for (let dy = 0; dy < b.saveH; dy++) {
+      for (let dx = 0; dx < b.saveW; dx++) {
+        const src = b.save[dy * SAVE_BYTES_PER_LINE + dx]!
+        scr.putPixel(b.saveX + dx, b.saveY + dy, merge(scr.point(b.saveX + dx, b.saveY + dy), src, b.planeMask))
+      }
+    }
   }
 }
 
