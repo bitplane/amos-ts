@@ -1144,7 +1144,8 @@ function cmapToCopper(rt: Runtime, n: number, src: number, eightBit: boolean): v
   // no _ColorBase check here either — see Change Palette
   let a = s.colorBase
   let p = src
-  for (let i = 0; i < n; i++) {
+  // do-while against n-1 (:2957), so a count of zero still copies one entry
+  for (let i = 0; i < Math.max(1, n); i++) {
     if (getW(rt, a) === 0x0106) a += 4
     const shift = eightBit ? 4 : 0
     const r = getB(rt, p) >> shift
@@ -1850,7 +1851,8 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       let src = it.evalInt()
       const s = rt.personnal
       let a = s.colorBase
-      for (let i = 0; i < n; i++) {
+      // do-while against n-1 (:2928): a count of zero still copies one
+      for (let i = 0; i < Math.max(1, n); i++) {
         if (getW(rt, a) === 0x0106) a += 4
         putW(rt, a + 2, getW(rt, src))
         src += 2
@@ -1897,7 +1899,8 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       // 0..15 palettes the neighbouring keywords produce, which is presumably
       // why it survived.
       const sb = (v: number): number => (v << 24) >> 24
-      for (let i = 0; i < n; i++) {
+      // do-while against n-1 (:3045): a count of zero still steps one entry
+      for (let i = 0; i < Math.max(1, n); i++) {
         for (let c = 0; c < 3; c++) {
           const from = getB(rt, src + c)
           const to = sb(getB(rt, dst + c))
@@ -1930,7 +1933,8 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       it.expect('to')
       let dst = it.evalInt()
       const clamp = (v: number): number => (v < 0 ? 0 : v >= 16 ? 15 : v)
-      for (let i = 0; i < n; i++) {
+      // do-while against n-1 (:3087): a count of zero still writes one entry
+      for (let i = 0; i < Math.max(1, n); i++) {
         putB(rt, dst, clamp(getB(rt, src) + dr))
         putB(rt, dst + 1, clamp(getB(rt, src + 1) + dg))
         putB(rt, dst + 2, clamp(getB(rt, src + 2) + db))
@@ -2235,7 +2239,8 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       const count = it.evalInt()
       it.expect('to')
       let dst = it.evalInt()
-      for (let i = 0; i < count; i++) {
+      // do-while against count-1 (:3120): a count of zero still converts one
+      for (let i = 0; i < Math.max(1, count); i++) {
         for (let c = 0; c < 3; c++) putB(rt, dst++, getB(rt, src++) >> 4)
       }
     },

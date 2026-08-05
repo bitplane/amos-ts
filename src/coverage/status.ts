@@ -2940,7 +2940,9 @@ export const NOTES: Record<string, string> = {
   'create aga':
     'differs from Create Standard in more than the colour block, which is easy to miss because the two routines are otherwise line-for-line the same. BPLCON0 starts at \$0010 — BPU3, eight planes — against Standard\'s \$1000, BPLCON2 at \$0224 (KILLEHB) against \$0024, BPLCON3 at \$1000 against \$0c00. Its tail emits one more WAIT after the WAIT \$32 / DMACON pair, for line \$31, which is BEHIND the line just waited for; and it ends without the `BPLCON3 = 0` Standard writes back "for AMOS". An earlier pass gave both builders Standard\'s registers',
   'change palette':
-    'reads _ColorBase without checking it, unlike every keyword that patches the list by name — with no list built it writes from address 0 onward, over the exception vectors. Those addresses are outside any mapped region here and the writes are dropped; nothing is raised, because the library raises nothing',
+    'reads _ColorBase without checking it, unlike every keyword that patches the list by name — with no list built it writes from address 0 onward, over the exception vectors. Those addresses are outside any mapped region here and the writes are dropped; nothing is raised, because the library raises nothing. Its count loop is also a do-while, so zero entries is one entry — see below',
+  'iff8bits to iff4bits':
+    "every \"n entries\" keyword in the palette group subtracts one BEFORE the loop and ends on Bpl, so a count of zero leaves the counter at -1 with the body already run: this (:3120), Change Palette (:2928), the two Palette To Copper forms (:2957), Fade Palette (:3045) and Attribute Palette (:3087). A count of zero moves one entry, not none, and a negative count moves one too. All six counted from zero here",
   'iff8bits palette to copper': 'the same unchecked _ColorBase as Change Palette',
   'iff4bits palette to copper': 'the same unchecked _ColorBase as Change Palette, and no mask on the way in, so a 4-bit CMAP byte above 15 bleeds into the channel above it',
   'fade palette':

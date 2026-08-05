@@ -790,6 +790,38 @@ describe('Personnal: the AGA and CMAP half of colour (L71/L72/L73/L75/L80)', () 
     expect(getWord(rt, s.colorBase + 14)).toBe(0x00f)
   })
 
+  it('a count of zero still moves one entry — the loops are do-whiles', () => {
+    // Every "n entries" keyword in this group subtracts one BEFORE the loop
+    // and ends on Bpl, so n=0 leaves the counter at -1 and the body has
+    // already run: Change Palette :2928, the two Palette To Copper forms
+    // :2957, Fade Palette :3045, Attribute Palette :3087, Iff8bits To
+    // Iff4bits :3120. A count of zero is one entry, not none.
+    const rt = run(
+      [
+        ...bank,
+        'Reserve As Work 11,64 : B=Start(11)',
+        'Doke B,$ABC',
+        'Poke B+8,$30 : Poke B+9,$40 : Poke B+10,$50',
+        'Create Standard A',
+        'Change Palette 0,B',
+        'Iff8bits To Iff4bits B+8,0 To B+16',
+      ].join('\n'),
+    )
+    expect(getWord(rt, rt.personnal.colorBase + 2)).toBe(0xabc)
+
+    let out = ''
+    const src = [
+      ...bank,
+      'Reserve As Work 11,64 : B=Start(11)',
+      'Poke B+8,$30 : Poke B+9,$40 : Poke B+10,$50',
+      'Iff8bits To Iff4bits B+8,0 To B+16',
+      'Print Peek(B+16);Peek(B+17);Peek(B+18)',
+    ].join('\n')
+    const rt2 = new Runtime(tokenize(src, table, exts), table, { extensions: exts, maxSteps: 500_000, onText: (t) => (out += t) })
+    rt2.runHeadless(200)
+    expect(out).toBe(' 3 4 5\n') // one RGB triple converted, where a count of zero reads as none
+  })
+
   it('an 8-bit CMAP is shifted down four bits a channel, a 4-bit one is not', () => {
     const src = [
       ...bank,
