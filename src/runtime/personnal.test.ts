@@ -1604,11 +1604,15 @@ describe('Personnal: the AGA icon bank (L87-L93, :3369-:3598)', () => {
 describe('Personnal: the two 1.1-only keywords (routines 120 and 122)', () => {
   const bank = ['Reserve As Work 10,24000', 'A=Start(10)', 'Create Standard A']
 
-  it('Mplot Start Plane moves where Mplot Draw begins, and holds 1 to 8', () => {
+  it('Mplot Start Plane moves where Mplot Draw begins, and IGNORES a bad plane', () => {
     const rt = run([...bank, 'Mplot Start Plane 3'].join('\n'))
     expect(rt.personnal.mpStartPlane).toBe(3)
+    // routine 120's two range branches both target $6668, which IS the rts —
+    // out of 1..8 is a silent no-op, not error 14. Mplot Planes raises 14 for
+    // the same range, which is presumably where the error came from here.
     for (const n of [0, 9]) {
-      expect(() => run([...bank, `Mplot Start Plane ${n}`].join('\n'))).toThrow(/Valeurs permises de 1 a 8/)
+      const r = run([...bank, 'Mplot Start Plane 3', `Mplot Start Plane ${n}`].join('\n'))
+      expect(r.personnal.mpStartPlane).toBe(3) // unchanged, and nothing raised
     }
   })
 

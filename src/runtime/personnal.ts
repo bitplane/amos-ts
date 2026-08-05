@@ -2391,7 +2391,10 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
      */
     'mplot start plane'(it) {
       const n = it.evalInt()
-      if (n < 1 || n > 8) err(14)
+      // out of 1..8 is a plain rts (`blt $6668` / `bgt $6668`, and $6668 IS
+      // the rts) — no error, unlike Mplot Planes, which raises 14 for the
+      // same range. This port raised 14 here too
+      if (n < 1 || n > 8) return
       rt.personnal.mpStartPlane = n
     },
 
@@ -2569,8 +2572,11 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
      * Read off the shipped binary: the published 1.1a source has L119 as an
      * empty label, like L113.
      *
-     * A range that ends at or below its start swaps that one word here and
-     * stops; the 68k keeps stepping until the pointer wraps.
+     * A range that ends at or below its start swaps that one word and stops,
+     * on the machine as well as here — the loop closes on `cmpa.l a2,a1 /
+     * blt`, so a1 already past a2 falls straight through to the rts. An
+     * earlier note here claimed the 68k kept stepping until the pointer
+     * wrapped; that is Octets Fill, which closes on Bne.
      */
     'word switch'(it) {
       const start = it.evalInt()

@@ -2979,7 +2979,7 @@ export const NOTES: Record<string, string> = {
     'the point range EXCLUDES `last` (:4027), where the guide says inclusive — every shipped demo writes `Mplot Draw 1 To NUM` after reserving NUM, so the last point never draws on a real machine either. Starts at plane _MpStartPlane-1 in the 1.1 build',
   'mplot modify': 'the same exclusive range as Mplot Draw (:4136)',
   'mplot start plane':
-    "1.1 defaults the variable to 0, which makes a plain Mplot Draw index _BitsPlanes[-1] — the longword at the base of the data bank, the ASCII \"Fred\". No shipped demo calls the keyword, so all of them take that path on 1.1. This port defaults it to 1 instead, because one handler serves both versions and 1.0b always starts at plane 0",
+    "out of 1..8 is a plain rts, not error 14 — routine 120's two range branches both target $6668, which IS the rts. Mplot Planes raises 14 for the same range, which is presumably where the error this port used to raise came from. 1.1 defaults the variable to 0, which makes a plain Mplot Draw index _BitsPlanes[-1] — the longword at the base of the data bank, the ASCII \"Fred\". No shipped demo calls the keyword, so all of them take that path on 1.1. This port defaults it to 1 instead, because one handler serves both versions and 1.0b always starts at plane 0",
   'mplot load':
     'reads count*260 bytes into a buffer sized count*6+8 — 260 is the AGA icon stride and Mplot Save writes with 6. A copy-paste from the icon loader that only escapes overrunning because the file ends first',
   'mplot save':
@@ -3027,7 +3027,7 @@ export const NOTES: Record<string, string> = {
   'mosaic x16': 'the same two guards as Mosaic X2',
   'mosaic x32': 'the same two guards as Mosaic X2',
   'octets fill': 'an end equal to the start passes the routine\'s own Bmi and then fills memory until it faults; it writes nothing here',
-  'word switch': 'a range ending at or below its start swaps one word and stops; the 68k keeps stepping until the pointer wraps',
+  'word switch': 'a range ending at or below its start swaps that one word and stops, on the machine as well as here — routine 119 closes on `cmpa.l a2,a1 / blt`, so a1 already past a2 falls through to the rts. An earlier note here said the 68k kept stepping until the pointer wrapped; that is Octets Fill, which closes on Bne',
   's32 block to screen':
     'steps rows by longs*4, its own `Lsl.l #2`, not the screen byte width, so a width that is not a whole number of longwords drifts — kept. A screen under 32 pixels wide gives the innermost do-while a count of zero and the 68k never leaves it; that case does nothing here',
   's32 vertice to screen': 'the same row-step drift and the same narrow-screen guard as S32 Block To Screen',
