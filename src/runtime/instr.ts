@@ -13,7 +13,7 @@ import { newTurboState, TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions,
 import { newPersonnalState, PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
 import { newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
 import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions, ensureLib } from './speech'
-import { makeTomeInstructions, newTomeState } from './tome'
+import { makeTomeFunctions, makeTomeInstructions, newTomeState } from './tome'
 import { SpeakBuffer, isSpeakPath, parseSpeakOptions, type SpeakOptions } from '../amiga/speak'
 import { newIoPortsState, makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
 import { newCtextState, makeCtextFunctions, makeCtextInstructions } from './ctext'
@@ -5058,6 +5058,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
       rt.tome = newTomeState()
     },
     instructions: makeTomeInstructions,
+    functions: makeTomeFunctions,
     aliases: { 'tome-3.1': { 'tile val bank': 'tile typ bank' } },
   },
   {

@@ -46,13 +46,17 @@ function icons(n: number): ObjectBank {
   return b
 }
 
+let printed = ''
+
 function run(src: string, opts: { map?: Uint8Array; nIcons?: number; ext?: typeof tome } = {}): Runtime {
   const ext = opts.ext ?? tome
   const exts = new Map([[7, ext.table]])
+  printed = ''
   const rt = new Runtime(tokenize(src, table, exts), table, {
     extensions: exts,
     extBindings: new Map([[7, ext]]),
     maxSteps: 200_000,
+    onText: (t) => (printed += t),
   })
   if (opts.map) rt.memBanks.set(1, { kind: 'memory', number: 1, memType: 0, name: 'Map', flags: 0, data: opts.map })
   rt.iconBank = icons(opts.nIcons ?? 8)
@@ -251,5 +255,103 @@ describe('TOME 3.1 is 4.23 with one keyword renamed', () => {
       .map((e, i) => ({ a: e.name, b: tome.tokens[i]!.name, id: e.id }))
       .filter((p) => p.a !== p.b)
     expect(diff).toEqual([{ a: 'tile val bank', b: 'tile typ bank', id: 0x1ba }])
+  })
+})
+
+describe('TOME: the query functions', () => {
+  /** run `<setup> : Print <expr>` and read the number back off the console */
+  function val(src: string, opts: Parameters<typeof run>[1] = {}): number {
+    run(src, opts)
+    return Number(printed.trim())
+  }
+  const m = () => mapBank(4, 3, [0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3])
+
+  it('Xtile and Ytile divide the pixel by the tile, relative to the view', () => {
+    // routines 3 ($74c) and 2 ($732): `sub.l $20(a0),d3 / divu.w`
+    const head = 'Map View 100,50 To 300,150 : Tile Size 16,8 : '
+    expect(val(`${head}Print Xtile(100)`)).toBe(0)
+    expect(val(`${head}Print Xtile(131)`)).toBe(1)
+    expect(val(`${head}Print Xtile(132)`)).toBe(2)
+    expect(val(`${head}Print Ytile(66)`)).toBe(2)
+    // Map Pos X/Y are routines 63 and 64, the same code a second time
+    expect(val(`${head}Print Map Pos X(132)`)).toBe(2)
+    expect(val(`${head}Print Map Pos Y(66)`)).toBe(2)
+  })
+
+  it('a pixel left of the view overflows divu.w and answers the difference', () => {
+    // the quotient of a huge unsigned dividend does not fit in sixteen bits,
+    // so `divu.w` leaves d3 alone and `andi.l #$ffff` takes the low word of
+    // what was being divided. -1 comes back as 65535, not as -1 or 0.
+    expect(val('Map View 100,50 To 300,150 : Tile Size 16,8 : Print Xtile(99)')).toBe(0xffff)
+    expect(val('Map View 100,50 To 300,150 : Tile Size 16,8 : Print Ytile(34)')).toBe(0xfff0)
+  })
+
+  it('Map Hx/Hy divide with no view, and Map Fx/Fy MASK rather than take a remainder', () => {
+    // routines 32-35. The mask is `subq.w #$1` on the tile size, so it is only
+    // the remainder for a power of two -- and Tile Size allows 1..32.
+    expect(val('Tile Size 16,16 : Print Map Hx(100)')).toBe(6)
+    expect(val('Tile Size 16,8 : Print Map Hy(100)')).toBe(12)
+    expect(val('Tile Size 16,16 : Print Map Fx(100)')).toBe(4)
+    expect(val('Tile Size 16,16 : Print Map Fy(100)')).toBe(4)
+    // 24 is not a power of two, and there the pair stops being consistent:
+    // 50 is 2 tiles and 2 pixels in, so Map Hx says 2 and a remainder would
+    // say 2 -- but 50 AND 23 is 18, which is larger than the tile itself
+    expect(val('Tile Size 24,24 : Print Map Hx(50)')).toBe(2)
+    expect(val('Tile Size 24,24 : Print Map Fx(50)')).toBe(18)
+  })
+
+  it('Map X and Map Y read the bank header, not the cached copy', () => {
+    // routines 21 ($f98) and 22 ($faa), each `Rbsr routine 67` then one move
+    expect(val('Map Bank 1 : Print Map X', { map: m() })).toBe(4)
+    expect(val('Map Bank 1 : Print Map Y', { map: m() })).toBe(3)
+  })
+
+  it('Map Tile is RAW and out of range is an error, not a wrap', () => {
+    // routine 4 ($766): no `addq.l #$1`, and all four bounds go to routine 81
+    expect(val('Map Bank 1 : Print Map Tile(1,1)', { map: m() })).toBe(5)
+    expect(val('Map Bank 1 : Print Map Tile(3,2)', { map: m() })).toBe(3)
+    expect(() => val('Map Bank 1 : Print Map Tile(4,0)', { map: m() })).toThrow(/illegal function call/i)
+    expect(() => val('Map Bank 1 : Print Map Tile(-1,0)', { map: m() })).toThrow(/illegal function call/i)
+    expect(() => val('Map Bank 1 : Print Map Tile(0,3)', { map: m() })).toThrow(/illegal function call/i)
+  })
+
+  it('Map Length sizes a Reserve and never touches a bank', () => {
+    // routine 39 ($1466): `mulu.w d0,d3 / addq.l #$4,d3`
+    expect(val('Print Map Length(40,25)')).toBe(1004)
+    expect(val('Print Map Length(0,0)')).toBe(4)
+  })
+
+  it('Tile Count counts one byte value across the whole map', () => {
+    // routine 65 ($1f4c), a `cmp.b` so only the low eight bits are compared
+    expect(val('Map Bank 1 : Print Tile Count(0)', { map: m() })).toBe(2)
+    expect(val('Map Bank 1 : Print Tile Count(3)', { map: m() })).toBe(2)
+    expect(val('Map Bank 1 : Print Tile Count(9)', { map: m() })).toBe(0)
+    expect(val('Map Bank 1 : Print Tile Count(256)', { map: m() })).toBe(2) // & $ff
+  })
+
+  it('Map Check REPAIRS the map and returns how many tiles it zeroed', () => {
+    // routine 31 ($1284): `cmp.l d7,d2 / bge` against the icon count, then
+    // `move.b #$0`. A tile at or above the count is one that would raise
+    // error 74 mid-draw, so this is what makes a map safe after the icon
+    // bank has been swapped for a smaller one.
+    const data = mapBank(2, 2, [0, 4, 9, 1])
+    run('Map Bank 1 : Print Map Check', { map: data, nIcons: 5 })
+    expect(Number(printed.trim())).toBe(1) // only tile 9 is >= 5
+    expect([...data.slice(4)]).toEqual([0, 4, 0, 1])
+    // no icon bank at all is routine 70's error, raised before the map is read
+    const noIcons = new Runtime(tokenize('Map Bank 1 : Print Map Check', table, new Map([[7, tome.table]])), table, {
+      extensions: new Map([[7, tome.table]]),
+      extBindings: new Map([[7, tome]]),
+      maxSteps: 100_000,
+    })
+    noIcons.memBanks.set(1, { kind: 'memory', number: 1, memType: 0, name: 'Map', flags: 0, data })
+    noIcons.iconBank = null
+    expect(() => noIcons.runHeadless(200)).toThrow(/illegal function call/i)
+  })
+
+  it('Map Base answers 0 rather than inventing a pointer', () => {
+    // routine 28 ($1158) hands back $158(a5) itself. APPROXIMATED: there is no
+    // address here whose layout is the machine's, and 0 reads as "unavailable"
+    expect(val('Print Map Base')).toBe(0)
   })
 })

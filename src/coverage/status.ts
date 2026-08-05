@@ -1835,6 +1835,24 @@ export const FAITHFUL = new Set<string>([
   'brik bank',
   'tile typ bank',
   'tile val bank', // 3.1's spelling of the same id and the same routine
+  // the query side, routines 2, 3, 4, 21, 22, 31-35, 39, 63, 64, 65. Map Base
+  // is APPROXIMATED (it hands back a pointer); the rest are exact, including
+  // the 68000 `divu.w` overflow Xtile/Ytile depend on and the Map Fx/Fy mask
+  // that is only a remainder for a power-of-two tile.
+  'xtile',
+  'ytile',
+  'map pos x',
+  'map pos y',
+  'map hx',
+  'map hy',
+  'map fx',
+  'map fy',
+  'map x',
+  'map y',
+  'map tile',
+  'map length',
+  'tile count',
+  'map check',
   'map view',
   'map do',
   'map left',
@@ -2090,6 +2108,8 @@ export const NA = new Set<string>([
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  'map base':
+    "Routine 28 (\$1158), ten bytes: `movea.l \$158(a5),a0 / move.l a0,d3`. The address of TOME's own data block at \$158(a5), for a program that wants to poke the state fields -- the tile size at \$e, the view at \$20, the map cursor at \$a -- rather than call the keywords. NOTE: the block is an object here, not bytes at an address, so there is no pointer to give that would mean anything. Answering a plausible one would invite exactly the poking it exists for, into memory whose layout is not the machine's; this answers 0, which a program checking before use reads as \"not available\". APPROXIMATED in the value only -- the routine itself is fully read, and it does nothing else. Same decision as AMCAF's Screen Rastport / Screen Bitmap family, for the same reason",
   // --- IOPorts: implemented, but reporting a port with nothing on it ---
   'serial error':
     "Returns 0. The real call reads io_Error from the request and maps it through the device's error table (base 145, 16 messages, from the Dev.Open call). With no hardware behind the port there is no transfer to fail, so no error is ever raised and the keyword can only report success. The mapping itself is modelled -- ioError() resolves those exact messages -- it just has nothing to map",

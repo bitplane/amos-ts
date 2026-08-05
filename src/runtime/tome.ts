@@ -61,8 +61,9 @@
  *               followed by `Rbhi`, which is UNSIGNED strictly-greater, so a
  *               tile whose icon number equals the count is legal.
  */
-import { AmosError } from '../interp/values'
-import type { Instr } from '../interp/builtins'
+import { AmosError, VI, int } from '../interp/values'
+import type { Value } from '../interp/values'
+import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 
 /** The extension data block at `$158(a5)`, as far as this slice reads it. */
@@ -390,5 +391,193 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
         sx += s.tileW
       } while (sx < s.viewX2)
     },
+  }
+}
+
+/**
+ * `divu.w` as the 68000 does it, which two of these functions depend on.
+ *
+ * The dividend is a LONG read as UNSIGNED and the divisor a WORD. If the
+ * quotient will not fit in sixteen bits the instruction OVERFLOWS: it sets V
+ * and leaves the destination register untouched. Every one of these routines
+ * follows its `divu.w` with `andi.l #$ffff`, so an overflow does not raise
+ * anything -- it silently answers the low word of the DIVIDEND instead.
+ *
+ * That is reachable from BASIC. `=Xtile(x)` for an x to the left of the view
+ * computes a negative difference, reads it as a huge unsigned one, overflows,
+ * and hands back `(x - viewX1) & $ffff`. Reproduced rather than corrected:
+ * a program written against the real library got these numbers.
+ */
+function divuw(dividend: number, divisor: number): number {
+  const u = dividend >>> 0
+  const d = divisor & 0xffff
+  if (d === 0) return u & 0xffff // a real divide-by-zero trap; see the callers
+  const q = Math.floor(u / d)
+  return (q > 0xffff ? u : q) & 0xffff
+}
+
+export function makeTomeFunctions(rt: Runtime): Record<string, Func> {
+  const st = (): TomeState => rt.tome
+
+  /**
+   * =Xtile(x) — routine 3 ($74c) — and =Ytile(y), routine 2 ($732). Twenty-six
+   * bytes each: subtract the view's near edge and divide by the tile size,
+   * `sub.l $20(a0),d3 / move.l $e(a0),d1 / divu.w d1,d3 / andi.l #$ffff,d3`.
+   * The screen pixel to a map column, relative to the view rather than to the
+   * map, so this answers "which column of the VIEW" and the caller adds the
+   * cursor. Overflow behaviour is `divuw`'s.
+   */
+  const tileOf = (v: number, near: number, size: number): Value => VI(divuw((v - near) | 0, size))
+
+  return {
+    xtile: (_, a): Value => tileOf(int(a[0]!), st().viewX1, st().tileW),
+    ytile: (_, a): Value => tileOf(int(a[0]!), st().viewY1, st().tileH),
+
+    /**
+     * =Map Pos X(x) — routine 63 ($1f18) — and =Map Pos Y(y), routine 64
+     * ($1f32).
+     *
+     * These are Xtile and Ytile AGAIN. Routine 63 is routine 3 instruction for
+     * instruction but for the scratch register (`d0` where 3 uses `d1`) and
+     * the order of the first two instructions; 64 is likewise 2. Two names for
+     * one calculation, four routines in the hunk. Nothing in the binary
+     * distinguishes them, so nothing here does either.
+     */
+    'map pos x': (_, a): Value => tileOf(int(a[0]!), st().viewX1, st().tileW),
+    'map pos y': (_, a): Value => tileOf(int(a[0]!), st().viewY1, st().tileH),
+
+    /**
+     * =Map Hx(x) — routine 32 ($12e8) — and =Map Hy(y), routine 33 ($12fc).
+     *
+     * `divu.w $64(a0),d3`: the tile size again, but this time straight off the
+     * WORD copies Tile Size leaves at $64/$66, with no view subtraction. So
+     * these are the absolute pixel-to-tile divide where Xtile is the relative
+     * one -- the "H" pair and the "F" pair below are a whole-and-fraction
+     * split of a pixel coordinate.
+     */
+    'map hx': (_, a): Value => VI(divuw(int(a[0]!), st().tileW)),
+    'map hy': (_, a): Value => VI(divuw(int(a[0]!), st().tileH)),
+
+    /**
+     * =Map Fx(x) — routine 34 ($1310) — and =Map Fy(y), routine 35 ($1322).
+     *
+     * The remainder half, done with a MASK and not a modulo: `move.l $e(a0),d2
+     * / subq.w #$1,d2 / and.l d2,d3`.
+     *
+     * DEFECT: that is only the remainder when the tile size is a power of two.
+     * Tile Size accepts any 1..32 (it wraps rather than checking), so a
+     * 24-pixel tile gives `x AND 23`, which is not `x MOD 24` and does not
+     * even count up monotonically. Reproduced -- a program with a 24-wide tile
+     * got these numbers from the real library, and the pairing with Map Hx
+     * (a true divide) is exactly where the two disagree.
+     *
+     * `subq.w` on a long register touches the low word only, so the mask is
+     * built from the low word of the tile-size long, as it is in Map Right.
+     */
+    'map fx': (_, a): Value => VI(int(a[0]!) & (((st().tileW - 1) & 0xffff) | 0)),
+    'map fy': (_, a): Value => VI(int(a[0]!) & (((st().tileH - 1) & 0xffff) | 0)),
+
+    /**
+     * =Map X — routine 21 ($f98) — and =Map Y, routine 22 ($faa). Eighteen
+     * bytes: resolve the map bank through routine 67 and read the header,
+     * `move.w $0(a1),d3` and `move.w $2(a1),d3`. The map's size in TILES,
+     * taken from the bank each call rather than from the $16/$18 cache, so
+     * these answer for the current Map Bank whether or not anything has drawn.
+     */
+    'map x': (): Value => VI(mapData(rt).w),
+    'map y': (): Value => VI(mapData(rt).h),
+
+    /**
+     * =Map Tile(x,y) — routine 4 ($766).
+     *
+     * The tile byte at a map position, RAW: no `addq.l #$1`, so this is the
+     * 0-based value the bank holds and not the icon number the draws paste.
+     *
+     * And unlike every drawing routine, it does not wrap -- it ERRORS. All
+     * four bounds are checked (`tst.w / Rblt` on each and `cmp.w / Rbge`
+     * against $16 and $18) and every failure goes to routine 81, AMOS error
+     * 23. So the same coordinate that Map Do would happily wrap is an illegal
+     * function call here.
+     */
+    'map tile': (_, a): Value => {
+      const x = int(a[0]!)
+      const y = int(a[1]!)
+      const m = mapData(rt)
+      const s = st()
+      s.mapW = m.w
+      s.mapH = m.h
+      if (y < 0 || x < 0 || y >= m.h || x >= m.w) funcCall()
+      return VI(m.data[4 + y * m.w + x]!)
+    },
+
+    /**
+     * =Map Length(w,h) — routine 39 ($1466), sixteen bytes and no state at
+     * all: `mulu.w d0,d3 / addq.l #$4,d3`. How big a Reserve has to be for a
+     * w-by-h map -- one byte a tile plus the four-byte header. It never looks
+     * at the bank, so it can be called before there is one.
+     */
+    'map length': (_, a): Value => VI(((int(a[0]!) & 0xffff) * (int(a[1]!) & 0xffff) + 4) | 0),
+
+    /**
+     * =Tile Count(t) — routine 65 ($1f4c), forty-six bytes.
+     *
+     * How many times tile `t` appears in the whole map: `mulu.w d2,d1 / subq.l
+     * #$1,d1` for the last index, then `cmp.b $4(a1,d1.l),d4 / dbra`. A BYTE
+     * compare, so only the low eight bits of the argument are looked at.
+     *
+     * NOTE: an empty map (either dimension zero) leaves `d1 = -1` and the
+     * `dbra` then runs 65,536 times over memory before the bank -- a scan off
+     * the end of the map rather than a loop that does nothing. Not reproduced;
+     * there is no memory before the bank here to read, and the count answered
+     * is 0.
+     */
+    'tile count': (_, a): Value => {
+      const t = int(a[0]!) & 0xff
+      const m = mapData(rt)
+      let n = 0
+      for (let i = 0; i < m.w * m.h; i++) if (m.data[4 + i] === t) n++
+      return VI(n)
+    },
+
+    /**
+     * =Map Check — routine 31 ($1284), a hundred bytes, and it is not a
+     * predicate: it REPAIRS the map and answers how much repairing it did.
+     *
+     * It walks every tile and compares against the icon COUNT cached at
+     * $8(a0), `cmp.l d7,d2 / bge`. A tile at or above the count is one whose
+     * icon number (tile + 1) is past the end of the bank -- exactly what would
+     * raise routine 82's error 74 mid-draw -- and it is overwritten with
+     * `move.b #$0` and counted. So this is the tool for making a map safe to
+     * draw after the icon bank has been replaced with a smaller one.
+     *
+     * Both banks are required: routine 70 first, then 67, so a missing icon
+     * bank is error 23 before the map is even resolved.
+     */
+    'map check': (): Value => {
+      const count = iconCount(rt)
+      const m = mapData(rt)
+      let fixed = 0
+      for (let i = 0; i < m.w * m.h; i++) {
+        if (m.data[4 + i]! >= count) {
+          m.data[4 + i] = 0
+          fixed++
+        }
+      }
+      return VI(fixed)
+    },
+
+    /**
+     * =Map Base — routine 28 ($1158), ten bytes: `movea.l $158(a5),a0 /
+     * move.l a0,d3`. The address of TOME's own data block, for a program that
+     * wants to poke the state fields directly.
+     *
+     * NOTE: the block is an object here and not bytes at an address, so there
+     * is no pointer to give that would mean anything. Answering a plausible
+     * one would invite exactly the poking it is for, into memory whose layout
+     * is not the machine's; this answers 0, which a program checking before
+     * use reads as "not available". APPROXIMATED in the value. Same decision
+     * as AMCAF's Screen Rastport family, for the same reason.
+     */
+    'map base': (): Value => VI(0),
   }
 }
