@@ -2947,6 +2947,8 @@ export const NOTES: Record<string, string> = {
     'steps each channel with a SIGNED byte compare (`Cmp.b` / `Blt`), so a channel of 128 or more reads as negative and moves away from its target rather than towards it. Invisible on the 0..15 palettes the neighbouring keywords produce, which is presumably why it survived',
   'new color value':
     'packs the channels with ADD where Set Color ORs, so a channel above 15 carries into the one above it instead of overlaying it',
+  'set second color':
+    'Set Color\'s walk over the block, on _2pal, and error 7 rather than 1 when there is no second screen — but New Color Value\'s ADD packing rather than Set Color\'s OR. Three of the five colour keywords add and two or; nothing distinguishes them but the instruction',
   'playfields col':
     'answers -1 when the CLXDAT bit is CLEAR, the opposite of what the name suggests (Btst sets Z on a zero bit and the Bne skips the -1); and there is no collision hardware here, so CLXDAT reads 0 and it always answers -1',
   'pf sprites col': 'the same inverted test as Playfields Col, and the same always--1 answer for want of CLXDAT',

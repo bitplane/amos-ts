@@ -2015,7 +2015,12 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       putW(rt, s.bplcon2nd + 2, PLANES_MASK[Math.max(0, Math.min(8, n))]!)
     },
 
-    /** Set Second Color reg,r,g,b (L70, +AMOSPro_Personnal.Lib.s:2868) — Set Color, on _2pal */
+    /**
+     * Set Second Color reg,r,g,b (L70, +AMOSPro_Personnal.Lib.s:2868) — Set
+     * Color's walk, on _2pal, and error 7 rather than 1 when there is no
+     * second screen. It packs the channels with ADD (:2880) where Set Color
+     * ORs, so it is New Color Value's arithmetic on Set Color's target.
+     */
     'set second color'(it) {
       const reg = it.evalInt()
       it.expect(',')
@@ -2032,7 +2037,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
         if (seen === reg) break
         a += 4
       }
-      putW(rt, a + 2, ((r << 8) | (g << 4) | b) & 0xffff)
+      putW(rt, a + 2, ((r << 8) + (g << 4) + b) & 0xffff)
     },
 
     /**
