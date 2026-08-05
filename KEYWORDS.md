@@ -94,14 +94,14 @@ tested against our own understanding. Percentages exclude n/a
 | tft-0.6 | 22 | 20 | 0 | 0 | 100% |
 | the-game-0.9 | 103 | 0 | 0 | 103 | 0% |
 | tome-3.1 | 34 | 29 | 1 | 4 | 88% |
-| tome-4.23 | 34 | 12 | 0 | 22 | 35% |
+| tome-4.23 | 34 | 22 | 0 | 12 | 65% |
 | tools-1.01 | 32 | 0 | 0 | 32 | 0% |
 | turbo-plus-1.0 | 132 | 128 | 3 | 0 | 100% |
 | turbo-plus-1.9 | 4 | 4 | 0 | 0 | 100% |
 | turbo-plus-2.15 | 17 | 17 | 0 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 4543 | 1737 | 66 | 2631 | 41% |
+| **total** | 4543 | 1747 | 66 | 2621 | 41% |
 
 ## aga-1.0 (100%)
 
@@ -467,10 +467,10 @@ tested against our own understanding. Percentages exclude n/a
 - **approximated**: `map base` *(Routine 28 ($1158), ten bytes: `movea.l $158(a5),a0 / move.l a0,d3`. The address of TOME's own data block at $158(a5), for a program that wants to poke the state fields -- the tile size at $e, the view at $20, the map cursor at $a -- rather than call the keywords. NOTE: the block is an object here, not bytes at an address, so there is no pointer to give that would mean anything. Answering a plausible one would invite exactly the poking it exists for, into memory whose layout is not the machine's; this answers 0, which a program checking before use reads as "not available". APPROXIMATED in the value only -- the routine itself is fully read, and it does nothing else. Same decision as AMCAF's Screen Rastport / Screen Bitmap family, for the same reason)*
 - **missing**: `map scan x`, `map scan y`, `tiny bank`, `tiny map`
 
-## tome-4.23 (35%)
+## tome-4.23 (65%)
 
-- **faithful**: `list tile`, `map ab length`, `map anim bank`, `map length`, `map paste`, `map pos x`, `map pos y`, `map update`, `map update off`, `map update on`, `tile count`, `tile typ bank`
-- **missing**: `map an at`, `map an freeze`, `map an move`, `map an point`, `map an unfreeze`, `map anim`, `map anim off`, `map anim on`, `map fall`, `map handle`, `map handle init`, `map set zone`, `map swap tile`, `map zb length`, `map zone`, `map zone bank`, `tile tag`, `tile tag set`, `tile tag x`, `tile tag y`, `tile tags off`, `tile tags on`
+- **faithful**: `list tile`, `map ab length`, `map anim bank`, `map length`, `map paste`, `map pos x`, `map pos y`, `map set zone`, `map update`, `map update off`, `map update on`, `map zb length`, `map zone`, `map zone bank`, `tile count`, `tile tag`, `tile tag set`, `tile tag x`, `tile tag y`, `tile tags off`, `tile tags on`, `tile typ bank`
+- **missing**: `map an at`, `map an freeze`, `map an move`, `map an point`, `map an unfreeze`, `map anim`, `map anim off`, `map anim on`, `map fall`, `map handle`, `map handle init`, `map swap tile`
 
 ## tools-1.01 (0%)
 

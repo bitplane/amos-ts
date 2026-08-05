@@ -618,3 +618,100 @@ describe('TOME: the update list (routines 20, 36, 37, 38, 40, 41, 46, 49)', () =
     expect(at(rt, 6, 0)).toBe(0) // three icons, so it stopped
   })
 })
+
+describe('TOME: tile tags and zones (routines 57-62, 73-76)', () => {
+  const head = ['Screen Open 0,320,200,8,Lowres', 'Cls 0', 'Map Bank 1', 'Tile Size 1,1', 'Map View 0,0 To 4,3']
+  const m = () => mapBank(4, 3, [0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3])
+
+  it('a tagged tile is reported by the draw that passed it, with its MAP position', () => {
+    // routine 59 fills a slot; the $4a arm in every map draw scans the eight
+    // slots and records $38/$48 plus a bit in $48 of the main block
+    const rt = run([...head, 'Tile Tags On', 'Tile Tag Set 6,1', 'Map Do 0,0'].join('\n'), { map: m() })
+    expect(rt.tome.tagSeen).toBe(0b1) // slot 1 -> bit 0
+    expect(val('Print Tile Tag X(1)', { map: m() })).toBe(0) // fresh runtime
+    // and in the same run, tile 6 lives at map (2,1)
+    expect(rt.tome.tagX[0]).toBe(2)
+    expect(rt.tome.tagY[0]).toBe(1)
+  })
+
+  it('Tile Tag reads the mask destructively, and a draw clears it first', () => {
+    // routine 60 ($1ec4): `move.b $48(a0),d3 / move.b #$0,$48(a0)`, and every
+    // map draw opens with `move.w #$0,$48(a0)`
+    const rt = run([...head, 'Tile Tags On', 'Tile Tag Set 6,1', 'Map Do 0,0', 'A=Tile Tag'].join('\n'), { map: m() })
+    expect(rt.tome.tagSeen).toBe(0)
+    // a second draw over a map without tile 6 leaves the mask clear
+    const rt2 = run([...head, 'Tile Tags On', 'Tile Tag Set 6,1', 'Map Do 0,0', 'Map Bank 2', 'Map Do 0,0'].join('\n'), {
+      map: m(),
+      briks: mapBank(2, 2, [0, 1, 2, 3]),
+    })
+    expect(rt2.tome.tagSeen).toBe(0)
+  })
+
+  it('nothing is tagged while Tile Tags is off', () => {
+    // routine 58 ($1e86) clears $4a, and every draw's `tst.w $4a(a0) / bne`
+    // then never reaches the scan
+    const rt = run([...head, 'Tile Tag Set 6,1', 'Map Do 0,0'].join('\n'), { map: m() })
+    expect(rt.tome.tagSeen).toBe(0)
+    const off = run([...head, 'Tile Tags On', 'Tile Tag Set 6,1', 'Tile Tags Off', 'Map Do 0,0'].join('\n'), {
+      map: m(),
+    })
+    expect(off.tome.tagsOn).toBe(0)
+    expect(off.tome.tagSeen).toBe(0)
+  })
+
+  it('Tile Tag Set wraps the slot and ignores a tile past the icon count', () => {
+    // `subq.l #$1,d0 / andi.l #$7,d0` is a wrap into 0..7, and
+    // `cmp.w $8(a0),d1 / bge` is a silent refusal, not an error
+    const rt = run('Tile Tag Set 3,9', { nIcons: 8 }) // slot 9 is slot 1
+    expect(rt.tome.tagTile[0]).toBe(3)
+    const refused = run('Tile Tag Set 8,1', { nIcons: 8 }) // 8 >= the count
+    expect(refused.tome.tagTile[0]).toBe(0)
+    expect(() => run('Tile Tag Set 3,1', { nIcons: 8 })).not.toThrow()
+  })
+
+  it('Tile Tag X and Y take the slot through the same wrap', () => {
+    // routines 61 and 62 ($1edc, $1efa): `subq.l #$1 / andi.l #$7` again, and
+    // the answer is the MAP position the tagged tile was found at
+    const prog = [...head, 'Tile Tags On', 'Tile Tag Set 7,2', 'Map Do 0,0']
+    expect(val([...prog, 'Print Tile Tag X(2)'].join('\n'), { map: m() })).toBe(3) // tile 7 is at (3,1)
+    expect(val([...prog, 'Print Tile Tag Y(2)'].join('\n'), { map: m() })).toBe(1)
+    expect(val([...prog, 'Print Tile Tag X(10)'].join('\n'), { map: m() })).toBe(3) // 10 wraps to 2
+    expect(val([...prog, 'Print Tile Tag Y(10)'].join('\n'), { map: m() })).toBe(1)
+  })
+
+  it('Map Zone Bank fills every zone with $FF, so an unset one holds nobody', () => {
+    // routine 74 ($207a): `move.b #$ff,$2(a2,d4.l) / dbra` over count*8 bytes
+    const z = new Uint8Array(2 + 4 * 8)
+    run('Map Zone Bank 2,4', { briks: z })
+    expect(new DataView(z.buffer).getUint16(0)).toBe(4)
+    expect([...z.slice(2)].every((b) => b === 0xff)).toBe(true)
+    expect(val('Map Zone Bank 2,4 : Print Map Zone(0,0)', { briks: new Uint8Array(2 + 4 * 8) })).toBe(0)
+  })
+
+  it('Map Zone has INCLUSIVE corners and the highest overlapping zone wins', () => {
+    // routine 76 ($20d6) walks from the count DOWN, and the tests are
+    // `blt`/`bgt` -- so a point exactly on x2 is inside, unlike every
+    // drawing loop in this extension
+    const z = new Uint8Array(2 + 3 * 8)
+    const prog = ['Map Zone Bank 2,3', 'Map Set Zone 1,0,0 To 10,10', 'Map Set Zone 2,5,5 To 20,20']
+    expect(val([...prog, 'Print Map Zone(1,1)'].join('\n'), { briks: z })).toBe(1)
+    expect(val([...prog, 'Print Map Zone(10,10)'].join('\n'), { briks: new Uint8Array(2 + 3 * 8) })).toBe(2)
+    expect(val([...prog, 'Print Map Zone(15,15)'].join('\n'), { briks: new Uint8Array(2 + 3 * 8) })).toBe(2)
+    expect(val([...prog, 'Print Map Zone(21,21)'].join('\n'), { briks: new Uint8Array(2 + 3 * 8) })).toBe(0)
+    expect(val([...prog, 'Print Map Zone(20,20)'].join('\n'), { briks: new Uint8Array(2 + 3 * 8) })).toBe(2)
+  })
+
+  it('a zone number out of range is ignored, not an error', () => {
+    // routine 75 ($20a0): `tst.l d1 / beq` and `cmp.l $0(a2),d1 / bgt`
+    const z = new Uint8Array(2 + 2 * 8)
+    expect(() =>
+      run(['Map Zone Bank 2,2', 'Map Set Zone 0,0,0 To 5,5', 'Map Set Zone 3,0,0 To 5,5'].join('\n'), { briks: z }),
+    ).not.toThrow()
+    expect([...z.slice(2)].every((b) => b === 0xff)).toBe(true)
+  })
+
+  it('Map Zb Length sizes the bank at eight bytes a zone plus the count word', () => {
+    // routine 73 ($206c): `asl.l #$3,d3 / addq.l #$2,d3`
+    expect(val('Print Map Zb Length(10)')).toBe(82)
+  })
+})

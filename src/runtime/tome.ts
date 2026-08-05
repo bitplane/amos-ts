@@ -40,7 +40,7 @@
  *   $16  map width in tiles, $18 map height in tiles (words, from the bank)
  *   $1a  the map bank number
  *   $20  $24 $28 $2c   view x1, y1, x2, y2 (longs)
- *   $4a  non-zero diverts the tile fetch into 4.23's animation path
+ *   $48  one bit per tag slot, and $4a the Tile Tags flag that fills it
  *
  * ## The map bank
  *
@@ -114,6 +114,24 @@ export interface TomeState {
   updArmed: number
   /** $6c — how many records the list holds */
   updCount: number
+  /**
+   * $4a — TILE TAGS on. Every map draw tests it and takes a slower path that
+   * watches for tagged tiles; it is not an animation flag, whatever the
+   * neighbouring fields suggest.
+   */
+  tagsOn: number
+  /**
+   * $48 — one bit per tag slot, set when a draw passed a tagged tile and
+   * cleared by Tile Tag reading it. The map draws clear the whole word at
+   * entry, so it reports on the LAST draw only.
+   */
+  tagSeen: number
+  /** $7e+$30 eight tag values, $7e+$38 and $7e+$48 the map position of each */
+  tagTile: number[]
+  tagX: number[]
+  tagY: number[]
+  /** $4c — the zone bank number */
+  zoneBank: number
 }
 
 /**
@@ -155,6 +173,12 @@ export const newTomeState = (): TomeState => ({
   updOn: 0,
   updArmed: 0,
   updCount: 0,
+  tagsOn: 0,
+  tagSeen: 0,
+  tagTile: [0, 0, 0, 0, 0, 0, 0, 0],
+  tagX: [0, 0, 0, 0, 0, 0, 0, 0],
+  tagY: [0, 0, 0, 0, 0, 0, 0, 0],
+  zoneBank: 12,
 })
 
 /** AMOS error 23, routine 81's `moveq #$17,d0 / Rjmp <AMOS 1024>`. */
@@ -241,6 +265,34 @@ function pasteTile(rt: Runtime, tile: number, x: number, y: number, count: numbe
 }
 
 /**
+ * The tile-tag check every map draw runs before it pastes, when $4a is set.
+ *
+ * `adda.l #$7e,a0` then `move.l #$7,d0` and a `dbra` down over eight byte
+ * slots at $30: an EMPTY slot is skipped (`tst.b / beq`) and a slot matching
+ * the RAW tile byte records the tile's map position into $38 and $48, sets
+ * that slot's bit in the main block's $48, and falls through to paste the
+ * tile anyway. So a tag never changes what is drawn -- it only tells the
+ * caller "slot 3 went past, at map (12,7)" after the fact, which is how a
+ * game finds its exits and pickups without scanning the map itself.
+ *
+ * The comparison is against the tile as READ, before the `addq.l #$1` that
+ * makes it an icon number -- Map Update, whose d1 is already incremented,
+ * does `subq.l #$1,d1` first and puts it back afterwards.
+ */
+function tagCheck(rt: Runtime, tile: number, mx: number, my: number): void {
+  const s = rt.tome
+  if (s.tagsOn === 0) return
+  for (let slot = 7; slot >= 0; slot--) {
+    if (s.tagTile[slot] === 0) continue
+    if (s.tagTile[slot] !== tile) continue
+    s.tagX[slot] = mx & 0xffff
+    s.tagY[slot] = my & 0xffff
+    s.tagSeen |= 1 << slot
+    return
+  }
+}
+
+/**
  * Normalise a map coordinate the way the routines do — by repeated add and
  * subtract of the map size, not by a modulo.
  *
@@ -264,6 +316,7 @@ function begin(rt: Runtime, it: Parameters<Instr>[0]): { m: ReturnType<typeof ma
   const st = rt.tome
   st.cursorX = (x << 16) >> 16 // move.w d4,$a(a0) — a WORD store
   st.cursorY = (y << 16) >> 16
+  st.tagSeen = 0 // move.w #$0,$48(a0) — the tag mask reports on THIS draw
   const m = mapData(rt)
   const count = iconCount(rt)
   st.mapW = m.w
@@ -444,6 +497,90 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
+     * Tile Tags On — routine 57 ($1e7a) — and Tile Tags Off, routine 58
+     * ($1e86). Twelve bytes each: `move.w #$1,$4a(a0)` and `move.w #$0`. The
+     * flag every map draw tests before taking the slower tag path.
+     */
+    'tile tags on'() {
+      st().tagsOn = 1
+    },
+    'tile tags off'() {
+      st().tagsOn = 0
+    },
+
+    /**
+     * Tile Tag Set tile,slot — routine 59 ($1e92), 50 bytes, and the value
+     * comes FIRST again: the pops are d0 then d1, so d1 is the first argument
+     * and it is the one masked to a byte and range-checked.
+     *
+     * Two things the routine does that a range check would not. The tile is
+     * compared against the ICON COUNT at $8 (routine 70 runs first, so no
+     * icon bank is error 23) and a tile at or above it is SILENTLY IGNORED --
+     * `bge` to the rts, no error, no store. And the slot goes through
+     * `subq.l #$1,d0 / andi.l #$7,d0`, a wrap into 0..7 rather than a check,
+     * exactly like Tile Size's wrap into 1..32: slot 9 is slot 1 and slot 0
+     * is slot 8.
+     *
+     * A slot holding 0 is "empty" -- the scan skips it with `tst.b / beq` --
+     * so tile 0 can never be tagged.
+     */
+    'tile tag set'(it) {
+      const tile = it.evalInt() & 0xff
+      it.expect(',')
+      const slot = it.evalInt()
+      const count = iconCount(rt)
+      if (tile >= count) return // `cmp.w $8(a0),d1 / bge` -- ignored, not an error
+      st().tagTile[(slot - 1) & 7] = tile
+    },
+
+    /**
+     * Map Zone Bank bank,count — routine 74 ($207a), 38 bytes. The bank
+     * number goes to $4c, the count into the bank's own first word, and then
+     * every one of the `count * 8` bytes that follow is filled with $FF --
+     * `move.b #$ff,$2(a2,d4.l) / dbra`. So an unset zone is not zero, it is
+     * -1 in all four corners, which no coordinate can be inside.
+     */
+    'map zone bank'(it) {
+      const bank = it.evalInt()
+      it.expect(',')
+      const count = it.evalInt()
+      const s = st()
+      s.zoneBank = bank
+      const z = bankBytes(rt, bank)
+      const v = new DataView(z.buffer, z.byteOffset, z.byteLength)
+      v.setUint16(0, count & 0xffff)
+      z.fill(0xff, 2, 2 + count * 8)
+    },
+
+    /**
+     * Map Set Zone n,x1,y1 To x2,y2 — routine 75 ($20a0), 54 bytes. Four
+     * words at $2 + (n-1)*8, in the order x1, y1, x2, y2.
+     *
+     * Zone numbers are 1-based and out of range is IGNORED rather than an
+     * error: `tst.l d1 / beq` for zero and `cmp.l $0(a2),d1 / bgt` for past
+     * the count, both straight to the rts. The same silence as Tile Tag Set.
+     */
+    'map set zone'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const x1 = it.evalInt()
+      it.expect(',')
+      const y1 = it.evalInt()
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      const z = bankBytes(rt, st().zoneBank)
+      const v = new DataView(z.buffer, z.byteOffset, z.byteLength)
+      if (n === 0 || n > v.getUint16(0)) return
+      const at = 2 + (n - 1) * 8
+      v.setUint16(at, x1 & 0xffff)
+      v.setUint16(at + 2, y1 & 0xffff)
+      v.setUint16(at + 4, x2 & 0xffff)
+      v.setUint16(at + 6, y2 & 0xffff)
+    },
+
+    /**
      * Map Do x,y — routine 15 ($95c), the engine.
      *
      * Draws the map into the view rectangle with map tile (x,y) at its
@@ -469,7 +606,9 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
         let mx = wrap(s.cursorX, m.w)
         let sx = s.viewX1
         do {
-          pasteTile(rt, m.data[4 + my * m.w + mx]!, sx, sy, count)
+          const tile = m.data[4 + my * m.w + mx]!
+          tagCheck(rt, tile, mx, my)
+          pasteTile(rt, tile, sx, sy, count)
           mx = mx + 1 >= m.w ? 0 : mx + 1
           sx += s.tileW
         } while (sx < s.viewX2)
@@ -587,10 +726,11 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
      * rewrites all four of $54-$60 every call.
      *
      * NOTE: `tst.w $70(a0) / bne` runs the animation stepper (routine 45)
-     * first when Map Anim On has been called, and `tst.w $4a(a0)` diverts the
-     * tile fetch into 4.23's animation path. Neither flag can be set yet --
-     * the keywords that set them are not in this slice -- so both arms are
-     * unreachable rather than unimplemented.
+     * first when Map Anim On has been called. That keyword is not in this
+     * slice, so the arm is unreachable rather than unimplemented. The other
+     * branch, `tst.w $4a(a0)`, is the tile-tag check and IS live -- routine
+     * 40's arm at $1552 does `subq.l #$1,d1` first because its d1 has already
+     * been incremented, which is how the raw tile is what gets compared.
      */
     'map update'(it) {
       const cx = it.evalInt()
@@ -617,6 +757,7 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
         if (dy < 0) continue
         const sy = (dy * s.tileH + s.viewY1) | 0
         if (sy >= s.viewY2) continue
+        tagCheck(rt, tile, mx, my)
         pasteTile(rt, tile, sx, sy, count)
       }
       s.updCount = 0
@@ -720,6 +861,7 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
       let my = wrap(s.cursorY, m.h)
       let sy = s.viewY1
       do {
+        tagCheck(rt, m.data[4 + my * m.w + mx]!, mx, my)
         pasteTile(rt, m.data[4 + my * m.w + mx]!, s.viewX1, sy, count)
         my = my + 1 >= m.h ? 0 : my + 1
         sy += s.tileH
@@ -754,6 +896,7 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
       let my = wrap(s.cursorY, m.h)
       let sy = s.viewY1
       do {
+        tagCheck(rt, m.data[4 + my * m.w + mx]!, mx, my)
         pasteTile(rt, m.data[4 + my * m.w + mx]!, s.viewX2 - s.tileW, sy, count)
         my = my + 1 >= m.h ? 0 : my + 1
         sy += s.tileH
@@ -771,6 +914,7 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
       let mx = wrap(s.cursorX, m.w)
       let sx = s.viewX1
       do {
+        tagCheck(rt, m.data[4 + my * m.w + mx]!, mx, my)
         pasteTile(rt, m.data[4 + my * m.w + mx]!, sx, s.viewY1, count)
         mx = mx + 1 >= m.w ? 0 : mx + 1
         sx += s.tileW
@@ -791,6 +935,7 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
       let mx = wrap(s.cursorX, m.w)
       let sx = s.viewX1
       do {
+        tagCheck(rt, m.data[4 + my * m.w + mx]!, mx, my)
         pasteTile(rt, m.data[4 + my * m.w + mx]!, sx, s.viewY2 - s.tileH, count)
         mx = mx + 1 >= m.w ? 0 : mx + 1
         sx += s.tileW
@@ -1061,6 +1206,70 @@ export function makeTomeFunctions(rt: Runtime): Record<string, Func> {
      * two agree exactly on where the animation records start.
      */
     'map ab length': (_, a): Value => VI((((int(a[0]!) & 0xffff) << 3) + ((int(a[1]!) & 0xffff) << 6) + 4) | 0),
+
+    /**
+     * =Tile Tag — routine 60 ($1ec4), 24 bytes and no arguments: read the
+     * byte at $48 and CLEAR it. One bit per slot, set by the last map draw
+     * for every tagged tile it passed. Reading is destructive, so the answer
+     * is "which tags went by since I last asked", and the draws clear it
+     * again at entry, so in practice it means "on the last draw".
+     */
+    'tile tag': (): Value => {
+      const s = st()
+      const seen = s.tagSeen & 0xff
+      s.tagSeen = 0
+      return VI(seen)
+    },
+
+    /**
+     * =Tile Tag X(slot) — routine 61 ($1edc) — and =Tile Tag Y(slot),
+     * routine 62 ($1efa). Thirty bytes each: the same `subq.l #$1 / andi.l
+     * #$7` wrap into 0..7 that Tile Tag Set uses, then a word out of the $38
+     * or $48 table in the $7e block -- the MAP position where the tagged tile
+     * was found, not a screen one.
+     *
+     * NOTE: neither table is initialised. Routine 0 clears the eight tag
+     * VALUES at $30 and nothing else, so reading a slot that has never been
+     * matched answers whatever the library was assembled with. Zero here.
+     */
+    'tile tag x': (_, a): Value => VI(st().tagX[(int(a[0]!) - 1) & 7]!),
+    'tile tag y': (_, a): Value => VI(st().tagY[(int(a[0]!) - 1) & 7]!),
+
+    /**
+     * =Map Zb Length(n) — routine 73 ($206c), fourteen bytes: `asl.l #$3,d3 /
+     * addq.l #$2,d3`. Eight bytes a zone plus the count word.
+     */
+    'map zb length': (_, a): Value => VI((((int(a[0]!) & 0xffff) << 3) + 2) | 0),
+
+    /**
+     * =Map Zone(x,y) — routine 76 ($20d6), 88 bytes. Which zone a point is
+     * in, or 0.
+     *
+     * Two details that decide what a game does with it. Both corners are
+     * INCLUSIVE -- `cmp.w d3,d1 / blt` and `cmp.w d4,d1 / bgt`, so a point
+     * exactly on x2 is inside -- where every drawing loop in this extension
+     * treats the far edge as exclusive. And the search runs from the HIGHEST
+     * zone number DOWN (`move.w $0(a2),d0 / subq.l #$1 / dbra`), so where
+     * zones overlap the highest-numbered one wins.
+     *
+     * The comparisons are `cmp.w`, so they see the low WORDS and they are
+     * SIGNED. That is what makes Map Zone Bank's $FF fill work as "no zone":
+     * an unset zone reads as -1 in all four corners, and only x = y = -1 is
+     * inside it.
+     */
+    'map zone': (_, a): Value => {
+      const x = (int(a[0]!) << 16) >> 16
+      const y = (int(a[1]!) << 16) >> 16
+      const z = bankBytes(rt, st().zoneBank)
+      const v = new DataView(z.buffer, z.byteOffset, z.byteLength)
+      for (let n = v.getUint16(0); n >= 1; n--) {
+        const at = 2 + (n - 1) * 8
+        if (x < v.getInt16(at) || x > v.getInt16(at + 4)) continue
+        if (y < v.getInt16(at + 2) || y > v.getInt16(at + 6)) continue
+        return VI(n)
+      }
+      return VI(0)
+    },
 
     /**
      * =Map Base — routine 28 ($1158), ten bytes: `movea.l $158(a5),a0 /

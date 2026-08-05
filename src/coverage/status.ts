@@ -1873,6 +1873,20 @@ export const FAITHFUL = new Set<string>([
   'map ab length',
   'map paste',
   'list tile',
+  // tile tags (routines 57-62) and zones (73-76). $4a turns out to be the
+  // TILE TAGS flag, not an animation one; the five map draws all take the
+  // tag path through it, and Map Zone is the one place in the extension
+  // where a far corner is INCLUSIVE.
+  'tile tags on',
+  'tile tags off',
+  'tile tag set',
+  'tile tag',
+  'tile tag x',
+  'tile tag y',
+  'map zone bank',
+  'map set zone',
+  'map zone',
+  'map zb length',
   'tile count',
   'map check',
   'map view',
