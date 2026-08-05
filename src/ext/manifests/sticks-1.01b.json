@@ -8,7 +8,7 @@
   "sha256": "669711695f3d02e032e85cc1fb48c72b282c4da83652e20b38b8ec1bd79767c3",
   "format": "legacy",
   "idBaseEvidence": "calibrated",
-  "evidence": "manual",
+  "evidence": "disassembly",
   "docs": [
     "Docs/Sticks.Doc",
     "Docs/Sticks.Guide",

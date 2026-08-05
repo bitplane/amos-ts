@@ -8,7 +8,7 @@
   "sha256": "a18ba63c055f9985235ce325b70acf41c42a5339c61e8361622bc6045178a511",
   "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
+  "evidence": "disassembly",
   "docs": [
     "AMOSPro_JDK3.Lib.MANUAL"
   ],
@@ -16,7 +16,7 @@
   "observedSlots": [],
   "provenance": {
     "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions.",
-    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "note": "Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
   "notes": "The fifth and smallest JD library: six keywords for relabelling, pattern matching and the mouse click. Fully documented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs..",

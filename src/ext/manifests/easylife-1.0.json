@@ -8,7 +8,7 @@
   "sha256": "79e0f3fdcab923d788ec022b7a4401c3693a9f2634cd314276725e0d7154932c",
   "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
+  "evidence": "disassembly",
   "docs": [
     "EasyLife.doc"
   ],

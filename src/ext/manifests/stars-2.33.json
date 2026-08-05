@@ -8,7 +8,7 @@
   "sha256": "74807c997fce879331ab07ae28f7194645f10067cfb22b8c9a813813e6f924c2",
   "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
+  "evidence": "disassembly",
   "docs": [
     "Stars.doc"
   ],

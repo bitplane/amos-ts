@@ -8,7 +8,7 @@
   "sha256": "42ad66986c9bcb8f72ec485bcb8fdedafa9f14de529f38489d7685525224b798",
   "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
+  "evidence": "disassembly",
   "docs": [
     "Docs/"
   ],
@@ -16,7 +16,7 @@
   "observedSlots": [],
   "provenance": {
     "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: EasyLife.",
-    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "note": "Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
   "notes": "Keywords were renamed between the 1.0 already registered and this one — `znsx` became `elznsx`, `find asc` became `elf asc` — so the two tables are genuinely different rather than one extending the other. EasyLife.guide documents 146 of the 160. Version 1.09 is also in the archive with 157 keywords and is not registered separately, being three keywords from this one. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs..",

@@ -8,7 +8,7 @@
   "sha256": "f3f19d866d7ef09b7e3e69aa933ab6f32b18eb0c0cc3636bdf900e339aa760fb",
   "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
+  "evidence": "disassembly",
   "docs": [
     "AMOSPro_JDColour.Lib.MAN"
   ],
@@ -16,7 +16,7 @@
   "observedSlots": [],
   "provenance": {
     "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions.",
-    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "note": "Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
   "notes": "A major revision of the 1.4 on the PD CD — 56 keywords against 44 — and this one has a manual, which 1.4 did not. Unrelated to the \"AMOSPro Colours\" extension by Jan Normann Nielsen. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs..",

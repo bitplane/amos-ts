@@ -8,7 +8,7 @@
   "sha256": "336e35bf5140990870f3e745d9cf873b4a33a49d60c08bac52393f1de4aaf897",
   "format": "legacy",
   "idBaseEvidence": "calibrated",
-  "evidence": "table",
+  "evidence": "disassembly",
   "docs": [],
   "titleStrings": [
     "AMOSPro TURBO Plus Extension V 1.0",

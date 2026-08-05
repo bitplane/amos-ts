@@ -8,7 +8,7 @@
   "sha256": "3853d14bedfcf45e98cde82a7e185feb30afab6da99b263c87be1b2606f642ba",
   "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
+  "evidence": "disassembly",
   "docs": [
     "BUtility.doc",
     "BUtility.readme"

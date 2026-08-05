@@ -8,7 +8,7 @@
   "sha256": "d1cb8d86ad72c5a9c272fd38f9e0629a3e3b3d98a2483f32895c31ae7ced268a",
   "format": "legacy",
   "idBaseEvidence": "calibrated",
-  "evidence": "table",
+  "evidence": "disassembly",
   "docs": [
     "Turbo_Blit_doc.asc",
     "Turbo_Block_doc.asc",

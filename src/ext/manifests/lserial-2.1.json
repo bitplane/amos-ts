@@ -8,7 +8,7 @@
   "sha256": "12ed4b4f1342a27314d702ef73048bc6d488ad2bd8009aec920feee2e608273e",
   "format": "legacy",
   "idBaseEvidence": "calibrated",
-  "evidence": "manual",
+  "evidence": "disassembly",
   "docs": [
     "HELP.DOC"
   ],

@@ -8,7 +8,7 @@
   "sha256": "3b6c15eadfb466968b078db8fc1965709a324e14bf98184f04e353fb79f288df",
   "format": "legacy",
   "idBaseEvidence": "calibrated",
-  "evidence": "table",
+  "evidence": "disassembly",
   "docs": [],
   "titleStrings": [
     "(c) Shadow Software 1990"

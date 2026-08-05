@@ -8,7 +8,7 @@
   "sha256": "ef92d682685a7a48a14a1da0fd0b44e974e6726dde894f07a690c50b1eaf4dc7",
   "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "table",
+  "evidence": "disassembly",
   "docs": [],
   "titleStrings": [
     "AMOSPro Prt_Extension V 1.1",

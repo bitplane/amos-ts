@@ -8,7 +8,7 @@
   "sha256": "90bbd62b3f00f5c5e51c416382aef4f0058c703c763a30659a3fab831977fb7b",
   "format": "legacy",
   "idBaseEvidence": "calibrated",
-  "evidence": "manual",
+  "evidence": "disassembly",
   "docs": [
     "LdosV25.DOC",
     "UpDateV25_Ldos.DOC",

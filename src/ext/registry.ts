@@ -37,12 +37,40 @@ export type ExtFormat =
  * How well we know what an extension's keywords actually *do*. This is
  * deliberately separate from whether we can read its token table: names and
  * parameter specs come free with the table, behaviour does not.
+ *
+ * The tier records the strongest evidence AVAILABLE, not whichever artifact a
+ * porter happened to consult. That distinction is the whole rule, because the
+ * two lower tiers are not evidence at all in the presence of a binary — they
+ * are what you fall back on when there is nothing to read. So:
+ *
+ *   **`manual` and `table` are legal only when there is no library binary.**
+ *
+ * A shipped `.Lib` can always be disassembled: every keyword carries a routine
+ * number, so the read is tens of instructions rather than thousands, and
+ * src/cli/extdis.ts does the resolving. An extension whose binary we hold is
+ * therefore never below `disassembly`, whatever its documentation looks like,
+ * and `manual` for such an extension is a claim that we chose to believe a
+ * paragraph over the code that shipped. ext.test.ts enforces this.
+ *
+ * The field said otherwise for a long time — 53 of 68 manifests declared
+ * `manual` or `table` with the binary in the same directory, TURBO Plus 2.15
+ * among them, after a session spent reading its 182 routines. The cause was a
+ * heuristic recorded in those manifests' own provenance: the tier was assigned
+ * by counting how many of the library's keyword names appeared in the
+ * documentation beside it. That measures the DOCUMENTATION, which is a real
+ * thing to know and is what the `docs` field is for.
  */
 export type ExtEvidence =
-  /** Original assembler source available — behaviour can be read directly. */
+  /**
+   * Original assembler source available — behaviour can be read directly,
+   * with the author's own symbols and comments. Includes the case where the
+   * source is not in this extension's own fixture: Personnal-EXTRA's ships
+   * inside the personnal-1.1 archive, and the stock AMOS 1.3 libraries are
+   * covered by the AMOS Professional sources their keywords survived into.
+   */
   | 'source'
   /**
-   * The library binary was disassembled. This ranks with `source` for what it
+   * The library binary is available. This ranks with `source` for what it
    * permits — it is the shipped code, and strictly more authoritative than a
    * manual, which can be wrong (LDos's documents a password-length check that
    * only one of its two crypt routines actually has). It is tracked
@@ -50,11 +78,24 @@ export type ExtEvidence =
    * or comments, data and code are easy to confuse, and there is no way to
    * grep for every caller. A keyword read this way can be faithful; what it
    * cannot be is re-checked as cheaply.
+   *
+   * Note this tier is about availability, not about work done. It says the
+   * evidence is there to be read, and says nothing about whether any
+   * particular keyword has been read yet — that is per-keyword, and
+   * src/cli/extaudit.ts is what measures it.
    */
   | 'disassembly'
-  /** The extension's own manual or command reference documents behaviour. */
+  /**
+   * No binary and no source; the extension's own manual or command reference
+   * is all that describes it. A keyword ported from here cannot be marked
+   * faithful, because there is nothing to check it against.
+   */
   | 'manual'
-  /** Token table only: names and arities are known, behaviour is inferred. */
+  /**
+   * Nothing but the token table, itself recovered from a program's tokenised
+   * stream. Names and arities are known and behaviour is guesswork. Faithful
+   * is unavailable, and the honest classification is structural.
+   */
   | 'table'
 
 export interface ExtensionInfo {

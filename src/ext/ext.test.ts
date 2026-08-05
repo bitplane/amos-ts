@@ -110,6 +110,43 @@ describe('extension registry (src/ext/registry.ts)', () => {
     }
   })
 
+  it('never claims manual or table evidence for an extension we hold a binary for', () => {
+    // The governing rule, stated in ./registry.ts and docs/extensions/README.md:
+    // the tier records the strongest evidence AVAILABLE, and a shipped library
+    // can always be disassembled. So `manual` and `table` belong to the case
+    // where there is no binary and a port would be guessing — which is why
+    // they are the two tiers that forbid a faithful classification.
+    //
+    // This is not hypothetical rot. 53 of 68 manifests declared `manual` or
+    // `table` with the `.Lib` in the same fixture directory, TURBO Plus 2.15
+    // among them, right after a session spent reading its 182 routines. The
+    // cause was a heuristic those manifests recorded in their own provenance:
+    // the tier had been set by counting how many keyword names appeared in the
+    // documentation shipped beside the library. That measures the docs, not
+    // the evidence, and the `docs` field is where it belongs.
+    //
+    // Read from the manifests rather than from REGISTRY because `library` is a
+    // manifest field: it is the presence of the binary that the rule turns on,
+    // and the manifest is where that is declared.
+    const manifests = join(root, 'src', 'ext', 'manifests')
+    const offenders: string[] = []
+    for (const f of readdirSync(manifests).filter((n) => n.endsWith('.json'))) {
+      const m = JSON.parse(readFileSync(join(manifests, f), 'utf8')) as {
+        id: string
+        library?: string
+        evidence: string
+      }
+      if (m.library && (m.evidence === 'manual' || m.evidence === 'table')) {
+        offenders.push(`${m.id} says ${m.evidence} but ships ${m.library}`)
+      }
+    }
+    expect(
+      offenders,
+      'a held binary outranks any manual — raise these to `disassembly`, or ' +
+        'to `source` if the assembler source is available too',
+    ).toEqual([])
+  })
+
   it('binds the stock extensions to the slots +Interpreter_Config.s gives them', () => {
     // message 15+n holds the filename for slot n (+B.s:2149-2166)
     const bound = defaultSlotBindings()

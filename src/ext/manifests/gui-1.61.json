@@ -8,7 +8,7 @@
   "sha256": "9395e13d10ca0297e61a1204c759637299179de9afe66bc1e9d8b36297862250",
   "format": "legacy",
   "idBaseEvidence": "calibrated",
-  "evidence": "table",
+  "evidence": "disassembly",
   "docs": [],
   "titleStrings": [
     "AMOSPro GUI Extension V 1.61 31-03-97",

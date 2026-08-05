@@ -8,7 +8,7 @@
   "sha256": "b6aa3bf1bc6c15c3dda2979cc07d8dc176ba11dbb4a951375e47891d8054e510",
   "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
+  "evidence": "disassembly",
   "docs": [
     "Make_lib.doc"
   ],

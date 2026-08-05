@@ -8,7 +8,7 @@
   "sha256": "49343990a3b4fe5961daa5519ff17cf4c6f67590fbf93bef2da93505aae22c1a",
   "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
+  "evidence": "disassembly",
   "docs": [
     "GUI2.guide"
   ],
@@ -16,7 +16,7 @@
   "observedSlots": [],
   "provenance": {
     "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: gui210.",
-    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "note": "Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
   "notes": "A later GUI than the 1.61 already registered — 204 keywords against 103 — and far better evidenced: GUI2.guide documents 202 of them. The binary's $VER reads \"V 2.1 18-10-2000\", so this is a late release, well after the Amiga's commercial life. The archive also carries Gui_CLI.lib and Gui_Backstart.Lib, which are compiler headers rather than extensions and have no token table. Author from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.",

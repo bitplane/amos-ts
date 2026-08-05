@@ -104,8 +104,11 @@ Disassembly tools need `python3` with `capstone`.
 100%: language, screens, drawing, menus, banks, text-io, objects, input, files,
 memory, system, interface, AMAL, copper, palette, rainbows, windows and zones.
 1089 keywords implemented, **1045 of them faithful** — verified against the 68k
-source, the official manual, or byte-exact artifacts. `npm test` says how many
-tests that took; a count here would be stale by the next commit.
+source, corroborated by byte-exact artifacts and by the official manual where
+they agree. The order matters and is the project's governing rule: the code
+that shipped outranks the prose about it, and documentation is evidence only
+where there is no binary to read. `npm test` says how many tests that took; a
+count here would be stale by the next commit.
 
 **Every extension a stock AMOS Professional installs is complete**: Music (49,
 including `Say` and the mouth stream), Compact, Compiler, Requester, and

@@ -244,17 +244,27 @@ describe('JD Prt 1.1: the release that spells everything differently', () => {
     expect(seq('Prt Reset', prt11)).toBe(`${ESC}c`)
   })
 
-  it('gives 1.1 the same bytes 1.3 gives, keyword for keyword', () => {
-    // the two binaries carry the same 58 distinct sequences and differ in one
-    // byte string only, the keyword name itself; the port must not let the
-    // rename change an answer
-    for (const [a, b] of [
-      ['Prt Italics', 'Jd Prt Italics'],
-      ['Prt Elite', 'Jd Prt Elite'],
-      ['Prt Set German', 'Jd Prt Set German'],
-      ['Prt Nlq Off', 'Jd Prt Nlq Off'],
-    ] as const) {
-      expect(seq(a, prt11), a).toBe(seq(b, prt13))
+  it('gives 1.1 the same bytes 1.3 gives, for all 58 keywords', () => {
+    // The two binaries carry the same 58 distinct sequences and differ in one
+    // byte string only, the keyword name itself (+prt.s:206-438 is the 1.3
+    // data area; 1.1's is byte-identical below the names). The port must not
+    // let the rename change an answer.
+    //
+    // EVERY alias, not a sample. Four were spot-checked here when the 58 were
+    // promoted to FAITHFUL, and the release gate caught what that left: a
+    // keyword classified faithful that no test ever dispatches is a claim
+    // resting on the alias map being right rather than on the keyword
+    // answering. Running all of them is also the cheapest proof of the port's
+    // central assertion about this library, so it is the right test regardless
+    // of the gate.
+    const aliases = jdPrt11Aliases()
+    expect(Object.keys(aliases).length).toBe(58)
+    for (const [alias, canonical] of Object.entries(aliases)) {
+      const got = seq(alias, prt11)
+      expect(got, alias).toBe(seq(canonical, prt13))
+      // and it is a real sequence rather than the empty string an
+      // unimplemented function would hand back
+      expect(got.length, alias).toBeGreaterThan(0)
     }
   })
 

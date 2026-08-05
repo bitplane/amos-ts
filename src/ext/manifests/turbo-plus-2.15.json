@@ -8,7 +8,7 @@
   "sha256": "ddc8abb16f35cd2fb4230e2c70dc85e6bcbbfe5f73ebcc6712135471faaafb07",
   "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
+  "evidence": "disassembly",
   "docs": [
     "Docs/"
   ],
@@ -16,7 +16,7 @@
   "observedSlots": [],
   "provenance": {
     "from": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: turbo.",
-    "note": "Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "note": "Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
   "notes": "The latest TURBO Plus, and the only one properly documented: TURBO_DocsV2.15.Asc covers 128 of its 152 keywords. Registered alongside 1.0 (134 keywords) and 1.9 (87), which are different tables, not subsets. Attribution: Andrew Burton's list credits Turbo Plus 2.x to Ryan Scott, and this entry briefly followed it. The manual shipped in this very archive contradicts that outright — \"Any reference to PLAYFIELD! and Ryan Scott are no longer valid! ... I hereby declare that he has no more rights on distributing/selling TURBO Plus. Since Manuel ANDRE is the only programmer involved with this package\". Scott was a distributor, not an author, and the arrangement was revoked. The primary source wins over the secondary list, which is the same rule that settled The Game Extension's version."

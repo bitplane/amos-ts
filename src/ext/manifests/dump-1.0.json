@@ -8,7 +8,7 @@
   "sha256": "b609afce0d6fa4398a68697c86aa75e30c27c618055c59dd2d0cacc08446c69a",
   "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "table",
+  "evidence": "disassembly",
   "docs": [],
   "titleStrings": [],
   "observedSlots": [],

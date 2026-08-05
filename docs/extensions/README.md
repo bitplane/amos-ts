@@ -94,41 +94,65 @@ for free. It tells us almost nothing about what the keywords *do*. Those are
 tracked separately, because the difference decides whether a ported keyword can
 ever be called faithful:
 
-| tier | meaning |
+| tier | when it applies |
 |---|---|
 | `source` | Original assembler source is available; behaviour can be read directly. |
-| `disassembly` | The library binary was disassembled. Ranks with `source`. |
-| `manual` | The extension's own manual or command reference documents behaviour. |
-| `table` | Token table only. Names and arities are known; behaviour is inferred. |
+| `disassembly` | The library binary is available. Ranks with `source`. |
+| `manual` | **No binary and no source.** Only the extension's own documentation describes it. |
+| `table` | **No binary, no source, no manual.** Names and arities only; behaviour is guesswork. |
 
-`disassembly` deserves a word, because it is the tier that turns a dead end
-into a job of work. Reading the shipped binary is *more* authoritative than a
-manual — LDos's manual states a password-length check that only one of its two
-crypt routines has, which the code settles and the prose does not. The token
-table makes it targeted rather than heroic: every keyword carries a routine
-number, so the read is tens of instructions, not thousands. What separates it
-from `source` is the failure mode. There are no symbols and no comments, data
-and code are easily confused (a string table disassembles into plausible
-nonsense), and nothing can be grepped for callers. So a keyword read this way
-can be faithful, but a future reader needs to know that is where it came from
-— which is why it is its own tier rather than folded into `source`.
+The tier records the strongest evidence **available**, not whichever artifact
+somebody happened to consult. That is the whole rule, and it has one hard
+consequence:
 
-Evidence is recorded per extension, but it is really per keyword: an
-extension whose headline tier is `manual` may still have individual keywords
-established by disassembly, and those carry a NOTES entry saying so.
+> `manual` and `table` are legal only for an extension we hold **no binary**
+> for. If the `.Lib` is in the fixture, the tier is `disassembly` or better —
+> always, whatever the documentation looks like.
+
+A shipped binary can always be read. The token table makes it targeted rather
+than heroic: every keyword carries a routine number, so the read is tens of
+instructions, not thousands, and `src/cli/extdis.ts` does the resolving. So
+`manual` on an extension whose binary we have is not a lower tier of evidence,
+it is a decision to believe a paragraph over the code that shipped — and the
+paragraph loses. LDos's manual states a password-length check that only one of
+its two crypt routines actually has. AMCAF's says `Amcaf Aga Notation On`
+selects 24-bit values, where routines 80 and 81 have the pair the wrong way
+round and `On` sets the mode it was already in. AMCAF's `Ham Point` is
+documented as returning -1 off-screen and there is no -1 anywhere in routine
+160. Every one of those was found by reading a library whose manifest called
+it `manual` tier.
+
+This field is not a record of work done, and `disassembly` is not a claim that
+anything has been disassembled yet. It says the evidence is *there*. Whether a
+particular keyword has actually been read is a per-keyword question, and
+`src/cli/extaudit.ts` is what answers it — it reports, per port, how many
+implemented keywords cite the routine they came from and how many cite nothing.
+That number is the one to look at before believing a port is finished.
+
+What the two lower tiers cost is faithfulness itself. A keyword implemented
+from `manual` or `table` evidence **cannot** be marked faithful, however
+plausible the implementation looks. There is nothing to check it against; the
+honest classification is structural, with a NOTES entry saying so.
+
+`disassembly` is tracked apart from `source` because the failure mode differs.
+There are no symbols and no comments, data and code are easily confused (a
+string table disassembles into plausible nonsense), and nothing can be grepped
+for callers. A keyword read this way can be faithful; what it cannot be is
+re-checked as cheaply, and a future reader needs to know that is where it came
+from.
+
+Evidence is recorded per extension, but it is really per keyword: an extension
+whose headline tier is `disassembly` may still have individual keywords settled
+from an author's published source, and those carry a NOTES entry saying so.
 
 68k machine code is never *executed* here — that rule is unchanged. Reading it
-is the same activity as reading `+Lib.s`.
+is the same activity as reading `+Lib.s`. Because the code is never run, a
+binary-only extension cannot be probed by experiment: behaviour has to be read
+out of the disassembly, or be marked unknown.
 
-A keyword implemented from `table`-tier evidence alone **cannot** be marked
-faithful, however plausible the implementation looks. It is guesswork from a
-name, and the honest classification is structural, with a NOTES entry saying so.
-This mirrors the rule for the core language, where faithful means verified
-against the original 68k source, the manual, or byte-exact artifacts.
-
-Because the code is never run, a binary-only extension cannot be probed by
-experiment — behaviour has to be read out of the disassembly, out of
-documentation, or be marked unknown.
+The rule is enforced in `src/ext/ext.test.ts`, so a new manifest cannot quietly
+declare `manual` over a binary. Whether the documentation is any good is a
+separate and useful question — that is what the `docs` field is for.
 
 ## The registry
 
@@ -156,12 +180,19 @@ appear twice (IOPorts declares `serial speed` at two ids). "Seen at" is the
 slots corpus programs actually used it in, which is evidence; "Slot" is what
 the config or the extension's own manual suggests, which is not.
 
+"Evidence" is what is available to read, not what has been read — see the tier
+rule above. Nearly every row says `source` or `disassembly` because a held
+binary outranks any manual, so the column separates the extensions whose
+behaviour is knowable from the ones where a port would be guessing. It says
+nothing about how much of each is ported; `src/cli/extaudit.ts` answers that,
+per keyword.
+
 | id | name | evidence | keywords | seen at | slot |
 |---|---|---|---|---|---|
-| `intuition-1.3b` | Intuition Extension | source | 183 | 14 | recommends 25 |
 | `jd-5.3` | JD | source | 130 | 22 | — |
 | `jd-4.6` | JD | source | 125 | 22 | — |
 | `personal-1.0b` | Personnal Extension | source | 108 | 13 | — |
+| `opal-1.1` | Opal | source | 78 | — | recommends 21 |
 | `sln-2.0` | SLN | source | 70 | — | recommends 24 |
 | `jd-prt-1.3` | JD Printer | source | 63 | — | — |
 | `amospro-music-2.0` | Music | source | 49 | 1 | stock, slot 1 |
@@ -173,64 +204,64 @@ the config or the extension's own manual suggests, which is not.
 | `amospro-compiler-2.0` | Compiler | source | 15 | 5 | stock, slot 5 |
 | `serial-1.2` | Serial (AMOS 1.3) | source | 15 | — | — |
 | `misc-1.0` | Misc Extension | source | 12 | — | recommends 23 |
+| `jvp-1.01` | JVP NoKids | source | 11 | — | recommends 25 |
 | `p61-1.2` | P61 Music | source | 9 | — | recommends 25 |
 | `fileid-1.0` | FileID | source | 6 | — | — |
 | `amospro-compact-2.0` | Compact | source | 3 | 2 | stock, slot 2 |
 | `amospro-request-2.0` | Request | source | 3 | 3 | stock, slot 3 |
+| `personnal-extra-1.3` | Personnal EXTRA | source | 2 | — | — |
+| `os-devkit-1.61` | OS-DevKit | disassembly | 1047 | 20 | recommends 20 |
+| `amcaf-1.50` | AMCAF | disassembly | 280 | — | recommends 8 |
+| `amcaf-1.40` | AMCAF | disassembly | 268 | — | — |
+| `gui-2.10` | GUI | disassembly | 204 | — | recommends 24 |
+| `easylife-1.09` | EasyLife | disassembly | 156 | — | — |
+| `easylife-1.10` | Easy Life | disassembly | 156 | — | recommends 16 |
+| `turbo-plus-2.15` | TURBO Plus | disassembly | 152 | — | — |
+| `craft-1.0` | CRAFT | disassembly | 138 | — | recommends 18 |
+| `turbo-plus-1.0` | TURBO Plus Extension | disassembly | 134 | 12 | recommends 12 |
+| `jd-5.9` | JD | disassembly | 133 | — | recommends 22 |
+| `personnal-1.1` | Personnal | disassembly | 126 | 13 | — |
+| `easylife-1.44` | Easy Life | disassembly | 108 | — | recommends 16 |
+| `gui-1.61` | AMOSPro GUI Extension | disassembly | 103 | 24 | recommends 24 |
+| `the-game-0.9` | The Game Extension | disassembly | 103 | — | recommends 14 |
+| `turbo-plus-1.9` | TURBO Plus | disassembly | 87 | 12 | recommends 12 |
+| `ldos-2.6` | LDos | disassembly | 85 | — | recommends 10 |
+| `ldos-2.5` | LDos | disassembly | 77 | 10 | recommends 10 |
+| `range-2.0` | Range | disassembly | 73 | — | recommends 9 |
+| `easylife-1.0` | Easy Life | disassembly | 72 | — | recommends 16 |
+| `jd-prt-1.4` | JD Printer | disassembly | 69 | — | recommends 21 |
+| `tome-4.0` | TOME | disassembly | 67 | 7 | recommends 7 |
+| `powerbobs-1.0` | Power Bobs | disassembly | 65 | — | recommends 13 |
+| `amos3d-1.0` | AMOS 3D | disassembly | 64 | 4 | recommends 4 |
+| `eme-3.0` | Enhanced Music Extension | disassembly | 59 | — | recommends 1 |
+| `jd-prt-1.1` | JD Printer | disassembly | 58 | — | — |
+| `jd-colour-2.0` | JD Colour | disassembly | 56 | — | recommends 20 |
+| `eme-3.0-demo` | Enhanced Music Extension (demo build) | disassembly | 55 | — | — |
+| `d-sam-1.01` | D-Sam | disassembly | 50 | — | recommends 15 |
+| `gui-1.5b` | GUI | disassembly | 48 | — | — |
+| `range-1.0` | Range | disassembly | 48 | — | recommends 9 |
+| `delta-1.6` | Delta | disassembly | 46 | — | recommends 15 |
+| `tome-3.1` | TOME | disassembly | 34 | — | — |
+| `jd-int-1.3` | JD Intuition | disassembly | 33 | — | recommends 18 |
+| `tools-1.01` | Tools | disassembly | 33 | — | recommends 23 |
+| `make-1.30` | Make | disassembly | 32 | — | recommends 17 |
+| `bsdsocket-1.1.4` | BSDSocket | disassembly | 30 | — | recommends 18 |
+| `med-7.1` | MED | disassembly | 28 | — | — |
+| `delta-1.4` | Delta | disassembly | 26 | — | recommends 15 |
+| `aga-1.0` | AMOS AGA | disassembly | 24 | — | recommends 20 |
+| `tft-0.6` | TFT | disassembly | 22 | — | recommends 25 |
+| `locale-0.26` | Locale | disassembly | 20 | — | recommends 17 |
+| `sticks-1.01b` | Sticks | disassembly | 16 | 17 | recommends 17 |
+| `butility-1.21` | BUtility | disassembly | 15 | — | — |
+| `lserial-2.1` | LSerial | disassembly | 15 | 11 | recommends 11 |
+| `ercole-1.7` | Ercole | disassembly | 11 | — | recommends 10 |
+| `stars-2.33` | Stars | disassembly | 11 | — | recommends 20 |
+| `dump-1.0` | Dump | disassembly | 8 | — | recommends 10 |
 | `ctext-1.0` | CText | disassembly | 6 | 8 | recommends 8 |
-| `os-devkit-1.61` | OS-DevKit | manual | 1047 | 20 | recommends 20 |
-| `amcaf-1.50` | AMCAF | manual | 280 | — | recommends 8 |
-| `amcaf-1.40` | AMCAF | manual | 268 | — | — |
-| `gui-2.10` | GUI | manual | 204 | — | recommends 24 |
-| `easylife-1.10` | Easy Life | manual | 156 | — | recommends 16 |
-| `turbo-plus-2.15` | TURBO Plus | manual | 152 | — | — |
-| `jd-5.9` | JD | manual | 133 | — | recommends 22 |
-| `personnal-1.1` | Personnal | manual | 126 | 13 | — |
-| `easylife-1.44` | Easy Life | manual | 108 | — | recommends 16 |
-| `the-game-0.9` | The Game Extension | manual | 103 | — | recommends 14 |
-| `ldos-2.6` | LDos | manual | 85 | — | recommends 10 |
-| `opal-1.1` | Opal | manual | 78 | — | recommends 21 |
-| `ldos-2.5` | LDos | manual | 77 | 10 | recommends 10 |
-| `easylife-1.0` | Easy Life | manual | 72 | — | recommends 16 |
-| `jd-prt-1.4` | JD Printer | manual | 69 | — | recommends 21 |
-| `powerbobs-1.0` | Power Bobs | manual | 65 | — | recommends 13 |
-| `eme-3.0` | Enhanced Music Extension | manual | 59 | — | recommends 1 |
-| `jd-colour-2.0` | JD Colour | manual | 56 | — | recommends 20 |
-| `delta-1.6` | Delta | manual | 46 | — | recommends 15 |
-| `jd-int-1.3` | JD Intuition | manual | 33 | — | recommends 18 |
-| `tools-1.01` | Tools | manual | 33 | — | recommends 23 |
-| `make-1.30` | Make | manual | 32 | — | recommends 17 |
-| `bsdsocket-1.1.4` | BSDSocket | manual | 30 | — | recommends 18 |
-| `med-7.1` | MED | manual | 28 | — | — |
-| `delta-1.4` | Delta | manual | 26 | — | recommends 15 |
-| `aga-1.0` | AMOS AGA | manual | 24 | — | recommends 20 |
-| `tft-0.6` | TFT | manual | 22 | — | recommends 25 |
-| `locale-0.26` | Locale | manual | 20 | — | recommends 17 |
-| `sticks-1.01b` | Sticks | manual | 16 | 17 | recommends 17 |
-| `butility-1.21` | BUtility | manual | 15 | — | — |
-| `lserial-2.1` | LSerial | manual | 15 | 11 | recommends 11 |
-| `ercole-1.7` | Ercole | manual | 11 | — | recommends 10 |
-| `jvp-1.01` | JVP NoKids | manual | 11 | — | recommends 25 |
-| `stars-2.33` | Stars | manual | 11 | — | recommends 20 |
-| `jd-k3-1.1` | JD K3 | manual | 6 | — | recommends 19 |
-| `jotre-1.0` | Jotre | manual | 5 | — | recommends 22 |
-| `first-0.1` | First | manual | 4 | — | recommends 22 |
-| `easylife-1.09` | EasyLife | table | 156 | — | — |
-| `craft-1.0` | CRAFT | table | 138 | — | recommends 18 |
-| `turbo-plus-1.0` | TURBO Plus Extension | table | 134 | 12 | recommends 12 |
-| `gui-1.61` | AMOSPro GUI Extension | table | 103 | 24 | recommends 24 |
-| `turbo-plus-1.9` | TURBO Plus | table | 87 | 12 | recommends 12 |
-| `range-2.0` | Range | table | 73 | — | recommends 9 |
-| `tome-4.0` | TOME | table | 67 | 7 | recommends 7 |
-| `amos3d-1.0` | AMOS 3D | table | 64 | 4 | recommends 4 |
-| `jd-prt-1.1` | JD Printer | table | 58 | — | — |
-| `eme-3.0-demo` | Enhanced Music Extension (demo build) | table | 55 | — | — |
-| `d-sam-1.01` | D-Sam | table | 50 | — | recommends 15 |
-| `gui-1.5b` | GUI | table | 48 | — | — |
-| `range-1.0` | Range | table | 48 | — | recommends 9 |
-| `tome-3.1` | TOME | table | 34 | — | — |
-| `dump-1.0` | Dump | table | 8 | — | recommends 10 |
-| `personnal-extra-1.3` | Personnal EXTRA | table | 2 | — | — |
+| `jd-k3-1.1` | JD K3 | disassembly | 6 | — | recommends 19 |
+| `jotre-1.0` | Jotre | disassembly | 5 | — | recommends 22 |
+| `first-0.1` | First | disassembly | 4 | — | recommends 22 |
+| `intuition-1.3b` | Intuition Extension | manual | 183 | 14 | recommends 25 |
 
 <!-- END registry -->
 

@@ -8,7 +8,7 @@
   "sha256": "b3edb8ee502c690cc3885692a79dc5bf4fd70312a969787ee84379e3bc2cc37d",
   "format": "ap20",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
+  "evidence": "disassembly",
   "docs": [
     "README.md",
     "API.md",

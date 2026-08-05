@@ -6615,7 +6615,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Nigel Critten",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 20,
     "observedSlots": [],
@@ -6633,7 +6633,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Chris Hodges",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "observedSlots": [],
     "titleStrings": [],
@@ -6648,13 +6648,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Chris Hodges",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 8,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "9894a7e216ff501244bbcdc47d3830abdbcf4382d4f4a6daa43551faa87917e4",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AMCAF150Final. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AMCAF150Final. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Freeware, and the largest well-documented third-party extension: 281 keywords over banks, graphics, maths and AGA. Its manual states \"AMCAF V1.50beta4 is the FINAL RELEASE! FREEWARE!\". The manual is for V1.40 and the author writes \"Sorry, but I didn't have time to update the manual. You'll have to find out the new commands since V1.40 yourself\" — so keywords added in 1.50 are undocumented and only the V1.40 subset is genuinely at manual tier. The archive also ships AMOSPro_AMCAFUpdate.Lib, a patch overlay with no token table of its own. Its documentation states the extension expects slot 8. Slot 8, per both the extension's own documentation and Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -6664,7 +6664,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Voodoo Software / Europress Software",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 4,
     "observedSlots": [
@@ -6688,7 +6688,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "496c99f2843b265225f1d96f014254edb1603872c138991ce54e9fcb25866b62",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Colour_1.0. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Colour_1.0. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Named colour constants — `red`, `green`, `cyan`, `grey` — 27 keywords. The complete assembler source ships with it, so this is source tier despite having no prose documentation at all. Unrelated to Joerg Dommermuth's JD Colour. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -6698,7 +6698,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "John Bintz",
     "origin": "third-party",
     "format": "ap20",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 18,
     "observedSlots": [],
@@ -6716,7 +6716,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Mariusz Rycyk",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "observedSlots": [],
     "titleStrings": [
@@ -6733,7 +6733,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Hannu Rummukainen (for Black Legend Ltd)",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 18,
     "observedSlots": [],
@@ -6767,13 +6767,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Mark Everingham (AZ Software)",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 15,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "045b7f8f5b97bd86737d96653a612ce6c9f1657439954b607b0aad572d125d94",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: D_Sam_1.01. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: D_Sam_1.01. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Sample replay from disk — 50 keywords (`smp load`, `smp dma buffer`, `smp mode minchip`). D-Sam.doc ships but mentions almost none of the keywords, so this stays at table tier; the example program uses more of them than the documentation does. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -6783,13 +6783,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Luke \"DELTA\" Zelezny",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 15,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "1bbfbc43fe54c72d2d13fea003654b5f514e14d3a57997d6bf8259ffb6ca28ca",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Delta. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Delta. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "The earlier Delta, 26 keywords, all documented. Registered beside 1.6 because the tables differ. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -6799,13 +6799,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Luke \"DELTA\" Zelezny",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 15,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "97fbb8acb3347dfb91dcf73ebf240722a40702b9b9f200bb7da3505c2eb3aeed",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Delta. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Delta. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "System utilities — drive motor, PAL/NTSC, decrunching, interrupt control. 46 keywords, 45 documented in its guide. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -6815,7 +6815,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Alex J. Grant",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 10,
     "observedSlots": [],
@@ -6831,7 +6831,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Paul Hickman",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 16,
     "observedSlots": [],
@@ -6847,7 +6847,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Paul Hickman",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "observedSlots": [],
     "titleStrings": [],
@@ -6862,13 +6862,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Paul Hickman",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 16,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "42ad66986c9bcb8f72ec485bcb8fdedafa9f14de529f38489d7685525224b798",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: EasyLife. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: EasyLife. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Keywords were renamed between the 1.0 already registered and this one — `znsx` became `elznsx`, `find asc` became `elf asc` — so the two tables are genuinely different rather than one extending the other. EasyLife.guide documents 146 of the 160. Version 1.09 is also in the archive with 157 keywords and is not registered separately, being three keywords from this one. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -6878,13 +6878,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Paul Hickman",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 16,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "6cc53c104ae7e57537d83f7fab34fbafaa8fba8de85024e208c6f9446457ffb3",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: EasyLife. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: EasyLife. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "The latest EasyLife in the archive, and smaller than 1.10 — 108 named keywords against 160 — so the extension was cut down rather than grown. The 1.09 documentation covers 100 of them; no 1.44-specific manual ships with it, so what changed is not documented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -6894,7 +6894,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "unattributed",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "observedSlots": [],
     "titleStrings": [],
@@ -6909,13 +6909,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Paul Reece",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 1,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "a2d081aadec4a72c9b4399503c56f9b9b2c613692aa03161515eb041fd568116",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: EME_3.0_DEMO. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: EME_3.0_DEMO. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Replaces the stock Music extension in place, keeping the filename AMOSPro_Music.Lib so it drops into slot 1 — 59 keywords against the stock 49. This resolves what the AMOS PD CD's eme/ drawer holds: two tables of 74 and 70 entries that matched no registered extension, which are this and its AMOS 1.3 sibling. A demo build. EME.doc documents 25 keywords, mostly the additions. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. notes it 'apparently went up to 4.5b'."
   },
   {
@@ -6925,13 +6925,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Ercole Spiteri",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 10,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "2ad07234daf37eedb0c4fae550b71d39c0be4aafccd24b03e55aa273a02a783e",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Ercole_1.7. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Ercole_1.7. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Game-port extras: paddles, analogue sticks, the 4-player parallel adaptor, and the second and third buttons on console pads. 11 keywords, 10 documented. An AMOS 1.3 build (v1.6) is in the archive too. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -6958,13 +6958,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Pedro Gil (Balrog Soft)",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 22,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "0b19b31bbe06516baa3381c444c71600f8e343cb3995fe26b3aadc144e5b7f9a",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: First_0.1. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: First_0.1. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Four keywords — LED control, wait-for-mouse, wait-for-joystick, clear banks. Documented, and evidently a first attempt at writing an extension, which is what the name says. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -6992,7 +6992,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "unattributed",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "observedSlots": [],
     "titleStrings": [],
@@ -7007,7 +7007,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Pietro Ghizzoni",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 24,
     "observedSlots": [
@@ -7028,13 +7028,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Pietro Ghizzoni",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 24,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "49343990a3b4fe5961daa5519ff17cf4c6f67590fbf93bef2da93505aae22c1a",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: gui210. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: gui210. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "A later GUI than the 1.61 already registered — 204 keywords against 103 — and far better evidenced: GUI2.guide documents 202 of them. The binary's $VER reads \"V 2.1 18-10-2000\", so this is a late release, well after the Amiga's commercial life. The archive also carries Gui_CLI.lib and Gui_Backstart.Lib, which are compiler headers rather than extensions and have no token table. Author from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs."
   },
   {
@@ -7044,7 +7044,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Peter Hickman",
     "origin": "third-party",
     "format": "source",
-    "evidence": "source",
+    "evidence": "manual",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 25,
     "observedSlots": [
@@ -7054,7 +7054,7 @@ export const EXT_INFO: ExtensionInfo[] = [
       "The AMOS Intuition Extension - Version 1.3b"
     ],
     "sha256": "1063312c56e4ab1a84a47b62232fce30a5dc32d3d881d11f4dcf1b76119187ef",
-    "provenance": "AMOS-Professional-Official/extensions/Intuition-41.95/Intuition Distributed as 'Intuition-41.95' — 41.95 is the intuition.library version it targets, not the extension version. intuition.guide and the makefile both say 1.3b. No linked .Lib ships with the distribution (only Intuition.lib.info), so the token table is assembled from its own src/itokens.s. CORROBORATED 2026-07-31 against two real shipped binaries in the Ultimate Amiga 'ie13b' archive: APSystem/Intuition.lib agrees with this assembled table on every id, name and parameter spec — 0 differences across 288 entries.",
+    "provenance": "AMOS-Professional-Official/extensions/Intuition-41.95/Intuition Distributed as 'Intuition-41.95' — 41.95 is the intuition.library version it targets, not the extension version. intuition.guide and the makefile both say 1.3b. No linked .Lib ships with the distribution (only Intuition.lib.info), so the token table is assembled from its own src/itokens.s. CORROBORATED 2026-07-31 against two real shipped binaries in the Ultimate Amiga 'ie13b' archive: APSystem/Intuition.lib agrees with this assembled table on every id, name and parameter spec — 0 differences across 288 entries. The evidence tier is `manual`, and this is the only extension in the registry entitled to that: no binary is held here, and itokens.s is the TOKEN TABLE — names, ids and parameter specs, with the routines named as L_ labels and defined nowhere. It says what the keywords are called and nothing about what they do, which is exactly the distinction the tier draws. Fetching one of the two corroborating binaries into the fixture would move this to `disassembly` and is the thing to do before #71 ports anything.",
     "notes": "TWO BUILDS SHIP, and they disagree on five keyword NAMES. The ie13b archive carries Intuition.lib under both AMOS_System/ (the AMOS 1.3 build) and APSystem/ (the AMOS Pro build). Every token id, parameter spec and handler number is identical between them and to this table; five names are not. At $003e and $004e the AMOS 1.3 build spells them as one word where AMOS Pro spells them as two, and at $05a0/$05ac/$05bc the AMOS 1.3 build puts the 'i' after 'font' where AMOS Pro puts it before. This table follows the AMOS Pro build, which is the right default for AMOS Pro programs; a program written under AMOS 1.3 that used those five would not tokenise against it. The same AMOS-versus-AMOSPro split shows up in IntuiExtend, which ships 269-keyword and 294-keyword builds of one release. The id base is not a guess: exactly one offset in -2048..2048 (K=6) maps all 149 distinct slot-14 token ids observed across the 488-program corpus onto valid entry starts. See src/ext/registry.test.ts. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. lists slot 25 but asks 'Slot 14 originally?' — the corpus answers it: every program here that uses Intuition has it at slot 14."
   },
   {
@@ -7102,13 +7102,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Joerg Dommermuth",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 22,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "425c761ebd02a4f4e0186486d820d9ffb43642bf41d3249280d3b37b3ff29ade",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "A much later JD than the 5.3 found on the AMOS PD CD: 133 keywords against 130, and its per-keyword manual covers 131 of them. The 5.3 fixture keeps its assembler source, which this one does not ship, so the two entries carry different evidence — 5.3 is source tier and this is manual tier. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. records a later 6.4 for AMOS Pro."
   },
   {
@@ -7135,13 +7135,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Joerg Dommermuth",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 20,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "f3f19d866d7ef09b7e3e69aa933ab6f32b18eb0c0cc3636bdf900e339aa760fb",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "A major revision of the 1.4 on the PD CD — 56 keywords against 44 — and this one has a manual, which 1.4 did not. Unrelated to the \"AMOSPro Colours\" extension by Jan Normann Nielsen. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -7151,13 +7151,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Joerg Dommermuth",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 18,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "280035af9c988219c400003471bc400620d7616be0a7d88fbb3e5b0791cac31c",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "A fourth JD library, absent from the PD CD: Intuition window and screen wrappers (`jd open intwindow`, `jd intprint`). Manual covers 33 of its 34 keywords. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -7167,13 +7167,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Joerg Dommermuth",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 19,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "a18ba63c055f9985235ce325b70acf41c42a5339c61e8361622bc6045178a511",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "The fifth and smallest JD library: six keywords for relabelling, pattern matching and the mouse click. Fully documented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -7183,7 +7183,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Joerg Dommermuth",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "observedSlots": [],
     "titleStrings": [
@@ -7218,13 +7218,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Joerg Dommermuth",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 21,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "6a035fe8e47317bf8a20e0e286e60425a456dc05d68ab21102be0f8687f379b6",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JD_Extensions. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Later than the 1.3 registered from the PD CD (69 keywords against 63), with a per-keyword manual covering all 69. No host printer exists here, so a port would discard output as Lprint does; the faithful part is the escape sequences and the state each keyword sets. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. records a later 2.0."
   },
   {
@@ -7234,13 +7234,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "unknown",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 22,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "a36a562bd36c2515ee7738c338df6bb0e42336f38e9f008af2c9582666f47d4e",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: jotre. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: jotre. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "A THX/AHX music player — five keywords, all documented. The archive splits builds by CPU (an mc68000 drawer), which no other extension here does. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -7250,14 +7250,14 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Jens Vang Petersen",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "source",
     "idBaseEvidence": "assumed",
     "defaultSlot": 25,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "d985288a5f7b15e008ca01b797ca7dc8bf8101d0ca28894c14c2c5e76bb03d57",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JVP_1.01. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Sorting, string handling and message banks. All 11 keywords documented, and a partial source file ships as well. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: JVP_1.01. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
+    "notes": "Sorting, string handling and message banks. All 11 keywords documented, and the author's own assembler source ships with it — source/AMOSPro_JVP.Lib.s, 966 lines, banner \"AMOSPro JVP extension source code, By Jens Vang Petersen\". An earlier note called it partial; it is not. Eighteen routine bodies cover all 11 keywords with their arity variants, and src/runtime/jvp.ts cites its line numbers throughout, which is why this is source tier rather than disassembly. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "ldos-2.5",
@@ -7266,7 +7266,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Niklas Sjöberg",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 10,
     "observedSlots": [
@@ -7287,13 +7287,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Niklas Sjoberg",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 10,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "cbb06295b1ea418042507f81a7c228c838e1668f81d8659a50692a7c6dfd07f5",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: ldos. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: ldos. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Later than the 2.5 registered (85 keywords against 77), and this archive carries LdosV25.guide documenting 84 of them — the AmigaGuide form of the same manual that lifted 2.5 off table tier. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -7303,13 +7303,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Johan Ostling",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 17,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "a26f5c0ffd26707473ab33521e3ee57d19cc914ec7982da0914f2b72e3cd4bde",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Locale_0.26. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Locale_0.26. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Wraps AmigaOS locale.library — catalogs, localised case conversion. All 20 keywords documented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -7319,7 +7319,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Niklas Sjöberg",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 11,
     "observedSlots": [
@@ -7339,7 +7339,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "unattributed",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 17,
     "observedSlots": [],
@@ -7357,12 +7357,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Haiko Lemser",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "f3e952736d48d27afbf13dca58a3466f05fa87bb3dc48e1c7a7324f89af58e25",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: MED_7.1. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: MED_7.1. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "A standalone MED module player — 28 keywords, 27 documented. Distinct from the `med *` keywords in the stock Music extension, which the port already implements; this is a third-party replacement with its own token table."
   },
   {
@@ -7406,14 +7406,14 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Martin Boyd",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "source",
     "idBaseEvidence": "assumed",
     "defaultSlot": 21,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "5ba39156b0e3993d9421a1b6b6fe3e706139ea30a8ca137bfe6ff77b1d6d1086",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Opal_1.1. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
-    "notes": "Drives the OpalVision 24-bit graphics card: 78 keywords (`ovopenscreen24`, `ovwritepixel24`). Opal.Readme documents 76. A small Opal.s ships too but is a fragment rather than the whole extension. The hardware has no counterpart here, so most of this would be n/a rather than merely unimplemented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Opal_1.1. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
+    "notes": "Drives the OpalVision 24-bit graphics card: 78 keywords (`ovopenscreen24`, `ovwritepixel24`). Opal.Readme documents 76. Opal.s ships too, and an earlier note dismissed it as a fragment on its size alone — 1,003 lines for 78 keywords. It is the whole extension: every keyword has its own L_ label and routine body, and they are short because the extension is a thin shim, each one popping its arguments and tailing into the OpalVision library through the A_CALLOPAL macro. So the file being small is the finding, not a reason to distrust it. The hardware has no counterpart here, so most of this would be n/a rather than merely unimplemented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "os-devkit-1.61",
@@ -7422,7 +7422,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Fromentin Brice and Jens Vang Petersen",
     "origin": "third-party",
     "format": "ap20",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 20,
     "observedSlots": [
@@ -7430,7 +7430,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     ],
     "titleStrings": [],
     "sha256": "96a9d65b767a406e8a2b0e568c25d19be0f8cfbe4e4668ebd6fa1d56ebc2ee59",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: OS_Dev_1.61. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: OS_Dev_1.61. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "By a wide margin the largest AMOS extension found anywhere: 1,046 named keywords, and the only third-party one here in AP20 format. It is an AmigaOS toolkit — memory (`_mem alloc`), channels, and wrappers over large parts of the OS API. Its own AmigaGuide set documents 989 of the 1,046, so nearly all of it is at manual tier. Sharing a version number with GUI 1.61 is coincidence; they are unrelated extensions. Its documentation ships an example program that uses the extension, and every token id that program references lands in this table, so the id base is calibrated against real evidence rather than assumed from the shared legacy layout — and slot 20 resolves to it exactly in the identification oracle. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. records a later 2.0."
   },
   {
@@ -7446,7 +7446,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "d0feb58b13ee040f2b6dd3f91df602973d0ae5e8fc93fd1d3bd931be795e64d6",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AMOSP61Ext. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AMOSP61Ext. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Replays The Player 6.1A modules — 9 keywords. Ships its own source, which is built on P610.2 by Jarno Paananen. Its documentation states the extension expects slot 25. Slot 25, per both its own documentation and Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -7477,7 +7477,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Frederic Cordler (FireWorks)",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "observedSlots": [
       13
@@ -7487,7 +7487,7 @@ export const EXT_INFO: ExtensionInfo[] = [
       "Version EXTRA-LINKS / 14 juillet 1996"
     ],
     "sha256": "3deff9c32bc9acdb44ed987da851a5a32b0d51fae3153d4f531284dc6d3a8f63",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AmosPersonnal1.11. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: AmosPersonnal1.11. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Registered as 1.1 until the binary was read: it titles itself \"V1.1a\", \"Version EXTRA-LINKS / 14 juillet 1996\". 130 entries, 128 named, 126 distinct names — a strict superset of 1.0b's 111/110/108, adding 18: blitter clear, pic pack, pic unpack, anim unpack, fpeek, speek, word switch, mplot start plane, set deform value, full view, the four P61 replayer keywords and the four OctaMED ones. An English guide documents 105 of them. Note that the assembler source shipped with 1.0b titles itself V1.1 while carrying only the 111-entry table, so \"1.1\" in this family means the registered compilable edition of the 1.0b keyword set, not this one — see personal-1.0b. observedSlots is 13, from 68 programs in the wider corpus. The archive also holds Personnal-EXTRA.Lib, a two-keyword version-reporting stub with its own source, not registered separately. Not listed in Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs."
   },
   {
@@ -7497,13 +7497,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "unattributed",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "source",
     "idBaseEvidence": "assumed",
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "f2c5d5ecb1a283ba108de3c53d0698f9f70611848d41e60afeded6cdb2fccf0c",
     "provenance": "ultimate-amiga-amos-factory/files/AmosPersonnal1.11/AmosPersonnal1.1/PersonnalEXTRA/Personnal-EXTRA.Lib A two-keyword companion shipped inside the Personnal 1.11 distribution, in its own PersonnalEXTRA drawer. Its only identity string is \"Amos1.3\", taken here as the AMOS version it targets rather than its own version, which it does not state. 444 bytes.",
-    "notes": "Shares NO keyword name with any other table in the registry, including Personnal itself, so it is genuinely separate rather than a Personnal build. Two keywords, neither ported. Identity is weak: no author, no version of its own, one string."
+    "notes": "Shares NO keyword name with any other table in the registry, including Personnal itself, so it is genuinely separate rather than a Personnal build. Two keywords, neither ported. Identity is no longer weak, and the id is now known to be WRONG. Frederic Cordier's own source ships inside the personnal-1.1 archive at demos/PersonnalEXTRA/Personnal-EXTRA.Lib.S, 154 lines, and it settles everything the binary would not say: the author, and a version of \"1.0a\" declared twice — a Version macro emitting \"1.0a\" and the identity string \"Amos1.3/AmosPro Personnal EXTRA V1.0a\". That last string is where this id's \"1.3\" came from: only its first eight characters survive in the binary, and \"Amos1.3\" was read as a version when it names the two AMOS releases the library supports. The source's token table matches the registered one exactly — `plib ver` at routine 3 and `plib rev` at routine 4, ids 6 and 20 — so it is this library, and the id should be personnal-extra-1.0a. Renaming it is tracked separately rather than folded into the tier change."
   },
   {
     "id": "powerbobs-1.0",
@@ -7512,13 +7512,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Manuel Andre",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 13,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "dd2afda0692d93a5f58def26631e54798bac1f255413eb4a62dc45482c12c50e",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: PowerBobs_1.0. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: PowerBobs_1.0. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "A faster bob engine — 65 keywords (`reserve pbobs`, `pbob draw`, `pfast bobcol`). POWER_BOBS_DOC.asc documents 63. The archive holds an AMOS 1.3 build (Amos_PowerBobs.Lib) with the same table, not registered separately. Same author as TURBO Plus. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -7528,7 +7528,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "unknown",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 9,
     "observedSlots": [],
@@ -7544,13 +7544,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Shadow Software",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 9,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "d7ed3132015170a4f5cceb3118353c3c791b78c215bfd00529199f0b8213bdb1",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: TOME4_AMOSPro. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: TOME4_AMOSPro. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Ships with TOME IV and is a superset of the Range on the PD CD — 73 keywords against 48. No documentation accompanies it; the version is inferred from its pairing with TOME IV and is provisional. Random-range helpers plus the MKB$/MKI$/CVB binary field conversions. Version from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -7581,7 +7581,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "7bcf644759b003e24785357d618589b53e060baa48539556751b53ed0d5ea6f6",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: SLN_Extensions. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: SLN_Extensions. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Ships its own assembler source (sln_extII.s), so behaviour is readable rather than inferred: 70 keywords for mouse handling, arrays and memory. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -7591,7 +7591,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "J. G. Doig",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 20,
     "observedSlots": [],
@@ -7609,7 +7609,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Nigel Critten",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 17,
     "observedSlots": [
@@ -7629,13 +7629,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Turgut Temucin",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 25,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "5bd9a537ba0d8566f4713b29fb6e8ed5bc9e763971a145e4ebffc8a47743879f",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: TFT_0.6. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: TFT_0.6. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Low-level oddments — MFM reads, bitplane pointers, timers, interrupt control. 22 keywords, 21 documented. An early version number for something this hardware-specific. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -7645,13 +7645,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "unknown",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 14,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "e2b859aba0343043d86e917cf676afb75a71e175e41c8d25fb2fb33564f82adf",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: tge_beta. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: tge_beta. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "A game-oriented toolkit — 103 keywords covering CD32 pads, requesters, vertical blank and mouse handling. TGE.guide.beta documents 73 of them. NOTE: the binary embeds the string \"Do NOT Distrubte\" [sic] beside its version cookie, so the author appears not to have intended this build to circulate. Held as a fixture for identification only. Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. records version 0.4b; the binary's own $VER says 0.9, and the binary is taken as authoritative."
   },
   {
@@ -7661,7 +7661,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Shadow Software",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "observedSlots": [],
     "titleStrings": [],
@@ -7676,7 +7676,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Shadow Software",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 7,
     "observedSlots": [
@@ -7696,13 +7696,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Tor Erik Ottinsen",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 23,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "0ae921b0de8f81d3dc522890ea3fac1191c78c6aaf0c490e2175750c98431b31",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Tools_1.01. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: Tools_1.01. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "Memory and string peek/poke helpers — `set byte`, `get long`, `set string`. 33 keywords, 22 documented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
@@ -7712,7 +7712,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Manuel Andre",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 12,
     "observedSlots": [
@@ -7733,7 +7733,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Manuel Andre",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "table",
+    "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 12,
     "observedSlots": [
@@ -7753,12 +7753,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "author": "Manuel Andre",
     "origin": "third-party",
     "format": "legacy",
-    "evidence": "manual",
+    "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "ddc8abb16f35cd2fb4230e2c70dc85e6bcbbfe5f73ebcc6712135471faaafb07",
-    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: turbo. Evidence tier assigned by checking how many of the library's own keyword names appear in the documentation shipped beside it, counting only files that can be documentation (not disk images, example programs or the library itself).",
+    "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: turbo. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "notes": "The latest TURBO Plus, and the only one properly documented: TURBO_DocsV2.15.Asc covers 128 of its 152 keywords. Registered alongside 1.0 (134 keywords) and 1.9 (87), which are different tables, not subsets. Attribution: Andrew Burton's list credits Turbo Plus 2.x to Ryan Scott, and this entry briefly followed it. The manual shipped in this very archive contradicts that outright — \"Any reference to PLAYFIELD! and Ryan Scott are no longer valid! ... I hereby declare that he has no more rights on distributing/selling TURBO Plus. Since Manuel ANDRE is the only programmer involved with this package\". Scott was a distributor, not an author, and the arrangement was revoked. The primary source wins over the secondary list, which is the same rule that settled The Game Extension's version."
   }
 ]
