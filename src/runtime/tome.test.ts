@@ -715,3 +715,78 @@ describe('TOME: tile tags and zones (routines 57-62, 73-76)', () => {
     expect(val('Print Map Zb Length(10)')).toBe(82)
   })
 })
+
+describe('TOME: Tiny Map and Map Scan (routines 8, 9, 29, 30)', () => {
+  const m = () => mapBank(4, 3, [0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3])
+
+  it('Tiny Map draws the tile TYPE high nibble, at a step of its own', () => {
+    // routine 29 ($1162): `Rbsr routine 68 / asr.l #$4,d0 / andi.l #$f,d1 /
+    // addq.w #$1,d1` -- the icon is the tile's type byte >> 4, plus one, and
+    // the third argument replaces the tile size in both loops
+    const typ = new Uint8Array(256)
+    typ[0] = 0x10 // tile 0 -> icon 2
+    typ[1] = 0x20 // tile 1 -> icon 3
+    typ[4] = 0x50 // tile 4 -> icon 6
+    const rt = run(
+      [
+        'Screen Open 0,320,200,8,Lowres',
+        'Cls 0',
+        'Map Bank 1',
+        'Tile Typ Bank 2',
+        'Tiny Bank 2',
+        'Map View 0,0 To 4,3',
+        'Tiny Map 0,0,1',
+      ].join('\n'),
+      { map: m(), briks: typ },
+    )
+    expect(at(rt, 0, 0)).toBe(2)
+    expect(at(rt, 1, 0)).toBe(3)
+    expect(at(rt, 0, 1)).toBe(6)
+  })
+
+  it('Tiny Bank has to name the icon bank, and the sprite bank is error 23', () => {
+    // routine 71 ($2010) walks AMOS's object-bank table and checks the same
+    // `Icon` cookie routine 70 does, so only bank 2 passes
+    expect(run('Tiny Bank 5').tome.tinyBank).toBe(5)
+    expect(() =>
+      run(['Map Bank 1', 'Tile Typ Bank 2', 'Tiny Bank 1', 'Tiny Map 0,0,1'].join('\n'), {
+        map: m(),
+        briks: new Uint8Array(256),
+      }),
+    ).toThrow(/illegal function call/i)
+  })
+
+  it('Map Scan finds the first matching cell, or -1', () => {
+    // routine 8 ($840) walks rows from (x,y) and stops before x2 and y2;
+    // routine 9 ($8e2) is `Rbsr routine 8` and the other scratch field
+    expect(val('Map Bank 1 : Print Map Scan X(6,0,0 To 4,3,0)', { map: m() })).toBe(2)
+    expect(val('Map Bank 1 : Print Map Scan Y(6,0,0 To 4,3,0)', { map: m() })).toBe(1)
+    expect(val('Map Bank 1 : Print Map Scan X(9,0,0 To 4,3,0)', { map: m() })).toBe(-1)
+    expect(val('Map Bank 1 : Print Map Scan Y(9,0,0 To 4,3,0)', { map: m() })).toBe(-1)
+    // tile 1 is at (1,0) and again at (1,2); starting past the first row
+    // finds the second
+    expect(val('Map Bank 1 : Print Map Scan Y(1,0,1 To 4,3,0)', { map: m() })).toBe(2)
+  })
+
+  it('the sixth argument scans the tile TYPE, and its tables are 1-based', () => {
+    // `adda.l $38(a0),a2 / suba.l #$100,a2` with $38 the argument shifted
+    // left eight -- so table 1 here is Tile Val's table 0
+    const typ = new Uint8Array(512)
+    typ[2] = 99 // table 0, tile 2
+    typ[256 + 3] = 99 // table 1, tile 3
+    const prog = 'Map Bank 1 : Tile Typ Bank 2 : '
+    expect(val(`${prog}Print Map Scan X(99,0,0 To 4,3,1)`, { map: m(), briks: typ })).toBe(2)
+    expect(val(`${prog}Print Map Scan X(99,0,0 To 4,3,2)`, { map: m(), briks: typ })).toBe(3)
+  })
+
+  it("the map's own bounds are read as longs over word pairs, so they never fire", () => {
+    // DEFECT: reproduced -- `cmp.l $18(a0),d5` picks up the height beside the
+    // top half of the bank number, and `cmp.l $16(a0),d4` the width beside
+    // the height. A scan asked for a range past the map reads past the map
+    // rather than stopping at its edge.
+    expect(val('Map Bank 1 : Print Map Scan X(0,0,0 To 40,30,0)', { map: m() })).toBe(0)
+    // (0,0) is tile 0, found immediately -- the point is that asking for a
+    // 40x30 range over a 4x3 map is not refused
+    expect(val('Map Bank 1 : Print Map Scan X(200,0,0 To 40,30,0)', { map: m() })).toBe(-1)
+  })
+})

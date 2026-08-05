@@ -132,6 +132,10 @@ export interface TomeState {
   tagY: number[]
   /** $4c — the zone bank number */
   zoneBank: number
+  /** $7e+$24 — the OBJECT-bank slot Tiny Map takes its icons from */
+  tinyBank: number
+  /** $44 — Tiny Map's pixel step, and Map Scan's found-y scratch */
+  tinyStep: number
 }
 
 /**
@@ -179,6 +183,8 @@ export const newTomeState = (): TomeState => ({
   tagX: [0, 0, 0, 0, 0, 0, 0, 0],
   tagY: [0, 0, 0, 0, 0, 0, 0, 0],
   zoneBank: 12,
+  tinyBank: 0,
+  tinyStep: 0,
 })
 
 /** AMOS error 23, routine 81's `moveq #$17,d0 / Rjmp <AMOS 1024>`. */
@@ -346,6 +352,27 @@ function brik(rt: Runtime, n: number): { data: Uint8Array; at: number; w: number
   const at =
     (((data[o] ?? 0) << 24) | ((data[o + 1] ?? 0) << 16) | ((data[o + 2] ?? 0) << 8) | (data[o + 3] ?? 0)) >>> 0
   return { data, at, w: ((data[at] ?? 0) << 8) | (data[at + 1] ?? 0), h: ((data[at + 2] ?? 0) << 8) | (data[at + 3] ?? 0) }
+}
+
+/**
+ * Routine 71: the TINY icon bank, the second object bank Tiny Map draws from.
+ *
+ * `movea.l $816(a5),a0 / adda.l d0,a0` with `d0 = (n - 1) * 8` walks AMOS's
+ * table of object-bank descriptors -- which is why routine 70, the main icon
+ * lookup, is the same code with the index hardcoded to 8. So the argument to
+ * Tiny Bank is a BANK NUMBER into that table: 1 is the sprite bank and 2 the
+ * icon bank.
+ *
+ * The cookie check is the same literal `Icon`, so only the icon bank passes;
+ * pointing Tiny Bank at the sprites is routine 81's error 23, not a second
+ * source of images. NOTE: this port has one icon bank object rather than a
+ * descriptor table, so the number selects between "the icon bank" and "not
+ * an icon bank" and nothing finer.
+ */
+function tinyIcons(rt: Runtime): number {
+  const s = rt.tome
+  if (s.tinyBank !== 2 || !rt.iconBank) funcCall()
+  return rt.iconBank!.images.length
 }
 
 export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
@@ -578,6 +605,65 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
       v.setUint16(at + 2, y1 & 0xffff)
       v.setUint16(at + 4, x2 & 0xffff)
       v.setUint16(at + 6, y2 & 0xffff)
+    },
+
+    /**
+     * Tiny Bank n — routine 30 ($1272), eighteen bytes against $7e+$24. Which
+     * object bank Tiny Map takes its sixteen icons from; see `tinyIcons`.
+     */
+    'tiny bank'(it) {
+      st().tinyBank = it.evalInt()
+    },
+
+    /**
+     * Tiny Map x,y,step — routine 29 ($1162), 272 bytes: Map Do drawn at a
+     * different scale and out of a different lookup, for the overview map a
+     * game shows beside the play area.
+     *
+     * Two substitutions in what is otherwise Map Do's code. The step is the
+     * THIRD argument, stored at $44 and used where Map Do uses the tile size,
+     * so the whole map can be squeezed to a pixel a tile. And the icon is not
+     * the tile: routine 68 reads the tile's byte from table 0 of the TILE
+     * TYPE bank and then `asr.l #$4,d0 / andi.l #$f,d1 / addq.w #$1,d1` takes
+     * its HIGH NIBBLE plus one. So a tiny map has at most sixteen icons, and
+     * the low nibble of the same byte is left for Tile Val to answer with.
+     *
+     * Running past the tiny bank's count is a plain `bhi` to a local label
+     * that skips the paste -- no error, like List Tile and unlike everything
+     * else. The map wrap, the do-while and the argument order are Map Do's.
+     */
+    'tiny map'(it) {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const step = it.evalInt()
+      const s = st()
+      s.tinyStep = step
+      s.cursorX = (x << 16) >> 16
+      s.cursorY = (y << 16) >> 16
+      const m = mapData(rt)
+      const count = tinyIcons(rt)
+      s.mapW = m.w
+      s.mapH = m.h
+      const typ = bankBytes(rt, s.tileTypBank)
+      let my = wrap(s.cursorY, m.h)
+      let sy = s.viewY1
+      do {
+        let mx = wrap(s.cursorX, m.w)
+        let sx = s.viewX1
+        do {
+          const icon = (((typ[m.data[4 + my * m.w + mx]!] ?? 0) >> 4) & 0xf) + 1
+          if (icon <= count) {
+            const img = rt.iconBank?.image(icon)
+            if (img) rt.blit(rt.screen, img, sx, sy, true)
+          }
+          mx = mx + 1 >= m.w ? 0 : mx + 1
+          sx += step
+        } while (sx < s.viewX2)
+        my = my + 1 >= m.h ? 0 : my + 1
+        sy += step
+      } while (sy < s.viewY2)
     },
 
     /**
@@ -966,6 +1052,32 @@ function divuw(dividend: number, divisor: number): number {
   return (q > 0xffff ? u : q) & 0xffff
 }
 
+/** Routine 8's search, shared with routine 9 exactly as the binary shares it. */
+function mapScan(rt: Runtime, a: Value[]): [number, number] {
+  const want = int(a[0]!)
+  const x0 = (int(a[1]!) << 16) >> 16
+  const y0 = (int(a[2]!) << 16) >> 16
+  const x2 = int(a[3]!)
+  const y2 = int(a[4]!)
+  const table = int(a[5]!)
+  const s = rt.tome
+  const m = mapData(rt)
+  s.mapW = m.w
+  s.mapH = m.h
+  // the two broken bounds, as longs over the word pairs they really read
+  const boundY = ((m.h << 16) | ((s.mapBank >>> 16) & 0xffff)) >>> 0
+  const boundX = ((m.w << 16) | (m.h & 0xffff)) >>> 0
+  const typ = table !== 0 ? bankBytes(rt, s.tileTypBank) : null
+  for (let y = y0; y < y2 && y < boundY; y++) {
+    for (let x = x0; x < x2 && x < boundX; x++) {
+      const tile = m.data[4 + y * m.w + x] ?? 0
+      const v = typ ? (typ[(table - 1) * 256 + tile] ?? 0) : tile
+      if (v === want) return [x, y]
+    }
+  }
+  return [-1, -1]
+}
+
 export function makeTomeFunctions(rt: Runtime): Record<string, Func> {
   const st = (): TomeState => rt.tome
 
@@ -1270,6 +1382,34 @@ export function makeTomeFunctions(rt: Runtime): Record<string, Func> {
       }
       return VI(0)
     },
+
+    /**
+     * =Map Scan X(v,x,y To x2,y2,table) — routine 8 ($840), 162 bytes — and
+     * =Map Scan Y, routine 9 ($8e2), which is TEN bytes: `Rbsr routine 8`
+     * then `move.l $44(a0),d3`. So asking for the y runs the whole scan
+     * again and reads the other half of the answer out of the same scratch.
+     *
+     * Find the first cell holding `v`, walking rows from (x,y) and stopping
+     * before x2 and y2. Not found is -1 in both, preloaded into $40 and $44
+     * before the search starts.
+     *
+     * The sixth argument selects WHAT is compared. Zero scans the raw tile
+     * byte; anything else goes through routine 68 and the tile-type bank,
+     * `adda.l $38(a0),a2 / suba.l #$100,a2` where $38 is the argument shifted
+     * left eight -- so the tables are 1-based here where Tile Val's are
+     * 0-based, and `table` 1 is Tile Val's table 0.
+     *
+     * DEFECT: the map's own bounds do not work. `cmp.l $18(a0),d5` and
+     * `cmp.l $16(a0),d4` read LONGS off two WORD fields, so the first picks
+     * up the map height beside the top half of the bank number at $1a and the
+     * second the width beside the height. Both come out around 65,536 times
+     * too large, and the scan is bounded only by the x2/y2 the caller gave.
+     * Reproduced, because a program asking for a range past the edge of its
+     * map got tiles read past the edge of its map, and would have been
+     * written around that.
+     */
+    'map scan x': (_, a): Value => VI(mapScan(rt, a)[0]),
+    'map scan y': (_, a): Value => VI(mapScan(rt, a)[1]),
 
     /**
      * =Map Base — routine 28 ($1158), ten bytes: `movea.l $158(a5),a0 /

@@ -1887,6 +1887,13 @@ export const FAITHFUL = new Set<string>([
   'map set zone',
   'map zone',
   'map zb length',
+  // Tiny Map's overview draw and the map search: routines 8, 9, 29, 30.
+  // Map Scan carries a reproduced DEFECT (in NOTES) -- its map bounds are
+  // long reads over word pairs and never fire.
+  'tiny bank',
+  'tiny map',
+  'map scan x',
+  'map scan y',
   'tile count',
   'map check',
   'map view',
@@ -2146,6 +2153,8 @@ export const NA = new Set<string>([
 export const NOTES: Record<string, string> = {
   'paste brik':
     "Routine 24 (\$1048), 170 bytes. A brik drawn to the SCREEN rather than stamped into the map, cell by cell as icons, stepping x by the tile width at \$e and y by the tile height at \$12, through the same icon paste and the same `cmp.w \$8(a0),d1 / Rbhi routine 82` count check the map draws use. There is no view: Map View bounds the map draws and not this one, so a brik is pasted wherever it is asked for. DEFECT: x and y are taken UNSIGNED. They are stored as words at \$a/\$c and read back with `clr.l d2 / move.w \$a(a0),d2`, which zero-extends, so `Paste Brik 1,-1,0` starts at x = 65535 rather than one pixel left of the screen and the brik simply does not appear. Reproduced -- a program scrolling a brik off the left edge on the real machine saw it vanish rather than slide, and that is the behaviour it was written against",
+  'map scan x':
+    "Routine 8 (\\$840), 162 bytes, and Map Scan Y is routine 9 (\\$8e2), TEN bytes -- `Rbsr routine 8` then `move.l \\$44(a0),d3`, so asking for the y runs the whole search again and reads the other half of the answer out of the same scratch pair at \\$40/\\$44. Find the first cell holding a value, walking rows from (x,y) and stopping before x2 and y2; not found is -1, preloaded into both before the search. The sixth argument selects what is compared: zero is the raw tile byte, anything else goes through routine 68 and the tile-type bank with `adda.l \\$38(a0),a2 / suba.l #\\$100,a2`, where \\$38 is that argument shifted left eight -- so the tables are 1-BASED here where Tile Val's are 0-based, and table 1 is Tile Val's table 0. DEFECT: the map's own bounds do not work. `cmp.l \\$18(a0),d5` and `cmp.l \\$16(a0),d4` read LONGS off two WORD fields, so the first picks up the map height beside the top half of the bank number at \\$1a and the second the width beside the height; both come out around 65,536 times too large and the scan is bounded only by the x2/y2 the caller gave. Reproduced -- a program asking for a range past the edge of its map got tiles read past the edge of its map, and was written around that",
   'map plot':
     "Routine 20 (\\$f20), 120 bytes, and the argument order is the surprise: the pops are d5, d4, d6, and d5 is tested against \\$18 (the map height) and d4 against \\$16, so the FIRST argument is the tile -- `Map Plot t,x,y` and not `Map Plot x,y,t`. One byte written into the map, `andi.l #\\$ff,d6` first so only the low eight bits land, and then, if Map Update On has been called, the plot is appended to the update list at the shared animation bank as three words (tile, x, y) eight bytes apart. That pairing is the point of the whole family: Map Update redraws exactly the tiles that were plotted rather than the whole view. DEVIATION: only the far edges are checked, `cmp.w \\$18(a0),d5 / Rbge` and the same for x, with nothing testing for a negative one; a negative y then goes through an unsigned `mulu.w` and the write lands before the map bank. Not reproduced, as in Map Brik. NOTE: the bank is resolved through routine 66 BEFORE the capacity at \\$7a is tested, so a program that records without calling Map Anim Bank first gets Start()'s \"bank not reserved\" if the shipped default bank 9 does not exist, and silence if it does",
   'map brik':
