@@ -3043,6 +3043,7 @@ export const SHARED_NOTES: Record<string, string> = {
   // reading covering the pair
   'amcaf length': 'amcaf base',
   'exchange icon': 'exchange bob',
+  'td surface points off': 'td surface points',
   'jd star joker off': 'jd star joker on',
 }
 

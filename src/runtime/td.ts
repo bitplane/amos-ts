@@ -324,6 +324,21 @@ function tdLoadFile(
 export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): TdState => rt.td
   return {
+    /**
+     * Td Dir path$ — $211614, and the bound is the library's own:
+     *
+     *     move.l  $14(a7), d7        the string's LENGTH
+     *     movea.l $18(a7), a3        ...and its bytes
+     *     moveq   #$44, d0
+     *     cmp.l   d0, d7
+     *     bls.b   .ok                68 characters is the most it will take
+     *     clr.l   -(a7) / pea $f.w / pea $1.w / jsr $21322c
+     *
+     * so a longer path is `error(1, $f, 0)` -- error 15 -- rather than a
+     * truncation, and the copy into the buffer at $9f6(a4) only happens after
+     * the check. `tdSetDir` has had that bound all along; this is the reading
+     * behind it.
+     */
     'td dir'(it) {
       tdSetDir(st(), it.evalStr())
     },
@@ -331,38 +346,63 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       const name = it.evalStr()
       tdLoad(st(), (p) => rt.fs?.read(p) ?? null, name)
     },
+    /**
+     * Td Clear All — $21167a, four instructions: `clr.l -(a7) / jsr $213244 /
+     * addq.w #$4, a7`. It calls the shared teardown with a zero argument,
+     * which is the "everything" case; Td Kill reaches the same helper with an
+     * object number.
+     *
+     * "Removes all objects from memory" — the whole table goes, templates and
+     * surfaces with it, since nothing else holds a reference.
+     */
     'td clear all'() {
-      // "Removes all objects from memory" — the whole table goes, templates
-      // and surfaces with it, since nothing else holds a reference
       st().objects.clear()
       st().instances.clear()
     },
+    /**
+     * Td Keep On / Td Keep Off — ONE engine routine, $211684, six instructions
+     * that store the low byte of their argument into a flag:
+     *
+     *     move.l $8(a7), d7
+     *     move.l d7, d0
+     *     move.b d0, $486c(a4)
+     *
+     * The two keywords are separate thunks in the `3d.lib` stub differing in a
+     * single instruction -- routine 74 is `moveq #$1,d2` and routine 75
+     * `moveq #$0,d2` -- and both then `jmp -$226(a2)` into the same engine
+     * entry. So On and Off are one setter called with 1 and 0.
+     *
+     * "Td Keep Off tells 3D not to keep objects in memory, but to load them
+     * each time" — a caching switch, so with no cache to speak of here it
+     * records the setting and Td Load consults it.
+     */
     'td keep on'() {
-      // "Td Keep Off tells 3D not to keep objects in memory, but to load them
-      // each time" — a caching switch, so with no cache to speak of here it
-      // records the setting and Td Load consults it
       st().keep = true
     },
     'td keep off'() {
       st().keep = false
     },
+    /**
+     * `cmp.l #1 / bcs` then `cmpi.l #$100 / bls` at $211526: 1..256. Then
+     * `tst.l $4814(a4) / beq` — and $4814 is the head of the live instance
+     * list, not the loaded-object table: Td Kill writes it when unlinking
+     * the first frame. So it is instances that block a resize, and every
+     * demo relies on that, loading its objects first and setting the height
+     * only just before the Td Object that uses it.
+     */
     'td screen height'(it) {
-      // `cmp.l #1 / bcs` then `cmpi.l #$100 / bls` at $211526: 1..256. Then
-      // `tst.l $4814(a4) / beq` — and $4814 is the head of the live instance
-      // list, not the loaded-object table: Td Kill writes it when unlinking
-      // the first frame. So it is instances that block a resize, and every
-      // demo relies on that, loading its objects first and setting the height
-      // only just before the Td Object that uses it.
       const n = it.evalInt()
       if (n < 1 || n > 256) tdError(9)
       if (st().instances.size !== 0) tdError(10)
       st().screenHeight = n
     },
+    /**
+     * Td Object n,name$,x,y,z,a,b,c — $211694. The number must be 1..20,
+     * the slot must be free, and the name must already be loaded; the three
+     * errors are "Invalid object number", "Object already exists" and
+     * "Object not loaded", in that order.
+     */
     'td object'(it) {
-      // Td Object n,name$,x,y,z,a,b,c — $211694. The number must be 1..20,
-      // the slot must be free, and the name must already be loaded; the three
-      // errors are "Invalid object number", "Object already exists" and
-      // "Object not loaded", in that order.
       const n = it.evalInt()
       it.expect(',')
       const name = it.evalStr()
@@ -383,19 +423,21 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
         angle: [l32(nums[3]!), l32(nums[4]!), l32(nums[5]!)],
       })
     },
+    /**
+     * Td Set Colour n,block,colour — $212f66. The object goes through
+     * $212fd0, so object zero is not allowed; a block past the count at
+     * +$20 of its object is "Block does not exist"; and a colour outside
+     * 0..15 is masked rather than refused, `cmp.l #$10 : bcs : and.l #$f`,
+     * which makes -1 white and 16 black.
+     *
+     * The 31/10/1992 manual update on the Object Modeller coverdisk says
+     * "valid colour numbers range from 0 to 16" and that an out-of-range
+     * code "will be truncated to the nearest valid code without causing an
+     * error". Both are loose: there are sixteen combinations, not
+     * seventeen, and $212faa masks rather than clamps, so 16 lands on 0
+     * rather than staying at the top. The binary is what runs.
+     */
     'td set colour'(it) {
-      // Td Set Colour n,block,colour — $212f66. The object goes through
-      // $212fd0, so object zero is not allowed; a block past the count at
-      // +$20 of its object is "Block does not exist"; and a colour outside
-      // 0..15 is masked rather than refused, `cmp.l #$10 : bcs : and.l #$f`,
-      // which makes -1 white and 16 black.
-      //
-      // The 31/10/1992 manual update on the Object Modeller coverdisk says
-      // "valid colour numbers range from 0 to 16" and that an out-of-range
-      // code "will be truncated to the nearest valid code without causing an
-      // error". Both are loose: there are sixteen combinations, not
-      // seventeen, and $212faa masks rather than clamps, so 16 lands on 0
-      // rather than staying at the top. The binary is what runs.
       const n = it.evalInt()
       it.expect(',')
       const block = it.evalInt()
@@ -432,16 +474,18 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
         }) as Instr,
       ]),
     ),
+    /**
+     * Td Background screen, sx, sy, w, h To dx, dy — $210c54, and the
+     * demos write it exactly so: `Td Background 1,0,0,320,180 To 0,0`.
+     *
+     * It puts a picture *underneath* the 3D, which is the other half of the
+     * reason a pen only ever touches the bottom two bitplanes: the picture
+     * goes down at full depth and the objects then change two bits of it.
+     * A source deeper than the destination is "Too many planes for 3d
+     * background", and handing it the screen it is drawing on is "3d
+     * background source screen is current screen".
+     */
     'td background'(it) {
-      // Td Background screen, sx, sy, w, h To dx, dy — $210c54, and the
-      // demos write it exactly so: `Td Background 1,0,0,320,180 To 0,0`.
-      //
-      // It puts a picture *underneath* the 3D, which is the other half of the
-      // reason a pen only ever touches the bottom two bitplanes: the picture
-      // goes down at full depth and the objects then change two bits of it.
-      // A source deeper than the destination is "Too many planes for 3d
-      // background", and handing it the screen it is drawing on is "3d
-      // background source screen is current screen".
       const t = st()
       const from = it.evalInt()
       it.expect(',')
@@ -481,13 +525,15 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
         }
       }
     },
+    /**
+     * Td Surface name$, srcBlock, srcFace To n, dstBlock, dstFace, k —
+     * $212c28, and the demos write it exactly like that:
+     * `Td Surface "3d2",1,3 To 1,0,5,0`.
+     * It lifts the surface off a face of a *loaded* object and puts it on a
+     * face of a *live* one, which is how the demos repaint a die or swap
+     * the picture on a monitor without reloading anything.
+     */
     'td surface'(it) {
-      // Td Surface name$, srcBlock, srcFace To n, dstBlock, dstFace, k —
-      // $212c28, and the demos write it exactly like that:
-      // `Td Surface "3d2",1,3 To 1,0,5,0`.
-      // It lifts the surface off a face of a *loaded* object and puts it on a
-      // face of a *live* one, which is how the demos repaint a die or swap
-      // the picture on a monitor without reloading anything.
       const t = st()
       const name = it.evalStr()
       it.expect(',')
@@ -538,16 +584,35 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       }
       t.surfacePoints = n.map((v) => v & 0xff) as [number, number, number, number]
     },
+    /**
+     * Td Surface Points Off — the same routine as Td Surface Points, $212bde,
+     * selected by the first pushed argument:
+     *
+     *     tst.l d7 / beq .off
+     *     ...four `move.b` into $486f..$4872...
+     *     move.b #$1, $4873(a4) / bra .out
+     *  .off: clr.b $4873(a4)
+     *
+     * so Off clears the ACTIVE flag at $4873 and leaves the four parameter
+     * bytes at $486f..$4872 exactly as they were.
+     *
+     * Storing null here therefore loses something the machine keeps -- but
+     * nothing can see the difference: the flag gates every read of those four
+     * bytes, and the On form takes all four afresh (`args(sel 1, long, long,
+     * long, long)`), so there is no path that observes a stale anchor.
+     */
     'td surface points off'() {
       st().surfacePoints = null
     },
+    /**
+     * Td Forward n, d — $2118ee moves the object d units along its own
+     * facing. It builds sin and cos of the two angles and combines them by
+     * hand, with a shorter path when the roll is zero, but the products are
+     * the attitude matrix's third column taken in the same order with the
+     * same two shifts — so this is the local point (0, 0, d) put into the
+     * world, which is Td World's arithmetic exactly.
+     */
     'td forward'(it) {
-      // Td Forward n, d — $2118ee moves the object d units along its own
-      // facing. It builds sin and cos of the two angles and combines them by
-      // hand, with a shorter path when the roll is zero, but the products are
-      // the attitude matrix's third column taken in the same order with the
-      // same two shifts — so this is the local point (0, 0, d) put into the
-      // world, which is Td World's arithmetic exactly.
       const t = st()
       const n = it.evalInt()
       it.expect(',')
@@ -555,32 +620,38 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       const frame = tdFrame(t, n)
       frame.pos = tdWorldPoint(frame, [0, 0, d])
     },
+    /**
+     * $212f30 writes the word into the object's render record at +$42, and
+     * that is all it does — no relinking, no sort here. The sort is at
+     * $218cc4 and runs every Td Redraw; see tdSortInstances.
+     */
     'td priority'(it) {
-      // $212f30 writes the word into the object's render record at +$42, and
-      // that is all it does — no relinking, no sort here. The sort is at
-      // $218cc4 and runs every Td Redraw; see tdSortInstances.
       const t = st()
       const n = it.evalInt()
       it.expect(',')
       tdInstance(t, n).priority = (it.evalInt() << 16) >> 16
     },
+    /**
+     * $2114b6 is `link a5,#0 : unlk : rts` — the keyword survived into the
+     * shipped engine with its body removed, so it does nothing at all
+     */
     'td debug'(it) {
-      // $2114b6 is `link a5,#0 : unlk : rts` — the keyword survived into the
-      // shipped engine with its body removed, so it does nothing at all
       it.evalInt()
     },
+    /** $212f5e, likewise a bare link/unlk/rts */
     'td pragma'(it) {
-      // $212f5e, likewise a bare link/unlk/rts
       it.evalInt()
       it.expect(',')
       it.evalInt()
     },
+    /**
+     * Td Set Zone n, zone, x, y, z, r — $211f98. The object goes through
+     * $21301c so zero counts; a centre over $4000 on any axis, a radius
+     * over $80000 or a negative zone number is "Zone parameter(s) out of
+     * range". Setting a number that is already there replaces it, because
+     * the list walk at $212020 looks before it allocates.
+     */
     'td set zone'(it) {
-      // Td Set Zone n, zone, x, y, z, r — $211f98. The object goes through
-      // $21301c so zero counts; a centre over $4000 on any axis, a radius
-      // over $80000 or a negative zone number is "Zone parameter(s) out of
-      // range". Setting a number that is already there replaces it, because
-      // the list walk at $212020 looks before it allocates.
       const t = st()
       const n = it.evalInt()
       const nums: number[] = []
@@ -601,8 +672,8 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       if (at < 0) frame.zones.push(made)
       else frame.zones[at] = made
     },
+    /** $2120e8 — unlinks it; a number that is not there is not an error */
     'td delete zone'(it) {
-      // $2120e8 — unlinks it; a number that is not there is not an error
       const t = st()
       const n = it.evalInt()
       it.expect(',')
@@ -610,10 +681,12 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       const frame = tdFrame(t, n)
       if (frame.zones) frame.zones = frame.zones.filter((q) => q.n !== zone)
     },
+    /**
+     * $211c24, selector 8 into the same routine Td Bearing uses — "points
+     * object n1 at n2" is the bearing written back into the attitude. Only
+     * A and B move; C, the roll, is left alone.
+     */
     'td face'(it) {
-      // $211c24, selector 8 into the same routine Td Bearing uses — "points
-      // object n1 at n2" is the bearing written back into the attitude. Only
-      // A and B move; C, the roll, is left alone.
       const t = st()
       const n1 = it.evalInt()
       it.expect(',')
@@ -625,15 +698,26 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
       frame.angle[0] = t.bearing.a
       frame.angle[1] = t.bearing.b
     },
+    /** $2117d2 unlinks the frame from the live list and frees it */
     'td kill'(it) {
-      // $2117d2 unlinks the frame from the live list and frees it
       const t = st()
       t.instances.delete(tdInstance(t, it.evalInt()).n)
     },
+    /**
+     * Td Move / Td Move Rel / Td Angle / Td Angle Rel — $21188a and $2118bc for
+     * the position pair, $211b34 and $211b66 for the attitude pair, all four
+     * built by `tdVector` below, where the reading is written out.
+     */
     'td move': tdVector(rt, 'pos', false),
     'td move rel': tdVector(rt, 'pos', true),
     'td angle': tdVector(rt, 'angle', false),
     'td angle rel': tdVector(rt, 'angle', true),
+    /**
+     * The six animation-string forms: Td Move X/Y/Z through $211822 and Td
+     * Angle A/B/C through $211a5c, each a single routine taking the axis as a
+     * selector (`sel 0`, `sel 1`, `sel 2`) ahead of the string. See
+     * `tdSetAnim` for what the strings mean.
+     */
     ...Object.fromEntries(
       // the six string forms: axis 0/1/2 on the position or the attitude
       (['x', 'y', 'z'] as const).flatMap((ax, i) => [
@@ -684,9 +768,20 @@ export function makeTdInstructions(rt: Runtime): Record<string, Instr> {
         for (const f of inst.faces) tdDrawFace(rp, t.screenHeight, f)
       }
     },
+    /**
+     * Td Quit — "unload the 3D extensions along with all objects and release
+     * all 3D memory".
+     *
+     * The only keyword in the set whose stub does NOT reach a numbered engine
+     * routine: routine 77 ($f72) is two instructions, `movea.l $128(a5),a2 /
+     * jmp -$88(a2)`, into a different vector than every other keyword uses --
+     * they go through -$226 and -$228, this one through -$88. That is the
+     * engine teardown entry rather than a keyword handler, which is why the
+     * dispatch walker lists 62 routines and not 63.
+     *
+     * NOTE: there is no LoadSeg'd engine here to unload, so it is the clear.
+     */
     'td quit'() {
-      // "Unload the 3D extensions along with all objects and release all 3D
-      // memory." There is no engine to unload here, so it is the clear.
       rt.td = newTdState()
     },
   }
@@ -1166,6 +1261,13 @@ export function tdAnimPoint(inst: TdInstance, index: number): TdPoint {
 
 /** `Td Position X/Y/Z(n)` and `Td Attitude A/B/C(n)`, one routine and a selector */
 export function makeTdFunctions(rt: Runtime): Record<string, Func> {
+  /**
+   * The six readers: Td Position X/Y/Z through $2119ec and Td Attitude A/B/C
+   * through $211bf8, each ONE engine routine taking the axis as a selector
+   * ahead of the object number, exactly as the setters do. They read the
+   * frame's vector back without transforming it, so what Td Move wrote is what
+   * Td Position gives.
+   */
   const read = (field: 'pos' | 'angle', axis: number): Func => (_, a) =>
     VI(tdFrame(rt.td, int(a[0] ?? VI(0)))[field][axis]!)
   return {
@@ -1292,6 +1394,14 @@ export function makeTdFunctions(rt: Runtime): Record<string, Func> {
       // is what the cleared byte gives.
       return VI(tdInstance(rt.td, int(a[0] ?? VI(0))).drawn === false ? 0 : 1)
     },
+    /**
+     * =Td Pragma Status(a,b) — $212f54, and it is four instructions:
+     * `link.w a5,#$0 / moveq #$2a,d0 / unlk a5 / rts`.
+     *
+     * It answers 42 unconditionally and reads neither argument. The routine
+     * that follows it at $212f5e is an empty `link/unlk/rts` too, so this
+     * corner of the engine is placeholders the author never filled in.
+     */
     'td pragma status': () => VI(42),
     'td advanced': (_, a) => {
       // $212f0c hands back an address: a4 itself for object zero, otherwise
@@ -1301,11 +1411,13 @@ export function makeTdFunctions(rt: Runtime): Record<string, Func> {
       int(a[0] ?? VI(0))
       return VI(0)
     },
+    /**
+     * =Td Collide(n[,m]) — $21218e. With a second object it tests that one;
+     * without, it walks the twenty slots at a4+$47c0 and stops at the first
+     * hit, skipping itself and any empty slot — but never skipping zero, the
+     * viewpoint, which has no slot to be empty. -1 when nothing touches.
+     */
     'td collide': (_, a) => {
-      // $21218e. With a second object it tests that one; without, it walks
-      // the twenty slots at a4+$47c0 and stops at the first hit, skipping
-      // itself and any empty slot — but never skipping zero, the viewpoint,
-      // which has no slot to be empty. -1 when nothing touches.
       const t = rt.td
       const n = int(a[0] ?? VI(0))
       const frame = tdFrame(t, n)
