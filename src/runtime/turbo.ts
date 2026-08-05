@@ -1038,6 +1038,10 @@ function runBlit(rt: Runtime, d: BlitDef): void {
 
 /** `Multi Blit`, `Blit Int On` and `Blit Int Change` all take this range */
 function blitRange(it: Interp): { from: number; to: number } {
+  // the same eight instructions open Multi Blit (44, $15cc), Blit Int On's
+  // worker (317, $61f6) and Blit Int Change (141, $4846): `cmp.w d6,d7 /
+  // Rblt` for an inverted range, `subq.w #$1,d6 / Rbmi` for a start below
+  // one, and `subq.w #$1,d7 / cmp.w #$60,d7 / Rbcc` for an end past 96
   const from = it.evalInt()
   it.expect('to')
   const to = it.evalInt()
@@ -2268,8 +2272,10 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       runBlit(rt, blitArgs(rt, it, screen, true))
     },
     'multi blit'(it) {
-      // Multi Blit start To end — "With this command you can scroll up to 96
-      // zones in one go". An undefined zone in the range is skipped.
+      // Multi Blit start To end — routine 44 ($15cc). "With this command you
+      // can scroll up to 96 zones in one go". It waits on the interrupt's own
+      // busy byte at $228 and then on BLTBUSY before it starts, and an
+      // undefined zone in the range is a null pointer it steps over.
       const { from, to } = blitRange(it)
       for (let i = from; i <= to; i++) {
         const d = rt.turbo.blits[i]
@@ -2299,6 +2305,9 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
     'blit erase'(it) {
       // "Erases and frees the memory used by a particular scrolling zone. If
       // blitnr is negative, ALL blit definitions are erased from memory."
+      // Routine 45 ($16b2) into routine 324 ($6678): `bmi` to the erase-all
+      // arm, `Rbeq routine 62` for zero, and the same 1..96 bound as the rest.
+      // The freed size is the zone's own row count times eight plus $14.
       const nr = it.evalInt()
       if (nr < 0) {
         rt.turbo.blits = rt.turbo.blits.map(() => null)
@@ -2351,35 +2360,47 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
     'blit int on'(it) {
       // "adds a new interrupt server to the VBLANK server chain which will
       // do the same thing as the Multi Blit command... The scrolling does
-      // not begin until Blit Int Wait is set False!"
+      // not begin until Blit Int Wait is set False!" Routine 68 ($1f4e) into
+      // routine 317 ($61f6), which AllocMems a $16-byte Interrupt structure,
+      // fills it in at priority 9, and refuses when $224 says one is already
+      // running.
       const range = blitRange(it)
       if (rt.turbo.blitInt) turboError(13)
       rt.turbo.blitInt = range
     },
     'blit int off'() {
-      // "This command does not change the Blit Int Wait status."
+      // "This command does not change the Blit Int Wait status." Routine 69
+      // ($1f54) into routine 316 ($61a6), which returns quietly when $224 is
+      // zero and otherwise RemIntServers and frees between Forbid and Permit.
       rt.turbo.blitInt = null
     },
     'blit int change'(it) {
       // "Allows you to change the blits that are executed within the
       // interrupt scrolling system... exactly the same as Blit Int On start
       // to End, except it works while the interrupt is being executed."
+      // Routine 141 ($4846) shares Blit Int On's three range checks, refuses
+      // with TURBO error 23 when $224 says nothing is running, and waits out
+      // the busy byte at $228 before it rewrites the pair.
       const range = blitRange(it)
       if (!rt.turbo.blitInt) turboError(23)
       rt.turbo.blitInt = range
     },
     'blit int wait'(it) {
-      // Blit Int Wait True/False. The routine stores the opposite of its
-      // argument: anything non-zero clears the flag, zero sets it to 1.
+      // Blit Int Wait True/False — routine 142 ($4880), twenty-two bytes that
+      // store the OPPOSITE of the argument: `bne` to `clr.w $226(a2)` for
+      // anything non-zero, and `addq.w #$1,d0` to store 1 for zero. So the
+      // flag the interrupt tests is "go", and the keyword's name is "wait".
       rt.turbo.blitGo = it.evalInt() !== 0 ? 0 : 1
     },
     'set planes'(it) {
       // Set Planes mask — "Restricts most drawing operations to a number of
       // bitplanes, defined by the MASK parameter. Each bit represents a
-      // bitplane. Ex.: Set Planes %101, enables planes 1 and 3." It writes
-      // rp_Mask, so it belongs to the screen rather than to TURBO -- and now
-      // literally is the RastPort's field rather than a Screen one named
-      // after it.
+      // bitplane. Ex.: Set Planes %101, enables planes 1 and 3." Routine 76
+      // ($21f4) is twenty-six bytes: `andi.l #$ff` and then `move.b d0,$18(a0)`
+      // on the RastPort, which is rp_Mask, plus a copy at $43c of the
+      // extension's own block for the blit keywords to read. So it belongs to
+      // the screen rather than to TURBO -- and now literally is the RastPort's
+      // field rather than a Screen one named after it.
       rt.screen.rp.mask = it.evalInt() & 0xff
     },
     'reserve check'(it) {
