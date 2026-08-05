@@ -58,7 +58,7 @@ tested against our own understanding. Percentages exclude n/a
 | jd-colour-2.0 | 12 | 4 | 0 | 0 | 100% |
 | jd-int-1.3 | 33 | 0 | 0 | 33 | 0% |
 | jd-k3-1.1 | 5 | 5 | 0 | 0 | 100% |
-| jd-prt-1.1 | 58 | 0 | 0 | 58 | 0% |
+| jd-prt-1.1 | 58 | 58 | 0 | 0 | 100% |
 | jd-prt-1.3 | 63 | 63 | 0 | 0 | 100% |
 | jd-prt-1.4 | 6 | 6 | 0 | 0 | 100% |
 | jotre-1.0 | 5 | 0 | 0 | 5 | 0% |
@@ -101,7 +101,7 @@ tested against our own understanding. Percentages exclude n/a
 | turbo-plus-2.15 | 17 | 17 | 0 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 4543 | 1638 | 65 | 2731 | 38% |
+| **total** | 4543 | 1696 | 65 | 2673 | 40% |
 
 ## aga-1.0 (100%)
 
@@ -308,9 +308,9 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `jd match` *(Faithful, and worth recording because the library's own manual disagrees with itself. Two entries are HEADED 'Jd Compare' and 'Jd Compare Nocase', but their Syntax lines read `X=Jd Match(A$,B$)` and the token table names them `jd match` and `jd match nocase`. The headings are stale; the table is what a program tokenises against. The matcher is the AmigaDOS one LDos already needed, shared rather than written twice -- the manual documents the same syntax down to `%` matching nothing -- and the `star` flag it takes is precisely what Jd Star Joker On/Off sets)*, `jd match nocase`, `jd star joker off` *(Routines 11 ($2ba) and 12 ($2ca), sixteen bytes each: `movea.l $2b8(a5),a0` for DOSBase, `movea.l $22(a0),a0` for dl_Root, then `bset.b #$18,$34(a0)` -- rn_Flags bit 24, RNF_WILDSTAR -- with `bclr` for Off. NOTE: this is AmigaDOS's GLOBAL flag and not the extension's own, so it lives on Machine here and LDos's Lmatch reads the same field; a program that turns the star on for Jd Match turns it on for every pattern parse on the machine, which is what one RootNode means. `bset` on memory is byte-sized and takes its bit modulo 8, so bit 24 of the longword is bit 0 of the byte at +$34)*, `jd star joker on` *(Routines 11 ($2ba) and 12 ($2ca), sixteen bytes each: `movea.l $2b8(a5),a0` for DOSBase, `movea.l $22(a0),a0` for dl_Root, then `bset.b #$18,$34(a0)` -- rn_Flags bit 24, RNF_WILDSTAR -- with `bclr` for Off. NOTE: this is AmigaDOS's GLOBAL flag and not the extension's own, so it lives on Machine here and LDos's Lmatch reads the same field; a program that turns the star on for Jd Match turns it on for every pattern parse on the machine, which is what one RootNode means. `bset` on memory is byte-sized and takes its bit modulo 8, so bit 24 of the longword is bit 0 of the byte at +$34)*, `jd toggle click` *(Routine 13 ($2da) is not one flag but FOUR drives: the body runs with d0 = 0, 1, 2, 3 and for each does CreateMsgPort (-$29a), CreateIORequest (-$28e, $30 bytes), OpenDevice on 'trackdisk.device' -- the only device name in the hunk -- then `movea.l $18(a3),a0 / bchg.b d0,$35(a0)` on the unit, and CloseDevice / DeleteIORequest / DeleteMsgPort. A unit that fails to open is skipped silently, so a one-drive machine toggles one bit and a four-drive machine four, independently. DEVIATION: the state is kept and nothing clicks. It toggles the noise a floppy drive makes while polling for a disk -- 'wechselt Status des Laufwerk-Klickens' -- and there is no drive here to make it, so every OpenDevice would fail and doing nothing is the faithful answer; one boolean stands in for the four so a program toggling and re-toggling sees a consistent state. Recorded rather than dropped, the same treatment the printer and serial settings get: a program can set it, and it applies to hardware that is not attached)*
 
-## jd-prt-1.1 (0%)
+## jd-prt-1.1 (100%)
 
-- **missing**: `prt bold`, `prt bold off`, `prt center`, `prt clr htab`, `prt clr htabs`, `prt clr margins`, `prt clr vtab`, `prt clr vtabs`, `prt double`, `prt double off`, `prt elite`, `prt elite off`, `prt enlarged`, `prt enlarged off`, `prt fine`, `prt fine off`, `prt fjustify`, `prt init`, `prt italics`, `prt italics off`, `prt justify off`, `prt ljustify`, `prt lspace eight`, `prt lspace six`, `prt nlq`, `prt nlq off`, `prt pline down`, `prt pline up`, `prt prop`, `prt prop off`, `prt reset`, `prt rjustiy`, `prt set bmargin`, `prt set danishi`, `prt set danishii`, `prt set def tabs`, `prt set french`, `prt set german`, `prt set htab`, `prt set italian`, `prt set japanese`, `prt set lmargin`, `prt set norge`, `prt set rmargin`, `prt set spanish`, `prt set sweden`, `prt set tmargin`, `prt set uk`, `prt set us`, `prt set vtab`, `prt shadow`, `prt shadow off`, `prt sub`, `prt sub off`, `prt super`, `prt super off`, `prt under`, `prt under off`
+- **faithful**: `prt bold`, `prt bold off`, `prt center`, `prt clr htab`, `prt clr htabs`, `prt clr margins`, `prt clr vtab`, `prt clr vtabs`, `prt double`, `prt double off`, `prt elite`, `prt elite off`, `prt enlarged`, `prt enlarged off`, `prt fine`, `prt fine off`, `prt fjustify`, `prt init`, `prt italics`, `prt italics off`, `prt justify off`, `prt ljustify`, `prt lspace eight`, `prt lspace six`, `prt nlq`, `prt nlq off`, `prt pline down`, `prt pline up`, `prt prop`, `prt prop off`, `prt reset`, `prt rjustiy`, `prt set bmargin`, `prt set danishi`, `prt set danishii`, `prt set def tabs`, `prt set french`, `prt set german`, `prt set htab`, `prt set italian`, `prt set japanese`, `prt set lmargin`, `prt set norge`, `prt set rmargin`, `prt set spanish`, `prt set sweden`, `prt set tmargin`, `prt set uk`, `prt set us`, `prt set vtab`, `prt shadow`, `prt shadow off`, `prt sub`, `prt sub off`, `prt super`, `prt super off`, `prt under`, `prt under off`
 
 ## jd-prt-1.3 (100%)
 

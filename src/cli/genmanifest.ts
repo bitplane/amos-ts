@@ -9,7 +9,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { allExtensions } from '../ext/registry'
 import { INSTR, FUNCS, RAWFUNCS } from '../interp/builtins'
-import { makeAllInstructions, makeAllFunctions, makeRawFunctions } from '../runtime/instr'
+import { makeAllInstructions, makeAllFunctions, makeRawFunctions, extensionImpls } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/tokenizer'
 import { FAITHFUL, NA, STRUCTURAL, noteFor } from '../coverage/status'
@@ -20,6 +20,18 @@ const rt = new Runtime(tokenize('', table), table, {})
 // slot-qualified handlers (`ext13:sprite col`) implement the keyword after
 // the colon; see Names.qualified
 const unqualify = (n: string): string => n.replace(/^ext\d+:/, '')
+/**
+ * A keyword a port registers only when a particular RELEASE is bound is still
+ * implemented, and `rt` above has no bindings — so the alias maps have to be
+ * asked directly. jd-prt 1.1 spells all 58 of its keywords without the `Jd `
+ * prefix 1.3 added, and without this the manifest called a finished port 0%.
+ *
+ * coverage.test.ts carries the same rule; the two must agree, or the release
+ * gate and the published manifest disagree about what exists.
+ */
+const aliasNames = extensionImpls().flatMap((impl) =>
+  Object.values(impl.aliases ?? {}).flatMap((m) => Object.keys(m)),
+)
 const implemented = new Set([
   ...Object.keys(INSTR),
   ...Object.keys(FUNCS),
@@ -27,6 +39,7 @@ const implemented = new Set([
   ...Object.keys(makeAllFunctions(rt)),
   ...Object.keys(RAWFUNCS),
   ...Object.keys(makeRawFunctions(rt)),
+  ...aliasNames,
 ].map(unqualify))
 
 function keywordNames(defs: Array<{ name: string }>): string[] {
