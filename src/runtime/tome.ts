@@ -62,7 +62,7 @@
  *               followed by `Rbhi`, which is UNSIGNED strictly-greater, so a
  *               tile whose icon number equals the count is legal.
  */
-import { AmosError, VI, int } from '../interp/values'
+import { AmosError, VI, VS, int } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
@@ -251,6 +251,30 @@ function begin(rt: Runtime, it: Parameters<Instr>[0]): { m: ReturnType<typeof ma
   return { m, count }
 }
 
+/**
+ * A brik record, out of the brik bank.
+ *
+ * The bank is a word count at $0, then a LONG per brik at $2 -- `asl.l #$2,d6
+ * / addq.l #$2,d6 / move.l (a2,d6.w),d5` -- holding that brik's offset from
+ * the bank's own base. The record is a width word, a height word, then a byte
+ * a cell row-major, the same shape as a map without the map's header names.
+ *
+ * Numbering is 1-BASED and both ends are checked: `subi.l #$1,d6 / Rbmi` for
+ * zero or negative and `cmp.w $0(a2),d6 / Rbge` for past the end, each to
+ * routine 81's error 23.
+ */
+function brik(rt: Runtime, n: number): { data: Uint8Array; at: number; w: number; h: number } {
+  const data = bankBytes(rt, rt.tome.brikBank)
+  const i = (n - 1) | 0
+  if (i < 0) funcCall()
+  const count = ((data[0] ?? 0) << 8) | (data[1] ?? 0)
+  if (i >= count) funcCall()
+  const o = 2 + i * 4
+  const at =
+    (((data[o] ?? 0) << 24) | ((data[o + 1] ?? 0) << 16) | ((data[o + 2] ?? 0) << 8) | (data[o + 3] ?? 0)) >>> 0
+  return { data, at, w: ((data[at] ?? 0) << 8) | (data[at + 1] ?? 0), h: ((data[at + 2] ?? 0) << 8) | (data[at + 3] ?? 0) }
+}
+
 export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): TomeState => rt.tome
 
@@ -326,6 +350,77 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
       s.viewY1 = y1
       s.viewX2 = x2
       s.viewY2 = y2
+    },
+
+    /**
+     * Map Brik brik,x,y — routine 23 ($fbc). Stamps a brik's cells into the
+     * MAP at (x,y), the map-editing counterpart of Paste Brik's drawing.
+     *
+     * The arguments pop in reverse, as everywhere here, so d6 is the brik
+     * number, d4 the map x and d5 the map y. Clipping is by falling out of
+     * the loops: `cmp.w $16(a0),d4 / bge` ends the row early and picks up at
+     * the next one, `cmp.w $18(a0),d5 / bge` returns outright -- so a brik
+     * hanging off the right edge is truncated per row and one hanging off the
+     * bottom simply stops.
+     *
+     * DEVIATION: only the far edges are checked. A negative x or y passes the
+     * signed `bge` and then indexes with `mulu.w`, unsigned, so the real
+     * routine writes somewhere before the map. Clamped away here; there is no
+     * memory before a bank to scribble on.
+     */
+    'map brik'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const x0 = it.evalInt()
+      it.expect(',')
+      const y0 = it.evalInt()
+      const s = st()
+      s.cursorX = (x0 << 16) >> 16 // move.w d4,$a(a0), reloaded at each row
+      const m = mapData(rt)
+      s.mapW = m.w
+      s.mapH = m.h
+      const b = brik(rt, n)
+      for (let by = 0, my = y0; by < b.h; by++, my++) {
+        if (my >= m.h) return
+        for (let bx = 0, mx = x0; bx < b.w; bx++, mx++) {
+          if (mx >= m.w) break
+          if (mx < 0 || my < 0) continue // see the DEVIATION above
+          m.data[4 + my * m.w + mx] = b.data[b.at + 4 + by * b.w + bx]!
+        }
+      }
+    },
+
+    /**
+     * Paste Brik brik,x,y — routine 24 ($1048). The same brik drawn to the
+     * SCREEN instead of into the map: cell by cell as icons, stepping x by
+     * the tile width and y by the tile height, through the same icon paste
+     * and the same `Rbhi routine 82` count check the map draws use.
+     *
+     * DEFECT: x and y are taken UNSIGNED. They are stored as words at $a/$c
+     * and read back with `clr.l d2 / move.w $a(a0),d2`, which zero-extends,
+     * so `Paste Brik 1,-1,0` starts at x = 65535 rather than one pixel left
+     * of the screen. Reproduced; a program that scrolled a brik off the left
+     * edge on the real machine saw it vanish rather than slide.
+     *
+     * There is no view here at all -- Map View bounds the map draws and not
+     * this one, so a brik is pasted wherever it is asked for.
+     */
+    'paste brik'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const x0 = it.evalInt() & 0xffff
+      it.expect(',')
+      const y0 = it.evalInt() & 0xffff
+      const s = st()
+      s.cursorX = (x0 << 16) >> 16
+      s.cursorY = (y0 << 16) >> 16
+      const b = brik(rt, n)
+      const count = iconCount(rt)
+      for (let by = 0, sy = y0; by < b.h; by++, sy += s.tileH) {
+        for (let bx = 0, sx = x0; bx < b.w; bx++, sx += s.tileW) {
+          pasteTile(rt, b.data[b.at + 4 + by * b.w + bx]!, sx, sy, count)
+        }
+      }
     },
 
     /**
@@ -635,6 +730,84 @@ export function makeTomeFunctions(rt: Runtime): Record<string, Func> {
       }
       return VI(fixed)
     },
+
+    /**
+     * =Brik X(n) — routine 5 ($7b2) — and =Brik Y(n), routine 6 ($7e0).
+     *
+     * A brik's size in TILES, out of its record's first two words. Routine 6
+     * is ten bytes: `Rbsr routine 5` then `move.w $2(a2,d5.l),d3`, reusing the
+     * pointer routine 5 left behind rather than resolving the bank again --
+     * so Brik Y is literally Brik X plus one instruction.
+     */
+    'brik x': (_, a): Value => VI(brik(rt, int(a[0]!)).w),
+    'brik y': (_, a): Value => VI(brik(rt, int(a[0]!)).h),
+
+    /**
+     * =Briks — routine 25 ($10f2), eighteen bytes: resolve the brik bank
+     * through routine 69 and read the count word at its head. How many briks
+     * the bank holds, which with 1-based numbering is also the highest legal
+     * argument to Brik X, Map Brik and Paste Brik.
+     */
+    briks: (): Value => {
+      const data = bankBytes(rt, st().brikBank)
+      return VI(((data[0] ?? 0) << 8) | (data[1] ?? 0))
+    },
+
+    /**
+     * =Tile Val(x,y,table) — routine 7 ($7ea), 86 bytes, and 3.1 spells it
+     * the same. Two lookups, not one:
+     *
+     *   the MAP at (x,y) gives a tile byte, with all four bounds checked
+     *   against routine 81 exactly as Map Tile does -- so this errors where
+     *   the draws would wrap;
+     *
+     *   then `Rbsr routine 68 / asl.l #$8,d6 / adda.l d6,a2 / move.b
+     *   (a2,d4.l),d3` reads the TILE-TYPE bank, which is a stack of 256-byte
+     *   tables: the third argument picks the table and the tile byte indexes
+     *   into it.
+     *
+     * That is what the bank is for -- a game asks "is the tile under the
+     * player solid" by giving tile 0..255 a property byte per table, and gets
+     * one lookup instead of a Data statement.
+     */
+    'tile val': (_, a): Value => {
+      const x = int(a[0]!)
+      const y = int(a[1]!)
+      const table = int(a[2]!)
+      const m = mapData(rt)
+      const s = st()
+      s.mapW = m.w
+      s.mapH = m.h
+      if (x < 0 || y < 0 || x >= m.w || y >= m.h) funcCall()
+      const tile = m.data[4 + y * m.w + x]!
+      const typ = bankBytes(rt, s.tileTypBank)
+      return VI(typ[(table << 8) + tile] ?? 0)
+    },
+
+    /**
+     * =Tme Ver$ — routine 27 ($112e) — and =Tme Credit$, routine 26 ($1104).
+     *
+     * Forty-two bytes each and identical but for one offset: take a
+     * length-prefixed string out of the data block, $130(a0) for the version
+     * and $d6(a0) for the credit, and copy it into AMOS string space a byte
+     * at a time. The block is the static area at $5f2, so these are literals
+     * in the library and this port transcribes them rather than composing
+     * them from the manifest.
+     *
+     * The credit is a whole SCREEN of output, escape codes and all: `esc X 9`
+     * / `esc Y :` position it, `esc P 3` and `esc P 2` change pen. That is why
+     * it is 88 bytes for three lines of text -- it is meant to be printed, and
+     * it carries the attribution this port's identity was settled from.
+     *
+     * Tme Ver$ is where the version came from: not the archive's directory
+     * name, and not a secondary list.
+     */
+    'tme ver$': (): Value => VS('TOME V4.23 \r\n\0'),
+    'tme credit$': (): Value =>
+      VS(
+        '\x1bX9\x1bY:\x1bP3AMOS TOME Series IV\x1bP2\x1bX8\x1bY;(c) Shadow Software 1990' +
+          '\x1bX6\x1bY<by Aaron Fothergill\r\n',
+      ),
 
     /**
      * =Map Base — routine 28 ($1158), ten bytes: `movea.l $158(a5),a0 /

@@ -93,7 +93,7 @@ tested against our own understanding. Percentages exclude n/a
 | text-io | 37 | 36 | 1 | 0 | 100% |
 | tft-0.6 | 22 | 20 | 0 | 0 | 100% |
 | the-game-0.9 | 103 | 0 | 0 | 103 | 0% |
-| tome-3.1 | 34 | 20 | 1 | 13 | 62% |
+| tome-3.1 | 34 | 28 | 1 | 5 | 85% |
 | tome-4.23 | 34 | 5 | 0 | 29 | 15% |
 | tools-1.01 | 32 | 0 | 0 | 32 | 0% |
 | turbo-plus-1.0 | 132 | 128 | 3 | 0 | 100% |
@@ -101,7 +101,7 @@ tested against our own understanding. Percentages exclude n/a
 | turbo-plus-2.15 | 17 | 17 | 0 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 4543 | 1721 | 66 | 2647 | 40% |
+| **total** | 4543 | 1729 | 66 | 2639 | 40% |
 
 ## aga-1.0 (100%)
 
@@ -461,11 +461,11 @@ tested against our own understanding. Percentages exclude n/a
 
 - **missing**: `g agaplasma`, `g amiga`, `g bitmap offset`, `g blur`, `g bob`, `g cd32`, `g check vbl`, `g circle`, `g cli`, `g close gms`, `g close req`, `g close reqtools`, `g cls`, `g colour`, `g copyarea`, `g decrypt`, `g def palette`, `g double buffer`, `g draw bob`, `g encrypt`, `g erase`, `g exit`, `g file size`, `g get img`, `g get palette`, `g getmem`, `g getscr`, `g handicap`, `g icon check`, `g iconify`, `g init bobs`, `g init encyrpt`, `g init gms`, `g init mbobs`, `g ink`, `g left click`, `g line`, `g load bobs`, `g load iff`, `g load pcx`, `g make rp`, `g oddno`, `g open reqtools`, `g own blitter`, `g palette`, `g paste bob`, `g plot`, `g point`, `g ptchan off`, `g ptchan on`, `g ptfade`, `g ptlength`, `g ptload`, `g ptpause`, `g ptplay`, `g ptpos`, `g ptset pos`, `g ptstop`, `g ptunpause`, `g ptvolume`, `g reboot`, `g rectangle`, `g reset`, `g rgb`, `g right click`, `g save bitmap`, `g save iff`, `g screen`, `g screen close`, `g screen copy`, `g screen hide`, `g screen offset`, `g screen open`, `g screen show`, `g set bob`, `g set img`, `g set mbob`, `g set mouse`, `g set pen`, `g set table`, `g setup bobs`, `g spaste bob`, `g stc pack`, `g stc unpack`, `g swap buffers`, `g tmap`, `g triple buffer`, `g unhandicap`, `g update`, `g wait lmb`, `g wait rmb`, `g word$`, `g x mouse`, `g y mouse`, `gcos`, `gham`, `ghires`, `glowres`, `gscreen colour`, `gscreen height`, `gscreen width`, `gsin`, `gsuperhires`
 
-## tome-3.1 (62%)
+## tome-3.1 (85%)
 
-- **faithful**: `brik bank`, `map bank`, `map bottom`, `map check`, `map do`, `map fx`, `map fy`, `map hx`, `map hy`, `map left`, `map right`, `map tile`, `map top`, `map view`, `map x`, `map y`, `tile size`, `tile val bank`, `xtile`, `ytile`
+- **faithful**: `brik bank`, `brik x`, `brik y`, `briks`, `map bank`, `map bottom`, `map brik` *(Routine 23 ($fbc), 140 bytes, the map-editing counterpart of Paste Brik: the brik's cells are stamped into the MAP at (x,y) instead of drawn. Clipping is by falling out of the loops rather than by arithmetic -- `cmp.w $16(a0),d4 / bge` ends a row early and the next one picks up from the stored cursor at $a, `cmp.w $18(a0),d5 / bge` returns outright -- so a brik hanging off the right edge is truncated per row and one hanging off the bottom simply stops. DEVIATION: only the FAR edges are checked. A negative x or y passes the signed `bge` and is then used in `mulu.w`, unsigned, so the real routine writes somewhere before the map bank. Not reproduced: there is no memory before a bank here to scribble on, and the cells that would land outside are skipped)*, `map check`, `map do`, `map fx`, `map fy`, `map hx`, `map hy`, `map left`, `map right`, `map tile`, `map top`, `map view`, `map x`, `map y`, `paste brik` *(Routine 24 ($1048), 170 bytes. A brik drawn to the SCREEN rather than stamped into the map, cell by cell as icons, stepping x by the tile width at $e and y by the tile height at $12, through the same icon paste and the same `cmp.w $8(a0),d1 / Rbhi routine 82` count check the map draws use. There is no view: Map View bounds the map draws and not this one, so a brik is pasted wherever it is asked for. DEFECT: x and y are taken UNSIGNED. They are stored as words at $a/$c and read back with `clr.l d2 / move.w $a(a0),d2`, which zero-extends, so `Paste Brik 1,-1,0` starts at x = 65535 rather than one pixel left of the screen and the brik simply does not appear. Reproduced -- a program scrolling a brik off the left edge on the real machine saw it vanish rather than slide, and that is the behaviour it was written against)*, `tile size`, `tile val`, `tile val bank`, `tme credit$`, `tme ver$`, `xtile`, `ytile`
 - **approximated**: `map base` *(Routine 28 ($1158), ten bytes: `movea.l $158(a5),a0 / move.l a0,d3`. The address of TOME's own data block at $158(a5), for a program that wants to poke the state fields -- the tile size at $e, the view at $20, the map cursor at $a -- rather than call the keywords. NOTE: the block is an object here, not bytes at an address, so there is no pointer to give that would mean anything. Answering a plausible one would invite exactly the poking it exists for, into memory whose layout is not the machine's; this answers 0, which a program checking before use reads as "not available". APPROXIMATED in the value only -- the routine itself is fully read, and it does nothing else. Same decision as AMCAF's Screen Rastport / Screen Bitmap family, for the same reason)*
-- **missing**: `brik x`, `brik y`, `briks`, `map brik`, `map plot`, `map scan x`, `map scan y`, `paste brik`, `tile val`, `tiny bank`, `tiny map`, `tme credit$`, `tme ver$`
+- **missing**: `map plot`, `map scan x`, `map scan y`, `tiny bank`, `tiny map`
 
 ## tome-4.23 (15%)
 

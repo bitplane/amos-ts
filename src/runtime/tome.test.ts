@@ -1,4 +1,8 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { firstCodeHunk } from '../tokens/libtok'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -48,7 +52,7 @@ function icons(n: number): ObjectBank {
 
 let printed = ''
 
-function run(src: string, opts: { map?: Uint8Array; nIcons?: number; ext?: typeof tome } = {}): Runtime {
+function run(src: string, opts: { map?: Uint8Array; briks?: Uint8Array; nIcons?: number; ext?: typeof tome } = {}): Runtime {
   const ext = opts.ext ?? tome
   const exts = new Map([[7, ext.table]])
   printed = ''
@@ -59,6 +63,7 @@ function run(src: string, opts: { map?: Uint8Array; nIcons?: number; ext?: typeo
     onText: (t) => (printed += t),
   })
   if (opts.map) rt.memBanks.set(1, { kind: 'memory', number: 1, memType: 0, name: 'Map', flags: 0, data: opts.map })
+  if (opts.briks) rt.memBanks.set(2, { kind: 'memory', number: 2, memType: 0, name: 'Brik', flags: 0, data: opts.briks })
   rt.iconBank = icons(opts.nIcons ?? 8)
   const r = rt.runHeadless(500)
   if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
@@ -376,5 +381,134 @@ describe('TOME: the query functions', () => {
     // routine 28 ($1158) hands back $158(a5) itself. APPROXIMATED: there is no
     // address here whose layout is the machine's, and 0 reads as "unavailable"
     expect(val('Print Map Base')).toBe(0)
+  })
+})
+
+describe('TOME: briks (routines 5, 6, 23, 24, 25)', () => {
+  /**
+   * A brik bank in the library's own format, read off routine 5: a count
+   * word, then a LONG per brik holding its offset from the bank's own base,
+   * then each record as width word, height word, a byte a cell.
+   */
+  function brikBank(briks: Array<{ w: number; h: number; cells: number[] }>): Uint8Array {
+    const head = 2 + briks.length * 4
+    const size = head + briks.reduce((n, b) => n + 4 + b.w * b.h, 0)
+    const b = new Uint8Array(size)
+    const v = new DataView(b.buffer)
+    v.setUint16(0, briks.length)
+    let at = head
+    briks.forEach((br, i) => {
+      v.setUint32(2 + i * 4, at)
+      v.setUint16(at, br.w)
+      v.setUint16(at + 2, br.h)
+      b.set(br.cells, at + 4)
+      at += 4 + br.w * br.h
+    })
+    return b
+  }
+
+  const twoBriks = () =>
+    brikBank([
+      { w: 2, h: 2, cells: [0, 1, 2, 3] },
+      { w: 3, h: 1, cells: [4, 5, 6] },
+    ])
+
+  /** put a brik bank in bank 2 and point Brik Bank at it */
+  const withBriks = (src: string, opts: Parameters<typeof run>[1] = {}): Runtime =>
+    run(`Brik Bank 2\n${src}`, { briks: twoBriks(), ...opts })
+
+  it('Brik X, Brik Y and Briks read the bank head and a record', () => {
+    // routine 25 ($10f2) is the count word; 5 ($7b2) walks the LONG table at
+    // $2 to a record and reads its width; 6 ($7e0) is 5 plus one instruction
+    expect(val('Brik Bank 2 : Print Briks', { briks: twoBriks() })).toBe(2)
+    expect(val('Brik Bank 2 : Print Brik X(1)', { briks: twoBriks() })).toBe(2)
+    expect(val('Brik Bank 2 : Print Brik Y(1)', { briks: twoBriks() })).toBe(2)
+    expect(val('Brik Bank 2 : Print Brik X(2)', { briks: twoBriks() })).toBe(3)
+    expect(val('Brik Bank 2 : Print Brik Y(2)', { briks: twoBriks() })).toBe(1)
+  })
+
+  it('brik numbers are 1-based and both ends error', () => {
+    // `subi.l #$1,d6 / Rbmi routine 81` and `cmp.w $0(a2),d6 / Rbge routine 81`
+    expect(() => val('Brik Bank 2 : Print Brik X(0)', { briks: twoBriks() })).toThrow(/illegal function call/i)
+    expect(() => val('Brik Bank 2 : Print Brik X(3)', { briks: twoBriks() })).toThrow(/illegal function call/i)
+  })
+
+  it('Map Brik stamps a brik into the map and truncates at the far edges', () => {
+    // routine 23 ($fbc): `cmp.w $16(a0),d4 / bge` ends the row early and the
+    // next row picks up, `cmp.w $18(a0),d5 / bge` returns outright
+    const m = mapBank(3, 3, [9, 9, 9, 9, 9, 9, 9, 9, 9])
+    withBriks('Map Bank 1 : Map Brik 1,0,0', { map: m, briks: twoBriks() })
+    expect([...m.slice(4)]).toEqual([0, 1, 9, 2, 3, 9, 9, 9, 9])
+    // the same brik at x=2 loses its right column, and at y=2 its lower row
+    const m2 = mapBank(3, 3, [9, 9, 9, 9, 9, 9, 9, 9, 9])
+    withBriks('Map Bank 1 : Map Brik 1,2,2', { map: m2, briks: twoBriks() })
+    expect([...m2.slice(4)]).toEqual([9, 9, 9, 9, 9, 9, 9, 9, 0])
+  })
+
+  it('Paste Brik draws the brik as icons, stepping by the tile size', () => {
+    // routine 24 ($1048), through the same icon paste the map draws use
+    const rt = withBriks(
+      ['Screen Open 0,320,200,8,Lowres', 'Cls 0', 'Tile Size 1,1', 'Paste Brik 1,0,0'].join('\n'),
+      { briks: twoBriks() },
+    )
+    // cell n draws icon n+1, so the 2x2 brik [0,1,2,3] paints 1,2 / 3,4
+    expect(at(rt, 0, 0)).toBe(1)
+    expect(at(rt, 1, 0)).toBe(2)
+    expect(at(rt, 0, 1)).toBe(3)
+    expect(at(rt, 1, 1)).toBe(4)
+  })
+
+  it('Paste Brik takes x and y UNSIGNED, so a negative one is off to the right', () => {
+    // `clr.l d2 / move.w $a(a0),d2` zero-extends what was stored as a word,
+    // so -1 is 65535 and the brik lands nowhere rather than one pixel left
+    const rt = withBriks(
+      ['Screen Open 0,320,200,8,Lowres', 'Cls 0', 'Tile Size 1,1', 'Paste Brik 1,-1,0'].join('\n'),
+      { briks: twoBriks() },
+    )
+    for (let x = 0; x < 4; x++) expect(at(rt, x, 0)).toBe(0)
+  })
+
+  it('Tile Val reads the map, then the tile-type bank as 256-byte tables', () => {
+    // routine 7 ($7ea): map lookup with all four bounds checked, then
+    // `asl.l #$8,d6 / adda.l d6,a2 / move.b (a2,d4.l),d3`
+    const m = mapBank(2, 1, [3, 200])
+    const typ = new Uint8Array(512)
+    typ[3] = 11 // table 0, tile 3
+    typ[200] = 22 // table 0, tile 200
+    typ[256 + 3] = 33 // table 1, tile 3
+    expect(val('Map Bank 1 : Tile Typ Bank 2 : Print Tile Val(0,0,0)', { map: m, briks: typ })).toBe(11)
+    expect(val('Map Bank 1 : Tile Typ Bank 2 : Print Tile Val(1,0,0)', { map: m, briks: typ })).toBe(22)
+    expect(val('Map Bank 1 : Tile Typ Bank 2 : Print Tile Val(0,0,1)', { map: m, briks: typ })).toBe(33)
+    expect(() => val('Map Bank 1 : Tile Typ Bank 2 : Print Tile Val(2,0,0)', { map: m, briks: typ })).toThrow(
+      /illegal function call/i,
+    )
+  })
+})
+
+describe('TOME: the two strings the library ships (routines 26 and 27)', () => {
+  const lib = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures', 'extensions', 'tome-4.23', 'TOME.Lib')
+
+  /** the length-prefixed string at `off` in the static block at $5f2 */
+  function shipped(off: number): string {
+    const code = firstCodeHunk(new Uint8Array(readFileSync(lib)))
+    const at = 0x5f2 + off
+    const n = (code[at]! << 8) | code[at + 1]!
+    return String.fromCharCode(...code.slice(at + 2, at + 2 + n))
+  }
+
+  it('answers the right lengths', () => {
+    // both routines copy a length-prefixed string byte by byte into AMOS
+    // string space, $130(a0) for the version and $d6(a0) for the credit
+    expect(val('Print Len(Tme Ver$)')).toBe(14)
+    expect(val('Print Len(Tme Credit$)')).toBe(88)
+  })
+
+  it.skipIf(!existsSync(lib))('transcribes them byte for byte from TOME.Lib', () => {
+    // the port carries these as literals, so the check that matters is
+    // against the library itself rather than against a fixture built here
+    run('A$=Tme Ver$ : B$=Tme Credit$ : Print A$;B$;')
+    expect(printed).toBe(shipped(0x130) + shipped(0xd6))
+    expect(shipped(0x130)).toContain('TOME V4.23')
+    expect(shipped(0xd6)).toContain('by Aaron Fothergill')
   })
 })

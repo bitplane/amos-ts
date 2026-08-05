@@ -1851,6 +1851,17 @@ export const FAITHFUL = new Set<string>([
   'map y',
   'map tile',
   'map length',
+  // the brik family and the tile-type lookup: routines 5, 6, 7, 23, 24, 25,
+  // plus 26 and 27, the two strings the library ships. Paste Brik carries a
+  // reproduced DEFECT and Map Brik a DEVIATION; both are in NOTES.
+  'brik x',
+  'brik y',
+  'briks',
+  'tile val',
+  'map brik',
+  'paste brik',
+  'tme ver$',
+  'tme credit$',
   'tile count',
   'map check',
   'map view',
@@ -2108,6 +2119,10 @@ export const NA = new Set<string>([
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  'paste brik':
+    "Routine 24 (\$1048), 170 bytes. A brik drawn to the SCREEN rather than stamped into the map, cell by cell as icons, stepping x by the tile width at \$e and y by the tile height at \$12, through the same icon paste and the same `cmp.w \$8(a0),d1 / Rbhi routine 82` count check the map draws use. There is no view: Map View bounds the map draws and not this one, so a brik is pasted wherever it is asked for. DEFECT: x and y are taken UNSIGNED. They are stored as words at \$a/\$c and read back with `clr.l d2 / move.w \$a(a0),d2`, which zero-extends, so `Paste Brik 1,-1,0` starts at x = 65535 rather than one pixel left of the screen and the brik simply does not appear. Reproduced -- a program scrolling a brik off the left edge on the real machine saw it vanish rather than slide, and that is the behaviour it was written against",
+  'map brik':
+    "Routine 23 (\$fbc), 140 bytes, the map-editing counterpart of Paste Brik: the brik's cells are stamped into the MAP at (x,y) instead of drawn. Clipping is by falling out of the loops rather than by arithmetic -- `cmp.w \$16(a0),d4 / bge` ends a row early and the next one picks up from the stored cursor at \$a, `cmp.w \$18(a0),d5 / bge` returns outright -- so a brik hanging off the right edge is truncated per row and one hanging off the bottom simply stops. DEVIATION: only the FAR edges are checked. A negative x or y passes the signed `bge` and is then used in `mulu.w`, unsigned, so the real routine writes somewhere before the map bank. Not reproduced: there is no memory before a bank here to scribble on, and the cells that would land outside are skipped",
   'map base':
     "Routine 28 (\$1158), ten bytes: `movea.l \$158(a5),a0 / move.l a0,d3`. The address of TOME's own data block at \$158(a5), for a program that wants to poke the state fields -- the tile size at \$e, the view at \$20, the map cursor at \$a -- rather than call the keywords. NOTE: the block is an object here, not bytes at an address, so there is no pointer to give that would mean anything. Answering a plausible one would invite exactly the poking it exists for, into memory whose layout is not the machine's; this answers 0, which a program checking before use reads as \"not available\". APPROXIMATED in the value only -- the routine itself is fully read, and it does nothing else. Same decision as AMCAF's Screen Rastport / Screen Bitmap family, for the same reason",
   // --- IOPorts: implemented, but reporting a port with nothing on it ---
