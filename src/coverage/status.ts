@@ -2955,7 +2955,7 @@ export const NOTES: Record<string, string> = {
     'answers -1 when the CLXDAT bit is CLEAR, the opposite of what the name suggests (Btst sets Z on a zero bit and the Bne skips the -1); and there is no collision hardware here, so CLXDAT reads 0 and it always answers -1',
   'pf sprites col': 'the same inverted test as Playfields Col, and the same always--1 answer for want of CLXDAT',
   'blit mask':
-    "BLTCON0 is \$0F98, minterm \$98 = (B AND C) OR (A AND NOT B AND NOT C) — NOT the \$E2 mask-select the name implies. Source and binary agree. There is no blitter, so the minterm is applied directly over a word loop; every one of these keywords uses zero modulos and full word masks, which is what makes that equivalent",
+    "BLTCON0 is \$0F98, minterm \$98 = (B AND C) OR (A AND NOT B AND NOT C) — NOT the \$E2 mask-select the name implies. Source and binary agree. There is no blitter, so the minterm is applied directly over a word loop; every one of these keywords uses zero modulos and full word masks, which is what makes that equivalent. The plane count is not fixed: it is the depth WORD at +80 of the second-plane screen (:2510), and the commented-out `Move.w #5,d7` on the line below shows the author changed it from a fixed six. The mask pointer alone is never stepped, so one mask plane serves every pass",
   'l blit mask':
     'blits yEnd rows starting at yStart where L Double Mask subtracts properly — the demos hand both 64,128 on a 192-row screen. Same \$98 minterm, computed rather than blitted',
   'double mask': 'the CPU form; computed as the source computes it, longword by longword',
