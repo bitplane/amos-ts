@@ -9,7 +9,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { allExtensions } from '../ext/registry'
 import { INSTR, FUNCS, RAWFUNCS } from '../interp/builtins'
-import { makeAllInstructions, makeAllFunctions, makeRawFunctions, extensionImpls } from '../runtime/instr'
+import { makeInstructions, makeFunctions, makeRawFunctions, extensionImpls } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/tokenizer'
 import { FAITHFUL, NA, STRUCTURAL, noteFor } from '../coverage/status'
@@ -29,18 +29,65 @@ const unqualify = (n: string): string => n.replace(/^ext\d+:/, '')
  * coverage.test.ts carries the same rule; the two must agree, or the release
  * gate and the published manifest disagree about what exists.
  */
-const aliasNames = extensionImpls().flatMap((impl) =>
-  Object.values(impl.aliases ?? {}).flatMap((m) => Object.keys(m)),
+/**
+ * The CORE's implemented names --- the interpreter's own builtins and the
+ * runtime layers that are not an extension port.
+ */
+const coreImplemented = new Set(
+  [
+    ...Object.keys(INSTR),
+    ...Object.keys(FUNCS),
+    ...Object.keys(RAWFUNCS),
+    ...Object.keys(makeRawFunctions(rt)),
+    // the runtime's own layer --- screens, bobs, menus, banks and the rest of
+    // AMOS proper. NOT the extension layers, which are credited per identity
+    // below; merging the two is what made the measure wrong.
+    ...Object.keys(makeInstructions(rt)),
+    ...Object.keys(makeFunctions(rt)),
+  ].map(unqualify),
 )
-const implemented = new Set([
-  ...Object.keys(INSTR),
-  ...Object.keys(FUNCS),
-  ...Object.keys(makeAllInstructions(rt)),
-  ...Object.keys(makeAllFunctions(rt)),
-  ...Object.keys(RAWFUNCS),
-  ...Object.keys(makeRawFunctions(rt)),
-  ...aliasNames,
-].map(unqualify))
+
+/**
+ * What each EXTENSION implements, keyed by registry identity.
+ *
+ * This used to be one flat set merged across every port, and the merge was a
+ * lie: `FAITHFUL` is a set of NAMES, so an extension that had never been
+ * ported was credited with any keyword whose name a ported one happened to
+ * share. p61-1.2 reported 22% with no binding at all, because Personnal 1.1
+ * has a `P61 Play` and a `P61 Stop` of its own. An extension with no
+ * ExtensionImpl now implements nothing, whatever its table is called.
+ */
+/**
+ * The official extensions the INTERPRETER implements rather than a port.
+ *
+ * Compact, Request, Compiler and most of Music shipped in the AMOS Pro box
+ * and their keywords live in the runtime's own layer, not behind an
+ * ExtensionImpl --- `Pack`, `Unpack`, `Request`, `Music`, `Play` and the rest
+ * are simply part of what this interpreter does. They have no `ids` binding
+ * to credit them from, so without this they would report 0% while working
+ * perfectly. Listed explicitly, because the alternative is the flat
+ * name-matching that made every other row unreliable.
+ */
+const CORE_EXTENSIONS = new Set([
+  'amospro-compact-2.0',
+  'amospro-request-2.0',
+  'amospro-compiler-2.0',
+  'amospro-music-2.0',
+])
+
+const extImplemented = new Map<string, Set<string>>()
+for (const impl of extensionImpls()) {
+  const names = [
+    ...Object.keys(impl.instructions?.(rt) ?? {}),
+    ...Object.keys(impl.functions?.(rt) ?? {}),
+    ...Object.values(impl.aliases ?? {}).flatMap((m) => Object.keys(m)),
+  ].map(unqualify)
+  for (const id of impl.ids) {
+    const set = extImplemented.get(id) ?? new Set<string>()
+    for (const n of names) set.add(n)
+    extImplemented.set(id, set)
+  }
+}
 
 function keywordNames(defs: Array<{ name: string }>): string[] {
   const out = new Set<string>()
@@ -53,12 +100,21 @@ function keywordNames(defs: Array<{ name: string }>): string[] {
 
 type Status = 'faithful' | 'approximated' | 'missing' | 'n/a'
 
-function classify(name: string): Status {
+/**
+ * `ext` is the registry identity the keyword is being reported under, or
+ * 'core'. The name alone is not enough: two extensions may spell a keyword
+ * the same way and only one of them be ported.
+ */
+function classify(name: string, ext: string): Status {
   if (NA.has(name)) return 'n/a'
   // structural glue tokens (`:`, `(`, `then`, `step`, ...) are pure syntax
   // the parser handles exactly — faithful by construction
   if (STRUCTURAL.has(name)) return 'faithful'
-  if (implemented.has(name)) return FAITHFUL.has(name) ? 'faithful' : 'approximated'
+  const impl =
+    ext === 'core' || CORE_EXTENSIONS.has(ext)
+      ? new Set([...coreImplemented, ...(extImplemented.get(ext) ?? [])])
+      : (extImplemented.get(ext) ?? new Set<string>())
+  if (impl.has(name)) return FAITHFUL.has(name) ? 'faithful' : 'approximated'
   return 'missing'
 }
 
@@ -126,14 +182,22 @@ interface Row {
 
 const rows: Row[] = []
 for (const n of keywordNames(CORE_TOKENS.filter((e) => e.id >= 0x54))) {
-  rows.push({ name: n, status: classify(n), ext: 'core', note: noteFor(n) ?? '' })
+  rows.push({ name: n, status: classify(n, 'core'), ext: 'core', note: noteFor(n) ?? '' })
 }
 // Extensions are reported under their identity, not the slot they happened to
 // occupy on somebody's machine — see docs/extensions/README.md.
+/**
+ * A keyword the CORE already defines is core's, and is not repeated. But two
+ * EXTENSIONS may each define a keyword of the same name --- Personnal 1.1 and
+ * p61-1.2 both have `P61 Play` --- and those are two keywords, in two
+ * libraries, that a program reaches through two different slots. Reporting
+ * only the first swallowed the other's row entirely and deflated its total.
+ */
+const coreNames = new Set(rows.map((r) => r.name))
 for (const ext of allExtensions()) {
   for (const n of keywordNames(ext.tokens)) {
-    if (rows.some((r) => r.name === n)) continue
-    rows.push({ name: n, status: classify(n), ext: ext.id, note: noteFor(n) ?? '' })
+    if (coreNames.has(n)) continue
+    rows.push({ name: n, status: classify(n, ext.id), ext: ext.id, note: noteFor(n) ?? '' })
   }
 }
 

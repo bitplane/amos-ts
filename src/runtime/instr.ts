@@ -5191,8 +5191,11 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
   },
   {
     // 5.9 renumbered the token table but kept the vocabulary; dispatch is by
-    // name, so one port serves both (see jd.ts)
-    ids: ['jd-5.3', 'jd-5.9'],
+    // name, so one port serves both (see jd.ts). 4.6 is the EARLIER release
+    // and its table is a subset of 5.3's --- it was left out of this list and
+    // then reported 100% anyway, because the manifest credited it for names
+    // this port implements under 5.3. Declared now, so the credit is real.
+    ids: ['jd-4.6', 'jd-5.3', 'jd-5.9'],
     init: (rt) => {
       rt.jd = newJdState()
     },
