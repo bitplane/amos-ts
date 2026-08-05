@@ -192,9 +192,12 @@ export const defaultJdPrtPrefs = (): JdPrtPrefs => ({
  * Whether the program bound a pre-1.4 release, which changes two strings.
  *
  * 1.1 belongs on this side with 1.3, and that is measured rather than assumed:
- * the two binaries carry the same 46 distinct escape sequences, with zero on
- * either side the other lacks. 1.4 is the release that altered two of them.
- * Getting this wrong would hand a 1.1 program 1.4's bytes for those two.
+ * the two binaries carry the same 58 distinct escape sequences, with zero on
+ * either side the other lacks, and the only byte string that differs between
+ * them at all is the keyword NAME `jd prt sub of` against `prt sub of` in the
+ * token table. 1.4 is the release that altered two of the sequences and added
+ * two more, 60 to 1.3's 58. Getting this wrong would hand a 1.1 program 1.4's
+ * bytes for the two that moved.
  */
 function isPre14(rt: Runtime): boolean {
   for (const def of rt.extBindings?.values() ?? []) {

@@ -256,7 +256,7 @@ export interface Anchor {
  */
 export function findAnchors(text: string, known: (name: string) => boolean): Anchor[] {
   const out: Anchor[] = []
-  for (const m of text.matchAll(/^ {4}(?:'([^']+)'|([a-z][a-z0-9$ ]*))\s*[:(]/gm)) {
+  for (const m of text.matchAll(/^ {2,6}(?:'([^']+)'|([a-z][a-z0-9$ ]*))\s*[:(]/gm)) {
     const name = (m[1] ?? m[2] ?? '').trim().toLowerCase()
     if (name !== '' && known(name)) out.push({ name, at: m.index })
   }

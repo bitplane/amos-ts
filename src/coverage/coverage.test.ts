@@ -10,6 +10,7 @@ import {
   keywordLayerCollisions,
   builtinsShadowedByRuntime,
   DECLARED_BUILTIN_SHADOWS,
+  extensionImpls,
 } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/tokenizer'
@@ -28,7 +29,19 @@ const registries = {
 // when it needs its own version of a name another layer owns; the keyword it
 // implements is the part after the colon. See Names.qualified.
 const unqualify = (n: string): string => n.replace(/^ext\d+:/, '')
-const implemented = new Set(Object.values(registries).flat().map(unqualify))
+/**
+ * A keyword a port only registers when a particular RELEASE is bound is still
+ * implemented. `registries` is built from a runtime with no bindings, so it
+ * sees the names the port registers unconditionally and none of the ones an
+ * older table brings with it — jd-prt 1.1 spells all 58 of its keywords
+ * without the `Jd ` prefix 1.3 added, and those handlers appear only when 1.1
+ * is the bound table. Declaring them faithful and then failing the check would
+ * be the manifest contradicting the port about work the port does.
+ */
+const aliasNames = extensionImpls().flatMap((impl) =>
+  Object.values(impl.aliases ?? {}).flatMap((m) => Object.keys(m)),
+)
+const implemented = new Set([...Object.values(registries).flat(), ...aliasNames].map(unqualify))
 /**
  * The same set WITHOUT the qualified entries, which is the right question to
  * ask of NA. A qualified registration answers for one slot's keyword, not for

@@ -6,6 +6,7 @@ import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { PARAMETRIC_NAMES, jdPrt11Aliases } from './jdprt'
 import { makeAllFunctions } from './instr'
+import { FAITHFUL } from '../coverage/status'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 21, from the library's own source: `ExtNb equ 21-1` */
@@ -244,8 +245,9 @@ describe('JD Prt 1.1: the release that spells everything differently', () => {
   })
 
   it('gives 1.1 the same bytes 1.3 gives, keyword for keyword', () => {
-    // the two binaries carry the same 46 distinct sequences; the port must not
-    // let the rename change an answer
+    // the two binaries carry the same 58 distinct sequences and differ in one
+    // byte string only, the keyword name itself; the port must not let the
+    // rename change an answer
     for (const [a, b] of [
       ['Prt Italics', 'Jd Prt Italics'],
       ['Prt Elite', 'Jd Prt Elite'],
@@ -282,6 +284,18 @@ describe('JD Prt 1.1: the release that spells everything differently', () => {
     for (const [alias, canonical] of Object.entries(aliases)) {
       expect(canonical, alias).toBe(`jd ${alias}`)
       expect(alias.startsWith('jd '), alias).toBe(false)
+    }
+  })
+
+  it('every 1.1 name is FAITHFUL, exactly as its 1.3 counterpart is', () => {
+    // status.ts carries the 58 as a literal list, which it has to -- it is
+    // pure data with no imports. This pins that list against the rule the port
+    // derives from, so the two cannot drift: a name added to the 1.1 table
+    // without a matching FAITHFUL entry fails here rather than quietly
+    // reporting an approximation the port does not have.
+    for (const [alias, canonical] of Object.entries(jdPrt11Aliases())) {
+      expect(FAITHFUL.has(canonical), canonical).toBe(true)
+      expect(FAITHFUL.has(alias), alias).toBe(true)
     }
   })
 

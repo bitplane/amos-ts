@@ -15,19 +15,24 @@
  * A tool that answers confidently about the wrong subject is the same class of
  * error as a stale citation, which is what this tool exists to find.
  *
- * KNOWN LIMIT: the citation measure is anchored on a handler written as a
- * literal key in the source, which is how `findAnchors` locates it. A port that
- * BUILDS its table in a loop has no such anchor -- jdprt.ts registers five
- * keywords literally and generates the other fifty-eight from the token table,
- * so it audits as a five-keyword port with fifty-eight approximations. The
- * "generated" line below says so rather than leaving the shape to be puzzled
- * over; those handlers still need reading, they just cannot be counted here.
+ * The question is asked once per IMPLEMENTED KEYWORD. It used to be asked once
+ * per literal key found in the source, which quietly changed the denominator
+ * for a port that builds its table in a loop: jdprt.ts answers 127 keywords and
+ * reported on 5, so the other 122 fell out of the measure rather than counting
+ * as gaps. A keyword with no literal key anywhere is now an UNREAD with a
+ * reason, and the report says how many are in that shape.
+ *
+ * Three things can stand behind a keyword, and all three are evidence:
+ * the doc block above its handler (or the handler's own line comments), the
+ * declaration a data table's block introduces, and its status.ts NOTE. A
+ * keyword may also inherit another's reading through SHARED_NOTES, which is
+ * what "one reading, several names" already means everywhere else.
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { findAnchors } from '../ext/citations'
-import { FAITHFUL, NA, noteFor } from '../coverage/status'
+import { FAITHFUL, NA, SHARED_NOTES, noteFor } from '../coverage/status'
 import { extensionById } from '../ext/registry'
 import { Runtime } from '../runtime/runtime'
 import type { ExtensionImpl } from '../runtime/extimpl'
@@ -73,7 +78,10 @@ export interface Audit {
   elsewhere: string[]
   faithful: number
   approximated: string[]
+  /** implemented keywords -- the denominator the question is asked over */
   anchors: number
+  /** of those, how many have no literal key in the source at all */
+  unanchored: number
   cited: Set<string>
   /** credited only by sitting under some earlier block -- NOT a reading */
   inherited: string[]
@@ -130,6 +138,34 @@ export function audit(impl: ExtensionImpl): Audit | null {
   const blocks = [...txt.matchAll(/\/\*[\s\S]*?\*\//g)]
 
   const inOrder = [...anchors].sort((x, y) => x.at - y.at)
+
+  /**
+   * The object literal a block INTRODUCES, if it introduces one.
+   *
+   * A port may hold its keywords as data rather than as handlers. jdprt.ts is
+   * the whole reason this exists: its 58 escape sequences are entries in one
+   * `const SEQUENCES = {...}` whose doc block says where they came from -- the
+   * data area of `+prt.s:206-438`, in table order -- and a loop turns every
+   * entry into a function. One reading covers all 58, which is exactly what
+   * the `names` rule below is for, but naming 58 keywords in a doc block to
+   * satisfy a regex would be writing for the tool rather than the reader.
+   *
+   * So a block that sits directly on top of a declaration governs what is
+   * INSIDE that declaration. That is narrower than "whatever follows", which
+   * is the rule #212 removed for good reason: the block and the anchors are
+   * not siblings here, the anchors are the block's subject.
+   */
+  const introduced = (end: number): [number, number] | null => {
+    const m = /^\s*(?:export\s+)?const\s+[A-Za-z_$][\w$]*(?:\s*:[^=\n]*)?=\s*\{/.exec(txt.slice(end, end + 200))
+    if (!m) return null
+    const open = end + m[0].length - 1
+    let depth = 0
+    for (let i = open; i < txt.length; i++) {
+      if (txt[i] === '{') depth++
+      else if (txt[i] === '}' && --depth === 0) return [open, i]
+    }
+    return null
+  }
 
   /**
    * The doc block that GOVERNS a handler, and whether it has any business
@@ -201,12 +237,15 @@ export function audit(impl: ExtensionImpl): Audit | null {
     const end = inOrder[i + 1]?.at ?? txt.length
     return (txt.slice(at, end).match(/\/\/[^\n]*/g) ?? []).join('\n')
   }
-  const govern = (name: string, at: number, i: number): 'adjacent' | 'names' | 'inline' | 'inherited' | 'none' => {
+  type How = 'adjacent' | 'names' | 'inline' | 'table' | 'inherited' | 'none'
+  const govern = (name: string, at: number, i: number): How => {
     const b = blocks.filter((m) => m.index! + m[0].length <= at).pop()
     if (b && CITES.test(b[0])) {
       const prev = inOrder[i - 1]?.at ?? -1
       if (b.index! > prev) return 'adjacent'
       if (namesIt(b[0], name)) return 'names'
+      const span = introduced(b.index! + b[0].length)
+      if (span && at > span[0] && at < span[1]) return 'table'
     }
     if (CITES.test(ownComments(at, i))) return 'inline'
     return b && CITES.test(b[0]) ? 'inherited' : 'none'
@@ -222,19 +261,118 @@ export function audit(impl: ExtensionImpl): Audit | null {
   const uncited: string[] = []
   const cited = new Set<string>()
   const inherited: string[] = []
-  for (let i = 0; i < inOrder.length; i++) {
-    const a = inOrder[i]!
-    const note = noteFor(a.name)
-    const how = govern(a.name, a.at, i)
-    if (how === 'adjacent' || how === 'names' || how === 'inline' || (note && CITES.test(note))) {
-      cited.add(a.name)
-      continue
+
+  /**
+   * The question is asked per KEYWORD, not per anchor, and that distinction is
+   * the whole of the "KNOWN LIMIT" in this file's header.
+   *
+   * A port that builds its table in a loop has fewer anchors than keywords, so
+   * counting anchors quietly changed the denominator: jdprt.ts answered 127
+   * keywords and reported on 5, and the other 122 fell out of the measure
+   * rather than being counted as gaps. Walking the implemented keywords means
+   * a keyword with no anchor at all is an honest UNREAD rather than an absence.
+   */
+  const impls = [...all].filter(covers)
+  const at = new Map<string, number>()
+  inOrder.forEach((a, i) => {
+    if (!at.has(a.name)) at.set(a.name, i)
+  })
+
+  /**
+   * The keys a generator BUILDS, by their static prefix.
+   *
+   * `td move ${ax}` and ``out[`bank code xor${sfx}`]`` name six and eight
+   * keywords between them and not one of them is a literal key, so the exact
+   * lookup above misses the whole family while the doc block explaining it sits
+   * right there. The prefix is exact and the position is exact -- this is where
+   * the source builds that name -- so it locates the governing block as well as
+   * a literal key would.
+   *
+   * Over-matching within a family is harmless, because one block is the reading
+   * for the family; the prefixes are long enough that they do not reach across
+   * one. A prefix nothing implements, `routine ${n}` in a comment for instance,
+   * simply never matches a keyword.
+   */
+  const built = [...txt.matchAll(/`([a-z][a-z0-9$. ]*?)\$\{/g)].map((m) => ({ at: m.index, prefix: m[1]! }))
+  const builtAt = (name: string): number | undefined => {
+    let best: number | undefined
+    let len = -1
+    for (const g of built) {
+      if (name.startsWith(g.prefix) && g.prefix.length > len) {
+        best = g.at
+        len = g.prefix.length
+      }
     }
-    if (how === 'inherited') inherited.push(a.name)
-    else uncited.push(a.name)
+    return best
+  }
+  /**
+   * Last resort: the keyword quoted as a VALUE somewhere in the source.
+   *
+   * `[['td anim', false], ['td anim rel', true]].map(...)` registers two
+   * keywords as name-and-config pairs, which is neither a literal key nor a
+   * template prefix, and the reading is in a line comment three lines further
+   * in. Chasing every registration shape with its own pattern is a losing game;
+   * finding where the port NAMES the keyword is the thing all of them have in
+   * common.
+   *
+   * It stays honest because the evidence standard does not move: the citation
+   * still has to be in the block governing that position or in the comments
+   * around it. Matches inside a doc block are skipped, so a keyword merely
+   * discussed in prose does not locate itself.
+   */
+  const quotedAt = (name: string): number | undefined => {
+    const re = new RegExp(`'${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'\\s*[,\\]:(]`, 'g')
+    for (const m of txt.matchAll(re)) {
+      if (!blocks.some((b) => m.index > b.index! && m.index < b.index! + b[0].length)) return m.index
+    }
+    return undefined
   }
 
-  const impls = [...all].filter(covers)
+  /** where a position sits among the anchors, for `govern`'s "previous" test */
+  const indexAt = (pos: number): number => {
+    let n = 0
+    while (n < inOrder.length && inOrder[n]!.at < pos) n++
+    return n
+  }
+
+  const unanchored: string[] = []
+  for (const name of impls) {
+    const note = noteFor(name)
+    const exact = at.get(name)
+    const pos = exact === undefined ? (builtAt(name) ?? quotedAt(name)) : inOrder[exact]!.at
+    const how = pos === undefined ? 'none' : govern(name, pos, indexAt(pos))
+    if (how === 'adjacent' || how === 'names' || how === 'inline' || how === 'table' || (note && CITES.test(note))) {
+      cited.add(name)
+      continue
+    }
+    if (pos === undefined) unanchored.push(name)
+    else if (how === 'inherited') inherited.push(name)
+    else uncited.push(name)
+  }
+  /**
+   * Last: a keyword that IS another keyword under a different name.
+   *
+   * Two relations say that, and both are already loaded here. `impl.aliases` is
+   * the port's own declaration of what a release renamed -- jd-prt 1.1 names
+   * every keyword without the `Jd ` prefix 1.3 added, and the bytes behind them
+   * are identical, so 1.1's name is read exactly when 1.3's is. SHARED_NOTES is
+   * the coverage side of the same idea, "one reading, several names", which is
+   * how `Scrn Bitmap` and its four siblings point at the one eighteen-byte
+   * routine they all are.
+   *
+   * Neither is a hand-written list of pairs, which matters: jdprt.ts derives
+   * its 58 from the registered 1.1 token table by the rule, precisely so a
+   * typo cannot hide in it.
+   */
+  for (const name of unanchored.slice()) {
+    const owner = aliased.get(name) ?? SHARED_NOTES[name]
+    if (owner !== undefined && cited.has(owner)) {
+      cited.add(name)
+      unanchored.splice(unanchored.indexOf(name), 1)
+    }
+  }
+  uncited.push(...unanchored)
+
   return {
     id: impl.ids[0]!,
     ids: impl.ids,
@@ -253,7 +391,8 @@ export function audit(impl: ExtensionImpl): Audit | null {
     elsewhere: [...all].filter((n) => !covers(n) && answered.has(n) && !NA.has(n)),
     faithful: impls.filter((n) => FAITHFUL.has(n)).length,
     approximated: impls.filter((n) => !FAITHFUL.has(n) && !NA.has(n)),
-    anchors: anchors.length,
+    anchors: impls.length,
+    unanchored: unanchored.length,
     cited,
     inherited,
     uncited,
@@ -271,9 +410,9 @@ function report(a: Audit): void {
   console.log(`  FAITHFUL           ${a.faithful}`)
   console.log(`  APPROXIMATED       ${a.approximated.length}`)
   console.log()
-  console.log(`Handlers found in ${a.file}: ${a.anchors}`)
-  if (a.implemented > a.anchors)
-    console.log(`  (${a.implemented - a.anchors} more are GENERATED, not literal keys -- not measurable here)`)
+  console.log(`Implemented keywords, measured in ${a.file}: ${a.anchors}`)
+  if (a.unanchored > 0)
+    console.log(`  (${a.unanchored} of them have no literal key in the source -- GENERATED, and unread)`)
   console.log(`  cited by a block that is theirs, names them, or by their own body: ${a.cited.size}`)
   console.log(`  under an earlier block that does not name them: ${a.inherited.length}`)
   console.log(`  with no cited block above them at all:         ${a.uncited.length}`)
