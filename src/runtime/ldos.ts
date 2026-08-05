@@ -697,8 +697,25 @@ const LDOS_LARGEST_BLOCK = 0x80000
 
 export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
   return {
+    /**
+     * A=Lload(Channel,DEST,LENGTH) and A=Lsave(Channel,SOURCE,LENGTH) —
+     * routines 3 ($f0c) and 4 ($f54) in 2.6, seventy-two bytes each and
+     * identical for their first eight instructions. They share Lseek's channel
+     * handling exactly:
+     *
+     *     move.l (a3)+, d3 / d2 / d5        LENGTH, DEST, then the CHANNEL
+     *     Rbsr   routine 5                  clamps d5 to 0 unless it is 1..3
+     *     tst.w  d5 / bne .ok
+     *     moveq  #$0, d0 / Rbra routine 91  error 0: a bad channel NUMBER
+     *  .ok: subq.w #$1, d5 / mulu.w #$4, d5
+     *     movea.l $188(a5), a6 / lea (a6, d5.w), a4
+     *     tst.l  (a4)                       ...then error 2 if not OPEN
+     *
+     * so all three of Lload, Lsave and Lseek distinguish "not a channel
+     * number" from "not an open channel", and `channel()` below is that pair.
+     */
     lload(_, a) {
-      // A=Lload(Channel,DEST,LENGTH). "A will contain the number of bytes
+      // "A will contain the number of bytes
       // actually read. If A is less than LENGTH you reached the end of the
       // file. If A equals to -1, a filerror occurred. It is perfectly legal
       // to request more data than the file contains, no error will be
@@ -795,8 +812,24 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       const kind = rt.vfs?.exists(path) ?? (rt.fs?.read(path) != null ? 'file' : null)
       return VI(kind === 'dir' ? ST_USERDIR : ST_FILE)
     },
+    /**
+     * NUM=Lwords(STRING$) and A$=Lword(WORD,STRING$) — routines 79 ($3694,
+     * 144 bytes) and 78 ($3568, 300). Lword calls Lwords first (`Rbsr routine
+     * 79`) to get the count, then refuses an index above it (`cmp.l d1,d3 /
+     * bcs`) and an index of zero separately.
+     *
+     * The separator set is four `cmpi.b` in Lwords and is exactly what
+     * `ldosWords` implements:
+     *
+     *     cmpi.b #$22, (a0)     a double quote GROUPS rather than separates
+     *     cmpi.b #$20, (a0)     space
+     *     cmpi.b #$2c, (a0)     comma
+     *     cmpi.b #$9,  (a0)     tab
+     *
+     * "If STRING$ is empty zero is returned" is the `cmp.b #$0,d0 / beq` on
+     * the length word before any of that.
+     */
     lwords(_, a) {
-      // NUM=Lwords(STRING$). "If STRING$ is empty zero is returned."
       return VI(ldosWords(str(a[0] ?? VS(''))).length)
     },
     lword(_, a) {
@@ -858,6 +891,18 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       }
       return VI(stop)
     },
+    /**
+     * A$=Lget Comment("name") and P=Lget Prot("name") — routines 13 ($10f2)
+     * and 16 ($1274). Both lock and Examine through routine 14, take
+     * `Rbra routine 91` on a null result, and then read one fixed offset of
+     * the FileInfoBlock:
+     *
+     *     lea    $90(a0), a0     fib_Comment, an 80-byte BSTR area
+     *     move.l $74(a0), d3     fib_Protection
+     *
+     * the same shape as Lsize's $7c and Lfile Type's $4, and the same layout
+     * ../amiga/dos.ts models.
+     */
     'lget comment'(_, a) {
       // A$=Lget Comment("FileName"). "A$ will contain nothing if there was no
       // filenote. This of course also works on directories."
@@ -868,6 +913,14 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       // bit 3 R, 2 W, 1 E, 0 D (active LOW, so a set bit denies it)
       return VI(rt.vfs?.meta(str(a[0] ?? VS(''))).protection ?? 0)
     },
+    /**
+     * Ldate — routine 18 ($12e0), 234 bytes of calendar arithmetic, and the
+     * two constants that fix its epoch are in the first four instructions:
+     * `moveq #$7,d1` and `move.l #$7ba,d3`. $7ba is 1978, the AmigaDOS epoch
+     * year, and the leap test right after it is `andi.l #$3,d6 / bne` -- a
+     * plain year-mod-4, with no century rule, which is correct for the range
+     * a DateStamp can hold.
+     */
     ldate(_, a) {
       // A$=Ldate(STAMP). "stamp is the number of days since 1 Jan 1978. A$
       // will be in the form of "YYMMDD" ... If the datestamp is less than
@@ -876,9 +929,27 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       const pad = (n: number): string => String(n).padStart(2, '0')
       return VS(`${pad(y % 100)}${pad(m)}${pad(d)}`)
     },
+    /**
+     * S=Lstamp(YEAR,MONTH,DAY) — routine 19 ($13ca), 156 bytes, and its
+     * guards are UNSIGNED, which makes them narrower than they look:
+     *
+     *     move.l (a3)+, d0          the DAY, popped first
+     *     cmp.w  #$0, d0 / bhi .ok  `bhi` is unsigned above
+     *     moveq  #$1, d0            ...so only an EXACT zero becomes 1
+     *  .ok: move.l (a3)+, d1        the MONTH
+     *     cmp.w  #$1, d1 / bhi .ok2
+     *     moveq  #$1, d1            0 and 1 both become 1
+     *
+     * A NEGATIVE day or month has $FFxx in its low word, which is above zero
+     * unsigned, so it passes the guard untouched and reaches the arithmetic.
+     * "If the date is before 1 Jan 1978, 1 Jan 1978 will still be returned" is
+     * the epoch floor further down, not this.
+     *
+     * DEFERRED: whether `ymdToStamp` reproduces that -- the guard catching
+     * only zero, and a negative month reaching the date maths -- is not
+     * settled here. See the pass list on #205.
+     */
     lstamp(_, a) {
-      // S=Lstamp(YEAR,MONTH,DAY). "If the date is before 1 Jan 1978, 1 Jan
-      // 1978 will still be returned."
       return VI(ymdToStamp(int(a[0] ?? VI(0)), int(a[1] ?? VI(1)), int(a[2] ?? VI(1))))
     },
     'lset file date'(_, a) {
