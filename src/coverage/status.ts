@@ -1825,6 +1825,22 @@ export const FAITHFUL = new Set<string>([
   'jd wswap',
   'jd lswap',
   'jd key to asc',
+  // TOME 4.23 / 3.1, the map engine: routines 10, 11, 14-19 and their two
+  // shared helpers, 67 (resolve the map bank) and 70 (the icon bank and its
+  // count). Read off TOME.Lib, which ships without a manual, so there is no
+  // prose either to check them against or to be misled by. The two error
+  // arms, routines 81 and 82, are covered by the same tests.
+  'tile size',
+  'map bank',
+  'brik bank',
+  'tile typ bank',
+  'tile val bank', // 3.1's spelling of the same id and the same routine
+  'map view',
+  'map do',
+  'map left',
+  'map right',
+  'map top',
+  'map bottom',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */

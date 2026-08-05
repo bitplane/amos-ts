@@ -13,6 +13,7 @@ import { newTurboState, TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions,
 import { newPersonnalState, PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
 import { newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
 import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions, ensureLib } from './speech'
+import { makeTomeInstructions, newTomeState } from './tome'
 import { SpeakBuffer, isSpeakPath, parseSpeakOptions, type SpeakOptions } from '../amiga/speak'
 import { newIoPortsState, makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
 import { newCtextState, makeCtextFunctions, makeCtextInstructions } from './ctext'
@@ -5047,6 +5048,17 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     functions: makeTurboFunctions,
     defaults: turboDefault,
     errors: TURBO_ERRORS,
+  },
+  {
+    // TOME 4.23 and 3.1 share one port: 3.1's table is a strict prefix of
+    // 4.23's, identical down to the routine numbers, with one rename that
+    // `aliases` carries. See tome.ts.
+    ids: ['tome-4.23', 'tome-3.1'],
+    init: (rt) => {
+      rt.tome = newTomeState()
+    },
+    instructions: makeTomeInstructions,
+    aliases: { 'tome-3.1': { 'tile val bank': 'tile typ bank' } },
   },
   {
     ids: ['amos3d-1.0'],

@@ -15,6 +15,7 @@ import type { MemRegion } from '../amiga/memmap'
 import { newPiConfig } from './piconfig.gen'
 import { ensureLib, speakOne, type SpeechState } from './speech'
 import { SpeakBuffer, type SpeakOptions } from '../amiga/speak'
+import type { TomeState } from './tome'
 import { type IoPortsState } from './ioports'
 import { type CtextState } from './ctext'
 import { type JdState } from './jd'
@@ -490,6 +491,8 @@ export class Runtime {
   turbo!: TurboState
   /** AMOS 3D's loaded objects and settings */
   td!: TdState
+  /** TOME: the map bank, tile size and view rectangle */
+  tome!: TomeState
 
   fileChans = new Map<
     number,

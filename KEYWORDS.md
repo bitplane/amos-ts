@@ -93,15 +93,15 @@ tested against our own understanding. Percentages exclude n/a
 | text-io | 37 | 36 | 1 | 0 | 100% |
 | tft-0.6 | 22 | 20 | 0 | 0 | 100% |
 | the-game-0.9 | 103 | 0 | 0 | 103 | 0% |
-| tome-3.1 | 34 | 0 | 0 | 34 | 0% |
-| tome-4.0 | 34 | 0 | 0 | 34 | 0% |
+| tome-3.1 | 34 | 10 | 0 | 24 | 29% |
+| tome-4.23 | 34 | 1 | 0 | 33 | 3% |
 | tools-1.01 | 32 | 0 | 0 | 32 | 0% |
 | turbo-plus-1.0 | 132 | 128 | 3 | 0 | 100% |
 | turbo-plus-1.9 | 4 | 4 | 0 | 0 | 100% |
 | turbo-plus-2.15 | 17 | 17 | 0 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 4543 | 1696 | 65 | 2673 | 40% |
+| **total** | 4543 | 1707 | 65 | 2662 | 40% |
 
 ## aga-1.0 (100%)
 
@@ -461,13 +461,15 @@ tested against our own understanding. Percentages exclude n/a
 
 - **missing**: `g agaplasma`, `g amiga`, `g bitmap offset`, `g blur`, `g bob`, `g cd32`, `g check vbl`, `g circle`, `g cli`, `g close gms`, `g close req`, `g close reqtools`, `g cls`, `g colour`, `g copyarea`, `g decrypt`, `g def palette`, `g double buffer`, `g draw bob`, `g encrypt`, `g erase`, `g exit`, `g file size`, `g get img`, `g get palette`, `g getmem`, `g getscr`, `g handicap`, `g icon check`, `g iconify`, `g init bobs`, `g init encyrpt`, `g init gms`, `g init mbobs`, `g ink`, `g left click`, `g line`, `g load bobs`, `g load iff`, `g load pcx`, `g make rp`, `g oddno`, `g open reqtools`, `g own blitter`, `g palette`, `g paste bob`, `g plot`, `g point`, `g ptchan off`, `g ptchan on`, `g ptfade`, `g ptlength`, `g ptload`, `g ptpause`, `g ptplay`, `g ptpos`, `g ptset pos`, `g ptstop`, `g ptunpause`, `g ptvolume`, `g reboot`, `g rectangle`, `g reset`, `g rgb`, `g right click`, `g save bitmap`, `g save iff`, `g screen`, `g screen close`, `g screen copy`, `g screen hide`, `g screen offset`, `g screen open`, `g screen show`, `g set bob`, `g set img`, `g set mbob`, `g set mouse`, `g set pen`, `g set table`, `g setup bobs`, `g spaste bob`, `g stc pack`, `g stc unpack`, `g swap buffers`, `g tmap`, `g triple buffer`, `g unhandicap`, `g update`, `g wait lmb`, `g wait rmb`, `g word$`, `g x mouse`, `g y mouse`, `gcos`, `gham`, `ghires`, `glowres`, `gscreen colour`, `gscreen height`, `gscreen width`, `gsin`, `gsuperhires`
 
-## tome-3.1 (0%)
+## tome-3.1 (29%)
 
-- **missing**: `brik bank`, `brik x`, `brik y`, `briks`, `map bank`, `map base`, `map bottom`, `map brik`, `map check`, `map do`, `map fx`, `map fy`, `map hx`, `map hy`, `map left`, `map plot`, `map right`, `map scan x`, `map scan y`, `map tile`, `map top`, `map view`, `map x`, `map y`, `paste brik`, `tile size`, `tile val`, `tile val bank`, `tiny bank`, `tiny map`, `tme credit$`, `tme ver$`, `xtile`, `ytile`
+- **faithful**: `brik bank`, `map bank`, `map bottom`, `map do`, `map left`, `map right`, `map top`, `map view`, `tile size`, `tile val bank`
+- **missing**: `brik x`, `brik y`, `briks`, `map base`, `map brik`, `map check`, `map fx`, `map fy`, `map hx`, `map hy`, `map plot`, `map scan x`, `map scan y`, `map tile`, `map x`, `map y`, `paste brik`, `tile val`, `tiny bank`, `tiny map`, `tme credit$`, `tme ver$`, `xtile`, `ytile`
 
-## tome-4.0 (0%)
+## tome-4.23 (3%)
 
-- **missing**: `list tile`, `map ab length`, `map an at`, `map an freeze`, `map an move`, `map an point`, `map an unfreeze`, `map anim`, `map anim bank`, `map anim off`, `map anim on`, `map fall`, `map handle`, `map handle init`, `map length`, `map paste`, `map pos x`, `map pos y`, `map set zone`, `map swap tile`, `map update`, `map update off`, `map update on`, `map zb length`, `map zone`, `map zone bank`, `tile count`, `tile tag`, `tile tag set`, `tile tag x`, `tile tag y`, `tile tags off`, `tile tags on`, `tile typ bank`
+- **faithful**: `tile typ bank`
+- **missing**: `list tile`, `map ab length`, `map an at`, `map an freeze`, `map an move`, `map an point`, `map an unfreeze`, `map anim`, `map anim bank`, `map anim off`, `map anim on`, `map fall`, `map handle`, `map handle init`, `map length`, `map paste`, `map pos x`, `map pos y`, `map set zone`, `map swap tile`, `map update`, `map update off`, `map update on`, `map zb length`, `map zone`, `map zone bank`, `tile count`, `tile tag`, `tile tag set`, `tile tag x`, `tile tag y`, `tile tags off`, `tile tags on`
 
 ## tools-1.01 (0%)
 

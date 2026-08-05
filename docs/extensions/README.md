@@ -230,7 +230,7 @@ per keyword.
 | `range-2.0` | Range | disassembly | 73 | — | recommends 9 |
 | `easylife-1.0` | Easy Life | disassembly | 72 | — | recommends 16 |
 | `jd-prt-1.4` | JD Printer | disassembly | 69 | — | recommends 21 |
-| `tome-4.0` | TOME | disassembly | 67 | 7 | recommends 7 |
+| `tome-4.23` | TOME | disassembly | 67 | 7 | recommends 7 |
 | `powerbobs-1.0` | Power Bobs | disassembly | 65 | — | recommends 13 |
 | `amos3d-1.0` | AMOS 3D | disassembly | 64 | 4 | recommends 4 |
 | `eme-3.0` | Enhanced Music Extension | disassembly | 59 | — | recommends 1 |

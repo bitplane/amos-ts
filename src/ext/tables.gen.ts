@@ -6024,7 +6024,7 @@ export const EXT_TABLES: Record<string, TokenEntry[]> = {
     { id: 0x022c, name: "map fx", spec: "00", instr: 0xffff, func: 0x22 },
     { id: 0x023a, name: "map fy", spec: "00", instr: 0xffff, func: 0x23 },
   ],
-  "tome-4.0": [
+  "tome-4.23": [
     { id: 0x0000, name: "", spec: "", instr: 0x1, func: 0x0 },
     { id: 0x0006, name: "map do", spec: "I0,0", instr: 0xf, func: 0xffff },
     { id: 0x0016, name: "map bank", spec: "I0", instr: 0xb, func: 0xffff },
@@ -7666,14 +7666,14 @@ export const EXT_INFO: ExtensionInfo[] = [
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "fc9e01bbd6b543c065e5c3597c95bd7d24c10acc61fe24d6a317079cf1dee465",
-    "provenance": "amos-pd-library-cd-1994/files/426-450/APD435/AMOS_System/TOME.Lib The AMOS 1.3 era release, banner \"AMOS TOME V3.1\", against the registered tome-4.0. Installs into AMOS_System. 33 of its 34 names carry into 4.0.",
+    "provenance": "amos-pd-library-cd-1994/files/426-450/APD435/AMOS_System/TOME.Lib The AMOS 1.3 era release, banner \"AMOS TOME V3.1\", against the registered tome-4.23. Installs into AMOS_System. 33 of its 34 names carry into 4.0.",
     "notes": "TOME (The Overall Map Editor) is the map-and-tile system behind a number of real third-party games, and is the one demand row that is not self-referential. 34 keywords, none ported."
   },
   {
-    "id": "tome-4.0",
+    "id": "tome-4.23",
     "name": "TOME",
-    "version": "4.24",
-    "author": "Shadow Software",
+    "version": "4.23",
+    "author": "Aaron Fothergill",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "disassembly",
@@ -7687,7 +7687,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     ],
     "sha256": "3b6c15eadfb466968b078db8fc1965709a324e14bf98184f04e353fb79f288df",
     "provenance": "AMOS PD Library CD, APD574/AMOS_System. No documentation accompanies the library on the disc; the version is inferred from the entry count and is not stated by the binary.",
-    "notes": "The Total Map Editor's runtime extension — map/tile keywords behind a bank of map data, one of the best known third-party AMOS extensions. Table tier: no manual was found alongside it, so keyword behaviour is inferred from names and parameter specs only. Two TOME tables exist on the disc (68 and 35 entries); both explain every id observed in slot 7, so identification is ambiguous between versions and the version recorded here is provisional. Version corrected to 4.24 from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs. — 4.0 was inferred here from the archive's name and was a guess."
+    "notes": "The runtime half of TOME, Aaron Fothergill's map-and-tile system for AMOS and one of the best known third-party extensions. 67 keywords over a bank of map data. THE VERSION IS READ OFF THE BINARY, not guessed: routine 27 is Tme Ver$, whose whole job is to report it, and the data block it reads holds 'AMOS TOME Series IV', 'TOME V4.23' and 'TOME V4.23 Installed', beside '(c) Shadow Software 1990' and 'by Aaron Fothergill'. Two earlier answers were both wrong -- this was registered as 4.0, inferred from the archive's directory name, and then 'corrected' to 4.24 from Andrew Burton's AMOS Extensions List. The primary source wins over the secondary list, the same rule that settled The Game Extension's version and TURBO Plus's attribution. Two TOME tables ship on the disc, 68 and 35 entries; the 35 is registered separately as tome-3.1 and is a strict PREFIX of this one -- identical ids, specs and routine numbers for its first 35 entries, with a single rename at id $1ba, 'tile val bank' becoming 'tile typ bank'. Sixteen programs across the corpus archive bind slot 7 and every id any of them uses falls inside those first 35, so the corpus cannot separate the two versions and 4.23's own additions have no observed demand."
   },
   {
     "id": "tools-1.01",

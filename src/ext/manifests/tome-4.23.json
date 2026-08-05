@@ -1,0 +1,26 @@
+{
+  "id": "tome-4.23",
+  "name": "TOME",
+  "version": "4.23",
+  "author": "Aaron Fothergill",
+  "source": "binary",
+  "library": "TOME.Lib",
+  "sha256": "3b6c15eadfb466968b078db8fc1965709a324e14bf98184f04e353fb79f288df",
+  "format": "legacy",
+  "idBaseEvidence": "calibrated",
+  "evidence": "disassembly",
+  "docs": [],
+  "titleStrings": [
+    "(c) Shadow Software 1990"
+  ],
+  "observedSlots": [
+    7
+  ],
+  "provenance": {
+    "from": "AMOS PD Library CD, APD574/AMOS_System.",
+    "note": "No documentation accompanies the library on the disc; the version is inferred from the entry count and is not stated by the binary.",
+    "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
+  },
+  "notes": "The runtime half of TOME, Aaron Fothergill's map-and-tile system for AMOS and one of the best known third-party extensions. 67 keywords over a bank of map data. THE VERSION IS READ OFF THE BINARY, not guessed: routine 27 is Tme Ver$, whose whole job is to report it, and the data block it reads holds 'AMOS TOME Series IV', 'TOME V4.23' and 'TOME V4.23 Installed', beside '(c) Shadow Software 1990' and 'by Aaron Fothergill'. Two earlier answers were both wrong -- this was registered as 4.0, inferred from the archive's directory name, and then 'corrected' to 4.24 from Andrew Burton's AMOS Extensions List. The primary source wins over the secondary list, the same rule that settled The Game Extension's version and TURBO Plus's attribution. Two TOME tables ship on the disc, 68 and 35 entries; the 35 is registered separately as tome-3.1 and is a strict PREFIX of this one -- identical ids, specs and routine numbers for its first 35 entries, with a single rename at id $1ba, 'tile val bank' becoming 'tile typ bank'. Sixteen programs across the corpus archive bind slot 7 and every id any of them uses falls inside those first 35, so the corpus cannot separate the two versions and 4.23's own additions have no observed demand.",
+  "recommendedSlot": 7
+}

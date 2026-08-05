@@ -380,9 +380,20 @@ describe.skipIf(!existsSync(extFixtures))('the whole corpus identifies without a
     expect(scanned).toBeGreaterThan(300)
     expect(merged.size).toBeGreaterThan(3)
 
+    // Slots the corpus genuinely cannot settle, and must not pretend to. Both
+    // TOME games that bind slot 9 use ONE id there, $16, twice each, and an
+    // id that low is carried by most tables in the registry — so this is not a
+    // fingerprint at all. Listing it beats loosening the assertion for every
+    // slot: a slot that stops identifying has to be added here deliberately.
+    const unidentifiable = new Set([9])
+
     const resolved: Record<number, string> = {}
     for (const [slot, usage] of merged) {
       const id = identifySlot(usage)
+      if (unidentifiable.has(slot)) {
+        expect(['ambiguous', 'unknown'], `slot ${slot}`).toContain(id.confidence)
+        continue
+      }
       // 'exact' everywhere except slot 3. Request uses three keywords, at ids
       // $06/$16/$28, and those three offsets also carry named entries in both
       // CText (ctext / font size / plen) and Range — so once the registry grew
@@ -404,6 +415,11 @@ describe.skipIf(!existsSync(extFixtures))('the whole corpus identifies without a
       4: 'amos3d-1.0',
       5: 'amospro-compiler-2.0',
       6: 'amospro-ioports-2.0',
+      // seven TOME games, kept as the acceptance corpus for the map engine.
+      // Both TOME tables explain every id they use — 3.1 is a strict prefix of
+      // 4.23 — so this is the observed-slot tiebreak again rather than a
+      // fingerprint, and the corpus cannot tell the two versions apart.
+      7: 'tome-4.23',
       // Personnal's own two release archives, added with its fixtures: 69 demo
       // programs, 68 of which drive slot 13 — where the source puts it
       // (ExtNb Equ 13-1). 61 distinct ids, all inside the 1.1a table, so the
