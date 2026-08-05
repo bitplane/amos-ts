@@ -1994,6 +1994,16 @@ export const FAITHFUL = new Set<string>([
   'psprite off',
   'psprite erase',
   'psprite update',
+  // --- P61 1.2, slot 25: the Player 6.1A wrapper. `p61 play` and `p61 stop`
+  // are slot-qualified because Personnal 1.1 has the same two names at slot
+  // 13; see p61.ts.
+  'p61 pause',
+  'p61 continue',
+  'p61 volume',
+  'p61 cia speed',
+  'p61 signal',
+  'p61 fade',
+  'p61 pos',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -3367,6 +3377,19 @@ export const NOTES: Record<string, string> = {
   'p61 play':
     'an LVO call into player61.library, which is not part of AMOS and not in the source tree. The state machine around it is reproduced because the extension checks it before calling out, but NOTHING SOUNDS. It deliberately does not raise the library-not-found error: the gap here is a decoder, not a missing library. Closable by a real P61 decoder, as med play already is for MMD0/MMD1. It also has TWO table entries, `I0` and an unnamed `I0,0` arity variant that TokenTable.name resolves back to it — routine 124 is byte for byte routine 123 with an extra pop at the front, so the second argument is read and ignored; both forms parse here',
   'p61 stop': 'the P61 state machine only — error 19 when nothing is playing; no audio',
+  'p61 pause':
+    "Routine `L_P61Pause` in AMOSPro_P61A.Lib.s. Clears P61_Play, sets O_MusicPaused, then silences the hardware itself --- `move d0,\$a8(a0)` through \$d8 zeroes all four AUDxVOL and `move #\$f,\$96(a0)` clears the four audio DMA bits in DMACON. Pausing an already-paused module does nothing at all (`tst.l O_MusicPaused(a2) / bne .skip`), so the volumes are not zeroed twice. P61 Continue is NOT guarded the same way: it sets Play whether or not anything was paused",
+  'p61 volume':
+    "`L_P61Volume`. Clamped to 0..64 by two one-sided tests --- `bpl` sends a negative to 0 and `cmp.w #64,d0 / blt` sends 64 and above to 64 --- and it writes P61_Master AND P61_FadeTo together, so setting a volume cancels a fade in progress rather than being overtaken by it",
+  'p61 fade':
+    "`L_P61Fade1` and `L_P61Fade2`. The one-argument form is `clr.l -(a3)` then a branch into the two-argument one, so `P61 Fade 5` fades OUT --- the missing target is zero, not the current volume. The target pops first and the speed second, `Rblt L_IFonc` makes a negative speed an Illegal Function Call, and FadeSpeed and FadeCount are both loaded so the first step waits a full period",
+  'p61 cia speed':
+    "`L_P61CiaSpeed`. Clamped to 32..255, then `P61_timer / bpm` becomes P61_thi2 and `thi = thi2 - \$1f0*2`. The clamp is transcribed as written and is slightly odd: `cmp.w #32,d0 / bgt .no32` replaces 32 itself with 32 and `cmp.w #255,d0 / blt .no255` replaces 255 with 255 --- the same number, harmlessly",
+  'p61 signal':
+    "`L_P61Signal`. Reads P61_E8 and writes -1 back over it in the same routine, so the value is delivered ONCE and a second read gets -1 until the module's next E8 command. That makes it a one-shot mailbox rather than a status register: a game puts E8 commands in the module where it wants something to happen and polls this until one arrives",
+  'p61 pos': "`L_P61Pos`. P61_Pos, the song position, sign-extended from a word",
+  'p61 continue':
+    "`L_P61Continue`. P61_Play back to 1 and O_MusicPaused to 0, and nothing else --- the audio DMA that Pause turned off comes back when the replayer next triggers a note. Unlike Pause it is not guarded, so continuing something that was never paused still sets Play",
   'p61 mvolume': 'range-checks 0..63 and then the module, in that order, as routine 126 does; no audio',
   'p61 mpos':
     "routine 127 is routine 126 twice over — the SAME 0..63 range check raising the same error 20, whose message is 'Les valeurs de volume vont de 0 a 63.' and is about volume in both, then the same library and module checks. This port had neither check on Mpos; a position of 64 was accepted and one with no module loaded was too",

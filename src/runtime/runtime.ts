@@ -15,6 +15,7 @@ import type { MemRegion } from '../amiga/memmap'
 import { newPiConfig } from './piconfig.gen'
 import { ensureLib, speakOne, type SpeechState } from './speech'
 import { SpeakBuffer, type SpeakOptions } from '../amiga/speak'
+import type { P61State } from './p61'
 import type { PowerBobsState } from './powerbobs'
 import type { TomeState } from './tome'
 import { type IoPortsState } from './ioports'
@@ -493,6 +494,7 @@ export class Runtime {
   /** AMOS 3D's loaded objects and settings */
   td!: TdState
   /** TOME: the map bank, tile size and view rectangle */
+  p61!: P61State
   powerbobs!: PowerBobsState
   tome!: TomeState
 

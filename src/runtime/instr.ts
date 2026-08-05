@@ -13,6 +13,7 @@ import { newTurboState, TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions,
 import { newPersonnalState, PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
 import { newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
 import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions, ensureLib } from './speech'
+import { makeP61Functions, makeP61Instructions, newP61State } from './p61'
 import { makePowerBobsFunctions, makePowerBobsInstructions, newPowerBobsState } from './powerbobs'
 import { makeTomeFunctions, makeTomeInstructions, newTomeState } from './tome'
 import { SpeakBuffer, isSpeakPath, parseSpeakOptions, type SpeakOptions } from '../amiga/speak'
@@ -5049,6 +5050,19 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     functions: makeTurboFunctions,
     defaults: turboDefault,
     errors: TURBO_ERRORS,
+  },
+  {
+    // P61 1.2 at slot 25 --- Chris Hodges' wrapper around Jarno Paananen's
+    // Player 6.1A. `p61 play` and `p61 stop` are SLOT-QUALIFIED because
+    // Personnal 1.1 has keywords of the same names at slot 13, with
+    // different arguments. See p61.ts.
+    ids: ['p61-1.2'],
+    init: (rt) => {
+      rt.p61 = newP61State()
+    },
+    instructions: makeP61Instructions,
+    functions: makeP61Functions,
+    qualified: ['p61 play', 'p61 stop'],
   },
   {
     // PowerBobs 1.0 at slot 13, by the author of TURBO Plus. The SHAREWARE

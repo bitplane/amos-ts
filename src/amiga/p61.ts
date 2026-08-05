@@ -1,0 +1,314 @@
+/**
+ * The Player 6.1A module format — Jarno Paananen's packed ProTracker.
+ *
+ * P61 is what a ProTracker module becomes after `The Player 6.1` has packed
+ * it: the same four channels, notes and effects, but with the pattern data
+ * compressed and the samples optionally delta-coded to four bits. Games used
+ * it because a 100K mod becomes 60K and the replayer is small.
+ *
+ * ## Evidence
+ *
+ * `610.2_devpac3.asm`, 2,483 lines, shipped inside AMOSP61Ext beside the AMOS
+ * wrapper that drives it: "Player 6.1A ... Version 610.2, (c) 1992-95 Jarno
+ * Paananen". SOURCE tier — every field below is read off `P61_Init` and
+ * `P61_takenorm` rather than inferred from a file.
+ *
+ * NOTE, and it decides what this file can claim: there is NO P61 module in
+ * the corpus. Not one of the 6,400 programs in the archive carries the "P61A"
+ * signature, and the distribution ships only the library, the doc and this
+ * source. So the decoder is faithful to the assembly and UNVERIFIED against
+ * a real module — the tests below can only show it agrees with the reading
+ * that produced it. A hand-made fixture would prove nothing more, which is
+ * why none is presented as if it did.
+ *
+ * ## The header
+ *
+ * A four-byte `P61A` signature is OPTIONAL: `cmp.l #"P61A",(a0)+ / beq / subq
+ * .l #4,a0` steps over it when present and rewinds when not, so a module may
+ * begin at either place.
+ *
+ *   +0  word  where the sample data starts, used only when the caller does
+ *             not pass the samples separately
+ *   +2  byte  low seven bits: how many PATTERNS
+ *   +3  byte  bit 7  the samples are four-bit delta packed
+ *             bit 6  a separate sample buffer is wanted, and +4 is a LONG
+ *                    holding how big
+ *             low 5  how many SAMPLES
+ *
+ * The sample table follows at +8 when bit 6 is set and +4 when it is not,
+ * which is exactly the room that longword takes.
+ */
+
+/** one entry of the sample table, six bytes in the file */
+export interface P61Sample {
+  /** the decoded 8-bit PCM, or null for a sample with no data of its own */
+  pcm: Int8Array | null
+  /** length in WORDS, as the file stores it */
+  words: number
+  /** repeat start in words, and the repeat length; 1 word means "no repeat" */
+  repeatStart: number
+  repeatWords: number
+  volume: number
+  /** the low nibble of the finetune byte; the replayer scales it by 74 */
+  finetune: number
+  /** bit 7 of the finetune byte: this sample is four-bit delta packed */
+  packed: boolean
+  /** for an alias entry, the sample it borrows its data from */
+  aliasOf: number | null
+}
+
+/** one decoded row of one channel */
+export interface P61Row {
+  /** 0 for none, else the note index the period table is looked up by */
+  note: number
+  instrument: number
+  command: number
+  info: number
+}
+
+export interface P61Module {
+  samples: P61Sample[]
+  /** the song, one pattern number per position */
+  positions: number[]
+  /** per pattern, the byte offset into the pattern stream for each channel */
+  patternOffsets: number[][]
+  /** the packed note streams */
+  stream: Uint8Array
+  packedSamples: boolean
+  buffered: boolean
+}
+
+/**
+ * The four-bit delta table, transcribed from `.table` in `P61_Init`.
+ *
+ * Each nibble picks a step and the running value is SUBTRACTED by it:
+ * `sub.b .table(pc,d4),d5`. The high nibble comes first, then the low, so one
+ * byte yields two samples.
+ */
+const DELTA = [0, 1, 2, 4, 8, 16, 32, 64, 128, -64, -32, -16, -8, -4, -2, -1]
+
+const rdW = (b: Uint8Array, at: number): number => ((b[at] ?? 0) << 8) | (b[at + 1] ?? 0)
+const rdSW = (b: Uint8Array, at: number): number => (rdW(b, at) << 16) >> 16
+
+/**
+ * Unpack a four-bit delta-coded sample, the way `P61_Init`'s `.lo` loop does.
+ *
+ * `words` is the sample's length in words, and the loop runs `words - 1`
+ * times producing two bytes a pass, so the result is `words * 2` bytes with
+ * the first pair coming from the first packed byte.
+ */
+export function unpackDelta(src: Uint8Array, at: number, words: number): Int8Array {
+  const out = new Int8Array(words * 2)
+  let v = 0
+  let o = 0
+  for (let i = 0; i < words && o + 1 < out.length; i++) {
+    const b = src[at + i] ?? 0
+    v = (v - DELTA[(b >> 4) & 0xf]!) << 24 >> 24
+    out[o++] = v
+    v = (v - DELTA[b & 0xf]!) << 24 >> 24
+    out[o++] = v
+  }
+  return out
+}
+
+/**
+ * Read a module's structure.
+ *
+ * `samples` is where the sample data lives when it was handed over separately;
+ * with it null the word at +0 says where it starts inside `data`, which is
+ * `move (a0),d0 / lea (a0,d0.l),a1` in `P61_Init`.
+ */
+export function parseP61(data: Uint8Array, samples: Uint8Array | null = null): P61Module | null {
+  let at = 0
+  // the signature is optional, and the replayer rewinds when it is absent
+  if (data[0] === 0x50 && data[1] === 0x36 && data[2] === 0x31 && data[3] === 0x41) at = 4
+  if (at + 8 > data.length) return null
+
+  const flags = data[at + 3] ?? 0
+  const packedSamples = (flags & 0x80) !== 0
+  const buffered = (flags & 0x40) !== 0
+  const nSamples = flags & 0x1f
+  const nPatterns = (data[at + 2] ?? 0) & 0x7f
+  if (nSamples === 0 || nPatterns === 0) return null
+
+  let sampleData = samples
+  let sampleAt = 0
+  if (!sampleData) {
+    sampleData = data
+    sampleAt = at + rdW(data, at)
+  }
+
+  // `lea 8(a0),a2` then `subq.l #4,a2` when bit 6 is clear
+  let p = at + (buffered ? 8 : 4)
+  const out: P61Sample[] = []
+  let pcmAt = sampleAt
+  for (let i = 0; i < nSamples; i++) {
+    const len = rdSW(data, p)
+    const ft = data[p + 2] ?? 0
+    const vol = data[p + 3] ?? 0
+    const rep = rdSW(data, p + 4)
+    p += 6
+    if (len < 0) {
+      // `bmi / neg d4` --- a negative length ALIASES an earlier sample, and
+      // `lea P61_samples-16(pc),a5` indexes the table already built
+      const src = out[-len - 1] ?? null
+      out.push({
+        pcm: src ? src.pcm : null,
+        words: src ? src.words : 0,
+        repeatStart: rep < 0 ? 0 : rep,
+        repeatWords: rep < 0 ? 1 : (src ? src.words : 0) - rep,
+        volume: vol,
+        finetune: ft & 0xf,
+        packed: (ft & 0x80) !== 0,
+        aliasOf: -len - 1,
+      })
+      continue
+    }
+    const thisPacked = packedSamples && (ft & 0x80) !== 0
+    let pcm: Int8Array
+    if (thisPacked) {
+      pcm = unpackDelta(sampleData, pcmAt, len)
+      pcmAt += len // a packed sample occupies `len` BYTES, not words
+    } else {
+      pcm = new Int8Array(len * 2)
+      for (let k = 0; k < len * 2; k++) pcm[k] = (sampleData[pcmAt + k] ?? 0) << 24 >> 24
+      pcmAt += len * 2
+    }
+    out.push({
+      pcm,
+      words: len,
+      repeatStart: rep < 0 ? 0 : rep,
+      repeatWords: rep < 0 ? 1 : len - rep,
+      volume: vol,
+      finetune: ft & 0xf,
+      packed: thisPacked,
+      aliasOf: null,
+    })
+  }
+
+  // `move.l a2,P61_positionbase` --- the pattern table starts where the
+  // sample table ended, eight bytes a pattern: one word offset per channel
+  const positionBase = p
+  const possiBase = positionBase + nPatterns * 8
+  const patternOffsets: number[][] = []
+  for (let i = 0; i < nPatterns; i++) {
+    const b = positionBase + i * 8
+    patternOffsets.push([rdW(data, b), rdW(data, b + 2), rdW(data, b + 4), rdW(data, b + 6)])
+  }
+
+  // `.search cmp.b (a1)+,d0 / bne` with d0 = -1 --- the song is a byte list
+  // ending in $FF, and the pattern stream begins after it
+  const positions: number[] = []
+  let q = possiBase
+  while (q < data.length && data[q] !== 0xff) positions.push(data[q++]!)
+  const streamAt = q + 1
+
+  return {
+    samples: out,
+    positions,
+    patternOffsets,
+    stream: data.subarray(streamAt),
+    packedSamples,
+    buffered,
+  }
+}
+
+/**
+ * Decode one channel's packed note stream into rows.
+ *
+ * Transcribed from `P61_takenorm`. A row begins with one byte whose top bits
+ * choose the shape, and the four cases are tested from the widest mask down:
+ *
+ *   (b & $60) != $60   a FULL entry: this byte plus two more
+ *   (b & $70) != $70   a COMMAND only: the low nibble, plus an info byte
+ *   (b & $78) != $78   a NOTE only: three more bits plus a byte, shifted
+ *   otherwise          an EMPTY row
+ *
+ * and in every case bit 7 of that first byte means a compression byte
+ * follows. That byte's top two bits say what kind:
+ *
+ *   %00nnnnnn  the row repeats n more times as an empty one
+ *   %10nnnnnn  the row repeats n more times unchanged
+ *   %01nnnnnn  a back-reference n rows long, with a ONE-byte distance
+ *   %11nnnnnn  the same with a TWO-byte distance
+ *
+ * The back-references are why a P61 file is small: a phrase played twice is
+ * stored once and pointed at, and `sub.l d0,a2` walks the reader backwards
+ * into data it has already passed.
+ */
+export function decodeChannel(stream: Uint8Array, start: number, rows: number): P61Row[] {
+  const out: P61Row[] = []
+  let at = start
+  // the back-reference return address, `P61_TempPos` in the channel block
+  let ret = -1
+  let left = 0
+
+  const empty = (): P61Row => ({ note: 0, instrument: 0, command: 0, info: 0 })
+
+  while (out.length < rows && at >= 0 && at < stream.length) {
+    const b0 = stream[at++]!
+    let row = empty()
+    if ((b0 & 0x60) !== 0x60) {
+      const b1 = stream[at++] ?? 0
+      const b2 = stream[at++] ?? 0
+      row = {
+        note: b0 & 0x7e,
+        instrument: ((b0 & 1) << 4) | (b1 >> 4),
+        command: b1 & 0xf,
+        info: b2,
+      }
+    } else if ((b0 & 0x70) !== 0x70) {
+      row = { note: 0, instrument: 0, command: b0 & 0xf, info: stream[at++] ?? 0 }
+    } else if ((b0 & 0x78) !== 0x78) {
+      // `d1 = ((b0 & 7) << 8 | next) << 4` --- the note lands in the same
+      // bits of the word the full entry uses, so the mask is the same
+      const w = ((((b0 & 7) << 8) | (stream[at++] ?? 0)) << 4) & 0xffff
+      row = { note: (w >> 8) & 0x7e, instrument: (((w >> 8) & 1) << 4) | ((w & 0xff) >> 4), command: 0, info: 0 }
+    }
+    out.push(row)
+
+    if ((b0 & 0x80) === 0) continue
+    const c = stream[at++] ?? 0
+    const kind = c & 0xc0
+    const n = c & 0x3f
+    if (kind === 0x00) {
+      for (let i = 0; i < n && out.length < rows; i++) out.push(empty())
+    } else if (kind === 0x80) {
+      for (let i = 0; i < n && out.length < rows; i++) out.push({ ...row })
+    } else {
+      // a back-reference: remember where to come back to, then rewind
+      let dist: number
+      if (kind === 0x40) dist = stream[at++] ?? 0
+      else {
+        dist = ((stream[at] ?? 0) << 8) | (stream[at + 1] ?? 0)
+        at += 2
+      }
+      ret = at
+      left = n
+      at -= dist
+    }
+    if (left > 0 && ret >= 0) {
+      // the referenced run is decoded by looping round again; when it is
+      // spent the reader returns to where the reference was found
+      const before = out.length
+      const run = decodeChannel(stream, at, Math.min(left, rows - out.length))
+      for (const r of run) if (out.length < rows) out.push(r)
+      if (out.length === before) break // no progress: a malformed stream
+      at = ret
+      ret = -1
+      left = 0
+    }
+  }
+  while (out.length < rows) out.push(empty())
+  return out
+}
+
+/** every pattern is 64 rows, as ProTracker's are */
+export const P61_ROWS = 64
+
+/** one pattern, four channels of rows */
+export function decodePattern(m: P61Module, pattern: number): P61Row[][] {
+  const offs = m.patternOffsets[pattern]
+  if (!offs) return [[], [], [], []]
+  return offs.map((o) => decodeChannel(m.stream, o, P61_ROWS))
+}
