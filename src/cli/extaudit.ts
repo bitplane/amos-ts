@@ -181,12 +181,35 @@ export function audit(impl: ExtensionImpl): Audit | null {
     const gap = '[\\s/*]*(?:[\\w$]+[\\s/*]+){0,4}'
     return new RegExp(words.join(gap), 'i').test(block)
   }
-  const govern = (name: string, at: number, i: number): 'adjacent' | 'names' | 'inherited' | 'none' => {
+  /**
+   * A handler's OWN line comments, which are evidence and were not being read.
+   *
+   * `citations.ts` already states the rule this implements -- "a `/** ... *\/`
+   * block documents the handler AFTER it, and a line comment documents the
+   * handler it sits INSIDE" -- and checkSelfCitation has always honoured both
+   * halves. This function only ever looked at block comments, so a port whose
+   * house style is to explain each handler from inside its body audited as
+   * unread however carefully it had been read. turbo.ts is that port: it went
+   * from 8 cited to 23 after twenty-eight keywords were verified routine by
+   * routine against the binary, because the citations landed in `//` comments
+   * where nothing was looking.
+   *
+   * Only the comment text counts, never the code. A hex literal in an
+   * expression is not a reading, and `CITES` would happily match one.
+   */
+  const ownComments = (at: number, i: number): string => {
+    const end = inOrder[i + 1]?.at ?? txt.length
+    return (txt.slice(at, end).match(/\/\/[^\n]*/g) ?? []).join('\n')
+  }
+  const govern = (name: string, at: number, i: number): 'adjacent' | 'names' | 'inline' | 'inherited' | 'none' => {
     const b = blocks.filter((m) => m.index! + m[0].length <= at).pop()
-    if (!b || !CITES.test(b[0])) return 'none'
-    const prev = inOrder[i - 1]?.at ?? -1
-    if (b.index! > prev) return 'adjacent'
-    return namesIt(b[0], name) ? 'names' : 'inherited'
+    if (b && CITES.test(b[0])) {
+      const prev = inOrder[i - 1]?.at ?? -1
+      if (b.index! > prev) return 'adjacent'
+      if (namesIt(b[0], name)) return 'names'
+    }
+    if (CITES.test(ownComments(at, i))) return 'inline'
+    return b && CITES.test(b[0]) ? 'inherited' : 'none'
   }
 
   /**
@@ -203,7 +226,7 @@ export function audit(impl: ExtensionImpl): Audit | null {
     const a = inOrder[i]!
     const note = noteFor(a.name)
     const how = govern(a.name, a.at, i)
-    if (how === 'adjacent' || how === 'names' || (note && CITES.test(note))) {
+    if (how === 'adjacent' || how === 'names' || how === 'inline' || (note && CITES.test(note))) {
       cited.add(a.name)
       continue
     }
@@ -251,7 +274,7 @@ function report(a: Audit): void {
   console.log(`Handlers found in ${a.file}: ${a.anchors}`)
   if (a.implemented > a.anchors)
     console.log(`  (${a.implemented - a.anchors} more are GENERATED, not literal keys -- not measurable here)`)
-  console.log(`  cited by a block that is theirs or names them: ${a.cited.size}`)
+  console.log(`  cited by a block that is theirs, names them, or by their own body: ${a.cited.size}`)
   console.log(`  under an earlier block that does not name them: ${a.inherited.length}`)
   console.log(`  with no cited block above them at all:         ${a.uncited.length}`)
   console.log()
