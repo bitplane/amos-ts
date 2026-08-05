@@ -2810,9 +2810,18 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
      * a colliding sprite number where this answers -1.
      *
      * Personnal maps the PAIR of sprite numbers onto one CLXDAT bit through a
-     * ladder of Cmp/Move (:1958-:1998) and answers -1 when that bit is CLEAR
+     * ladder of Cmp/Move (:1965-:1984) and answers -1 when that bit is CLEAR
      * — the same inverted test as Playfields Col, and the same always--1
      * result, because nothing writes CLXDAT here.
+     *
+     * Two arguments the ladder does not account for leave the answer
+     * undefined on the machine rather than wrong. `Bclr #0` reduces both
+     * numbers to their PAIR, and two sprites in the same pair take the
+     * `Beq _cc` at :1964 straight to the RTS — past the `Move.l #0,d3` that
+     * would have cleared the result — so AMOS reads whatever d3 held. A pair
+     * combination outside the six the ladder knows leaves d2 uninitialised
+     * and `Btst d2,d4` tests an arbitrary bit. Both answer -1 here, which is
+     * as defensible as anything; there is nothing to be faithful to.
      *
      * Declared under its plain name and registered slot-qualified: the
      * contract in ./extimpl.ts lists it in `qualified`, and the slots come
@@ -2827,7 +2836,8 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * Right Click (L5, $29aa) — POTGOR bit 10, DATLY, port 0 pin 9, answering
+     * Right Click (L5, +AMOSPro_Personnal.Lib.s:532) — POTGOR bit 10, DATLY,
+     * port 0 pin 9, answering
      * -1 when the bit is clear. TURBO Plus owns the plain name and reads the
      * same button to the same answer, so nothing was lost while this was
      * unregistered; but relying on another extension happening to agree is
