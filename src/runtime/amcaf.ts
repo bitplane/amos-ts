@@ -1358,8 +1358,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * so both register and `qualified` resolves them by slot.
      */
     /*
-     * Routines 208 ($4f04) and 209 ($4f18), twenty bytes each, and each does
-     * TWO things:
+     * Set Ntsc and Set Pal — routines 208 ($4f04) and 209 ($4f18), twenty
+     * bytes each, and each does TWO things:
      *
      *     move.w #$0,$dff1dc.l        BEAMCON0: 0 is NTSC, $20 is PAL
      *     movea.l $4.w,a0
@@ -7846,10 +7846,12 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      */
     'object type': () => VI(rt.amcaf.examine.fib.type),
     /*
-     * Routines 114, 118, 120, 122 and 124 ($3b20, $3b4c, $3b60, $3b74,
-     * $3b88), and every one is a dozen bytes reading a FIXED OFFSET into the
-     * FileInfoBlock the last Examine filled at $100(a2). None of them takes a
-     * path, which is what #186 settled; these add the offsets.
+     * Object Size, Object Blocks, Object Name$, Object Date, Object Time,
+     * Object Protection and Object Comment$ — routines 114, 118, 120, 122 and
+     * 124 ($3b20, $3b4c, $3b60, $3b74, $3b88), and every one is a dozen bytes
+     * reading a FIXED OFFSET into the FileInfoBlock the last Examine filled at
+     * $100(a2). None of them takes a path, which is what #186 settled; these
+     * add the offsets.
      *
      *     $17c = FIB +$7c   fib_Size
      *     $180 = FIB +$80   fib_NumBlocks

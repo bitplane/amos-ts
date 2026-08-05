@@ -331,10 +331,15 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
       }
       return VI(rt.input.mouseK & 3)
     },
+    /**
+     * =Mouse X(n) and =Mouse Y(n) — the reading forms, against the setters at
+     * routines 22 ($b16) and 23 ($b46) which write the same two words at
+     * $e(a0) and $16(a0) of the extension's data block.
+     *
+     * Mouse 0 is the mouse port, so it follows the host pointer; mouse 1 would
+     * need a second mouse in the joystick port and holds wherever it was put.
+     */
     'mouse x'(_, a): Value {
-      // =Mouse X(n) — the function form of routine 22's counterpart. Mouse 0
-      // is the mouse port, so it follows the host pointer; mouse 1 would need
-      // a second mouse in the joystick port and holds wherever it was put.
       const n = port(int(a[0]!))
       if (n === 0) return VI(rt.input.mouseX)
       return VI(rt.sticks.mice[1]!.x)

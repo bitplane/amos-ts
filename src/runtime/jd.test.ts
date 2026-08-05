@@ -751,15 +751,31 @@ describe('JD: files, memory and the device boundary (+|jd.s:2948-5769)', () => {
     expect(out).toBe('-1,-1')
   })
 
-  it('Ppfind Mem recognises the PP20 magic', () => {
+  /**
+   * Routine 119 ($748a) reads the longword FOUR BYTES BEFORE the address it is
+   * given, drops the low byte and arithmetic-shifts the rest down eight. That
+   * is PowerPacker's trailer -- three bytes of decrunched length plus one byte
+   * of skip-bits -- so it answers a SIZE.
+   *
+   * This port used to test the first four bytes for the literal "PP20" and
+   * answer -1 or 0, which is a signature check the routine never performs.
+   */
+  it('Ppfind Mem reads the decrunched length out of the word before the address', () => {
     const out = run([
-      'Reserve As Work 10,16',
-      'Loke Start(10),$50503230', // "PP20"
-      'Print Jd Ppfind Mem(Start(10))',
+      'Reserve As Work 10,32',
+      // trailer at Start(10): length $123456 in the top three bytes, skip in
+      // the low one; the address handed over is four bytes past it
+      'Loke Start(10),$12345607',
+      'Print Jd Ppfind Mem(Start(10)+4)',
       'Loke Start(10),0',
-      'Print Jd Ppfind Mem(Start(10))',
+      'Print Jd Ppfind Mem(Start(10)+4)',
     ].join('\n'))
-    expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['-1', '0'])
+    expect(out.trim().split('\n').map((s) => s.trim())).toEqual([String(0x123456), '0'])
+  })
+
+  it('Ppfind Mem shifts with asr, so a length with bit 31 set comes back negative', () => {
+    const out = run(['Reserve As Work 10,32', 'Loke Start(10),$FF000000', 'Print Jd Ppfind Mem(Start(10)+4)'].join('\n'))
+    expect(out.trim()).toBe(String((0xff000000 | 0) >> 8))
   })
 
   it('the raw-floppy keywords are n/a — there is no block device under AmigaFS', () => {

@@ -742,14 +742,37 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
       return VS(out)
     },
 
+    /**
+     * =Jd Ppfind Mem(address) — routine 119 (+|jd.s:7290, $748a), and it is
+     * twenty-two bytes that never look at "PP20" at all:
+     *
+     *     move.l (a3)+, d0
+     *     subq.l #$4, d0            FOUR bytes BEFORE the address given
+     *     movea.l d0, a0
+     *     move.l (a0), d0
+     *     andi.l #$ffffff00, d0     drop the low byte
+     *     asr.l  #$8, d0            ...and shift the top three down, SIGNED
+     *
+     * DEFECT: this port tested the first four bytes for the literal "PP20" and
+     * answered -1 or 0, a signature check. The routine is not a check, it is a
+     * READ: PowerPacker keeps the decrunched length in the last longword of
+     * the file as three bytes of length plus one byte of skip-bits, and this
+     * pulls that length out of the word sitting immediately before `address`.
+     * So it hands back a SIZE, and a program using it to allocate a buffer got
+     * -1 or 0 from us.
+     *
+     * `asr` and not `lsr`, so the top bit propagates: a length with bit 31 set
+     * comes back negative rather than huge. Nothing bounds the address either.
+     */
     'jd ppfind mem'(_, a): Value {
       const addr = arg(a, 0)
-      let sig = ''
+      let v = 0
       for (let i = 0; i < 4; i++) {
-        const m = rt.resolveAddr(addr + i)
-        sig += String.fromCharCode(m ? (m.data[m.off] ?? 0) : 0)
+        const m = rt.resolveAddr(addr - 4 + i)
+        v = ((v << 8) | (m ? (m.data[m.off] ?? 0) : 0)) | 0
       }
-      return VI(sig === 'PP20' ? -1 : 0)
+      // andi.l #$ffffff00 then asr.l #$8 -- the low byte goes, the sign stays
+      return VI((v & ~0xff) >> 8)
     },
 
     /**

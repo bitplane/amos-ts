@@ -138,7 +138,10 @@ export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
       return VI(join(15 - r, 15 - g, 15 - b))
     },
 
-    /** the three components, and the inverse (+|col.s:631 for Rgb Value) */
+    /**
+     * Jd Red Value, Jd Green Value, Jd Blue Value and Jd Rgb Value — the three
+     * components and the inverse (+|col.s:631 for Rgb Value).
+     */
     'jd red value'(_, a): Value {
       return VI(split(arg(a, 0))[0])
     },
@@ -153,9 +156,11 @@ export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * THE SEPARATIONS — routines 17 to 23 (+|col.s:512-630). CMYK separation
-     * of one colour, which is a printing operation and explains why this
-     * library shipped beside a printer one.
+     * THE SEPARATIONS — Jd Separate Cyan, Jd Separate Magenta, Jd Separate
+     * Yellow, Jd Separate Black, Jd Separate Red, Jd Separate Green and Jd
+     * Separate Blue: routines 17 to 23 (+|col.s:512-630). CMYK separation of
+     * one colour, which is a printing operation and explains why this library
+     * shipped beside a printer one.
      *
      * Cyan is the model (:617): the other two components are averaged into
      * green with a +1 rounding, and the remaining channel is forced to $F. The
@@ -235,7 +240,8 @@ export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * The three swaps 2.0 added — routines 63, 64 and 65 ($2720, $2730, $2740
+     * The three swaps 2.0 added — Jd Bswap, Jd Wswap and Jd Lswap, routines
+     * 63, 64 and 65 ($2720, $2730, $2740
      * in AMOSPro_JDColour.Lib 2.0, which has no source and is disassembled).
      *
      * Each is one size SMALLER than the name suggests, and getting that wrong

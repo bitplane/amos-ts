@@ -158,17 +158,35 @@ export function audit(impl: ExtensionImpl): Audit | null {
    *
    * Anything else is inherited by position alone and is reported separately.
    *
-   * KNOWN LOOSENESS: `names` is a substring test, so a block naming `Td Move
-   * Rel` also satisfies `td move`. Tightening that needs the keyword set to
-   * disambiguate prefixes, and the adjacency rule already carries most cases;
-   * it is recorded here rather than silently tolerated.
+   * `names` cannot be a plain substring test, because the idiom in this tree
+   * is to abbreviate a shared block's subject: "Pix Shift Up / Down and Pix
+   * Brighten / Darken" covers four keywords and contains the literal text of
+   * none of them. So the keyword's words have to be matched in order with a
+   * little slack between them -- enough to step over "Up /" and "Encode /",
+   * not enough to wander into a different sentence.
+   *
+   * KNOWN LOOSENESS, in the other direction: the slack means a block naming
+   * `Td Move Rel` also satisfies `td move`. Tightening that needs the keyword
+   * set to disambiguate prefixes, and adjacency already carries most cases; it
+   * is recorded here rather than silently tolerated.
    */
+  const namesIt = (block: string, name: string): boolean => {
+    const words = name.split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    // between one word of the keyword and the next: separators, and at most two
+    // intervening words, which is "Up / " or "Encode / " and no more
+    // The separator has to survive line wrapping -- a doc block continues with
+    // ` * `, so "Jd Separate\n * Yellow" is one phrase -- and has to step over
+    // the run-together idiom, "Stick Left / Right / Up / Down" being four
+    // keywords in one heading. Four intervening words covers both.
+    const gap = '[\\s/*]*(?:[\\w$]+[\\s/*]+){0,4}'
+    return new RegExp(words.join(gap), 'i').test(block)
+  }
   const govern = (name: string, at: number, i: number): 'adjacent' | 'names' | 'inherited' | 'none' => {
     const b = blocks.filter((m) => m.index! + m[0].length <= at).pop()
     if (!b || !CITES.test(b[0])) return 'none'
     const prev = inOrder[i - 1]?.at ?? -1
     if (b.index! > prev) return 'adjacent'
-    return b[0].toLowerCase().includes(name) ? 'names' : 'inherited'
+    return namesIt(b[0], name) ? 'names' : 'inherited'
   }
 
   /**
