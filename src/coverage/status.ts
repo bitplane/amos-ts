@@ -2995,6 +2995,10 @@ export const NOTES: Record<string, string> = {
   'aga reserve icon':
     'writes _Icons BEFORE the allocation, so on a real machine a failed AllocMem leaves a count against a bank that does not exist. The allocation is a Uint8Array here and cannot fail, so error 8 is unreachable',
   'aga erase icon': 'clears _Icons before testing _IcBase, so the error-9 path leaves both zero either way',
+  'mplot erase':
+    'the same shape as Aga Erase Icon and it was missing here: no bank at all returns in silence, but a count with no base is error 11, with the count already cleared before that test (:3740). Reachable only after an AllocMem this port cannot fail',
+  'mplot define':
+    'bounds the point against the count in the bank HEADER (:3916) rather than the _Mplots register, so it bounds what was actually allocated. The doc block had said so while the code read the register; they agree now',
   'pic pack':
     "produces the format the library's own Pic Unpack decodes, by the same two passes in the same order; the run boundaries are proven by round-tripping through that decoder rather than against a reference file",
   'pic unpack':

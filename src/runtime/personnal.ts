@@ -1398,6 +1398,11 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       const s = rt.personnal
       if (s.mplots === 0) return
       s.mplots = 0
+      // and only THEN is the base tested — a count against no bank is error
+      // 11, with the count already cleared either way (:3740). The same
+      // shape as Aga Erase Icon, and reachable only after an AllocMem this
+      // port cannot fail
+      if (s.mpBase === 0) err(11)
       s.mpBase = 0
       rt.personnalMem = null
     },
@@ -1418,7 +1423,9 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
       const c = it.evalInt()
       const s = rt.personnal
       if (s.mpBase === 0) err(11)
-      if (n < 1 || n > s.mplots) err(13)
+      // against the count in the bank HEADER (:3916), not the _Mplots
+      // register — so it bounds what was actually allocated
+      if (n < 1 || n > getL(rt, s.mpBase + 4)) err(13)
       const at = s.mpBase + 8 + (n - 1) * 6
       putW(rt, at, x & 0xffff)
       putW(rt, at + 2, y & 0xffff)
