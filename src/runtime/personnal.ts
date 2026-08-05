@@ -1066,6 +1066,11 @@ function picUnpack(rt: Runtime, src: number, planeList: number): void {
  * then a second walk over its own output that folds consecutive one-byte runs
  * into a literal block of up to 128. This does the same two passes in the same
  * order, so the boundaries fall where the library's do.
+ *
+ * Both caps verified against the binary: `cmp.l #$7f,d3 / beq` closes a run
+ * at $62fc and `cmp.l #$80,d2 / beq` closes a literal block at $63c2, where
+ * d2 has been counting DOWN from zero, so the control byte is the negated
+ * length. The second pass compacts in place over the first pass's output.
  */
 function picPack(rt: Runtime, screen: number, dst: number): number {
   const width = getW(rt, screen + 76)
@@ -1103,6 +1108,12 @@ function picPack(rt: Runtime, screen: number, dst: number): number {
     out.push((256 - lit.length) & 0xff, ...lit)
   }
   const length = out.length + 16
+  // the routine writes the length and the plane size after pass one, then
+  // rewrites the length after pass two has compacted in place, and stamps
+  // the cookie last (`move.l #$462e4333,(a1)+` at $6412, then the length).
+  // Pic Unpack never checks it — it goes straight to +4 and +8 — but a
+  // program reading the block back can, and this port was leaving it zero.
+  putL(rt, dst, 0x462e4333) // "F.C3"
   putL(rt, dst + 4, length)
   putL(rt, dst + 8, perPlane)
   out.forEach((b, i) => putB(rt, dst + 16 + i, b))
@@ -2144,7 +2155,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * The Player 6.1 and OctaMED keywords (routines 124-131). Both groups are
+     * The Player 6.1 and OctaMED keywords (routines 123-131). Both groups are
      * thin wrappers over libraries that are not part of AMOS and are not in
      * the source tree — `player61.library` and `octaplayer.library` — reached
      * by LVO through a base the extension opens and caches. Nothing here can
@@ -2152,9 +2163,17 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
      *
      * What IS reproduced is the state machine around them, because it is
      * visible to the program: stopping a player that is not playing is error
-     * 19, an out-of-range volume is error 20, freeing an OMD module that was
-     * never loaded is error 25. Those are the extension's own checks, made
+     * 19, an out-of-range volume is error 20, and neither Omd Stop nor Omd
+     * Free raises anything at all. Those are the extension's own checks, made
      * before it ever calls the library.
+     *
+     * P61 Play itself is routine 123 ($66de): no library is error 17, and a
+     * non-zero return from P61_Init at $1e(a6) is error 18, "Player61 ne peut
+     * pas jouer ce module." — reachable only with a real decoder, so this
+     * raises neither. Success stores -1, not the module address, at the data
+     * block's +$de, which is exactly the boolean this port keeps. Routine 124
+     * really is 123 with one extra pop at the front: 86 bytes against 84,
+     * and a `move.l (a3)+,d0` is two.
      *
      * They deliberately do NOT raise the library-not-found errors 17 and 21.
      * A machine without those libraries would, but ours is missing a decoder,

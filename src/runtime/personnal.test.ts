@@ -1387,6 +1387,9 @@ describe('Personnal: the cruncher, the nibble peeks and the replayers (batch 11)
     // and it compressed: a 320x64x2 screen is 5120 bytes of plane
     expect(leek(rt, rt.bankBase(10) + 8192 + 4)).toBeLessThan(5120)
     expect(leek(rt, rt.bankBase(10) + 8192 + 8)).toBe(2560) // bytes in one plane
+    // the cookie routine 114 stamps last, at $6412 — Pic Unpack never checks
+    // it, but the block carries it and this port used to leave it zero
+    expect(leek(rt, rt.bankBase(10) + 8192)).toBe(0x462e4333) // "F.C3"
   })
 
   it('Anim Unpack indexes a frame table in front of the same format', () => {
