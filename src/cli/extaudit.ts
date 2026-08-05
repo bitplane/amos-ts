@@ -75,6 +75,8 @@ export interface Audit {
   approximated: string[]
   anchors: number
   cited: Set<string>
+  /** credited only by sitting under some earlier block -- NOT a reading */
+  inherited: string[]
   uncited: string[]
 }
 
@@ -127,15 +129,46 @@ export function audit(impl: ExtensionImpl): Audit | null {
   const txt = readFileSync(join(RUNTIME_DIR, file), 'utf8')
   const blocks = [...txt.matchAll(/\/\*[\s\S]*?\*\//g)]
 
+  const inOrder = [...anchors].sort((x, y) => x.at - y.at)
+
   /**
-   * The doc block that GOVERNS a handler. A block documents the handler after
-   * it and every sibling that follows before the next block -- `object name$`,
-   * `object date` and four more share one block that cites the whole run of
-   * them at once, and crediting only the first would report five phantom gaps.
+   * The doc block that GOVERNS a handler, and whether it has any business
+   * doing so.
+   *
+   * A block documents the handler after it and every sibling that follows
+   * before the next block -- `object name$`, `object date` and four more share
+   * one block that cites the whole run of them at once, and crediting only the
+   * first would report five phantom gaps. That is the case this rule has to
+   * keep working.
+   *
+   * But taking the nearest preceding block UNCONDITIONALLY credits a handler
+   * with any block that happens to sit above it, however far up and whatever
+   * it is about. Adding three cited blocks to ldos.ts once moved that file
+   * from 42 cited to 71 -- twenty-nine handlers "read" because they sat below
+   * a block about Lseek. A measure that can be moved that far by three edits
+   * is not measuring reading.
+   *
+   * So a block credits a handler when EITHER:
+   *
+   *   - it is the block immediately above it, with no other handler of this
+   *     port in between (`adjacent`), or
+   *   - it NAMES the keyword (`names`), which is what a real shared block
+   *     does: "Jd Swap Colours a,b and Jd Copy Colour a To b" covers both
+   *     because it says so.
+   *
+   * Anything else is inherited by position alone and is reported separately.
+   *
+   * KNOWN LOOSENESS: `names` is a substring test, so a block naming `Td Move
+   * Rel` also satisfies `td move`. Tightening that needs the keyword set to
+   * disambiguate prefixes, and the adjacency rule already carries most cases;
+   * it is recorded here rather than silently tolerated.
    */
-  const docFor = (at: number): string | null => {
+  const govern = (name: string, at: number, i: number): 'adjacent' | 'names' | 'inherited' | 'none' => {
     const b = blocks.filter((m) => m.index! + m[0].length <= at).pop()
-    return b ? b[0] : null
+    if (!b || !CITES.test(b[0])) return 'none'
+    const prev = inOrder[i - 1]?.at ?? -1
+    if (b.index! > prev) return 'adjacent'
+    return b[0].toLowerCase().includes(name) ? 'names' : 'inherited'
   }
 
   /**
@@ -147,10 +180,16 @@ export function audit(impl: ExtensionImpl): Audit | null {
    */
   const uncited: string[] = []
   const cited = new Set<string>()
-  for (const a of anchors) {
-    const d = docFor(a.at)
+  const inherited: string[] = []
+  for (let i = 0; i < inOrder.length; i++) {
+    const a = inOrder[i]!
     const note = noteFor(a.name)
-    if ((d && CITES.test(d)) || (note && CITES.test(note))) cited.add(a.name)
+    const how = govern(a.name, a.at, i)
+    if (how === 'adjacent' || how === 'names' || (note && CITES.test(note))) {
+      cited.add(a.name)
+      continue
+    }
+    if (how === 'inherited') inherited.push(a.name)
     else uncited.push(a.name)
   }
 
@@ -175,6 +214,7 @@ export function audit(impl: ExtensionImpl): Audit | null {
     approximated: impls.filter((n) => !FAITHFUL.has(n) && !NA.has(n)),
     anchors: anchors.length,
     cited,
+    inherited,
     uncited,
   }
 }
@@ -193,8 +233,9 @@ function report(a: Audit): void {
   console.log(`Handlers found in ${a.file}: ${a.anchors}`)
   if (a.implemented > a.anchors)
     console.log(`  (${a.implemented - a.anchors} more are GENERATED, not literal keys -- not measurable here)`)
-  console.log(`  with a code citation in their own doc block: ${a.cited.size}`)
-  console.log(`  WITHOUT one:                                 ${a.uncited.length}`)
+  console.log(`  cited by a block that is theirs or names them: ${a.cited.size}`)
+  console.log(`  under an earlier block that does not name them: ${a.inherited.length}`)
+  console.log(`  with no cited block above them at all:         ${a.uncited.length}`)
   console.log()
   console.log('--- APPROXIMATED, split by whether it was actually read ---')
   const read = a.approximated.filter((n) => a.cited.has(n))
@@ -204,8 +245,9 @@ function report(a: Audit): void {
   console.log(`NOT read (no citation anywhere in its block):  ${unread.length}`)
   for (const n of unread) console.log(`   ${n}${noteFor(n) ? '' : '   [no NOTE]'}`)
   console.log()
-  console.log('--- every uncited handler, approximated or not ---')
-  for (const n of a.uncited) console.log(`   ${n}${FAITHFUL.has(n) ? '  (marked FAITHFUL!)' : ''}`)
+  console.log('--- every handler with no reading behind it ---')
+  for (const n of [...a.uncited, ...a.inherited])
+    console.log(`   ${n}${FAITHFUL.has(n) ? '  (marked FAITHFUL!)' : ''}`)
 }
 
 const arg = process.argv[2]
@@ -214,11 +256,13 @@ const impls = extensionImpls()
 if (arg === '--all' || arg === undefined) {
   const rows = impls.map(audit).filter((a): a is Audit => a !== null)
   // worst first: the share of handlers with no reading behind them
-  rows.sort((x, y) => y.uncited.length / y.anchors - x.uncited.length / x.anchors)
+  const unread = (a: Audit): number => a.uncited.length + a.inherited.length
+  rows.sort((x, y) => unread(y) / y.anchors - unread(x) / x.anchors)
   console.log(
     'extension'.padEnd(22),
     'kw'.padStart(4),
     'cited'.padStart(6),
+    'inher'.padStart(6),
     'unread'.padStart(7),
     'appr'.padStart(5),
     'miss'.padStart(5),
@@ -229,13 +273,17 @@ if (arg === '--all' || arg === undefined) {
       a.id.padEnd(22),
       String(a.anchors).padStart(4),
       String(a.cited.size).padStart(6),
-      String(a.uncited.length).padStart(7),
+      String(a.inherited.length).padStart(6),
+      String(unread(a)).padStart(7),
       String(a.approximated.length).padStart(5),
       String(a.missing.length).padStart(5),
       '  ' + a.file,
     )
-  const unread = rows.reduce((n, a) => n + a.uncited.length, 0)
-  console.log(`\n${rows.length} ports, ${rows.reduce((n, a) => n + a.anchors, 0)} handlers, ${unread} with no reading`)
+  const total = rows.reduce((n, a) => n + unread(a), 0)
+  console.log(
+    `\n${rows.length} ports, ${rows.reduce((n, a) => n + a.anchors, 0)} handlers, ${total} with no reading` +
+      ` (${rows.reduce((n, a) => n + a.inherited.length, 0)} of them credited only by position before this fix)`,
+  )
 } else {
   const impl = impls.find((i) => i.ids.includes(arg))
   if (!impl) {
