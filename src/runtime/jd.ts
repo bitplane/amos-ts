@@ -126,26 +126,36 @@ export function outdim(): never {
  *   loop:  <op>.l #1,d3
  *          dbra d2,loop
  *
- * Two consequences worth being exact about, because both are reachable from
- * BASIC and neither is in the manual:
+ * Three consequences, all reachable from BASIC and none of them in the manual.
+ * The first two an earlier pass had, and the third it got backwards:
  *
- *  - A COUNT OF ZERO SHIFTS ONCE. `dbra` tests after decrementing, and the
- *    operation sits before it, so the body always runs at least once; with
- *    count 0 the pre-decrement makes d2 = -1 and the loop exits after that
- *    first shift.
- *  - The count is not masked. `lsl.l #1` thirty-three times really is
- *    thirty-three shifts, so a large count zeroes an lsl/lsr/asl and saturates
- *    an asr, where a single 68k `lsl.l #n,dn` would take n mod 64.
+ *  - The count is not masked to the operand. `lsl.l #1` thirty-three times
+ *    really is thirty-three shifts, so a large count zeroes an lsl/lsr/asl and
+ *    saturates an asr, where a single 68k `lsl.l #n,dn` would take n mod 64.
+ *  - `sub.l #1,d2` sets X, which roxl/roxr then rotate THROUGH: a count of
+ *    zero borrows and leaves X set, any other count clears it.
+ *  - DEFECT: a COUNT OF ZERO does not shift once, it shifts 65536 times. This
+ *    port had "the loop exits after that first shift", which is `dbra` read
+ *    backwards. `dbra` decrements and branches while the result is NOT -1, and
+ *    it works on the low WORD:
+ *
+ *        count 1  ->  d2 = 0       body once, then 0-1 = -1, exit
+ *        count 0  ->  d2 = -1      body, then $FFFF-1 = $FFFE, BRANCH...
+ *                                  ...all the way round to $FFFF again
+ *
+ *    so the trip count is `((count - 1) & $FFFF) + 1`, always between 1 and
+ *    65536. Which means a count of zero is not a no-op and not one shift:
+ *    `Jd Lsl(0,1)` is 0, `Jd Asr(0,-8)` is -1, and `Jd Rol(0,v)` happens to be
+ *    v again only because 65536 is a multiple of 32.
+ *
+ *    The same wrap makes a NEGATIVE count finite rather than a hang -- the
+ *    earlier pass raised error 23 to avoid one -- and makes the count
+ *    effectively modulo 65536, so `Jd Lsl(65537,1)` shifts ONCE.
  */
 function shiftLoop(count: number, value: number, step: (v: number, x: number) => [number, number]): number {
   let v = value | 0
-  // `sub.l #1,d2` also sets X, which roxl/roxr rotate through: a count of 0
-  // borrows and leaves X set, any other count clears it
   let x = count === 0 ? 1 : 0
-  let n = count === 0 ? 1 : count
-  // a negative count is a huge dbra loop on the real machine; refuse rather
-  // than hang, which is the one place this cannot follow the 68k
-  if (n < 0) outdim()
+  let n = (((count - 1) & 0xffff) >>> 0) + 1
   while (n-- > 0) [v, x] = step(v, x)
   return v | 0
 }
@@ -216,18 +226,29 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
   void rt
   const arg = (a: Value[], i: number): number => int(a[i]!)
 
-  /** the four rotates and four shifts, in the order their routines appear */
+  /**
+   * The four rotates and four shifts, in the order their routines appear, one
+   * step each — `shiftLoop` above runs them the number of times the library's
+   * `dbra` would, and documents why that is not the number you asked for.
+   *
+   *   =Jd Rol   routine 70 (+|jd.s:3718)   rol.l #1, bit 31 wraps to bit 0
+   *   =Jd Ror   routine 71 (:3728)         ror.l #1, bit 0 wraps to bit 31
+   *   =Jd Roxl  routine 72 (:3738)         roxl.l #1, a 33-bit rotate THROUGH
+   *                                        X: X becomes bit 31, old X bit 0
+   *   =Jd Roxr  routine 73 (:3749)         roxr.l #1, the other way
+   *   =Jd Lsl   routine 74 (:3760)         unsigned
+   *   =Jd Lsr   routine 75 (:3770)         unsigned
+   *   =Jd Asl   routine 76 (:3780)         identical to lsl, as on the 68000
+   *   =Jd Asr   routine 77 (:3790)         keeps the sign
+   *
+   * The source names them `ROL(anz,zahl)` and so on -- count first, value
+   * second -- and pops them in reverse, `move.l (a3)+,d3` taking the value.
+   */
   const shifts: Record<string, (v: number, x: number) => [number, number]> = {
-    // rol.l #1: bit 31 wraps to bit 0 (routine 70, +|jd.s:3718)
     'jd rol': (v) => [((v << 1) | ((v >>> 31) & 1)) | 0, 0],
-    // ror.l #1: bit 0 wraps to bit 31 (routine 71, :3728)
     'jd ror': (v) => [((v >>> 1) | (v << 31)) | 0, 0],
-    // roxl.l #1: 33-bit rotate THROUGH X — X becomes bit 31, the old X the
-    // new bit 0 (routine 72, :3738)
     'jd roxl': (v, x) => [((v << 1) | x) | 0, (v >>> 31) & 1],
-    // roxr.l #1: the other way (routine 73, :3749)
     'jd roxr': (v, x) => [((v >>> 1) | (x << 31)) | 0, v & 1],
-    // lsl/lsr are unsigned, asl is lsl, asr keeps the sign (74-77, :3760-3800)
     'jd lsl': (v) => [(v << 1) | 0, (v >>> 31) & 1],
     'jd lsr': (v) => [(v >>> 1) | 0, v & 1],
     'jd asl': (v) => [(v << 1) | 0, (v >>> 31) & 1],
@@ -1596,7 +1617,12 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
 
     /**
      * Jd Draw Segment x,y,xradius,yradius,start,end — routine 160
-     * (+|jd.s:6199). An elliptical arc between two angles, drawn as the line
+     * (`L_drawseg equ 160`, +|jd.s:6199), which is 5.3's number and only 5.3's:
+     * 4.6 has this keyword at 154 and 5.9 at 165, and in 5.9 routine 160 is
+     * `Jd Dpath` instead. The source here is 5.3's, so 160 is the one to cite
+     * and the clash is between releases rather than inside one.
+     *
+     * An elliptical arc between two angles, drawn as the line
      * segments the routine walks.
      */
     'jd draw segment'(it) {

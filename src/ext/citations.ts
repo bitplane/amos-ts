@@ -381,8 +381,13 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/ctext.test.ts': ['ctext-1.0'],
   'src/runtime/turbo.ts': ['turbo-plus-2.15', 'turbo-plus-1.9', 'turbo-plus-1.0'],
   'src/runtime/turbo.test.ts': ['turbo-plus-2.15', 'turbo-plus-1.9', 'turbo-plus-1.0'],
-  'src/runtime/jd.ts': ['jd-5.9', 'jd-5.3', 'jd-4.6'],
-  'src/runtime/jd.test.ts': ['jd-5.9', 'jd-5.3', 'jd-4.6'],
+  // 5.3 FIRST: the first id is the release the port was read from, and the
+  // source in fixtures (`|jd.s`, header "V4.8") numbers its routines the way
+  // 5.3's table does. Listing 5.9 first made `Jd Draw Segment`'s correct
+  // citation of routine 160 look like it named a sibling, because 5.9 moved
+  // that keyword to 165 and put Jd Dpath at 160.
+  'src/runtime/jd.ts': ['jd-5.3', 'jd-5.9', 'jd-4.6'],
+  'src/runtime/jd.test.ts': ['jd-5.3', 'jd-5.9', 'jd-4.6'],
   'src/runtime/jdcolour.ts': ['jd-colour-2.0', 'jd-colour-1.4'],
   'src/runtime/jdcolour.test.ts': ['jd-colour-2.0', 'jd-colour-1.4'],
   'src/runtime/jdk3.ts': ['jd-k3-1.1'],

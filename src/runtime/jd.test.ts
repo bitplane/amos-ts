@@ -62,11 +62,30 @@ describe('JD: shifts and rotates (+|jd.s:3718-3800)', () => {
     expect(val('Jd Lsr(4,16)')).toBe('1')
   })
 
-  it('a count of ZERO shifts once — dbra tests after the body', () => {
-    // sub.l #1,d2 makes the counter -1, but the shift sits before the dbra,
-    // so it has already run. Nothing in the manual says this.
-    expect(val('Jd Lsl(0,1)')).toBe('2')
-    expect(val('Jd Lsr(0,2)')).toBe('1')
+  /**
+   * `sub.l #1,d2` makes the counter -1, and `dbra` decrements the low WORD and
+   * branches while the result is not -1 -- so from $FFFF it goes all the way
+   * round rather than stopping. The trip count is `((count-1) & $FFFF) + 1`.
+   *
+   * An earlier pass had this as "a count of zero shifts once", which is dbra
+   * read backwards, and asserted it here.
+   */
+  it('a count of ZERO shifts 65536 times, not once', () => {
+    // 65536 single-bit shifts of a 32-bit value leave nothing behind
+    expect(val('Jd Lsl(0,1)')).toBe('0')
+    expect(val('Jd Lsr(0,2)')).toBe('0')
+    // asr saturates to the sign instead of emptying
+    expect(val('Jd Asr(0,-8)')).toBe('-1')
+    expect(val('Jd Asr(0,8)')).toBe('0')
+    // and a rotate survives it, because 65536 is a whole number of 32s
+    expect(val('Jd Rol(0,$12345678)')).toBe(String(0x12345678))
+  })
+
+  it('the count is a WORD, so it wraps rather than running away', () => {
+    // 65537 low-words to 1, so this is a single shift
+    expect(val('Jd Lsl(65537,1)')).toBe('2')
+    // and a negative count is finite, not a hang: -1 gives $FFFE + 1 = 65535
+    expect(val('Jd Rol(-1,1)')).toBe(String(1 << (65535 % 32)))
   })
 
   it('asr keeps the sign where lsr does not', () => {
@@ -85,8 +104,13 @@ describe('JD: shifts and rotates (+|jd.s:3718-3800)', () => {
     // zero and nothing else. So Roxl(0,n) rotates a 1 into bit 0 and Roxl(1,n)
     // rotates a 0 in.
     expect(val('Jd Roxl(1,1)')).toBe('2')
-    expect(val('Jd Roxl(0,1)')).toBe('3') // the borrowed X lands in bit 0
-    expect(val('Jd Roxr(0,2)')).toBe('-2147483647') // X into bit 31, 2>>1 = 1
+    // roxr with a count of 1: X is clear, so a 0 comes into bit 31
+    expect(val('Jd Roxr(1,2)')).toBe('1')
+    // a count of zero borrows, so X starts SET -- but it also means 65536
+    // rotations of a 33-bit register, and 65536 mod 33 is 31, so neither of
+    // these is anywhere near the single rotate the count suggests
+    expect(val('Jd Roxl(0,1)')).toBe('-1073741824')
+    expect(val('Jd Roxr(0,2)')).toBe('10')
   })
 
   it('the count is not masked to 0..31 the way one 68k instruction would be', () => {

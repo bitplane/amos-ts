@@ -187,7 +187,8 @@ export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
     },
     /**
      * Black is the odd one: the three nibbles are summed and the total falls
-     * into bands (`cmp.w #19 / #16 / #13 / #10 ...`, :519), each band a grey.
+     * into bands, each band a grey. `Rbsr zerlege / add d1,d2 / add d3,d2`
+     * then `cmp.w #19 / #16 / #13 / #10 ...` at +|col.s:519.
      */
     'jd separate black'(_, a): Value {
       const [r, g, b] = split(arg(a, 0))
@@ -307,6 +308,18 @@ export function makeJdColourInstructions(rt: Runtime): Record<string, Instr> {
      * and Jd Fill Colour change PIXELS and leave the palette alone — the
      * manual flags the latter two with "(palette will not be changed!)", which
      * is the pairing to get right before writing either.
+     *
+     * Routines 26 (`L_cswap`, +|col.s:658) and 27 (`L_copc`, :680), and the
+     * copy is the one whose direction is worth pinning because the token spec
+     * is `I0t0` -- an argument, `To`, an argument -- and the pops are reversed:
+     *
+     *     move.l (a3)+, d1        the LAST argument: the destination
+     *     move.l (a3)+, d2        the first: the source
+     *     move.l d2, d1 / Rbsr get_colour
+     *     move.l d1, d2 / Dmove colourno2, d1 / Rbsr set_colour
+     *
+     * so `Jd Copy Colour a To b` reads a and writes b, which reads the way it
+     * is written rather than the way the stack hands it over.
      */
     'jd swap colours'(it) {
       const a = it.evalInt()
