@@ -446,6 +446,34 @@ describe('LDos directory scanning (LdosV25.DOC + Lrecursive.AMOS)', () => {
     expect(out).toBe('DH0:top\na.txt\nb.txt\nsub\n[]\n')
   })
 
+  /**
+   * Every accessor opens `tst.l (a0) / bne` on the lock at $188(a5)+$294 and
+   * takes `moveq #$7,d0 / Rbra routine 91` when it is absent -- error 7, "No
+   * more entries in this dir". This port answered 0 and "" instead, so a
+   * program checking Lcat Type without a catalogue got a plausible number
+   * rather than the library's refusal.
+   */
+  it('the accessors raise error 7 with no catalogue open, rather than answering 0', () => {
+    for (const kw of ['Lcat Type', 'Lcat Size', 'Lcat Blocks', 'Lcat Prot', 'Lcat Stamp']) {
+      expect(() => run(`Print ${kw}`)).toThrow(/No more entries in this dir/)
+    }
+    expect(() => run('Print Lcat Comment')).toThrow(/No more entries in this dir/)
+  })
+
+  /**
+   * Lcat Next's tail: when ExNext fails it clears the stored lock and UnLocks
+   * it (`move.l #$0,(a1) / jsr -$5a(a6)`), so running off the end of a
+   * directory RELEASES the catalogue. Everything after that takes the error-7
+   * arm, which is why "exhausted" and "never opened" are one state.
+   */
+  it('running off the end releases the catalogue, so the accessors then error', () => {
+    const { out } = run([...tree, 'A$=Lcat First("DH0:top")', 'Print Lcat Type'].join('\n'))
+    expect(out.trim()).toBe('2') // a lock is held: the directory itself
+    expect(() =>
+      run([...tree, 'A$=Lcat First("DH0:top")', 'While A$<>"" : A$=Lcat Next : Wend', 'Print Lcat Type'].join('\n')),
+    ).toThrow(/No more entries in this dir/)
+  })
+
   it('the accessors describe the entry Lcat Next is on', () => {
     // Lrecursive.AMOS tests `If Lcat Type > 0` straight after `a$=Lcat Next`
     const { out } = run(

@@ -324,6 +324,18 @@ function ldosPath(rt: Runtime, path: string): string {
 }
 
 /** the entry an Lcat accessor is currently looking at, or the locked dir */
+/**
+ * The current catalogue entry, or the library's error 7 if there is none.
+ *
+ * `Rbra routine 91` with `moveq #$7,d0` is "No more entries in this dir", and
+ * every Lcat accessor takes it when the lock at $294 is absent.
+ */
+function catNow(rt: Runtime): NonNullable<ReturnType<typeof catAt>> {
+  const e = catAt(rt)
+  if (e === null) throw new AmosError('No more entries in this dir')
+  return e
+}
+
 function catAt(rt: Runtime): { name: string; isDir: boolean; size: number; path: string } | null {
   const c = rt.ldos.cat
   if (!c) return null
@@ -893,14 +905,50 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       rt.ldos.cat = { dir, entries: sorted, index: -1 }
       return VS(dir)
     },
+    /**
+     * THE Lcat FAMILY — Lcat First, Lcat Next, Lcat Type, Lcat Size, Lcat
+     * Blocks, Lcat Prot, Lcat Comment and Lcat Stamp. Read against 2.6, whose
+     * error arms are reachable; 2.5 replaces them with the shareware nag.
+     *
+     * All eight key off two fields of the extension's data block:
+     *
+     *     $188(a5) + $294    the directory LOCK, a BPTR
+     *     $188(a5) + $18c    ONE shared FileInfoBlock, longword-aligned
+     *                        (`andi.l #$fffffffc`)
+     *
+     * and every one but Lcat First opens the same way -- routine 21 ($1544),
+     * 22 ($15fe), 24 ($1686) and the rest:
+     *
+     *     movea.l $188(a5), a0 / adda.l #$294, a0
+     *     tst.l   (a0) / bne .ok
+     *     moveq   #$7, d0 / Rbra routine 91
+     *
+     * ERROR 7, which is "No more entries in this dir". So a program that asks
+     * for a type or a size with no catalogue open gets an ERROR, not a zero --
+     * which is what this port used to answer.
+     *
+     * Lcat Next's tail (:1582) settles what "no catalogue" covers. When ExNext
+     * (`jsr -$6c(a6)`) fails it does not merely stop:
+     *
+     *     movea.l $188(a5), a1 / adda.l #$294, a1
+     *     move.l  (a1), d1
+     *     move.l  #$0, (a1)        the stored lock is CLEARED
+     *     jsr     -$5a(a6)         ...and UnLocked
+     *
+     * so running off the end releases the lock, and every accessor afterwards
+     * takes the error-7 arm. There is no state in which the library holds a
+     * lock but has no current entry, which is why the two cases collapse here
+     * into one `catNow` and why answering 0 was wrong in both.
+     */
     'lcat next'(_) {
-      // F$=Lcat Next — "If F$ is empty, there are no more files/directories
-      // in this directory. Lcat Next won't work if you haven't used Lcat
-      // First."
+      // "If F$ is empty, there are no more files/directories in this
+      // directory. Lcat Next won't work if you haven't used Lcat First."
       const c = rt.ldos.cat
       if (!c) return VS('')
       c.index++
       const e = c.entries[c.index]
+      // ExNext failing UnLocks and clears, so the catalogue is gone, not spent
+      if (!e) rt.ldos.cat = null
       return VS(e ? e.name : '')
     },
     'lcat type'(_) {
@@ -908,33 +956,33 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       // and the routine is simply `move.l $4(a0),d3` over a FileInfoBlock,
       // so what comes back is fib_DirEntryType itself: 2 for a directory,
       // -3 for a file.
-      const e = catAt(rt)
-      return VI(e === null ? 0 : e.isDir ? ST_USERDIR : ST_FILE)
+      const e = catNow(rt)
+      return VI(e.isDir ? ST_USERDIR : ST_FILE)
     },
     'lcat size'(_) {
       // "it is fully legal to call this command even if the current 'file' is
       // a directory! If the current name belongs to a directory S will
       // contain 0. (Keep in mind that files which are zero bytes do exist, so
       // don't use this method instead of Lcat Type)"
-      const e = catAt(rt)
-      return VI(e === null || e.isDir ? 0 : e.size)
+      const e = catNow(rt)
+      return VI(e.isDir ? 0 : e.size)
     },
     'lcat blocks'(_) {
       // "FFS can hold 512 bytes of data in one block"
-      const e = catAt(rt)
-      return VI(e === null || e.isDir ? 0 : blocksFor(e.size))
+      const e = catNow(rt)
+      return VI(e.isDir ? 0 : blocksFor(e.size))
     },
     'lcat prot'(_) {
-      const e = catAt(rt)
-      return VI(e === null ? 0 : (rt.vfs?.meta(e.path).protection ?? 0))
+      const e = catNow(rt)
+      return VI(rt.vfs?.meta(e.path).protection ?? 0)
     },
     'lcat comment'(_) {
-      const e = catAt(rt)
-      return VS(e === null ? '' : (rt.vfs?.meta(e.path).comment ?? ''))
+      const e = catNow(rt)
+      return VS(rt.vfs?.meta(e.path).comment ?? '')
     },
     'lcat stamp'(_) {
-      const e = catAt(rt)
-      return VI(e === null ? 0 : (rt.vfs?.meta(e.path).days ?? 0))
+      const e = catNow(rt)
+      return VI(rt.vfs?.meta(e.path).days ?? 0)
     },
     'ldev first'(_) {
       // A$=Ldev First(ADR) — "the devicename (like DF0: etc.) NOT contains a
