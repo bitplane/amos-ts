@@ -457,8 +457,26 @@ function checkHit(rt: Runtime, from: number, to: number, x: number, y: number): 
   return 0
 }
 
-/** 68k divs.w: division truncated towards zero, not floored */
-const divs = (a: number, b: number): number => Math.trunc(a / b)
+/**
+ * `divs.w`, which two TURBO keywords are visibly built on and neither of them
+ * expects: a 32-bit dividend over the LOW WORD of the divisor, truncated
+ * towards zero rather than floored — and on overflow the 68000 leaves the
+ * destination register completely alone.
+ *
+ * So the caller gets the dividend back untouched when the quotient will not
+ * fit in sixteen bits, which is exactly what `T Clip` (routine 149) and
+ * `Line 3d` (routine 41) then feed to their word-sized `muls.w`/`add.w`.
+ * Both callers take the low word of what comes back, so returning the
+ * dividend is the whole of the reproduction.
+ */
+function divsw(dividend: number, divisor: number): number {
+  const d = (divisor << 16) >> 16
+  // a divisor whose low word is zero takes the 68k divide-by-zero exception;
+  // there is no trap here, so it raises what the keyword's own guard would
+  if (d === 0) funcCall()
+  const q = Math.trunc(dividend / d)
+  return q < -0x8000 || q > 0x7fff ? dividend : q
+}
 
 /** `Reserve Object OBJECT,COUNT` — routine 333 ($6ce6), shared by 1.9's two names */
 function reserveObject(rt: Runtime, it: Interp): void {
@@ -1622,7 +1640,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       const n = it.evalInt()
       it.expect(',')
       const mul = w(it.evalInt())
-      objectWalk(rt, n, (x, y) => (mul < 0 ? [w(divs(x, -mul)), w(divs(y, -mul))] : [w(x * mul), w(y * mul)]))
+      objectWalk(rt, n, (x, y) => (mul < 0 ? [w(divsw(x, -mul)), w(divsw(y, -mul))] : [w(x * mul), w(y * mul)]))
     },
     'r object mag draw'(it) {
       // R Object Mag Draw OBJECT,X,Y,MUL — routine 37 scales first and adds
@@ -1634,7 +1652,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       const oy = it.evalInt()
       it.expect(',')
       const mul = w(it.evalInt())
-      const scale = (v: number): number => (mul < 0 ? divs(v, -mul) : v * mul)
+      const scale = (v: number): number => (mul < 0 ? divsw(v, -mul) : v * mul)
       objectWalk(rt, n, (x, y) => [w(scale(x) + ox), w(scale(y) + oy)])
     },
     'object erase'(it) {
@@ -1817,7 +1835,8 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
     },
     'r move'(it) {
       // "Does the same thing as: Gr Locate Xgr+dx,Ygr+dy but is shorter and
-      // faster" — two add.w straight into rp_cp_x/cp_y
+      // faster" — routine 23 ($1192) is eighteen bytes: two `add.w` straight
+      // into rp_cp_x/rp_cp_y at $24/$26 of the RastPort
       const s = rt.screen
       const dx = it.evalInt()
       it.expect(',')
@@ -1825,8 +1844,8 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       s.grY = w(s.grY + it.evalInt())
     },
     'r home'(it) {
-      // Undocumented, and not relative at all: routine 26 writes both words
-      // of the graphics cursor, so it is Gr Locate under another name
+      // Undocumented, and not relative at all: routine 26 ($1210) writes both
+      // words of the graphics cursor, so it is Gr Locate under another name
       const s = rt.screen
       s.grX = w(it.evalInt())
       it.expect(',')
@@ -1834,7 +1853,9 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
     },
     'r draw'(it) {
       // "draw a line relative to the graphics cursor... At the completion of
-      // the command, the graphics cursor will be located at the end"
+      // the command, the graphics cursor will be located at the end" —
+      // routine 24 ($11a4) adds the pair to rp_cp and calls graphics.library
+      // Draw (`jsr -$f6(a6)`), which is what leaves the cursor there
       const s = rt.screen
       const dx = it.evalInt()
       it.expect(',')
@@ -1842,8 +1863,10 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       s.line(s.grX, s.grY, w(s.grX + dx), w(s.grY + dy))
     },
     'r box'(it) {
-      // Four Draws round the rectangle, ending back where it started, which
-      // is why "the position of the graphics cursor remains unchanged"
+      // Routine 25 ($11c6): four Draws round the rectangle — right, down,
+      // left, up — ending back where it started, which is why "the position
+      // of the graphics cursor remains unchanged". Unlike R Bar below it does
+      // not check either delta, so a negative one simply draws backwards
       const s = rt.screen
       const dx = it.evalInt()
       it.expect(',')
@@ -1856,8 +1879,10 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       s.line(x, w(y + dy), x, y)
     },
     'r bar'(it) {
-      // RectFill from the cursor, which does not move it. Both deltas must
-      // be positive — two Rbmi before the call.
+      // Routine 27 ($1222): RectFill (`jsr -$132(a6)`) from the cursor to the
+      // cursor plus the pair, which does not move it. Both deltas are checked
+      // — `Rbmi` on each, the height first — so a negative one is an error
+      // where R Box next door takes it happily.
       const s = rt.screen
       const dx = it.evalInt()
       it.expect(',')
@@ -1871,7 +1896,14 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
     },
     'f draw'(it) {
       // F Draw x,y To x1,y1 — the token spec is I0,0t0,0 in every build, so
-      // the manual's shorter "F Draw X,Y" form does not exist; see NOTES
+      // the manual's shorter "F Draw X,Y" form does not exist; see NOTES.
+      // Routine 70 ($1f5a) pops the four and drops into routine 75 ($1fca),
+      // the blitter line: it opens `movem.w d2-d3,$24(a1)`, so the graphics
+      // cursor ends at the FAR end, clips both endpoints against the screen's
+      // clip window at $ee, and drives the planes from rp_FgPen at $19(a1)
+      // rather than through rp_Mask — which is what rawDraw stands for here.
+      // It never loads BLTBDAT either, so the line pattern is whatever the
+      // last blit left; neutralising rp_LinePtrn is the closest honest answer
       const s = rt.screen
       const x = it.evalInt()
       it.expect(',')
@@ -1883,9 +1915,16 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       rawDraw(s, () => s.line(x, y, x1, y1))
     },
     'f plot'(it) {
-      // F Plot x,y,colour — "you must give the COLOUR parameter". The
-      // routine pokes the planes, so it obeys neither the write mask nor
-      // Clip, and a point off the screen is dropped without a word.
+      // F Plot x,y,colour — "you must give the COLOUR parameter". Routine 49
+      // ($1960) pokes the planes through routine 50 ($19ea), which bsets or
+      // bclrs each plane from the colour's bits, so it obeys neither the write
+      // mask nor Clip. A point off the screen is dropped without a word, and
+      // a negative colour is `Rbmi routine 62`. Note it bounds x against
+      // `$b2(a0)` times eight — bytes per row, so the padding at the end of a
+      // row counts as on-screen — where F Circle next door uses the width word
+      // at $4c. The double-buffer arm at $199e is read: with `$be(a0)` set it
+      // writes through AMOS's own logical/physical helpers instead, which is
+      // the same Autoback the core Plot honours here.
       const s = rt.screen
       const x = it.evalInt()
       it.expect(',')
@@ -1897,7 +1936,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       s.putPixel(x, y, c & ((1 << s.depth) - 1))
     },
     'f circle'(it) {
-      // F Circle x,y,radius,colour — routine 61. Eight-way symmetry, x
+      // F Circle x,y,radius,colour — routine 61 ($1c2c). Eight-way symmetry, x
       // running from r/root2 down to zero, and y from an integer square
       // root that is computed in WORDS. That is the whole of the documented
       // bug: "keep the radius of the circle below 180", because r*r-x*x
@@ -1934,16 +1973,25 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
     },
     'eye 3d'(it) {
       // "This instruction changes the point of view in opposite to the
-      // picture plane."
+      // picture plane." Routine 42 ($15b4) writes the pair as two words at
+      // $74 and $76 of the extension data block, where Line 3d reads them.
       const x = it.evalInt()
       it.expect(',')
       rt.turbo.eye = { x: w(x), y: w(it.evalInt()) }
     },
     'line 3d'(it) {
-      // Line 3D x,y,z To x1,y1,z1 — "our perspective calculations can be
-      // simplified to : X=X*D/Z and Y=Y*D/Z... The value I use for D=128",
-      // which in the routine is asl.l #7 then divs.w. A zero Z is a
-      // division by zero, AMOS error 20, and the routine says so itself.
+      // Line 3D x,y,z To x1,y1,z1 — routine 41 ($155e). "Our perspective
+      // calculations can be simplified to : X=X*D/Z and Y=Y*D/Z... The value
+      // I use for D=128", which in the routine is `asl.l #$7` then `divs.w`,
+      // then `add.w` of the Eye 3d origin the extension keeps at $74/$76 of
+      // its data block. A zero Z is a division by zero, AMOS error 20, and
+      // the routine tests both of them itself ($1560 and $1568) before it
+      // reads anything else.
+      //
+      // DEFECT: the divide is `divs.w`, sixteen bits of quotient for a
+      // dividend that has just been shifted up seven places. A coordinate
+      // over 255 at z = 1 overflows it, the 68000 leaves the register alone,
+      // and the `add.w` that follows works on the low word of x*128 instead.
       const s = rt.screen
       const v: number[] = []
       for (const sep of [',', ',', 'to', ',', ','] as const) {
@@ -1954,8 +2002,8 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       const [x, y, z, x1, y1, z1] = v as [number, number, number, number, number, number]
       if (z === 0 || z1 === 0) throw new AmosError('Division by zero', 20)
       const e = rt.turbo.eye
-      const px = (a: number, d: number): number => w(divs(a * 128, d) + e.x)
-      const py = (a: number, d: number): number => w(divs(a * 128, d) + e.y)
+      const px = (a: number, d: number): number => w(divsw((a << 7) | 0, d) + e.x)
+      const py = (a: number, d: number): number => w(divsw((a << 7) | 0, d) + e.y)
       // Move then Draw, so the graphics cursor is left at the far end
       s.grX = px(x, z)
       s.grY = py(y, z)
@@ -2880,14 +2928,8 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       const v = int(a[0] ?? VI(0))
       const at = int(a[1] ?? VI(0))
       if (at <= 0) funcCall()
-      const d = (at << 16) >> 16
-      // a divisor whose low word is zero takes the 68k divide-by-zero
-      // exception; there is no trap here, so it is the same error the guard
-      // above would have raised
-      if (d === 0) funcCall()
-      const q = Math.trunc(v / d)
-      if (q < -0x8000 || q > 0x7fff) return VI((((v << 16) >> 16) * d) | 0)
-      return VI((q * d) | 0)
+      // divs.w then muls.w, both on low words; divsw has the overflow
+      return VI((w(divsw(v, at)) * w(at)) | 0)
     },
     between(_, a) {
       // x=Between(low,value,high) — routine 150 ($4b1c). "If high is smaller

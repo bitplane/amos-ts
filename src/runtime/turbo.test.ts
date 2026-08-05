@@ -1109,6 +1109,18 @@ describe('TURBO numeric helpers (TURBO_DocsV2.15.Asc + disassembly)', () => {
     expect(run('Print T Clip(65534,2)').out).toBe(' 65534\n')
   })
 
+  it('Line 3d overflows the same divs.w', () => {
+    // routine 41 shifts the coordinate up seven places and then divides by a
+    // WORD, so anything over 255 at z = 1 overflows and the `add.w` that
+    // follows sees the low word of x*128 rather than a quotient. Eye 3d is
+    // at 0,0 here, so the endpoint is exactly what the divide left behind.
+    const { rt } = run(['Eye 3d 0,0', 'Line 3d 300,0,1 To 300,0,1'].join('\n'))
+    // 300*128 = 38400, whose low word is -27136
+    expect(rt.screen.grX).toBe(-27136)
+    const ok = run(['Eye 3d 0,0', 'Line 3d 200,0,1 To 200,0,1'].join('\n'))
+    expect(ok.rt.screen.grX).toBe(25600)
+  })
+
   it('F Sqr sign-extends its own answer and wraps negative', () => {
     // routine 65 ($1f18) ends `ext.l d1` on a root that can reach 46341
     expect(run('Print F Sqr(144);F Sqr(1073676289)').out).toBe(' 12 32767\n')
