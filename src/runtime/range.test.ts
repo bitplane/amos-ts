@@ -247,3 +247,214 @@ describe('Range — the rest of this slice', () => {
     expect(b.rt.range.floatSaved).toBe(0)
   })
 })
+
+describe('Range — the float bobs (routines 27, 28, 63, 73)', () => {
+  it('Float Bob numbers itself: base, base+1, base+2 ...', () => {
+    // routine 27: `move.l $10(a0),d7 / add.l d7,d1 / addq.l #$1,d7`
+    const b = run('Float Bob 5,10,20,1\nFloat Bob 5,30,40,2\nPrint Last Float Bob')
+    expect(b.out().trim()).toBe('2')
+    expect(b.rt.bobs.get(5)).toMatchObject({ x: 10, y: 20, image: 1 })
+    expect(b.rt.bobs.get(6)).toMatchObject({ x: 30, y: 40, image: 2 })
+    // $18 keeps the base the LAST call gave, for Float Bob Clear
+    expect(b.rt.range.floatBase).toBe(5)
+  })
+
+  it('Float Offset shifts every Float Bob, x from $4 and y from $8', () => {
+    // routine 73 pops in reverse source order: $8 first, then $4
+    const b = run('Float Offset 100,200\nFloat Bob 1,10,20,1')
+    expect(b.rt.range.floatOffX).toBe(100)
+    expect(b.rt.range.floatOffY).toBe(200)
+    expect(b.rt.bobs.get(1)).toMatchObject({ x: 110, y: 220 })
+  })
+
+  it('Float Bob Clear takes down the tail of the frame before', () => {
+    // three last frame, one this frame: 1 stays, 2 and 3 go
+    const b = run(['Float Bob 1,0,0,1', 'Float Bob 1,0,0,1', 'Float Bob 1,0,0,1', 'Float Bob Reset', 'Float Bob 1,0,0,1', 'Float Bob Clear'].join('\n'))
+    expect(b.rt.range.floatSaved).toBe(3)
+    expect(b.rt.range.floatCount).toBe(1)
+    expect(b.rt.bobs.has(1)).toBe(true)
+    expect(b.rt.bobs.has(2)).toBe(false)
+    expect(b.rt.bobs.has(3)).toBe(false)
+  })
+
+  it('an equal count clears nothing — `cmp.l d2,d6 / ble`', () => {
+    const b = run(['Float Bob 1,0,0,1', 'Float Bob Reset', 'Float Bob 1,0,0,1', 'Float Bob Clear'].join('\n'))
+    expect(b.rt.bobs.has(1)).toBe(true)
+  })
+
+  it('Game Area defaults to the whole screen, not to zero', () => {
+    // the block at $68c ships -16/320/-16/200; slice 1 had them all at 0,
+    // which made a program that never called Game Area see nothing on screen
+    const b = run('Print In Screen(0,0,100,100)')
+    expect(b.out().trim()).toBe('-1')
+    expect(b.rt.range.areaX).toBe(-16)
+    expect(b.rt.range.areaW).toBe(320)
+  })
+
+  it('In Screen Bob draws relative to the origin, and answers 1 not -1', () => {
+    // routine 63 pushes x-ox and y-oy back and calls routine 27
+    const b = run('Print In Screen Bob(3,7,50,60,120,130)')
+    expect(b.out().trim()).toBe('1') // `moveq #$1,d3`, where In Screen has -1
+    expect(b.rt.bobs.get(3)).toMatchObject({ x: 70, y: 70, image: 7 })
+  })
+
+  it('In Screen Bob outside the area draws nothing and answers 0', () => {
+    const b = run('Game Area 0,0 To 32,32\nPrint In Screen Bob(3,7,0,0,300,300)')
+    expect(b.out().trim()).toBe('0')
+    expect(b.rt.bobs.size).toBe(0)
+    expect(b.rt.range.floatCount).toBe(0)
+  })
+})
+
+describe('Range — the colour remappers (routines 33-41)', () => {
+  /** two images in the bob bank, so the walk has something to walk */
+  const withBank = (prog: string): Boot =>
+    run(['Screen Open 0,320,200,16,Lowres', 'Ink 3', 'Bar 0,0 To 15,7', 'Ink 5', 'Bar 0,8 To 15,15', 'Get Bob 1,0,0 To 16,16', prog].join('\n'))
+
+  const colours = (b: Boot): Set<number> => {
+    const img = b.rt.spriteBank!.images[0]!
+    const seen = new Set<number>()
+    for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) seen.add(img.pixelAt(x, y))
+    return seen
+  }
+
+  it('Change Bob Colours moves one colour and leaves the rest', () => {
+    const b = withBank('Change Bob Colours 1,3,9')
+    const c = colours(b)
+    expect(c.has(9)).toBe(true)
+    expect(c.has(3)).toBe(false)
+    expect(c.has(5)).toBe(true) // untouched
+  })
+
+  it('Exchange Bob Colours swaps the pair, by a+b-v', () => {
+    const b = withBank('Exchange Bob Colours 1,3,5')
+    const img = b.rt.spriteBank!.images[0]!
+    expect(img.pixelAt(0, 0)).toBe(5) // was 3
+    expect(img.pixelAt(0, 12)).toBe(3) // was 5
+  })
+
+  it('Make Bob Colour flattens every NON-zero pixel — `tst.w d6 / bne`', () => {
+    const b = withBank('Make Bob Colour 1,7')
+    expect([...colours(b)].sort((x, y) => x - y)).toEqual([7])
+  })
+
+  it('a colour 0 that is transparent survives Make Bob Colour', () => {
+    // the top-left 8x8 left at 0 by a smaller Bar, so 0 is present and stays
+    const b = run(
+      ['Screen Open 0,320,200,16,Lowres', 'Cls 0', 'Ink 4', 'Bar 8,8 To 15,15', 'Get Bob 1,0,0 To 16,16', 'Make Bob Colour 1,7'].join('\n'),
+    )
+    const img = b.rt.spriteBank!.images[0]!
+    expect(img.pixelAt(0, 0)).toBe(0)
+    expect(img.pixelAt(10, 10)).toBe(7)
+  })
+
+  it('an image number out of range changes nothing and raises nothing', () => {
+    // `subq.l #$1,d0 / andi.l #$ffff,d0 / cmp.w d7,d0 / bge` --- and n = 0
+    // becomes $ffff, so it falls out the top rather than the bottom
+    const b = withBank('Change Bob Colours 99,3,9')
+    expect(colours(b).has(3)).toBe(true)
+    expect(() => run(['Screen Open 0,320,200,16,Lowres', 'Ink 3', 'Bar 0,0 To 15,15', 'Get Bob 1,0,0 To 16,16', 'Change Bob Colours 0,3,9'].join('\n'))).not.toThrow()
+  })
+
+  it('cmpa.w compares the WHOLE argument, so 65536 matches no pixel', () => {
+    const b = withBank('Change Bob Colours 1,65536,9')
+    expect(colours(b).has(9)).toBe(false)
+  })
+})
+
+describe('Range — List Palette and List Bobs (routines 32, 50-52, 57)', () => {
+  it('List Palette prints five spaces per colour until the papers run out', () => {
+    // ESC "B" is Paper (CEsc in +W.s), and the escape is range-checked, so
+    // a 16-colour screen gets sixteen swatches and then error 60
+    const b = boot('Screen Open 0,320,200,16,Lowres\nList Palette')
+    expect(() => b.rt.runHeadless(4000)).toThrow(/illegal text window parameter/)
+    expect(b.out().length).toBe(16 * 5)
+  })
+
+  it('List Palette gets all sixty-four on a 64-colour screen', () => {
+    const b = run('Screen Open 0,320,200,64,Lowres\nList Palette')
+    expect(b.out().length).toBe(64 * 5)
+  })
+
+  it('List Bobs steps by 1 + the step, not by the step', () => {
+    // `addq.l #$1,d6 / add.l $1c(a0),d6` --- 33 by default, and 52 stores
+    // the pair for later calls to read
+    const b = run(
+      ['Screen Open 0,320,200,16,Lowres', 'Ink 3', 'Bar 0,0 To 15,15', 'Get Bob 1,0,0 To 16,16', 'List Bobs 1 To 1,10,10'].join('\n'),
+    )
+    expect(b.rt.range.listStepX).toBe(10)
+    expect(b.rt.range.listStepY).toBe(10)
+  })
+
+  it('List Bobs stops dead at an image the bank has not got', () => {
+    // `cmp.w (a2),d1 / bhi .out` --- no error, just an end
+    expect(() =>
+      run(['Screen Open 0,320,200,16,Lowres', 'Ink 3', 'Bar 0,0 To 15,15', 'Get Bob 1,0,0 To 16,16', 'List Bobs 1 To 40'].join('\n')),
+    ).not.toThrow()
+  })
+})
+
+describe('Range — Bank Screen and Unbank Screen (routines 58, 59)', () => {
+  const prog = (extra: string): string =>
+    ['Screen Open 0,320,200,4,Lowres', 'Cls 0', 'Ink 1', 'Bar 0,10 To 319,19', 'Reserve As Data 5,8192', extra].join('\n')
+
+  it('the two words at the front are the length and the plane it started at', () => {
+    const b = run(prog('Bank Screen 10,20 To 5'))
+    const d = b.rt.memBanks.get(5)!.data
+    // (20-10) rows * 10 longs - 1
+    expect((d[0]! << 8) | d[1]!).toBe(10 * 10 - 1)
+    // a two-plane screen: the walk comes down from five and the first
+    // plane it finds is 1, whose table offset is 4
+    expect((d[2]! << 8) | d[3]!).toBe(4)
+  })
+
+  it('a strip round-trips through a bank, and can land on another row', () => {
+    const b = run(prog('Bank Screen 10,20 To 5\nCls 0\nUnbank Screen 5 To 100'))
+    expect(b.rt.screen.rp.bitMap.pixelAt(0, 105)).toBe(1)
+    expect(b.rt.screen.rp.bitMap.pixelAt(0, 15)).toBe(0) // it moved, it did not copy
+  })
+
+  it('the arguments given the wrong way round are swapped, not refused', () => {
+    // `sub.l d1,d3 / blt .swap`
+    const b = run(prog('Bank Screen 20,10 To 5'))
+    expect((b.rt.memBanks.get(5)!.data[0]! << 8) | b.rt.memBanks.get(5)!.data[1]!).toBe(99)
+  })
+
+  it('an unreserved bank is an error, as Bank Name$ has', () => {
+    expect(() => run('Screen Open 0,320,200,4,Lowres\nBank Screen 0,10 To 7')).toThrow()
+  })
+})
+
+describe('Range — the icon forms of the colour remappers (routines 34, 37, 40)', () => {
+  /**
+   * Routines 34, 37 and 40 are 33, 36 and 39 with `moveq #$2,d2` where the
+   * bob forms have `moveq #$1,d2` — the icon bank instead of the bob bank —
+   * and they share the same three walks at 35, 38 and 41. Which is exactly
+   * why they need their own test: the routine pairs are byte-identical apart
+   * from that one immediate, so nothing but running them proves the port
+   * reached the other bank.
+   */
+  const withIcons = (prog: string): Boot =>
+    run(['Screen Open 0,320,200,16,Lowres', 'Ink 3', 'Bar 0,0 To 15,7', 'Ink 5', 'Bar 0,8 To 15,15', 'Get Icon 1,0,0 To 16,16', prog].join('\n'))
+
+  it('Change Icon Colours reaches the ICON bank, not the bob bank', () => {
+    const b = withIcons('Change Icon Colours 1,3,9')
+    const img = b.rt.iconBank!.images[0]!
+    expect(img.pixelAt(0, 0)).toBe(9)
+    expect(img.pixelAt(0, 12)).toBe(5)
+  })
+
+  it('Exchange Icon Colours swaps the pair', () => {
+    const b = withIcons('Exchange Icon Colours 1,3,5')
+    const img = b.rt.iconBank!.images[0]!
+    expect(img.pixelAt(0, 0)).toBe(5)
+    expect(img.pixelAt(0, 12)).toBe(3)
+  })
+
+  it('Make Icon Colour flattens the non-zero pixels', () => {
+    const b = withIcons('Make Icon Colour 1,7')
+    const img = b.rt.iconBank!.images[0]!
+    expect(img.pixelAt(0, 0)).toBe(7)
+    expect(img.pixelAt(0, 12)).toBe(7)
+  })
+})
