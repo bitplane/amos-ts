@@ -60,6 +60,7 @@ import { rowBytesFor, bankRowBytesFor } from '../amiga/planar'
 import type { Bob, HwSprite, Zone } from './objects'
 import type { AmosFS } from '../amiga/fs'
 import { A1200_POOLS, MEMF, availMem, type MemoryInUse } from '../amiga/exec'
+import { keyboardSdr } from '../amiga/keyboard'
 import { AmalChannel } from './amal'
 import type { AmalHost, ChannelTarget } from './amal'
 import {
@@ -3419,6 +3420,31 @@ export class Runtime {
     let shift = 0
     for (let i = 0; i < 8; i++) if (this.input.keys.has(0x60 + i)) shift |= 1 << i
     this.input.keyQueue.push({ ch, scan, shift })
+    // deliberately NOT touching the serial register: this is "a character
+    // arrived", which is one half of a key event. The register is latched by
+    // keyDown/keyUp below, so that something typing into the queue does not
+    // leave the hardware readers believing a key is still held down.
+  }
+
+  /**
+   * The host reports a key going down or coming up.
+   *
+   * These exist because the queue above is not the whole keyboard: a key that
+   * produces no character never reaches it, and a key coming back UP is not
+   * an event it can express at all. The readers that go to CIA-A rather than
+   * to AMOS — TURBO's Raw Key, JD's Jd Moff Key, Range's Key Scan — see both,
+   * so the register is latched here, on the event, not on the character.
+   */
+  keyDown(scan: number): void {
+    if (!scan) return
+    this.input.keys.add(scan)
+    this.input.sdr = keyboardSdr(scan, true)
+  }
+
+  keyUp(scan: number): void {
+    if (!scan) return
+    this.input.keys.delete(scan)
+    this.input.sdr = keyboardSdr(scan, false)
   }
 
   /** Submit a line for a pending Input statement. */
@@ -3724,7 +3750,9 @@ export class Runtime {
         this.input.keyQueue.length > 0 &&
         (b.keys === undefined || b.keys === '' || b.keys.includes(this.input.keyQueue[0]!.ch)) &&
         (b.amiga !== true || (this.input.keys.has(0x66) || this.input.keys.has(0x67)))
-      if (btn || keyed) this.interp.blocked = null
+      // the hardware waiters: any new byte from the keyboard, press or release
+      const clocked = b.sdr !== undefined && this.input.sdr !== b.sdr
+      if (btn || keyed || clocked) this.interp.blocked = null
     } else if (b.type === 'input' && this.pendingLine !== null) this.interp.blocked = null
     else if (b.type === 'dialog') {
       const d = this.dialogs.get(b.channel)

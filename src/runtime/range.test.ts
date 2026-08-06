@@ -498,8 +498,24 @@ describe('Range — 2.9Plus: the stack, the values and the libraries', () => {
     expect(num('Print Library Close(0)')).toBe(0)
   })
 
-  it('Key Scan reads CIA-A SDR, which nothing here drives', () => {
-    // `move.b $bfec01.l,d3 / btst.b #$0,d3 / beq` --- an idle Amiga too
+  it('Key Scan answers 127 minus the scancode, because the not.b is missing', () => {
+    // `move.b $bfec01.l,d3 / btst.b #$0,d3 / beq .none / lsr.w #$1,d3` ---
+    // the decode every other reader does is `not.b` then `ror.b #1`, and this
+    // one does neither. The keyboard sends ~rol(code,1), so on a press the
+    // byte is 255-2k and `lsr #1` gives 127-k. DEFECT, reproduced.
+    const scan = (set: (rt: Runtime) => void): number => {
+      const b = boot('Print Key Scan')
+      set(b.rt)
+      b.rt.runHeadless(4000)
+      return Number(b.out().trim())
+    }
+    expect(scan((rt) => rt.keyDown(69))).toBe(127 - 69) // ESC -> 58
+    expect(scan((rt) => rt.keyDown(1))).toBe(126)
+    expect(scan((rt) => rt.keyDown(0x7f))).toBe(0) // and the far end reads 0
+
+    // bit 0 is the press/release marker, so a key coming back UP reads 0 ---
+    // which is also what an idle machine, having sent nothing, reads
+    expect(scan((rt) => rt.keyUp(69))).toBe(0)
     expect(num('Print Key Scan')).toBe(0)
   })
 })
@@ -702,11 +718,36 @@ describe('Range — 2.9Plus: the Ch Key waiters (routines 88, 89, 90)', () => {
     expect(b.out().trim()).toBe('32') // $20, below $45
   })
 
-  it('Ch Key Scan cannot complete, because Key Scan reads a CIA this port does not drive', () => {
-    // NOTE, not DEFECT: routine 75 reads $bfec01 and the keyboard reaches
-    // this port as events. The wait is a real wait, not a frozen host.
+  it('Ch Key Scan waits for a release, then a press, and inherits the bug', () => {
+    // `Rbsr 75 / tst.l d3 / bne (itself)` then the same with `beq` --- so a
+    // key already held when the keyword is reached does not answer it
     const b = boot('Print Ch Key Scan')
-    b.rt.pressKey('A', 0x20)
+    b.rt.keyDown(69) // ESC already down: the first loop must not take it
     expect(b.rt.runHeadless(4000).status).toBe('blocked')
+    expect(b.out()).toBe('')
+
+    b.rt.keyUp(69) // now the keyboard is quiet
+    expect(b.rt.runHeadless(4000).status).toBe('blocked')
+    expect(b.out()).toBe('')
+
+    b.rt.keyDown(0x20) // and this is the press it answers
+    expect(b.rt.runHeadless(4000).status).toBe('ended')
+    expect(b.out().trim()).toBe('95') // 127 - 32, Key Scan's missing not.b
+  })
+
+  it('with nothing typed at all, Ch Key Scan waits', () => {
+    const b = boot('Print Ch Key Scan')
+    expect(b.rt.runHeadless(4000).status).toBe('blocked')
+  })
+
+  it('the quiet prologue is shared: Ch Scan Code waits out a held key too', () => {
+    // routines 88, 89 and 90 all open with `Rbsr 75 / tst.l d3 / bne`
+    const b = boot('Print Ch Scan Code')
+    b.rt.keyDown(0x20)
+    b.rt.pressKey('A', 0x20)
+    expect(b.rt.runHeadless(4000).status).toBe('blocked') // held, so not yet
+    b.rt.keyUp(0x20)
+    expect(b.rt.runHeadless(4000).status).toBe('ended')
+    expect(b.out().trim()).toBe('65')
   })
 })

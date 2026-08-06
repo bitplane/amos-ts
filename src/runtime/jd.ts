@@ -1000,19 +1000,49 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
      * instead: CIA-A PRA bit 6 and POTINP bit 2 for the buttons, the raw
      * keyboard serial register at $bfec01 for the key.
      *
-     * There is no Forbid here and one input path, so these read the same host
-     * state the ordinary keywords do. That makes them agree with their
-     * ordinary counterparts always, where on the machine they agree only until
-     * something calls Forbid — which is the direction that costs a program
+     * There is no Forbid here and one input path, so the two BUTTON readers
+     * see the same host state the ordinary keywords do. That makes them agree
+     * with their ordinary counterparts always, where on the machine they agree
+     * only until something calls Forbid — the direction that costs a program
      * nothing.
+     *
+     * The key reader is a different matter, because $bfec01 does not hold a
+     * scancode. Routine 142 ($7c12):
+     *
+     *     moveq  #$0,d3 / move.b $bfec01.l,d3
+     *     move.b d3,d0 / lsr.b #$1,d3 / lsl.b #$1,d3
+     *     cmp.b  d3,d0 / bne .odd
+     *     move.b #$0,d3 / rts               bit 0 was clear -> nothing
+     *   .odd:
+     *     move.b d3,d0                      dead, overwritten below
+     *     move.b $bfec01.l,d0
+     *     cmp.b  d0,d3 / beq (itself)       wait for the byte to change
+     *     rts                               ... answering d3
+     *
+     * The keyboard sends the keycode rotated left one and inverted, so bit 0
+     * is set exactly on a key going DOWN — that first test is right. What
+     * comes back, though, is the raw byte with bit 0 masked off, never
+     * decoded: `not.b`/`ror.b #1` is simply missing.
+     *
+     * DEFECT: so the answer is `2 * (127 - scancode)`, not a scancode. It is
+     * Range's Key Scan bug doubled — the same absent `not.b`, plus the clear
+     * of the bit it had just tested. Reproduced.
+     *
+     * The `beq` loop is meant to debounce and cannot: d3 has bit 0 cleared
+     * and the byte it is compared against still has bit 0 set, so it always
+     * falls straight through. It bites only in one window — if the key is
+     * RELEASED between the two reads, the release byte equals d3 exactly, and
+     * the routine spins until some other key is touched. Not reproduced;
+     * there is no second reader here to observe the register mid-routine, so
+     * the window does not exist to fall into.
      */
     'jd moff click'(): Value {
       const k = rt.input.mouseK
       return VI((k & 1 ? 1 : 0) | (k & 2 ? 2 : 0))
     },
     'jd moff key'(): Value {
-      const q = rt.input.keyQueue
-      return VI(q.length > 0 ? q[0]!.scan : 0)
+      const sdr = rt.input.sdr & 0xff
+      return VI(sdr & 1 ? sdr & 0xfe : 0)
     },
     'jd double click'(): Value {
       // the routine times two presses of the left button against a counter;

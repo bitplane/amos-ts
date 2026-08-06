@@ -44,6 +44,7 @@ import type { Interp } from '../interp/interp'
 import type { BankImage, ObjectBank } from './objects'
 import type { Runtime } from './runtime'
 import type { Screen } from './screen'
+import { sdrKeycode } from '../amiga/keyboard'
 
 /**
  * TURBO's own error messages, read out of the 2.15 binary at $6e44 — the
@@ -2859,23 +2860,32 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       // Routine 22 ($1150) reads CIA-A's keyboard serial register directly
       // and hand-shakes it — set the handshake bit, `dbra d7` a hundred times
       // for the 85µs the keyboard needs, clear it — which is how it survives
-      // Multi No. It then `not.b`/`ror.b #1`s the byte into a scancode and
+      // Multi No. It then `not.b`/`ror.b #1`s the byte into a keycode and
       // compares. Note `addi.w #$100,d1 / ext.w d1`: the ext throws the added
       // $100 straight back away and sign-extends the byte, so the comparison
-      // is against a SIGNED scancode and a key-up code (bit 7 set) reads
-      // negative.
+      // is against a SIGNED code and a key-up (bit 7 set) reads negative.
       //
-      // Here the key state is the same state Key State reads, and there is
-      // no multitasking to survive; see the NOTES entry.
-      return VI(rt.input.keys.has(int(a[0] ?? VI(0)) & 0xff) ? -1 : 0)
+      // NOTE: the manual is wrong, not the port. This is NOT "is key N being
+      // pressed" — SDR holds ONE byte, the last thing the keyboard said, so
+      // what the routine really asks is "was the last key event this code".
+      // For a single key held down the two agree, which is why the
+      // description survives; hold two keys and only the later one answers.
+      // The port follows the routine, as the evidence tiers require.
+      //
+      // The handshake is not modelled: nothing here is clocking a keyboard,
+      // so there is no line to hold and the `dbra` is time passing.
+      const code = (sdrKeycode(rt.input.sdr) << 24) >> 24 // ext.w of the byte
+      return VI((code & 0xffff) === (int(a[0] ?? VI(0)) & 0xffff) ? -1 : 0)
     },
     'is raw key'(_) {
       // "Returns the last key press in raw format. Beware! It gives
       // different values if the key is pressed or released." Routine 171
       // ($5072) is the same `not.b`/`ror.b #1` on $bfec01 with no handshake
       // and no sign extension, so it answers 0..255 with the release bit
-      // still in place.
-      return VI(rt.input.lastScan)
+      // still in place — 69 for ESC down, 197 for ESC up. That warning is
+      // the whole reason the port models the register instead of handing
+      // this a scancode: a scancode cannot express the difference.
+      return VI(sdrKeycode(rt.input.sdr))
     },
     check(_, a) {
       // x=Check(start To end,x,y) — routine 16 ($1000). "Returns 1 is the

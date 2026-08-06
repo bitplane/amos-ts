@@ -87,8 +87,22 @@ export type Block =
    * Jd Keywait, Jd Wait Amiga and Jd Wait Event block on (+|jd.s:2031-2743).
    * `keys` narrows it to a set of characters when the keyword takes one
    * (Keywait's allowed list); `amiga` requires the Amiga key held with it.
+   *
+   * `sdr` is a different kind of wait: the value CIA-A's keyboard serial
+   * register held when the block was taken, resuming as soon as it holds
+   * something else. It is there for the readers that go to the hardware
+   * rather than to AMOS, and it wakes on things `key` cannot see — a key
+   * being RELEASED, or a Shift going down, neither of which queues a
+   * character. Range's Ch Key Scan is exactly a wait for one then the other.
    */
-  | { type: 'waitInput'; mouse: boolean; key: boolean; keys?: string; amiga?: boolean }
+  | {
+      type: 'waitInput'
+      mouse: boolean
+      key: boolean
+      keys?: string
+      amiga?: boolean
+      sdr?: number
+    }
   | { type: 'input'; prompt: string }
   | { type: 'dialog'; channel: number }
   | { type: 'fsel' }
@@ -102,6 +116,14 @@ export interface InputState {
   keyQueue: Array<{ ch: string; scan: number; shift?: number }>
   /** Amiga scancodes currently held down (Key State) */
   keys: Set<number>
+  /**
+   * CIA-A's serial data register at $bfec01 — the last byte the keyboard
+   * clocked in, encoded the way the keyboard encodes it (see
+   * `src/amiga/keyboard.ts`). Not a scancode: the readers that go to the
+   * hardware rather than to AMOS each decode it their own way, and two of
+   * them decode it wrongly. Latched on key down AND key up.
+   */
+  sdr: number
   /** scancode of the last key returned by Inkey$ */
   lastScan: number
   /** shift byte captured with the last Inkey$ (SScan high byte) */
@@ -124,6 +146,9 @@ export interface InputState {
 export const newInputState = (): InputState => ({
   keyQueue: [],
   keys: new Set(),
+  // an idle machine has never received a byte; the routines that test it read
+  // 0 as "nothing", which is also what they read after a key comes back up
+  sdr: 0,
   lastScan: 0,
   lastShift: 0,
   mouseX: 128 + 160,

@@ -179,6 +179,15 @@ export interface RangeState {
   colNext: number
   /** $56 — the objects themselves, one BYTE each */
   colList: number[]
+  /**
+   * Not the library's — the port's own bookkeeping for the "wait for Key Scan
+   * to go quiet" prologue the three `Ch ...` keywords share. On the machine
+   * that prologue is a busy loop and needs no state; here the keyword unwinds
+   * and re-enters, so it has to remember that it has already seen the
+   * keyboard idle during this call. Only one of the three can be waiting at a
+   * time, since each of them blocks, so one flag serves all three.
+   */
+  keyQuiet: boolean
 }
 
 /**
@@ -227,6 +236,7 @@ export const newRangeState = (): RangeState => ({
   bankStrPtr: 0,
   bankStrEnd: 0,
   stack: [0, 0, 0, 0, 0, 0],
+  keyQuiet: false,
   colCount: 0,
   colNext: 0,
   colList: [],
@@ -1119,6 +1129,42 @@ export function makeRangeInstructions(rt: Runtime): Record<string, Instr> {
 /** the block's $4c and $50, and Push's six longs, reached from the functions too */
 export function makeRangeExtraFunctions(rt: Runtime): Record<string, Func> {
   const st = (): RangeState => rt.range
+
+  /** routine 75's body, which four keywords here share — see `key scan` */
+  const keyScan = (): number => {
+    const sdr = rt.input.sdr & 0xff
+    if ((sdr & 1) === 0) {
+      rt.input.sdr = 0 // clr.b $bfec01.l
+      return 0
+    }
+    return sdr >> 1
+  }
+
+  /**
+   * The prologue the three `Ch ...` keywords open with:
+   *
+   *     Rbsr routine 75 / tst.l d3 / bne (itself)
+   *
+   * Wait for the keyboard to go quiet — meaning the last byte it sent was a
+   * key coming UP — so that a key already held when the keyword is reached
+   * does not answer it. `true` once that has happened and the caller may go
+   * on; `false` means the caller has just blocked and must return.
+   *
+   * Blocking on the register rather than on a queued character is the point:
+   * a key being released queues nothing, so a `waitInput` on `key` would
+   * sleep through the very event this is waiting for.
+   */
+  const untilQuiet = (it: Interp): boolean => {
+    const s = st()
+    if (s.keyQuiet) return true
+    if (keyScan() === 0) {
+      s.keyQuiet = true
+      return true
+    }
+    it.block({ type: 'waitInput', mouse: false, key: false, sdr: rt.input.sdr }, true)
+    return false
+  }
+
   return {
     /** =Bank Str Ptr — routine 66 ($124c), three instructions over $4c */
     'bank str ptr': (): Value => VI(st().bankStrPtr),
@@ -1199,20 +1245,23 @@ export function makeRangeExtraFunctions(rt: Runtime): Record<string, Func> {
      *     Rbsr routine 75 / tst.l d3 / bne (itself)      until released
      *     Rbsr routine 75 / tst.l d3 / beq (itself)      until pressed
      *
-     * Routine 75 is Range's own `=Key Scan`, which reads CIA-A's keyboard
-     * serial register at $bfec01 directly. Nothing in this port drives that
-     * register — the keyboard arrives as events, not as CIA serial traffic —
-     * so `Key Scan` answers 0 and its NOTE says why.
+     * Routine 75 is Range's own `=Key Scan`, so this is: wait until the last
+     * thing the keyboard said was a key coming UP, then wait for the next key
+     * going DOWN, and answer that one. The two loops are what make it
+     * "changed" — a key already held when the keyword is reached is ignored.
      *
-     * NOTE: that makes the second loop unsatisfiable HERE. The port expresses
-     * it as a block on the keyboard, so the host keeps running and the wait is
-     * a wait rather than a frozen tab, but it will not return while Key Scan
-     * answers 0. Giving it any other answer would mean inventing a keyboard
-     * the port does not model; see [[amos-roadmap]] and the Key Scan entry.
+     * DEFECT: it inherits Key Scan's missing `not.b`, so what comes back is
+     * `127 - scancode`, not a scancode. Reproduced; see `key scan`.
      */
     'ch key scan': (it): Value => {
-      it.block({ type: 'waitInput', mouse: false, key: true }, true)
-      return VI(0)
+      if (!untilQuiet(it)) return VI(0)
+      const d3 = keyScan()
+      if (d3 === 0) {
+        it.block({ type: 'waitInput', mouse: false, key: false, sdr: rt.input.sdr }, true)
+        return VI(0)
+      }
+      st().keyQuiet = false
+      return VI(d3)
     },
 
     /**
@@ -1235,15 +1284,23 @@ export function makeRangeExtraFunctions(rt: Runtime): Record<string, Func> {
      *
      * The `beq .wait` also means a keystroke whose character byte is zero is
      * swallowed and waited past rather than reported.
+     *
+     * The opening Key Scan loop is the same prologue Ch Key Scan has, and it
+     * matters here too: with a key held down when the keyword is reached, the
+     * routine waits for it to come up before it will look at Inkey at all.
      */
     'ch scan code': (it): Value => {
+      if (!untilQuiet(it)) return VI(0)
       const q = rt.input.keyQueue
       while (q.length > 0) {
         const k = q.shift()!
         rt.input.lastScan = k.scan
         rt.input.lastShift = k.shift ?? 0
         const c = k.ch.charCodeAt(0) || 0 // NaN on the empty string
-        if (c) return VI(c & 0xff)
+        if (c) {
+          st().keyQuiet = false
+          return VI(c & 0xff)
+        }
       }
       it.block({ type: 'waitInput', mouse: false, key: true }, true)
       return VI(0)
@@ -1271,10 +1328,19 @@ export function makeRangeExtraFunctions(rt: Runtime): Record<string, Func> {
      *
      * `moveq #$7f,d7 / addq.b #$1,d7` is 128 and not 0: the `.b` add carries
      * nowhere, leaving $00000080.
+     *
+     * Unlike its two neighbours this one answers a REAL scancode, because it
+     * asks AMOS rather than the CIA. Only the prologue touches the register.
      */
     'ch key state': (it): Value => {
-      for (let n = 0; n < 128; n++) if (rt.input.keys.has(n)) return VI(n)
-      it.block({ type: 'waitInput', mouse: false, key: true }, true)
+      if (!untilQuiet(it)) return VI(0)
+      for (let n = 0; n < 128; n++) {
+        if (rt.input.keys.has(n)) {
+          st().keyQuiet = false
+          return VI(n)
+        }
+      }
+      it.block({ type: 'waitInput', mouse: false, key: false, sdr: rt.input.sdr }, true)
       return VI(0)
     },
 
@@ -1395,19 +1461,37 @@ export function makeRangeExtraFunctions(rt: Runtime): Record<string, Func> {
     /**
      * =Key Scan — routine 75 ($13f2), straight at the CIA:
      *
-     *     move.b $bfec01.l,d3            CIA-A SDR, the keyboard shift register
+     *     moveq  #$0,d3
+     *     move.b $bfec01.l,d3            CIA-A SDR, the keyboard's serial byte
      *     btst.b #$0,d3 / beq .none
-     *     lsr.w #$1,d3                   drop the bit and answer
+     *     lsr.w  #$1,d3                  drop the bit and answer
      *   .none:
-     *     clr.b $bfec01.l / moveq #$0,d3
+     *     clr.b  $bfec01.l / moveq #$0,d3
      *
-     * The keyboard clocks its serial data into SDR a bit at a time and bit 0
-     * is the "a byte is here" marker this build uses. Nothing here drives that
-     * register — the keyboard reaches this port as events, not as CIA serial
-     * traffic — so SDR reads 0, the test fails, and the answer is 0, which is
-     * also what an Amiga with no key waiting gives.
+     * The keyboard sends the keycode rotated left one and inverted, so the
+     * decode every other reader does is `not.b` then `ror.b #1` — TURBO's
+     * Raw Key does exactly that. This routine does NEITHER, and working the
+     * encoding through says what it answers instead. Writing `sdr` for the
+     * byte and `k` for the keycode, `sdr = ~rol(k,1)`:
+     *
+     *   - a press has k's bit 7 clear, so rol puts a 0 in bit 0, and the
+     *     invert makes it 1. `btst #0` is therefore a press/release test,
+     *     which is the one thing here that IS right.
+     *   - for a press, rol(k,1) is 2k, so sdr = 255-2k and `lsr #1` gives
+     *     127 - k.
+     *
+     * DEFECT: so Key Scan answers 127 minus the scancode, not the scancode.
+     * ESC (69) reads 58. The complement is the missing `not.b`, and no amount
+     * of reading the manual would show it — it takes the encoding. Reproduced,
+     * because the port models the register rather than handing the routine the
+     * scancode it meant to compute.
+     *
+     * The `clr.b` in the quiet branch is unobservable either way: the byte it
+     * clears is one whose bit 0 is already 0, so the answer is 0 before and
+     * after. (On the machine, writing SDR while the CIA is in input mode does
+     * not disturb the receiver either.)
      */
-    'key scan': (): Value => VI(0),
+    'key scan': (): Value => VI(keyScan()),
 
     /**
      * =Spoint(x, y, screen) — routine 74 ($138c), and `Splot` below is the

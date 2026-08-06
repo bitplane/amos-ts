@@ -278,7 +278,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       return
     }
     const scan = SCAN[e.code] ?? 0
-    if (scan) rt.input.keys.add(scan)
+    rt.keyDown(scan)
     for (let p = 0; p < 2; p++) if (KB_PORT[p]![e.code] !== undefined) kbJoy[p]! |= KB_PORT[p]![e.code]!
     const ch = SPECIAL_CH[e.code] ?? (e.key.length === 1 ? e.key : '')
     if (ch !== '') rt.pressKey(ch, scan)
@@ -290,7 +290,7 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   const onKeyUp = (e: KeyboardEvent): void => {
     if (!rt) return
     const scan = SCAN[e.code] ?? 0
-    if (scan) rt.input.keys.delete(scan)
+    rt.keyUp(scan)
     for (let p = 0; p < 2; p++) if (KB_PORT[p]![e.code] !== undefined) kbJoy[p]! &= ~KB_PORT[p]![e.code]!
   }
   const onFocus = (): void => {

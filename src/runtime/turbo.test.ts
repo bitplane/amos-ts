@@ -79,38 +79,61 @@ describe('TURBO input (TURBO_DocsV2.15.Asc + disassembly)', () => {
     expect(held(3)).toBe('-1-1\n')
   })
 
-  it('Is Raw Key returns the last scancode seen', () => {
+  it('Is Raw Key decodes CIA-A, so a release differs from a press', () => {
     // "Returns the last key press in raw format. Beware! It gives different
-    // values if the key is pressed or released." — see the NOTES entry: the
-    // release bit is not modelled here
-    let out = ''
-    const rt = new Runtime(tokenize('Print Is Raw Key', table, extensions), table, {
-      extensions,
-      maxSteps: 10_000,
-      onText: (t) => (out += t),
-    })
-    rt.input.lastScan = 69
-    rt.runHeadless(10)
-    expect(out).toBe(' 69\n')
+    // values if the key is pressed or released." Routine 171 ($5072) is
+    // `not.b` / `ror.b #1` on $bfec01 and nothing else, so the release bit
+    // survives: ESC down is 69, ESC up is 69+128.
+    const raw = (set: (rt: Runtime) => void): string => {
+      let out = ''
+      const rt = new Runtime(tokenize('Print Is Raw Key', table, extensions), table, {
+        extensions,
+        maxSteps: 10_000,
+        onText: (t) => (out += t),
+      })
+      set(rt)
+      rt.runHeadless(10)
+      return out
+    }
+    expect(raw((rt) => rt.keyDown(69))).toBe(' 69\n')
+    expect(raw((rt) => rt.keyUp(69))).toBe(' 197\n')
   })
 
   it('Workbench Open is the counterpart to Close Workbench, and does nothing here', () => {
     expect(() => run('Close Workbench : Workbench Open')).not.toThrow()
   })
 
-  it('Raw Key reads the same key state Key State does', () => {
-    // "Does the same thing as the Key State function but works even if
-    // multitasking is disabled. Returns true (-1) if key N is being
-    // pressed." The manual's own example notes Raw Key(69) is ESC.
-    let out = ''
-    const rt = new Runtime(tokenize('Print Raw Key(69);Raw Key(70)', table, extensions), table, {
-      extensions,
-      maxSteps: 10_000,
-      onText: (t) => (out += t),
-    })
-    rt.input.keys.add(69)
-    rt.runHeadless(10)
-    expect(out).toBe('-1 0\n')
+  it('Raw Key compares against the last keyboard byte, not the held set', () => {
+    // "Returns true (-1) if key N is being pressed. N is the Scancode." —
+    // and the manual's own example notes Raw Key(69) is ESC. Routine 22
+    // ($1150) reads ONE byte out of $bfec01, so what it can really answer is
+    // "was the last key event this code"; for a single key held those agree.
+    const raw = (src: string, set: (rt: Runtime) => void): string => {
+      let out = ''
+      const rt = new Runtime(tokenize(src, table, extensions), table, {
+        extensions,
+        maxSteps: 10_000,
+        onText: (t) => (out += t),
+      })
+      set(rt)
+      rt.runHeadless(10)
+      return out
+    }
+    expect(raw('Print Raw Key(69);Raw Key(70)', (rt) => rt.keyDown(69))).toBe('-1 0\n')
+
+    // `addi.w #$100,d1 / ext.w d1` sign-extends the byte before the compare,
+    // so a key coming back UP is asked for as a NEGATIVE number: 69|$80 is
+    // 197, and 197 as a signed byte is -59.
+    expect(raw('Print Raw Key(-59);Raw Key(69)', (rt) => rt.keyUp(69))).toBe('-1 0\n')
+
+    // only the latest event is in the register — hold two, and the first is
+    // no longer the answer, exactly as on the machine
+    expect(
+      raw('Print Raw Key(69);Raw Key(70)', (rt) => {
+        rt.keyDown(69)
+        rt.keyDown(70)
+      }),
+    ).toBe(' 0-1\n')
   })
 })
 

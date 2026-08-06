@@ -1061,17 +1061,28 @@ describe('JD: the keywords the gate caught', () => {
     expect(out.trim()).toBe(String('b'.charCodeAt(0)))
   })
 
-  it('Moff Key and Double Click read the same host state as their neighbours', () => {
+  it('Moff Key answers twice the complement, not a scancode', () => {
     // routines 142 and 145 (:5907, :5941) go to the hardware because Jd Multi
-    // Off is exec's Forbid; there is no Forbid here and one input path, so
-    // they agree with the ordinary readers always
+    // Off is exec's Forbid. Double Click reads a BUTTON and agrees with its
+    // ordinary neighbour; Moff Key reads $bfec01, and the keyboard does not
+    // put a scancode there.
+    //
+    // DEFECT: `lsr.b #1 / lsl.b #1` clears the bit it has just tested and the
+    // byte is never decoded — no `not.b`, no `ror.b #1` — so what comes back
+    // is 2 * (127 - scancode). Range's Key Scan bug, doubled.
     const out = runWithInput('Print Jd Moff Key;",";Jd Double Click', (rt, f) => {
       if (f === 0) {
-        rt.input.keyQueue.push({ ch: 'q', scan: 16 })
+        rt.keyDown(16) // Q
         rt.input.mouseK = 1
       }
     })
-    expect(out.trim()).toBe('16, 1')
+    expect(out.trim()).toBe(`${2 * (127 - 16)}, 1`) // 222, 1
+
+    // bit 0 is the press/release marker, so a key coming up answers 0
+    const up = runWithInput('Print Jd Moff Key', (rt, f) => {
+      if (f === 0) rt.keyUp(16)
+    })
+    expect(up.trim()).toBe('0')
   })
 
   it('Get String$ and Get Number take the line the host supplies', () => {
