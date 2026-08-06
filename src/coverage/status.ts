@@ -1996,6 +1996,11 @@ export const FAITHFUL = new Set<string>([
   'psprite off',
   'psprite erase',
   'psprite update',
+  // --- Misc 1.0, slot 23: Frank Otto's twelve odds and ends, whole source in
+  // the box. Eight here; Multi Off/On, Reset and Pal On are n/a — see the NA
+  // block and miscext.ts for why each one is.
+  'display off', 'display on', 'mouse off', 'firewait',
+  'dled on', 'dled off', 'clear ram', 'disk wait',
   // --- AMOSPro Colours 1.0, slot 23: Jan Normann Nielsen's named colour
   // constants. Twenty-seven zero-argument functions returning a 12-bit $RGB
   // value, every one an `equ` in the public-domain source that ships with it.
@@ -2254,6 +2259,21 @@ export const NA = new Set<string>([
   // state to change and no way to change it. Jd Moff Click / Moff Key /
   // Double Click, which exist BECAUSE Forbid stops input.device from running,
   // are implemented: they read the same host input the ordinary keywords do.
+  // MISC 1.0: Multi Off and Multi On are the SAME two calls — `jsr -132(a6)`
+  // and `-138(a6)` on ExecBase (Misc_Extension.asm:117, :124) — reached from a
+  // different library, so they are n/a for the same reason JD's are. `Reset`
+  // (:148) is SuperState, Disable, `CLR.L 4.W`, the RESET instruction and
+  // `JMP $00FC0000`: a cold reboot of the machine, which a page will not be
+  // doing. `Pal On` (:209) is the one the manual apologises for — the label
+  // is followed only by RS.B/EQU/MACRO directives, which emit no code, so it
+  // falls straight into `Go60`, a routine whose own comment reads ";put system
+  // in NTSC mode" and whose first instruction reads `Flag_FatAgnus(a0)` with
+  // a0 never loaded. It does the opposite of its name and then crashes on
+  // whatever a0 held. There is no behaviour to be faithful TO.
+  'multi off',
+  'multi on',
+  'reset',
+  'pal on',
   'jd multi off',
   'jd multi on',
   // and the drive LED: CIA-A PRA bit 1 (:5970, :5977). No LED.
@@ -3569,6 +3589,21 @@ export const NOTES: Record<string, string> = {
   'pic unpack':
     'a control byte of zero fills the rest of the PLANE rather than emitting nothing — its decrement never satisfies the test. The end guard is >= where the 68k tests exact equality, so a header pointing behind its data stops rather than hanging',
   'anim unpack': 'Pic Unpack behind a frame table; the same zero-control-byte and end-guard behaviour',
+  'display off':
+    "Routine 3 (Misc_Extension.asm:106), two instructions: `move.w #\$01a0,\$dff096` and `move.w #0,\$dff180`. Bit 15 CLEAR makes DMACON a clear, and \$1a0 is BPLEN+COPEN+SPREN — bitplanes, copper and sprites off together — then COLOR00 to black, because with no bitplanes what shows is the background colour and the copper is no longer there to keep writing it. `Jd Video Off` is the same two instructions from another library, so both drive the one `rt.videoOff`",
+  'display on':
+    "Routine 4 (:111): `move.w #\$81a0,\$dff096`, bit 15 SET, the same three bits back. NOTE it does not restore COLOR00, and that is NOT the bug it looks like — re-enabling COPEN puts the copper back in charge and AMOS's list carries the palette, so the black COLOR00 that Display Off wrote is overwritten from the list on the next frame by the hardware rather than by this routine",
+  'mouse off':
+    "Routine 9 (:141): `move.w #\$20,\$dff096`, and \$20 alone is SPREN. The manual says 'hides mouse and sprite 0'; the register says ALL EIGHT sprites, because what goes is the DMA channel rather than a pointer. It also cannot be undone — there is no Mouse On in the table, and the manual asks the reader to write one: 'Suggestion: If you want to expand this extension, why not make a Mouse On command?'",
+  'dled on':
+    "Routine 7 (:129) and its twin Dled Off (routine 8, :135), which differ in one byte: both write 127 then 119 to \$bfd100 (CIA-B port B, the disk control lines) and then Dled On writes 0 to \$bfd300 while Dled Off writes 255. \$bfd300 is the DIRECTION register. DEFECT: 0 makes the port INPUTS, so it stops driving the lines, they float high through their pull-ups, the active-low /MTR goes inactive and the LED goes OUT; 255 makes them outputs and drives the 119 still sitting in the data register, asserting /MTR and turning the LED ON. The two keywords are the wrong way round, and the manual half-noticed — 'Turns on drive led, don't ask me, where this is for, but maybe when the drive led doesn't stop reading, use the next command.' NOTE: the source gives the four writes; that a released line reads inactive is 6526 behaviour supplied from the chip rather than stated there",
+  'dled off': "routine 8 (:135), the same four writes as Dled On with 255 where it has 0 — see it for which way round they actually leave the LED",
+  'firewait':
+    "Routine 12 (:171): `btst #07,\$bfe001 / bne` back to itself. CIA-A port A bit 7 is the fire button, active low, so the loop spins while the bit is SET — while fire is NOT pressed — and falls through the moment it goes down. The manual: 'Nothing else than While Fire(1)=0 : Wend but more effective, cause it's in assembler.' A spin blocks the frame rather than the process here, re-armed each frame as Vb Line Wait is; a program that never gets a press waits for ever, which is what it would do on the machine",
+  'clear ram':
+    "Routine 11 (:159): `AllocMem(99999999, 0)` on ExecBase (`jsr -198`) and FreeMem (-210) if it returns. The hundred megabytes are MEANT to fail — a failed AllocMem is what makes exec expunge unused libraries, devices and fonts, so the manual's 'Cleans up Memory by deleting all not-used fonts, libs, etc.' is a side effect of an allocation nobody wants to succeed rather than something the routine does. DEVIATION: nothing here is expungeable, so this observably does nothing where a real machine would free memory and move Chip Free. NOTE, unreachably: FreeMem would be called with d0 still holding the POINTER, used as the size — `move.l d0,a0` leaves d0 alone — and it can never run because the allocation cannot succeed",
+  'disk wait':
+    "Routine 13 (:176), two waits in order. `move.b \$bfe001,d0 / and.b #16,d0 / bne` spins until CIA-A port A bit 4 goes low, the disk-change line: wait for a disk to go in. Then a 500-iteration delay and a loop of Disable / FindName(\"Validator\") over ExecBase's TaskReady (\$196) and TaskWait (\$1a4) lists / Enable, until the validator task is gone. DEVIATION: this returns at once — there is no floppy to insert (volumes are mounted, not inserted) and no validator to outlive, and the alternative is to block for ever, which would hang every program that uses it rather than reproduce anything. NOTE: the delay loop calls a subroutine (:201) that is `movem.l a0-a6/d0-d7,-(sp)` immediately followed by the matching pop and an rts — sixteen registers pushed and popped straight back, a deliberate burn that does nothing else",
   'c orange':
     "\$A40. NOTE the name: the token is `dc.b \"c orang\",\"e\"+\$80` (:95) and it is the ONLY prefixed entry in the table --- every other keyword is the bare colour name. The source gives no reason and there is no `Orange` elsewhere in AMOS for it to have been avoiding, so the prefix is recorded rather than explained. There is also no `Dark Orange` or `Light Orange`: the dark/light pairs cover the other nine colours and orange has this one entry, which is the library's shape and not a gap in the port",
   'light green':

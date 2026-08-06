@@ -411,6 +411,8 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/medext.ts': ['med-7.1'],
   'src/runtime/colours.ts': ['amospro-colours-1.0'],
   'src/runtime/colours.test.ts': ['amospro-colours-1.0'],
+  'src/runtime/miscext.ts': ['misc-1.0'],
+  'src/runtime/miscext.test.ts': ['misc-1.0'],
   // the AMOS Pro build FIRST: it is the one the ten shared keywords were read
   // from. `med tempo` and `tr credits` exist only in the AMOS 1.3 build and
   // their citations are numbered against it, which is why both are listed

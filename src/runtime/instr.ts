@@ -15,6 +15,7 @@ import { newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amca
 import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions, ensureLib } from './speech'
 import { makeEmeFunctions, makeEmeInstructions } from './eme'
 import { makeColoursFunctions } from './colours'
+import { makeMiscExtInstructions, newMiscExtState } from './miscext'
 import { makeDumpFunctions, newDumpState } from './dump'
 import { makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
 import { makeFileIdFunctions, newFileIdState } from './fileid'
@@ -5299,6 +5300,17 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // defaults, and the library's own hook routines are bare rts
     ids: ['amospro-colours-1.0'],
     functions: makeColoursFunctions,
+  },
+  {
+    // slot 23 as well — Misc's source bakes in the same `ExtNb equ 23-1` that
+    // Colours does, and its manual tells the user to type it into config
+    // number 23. They share no keyword name, so nothing is contested here;
+    // on a real machine only one of them can be loaded
+    ids: ['misc-1.0'],
+    init: (rt) => {
+      rt.miscExt = newMiscExtState()
+    },
+    instructions: makeMiscExtInstructions,
   },
   {
     ids: ['amospro-ioports-2.0'],

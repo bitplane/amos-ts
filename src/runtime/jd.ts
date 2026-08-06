@@ -85,8 +85,6 @@ export interface JdState {
    * is that table's capacity, and the twenty-first reduction is error 23.
    */
   dimSaves: Map<number, number>
-  /** Jd Video Off blanks the display until Jd Video On (+|jd.s:5140) */
-  videoOff: boolean
   /** the font metrics Jd Char X / Jd Char Y report, set by Jd Textfont */
   charW: number
   charH: number
@@ -108,7 +106,7 @@ export interface JdState {
   driveClick: boolean
 }
 export function newJdState(): JdState {
-  return { areaFirst: 0, areaLast: 0, dimSaves: new Map(), videoOff: false, charW: 8, charH: 8,
+  return { areaFirst: 0, areaLast: 0, dimSaves: new Map(), charW: 8, charH: 8,
     font: null, driveClick: true }
 }
 
@@ -1645,10 +1643,10 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
      * what a program and a person both see.
      */
     'jd video off'() {
-      rt.jd.videoOff = true
+      rt.videoOff = true
     },
     'jd video on'() {
-      rt.jd.videoOff = false
+      rt.videoOff = false
     },
 
     /**

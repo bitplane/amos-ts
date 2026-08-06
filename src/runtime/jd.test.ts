@@ -676,7 +676,7 @@ describe('JD: screen readbacks and drawing (+|jd.s:1479-6199)', () => {
     let lit = 0
     for (let i = 0; i < black.length; i += 4) if (black[i]! | black[i + 1]! | black[i + 2]!) lit++
     expect(lit).toBe(0)
-    rt.jd.videoOff = false
+    rt.videoOff = false
     const back = rt.composite().data
     let lit2 = 0
     for (let i = 0; i < back.length; i += 4) if (back[i]! | back[i + 1]! | back[i + 2]!) lit2++
@@ -1002,8 +1002,8 @@ describe('JD: the keywords the gate caught', () => {
   it('Video On clears what Video Off set', () => {
     // routines 112 and 113 (:5140, :5145) are DMACON writes; modelled as a
     // blank display, because with the copper stopped there is nothing to walk
-    expect(runRt('Jd Video Off').jd.videoOff).toBe(true)
-    expect(runRt('Jd Video Off : Jd Video On').jd.videoOff).toBe(false)
+    expect(runRt('Jd Video Off').videoOff).toBe(true)
+    expect(runRt('Jd Video Off : Jd Video On').videoOff).toBe(false)
   })
 
   it('Draw Segment walks the arc between the two angles', () => {

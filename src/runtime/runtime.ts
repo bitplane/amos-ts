@@ -17,6 +17,7 @@ import { ensureLib, speakOne, type SpeechState } from './speech'
 import { SpeakBuffer, type SpeakOptions } from '../amiga/speak'
 import { ercoleVbl, type ErcoleState } from './ercole'
 import type { DumpState } from './dump'
+import type { MiscExtState } from './miscext'
 import type { FileIdState } from './fileid'
 import type { RangeState } from './range'
 import { jotreVbl, type JotreState } from './jotre'
@@ -510,6 +511,8 @@ export class Runtime {
   ercole!: ErcoleState
   /** Jotre 1.0: the THX replayer's flag byte, module address and sub-song */
   jotre!: JotreState
+  /** Misc 1.0: the drive LED, which is all the state its twelve keywords have */
+  miscExt!: MiscExtState
   /** Dump 1.1: the last printer-dump message index and the last device error */
   dump!: DumpState
   /** FileID 1.0: the library base, the FileInfo pointer and the last error */
@@ -800,6 +803,26 @@ export class Runtime {
   static readonly COPPER_LONG = 12 * 1024
   /** T_CopON: the system rebuilds and owns the display while true */
   copperOn = true
+  /**
+   * DMACON's three display bits — BPLEN, COPEN and SPREN — turned off
+   * together, and COLOR00 blacked with them.
+   *
+   * TWO extensions do exactly this and neither knows about the other, which
+   * is why the flag is here rather than in either one's state. JD's `Jd Video
+   * Off` is `move.w #$01a0,$dff096` and blacks $dff180 (+|jd.s:5145); Misc
+   * 1.0's `Display Off` is the same two instructions (Misc_Extension.asm:106).
+   * With the copper stopped nothing rebuilds the picture, so the screen stays
+   * black until the matching On puts the bits back — and the COLOR00 write
+   * needs no undoing, because re-enabling COPEN lets the list restore the
+   * palette on its own next frame.
+   */
+  videoOff = false
+  /**
+   * SPREN alone. `Mouse Off` (Misc_Extension.asm:141) clears it and there is
+   * no keyword anywhere that puts it back — the extension's own manual
+   * suggests someone add a `Mouse On`.
+   */
+  spriteDma = true
   /**
    * COP1LC, when something outside the interpreter has pointed it somewhere —
    * Personnal's Active Copper writes $dff080 with the list it built in a

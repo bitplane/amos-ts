@@ -476,10 +476,10 @@ export class Display {
     const W = 640
     const H = Display.COMPOSITE_LINES * 2
     const data = out ?? new Uint8ClampedArray(W * H * 4)
-    // Jd Video Off cleared sprite, copper and bitplane DMA and blacked
-    // COLOR00 (+|jd.s:5145). With the copper stopped there is no list left to
-    // walk, so the display stays black until Jd Video On puts the three back.
-    if (this.rt.jd.videoOff) {
+    // Jd Video Off and Misc's Display Off both cleared sprite, copper and
+    // bitplane DMA and blacked COLOR00. With the copper stopped there is no
+    // list left to walk, so the display stays black until the matching On.
+    if (this.rt.videoOff) {
       data.fill(0)
       for (let o = 3; o < data.length; o += 4) data[o] = 255
       return { width: W, height: H, data }
@@ -1365,6 +1365,9 @@ export class Display {
    * whatever else shares its layer.
    */
   private spriteList(): { img: BankImage; hx: number; hy: number; pair: number }[] {
+    // SPREN off takes the pointer with everything else — Misc's `Mouse Off`
+    // clears the DMA bit rather than the pointer, so all eight go
+    if (!this.rt.spriteDma) return []
     const sprites = this.rt.spriteUpdateOn ? [...this.rt.hwSprites.values()] : (this.rt.frozenSprites ?? [])
     const channels = this.spriteChannels(sprites)
     const out: { img: BankImage; hx: number; hy: number; pair: number }[] = []
