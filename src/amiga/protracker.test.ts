@@ -91,9 +91,31 @@ describe.skipIf(!existsSync(P61_LIB))('the tables came out of the shipped librar
     expect(FINETUNE_STRIDE_BYTES).toBe(PT_PERIODS_PER_ROW * 2)
   })
 
-  /** row 0 is the table `paula.ts` already had, and the two must not drift */
-  it('agrees with AMIGA_PERIODS on the untuned row', () => {
+  /**
+   * `AMIGA_PERIODS` IS row 0 now, taken from this table rather than written
+   * out beside it. The check is kept because it is what makes the derivation
+   * legible: the thirty-six the rest of the port calls "the Amiga periods" are
+   * the untuned row of the replay's sixteen, minus the duplicate at index 0.
+   */
+  it('is where AMIGA_PERIODS comes from — the untuned row, less the duplicate', () => {
     expect([...PT_PERIODS.subarray(1, 37)]).toEqual([...AMIGA_PERIODS])
+    expect(AMIGA_PERIODS).toHaveLength(36)
+  })
+
+  /**
+   * The independent corroboration, and the only place AMOS's own transcription
+   * of it is recorded.
+   *
+   * `Sinus` at +Music.s:2146 is thirty-two `dc.b`s in a library that has
+   * nothing to do with Player 6.1A, and they are the same thirty-two numbers.
+   * Two Amiga replayers shipping the same table is what makes one copy of it
+   * in `notes.ts` the right number of copies.
+   */
+  it('is the same sine AMOS ships at +Music.s:2146', () => {
+    expect([...PT_SINE]).toEqual([
+      0x00, 0x18, 0x31, 0x4a, 0x61, 0x78, 0x8d, 0xa1, 0xb4, 0xc5, 0xd4, 0xe0, 0xeb, 0xf4, 0xfa, 0xfd,
+      0xff, 0xfd, 0xfa, 0xf4, 0xeb, 0xe0, 0xd4, 0xc5, 0xb4, 0xa1, 0x8d, 0x78, 0x61, 0x4a, 0x31, 0x18,
+    ])
   })
 
   /** the sine is ProTracker's, symmetric about its own quarter */

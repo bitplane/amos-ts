@@ -39,7 +39,12 @@
  * is the boundary beneath this layer (`host.ts`), WebAudio implements it in
  * the browser and `NullAudio` records it headless. What Paula contributes is
  * the arithmetic every caller was repeating and the state a test can read.
+ *
+ * The note tables are one level further down again, in `notes.ts`, which
+ * imports nothing at all — a period table is a tuning, not a chip register,
+ * and the replay needs sixteen finetuned rows where the chip needs none.
  */
+import { PT_PERIODS } from './notes'
 
 /**
  * The audio clock. Paula's sample rate is this divided by AUDxPER.
@@ -83,9 +88,12 @@ export function periodToHz(period: number, clock = PAULA_CLOCK): number {
  * tracker on the machine shipped, because a ProTracker module stores these
  * numbers literally and a replayer has to map a note back onto one.
  *
- * It was written out twice: `med.ts` in decimal and `music.ts` in hex, 36
- * entries each and identical value for value. AMOS's own copy is at
- * +Music.s:2150.
+ * It was written out FOUR times before `notes.ts` existed: here, `med.ts` in
+ * decimal, `music.ts` in hex, and the first row of the replay's finetuned
+ * table. AMOS's own copy is at +Music.s:2150. Now it is that first row, with
+ * the duplicate word at index 0 dropped — the duplicate is there so an
+ * arpeggio can index off the end of a row, which is a replay concern and not
+ * this one's.
  *
  * AMOS's assembled table carries TWO ZEROS after these, which its arpeggio
  * lookup reads past the end into — that padding is AMOS's and stays in
@@ -97,11 +105,7 @@ export function periodToHz(period: number, clock = PAULA_CLOCK): number {
  * — `samPeriod` clamps a requested sample RATE, which is a different
  * question, and a module playing B-3 gets whatever the machine gave it.
  */
-export const AMIGA_PERIODS: readonly number[] = [
-  856, 808, 762, 720, 678, 640, 604, 570, 538, 508, 480, 453,
-  428, 404, 381, 360, 339, 320, 302, 285, 269, 254, 240, 226,
-  214, 202, 190, 180, 170, 160, 151, 143, 135, 127, 120, 113,
-]
+export const AMIGA_PERIODS: readonly number[] = Array.from(PT_PERIODS.subarray(1, 37))
 
 /** AUDxVOL as the chip sees it: 0..64, saturating rather than wrapping */
 export function clampVolume(v: number): number {

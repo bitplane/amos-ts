@@ -24,6 +24,7 @@
  */
 
 import { AmosError } from '../interp/values'
+import { PT_SINE } from '../amiga/notes'
 import { AMIGA_PERIODS, PAULA_CLOCK, periodToHz, samPeriod } from '../amiga/paula'
 import { MedPlayer } from './med'
 import type { AudioSink } from '../amiga/paula'
@@ -81,11 +82,14 @@ const TEMPO_BASE = 100 // PAL (MusDef +Music.s:852)
  */
 const PERIODS = [...AMIGA_PERIODS, 0, 0]
 
-/** Sinus table (+Music.s:2146) — vibrato waveform, unsigned half-sine */
-const SINUS = [
-  0x00, 0x18, 0x31, 0x4a, 0x61, 0x78, 0x8d, 0xa1, 0xb4, 0xc5, 0xd4, 0xe0, 0xeb, 0xf4, 0xfa, 0xfd,
-  0xff, 0xfd, 0xfa, 0xf4, 0xeb, 0xe0, 0xd4, 0xc5, 0xb4, 0xa1, 0x8d, 0x78, 0x61, 0x4a, 0x31, 0x18,
-]
+/**
+ * Sinus (+Music.s:2146) — the vibrato waveform, an unsigned half-sine.
+ *
+ * AMOS's thirty-two bytes are the ProTracker table value for value, so it is
+ * `PT_SINE` in `../amiga/notes.ts`, shared with the two tracker replays. The
+ * two shift depths below are AMOS's own and stay here.
+ */
+const SINUS = PT_SINE
 
 // ---- the wavetable synth tables (+Music.s:2156-2183) ----------------------
 

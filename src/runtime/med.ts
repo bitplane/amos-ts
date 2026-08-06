@@ -24,14 +24,22 @@
  */
 
 import { AmosError } from '../interp/values'
+import { PT_SINE } from '../amiga/notes'
 import { AMIGA_PERIODS, periodToHz } from '../amiga/paula'
 import type { AudioSink } from '../amiga/paula'
 
-
-const SINUS = [
-  0, 24, 49, 74, 97, 120, 141, 161, 180, 197, 212, 224, 235, 244, 250, 253,
-  255, 253, 250, 244, 235, 224, 212, 197, 180, 161, 141, 120, 97, 74, 49, 24,
-]
+/**
+ * The vibrato waveform.
+ *
+ * NOTE: this port carried its own copy of these thirty-two numbers with no
+ * citation, and there is no OctaMED replayer source to cite one from —
+ * medplayer.library is not part of AMOS. They are the ProTracker table value
+ * for value, which is what a four-channel MMD replay would be expected to use
+ * and what AMOS's own Music extension uses at +Music.s:2146, so it points at
+ * the shared one. The evidence for the numbers is no better than it was; there
+ * is one fewer place for them to disagree.
+ */
+const SINUS = PT_SINE
 
 interface MedVoice {
   period: number
