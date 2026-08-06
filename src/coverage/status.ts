@@ -2045,6 +2045,13 @@ export const FAITHFUL = new Set<string>([
   'yfire',
   'prop on',
   'prop off',
+  // --- Jotre 1.0, slot 22: Thomas Verduin's shim over an embedded THX Sound
+  // System 2.0 replayer. Five instructions, no functions; see jotre.ts.
+  'init thx',
+  'deinit thx',
+  'play thx',
+  'stop thx',
+  'volume thx',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -3511,6 +3518,22 @@ export const NOTES: Record<string, string> = {
   'library close': 'routine 5: CloseLibrary with no check of any kind. Closing zero, or a number that was never a base, is the caller\'s problem on the machine and cannot be told apart here',
   'cli':
     'routine 3, 468 bytes and the only large one. OpenLibrary("dos.library"), Open(output$, MODE_NEWFILE), Execute(command$, input, output), Close, then REOPEN with MODE_OLDFILE and Read 32 bytes back for an error test. An empty output$ is not an error: "ram:test" is substituted and a flag makes the DeleteFile at the end fire, where a caller-named file is left behind. The error detection is a hack worth stating: the first four bytes read back are compared against the first WORD of command$ and against the long "Bad ", either match being error 3 — because a shell that could not run the command writes its name or a "Bad ..." complaint into the output. Only then does Execute\'s own result raise error 0. NOTE: this port has no shell, so execute() answers DOSFALSE, the file is created and stays empty, neither text test fires, and the routine lands on its own error 0 — the branch it takes on an Amiga where the command could not run',
+  // --- Jotre 1.0, slot 22. The shim is complete; the SYNTHESIS is not. THX
+  // is a synth tracker, not a sampler, and its engine is ten kilobytes of 68k
+  // linked into this library with no published source — the same boundary MED
+  // 7.1 draws at octaplayer.library. Everything a program can observe without
+  // hearing it is here: the flag byte, all four errors, both orderings that
+  // matter, and the module mutation Play Thx performs.
+  'init thx':
+    "routine 4. Already up is error 2. Otherwise the flag byte is cleared OUTRIGHT (`move.b #$0`, not an AND), then InitPlayer with four zero arguments; -1 is error 0 and success ORs in bit 0. The Guide says what the zeros buy: \"Init Thx initialises the filter data used by the replayer. This wil grab 414768 bytes of public memory\" — THX pre-computes every filtered waveform rather than filtering as it plays. NOTE: nothing is charged for those bytes here, for the same reason PowerBobs' AllocMems are not: no keyword hands the address back, so the only observable would be Fast Free",
+  'deinit thx':
+    "routine 5. Error 1 when nothing is up, then StopSong if bit 1 is set and EndPlayer either way. DEFECT: the flag clear is `move.b #$ff,d1 / subi.b #$1,d1 / and.b d1,d0` — $FE, so it clears bit 0 ONLY and leaves PLAYING set. A program that deinits mid-song and inits again starts with the block already claiming to play, and the next Deinit calls StopSong on a player that is not running. Reproduced. The REMOVE routine at $a0 gets this right with an outright `move.b #$0`",
+  'play thx':
+    'routine 6. `move.l (a3)+,d0 / movea.l (a3)+,a0` pops the sub-song first and the address second, and BOTH are stored before the initialised test — so a Play Thx that raises error 1 still leaves its address and sub-song behind for the next one. Then InitModule, -1 being error 3, then StartSong with the sub-song in d0 and 0 in d1, then bit 1. InitModule ($802) opens `move.b $3(a0),$43e(a6) / clr.b $3(a0) / cmpi.l #$54485800,(a0)+` — it stashes the module\'s version byte and ZEROES it IN THE CALLER\'S MEMORY before comparing against "THX" and the byte it just cleared, which is both how every version is accepted and a real mutation of the bank. Reproduced. The Guide\'s usage is `Play Thx Start(Bank),SubSong`, so the address really is an AMOS bank\'s',
+  'stop thx':
+    'routine 7. Error 1 when nothing is up, StopSong, then `#$ff - 2` = $FD — the right mask for the bit it means, unlike Deinit\'s. It does NOT test bit 1 first, so stopping something that was never started calls StopSong anyway',
+  'volume thx':
+    'routine 8. Error 1 when nothing is up, then one byte written at `(*(block+$24)) + 1` — inside the replayer, not in the extension\'s own state. The Guide gives the range as "anything between 0 (silent) to 63 (very loud)" and the routine enforces none of it: `move.b d7,(a1)` takes the low byte, so 64 and -1 both land',
   'omd load': 'octaplayer.library is not in the AMOS source; the load is checked and remembered, the module is not decoded',
   'omd play': 'the OMD state machine only; no audio',
   'omd stop':

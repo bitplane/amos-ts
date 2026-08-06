@@ -16,6 +16,7 @@ import { newPiConfig } from './piconfig.gen'
 import { ensureLib, speakOne, type SpeechState } from './speech'
 import { SpeakBuffer, type SpeakOptions } from '../amiga/speak'
 import { ercoleVbl, type ErcoleState } from './ercole'
+import { jotreVbl, type JotreState } from './jotre'
 import type { MedExtState } from './medext'
 import type { P61State } from './p61'
 import type { PowerBobsState } from './powerbobs'
@@ -503,6 +504,8 @@ export class Runtime {
   medExt!: MedExtState
   /** Ercole 1.7: the Prop On hook and the two POT snapshots it fills */
   ercole!: ErcoleState
+  /** Jotre 1.0: the THX replayer's flag byte, module address and sub-song */
+  jotre!: JotreState
 
   fileChans = new Map<
     number,
@@ -3417,6 +3420,8 @@ export class Runtime {
     this.medExt?.player?.vbl()
     // Ercole's Prop On puts its POT sampler in VblRout[1] (+Equ.s:1177)
     ercoleVbl(this.ercole)
+    // Jotre's replayer interrupt is VblRout[0], gated on BOTH its flag bits
+    jotreVbl(this.jotre)
     // TFT's own VBL server, when a program has armed it with Start Int
     tftVbl(this.tft)
     this.applyShifts()

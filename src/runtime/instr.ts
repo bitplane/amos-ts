@@ -14,6 +14,7 @@ import { newPersonnalState, PERSONNAL_ERRORS, makePersonnalFunctions, makePerson
 import { newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
 import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions, ensureLib } from './speech'
 import { makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
+import { makeJotreInstructions, newJotreState } from './jotre'
 import { makeMedExtFunctions, makeMedExtInstructions, medExtDefault, newMedExtState } from './medext'
 import { makeP61Functions, makeP61Instructions, newP61State } from './p61'
 import { makePowerBobsFunctions, makePowerBobsInstructions, newPowerBobsState } from './powerbobs'
@@ -5102,6 +5103,18 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeErcoleInstructions,
     functions: makeErcoleFunctions,
     qualified: ['xfire'],
+  },
+  {
+    // Jotre 1.0 at slot 22 --- Thomas Verduin's five-keyword shim over an
+    // embedded THX Sound System 2.0 replayer. No functions, and no `defaults`
+    // hook: routine 0 installs its teardown at the slot entry's +$8 (REMOVE)
+    // rather than +$4 (DEFAULT), so `Default` does not stop a song. Its
+    // per-frame gate is stepped from Runtime.frame(). See jotre.ts.
+    ids: ['jotre-1.0'],
+    init: (rt) => {
+      rt.jotre = newJotreState()
+    },
+    instructions: makeJotreInstructions,
   },
   {
     // TOME 4.23 and 3.1 share one port: 3.1's table is a strict prefix of

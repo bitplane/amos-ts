@@ -62,7 +62,7 @@ tested against our own understanding. Percentages exclude n/a
 | jd-prt-1.1 | 58 | 58 | 0 | 0 | 100% |
 | jd-prt-1.3 | 63 | 63 | 0 | 0 | 100% |
 | jd-prt-1.4 | 69 | 69 | 0 | 0 | 100% |
-| jotre-1.0 | 5 | 0 | 0 | 5 | 0% |
+| jotre-1.0 | 5 | 5 | 0 | 0 | 100% |
 | jvp-1.01 | 11 | 11 | 0 | 0 | 100% |
 | language | 250 | 231 | 5 | 0 | 100% |
 | ldos-2.5 | 77 | 58 | 7 | 0 | 100% |
@@ -104,7 +104,7 @@ tested against our own understanding. Percentages exclude n/a
 | turbo-plus-2.15 | 152 | 147 | 4 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 6254 | 2831 | 103 | 3137 | 48% |
+| **total** | 6254 | 2836 | 103 | 3132 | 48% |
 
 ## aga-1.0 (100%)
 
@@ -330,9 +330,9 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `jd prt aspect`, `jd prt bold`, `jd prt bold off`, `jd prt borders off`, `jd prt center` *(1.3 and 1.4 disagree, and the port answers per bound version rather than picking one. Center is `ESC [2 F` in the 1.3 source and `ESC [3 F` in the 1.4 binary -- 3 is the ANSI code for centring, so 1.4 fixed a bug. Jd Prt Pline Up is the other one: `ESC L` in 1.3, `ESC I` in 1.4. The remaining 56 shared sequences are byte-identical, and a test asserts that)*, `jd prt clr htab`, `jd prt clr htabs`, `jd prt clr margins`, `jd prt clr vtab`, `jd prt clr vtabs`, `jd prt density`, `jd prt double`, `jd prt double off`, `jd prt doubleunder`, `jd prt doubleunder off`, `jd prt elite`, `jd prt elite off`, `jd prt enlarged`, `jd prt enlarged off`, `jd prt ff`, `jd prt fine`, `jd prt fine off`, `jd prt fjustify`, `jd prt image`, `jd prt init`, `jd prt italics`, `jd prt italics off`, `jd prt justify off`, `jd prt lf`, `jd prt ljustify`, `jd prt lspace eight`, `jd prt lspace six`, `jd prt nlq`, `jd prt nlq off`, `jd prt pline down`, `jd prt pline up`, `jd prt prop`, `jd prt prop off`, `jd prt reset`, `jd prt reverse lf`, `jd prt rjustiy`, `jd prt set bmargin`, `jd prt set danishi`, `jd prt set danishii`, `jd prt set def tabs`, `jd prt set french`, `jd prt set german`, `jd prt set htab`, `jd prt set italian`, `jd prt set japanese`, `jd prt set lmargin`, `jd prt set norge`, `jd prt set rmargin`, `jd prt set spanish`, `jd prt set sweden`, `jd prt set tmargin`, `jd prt set uk`, `jd prt set us`, `jd prt set vtab`, `jd prt shade` *(The five numeric Prt keywords call intuition's GetPrefs, poke one field of the Preferences structure and call SetPrefs. There is no system Preferences here, so they write rt.ioports.printerPrefs instead and nothing reads it yet -- Printer Dump does not consult the shade, aspect, image, threshold or density a program set. The bounds, the error 23 on each, and Shade 3's odd storage (grey scale 2 as a bit, with 1 in PrintShade) are the routines' own and are kept)*, `jd prt shadow`, `jd prt shadow off`, `jd prt sub`, `jd prt sub off`, `jd prt super`, `jd prt super off`, `jd prt threshold`, `jd prt under`, `jd prt under off`
 
-## jotre-1.0 (0%)
+## jotre-1.0 (100%)
 
-- **missing**: `deinit thx`, `init thx`, `play thx`, `stop thx`, `volume thx`
+- **faithful**: `deinit thx` *(routine 5. Error 1 when nothing is up, then StopSong if bit 1 is set and EndPlayer either way. DEFECT: the flag clear is `move.b #$ff,d1 / subi.b #$1,d1 / and.b d1,d0` — $FE, so it clears bit 0 ONLY and leaves PLAYING set. A program that deinits mid-song and inits again starts with the block already claiming to play, and the next Deinit calls StopSong on a player that is not running. Reproduced. The REMOVE routine at $a0 gets this right with an outright `move.b #$0`)*, `init thx` *(routine 4. Already up is error 2. Otherwise the flag byte is cleared OUTRIGHT (`move.b #$0`, not an AND), then InitPlayer with four zero arguments; -1 is error 0 and success ORs in bit 0. The Guide says what the zeros buy: "Init Thx initialises the filter data used by the replayer. This wil grab 414768 bytes of public memory" — THX pre-computes every filtered waveform rather than filtering as it plays. NOTE: nothing is charged for those bytes here, for the same reason PowerBobs' AllocMems are not: no keyword hands the address back, so the only observable would be Fast Free)*, `play thx` *(routine 6. `move.l (a3)+,d0 / movea.l (a3)+,a0` pops the sub-song first and the address second, and BOTH are stored before the initialised test — so a Play Thx that raises error 1 still leaves its address and sub-song behind for the next one. Then InitModule, -1 being error 3, then StartSong with the sub-song in d0 and 0 in d1, then bit 1. InitModule ($802) opens `move.b $3(a0),$43e(a6) / clr.b $3(a0) / cmpi.l #$54485800,(a0)+` — it stashes the module's version byte and ZEROES it IN THE CALLER'S MEMORY before comparing against "THX" and the byte it just cleared, which is both how every version is accepted and a real mutation of the bank. Reproduced. The Guide's usage is `Play Thx Start(Bank),SubSong`, so the address really is an AMOS bank's)*, `stop thx` *(routine 7. Error 1 when nothing is up, StopSong, then `#$ff - 2` = $FD — the right mask for the bit it means, unlike Deinit's. It does NOT test bit 1 first, so stopping something that was never started calls StopSong anyway)*, `volume thx` *(routine 8. Error 1 when nothing is up, then one byte written at `(*(block+$24)) + 1` — inside the replayer, not in the extension's own state. The Guide gives the range as "anything between 0 (silent) to 63 (very loud)" and the routine enforces none of it: `move.b d7,(a1)` takes the low byte, so 64 and -1 both land)*
 
 ## jvp-1.01 (100%)
 
