@@ -2602,8 +2602,12 @@ export const NOTES: Record<string, string> = {
     "Routine 253 (\$5f5a), and selector 4 of routine 381 is the surprise: `lea \$9cea(pc),a0 / move.l a0,\$2cc(a2) / move.l a2,\$1e(a0)`. The replayer's state is NOT in the extension's AllocMem'd \$23b6 block like every other engine here -- it is a fixed area inside the LIBRARY'S OWN CODE HUNK, which is why dumping the .Lib at \$9cea gives its initial values directly: 125 bpm, volume 64, twelve \$ff for the voice flags. The block runs from \$9bac (four channel structures of \$2c) through 31 sample pointers at \$9c5c to the header at \$9cea. NOTE: answers 0 for the same reason the Scrn pointers do -- there is no byte layout here for a program to walk. APPROXIMATED",
   'pjoy':
     "'Corresponds to the AMOS function Joy, with the difference, that one of the parallel port joysticks is checked instead of the normal joysticks', with the same JOY_* bit layout. NOTE: there is no adaptor -- this is the same CIA-A PRB hardware sticks.ts models, and Sticks already answers 'no adaptor' honestly. An unused port reads as nothing pressed on the machine too, so these agree with it rather than pretending. The manual even ships a wiring diagram for building the cable",
+  // TWO extensions spell Xfire and they are different keywords; NOTES is
+  // keyed by name, so this one entry has to answer for both. AMCAF's is at
+  // slot 8 and Ercole's at slot 10, and Ercole's is `qualified` so dispatch
+  // keeps them apart even though this note cannot.
   'xfire':
-    "'If the lowlevel-library is available, all the other buttons can be checked aswell.' lowlevel.library is not modelled and a plain gameport has one button, so anything past the first reads as not pressed; the first is the ordinary fire the host already supplies",
+    "AMCAF: 'If the lowlevel-library is available, all the other buttons can be checked aswell.' lowlevel.library is not modelled and a plain gameport has one button, so anything past the first reads as not pressed; the first is the ordinary fire the host already supplies. ERCOLE (routine 10, slot 10, a different keyword under the same name): the SECOND button, POTINP (\$dff016) bit \$e (DATRY, right port pin 9) for n=1 and bit \$a (DATLY, left port pin 9) for n=0, -1 when CLEAR. On the pressed path only it then bsets the matching OUT and DAT bits in POTGO to restore the pull-up the button discharged, which is the same thing its routine 0 does for the right port at startup. Nothing is wired to the pot pins here, so they stay high and it answers 0 --- the same limit Sticks records for its buttons B, C and D",
   'x smouse':
     "NOTE: nothing drives a second mouse here, exactly as in the Sticks port where the manual is explicit that this is 'not ... the AMOS pointer'. The position holds wherever a program last put it and the buttons read as up",
   'speek':
@@ -3499,8 +3503,8 @@ export const NOTES: Record<string, string> = {
     "routine 8: `move.b $bfe101,d3 / not.b d3`, then the low nibble for n=0 and `lsr.b #$4` for n=1. CIA-A PRB is the PARALLEL port's data lines and this is the four-player adaptor, one joystick per nibble — the readme says so and the register agrees, where Sticks' manual calls the same hardware the serial port and is wrong. NOTE: no adaptor; the lines idle high and `not.b` makes that zero, which is no direction",
   'ext fire':
     'routine 9: CIA-B PRA ($bfd000) bit 2 for joystick 3 and bit 0 for joystick 4 — the parallel port BUSY and POUT handshake lines — and -1 when the bit is CLEAR, a button pulling a pulled-up line down. NOTE: no adaptor, so both idle high and answer 0',
-  'xfire':
-    "routine 10, the SECOND button: POTINP ($dff016) bit $e (DATRY, right port pin 9) for n=1 and bit $a (DATLY, left port pin 9) for n=0, -1 when CLEAR. On the pressed path only it then `bset`s the matching OUT and DAT bits in POTGO to restore the pull-up the button discharged, which is the same thing routine 0 does for the right port at startup. NOTE: nothing is wired to the pot pins, so they stay high and this answers 0 — the same limit Sticks records for its buttons B, C and D. SLOT-QUALIFIED: AMCAF spells Xfire too, at slot 8",
+  // NOTE: Ercole's `xfire` shares the NOTES entry AMCAF's already had — the
+  // map is keyed by name and they are two different keywords. See there.
   'yfire': "routine 11, the THIRD button --- routine 10 again on the X pot pins: bit $c (DATRX, right port pin 5) for n=1 and bit $8 (DATLX, left) for n=0, re-arming $c/$d and $8/$9",
   'library open':
     "routine 4: `moveq #$0,d0` then OpenLibrary, so ANY version will do, and a zero result is error 1. The readme's use for it is `Call A-30`, and Call is n/a here under the rule that 68k machine code is never executed — so the base is only ever a number a program tests, which is exactly what ../amiga/exec.ts hands back: a synthetic base for the libraries this port models, 0 for the rest",
