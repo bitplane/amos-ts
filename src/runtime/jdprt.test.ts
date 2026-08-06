@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -23,7 +24,7 @@ function runWith(def: typeof prt, src: string): { rt: Runtime; out: string } {
     onText: (t) => (out += t),
   })
   const r = rt.runHeadless(500)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return { rt, out }
 }
 const run = (src: string): { rt: Runtime; out: string } => runWith(prt, src)

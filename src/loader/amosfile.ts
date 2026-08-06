@@ -124,8 +124,18 @@ function parseMemoryBank(r: BinReader): MemoryBank {
   const memType = r.u16()
   const lenFlags = r.u32()
   const flags = lenFlags >>> 24
-  // stored length includes the 8 bytes of length+flags word and name? — the
-  // data length is lenFlags minus the 8-byte header that follows the length.
+  // One longword carries both, exactly as AMOS reads it back (LB_Bank
+  // +Lib.s:4090): `and.l #$0FFFFFFF,d2 / subq.l #8,d2` is the data length,
+  // less the 8-byte name+header that follows it, and `tst.l d3 / bpl` tests
+  // BIT 31 alone for Data-versus-Work. Chip-versus-Fast is not in here at all
+  // — it is the memType word at +2, which AMOS reads separately.
+  //
+  // NOTE: the two masks overlap on bits 24-27, and that is the file format's
+  // shape rather than a mistake here. It cannot bite: the only flag AMOS ever
+  // sets is bit 31, and a bank would have to exceed 16MB for the length to
+  // reach bit 24. The shift is by 24 rather than 28 so that `flags` lands in
+  // the same 0..255 space as the `BNK` bits everything downstream compares
+  // against; bit 31 arrives as 0x80.
   const len = (lenFlags & 0x0fffffff) - 8
   const name = r.str(8)
   const data = r.raw(len)

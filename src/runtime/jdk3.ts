@@ -203,9 +203,3 @@ export function makeJdK3Functions(rt: Runtime): Record<string, Func> {
     },
   }
 }
-
-/** every JD-K3 keyword this file implements, for the coverage manifest */
-export const JDK3_IMPLEMENTED: readonly string[] = [
-  'jd relabel', 'jd match', 'jd match nocase',
-  'jd star joker on', 'jd star joker off', 'jd toggle click',
-]

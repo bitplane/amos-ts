@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -33,7 +35,14 @@ const extensions = new Map([
  * not built here, because an icon built by this repo would only show that the
  * reader agrees with whatever wrote it.
  */
-const ICON_PATH = 'fixtures/extensions/easylife-1.10/Docs/applications/Tabifier.Guide.info'
+// resolved from this file, not the cwd — the existsSync guard below turns a
+// wrong working directory into a silent skip
+const ICON_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  'fixtures/extensions/easylife-1.10/Docs/applications/Tabifier.Guide.info',
+)
 const ICON_WITH_TOOLTYPES = existsSync(ICON_PATH) ? new Uint8Array(readFileSync(ICON_PATH)) : null
 
 /**
@@ -53,7 +62,7 @@ function runAudio(src: string[]): { out: string; rt: Runtime; audio: NullAudio }
     onText: (t) => (out += t),
   })
   const r = rt.runHeadless(200)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return { out, rt, audio }
 }
 
@@ -66,7 +75,7 @@ function run(src: string | string[], onUnimplemented?: 'throw' | 'skip'): { out:
     onText: (t) => (out += t),
   })
   const r = rt.runHeadless(200)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return { out, rt }
 }
 
@@ -794,7 +803,7 @@ describe('slice 5: disk and DOS objects', () => {
       onText: (t) => (out += t),
     })
     const r = rt.runHeadless(200)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return { out, rt }
   }
 
@@ -1063,9 +1072,8 @@ describe('slice 5: disk and DOS objects', () => {
    * in 1.50) calls GetDiskObject and walks do_ToolTypes at $36, which is the
    * offset that pinned the DiskObject layout in ../amiga/icon.ts.
    */
-  it('Tool Types$ reads a real Workbench icon, and terminates each with CR LF', () => {
-    const icon = ICON_WITH_TOOLTYPES
-    if (!icon) return // the archive is not present
+  it.skipIf(!ICON_WITH_TOOLTYPES)('Tool Types$ reads a real Workbench icon, and terminates each with CR LF', () => {
+    const icon = ICON_WITH_TOOLTYPES!
     const { out } = runFs(['Print "["+Tool Types$("Work:thing","X")+"]"'], { 'Work:thing.info': icon })
     const got = out.trim().slice(1, -1)
     // the manual promises Chr$(10) alone; the routine writes #$d then #$a, and
@@ -4515,7 +4523,7 @@ describe.skipIf(!existsSync(AMCAF_FONTS))('AMCAF: Change Font with a real face (
       fs,
     })
     const r = rt.runHeadless(200)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return rt
   }
 
@@ -4656,7 +4664,7 @@ describe('AMCAF: Launch, on the process seam', () => {
       ...(host ? { host } : {}),
     })
     const r = rt.runHeadless(200)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return rt
   }
 
@@ -4715,7 +4723,7 @@ describe('AMCAF: Pptodisk (routines 234 and 235)', () => {
       fs,
     })
     const r = rt.runHeadless(400)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return { rt, fs }
   }
 
@@ -4803,7 +4811,7 @@ describe('AMCAF: the extension table', () => {
     })
     prepare?.(rt)
     const r = rt.runHeadless(200)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return { out, rt }
   }
 
@@ -4899,7 +4907,7 @@ describe('AMCAF: Imploder Load and Imploder Unpack', () => {
       onText: (t) => (out += t),
     })
     const r = rt.runHeadless(200)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return { rt, fs }
   }
 

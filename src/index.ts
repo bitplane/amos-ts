@@ -22,12 +22,20 @@ export {
 export type { Extension, ExtensionInfo } from './ext/registry'
 export type { TokenDef } from './tokens/tables.gen'
 export { tokenize, TokenizeError } from './tokens/tokenizer'
-export { Interp, AmosRuntimeError } from './interp/interp'
-export type { InterpOptions, RunResult } from './interp/interp'
+// The one-call path from bytes to something runnable: it works out the token
+// table, the extension slots and the banks, which is otherwise four modules'
+// worth of assembly a consumer has to rediscover. Both CLI runners and the web
+// player go through it, and neither could without reaching past the package.
+export { isAmosProgram, loadProgram } from './loader/program'
+export type { LoadedProgram } from './loader/program'
+export { Interp, AmosRuntimeError, newInputState } from './interp/interp'
+export type { InterpOptions, RunResult, InputState } from './interp/interp'
+// what a keyword handler IS — needed to write one, and to type a table of them
+export type { Instr, Func } from './interp/builtins'
 export { BufferIO } from './interp/io'
 export type { AmosIO } from './interp/io'
 export { prescan } from './interp/prescan'
-export type { Program, Addr, ProcInfo } from './interp/prescan'
+export type { Program, Addr, ProcInfo, Ctrl } from './interp/prescan'
 export { VI, VF, VS, display, AmosError } from './interp/values'
 export type { Value } from './interp/values'
 export { Runtime } from './runtime/runtime'

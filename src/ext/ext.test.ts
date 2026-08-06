@@ -147,6 +147,51 @@ describe('extension registry (src/ext/registry.ts)', () => {
     ).toEqual([])
   })
 
+  /**
+   * An id is a KEY, not a version claim.
+   *
+   * Seven ids carry a version suffix their own `version` field contradicts —
+   * `ctext-1.0` is version 1.32, `range-2.0` is 2.9Plus — and that is
+   * deliberate every time: the id was assigned before the binary was read, and
+   * renaming it would break the citations, the coverage manifest and every
+   * test that names it. The `version` field is what the library says about
+   * itself; the id is the spelling everything else refers to it by.
+   *
+   * Deliberate is not the same as safe, though. `personnal-extra-1.0a` was
+   * RENAMED when its source settled the version at 1.0a, and the `version`
+   * field was left reading 1.3 — the exact value the rename existed to
+   * correct. So the rule is checked: where the two disagree, the manifest's
+   * own prose must state the authoritative version, which is the thing that
+   * makes the disagreement readable rather than a discrepancy.
+   */
+  it('explains every id whose version suffix disagrees with its version field', () => {
+    const manifests = join(root, 'src', 'ext', 'manifests')
+    const offenders: string[] = []
+    for (const f of readdirSync(manifests).filter((n) => n.endsWith('.json'))) {
+      const m = JSON.parse(readFileSync(join(manifests, f), 'utf8')) as {
+        id: string
+        version?: string
+        notes?: string
+        provenance?: { note?: string }
+      }
+      const suffix = /-([0-9][0-9a-z.]*)$/.exec(m.id)?.[1]
+      if (!suffix || !m.version) continue
+      // "Beta 1.5" against a `1.5b` suffix is the same release spelled two
+      // ways — compare the dotted numbers, which is the part an id encodes
+      const dotted = (s: string) => /[0-9]+(\.[0-9]+)*/.exec(s)?.[0] ?? ''
+      if (dotted(suffix) === dotted(m.version)) continue
+      const prose = `${m.notes ?? ''} ${m.provenance?.note ?? ''}`
+      if (!prose.includes(m.version)) {
+        offenders.push(`${m.id} is version ${m.version} and neither note says so`)
+      }
+    }
+    expect(
+      offenders,
+      'the id is a stable key and the version field is authoritative — say so ' +
+        'in the notes, quoting what the binary or its documentation states',
+    ).toEqual([])
+  })
+
   it('binds the stock extensions to the slots +Interpreter_Config.s gives them', () => {
     // message 15+n holds the filename for slot n (+B.s:2149-2166)
     const bound = defaultSlotBindings()

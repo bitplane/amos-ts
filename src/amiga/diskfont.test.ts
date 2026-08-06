@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { glyphBit, glyphMetrics, parseDiskFont, parseFontDescriptor } from './diskfont'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -53,7 +54,7 @@ describe.skipIf(!existsSync(FONTS))('Set Font renders real disc fonts (TSFont/Av
     let out = ''
     const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, fs, onText: (t) => (out += t) })
     const r = rt.runHeadless(1_000)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return { rt, out }
   }
 

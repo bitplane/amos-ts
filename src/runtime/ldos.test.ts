@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -45,7 +46,7 @@ function run(
     ...extra,
   })
   const r = rt.runHeadless(1_000)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return { out, fs, rt }
 }
 
@@ -1223,7 +1224,7 @@ describe('LDos: Lrun and Lexecute (LdosV25.DOC, routines 50 and 51)', () => {
       ...extra,
     })
     const r = rt.runHeadless(1_000)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return { out, fs }
   }
 

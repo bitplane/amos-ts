@@ -1,4 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { HUNK_CODE, HUNK_DATA, HUNK_END, HUNK_HEADER, HUNK_RELOC32, hunkAt, loadHunks, readPtr } from './hunk'
 
@@ -75,7 +77,11 @@ describe('AmigaDOS hunk loading (RKRM "AmigaDOS Object File Format")', () => {
 
 // AMOS 3D's engine is the reason this loader exists; fixtures/ is gitignored,
 // so this only runs where the library is present.
-const c3d = 'fixtures/extensions/amos3d-1.0/engine/c3d.lib'
+// resolved from this file, not the cwd: every fixture read here is guarded
+// by existsSync, so a wrong working directory would SKIP the test rather than
+// fail it
+const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
+const c3d = join(root, 'fixtures/extensions/amos3d-1.0/engine/c3d.lib')
 describe.skipIf(!existsSync(c3d))('AMOS 3D engine (c3d.lib)', () => {
   it('relocates all 29 hunks and exposes the jump table at hunk0+$d0', () => {
     const l = loadHunks(new Uint8Array(readFileSync(c3d)))

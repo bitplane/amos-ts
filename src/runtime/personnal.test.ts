@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { extensionById } from '../ext/registry'
@@ -26,7 +27,7 @@ function run(src: string, fs?: AmigaFS): Runtime {
     ...(fs ? { fs } : {}),
   })
   const r = rt.runHeadless(500)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return rt
 }
 

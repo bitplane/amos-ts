@@ -2,7 +2,7 @@
  * AMOS values: 32-bit signed integers, floats and strings.
  * Variable type is part of the name: A (int), A# (float), A$ (string).
  */
-import { ED_RUN_MESSAGES } from '../runtime/edmessages.gen'
+import { ED_RUN_MESSAGES } from './errors.gen'
 
 export type Value =
   | { k: 'int'; n: number }
@@ -68,7 +68,11 @@ export const AMOS_ERRORS: Record<number, string> = Object.fromEntries(
   ),
 )
 
-/** AMOS error codes used at throw sites (Errn / Err$ / Error). */
+/**
+ * The AMOS error numbers `Errn` reports, and what `amosErrorCode` maps a
+ * thrown message onto. NOT used at throw sites — see amosErrorCode for why
+ * the message strings are load-bearing and this table is the recovery.
+ */
 export const ERR = {
   RETURN_NO_GOSUB: 1,
   POP_NO_GOSUB: 2,
@@ -98,6 +102,20 @@ export class AmosError extends Error {
   ) {
     super(message)
   }
+}
+
+/**
+ * AMOS's catch-all fault, and the single most common throw in this port.
+ *
+ * The 68k spelling is `moveq #23,d0 / Rbra L_GoError` and the ports write it
+ * out inline the same way. This exists because five of them had grown a
+ * private `funcCall()` of their own — tome, sticks, powerbobs, turbo, p61 —
+ * which is five places for the message string to drift, and the string is
+ * load-bearing: `amosErrorCode` recovers the number from it whenever a throw
+ * site omits the code.
+ */
+export function funcCall(): never {
+  throw new AmosError('Illegal function call', ERR.FUNC_CALL)
 }
 
 /** Map a thrown error to its AMOS number (explicit code, else by message). */
@@ -150,10 +168,6 @@ export function varType(flags: number): VarType {
   if (flags & 0x01) return 1
   if (flags & 0x02) return 2
   return 0
-}
-
-export function typeSuffix(t: VarType): string {
-  return t === 1 ? '#' : t === 2 ? '$' : ''
 }
 
 export function defaultValue(t: VarType): Value {

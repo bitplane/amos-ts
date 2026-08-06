@@ -7,6 +7,7 @@
  * so a future reader can go back to the instruction that decided a behaviour.
  */
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -50,7 +51,7 @@ function run(src: string, font?: Uint8Array): { out: string; rt: Runtime } {
   })
   if (font) rt.ctext.block.set(font, CT.TABLES)
   const r = rt.runHeadless(2_000)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return { out, rt }
 }
 

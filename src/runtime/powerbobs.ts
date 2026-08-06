@@ -64,7 +64,7 @@
  * it; the names were being read against AMOS Pro 2.0's external list, where
  * an extension is numbered against the 1.34 / Pro 1.0 developer kit.
  */
-import { AmosError, VI, int } from '../interp/values'
+import { AmosError, VI, funcCall, int } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
@@ -245,10 +245,8 @@ export const newPowerBobsState = (): PowerBobsState => ({
   fps25b: 0,
 })
 
-/** Routine 125: `moveq #$17,d0` — AMOS 23. Every range check lands here. */
-const funcCall = (): never => {
-  throw new AmosError('Illegal function call', 23)
-}
+// Routine 125 is `moveq #$17,d0` — AMOS 23. Every range check lands on the
+// shared funcCall().
 
 /**
  * The most Pbobs this build will reserve.

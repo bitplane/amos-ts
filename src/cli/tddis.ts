@@ -40,13 +40,13 @@
  *
  * Run: npm run cli -- src/cli/tddis.ts [keyword|#index] [--table]
  */
-import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { firstCodeHunk } from '../tokens/libtok'
 import { extensionById } from '../ext/registry'
 import { hunkAt, loadHunks, readPtr } from '../amiga/hunk'
+import { disasm } from './m68k'
 
 const args = process.argv.slice(2)
 const showTable = args.includes('--table')
@@ -155,28 +155,13 @@ function signature(d0: number): string {
   return pushed.length ? pushed.join(', ') : '(none)'
 }
 
+/**
+ * The engine is an ordinary relocated Amiga library, not an AMOS extension, so
+ * it carries no AMOS call pseudo-instructions — `amosCalls` stays off.
+ */
 function disassemble(from: number, length: number): string {
-  const py = join(root, 'node_modules', '.cache', 'tddis.py')
-  const bin = join(root, 'node_modules', '.cache', 'tddis.bin')
-  writeFileSync(bin, engine.image.subarray(from - engine.base, from - engine.base + length))
-  writeFileSync(
-    py,
-    [
-      'import sys',
-      'from capstone import *',
-      "c = open(sys.argv[1],'rb').read()",
-      'md = Cs(CS_ARCH_M68K, CS_MODE_BIG_ENDIAN | CS_MODE_M68K_000)',
-      'for i in md.disasm(c, int(sys.argv[2])):',
-      "    print('  %07x  %-10s %s' % (i.address, i.mnemonic, i.op_str))",
-    ].join('\n'),
-  )
-  try {
-    return execFileSync('python3', [py, bin, String(from)], { encoding: 'utf8' })
-  } catch {
-    return '  (disassembly needs python3 with capstone)\n'
-  } finally {
-    for (const f of [py, bin]) if (existsSync(f)) unlinkSync(f)
-  }
+  const lines = disasm(engine.image, engine.base, from, from + length)
+  return lines === null ? '  (disassembly needs python3 with capstone)\n' : lines.join('\n') + '\n'
 }
 
 console.log(`amos3d-1.0: 3d.lib stub + engine/c3d.lib`)

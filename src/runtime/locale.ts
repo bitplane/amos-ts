@@ -400,13 +400,3 @@ export function makeLocaleFunctions(rt: Runtime): Record<string, Func> {
 }
 
 type VSResult = ReturnType<typeof VS>
-
-/** what this file implements, for the coverage manifest */
-export const LOCALE_IMPLEMENTED: readonly string[] = [
-  'open catalog', 'close catalog', 'catalog string$', 'catalog active',
-  'emit catalog description', 'emit close',
-  'locale string$', 'locale active', 'locale compare',
-  'locale lower$', 'locale upper$', 'lowerchar', 'upperchar',
-  'format date$', 'date$', 'time$', 'datetime$',
-  'short date$', 'short time$', 'short datetime$',
-]

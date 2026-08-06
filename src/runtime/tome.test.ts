@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { firstCodeHunk } from '../tokens/libtok'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -70,7 +71,7 @@ function run(
   if (opts.types) rt.memBanks.set(3, { kind: 'memory', number: 3, memType: 0, name: 'Type', flags: 0, data: opts.types })
   rt.iconBank = icons(opts.nIcons ?? 8)
   const r = rt.runHeadless(500)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return rt
 }
 

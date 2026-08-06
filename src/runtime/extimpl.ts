@@ -141,6 +141,11 @@ export interface ExtensionImpl {
    * A declaration point, not a mechanism: each port still raises its own
    * errors, but "which messages can this extension produce" is answerable from
    * the identity now instead of by knowing which module to open.
+   *
+   * `extimpl.test.ts` checks it, because a declaration nothing reads and
+   * nothing checks is decoration — this field was set by six ports and skipped
+   * by five that export an identically shaped table, so the question it exists
+   * to answer had five silent wrong answers.
    */
   readonly errors?: readonly string[]
 }

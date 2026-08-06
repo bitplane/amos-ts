@@ -1,5 +1,8 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -23,7 +26,10 @@ const extensions = new Map([
   [TD_SLOT, extensionById('amos3d-1.0')!.table] as const,
 ])
 
-const OBJECTS = 'fixtures/extensions/amos3d-1.0/demos/AMOS_3D_demos/objects'
+// resolved from this file, not the cwd: the fixture reads here are guarded by
+// existsSync, so a wrong working directory would SKIP these rather than fail
+const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
+const OBJECTS = join(root, 'fixtures/extensions/amos3d-1.0/demos/AMOS_3D_demos/objects')
 /** fixtures/ is gitignored, so a fresh clone and CI skip everything below */
 const HAVE_OBJECTS = existsSync(OBJECTS)
 
@@ -40,7 +46,7 @@ function run(src: string, files: Record<string, Uint8Array> = {}): { out: string
     onText: (t) => (out += t),
   })
   const r = rt.runHeadless(2_000)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return { out, rt }
 }
 
@@ -379,7 +385,7 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D geometry (vertex transform at $21085c, f
 })
 
 describe('AMOS 3D rotation (matrix builder at $213df8, vertex loop at $2108a2)', () => {
-  const C3D = 'fixtures/extensions/amos3d-1.0/engine/c3d.lib'
+  const C3D = join(root, 'fixtures/extensions/amos3d-1.0/engine/c3d.lib')
 
   it.skipIf(!existsSync(C3D))('generates the engine’s own quarter-sine table', () => {
     // a4+$270 is the table and a4+$670 its last entry; with a4 at $219e40 in
@@ -1374,7 +1380,7 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D bearings (core $219200, atan2 $21939e, t
   it('generates the arctangent table the library ships', () => {
     // thirty-three words straight after the sine table, floor(atan(i/32) *
     // 65536 / 2pi), ending at $2000 — forty-five degrees
-    const engine = loadHunks(new Uint8Array(readFileSync('fixtures/extensions/amos3d-1.0/engine/c3d.lib')))
+    const engine = loadHunks(new Uint8Array(readFileSync(join(root, 'fixtures/extensions/amos3d-1.0/engine/c3d.lib'))))
     const v = new DataView(engine.image.buffer, engine.image.byteOffset, engine.image.byteLength)
     const at = 0x219e40 + 0x672 - engine.base
     for (let i = 0; i <= 32; i++) expect(v.getInt16(at + i * 2, false), `entry ${i}`).toBe(TD_ARCTAN[i])

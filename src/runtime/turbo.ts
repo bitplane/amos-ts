@@ -38,7 +38,7 @@
  * that stopped being necessary, and the manual says so, but programs kept
  * using them for compatibility.
  */
-import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
+import { AmosError, VI, VS, funcCall, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Interp } from '../interp/interp'
 import type { BankImage, ObjectBank } from './objects'
@@ -99,12 +99,8 @@ function turboError(n: number): never {
   throw new AmosError(TURBO_ERRORS[n] ?? `TURBO error ${n}`)
 }
 
-/** `Rbra routine 62` / `Rbra routine 64`: TURBO's two exits into AMOS's own errors */
-// annotated rather than inferred so a call counts as an exit for the
-// compiler's control-flow analysis
-const funcCall: () => never = () => {
-  throw new AmosError('Illegal function call', 23)
-}
+// `Rbra routine 62` / `Rbra routine 64` are TURBO's two exits into AMOS's own
+// errors: turboError above, and the shared funcCall() for 23.
 
 /**
  * A TURBO Check zone: its own rectangle system, not AMOS's.

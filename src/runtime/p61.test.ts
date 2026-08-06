@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -24,7 +25,7 @@ function run(src: string, bank?: Uint8Array): Runtime {
   })
   if (bank) rt.memBanks.set(1, { kind: 'memory', number: 1, memType: 0, name: 'Mod', flags: 0, data: bank })
   const r = rt.runHeadless(500)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return rt
 }
 

@@ -15,7 +15,6 @@ import {
   int,
   num,
   str,
-  truthy,
   varType,
 } from './values'
 import type { Value, VarType } from './values'
@@ -276,7 +275,6 @@ export class Interp {
   // default tab = 4, from the window-open defaults (Wo3a in +W.s)
   tabWidth = 4
   col = 0
-  private rng = 0x2545f491
   /** Rnd state (FnRnd in +Lib.s): LCG seed and the last result for Rnd(0) */
   rndSeed = 0x1234
   oldRnd = 0
@@ -1139,18 +1137,7 @@ export class Interp {
   // ---- random ------------------------------------------------------------
 
   seedRandom(seed: number): void {
-    this.rng = seed | 0 || 0x2545f491
     this.rndSeed = seed >>> 0
-  }
-
-  random(): number {
-    // xorshift32
-    let x = this.rng
-    x ^= x << 13
-    x ^= x >>> 17
-    x ^= x << 5
-    this.rng = x | 0
-    return (x >>> 0) / 0x100000000
   }
 
   /**
@@ -1420,4 +1407,3 @@ function binOp(op: string, a: Value, b: Value, double = false): Value {
   }
 }
 
-export { display, truthy }

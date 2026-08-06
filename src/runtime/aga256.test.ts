@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -29,7 +30,7 @@ function run(src: string | string[], withStars = false): Runtime {
     ...(ext ? { extensions: ext } : {}),
   })
   const r = rt.runHeadless(2_000)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   // the list is INTERPRETED during composite, and that is what writes the
   // register file back to copRegs -- reading it before compositing sees the
   // state as the frame started, which is all zeros

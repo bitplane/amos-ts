@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { EXTENSION_TOKENS } from '../ext/registry'
@@ -93,7 +94,7 @@ describe('Squash / Unsquash keywords (+CompExt.s)', () => {
     let out = ''
     const rt = new Runtime(tokenize(src, table, extensions), table, { extensions, maxSteps: 300_000, onText: (t) => (out += t) })
     const r = rt.runHeadless(1_000)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return out
   }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -15,7 +16,7 @@ function boot(src: string): Runtime {
 function run(src: string): Runtime {
   const rt = boot(src)
   const r = rt.runHeadless(1_000)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return rt
 }
 
@@ -24,7 +25,7 @@ function runOut(src: string): string {
   let out = ''
   const rt = new Runtime(tokenize(src, table), table, { maxSteps: 200_000, onText: (t) => (out += t) })
   const r = rt.runHeadless(1_000)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return out
 }
 

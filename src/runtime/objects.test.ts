@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { mintermBit } from '../amiga/blitter'
 import { bobBltcon0 } from './objects'
 import { TokenTable } from '../tokens/stream'
@@ -12,7 +13,7 @@ const table = new TokenTable(CORE_TOKENS)
 function run(src: string): Runtime {
   const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000 })
   const r = rt.runHeadless(1_000)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return rt
 }
 
@@ -20,7 +21,7 @@ function runOut(src: string): string {
   let out = ''
   const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, onText: (t) => (out += t) })
   const r = rt.runHeadless(1_000)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return out
 }
 

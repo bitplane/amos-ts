@@ -14,7 +14,6 @@ import { MAX_PORT, PORT_MOUSE } from './gameport'
 export type Instr = (it: Interp, tok: Tok, addr: Addr) => void | 'jumped'
 export type Func = (it: Interp, args: Value[]) => Value
 
-const tokAt = (it: Interp, a: Addr): Tok | undefined => it.program.lines[a.li]?.tokens[a.ti]
 
 function jumpFalse(it: Interp, onFalse: Addr): 'jumped' {
   it.setPc(onFalse)
@@ -1324,4 +1323,3 @@ export const FUNCS: Record<string, Func> = {
   },
 }
 
-export { tokAt }

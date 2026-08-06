@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { existsSync, readFileSync } from 'node:fs'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -42,7 +43,7 @@ function run(
     onText: (t) => (out += t),
   })
   const r = rt.runHeadless(200)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return { out, rt, fs }
 }
 const val = (expr: string): string => run(`Print ${expr}`).out.trim()

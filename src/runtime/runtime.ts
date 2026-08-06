@@ -3478,6 +3478,19 @@ export class Runtime {
   // ---- the clock ----
 
   /** Advance one 50Hz frame: release expired waits, run a slice. */
+  /**
+   * One vertical blank, then a slice of the program.
+   *
+   * NOTE: the extension hooks below are hand-written in a FIXED order and that
+   * order is the machine's, not this file's convenience. Each one names where
+   * its library installs itself — `VblRout[0]` and `[1]` for Jotre and Ercole
+   * (+Equ.s:1177), VBLANK server priorities 9 and -40 for TURBO's two — and
+   * they are interleaved with AMOS's own vbl work rather than grouped: the
+   * replayers run before the shifts and fades, TURBO's scroll and starfield
+   * after AMAL. Collecting them into a `vbl` hook on ExtensionImpl and
+   * iterating would lose both facts, so they stay written out. A new port's
+   * hook goes at the position its library's own priority puts it.
+   */
   frame(): RunResult {
     this.interp.tick++
     // MusInt is the first VBL routine (Mus_Cold +Music.s:848)

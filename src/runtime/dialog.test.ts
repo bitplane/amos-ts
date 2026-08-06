@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { parseAmosFile } from '../loader/amosfile'
 import { isResourceBankName, parseResourceBank } from '../loader/resource'
 import { Cursor, DialogChannel, DialogError, evalExpr, prescanDialog, splitHyperLines, updateZone } from './dialog'
@@ -652,7 +653,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('dialog keywords', () => {
     const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, onText: (t) => (out += t) })
     rt.loadSystemResource(readFileSync(DEFAULT_ABK))
     const r = rt.runHeadless(1_000)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return { rt, out }
   }
 

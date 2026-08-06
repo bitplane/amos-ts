@@ -53,6 +53,10 @@ src/
   tokens/    token table, detokenizer (listings from tokenized programs)
   interp/    the interpreter: values, variables, control flow, instructions
   runtime/   the "virtual Amiga": screens, bobs, sprites, AMAL, audio, input
+  amiga/     the modelled machine and OS beneath it — Paula, the blitter,
+             graphics.library, dos.library, the ProTracker replay, the VFS
+  ext/       the extension registry: identities, token tables, citations
+  coverage/  what is implemented and how well it is known (status.ts)
   cli/       node CLI tools (list/unpack/inspect AMOS files)
   web/       browser runner
 fixtures/    gitignored — real .AMOS programs and .Abk banks for testing
@@ -94,46 +98,82 @@ CLI tools in `src/cli/`:
 | `libdemand.ts` | rank extensions by how many programs identify to them |
 | `extdis.ts` | resolve an extension keyword to its 68k routine and disassemble it |
 | `tddis.ts` | AMOS 3D: resolve a keyword to its engine routine and disassemble it |
+| `extaudit.ts` | which of an extension's implemented keywords have been read against its binary |
+| `citecheck.ts` | every `routine N ($ADDR)` citation still names the code it claims to |
+| `contested.ts` | keyword names two ported products both claim, and who answers |
+| `libcat.ts` | catalogue a directory of `.Lib` files by identity |
+| `libpool.ts` | pool several collections and report what is new |
 | `adfx.ts` | read an Amiga floppy image |
+| `nodefs.ts`, `walk.ts` | the node filesystem and corpus-walking helpers the others share |
+
+The `gen*` tools regenerate checked-in data from the original material, and are
+listed separately because running one is a deliberate act. They group by what
+they read, which is what decides whether they can be chained:
+
+- `npm run gentables` — everything whose input is the AMOS Professional source
+  tree or `fixtures/`: `gentable.ts`, `genext.ts`, `genedmsg.ts`,
+  `genmouse.ts`, `genamoscalls.ts`, `genpiconfig.ts`, `genptrig.ts`. Each
+  takes the tree's path as its first argument and defaults to
+  `../AMOS-Professional-Official`.
+- `npm run gendocs` — `genmanifest.ts` and `genextdoc.ts`, which read the
+  committed tables rather than the libraries, so they work without `fixtures/`.
+- `genfont.ts`, `genjdcrypt.ts` and `genlocale.ts` are one-off imports from
+  material that is neither: a PSF console font, JD's own unpacked source, and
+  an AROS checkout. Run each by hand with its path when that source changes.
 
 Disassembly tools need `python3` with `capstone`.
 
 ## Status
 
-**Core AMOS Professional is complete.** Every core area in `KEYWORDS.md` reads
-100%: language, screens, drawing, menus, banks, text-io, objects, input, files,
-memory, system, interface, AMAL, copper, palette, rainbows, windows and zones.
-1089 keywords implemented, **1045 of them faithful** — verified against the 68k
+**Core AMOS Professional is complete**, and so is every extension the port has
+started. All twenty core areas in `KEYWORDS.md` read 100% — language, screens,
+drawing, menus, banks, text-io, objects, input, files, flow, memory, system,
+interface, AMAL, copper, palette, rainbows, windows and zones — as do
+forty-nine extension releases, among them AMCAF, the JD family, TOME, TURBO
+Plus, Personnal, LDos, AMOS 3D, MED, EME and P61. Nothing is half-ported: the
+remainder are extensions not yet begun.
+
+**3244 keywords implemented, 3137 of them faithful** — verified against the 68k
 source, corroborated by byte-exact artifacts and by the official manual where
 they agree. The order matters and is the project's governing rule: the code
 that shipped outranks the prose about it, and documentation is evidence only
-where there is no binary to read. `npm test` says how many tests that took; a
-count here would be stale by the next commit.
+where there is no binary to read. That rule applies to this file too, which is
+why the numbers above are the ones `KEYWORDS.md` last generated rather than a
+remembered figure. `npm test` says how many tests it took; a count here would
+be stale by the next commit.
 
 **Every extension a stock AMOS Professional installs is complete**: Music (49,
 including `Say` and the mouth stream), Compact, Compiler, Requester, and
 IOPorts (38 — Serial, Printer and Parallel, with `Printer Dump` rendering a
 page and `Serial Open` reaching real hardware through Web Serial).
 
-Four third-party extensions are complete: **AMOS 3D** (64 keywords, the engine
-reverse-engineered from `c3d.lib` — see `docs/amos3d/README.md`), **Personnal**
-(116 across 1.0b and 1.1), **TURBO Plus** (153 across three versions) and
-**LDos 2.5** (77).
+The third-party extensions are the bulk of it. The largest: **AMCAF** (280
+across 1.40 and 1.50), **TURBO Plus** (153 across three versions), **Personnal**
+(128 across 1.0b and 1.1), **LDos** (85 across 2.5 and 2.6), **jd-prt** (69),
+**TOME** (67), **PowerBobs** (65), **AMOS 3D** (64, the engine reverse-engineered
+from `c3d.lib` — see `docs/amos3d/README.md`), **EME 3.0** (59) and **JD** (56).
+`KEYWORDS.md` has the full table; the short version is that no row sits between
+0% and 100%.
 
 ### Corpus census
 
-`npx tsx src/cli/runreport.ts --all` runs all 490 corpus programs headless.
+`npx tsx src/cli/runreport.ts --all` runs all 497 corpus programs headless.
 
 | | |
 |---|---|
-| run to a stop | 480 |
-| **run with nothing skipped** | **430 (90%)** |
-| hit something unimplemented | 50 |
+| run to a stop | 479 |
+| **run with nothing skipped** | **431 (90%)** |
+| hit something unimplemented | 48 |
 
 Read the second row, not the "ended with nothing skipped" line the tool
 prints. That line counts only programs that *terminate*, and most AMOS
-programs are games and demos that never do — 234 hit the step cap and 139
+programs are games and demos that never do — 235 hit the step cap and 139
 block waiting on input, both of which are correct behaviour, not failure.
+
+That 90% is closer to a ceiling than it looks. Ranked by programs blocked
+rather than occurrences, the top gaps are `dreg` (29 programs), `doscall` (14),
+`call` and `areg` (4 each) — all of them **n/a by policy**, because this port
+reads 68k machine code and never executes it. No keyword work moves them.
 
 `--by-program` says what the 50 are blocked on, but it counts programs per
 keyword rather than partitioning them, so its rows overlap and cannot be

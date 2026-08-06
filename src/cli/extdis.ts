@@ -33,14 +33,14 @@
  *
  * Run: npm run cli -- src/cli/extdis.ts <extension-id> [keyword] [--map]
  */
-import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { firstCodeHunk } from '../tokens/libtok'
 import { routineAddresses } from '../ext/routines'
 import { extensionById, REGISTRY } from '../ext/registry'
 import { amosVector } from '../ext/amosvectors'
+import { disasm } from './m68k'
 import { AMOS_CALL_KINDS, AMOS_CALL_LOW, AMOS_CALL_MARKER, AMOS_CALL_SEL_J, AMOS_CALL_SEL_T, AMOS_EXT_LABELS, AMOS_ROUTINES } from '../ext/amoscalls.gen'
 
 const args = process.argv.slice(2)
@@ -304,47 +304,12 @@ function disassemble(label: string, n: number): void {
   const end = addr[n + 1] ?? code.length
   console.log(`\n=== ${label} (routine ${n}) $${start.toString(16)}..$${end.toString(16)}, ${end - start} bytes ===`)
   {
-    try {
-      // built line by line: a template literal would eat the Python
-      // f-strings' braces and dollars
-      const py = [
-        'import sys',
-        'from capstone import *',
-        "c = open(sys.argv[1],'rb').read()",
-        // 020, not 000. Several extensions are assembled with the long form
-        // of Bcc -- an $FF displacement byte followed by a 32-bit offset --
-        // which the 68000 does not have. In 000 mode capstone emitted a
-        // `dc.w $67ff` and then resynced one word late, so every loop in the
-        // routine came out as a run of nonsense that looked like data. The
-        // instruction set is otherwise a superset, so nothing else changes.
-        'md = Cs(CS_ARCH_M68K, CS_MODE_BIG_ENDIAN | CS_MODE_M68K_020)',
-        'start, end = int(sys.argv[2]), int(sys.argv[3])',
-        'pos = start',
-        // The AMOS call pseudo-instructions are checked BEFORE capstone at
-        // every boundary, and never handed to it. In 020 mode an $F-line word
-        // is a legal coprocessor opcode, so capstone consumes the pseudo-op
-        // AND whatever follows, then resyncs mid-instruction. Letting it see
-        // one at all is what desynced the listing; rewriting its output
-        // afterwards could not fix that, because by then the boundaries were
-        // already wrong. Sizes come from +CEqu.s: kinds 0 and 1 carry a
-        // selector pair and are six bytes, the rest are four.
-        'while pos < end:',
-        '    if c[pos] == 0xFE and (c[pos + 1] & 0x0F) == 0x01:',
-        '        k = c[pos + 1] >> 4',
-        '        size = 6 if k in (0, 1) else 4',
-        '        print("  %07x  .amoscall  %d" % (pos, size)); pos += size; continue',
-        '    hit = False',
-        '    for i in md.disasm(c[pos:end], pos):',
-        '        print("  %07x  %-10s %s" % (i.address, i.mnemonic, i.op_str))',
-        '        pos = i.address + i.size; hit = True; break',
-        '    if not hit:',
-        '        print("  %07x  .dc.w      $%04x" % (pos, (c[pos] << 8) | c[pos + 1])); pos += 2',
-      ].join('\n')
-      const tmp = join(process.env.TMPDIR ?? '/tmp', 'extdis-' + String(process.pid) + '.bin')
-      writeFileSync(tmp, code)
-      const raw = execFileSync('python3', ['-c', py, tmp, String(start), String(end)], { encoding: 'utf8' }).trimEnd()
-      // the walk marks each pseudo-instruction as `.amoscall <size>` and
-      // steps over it; naming it is all that is left to do here
+    // the walk marks each pseudo-instruction as `.amoscall <size>` and
+    // steps over it; naming it is all that is left to do here
+    const raw = disasm(code, 0, start, end, { amosCalls: true })
+    if (raw === null) {
+      console.log('  (python3 + capstone not available — address range printed above)')
+    } else {
       const runs = textRuns(start, end)
       const lines: string[] = []
       let skipUntil = -1
@@ -377,7 +342,7 @@ function disassemble(label: string, n: number): void {
         a5slot = load ? parseInt(load[1]!, 16) : null
         return named ? `${text.trimEnd()}   ${named}` : text
       }
-      for (const line of raw.split('\n')) {
+      for (const line of raw) {
         const m = /^\s*([0-9a-f]+)\s+(\S+)/.exec(line)
         const at = m ? parseInt(m[1]!, 16) : -1
         if (at >= 0 && at < skipUntil) continue
@@ -400,9 +365,6 @@ function disassemble(label: string, n: number): void {
         }
       }
       console.log(lines.join('\n'))
-      unlinkSync(tmp)
-    } catch {
-      console.log('  (python3 + capstone not available — address range printed above)')
     }
   }
 }

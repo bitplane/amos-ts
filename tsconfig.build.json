@@ -1,9 +1,15 @@
 {
   "extends": "./tsconfig.json",
+  // What the PACKAGE is: src/index.ts and what it reaches. src/web is the
+  // demo application vite builds separately and src/cli is tooling; neither is
+  // reachable from the entry point, so their declarations were shipped in the
+  // tarball with nothing able to import them.
   "exclude": [
     "src/**/*.test.ts",
     "src/coverage/gate.ts",
     "src/coverage/probe.setup.ts",
-    "src/cli/**"
+    "src/cli/**",
+    "src/web/**",
+    "src/testing/**"
   ]
 }

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { parseAmosFile } from './amosfile'
 import { isResourceBankName, parseResourceBank } from './resource'
 import { TokenTable } from '../tokens/stream'
@@ -71,7 +72,7 @@ describe.skipIf(!existsSync(DEFAULT_ABK))('resource keywords', () => {
     const rt = new Runtime(tokenize(src, table), table, { maxSteps: 200_000, onText: (t) => (out += t) })
     rt.loadSystemResource(readFileSync(DEFAULT_ABK))
     const r = rt.runHeadless(1_000)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return { rt, out }
   }
 

@@ -59,12 +59,8 @@
  */
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
-import { VI, AmosError, int, type Value } from '../interp/values'
+import { VI, funcCall, int, type Value } from '../interp/values'
 import { MAX_PORT, PORT_JOYSTICK, PORT_MOUSE, joyDirections, joyFire } from '../interp/gameport'
-
-const funcCall: () => never = () => {
-  throw new AmosError('Illegal function call', 23)
-}
 
 /** one of the two mice: a tracked position and the box it is held inside */
 interface StickMouse {

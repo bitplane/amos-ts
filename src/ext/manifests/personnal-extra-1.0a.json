@@ -1,8 +1,8 @@
 {
   "id": "personnal-extra-1.0a",
   "name": "Personnal EXTRA",
-  "version": "1.3",
-  "author": "unattributed",
+  "version": "1.0a",
+  "author": "Frederic Cordier",
   "source": "binary",
   "library": "Personnal-EXTRA.Lib",
   "sha256": "f2c5d5ecb1a283ba108de3c53d0698f9f70611848d41e60afeded6cdb2fccf0c",

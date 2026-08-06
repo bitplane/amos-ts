@@ -629,11 +629,3 @@ export function makeJvpFunctions(rt: Runtime): Record<string, Func> {
     },
   }
 }
-
-/** what this file implements, for the coverage manifest */
-export const JVP_IMPLEMENTED: readonly string[] = [
-  'jvp bin sort', 'jvp bin sort type',
-  'jvp set str len', 'jvp set str sep', 'jvp str$', 'jvp cstr$',
-  'jvp set msg bank', 'jvp msg bank', 'jvp msg exists', 'jvp msg$',
-  'jvp version',
-]

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { EXTENSION_TOKENS } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
-import { ED_RUN_MESSAGES } from './edmessages.gen'
+import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 
 const table = new TokenTable(CORE_TOKENS)
 // Boom, Sam Loop Off, Mubase, Track Loop Of and Med * are Music-extension
@@ -16,7 +17,7 @@ const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, ne
 function run(src: string): Runtime {
   const rt = new Runtime(tokenize(src, table, extensions), table, { maxSteps: 300_000, extensions })
   const r = rt.runHeadless(1_000)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return rt
 }
 
@@ -24,7 +25,7 @@ function runOut(src: string): string {
   let out = ''
   const rt = new Runtime(tokenize(src, table, extensions), table, { maxSteps: 300_000, extensions, onText: (t) => (out += t) })
   const r = rt.runHeadless(1_000)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return out
 }
 

@@ -32,7 +32,7 @@
  * as `P61_x-P61_motuuli(a0)`: Master, FadeTo, FadeSpeed, FadeCount, Pos,
  * Patt, CRow, Tempo, E8, Play.
  */
-import { AmosError, VI, int } from '../interp/values'
+import { AmosError, VI, funcCall, int } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
@@ -133,10 +133,7 @@ export function p61Vbl(rt: Runtime): void {
   }
 }
 
-/** `Rblt L_IFonc` — AMOS 23. */
-const funcCall = (): never => {
-  throw new AmosError('Illegal function call', 23)
-}
+// `Rblt L_IFonc` is AMOS 23 — the shared funcCall().
 
 /**
  * `P61_timer`, the CIA clock the tempo divides.
@@ -360,8 +357,5 @@ export function makeP61Functions(rt: Runtime): Record<string, Func> {
     'p61 pos': (): Value => VI((rt.p61.pos << 16) >> 16),
   }
 }
-
-/** exported for the tests: the decoded module, if any */
-export const p61Module = (rt: Runtime): P61Module | null => rt.p61.module
 
 export { int }

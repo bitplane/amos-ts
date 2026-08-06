@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -11,7 +12,7 @@ const extensions = new Map([...EXTENSION_TOKENS].map(([slot, defs]) => [slot, ne
 function run(src: string): Runtime {
   const rt = new Runtime(tokenize(src, table, extensions), table, { maxSteps: 300_000, extensions })
   const r = rt.runHeadless(1_000)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return rt
 }
 
@@ -23,7 +24,7 @@ function runOut(src: string): string {
     onText: (t) => (out += t),
   })
   const r = rt.runHeadless(1_000)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return out
 }
 

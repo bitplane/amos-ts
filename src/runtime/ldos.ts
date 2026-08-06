@@ -2097,22 +2097,4 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
   } as Record<string, Func>
 }
 
-/** every LDos keyword this file implements, for the coverage manifest */
-export const LDOS_IMPLEMENTED: readonly string[] = [
-  'lopen', 'lclose', 'lset eoln', 'lbstr', 'lold', 'lcreate',
-  'lload', 'lsave', 'lseek', 'lsize', 'lfile type', 'lstr',
-  'lwords', 'lword', 'lwild', 'lmatch', 'lreplace', 'lfilter', 'lskip', 'lback hunt',
-  'lget comment', 'lset comment', 'lget prot', 'lset prot', 'ldate', 'lstamp', 'lset file date',
-  'lcat first', 'lcat next', 'lcat type', 'lcat size', 'lcat blocks', 'lcat prot', 'lcat comment',
-  'lcat stamp', 'lcat push', 'lcat pull', 'ldev first', 'ldev next', 'lldir$',
-  'lupbuffer', 'llobuffer', 'llargest free', 'lchk data', 'lchk boot',
-  'lset var', 'lget var', 'ldelete var', 'ldisk font', 'lcrypt', 'ldecrypt',
-  'lsys stamp', 'lsys time', 'lansi',
-  // 2.6's eight
-  'lcompress', 'ldecompress', 'lrol', 'lror',
-  'lhicol on', 'lhicol off', 'lstrcmp', 'lprot conv',
-  'lfreq', 'lset freq dir', 'lget freq file', 'lget freq dir', 'lpos freq', 'lcust freq',
-  'lfontsize freq', 'lpp mem', 'lpp decrunch',
-]
-
 export type { Value }

@@ -31,7 +31,7 @@ export type { ProcessHost, ExecuteRequest, LaunchRequest } from './process'
  * A host capability like `clock` and `serial`, and here for the same reason —
  * a headless run records the event stream, a browser feeds Web Audio, and the
  * runtime cannot tell which it has. The implementations live with their
- * callers: `NullAudio` in ../runtime/audio.ts records for the player tests,
+ * callers: `NullAudio` in ./paula.ts records for the player tests,
  * the browser one in ../web/audio.ts.
  */
 export interface AudioSink {

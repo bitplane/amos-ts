@@ -26,7 +26,7 @@
  * differ in a way a program can observe through Serial Check.
  */
 import { AmosError } from '../interp/values'
-import { ED_RUN_MESSAGES } from './edmessages.gen'
+import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 
 /**
  * AMOS run-time error N, with the interpreter's own wording.

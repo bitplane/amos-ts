@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { encodeIlbm, parseIlbm } from './iff'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
@@ -31,7 +32,7 @@ describe('ILBM encoder (Save Iff)', () => {
   })
 })
 
-describe.skipIf(false)('Save Iff / Save / Pload / Picture / Mask Iff (round-trip on disk)', () => {
+describe('Save Iff / Save / Pload / Picture / Mask Iff (round-trip on disk)', () => {
   const table = new TokenTable(CORE_TOKENS)
   function run(src: string): string {
     const fs = new AmigaFS()
@@ -40,7 +41,7 @@ describe.skipIf(false)('Save Iff / Save / Pload / Picture / Mask Iff (round-trip
     let out = ''
     const rt = new Runtime(tokenize(src, table), table, { maxSteps: 300_000, fs, onText: (t) => (out += t) })
     const r = rt.runHeadless(1_000)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`status ${r.status}`)
+    mustFinish(r)
     return out
   }
 

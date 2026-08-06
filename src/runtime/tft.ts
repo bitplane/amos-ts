@@ -387,12 +387,3 @@ export function makeTftFunctions(rt: Runtime): Record<string, Func> {
     },
   }
 }
-
-/** what this file implements, for the coverage manifest */
-export const TFT_IMPLEMENTED: readonly string[] = [
-  'cpu clear', 'cpu clear pal', 'cpu clear ntsc', 'init cpu clear',
-  'qsort', 'var mask', 'get high word', 'get low word', 'tft version',
-  'get timer', 'init timer', 'start timer', 'stop timer',
-  'start int', 'stop int', 'init bpl scroll',
-  'get xmouse', 'get ymouse', 'tft error$', 'set bpl',
-]

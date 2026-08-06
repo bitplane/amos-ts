@@ -78,7 +78,7 @@
  *               tile whose icon number equals the count is legal.
  */
 import { bltBitMap } from '../amiga/blitter'
-import { AmosError, VI, VS, int } from '../interp/values'
+import { AmosError, VI, VS, funcCall, int } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
@@ -237,10 +237,9 @@ export const newTomeState = (): TomeState => ({
   tinyStep: 0,
 })
 
-/** AMOS error 23, routine 81's `moveq #$17,d0 / Rjmp <AMOS 1024>`. */
-const funcCall = (): never => {
-  throw new AmosError('Illegal function call', 23)
-}
+// AMOS error 23 is the shared funcCall(), imported above — routine 81's
+// `moveq #$17,d0 / Rjmp <AMOS 1024>`.
+
 /** AMOS error 74, routine 82's `moveq #$4a,d0`. */
 const iconUndef = (): never => {
   throw new AmosError('Icon not defined', 74)

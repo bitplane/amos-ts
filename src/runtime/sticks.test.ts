@@ -6,6 +6,7 @@
  * are pinned here so nobody quietly "fixes" them back to the prose.
  */
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -29,7 +30,7 @@ function run(src: string, prep?: (rt: Runtime) => void): { out: string; rt: Runt
   })
   prep?.(rt)
   const r = rt.runHeadless(2_000)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return { out, rt }
 }
 

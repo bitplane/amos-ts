@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { AmigaFS } from './vfs'
 import { readTar, readZip, volumeFromEntries } from '../runtime/archive'
 import { TokenTable } from '../tokens/stream'
@@ -208,7 +209,7 @@ describe('file channels', () => {
     let out = ''
     const rt = new Runtime(tokenize(src, table), table, { maxSteps: 200_000, fs, onText: (t) => (out += t) })
     const r = rt.runHeadless(1_000)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return { rt, out, fs }
   }
 

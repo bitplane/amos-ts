@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -22,7 +23,7 @@ function run(src: string): Runtime {
     onText: (t) => (printed += t),
   })
   const r = rt.runHeadless(500)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return rt
 }
 
@@ -232,7 +233,7 @@ function draw(src: string, opts: { n?: number; w?: number; h?: number } = {}): R
   })
   rt.iconBank = icons(opts.n ?? 8, opts.w ?? 16, opts.h ?? 4)
   const r = rt.runHeadless(500)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return rt
 }
 
@@ -790,7 +791,7 @@ describe('PowerBobs: the Psprite draw family (routines 28-34, 51)', () => {
     b.images = heights.map((h) => new BankImage(16, h, 2, 0, 0))
     rt.spriteBank = b
     const r = rt.runHeadless(500)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return rt
   }
 

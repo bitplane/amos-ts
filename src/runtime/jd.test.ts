@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { mustFinish } from '../testing/run'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -30,7 +31,7 @@ function run(src: string): string {
     onText: (t) => (out += t),
   })
   const r = rt.runHeadless(500)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return out
 }
 
@@ -704,7 +705,7 @@ describe('JD: files, memory and the device boundary (+|jd.s:2948-5769)', () => {
       onText: (t) => (out += t),
     })
     const r = rt.runHeadless(500)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return out
   }
 
@@ -811,7 +812,7 @@ function run59(src: string): string {
     onText: (t) => (out += t),
   })
   const r = rt.runHeadless(500)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return out
 }
 const val59 = (expr: string): string => run59(`Print ${expr}`).trim()
@@ -833,7 +834,7 @@ function run46(src: string): string {
     onText: (t) => (out += t),
   })
   const r = rt.runHeadless(500)
-  if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+  mustFinish(r)
   return out
 }
 
@@ -1135,7 +1136,7 @@ describe('JD: the device list and the directory counts (+|jd.s:4262-5769)', () =
       onText: (t) => (out += t),
     })
     const r = rt.runHeadless(500)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return out
   }
 
@@ -1186,7 +1187,7 @@ describe.skipIf(!existsSync(FONTS))('JD: Textfont and Print with a real face (+|
       onText: (t) => (out += t),
     })
     const r = rt.runHeadless(500)
-    if (r.status !== 'ended' && r.status !== 'stopped') throw new Error(`program ${r.status}`)
+    mustFinish(r)
     return { rt, out }
   }
 

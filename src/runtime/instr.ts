@@ -1,4 +1,4 @@
-import { AmosError, VF, VI, VS, int, num, str, varType } from '../interp/values'
+import { AmosError, ERR, VF, VI, VS, int, num, str, varType } from '../interp/values'
 import { varKey } from '../interp/prescan'
 import { DOSFALSE, execute } from '../amiga/process'
 import { BNK, isObjectBank } from './banks'
@@ -11,19 +11,19 @@ import { newJvpState, JVP_ERRORS, makeJvpFunctions, makeJvpInstructions } from '
 import { newLocaleState, makeLocaleFunctions, makeLocaleInstructions } from './locale'
 import { newTurboState, TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions, turboDefault } from './turbo'
 import { newPersonnalState, PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
-import { newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
+import { AMCAF_ERRORS, newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
 import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions, ensureLib } from './speech'
 import { makeEmeFunctions, makeEmeInstructions } from './eme'
 import { makeColoursFunctions } from './colours'
 import { makeMiscExtInstructions, newMiscExtState } from './miscext'
 import { makePlibFunctions } from './plib'
 import { makeDumpFunctions, newDumpState } from './dump'
-import { makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
-import { makeFileIdFunctions, newFileIdState } from './fileid'
+import { ERCOLE_ERRORS, makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
+import { FILEID_ERRORS, makeFileIdFunctions, newFileIdState } from './fileid'
 import { makeFirstInstructions } from './first'
 import { makeRangeFunctions, makeRangeInstructions, newRangeState } from './range'
-import { makeJotreInstructions, newJotreState } from './jotre'
-import { makeMedExtFunctions, makeMedExtInstructions, medExtDefault, newMedExtState } from './medext'
+import { JOTRE_ERRORS, makeJotreInstructions, newJotreState } from './jotre'
+import { MED_ERRORS, makeMedExtFunctions, makeMedExtInstructions, medExtDefault, newMedExtState } from './medext'
 import { makeP61Functions, makeP61Instructions, newP61State } from './p61'
 import { makePowerBobsFunctions, makePowerBobsInstructions, newPowerBobsState } from './powerbobs'
 import { makeTomeFunctions, makeTomeInstructions, newTomeState } from './tome'
@@ -42,7 +42,8 @@ import { parseAmosFile } from '../loader/amosfile'
 import { encodeIlbm, parseIlbm } from '../loader/iff'
 import { packBitmap, packScreen, parsePacPic } from '../loader/pacpic'
 import { parseDiskFont, parseFontDescriptor } from '../amiga/diskfont'
-import { ED_MESSAGES, ED_RUN_MESSAGES, ED_SYSTEME, ED_TST_MESSAGES, EDM_MESSAGES } from './edmessages.gen'
+import { ED_MESSAGES, ED_SYSTEME, ED_TST_MESSAGES, EDM_MESSAGES } from './edmessages.gen'
+import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { DEFAULT_FLASH_SPEC, Runtime, SYS_MESSAGES, extractCodeHunk, parseFlashSpec } from './runtime'
 import { Screen } from './screen'
 import { ObjectBank } from './objects'
@@ -2067,7 +2068,18 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         if (!m) throw new AmosError('bank not reserved')
         bytes = m.data.subarray(m.off)
       }
-      const pic = parsePacPic(bytes)
+      // NOTE: the unpacker itself does not raise — UnPack_Screen tests the
+      // $06071963 magic and returns d0=0 (+Lib.s:25505 `.NoPac`), leaving the
+      // decision to its caller in the Compact extension, whose source is not
+      // in the archive (only +Compact_Labels.s). 23 is AMOS's catch-all and
+      // is our choice; what matters here is that a plain Error escaped the
+      // AMOS machinery entirely, so On Error Goto could not trap it.
+      let pic
+      try {
+        pic = parsePacPic(bytes)
+      } catch {
+        throw new AmosError('Illegal function call', ERR.FUNC_CALL)
+      }
       if (it.accept('to')) {
         const n = it.evalInt()
         const sc = pic.screen
@@ -3835,7 +3847,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         }
         throw new AmosError(`file not found: ${path}`)
       }
-      const img = parseIlbm(bytes)
+      // the reader lives in ../loader and raises plain Errors; error 30 is
+      // AMOS's own answer for a file that is not the FORM it wants
+      // (IffFormLoad +Lib.s:6876 `Rbne L_IffFor`, IffFor +Lib.s:13002
+      // `moveq #30,d0`)
+      let img
+      try {
+        img = parseIlbm(bytes)
+      } catch {
+        throw new AmosError('Bad IFF format', ERR.BAD_IFF)
+      }
       if (n !== null && img.width > 0) {
         // CAMG $800 = HAM: open through the 4096-colour path so the
         // compositor decodes the modify chains (InScreenOpen ScOo)
@@ -5107,6 +5128,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     functions: makeMedExtFunctions,
     defaults: medExtDefault,
     qualified: ['med load', 'med play', 'med stop'],
+    errors: MED_ERRORS,
   },
   {
     // Ercole 1.7 at slot 10 --- the readme is blunt about the slot: "Place
@@ -5118,6 +5140,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     },
     instructions: makeErcoleInstructions,
     functions: makeErcoleFunctions,
+    errors: ERCOLE_ERRORS,
     // `library open` and `library close` join the list now that Range is a
     // ported product spelling them too --- contested.test.ts requires a name
     // claimed by two ported products to be qualified by one of them, and only
@@ -5156,6 +5179,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
       rt.fileId = newFileIdState()
     },
     functions: makeFileIdFunctions,
+    errors: FILEID_ERRORS,
   },
   {
     // Dump 1.1 at slot 20 --- Alex J. Grant and Francois Lionet's printer
@@ -5177,6 +5201,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
       rt.jotre = newJotreState()
     },
     instructions: makeJotreInstructions,
+    errors: JOTRE_ERRORS,
   },
   {
     // TOME 4.23 and 3.1 share one port: 3.1's table is a strict prefix of
@@ -5230,6 +5255,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     },
     instructions: makeAmcafInstructions,
     functions: makeAmcafFunctions,
+    errors: AMCAF_ERRORS,
     /*
      * The armed contested names, registered per slot. Personnal keeps the
      * plain ones; on the machine these are different tokens at different

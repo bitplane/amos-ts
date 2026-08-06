@@ -11,20 +11,27 @@ mechanism underneath it is not. Everything described below is one of those.
 Core AMOS Professional is complete — the display pipeline, the audio pipeline,
 the language, banks, files, menus, the Interface dialog engine and the file
 selector are all at 100%. So is every extension a stock installation ships
-(Music, Compact, Request, Compiler, IOPorts) and four third-party ones:
-AMOS 3D, Personnal, TURBO Plus and LDos 2.5.
+(Music, Compact, Request, Compiler, IOPorts) and every third-party one the
+port has started: forty-nine extension releases read 100% in `KEYWORDS.md`,
+among them AMCAF 1.40/1.50, the JD family, TOME, TURBO Plus, Personnal, LDos,
+AMOS 3D, PowerBobs, MED 7.1, EME 3.0 and P61.
 
-1089 keywords are implemented, 1045 of them faithful.
+**Nothing is partially ported.** Of the ninety-odd rows in the manifest, none
+sits between 0% and 100%: an extension is finished or it has not been begun.
+That is the ratchet working, and it is the number to watch — a row appearing
+in the middle means a thread was left hanging.
+
+3244 keywords are implemented, 3137 of them faithful.
 
 ### The census
 
-`npx tsx src/cli/runreport.ts --all` runs all 490 corpus programs headless.
-**480 run to a stop, and 430 of those — 90% — do it without hitting a single
+`npx tsx src/cli/runreport.ts --all` runs all 497 corpus programs headless.
+**479 run to a stop, and 431 of those — 90% — do it without hitting a single
 unimplemented keyword.** That second figure is the coverage measure.
 
 The tool also prints "ended with nothing skipped" (83). Ignore it: it counts
 only programs that *terminate*, and most AMOS programs are games and demos
-that never do. Of the 480, 234 hit the step cap and 139 block waiting on
+that never do. Of the 479, 235 hit the step cap and 139 block waiting on
 input — both correct behaviour, not failure.
 
 `--by-program` ranks the remaining 50 by how many programs each gap blocks,
@@ -88,22 +95,31 @@ Coverage in the wild is a signal, not a target. Most AMOS programs were never
 published online, so a census over what *was* published measures the archive
 as much as the port.
 
-The evidence behind the four that *are* done varies, and it is recorded per
-extension rather than assumed: Personnal ships full assembler source. TURBO
-Plus and LDos 2.5 have their own manuals, with individual keywords settled by
-disassembling the shipped library where the prose was thin or wrong. AMOS 3D
-had neither source nor a full manual — its engine was recovered from `c3d.lib`
-outright (`docs/amos3d/README.md`). Disassembly ranks alongside source in
-`docs/extensions/README.md`, because a shipped binary is more authoritative
-than a manual, not less.
+The evidence behind the ones that *are* done varies, and it is recorded per
+extension rather than assumed: Personnal, Misc, AMOSPro Colours and Personnal
+EXTRA ship full assembler source, and P61 ships the whole of Player 6.1A's.
+TURBO Plus and LDos 2.5 have their own manuals, with individual keywords
+settled by disassembling the shipped library where the prose was thin or
+wrong. AMCAF, MED, PowerBobs, TOME and EME were read out of their binaries.
+AMOS 3D had neither source nor a full manual — its engine was recovered from
+`c3d.lib` outright (`docs/amos3d/README.md`). Disassembly ranks alongside
+source in `docs/extensions/README.md`, because a shipped binary is more
+authoritative than a manual, not less.
 
-**A caveat on the percentages.** Coverage is counted by keyword NAME, and
-several extensions share names, so porting Personnal moved `p61-1.2` to 22%,
-`amcaf-1.50` to 2% and `intuition-1.3b` to 1% without a line of any of them
-being written. Dispatch does not have this problem — a layer needing its own
-version of a name another layer owns registers under a slot-qualified key
-(`ext13:sprite col`), which the interpreter tries first. It is the published
-percentage that over-reports, not the machine.
+**The percentages used to over-report, and no longer do.** Coverage is counted
+by keyword NAME, and several extensions share names, so porting Personnal once
+moved `p61-1.2` to 22% and `amcaf-1.50` to 2% without a line of either being
+written. #226 fixed the measure: an extension is credited only for names a port
+declares against its registry identity, with `viaCore` for the keywords a
+library's own author copied from another and said so. Dispatch never had the
+problem — a layer needing its own version of a name another layer owns
+registers under a slot-qualified key (`ext13:sprite col`), which the
+interpreter tries first.
+
+The opposite failure is the live one, and it has bitten twice: an extension
+that IS implemented reporting 0% because no `ExtensionImpl` named its identity.
+EME 3.0 read 17% and `serial-1.2` read 0% while every one of their keywords
+ran. If a row looks impossibly low, check the `ids` before believing it.
 
 ### System / environment
 

@@ -7495,8 +7495,8 @@ export const EXT_INFO: ExtensionInfo[] = [
   {
     "id": "personnal-extra-1.0a",
     "name": "Personnal EXTRA",
-    "version": "1.3",
-    "author": "unattributed",
+    "version": "1.0a",
+    "author": "Frederic Cordier",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "source",
