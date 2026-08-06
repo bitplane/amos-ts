@@ -14,6 +14,7 @@ import { newPersonnalState, PERSONNAL_ERRORS, makePersonnalFunctions, makePerson
 import { newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
 import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions, ensureLib } from './speech'
 import { makeEmeFunctions, makeEmeInstructions } from './eme'
+import { makeColoursFunctions } from './colours'
 import { makeDumpFunctions, newDumpState } from './dump'
 import { makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
 import { makeFileIdFunctions, newFileIdState } from './fileid'
@@ -5291,6 +5292,13 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
       'track loop on', 'track loop of', 'track play', 'track load', 'ssave',
       'med load', 'med play', 'med stop', 'med cont', 'med midi on',
     ],
+  },
+  {
+    // slot 23, which the source names itself: `ExtNb equ 23-1`. Twenty-seven
+    // named colour constants and nothing else — no state, no init, no
+    // defaults, and the library's own hook routines are bare rts
+    ids: ['amospro-colours-1.0'],
+    functions: makeColoursFunctions,
   },
   {
     ids: ['amospro-ioports-2.0'],

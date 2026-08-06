@@ -1996,6 +1996,17 @@ export const FAITHFUL = new Set<string>([
   'psprite off',
   'psprite erase',
   'psprite update',
+  // --- AMOSPro Colours 1.0, slot 23: Jan Normann Nielsen's named colour
+  // constants. Twenty-seven zero-argument functions returning a 12-bit $RGB
+  // value, every one an `equ` in the public-domain source that ships with it.
+  // The whole library has no state and no error path; see colours.ts for the
+  // two things worth knowing before typing one.
+  'red', 'green', 'blue', 'black', 'yellow', 'magenta', 'cyan', 'white',
+  'grey', 'brown', 'c orange',
+  'dark red', 'dark green', 'dark blue', 'dark yellow', 'dark magenta',
+  'dark cyan', 'dark grey', 'dark brown',
+  'light red', 'light green', 'light blue', 'light yellow', 'light magenta',
+  'light cyan', 'light grey', 'light brown',
   // --- EME 3.0, slot 1: Paul Reece's Enhanced Music Extension, which SHIPS
   // as AMOSPro_Music.Lib and replaces the stock one in place. All 49 stock
   // keywords keep their ids and specs and are served by the core Music
@@ -3558,6 +3569,10 @@ export const NOTES: Record<string, string> = {
   'pic unpack':
     'a control byte of zero fills the rest of the PLANE rather than emitting nothing — its decrement never satisfies the test. The end guard is >= where the 68k tests exact equality, so a header pointing behind its data stops rather than hanging',
   'anim unpack': 'Pic Unpack behind a frame table; the same zero-control-byte and end-guard behaviour',
+  'c orange':
+    "\$A40. NOTE the name: the token is `dc.b \"c orang\",\"e\"+\$80` (:95) and it is the ONLY prefixed entry in the table --- every other keyword is the bare colour name. The source gives no reason and there is no `Orange` elsewhere in AMOS for it to have been avoiding, so the prefix is recorded rather than explained. There is also no `Dark Orange` or `Light Orange`: the dark/light pairs cover the other nine colours and orange has this one entry, which is the library's shape and not a gap in the port",
+  'light green':
+    "\$2F2, and the reason it is worth a note is that the set is NOT computable. Green is already \$F at full, so 'light' brightens the other two channels instead of the green --- as `Light Red` \$F44 and `Light Cyan` \$3FF do --- and the three browns (\$420, \$820, \$A20) differ only in red. Every value is transcribed from its `equ` at :24-50; deriving them from a rule would get several wrong",
   'track tempo':
     "Routine 116 (\$3e3a), 22 bytes: `move.l (a3)+,d0`, `clr.b \$bcf(a0)` — the tick within the row — then `adda.w #\$bce,a0 / move.b d0,(a0)`. So the speed is set and the tick restarted, in that order, and the argument is popped as a LONG and stored as a BYTE with no range check, making `Track Tempo 256` tempo 0 — which EME.doc calls the fastest. The doc's 'this command does not over-ride the tempo commands used in the module' needs no code: it writes the same byte the module's Fxx writes",
   'patt loop on':
