@@ -108,6 +108,7 @@ import type { Interp } from '../interp/interp'
 import type { Runtime } from './runtime'
 import { PAULA_CLOCK_NTSC, PAULA_CLOCK_PAL, periodToHz } from '../amiga/paula'
 import type { BankImage } from './objects'
+import { openLibrary } from '../amiga/exec'
 
 export interface RangeState {
   /** $a4 and $a8 — what `Case` and `Case$` last stored */
@@ -137,6 +138,14 @@ export interface RangeState {
   inY: number
   inOx: number
   inOy: number
+  /** $00 — Float Back's long, which Float Bob loads and passes on */
+  floatBack: number
+  /** $4c — where the last Bank String / Bank Str$ finished */
+  bankStrPtr: number
+  /** $50 — the byte that ends a bank string, a BYTE and zero to start */
+  bankStrEnd: number
+  /** $80..$97 — Push's six longs, which Pull indexes */
+  stack: number[]
 }
 
 /**
@@ -181,6 +190,10 @@ export const newRangeState = (): RangeState => ({
   inY: 0,
   inOx: 0,
   inOy: 0,
+  floatBack: 0,
+  bankStrPtr: 0,
+  bankStrEnd: 0,
+  stack: [0, 0, 0, 0, 0, 0],
 })
 
 /** so the NTSC constant is named rather than merely mentioned */
@@ -816,6 +829,320 @@ export function makeRangeInstructions(rt: Runtime): Record<string, Instr> {
       }
       rt.screen.rp.bitMap.invalidate()
     },
+
+    /**
+     * Push a, b [, c, d, e, f] — routines 81, 79, 82, 83 and 84 ($14b0,
+     * $1488, $14c6, $14d8, $14e8), one per argument count from six down to
+     * two. Each is the same three instructions and then N of
+     * `move.l (a3)+,(a0)+` into the block from $80.
+     *
+     * The pops are in reverse source order and the stores go FORWARDS, so
+     * `Push 1,2,3` leaves slot 0 holding 3 and slot 2 holding 1 — the list
+     * arrives reversed, which is what a stack is and is worth saying because
+     * nothing in the name suggests it.
+     */
+    push(it) {
+      const s = st()
+      const vals = [it.evalInt()]
+      while (it.accept(',')) vals.push(it.evalInt())
+      const rev = vals.reverse()
+      for (let i = 0; i < rev.length && i < 6; i++) s.stack[i] = rev[i]!
+    },
+
+    /**
+     * Float Back n — routine 85 ($14f6), two instructions: `movea.l
+     * $178(a5),a0 / move.l (a3)+,(a0)`, the block's very first long.
+     *
+     * NOTE: only `Float Bob` reads it — `move.l (a0),d5` — and it goes
+     * straight into AMOS's bob routine as d5 without the extension looking at
+     * it. Bobs here have no equivalent parameter, so the value is kept and
+     * has no effect; see the same note on Float Planes.
+     */
+    'float back'(it) {
+      st().floatBack = it.evalInt()
+    },
+
+    /**
+     * Void n — routine 86 ($14fe), the whole of it: `move.l (a3)+,d0 / rts`.
+     * It pops one argument and drops it. That is the keyword — a way of
+     * calling a function for its effect and throwing the answer away, which
+     * AMOS Basic otherwise has no syntax for.
+     */
+    void(it) {
+      void it.evalInt()
+    },
+
+    /**
+     * Bank Str End n — routine 67 ($1258): `move.b d0,$50(a0)`, a BYTE. It is
+     * the terminator `Bank String` writes and `Bank Str$` stops at, and it
+     * starts at zero, so the default terminator is a NUL.
+     */
+    'bank str end'(it) {
+      st().bankStrEnd = it.evalInt() & 0xff
+    },
+
+    /**
+     * Bank String n, a$, offset — routine 64 ($11a8):
+     *
+     *     move.l (a3)+,d4 / movea.l (a3)+,a1 / move.l (a3)+,d2
+     *     Rbsr routine 7                     a2 = the bank
+     *     moveq #$0,d1
+     *     move.w (a1),d2 / beq .out          an EMPTY string writes nothing
+     *   .loop:
+     *     move.b $2(a1,d1.l),(a2,d4.l)
+     *     addq.l #$1,d1 / addq.l #$1,d4 / cmp.l d2,d1 / bne .loop
+     *     move.b $50(a0),(a2,d4.l) / addq.l #$1,d4
+     *     move.l d4,$4c(a0)
+     *
+     * NOTE the empty string leaves early — no terminator written and `Bank
+     * Str Ptr` NOT advanced — so writing "" is not a way of ending a list.
+     */
+    /**
+     * Splot x, y, colour, screen — routine 76 ($1410), `Spoint`'s twin. Same
+     * address arithmetic, and then per plane
+     *
+     *     move.b (a1,d2.l),d5
+     *     bclr.b d1,d5
+     *     btst.l d4,d3 / beq .keep
+     *     bset.b d1,d5
+     *   .keep:
+     *     move.b d5,(a1,d2.l)
+     *
+     * — the bit is cleared first and set only if the colour has it, so this
+     * REPLACES the pixel rather than combining with it. Six planes, and no
+     * clip: an x or y off the screen writes wherever the arithmetic lands.
+     * This port stops at the end of the bitmap instead of walking into the
+     * next allocation.
+     */
+    splot(it) {
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const col = it.evalInt()
+      it.expect(',')
+      const n = it.evalInt()
+      const px = pixelAddr(rt, n, x, y)
+      if (!px) return
+      for (let p = 0; p < 6 && p < px.depth; p++) {
+        const at = p * px.planeSize + px.at
+        if (at < 0 || at >= px.planes.length) continue
+        const m = 1 << px.bit
+        px.planes[at] = col & (1 << p) ? (px.planes[at] ?? 0) | m : (px.planes[at] ?? 0) & ~m
+      }
+      rt.screens.get(n)!.rp.bitMap.invalidate()
+    },
+
+    'bank string'(it) {
+      const s = st()
+      const mem = rt.memBanks.get(it.evalInt())
+      if (!mem) throw new AmosError('bank not reserved')
+      it.expect(',')
+      const text = it.evalStr()
+      it.expect(',')
+      let at = it.evalInt()
+      if (text.length === 0) return
+      for (let i = 0; i < text.length; i++, at++) if (at >= 0 && at < mem.data.length) mem.data[at] = text.charCodeAt(i) & 0xff
+      if (at >= 0 && at < mem.data.length) mem.data[at] = s.bankStrEnd
+      at++
+      s.bankStrPtr = at
+    },
+  }
+}
+
+/** the block's $4c and $50, and Push's six longs, reached from the functions too */
+export function makeRangeExtraFunctions(rt: Runtime): Record<string, Func> {
+  const st = (): RangeState => rt.range
+  return {
+    /** =Bank Str Ptr — routine 66 ($124c), three instructions over $4c */
+    'bank str ptr': (): Value => VI(st().bankStrPtr),
+
+    /**
+     * =Pull(n) — routine 80 ($149c): `lea $80(a0),a0 / move.l (a3)+,d0 /
+     * lsl.l #$2,d0 / move.l (a0,d0.l),d3`. An index, times four, no range
+     * test at all — `Pull(8)` reads the Case result at $a0 and `Pull(-1)`
+     * reads the four bytes before the area. This port answers 0 outside the
+     * six Push writes rather than inventing what the block would have held.
+     */
+    pull: (_, a): Value => VI(st().stack[int(a[0] ?? VI(0))] ?? 0),
+
+    /**
+     * =Fmod(a, b) — routine 78 ($147a), and it is a WORD operation:
+     *
+     *     move.l (a3)+,d3 / move.l (a3)+,d1
+     *     divu.w d1,d3          quotient in the low word, remainder in the high
+     *     sub.w d3,d3           throw the quotient away
+     *     swap d3               and bring the remainder down
+     *
+     * So both operands are taken modulo 65536 and unsigned, and `Fmod(a,0)`
+     * is a divide-by-zero trap on the machine — an AMOS "illegal function
+     * call" here, which is the nearest thing to a 68k exception this has.
+     *
+     * The pops are reverse source order, so d3 (the dividend) is the SECOND
+     * argument: `Fmod(a, b)` answers `b mod a`, not `a mod b`.
+     */
+    fmod: (_, a): Value => {
+      const div = int(a[0] ?? VI(0)) & 0xffff
+      const num = int(a[1] ?? VI(0)) & 0xffff
+      if (div === 0) throw new AmosError('Illegal function call', 23)
+      return VI(num % div)
+    },
+
+    /**
+     * =Bank Str$(n, offset) — routine 65 ($11d8). It scans forward for the
+     * terminator, then copies what came before it:
+     *
+     *   .find:
+     *     addq.l #$1,d3 / addq.l #$1,d2
+     *     move.b -$1(a2,d2.l),d0
+     *     beq .none                        a NUL always stops it, terminator or not
+     *     cmp.l #$8000,d3 / beq .none      and so does 32,768 bytes
+     *     cmp.b $50(a0),d0 / bne .find
+     *     subq.l #$1,d3 / beq .none        the terminator itself does not count
+     *
+     * then `move.l d4,$4c(a0)` past the terminator, so repeated calls walk a
+     * list without the program tracking where it is.
+     *
+     * DEFECT: the not-found answer is not an empty string. `.none` builds a
+     * string of length 1 whose single byte is `move.w #$a00` — a LINE FEED —
+     * and still advances the pointer by one. So a bank with no terminator in
+     * it hands back Chr$(10) over and over rather than "" .
+     *
+     * DEFECT: and the DEFAULT terminator can never be found. `beq .none` on a
+     * NUL comes BEFORE `cmp.b $50(a0),d0`, and $50 starts at zero — so until
+     * a program calls `Bank Str End` with something else, every `Bank Str$`
+     * fails, including one reading back a string `Bank String` has just
+     * written with that same zero as its terminator. The two keywords do not
+     * work together out of the box.
+     */
+    'bank str$': (_, a): Value => {
+      const s = st()
+      const mem = rt.memBanks.get(int(a[0] ?? VI(0)))
+      if (!mem) throw new AmosError('bank not reserved')
+      const from = int(a[1] ?? VI(0))
+      let n = 0
+      let found = false
+      for (; n < 0x8000; n++) {
+        const b = mem.data[from + n]
+        if (b === undefined || b === 0) break
+        if (b === s.bankStrEnd) {
+          found = true
+          break
+        }
+      }
+      if (!found || n === 0) {
+        s.bankStrPtr = from + 1
+        return VS('\n')
+      }
+      let out = ''
+      for (let i = 0; i < n; i++) out += String.fromCharCode(mem.data[from + i] ?? 0)
+      s.bankStrPtr = from + n + 1
+      return VS(out)
+    },
+
+    /**
+     * =Library Open("name") — routine 70 ($12f0). It copies the AMOS string
+     * into the string workspace with a NUL on the end, then
+     * `movea.l $4.w,a6 / jsr -$228(a6)` — exec's OpenLibrary, with d0 = 0 for
+     * the version, so any version will do. An empty name skips the call
+     * entirely and answers whatever d3 held.
+     *
+     * `openLibrary` in ../amiga/exec answers a synthetic base for the
+     * libraries this port models and 0 for the rest, which is what an Amiga
+     * without them installed does.
+     *
+     * The name is contested with Ercole 1.7, which is why Ercole's is the one
+     * carrying `ext10:` — see the header.
+     */
+    'library open': (_, a): Value => {
+      const name = str(a[0] ?? VS(''))
+      if (name.length === 0) return VI(0)
+      return VI(openLibrary(name.toLowerCase(), 0))
+    },
+
+    /**
+     * =Library Close(base) — routine 71 ($1336): `movea.l (a3)+,a1 /
+     * movea.l $4.w,a6 / jsr -$19e(a6)`, exec's CloseLibrary, then
+     * `move.l d0,d3`. CloseLibrary returns nothing, so what the function
+     * answers is whatever exec left in d0 — undefined by the ABI. Zero here.
+     */
+    'library close': (_, a): Value => {
+      void int(a[0] ?? VI(0))
+      return VI(0)
+    },
+
+    /**
+     * =Key Scan — routine 75 ($13f2), straight at the CIA:
+     *
+     *     move.b $bfec01.l,d3            CIA-A SDR, the keyboard shift register
+     *     btst.b #$0,d3 / beq .none
+     *     lsr.w #$1,d3                   drop the bit and answer
+     *   .none:
+     *     clr.b $bfec01.l / moveq #$0,d3
+     *
+     * The keyboard clocks its serial data into SDR a bit at a time and bit 0
+     * is the "a byte is here" marker this build uses. Nothing here drives that
+     * register — the keyboard reaches this port as events, not as CIA serial
+     * traffic — so SDR reads 0, the test fails, and the answer is 0, which is
+     * also what an Amiga with no key waiting gives.
+     */
+    'key scan': (): Value => VI(0),
+
+    /**
+     * =Spoint(x, y, screen) — routine 74 ($138c), and `Splot` below is the
+     * same routine with a write in the middle:
+     *
+     *     move.l (a3),d1 / Rjsr <the screen's plane table> / move.l a0,-(a7)
+     *     move.l (a3)+,d1 / movea.l -$8(a5),a0 / jsr $80(a0)
+     *     movea.l (a7)+,a0 / movea.l d0,a1
+     *     moveq #$0,d0 / move.w $4c(a1),d0 / lsr.l #$3,d0     width bits -> row bytes
+     *     move.l (a3)+,d2 / move.l (a3)+,d5
+     *     mulu.w d0,d2                    y * rowBytes
+     *     move.l d5,d0 / lsr.l #$3,d5 / add.l d5,d2           + x/8
+     *     andi.w #$7,d0 / move.b #$7,d1 / sub.b d0,d1         the bit, from the left
+     *     movea.l (a0)+,a1 / cmpa.l d7,a1 / beq .done         a plane that is not there
+     *     ... / cmp.w #$6,d4 / bne
+     *
+     * The screen is the LAST argument, and the plane loop is hard-coded to
+     * SIX — a deeper screen's top two planes are not read and not written, so
+     * on an eight-bitplane screen these two see a six-bit colour.
+     *
+     * It reads the planes directly rather than going through the point
+     * routines, which is the whole reason the keywords exist: no clipping, no
+     * write mode, no Ink.
+     */
+    spoint: (_, a): Value => {
+      const px = pixelAddr(rt, int(a[2] ?? VI(0)), int(a[0] ?? VI(0)), int(a[1] ?? VI(0)))
+      if (!px) return VI(0)
+      let v = 0
+      for (let p = 0; p < 6 && p < px.depth; p++) {
+        if ((px.planes[p * px.planeSize + px.at] ?? 0) & (1 << px.bit)) v |= 1 << p
+      }
+      return VI(v)
+    },
+  }
+}
+
+/**
+ * The address arithmetic routines 74 and 76 share, or null when the screen is
+ * not open. `$4c(a1)` is the screen's width in BITS, which `lsr.l #$3` turns
+ * into the bytes a row — so a 320-wide screen gives 40, exactly as the
+ * hard-coded 40 in `Bank Screen` assumes.
+ */
+function pixelAddr(
+  rt: Runtime,
+  screen: number,
+  x: number,
+  y: number,
+): { planes: Uint8Array; planeSize: number; depth: number; at: number; bit: number } | null {
+  const s = rt.screens.get(screen)
+  if (!s) return null
+  return {
+    planes: s.rp.bitMap.planeBytes(),
+    planeSize: s.planeSize,
+    depth: s.depth,
+    at: y * s.rowBytes + (x >> 3),
+    bit: 7 - (x & 7),
   }
 }
 
@@ -859,6 +1186,11 @@ export function makeRangeFunctions(rt: Runtime): Record<string, Func> {
   const st = (): RangeState => rt.range
 
   return {
+    // 2.9Plus's own: the bank strings, the stack, the libraries and the two
+    // direct-to-bitplane pixel keywords. Split out only to keep one function
+    // readable; they are the same map.
+    ...makeRangeExtraFunctions(rt),
+
     /**
      * =Range(v, lo To hi) — routine 3 ($4fa). A CLAMP, whatever the name
      * suggests: `cmp.l d2,d0 / bgt` pins to the top and `cmp.l d1,d0 / blt`

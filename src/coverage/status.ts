@@ -2119,6 +2119,20 @@ export const FAITHFUL = new Set<string>([
   'make icon colour',
   'bank screen',
   'unbank screen',
+  'push',
+  'pull',
+  'void',
+  'fmod',
+  'float back',
+  'bank string',
+  'bank str$',
+  'bank str ptr',
+  'bank str end',
+  'library open',
+  'library close',
+  'key scan',
+  'spoint',
+  'splot',
   'dump err$',
   'diskin',
   'writeenable',
@@ -2152,6 +2166,20 @@ export const STRUCTURAL = new Set([
  * plug in.
  */
 export const NA = new Set<string>([
+  // Range 2.9Plus routine 72 ($134e). `=Library Call(base, offset)` adds the
+  // two, loads d1-d7/a0-a2 from ten longs at $9fa(a5), and `jsr (a6)` into
+  // whatever is there. It is a general-purpose call into 68k machine code —
+  // any library's function, chosen at run time by a program that knows the
+  // LVO. Executing 68k is out of scope by policy, and there is nothing to
+  // approximate: the whole keyword IS the jump.
+  'library call',
+  // Range 2.9Plus's phantom. The token entry at id 1156 names `t planes` and
+  // gives its routine as 26,220 — the ASCII "fl" of the `float planes` its
+  // own table swallowed, and 278 times past the end of a 94-entry jump table.
+  // A program that calls it jumps into nothing. There is no routine to read,
+  // no behaviour to reproduce, and reproducing the crash would be neither
+  // useful nor possible. See src/ext/manifests/range-2.0.json.
+  't planes',
   // PowerBobs routine 116 ($4212) is fourteen bytes and the last two matter:
   // `jsr $120(a0)` through -$8(a5), then `illegal #$4afc`. It deliberately
   // takes the 68000 ILLEGAL trap to drop into a machine-code debugger. There

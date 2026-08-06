@@ -458,3 +458,130 @@ describe('Range — the icon forms of the colour remappers (routines 34, 37, 40)
     expect(img.pixelAt(0, 12)).toBe(7)
   })
 })
+
+describe('Range — 2.9Plus: the stack, the values and the libraries', () => {
+  it('Push stores its arguments REVERSED, and Pull indexes them', () => {
+    // routines 81/79/82/83/84 pop in reverse source order and store forwards
+    const b = run('Push 10,20,30\nPrint Pull(0);" ";Pull(1);" ";Pull(2)')
+    expect(b.out().replace(/\s+/g, '')).toBe('302010')
+  })
+
+  it('Pull outside the six Push slots is not range-tested by the original', () => {
+    // `move.l (a3)+,d0 / lsl.l #$2,d0 / move.l (a0,d0.l),d3` --- no check at
+    // all; this port answers 0 rather than inventing what the block held
+    expect(num('Print Pull(20)')).toBe(0)
+  })
+
+  it('Fmod is a WORD remainder, and its operands are the other way round', () => {
+    // `divu.w d1,d3 / sub.w d3,d3 / swap d3`, and d3 is the SECOND argument
+    expect(num('Print Fmod(7,23)')).toBe(2)
+    expect(num('Print Fmod(3,10)')).toBe(1)
+    expect(() => run('Print Fmod(0,10)')).toThrow()
+  })
+
+  it('Void swallows a value — routine 86 is two instructions', () => {
+    expect(() => run('Void 42')).not.toThrow()
+    expect(text('Void 42\nPrint "after"')).toContain('after')
+  })
+
+  it('Float Back keeps its long at the block\'s first field', () => {
+    const b = run('Float Back 99')
+    expect(b.rt.range.floatBack).toBe(99)
+  })
+
+  it('Library Open answers a base for a modelled library and 0 for the rest', () => {
+    expect(num('Print Library Open("dos.library")')).not.toBe(0)
+    expect(num('Print Library Open("nosuch.library")')).toBe(0)
+    // `move.w (a2),d3 / beq` --- an empty name never reaches OpenLibrary
+    expect(num('Print Library Open("")')).toBe(0)
+    // CloseLibrary returns nothing, so d0 is undefined by the ABI
+    expect(num('Print Library Close(0)')).toBe(0)
+  })
+
+  it('Key Scan reads CIA-A SDR, which nothing here drives', () => {
+    // `move.b $bfec01.l,d3 / btst.b #$0,d3 / beq` --- an idle Amiga too
+    expect(num('Print Key Scan')).toBe(0)
+  })
+})
+
+describe('Range — 2.9Plus: the bank strings (routines 64-67)', () => {
+  const setup = 'Reserve As Data 5,256\nBank Str End 0\n'
+
+  it('Bank String writes the text, the terminator, and moves the pointer', () => {
+    const b = run(setup + 'Bank String 5,"hello",0\nPrint Bank Str Ptr')
+    expect(b.out().trim()).toBe('6') // five bytes and the terminator
+    const d = b.rt.memBanks.get(5)!.data
+    expect(String.fromCharCode(...d.slice(0, 5))).toBe('hello')
+    expect(d[5]).toBe(0)
+  })
+
+  it('a list round-trips, and Bank Str$ walks it on its own', () => {
+    const b = run(
+      'Reserve As Data 5,256\nBank Str End 44\n' +
+        'Bank String 5,"one",0\nBank String 5,"two",Bank Str Ptr\n' +
+        'Print Bank Str$(5,0)\nPrint Bank Str$(5,Bank Str Ptr)',
+    )
+    expect(b.out().split('\n').filter((l) => l !== '')).toEqual(['one', 'two'])
+  })
+
+  it('DEFECT: the DEFAULT terminator is zero, and zero can never be found', () => {
+    // `move.b -$1(a2,d2.l),d0 / beq .none` comes BEFORE `cmp.b $50(a0),d0`,
+    // so a NUL always ends the search as a failure --- and $50 starts at
+    // zero. Until a program calls `Bank Str End` with something else, every
+    // `Bank Str$` answers the not-found Chr$(10), including one reading a
+    // string `Bank String` has just written.
+    const b = run(setup + 'Bank String 5,"hello",0\nPrint Len(Bank Str$(5,0));" ";Asc(Bank Str$(5,0))')
+    expect(b.out().replace(/\s+/g, '')).toBe('110')
+  })
+
+  it('Bank Str End changes the terminator, a BYTE at $50', () => {
+    const b = run('Reserve As Data 5,256\nBank Str End 44\nBank String 5,"ab",0\nPrint Bank Str$(5,0)')
+    expect(b.rt.range.bankStrEnd).toBe(44)
+    expect(b.rt.memBanks.get(5)!.data[2]).toBe(44)
+    expect(b.out().trim()).toBe('ab')
+  })
+
+  it('an EMPTY string writes nothing and does not move the pointer', () => {
+    // `move.w (a1),d2 / beq .out` --- before the terminator is written
+    const b = run(setup + 'Bank String 5,"ab",10\nBank String 5,"",50\nPrint Bank Str Ptr')
+    expect(b.out().trim()).toBe('13')
+  })
+
+  it('DEFECT: a bank with no terminator answers Chr$(10), not ""', () => {
+    // `.none` builds a one-character string from `move.w #$a00` --- a line
+    // feed --- and still advances the pointer by one
+    const b = run('Reserve As Data 5,256\nBank Str End 44\nPrint Len(Bank Str$(5,0));" ";Asc(Bank Str$(5,0))')
+    expect(b.out().replace(/\s+/g, '')).toBe('110')
+  })
+})
+
+describe('Range — 2.9Plus: Spoint and Splot (routines 74, 76)', () => {
+  const scr = 'Screen Open 0,320,200,16,Lowres\nCls 0\n'
+
+  it('Splot writes a pixel and Spoint reads it back', () => {
+    const b = run(scr + 'Splot 10,20,5,0\nPrint Spoint(10,20,0)')
+    expect(b.out().trim()).toBe('5')
+  })
+
+  it('Splot REPLACES rather than combines — the bit is cleared first', () => {
+    // `bclr.b d1,d5` before `btst.l d4,d3 / bset.b d1,d5`
+    const b = run(scr + 'Splot 4,4,15,0\nSplot 4,4,1,0\nPrint Spoint(4,4,0)')
+    expect(b.out().trim()).toBe('1')
+  })
+
+  it('they go straight at the bitplanes, past Ink and the clip', () => {
+    const b = run(scr + 'Clip 100,100 To 110,110\nInk 7\nSplot 3,3,2,0\nPrint Point(3,3)')
+    expect(b.out().trim()).toBe('2') // the Clip did not stop it
+  })
+
+  it('a screen that is not open does nothing and answers 0', () => {
+    expect(num(scr + 'Print Spoint(1,1,4)')).toBe(0)
+    expect(() => run(scr + 'Splot 1,1,1,4')).not.toThrow()
+  })
+
+  it('six planes is hard-coded, so colour 64 and up cannot be written', () => {
+    // `cmp.w #$6,d4` --- and the 64-colour screen has eight
+    const b = run('Screen Open 0,320,200,64,Lowres\nCls 0\nSplot 5,5,63,0\nPrint Spoint(5,5,0)')
+    expect(b.out().trim()).toBe('63')
+  })
+})
