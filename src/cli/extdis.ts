@@ -41,7 +41,7 @@ import { firstCodeHunk } from '../tokens/libtok'
 import { routineAddresses } from '../ext/routines'
 import { extensionById, REGISTRY } from '../ext/registry'
 import { amosVector } from '../ext/amosvectors'
-import { AMOS_CALL_KINDS, AMOS_CALL_LOW, AMOS_CALL_MARKER, AMOS_CALL_SEL_J, AMOS_CALL_SEL_T, AMOS_ROUTINES } from '../ext/amoscalls.gen'
+import { AMOS_CALL_KINDS, AMOS_CALL_LOW, AMOS_CALL_MARKER, AMOS_CALL_SEL_J, AMOS_CALL_SEL_T, AMOS_EXT_LABELS, AMOS_ROUTINES } from '../ext/amoscalls.gen'
 
 const args = process.argv.slice(2)
 const showMap = args.includes('--map')
@@ -130,10 +130,12 @@ function decodeCall(off: number): { text: string; size: number } | null {
   const sel = code[off + 2]
   if (sel === AMOS_CALL_SEL_J && form.j) {
     // C_CodeJ: the operand byte selects the LIBRARY. Library 0 is AMOS
-    // itself, so its routine numbers are the +lib_Labels.s ones.
+    // itself, and the number is an AMOS 1.34 / AMOS Pro 1.0 label —
+    // AMOS_EXT_LABELS, not the 2.0 list. See its doc block: the 2.0 list
+    // named these for a year and named them wrong.
     const lib = code[off + 3] ?? 0
     const n = view.getUint16(off + 4, false)
-    const name = lib === 0 ? (AMOS_ROUTINES[n] ?? `routine ${n}`) : `lib${lib} routine ${n}`
+    const name = lib === 0 ? (AMOS_EXT_LABELS[n] ?? `routine ${n}`) : `lib${lib} routine ${n}`
     return { text: `${form.j.padEnd(10)} ${name}`, size: 6 }
   }
   if (sel === AMOS_CALL_SEL_T && form.t) {

@@ -1073,7 +1073,7 @@ export function makeRangeInstructions(rt: Runtime): Record<string, Instr> {
      * anything:
      *
      *     moveq #$0,d1 / moveq #$8,d2 / moveq #$ff,d3
-     *     Rjmp L_Dia_ScCopy
+     *     Rjmp L_ErrorExt
      *
      * the extension-error requester every other slot raises the same way —
      * MED with `#$12`, Ercole `#$9`, Jotre `#$15` — where d2 is the slot

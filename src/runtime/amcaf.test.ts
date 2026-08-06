@@ -939,7 +939,7 @@ describe('slice 5: disk and DOS objects', () => {
   /**
    * The three failure paths, which are three distinct AMOS error numbers
    * rather than the one generic the port used to raise. Routines 390, 391 and
-   * 392 are each `Rbsr 354 / moveq #n,d0 / Rjmp L_ScCopy`, and d0 is the AMOS
+   * 392 are each `Rbsr 354 / moveq #n,d0 / Rjmp L_Error`, and d0 is the AMOS
    * error number: $17 = 23, $51 = 81, $5e = 94. The texts are AMOS's own and
    * have nothing to do with what failed — the extension ships no message
    * table — but they are what a program's `Errn` reports.
@@ -1850,7 +1850,7 @@ describe('slice 7: graphics', () => {
 
   /**
    * Routines 279 to 283 open `movea.l $52c(a5),a0 / move.l a0,d0 / Rbeq
-   * routine 394`, and 394 is `moveq #$2f,d0` into L_ScCopy — AMOS error 47,
+   * routine 394`, and 394 is `moveq #$2f,d0` into L_Error — AMOS error 47,
    * "Screen not opened". The pointer this port cannot supply is approximated
    * as 0, but the guard in front of it is real behaviour and is reproduced.
    */

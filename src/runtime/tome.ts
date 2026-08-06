@@ -263,12 +263,12 @@ const iconUndef = (): never => {
  * map bank between two draws is an error rather than a read of freed memory.
  * The error is AMOS's own, "bank not reserved", and not one of TOME's two.
  *
- * NOTE: `+lib_Labels.s` names AMOS routine 431 `L_InSetPaint`, which cannot be
- * what this is -- Set Paint takes a flag and returns nothing. The label file
- * is a 1993 listing of the interpreter's own labels and its numbering is not
- * the one extensions were assembled against, so the NAMES extdis prints for
- * cross-library calls are not evidence. The behaviour above is, and it is what
- * this follows. Same caution applies to the `L_ScCopy` in the error helpers.
+ * The caution this block used to carry is now settled and can go. It read
+ * routine 431 as `L_InSetPaint`, said that could not be what a bank resolver
+ * does, and declined to trust the name. It was right to: extensions are
+ * numbered against the AMOS 1.34 / AMOS Pro 1.0 developer kit, not the 2.0
+ * externals list, and 431 there is `L_AdOuBank` — "adresse ou bank", exactly
+ * the call this makes. The behaviour and the name now agree.
  */
 function bankBytes(rt: Runtime, n: number): Uint8Array {
   const mem = rt.memBanks.get(n)
@@ -1233,7 +1233,7 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
      * back-end's rather than transcribed; the reachable results agree because
      * both stop at the same edge.
      *
-     * NOTE: `Rjsr <AMOS routine ...>` at $1990 is printed as `L_SaveBMHD` by
+     * NOTE: `Rjsr <AMOS routine ...>` at $1990 is printed as `L_GetEc` by
      * extdis and it is not that -- it takes a screen NUMBER in d1 and returns
      * that screen's plane table in d0 with its structure in a0. Same class of
      * wrong name as `bankBytes` documents.

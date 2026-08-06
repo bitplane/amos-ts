@@ -250,7 +250,7 @@ describe('TOME: the four edge draws', () => {
 
 describe('TOME: the two errors', () => {
   it('no icon bank is error 23 (routine 81)', () => {
-    // `moveq #$17,d0 / Rjmp L_ScCopy`
+    // `moveq #$17,d0 / Rjmp L_Error`
     const exts = new Map([[7, tome.table]])
     const rt = new Runtime(tokenize('Map Bank 1 : Map Do 0,0', table, exts), table, {
       extensions: exts,

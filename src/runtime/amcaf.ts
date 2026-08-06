@@ -69,7 +69,7 @@
  * does, and the correction is worth stating because the original claim was
  * made from a genuine reading — it just stopped one branch short.
  *
- * Failures reach `L_ScCopy` with an AMOS error NUMBER, which is a trappable
+ * Failures reach `L_Error` with an AMOS error NUMBER, which is a trappable
  * AMOS error and has no text of its own. Four of those are in use:
  *
  *   routine 389 → 24  Out of memory
@@ -81,7 +81,7 @@
  * the AMOS text has nothing to do with what failed. That is still what a
  * program's `Errn` reports.
  *
- * But routine 397 goes to `L_Dia_ScCopy` instead — a REQUESTER — with a
+ * But routine 397 goes to `L_ErrorExt` instead — a REQUESTER — with a
  * message index in d0 and a NUL-separated list of nineteen strings at $af94,
  * from "Can't reopen Workbench" to "MC68020 or higher required!". `AMCAF_ERRORS`
  * below holds them. The list starts on the terminator before the first string,
@@ -1836,13 +1836,13 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * Four routines, all the same 16-byte frame and the same seven arguments
      * popped in reverse: Pix Shift Up 227 ($5346), Down 229 ($5510), Pix
      * Brighten 231 ($56ae), Pix Darken 233 ($5820). Each stages the rectangle
-     * on the stack before calling AMOS's own `L_SaveBMHD`:
+     * on the stack before calling AMOS's own `L_GetEc`:
      *
      *     lea    -$10(a7), a7
      *     move.l (a3)+, d7 ... move.l (a3)+, d1      seven longs
      *     move.w d5, $6(a7) / move.w d4, $4(a7)      y1, x1
      *     move.b d2, $2(a7) / move.b d1, (a7)        c2, c1 -- BYTES
-     *     Rjsr   L_SaveBMHD
+     *     Rjsr   L_GetEc
      *     sub.w  d4, d6 / sub.w d5, d7               ...to width and height
      *
      * The two colour bounds are stored as BYTES, so they are the low eight
@@ -3497,7 +3497,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *
      * Routine 62 ($28d4) is the short form: it pushes `#$f0` — D = A, a plain
      * copy — and falls into routine 63, which is the explicit-minterm one.
-     * Routine 63 resolves each screen with `L_SaveBMHD` and then does the
+     * Routine 63 resolves each screen with `L_GetEc` and then does the
      * check that matters:
      *
      *     move.w $50(a0), d4        the screen's DEPTH
@@ -4608,11 +4608,11 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
  * the keyword-named ones, which an earlier pass could only describe as "a call
  * out of the extension". They are inside it, and each is three instructions:
  *
- *   routine 390  Rbsr 354 / moveq #$17,d0 / Rjmp L_ScCopy   -- error 23
- *   routine 391  Rbsr 354 / moveq #$51,d0 / Rjmp L_ScCopy   -- error 81
- *   routine 392  Rbsr 354 / moveq #$5e,d0 / Rjmp L_ScCopy   -- error 94
+ *   routine 390  Rbsr 354 / moveq #$17,d0 / Rjmp L_Error   -- error 23
+ *   routine 391  Rbsr 354 / moveq #$51,d0 / Rjmp L_Error   -- error 81
+ *   routine 392  Rbsr 354 / moveq #$5e,d0 / Rjmp L_Error   -- error 94
  *
- * `L_ScCopy` is AMOS's own error raiser and d0 is the AMOS error NUMBER, so
+ * `L_Error` is AMOS's own error raiser and d0 is the AMOS error NUMBER, so
  * the messages a program sees are AMOS's: 23 "Illegal function call", 81
  * "File format not recognised", 94 "Next without For in animation string".
  *
@@ -4683,14 +4683,14 @@ function extSlot(n: number): number {
  *
  * The header used to say "this extension ships no error strings at all",
  * having found no printable text where the failure branches led. It was
- * looking in the wrong place: the raisers above go to `L_ScCopy` with an AMOS
+ * looking in the wrong place: the raisers above go to `L_Error` with an AMOS
  * error NUMBER, but there is a second mechanism — routine 397 —
  *
  *     lea.l  $af94(pc), a0
  *     moveq  #$0, d1
  *     moveq  #$0, d3
  *     moveq  #$7, d2
- *     Rjmp   L_Dia_ScCopy
+ *     Rjmp   L_ErrorExt
  *
  * which puts up a REQUESTER, and $af94 is the head of a NUL-separated list of
  * nineteen strings. The index is d0 from the caller and the list starts on the
@@ -5803,7 +5803,7 @@ interface TransTarget {
  *     Rbmi    routine 157                     a negative plane is error 23
  *     cmp.w   #$6,d4 / Rbhi routine 157       ... and so is one above six
  *     move.l  (a3)+,d1
- *     Rjsr    L_SaveBMHD                      a0 = the screen's bitmap header
+ *     Rjsr    L_GetEc                      a0 = the screen's bitmap header
  *     move.w  $4c(a0),d6 / lsr.w #$3,d6       the WIDTH in pixels, over eight
  *     mulu.w  d6,d7 / add.l d5,d7
  *     move.w  $49e(a2),d5 / lsr.w #$3,d5

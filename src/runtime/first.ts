@@ -93,20 +93,18 @@ export function makeFirstInstructions(rt: Runtime): Record<string, Instr> {
      *     rts
      *
      * NOTE: that number cannot be named from the evidence held here.
-     * `AMOS_ROUTINES` is generated from `+lib_Labels.s`, which runs 0..1040
-     * and ends on `L_End_Externes`, and 1107 is past it. It is not a one-off:
-     * 248 calls across twenty extension binaries name routines above 1040,
-     * and resolving them is its own job — see the task filed for it. What is
-     * NOT safe is the tempting shortcut: the AMOS source's other label file,
-     * `+lequ.s`, holds the same names offset by exactly +500 and would make
-     * 1107 `L_FnMouseKey`, but the +500 reading is ruled out for the low
-     * range by two calls whose content we have verified (1025 really is
-     * `L_Dia_ScCopy`, a requester, and 305 really is `L_Bnk.OrAdr`).
+     * 1107 is `L_Bnk_EffAll` — erase every bank — and it is the call that
+     * settled the whole numbering. It is past the end of `+lib_Labels.s`,
+     * which stops at `L_End_Externes: set 1040`, because that file is AMOS
+     * Pro 2.0's list and an extension is numbered against the 1.34 / Pro 1.0
+     * developer kit. AMOS Pro 2.0 rewrites 1107 to 803 as it relocates the
+     * library (`Ext_Convert`, +B.s:2698), and 803 - 500 is 303, which
+     * `+lib_Labels.s` calls `L_Bnk.EffAll`. Same routine, three numbers.
      *
-     * So the behaviour comes from the readme, which is the author's own
-     * statement of it: *"Clear Banks -> Erase all banks from memory"*. That
-     * is AMOS's `Erase All` (InEraseAll +Lib.s), and this calls the core's
-     * implementation of it rather than a second copy.
+     * The readme says the same thing from the outside — *"Clear Banks ->
+     * Erase all banks from memory"* — so the name, the conversion table and
+     * the author's own description agree. This calls the core's `Erase All`
+     * rather than keeping a second copy.
      */
     'clear banks'() {
       // InEraseAll +Lib.s, the same three lines the core `Erase All` runs

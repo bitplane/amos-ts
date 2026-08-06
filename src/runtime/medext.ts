@@ -116,7 +116,7 @@ import { openLibrary } from '../amiga/exec'
  * 4 and 9 have no caller.
  *
  * The delivery is a REQUESTER, not a trappable AMOS error — `Rjmp
- * L_Dia_ScCopy` with `moveq #$12,d2`, the same shape as AMCAF's routine 397.
+ * L_ErrorExt` with `moveq #$12,d2`, the same shape as AMCAF's routine 397.
  * A message-carrying AmosError is how this port already spells that.
  */
 export const MED_ERRORS = [

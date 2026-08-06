@@ -103,7 +103,7 @@ import { DOSTRUE, execute } from '../amiga/process'
 
 /**
  * Routine 17's message table at $656 — four NUL-separated strings, indexed
- * 0-based by d0, delivered as a requester (`Rjmp L_Dia_ScCopy` with
+ * 0-based by d0, delivered as a requester (`Rjmp L_ErrorExt` with
  * `moveq #$9,d2`, the slot zero-based).
  *
  * Message 3 is built in place and the trailing spaces are load-bearing:

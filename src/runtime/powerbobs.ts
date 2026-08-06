@@ -58,9 +58,11 @@
  *   routine 123  `moveq #$18,d0` --- AMOS 24, "Out of memory", when AllocMem
  *                returns null
  *
- * NOTE: extdis prints that raiser as `L_ScCopy`, which it plainly is not.
- * TOME's copy of the same call prints as `L_InSetPaint`. Two extensions, two
- * different wrong names for one routine — see the cross-library naming task.
+ * That raiser is `L_Error`, AMOS's own error entry, taking the error number
+ * in d0 — which is why these are trappable AMOS errors and not a requester.
+ * The block used to note that extdis printed two different wrong names for
+ * it; the names were being read against AMOS Pro 2.0's external list, where
+ * an extension is numbered against the 1.34 / Pro 1.0 developer kit.
  */
 import { AmosError, VI, int } from '../interp/values'
 import type { Value } from '../interp/values'

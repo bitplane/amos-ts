@@ -99,7 +99,7 @@ import type { Runtime } from './runtime'
 /**
  * Routine 3's message table at $2d0c — four NUL-separated strings, indexed
  * 0-based by the error byte at $2d0b, which is block+$2bd1. Delivered as a
- * requester: `Rjmp L_Dia_ScCopy` with `moveq #$15,d2`, the slot zero-based.
+ * requester: `Rjmp L_ErrorExt` with `moveq #$15,d2`, the slot zero-based.
  *
  * Every raiser lands right — `Init Thx` writes 2 when it is already up and 0
  * when InitPlayer fails, `Play Thx` writes 3 when InitModule does, and all

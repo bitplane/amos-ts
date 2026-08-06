@@ -679,7 +679,7 @@ describe('Range — 2.9Plus: Wipe (routine 91)', () => {
 
 describe('Range — 2.9Plus: Set Bzone (routine 92) is a stub', () => {
   it('raises the extension requester and does not set a zone', () => {
-    // `moveq #$0,d1 / moveq #$8,d2 / moveq #$ff,d3 / Rjmp L_Dia_ScCopy` —
+    // `moveq #$0,d1 / moveq #$8,d2 / moveq #$ff,d3 / Rjmp L_ErrorExt` —
     // d2 is slot 9 zero-based, the same shape MED, Ercole and Jotre use
     expect(() => run('Set Bzone 1,10,10 To 20,20,0')).toThrow(/Set Bzone/)
   })
