@@ -13,6 +13,7 @@ import { newTurboState, TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions,
 import { newPersonnalState, PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
 import { newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
 import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions, ensureLib } from './speech'
+import { makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
 import { makeMedExtFunctions, makeMedExtInstructions, medExtDefault, newMedExtState } from './medext'
 import { makeP61Functions, makeP61Instructions, newP61State } from './p61'
 import { makePowerBobsFunctions, makePowerBobsInstructions, newPowerBobsState } from './powerbobs'
@@ -5089,6 +5090,18 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     functions: makeMedExtFunctions,
     defaults: medExtDefault,
     qualified: ['med load', 'med play', 'med stop'],
+  },
+  {
+    // Ercole 1.7 at slot 10 --- the readme is blunt about the slot: "Place
+    // this extension as extension 10 otherwise it won`t work". `xfire` is
+    // SLOT-QUALIFIED because AMCAF spells it too, at slot 8. See ercole.ts.
+    ids: ['ercole-1.7'],
+    init: (rt) => {
+      rt.ercole = newErcoleState()
+    },
+    instructions: makeErcoleInstructions,
+    functions: makeErcoleFunctions,
+    qualified: ['xfire'],
   },
   {
     // TOME 4.23 and 3.1 share one port: 3.1's table is a strict prefix of

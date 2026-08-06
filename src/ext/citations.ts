@@ -410,4 +410,6 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/tome.test.ts': ['tome-4.23', 'tome-3.1'],
   'src/runtime/medext.ts': ['med-7.1'],
   'src/runtime/medext.test.ts': ['med-7.1'],
+  'src/runtime/ercole.ts': ['ercole-1.7'],
+  'src/runtime/ercole.test.ts': ['ercole-1.7'],
 }

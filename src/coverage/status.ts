@@ -2032,6 +2032,19 @@ export const FAITHFUL = new Set<string>([
   'med seq num',
   'med counter',
   'med is fastplaying',
+  // --- Ercole 1.7, slot 10: Ercole Spiteri's game-port extras. `xfire` is
+  // slot-qualified because AMCAF spells it at slot 8; see ercole.ts.
+  'cli',
+  'library open',
+  'library close',
+  'paddle',
+  'pad fire',
+  'ext joy',
+  'ext fire',
+  'xfire',
+  'yfire',
+  'prop on',
+  'prop off',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -3471,6 +3484,29 @@ export const NOTES: Record<string, string> = {
     'routine 22, `move.b $32(a0),d0` — MMD `counter`. The Guide, in full: "Tja keine Ahnung wozu der gut sein soll. Gibt aber irgend einen Wert zurück." It is the replayer\'s tick-within-the-line counter',
   'med is fastplaying':
     'routine 24: mode 0 asks medplayer -$72 and mode 1 octaplayer -$60, but mode 2 does not ask anyone — `move.l #$ffffffff,d0` unconditionally, which is the Guide\'s complaint ("funktioniert das nur bei MED Modulen die mit dem octamixplayer.library gespielt werden") explained. NOTE: for modes 0 and 1 the library\'s answer is modelled by the Med Fastplay On/Off flag, since fast-ram replay is what that pair switches and this port has no chip/fast split',
+  // --- Ercole 1.7, slot 10. Three of the eleven reach hardware nothing is
+  // plugged into, and Sticks and AMCAF already answer "no adaptor" for the
+  // same registers; these agree with them rather than pretending. The
+  // ARGUMENT CHECKS are the observable half and they are all real.
+  'prop on':
+    'routine 1: `lea $10a(pc),a0 / move.l a0,$4(a5)`, which is VblRout[1] (+Equ.s:1177) — one of the eight per-frame slots AMOS calls at the vertical blank. The hook reads POT0DAT and POT1DAT into a buffer and then writes POTGO\'s START bit, so Paddle sees a snapshot one frame old rather than the live register. Modelled as a real per-frame step, because that delay is observable with no hardware attached',
+  'prop off': 'routine 2: `clr.l $4(a5)`, and nothing else at all',
+  'paddle':
+    "routine 6. n is 0..3, unsigned-checked, and the pairing is not the obvious one: n<2 reads the POT0DAT snapshot and n>=2 the POT1DAT one, with the ODD number taking the low byte and the even one shifting down from the high. One POT register holds two axes, X low and Y high, so paddle 0 is port 0's Y line, 1 its X, 2 port 1's Y and 3 its X. The readme's \"(1-255)\" is the pot count, not a clamp the routine applies. NOTE: no paddle attached, so the conversion never completes and the snapshot stays 0 — the same answer Sticks' Stick X and Stick Y give for the same two registers. The readme's own known bug is left in place: it says AMOS's mouse-button polling ruins port 0, and that the author enabled it anyway",
+  'pad fire':
+    'routine 7. Four separate arms rather than a computation, and the bits are joystick COUNTERS rather than a fire line: JOY0DAT bit 9 for paddle 0 and bit 1 for paddle 1, JOY1DAT bit 9 for 2 and bit 1 for 3, -1 when set. A paddle button is wired to a direction line, which is why. NOTE: no paddle, so no counter movement and no button',
+  'ext joy':
+    "routine 8: `move.b $bfe101,d3 / not.b d3`, then the low nibble for n=0 and `lsr.b #$4` for n=1. CIA-A PRB is the PARALLEL port's data lines and this is the four-player adaptor, one joystick per nibble — the readme says so and the register agrees, where Sticks' manual calls the same hardware the serial port and is wrong. NOTE: no adaptor; the lines idle high and `not.b` makes that zero, which is no direction",
+  'ext fire':
+    'routine 9: CIA-B PRA ($bfd000) bit 2 for joystick 3 and bit 0 for joystick 4 — the parallel port BUSY and POUT handshake lines — and -1 when the bit is CLEAR, a button pulling a pulled-up line down. NOTE: no adaptor, so both idle high and answer 0',
+  'xfire':
+    "routine 10, the SECOND button: POTINP ($dff016) bit $e (DATRY, right port pin 9) for n=1 and bit $a (DATLY, left port pin 9) for n=0, -1 when CLEAR. On the pressed path only it then `bset`s the matching OUT and DAT bits in POTGO to restore the pull-up the button discharged, which is the same thing routine 0 does for the right port at startup. NOTE: nothing is wired to the pot pins, so they stay high and this answers 0 — the same limit Sticks records for its buttons B, C and D. SLOT-QUALIFIED: AMCAF spells Xfire too, at slot 8",
+  'yfire': "routine 11, the THIRD button --- routine 10 again on the X pot pins: bit $c (DATRX, right port pin 5) for n=1 and bit $8 (DATLX, left) for n=0, re-arming $c/$d and $8/$9",
+  'library open':
+    "routine 4: `moveq #$0,d0` then OpenLibrary, so ANY version will do, and a zero result is error 1. The readme's use for it is `Call A-30`, and Call is n/a here under the rule that 68k machine code is never executed — so the base is only ever a number a program tests, which is exactly what ../amiga/exec.ts hands back: a synthetic base for the libraries this port models, 0 for the rest",
+  'library close': 'routine 5: CloseLibrary with no check of any kind. Closing zero, or a number that was never a base, is the caller\'s problem on the machine and cannot be told apart here',
+  'cli':
+    'routine 3, 468 bytes and the only large one. OpenLibrary("dos.library"), Open(output$, MODE_NEWFILE), Execute(command$, input, output), Close, then REOPEN with MODE_OLDFILE and Read 32 bytes back for an error test. An empty output$ is not an error: "ram:test" is substituted and a flag makes the DeleteFile at the end fire, where a caller-named file is left behind. The error detection is a hack worth stating: the first four bytes read back are compared against the first WORD of command$ and against the long "Bad ", either match being error 3 — because a shell that could not run the command writes its name or a "Bad ..." complaint into the output. Only then does Execute\'s own result raise error 0. NOTE: this port has no shell, so execute() answers DOSFALSE, the file is created and stays empty, neither text test fires, and the routine lands on its own error 0 — the branch it takes on an Amiga where the command could not run',
   'omd load': 'octaplayer.library is not in the AMOS source; the load is checked and remembered, the module is not decoded',
   'omd play': 'the OMD state machine only; no audio',
   'omd stop':

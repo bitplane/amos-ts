@@ -15,6 +15,7 @@ import type { MemRegion } from '../amiga/memmap'
 import { newPiConfig } from './piconfig.gen'
 import { ensureLib, speakOne, type SpeechState } from './speech'
 import { SpeakBuffer, type SpeakOptions } from '../amiga/speak'
+import { ercoleVbl, type ErcoleState } from './ercole'
 import type { MedExtState } from './medext'
 import type { P61State } from './p61'
 import type { PowerBobsState } from './powerbobs'
@@ -500,6 +501,8 @@ export class Runtime {
   tome!: TomeState
   /** MED 7.1: the three player libraries, the loaded module and the mode */
   medExt!: MedExtState
+  /** Ercole 1.7: the Prop On hook and the two POT snapshots it fills */
+  ercole!: ErcoleState
 
   fileChans = new Map<
     number,
@@ -3412,6 +3415,8 @@ export class Runtime {
     // MED 7.1 drives its own copy of the replayer, off its own module rather
     // than off bank 3 — medplayer.library installs a separate interrupt
     this.medExt?.player?.vbl()
+    // Ercole's Prop On puts its POT sampler in VblRout[1] (+Equ.s:1177)
+    ercoleVbl(this.ercole)
     // TFT's own VBL server, when a program has armed it with Start Int
     tftVbl(this.tft)
     this.applyShifts()
