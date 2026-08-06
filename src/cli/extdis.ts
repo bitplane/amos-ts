@@ -40,6 +40,7 @@ import { fileURLToPath } from 'node:url'
 import { firstCodeHunk } from '../tokens/libtok'
 import { routineAddresses } from '../ext/routines'
 import { extensionById, REGISTRY } from '../ext/registry'
+import { amosVector } from '../ext/amosvectors'
 import { AMOS_CALL_KINDS, AMOS_CALL_LOW, AMOS_CALL_MARKER, AMOS_CALL_SEL_J, AMOS_CALL_SEL_T, AMOS_ROUTINES } from '../ext/amoscalls.gen'
 
 const args = process.argv.slice(2)
@@ -359,6 +360,21 @@ function disassemble(label: string, n: number): void {
        */
       const BREAKS = /^(rts|rte|rtr|bra|jmp)(\.[bwl])?$/
       let unreachable = false
+      /**
+       * `movea.l -$4(a5),a0 / jsr $c4(a0)` is AMOS's SyCall/EcCall/WiCall
+       * macro written out by hand — see src/ext/amosvectors.ts. The two are
+       * always adjacent, because that is how the macro expands, so carrying
+       * the slot exactly one line is both sufficient and safe: nothing else
+       * can have overwritten a0 in between.
+       */
+      let a5slot: number | null = null
+      const annotate = (text: string): string => {
+        const call = /\bjsr\s+(?:\$([0-9a-f]+))?\(a0\)/.exec(text)
+        const named = call && a5slot !== null ? amosVector(a5slot, parseInt(call[1] ?? '0', 16)) : null
+        const load = /\bmovea?\.l\s+-\$([0-9a-f]+)\(a5\),\s*a0/.exec(text)
+        a5slot = load ? parseInt(load[1]!, 16) : null
+        return named ? `${text.trimEnd()}   ${named}` : text
+      }
       for (const line of raw.split('\n')) {
         const m = /^\s*([0-9a-f]+)\s+(\S+)/.exec(line)
         const at = m ? parseInt(m[1]!, 16) : -1
@@ -373,10 +389,11 @@ function disassemble(label: string, n: number): void {
         const call = at >= 0 ? decodeCall(at) : null
         if (call) {
           lines.push(`  ${at.toString(16).padStart(7, '0')}  ${call.text}`)
+          a5slot = null
           skipUntil = at + call.size
           unreachable = /^R(bra|jmp)\b/.test(call.text)
         } else {
-          lines.push(line)
+          lines.push(annotate(line))
           unreachable = BREAKS.test(m ? m[2]! : '')
         }
       }

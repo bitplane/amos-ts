@@ -585,3 +585,128 @@ describe('Range — 2.9Plus: Spoint and Splot (routines 74, 76)', () => {
     expect(b.out().trim()).toBe('63')
   })
 })
+
+describe('Range — 2.9Plus: First Col and Nxt Col (routines 68, 69)', () => {
+  // two 16x16 bobs overlapping, and a third well away from them
+  const setup = [
+    'Screen Open 0,320,200,16,Lowres',
+    'Cls 0 : Ink 5 : Bar 0,0 To 7,7',
+    'Get Bob 1,0,0 To 8,8',
+    'Bob 1,50,50,1 : Bob 2,54,54,1 : Bob 9,200,100,1', // 1 and 2 overlap
+    'Wait Vbl',
+    '',
+  ].join('\n')
+
+  it('they walk the objects =Col() says collided, then answer -1', () => {
+    // GetCol (+W.s) bit-tests T_TColl, which is what Bob Col filled
+    const b = run(
+      setup + 'X=Bob Col(1)\nPrint First Col(0 To 15);",";Nxt Col;",";Nxt Col',
+    )
+    expect(b.out().trim()).toBe('2,-1,-1')
+  })
+
+  it('the range is normalised, so To either way round is the same list', () => {
+    // `cmp.l d3,d2 / bgt .swap`
+    const b = run(setup + 'X=Bob Col(1)\nPrint First Col(15 To 0)')
+    expect(b.out().trim()).toBe('2')
+  })
+
+  it('nothing in collision answers -1 and leaves Nxt Col answering -1', () => {
+    const b = run(setup + 'X=Bob Col(9)\nPrint First Col(0 To 15);",";Nxt Col')
+    expect(b.out().trim()).toBe('-1,-1')
+  })
+
+  it('Nxt Col before any First Col is -1, not a stale read', () => {
+    expect(num(setup + 'Print Nxt Col')).toBe(-1)
+  })
+})
+
+describe('Range — 2.9Plus: Analyse (routine 87)', () => {
+  const scr = 'Screen Open 0,320,200,16,Lowres\nCls 0\n'
+
+  it('prints each character beside its hex code, from the block template', () => {
+    // block+$ac: 1b 42 30 1b 50 31 20 1b 42 30 1b 50 32 2d 20 20 20 00,
+    // with the char at +$32 and the two nibbles at +$3a/+$3b
+    expect(text(scr + 'Analyse "Hi"')).toBe('H-48 i-69 ')
+  })
+
+  it('a control character shows as itself plus $41, with the CODE unchanged', () => {
+    // `.ctrl: addi.b #$41,d2` touches only what is displayed
+    expect(text(scr + 'Analyse Chr$(0)+Chr$(13)')).toBe('A-00 N-0D ')
+  })
+
+  it('the empty string is the block+$ce message, not nothing', () => {
+    // `move.w (a1),d7 / beq .empty` on the AMOS length word
+    expect(text(scr + 'Analyse ""')).toBe('NULL STRING\n\r')
+  })
+
+  it('control characters swap paper and pen, and the swap is undone after', () => {
+    // paper "2"/pen "0" for the control arm, "0"/"2" for the rest
+    const b = run(scr + 'Analyse Chr$(1)')
+    expect(b.rt.screen.curWin.paper).toBe(0)
+    expect(b.rt.screen.curWin.pen).toBe(2)
+  })
+})
+
+describe('Range — 2.9Plus: Wipe (routine 91)', () => {
+  it('turns the cursor off, stops the flashes and clears to colour 0', () => {
+    // ESC "C0" through WiCall Print, then EcCall FlRaz, then EcCall ClsEc
+    // with d1=0 and a 10,000-square box EcCls clamps to the screen
+    const b = run(
+      'Screen Open 0,320,200,16,Lowres\nCls 5\nCurs On\nFlash 1,"(FFF,10)"\nWipe\n',
+    )
+    expect(b.rt.screen.cursorOn).toBe(false)
+    expect(b.rt.flashes.length).toBe(0)
+    expect(b.rt.screen.rp.bitMap.pixelAt(160, 100)).toBe(0)
+  })
+})
+
+describe('Range — 2.9Plus: Set Bzone (routine 92) is a stub', () => {
+  it('raises the extension requester and does not set a zone', () => {
+    // `moveq #$0,d1 / moveq #$8,d2 / moveq #$ff,d3 / Rjmp L_Dia_ScCopy` —
+    // d2 is slot 9 zero-based, the same shape MED, Ercole and Jotre use
+    expect(() => run('Set Bzone 1,10,10 To 20,20,0')).toThrow(/Set Bzone/)
+  })
+
+  it('all six arguments still parse — the routine never pops them', () => {
+    expect(() => run('Set Bzone 1,2,3 To 4,5')).toThrow()
+  })
+})
+
+describe('Range — 2.9Plus: the Ch Key waiters (routines 88, 89, 90)', () => {
+  it('Ch Scan Code answers the CHARACTER code, not the scancode', () => {
+    // DEFECT: `move.w d1,d3` takes ClInky's low word, which FnInkey
+    // (+Lib.s:13611) uses for the character; the scancode is in the half
+    // `swap d1` would have reached
+    const b = boot('Print Ch Scan Code')
+    b.rt.pressKey('A', 0x20)
+    const r = b.rt.runHeadless(4000)
+    expect(r.status).toBe('ended')
+    expect(b.out().trim()).toBe('65') // "A", not scancode 32
+  })
+
+  it('with nothing typed it waits rather than answering 0', () => {
+    const b = boot('Print Ch Scan Code')
+    expect(b.rt.runHeadless(4000).status).toBe('blocked')
+    expect(b.out()).toBe('')
+  })
+
+  it('Ch Key State answers the lowest scancode held down', () => {
+    // `moveq #$7f,d7 / addq.b #$1,d7` is 128, and the sweep runs 0..127
+    const b = boot('Print Ch Key State')
+    b.rt.input.keys.add(0x45)
+    b.rt.input.keys.add(0x20)
+    b.rt.pressKey('', 0x20) // wake the wait
+    const r = b.rt.runHeadless(4000)
+    expect(r.status).toBe('ended')
+    expect(b.out().trim()).toBe('32') // $20, below $45
+  })
+
+  it('Ch Key Scan cannot complete, because Key Scan reads a CIA this port does not drive', () => {
+    // NOTE, not DEFECT: routine 75 reads $bfec01 and the keyboard reaches
+    // this port as events. The wait is a real wait, not a frozen host.
+    const b = boot('Print Ch Key Scan')
+    b.rt.pressKey('A', 0x20)
+    expect(b.rt.runHeadless(4000).status).toBe('blocked')
+  })
+})

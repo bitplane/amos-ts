@@ -37,13 +37,35 @@
  * ## Routine 0 identifies the machine, and the constants prove it
  *
  *     move.l  #$361f0f, $48(a3)
- *     movea.l -$8(a5), a0 / jsr $12c(a0)
+ *     movea.l -$8(a5), a0 / jsr $12c(a0)      EcCall NTSC
  *     tst.w   d1 / beq .pal
  *     move.l  #$369e99, $48(a3)
  *
  * $361f0f is 3,546,895 and $369e99 is 3,579,545 — `PAULA_CLOCK_PAL` and
  * `PAULA_CLOCK_NTSC`, already constants in `../amiga/paula.ts`. The block's
  * $48 is the audio clock `Sam Speed` divides.
+ *
+ * ## `movea.l -$4(a5),a0 / jsr $NN(a0)` — the AMOS vector tables
+ *
+ * Range reaches into AMOS this way twenty-odd times and it is NOT the
+ * sanctioned `Rjsr routine N` interface: the two official extension sources
+ * (`extensions/+Music.s`, `+Compact.s`) never do it. The three a5 slots are
+ * defined by the `Rl` macro in `+WEqu.s:35`, which counts DOWN from zero:
+ *
+ *     RwReset / Rl SyVect,1 / Rl EcVect,1 / Rl WiVect,1
+ *
+ * so `T_SyVect = -4`, `T_EcVect = -8`, `T_WiVect = -12`. Each holds a table
+ * of `bra`s, four bytes apiece, which is why AMOS's own `SyCall`/`EcCall`/
+ * `WiCall` macros (`+Equ.s:394, 660, 768`) are `jsr \1*4(a0)`: the offset an
+ * extension writes literally IS the index times four. The index names are the
+ * equate lists immediately above each macro, and the tables themselves are
+ * commented entry by entry — `SyIn` at `+W.s:9952`, `EcIn` at `+W.s:2524`.
+ *
+ * The ones this port needed, all confirmed against what the keyword does:
+ *
+ *     Sy  $00 Inkey    $0c Instant   $54 SetZone   $c4 SetBob
+ *     Sy  $c8 OffBob   $fc ColGet    $11c Patch (the icon/bob paste)
+ *     Ec  $44 FlRaz    $8c ClsEc     $12c NTSC     Wi $04 Print
  *
  * ## The block at $178(a5)
  *
@@ -53,8 +75,13 @@
  *     $24  the bob bank's base       $28/$2c  Game Area x margin / width
  *     $30/$34  y margin / height     $38..$44  In Screen's saved coordinates
  *     $48  the audio clock
+ *     $4c/$50  Bank Str$'s position and its terminator
+ *     $52  First Col's count         $54  Nxt Col's cursor
+ *     $56  the 31 objects between them, one byte each
+ *     $76  List Palette's template   $80..$97  Push's six longs
  *     $a0  the Case result           $a4  the Case subject
- *     $a8  the Case$ subject
+ *     $a8  the Case$ subject         $ac  Analyse's template
+ *     $be  its hex digits            $ce  its "NULL STRING" message
  *
  * The Case three are the correction slice 1 needed. Every one of the four
  * routines reaches them through `lea $80(a0),a0` first, so what the listing
@@ -146,6 +173,12 @@ export interface RangeState {
   bankStrEnd: number
   /** $80..$97 — Push's six longs, which Pull indexes */
   stack: number[]
+  /** $52 — how many objects `First Col` found in collision, at most 31 */
+  colCount: number
+  /** $54 — how far `Nxt Col` has read through them */
+  colNext: number
+  /** $56 — the objects themselves, one BYTE each */
+  colList: number[]
 }
 
 /**
@@ -194,10 +227,16 @@ export const newRangeState = (): RangeState => ({
   bankStrPtr: 0,
   bankStrEnd: 0,
   stack: [0, 0, 0, 0, 0, 0],
+  colCount: 0,
+  colNext: 0,
+  colList: [],
 })
 
 /** so the NTSC constant is named rather than merely mentioned */
 export const RANGE_CLOCKS = { pal: PAULA_CLOCK_PAL, ntsc: PAULA_CLOCK_NTSC }
+
+/** block+$be, the sixteen bytes Analyse indexes a nibble into */
+const HEX = '0123456789ABCDEF'
 
 /**
  * Routine 53 ($cf2) — resolve one image of the bob bank (d2 = 1) or the icon
@@ -933,6 +972,133 @@ export function makeRangeInstructions(rt: Runtime): Record<string, Instr> {
       rt.screens.get(n)!.rp.bitMap.invalidate()
     },
 
+    /**
+     * Analyse a$ — routine 87 ($1502). A debugging dump: every character of
+     * the string printed next to its hex code.
+     *
+     *     lea $80(a0),a0 / movea.l (a3)+,a1
+     *     move.w (a1),d7 / beq .empty            the AMOS length word
+     *   .each:
+     *     move.b #$30,$2e(a0) / move.b #$32,$31(a0)     paper "0", pen "2"
+     *     move.b $2(a1,d6.l),d0 / move.b d0,d2
+     *     cmp.b #$20,d2 / blt .ctrl
+     *   .show:
+     *     move.b d2,$32(a0)                      the character itself
+     *     move.b d0,d1 / andi.w #$f,d0
+     *     move.b $3e(a0,d0.w),d2 / move.b d2,$3b(a0)    low nibble
+     *     andi.l #$f0,d1 / lsr.l #$4,d1
+     *     move.b $3e(a0,d1.l),d2 / move.b d2,$3a(a0)    high nibble
+     *     lea $2c(a0),a1 / movea.l -$c(a5),a0 / jsr $4(a0)   WiCall Print
+     *     addq.l #$1,d6 / cmp.l d6,d7 / bne .each
+     *   .ctrl:
+     *     addi.b #$41,d2                         chr$(0) shows as "A"
+     *     move.b #$32,$2e(a0) / move.b #$30,$31(a0)     paper and pen SWAPPED
+     *     bra .show
+     *   .empty:
+     *     lea $4e(a0),a1 / WiCall Print
+     *
+     * The template it patches lives at block+$ac and reads, verbatim:
+     *
+     *     1b 42 30  1b 50 31  20  1b 42 30  1b 50 32  2d  20 20  20 00
+     *     ESC B "0" ESC P "1" " " ESC B "0" ESC P "2" "-" hi lo  " " NUL
+     *
+     * `ESC B` is Paper and `ESC P` is Pen (`CEsc` +W.s indexes by
+     * `letter - "A"`, and the handler subtracts `"0"` off the digit), so the
+     * bytes at +$2e and +$31 the routine keeps rewriting ARE the two colour
+     * numbers. Sixteen hex digits follow at block+$be and the empty-string
+     * message, `NULL STRING` + LF + CR, at block+$ce.
+     *
+     * So each character costs eight columns — `X-41 ` and so on — in pen 2 on
+     * paper 0, and a control character comes out in pen 0 on paper 2 with
+     * `+$41` added to what is DISPLAYED but not to the code printed beside
+     * it: chr$(0) reads `A-00`, chr$(13) reads `N-0D`.
+     *
+     * NOTE the template's shipped pen is "1", which nothing ever prints —
+     * both arms write $2e and $31 before the first Print.
+     */
+    analyse(it) {
+      const s = it.evalStr()
+      if (s.length === 0) {
+        it.write('NULL STRING\n\r')
+        return
+      }
+      for (let i = 0; i < s.length; i++) {
+        const c = s.charCodeAt(i) & 0xff
+        const ctrl = c < 0x20
+        rt.screen.setPaperChecked(ctrl ? 2 : 0)
+        rt.screen.setPenChecked(ctrl ? 0 : 2)
+        it.write(String.fromCharCode(ctrl ? (c + 0x41) & 0xff : c))
+        rt.screen.setPaperChecked(0)
+        rt.screen.setPenChecked(2)
+        it.write(`-${HEX[(c >> 4) & 0xf]}${HEX[c & 0xf]} `)
+      }
+    },
+
+    /**
+     * Wipe — routine 91 ($15e4), three AMOS calls and nothing of its own:
+     *
+     *     lea $160e(pc),a1 / movea.l -$c(a5),a0 / jsr $4(a0)    WiCall Print
+     *     movea.l -$8(a5),a0 / jsr $44(a0)                      EcCall FlRaz
+     *     moveq #$0,d1 / moveq #$0,d2 / moveq #$0,d3
+     *     move.w #$2710,d4 / move.w d4,d5
+     *     movea.l -$8(a5),a0 / jsr $8c(a0)                      EcCall ClsEc
+     *
+     * The four bytes at $160e are `1b 43 30 00` — `ESC "C" "0"`, the Curs
+     * escape with the cursor off. `FlStop` (+W.s:5285) stops the active
+     * screen's flashes; `EcCls` takes d1 as the colour and d2..d5 as the
+     * box, and it clamps each against EcTx/EcTy, so 10,000 by 10,000 is the
+     * whole screen. Cursor off, flashing off, screen to colour 0.
+     */
+    wipe() {
+      const s = rt.screen
+      s.console(() => {
+        s.cursorOn = false
+      })
+      rt.flashOff()
+      s.cls(0)
+    },
+
+    /**
+     * Set Bzone — routine 92 ($1642) is twelve bytes and none of them do
+     * anything:
+     *
+     *     moveq #$0,d1 / moveq #$8,d2 / moveq #$ff,d3
+     *     Rjmp L_Dia_ScCopy
+     *
+     * the extension-error requester every other slot raises the same way —
+     * MED with `#$12`, Ercole `#$9`, Jotre `#$15` — where d2 is the slot
+     * zero-based, and 8 is Range's 9. It never touches a3, so the SIX
+     * arguments its spec declares (`I0,0,0t0,0,0`, i.e. `Set Bzone a,b,c To
+     * d,e,f`) are left on the parameter stack. This port parses them because
+     * the parser must and then discards them, which is what the keyword does.
+     *
+     * NOTE: unlike AMCAF, Ercole and Jotre, Range passes NO message table —
+     * there is no `lea <strings>(pc),a0` and no index in d0, only d3 = -1. So
+     * the text the requester would show cannot be recovered from the binary,
+     * and the message here is this port's own.
+     *
+     * The body Set Bzone once had is still in the file, orphaned at $1612
+     * between Wipe's `rts` and Wipe's ESC string: it peeks four longs, calls
+     * EcCall ClsEc with them, then pops six more and calls SyCall SetZone —
+     * clear a box and make it a zone, which is what the name says. Nothing in
+     * the jump table points at it (routine 91 ends at $160c, routine 92
+     * starts at $1642), so it is dead code the author stubbed over.
+     */
+    'set bzone'(it) {
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect('to')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      throw new AmosError('Set Bzone is not available in this Range')
+    },
+
     'bank string'(it) {
       const s = st()
       const mem = rt.memBanks.get(it.evalInt())
@@ -956,6 +1122,161 @@ export function makeRangeExtraFunctions(rt: Runtime): Record<string, Func> {
   return {
     /** =Bank Str Ptr — routine 66 ($124c), three instructions over $4c */
     'bank str ptr': (): Value => VI(st().bankStrPtr),
+
+    /**
+     * =First Col(a To b) — routine 68 ($1264). Not a colour: a COLLISION.
+     * It asks AMOS's own `=Col(n)` about every object in the range and keeps
+     * the ones that answer yes, so `Nxt Col` can walk them afterwards.
+     *
+     *     move.l (a3)+,d3 / move.l (a3)+,d2
+     *     cmp.l d3,d2 / bgt .swap                  either way round is fine
+     *     clr.w $52(a0)                            the count, from scratch
+     *   .each:
+     *     move.l d2,d1 / movea.l -$4(a5),a0 / jsr $fc(a0)    SyCall ColGet
+     *     move.w $52(a0),d1 / tst.l d0 / bne .hit
+     *   .room:
+     *     cmp.w #$1f,d1 / bge .done
+     *     addq.l #$1,d2 / cmp.l d3,d2 / ble .each
+     *   .done:
+     *     clr.w $54(a0) / move.w $52(a0),d3 / beq .empty
+     *     move.b $56(a0),d3 / move.w #$1,$54(a0) / rts
+     *   .empty: moveq #$ff,d3 / rts
+     *   .hit:  move.b d2,$56(a0,d1.w) / addq.w #$1,d1 / move.w d1,$52(a0)
+     *          bra .room
+     *
+     * `GetCol` (+W.s) bit-tests `T_TColl`, the table the last Bob Col /
+     * Sprite Col / Hard Col filled, which is exactly what `=Col(n)` reads —
+     * so First Col is only meaningful straight after one of those, and this
+     * port asks the same `colSet` for the same reason.
+     *
+     * NOTE the cap is THIRTY-ONE, not thirty-two: `.room` re-tests with the
+     * count already incremented, so the thirty-first hit ends the scan.
+     *
+     * DEFECT: `move.b d2,$56(a0,d1.w)` stores the object number as a BYTE, so
+     * a range reaching past 255 records object 256 as 0. Reproduced.
+     */
+    'first col': (_, a): Value => {
+      const s = st()
+      let lo = int(a[0] ?? VI(0))
+      let hi = int(a[1] ?? VI(0))
+      if (lo > hi) [lo, hi] = [hi, lo]
+      s.colCount = 0
+      s.colNext = 0
+      s.colList = []
+      for (let n = lo; n <= hi; n++) {
+        if (rt.colGet(n) !== 0) {
+          s.colList.push(n & 0xff)
+          s.colCount++
+        }
+        if (s.colCount >= 31) break
+      }
+      if (s.colCount === 0) return VI(-1)
+      s.colNext = 1
+      return VI(s.colList[0] ?? 0)
+    },
+
+    /**
+     * =Nxt Col — routine 69 ($12ce), the reader over the same three fields:
+     *
+     *     moveq #$0,d3 / moveq #$0,d2
+     *     move.w $54(a0),d1 / cmp.w $52(a0),d1 / beq .end
+     *     move.b $56(a0,d1.w),d3 / addq.w #$1,d1 / move.w d1,$54(a0) / rts
+     *   .end: moveq #$ff,d3
+     *
+     * -1 once the list runs out, and the cursor stays put so every later call
+     * answers -1 too. Nothing resets it but another `First Col`.
+     */
+    'nxt col': (): Value => {
+      const s = st()
+      if (s.colNext >= s.colCount) return VI(-1)
+      return VI(s.colList[s.colNext++] ?? 0)
+    },
+
+    /**
+     * =Ch Key Scan — routine 88 ($158a). "Changed key scan": wait for the
+     * keyboard to go quiet, then wait for it to speak.
+     *
+     *     Rbsr routine 75 / tst.l d3 / bne (itself)      until released
+     *     Rbsr routine 75 / tst.l d3 / beq (itself)      until pressed
+     *
+     * Routine 75 is Range's own `=Key Scan`, which reads CIA-A's keyboard
+     * serial register at $bfec01 directly. Nothing in this port drives that
+     * register — the keyboard arrives as events, not as CIA serial traffic —
+     * so `Key Scan` answers 0 and its NOTE says why.
+     *
+     * NOTE: that makes the second loop unsatisfiable HERE. The port expresses
+     * it as a block on the keyboard, so the host keeps running and the wait is
+     * a wait rather than a frozen tab, but it will not return while Key Scan
+     * answers 0. Giving it any other answer would mean inventing a keyboard
+     * the port does not model; see [[amos-roadmap]] and the Key Scan entry.
+     */
+    'ch key scan': (it): Value => {
+      it.block({ type: 'waitInput', mouse: false, key: true }, true)
+      return VI(0)
+    },
+
+    /**
+     * =Ch Scan Code — routine 89 ($159c):
+     *
+     *     Rbsr routine 75 / tst.l d3 / bne (itself)      Key Scan quiet
+     *   .wait:
+     *     movea.l -$4(a5),a0 / jsr (a0)                  SyCall Inkey
+     *     move.w d1,d3 / beq .wait
+     *     andi.l #$ff,d3 / moveq #$0,d2
+     *
+     * `ClInky` (+W.s) packs the queued keystroke into d1 as
+     * `shift<<24 | scancode<<16 | character` — `FnInkey` (+Lib.s:13611) takes
+     * `move.w d1,d2` for the character it returns and `swap d1` for the word
+     * `Scancode` and `Scanshift` then read.
+     *
+     * DEFECT: so this keyword takes the LOW word and answers the CHARACTER
+     * code, not the scancode its name promises — the scancode is in the half
+     * it throws away. `Ch Scan Code` on "A" gives 65, not 32. Reproduced.
+     *
+     * The `beq .wait` also means a keystroke whose character byte is zero is
+     * swallowed and waited past rather than reported.
+     */
+    'ch scan code': (it): Value => {
+      const q = rt.input.keyQueue
+      while (q.length > 0) {
+        const k = q.shift()!
+        rt.input.lastScan = k.scan
+        rt.input.lastShift = k.shift ?? 0
+        const c = k.ch.charCodeAt(0) || 0 // NaN on the empty string
+        if (c) return VI(c & 0xff)
+      }
+      it.block({ type: 'waitInput', mouse: false, key: true }, true)
+      return VI(0)
+    },
+
+    /**
+     * =Ch Key State — routine 90 ($15b8):
+     *
+     *     Rbsr routine 75 / tst.l d3 / bne (itself)      Key Scan quiet
+     *     moveq #$7f,d7 / addq.b #$1,d7                  d7 = 128
+     *   .round:
+     *     moveq #$0,d3
+     *   .each:
+     *     move.l d3,-(a7) / move.l d3,d1
+     *     movea.l -$4(a5),a0 / jsr $c(a0)                SyCall Instant
+     *     move.l (a7)+,d3 / tst.l d1 / bne .found
+     *     addq.l #$1,d3 / cmp.l d7,d3 / blt .each
+     *     bra .round
+     *   .found: moveq #$0,d2
+     *
+     * `ClInst` (+W.s) masks the scancode to 7 bits and bit-tests `T_ClTable`,
+     * the held-key matrix `=Key State(n)` reads. So this sweeps 0..127 over
+     * and over and answers the LOWEST scancode currently down — and because
+     * the outer `.round` has no exit, it never gives up.
+     *
+     * `moveq #$7f,d7 / addq.b #$1,d7` is 128 and not 0: the `.b` add carries
+     * nowhere, leaving $00000080.
+     */
+    'ch key state': (it): Value => {
+      for (let n = 0; n < 128; n++) if (rt.input.keys.has(n)) return VI(n)
+      it.block({ type: 'waitInput', mouse: false, key: true }, true)
+      return VI(0)
+    },
 
     /**
      * =Pull(n) — routine 80 ($149c): `lea $80(a0),a0 / move.l (a3)+,d0 /
