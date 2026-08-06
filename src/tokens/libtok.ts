@@ -122,10 +122,31 @@ export function parseTokenTable(table: Uint8Array): TokenEntry[] {
         break
       }
       const b = r.u8()
-      // $FF ends the entry. $FE and $FD end it too but mark that the next
-      // entry is a variant of the same instruction (no name of its own):
-      // $FE an argument-count variant, $FD the function form.
-      if (b === 0xff || b === 0xfe || b === 0xfd) break
+      /**
+       * The spec ends at the first NEGATIVE byte, which is the rule AMOS
+       * itself uses. `Ver_Ech` (+Verif.s:5259) is the interpreter's own walk
+       * over this table, swapping each entry's routine pair for the verify
+       * build's, and it advances like this:
+       *
+       *     .Skip1  tst.b (a0)+ / bpl.s .Skip1     the name
+       *     .Skip2  tst.b (a0)+ / bpl.s .Skip2     the spec
+       *             move.w a0,d0 / and.w #1,d0 / add.w d0,a0
+       *
+       * so bit 7, not the value. In practice the terminator written is -1
+       * ($FF), or -2/-3 ($FE/$FD) to mark that the next entry is a variant of
+       * the same instruction with no name of its own — an argument-count
+       * variant and the function form respectively. Testing for those three
+       * values agreed with `bpl` on all 91 libraries held, so this is not a
+       * behaviour change; it is the difference between a rule that happens to
+       * work and the one the 68k executes.
+       *
+       * It matters because a $00 is POSITIVE and so terminates nothing.
+       * AMOSPro_Range.Lib's `splot` entry has no terminator at all, and the
+       * walk runs on into the following entry — see src/cli/extdis.ts. A
+       * reader that stopped at $00 would produce a tidier table than the
+       * Amiga does, and every id after it would be wrong.
+       */
+      if (b & 0x80) break
       spec += String.fromCharCode(b)
       if (spec.length > 64) throw new Error(`runaway token spec at $${id.toString(16)}`)
     }

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { parseTokenTable } from './libtok'
+import { firstCodeHunk } from '../amiga/hunk'
 
 const ch = (s: string) => [...s].map((c) => c.charCodeAt(0))
 
@@ -20,5 +23,124 @@ describe('parseTokenTable', () => {
     expect(entries[0]).toMatchObject({ id: 0, name: '', instr: 1, func: 2 })
     expect(entries[1]).toMatchObject({ id: 6, name: 'bob', spec: 'I0' })
     expect(entries[2]).toMatchObject({ id: 16, name: '', spec: 'I' })
+  })
+
+  /**
+   * A spec ends at the first NEGATIVE byte, so a $00 terminates nothing and an
+   * entry missing its `-1` swallows the next one. Not a tolerance we chose:
+   * `Ver_Ech` (+Verif.s:5259) advances with `tst.b (a0)+ / bpl`.
+   *
+   * AMOSPro_Range.Lib is the real case, and the differential below is what
+   * shows it is real. This is the same shape in forty bytes, because a
+   * hand-built fixture is good for saying what the rule IS and proves nothing
+   * about what the Amiga's libraries CONTAIN.
+   */
+  it('a $00 does not end a spec, so a missing terminator swallows the next entry', () => {
+    const table = new Uint8Array([
+      // "splot", routine 76, spec I0 -- and NO terminator after the spec
+      0, 76, 0xff, 0xff, ...ch('splo'), 't'.charCodeAt(0) | 0x80, ...ch('I0'),
+      0, // the assembler's even-alignment pad, which terminates nothing
+      // what should have been routine 77, "planes"
+      0, 77, 0xff, 0xff, ...ch('plane'), 's'.charCodeAt(0) | 0x80, ...ch('I0'), 0xff,
+      0, // its pad
+      // a well-formed entry, to show where the walk comes back into step
+      0, 78, 0xff, 0xff, ...ch('fmo'), 'd'.charCodeAt(0) | 0x80, ...ch('00'), 0xff,
+      0,
+      0, 0,
+    ])
+    const entries = parseTokenTable(table)
+    expect(entries.map((e) => e.name)).toEqual(['splot', 'es', 'fmod'])
+    // splot keeps its name and routine, and carries the wreckage as its spec:
+    // its own "I0", the pad, then routine 77's two header bytes
+    expect(entries[0]).toMatchObject({ id: 0, instr: 76 })
+    expect([...entries[0]!.spec].map((c) => c.charCodeAt(0))).toEqual([...ch('I0'), 0, 0, 77])
+    // the fragment's routine numbers are the ASCII of the swallowed name --
+    // "pl" and "an" of "planes". $706c is not a jump-table index, and that
+    // impossibility is the signal src/cli/extdis.ts reports.
+    expect(entries[1]).toMatchObject({ id: 16, instr: 0x706c, func: 0x616e, spec: 'I0' })
+    // so routine 77 is unreachable: nothing names it
+    expect(entries.some((e) => e.instr === 77 || e.func === 77)).toBe(false)
+    // and the walk is back in step by the entry after
+    expect(entries[2]).toMatchObject({ id: 26, instr: 78 })
+  })
+})
+
+/**
+ * The rule above, checked against every AMOS library held rather than against
+ * a fixture we wrote. `amosWalk` is a line-by-line transcription of `Ver_Ech`
+ * (+Verif.s:5259) — the interpreter's own walk over a token table, which it
+ * uses to swap each entry's routine pair for the verify build's:
+ *
+ *     .Loop   move.l (a0),d0 / move.l (a1),(a0)+ / move.l d0,(a1)+
+ *     .Skip1  tst.b (a0)+ / bpl.s .Skip1
+ *     .Skip2  tst.b (a0)+ / bpl.s .Skip2
+ *             move.w a0,d0 / and.w #$0001,d0 / add.w d0,a0
+ *             cmp.l d1,a1 / bcs.s .Loop
+ *
+ * If the two ever disagree, every token id past the disagreement is wrong —
+ * and a token id is precisely what a saved program holds, so nothing else in
+ * the reader would notice. Hence a differential rather than expectations.
+ */
+function amosWalk(t: Uint8Array): number[] {
+  const ids: number[] = []
+  let p = 0
+  while (p + 6 <= t.length) {
+    if (p > 0 && t[p] === 0 && t[p + 1] === 0) break
+    ids.push(p)
+    p += 4
+    while (p < t.length && !(t[p]! & 0x80)) p++ // .Skip1, the name
+    p++
+    while (p < t.length && !(t[p]! & 0x80)) p++ // .Skip2, the spec
+    p++
+    if (p % 2 !== 0) p++
+  }
+  return ids
+}
+
+/** every .Lib under fixtures/, which is gitignored — hence the skipIf */
+function libraries(dir: string, into: string[] = []): string[] {
+  for (const e of readdirSync(dir)) {
+    const p = join(dir, e)
+    if (statSync(p).isDirectory()) libraries(p, into)
+    else if (/\.lib$/i.test(e)) into.push(p)
+  }
+  return into
+}
+
+const fixtures = join(process.cwd(), 'fixtures')
+
+describe.skipIf(!existsSync(fixtures))('the entry walk agrees with Ver_Ech', () => {
+  it('on every library held', () => {
+    let checked = 0
+    for (const path of libraries(fixtures)) {
+      let code: Uint8Array
+      try {
+        code = firstCodeHunk(new Uint8Array(readFileSync(path)))
+      } catch {
+        continue
+      }
+      if (code.length < 18) continue
+      const jumpSize = new DataView(code.buffer, code.byteOffset, code.byteLength).getUint32(0, false)
+      // the legacy layout, then the two AP20 ones (three and four size longs)
+      let best: number[] = []
+      let start = -1
+      for (const s of [8 + jumpSize + 10, 12 + jumpSize + 10, 16 + jumpSize + 10]) {
+        if (s >= code.length) continue
+        let ids: number[] = []
+        try {
+          ids = parseTokenTable(code.subarray(s)).map((e) => e.id)
+        } catch {
+          continue
+        }
+        if (ids.length > best.length) {
+          best = ids
+          start = s
+        }
+      }
+      if (best.length < 2) continue
+      checked++
+      expect(amosWalk(code.subarray(start)).slice(0, best.length), path).toEqual(best)
+    }
+    expect(checked).toBeGreaterThan(50)
   })
 })

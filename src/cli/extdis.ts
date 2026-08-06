@@ -71,12 +71,6 @@ if (!libFile) {
 const code = firstCodeHunk(new Uint8Array(readFileSync(join(dir, libFile))))
 const view = new DataView(code.buffer, code.byteOffset, code.byteLength)
 
-/** the highest routine number any keyword refers to */
-let maxRoutine = 0
-for (const t of ext.tokens) {
-  for (const n of [t.instr, t.func]) if (n !== 0xffff && n > maxRoutine) maxRoutine = n
-}
-
 /**
  * The layout is computable from the header rather than guessed. The code
  * hunk opens with two size longs — the jump table's and the token table's —
@@ -225,7 +219,44 @@ for (const t of ext.tokens) {
 }
 
 console.log(`${id}: ${libFile}, ${code.length} byte code hunk`)
-console.log(`jump table at +${cal.at} (delta-encoded words), routine 0 at $${cal.first.toString(16)}, ${maxRoutine + 1} routines`)
+console.log(`jump table at +${cal.at} (delta-encoded words), routine 0 at $${cal.first.toString(16)}, ${addr.length} routines`)
+
+/*
+ * A token entry that names a routine the jump table does not have is the one
+ * reliable sign that the TOKEN TABLE is malformed, and it is worth shouting
+ * about because the symptom looks like the opposite. Range 2.9Plus's `splot`
+ * entry is missing its `-1` spec terminator, so the walk runs on through the
+ * next entry's `dc.w` pair and its name, and re-syncs one entry late on a
+ * fragment whose routine numbers are the ASCII "fl"/"oa" of the swallowed
+ * "float planes". This file used to report `maxRoutine + 1` from exactly that
+ * fragment, which said "28,514 routines" and read as a jump-table calibration
+ * failure — a whole afternoon's worth of chasing the wrong thing. The count
+ * above now comes from the jump table itself, which is the only thing that
+ * knows it, and the disagreement is reported here instead of hidden there.
+ *
+ * The advance rule is not ours to choose: `Ver_Ech` (+Verif.s:5259) walks the
+ * table with `tst.b (a0)+ / bpl`, so a field ends at the first NEGATIVE byte
+ * and a $00 does not terminate anything. See src/tokens/libtok.ts. AMOS on a
+ * real Amiga therefore mis-reads this table exactly the way we do, which is
+ * why the fragment is kept rather than repaired.
+ */
+/*
+ * "No routine" is written with bit 15 set, and not always the same way: most
+ * tables use $FFFF (`dc.w L_Nul`), PowerBobs writes $FFFE in four entries, and
+ * AMOSPro.Lib's own table uses $8000 in the instruction slot of nine
+ * function-only keywords (Min, Max, Btst, Match, X Menu, ...). None of those
+ * is a jump-table index, so the test is the sign bit rather than the range —
+ * checking the range alone reported all thirteen as malformed tables.
+ */
+const noRoutine = (n: number): boolean => (n & 0x8000) !== 0
+const strays = ext.tokens.filter((t) => [t.instr, t.func].some((n) => !noRoutine(n) && n >= addr.length))
+if (strays.length > 0) {
+  console.log(`\n!! ${strays.length} token entr${strays.length === 1 ? 'y names a routine' : 'ies name routines'} the jump table does not have —`)
+  console.log('   the token table is malformed, not the jump table:')
+  for (const t of strays) {
+    console.log(`     id ${t.id} ${JSON.stringify(t.name)} spec ${JSON.stringify(t.spec)} -> ${t.instr}/${t.func}`)
+  }
+}
 
 /*
  * `--addr` dumps EVERY routine's address, named or not, one per line.
