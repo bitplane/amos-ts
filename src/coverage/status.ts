@@ -1996,6 +1996,12 @@ export const FAITHFUL = new Set<string>([
   'psprite off',
   'psprite erase',
   'psprite update',
+  // --- Personnal EXTRA 1.0a, slot 17: Frederic Cordier's two-keyword
+  // companion, which reports the version of the Personnal library in slot 13
+  // and does nothing else. Whole source in the Personnal 1.11 archive; see
+  // plib.ts, and note that only Personnal 1.1 answers it.
+  'plib ver',
+  'plib rev',
   // --- Misc 1.0, slot 23: Frank Otto's twelve odds and ends, whole source in
   // the box. Eight here; Multi Off/On, Reset and Pal On are n/a — see the NA
   // block and miscext.ts for why each one is.
@@ -2552,7 +2558,7 @@ export const NOTES: Record<string, string> = {
   'serial error':
     "Returns 0. The real call reads io_Error from the request and maps it through the device's error table (base 145, 16 messages, from the Dev.Open call). With no hardware behind the port there is no transfer to fail, so no error is ever raised and the keyword can only report success. The mapping itself is modelled -- ioError() resolves those exact messages -- it just has nothing to map",
   'serial speed':
-    "Faithful, and worth a note only because the token table declares it TWICE — `+IO_Ports.s:117` and `:123` both emit `dc.b \"serial spee\",\"d\"+$80,\"I0,0\",-1` above the same `dc.w L_InSerialSpeed,L_Nul`, so ids $0048 and $0086 are the same keyword pointing at the same routine. That is Europress's own duplication, not a parse artefact, and it is why the library has 39 named table entries for 38 distinct keywords. Either id tokenises and detokenises identically, so nothing depends on which one a program was saved with",
+    "Faithful, and worth a note only because the token table declares it TWICE — `+IO_Ports.s:117` and `:123` both emit `dc.b \"serial spee\",\"d\"+$80,\"I0,0\",-1` above the same `dc.w L_InSerialSpeed,L_Nul`, so ids $0048 and $0086 are the same keyword pointing at the same routine. That is Europress's own duplication, not a parse artefact, and it is why the library has 39 named table entries for 38 distinct keywords. Either id tokenises and detokenises identically, so nothing depends on which one a program was saved with. The same duplication is in AMOS 1.3's standalone Serial.Lib, which this port also serves, and CHECKING that rather than assuming it is what settled the binding: serial-1.2 has this at routine 12 (\$440) as `move.l (a3)+,d1 / move.l (a3)+,d0 / Rbsr routine 24 / move.l d1,\$3c(a1) / Rbra routine 13` against the source's `move.l d3,d1 / move.l (a3)+,d0 / Rbsr L_GetSerA1 / move.l d1,IO_BAUD(a1) / Rbra L_Stpar` --- the same five steps on the same field, \$3c being io_Baud in IOExtSer, as Serial Bits' \$4c/\$4d/\$4e are io_ReadLen/io_WriteLen/io_StopBits and Serial Fast's \$4f is io_SerFlags. The ONE difference is where the last argument arrives: AMOS Pro passes it in d3, the 1.3 build pops it off the stack. That is a calling-convention change between the two AMOS releases and not a difference in what the keyword does. serial-1.2's nineteen entries are a byte-identical prefix of IOPorts' forty-five",
   'serial x':
     "The XON/XOFF characters are stored in IO_CTLCHAR and the enable flag is honoured, but Web Serial has no software flow control at all — it offers 'none' or 'hardware' only. So on a real port the setting is recorded and not applied, and a program relying on XON/XOFF to pace a slow device will not get it. SERB_7WIRE does map, to flowControl 'hardware'",
   'serial parity':
@@ -3589,6 +3595,10 @@ export const NOTES: Record<string, string> = {
   'pic unpack':
     'a control byte of zero fills the rest of the PLANE rather than emitting nothing — its decrement never satisfies the test. The end guard is >= where the 68k tests exact equality, so a header pointing behind its data stops rather than hanging',
   'anim unpack': 'Pic Unpack behind a frame table; the same zero-control-byte and end-guard behaviour',
+  'plib ver':
+    "Routine 3 of Personnal-EXTRA.Lib.S (:99), eight instructions: `DLea _Exist,a0 / Move.l (a0),d0 / Cmp.l #0,d0 / Beq LNOTLOADED / PsJsr AP_VERSION / Move.l d0,d3 / Moveq #0,d2 / Rts`. ONE call answers both keywords --- AP_VERSION returns the version in d0 and the revision in d1 --- and the numbers are read rather than assumed: `PsJsr AP_VERSION` is `Jsr -6(a2)`, six bytes BEFORE Personnal's data zone, where 1.1 has a `bra.l` whose target is `move.l #1,d0 / move.l #1,d1 / rts`. Version 1, revision 1, both constants. NOTE which Personnal: `_Exist` is set by the extension's DEFAULT routine (:72), which loads the base of slot 13's data zone and compares the first longword to the ASCII \"Fred\" --- the author's own signature. Only 1.1 has it; 1.1's data zone opens with that longword and `_BitsPlanes` follows at +4, which is the same fact `mplot start plane` records from the other side. Personnal 1.0b opens with `_BitsPlanes` itself, carries no signature (its only \"Fred\" is inside \"Auteur : Frederic Cordier\") and has no AP_VERSION stub, so under 1.0b BOTH keywords raise the not-loaded error even though Personnal is loaded. Reproduced",
+  'plib rev':
+    "Routine 4 (:113), the same eight instructions as Plib Ver with `Move.l d1,d3` where it has `Move.l d0,d3` --- the second half of the one AP_VERSION answer rather than a second call. See Plib Ver for the reading and for which Personnal satisfies it",
   'display off':
     "Routine 3 (Misc_Extension.asm:106), two instructions: `move.w #\$01a0,\$dff096` and `move.w #0,\$dff180`. Bit 15 CLEAR makes DMACON a clear, and \$1a0 is BPLEN+COPEN+SPREN — bitplanes, copper and sprites off together — then COLOR00 to black, because with no bitplanes what shows is the background colour and the copper is no longer there to keep writing it. `Jd Video Off` is the same two instructions from another library, so both drive the one `rt.videoOff`",
   'display on':

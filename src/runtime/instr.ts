@@ -16,6 +16,7 @@ import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions, ensureLib 
 import { makeEmeFunctions, makeEmeInstructions } from './eme'
 import { makeColoursFunctions } from './colours'
 import { makeMiscExtInstructions, newMiscExtState } from './miscext'
+import { makePlibFunctions } from './plib'
 import { makeDumpFunctions, newDumpState } from './dump'
 import { makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
 import { makeFileIdFunctions, newFileIdState } from './fileid'
@@ -5313,7 +5314,21 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeMiscExtInstructions,
   },
   {
-    ids: ['amospro-ioports-2.0'],
+    // slot 17, `ExtNb Equ 17-1`. Two functions reporting the version of the
+    // Personnal library in slot 13 — no state of its own beyond the `_Exist`
+    // flag, which is derived from the bindings rather than stored
+    ids: ['personnal-extra-1.0a'],
+    functions: makePlibFunctions,
+  },
+  {
+    // serial-1.2 is AMOS 1.3's standalone Serial.Lib, which AMOS Pro absorbed
+    // into IOPorts along with parallel and printer. Its nineteen table entries
+    // are a byte-identical PREFIX of this one's forty-five — same ids, names
+    // and specs — and the routines agree instruction for instruction with
+    // +IO_Ports.s on the same IOExtSer offsets; see the `serial speed` note.
+    // No parallel or printer keyword exists in it, so the extra 26 are simply
+    // not in its table and nothing is over-credited
+    ids: ['amospro-ioports-2.0', 'serial-1.2'],
     init: (rt) => {
       rt.ioports = newIoPortsState()
     },
