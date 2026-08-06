@@ -7526,7 +7526,7 @@ export const EXT_INFO: ExtensionInfo[] = [
   {
     "id": "range-1.0",
     "name": "Range",
-    "version": "2.8",
+    "version": "2.6",
     "author": "unknown",
     "origin": "third-party",
     "format": "legacy",
@@ -7537,12 +7537,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "titleStrings": [],
     "sha256": "6f0c171fa3fdb95534025590d6fb2e067c7bfa9794c83bcf9451c1a07bdc60c1",
     "provenance": "AMOS PD Library CD, APD574/AMOS_System. No documentation or author attribution found on the disc.",
-    "notes": "Random-range helpers plus the MKB$/MKI$/MKL$/CVB/CVI/CVL binary field conversions familiar from other BASICs. A four-keyword shuffle.lib on APD426 contains a subset (range, shuffle, rand) and is probably an earlier build of the same extension rather than a separate one; it is not registered separately. Version from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs., which also confirms Range and Shuffle are one extension rather than two — the four-keyword shuffle.lib is an earlier build, as suspected here."
+    "notes": "Version CORRECTED off the binary: the title string at $ffd is `AMOS Club Extension V2.6`, where this manifest recorded 2.8 from Andrew Burton's AMOS Extensions List; the id keeps its original spelling. Slot 9 off the binary too, twice: routine 0 does `move.l a3,$178(a5)` and returns `moveq #$8,d0`. This build has no 'APex' guard, so it is the AMOS 1.3 one. Its 52 token entries are byte-identical to the first 52 of range-2.0's, ids, specs and routine numbers alike, so ONE port serves both — see src/runtime/range.ts. A four-keyword shuffle.lib on APD426 contains a subset (range, shuffle, rand) and is an earlier build of the same extension rather than a separate one; it is not registered separately."
   },
   {
     "id": "range-2.0",
     "name": "Range",
-    "version": "2.9plus",
+    "version": "2.9Plus",
     "author": "Shadow Software",
     "origin": "third-party",
     "format": "legacy",
@@ -7553,7 +7553,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "titleStrings": [],
     "sha256": "d7ed3132015170a4f5cceb3118353c3c791b78c215bfd00529199f0b8213bdb1",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: TOME4_AMOSPro. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
-    "notes": "Ships with TOME IV and is a superset of the Range on the PD CD — 73 keywords against 48. No documentation accompanies it; the version is inferred from its pairing with TOME IV and is provisional. Random-range helpers plus the MKB$/MKI$/CVB binary field conversions. Version from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
+    "notes": "Ships with TOME IV and is a superset of the build on the PD CD — 73 keywords against 48, and the smaller table is a strict PREFIX of this one, so ONE port serves both (src/runtime/range.ts). Version off the binary: the title string at $167a is `AMOS Pro Club Extension V2.9Plus`. Slot 9 off the binary, twice: `move.l a3,$178(a5)` and `moveq #$8,d0`. This build is AMOS Pro ONLY and checks — routine 0 opens `cmp.l #$41506578,d1` ('APex') and returns $ff otherwise, which is why the two files are named Range.Lib and AMOSPro_Range.Lib. Routine 0's $361f0f / $369e99 are PAULA_CLOCK_PAL and PAULA_CLOCK_NTSC, the divisor Sam Speed uses. NOTE: extdis miscalibrates this build's jump table (28,514 routines) because of the 'APex' prologue; read the older build's map instead until that is fixed."
   },
   {
     "id": "serial-1.2",

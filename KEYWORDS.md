@@ -85,8 +85,8 @@ tested against our own understanding. Percentages exclude n/a
 | personnal-extra-1.0a | 2 | 0 | 0 | 2 | 0% |
 | powerbobs-1.0 | 65 | 63 | 0 | 0 | 100% |
 | rainbows | 3 | 3 | 0 | 0 | 100% |
-| range-1.0 | 48 | 0 | 0 | 48 | 0% |
-| range-2.0 | 73 | 0 | 0 | 73 | 0% |
+| range-1.0 | 48 | 35 | 0 | 13 | 73% |
+| range-2.0 | 73 | 35 | 0 | 38 | 48% |
 | screens | 31 | 29 | 1 | 0 | 100% |
 | serial-1.2 | 15 | 0 | 0 | 15 | 0% |
 | sln-2.0 | 70 | 0 | 0 | 70 | 0% |
@@ -104,7 +104,7 @@ tested against our own understanding. Percentages exclude n/a
 | turbo-plus-2.15 | 152 | 147 | 4 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 6254 | 2853 | 104 | 3114 | 49% |
+| **total** | 6254 | 2923 | 104 | 3044 | 50% |
 
 ## aga-1.0 (100%)
 
@@ -433,13 +433,15 @@ tested against our own understanding. Percentages exclude n/a
 
 - **faithful**: `rain`, `rainbow` *(rendered per scanline by the copper-walk compositor across the PAL overscan window (hardware lines 26-311))*, `rainbow del`
 
-## range-1.0 (0%)
+## range-1.0 (73%)
 
-- **missing**: `analog scan`, `analog x`, `analog y`, `b colours`, `b height`, `b width`, `bank name`, `bank name$`, `bank screen`, `busy printer`, `case`, `case$`, `change bob colours`, `change icon colours`, `cvb`, `cvi`, `cvl`, `exchange bob colours`, `exchange icon colours`, `float bob`, `float bob clear`, `float bob reset`, `game area`, `h spot x`, `h spot y`, `i colours`, `i height`, `i width`, `in screen`, `in screen bob`, `js screen`, `last float bob`, `list bobs`, `list palette`, `make bob colour`, `make icon colour`, `mkb$`, `mki$`, `mkl$`, `no paper`, `of`, `of$`, `rand`, `range`, `sam speed`, `shuffle`, `unbank screen`, `wrap`
+- **faithful**: `analog scan`, `analog x`, `analog y`, `b colours`, `b height`, `b width`, `bank name`, `bank name$`, `busy printer`, `case`, `case$`, `cvb`, `cvi`, `cvl`, `float bob reset`, `game area`, `h spot x`, `h spot y`, `i colours`, `i height`, `i width`, `in screen`, `js screen`, `last float bob`, `mkb$`, `mki$`, `mkl$`, `no paper`, `of`, `of$`, `rand`, `range`, `sam speed`, `shuffle`, `wrap`
+- **missing**: `bank screen`, `change bob colours`, `change icon colours`, `exchange bob colours`, `exchange icon colours`, `float bob`, `float bob clear`, `in screen bob`, `list bobs`, `list palette`, `make bob colour`, `make icon colour`, `unbank screen`
 
-## range-2.0 (0%)
+## range-2.0 (48%)
 
-- **missing**: `analog scan`, `analog x`, `analog y`, `analyse`, `b colours`, `b height`, `b width`, `bank name`, `bank name$`, `bank screen`, `bank str end`, `bank str ptr`, `bank str$`, `bank string`, `busy printer`, `case`, `case$`, `ch key scan`, `ch key state`, `ch scan code`, `change bob colours`, `change icon colours`, `cvb`, `cvi`, `cvl`, `exchange bob colours`, `exchange icon colours`, `first col`, `float back`, `float bob`, `float bob clear`, `float bob reset`, `float offset`, `fmod`, `game area`, `h spot x`, `h spot y`, `i colours`, `i height`, `i width`, `in screen`, `in screen bob`, `js screen`, `key scan`, `last float bob`, `library call`, `library close` *(routine 5: CloseLibrary with no check of any kind. Closing zero, or a number that was never a base, is the caller's problem on the machine and cannot be told apart here)*, `library open` *(routine 4: `moveq #$0,d0` then OpenLibrary, so ANY version will do, and a zero result is error 1. The readme's use for it is `Call A-30`, and Call is n/a here under the rule that 68k machine code is never executed — so the base is only ever a number a program tests, which is exactly what ../amiga/exec.ts hands back: a synthetic base for the libraries this port models, 0 for the rest)*, `list bobs`, `list palette`, `make bob colour`, `make icon colour`, `mkb$`, `mki$`, `mkl$`, `no paper`, `nxt col`, `of`, `of$`, `pull`, `push`, `rand`, `range`, `sam speed`, `set bzone`, `shuffle`, `splot`, `spoint`, `t planes`, `unbank screen`, `void`, `wipe`, `wrap`
+- **faithful**: `analog scan`, `analog x`, `analog y`, `b colours`, `b height`, `b width`, `bank name`, `bank name$`, `busy printer`, `case`, `case$`, `cvb`, `cvi`, `cvl`, `float bob reset`, `game area`, `h spot x`, `h spot y`, `i colours`, `i height`, `i width`, `in screen`, `js screen`, `last float bob`, `mkb$`, `mki$`, `mkl$`, `no paper`, `of`, `of$`, `rand`, `range`, `sam speed`, `shuffle`, `wrap`
+- **missing**: `analyse`, `bank screen`, `bank str end`, `bank str ptr`, `bank str$`, `bank string`, `ch key scan`, `ch key state`, `ch scan code`, `change bob colours`, `change icon colours`, `exchange bob colours`, `exchange icon colours`, `first col`, `float back`, `float bob`, `float bob clear`, `float offset`, `fmod`, `in screen bob`, `key scan`, `library call`, `library close` *(routine 5: CloseLibrary with no check of any kind. Closing zero, or a number that was never a base, is the caller's problem on the machine and cannot be told apart here)*, `library open` *(routine 4: `moveq #$0,d0` then OpenLibrary, so ANY version will do, and a zero result is error 1. The readme's use for it is `Call A-30`, and Call is n/a here under the rule that 68k machine code is never executed — so the base is only ever a number a program tests, which is exactly what ../amiga/exec.ts hands back: a synthetic base for the libraries this port models, 0 for the rest)*, `list bobs`, `list palette`, `make bob colour`, `make icon colour`, `nxt col`, `pull`, `push`, `set bzone`, `splot`, `spoint`, `t planes`, `unbank screen`, `void`, `wipe`
 
 ## screens (100%)
 

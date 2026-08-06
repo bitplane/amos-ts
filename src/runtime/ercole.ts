@@ -84,9 +84,12 @@
  * ## Contested names
  *
  * `Xfire` is also AMCAF's, at slot 8, and AMCAF is ported — so this one is
- * registered `qualified` and resolves as `ext10:xfire`. `Library Open` and
- * `Library Close` are also Range's, but neither side of that pair is ported,
- * so they take the plain names.
+ * registered `qualified` and resolves as `ext10:xfire`.
+ *
+ * `Library Open` and `Library Close` are also Range's, at slot 9. They were
+ * plain here until Range became a ported product; both are qualified now, so
+ * these resolve as `ext10:<name>` and Range's own will take `ext9:` when the
+ * slice implementing them lands.
  *
  * NOTE: `Ercole_ext.readme` carries the author's home address and two phone
  * numbers. Deliberately not copied here or into any commit.

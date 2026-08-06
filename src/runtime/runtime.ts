@@ -18,6 +18,7 @@ import { SpeakBuffer, type SpeakOptions } from '../amiga/speak'
 import { ercoleVbl, type ErcoleState } from './ercole'
 import type { DumpState } from './dump'
 import type { FileIdState } from './fileid'
+import type { RangeState } from './range'
 import { jotreVbl, type JotreState } from './jotre'
 import type { MedExtState } from './medext'
 import type { P61State } from './p61'
@@ -512,6 +513,8 @@ export class Runtime {
   dump!: DumpState
   /** FileID 1.0: the library base, the FileInfo pointer and the last error */
   fileId!: FileIdState
+  /** Range 2.6/2.9Plus: the Case latch, the float-bob counter and Game Area */
+  range!: RangeState
 
   /**
    * CIA-A PRA bit 1 — the power LED and Paula's low-pass filter, which are

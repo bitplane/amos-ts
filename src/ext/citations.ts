@@ -412,6 +412,8 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/medext.test.ts': ['med-7.1'],
   'src/runtime/ercole.ts': ['ercole-1.7'],
   'src/runtime/ercole.test.ts': ['ercole-1.7'],
+  'src/runtime/range.ts': ['range-1.0', 'range-2.0'],
+  'src/runtime/range.test.ts': ['range-1.0', 'range-2.0'],
   'src/runtime/first.ts': ['first-0.1'],
   'src/runtime/first.test.ts': ['first-0.1'],
   'src/runtime/fileid.ts': ['fileid-1.0'],

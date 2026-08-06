@@ -1,7 +1,7 @@
 {
   "id": "range-2.0",
   "name": "Range",
-  "version": "2.9plus",
+  "version": "2.9Plus",
   "author": "Shadow Software",
   "source": "binary",
   "library": "AMOSPro_Range.Lib",
@@ -17,6 +17,6 @@
     "note": "Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
-  "notes": "Ships with TOME IV and is a superset of the Range on the PD CD — 73 keywords against 48. No documentation accompanies it; the version is inferred from its pairing with TOME IV and is provisional. Random-range helpers plus the MKB$/MKI$/CVB binary field conversions. Version from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs..",
+  "notes": "Ships with TOME IV and is a superset of the build on the PD CD — 73 keywords against 48, and the smaller table is a strict PREFIX of this one, so ONE port serves both (src/runtime/range.ts). Version off the binary: the title string at $167a is `AMOS Pro Club Extension V2.9Plus`. Slot 9 off the binary, twice: `move.l a3,$178(a5)` and `moveq #$8,d0`. This build is AMOS Pro ONLY and checks — routine 0 opens `cmp.l #$41506578,d1` ('APex') and returns $ff otherwise, which is why the two files are named Range.Lib and AMOSPro_Range.Lib. Routine 0's $361f0f / $369e99 are PAULA_CLOCK_PAL and PAULA_CLOCK_NTSC, the divisor Sam Speed uses. NOTE: extdis miscalibrates this build's jump table (28,514 routines) because of the 'APex' prologue; read the older build's map instead until that is fixed.",
   "recommendedSlot": 9
 }

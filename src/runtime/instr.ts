@@ -17,6 +17,7 @@ import { makeDumpFunctions, newDumpState } from './dump'
 import { makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
 import { makeFileIdFunctions, newFileIdState } from './fileid'
 import { makeFirstInstructions } from './first'
+import { makeRangeFunctions, makeRangeInstructions, newRangeState } from './range'
 import { makeJotreInstructions, newJotreState } from './jotre'
 import { makeMedExtFunctions, makeMedExtInstructions, medExtDefault, newMedExtState } from './medext'
 import { makeP61Functions, makeP61Instructions, newP61State } from './p61'
@@ -5113,7 +5114,28 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     },
     instructions: makeErcoleInstructions,
     functions: makeErcoleFunctions,
-    qualified: ['xfire'],
+    // `library open` and `library close` join the list now that Range is a
+    // ported product spelling them too --- contested.test.ts requires a name
+    // claimed by two ported products to be qualified by one of them, and only
+    // Ercole implements these yet
+    qualified: ['xfire', 'library open', 'library close'],
+  },
+  {
+    // Range 2.6 and 2.9Plus at slot 9 --- Shadow Software's AMOS Club
+    // extension, shipped with TOME IV. 2.6's token table is a strict PREFIX
+    // of 2.9Plus's, so one port serves both, as TOME 3.1/4.23 does. Five
+    // armed contested names, the most of any extension here. See range.ts.
+    ids: ['range-2.0', 'range-1.0'],
+    init: (rt) => {
+      rt.range = newRangeState()
+    },
+    instructions: makeRangeInstructions,
+    functions: makeRangeFunctions,
+    // `library open` and `library close` are 2.9Plus's and arrive with the
+    // slice that implements them --- extimpl.test.ts requires a qualified
+    // name to be one this port already defines, which is what stops the list
+    // rotting into a wish
+    qualified: ['range', 'bank name', 'bank name$'],
   },
   {
     // First 0.1 at slot 22 --- Pedro Gil's 248-byte first extension. Three
