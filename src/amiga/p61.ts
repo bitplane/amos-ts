@@ -37,7 +37,16 @@
  *
  * The sample table follows at +8 when bit 6 is set and +4 when it is not,
  * which is exactly the room that longword takes.
+ *
+ * ## The replay
+ *
+ * There is only one, in `protracker.ts`, transcribed from this same file. What
+ * remains here is the format: `p61Song` below turns a parsed module into the
+ * `PtSong` that engine loads, applying the transforms the PACKER made on the
+ * way in — see it for what they are.
  */
+
+import { PT_ROWS, type PtRow, type PtSample, type PtSong } from './protracker'
 
 /** one entry of the sample table, six bytes in the file */
 export interface P61Sample {
@@ -59,9 +68,19 @@ export interface P61Sample {
 
 /** one decoded row of one channel */
 export interface P61Row {
-  /** 0 for none, else the note index the period table is looked up by */
+  /**
+   * 0 for none, else the note as the FILE stores it: a byte offset into a
+   * table of words, so twice the note index and always even.
+   * `P61_getnote` is `moveq #$7e,d0 / and.b (a5),d0 ... move (a2,d0),
+   * P61_Period(a5)`, indexing `P61_periods` with it directly, and the
+   * finetune is added to it in the same units. `p61Song` halves it.
+   */
   note: number
   instrument: number
+  /**
+   * 0..15, but NOT ProTracker's numbering — arpeggio is 8 here. See
+   * `p61Song`, which puts it back.
+   */
   command: number
   info: number
 }
@@ -303,12 +322,87 @@ export function decodeChannel(stream: Uint8Array, start: number, rows: number): 
   return out
 }
 
-/** every pattern is 64 rows, as ProTracker's are */
-export const P61_ROWS = 64
+/** every pattern is 64 rows, because they ARE ProTracker's — `moveq #63,d7` */
+export const P61_ROWS = PT_ROWS
 
 /** one pattern, four channels of rows */
 export function decodePattern(m: P61Module, pattern: number): P61Row[][] {
   const offs = m.patternOffsets[pattern]
   if (!offs) return [[], [], [], []]
   return offs.map((o) => decodeChannel(m.stream, o, P61_ROWS))
+}
+
+/**
+ * One P61 cell as the shared replay wants it.
+ *
+ * Two things move, and both are the PACKER's doing rather than the replayer's
+ * — the file stores what `P61_Music` is cheapest to feed, and the packer is
+ * what put it in that shape:
+ *
+ * **The note halves.** `P61_getnote` masks $7e out of the byte and indexes a
+ * word table with it, so the stored value is twice the note index. Halving it
+ * gives 1..36, which is what `PT_PERIODS` is indexed by here.
+ *
+ * **Arpeggio is command 8.** `P61_jtab2` (the between-rows table, :795) has
+ * `P61_arpeggio` at index 8 and `P61_contfxdone` — nothing — at index 0; the
+ * row-time table `P61_jtab` (:2228) agrees, with `P61_fxdone` at both. Every
+ * other index matches ProTracker exactly, 3 tone portamento through F speed.
+ * So the packer moved `0xy` to `8xy`, ProTracker's 8 being unused, and won a
+ * free "no command at all" for the commonest cell in a module. Command 0 is
+ * therefore inert in a P61 file and stays 0, which the engine reads as an
+ * arpeggio with no offsets — the same nothing.
+ *
+ * The third transform, the pre-signed volume slide, is NOT applied here. It
+ * changes what a byte MEANS rather than which field it sits in, and re-encoding
+ * it as nibbles would be lossy in one direction; `signedSlide` on the song
+ * hands the byte to `volumeSlide` as the `sub.b` expects it.
+ */
+function ptCell(r: P61Row): PtRow {
+  return { note: r.note >> 1, instrument: r.instrument, command: r.command === 8 ? 0 : r.command, info: r.info }
+}
+
+/**
+ * A P61 module as a `PtSong`, ready for `Protracker.load`.
+ *
+ * Patterns are decoded on demand and kept, because a back-referenced stream is
+ * not free to walk and a song plays each pattern several times — this is the
+ * reason `PtSong.pattern` is a function at all.
+ *
+ * The sample block is `P61_Init`'s, sixteen bytes an entry built at :167:
+ * pointer, length in words, repeat pointer, repeat length in words, volume,
+ * and the finetune nibble times 74. `AudioSink` wants the loop in bytes, so
+ * the two word counts double; `move #1,(a4)+` for a sample whose repeat word
+ * was negative is a length of one word, which is ProTracker's "no repeat" and
+ * two bytes here.
+ */
+export function p61Song(m: P61Module): PtSong {
+  const samples: (PtSample | null)[] = m.samples.map((s) =>
+    s.pcm === null
+      ? null
+      : {
+          pcm: s.pcm,
+          loopStart: s.repeatStart * 2,
+          loopLen: s.repeatWords * 2,
+          volume: s.volume,
+          finetune: s.finetune,
+        },
+  )
+  const cache = new Map<number, PtRow[][]>()
+  return {
+    samples,
+    positions: m.positions,
+    signedSlide: true,
+    pattern(n: number): readonly (readonly PtRow[])[] {
+      const had = cache.get(n)
+      if (had) return had
+      // `decodePattern` answers per channel; the engine walks rows
+      const chans = decodePattern(m, n)
+      const rows: PtRow[][] = []
+      for (let r = 0; r < P61_ROWS; r++) {
+        rows.push(chans.map((c) => ptCell(c[r] ?? { note: 0, instrument: 0, command: 0, info: 0 })))
+      }
+      cache.set(n, rows)
+      return rows
+    },
+  }
 }

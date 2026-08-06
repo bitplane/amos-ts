@@ -182,6 +182,14 @@ export interface PtSong {
   samples: readonly (PtSample | null)[]
   positions: readonly number[]
   pattern(n: number): readonly (readonly PtRow[])[]
+  /**
+   * Whether `Axy`, `5xy` and `6xy` carry a PRE-SIGNED delta rather than a
+   * nibble pair — see `volumeSlide`. A P61 stream does, a MOD does not, and
+   * the difference is a property of the file rather than of the replay, so it
+   * travels with the song instead of being set on the engine by whoever
+   * happened to load it.
+   */
+  signedSlide?: boolean
 }
 
 /** every ProTracker pattern is 64 rows */
@@ -363,6 +371,8 @@ export class Protracker {
   private loopCount = 0
   private loopSet = false
   private loopJump = false
+  /** the loaded song's `signedSlide`, cached because `volumeSlide` runs per tick */
+  private signedSlide = false
   private rowsOfPattern: readonly (readonly PtRow[])[] = []
   /** what the sink was last told, so a tick only writes on a change */
   private readonly lastFreq = [0, 0, 0, 0]
@@ -386,6 +396,7 @@ export class Protracker {
    */
   load(song: PtSong, position = 0): void {
     this.song = song
+    this.signedSlide = song.signedSlide === true
     this.pos = position < song.positions.length ? position : 0
     this.patt = song.positions[this.pos] ?? 0
     this.rowsOfPattern = song.pattern(this.patt)
@@ -405,6 +416,22 @@ export class Protracker {
       this.channels[i] = newChannel()
       this.lastFreq[i] = 0
       this.lastVol[i] = -1
+    }
+  }
+
+  /**
+   * Forget what the sink was last told.
+   *
+   * `lastFreq`/`lastVol` exist only so a tick does not repeat a write that
+   * changes nothing — on the machine `P61_mfade` stores AUDxVOL every tick
+   * regardless. So anything that writes the voices BEHIND the replay, as
+   * `P61 Pause` does when it zeroes the four volume registers itself, has to
+   * say so, or the next tick will believe the hardware already agrees.
+   */
+  forget(): void {
+    for (let v = 0; v < 4; v++) {
+      this.lastFreq[v] = 0
+      this.lastVol[v] = -1
     }
   }
 
@@ -792,15 +819,19 @@ export class Protracker {
    * `Axy` pair: it is a SIGNED delta, and the P61 packer is what normalises
    * it when it builds the streams. `A50` becomes -5 and the `sub.b` adds five.
    *
-   * DEVIATION: this engine also reads MOD files, where the pair is raw, so it
-   * derives the delta from the nibbles here rather than requiring every
-   * front-end to pre-sign it — `x` if the high nibble is set, else `-y`. The
-   * byte arithmetic below is then the routine's, including the two clamps and
-   * the fact that they are tested in that order.
+   * A P61 song therefore sets `signedSlide` and reaches the `sub.b` with the
+   * byte its own stream holds. A MOD's pair is raw, so it is folded down to
+   * the same delta first — `x` if the high nibble is set, else `-y`, which is
+   * ProTracker's own precedence. Either way the byte arithmetic below is the
+   * routine's, including the two clamps and the order they are tested in.
+   *
+   * `5xy` and `6xy` share this: `P61_tpochvslide:1135` and
+   * `P61_vibochvslide:2093` each open with the same two instructions before
+   * branching into the portamento or the vibrato.
    */
   private volumeSlide(ch: PtChannel): void {
     const up = ch.info >> 4
-    const delta = up !== 0 ? -up : ch.info & 0xf
+    const delta = this.signedSlide ? (ch.info << 24) >> 24 : up !== 0 ? -up : ch.info & 0xf
     const signed = ((ch.volume - delta) << 24) >> 24
     if (signed < 0) {
       ch.volume = 0

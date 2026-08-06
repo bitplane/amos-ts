@@ -36,7 +36,8 @@ import { AmosError, VI, int } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
-import { parseP61, type P61Module } from '../amiga/p61'
+import { p61Song, parseP61, type P61Module } from '../amiga/p61'
+import { Protracker } from '../amiga/protracker'
 
 export interface P61State {
   /** O_MusicBank / O_MusicEnabled / O_MusicPaused */
@@ -66,6 +67,12 @@ export interface P61State {
   /** the CIA period pair Cia Speed computes, P61_thi2 and P61_thi */
   thi2: number
   thi: number
+  /**
+   * Player 6.1A itself — `src/amiga/protracker.ts`, which IS this extension's
+   * replayer transcribed from the source it ships. Built on the first Play so
+   * a program that never plays never makes one.
+   */
+  replay: Protracker | null
 }
 
 /**
@@ -90,7 +97,41 @@ export const newP61State = (): P61State => ({
   e8: 0,
   thi2: 0,
   thi: 0,
+  replay: null,
 })
+
+/** the replay, made on first use */
+function replayOf(rt: Runtime): Protracker {
+  const s = rt.p61
+  if (!s.replay) s.replay = new Protracker(() => rt.audio)
+  return s.replay
+}
+
+/**
+ * `P61_Music`, from `frame()`.
+ *
+ * NOTE: on the machine this is a CIA interrupt at whatever `P61 Cia Speed`
+ * asked for — `P61_thi2`/`P61_thi` are the timer pair — or a level 6 server,
+ * and either way it runs independently of the display. This port has one 50Hz
+ * clock, so a module keeps VBL tempo whatever Cia Speed was given; the keyword
+ * still computes and stores the pair. AMCAF's `amcafPtVbl` records the same
+ * limit from the other side, and for the same reason.
+ */
+export function p61Vbl(rt: Runtime): void {
+  const s = rt.p61
+  const r = s.replay
+  if (!r || !r.playing) return
+  r.tick()
+  s.pos = r.pos
+  s.patt = r.patt
+  s.row = r.row
+  // P61_E8 is one word and the replayer writes it; -2 is the song wrapping,
+  // which `=P61 Signal` therefore reports as it would an E8 command
+  if (r.e8 !== 0) {
+    s.e8 = r.e8
+    r.e8 = 0
+  }
+}
 
 /** `Rblt L_IFonc` — AMOS 23. */
 const funcCall = (): never => {
@@ -148,6 +189,13 @@ export function makeP61Instructions(rt: Runtime): Record<string, Instr> {
       s.e8 = -1
       s.play = true
       s.paused = false
+      // P61_Init's own tail: the song into the replayer, then the fields the
+      // wrapper resets on top of it
+      const r = replayOf(rt)
+      r.load(p61Song(m), 0)
+      r.master = 64
+      r.fadeTo = 64
+      r.playing = true
       // `tst.l d6 / ble .nopos` — only a POSITIVE position seeks
       if (pos > 0) setPosition(s, pos)
       s.enabled = true
@@ -175,7 +223,10 @@ export function makeP61Instructions(rt: Runtime): Record<string, Instr> {
       if (s.paused) return
       s.play = false
       s.paused = true
+      if (s.replay) s.replay.playing = false
       for (let v = 0; v < 4; v++) rt.audio?.setVolume?.(v, 0)
+      // the four registers were written from outside the replay
+      s.replay?.forget()
     },
 
     /**
@@ -191,6 +242,7 @@ export function makeP61Instructions(rt: Runtime): Record<string, Instr> {
       const s = st()
       s.play = true
       s.paused = false
+      if (s.replay && s.replay.song) s.replay.playing = true
     },
 
     /**
@@ -207,6 +259,10 @@ export function makeP61Instructions(rt: Runtime): Record<string, Instr> {
       const c = v < 0 ? 0 : v >= 64 ? 64 : v
       s.master = c
       s.fadeTo = c
+      if (s.replay) {
+        s.replay.master = c
+        s.replay.fadeTo = c
+      }
     },
 
     /**
@@ -243,6 +299,11 @@ export function makeP61Instructions(rt: Runtime): Record<string, Instr> {
       if (speed < 0) funcCall()
       s.fadeSpeed = speed & 0xffff
       s.fadeCount = speed & 0xffff
+      if (s.replay) {
+        s.replay.fadeTo = s.fadeTo
+        s.replay.fadeSpeed = s.fadeSpeed
+        s.replay.fadeCount = s.fadeCount
+      }
     },
   }
 }
@@ -254,6 +315,8 @@ function stop(rt: Runtime): void {
     s.enabled = false
     for (let v = 0; v < 4; v++) rt.audio?.setVolume?.(v, 0)
   }
+  // P61_End, which the replayer's own `stop` is: the voices it holds go quiet
+  if (s.replay) s.replay.stop()
   s.module = null
   s.paused = false
 }
@@ -272,6 +335,7 @@ function setPosition(s: P61State, pos: number): void {
   s.pos = len > 0 && p < len ? p : 0
   s.row = 0
   s.patt = s.module?.positions[s.pos] ?? 0
+  s.replay?.setPosition(pos)
 }
 
 export function makeP61Functions(rt: Runtime): Record<string, Func> {

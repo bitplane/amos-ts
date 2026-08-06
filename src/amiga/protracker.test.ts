@@ -412,6 +412,26 @@ describe('the effects, row by row', () => {
     expect(up.p.channels[0]!.volume).toBe(37)
   })
 
+  /**
+   * The other half of the same routine: a song that says `signedSlide` hands
+   * the byte straight to `sub.b d0,P61_Volume+1(a5)`, which is what a P61
+   * stream holds. $fb is -5 and climbs, $05 is +5 and falls — the SAME two
+   * moves as `A50` and `A05` above, reached without the nibble step.
+   */
+  it('a pre-signed slide reaches the sub.b unchanged', () => {
+    const packed = (info: number): PtSong => ({
+      ...song([pattern(row(cell(13, 1, 0xc, 32)), row(cell(0, 0, 0xa, info)))]),
+      signedSlide: true,
+    })
+    const down = replay(packed(0x05))
+    run(down.p, 13)
+    expect(down.p.channels[0]!.volume).toBe(27)
+
+    const up = replay(packed(0xfb))
+    run(up.p, 13)
+    expect(up.p.channels[0]!.volume).toBe(37)
+  })
+
   /** both clamps: `bpl` to zero and `cmp #64 / bge` to sixty-four */
   it('volume slide clamps at 0 and 64', () => {
     const { p } = replay(song([pattern(row(cell(13, 1, 0xc, 2)), row(cell(0, 0, 0xa, 0x0f)))]))

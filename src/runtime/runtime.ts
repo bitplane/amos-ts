@@ -21,7 +21,7 @@ import type { FileIdState } from './fileid'
 import type { RangeState } from './range'
 import { jotreVbl, type JotreState } from './jotre'
 import type { MedExtState } from './medext'
-import type { P61State } from './p61'
+import { p61Vbl, type P61State } from './p61'
 import type { PowerBobsState } from './powerbobs'
 import type { TomeState } from './tome'
 import { type IoPortsState } from './ioports'
@@ -3465,6 +3465,8 @@ export class Runtime {
     // AMCAF's ProTracker: routines 376/377 install a VBL or a CIA server,
     // and both land here — see amcafPtVbl for what the CIA arm costs
     amcafPtVbl(this)
+    // P61 1.2's replayer — the same engine, off a packed module
+    p61Vbl(this)
     // Ercole's Prop On puts its POT sampler in VblRout[1] (+Equ.s:1177)
     ercoleVbl(this.ercole)
     // Jotre's replayer interrupt is VblRout[0], gated on BOTH its flag bits

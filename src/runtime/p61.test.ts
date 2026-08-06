@@ -4,7 +4,8 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
-import { decodeChannel, parseP61, unpackDelta } from '../amiga/p61'
+import { decodeChannel, p61Song, parseP61, unpackDelta } from '../amiga/p61'
+import { NullAudio, PAULA_CLOCK } from '../amiga/paula'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 25 — the doc says so outright: "Uses extension slot 25." */
@@ -42,7 +43,7 @@ const val = (src: string, bank?: Uint8Array): number => {
  * but they are not evidence that a real module decodes correctly, and the
  * NOTES on `p61 play` say so.
  */
-function tinyModule(): Uint8Array {
+function tinyModule(ch0: number[] = SILENT): Uint8Array {
   const b: number[] = []
   b.push(0x50, 0x36, 0x31, 0x41) // "P61A"
   b.push(0x00, 0x00) // +0 the sample offset, filled in below
@@ -50,11 +51,15 @@ function tinyModule(): Uint8Array {
   b.push(0x01) // +3 no packing, no buffer, one sample
   // the sample table at +4: length 2 words, finetune 0, volume 40, no repeat
   b.push(0x00, 0x02, 0x00, 0x28, 0xff, 0xff)
-  // the pattern table: one pattern, four channel offsets
-  b.push(0x00, 0x00, 0x00, 0x02, 0x00, 0x04, 0x00, 0x06)
+  // the pattern table: one pattern, four channel offsets into the stream
+  const streams = [ch0, SILENT, SILENT, SILENT]
+  let at = 0
+  for (const s of streams) {
+    b.push((at >> 8) & 0xff, at & 0xff)
+    at += s.length
+  }
   b.push(0x00, 0xff) // the song: position 0, then the terminator
-  // four channel streams, each one empty row with a 63-row repeat
-  for (let i = 0; i < 4; i++) b.push(0xff, 0x3f)
+  for (const s of streams) b.push(...s)
   // `move (a0),d0 / lea (a0,d0.l),a1` runs AFTER the signature step, so the
   // offset is measured from byte 4 and not from the head of the file
   const off = b.length - 4
@@ -63,6 +68,9 @@ function tinyModule(): Uint8Array {
   b.push(0x10, 0x20, 0x30, 0x40) // the sample's four bytes
   return new Uint8Array(b)
 }
+
+/** one empty row and a `%00nnnnnn` repeat for the other 63 */
+const SILENT = [0xff, 0x3f]
 
 describe('P61: the module reader (610.2_devpac3.asm, P61_Init)', () => {
   it('takes the P61A signature or its absence', () => {
@@ -164,6 +172,66 @@ describe('P61: the packed note stream (P61_takenorm)', () => {
   })
 })
 
+describe('P61: the packer transforms (p61Song)', () => {
+  /**
+   * A full entry with note byte $18, instrument 1, command 8, info $37.
+   * `(b0 & $60) != $60` picks the three-byte case, so b0 carries the note in
+   * bits 1..6 and b1 the instrument nibble and the command.
+   */
+  const arpRow = [0x18, 0x18, 0x37, 0xff, 0x3e]
+
+  it('halves the note, because the file stores a byte offset', () => {
+    // `moveq #$7e,d0 / and.b (a5),d0` then `move (a2,d0),P61_Period(a5)` --
+    // d0 indexes a table of WORDS, so the stored value is twice the note and
+    // `add P61_Fine(a5),d0` adds a finetune already scaled by 74 to match
+    const rows = p61Song(parseP61(tinyModule(arpRow))!).pattern(0)
+    expect(rows[0]![0]!.note).toBe(12)
+    expect(rows[0]![0]!.instrument).toBe(1)
+  })
+
+  it('moves arpeggio back from command 8 to command 0', () => {
+    // `P61_jtab2` (:795) is `dc P61_contfxdone` at index 0 and
+    // `dc P61_arpeggio` at index 8; every other index matches ProTracker
+    const rows = p61Song(parseP61(tinyModule(arpRow))!).pattern(0)
+    expect(rows[0]![0]!.command).toBe(0)
+    expect(rows[0]![0]!.info).toBe(0x37)
+  })
+
+  it('leaves command 0 at 0, which is the inert one in a P61 file', () => {
+    // both tables have "nothing" at index 0, so a packed 0 is not an arpeggio
+    // and must not become one. A command-only entry is `(b0 & $70) != $70`
+    const rows = p61Song(parseP61(tinyModule([0x60, 0x00, 0xff, 0x3e]))!).pattern(0)
+    expect(rows[0]![0]).toEqual({ note: 0, instrument: 0, command: 0, info: 0 })
+  })
+
+  it('declares its volume slides pre-signed, and a MOD does not', () => {
+    // `P61_volslide:1104` is one `sub.b P61_Info(a5),P61_Volume+1(a5)`, which
+    // only works on a signed delta -- see Protracker.volumeSlide
+    expect(p61Song(parseP61(tinyModule())!).signedSlide).toBe(true)
+  })
+
+  it('carries the sample block P61_Init builds, with the loop in bytes', () => {
+    // `move d4,d5 / sub d0,d5` is the repeat LENGTH in words and
+    // `add.l d0,a5 / add.l d0,a5` the repeat start doubled; a negative repeat
+    // word is `move #1,(a4)+`, one word, which is ProTracker's "no repeat"
+    const song = p61Song(parseP61(tinyModule())!)
+    expect(song.samples[0]).toEqual({
+      pcm: new Int8Array([0x10, 0x20, 0x30, 0x40]),
+      loopStart: 0,
+      loopLen: 2,
+      volume: 40,
+      finetune: 0,
+    })
+  })
+
+  it('decodes a pattern once and keeps it', () => {
+    // PtSong.pattern is a function precisely because a back-referenced stream
+    // is not free to walk, and a song plays each pattern several times
+    const song = p61Song(parseP61(tinyModule(arpRow))!)
+    expect(song.pattern(0)).toBe(song.pattern(0))
+  })
+})
+
 describe('P61: the keywords (AMOSPro_P61A.Lib.s)', () => {
   it('P61 Play reads a module out of the bank and enables the song', () => {
     const rt = run('P61 Play 1', tinyModule())
@@ -190,6 +258,25 @@ describe('P61: the keywords (AMOSPro_P61A.Lib.s)', () => {
   it('a position past the song restarts rather than erroring', () => {
     // `cmp P61_slen,d0 / blo` then `moveq #0,d0`
     expect(run('P61 Play 1,9', tinyModule()).p61.pos).toBe(0)
+  })
+
+  it('P61 Play steps the patterns, and the module makes a sound', () => {
+    // note byte $18 is note 12, b1 $10 is instrument 1 with no command. The
+    // Wait Vbl loop is deliberate: `runHeadless` fast-forwards a bare Wait to
+    // its target frame in one step, so a plain `Wait 30` would see two ticks
+    const rt = run('P61 Play 1\nFor I=0 To 15 : Wait Vbl : Next I', tinyModule([0x18, 0x10, 0x00, 0xff, 0x3e]))
+    const plays = (rt.audio as NullAudio).events.filter((e) => e.kind === 'play')
+    expect(plays.length).toBeGreaterThan(0)
+    expect(plays[0]!.voice).toBe(0)
+    // PT_PERIODS[12] is 453, the finetune-0 row's twelfth note
+    expect(plays[0]!.freq).toBeCloseTo(PAULA_CLOCK / 453, 3)
+    expect(rt.p61.row).toBeGreaterThan(0)
+  })
+
+  it('=P61 Pos and the row follow the replay, not the keyword that set them', () => {
+    const rt = run('P61 Play 1\nFor I=0 To 15 : Wait Vbl : Next I', tinyModule())
+    expect(rt.p61.row).toBe(rt.p61.replay!.row)
+    expect(rt.p61.pos).toBe(rt.p61.replay!.pos)
   })
 
   it('P61 Stop with nothing playing is not an error', () => {
