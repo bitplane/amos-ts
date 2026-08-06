@@ -112,6 +112,31 @@ export interface ExtensionImpl {
    */
   readonly aliases?: Readonly<Record<string, Readonly<Record<string, string>>>>
   /**
+   * Keywords this port deliberately leaves to the CORE handler.
+   *
+   * The measure used to credit an extension with any keyword whose NAME a
+   * ported one happened to share, which reported p61-1.2 at 22% with no
+   * binding at all (#226). The fix was to credit a port only with what it
+   * registers itself — and that is right, except where an author copied
+   * another library's keyword ON PURPOSE and said so:
+   *
+   *     V1.43 02-Nov-96
+   *     - Added Sload/Ssave. Just the same commands like in the music
+   *       extension. Now you can really remove it!
+   *
+   * AMCAF 1.50's Sload and Ssave ARE the Music extension's, by intent, so the
+   * core handler answering them is the port working rather than the port
+   * missing something. Without a way to say that, the manifest called a
+   * finished extension 99% and pointed at two keywords that already ran.
+   *
+   * This is a claim, not a waiver: `extimpl.test.ts` requires every name here
+   * to be implemented by core, so a port cannot use it to wave away a gap.
+   * Use it only where the extension's own binary defers to another library's
+   * behaviour; where the two genuinely differ, implement it and put the name
+   * in `qualified`.
+   */
+  readonly viaCore?: readonly string[]
+  /**
    * The extension's own error table, indexed the way its library indexes it.
    * A declaration point, not a mechanism: each port still raises its own
    * errors, but "which messages can this extension produce" is answerable from

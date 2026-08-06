@@ -5229,10 +5229,27 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     /*
      * The armed contested names, registered per slot. Personnal keeps the
      * plain ones; on the machine these are different tokens at different
-     * slots and coexist, which is what ext8: reproduces. Sload/Ssave are not
-     * here yet -- they are undocumented 1.50 additions and land in slice 10.
+     * slots and coexist, which is what ext8: reproduces.
      */
     qualified: ['set ntsc', 'set pal', 'speek', 'blitter copy limit', 'blitter copy', 'blitter clear'],
+    /*
+     * 1.50's two additions, which its own guide says ARE Music's:
+     *
+     *   V1.43 02-Nov-96
+     *   - Added Sload/Ssave. Just the same commands like in the music
+     *     extension. Now you can really remove it!
+     *
+     * Routines 106 ($38e8) and 107 ($3922) bear that out: both resolve the
+     * channel through the same `$8bc(a5)` table AMOS's own file channels live
+     * in and hand off to a shared reader. Three differences, all narrower
+     * rather than different -- the channel is bounded 1..9 where Music takes
+     * 1..10, there is no open-mode check, and no refusal of a zero length --
+     * so a program written against Music runs unchanged, and one written
+     * against AMCAF stays inside what Music accepts. Music's contract is the
+     * one kept; see contested.test.ts, which records the same decision from
+     * the collision side.
+     */
+    viaCore: ['sload', 'ssave'],
   },
   {
     // the speech slice of the Music extension: Say, and the mouth stream

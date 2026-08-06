@@ -4,8 +4,9 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { REGISTRY, extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
-import { extensionImpls, makeAllFunctions } from './instr'
-import { implSlots } from './extimpl'
+import { extensionImpls, makeAllFunctions, makeInstructions, makeFunctions } from './instr'
+import { INSTR, FUNCS, RAWFUNCS } from '../interp/builtins'
+import { implLabel, implSlots } from './extimpl'
 
 const table = new TokenTable(CORE_TOKENS)
 const personnal = extensionById('personnal-1.1')!
@@ -53,6 +54,39 @@ describe('the extension implementation contract', () => {
       ])
       // a typo here would silently unregister the keyword instead of failing
       for (const q of impl.qualified ?? []) expect(names, `${q} is not defined`).toContain(q)
+    }
+  })
+
+  /**
+   * `viaCore` is a claim that the CORE already answers a keyword, and it
+   * feeds the published coverage manifest — so it has to be checkable, or it
+   * is a way to mark a gap finished by asserting it.
+   *
+   * Two halves: core must really implement the name, and the port must NOT,
+   * because a port that defines it does not need the declaration and having
+   * both would hide which handler actually runs.
+   */
+  it('every viaCore name is implemented by core and not by the port', () => {
+    const rt = bootAt(13, false)
+    // the CORE layers only — the interpreter's builtins and AMOS proper, NOT
+    // the merged table, which contains every port and would let one extension
+    // satisfy another's claim
+    const core = new Set([
+      ...Object.keys(INSTR),
+      ...Object.keys(FUNCS),
+      ...Object.keys(RAWFUNCS),
+      ...Object.keys(makeInstructions(rt)),
+      ...Object.keys(makeFunctions(rt)),
+    ])
+    for (const impl of extensionImpls()) {
+      const own = new Set([
+        ...Object.keys(impl.instructions?.(rt) ?? {}),
+        ...Object.keys(impl.functions?.(rt) ?? {}),
+      ])
+      for (const n of impl.viaCore ?? []) {
+        expect(core, `${implLabel(impl)} defers ${n} to core, which does not implement it`).toContain(n)
+        expect(own, `${implLabel(impl)} both defines ${n} and defers it to core`).not.toContain(n)
+      }
     }
   })
 

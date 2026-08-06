@@ -96,6 +96,47 @@ describe('AMCAF identity', () => {
     expect([...v150].filter((n) => !v140.has(n))).toHaveLength(12)
     expect(v150.size).toBe(280)
   })
+
+  /**
+   * 1.50's Sload and Ssave, which its guide says ARE Music's:
+   *
+   *   V1.43 02-Nov-96
+   *   - Added Sload/Ssave. Just the same commands like in the music
+   *     extension. Now you can really remove it!
+   *
+   * The port takes him at his word and leaves both to the core handler
+   * (`viaCore` on the AMCAF ExtensionImpl). `extimpl.test.ts` proves core
+   * implements them and AMCAF does not; this proves the other half, that a
+   * program tokenised through AMCAF's OWN table reaches that handler and the
+   * bytes move. Without it the declaration is a claim about dispatch that
+   * nothing exercises.
+   */
+  it("1.50's Sload and Ssave are Music's, and reach it through AMCAF's table", () => {
+    const fs = new AmigaFS()
+    fs.mountMemory('DH0').write(['in.raw'], Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]))
+    const rt = new Runtime(
+      tokenize(
+        [
+          'Reserve As Work 10,16',
+          'Open In 1,"in.raw"',
+          'Sload 1 To Start(10),8',
+          'Close 1',
+          'Open Out 2,"out.raw"',
+          'Ssave 2,Start(10) To Start(10)+4',
+          'Close 2',
+        ].join('\n'),
+        table,
+        extensions,
+      ),
+      table,
+      // 'throw' is the tell if dispatch missed: an unimplemented keyword is
+      // otherwise a typed default, and the program would "pass" doing nothing
+      { extensions, maxSteps: 100_000, onText: () => {}, fs, onUnimplemented: 'throw' },
+    )
+    expect(rt.runHeadless(20).status).toBe('ended')
+    expect([...rt.memBanks.get(10)!.data.slice(0, 8)]).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect([...(fs.read('out.raw') ?? [])]).toEqual([1, 2, 3, 4])
+  })
 })
 
 describe('the slice-0 wiring', () => {
