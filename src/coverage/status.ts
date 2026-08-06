@@ -1459,11 +1459,13 @@ export const FAITHFUL = new Set<string>([
   // slice 11: input. All of the parallel-port ones answer "no adaptor".
   'pjoy', 'pjup', 'pjdown', 'pjleft', 'pjright', 'pfire', 'xfire',
   'x smouse', 'y smouse', 'smouse key', 'smouse speed', 'limit smouse',
-  // slice 12: ProTracker. Pt Data Base is APPROXIMATED (answers 0), and so
-  // are the four LIVE-STATE queries -- Pt Cpos, Pt Cpattern, Pt Cnote and
-  // Pt Cinstr. This port starts a module but does not step its patterns, so
-  // there is no current row to report; their range checks and error
-  // behaviour are reproduced, the values are not.
+  // slice 12: ProTracker. Pt Data Base is APPROXIMATED (answers 0). The four
+  // LIVE-STATE queries -- Pt Cpos, Pt Cpattern, Pt Cnote and Pt Cinstr --
+  // used to be too, because this port loaded a module and never stepped it.
+  // `amiga/protracker.ts` steps it now, off Player 6.1A's source rather than
+  // off AMCAF's own replayer at $9bac, which is the DEVIATION that file
+  // records; the values are live and the reading behind them is another
+  // library's.
   'pt play', 'pt stop', 'pt continue', 'pt bank', 'pt sam bank',
   'pt volume', 'pt voice', 'pt cia speed', 'pt sam play', 'pt sam stop',
   'pt sam volume', 'pt sam freq', 'pt instr play', 'pt raw play',
@@ -2666,7 +2668,7 @@ export const NOTES: Record<string, string> = {
   'vec rot z':
     "Routine 10 (\$20c6), fourteen bytes: `move.w \$310(a2),d3 / ext.l d3`, the third of the three adjacent cache words. See Vec Rot Y for the group",
   'pt cpattern':
-    "Routine 240 (\$5d0e), eighteen bytes: `movea.l \$2cc(a2),a0 / move.b -\$c(a0),d3` -- a BYTE taken twelve back from the replayer's live pointer, and masked by nothing. APPROXIMATED unavoidably: \$2cc(a2) points into a module this port loads but does not step, so there is no live song position to report. The routine is exact and the value is not",
+    "Routine 240 (\$5d0e), eighteen bytes: `movea.l \$2cc(a2),a0 / move.b -\$c(a0),d3` -- a BYTE taken twelve back from the replayer's live pointer, and masked by nothing. The song position is live: `amiga/protracker.ts` steps the patterns and the vertical blank copies the position out. DEVIATION: that engine is transcribed from Player 6.1A's source, not from AMCAF's own replayer at \$9bac, which has not been disassembled -- the two are both faithful ProTracker replayers and agree on the format and the sixteen effects, but where they differ in a corner this follows Paananen. Before it existed this answered 0 for the whole of any song",
   'pt cpos':
     "Routine 241 (\$5d20), twenty bytes: `movea.l \$2cc(a2),a0 / move.w -\$4(a0),d3 / lsr.w #\$4,d3` -- a WORD four back from the live pointer, shifted down four, so the row is a packed field rather than a plain counter. The `& 63` in the port is the manual's stated range ('a number between 0 and 63'), not the routine's, which masks nothing. APPROXIMATED for the same reason as Pt Cpattern: nothing steps the patterns here",
   'extpath$':
@@ -2684,7 +2686,7 @@ export const NOTES: Record<string, string> = {
   'pt instr length':
     "Routine 258 (\$5fe6). Reads the module's own sample table -- 20 bytes of song name, then 31 headers of 30 bytes each with the length in WORDS, so `move.w \$c(a0,d0.w),d3 / add.l d3,d3` doubles it. `move.l \$2bc(a2),d0 / Rbeq routine 390` for no module bank and `Rbmi / Rbeq / cmp.w #\$1f,d0 / Rbhi` for an instrument outside 1..31 are all error 23, where the port answered 0",
   'pt free voice':
-    "Routines 238 (\$5b80) and 239. A 1.50 addition with no manual entry, so DISASSEMBLY tier by the author's own admission that he had no time to document what 1.50 added -- and it is not the simple query the port had. It answers with a BITMASK (`moveq #\$1,d3` through `moveq #\$8,d3`, zero for none), not an index with -1, which matters because the only reason to ask is to feed the answer back to Pt Sam Play's voice argument. The cascade: mask 0 is 0; a mask naming exactly one voice is handed straight back UNEXAMINED; otherwise count the free voices, and one free answers with it. None free steals, and `move.w #\$ffff,d4` with a signed `cmp.w d0,d4 / bpl` over the four countdown words keeps the LARGEST, so a looping sample's -2 always loses to a one-shot and four loops answer 0 -- routine 375 then drops the sample rather than interrupting anything. More than one free prefers a voice the music is not using, lowest first. DEVIATION: the last arm, when every free voice is one the music holds, minimises two words of the live channel structures at -\$13e(a1) -- the quietest music channel -- and this port does not step patterns, so it falls back to the lowest free voice",
+    "Routines 238 (\$5b80) and 239. A 1.50 addition with no manual entry, so DISASSEMBLY tier by the author's own admission that he had no time to document what 1.50 added -- and it is not the simple query the port had. It answers with a BITMASK (`moveq #\$1,d3` through `moveq #\$8,d3`, zero for none), not an index with -1, which matters because the only reason to ask is to feed the answer back to Pt Sam Play's voice argument. The cascade: mask 0 is 0; a mask naming exactly one voice is handed straight back UNEXAMINED; otherwise count the free voices, and one free answers with it. None free steals, and `move.w #\$ffff,d4` with a signed `cmp.w d0,d4 / bpl` over the four countdown words keeps the LARGEST, so a looping sample's -2 always loses to a one-shot and four loops answer 0 -- routine 375 then drops the sample rather than interrupting anything. More than one free prefers a voice the music is not using, lowest first. DEVIATION: the last arm, when every free voice is one the music holds, minimises two words of the live channel structures at -\$13e(a1) -- the quietest music channel -- and the shared replay's channel block is not AMCAF's, so there is no `-\$13e(a1)` to minimise over; it falls back to the lowest free voice",
   'pt play':
     "Routines 264 (\$612e) and 265. The bare form pushes song position 0 (`clr.l -(a3)`) and then both forms `Rbsr routine 267` -- a Pt STOP is the first thing Pt Play does. The d1 it hands the replayer is the SONG POSITION, not a playing flag; an earlier reading of the selector-1 arm had that back to front. Selector 1 checks \$438(a0) against `M.K.` and `M!K!` and errors 23 on anything else, so naming a bank that is not a module stops the program rather than playing silence. Which interrupt it ends in is Pt Cia Speed's \$296(a2), the two timings installing through different code, which is why the manual says to choose the timing BEFORE Pt Play. DEVIATION: the `cmpa.l #\$200000,a0` chip-RAM check is Pt Bank's and carries the same note",
   'pt bank':
@@ -3005,7 +3007,7 @@ export const NOTES: Record<string, string> = {
   'pt signal':
     "Routine 268 (\$61bc) CLEARS the byte as it reads it -- `move.b \$2(a0),d3 / clr.b \$2(a0)` -- so a signal is consumed by the first read and a second gives 0. The port had Pt Vu (255), which is the identical shape, clearing already and this one not, so a program polling Pt Signal saw the same value for ever. The changelog pins the one documented value: 'When reaching the end of a song, Pt Signal now reports \$FF'",
   'pt cnote':
-    "Routine 243 (\$5d5e). Returns a FREQUENCY, not a note number -- the manual says 'the frequency of an instrument being played' and the routine divides \$369E99 (3,579,545, the NTSC Paula clock, used whatever the machine) by the channel's period word at +\$10 of a 44-byte per-channel block, answering 0 when the period is zero. The channel is range-checked and a bad one is an ERROR: `Rbmi routine 390` on negative, `cmp.b #4 / Rbge routine 390` past three, where the port had `& 3` and silently answered for channel 0. APPROXIMATED: the range check and the error are reproduced, but this port does not step patterns, so there is no live period to divide",
+    "Routine 243 (\$5d5e). Returns a FREQUENCY, not a note number -- the manual says 'the frequency of an instrument being played' and the routine divides \$369E99 (3,579,545, the NTSC Paula clock, used whatever the machine) by the channel's period word at +\$10 of a 44-byte per-channel block, answering 0 when the period is zero. The channel is range-checked and a bad one is an ERROR: `Rbmi routine 390` on negative, `cmp.b #4 / Rbge routine 390` past three, where the port had `& 3` and silently answered for channel 0. The period is live now that `amiga/protracker.ts` steps the patterns, so the division is the routine's own, on the routine's own NTSC constant. Same DEVIATION as Pt Cpattern: the engine is Player 6.1A's, not AMCAF's",
   'pt cinstr':
     "Routine 242 (\$5d34), the same range check, then `move.b \$2(a0,d7.w),d3 / lsr.w #4`. NOTE: a byte shifted right by four yields 0..15, so the routine cannot return the 16..31 its own manual promises -- the high bit of a ProTracker instrument number lives in the other half of the note word. APPROXIMATED for the same reason as Pt Cnote",
   'pt sam freq':

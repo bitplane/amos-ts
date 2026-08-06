@@ -30,7 +30,7 @@ import { type JdState } from './jd'
 import { type SticksState } from './sticks'
 import { starfieldVbl, type StarsState } from './stars'
 import { type AgaState } from './aga'
-import { type AmcafState } from './amcaf'
+import { amcafPtVbl, type AmcafState } from './amcaf'
 import { type PersonnalState } from './personnal'
 import type { PiConfig } from './piconfig.gen'
 import { FSV, fselAppear, fselDisAppear, fselFirst, fselJump, fselNext, fselSlideStep, fselStore, slideOpen, slideShut } from './fsel'
@@ -3462,6 +3462,9 @@ export class Runtime {
     // MED 7.1 drives its own copy of the replayer, off its own module rather
     // than off bank 3 — medplayer.library installs a separate interrupt
     this.medExt?.player?.vbl()
+    // AMCAF's ProTracker: routines 376/377 install a VBL or a CIA server,
+    // and both land here — see amcafPtVbl for what the CIA arm costs
+    amcafPtVbl(this)
     // Ercole's Prop On puts its POT sampler in VblRout[1] (+Equ.s:1177)
     ercoleVbl(this.ercole)
     // Jotre's replayer interrupt is VblRout[0], gated on BOTH its flag bits

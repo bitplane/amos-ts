@@ -3681,6 +3681,63 @@ describe('slice 12: ProTracker replay', () => {
     'Poke Start(3)+1084+1024,77', // the first sample byte, after one pattern
   ]
 
+  /**
+   * The one that could not be written before: the music actually plays.
+   *
+   * `Pt Play` used to validate the signature, cache the bank, set a flag and
+   * stop. Nothing stepped a row, so `Pt Cpos` and `Pt Cpattern` answered 0 for
+   * the whole of any song and not one sample was ever launched by the replay
+   * — only by `Pt Sam Play` and its neighbours. The shared engine in
+   * `amiga/protracker.ts` steps it now, driven from `frame()` at the vertical
+   * blank the way routines 376 and 377 install it.
+   *
+   * The module here is poked together rather than loaded, and that is fine
+   * for THIS assertion: the format reader is tested against six real modules
+   * in `protracker.test.ts`, and what is being checked here is the wiring
+   * between an AMOS keyword and the sink.
+   */
+  it('Pt Play steps the patterns, and the module makes a sound', () => {
+    // pattern 0, row 0, channel 0: period 428 (C-2) on instrument 1
+    const withNote = [
+      ...modBank(),
+      'Poke Start(3)+1084,1 : Poke Start(3)+1085,172', // period 428
+      'Poke Start(3)+1086,$10', // instrument 1 in the high nibble, command 0
+      'Pt Play 3',
+      // `runHeadless` fast-forwards a plain `Wait` to its target frame in one
+      // step, so the replay would see two ticks; a Wait Vbl loop spends the
+      // frames it asks for and the vertical blank runs on each
+      'For I=0 To 15 : Wait Vbl : Next I',
+    ]
+    const { rt, audio } = runAudio(withNote)
+    const plays = audio.events.filter((e) => e.kind === 'play')
+    expect(plays.length).toBeGreaterThan(0)
+    expect(plays[0]!.voice).toBe(0)
+    // 3546895 / 428 is the PAL rate for C-2
+    expect(plays[0]!.freq).toBeCloseTo(3546895 / 428, 0)
+    // and the song moved off row 0, which is the thing that never happened
+    expect(rt.amcaf.pt.row).toBeGreaterThan(0)
+  })
+
+  /**
+   * `Pt Cnote` returns a FREQUENCY — `move.l #$369e99,d0 / divu.w d0,d3` over
+   * the channel's live period, on the NTSC constant whatever the machine —
+   * and `Pt Cpattern` the song position. Both answered a constant 0 until the
+   * patterns were stepped.
+   */
+  it('Pt Cnote and Pt Cpos report the live replay', () => {
+    const { out } = runAudio([
+      ...modBank(),
+      'Poke Start(3)+1084,1 : Poke Start(3)+1085,172',
+      'Poke Start(3)+1086,$10',
+      'Pt Play 3',
+      'For I=0 To 9 : Wait Vbl : Next I',
+      'Print Pt Cnote(0);" ";Pt Cpattern',
+    ])
+    // 3579545 / 428 = 8363 (AMOS prints a leading space for a positive
+    // number), and the song is still in position 0
+    expect(out.trim()).toBe('8363  0')
+  })
+
   it('Pt Play marks the module playing and Pt Stop stops it', () => {
     const { rt } = run([...modBank(), 'Pt Play 3'])
     expect(rt.amcaf.pt.playing).toBe(true)

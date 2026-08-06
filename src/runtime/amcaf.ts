@@ -132,6 +132,7 @@ import { MAX_COMMENT, blocksFor, entryType, protectionString } from '../amiga/do
 import { fillRow } from '../amiga/blitter'
 import { iconToolTypes } from '../amiga/icon'
 import { parseSampleBank } from './audio'
+import { Protracker, parseMod } from '../amiga/protracker'
 import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 import { explode, isImploded } from '../amiga/imploder'
 import { launch } from '../amiga/process'
@@ -358,6 +359,17 @@ export interface PtState {
    * reads it when it has to steal a voice.
    */
   ticks: number[]
+  /**
+   * The replay itself, once a module has been installed.
+   *
+   * `src/amiga/protracker.ts`, shared with P61 — see its header for the
+   * departure that matters: AMCAF's replayer lives at `$9bac` of its own
+   * library and has not been disassembled, so the stepping here is
+   * transcribed from Player 6.1A instead. Everything AMCAF's own routines
+   * DO say is still read off AMCAF: the volumes, the voice arbitration, the
+   * error cases and the two knobs above.
+   */
+  replay: Protracker | null
 }
 
 export interface AmcafState {
@@ -526,7 +538,7 @@ export function newAmcafState(): AmcafState {
       bank: 0, samBank: 0, playing: false, pos: 0, row: 0, tick: 0,
       speed: 6, bpm: 125, cia: true, volume: 64, samVolume: 64, voices: 0b1111,
       signal: 0, vu: [0, 0, 0, 0], note: [0, 0, 0, 0], instr: [0, 0, 0, 0],
-      free: [true, true, true, true], ticks: [0, 0, 0, 0],
+      free: [true, true, true, true], ticks: [0, 0, 0, 0], replay: null,
     },
     // MEMF_CLEAR again, matrix included: without a Vec Rot Precalc the
     // projection runs through all nine zeros, exactly as it does on the machine
@@ -3070,6 +3082,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       ptStop(rt)
       ptSetup(rt, bank, pos)
       rt.amcaf.pt.playing = true
+      ptReplay(rt).playing = true
     },
 
     /**
@@ -3116,6 +3129,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     'pt continue'() {
       if (rt.amcaf.pt.bank === 0) amcafErr()
       rt.amcaf.pt.playing = true
+      ptReplay(rt).playing = true
     },
 
     /**
@@ -3154,6 +3168,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     'pt bank'(it) {
       ptSetup(rt, it.evalInt(), 0)
       rt.amcaf.pt.playing = false
+      ptReplay(rt).playing = false
     },
     /**
      * Pt Sam Bank bank — routine 249 ($5ea4), three instructions: pop the
@@ -3184,6 +3199,13 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     'pt volume'(it) {
       const v = it.evalInt()
       rt.amcaf.pt.volume = v < 0 ? 0 : (v & 0xffff) > 64 ? 64 : v & 0xffff
+      // `$4(a0)` is the replayer's master, which every music channel is
+      // scaled by; Pt Sam Volume's `$2d0` never reaches it
+      const r = rt.amcaf.pt.replay
+      if (r) {
+        r.master = rt.amcaf.pt.volume
+        r.fadeTo = rt.amcaf.pt.volume
+      }
     },
 
     /**
@@ -3205,6 +3227,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     'pt voice'(it) {
       const m = it.evalInt() & 15
       rt.amcaf.pt.voices = m
+      if (rt.amcaf.pt.replay) rt.amcaf.pt.replay.voices = m
       for (let v = 0; v < 4; v++) if (!(m & (1 << v))) rt.host.audio?.stop(v)
     },
 
@@ -7163,7 +7186,61 @@ function ptSetup(rt: Runtime, bank: number, pos: number): void {
   pt.signal = 0
   pt.vu = [0, 0, 0, 0]
   pt.free = [true, true, true, true]
+  // the signature check above is AMCAF's; the parse below is the shared
+  // engine's, and it can still refuse a module whose sample headers do not
+  // add up, which the signature alone cannot see
+  const song = parseMod(b.data)
+  if (!song) amcafErr()
+  ptReplay(rt).load(song, pos)
+  ptReplay(rt).voices = pt.voices
+  ptReplay(rt).master = pt.volume
+  ptReplay(rt).fadeTo = pt.volume
   rt.host.audio?.setFilter(false)
+}
+
+/** the replay, made on first use so a program that never plays never builds one */
+function ptReplay(rt: Runtime): Protracker {
+  const pt = rt.amcaf.pt
+  if (!pt.replay) pt.replay = new Protracker(() => rt.host.audio)
+  return pt.replay
+}
+
+/**
+ * The replayer interrupt, from `frame()`.
+ *
+ * Routines 376 and 377 install it as a VBL server or a CIA one depending on
+ * `$296(a2)`, which is Pt Cia Speed's flag. NOTE: both land here at vertical
+ * blank. The CIA arm on the machine runs at whatever `Pt Cia Speed` set,
+ * which is how a module keeps its own tempo independent of the display; this
+ * port has one 50Hz clock and the difference is not reproduced. `Med Play`
+ * records the same limit from the other side.
+ */
+export function amcafPtVbl(rt: Runtime): void {
+  const pt = rt.amcaf.pt
+  const r = pt.replay
+  if (!r || !r.playing) return
+  r.tick()
+  // what the Pt C* functions read: the replayer's live state, which before
+  // this existed was a set of fields nothing ever wrote
+  pt.pos = r.pos
+  pt.row = r.row
+  pt.speed = r.speed
+  pt.bpm = r.bpm
+  for (let i = 0; i < 4; i++) {
+    const ch = r.channels[i]!
+    pt.note[i] = ch.period
+    pt.instr[i] = ch.instrument
+    // `Pt Vu` is a note-on LATCH, not a live meter: it reports the volume of
+    // a note that has just started and zero otherwise, so it is set here and
+    // cleared by the read
+    if (ch.on && ch.note !== 0) pt.vu[i] = ch.volume
+  }
+  // the songend marker: "When reaching the end of a song, Pt Signal now
+  // reports $FF" (the 1.50 changelog). `P61_E8` posts -2 on the wrap.
+  if (r.e8 === -2) {
+    pt.signal = 0xff
+    r.e8 = 0
+  }
 }
 
 /** Pt Stop, and Pt Play's first act — see the keyword for routine 267 */
@@ -7171,6 +7248,7 @@ function ptStop(rt: Runtime): void {
   const pt = rt.amcaf.pt
   if (!pt.playing) return
   pt.playing = false
+  if (pt.replay) pt.replay.playing = false
   for (let v = 0; v < 4; v++) rt.host.audio?.stop(v)
 }
 
@@ -8827,9 +8905,9 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * below is the manual's stated range, not the routine's, which masks
      * nothing at all.
      *
-     * APPROXIMATED, and unavoidably: `$2cc(a2)` points into a module this
-     * port loads but does not step, so there is no live row to report. The
-     * routine is exact and the value is not.
+     * The value is live: the shared replay in `amiga/protracker.ts` steps the
+     * patterns and `amcafPtVbl` copies its row out each vertical blank. Until
+     * that engine existed this answered 0 for the whole of a song.
      */
     'pt cpos': () => VI(rt.amcaf.pt.row & 63),
     /**
@@ -8837,8 +8915,8 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      *
      *     movea.l $2cc(a2),a0 / move.b -$c(a0),d3
      *
-     * a BYTE twelve back from the same live pointer. Same reason for the
-     * approximation as Pt Cpos above.
+     * a BYTE twelve back from the same live pointer, and live for the same
+     * reason as Pt Cpos above.
      */
     'pt cpattern': () => VI(rt.amcaf.pt.pos),
     /**
@@ -8855,12 +8933,17 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * $369E99 is 3,579,545 — the NTSC Paula clock — so the answer is a
      * sample rate in Hz, and it uses the NTSC constant whatever the machine.
      *
-     * APPROXIMATED, and the reason is structural rather than arithmetic: this
-     * port starts a module but does not step its patterns, so there is no
-     * live period to divide. The range check and the error are reproduced;
-     * the value is whatever was last triggered.
+     * The period is now a real one — `amcafPtVbl` copies the replay's live
+     * channel period into `pt.note` every vertical blank — so the division
+     * below is the routine's, on the routine's own NTSC constant, and the
+     * answer moves as the music does. It answered 0 for every channel of
+     * every module before the shared replay existed.
      */
-    'pt cnote': (_, a) => VI(rt.amcaf.pt.note[ptChan(i0(a, 0))] ?? 0),
+    'pt cnote': (_, a) => {
+      const period = rt.amcaf.pt.note[ptChan(i0(a, 0))] ?? 0
+      // `tst.w d3 / Rbeq` — a silent channel is 0, not a division by zero
+      return VI(period === 0 ? 0 : Math.floor(0x369e99 / period))
+    },
     /**
      * =Pt Cinstr(chan) — "a value between 0 and 31, whereas 0 tells you that
      * no sample has been trigged".
@@ -8869,8 +8952,14 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * and `lsr.w #4`. NOTE: a byte shifted right by four can only produce
      * 0..15, so the routine cannot return the 16..31 its own manual promises
      * — the high bit of a ProTracker instrument number lives in the other
-     * half of the note word. Recorded rather than corrected: the port has no
-     * live channel state to read either way. APPROXIMATED.
+     * half of the note word.
+     *
+     * DEVIATION: the full 1..31 is reported here. Reproducing the shift would
+     * mean knowing the byte layout of AMCAF's own channel block, and that
+     * block is at `$9bac` of a library this port has not disassembled — the
+     * shared replay in `amiga/protracker.ts` has a different one. Halving
+     * every instrument number above fifteen to match a routine whose input
+     * we cannot see would be inventing a defect, not reproducing one.
      */
     'pt cinstr': (_, a) => VI(rt.amcaf.pt.instr[ptChan(i0(a, 0))] ?? 0),
 
