@@ -1996,6 +1996,24 @@ export const FAITHFUL = new Set<string>([
   'psprite off',
   'psprite erase',
   'psprite update',
+  // --- EME 3.0, slot 1: Paul Reece's Enhanced Music Extension, which SHIPS
+  // as AMOSPro_Music.Lib and replaces the stock one in place. All 49 stock
+  // keywords keep their ids and specs and are served by the core Music
+  // implementation; these ten are what it adds. Both builds we hold are
+  // demos — see eme.ts, which is also where the two places EME.doc
+  // contradicts its own binary are recorded.
+  'track tempo',
+  'patt loop on',
+  'patt loop of',
+  'patt loop no',
+  'track sample on',
+  'track sample off',
+  'trpos',
+  'trlen',
+  'trpat',
+  'trstat',
+  'med tempo',
+  'tr credits',
   // --- P61 1.2, slot 25: the Player 6.1A wrapper. `p61 play` and `p61 stop`
   // are slot-qualified because Personnal 1.1 has the same two names at slot
   // 13; see p61.ts.
@@ -3540,6 +3558,29 @@ export const NOTES: Record<string, string> = {
   'pic unpack':
     'a control byte of zero fills the rest of the PLANE rather than emitting nothing — its decrement never satisfies the test. The end guard is >= where the 68k tests exact equality, so a header pointing behind its data stops rather than hanging',
   'anim unpack': 'Pic Unpack behind a frame table; the same zero-control-byte and end-guard behaviour',
+  'track tempo':
+    "Routine 116 (\$3e3a), 22 bytes: `move.l (a3)+,d0`, `clr.b \$bcf(a0)` — the tick within the row — then `adda.w #\$bce,a0 / move.b d0,(a0)`. So the speed is set and the tick restarted, in that order, and the argument is popped as a LONG and stored as a BYTE with no range check, making `Track Tempo 256` tempo 0 — which EME.doc calls the fastest. The doc's 'this command does not over-ride the tempo commands used in the module' needs no code: it writes the same byte the module's Fxx writes",
+  'patt loop on':
+    "Routine 113 (\$3e16): `move.b #\$1,\$be9(a0)`, twelve bytes. The mode is read in the replayer between clearing mt_pattpos and the increment on the song position — `cmpi.b #1,\$be9(a4) / beq` past the `addq.b #1`, so the same pattern comes round for ever. NOTE: EME.doc says 'if used before Track Play, the specified pattern will be repeated', and half of that is wrong. The keyword takes no argument at all (spec `I`), so there is no specified pattern. The other half holds conditionally: Track Play opens with `Rbsr routine 90` — Track Stop — which does `clr.b \$be9`, but routine 90 is `tst.b \$be6(a0) / beq` to its own exit before any of the clears, so the mode survives a Track Play from a stopped state and is wiped by one that replaces a running module",
+  'patt loop of':
+    "Routine 114 (\$3e22): `clr.b \$be9(a0)`. The one-f spelling is the token table's, as it is for Track Loop Of",
+  'patt loop no':
+    "Routine 120 (\$3e9a): `move.b #\$2,\$be9(a0)`. Mode 2's `beq` in the replayer lands on the stop itself — `clr.b \$be6 / clr.b \$be7 / clr.l \$bdc` and the four AUDxVOL — not on the Track Loop test, so the song ends when the current pattern does whatever the loop flag says",
+  'track sample on':
+    "Routine 122 (\$3eb2) is byte for byte routine 121, Track Sample Off: `movea.l \$f8(a5),a0 / moveq #\$9,d0 / Rbra routine 123`, the error raiser, and message 9 is 'Only available in full version!'. The AMOS 1.3 build agrees, with `moveq #\$d` for the same string in a list five entries longer. EME.doc marks only OFF as 'NOT IN DEMO VERSION!!!' and describes ON as a working new command that 'turns off tracker channel 4 (Left channel) while playing tracker modules' so the spare channel can play samples. The binary disables both, and both builds we hold are demos — `eme-3.0`'s own cookie is `\$VER: 3.0DEMO`. There is no full build to read, so what the keyword would have done is not knowable from what we have",
+  'track sample off': "routine 121 (\$3ea6), the same twelve bytes as Track Sample On — see it",
+  'trpos':
+    "Routine 117 (\$3e50), eighteen bytes: `moveq #0,d3 / moveq #0,d2 / movea.l \$f8(a5),a0 / adda.w #\$bd0,a0 / move.b (a0),d3`. A BYTE, so unsigned. '0 is the first position and so on.' It reads EME's own cached copy, which Track Stop clears (routine 90 does `clr.b \$bd0`), so a stopped song answers 0",
+  'trlen':
+    "Routine 118 (\$3e62), the same eighteen bytes over \$be7 — the song-length byte at \$3b6 of a 31-sample module, cached at Track Play and cleared by Track Stop. 'If the length returned is 34, the last position played would be 33'",
+  'trpat':
+    "Routine 119 (\$3e74), 38 bytes. It guards on the LENGTH byte rather than the pointer — `tst.b \$be7(a1) / beq` out with d3 still 0 — then `movea.l \$bdc(a1),a0 / adda.w d0,a0 / move.b \$3b8(a0),d3`, the module's 128-byte pattern order table. `adda.w` bounds nothing and sign-extends, so on the machine a position past 127 reads into the pattern data and a negative one reads backwards into the sample headers; out of range answers 0 here",
+  'trstat':
+    "Routine 115 (\$3e2c), fourteen bytes: `move.b \$be6(a0),d3`. 'Returns 1 if the song is still playing. 0 if it has finished.' \$be6 is the flag Track Play sets and both Track Stop and the end-of-song arm clear, so it is read rather than computed",
+  'med tempo':
+    "Demo-build only — the AMOS 1.3 table has it and the AMOS Pro one does not. Routine 112 (\$3a82): `Rbsr routine 107`, then `movea.l \$5d4(a0),a6 / jsr -\$42(a6)`, which is medplayer.library's SetTempo — the same LVO MED 7.1's `Med Set Tempo` calls, so this is that keyword under another name, and nothing is clamped at either. Routine 107 is NOT the module check it looks like: it is `tst.l \$5d4(a2) / bne`, else OpenLibrary(\"medplayer.library\", 2) and an init through -\$1e, with its errors 9 and 10 for the two failures. medplayer is modelled present here, so neither is reachable",
+  'tr credits':
+    "Demo-build only. Routine 119 (\$3ae2), six bytes: `moveq #\$f,d0 / Rbra routine 120`, and message 15 of that build's list is 'Enhanced Music Extension v3.0 by Paul Reece - © Stealth Productions 1993'. So the keyword is a credit delivered through the error mechanism — it stops the program and prints the author's name. Reproduced as what it is rather than as what a name like this suggests",
   'p61 play':
     "TWO extensions own this name and NOTES is keyed by name alone, so both belong here; they are registered slot-qualified and a program gets whichever library it loaded. P61 1.2 (slot 25): `L_P61Play1` and `L_P61Play2`. It resolves the bank, steps over an optional `P61A` signature, resets Master and FadeTo to 64, Pos, Patt and CRow to 0, Tempo to 125 and E8 to -1, then runs P61_Init. The module is decoded by `amiga/p61.ts` and PLAYED by `amiga/protracker.ts`, which is Player 6.1A itself, transcribed from the `610.2_devpac3.asm` this extension ships. `p61Song` applies the two transforms the PACKER made: the note is stored as a byte offset into a word table and halves, and arpeggio is stored as command 8 (`P61_jtab2` has `P61_arpeggio` at index 8 and nothing at index 0). The pre-signed `Axy` delta is not re-encoded — the song declares `signedSlide` and reaches the same `sub.b` the routine has. NOTE, and it bounds what any of that proves: there is NO P61 module anywhere in the 6,400-program corpus or in the distribution, so the decoder is faithful-to-the-assembly and UNVERIFIED against a file some other tool wrote; making it audible does not change that. PERSONNAL 1.1 (slot 13): a different keyword with different arguments — an LVO call into player61.library, which is not part of AMOS and not in the source tree. Its state machine is reproduced because the extension checks it before calling out, but nothing sounds there and it deliberately does not raise the library-not-found error. It also has TWO table entries, `I0` and an unnamed `I0,0` arity variant that TokenTable.name resolves back to it — routine 124 is byte for byte routine 123 with an extra pop at the front, so the second argument is read and ignored; both forms parse here",
   'p61 stop':

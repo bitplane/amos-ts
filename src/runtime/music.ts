@@ -1027,6 +1027,13 @@ export class MusicPlayer {
   trackBank = 6
   /** Track_Loop */
   trackLoop = false
+  /**
+   * EME 3.0's pattern-loop mode — its own byte at $be9, which stock AMOS has
+   * no equivalent of. 0 plays the song, 1 repeats the current pattern for
+   * ever, 2 stops when it ends. `Patt Loop On`/`Of`/`No` set it and
+   * `mtNext` is where it acts; see `eme.ts`.
+   */
+  pattLoop: 0 | 1 | 2 = 0
   private trackStopFlag = false
   private mtData: Uint8Array | null = null
   private mtBankNum = 6
@@ -1096,11 +1103,58 @@ export class MusicPlayer {
     this.mtOn = true
   }
 
+  /**
+   * What EME 3.0's four reporting keywords answer with.
+   *
+   * All four are gated on the module PLAYING, not on one being loaded: EME
+   * caches the position, the length and a status byte in its own workspace at
+   * $bd0/$be7/$be6, and `Track Stop` (its routine 90) clears all three. So a
+   * stopped song reports 0 from every one of them, which is also what
+   * `=Trstat` is documented to mean.
+   */
+  get trackPos(): number {
+    return this.mtOn ? this.mtSongpos : 0
+  }
+
+  /** the song length byte at $3b6 of a 31-sample module */
+  get trackLen(): number {
+    return this.mtOn && this.mtData ? (this.mtData[0x3b6] ?? 0) : 0
+  }
+
+  /**
+   * The pattern played at song position `pos` — the 128-byte order table at
+   * $3b8. NOTE: `adda.w d0,a0` range-checks NOTHING and sign-extends, so on
+   * the machine a position past 127 reads into the pattern data and a negative
+   * one reads backwards into the sample headers. Out of range answers 0 here.
+   */
+  trackPattern(pos: number): number {
+    if (!this.mtOn || !this.mtData) return 0
+    const at = 0x3b8 + ((pos << 16) >> 16)
+    return at >= 0 && at < this.mtData.length ? (this.mtData[at] ?? 0) : 0
+  }
+
+  /** EME's `Track Tempo`: the speed at $bce, and $bcf — the tick — reset with it */
+  setTrackSpeed(n: number): void {
+    this.mtSpeed = n & 0xff
+    this.mtCounter = 0
+  }
+
+  /** mt_speed itself, which is also EME's $bce — the module's own Fxx writes it too */
+  get trackSpeed(): number {
+    return this.mtSpeed
+  }
+
   /** InTrackStop (+Music.s:4229) */
   trackStop(): void {
     if (!this.mtOn) return
     this.mtOn = false
     this.trackStopFlag = false
+    // EME's routine 90 clears its own workspace here, `clr.b $be9` included.
+    // `Track Play` reaches this through an `Rbsr` to it, so a Play that
+    // replaces a RUNNING module wipes the pattern-loop mode — and one from a
+    // stopped state does not, because the guard above is the routine's own
+    // `tst.b $be6(a0) / beq` and sits before the clears
+    this.pattLoop = 0
     for (let v = 0; v < 4; v++) {
       this.host.audio.stop(v)
       this.lastVol[v] = -1
@@ -1146,6 +1200,15 @@ export class MusicPlayer {
     const d = this.mtData!
     this.mtPattpos = 0
     this.mtBreak = false
+    // EME's two tests sit exactly here, between clearing mt_pattpos and the
+    // `addq.b #1,mt_songpos` — see `eme.ts` for the disassembly. Mode 1 skips
+    // the increment, so the same pattern comes round again; mode 2 branches
+    // straight into the stop, so the song ends where the pattern does.
+    if (this.pattLoop === 2) {
+      this.trackStopFlag = true
+      return
+    }
+    if (this.pattLoop === 1) return
     this.mtSongpos = (this.mtSongpos + 1) & 0x7f
     if (this.mtSongpos === (d[0x3b6] ?? 0)) {
       if (!this.trackLoop) this.trackStopFlag = true // Track_Stop

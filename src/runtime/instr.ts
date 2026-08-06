@@ -13,6 +13,7 @@ import { newTurboState, TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions,
 import { newPersonnalState, PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
 import { newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
 import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions, ensureLib } from './speech'
+import { makeEmeFunctions, makeEmeInstructions } from './eme'
 import { makeDumpFunctions, newDumpState } from './dump'
 import { makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
 import { makeFileIdFunctions, newFileIdState } from './fileid'
@@ -5252,13 +5253,44 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     viaCore: ['sload', 'ssave'],
   },
   {
-    // the speech slice of the Music extension: Say, and the mouth stream
-    ids: ['amospro-music-2.0'],
+    // the speech slice of the Music extension: Say, and the mouth stream.
+    // EME 3.0 keeps all of it at the same ids and specs — the AMOS Pro build
+    // has the whole seven, the AMOS 1.3 one only Say and Set Talk
+    ids: ['amospro-music-2.0', 'eme-3.0', 'eme-3.0-demo'],
     init: (rt) => {
       rt.speech = newSpeechState()
     },
     instructions: makeSpeechInstructions,
     functions: makeSpeechFunctions,
+  },
+  {
+    // EME 3.0 IS the Music extension — it ships as AMOSPro_Music.Lib and is
+    // copied over the stock one, so it takes slot 1 with all 49 stock
+    // keywords at their own ids and adds ten. Only the ten are here; the
+    // stock half is the core Music implementation, unchanged.
+    ids: ['eme-3.0', 'eme-3.0-demo'],
+    instructions: makeEmeInstructions,
+    functions: makeEmeFunctions,
+    /**
+     * The stock 49, which EME copied in order to BE compatible with them —
+     * same ids, same specs, nothing renamed. The core Music implementation
+     * answers all of them and that is the extension working, not the port
+     * missing something; without saying so the manifest reports a finished
+     * extension at 17% and points at keywords that already run.
+     *
+     * `say` and the six speech keywords are not here because core does not
+     * implement them either — the speech slice above does, and EME is bound
+     * to it by `ids` for exactly this reason.
+     */
+    viaCore: [
+      'mubase', 'vumeter', 'voice', 'music off', 'music stop', 'tempo', 'music',
+      'noise to', 'boom', 'shoot', 'sam bank', 'sam loop on', 'sam loop off',
+      'sample', 'sam play', 'sam raw', 'bell', 'play off', 'play', 'set wave',
+      'del wave', 'set envel', 'mvolume', 'volume', 'wave', 'led on', 'led off',
+      'sload', 'sam swapped', 'sam swap', 'sam stop', 'track stop',
+      'track loop on', 'track loop of', 'track play', 'track load', 'ssave',
+      'med load', 'med play', 'med stop', 'med cont', 'med midi on',
+    ],
   },
   {
     ids: ['amospro-ioports-2.0'],

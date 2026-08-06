@@ -30,6 +30,35 @@ const ALLOWED_UNDECLARED = new Set<string>([
    */
   'sload',
   'ssave',
+
+  /**
+   * EME 3.0 IS the Music extension.
+   *
+   * It ships AS `AMOSPro_Music.Lib` and is copied over the stock one — its own
+   * doc says "copy the file AMOSPro_Music.lib over the existing file in your
+   * APSystem folder" — so it occupies slot 1 and a program written for stock
+   * Music has to tokenise and run against it unchanged. All 49 stock keywords
+   * are present with IDENTICAL token ids AND identical parameter specs;
+   * nothing is dropped, renamed or re-specced.
+   *
+   * That is the opposite of the case this guard exists for. `Blitter Copy` was
+   * two libraries meaning different things by one name; this is one library
+   * deliberately being the other. The core Music handlers are the right answer
+   * for both, and qualifying these to a slot would give an EME program a
+   * SECOND implementation of code EME copied in order to be compatible with.
+   *
+   * The ten EME adds are not here — nothing else claims them, so nothing is
+   * contested about them. `med load`, `med play` and `med stop` are not here
+   * either: MED 7.1 already qualifies those three against slot 19.
+   */
+  'mubase', 'vumeter', 'voice', 'music off', 'music stop', 'tempo', 'music',
+  'noise to', 'boom', 'shoot', 'sam bank', 'sam loop on', 'sam loop off',
+  'sample', 'sam play', 'sam raw', 'bell', 'play off', 'play', 'set wave',
+  'del wave', 'set envel', 'mvolume', 'volume', 'wave', 'led on', 'led off',
+  'say', 'set talk', 'sam swapped', 'sam swap', 'sam stop', 'track stop',
+  'track loop on', 'track loop of', 'track play', 'track load', 'mouth width',
+  'mouth height', 'mouth read', 'talk stop', 'talk misc', 'med cont',
+  'med midi on',
 ])
 
 describe('contested keyword names', () => {
