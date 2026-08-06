@@ -13,7 +13,10 @@ import { newTurboState, TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions,
 import { newPersonnalState, PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
 import { newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
 import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions, ensureLib } from './speech'
+import { makeDumpFunctions, newDumpState } from './dump'
 import { makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
+import { makeFileIdFunctions, newFileIdState } from './fileid'
+import { makeFirstInstructions } from './first'
 import { makeJotreInstructions, newJotreState } from './jotre'
 import { makeMedExtFunctions, makeMedExtInstructions, medExtDefault, newMedExtState } from './medext'
 import { makeP61Functions, makeP61Instructions, newP61State } from './p61'
@@ -2790,8 +2793,16 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       rt.music.trackLoop = false
     },
     // InLedOn/Of +Music.s:3917: $BFE001 bit 1 — LED lit = low-pass filter engaged
-    'led on': () => rt.audio.setFilter(true),
-    'led off': () => rt.audio.setFilter(false),
+    // the bit is READ back by First 0.1's `Change Led`, a bchg, so the state
+    // has to live somewhere rather than only being written at the sink
+    'led on': () => {
+      rt.ledFilter = true
+      rt.audio.setFilter(true)
+    },
+    'led off': () => {
+      rt.ledFilter = false
+      rt.audio.setFilter(false)
+    },
 
     // ---- menus ----
     'menu$'(it) {
@@ -5103,6 +5114,31 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeErcoleInstructions,
     functions: makeErcoleFunctions,
     qualified: ['xfire'],
+  },
+  {
+    // First 0.1 at slot 22 --- Pedro Gil's 248-byte first extension. Three
+    // CIA-A PRA accesses and one AMOS call. See first.ts.
+    ids: ['first-0.1'],
+    instructions: makeFirstInstructions,
+  },
+  {
+    // FileID 1.0 at slot 25 --- Haiko Lemser's wrapper around FileID.library,
+    // which this port does not model. SOURCE tier: FileID.s ships with it.
+    // See fileid.ts.
+    ids: ['fileid-1.0'],
+    init: (rt) => {
+      rt.fileId = newFileIdState()
+    },
+    functions: makeFileIdFunctions,
+  },
+  {
+    // Dump 1.1 at slot 20 --- Alex J. Grant and Francois Lionet's printer
+    // dump plus raw trackdisk.device access. Functions only. See dump.ts.
+    ids: ['dump-1.0'],
+    init: (rt) => {
+      rt.dump = newDumpState()
+    },
+    functions: makeDumpFunctions,
   },
   {
     // Jotre 1.0 at slot 22 --- Thomas Verduin's five-keyword shim over an

@@ -6811,18 +6811,18 @@ export const EXT_INFO: ExtensionInfo[] = [
   {
     "id": "dump-1.0",
     "name": "Dump",
-    "version": "1.0",
+    "version": "1.1",
     "author": "Alex J. Grant",
     "origin": "third-party",
     "format": "legacy",
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
-    "defaultSlot": 10,
+    "defaultSlot": 20,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "b609afce0d6fa4398a68697c86aa75e30c27c618055c59dd2d0cacc08446c69a",
     "provenance": "AMOS PD Library CD, APD565/JC/AMOS_System. No documentation found. A smaller 5-entry Dump.Lib also exists on APD036. Author identified from the Ultimate Amiga AMOS Factory archive listing (Dump Extension v1.0, archived by Lonewolf10); the binary carries no attribution.",
-    "notes": "Low-level disc access (Diskin, Secread, Secwrite, Trackformat) plus a screen dump. Table tier. The disc-sector keywords have no counterpart in a virtual filesystem, so much of this is likely to end up n/a rather than merely unimplemented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
+    "notes": "Two unrelated halves: Dump and Dump Err$ send a screen to a graphics printer, and six more drive trackdisk.device directly for sector reads and writes, track formatting and the two disk status queries. Disassembly tier and NOTHING else — the archive holds no doc, no readme and no source, so every argument meaning is read out of the code. VERSION CORRECTED off the binary: the title string at $c95 is `Dump v1.1 by Alex J. Grant & F.Lionet`, where this manifest recorded 1.0; the id keeps its original spelling. F. Lionet is AMOS's own author. SLOT CORRECTED off the binary too: routine 0 stores its block with `move.l a0,$228(a5)`, its REMOVE routine at `$230(a5)` (that entry's +$8), and returns `moveq #$13,d0` = 19 — so slot 20, where Andrew Burton's AMOS Extensions List said 10. Routine 0 can also refuse to install: it AllocMems $202 bytes for the sector buffer first and returns $ff when that fails."
   },
   {
     "id": "easylife-1.0",
@@ -6943,13 +6943,14 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "source",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 25,
     "observedSlots": [],
     "titleStrings": [
       "$VER: FileID Extension V1.0 by Haiko Lemser"
     ],
     "sha256": "3d9514f4e7a36573305d360aa76340e46d7e8804f4ca7ab20fe311b5faba392f",
     "provenance": "Aminet dev/amos/fileidex.lha, FileIDExt/AMOS_System/FileID.Lib. The smallest extension in the registry at 6 keywords and 1,176 bytes. For AMOS 1.3 rather than AMOS Pro, per its own readme's Requires field, and it installs into AMOS_System rather than APSystem. Ships its assembler source and an AmigaGuide manual, both German.",
-    "notes": "A wrapper over FileID.library, a third-party Amiga library that identifies a file's type by inspecting it. Six keywords. Its own manual is explicit that what it can recognise depends entirely on the version of FileID.library installed, not on this extension -- so a port would have to decide what a modelled FileID.library knows, which is a data question rather than a behaviour one, and one with no authoritative answer in the archive. Registered, not ported."
+    "notes": "Six functions wrapping FileID.library, which identifies a file's type by magic number and is maintained separately (the readme points at Aminet's util/libs/FIDLib80.lha for version 8.0). SOURCE tier: FileID.s, 6,327 bytes, ships beside the built library. Slot off the source: `ExtNb equ 25-1`, and the file's own header comment says `Slot : 25`; the store is written as `move.l a3,ExtAdr+ExtNb*16(a5)`, which is this port's slot arithmetic as the assembler's own expression. Requires AMOS 1.3 per the readme. Same author as MED 7.1 and the same habits — German requester messages and a $VER built from a Version macro."
   },
   {
     "id": "first-0.1",
@@ -6965,7 +6966,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "titleStrings": [],
     "sha256": "0b19b31bbe06516baa3381c444c71600f8e343cb3995fe26b3aadc144e5b7f9a",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: First_0.1. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
-    "notes": "Four keywords — LED control, wait-for-mouse, wait-for-joystick, clear banks. Documented, and evidently a first attempt at writing an extension, which is what the name says. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
+    "notes": "Four keywords in a 248-byte library: Change Led, Wait Mouse, Wait Joy, Clear Banks. The author's own summary is \"this extension only have 4 new commands, but this is my first extension for Amos pro\". Version off the binary: `AMOSPro First Extension by Pedro Gil v0.1` at $9a and `$VER: 0.1` at $c4. Slot off the binary too: routine 0 is `moveq #$15,d0 / rts` and stores nothing into a5 at all, and $15 is 21 — the slot less one, so 22. The readme agrees: \"put on slot 22 this name: AmosPro_First.lib\"."
   },
   {
     "id": "gamesupport-1.2",

@@ -16,6 +16,8 @@ import { newPiConfig } from './piconfig.gen'
 import { ensureLib, speakOne, type SpeechState } from './speech'
 import { SpeakBuffer, type SpeakOptions } from '../amiga/speak'
 import { ercoleVbl, type ErcoleState } from './ercole'
+import type { DumpState } from './dump'
+import type { FileIdState } from './fileid'
 import { jotreVbl, type JotreState } from './jotre'
 import type { MedExtState } from './medext'
 import type { P61State } from './p61'
@@ -506,6 +508,19 @@ export class Runtime {
   ercole!: ErcoleState
   /** Jotre 1.0: the THX replayer's flag byte, module address and sub-song */
   jotre!: JotreState
+  /** Dump 1.1: the last printer-dump message index and the last device error */
+  dump!: DumpState
+  /** FileID 1.0: the library base, the FileInfo pointer and the last error */
+  fileId!: FileIdState
+
+  /**
+   * CIA-A PRA bit 1 — the power LED and Paula's low-pass filter, which are
+   * the same line. `Led On`/`Led Off` (InLedOn/Of +Music.s:3917) set it and
+   * First 0.1's `Change Led` is a `bchg`, so the bit has to be readable and
+   * not just writable. True at boot, as the machine comes up with the filter
+   * engaged and NullAudio already assumes.
+   */
+  ledFilter = true
 
   fileChans = new Map<
     number,

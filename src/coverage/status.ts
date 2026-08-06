@@ -2052,6 +2052,28 @@ export const FAITHFUL = new Set<string>([
   'play thx',
   'stop thx',
   'volume thx',
+  // --- First 0.1, slot 22: Pedro Gil's 248-byte extension; see first.ts.
+  'change led',
+  'wait mouse',
+  'wait joy',
+  'clear banks',
+  // --- FileID 1.0, slot 25: Haiko Lemser's FileID.library wrapper, SOURCE
+  // tier (FileID.s ships with it); see fileid.ts.
+  'id get high id',
+  'id get string',
+  'id identify file',
+  'id identify adresse',
+  'id fileinfo',
+  'id error',
+  // --- Dump 1.1, slot 20: printer dump and raw trackdisk. `dump` itself is
+  // APPROXIMATED and deliberately absent here; see dump.ts.
+  'dump err$',
+  'diskin',
+  'writeenable',
+  'secread',
+  'secwrite',
+  'trackformat',
+  'disk err$',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -3534,6 +3556,49 @@ export const NOTES: Record<string, string> = {
     'routine 7. Error 1 when nothing is up, StopSong, then `#$ff - 2` = $FD — the right mask for the bit it means, unlike Deinit\'s. It does NOT test bit 1 first, so stopping something that was never started calls StopSong anyway',
   'volume thx':
     'routine 8. Error 1 when nothing is up, then one byte written at `(*(block+$24)) + 1` — inside the replayer, not in the extension\'s own state. The Guide gives the range as "anything between 0 (silent) to 63 (very loud)" and the routine enforces none of it: `move.b d7,(a1)` takes the low byte, so 64 and -1 both land',
+  // --- First 0.1, slot 22. Three CIA-A PRA accesses and one AMOS call.
+  'change led':
+    "routine 3: `bchg.b #$1,\$bfe001`. One bit does two things on this machine --- the power LED's brightness and Paula's low-pass filter --- and a bchg toggles whatever it was, so it is Led On/Led Off without needing to know which. The core Music extension's pair drives the same line, so the bit is tracked on the Runtime rather than only written at the sink; a bchg has to be able to READ it",
+  'wait mouse':
+    "routine 4: `btst.b #$6,\$bfe001 / beq (done) / bra (again)`, spinning until the bit reads CLEAR, which is the LEFT button held. DEVIATION: the original is a bare busy loop with no vbl wait and no break check, so on the machine it burns the CPU and cannot be stopped by Control-C. This yields a frame at a time instead, which is what keeps the program stoppable and the display updating; reproducing the spin would hang the browser and prove nothing",
+  'wait joy': 'routine 5, the same loop on bit 7 --- port 1 fire --- with the same deviation',
+  'clear banks':
+    "routine 6 is one AMOS call and an rts: `Rjsr routine 1107`. NOTE: that number cannot be named from the evidence held here. AMOS_ROUTINES comes from +lib_Labels.s, which runs 0..1040 and ends on L_End_Externes, and 248 calls across twenty extension binaries name routines above it --- its own task. What is NOT safe is the tempting shortcut: the source's other label file, +lequ.s, holds the same names offset by exactly +500 and would make 1107 `L_FnMouseKey`, but that reading is ruled out for the low range by two calls whose content is verified (1025 really is L_Dia_ScCopy, a requester, and 305 really is L_Bnk.OrAdr). So the behaviour is the readme's, which is the author's own statement of it: \"Erase all banks from memory\" --- AMOS's Erase All",
+
+  // --- FileID 1.0, slot 25, SOURCE tier. Four of the six are guarded by
+  // `Tst.l _IDbase`, and FileID.library is not modelled: it is a table of
+  // magic numbers maintained elsewhere and its ID NUMBERS are its own, so
+  // inventing them would be worse than absence --- a program comparing an
+  // answer against a documented ID would get a wrong one instead of an error.
+  'id get high id': 'L3: FiGetHighID(), the highest type number the installed library knows. Guarded, so with none installed it raises message 0',
+  'id get string':
+    "L4: FiGetIDString(num), the name of a type number. It could never have worked: the library returns a C string and AMOS wants a length-word-prefixed one, so the author steps back two bytes to invent a length. Two things are wrong and the second is fatal --- the bytes before a C string are not a length, and `sub.b #2,d0` subtracts from the LOW BYTE ONLY, so a pointer ending in \$00 jumps FORWARD 254 instead of back 2. It wanted `sub.l`. Not marked DEFECT because nothing here reproduces it: the bug is pointer arithmetic in a library this port does not have, and the keyword is unreachable while it is absent",
+  'id identify file':
+    "L5: step over the AMOS length word, FiAllocFileInfo (null is message 4), FiIdentifyFromName, then the type as a WORD at FileInfo+4. A non-zero library error is NEGATED into the message index. Note the order: the structure is freed BEFORE the value returns, having been copied to a scratch long first --- which is why Id Fileinfo hands back a pointer to memory already given back",
+  'id identify adresse':
+    "L6, byte for byte L5 with FiIdentify in place of FiIdentifyFromName and no length-word step, so the argument is an address of data already in memory. The spelling is the author's --- German Adresse inside an English keyword --- and the token table is what a program has to type",
+  'id fileinfo': 'L7, three instructions with NO library check, so it answers even with nothing installed --- and what it answers is the pointer the last identify already freed',
+  'id error': 'L8, the same three instructions over IDerr, also unguarded. Zero means the last identify succeeded; anything else is the library\'s own FIERR_*, which the message table translates',
+
+  // --- Dump 1.1, slot 20. Disassembly tier and NOTHING else: no doc, no
+  // readme, no source in the archive, so every argument meaning is read out
+  // of the code.
+  'dump err\$':
+    'routine 12 walks the list at \$5d2 by the index at \$32, each entry a word length then the text, padded even. Index 0 walks it not at all, so a program that has dumped nothing gets "Ok.". Entries 3 and 5 really are a single space in the binary --- the author left gaps rather than renumbering the codes around them',
+  'diskin':
+    "routine 29 into arm 42: TD_CHANGESTATE, whose io_Actual is 0 when a disk IS present, so this answers -1 for a disk in the drive. NOTE: there is no floppy drive here, so routine 35's OpenDevice on trackdisk.device fails and this reports it --- the same answer the machine gives for a unit with no drive attached. An ADF-backed trackdisk unit would make it real; the port already reads ADFs sector-wise",
+  'writeenable': 'routine 30 into arm 43: TD_PROTSTATUS, io_Actual 0 when NOT protected, so -1 means writable. Same absent drive',
+  'secread':
+    "routine 31 into arm 44, the only one returning a string. The pops are \$a0, \$9c, \$98 and arguments come off in reverse source order, so the source is (unit, offset, length). The read lands at the buffer PLUS TWO, leaving room for the length word --- which the exit then writes as a CONSTANT \$200, so the answer is always 512 bytes however few were asked for. And the buffer is 514 bytes, so a length above 512 overruns it: the routine range-checks nothing",
+  'secwrite':
+    "routine 32 into arm 45, four pops so the source is (unit, offset, length, data\$). Before the write it copies the string in with the copy capped at 512 (`cmpi.w #\$200,(a0) / bgt`) and then ZERO-FILLS to 512, so a short string writes a whole padded sector rather than a partial one",
+  'trackformat':
+    "routine 33 into arm 46. It AllocMems \$1600 = 5632 bytes first --- eleven 512-byte sectors, one whole double-density track --- as TD_FORMAT's data, and frees it after. An allocation failure skips the device entirely: the error is set to -1 and it branches straight to the exit",
+  'disk err\$':
+    "routine 34 returns an INTEGER despite the name: `move.l \$b0(a2),d3 / move.l #\$0,d2`, and the token spec is `0`. The \$ is a lie --- it hands back the raw io_Error the last disk keyword left behind, not text. Dump Err\$ really is a string",
+  'dump':
+    "routines 3, 4 and 5 --- one keyword with three arities. Routine 3 takes the screen's own size from the block and clears the two aspect-ratio longs; routine 4 reads four given values and computes those ratios as 16.16 fixed point, `\$ffff / (screen / requested)` rotated left 16, where a zero anywhere in that division is message 4, \"Illegal dimensions.\"; routine 5 takes seven and goes straight to the engine. APPROXIMATED: the engine itself (routines 9-19, printer.device's graphics dump) is not reproduced, so the answer is message 2, \"Not a graphics printer.\" --- the machine's own answer when the installed driver has no dump support, and the reason that message exists. The arities and the dimension check are real",
+
   'omd load': 'octaplayer.library is not in the AMOS source; the load is checked and remembered, the module is not decoded',
   'omd play': 'the OMD state machine only; no audio',
   'omd stop':

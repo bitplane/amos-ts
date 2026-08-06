@@ -206,7 +206,7 @@ per keyword.
 | `misc-1.0` | Misc Extension | source | 12 | — | recommends 23 |
 | `jvp-1.01` | JVP NoKids | source | 11 | — | recommends 25 |
 | `p61-1.2` | P61 Music | source | 9 | — | recommends 25 |
-| `fileid-1.0` | FileID | source | 6 | — | — |
+| `fileid-1.0` | FileID | source | 6 | — | recommends 25 |
 | `amospro-compact-2.0` | Compact | source | 3 | 2 | stock, slot 2 |
 | `amospro-request-2.0` | Request | source | 3 | 3 | stock, slot 3 |
 | `personnal-extra-1.0a` | Personnal EXTRA | source | 2 | — | — |
@@ -256,7 +256,7 @@ per keyword.
 | `lserial-2.1` | LSerial | disassembly | 15 | 11 | recommends 11 |
 | `ercole-1.7` | Ercole | disassembly | 11 | — | recommends 10 |
 | `stars-2.33` | Stars | disassembly | 11 | — | recommends 20 |
-| `dump-1.0` | Dump | disassembly | 8 | — | recommends 10 |
+| `dump-1.0` | Dump | disassembly | 8 | — | recommends 20 |
 | `ctext-1.0` | CText | disassembly | 6 | 8 | recommends 8 |
 | `jd-k3-1.1` | JD K3 | disassembly | 6 | — | recommends 19 |
 | `jotre-1.0` | Jotre | disassembly | 5 | — | recommends 22 |
