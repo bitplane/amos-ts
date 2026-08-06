@@ -408,4 +408,6 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/powerbobs.test.ts': ['powerbobs-1.0'],
   'src/runtime/tome.ts': ['tome-4.23', 'tome-3.1'],
   'src/runtime/tome.test.ts': ['tome-4.23', 'tome-3.1'],
+  'src/runtime/medext.ts': ['med-7.1'],
+  'src/runtime/medext.test.ts': ['med-7.1'],
 }

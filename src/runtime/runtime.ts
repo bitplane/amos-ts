@@ -15,6 +15,7 @@ import type { MemRegion } from '../amiga/memmap'
 import { newPiConfig } from './piconfig.gen'
 import { ensureLib, speakOne, type SpeechState } from './speech'
 import { SpeakBuffer, type SpeakOptions } from '../amiga/speak'
+import type { MedExtState } from './medext'
 import type { P61State } from './p61'
 import type { PowerBobsState } from './powerbobs'
 import type { TomeState } from './tome'
@@ -497,6 +498,8 @@ export class Runtime {
   p61!: P61State
   powerbobs!: PowerBobsState
   tome!: TomeState
+  /** MED 7.1: the three player libraries, the loaded module and the mode */
+  medExt!: MedExtState
 
   fileChans = new Map<
     number,
@@ -733,6 +736,17 @@ export class Runtime {
   /** the same, for the AGA icon bank — a separate AllocMem in the library */
   static readonly PERSONNAL_ICON_BASE = 0x74000000
   personnalIcons: Uint8Array | null = null
+
+  /**
+   * MED 7.1's loaded module.
+   *
+   * `Med Load` does not reserve an AMOS bank — the Guide is explicit, *"Da
+   * zum laden keine AMOS Banken benutzt werden"* — and `Med Mod Base` hands
+   * the program the address so it can edit the module in place. Same shape as
+   * Personnal's blocks above, and the same reason. See medext.ts.
+   */
+  static readonly MED_MODULE_BASE = 0x7c000000
+  medModule: Uint8Array | null = null
 
   /**
    * The interpreter configuration block (PI_*, +Equ.s:1590-1650, defaults
@@ -1113,6 +1127,7 @@ export class Runtime {
         return block ? within(block, off) : null
       },
     ),
+    bufferRegion('MED module', Runtime.MED_MODULE_BASE, 0x04000000, () => this.medModule),
   ]
 
   private resolveInto(addr: number, write: boolean): { data: Uint8Array; off: number } | null {
@@ -3394,6 +3409,9 @@ export class Runtime {
     this.interp.tick++
     // MusInt is the first VBL routine (Mus_Cold +Music.s:848)
     this.music.vbl()
+    // MED 7.1 drives its own copy of the replayer, off its own module rather
+    // than off bank 3 — medplayer.library installs a separate interrupt
+    this.medExt?.player?.vbl()
     // TFT's own VBL server, when a program has armed it with Start Int
     tftVbl(this.tft)
     this.applyShifts()

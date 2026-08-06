@@ -2004,6 +2004,34 @@ export const FAITHFUL = new Set<string>([
   'p61 signal',
   'p61 fade',
   'p61 pos',
+  // --- MED 7.1, slot 19: Haiko Lemser's shim over OctaMED's three player
+  // libraries. `med load`, `med play` and `med stop` are slot-qualified
+  // because the stock Music extension spells all three; see medext.ts.
+  'med continue',
+  'med fast load',
+  'med init player',
+  'med free player',
+  'med unload',
+  'med set tempo',
+  'med set mod nr',
+  'med reset midi',
+  'med reloc',
+  'med set hq',
+  'med fastplay on',
+  'med fastplay off',
+  'med 14bit mode on',
+  'med 14bit mode off',
+  'med set mixing freq',
+  'med set mixbuffer',
+  'med pointer',
+  'med mod base',
+  'med get player',
+  'med get sub songs',
+  'med pblock',
+  'med pline',
+  'med seq num',
+  'med counter',
+  'med is fastplaying',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -3393,6 +3421,56 @@ export const NOTES: Record<string, string> = {
   'p61 mvolume': 'range-checks 0..63 and then the module, in that order, as routine 126 does; no audio',
   'p61 mpos':
     "routine 127 is routine 126 twice over — the SAME 0..63 range check raising the same error 20, whose message is 'Les valeurs de volume vont de 0 a 63.' and is about volume in both, then the same library and module checks. This port had neither check on Mpos; a position of 64 was accepted and one with no module loaded was too",
+  // --- MED 7.1, slot 19. The extension is a SHIM: every keyword is a mode
+  // test and a `jsr -$xx(a6)` on one of medplayer/octaplayer/octamixplayer.
+  // Mode 0 (4 channel, MMD0/MMD1) is served by the same replayer the core
+  // `Med Play` uses. Modes 1 and 2 mix voices in software, this port has no
+  // mixer, so those two libraries are declared ABSENT in ../amiga/exec.ts and
+  // the extension reports its own "nicht geöffnet" for them. See medext.ts.
+  'med fast load':
+    "routine 17 is routine 5 with three different LVOs and error 8, 'Fast Lade Fehler', in place of error 1. The Guide's distinction is chip versus fast ram, which this port has no split for, so the only observable difference is what =Med Is Fastplaying then reports. DEVIATION shared with Med Load: routine 37 checks the OLD mode's library at $b14 and the new mode is not stored until $b1a, so on the machine `Med Fast Load \"x\",1` with no octaplayer jumps through a zero base; this raises error 5 instead",
+  'med continue':
+    "routine 9, ContModule on the mode's library. The token table spells it `med continue` where the Guide's node title says 'Med Continus'; the binary wins. It does not collide with the core Music extension, which spells its resume `Med Cont`",
+  'med init player':
+    'routine 7, GetPlayer, with 0 = no MIDI and 1 = MIDI reaching the library in d0. No MIDI output exists in this port — the same note the core Med Midi On carries — so the flag is stored and the module check, which is the observable half, is reproduced',
+  'med free player':
+    'routine 8, FreePlayer. The Guide: "STOPT und entfernt die MED Player Routine", so the stop is the library\'s own and not a second Med Stop; the module stays loaded',
+  'med unload':
+    'routine 11, and the only routine that calls two others — `Rbsr routine 4` then `Rbsr routine 8`, Med Stop then Med Free Player, before UnLoadModule and `move.l #$0,$3f2.l`. The DEFAULT hook at $312 does the same minus the unload, which is the leak the Guide warns about: after a Ctrl+C only a reboot frees the module. This port drops the reference instead, which a program cannot distinguish because either way the pointer is gone',
+  'med set tempo':
+    "routine 10 calls medplayer's -$42 whatever the mode is — no dispatch at all, unlike its neighbours. The Guide's range is 0-240 with 1-10 the ProTracker tempos, and the routine clamps nothing, so nor does this",
+  'med set mod nr':
+    'routine 13, SetModnum. The Guide: call it BEFORE Med Play, and a Load always resets it to 0 — so the number is held for the next Play rather than repositioning a running module',
+  'med reset midi':
+    "routine 12, medplayer's -$5a with no dispatch. Nothing to reset: this port has no MIDI output. The module check is the observable half and it is reproduced",
+  'med reloc':
+    'routine 14. NOTE: what the library does is not knowable from this binary, and the Guide\'s own author wrote "setzt ein geladenes MED Modul in den Uhrsprungs Zustand zurück. ???" with the question marks. Modelled as re-seating the module at the current sub-song and position zero without starting it — Med Play minus the start',
+  'med set hq':
+    'routine 16 is MODE 1 ONLY: one `cmpi.l #$1,$3f6.l / beq` and every other mode returns having done nothing. It is also one of the five instructions with no module check. The Guide sends the reader to OctaMED for what HQ means and gives the default as 0',
+  'med fastplay on':
+    'routines 25 and 26 — two routines for one keyword, 25 loading `move.l #$40,d1` for the omitted buffer and 26 popping one. Mode 0 calls medplayer -$7e, mode 1 octaplayer -$6c, mode 2 falls straight to the exit. The Guide\'s buffer rules (divisible by 4, strictly between 4 and 400) are the library\'s and neither routine enforces them, so nor does this',
+  'med fastplay off': 'routines 27 and 28, the same pair with `move.l #$0,d0`',
+  'med 14bit mode on':
+    'routine 29 is `moveq #$1,d0 / bra` into routine 30\'s body at $dd0. MODE 2 ONLY. The Guide: the default is always on, and other MED formats ignore it',
+  'med 14bit mode off': 'routine 30, the `moveq #$0,d0` entry to the same body',
+  'med set mixing freq':
+    "routine 31, MODE 2 ONLY. The Guide's 1000..65535 range and its 15000 default are the library's; the routine checks nothing, so the value is stored as given",
+  'med set mixbuffer': "routine 32, MODE 2 ONLY, unchecked. The Guide's default is 1024",
+  'med pointer':
+    'routine 6, medplayer\'s -$54 whatever the mode. DEVIATION: the Guide says this one is unreliable — "soll eigentlich die korrekte Startadresse ... zurück geben. Aber leider tut er das nicht immer korrekt" — and that Med Mod Base exists BECAUSE of it. The inaccuracy is inside a library this port does not have, so the two agree here where on the machine they sometimes would not',
+  'med mod base':
+    'routine 23 is `move.l $3f2.l,d3` and nothing else — no module check, so with none loaded it answers 0. The address is real and Peek/Poke reach it (Runtime.MED_MODULE_BASE), which is the Guide\'s stated point: no AMOS bank is used, so this is how a program edits its module',
+  'med get player':
+    'routine 15 loads the file through medplayer, asks -$6c which player it needs, unloads it again, and touches neither $3f2 nor $3f6 — so it is safe to call mid-song. The answer is fixed by the module generation and the Guide\'s own mode table names them: MMD0/MMD1 → 0, MMD2 → 1, MMD3 → 2. NOTE: the routine has NO failure path, so a file that is not a module leaves the query running on a null pointer; here it answers 0',
+  'med get sub songs':
+    'routine 18, `move.b $33(a0),d0` — `extra_songs` in the MMD header, static file data, so this one is exact. Like routines 19-23 it has NO module check: on the machine a0 is zero and the read comes off the 68000 exception vectors, where this answers 0',
+  'med pblock': 'routine 19, `move.w $2a(a0),d0` — MMD `pblock`, which medplayer writes back into the header. This port keeps that state in the replayer and answers from there',
+  'med pline': 'routine 20, `move.w $2c(a0),d0` — MMD `pline`',
+  'med seq num': 'routine 21, `move.w $2e(a0),d0` — MMD `pseqnum`',
+  'med counter':
+    'routine 22, `move.b $32(a0),d0` — MMD `counter`. The Guide, in full: "Tja keine Ahnung wozu der gut sein soll. Gibt aber irgend einen Wert zurück." It is the replayer\'s tick-within-the-line counter',
+  'med is fastplaying':
+    'routine 24: mode 0 asks medplayer -$72 and mode 1 octaplayer -$60, but mode 2 does not ask anyone — `move.l #$ffffffff,d0` unconditionally, which is the Guide\'s complaint ("funktioniert das nur bei MED Modulen die mit dem octamixplayer.library gespielt werden") explained. NOTE: for modes 0 and 1 the library\'s answer is modelled by the Med Fastplay On/Off flag, since fast-ram replay is what that pair switches and this port has no chip/fast split',
   'omd load': 'octaplayer.library is not in the AMOS source; the load is checked and remembered, the module is not decoded',
   'omd play': 'the OMD state machine only; no audio',
   'omd stop':

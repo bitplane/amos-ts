@@ -246,7 +246,7 @@ per keyword.
 | `tools-1.01` | Tools | disassembly | 33 | — | recommends 23 |
 | `make-1.30` | Make | disassembly | 32 | — | recommends 17 |
 | `bsdsocket-1.1.4` | BSDSocket | disassembly | 30 | — | recommends 18 |
-| `med-7.1` | MED | disassembly | 28 | — | — |
+| `med-7.1` | MED | disassembly | 28 | — | recommends 19 |
 | `delta-1.4` | Delta | disassembly | 26 | — | recommends 15 |
 | `aga-1.0` | AMOS AGA | disassembly | 24 | — | recommends 20 |
 | `tft-0.6` | TFT | disassembly | 22 | — | recommends 25 |

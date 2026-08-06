@@ -7359,11 +7359,12 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
+    "defaultSlot": 19,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "f3e952736d48d27afbf13dca58a3466f05fa87bb3dc48e1c7a7324f89af58e25",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: MED_7.1. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
-    "notes": "A standalone MED module player — 28 keywords, 27 documented. Distinct from the `med *` keywords in the stock Music extension, which the port already implements; this is a third-party replacement with its own token table."
+    "notes": "A standalone MED module player — 28 keywords, 27 documented. Distinct from the `med *` keywords in the stock Music extension, which the port already implements; this is a third-party replacement with its own token table. Version settled off the binary: MED.Lib carries `$VER: MED Extension V7.1 by Haiko Lemser` at $380, against the Aminet upload field's stale `Version: 7.0`. Slot settled off the binary too, three ways over: routine 0 does `move.l a3,$218(a5)` for the slot's data pointer and `move.l a0,$21c(a5)` for its DEFAULT hook — consecutive fields of one 16-byte entry at `$f8 + 18*16` — and then returns `moveq #$12,d0`, the same 18 zero-based. The formula `(offset - $f8)/16 + 1` was calibrated first against three ports whose slots were already known: tome-4.23 $158 -> 7, powerbobs-1.0 $1b8 -> 13, p61-1.2 $278 -> 25."
   },
   {
     "id": "misc-1.0",

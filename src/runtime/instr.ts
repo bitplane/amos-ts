@@ -13,6 +13,7 @@ import { newTurboState, TURBO_ERRORS, makeTurboFunctions, makeTurboInstructions,
 import { newPersonnalState, PERSONNAL_ERRORS, makePersonnalFunctions, makePersonnalInstructions, personnalDefault } from './personnal'
 import { newAmcafState, makeAmcafFunctions, makeAmcafInstructions } from './amcaf'
 import { newSpeechState, makeSpeechFunctions, makeSpeechInstructions, ensureLib } from './speech'
+import { makeMedExtFunctions, makeMedExtInstructions, medExtDefault, newMedExtState } from './medext'
 import { makeP61Functions, makeP61Instructions, newP61State } from './p61'
 import { makePowerBobsFunctions, makePowerBobsInstructions, newPowerBobsState } from './powerbobs'
 import { makeTomeFunctions, makeTomeInstructions, newTomeState } from './tome'
@@ -5074,6 +5075,20 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     },
     instructions: makePowerBobsInstructions,
     functions: makePowerBobsFunctions,
+  },
+  {
+    // MED 7.1 at slot 19 --- Haiko Lemser's shim over OctaMED's three player
+    // libraries. `med load`, `med play` and `med stop` are SLOT-QUALIFIED
+    // because the stock Music extension spells all three, with a bank where
+    // this takes a filename and a mode. See medext.ts.
+    ids: ['med-7.1'],
+    init: (rt) => {
+      rt.medExt = newMedExtState()
+    },
+    instructions: makeMedExtInstructions,
+    functions: makeMedExtFunctions,
+    defaults: medExtDefault,
+    qualified: ['med load', 'med play', 'med stop'],
   },
   {
     // TOME 4.23 and 3.1 share one port: 3.1's table is a strict prefix of

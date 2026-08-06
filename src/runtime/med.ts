@@ -106,6 +106,50 @@ export class MedPlayer {
     return this.data !== null && this.data[3] === 0x31
   }
 
+  /**
+   * The four live fields medplayer.library writes back into the MMD header
+   * while a module plays — `pblock` ($2a), `pline` ($2c), `pseqnum` ($2e) and
+   * `counter` ($32) — plus the static `extra_songs` ($33).
+   *
+   * They are here because MED 7.1's `Med Pblock`, `Med Pline`, `Med Seq Num`,
+   * `Med Counter` and `Med Get Sub Songs` are literally `move.w $2a(a0),d0`
+   * and friends over the loaded module: the extension does not ask the library
+   * anything, it reads the struct the library maintains. This port's replayer
+   * keeps that state in fields rather than in the module bytes, so it answers
+   * for them here instead. See medext.ts.
+   */
+  get hdrPblock(): number {
+    return this.data ? this.b(this.song + 508 + Math.min(this.seqPos, 255)) : 0
+  }
+
+  get hdrPline(): number {
+    return this.line
+  }
+
+  get hdrPseqnum(): number {
+    return this.seqPos
+  }
+
+  get hdrCounter(): number {
+    return this.tickCount
+  }
+
+  /** `extra_songs` at $33 — static header data, not playback state */
+  get extraSongs(): number {
+    return this.b(0x33)
+  }
+
+  /**
+   * The primary tempo, as MED 7.1's `Med Set Tempo` sets it.
+   *
+   * The AMOS core has no keyword for this — the Music extension's `Med Play`
+   * takes whatever `deftempo` the module carries — so nothing needed a setter
+   * until the third-party extension arrived with one.
+   */
+  setTempo(t: number): void {
+    this.tempo = t
+  }
+
   /** the bank verification half of InMedPlay2 (+Music.s:4628-4634) */
   checkBank(bankArg: number | null): number {
     let n = bankArg ?? this.bank

@@ -103,6 +103,18 @@ const MODELLED: ReadonlyMap<string, number> = new Map([
   ['locale.library', 38],
   // the filesystem, pattern matching and the DateStamp calendar
   ['dos.library', 37],
+  // OctaMED's four-channel MMD0/MMD1 replayer, modelled by runtime/med.ts.
+  // Version 7 because MED 7.1 opens all three of its players with
+  // `moveq #$7,d0` and takes anything below as absent.
+  //
+  // Its two siblings are deliberately NOT here. `octaplayer.library`
+  // (5-8 channel MMD2) and `octamixplayer.library` (0-64 channel MMD3) mix
+  // several voices into each of Paula's four in software, and this port has
+  // no mixer — paula.ts says so in as many words. Listing them would be
+  // claiming a back-end that does not exist; leaving them out makes
+  // OpenLibrary answer 0, which is the case MED 7.1 already handles and
+  // reports in its own words. See runtime/medext.ts.
+  ['medplayer.library', 7],
 ])
 
 /**
