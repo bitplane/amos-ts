@@ -40,7 +40,7 @@ const STOCK: Array<{ id: string; name: string; slot: number; file: string; earli
     slot: 1,
     file: 'AMOSPro_Music.Lib',
     earlier:
-      'An earlier build exists and is deliberately NOT registered: AMOSPro_Music.Lib $VER 1.0 on the AMOS PD CD (APD452/APSystem), 49 keywords whose names are all in this table and whose token IDS ARE IDENTICAL to it. The AMOS 1.3 Music at 38 keywords IS registered, as music-1.62, because its ids genuinely differ.',
+      'TWO earlier builds exist and neither is registered. AMOSPro_Music.Lib $VER 1.0 on the AMOS PD CD (APD452/APSystem), 49 keywords whose names are all in this table and whose token ids are identical to it. And the AMOS 1.3 Music.Lib $VER 1.62 from the Amiga Computing issue 66 coverdisk (sha256 aefa10082485f444c5b8b262399e7f07bd4d9f8aadef8033e4743407adfec068), 38 named keywords: it WAS registered for a while, as music-1.62, on the claim that its ids differ. They do not. All 51 of its table entries carry the same id, the same name and the same parameter spec as this one, which is a strict superset of it — the thirteen entries from $2ce (Mouth Width) to $384 (Med Midi On) are what AMOS Pro added. The only differences are ones no program can observe: the format\'s absent-routine marker ($ffff in a legacy table, routine 1 in an AP20 one) and two entries whose routine index is one lower (Sam Bank at $8a, and the unnamed $ac). So it could never uniquely explain a slot and could never outscore this entry — identifySlot given a pure-1.62 usage with legacy recorded arities answers amospro-music-2.0, because the specs it checks are the same and this entry holds the default slot. Registering it only added a tie that never resolved. Same treatment, and the same reason, as Compact 1.2 and Request 1.41 off that same coverdisk.',
   },
   {
     id: 'amospro-compact-2.0',
@@ -65,7 +65,7 @@ const STOCK: Array<{ id: string; name: string; slot: number; file: string; earli
     slot: 6,
     file: 'AMOSPro_IOPorts.Lib',
     earlier:
-      'An earlier build exists and is deliberately NOT registered: AMOSPro_IOPorts.Lib $VER 1.0 on the AMOS PD CD (APD452/APSystem), 39 entries, same names and same token ids. The AMOS 1.3 Serial.Lib 1.2 IS registered, as serial-1.2, because AMOS Pro folded serial, parallel and printer into one extension and renumbered, so its ids do differ.',
+      'An earlier build exists and is deliberately NOT registered: AMOSPro_IOPorts.Lib $VER 1.0 on the AMOS PD CD (APD452/APSystem), 39 entries, same names and same token ids. The AMOS 1.3 Serial.Lib 1.2 IS registered, as serial-1.2 — but NOT, as this note used to say, because AMOS Pro renumbered when it folded serial, parallel and printer together. It did not renumber: serial-1.2\'s nineteen entries are a byte-identical PREFIX of this table, same ids, names and specs, and the 26 parallel and printer entries were appended above $14c. It is registered because it is a build that was READ, not merely one that exists — the routines were checked against +IO_Ports.s on the same IOExtSer offsets and differ in exactly one thing, where the last argument arrives (AMOS Pro passes it in d3, the 1.3 build pops it off the stack), which is a calling-convention change between AMOS releases rather than a difference in behaviour. The port serves both identities from one implementation; see the `serial speed` note in status.ts and the ids list at instr.ts.',
   },
 ]
 
