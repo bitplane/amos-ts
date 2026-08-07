@@ -2250,7 +2250,24 @@ export const FAITHFUL = new Set<string>([
   'elbnk here',
   'elmessage$',
   'elmessage exists',
+  // slice 5 -- the bitwise block, routines 70-77
+  'elwtst',
+  'elltst',
+  'elwset',
+  'ellset',
+  'elwclr',
+  'ellclr',
+  'elwchg',
+  'ellchg',
   // ...and 1.0's names for the same routines, reached through `aliases`
+  'wtst',
+  'ltst',
+  'wset',
+  'lset',
+  'wclr',
+  'lclr',
+  'wchg',
+  'lchg',
   'long',
   'long$',
   'word',
@@ -3988,6 +4005,16 @@ export const NOTES: Record<string, string> = {
   'elpad char$':
     "Routine 144 ($25c6), which takes the first character of A$ and joins routine 146 -- \"If A$ contains more than one character, the second and subsequent characters are ignored. In the future I intend to change this to repeatedly use the whole of A$ to pad S$\", and 1.44 still does not. An empty A$ is `Rbeq routine 3`",
 
+  // EasyLife slice 5: the bitwise block.
+  'elwtst':
+    "Routines 70 and 71 ($1b08, $1b24), twenty-eight bytes each and identical but for the width. \"The AMOS =Btst function allows you to detect if a bit is set in a given byte of memory, or in an integer variable. EasyLife provides these two functions to test if a bit is set in words/longwords.\" The arguments really are BIT first -- `movea.l (a3)+,a0` takes the LAST one as the address -- and `cmp.l #$10,d0 / Rbcc routine 3` is unsigned, so a negative bit number is refused along with the too-large ones",
+  'elwset':
+    "Routines 72, 74 and 76 ($1b40, $1b6c, $1b98), twenty-two bytes each: pop the address, pop and bound the bit, `move.w (a0),d1 / bXXX d0,d1 / move.w d1,(a0)`. All three word-width routines are correct; two of their three long-width siblings are not, and each is wrong by one bit of one instruction -- see Ellclr and Ellchg",
+  'ellclr':
+    "Routine 75 ($1b82), and DEVIATION: `20 10` is `move.l (a0),d0` where routine 74's `32 10` is `move.w (a0),d1` and `22 10` would have been the long equivalent. So the memory lands in d0, destroying the bit number, and the following `bclr d0,d1` clears bit (memory mod 32) of a d1 that nothing in the routine ever loaded -- whatever the interpreter left there is what gets stored back. There is no defined value for d1 on entry, so the defect is not reproducible even in principle; the intent, clearing the bit, is what runs here",
+  'ellchg':
+    "Routine 77 ($1bae), and DEFECT, reproduced: `01 c1` is `bset` where routine 76's `01 41` is `bchg`. So Ellchg SETS the bit -- it is Ellset with a different name. One bit of one opcode, in the long member of a pair whose word member has the right one, and unlike its neighbour Ellclr this one is reproducible exactly, so it is",
+
   // EasyLife slice 4: integers as strings, memory, banks, message banks.
   'ellong$':
     "Routines 46-49 ($16f4..$174c), four ten-to-twenty-byte routines that are the pair AMOS lacks. Ellong$ is `moveq #$6,d3 / Rjsr L_Demande / move.w #$4,(a0)+ / move.l (a3)+,(a0)+` -- the four raw bytes, most significant first, \"so that it may be output to a file compactly with a fixed length\". Elword$ pops the argument as two words and keeps the LOW one (`move.w (a3)+,d0 / move.w (a3)+,(a0)+`), which is the guide's \"ElWord$ does not give error messages if the value is out of range, it simply stores the lower 2 bytes\". Reading back, Ellong needs four bytes and Elword two (`cmp.w #$4,d0 / Rbcs routine 3`), and Elword sign-extends, so 32768..65535 come back negative -- the guide says so and gives the workaround",
@@ -4144,6 +4171,20 @@ export const SHARED_NOTES: Record<string, string> = {
   'mem inc': 'elmem',
   'set bank name': 'els bank name',
   'message$': 'elmessage$',
+  // the bitwise block: one reading for the test pair, one for the three
+  // correct modifiers, and one each for the two that are not
+  'elltst': 'elwtst',
+  'elwclr': 'elwset',
+  'elwchg': 'elwset',
+  'ellset': 'elwset',
+  'wtst': 'elwtst',
+  'ltst': 'elwtst',
+  'wset': 'elwset',
+  'lset': 'elwset',
+  'wclr': 'elwset',
+  'wchg': 'elwset',
+  'lclr': 'ellclr',
+  'lchg': 'ellchg',
 }
 
 /** The reading for a keyword, following SHARED_NOTES to whoever holds it. */

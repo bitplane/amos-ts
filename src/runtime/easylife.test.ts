@@ -657,6 +657,61 @@ describe('EasyLife: integers as strings, memory and banks (routines 46-79, 111, 
   })
 })
 
+describe('EasyLife: the bitwise block (routines 70-77)', () => {
+  const B = OPEN + 'Reserve As Work 5,64\n'
+
+  it('the word four set, clear, change and test a bit of a word', () => {
+    const { out } = run(
+      B +
+        'Doke Start(5),0\n' +
+        'Elwset 3,Start(5) : Elwset 15,Start(5)\n' +
+        'Print Deek(Start(5));Elwtst(3,Start(5));Elwtst(4,Start(5))\n' +
+        'Elwclr 3,Start(5) : Elwchg 15,Start(5) : Elwchg 0,Start(5)\n' +
+        'Print Deek(Start(5))\n',
+    )
+    expect(out).toBe(' 32776-1 0\n 1\n')
+  })
+
+  it('Ellset and Elltst reach all 32 bits', () => {
+    const { out } = run(
+      B + 'Loke Start(5),0\nEllset 31,Start(5)\nPrint Elltst(31,Start(5));Elltst(30,Start(5))\n',
+    )
+    expect(out).toBe('-1 0\n')
+  })
+
+  it('the bit number is bounded per width, unsigned', () => {
+    // `cmp.l #$10,d0 / Rbcc routine 3` and `cmp.l #$20,d0`
+    expect(fails(B + 'Print Elwtst(16,Start(5))\n')).toMatch(/Illegal function call/)
+    expect(fails(B + 'Print Elltst(32,Start(5))\n')).toMatch(/Illegal function call/)
+    expect(fails(B + 'Print Elwtst(-1,Start(5))\n')).toMatch(/Illegal function call/)
+    expect(fails(B + 'Elwset 16,Start(5)\n')).toMatch(/Illegal function call/)
+    expect(fails(B + 'Ellset 32,Start(5)\n')).toMatch(/Illegal function call/)
+  })
+
+  it('DEFECT: Ellchg sets the bit instead of inverting it', () => {
+    // routine 77's `01 c1` is bset where routine 76's `01 41` is bchg
+    const { out } = run(
+      B +
+        'Loke Start(5),0\n' +
+        'Ellchg 5,Start(5) : Print Elltst(5,Start(5));\n' +
+        'Ellchg 5,Start(5) : Print Elltst(5,Start(5))\n' +
+        // ...where the WORD sibling really does invert
+        'Doke Start(5)+8,0\n' +
+        'Elwchg 5,Start(5)+8 : Print Elwtst(5,Start(5)+8);\n' +
+        'Elwchg 5,Start(5)+8 : Print Elwtst(5,Start(5)+8)\n',
+    )
+    expect(out).toBe('-1-1\n-1 0\n')
+  })
+
+  it('DEVIATION: Ellclr clears the bit, where the routine writes a stale d1', () => {
+    // `20 10` loads the memory into d0, destroying the bit number, and the
+    // bclr then operates on a d1 nothing loaded. Not reproducible; the
+    // intent runs.
+    const { out } = run(B + 'Loke Start(5),$FF\nEllclr 0,Start(5)\nPrint Leek(Start(5))\n')
+    expect(out).toBe(' 254\n')
+  })
+})
+
 describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
   /**
    * The rename between 1.0 and 1.09 was total, so a 1.0 program shares not one
@@ -734,6 +789,27 @@ describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
     })
     mustFinish(rt.runHeadless(2000))
     expect(printed).toBe(' 7 9x\n-1-1[Message ]\nok\n')
+  })
+
+  it('and the eight bitwise names, which merely lose the `el`', () => {
+    const one = extensionById('easylife-1.0')!
+    const exts = new Map([[16, one.table]])
+    let printed = ''
+    const src =
+      OPEN +
+      'Reserve As Work 5,64 : Loke Start(5),0 : Doke Start(5)+8,0\n' +
+      'Wset 3,Start(5)+8 : Wchg 4,Start(5)+8 : Wclr 3,Start(5)+8\n' +
+      'Lset 20,Start(5) : Lchg 21,Start(5) : Lclr 20,Start(5)\n' +
+      'Print Deek(Start(5)+8);Wtst(4,Start(5)+8);Leek(Start(5));Ltst(21,Start(5))\n'
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, one]]),
+      maxSteps: 200_000,
+      onText: (t) => (printed += t),
+    })
+    mustFinish(rt.runHeadless(2000))
+    // Lchg sets rather than inverts, so bit 21 stays up after Lclr takes 20
+    expect(printed).toBe(' 16-1 2097152-1\n')
   })
 
   it('and the ten multi-zone names, where the rename was not a prefix strip', () => {

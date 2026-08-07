@@ -52,6 +52,7 @@
  */
 import { AmosError, ERR, VI, VS, funcCall, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
+import type { Interp } from '../interp/interp'
 import type { Runtime } from './runtime'
 import type { Screen } from './screen'
 import type { MultiZoneTable, Zone } from './objects'
@@ -285,6 +286,33 @@ const elfMiss = (rt: Runtime, len: number): number => (rt.easylife.elfFailEnd ? 
 
 /** true when `c` is one of the characters of `set` — routines 40-43's inner dbra */
 const inSet = (set: string, c: string): boolean => set.includes(c)
+
+// ---- bits, memory and message banks ----------------------------------------
+
+/** `cmp.l #$10,d0 / Rbcc routine 3`, unsigned, so a negative bit goes too */
+function bitArgs(a: Value[], width: number): number {
+  if (u32(int(a[0] ?? VI(0))) >= width) funcCall()
+  return int(a[1] ?? VI(0))
+}
+
+/** the six modifying keywords: pop ADDR then BIT, read, change, write back */
+function bitOp(rt: Runtime, it: Interp, width: number, f: (v: number, b: number) => number): void {
+  const bit = it.evalInt()
+  it.expect(',')
+  const addr = it.evalInt()
+  if (u32(bit) >= width) funcCall()
+  if (width === 16) pokeWord(rt, addr, f(peekWord(rt, addr), bit))
+  else pokeLong(rt, addr, f(peekLong(rt, addr), bit))
+}
+
+const peekWord = (rt: Runtime, a: number): number => (peekByte(rt, a) << 8) | peekByte(rt, a + 1)
+const peekLong = (rt: Runtime, a: number): number => ((peekWord(rt, a) << 16) | peekWord(rt, a + 2)) >>> 0
+function pokeWord(rt: Runtime, a: number, v: number): void {
+  writeBytes(rt, a, String.fromCharCode((v >>> 8) & 0xff, v & 0xff))
+}
+function pokeLong(rt: Runtime, a: number, v: number): void {
+  writeBytes(rt, a, String.fromCharCode((v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff))
+}
 
 // ---- memory and message banks ----------------------------------------------
 
@@ -764,6 +792,20 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
       if (s.length < 2) funcCall()
       return VI(sw((s.charCodeAt(0) << 8) | s.charCodeAt(1)))
     },
+
+    /**
+     * =Elwtst(BIT,ADDR) / =Elltst(BIT,ADDR) — routines 70 and 71 ($1b08,
+     * $1b24), twenty-eight bytes each and identical but for the width.
+     *
+     * "The AMOS =Btst function allows you to detect if a bit is set in a
+     * given byte of memory, or in an integer variable. EasyLife provides
+     * these two functions to test if a bit is set in words/longwords." The
+     * arguments really are BIT first: `movea.l (a3)+,a0` takes the LAST one
+     * as the address. `cmp.l #$10,d0 / Rbcc routine 3` is unsigned, so a
+     * negative bit number is refused with the too-large ones.
+     */
+    elwtst: (_, a): Value => VI((peekWord(rt, bitArgs(a, 16)) >>> (int(a[0] ?? VI(0)) & 15)) & 1 ? -1 : 0),
+    elltst: (_, a): Value => VI((peekLong(rt, bitArgs(a, 32)) >>> (int(a[0] ?? VI(0)) & 31)) & 1 ? -1 : 0),
 
     /** =Elextb(N) — routine 78 ($1bc4), `ext.w d3 / ext.l d3` from the low BYTE */
     elextb: (_, a): Value => VI(((int(a[0] ?? VI(0)) & 0xff) << 24) >> 24),
@@ -1267,6 +1309,61 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'elf fail end': () => {
       rt.easylife.elfFailEnd = true
+    },
+
+    /**
+     * Elwset / Elwclr / Elwchg BIT,ADDR — routines 72, 74 and 76 ($1b40,
+     * $1b6c, $1b98), twenty-two bytes each: pop the address, pop and bound
+     * the bit, `move.w (a0),d1 / bXXX d0,d1 / move.w d1,(a0)`. "These
+     * commands are equivilent to AMOS Bset,Bclr and Bchg instructions, but
+     * they allow you to modify the bits of words & longwords of memory."
+     */
+    'elwset'(it) {
+      bitOp(rt, it, 16, (v, b) => v | (1 << b))
+    },
+    'elwclr'(it) {
+      bitOp(rt, it, 16, (v, b) => v & ~(1 << b))
+    },
+    'elwchg'(it) {
+      bitOp(rt, it, 16, (v, b) => v ^ (1 << b))
+    },
+    /** Ellset — routine 73 ($1b56), the word routine with `.l` throughout */
+    'ellset'(it) {
+      bitOp(rt, it, 32, (v, b) => v | (1 << b))
+    },
+    /**
+     * Ellclr BIT,ADDR — routine 75 ($1b82), and DEVIATION: it is broken by
+     * one bit of one instruction.
+     *
+     *     routine 74:  32 10  move.w (a0),d1 / 01 81 bclr d0,d1 / 30 81
+     *     routine 75:  20 10  move.l (a0),d0 / 01 81 bclr d0,d1 / 20 81
+     *
+     * `20 10` is `move.l (a0),d0` where `22 10` would be `move.l (a0),d1` —
+     * so the memory lands in d0, destroying the bit number, and `bclr d0,d1`
+     * then clears bit (memory mod 32) of a d1 nothing in the routine ever
+     * loaded. Whatever the interpreter happened to leave in d1 is what gets
+     * stored back. Its word sibling is correct, and so are the other five of
+     * the six. There is no defined value for d1 on entry, so the defect is
+     * not reproducible even in principle; the intent — clear the bit — is
+     * what runs here.
+     */
+    'ellclr'(it) {
+      bitOp(rt, it, 32, (v, b) => v & ~(1 << b))
+    },
+    /**
+     * Ellchg BIT,ADDR — routine 77 ($1bae), and DEFECT, reproduced: it SETS
+     * the bit.
+     *
+     *     routine 76:  22 10 move.l (a0),d1 / 01 41 bchg d0,d1 / 20 81
+     *     routine 77:  22 10 move.l (a0),d1 / 01 c1 bset d0,d1 / 20 81
+     *
+     * `01 c1` is `bset` where `01 41` would be `bchg`, so `Ellchg` is
+     * `Ellset` with a different name — one bit of one opcode, in the long
+     * member of a pair whose word member (routine 76) has the right one.
+     * This one IS reproducible exactly, so it is.
+     */
+    'ellchg'(it) {
+      bitOp(rt, it, 32, (v, b) => v | (1 << b))
     },
 
     /**
