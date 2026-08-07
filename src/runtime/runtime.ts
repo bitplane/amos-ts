@@ -10,7 +10,9 @@ import type { Value } from '../interp/values'
 import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
 import { Collide } from './collide'
-import { Intuition } from '../amiga/intuition'
+import { Intuition, WB_SLOT } from '../amiga/intuition'
+import type { DiskFont } from '../amiga/diskfont'
+import { FONT8 } from './font.gen'
 import { bufferRegion, claimedRegion, findRegion, slottedRegion, within } from '../amiga/memmap'
 import type { MemRegion } from '../amiga/memmap'
 import { newPiConfig } from './piconfig.gen'
@@ -277,6 +279,50 @@ export interface StosMove {
  * through an address.
  */
 const ARRAY_HEADER = 6
+
+/**
+ * The face Intuition draws window titles in — topaz 8, as a `struct
+ * TextFont`, so `RastPort.text` can render it like any other opened font.
+ *
+ * DEVIATION: the glyphs are FONT8, which is AMOS's own console face taken out
+ * of the AMOS binary, not Commodore's topaz.font. Both are 8x8 monospaced and
+ * neither is in the archive as a file; the real topaz lives in Kickstart ROM,
+ * which this port does not have. The METRICS are topaz's — 8 wide, 8 tall,
+ * baseline 6 — so the title bar lays out where a real one would, and only the
+ * letterforms differ. Opening the real face when a Fonts: drawer holds one is
+ * what `Elopen Font` already does and what this should do when it can.
+ */
+let intuitionFontCache: DiskFont | null = null
+
+function intuitionFont(): DiskFont {
+  if (intuitionFontCache) return intuitionFontCache
+  // one row of 256 glyphs side by side, which is the diskfont layout
+  const modulo = 256
+  const charData = new Uint8Array(modulo * 8)
+  const charLoc: Array<[number, number]> = []
+  for (let ch = 0; ch < 256; ch++) {
+    const g = FONT8[ch] ?? FONT8[32]!
+    for (let row = 0; row < 8; row++) charData[row * modulo + ch] = g[row]!
+    charLoc.push([ch * 8, 8])
+  }
+  intuitionFontCache = {
+    name: 'topaz.font',
+    ySize: 8,
+    style: 0,
+    flags: 0,
+    xSize: 8,
+    baseline: 6,
+    loChar: 0,
+    hiChar: 255,
+    proportional: false,
+    modulo,
+    charData,
+    charLoc,
+    charSpace: null,
+    charKern: null,
+  }
+  return intuitionFontCache
+}
 
 function writeArrayHeader(buf: Uint8Array, count: number): void {
   buf[0] = 1 // one dimension
@@ -1527,9 +1573,34 @@ export class Runtime {
         screenToBack: (slot) => this.toBack(slot),
         isOpen: (slot) => this.screens.has(slot),
         screenAddr: (slot) => this.screenCtrlAddr(slot),
+        screenSize: (slot) => {
+          const s = this.screens.get(slot)
+          return s ? { width: s.width, height: s.height, hires: s.hires } : null
+        },
+        screenRast: (slot) => this.screens.get(slot)?.rp ?? null,
+        systemFont: () => intuitionFont(),
       })
     }
     return this.intuitionBase
+  }
+
+  /**
+   * Drive Intuition for one frame: the pointer on the Workbench screen, then
+   * whatever moved.
+   *
+   * Only when there is something to drive — no window means no Intuition to
+   * interact with, and the render() below would repaint a Workbench screen
+   * that nothing has touched. AMOS's own mouse coordinates and button mask
+   * are what feed it, because there is one pointer and AMOS already owns it.
+   */
+  private stepIntuition(): void {
+    const int = this.intuitionBase
+    if (!int || int.windows.length === 0) return
+    const s = this.screens.get(WB_SLOT)
+    if (!s) return
+    const m = this.mouseOnScreen(s)
+    int.handleInput(WB_SLOT, m.x, m.y, this.input.mouseK)
+    int.render(WB_SLOT)
   }
 
   /**
@@ -3687,6 +3758,7 @@ export class Runtime {
       result = { status: this.interp.done ? 'ended' : 'blocked', steps: 0, unimplemented: this.interp.unimplemented }
     }
     if (this.bobUpdateOn && this.interp.tick % this.updateEvery === 0) this.updateBobs()
+    this.stepIntuition()
     this.stepMenus()
     this.stepDialogs()
     this.stepFsel()
