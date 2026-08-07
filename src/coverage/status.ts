@@ -2320,6 +2320,9 @@ export const FAITHFUL = new Set<string>([
   'elxpk bload',
   'elxpk save',
   'elxpk bsave',
+  // slice 12 -- 1.44's two `rts` keywords, which are routines, not junk
+  'elzqzqzq',
+  'elqqzqzqq',
   // ...and 1.0's names for the same routines, reached through `aliases`
   'i open workbench',
   'i close workbench',
@@ -4088,6 +4091,10 @@ export const NOTES: Record<string, string> = {
   'elxpk error':
     "Routine 177 ($2a74), twelve bytes: the longword at $b6 of the companion struct, where every XPK keyword stores its XpkUnpack/XpkPack result. \"When an error occurs with any of the XPK functions ... the error message 'An XPK Error Has Occured' is displayed. When this happens, you should call Elxpk Error to return the error number\", and 0 is \"No error has occured\". The number is xpkmaster's own -1..-32, and the five keywords that write it are now on src/amiga/xpkmaster.ts",
 
+  'elzqzqzq':
+    "1.44 only: 1.44's routine 133 ($1bda), TWO BYTES: `rts`. Spec `I0,0t0,0`, so four numeric arguments with a `To` between the second and third. NOT a junk table entry of the kind #117 removed -- those had no routine behind them, and this has a name, a spec, an instruction index and a jump-table slot pointing at real code that returns. It sits on an id 1.10 gave to the Tag Str$ block, so the table was rebuilt around it. NOTE: `rts` does not pop the parameter stack the way every other routine in this extension does, leaving a3 four longwords deep on the machine; nothing here has a parameter stack to leak",
+  'elqqzqzqq':
+    "1.44 only: 1.44's routine 132 ($1bd8), TWO BYTES: `rts`. Spec `I0,0,0,0t0,0` -- six numeric arguments with a `To` after the fourth. Same story as its neighbour elzqzqzq, and the two sit next to each other in both the jump table and the id space",
   'elxpk lof':
     "Routine 185 ($2b66): NUL-terminate the filename, allocate a 94-byte XpkFib, build [XPK_InName][TAG_DONE] at $2ba4, and call xpkmaster LVO -36 XpkExamineTags. The result is the fib's $4, the unpacked length. \"Elxpk Lof does not actually need to decrunch the file to find its length\" -- the 36-byte XPK header or the PP20 24-bit trailer answers it",
   'elxpk load':

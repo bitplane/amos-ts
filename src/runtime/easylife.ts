@@ -2681,6 +2681,51 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
     'elpat free'() {
       rt.easylife.patDefault = null
     },
+
+    /**
+     * Elzqzqzq and Elqqzqzqq — 1.44 only: 1.44's routine 133 ($1bda) and
+     * 1.44's routine 132 ($1bd8). Each is TWO BYTES: `rts`.
+     *
+     * They are not junk table entries of the kind #117 removed. Those had no
+     * routine behind them; these have a name, a parameter spec, an
+     * instruction index and a jump-table slot pointing at real code that
+     * happens to do nothing. `Elzqzqzq` is `I0,0t0,0` — four numeric
+     * arguments with a `To` in the middle — and `Elqqzqzqq` is
+     * `I0,0,0,0t0,0`, six. They sit on the ids 1.10 gave `Tag Str$` and its
+     * neighbour, so the table was rebuilt around them, and the names read
+     * like a keyboard mash because that is what an author types into a slot
+     * being held open.
+     *
+     * So the faithful implementation is the faithful one: take the
+     * arguments, do nothing with them, return. Not n/a — an n/a keyword has
+     * no handler, and this one has a routine that can be read.
+     *
+     * NOTE: `rts` does not pop the parameter stack the way every other
+     * routine here does, so on the real machine a3 is left four (or six)
+     * longwords deep. Nothing in this port has a parameter stack to leak.
+     */
+    elzqzqzq(it) {
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect('to')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+    },
+    elqqzqzqq(it) {
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect('to')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+    },
     /**
      * Tag Keep True / Tag Keep False — routine 216 ($2f64), which stores the
      * whole longword into `$ca` without narrowing it, so anything non-zero is

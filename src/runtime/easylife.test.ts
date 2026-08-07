@@ -1683,3 +1683,45 @@ describe('EasyLife: the XPK block (routines 170-186)', () => {
     expect(failXpk(OPEN + 'Elxpk Save 1 To "ram:b","NONE"\n')).toMatch(/Bank not reserved/)
   })
 })
+
+describe('EasyLife 1.44: the two keywords that are a bare rts', () => {
+  /** 1.44 has its own table; the port covers all four ids off one file */
+  function boot144(src: string): { rt: Runtime; out: () => string } {
+    const v = extensionById('easylife-1.44')!
+    const exts = new Map([[16, v.table]])
+    let printed = ''
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, v]]),
+      maxSteps: 200_000,
+      onText: (t) => (printed += t),
+    })
+    return { rt, out: () => printed }
+  }
+
+  it('Elzqzqzq takes its four arguments and does nothing with them', () => {
+    // routine 133 is `rts`, and the spec is I0,0t0,0
+    const b = boot144(OPEN + 'A=5\nElzqzqzq 1,2 To 3,4\nPrint A\n')
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.out()).toBe(' 5\n')
+  })
+
+  it('Elqqzqzqq takes six, and its arguments are still evaluated', () => {
+    // routine 132 is `rts`, spec I0,0,0,0t0,0. The expressions are evaluated
+    // by AMOS before the routine is entered, so a side effect in one happens.
+    const b = boot144(OPEN + 'A=0\nElqqzqzqq 1,2,3,4 To 5,6\nPrint A\n')
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.out()).toBe(' 0\n')
+  })
+
+  it('both are reachable under 1.44 and absent from 1.10', () => {
+    const names = (id: string): string[] =>
+      (extensionById(id)!.table as unknown as { entries: Array<{ name?: string }> }).entries.map(
+        (e) => String(e.name ?? '').trim().toLowerCase(),
+      )
+    expect(names('easylife-1.44')).toContain('elzqzqzq')
+    expect(names('easylife-1.44')).toContain('elqqzqzqq')
+    expect(names('easylife-1.10')).not.toContain('elzqzqzq')
+    expect(names('easylife-1.10')).not.toContain('elqqzqzqq')
+  })
+})

@@ -64,19 +64,45 @@ in the census, and neither is closable.
 
 **Registered and detokenising, not implemented.** These programs list and load
 with real keyword names instead of `{ext12:$02d4}`, then stop at the first
-extension keyword:
+extension keyword. The count is keywords with no handler at all:
 
-| extension | keywords | note |
+| extension | missing | note |
 |---|---|---|
-| AMCAF 1.50 | 278 | freeware, ships an AmigaGuide manual |
+| OS DevKit 1.61 | 1047 | a wrapper over most of AmigaOS; needs the back-end, not the list |
+| GUI 2.10 / 1.61 / 1.5b | 204 / 103 / 48 | `intuition.library` |
 | Intuition 1.3b | 183 | ships assembler source; needs `intuition.library` first |
 | Craft 1.0 | 136 | commercial (Black Legend) |
-| GUI 2.10 / 1.61 | 118 / 103 | |
-| Range 1.0 / 2.0 | 46 / 23 | |
-| AMOSPro Colours | 27 | ships its assembler source |
-| AGA 1.0 | 24 | |
-| Misc 1.0 | 10 | public domain, source is the whole extension |
-| LDos 2.6 | 8 | the delta over 2.5 |
+| The Game 0.9 | 103 | |
+| Opal 1.1 | 78 | OpalVision hardware |
+| SLN 2.0 | 70 | |
+| D-SAM 1.01 | 50 | |
+| Delta 1.6 / 1.4 | 46 / 26 | `intuition.library` |
+| GameSupport 1.2 | 37 | |
+| Tools 1.01 | 33 | |
+| jd-int 1.3 | 33 | `intuition.library` — findings banked |
+| Make 1.30 | 32 | |
+| BSDSocket 1.1.4 | 30 | sockets |
+| LSerial 2.1 | 15 | |
+| BUtility 1.21 | 15 | reqtools / asl |
+
+**This table has been wrong before, and the fix is to read it off
+`KEYWORDS.md`.** It used to list AMCAF 1.50, Range 1.0 and 2.0, AMOSPro
+Colours, AGA 1.0, Misc 1.0 and LDos 2.6 as unported when all six read 100% —
+six stale rows out of nine, because the table is hand-maintained and the
+manifest is generated. `KEYWORDS.md` is the source of truth; this is a
+commentary on it.
+
+EasyLife is deliberately *not* in the table: it is part-ported (156 names,
+112 implemented) and part-ported is a third state the table has no column
+for. What is left of it is the MUI block, structured variables and the four
+iconify keywords — see the notes in `src/runtime/easylife.ts`.
+
+Five of the sixteen rows above wait on the same thing, and it is worth
+saying once: **`intuition.library`, and a display path that can show a
+window.** Filing Intuition under `src/amiga/` is easy; making a window appear
+is not, because `display.ts` is a single copper-list interpreter and an
+Intuition screen has to express itself as copper registers plus `BPLxPT`
+rather than as a second `Screen`. That decision gates roughly 550 keywords.
 
 **Intuition's census weight is an artefact, and this document used to report
 it as the largest remaining gap.** It is not. Twelve corpus programs reach an

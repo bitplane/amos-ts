@@ -426,8 +426,10 @@ export const CITED_BY: Record<string, string[]> = {
   // 1.10 FIRST: it is the build every citation is numbered against, and 1.09
   // shares its jump table entry for entry over this range. 1.44 rebuilt the
   // table, so its numbers differ and nothing here cites them
-  'src/runtime/easylife.ts': ['easylife-1.10', 'easylife-1.09'],
-  'src/runtime/easylife.test.ts': ['easylife-1.10', 'easylife-1.09'],
+  // 1.44 is here for the two keywords only it has; the port is numbered
+  // against 1.10, so that stays first -- see the comment on the loop below
+  'src/runtime/easylife.ts': ['easylife-1.10', 'easylife-1.09', 'easylife-1.44'],
+  'src/runtime/easylife.test.ts': ['easylife-1.10', 'easylife-1.09', 'easylife-1.44'],
   'src/runtime/range.ts': ['range-1.0', 'range-2.0'],
   'src/runtime/range.test.ts': ['range-1.0', 'range-2.0'],
   'src/runtime/first.ts': ['first-0.1'],
