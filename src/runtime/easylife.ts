@@ -53,9 +53,10 @@
 import { AmosError, ERR, VI, VS, funcCall, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Interp } from '../interp/interp'
-import type { Runtime } from './runtime'
+import { Runtime } from './runtime'
 import type { Screen } from './screen'
 import type { MultiZoneTable, Zone } from './objects'
+import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 
 /**
  * The extension's own error messages, in block order, and the index is
@@ -151,6 +152,18 @@ export interface EasyLifeState {
    * Default hook puts back.
    */
   elfFailEnd: boolean
+  /**
+   * $78 of the same struct — the `powerpacker.library` base `Elpp Keep On`
+   * holds open. "The library is loaded into memory when you first use either
+   * of these commands, but may sometimes be removed again by the exec memory
+   * manger afterwards. To make sure the library stays in memory these two
+   * commands are provided."
+   *
+   * NOTE: the codec is `src/amiga/powerpacker.ts` here and is always
+   * present, so the flag is bookkeeping — nothing can fail to open, and
+   * nothing can be flushed out from under a program.
+   */
+  ppKeep: boolean
 }
 
 export const newEasyLifeState = (): EasyLifeState => ({
@@ -164,6 +177,7 @@ export const newEasyLifeState = (): EasyLifeState => ({
   mzCursor: 0,
   mzGroup: 0,
   elfFailEnd: false,
+  ppKeep: false,
 })
 
 /** the unsigned view of an AMOS 32-bit integer, which is how routine 153 compares */
@@ -286,6 +300,21 @@ const elfMiss = (rt: Runtime, len: number): number => (rt.easylife.elfFailEnd ? 
 
 /** true when `c` is one of the characters of `set` — routines 40-43's inner dbra */
 const inSet = (set: string, c: string): boolean => set.includes(c)
+
+// ---- PowerPacker buffers ---------------------------------------------------
+
+/**
+ * The eight-slot table at `$2e` of the companion struct, two longwords a
+ * buffer. `strict` is the `cmp.w #$8,d0` the two READERS use where the three
+ * keywords that create a buffer use `cmp.l`.
+ */
+function ppSlot(rt: Runtime, n: number, wordCheck: boolean): Uint8Array | null {
+  if ((wordCheck ? w(n) : u32(n)) >= 8) funcCall()
+  return rt.ppBuffers[w(n) & 7] ?? null
+}
+
+/** where `Elpp Buf` says the buffer is, so `Elmem$(ElPp Buf(0)+POS,...)` works */
+const ppAddr = (n: number): number => (Runtime.PP_BUFFER_BASE + (w(n) & 7) * Runtime.PP_BUFFER_SLOT) | 0
 
 // ---- bits, memory and message banks ----------------------------------------
 
@@ -806,6 +835,62 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
      */
     elwtst: (_, a): Value => VI((peekWord(rt, bitArgs(a, 16)) >>> (int(a[0] ?? VI(0)) & 15)) & 1 ? -1 : 0),
     elltst: (_, a): Value => VI((peekLong(rt, bitArgs(a, 32)) >>> (int(a[0] ?? VI(0)) & 31)) & 1 ? -1 : 0),
+
+    /**
+     * =Elpp Buf(NUM) / =Elpp Len(NUM) — routines 56 and 57 ($1842, $185e),
+     * twenty-eight bytes each over the eight-slot table at $2e.
+     *
+     * "ElPp Buf returns the address of the start of the buffer. It is similar
+     * to the start() function for banks ... If the buffer is not allocated,
+     * both functions return 0", and "ElPp Buf & ElPp Len do not require the
+     * powerpacker library" — neither goes near routine 62.
+     *
+     * NOTE: the bound is `cmp.w #$8,d0` here where `Elpp Load` and `Elpp
+     * Allocate` use `cmp.l`. So a buffer number whose LOW WORD is 0..7 gets
+     * through these two — 65536 reads buffer 0 — and is refused by the
+     * keywords that create one. Reproduced.
+     */
+    'elpp buf': (_, a): Value => VI(ppSlot(rt, int(a[0] ?? VI(0)), true) === null ? 0 : ppAddr(int(a[0] ?? VI(0)))),
+    'elpp len': (_, a): Value => VI(ppSlot(rt, int(a[0] ?? VI(0)), true)?.length ?? 0),
+
+    /**
+     * =Elpp Crunch(FILE$,START,LENGTH,EFFICIENCY,BUFFER) — routine 59
+     * ($18b0), 260 bytes and the only keyword here that compresses.
+     *
+     * The three range checks come first and are unsigned: `cmp.l #$3,d0 /
+     * Rbcc` on the speed-up BUFFER (0..2), `cmp.l #$5,d0 / Rbcc` on
+     * EFFICIENCY (0..4), and LENGTH is `Rbeq` then `Rbmi`, so zero and
+     * negative are both refused. Then ppAllocCrunchInfo, ppCrunchBuffer,
+     * dos.library Open/Write/Close, and the length of the crunched file
+     * comes back plus eight — the PP20 header the routine writes itself.
+     *
+     * "IMPORTANT: The crunched data overwrites the uncrunched data before it
+     * is saved - If you need to keep the original, make a copy before
+     * crunching", and if it grows the routine raises "Crunched File LONGER
+     * than source - Aborted" for exactly that reason.
+     *
+     * DEVIATION: `src/amiga/powerpacker.ts` crunches to a fresh buffer, so
+     * the source is NOT overwritten here. A program that relied on the
+     * corruption would be relying on the thing the guide warns against.
+     */
+    'elpp crunch': (_, a): Value => {
+      const file = str(a[0] ?? VS(''))
+      const start = int(a[1] ?? VI(0))
+      const len = int(a[2] ?? VI(0))
+      const eff = int(a[3] ?? VI(0))
+      const buf = int(a[4] ?? VI(0))
+      if (u32(buf) >= 3) funcCall()
+      if (u32(eff) >= 5) funcCall()
+      if (len === 0 || len < 0) funcCall()
+      const src = new Uint8Array(len)
+      for (let i = 0; i < len; i++) src[i] = peekByte(rt, start + i)
+      const out = pp20Crunch(src)
+      // routine 59's own check, and the reason the guide tells you to wrap
+      // this in On Error
+      if (out.length > len) elError(8)
+      if (!rt.vfs?.writeFile(file, out)) throw new AmosError('disc is write protected')
+      return VI(out.length)
+    },
 
     /** =Elextb(N) — routine 78 ($1bc4), `ext.w d3 / ext.l d3` from the low BYTE */
     elextb: (_, a): Value => VI(((int(a[0] ?? VI(0)) & 0xff) << 24) >> 24),
@@ -1364,6 +1449,101 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
      */
     'ellchg'(it) {
       bitOp(rt, it, 32, (v, b) => v | (1 << b))
+    },
+
+    /**
+     * ElPp Load BUF,FILE$,DECRUNCH — routine 55 ($17a0), 162 bytes.
+     *
+     * `cmp.l #$8,d0 / Rbcc routine 3` on the buffer, then `Rbsr routine 58`
+     * frees whatever was there ("If the chosen buffer already contained data,
+     * it is freed first"), then routine 62 opens the library — a failure
+     * there is message 0 before the file is even looked at, which is the
+     * guide's "The Powerpacker Library is required to be in LIBS: even if the
+     * file your are loading in not crunched". Routine 1 makes a
+     * null-terminated copy of FILE$ and an EMPTY name is AMOS 23 (`cmp.w
+     * #$1,d1`, the copy being one longer than the original).
+     *
+     * ppLoadData's failure code is turned into a message by `addq.l #$8,d0`,
+     * so its -1..-7 land on messages 7..1: 'Unable to open file', 'Error
+     * reading file', 'Out of memory while loading / decrunching file', the
+     * two encrypted ones, 'Illegal powerpacker header' and "You can't PPLoad
+     * an empty file". That arithmetic is what pins the block's order.
+     *
+     * DECRUNCH picks the flash effect (0..4, "2 : Flash colour 17 (Mouse
+     * Pointer - Recomended)") and is passed straight to the library with no
+     * range check of the extension's own. There is no flashing here and no
+     * library to refuse, so it is recorded and ignored.
+     *
+     * "Pp Load will load uncrunched data without any problems, so you don't
+     * have to worry about whether the file you are loading is crunched or
+     * not" — the PP20 magic decides, exactly as ppLoadData does.
+     */
+    'elpp load'(it) {
+      const n = it.evalInt()
+      if (u32(n) >= 8) funcCall()
+      it.expect(',')
+      const file = it.evalStr()
+      it.expect(',')
+      it.evalInt() // the flash mode, recorded by the library and not by us
+      rt.ppBuffers[n] = null
+      if (file === '') funcCall()
+      const raw = rt.fs?.read(file)
+      if (!raw) elError(7) // 'Unable to open file'
+      let data = raw
+      if (raw.length >= 4 && String.fromCharCode(...raw.subarray(0, 3)) === 'PP2') {
+        try {
+          data = pp20Decrunch(raw)
+        } catch {
+          elError(2) // 'Illegal powerpacker header'
+        }
+      }
+      rt.ppBuffers[n] = data
+    },
+
+    /**
+     * ElPp Free NUM — routine 58 ($187a). "Freeing a buffer which is not
+     * allocated does not cause an error, it does nothing." The guide's second
+     * form, `ElPp Free All`, is not a keyword: the token table has one entry
+     * with one argument, and what it points at is the Default hook, which
+     * walks all eight slots itself (routine 0's cleanup at $1222).
+     */
+    'elpp free'(it) {
+      const n = it.evalInt()
+      if (u32(n) >= 8) funcCall()
+      rt.ppBuffers[n] = null
+    },
+
+    /**
+     * ElPp Allocate NO,LENGTH — routine 63 ($1a1c), twenty-four bytes:
+     * `Rbsr routine 58` to free the old one, then routine 116 (AllocMem, or
+     * error 24) and the address and length into the slot.
+     */
+    'elpp allocate'(it) {
+      const n = it.evalInt()
+      if (u32(n) >= 8) funcCall()
+      it.expect(',')
+      const len = it.evalInt()
+      rt.ppBuffers[n] = null
+      if (len < 0 || len > rt.fastFree()) throw new AmosError('Out of memory', ERR.OUT_OF_MEMORY)
+      rt.ppBuffers[n] = new Uint8Array(len)
+    },
+
+    /**
+     * ElPp Keep On / ElPp Keep Off — routines 60 and 61 ($19b4, $19d0).
+     * OpenLibrary into $78 and CloseLibrary out of it, each guarded so a
+     * second call does nothing. "Pp Keep Off does not always removed the
+     * library from memory - other processes may also be using it, but it
+     * informs the memory manager that EasyLife has no objection."
+     *
+     * NOTE: the codec is built in here and cannot fail to open or be flushed
+     * out, so the pair is bookkeeping. The state is kept because the Default
+     * hook is documented to call `Elpp Keep Off`, and a later slice will.
+     */
+    'elpp keep on': () => {
+      rt.easylife.ppKeep = true
+    },
+    'elpp keep off': () => {
+      rt.easylife.ppKeep = false
     },
 
     /**

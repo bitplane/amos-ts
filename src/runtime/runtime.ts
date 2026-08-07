@@ -756,6 +756,20 @@ export class Runtime {
   tempBuffer: Uint8Array | null = null
 
   /**
+   * EasyLife's eight PowerPacker buffers — the table at `$2e(a5-block)`, two
+   * longwords a buffer (address then length).
+   *
+   * "An Easylife Powerpacker Buffer is similar to an AMOS bank of type
+   * 'work'. ElPp Buf returns the address of the start of the buffer. It is
+   * similar to the start() function for banks." Which is exactly why they
+   * need addresses a `Leek` can reach: the guide's own idiom for reading a
+   * loaded text file is `ElMem$(ElPp Buf(0)+POS, ...)`.
+   */
+  static readonly PP_BUFFER_BASE = 0x54000000
+  static readonly PP_BUFFER_SLOT = 0x00400000
+  ppBuffers: Array<Uint8Array | null> = [null, null, null, null, null, null, null, null]
+
+  /**
    * Personnal's own AllocMem'd blocks — the Mplot point bank, and the AGA
    * icon bank in batch 9. The extension allocates chip memory itself rather
    * than reserving an AMOS bank, and hands the program the address back
@@ -1142,6 +1156,16 @@ export class Runtime {
     ),
     slottedRegion('copper lists', Runtime.COPPER_BASE, Runtime.COPPER_SLOT, 2, (index, off) =>
       within(index === 0 ? this.copBufA : this.copBufB, off),
+    ),
+    slottedRegion(
+      'EasyLife PowerPacker buffers',
+      Runtime.PP_BUFFER_BASE,
+      Runtime.PP_BUFFER_SLOT,
+      8,
+      (index, off) => {
+        const b = this.ppBuffers[index]
+        return b ? within(b, off) : null
+      },
     ),
     // =Mubase points at the music extension data zone; the vumeter bytes at
     // MB+0..3 are the mapped part (FnMusicBase +Music.s:3907)

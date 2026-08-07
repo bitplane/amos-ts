@@ -2259,7 +2259,23 @@ export const FAITHFUL = new Set<string>([
   'ellclr',
   'elwchg',
   'ellchg',
+  // slice 6a -- PowerPacker, routines 55-63 over src/amiga/powerpacker.ts
+  'elpp load',
+  'elpp buf',
+  'elpp len',
+  'elpp free',
+  'elpp crunch',
+  'elpp keep on',
+  'elpp keep off',
+  'elpp allocate',
   // ...and 1.0's names for the same routines, reached through `aliases`
+  'pp load',
+  'pp buf',
+  'pp len',
+  'pp free',
+  'pp crunch',
+  'pp keep on',
+  'pp keep off',
   'wtst',
   'ltst',
   'wset',
@@ -4005,6 +4021,20 @@ export const NOTES: Record<string, string> = {
   'elpad char$':
     "Routine 144 ($25c6), which takes the first character of A$ and joins routine 146 -- \"If A$ contains more than one character, the second and subsequent characters are ignored. In the future I intend to change this to repeatedly use the whole of A$ to pad S$\", and 1.44 still does not. An empty A$ is `Rbeq routine 3`",
 
+  // EasyLife slice 6a: PowerPacker.
+  'elpp load':
+    "Routine 55 ($17a0), 162 bytes. `cmp.l #$8,d0 / Rbcc routine 3` on the buffer, `Rbsr routine 58` to free whatever was there (\"If the chosen buffer already contained data, it is freed first\"), then routine 62 opens the library before the file is even looked at -- the guide's \"The Powerpacker Library is required to be in LIBS: even if the file your are loading in not crunched\". Routine 1 null-terminates FILE$ and an EMPTY name is AMOS 23. ppLoadData's failure code becomes a message by `addq.l #$8,d0`, so its -1..-7 land on messages 7..1 -- 'Unable to open file', 'Error reading file', out of memory, the two encrypted ones, 'Illegal powerpacker header', \"You can't PPLoad an empty file\" -- and that arithmetic is what pins the block's order. DECRUNCH picks the flash effect (0..4, \"2 : Flash colour 17 (Mouse Pointer - Recomended)\") and is passed straight to the library with no check of the extension's own; there is no flashing here and no library to refuse, so it is ignored. The PP20 magic decides whether to decrunch, which is what makes the guide's \"you don't have to worry about whether the file you are loading is crunched or not\" true",
+  'elpp buf':
+    "Routines 56 and 57 ($1842, $185e), twenty-eight bytes each over the eight-slot table at $2e -- two longwords a buffer, address then length. \"An Easylife Powerpacker Buffer is similar to an AMOS bank of type 'work'\", and neither goes near the library: \"ElPp Buf & ElPp Len do not require the powerpacker library\". NOTE: the bound is `cmp.w #$8,d0` in these two where Elpp Load and Elpp Allocate use `cmp.l`, so a number whose LOW WORD is 0..7 gets through the readers -- 65536 reads buffer 0 -- and is refused by the keywords that create one. Reproduced. An unallocated buffer answers 0 from both",
+  'elpp crunch':
+    "Routine 59 ($18b0), 260 bytes and the only keyword here that compresses. Three unsigned range checks first -- `cmp.l #$3,d0` on the speed-up BUFFER, `cmp.l #$5,d0` on EFFICIENCY, and `Rbeq` then `Rbmi` on LENGTH -- then ppAllocCrunchInfo, ppCrunchBuffer and dos.library Open/Write/Close, and the answer is the crunched length plus eight, the PP20 header the routine writes itself. If it grows, \"Crunched File LONGER than source - Aborted\", which is the guide's reason for wrapping the call in On Error. DEVIATION: \"IMPORTANT: The crunched data overwrites the uncrunched data before it is saved\" -- src/amiga/powerpacker.ts crunches to a fresh buffer, so the source survives here. A program relying on that corruption would be relying on the thing the guide warns against",
+  'elpp allocate':
+    "Routine 63 ($1a1c), twenty-four bytes: free the old buffer, AllocMem through routine 116 (or error 24), then the address and length into the slot. \"If you try to recreate an existing buffer, the old buffer is freed first. You do not get an error, as you would with AMOS banks\"",
+  'elpp free':
+    "Routine 58 ($187a). \"Freeing a buffer which is not allocated does not cause an error, it does nothing.\" NOTE: the guide's second form, `ElPp Free All`, is not a keyword -- the token table has one entry with one argument. What the guide links to is the Default command, whose hook walks all eight slots itself (routine 0's cleanup at $1222)",
+  'elpp keep on':
+    "Routines 60 and 61 ($19b4, $19d0): OpenLibrary into $78 and CloseLibrary out of it, each guarded so a second call does nothing. \"The library is loaded into memory when you first use either of these commands, but may sometimes be removed again by the exec memory manger afterwards.\" NOTE: the codec is built in here and cannot fail to open or be flushed out, so the pair is bookkeeping -- the state is kept because the Default hook is documented to call Elpp Keep Off",
+
   // EasyLife slice 5: the bitwise block.
   'elwtst':
     "Routines 70 and 71 ($1b08, $1b24), twenty-eight bytes each and identical but for the width. \"The AMOS =Btst function allows you to detect if a bit is set in a given byte of memory, or in an integer variable. EasyLife provides these two functions to test if a bit is set in words/longwords.\" The arguments really are BIT first -- `movea.l (a3)+,a0` takes the LAST one as the address -- and `cmp.l #$10,d0 / Rbcc routine 3` is unsigned, so a negative bit number is refused along with the too-large ones",
@@ -4185,6 +4215,16 @@ export const SHARED_NOTES: Record<string, string> = {
   'wchg': 'elwset',
   'lclr': 'ellclr',
   'lchg': 'ellchg',
+  // PowerPacker: the readers are one reading, and so is the keep pair
+  'elpp len': 'elpp buf',
+  'elpp keep off': 'elpp keep on',
+  'pp load': 'elpp load',
+  'pp buf': 'elpp buf',
+  'pp len': 'elpp buf',
+  'pp free': 'elpp free',
+  'pp crunch': 'elpp crunch',
+  'pp keep on': 'elpp keep on',
+  'pp keep off': 'elpp keep on',
 }
 
 /** The reading for a keyword, following SHARED_NOTES to whoever holds it. */

@@ -6,6 +6,8 @@ import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { EASYLIFE_ERRORS } from './easylife'
+import { AmigaFS } from '../amiga/vfs'
+import { pp20Crunch } from '../amiga/powerpacker'
 
 const table = new TokenTable(CORE_TOKENS)
 /**
@@ -712,6 +714,92 @@ describe('EasyLife: the bitwise block (routines 70-77)', () => {
   })
 })
 
+describe('EasyLife: the PowerPacker buffers (routines 55-63)', () => {
+  /** the buffers need a file system, which the shared `boot` above has not */
+  function bootFs(src: string): { rt: Runtime; fs: AmigaFS; out: () => string } {
+    const exts = new Map([[16, easylife.table]])
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    let printed = ''
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, easylife]]),
+      maxSteps: 200_000,
+      onText: (t) => (printed += t),
+      fs,
+    })
+    return { rt, fs, out: () => printed }
+  }
+
+  it('Elpp Load reads a plain file, and Buf/Len describe it', () => {
+    const b = bootFs(
+      OPEN + 'Elpp Load 0,"ram:t",2\nPrint Elpp Len(0);Elmem$(Elpp Buf(0),5);Elpp Len(1);Elpp Buf(1)\n',
+    )
+    b.fs.writeFile('ram:t', new TextEncoder().encode('hello'))
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.out()).toBe(' 5hello 0 0\n')
+  })
+
+  it('a PP20 file is decrunched on the way in', () => {
+    const b = bootFs(OPEN + 'Elpp Load 3,"ram:c",4\nPrint Elpp Len(3);Elmem$(Elpp Buf(3),11)\n')
+    b.fs.writeFile('ram:c', pp20Crunch(new TextEncoder().encode('abcabcabcab')))
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.out()).toBe(' 11abcabcabcab\n')
+  })
+
+  it('Elpp Allocate makes an empty buffer and Elpp Free removes it', () => {
+    const b = bootFs(
+      OPEN +
+        'Elpp Allocate 2,16\nPrint Elpp Len(2);\nElmem Elpp Buf(2),"hi"\nPrint Elmem$(Elpp Buf(2),2);\n' +
+        'Elpp Free 2 : Elpp Free 2\nPrint Elpp Len(2)\n',
+    )
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.out()).toBe(' 16hi 0\n')
+  })
+
+  it('the buffer number is bounded, and the readers use a WORD compare', () => {
+    const p = OPEN
+    expect(fails(p + 'Elpp Allocate 8,16\n')).toMatch(/Illegal function call/)
+    expect(fails(p + 'Elpp Free 8\n')).toMatch(/Illegal function call/)
+    expect(fails(p + 'Print Elpp Buf(8)\n')).toMatch(/Illegal function call/)
+    // ...but 65536 has a low word of 0, so `cmp.w #$8,d0` lets it past
+    expect(run(p + 'Print Elpp Buf(65536)\n').out).toBe(' 0\n')
+  })
+
+  it('Elpp Crunch compresses to a file and answers its length', () => {
+    const b = bootFs(
+      OPEN +
+        'Reserve As Work 5,600\n' +
+        'For I=0 To 599 : Poke Start(5)+I,65 : Next I\n' +
+        'L=Elpp Crunch("ram:out",Start(5),600,2,0)\n' +
+        'Print L<600;Peek(Start(5))\n',
+    )
+    mustFinish(b.rt.runHeadless(2000))
+    // the source survives, which the real routine's in-place crunch does not
+    // promise -- see the DEVIATION on elpp crunch
+    expect(b.out()).toBe('-1 65\n')
+  })
+
+  it('Elpp Crunch bounds all three of its numeric arguments', () => {
+    const p = OPEN + 'Reserve As Work 5,64\n'
+    expect(fails(p + 'L=Elpp Crunch("ram:o",Start(5),64,5,0)\n')).toMatch(/Illegal function call/)
+    expect(fails(p + 'L=Elpp Crunch("ram:o",Start(5),64,0,3)\n')).toMatch(/Illegal function call/)
+    expect(fails(p + 'L=Elpp Crunch("ram:o",Start(5),0,0,0)\n')).toMatch(/Illegal function call/)
+    expect(fails(p + 'L=Elpp Crunch("ram:o",Start(5),-1,0,0)\n')).toMatch(/Illegal function call/)
+  })
+
+  it('the load errors are the block the +8 arithmetic pins', () => {
+    expect(fails(OPEN + 'Elpp Load 0,"",2\n')).toMatch(/Illegal function call/)
+    expect(fails(OPEN + 'Elpp Load 0,"ram:nope",2\n')).toMatch(/Unable to open file/)
+  })
+
+  it('Elpp Keep On and Off are state the Default hook will want', () => {
+    const { rt } = run(OPEN + 'Elpp Keep On\n')
+    expect(rt.easylife.ppKeep).toBe(true)
+    expect(run(OPEN + 'Elpp Keep On\nElpp Keep Off\n').rt.easylife.ppKeep).toBe(false)
+  })
+})
+
 describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
   /**
    * The rename between 1.0 and 1.09 was total, so a 1.0 program shares not one
@@ -810,6 +898,36 @@ describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
     mustFinish(rt.runHeadless(2000))
     // Lchg sets rather than inverts, so bit 21 stays up after Lclr takes 20
     expect(printed).toBe(' 16-1 2097152-1\n')
+  })
+
+  it('and the seven PowerPacker names — 1.0 has no Pp Allocate', () => {
+    const one = extensionById('easylife-1.0')!
+    const exts = new Map([[16, one.table]])
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    fs.writeFile('ram:p', new TextEncoder().encode('data'))
+    let printed = ''
+    const src =
+      OPEN +
+      'Pp Keep On\n' +
+      'Pp Load 1,"ram:p",4\n' +
+      'Print Pp Len(1);Mem$(Pp Buf(1),4);\n' +
+      // four bytes crunch LONGER than four bytes -- the PP20 header alone is
+      // eight -- so this uses the padded copy the load left in the bank
+      'Reserve As Work 5,600 : For I=0 To 599 : Poke Start(5)+I,66 : Next I\n' +
+      'L=Pp Crunch("ram:q",Start(5),600,0,0)\n' +
+      'Pp Free 1 : Pp Keep Off\n' +
+      'Print Pp Len(1);L<600\n'
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, one]]),
+      maxSteps: 200_000,
+      onText: (t) => (printed += t),
+      fs,
+    })
+    mustFinish(rt.runHeadless(2000))
+    expect(printed).toBe(' 4data 0-1\n')
+    expect(rt.easylife.ppKeep).toBe(false)
   })
 
   it('and the ten multi-zone names, where the rename was not a prefix strip', () => {
