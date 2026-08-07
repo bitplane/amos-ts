@@ -24,6 +24,26 @@
  * everything that needed `easylife.library` or `muimaster.library` and is
  * therefore the subset that stands alone.
  *
+ * ## What is not here, and why
+ *
+ * Twenty-six of the 233 names. Twenty are MUI and wait on a `muimaster` of
+ * V8 or better; the archive's is 7.973 and routine 233 demands V8. Five are
+ * the iconify family (four plus 1.0's `iconify amos`) and wait on Intuition.
+ *
+ * The twenty-sixth is `Eltest`, and it is the only one that will never
+ * arrive. DEFECT: in 1.10 its two jump-table deltas are ZERO, so both its
+ * instruction slot (255) and its function slot (256) resolve to $375e —
+ * which is routine 260, `St Get`'s shared worker. Calling it enters that
+ * routine with d3 unset, so `adda.l d3,a3` walks the parameter stack by a
+ * garbage amount. 1.09 does have a body, and it is a stub: routine 255 is
+ * `moveq #$1,d0 / lea $c(a3),a3 / rts` and routine 256 the same with
+ * `moveq #$0,d0` — twelve bytes popped for a two-argument spec, four more
+ * than were pushed, and d0 set where every function here returns in d3 with
+ * a type in d2. So neither build has behaviour a program could rely on:
+ * 1.09 corrupts the stack by four bytes and returns whatever d3 held, 1.10
+ * runs another keyword's body. Not implemented, not n/a — read, and found to
+ * have nothing to implement.
+ *
  * ## The companion library
  *
  * `$1e8(a5)` is `easylife.library`'s own base, opened by routine 0 (`lea
@@ -1021,6 +1041,46 @@ function allocSlot(m: MultiZoneTable): number {
  * screen's zone table — `Elmzonen` steps over it on the id test, not on the
  * geometry, and AMOS's own `Zone()` has no id test to make.
  */
+/**
+ * Routine 80 ($1bd6)'s body, split out because routine 103 calls it with a
+ * total it worked out rather than with a popped argument.
+ */
+function mzReserve(rt: Runtime, n: number): void {
+  if (n <= 0) funcCall() // DEVIATION: see `elmz reserve`
+  const count = (n + 1) & ~1
+  const total = (count * 3) / 2 + 1
+  if (u32(total) >= 0x2000) funcCall()
+  const s = rt.screen
+  s.reserveZones(0)
+  if (total * 8 > rt.fastFree()) throw new AmosError('Out of memory', ERR.OUT_OF_MEMORY)
+  s.reserveZones(total)
+  s.multiZones = {
+    slots: Array.from({ length: count }, (_, i) => ({ group: 0, id: 0, next: i === count - 1 ? -1 : i + 1 })),
+    free: 0,
+  }
+}
+
+/**
+ * Routine 85 ($1ccc)'s six-argument body, split out for the same reason:
+ * routine 102 pushes GROUP, an ID it counts itself and four coordinates and
+ * `Rbsr`s straight into it, once per zone in the bank.
+ */
+function mzSet(rt: Runtime, group: number, id: number, x1: number, y1: number, x2: number, y2: number): void {
+  // routine 85 is the other way round from routine 86: `move.l $40(a3),d0 /
+  // Rbeq routine 3` reads the GROUP first, and both come after routine 81
+  const { s, m } = multiZones(rt)
+  if (group === 0) funcCall()
+  if (id === 0) funcCall()
+  let i = findSlot(m, w(group), w(id))
+  if (i < 0) {
+    i = allocSlot(m)
+    m.slots[i] = { group: w(group), id: w(id), next: 0 }
+  }
+  const lo = (a: number, b: number): number => (u32(a) <= u32(b) ? a : b)
+  const hi = (a: number, b: number): number => (u32(a) <= u32(b) ? b : a)
+  s.zones[i] = { x1: w(lo(x1, x2)), y1: w(lo(y1, y2)), x2: w(hi(x1, x2)), y2: w(hi(y1, y2)) }
+}
+
 function freeSlot(m: MultiZoneTable, i: number): void {
   const sl = m.slots[i]!
   sl.next = m.free
@@ -2358,18 +2418,51 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
      * guide documents no error for it; AMOS 23 is raised here.
      */
     'elmz reserve'(it) {
-      const n = it.evalInt()
-      if (n <= 0) funcCall() // DEVIATION: see above
-      const count = (n + 1) & ~1
-      const total = (count * 3) / 2 + 1
-      if (u32(total) >= 0x2000) funcCall()
-      const s = rt.screen
-      s.reserveZones(0)
-      if (total * 8 > rt.fastFree()) throw new AmosError('Out of memory', ERR.OUT_OF_MEMORY)
-      s.reserveZones(total)
-      s.multiZones = {
-        slots: Array.from({ length: count }, (_, i) => ({ group: 0, id: 0, next: i === count - 1 ? -1 : i + 1 })),
-        free: 0,
+      mzReserve(rt, it.evalInt())
+    },
+
+    /**
+     * Elzb Multi Add BANK,GROUP — routine 102 ($1f02) — and Elzb Multi Add
+     * BANK, the one-argument continuation at id $45a on routine 103 ($1f30),
+     * which is 1.0's `Zb Install` under a name of its own.
+     *
+     * Routine 102 is routine 101's group lookup (the same one `Elzb Add`
+     * uses) and then, per zone, four words pushed with the group and an ID it
+     * counts from ONE and a `Rbsr routine 85` — so every zone of the group
+     * becomes a multi-zone under that group, numbered in bank order. `tst.l
+     * d5 / beq` makes an empty group do nothing at all rather than fail.
+     *
+     * Routine 103 is the same over the whole bank, and its shape is worth
+     * keeping: it PEEKS its argument (`move.l (a3),d0`, no post-increment),
+     * walks every group counting zones, calls routine 80 once with the total,
+     * and only then adds them — so one reserve covers the lot, which is the
+     * whole point of the keyword. The walk runs the groups DOWNWARD, from the
+     * count at bank+0 to 1, and that order decides which zone lands in which
+     * slot, so it is reproduced rather than tidied. The argument is finally
+     * popped by the second of the two `move.l (a3)+` at $1f58, which is why
+     * a3 balances.
+     */
+    'elzb multi add'(it) {
+      const bank = it.evalInt()
+      if (it.accept(',')) {
+        // routine 102: one group
+        const group = it.evalInt()
+        for (const [i, z] of zoneBankGroup(rt, bank, group).entries()) {
+          if (z) mzSet(rt, group, i + 1, z.x1, z.y1, z.x2, z.y2)
+        }
+        return
+      }
+      // routine 103: every group, one reserve, descending
+      const b = rt.memBanks.get(bank)
+      if (!b) throw new AmosError('Bank not reserved', 36)
+      const groups = new DataView(b.data.buffer, b.data.byteOffset, b.data.byteLength).getUint32(0, false)
+      let total = 0
+      for (let g = groups; g >= 1; g--) total += zoneBankGroup(rt, bank, g).length
+      mzReserve(rt, total)
+      for (let g = groups; g >= 1; g--) {
+        for (const [i, z] of zoneBankGroup(rt, bank, g).entries()) {
+          if (z) mzSet(rt, g, i + 1, z.x1, z.y1, z.x2, z.y2)
+        }
       }
     },
 
@@ -2434,19 +2527,7 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
       const x2 = it.evalInt()
       it.expect(',')
       const y2 = it.evalInt()
-      // routine 85 is the other way round from routine 86: `move.l $40(a3),d0
-      // / Rbeq routine 3` reads the GROUP first, and both come after routine 81
-      const { s, m } = multiZones(rt)
-      if (group === 0) funcCall()
-      if (id === 0) funcCall()
-      let i = findSlot(m, w(group), w(id))
-      if (i < 0) {
-        i = allocSlot(m)
-        m.slots[i] = { group: w(group), id: w(id), next: 0 }
-      }
-      const lo = (a: number, b: number): number => (u32(a) <= u32(b) ? a : b)
-      const hi = (a: number, b: number): number => (u32(a) <= u32(b) ? b : a)
-      s.zones[i] = { x1: w(lo(x1, x2)), y1: w(lo(y1, y2)), x2: w(hi(x1, x2)), y2: w(hi(y1, y2)) }
+      mzSet(rt, group, id, x1, y1, x2, y2)
     },
 
     /**

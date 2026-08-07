@@ -5359,6 +5359,17 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
          */
         'lock font': 'elopen font',
         'unlock fonts': 'elclose fonts',
+        /*
+         * `Amos Data` is 1.0's routine 107 ($1530), SIX BYTES: `move.l a5,d3
+         * / moveq #$0,d2 / rts` — a5 itself, which is what `El Base(0)`
+         * answers. The alias reaches `el base` with no argument, so `n`
+         * defaults to 0 and takes that arm; it answers 0 here, because a5 is
+         * AMOS's own system base and this port has no address for it.
+         */
+        'amos data': 'el base',
+        // the zone-bank pair, both onto the one keyword 1.10 folded them into
+        'zb multi add': 'elzb multi add',
+        'zb install': 'elzb multi add',
       },
       /*
        * 1.44's two survivors of the font rename. Everything else in 1.44

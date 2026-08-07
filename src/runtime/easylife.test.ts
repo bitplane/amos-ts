@@ -2156,3 +2156,77 @@ describe('EasyLife 1.0: El Error, and the font pair before the rename', () => {
     expect(run10('Unlock Fonts\nPrint 1\n')).toBe(' 1\n')
   })
 })
+
+describe('EasyLife: Elzb Multi Add, and 1.0’s two names for it', () => {
+  /**
+   * Zone_Editor's own 250-byte Zones bank: one group, thirty zones, the same
+   * artefact the Elzb Add tests use. `Elzb Multi Add` turns each of them into
+   * a multi-zone rather than a plain one.
+   */
+  const bootZb = (src: string): Boot => {
+    const b = boot(OPEN + src)
+    b.rt.memBanks.set(7, {
+      kind: 'memory',
+      number: 7,
+      memType: 0,
+      name: 'Zones   ',
+      flags: 0,
+      data: demoBank('Zone_Editor.AMOS', 'Zones')!,
+    })
+    return b
+  }
+
+  it.skipIf(!existsSync(DEMOS))('the two-argument form numbers the group’s zones from one', () => {
+    // routine 102: `moveq #$1,d6` then `addq.l #$1,d6` per zone, so the IDs
+    // are bank order starting at 1, and the coordinates are the bank's own
+    const b = bootZb(
+      'Elmz Reserve 40\nElzb Multi Add 7,1\n' +
+        'Print Elmznsx(1,1);Elmznsy(1,1);Elmznex(1,1);Elmzney(1,1);\nPrint Elmznsx(1,2)\n',
+    )
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.text()).toBe(' 11 4 608 19 611\n')
+  })
+
+  it.skipIf(!existsSync(DEMOS))('the one-argument form reserves for every group first', () => {
+    // routine 103 counts every group's zones, calls routine 80 once with the
+    // total, and only then adds — so no Elmz Reserve is needed beforehand.
+    // Zone_Editor's bank has one group of thirty.
+    // the bank's own zone 1 is (11,4)-(608,19) and its zone 30 (172,38)-(215,48)
+    const b = bootZb('Elzb Multi Add 7\nPrint Elmznsx(1,1);Elmznsx(1,30);Elmzney(1,30)\n')
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.text()).toBe(' 11 172 48\n')
+  })
+
+  it.skipIf(!existsSync(DEMOS))('1.0 spells it Zb Multi Add and Zb Install', () => {
+    const one = extensionById('easylife-1.0')!
+    const exts = new Map([[16, one.table]])
+    let printed = ''
+    const rt = new Runtime(
+      tokenize(OPEN + 'Zb Install 7\nZb Multi Add 7,1\nPrint Znsx(1);Amos Data\n', table, exts),
+      table,
+      {
+        extensions: exts,
+        extBindings: new Map([[16, one]]),
+        maxSteps: 200_000,
+        onText: (t) => (printed += t),
+      },
+    )
+    rt.memBanks.set(7, {
+      kind: 'memory',
+      number: 7,
+      memType: 0,
+      name: 'Zones   ',
+      flags: 0,
+      data: demoBank('Zone_Editor.AMOS', 'Zones')!,
+    })
+    mustFinish(rt.runHeadless(2000))
+    // the zones are in the table, and Amos Data is El Base(0) — a5, which
+    // has no modelled address here
+    expect(printed).toBe(' 11 0\n')
+  })
+
+  it('an unreserved bank is AMOS 36 in both forms', () => {
+    expect(fails(OPEN + 'Elzb Multi Add 7\n')).toMatch(/^Bank not reserved/)
+    expect(fails(OPEN + 'Elmz Reserve 4\nElzb Multi Add 7,1\n')).toMatch(/^Bank not reserved/)
+  })
+})

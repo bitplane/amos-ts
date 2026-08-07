@@ -2345,6 +2345,10 @@ export const FAITHFUL = new Set<string>([
   // ...and the font pair under the two spellings that predate 1.09's rename
   'lock font',
   'unlock fonts',
+  'elzb multi add',
+  'zb multi add',
+  'zb install',
+  'amos data',
   'ellock font',
   'elunlock fonts',
   'elzqzqzq',
@@ -4156,6 +4160,9 @@ export const NOTES: Record<string, string> = {
     "Routine 264 ($37f2), `ELST_LoadTree` (LVO -90, $7b4) with `ELST_RelocateTable` ($8e4) after it: an instance is allocated per record with NO clear, its body read over the top, and then every pointer element's saved address is looked up in the old-address list and replaced by the new address at the same position. A pointer to something outside the file is left alone. NOTE: a header claiming zero instances makes `subq.w #$1,d4` -1 and the `dbra` under it wrap to 65536 passes; St Save cannot write one, since the scan always returns the root, so it is refused rather than modelled. NOTE: a bad magic sets d0 = $62, AMOS error 98, the same misdirected-number problem as St Save's 94",
   'st erase':
     "Routine 295 ($3ab2) on LVO -108 ($97a), which the autodoc lists without naming: `ELST_TreeScan`, `ELST_Free` over every instance it found, `ELST_TreeScanFree`. DEFECT in the scan it sits on: `move.l d3,(a1)` seeds the list with the root and never sets its visited bit, so a pointer back to the root appends it a second time -- against the guide's \"It is OK if your graph contains cycles ... Each instance is only saved once\". Reproduced, and easylife.test.ts saves a two-instance ring as three records. DEFECT: an ARRAY of sub-structures is walked as element zero, count+1 times -- `dbra d5,$6bc` loops back onto the `bsr` without advancing a0, and the same shape appears in the relocation at $964. Reproduced; no Structs bank in the archive declares one",
+
+  'elzb multi add':
+    "Two forms on one name. Routine 102 ($1f02) is `Elzb Multi Add BANK,GROUP`: routine 101's group lookup --- the same one Elzb Add uses --- and then, per zone, the group, an ID counted from ONE and four coordinate words pushed and `Rbsr routine 85`, so every zone of the group becomes a multi-zone under that group, numbered in bank order. `tst.l d5 / beq` makes an empty group do nothing rather than fail. Routine 103 ($1f30) is the one-argument continuation at id $45a, which is 1.0's `Zb Install` under a name of its own: it PEEKS its argument (`move.l (a3),d0`, no post-increment), walks every group counting zones, calls routine 80 ONCE with the total, and only then adds them --- one reserve for the lot, which is the point of the keyword. NOTE: both walks run the groups DOWNWARD, from the count at bank+0 to 1, and that order decides which zone lands in which multi-zone slot, so it is reproduced rather than tidied. The argument is popped by the second of the two `move.l (a3)+` at $1f58, which is why a3 balances",
 
   'el error':
     "1.0 only: 1.0's routine 165 ($191a), twenty bytes -- `movea.l $1e8(a5),a2 / adda.w #$44,a2 / move.l (a2),d3 / move.l #$0,(a2)`. It reads the field 1.0's error thrower (routine 166, $192e) writes with `move.l d0,(a2)` on its way to L_ErrorExt, and CLEARS it, which is exactly what the doc describes: \"The El Error value is cleared ... when it is read. This means that if other extensions produce an error, El Error will not contain the number of an EasyLife error you've already handled.\" DEVIATION: the doc says cleared to -1 and the instruction writes zero, which is also what a program sees before any error has been raised -- so the doc's value would have been the more useful of the two. The binary wins. 1.09 dropped both the field and the keyword; routine 300 records nothing. NOTE: the field is module state in easylife.ts rather than EasyLifeState, because twenty-two call sites raise and only 1.0 can read it back; the doc block there says what that costs",
