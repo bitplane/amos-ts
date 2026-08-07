@@ -30,19 +30,29 @@
  * V8 or better; the archive's is 7.973 and routine 233 demands V8. Five are
  * the iconify family (four plus 1.0's `iconify amos`) and wait on Intuition.
  *
- * The twenty-sixth is `Eltest`, and it is the only one that will never
- * arrive. DEFECT: in 1.10 its two jump-table deltas are ZERO, so both its
- * instruction slot (255) and its function slot (256) resolve to $375e —
- * which is routine 260, `St Get`'s shared worker. Calling it enters that
- * routine with d3 unset, so `adda.l d3,a3` walks the parameter stack by a
- * garbage amount. 1.09 does have a body, and it is a stub: routine 255 is
- * `moveq #$1,d0 / lea $c(a3),a3 / rts` and routine 256 the same with
- * `moveq #$0,d0` — twelve bytes popped for a two-argument spec, four more
- * than were pushed, and d0 set where every function here returns in d3 with
- * a type in d2. So neither build has behaviour a program could rely on:
- * 1.09 corrupts the stack by four bytes and returns whatever d3 held, 1.10
- * runs another keyword's body. Not implemented, not n/a — read, and found to
- * have nothing to implement.
+ * The twenty-sixth is `Eltest`, and it is the author's own scaffolding.
+ *
+ * It exists in **1.09 alone** — 1.0 does not have it, 1.44 does not, and
+ * 1.10 does not either. In 1.09 it is the LAST entry of a 220-entry table,
+ * at id $e4e, spec `V00,0`: a V-form with two integer arguments, so
+ * `=Eltest(a,b)` reads and `Eltest(a,b)=v` writes. Both routines are eight
+ * bytes and neither does anything:
+ *
+ *     255 (the instruction)  moveq #$1,d0 / lea $c(a3),a3 / rts
+ *     256 (the function)     moveq #$0,d0 / lea $c(a3),a3 / rts
+ *
+ * The one register they set is the one that tells the two apart, which is
+ * what the name says it is: a probe for checking that AMOS's V-form dispatch
+ * reaches the slot it should. `lea $c(a3),a3` pops three longwords, which is
+ * right for the assignment form (two arguments and a value) and one too many
+ * for the function, and neither sets d3 or d2, so `=Eltest(a,b)` answers
+ * whatever d3 held with an undefined type. It is in none of the three guides.
+ *
+ * 1.10 dropped it and put `Stv` at the same id $e4e — also a V-form, also
+ * undocumented. The scaffolding slot became a real keyword, and the four
+ * bytes in front of `Stv`'s instruction bodies are recorded on that keyword.
+ *
+ * So: nothing to implement, and nothing missing. Read, and left out.
  *
  * ## The companion library
  *
