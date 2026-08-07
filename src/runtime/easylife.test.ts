@@ -11,6 +11,7 @@ import { Runtime } from './runtime'
 import { EASYLIFE_ERRORS } from './easylife'
 import { AmigaFS } from '../amiga/vfs'
 import { pp20Crunch } from '../amiga/powerpacker'
+import { xpkPack } from '../amiga/xpkmaster'
 
 const table = new TokenTable(CORE_TOKENS)
 /**
@@ -1513,5 +1514,172 @@ describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
     })
     mustFinish(rt.runHeadless(2000))
     expect(printed).toBe(' 10 20 30 40\n 7 3 9 5\n 9 5\n')
+  })
+})
+
+describe('EasyLife: the XPK block (routines 170-186)', () => {
+  /** the five keywords all touch the disc, so they need a mounted volume */
+  function bootFs(src: string): { rt: Runtime; fs: AmigaFS; out: () => string } {
+    const exts = new Map([[16, easylife.table]])
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    let printed = ''
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, easylife]]),
+      maxSteps: 200_000,
+      onText: (t) => (printed += t),
+      fs,
+    })
+    return { rt, fs, out: () => printed }
+  }
+
+  const failXpk = (src: string, put?: (fs: AmigaFS) => void): string => {
+    const b = bootFs(src)
+    put?.(b.fs)
+    try {
+      b.rt.runHeadless(2000)
+    } catch (e) {
+      return (e as Error).message
+    }
+    return 'did not throw'
+  }
+
+  it('Elxpk Lof answers the UNPACKED length of all three stream kinds', () => {
+    const plain = new TextEncoder().encode('x'.repeat(300))
+    const b = bootFs(
+      OPEN + 'Print Elxpk Lof("ram:raw");Elxpk Lof("ram:pp");Elxpk Lof("ram:xpk")\n',
+    )
+    b.fs.writeFile('ram:raw', plain)
+    b.fs.writeFile('ram:pp', pp20Crunch(plain))
+    b.fs.writeFile('ram:xpk', xpkPack(plain, 'NONE'))
+    mustFinish(b.rt.runHeadless(2000))
+    // all three are 300 bytes once unpacked, and only the first is 300 on disc
+    expect(b.out()).toBe(' 300 300 300\n')
+  })
+
+  it('Elxpk Bload writes the unpacked bytes at the address given', () => {
+    const b = bootFs(
+      OPEN +
+        'Reserve As Work 7,64\n' +
+        'Elxpk Bload "ram:c" To Start(7)\n' +
+        'Print Elmem$(Start(7),11);Elxpk Error\n',
+    )
+    b.fs.writeFile('ram:c', pp20Crunch(new TextEncoder().encode('abcabcabcab')))
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.out()).toBe('abcabcabcab 0\n')
+  })
+
+  it('Bload takes uncrunched data too -- the guide says "transparently"', () => {
+    const b = bootFs(
+      OPEN + 'Reserve As Work 7,64\nElxpk Bload "ram:p" To Start(7)\nPrint Elmem$(Start(7),5)\n',
+    )
+    b.fs.writeFile('ram:p', new TextEncoder().encode('plain'))
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.out()).toBe('plain\n')
+  })
+
+  it('Elxpk Save then Elxpk Load round-trips a bank through the container', () => {
+    const b = bootFs(
+      OPEN +
+        'Reserve As Data 9,32\n' +
+        'Loke Start(9),$12345678\n' +
+        'Elxpk Save 9 To "ram:b","NONE"\n' +
+        'Erase 9\n' +
+        'Print Length(9);\n' +
+        'Elxpk Load "ram:b"\n' +
+        'Print Hex$(Leek(Start(9)));Elxpk Error\n',
+    )
+    mustFinish(b.rt.runHeadless(2000))
+    // the bank came back at 9 with nothing said: its number rode in the
+    // 24-byte header, at offset 8 of xsh_Initial
+    expect(b.out()).toBe(' 0$12345678 0\n')
+  })
+
+  it('Load To BNKNO puts it somewhere else, and the name survives', () => {
+    const b = bootFs(
+      OPEN +
+        'Reserve As Data 9,32\n' +
+        'Loke Start(9),$AABBCCDD\n' +
+        'Elxpk Save 9 To "ram:b","NONE"\n' +
+        'Elxpk Load "ram:b" To 11\n' +
+        'Print Hex$(Leek(Start(11)))\n',
+    )
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.out()).toBe('$AABBCCDD\n')
+    expect(b.rt.memBanks.get(11)?.name).toBe('Datas   ')
+    expect(b.rt.memBanks.get(11)?.flags).toBe(1) // Bnk_BitData, out of the file
+  })
+
+  it('DEFECT: the loaded bank keeps its whole reservation, ULen + 232', () => {
+    // $2a06's shrink frees nothing and leaks its replacement -- see the
+    // handler's own note. A 32-byte bank saves as 56 bytes (24 + 32), so the
+    // reservation is 56 + 256 - 24 = 288 and stays there.
+    const b = bootFs(
+      OPEN + 'Reserve As Data 9,32\nElxpk Save 9 To "ram:b","NONE"\nElxpk Load "ram:b" To 12\n',
+    )
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.rt.memBanks.get(12)?.data.length).toBe(56 + 256 - 24)
+  })
+
+  it('Elxpk Bsave packs a block of memory, and Bload reads it back', () => {
+    const b = bootFs(
+      OPEN +
+        'Reserve As Work 7,64\n' +
+        'Elmem Start(7),"the quick brown fox"\n' +
+        'Elxpk Bsave Start(7),19 To "ram:o","NONE"\n' +
+        'Reserve As Work 8,320\n' +
+        'Elxpk Bload "ram:o" To Start(8)\n' +
+        'Print Elmem$(Start(8),19);Elxpk Lof("ram:o")\n',
+    )
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.out()).toBe('the quick brown fox 19\n')
+  })
+
+  it('an uninstalled compressor is XPK error -15, through message 20', () => {
+    // "Can't find required XPK library" -- exactly what an Amiga with an empty
+    // LIBS:Compressors/ says, and the four methods below are all real ones.
+    for (const m of ['NUKE', 'HUFF.50', 'RLEN', 'BLZW.99']) {
+      expect(
+        failXpk(OPEN + `Reserve As Data 9,32\nElxpk Save 9 To "ram:b","${m}"\n`),
+      ).toMatch(/^An Xpk Error Has Occured/)
+    }
+  })
+
+  it('Elxpk Error keeps the code the raise reported, and clears on success', () => {
+    // $b6 is written before the branch to message 20, so the number outlives
+    // the error -- which is the whole point of the keyword.
+    const bad = bootFs(OPEN + 'Reserve As Data 9,32\nElxpk Save 9 To "ram:b","NUKE"\n')
+    expect(() => bad.rt.runHeadless(2000)).toThrow(/An Xpk Error Has Occured/)
+    expect(bad.rt.easylife.xpkError).toBe(-15) // XPKERR_MISSINGLIB
+
+    const ok = bootFs(
+      OPEN + 'Reserve As Data 9,32\nElxpk Save 9 To "ram:b","NONE"\nPrint Elxpk Error\n',
+    )
+    mustFinish(ok.rt.runHeadless(2000))
+    expect(ok.out()).toBe(' 0\n')
+  })
+
+  it('a corrupt XPK file is a checksum failure, not a silent wrong answer', () => {
+    const packed = xpkPack(new TextEncoder().encode('y'.repeat(64)), 'NONE')
+    expect(
+      failXpk(OPEN + 'Print Elxpk Lof("ram:bad")\n', (fs) => {
+        packed[20] = (packed[20] ?? 0) ^ 0x80 // inside xsh_Initial
+        fs.writeFile('ram:bad', packed)
+      }),
+    ).toMatch(/^An Xpk Error Has Occured/)
+  })
+
+  it('a file that is not there is the extension\'s own "Unable to open file"', () => {
+    expect(failXpk(OPEN + 'Print Elxpk Lof("ram:nope")\n')).toMatch(
+      new RegExp('^' + String(EASYLIFE_ERRORS[7])),
+    )
+  })
+
+  it('saving a bank that does not exist is Bank not reserved', () => {
+    expect(failXpk(OPEN + 'Elxpk Save 40 To "ram:b","NONE"\n')).toMatch(/Bank not reserved/)
+    // and sprite/icon banks are not memory banks, so they read the same way --
+    // "You may not save sprite or icon banks with this command"
+    expect(failXpk(OPEN + 'Elxpk Save 1 To "ram:b","NONE"\n')).toMatch(/Bank not reserved/)
   })
 })

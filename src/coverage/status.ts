@@ -2314,6 +2314,12 @@ export const FAITHFUL = new Set<string>([
   'elwb close',
   'elwb test',
   'elxpk error',
+  // slice 8b -- the five XPK keywords, on src/amiga/xpkmaster.ts
+  'elxpk lof',
+  'elxpk load',
+  'elxpk bload',
+  'elxpk save',
+  'elxpk bsave',
   // ...and 1.0's names for the same routines, reached through `aliases`
   'i open workbench',
   'i close workbench',
@@ -4080,7 +4086,18 @@ export const NOTES: Record<string, string> = {
   'elwb open':
     "Routines 118, 119 and 120 ($213a, $214e, $217a) on intuition.library (`-$18a6(a5)`): OpenWorkBench (-$d2), WBenchToFront (-$156) and CloseWorkBench (-$4e). \"AMOS provides a close workbench command, but it does not tell you whether the workbench did actually close or not.\" Close is WBenchToFront first and CloseWorkBench only if that says a screen is there, else `moveq #$ff,d0` -- which is the guide's \"Elwb close returns true if the workbench is closed when the function has finished executing, even if it didn't close it because it was already closed\". NOTE: there is no Workbench screen here and no Intuition to open one (the wall #71 and #217 record), so this is the ABSENT answer: OpenWorkBench fails, WBenchToFront finds nothing, and Close takes its already-closed arm and answers true. The shape is the routines' own given no Workbench; what is missing is any way to get one, and the documented side effect of bringing the screen to the front has nothing to bring forward",
   'elxpk error':
-    "Routine 177 ($2a74), twelve bytes: the longword at $b6 of the companion struct, where every XPK keyword stores its XpkUnpack/XpkPack result. \"When an error occurs with any of the XPK functions ... the error message 'An XPK Error Has Occured' is displayed. When this happens, you should call Elxpk Error to return the error number\", and 0 is \"No error has occured\". NOTE: the five keywords that WRITE $b6 are not implemented -- they go through xpkmaster.library, a framework that dispatches to a per-stream sublibrary (xpkNUKE, xpkRDCN, ...) by a four-character method id, and neither the master nor any sublibrary is in the archive. So this reads a field nothing sets",
+    "Routine 177 ($2a74), twelve bytes: the longword at $b6 of the companion struct, where every XPK keyword stores its XpkUnpack/XpkPack result. \"When an error occurs with any of the XPK functions ... the error message 'An XPK Error Has Occured' is displayed. When this happens, you should call Elxpk Error to return the error number\", and 0 is \"No error has occured\". The number is xpkmaster's own -1..-32, and the five keywords that write it are now on src/amiga/xpkmaster.ts",
+
+  'elxpk lof':
+    "Routine 185 ($2b66): NUL-terminate the filename, allocate a 94-byte XpkFib, build [XPK_InName][TAG_DONE] at $2ba4, and call xpkmaster LVO -36 XpkExamineTags. The result is the fib's $4, the unpacked length. \"Elxpk Lof does not actually need to decrunch the file to find its length\" -- the 36-byte XPK header or the PP20 24-bit trailer answers it",
+  'elxpk load':
+    "Routines 170-173 ($2928, $2936, $2944, $295a) into 176 ($2998), one per syntax; each only sets d2/d5 and swaps the fourth tag id between $80005874 (XPK_Password) and $8000587e (the blank). Reserves \"XPKWork \" of ULen+256-24 and unpacks over Start(n)-24, so the file's own 24-byte bank node and header come back with it -- which is how \"if no bank number is specified, the bank is loaded back to the number from which it was saved\" works: the number is at offset 8 of xsh_Initial. DEFECT: the shrink at $2a06 frees nothing (d0 still holds XpkUnpackTags' result, so FreeMem(node,0)) and leaks the block AllocMem returns, so the bank keeps its whole ULen+232 reservation -- reproduced. DEFECT: $2a2c is `move.l d7,(a1)`, writing the LVO offset -48 over the node's NEXT link where the d6 saved at $29f2 was meant ($2287 against $2286, and d6 is never read) -- not reproducible, this port has no node",
+  'elxpk bload':
+    "Routines 174 and 175 ($2970, $2980) into 176 with d2 = d5 = -1, which is what `tst.l d5 / bmi` at $29ce skips the bank work on. \"Elxpk Bload will transparently load uncrunched data & powerpacked data\" -- the master's probe ($450) has three kinds, '----', 'XPKF' and 'PP20', and all three are in src/amiga/xpkmaster.ts. NOTE: the guide's \"you must still allocate the 256 bytes\" is XPK_MARGIN, workspace only the real master decodes through; nothing here writes past the unpacked length",
+  'elxpk save':
+    "Routines 178 and 179 ($2a80, $2a92) into 180 ($2a9c) and 184 ($2b06). Saves from `a0 - $18` for `-$14(a0) + 8` bytes: the Lst.Cree node (\"NEXT.l LONG.l\", +B.s:1219), the header Bnk.Reserve pokes (+Lib.s:8470) and the data, 24 bytes plus the bank. METHOD$ is the four-character library name and an optional \".NN\" depth. NOTE: only NONE is installed, so any other method answers XPKERR_MISSINGLIB (-15) through Elxpk Error, which is what an Amiga with an empty LIBS:Compressors/ does; and there is no list node in this port, so the 24 bytes are synthesised on save and read back on load rather than copied out of live memory",
+  'elxpk bsave':
+    "Routines 181 and 182 ($2ad0, $2ae2) into 183 ($2aec) and the same 184: four pops, METHOD$, FILENAME$, LENGTH, START, then XpkPackTags at master LVO -42 with [XPK_InBuf][XPK_InLen][XPK_OutName][XPK_PackMethod][password or blank]. The master refuses outright without XPK_PackMethod ($19c: XPKERR_TAGERR)",
 
   // EasyLife slice 7: system, AmigaDOS and fonts.
   'el base':

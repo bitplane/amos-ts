@@ -68,6 +68,7 @@ import {
   patternHasSpecials,
   patternRemove,
 } from '../amiga/patternlib'
+import { XPK_MARGIN, XpkError, xpkExamine, xpkPack, xpkUnpack } from '../amiga/xpkmaster'
 
 /**
  * The extension's own error messages, in block order, and the index is
@@ -229,6 +230,14 @@ export interface EasyLifeState {
    * first".
    */
   patDefault: ParsedPattern | null
+  /**
+   * `$b6` --- the last XPK result, which `Elxpk Error` reads back.
+   *
+   * Every one of the five XPK keywords ends the same way: `movea.l $1e8(a5),a1
+   * / move.l d0,$b6(a1) / bne` the error, so the field is written on success
+   * too and a program can check it after a call that did not raise.
+   */
+  xpkError: number
 }
 
 export const newEasyLifeState = (): EasyLifeState => ({
@@ -252,6 +261,7 @@ export const newEasyLifeState = (): EasyLifeState => ({
   tagPool: [],
   tagStrings: new Map(),
   patDefault: null,
+  xpkError: 0,
 })
 
 /** the unsigned view of an AMOS 32-bit integer, which is how routine 153 compares */
@@ -418,6 +428,88 @@ function pokeWord(rt: Runtime, a: number, v: number): void {
 }
 function pokeLong(rt: Runtime, a: number, v: number): void {
   writeBytes(rt, a, String.fromCharCode((v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff))
+}
+
+// ---- XPK ------------------------------------------------------------------
+
+/**
+ * The 24 bytes AMOS keeps in FRONT of every memory bank, which is what
+ * `Elxpk Save` writes to the file and `Elxpk Load` reads back.
+ *
+ * `Bnk.Reserve` (+Lib.s:8470) asks `Lst.Cree` for `length + 16` and the list
+ * node adds its own eight on top --- "Gestion de liste simple NEXT.l LONG.l"
+ * (+B.s:1219). So `Start(n) - 24` is:
+ *
+ *     +$0   long   NEXT, the link to the next bank
+ *     +$4   long   LONG, the size Lst.Cree was asked for = length + 16
+ *     +$8   long   the bank number          `move.l d4,(a1)+`
+ *     +$c   word   the flags, bit 0 Data / bit 1 Chip   `move.w d5,(a1)+`
+ *     +$e   word   zero                     `clr.w (a1)+`
+ *     +$10  8 chars  the name
+ *     +$18  the data
+ *
+ * Routine 180 saves from `a0 - $18` for `-$14(a0) + 8` bytes, which is
+ * `(length + 16) + 8` --- the node, the header and the data exactly. And
+ * `Elxpk Lof`'s `move.l $32(a0),d7` reads offset 8 of the stream header's
+ * `xsh_Initial`, which is offset 8 of the original data: the bank number.
+ * That is how `Elxpk Load` with no `To` knows where the bank came from.
+ *
+ * NOTE: there is no such node in this port --- a bank is a `MemBank` record
+ * and `bankBase(n)` addresses its data directly, with nothing mappable in
+ * front. So the twenty-four bytes are synthesised on save and read back on
+ * load rather than copied out of and into live memory. NEXT is written zero
+ * because a link into one session's heap means nothing in another, which is
+ * the same reason routine 176 has to put the old one back.
+ */
+const BANK_NODE = 24
+
+function bankHeaderBytes(num: number, flags: number, name: string, length: number): Uint8Array {
+  const h = new Uint8Array(BANK_NODE)
+  const put = (o: number, v: number): void => {
+    h[o] = (v >>> 24) & 0xff
+    h[o + 1] = (v >>> 16) & 0xff
+    h[o + 2] = (v >>> 8) & 0xff
+    h[o + 3] = v & 0xff
+  }
+  put(0, 0) // NEXT
+  put(4, length + 16) // LONG, as Bnk.Reserve computes it
+  put(8, num)
+  h[12] = (flags >>> 8) & 0xff
+  h[13] = flags & 0xff
+  const padded = (name + '        ').slice(0, 8)
+  for (let i = 0; i < 8; i++) h[16 + i] = padded.charCodeAt(i)
+  return h
+}
+
+/**
+ * Read one file for the XPK keywords, then run `fn` with XPK failures turned
+ * into the extension's own error 20.
+ *
+ * Routine 186 ($2bb0) opens xpkmaster.library once and caches the base at
+ * `$b2`, raising message 21 "Could Not Open XPK Master Library" if it cannot
+ * --- unreachable here, the master is ported. Every caller then does
+ * `move.l d0,$b6(a1) / bne` message 20, so the code is recorded whether or
+ * not it is zero.
+ */
+function xpkGuard<T>(rt: Runtime, fn: () => T): T {
+  try {
+    const out = fn()
+    rt.easylife.xpkError = 0
+    return out
+  } catch (e) {
+    if (e instanceof XpkError) {
+      rt.easylife.xpkError = e.code
+      elError(20) // 'An Xpk Error Has Occured'
+    }
+    throw e
+  }
+}
+
+/** the bytes of a file, or routine 176's "Unable to open file" */
+function xpkRead(rt: Runtime, path: string): Uint8Array {
+  const raw = rt.fs?.read(path)
+  if (!raw) elError(7)
+  return Uint8Array.from(raw)
 }
 
 // ---- memory and message banks ----------------------------------------------
@@ -1405,13 +1497,37 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
      * displayed. When this happens, you should call Elxpk Error to return
      * the error number", and 0 is "No error has occured".
      *
-     * NOTE: the five keywords that WRITE $b6 are not implemented — they go
-     * through xpkmaster.library, which is a framework that dispatches to a
-     * per-stream sublibrary (xpkNUKE, xpkRDCN, ...) by a four-character
-     * method id, and neither the master nor any sublibrary is in the
-     * archive. So this reads a field nothing sets, and answers 0.
+     * The five keywords that write $b6 all go through
+     * `src/amiga/xpkmaster.ts`, and its `XpkError` codes ARE this number:
+     * -5 check sum failure, -13 password required, -15 required library
+     * missing, and so on down the guide's own table.
      */
-    'elxpk error': (): Value => VI(0),
+    'elxpk error': (): Value => VI(rt.easylife.xpkError),
+
+    /**
+     * =Elxpk Lof(FILENAME$) — routine 185 ($2b66).
+     *
+     *     Rbsr routine 1              NUL-terminate the filename
+     *     moveq #$5e,d3 / L_Demande   ninety-four bytes: an XpkFib
+     *     lea $2ba4(pc),a1            [XPK_InName][TAG_DONE]
+     *     move.l (a3)+,d0 / addq.l #$2,d0 / move.l d0,$4(a1)
+     *     moveq #$dc,d7 / Rbsr routine 186     XpkExamineTags, LVO -36
+     *     move.l d0,$b6(a1) / bne -> message 20
+     *     move.l $4(a0),d3            the fib's unpacked length
+     *
+     * "This function will return the length of the file FILENAME$, just like
+     * the normal AMOS Lof function ... However, if the file has been
+     * compresed with XPK, or Powerpacker the length of the file once it has
+     * been uncompressed is returned", and "Elxpk Lof does not actually need
+     * to decrunch the file to find its length" — the master reads the
+     * 36-byte header for XPK and the 24-bit trailer for PP20, and neither
+     * touches the body.
+     */
+    'elxpk lof': (_, a): Value => {
+      const file = str(a[0] ?? VS(''))
+      const data = xpkRead(rt, file)
+      return VI(xpkGuard(rt, () => xpkExamine(data).uLen))
+    },
 
     /** =Elextb(N) — routine 78 ($1bc4), `ext.w d3 / ext.l d3` from the low BYTE */
     elextb: (_, a): Value => VI(((int(a[0] ?? VI(0)) & 0xff) << 24) >> 24),
@@ -2210,6 +2326,181 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'elpp keep off': () => {
       rt.easylife.ppKeep = false
+    },
+
+    /**
+     * Elxpk Load FILENAME$ [,PASSWORD$] [To BNKNO] — routines 170-173
+     * ($2928, $2936, $2944, $295a), four entries into routine 176 ($2998).
+     *
+     * Each variant only sets up registers: `d2` and `d5` say which shape it
+     * is and `d3` selects the fourth tag slot's id.
+     *
+     *     170  d2=0   d3=$8000587e  d5=0          Load f$
+     *     171  d2=0   d3=$8000587e  d5=(a3)+      Load f$ To n
+     *     172  d2=0   d3=$80005874  d5=0          Load f$,p$
+     *     173  d2=0   d3=$80005874  d5=(a3)+      Load f$,p$ To n
+     *
+     * $80005874 is XPK_Password and $8000587e is the harmless tag used to
+     * blank that slot when there is no password — the tag list is fixed and
+     * only its fourth entry's ID moves. The rest of it, at $2a40, is
+     * [$5871 OutBufLen][$5862 OutBuf][$5877 ...][id data][$5851 InName][0],
+     * and the six that matter pair up as name/buf/len:
+     *
+     *     $5851 InName   $5853 InBuf    $5870 InLen
+     *     $5860 OutName  $5862 OutBuf   $5871 OutBufLen
+     *     $5874 Password $587a PackMethod
+     *
+     * NOTE: $5877 is the one tag whose meaning is not settled here. It is
+     * given 0 by the four Load forms and -1 by the two Bload forms, and its
+     * default in the table is -1. Nothing observable through these keywords
+     * changes with it.
+     *
+     * Routine 176 then calls `Elxpk Lof` for the length, reserves a bank
+     * called "XPKWork " of `ULen + 256 - 24` bytes and unpacks into
+     * `Start(n) - 24` — the saved 24-byte node and header land back on top
+     * of the fresh one, which is how the name and flags come back. With no
+     * `To`, `d5` is 0 and the bank number comes from the fib instead: the
+     * longword at offset 8 of `xsh_Initial`, which is offset 8 of the
+     * original data, which is the saved header's bank number.
+     *
+     * "If no bank number is specified, the bank is loaded back to the number
+     * from which it was saved."
+     *
+     * DEFECT: the bank is left `ULen + 232` bytes long instead of the
+     * `ULen - 24` it holds. $2a06 tries to shrink it —
+     * Forbid/FreeMem/AllocMem/Permit, the usual free-and-immediately-retake
+     * trick — but `movem.l d0-d2/d4-d7/a1-a6,-(a7)` leaves d0 holding
+     * XpkUnpackTags' RESULT, so `FreeMem(a1, d0)` is `FreeMem(node, 0)` and
+     * frees nothing, and the `AllocMem` that follows returns into d0, which
+     * the closing `movem.l (a7)+` immediately overwrites. So the block frees
+     * nothing, leaks ULen bytes and the bank keeps every byte of its
+     * reservation. Reproduced: the bank really is that long here too, and
+     * `Length(n)` will say so.
+     *
+     * DEFECT: $2a2c is `move.l d7,(a1)`, writing $ffffffd0 — the LVO offset
+     * -48 left in d7 by `moveq #$d0,d7` at $29fc — over the bank list node's
+     * NEXT link. Two instructions earlier, at $29f2, `move.l (a1),d6` saves
+     * that very link, and d6 is never read again; `move.l d6,(a1)` is $2286
+     * against the $2287 that is there. NOT reproducible: this port has no
+     * list node in front of a bank for it to corrupt.
+     */
+    'elxpk load'(it) {
+      const file = it.evalStr()
+      const pw = it.accept(',') ? it.evalStr() : undefined
+      const asked = it.accept('to') ? it.evalInt() : 0
+      const data = xpkRead(rt, file)
+      const out = xpkGuard(rt, () => xpkUnpack(data, pw))
+      // Bnk.Reserve's own check, reached with ULen + 256 - 24
+      if (out.length + XPK_MARGIN - BANK_NODE <= 0) funcCall()
+      const hdr = new DataView(out.buffer, out.byteOffset, out.byteLength)
+      const num = asked !== 0 ? asked : out.length >= 12 ? hdr.getUint32(8) : 0
+      const flags = out.length >= 14 ? hdr.getUint16(12) : 0
+      let name = ''
+      for (let i = 16; i < 24 && i < out.length; i++) name += String.fromCharCode(out[i]!)
+      rt.reserveBank(num, out.length + XPK_MARGIN - BANK_NODE, name, (flags & 1) !== 0, (flags & 2) !== 0)
+      rt.memBanks.get(num)?.data.set(out.subarray(BANK_NODE))
+    },
+
+    /**
+     * Elxpk Bload FILENAME$ [,PASSWORD$] To ADDR — routines 174 and 175
+     * ($2970, $2980), the two shapes that hand routine 176 `d2 = d5 = -1`
+     * and an address in a0 instead of a bank number.
+     *
+     * `tst.l d5 / bmi` at $29ce is what that -1 buys: no Bnk_Reserve, no
+     * bank header fixups, just the unpack straight into ADDR.
+     *
+     * "You must have allocated enough memory for the uncompressed file, plus
+     * 256 bytes decompression space", and "Elxpk Bload will transparently
+     * load uncrunched data & powerpacked data, but you must still allocate
+     * the 256 bytes" — the three stream kinds of the master's probe, all
+     * three of which `src/amiga/xpkmaster.ts` handles.
+     *
+     * NOTE: the 256 bytes are XPK_MARGIN and only the real master needs
+     * them, as workspace it decodes through. Nothing here writes past the
+     * unpacked length, so a program that under-allocated gets away with it.
+     */
+    'elxpk bload'(it) {
+      const file = it.evalStr()
+      const pw = it.accept(',') ? it.evalStr() : undefined
+      it.expect('to')
+      const addr = it.evalInt()
+      const data = xpkRead(rt, file)
+      const out = xpkGuard(rt, () => xpkUnpack(data, pw))
+      for (let i = 0; i < out.length; i++) {
+        const m = rt.resolveWrite(addr + i)
+        if (m) m.data[m.off] = out[i]!
+      }
+    },
+
+    /**
+     * Elxpk Save BNKNO To FILENAME$, METHOD$ [,PASSWORD$] — routines 178 and
+     * 179 ($2a80, $2a92) into routine 180 ($2a9c).
+     *
+     *     179  move.l #$8000587e,d7          no password
+     *     178  Rbsr routine 1 / d4=(a3)+ +2 / move.l #$80005874,d7
+     *     180: d6 = METHOD$, d5 = FILENAME$, d0 = BNKNO
+     *          L_Bnk_GetAdr / Rbeq routine 159      bank not reserved
+     *          d2 = -$14(a0) + 8                    (length + 16) + 8
+     *          d1 = a0 - $18                        the node
+     *
+     * so it saves the node, the header and the data in one block — see
+     * `bankHeaderBytes` for why that is 24 bytes and what is in them.
+     *
+     * METHOD$ is "the 7 character string. The first 4 letters are then name
+     * of the compressor library to use. These are followed by a '.' and a
+     * two digit decimal number to indicate the depth of compression". Only
+     * NONE is installed, so anything else answers XPKERR_MISSINGLIB (-15)
+     * through `Elxpk Error` — which is what a real Amiga with an empty
+     * LIBS:Compressors/ does.
+     *
+     * "You may not save sprite or icon banks with this command" — and they
+     * are not in `memBanks` at all, so they read as not reserved.
+     *
+     * NOTE: "Unlike Elpp Crunch, Elxpk save does not destroy the original
+     * copy of the data that your are crunching & saving", which is free
+     * here: the packer takes a source and returns a stream.
+     */
+    'elxpk save'(it) {
+      const num = it.evalInt()
+      it.expect('to')
+      const file = it.evalStr()
+      it.expect(',')
+      const method = it.evalStr()
+      const pw = it.accept(',') ? it.evalStr() : undefined
+      const bank = rt.memBanks.get(num)
+      if (!bank) throw new AmosError('Bank not reserved', 36)
+      const flags = bank.flags | (bank.memType === 1 ? 2 : 0)
+      const body = new Uint8Array(BANK_NODE + bank.data.length)
+      body.set(bankHeaderBytes(num, flags, bank.name, bank.data.length))
+      body.set(bank.data, BANK_NODE)
+      const out = xpkGuard(rt, () => xpkPack(body, method, pw))
+      if (!rt.vfs?.writeFile(file, out)) throw new AmosError('disc is write protected')
+    },
+
+    /**
+     * Elxpk Bsave START, LENGTH To FILENAME$, METHOD$ [,PASSWORD$] —
+     * routines 181 and 182 ($2ad0, $2ae2) into routine 183 ($2aec), the same
+     * password/no-password pair as Save and then four plain pops:
+     * METHOD$ into a1, FILENAME$ into a2, LENGTH into d2, START into d1.
+     *
+     * "The byte at address START is saved. The byte at address END is not,
+     * as with the normal AMOS Bsave command" — the guide says END where its
+     * own syntax line says LENGTH, and the routine takes a length.
+     */
+    'elxpk bsave'(it) {
+      const start = it.evalInt()
+      it.expect(',')
+      const len = it.evalInt()
+      it.expect('to')
+      const file = it.evalStr()
+      it.expect(',')
+      const method = it.evalStr()
+      const pw = it.accept(',') ? it.evalStr() : undefined
+      if (len <= 0) funcCall()
+      const src = new Uint8Array(len)
+      for (let i = 0; i < len; i++) src[i] = peekByte(rt, start + i)
+      const out = xpkGuard(rt, () => xpkPack(src, method, pw))
+      if (!rt.vfs?.writeFile(file, out)) throw new AmosError('disc is write protected')
     },
 
     /**
