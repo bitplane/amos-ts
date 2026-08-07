@@ -4,6 +4,7 @@ import { glyphBit, glyphMetrics } from '../amiga/diskfont'
 import type { DiskFont } from '../amiga/diskfont'
 import { rowBytesFor } from '../amiga/planar'
 import { BitMap, RastPort, type ClipRect } from '../amiga/graphics'
+import type { Zone } from './objects'
 
 // ---- text-border glyphs (TEncadre +W.s:16725) -----------------------------
 // Border$ draws its box out of the AMOS charset's own characters. Those
@@ -293,6 +294,24 @@ export class Screen {
   displayH = -1
   offsetX = 0
   offsetY = 0
+  /**
+   * EcAZones/EcNZones (+Equ.s:529-530) — the zone table, and it belongs to
+   * the SCREEN, not to the machine.
+   *
+   * `Reserve Zone` allocates `n*8` bytes and hangs them off the current
+   * screen (SyResZ +W.s:11066); `Set Zone` writes four words into
+   * `EcAZones + (n-1)*8` of the current screen (SySetZ +W.s:11119); and
+   * `Zone()`, `Hzone()` and `Mouse Zone` all reach GZone (+W.s:11197), which
+   * walks the table of the screen it was handed. A single global table was
+   * this port's own simplification and `mouse zone` carried a note saying so
+   * — EasyLife is what makes it observable, since `Elznsx(SCREEN, ZONE)` and
+   * `Elzn Shift SCREEN,...` name the screen outright.
+   *
+   * `null` is the 68k's all-zero record: SyRazZ clears eight bytes and GZone
+   * skips any entry whose `4(a2)` longword is zero, so a reserved-but-unset
+   * zone matches nothing and reads back as four zeroes.
+   */
+  zones: Array<Zone | null> = []
   /*
    * The graphics state is the RastPort's. These accessors keep AMOS's names
    * on it — `Ink` sets three pens, `Gr Writing` a draw mode — so the keyword

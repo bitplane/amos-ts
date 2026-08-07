@@ -190,7 +190,7 @@ describe('Sticks: the second mouse, which is not the AMOS pointer', () => {
     const { out } = run(
       [
         'Screen Open 0,320,200,16,Lowres : Curs Off',
-        'Reset Zone : Set Zone 1,10,10 To 50,50',
+        'Reserve Zone 4 : Set Zone 1,10,10 To 50,50',
         'Mouse X 1,148 : Mouse Y 1,70',
         'Print Mouse Area(1)',
         'Mouse X 1,400 : Mouse Y 1,240',

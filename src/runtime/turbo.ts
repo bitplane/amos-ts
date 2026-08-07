@@ -822,10 +822,13 @@ function iconField(rt: Runtime, n: number, pick: (img: BankImage) => number): nu
   return pick(img)
 }
 
-/** `Hzone`'s mapping: hardware coordinates into the current screen */
+/**
+ * `Hit Spr Zone`'s zone lookup — routine 19 ($1074) ends `moveq #$0,d3 /
+ * moveq #$8,d5 / movea.l -$4(a5),a0 / jsr $48(a0)`, which is SyCall ZoHd on
+ * T_SyVect: AMOS's own hardware-coordinate lookup, bounds test included.
+ */
 function hardZoneAt(rt: Runtime, x: number, y: number): number {
-  const s = rt.screen
-  return rt.zoneAt(s.hardToScreenX(x), s.hardToScreenY(y))
+  return rt.hardZoneAt(rt.screen, x, y)
 }
 
 // ---- bitplanes and blocks ----
@@ -3144,7 +3147,7 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       const [dx, dy, n] = [0, 1, 2].map((i) => int(a[i] ?? VI(0)))
       const bob = rt.bobs.get(n!)
       if (!bob) return VI(0)
-      return VI(rt.zoneAt(bob.x + dx!, bob.y + dy!))
+      return VI(rt.zoneAt(rt.screen, bob.x + dx!, bob.y + dy!))
     },
     // Routines 87, 88 and 89 ($330e, $334e, $3390) are sixty-odd bytes each
     // and identical but for the last instruction: walk the bank list for the

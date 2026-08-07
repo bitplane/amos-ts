@@ -423,6 +423,11 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/medext.test.ts': ['med-7.1'],
   'src/runtime/ercole.ts': ['ercole-1.7'],
   'src/runtime/ercole.test.ts': ['ercole-1.7'],
+  // 1.10 FIRST: it is the build every citation is numbered against, and 1.09
+  // shares its jump table entry for entry over this range. 1.44 rebuilt the
+  // table, so its numbers differ and nothing here cites them
+  'src/runtime/easylife.ts': ['easylife-1.10', 'easylife-1.09'],
+  'src/runtime/easylife.test.ts': ['easylife-1.10', 'easylife-1.09'],
   'src/runtime/range.ts': ['range-1.0', 'range-2.0'],
   'src/runtime/range.test.ts': ['range-1.0', 'range-2.0'],
   'src/runtime/first.ts': ['first-0.1'],

@@ -132,10 +132,10 @@ describe('screen and window odds and ends', () => {
 describe('zones, banks and system state', () => {
   it('Reset Zone clears one zone, or every zone', () => {
     let rt = run('Reserve Zone 4\nSet Zone 1,0,0 To 10,10\nSet Zone 2,20,20 To 30,30\nReset Zone 1')
-    expect(rt.zones[0]).toBeFalsy()
-    expect(rt.zones[1]).toBeDefined()
+    expect(rt.screen.zones[0]).toBeFalsy()
+    expect(rt.screen.zones[1]).toBeDefined()
     rt = run('Reserve Zone 4\nSet Zone 1,0,0 To 10,10\nReset Zone')
-    expect(rt.zones.filter(Boolean).length).toBe(0)
+    expect(rt.screen.zones.filter(Boolean).length).toBe(0)
   })
 
   it('Set Sprite Buffer demands at least 16 scanlines (InSetSpriteBuffer +Lib.s:12290)', () => {

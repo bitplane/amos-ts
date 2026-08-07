@@ -1310,7 +1310,7 @@ describe('TURBO Hit Zone (TURBO_DocsV2.15.Asc)', () => {
     const { out } = run(
       [
         'Ink 5 : Bar 0,0 To 7,7 : Get Bob 1,0,0 To 8,8 : Cls 0',
-        'Set Zone 1,10,10 To 50,50',
+        'Reserve Zone 4 : Set Zone 1,10,10 To 50,50',
         'Bob 1,30,30,1',
         'Print Hit Bob Zone(0,0,1);Hit Bob Zone(100,100,1)',
       ].join('\n'),
@@ -1323,7 +1323,7 @@ describe('TURBO Hit Zone (TURBO_DocsV2.15.Asc)', () => {
     const { out } = run(
       [
         'Ink 5 : Bar 0,0 To 7,7 : Get Sprite 1,0,0 To 8,8 : Cls 0',
-        'Set Zone 1,10,10 To 50,50',
+        'Reserve Zone 4 : Set Zone 1,10,10 To 50,50',
         'Sprite 8,128+30,50+30,1',
         'Print Hit Spr Zone(0,0,8)',
       ].join('\n'),

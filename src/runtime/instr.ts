@@ -19,6 +19,7 @@ import { makeMiscExtInstructions, newMiscExtState } from './miscext'
 import { makePlibFunctions } from './plib'
 import { makeDumpFunctions, newDumpState } from './dump'
 import { ERCOLE_ERRORS, makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
+import { EASYLIFE_ERRORS, makeEasyLifeFunctions, makeEasyLifeInstructions, newEasyLifeState } from './easylife'
 import { FILEID_ERRORS, makeFileIdFunctions, newFileIdState } from './fileid'
 import { makeFirstInstructions } from './first'
 import { makeRangeFunctions, makeRangeInstructions, newRangeState } from './range'
@@ -136,6 +137,32 @@ function screenArg(rt: Runtime, a: import('../interp/values').Value[]): Screen {
   }
   return rt.screen
 }
+
+/**
+ * EcToD1 (+W.s:10784) — the screen a `Zone`/`Hzone`-family call names.
+ *
+ * The keyword pushes `screen + 1` into d3 (the two-argument form pushes
+ * `moveq #-1,d3` and the shared tail does `addq.l #1,d3`), so ZERO means the
+ * current screen and -1 is how the short form spells it. A positive index is
+ * looked up in T_EcAdr and a hole there is d0=3, which EcWiErr turns into
+ * `EcEBase-1 + 3` = error 47.
+ *
+ * `null` is EcToD4: a screen argument of -2 or lower makes EcToD1 discard its
+ * return address and answer EntNul ($80000000) with d0 = 0, so the keyword
+ * returns that as an integer instead of raising anything.
+ */
+function zoneScreen(rt: Runtime, a: import('../interp/values').Value[], full: number): Screen | null {
+  if (a.length < full) return rt.screen
+  const n = int(a[0]!)
+  if (n < -1) return null
+  if (n < 0) return rt.screen
+  const s = rt.screens.get(n)
+  if (!s) throw new AmosError(`screen not opened: ${n}`, 47)
+  return s
+}
+
+/** EcToD4's answer, which reaches BASIC as a plain integer */
+const ENT_NUL = -0x8000_0000
 
 /** Rdialog/Rdialog$(c,zone[,item]) shared lookup (Dia_GetValue +Lib.s:20843) */
 function rdialogValue(rt: Runtime, a: import('../interp/values').Value[]): { n: number; s: string | null } {
@@ -2029,9 +2056,26 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     // ---- zones ----
+    //
+    // The table belongs to the CURRENT SCREEN (EcAZones/EcNZones), and all
+    // three of these go through T_EcCourant to reach it. See Screen.zones.
     'reserve zone'(it) {
-      const n = it.atStmtEnd() ? 16 : it.evalInt()
-      rt.zones = new Array<null>(n).fill(null)
+      // InReserveZone0/1 (+Lib.s:10924): the count is checked for sign
+      // (`move.l d3,d1 / Rbmi L_FonCall`) and a screen must be open
+      // (`tst.w ScOn(a5) / Rbeq L_ScNOp`) BEFORE SyResZ allocates n*8 bytes.
+      // The no-argument form is `moveq #0,d3`, which reserves nothing at all
+      // rather than the sixteen this port used to assume — SyRz1's `move.w
+      // d1,d0 / beq.s ZoOk` frees the old table and returns with EcAZones
+      // null, so `Reserve Zone` bare is how a program DISCARDS its zones.
+      const n = it.atStmtEnd() ? 0 : it.evalInt()
+      if (n < 0) throw new AmosError('function call error', ERR.FUNC_CALL)
+      // `SyCall ResZone / Rbne L_OOfMem` — SyResZ frees the old table first
+      // and then asks FastMm for n*8 bytes, so a count the fast pool cannot
+      // hold is error 24 AND leaves the screen with no zones at all
+      const s = rt.screen
+      s.zones = []
+      if (n * 8 > rt.fastFree()) throw new AmosError('Out of memory', ERR.OUT_OF_MEMORY)
+      s.zones = new Array<null>(n).fill(null)
     },
     'set zone'(it) {
       const n = it.evalInt()
@@ -2039,12 +2083,45 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       const [x1, y1] = pair(it)
       it.expect('to')
       const [x2, y2] = pair(it)
-      while (rt.zones.length < n) rt.zones.push(null)
-      rt.zones[n - 1] = { x1, y1, x2, y2 }
+      const s = rt.screen
+      // SySetZ (+W.s:11119) is four refusals and four word stores, and all
+      // four refusals reach InSetZone's `Rbne L_FonCall` as AMOS 23:
+      //   EcAZones == 0        no zones reserved on this screen
+      //   n == 0 or n > count  `tst.w d1 / beq` and `cmp.w EcNZones(a1),d1 /
+      //                        bhi` — so the table does NOT grow to fit,
+      //                        which is what this port used to do silently
+      //   x1 >= x2, y1 >= y2   `cmp.w d4,d2 / bcc` and `cmp.w d5,d3 / bcc`,
+      //                        UNSIGNED word compares, so the far corner is
+      //                        exclusive and a zero-width zone is refused
+      if (s.zones.length === 0) throw new AmosError('function call error', ERR.FUNC_CALL)
+      if (n <= 0 || n > s.zones.length) throw new AmosError('function call error', ERR.FUNC_CALL)
+      if ((x1 & 0xffff) >= (x2 & 0xffff) || (y1 & 0xffff) >= (y2 & 0xffff)) {
+        throw new AmosError('function call error', ERR.FUNC_CALL)
+      }
+      // `move.w` four times: the record is words, so the coordinates are
+      // truncated to sixteen bits on the way in
+      s.zones[n - 1] = { x1: x1 & 0xffff, y1: y1 & 0xffff, x2: x2 & 0xffff, y2: y2 & 0xffff }
     },
     'reset zone'(it) {
-      if (it.atStmtEnd()) rt.zones.fill(null)
-      else rt.zones[it.evalInt() - 1] = null
+      // InResetZone0/1 (+Lib.s:10940) -> SyRazZ (+W.s:11094). A null table is
+      // NoZo, which returns 29 and which this caller alone turns into error
+      // 73 (`.Err moveq #73,d0 / Rbra L_GoError`) rather than into 23 — the
+      // only place "No zones defined" is raised.
+      const s = rt.screen
+      if (s.zones.length === 0) throw new AmosError(ED_RUN_MESSAGES[73]!, 73)
+      if (it.atStmtEnd()) {
+        s.zones.fill(null)
+        return
+      }
+      // `cmp.w EcNZones(a1),d1 / bhi PErr7` — out of range is a function call
+      // error; zone 0 is `tst.w d1 / beq SyRzz`, which clears them ALL
+      const n = it.evalInt()
+      if (n === 0) {
+        s.zones.fill(null)
+        return
+      }
+      if (n < 0 || n > s.zones.length) throw new AmosError('function call error', ERR.FUNC_CALL)
+      s.zones[n - 1] = null
     },
 
     // ---- packed pictures and IFF ----
@@ -4370,27 +4447,35 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.colGet(int(a[0]!)))
     },
     zone(_, a) {
-      // Zone(x,y) or Zone(screen,x,y) — coordinates are the last two args
-      const x = int(a[a.length - 2]!)
-      const y = int(a[a.length - 1]!)
-      return VI(rt.zoneAt(x, y))
+      // FnZone2/3 (+Lib.s:10974) -> SyZoGr (+W.s:11141) -> GZone. The
+      // three-argument form names the screen whose table is walked, and it
+      // is a real difference now that a table belongs to a screen: `Zone(x,y)`
+      // is the current one, `Zone(screen,x,y)` any open one. Screen
+      // coordinates go straight to GZone with no clipping — a point outside
+      // the screen still matches a zone that covers it.
+      const s = zoneScreen(rt, a, 3)
+      if (!s) return VI(ENT_NUL)
+      return VI(rt.zoneAt(s, int(a[a.length - 2]!), int(a[a.length - 1]!)))
     },
     hzone(_, a) {
-      const s = scr()
-      const x = s.hardToScreenX(int(a[a.length - 2]!))
-      const y = int(a[a.length - 1]!) - s.displayY + s.offsetY
-      return VI(rt.zoneAt(x, y))
+      // FnHZone2/3 (+Lib.s:11009) -> SyZoHd (+W.s:11150) -> ZoEc -> GZone.
+      // ZoEc is the same routine Mouse Zone reaches, so Hzone gets its
+      // BOUNDS TEST too: a hardware coordinate outside the screen's
+      // displayed window answers 0 without the table ever being walked
+      // (`sub.w EcWx(a1),d1 / bcs` and `cmp.w EcWTx(a1),d1 / bcc`, and the
+      // same pair in Y). This port used to convert and walk regardless.
+      const s = zoneScreen(rt, a, 3)
+      if (!s) return VI(ENT_NUL)
+      return VI(rt.hardZoneAt(s, int(a[a.length - 2]!), int(a[a.length - 1]!)))
     },
     'mouse zone'(it, a) {
-      // FnMouseZone +Lib.s:11077 -> SyZoHd +W.s:11150: hard coords map
-      // into the current screen (display position, resolution doubling,
-      // screen offset); outside the screen the answer is 0
+      // FnMouseZone +Lib.s:11077 is `moveq #0,d3` then SyCall ZoHd — d3 = 0
+      // is "the current screen", the same selector Zone(x,y) passes, so
+      // Mouse Zone asks only the current screen's table and not, as SyMouZ
+      // (+W.s:11216, which nothing calls) would, every screen in priority
+      // order.
       void a
-      const s = scr()
-      const x = s.hardToScreenX(it.inp.mouseX)
-      const y = it.inp.mouseY - s.displayY + s.offsetY
-      if (x < 0 || y < 0 || x >= s.width || y >= s.height) return VI(0)
-      return VI(rt.zoneAt(x, y))
+      return VI(rt.hardZoneAt(scr(), it.inp.mouseX, it.inp.mouseY))
     },
     exist(_, a) {
       return VI(rt.fs?.read(str(a[0]!)) !== null && rt.fs !== null ? -1 : 0)
@@ -5148,6 +5233,41 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     qualified: ['xfire', 'library open', 'library close'],
   },
   {
+    // EasyLife at slot 16 --- Paul Hickman's extension, four builds and one
+    // port. 1.0 spells every keyword without the `el` prefix, so it is served
+    // by ALIASES rather than by a second implementation; 1.09/1.10/1.44 share
+    // the names this file uses. See easylife.ts.
+    ids: ['easylife-1.10', 'easylife-1.09', 'easylife-1.44', 'easylife-1.0'],
+    init: (rt) => {
+      rt.easylife = newEasyLifeState()
+    },
+    instructions: makeEasyLifeInstructions,
+    functions: makeEasyLifeFunctions,
+    errors: EASYLIFE_ERRORS,
+    aliases: {
+      /*
+       * 1.0's spelling of this slice. The rename was total --- the two tables
+       * share not one name --- but over the zone block it is a plain prefix,
+       * so six aliases cover it. `El Overlap` and the four `El Lap*` readers
+       * have no 1.0 entry at all: that block was added later.
+       *
+       * `zb install` is 1.0's alone as a NAME and not as a keyword. 1.10
+       * folded it into `!elzb multi add`'s one-argument continuation (id
+       * $45a, routine 103), which is why the guide's C_ElzbInstall node is
+       * headed "ElZb Multi Add BANK" rather than a name of its own. It
+       * arrives with the multi-zone slice, which is what it needs.
+       */
+      'easylife-1.0': {
+        znsx: 'elznsx',
+        znsy: 'elznsy',
+        znex: 'elznex',
+        zney: 'elzney',
+        'zn shift': 'elzn shift',
+        'zb add': 'elzb add',
+      },
+    },
+  },
+  {
     // Range 2.6 and 2.9Plus at slot 9 --- Shadow Software's AMOS Club
     // extension, shipped with TOME IV. 2.6's token table is a strict PREFIX
     // of 2.9Plus's, so one port serves both, as TOME 3.1/4.23 does. Five
@@ -5260,8 +5380,14 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
      * The armed contested names, registered per slot. Personnal keeps the
      * plain ones; on the machine these are different tokens at different
      * slots and coexist, which is what ext8: reproduces.
+     *
+     * `raster wait` is the newest: EasyLife spells it too, at slot 16, and
+     * became a ported product with slice 1, which is what turns the name from
+     * armed into live. AMCAF's is bound to AMCAF's slot here; EasyLife's own
+     * arrives with the slice that implements it, and until then a program at
+     * slot 16 gets the unimplemented answer rather than AMCAF's routine.
      */
-    qualified: ['set ntsc', 'set pal', 'speek', 'blitter copy limit', 'blitter copy', 'blitter clear'],
+    qualified: ['set ntsc', 'set pal', 'speek', 'blitter copy limit', 'blitter copy', 'blitter clear', 'raster wait'],
     /*
      * 1.50's two additions, which its own guide says ARE Music's:
      *

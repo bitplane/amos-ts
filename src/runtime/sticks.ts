@@ -354,10 +354,7 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
       const s = rt.screen
       const mx = n === 0 ? rt.input.mouseX : rt.sticks.mice[1]!.x
       const my = n === 0 ? rt.input.mouseY : rt.sticks.mice[1]!.y
-      const x = s.hardToScreenX(mx)
-      const y = my - s.displayY + s.offsetY
-      if (x < 0 || y < 0 || x >= s.width || y >= s.height) return VI(0)
-      return VI(rt.zoneAt(x, y))
+      return VI(rt.hardZoneAt(s, mx, my))
     },
   }
 }

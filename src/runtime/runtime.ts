@@ -16,6 +16,7 @@ import { newPiConfig } from './piconfig.gen'
 import { ensureLib, speakOne, type SpeechState } from './speech'
 import { SpeakBuffer, type SpeakOptions } from '../amiga/speak'
 import { ercoleVbl, type ErcoleState } from './ercole'
+import type { EasyLifeState } from './easylife'
 import type { DumpState } from './dump'
 import type { MiscExtState } from './miscext'
 import type { FileIdState } from './fileid'
@@ -58,7 +59,7 @@ import { ObjectBank } from './objects'
 import { BankImage } from './objects'
 import { Display } from './display'
 import { rowBytesFor, bankRowBytesFor } from '../amiga/planar'
-import type { Bob, HwSprite, Zone } from './objects'
+import type { Bob, HwSprite } from './objects'
 import type { AmosFS } from '../amiga/fs'
 import { A1200_POOLS, MEMF, availMem, type MemoryInUse } from '../amiga/exec'
 import { keyboardSdr } from '../amiga/keyboard'
@@ -415,7 +416,6 @@ export class Runtime {
   /** Limit Bob rectangles: global (key -1) or per bob */
   bobLimits = new Map<number, { x1: number; y1: number; x2: number; y2: number }>()
   priorityReverse = false
-  zones: Array<Zone | null> = []
   priorityOn = false
   fs: AmosFS | null = null
   // ---- AMAL ----
@@ -509,6 +509,8 @@ export class Runtime {
   medExt!: MedExtState
   /** Ercole 1.7: the Prop On hook and the two POT snapshots it fills */
   ercole!: ErcoleState
+  /** EasyLife: the fields it keeps in easylife.library's own struct */
+  easylife!: EasyLifeState
   /** Jotre 1.0: the THX replayer's flag byte, module address and sub-song */
   jotre!: JotreState
   /** Misc 1.0: the drive LED, which is all the state its twelve keywords have */
@@ -3425,13 +3427,40 @@ export class Runtime {
     return this.collide.colGet(n)
   }
 
-  /** 1-based index of the first zone containing (x,y) in screen coords, 0 if none. */
-  zoneAt(x: number, y: number): number {
-    for (let i = 0; i < this.zones.length; i++) {
-      const z = this.zones[i]
+  /**
+   * GZone (+W.s:11197) — 1-based index of the first zone of `s` containing
+   * (x,y) in that screen's coordinates, 0 if none.
+   *
+   * The table is the SCREEN's (EcAZones), so the screen is the first
+   * argument and not an implied global; `Zone(screen,x,y)` and
+   * `Hzone(screen,x,y)` are the forms that ask for one other than the
+   * current. First match wins and the walk is in table order.
+   */
+  zoneAt(s: Screen, x: number, y: number): number {
+    for (let i = 0; i < s.zones.length; i++) {
+      const z = s.zones[i]
       if (z && x >= z.x1 && y >= z.y1 && x <= z.x2 && y <= z.y2) return i + 1
     }
     return 0
+  }
+
+  /**
+   * ZoEc (+W.s:11158) — a HARDWARE coordinate into `s`, then GZone.
+   *
+   * The bounds test is the part worth having in one place: the point must
+   * land inside the screen's displayed window before the zone table is
+   * consulted at all (`sub.w EcWx(a1),d1 / bcs`, `cmp.w EcWTx(a1),d1 / bcc`,
+   * and the same pair in Y), and a miss is 0 rather than "no zone matched".
+   *
+   * SyCall ZoHd is a system vector, not a keyword, and four things reach it:
+   * `Hzone` and `Mouse Zone` in the core, TURBO's `Hit Spr Zone` (routine 19,
+   * `jsr $48(a0)` on T_SyVect) and Sticks' `Mouse Area`.
+   */
+  hardZoneAt(s: Screen, hx: number, hy: number): number {
+    const x = s.hardToScreenX(hx)
+    const y = s.hardToScreenY(hy)
+    if (x < 0 || y < 0 || x >= s.width || y >= s.height) return 0
+    return this.zoneAt(s, x, y)
   }
 
   // ---- input from the host ----
