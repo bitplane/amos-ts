@@ -239,9 +239,12 @@ describe('EasyLife: El Overlap and the lap rectangle (routines 153-157)', () => 
 })
 
 describe('EasyLife: the error table', () => {
-  it('is the block routine 300 points at, indexed by the negated code', () => {
-    // routine 299: `tst.l d0 / bmi .own / Rjmp L_Error`, and .own is
-    // `neg.l d0 / Rbra routine 300`
+  it('is the block routine 300 points at, and the index is zero-based', () => {
+    // Three call sites name their own message and pin it: routine 81 passes
+    // 12 for "No Multi Zones Reserved", routine 87 passes 11 for "Multi Zone
+    // Not Defined", routine 83 passes 10 for "Multi Zone Table Full"
+    expect(EASYLIFE_ERRORS[10]).toBe('Multi Zone Table Full - No space to set new zone')
+    expect(EASYLIFE_ERRORS[11]).toBe('Multi Zone Not Defined')
     expect(EASYLIFE_ERRORS.length).toBe(42)
     expect(EASYLIFE_ERRORS[0]).toBe('Unable To Open Powerpacker Library V35+')
     expect(EASYLIFE_ERRORS[12]).toBe('No Multi Zones Reserved')
@@ -251,6 +254,197 @@ describe('EasyLife: the error table', () => {
     // the zone block raises none of them: routines 2, 3 and 159 all go
     // straight to L_Error with AMOS's own 47, 23 and 36
     expect(EASYLIFE_ERRORS.some((m) => /zone bank/i.test(m))).toBe(false)
+  })
+})
+
+describe('EasyLife: multi-zones (routines 80-96)', () => {
+  /** ElMz Reserve rounds up to even and takes over the whole zone table */
+  const RES = (n: number): string => `Elmz Reserve ${n}\n`
+
+  it('reserves n*3/2+1 records and hands the first n out as zones', () => {
+    // routine 80: `addq.l #$1,d6 / andi.l #$fffffffe,d6` then
+    // `move.l d6,d7 / asr.l #$1,d7 / add.l d6,d7 / addq.l #$1,d7`
+    const { rt } = run(OPEN + RES(5))
+    // 5 rounds to 6, and 6*3/2+1 = 10 records is what EcNZones becomes
+    expect(rt.screen.zones.length).toBe(10)
+    expect(rt.screen.multiZones?.slots.length).toBe(6)
+    // the free list runs 0 -> 1 -> ... -> 5 -> $ffff, head 0
+    expect(rt.screen.multiZones?.free).toBe(0)
+    expect(rt.screen.multiZones?.slots.map((s) => s.next)).toEqual([1, 2, 3, 4, 5, -1])
+  })
+
+  it('refuses a table that would need 8192 records or more', () => {
+    // `cmp.l #$2000,d5 / Rbcc routine 3`, and 5460*3/2+1 = 8191 — the guide's
+    // "A maximum of 5460 multi zones can be defined. (There is a good reason
+    // for that number!)"
+    expect(run(OPEN + RES(5460)).rt.screen.multiZones?.slots.length).toBe(5460)
+    expect(fails(OPEN + RES(5461))).toMatch(/Illegal function call/)
+    // DEVIATION: zero or less is an unbounded write on the machine
+    expect(fails(OPEN + RES(0))).toMatch(/Illegal function call/)
+    expect(fails(OPEN + RES(-4))).toMatch(/Illegal function call/)
+  })
+
+  it('every multi-zone keyword needs the table, and says so in its own words', () => {
+    for (const k of [
+      'Elmz  Set 1,1,0,0 To 5,5',
+      'Elmz  Set 1,1',
+      'Elmz Erase 1',
+      'Print Elmznsx(1,1)',
+      'Print Elmzone(0,0)',
+      'Print Elmzonen',
+    ]) {
+      expect(fails(OPEN + k + '\n')).toMatch(/No Multi Zones Reserved/)
+    }
+    // Elmzoneg is the exception: routine 93 never calls routine 81
+    expect(run(OPEN + 'Print Elmzoneg\n').out).toBe(' 0\n')
+  })
+
+  it('Elmz Set stores a rectangle under (GROUP,ID) and sorts the corners', () => {
+    const { out } = run(
+      OPEN +
+        RES(4) +
+        'Elmz  Set 7,3,30,40 To 10,20\n' +
+        'Print Elmznsx(7,3);Elmznsy(7,3);Elmznex(7,3);Elmzney(7,3)\n',
+    )
+    expect(out).toBe(' 10 20 30 40\n')
+  })
+
+  it('the same GROUP and ID overwrites in place rather than taking a slot', () => {
+    const { rt } = run(OPEN + RES(4) + 'Elmz  Set 1,1,0,0 To 5,5\nElmz  Set 1,1,9,9 To 20,20\n')
+    expect(rt.screen.multiZones?.free).toBe(1)
+    expect(rt.screen.zones[0]).toEqual({ x1: 9, y1: 9, x2: 20, y2: 20 })
+  })
+
+  it('group and id are 1..65535, and zero is refused because zero means free', () => {
+    const p = OPEN + RES(4)
+    expect(fails(p + 'Elmz  Set 0,1,0,0 To 5,5\n')).toMatch(/Illegal function call/)
+    expect(fails(p + 'Elmz  Set 1,0,0,0 To 5,5\n')).toMatch(/Illegal function call/)
+    expect(fails(p + 'Elmz  Set 0,1\n')).toMatch(/Illegal function call/)
+    expect(fails(p + 'Print Elmznsx(0,1)\n')).toMatch(/Illegal function call/)
+    expect(fails(p + 'Print Elmznsx(1,0)\n')).toMatch(/Illegal function call/)
+    // ...but routines 85, 86 and 87 all reach routine 81 BEFORE either
+    // argument, so with no table it is the table that is complained about
+    expect(fails(OPEN + 'Elmz  Set 0,0,0,0 To 5,5\n')).toMatch(/No Multi Zones Reserved/)
+    expect(fails(OPEN + 'Print Elmznsx(0,0)\n')).toMatch(/No Multi Zones Reserved/)
+  })
+
+  it('the erase form is recognised at a colon as well as at end of line', () => {
+    const { rt } = run(OPEN + RES(4) + 'Elmz  Set 1,1,0,0 To 5,5 : Elmz  Set 1,1 : Print 1\n')
+    expect(rt.screen.multiZones?.free).toBe(0)
+  })
+
+  it('a full table is the extension\'s own "Multi Zone Table Full"', () => {
+    // routine 83's `cmp.w #$ffff,d0` on the free-list head
+    const p = OPEN + RES(2) + 'Elmz  Set 1,1,0,0 To 1,1\nElmz  Set 1,2,0,0 To 1,1\n'
+    expect(run(p).rt.screen.multiZones?.free).toBe(-1)
+    expect(fails(p + 'Elmz  Set 1,3,0,0 To 1,1\n')).toMatch(/Multi Zone Table Full/)
+  })
+
+  it('an undefined pair is "Multi Zone Not Defined", from routine 87', () => {
+    expect(fails(OPEN + RES(4) + 'Print Elmznsx(1,1)\n')).toMatch(/Multi Zone Not Defined/)
+  })
+
+  it('DEFECT: Elmzney does not sign-extend where its three siblings do', () => {
+    // routine 91 is `ext.l d3 / move.w $6(a1,d2.w),d3` and routines 88-90 are
+    // the two the other way round, so only this one leaves the high word zero
+    const { out } = run(
+      OPEN + RES(2) + 'Elmz  Set 1,1,-30,-40 To -10,-20\nPrint Elmznsx(1,1);Elmznsy(1,1);Elmzney(1,1)\n',
+    )
+    // -20 comes back as 65516 while -30 and -40 come back negative
+    expect(out).toBe('-30-40 65516\n')
+  })
+
+  it('NOTE: the sort is unsigned, so a rectangle straddling zero comes out inverted', () => {
+    // `cmp.l d1,d5 / bcc` — two negatives keep their order, since unsigned
+    // comparison preserves it, but -10 ($fffffff6) sorts ABOVE +10. The
+    // guide promises "X1,Y1 and X2,Y2 are automatically sorted so X1 <= X2,
+    // and Y1 <= Y2" for coordinates it also says may be -32768 to 32767.
+    const { out } = run(
+      OPEN + RES(2) + 'Elmz  Set 1,1,-10,-10 To 10,10\nPrint Elmznsx(1,1);Elmznex(1,1)\n',
+    )
+    expect(out).toBe(' 10-10\n')
+  })
+
+  it('Elmz Set GROUP,ID erases one zone, and a missing one is a no-op', () => {
+    const { rt } = run(OPEN + RES(4) + 'Elmz  Set 1,1,0,0 To 5,5\nElmz  Set 1,1\n')
+    // freed slots go back LIFO, so slot 0 is the head again
+    expect(rt.screen.multiZones?.free).toBe(0)
+    // DEVIATION: routine 86 tests `cmp.l #$ffff,d2` where its siblings test
+    // `cmp.w`, and routine 82 answers -1 — so the not-found branch is dead
+    // and the machine frees slot -1. A no-op here.
+    expect(() => run(OPEN + RES(4) + 'Elmz  Set 9,9\n')).not.toThrow()
+    // the RECTANGLE survives the erase; only the index entry is released
+    expect(rt.screen.zones[0]).toEqual({ x1: 0, y1: 0, x2: 5, y2: 5 })
+  })
+
+  it('Elmz Erase takes a whole group and leaves the others', () => {
+    const { rt } = run(
+      OPEN +
+        RES(6) +
+        'Elmz  Set 1,1,0,0 To 5,5\nElmz  Set 2,1,0,0 To 5,5\nElmz  Set 1,2,0,0 To 5,5\n' +
+        'Elmz Erase 1\n',
+    )
+    const used = rt.screen.multiZones!.slots.filter((s) => s.id !== 0)
+    expect(used.length).toBe(1)
+    expect(used[0]!.group).toBe(2)
+  })
+
+  it('Elmzone walks every zone containing the point, unlike =Zone', () => {
+    // "You can find all the zones a point lies in, not just the first one in
+    // the list (unlike standard zones)."
+    const { out } = run(
+      OPEN +
+        RES(4) +
+        'Elmz  Set 1,10,0,0 To 100,100\nElmz  Set 2,20,50,50 To 200,200\n' +
+        'Print Elmzone(60,60);Elmzoneg\n' +
+        'Print Elmzonen;Elmzoneg\n' +
+        'Print Elmzonen;Elmzoneg\n',
+    )
+    expect(out).toBe(' 10 1\n 20 2\n 0 0\n')
+  })
+
+  it('the far corner is inclusive, where Set Zone refuses to make one', () => {
+    // `cmp.w $6e(a0),d0 / bge` — x2 < x is the miss, so x2 == x is a hit
+    const p = OPEN + RES(2) + 'Elmz  Set 1,1,10,10 To 20,20\n'
+    expect(run(p + 'Print Elmzone(20,20)\n').out).toBe(' 1\n')
+    expect(run(p + 'Print Elmzone(21,20)\n').out).toBe(' 0\n')
+    expect(run(p + 'Print Elmzone(10,10)\n').out).toBe(' 1\n')
+  })
+
+  it('the three-argument form filters by group, and Elmzoneg follows it', () => {
+    const p =
+      OPEN + RES(4) + 'Elmz  Set 1,10,0,0 To 100,100\nElmz  Set 2,20,0,0 To 100,100\n'
+    expect(run(p + 'Print Elmzone(5,5,2);Elmzoneg\n').out).toBe(' 20 2\n')
+    // "ElMzoneg will still work if you specify a group ... but it will only
+    // ever return group number GROUP, or 0 if no zone was found"
+    expect(run(p + 'Print Elmzone(5,5,9);Elmzoneg\n').out).toBe(' 0 0\n')
+  })
+
+  it('an erased zone stops matching without its rectangle being touched', () => {
+    const p = OPEN + RES(4) + 'Elmz  Set 1,1,0,0 To 100,100\n'
+    expect(run(p + 'Print Elmzone(5,5)\n').out).toBe(' 1\n')
+    const { rt, out } = run(p + 'Elmz  Set 1,1\nPrint Elmzone(5,5)\n')
+    expect(out).toBe(' 0\n')
+    expect(rt.screen.zones[0]).toEqual({ x1: 0, y1: 0, x2: 100, y2: 100 })
+  })
+
+  it('Reserve Zone erases the multi-zones, as the guide says it does', () => {
+    // routine 81 recognises the table by the $0000fefd in its last record,
+    // and SyResZ allocates a fresh one
+    const { rt } = run(OPEN + RES(4) + 'Elmz  Set 1,1,0,0 To 5,5\nReserve Zone\n')
+    expect(rt.screen.multiZones).toBe(null)
+    expect(rt.screen.zones.length).toBe(0)
+    expect(fails(OPEN + RES(4) + 'Reserve Zone 3\nPrint Elmzonen\n')).toMatch(/No Multi Zones Reserved/)
+  })
+
+  it('Elzb Add erases them too — it goes through the same routine 104', () => {
+    const BANK =
+      'Reserve As Work 5,32\n' +
+      'Doke Start(5)+2,1 : Doke Start(5)+6,12 : Doke Start(5)+12,1\n' +
+      'Doke Start(5)+14,7 : Doke Start(5)+16,8 : Doke Start(5)+18,9 : Doke Start(5)+20,10\n'
+    const { rt } = run(OPEN + BANK + RES(4) + 'Elzb Add 0,5,1\n')
+    expect(rt.screen.multiZones).toBe(null)
+    expect(rt.screen.zones.length).toBe(1)
   })
 })
 
@@ -283,5 +477,31 @@ describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
     })
     mustFinish(rt.runHeadless(2000))
     expect(printed).toBe(' 11 21 31 41\n 7 10\n')
+  })
+
+  it('and the ten multi-zone names, where the rename was not a prefix strip', () => {
+    // `reserve multi zone` / `set multi zone` / `clear multi group` read as
+    // English where 1.09 onwards is all `elmz`; `mzone`/`mzoneg`/`mzonen`
+    // lose the `el` too. Same routines: 80, 85, 92, 88-91, 95, 96, 93.
+    const one = extensionById('easylife-1.0')!
+    const exts = new Map([[16, one.table]])
+    let printed = ''
+    const src =
+      OPEN +
+      'Reserve Multi Zone 4\n' +
+      'Set Multi Zone 3,7,10,20 To 30,40\n' +
+      'Set Multi Zone 5,9,0,0 To 100,100\n' +
+      'Print Mznsx(3,7);Mznsy(3,7);Mznex(3,7);Mzney(3,7)\n' +
+      'Print Mzone(15,25);Mzoneg;Mzonen;Mzoneg\n' +
+      'Clear Multi Group 3\n' +
+      'Print Mzone(15,25);Mzoneg\n'
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, one]]),
+      maxSteps: 200_000,
+      onText: (t) => (printed += t),
+    })
+    mustFinish(rt.runHeadless(2000))
+    expect(printed).toBe(' 10 20 30 40\n 7 3 9 5\n 9 5\n')
   })
 })

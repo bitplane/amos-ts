@@ -3,3 +3,6 @@ dist/
 dist-web/
 fixtures/
 *.log
+
+# throwaway one-off scripts while reading a binary — never committed
+src/cli/tmp/

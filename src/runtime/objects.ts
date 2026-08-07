@@ -205,6 +205,43 @@ export interface Zone {
   y2: number
 }
 
+/**
+ * One slot of EasyLife's multi-zone index — four bytes per zone, kept in the
+ * same table AMOS's zones live in.
+ *
+ * It is here beside `Zone` and not in easylife.ts because the LIFETIME is the
+ * screen's: `Reserve Zone`, `Elzb Add` and closing the screen all replace
+ * EcAZones and take the index with it, and that rule belongs where the table
+ * does (Screen.reserveZones). The extension owns the meaning; the screen owns
+ * the storage.
+ */
+export interface MultiZoneSlot {
+  /** the group, 1..65535 — word 0 of the entry */
+  group: number
+  /** the zone id, 1..65535 — word 2, and ZERO is what marks the slot FREE */
+  id: number
+  /** the free-list link while `id` is 0: the next free slot, or -1 for $ffff */
+  next: number
+}
+
+/**
+ * The `$0000fefd` overlay `ElMz Reserve` (routine 80) lays over a screen's
+ * zone table, and routine 81 recognises by that magic longword.
+ *
+ * On the machine it is all one allocation of `n*3/2 + 1` eight-byte records:
+ * records 0..n-1 are the zone RECTANGLES — the very same layout AMOS's own
+ * zones use, which is why the guide warns that "Normal screen zones will not
+ * work with multi zones installed, but will not produce error messages, just
+ * unreliable results" — then `n*4` bytes of index, then one trailer record
+ * holding n, the free-list head and the magic.
+ */
+export interface MultiZoneTable {
+  /** one per rectangle, so `slots[i]` describes `Screen.zones[i]` */
+  slots: MultiZoneSlot[]
+  /** the free-list head, a slot index, or -1 for $ffff (the table is full) */
+  free: number
+}
+
 /** Pixel-precise overlap test between two placed images. */
 export function imagesCollide(
   a: BankImage,

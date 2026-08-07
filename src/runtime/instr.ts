@@ -2073,9 +2073,9 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       // and then asks FastMm for n*8 bytes, so a count the fast pool cannot
       // hold is error 24 AND leaves the screen with no zones at all
       const s = rt.screen
-      s.zones = []
+      s.reserveZones(0)
       if (n * 8 > rt.fastFree()) throw new AmosError('Out of memory', ERR.OUT_OF_MEMORY)
-      s.zones = new Array<null>(n).fill(null)
+      s.reserveZones(n)
     },
     'set zone'(it) {
       const n = it.evalInt()
@@ -5264,6 +5264,19 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
         zney: 'elzney',
         'zn shift': 'elzn shift',
         'zb add': 'elzb add',
+        // the multi-zone block, where 1.0's names are not a prefix strip at
+        // all: `reserve multi zone` and `set multi zone` read as English and
+        // `mzone`/`mzoneg`/`mzonen` drop the `el` as well as the `m` boundary
+        'reserve multi zone': 'elmz reserve',
+        'set multi zone': 'elmz  set',
+        'clear multi group': 'elmz erase',
+        mznsx: 'elmznsx',
+        mznsy: 'elmznsy',
+        mznex: 'elmznex',
+        mzney: 'elmzney',
+        mzone: 'elmzone',
+        mzoneg: 'elmzoneg',
+        mzonen: 'elmzonen',
       },
     },
   },

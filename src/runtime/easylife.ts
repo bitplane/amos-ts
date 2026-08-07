@@ -12,9 +12,9 @@
  * DISASSEMBLY tier, with an unusually good manual beside it.
  * `AMOSPro_EasyLife.Lib` (a 16,436-byte code hunk, 302 routines) plus
  * `Docs/extensions/EasyLife.guide`, `EasyLifeSTRUCT.guide` and
- * `EasyLifeMUI.guide`. Where the two disagree the binary wins, and on zones
- * they disagree three times — see the notes on `elznsx`, `elzn shift` and
- * `elzb add`.
+ * `EasyLifeMUI.guide`. Where the two disagree the binary wins, and over the
+ * zone block alone they disagree five times — see the notes on `elznsx`,
+ * `elzn shift`, `elzb add`, `elmz set` and `elmzney`.
  *
  * ## Four identities, one port
  *
@@ -41,21 +41,24 @@
  *     .own: neg.l d0 / Rbra routine 300         negative: this table, negated
  *
  * Routine 300 is `lea $3aea(pc),a0 / moveq #0,d1 / moveq #$f,d2 / moveq #0,d3
- * / Rjmp L_ErrorExt` over the block below. Routine 3 ($138c) is the shared
- * catch-all, `moveq #$17,d0 / Rjmp L_Error` — AMOS 23. Routine 2 ($1384) is
- * `moveq #$2f,d0`, error 47, and routine 159 ($279c) `moveq #$24,d0`, error
- * 36; both are AMOS's own numbers, so the zone block below raises nothing
- * from the private table at all.
+ * / Rjmp L_ErrorExt` over the block below, and its d0 is a ZERO-BASED index
+ * into it — pinned by three call sites that name their message: routine 81
+ * passes 12 for "No Multi Zones Reserved" (the thirteenth), routine 87 passes
+ * 11 for "Multi Zone Not Defined" and routine 83 passes 10 for "Multi Zone
+ * Table Full". Routine 3 ($138c) is the shared catch-all, `moveq #$17,d0 /
+ * Rjmp L_Error` — AMOS 23. Routine 2 ($1384) is `moveq #$2f,d0`, error 47,
+ * and routine 159 ($279c) `moveq #$24,d0`, error 36; those are AMOS's own
+ * numbers, so the AMOS-zone block raises nothing from the private table.
  */
-import { AmosError, VI, funcCall, int, type Value } from '../interp/values'
+import { AmosError, ERR, VI, funcCall, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import type { Screen } from './screen'
-import type { Zone } from './objects'
+import type { MultiZoneTable, Zone } from './objects'
 
 /**
- * The extension's own error messages, in block order — the index is the
- * NEGATED code routine 299 was handed, so -1 is the first.
+ * The extension's own error messages, in block order, and the index is
+ * literally the d0 routine 300 is handed — zero-based, see `elError`.
  *
  * Four slots are empty, and the block partitions exactly as the guide's
  * sections do: nine PowerPacker, one message bank, three multi-zone, one
@@ -123,12 +126,55 @@ export interface EasyLifeState {
   lapsy: number
   lapex: number
   lapey: number
+  /**
+   * `Elmzone`'s saved query — $6e/$70/$74/$72/$76 of the same struct, in the
+   * order x, y, group filter, scan cursor, last group found.
+   *
+   * They live in the LIBRARY and not on the screen, which is what lets
+   * `Elmzonen` carry on where `Elmzone` left off across anything that does
+   * not touch the zone table. The cursor is a record offset on the machine
+   * and always a multiple of eight; it is a slot index here.
+   */
+  mzX: number
+  mzY: number
+  mzFilter: number
+  mzCursor: number
+  mzGroup: number
 }
 
-export const newEasyLifeState = (): EasyLifeState => ({ lapsx: 0, lapsy: 0, lapex: 0, lapey: 0 })
+export const newEasyLifeState = (): EasyLifeState => ({
+  lapsx: 0,
+  lapsy: 0,
+  lapex: 0,
+  lapey: 0,
+  mzX: 0,
+  mzY: 0,
+  mzFilter: 0,
+  mzCursor: 0,
+  mzGroup: 0,
+})
 
 /** the unsigned view of an AMOS 32-bit integer, which is how routine 153 compares */
 const u32 = (n: number): number => n >>> 0
+
+/** `move.w` into a cleared register: the low word, unsigned */
+const w = (n: number): number => n & 0xffff
+/** `move.w` then `ext.l`: the low word, signed */
+const sw = (n: number): number => ((n & 0xffff) << 16) >> 16
+
+/**
+ * Routine 300 ($3ada) — raise one of the extension's own messages.
+ *
+ * `lea $3aea(pc),a0 / moveq #0,d1 / moveq #$f,d2 / moveq #0,d3 / Rjmp
+ * L_ErrorExt`, and d0 arrives as a ZERO-BASED index into the block: routine
+ * 81 passes 12 for "No Multi Zones Reserved", which is the thirteenth
+ * message, routine 87 passes 11 for "Multi Zone Not Defined" and routine 83
+ * passes 10 for "Multi Zone Table Full". Routine 299 is the other way in and
+ * merely negates, so an AMOS-style code of -12 lands on the same message.
+ */
+const elError: (n: number) => never = (n) => {
+  throw new AmosError(EASYLIFE_ERRORS[n] ?? `EasyLife error ${n}`)
+}
 
 /**
  * Routines 4 and 5 ($1394, $13a4) — which screen the zone readers ask.
@@ -177,7 +223,85 @@ function elZone(s: Screen, n: number): Zone | null {
  * zone with co-ordinates 10,10 to 50,20 by 20 pixels to the left, the new
  * co-ordinates will be 65526,10 to 30,20". 65526, not -10.
  */
-const elCoord = (z: Zone | null, k: 'x1' | 'y1' | 'x2' | 'y2'): Value => VI((z?.[k] ?? 0) & 0xffff)
+const elCoord = (z: Zone | null, k: 'x1' | 'y1' | 'x2' | 'y2'): Value => VI(w(z?.[k] ?? 0))
+
+// ---- multi-zones -----------------------------------------------------------
+
+/**
+ * Routine 81 ($1c38) — reach the multi-zone table of the current screen.
+ *
+ *     move.l $52c(a5),d5 / Rbeq routine 2        no screen open is error 47
+ *     movea.l d5,a0 / move.l $d2(a0),d5 / beq .no
+ *     movea.l d5,a1 / move.w $d6(a0),d7 / asl.l #$3,d7
+ *     move.l -$4(a1,d7.w),d5 / cmp.l #$fefd,d5 / bne .no
+ *     move.w -$8(a1,d7.w),d6                    n, out of the trailer
+ *     ... a2 = a1 + n*8, d5 = n*4
+ *  .no: moveq #$c,d0 / Rbra routine 300          "No Multi Zones Reserved"
+ *
+ * The magic longword in the LAST record is the whole test, which is why
+ * anything that reallocates EcAZones takes the multi-zones with it — see
+ * Screen.reserveZones.
+ */
+function multiZones(rt: Runtime): { s: Screen; m: MultiZoneTable } {
+  const s = rt.screen
+  const m = s.multiZones
+  if (!m) elError(12)
+  return { s, m }
+}
+
+/**
+ * Routine 82 ($1c76) — the linear search every multi-zone keyword starts
+ * with, from slot `from`.
+ *
+ *     cmp.l d5,d2 / bcc .none      past n*4 bytes of index and it is done
+ *     move.w (a2,d2.w),d4 / cmp.w d0,d4 / bne .next        the GROUP
+ *     move.w $2(a2,d2.w),d4 / beq .next                    id 0 = free slot
+ *     tst.w d1 / beq .hit          a zero ID argument matches ANY
+ *     cmp.w d1,d4 / beq .hit
+ *  .none: moveq #$ff,d2           and note that is -1, not $ffff
+ */
+function findSlot(m: MultiZoneTable, group: number, id: number, from = 0): number {
+  for (let i = from; i < m.slots.length; i++) {
+    const sl = m.slots[i]!
+    if (sl.group !== group) continue
+    if (sl.id === 0) continue
+    if (id === 0 || sl.id === id) return i
+  }
+  return -1
+}
+
+/**
+ * Routine 83 ($1c9e) — take the head off the free list.
+ *
+ *     move.w -$6(a1,d7.w),d0            the head, in the trailer
+ *     cmp.w #$ffff,d0 / beq -> message 10, "Multi Zone Table Full"
+ *     move.w (a2,d0.w),d1               the free entry's own link
+ *     move.w d1,-$6(a1,d7.w)
+ */
+function allocSlot(m: MultiZoneTable): number {
+  if (m.free < 0) elError(10)
+  const i = m.free
+  m.free = m.slots[i]!.next
+  return i
+}
+
+/**
+ * Routine 84 ($1cb8) — push a slot back, LIFO.
+ *
+ *     move.w -$6(a1,d7.w),d1 / move.w d1,(a2,d0)      link to the old head
+ *     move.w #$0,$2(a2,d0)                            id 0 marks it free
+ *     move.w d0,-$6(a1,d7.w)                          and it becomes the head
+ *
+ * The RECTANGLE is left alone, so a freed zone's coordinates survive in the
+ * screen's zone table — `Elmzonen` steps over it on the id test, not on the
+ * geometry, and AMOS's own `Zone()` has no id test to make.
+ */
+function freeSlot(m: MultiZoneTable, i: number): void {
+  const sl = m.slots[i]!
+  sl.next = m.free
+  sl.id = 0
+  m.free = i
+}
 
 export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
   const st = (): EasyLifeState => rt.easylife
@@ -238,7 +362,137 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
     'el lapex': (): Value => VI(st().lapex),
     /** =El Lapey — routine 157 ($277c), $ae */
     'el lapey': (): Value => VI(st().lapey),
+
+    /**
+     * =Elmznsx(GROUP,ID) — routines 88-91 ($1d94-$1dbe) over the shared
+     * prologue at routine 87 ($1d6c), which pops ID then GROUP, refuses
+     * either as zero with AMOS 23, and raises message 11, "Multi Zone Not
+     * Defined", when the pair is not in the index.
+     *
+     * Each reader is `Rbsr routine 87 / move.w $N(a1,d2.w),d3 / ext.l d3`,
+     * so unlike the AMOS-zone readers these are SIGNED — the guide says so
+     * and here it is right: "The values returned are signed (-32768 to
+     * 32767)".
+     */
+    elmznsx: mzCorner(rt, 'x1'),
+    /** =Elmznsy — routine 89 ($1da2), `$2(a1,d2.w)` */
+    elmznsy: mzCorner(rt, 'y1'),
+    /** =Elmznex — routine 90 ($1db0), `$4(a1,d2.w)` */
+    elmznex: mzCorner(rt, 'x2'),
+    /**
+     * =Elmzney — routine 91 ($1dbe), and the odd one out.
+     *
+     * DEFECT: its two instructions are in the wrong order.
+     *
+     *     routine 90:  move.w $4(a1,d2.w),d3 / ext.l d3
+     *     routine 91:  ext.l d3 / move.w $6(a1,d2.w),d3
+     *
+     * so the sign-extension runs on the d3 routine 87 has just cleared and
+     * the load lands afterwards, leaving the high word zero. `Elmzney`
+     * therefore answers 0..65535 where its three siblings answer -32768..32767
+     * — a zone whose y2 is negative reads back as 65536 plus it. The guide's
+     * "The values returned are signed" covers all four and is right about
+     * three. Reproduced.
+     */
+    elmzney: (_, a): Value => VI(w(mzZone(rt, a)?.y2 ?? 0)),
+
+    /**
+     * =Elmzone(X,Y) / =Elmzone(X,Y,GROUP) — routines 95 ($1e08) and 94.
+     *
+     * Stores the query in the companion library's struct ($6e/$70/$74),
+     * resets the scan cursor at $72 and falls straight into `Elmzonen`. The
+     * two-argument form is routine 94, six bytes that push a literal zero for
+     * the group and branch in — so "no filter" and "group 0" are the same
+     * thing, which is why group 0 cannot be a real group.
+     *
+     * The coordinates are stored with `move.w`, so they truncate to sixteen
+     * bits, and the scan compares them SIGNED.
+     */
+    elmzone: mzone(rt),
+
+    /**
+     * =Elmzonen — routine 96 ($1e28), which is both the keyword and the tail
+     * of `Elmzone`.
+     *
+     * Walks the rectangles from the cursor, taking the FIRST that contains
+     * the point, and the four tests are `x1 > x`, `y1 > y`, `x2 < x`, `y2 < y`
+     * as signed words — so the far corner is inclusive, unlike `Set Zone`'s.
+     * The cursor is advanced past a geometric hit BEFORE the group filter and
+     * the id are checked, so a rejected zone is never revisited. Out of
+     * zones, it parks the cursor at the end, clears the saved group and
+     * answers 0 — which is also what "no more" looks like, exactly as the
+     * guide says: "All of these commands return 0 if there is no remaining
+     * zone which contains the point specified."
+     */
+    elmzonen: (): Value => VI(mzNext(rt)),
+
+    /**
+     * =Elmzoneg — routine 93 ($1df0), `moveq #$0,d3 / move.w $76(a0),d3`.
+     *
+     * The group of whatever the last `Elmzone`/`Elmzonen` found, zeroed when
+     * the scan came up empty. It does NOT go through routine 81, so it
+     * answers even with no multi zones reserved — the only keyword in the
+     * block that does not raise.
+     */
+    elmzoneg: (): Value => VI(w(st().mzGroup)),
   }
+}
+
+/** the four `Elmzn*` readers, which differ only in the field they load */
+function mzCorner(rt: Runtime, k: 'x1' | 'y1' | 'x2' | 'y2'): Func {
+  return (_, a): Value => VI(sw(mzZone(rt, a)?.[k] ?? 0))
+}
+
+/** routine 87 ($1d6c): (GROUP, ID) to the rectangle, or message 11 */
+function mzZone(rt: Runtime, a: Value[]): Zone | null {
+  // routine 87 calls routine 81 BEFORE it looks at either argument, so a
+  // screen with no multi zones says so even when the pair is (0,0); then
+  // `move.l (a3)+,d1 / Rbeq routine 3` pops the LAST argument first, so the
+  // id is the one refused before the group is even read
+  const { s, m } = multiZones(rt)
+  const id = int(a[1] ?? VI(0))
+  if (id === 0) funcCall()
+  const group = int(a[0] ?? VI(0))
+  if (group === 0) funcCall()
+  const i = findSlot(m, w(group), w(id))
+  if (i < 0) elError(11)
+  return s.zones[i] ?? null
+}
+
+function mzone(rt: Runtime): Func {
+  return (_, a): Value => {
+    const st = rt.easylife
+    st.mzX = sw(int(a[0] ?? VI(0)))
+    st.mzY = sw(int(a[1] ?? VI(0)))
+    st.mzFilter = w(int(a[2] ?? VI(0)))
+    st.mzCursor = 0
+    return VI(mzNext(rt))
+  }
+}
+
+/** routine 96's scan, shared by `Elmzone` and `Elmzonen` */
+function mzNext(rt: Runtime): number {
+  const st = rt.easylife
+  const { s, m } = multiZones(rt)
+  for (let i = st.mzCursor; i < m.slots.length; i++) {
+    const z = s.zones[i]
+    // an untouched record is eight zero bytes here; on the machine it is
+    // whatever AllocMem handed back, but no slot referring to it is in use
+    const x1 = sw(z?.x1 ?? 0)
+    const y1 = sw(z?.y1 ?? 0)
+    const x2 = sw(z?.x2 ?? 0)
+    const y2 = sw(z?.y2 ?? 0)
+    if (x1 > st.mzX || y1 > st.mzY || x2 < st.mzX || y2 < st.mzY) continue
+    st.mzCursor = i + 1
+    const sl = m.slots[i]!
+    if (st.mzFilter !== 0 && sl.group !== st.mzFilter) continue
+    if (sl.id === 0) continue
+    st.mzGroup = sl.group
+    return sl.id
+  }
+  st.mzCursor = m.slots.length
+  st.mzGroup = 0
+  return 0
 }
 
 export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
@@ -339,7 +593,150 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
       const group = it.evalInt()
       const s = rt.screens.get(scr)
       if (!s) throw new AmosError(`screen not opened: ${scr}`, 47)
-      s.zones = zoneBankGroup(rt, bank, group)
+      const zones = zoneBankGroup(rt, bank, group)
+      s.reserveZones(zones.length)
+      for (let i = 0; i < zones.length; i++) s.zones[i] = zones[i]!
+    },
+
+    /**
+     * ElMz Reserve NUM — routine 80 ($1bd6).
+     *
+     *     move.l (a3)+,d6 / addq.l #$1,d6 / andi.l #$fffffffe,d6   round UP
+     *     move.l d6,d7 / asr.l #$1,d7 / add.l d6,d7 / addq.l #$1,d7
+     *     cmp.l #$2000,d5 / Rbcc routine 3        n*3/2+1 must stay under 8192
+     *     Rbsr routine 104                        replace EcAZones outright
+     *
+     * so `NUM` is rounded up to even and the table costs one and a half
+     * records a zone plus a trailer, which is where the guide's "A maximum of
+     * 5460 multi zones can be defined. (There is a good reason for that
+     * number!)" comes from: 5460*3/2+1 = 8191, and 5462 would be 8194.
+     *
+     * The rest of the routine builds the free list — entry i links to i+1,
+     * the last to $ffff, the head is 0 — and writes n, that head and the
+     * $0000fefd magic into the trailer record.
+     *
+     * DEVIATION: `NUM` of zero or less scribbles memory on the machine.
+     * `(0+1) & ~1` is 0, so it allocates one record and then runs
+     * `moveq #$4,d1 / subq.l #$2,d2 / ... dbra d2` with d2 = -2, and dbra
+     * counts the LOW WORD down from $fffe — 65535 iterations writing four
+     * bytes each, a quarter of a megabyte past an eight-byte allocation. The
+     * guide documents no error for it; AMOS 23 is raised here.
+     */
+    'elmz reserve'(it) {
+      const n = it.evalInt()
+      if (n <= 0) funcCall() // DEVIATION: see above
+      const count = (n + 1) & ~1
+      const total = (count * 3) / 2 + 1
+      if (u32(total) >= 0x2000) funcCall()
+      const s = rt.screen
+      s.reserveZones(0)
+      if (total * 8 > rt.fastFree()) throw new AmosError('Out of memory', ERR.OUT_OF_MEMORY)
+      s.reserveZones(total)
+      s.multiZones = {
+        slots: Array.from({ length: count }, (_, i) => ({ group: 0, id: 0, next: i === count - 1 ? -1 : i + 1 })),
+        free: 0,
+      }
+    },
+
+    /**
+     * ElMz Set GROUP,ID,X1,Y1 To X2,Y2 — routine 85 ($1ccc); the two-argument
+     * `ElMz Set GROUP,ID` ERASES that zone and is routine 86 ($1d46).
+     *
+     * The handler key carries a DOUBLE SPACE because the table entry does:
+     * the raw bytes at $60f are `21 65 6c 6d 7a 20 20 73 65 f4`, `!elmz  se`
+     * plus a high-bit `t`, where its neighbours `elmz reserve` and `elmz
+     * erase` have one space each and not one of AMOS's own 778 core names has
+     * an internal double space. So it is a typo in the author's source — and
+     * a harmless one, because the editor's tokeniser throws spaces away
+     * before it matches (`TkOtre: cmp.b #" ",d0 / beq TokLoop`, +Edit.s:14414,
+     * "Saute les 32"). A table name's spacing is for DISPLAY, and `ElmzSet`,
+     * `Elmz Set` and `Elmz  Set` all reach this same token. Dispatch here is
+     * by the table's name, so the key has to match it exactly.
+     *
+     * Both refuse a zero GROUP or ID with AMOS 23 — zero is what marks a slot
+     * free, so neither can be a real number, and the guide agrees: "Neither
+     * GROUP or ID can be 0". A pair already in the index is overwritten in
+     * place; otherwise routine 83 takes a slot off the free list.
+     *
+     * The corners are sorted rather than refused, which is the opposite of
+     * `Set Zone`:
+     *
+     *     cmp.l d1,d5 / bcc.b .keep / move.w d1,$6(a1,d2.w) / move.w d5,d1
+     *
+     * NOTE: those compares are `cmp.l` and UNSIGNED, while the stores are
+     * `move.w` and the readers sign-extend. So the guide's "X1,Y1 and X2,Y2
+     * are automatically sorted so X1 <= X2, and Y1 <= Y2" holds for the
+     * 0..32767 half of the range it also promises (-32768 to 32767) and
+     * inverts for the other: a negative coordinate is $ffffxxxx, above every
+     * positive one, so it sorts to the far corner and `Elmznsx` comes back
+     * larger than `Elmznex`.
+     */
+    'elmz  set'(it) {
+      const group = it.evalInt()
+      it.expect(',')
+      const id = it.evalInt()
+      if (it.atStmtEnd()) {
+        // routine 86 reaches routine 81 first, then pops the ID and refuses
+        // it before the GROUP
+        const { m } = multiZones(rt)
+        if (id === 0) funcCall()
+        if (group === 0) funcCall()
+        const i = findSlot(m, w(group), w(id))
+        // DEVIATION: routine 86 tests `cmp.l #$ffff,d2` where routines 85, 87
+        // and 92 all test `cmp.w`. Routine 82 signals "not found" with
+        // `moveq #$ff,d2`, which is -1 and NOT $0000ffff, so the long compare
+        // never matches and the routine goes on to free slot -1 — an odd
+        // address two bytes before the index. Erasing a zone that is not
+        // there is a no-op here, which is plainly what was meant.
+        if (i >= 0) freeSlot(m, i)
+        return
+      }
+      it.expect(',')
+      const x1 = it.evalInt()
+      it.expect(',')
+      const y1 = it.evalInt()
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      // routine 85 is the other way round from routine 86: `move.l $40(a3),d0
+      // / Rbeq routine 3` reads the GROUP first, and both come after routine 81
+      const { s, m } = multiZones(rt)
+      if (group === 0) funcCall()
+      if (id === 0) funcCall()
+      let i = findSlot(m, w(group), w(id))
+      if (i < 0) {
+        i = allocSlot(m)
+        m.slots[i] = { group: w(group), id: w(id), next: 0 }
+      }
+      const lo = (a: number, b: number): number => (u32(a) <= u32(b) ? a : b)
+      const hi = (a: number, b: number): number => (u32(a) <= u32(b) ? b : a)
+      s.zones[i] = { x1: w(lo(x1, x2)), y1: w(lo(y1, y2)), x2: w(hi(x1, x2)), y2: w(hi(y1, y2)) }
+    },
+
+    /**
+     * ElMz Erase GROUP — routine 92 ($1dcc).
+     *
+     * Calls routine 82 with `moveq #$0,d1`, the wildcard id, and loops:
+     * every slot in the group is freed, walking forward from the last hit.
+     * "This command does not deallocated any memory" — only the index entries
+     * go back on the free list, and the rectangles they pointed at are left
+     * in the zone table untouched.
+     *
+     * There is no check that GROUP is non-zero, and none is needed: routine
+     * 82 skips any slot whose id is 0, and every slot in a real group has a
+     * real id, so `ElMz Erase 0` matches nothing.
+     */
+    'elmz erase'(it) {
+      const group = it.evalInt()
+      const { m } = multiZones(rt)
+      // freed in ascending slot order, which is the order the 68k finds them
+      // — and it decides the free list, so it decides which slot the next
+      // `ElMz Set` takes and therefore where `Elmzonen` meets it
+      for (let i = 0; i < m.slots.length; i++) {
+        const sl = m.slots[i]!
+        if (sl.id !== 0 && sl.group === w(group)) freeSlot(m, i)
+      }
     },
   }
 }

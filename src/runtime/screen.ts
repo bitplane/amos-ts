@@ -4,7 +4,7 @@ import { glyphBit, glyphMetrics } from '../amiga/diskfont'
 import type { DiskFont } from '../amiga/diskfont'
 import { rowBytesFor } from '../amiga/planar'
 import { BitMap, RastPort, type ClipRect } from '../amiga/graphics'
-import type { Zone } from './objects'
+import type { MultiZoneTable, Zone } from './objects'
 
 // ---- text-border glyphs (TEncadre +W.s:16725) -----------------------------
 // Border$ draws its box out of the AMOS charset's own characters. Those
@@ -312,6 +312,26 @@ export class Screen {
    * zone matches nothing and reads back as four zeroes.
    */
   zones: Array<Zone | null> = []
+  /**
+   * EasyLife's multi-zone index, when `ElMz Reserve` has laid one over the
+   * table above — see MultiZoneTable. Null the rest of the time, which is
+   * routine 81's "No Multi Zones Reserved".
+   */
+  multiZones: MultiZoneTable | null = null
+  /**
+   * SyResZ (+W.s:11066) — throw the zone table away and allocate `n` records.
+   *
+   * The two fields change together and that is the whole point of the method:
+   * on the machine they are one allocation, so anything that reallocates
+   * EcAZones destroys whatever was formatted into it. Three callers do —
+   * `Reserve Zone`, EasyLife's `Elzb Add` and its `ElMz Reserve` — and the
+   * guide states the consequence for the middle one outright: "The Reserve
+   * Zone command will erase multi zones."
+   */
+  reserveZones(n: number): void {
+    this.zones = new Array<Zone | null>(n).fill(null)
+    this.multiZones = null
+  }
   /*
    * The graphics state is the RastPort's. These accessors keep AMOS's names
    * on it — `Ink` sets three pens, `Gr Writing` a draw mode — so the keyword

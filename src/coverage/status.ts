@@ -2204,13 +2204,35 @@ export const FAITHFUL = new Set<string>([
   'el lapsy',
   'el lapex',
   'el lapey',
-  // ...and 1.0's names for the same six routines, reached through `aliases`
+  // slice 2 — the multi-zones, EasyLife's own zone system laid over the same
+  // screen table. Routines 80-96.
+  'elmz reserve',
+  'elmz  set',
+  'elmz erase',
+  'elmznsx',
+  'elmznsy',
+  'elmznex',
+  'elmzney',
+  'elmzone',
+  'elmzonen',
+  'elmzoneg',
+  // ...and 1.0's names for the same routines, reached through `aliases`
   'znsx',
   'znsy',
   'znex',
   'zney',
   'zn shift',
   'zb add',
+  'reserve multi zone',
+  'set multi zone',
+  'clear multi group',
+  'mznsx',
+  'mznsy',
+  'mznex',
+  'mzney',
+  'mzone',
+  'mzonen',
+  'mzoneg',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -3867,6 +3889,24 @@ export const NOTES: Record<string, string> = {
     "Routine 153 ($26e0). Writes the intersection rectangle into four fields of the companion library's struct ($a2/$a6/$aa/$ae) and returns -1 when it is non-empty, which is why El Lapsx and its three siblings exist. Every comparison is UNSIGNED (`bcc`/`bcs` on `cmp.l`), so a negative coordinate is a very large one and the min/max come out the other way round; that is the routine's own arithmetic and it is kept. The emptiness test is `lapex >= lapsx` and `lapey >= lapsy`, both inclusive, so rectangles sharing one edge pixel overlap",
   'el lapsx':
     "Routines 154-157 ($2758-$277c), each `movea.l $1e8(a5),a0 / move.l $XX(a0),d3` and nothing else. NOTE: nothing initialises those fields -- they belong to an easylife.library base the extension merely opened, and the readers do no has-it-been-computed test, so El Lapsx before the first El Overlap reads whatever the library left there. Zero here",
+
+  // EasyLife slice 2: the multi-zones, laid over the same screen table.
+  'elmz reserve':
+    "Routine 80 ($1bd6). NUM is rounded UP to even (`addq.l #$1,d6 / andi.l #$fffffffe,d6`) and the table costs one and a half records a zone plus a trailer (`move.l d6,d7 / asr.l #$1,d7 / add.l d6,d7 / addq.l #$1,d7`), which is where the guide's \"A maximum of 5460 multi zones can be defined. (There is a good reason for that number!)\" comes from -- `cmp.l #$2000,d5 / Rbcc routine 3`, and 5460*3/2+1 = 8191. The rectangles are records 0..n-1 in the SAME format AMOS's own zones use, then n*4 bytes of index, then the trailer holding n, the free-list head and the magic longword $0000fefd that routine 81 recognises the whole arrangement by. That is why the guide warns \"Normal screen zones will not work with multi zones installed, but will not produce error messages, just unreliable results\", and why Reserve Zone and Elzb Add both destroy them: all three go through the one allocation. DEVIATION: NUM of zero or less scribbles memory on the machine -- `(0+1) & ~1` is 0, so one record is allocated and then `subq.l #$2,d2 / ... dbra d2` runs with d2 = -2, counting the LOW WORD down from $fffe for 65535 iterations of a four-byte write. AMOS 23 is raised here. NOTE: our model keeps the rectangles as the screen's zone records, so `Zone()` and `Elznsx` see them exactly as they would on the machine, but the index records read as unset rather than as the junk zones the 68k's bytes would decode to -- which is the half of the aliasing the guide itself calls unreliable",
+  'elmz  set':
+    "Routine 85 ($1ccc), and the two-argument `ElMz Set GROUP,ID` ERASES that zone through routine 86 ($1d46). The name carries a DOUBLE SPACE and that is the binary's, not a parser artefact: the bytes at $60f are `!elmz  se` plus a high-bit `t`, where `elmz reserve` and `elmz erase` beside it have one space and not one of AMOS's 778 core names has an internal double space. It is harmless, because the editor's tokeniser drops spaces before it matches (`TkOtre: cmp.b #\" \",d0 / beq TokLoop`, +Edit.s:14414, \"Saute les 32\") -- a table name's spacing is for DISPLAY only, so `ElmzSet`, `Elmz Set` and `Elmz  Set` all reach the same token. Zero is refused for either GROUP or ID because zero is what marks an index slot free. A pair already present is overwritten in place; otherwise routine 83 takes the head off the free list and raises \"Multi Zone Table Full\" when there is none. NOTE: the corners are sorted rather than refused, but `cmp.l d1,d5 / bcc` is an UNSIGNED long compare while the stores are `move.w` -- so the guide's \"X1,Y1 and X2,Y2 are automatically sorted so X1 <= X2, and Y1 <= Y2\" holds for two coordinates of the same sign and inverts for a rectangle straddling zero, since -10 is $fffffff6 and sorts above +10. DEVIATION: the erase form tests `cmp.l #$ffff,d2` where routines 85, 87 and 92 all test `cmp.w`, and routine 82 signals not-found with `moveq #$ff,d2` -- which is -1, not $0000ffff. So the not-found branch is dead code and the machine goes on to free slot -1, at an odd address before the index. Erasing a zone that is not there is a no-op here, which is plainly what was meant",
+  'elmz erase':
+    "Routine 92 ($1dcc): routine 82 with `moveq #$0,d1`, the wildcard id, looped until it comes up empty. \"This command does not deallocated any memory\" -- only index entries go back on the free list, and the rectangles they pointed at stay in the zone table untouched, which is why an erased zone stops matching on the id test rather than on its geometry. GROUP is not checked for zero and does not need to be: routine 82 skips any slot whose id is 0, so `ElMz Erase 0` matches nothing. The slots are freed in ascending order, and since the free list is LIFO that decides which slot the next ElMz Set takes",
+  'elmznsx':
+    "Routines 88-91 ($1d94-$1dbe) over the shared prologue at routine 87 ($1d6c), which pops ID then GROUP, refuses either as zero with AMOS 23, and raises the extension's own \"Multi Zone Not Defined\" when the pair is not in the index. Each is `Rbsr routine 87 / move.w $N(a1,d2.w),d3 / ext.l d3`, so unlike the AMOS-zone readers these SIGN-extend -- the guide's \"The values returned are signed (-32768 to 32767)\" is right here, where the same claim about Elznsx is not. Elmzney is the exception; see its own note",
+  'elmzney':
+    "Routine 91 ($1dbe), and DEFECT: its two instructions are in the wrong order. Routine 90 is `move.w $4(a1,d2.w),d3 / ext.l d3`; routine 91 is `ext.l d3 / move.w $6(a1,d2.w),d3`, so the sign-extension runs on the d3 routine 87 has just cleared and the load lands afterwards, leaving the high word zero. Elmzney therefore answers 0..65535 where its three siblings answer -32768..32767, and a zone whose y2 is negative reads back as 65536 plus it. Reproduced",
+  'elmzone':
+    "Routine 95 ($1e08) stores X, Y and the group filter in the companion library's struct ($6e/$70/$74), resets the scan cursor at $72 and falls straight into Elmzonen; the two-argument form is routine 94, six bytes that push a literal zero for the group, so \"no filter\" and \"group 0\" are the same thing. The coordinates are stored with `move.w` and compared SIGNED. What makes multi-zones worth having is that the cursor persists: \"You can find all the zones a point lies in, not just the first one in the list (unlike standard zones)\"",
+  'elmzonen':
+    "Routine 96 ($1e28), which is both this keyword and the tail of Elmzone. It walks the rectangles from the cursor and the four tests are `x1 > x`, `y1 > y`, `x2 < x`, `y2 < y` as signed words, so the far corner is INCLUSIVE -- the opposite of Set Zone, which refuses to make a zone whose corners meet. A geometric hit advances the cursor BEFORE the group filter and the id are checked, so a zone rejected on either is never revisited. Out of zones it parks the cursor at the end, clears the saved group and answers 0, which is also what \"no more\" looks like",
+  'elmzoneg':
+    "Routine 93 ($1df0), `moveq #$0,d3 / move.w $76(a0),d3` -- the group of whatever the last Elmzone or Elmzonen found, zeroed when the scan came up empty. It does NOT go through routine 81, so it is the one keyword in the block that answers rather than raising when no multi zones are reserved",
 }
 
 /**
@@ -3951,6 +3991,19 @@ export const SHARED_NOTES: Record<string, string> = {
   'zney': 'elznsx',
   'zn shift': 'elzn shift',
   'zb add': 'elzb add',
+  'reserve multi zone': 'elmz reserve',
+  'set multi zone': 'elmz  set',
+  'clear multi group': 'elmz erase',
+  'mznsx': 'elmznsx',
+  'mznsy': 'elmznsx',
+  'mznex': 'elmznsx',
+  'mzney': 'elmzney',
+  'mzone': 'elmzone',
+  'mzonen': 'elmzonen',
+  'mzoneg': 'elmzoneg',
+  // ...and the three siblings that share the reader's reading
+  'elmznsy': 'elmznsx',
+  'elmznex': 'elmznsx',
 }
 
 /** The reading for a keyword, following SHARED_NOTES to whoever holds it. */
