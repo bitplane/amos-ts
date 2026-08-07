@@ -9,6 +9,8 @@ import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { EASYLIFE_ERRORS } from './easylife'
+import { AMOS_ERRORS } from '../interp/values'
+import { IDCMP_CLOSEWINDOW } from '../amiga/intuition'
 import { AmigaFS } from '../amiga/vfs'
 import { pp20Crunch } from '../amiga/powerpacker'
 import { xpkPack } from '../amiga/xpkmaster'
@@ -903,12 +905,12 @@ describe('EasyLife: system, AmigaDOS and fonts (routines 105-163)', () => {
 })
 
 describe('EasyLife: the Workbench three and the XPK error field', () => {
-  it('there is no Workbench, so Open and Test fail and Close succeeds', () => {
+  it('Open, then Test, then Close — and all three are TRUE', () => {
     // routines 118/119/120: OpenWorkBench, then WBenchToFront and only then
     // CloseWorkBench, else `moveq #$ff,d0`. "Elwb close returns true if the
     // workbench is closed when the function has finished executing, even if
     // it didn't close it because it was already closed."
-    expect(run(OPEN + 'Print Elwb Open;Elwb Test;Elwb Close\n').out).toBe(' 0 0-1\n')
+    expect(run(OPEN + 'Print Elwb Open;Elwb Test;Elwb Close\n').out).toBe('-1-1-1\n')
   })
 
   it('Elxpk Error reads the field the five XPK keywords would write', () => {
@@ -1479,7 +1481,10 @@ describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
       fs,
     })
     mustFinish(rt.runHeadless(2000))
-    expect(printed).toBe('-1 0 0 0-1 3 0\n')
+    // I Open Workbench / I Test Workbench / I Close Workbench are 1.0's
+    // names for the Elwb three, and all three answer TRUE now that there is
+    // an Intuition to open a Workbench screen with
+    expect(printed).toBe('-1 0-1-1-1 3 0\n')
     // ...and `Output` raises, the standard handles being absent
     const b = new Runtime(tokenize(OPEN + 'Output "x"\n', table, exts), table, {
       extensions: exts,
@@ -2269,5 +2274,172 @@ describe('EasyLife 1.09: Eltest, the author’s own V-form probe', () => {
       expect(names(id)).not.toContain('eltest')
     }
     expect(names('easylife-1.10')).toContain('stv')
+  })
+})
+
+describe('EasyLife: the iconify family (routines 123-126)', () => {
+  /** press and release the close gadget, through the real gadget path */
+  const clickClose = (rt: Runtime): void => {
+    const w = rt.intuition.windows[0]!
+    const x = w.leftEdge + 2
+    const y = w.topEdge + 2
+    rt.intuition.handleInput(w.screenSlot, x, y, 1)
+    rt.intuition.handleInput(w.screenSlot, x, y, 0)
+  }
+
+  /** activate the window with a left click, then use the right button in it */
+  const rightClick = (rt: Runtime): void => {
+    const w = rt.intuition.windows[0]!
+    const x = w.leftEdge + w.closeWidth + 2
+    const y = w.topEdge + 4
+    for (const b of [1, 0, 2, 0]) rt.intuition.handleInput(w.screenSlot, x, y, b)
+  }
+
+  /** run as far as the Wait, so the injected click lands before the Test */
+  const upToWait = (src: string): Boot => {
+    const b = boot(src)
+    b.rt.frame()
+    return b
+  }
+
+  it('Eliconify Begin opens the Workbench and a window on it, and answers 0', () => {
+    const { rt, out } = run(OPEN + 'Print Eliconify Begin(100,20,"Hello")\n')
+    expect(out).toBe(' 0\n')
+    expect(rt.intuition.workBenchOpen()).toBe(true)
+    expect(rt.intuition.windows).toHaveLength(1)
+    // len("Hello") * 8 + 80, and a title bar's worth of height
+    expect(rt.intuition.windows[0]!.width).toBe(120)
+    expect(rt.intuition.windows[0]!.height).toBe(11)
+  })
+
+  /** `tst.l $88(a2) / Rbne routine 3` — a second Begin is AMOS 23 */
+  it('a second Eliconify Begin is an Illegal Function Call', () => {
+    expect(fails(OPEN + 'A=Eliconify Begin(0,0,"a")\nB=Eliconify Begin(0,0,"b")\n')).toContain(
+      AMOS_ERRORS[23],
+    )
+  })
+
+  it('Eliconify Test and End before Begin are the same error', () => {
+    expect(fails(OPEN + 'A=Eliconify Test\n')).toContain(AMOS_ERRORS[23])
+    expect(fails(OPEN + 'Eliconify End\n')).toContain(AMOS_ERRORS[23])
+  })
+
+  it('Eliconify Test is 0 while the window has said nothing', () => {
+    const { out } = run(OPEN + 'A=Eliconify Begin(0,0,"x")\nPrint Eliconify Test\n')
+    expect(out).toBe(' 0\n')
+  })
+
+  it('1 for the close gadget', () => {
+    const b = upToWait(OPEN + 'A=Eliconify Begin(0,0,"x")\nWait 3\nPrint Eliconify Test\n')
+    clickClose(b.rt)
+    mustFinish(b.rt.runHeadless(200))
+    expect(b.text()).toBe(' 1\n')
+  })
+
+  it('and -1 for the right button used in the window', () => {
+    const b = upToWait(OPEN + 'A=Eliconify Begin(0,0,"x")\nWait 3\nPrint Eliconify Test\n')
+    rightClick(b.rt)
+    mustFinish(b.rt.runHeadless(200))
+    expect(b.text()).toBe('-1\n')
+  })
+
+  /**
+   * The four coordinate filters: `bmi` on each and `cmp.w $8e(a2)` /
+   * `cmp.w #$a` on the far side. Row 10 is the last row of an 11-high window
+   * and the routine rejects it, so a message posted from there is skipped.
+   */
+  it('a message on the window’s last row, or past its width, is skipped', () => {
+    const b = upToWait(OPEN + 'A=Eliconify Begin(0,0,"x")\nWait 3\nPrint Eliconify Test\n')
+    const w = b.rt.intuition.windows[0]!
+    w.mouseX = 4
+    w.mouseY = 10 // the eleventh row of an eleven-row window
+    w.post(IDCMP_CLOSEWINDOW, 0)
+    w.mouseX = w.width // one past the last column
+    w.mouseY = 4
+    w.post(IDCMP_CLOSEWINDOW, 0)
+    mustFinish(b.rt.runHeadless(200))
+    expect(b.text()).toBe(' 0\n')
+  })
+
+  it('Eliconify End closes the window but leaves the Workbench', () => {
+    const { rt } = run(OPEN + 'A=Eliconify Begin(0,0,"x")\nEliconify End\n')
+    expect(rt.intuition.windows).toHaveLength(0)
+    expect(rt.intuition.workBenchOpen()).toBe(true)
+  })
+
+  /**
+   * Routine 123 is the other three in a loop, and the two answers it can
+   * give are Test's with the 1 turned into a 0 — which is the opposite of
+   * what the guide's table for this keyword says. See the notes.
+   */
+  it('Eliconify Amos: the close gadget answers 0, and the window is gone', () => {
+    // runHeadless presses the close gadget for it, so this runs the whole
+    // Begin/Test/End loop and comes back
+    const { rt, out } = run(OPEN + 'Print Eliconify Amos(40,30,"Busy")\n')
+    expect(out).toBe(' 0\n')
+    expect(rt.intuition.windows).toHaveLength(0)
+    expect(rt.intuition.workBenchOpen()).toBe(true)
+  })
+
+  it('Eliconify Amos: the right button answers -1', () => {
+    const b = boot(OPEN + 'Print Eliconify Amos(40,30,"Busy")\n')
+    b.rt.frame() // Begin runs, and the keyword blocks
+    rightClick(b.rt)
+    mustFinish(b.rt.runHeadless(200))
+    expect(b.text()).toBe('-1\n')
+    expect(b.rt.intuition.windows).toHaveLength(0)
+  })
+
+  it('a window it cannot fit on the Workbench answers 2', () => {
+    const { out } = run(OPEN + 'Print Eliconify Begin(600,20,"Hello")\n')
+    expect(out).toBe(' 2\n')
+  })
+
+  it('1.0 spells the whole family with one keyword, and it is Eliconify Amos', () => {
+    const v = extensionById('easylife-1.0')!
+    const exts = new Map([[16, v.table]])
+    let printed = ''
+    const rt = new Runtime(tokenize(OPEN + 'Print Iconify Amos(10,10,"Z")\n', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, v]]),
+      maxSteps: 200_000,
+      onText: (t) => (printed += t),
+    })
+    mustFinish(rt.runHeadless(2000))
+    expect(printed).toBe(' 0\n')
+  })
+})
+
+describe('EasyLife: the Workbench three, now that there is one', () => {
+  it('Elwb Open is TRUE, and opens the screen', () => {
+    const { rt, out } = run(OPEN + 'Print Elwb Open\n')
+    expect(out).toBe('-1\n')
+    expect(rt.intuition.workBenchOpen()).toBe(true)
+  })
+
+  it('Elwb Test is FALSE with no Workbench and TRUE once there is one', () => {
+    expect(run(OPEN + 'Print Elwb Test\n').out).toBe(' 0\n')
+    expect(run(OPEN + 'A=Elwb Open\nPrint Elwb Test\n').out).toBe('-1\n')
+  })
+
+  /**
+   * "Elwb close returns true if the workbench is closed when the function has
+   * finished executing, even if it didn't close it because it was already
+   * closed" — the `moveq #$ff,d0` arm, taken when WBenchToFront finds nothing.
+   */
+  it('Elwb Close is TRUE when there was nothing to close', () => {
+    expect(run(OPEN + 'Print Elwb Close\n').out).toBe('-1\n')
+  })
+
+  it('and TRUE when it closed one', () => {
+    const { rt, out } = run(OPEN + 'A=Elwb Open\nPrint Elwb Close\n')
+    expect(out).toBe('-1\n')
+    expect(rt.intuition.workBenchOpen()).toBe(false)
+  })
+
+  it('FALSE when a window on it makes CloseWorkBench refuse', () => {
+    const { rt, out } = run(OPEN + 'A=Eliconify Begin(0,0,"x")\nPrint Elwb Close\n')
+    expect(out).toBe(' 0\n')
+    expect(rt.intuition.workBenchOpen()).toBe(true)
   })
 })

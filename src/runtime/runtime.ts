@@ -4019,6 +4019,10 @@ export class Runtime {
       if (!this.fsel || this.fsel.done) this.interp.blocked = null
     } else if (b.type === 'readtext') {
       if (!this.readText || this.readText.done) this.interp.blocked = null
+    } else if (b.type === 'iconify') {
+      // one poll a frame: the keyword re-runs, calls Eliconify Test itself
+      // and blocks again if the window has said nothing yet
+      this.interp.blocked = null
     } else if (b.type === 'speech') {
       // ensureLib started the import; wake as soon as it lands, either way
       if (ensureLib(this) || this.speech.failed) this.interp.blocked = null
@@ -4122,6 +4126,18 @@ export class Runtime {
       } else if (b?.type === 'readtext') {
         if (this.readText && !this.readText.done) this.finishReadTextNow(this.readText.closing ?? '')
         else this.interp.blocked = null
+      } else if (b?.type === 'iconify') {
+        // nobody is going to click the close gadget headless, so press it —
+        // through the real gadget path, so the message carries the
+        // coordinates Eliconify Test filters on. Answers 0, which is what a
+        // user de-iconifying normally does.
+        const w = this.easylife?.iconWindow
+        if (!w) this.interp.blocked = null
+        else {
+          const int = this.intuition
+          int.handleInput(w.screenSlot, w.leftEdge + 2, w.topEdge + 2, 1)
+          int.handleInput(w.screenSlot, w.leftEdge + 2, w.topEdge + 2, 0)
+        }
       }
     }
     return { status, frames, unimplemented: this.interp.unimplemented }

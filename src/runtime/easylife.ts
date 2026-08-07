@@ -26,11 +26,10 @@
  *
  * ## What is not here, and why
  *
- * Twenty-six of the 233 names. Twenty are MUI and wait on a `muimaster` of
- * V8 or better; the archive's is 7.973 and routine 233 demands V8. Five are
- * the iconify family (four plus 1.0's `iconify amos`) and wait on Intuition.
+ * Twenty-one of the 233 names. Twenty are MUI and wait on a `muimaster` of
+ * V8 or better; the archive's is 7.973 and routine 233 demands V8.
  *
- * The twenty-sixth is `Eltest`, and it is the author's own scaffolding.
+ * The twenty-first is `Eltest`, and it is the author's own scaffolding.
  *
  * It exists in **1.09 alone** — 1.0 does not have it, 1.44 does not, and
  * 1.10 does not either. In 1.09 it is the LAST entry of a 220-entry table,
@@ -88,6 +87,18 @@ import type { Screen } from './screen'
 import type { MultiZoneTable, Zone } from './objects'
 import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 import { openDiskFont, type DiskFont } from '../amiga/diskfont'
+import {
+  IDCMP_CLOSEWINDOW,
+  IDCMP_MOUSEBUTTONS,
+  MENUDOWN,
+  MENUUP,
+  WBENCHSCREEN,
+  WFLG_CLOSEGADGET,
+  WFLG_DEPTHGADGET,
+  WFLG_DRAGBAR,
+  WFLG_RMBTRAP,
+  type Window,
+} from '../amiga/intuition'
 import { execute } from '../amiga/process'
 import {
   PatternError,
@@ -300,6 +311,28 @@ export interface EasyLifeState {
    * `elstruct.ts`, which is the library.
    */
   structs: ElstPool
+  /**
+   * `$88` of the companion struct --- the iconify window, which is a
+   * `struct Window *` on the machine and is what makes `Eliconify Begin`
+   * refuse to run twice (`tst.l $88(a2) / Rbne routine 3`) and `Eliconify
+   * Test` and `End` refuse to run at all before it (`Rbeq routine 3`).
+   */
+  iconWindow: Window | null
+  /**
+   * `$8c` --- a word, and it is a LATCH rather than a flag: `Eliconify Test`
+   * sets it on a MENUDOWN inside the window and only accepts the matching
+   * MENUUP if it is set. So the button has to go down and come up in the
+   * window, and a MENUUP left over from a press somewhere else is ignored.
+   */
+  iconMenuDown: boolean
+  /**
+   * `$8e` --- the window's width, `len(TITLE$) * 8 + 80`, saved because
+   * `Eliconify Test` bounds-checks the pointer against it (`cmp.w $8e(a2),d0
+   * / bcc`) rather than reading it back out of the window.
+   */
+  iconWidth: number
+  /** Eliconify Amos is a loop; true while it is going round it */
+  iconAmos: boolean
 }
 
 export const newEasyLifeState = (): EasyLifeState => ({
@@ -325,10 +358,166 @@ export const newEasyLifeState = (): EasyLifeState => ({
   patDefault: null,
   xpkError: 0,
   structs: newElstPool(),
+  iconWindow: null,
+  iconMenuDown: false,
+  iconWidth: 0,
+  iconAmos: false,
 })
 
 /** the unsigned view of an AMOS 32-bit integer, which is how routine 153 compares */
 const u32 = (n: number): number => n >>> 0
+
+// ---- the iconify family (routines 123-126) --------------------------------
+
+/**
+ * `=Eliconify Begin(X, Y, TITLE$)` — routine 124 ($21ee), 182 bytes, and the
+ * whole of the iconify window is in it.
+ *
+ *     movea.l $1e8(a5),a2 / tst.l $88(a2) / Rbne routine 3
+ *     jsr -$d2(a6)                    OpenWorkBench
+ *     tst.l d0 / bne                  0 -> moveq #1,d3 / lea $c(a3),a3
+ *     jsr -$156(a6)                   WBenchToFront
+ *     Rbsr routine 1                  NUL-terminate the title
+ *     movea.l (a3)+,a1 / move.w (a1)+,d0
+ *     asl.w #$3,d0 / addi.w #$50,d0   WIDTH = len * 8 + 80
+ *     move.w d0,$8e(a2)
+ *     lea $2274(pc),a0                the NewWindow
+ *     move.l a1,$1a(a0)               nw_Title
+ *     move.w d0,$4(a0)                nw_Width
+ *     move.l (a3)+,d0 / move.w d0,$2(a0)      nw_TopEdge
+ *     move.l (a3)+,d0 / move.w d0,(a0)        nw_LeftEdge
+ *     jsr -$cc(a6)                    OpenWindow
+ *     moveq #$2,d3 / tst.l d0 / beq
+ *     move.l d0,$88(a2) / move.w #$0,$8c(a2) / moveq #$0,d3
+ *
+ * The forty-eight bytes at $2274 are a `struct NewWindow` and they decode
+ * field for field: LeftEdge 0, TopEdge 0, Width 0, Height 11, DetailPen 0,
+ * BlockPen 1, IDCMPFlags $208, Flags $1000E, no gadgets, no CheckMark, Title
+ * patched in, no Screen, no BitMap, no size limits, Type 1 — WBENCHSCREEN.
+ * $208 is CLOSEWINDOW | MOUSEBUTTONS and $1000E is RMBTRAP | DRAGBAR |
+ * DEPTHGADGET | CLOSEGADGET.
+ *
+ * The height of 11 is the number that ties the two halves of this port
+ * together: it is what `BorderTop = WBorTop + tf_YSize + 1` comes to for
+ * topaz 8, so the window is a title bar and nothing else, which is why
+ * `Eliconify Test` rejects anything at row 10 or below.
+ *
+ * NOTE: no WFLG_ACTIVATE. The window opens unactivated and the guide is
+ * explicit about the consequence — "If you activate the window, then press
+ * the right mouse button" — so the right button does not reach it until the
+ * user has clicked on it. That is not an oversight to fix; it is what makes
+ * the click-then-right-click sequence the documented one.
+ *
+ * The three return codes are the routine's own: 1 for a Workbench that would
+ * not open, 2 for a window that would not, 0 for success.
+ */
+function elIconifyBegin(rt: Runtime, x: number, y: number, title: string): number {
+  const st = rt.easylife
+  if (st.iconWindow) funcCall() // tst.l $88(a2) / Rbne routine 3
+  const int = rt.intuition
+  if (int.openWorkBench() === 0) return 1
+  int.wBenchToFront()
+  st.iconWidth = title.length * 8 + 80
+  const win = int.openWindow({
+    leftEdge: x,
+    topEdge: y,
+    width: st.iconWidth,
+    height: 11,
+    detailPen: 0,
+    blockPen: 1,
+    idcmpFlags: IDCMP_CLOSEWINDOW | IDCMP_MOUSEBUTTONS,
+    flags: WFLG_RMBTRAP | WFLG_DRAGBAR | WFLG_DEPTHGADGET | WFLG_CLOSEGADGET,
+    title,
+    type: WBENCHSCREEN,
+  })
+  if (!win) return 2
+  st.iconWindow = win
+  st.iconMenuDown = false
+  return 0
+}
+
+/**
+ * `=Eliconify Test` — routine 125 ($22a4), 120 bytes: GetMsg on the window's
+ * UserPort in a loop, and the first message that survives four filters ends
+ * it.
+ *
+ *     movea.l $56(a0),a0              Window->UserPort
+ *  L: jsr -$174(a6)                   exec GetMsg
+ *     moveq #$0,d3 / tst.l d0 / beq   empty -> 0
+ *     move.w $18(a1),d2               IntuiMessage->Code
+ *     cmp.w #$e9,d2 / bne             MENUUP?
+ *     tst.l $8c(a2) / beq L           ... the latch
+ *     move.w #$0,$8c(a2)
+ *     move.w $20(a1),d0 / bmi L       MouseX < 0
+ *     cmp.w $8e(a2),d0 / bcc L        MouseX >= width
+ *     move.w $22(a1),d0 / bmi L       MouseY < 0
+ *     cmp.w #$a,d0 / bcc L            MouseY >= 10
+ *     cmp.w #$69,d2 / bne             MENUDOWN?
+ *     move.w #$1,$8c(a2) / bra L      ... set the latch
+ *     move.l $14(a1),d6 / moveq #$ff,d3
+ *     cmp.w #$8,d6 / beq              Class == MOUSEBUTTONS -> -1
+ *     moveq #$1,d3                    else (CLOSEWINDOW) -> 1
+ *
+ * So -1 is the right button used inside the window and 1 is the close gadget,
+ * which is what the guide says of THIS keyword. What it says of `Eliconify
+ * Amos` has the two the other way round; see there.
+ *
+ * DEFECT: the latch is dead. `move.w` writes $8c and `tst.l` reads $8c-$8f,
+ * and $8e is the window width — never zero after `Eliconify Begin`, so the
+ * test never fails and the `beq` is never taken. The author meant "only
+ * accept a MENUUP whose MENUDOWN was in this window"; what the code does is
+ * accept every MENUUP whose coordinates are in the window, including the
+ * release of a press that started somewhere else entirely. Reproduced,
+ * because a program that presses the right button outside the window and
+ * lets go inside it de-iconifies on the machine.
+ *
+ * NOTE: no ReplyMsg, anywhere. On the machine every message this consumes is
+ * leaked and Intuition's supply drains; here the queue simply shortens, so
+ * the defect has no observable effect and is not reproduced.
+ */
+function elIconifyTest(rt: Runtime): number {
+  const st = rt.easylife
+  const win = st.iconWindow
+  if (!win) funcCall() // Rbeq routine 3
+  for (;;) {
+    const m = win.getMsg()
+    if (!m) return 0
+    if (m.code === MENUUP) {
+      // the dead latch, per the block above: `tst.l $8c(a2)` covers the
+      // width word too, so this arm is always taken and `st.iconMenuDown`
+      // is written and never read
+
+      st.iconMenuDown = false
+    }
+    if (m.mouseX < 0 || m.mouseX >= st.iconWidth) continue
+    if (m.mouseY < 0 || m.mouseY >= 10) continue
+    if (m.code === MENUDOWN) {
+      st.iconMenuDown = true
+      continue
+    }
+    return (m.class & 0xffff) === IDCMP_MOUSEBUTTONS ? -1 : 1
+  }
+}
+
+/**
+ * `Eliconify End` — routine 126 ($231c), forty bytes:
+ *
+ *     movea.l $1e8(a5),a2 / move.l $88(a2),d0 / movea.l d0,a0
+ *     Rbeq routine 3                  no window -> Illegal Function Call
+ *     move.l #$0,$88(a2)
+ *     jsr -$48(a6)                    CloseWindow
+ *
+ * The field is cleared BEFORE the close, so a failure inside CloseWindow
+ * cannot leave a stale pointer behind. It does not close the Workbench: the
+ * guide's procedure has the program bring AMOS back to front itself.
+ */
+function elIconifyEnd(rt: Runtime): void {
+  const st = rt.easylife
+  const win = st.iconWindow
+  if (!win) funcCall()
+  st.iconWindow = null
+  rt.intuition.closeWindow(win)
+}
 
 /** `move.w` into a cleared register: the low word, unsigned */
 const w = (n: number): number => n & 0xffff
@@ -1660,19 +1849,77 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
      * the workbench is closed when the function has finished executing, even
      * if it didn't close it because it was already closed".
      *
-     * NOTE: there is no Workbench screen here and no Intuition to open one
-     * (the same wall #71 and #217 record), so this is the ABSENT answer
-     * rather than a modelled one: OpenWorkBench fails, WBenchToFront finds
-     * nothing, and Close therefore takes its already-closed arm and answers
-     * true. That is what the three routines do given no Workbench, so the
-     * shape is the routines' own; what is missing is any way to get one.
-     * The documented side effect — "Elwb Close and Elwb Test have the side
-     * effect of bringing the workbench screen to the front" — has nothing to
-     * bring forward.
+     * All three end at routine 114 ($20c0), which is six instructions —
+     * `moveq #$0,d2 / moveq #$0,d3 / tst.l d0 / beq / moveq #-$1,d3` — so
+     * whatever the library returned becomes an AMOS boolean.
+     *
+     * These answered the ABSENT case until there was an Intuition: a screen
+     * that could not be opened, a WBenchToFront that found nothing, and a
+     * Close that therefore took its already-closed arm. They are on the real
+     * one now (`src/amiga/intuition.ts`), including the documented side
+     * effect — "Elwb Close and Elwb Test have the side effect of bringing the
+     * workbench screen to the front" — which is not a side effect at all but
+     * the WBenchToFront both of them open with.
      */
-    'elwb open': (): Value => VI(0),
-    'elwb test': (): Value => VI(0),
-    'elwb close': (): Value => VI(-1),
+    /**
+     * =Eliconify Begin(X, Y, TITLE$) / =Eliconify Test — see the two
+     * functions above, which are where the routines are read.
+     */
+    'eliconify begin': (_, a): Value => VI(elIconifyBegin(rt, int(a[0]!), int(a[1]!), str(a[2]!))),
+    'eliconify test': (): Value => VI(elIconifyTest(rt)),
+
+    /**
+     * =Eliconify Amos(X, Y, TITLE$) — routine 123 ($21d4), TWENTY-SIX bytes,
+     * and every one of them is the other three:
+     *
+     *     Rbsr routine 124            Eliconify Begin
+     *     tst.l d3 / bne              1 or 2 -> that code, and no window
+     *  L: Rbsr routine 125            Eliconify Test
+     *     tst.l d3 / beq L            0 -> keep looking
+     *     bmi                         -1 -> keep it
+     *     moveq #$0,d3                1 -> becomes 0
+     *     Rbsr routine 126            Eliconify End
+     *
+     * DEVIATION: the loop is AMOS's frame loop rather than a `bra`. The 68k
+     * routine spins on GetMsg with the program suspended — "ElIconify AMOS
+     * suspends your AMOS program until the user de-iconifies it" — and there
+     * is nothing to spin on here until the frame that delivers the click has
+     * run. The block is what makes a frame go by; the polling, the message
+     * order and the answer are the routine's.
+     *
+     * NOTE: the guide's table for THIS keyword has -1 and 0 swapped. It says
+     * "-1 = The close window gadget was pressed. 0 = Then right mouse button
+     * was pressed", and the code says the opposite: `Eliconify Test` answers
+     * 1 for the close gadget and routine 123 turns that 1 into 0, while its
+     * -1 for the right button passes straight through. The guide's table for
+     * `Eliconify Test` two paragraphs later is correct and contradicts it.
+     * The binary wins.
+     */
+    'eliconify amos'(it, a): Value {
+      const st = rt.easylife
+      if (st.iconAmos) {
+        const r = elIconifyTest(rt)
+        if (r === 0) {
+          it.block({ type: 'iconify' }, true)
+          return VI(0) // unreachable: block(..., true) throws
+        }
+        st.iconAmos = false
+        elIconifyEnd(rt)
+        return VI(r < 0 ? -1 : 0)
+      }
+      const code = elIconifyBegin(rt, int(a[0]!), int(a[1]!), str(a[2]!))
+      if (code !== 0) return VI(code)
+      st.iconAmos = true
+      it.block({ type: 'iconify' }, true)
+      return VI(0)
+    },
+
+    'elwb open': (): Value => VI(rt.intuition.openWorkBench() !== 0 ? -1 : 0),
+    'elwb test': (): Value => VI(rt.intuition.wBenchToFront() ? -1 : 0),
+    'elwb close': (): Value => {
+      if (!rt.intuition.wBenchToFront()) return VI(-1)
+      return VI(rt.intuition.closeWorkBench() ? -1 : 0)
+    },
 
     /**
      * =Elxpk Error — routine 177 ($2a74), twelve bytes: the longword at $b6
@@ -2319,6 +2566,11 @@ function mzNext(rt: Runtime): number {
 
 export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
   return {
+    /** Eliconify End — routine 126 ($231c); see `elIconifyEnd` */
+    'eliconify end'(): void {
+      elIconifyEnd(rt)
+    },
+
     /**
      * Elzn Shift SCREEN,DX,DY [,START To FINISH] — routines 15 ($142e), 16
      * ($1436) and the shared body 17 ($1458).

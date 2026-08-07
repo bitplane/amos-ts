@@ -106,6 +106,14 @@ export type Block =
   | { type: 'dialog'; channel: number }
   | { type: 'fsel' }
   | { type: 'readtext' }
+  /**
+   * EasyLife's `Eliconify Amos`, which is a LOOP in the extension: Begin,
+   * then `Rbsr Eliconify Test` until it answers non-zero, then End. The
+   * statement re-runs on resume, so the keyword itself does the polling and
+   * this block only means "one frame has gone by" — the same shape as the JD
+   * waiters, and for the same reason.
+   */
+  | { type: 'iconify' }
   // the speech library is 88K of tables, imported on the first Say
   | { type: 'speech' }
 

@@ -70,7 +70,7 @@ extension keyword. The count is keywords with no handler at all:
 |---|---|---|
 | OS DevKit 1.61 | 1047 | a wrapper over most of AmigaOS; needs the back-end, not the list |
 | GUI 2.10 / 1.61 / 1.5b | 204 / 103 / 48 | `intuition.library` |
-| Intuition 1.3b | 183 | ships assembler source; needs `intuition.library` first |
+| Intuition 1.3b | 183 | needs `intuition.library` first |
 | Craft 1.0 | 136 | commercial (Black Legend) |
 | The Game 0.9 | 103 | |
 | Opal 1.1 | 78 | OpalVision hardware |
@@ -92,17 +92,23 @@ six stale rows out of nine, because the table is hand-maintained and the
 manifest is generated. `KEYWORDS.md` is the source of truth; this is a
 commentary on it.
 
-EasyLife is deliberately *not* in the table: it is part-ported (156 names,
-112 implemented) and part-ported is a third state the table has no column
-for. What is left of it is the MUI block, structured variables and the four
-iconify keywords — see the notes in `src/runtime/easylife.ts`.
+EasyLife is deliberately *not* in the table: it is part-ported and
+part-ported is a third state the table has no column for. What is left of it
+is the MUI block — see the notes in `src/runtime/easylife.ts`. The iconify
+four came off this list when `OpenWindow` landed, and they are the first
+keywords in the port to open a real Intuition window.
 
-Five of the sixteen rows above wait on the same thing, and it is worth
-saying once: **`intuition.library`, and a display path that can show a
-window.** Filing Intuition under `src/amiga/` is easy; making a window appear
-is not, because `display.ts` is a single copper-list interpreter and an
-Intuition screen has to express itself as copper registers plus `BPLxPT`
-rather than as a second `Screen`. That decision gates roughly 550 keywords.
+Five of the sixteen rows above wait on the same thing: **`intuition.library`,
+and a display path that can show a window.** That gate is now open, and the
+answer turned out to be one AMOS already had. `display.ts` is a single
+copper-list interpreter, so an Intuition screen has to express itself as
+copper registers plus `BPLxPT` rather than as a second `Screen` — and AMOS
+opens screens BASIC cannot name for exactly that reason (EcFonc 8, EcEdit 9,
+EcFsel 10, EcReq 11, +Equ.s:792). The Workbench screen is one more of those,
+at slot 12. `src/amiga/intuition.ts` has OpenWorkBench, CloseWorkBench,
+WBenchToFront/Back, OpenWindow and CloseWindow on `src/amiga/layers.ts`,
+with the system gadgets and an IDCMP port; the roughly 550 keywords those
+five rows hold are now a keyword-list problem rather than a back-end one.
 
 **Intuition's census weight is an artefact, and this document used to report
 it as the largest remaining gap.** It is not. Twelve corpus programs reach an

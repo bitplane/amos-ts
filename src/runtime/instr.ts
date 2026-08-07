@@ -5257,12 +5257,12 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
        * headed "ElZb Multi Add BANK" rather than a name of its own. It
        * arrives with the multi-zone slice, which is what it needs.
        *
-       * Three 1.0 names are deliberately still unbound, and all three because
-       * their TARGET is unimplemented rather than because the mapping is
-       * unknown: `zb multi add` and `zb install` on `elzb multi add`, and
-       * `iconify amos` on `eliconify amos`, which waits on Intuition with the
-       * other three iconify keywords. Binding a name to a keyword that is not
-       * there would move a miss from one name to another and change nothing.
+       * Two 1.0 names are deliberately still unbound, both because their
+       * TARGET is unimplemented rather than because the mapping is unknown:
+       * `zb multi add` and `zb install` on `elzb multi add`. Binding a name
+       * to a keyword that is not there would move a miss from one name to
+       * another and change nothing. `iconify amos` was the third until
+       * Intuition arrived, and is bound below.
        */
       'easylife-1.0': {
         znsx: 'elznsx',
@@ -5340,10 +5340,13 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
         'raster wait': 'elraster wait',
         'output exists': 'elout exists',
         output: 'elout',
-        // the Workbench three; 1.0 has no XPK and no iconify
+        // the Workbench three; 1.0 has no XPK
         'i open workbench': 'elwb open',
         'i close workbench': 'elwb close',
         'i test workbench': 'elwb test',
+        // and 1.0's single iconify keyword, which is the later build's
+        // `Eliconify Amos` -- it has none of the other three
+        'iconify amos': 'eliconify amos',
         /*
          * The font pair. 1.0's routines 111 and 112 do the job 1.09/1.10 give
          * to `elopen font` (160) and `elclose fonts` (163) -- OpenDiskFont on
