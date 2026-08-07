@@ -553,6 +553,110 @@ describe('EasyLife: character searching (routines 18-53)', () => {
   })
 })
 
+describe('EasyLife: integers as strings, memory and banks (routines 46-79, 111, 158)', () => {
+  it('Ellong$ and Elword$ are the raw bytes, most significant first', () => {
+    const { out } = run(
+      OPEN +
+        'A$=Ellong$($12345678)\n' +
+        'Print Len(A$);Asc(A$);Asc(Mid$(A$,2));Ellong(A$)=$12345678\n' +
+        'B$=Elword$(-2)\nPrint Len(B$);Asc(B$);Elword(B$)\n',
+    )
+    expect(out).toBe(' 4 18 52-1\n 2 255-2\n')
+  })
+
+  it('Elword$ keeps the low two bytes without complaining, and Elword sign-extends', () => {
+    // "ElWord$ does not give error messages if the value is out of range, it
+    // simply stores the lower 2 bytes ... As Elword will return negative
+    // numbers for 32768-65535"
+    expect(run(OPEN + 'Print Elword(Elword$(40000))\n').out).toBe('-25536\n')
+    expect(fails(OPEN + 'Print Ellong("abc")\n')).toMatch(/Illegal function call/)
+    expect(fails(OPEN + 'Print Elword("a")\n')).toMatch(/Illegal function call/)
+  })
+
+  it('Elextb and Elextw take the sign from the low byte and the low word', () => {
+    expect(run(OPEN + 'Print Elextb(255);Elextw(65535);Elextb($1FF);Elextw($10001)\n').out).toBe('-1-1-1 1\n')
+  })
+
+  it('Elmem writes bytes and Elmem$ reads them back, with Elmem Inc chaining', () => {
+    const { out } = run(
+      OPEN +
+        'Reserve As Work 5,64\n' +
+        'A=Elmem Inc(Start(5),"one")\n' +
+        'Elmem A,"two"\n' +
+        'Print Elmem$(Start(5),6);A-Start(5)\n',
+    )
+    expect(out).toBe('onetwo 3\n')
+  })
+
+  it('the delimiter form stops before the delimiter, and needs a non-zero length', () => {
+    const p = OPEN + 'Reserve As Work 5,64\nElmem Start(5),"ab"+Chr$(0)+"cd"\n'
+    expect(run(p + 'Print Elmem$(Start(5),10,0)\n').out).toBe('ab\n')
+    // not finding it stops at SLENGTH
+    expect(run(p + 'Print Elmem$(Start(5),2,Asc("z"))\n').out).toBe('ab\n')
+    expect(fails(p + 'Print Elmem$(Start(5),0,0)\n')).toMatch(/Illegal function call/)
+    // `addq.l #$2,d3 / cmp.l #$10000,d3 / Rbcc` -- the real cap is 65533
+    expect(fails(p + 'Print Elmem$(Start(5),65534)\n')).toMatch(/Illegal function call/)
+  })
+
+  it('Elbank Name$ pads to eight, and Els Bank Name demands exactly eight', () => {
+    const p = OPEN + 'Reserve As Work 5,64\n'
+    expect(run(p + 'Print "["+Elbank Name$(5)+"]"\n').out).toBe('[Work    ]\n')
+    expect(run(p + 'Els Bank Name 5,"Message "\nPrint "["+Elbank Name$(5)+"]"\n').out).toBe('[Message ]\n')
+    // the length is checked BEFORE the bank is looked up
+    expect(fails(p + 'Els Bank Name 5,"short"\n')).toMatch(/Illegal function call/)
+    expect(fails(p + 'Els Bank Name 9,"toolongxx"\n')).toMatch(/Illegal function call/)
+    expect(fails(p + 'Els Bank Name 9,"Message "\n')).toMatch(/Bank not reserved/)
+    expect(fails(p + 'Print Elbank Name$(9)\n')).toMatch(/Bank not reserved/)
+    // ...and the guide's own idiom for trimming it, which uses slice 3
+    expect(run(p + 'N$=Elbank Name$(5)\nPrint "["+Left$(N$,Elf Last Not Asc(N$,32))+"]"\n').out).toBe('[Work]\n')
+  })
+
+  it('Elbnk Here answers whether a bank is reserved', () => {
+    expect(run(OPEN + 'Reserve As Work 5,64\nPrint Elbnk Here(5);Elbnk Here(9)\n').out).toBe('-1 0\n')
+  })
+
+  /**
+   * A message bank as routine 147 reads one. NOTE: no real message bank
+   * exists in the archive -- they came from a compiler the author never
+   * released -- so this proves the reader agrees with the reading in the
+   * `message` doc block, and nothing more.
+   */
+  const MSGBANK = [
+    'Reserve As Work 5,128',
+    'Els Bank Name 5,"Message "',
+    // base+0: the entry area's offset from base, and the bound on the group
+    // table is that value less 16, so 32 leaves room for groups 0..3
+    'Loke Start(5),32 : Loke Start(5)+4,64',
+    // base+8: group 0's entries run [0,12) -- two of them -- and group 1's
+    // [12,12), which is none
+    'Loke Start(5)+8,0 : Loke Start(5)+12,12 : Loke Start(5)+16,12',
+    // the entries themselves, at base+32: offset then length
+    'Loke Start(5)+32,0 : Doke Start(5)+36,5',
+    'Loke Start(5)+38,5 : Doke Start(5)+42,3',
+    // the text, at base + the longword at base+4
+    'Elmem Start(5)+64,"helloabc"',
+  ].join('\n')
+
+  it('Elmessage$ walks the group table and the six-byte entries', () => {
+    const { out } = run(
+      OPEN + MSGBANK + '\nPrint Elmessage$(5,0,0);"/";Elmessage$(5,0,1);Elmessage Exists(5,0,0)\n',
+    )
+    expect(out).toBe('hello/abc-1\n')
+  })
+
+  it('out of range answers 0 for Exists and AMOS 23 for the reader', () => {
+    const p = OPEN + MSGBANK + '\n'
+    expect(run(p + 'Print Elmessage Exists(5,0,9);Elmessage Exists(5,9,0)\n').out).toBe(' 0 0\n')
+    expect(fails(p + 'Print Elmessage$(5,0,9)\n')).toMatch(/Illegal function call/)
+    expect(fails(p + 'Print Elmessage$(5,0,-1)\n')).toMatch(/Illegal function call/)
+  })
+
+  it('a bank that is not named "Message " is the extension\'s own error', () => {
+    expect(fails(OPEN + 'Reserve As Work 5,64\nPrint Elmessage Exists(5,0,0)\n')).toMatch(/Not a message bank/)
+    expect(fails(OPEN + 'Print Elmessage$(9,0,0)\n')).toMatch(/Bank not reserved/)
+  })
+})
+
 describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
   /**
    * The rename between 1.0 and 1.09 was total, so a 1.0 program shares not one
@@ -603,6 +707,33 @@ describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
     })
     mustFinish(rt.runHeadless(2000))
     expect(printed).toBe(' 5 5 2 5\n 9 9 11 10\n 13 11 4\n 3 3\n')
+  })
+
+  it('and the string, memory and bank names', () => {
+    const one = extensionById('easylife-1.0')!
+    const exts = new Map([[16, one.table]])
+    let printed = ''
+    const src =
+      OPEN +
+      'Reserve As Work 5,64\n' +
+      'Set Bank Name 5,"Message "\n' +
+      'A=Mem Inc(Start(5)+32,Long$(7)+Word$(9))\n' +
+      'Mem A,"x"\n' +
+      'Print Long(Mem$(Start(5)+32,4));Word(Mem$(Start(5)+36,2));Mem$(Start(5)+38,1)\n' +
+      'Print Extb(255);Extw(65535);"[";Bank Name$(5);"]"\n' +
+      'Loke Start(5),32 : Loke Start(5)+4,48\n' +
+      'Loke Start(5)+8,0 : Loke Start(5)+12,6\n' +
+      'Loke Start(5)+32,0 : Doke Start(5)+36,2\n' +
+      'Mem Start(5)+48,"ok"\n' +
+      'Print Message$(5,0,0)\n'
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, one]]),
+      maxSteps: 200_000,
+      onText: (t) => (printed += t),
+    })
+    mustFinish(rt.runHeadless(2000))
+    expect(printed).toBe(' 7 9x\n-1-1[Message ]\nok\n')
   })
 
   it('and the ten multi-zone names, where the rename was not a prefix strip', () => {

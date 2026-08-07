@@ -2235,7 +2235,33 @@ export const FAITHFUL = new Set<string>([
   'elf fail end',
   'elpad asc$',
   'elpad char$',
+  // slice 4 -- integers as strings, memory, banks and message banks
+  'ellong',
+  'ellong$',
+  'elword',
+  'elword$',
+  'elextb',
+  'elextw',
+  'elmem',
+  'elmem inc',
+  'elmem$',
+  'elbank name$',
+  'els bank name',
+  'elbnk here',
+  'elmessage$',
+  'elmessage exists',
   // ...and 1.0's names for the same routines, reached through `aliases`
+  'long',
+  'long$',
+  'word',
+  'word$',
+  'extb',
+  'extw',
+  'mem',
+  'mem inc',
+  'mem$',
+  'set bank name',
+  'message$',
   'find asc',
   'find char',
   'find not asc',
@@ -3961,6 +3987,24 @@ export const NOTES: Record<string, string> = {
     "Routines 145 and 146 ($25da, $25f0). Routine 146 is `move.w (a2)+,d6 / cmp.l d4,d6 / Rbhi routine 3`, then L_Demande for a string of the target length, the source copied in and the remainder filled with the pad byte. NOTE: the guide says \"If the length of the string S$ is greater than or equal to L, these two functions return S$\". Equal does return S$; LONGER is `Rbhi routine 3`, an Illegal Function Call. Only half the sentence is true, and it is the half a program would rely on that is not",
   'elpad char$':
     "Routine 144 ($25c6), which takes the first character of A$ and joins routine 146 -- \"If A$ contains more than one character, the second and subsequent characters are ignored. In the future I intend to change this to repeatedly use the whole of A$ to pad S$\", and 1.44 still does not. An empty A$ is `Rbeq routine 3`",
+
+  // EasyLife slice 4: integers as strings, memory, banks, message banks.
+  'ellong$':
+    "Routines 46-49 ($16f4..$174c), four ten-to-twenty-byte routines that are the pair AMOS lacks. Ellong$ is `moveq #$6,d3 / Rjsr L_Demande / move.w #$4,(a0)+ / move.l (a3)+,(a0)+` -- the four raw bytes, most significant first, \"so that it may be output to a file compactly with a fixed length\". Elword$ pops the argument as two words and keeps the LOW one (`move.w (a3)+,d0 / move.w (a3)+,(a0)+`), which is the guide's \"ElWord$ does not give error messages if the value is out of range, it simply stores the lower 2 bytes\". Reading back, Ellong needs four bytes and Elword two (`cmp.w #$4,d0 / Rbcs routine 3`), and Elword sign-extends, so 32768..65535 come back negative -- the guide says so and gives the workaround",
+  'elextb':
+    "Routines 78 and 79 ($1bc4, $1bce), ten and eight bytes: `ext.w d3 / ext.l d3` from the low BYTE, and `ext.l d3` from the low word. No range check on either -- whatever is passed has its top bits discarded before the sign is taken",
+  'elmem$':
+    "Routines 67 ($1a98) and 68 ($1ad4). \"AMOS already has peek,deek & leek - thing of this as 'Seek' (!)\" The three-argument form scans up to SLENGTH+1 bytes for the delimiter, works out how far it got and falls into the two-argument one with that as the length, so the delimiter itself is not returned. SLENGTH of 0 in the delimiter form is `Rbeq routine 3`. NOTE: the bound is routine 67's `addq.l #$2,d3 / cmp.l #$10000,d3 / Rbcc routine 3`, so it is the length PLUS TWO that must stay under 65536 and the real maximum is 65533, where the guide says 65535",
+  'elmem':
+    "Routine 69 ($1af4) and its wrapper 111 ($20b6), which is `Rbsr routine 69 / move.l a1,d3` -- the write, then the address just past it. \"Only the actual characters in the string are copied - the length does not preceed it as with AMOS strings within the variable buffer, and it is not automatically null terminated like C strings.\" An empty string writes nothing",
+  'elbank name$':
+    "Routine 65 ($1a46): L_Bnk_GetAdr, then the eight bytes at `-$8(a2)` and `-$4(a2)` -- the name sits immediately before the data. \"The string returned is always 8 characters long, and is padded with trailing spaces\", and the guide's own idiom for trimming it uses the keyword slice 3 added: `Left$(NAME$,Elf Last Not Asc(NAME$,32))`",
+  'els bank name':
+    "Routine 66 ($1a72), the write side of the core's Bank Name$. `move.w (a2)+,d0 / cmp.w #$8,d0 / Rbne routine 3` -- exactly eight characters, checked BEFORE the bank is looked up, so a bad length beats a missing bank. \"Some AMOS commands / programs use the bank name to detect the bank type, so you should be careful\": EasyLife itself does, for message banks and for the Tags bank",
+  'elbnk here':
+    "Routine 158 ($2788). DEVIATION: it pops the parameter stack TWICE for a keyword whose spec declares one argument -- `20 1b` move.l (a3)+,d0, then `76 00 74 00` clearing d3 and d2, then `20 1b` again, overwriting d0. So the bank it looks up is the long BELOW the argument on AMOS's expression stack, and a3 is left four bytes high afterwards. Every one-argument sibling (Elextb, Elbank Name$) pops once, so this is not a convention. There is no shared parameter stack here to under-run, so what the routine intended is what runs: the argument is looked up and the answer is -1 or 0, which is what the guide describes",
+  'elmessage$':
+    "Routines 64 ($1a34) and 147 ($262c), and routine 147 is the only description of the message-bank format that exists. The bank is identified by the eight bytes before its data compared against an inline \"Message \" with two `cmpm.l`; a mismatch is the extension's own \"Not a message bank\". Then the longword at the data start bounds the group table (`subi.l #$10,d7` against GROUP*4), base+8+g*4 and base+$c+g*4 delimit the group's entries, each entry is six bytes (`asl.l #$1,d0 / asl.l #$2,d7 / add.l d7,d0`) holding a longword offset and a word length, and the text is at base + the longword at base+4 + that offset. Out of range in either direction answers 0 rather than raising, which is what makes Elmessage Exists a test rather than a trap; Elmessage$ then turns that 0 into AMOS 23. NOTE: no message bank exists anywhere in the archive. They come from \"the Message Bank Compiler PratchED extension program\", which the guide admits was never released -- \"For more information, read the message bank compiler documentation. (Which one day, I might even release!)\" So the layout is routine 147's alone, and the test that exercises it builds a bank to match, which proves the reader agrees with the reading and nothing more",
 }
 
 /**
@@ -4081,6 +4125,25 @@ export const SHARED_NOTES: Record<string, string> = {
   'find nth char': 'elf nth asc',
   'find num asc': 'elf num asc',
   'find num char': 'elf num char',
+  // the integer/string pair and the two sign extensions are one reading each
+  'ellong': 'ellong$',
+  'elword': 'ellong$',
+  'elword$': 'ellong$',
+  'elextw': 'elextb',
+  'elmem inc': 'elmem',
+  'elmessage exists': 'elmessage$',
+  // and 1.0's spellings of the same routines
+  'long$': 'ellong$',
+  'long': 'ellong$',
+  'word$': 'ellong$',
+  'word': 'ellong$',
+  'extb': 'elextb',
+  'extw': 'elextb',
+  'mem$': 'elmem$',
+  'mem': 'elmem',
+  'mem inc': 'elmem',
+  'set bank name': 'els bank name',
+  'message$': 'elmessage$',
 }
 
 /** The reading for a keyword, following SHARED_NOTES to whoever holds it. */

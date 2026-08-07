@@ -5291,6 +5291,22 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
         'find nth char': 'elf nth char',
         'find num asc': 'elf num asc',
         'find num char': 'elf num char',
+        // strings, memory, banks and messages. `bank name$` is the one
+        // contested name in the whole extension -- core, AMCAF and Range all
+        // spell it -- and an alias is already bound per slot, exactly as
+        // `qualified` is, so it collides with nothing
+        'long$': 'ellong$',
+        long: 'ellong',
+        'word$': 'elword$',
+        word: 'elword',
+        extb: 'elextb',
+        extw: 'elextw',
+        'mem$': 'elmem$',
+        mem: 'elmem',
+        'mem inc': 'elmem inc',
+        'bank name$': 'elbank name$',
+        'set bank name': 'els bank name',
+        'message$': 'elmessage$',
       },
     },
   },

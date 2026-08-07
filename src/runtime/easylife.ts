@@ -286,6 +286,82 @@ const elfMiss = (rt: Runtime, len: number): number => (rt.easylife.elfFailEnd ? 
 /** true when `c` is one of the characters of `set` — routines 40-43's inner dbra */
 const inSet = (set: string, c: string): boolean => set.includes(c)
 
+// ---- memory and message banks ----------------------------------------------
+
+/** one byte of AMOS's address space, 0 where nothing is mapped */
+function peekByte(rt: Runtime, addr: number): number {
+  const m = rt.resolveAddr(addr)
+  return m ? (m.data[m.off] ?? 0) : 0
+}
+
+/**
+ * Routine 69 ($1af4): the string's own bytes, nothing before and nothing
+ * after. Through `resolveWrite`, not `resolveAddr` — a screen's chunky cache
+ * has to be invalidated when its bitplanes are written to, and
+ * screen.planar.test.ts is the guard that says so.
+ */
+function writeBytes(rt: Runtime, addr: number, s: string): void {
+  for (let i = 0; i < s.length; i++) {
+    const m = rt.resolveWrite(addr + i)
+    if (m) m.data[m.off] = s.charCodeAt(i) & 0xff
+  }
+}
+
+/**
+ * Routine 147 ($262c) — locate a message, and the only description of the
+ * message-bank format that exists.
+ *
+ * The bank is identified by its NAME, the eight bytes before the data
+ * compared against the inline `"Message "` at $26a2 with two `cmpm.l`; a
+ * mismatch is message 9, "Not a message bank". Then, with `base` the data
+ * start:
+ *
+ *     (base)          a longword; `move.l (a0),d7 / subi.l #$10,d7` is
+ *                     compared against GROUP*4, so the group table runs out
+ *                     at (base)-16
+ *     base+8+g*4      the group's entry-table offset, and +$c its end, so a
+ *                     group's entries are the gap between consecutive slots
+ *     a1 = base + (base)
+ *     a1+off+n*6      the entry: a longword offset then a word length
+ *                     (`asl.l #$1,d0 / asl.l #$2,d7 / add.l d7,d0` is n*6)
+ *     base + (base+4) + that offset      the text
+ *
+ * Out of range in either direction answers 0 rather than raising, which is
+ * what makes `Elmessage Exists` a test rather than a trap.
+ *
+ * NOTE: no message bank exists anywhere in the archive. They come from "the
+ * Message Bank Compiler PratchED extension program", which the guide admits
+ * was never released — "For more information, read the message bank compiler
+ * documentation. (Which one day, I might even release!)". So this layout is
+ * routine 147's alone, and the test that exercises it builds a bank to match,
+ * which proves the reader agrees with the reading and nothing more.
+ */
+function message(rt: Runtime, a: Value[]): { data: Uint8Array; at: number; len: number } | null {
+  const n = int(a[0] ?? VI(0))
+  const group = int(a[1] ?? VI(0))
+  const num = int(a[2] ?? VI(0))
+  // `move.l (a3)+,d7 / Rbmi routine 3` twice, on NUMBER then GROUP
+  if (num < 0) funcCall()
+  if (group < 0) funcCall()
+  // L_Bnk_OrAdr: a legal bank number is a bank, anything else an address
+  const b = rt.memBanks.get(n)
+  const data = b?.data ?? rt.resolveAddr(n)?.data
+  const base = b ? 0 : (rt.resolveAddr(n)?.off ?? 0)
+  if (!data) throw new AmosError('Bank not reserved', 36)
+  if ((b?.name ?? '') !== 'Message ') elError(9)
+  const v = new DataView(data.buffer, data.byteOffset, data.byteLength)
+  const rd = (o: number): number => (o + 4 <= data.length ? v.getUint32(base + o, false) : 0)
+  if (u32(rd(0) - 0x10) < u32(group * 4)) return null
+  const from = rd(8 + group * 4)
+  const span = rd(0xc + group * 4) - from
+  const at = num * 6
+  if (u32(at) >= u32(span)) return null
+  const entry = base + rd(0) + from + at
+  const off = v.getUint32(entry, false)
+  const len = v.getUint16(entry + 4, false)
+  return { data, at: base + rd(4) + off, len }
+}
+
 // ---- multi-zones -----------------------------------------------------------
 
 /**
@@ -653,6 +729,141 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
       for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === ch) n++
       return VI(n)
     },
+
+    // ---- integers as strings, memory, banks and messages ----
+
+    /**
+     * =Ellong$(NUM) — routine 46 ($16f4): `moveq #$6,d3 / Rjsr L_Demande /
+     * move.w #$4,(a0)+ / move.l (a3)+,(a0)+`. Four raw bytes, most
+     * significant first, "so that it may be output to a file compactly with a
+     * fixed length" — the pair AMOS lacks.
+     */
+    'ellong$': (_, a): Value => {
+      const n = int(a[0] ?? VI(0)) | 0
+      return VS(String.fromCharCode((n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff))
+    },
+    /** =Ellong(NUM$) — routine 47 ($170c), `cmp.w #$4,d0 / Rbcs routine 3` */
+    ellong: (_, a): Value => {
+      const s = str(a[0] ?? VS(''))
+      if (s.length < 4) funcCall()
+      return VI(((s.charCodeAt(0) << 24) | (s.charCodeAt(1) << 16) | (s.charCodeAt(2) << 8) | s.charCodeAt(3)) | 0)
+    },
+    /**
+     * =Elword$(NUM) — routine 48 ($171e), which pops the argument as two
+     * words and keeps the LOW one: `move.w (a3)+,d0 / move.w (a3)+,(a0)+`.
+     * "ElWord$ does not give error messages if the value is out of range, it
+     * simply stores the lower 2 bytes."
+     */
+    'elword$': (_, a): Value => {
+      const n = int(a[0] ?? VI(0))
+      return VS(String.fromCharCode((n >>> 8) & 0xff, n & 0xff))
+    },
+    /** =Elword(NUM$) — routine 49 ($1738), `cmp.w #$2,d0 / Rbcs` then `ext.l` */
+    elword: (_, a): Value => {
+      const s = str(a[0] ?? VS(''))
+      if (s.length < 2) funcCall()
+      return VI(sw((s.charCodeAt(0) << 8) | s.charCodeAt(1)))
+    },
+
+    /** =Elextb(N) — routine 78 ($1bc4), `ext.w d3 / ext.l d3` from the low BYTE */
+    elextb: (_, a): Value => VI(((int(a[0] ?? VI(0)) & 0xff) << 24) >> 24),
+    /** =Elextw(N) — routine 79 ($1bce), `ext.l d3` from the low word */
+    elextw: (_, a): Value => VI(sw(int(a[0] ?? VI(0)))),
+
+    /**
+     * =Elmem$(ADDR,SLENGTH) / =Elmem$(ADDR,SLENGTH,DELIMITER) — routines 67
+     * ($1a98) and 68 ($1ad4). "AMOS already has peek,deek & leek - thing of
+     * this as 'Seek' (!)"
+     *
+     * Routine 68 scans up to SLENGTH+1 bytes for DELIMITER, works out how far
+     * it got and falls into routine 67 with that as the length, so "if the
+     * memory reading is terminated by reading a DELIMETER character, that
+     * character is not returned". SLENGTH of 0 is `Rbeq routine 3`.
+     *
+     * NOTE: the length bound is routine 67's `addq.l #$2,d3 / cmp.l
+     * #$10000,d3 / Rbcc routine 3`, so it is the length PLUS TWO that must
+     * stay under 65536 and the real maximum is 65533, not the guide's 65535.
+     */
+    'elmem$': (_, a): Value => {
+      const addr = int(a[0] ?? VI(0))
+      let len = int(a[1] ?? VI(0))
+      if (a.length >= 3) {
+        if (len === 0) funcCall()
+        const delim = int(a[2] ?? VI(0)) & 0xff
+        let k = 0
+        while (k <= len && peekByte(rt, addr + k) !== delim) k++
+        len = Math.min(k, len)
+      }
+      if (u32(len + 2) >= 0x10000) funcCall()
+      let out = ''
+      for (let i = 0; i < len; i++) out += String.fromCharCode(peekByte(rt, addr + i))
+      return VS(out)
+    },
+    /**
+     * =Elmem Inc(ADDR,S$) — routine 111 ($20b6), `Rbsr routine 69 / move.l
+     * a1,d3`: the write, then the address just past it, "allowing many
+     * strings to be copied into consecutive memory addresses easily".
+     */
+    'elmem inc': (_, a): Value => {
+      const addr = int(a[0] ?? VI(0))
+      const s = str(a[1] ?? VS(''))
+      writeBytes(rt, addr, s)
+      return VI(addr + s.length)
+    },
+
+    /**
+     * =Elbank Name$(BANK) — routine 65 ($1a46). `L_Bnk_GetAdr`, then the
+     * eight bytes at `-$8(a2)` and `-$4(a2)` — the name sits immediately
+     * before the data. "The string returned is always 8 characters long, and
+     * is padded with trailing spaces".
+     */
+    'elbank name$': (_, a): Value => {
+      const b = rt.memBanks.get(int(a[0] ?? VI(0)))
+      if (!b) throw new AmosError('Bank not reserved', 36)
+      return VS((b.name + '        ').slice(0, 8))
+    },
+    /**
+     * =Elbnk Here(BNKNO) — routine 158 ($2788). "This function will return
+     * True (-1) if the specified bank has been reserved for the current
+     * program, or False (0) if it has not."
+     *
+     * DEVIATION: the routine pops the parameter stack TWICE for a keyword
+     * whose spec declares one argument —
+     *
+     *     20 1b   move.l (a3)+,d0        the argument, into d0
+     *     76 00   moveq  #$0,d3
+     *     74 00   moveq  #$0,d2
+     *     20 1b   move.l (a3)+,d0        ...and again, overwriting it
+     *     Rjsr    L_Bnk_GetAdr
+     *
+     * so the number it actually looks up is the long BELOW the argument on
+     * AMOS's expression stack, and a3 is left four bytes high afterwards.
+     * Every one-argument sibling (`Elextb`, `Elbank Name$`) pops once, so this
+     * is not a convention. There is no shared parameter stack here to
+     * under-run, so what the routine INTENDED is what runs: the argument is
+     * looked up and the answer is -1 or 0.
+     */
+    'elbnk here': (_, a): Value => VI(rt.memBanks.has(int(a[0] ?? VI(0))) ? -1 : 0),
+
+    /**
+     * =Elmessage$(BANK,GROUP,NUMBER) — routine 64 ($1a34), which is routine
+     * 147 followed by `tst.l d3 / Rbeq routine 3` and a fall into Elmem$ with
+     * the address and length routine 147 left behind.
+     */
+    'elmessage$': (_, a): Value => {
+      const m = message(rt, a)
+      if (!m) funcCall()
+      let out = ''
+      for (let i = 0; i < m.len; i++) out += String.fromCharCode(m.data[m.at + i] ?? 0)
+      return VS(out)
+    },
+    /**
+     * =Elmessage Exists(BANK,GROUP,NUMBER) — routine 147 ($262c), and the
+     * guide's own argument names for it (NAME, START) do not match its
+     * siblings' or the routine's; the spec is three integers and the routine
+     * is shared with Elmessage$.
+     */
+    'elmessage exists': (_, a): Value => VI(message(rt, a) ? -1 : 0),
 
     /**
      * =Elpad Asc$(S$,A,L) — routines 145 and 146 ($25da, $25f0).
@@ -1056,6 +1267,39 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'elf fail end': () => {
       rt.easylife.elfFailEnd = true
+    },
+
+    /**
+     * Elmem ADDR,S$ — routine 69 ($1af4). "Only the actual characters in the
+     * string are copied - the length does not preceed it as with AMOS strings
+     * within the variable buffer, and it is not automatically null terminated
+     * like C strings." An empty string writes nothing (`beq.b` on the length).
+     */
+    'elmem'(it) {
+      const addr = it.evalInt()
+      it.expect(',')
+      writeBytes(rt, addr, it.evalStr())
+    },
+
+    /**
+     * Els Bank Name BANK,NAME$ — routine 66 ($1a72), the write side of the
+     * core's `Bank Name$`. `move.w (a2)+,d0 / cmp.w #$8,d0 / Rbne routine 3`,
+     * so the name must be EXACTLY eight characters — "shorter strings should
+     * be padded with spaces E.g. Els Bank Name BANK,ElPad Asc(NAME$,32,8)",
+     * which is the guide pointing at the keyword slice 3 added. The string is
+     * checked BEFORE the bank is looked up, so a bad length beats a missing
+     * bank. "Some AMOS commands / programs use the bank name to detect the
+     * bank type, so you should be careful"; EasyLife itself does, for message
+     * banks and for the Tags bank.
+     */
+    'els bank name'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const name = it.evalStr()
+      if (name.length !== 8) funcCall()
+      const b = rt.memBanks.get(n)
+      if (!b) throw new AmosError('Bank not reserved', 36)
+      b.name = name
     },
 
     'elmz erase'(it) {
