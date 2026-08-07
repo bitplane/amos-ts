@@ -2268,7 +2268,32 @@ export const FAITHFUL = new Set<string>([
   'elpp keep on',
   'elpp keep off',
   'elpp allocate',
+  // slice 7 -- system, AmigaDOS and fonts
+  'el base',
+  'elpro',
+  'elcompiled',
+  'elexists',
+  'elprotect',
+  'els protect',
+  'elexec',
+  'elreset',
+  'elraster wait',
+  'elout',
+  'elout exists',
+  'elin$',
+  'elin exists',
+  'elin get$',
+  'elopen font',
+  'elclose font',
+  'elclose fonts',
+  'elset font',
   // ...and 1.0's names for the same routines, reached through `aliases`
+  'easy base',
+  'protect',
+  'set protect',
+  'raster wait',
+  'output exists',
+  'output',
   'pp load',
   'pp buf',
   'pp len',
@@ -4021,6 +4046,34 @@ export const NOTES: Record<string, string> = {
   'elpad char$':
     "Routine 144 ($25c6), which takes the first character of A$ and joins routine 146 -- \"If A$ contains more than one character, the second and subsequent characters are ignored. In the future I intend to change this to repeatedly use the whole of A$ to pad S$\", and 1.44 still does not. An empty A$ is `Rbeq routine 3`",
 
+  // EasyLife slice 7: system, AmigaDOS and fonts.
+  'el base':
+    "Routine 117 ($2110). `$f8` is ExtAdr and sixteen bytes is one slot (+Equ.s:1176-1183), so `subq.l #$1,d0 / asl.l #$4,d0 / addi.l #$f8,d0 / move.l (a5,d0.l),d3` is the BASE pointer of extension NUM. 1..25 (`cmp.l #$1a,d0 / Rbcc`), zero answers a5 itself and negative answers 0. NOTE: `El Base(0)` has no answer here -- a5 is AMOS's own system base and this port has no address for it -- so it answers 0, and an unoccupied slot answers 0 as it does on the machine",
+  'elpro':
+    "Routine 148 ($26aa) is SIX BYTES: `moveq #$ff,d3 / moveq #$0,d2 / rts`, unconditionally true. \"=ElPro returns true when your program is being run from AMOS Pro ... It returns False if it was run from AMOS Creator\", so it is a BUILD-TIME constant and this is the AMOS Pro build; an AMOS Creator build of the same library would carry `moveq #$0,d3`. Nothing at runtime can make it false",
+  'elcompiled':
+    "Routine 149 ($26b0), and DEFECT: it answers -1 under the interpreter, the opposite of what it is for. `41 fa 00 d6` is `lea $2788(pc),a0` -- $26b2 plus $d6 -- and $2788 holds `20 1b 76 00`, the first instruction of routine 158, Elbnk Here. The `cmpi.l #$43706c44,(a0)` against \"CplD\" can only fail, so `beq` is never taken and d3 stays -1. The guide says \"=ElCompiled returns true if your program is running as a stand-alone program, and false when it is being run under AMOS\", so under AMOS it is wrong every time. Whatever marker was meant to live at that address is not there in this build; reproduced, because the bytes are unambiguous",
+  'elexists':
+    "Routines 105 ($1f9c) and 106 ($1fb8). Routine 106 is Lock/Examine/UnLock over a 264-byte FileInfoBlock; 105 returns fib_DirEntryType from `$4(a1)`. \"If it returns 0, the file did not exist. If it returns a negative number, the file did exist. If it returns a positive number, then this is the name of an existing directory, not a file.\" A failed Lock is d0 = 81 rather than 0, and 105 tests d0 and answers 0, so only a failed Examine escapes as an error",
+  'elprotect':
+    "Routine 109 ($206a): routine 106 again, then `$74(a1)`, fib_Protection -- and unlike Elexists a failed Lock IS raised (`Rjmp L_Error` on d0). The bit sense is AmigaDOS's own inversion, which the guide sets out in full: \"For the lower 4 bits, a value of 0 means on, and 1 off, but for the upper 4 bits, 0 is off, and 1 is not. This means that the default flags '----rwed' have a value of 0\"",
+  'els protect':
+    "Routine 110 ($208a): routine 1 to null-terminate the name, `cmp.w #$1,d0 / Rbeq routine 3` on an empty one, then dos.library SetProtection. A failure is the extension's own \"Set Protection bits failed\". \"You should not set any of the upper 24 bits of the integer passed to Elsprotect\" -- and nothing checks, so they go through as given",
+  'elexec':
+    "Routine 143 ($25a6): `movem.l d0-d7/a0-a7,-(a7)` around a dos.library Execute with both handles zero, then routine 114 turns the result into a boolean. NOTE: saving a7 in a movem and restoring it from that same movem is what the routine does; it is a no-op, not a stack switch",
+  'elreset':
+    "Routine 108 ($203e): 1..25, then `$fc + (NUM-1)*16` off a5 -- ExtAdr plus FOUR, the slot's DEFAULT routine pointer -- and `jmp (a0)` if it is not null. \"This command will make extension number NUM think that the AMOS 'Default' command has been called, and the extension will reset itself. However the default command is not called, so the screen etc. is not reset.\" AMCAF's Extdefault is the same pointer reached the same way, so both go through the one `defaults` hook",
+  'elraster wait':
+    "Routine 107 ($2016), forty bytes: bound the line to 0..255, spin on VPOSR's low bit until the current line ends, then spin on VHPOSR's line byte until it equals LINE. DEVIATION: the modelled beam only advances between statements here, so there is nothing to spin on inside a keyword and this waits one frame -- the same limit AMCAF's Raster Wait carries",
+  'elout':
+    "Routines 121 ($218e) and 122 ($219e), over the handle routine 0 stored at $94 from `Output()`. NOTE: this port has no CLI attached, so the handle is zero -- which is exactly what it is on the machine when AMOS was started from Workbench. `absent` rather than `impossible` in src/amiga/host.ts's vocabulary: a host could supply one, and none does. So Elout Exists answers 0 and Elout raises the extension's own \"No STDOUT file handle exists\", which is the routine's own first branch",
+  'elin$':
+    "Routines 127, 128 and 129 ($2344, $2354, $2392) over the shared reader at 130 ($23b8) and the handle at $90 from `Input()`. Elin Get$ is FGets with a ten-byte limit and Elin$ a Read of LEN bytes, LEN bounded by `cmp.l #$10000,d3 / Rbcc routine 3`. Same absent-CLI reading as Elout: the handle is zero, so both raise \"No STDIN file handle exists\" and Elin Exists answers 0",
+  'elopen font':
+    "Routine 160 ($27a4), 220 bytes: fill the TextAttr at $80, try graphics.library OpenFont first, and only on a miss open diskfont.library (message 14 if that fails) and OpenDiskFont (message 15 if that does). The chain at $7c is walked for a node already holding this TextFont -- \"If you open the same font twice, you are returned the original pointer the second time, and the font is only actually opened once. Therefore you should only close it once.\" The FONTID is that node's address: \"The value returned is a pointer, not a consecutive integer like AMOS font numbers\", and \"TF=Leek(F+4)\" reaches the TextFont behind it. The point of the block is that \"You do not need to use any of the AMOS 'Get Fonts' commands\" -- the core's Set Font answers error 37 without them",
+  'elset font':
+    "Routines 161, 162 and 163 ($2880, $28b8, $28e8): the same chain walk for the FONTID, then respectively unlink-and-close, put the TextFont on the current RastPort, and close the lot. A FONTID that is not in the chain -- including one already closed -- is AMOS 23, which the guide states for Elset Font. Elclose Fonts is one of the six things the Default command does to EasyLife",
+
   // EasyLife slice 6a: PowerPacker.
   'elpp load':
     "Routine 55 ($17a0), 162 bytes. `cmp.l #$8,d0 / Rbcc routine 3` on the buffer, `Rbsr routine 58` to free whatever was there (\"If the chosen buffer already contained data, it is freed first\"), then routine 62 opens the library before the file is even looked at -- the guide's \"The Powerpacker Library is required to be in LIBS: even if the file your are loading in not crunched\". Routine 1 null-terminates FILE$ and an EMPTY name is AMOS 23. ppLoadData's failure code becomes a message by `addq.l #$8,d0`, so its -1..-7 land on messages 7..1 -- 'Unable to open file', 'Error reading file', out of memory, the two encrypted ones, 'Illegal powerpacker header', \"You can't PPLoad an empty file\" -- and that arithmetic is what pins the block's order. DECRUNCH picks the flash effect (0..4, \"2 : Flash colour 17 (Mouse Pointer - Recomended)\") and is passed straight to the library with no check of the extension's own; there is no flashing here and no library to refuse, so it is ignored. The PP20 magic decides whether to decrunch, which is what makes the guide's \"you don't have to worry about whether the file you are loading is crunched or not\" true",
@@ -4225,6 +4278,18 @@ export const SHARED_NOTES: Record<string, string> = {
   'pp crunch': 'elpp crunch',
   'pp keep on': 'elpp keep on',
   'pp keep off': 'elpp keep on',
+  // system and fonts: the stdin/stdout pairs and the font trio are one
+  // reading each, and 1.0's six names are the same routines
+  'elout exists': 'elout',
+  'elin exists': 'elin$',
+  'elin get$': 'elin$',
+  'elclose font': 'elset font',
+  'elclose fonts': 'elset font',
+  'easy base': 'el base',
+  'protect': 'elprotect',
+  'set protect': 'els protect',
+  'output exists': 'elout',
+  'output': 'elout',
 }
 
 /** The reading for a keyword, following SHARED_NOTES to whoever holds it. */

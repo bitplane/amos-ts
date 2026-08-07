@@ -5324,6 +5324,15 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
         'pp crunch': 'elpp crunch',
         'pp keep on': 'elpp keep on',
         'pp keep off': 'elpp keep off',
+        // system, AmigaDOS and fonts. 1.0 has no exists/exec/compiled/pro/
+        // reset/stdin/font-open keywords at all, and its `amos data` was
+        // folded into `El Base(0)`.
+        'easy base': 'el base',
+        protect: 'elprotect',
+        'set protect': 'els protect',
+        'raster wait': 'elraster wait',
+        'output exists': 'elout exists',
+        output: 'elout',
       },
     },
   },

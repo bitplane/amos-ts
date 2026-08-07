@@ -57,6 +57,8 @@ import { Runtime } from './runtime'
 import type { Screen } from './screen'
 import type { MultiZoneTable, Zone } from './objects'
 import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
+import { openDiskFont, type DiskFont } from '../amiga/diskfont'
+import { execute } from '../amiga/process'
 
 /**
  * The extension's own error messages, in block order, and the index is
@@ -164,6 +166,19 @@ export interface EasyLifeState {
    * nothing can be flushed out from under a program.
    */
   ppKeep: boolean
+  /**
+   * The open-font list at $7c of the companion struct — a singly linked
+   * chain, each node `next` then the TextFont, which is why "You can access
+   * the AmigaOS 'TextFont' structure of the opened font with F=Open
+   * Font(...) : TF=Leek(F+4)".
+   *
+   * Keyed here by the FONTID the extension hands back, which is the node
+   * address: "The value returned is a pointer, not a consecutive integer
+   * like AMOS font numbers", and "If you open the same font twice, you are
+   * returned the original pointer the second time".
+   */
+  fonts: Map<number, DiskFont>
+  fontOrder: number[]
 }
 
 export const newEasyLifeState = (): EasyLifeState => ({
@@ -178,6 +193,8 @@ export const newEasyLifeState = (): EasyLifeState => ({
   mzGroup: 0,
   elfFailEnd: false,
   ppKeep: false,
+  fonts: new Map(),
+  fontOrder: [],
 })
 
 /** the unsigned view of an AMOS 32-bit integer, which is how routine 153 compares */
@@ -300,6 +317,9 @@ const elfMiss = (rt: Runtime, len: number): number => (rt.easylife.elfFailEnd ? 
 
 /** true when `c` is one of the characters of `set` — routines 40-43's inner dbra */
 const inSet = (set: string, c: string): boolean => set.includes(c)
+
+/** what makes two `Elopen Font` calls the same font — the TextAttr pair */
+const fontKey = (f: DiskFont): string => `${f.name.toLowerCase()}/${f.ySize}`
 
 // ---- PowerPacker buffers ---------------------------------------------------
 
@@ -890,6 +910,160 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
       if (out.length > len) elError(8)
       if (!rt.vfs?.writeFile(file, out)) throw new AmosError('disc is write protected')
       return VI(out.length)
+    },
+
+    // ---- system, AmigaDOS and fonts, routines 105-163 ----
+
+    /**
+     * =El Base(NUM) — routine 117 ($2110).
+     *
+     *     bmi .zero / beq .amos
+     *     cmp.l #$1a,d0 / Rbcc routine 3       1..25, the extension slots
+     *     subq.l #$1,d0 / asl.l #$4,d0 / addi.l #$f8,d0 / move.l (a5,d0.l),d3
+     *
+     * $f8 is ExtAdr and sixteen bytes is one slot (+Equ.s:1176-1183), so this
+     * is the BASE pointer of extension NUM. Zero answers a5 itself, negative
+     * answers 0.
+     *
+     * NOTE: an unoccupied slot reads back whatever is in that longword, which
+     * is 0 for a slot no extension took. `El Base(0)` has no answer here —
+     * a5 is AMOS's own system base and this port has no address for it — so
+     * it answers 0 and is the one value of the three that is not modelled.
+     */
+    'el base': (_, a): Value => {
+      const n = int(a[0] ?? VI(0))
+      if (n < 0) return VI(0)
+      if (n === 0) return VI(0) // a5, which has no modelled address
+      if (u32(n) >= 26) funcCall()
+      return VI(rt.extSlotImpls().has(n) ? (Runtime.EXT_DATA_BASE + (n - 1) * Runtime.EXT_DATA_SLOT) | 0 : 0)
+    },
+
+    /**
+     * =ElPro — routine 148 ($26aa), and it is SIX BYTES: `moveq #$ff,d3 /
+     * moveq #$0,d2 / rts`. Unconditionally true.
+     *
+     * "=ElPro returns true when your program is being run from AMOS Pro, or
+     * if it was compiled from the AMOS Pro compiler. It returns False if it
+     * was run from AMOS Creator." So it is a BUILD-TIME constant, not a
+     * runtime test — this is the AMOS Pro build of the library, and an AMOS
+     * Creator build of it would carry `moveq #$0,d3`. Nothing here can make
+     * it false, and nothing on the machine could either.
+     */
+    elpro: (): Value => VI(-1),
+    /**
+     * =ElCompiled — routine 149 ($26b0), and DEFECT: it answers -1 under the
+     * interpreter, which is the opposite of what it is for.
+     *
+     *     41 fa 00 d6   lea $2788(pc),a0
+     *     74 00 76 00   moveq #$0,d2 / moveq #$0,d3
+     *     0c 90 43706c44  cmpi.l #"CplD",(a0)
+     *     67 02         beq .out            equal -> 0, "not compiled"
+     *     76 ff         moveq #$ff,d3       differ -> -1, "compiled"
+     *
+     * $26b2 + $d6 is $2788, and $2788 holds `20 1b 76 00` — the first
+     * instruction of routine 158, `Elbnk Here`. It is not "CplD" and nothing
+     * in the library ever writes it, so the compare can only fail and the
+     * answer can only be -1. The guide says "=ElCompiled returns true if
+     * your program is running as a stand-alone program, and false when it is
+     * being run under AMOS", so under AMOS it is wrong every time.
+     *
+     * Whatever marker was meant to live at that address, it is not there in
+     * this build. Reproduced, because the bytes are unambiguous.
+     */
+    elcompiled: (): Value => VI(-1),
+
+    /**
+     * =Elexists(FILENAME$) — routines 105 ($1f9c) and 106 ($1fb8).
+     *
+     * Routine 106 is Lock/Examine/UnLock over a 264-byte FileInfoBlock, and
+     * 105 returns `$4(a1)`, fib_DirEntryType. "If it returns 0, the file did
+     * not exist. If it returns a negative number, the file did exist. If it
+     * returns a positive number, then this is the name of an existing
+     * directory, not a file." A failed Lock is d0 = $51 (error 81) rather
+     * than 0 — but 105 tests d0 and answers 0, so only Examine failing
+     * (error 23) escapes as an error.
+     */
+    elexists: (_, a): Value => {
+      const what = rt.vfs?.exists(str(a[0] ?? VS('')))
+      return VI(what === 'dir' ? 2 : what === 'file' ? -3 : 0)
+    },
+    /**
+     * =ElProtect(FILENAME$) — routine 109 ($206a), routine 106 again and
+     * then `$74(a1)`, fib_Protection. Unlike Elexists a failed Lock IS
+     * raised here (`Rjmp L_Error` on d0).
+     *
+     * "For the lower 4 bits, a value of 0 means on, and 1 off, but for the
+     * upper 4 bits, 0 is off, and 1 is not. This means that the default
+     * flags '----rwed' have a value of 0" — which is AmigaDOS's own
+     * inversion, and what src/amiga/vfs.ts stores.
+     */
+    elprotect: (_, a): Value => {
+      const path = str(a[0] ?? VS(''))
+      if (!rt.vfs || rt.vfs.exists(path) === null) throw new AmosError('file not found: ' + path)
+      return VI(rt.vfs.meta(path).protection)
+    },
+
+    /**
+     * =Elexec(FILENAME$) — routine 143 ($25a6): `movem.l d0-d7/a0-a7,-(a7)`
+     * around a plain dos.library Execute (-$de) with both the input and
+     * output handles zero, then routine 114 turns the result into a boolean.
+     *
+     * NOTE: saving a7 in a movem and restoring it from that same movem is
+     * what the routine does; it is a no-op, not a stack switch.
+     */
+    elexec: (_, a): Value =>
+      VI(execute(rt.host.process, { command: str(a[0] ?? VS('')), io: { input: null, output: null } }) ? -1 : 0),
+
+    /**
+     * =Elout Exists / =Elin Exists — routines 121 ($218e) and 127 ($2344),
+     * sixteen bytes each: the handles routine 0 stored at $94 and $90 from
+     * `Output()` and `Input()`, as a boolean.
+     *
+     * NOTE: this port has no CLI attached, so both handles are zero — which
+     * is exactly what they are on the machine when AMOS was started from
+     * Workbench. `absent` rather than `impossible`, in src/amiga/host.ts's
+     * vocabulary: a host could supply them, and none does.
+     */
+    'elout exists': (): Value => VI(0),
+    'elin exists': (): Value => VI(0),
+    /**
+     * =Elin$(LEN) / =Elin Get$ — routines 129 ($2392) and 128 ($2354) over
+     * the shared reader at 130 ($23b8). `Elin Get$` is FGets with a
+     * ten-byte limit and `Elin$` a Read of LEN bytes, LEN bounded by
+     * `cmp.l #$10000,d3 / Rbcc routine 3`; both raise the extension's own
+     * "No STDIN file handle exists" first if $90 is zero, which here it
+     * always is.
+     */
+    'elin$': (): Value => elError(17),
+    'elin get$': (): Value => elError(17),
+
+    /**
+     * =Elopen Font(NAME$,SIZE) — routine 160 ($27a4), 220 bytes: fill the
+     * TextAttr at $80, try graphics.library OpenFont first (`jsr -$48(a6)`),
+     * and only on a miss open diskfont.library (message 14 if that fails)
+     * and OpenDiskFont (message 15 if THAT fails). Then walk the chain at
+     * $7c looking for a node already holding this TextFont — "If you open
+     * the same font twice, you are returned the original pointer the second
+     * time, and the font is only actually opened once. Therefore you should
+     * only close it once."
+     *
+     * "You do not need to use any of the AMOS 'Get Fonts' commands - Elopen
+     * Font is a replacement for these", which is the point of the block: the
+     * core's `Set Font` needs `Get Fonts` first and answers error 37 without
+     * it.
+     */
+    'elopen font': (_, a): Value => {
+      const name = str(a[0] ?? VS(''))
+      const size = int(a[1] ?? VI(0))
+      const st = rt.easylife
+      const key = `${name.toLowerCase()}/${size}`
+      for (const id of st.fontOrder) if (fontKey(st.fonts.get(id)!) === key) return VI(id)
+      const f = openDiskFont((p) => rt.vfs?.read(p) ?? null, name, size)
+      if (!f) elError(15) // 'Unable to lock font'
+      const id = (Runtime.EXT_DATA_BASE + 25 * Runtime.EXT_DATA_SLOT + st.fontOrder.length * 16) | 0
+      st.fonts.set(id, f)
+      st.fontOrder.push(id)
+      return VI(id)
     },
 
     /** =Elextb(N) — routine 78 ($1bc4), `ext.w d3 / ext.l d3` from the low BYTE */
@@ -1544,6 +1718,107 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
     },
     'elpp keep off': () => {
       rt.easylife.ppKeep = false
+    },
+
+    /**
+     * Els Protect FILENAME$,BITS — routine 110 ($208a): routine 1 to
+     * null-terminate the name, `cmp.w #$1,d0 / Rbeq routine 3` on an empty
+     * one, then dos.library SetProtection (-$ba). A failure is the
+     * extension's own message 13, "Set Protection bits failed".
+     *
+     * "You should not set any of the upper 24 bits of the integer passed to
+     * Elsprotect" — and nothing checks, so they go through as given.
+     */
+    'els protect'(it) {
+      const path = it.evalStr()
+      if (path === '') funcCall()
+      it.expect(',')
+      const bits = it.evalInt()
+      if (!rt.vfs?.setMeta(path, { protection: bits })) elError(13)
+    },
+
+    /**
+     * Elreset NUM — routine 108 ($203e). 1..25 (`Rbmi`, `Rbeq`, then
+     * `cmp.l #$1a,d0 / Rbcc`), then `$fc + (NUM-1)*16` off a5 — ExtAdr plus
+     * FOUR, which is the slot's DEFAULT routine pointer — and `jmp (a0)` if
+     * it is not null.
+     *
+     * "This command will make extension number NUM think that the AMOS
+     * 'Default' command has been called, and the extension will reset
+     * itself. However the default command is not called, so the screen etc.
+     * is not reset." AMCAF's `Extdefault` is the same pointer reached the
+     * same way, so this goes through the same `defaults` hook.
+     */
+    'elreset'(it) {
+      const n = it.evalInt()
+      if (n <= 0) funcCall()
+      if (u32(n) >= 26) funcCall()
+      rt.extSlotImpls().get(n)?.defaults?.(rt)
+    },
+
+    /**
+     * Elraster Wait LINE — routine 107 ($2016), forty bytes and a busy-wait:
+     *
+     *     move.l (a3)+,d0 / Rbmi routine 3 / cmp.l #$100,d0 / Rbcc routine 3
+     *   .a move.b $dff005,d1 / btst #$0,d1 / bne .a     wait out this line
+     *   .b move.b $dff006,d1 / cmp.b d1,d0 / bne .b     then wait for LINE
+     *
+     * so LINE is 0..255 and it spins on VPOSR's low bit and VHPOSR's line
+     * byte. DEVIATION: the modelled beam only advances between statements
+     * here, so there is nothing to spin on inside a keyword and this waits
+     * one frame — the same limit AMCAF's `Raster Wait` carries, and the
+     * reason that name is slot-qualified.
+     */
+    'elraster wait'(it) {
+      const line = it.evalInt()
+      if (line < 0 || u32(line) >= 0x100) funcCall()
+      it.block({ type: 'wait', until: it.tick + 1 })
+    },
+
+    /**
+     * Elout S$ — routine 122 ($219e): the handle at $94 or message 16, then
+     * dos.library Write (-$30) of the string's own bytes, and an io error of
+     * -1 is AMOS error 94.
+     */
+    'elout'(it) {
+      it.evalStr()
+      elError(16) // 'No STDOUT file handle exists' -- see `elout exists`
+    },
+
+    /**
+     * Elclose Font FONTID — routine 161 ($2880): walk the chain at $7c for a
+     * node whose address is FONTID, unlink it, CloseFont and free. An empty
+     * chain, or a FONTID not in it, is AMOS 23 — which is also `Elset
+     * Font`'s error, "The parameter you supplied is not a FONTID returned
+     * from Elopen Font (Or it has been closed again)".
+     */
+    'elclose font'(it) {
+      const id = it.evalInt()
+      const st = rt.easylife
+      if (!st.fonts.has(id)) funcCall()
+      st.fonts.delete(id)
+      st.fontOrder = st.fontOrder.filter((x) => x !== id)
+    },
+    /**
+     * Elclose Fonts — routine 163 ($28e8), the whole chain, and one of the
+     * six things the Default command does to EasyLife ("All fonts are
+     * unlocked", CommandEffects).
+     */
+    'elclose fonts': () => {
+      rt.easylife.fonts.clear()
+      rt.easylife.fontOrder = []
+    },
+    /**
+     * Elset Font FONTID — routine 162 ($28b8): the same chain walk, then the
+     * TextFont onto AMOS's own current font. "This command behaves the same
+     * as the AMOS 'Set Font' command, except it take a FONTID returned from
+     * Elopen Font as a parameter instead of an AMOS font number."
+     */
+    'elset font'(it) {
+      const id = it.evalInt()
+      const f = rt.easylife.fonts.get(id)
+      if (!f) funcCall()
+      rt.screen.rp.font = f
     },
 
     /**

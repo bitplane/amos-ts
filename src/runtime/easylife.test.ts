@@ -800,6 +800,104 @@ describe('EasyLife: the PowerPacker buffers (routines 55-63)', () => {
   })
 })
 
+describe('EasyLife: system, AmigaDOS and fonts (routines 105-163)', () => {
+  /** the AmigaDOS half needs a writable volume with metadata */
+  function bootVfs(src: string): { rt: Runtime; fs: AmigaFS; out: () => string } {
+    const exts = new Map([[16, easylife.table]])
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    let printed = ''
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, easylife]]),
+      maxSteps: 200_000,
+      onText: (t) => (printed += t),
+      fs,
+    })
+    return { rt, fs, out: () => printed }
+  }
+
+  it('El Base answers an extension slot, and bounds itself to 1..25', () => {
+    // `$f8` is ExtAdr, sixteen bytes a slot -- +Equ.s:1176-1183
+    expect(run(OPEN + 'Print El Base(16)<>0;El Base(3);El Base(-1)\n').out).toBe('-1 0 0\n')
+    expect(fails(OPEN + 'Print El Base(26)\n')).toMatch(/Illegal function call/)
+  })
+
+  it('ElPro is a build-time true, and DEFECT: ElCompiled is true too', () => {
+    // routine 148 is six bytes of `moveq #$ff,d3`; routine 149 compares a
+    // longword that holds routine 158's first instruction, not "CplD"
+    expect(run(OPEN + 'Print ElPro;Elcompiled\n').out).toBe('-1-1\n')
+  })
+
+  it('Elexists tells a file from a directory from neither', () => {
+    const b = bootVfs(OPEN + 'Print Elexists("ram:f")<0;Elexists("ram:d")>0;Elexists("ram:no")\n')
+    b.fs.writeFile('ram:f', new Uint8Array(2))
+    b.fs.mkdir('ram:d')
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.out()).toBe('-1-1 0\n')
+  })
+
+  it('ElProtect reads the bits and Els Protect writes them', () => {
+    const b = bootVfs(OPEN + 'Print ElProtect("ram:f");\nEls Protect "ram:f",5\nPrint ElProtect("ram:f")\n')
+    b.fs.writeFile('ram:f', new Uint8Array(2))
+    mustFinish(b.rt.runHeadless(2000))
+    // "the default flags '----rwed' have a value of 0"
+    expect(b.out()).toBe(' 0 5\n')
+  })
+
+  it('a missing file is an error for ElProtect, and an empty name for Els Protect', () => {
+    const a = bootVfs(OPEN + 'Print ElProtect("ram:no")\n')
+    expect(() => a.rt.runHeadless(2000)).toThrow(/file not found/)
+    const b = bootVfs(OPEN + 'Els Protect "",1\n')
+    expect(() => b.rt.runHeadless(2000)).toThrow(/Illegal function call/)
+  })
+
+  it('Elexec is DOSFALSE without a host that can run anything', () => {
+    // routine 143's Execute with both handles zero; `execute()` answers
+    // DOSFALSE with no ProcessHost, "which is what dos.library answers when
+    // the command does not exist"
+    expect(run(OPEN + 'Print Elexec("list")\n').out).toBe(' 0\n')
+  })
+
+  it("Elreset runs an extension slot's Default hook, and bounds NUM", () => {
+    // `$fc + (NUM-1)*16` is ExtAdr plus four, the DEFAULT routine pointer
+    expect(() => run(OPEN + 'Elreset 16\n')).not.toThrow()
+    expect(fails(OPEN + 'Elreset 0\n')).toMatch(/Illegal function call/)
+    expect(fails(OPEN + 'Elreset 26\n')).toMatch(/Illegal function call/)
+    expect(fails(OPEN + 'Elreset -1\n')).toMatch(/Illegal function call/)
+  })
+
+  it('Elraster Wait bounds the line to 0..255', () => {
+    expect(fails(OPEN + 'Elraster Wait 256\n')).toMatch(/Illegal function call/)
+    expect(fails(OPEN + 'Elraster Wait -1\n')).toMatch(/Illegal function call/)
+  })
+
+  it('there is no CLI, so both standard handles are absent', () => {
+    expect(run(OPEN + 'Print Elout Exists;Elin Exists\n').out).toBe(' 0 0\n')
+    expect(fails(OPEN + 'Elout "hi"\n')).toMatch(/No STDOUT file handle exists/)
+    expect(fails(OPEN + 'Print Elin$(4)\n')).toMatch(/No STDIN file handle exists/)
+    expect(fails(OPEN + 'Print Elin Get$\n')).toMatch(/No STDIN file handle exists/)
+  })
+
+  it("a font that cannot be opened is the extension's own message 15", () => {
+    // routine 160 tries graphics.library OpenFont, then diskfont.library
+    // OpenDiskFont, and a miss on both is "Unable to lock font". A bare VFS
+    // has no Fonts: assign, so every name misses.
+    const b = bootVfs(OPEN + 'F=Elopen Font("topaz.font",8)\n')
+    expect(() => b.rt.runHeadless(2000)).toThrow(/Unable to lock font/)
+  })
+
+  it('a FONTID not in the chain is AMOS 23, and Elclose Fonts empties it', () => {
+    // "The parameter you supplied is not a FONTID returned from Elopen Font
+    // (Or it has been closed again)" -- routines 161 and 162 walk the same
+    // chain and both end at routine 3
+    expect(fails(OPEN + 'Elset Font 12345\n')).toMatch(/Illegal function call/)
+    expect(fails(OPEN + 'Elclose Font 12345\n')).toMatch(/Illegal function call/)
+    const { rt } = run(OPEN + 'Elclose Fonts\n')
+    expect(rt.easylife.fonts.size).toBe(0)
+  })
+})
+
 describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
   /**
    * The rename between 1.0 and 1.09 was total, so a 1.0 program shares not one
@@ -928,6 +1026,41 @@ describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
     mustFinish(rt.runHeadless(2000))
     expect(printed).toBe(' 4data 0-1\n')
     expect(rt.easylife.ppKeep).toBe(false)
+  })
+
+  it('and the six system names it has — 1.0 predates most of that block', () => {
+    // 1.0 has `easy base` for `El Base`, and separately `amos data` for what
+    // 1.10 folded into `El Base(0)`. It has no exists/exec/compiled/pro/
+    // reset/stdin/font-open keywords at all.
+    const one = extensionById('easylife-1.0')!
+    const exts = new Map([[16, one.table]])
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    fs.writeFile('ram:f', new Uint8Array(2))
+    let printed = ''
+    const src =
+      OPEN +
+      'Print Easy Base(16)<>0;Protect("ram:f");\n' +
+      'Set Protect "ram:f",3\n' +
+      'Print Protect("ram:f");Output Exists\n' +
+      'Raster Wait 100\n'
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, one]]),
+      maxSteps: 200_000,
+      onText: (t) => (printed += t),
+      fs,
+    })
+    mustFinish(rt.runHeadless(2000))
+    expect(printed).toBe('-1 0 3 0\n')
+    // ...and `Output` raises, the standard handles being absent
+    const b = new Runtime(tokenize(OPEN + 'Output "x"\n', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, one]]),
+      maxSteps: 200_000,
+      fs,
+    })
+    expect(() => b.runHeadless(2000)).toThrow(/No STDOUT file handle exists/)
   })
 
   it('and the ten multi-zone names, where the rename was not a prefix strip', () => {
