@@ -1066,6 +1066,49 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
       return VI(id)
     },
 
+    /**
+     * =Elwb Open / =Elwb Close / =Elwb Test — routines 118, 119 and 120
+     * ($213a, $214e, $217a), twenty to forty-four bytes each on
+     * intuition.library (`-$18a6(a5)`): OpenWorkBench (-$d2), WBenchToFront
+     * (-$156) and CloseWorkBench (-$4e).
+     *
+     * "AMOS provides a close workbench command, but it does not tell you
+     * whether the workbench did actually close or not." Close is
+     * WBenchToFront first and CloseWorkBench only if that says a screen is
+     * there, else `moveq #$ff,d0` — which is why "Elwb close returns true if
+     * the workbench is closed when the function has finished executing, even
+     * if it didn't close it because it was already closed".
+     *
+     * NOTE: there is no Workbench screen here and no Intuition to open one
+     * (the same wall #71 and #217 record), so this is the ABSENT answer
+     * rather than a modelled one: OpenWorkBench fails, WBenchToFront finds
+     * nothing, and Close therefore takes its already-closed arm and answers
+     * true. That is what the three routines do given no Workbench, so the
+     * shape is the routines' own; what is missing is any way to get one.
+     * The documented side effect — "Elwb Close and Elwb Test have the side
+     * effect of bringing the workbench screen to the front" — has nothing to
+     * bring forward.
+     */
+    'elwb open': (): Value => VI(0),
+    'elwb test': (): Value => VI(0),
+    'elwb close': (): Value => VI(-1),
+
+    /**
+     * =Elxpk Error — routine 177 ($2a74), twelve bytes: the longword at $b6
+     * of the companion struct, which every XPK keyword stores its
+     * XpkUnpack/XpkPack result in. "When an error occurs with any of the XPK
+     * functions ... the error message 'An XPK Error Has Occured' is
+     * displayed. When this happens, you should call Elxpk Error to return
+     * the error number", and 0 is "No error has occured".
+     *
+     * NOTE: the five keywords that WRITE $b6 are not implemented — they go
+     * through xpkmaster.library, which is a framework that dispatches to a
+     * per-stream sublibrary (xpkNUKE, xpkRDCN, ...) by a four-character
+     * method id, and neither the master nor any sublibrary is in the
+     * archive. So this reads a field nothing sets, and answers 0.
+     */
+    'elxpk error': (): Value => VI(0),
+
     /** =Elextb(N) — routine 78 ($1bc4), `ext.w d3 / ext.l d3` from the low BYTE */
     elextb: (_, a): Value => VI(((int(a[0] ?? VI(0)) & 0xff) << 24) >> 24),
     /** =Elextw(N) — routine 79 ($1bce), `ext.l d3` from the low word */

@@ -2287,7 +2287,16 @@ export const FAITHFUL = new Set<string>([
   'elclose font',
   'elclose fonts',
   'elset font',
+  // slice 8 -- the four of thirteen that are not behind a library we do not
+  // have: the Workbench three, and the XPK error field
+  'elwb open',
+  'elwb close',
+  'elwb test',
+  'elxpk error',
   // ...and 1.0's names for the same routines, reached through `aliases`
+  'i open workbench',
+  'i close workbench',
+  'i test workbench',
   'easy base',
   'protect',
   'set protect',
@@ -4046,6 +4055,12 @@ export const NOTES: Record<string, string> = {
   'elpad char$':
     "Routine 144 ($25c6), which takes the first character of A$ and joins routine 146 -- \"If A$ contains more than one character, the second and subsequent characters are ignored. In the future I intend to change this to repeatedly use the whole of A$ to pad S$\", and 1.44 still does not. An empty A$ is `Rbeq routine 3`",
 
+  // EasyLife slice 8: the part of the block that is not library-blocked.
+  'elwb open':
+    "Routines 118, 119 and 120 ($213a, $214e, $217a) on intuition.library (`-$18a6(a5)`): OpenWorkBench (-$d2), WBenchToFront (-$156) and CloseWorkBench (-$4e). \"AMOS provides a close workbench command, but it does not tell you whether the workbench did actually close or not.\" Close is WBenchToFront first and CloseWorkBench only if that says a screen is there, else `moveq #$ff,d0` -- which is the guide's \"Elwb close returns true if the workbench is closed when the function has finished executing, even if it didn't close it because it was already closed\". NOTE: there is no Workbench screen here and no Intuition to open one (the wall #71 and #217 record), so this is the ABSENT answer: OpenWorkBench fails, WBenchToFront finds nothing, and Close takes its already-closed arm and answers true. The shape is the routines' own given no Workbench; what is missing is any way to get one, and the documented side effect of bringing the screen to the front has nothing to bring forward",
+  'elxpk error':
+    "Routine 177 ($2a74), twelve bytes: the longword at $b6 of the companion struct, where every XPK keyword stores its XpkUnpack/XpkPack result. \"When an error occurs with any of the XPK functions ... the error message 'An XPK Error Has Occured' is displayed. When this happens, you should call Elxpk Error to return the error number\", and 0 is \"No error has occured\". NOTE: the five keywords that WRITE $b6 are not implemented -- they go through xpkmaster.library, a framework that dispatches to a per-stream sublibrary (xpkNUKE, xpkRDCN, ...) by a four-character method id, and neither the master nor any sublibrary is in the archive. So this reads a field nothing sets",
+
   // EasyLife slice 7: system, AmigaDOS and fonts.
   'el base':
     "Routine 117 ($2110). `$f8` is ExtAdr and sixteen bytes is one slot (+Equ.s:1176-1183), so `subq.l #$1,d0 / asl.l #$4,d0 / addi.l #$f8,d0 / move.l (a5,d0.l),d3` is the BASE pointer of extension NUM. 1..25 (`cmp.l #$1a,d0 / Rbcc`), zero answers a5 itself and negative answers 0. NOTE: `El Base(0)` has no answer here -- a5 is AMOS's own system base and this port has no address for it -- so it answers 0, and an unoccupied slot answers 0 as it does on the machine",
@@ -4290,6 +4305,11 @@ export const SHARED_NOTES: Record<string, string> = {
   'set protect': 'els protect',
   'output exists': 'elout',
   'output': 'elout',
+  'elwb close': 'elwb open',
+  'elwb test': 'elwb open',
+  'i open workbench': 'elwb open',
+  'i close workbench': 'elwb open',
+  'i test workbench': 'elwb open',
 }
 
 /** The reading for a keyword, following SHARED_NOTES to whoever holds it. */

@@ -5333,6 +5333,10 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
         'raster wait': 'elraster wait',
         'output exists': 'elout exists',
         output: 'elout',
+        // the Workbench three; 1.0 has no XPK and no iconify
+        'i open workbench': 'elwb open',
+        'i close workbench': 'elwb close',
+        'i test workbench': 'elwb test',
       },
     },
   },

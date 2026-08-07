@@ -898,6 +898,21 @@ describe('EasyLife: system, AmigaDOS and fonts (routines 105-163)', () => {
   })
 })
 
+describe('EasyLife: the Workbench three and the XPK error field', () => {
+  it('there is no Workbench, so Open and Test fail and Close succeeds', () => {
+    // routines 118/119/120: OpenWorkBench, then WBenchToFront and only then
+    // CloseWorkBench, else `moveq #$ff,d0`. "Elwb close returns true if the
+    // workbench is closed when the function has finished executing, even if
+    // it didn't close it because it was already closed."
+    expect(run(OPEN + 'Print Elwb Open;Elwb Test;Elwb Close\n').out).toBe(' 0 0-1\n')
+  })
+
+  it('Elxpk Error reads the field the five XPK keywords would write', () => {
+    // routine 177 is twelve bytes over $b6, and 0 is "No error has occured"
+    expect(run(OPEN + 'Print Elxpk Error\n').out).toBe(' 0\n')
+  })
+})
+
 describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
   /**
    * The rename between 1.0 and 1.09 was total, so a 1.0 program shares not one
@@ -1041,6 +1056,7 @@ describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
     const src =
       OPEN +
       'Print Easy Base(16)<>0;Protect("ram:f");\n' +
+      'Print I Open Workbench;I Test Workbench;I Close Workbench;\n' +
       'Set Protect "ram:f",3\n' +
       'Print Protect("ram:f");Output Exists\n' +
       'Raster Wait 100\n'
@@ -1052,7 +1068,7 @@ describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
       fs,
     })
     mustFinish(rt.runHeadless(2000))
-    expect(printed).toBe('-1 0 3 0\n')
+    expect(printed).toBe('-1 0 0 0-1 3 0\n')
     // ...and `Output` raises, the standard handles being absent
     const b = new Runtime(tokenize(OPEN + 'Output "x"\n', table, exts), table, {
       extensions: exts,
