@@ -1725,3 +1725,372 @@ describe('EasyLife 1.44: the two keywords that are a bare rts', () => {
     expect(names('easylife-1.10')).not.toContain('elqqzqzqq')
   })
 })
+
+/**
+ * Structured variables, against Struct-Tutorial2's own Structs bank.
+ *
+ * The tutorial is the answer key it needs to be, because it prints its own
+ * definitions in the comments the compiler left behind and then the constants
+ * it generated from them:
+ *
+ *     ' item : structure
+ *     '     name : string length 20
+ *     '     value : integer
+ *     ' end
+ *     ' qhead : structure
+ *     '     first : pointer to qelem
+ *     '     last  : pointer to qelem
+ *     '     type  : integer
+ *     ' end
+ *     ' qelem : structure
+ *     '     next  : pointer to qelem
+ *     '     data  : pointer
+ *     ' end
+ *     ST_ITEM=20: ST_NAME=26: ST_VALUE=32: ST_QHEAD=38: ST_FIRST=44
+ *     ST_LAST=50: ST_TYPE=56: ST_QELEM=62: ST_NEXT=68: ST_DATA=74
+ *
+ * so every number this describe asserts is one the compiler wrote, not one
+ * the reader derived. The 156-byte bank has a string element, both flavours
+ * of pointer and plain integers, which is the whole of the typed-field engine
+ * bar the ranged and boolean arms.
+ */
+describe.skipIf(!existsSync(DEMOS))('EasyLife: structured variables (routines 262-295)', () => {
+  const STRUCTS = (): Uint8Array => demoBank('Struct-Tutorial2.AMOS', 'Structs')!
+  /** the tutorial's own globals, so the tests read like its own source */
+  const K =
+    'ST_ITEM=20: ST_NAME=26: ST_VALUE=32: ST_QHEAD=38: ST_FIRST=44\n' +
+    'ST_LAST=50: ST_TYPE=56: ST_QELEM=62: ST_NEXT=68: ST_DATA=74\n'
+
+  const bootSt = (src: string): Boot => {
+    const b = boot(OPEN + K + src)
+    b.rt.memBanks.set(12, {
+      kind: 'memory',
+      number: 12,
+      memType: 0,
+      name: 'Structs ',
+      flags: 0,
+      data: STRUCTS(),
+    })
+    return b
+  }
+  const runSt = (src: string): string => {
+    const b = bootSt(src)
+    mustFinish(b.rt.runHeadless(2000))
+    return b.text()
+  }
+  const failSt = (src: string): string => {
+    const b = bootSt(src)
+    try {
+      b.rt.runHeadless(2000)
+    } catch (e) {
+      return (e as Error).message
+    }
+    return 'did not throw'
+  }
+
+  it('=St Lookup answers the addresses the compiler laid down', () => {
+    // routine 294 returns `bank + offset`, not the offset: the definitions
+    // start at the header's +16 (80 here) and `item` is the first of them.
+    // ST_NAME resolves only UNDER its own structure, which is the guide's
+    // "you pass an element name that is not an element of the particular
+    // structure instance the command refers to".
+    const b = bootSt('Print St Lookup(ST_ITEM,0)-St Lookup(ST_ITEM,0);\n')
+    mustFinish(b.rt.runHeadless(2000))
+    const base = b.rt.bankBase(12)
+    const out = runSt(
+      'Print St Lookup(ST_ITEM,0);St Lookup(ST_NAME,ST_ITEM);St Lookup(ST_QHEAD,0)\n',
+    )
+    expect(out).toBe(` ${base + 80} ${base + 88} ${base + 102}\n`)
+  })
+
+  it('=St New / =St Type / =St Len read the definition back', () => {
+    // 4 header + 24 for a 20-character string (max+3 rounded up to even) + 4
+    // for the integer = 32, which is what the guide's own arithmetic gives
+    expect(runSt('I=St New(ST_ITEM)\nPrint St Type(I);St Len(I)\n')).toBe(' 20 32\n')
+    expect(runSt('Q=St New(ST_QHEAD)\nPrint St Type(Q);St Len(Q)\n')).toBe(' 38 16\n')
+  })
+
+  it('St Set and =St Get carry an integer element through the pool', () => {
+    expect(runSt('I=St New(ST_ITEM)\nSt Set I,ST_VALUE To -12345\nPrint St Get(I,ST_VALUE)\n')).toBe(
+      '-12345\n',
+    )
+  })
+
+  it('a fresh instance reads back as zero, because St New clears it', () => {
+    expect(runSt('I=St New(ST_ITEM)\nPrint St Get(I,ST_VALUE);Len(St Get$(I,ST_NAME))\n')).toBe(
+      ' 0 0\n',
+    )
+  })
+
+  it('St Set Str and =St Get$ carry a string element', () => {
+    expect(
+      runSt('I=St New(ST_ITEM)\nSt Set Str I,ST_NAME To "Wibble"\nPrint St Get$(I,ST_NAME)\n'),
+    ).toBe('Wibble\n')
+  })
+
+  it('=St Get on a string element answers the address of its characters', () => {
+    // the guide: "St Get to return the address of the string within the
+    // structure, where it is stored null-terminated", and the terminator is
+    // what makes it usable "for any system library calls"
+    expect(
+      runSt(
+        'I=St New(ST_ITEM)\nSt Set Str I,ST_NAME To "Hi"\nA=St Get(I,ST_NAME)\n' +
+          'Print Chr$(Peek(A));Chr$(Peek(A+1));Peek(A+2);Deek(A-2)\n',
+      ),
+    ).toBe('Hi 0 2\n')
+  })
+
+  it('a string longer than the element is message 35', () => {
+    expect(failSt('I=St New(ST_ITEM)\nSt Set Str I,ST_NAME To String$("x",21)\n')).toMatch(
+      new RegExp('^' + EASYLIFE_ERRORS[35]),
+    )
+  })
+
+  it('a typed pointer takes nil or an instance of its own type, and nothing else', () => {
+    // $4f2: `tst.l d6 / beq` lets nil through untested, then the target's
+    // type word is compared with the descriptor's
+    expect(
+      runSt(
+        'Q=St New(ST_QHEAD)\nE=St New(ST_QELEM)\nSt Set Q,ST_FIRST To E\n' +
+          'Print St Get(Q,ST_FIRST)-E;\nSt Set Q,ST_FIRST To 0\nPrint St Get(Q,ST_FIRST)\n',
+      ),
+    ).toBe(' 0 0\n')
+    expect(
+      failSt('Q=St New(ST_QHEAD)\nI=St New(ST_ITEM)\nSt Set Q,ST_FIRST To I\n'),
+    ).toMatch(new RegExp('^' + EASYLIFE_ERRORS[34]))
+  })
+
+  it('a sub-structure element cannot be assigned — but there is none here to try', () => {
+    // $544 is `bra.w $a08` and nothing else; none of the five Structs banks
+    // in the archive declares a sub-structure, so this asserts the message
+    // exists rather than pretending to reach it
+    expect(EASYLIFE_ERRORS[36]).toBe('Substructure addresses cannot be changed')
+  })
+
+  it('the wrong number of subscripts is AMOS 23, not a private message', () => {
+    // $364: `cmp.l d3,d1 / bne.w $9c2`, and $9c2 sets d0 = $17
+    expect(failSt('I=St New(ST_ITEM)\nPrint St Get(I,ST_VALUE,0)\n')).toMatch(
+      /^Illegal function call/,
+    )
+  })
+
+  it('=Stv reads and Stv()= writes, which is St Get and St Set', () => {
+    // undocumented, and new in 1.10: its four function slots ARE routines
+    // 273-276, St Get's own trampolines
+    expect(runSt('I=St New(ST_ITEM)\nStv(I,ST_VALUE)=99\nPrint Stv(I,ST_VALUE)\n')).toBe(' 99\n')
+  })
+
+  it('St Free returns the memory to the pool, and the next St New takes it back', () => {
+    // the guide warns that "it is possible that the new structure does not
+    // begin at the same address as the old" precisely because exec's
+    // Deallocate coalesces and Allocate is first fit. Same size, so it does.
+    expect(
+      runSt('A=St New(ST_ITEM)\nSt Free A\nB=St New(ST_ITEM)\nPrint B-A\n'),
+    ).toBe(' 0\n')
+    // and two live instances are consecutive, 32 bytes apart
+    expect(runSt('A=St New(ST_ITEM)\nB=St New(ST_ITEM)\nPrint B-A\n')).toBe(' 32\n')
+  })
+
+  it('St Free All empties every block', () => {
+    const b = bootSt('A=St New(ST_ITEM)\nB=St New(ST_ITEM)\nSt Free All\n')
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.rt.easylife.structs.live).toBe(0)
+    expect(b.rt.easylife.structs.blocks.length).toBe(1)
+    expect(b.rt.easylife.structs.blocks[0]?.free).toEqual([{ at: 0x18, len: 0x2000 - 0x20 }])
+  })
+
+  it('the pool block is the size the bank header asks for', () => {
+    // bank+12 is $2000 in all five Structs banks in the archive
+    const b = bootSt('A=St New(ST_ITEM)\n')
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.rt.easylife.structs.blocks[0]?.data.length).toBe(0x2000)
+    expect(b.rt.easylife.structs.live).toBe(1)
+  })
+
+  it('=St Dup copies the header too, St Copy does not', () => {
+    // routine 267 moves size/4 longwords from the instance's start; routine
+    // 268 does `addq.l #$4` on both sides first and moves size-4 bytes
+    expect(
+      runSt(
+        'A=St New(ST_ITEM)\nSt Set A,ST_VALUE To 7\nSt Set Str A,ST_NAME To "abc"\n' +
+          'B=St Dup(A)\nPrint St Type(B);St Get(B,ST_VALUE);St Get$(B,ST_NAME)\n',
+      ),
+    ).toBe(' 20 7abc\n')
+    expect(
+      runSt(
+        'A=St New(ST_ITEM)\nSt Set A,ST_VALUE To 7\nB=St New(ST_ITEM)\nSt Copy A To B\n' +
+          'Print St Get(B,ST_VALUE)\n',
+      ),
+    ).toBe(' 7\n')
+  })
+
+  it('St Copy between different types is AMOS 23 through routine 3', () => {
+    // NOT message 39: "Cannot copy between structures of different types" is
+    // in the table and nothing raises it
+    expect(failSt('A=St New(ST_ITEM)\nB=St New(ST_QHEAD)\nSt Copy A To B\n')).toMatch(
+      /^Illegal function call/,
+    )
+  })
+
+  it('=St Cmp compares the ELEMENT against the string, which is the guide backwards', () => {
+    // $57a `cmpm.b (a0)+,(a1)+` computes argument minus element and `blt`
+    // returns +1, so "abc" against an element holding "hello" answers 1 where
+    // the guide promises -1. The equal and prefix cases agree with it.
+    expect(
+      runSt(
+        'I=St New(ST_ITEM)\nSt Set Str I,ST_NAME To "hello"\n' +
+          'Print St Cmp(I,ST_NAME To "hello");St Cmp(I,ST_NAME To "abc");' +
+          'St Cmp(I,ST_NAME To "zoo");St Cmp(I,ST_NAME To "hell")\n',
+      ),
+    ).toBe(' 0 1-1 1\n')
+  })
+
+  it('=St Output$ and St Input round-trip an instance', () => {
+    expect(
+      runSt(
+        'A=St New(ST_ITEM)\nSt Set A,ST_VALUE To 1234\nSt Set Str A,ST_NAME To "zzz"\n' +
+          'S$=St Output$(A)\nB=St New(ST_ITEM)\nSt Input B,S$\n' +
+          'Print Len(S$);St Get(B,ST_VALUE);St Get$(B,ST_NAME)\n',
+      ),
+    ).toBe(' 32 1234zzz\n')
+  })
+
+  it('St Input checks the type first and the length second', () => {
+    expect(
+      failSt('A=St New(ST_QHEAD)\nB=St New(ST_ITEM)\nSt Input B,St Output$(A)\n'),
+    ).toMatch(new RegExp('^' + EASYLIFE_ERRORS[41]))
+    expect(failSt('B=St New(ST_ITEM)\nSt Input B,Chr$(0)+Chr$(20)\n')).toMatch(
+      new RegExp('^' + EASYLIFE_ERRORS[40]),
+    )
+  })
+
+  it('nothing works without bank 12, and the error is AMOS 36', () => {
+    // $9ae, reached when the type-table callback (`Rjmp L_Bnk_GetAdr`)
+    // answers 0 — the guide's "Bank 12 is not reserved"
+    const b = boot(OPEN + K + 'A=St New(ST_ITEM)\n')
+    let msg = 'did not throw'
+    try {
+      b.rt.runHeadless(2000)
+    } catch (e) {
+      msg = (e as Error).message
+    }
+    expect(msg).toMatch(/^Bank not reserved/)
+  })
+
+  it('an id bank 12 does not hold raises message 38', () => {
+    // DEFECT: the 68k reaches L_Error with d0 unset here — see ERR_NOT_FOUND
+    // in elstruct.ts. The port raises the message the table and the guide
+    // both name, which is the only observable choice.
+    expect(failSt('A=St New(21)\n')).toMatch(new RegExp('^' + EASYLIFE_ERRORS[38]))
+  })
+})
+
+/**
+ * The graph half — St Save, St Load and St Erase — over the queue the
+ * tutorial builds, because a linked structure is the only thing that
+ * exercises `ELST_TreeScan` at all.
+ */
+describe.skipIf(!existsSync(DEMOS))('EasyLife: saving and loading a graph of structures', () => {
+  const K =
+    'ST_ITEM=20: ST_NAME=26: ST_VALUE=32: ST_QHEAD=38: ST_FIRST=44\n' +
+    'ST_LAST=50: ST_TYPE=56: ST_QELEM=62: ST_NEXT=68: ST_DATA=74\n'
+  /** a two-element queue: head -> e1 -> e2, and e1/e2 both point at items */
+  const BUILD =
+    'Q=St New(ST_QHEAD)\n' +
+    'I1=St New(ST_ITEM): St Set I1,ST_VALUE To 11\n' +
+    'I2=St New(ST_ITEM): St Set I2,ST_VALUE To 22\n' +
+    'E1=St New(ST_QELEM): St Set E1,ST_DATA To I1\n' +
+    'E2=St New(ST_QELEM): St Set E2,ST_DATA To I2\n' +
+    'St Set E1,ST_NEXT To E2\n' +
+    'St Set Q,ST_FIRST To E1: St Set Q,ST_LAST To E2\n'
+
+  const bootG = (src: string): { rt: Runtime; fs: AmigaFS; text: () => string } => {
+    const exts = new Map([[16, easylife.table]])
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    let printed = ''
+    const rt = new Runtime(tokenize(OPEN + K + src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, easylife]]),
+      maxSteps: 200_000,
+      onText: (t) => (printed += t),
+      fs,
+    })
+    rt.memBanks.set(12, {
+      kind: 'memory',
+      number: 12,
+      memType: 0,
+      name: 'Structs ',
+      flags: 0,
+      data: demoBank('Struct-Tutorial2.AMOS', 'Structs')!,
+    })
+    return { rt, fs, text: () => printed }
+  }
+
+  it('St Save writes "ElSt", the count and one record per instance', () => {
+    const b = bootG(BUILD + 'St Save "RAM:q.st",Q\n')
+    mustFinish(b.rt.runHeadless(2000))
+    const f = b.fs.read('RAM:q.st')!
+    const v = new DataView(f.buffer, f.byteOffset, f.byteLength)
+    expect(v.getUint32(0, false)).toBe(0x456c5374)
+    // Q, E1, E2, I1, I2 — the scan is breadth-first from the root
+    expect(v.getUint32(4, false)).toBe(5)
+    expect(v.getUint32(8, false)).toBe(0)
+    // 12 header + Q(4+16) + E1(4+16) + E2(4+16) + I1(4+32) + I2(4+32)
+    expect(f.length).toBe(12 + 20 + 20 + 20 + 36 + 36)
+  })
+
+  it('=St Load relocates every pointer onto the new addresses', () => {
+    // the whole point of the format: "all the pointers in all the structures
+    // will automatically by relocated to the new addresses"
+    const b = bootG(
+      BUILD +
+        'St Save "RAM:q.st",Q\nSt Free All\nR=St Load("RAM:q.st")\n' +
+        'A=St Get(R,ST_FIRST): B=St Get(A,ST_NEXT)\n' +
+        'Print St Get(St Get(A,ST_DATA),ST_VALUE);St Get(St Get(B,ST_DATA),ST_VALUE);' +
+        '(St Get(R,ST_LAST)=B)\n',
+    )
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.text()).toBe(' 11 22-1\n')
+  })
+
+  it('a cycle back to the root saves the root twice — the guide says it should not', () => {
+    // DEFECT: `move.l d3,(a1)` seeds the list with the root and never sets its
+    // visited bit, so a pointer back to it appends it a second time. The
+    // guide: "It is OK if your graph contains cycles ... Each instance is
+    // only saved once." Two instances here, three records.
+    //
+    // `data` is the untyped pointer of a qelem, which is what makes the ring
+    // expressible at all — `first` is typed and would refuse a qhead.
+    const b = bootG(
+      'Q=St New(ST_QHEAD)\nE=St New(ST_QELEM)\n' +
+        'St Set Q,ST_FIRST To E\nSt Set E,ST_DATA To Q\n' +
+        'St Save "RAM:c.st",Q\n',
+    )
+    mustFinish(b.rt.runHeadless(2000))
+    const f = b.fs.read('RAM:c.st')!
+    expect(new DataView(f.buffer, f.byteOffset, f.byteLength).getUint32(4, false)).toBe(3)
+    // and the third record is the root's address again, byte for byte
+    const v = new DataView(f.buffer, f.byteOffset, f.byteLength)
+    expect(v.getUint32(12, false)).toBe(v.getUint32(12 + 20 + 20, false))
+  })
+
+  it('St Erase frees the whole graph, not just the root', () => {
+    const b = bootG(BUILD + 'St Erase Q\n')
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.rt.easylife.structs.live).toBe(0)
+  })
+
+  it('a file that is not "ElSt" is refused', () => {
+    const b = bootG('R=St Load("RAM:junk")\n')
+    b.fs.writeFile('RAM:junk', new Uint8Array(32))
+    let msg = 'did not throw'
+    try {
+      b.rt.runHeadless(2000)
+    } catch (e) {
+      msg = (e as Error).message
+    }
+    // $a1c sets d0 = $62, and routine 299 hands a non-negative d0 to L_Error
+    expect(msg).toMatch(/^Instruction only valid in autotest/)
+  })
+})

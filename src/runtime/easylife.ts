@@ -50,7 +50,7 @@
  * and routine 159 ($279c) `moveq #$24,d0`, error 36; those are AMOS's own
  * numbers, so the AMOS-zone block raises nothing from the private table.
  */
-import { AmosError, ERR, VI, VS, funcCall, int, str, type Value } from '../interp/values'
+import { AMOS_ERRORS, AmosError, ERR, VI, VS, funcCall, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Interp } from '../interp/interp'
 import { Runtime } from './runtime'
@@ -69,6 +69,32 @@ import {
   patternRemove,
 } from '../amiga/patternlib'
 import { XPK_MARGIN, XpkError, xpkExamine, xpkPack, xpkUnpack } from '../amiga/xpkmaster'
+import {
+  ELST_BANK,
+  ELST_ERR_OPEN,
+  ElstError,
+  type ElstPool,
+  type Resolved,
+  elstReadWord,
+  eraseTree,
+  freeBlocks,
+  freeInstance,
+  getElement,
+  getString,
+  instanceBytes,
+  loadTree,
+  lookup,
+  newElstPool,
+  newInstance,
+  putInstanceBytes,
+  resolve,
+  saveTree,
+  setElement,
+  setString,
+  strCmp,
+  structDef,
+  typeTable,
+} from './elstruct'
 
 /**
  * The extension's own error messages, in block order, and the index is
@@ -238,6 +264,12 @@ export interface EasyLifeState {
    * too and a program can check it after a call that did not raise.
    */
   xpkError: number
+  /**
+   * `$f4` and `$f8` of the same base --- `easylife.library`'s live instance
+   * count and the chain of pool blocks it allocates them from. See
+   * `elstruct.ts`, which is the library.
+   */
+  structs: ElstPool
 }
 
 export const newEasyLifeState = (): EasyLifeState => ({
@@ -262,6 +294,7 @@ export const newEasyLifeState = (): EasyLifeState => ({
   tagStrings: new Map(),
   patDefault: null,
   xpkError: 0,
+  structs: newElstPool(),
 })
 
 /** the unsigned view of an AMOS 32-bit integer, which is how routine 153 compares */
@@ -834,6 +867,70 @@ function tagList(rt: Runtime, name: string, args: number[]): Value {
 /** the twelve- and eight-byte strings the Tag$ family builds, big-endian */
 const tagLongs = (vals: number[]): Value =>
   VS(vals.map((v) => String.fromCharCode((v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff)).join(''))
+
+// ---- structured variables --------------------------------------------------
+
+/**
+ * Routine 299 ($3aca) — the fork every `St ...` keyword ends on.
+ *
+ *     tst.l d0 / bmi.b .own / Rjmp L_Error       non-negative: AMOS's number
+ *     .own: neg.l d0 / Rbra routine 300          negative: EasyLife's, negated
+ *
+ * `elstruct.ts` throws that d0 verbatim, so this is the whole translation and
+ * it lives in exactly one place, as it does in the 68k.
+ */
+function stCall<T>(fn: () => T): T {
+  try {
+    return fn()
+  } catch (e) {
+    if (!(e instanceof ElstError)) throw e
+    if (e.d0 < 0) elError(-e.d0)
+    throw new AmosError(AMOS_ERRORS[e.d0] ?? `AMOS error ${e.d0}`, e.d0)
+  }
+}
+
+/**
+ * Routine 260 ($375e), the shared body under `St Get` and `Stv`, and routine
+ * 289 ($3a56) under `St Cmp`.
+ *
+ * Both take the subscripts as a run of longwords on AMOS's parameter stack
+ * and a count in d3 that the four arity trampolines set to 0, 4, 8 or 12
+ * BYTES — routines 273-276 for the integer form, 277-280 for the string form,
+ * 290-293 for the comparison. `lsr.l #$2,d3` turns it back into a count.
+ *
+ * They arrive REVERSED, because a3 is read upwards from the last thing pushed;
+ * `resolve` documents why that makes the pairing with the descriptor's
+ * dimension words right by construction.
+ */
+const stIdx = (a: readonly Value[], from: number, to: number): number[] =>
+  a.slice(from, to).map((v) => int(v) | 0).reverse()
+
+/** the resolver behind every element access, with the two arguments in AMOS order */
+const stResolve = (rt: Runtime, a: readonly Value[], idx: number[]): Resolved =>
+  resolve(rt, int(a[1] ?? VI(0)) | 0, int(a[0] ?? VI(0)) | 0, idx)
+
+/**
+ * `St Set` and `St Set Str`'s four arities, routines 282/284/286/288
+ * ($39aa, $39d6, $3a02, $3a2e).
+ *
+ * Each is the same forty bytes with a different d3: the value is popped
+ * first, the element and instance are read at fixed displacements above the
+ * subscripts, and the stack is stepped past all of them at the end.
+ */
+function stSet(rt: Runtime, it: Interp, string: boolean): void {
+  const inst = it.evalInt() | 0
+  it.expect(',')
+  const elem = it.evalInt() | 0
+  const idx: number[] = []
+  while (it.accept(',')) idx.push(it.evalInt() | 0)
+  it.expect('to')
+  const value = string ? it.evalStr() : it.evalInt()
+  stCall(() => {
+    const r = resolve(rt, elem, inst, idx.slice().reverse())
+    if (string) setString(rt, r, value as string)
+    else setElement(rt, r, (value as number) | 0)
+  })
+}
 
 // ---- multi-zones -----------------------------------------------------------
 
@@ -1805,6 +1902,168 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
         str(a[0] ?? VS('')),
         a.slice(1).map((x) => int(x) | 0),
       ),
+
+    // ---- structured variables, routines 262-295 ----------------------------
+
+    /**
+     * =St New(STRUCTURE) — routine 263 ($37d0), `ELST_New` with
+     * `move.l #$10000,d1`, which is MEMF_CLEAR.
+     *
+     * The clear is the guide's whole initialisation table: strings become "",
+     * reals 0.0, booleans false, pointers nil, and a ranged integer its
+     * LOWEST legal value, because a ranged integer is stored biased by its
+     * minimum and all-bits-zero therefore IS the minimum.
+     */
+    'st new': (_, a): Value =>
+      VI(stCall(() => newInstance(rt, rt.easylife.structs, int(a[0] ?? VI(0)) | 0, true))),
+    /**
+     * =St Load(FILENAME$) — routine 264 ($37f2), `ELST_LoadTree`.
+     *
+     * Answers the new address of the instance that was passed to `St Save`,
+     * with every pointer in the graph relocated onto the new addresses.
+     */
+    'st load': (_, a): Value =>
+      VI(
+        stCall(() => {
+          const raw = rt.fs?.read(str(a[0] ?? VS('')))
+          if (!raw) throw new ElstError(ELST_ERR_OPEN)
+          return loadTree(rt, rt.easylife.structs, Uint8Array.from(raw))
+        }),
+      ),
+    /**
+     * =St Dup(INSTANCE) — routine 267 ($384c).
+     *
+     * `ELST_New` with d1 = 0, so NO clear, then `move.l (a2)+,(a1)+` over
+     * `size/4` longwords — the whole instance, type word included. The guide
+     * says it is "equivilent to (But faster than) S2=St New(St Type(S1)) :
+     * St Copy S1 To S2", and the difference is exactly that: `St Copy` skips
+     * the four-byte header and this does not.
+     */
+    'st dup': (_, a): Value =>
+      VI(
+        stCall(() => {
+          const src = int(a[0] ?? VI(0)) | 0
+          const bank = typeTable(rt)
+          const type = elstReadWord(rt, src)
+          const size = structDef(bank, lookup(bank, type, 0)).size
+          const dst = newInstance(rt, rt.easylife.structs, type, false)
+          for (let i = 0; i < size; i++) {
+            const m = rt.resolveWrite(dst + i)
+            if (m) m.data[m.off] = peekByte(rt, src + i)
+          }
+          return dst
+        }),
+      ),
+    /**
+     * =St Output$(INSTANCE) — routine 270 ($38f8).
+     *
+     * The instance's bytes as an AMOS string, so a program can `Print#` it.
+     * Two defects sit in the sixty-six bytes that produce it and neither is
+     * reproducible; `instanceBytes` in elstruct.ts is where they are recorded
+     * and why this implements the guide instead.
+     */
+    'st output$': (_, a): Value =>
+      VS(
+        stCall(() => {
+          const inst = int(a[0] ?? VI(0)) | 0
+          const bank = typeTable(rt)
+          const size = structDef(bank, lookup(bank, elstReadWord(rt, inst), 0)).size
+          return instanceBytes(rt, inst, size)
+        }),
+      ),
+    /**
+     * =St Type(INSTANCE) — routine 271 ($393a).
+     *
+     * The instance's own type word, straight out of its first two bytes. The
+     * `ELST_Lookup` under it is there to validate: `Rbeq routine 299` on a
+     * type bank 12 does not hold, and d3 — the result — was loaded before the
+     * call and is never touched by it.
+     */
+    'st type': (_, a): Value =>
+      VI(
+        stCall(() => {
+          const bank = typeTable(rt)
+          const type = elstReadWord(rt, int(a[0] ?? VI(0)) | 0)
+          lookup(bank, type, 0)
+          return type
+        }),
+      ),
+    /**
+     * =St Len(INSTANCE) — routine 272 ($395c), ten bytes: `Rbsr routine 271`
+     * for the validated lookup, then `movea.l d0,a0 / move.l (a0),d3` — the
+     * definition's first longword, which is the allocation size.
+     */
+    'st len': (_, a): Value =>
+      VI(
+        stCall(() => {
+          const bank = typeTable(rt)
+          return structDef(bank, lookup(bank, elstReadWord(rt, int(a[0] ?? VI(0)) | 0), 0)).size
+        }),
+      ),
+    /**
+     * =St Get(INSTANCE, ELEMENT [,I1[,I2[,I3]]]) — routines 273-276 into the
+     * shared body 260 ($375e), which is `ELST_GetElement` and then
+     * `move.l d0,d3 / moveq #$0,d2`.
+     *
+     * That last pair is why the answer is always an AMOS INTEGER, whatever
+     * the element's type: a Real element gives back its raw longword and a
+     * string element gives back the ADDRESS of its characters, which the
+     * guide says outright is the point — "it can be used for any system
+     * library calls that require a pointer to a string, or in MUI taglists".
+     */
+    'st get': (_, a): Value =>
+      VI(stCall(() => getElement(rt, stResolve(rt, a, stIdx(a, 2, a.length))))),
+    /**
+     * =St Get$(INSTANCE, ELEMENT [,I1[,I2[,I3]]]) — routines 277-280 into
+     * routine 261 ($3782), which calls 260 and then copies the string out of
+     * the instance into fresh AMOS string space. "St Get$ returns a copy."
+     */
+    'st get$': (_, a): Value =>
+      VS(stCall(() => getString(rt, stResolve(rt, a, stIdx(a, 2, a.length))))),
+    /**
+     * =St Cmp(INSTANCE, ELEMENT [,I1[,I2[,I3]]] To STRING$) — routines
+     * 290-293 into routine 289 ($3a56), `ELST_StrCmp`.
+     *
+     * The sign is the library's, not the guide's — see `strCmp`, which
+     * explains why they are opposites and which one this follows.
+     */
+    'st cmp': (_, a): Value =>
+      VI(
+        stCall(() =>
+          strCmp(
+            rt,
+            stResolve(rt, a, stIdx(a, 2, a.length - 1)),
+            str(a[a.length - 1] ?? VS('')),
+          ),
+        ),
+      ),
+    /**
+     * =St Lookup(ID, SCOPE) — routine 294 ($3a94), `ELST_Lookup` unwrapped.
+     *
+     * Returns the ADDRESS of the definition in bank 12, not an offset:
+     * `adda.l d2,a1 / move.l a1,d0` adds the entry's offset to the bank base.
+     * SCOPE 0 asks for a structure name; any other scope is the id of the
+     * structure whose element is wanted.
+     */
+    'st lookup': (_, a): Value =>
+      VI(
+        stCall(
+          () =>
+            (rt.bankBase(ELST_BANK) +
+              lookup(typeTable(rt), int(a[0] ?? VI(0)) | 0, int(a[1] ?? VI(0)) | 0)) |
+            0,
+        ),
+      ),
+    /**
+     * =Stv(INSTANCE, ELEMENT [,I1[,I2[,I3]]]) — the read half of the V-form,
+     * and it is `St Get`: the four token entries name routines 273-276, the
+     * very same trampolines.
+     *
+     * Undocumented — `stv` appears in no guide, and 1.09 does not have it at
+     * all. See the instruction half for the four bytes 1.10 added in front of
+     * each `St Set` body to give it a write half.
+     */
+    stv: (_, a): Value => VI(stCall(() => getElement(rt, stResolve(rt, a, stIdx(a, 2, a.length))))),
   }
 }
 
@@ -2750,6 +3009,174 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
       if (n < 0x1000) funcCall()
       if (n >= 0x40001) funcCall()
       rt.easylife.tagBlockSize = n
+    },
+
+    // ---- structured variables, routines 262-295 ----------------------------
+
+    /**
+     * St Free INSTANCE — routine 262 ($37b8), `ELST_Free`.
+     *
+     * Returns the memory to the pool, not to the system: "This command does
+     * not return any memory to the system - it simply frees it for use by
+     * other structured variable instances." The reuse that follows is
+     * modelled, because the guide's warning about dangling pointers is only
+     * meaningful if it is.
+     */
+    'st free'(it) {
+      const inst = it.evalInt() | 0
+      stCall(() => freeInstance(rt, rt.easylife.structs, inst))
+    },
+    /**
+     * St Save FILENAME$, INSTANCE — routine 265 ($3814), `ELST_SaveTree`.
+     *
+     * Saves the instance and then everything reachable from it by following
+     * pointer elements, cycles included. The file is `"ElSt"`, a count, a
+     * reserved longword, and then per instance its address at save time
+     * followed by its bytes.
+     */
+    'st save'(it) {
+      const file = it.evalStr()
+      it.expect(',')
+      const inst = it.evalInt() | 0
+      const out = stCall(() => saveTree(rt, inst))
+      if (!rt.vfs?.writeFile(file, out)) throw new AmosError('disc is write protected')
+    },
+    /**
+     * St Free All — routine 266 ($3834), `ELST_FreeBlocks(0)`.
+     *
+     * The one keyword that does give the memory back: it walks the block
+     * chain FreeMem-ing each and zeroes the count, the chain and the cached
+     * table pointer.
+     */
+    'st free all'() {
+      freeBlocks(rt.easylife.structs)
+    },
+    /**
+     * St Copy INSTANCE1 To INSTANCE2 — routine 268 ($387a).
+     *
+     * Both must already exist and both must be the same type: the
+     * destination's type word is looked up for the size and then compared
+     * with the source's, `cmp.w (a1),d3 / Rbne routine 3`.
+     *
+     * NOTE: routine 3 is `moveq #$17,d0 / Rjmp L_Error`, AMOS 23 "Illegal
+     * function call". Message 39, "Cannot copy between structures of
+     * different types", is in the extension's own table and nothing raises
+     * it — one of four dead entries, with 30, 37 and 38.
+     *
+     * `addq.l #$4,a0 / addq.l #$4,a1 / subq.l #$2,d0` skips the four-byte
+     * header on both sides and moves `size - 4` bytes, so the destination
+     * keeps its own type and flags words.
+     */
+    'st copy'(it) {
+      const src = it.evalInt() | 0
+      it.expect('to')
+      const dst = it.evalInt() | 0
+      stCall(() => {
+        const bank = typeTable(rt)
+        const type = elstReadWord(rt, dst)
+        const size = structDef(bank, lookup(bank, type, 0)).size
+        if (elstReadWord(rt, src) !== type) funcCall()
+        for (let i = 4; i < size; i++) {
+          const m = rt.resolveWrite(dst + i)
+          if (m) m.data[m.off] = peekByte(rt, src + i)
+        }
+      })
+    },
+    /**
+     * St Input INSTANCE, STRING$ — routine 269 ($38b4), the inverse of
+     * `St Output$`.
+     *
+     * Its two checks are real and are implemented: the string's first word
+     * must equal the instance's type (message 41, "Input string is of wrong
+     * type") and its length must equal the definition's size (message 40,
+     * "Input string is of wrong length"). They are the only two places in the
+     * whole ST block that raise a message the extension owns.
+     *
+     * DEFECT: `$38ba` is `305b`, `movea.w (a3)+,a0` — the instance address is
+     * taken as a sign-extended WORD, so the high half of the pushed longword
+     * becomes the whole pointer and AMOS's parameter stack is left two bytes
+     * out of step for the rest of the statement. Routine 270 pops the same
+     * argument with `205b`, `movea.l`. 1.09 has the identical byte, so it is
+     * not a 1.10 regression. Not reproducible: the port has no a3 to desync
+     * and a truncated address addresses nothing.
+     */
+    'st input'(it) {
+      const inst = it.evalInt() | 0
+      it.expect(',')
+      const s = it.evalStr()
+      stCall(() => {
+        const bank = typeTable(rt)
+        const type = elstReadWord(rt, inst)
+        if (((s.charCodeAt(0) & 0xff) << 8) + (s.charCodeAt(1) & 0xff) !== type) elError(41)
+        const size = structDef(bank, lookup(bank, type, 0)).size
+        if (s.length !== size) elError(40)
+        putInstanceBytes(rt, inst, s)
+      })
+    },
+    /**
+     * St Set INSTANCE, ELEMENT [,I1[,I2[,I3]]] To VALUE — routines
+     * 282/284/286/288, `ELST_SetElement`.
+     */
+    'st set'(it) {
+      stSet(rt, it, false)
+    },
+    /**
+     * St Set Str INSTANCE, ELEMENT [,I1[,I2[,I3]]] To STRING$ — the same four
+     * routines, reached through the token entries whose value slot is a
+     * string rather than an integer. One body, and the type code in the
+     * descriptor decides which arm runs, so `St Set Str` on a non-string
+     * element and `St Set` on a string one both land where the other's arm
+     * would have.
+     */
+    'st set str'(it) {
+      stSet(rt, it, true)
+    },
+    /**
+     * Stv(INSTANCE, ELEMENT [,I1[,I2[,I3]]]) = VALUE — the write half of the
+     * V-form, and the one place in this extension where the binary says
+     * something the port cannot carry over.
+     *
+     * 1.10 gives `stv` four instruction slots of its own, 281/283/285/287,
+     * and each is FOUR BYTES sitting immediately in front of the `St Set`
+     * body of the matching arity, which it then falls into. All four hold the
+     * same instruction:
+     *
+     *     $39a6  4eac 3e2c     jsr $3e2c(a4)
+     *
+     * NOTE: that cannot be what it looks like. a4 has no value at a keyword's
+     * entry — the only three routines in the whole 16KB that load it (0, 184
+     * and 225) do so locally — and $3e2c is inside routine 300's inline
+     * message block, not code. 1.09 has neither `stv` nor the four extra
+     * routines: its set family is 281-284 with no prologue, byte for byte the
+     * same forty-byte bodies. So the keyword was added in 1.10, is in no
+     * guide, and its write path begins with a call through an undefined
+     * register.
+     *
+     * What is NOT in doubt is where control goes next: the four bytes fall
+     * straight into `St Set`'s body, and the read half is `St Get`'s
+     * trampolines verbatim. Implemented as that pair.
+     */
+    stv(it) {
+      it.expect('(')
+      const inst = it.evalInt() | 0
+      it.expect(',')
+      const elem = it.evalInt() | 0
+      const idx: number[] = []
+      while (it.accept(',')) idx.push(it.evalInt() | 0)
+      it.expect(')')
+      it.expectOp('=')
+      const value = it.evalInt() | 0
+      stCall(() => setElement(rt, resolve(rt, elem, inst, idx.slice().reverse()), value))
+    },
+    /**
+     * St Erase INSTANCE — routine 295 ($3ab2), the library's LVO -108
+     * ($97a): `ELST_TreeScan`, `ELST_Free` over every instance the scan
+     * found, `ELST_TreeScanFree`. The autodoc lists the LVO without naming
+     * it, and this keyword is what it is for.
+     */
+    'st erase'(it) {
+      const inst = it.evalInt() | 0
+      stCall(() => eraseTree(rt, rt.easylife.structs, inst))
     },
   }
 }
