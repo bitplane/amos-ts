@@ -1073,6 +1073,88 @@ describe.skipIf(!existsSync(DEMOS))('EasyLife: the Tags bank, against a real one
   })
 })
 
+describe.skipIf(!existsSync(DEMOS))('EasyLife: Tag List$, against the real TagLists bank', () => {
+  const bootLists = (src: string): Boot => {
+    const b = boot(src)
+    b.rt.memBanks.set(14, {
+      kind: 'memory',
+      number: 14,
+      memType: 0,
+      name: 'TagLists',
+      flags: 0,
+      data: demoBank('Tag_Editor.AMOS', 'TagLists')!,
+    })
+    return b
+  }
+  const failLists = (src: string): string => {
+    const b = bootLists(src)
+    try {
+      b.rt.runHeadless(2000)
+    } catch (e) {
+      return (e as Error).message
+    }
+    return 'did not throw'
+  }
+  /** the expanded template as longwords */
+  const expand = (src: string): number[] => {
+    const b = bootLists(src)
+    mustFinish(b.rt.runHeadless(2000))
+    return b
+      .text()
+      .trim()
+      .split('\n')
+      .map((x) => x.trim())
+      .filter((x) => x !== '')
+      .map((x) => Number(x) | 0)
+  }
+
+  it('MAKE_Menuitem patches its two argument sites and leaves the rest', () => {
+    // its argument chain is 12 -> 4, so A1 lands at offset 4 and A2 at 12
+    const out = expand(
+      OPEN +
+        'A$=Tag List$("MAKE_Menuitem",111,222,0,0,0,0,0,0)\n' +
+        'For I=0 To 4 : Print Ellong(Mid$(A$,I*4+1,4)) : Next I\n',
+    )
+    expect(out.length).toBe(5)
+    expect(out[0]).toBe(0x804218be | 0) // untouched tag
+    expect(out[1]).toBe(111) // the site at offset 4, argument 1
+    expect(out[2]).toBe(0x80422030 | 0) // untouched tag
+    expect(out[3]).toBe(222) // the site at offset 12, argument 2
+    expect(out[4]).toBe(0) // the terminator
+  })
+
+  it('argument index 0 takes the default rather than an argument', () => {
+    // NOT_Menu's chain is 24 -> 12, and the site at 12 carries index 0
+    const out = expand(
+      OPEN +
+        'A$=Tag List$("NOT_Menu",7,0,0,0)\n' +
+        'For I=0 To 6 : Print Ellong(Mid$(A$,I*4+1,4)) : Next I\n',
+    )
+    expect(out.length).toBe(7)
+    expect(out[6]).toBe(7) // the site at 24, argument 1
+    expect(out[3]).toBe(0) // the site at 12, index 0 -> `$e8`, which is 0
+    expect(out[2]).toBe(0x49893131 | 0) // untouched
+  })
+
+  it('the declared arity must match the call, and MAKE_Menuitem wants eight', () => {
+    expect(failLists(OPEN + 'A$=Tag List$("MAKE_Menuitem",1,2,3,4)\n')).toContain('Illegal function call')
+    expect(failLists(OPEN + 'A$=Tag List$("NOT_Menu",1,2,3,4,5,6,7,8)\n')).toContain('Illegal function call')
+  })
+
+  it('the pointer chain resolves into the bank, past the body', () => {
+    // KeyButton (bank 67's copy of it) is the one template with a d7 chain;
+    // bank 14's MAKE_KeyButton is the same shape
+    const b = bootLists(OPEN + 'A$=Tag List$("MAKE_KeyButton",1,2,3,4,5,6,7,8)\nPrint Len(A$)\n')
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.text()).toBe(' 60\n')
+  })
+
+  it('an unknown list is message 22, no bank 14 is error 36', () => {
+    expect(failLists(OPEN + 'A$=Tag List$("NO_SUCH_LIST")\n')).toContain('Unmatched tag')
+    expect(fails(OPEN + 'A$=Tag List$("NOT_Menu",1,2,3,4)\n')).toContain('Bank not reserved')
+  })
+})
+
 describe('EasyLife: Tag Str, Tag Keep and Tag Block Size', () => {
   const stored = (b: Boot, at: number): string | undefined => b.rt.easylife.tagStrings.get(at | 0)
 

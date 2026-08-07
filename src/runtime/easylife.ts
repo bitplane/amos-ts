@@ -617,6 +617,80 @@ function tagStore(rt: Runtime, s: string, obj: number, explicit: boolean): numbe
   return at
 }
 
+/**
+ * Routines 246 to 254 ($3634) — `Tag List$(NAME$ [,A1..A8])`, a taglist
+ * template expanded out of bank 14.
+ *
+ * The bank is a longword bias then the same tree routine 204 walks, so a
+ * node's value is an offset from `bank+4` once the bias is added:
+ *
+ *     addq.l #$4,a0 / Rbsr routine 204 / add.l -$4(a2),d0 / adda.l d0,a2
+ *
+ * A template is five longwords of header then the body:
+ *
+ *     +$0  the body length in bytes
+ *     +$4  the head of the pointer-patch chain
+ *     +$8  the head of the argument-patch chain
+ *     +$c  the head of the bank-number chain
+ *     +$10 the declared argument count, which must equal the arity called
+ *          (`cmp.l (a2)+,d4 / Rbne routine 3`)
+ *     +$14 the body
+ *
+ * Each chain threads through the body itself: at the site, the high word is
+ * the next site's offset (0 ends the chain) and the low word is the operand.
+ * The three do different things with it:
+ *
+ *   pointers  the site becomes `a2 + operand`, where a2 is just past the
+ *             body — so these are the strings and sub-lists appended after
+ *             the template
+ *   arguments the site becomes the operand'th argument, one-based, read back
+ *             down the parameter stack as `-$4(a3,-N*4)`; operand 0 takes
+ *             `$e8` instead, the default object, which is 0 from routine 0
+ *   banks     the operand is a bank number and the site becomes its address,
+ *             or error 36 if there is no such bank
+ *
+ * Checked against Tag_Editor.AMOS's own bank 14. MAKE_Menuitem declares 8
+ * arguments, a 20-byte body, and an argument chain 12 -> 4: the site at 12
+ * carries $0004 next and $0002 index, the site at 4 carries $0000 and $0001.
+ *
+ * NOTE: the copy loop moves `(bodyLen>>2)+1` longwords into a buffer asked
+ * for as `bodyLen+2`, so the real extension writes up to four bytes past what
+ * it allocated. Nothing observable comes of it — the string's length word
+ * says bodyLen either way — so this port copies bodyLen bytes and does not
+ * reproduce the overrun.
+ */
+function tagList(rt: Runtime, name: string, args: number[]): Value {
+  const st = rt.easylife
+  const b = rt.memBanks.get(st.tagListBank)
+  if (!b?.data) throw new AmosError('Bank not reserved', 36)
+  if (pad(b.name, 32, 8) !== 'TagLists') funcCall()
+  const d = b.data
+  const v = new DataView(d.buffer, d.byteOffset, d.byteLength)
+  const found = tagFind(d, 4, name)
+  if (found === null) elError(22)
+  const at = 4 + ((found + v.getUint32(0, false)) | 0)
+  const len = v.getUint32(at, false)
+  const chains = [v.getUint32(at + 4, false), v.getUint32(at + 8, false), v.getUint32(at + 12, false)]
+  if (v.getUint32(at + 16, false) !== args.length) funcCall()
+  const body = d.slice(at + 20, at + 20 + len)
+  const bv = new DataView(body.buffer, body.byteOffset, body.byteLength)
+  const past = rt.bankBase(st.tagListBank) + at + 20 + len
+  const patch = (head: number, value: (operand: number) => number): void => {
+    for (let o = head & 0xffff; o !== 0; ) {
+      const next = bv.getUint16(o, false)
+      bv.setUint32(o, value(bv.getUint16(o + 2, false)) >>> 0, false)
+      o = next
+    }
+  }
+  patch(chains[0]!, (op) => past + op)
+  patch(chains[1]!, (op) => (op === 0 ? 0 : (args[op - 1] ?? 0)))
+  patch(chains[2]!, (op) => {
+    if (!rt.memBanks.get(op)) throw new AmosError('Bank not reserved', 36)
+    return rt.bankBase(op)
+  })
+  return VS(String.fromCharCode(...body))
+}
+
 /** the twelve- and eight-byte strings the Tag$ family builds, big-endian */
 const tagLongs = (vals: number[]): Value =>
   VS(vals.map((v) => String.fromCharCode((v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff)).join(''))
@@ -1498,6 +1572,16 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
       if (obj !== 0) elError(24)
       return tagLongs([tag, obj])
     },
+    /**
+     * =Tag List$(NAME$ [,A1..A8]) — routines 246 to 254, nine arities of one
+     * entry, all reaching routine 245 with the count in d4.
+     */
+    'tag list$': (_, a): Value =>
+      tagList(
+        rt,
+        str(a[0] ?? VS('')),
+        a.slice(1).map((x) => int(x) | 0),
+      ),
   }
 }
 

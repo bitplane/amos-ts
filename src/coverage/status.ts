@@ -2245,6 +2245,7 @@ export const FAITHFUL = new Set<string>([
   'tag attach$',
   'tag keep',
   'tag block size',
+  'tag list$',
   // slice 4 -- integers as strings, memory, banks and message banks
   'ellong',
   'ellong$',
