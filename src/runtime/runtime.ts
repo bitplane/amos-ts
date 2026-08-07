@@ -594,6 +594,31 @@ export class Runtime {
   static readonly SCREEN_PHY_OFFSET = 0x00080000
 
   /**
+   * HOW MANY SCREEN SLOTS THE MACHINE HAS, which is not the same as how many
+   * `Screen Open` can name.
+   *
+   * AMOS itself opens screens above the user range. EcFonc 8, EcEdit 9,
+   * EcFsel 10 and EcReq 11 (+Equ.s:792) are the accessory, editor, file
+   * selector and requester screens, and EC_FSEL is a live one — Fsel$ and the
+   * text reader both open there.
+   *
+   * DEFECT: this was 8, hardcoded in four places (both slotted regions here,
+   * resolvePlanePtr and the inline BPL1PT decode in display.ts) while EC_FSEL
+   * was already 10. The band builder emitted a perfectly correct EcCopHo for
+   * the file selector's screen — palette, DIWSTRT, BPLxPT at $40a00000 — and
+   * then the compositor could not resolve those pointers to any bitmap, so it
+   * fetched nothing. The requester drew into its own pixels, every dialog test
+   * that reads them passed, and the composited display showed empty border.
+   * Nobody caught it because the only path that reads the planes back is the
+   * copper walk, and no test composited a system screen.
+   *
+   * Sixteen rather than twelve: the four above the AMOS ones are for screens
+   * this machine's OWNER opens rather than AMOS — an Intuition screen is a
+   * ViewPort in the same copper list and has nowhere else to be.
+   */
+  static readonly SCREEN_SLOTS = 16
+
+  /**
    * Private data blocks belonging to extensions, mapped so that a program can
    * reach them by address.
    *
@@ -1132,7 +1157,7 @@ export class Runtime {
       'screen bitplanes',
       Runtime.SCREEN_CHIP_BASE,
       Runtime.SCREEN_CHIP_SLOT,
-      8,
+      Runtime.SCREEN_SLOTS,
       (index, off, write) => {
         const s = this.screens.get(index)
         if (!s) return null
@@ -1147,7 +1172,7 @@ export class Runtime {
       'screen control blocks',
       Runtime.SCREEN_CTRL_BASE,
       Runtime.SCREEN_CTRL_SLOT,
-      8,
+      Runtime.SCREEN_SLOTS,
       (index, off) => {
         const s = this.screens.get(index)
         // synthesized read-only block; writes land in a throwaway copy
@@ -1438,6 +1463,17 @@ export class Runtime {
    * EcFsel (+Equ.s:792): the system screen slot the file selector and the
    * text reader both open on, above the user range 0-7 (8 EcFonc, 9 EcEdit,
    * 10 EcFsel, 11 EcReq).
+   *
+   * This IS the answer to "where does a non-AMOS screen go" — AMOS gave it
+   * before the question was asked. A screen above the user range is an
+   * ordinary Screen in every respect: it sits in `screens`, takes its place
+   * in `order`, gets a band in the copper list and a slot in the chip
+   * address space. What makes it a system screen is only that no keyword can
+   * name it, because `Screen Open` rejects anything outside 0-7.
+   *
+   * SCREEN_SLOTS is 16 for that reason: 0-7 the user's, 8-11 AMOS's own, and
+   * 12-15 for the machine's OWNER — an Intuition screen is a ViewPort in the
+   * same copper list and has nowhere else to be.
    */
   static readonly EC_FSEL = 10
   /**

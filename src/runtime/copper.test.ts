@@ -4,6 +4,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
+import { Screen } from './screen'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -755,5 +756,60 @@ describe('a screen whose window runs off the bottom (MkA9a/MkA11 +W.s:5967)', ()
     // hardware line 30, well above the screen at 50, must be the fond
     const o = ((30 - Runtime.COMPOSITE_TOP) * 2 * 640 + 320) * 4
     expect([data[o], data[o + 1], data[o + 2]]).toEqual([0, 0, 0])
+  })
+})
+
+describe('a system screen — above the user range, in the same copper list', () => {
+  /**
+   * AMOS opens screens the BASIC programmer cannot name: EcFonc 8, EcEdit 9,
+   * EcFsel 10 and EcReq 11 (+Equ.s:792). Fsel$ and the text reader both open
+   * on EcFsel, so this is not hypothetical.
+   *
+   * DEFECT: the slot count was 8 in four places while EC_FSEL was 10, so the
+   * file selector's screen got a perfectly correct EcCopHo band — palette,
+   * DIWSTRT, BPLxPT at $40a00000 — and then the compositor could not resolve
+   * those pointers to any bitmap and fetched nothing. It drew into its own
+   * pixels, so every dialog test that reads them passed, and the composited
+   * display showed empty border where the requester should be.
+   *
+   * A system screen is an ordinary Screen in every respect that matters to the
+   * hardware; the only thing that makes it a system screen is that
+   * `Screen Open` rejects the index (openScreen, "illegal screen number").
+   * This is also where a non-AMOS screen goes — an Intuition screen is a
+   * ViewPort in this same list, at a slot of its own.
+   */
+  const boot16 = (): Runtime => run('Flash Off : Curs Off : Hide On\nScreen Open 0,320,50,2,Lowres\nPalette $000,$00F')
+
+  it('gets a band, and its planes resolve back through the list', () => {
+    const rt = boot16()
+    const s = new Screen(Runtime.EC_FSEL, 320, 40, 4, 0x8000)
+    s.palette[1] = 0x0f00
+    s.displayX = 128
+    s.displayY = 150
+    rt.screens.set(Runtime.EC_FSEL, s)
+    rt.order.push(Runtime.EC_FSEL)
+    s.pixelsW().fill(1)
+    const { data } = rt.composite()
+    // hardware line 160 is inside the system screen's window, and pen 1 there
+    // is red — before the fix this was the black border
+    const o = ((160 - Runtime.COMPOSITE_TOP) * 2 * 640 + 300) * 4
+    expect([data[o], data[o + 1], data[o + 2]]).toEqual([255, 0, 0])
+  })
+
+  it('its bitplanes are reachable by address, like any screen', () => {
+    const rt = boot16()
+    const s = new Screen(Runtime.EC_FSEL, 320, 40, 4, 0x8000)
+    rt.screens.set(Runtime.EC_FSEL, s)
+    s.pixelsW().fill(1)
+    const base = rt.screenChipBase(Runtime.EC_FSEL)
+    const m = rt.resolveAddr(base)
+    expect(m).not.toBeNull()
+    // plane 0 of a solid pen-1 fill is all ones
+    expect(m!.data[m!.off]).toBe(0xff)
+  })
+
+  it('Screen Open still cannot name one', () => {
+    const rt = boot16()
+    expect(() => rt.openScreen(Runtime.EC_FSEL, 320, 40, 4, 0x8000)).toThrow(/illegal screen number/)
   })
 })

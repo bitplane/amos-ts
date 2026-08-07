@@ -912,7 +912,10 @@ export class Display {
           if (idx === 0 && bplH[0]! >= 0 && bplL[0]! >= 0) {
             const ad = (((bplH[0]! << 16) | bplL[0]!) >>> 0)
             screen = null
-            if (ad >= Runtime.SCREEN_CHIP_BASE && ad < Runtime.SCREEN_CHIP_BASE + 8 * Runtime.SCREEN_CHIP_SLOT) {
+            if (
+              ad >= Runtime.SCREEN_CHIP_BASE &&
+              ad < Runtime.SCREEN_CHIP_BASE + Runtime.SCREEN_SLOTS * Runtime.SCREEN_CHIP_SLOT
+            ) {
               const rel = ad - Runtime.SCREEN_CHIP_BASE
               const s = this.rt.screens.get(Math.floor(rel / Runtime.SCREEN_CHIP_SLOT))
               if (s) {
@@ -1232,7 +1235,11 @@ export class Display {
    * show a composite of both — rendered entirely from one of them.
    */
   private resolvePlanePtr(ad: number): { s: Screen; off: number; phy: boolean } | null {
-    if (ad < Runtime.SCREEN_CHIP_BASE || ad >= Runtime.SCREEN_CHIP_BASE + 8 * Runtime.SCREEN_CHIP_SLOT) return null
+    if (
+      ad < Runtime.SCREEN_CHIP_BASE ||
+      ad >= Runtime.SCREEN_CHIP_BASE + Runtime.SCREEN_SLOTS * Runtime.SCREEN_CHIP_SLOT
+    )
+      return null
     const rel = ad - Runtime.SCREEN_CHIP_BASE
     const s = this.rt.screens.get(Math.floor(rel / Runtime.SCREEN_CHIP_SLOT))
     if (!s) return null
