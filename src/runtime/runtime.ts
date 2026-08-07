@@ -10,6 +10,7 @@ import type { Value } from '../interp/values'
 import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
 import { Collide } from './collide'
+import { Intuition } from '../amiga/intuition'
 import { bufferRegion, claimedRegion, findRegion, slottedRegion, within } from '../amiga/memmap'
 import type { MemRegion } from '../amiga/memmap'
 import { newPiConfig } from './piconfig.gen'
@@ -1476,6 +1477,61 @@ export class Runtime {
    * same copper list and has nowhere else to be.
    */
   static readonly EC_FSEL = 10
+
+  // ---- intuition.library's side of the display ----
+  /**
+   * The machine's Intuition, over a host that opens screens at slots no
+   * keyword can name. Lazy because most programs never reach it: the
+   * Workbench screen costs 640*256*2/8 = 40KB of bitmap the moment it exists.
+   *
+   * Deliberately NOT `openScreen`: that one rejects an index above 7, and it
+   * also sets `currentIndex`, which would silently redirect every subsequent
+   * AMOS drawing keyword onto the Workbench screen. An Intuition screen
+   * appearing must not change which screen AMOS is drawing on.
+   */
+  private intuitionBase: Intuition | null = null
+
+  get intuition(): Intuition {
+    if (!this.intuitionBase) {
+      this.intuitionBase = new Intuition({
+        openScreen: (slot, spec) => {
+          if (this.screens.has(slot)) return
+          const s = new Screen(
+            slot,
+            spec.width,
+            spec.height,
+            1 << spec.depth,
+            (spec.hires ? 0x8000 : 0) | (spec.laced ? 4 : 0),
+          )
+          for (let i = 0; i < spec.palette.length && i < 32; i++) s.palette[i] = spec.palette[i]!
+          s.displayY = spec.displayY
+          // NOT cls(): that is AMOS's Cls, which clears to the RastPort's
+          // PAPER pen, and a fresh Screen's paper is 1 — a Workbench opened
+          // that way came up solid white instead of the blue desktop.
+          // OpenScreen BltClears the bitmap to pen 0, which is what a freshly
+          // allocated one already is.
+          this.screens.set(slot, s)
+          this.order = this.order.filter((i) => i !== slot)
+          // BEHIND everything: a Workbench screen that has just been opened
+          // is not brought to front by OpenWorkBench. WBenchToFront is a
+          // separate call, and EasyLife's Eliconify Begin makes both — which
+          // is only meaningful if the first one does not already do it.
+          this.order.unshift(slot)
+        },
+        closeScreen: (slot) => {
+          if (!this.screens.has(slot)) return false
+          this.closeScreen(slot)
+          return true
+        },
+        screenToFront: (slot) => this.toFront(slot),
+        screenToBack: (slot) => this.toBack(slot),
+        isOpen: (slot) => this.screens.has(slot),
+        screenAddr: (slot) => this.screenCtrlAddr(slot),
+      })
+    }
+    return this.intuitionBase
+  }
+
   /**
    * The file selector is itself an Interface dialog: the layout comes from
    * program 2 of the system default resource bank; this controller is the

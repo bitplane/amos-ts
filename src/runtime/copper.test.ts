@@ -5,6 +5,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { Runtime } from './runtime'
 import { Screen } from './screen'
+import { WB_SLOT } from '../amiga/intuition'
 
 const table = new TokenTable(CORE_TOKENS)
 
@@ -811,5 +812,64 @@ describe('a system screen — above the user range, in the same copper list', ()
   it('Screen Open still cannot name one', () => {
     const rt = boot16()
     expect(() => rt.openScreen(Runtime.EC_FSEL, 320, 40, 4, 0x8000)).toThrow(/illegal screen number/)
+  })
+})
+
+describe('OpenWorkBench puts a real screen in the copper list', () => {
+  /**
+   * The end of the chain the whole change exists for: intuition.library opens
+   * a screen, the machine gives it a slot no keyword can name, and the copper
+   * list carries it like any other. Nothing in the display path knows it is
+   * not an AMOS screen.
+   */
+  const boot = (): Runtime => run('Flash Off : Curs Off : Hide On\nScreen Open 0,320,50,2,Lowres\nPalette $000,$00F')
+
+  it('opens 640x256 hires behind everything, and shows the blue desktop', () => {
+    const rt = boot()
+    const p = rt.intuition.openWorkBench()
+    expect(p).not.toBe(0)
+    const wb = rt.screens.get(WB_SLOT)!
+    expect([wb.width, wb.height, wb.depth, wb.hires]).toEqual([640, 256, 2, true])
+    // OpenWorkBench does not bring it to the front (WBenchToFront does)
+    expect(rt.order[rt.order.length - 1]).toBe(0)
+    // ... so it shows only where the AMOS screen is not. The AMOS screen sits
+    // at line 50 and is 50 tall; line 150 is Workbench.
+    const { data } = rt.composite()
+    const at = (hw: number): number[] => {
+      const o = ((hw - Runtime.COMPOSITE_TOP) * 2 * 640 + 320) * 4
+      return [data[o]!, data[o + 1]!, data[o + 2]!]
+    }
+    // $005A expanded to 24 bits: R 0, G $55, B $AA
+    expect(at(150)).toEqual([0x00, 0x55, 0xaa])
+  })
+
+  it('WBenchToFront covers the AMOS screen; ToBack gives it back', () => {
+    const rt = boot()
+    rt.intuition.openWorkBench()
+    const at60 = (): number[] => {
+      const { data } = rt.composite()
+      const o = ((60 - Runtime.COMPOSITE_TOP) * 2 * 640 + 320) * 4
+      return [data[o]!, data[o + 1]!, data[o + 2]!]
+    }
+    expect(at60()).toEqual([0, 0, 0]) // AMOS screen 0, pen 0 = $000
+    expect(rt.intuition.wBenchToFront()).toBe(true)
+    expect(at60()).toEqual([0x00, 0x55, 0xaa]) // Workbench blue
+    expect(rt.intuition.wBenchToBack()).toBe(true)
+    expect(at60()).toEqual([0, 0, 0])
+  })
+
+  it('does not steal the current screen — AMOS keeps drawing where it was', () => {
+    const rt = boot()
+    const before = rt.currentIndex
+    rt.intuition.openWorkBench()
+    expect(rt.currentIndex).toBe(before)
+  })
+
+  it('CloseWorkBench takes it back out of the list', () => {
+    const rt = boot()
+    rt.intuition.openWorkBench()
+    expect(rt.intuition.closeWorkBench()).toBe(true)
+    expect(rt.screens.has(WB_SLOT)).toBe(false)
+    expect(rt.order).not.toContain(WB_SLOT)
   })
 })
