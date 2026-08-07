@@ -2216,7 +2216,39 @@ export const FAITHFUL = new Set<string>([
   'elmzone',
   'elmzonen',
   'elmzoneg',
+  // slice 3 — character searching and padding. Routines 18-53 in one
+  // contiguous block at $14a2..$17a0, plus 144-146 and 151-152.
+  'elf asc',
+  'elf char',
+  'elf not asc',
+  'elf not char',
+  'elf last asc',
+  'elf last char',
+  'elf last not asc',
+  'elf last not char',
+  'elf control',
+  'elf nth asc',
+  'elf nth char',
+  'elf num asc',
+  'elf num char',
+  'elf fail start',
+  'elf fail end',
+  'elpad asc$',
+  'elpad char$',
   // ...and 1.0's names for the same routines, reached through `aliases`
+  'find asc',
+  'find char',
+  'find not asc',
+  'find not char',
+  'find last asc',
+  'find last char',
+  'find last not asc',
+  'find last not char',
+  'find control',
+  'find nth asc',
+  'find nth char',
+  'find num asc',
+  'find num char',
   'znsx',
   'znsy',
   'znex',
@@ -3907,6 +3939,28 @@ export const NOTES: Record<string, string> = {
     "Routine 96 ($1e28), which is both this keyword and the tail of Elmzone. It walks the rectangles from the cursor and the four tests are `x1 > x`, `y1 > y`, `x2 < x`, `y2 < y` as signed words, so the far corner is INCLUSIVE -- the opposite of Set Zone, which refuses to make a zone whose corners meet. A geometric hit advances the cursor BEFORE the group filter and the id are checked, so a zone rejected on either is never revisited. Out of zones it parks the cursor at the end, clears the saved group and answers 0, which is also what \"no more\" looks like",
   'elmzoneg':
     "Routine 93 ($1df0), `moveq #$0,d3 / move.w $76(a0),d3` -- the group of whatever the last Elmzone or Elmzonen found, zeroed when the scan came up empty. It does NOT go through routine 81, so it is the one keyword in the block that answers rather than raising when no multi zones are reserved",
+
+  // EasyLife slice 3: the character searches, routines 18-53 in one block.
+  'elf asc':
+    "Routines 18 and 19 into 35 ($1560), over the shared setup at routine 34 ($153a). \"If you want to find the first occurance of a character in a string, you can use the AMOS functinon =instr$, but as this is designed to find substrings, it is in-efficient for single characters.\" The answer is 1-based and the three-argument form \"begins searching a position P+1\", because routine 34 does `adda.l d3,a0` with P as a plain index -- the author's reason is that \"to find the next occurance, you simply put the position of the last occurance as the P parameter of the next search\". NOTE: the guide says \"Any value of P is accepted, but is taken to be unsigned, so negative numbers are treated as very high positive numbers\", and `tst.l d3 / Rbmi routine 3` says otherwise -- a negative P is an Illegal Function Call in both the forward setup and the backward one. A P past the end does find nothing, as documented",
+  'elf char':
+    "Routines 26/27 into 40 ($160a), which walks A$ per source character rather than comparing one code -- `move.w (a2),d7` then a `dbra` from the LAST character of the set down to the first. NOTE: the guide's \"Illegal Function Call: Either A$ is an empty string, or A is not between 0 and 255\" is half right. An empty set is NOT an error in any of the four `char` searches: d7 loads 0 and the dbra falls straight through, so `Elf Char` never matches and `Elf Not Char` matches immediately. Only Elf Num Char and Elpad Char$ actually test the length (`Rbeq routine 3`)",
+  'elf last asc':
+    "Routines 22/23 into 38 ($15da), over the backward setup at routine 37 ($15ac). The `cmp.b -(a0),d0` predecrement is why \"the search begins at position P-1\": routine 37 puts a0 at index P-1, so the first character examined is P-1 counting from one. P of 0, or past the length, starts at the end, which the guide gets right. The four BACKWARD searches never consult the Elf Fail flag -- a miss is always 0, where the five forward ones answer the length plus one under Elf Fail End",
+  'elf control':
+    "Routines 44 and 45 ($16ba, $16c4); routine 44 is ten bytes that push a literal zero for P. The test is `cmp.b #$20,d0 / bcc` and UNSIGNED, so only 0..31 count and a byte at 128 or above is not a control character -- which is what makes the guide's use of it work: \"This can be used to determine if a string is printable. A string which contains control characters may invoke any of the AMOS text formatting functions ... such as At(X,Y), Pen$(C)\"",
+  'elf nth asc':
+    "Routine 53 ($1790) is routine 35 with the Nth counter loaded, `move.l (a3)+,d5 / subq.l #$1,d5 / Rbmi routine 3`, and the `dbra d5` after each match is what skips the first N-1. NOTE: routine 52, Elf Nth Char, is the same twelve bytes WITHOUT that sign check, so `Elf Nth Asc(s$,a,0)` is an Illegal Function Call and `Elf Nth Char(s$,a$,0)` is not: N-1 becomes -1, the dbra decrements the low word to $fffe and branches, and the search would need 65536 matches -- which is to say it finds nothing and answers the miss value",
+  'elf num asc':
+    "Routine 51 ($175e), a plain count with its own loop rather than a call into the search workers, and no fail flag. `cmp.l #$100,d0 / Rbcc routine 3` is unsigned, so a negative code is a very large one and refused. An empty S$ is not an error: the `dbra d1` with d1 = 0 falls through and answers 0",
+  'elf num char':
+    "Routine 50 ($174c), and it does not count a SET at all. Eighteen bytes: `movea.l (a3)+,a0 / move.w (a0)+,d0 / Rbeq routine 3 / moveq #$0,d0 / move.b (a0),d0 / move.l d0,-(a3) / Rbra routine 51`. It takes the FIRST character of A$, pushes its code and falls into Elf Num Asc. NOTE: the guide says \"occurances of any character from A$ are counted\" and adds a note rationalising it -- \"If the string A$ contains more than one occurance of the same character it is still only counted once\" -- and neither sentence describes this routine. The empty string IS an error here, which is the one thing the guide has right about it",
+  'elf fail start':
+    "Routines 151 and 152 ($26c8, $26d4), twelve bytes each: `movea.l $1e8(a5),a0 / move.w #$0,$a0(a0)` and the same with $ffff. The word at $a0 is what a failed FORWARD search answers -- 0, or the string's length plus one -- read by routines 35, 36, 40, 41 and 45 with `tst.w $a0(a1)` and by nothing else. NOTE: these two are the extension's only undocumented keywords. The guide's index lists both and links them to `C_ElfFailStart`, and no such node exists in any of the three guides; what the setting means had to come from the readers. Elf Fail Start is the boot state and is what the Default hook restores, which the guide's CommandEffects node does say",
+  'elpad asc$':
+    "Routines 145 and 146 ($25da, $25f0). Routine 146 is `move.w (a2)+,d6 / cmp.l d4,d6 / Rbhi routine 3`, then L_Demande for a string of the target length, the source copied in and the remainder filled with the pad byte. NOTE: the guide says \"If the length of the string S$ is greater than or equal to L, these two functions return S$\". Equal does return S$; LONGER is `Rbhi routine 3`, an Illegal Function Call. Only half the sentence is true, and it is the half a program would rely on that is not",
+  'elpad char$':
+    "Routine 144 ($25c6), which takes the first character of A$ and joins routine 146 -- \"If A$ contains more than one character, the second and subsequent characters are ignored. In the future I intend to change this to repeatedly use the whole of A$ to pad S$\", and 1.44 still does not. An empty A$ is `Rbeq routine 3`",
 }
 
 /**
@@ -4004,6 +4058,29 @@ export const SHARED_NOTES: Record<string, string> = {
   // ...and the three siblings that share the reader's reading
   'elmznsy': 'elmznsx',
   'elmznex': 'elmznsx',
+  // the search block: one reading per shape, and the `not` and `char`
+  // variants are the same worker with one branch inverted
+  'elf not asc': 'elf asc',
+  'elf not char': 'elf char',
+  'elf last char': 'elf last asc',
+  'elf last not asc': 'elf last asc',
+  'elf last not char': 'elf last asc',
+  'elf nth char': 'elf nth asc',
+  'elf fail end': 'elf fail start',
+  // 1.0 spells the whole search block `find` rather than `elf`
+  'find asc': 'elf asc',
+  'find char': 'elf char',
+  'find not asc': 'elf asc',
+  'find not char': 'elf char',
+  'find last asc': 'elf last asc',
+  'find last char': 'elf last asc',
+  'find last not asc': 'elf last asc',
+  'find last not char': 'elf last asc',
+  'find control': 'elf control',
+  'find nth asc': 'elf nth asc',
+  'find nth char': 'elf nth asc',
+  'find num asc': 'elf num asc',
+  'find num char': 'elf num char',
 }
 
 /** The reading for a keyword, following SHARED_NOTES to whoever holds it. */

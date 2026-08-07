@@ -448,6 +448,111 @@ describe('EasyLife: multi-zones (routines 80-96)', () => {
   })
 })
 
+describe('EasyLife: character searching (routines 18-53)', () => {
+  it('Elf Asc finds the first occurrence, 1-based, and Elf Char takes a set', () => {
+    const { out } = run(
+      OPEN +
+        'A$="hello world"\n' +
+        'Print Elf Asc(A$,Asc("o"));Elf Char(A$,"wo");Elf Not Asc(A$,Asc("h"));Elf Not Char(A$,"hel")\n',
+    )
+    expect(out).toBe(' 5 5 2 5\n')
+  })
+
+  it('the third argument starts at P+1, which is what makes it chain', () => {
+    // "to find the next occurance, you simply put the position of the last
+    // occurance as the P parameter of the next search"
+    const { out } = run(
+      OPEN + 'A$="a,b,c"\nP=Elf Asc(A$,Asc(","),0)\nPrint P;Elf Asc(A$,Asc(","),P)\n',
+    )
+    expect(out).toBe(' 2 4\n')
+  })
+
+  it('a negative P is AMOS 23, against the guide, and a P past the end finds nothing', () => {
+    // `tst.l d3 / Rbmi routine 3` in both routine 34 and routine 37
+    expect(fails(OPEN + 'Print Elf Asc("abc",97,-1)\n')).toMatch(/Illegal function call/)
+    expect(fails(OPEN + 'Print Elf Last Asc("abc",97,-1)\n')).toMatch(/Illegal function call/)
+    expect(run(OPEN + 'Print Elf Asc("abc",Asc("a"),99)\n').out).toBe(' 0\n')
+  })
+
+  it('a code outside 0..255 is AMOS 23 — `andi.l #$ffffff00,d4 / Rbne`', () => {
+    expect(fails(OPEN + 'Print Elf Asc("abc",256)\n')).toMatch(/Illegal function call/)
+    expect(fails(OPEN + 'Print Elf Asc("abc",-1)\n')).toMatch(/Illegal function call/)
+  })
+
+  it('the backward searches start at P-1 and never use the fail flag', () => {
+    const { out } = run(
+      OPEN +
+        'A$="a,b,c"\n' +
+        'Print Elf Last Asc(A$,Asc(","));Elf Last Asc(A$,Asc(","),4)\n' +
+        'Print Elf Last Not Asc("ab   ",Asc(" "));Elf Last Char(A$,",b")\n',
+    )
+    expect(out).toBe(' 4 2\n 2 4\n')
+    // "very useful for removing the padding from padded strings"
+    expect(run(OPEN + 'Print Elf Last Not Asc("hi",Asc(" "))\n').out).toBe(' 2\n')
+  })
+
+  it('Elf Control finds a byte below 32, and 128+ is not one', () => {
+    expect(run(OPEN + 'Print Elf Control("ab"+Chr$(9)+"c")\n').out).toBe(' 3\n')
+    expect(run(OPEN + 'Print Elf Control("abc")\n').out).toBe(' 0\n')
+    // `cmp.b #$20,d0 / bcc` is unsigned
+    expect(run(OPEN + 'Print Elf Control("a"+Chr$(200))\n').out).toBe(' 0\n')
+  })
+
+  it('Elf Nth Asc checks N and Elf Nth Char does not', () => {
+    const p = OPEN + 'A$="banana"\n'
+    expect(run(p + 'Print Elf Nth Asc(A$,Asc("a"),3);Elf Nth Char(A$,"an",4)\n').out).toBe(' 6 5\n')
+    expect(run(p + 'Print Elf Nth Asc(A$,Asc("a"),9)\n').out).toBe(' 0\n')
+    // routine 53 has `subq.l #$1,d5 / Rbmi routine 3`; routine 52 does not
+    expect(fails(p + 'Print Elf Nth Asc(A$,Asc("a"),0)\n')).toMatch(/Illegal function call/)
+    expect(run(p + 'Print Elf Nth Char(A$,"a",0)\n').out).toBe(' 0\n')
+  })
+
+  it('NOTE: Elf Num Char counts only the FIRST character of A$', () => {
+    // routine 50 is `move.b (a0),d0 / move.l d0,-(a3) / Rbra routine 51` --
+    // the guide's "occurances of any character from A$ are counted" is not
+    // this routine
+    const p = OPEN + 'A$="banana"\n'
+    expect(run(p + 'Print Elf Num Asc(A$,Asc("a"));Elf Num Char(A$,"a")\n').out).toBe(' 3 3\n')
+    expect(run(p + 'Print Elf Num Char(A$,"an")\n').out).toBe(' 3\n')
+    expect(run(p + 'Print Elf Num Char(A$,"na")\n').out).toBe(' 2\n')
+    expect(fails(p + 'Print Elf Num Char(A$,"")\n')).toMatch(/Illegal function call/)
+  })
+
+  it('NOTE: an empty set is not an error for the four `char` searches', () => {
+    // the guide says it is; `move.w (a2),d7` loads 0 and the dbra falls
+    // through, so Elf Char never matches and Elf Not Char always does
+    expect(run(OPEN + 'Print Elf Char("abc","");Elf Not Char("abc","")\n').out).toBe(' 0 1\n')
+    expect(run(OPEN + 'Print Elf Last Char("abc","");Elf Last Not Char("abc","")\n').out).toBe(' 0 3\n')
+  })
+
+  it('Elf Fail End makes a forward miss answer the length plus one', () => {
+    const p = OPEN + 'A$="abc"\n'
+    expect(run(p + 'Elf Fail End\nPrint Elf Asc(A$,Asc("z"));Elf Char(A$,"z");Elf Control(A$)\n').out).toBe(
+      ' 4 4 4\n',
+    )
+    // ...and the backward pair are unaffected, and so is Elf Num
+    expect(run(p + 'Elf Fail End\nPrint Elf Last Asc(A$,Asc("z"));Elf Num Asc(A$,Asc("z"))\n').out).toBe(' 0 0\n')
+    // the state outlives the call and Elf Fail Start puts it back
+    expect(run(p + 'Elf Fail End\nElf Fail Start\nPrint Elf Asc(A$,Asc("z"))\n').out).toBe(' 0\n')
+    // boot state is Start
+    expect(run(p + 'Print Elf Asc(A$,Asc("z"))\n').out).toBe(' 0\n')
+  })
+
+  it('Elpad pads on the right, and refuses a string already longer', () => {
+    const { out } = run(
+      OPEN + 'Print "["+Elpad Asc$("ab",Asc("."),5)+"]";"[";Elpad Char$("ab","-x",4);"]"\n',
+    )
+    expect(out).toBe('[ab...][ab--]\n')
+    // equal length returns S$ unchanged...
+    expect(run(OPEN + 'Print "["+Elpad Asc$("abc",46,3)+"]"\n').out).toBe('[abc]\n')
+    // ...but LONGER is `cmp.l d4,d6 / Rbhi routine 3`, not the pass-through
+    // the guide promises
+    expect(fails(OPEN + 'Print Elpad Asc$("abcd",46,3)\n')).toMatch(/Illegal function call/)
+    expect(fails(OPEN + 'Print Elpad Asc$("ab",256,5)\n')).toMatch(/Illegal function call/)
+    expect(fails(OPEN + 'Print Elpad Char$("ab","",5)\n')).toMatch(/Illegal function call/)
+  })
+})
+
 describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
   /**
    * The rename between 1.0 and 1.09 was total, so a 1.0 program shares not one
@@ -477,6 +582,27 @@ describe('EasyLife 1.0: the same routines under the unprefixed names', () => {
     })
     mustFinish(rt.runHeadless(2000))
     expect(printed).toBe(' 11 21 31 41\n 7 10\n')
+  })
+
+  it('and the thirteen search names, where `elf` was `find`', () => {
+    const one = extensionById('easylife-1.0')!
+    const exts = new Map([[16, one.table]])
+    let printed = ''
+    const src =
+      OPEN +
+      'A$="hello, world"\n' +
+      'Print Find Asc(A$,Asc("o"));Find Char(A$,"ow");Find Not Asc(A$,Asc("h"));Find Not Char(A$,"hel")\n' +
+      'Print Find Last Asc(A$,Asc("o"));Find Last Char(A$,"ow");Find Last Not Asc(A$,Asc("d"));Find Last Not Char(A$,"dl")\n' +
+      'Print Find Control(A$+Chr$(7));Find Nth Asc(A$,Asc("l"),3);Find Nth Char(A$,"lo",2)\n' +
+      'Print Find Num Asc(A$,Asc("l"));Find Num Char(A$,"lo")\n'
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, one]]),
+      maxSteps: 200_000,
+      onText: (t) => (printed += t),
+    })
+    mustFinish(rt.runHeadless(2000))
+    expect(printed).toBe(' 5 5 2 5\n 9 9 11 10\n 13 11 4\n 3 3\n')
   })
 
   it('and the ten multi-zone names, where the rename was not a prefix strip', () => {

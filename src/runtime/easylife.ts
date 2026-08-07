@@ -50,7 +50,7 @@
  * and routine 159 ($279c) `moveq #$24,d0`, error 36; those are AMOS's own
  * numbers, so the AMOS-zone block raises nothing from the private table.
  */
-import { AmosError, ERR, VI, funcCall, int, type Value } from '../interp/values'
+import { AmosError, ERR, VI, VS, funcCall, int, str, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import type { Screen } from './screen'
@@ -140,6 +140,16 @@ export interface EasyLifeState {
   mzFilter: number
   mzCursor: number
   mzGroup: number
+  /**
+   * $a0 of the same struct — what a FAILED forward search answers.
+   *
+   * `Elf Fail Start` (routine 151) writes 0 and `Elf Fail End` (routine 152)
+   * writes $ffff, and the five forward searches read it with `tst.w $a0(a1)`
+   * on their not-found path: zero means 0, anything else means the string's
+   * length plus one. Boot state is `Elf Fail Start`, which is also what the
+   * Default hook puts back.
+   */
+  elfFailEnd: boolean
 }
 
 export const newEasyLifeState = (): EasyLifeState => ({
@@ -152,6 +162,7 @@ export const newEasyLifeState = (): EasyLifeState => ({
   mzFilter: 0,
   mzCursor: 0,
   mzGroup: 0,
+  elfFailEnd: false,
 })
 
 /** the unsigned view of an AMOS 32-bit integer, which is how routine 153 compares */
@@ -224,6 +235,56 @@ function elZone(s: Screen, n: number): Zone | null {
  * co-ordinates will be 65526,10 to 30,20". 65526, not -10.
  */
 const elCoord = (z: Zone | null, k: 'x1' | 'y1' | 'x2' | 'y2'): Value => VI(w(z?.[k] ?? 0))
+
+// ---- character searching ---------------------------------------------------
+
+/**
+ * Routine 34 ($153a) — the setup every FORWARD search shares.
+ *
+ *     movea.l (a3)+,a0 / move.w (a0)+,d1        the string, then its length
+ *     move.l d1,d6 / add.l a0,d1                d6 keeps it, d1 becomes the end
+ *     movea.l a0,a1 / tst.l d3 / Rbmi routine 3     a negative start is AMOS 23
+ *     adda.l d3,a0                              start scanning at index d3
+ *     move.l d0,d4 / andi.l #$ffffff00,d4 / Rbne routine 3
+ *
+ * NOTE: the guide says of the start argument "Any value of P is accepted, but
+ * is taken to be unsigned, so negative numbers are treated as very high
+ * positive numbers". `tst.l d3 / Rbmi` says otherwise — a negative P is an
+ * Illegal Function Call, in both this and the backward setup. What IS accepted
+ * is a P past the end, which simply finds nothing.
+ *
+ * Returns the search window as indices into `s`, or raises.
+ */
+function fwdStart(start: number, ch: number): number {
+  if (start < 0) funcCall()
+  if ((ch & ~0xff) !== 0) funcCall()
+  return start
+}
+
+/** routine 37 ($15ac) — the same for the BACKWARD searches, where P is 1-based */
+function backStart(s: string, start: number, ch: number): number {
+  if (start < 0) funcCall()
+  // `beq.s` on zero and `cmp.l d3,d1 / bcs` on a start past the length both
+  // land on `adda.l d1,a0`, the end of the string; otherwise `subq.l #$1,d3`
+  if ((ch & ~0xff) !== 0) funcCall()
+  return start === 0 || u32(s.length) < u32(start) ? s.length : start - 1
+}
+
+/**
+ * The not-found answer of the five FORWARD searches — routines 35, 36, 40, 41
+ * and 45 all end with the same six instructions:
+ *
+ *     moveq #$0,d3 / movea.l $1e8(a5),a1
+ *     tst.w $a0(a1) / beq.s .out / move.l d6,d3 / addq.l #$1,d3
+ *
+ * The four BACKWARD ones (routines 38, 39, 42, 43) do not consult it and
+ * always answer 0, and neither does `Elf Num`. That asymmetry is the
+ * routines' and is kept.
+ */
+const elfMiss = (rt: Runtime, len: number): number => (rt.easylife.elfFailEnd ? len + 1 : 0)
+
+/** true when `c` is one of the characters of `set` — routines 40-43's inner dbra */
+const inSet = (set: string, c: string): boolean => set.includes(c)
 
 // ---- multi-zones -----------------------------------------------------------
 
@@ -435,6 +496,256 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
      * block that does not raise.
      */
     elmzoneg: (): Value => VI(w(st().mzGroup)),
+
+    // ---- character searching, routines 18-53 and 144-146 ----
+    //
+    // "If you want to find the first occurance of a character in a string,
+    // you can use the AMOS functinon =instr$, but as this is designed to find
+    // substrings, it is in-efficient for single characters." Sixteen entry
+    // points over ten workers, and the asc/char pairs differ only in whether
+    // the thing being looked for arrives as a code or as a set of characters.
+
+    /**
+     * =Elf Asc(S$,A) / =Elf Asc(S$,A,P) — routines 18 and 19 into 35 ($1560).
+     *
+     *     cmpa.l d1,a0 / bcc .miss / cmp.b (a0)+,d0 / bne .loop
+     *     dbra d5,.loop            d5 is the Nth counter, 0 here
+     *     move.l a0,d3 / sub.l a1,d3
+     *
+     * so the answer is 1-based, and the three-argument form "begins searching
+     * a position P+1" because routine 34 does `adda.l d3,a0` with P as a plain
+     * index — "to find the next occurance, you simply put the position of the
+     * last occurance as the P parameter of the next search".
+     */
+    'elf asc': elfFwd(rt, (s, from, ch) => s.indexOf(String.fromCharCode(ch), from)),
+    /**
+     * =Elf Char(S$,A$[,P]) — routines 26/27 into 40 ($160a), which walks A$
+     * per source character instead of comparing one code.
+     *
+     * NOTE: the guide's "Illegal Function Call: Either A$ is an empty string,
+     * or A is not between 0 and 255" is half right. The empty set is NOT an
+     * error here: `move.w (a2),d7` loads 0 and the `dbra d7` falls straight
+     * through to the next source character, so the search simply never
+     * matches and returns the miss value. Only `Elf Num Char` and `Elpad
+     * Char$` actually test the length (`Rbeq routine 3`).
+     */
+    'elf char': elfFwdSet(rt, (set, c) => inSet(set, c)),
+    /** =Elf Not Asc — routines 20/21 into 36 ($1588), `beq` where 35 has `bne` */
+    'elf not asc': elfFwd(rt, (s, from, ch) => {
+      for (let i = from; i < s.length; i++) if (s.charCodeAt(i) !== ch) return i
+      return -1
+    }),
+    /** =Elf Not Char — routines 28/29 into 41 ($1640) */
+    'elf not char': elfFwdSet(rt, (set, c) => !inSet(set, c)),
+
+    /**
+     * =Elf Last Asc(S$,A[,P]) — routines 22/23 into 38 ($15da).
+     *
+     *     cmpa.l a0,a1 / bcc .miss / cmp.b -(a0),d0 / bne .loop
+     *     move.l a0,d3 / sub.l a1,d3 / addq.l #$1,d3
+     *
+     * The predecrement is why "the search begins at position P-1": routine 37
+     * puts a0 at index P-1, so the first character examined is P-1 in 1-based
+     * terms. P of 0, or past the length, starts at the end. Unlike the forward
+     * searches these never consult the fail flag: a miss is always 0.
+     */
+    'elf last asc': elfBack(rt, (s, from, ch) => {
+      for (let i = from - 1; i >= 0; i--) if (s.charCodeAt(i) === ch) return i
+      return -1
+    }),
+    /** =Elf Last Char — routines 30/31 into 42 ($1670) */
+    'elf last char': elfBackSet(rt, (set, c) => inSet(set, c)),
+    /**
+     * =Elf Last Not Asc — routines 24/25 into 39 ($15f2). "very useful for
+     * removing the padding from padded strings, or for removing trailing
+     * spaces", which is what pairs it with `Elpad Asc$`.
+     */
+    'elf last not asc': elfBack(rt, (s, from, ch) => {
+      for (let i = from - 1; i >= 0; i--) if (s.charCodeAt(i) !== ch) return i
+      return -1
+    }),
+    /** =Elf Last Not Char — routines 32/33 into 43 ($1696) */
+    'elf last not char': elfBackSet(rt, (set, c) => !inSet(set, c)),
+
+    /**
+     * =Elf Control(S$[,P]) — routines 44 and 45 ($16ba, $16c4).
+     *
+     * Routine 44 is ten bytes that push a literal zero for P. The test is
+     * `cmp.b #$20,d0 / bcc` and UNSIGNED, so only 0..31 count — a byte at 128
+     * or above is 'not a control character', which is what makes the guide's
+     * use of it work: "This can be used to determine if a string is
+     * printable. A string which contains control characters may invoke any of
+     * the AMOS text formatting functions ... such as At(X,Y), Pen$(C)".
+     */
+    'elf control'(_, a): Value {
+      const s = str(a[0] ?? VS(''))
+      const from = fwdStart(int(a[1] ?? VI(0)), 0)
+      for (let i = from; i < s.length; i++) if (s.charCodeAt(i) < 0x20) return VI(i + 1)
+      return VI(elfMiss(rt, s.length))
+    },
+
+    /**
+     * =Elf Nth Asc(S$,A,N) — routine 53 ($1790), which is routine 35 with the
+     * Nth counter loaded: `move.l (a3)+,d5 / subq.l #$1,d5 / Rbmi routine 3`.
+     */
+    'elf nth asc'(_, a): Value {
+      const s = str(a[0] ?? VS(''))
+      const ch = int(a[1] ?? VI(0))
+      const n = int(a[2] ?? VI(0))
+      if (n - 1 < 0) funcCall()
+      fwdStart(0, ch)
+      return VI(nth(s, (c) => c.charCodeAt(0) === ch, n, rt))
+    },
+    /**
+     * =Elf Nth Char(S$,A$,N) — routine 52 ($1782), the same twelve bytes into
+     * routine 40 but WITHOUT the sign check: `move.l (a3)+,d5 / movea.l
+     * (a3)+,a2 / moveq #$0,d0 / subq.l #$1,d5`.
+     *
+     * NOTE: so `Elf Nth Asc(s$,a,0)` is AMOS 23 and `Elf Nth Char(s$,a$,0)` is
+     * not. N-1 becomes -1, the `dbra d5` after a match decrements the low word
+     * to $fffe and branches, and the search needs 65536 matches — which is to
+     * say it finds nothing and answers the miss value.
+     */
+    'elf nth char'(_, a): Value {
+      const s = str(a[0] ?? VS(''))
+      const set = str(a[1] ?? VS(''))
+      const n = int(a[2] ?? VI(0))
+      if (n <= 0) return VI(elfMiss(rt, s.length))
+      return VI(nth(s, (c) => inSet(set, c), n, rt))
+    },
+
+    /**
+     * =Elf Num Asc(S$,A) — routine 51 ($175e), a plain count with its own
+     * loop rather than a call into the search workers, and no fail flag.
+     * `cmp.l #$100,d0 / Rbcc routine 3` is unsigned, so a negative code is a
+     * very large one and refused.
+     */
+    'elf num asc'(_, a): Value {
+      const s = str(a[0] ?? VS(''))
+      const ch = int(a[1] ?? VI(0))
+      if (u32(ch) >= 0x100) funcCall()
+      let n = 0
+      for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === ch) n++
+      return VI(n)
+    },
+    /**
+     * =Elf Num Char(S$,A$) — routine 50 ($174c), and DEVIATION-worthy in the
+     * other direction: it does not count a SET at all.
+     *
+     *     movea.l (a3)+,a0 / move.w (a0)+,d0 / Rbeq routine 3
+     *     moveq #$0,d0 / move.b (a0),d0 / move.l d0,-(a3)
+     *     Rbra routine 51
+     *
+     * Eighteen bytes that take the FIRST character of A$, push its code and
+     * fall into `Elf Num Asc`. The guide says "occurances of any character
+     * from A$ are counted" and adds a note rationalising it — "If the string
+     * A$ contains more than one occurance of the same character it is still
+     * only counted once" — and neither describes this routine. The empty
+     * string IS an error here, which is the one thing the guide gets right
+     * about it.
+     */
+    'elf num char'(_, a): Value {
+      const s = str(a[0] ?? VS(''))
+      const set = str(a[1] ?? VS(''))
+      if (set.length === 0) funcCall()
+      const ch = set.charCodeAt(0)
+      let n = 0
+      for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === ch) n++
+      return VI(n)
+    },
+
+    /**
+     * =Elpad Asc$(S$,A,L) — routines 145 and 146 ($25da, $25f0).
+     *
+     *     move.w (a2)+,d6 / cmp.l d4,d6 / Rbhi routine 3
+     *     ... move.w d4,(a1)+ / sub.l d6,d4
+     *     copy d6 bytes, then write d4 copies of d5
+     *
+     * NOTE: the guide says "If the length of the string S$ is greater than or
+     * equal to L, these two functions return S$". Equal does return S$; longer
+     * is `Rbhi routine 3`, an Illegal Function Call. Only half the sentence is
+     * true, and it is the half a program would rely on that is not.
+     */
+    'elpad asc$'(_, a): Value {
+      const s = str(a[0] ?? VS(''))
+      const ch = int(a[1] ?? VI(0))
+      if (ch < 0 || u32(ch) >= 0x100) funcCall()
+      return VS(pad(s, ch, int(a[2] ?? VI(0))))
+    },
+    /**
+     * =Elpad Char$(S$,A$,L) — routine 144 ($25c6), which takes the first
+     * character of A$ and joins routine 146. "If A$ contains more than one
+     * character, the second and subsequent characters are ignored. In the
+     * future I intend to change this to repeatedly use the whole of A$ to pad
+     * S$" — 1.44 still does not.
+     */
+    'elpad char$'(_, a): Value {
+      const s = str(a[0] ?? VS(''))
+      const set = str(a[1] ?? VS(''))
+      if (set.length === 0) funcCall()
+      return VS(pad(s, set.charCodeAt(0), int(a[2] ?? VI(0))))
+    },
+  }
+}
+
+/** routine 146's tail: copy, then pad to `len`, refusing a string already longer */
+function pad(s: string, ch: number, len: number): string {
+  if (u32(s.length) > u32(len)) funcCall()
+  return s + String.fromCharCode(ch).repeat(len - s.length)
+}
+
+/** the `dbra d5` in routines 35 and 40: skip N-1 matches, then take the next */
+function nth(s: string, hit: (c: string) => boolean, n: number, rt: Runtime): number {
+  let left = n
+  for (let i = 0; i < s.length; i++) {
+    if (hit(s[i]!) && --left === 0) return i + 1
+  }
+  return elfMiss(rt, s.length)
+}
+
+/** the four `asc` forward searches: (S$, A[, P]) */
+function elfFwd(rt: Runtime, find: (s: string, from: number, ch: number) => number): Func {
+  return (_, a): Value => {
+    const s = str(a[0] ?? VS(''))
+    const ch = int(a[1] ?? VI(0))
+    const from = fwdStart(int(a[2] ?? VI(0)), ch)
+    const at = from >= s.length ? -1 : find(s, from, ch)
+    return VI(at < 0 ? elfMiss(rt, s.length) : at + 1)
+  }
+}
+
+/** the four `char` forward searches: (S$, A$[, P]) */
+function elfFwdSet(rt: Runtime, hit: (set: string, c: string) => boolean): Func {
+  return (_, a): Value => {
+    const s = str(a[0] ?? VS(''))
+    const set = str(a[1] ?? VS(''))
+    const from = fwdStart(int(a[2] ?? VI(0)), 0)
+    for (let i = from; i < s.length; i++) if (hit(set, s[i]!)) return VI(i + 1)
+    return VI(elfMiss(rt, s.length))
+  }
+}
+
+/** the two `asc` backward searches: (S$, A[, P]) */
+function elfBack(rt: Runtime, find: (s: string, from: number, ch: number) => number): Func {
+  void rt
+  return (_, a): Value => {
+    const s = str(a[0] ?? VS(''))
+    const ch = int(a[1] ?? VI(0))
+    const at = find(s, backStart(s, int(a[2] ?? VI(0)), ch), ch)
+    return VI(at + 1)
+  }
+}
+
+/** the two `char` backward searches: (S$, A$[, P]) */
+function elfBackSet(rt: Runtime, hit: (set: string, c: string) => boolean): Func {
+  void rt
+  return (_, a): Value => {
+    const s = str(a[0] ?? VS(''))
+    const set = str(a[1] ?? VS(''))
+    for (let i = backStart(s, int(a[2] ?? VI(0)), 0) - 1; i >= 0; i--) {
+      if (hit(set, s[i]!)) return VI(i + 1)
+    }
+    return VI(0)
   }
 }
 
@@ -727,6 +1038,26 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
      * 82 skips any slot whose id is 0, and every slot in a real group has a
      * real id, so `ElMz Erase 0` matches nothing.
      */
+    /**
+     * Elf Fail Start / Elf Fail End — routines 151 ($26c8) and 152 ($26d4),
+     * twelve bytes each: `movea.l $1e8(a5),a0 / move.w #$0,$a0(a0)` and the
+     * same with $ffff.
+     *
+     * NOTE: these two are the extension's only UNDOCUMENTED keywords. The
+     * guide's index lists both and links them to `C_ElfFailStart`, and no such
+     * node exists in any of the three guides — a broken link, so what the
+     * setting means has to come from the readers. It is the not-found answer
+     * of the five forward searches, 0 or the string's length plus one, and
+     * `Elf Fail Start` is both the boot state and what the Default hook
+     * restores (the guide's CommandEffects node says so).
+     */
+    'elf fail start': () => {
+      rt.easylife.elfFailEnd = false
+    },
+    'elf fail end': () => {
+      rt.easylife.elfFailEnd = true
+    },
+
     'elmz erase'(it) {
       const group = it.evalInt()
       const { m } = multiZones(rt)
