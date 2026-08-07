@@ -2235,6 +2235,16 @@ export const FAITHFUL = new Set<string>([
   'elf fail end',
   'elpad asc$',
   'elpad char$',
+  // slice 6b -- the pattern block, on src/amiga/patternlib.ts
+  'elpat case',
+  'elpat nocase',
+  'elpat def',
+  'elpat set case',
+  'elpat set nocase',
+  'elpat free',
+  'elpat test',
+  'elpat remove$',
+  'elpat escape$',
   // slice 9 -- the tag banks. Named without the El prefix because they are
   // the MUI half of the extension, but the lookup is an ordinary AMOS bank
   // read and nothing here needs muimaster.library.

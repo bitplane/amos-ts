@@ -59,6 +59,15 @@ import type { MultiZoneTable, Zone } from './objects'
 import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 import { openDiskFont, type DiskFont } from '../amiga/diskfont'
 import { execute } from '../amiga/process'
+import {
+  PatternError,
+  type ParsedPattern,
+  matchPattern,
+  parsePattern,
+  patternEscape,
+  patternHasSpecials,
+  patternRemove,
+} from '../amiga/patternlib'
 
 /**
  * The extension's own error messages, in block order, and the index is
@@ -210,6 +219,16 @@ export interface EasyLifeState {
   tagPool: Array<{ base: number; block: Uint8Array; next: number }>
   /** every stored string, keyed by the address `Tag Str` answers */
   tagStrings: Map<number, string>
+  /**
+   * `$98` of the companion struct --- the pattern `Elpat Set Case` and
+   * `Elpat Set Nocase` compiled, which `Elpat Def` matches against and
+   * `Elpat Free` throws away. Set-once state: routine 136 calls routine 139
+   * before parsing, so setting a new one frees the old without the program
+   * having to, which is the guide's "You can call El Pat Set Case / El Pat
+   * Set Nocase again to change the pattern ... without calling ElPat Free
+   * first".
+   */
+  patDefault: ParsedPattern | null
 }
 
 export const newEasyLifeState = (): EasyLifeState => ({
@@ -232,6 +251,7 @@ export const newEasyLifeState = (): EasyLifeState => ({
   tagBlockSize: 0x2000,
   tagPool: [],
   tagStrings: new Map(),
+  patDefault: null,
 })
 
 /** the unsigned view of an AMOS 32-bit integer, which is how routine 153 compares */
@@ -474,6 +494,34 @@ function message(rt: Runtime, a: Value[]): { data: Uint8Array; at: number; len: 
   const off = v.getUint32(entry, false)
   const len = v.getUint16(entry + 4, false)
   return { data, at: base + rd(4) + off, len }
+}
+
+// ---- patterns -------------------------------------------------------------
+
+/**
+ * The shape routines 133, 134, 137, 138 and 135 all share: call
+ * pattern.library, and turn any negative answer into AMOS 23.
+ *
+ * `Rbmi routine 3` is the whole of the error handling on the EasyLife side,
+ * so the five codes pattern.library separates --- -100 out of memory, -101 a
+ * stray `)`, -103 a stray `]`, -105 a malformed pattern, -107 bad flags ---
+ * all arrive as one "Illegal function call".
+ */
+function patParse(p: string, noCase: boolean): ParsedPattern {
+  try {
+    return parsePattern(p, noCase)
+  } catch (e) {
+    if (e instanceof PatternError) funcCall()
+    throw e
+  }
+}
+
+/** routines 133/134 over the composite entry points $21ae and $21e6 */
+function patMatch(rt: Runtime, a: Value[], noCase: boolean): number {
+  void rt
+  const pattern = str(a[0] ?? VS(''))
+  const subject = str(a[1] ?? VS(''))
+  return matchPattern(patParse(pattern, noCase), subject) ? -1 : 0
 }
 
 // ---- taglists --------------------------------------------------------------
@@ -1498,6 +1546,65 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
+     * =Elpat Case(P$,S$) / =Elpat Nocase(P$,S$) — routines 133 ($2456) and
+     * 134 ($2466), each `Rbsr routine 132` then one library call.
+     *
+     * Routine 132 pops the SUBJECT first and the PATTERN second, because
+     * `(a3)+` takes the last argument pushed, so a0 ends up on P$ and a1 on
+     * S$ --- the order pattern.library's own $21ae wants. "These commands
+     * return True (-1) if the string S$ matches the pattern P$, or false (0)
+     * if it doesn't."
+     *
+     * `Rbmi routine 3`: every library failure is negative and every one of
+     * them becomes the same AMOS 23, so the five codes pattern.library
+     * distinguishes are not observable from AMOS.
+     */
+    'elpat case': (_, a): Value => VI(patMatch(rt, a, false)),
+    'elpat nocase': (_, a): Value => VI(patMatch(rt, a, true)),
+    /**
+     * =Elpat Def(S$) — routine 135 ($2476). Reads `$98` and refuses when it
+     * is null: "You have called = ElPat Def, without first defining a
+     * default pattern ... This also occurs if you try to use a default
+     * pattern after freeing it", which is `moveq #$13,d0` at $24a0.
+     */
+    'elpat def'(_, a): Value {
+      const pat = rt.easylife.patDefault
+      if (!pat) elError(19)
+      return VI(matchPattern(pat, str(a[0] ?? VS(''))) ? -1 : 0)
+    },
+    /**
+     * =Elpat Test(S$) — routine 140 ($250c), which is $19f6 with a null
+     * output buffer. "Returns True if the string S$ contains any special
+     * pattern matching control characters ... It can be used to decide
+     * whether to compare that pattern with pattern matching, or with the
+     * much faster AMOS string comparison."
+     */
+    'elpat test': (_, a): Value => VI(patternHasSpecials(str(a[0] ?? VS(''))) ? -1 : 0),
+    /**
+     * =Elpat Remove(P$) — routine 141 ($2528): allocate LEN bytes, call
+     * $19f6 with them, and read back the NUL-terminated result.
+     *
+     * DEFECT: the library drops an escape and copies what it was protecting
+     * raw, so `Elpat Remove("a'*")` answers `a*` --- a literal asterisk
+     * turned into a wildcard. The guide's own idiom
+     * `P$=Elpat Remove(P$) : If Elpat Test(P$)` is what walks into it.
+     * Reproduced in `patternRemove`; see the note there.
+     *
+     * NOTE: routine 141's own stack juggling has a second, harmless slip.
+     * It reserves a slot with `suba.w #$4,a3` and never writes it, so the
+     * byte count routine 68 searches within is whatever was left on the
+     * parameter stack. The search stops at the first NUL regardless, which
+     * the library always writes, so the count never decides anything.
+     */
+    'elpat remove$': (_, a): Value => VS(patternRemove(str(a[0] ?? VS('')))),
+    /**
+     * =Elpat Escape(S$) — routine 142 ($2566), which allocates TWICE the
+     * length because $1a82 can double every character. "Chr$(39) is added
+     * before each control character", so the answer matches S$ literally.
+     */
+    'elpat escape$': (_, a): Value => VS(patternEscape(str(a[0] ?? VS('')))),
+
+    /**
      * =Tag(TAG$) — routine 199 ($2c82). "Using a tag is similar to an AMOSPro
      * equate, but more powerful, as the tag string is converted at runtime,
      * not at test time, so it may be a variable, or a string expression."
@@ -2251,6 +2358,38 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
       }
     },
 
+    /**
+     * Elpat Set Case P$ / Elpat Set Nocase P$ — routines 137 ($24be) and 138
+     * ($24d4), both over the shared setup at routine 136 ($24a6).
+     *
+     * Routine 136 opens with `Rbsr routine 139`, so setting a pattern frees
+     * whatever was set before without the program asking --- the guide's
+     * "You can call El Pat Set Case / El Pat Set Nocase again to change the
+     * pattern to match against without calling ElPat Free first".
+     *
+     * "These commands check the validity of the pattern, and compile it to
+     * the internal format", which is why an unparseable pattern raises here
+     * rather than at the first `Elpat Def`.
+     */
+    'elpat set case'(it) {
+      rt.easylife.patDefault = null
+      rt.easylife.patDefault = patParse(it.evalStr(), false)
+    },
+    'elpat set nocase'(it) {
+      rt.easylife.patDefault = null
+      rt.easylife.patDefault = patParse(it.evalStr(), true)
+    },
+    /**
+     * Elpat Free — routine 139 ($24ea). Clears `$98` before freeing, so a
+     * second call is harmless and `Elpat Def` afterwards is message 19.
+     *
+     * "ElPat Free is also Called Implicilty by other AMOS commands": routine
+     * 0's Default hook at $124c calls it, which is why the state does not
+     * survive into the next program.
+     */
+    'elpat free'() {
+      rt.easylife.patDefault = null
+    },
     /**
      * Tag Keep True / Tag Keep False — routine 216 ($2f64), which stores the
      * whole longword into `$ca` without narrowing it, so anything non-zero is

@@ -1155,6 +1155,110 @@ describe.skipIf(!existsSync(DEMOS))('EasyLife: Tag List$, against the real TagLi
   })
 })
 
+describe('EasyLife: the pattern block, on pattern.library 5.00', () => {
+  it('Elpat Case and Elpat Nocase answer -1 and 0', () => {
+    const { out } = run(
+      OPEN +
+        'Print Elpat Case("a*","aardvark");Elpat Case("a*","bad")\n' +
+        'Print Elpat Case("FRED","fred");Elpat Nocase("FRED","fred")\n',
+    )
+    expect(out).toBe('-1 0\n 0-1\n')
+  })
+
+  it('takes the pattern first and the subject second', () => {
+    // routine 132 pops the subject into a1 and the pattern into a0, which is
+    // the order $21ae wants; getting it backwards would answer -1 here
+    expect(run(OPEN + 'Print Elpat Case("b?b","bab")\n').out).toBe('-1\n')
+    expect(run(OPEN + 'Print Elpat Case("bab","b?b")\n').out).toBe(' 0\n')
+  })
+
+  it('a bad pattern is one AMOS error, whichever of the five it was', () => {
+    for (const p of ['ab#', 'ab~', '(ab', 'ab)', '[ab', 'ab]', '(a|)', "ab'"]) {
+      expect([p, fails(OPEN + `A=Elpat Case("${p}","x")\n`)]).toEqual([
+        p,
+        expect.stringContaining('Illegal function call'),
+      ])
+    }
+  })
+
+  it('Elpat Set Case compiles once and Elpat Def matches against it', () => {
+    const { out } = run(
+      OPEN +
+        'Elpat Set Case "#?.info"\n' +
+        'Print Elpat Def("disk.info");Elpat Def("disk.INFO");Elpat Def("disk.inf")\n',
+    )
+    expect(out).toBe('-1 0 0\n')
+  })
+
+  it('and Set Nocase folds both sides', () => {
+    expect(run(OPEN + 'Elpat Set Nocase "#?.info"\nPrint Elpat Def("disk.INFO")\n').out).toBe('-1\n')
+  })
+
+  it('setting a second pattern replaces the first without an Elpat Free', () => {
+    // routine 136 opens with `Rbsr routine 139`
+    const { rt, out } = run(
+      OPEN + 'Elpat Set Case "a*"\nElpat Set Case "b*"\nPrint Elpat Def("bad");Elpat Def("aad")\n',
+    )
+    expect(out).toBe('-1 0\n')
+    expect(rt.easylife.patDefault).not.toBe(null)
+  })
+
+  it('Elpat Def with none set is message 19, and Elpat Free is what causes it', () => {
+    expect(fails(OPEN + 'A=Elpat Def("x")\n')).toContain('No Default Pattern Defined')
+    expect(fails(OPEN + 'Elpat Set Case "a*"\nElpat Free\nA=Elpat Def("aa")\n')).toContain(
+      'No Default Pattern Defined',
+    )
+    // and a second free is harmless, because routine 139 clears $98 first
+    const { rt } = run(OPEN + 'Elpat Set Case "a*"\nElpat Free\nElpat Free\n')
+    expect(rt.easylife.patDefault).toBe(null)
+  })
+
+  it('a pattern that will not compile is refused at Set, not at Def', () => {
+    expect(fails(OPEN + 'Elpat Set Case "ab#"\n')).toContain('Illegal function call')
+  })
+
+  it('Elpat Test finds control characters', () => {
+    const { out } = run(
+      OPEN + 'Print Elpat Test("fred");Elpat Test("fred*");Elpat Test("(a)");Elpat Test("a-z")\n',
+    )
+    expect(out).toBe(' 0-1-1 0\n')
+  })
+
+  it('Elpat Escape makes a string match itself, which is the point of it', () => {
+    const { out } = run(
+      OPEN + 'A$=Elpat Escape$("100% off*")\nPrint A$\nPrint Elpat Case(A$,"100% off*")\n',
+    )
+    expect(out).toBe("100'% off'*\n-1\n")
+  })
+
+  it('Elpat Remove drops a quote before an ordinary character', () => {
+    expect(run(OPEN + `Print Elpat Remove$("'f're'd")\n`).out).toBe('fred\n')
+    expect(run(OPEN + 'Print Elpat Remove$("a*b")\n').out).toBe('a*b\n')
+  })
+
+  it("DEFECT: Elpat Remove unescapes control characters, so the guide's idiom misfires", () => {
+    // $19f6's copy arm does not check what it is unescaping. A string that
+    // was a plain literal before Remove is a live pattern after it, and the
+    // guide's own "P$=Elpat Remove$(P$) : If Elpat Test(P$)" is the recipe
+    // that walks into it.
+    const { out } = run(
+      OPEN +
+        `A$="a'*"\n` +
+        'Print Elpat Case(A$,"axyz")\n' +
+        'B$=Elpat Remove$(A$)\nPrint B$\n' +
+        'Print Elpat Case(B$,"axyz")\n',
+    )
+    expect(out).toBe(' 0\na*\n-1\n')
+  })
+
+  it('the whole subject must match, not a substring', () => {
+    const { out } = run(
+      OPEN + 'Print Elpat Case("b?b","bab");Elpat Case("b?b","baab");Elpat Case("fred","fredx")\n',
+    )
+    expect(out).toBe('-1 0 0\n')
+  })
+})
+
 describe('EasyLife: Tag Str, Tag Keep and Tag Block Size', () => {
   const stored = (b: Boot, at: number): string | undefined => b.rt.easylife.tagStrings.get(at | 0)
 
