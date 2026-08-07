@@ -1714,6 +1714,18 @@ describe('EasyLife 1.44: the two keywords that are a bare rts', () => {
     expect(b.out()).toBe(' 0\n')
   })
 
+  it('Ellock Font / Elunlock Fonts are 1.44 keeping 1.0’s spelling', () => {
+    // 1.44's routines 111 and 112 are 1.0's numbers for the same pair, so the
+    // rename to `elopen font` / `elclose fonts` happened in 1.09 and 1.44 was
+    // branched from before it. Both are aliased onto the 1.09 handlers; with
+    // no font mounted, Ellock Font takes message 15 as Elopen Font does.
+    const bad = boot144(OPEN + 'F=Ellock Font("topaz.font",8)\n')
+    expect(() => bad.rt.runHeadless(2000)).toThrow(/Unable to lock font/)
+    const b = boot144(OPEN + 'Elunlock Fonts\nPrint 1\n')
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.out()).toBe(' 1\n')
+  })
+
   it('both are reachable under 1.44 and absent from 1.10', () => {
     const names = (id: string): string[] =>
       (extensionById(id)!.table as unknown as { entries: Array<{ name?: string }> }).entries.map(
@@ -2092,5 +2104,55 @@ describe.skipIf(!existsSync(DEMOS))('EasyLife: saving and loading a graph of str
     }
     // $a1c sets d0 = $62, and routine 299 hands a non-negative d0 to L_Error
     expect(msg).toMatch(/^Instruction only valid in autotest/)
+  })
+})
+
+describe('EasyLife 1.0: El Error, and the font pair before the rename', () => {
+  const run10 = (src: string): string => {
+    const one = extensionById('easylife-1.0')!
+    const exts = new Map([[16, one.table]])
+    let printed = ''
+    const rt = new Runtime(tokenize(OPEN + src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, one]]),
+      maxSteps: 200_000,
+      onText: (t) => (printed += t),
+    })
+    mustFinish(rt.runHeadless(2000))
+    return printed
+  }
+
+  it('=El Error reads the number of the last EasyLife error and clears it', () => {
+    // routine 166 records d0 at $44 on its way to L_ErrorExt, routine 165
+    // reads it back and writes zero. Message 12 is "No Multi Zones Reserved",
+    // which `Mzone` raises when nothing has reserved any.
+    expect(run10('On Error Goto 100\nA=Mzone(0,0)\n100 Print El Error;El Error\n')).toBe(' 12 0\n')
+  })
+
+  it('and it is zero before anything has gone wrong', () => {
+    // the deviation recorded on the keyword: the doc says it clears to -1,
+    // the instruction is `move.l #$0,(a2)`, and zero is also the initial
+    // value — so "no error yet" and "already read" are indistinguishable
+    expect(run10('Print El Error\n')).toBe(' 0\n')
+  })
+
+  it('Lock Font / Unlock Fonts are 1.09’s Elopen Font / Elclose Fonts', () => {
+    // 1.0's routines 111 and 112 keep their font list at $56 and 1.09's 160
+    // and 163 keep a chain at $7c, but the keyword is the same one: a name
+    // and a size in, a font pointer out, and a close-them-all. 1.44 kept
+    // 1.0's spelling on 1.0's routine numbers, which dates the rename to 1.09.
+    // no font is mounted here, so `Lock Font` reaches the same message 15 the
+    // Elopen Font test above asserts — which is the proof the alias lands on
+    // that handler and not on nothing
+    const one = extensionById('easylife-1.0')!
+    const exts = new Map([[16, one.table]])
+    const rt = new Runtime(tokenize(OPEN + 'F=Lock Font("topaz.font",8)\n', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, one]]),
+      maxSteps: 200_000,
+    })
+    expect(() => rt.runHeadless(2000)).toThrow(/Unable to lock font/)
+    // and the close-them-all half runs on an empty list without complaining
+    expect(run10('Unlock Fonts\nPrint 1\n')).toBe(' 1\n')
   })
 })

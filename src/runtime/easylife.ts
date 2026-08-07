@@ -316,8 +316,26 @@ const sw = (n: number): number => ((n & 0xffff) << 16) >> 16
  * merely negates, so an AMOS-style code of -12 lands on the same message.
  */
 const elError: (n: number) => never = (n) => {
+  lastElError = n
   throw new AmosError(EASYLIFE_ERRORS[n] ?? `EasyLife error ${n}`)
 }
+
+/**
+ * `$44` of the library base, the field 1.0's `=El Error` reads back.
+ *
+ * MODULE state, not `EasyLifeState`, and that is a deliberate and narrow
+ * exception. 1.0's error thrower is routine 166 ($192e), which opens with
+ * `movea.l $1e8(a5),a2 / adda.w #$44,a2 / move.l d0,(a2)` before it reaches
+ * `L_ErrorExt` — the number is recorded on the way past, from twenty-two
+ * places, and threading a Runtime through every one of them to reach a field
+ * only 1.0 can read would cost more than it is worth.
+ *
+ * What it costs instead: two Runtimes alive in the same process share it. The
+ * field is read-and-cleared and only 1.0 has the reader, so the sharing is
+ * observable only by a program that raises in one Runtime and reads in
+ * another, which is not a thing an AMOS program can do.
+ */
+let lastElError = 0
 
 /**
  * Routines 4 and 5 ($1394, $13a4) — which screen the zone readers ask.
@@ -2064,6 +2082,33 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
      * each `St Set` body to give it a write half.
      */
     stv: (_, a): Value => VI(stCall(() => getElement(rt, stResolve(rt, a, stIdx(a, 2, a.length))))),
+
+    /**
+     * =El Error — 1.0's alone, and the only 1.0 name with no later keyword to
+     * be an alias of. 1.0's routine 165 ($191a) is twenty bytes:
+     *
+     *     movea.l $1e8(a5),a2 / adda.w #$44,a2
+     *     move.l (a2),d3 / move.l #$0,(a2) / moveq #$0,d2
+     *
+     * so it reads the field 1.0's error thrower writes and CLEARS it, which
+     * is what the doc is describing: "The El Error value is cleared ... when
+     * it is read. This means that if other extensions produce an error, El
+     * Error will not contain the number of an EasyLife error you've already
+     * handled."
+     *
+     * DEVIATION: the doc says cleared to -1 and the instruction is
+     * `move.l #$0,(a2)`. Zero, and zero is also what a program sees before
+     * any EasyLife error has been raised, so the doc's -1 would have been the
+     * more useful of the two. The binary wins.
+     *
+     * 1.09 dropped both the field and the keyword; the later error thrower
+     * (routine 300) goes straight to `L_ErrorExt` without recording anything.
+     */
+    'el error': (): Value => {
+      const n = lastElError
+      lastElError = 0
+      return VI(n)
+    },
   }
 }
 

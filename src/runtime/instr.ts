@@ -5256,6 +5256,13 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
        * $45a, routine 103), which is why the guide's C_ElzbInstall node is
        * headed "ElZb Multi Add BANK" rather than a name of its own. It
        * arrives with the multi-zone slice, which is what it needs.
+       *
+       * Three 1.0 names are deliberately still unbound, and all three because
+       * their TARGET is unimplemented rather than because the mapping is
+       * unknown: `zb multi add` and `zb install` on `elzb multi add`, and
+       * `iconify amos` on `eliconify amos`, which waits on Intuition with the
+       * other three iconify keywords. Binding a name to a keyword that is not
+       * there would move a miss from one name to another and change nothing.
        */
       'easylife-1.0': {
         znsx: 'elznsx',
@@ -5337,6 +5344,29 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
         'i open workbench': 'elwb open',
         'i close workbench': 'elwb close',
         'i test workbench': 'elwb test',
+        /*
+         * The font pair. 1.0's routines 111 and 112 do the job 1.09/1.10 give
+         * to `elopen font` (160) and `elclose fonts` (163) -- OpenDiskFont on
+         * a name and a size, and CloseFont over the whole list -- but the
+         * lists are not the same shape: 1.0 keeps a count word and up to
+         * thirty-one longwords at `$56`, and 1.09 a chain at `$7c`. The
+         * KEYWORD is what an alias binds, and that is unchanged.
+         *
+         * 1.44 is the odd one: it spells them `ellock font` and
+         * `elunlock fonts` on routines 111 and 112, 1.0's own numbers, so the
+         * rename to `elopen font` happened in 1.09 and 1.44 was branched from
+         * before it. Those two are aliased under their own id below.
+         */
+        'lock font': 'elopen font',
+        'unlock fonts': 'elclose fonts',
+      },
+      /*
+       * 1.44's two survivors of the font rename. Everything else in 1.44
+       * shares 1.10's spelling.
+       */
+      'easylife-1.44': {
+        'ellock font': 'elopen font',
+        'elunlock fonts': 'elclose fonts',
       },
     },
   },

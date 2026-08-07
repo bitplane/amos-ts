@@ -2340,7 +2340,13 @@ export const FAITHFUL = new Set<string>([
   'st save',
   'st load',
   'st erase',
-  // slice 12 -- 1.44's two `rts` keywords, which are routines, not junk
+  // slice 12 -- 1.0's own last keyword, and 1.44's two `rts` ones
+  'el error',
+  // ...and the font pair under the two spellings that predate 1.09's rename
+  'lock font',
+  'unlock fonts',
+  'ellock font',
+  'elunlock fonts',
   'elzqzqzq',
   'elqqzqzqq',
   // ...and 1.0's names for the same routines, reached through `aliases`
@@ -4150,6 +4156,9 @@ export const NOTES: Record<string, string> = {
     "Routine 264 ($37f2), `ELST_LoadTree` (LVO -90, $7b4) with `ELST_RelocateTable` ($8e4) after it: an instance is allocated per record with NO clear, its body read over the top, and then every pointer element's saved address is looked up in the old-address list and replaced by the new address at the same position. A pointer to something outside the file is left alone. NOTE: a header claiming zero instances makes `subq.w #$1,d4` -1 and the `dbra` under it wrap to 65536 passes; St Save cannot write one, since the scan always returns the root, so it is refused rather than modelled. NOTE: a bad magic sets d0 = $62, AMOS error 98, the same misdirected-number problem as St Save's 94",
   'st erase':
     "Routine 295 ($3ab2) on LVO -108 ($97a), which the autodoc lists without naming: `ELST_TreeScan`, `ELST_Free` over every instance it found, `ELST_TreeScanFree`. DEFECT in the scan it sits on: `move.l d3,(a1)` seeds the list with the root and never sets its visited bit, so a pointer back to the root appends it a second time -- against the guide's \"It is OK if your graph contains cycles ... Each instance is only saved once\". Reproduced, and easylife.test.ts saves a two-instance ring as three records. DEFECT: an ARRAY of sub-structures is walked as element zero, count+1 times -- `dbra d5,$6bc` loops back onto the `bsr` without advancing a0, and the same shape appears in the relocation at $964. Reproduced; no Structs bank in the archive declares one",
+
+  'el error':
+    "1.0 only: 1.0's routine 165 ($191a), twenty bytes -- `movea.l $1e8(a5),a2 / adda.w #$44,a2 / move.l (a2),d3 / move.l #$0,(a2)`. It reads the field 1.0's error thrower (routine 166, $192e) writes with `move.l d0,(a2)` on its way to L_ErrorExt, and CLEARS it, which is exactly what the doc describes: \"The El Error value is cleared ... when it is read. This means that if other extensions produce an error, El Error will not contain the number of an EasyLife error you've already handled.\" DEVIATION: the doc says cleared to -1 and the instruction writes zero, which is also what a program sees before any error has been raised -- so the doc's value would have been the more useful of the two. The binary wins. 1.09 dropped both the field and the keyword; routine 300 records nothing. NOTE: the field is module state in easylife.ts rather than EasyLifeState, because twenty-two call sites raise and only 1.0 can read it back; the doc block there says what that costs",
 
   'elzqzqzq':
     "1.44 only: 1.44's routine 133 ($1bda), TWO BYTES: `rts`. Spec `I0,0t0,0`, so four numeric arguments with a `To` between the second and third. NOT a junk table entry of the kind #117 removed -- those had no routine behind them, and this has a name, a spec, an instruction index and a jump-table slot pointing at real code that returns. It sits on an id 1.10 gave to the Tag Str$ block, so the table was rebuilt around it. NOTE: `rts` does not pop the parameter stack the way every other routine in this extension does, leaving a3 four longwords deep on the machine; nothing here has a parameter stack to leak",

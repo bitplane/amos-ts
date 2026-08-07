@@ -428,7 +428,7 @@ export const CITED_BY: Record<string, string[]> = {
   // table, so its numbers differ and nothing here cites them
   // 1.44 is here for the two keywords only it has; the port is numbered
   // against 1.10, so that stays first -- see the comment on the loop below
-  'src/runtime/easylife.ts': ['easylife-1.10', 'easylife-1.09', 'easylife-1.44'],
+  'src/runtime/easylife.ts': ['easylife-1.10', 'easylife-1.09', 'easylife-1.44', 'easylife-1.0'],
   // the companion library's own routines are cited by ADDRESS, since it has
   // no jump table to number them against; what this catches is the handful of
   // EXTENSION routines its header names -- 269, 270, 300
