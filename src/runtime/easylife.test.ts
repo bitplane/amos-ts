@@ -2230,3 +2230,44 @@ describe('EasyLife: Elzb Multi Add, and 1.0’s two names for it', () => {
     expect(fails(OPEN + 'Elmz Reserve 4\nElzb Multi Add 7,1\n')).toMatch(/^Bank not reserved/)
   })
 })
+
+describe('EasyLife 1.09: Eltest, the author’s own V-form probe', () => {
+  /** 1.09's table alone has it — the last of its 220 entries, at id $e4e */
+  const run109 = (src: string): string => {
+    const v = extensionById('easylife-1.09')!
+    const exts = new Map([[16, v.table]])
+    let printed = ''
+    const rt = new Runtime(tokenize(OPEN + src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[16, v]]),
+      maxSteps: 200_000,
+      onText: (t) => (printed += t),
+    })
+    mustFinish(rt.runHeadless(2000))
+    return printed
+  }
+
+  it('the assignment form takes its three values and does nothing', () => {
+    // 1.09's routine 255 is `moveq #$1,d0 / lea $c(a3),a3 / rts` — three
+    // longwords popped, which is exactly the two arguments and the value
+    expect(run109('A=7\nEltest(1,2)=99\nPrint A\n')).toBe(' 7\n')
+  })
+
+  it('and the function form answers zero', () => {
+    // the deviation on the keyword: routine 256 sets d0, never d3 or d2, so
+    // the machine answers whatever d3 held. Zero here, as an integer.
+    expect(run109('Print Eltest(1,2)\n')).toBe(' 0\n')
+  })
+
+  it('and no other build has it — 1.10 put Stv at the id it used', () => {
+    const names = (id: string): string[] =>
+      (extensionById(id)!.table as unknown as { entries: Array<{ name?: string }> }).entries.map(
+        (e) => String(e.name ?? '').replace(/^!/, '').trim().toLowerCase(),
+      )
+    expect(names('easylife-1.09')).toContain('eltest')
+    for (const id of ['easylife-1.0', 'easylife-1.10', 'easylife-1.44']) {
+      expect(names(id)).not.toContain('eltest')
+    }
+    expect(names('easylife-1.10')).toContain('stv')
+  })
+})

@@ -2179,6 +2179,23 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
       lastElError = 0
       return VI(n)
     },
+
+    /**
+     * =Eltest(A,B) — 1.09 only: 1.09's routine 256 ($3732), EIGHT BYTES.
+     *
+     *     moveq #$0,d0 / lea $c(a3),a3 / rts
+     *
+     * The author's own probe, and the read half of it. See the header for
+     * what the pair is for; the write half is in the instructions map.
+     *
+     * DEVIATION: it sets d0 and never d3 or d2, where every other function
+     * in this extension returns its value in d3 with a type code in d2. So
+     * on the machine `=Eltest(a,b)` answers whatever d3 held from the last
+     * thing that set it, with an undefined type — not a value a caller can
+     * predict and not one this port can reproduce. Zero is answered instead,
+     * and typed as an integer, which is what the spec's leading `0` asks for.
+     */
+    eltest: (): Value => VI(0),
   }
 }
 
@@ -3313,6 +3330,32 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
     'st erase'(it) {
       const inst = it.evalInt() | 0
       stCall(() => eraseTree(rt, rt.easylife.structs, inst))
+    },
+
+    /**
+     * Eltest(A,B)=V — 1.09 only: 1.09's routine 255 ($372a), EIGHT BYTES.
+     *
+     *     moveq #$1,d0 / lea $c(a3),a3 / rts
+     *
+     * The write half of the author's probe. `lea $c(a3),a3` pops three
+     * longwords, which is exactly right for the assignment form — two
+     * arguments and a value — so unlike its function half this one leaves
+     * AMOS's parameter stack where it found it. `moveq #$1,d0` is the only
+     * thing that distinguishes it from routine 256's `moveq #$0,d0`, and
+     * nothing reads d0 back from an instruction.
+     *
+     * So the faithful implementation is the faithful one, as it was for
+     * 1.44's Elzqzqzq: take the arguments, do nothing, return. Not n/a — an
+     * n/a keyword has no handler, and this has a routine that can be read.
+     */
+    eltest(it) {
+      it.expect('(')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(')')
+      it.expectOp('=')
+      it.evalInt()
     },
   }
 }
