@@ -1,5 +1,8 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { mustFinish } from '../testing/run'
+import { parseAmosFile } from '../loader/amosfile'
 import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
@@ -910,6 +913,227 @@ describe('EasyLife: the Workbench three and the XPK error field', () => {
   it('Elxpk Error reads the field the five XPK keywords would write', () => {
     // routine 177 is twelve bytes over $b6, and 0 is "No error has occured"
     expect(run(OPEN + 'Print Elxpk Error\n').out).toBe(' 0\n')
+  })
+})
+
+/**
+ * The demos shipped with 1.10 carry REAL banks, which is what lets the zone
+ * bank be checked against an artefact rather than against a bank this test
+ * built to match its own reading:
+ *
+ *   Zone_Editor.AMOS    49901 "Zones"     250 bytes
+ *   Tag_Editor.AMOS        13 "Tags"   21,936    and 14 "TagLists" 1,610
+ *   Tabifier.AMOS          13 "Tags"   21,936    and 14 "TagLists" 1,610
+ *   Struct-Tutorial*.AMOS  12 "Structs"
+ *
+ * so every format this extension defines has a specimen in the archive after
+ * all. fixtures/ is gitignored, hence skipIf.
+ */
+const DEMOS = join(__dirname, '..', '..', 'fixtures', 'extensions', 'easylife-1.10', 'demos')
+const demoBank = (file: string, name: string): Uint8Array | null => {
+  if (!existsSync(join(DEMOS, file))) return null
+  const a = parseAmosFile(new Uint8Array(readFileSync(join(DEMOS, file))))
+  const b = a.banks.find((x) => x.kind === 'memory' && x.name === name)
+  return b?.kind === 'memory' ? b.data : null
+}
+
+describe.skipIf(!existsSync(DEMOS))('EasyLife: the zone bank, against a real one', () => {
+  it("reads Zone_Editor's own 250-byte Zones bank", () => {
+    // The hand-built bank in the Elzb Add tests only proves the reader
+    // agrees with the reading. THIS one is the Zone Editor's own output,
+    // shipped in the accessory that writes them, so it is the reading that
+    // is on trial.
+    const data = demoBank('Zone_Editor.AMOS', 'Zones')!
+    const v = new DataView(data.buffer, data.byteOffset, data.byteLength)
+    expect(v.getUint32(0, false)).toBe(1) // one group
+    const off = v.getUint32(4, false)
+    expect(off).toBe(8) // the offset table is one entry, so the group follows it
+    expect(v.getUint16(off, false)).toBe(30) // thirty zones
+    // and they are plausible screen rectangles for an editor's front panel
+    const zone = (i: number): number[] => {
+      const at = off + 2 + i * 8
+      return [v.getUint16(at, false), v.getUint16(at + 2, false), v.getUint16(at + 4, false), v.getUint16(at + 6, false)]
+    }
+    expect(zone(0)).toEqual([11, 4, 608, 19])
+    expect(zone(1)).toEqual([611, 4, 627, 19])
+    expect(zone(3)).toEqual([119, 58, 154, 68])
+    // ...and the whole table fits the bank exactly: 8 + 2 + 30*8 = 250
+    expect(8 + 2 + 30 * 8).toBe(data.length)
+  })
+
+  it('and Elzb Add installs it, which is the reading end to end', () => {
+    const data = demoBank('Zone_Editor.AMOS', 'Zones')!
+    const b = boot(OPEN + 'Elzb Add 0,7,1\nPrint Elznsx(1);Elznsy(1);Elznex(1);Elzney(1)\n')
+    b.rt.memBanks.set(7, { kind: 'memory', number: 7, memType: 0, name: 'Zones   ', flags: 0, data })
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.text()).toBe(' 11 4 608 19\n')
+    expect(b.rt.screen.zones.length).toBe(30)
+  })
+})
+
+describe.skipIf(!existsSync(DEMOS))('EasyLife: the Tags bank, against a real one', () => {
+  const TAGS = (): Uint8Array => demoBank('Tag_Editor.AMOS', 'Tags')!
+  /** boots with Tag_Editor's own bank 13 in place */
+  const bootTags = (src: string): Boot => {
+    const b = boot(src)
+    b.rt.memBanks.set(13, { kind: 'memory', number: 13, memType: 0, name: 'Tags    ', flags: 0, data: TAGS() })
+    return b
+  }
+  const runTags = (src: string): string => {
+    const b = bootTags(src)
+    mustFinish(b.rt.runHeadless(2000))
+    return b.text()
+  }
+  const failTags = (src: string): string => {
+    const b = bootTags(src)
+    try {
+      b.rt.runHeadless(2000)
+    } catch (e) {
+      return (e as Error).message
+    }
+    return 'did not throw'
+  }
+
+  it('=Tag answers the real MUI values', () => {
+    // TAG_USER is $80000000 and TAG_DONE 0, which is utility.library's own
+    // definition, so the tree walk is landing on the right nodes
+    expect(
+      runTags(
+        OPEN +
+          'Print Hex$(Tag("TAG_DONE"));Hex$(Tag("TAG_IGNORE"));Hex$(Tag("TAG_USER"))\n' +
+          'Print Hex$(Tag("MUIA_Window_Title"));Hex$(Tag("MUIA_Text_SetMax"))\n',
+      ),
+    ).toBe('$0$1$80000000\n$8042AD3D$80424D0A\n')
+  })
+
+  it('walks to both children and to the deepest nodes', () => {
+    // MUIA_Text_SetMax is the ROOT (offset 0), so these are found by taking
+    // the +$0 link, the +$2 link, and a long descent
+    expect(
+      runTags(OPEN + 'Print Hex$(Tag("MUIM_Show"));Hex$(Tag("RF_NUMARGS"));Hex$(Tag("MUIV_Window_Width_Visible"))\n'),
+    ).toBe('$8042CC84$20$FFFFFF9C\n')
+  })
+
+  it('a name that is a proper prefix of a node is not a hit', () => {
+    // "MUIA_Text_SetMa" runs out before the node does, which routine 204
+    // sends down the +$0 link rather than calling a match
+    expect(failTags(OPEN + 'A=Tag("MUIA_Text_SetMa")\n')).toContain('Unmatched tag')
+    expect(failTags(OPEN + 'A=Tag("MUIA_Text_SetMaxx")\n')).toContain('Unmatched tag')
+  })
+
+  it('=Tag$ packs the longwords, and the To form appends the value', () => {
+    expect(
+      runTags(
+        OPEN +
+          'Print Len(Tag$("TAG_USER"));Len(Tag$("TAG_USER","TAG_DONE"));Len(Tag$("TAG_USER","TAG_DONE","TAG_IGNORE"))\n' +
+          'A$=Tag$("TAG_USER","TAG_IGNORE" To $11223344)\n' +
+          'Print Len(A$);Hex$(Ellong(A$));Hex$(Ellong(Mid$(A$,5,4)));Hex$(Ellong(Right$(A$,4)))\n',
+      ),
+    ).toBe(' 4 8 12\n 12$80000000$1$11223344\n')
+  })
+
+  it('and is Ellong$ of each tag joined, which is what the guide says', () => {
+    expect(runTags(OPEN + 'Print Tag$("TAG_USER","TAG_DONE")=Ellong$(Tag("TAG_USER"))+Ellong$(Tag("TAG_DONE"))\n')).toBe(
+      '-1\n',
+    )
+  })
+
+  it('no bank 13 is error 36, a bank under another name is AMOS 23', () => {
+    expect(fails(OPEN + 'A=Tag("TAG_DONE")\n')).toContain('Bank not reserved')
+    const b = boot(OPEN + 'A=Tag("TAG_DONE")\n')
+    b.rt.memBanks.set(13, {
+      kind: 'memory',
+      number: 13,
+      memType: 0,
+      name: 'Zones   ',
+      flags: 0,
+      data: TAGS(),
+    })
+    expect(() => mustFinish(b.rt.runHeadless(2000))).toThrow(/Illegal function call/)
+  })
+
+  it("Tag Str$'s two-string form is the tag then the string address", () => {
+    // the guide's own example, A$=Tag Str$("MUIA_String_Contents","Fred" To OBJ)
+    const b = bootTags(
+      OPEN +
+        'A$=Tag Str$("MUIA_String_Contents","Fred")\n' +
+        'Print Len(A$)\nPrint Ellong(A$)=Tag("MUIA_String_Contents")\nPrint Ellong(Right$(A$,4))\n',
+    )
+    mustFinish(b.rt.runHeadless(2000))
+    const [len, same, at] = b.text().trim().split('\n')
+    expect(len).toBe('8')
+    expect(same).toBe('-1')
+    expect(b.rt.easylife.tagStrings.get(Number(at) | 0)).toBe('Fred')
+  })
+
+  it('Tag Attach$ resolves its tag but cannot attach without MUI', () => {
+    expect(failTags(OPEN + 'A$=Tag Attach$("MUIA_Group_Child" To 42)\n')).toContain('Illegal MUI Object Address')
+    // an unknown tag fails first, which is the order routine 235 tests in
+    expect(failTags(OPEN + 'A$=Tag Attach$("NO_SUCH_TAG" To 42)\n')).toContain('Unmatched tag')
+  })
+})
+
+describe('EasyLife: Tag Str, Tag Keep and Tag Block Size', () => {
+  const stored = (b: Boot, at: number): string | undefined => b.rt.easylife.tagStrings.get(at | 0)
+
+  it('Tag Str stores a NUL-terminated copy and answers its address', () => {
+    const b = boot(OPEN + 'A=Tag Str("Fred")\nPrint Peek(A);Peek(A+3);Peek(A+4)\n')
+    mustFinish(b.rt.runHeadless(2000))
+    // "F", "d", then the NUL the guide promises MUI gets
+    expect(b.text()).toBe(' 70 100 0\n')
+  })
+
+  it('the address does not change, and two stores do not overlap', () => {
+    const b = boot(OPEN + 'A=Tag Str("Fred")\nB=Tag Str("Barney")\nPrint B-A;Tag Str("Fred")-A\n')
+    mustFinish(b.rt.runHeadless(2000))
+    // (4+14)&~7 = 16 bytes for "Fred": link, length word, text, NUL, rounded
+    // up to eight, and the same for "Barney" at (6+14)&~7. A second store of
+    // the same text is a second node, not the first one found again.
+    expect(b.text()).toBe(' 16 32\n')
+  })
+
+  it('an empty string is stored as the null pointer', () => {
+    const { out } = run(OPEN + 'Print Tag Str("")\n')
+    expect(out).toBe(' 0\n')
+  })
+
+  it('Tag Str$ is the same address in four characters', () => {
+    const b = boot(OPEN + 'A$=Tag Str$("Fred")\nPrint Len(A$);Ellong(A$)\n')
+    mustFinish(b.rt.runHeadless(2000))
+    const [len, at] = b.text().trim().split(' ')
+    expect(len).toBe('4')
+    expect(stored(b, Number(at))).toBe('Fred')
+  })
+
+  it('Tag Keep takes any non-zero as True, and False puts it back', () => {
+    const b = boot(OPEN + 'Tag Keep 7\nA=Tag Str("Fred")\nB=Tag Keep : Tag Keep False\n')
+    // `Tag Keep` is an instruction, so the second line is the state check
+    const c = boot(OPEN + 'Tag Keep 7\n')
+    mustFinish(c.rt.runHeadless(2000))
+    expect(c.rt.easylife.tagKeep).toBe(7)
+    const d = boot(OPEN + 'Tag Keep 7\nTag Keep False\n')
+    mustFinish(d.rt.runHeadless(2000))
+    expect(d.rt.easylife.tagKeep).toBe(0)
+    expect(b).toBeTruthy()
+  })
+
+  it('Tag Block Size takes $1000 to $40000 and refuses either side', () => {
+    const b = boot(OPEN + 'Tag Block Size $4000\n')
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.rt.easylife.tagBlockSize).toBe(0x4000)
+    expect(fails(OPEN + 'Tag Block Size $fff\n')).toContain('Illegal function call')
+    expect(fails(OPEN + 'Tag Block Size $40001\n')).toContain('Illegal function call')
+    // the far corners are legal
+    run(OPEN + 'Tag Block Size $1000\nTag Block Size $40000\n')
+  })
+
+  it('and refuses outright once a block has been allocated', () => {
+    expect(fails(OPEN + 'A=Tag Str("Fred")\nTag Block Size $4000\n')).toContain('Illegal function call')
+  })
+
+  it('an OBJECT that no Mui New created is rejected', () => {
+    // routine 238's `cmp.l (a1),d3` against `$c6`, which is 0 here
+    expect(fails(OPEN + 'A=Tag Str("Fred" To 42)\n')).toContain('Illegal MUI Object Address')
   })
 })
 

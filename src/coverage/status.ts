@@ -2235,6 +2235,16 @@ export const FAITHFUL = new Set<string>([
   'elf fail end',
   'elpad asc$',
   'elpad char$',
+  // slice 9 -- the tag banks. Named without the El prefix because they are
+  // the MUI half of the extension, but the lookup is an ordinary AMOS bank
+  // read and nothing here needs muimaster.library.
+  'tag',
+  'tag$',
+  'tag str',
+  'tag str$',
+  'tag attach$',
+  'tag keep',
+  'tag block size',
   // slice 4 -- integers as strings, memory, banks and message banks
   'ellong',
   'ellong$',

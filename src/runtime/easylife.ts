@@ -179,6 +179,37 @@ export interface EasyLifeState {
    */
   fonts: Map<number, DiskFont>
   fontOrder: number[]
+  /**
+   * `$e0` and `$e4` of the companion struct — the bank numbers routine 203
+   * and routine 245 read. Routine 0 writes 13 and 14 (`move.l #$d,$e0(a2)`
+   * / `move.l #$e,$e4(a2)`), matching the guide's "Bank 13 of your program
+   * must be a 'Tag' bank". Nothing in the keyword set writes them again, so
+   * they are constants in practice; they are fields here because the binary
+   * makes them fields.
+   */
+  tagBank: number
+  tagListBank: number
+  /**
+   * `$ca` — the `Tag Keep` flag (routine 216 stores the argument whole).
+   * Routine 240 reads it only on the no-OBJECT path: nonzero keeps the
+   * string with the next object created, zero puts it in the temporary
+   * buffer.
+   */
+  tagKeep: number
+  /**
+   * `$ba` — the pool block size, `$2000` at init. `Tag Block Size` (routine
+   * 226) refuses anything below $1000 or above $40000, and refuses outright
+   * once `$be` (the pool head) is non-null.
+   */
+  tagBlockSize: number
+  /**
+   * `$be` — the head of the pool chain routine 239 allocates from, modelled
+   * as the ext-data blocks handed out so far. Empty means "no pool yet",
+   * which is what `Tag Block Size` tests.
+   */
+  tagPool: Array<{ base: number; block: Uint8Array; next: number }>
+  /** every stored string, keyed by the address `Tag Str` answers */
+  tagStrings: Map<number, string>
 }
 
 export const newEasyLifeState = (): EasyLifeState => ({
@@ -195,6 +226,12 @@ export const newEasyLifeState = (): EasyLifeState => ({
   ppKeep: false,
   fonts: new Map(),
   fontOrder: [],
+  tagBank: 13,
+  tagListBank: 14,
+  tagKeep: 0,
+  tagBlockSize: 0x2000,
+  tagPool: [],
+  tagStrings: new Map(),
 })
 
 /** the unsigned view of an AMOS 32-bit integer, which is how routine 153 compares */
@@ -438,6 +475,151 @@ function message(rt: Runtime, a: Value[]): { data: Uint8Array; at: number; len: 
   const len = v.getUint16(entry + 4, false)
   return { data, at: base + rd(4) + off, len }
 }
+
+// ---- taglists --------------------------------------------------------------
+
+/**
+ * Routine 204 ($2d56) — the search both tag banks share. The bank is a binary
+ * search tree of ten-byte-headed nodes:
+ *
+ *     +$0  word   the offset of the "node greater" child, 0 for none
+ *     +$2  word   the offset of the "node less" child, 0 for none
+ *     +$4  long   the value
+ *     +$8  word   the name length
+ *     +$a         the name bytes
+ *
+ * Both child links are offsets from the BANK start (`move.l a0,d5` on entry,
+ * then `movea.l d5,a0 / adda.l d0,a0`), not from the node.
+ *
+ * The comparison is `cmpm.b (a1)+,(a2)+`, which computes node minus query, so
+ * `blt` — node sorts before query — takes the +$2 link and anything else
+ * takes +$0. Running out of query bytes first (`cmp.w d0,d1 / beq`) is a hit
+ * only if the node ends there too; otherwise the query is a proper prefix of
+ * the node and the walk goes to +$0. Running out of node bytes first goes to
+ * +$2. A zero link on either path is the miss.
+ *
+ * The reading is checked against Tag_Editor.AMOS's own 21,936-byte bank
+ * rather than one built to match: TAG_DONE is 0, TAG_IGNORE 1, TAG_USER
+ * $80000000 and MUIA_Window_Title $8042ad3d, which are the real values.
+ */
+function tagFind(data: Uint8Array, base: number, name: string): number | null {
+  const v = new DataView(data.buffer, data.byteOffset, data.byteLength)
+  let at = base
+  for (;;) {
+    if (at + 10 > data.length) return null
+    const gt = v.getUint16(at, false)
+    const lt = v.getUint16(at + 2, false)
+    const len = v.getUint16(at + 8, false)
+    let i = 0
+    let go = -1 // -1 undecided, 0 the +$0 link, 2 the +$2 link
+    for (;;) {
+      if (i === name.length) {
+        if (i === len) return v.getUint32(at + 4, false)
+        go = 0
+        break
+      }
+      if (i === len) {
+        go = 2
+        break
+      }
+      const c = (data[at + 10 + i] ?? 0) - (name.charCodeAt(i) & 0xff)
+      if (c === 0) {
+        i++
+        continue
+      }
+      go = c < 0 ? 2 : 0
+      break
+    }
+    const link = go === 2 ? lt : gt
+    if (link === 0) return null
+    at = base + link
+  }
+}
+
+/**
+ * Routine 203 ($2d00) — fetch bank `$e0` (13), insist its name is `"Tags    "`,
+ * and look the popped string up in it. Three distinct failures, in the order
+ * the routine tests them: no such bank raises routine 159's error 36 ("Bank
+ * not reserved"), a bank under any other name raises AMOS 23, and a name the
+ * tree does not hold raises the private message 22 ("Unmatched tag").
+ */
+function tagValue(rt: Runtime, name: string): number {
+  const b = rt.memBanks.get(rt.easylife.tagBank)
+  if (!b?.data) throw new AmosError('Bank not reserved', 36)
+  if (pad(b.name, 32, 8) !== 'Tags    ') funcCall()
+  const v = tagFind(b.data, 0, name)
+  if (v === null) elError(22)
+  return v | 0
+}
+
+/**
+ * Routine 239 ($33ee) — the pool. `$be` heads a chain of blocks, each
+ * allocated `$ba` bytes long with an $18-byte header, and a request is served
+ * by bumping the block's high-water mark; when no block has room a fresh one
+ * is allocated and chained. The blocks are ext-data slots here, so the
+ * addresses a program stores are real addresses in this runtime's map.
+ *
+ * DEVIATION: EXT_DATA_SLOT is 64K, so a `Tag Block Size` above that would
+ * have a block running into its neighbour's address space. Blocks are capped
+ * at the slot size; a program that asked for $40000 gets more, smaller blocks
+ * than the real extension would, which is observable only by measuring the
+ * gap between two stored strings.
+ */
+function tagAlloc(rt: Runtime, bytes: number): number {
+  const st = rt.easylife
+  const size = Math.min(st.tagBlockSize, Runtime.EXT_DATA_SLOT)
+  for (const p of st.tagPool) {
+    if (p.next + bytes <= p.block.length) {
+      const at = p.base + p.next
+      p.next += bytes
+      return at | 0
+    }
+  }
+  const block = new Uint8Array(size)
+  const base = rt.extBlockBase(`easylife-tagpool-${st.tagPool.length}`, block)
+  // the $18-byte block header the real allocator keeps out of reach
+  st.tagPool.push({ base, block, next: 0x18 + bytes })
+  return (base + 0x18) | 0
+}
+
+/**
+ * Routine 240 ($3494) — store a string and answer the address of the text.
+ *
+ * The node is `(len+14)&~7` bytes (`addi.l #$e,d0 / andi.w #$fff8,d0`): a
+ * four-byte chain link, the AMOS length word, the bytes, and the NUL the
+ * guide promises ("Chr$(0) is automatically appended to the string when it
+ * is stored, because MUI expects NULL terminated strings"), rounded up to a
+ * multiple of eight. The returned address skips the link AND the length word
+ * (`move.l a1,d3` then `addq.l #$2,d3`), so it points at the first character.
+ *
+ * An empty string is not stored at all — `tst.w (a1) / beq` answers 0, which
+ * is the null pointer MUI wants for "no string".
+ *
+ * `explicit` is routine 190 versus 191: without a `To OBJECT` the object is
+ * `$c6`, the one `Mui New` is about to create, and `Tag Keep False` clears it
+ * so the string goes in the temporary buffer instead.
+ *
+ * NOTE: routine 238's object registry is the MUI half and is not modelled —
+ * `$c6` is always 0 here because no `Mui New` can run, so an explicit OBJECT
+ * always fails its `cmp.l (a1),d3` and raises message 24, and `Tag Keep True`
+ * without an object behaves as `Tag Keep False` does. The storage itself,
+ * which is what the address and the NUL termination are, is exact.
+ */
+function tagStore(rt: Runtime, s: string, obj: number, explicit: boolean): number {
+  if (s.length === 0) return 0
+  // routine 238: an OBJECT that is neither 0 nor the pending `$c6` is refused
+  if (explicit && obj !== 0) elError(24)
+  const at = tagAlloc(rt, (s.length + 14) & ~7)
+  writeBytes(rt, at, s)
+  const m = rt.resolveWrite(at + s.length)
+  if (m) m.data[m.off] = 0
+  rt.easylife.tagStrings.set(at, s)
+  return at
+}
+
+/** the twelve- and eight-byte strings the Tag$ family builds, big-endian */
+const tagLongs = (vals: number[]): Value =>
+  VS(vals.map((v) => String.fromCharCode((v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff)).join(''))
 
 // ---- multi-zones -----------------------------------------------------------
 
@@ -1240,6 +1422,82 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
       if (set.length === 0) funcCall()
       return VS(pad(s, set.charCodeAt(0), int(a[2] ?? VI(0))))
     },
+
+    /**
+     * =Tag(TAG$) — routine 199 ($2c82). "Using a tag is similar to an AMOSPro
+     * equate, but more powerful, as the tag string is converted at runtime,
+     * not at test time, so it may be a variable, or a string expression."
+     */
+    tag: (_, a): Value => VI(tagValue(rt, str(a[0] ?? VS('')))),
+    /**
+     * =Tag$(...) — five forms sharing one entry: routine 196 (one tag), 197
+     * (two), 198 (three), 200 (one tag `To VALUE`) and 201 (two `To VALUE`).
+     * Each is the same shape — look every tag up, append the literal VALUE
+     * where there is one, and answer the longwords packed into a string, so
+     * that `Tag$("A","B")` is `Ellong$(Tag("A"))+Ellong$(Tag("B"))`.
+     *
+     * Routine 201 pops VALUE first and stores it LAST (`move.l d5,(a0)+`
+     * then d6 then d7), which is the left-to-right order the guide's worked
+     * example needs: TAG_NO_1's $80001000, then TAG_NO_2's $30, then
+     * $11223344.
+     */
+    tag$(_, a): Value {
+      // the `To VALUE` forms are the ones whose last argument is an integer
+      const last = a[a.length - 1]
+      const to = last !== undefined && last.k !== 'str' ? [int(last)] : []
+      const tags = a.slice(0, a.length - to.length).map((v) => tagValue(rt, str(v)))
+      return tagLongs([...tags, ...to])
+    },
+    /**
+     * =Tag Str(S$) / =Tag Str(S$ To OBJECT) — routines 190 ($2c0a) and 191
+     * ($2c18), which differ only in where the object comes from and both end
+     * in routine 240. "The first 2 forms return the address of the stored
+     * string. This address will not change, even if no OBJECT was specified."
+     */
+    'tag str': (_, a): Value =>
+      VI(
+        a.length > 1
+          ? tagStore(rt, str(a[0] ?? VS('')), int(a[1] ?? VI(0)), true)
+          : tagStore(rt, str(a[0] ?? VS('')), 0, false),
+      ),
+    /**
+     * =Tag Str$(...) — routines 192 to 195, the same store with the address
+     * packed into a string. "The next 2 forms return the longword address of
+     * the stored string in a 4 character string. The last 2 forms return a 8
+     * character string, the first 4 characters are the longword value of the
+     * TAG$ and the last 4 characters are that address of the string."
+     *
+     * Routine 195 is the common one, and the guide's own example is
+     * `A$=Tag Str$("MUIA_String_Contents","Fred" To STR_OBJ)`.
+     */
+    'tag str$'(_, a): Value {
+      // TAG$,S$[,OBJ] versus S$[,OBJ]: the tag form has two strings
+      const two = a.length > 1 && a[1]?.k === 'str'
+      const s = str(a[two ? 1 : 0] ?? VS(''))
+      const objArg = a[two ? 2 : 1]
+      const at = tagStore(rt, s, objArg === undefined ? 0 : int(objArg), objArg !== undefined)
+      return tagLongs(two ? [tagValue(rt, str(a[0] ?? VS(''))), at] : [at])
+    },
+    /**
+     * =Tag Attach$(TAG$,OBJECT) / =Tag Attach$(TAG$ To OBJECT) — routines 234
+     * and 235 ($324a). The string it builds is an ordinary two-longword tag
+     * pair, but before returning it registers OBJECT as a child of the
+     * pending object, which is what the guide means by "easylife needs to
+     * know when an object is being made a child of another".
+     *
+     * NOTE: that registration is routine 238's MUI object list, which cannot
+     * hold anything while `Mui New` is unimplemented, so every call reaches
+     * the `cmp.l (a1),d3` that rejects an unknown object and raises message
+     * 24. The keyword is dispatched and its error is the real one; the
+     * success path waits on slice 11.
+     */
+    'tag attach$'(_, a): Value {
+      const tag = tagValue(rt, str(a[0] ?? VS('')))
+      const obj = int(a[1] ?? VI(0))
+      // routine 238 on `$c6`, which is 0, then on OBJECT, which is not
+      if (obj !== 0) elError(24)
+      return tagLongs([tag, obj])
+    },
   }
 }
 
@@ -1907,6 +2165,32 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
         const sl = m.slots[i]!
         if (sl.id !== 0 && sl.group === w(group)) freeSlot(m, i)
       }
+    },
+
+    /**
+     * Tag Keep True / Tag Keep False — routine 216 ($2f64), which stores the
+     * whole longword into `$ca` without narrowing it, so anything non-zero is
+     * True. It picks where `Tag Str$` puts its string: with the object (only
+     * disposed of when the object is), or "in a temporary buffer, which is
+     * erased the next time any command, or function which accepts a taglist
+     * as an argument is used".
+     */
+    'tag keep'(it) {
+      rt.easylife.tagKeep = it.evalInt() | 0
+    },
+    /**
+     * Tag Block Size N — routine 226 ($30f4). Three refusals, all AMOS 23:
+     * once a pool block exists (`move.l $be(a0),d0 / Rbeq routine 3` — note
+     * the sense, it is the ALREADY-ALLOCATED case that passes the test and
+     * falls into the error), below $1000, and at or above $40001. Only then
+     * does it write `$ba`.
+     */
+    'tag block size'(it) {
+      const n = it.evalInt() | 0
+      if (rt.easylife.tagPool.length !== 0) funcCall()
+      if (n < 0x1000) funcCall()
+      if (n >= 0x40001) funcCall()
+      rt.easylife.tagBlockSize = n
     },
   }
 }
