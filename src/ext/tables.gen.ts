@@ -6782,7 +6782,9 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "defaultSlot": 16,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "Computer Programmers: EASY LIFE (V1.0)"
+    ],
     "sha256": "79e0f3fdcab923d788ec022b7a4401c3693a9f2634cd314276725e0d7154932c",
     "provenance": "AMOS PD Library CD, APD600/easy. EasyLife.doc names it 'EASY LIFE Extension V1.0, Written By Paul Hickman'.",
     "notes": "72 named keywords: zone geometry accessors, string searching, and assorted conveniences. Documented, so manual tier. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
@@ -6797,10 +6799,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "Computer Programmers: EASY LIFE V1.09",
+      "$VER: 1.09"
+    ],
     "sha256": "f9db56e62755d5ac52c36107a74d9038cf9957511cf220d774452dd8aeecd5cf",
     "provenance": "aminet-dev-amos/files/Easylife110_P1/Lib/AMOSPro_EasyLife.Lib The release before the registered 1.10, shipped in the same Aminet upload as 1.10 itself. 155 of its 156 keyword names carry over.",
-    "notes": "EasyLife is the documented case of a keyword prefix changing between releases (znsx to elznsx). 157 keywords, none ported."
+    "notes": "EasyLife is the documented case of a keyword prefix changing between releases (znsx to elznsx). 157 named table entries, 156 distinct names — `tag str` is declared twice, at two arities and two routines. Against the registered 1.10 the delta is one name each way and nothing else: this build has `eltest`, which 1.10 dropped, and lacks `stv`, which 1.10 added. It is registered in its own right rather than folded into 1.10 because of `eltest`: a program using it cannot be explained by 1.10's table, so the two are genuinely distinguishable. Shipped in the same Aminet upload as 1.10 itself (Easylife110_P1), alongside the companion Easylife.Library, pattern.library and PowerPacker.library that both builds load."
   },
   {
     "id": "easylife-1.10",
@@ -6813,10 +6818,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "defaultSlot": 16,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "Computer Programmers: EASY LIFE V1.10",
+      "$VER: 1.10"
+    ],
     "sha256": "42ad66986c9bcb8f72ec485bcb8fdedafa9f14de529f38489d7685525224b798",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: EasyLife. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
-    "notes": "Keywords were renamed between the 1.0 already registered and this one — `znsx` became `elznsx`, `find asc` became `elf asc` — so the two tables are genuinely different rather than one extending the other. EasyLife.guide documents 146 of the 160. Version 1.09 is also in the archive with 157 keywords and is not registered separately, being three keywords from this one. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
+    "notes": "The reference build of EasyLife: 160 named table entries, 156 distinct names, and the best-documented of the four. Keywords were renamed between the 1.0 already registered and this one — `znsx` became `elznsx`, `find asc` became `elf asc` — and the rename is TOTAL: the two tables share not one name. 43 of 1.0's 72 are the later name with `el` stripped; the other 29 changed more than a prefix (set bank name → els bank name, reserve multi zone → elmz reserve, i open workbench → elwb open, output → elout, easy base → el base). Against 1.09 the delta is one name each way: 1.09's `eltest` went, `stv` arrived. The gap between 160 entries and 156 names is two deliberate overloads, not duplication — `tag str` is declared twice with different specs AND different routines (02t0 → routine $bf, 02 → $be), and `stv` four times, one per subscript depth (V00,0 through V00,0,0,0,0, routines $119/$11b/$11d/$11f), which is how a structure element is made to look like an array variable. Every keyword name appears somewhere in the three shipped guides once the index's spelling is allowed for (it lists Elpad Asc where the table says elpad asc$); the two real exceptions are `elmz  set`, whose table entry carries a DOUBLE space, and `el base`. The guide also indexes Ellock Font and Elunlock Fonts, which this table does NOT contain and 1.44's does — the manual ran ahead of, or behind, the binary. It raises errors BOTH ways and routine 299 is the fork: a negative code is negated and taken to the extension's own table, a non-negative one goes straight to AMOS's `L_Error`. Routine 3 is the shared catch-all, `moveq #$17,d0 / Rjmp L_Error` — AMOS 23, the same Illegal function call every other port throws. The private table is 37 messages reached through `L_ErrorExt` (routine 301, `moveq #0,d1 / moveq #$f,d2 / moveq #$ff,d3`), sitting in the code hunk immediately before the title string, and it partitions the extension exactly as the guide's sections do: nine PowerPacker, twelve structured-variable, three multi-zone, three MUI, two each for pattern.library, XPK, diskfont and the standard handles, one apiece for message banks, protection bits and unmatched tags, and four empty slots. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "easylife-1.44",
@@ -6829,10 +6837,13 @@ export const EXT_INFO: ExtensionInfo[] = [
     "idBaseEvidence": "assumed",
     "defaultSlot": 16,
     "observedSlots": [],
-    "titleStrings": [],
+    "titleStrings": [
+      "Computer Programmers: EASY LIFE V1.44",
+      "$VER: 1.44"
+    ],
     "sha256": "6cc53c104ae7e57537d83f7fab34fbafaa8fba8de85024e208c6f9446457ffb3",
     "provenance": "Ultimate Amiga forum, AMOS Factory downloads section, retrieved 2026-07-26. Most items there are credited \"provided and archived by Lonewolf10\". Archive path: EasyLife. Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
-    "notes": "The latest EasyLife in the archive, and smaller than 1.10 — 108 named keywords against 160 — so the extension was cut down rather than grown. The 1.09 documentation covers 100 of them; no 1.44-specific manual ships with it, so what changed is not documented. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
+    "notes": "The latest EasyLife in the archive, and smaller than 1.10 — 108 named keywords against 160 — so the extension was cut down rather than grown. WHAT it dropped is the finding, and it is not arbitrary: the whole `mui` block (25), the whole `st`/`stv` structured-variable block (20), the whole `tag` block (9), and five font keywords. The linked library names say why. 1.09 and 1.10 open easylife.library, powerpacker.library, pattern.library, diskfont.library, xpkmaster.library and muimaster.library; this build opens powerpacker, pattern, diskfont and xpkmaster only — no muimaster and no easylife.library. So 1.44 is precisely the build that needs neither the GUI toolkit nor the author's own companion library, which makes it the portable subset of EasyLife rather than a lesser version of it. It also RESTORED two of 1.0's keywords under the new prefix: `ellock font` and `elunlock fonts`, which 1.09 and 1.10 both lack while the 1.10 guide still indexes them. The table was rebuilt rather than trimmed, so the ids are not comparable to 1.10's — $061c is `tag str$` there and `elzqzqzq` here. Its two scrambled names are settled: `elzqzqzq` (routine $85) and `elqqzqzqq` (routine $84) are each TWO BYTES — a bare `rts` at $1bda and $1bd8 — while routines 131 and 134 on either side of them (Eliconify End, Elin Exists) are 42 and 16 bytes of real work. So they are not junk table entries of the kind #117 removed, which had no handler at all; they are keywords that exist, tokenise, dispatch, and deliberately do nothing, under names chosen so that nobody types them. They are also inserted rather than left over: 1.10 has Eliconify End and Elin Exists adjacent with no gap. `elqqzqzqq` carries the same parameter spec as `elmz  set` (I0,0,0,0t0,0) and `elzqzqzq` the same spec two arguments shorter, which is suggestive but not read — what the author intended them for is not recoverable from the binary, and no 1.44 manual ships. Reproducing them faithfully is therefore trivial and exact: a handler that returns. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs.."
   },
   {
     "id": "eme-3.0-demo",

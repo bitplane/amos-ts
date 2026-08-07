@@ -430,7 +430,24 @@ describe.skipIf(!existsSync(extFixtures))('the whole corpus identifies without a
     // id that low is carried by most tables in the registry — so this is not a
     // fingerprint at all. Listing it beats loosening the assertion for every
     // slot: a slot that stops identifying has to be added here deliberately.
-    const unidentifiable = new Set([9])
+    //
+    // Slot 16 is EasyLife, and it is the opposite failure: not too little
+    // evidence but too much agreement. The sixteen demo programs shipped with
+    // EasyLife 1.10 use 83 distinct ids there across 1,692 calls, and
+    // easylife-1.09 and easylife-1.10 both explain every one of them — same
+    // ids, same names, same specs, so both score 1.000 on id coverage, arity
+    // agreement and named fraction, and the totals tie to four decimal places
+    // at 111.0000. The two builds differ by exactly one keyword each way
+    // (1.09's `eltest` went, `stv` arrived) and no demo uses either, so there
+    // is nothing in this corpus that could separate them. 1.44 is properly
+    // rejected — 50 of the 83 ids are not in its table, because it dropped the
+    // whole MUI, structure and taglist vocabulary and renumbered what was left.
+    //
+    // Ambiguous is the right answer here and a tiebreak would be a lie: unlike
+    // music-1.62, which was deregistered because nothing could EVER prefer it,
+    // `eltest` is a real discriminator and a program that used it would settle
+    // this slot outright.
+    const unidentifiable = new Set([9, 16])
 
     const resolved: Record<number, string> = {}
     for (const [slot, usage] of merged) {

@@ -12,7 +12,9 @@
   "docs": [
     "EasyLife.doc"
   ],
-  "titleStrings": [],
+  "titleStrings": [
+    "Computer Programmers: EASY LIFE (V1.0)"
+  ],
   "observedSlots": [],
   "provenance": {
     "from": "AMOS PD Library CD, APD600/easy.",
