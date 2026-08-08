@@ -372,6 +372,8 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/aga.test.ts': ['aga-1.0'],
   'src/runtime/tft.ts': ['tft-0.6'],
   'src/runtime/sticks.ts': ['sticks-1.01b'],
+  'src/runtime/gamesupport.ts': ['gamesupport-1.2'],
+  'src/runtime/gamesupport.test.ts': ['gamesupport-1.2'],
   'src/runtime/stars.ts': ['stars-2.33'],
   'src/runtime/stars.test.ts': ['stars-2.33'],
   'src/runtime/locale.ts': ['locale-0.26'],

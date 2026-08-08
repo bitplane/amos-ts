@@ -32,6 +32,12 @@ import { SpeakBuffer, isSpeakPath, parseSpeakOptions, type SpeakOptions } from '
 import { newIoPortsState, makeIoPortsFunctions, makeIoPortsInstructions } from './ioports'
 import { newCtextState, makeCtextFunctions, makeCtextInstructions } from './ctext'
 import { newSticksState, makeSticksFunctions, makeSticksInstructions } from './sticks'
+import {
+  GAMESUPPORT_ERRORS,
+  makeGameSupportFunctions,
+  makeGameSupportInstructions,
+  newGameSupportState,
+} from './gamesupport'
 import { newStarsState, makeStarsFunctions, makeStarsInstructions } from './stars'
 import { newAgaState, makeAgaFunctions, makeAgaInstructions } from './aga'
 import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
@@ -5620,6 +5626,19 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     },
     instructions: makeSticksInstructions,
     functions: makeSticksFunctions,
+  },
+  {
+    // GameSupport 1.2 at slot 23 --- Alastair M. Robinson's toolkit. The slot
+    // is `ExtNb equ 23-1` in his own source AND `move.l a3,$258(a5)` in the
+    // binary, which agree. Its cold start seeds four mouse counters off the
+    // live registers, so `init` needs the Runtime. See gamesupport.ts.
+    ids: ['gamesupport-1.2'],
+    init: (rt) => {
+      rt.gamesupport = newGameSupportState(rt)
+    },
+    instructions: makeGameSupportInstructions,
+    functions: makeGameSupportFunctions,
+    errors: GAMESUPPORT_ERRORS,
   },
   {
     // stars.lib (AMOS 1.3) and starspro.lib (AMOS Pro) are different binaries

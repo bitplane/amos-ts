@@ -1365,6 +1365,15 @@ export const FAITHFUL = new Set<string>([
   'stick scan', 'stick x', 'stick y', 'mouse x',
   'mouse y', 'mouse clip', 'mouse button', 'mouse area',
 
+  // --- GameSupport 1.2 (Alastair M. Robinson), read out of the 11,708-byte
+  // hunk with `extdis gamesupport-1.2`, alongside GameSupport.guide and the
+  // author's own GameSupport.s. NOTE that the source is the extension SHELL
+  // only -- six includes holding the keyword bodies are missing from the
+  // archive -- so the shell settles the slot, the error table and the library
+  // opens, and every routine below is read off the binary.
+  'gsreadport', 'gstimer', 'gsmousedx', 'gsmousedy',
+  'gssetmousespeed', 'gscontrollertype', 'gsreadsega',
+
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
   // an identical token table, so this covers AMOS 1.3 and AMOS Pro alike.
@@ -4091,10 +4100,42 @@ export const NOTES: Record<string, string> = {
   "multi joy":
     "Routine 3 ($260). The manual contradicts itself and the binary settles it: its diagram reads '76543210 / " +
     "ABCDUDLR', which would order the low nibble U,D,L,R downward from bit 3, but its value table says 1=up " +
-    "2=down 4=left 8=right 16=D 32=C 64=B 128=A. DEVIATION: buttons B, C and D need a two- or four-button adaptor " +
-    "wired to the POT pins, and nothing is attached, so only button A can ever report pressed",
+    "2=down 4=left 8=right 16=D 32=C 64=B 128=A. A and C are ONE WIRE and B and D the other: the routine reads " +
+    "each of the two lines twice with a `move.w #$e000,$34(a6)` POTGO write between them, which is the " +
+    "four-button adaptor's multiplex, and with no adaptor a wire carries the same thing both times.",
   "multi fire":
-    "Routine 4 ($368).",
+    "Routine 4 ($368). Buttons 1 and 3 are the fire wire and 2 and 4 the pot wire, for the reason Multi Joy " +
+    "gives. Note which argument is range-checked: the routine pops button into d4 and jport into d5, and only " +
+    "d5 gets the blt/bgt pair, so an out-of-range BUTTON falls through every cmp.w and answers 0.",
+  "gsreadport":
+    "Routine 2 ($1d96). `jsr -$1e(a6)` on lowlevel.library is ReadJoyPort -- -30 at the fd's bias of 30 -- and " +
+    "the bitfield is returned unchanged. NOTE no range check: unlike Gsmousedx there is no cmp/bmi pair, so an " +
+    "out-of-range port reaches ReadJoyPort and gets JP_TYPE_NOTAVAIL (zero) rather than raising.",
+  "gstimer":
+    "Routine 3 ($1dc0). `lea $4a(a2),a0 / jsr -$66(a6)` is ElapsedTime, -102, whose result is in 1/65536 of a " +
+    "second. The context at $4a is never initialised, which is why the guide warns the first call returns " +
+    "garbage -- it is the uptime. DEVIATION: the clock here is the vertical blank counter, so the granularity " +
+    "is 20ms where the guide claims about 200us off the CIA E clock.",
+  "gsmousedx":
+    "Routine 4 ($1dec). Two ports, two different paths: port 0 reads an accumulator the VBL hook fills and " +
+    "clears it, port 1 differences JOY1DAT's low byte live. The delta wraps through 8 bits and is scaled by " +
+    "(speed+7)/8 with `muls.w`/`asr.l #$3`. DEVIATION: port 1 holds the host's controller rather than a second " +
+    "mouse, so its counters are a digital stick's quadrature bits -- real, moving values of 0 to 3.",
+  "gsmousedy":
+    "Routine 5 ($1e74), the same shape as Gsmousedx on the HIGH byte (`lsr.w #$8` where routine 4 has " +
+    "`andi.w #$ff`), against $46/$36 rather than $42/$32.",
+  "gssetmousespeed":
+    "Routine 6 ($1efa). `addq.w #$7,d0` is a WORD add on a LONG value, then `tst.w d0 / bmi`, which is exactly " +
+    "why the guide's maximum is 32760: 32760+7 is $7fff and 32761+7 is $8000. The error MESSAGE says 'between 0 " +
+    "and 32761' and is wrong at both ends -- 0 raises too. A speed of -7 stores a factor of zero and never " +
+    "raises, after which every delta scales to nothing.",
+  "gscontrollertype":
+    "Routine 98 ($2c30), `jsr -$24(a6)` = GSReadCType on GSDrivers/gsjoystick.library. That library does not " +
+    "ship in the archive and was never released -- the guide's Modules node describes the whole driver scheme " +
+    "in the future tense. The routine answers 0 without raising when the base is zero, which is what every " +
+    "machine without the driver returns, so 0 is the faithful answer and not a stub.",
+  "gsreadsega":
+    "Routine 99 ($2c54), `moveq #$0,d0 / jsr -$42(a6)` = GSReadButtons(0) on the same absent driver library.",
   "stick joy":
     "Routine 5 ($432), reading CIA-A PRB ($bfe101) bits 0-3. The manual calls this the serial port throughout; " +
     "the register says otherwise — CIA-A PRB is the parallel-port DATA register, and Stick Fire's $bfd000 bits " +

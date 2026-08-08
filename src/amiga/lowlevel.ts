@@ -212,3 +212,37 @@ export function setJoyPortType(ports: readonly Controller[], port: number, sja: 
       return false
   }
 }
+
+// -- the timer half -------------------------------------------------------
+
+/**
+ * `ULONG ElapsedTime(struct EClockVal *context)` — LVO -102.
+ *
+ * The LVO is off `lowlevel_lib.fd`, which ships in this repo's own AMOS tree
+ * at `amos-files/.../gui210/GUI2/Tools/FD/lowlevel_lib.fd`: bias 30, and
+ * ElapsedTime is the fourteenth entry, 30 + 13*6 = 108... except that the fd
+ * carries `lowlevelPrivate1` as its third slot, which is the entry a reader
+ * counting only the public names loses. Counting every slot puts ElapsedTime
+ * at -102, and that is where GameSupport's `Gstimer` calls it (routine 3,
+ * $1dc0: `lea $4a(a2), a0 / jsr -$66(a6)`). `ReadJoyPort` at -30 confirms the
+ * bias from the other end.
+ *
+ * The call returns the time since the LAST call in **1/65536 of a second**,
+ * and overwrites the caller's context with the current reading. A context of
+ * zero therefore measures from whenever the clock was zero, which is why
+ * GameSupport's manual says *"The first time this call is used, the result
+ * will be garbage"* — it is not garbage, it is the uptime, and the extension
+ * never initialises its context (the block at $1c1a+$4a is file zeros).
+ *
+ * DEVIATION: on the machine this reads the CIA E clock, a continuous counter
+ * at about 709 kHz, and the manual claims roughly 200 microseconds of
+ * accuracy. The caller here supplies `now` from whatever clock it has, and in
+ * this port that is the vertical blank counter — 20 ms of granularity, not
+ * 200 us. Totals over any real interval are right; a program timing something
+ * shorter than a frame gets 0 where hardware would give it a number.
+ */
+export function elapsedTime(context: { last: number }, now: number): number {
+  const d = now - context.last
+  context.last = now
+  return d
+}

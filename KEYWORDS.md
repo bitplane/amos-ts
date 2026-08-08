@@ -47,7 +47,7 @@ deviations.
 | files | 23 | 21 | 0 | 0 | 100% |
 | first-0.1 | 4 | 4 | 0 | 0 | 100% |
 | flow | 12 | 10 | 2 | 0 | 100% |
-| gamesupport-1.2 | 37 | 0 | 0 | 37 | 0% |
+| gamesupport-1.2 | 37 | 7 | 0 | 30 | 19% |
 | gui-1.5b | 48 | 0 | 0 | 48 | 0% |
 | gui-1.61 | 103 | 0 | 0 | 103 | 0% |
 | gui-2.10 | 204 | 0 | 0 | 204 | 0% |
@@ -105,7 +105,7 @@ deviations.
 | turbo-plus-2.15 | 152 | 147 | 4 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 6216 | 3628 | 108 | 2289 | 62% |
+| **total** | 6216 | 3635 | 108 | 2282 | 62% |
 
 ## aga-1.0 (100%)
 
@@ -259,9 +259,10 @@ deviations.
 - **faithful**: `end`, `end if`, `end proc`, `every`, `every off`, `every on`, `stop`, `wait`, `wait key`, `wait vbl`
 - **approximated**: `direct`, `edit`
 
-## gamesupport-1.2 (0%)
+## gamesupport-1.2 (19%)
 
-- **missing**: `gsc2pdebug`, `gsc2pinfo`, `gscallmod`, `gschunky2planar`, `gsclosec2plib`, `gscmd8data`, `gscontrollertype`, `gsfindattr`, `gsgetattr`, `gsiconify`, `gsloadcodemod`, `gsmousedx`, `gsmousedy`, `gsmulti off`, `gsmulti on`, `gsopenc2plib`, `gspasscode`, `gspassdecode`, `gspyth`, `gsreadport`, `gsreadsega`, `gssetattr`, `gssetc2pcolour`, `gssetc2pregion`, `gssetmousespeed`, `gssqr`, `gstimer`, `gstrack gosub`, `gstrack loop`, `gstrack loop defer`, `gstrack loop off`, `gstrack loop on`, `gstrack play`, `gstrack stop`, `gstrack transpose`, `gstrack volume`, `gsunloadcodemod`
+- **faithful**: `gscontrollertype` *(That library does not ship in the archive and was never released -- the guide's Modules node describes the whole driver scheme in the future tense.)*, `gsmousedx` *(DEVIATION: port 1 holds the host's controller rather than a second mouse, so its counters are a digital stick's quadrature bits -- real, moving values of 0 to 3.)*, `gsmousedy`, `gsreadport`, `gsreadsega`, `gssetmousespeed` *(`addq.w #$7,d0` is a WORD add on a LONG value, then `tst.w d0 / bmi`, which is exactly why the guide's maximum is 32760: 32760+7 is $7fff and 32761+7 is $8000.)*, `gstimer` *(The context at $4a is never initialised, which is why the guide warns the first call returns garbage -- it is the uptime. DEVIATION: the clock here is the vertical blank counter, so the granularity is 20ms where the guide claims about 200us off the CIA E clock.)*
+- **missing**: `gsc2pdebug`, `gsc2pinfo`, `gscallmod`, `gschunky2planar`, `gsclosec2plib`, `gscmd8data`, `gsfindattr`, `gsgetattr`, `gsiconify`, `gsloadcodemod`, `gsmulti off`, `gsmulti on`, `gsopenc2plib`, `gspasscode`, `gspassdecode`, `gspyth`, `gssetattr`, `gssetc2pcolour`, `gssetc2pregion`, `gssqr`, `gstrack gosub`, `gstrack loop`, `gstrack loop defer`, `gstrack loop off`, `gstrack loop on`, `gstrack play`, `gstrack stop`, `gstrack transpose`, `gstrack volume`, `gsunloadcodemod`
 
 ## gui-1.5b (0%)
 
@@ -464,7 +465,7 @@ deviations.
 
 ## sticks-1.01b (100%)
 
-- **faithful**: `mouse area`, `mouse button` *(The manual's table lists 3 as 'Middle Button Pressed', which the code does not support — no third line is read anywhere in the routine)*, `mouse clip`, `mouse x` *(The manual's BUGS entry corrects an earlier edition's syntax: 'instead of Mouse X = value (as stated) use Mouse X Mouse Number,value'. DEVIATION: on the real machine each mouse is its own accumulator fed from its own port, so mouse 0 and the AMOS pointer can drift apart; there is one pointer here so they cannot, and mouse 1 has nothing driving it and holds wherever it is put)*, `mouse y`, `multi fire`, `multi joy` *(The manual contradicts itself and the binary settles it: its diagram reads '76543210 / ABCDUDLR', which would order the low nibble U,D,L,R downward from bit 3, but its value table says 1=up 2=down 4=left 8=right 16=D 32=C 64=B 128=A. DEVIATION: buttons B, C and D need a two- or four-button adaptor wired to the POT pins, and nothing is attached, so only button A can ever report pressed)*, `stick down`, `stick fire` *(The TWO-argument form is a deliberate dead end and the manual owns up to it: 'I shouldn't really tell you this ... but if you enter =Stick Fire(Jport,button) it will return an error (This command has been provided so it can be easily updated to handle more buttons in later version)'.)*, `stick joy` *(The manual calls this the serial port throughout; the register says otherwise — CIA-A PRB is the parallel-port DATA register, and Stick Fire's $bfd000 bits 0-1 are BUSY and POUT, also parallel.)*, `stick left`, `stick right`, `stick scan`, `stick up`, `stick x`, `stick y`
+- **faithful**: `mouse area`, `mouse button` *(The manual's table lists 3 as 'Middle Button Pressed', which the code does not support — no third line is read anywhere in the routine)*, `mouse clip`, `mouse x` *(The manual's BUGS entry corrects an earlier edition's syntax: 'instead of Mouse X = value (as stated) use Mouse X Mouse Number,value'. DEVIATION: on the real machine each mouse is its own accumulator fed from its own port, so mouse 0 and the AMOS pointer can drift apart; there is one pointer here so they cannot, and mouse 1 has nothing driving it and holds wherever it is put)*, `mouse y`, `multi fire`, `multi joy` *(The manual contradicts itself and the binary settles it: its diagram reads '76543210 / ABCDUDLR', which would order the low nibble U,D,L,R downward from bit 3, but its value table says 1=up 2=down 4=left 8=right 16=D 32=C 64=B 128=A.)*, `stick down`, `stick fire` *(The TWO-argument form is a deliberate dead end and the manual owns up to it: 'I shouldn't really tell you this ... but if you enter =Stick Fire(Jport,button) it will return an error (This command has been provided so it can be easily updated to handle more buttons in later version)'.)*, `stick joy` *(The manual calls this the serial port throughout; the register says otherwise — CIA-A PRB is the parallel-port DATA register, and Stick Fire's $bfd000 bits 0-1 are BUSY and POUT, also parallel.)*, `stick left`, `stick right`, `stick scan`, `stick up`, `stick x`, `stick y`
 
 ## system (100%)
 
