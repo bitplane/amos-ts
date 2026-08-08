@@ -92,7 +92,7 @@
  */
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
-import { AmosError, VI, int, type Value } from '../interp/values'
+import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import { sw16 } from './word'
 import { counterDelta, joyDatOf, joyDatX, joyDatY, mouseDat } from '../amiga/gameport'
 import { elapsedTime, readJoyPort } from '../amiga/lowlevel'
@@ -336,6 +336,145 @@ function newtonSqrt(x: number, seed: number, rounds: number): number {
 /** `addq.w #$7, dn` — seven onto the low word, the high word untouched */
 const addq7w = (v: number): number => (v & ~0xffff) | ((v + 7) & 0xffff)
 
+// -- the passcodes -------------------------------------------------------
+//
+// `Gspasscode` and `Gspassdecode` are one cipher read from both ends, and the
+// two routines ($235c and $252e) are close to mirror images. Everything below
+// is shared between them, which is the only way to be sure they agree.
+//
+// The guide is clear about the ambition and the limits: *"This function is NOT
+// designed to be a high security password system, but it is ideal for
+// generating level codes for games."*
+
+/**
+ * The 5-bit fold both checksums end with — `$248c`, `$24bc`, `$268c`, `$26ba`,
+ * identical in all four:
+ *
+ *     move.l d0, d1
+ *     lsr.l #$8, d1 / add.l d1, d0        three times, on the SAME d1
+ *     andi.l #$1f, d0
+ *
+ * Note the shifts compound: d1 is 8, then 16, then 24 bits down. So this adds
+ * all four bytes of the sum together, plus carries, and keeps five bits.
+ */
+function fold5(sum: number): number {
+  let d0 = sum >>> 0
+  let d1 = d0 >>> 8
+  d0 = (d0 + d1) >>> 0
+  d1 = d1 >>> 8
+  d0 = (d0 + d1) >>> 0
+  d1 = d1 >>> 8
+  d0 = (d0 + d1) >>> 0
+  return d0 & 0x1f
+}
+
+/**
+ * The ID digest, `$24d8` and `$26d6` — the seed the guide describes as
+ * *"a string which will be digested into a seed for the encryption process"*
+ * and warns is *"case sensitive"*.
+ *
+ *     move.w (a0)+, d7 / subq.w #$1, d7
+ *     add.b (a0)+, d0                     the LOW BYTE only
+ *     rol.l #$7, d0                       the WHOLE register
+ *     dbra d7
+ *
+ * The byte-wide add against a long-wide rotate is what spreads a short string
+ * over 32 bits: each character lands in the low byte and is then carried up
+ * seven places before the next one arrives.
+ */
+function idDigest(id: string): number {
+  let d0 = 0
+  for (let i = 0; i < id.length; i++) {
+    const b = id.charCodeAt(i) & 0xff
+    d0 = (d0 & ~0xff) | ((d0 + b) & 0xff)
+    d0 = ((d0 << 7) | (d0 >>> 25)) >>> 0
+  }
+  return d0
+}
+
+/** the cipher's two words of state: `$24fa`/`$24fe` and `$26f8`/`$26fc` */
+interface Keystream {
+  /** the ID digest, which the step MUTATES — one bit flipped per character */
+  a: number
+  /** the running key, seeded with the data checksum */
+  b: number
+}
+
+/**
+ * One keystream byte — `$244e` and `$2648`, identical:
+ *
+ *     move.l (a1), d0 / move.l (a0), d1
+ *     rol.l  #$1, d0
+ *     eor.l  d1, d0
+ *     move.b d0, d2 / andi.l #$f, d2
+ *     bchg   d2, d1                       LONG: destination is a data register
+ *     move.l d1, (a0) / move.l d0, (a1)
+ *     and.l  d3, d0                       d3 is the caller's mask, always $1f
+ *
+ * `bchg` printed as `.b` by capstone is a display artefact: the opcode is
+ * $0541, whose EA mode is 000 (data register direct), and a register
+ * destination makes BCHG a 32-bit operation modulo 32. The bit number is
+ * masked to four bits first, so only bits 0 to 15 of the digest are ever
+ * touched — the top half of it never changes after the first call.
+ */
+function keyStep(k: Keystream, mask: number): number {
+  let d0 = k.b >>> 0
+  let d1 = k.a >>> 0
+  d0 = ((d0 << 1) | (d0 >>> 31)) >>> 0
+  d0 = (d0 ^ d1) >>> 0
+  const bit = d0 & 0xf
+  d1 = (d1 ^ (1 << bit)) >>> 0
+  k.a = d1
+  k.b = d0
+  return d0 & mask
+}
+
+/**
+ * Five bits to a character and back — `$23d6`/`$2418` and `$258c`/`$2602`.
+ *
+ *     addi.l #$41, d1 / cmp.l #$5a, d1 / ble / subi.l #$27, d1
+ *
+ * 0 to 25 become 'A' to 'Z' and 26 to 31 become '4' to '9', which is exactly
+ * the guide's *"the returned passcode can contain the upper case letters (A-Z)
+ * and the digits 4 to 9"*. Both are LONG operations on a register the routine
+ * never fully clears, which is why they are written on `d1` rather than on a
+ * value — see `encode` for what leaks through.
+ */
+const toChar = (d1: number): number => {
+  const v = (d1 + 0x41) | 0
+  return v > 0x5a ? (v - 0x27) | 0 : v
+}
+const fromChar = (c: number): number => {
+  const v = (c - 0x41) | 0
+  return v < 0 ? (v + 0x27) | 0 : v
+}
+
+/** longword at addr, unsigned, through the synthesized address space */
+function getL(rt: Runtime, addr: number): number {
+  const m = rt.resolveAddr(addr)
+  if (!m || m.off + 3 >= m.data.length) return 0
+  return ((m.data[m.off]! << 24) | (m.data[m.off + 1]! << 16) | (m.data[m.off + 2]! << 8) | m.data[m.off + 3]!) >>> 0
+}
+
+function putL(rt: Runtime, addr: number, v: number): void {
+  const m = rt.resolveWrite(addr)
+  if (!m || m.off + 3 >= m.data.length) return
+  m.data[m.off] = (v >>> 24) & 0xff
+  m.data[m.off + 1] = (v >>> 16) & 0xff
+  m.data[m.off + 2] = (v >>> 8) & 0xff
+  m.data[m.off + 3] = v & 0xff
+}
+
+/**
+ * `subq.w #$1, d7` then `dbra d7` — how many times the body runs.
+ *
+ * A count of zero does NOT skip the loop: `subq.w` makes the word $ffff and
+ * `dbra` then runs 65536 times. Neither passcode routine checks, so
+ * `Gspasscode(id$, ptr, 0)` reads 65536 longwords and builds a 65538-character
+ * code out of them. That is the routine, not an approximation of it.
+ */
+const dbraCount = (n: number): number => ((n - 1) & 0xffff) + 1
+
 export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
   const st = (): GameSupportState => rt.gamesupport
 
@@ -545,6 +684,167 @@ export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
       const sq = (sw16(y) * sw16(y) + sw16(x) * sw16(x)) | 0
       if (sq === 0) return VI(seed)
       return VI(newtonSqrt(sq, addq7w(sw16(seed >>> 1)), 6))
+    },
+
+    /**
+     * =Gspasscode(ID$, Pointer, Length) — routine 36 ($235c), 466 bytes.
+     *
+     * The arguments are popped RIGHT TO LEFT: `(a3)+` goes to $2506 (Length),
+     * then $2502 (Pointer), then $250a (ID$), and each is used as its name
+     * says — $2506 bounds a `dbra`, $2502 is dereferenced with `move.l (a0)+`,
+     * $250a is read as a length-prefixed AMOS string.
+     *
+     * Four passes, in this order:
+     *
+     *  1. `$247a` sums the `Length` longwords at `Pointer` and folds them to
+     *     five bits. That checksum is the cipher's SEED as well as the thing
+     *     the decoder verifies, which is what ties a code to its payload.
+     *  2. `$2372` splits each longword into 4-bit groups, low group first,
+     *     with bit 4 set on every group but the last. `lsr.l` is logical, so a
+     *     negative value needs all eight — the guide says so: *"the number 1
+     *     will encode to a single character within the final code whereas the
+     *     number -1 will require eight"*.
+     *  3. The length's LOW BYTE goes in front of the groups (`move.b $250f(pc)`
+     *     — $250f is the second byte of the length word at $250e), and the
+     *     whole lot is XORed with the keystream and mapped to characters.
+     *  4. `$24a8` checksums the characters just produced and appends
+     *     `(datasum - passsum) & $1f` as one more. Those are the guide's *"two
+     *     check digits"*: the length in front and this one behind.
+     *
+     * `d1` is never cleared between characters, and every arithmetic step on
+     * it is a LONG operation while the load is a `move.b`. So bits 8 and up
+     * survive from one character to the next, and a length byte of 230 or more
+     * carries into them — after which every following character is 0x100 too
+     * high before the `move.b` truncates it. `Gspassdecode` clears `d1` every
+     * iteration ($25fa) and cannot reproduce that, so codes long enough to
+     * trigger it do not decode. Both sides are modelled as written.
+     */
+    'gspasscode'(_, a): Value {
+      const id = str(a[0]!)
+      const ptr = int(a[1]!)
+      const count = int(a[2]!)
+
+      const rounds = dbraCount(count)
+      let sum = 0
+      for (let i = 0; i < rounds; i++) sum = (sum + getL(rt, ptr + i * 4)) >>> 0
+      const datasum = fold5(sum)
+
+      // the nibble split: low group first, bit 4 marking "another follows"
+      const groups: number[] = []
+      for (let i = 0; i < rounds; i++) {
+        let v = getL(rt, ptr + i * 4)
+        for (;;) {
+          let g = v & 0xf
+          v = v >>> 4
+          if (v !== 0) g |= 0x10
+          groups.push(g)
+          if ((g & 0x10) === 0) break
+        }
+      }
+
+      // `$250e = d6 + 1` where d6 counted from 1: the length is groups + 2
+      const len = groups.length + 2
+      const buf = [len & 0xff, ...groups]
+
+      // `$23b2` seeds the key with the data checksum BEFORE `$23ba` computes
+      // the digest; the decoder does the same two in the same order
+      const key: Keystream = { b: datasum, a: 0 }
+      key.a = idDigest(id)
+
+      // d1 carried across iterations, exactly as the register is
+      let d1 = 0
+      for (let i = 0; i < buf.length; i++) {
+        d1 = (d1 & ~0xff) | buf[i]!
+        d1 = (d1 & ~0xffff) | ((d1 ^ keyStep(key, 0x1f)) & 0xffff)
+        d1 = toChar(d1)
+        buf[i] = d1 & 0xff
+      }
+
+      let psum = 0
+      for (const c of buf) psum = (psum + c) >>> 0
+      buf.push(toChar((datasum - fold5(psum)) & 0x1f) & 0xff)
+
+      return VS(buf.map((c) => String.fromCharCode(c)).join(''))
+    },
+
+    /**
+     * =Gspassdecode(ID$, PASS$, POINTER) — routine 37 ($252e), 486 bytes, the
+     * mirror. Popped right to left again: $270c (POINTER), $2708 (PASS$),
+     * $2710 (ID$).
+     *
+     * It rebuilds the seed from the code rather than from the data, which is
+     * the trick that makes the pair work: `$2576` takes the LAST character,
+     * unmaps it, adds the checksum of everything before it and masks to five
+     * bits, and that is the encoder's `datasum` again. Then it decrypts the
+     * first character and compares it with the string's own length. Three ways
+     * to answer zero, in order:
+     *
+     *  - the length character does not match `PASS$`'s length low byte
+     *  - ...and after decoding, the checksum of the recovered longwords does
+     *    not match the seed
+     *
+     * (the third is any code so mangled that the groups run out mid-value,
+     * which falls out of the loop rather than being tested for).
+     *
+     * The result is *"the number of values which have been placed in the
+     * array — a 6 character passcode could contain 1, 2, 3 or 4 values, so
+     * this number should be checked"*.
+     *
+     * DEVIATION: the one thing here a program can see. The routine
+     * writes into `PASS$`: `move.b #$0,-$1(a0)` zeroes the last character and
+     * `move.b d1,(a0)+` replaces the first with its decrypted value. The guide
+     * owns up to it — *"the string which is passed to this function will be
+     * corrupted by this call (for no reason other than my laziness!)"* — and
+     * advises `Upper$()` partly to dodge it, since that passes a temporary.
+     * Arguments arrive here by value, so the caller's variable survives. A
+     * program that decodes the same variable twice fails on the machine and
+     * succeeds here.
+     */
+    'gspassdecode'(_, a): Value {
+      const id = str(a[0]!)
+      const pass = str(a[1]!)
+      const ptr = int(a[2]!)
+
+      // `move.b -$1(a0), d0` on a string with no characters reads the length
+      // word instead. Nothing here to read, and nothing decodes either way.
+      if (pass.length < 2) return VI(0)
+
+      const chars = [...pass].map((c) => c.charCodeAt(0) & 0xff)
+      // the last character is consumed as the key seed and then zeroed, which
+      // is what terminates both of the loops below
+      const last = chars.pop()!
+      let psum = 0
+      for (const c of chars) psum = (psum + c) >>> 0
+      const datasum = (fromChar(last) + fold5(psum)) & 0x1f
+
+      const key: Keystream = { b: datasum, a: 0 }
+      key.a = idDigest(id)
+
+      // the length character, decrypted and checked against the real length
+      const lenChar = (fromChar(chars[0]!) ^ keyStep(key, 0x1f)) & 0xff
+      if (lenChar !== (pass.length & 0xff)) return VI(0)
+
+      // the groups, low first, reassembled until one arrives without bit 4
+      let acc = 0
+      let shift = 0
+      let count = 0
+      for (let i = 1; i < chars.length; i++) {
+        const d1 = fromChar(chars[i]!) ^ keyStep(key, 0x1f)
+        acc = (acc | ((d1 & 0xf) << shift)) >>> 0
+        if ((d1 & 0x10) !== 0) {
+          shift += 4
+          continue
+        }
+        putL(rt, ptr + count * 4, acc)
+        count += 1
+        acc = 0
+        shift = 0
+      }
+
+      let dsum = 0
+      for (let i = 0; i < count; i++) dsum = (dsum + getL(rt, ptr + i * 4)) >>> 0
+      if (fold5(dsum) !== datasum) return VI(0)
+      return VI(count)
     },
   }
 }

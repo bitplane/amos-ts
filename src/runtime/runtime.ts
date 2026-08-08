@@ -2941,6 +2941,18 @@ export class Runtime {
   }
 
   /** the whole-array slot backing =Array() — int/float arrays only */
+  /**
+   * `Varptr(A(n))` — the address of ONE element, inside the whole-array block.
+   *
+   * The same slot `varptrArray` builds, so `Varptr(A(0))` and `Varptr(A(1))`
+   * are four bytes apart and a caller handed the first can walk the rest. That
+   * is what an array is on the machine, and what every routine taking an array
+   * by pointer assumes.
+   */
+  varptrArrayElement(key: string, arr: { data: Value[]; type?: number }, type: number, index: number): number {
+    return this.varptrArray(key, arr, type) + ARRAY_HEADER + index * 4
+  }
+
   varptrArray(key: string, arr: { data: Value[]; type?: number }, type: number): number {
     // The header is written ONCE, the way Dim writes it and nothing else
     // touches it — a sync that rewrote it every read would undo an extension

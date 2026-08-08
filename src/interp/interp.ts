@@ -77,6 +77,19 @@ export interface Target {
   key?: string
   get(): Value
   set(v: Value): void
+  /**
+   * Set when the target is an ARRAY ELEMENT, with the array itself and the
+   * element's linear index.
+   *
+   * `Varptr` needs both. An array is one contiguous block on the machine, so
+   * `Varptr(A(0)) + 4` is `A(1)` and walking a pointer through an array is the
+   * ordinary way to hand one to anything written in assembler — GameSupport's
+   * `Gspasscode(ID$, Varptr(A(0)), 4)` is its own manual's example of it.
+   * Without these an element resolves to a lone four-byte cell and the walk
+   * reads whatever happens to sit beside it.
+   */
+  array?: { data: Value[]; type?: number }
+  index?: number
 }
 
 /** Why execution is paused, waiting on the outside world. */
@@ -787,6 +800,8 @@ export class Interp {
         set: (v) => {
           arr.data[linear] = coerce(type, v)
         },
+        array: arr,
+        index: linear,
       }
     }
     return {

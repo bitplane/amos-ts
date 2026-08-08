@@ -1374,6 +1374,7 @@ export const FAITHFUL = new Set<string>([
   'gsreadport', 'gstimer', 'gsmousedx', 'gsmousedy',
   'gssetmousespeed', 'gscontrollertype', 'gsreadsega',
   'gssqr', 'gspyth', 'gsmulti on', 'gsmulti off',
+  'gspasscode', 'gspassdecode',
 
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
@@ -4159,6 +4160,25 @@ export const NOTES: Record<string, string> = {
     "Unbalanced nesting is invisible for the same reason.",
   "gsmulti on":
     "Routine 11 ($21e0), `jsr -$8a(a6)` = Permit, the other half.",
+  "gspasscode":
+    "Routine 36 ($235c). Arguments pop RIGHT TO LEFT. The data's 5-bit checksum seeds the cipher AND is what " +
+    "the decoder verifies; each longword splits into 4-bit groups low first with bit 4 marking 'another " +
+    "follows' (so -1 needs eight, as the guide says); the length's low byte goes in front and " +
+    "(datasum - passsum) & $1f behind, which are its 'two check digits'. The keystream is `rol.l #$1` on the " +
+    "key, EOR the digest, then `bchg` one of the digest's low 16 bits --- a register-destination BCHG, so LONG " +
+    "and modulo 32, whatever capstone prints. DEFECT: d1 is never cleared between characters and every " +
+    "arithmetic step on it is a LONG op while the load is a `move.b`, so a length byte of 230 or more carries " +
+    "into bits 8+ and every following character is $100 too high before `move.b` truncates it. Gspassdecode " +
+    "clears d1 each iteration ($25fa) and cannot reproduce that, so codes that long do not decode.",
+  "gspassdecode":
+    "Routine 37 ($252e), the mirror. It rebuilds the seed from the CODE rather than the data --- last " +
+    "character unmapped, plus the checksum of everything before it, masked to five bits --- then checks the " +
+    "decrypted first character against the string's own length before decoding a group. DEVIATION: the routine " +
+    "writes into PASS$, zeroing the last character and replacing the first, which the guide owns up to ('the " +
+    "string which is passed to this function will be corrupted by this call (for no reason other than my " +
+    "laziness!)'). Arguments arrive by value here, so the caller's variable survives and a program that " +
+    "decodes the same variable twice succeeds where the machine fails. NOTE the integrity check is five bits " +
+    "and each keystream call contributes five, so a short code can decode CORRECTLY under a wrong ID.",
   "stick joy":
     "Routine 5 ($432), reading CIA-A PRB ($bfe101) bits 0-3. The manual calls this the serial port throughout; " +
     "the register says otherwise — CIA-A PRB is the parallel-port DATA register, and Stick Fire's $bfd000 bits " +

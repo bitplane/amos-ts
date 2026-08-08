@@ -4201,6 +4201,17 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It) => import
         return VI(rt.varptrString(() => str(tg.get()), (v) => tg.set(VS(v))))
       }
       const type = tg.type
+      // An ARRAY ELEMENT resolves inside the whole-array block, so the
+      // elements above it are reachable by walking the pointer. That is what
+      // an array is on the machine — one contiguous allocation — and it is the
+      // only reason anyone takes Varptr of one: GameSupport's own manual has
+      // `Gspasscode("Testing",Varptr(A(0)),4)`, which reads four longwords
+      // from it. This used to hand back a lone four-byte cell per element,
+      // so A(0)'s pointer plus four was not A(1) and every such walk read
+      // whatever the arena had put next to it.
+      if (tg.array && tg.index !== undefined) {
+        return VI(rt.varptrArrayElement(tg.key!.replace(/\[.*$/, ''), tg.array, type, tg.index))
+      }
       return VI(rt.varptrScalar(tg.key ?? 'anon', type, () => num(tg.get()), (v) => tg.set(type === 1 ? VF(v) : VI(v))))
     },
     hunt(it) {

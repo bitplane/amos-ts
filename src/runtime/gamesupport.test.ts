@@ -376,3 +376,179 @@ describe('GameSupport: Gsmulti On and Off', () => {
     expect(() => run('Gsmulti On')).not.toThrow()
   })
 })
+
+describe('GameSupport: the passcodes', () => {
+  /** the guide's own worked example, both halves of it */
+  const ROUNDTRIP = [
+    'Dim A(3) : A(0)=10 : A(1)=9 : A(2)=8 : A(3)=7',
+    'P$=Gspasscode("Testing",Varptr(A(0)),4)',
+  ].join('\n')
+
+  it('encodes to upper case letters and the digits 4 to 9, only', () => {
+    // "The returned passcode can contain the upper case letters (A-Z) and the
+    // digits 4 to 9" --- `addi.l #$41 / cmp.l #$5a / ble / subi.l #$27`
+    const { out } = run(`${ROUNDTRIP}\nPrint P$`)
+    expect(out().trim()).toMatch(/^[A-Z4-9]+$/)
+  })
+
+  it('is six characters for the guide’s four small values', () => {
+    // Gspassdecode's node: "a 6 character passcode could contain 1, 2, 3 or 4
+    // values". Each of 10, 9, 8 and 7 fits in one 4-bit group, so the code is
+    // one length character, four groups and one check character.
+    expect(num(`${ROUNDTRIP}\nPrint Len(P$)`)).toBe(6)
+  })
+
+  it('round-trips through Gspassdecode, and answers the count', () => {
+    const { out } = run(
+      [
+        ROUNDTRIP,
+        'Dim B(3)',
+        'L=Gspassdecode("Testing",P$,Varptr(B(0)))',
+        'Print L;B(0);B(1);B(2);B(3)',
+      ].join('\n'),
+    )
+    expect(out().trim()).toBe('4 10 9 8 7')
+  })
+
+  it('round-trips negative numbers, which cost eight groups each', () => {
+    // "avoid negative numbers; the number 1 will encode to a single character
+    // within the final code whereas the number -1 will require eight" ---
+    // `lsr.l #$4` is logical, so -1 never shifts down to zero early
+    const { out } = run(
+      [
+        'Dim A(0) : A(0)=-1',
+        'P$=Gspasscode("K",Varptr(A(0)),1)',
+        'Dim B(0)',
+        'Print Len(P$);Gspassdecode("K",P$,Varptr(B(0)));B(0)',
+      ].join('\n'),
+    )
+    // 8 groups + the length character + the check character
+    expect(out().trim()).toBe('10 1-1')
+  })
+
+  it('round-trips a spread of values and array sizes', () => {
+    for (const vals of [[0], [15], [16], [255], [4095], [65536], [1, 2, 3], [123456, 7, 89]]) {
+      const n = vals.length
+      const set = vals.map((v, i) => `A(${i})=${v}`).join(' : ')
+      const { out } = run(
+        [
+          `Dim A(${n - 1}) : ${set}`,
+          `P$=Gspasscode("My game's encryption key",Varptr(A(0)),${n})`,
+          `Dim B(${n - 1})`,
+          `L=Gspassdecode("My game's encryption key",P$,Varptr(B(0)))`,
+          `Print L;${vals.map((_, i) => `B(${i})`).join(';')}`,
+        ].join('\n'),
+      )
+      expect(out().trim(), vals.join(',')).toBe(` ${n}${vals.map((v) => (v < 0 ? v : ` ${v}`)).join('')}`.trim())
+    }
+  })
+
+  it('refuses a passcode made under a different ID', () => {
+    // "Passcodes created under one ID will not unscramble correctly under
+    // another" --- the digest seeds the keystream, so nothing lines up
+    const { out } = run(
+      [
+        'Dim A(1) : A(0)=42 : A(1)=99',
+        'P$=Gspasscode("alpha",Varptr(A(0)),2)',
+        'Dim B(1)',
+        'Print Gspassdecode("beta",P$,Varptr(B(0)))',
+      ].join('\n'),
+    )
+    expect(out().trim()).toBe('0')
+  })
+
+  it('is case sensitive about the ID', () => {
+    // "the string is case sensitive" --- `add.b` of the raw character into the
+    // digest, so 'T' and 't' differ by one bit and the keystream diverges
+    const { out } = run(
+      [
+        'Dim A(2) : A(0)=1000 : A(1)=2000 : A(2)=3000',
+        'Print Gspasscode("Testing",Varptr(A(0)),3)=Gspasscode("testing",Varptr(A(0)),3)',
+      ].join('\n'),
+    )
+    expect(out().trim()).toBe('0')
+  })
+
+  /**
+   * What "will not unscramble correctly" is actually worth.
+   *
+   * Each keystream call contributes only its low FIVE bits (`and.l d3, d0`
+   * with d3 = $1f), and the only integrity check is a five-bit checksum. For a
+   * short code a wrong ID can therefore produce the RIGHT answer outright, not
+   * merely a rejected one — this pair differs in a single bit of a single
+   * character and still decodes:
+   */
+  it('but a one-value code can survive the wrong ID entirely', () => {
+    const { out } = run(
+      [
+        'Dim A(0) : A(0)=42',
+        'P$=Gspasscode("Testing",Varptr(A(0)),1)',
+        'Dim B(0)',
+        'Print Gspassdecode("testing",P$,Varptr(B(0)));B(0)',
+      ].join('\n'),
+    )
+    expect(out().trim()).toBe('1 42')
+  })
+
+  it('and a wrong ID is caught once there is more than five bits to check', () => {
+    const { out } = run(
+      [
+        'Dim A(3) : A(0)=100 : A(1)=200 : A(2)=300 : A(3)=400',
+        'P$=Gspasscode("Testing",Varptr(A(0)),4)',
+        'Dim B(3)',
+        'Print Gspassdecode("testing",P$,Varptr(B(0)))',
+      ].join('\n'),
+    )
+    expect(out().trim()).toBe('0')
+  })
+
+  it('refuses a passcode with a character changed', () => {
+    // the two check digits: the length character in front and the checksum
+    // character behind. Corrupting a group breaks the second.
+    const { out } = run(
+      [
+        'Dim A(2) : A(0)=1 : A(1)=2 : A(2)=3',
+        'P$=Gspasscode("k",Varptr(A(0)),3)',
+        'Q$=Left$(P$,2)+Chr$(Asc(Mid$(P$,3,1)) Xor 1)+Right$(P$,Len(P$)-3)',
+        'Dim B(2)',
+        'Print Gspassdecode("k",Q$,Varptr(B(0)))',
+      ].join('\n'),
+    )
+    expect(out().trim()).toBe('0')
+  })
+
+  it('refuses a passcode of the wrong length outright', () => {
+    // the FIRST check: `move.b $1(a0),d0 / cmp.b $2(a0),d0` against the
+    // decrypted length character, before any group is looked at
+    const { out } = run(
+      [
+        'Dim A(0) : A(0)=42',
+        'P$=Gspasscode("k",Varptr(A(0)),1)',
+        'Dim B(0)',
+        'Print Gspassdecode("k",P$+"A",Varptr(B(0)))',
+      ].join('\n'),
+    )
+    expect(out().trim()).toBe('0')
+  })
+
+  it('answers 0 for a passcode too short to hold either check digit', () => {
+    // `move.b -$1(a0), d0` on a string with no characters reads the length
+    // word instead --- there is nothing to decode either way
+    const { out } = run(['Dim B(0)', 'Print Gspassdecode("k","",Varptr(B(0)));Gspassdecode("k","A",Varptr(B(0)))'].join('\n'))
+    expect(out().trim()).toBe('0 0')
+  })
+
+  it('the SAME data under the SAME id gives the SAME code, every time', () => {
+    // there is no salt and no clock: the seed is the data checksum and the ID
+    // digest, so a level code is stable, which is the whole point of it
+    const { out } = run(
+      [
+        'Dim A(1) : A(0)=7 : A(1)=11',
+        'P$=Gspasscode("lvl",Varptr(A(0)),2)',
+        'Q$=Gspasscode("lvl",Varptr(A(0)),2)',
+        'Print P$=Q$',
+      ].join('\n'),
+    )
+    expect(out().trim()).toBe('-1')
+  })
+})
