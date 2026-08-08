@@ -282,6 +282,33 @@ export class Protracker {
   /** `P61_E8`, the E8x mailbox — and -2 when the song has wrapped */
   e8 = 0
 
+  /**
+   * The **8xy** mailbox, which is `e8`'s idea one command along.
+   *
+   * ProTracker itself ignores command 8 entirely, so replayers are free to use
+   * it and GameSupport's does: `8tb` sets bit `b` of this word on tick `t` of
+   * the row, and its `=Gscmd8data` reads the word and clears it. Its manual
+   * calls the use *"very useful for synchronising graphical lightshows with
+   * music"*, which is what a mailbox out of the replayer is for.
+   *
+   * Zero for every caller that does not read it — a module written for plain
+   * ProTracker sets bits nobody looks at, which is exactly what happens on the
+   * machine. See `command8` for the tick match.
+   */
+  cmd8 = 0
+
+  /**
+   * Semitones added to every note, for a replayer whose caller wants the whole
+   * module shifted — GameSupport's `Gstrack Transpose`, which describes itself
+   * as *"this unique command"*.
+   *
+   * A note pushed out of its 36-note octave range comes back by ONE octave and
+   * no more, which is the routine's own fixup ($152e-$1566) and the reason its
+   * manual warns that *"many modules sound weird when transposed too much"*.
+   * See `periodOf`.
+   */
+  transpose = 0
+
   /** which voices the music may use; a caller's sound effect takes the rest */
   voices = 0b1111
 
@@ -478,6 +505,9 @@ export class Protracker {
       case 0x7: // 7xy tremolo, the same merge
         if (ch.info !== 0) ch.treCmd = mergeNibbles(ch.treCmd, ch.info)
         break
+      case 0x8: // 8tb — ProTracker ignores it; see `command8`
+        this.command8(ch.info)
+        break
       case 0x9: // 9xx sample offset
         this.sampleOffset(v, ch, cell)
         return
@@ -662,6 +692,9 @@ export class Protracker {
           break
         case 0x7:
           this.tremolo(ch)
+          break
+        case 0x8: // 8tb, on the tick it names
+          this.command8(ch.info)
           break
         case 0xa: // Axy volume slide
           this.volumeSlide(ch)
@@ -1054,8 +1087,82 @@ export class Protracker {
   }
 
   private periodOf(ch: PtChannel): number {
-    return PT_PERIODS[ch.fine * PT_PERIODS_PER_ROW + ch.note] ?? 0
+    if (this.transpose === 0 || ch.note === 0) return PT_PERIODS[ch.fine * PT_PERIODS_PER_ROW + ch.note] ?? 0
+    return PT_PERIODS[transposed(ch.fine, ch.note, this.transpose)] ?? 0
   }
+
+  /**
+   * Move the play position without restarting the song.
+   *
+   * `jumpTo` is this move made by `Bxx` from inside a row, and it sets `broke`
+   * so the advance that follows does not add to it. This is the same move made
+   * from OUTSIDE a row — after `tick()` has returned and its advance has
+   * already happened — so there is nothing left to suppress. GameSupport's
+   * position-range loop needs it: the extension owns the wrap and the
+   * replayer only owns the step.
+   */
+  seek(next: number): void {
+    if (!this.song) return
+    this.pos = next < this.song.positions.length ? next : 0
+    this.patt = this.song.positions[this.pos] ?? 0
+    this.rowsOfPattern = this.song.pattern(this.patt)
+    this.row = 0
+  }
+
+  /**
+   * `8tb` — the mailbox, from both the row tick and the ones after it.
+   *
+   * GameSupport's handler ($11f4):
+   *
+   *     move.b $3(a6), d0          the argument byte
+   *     move.b d0, d1 / lsr.b #$4  the TICK nibble
+   *     beq -> fire now            t = 0 means this tick
+   *     cmp.b $1b75(pc), d1        ...otherwise wait for tick t
+   *     bne -> return
+   *     andi.b #$f, d0 / bset d0   the BIT nibble
+   *
+   * so the same code runs on every tick of the row and fires on exactly one of
+   * them. Its manual: *"8tb, where t is the tick on which the effect will be
+   * triggered, and b is the bit which will be set in the cmd8data word"*, with
+   * `830` firing *"3 ticks after this step is reached, which, if the module
+   * speed is set to 6, will be half a step"*.
+   */
+  private command8(info: number): void {
+    const tick = (info >> 4) & 0xf
+    if (tick !== 0 && tick !== this.counter) return
+    this.cmd8 = (this.cmd8 | (1 << (info & 0xf))) & 0xffff
+  }
+}
+
+/**
+ * The transposed index into `PT_PERIODS`, in the LAYOUT THE ROUTINE USES.
+ *
+ * GameSupport's table is sixteen finetune rows of thirty-six notes with no
+ * duplicate entry ($15b4 to $1a34, 1152 bytes), and it does the arithmetic on
+ * a POINTER into that flat block:
+ *
+ *     divu.w #$48, d0 / swap d0     the byte offset WITHIN the row
+ *     move.b $1b86(pc), d1 / ext.w / ext.l / asl.l #$1
+ *     adda.l d1, a0 / add.l d1, d0
+ *     bmi -> adda.l #$18, a0        below the row: up an octave
+ *     cmp.l #$48, d0 / bge -> suba.l #$18, a0    above it: down an octave
+ *
+ * One correction and no more, so a large transpose still leaves the row and
+ * walks into the NEIGHBOURING FINETUNE row — a different tuning of a note
+ * some way off, which is a real part of "sound weird when transposed too
+ * much". Only the two `cmpa.l` guards against the table's own ends stop it.
+ * That flat walk is reproduced here rather than clamped, which is why this
+ * converts between the two layouts instead of just adding to `ch.note`.
+ */
+function transposed(fine: number, note: number, semitones: number): number {
+  const PER = 36
+  let within = note - 1 + semitones
+  if (within < 0) within += 12
+  else if (within >= PER) within -= 12
+  const flat = fine * PER + within
+  const limited = flat < 0 ? flat + 12 : flat >= 16 * PER ? flat - 12 : flat
+  if (limited < 0 || limited >= 16 * PER) return fine * PT_PERIODS_PER_ROW + note
+  return Math.floor(limited / PER) * PT_PERIODS_PER_ROW + (limited % PER) + 1
 }
 
 /** `4xy`/`7xy`: a zero nibble keeps what was there, each side independently */

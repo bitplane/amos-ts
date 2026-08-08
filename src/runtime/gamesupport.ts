@@ -96,6 +96,7 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import { sw16 } from './word'
 import { counterDelta, joyDatOf, joyDatX, joyDatY, mouseDat } from '../amiga/gameport'
 import { elapsedTime, readJoyPort } from '../amiga/lowlevel'
+import { Protracker, parseMod } from '../amiga/protracker'
 
 /**
  * The nine messages, verbatim from `GameSupport.s`'s `ErrMess` table.
@@ -137,6 +138,51 @@ export interface GameSupportState {
   clock: { last: number }
   /** $52 — non-zero when lowlevel.library opened, which here it does */
   lowlevel: boolean
+  /** the ProTracker half — see `GameSupportMusic` */
+  music: GameSupportMusic
+}
+
+/**
+ * The replayer's own block, at $1b70 and below the data pointer, plus the four
+ * loop fields above it.
+ *
+ * The extension ships a whole ProTracker replayer — `SubRoutines/PlayRoutine.s`
+ * in its source, which is one of the six includes the archive does not carry.
+ * It is not reimplemented here: `../amiga/protracker.ts` is already a
+ * four-channel ProTracker replay ported from Player 6.1A's source and checked
+ * byte-exactly against the corpus, and the same engine already serves AMCAF
+ * and P61. What IS read off the binary is everything GameSupport adds to a
+ * stock replayer, because that is where it differs:
+ *
+ *     $0    loop on/off               $1c1a, tested at $ce4
+ *     $4    loop start, Pos1          $1c1e, the byte at $1c21 seeds the position
+ *     $8    loop end, Pos2            $1c22, compared at $cd2
+ *     $10   the DEFERRED loop end     $1c2a, swapped in at $d04
+ *     $18   master volume, 0..64      $1c32, `mulu.w / lsr.l #$6` at $157c
+ *     -$94  transpose, in semitones   $1b86, read at $1520
+ *     -$96  the 8tb mailbox           $1b84, set at $1212
+ *     -$a4  the song position         $1b76
+ *
+ * DEVIATION: inherited rather than introduced --- the real player runs off a CIA
+ * timer ($626 opens `ciab.resource` and installs an ICR vector, picking
+ * $1b0f87 or $1b4f4d as its clock by graphics.library's PAL bit), so `Fxx`
+ * above $1f sets a true tempo. Every replayer in this port ticks once a
+ * vertical blank instead, so a module written at 125 BPM plays right and one
+ * that changes tempo does not change speed. `Protracker.bpm` still tracks what
+ * was asked for.
+ */
+export interface GameSupportMusic {
+  /** the engine, shared with every other module player here */
+  replay: Protracker
+  /** $0 — `Gstrack Loop On`/`Off`; 1 by the cold start, so looping starts on */
+  loop: boolean
+  /** $4 and $8 — the range, as LONGWORDS; -1 in either means "not set" */
+  from: number
+  to: number
+  /** $10 — the end to swap in at the next wrap, or -1 */
+  defer: number
+  /** $c — cleared to -1 by `Gstrack Play` and read by nothing else */
+  spare: number
 }
 
 /**
@@ -158,7 +204,17 @@ export function newGameSupportState(rt?: Runtime): GameSupportState {
     ],
     clock: { last: 0 },
     lowlevel: true,
+    music: {
+      // `move.l #$1,$0(a0)` / `#$ffffffff` into $4 and $8 / `move.w #$40,$18`
+      replay: new Protracker(() => rt?.host.audio),
+      loop: true,
+      from: -1,
+      to: -1,
+      defer: -1,
+      spare: -1,
+    },
   }
+  st.music.replay.master = 0x40
   if (rt) seedCounters(rt, st)
   return st
 }
@@ -218,6 +274,7 @@ const scale = (delta: number, st: GameSupportState): number => (delta * sw16(st.
 export function gamesupportVbl(rt: Runtime): void {
   const st = rt.gamesupport
   if (!st) return
+  musicVbl(st)
   const w = joyDat(rt, 0)
   const p = st.prev[0]
   const y = joyDatY(w)
@@ -228,7 +285,106 @@ export function gamesupportVbl(rt: Runtime): void {
   p.x = x
 }
 
+/**
+ * The player's own advance, at $cb8 — the part `Protracker` cannot own,
+ * because the range and the wrap belong to the extension and not the module.
+ *
+ *     addq.b #$1, (a1) / andi.b #$7f, (a1)      positions wrap at 128
+ *     tst.l  $1c22 / blt -> length test         a negative Pos2 is "unset"
+ *     subq.w #$1, d1 / cmp.b $3(a0), d1 / beq   ...else the one we just LEFT
+ *     addq.w #$1, d1
+ *     cmp.b $3b6(a0), d1 / bcs -> carry on      $3b6 is the module's length
+ *     tst.l $1c1a / beq -> bra $908             loop off: STOP, do not wrap
+ *     move.b $1c21(pc), (a1)                    ...else back to Pos1
+ *     tst.l $1c2a / bmi -> carry on
+ *     move.l (a0), $1c22 / move.l #-1, (a0)     the deferred end takes over
+ *
+ * Note that both position comparisons are `cmp.b` on longword fields, so only
+ * the low byte of Pos1 and Pos2 is ever used, and that `blt`/`bmi` test the
+ * whole longword — which is how -1 means "unset" while 255 does not.
+ *
+ * Only the SEQUENTIAL advance comes here. `Bxx` and `Dxx` have their own paths
+ * in the replayer ($1174 and $11aa) and neither consults the range, so a
+ * module that jumps out of its own loop range is not brought back.
+ */
+export function musicVbl(st: GameSupportState): void {
+  const m = st.music
+  const r = m.replay
+  if (!r.playing || !r.song) return
+
+  const len = r.song.positions.length
+  const was = r.pos
+  r.tick()
+  if (r.pos === was) return
+  // a Bxx or Dxx jump is not the advance this models
+  const stepped = was + 1
+  if (r.pos !== (stepped < len ? stepped : 0)) return
+
+  let next = stepped & 0x7f
+  const ended = (m.to >= 0 && ((next - 1) & 0xff) === (m.to & 0xff)) || next >= len
+  if (ended) {
+    if (!m.loop) {
+      // `bra $908`: voices off, position 0, and the flag cleared
+      gsTrackStop(st)
+      return
+    }
+    next = m.from & 0xff
+    if (m.defer >= 0) {
+      m.to = m.defer
+      m.defer = -1
+    }
+  }
+  if (next !== r.pos) r.seek(next)
+}
+
+/**
+ * $908, which `Gstrack Stop` reaches through `jsr -$1312(a6)` and which the
+ * end of a non-looping song reaches through `bra`:
+ *
+ *     sf.b $1b7d / sf.b $1b83        both flags
+ *     clr.b $1b76                    the position, back to 0
+ *     clr.w $a8/$b8/$c8/$d8          all four volumes
+ *     move.w #$f, $dff096            and all four DMA channels off
+ *
+ * `Protracker.stop` is the same pair of ideas — `playing` false and every
+ * voice the music holds silenced — so the position is all this adds.
+ */
+function gsTrackStop(st: GameSupportState): void {
+  const r = st.music.replay
+  r.stop()
+  r.pos = 0
+}
+
 export function makeGameSupportInstructions(rt: Runtime): Record<string, Instr> {
+  const m = (): GameSupportMusic => rt.gamesupport.music
+
+  /**
+   * `Gstrack Play bank, Pos1 To Pos2` — routine 12 ($21f4), with routines 16
+   * ($22bc) and 17 ($22c6) as its shorter forms. Each pushes a default and
+   * falls into the next: `Gstrack Play bank` becomes `bank, 0 To -1`.
+   *
+   * The bank must be one `Track Load` made. `cmpi.l #$54726163, -$8(a2)` and
+   * `#$6b657220, -$4(a2)` is "Trac" and "ker " — the eight-byte bank name —
+   * and anything else is error 5, *"not a tracker bank"*. The guide is blunt
+   * about the dependency: *"There is no Gstrack Load command, so you must use
+   * the standard Track Load command instead."*
+   */
+  const play = (bank: number, from: number, to: number): void => {
+    const mu = m()
+    mu.to = to
+    mu.from = from
+    mu.defer = -1
+    mu.spare = -1
+    const b = rt.memBanks.get(bank)
+    if (!b || b.name.padEnd(8, ' ') !== 'Tracker ') gsError(5)
+    const song = parseMod(b!.data)
+    if (!song) gsError(5)
+    // `move.b $1c21(pc),(a0)` at $8ba: the position is Pos1's LOW BYTE
+    mu.replay.load(song!, from & 0x7f)
+    mu.replay.cmd8 = 0
+    mu.replay.playing = true
+  }
+
   return {
     /**
      * Gssetmousespeed speed — routine 6 ($1efa), thirty bytes:
@@ -284,6 +440,159 @@ export function makeGameSupportInstructions(rt: Runtime): Record<string, Instr> 
      */
     'gsmulti off'() {},
     'gsmulti on'() {},
+
+    /**
+     * Gstrack Play bank | bank,Pos1 | bank,Pos1 To Pos2 — see `play`.
+     *
+     * The token table gives all three forms one name and three routines, each
+     * pushing a default and falling through: 17 pushes 0 for Pos1, 16 pushes
+     * -1 for Pos2, 12 does the work. So the bare form loops the whole module
+     * from position 0, which is what `Gstrack Play 6` in its example does.
+     */
+    'gstrack play'(it) {
+      const bank = it.evalInt()
+      if (!it.accept(',')) return play(bank, 0, -1)
+      const from = it.evalInt()
+      const to = it.accept('to') ? it.evalInt() : -1
+      play(bank, from, to)
+    },
+
+    /**
+     * Gstrack Stop — routine 13 ($227a):
+     *
+     *     sf.b -$9d(a6)          the playing flag
+     *     jsr  -$1312(a6)        $908: voices silent, position 0
+     *     jsr  -$14e6(a6)        $734: the CIA interrupt removed
+     *
+     * The CIA half has no counterpart here — every replayer in this port is
+     * driven from the vertical blank — so what is left is the silence.
+     */
+    'gstrack stop'() {
+      gsTrackStop(rt.gamesupport)
+    },
+
+    /**
+     * Gstrack Loop On / Off — routines 18 ($22d0) and 19 ($22de), one store
+     * each into $0. *"The first two forms of this command work exactly as the
+     * regular track loop commands."*
+     *
+     * With looping OFF the player does not merely stop repeating: reaching the
+     * end runs `bra $908`, which is `Gstrack Stop`'s own silence.
+     */
+    'gstrack loop on'() {
+      m().loop = true
+    },
+    'gstrack loop off'() {
+      m().loop = false
+    },
+
+    /**
+     * Gstrack Loop Pos1 | Pos1 To Pos2 — routines 20 ($22ec) and 21 ($22f6).
+     * The one-argument form pushes -1 for Pos2 and falls through.
+     *
+     * Note what routine 21 does BESIDES storing the range: `move.l #$1,$0(a0)`
+     * turns looping back ON. Setting a range is a request to loop it.
+     */
+    'gstrack loop'(it) {
+      const from = it.evalInt()
+      const to = it.accept('to') ? it.evalInt() : -1
+      const mu = m()
+      mu.loop = true
+      mu.to = to
+      mu.from = from
+    },
+
+    /**
+     * Gstrack Loop Defer Pos1 To Pos2 — routine 24 ($2342), fourteen bytes:
+     *
+     *     move.l (a3)+, $10(a0)      Pos2 goes to the DEFERRED slot
+     *     move.l (a3)+, $4(a0)       Pos1 goes in straight away
+     *
+     * so only the end is deferred, and the start does not need to be: nothing
+     * reads Pos1 until the wrap that would have used the old end anyway. The
+     * guide's *"the new limits will not be set until the current cycle has
+     * finished"* is therefore true of both, by two different mechanisms.
+     *
+     * NOTE it does not touch $0, so `Gstrack Loop Off` still beats it.
+     */
+    'gstrack loop defer'(it) {
+      const from = it.evalInt()
+      it.expect('to')
+      const to = it.evalInt()
+      const mu = m()
+      mu.defer = to
+      mu.from = from
+    },
+
+    /**
+     * Gstrack Gosub Pos1 | Pos1 To Pos2 — routines 22 ($230c) and 23 ($233a).
+     * The one-argument form duplicates the top of the stack (`move.l (a3),d0 /
+     * move.l d0,-(a3)`), so Pos2 becomes Pos1 and *"just this pattern will be
+     * played"*.
+     *
+     * There is no return stack. It builds the return out of the loop fields:
+     *
+     *     sf.b   -$9d(a0)                 stop, so the next tick sees no song
+     *     move.b -$a4(a0), d0
+     *     move.l d0, $4(a0)               Pos1 := WHERE WE ARE
+     *     move.l $8(a0), $10(a0)          the old end becomes the deferred one
+     *     move.l (a3)+, $8(a0)            the jingle's end
+     *     move.b d0, -$a4(a0)             jump to the jingle's start
+     *     move.w #$0, -$9c(a0)
+     *     st.b   -$9d(a0)                 and go
+     *
+     * So the jingle plays as a loop range, and the wrap at its end sends the
+     * position back to where the main tune was and restores the old end from
+     * the deferred slot. *"After which the module will return to wherever it
+     * was beforehand"* — one level deep, and a second `Gstrack Gosub` inside a
+     * jingle loses the outer return.
+     */
+    'gstrack gosub'(it) {
+      const from = it.evalInt()
+      const to = it.accept('to') ? it.evalInt() : from
+      const mu = m()
+      mu.replay.playing = false
+      mu.from = mu.replay.pos & 0xff
+      mu.defer = mu.to
+      mu.to = to
+      mu.replay.seek(from & 0x7f)
+      mu.replay.playing = true
+    },
+
+    /**
+     * Gstrack Transpose offset — routine 15 ($22b0), three instructions, and
+     * the store is a `move.b`: the offset is kept as a BYTE, so ±127 and
+     * anything past that wraps rather than saturating.
+     *
+     * *"This unique command allows you to change the pitch at which a module
+     * replays [...] notes which are transposed beyond the legal range will be
+     * put up or down an octave to fit."* The octave fixup is in
+     * `../amiga/protracker.ts`'s `transposed`, along with what "to fit" does
+     * not cover.
+     */
+    'gstrack transpose'(it) {
+      m().replay.transpose = sw8(it.evalInt())
+    },
+
+    /**
+     * Gstrack Volume level — routine 25 ($2350), and the store is a `move.w`.
+     *
+     * The player applies it with `mulu.w $1c32(pc), d0 / lsr.l #$6, d0`
+     * ($157c) — a channel volume times this over 64 — which is the same
+     * arithmetic `Protracker.master` already does for P61's master volume, so
+     * it IS that field.
+     *
+     * *"Ranging from 0 to 64"*, and nothing checks: a larger level multiplies
+     * past full volume and the replayer's own clamp is what stops it.
+     */
+    'gstrack volume'(it) {
+      const v = it.evalInt() & 0xffff
+      // `fadeTo` as well as `master`: P61's fade walks one toward the other
+      // every tick, and this player has no fade at all --- it reads the field
+      // straight. Leaving the target behind would make the level drift back.
+      m().replay.master = v
+      m().replay.fadeTo = v
+    },
   }
 }
 
@@ -332,6 +641,9 @@ function newtonSqrt(x: number, seed: number, rounds: number): number {
   }
   return d2 | 0
 }
+
+/** `move.b dn, <ea>` then read back signed — the transpose is kept as a byte */
+const sw8 = (v: number): number => (v << 24) >> 24
 
 /** `addq.w #$7, dn` — seven onto the low word, the high word untouched */
 const addq7w = (v: number): number => (v & ~0xffff) | ((v + 7) & 0xffff)
@@ -618,6 +930,32 @@ export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
     },
     'gsreadsega'(): Value {
       return VI(0)
+    },
+
+    /**
+     * =Gscmd8data — routine 14 ($229c), five instructions:
+     *
+     *     movea.l $258(a5), a2
+     *     moveq  #$0, d3
+     *     move.w -$96(a2), d3        the mailbox, zero-extended
+     *     move.w #$0, -$96(a2)       and cleared BY THE READ
+     *
+     * *"The word will be cleared only when it is read, so this function should
+     * be called fairly frequently."* Read-to-clear is the whole protocol:
+     * every bit the module has set since the last call arrives at once, and a
+     * program that reads twice in a frame gets the second answer empty.
+     *
+     * The bits are set by command `8tb` in the module — see `command8` in
+     * `../amiga/protracker.ts`. Plain ProTracker ignores command 8 entirely,
+     * which is what makes it free to use: *"This command has no effect in
+     * ProTracker, and is very useful for synchronising graphical lightshows
+     * with music."*
+     */
+    'gscmd8data'(): Value {
+      const r = st().music.replay
+      const v = r.cmd8 & 0xffff
+      r.cmd8 = 0
+      return VI(v)
     },
 
     /**

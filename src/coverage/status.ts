@@ -1375,6 +1375,9 @@ export const FAITHFUL = new Set<string>([
   'gssetmousespeed', 'gscontrollertype', 'gsreadsega',
   'gssqr', 'gspyth', 'gsmulti on', 'gsmulti off',
   'gspasscode', 'gspassdecode',
+  'gstrack play', 'gstrack stop', 'gstrack loop', 'gstrack loop on',
+  'gstrack loop off', 'gstrack loop defer', 'gstrack gosub',
+  'gstrack transpose', 'gstrack volume', 'gscmd8data',
 
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
@@ -4170,6 +4173,50 @@ export const NOTES: Record<string, string> = {
     "arithmetic step on it is a LONG op while the load is a `move.b`, so a length byte of 230 or more carries " +
     "into bits 8+ and every following character is $100 too high before `move.b` truncates it. Gspassdecode " +
     "clears d1 each iteration ($25fa) and cannot reproduce that, so codes that long do not decode.",
+  "gstrack play":
+    "Routines 12/16/17 ($21f4/$22bc/$22c6), each pushing a default and falling into the next, so `Gstrack Play " +
+    "bank` is `bank, 0 To -1`. The bank must be one Track Load made: `cmpi.l #$54726163,-$8(a2)` and " +
+    "`#$6b657220,-$4(a2)` is 'Trac' and 'ker ', and anything else is error 5. The extension ships its own " +
+    "ProTracker replayer (SubRoutines/PlayRoutine.s, one of the six missing includes); this drives " +
+    "src/amiga/protracker.ts instead and reads off the binary only what GameSupport ADDS to a stock replayer " +
+    "--- the position range, the transpose, the 8tb mailbox and the master volume. DEVIATION: the real player " +
+    "runs off a CIA timer ($626 opens ciab.resource and installs an ICR vector), so Fxx above $1f sets a true " +
+    "tempo; every replayer here ticks once a vertical blank instead.",
+  "gstrack stop":
+    "Routine 13 ($227a): the flag cleared, `jsr -$1312(a6)` = $908 for the silence and the rewind to position " +
+    "0, and `jsr -$14e6(a6)` = $734 to remove the CIA interrupt, which has no counterpart here.",
+  "gstrack loop":
+    "Routines 20/21 ($22ec/$22f6); the one-argument form pushes -1 for Pos2. NOTE routine 21 opens " +
+    "`move.l #$1,$0(a0)` --- setting a range turns looping back ON.",
+  "gstrack loop on":
+    "Routine 18 ($22d0), one store. With looping OFF the end of the range does not merely stop repeating: " +
+    "`tst.l $1c1a / beq` runs `bra $908`, which is Gstrack Stop's own silence.",
+  "gstrack loop off":
+    "Routine 19 ($22de), the other store.",
+  "gstrack loop defer":
+    "Routine 24 ($2342): Pos2 goes to the DEFERRED slot ($10) and Pos1 straight into $4. Only the end needs " +
+    "deferring --- nothing reads Pos1 until the wrap that would have used the old end anyway --- so the guide's " +
+    "'the new limits will not be set until the current cycle has finished' is true of both by two mechanisms. " +
+    "It does not touch $0, so Gstrack Loop Off still beats it.",
+  "gstrack gosub":
+    "Routines 22/23 ($230c/$233a); the one-argument form duplicates the top of the stack so Pos2 = Pos1. There " +
+    "is no return stack: Pos1 becomes WHERE WE ARE, the old end goes to the deferred slot, and the wrap at the " +
+    "jingle's end does the rest. One level deep --- a second Gstrack Gosub inside a jingle loses the outer " +
+    "return.",
+  "gstrack transpose":
+    "Routine 15 ($22b0), and the store is a `move.b`, so the offset is a signed BYTE and 200 means -56. The " +
+    "player finds the note's index in its own period table and adds the offset ($1520); a note pushed out of " +
+    "its 36-note row comes back by ONE octave and no more ($152e-$1566), after which a larger transpose walks " +
+    "into the neighbouring FINETUNE row. That is the whole of 'many modules sound weird when transposed too " +
+    "much'.",
+  "gstrack volume":
+    "Routine 25 ($2350), a `move.w` into $18. The player applies it with `mulu.w $1c32(pc),d0 / lsr.l #$6,d0` " +
+    "($157c), which is Protracker.master's own arithmetic. Nothing range-checks: past 64 it multiplies beyond " +
+    "full volume and only the replayer's clamp stops it.",
+  "gscmd8data":
+    "Routine 14 ($229c), five instructions, and the read CLEARS the word. The bits come from command 8tb in the " +
+    "module ($11f4): t is the tick to fire on and b the bit to set, with t=0 meaning the row tick. ProTracker " +
+    "ignores command 8 entirely, which is what makes it free to use for this.",
   "gspassdecode":
     "Routine 37 ($252e), the mirror. It rebuilds the seed from the CODE rather than the data --- last " +
     "character unmapped, plus the checksum of everything before it, masked to five bits --- then checks the " +

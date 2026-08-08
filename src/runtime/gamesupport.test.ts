@@ -552,3 +552,265 @@ describe('GameSupport: the passcodes', () => {
     expect(out().trim()).toBe('-1')
   })
 })
+
+// ---- the ProTracker half -------------------------------------------------
+
+/**
+ * A four-position M.K. module. One sample, four patterns, and whatever effect
+ * each test asks for on row 0 of each — enough to watch the position walk and
+ * to fire the 8 command.
+ */
+function modFile(cells: Record<number, [cmd: number, info: number]> = {}, speed = 1): Uint8Array {
+  const PATTERNS = 4
+  const d = new Uint8Array(1084 + PATTERNS * 1024 + 64)
+  const dv = new DataView(d.buffer)
+  dv.setUint16(20 + 22, 32) // sample 1: 64 bytes
+  d[20 + 25] = 40 // volume
+  dv.setUint16(20 + 28, 1) // the conventional one-word repeat
+  d[950] = PATTERNS // song length
+  d[951] = 0 // restart
+  for (let p = 0; p < PATTERNS; p++) d[952 + p] = p
+  d.set([0x4d, 0x2e, 0x4b, 0x2e], 1080) // "M.K."
+  // a cell is four bytes: instrument's high nibble over the period's high
+  // nibble, the period's low byte, the instrument's low nibble over the
+  // command, then its argument
+  const cell = (pattern: number, row: number, channel: number, period: number, cmd: number, info: number): void => {
+    const at = 1084 + pattern * 1024 + row * 16 + channel * 4
+    d[at] = period >> 8 // instrument 1: high nibble 0
+    d[at + 1] = period & 0xff
+    d[at + 2] = 0x10 | (cmd & 0xf) // instrument 1: low nibble 1
+    d[at + 3] = info & 0xff
+  }
+  // EVERY pattern sets the speed on channel 1, so channel 0's row 0 is free
+  // for whatever a test wants and every position runs at the same rate
+  for (let p = 0; p < PATTERNS; p++) {
+    cell(p, 0, 1, 0x1ac, 0xf, speed)
+    cell(p, 0, 0, 0x1ac, 0, 0)
+  }
+  for (const [row, [cmd, info]] of Object.entries(cells)) cell(0, Number(row), 0, 0x1ac, cmd, info)
+  return d
+}
+
+function withMod(src: string, data = modFile()): Boot {
+  const b = boot(src)
+  b.rt.memBanks.set(6, { kind: 'memory', number: 6, memType: 1, name: 'Tracker', flags: 0, data })
+  return b
+}
+
+/** run the program, then step `n` vertical blanks */
+function playFor(b: Boot, n: number): void {
+  mustFinish(b.rt.runHeadless(2_000))
+  for (let i = 0; i < n; i++) b.rt.frame()
+}
+
+const music = (b: Boot) => b.rt.gamesupport.music
+
+/**
+ * Step vertical blanks until the song position changes, and answer the new
+ * one. Robust against the replayer's lead-in: the row tick fires when the
+ * counter REACHES the speed, so the first row of a song plays `speed` blanks
+ * after it starts rather than immediately.
+ */
+function untilPos(b: Boot, limit = 400): number {
+  const from = music(b).replay.pos
+  for (let i = 0; i < limit; i++) {
+    b.rt.frame()
+    if (music(b).replay.pos !== from) break
+    if (!music(b).replay.playing) break
+  }
+  return music(b).replay.pos
+}
+
+describe('GameSupport: Gstrack Play', () => {
+  it('needs a bank Track Load made, and raises error 5 otherwise', () => {
+    // `cmpi.l #$54726163,-$8(a2)` and `#$6b657220,-$4(a2)` --- "Trac" and
+    // "ker ", the eight-byte bank name. The guide: "There is no Gstrack Load
+    // command, so you must use the standard Track Load command instead."
+    expect(() => run('Gstrack Play 6')).toThrow(GAMESUPPORT_ERRORS[5])
+    const wrong = boot('Gstrack Play 6')
+    wrong.rt.memBanks.set(6, { kind: 'memory', number: 6, memType: 1, name: 'Samples', flags: 0, data: modFile() })
+    expect(() => wrong.rt.runHeadless(2_000)).toThrow(GAMESUPPORT_ERRORS[5])
+  })
+
+  it('starts playing, from position 0 for the bare form', () => {
+    // routine 17 pushes 0 for Pos1 and routine 16 pushes -1 for Pos2
+    const b = withMod('Gstrack Play 6')
+    playFor(b, 2)
+    expect(music(b).replay.playing).toBe(true)
+    expect(music(b).replay.pos).toBe(0)
+    expect(music(b).from).toBe(0)
+    expect(music(b).to).toBe(-1)
+  })
+
+  it('starts at Pos1 when given one, and records Pos2 when given both', () => {
+    const b = withMod('Gstrack Play 6,2')
+    playFor(b, 1)
+    expect(music(b).replay.pos).toBe(2)
+    expect(music(b).to).toBe(-1)
+    const r = withMod('Gstrack Play 6,1 To 2')
+    playFor(r, 1)
+    expect(music(r).replay.pos).toBe(1)
+    expect(music(r).from).toBe(1)
+    expect(music(r).to).toBe(2)
+  })
+
+  it('clears the deferred end and the cmd8 mailbox', () => {
+    // `move.l #$ffffffff,$10(a0)` and `$c(a0)`, and `clr.w $1b84` at $8a0
+    const b = withMod('Gstrack Loop Defer 1 To 2 : Gstrack Play 6')
+    playFor(b, 1)
+    expect(music(b).defer).toBe(-1)
+    expect(music(b).replay.cmd8).toBe(0)
+  })
+})
+
+describe('GameSupport: the loop range', () => {
+  it('wraps to Pos1 when the position it just left was Pos2', () => {
+    // `subq.w #$1,d1 / cmp.b $3(a0),d1 / beq` --- the test is on the position
+    // just FINISHED, which is what "when Pos2 is reached, the module will
+    // start again from Pos1" means
+    const b = withMod('Gstrack Play 6,1 To 2')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(untilPos(b)).toBe(2)
+    expect(untilPos(b)).toBe(1)
+    expect(untilPos(b)).toBe(2)
+  })
+
+  it('wraps at the song’s own end when no Pos2 is set', () => {
+    // `tst.l (a0) / blt` skips the Pos2 test for a negative, then
+    // `cmp.b $3b6(a0),d1 / bcs` is the module's length byte
+    const b = withMod('Gstrack Play 6')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect([untilPos(b), untilPos(b), untilPos(b), untilPos(b)]).toEqual([1, 2, 3, 0])
+    expect(music(b).replay.playing).toBe(true)
+  })
+
+  it('STOPS rather than wrapping when looping is off', () => {
+    // `tst.l $1c1a / beq -> bra $908` --- the same silence Gstrack Stop uses,
+    // not merely "play on past the end"
+    const b = withMod('Gstrack Loop Off : Gstrack Play 6')
+    mustFinish(b.rt.runHeadless(2_000))
+    for (let i = 0; i < 4; i++) untilPos(b)
+    expect(music(b).replay.playing).toBe(false)
+    expect(music(b).replay.pos).toBe(0)
+  })
+
+  it('Gstrack Loop with a range turns looping back ON', () => {
+    // routine 21 opens `move.l #$1,$0(a0)` before it stores either position:
+    // setting a range is a request to loop it
+    const b = withMod('Gstrack Loop Off : Gstrack Play 6 : Gstrack Loop 1 To 2')
+    playFor(b, 1)
+    expect(music(b).loop).toBe(true)
+    expect(music(b).from).toBe(1)
+    expect(music(b).to).toBe(2)
+  })
+
+  it('Gstrack Loop On and Off are one store each', () => {
+    const b = withMod('Gstrack Play 6 : Gstrack Loop Off')
+    playFor(b, 1)
+    expect(music(b).loop).toBe(false)
+    const on = withMod('Gstrack Play 6 : Gstrack Loop Off : Gstrack Loop On')
+    playFor(on, 1)
+    expect(music(on).loop).toBe(true)
+  })
+
+  it('Defer swaps the end in at the wrap, not before it', () => {
+    // routine 24 stores Pos2 into the DEFERRED slot ($10) and Pos1 straight
+    // into $4; the swap happens at $d04, on the wrap
+    const b = withMod('Gstrack Play 6,0 To 1 : Gstrack Loop Defer 2 To 3')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(music(b).to).toBe(1) // still the old end
+    expect(music(b).defer).toBe(3)
+    expect(untilPos(b)).toBe(1)
+    expect(untilPos(b)).toBe(2) // Pos1 was set at once, so the wrap goes there
+    expect(music(b).to).toBe(3) // and the deferred end has taken over
+    expect(music(b).defer).toBe(-1)
+  })
+})
+
+describe('GameSupport: Gstrack Gosub', () => {
+  it('the one-argument form plays just that pattern', () => {
+    // routine 23 duplicates the top of the stack, so Pos2 = Pos1 --- "just
+    // this pattern will be played if Pos2 isn't supplied"
+    const b = withMod('Gstrack Play 6 : Gstrack Gosub 2')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(music(b).replay.pos).toBe(2)
+    expect(music(b).from).toBe(0) // where the main tune was
+    expect(music(b).to).toBe(2) // and back at the end of this one
+    expect(music(b).defer).toBe(-1) // the main tune had no end set
+    expect(untilPos(b)).toBe(0)
+  })
+
+  it('restores the main tune’s own end afterwards', () => {
+    const b = withMod('Gstrack Play 6,0 To 3 : Gstrack Gosub 1 To 2')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(music(b).replay.pos).toBe(1)
+    expect(music(b).to).toBe(2) // the jingle's end
+    expect(music(b).defer).toBe(3) // the main tune's, saved
+    expect(untilPos(b)).toBe(2)
+    expect(untilPos(b)).toBe(0) // back where the tune was
+    expect(music(b).to).toBe(3) // and its end restored
+  })
+})
+
+describe('GameSupport: Gstrack Stop, Transpose and Volume', () => {
+  it('Gstrack Stop silences and rewinds to position 0', () => {
+    const b = withMod('Gstrack Play 6,2 : Gstrack Stop')
+    playFor(b, 2)
+    expect(music(b).replay.playing).toBe(false)
+    expect(music(b).replay.pos).toBe(0)
+  })
+
+  it('Gstrack Volume is the replayer’s master, 0 to 64', () => {
+    // `move.w d0,$18(a2)` and, in the player, `mulu.w $1c32(pc),d0 /
+    // lsr.l #$6,d0` --- a channel volume times this over 64
+    const b = withMod('Gstrack Play 6 : Gstrack Volume 32')
+    playFor(b, 1)
+    expect(music(b).replay.master).toBe(32)
+    // 64 is the cold start's own value
+    expect(withMod('').rt.gamesupport.music.replay.master).toBe(64)
+  })
+
+  it('Gstrack Transpose is kept as a BYTE, so it is signed and it wraps', () => {
+    // routine 15 is `move.l (a3)+,d0 / move.b d0,-$94(a0)`
+    const up = withMod('Gstrack Play 6 : Gstrack Transpose 3')
+    playFor(up, 1)
+    expect(music(up).replay.transpose).toBe(3)
+    const down = withMod('Gstrack Play 6 : Gstrack Transpose -12')
+    playFor(down, 1)
+    expect(music(down).replay.transpose).toBe(-12)
+    // 200 has no meaning as a semitone count; the byte says -56
+    const wrapped = withMod('Gstrack Play 6 : Gstrack Transpose 200')
+    playFor(wrapped, 1)
+    expect(music(wrapped).replay.transpose).toBe(-56)
+  })
+})
+
+describe('GameSupport: Gscmd8data', () => {
+  it('sets a bit on tick 0 for 80b, and clears on the read', () => {
+    // "8tb, where t is the tick [...] and b is the bit". The word is "cleared
+    // only when it is read", which is the whole protocol.
+    // the row tick fires when the counter REACHES the speed, so row 0 plays
+    // six blanks after Gstrack Play at speed 6
+    const b = withMod('Gstrack Play 6 : For A=1 To 7 : Wait Vbl : Next A : Print Gscmd8data;Gscmd8data', modFile({ 0: [0x8, 0x02] }, 6))
+    mustFinish(b.rt.runHeadless(20_000))
+    // set once, read once: the second read finds it cleared
+    expect(b.out().trim()).toBe('4 0')
+  })
+
+  it('waits for tick t when t is not zero', () => {
+    // the guide's own example: "830: Gscmd8data will return a 1, 3 ticks after
+    // this step is reached, which, if the module speed is set to 6, will be
+    // half a step"
+    const b = withMod('Gstrack Play 6', modFile({ 0: [0x8, 0x31] }, 6))
+    playFor(b, 6 + 2) // the lead-in, then ticks 0 and 1 of row 0
+    expect(music(b).replay.cmd8).toBe(0)
+    playFor(b, 2) // ticks 2 and 3
+    expect(music(b).replay.cmd8).toBe(0b10)
+  })
+
+  it('accumulates every bit set since the last read', () => {
+    const b = withMod('Gstrack Play 6', modFile({ 0: [0x8, 0x01], 1: [0x8, 0x04] }, 6))
+    playFor(b, 6 + 7) // row 0 sets bit 1, row 1 sets bit 4
+    expect(music(b).replay.cmd8).toBe(0b10010)
+  })
+})
