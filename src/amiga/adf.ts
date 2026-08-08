@@ -322,6 +322,28 @@ export class AdfVolume implements Volume {
     return this.info.label
   }
 
+  /**
+   * The raw sector image, live.
+   *
+   * An ADF *is* the sectors, so a caller reaching `trackdisk.device` past the
+   * filesystem — SLN's `S Disk Read`/`S Disk Write` at a byte offset — reads
+   * and writes exactly this. Writing through it is what a raw device write
+   * does on the machine: the filesystem is not told, and anything it has
+   * already cached is now stale, which is what `invalidate` is for.
+   */
+  get image(): Uint8Array {
+    return this.a.bytes
+  }
+
+  /**
+   * Forget the memoised directory walks — what a real machine gets from
+   * `CMD_UPDATE` plus an `Inhibit`, and what a raw write past the filesystem
+   * needs if the next `Dir` is to see it.
+   */
+  invalidate(): void {
+    this.listings.clear()
+  }
+
   /** one directory's entries, hash table plus collision chains */
   private listing(dir: number): Map<string, AdfNode> {
     const hit = this.listings.get(dir)

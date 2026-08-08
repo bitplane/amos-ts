@@ -1410,6 +1410,13 @@ export const FAITHFUL = new Set<string>([
   's sam bank load', 's sam bank save', 's sam base', 's sam load',
   's sam chip load', 's sam del', 's sam play', 's sam stop', 's sam clip',
   's sam freq', 's set freq', 's sam length', 's volume',
+  // Batch 5 -- trackdisk.device: raw sector access past AmigaDOS entirely,
+  // served from a mounted ADF, which IS the sector image the device wants.
+  's disk open', 's disk close', 's motor on', 's motor off',
+  's disk read', 's disk send read', 's disk write', 's disk send write',
+  's disk state', 's disk prot state', 's disk changes', 's num tracks',
+  's disk dev check', 's disk abort', 's disk wait', 's disk update',
+  's disk rename',
 
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
@@ -4611,6 +4618,79 @@ export const NOTES: Record<string, string> = {
     "the first thing it does, so each call REPLACES the controlled set rather than adding to it: S Volume 1,32 " +
     "after S Volume 2,10 leaves voice 1 uncontrolled. The range check is `cmpi #64,d0 / rbcc`, unsigned, so 64 " +
     "and above raise and so does a negative volume.",
+
+  "s disk open":
+    "Routine 64 --- FindTask(NULL), AddPort, OpenDevice(\"trackdisk.device\", unit, 0). A non-zero return is " +
+    "error 7; success sets Status bit 13. It never sets TDF_ALLOW_NON_3_5, so this is a floppy unit and " +
+    "nothing else. Units 0 to 3 exist on the machine whether or not they hold a disk, and open here for the " +
+    "same reason; 4 and above do not. A unit has a DISK in it when an ADF is mounted at the matching DFn:, " +
+    "because an ADF is exactly the sector image CMD_READ wants. A unit with nothing mounted is an EMPTY DRIVE, " +
+    "which is a real state and the honest one.",
+  "s disk close":
+    "Routine 65 --- `btst #13,Status` first, so calling it twice is harmless, then RemPort and CloseDevice. " +
+    "Called by the extension's own DEFAULT and END routines, so Run and quitting both close the drive.",
+  "s motor on":
+    "Routine 66 --- TD_MOTOR with io_Length 1. Nothing spins here, but the state is real and S Disk Read turns " +
+    "it back off where S Disk Send Read does not.",
+  "s motor off":
+    "Routine 67 --- TD_MOTOR with io_Length 0. Also the tail of S Disk Read, S Disk Write and every trackdisk " +
+    "error path.",
+  "s disk read":
+    "Routines 68 and 70 --- CMD_READ at a byte offset, DoIO, check io_Error, motor off. Both the length and " +
+    "the offset must be whole sectors: `divu.w #512` on each and the REMAINDER in the high word must be zero. " +
+    "A read from an empty drive is TDERR_DiskChanged, which the error path reports as message 18.",
+  "s disk send read":
+    "Routine 69 --- SendIO rather than DoIO, so the routine returns before the transfer has happened and the " +
+    "motor stays on. On the machine the buffer is not yet valid and S Disk Wait is what makes it so; the " +
+    "transfer is deferred here for the same reason, which is the only way to make 'not yet' observable at all.",
+  "s disk write":
+    "Routines 71 and 73 --- CMD_WRITE, then CMD_UPDATE to flush trackdisk's track buffer, then motor off. The " +
+    "update is what makes the write reach the disk rather than the cache. If the length and offset are ALSO " +
+    "whole multiples of 5632 --- eleven sectors, one track --- the command is promoted to TD_FORMAT, which the " +
+    "source calls '(faster)'. The difference is real on the machine and invisible here: a format lays down a " +
+    "whole track without reading it first, so it works on an unformatted track and skips the " +
+    "read-modify-write, but the bytes that reach the disk are the same bytes.",
+  "s disk send write":
+    "Routine 72, and the source's own closing comment is the whole difference: 'Note: buffer not updated, and " +
+    "motor is still on.' No CMD_UPDATE either, so the write can still be in the track buffer when it returns.",
+  "s disk state":
+    "Routine 74 --- TD_CHANGESTATE, then `move.b 35(a1),d3 / ext.w / ext.l / eori.l #$ffffffff`. 35 is the low " +
+    "byte of io_Actual, which is zero with a disk present and non-zero without, and the eori is a NOT. DEFECT: " +
+    "the source's own comment says 'return -1 if a disk is in drive, or 0 if it isn't', and the second half is " +
+    "wrong --- NOT 1 is -2, so an empty drive answers -2. A program written to the comment and testing `= 0` " +
+    "never sees an empty drive at all.",
+  "s disk prot state":
+    "Routine 75 --- TD_PROTSTATUS and the same io_Actual byte sign-extended, without the NOT. Nothing " +
+    "write-protects a mounted image here, so this answers 0, which is the true answer for the drives this port " +
+    "has.",
+  "s disk changes":
+    "Routine 76 --- TD_CHANGENUM, the low byte of io_Actual ZERO-extended, with the source's own note 'Do not " +
+    "extend byte'. The comment above it calls the answer 'number of disk changes*2', which is an observation " +
+    "about trackdisk rather than anything the routine does: the counter moves on insertion and on removal " +
+    "alike. Nothing ejects a disk here, so it does not move.",
+  "s num tracks":
+    "Routine 77 --- TD_GETNUMTRACKS, the low byte of io_Actual zero-extended. A double-density Amiga floppy is " +
+    "80 cylinders of two heads, so 160; the byte is why a high-density disk's 320 would come back as 64.",
+  "s disk dev check":
+    "Routine 78 --- -1 when the device is open, 0 when it is not, and the ONLY trackdisk keyword with no " +
+    "L_TrackCheck in front of it. That is what makes it the one a program can safely ask first.",
+  "s disk abort":
+    "Routine 79 --- exec AbortIO (-480) on the outstanding SendIO request.",
+  "s disk wait":
+    "Routine 80 --- exec WaitIO (-474), the other half of S Disk Send Read and S Disk Send Write, and what " +
+    "makes their buffer valid.",
+  "s disk update":
+    "Routines 82 and 81 --- CMD_UPDATE, flushing trackdisk's track buffer. There is no track buffer here, so " +
+    "what it does instead is what the flush makes true: the sectors were written past the filesystem, so its " +
+    "memoised directory walks are stale, and AdfVolume.invalidate is what says so.",
+  "s disk rename":
+    "Routine 84 --- it edits the disk's ROOT BLOCK in place rather than going through AmigaDOS Relabel. " +
+    "AllocMem(512, MEMF_CHIP), read 450560 (block 880, the root block of a DD floppy), write the name as a " +
+    "length byte and characters at +432 with the length clamped to 30, recompute S Checksum into +20, write " +
+    "back. It pushes its arguments onto AMOS's own stack and calls its own S Disk Read and S Disk Write " +
+    "keywords, so all of their checks apply. DEFECT: the copy loop writes the length byte with " +
+    "`move.b d0,(a0)+` and then `dbra d0` over the characters, so it writes LENGTH + 1 of them --- one byte " +
+    "past the name into the field's padding, and the byte is whatever followed the AMOS string.",
 
   "stick joy":
     "Routine 5 ($432), reading CIA-A PRB ($bfe101) bits 0-3. The manual calls this the serial port throughout; " +

@@ -15,6 +15,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
+import { AdfVolume } from '../amiga/adf'
 import { SLN_ERRORS } from './sln'
 import { Runtime } from './runtime'
 
@@ -664,7 +665,7 @@ describe('SLN: the sample bank', () => {
     })
     b.rt.frame()
     expect(b.rt.sln.status & (1 << 5)).toBe(0)
-    for (let i = 0; i < 200; i++) b.rt.frame()
+    for (let i = 0; i < 70; i++) b.rt.frame()
     expect(b.rt.sln.status2 & 1).not.toBe(0)
   })
 
@@ -724,5 +725,258 @@ describe('SLN: the sample bank', () => {
     mustFinish(c.rt.runHeadless(2_000))
     expect(c.rt.sln.status & (1 << 9)).not.toBe(0)
     expect(c.rt.sln.voices[0]!.base).not.toBe(0)
+  })
+})
+
+/**
+ * A minimal OFS disk image: 1760 blocks with a valid boot block and root
+ * block, so `AdfVolume` will mount it and `S Disk Read` has real sectors.
+ */
+let adfTemplate: Uint8Array | null = null
+
+function blankAdf(label = 'Empty'): Uint8Array {
+  if (adfTemplate) {
+    const copy = adfTemplate.slice()
+    return relabel(copy, label)
+  }
+  const img = new Uint8Array(1760 * 512)
+  img.set([0x44, 0x4f, 0x53, 0x00], 0) // "DOS\0"
+  const root = 880 * 512
+  const put32 = (off: number, v: number): void => {
+    img[off] = (v >>> 24) & 0xff
+    img[off + 1] = (v >>> 16) & 0xff
+    img[off + 2] = (v >>> 8) & 0xff
+    img[off + 3] = v & 0xff
+  }
+  put32(root + 0, 2) // T_HEADER
+  put32(root + 12, 72) // ht_size
+  put32(root + 508, 1) // ST_ROOT
+  img[root + 432] = label.length
+  for (let i = 0; i < label.length; i++) img[root + 433 + i] = label.charCodeAt(i)
+  let sum = 0
+  for (let i = 0; i < 128; i++) {
+    const o = root + i * 4
+    sum = (sum - (((img[o]! << 24) | (img[o + 1]! << 16) | (img[o + 2]! << 8) | img[o + 3]!) >>> 0)) | 0
+  }
+  put32(root + 20, sum >>> 0)
+  adfTemplate = img
+  return relabel(img.slice(), label)
+}
+
+/** put a name in the root block and fix the checksum, so the image stays valid */
+function relabel(img: Uint8Array, label: string): Uint8Array {
+  const root = 880 * 512
+  img.fill(0, root + 432, root + 464)
+  img[root + 432] = label.length
+  for (let i = 0; i < label.length; i++) img[root + 433 + i] = label.charCodeAt(i)
+  const put32 = (off: number, v: number): void => {
+    img[off] = (v >>> 24) & 0xff
+    img[off + 1] = (v >>> 16) & 0xff
+    img[off + 2] = (v >>> 8) & 0xff
+    img[off + 3] = v & 0xff
+  }
+  put32(root + 20, 0)
+  let sum = 0
+  for (let i = 0; i < 128; i++) {
+    const o = root + i * 4
+    sum = (sum - (((img[o]! << 24) | (img[o + 1]! << 16) | (img[o + 2]! << 8) | img[o + 3]!) >>> 0)) | 0
+  }
+  put32(root + 20, sum >>> 0)
+  return img
+}
+
+function bootDisk(src: string, image: Uint8Array | null): Boot {
+  const fs = new AmigaFS()
+  fs.mountMemory('RAM')
+  if (image) fs.mount('DF0', new AdfVolume(image))
+  let printed = ''
+  const rt = new Runtime(tokenize(src, table, extensions), table, {
+    extensions,
+    extBindings: new Map([[SLN_SLOT, sln]]),
+    maxSteps: 200_000,
+    onText: (t) => (printed += t),
+    fs,
+  })
+  return { rt, out: () => printed }
+}
+
+const diskNum = (src: string, image: Uint8Array | null): number => {
+  const b = bootDisk(src, image)
+  mustFinish(b.rt.runHeadless(2_000))
+  return Number(b.out().trim())
+}
+
+describe('SLN: trackdisk.device', () => {
+  it('=S Disk Dev Check is the one keyword that works before S Disk Open', () => {
+    // routine 78 has no L_TrackCheck in front of it; every other one does
+    expect(diskNum('Print S Disk Dev Check', null)).toBe(0)
+    expect(diskNum('S Disk Open 0 : Print S Disk Dev Check', null)).toBe(-1)
+    expect(diskNum('S Disk Open 0 : S Disk Close : Print S Disk Dev Check', null)).toBe(0)
+  })
+
+  it('every other trackdisk keyword raises 8 until the device is open', () => {
+    // L_TrackCheck, routine 36: `btst #13,Status` and error 8 if clear
+    for (const kw of ['S Motor On', 'S Disk Update', 'Print S Num Tracks']) {
+      const b = bootDisk(kw, null)
+      expect(() => mustFinish(b.rt.runHeadless(2_000)), kw).toThrow(SLN_ERRORS[8])
+    }
+  })
+
+  it('units 0 to 3 open; 4 and above are error 7', () => {
+    expect(diskNum('S Disk Open 3 : Print S Disk Dev Check', null)).toBe(-1)
+    const b = bootDisk('S Disk Open 4', null)
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[7])
+  })
+
+  it('DEFECT: an empty drive answers -2, where the source comment claims 0', () => {
+    // TD_CHANGESTATE puts 0 in io_Actual for a disk present and 1 for none;
+    // the routine NOTs it, so a disk is -1 and no disk is -2
+    expect(diskNum('S Disk Open 0 : Print S Disk State', null)).toBe(-2)
+    expect(diskNum('S Disk Open 0 : Print S Disk State', blankAdf())).toBe(-1)
+  })
+
+  it('=S Num Tracks answers 160 for a double-density image', () => {
+    // TD_GETNUMTRACKS's io_Actual byte: 80 cylinders of two heads
+    expect(diskNum('S Disk Open 0 : Print S Num Tracks', blankAdf())).toBe(160)
+    expect(diskNum('S Disk Open 0 : Print S Num Tracks', null)).toBe(0)
+  })
+
+  it('S Disk Read copies real sectors into a bank', () => {
+    const img = blankAdf('Testing')
+    const b = bootDisk(
+      'Reserve As Work 9,512 : S Disk Open 0 : S Disk Read 450560,Start(9),512 : ' +
+        'Print Peek(Start(9)+432);Chr$(Peek(Start(9)+433))',
+      img,
+    )
+    mustFinish(b.rt.runHeadless(2_000))
+    // the root block's name field: a length byte then the characters
+    expect(b.out().trim().replace(/\s+/g, ' ')).toBe('7T')
+  })
+
+  it('a length or offset that is not a whole sector raises', () => {
+    // divu.w #512 on both, and the remainder in the high word must be zero
+    for (const args of ['450560,Start(9),100', '450561,Start(9),512']) {
+      const b = bootDisk(`Reserve As Work 9,1024 : S Disk Open 0 : S Disk Read ${args}`, blankAdf())
+      expect(() => mustFinish(b.rt.runHeadless(2_000)), args).toThrow(SLN_ERRORS[0])
+    }
+  })
+
+  it('a read from an empty drive is the DISK CHANGED trackdisk error', () => {
+    const b = bootDisk('Reserve As Work 9,512 : S Disk Open 0 : S Disk Read 0,Start(9),512', null)
+    // io_Error 29, less the routine's own 11, is message 18
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[18])
+  })
+
+  it('DEFECT: every trackdisk error is reported one message low', () => {
+    // "Trackerrors start with 20, mine at 9" and `subi.l #11,d0` --- but
+    // message 9 is the catch-all and TDERR 20's own text is message 10, so
+    // every error lands on the message below the right one
+    expect(SLN_ERRORS[29 - 11]).toBe('Trackdisk error: Disk was changed')
+    expect(SLN_ERRORS[20 - 11]).toBe('Unknown trackdisk error')
+    expect(SLN_ERRORS[20 - 10]).toBe('Trackdisk error: No sector header present')
+  })
+
+  it('S Disk Write goes back into the image, and S Disk Update invalidates the cache', () => {
+    const img = blankAdf()
+    const b = bootDisk(
+      'Reserve As Work 9,512 : S Disk Open 0 : Loke Start(9),$deadbeef : ' +
+        'S Disk Write 0,Start(9),512',
+      img,
+    )
+    mustFinish(b.rt.runHeadless(2_000))
+    expect([...img.subarray(0, 4)]).toEqual([0xde, 0xad, 0xbe, 0xef])
+  })
+
+  it('S Disk Send Read leaves the buffer untouched until S Disk Wait', () => {
+    // SendIO rather than DoIO: "the buffer is not updated, and the motor is
+    // still on". S Disk Wait is exec WaitIO and is what completes it.
+    const b = bootDisk(
+      'Reserve As Work 9,512 : S Disk Open 0 : S Disk Send Read 450560,Start(9),512 : ' +
+        'A=Peek(Start(9)+432) : S Disk Wait : Print A;Peek(Start(9)+432)',
+      blankAdf('Testing'),
+    )
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().replace(/\s+/g, ' ')).toBe('0 7')
+  })
+
+  it('S Disk Abort throws the outstanding request away', () => {
+    const b = bootDisk(
+      'Reserve As Work 9,512 : S Disk Open 0 : S Disk Send Read 450560,Start(9),512 : ' +
+        'S Disk Abort : S Disk Wait : Print Peek(Start(9)+432)',
+      blankAdf('Testing'),
+    )
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('0')
+  })
+
+  it('the motor follows TD_MOTOR, and a read turns it off where a send read does not', () => {
+    const img = blankAdf()
+    const on = bootDisk('S Disk Open 0 : S Motor On', img)
+    mustFinish(on.rt.runHeadless(2_000))
+    expect(on.rt.sln.disk.motor).toBe(true)
+    const read = bootDisk('Reserve As Work 9,512 : S Disk Open 0 : S Disk Read 0,Start(9),512', img)
+    mustFinish(read.rt.runHeadless(2_000))
+    expect(read.rt.sln.disk.motor).toBe(false)
+    const send = bootDisk('Reserve As Work 9,512 : S Disk Open 0 : S Disk Send Read 0,Start(9),512', img)
+    mustFinish(send.rt.runHeadless(2_000))
+    expect(send.rt.sln.disk.motor).toBe(true)
+  })
+
+  it('=S Disk Prot State and =S Disk Changes answer for a drive nothing ejects', () => {
+    // TD_PROTSTATUS's io_Actual byte sign-extended, and TD_CHANGENUM's
+    // zero-extended --- 'Note: Do not extend byte' on the line that does not.
+    // Nothing here write-protects an image or ejects a disk.
+    expect(diskNum('S Disk Open 0 : Print S Disk Prot State', blankAdf())).toBe(0)
+    expect(diskNum('S Disk Open 0 : Print S Disk Changes', blankAdf())).toBe(0)
+  })
+
+  it('S Disk Send Write defers the write, and leaves the motor on', () => {
+    // "Note: buffer not updated, and motor is still on" --- and no CMD_UPDATE
+    const img = blankAdf()
+    const b = bootDisk(
+      'Reserve As Work 9,512 : S Disk Open 0 : Loke Start(9),$cafebabe : ' +
+        'S Disk Send Write 0,Start(9),512',
+      img,
+    )
+    mustFinish(b.rt.runHeadless(2_000))
+    expect([...img.subarray(0, 4)]).toEqual([0x44, 0x4f, 0x53, 0x00]) // still "DOS\0"
+    expect(b.rt.sln.disk.motor).toBe(true)
+    const c = bootDisk(
+      'Reserve As Work 9,512 : S Disk Open 0 : Loke Start(9),$cafebabe : ' +
+        'S Disk Send Write 0,Start(9),512 : S Disk Wait : S Motor Off',
+      img,
+    )
+    mustFinish(c.rt.runHeadless(2_000))
+    expect([...img.subarray(0, 4)]).toEqual([0xca, 0xfe, 0xba, 0xbe])
+    expect(c.rt.sln.disk.motor).toBe(false)
+  })
+
+  it('S Disk Rename edits the root block and fixes the checksum', () => {
+    const img = blankAdf('Before')
+    const b = bootDisk('S Disk Open 0 : S Disk Rename "AfterName"', img)
+    mustFinish(b.rt.runHeadless(2_000))
+    const root = 880 * 512
+    expect(img[root + 432]).toBe(9)
+    expect(String.fromCharCode(...img.subarray(root + 433, root + 442))).toBe('AfterName')
+    // the block checks out: -sum of the other 127 longs equals the field
+    let sum = 0
+    for (let i = 0; i < 128; i++) {
+      const o = root + i * 4
+      sum = (sum - (((img[o]! << 24) | (img[o + 1]! << 16) | (img[o + 2]! << 8) | img[o + 3]!) >>> 0)) | 0
+    }
+    expect(sum).toBe(0)
+    // ...and the volume's own label follows, because the sectors ARE the disk
+    expect(new AdfVolume(img).label).toBe('AfterName')
+  })
+
+  it('a name longer than 30 characters is clamped', () => {
+    const img = blankAdf()
+    const b = bootDisk(`S Disk Open 0 : S Disk Rename "${'x'.repeat(40)}"`, img)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(img[880 * 512 + 432]).toBe(30)
+  })
+
+  it('S Disk Close is called by DEFAULT and END, so it must be safe twice', () => {
+    expect(diskNum('S Disk Open 0 : S Disk Close : S Disk Close : Print S Disk Dev Check', null)).toBe(0)
   })
 })

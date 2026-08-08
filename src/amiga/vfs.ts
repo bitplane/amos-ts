@@ -374,6 +374,19 @@ export class AmigaFS implements AmosFS {
     return this.volumes.get(key)?.vol ?? null
   }
 
+  /**
+   * The Volume mounted under a device name, or null.
+   *
+   * Public because raw-device access has to go round the filesystem entirely:
+   * SLN's `S Disk Read` is `trackdisk.device` CMD_READ at a byte offset, and
+   * the only thing that can serve it is the sector image the volume is made
+   * of — `AdfVolume.image`. Nothing else needs this, and nothing that reads
+   * FILES should use it.
+   */
+  volume(name: string): Volume | null {
+    return this.volumeOf(name.toLowerCase().replace(/:$/, ''))
+  }
+
   // ---- tombstones ----
   //
   // Deleting something that lives in a read-only volume can't actually

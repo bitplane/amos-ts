@@ -337,6 +337,8 @@ export interface SlnState {
   volume: number[]
   /** IChan/ISBase/ISLen, one entry per voice */
   voices: SlnVoice[]
+  /** the TrackIO request and Status bit 13 */
+  disk: SlnDisk
 }
 
 export function newSlnState(): SlnState {
@@ -359,6 +361,7 @@ export function newSlnState(): SlnState {
     samBankNr: 0,
     volume: [0, 0, 0, 0],
     voices: Array.from({ length: 4 }, () => ({ stopAt: 0, base: 0, len: 0 })),
+    disk: { open: false, unit: 0, motor: false, pending: null },
   }
 }
 
@@ -1055,8 +1058,311 @@ function samMemUsers(st: SlnState, voice: number): number {
   return n
 }
 
+/* ---- trackdisk.device -------------------------------------------------- *
+ *
+ * The v2.0 half of the extension, and the reason it exists: seventeen
+ * keywords that reach the floppy past AmigaDOS entirely, so a program can
+ * read and write raw sectors, spin the motor and rename a disk by editing its
+ * root block. `S Checksum` is here for that last one.
+ *
+ * The IORequest is `TrackIO`, eighty bytes in the data zone, and the routines
+ * index it by hand: command at 28, io_Error at 31, io_Actual at 32, io_Length
+ * at 36, io_Data at 40, io_Offset at 44. Commands used: 2 CMD_READ, 3
+ * CMD_WRITE, 4 CMD_UPDATE, 9 TD_MOTOR, 11 TD_FORMAT, 13 TD_CHANGENUM, 14
+ * TD_CHANGESTATE, 15 TD_PROTSTATUS, 19 TD_GETNUMTRACKS.
+ *
+ * ## What a drive is here
+ *
+ * A unit is DF0: to DF3:, and it has a disk in it when an ADF is mounted
+ * there — an ADF is exactly the sector image `CMD_READ` wants, so a mounted
+ * one is served byte for byte and a write goes back into it. A unit with no
+ * image mounted is an EMPTY DRIVE, which is a real state and the honest one:
+ * `S Disk State` says no disk, and a read raises TDERR_DiskChanged, exactly
+ * as a bare drive does. `S Disk Open` itself succeeds either way, because on
+ * the machine opening a unit that exists succeeds whether or not it holds a
+ * disk; only unit 4 and above fail.
+ * ---------------------------------------------------------------------- */
+
+/** the block SLN's `S Disk Rename` edits: 880 * 512 on a DD floppy */
+const ROOT_BLOCK_OFFSET = 450560
+/** a sector, and the granularity every read and write is checked against */
+const SECTOR = 512
+/** `io_Error` values, as trackdisk numbers them; see `slnTrackError` */
+const TDERR_NotSpecified = 20
+const TDERR_DiskChanged = 29
+
+/**
+ * `L_TrackErrorCheck`, routine 105 — turn a non-zero `io_Error` into one of
+ * this extension's messages.
+ *
+ *     cmpi.b  #0,31(a1) / bne
+ *     move.b  31(a1),d0 / subi.l #11,d0
+ *     ...MotorOff, then L_custom_error
+ *
+ * DEFECT: the arithmetic is off by one against the author's own table. His
+ * comment is *"Trackerrors start with 20, mine at 9"*, and 20 - 11 is 9 —
+ * except that message 9 is "Unknown trackdisk error" and message 10 is
+ * "No sector header present", which is what TDERR 20 actually means. So every
+ * trackdisk error is reported as the message BELOW the right one, and
+ * TDERR_NotSpecified (20) comes out as the catch-all rather than as its own
+ * text. Reproduced, not corrected.
+ *
+ * It also turns the motor off on the way out, which the caller was going to
+ * do anyway on the synchronous path and was NOT going to do on the
+ * `S Disk Send Read` path.
+ */
+function slnTrackError(rt: Runtime, ioError: number): never {
+  slnMotor(rt, false)
+  return slnError(ioError - 11)
+}
+
+/** TD_MOTOR: `move.w #9,28(a1) / move.l #1,36(a1) / DoIO` */
+function slnMotor(rt: Runtime, on: boolean): void {
+  rt.sln.disk.motor = on
+}
+
+/**
+ * `CMD_UPDATE` — flush the track buffer. There is no track buffer here, so
+ * what it does instead is what the flush makes true: the filesystem's cached
+ * directory walks are now stale, because the sectors under them were written
+ * past it, and `AdfVolume.invalidate` is what says so.
+ */
+function diskUpdate(rt: Runtime): void {
+  const vol = rt.vfs?.volume(`DF${rt.sln.disk.unit}`)
+  ;(vol as { invalidate?: () => void } | null)?.invalidate?.()
+}
+
+/** the sector image of the unit's disk, or null for an empty drive */
+function diskImage(rt: Runtime): Uint8Array | null {
+  const st = rt.sln
+  if (!st.disk.open) return null
+  const vol = rt.vfs?.volume(`DF${st.disk.unit}`)
+  const adf = vol as { image?: Uint8Array; invalidate?: () => void } | null
+  return adf?.image ?? null
+}
+
+/** `L_TrackCheck`, routine 36 — `btst #13,Status`, and error 8 if it is clear */
+function trackCheck(rt: Runtime): void {
+  if (!rt.sln.disk.open) slnError(8)
+}
+
+/**
+ * `L_TrackRead3` / `L_TrackWrite3`, routines 70 and 73 — set the request up
+ * and range-check it.
+ *
+ *     divu.w  #512,d0 / divu.w #512,d1 / swap / swap
+ *     cmpi.w  #0,d0 / rbne L_error0        length not a whole sector
+ *     cmpi.w  #0,d1 / rbne L_error0        offset likewise
+ *
+ * `divu.w` is 32/16, so the check is on the REMAINDER in the high word — and
+ * a length of 32768 sectors or more overflows the quotient, which on the
+ * 68000 leaves the destination untouched and the "remainder" is then the
+ * original value's high word. Nothing in reach of a floppy gets near it.
+ *
+ * The write path has one more step: if length and offset are ALSO whole
+ * multiples of 5632 — eleven sectors, one track — the command is promoted
+ * from CMD_WRITE to TD_FORMAT, *"(faster)"*. The difference is real on the
+ * machine and invisible here: a format lays down a whole track without
+ * reading it first, so it works on a track that is not formatted yet and
+ * skips the read-modify-write, but the bytes that end up on the disk are the
+ * same bytes. Nothing this port can observe distinguishes them.
+ */
+function checkAligned(length: number, offset: number): void {
+  if (length % SECTOR !== 0) slnError(0)
+  if (offset % SECTOR !== 0) slnError(0)
+}
+
+export interface SlnDisk {
+  /** Status bit 13 — `trackdisk.device` is open */
+  open: boolean
+  /** the unit `S Disk Open` named */
+  unit: number
+  /** TD_MOTOR's last argument; nothing here spins, but the state is real */
+  motor: boolean
+  /**
+   * The request left over from `S Disk Send Read` / `S Disk Send Write`, which
+   * SendIO rather than DoIO and come back before the transfer has happened.
+   * `S Disk Wait` completes it and `S Disk Abort` throws it away.
+   */
+  pending: { write: boolean; length: number; buffer: number; offset: number } | null
+}
+
 export function makeSlnInstructions(rt: Runtime): Record<string, Instr> {
+  /** CMD_READ / CMD_WRITE / TD_FORMAT against the mounted image */
+  const transfer = (write: boolean, length: number, buffer: number, offset: number): void => {
+    const image = diskImage(rt)
+    rt.sln.disk.motor = true
+    if (!image) slnTrackError(rt, TDERR_DiskChanged)
+    if (offset + length > image!.length) slnTrackError(rt, TDERR_NotSpecified)
+    if (write) {
+      for (let i = 0; i < length; i++) image![offset + i] = peek8(rt, buffer + i)
+    } else {
+      for (let i = 0; i < length; i++) poke8(rt, buffer + i, image![offset + i]!)
+    }
+  }
+
+  /** the three arguments every read and write takes, popped right to left */
+  const request = (it: Parameters<Instr>[0]): { length: number; buffer: number; offset: number } => {
+    const offset = it.evalInt()
+    it.expect(',')
+    const buffer = it.evalInt() >>> 0
+    it.expect(',')
+    const length = it.evalInt()
+    checkAligned(length, offset)
+    return { length, buffer, offset }
+  }
+
   return {
+    // ---- trackdisk ------------------------------------------------------
+    /**
+     * Routine 64 — `S Disk Open DRIVE`. It closes any request it already has,
+     * builds a MsgPort out of `FindTask(NULL)` and `AddPort`, and opens
+     * `trackdisk.device` on the unit with no flags. A non-zero return is
+     * error 7; success sets Status bit 13.
+     *
+     * NOTE it never sets `TDF_ALLOW_NON_3_5`, so this is a floppy unit and
+     * nothing else. Units 0 to 3 exist on the machine whether or not they hold
+     * a disk; 4 and above do not.
+     */
+    's disk open'(it): void {
+      const unit = it.evalInt()
+      const st = rt.sln
+      st.disk = { open: false, unit: 0, motor: false, pending: null }
+      if (unit < 0 || unit > 3) slnError(7)
+      st.disk = { open: true, unit, motor: false, pending: null }
+      st.status |= 1 << 13
+    },
+    /**
+     * Routine 65 — `S Disk Close`. `btst #13,Status` first, so calling it
+     * twice is harmless, then RemPort, CloseDevice and the bit. It is called
+     * by the extension's own DEFAULT and END routines, so `Run` and quitting
+     * both close the drive.
+     */
+    's disk close'(): void {
+      const st = rt.sln
+      if (!st.disk.open) return
+      st.disk = { open: false, unit: st.disk.unit, motor: false, pending: null }
+      st.status &= ~(1 << 13)
+    },
+    /** routine 66 — TD_MOTOR with io_Length 1 */
+    's motor on'(): void {
+      trackCheck(rt)
+      slnMotor(rt, true)
+    },
+    /** routine 67 — TD_MOTOR with io_Length 0 */
+    's motor off'(): void {
+      trackCheck(rt)
+      slnMotor(rt, false)
+    },
+    /**
+     * Routine 68 — `S Disk Read OFFSET, BUFFER, LENGTH`: DoIO, check the
+     * error, then turn the motor off. The synchronous form, and the one that
+     * leaves the drive tidy.
+     */
+    's disk read'(it): void {
+      const r = request(it)
+      trackCheck(rt)
+      transfer(false, r.length, r.buffer, r.offset)
+      slnMotor(rt, false)
+    },
+    /**
+     * Routine 69 — `S Disk Send Read`: SendIO instead, so the routine returns
+     * before the transfer has happened and the motor stays on. On the machine
+     * the buffer is not yet valid; `S Disk Wait` is what makes it so. Here the
+     * transfer is recorded and performed by `S Disk Wait`, which is the only
+     * way to make "not yet" observable at all.
+     */
+    's disk send read'(it): void {
+      const r = request(it)
+      trackCheck(rt)
+      rt.sln.disk.pending = { write: false, ...r }
+      slnMotor(rt, true)
+    },
+    /**
+     * Routine 71 — `S Disk Write OFFSET, BUFFER, LENGTH`: DoIO, check, then
+     * CMD_UPDATE to flush trackdisk's own track buffer, then motor off. The
+     * update is what makes the write reach the disk rather than the cache.
+     */
+    's disk write'(it): void {
+      const r = request(it)
+      trackCheck(rt)
+      transfer(true, r.length, r.buffer, r.offset)
+      diskUpdate(rt)
+      slnMotor(rt, false)
+    },
+    /**
+     * Routine 72 — `S Disk Send Write`, and the source's own closing comment
+     * is the whole difference: *"Note: buffer not updated, and motor is still
+     * on."* No CMD_UPDATE either, so the write can still be sitting in
+     * trackdisk's track buffer when the routine returns.
+     */
+    's disk send write'(it): void {
+      const r = request(it)
+      trackCheck(rt)
+      rt.sln.disk.pending = { write: true, ...r }
+      slnMotor(rt, true)
+    },
+    /** routine 79 — exec AbortIO (-480) on the outstanding request */
+    's disk abort'(): void {
+      trackCheck(rt)
+      rt.sln.disk.pending = null
+    },
+    /** routine 80 — exec WaitIO (-474): the SendIO pair's other half */
+    's disk wait'(): void {
+      trackCheck(rt)
+      const p = rt.sln.disk.pending
+      rt.sln.disk.pending = null
+      if (p) transfer(p.write, p.length, p.buffer, p.offset)
+    },
+    /** routines 82 and 81 — CMD_UPDATE, flushing trackdisk's track buffer */
+    's disk update'(): void {
+      trackCheck(rt)
+      diskUpdate(rt)
+    },
+    /**
+     * Routine 84 — `S Disk Rename NAME$`, which edits the disk's root block
+     * in place rather than going through AmigaDOS `Relabel`.
+     *
+     *     AllocMem(512, MEMF_CHIP)            0 -> error 1
+     *     S Disk Read 450560, buffer, 512
+     *     ...name length clamped to 30, written as a length byte at +432
+     *     S Checksum -> 20(buffer)
+     *     S Disk Write 450560, buffer, 512
+     *
+     * 450560 is block 880, the root block of a double-density floppy, and 432
+     * is `bcpl_name` in it. It pushes the arguments onto AMOS's own stack and
+     * calls its own `S Disk Read` and `S Disk Write` keywords to do the work,
+     * so all of their checks apply — including turning the motor off twice.
+     *
+     * DEFECT: the copy loop is `move.b d0,(a0)+` for the length byte and then
+     * `dbra d0` over the characters, so it writes LENGTH + 1 of them — one
+     * byte past the name, into the first byte of the 30-byte field's padding.
+     * Harmless for a name of 30 or less, which the clamp guarantees, but the
+     * byte written is whatever followed the AMOS string.
+     */
+    's disk rename'(it): void {
+      const name = it.evalStr()
+      trackCheck(rt)
+      const buffer = rt.sln.heap.alloc(SECTOR, { chip: true })
+      if (buffer === 0) slnError(1)
+      try {
+        transfer(false, SECTOR, buffer, ROOT_BLOCK_OFFSET)
+        slnMotor(rt, false)
+        const chars = name.slice(0, 30)
+        poke8(rt, buffer + 432, chars.length)
+        for (let i = 0; i < chars.length; i++) poke8(rt, buffer + 433 + i, chars.charCodeAt(i))
+        let sum = 0
+        for (let i = 0; i < 128; i++) sum = (sum - peek32(rt, buffer + i * 4)) | 0
+        poke32(rt, buffer + 20, ((sum + peek32(rt, buffer + 20)) | 0) >>> 0)
+        transfer(true, SECTOR, buffer, ROOT_BLOCK_OFFSET)
+        diskUpdate(rt)
+        slnMotor(rt, false)
+      } finally {
+        rt.sln.heap.freeMem(buffer)
+      }
+    },
+
+    // ---- samples --------------------------------------------------------
     // ---- mouse ---------------------------------------------------------
     /**
      * Routine 1 — `bset #0,Status`. The reader, not the pointer: AMOS's own
@@ -1710,6 +2016,66 @@ export function makeSlnFunctions(rt: Runtime): Record<string, Func> {
      * `L_InterFree`, and this is that.
      */
     's ifree': (): Value => VI(rt.sln.interBase.filter((v) => v === 0).length),
+    // ---- trackdisk ------------------------------------------------------
+    /**
+     * Routine 74 — `=S Disk State`.
+     *
+     *     TD_CHANGESTATE / DoIO
+     *     move.b 35(a1),d3 / ext.w / ext.l / eori.l #$ffffffff
+     *
+     * 35 is the low byte of io_Actual, which TD_CHANGESTATE sets to zero when
+     * a disk is present and non-zero when it is not, and the `eori` is a NOT.
+     *
+     * DEFECT: the source's own comment is *"The function return -1 if a disk
+     * is in drive, or 0 if it isn't"*, and the second half is wrong. NOT 0 is
+     * -1, so a disk gives -1; NOT 1 is -2, so an EMPTY DRIVE gives -2, not 0.
+     * A program written to the comment and testing `= 0` never sees an empty
+     * drive at all.
+     */
+    's disk state': (): Value => {
+      trackCheck(rt)
+      return VI(~(diskImage(rt) ? 0 : 1))
+    },
+    /**
+     * Routine 75 — `=S Disk Prot State`: TD_PROTSTATUS, and the same io_Actual
+     * byte sign-extended, without the NOT. Non-zero means write protected.
+     * Nothing here write-protects a mounted image, so this answers 0 — which
+     * is the true answer for the drives this port has.
+     */
+    's disk prot state': (): Value => {
+      trackCheck(rt)
+      return VI(0)
+    },
+    /**
+     * Routine 76 — `=S Disk Changes`: TD_CHANGENUM, the low byte of io_Actual
+     * ZERO-extended, with the source's own note *"Do not extend byte"* on the
+     * line that does not. The comment above it calls the answer *"number of
+     * disk changes*2"*, which is an observation about trackdisk rather than
+     * anything the routine does: the counter goes up on insertion and on
+     * removal alike. Nothing ejects a disk here, so it does not move.
+     */
+    's disk changes': (): Value => {
+      trackCheck(rt)
+      return VI(0)
+    },
+    /**
+     * Routine 77 — `=S Num Tracks`: TD_GETNUMTRACKS, the low byte of io_Actual
+     * zero-extended. A double-density Amiga floppy is 80 cylinders of two
+     * heads, so the answer is 160 — and the byte is why: 160 fits and a
+     * high-density disk's 320 would come back as 64.
+     */
+    's num tracks': (): Value => {
+      trackCheck(rt)
+      const image = diskImage(rt)
+      return VI(image ? Math.floor(image.length / (SECTOR * 11)) & 0xff : 0)
+    },
+    /**
+     * Routine 78 — `=S Disk Dev Check`: -1 when the device is open, 0 when it
+     * is not. The only trackdisk keyword with no `L_TrackCheck` in front of
+     * it, which is what makes it the one a program can safely ask first.
+     */
+    's disk dev check': (): Value => VI(rt.sln.disk.open ? -1 : 0),
+
     // ---- samples --------------------------------------------------------
     /** routine 55 — SamBankNr, straight out of the data zone */
     's sam bank': (): Value => VI(rt.sln.samBankNr),
