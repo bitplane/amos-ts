@@ -96,6 +96,7 @@ import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import { sw16 } from './word'
 import { counterDelta, joyDatOf, joyDatX, joyDatY, mouseDat } from '../amiga/gameport'
 import { elapsedTime, readJoyPort } from '../amiga/lowlevel'
+import { libraryPresent } from '../amiga/exec'
 import { Protracker, parseMod } from '../amiga/protracker'
 import { loadHunks } from '../amiga/hunk'
 
@@ -147,6 +148,13 @@ export interface GameSupportState {
   clock: { last: number }
   /** $52 — non-zero when lowlevel.library opened, which here it does */
   lowlevel: boolean
+  /**
+   * $56 and $5a — workbench.library and icon.library, which here it does NOT.
+   * Both come from `libraryPresent`, so the flags say what the port models
+   * rather than what this file would like. `Gsiconify` is the only reader.
+   */
+  workbench: boolean
+  icon: boolean
   /** the ProTracker half — see `GameSupportMusic` */
   music: GameSupportMusic
   /** $7a — sixteen eight-byte slots, `{ segment, header }` each */
@@ -233,6 +241,8 @@ export function newGameSupportState(rt?: Runtime): GameSupportState {
     ],
     clock: { last: 0 },
     lowlevel: true,
+    workbench: libraryPresent('workbench.library'),
+    icon: libraryPresent('icon.library'),
     music: {
       // `move.l #$1,$0(a0)` / `#$ffffffff` into $4 and $8 / `move.w #$40,$18`
       replay: new Protracker(() => rt?.host.audio),
@@ -1339,6 +1349,77 @@ export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
       const entry = attrEntry(rt, int(a[0]!), str(a[1]!), ATTR_TABLE)
       if (entry === 0) gsError(7)
       return VI(entry | 0)
+    },
+
+    /**
+     * =Gsiconify(IconText$) and =Gsiconify(IconText$, IconPath$) — routines 8
+     * ($207a) and 7 ($1f18), 294 and 354 bytes and the same shape. *"This
+     * routine will create a workbench AppIcon. This function needs at least
+     * workbench 2 to work."*
+     *
+     *     tst.l $56(a2) / beq -> 1          workbench.library
+     *     tst.l $5a(a2) / beq -> 1          icon.library
+     *     jsr -$29a(a6)                     exec CreateMsgPort -> $2a
+     *     tst.l d0 / beq -> 1
+     *     ...the icon...
+     *     jsr -$3c(a6)                      AddAppIconA(0, 0, text, port,
+     *                                         NULL, diskobj, NULL) -> $22
+     *     jsr -$180(a6)                     exec WaitPort — IT BLOCKS HERE
+     *     Forbid / GetMsg / ReplyMsg / Permit
+     *     jsr -$42(a6)                      RemoveAppIcon
+     *     DeleteMsgPort / FreeDiskObject
+     *     moveq #$0, d3
+     *
+     * The icon is where the two forms differ. One argument takes
+     * `GetDefDiskObject(WBTOOL)` — `move.l #$3, d0`, and 3 is WBTOOL, so the
+     * default TOOL icon and not the project one. Two arguments copy the path
+     * into AMOS's buffer at `$50a(a5)`, run it through `Dsk_PathIt`, and call
+     * `GetDiskObject`, then force `do_CurrentX` and `do_CurrentY` ($3a/$3e) to
+     * $80000000 — NO_ICON_POSITION, so Workbench places it rather than putting
+     * it wherever the .info happened to say.
+     *
+     * The guide explains why it is a function rather than an instruction:
+     * *"This function will not handle errors in the normal way, since this
+     * could leave the workbench screen at the front, and the user with no idea
+     * why. That's why Gsiconify is implemented as a function; the returned
+     * value will be 0 if the icon is double-clicked on, and 1 if an error
+     * occurred."* Every failure arm returns 1 and none of them raise.
+     *
+     * DEFECT: it survived the fix that was made for its sibling. The label
+     * is passed as `movea.l $1e(a2), a0 / lea $2(a0), a0` — an AMOS string's
+     * characters, with NO terminator — straight to `AddAppIconA`. The guide's
+     * BugsFixed node records the same mistake being fixed for the icon PATH
+     * (*"I forgot that AMOS strings aren't null terminated!"*), and the path is
+     * indeed copied and `clr.b`-terminated in routine 7. The text is not, so
+     * the icon's label runs on past the string into whatever the AMOS string
+     * heap holds next.
+     *
+     * ## Why this port answers 1
+     *
+     * `workbench.library` is not modelled and neither is `icon.library`'s
+     * AppIcon half — `../amiga/icon.ts` is the `.info` FILE FORMAT, which is a
+     * different thing. `../amiga/exec.ts`'s own list makes the argument for
+     * leaving them out: *"Listing them would be claiming a back-end that does
+     * not exist; leaving them out makes OpenLibrary answer 0, which is the
+     * case [the extension] already handles and reports in its own words."*
+     *
+     * So this takes the first arm, which is a real machine without Workbench
+     * 2, and is exactly what the routine does there. What would make the other
+     * arm reachable is `AddAppIconA`/`RemoveAppIcon` on the Workbench screen
+     * `../amiga/intuition.ts` already opens, plus a blocking `WaitPort` — this
+     * is the one keyword in the extension that suspends the program until the
+     * user acts, which EasyLife's `Eliconify Test` deliberately does not
+     * (it polls). Neither is GameSupport's to provide.
+     */
+    'gsiconify'(_, a): Value {
+      void str(a[0]!)
+      // the second form's path is never reached: the library test comes first
+      if (a.length > 1) void str(a[1]!)
+      const st2 = rt.gamesupport
+      if (!st2.workbench || !st2.icon) return VI(1)
+      // unreachable while neither library is modelled, and deliberately not
+      // faked: there is no AppIcon to add and no port to wait on
+      return VI(1)
     },
 
     'gsopenc2plib'(_, a): Value {

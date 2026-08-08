@@ -78,13 +78,24 @@ extension keyword. The count is keywords with no handler at all:
 | SLN 2.0 | 70 | |
 | D-SAM 1.01 | 50 | |
 | Delta 1.6 / 1.4 | 46 / 26 | `intuition.library` |
-| GameSupport 1.2 | 37 | |
 | Tools 1.01 | 33 | |
 | jd-int 1.3 | 33 | `intuition.library` — findings banked |
 | Make 1.30 | 32 | |
 | BSDSocket 1.1.4 | 30 | sockets |
 | LSerial 2.1 | 15 | |
 | BUtility 1.21 | 15 | reqtools / asl |
+
+**GameSupport 1.2 came off this table, and it is worth saying what it cost.**
+All 37 read 100% and all 37 are faithful. Three of its five groups turned out
+to be a shim over `GSDrivers/` modules their author described in the future
+tense and never released — the Sega-pad driver behind `Gscontrollertype` and
+`Gsreadsega`, and the whole chunky-to-planar block — and for those the
+library-absent arm is not a stub but what every real machine ran. One keyword,
+`Gscallmod`, is `jsr` into 68k code and waits on an interpreter this port does
+not have; it is the only structural deviation in the extension. `Gsiconify`
+waits on `workbench.library`'s AppIcon half and a blocking `WaitPort`, and
+answers 1 — the routine's own error result — until then. Everything else is
+data, and is done.
 
 **This table has been wrong before, and the fix is to read it off
 `KEYWORDS.md`.** It used to list AMCAF 1.50, Range 1.0 and 2.0, AMOSPro

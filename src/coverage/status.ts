@@ -1381,7 +1381,7 @@ export const FAITHFUL = new Set<string>([
   'gsopenc2plib', 'gsclosec2plib', 'gschunky2planar', 'gssetc2pcolour',
   'gssetc2pregion', 'gsc2pinfo', 'gsc2pdebug',
   'gsloadcodemod', 'gsunloadcodemod', 'gsgetattr', 'gssetattr',
-  'gsfindattr', 'gscallmod',
+  'gsfindattr', 'gscallmod', 'gsiconify',
 
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
@@ -4217,6 +4217,19 @@ export const NOTES: Record<string, string> = {
     "Routine 25 ($2350), a `move.w` into $18. The player applies it with `mulu.w $1c32(pc),d0 / lsr.l #$6,d0` " +
     "($157c), which is Protracker.master's own arithmetic. Nothing range-checks: past 64 it multiplies beyond " +
     "full volume and only the replayer's clamp stops it.",
+  "gsiconify":
+    "Routines 8 ($207a) and 7 ($1f18), the one- and two-argument forms. AddAppIconA(0, 0, text, port, NULL, " +
+    "diskobj, NULL) on a message port, then exec WaitPort, which BLOCKS until the icon is double-clicked, then " +
+    "RemoveAppIcon and the teardown. One argument takes GetDefDiskObject(WBTOOL); two copy the path through " +
+    "Dsk_PathIt to GetDiskObject and force do_CurrentX/do_CurrentY to $80000000 (NO_ICON_POSITION) so Workbench " +
+    "places it. Every failure arm returns 1 and none raise --- which the guide says is why it is a function at " +
+    "all. DEFECT: the LABEL is passed as `lea $2(a0),a0` with no terminator, so it runs on past the AMOS " +
+    "string; the BugsFixed node records the identical mistake being fixed for the icon PATH, which routine 7 " +
+    "now copies and clr.b-terminates, and the text was missed. DEVIATION: workbench.library is not modelled and " +
+    "neither is icon.library's AppIcon half (src/amiga/icon.ts is the .info FILE FORMAT), so this takes the " +
+    "first arm and answers 1 --- which is what the routine does on any machine without Workbench 2. Reaching " +
+    "the other arm needs AddAppIconA/RemoveAppIcon on the Workbench screen intuition.ts already opens, plus a " +
+    "blocking WaitPort: this is the one keyword in the extension that suspends the program until the user acts.",
   "gsloadcodemod":
     "Routine 90 ($2854), UNDOCUMENTED, over a loadable-code format of the author's own. A GSMod is an ordinary " +
     "AmigaDOS loadable file whose first hunk carries \"GSMo\" ($47534d6f) somewhere in its first thirty-two " +
