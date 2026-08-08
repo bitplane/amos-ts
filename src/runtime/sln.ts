@@ -77,6 +77,7 @@ import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { AmosError, VI, int, str, type Value } from '../interp/values'
 import { mouseDat } from '../amiga/gameport'
+import { Protracker, parseMod } from '../amiga/protracker'
 import {
   IDCMP_CLOSEWINDOW,
   WBENCHSCREEN,
@@ -339,9 +340,13 @@ export interface SlnState {
   voices: SlnVoice[]
   /** the TrackIO request and Status bit 13 */
   disk: SlnDisk
+  /** TrackTempo — `dc.b 6` in the data zone, and the seed for every mt_init */
+  trackTempo: number
+  /** the replayer and its play counter */
+  music: SlnMusic
 }
 
-export function newSlnState(): SlnState {
+export function newSlnState(rt?: Runtime): SlnState {
   return {
     prevX: 0,
     prevY: 0,
@@ -362,6 +367,8 @@ export function newSlnState(): SlnState {
     volume: [0, 0, 0, 0],
     voices: Array.from({ length: 4 }, () => ({ stopAt: 0, base: 0, len: 0 })),
     disk: { open: false, unit: 0, motor: false, pending: null },
+    trackTempo: 6,
+    music: { replay: new Protracker(() => rt?.host.audio), times: 0 },
   }
 }
 
@@ -445,6 +452,29 @@ export function slnVbl(rt: Runtime): void {
     const y = accumulate(st.curY, st.prevY, counterY(rt))
     st.curY = y.cur
     st.prevY = y.prev
+  }
+  /*
+   * `CallPlayer`, the tail of the hook: `btst #14,d0 / bne / Rbra
+   * L_TrackerPlayer` with d0 zero, which is the replayer's "play one tick".
+   *
+   * The channel mask is Status2 --- the voices the SAMPLE player is using ---
+   * and the player writes to a ten-byte `dummy` instead of the hardware for
+   * each of them, so a sound effect takes a voice off the music for as long as
+   * it lasts and hands it back afterwards. Reading it here rather than at
+   * `S Sam Play` is the routine's own order: the mask is sampled once a frame,
+   * at the top of the player.
+   */
+  if (st.status & (1 << 14)) {
+    const m = st.music
+    m.replay.voices = 0b1111 & ~st.status2
+    m.replay.tick()
+    // `mt_NextPosition`: the counter comes down when the song WRAPS, and zero
+    // stops it. `e8` is -2 exactly there --- see Protracker.jumpTo.
+    if (m.replay.e8 === -2) {
+      m.replay.e8 = 0
+      m.times = (m.times - 1) & 0xffff
+      if (m.times === 0) trackStop(rt)
+    }
   }
   /*
    * The volume control, third in the hook: for each of Status bits 1 to 4,
@@ -1187,6 +1217,93 @@ export interface SlnDisk {
   pending: { write: boolean; length: number; buffer: number; offset: number } | null
 }
 
+/* ---- the tracker player ------------------------------------------------ *
+ *
+ * `L_TrackerPlayer`, routine 85, is 1,370 lines of the source and is stock
+ * PT2.3A with five things bolted on. It is not reimplemented here:
+ * `../amiga/protracker.ts` is already a four-voice ProTracker replay checked
+ * byte-exactly against the corpus, and it serves AMCAF, P61, MED and
+ * GameSupport as well. What IS read off this one is what it ADDS, because
+ * that is where it differs:
+ *
+ *   - `mt_speed` is seeded from `TrackTempo` rather than from 6, so
+ *     `S Track Tempo=` changes the speed of the NEXT song as well as this one
+ *   - `mt_VolFaktor`, a percentage applied at the instrument trigger only
+ *   - the channel mask: `Status2` names the voices the SAMPLE player holds,
+ *     and every voice loop writes to a ten-byte `dummy` instead of the
+ *     hardware for those, so a sound effect takes a voice off the music
+ *   - `times_to_play`, decremented when the song wraps, stopping at zero
+ *   - a start position, checked against the song length
+ *
+ * ONE THING IT DOES NOT ADD, and it matters: there is no CIA tempo. `Fxx`
+ * goes to `mt_SetSpeed` for every value, so `F80` is a speed of 128 rather
+ * than 128 BPM. Every other replayer in this port carries a DEVIATION note
+ * about ticking once a vertical blank where the machine runs a CIA timer;
+ * this one does not need it, because SLN's player ticks once a vertical blank
+ * too. `ciaTempo = false` is what says so.
+ * ---------------------------------------------------------------------- */
+
+/** the bank `S Track Load` makes, and what `S Track Play` checks for */
+const TRACK_BANK_NAME = 'Tracker '
+/** `950(a0)` — songlength, in a 31-instrument MOD */
+const MOD_SONGLENGTH = 950
+
+export interface SlnMusic {
+  /** the engine, shared with every other module player here */
+  replay: Protracker
+  /** `times_to_play`; 0 is "obvios (0=infinite)", the source's own comment */
+  times: number
+}
+
+/**
+ * `S Track Play`'s and `=S Track Length`'s shared argument: a bank number at
+ * or below 65536, or an address.
+ *
+ *     cmpa.l  #65536,a0 / ble .GetAdr
+ *     ...Bnk.GetAdr / Rbeq L_error0
+ *     cmpi.l  #"Trac",-$8(a0) / rbne L_error0
+ *     cmpi.l  #"ker ",-$4(a0) / rbne L_error0
+ *
+ * The eight bytes in front of a bank's data are its NAME, so the check is
+ * that this is a bank `S Track Load` made. An ADDRESS skips the check
+ * entirely, which is how a program plays a module it loaded some other way.
+ *
+ * `=S Track Length` uses `blo` where this uses `ble`, so 65536 exactly is a
+ * bank here and an address there.
+ */
+function trackBank(rt: Runtime, arg: number, checkName: boolean, inclusive: boolean): Uint8Array | null {
+  const isBank = inclusive ? arg <= 0x10000 : arg < 0x10000
+  if (!isBank) {
+    const m = rt.resolveAddr(arg >>> 0)
+    return m ? m.data.subarray(m.off) : null
+  }
+  const bank = rt.memBanks.get(arg)
+  if (!bank) slnError(0)
+  if (checkName && bank!.name.padEnd(8, ' ') !== TRACK_BANK_NAME) slnError(0)
+  return bank!.data
+}
+
+/**
+ * `mt_end`, reached by `S Track Stop` and by the play counter running out.
+ *
+ *     dlea Status2,a0 / move.w (a0),d0
+ *     btst #n,d0 / bne (skip)      the SAMPLE player holds this voice
+ *     clr.w $dff0a8+n*$10 / bset #n,d1
+ *     move.w d1,$dff096            DMA off for the ones it silenced
+ *
+ * so it silences only the voices `Status2` does not claim, and a sample
+ * playing under the music keeps playing. `Protracker.voices` is the same
+ * mask from the other side, which is why it is set here rather than in the
+ * keyword: the two have to agree on the same frame.
+ */
+function trackStop(rt: Runtime): void {
+  const st = rt.sln
+  if (!(st.status & (1 << 14))) return
+  st.status &= ~(1 << 14)
+  st.music.replay.voices = 0b1111 & ~st.status2
+  st.music.replay.stop()
+}
+
 export function makeSlnInstructions(rt: Runtime): Record<string, Instr> {
   /** CMD_READ / CMD_WRITE / TD_FORMAT against the mounted image */
   const transfer = (write: boolean, length: number, buffer: number, offset: number): void => {
@@ -1213,6 +1330,105 @@ export function makeSlnInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   return {
+    // ---- the tracker ----------------------------------------------------
+    /**
+     * Routines 88 and 89 — `S Track Load FILE$ [,BANK]`, defaulting to bank 7.
+     *
+     * `Bnk.Reserve` with `Bnk_BitData | Bnk_BitChip` under the name
+     * "Tracker ", the file read straight into it, and a short read is error 0
+     * rather than error 3. A filename of 128 characters or more is error 0 as
+     * well, checked with `cmp.w #128,d0 / Rbcc` AFTER the `subq.w #1`, so the
+     * real limit is 129. A bank number of 65536 or more is error 0; a failed
+     * reserve is error 1.
+     *
+     * The bank name is the whole of the type system: `S Track Play` checks the
+     * eight bytes in front of the data and refuses anything else.
+     */
+    's track load'(it): void {
+      const name = it.evalStr()
+      const nr = it.accept(',') ? it.evalInt() : 7
+      if (nr >= 0x10000) slnError(0)
+      if (name.length >= 129) slnError(0)
+      const bytes = rt.vfs?.read(name)
+      if (!bytes) slnError(3)
+      rt.eraseBank(nr)
+      rt.reserveBank(nr, bytes!.length, TRACK_BANK_NAME, true, true)
+      rt.memBanks.get(nr)!.data.set(bytes!)
+    },
+    /**
+     * Routines 96, 86 and 87 — `S Track Play BANK [,TIMES [,START]]`, each
+     * pushing a default and falling into the next, so the bare form is
+     * `bank, 0, 0`: from the top, for ever.
+     *
+     * It stops a player that is already running first (`btst #14,Status`),
+     * then checks the start position against `950(a0)`, the song length, with
+     * `cmp.b 950(a0),d7 / rbhi` — an UNSIGNED byte compare, so a start equal
+     * to the length is allowed and one past it is error 25.
+     */
+    's track play'(it): void {
+      const st = rt.sln
+      const arg = it.evalInt()
+      const times = it.accept(',') ? it.evalInt() : 0
+      const start = it.accept(',') ? it.evalInt() : 0
+      if (st.status & (1 << 14)) trackStop(rt)
+      const data = trackBank(rt, arg, true, true)
+      if (!data) slnError(0)
+      if ((start & 0xff) > (data![MOD_SONGLENGTH] ?? 0)) slnError(25)
+      const song = parseMod(data!)
+      if (!song) slnError(0)
+      const m = st.music
+      m.times = times & 0xffff
+      m.replay.load(song!, start & 0xff)
+      // mt_init: `lea mt_speed(pc),a1 / dlea TrackTempo,a2 / move.b (a2),(a1)`
+      // --- the speed comes from the extension's setting, not from 6
+      m.replay.speed = st.trackTempo
+      m.replay.trigVolPercent = 100 // `move.b #100,(a0)`, every init
+      m.replay.ciaTempo = false
+      m.replay.e8 = 0
+      m.replay.playing = true
+      st.status |= 1 << 14
+    },
+    /**
+     * Routine 90 — `S Track Stop`. `btst #14,Status` first, so it is safe to
+     * call when nothing is playing, and it goes through `mt_end`, which
+     * silences only the voices `Status2` does NOT claim: a sample playing
+     * under the music keeps playing.
+     */
+    's track stop'(): void {
+      trackStop(rt)
+    },
+    /**
+     * Routine 91 — `S Track Volume PERCENT`.
+     *
+     * NOTE the name. `Sln_ext_Historie` lists this as *"S Track Volume="* and
+     * the token table spells it without the equals, so the Historie is stale;
+     * the table is what a program has to type.
+     *
+     * The value is a PERCENTAGE and it is applied at the instrument trigger
+     * only — `Cxx` and the volume slides write the channel volume straight to
+     * AUDxVOL with no factor at all, so a channel that slides escapes the
+     * setting until its next instrument. There is no range check: the factor
+     * is a byte, and anything above 100 makes the module louder up to the
+     * `cmpi.w #64` clamp in the player.
+     */
+    's track volume'(it): void {
+      rt.sln.music.replay.trigVolPercent = it.evalInt() & 0xff
+    },
+    /**
+     * Routine 93 — `S Track Tempo= TEMPO`, and it writes TWO things: the
+     * extension's own `TrackTempo` byte, which seeds `mt_speed` at the next
+     * `S Track Play`, and `mt_speed` itself through `mt_SetTempo`, which also
+     * clears the tick counter so the change lands on the next row rather than
+     * mid-row. A tempo of 0 stores 0, and the player's `blo` against a speed
+     * of zero then never matches — the module freezes on its current row.
+     */
+    's track tempo='(it): void {
+      const v = it.evalInt() & 0xff
+      rt.sln.trackTempo = v
+      rt.sln.music.replay.counter = 0
+      rt.sln.music.replay.speed = v
+    },
+
     // ---- trackdisk ------------------------------------------------------
     /**
      * Routine 64 — `S Disk Open DRIVE`. It closes any request it already has,
@@ -2016,6 +2232,24 @@ export function makeSlnFunctions(rt: Runtime): Record<string, Func> {
      * `L_InterFree`, and this is that.
      */
     's ifree': (): Value => VI(rt.sln.interBase.filter((v) => v === 0).length),
+    // ---- the tracker ----------------------------------------------------
+    /**
+     * Routine 92 — `=S Track Length BANK/ADR`: the byte at 950, which is a
+     * MOD's song length in positions. NOTE it uses `blo` where `S Track Play`
+     * uses `ble`, so 65536 exactly is an ADDRESS here and a BANK there, and it
+     * does not check the bank's name — it will read 950 bytes into anything.
+     */
+    's track length': (_, a): Value => {
+      const data = trackBank(rt, int(a[0]!), false, false)
+      return VI(data?.[MOD_SONGLENGTH] ?? 0)
+    },
+    /**
+     * Routine 94 — `=S Track Tempo`, the extension's own `TrackTempo` byte.
+     * NOT the player's live speed: an `Fxx` in the module moves `mt_speed` and
+     * leaves this alone, so the two disagree the moment a module sets its own.
+     */
+    's track tempo': (): Value => VI(rt.sln.trackTempo),
+
     // ---- trackdisk ------------------------------------------------------
     /**
      * Routine 74 — `=S Disk State`.

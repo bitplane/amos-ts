@@ -12,7 +12,7 @@ Core AMOS Professional is complete — the display pipeline, the audio pipeline,
 the language, banks, files, menus, the Interface dialog engine and the file
 selector are all at 100%. So is every extension a stock installation ships
 (Music, Compact, Request, Compiler, IOPorts) and every third-party one the
-port has started: fifty-three extension releases read 100% in `KEYWORDS.md`,
+port has started: fifty-four extension releases read 100% in `KEYWORDS.md`,
 among them AMCAF 1.40/1.50, the JD family, EasyLife, TOME, TURBO Plus,
 Personnal, LDos, AMOS 3D, PowerBobs, MED 7.1, EME 3.0 and P61.
 
@@ -21,7 +21,7 @@ sits between 0% and 100%: an extension is finished or it has not been begun.
 That is the ratchet working, and it is the number to watch — a row appearing
 in the middle means a thread was left hanging.
 
-3736 keywords are implemented, 3628 of them faithful.
+3842 keywords are implemented, 3733 of them faithful.
 
 ### The census
 
@@ -75,7 +75,6 @@ extension keyword. The count is keywords with no handler at all:
 | Craft 1.0 | 136 | commercial (Black Legend) |
 | The Game 0.9 | 103 | |
 | Opal 1.1 | 78 | OpalVision hardware |
-| SLN 2.0 | 70 | |
 | D-SAM 1.01 | 50 | |
 | Delta 1.6 / 1.4 | 46 / 26 | `intuition.library` |
 | Tools 1.01 | 33 | |
@@ -96,6 +95,34 @@ not have; it is the only structural deviation in the extension. `Gsiconify`
 waits on `workbench.library`'s AppIcon half and a blocking `WaitPort`, and
 answers 1 — the routine's own error result — until then. Everything else is
 data, and is done.
+
+**SLN 2.0 came off this table too.** All 70 read 100% --- 68 faithful, one
+approximated and one n/a --- and it was the cheapest large row on the board
+for the reason the table said: `sln_extII.s` is the author's own assembler
+source and, unlike `GameSupport.s`, it is the whole extension. What it cost
+was not archaeology but arithmetic. **Fourteen defects shipped in it**, every
+one confirmed in the binary before it was reproduced, and they are the reason
+this row took as long as it did: `S Mouse Button` reads the floppy
+disk-change line where it meant the fire button, so it can never report a
+press; `S Ainit`'s free reads array ZERO's address with array N's size, so
+re-initialising one array hands another's memory back; the two-dimensional
+bound check compares Y against the X limit and never checks X at all; `S
+Aclear` counts bytes and writes longwords; `S Aerase` re-allocates a one-byte
+array instead of erasing; `S Delete` decides file-versus-directory on a stale
+register four bytes past the AMOS string; `S Disk State` answers -2 for an
+empty drive where its own comment promises 0; and every trackdisk error is
+reported as the message below the right one. The one structural gap is
+`S Iinit`, whose eight VBL hooks are 68k machine code --- the table is kept
+exactly and nothing is ever entered. `S Mask$` is n/a because the author says
+so on the line itself: *"This command is non-existent!!! DO NOT USE."*
+
+Two things landed outside the extension. `AmigaFS.volume` and
+`AdfVolume.image`/`invalidate` open a raw path past the filesystem, because
+`S Disk Read` is `trackdisk.device` CMD_READ at a byte offset and an ADF *is*
+the sector image it wants --- so a mounted disk is served byte for byte and
+`S Disk Rename` really does rewrite the root block. And `Protracker` gained
+`trigVolPercent`, the percentage SLN's replayer applies at the instrument
+trigger and nowhere else.
 
 **This table has been wrong before, and the fix is to read it off
 `KEYWORDS.md`.** It used to list AMCAF 1.50, Range 1.0 and 2.0, AMOSPro

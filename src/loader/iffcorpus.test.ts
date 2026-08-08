@@ -62,6 +62,11 @@ describe.skipIf(files.length === 0)('every IFF picture in the corpus decodes exa
     })
   }
 
+  // 20 seconds rather than the default five: this decodes, re-encodes and
+  // re-decodes every picture in the corpus, which is ~1.5s on an idle machine
+  // and several times that when the rest of the suite is running beside it.
+  // It was inside the default budget by luck and started timing out when the
+  // suite grew; the work it does has not changed.
   it('round-trips every picture through our own encoder', () => {
     // encodeIlbm is the inverse of parseIlbm; if the unpacker drifted, a
     // re-encode/re-decode would not land back on the same pixels
@@ -75,5 +80,5 @@ describe.skipIf(files.length === 0)('every IFF picture in the corpus decodes exa
       expect(Array.from(b.pixels), f).toEqual(Array.from(a.pixels))
       expect(b.palette.slice(0, a.palette.length), f).toEqual(a.palette)
     }
-  })
+  }, 20_000)
 })

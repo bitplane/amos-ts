@@ -312,6 +312,30 @@ export class Protracker {
   /** which voices the music may use; a caller's sound effect takes the rest */
   voices = 0b1111
 
+  /**
+   * A PERCENTAGE applied to the sample's own volume when an instrument
+   * triggers, for a replayer whose caller wants the module quieter without
+   * touching the module — SLN's `S Track Volume`, whose `mt_VolFaktor` starts
+   * at 100 and is *"volume faktor (in %)"* in its own data zone.
+   *
+   *     move.b  n_volume(a6),d0
+   *     move.b  (a4),d5 / mulu.w d5,d0 / divu #100,d0
+   *     cmpi.w  #64,d0 / bgt -> 64
+   *     move.w  d0,8(a5)         AUDxVOL
+   *
+   * NOTE it is applied ONLY there. `Cxx` and the volume slides write
+   * `n_volume` straight to AUDxVOL with no factor at all, so a channel that
+   * slides its volume escapes the setting until its next instrument.
+   *
+   * DEVIATION: the only one this field carries. The machine writes the
+   * scaled value to the hardware and keeps the UNSCALED one in `n_volume`, so
+   * a slide after a trigger resumes from the sample's own volume. Here the
+   * scale lands on the channel volume itself, so a slide resumes from the
+   * scaled value. The two agree until a channel both triggers an instrument
+   * and slides its volume while a factor other than 100 is set.
+   */
+  trigVolPercent = 100
+
   /** set by a position jump or a pattern break, so `advance` does not add to it */
   private broke = false
   private patternDelay = 0
@@ -466,8 +490,14 @@ export class Protracker {
         ch.instrument = cell.instrument
         ch.sample = s
         if (s) {
-          ch.volume = s.volume
-          ch.shadow = s.volume
+          // `mulu.w d5,d0 / divu #100,d0 / cmpi.w #64,d0 / bgt` — see
+          // `trigVolPercent`, which is 100 for every caller but SLN
+          const v =
+            this.trigVolPercent === 100
+              ? s.volume
+              : Math.min(64, Math.floor((s.volume * this.trigVolPercent) / 100))
+          ch.volume = v
+          ch.shadow = v
           ch.fine = s.finetune
           ch.funkWave = s.loopStart
         }

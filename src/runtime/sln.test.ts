@@ -980,3 +980,210 @@ describe('SLN: trackdisk.device', () => {
     expect(diskNum('S Disk Open 0 : S Disk Close : S Disk Close : Print S Disk Dev Check', null)).toBe(0)
   })
 })
+
+// ---- the tracker player --------------------------------------------------
+
+/**
+ * A four-position M.K. module, one sample, one pattern per position, with a
+ * speed set on channel 1 of every pattern so the tests can drive the position
+ * walk without waiting sixty-four rows.
+ */
+function modFile(speed = 1, volume = 40): Uint8Array {
+  const PATTERNS = 4
+  const d = new Uint8Array(1084 + PATTERNS * 1024 + 64)
+  const dv = new DataView(d.buffer)
+  dv.setUint16(20 + 22, 32) // sample 1: 64 bytes
+  d[20 + 25] = volume
+  dv.setUint16(20 + 28, 1) // the conventional one-word repeat
+  d[950] = PATTERNS
+  for (let p = 0; p < PATTERNS; p++) d[952 + p] = p
+  d.set([0x4d, 0x2e, 0x4b, 0x2e], 1080) // "M.K."
+  const cell = (p: number, row: number, ch: number, cmd: number, info: number): void => {
+    const at = 1084 + p * 1024 + row * 16 + ch * 4
+    d[at] = 0x1ac >> 8
+    d[at + 1] = 0x1ac & 0xff
+    d[at + 2] = 0x10 | (cmd & 0xf) // instrument 1
+    d[at + 3] = info & 0xff
+  }
+  for (let p = 0; p < PATTERNS; p++) {
+    cell(p, 0, 1, 0xf, speed)
+    cell(p, 0, 0, 0, 0)
+  }
+  return d
+}
+
+function bootMod(src: string, data = modFile()): Boot {
+  const fs = new AmigaFS()
+  fs.mountMemory('RAM')
+  fs.writeFile('RAM:tune.mod', data)
+  let printed = ''
+  const rt = new Runtime(tokenize(src, table, extensions), table, {
+    extensions,
+    extBindings: new Map([[SLN_SLOT, sln]]),
+    maxSteps: 200_000,
+    onText: (t) => (printed += t),
+    fs,
+  })
+  return { rt, out: () => printed }
+}
+
+/** step vertical blanks until the song position changes; answer the new one */
+function untilPos(rt: Runtime, limit = 400): number {
+  const from = rt.sln.music.replay.pos
+  for (let i = 0; i < limit; i++) {
+    rt.frame()
+    if (rt.sln.music.replay.pos !== from) return rt.sln.music.replay.pos
+  }
+  return from
+}
+
+describe('SLN: the tracker player', () => {
+  it('S Track Load reserves a chip data bank called "Tracker "', () => {
+    const b = bootMod('S Track Load "RAM:tune.mod"')
+    mustFinish(b.rt.runHeadless(2_000))
+    const bank = b.rt.memBanks.get(7)!
+    expect(bank.name).toBe('Tracker ')
+    expect(bank.memType).toBe(1) // Bnk_BitChip
+    expect(bank.data.length).toBe(modFile().length)
+  })
+
+  it('S Track Play refuses a bank that is not one of its own', () => {
+    // cmpi.l #"Trac",-$8(a0) / cmpi.l #"ker ",-$4(a0) --- the eight bytes in
+    // front of a bank's data are its name
+    const b = bootMod('Reserve As Work 7,2000 : S Track Play 7')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[0])
+  })
+
+  it('plays, walks its positions and wraps', () => {
+    const b = bootMod('S Track Load "RAM:tune.mod" : S Track Play 7')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.rt.sln.status & (1 << 14)).not.toBe(0)
+    expect(b.rt.sln.music.replay.playing).toBe(true)
+    expect(untilPos(b.rt)).toBe(1)
+    expect(untilPos(b.rt)).toBe(2)
+  })
+
+  it('a start position past the song length is error 25', () => {
+    // cmp.b 950(a0),d7 / rbhi --- unsigned, so a start EQUAL to the length is
+    // allowed and one past it raises
+    const ok = bootMod('S Track Load "RAM:tune.mod" : S Track Play 7,0,4')
+    mustFinish(ok.rt.runHeadless(2_000))
+    const b = bootMod('S Track Load "RAM:tune.mod" : S Track Play 7,0,5')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[25])
+  })
+
+  it('the bare form is bank, 0, 0 — from the top, for ever', () => {
+    const b = bootMod('S Track Load "RAM:tune.mod" : S Track Play 7')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.rt.sln.music.times).toBe(0)
+    expect(b.rt.sln.music.replay.pos).toBe(0)
+    // four positions round twice and it is still going
+    for (let i = 0; i < 8; i++) untilPos(b.rt)
+    expect(b.rt.sln.status & (1 << 14)).not.toBe(0)
+  })
+
+  it('TIMES counts wraps, and the player stops when it reaches zero', () => {
+    // mt_NextPosition: `subi.w #1,times_to_play / beq mt_StopModule`
+    const b = bootMod('S Track Load "RAM:tune.mod" : S Track Play 7,1')
+    mustFinish(b.rt.runHeadless(2_000))
+    for (let i = 0; i < 600 && b.rt.sln.status & (1 << 14); i++) b.rt.frame()
+    expect(b.rt.sln.status & (1 << 14)).toBe(0)
+    expect(b.rt.sln.music.replay.playing).toBe(false)
+  })
+
+  it('S Track Stop is safe when nothing is playing', () => {
+    // btst #14,Status first
+    const b = bootMod('S Track Stop : S Track Load "RAM:tune.mod" : S Track Play 7 : S Track Stop')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.rt.sln.status & (1 << 14)).toBe(0)
+  })
+
+  it('the speed comes from TrackTempo, not from 6', () => {
+    // mt_init: `lea mt_speed(pc),a1 / dlea TrackTempo,a2 / move.b (a2),(a1)`
+    expect(num('Print S Track Tempo')).toBe(6)
+    const b = bootMod('S Track Tempo=3 : S Track Load "RAM:tune.mod" : S Track Play 7')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.rt.sln.music.replay.speed).toBe(3)
+    expect(num('S Track Tempo=3 : Print S Track Tempo')).toBe(3)
+  })
+
+  it('S Track Tempo= also changes the LIVE speed and clears the tick counter', () => {
+    // mt_SetTempo: `clr.b mt_counter / move.b d1,mt_speed`
+    const b = bootMod('S Track Load "RAM:tune.mod" : S Track Play 7 : Wait Vbl : Wait Vbl : S Track Tempo=9')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.rt.sln.music.replay.speed).toBe(9)
+    expect(b.rt.sln.music.replay.counter).toBe(0)
+  })
+
+  it('=S Track Tempo reads the extension’s byte and NOT the player’s speed', () => {
+    // routine 94 reads TrackTempo; an Fxx in the module moves mt_speed and
+    // leaves it alone. The fixture sets F01 on every pattern.
+    const b = bootMod('S Track Load "RAM:tune.mod" : S Track Play 7 : Wait Vbl : Wait Vbl : Print S Track Tempo')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('6')
+    // the first row lands `speed` blanks in, and speed starts at TrackTempo
+    for (let i = 0; i < 10; i++) b.rt.frame()
+    expect(b.rt.sln.music.replay.speed).toBe(1)
+  })
+
+  it('=S Track Length is the byte at 950, and it checks no bank name', () => {
+    const b = bootMod('S Track Load "RAM:tune.mod" : Print S Track Length(7)')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('4')
+  })
+
+  it('S Track Volume scales the sample volume at the instrument trigger', () => {
+    // mulu.w d5,d0 / divu #100,d0 / cmpi.w #64,d0 / bgt --- and ONLY there:
+    // Cxx and the volume slides write the channel volume with no factor
+    // AFTER the play: mt_init writes `#100` into mt_VolFaktor every time, so
+    // setting the level first is setting it for nobody
+    const b = bootMod('S Track Load "RAM:tune.mod" : S Track Play 7 : S Track Volume 50')
+    mustFinish(b.rt.runHeadless(2_000))
+    for (let i = 0; i < 10; i++) b.rt.frame()
+    expect(b.rt.sln.music.replay.channels[0]!.volume).toBe(20) // 40 * 50 / 100
+    const full = bootMod('S Track Load "RAM:tune.mod" : S Track Play 7')
+    mustFinish(full.rt.runHeadless(2_000))
+    for (let i = 0; i < 10; i++) full.rt.frame()
+    expect(full.rt.sln.music.replay.channels[0]!.volume).toBe(40)
+  })
+
+  it('a factor above 100 is allowed, and the player clamps at 64', () => {
+    // no range check anywhere; `cmpi.w #64,d0 / bgt .high` is the only limit
+    const b = bootMod('S Track Load "RAM:tune.mod" : S Track Play 7 : S Track Volume 200')
+    mustFinish(b.rt.runHeadless(2_000))
+    for (let i = 0; i < 10; i++) b.rt.frame()
+    expect(b.rt.sln.music.replay.channels[0]!.volume).toBe(64)
+  })
+
+  it('S Track Play puts the factor back to 100, as mt_init does', () => {
+    // `lea mt_VolFaktor(pc),a0 / move.b #100,(a0)` on every init
+    const b = bootMod(
+      'S Track Load "RAM:tune.mod" : S Track Volume 50 : S Track Play 7 : S Track Play 7',
+    )
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.rt.sln.music.replay.trigVolPercent).toBe(100)
+  })
+
+  it('Status2 takes voices away from the music while a sample holds them', () => {
+    // every voice loop writes to a ten-byte `dummy` instead of the hardware
+    // for a channel Status2 claims, and the mask is sampled once a frame
+    const b = bootMod('S Track Load "RAM:tune.mod" : S Track Play 7 : Wait Vbl')
+    mustFinish(b.rt.runHeadless(2_000))
+    b.rt.frame()
+    expect(b.rt.sln.music.replay.voices).toBe(0b1111)
+    b.rt.sln.status2 = 0b0101
+    b.rt.frame()
+    expect(b.rt.sln.music.replay.voices).toBe(0b1010)
+  })
+
+  it('there is no CIA tempo here, so Fxx above 31 is a SPEED', () => {
+    // mt_CheckMoreEfx sends every F to mt_SetSpeed with no range test, so
+    // this player needs none of the "ticks once a vertical blank" deviation
+    // the other replayers in this port carry
+    const b = bootMod('S Track Load "RAM:tune.mod" : S Track Play 7', modFile(0x80))
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.rt.sln.music.replay.ciaTempo).toBe(false)
+    for (let i = 0; i < 10; i++) b.rt.frame()
+    expect(b.rt.sln.music.replay.speed).toBe(0x80)
+  })
+})

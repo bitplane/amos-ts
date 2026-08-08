@@ -5658,7 +5658,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // See sln.ts for what the 70 names cover and which one is not real.
     ids: ['sln-2.0'],
     init: (rt) => {
-      rt.sln = newSlnState()
+      rt.sln = newSlnState(rt)
     },
     instructions: makeSlnInstructions,
     functions: makeSlnFunctions,

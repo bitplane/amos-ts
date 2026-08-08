@@ -1417,6 +1417,11 @@ export const FAITHFUL = new Set<string>([
   's disk state', 's disk prot state', 's disk changes', 's num tracks',
   's disk dev check', 's disk abort', 's disk wait', 's disk update',
   's disk rename',
+  // Batch 6 -- the tracker. The player is stock PT2.3A with five additions,
+  // and the additions are what is read off it; the replay itself is
+  // src/amiga/protracker.ts, as it is for AMCAF, P61, MED and GameSupport.
+  's track load', 's track play', 's track stop', 's track volume',
+  's track length', 's track tempo=', 's track tempo',
 
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
@@ -4691,6 +4696,50 @@ export const NOTES: Record<string, string> = {
     "keywords, so all of their checks apply. DEFECT: the copy loop writes the length byte with " +
     "`move.b d0,(a0)+` and then `dbra d0` over the characters, so it writes LENGTH + 1 of them --- one byte " +
     "past the name into the field's padding, and the byte is whatever followed the AMOS string.",
+
+  "s track load":
+    "Routines 88 and 89, defaulting to bank 7. Bnk.Reserve with Bnk_BitData | Bnk_BitChip under the name " +
+    "\"Tracker \", the file read straight in, and a short read is error 0 rather than error 3. A filename of " +
+    "129 characters or more is error 0 (the check is `cmp.w #128,d0 / Rbcc` AFTER a `subq.w #1`); a bank " +
+    "number of 65536 or more is error 0; a failed reserve is error 1. The bank NAME is the whole of the type " +
+    "system --- S Track Play checks the eight bytes in front of the data and refuses anything else.",
+  "s track play":
+    "Routines 96, 86 and 87, each pushing a default and falling into the next, so the bare form is " +
+    "`bank, 0, 0`: from the top, for ever. It stops a running player first (`btst #14,Status`), then checks " +
+    "the start against `950(a0)`, the song length, with `cmp.b 950(a0),d7 / rbhi` --- an unsigned BYTE " +
+    "compare, so a start equal to the length is allowed and one past it is error 25. An ADDRESS above 65536 " +
+    "skips the bank-name check entirely, which is how a program plays a module it loaded some other way. NOTE " +
+    "mt_init writes `#100` into mt_VolFaktor every time, so an S Track Volume set BEFORE the play is set for " +
+    "nobody. The player is stock PT2.3A plus five things: the speed seeded from TrackTempo rather than from 6, " +
+    "the volume factor, the Status2 channel mask, times_to_play, and a start position. It has no CIA tempo at " +
+    "all --- every Fxx goes to mt_SetSpeed --- so unlike every other replayer in this port it needs no " +
+    "deviation note about ticking once a vertical blank: SLN's ticks once a vertical blank too.",
+  "s track stop":
+    "Routine 90 --- `btst #14,Status` first, so it is safe when nothing is playing, then mt_end, which " +
+    "silences only the voices Status2 does NOT claim. A sample playing under the music keeps playing.",
+  "s track volume":
+    "Routine 91, and it is a PERCENTAGE. NOTE the name: Sln_ext_Historie lists it as 'S Track Volume=' and the " +
+    "token table spells it without the equals, so the Historie is stale and the table is what a program has to " +
+    "type. The factor is applied at the instrument trigger ONLY --- `mulu.w d5,d0 / divu #100,d0 / cmpi.w " +
+    "#64,d0 / bgt` in mt_PlayVoice --- where Cxx and the volume slides write the channel volume straight to " +
+    "AUDxVOL with no factor, so a channel that slides escapes the setting until its next instrument. There is " +
+    "no range check; anything above 100 makes the module louder up to the clamp at 64. DEVIATION: the machine " +
+    "writes the scaled value to the hardware and keeps the UNSCALED one in n_volume, so a slide after a " +
+    "trigger resumes from the sample's own volume; Protracker.trigVolPercent puts the scale on the channel " +
+    "volume itself, so a slide resumes from the scaled value. The two agree until a channel both triggers an " +
+    "instrument and slides its volume while a factor other than 100 is set.",
+  "s track length":
+    "Routine 92 --- the byte at 950, a MOD's song length in positions. NOTE it uses `blo` where S Track Play " +
+    "uses `ble`, so 65536 exactly is an ADDRESS here and a BANK there, and it does not check the bank's name: " +
+    "it will read 950 bytes into anything.",
+  "s track tempo=":
+    "Routine 93 --- it writes TWO things. The extension's own TrackTempo byte, which seeds mt_speed at the " +
+    "next S Track Play, and mt_speed itself through mt_SetTempo, which also clears the tick counter so the " +
+    "change lands on the next row rather than mid-row. A tempo of 0 stores 0 and the player's `blo` against a " +
+    "speed of zero never matches, so the module freezes on its current row.",
+  "s track tempo":
+    "Routine 94 --- the extension's TrackTempo byte, and NOT the player's live speed. An Fxx in the module " +
+    "moves mt_speed and leaves this alone, so the two disagree the moment a module sets its own.",
 
   "stick joy":
     "Routine 5 ($432), reading CIA-A PRB ($bfe101) bits 0-3. The manual calls this the serial port throughout; " +
