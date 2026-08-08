@@ -93,11 +93,19 @@ six stale rows out of nine, because the table is hand-maintained and the
 manifest is generated. `KEYWORDS.md` is the source of truth; this is a
 commentary on it.
 
-EasyLife is deliberately *not* in the table: it is part-ported and
-part-ported is a third state the table has no column for. What is left of it
-is the MUI block — see the notes in `src/runtime/easylife.ts`. The iconify
-four came off this list when `OpenWindow` landed, and they are the first
-keywords in the port to open a real Intuition window.
+**EasyLife is complete, and this document used to say otherwise.** All four
+releases read 100% — 1.0 (72), 1.09 and 1.10 (156 each), 1.44 (108) — with
+`iconify amos` the single approximation. The note that used to sit here called
+it "part-ported, and what is left of it is the MUI block", which files a
+DEPENDENCY as a gap in the dependent. EasyLife's own half of MUI is the
+four-LVO trampoline and the string pool that keeps AMOS strings alive across
+a taglist (`src/runtime/elmui.ts`, routines 231, 232, 238 and 241), and that
+half is finished. `muimaster.library` is a separate product by another author,
+installed separately, and EasyLife is built to run without it — message 23 is
+`Could Not Open MUI Master Library V8+ (MUI V2.1+)`. It gets its own section
+below rather than a footnote here. The iconify four came off this list when
+`OpenWindow` landed, and they are the first keywords in the port to open a
+real Intuition window.
 
 Five of the sixteen rows above wait on the same thing: **`intuition.library`,
 and a display path that can show a window.** That gate is now open, and the
@@ -123,6 +131,74 @@ It is also the extension least able to move: its 183 keywords are windows,
 gadgets, menus and requesters, so nearly all of them would land as n/a until
 `intuition.library` exists in `src/amiga/`. That back-end, not the keyword
 list, is the actual prerequisite — see `src/amiga/README.md`.
+
+### muimaster.library — surveyed, and parked behind Intuition
+
+MUI is a GUI toolkit by Stefan Stuntz, reached from AMOS through EasyLife's
+twenty `Mui` keywords. It is a product in its own right and it is scoped like
+one, so it is recorded here rather than counted against EasyLife.
+
+**What exists.** `src/amiga/muimaster.ts` is the class factory: all 65 classes
+with the right parents, the 714 constants and the `isg` flags, plus OM_NEW /
+SET / GET / DISPOSE / ADDMEMBER / REMMEMBER, notifications with the four
+`MUIV_Notify_*` pseudo-destinations, AskMinMax sizing and the Application
+input loop. A program can build a tree, set and read attributes, register
+notifications and drive its main loop. What it cannot do is *see* anything.
+
+**What was learned from the binary.** `src/cli/muidis.ts` opens
+`muimaster.library` 19.35 — an ordinary hunk binary, so `../amiga/hunk`
+relocates it. Its class registry is twenty-byte entries at `$237088`
+(`0`, name, superclass name, dispatcher, instance size), and each dispatcher
+is a `dbeq` search of a method-ID table with a parallel handler table
+immediately before it. Four things came out of it that the header could not
+have given:
+
+- **Only 35 of the 65 classes are built in.** The other 30 ship as separate
+  binaries in `MUI/Libs/mui/*.mui` and are loaded on demand, so they need a
+  second resolution path `muidis` does not have yet. `Scrmodelist` has an
+  autodoc but no binary in MUI 3.8 — manual tier only.
+- **The class tree corroborates `mui.h` exactly**, 0 parent mismatches. The
+  binary carries one class the header never mentions: `Cclist.mui`.
+- **The autodocs undercount the protocol badly.** The 35 built-in classes hold
+  507 method-table entries over 123 distinct ids, and **113 of those entries
+  have no name in `mui.h` at all**. A port written to the documented list
+  would silently omit every one of them, and there was no way to know which
+  before this.
+- **`Group` and `Family` broadcast.** Both call a routine ($215b90 and
+  $21876e) BEFORE handing an unrecognised method to the superclass, which is
+  what makes a method sent to a group reach everything in it. Nothing else in
+  the 35 does that.
+
+**Why it is parked.** MUI sits on `intuition.library`, and Intuition is the
+prerequisite for roughly 550 keywords across five other extension rows as
+well. Doing MUI first would mean building its render and input path twice.
+The order is Intuition, then MUI on top of it.
+
+**The deviation to fix when it resumes.** Nothing raises message 23, so the
+port claims MUI is installed and then displays nothing. No Amiga was in that
+state: either MUI was installed and a GUI appeared, or it was absent and the
+program got 23 and took its fallback. The current third state turns a missing
+toolkit into a silent hang instead of a diagnosis, and that is the worst
+outcome for the programs this port exists to run.
+
+**The shape of the work, in order**, once Intuition is there: the
+`Setup → Show → AskMinMax → Layout → Draw` spine on Area, Window and
+Application (39, 39 and 47 methods); then Group, the largest class in the
+library at 67 methods, which owns both the layout engine and the broadcast;
+then the widgets by reachability (Text, String, Gadget, Prop, List, Listview,
+Numeric, Slider, Cycle, Radio, Scrollbar, Register, the Menu family, the Pop
+family); then the 30 external classes; then `asl.library`, which `Popasl`
+needs and which is the only support library still missing — intuition,
+graphics, diskfont and boopsi already have what MUI asks of them.
+
+**Three things that cannot be closed** and belong with the deviations rather
+than the backlog: `Mui Hook` callbacks (ADDRESS is 68k machine code and there
+is no 68k here — the `Amos Call` boundary), `Wait()` (one thread that must
+return to the frame loop, so the signal mask NewInput assembles from every
+port's `mp_SigBit` has no counterpart), and MUI's preferences (real sizes come
+from the user's chosen frames, fonts and image specs; sizes here are derived
+from the system font, so nothing will be pixel-exact against a configured
+MUI).
 
 Coverage in the wild is a signal, not a target. Most AMOS programs were never
 published online, so a census over what *was* published measures the archive

@@ -1219,6 +1219,81 @@ describe.skipIf(!existsSync(DEMOS))('EasyLife: the MUI twenty, on a real muimast
     ).toBe(' 55\n')
   })
 
+  /**
+   * The main loop of every MUI program, and until the Application methods
+   * landed it could not terminate: Mui Input answered 0 for ever, so a
+   * program looping until Quit looped until the step cap.
+   *
+   * Application's dispatcher is $2148f0; ReturnID is $220812 (append to the
+   * list at $80(a2)) and Input is $220066, falling into NewInput at $21f924,
+   * which answers the first node's first longword.
+   */
+  it('Mui Input answers the ids Mui Do queued, oldest first, then 0', () => {
+    expect(
+      run(
+        'Mui Begin False\nA=Mui Application(Tag$("TAG_DONE"))\n' +
+          'Mui Do A,Ellong$(Tag("MUIM_Application_ReturnID"))+Ellong$(7)\n' +
+          'Mui Do A,Ellong$(Tag("MUIM_Application_ReturnID"))+Ellong$(9)\n' +
+          'Print Mui Input;Mui Input;Mui Input\n',
+      ),
+    ).toBe(' 7 9 0\n')
+  })
+
+  /**
+   * The shape of every MUI main loop: a notification whose destination is
+   * MUIV_Notify_Application (3) and whose method is ReturnID, so the id
+   * surfaces at the top of the program's own loop.
+   *
+   * Driven off MUIA_Window_Activate rather than the MUIA_Window_CloseRequest
+   * a real program would use, because CloseRequest is `..g` — MUI raises it
+   * itself when the close gadget is hit, and nothing can raise it here until
+   * windows open and IDCMP reaches them.
+   */
+  it('a notification reaching MUIM_Application_ReturnID comes back out of Mui Input', () => {
+    expect(
+      run(
+        'Mui Begin False\nA=Mui Application(Tag$("TAG_DONE"))\n' +
+          'Mui Begin False\nW=Mui New("Window.mui")\n' +
+          'Mui Add W To A\n' +
+          'M$=Ellong$(Tag("MUIM_Application_ReturnID"))+Ellong$(42)\n' +
+          'Mui Notify W,"MUIA_Window_Activate",1 To 3,M$\n' +
+          'Mui Set W,"MUIA_Window_Activate",1\n' +
+          'Print Mui Input\n',
+      ),
+    ).toBe(' 42\n')
+  })
+
+  /**
+   * `moveq #$ff,d0 / cmp.l $4(a5),d0` at $22082e sign-extends, so the id the
+   * routine treats as Quit is MUIV_Application_ReturnID_Quit, $ffffffff — and
+   * it is queued like any other, which is why the documented idiom of looping
+   * until Input answers Quit works without Quit being special-cased.
+   */
+  it('the Quit id is queued and answered like any other', () => {
+    expect(
+      run(
+        'Mui Begin False\nA=Mui Application(Tag$("TAG_DONE"))\n' +
+          'Mui Do A,Ellong$(Tag("MUIM_Application_ReturnID"))+Ellong$(Tag("MUIV_Application_ReturnID_Quit"))\n' +
+          'Print Mui Input=Tag("MUIV_Application_ReturnID_Quit")\n',
+      ),
+    ).toBe('-1\n')
+  })
+
+  /**
+   * Mui Fn is Mui Do's function form — routine 226 sends the same method and
+   * answers its result. The test that named it previously drove Mui Do and
+   * Mui Get instead, so the keyword itself was never dispatched.
+   */
+  it('Mui Fn sends the method and answers its result', () => {
+    expect(
+      run(
+        'Mui Begin False\nA=Mui Application(Tag$("TAG_DONE"))\n' +
+          'R=Mui Fn(A,Ellong$(Tag("MUIM_Application_ReturnID"))+Ellong$(5))\n' +
+          'Print R;Mui Input\n',
+      ),
+    ).toBe(' 0 5\n')
+  })
+
   it('Mui Make Button and Mui Make Popbutton need no Mui Begin', () => {
     expect(run('B=Mui Make Button("Ok")\nP=Mui Make Popbutton(Tag("MUII_PopUp"))\nPrint B<>0;P<>0\n')).toBe('-1-1\n')
   })

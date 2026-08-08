@@ -58,6 +58,30 @@
  * which is `struct MUIP_Notify { MethodID; TrigAttr; TrigVal; DestObj;
  * FollowParams; ... }` field for field.
  *
+ * ## Where this stopped, and why
+ *
+ * PARKED, deliberately, behind `intuition.library`. What is here is structure
+ * and geometry: a tree can be built, attributes set and read, notifications
+ * registered and fired, and the Application input loop drained. Nothing draws
+ * and nothing responds to a mouse, because both of those are Intuition's
+ * before they are MUI's, and Intuition is the prerequisite for some 550
+ * keywords elsewhere as well. Building MUI's render path first would mean
+ * building it twice.
+ *
+ * `../cli/muidis.ts` is the way back in: it opens muimaster.library 19.35 and
+ * resolves any built-in class to its dispatcher and any method to its
+ * routine. Four things it established, none of which mui.h could have said:
+ * only 35 of the 65 classes are built into the library (the rest are separate
+ * `MUI/Libs/mui/*.mui` binaries); the class tree above agrees with the binary
+ * exactly, which promotes it off the manual tier; the 35 hold 507 method-table
+ * entries of which 113 have NO NAME in mui.h; and `Group` and `Family` both
+ * broadcast to their children before deferring to the superclass.
+ *
+ * `UNIMPLEMENTED.md` carries the ordered plan and the three deviations that
+ * cannot be closed. One deviation is live right now and is worth fixing early
+ * when this resumes: nothing raises EasyLife's message 23, so the port claims
+ * MUI is installed and then shows nothing, which is a state no Amiga was in.
+ *
  * ## Licensing
  *
  * MUI is shareware, (c) Stefan Stuntz. No MUI code is copied: the constants
@@ -189,6 +213,15 @@ interface MuiData extends Record<string, unknown> {
   notifies: Notification[]
   /** MUIM_Application_Input's queue of MUIA_Application_ReturnID values */
   returnIDs: number[]
+  /**
+   * Application's `$47c` bit 0, set when a Quit id has been posted.
+   *
+   * Kept because the library keeps it: `MUIM_Application_ReturnID` sets the
+   * bit as well as queueing the id, and the bit is what the iconify path
+   * tests. Nothing here reads it yet — the return value a program sees comes
+   * off the queue, exactly as it does in the library.
+   */
+  quitting?: boolean
 }
 
 /** the per-object record, which lives on the Notify slice of every object */
@@ -724,9 +757,66 @@ export class MuiMaster {
       case MUI.MUIM_AskMinMax:
         return this.askMinMaxOf(name, cl, obj as BoopsiObject, msg)
 
-      default:
+      default: {
+        if (cl === this.applicationClass) {
+          const answered = this.applicationMethod(obj as BoopsiObject, msg)
+          if (answered !== null) return answered
+        }
         if (cl === this.notifyClass) return this.notifyMethod(cl, obj as BoopsiObject, msg)
         return doSuperMethodA(cl, obj, msg)
+      }
+    }
+  }
+
+  // -- Application --------------------------------------------------------
+
+  /**
+   * The event loop, as far as one exists without a Wait().
+   *
+   * Read out of muimaster.library 19.35 with `../cli/muidis.ts`; Application's
+   * dispatcher is at $2148f0 and answers 47 methods, of which these two are
+   * the pair a program's main loop is built from.
+   *
+   * `MUIM_Application_ReturnID` ($220812) is sixteen instructions: append the
+   * id to the list at `$80(a2)`, and if it is $ff — `moveq #$ff,d0`, which
+   * sign-extends to MUIV_Application_ReturnID_Quit — also `bset #0,$47c(a2)`.
+   *
+   * `MUIM_Application_Input` ($220066) only clears the caller's signal
+   * longword and falls into `MUIM_Application_NewInput` ($21f924). NewInput
+   * drains the buffered queue at `$84(a2)` when signals were passed, then the
+   * ReturnID queue at `$80(a2)`, and answers the first node's first longword.
+   * That is why the documented idiom — loop until Input answers Quit — works
+   * without Quit being special-cased on the way out: `ReturnID` queued it like
+   * any other id.
+   *
+   * NOT MODELLED: the `$47c` bit 2 branch at $21f980, which sends the
+   * undocumented method $8042c58b to the application before exiting. It is
+   * the iconify path, it has no name in mui.h, and nothing here can reach it
+   * until windows open. The bit-0 flag it tests is set, so the state is right
+   * when that slice arrives; only the branch is missing.
+   *
+   * The signal mask NewInput assembles from every port's `mp_SigBit` (the
+   * whole tail from $21ffc0) has no counterpart here and cannot have one:
+   * there is one thread, it never blocks, and `Mui Input`'s own comment in
+   * ../runtime/easylife.ts sets that deviation out.
+   */
+  private applicationMethod(obj: BoopsiObject, msg: Msg): number | null {
+    const p = msg as Msg & { params?: readonly number[] }
+    switch (msg.MethodID) {
+      case MUI.MUIM_Application_ReturnID: {
+        const [id = 0] = p.params ?? []
+        const d = data(this, obj)
+        d.returnIDs.push(id)
+        if (TAG(id) === MUI.MUIV_Application_ReturnID_Quit) d.quitting = true
+        return 0
+      }
+      case MUI.MUIM_Application_Input:
+      case MUI.MUIM_Application_NewInput: {
+        // "answer the first node's first longword", and 0 for an empty queue
+        return data(this, obj).returnIDs.shift() ?? 0
+      }
+      default:
+        return null
     }
   }
 

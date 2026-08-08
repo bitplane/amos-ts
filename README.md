@@ -98,6 +98,7 @@ CLI tools in `src/cli/`:
 | `libdemand.ts` | rank extensions by how many programs identify to them |
 | `extdis.ts` | resolve an extension keyword to its 68k routine and disassemble it |
 | `tddis.ts` | AMOS 3D: resolve a keyword to its engine routine and disassemble it |
+| `muidis.ts` | MUI: resolve a class's method to its routine in `muimaster.library` and disassemble it (`--tree` for the class tree) |
 | `extaudit.ts` | which of an extension's implemented keywords have been read against its binary |
 | `citecheck.ts` | every `routine N ($ADDR)` citation still names the code it claims to |
 | `contested.ts` | keyword names two ported products both claim, and who answers |
