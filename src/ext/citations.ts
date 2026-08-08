@@ -436,6 +436,10 @@ export const CITED_BY: Record<string, string[]> = {
   // EXTENSION routines its header names -- 269, 270, 300
   'src/runtime/elstruct.ts': ['easylife-1.10', 'easylife-1.09'],
   'src/runtime/easylife.test.ts': ['easylife-1.10', 'easylife-1.09', 'easylife-1.44'],
+  // not an EasyLife port: boopsi.ts models intuition.library's object system,
+  // and cites EasyLife's routines because its hand-rolled dispatch is the
+  // independent confirmation of the two struct offsets the whole file rests on
+  'src/amiga/boopsi.ts': ['easylife-1.10', 'easylife-1.09'],
   'src/runtime/range.ts': ['range-1.0', 'range-2.0'],
   'src/runtime/range.test.ts': ['range-1.0', 'range-2.0'],
   'src/runtime/first.ts': ['first-0.1'],

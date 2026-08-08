@@ -289,6 +289,18 @@ describe('procedures', () => {
     expect(run(prog)).toBe(' 42\n')
   })
 
+  it("End Proc's closing bracket is optional, and Pop Proc's is not", () => {
+    // V1_EndProc (+Verif.s:1704) checks _TkBra1, verifies one expression and
+    // leaves — it never mentions _TkBra2 — and InEndProc (+ILib.s:2660) does
+    // the same at run time before restoring the caller's a6. EasyLife's
+    // Tabifier line 268 and Tag_Editor line 605 are saved that way and ran on
+    // the machine. V1_PopProc (+Verif.s:2296) does check, and errors without
+    const open = ['DOUBLE[21]', 'Print Param', 'Procedure DOUBLE[N]', 'End Proc[N*2'].join('\n')
+    expect(run(open)).toBe(' 42\n')
+    const popped = ['T', 'Print Param', 'Procedure T', 'Pop Proc[7'].join('\n')
+    expect(() => run(popped)).toThrow(/\]/)
+  })
+
   it('supports Shared and Global', () => {
     const shared = ['S=1', 'BUMP', 'Print S', 'Procedure BUMP', '   Shared S', '   Inc S', 'End Proc'].join('\n')
     expect(run(shared)).toBe(' 2\n')

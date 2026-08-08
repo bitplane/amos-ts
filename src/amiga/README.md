@@ -97,6 +97,9 @@ really does differ from the real one and saying where is the whole job.
 | `graphics.ts` | `BitMap` and `RastPort` — bitplanes, pens, and the two pixel funnels |
 | `planar.ts` | the chunky/planar bijection and the word-at-a-time span ops |
 | `blitter.ts` | BLTCON0/1, the logic function, BLTSIZE and `BltBitMapRastPort` |
+| `layers.ts` | `layers.library` — the layer chain, `Region`, and the damage list |
+| `intuition.ts` | the Workbench screen, `OpenWindow`, the system gadgets, IDCMP |
+| `boopsi.ts` | intuition's object system: classes, dispatchers and the `OM_` methods |
 | `paula.ts` | the four voices: clock, AUDxPER, AUDxVOL, and the sink boundary |
 | `notes.ts` | the tables every replayer shipped: periods, finetune, the vibrato sine |
 | `protracker.ts` | the four-channel ProTracker replay, off Player 6.1A's source |
@@ -117,6 +120,10 @@ really does differ from the real one and saying where is the whole job.
 | `patternlib.ts` | `pattern.library` 5.00 — a THIRD pattern grammar, not `dospattern`'s |
 | `xpkmaster.ts` | `xpkmaster.library` 2.2 — the XPK container, and one compressor |
 | `process.ts` | `Execute()` and LoadSeg+CreateProc — starting a program that is not this one |
+| `icon.ts` | `icon.library`'s `.info` file: the DiskObject and its imagery |
+| `imploder.ts` | the Imploder's IMP! codec |
+| `language.ts` | the language names and codes `locale.library` and Workbench share |
+| `memmap.ts` | the synthesized address space, as a registry of regions |
 | `machine.ts` | power state and reset kinds — the layer *beneath* one running environment |
 | `host.ts` | the boundary *beneath* this layer: what the outside world supplies |
 

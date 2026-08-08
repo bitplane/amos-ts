@@ -528,6 +528,24 @@ export const INSTR: Record<string, Instr> = {
   },
 
   // ---- procedures ----
+  /**
+   * NOTE: the closing `]` is OPTIONAL, and this is AMOS's quirk rather than a
+   * leniency of ours. V1_EndProc (+Verif.s:1704) is five instructions —
+   * `cmp.w #_TkBra1,(a6)+ / bne.s .Skip / bsr Ver_Expression / .Skip bra VerX`
+   * — and never mentions `_TkBra2`. InEndProc (+ILib.s:2660) does the same at
+   * run time: `cmp.w #_TkBra1,(a6) / bne.s EPro1 / bsr FnEProc`, then it
+   * restores the caller's a6 off the stack, so anything left on the line is
+   * never read. Programs saved with the bracket missing therefore verify,
+   * save and run, and there is one in the corpus — EasyLife's Tabifier line
+   * 268 and Tag_Editor line 605, both
+   * `End Proc [Mui New("Cycle.mui",Tag Str$(...)+Ellong$(0))`. The token
+   * stream ends `007c 007c 0000` where every other End Proc in the same file
+   * ends `007c 007c 008c 0000`.
+   *
+   * `Pop Proc` three screens down in the same file does check
+   * (`cmp.w #_TkBra2,(a6)+ / beq VerDP / bra VerSynt`, +Verif.s:2296), so the
+   * asymmetry is deliberate-looking but is only in one of the pair.
+   */
   'end proc'(it) {
     if (it.accept('[')) {
       // write only the slot matching the return value's type (FnEProc)
@@ -535,11 +553,12 @@ export const INSTR: Record<string, Instr> = {
       if (v.k === 'str') it.paramStr = v.s
       else if (v.k === 'float') it.paramFloat = v.n
       else it.paramInt = v.n
-      it.expect(']')
+      it.accept(']')
     }
     it.returnFromProc()
     return 'jumped'
   },
+  /** Unlike End Proc, V1_PopProc (+Verif.s:2296) does require the `]`. */
   'pop proc'(it) {
     if (it.accept('[')) {
       const v = it.evalExpr()
