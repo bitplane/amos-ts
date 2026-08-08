@@ -195,9 +195,19 @@ interface Row {
   note: string
 }
 
+/** Keep the manifest as an index; status.ts remains the evidence source. */
+export function manifestNote(note: string | undefined): string {
+  if (!note) return ''
+  const sentences = note.split(/(?<=[.!?])\s+(?=(?:[A-Z`"']|NOTE|DEVIATION|DEFECT))/)
+  const qualifications = sentences.filter((sentence) =>
+    /\b(?:DEVIATION|DEFECT|NOTE:|manual|documentation|documented|guide|disagree|contradict|unverified|not reproduced|approximated)\b/i.test(sentence),
+  )
+  return [...new Set(qualifications)].join(' ')
+}
+
 const rows: Row[] = []
 for (const n of keywordNames(CORE_TOKENS.filter((e) => e.id >= 0x54))) {
-  rows.push({ name: n, status: classify(n, 'core'), ext: 'core', note: noteFor(n) ?? '' })
+  rows.push({ name: n, status: classify(n, 'core'), ext: 'core', note: manifestNote(noteFor(n)) })
 }
 // Extensions are reported under their identity, not the slot they happened to
 // occupy on somebody's machine — see docs/extensions/README.md.
@@ -212,7 +222,7 @@ const coreNames = new Set(rows.map((r) => r.name))
 for (const ext of allExtensions()) {
   for (const n of keywordNames(ext.tokens)) {
     if (coreNames.has(n)) continue
-    rows.push({ name: n, status: classify(n, ext.id), ext: ext.id, note: noteFor(n) ?? '' })
+    rows.push({ name: n, status: classify(n, ext.id), ext: ext.id, note: manifestNote(noteFor(n)) })
   }
 }
 
@@ -243,7 +253,9 @@ lives in \`src/coverage/status.ts\`; a keyword is **faithful** only when
 its behaviour was verified against the original 68k source, the official
 manual, or byte-exact artifacts. **approximated** = implemented and
 tested against our own understanding. Percentages exclude n/a
-(editor-internal tokens).
+(editor-internal tokens). Detailed evidence and assembly citations remain in
+\`src/coverage/status.ts\`; this index includes only qualifications and known
+deviations.
 
 ## Summary
 
