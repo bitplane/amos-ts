@@ -1325,6 +1325,18 @@ describe.skipIf(!existsSync(DEMOS))('EasyLife: Tag List$, against the real TagLi
       .map((x) => Number(x) | 0)
   }
 
+  it('expanding a template twice answers the same thing both times', () => {
+    // the expansion patches a COPY of the template; patching the bank would
+    // work once and then walk a patched pointer chain off the end of the body
+    const out = expand(
+      OPEN +
+        'A$=Tag List$("MAKE_Menuitem",111,222)\n' +
+        'B$=Tag List$("MAKE_Menuitem",111,222)\n' +
+        'Print Len(A$)\nPrint Len(B$)\nPrint -(A$=B$)\n',
+    )
+    expect(out).toEqual([20, 20, 1])
+  })
+
   it('MAKE_Menuitem patches its two argument sites and leaves the rest', () => {
     // its argument chain is 12 -> 4, so A1 lands at offset 4 and A2 at 12
     const out = expand(

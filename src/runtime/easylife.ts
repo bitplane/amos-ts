@@ -1110,7 +1110,14 @@ function tagList(rt: Runtime, name: string, args: number[]): Value {
   const len = v.getUint32(at, false)
   const chains = [v.getUint32(at + 4, false), v.getUint32(at + 8, false), v.getUint32(at + 12, false)]
   if (v.getUint32(at + 16, false) !== args.length * 4) funcCall()
-  const body = d.slice(at + 20, at + 20 + len)
+  /*
+   * A COPY, and it has to be one the caller cannot alias: `patch` writes the
+   * expanded template in place, and writing into bank 14 would corrupt the
+   * template for every later call. `new Uint8Array(subarray)` copies whatever
+   * the argument is; `.slice()` does not, when the bank came from a Node
+   * Buffer -- see the note on `parseAmosFile`.
+   */
+  const body = new Uint8Array(d.subarray(at + 20, at + 20 + len))
   const bv = new DataView(body.buffer, body.byteOffset, body.byteLength)
   const past = rt.bankBase(st.tagListBank) + at + 20 + len
   const patch = (head: number, value: (operand: number) => number): void => {

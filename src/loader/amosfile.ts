@@ -52,7 +52,30 @@ export interface MemoryBank {
  */
 const SIGNATURE_RE = /^AMOS (Basic|Pro)/
 
-export function parseAmosFile(bytes: Uint8Array): AmosFile {
+/**
+ * Every view this reader hands out is a `subarray` of the bytes it was given,
+ * so a caller that mutates one is mutating the file. That is deliberate and
+ * cheap — a program's source and its banks are big — but it makes ONE thing
+ * about the argument load-bearing: `.slice()` on a view of it has to COPY.
+ *
+ * For a `Uint8Array` it does. For a Node `Buffer` it does NOT: `Buffer` extends
+ * `Uint8Array` and overrides `slice` as a deprecated alias of `subarray`, so
+ * `bankData.slice(a, b)` answers a window onto the same memory and every write
+ * lands in the bank. TypeScript sees a `Uint8Array` and says nothing.
+ *
+ * That cost real time. `readFileSync` answers a Buffer, so `amosrun` handed
+ * one straight in while every test wrapped it in `new Uint8Array(...)`; EasyLife's
+ * `Tag List$` expands a template by patching a copy of it, and the copy was
+ * the bank. The first call to a template worked, corrupted it, and the second
+ * walked a patched pointer chain off the end of the body. Tests green, CLI
+ * crashing, the difference invisible in either file.
+ *
+ * So the reader normalises here, once, rather than every consumer remembering.
+ * The check is the prototype rather than `Buffer.isBuffer`, because this
+ * module must not know that Node exists.
+ */
+export function parseAmosFile(input: Uint8Array): AmosFile {
+  const bytes = Object.getPrototypeOf(input) === Uint8Array.prototype ? input : new Uint8Array(input)
   const r = new BinReader(bytes)
   const diagnostics: string[] = []
   const signature = r.peekStr(16)
