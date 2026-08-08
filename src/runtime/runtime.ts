@@ -36,6 +36,7 @@ import { type CtextState } from './ctext'
 import { type JdState } from './jd'
 import { type SticksState } from './sticks'
 import { gamesupportVbl, type GameSupportState } from './gamesupport'
+import { slnVbl, type SlnState } from './sln'
 import { starfieldVbl, type StarsState } from './stars'
 import { type AgaState } from './aga'
 import { amcafPtVbl, type AmcafState } from './amcaf'
@@ -898,6 +899,8 @@ export class Runtime {
   sticks!: SticksState
   /** GameSupport 1.2's data block at $1c1a — mouse counters and the rest, slot 23 */
   gamesupport!: GameSupportState
+  /** SLN 2.0's data zone (`MB` in sln_extII.s) — slot 24; see sln.ts */
+  sln!: SlnState
   /** Stars 2.33's interrupt-driven starfield, slot 20 */
   stars!: StarsState
   /** AGA 1.0's 256-colour screens, blocks and shared palette, slot 20 */
@@ -3797,6 +3800,9 @@ export class Runtime {
     // GameSupport's cold start puts its hook in VblRout[0] and never removes
     // it; this is the part that accumulates port 0's mouse counters
     gamesupportVbl(this)
+    // SLN's cold start takes the first FREE VblRout slot rather than slot 0,
+    // and leaves anyone else's hook alone; the mouse counters are its first job
+    slnVbl(this)
     this.applyShifts()
     this.applyFades()
     this.applyFlashes()

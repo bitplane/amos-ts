@@ -38,6 +38,7 @@ import {
   makeGameSupportInstructions,
   newGameSupportState,
 } from './gamesupport'
+import { SLN_ERRORS, makeSlnFunctions, makeSlnInstructions, newSlnState } from './sln'
 import { newStarsState, makeStarsFunctions, makeStarsInstructions } from './stars'
 import { newAgaState, makeAgaFunctions, makeAgaInstructions } from './aga'
 import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
@@ -5650,6 +5651,18 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeGameSupportInstructions,
     functions: makeGameSupportFunctions,
     errors: GAMESUPPORT_ERRORS,
+  },
+  {
+    // SLN 2.0 at slot 24 --- Søren Nielsen's toolbox. `ExtNb equ 24-1` in his
+    // own `sln_extII.s`, which is the whole extension rather than a shell.
+    // See sln.ts for what the 70 names cover and which one is not real.
+    ids: ['sln-2.0'],
+    init: (rt) => {
+      rt.sln = newSlnState()
+    },
+    instructions: makeSlnInstructions,
+    functions: makeSlnFunctions,
+    errors: SLN_ERRORS,
   },
   {
     // stars.lib (AMOS 1.3) and starspro.lib (AMOS Pro) are different binaries

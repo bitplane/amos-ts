@@ -1383,6 +1383,19 @@ export const FAITHFUL = new Set<string>([
   'gsloadcodemod', 'gsunloadcodemod', 'gsgetattr', 'gssetattr',
   'gsfindattr', 'gscallmod', 'gsiconify',
 
+  // --- SLN 2.0 (Soren Nielsen), from `sln_extII.s` -- the author's OWN
+  // assembler source, and for this extension the whole of it rather than a
+  // shell: 4,949 lines carrying every routine, the token table, the data zone
+  // and the error strings. `ExtNb equ 24-1` is the slot. The 17,576-byte hunk
+  // is disassembled with `extdis sln-2.0` wherever the source says something
+  // surprising, which is how the S Mouse Button defect below was confirmed to
+  // have shipped rather than to be a stale source file.
+  //
+  // Batch 1 -- the mouse counter reader and the eight user VBL hooks.
+  's mouse on', 's mouse off', 's x mouse', 's y mouse',
+  's x mouse=', 's y mouse=', 's mouse button',
+  's ibase', 's iadr', 's ierase', 's ifree',
+
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
   // an identical token table, so this covers AMOS 1.3 and AMOS Pro alike.
@@ -2693,6 +2706,18 @@ export const NA = new Set<string>([
   // Its whole output is machine code for a machine this is not, and running it
   // is the boundary `call` already draws. No handler is registered.
   'trans screen dynamic',
+  // SLN 2.0: `S Mask$` is in the token table and there is no routine behind
+  // it. The author says so on the line itself --- `dc.w 1,-1` with the comment
+  // "This command is non-existent!!! DO NOT USE. / Strictly for maintaining
+  // compability / (will be replaced, as soon as I find another command which
+  // fit the length)". He was padding the table to keep the token ids of a
+  // v1.0 program valid, which is why Sln_ext_Historie counts 71 commands
+  // where the table has 70 names. The spec "22,2" parses it as a STRING
+  // FUNCTION of two strings and the function routine is -1, so evaluating it
+  // jumps through a null vector; the instruction slot it does carry (routine
+  // 1, S Mouse On) can never be reached, because the spec never lets it parse
+  // as a statement. No handler is registered.
+  's mask$',
   // the native AMOS compiler overlay (LoadSeg APCMP + jsr, +CompExt.s:219,349)
   'compile',
   'cmpcall',
@@ -4307,6 +4332,62 @@ export const NOTES: Record<string, string> = {
     "laziness!)'). Arguments arrive by value here, so the caller's variable survives and a program that " +
     "decodes the same variable twice succeeds where the machine fails. NOTE the integrity check is five bits " +
     "and each keystream call contributes five, so a short code can decode CORRECTLY under a wrong ID.",
+
+  "s mouse on":
+    "Routine 1 --- `bset #0,Status`. It arms the reader, not the pointer: AMOS's own mouse runs either way, and " +
+    "this only lets InterStart accumulate the counters. The extension's DEFAULT and END routines both call " +
+    "S Mouse Off, so Run and quitting disarm it.",
+  "s mouse off":
+    "Routine 2 --- `bclr #0,Status`, and it leaves CurX/CurY holding whatever they had reached.",
+  "s x mouse":
+    "Routine 3. InterStart reads $dff00d, sign-extends it, subtracts PrevX and adds the difference to a " +
+    "32-bit accumulator. DEFECT: the 'test for overrun' is `cmpi.l #50,d0 / bge` and `cmpi.l #-50,d0 / ble`, " +
+    "inclusive at both ends, and there is no modulo step. So the byte counter wrapping 127 to -128 gives -255, " +
+    "outside the window, and the sample is DISCARDED rather than wrapped --- 255 counts of travel lost every " +
+    "256. Any genuine movement of 50 or more counts in one frame is dropped the same way. Compare " +
+    "counterDelta in src/amiga/gameport.ts, which is what the wrap is supposed to look like. PrevX is then " +
+    "RE-READ from the register rather than reused, so on the machine a count arriving between the two " +
+    "instructions is lost as well.",
+  "s y mouse":
+    "Routine 4, the same accumulator against $dff00c and PrevY. See S X Mouse for the overrun defect.",
+  "s x mouse=":
+    "Routine 7 --- `move.l (a3)+,CurX`. No range check of any kind; the accumulator is a plain longword.",
+  "s y mouse=":
+    "Routine 8, the same for CurY.",
+  "s mouse button":
+    "Routine 5, six instructions, and the binary at $cf8 agrees with the source byte for byte. DEFECT: it " +
+    "tests `btst.b #$2,$bfe001`, and bit 2 of CIA-A PRA is the floppy DISK-CHANGE line. The left button is " +
+    "bit 6 (/FIR0) --- what TURBO Plus, Misc, First, JD and AMOS itself all read. /CHNG sits high once the " +
+    "drive has stepped after a disk was inserted, so on any machine with a disk in DF0: this answers 0 and " +
+    "S Mouse Button cannot report a press at all. Bit 1, the right button, is dead a second way: the code for " +
+    "it is present and COMMENTED OUT (`;btst #6,$dff016`), and that register and bit are correct, so the " +
+    "author had the answer and did not enable it.",
+  "s ifree":
+    "Routine 27 --- how many of the eight InterBase slots are still zero. NOT routine 6, which the source also " +
+    "calls L_Ifree and which counts free slots in AMOS's own VblRout table; that one is an internal helper the " +
+    "cold start uses and no keyword reaches. The token table binds this name to function routine 27.",
+  "s ibase":
+    "Routine 24. DEFECT: the guard is `bclr.l #31,d1 / cmpi #8,d1 / rbge`, a WORD compare, and the index is " +
+    "then used as a LONG through `mulu #4,d1`, which takes only the low word. So -1 becomes $7fffffff, whose " +
+    "low word reads as -1 and passes `bge #8`, and the routine reads $3fffc bytes past the table. The guard " +
+    "really only rejects 8 through 32767. Anything outside the eight real slots answers 0 here rather than " +
+    "inventing a value for memory that is not modelled.",
+  "s iadr":
+    "Routine 25, the InterVarAdr table, with the same word-guard-long-index defect as S Ibase.",
+  "s ierase":
+    "Routine 29 --- `REPT 8 / clr.l (a0) / clr.l (a1)`. Both tables at once, no argument, and no way to remove " +
+    "a single hook. Called by the extension's own DEFAULT and END routines.",
+  "s iinit":
+    "Routine 26. Both address arguments go through `cmpi.l #$10000,dn / ble`, so anything up to and INCLUDING " +
+    "65536 is a bank number resolved through Bnk.GetAdr and anything above it is an address --- the change " +
+    "Sln_ext_Historie lists for v2.0 ('accepterer nu ogsaa bank nummre istedet for adresser'). The slot check " +
+    "is `bclr.l #31,d3 / cmpi.l #8,d3 / rbcc`, an UNSIGNED longword compare, so unlike S Ibase it really does " +
+    "reject everything outside 0 to 7. DEVIATION: `jsr (a2)` in InterStart enters 68000 machine code and this " +
+    "port executes none --- the boundary Call, Dreg and Execall are all n/a for. The two tables are kept " +
+    "exactly, so S Ibase, S Iadr, S Ifree and S Ierase all answer correctly and a program can install and read " +
+    "back its hooks; the routine simply never runs. It raises nothing, because the failure is once a frame " +
+    "rather than once at the call.",
+
   "stick joy":
     "Routine 5 ($432), reading CIA-A PRB ($bfe101) bits 0-3. The manual calls this the serial port throughout; " +
     "the register says otherwise — CIA-A PRB is the parallel-port DATA register, and Stick Fire's $bfd000 bits " +

@@ -90,7 +90,7 @@ deviations.
 | range-2.0 | 73 | 71 | 0 | 0 | 100% |
 | screens | 31 | 29 | 1 | 0 | 100% |
 | serial-1.2 | 15 | 14 | 1 | 0 | 100% |
-| sln-2.0 | 70 | 0 | 0 | 70 | 0% |
+| sln-2.0 | 70 | 11 | 1 | 57 | 17% |
 | stars-2.33 | 11 | 11 | 0 | 0 | 100% |
 | sticks-1.01b | 16 | 16 | 0 | 0 | 100% |
 | system | 41 | 14 | 0 | 0 | 100% |
@@ -105,7 +105,7 @@ deviations.
 | turbo-plus-2.15 | 152 | 147 | 4 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 6216 | 3665 | 108 | 2252 | 63% |
+| **total** | 6216 | 3676 | 109 | 2239 | 63% |
 
 ## aga-1.0 (100%)
 
@@ -454,9 +454,12 @@ deviations.
 - **faithful**: `serial bits`, `serial buf`, `serial check`, `serial close`, `serial fast`, `serial get`, `serial input$`, `serial open`, `serial out`, `serial parity`, `serial send`, `serial slow`, `serial speed`, `serial x`
 - **approximated**: `serial error`
 
-## sln-2.0 (0%)
+## sln-2.0 (17%)
 
-- **missing**: `s abase`, `s aclear`, `s aerase`, `s aerase all`, `s ainit`, `s array`, `s aset`, `s asize`, `s atype`, `s axsize`, `s aysize`, `s azsize`, `s checksum`, `s compare$`, `s delete`, `s disk abort`, `s disk changes`, `s disk close`, `s disk dev check`, `s disk open`, `s disk prot state`, `s disk read`, `s disk rename`, `s disk send read`, `s disk send write`, `s disk state`, `s disk update`, `s disk wait`, `s disk write`, `s iadr`, `s ibase`, `s iconify`, `s ierase`, `s ifree`, `s iinit`, `s mask$`, `s motor off`, `s motor on`, `s mouse button`, `s mouse off`, `s mouse on`, `s num tracks`, `s sam bank`, `s sam bank erase`, `s sam bank load`, `s sam bank reserve`, `s sam bank save`, `s sam bank=`, `s sam base`, `s sam chip load`, `s sam clip`, `s sam del`, `s sam freq`, `s sam length`, `s sam load`, `s sam play`, `s sam stop`, `s set freq`, `s track length`, `s track load`, `s track play`, `s track stop`, `s track tempo`, `s track tempo=`, `s track volume`, `s volume`, `s x mouse`, `s x mouse=`, `s y mouse`, `s y mouse=`
+- **faithful**: `s iadr` *(Routine 25, the InterVarAdr table, with the same word-guard-long-index defect as S Ibase.)*, `s ibase` *(DEFECT: the guard is `bclr.l #31,d1 / cmpi #8,d1 / rbge`, a WORD compare, and the index is then used as a LONG through `mulu #4,d1`, which takes only the low word.)*, `s ierase`, `s ifree`, `s mouse button` *(DEFECT: it tests `btst.b #$2,$bfe001`, and bit 2 of CIA-A PRA is the floppy DISK-CHANGE line.)*, `s mouse off`, `s mouse on`, `s x mouse` *(DEFECT: the 'test for overrun' is `cmpi.l #50,d0 / bge` and `cmpi.l #-50,d0 / ble`, inclusive at both ends, and there is no modulo step.)*, `s x mouse=`, `s y mouse` *(See S X Mouse for the overrun defect.)*, `s y mouse=`
+- **approximated**: `s iinit` *(DEVIATION: `jsr (a2)` in InterStart enters 68000 machine code and this port executes none --- the boundary Call, Dreg and Execall are all n/a for.)*
+- **missing**: `s abase`, `s aclear`, `s aerase`, `s aerase all`, `s ainit`, `s array`, `s aset`, `s asize`, `s atype`, `s axsize`, `s aysize`, `s azsize`, `s checksum`, `s compare$`, `s delete`, `s disk abort`, `s disk changes`, `s disk close`, `s disk dev check`, `s disk open`, `s disk prot state`, `s disk read`, `s disk rename`, `s disk send read`, `s disk send write`, `s disk state`, `s disk update`, `s disk wait`, `s disk write`, `s iconify`, `s motor off`, `s motor on`, `s num tracks`, `s sam bank`, `s sam bank erase`, `s sam bank load`, `s sam bank reserve`, `s sam bank save`, `s sam bank=`, `s sam base`, `s sam chip load`, `s sam clip`, `s sam del`, `s sam freq`, `s sam length`, `s sam load`, `s sam play`, `s sam stop`, `s set freq`, `s track length`, `s track load`, `s track play`, `s track stop`, `s track tempo`, `s track tempo=`, `s track volume`, `s volume`
+- **n/a**: `s mask$`
 
 ## stars-2.33 (100%)
 
