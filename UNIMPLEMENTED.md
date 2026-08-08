@@ -12,7 +12,7 @@ Core AMOS Professional is complete — the display pipeline, the audio pipeline,
 the language, banks, files, menus, the Interface dialog engine and the file
 selector are all at 100%. So is every extension a stock installation ships
 (Music, Compact, Request, Compiler, IOPorts) and every third-party one the
-port has started: fifty-five extension releases read 100% in `KEYWORDS.md`,
+port has started: fifty-six extension releases read 100% in `KEYWORDS.md`,
 among them AMCAF 1.40/1.50, the JD family, EasyLife, TOME, TURBO Plus,
 Personnal, LDos, AMOS 3D, PowerBobs, MED 7.1, EME 3.0 and P61.
 
@@ -21,7 +21,7 @@ sits between 0% and 100%: an extension is finished or it has not been begun.
 That is the ratchet working, and it is the number to watch — a row appearing
 in the middle means a thread was left hanging.
 
-3874 keywords are implemented, 3765 of them faithful.
+3907 keywords are implemented, 3798 of them faithful.
 
 ### The census
 
@@ -77,7 +77,6 @@ extension keyword. The count is keywords with no handler at all:
 | Opal 1.1 | 78 | OpalVision hardware |
 | D-SAM 1.01 | 50 | |
 | Delta 1.6 / 1.4 | 46 / 26 | `intuition.library` |
-| Tools 1.01 | 33 | |
 | jd-int 1.3 | 33 | `intuition.library` — findings banked |
 | BSDSocket 1.1.4 | 30 | sockets |
 | LSerial 2.1 | 15 | |
@@ -150,6 +149,36 @@ move if a second extension ever wanted it; Make, whose whole first half is
 `Ma Malloc` and exec lists, is that second extension, so it moved. Where the
 pool is *mapped* stayed with the caller, because a memory region is the
 caller's declaration and not exec's.
+
+**Tools 1.01 came off it too**, and it is the row where the *undocumented*
+half was the interesting one. All 33 read 100% and all 33 are faithful. Tor
+Erik Ottinsen's AmigaGuide covers twenty-two — a byte array kept in a memory
+bank, a cursor you point at memory and then read and write through, `Range`,
+an `Encode`/`Decode` pair and a checksum — and says of the other eleven:
+*"internal commands used by my so far unreleased GUI System. These are
+internal commands of no use for anybody except me. I therefore choose to leave
+them undocumented."* They are not stubs. `Oui Init` reserves `(N+1)` records of
+thirty-two bytes with the bank's first two bytes holding a count and a maximum,
+and the four accessors between them describe the record completely: fourteen
+words of fields, a live flag at `+$1a`, and a pointer to a string at `+$1c`.
+Writing that down is most of what porting them was.
+
+Two defects. **`Array Dim SX,SY` stores `SX+1` as the row stride and then
+multiplies X by it**, so the array you get is indexed `[0..SY][0..SX]` — the
+dimensions are the other way round from the guide's own `Dim _ARRAY(SX,SY)`
+and from AMOS's, and it only stays inside its own allocation while `SX <= SY`.
+Nothing bounds-checks anything, and the index is a word displacement, so it
+wraps negative at 32768 and writes before the bank. And **`Oui New` never
+increments the count**, so every call writes element 1 — which turns out to be
+deliberate rather than missed, because `Oui Set Data 0,n` is exactly the byte
+the count lives in and the count reads as a cursor the caller drives.
+
+`Set Crypt` is one instruction, `eori.b #$ff`, with the length word left in
+clear; `Encode` and `Decode` are a real stream cipher with a 15-bit LCG and a
+running sum that makes the keystream depend on a byte's position. `range` is
+slot-qualified, because Range 2.6/2.9Plus claims the name too — which the
+guide half-admits: *"a somewhat optimized version of the Range command in the
+Shuffle Extension"*.
 
 **This table has been wrong before, and the fix is to read it off
 `KEYWORDS.md`.** It used to list AMCAF 1.50, Range 1.0 and 2.0, AMOSPro

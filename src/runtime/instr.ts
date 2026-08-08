@@ -40,6 +40,7 @@ import {
 } from './gamesupport'
 import { SLN_ERRORS, makeSlnFunctions, makeSlnInstructions, newSlnState } from './sln'
 import { MAKE_ERRORS, makeMakeFunctions, makeMakeInstructions, newMakeState } from './make'
+import { TOOLS_ERRORS, makeToolsFunctions, makeToolsInstructions, newToolsState } from './tools'
 import { newStarsState, makeStarsFunctions, makeStarsInstructions } from './stars'
 import { newAgaState, makeAgaFunctions, makeAgaInstructions } from './aga'
 import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
@@ -5676,6 +5677,23 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeMakeInstructions,
     functions: makeMakeFunctions,
     errors: MAKE_ERRORS,
+  },
+  {
+    // Tools 1.01 at slot 23 --- Tor Erik Ottinsen's personal toolbox, made
+    // public. `move.l a3,$258(a5)` in routine 0, and the guide's install note
+    // says to put it in slot 23. Eleven of the 33 are the `Oui` keywords its
+    // author declined to document; see tools.ts for what they turned out to be
+    ids: ['tools-1.01'],
+    init: (rt) => {
+      rt.tools = newToolsState()
+    },
+    instructions: makeToolsInstructions,
+    functions: makeToolsFunctions,
+    errors: TOOLS_ERRORS,
+    // Range 2.6/2.9Plus claims `range` as well, and both are ported now --- the
+    // guide even says whose it was first, "a somewhat optimized version of the
+    // Range command in the Shuffle Extension"
+    qualified: ['range'],
   },
   {
     // stars.lib (AMOS 1.3) and starspro.lib (AMOS Pro) are different binaries

@@ -378,6 +378,8 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/sln.test.ts': ['sln-2.0'],
   'src/runtime/make.ts': ['make-1.30'],
   'src/runtime/make.test.ts': ['make-1.30'],
+  'src/runtime/tools.ts': ['tools-1.01'],
+  'src/runtime/tools.test.ts': ['tools-1.01'],
   'src/runtime/stars.ts': ['stars-2.33'],
   'src/runtime/stars.test.ts': ['stars-2.33'],
   'src/runtime/locale.ts': ['locale-0.26'],

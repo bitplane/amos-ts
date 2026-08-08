@@ -1439,6 +1439,23 @@ export const FAITHFUL = new Set<string>([
   'ma filelen', 'ma extb', 'ma extw',
   'ma paste icon', 'ma point', 'ma plot',
 
+  // --- AMOSPro Tools 1.01 (Tor Erik Ottinsen), slot 23: a byte array in a
+  // bank, a memory cursor, Range, an Encode/Decode pair, a checksum, and
+  // eleven `Oui` keywords the author declined to document -- "internal
+  // commands of no use for anybody except me". BINARY tier with a good
+  // AmigaGuide that covers the other twenty-two and gives every argument
+  // order; the eleven are read off the 2,164-byte hunk alone. `range` is
+  // slot-qualified: Range 2.6/2.9Plus claims the same name and both are
+  // ported. See tools.ts.
+  'set pos', 'get pos', 'add pos',
+  'set byte', 'set word', 'set long', 'set string', 'set crypt',
+  'get byte', 'get word', 'get long', 'get string', 'get crypt',
+  'set array bank', 'array bank', 'array dim', 'array set', 'array get',
+  'encode', 'decode', 'checksum',
+  'oui set bank', 'oui bank', 'oui init', 'oui new',
+  'oui data', 'oui set data', 'oui edata', 'oui set edata',
+  'oui reserve text', 'oui set text', 'oui text',
+
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
   // an identical token table, so this covers AMOS 1.3 and AMOS Pro alike.
@@ -2822,6 +2839,61 @@ export const NA = new Set<string>([
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  // ---- AMOSPro Tools 1.01, slot 23 -----------------------------------------
+  "array dim":
+    "Routine 16 ($3e6), 70 bytes: `(SX+1)*(SY+1)+4` bytes reserved as a WORK bank named \"Array   \", with `SX+1` " +
+    "written into the four -- the stride every later access multiplies by. NOTE: it also records both dimensions " +
+    "at data zone +$10 and +$14 and no routine ever reads either. NOTE: the failure arm is error 24, \"Bank " +
+    "already reserved\", where the guide promises the bank is erased and re-made; this port's Reserve replaces " +
+    "throughout, so the guide's behaviour is what happens and the arm is unreachable.",
+  "array set":
+    "Routine 17 ($42c), 44 bytes. DEFECT: `mulu.w d3,d0` multiplies X by the stride, and the stride is `SX+1`, " +
+    "so the element at (X,Y) is at `X*(SX+1)+Y` and the array is really indexed [0..SY][0..SX] -- the dimensions " +
+    "are the other way round from the guide's own `Dim _ARRAY(SX,SY)` and from AMOS's. It stays inside the " +
+    "allocation only while SX <= SY. There is no bound check at all, and `(a0,d0.w)` is a WORD displacement, so " +
+    "an index of 32768 or more writes BEFORE the bank. Array Get (routine 18) repeats every line of it.",
+  "get long":
+    "Routine 12 ($38a), 26 bytes. NOTE: unlike Get Byte and Get Word it has no `moveq #$0,d3` to clear the " +
+    "register first, and does not need one -- four `move.b` and three shifts fill all thirty-two bits, so the " +
+    "stale content is shifted out before the result is complete. It looks like a bug and is not.",
+  "set crypt":
+    "Routine 35 ($652), 36 bytes: `eori.b #$ff` per character, with the LENGTH WORD copied in clear. So a scan " +
+    "still shows how long every string is and where the next one starts. The guide's \"the algorithm used for " +
+    "encryption isn't very secure\" is well judged; it is one instruction.",
+  "encode":
+    "Routine 42 ($732), 78 bytes, and a real stream cipher rather than Set Crypt's NOT: a password byte, a " +
+    "15-bit LCG seeded from the sum of the password's bytes (`mulu.w #$24a1 / addi.w #$24df / andi.l #$7fff`), " +
+    "and a running total of that LCG that never resets, so the keystream depends on the byte's POSITION too. " +
+    "Decode (routine 44) is the same loop subtracting, and is exact. NOTE: the running total starts at 65535, " +
+    "not -1, because `subq.w` on a longword leaves the high word clear -- only the low byte reaches memory, so " +
+    "the cipher is unaffected, but a reimplementation using -1 would produce different bytes. NOTE: `dbra` counts " +
+    "a WORD, so a length of 0 encodes 65,536 bytes.",
+  "range":
+    "Routine 20 ($484), 26 bytes, and slot-qualified because Range 2.6/2.9Plus claims the name too. NOTE: the " +
+    "MAX arm both clamps and RETURNS (`move.l d5,d3 / bra` lands on the rts), so the MIN check is skipped when " +
+    "it fires -- with MIN above MAX everything above MAX answers MAX and everything else answers MIN.",
+  "checksum":
+    "Routine 46 ($7ce), 56 bytes: longwords while four bytes remain and then bytes, into a 32-bit total that " +
+    "wraps. NOTE: it sorts its two bounds first, which is the one defensive line in the extension.",
+  "oui init":
+    "Routine 40 ($6fe), 52 bytes, and the keyword that explains the undocumented half. `(N+1)` records of " +
+    "THIRTY-TWO bytes, with the bank's first two bytes -- which are also record zero's -- set to a COUNT of 1 " +
+    "and a MAXIMUM of N. A record is fourteen words (Oui Edata's fields 0..13), the word at +$1a that Oui New " +
+    "sets to 1, and a pointer to an AMOS string at +$1c.",
+  "oui new":
+    "Routine 39 ($6bc), 66 bytes: six words written BACKWARDS from record+12 by `move.w d1,-(a0)`, which lands " +
+    "the FIRST argument at offset 0 because the pops run right to left, then the word at +$1a set to 1. NOTE: it " +
+    "never increments the count, so successive calls all write element 1 unless the program moves the counter " +
+    "itself -- `Oui Set Data 0,n` is exactly that byte, so the count reads as a cursor the caller drives. The " +
+    "over-count arm raises the extension's only error and the compare is `bhi` on a byte, so element N itself " +
+    "is allowed.",
+  "oui reserve text":
+    "Routine 31 ($57c), 70 bytes: an AMOS string of `(LENGTH & ~1) + 2` bytes from `L_Demande`, with its ADDRESS " +
+    "stored in the element's +$1c. DEVIATION: L_Demande hands out AMOS's TEMPORARY string workspace, which the " +
+    "next string expression reclaims, so on the machine an element's text survives only until then; strings have " +
+    "no addresses in this port, so the buffer comes from a pool of its own and the pointer is stable. The one " +
+    "place this port is kinder than the library. NOTE: the reserved size is two short whenever LENGTH is odd, " +
+    "and nothing checks it.",
   // ---- Make Lib 1.30, slot 17 ----------------------------------------------
   "ma allocmem":
     "Routine 4 ($3a6), 22 bytes: exec AllocMem with nothing around it, the two arguments popped straight into d1 " +

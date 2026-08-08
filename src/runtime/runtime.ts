@@ -38,6 +38,7 @@ import { type SticksState } from './sticks'
 import { gamesupportVbl, type GameSupportState } from './gamesupport'
 import { slnVbl, type SlnState } from './sln'
 import type { MakeState } from './make'
+import type { ToolsState } from './tools'
 import { starfieldVbl, type StarsState } from './stars'
 import { type AgaState } from './aga'
 import { amcafPtVbl, type AmcafState } from './amcaf'
@@ -918,6 +919,20 @@ export class Runtime {
   static readonly MAKE_HEAP_RESERVED = 0x04000000
 
   /**
+   * Tools 1.01's `Oui Reserve Text` buffers.
+   *
+   * `Oui Reserve Text` calls `L_Demande` for an AMOS string and stores its
+   * ADDRESS in the Oui bank, which `Oui Set Text` and `= Oui Text` then write
+   * and read through. AMOS's string workspace has no addresses in this port,
+   * so the buffers come from a pool of their own and the pointer in the bank
+   * is a real one. See tools.ts.
+   *
+   * 0x3c000000 because it ends exactly where the screen bitplanes begin.
+   */
+  static readonly TOOLS_TEXT_BASE = 0x3c000000
+  static readonly TOOLS_TEXT_RESERVED = 0x04000000
+
+  /**
    * The interpreter configuration block (PI_*, +Equ.s:1590-1650, defaults
    * from +Interpreter_Config.s). Editable defaults rather than constants:
    * the file selector stores its Sort/Size/Store toggles and its window
@@ -939,6 +954,8 @@ export class Runtime {
   sln!: SlnState
   /** Make 1.30's forty-byte data zone, its two MinLists and its pool — slot 17 */
   make!: MakeState
+  /** Tools 1.01's memory position, its two bank numbers and its text pool — slot 23 */
+  tools!: ToolsState
   /** Stars 2.33's interrupt-driven starfield, slot 20 */
   stars!: StarsState
   /** AGA 1.0's 256-colour screens, blocks and shared palette, slot 20 */
@@ -1259,6 +1276,9 @@ export class Runtime {
         return { data: Uint8Array.of(0, (line >> 8) & 1, (vh >> 8) & 0xff, vh & 0xff), off }
       },
     },
+    bufferRegion('Tools text', Runtime.TOOLS_TEXT_BASE, Runtime.TOOLS_TEXT_RESERVED, () =>
+      this.tools ? this.tools.text.buffer : null,
+    ),
     slottedRegion(
       'screen bitplanes',
       Runtime.SCREEN_CHIP_BASE,
