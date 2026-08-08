@@ -1069,10 +1069,34 @@ describe.skipIf(!existsSync(DEMOS))('EasyLife: the Tags bank, against a real one
     expect(b.rt.easylife.tagStrings.get(Number(at) | 0)).toBe('Fred')
   })
 
-  it('Tag Attach$ resolves its tag but cannot attach without MUI', () => {
-    expect(failTags(OPEN + 'A$=Tag Attach$("MUIA_Group_Child" To 42)\n')).toContain('Illegal MUI Object Address')
-    // an unknown tag fails first, which is the order routine 235 tests in
-    expect(failTags(OPEN + 'A$=Tag Attach$("NO_SUCH_TAG" To 42)\n')).toContain('Unmatched tag')
+  it('Tag Attach$ takes the CHILD OBJECT first and the tag second', () => {
+    // the guide's own example, A$=Tag Attach(WIN_OBJ,"MUIA_Application_Window"),
+    // "exactly the same as A$=Tag$("MUIA_Application_Window" To WIN_OBJ)".
+    // Object 0 is the one value routine 238 will allocate a node for while
+    // nothing is registered, so it is the only success this side of slice 11
+    const b = bootTags(
+      OPEN +
+        'A$=Tag Attach$(0,"MUIA_Group_Child")\n' +
+        'B$=Tag$("MUIA_Group_Child" To 0)\n' +
+        'Print Len(A$)\nPrint A$=B$\n',
+    )
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.text().trim().split('\n')).toEqual(['8', '-1'])
+  })
+
+  it('Tag Attach$ cannot attach a real object without MUI, either way round', () => {
+    expect(failTags(OPEN + 'A$=Tag Attach$(42,"MUIA_Group_Child")\n')).toContain('Illegal MUI Object Address')
+    // the To form names the tag by value, so there is no lookup to do first
+    expect(failTags(OPEN + 'A$=Tag Attach$(42 To 8)\n')).toContain('Illegal MUI Object Address')
+    // routine 234 resolves the tag through routine 203 before routine 235
+    // ever looks at the object, so an unknown tag is the error that surfaces
+    expect(failTags(OPEN + 'A$=Tag Attach$(42,"NO_SUCH_TAG")\n')).toContain('Unmatched tag')
+  })
+
+  it('Tag Attach$ To form takes the tag as a number', () => {
+    const b = bootTags(OPEN + 'A$=Tag Attach$(0 To 8)\nPrint Ellong(A$);Ellong(Right$(A$,4))\n')
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.text().trim()).toBe('8 0')
   })
 })
 

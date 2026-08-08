@@ -2208,23 +2208,40 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
       return tagLongs(two ? [tagValue(rt, str(a[0] ?? VS(''))), at] : [at])
     },
     /**
-     * =Tag Attach$(TAG$,OBJECT) / =Tag Attach$(TAG$ To OBJECT) — routines 234
-     * and 235 ($324a). The string it builds is an ordinary two-longword tag
-     * pair, but before returning it registers OBJECT as a child of the
-     * pending object, which is what the guide means by "easylife needs to
-     * know when an object is being made a child of another".
+     * =Tag Attach$(CHILD_OBJECT,TAG$) / =Tag Attach$(CHILD_OBJECT To TAG) —
+     * routines 234 ($3240) and 235 ($324a). The string it builds is an
+     * ordinary two-longword tag pair, but before returning it registers
+     * CHILD_OBJECT as a child of the pending object, which is what the guide
+     * means by "easylife needs to know when an object is being made a child
+     * of another".
      *
-     * NOTE: that registration is routine 238's MUI object list, which cannot
-     * hold anything while `Mui New` is unimplemented, so every call reaches
-     * the `cmp.l (a1),d3` that rejects an unknown object and raises message
-     * 24. The keyword is dispatched and its error is the real one; the
-     * success path waits on slice 11.
+     * THE OBJECT COMES FIRST, and both the guide and the binary say so. The
+     * guide's own worked example is
+     * `A$=Tag Attach(WIN_OBJ,"MUIA_Application_Window")`, "exactly the same
+     * as `A$=Tag$("MUIA_Application_Window" To WIN_OBJ)`" but with EasyLife
+     * told about the parentage. Routine 235 pops the tag longword FIRST and
+     * writes it as the first longword, then pops the object; `(a3)+` takes
+     * the LAST argument, so the last argument is the tag. Routine 234 is the
+     * comma form and only differs in resolving that last argument through
+     * routine 203's bank-13 name lookup first.
+     *
+     * NOTE: the registration is routine 238's MUI object list, which cannot
+     * hold anything while `Mui New` is unimplemented, so a real object
+     * pointer always reaches the `cmp.l (a1),d3` that rejects an unknown
+     * object and raises message 24. That test is against the `Mui Begin`
+     * counter at `$c6`, which counts DOWN from zero (routine 217's
+     * `subq.l #$1,d6`), so with no objects and no Begin it is zero and the
+     * `bpl` sends everything above it to the error. Zero and negatives fall
+     * through to the allocate-a-node path instead, and answer normally. The
+     * keyword is dispatched and its error is the real one; the success path
+     * waits on slice 11.
      */
     'tag attach$'(_, a): Value {
-      const tag = tagValue(rt, str(a[0] ?? VS('')))
-      const obj = int(a[1] ?? VI(0))
-      // routine 238 on `$c6`, which is 0, then on OBJECT, which is not
-      if (obj !== 0) elError(24)
+      const obj = int(a[0] ?? VI(0))
+      const t = a[1] ?? VI(0)
+      const tag = t.k === 'str' ? tagValue(rt, str(t)) : int(t)
+      // routine 238 on `$c6`, which is 0, then on CHILD_OBJECT
+      if (obj > 0) elError(24)
       return tagLongs([tag, obj])
     },
     /**
