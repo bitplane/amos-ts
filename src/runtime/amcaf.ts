@@ -126,7 +126,17 @@ import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 import { explode, isImploded } from '../amiga/imploder'
 import { launch } from '../amiga/process'
 import { isObjectBank } from './banks'
-import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, PORT_MOUSE, joyFire } from '../interp/gameport'
+import { JOY_DIRECTIONS, JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP } from '../interp/gameport'
+import {
+  JPF_BUTTON_BLUE,
+  JPF_BUTTON_FORWARD,
+  JPF_BUTTON_GREEN,
+  JPF_BUTTON_PLAY,
+  JPF_BUTTON_RED,
+  JPF_BUTTON_REVERSE,
+  JPF_BUTTON_YELLOW,
+  readJoyPort,
+} from '../amiga/lowlevel'
 import { BitMap } from '../amiga/graphics'
 import { AmigaFS } from '../amiga/vfs'
 import type { Screen } from './screen'
@@ -4871,6 +4881,21 @@ function padNum(v: number, n: number, pad: string): string {
  * Date and time
  * ------------------------------------------------------------------ */
 
+/**
+ * Xfire's button numbers, in the manual's order: 0 the ordinary fire, 1 "the
+ * blue button on a gamepad", then yellow, green, reverse, forward and
+ * play/pause. Indexed by the argument, so the order is the interface.
+ */
+const XFIRE_BUTTONS: readonly number[] = [
+  JPF_BUTTON_RED,
+  JPF_BUTTON_BLUE,
+  JPF_BUTTON_YELLOW,
+  JPF_BUTTON_GREEN,
+  JPF_BUTTON_REVERSE,
+  JPF_BUTTON_FORWARD,
+  JPF_BUTTON_PLAY,
+]
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const MONTHS_FULL = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -8761,16 +8786,24 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      *     button 1    move.w #$f000, $34(a0)             POTGO
      *                 btst.b #$2 / #$6, $16(a0)          POTINP, port 0 / 1
      *
-     * NOTE: only button 0 has anything behind it here -- the ordinary fire the
-     * host supplies. Button 1 is the paddle-port line, which nothing drives,
-     * and 2 to 6 go through `$378(a2)`, lowlevel.library, which this port does
-     * not model; all of them read as not pressed.
+     * and 2 to 6 go through `$378(a2)`, lowlevel.library.
+     *
+     * All seven are answered from `../amiga/lowlevel.ts` rather than the two
+     * halves being split, because the split is a property of the MACHINE and
+     * not of the answer: on hardware the CIA line and the POTINP line are
+     * readable whatever is plugged in, and `ReadJoyPort` reports red and blue
+     * for a stick as well as a pad, so the two paths agree everywhere they
+     * overlap. Going through the library once means buttons 2 to 6 inherit
+     * its restriction for free -- a plain joystick's connector has no lines
+     * for them, and they read as not pressed until a pad is in the port.
+     *
+     * The button numbering is the manual's, quoted above: 0 fire, 1 blue,
+     * then yellow, green, reverse, forward and play.
      */
     xfire: (_, a) => {
       const button = amcafSmall(i0(a, 1), 7)
       const port = amcafSmall(i0(a, 0), 2)
-      const bits = port === PORT_MOUSE ? rt.input.joy0 : rt.input.joy
-      return VI(button === 0 && joyFire(bits) ? -1 : 0)
+      return VI((readJoyPort(rt.input.ports, port) & XFIRE_BUTTONS[button]!) !== 0 ? -1 : 0)
     },
 
     /**

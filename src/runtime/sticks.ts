@@ -61,6 +61,7 @@ import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { VI, funcCall, int, type Value } from '../interp/values'
 import { MAX_PORT, PORT_JOYSTICK, PORT_MOUSE, joyDirections, joyFire } from '../interp/gameport'
+import { JPF_BUTTON_BLUE, JPF_BUTTON_RED, readJoyPort } from '../amiga/lowlevel'
 
 /** one of the two mice: a tracked position and the box it is held inside */
 interface StickMouse {
@@ -189,6 +190,31 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
   /** the host's state for one of the two real ports */
   const joyBits = (n: number): number => (n === PORT_MOUSE ? rt.input.joy0 : rt.input.joy)
 
+  /**
+   * The two button lines a normal port has, through lowlevel.library.
+   *
+   * Routines 3 and 4 read exactly two wires per port and read each of them
+   * TWICE, with `move.w #$e000,$34(a6)` -- a POTGO write -- in between:
+   *
+   *     port 1    A/C  btst.b #$7, $bfe001     CIA-A PRA bit 7, /FIR1
+   *               B/D  btst.b #$6, $16(a6)     POTINP bit 14, DATRY, pin 9
+   *     port 0    A/C  btst.b #$6, $bfe001     /FIR0
+   *               B/D  btst.b #$2, $16(a6)     POTINP bit 10, DATLY, pin 9
+   *
+   * That double read is the four-button adaptor's multiplex: POTGO drives the
+   * pot pins to select which pair the connector is presenting. With no adaptor
+   * the wires carry the same thing both times, so **A and C are one button and
+   * B and D are another** -- which is what this answers.
+   *
+   * `/FIRn` is what lowlevel.library calls RED and pin 9 is what it calls
+   * BLUE, the same two lines Ercole's Xfire and AMCAF's Xfire read, so all
+   * three go through `../amiga/lowlevel.ts` and cannot disagree.
+   */
+  const buttons = (n: number): { red: boolean; blue: boolean } => {
+    const jp = readJoyPort(rt.input.ports, n)
+    return { red: (jp & JPF_BUTTON_RED) !== 0, blue: (jp & JPF_BUTTON_BLUE) !== 0 }
+  }
+
   return {
     'multi joy'(_, a): Value {
       // =Multi Joy(jport) — routine 3 ($260). Directions come from JOYxDAT
@@ -202,14 +228,14 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
       // The code ORs $80/$40/$20/$10 for the buttons, so the value table is
       // right and the diagram is written backwards.
       const n = port(int(a[0]!))
-      const j = joyBits(n)
       // direction bits are the same encoding AMOS's own Joy() uses
-      let v = joyDirections(j)
-      // button A is the ordinary fire on that port -- note the remap: AMOS's
-      // single fire is $10, which is button D's bit here
-      if (joyFire(j)) v |= 0x80
-      // B, C and D need a two- or four-button adaptor wired to the POT pins.
-      // Nothing is attached, and POTINP with an open pin reads as not-pressed.
+      let v = joyDirections(joyBits(n))
+      // A ($80) and C ($20) are one wire read twice, B ($40) and D ($10) the
+      // other -- see `buttons`. Note the remap: AMOS's single fire is $10,
+      // which is button D's bit here.
+      const { red, blue } = buttons(n)
+      if (red) v |= 0x80 | 0x20
+      if (blue) v |= 0x40 | 0x10
       return VI(v)
     },
     'multi fire'(_, a): Value {
@@ -219,8 +245,12 @@ export function makeSticksFunctions(rt: Runtime): Record<string, Func> {
       // through every `cmp.w` and returns 0 rather than raising.
       const button = int(a[0]!)
       const n = port(int(a[1]!))
-      if (button === 1) return VI(joyFire(joyBits(n)) ? -1 : 0)
-      return VI(0) // B/C/D: no adaptor
+      const { red, blue } = buttons(n)
+      // 1 and 3 test the fire wire, 2 and 4 the pot wire; anything else falls
+      // through every `cmp.w` and answers 0 rather than raising
+      if (button === 1 || button === 3) return VI(red ? -1 : 0)
+      if (button === 2 || button === 4) return VI(blue ? -1 : 0)
+      return VI(0)
     },
     'stick joy'(_, a): Value {
       // =Stick Joy(jport) — routine 5 ($432), reading CIA-A PRB ($bfe101)

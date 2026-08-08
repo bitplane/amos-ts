@@ -27,7 +27,23 @@ import { isAmosProgram, loadProgram as compileProgram } from '../loader/program'
 import { VERSION } from '../version'
 import { Runtime } from '../runtime/runtime'
 import { AmosRuntimeError } from '../interp/interp'
-import { JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP } from '../interp/gameport'
+import { JOY_DOWN, JOY_FIRE, JOY_LEFT, JOY_RIGHT, JOY_UP, applyJoyBits } from '../interp/gameport'
+import {
+  BTN_BLUE,
+  BTN_FORWARD,
+  BTN_GREEN,
+  BTN_PLAY,
+  BTN_RED,
+  BTN_REVERSE,
+  BTN_YELLOW,
+  CTRL_GAMEPAD,
+  CTRL_JOYSTICK,
+  DIR_DOWN,
+  DIR_LEFT,
+  DIR_RIGHT,
+  DIR_UP,
+  type Controller,
+} from '../amiga/controller'
 import { AmigaFS, MemoryVolume } from '../amiga/vfs'
 import { AdfVolume, isAdf } from '../amiga/adf'
 import { readArchive, volumeFromEntries } from '../runtime/archive'
@@ -343,21 +359,43 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
   overlay.addEventListener('click', onStart)
 
   // ---- gamepads ----
-  /** a gamepad's sticks and d-pad, as the digital port bits AMOS reads */
-  function padBits(gp: Gamepad | null): number {
-    if (!gp) return 0
-    let b = 0
+  /**
+   * A browser gamepad, as a CD32 pad.
+   *
+   * The seven buttons map onto the standard gamepad layout in the order the
+   * pad's own labels suggest — face buttons first, then the two shoulders,
+   * then Start for play/pause. Anything reading `lowlevel.library` sees a
+   * `JP_TYPE_GAMECTLR` port with these held; anything reading `Joy()` sees the
+   * directions and red, because that is all five bits can say.
+   *
+   * With no gamepad attached the port stays a one-button joystick driven by
+   * the keyboard preset, which is what it has always been.
+   */
+  const PAD_BUTTONS: ReadonlyArray<readonly [index: number, button: number]> = [
+    [0, BTN_RED],
+    [1, BTN_BLUE],
+    [2, BTN_YELLOW],
+    [3, BTN_GREEN],
+    [4, BTN_REVERSE],
+    [5, BTN_FORWARD],
+    [9, BTN_PLAY],
+  ]
+
+  function setPort(c: Controller, kb: number, gp: Gamepad | null): void {
+    // the keyboard preset first: it is a one-button stick, and assigning the
+    // five bits assigns the whole of one
+    applyJoyBits(c, kb)
+    if (!gp) {
+      c.type = CTRL_JOYSTICK
+      return
+    }
+    c.type = CTRL_GAMEPAD
     const ax = gp.axes
-    if ((ax[1] ?? 0) < -0.5) b |= JOY_UP
-    if ((ax[1] ?? 0) > 0.5) b |= JOY_DOWN
-    if ((ax[0] ?? 0) < -0.5) b |= JOY_LEFT
-    if ((ax[0] ?? 0) > 0.5) b |= JOY_RIGHT
-    if (gp.buttons[12]?.pressed) b |= JOY_UP
-    if (gp.buttons[13]?.pressed) b |= JOY_DOWN
-    if (gp.buttons[14]?.pressed) b |= JOY_LEFT
-    if (gp.buttons[15]?.pressed) b |= JOY_RIGHT
-    if (gp.buttons[0]?.pressed || gp.buttons[1]?.pressed) b |= JOY_FIRE
-    return b
+    if ((ax[1] ?? 0) < -0.5 || gp.buttons[12]?.pressed) c.dirs |= DIR_UP
+    if ((ax[1] ?? 0) > 0.5 || gp.buttons[13]?.pressed) c.dirs |= DIR_DOWN
+    if ((ax[0] ?? 0) < -0.5 || gp.buttons[14]?.pressed) c.dirs |= DIR_LEFT
+    if ((ax[0] ?? 0) > 0.5 || gp.buttons[15]?.pressed) c.dirs |= DIR_RIGHT
+    for (const [i, button] of PAD_BUTTONS) if (gp.buttons[i]?.pressed) c.buttons |= button
   }
 
   // ---- loading ----
@@ -487,8 +525,8 @@ export function createPlayer(container: HTMLElement, opts: PlayerOptions = {}): 
       acc -= FRAME_MS
     }
     const pads = navigator.getGamepads?.() ?? []
-    rt.input.joy = kbJoy[1]! | padBits(pads[0] ?? null)
-    rt.input.joy0 = kbJoy[0]! | padBits(pads[1] ?? null)
+    setPort(rt.input.ports[1], kbJoy[1]!, pads[0] ?? null)
+    setPort(rt.input.ports[0], kbJoy[0]!, pads[1] ?? null)
     for (let i = 0; i < frames; i++) {
       if (rt.interp.done) break
       try {

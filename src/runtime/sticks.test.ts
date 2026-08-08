@@ -11,6 +11,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { EXTENSION_TOKENS, extensionById } from '../ext/registry'
+import { BTN_BLUE, BTN_RED, BTN_YELLOW } from '../amiga/controller'
 import { Runtime } from './runtime'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -35,15 +36,38 @@ function run(src: string, prep?: (rt: Runtime) => void): { out: string; rt: Runt
 }
 
 describe('Sticks: the two normal ports, which the host has', () => {
-  it('Multi Joy puts directions in the low nibble and fire at $80', () => {
-    // The manual's diagram ("76543210 / ABCDUDLR") and its value table
-    // ("1 up, 2 down, 4 left, 8 right ... 128 A") contradict each other. The
-    // routine ORs $80/$40/$20/$10 for the buttons above the direction bits, so
-    // the value table is right and the diagram is written backwards.
+  /**
+   * The manual's diagram ("76543210 / ABCDUDLR") and its value table
+   * ("1 up, 2 down, 4 left, 8 right ... 128 A") contradict each other. The
+   * routine ORs $80/$40/$20/$10 for the buttons above the direction bits, so
+   * the value table is right and the diagram is written backwards.
+   *
+   * **A and C are one wire.** Routine 3 tests `btst.b #$7,$bfe001` for A, then
+   * the SAME bit again for C with `move.w #$e000,$34(a6)` -- a POTGO write --
+   * between them; the write is the four-button adaptor's multiplex, and with
+   * no adaptor the wire carries fire both times. So fire held sets $80 AND
+   * $20, which is 161 here rather than the 129 this port used to answer. B and
+   * D are the other wire, POTINP pin 9, in the same way.
+   */
+  it('Multi Joy puts directions in the low nibble, and fire on both A and C', () => {
     const { out } = run('Print Multi Joy(1)', (rt) => {
       rt.input.joy = 1 | 16 // up + fire
     })
-    expect(out).toBe(' 129\n') // 1 (up) | 128 (button A)
+    expect(out).toBe(' 161\n') // 1 (up) | 128 (A) | 32 (C)
+  })
+
+  it('Multi Joy reports the second button on B and D', () => {
+    const { out } = run('Print Multi Joy(1)', (rt) => {
+      rt.input.ports[1].buttons = BTN_RED | BTN_BLUE
+    })
+    expect(out).toBe(' 240\n') // 128|32 (A,C) | 64|16 (B,D)
+  })
+
+  it('Multi Joy ignores a button the connector has no wire for', () => {
+    const { out } = run('Print Multi Joy(1)', (rt) => {
+      rt.input.ports[1].buttons = BTN_YELLOW
+    })
+    expect(out).toBe(' 0\n')
   })
 
   it('Multi Joy reads port 0 and port 1 as separate players', () => {
@@ -60,12 +84,23 @@ describe('Sticks: the two normal ports, which the host has', () => {
     expect(() => run('Print Multi Joy(-1)')).toThrow(/Illegal function call/)
   })
 
-  it('Multi Fire tests button 1, and answers 0 for the adaptor buttons', () => {
-    const { out } = run('Print Multi Fire(1,1);Multi Fire(2,1);Multi Fire(1,1)', (rt) => {
+  /**
+   * Routine 4 reads the same two wires routine 3 does, and reads each twice
+   * around the POTGO write: buttons 1 and 3 are the fire wire, 2 and 4 the pot
+   * wire. So the second button answers on 2 and 4, and fire on 1 and 3.
+   */
+  it('Multi Fire tests the fire wire on 1 and 3', () => {
+    const { out } = run('Print Multi Fire(1,1);Multi Fire(2,1);Multi Fire(3,1)', (rt) => {
       rt.input.joy = 16
     })
-    // button 1 pressed; button 2 needs a two-button adaptor, so 0
     expect(out).toBe('-1 0-1\n')
+  })
+
+  it('Multi Fire tests the second button on 2 and 4', () => {
+    const { out } = run('Print Multi Fire(1,1);Multi Fire(2,1);Multi Fire(4,1)', (rt) => {
+      rt.input.ports[1].buttons = BTN_BLUE
+    })
+    expect(out).toBe(' 0-1-1\n')
   })
 
   it('Multi Fire range-checks the PORT but not the BUTTON', () => {

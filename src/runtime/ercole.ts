@@ -100,6 +100,7 @@ import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { openLibrary } from '../amiga/exec'
 import { DOSTRUE, execute } from '../amiga/process'
+import { JPF_BUTTON_BLUE, readJoyPort } from '../amiga/lowlevel'
 
 /**
  * Routine 17's message table at $656 — four NUL-separated strings, indexed
@@ -346,12 +347,17 @@ export function makeErcoleFunctions(rt: Runtime): Record<string, Func> {
      * returning, restoring the pull-up the button just discharged. Routine 0
      * does the same four bsets for the right port at startup.
      *
-     * NOTE: nothing is wired to the pot pins, so they stay high and this
-     * answers 0 — the same limit Sticks records for buttons B, C and D.
+     * Pin 9 is what `lowlevel.library` calls BLUE — AROS's joystick path reads
+     * the same line, `((potinp >> (port ? 14 : 10)) & 1) ? 0 : JPF_BUTTON_BLUE`
+     * — so this is that button and nothing else. It used to answer 0 always,
+     * because nothing could say a second button was down; a controller can.
+     *
+     * `n` is Ercole's own port numbering and happens to match the hardware's:
+     * 0 is the left (mouse) port, 1 the right (joystick) port.
      */
     'xfire': (_, a): Value => {
-      peripheral(int(a[0]!), 2)
-      return VI(0)
+      const n = peripheral(int(a[0]!), 2)
+      return VI((readJoyPort(rt.input.ports, n) & JPF_BUTTON_BLUE) !== 0 ? -1 : 0)
     },
 
     /**

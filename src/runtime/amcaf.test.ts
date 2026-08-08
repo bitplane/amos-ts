@@ -14,6 +14,7 @@ import { pp20Crunch } from '../amiga/powerpacker'
 import { implode } from '../amiga/imploder'
 import { NodeVolume } from '../cli/nodefs'
 import { Machine } from '../amiga/machine'
+import { BTN_BLUE, BTN_FORWARD, BTN_GREEN, BTN_PLAY, BTN_RED, BTN_REVERSE, BTN_YELLOW, CTRL_GAMEPAD } from '../amiga/controller'
 
 /**
  * AMCAF (Chris Hodges), against `AMCAF.Guide` and `AMOSPro_AMCAF.Lib`
@@ -3587,11 +3588,62 @@ describe('four-player adaptor and second mouse', () => {
     expect(p('Xfire(32768,32768)')).toBe('0')
   })
 
-  it('Xfire answers not-pressed past button 0, where nothing drives the wires', () => {
-    // button 1 is the paddle-port line and 2..6 need lowlevel.library
+  it('Xfire answers not-pressed when nothing is held', () => {
     expect(p('Xfire(1,1)')).toBe('0')
     expect(p('Xfire(1,2)')).toBe('0')
     expect(p('Xfire(1,4)')).toBe('0')
+  })
+
+  /**
+   * All seven buttons now come from `../amiga/lowlevel.ts` — routine 17 sends
+   * 2 to 6 to lowlevel.library, and red and blue agree between the library
+   * and the two hardware lines the routine reads directly.
+   *
+   * The numbering is the manual's: 0 fire, 1 blue, then yellow, green,
+   * reverse, forward and play.
+   */
+  it('Xfire reads a game controller’s seven buttons', () => {
+    const held = (buttons: number, expr: string): string => {
+      let out = ''
+      const rt = new Runtime(tokenize(`Print ${expr}`, table, extensions), table, {
+        maxSteps: 1_000_000,
+        extensions,
+        onText: (t) => (out += t),
+      })
+      rt.input.ports[1].type = CTRL_GAMEPAD
+      rt.input.ports[1].buttons = buttons
+      mustFinish(rt.runHeadless(200))
+      return out.trim()
+    }
+    expect(held(BTN_RED, 'Xfire(1,0)')).toBe('-1')
+    expect(held(BTN_BLUE, 'Xfire(1,1)')).toBe('-1')
+    expect(held(BTN_YELLOW, 'Xfire(1,2)')).toBe('-1')
+    expect(held(BTN_GREEN, 'Xfire(1,3)')).toBe('-1')
+    expect(held(BTN_REVERSE, 'Xfire(1,4)')).toBe('-1')
+    expect(held(BTN_FORWARD, 'Xfire(1,5)')).toBe('-1')
+    expect(held(BTN_PLAY, 'Xfire(1,6)')).toBe('-1')
+    // one button held is one button reported
+    expect(held(BTN_YELLOW, 'Xfire(1,3)')).toBe('0')
+    // and the other port is a different player
+    expect(held(BTN_RED, 'Xfire(0,0)')).toBe('0')
+  })
+
+  /**
+   * A stick's connector carries /FIRn and POTINP pin 9 and nothing else, so
+   * `ReadJoyPort` reports red and blue for one whatever the host claims is
+   * held — which is why buttons 2 to 6 need a pad in the port.
+   */
+  it('a plain joystick has red and blue and no more', () => {
+    let out = ''
+    const rt = new Runtime(tokenize('Print Xfire(1,1);Xfire(1,2)', table, extensions), table, {
+      maxSteps: 1_000_000,
+      extensions,
+      onText: (t) => (out += t),
+    })
+    rt.input.ports[1].buttons = BTN_BLUE | BTN_YELLOW
+    mustFinish(rt.runHeadless(200))
+    // the space before 0 is AMOS's own, written before every non-negative
+    expect(out.trim()).toBe('-1 0')
   })
 
   it('the second mouse holds where a program put it and reads no buttons', () => {

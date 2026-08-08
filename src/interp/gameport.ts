@@ -13,12 +13,21 @@
  * drives a device and still lives in `src/runtime/device.ts`.
  *
  * The genuinely AmigaOS half — decoding JOYxDAT's quadrature into directions,
- * `POTGO` conversions, `gameport.device` — has **no caller**. `input.joy`
- * already arrives in this packing from the host, and `sticks.ts` documents
- * the registers while reading the same field. Writing a register model for
- * nobody is the machinery-to-sit-unused that `src/amiga/README.md` warns
- * against, so it is absent, and this file records what the hardware really
- * does so the next reader does not mistake the packing for it.
+ * `POTGO` conversions, `gameport.device` — had **no caller** when this was
+ * written. `input.joy` already arrived in this packing from the host, and
+ * `sticks.ts` documents the registers while reading the same field. Writing a
+ * register model for nobody is the machinery-to-sit-unused that
+ * `src/amiga/README.md` warns against, so it was absent, and this file records
+ * what the hardware really does so the next reader does not mistake the
+ * packing for it.
+ *
+ * **That changed.** `src/amiga/controller.ts` now holds the device — its type
+ * and its seven buttons — because two things needed more than five bits could
+ * say: AMCAF's `Xfire` buttons 2 to 6, which had always read as not pressed,
+ * and `lowlevel.library`'s `ReadJoyPort`. The register traffic is still
+ * absent, for the reason above; what exists is the decoded device. This file
+ * keeps AMOS's packing and owns the translation, which is the one place the
+ * two orderings meet.
  *
  * ## What it replaces
  *
@@ -33,6 +42,8 @@
  * above 1 (FJ +Lib.s:13716). Both are real players: a two-player game reads
  * `Joy(0)` and `Joy(1)`, which is why the host tracks two sets of bits.
  */
+
+import { BTN_RED, DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP, type Controller } from '../amiga/controller'
 
 /** the mouse port — a second player, when something digital is plugged in */
 export const PORT_MOUSE = 0
@@ -65,4 +76,52 @@ export function joyDirections(bits: number): number {
 /** is the port's fire button down? */
 export function joyFire(bits: number): boolean {
   return (bits & JOY_FIRE) !== 0
+}
+
+// -- the device, and AMOS's view of it ------------------------------------
+
+/**
+ * The direction swap, written once.
+ *
+ * AMOS counts up/down/left/right from bit 0; `lowlevel.library` — and so
+ * `../amiga/controller.ts` — counts right/left/down/up. The two nibbles are
+ * bit-reversed with respect to each other, which is the kind of fact that is
+ * obviously true until someone writes `dirs & 0x0f` and ships it. Both
+ * directions of the mapping come off this one table.
+ */
+const DIRS: ReadonlyArray<readonly [amos: number, dev: number]> = [
+  [JOY_UP, DIR_UP],
+  [JOY_DOWN, DIR_DOWN],
+  [JOY_LEFT, DIR_LEFT],
+  [JOY_RIGHT, DIR_RIGHT],
+]
+
+/**
+ * A controller, as `Joy()` sees it.
+ *
+ * Fire is the pad's RED, because red is what a one-button stick's fire line
+ * is: `libraries/lowlevel.h` names it "Select; Left Mouse; Joystick Fire".
+ */
+export function joyBitsOf(c: Controller): number {
+  let bits = 0
+  for (const [amos, dev] of DIRS) if ((c.dirs & dev) !== 0) bits |= amos
+  if ((c.buttons & BTN_RED) !== 0) bits |= JOY_FIRE
+  return bits
+}
+
+/**
+ * Put AMOS's five bits back onto a controller.
+ *
+ * The five bits describe a one-button stick completely, so assigning them
+ * assigns the whole digital state — RED included, and the other six buttons
+ * cleared. Anything wanting a pad's extra buttons sets them on the controller
+ * afterwards, or sets the controller directly; there is no way to reach them
+ * through a packing that has no room for them, and pretending otherwise by
+ * preserving them would make `input.joy = 0` fail to release a button.
+ */
+export function applyJoyBits(c: Controller, bits: number): void {
+  let dirs = 0
+  for (const [amos, dev] of DIRS) if ((bits & amos) !== 0) dirs |= dev
+  c.dirs = dirs
+  c.buttons = (bits & JOY_FIRE) !== 0 ? BTN_RED : 0
 }

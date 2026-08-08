@@ -22,6 +22,8 @@ import type { AmosIO } from './io'
 import { INSTR, FUNCS, RAWFUNCS } from './builtins'
 import type { Instr as InstrFn, Func as FuncFn } from './builtins'
 import { KEYWORD_PROBE } from '../coverage/probe'
+import { newController, type Controller } from '../amiga/controller'
+import { applyJoyBits, joyBitsOf } from './gameport'
 
 export class AmosRuntimeError extends Error {
   constructor(
@@ -142,7 +144,23 @@ export interface InputState {
   mouseK: number
   /** button state at the last Mouse Click read, for edge detection */
   mouseClickOld: number
-  /** port-1 joystick bits (Joy(1)) — the `JOY_*` packing in ./gameport.ts */
+  /**
+   * The two gameports, as devices — `../amiga/controller.ts`.
+   *
+   * Indexed the way the hardware is: 0 is the mouse port, 1 the joystick
+   * port, which is `Joy()`'s numbering too. This is where a controller's TYPE
+   * and its seven buttons live, and `joy`/`joy0` below are a view of it
+   * rather than a second copy.
+   */
+  ports: [Controller, Controller]
+  /**
+   * port-1 joystick bits (Joy(1)) — the `JOY_*` packing in ./gameport.ts.
+   *
+   * An accessor over `ports[1]`, so that the five bits and the device cannot
+   * disagree: setting this sets the controller, and a controller set any
+   * other way is visible here immediately. Assigning it assigns the whole
+   * one-button-stick state — see `applyJoyBits`.
+   */
   joy: number
   /** port-0 joystick bits (Joy(0)) — the mouse port; a distinct player */
   joy0: number
@@ -150,7 +168,30 @@ export interface InputState {
   funcKeys: string[]
 }
 
-export const newInputState = (): InputState => ({
+export const newInputState = (): InputState => {
+  // held in a closure so the accessors below and the `ports` field are the
+  // same two objects rather than a copy each
+  const ports: [Controller, Controller] = [newController(), newController()]
+  return {
+    ports,
+    get joy(): number {
+      return joyBitsOf(ports[1])
+    },
+    set joy(bits: number) {
+      applyJoyBits(ports[1], bits)
+    },
+    get joy0(): number {
+      return joyBitsOf(ports[0])
+    },
+    set joy0(bits: number) {
+      applyJoyBits(ports[0], bits)
+    },
+    ...newInputRest(),
+  }
+}
+
+/** everything in InputState that is plain data, kept apart only for the spread above */
+const newInputRest = (): Omit<InputState, 'ports' | 'joy' | 'joy0'> => ({
   keyQueue: [],
   keys: new Set(),
   // an idle machine has never received a byte; the routines that test it read
@@ -162,8 +203,6 @@ export const newInputState = (): InputState => ({
   mouseY: 50 + 100,
   mouseK: 0,
   mouseClickOld: 0,
-  joy: 0,
-  joy0: 0,
   funcKeys: [],
 })
 

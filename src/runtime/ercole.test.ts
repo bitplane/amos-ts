@@ -7,6 +7,7 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { Runtime } from './runtime'
 import { ERCOLE_ERRORS } from './ercole'
+import { BTN_BLUE, BTN_YELLOW } from '../amiga/controller'
 
 const table = new TokenTable(CORE_TOKENS)
 /**
@@ -102,6 +103,30 @@ describe('Ercole 1.7 — the game-port extras', () => {
     expect(num('Print Yfire(1)')).toBe(0)
     expect(num('Print Xfire(0)')).toBe(0)
     expect(num('Print Yfire(0)')).toBe(0)
+  })
+
+  /**
+   * Routine 10 reads POTINP bit $e for the right port and $a for the left —
+   * pin 9 on each, which is the line `lowlevel.library` reports as BLUE. So
+   * Xfire is that button, and it can be pressed now that a controller can say
+   * so; before this it answered 0 whatever was held.
+   *
+   * Yfire is routine 11 on the X pot pins (pin 5), which is the CD32 clock
+   * line rather than a button, so it stays 0 — the deviation is unchanged.
+   */
+  it('Xfire is the second button, off the same pin lowlevel calls blue', () => {
+    const b = boot('Print Xfire(1);Xfire(0)')
+    b.rt.input.ports[1].buttons = BTN_BLUE
+    mustFinish(b.rt.runHeadless(2000))
+    // the space before 0 is AMOS's, written before every non-negative number
+    expect(b.out().trim()).toBe('-1 0')
+  })
+
+  it('Xfire ignores a button the connector has no line for', () => {
+    const b = boot('Print Xfire(1)')
+    b.rt.input.ports[1].buttons = BTN_YELLOW
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.out().trim()).toBe('0')
   })
 
   it('=Library Open answers a base for a modelled library and errors otherwise (routine 4, $320)', () => {
