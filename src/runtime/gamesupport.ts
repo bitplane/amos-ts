@@ -97,6 +97,7 @@ import { sw16 } from './word'
 import { counterDelta, joyDatOf, joyDatX, joyDatY, mouseDat } from '../amiga/gameport'
 import { elapsedTime, readJoyPort } from '../amiga/lowlevel'
 import { Protracker, parseMod } from '../amiga/protracker'
+import { loadHunks } from '../amiga/hunk'
 
 /**
  * The nine messages, verbatim from `GameSupport.s`'s `ErrMess` table.
@@ -148,6 +149,26 @@ export interface GameSupportState {
   lowlevel: boolean
   /** the ProTracker half — see `GameSupportMusic` */
   music: GameSupportMusic
+  /** $7a — sixteen eight-byte slots, `{ segment, header }` each */
+  codemods: Array<CodeModule | null>
+}
+
+/**
+ * One loaded GSMod, which is one slot of the table at $7a.
+ *
+ * On the machine a slot is two longwords: the `LoadSeg` BPTR at +0 and a
+ * pointer to the module's own header at +4. Here the segment is the relocated
+ * image and the header is an offset into it, because the image has to be
+ * readable through `Runtime.CODEMOD_BASE` — `Gsfindattr` hands an entry's
+ * address straight to the program.
+ */
+export interface CodeModule {
+  /** the relocated hunk image, mapped at `base` */
+  image: Uint8Array
+  /** where the slot is mapped, so pointers inside the image are real */
+  base: number
+  /** the offset of the `"GSMo"` header the loader scanned for */
+  header: number
 }
 
 /**
@@ -221,10 +242,113 @@ export function newGameSupportState(rt?: Runtime): GameSupportState {
       defer: -1,
       spare: -1,
     },
+    codemods: Array.from({ length: CODEMOD_SLOTS }, () => null),
   }
   st.music.replay.master = 0x40
   if (rt) seedCounters(rt, st)
   return st
+}
+
+// -- the code modules ----------------------------------------------------
+//
+// Six keywords, none of them in the guide, over a loadable-code format of the
+// author's own. Everything below is read off the binary; `subroutines/
+// codemods.s` is another of the missing includes.
+//
+// A GSMod is an ordinary AmigaDOS loadable file whose first hunk carries the
+// four bytes `"GSMo"` somewhere in its first thirty-two, followed by a header:
+//
+//     +$14  the init routine, called by Gsloadcodemod
+//     +$18  the cleanup routine, called by Gsunloadcodemod
+//     +$1c  the FUNCTION table, which Gscallmod searches
+//     +$20  the ATTRIBUTE table, which Gsgetattr/Gssetattr/Gsfindattr search
+//
+// and a table is twenty-seven longwords — one bucket per initial letter, plus
+// an end marker — over an array of eight-byte entries, `{ value, name }`.
+
+/** `moveq #$f, d7` over eight-byte slots: the table holds sixteen */
+const CODEMOD_SLOTS = 16
+/**
+ * Where the sixteen slots are mapped, matching `Runtime.CODEMOD_BASE` and
+ * `CODEMOD_SLOT`. Spelled out rather than imported because `./runtime` is a
+ * TYPE-only import here and reaching for the class would make it a cycle.
+ * `memmap.test.ts` is what holds the two to agreeing.
+ */
+const CODEMOD_BASE = 0x5c00_0000
+const CODEMOD_SLOT = 0x0010_0000
+
+/**
+ * The attribute lookup, at $29a4 and copied verbatim three more times ($2a50,
+ * $2af4, $2b90 — the four are identical instruction for instruction):
+ *
+ *     move.b (a0), d0 / bclr.b #$5, d0     the initial, forced UPPER CASE
+ *     subi.l #$41, d0 / bmi -> 0           below 'A'
+ *     cmp.l #$19, d0 / bgt -> 0            above 'Z'
+ *     lsl.l #$2, d0
+ *     movea.l (a1, d0.w), a2               the bucket
+ *     move.l $4(a1, d0.w), d7 / sub.l a2, d7   ...and the NEXT one, as its end
+ *     beq -> 0                             an empty bucket
+ *     lsr.l #$3, d7 / subq.w #$1, d7       eight bytes an entry
+ *
+ * and then, per entry, a comparison that ends when the ENTRY's byte reaches
+ * zero rather than when both do:
+ *
+ *     move.b (a1)+, d0 / move.b (a3)+, d1
+ *     beq -> MATCH                         the entry's name has run out
+ *     bclr.b #$5, d0 / bclr.b #$5, d1 / cmp.b d0, d1 / beq -> keep going
+ *
+ * Two consequences a caller can reach. The match is CASE INSENSITIVE, which
+ * `bclr #5` gives for letters and gives nonsense for anything else — '0' and
+ * 'P' differ only in bit 5, so they compare equal. And it is a PREFIX match on
+ * the entry: an entry named "SPEED" answers a lookup for "SPEEDY".
+ */
+function findAttr(rt: Runtime, table: number, name: string): number {
+  const initial = (name.charCodeAt(0) & ~0x20) - 0x41
+  if (Number.isNaN(initial) || initial < 0 || initial > 0x19) return 0
+  const bucket = getL(rt, table + initial * 4)
+  const end = getL(rt, table + initial * 4 + 4)
+  const count = (end - bucket) >>> 3
+  if (end === bucket || count === 0) return 0
+  for (let i = 0; i < count; i++) {
+    const entry = bucket + i * 8
+    const at = getL(rt, entry + 4)
+    let k = 0
+    for (;;) {
+      const b = getB(rt, at + k)
+      if (b === 0) return entry // the entry's name has run out: a match
+      const want = name.charCodeAt(k)
+      if (Number.isNaN(want) || (want & ~0x20) !== (b & ~0x20)) break
+      k++
+    }
+  }
+  return 0
+}
+
+/** `$1c(a1)` — the FUNCTION table Gscallmod searches */
+const FUNC_TABLE = 0x1c
+/** `$20(a1)` — the ATTRIBUTE table the other three search */
+const ATTR_TABLE = 0x20
+
+/**
+ * A slot number, a name and a table offset, resolved to an entry address.
+ *
+ * All four routines share this preamble: `lsl.l #$3, d0` for the slot,
+ * `movea.l $4(a2, d0.w), a1` for the module header, then the table pointer.
+ * NOTE the `.w` displacement and the absence of any range check --- a slot
+ * number is masked to sixteen bits by the addressing mode and nothing tests
+ * it against the sixteen the table holds.
+ */
+function attrEntry(rt: Runtime, slot: number, name: string, table: number): number {
+  const n = ((slot << 3) & 0xffff) >> 3
+  const m = rt.gamesupport.codemods[n]
+  if (!m) return 0
+  return findAttr(rt, getL(rt, m.base + m.header + table), name)
+}
+
+/** byte at addr, through the synthesized address space */
+function getB(rt: Runtime, addr: number): number {
+  const m = rt.resolveAddr(addr)
+  return m && m.off < m.data.length ? m.data[m.off]! : 0
 }
 
 /**
@@ -599,6 +723,80 @@ export function makeGameSupportInstructions(rt: Runtime): Record<string, Instr> 
      */
     'gsclosec2plib'() {
       // no library open, so nothing to clean up and nothing to close
+    },
+
+    /**
+     * Gsunloadcodemod n — routine 91 ($2910):
+     *
+     *     movea.l $4(a0, d0.w), a1 / movea.l $18(a1), a0 / jsr (a0)
+     *     move.l (a0, d0.w), d1 / beq -> nothing
+     *     move.l #$0, (a0, d0.w) / move.l #$0, $4(a0, d0.w)
+     *     jsr -$9c(a6)                                     UnLoadSeg
+     *
+     * NOTE the order: the module's cleanup routine is called BEFORE the
+     * emptiness test, so unloading a slot that holds nothing reaches
+     * `movea.l $18(a1)` through a null header pointer. And nothing
+     * range-checks `n`, whose index is `d0.w` — so a slot number above 8191
+     * wraps rather than running off the table.
+     *
+     * DEVIATION: the cleanup routine is 68k code and there is no interpreter
+     * here, so it is not called. See `Gscallmod`.
+     */
+    'gsunloadcodemod'(it) {
+      const n = it.evalInt()
+      const slot = ((n << 3) & 0xffff) >> 3
+      const mods = rt.gamesupport.codemods
+      if (slot < 0 || slot >= CODEMOD_SLOTS || !mods[slot]) return
+      mods[slot] = null
+    },
+
+    /**
+     * Gssetattr module, name$, value — routine 93 ($29fe).
+     *
+     * The arguments pop right to left: the value first, into $2aaa, then the
+     * name, then the module. The lookup is `findAttr` over the ATTRIBUTE table
+     * at `$20` of the module header, and a miss is error 7, *"attribute not
+     * found"*. A hit stores the value as a LONGWORD at the entry's own start.
+     */
+    'gssetattr'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const name = it.evalStr()
+      it.expect(',')
+      const value = it.evalInt()
+      const entry = attrEntry(rt, n, name, ATTR_TABLE)
+      if (entry === 0) gsError(7)
+      putL(rt, entry, value)
+    },
+
+    /**
+     * Gscallmod module, name$ — routine 95 ($2b4e). The FUNCTION table at
+     * `$1c`, not the attribute table at `$20`, and a miss is error 8,
+     * *"function not found"*:
+     *
+     *     movea.l d0, a0 / movea.l (a0), a0 / jsr (a0)
+     *
+     * so an entry's first longword is a routine address and the call is
+     * direct.
+     *
+     * DEVIATION: the only structural one in this extension. Everything
+     * else GameSupport does is data, and this is 68k code: there is no
+     * interpreter in this port, so a function that IS found cannot be run.
+     * The lookup and its error are faithful; the call raises rather than
+     * silently doing nothing, because a game whose module does the work would
+     * otherwise carry on with the work undone.
+     *
+     * The five keywords around it need no interpreter — a module's tables are
+     * read and written as plain memory — so this is the one that waits on a
+     * 68k core rather than on anything of GameSupport's.
+     */
+    'gscallmod'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const name = it.evalStr()
+      const entry = attrEntry(rt, n, name, FUNC_TABLE)
+      if (entry === 0) gsError(8)
+      throw new AmosError(`Gscallmod cannot run 68000 code: no interpreter for "${name}"`)
     },
 
     /**
@@ -1062,6 +1260,87 @@ export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
      * The one routine with no such arm is `Gsc2pdebug`, and that is a defect
      * rather than a difference — see it below.
      */
+    /**
+     * =Gsloadcodemod(file$) — routine 90 ($2854), 188 bytes:
+     *
+     *     lea $7a(a1), a1 / moveq #$f, d7
+     *     move.l (a1), d0 / beq -> free slot / lea $8(a1), a1 / dbra
+     *     moveq #$6, d0 -> error 6                  every slot taken
+     *     move.w (a0)+, d0 / subq.w #$1, d0
+     *     cmp.w #$80, d0 / bge -> AMOS error $17    a name of 129 or more
+     *     ...copy into $50a(a5), L_Dsk_PathIt, LoadSeg...
+     *     move.l d0, (a0, d1.w) / beq -> AMOS error $17
+     *     lsl.l #$2, d0 / movea.l d0, a1             BPTR to address
+     *     moveq #$f, d7
+     *     lea $2(a1), a1 / cmpi.l #$47534d6f, (a1) / beq / dbra
+     *     move.l a1, $4(a0, d1.w)
+     *     movea.l $14(a1), a0 / jsr (a0)             the module's init
+     *
+     * $47534d6f is `"GSMo"`. **The scan has no failure exit**: `dbra` falls
+     * straight through into the found path, so a file that loads but is not a
+     * GSMod has its header pointer set thirty-two bytes into the segment and
+     * the `jsr` goes into whatever is there. That is a defect, not a check —
+     * only a file that fails to LOAD raises.
+     *
+     * The AMOS error is 23 for both a name too long and a load that failed;
+     * error 6, *"too many code modules"*, is the extension's own.
+     *
+     * DEVIATION: the init routine is 68k code and is not called. See
+     * `Gscallmod` for why that is the one thing here a 68k core would fix.
+     */
+    'gsloadcodemod'(_, a): Value {
+      const name = str(a[0]!)
+      const mods = rt.gamesupport.codemods
+      const slot = mods.findIndex((s) => s === null)
+      if (slot < 0) gsError(6)
+      // `move.w (a0)+,d0 / subq.w #$1,d0 / cmp.w #$80,d0 / bge`
+      if (name.length - 1 >= 0x80) throw new AmosError('Illegal function call', 23)
+      const bytes = rt.fs?.read(name)
+      if (!bytes) throw new AmosError('Illegal function call', 23)
+      const base = CODEMOD_BASE + slot * CODEMOD_SLOT
+      let image: Uint8Array
+      try {
+        image = loadHunks(bytes, base).image
+      } catch {
+        throw new AmosError('Illegal function call', 23)
+      }
+      // the magic scan: sixteen tries, two bytes apart, and no way to fail
+      let header = 0
+      for (let i = 1; i <= 16; i++) {
+        header = i * 2
+        if (
+          image[header] === 0x47 &&
+          image[header + 1] === 0x53 &&
+          image[header + 2] === 0x4d &&
+          image[header + 3] === 0x6f
+        ) {
+          break
+        }
+      }
+      mods[slot] = { image, base, header }
+      return VI(slot)
+    },
+
+    /**
+     * =Gsgetattr(module, name$) — routine 92 ($295e), and
+     * =Gsfindattr(module, name$) — routine 94 ($2aae).
+     *
+     * The same lookup and the same error 7; the only difference is what comes
+     * back. `Gsgetattr` dereferences the entry (`move.l (a0), d3`) and answers
+     * the VALUE; `Gsfindattr` answers the entry's ADDRESS, which is what a
+     * program pokes through to change one without a second lookup.
+     */
+    'gsgetattr'(_, a): Value {
+      const entry = attrEntry(rt, int(a[0]!), str(a[1]!), ATTR_TABLE)
+      if (entry === 0) gsError(7)
+      return VI(getL(rt, entry) | 0)
+    },
+    'gsfindattr'(_, a): Value {
+      const entry = attrEntry(rt, int(a[0]!), str(a[1]!), ATTR_TABLE)
+      if (entry === 0) gsError(7)
+      return VI(entry | 0)
+    },
+
     'gsopenc2plib'(_, a): Value {
       // the name is copied and the library opened whatever it says; with none
       // installed the `beq` after OpenLibrary is the arm every call takes

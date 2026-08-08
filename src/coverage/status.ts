@@ -1380,6 +1380,8 @@ export const FAITHFUL = new Set<string>([
   'gstrack transpose', 'gstrack volume', 'gscmd8data',
   'gsopenc2plib', 'gsclosec2plib', 'gschunky2planar', 'gssetc2pcolour',
   'gssetc2pregion', 'gsc2pinfo', 'gsc2pdebug',
+  'gsloadcodemod', 'gsunloadcodemod', 'gsgetattr', 'gssetattr',
+  'gsfindattr', 'gscallmod',
 
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
@@ -4215,6 +4217,39 @@ export const NOTES: Record<string, string> = {
     "Routine 25 ($2350), a `move.w` into $18. The player applies it with `mulu.w $1c32(pc),d0 / lsr.l #$6,d0` " +
     "($157c), which is Protracker.master's own arithmetic. Nothing range-checks: past 64 it multiplies beyond " +
     "full volume and only the replayer's clamp stops it.",
+  "gsloadcodemod":
+    "Routine 90 ($2854), UNDOCUMENTED, over a loadable-code format of the author's own. A GSMod is an ordinary " +
+    "AmigaDOS loadable file whose first hunk carries \"GSMo\" ($47534d6f) somewhere in its first thirty-two " +
+    "bytes, followed by a header: +$14 init, +$18 cleanup, +$1c the FUNCTION table, +$20 the ATTRIBUTE table. " +
+    "The slot table at $7a holds sixteen. Error 6 when they are all taken, AMOS error 23 for a filename of 129 " +
+    "or more and for a LoadSeg that fails. DEFECT: the magic scan has NO failure exit --- `dbra` falls straight " +
+    "through into the found path --- so a file that loads but is not a GSMod gets a header pointer thirty-two " +
+    "bytes into the segment and the `jsr $14(a1)` goes into whatever is there. DEVIATION: the init routine is " +
+    "68k code and is not called here.",
+  "gsunloadcodemod":
+    "Routine 91 ($2910). NOTE the order: the module's cleanup routine is called BEFORE the emptiness test, so " +
+    "unloading a slot that holds nothing dereferences a null header. Nothing range-checks the slot either, and " +
+    "the index is `d0.w`, so a number above 8191 wraps rather than running off the table.",
+  "gsgetattr":
+    "Routine 92 ($295e). The lookup ($29a4, copied verbatim at $2a50/$2af4/$2b90) buckets by INITIAL LETTER: 27 " +
+    "longwords where entry i is bucket i's start and i+1 its end, over eight-byte { value, name } entries. Two " +
+    "consequences a caller can reach --- `bclr #5` on both sides makes it CASE INSENSITIVE (and makes '0' equal " +
+    "'P', since they differ only in bit 5), and the comparison ends when the ENTRY's byte reaches zero, so it " +
+    "is a PREFIX match: an entry named SPEED answers a lookup for SPEEDY. Error 7 on a miss.",
+  "gssetattr":
+    "Routine 93 ($29fe), the same lookup with a LONGWORD store at the entry's own start. Arguments pop right to " +
+    "left, so the value reaches d0 first.",
+  "gsfindattr":
+    "Routine 94 ($2aae), the same lookup again, answering the ENTRY'S ADDRESS rather than its value --- which " +
+    "is what a program pokes through to change one without a second lookup. Loaded modules are mapped at " +
+    "Runtime.CODEMOD_BASE so that address is real.",
+  "gscallmod":
+    "Routine 95 ($2b4e). The FUNCTION table at $1c rather than the attribute table at $20, so an attribute name " +
+    "is not a function name, and error 8 on a miss. DEVIATION: `movea.l (a0),a0 / jsr (a0)` is a direct call " +
+    "into 68k code and there is no interpreter in this port. THE ONE STRUCTURAL DEVIATION in this extension --- " +
+    "everything else GameSupport does is data. The lookup and its error are faithful; a function that IS found " +
+    "raises rather than silently doing nothing, because a game whose module does the work would otherwise carry " +
+    "on with the work undone.",
   "gsopenc2plib":
     "Routine 80 ($2714), and L_OpenC2PLib in the author's own source, which carries the whole C2P block. " +
     "$147 holds exactly sixteen characters, \"GSChunky2Planar/\", and the caller's string is appended at $157, " +

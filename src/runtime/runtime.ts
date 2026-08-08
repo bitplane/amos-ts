@@ -868,6 +868,19 @@ export class Runtime {
   medModule: Uint8Array | null = null
 
   /**
+   * GameSupport's sixteen loaded code modules, one slot each.
+   *
+   * `Gsloadcodemod` is `LoadSeg` and the module's tables are read back through
+   * pointers, so a loaded module has to have an ADDRESS: `Gsfindattr` hands
+   * one straight to the program, which is expected to peek and poke the entry
+   * through it. Sixteen is the table's own size — `moveq #$f, d7` over
+   * eight-byte slots at $7a(a1). See gamesupport.ts.
+   */
+  static readonly CODEMOD_BASE = 0x5c000000
+  static readonly CODEMOD_SLOT = 0x0010_0000
+  static readonly CODEMOD_SLOTS = 16
+
+  /**
    * The interpreter configuration block (PI_*, +Equ.s:1590-1650, defaults
    * from +Interpreter_Config.s). Editable defaults rather than constants:
    * the file selector stores its Sort/Size/Store toggles and its window
@@ -1247,6 +1260,17 @@ export class Runtime {
     // =Mubase points at the music extension data zone; the vumeter bytes at
     // MB+0..3 are the mapped part (FnMusicBase +Music.s:3907)
     bufferRegion('Mubase', Runtime.MUBASE_ADDR, 4, () => this.vuBytes),
+    slottedRegion(
+      'GameSupport code modules',
+      Runtime.CODEMOD_BASE,
+      Runtime.CODEMOD_SLOT,
+      Runtime.CODEMOD_SLOTS,
+      (index, off) => {
+        const m = this.gamesupport?.codemods[index]
+        return m ? within(m.image, off) : null
+      },
+    ),
+
     {
       name: 'variable arena',
       base: Runtime.VAR_BASE,

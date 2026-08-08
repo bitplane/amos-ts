@@ -861,3 +861,202 @@ describe('GameSupport: the chunky-to-planar shim, whose module nobody has', () =
     expect(num('Print Gsc2pinfo')).toBe(0)
   })
 })
+
+// ---- the code modules ----------------------------------------------------
+
+/**
+ * A synthetic GSMod: one HUNK_CODE hunk whose second word is `"GSMo"`, a
+ * header with the four routine/table pointers, and an attribute table with two
+ * entries under 'S' and one under 'A'.
+ *
+ * The layout is entirely off the binary — the loader scans for the magic two
+ * bytes in ($28d4), the header's $14/$18/$1c/$20 are its init, cleanup,
+ * function table and attribute table, and a table is twenty-seven longwords
+ * over eight-byte `{ value, name }` entries.
+ */
+function gsmod(base = 0x5c00_0000): Uint8Array {
+  const SIZE = 0x400
+  const body = new Uint8Array(SIZE)
+  const dv = new DataView(body.buffer)
+  const put = (at: number, v: number): void => dv.setUint32(at, v >>> 0)
+  const text = (at: number, s: string): void => {
+    for (let i = 0; i < s.length; i++) body[at + i] = s.charCodeAt(i)
+  }
+  // the magic, at offset 2 --- the first place `lea $2(a1), a1` looks. Every
+  // header field is relative to the MAGIC, because a1 points at it when
+  // `movea.l $14(a1), a0` runs.
+  const H = 2
+  text(H, 'GSMo')
+  put(H + 0x14, base + 0x300) // init
+  put(H + 0x18, base + 0x304) // cleanup
+  put(H + 0x1c, base + 0x100) // the FUNCTION table
+  put(H + 0x20, base + 0x180) // the ATTRIBUTE table
+
+  /**
+   * A table is TWENTY-SEVEN longwords: entry i is bucket i's start and entry
+   * i+1 is its end, so an empty letter is two equal bounds. Entries are eight
+   * bytes, `{ value, name }`, and must be laid out in bucket order.
+   */
+  const buildTable = (at: number, entriesAt: number, namesAt: number, byLetter: Record<string, Array<[number, string]>>): void => {
+    let entry = entriesAt
+    let nameAt = namesAt
+    for (let i = 0; i <= 25; i++) {
+      put(at + i * 4, base + entry)
+      for (const [value, name] of byLetter[String.fromCharCode(65 + i)] ?? []) {
+        put(entry, value)
+        put(entry + 4, base + nameAt)
+        text(nameAt, name)
+        nameAt += name.length + 1
+        entry += 8
+      }
+    }
+    put(at + 26 * 4, base + entry) // the end marker the last bucket needs
+  }
+
+  // 27 longwords is 108 bytes, so a table at $100 runs to $16b and its
+  // entries have to start clear of it
+  buildTable(0x100, 0x170, 0x1f0, { D: [[base + 0x300, 'DRAW']] })
+  buildTable(0x180, 0x200, 0x260, { A: [[11, 'ANGLE']], S: [[42, 'SPEED'], [99, 'SIZE']] })
+
+  // wrap it in the smallest legal hunk file: HUNK_HEADER, HUNK_CODE, HUNK_END
+  const out = new Uint8Array(6 * 4 + 4 + 4 + SIZE + 4)
+  const ov = new DataView(out.buffer)
+  ov.setUint32(0, 0x3f3) // HUNK_HEADER
+  ov.setUint32(4, 0) // no resident libraries
+  ov.setUint32(8, 1) // table size
+  ov.setUint32(12, 0) // first
+  ov.setUint32(16, 0) // last
+  ov.setUint32(20, SIZE / 4) // hunk 0's allocation, in longwords
+  ov.setUint32(24, 0x3e9) // HUNK_CODE
+  ov.setUint32(28, SIZE / 4)
+  out.set(body, 32)
+  ov.setUint32(32 + SIZE, 0x3f2) // HUNK_END
+  return out
+}
+
+function withMod2(src: string, files: Record<string, Uint8Array>): Boot {
+  let printed = ''
+  const rt = new Runtime(tokenize(src, table, extensions), table, {
+    extensions,
+    extBindings: new Map([[GS_SLOT, gs]]),
+    maxSteps: 200_000,
+    onText: (t) => (printed += t),
+    fs: { read: (p: string) => files[p] ?? null },
+  })
+  return { rt, out: () => printed }
+}
+
+describe('GameSupport: the code modules', () => {
+  const files = (): Record<string, Uint8Array> => ({ 'mod.gsm': gsmod() })
+
+  it('loads into the first free slot and answers its index', () => {
+    // `lea $7a(a1),a1 / moveq #$f,d7 / move.l (a1),d0 / beq` --- the first
+    // empty one, and the index is 15 minus the countdown
+    const b = withMod2('Print Gsloadcodemod("mod.gsm")', files())
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('0')
+    expect(b.rt.gamesupport.codemods[0]?.header).toBe(2)
+  })
+
+  it('raises AMOS error 23 for a file that will not load', () => {
+    // `move.l d0,(a0,d1.w) / beq` --- a LoadSeg that returns zero
+    expect(() => withMod2('Print Gsloadcodemod("nope")', files()).rt.runHeadless(2_000)).toThrow(
+      /Illegal function call/,
+    )
+  })
+
+  it('raises AMOS error 23 for a filename of 129 characters or more', () => {
+    // `move.w (a0)+,d0 / subq.w #$1,d0 / cmp.w #$80,d0 / bge`
+    const long = 'x'.repeat(129)
+    expect(() => withMod2(`Print Gsloadcodemod("${long}")`, files()).rt.runHeadless(2_000)).toThrow(
+      /Illegal function call/,
+    )
+    // and 128 is fine as far as the length check goes, failing on the load
+    const ok = 'y'.repeat(128)
+    expect(() => withMod2(`Print Gsloadcodemod("${ok}")`, files()).rt.runHeadless(2_000)).toThrow(
+      /Illegal function call/,
+    )
+  })
+
+  it('raises error 6 when all sixteen slots are taken', () => {
+    // "too many code modules", the extension's own message 6
+    const src = ['For A=1 To 16', 'N=Gsloadcodemod("mod.gsm")', 'Next A', 'Print Gsloadcodemod("mod.gsm")'].join('\n')
+    expect(() => withMod2(src, files()).rt.runHeadless(20_000)).toThrow(GAMESUPPORT_ERRORS[6])
+  })
+
+  it('Gsgetattr answers the value and Gsfindattr the entry’s address', () => {
+    const b = withMod2(
+      'N=Gsloadcodemod("mod.gsm")\nPrint Gsgetattr(N,"SPEED");Gsgetattr(N,"SIZE");Gsgetattr(N,"ANGLE")',
+      files(),
+    )
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('42 99 11')
+    const f = withMod2('N=Gsloadcodemod("mod.gsm")\nPrint Gsfindattr(N,"SPEED")', files())
+    mustFinish(f.rt.runHeadless(2_000))
+    // the entry itself, which is where Gsgetattr dereferences
+    expect(Number(f.out().trim())).toBe(0x5c00_0000 + 0x208)
+  })
+
+  it('Gssetattr writes through the same lookup', () => {
+    const b = withMod2(
+      'N=Gsloadcodemod("mod.gsm")\nGssetattr N,"SPEED",1234\nPrint Gsgetattr(N,"SPEED");Gsgetattr(N,"SIZE")',
+      files(),
+    )
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('1234 99')
+  })
+
+  it('the lookup is CASE INSENSITIVE, by `bclr #5` on both sides', () => {
+    const b = withMod2('N=Gsloadcodemod("mod.gsm")\nPrint Gsgetattr(N,"speed");Gsgetattr(N,"SpEeD")', files())
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('42 42')
+  })
+
+  it('and it is a PREFIX match on the ENTRY, not an equality', () => {
+    // the comparison ends when the ENTRY's byte reaches zero, so an entry
+    // named SPEED answers a lookup for SPEEDY
+    const b = withMod2('N=Gsloadcodemod("mod.gsm")\nPrint Gsgetattr(N,"SPEEDY")', files())
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('42')
+  })
+
+  it('raises error 7 for a name in no bucket, and for one not in its bucket', () => {
+    for (const name of ['ZZZ', 'SPOON', '1234']) {
+      expect(() =>
+        withMod2(`N=Gsloadcodemod("mod.gsm")\nPrint Gsgetattr(N,"${name}")`, files()).rt.runHeadless(2_000),
+      ).toThrow(GAMESUPPORT_ERRORS[7])
+    }
+  })
+
+  it('Gscallmod raises error 8 for a function that is not there', () => {
+    // the FUNCTION table at $1c, not the attribute table at $20 --- so an
+    // ATTRIBUTE name is not a function name
+    expect(() =>
+      withMod2('N=Gsloadcodemod("mod.gsm")\nGscallmod N,"SPEED"', files()).rt.runHeadless(2_000),
+    ).toThrow(GAMESUPPORT_ERRORS[8])
+  })
+
+  it('Gscallmod finds a real function and then cannot run it', () => {
+    // THE one structural deviation in this extension. Everything else it does
+    // is data; this is `movea.l (a0),a0 / jsr (a0)` into 68k code, and there
+    // is no interpreter here. The lookup and its error are faithful; the call
+    // raises rather than silently doing nothing, because a game whose module
+    // does the work would otherwise carry on with the work undone.
+    expect(() =>
+      withMod2('N=Gsloadcodemod("mod.gsm")\nGscallmod N,"DRAW"', files()).rt.runHeadless(2_000),
+    ).toThrow(/cannot run 68000 code/)
+  })
+
+  it('Gsunloadcodemod frees the slot for the next load', () => {
+    const b = withMod2(
+      'A=Gsloadcodemod("mod.gsm")\nB=Gsloadcodemod("mod.gsm")\nGsunloadcodemod A\nPrint A;B;Gsloadcodemod("mod.gsm")',
+      files(),
+    )
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('0 1 0')
+  })
+
+  it('Gsunloadcodemod on an empty slot does nothing rather than raising', () => {
+    expect(() => withMod2('Gsunloadcodemod 3', files())).not.toThrow()
+  })
+})
