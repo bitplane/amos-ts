@@ -1423,6 +1423,22 @@ export const FAITHFUL = new Set<string>([
   's track load', 's track play', 's track stop', 's track volume',
   's track length', 's track tempo=', 's track tempo',
 
+  // --- Make Lib 1.30, slot 17: exec's memory and list routines, a C-shaped
+  // stdio, and three graphics keywords. BINARY tier with a complete manual --
+  // the 2,344-byte hunk disassembles with `extdis make-1.30` and `Make_lib.doc`
+  // documents all thirty-two, so every routine is read against its own
+  // description. The slot is confirmed from both sides: `move.l a3,$1f8(a5)`
+  // in routine 0, and "The extension number of MakeLib is 17." in the doc.
+  // Four places where the two disagree are in the NOTES; see make.ts.
+  'ma allocmem', 'ma freemem', 'ma allocvec', 'ma freevec',
+  'ma malloc', 'ma free', 'ma free all', 'ma realloc',
+  'mem chip', 'mem fast', 'mem clear', 'mem public',
+  'ma newlist', 'ma addhead', 'ma addtail', 'ma remove', 'ma remhead',
+  'ma next', 'ma prev', 'ma first', 'ma last',
+  'ma fopen', 'ma fclose', 'ma fread', 'ma fwrite', 'ma fseek',
+  'ma filelen', 'ma extb', 'ma extw',
+  'ma paste icon', 'ma point', 'ma plot',
+
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
   // an identical token table, so this covers AMOS 1.3 and AMOS Pro alike.
@@ -2806,6 +2822,79 @@ export const NA = new Set<string>([
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  // ---- Make Lib 1.30, slot 17 ----------------------------------------------
+  "ma allocmem":
+    "Routine 4 ($3a6), 22 bytes: exec AllocMem with nothing around it, the two arguments popped straight into d1 " +
+    "and d0. The doc's requirement bits are exec's own, and Mem Public/Chip/Fast/Clear are those four constants " +
+    "spelled as keywords.",
+  "ma freemem":
+    "Routine 5 ($3bc), 22 bytes. NOTE: the caller supplies the size and exec needs it; the pool here takes the " +
+    "length from its own bookkeeping instead, so a caller that hands back the right block with the WRONG size is " +
+    "forgiven here and would corrupt the memory list on the machine.",
+  "ma allocvec":
+    "Routine 11 ($42a), 38 bytes: `addq.l #$4,d0 / move.l d0,d2 / AllocMem / move.l d2,(a0)+`. NOTE: the size " +
+    "stored in front of the block is the TOTAL, so a program that reads it back sees four more than it asked for.",
+  "ma malloc":
+    "Routine 13 ($466), 58 bytes: twelve bytes more than asked for -- an eight-byte MinNode so the block can go " +
+    "on the library's own list, and the total size at +8. The header is written AFTER the allocation, so Mem Clear " +
+    "clears it and the size still lands.",
+  "ma free all":
+    "Routine 15 ($4c4), 40 bytes: RemHead on the malloc list until it answers 0, freeing each node with the size " +
+    "at +8. The same loop the extension's REMOVE vector at $30e runs when AMOS unloads the library, which is what " +
+    "the doc means by memory being freed automatically on exit.",
+  "ma realloc":
+    "Routine 35 ($854), 130 bytes, and the one routine here that does everything its documentation claims: " +
+    "TypeOfMem on the old block plus MEMF_CLEAR is both \"if old memory was CHIP memory --> new memory will be " +
+    "CHIP too\" and \"additional bytes will be cleared\", and the old block is freed on BOTH paths because the " +
+    "failure arm falls into the same FreeMem. DEFECT: the null arm at $862 branches to the exit without writing " +
+    "d3, so `Ma Realloc(0,n)` returns whatever the previous function left in the return register. Answered as 0 " +
+    "here, the only stable choice.",
+  "ma remove":
+    "Routine 8 ($3f4), 16 bytes: exec Remove takes the node alone and never sees the list, which is why the doc's " +
+    "parameter list has one entry. A node that was never on a list unlinks whatever its two pointers name.",
+  "ma next":
+    "Routine 16 ($4ec), 16 bytes: `movea.l (a0),a0 / tst.l (a0) / beq` -- the successor unless ITS successor is " +
+    "zero, which is only true of the header's lh_Tail. exec's idiom for walking to the end without the list in " +
+    "hand, and Ma Prev (routine 17) is its mirror.",
+  "ma first":
+    "Routine 18 ($510), 16 bytes: `cmpa.l $8(a0),a0 / beq` -- an empty MinList has tailpred == &head, which is " +
+    "exec's emptiness test. Ma Last (routine 19) is the same test and reads the tailpred instead.",
+  "ma fopen":
+    "Routine 30 ($6fc), 190 bytes. DEFECT: the doc lists three modes and the routine tests TWO -- `cmpi.b #$57` " +
+    "for 'W' and `cmpi.b #$52` for 'R', with every other character taking the append arm, including the byte " +
+    "after the length word of an empty string. The character is uppercased by `bclr #$5` first. The value handed " +
+    "back is the dos.library handle, not the twelve-byte node it also allocates and lists.",
+  "ma fclose":
+    "Routine 31 ($7ba), 64 bytes: it walks the file list for the node whose +8 holds this handle. NOTE: a handle " +
+    "not on the list -- already closed, or never opened -- falls off the end of the walk and closes nothing.",
+  "ma fread":
+    "Routine 33 ($818), 30 bytes. DEFECT: the null-handle arm at $820 branches PAST `move.l d0,d3`, so d3 is " +
+    "still the length popped into it and the call reports having read exactly as many bytes as were asked for. " +
+    "Ma Fwrite (routine 32) has the same defect with the same register, and Ma Fseek (routine 34) returns its " +
+    "MODE for the same reason.",
+  "ma fseek":
+    "Routine 34 ($836), 30 bytes: dos.library Seek argument for argument, and the old position comes back -- " +
+    "which is why the doc's two-seeks-to-the-end trick gives the length. DEFECT: a null handle answers the MODE, " +
+    "the last argument popped. See Ma Fread.",
+  "ma filelen":
+    "Routine 20 ($532), 88 bytes: Lock, Examine into the extension's own 1,024-byte scratch buffer, UnLock, and " +
+    "fib_Size at +124. NOTE: the lock mode is `moveq #$0,d2`, which is neither SHARED_LOCK (-2) nor " +
+    "EXCLUSIVE_LOCK (-1); a filesystem takes anything not exclusive as shared. NOTE: Examine's result is " +
+    "discarded, and a DIRECTORY examines fine with fib_Size zero, so a directory answers 0 rather than the -1 the " +
+    "doc promises for a name that is not a file.",
+  "ma paste icon":
+    "Routine 23 ($59c), 162 bytes: a raw blitter copy, minterm $f0 with both masks $ffffffff, from the icon bank " +
+    "onto the screen. DEFECT: `move.w $50(a2),d4` is the SCREEN's plane count and the icon's own, at +4 of the " +
+    "record it has just read, is never looked at -- an icon with fewer planes takes its missing ones from " +
+    "whatever follows it in the bank, which is the next record's header. NOTE: `lsr.l #$4,d2` rounds x down to a " +
+    "16-pixel boundary, as the doc says, and nothing clips: a negative coordinate becomes an enormous unsigned " +
+    "offset. Not reproduced -- the write lands outside the plane buffer and is dropped.",
+  "ma point":
+    "Routine 24 ($63e), 80 bytes. DEFECT: the doc's \"ma Point works exactly as AMOSPro's Point function\" is " +
+    "wrong twice -- it reads the whole bitmap where AMOS's respects the clip window, and it walks EcCurrent " +
+    "($30(a2)) where AMOS's walks EcLogic, so on a double-buffered screen the two answer about different " +
+    "bitmaps. Both bounds are UNSIGNED word compares, which is the only clipping it has: a negative coordinate " +
+    "is a large one and answers -1. Ma Plot (routine 25) shares all of it and returns silently instead.",
   "paste brik":
     "Routine 24 ($1048), 170 bytes. DEFECT: x and y are taken UNSIGNED.",
   "map scan x":

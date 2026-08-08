@@ -71,7 +71,7 @@ deviations.
 | ldos-2.6 | 85 | 66 | 7 | 0 | 100% |
 | locale-0.26 | 20 | 20 | 0 | 0 | 100% |
 | lserial-2.1 | 15 | 0 | 0 | 15 | 0% |
-| make-1.30 | 32 | 0 | 0 | 32 | 0% |
+| make-1.30 | 32 | 32 | 0 | 0 | 100% |
 | med-7.1 | 28 | 27 | 1 | 0 | 100% |
 | memory | 14 | 12 | 2 | 0 | 100% |
 | menus | 24 | 24 | 0 | 0 | 100% |
@@ -105,7 +105,7 @@ deviations.
 | turbo-plus-2.15 | 152 | 147 | 4 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 6216 | 3733 | 109 | 2182 | 64% |
+| **total** | 6216 | 3765 | 109 | 2150 | 64% |
 
 ## aga-1.0 (100%)
 
@@ -369,9 +369,9 @@ deviations.
 
 - **missing**: `lcarrier`, `linkey$`, `lser baud`, `lser brk`, `lser close`, `lser get`, `lser mul check`, `lser mul send`, `lser open`, `lser params`, `lser query`, `lser read`, `lser send`, `lser status`, `lxpr`
 
-## make-1.30 (0%)
+## make-1.30 (100%)
 
-- **missing**: `ma addhead`, `ma addtail`, `ma allocmem`, `ma allocvec`, `ma extb`, `ma extw`, `ma fclose`, `ma filelen`, `ma first`, `ma fopen`, `ma fread`, `ma free`, `ma free all`, `ma freemem`, `ma freevec`, `ma fseek`, `ma fwrite`, `ma last`, `ma malloc`, `ma newlist`, `ma next`, `ma paste icon`, `ma plot`, `ma point`, `ma prev`, `ma realloc`, `ma remhead`, `ma remove`, `mem chip`, `mem clear`, `mem fast`, `mem public`
+- **faithful**: `ma addhead`, `ma addtail`, `ma allocmem`, `ma allocvec`, `ma extb`, `ma extw`, `ma fclose`, `ma filelen`, `ma first`, `ma fopen` *(DEFECT: the doc lists three modes and the routine tests TWO -- `cmpi.b #$57` for 'W' and `cmpi.b #$52` for 'R', with every other character taking the append arm, including the byte after the length word of an empty string.)*, `ma fread` *(DEFECT: the null-handle arm at $820 branches PAST `move.l d0,d3`, so d3 is still the length popped into it and the call reports having read exactly as many bytes as were asked for. Ma Fwrite (routine 32) has the same defect with the same register, and Ma Fseek (routine 34) returns its MODE for the same reason.)*, `ma free`, `ma free all`, `ma freemem`, `ma freevec`, `ma fseek` *(DEFECT: a null handle answers the MODE, the last argument popped.)*, `ma fwrite`, `ma last`, `ma malloc`, `ma newlist`, `ma next`, `ma paste icon` *(DEFECT: `move.w $50(a2),d4` is the SCREEN's plane count and the icon's own, at +4 of the record it has just read, is never looked at -- an icon with fewer planes takes its missing ones from whatever follows it in the bank, which is the next record's header. Not reproduced -- the write lands outside the plane buffer and is dropped.)*, `ma plot`, `ma point` *(DEFECT: the doc's "ma Point works exactly as AMOSPro's Point function" is wrong twice -- it reads the whole bitmap where AMOS's respects the clip window, and it walks EcCurrent ($30(a2)) where AMOS's walks EcLogic, so on a double-buffered screen the two answer about different bitmaps.)*, `ma prev`, `ma realloc` *(Routine 35 ($854), 130 bytes, and the one routine here that does everything its documentation claims: TypeOfMem on the old block plus MEMF_CLEAR is both "if old memory was CHIP memory --> new memory will be CHIP too" and "additional bytes will be cleared", and the old block is freed on BOTH paths because the failure arm falls into the same FreeMem. DEFECT: the null arm at $862 branches to the exit without writing d3, so `Ma Realloc(0,n)` returns whatever the previous function left in the return register.)*, `ma remhead`, `ma remove`, `mem chip`, `mem clear`, `mem fast`, `mem public`
 
 ## med-7.1 (100%)
 

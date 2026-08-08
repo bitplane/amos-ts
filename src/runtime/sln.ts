@@ -76,6 +76,7 @@
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { AmosError, VI, int, str, type Value } from '../interp/values'
+import { MemPool } from '../amiga/exec'
 import { mouseDat } from '../amiga/gameport'
 import { Protracker, parseMod } from '../amiga/protracker'
 import {
@@ -152,144 +153,31 @@ export const SLN_ARRAYS = 8
 export const SLN_INTERRUPTS = 8
 
 /**
- * `exec.library` AllocMem and FreeMem, as much of them as this extension can
- * see, over one buffer mapped at `Runtime.SLN_HEAP_BASE`.
+ * SLN's AllocMem pool.
  *
  * SLN needs a real heap where Personnal and MED needed a single block: it
  * allocates one per array and one per SAMPLE, and the samples are a linked
  * list threaded through their own headers, so a program walking it with Leek
  * needs the blocks to sit at distinct addresses in one space with the gaps in
- * the right places. That is what this is, and nothing more — first fit over a
- * free list, eight-byte granularity as AllocMem has, coalescing on free.
- *
- * It lives here rather than in `src/amiga` because that directory's rule is
- * shared AND AmigaOS, and this has exactly one caller. If a second extension
- * ever wants AllocMem, this is what moves.
+ * the right places. `MemPool` in ../amiga/exec.ts is that, and this names
+ * where SLN's copy of it is mapped.
  *
  * `MEMF_CLEAR` is honoured because the extension is careful about it in both
  * directions: `S Ainit` passes `move.l #0,d1`, and its own comment is
  * *"Request public mem (NB!! Not cleared)"*, while `S Delete` passes
  * `#1<<16`, which is MEMF_CLEAR, for its FileInfoBlocks. `MEMF_CHIP` (2) is
- * asked for by `S Sam Play` and `S Sam Chip Load`; there is one pool here,
- * so the flag is recorded rather than honoured — see `chip`.
+ * asked for by `S Sam Play` and `S Sam Chip Load`, and the pool records it
+ * rather than honouring it — see `MemPool.chip`.
+ *
+ * The two constants are spelled out rather than imported because `./runtime`
+ * is a TYPE-only import here and reaching for the class would make it a
+ * cycle; they match `Runtime.SLN_HEAP_BASE` and `SLN_HEAP_RESERVED`, and
+ * `memmap.test.ts` holds the two to agreeing.
  */
 const HEAP_BASE = 0x4400_0000
-/**
- * Where the pool is mapped and how much of the map it claims, matching
- * `Runtime.SLN_HEAP_BASE` and `SLN_HEAP_RESERVED`. Spelled out rather than
- * imported because `./runtime` is a TYPE-only import here and reaching for the
- * class would make it a cycle. `memmap.test.ts` holds the two to agreeing.
- */
 const HEAP_RESERVED = 0x0400_0000
 
-export class SlnHeap {
-  /** what the region maps; grows by doubling, and addresses are offsets into it */
-  buffer = new Uint8Array(0)
-  /** the bump pointer: everything above it has never been handed out */
-  private top = 0
-  /** returned blocks, sorted by offset and coalesced */
-  private free: Array<{ off: number; len: number }> = []
-  /** what each live block was given, so `freeMem` can check the caller's size */
-  private live = new Map<number, number>()
-  /** offsets that were asked for as chip memory, for `S Sam Play`'s TypeOfMem */
-  private chipBlocks = new Set<number>()
-
-  /** AllocMem: an ADDRESS, or 0. Offset 0 is never handed out, so 0 is unambiguous */
-  alloc(len: number, opts: { clear?: boolean; chip?: boolean } = {}): number {
-    if (len <= 0) return 0
-    const need = (len + 7) & ~7
-    for (let i = 0; i < this.free.length; i++) {
-      const b = this.free[i]!
-      if (b.len < need) continue
-      const off = b.off
-      if (b.len === need) this.free.splice(i, 1)
-      else {
-        b.off += need
-        b.len -= need
-      }
-      return this.take(off, need, opts)
-    }
-    // 8 bytes of dead space at the bottom so no real block sits at offset 0
-    if (this.top === 0) this.top = 8
-    const off = this.top
-    this.top += need
-    if (this.top > HEAP_RESERVED) return 0
-    if (this.top > this.buffer.length) {
-      let size = Math.max(this.buffer.length * 2, 0x10000)
-      while (size < this.top) size *= 2
-      const grown = new Uint8Array(Math.min(size, HEAP_RESERVED))
-      grown.set(this.buffer)
-      this.buffer = grown
-    }
-    return this.take(off, need, opts)
-  }
-
-  private take(off: number, len: number, opts: { clear?: boolean; chip?: boolean }): number {
-    this.live.set(off, len)
-    if (opts.chip) this.chipBlocks.add(off)
-    else this.chipBlocks.delete(off)
-    if (opts.clear) this.buffer.fill(0, off, off + len)
-    return (HEAP_BASE + off) >>> 0
-  }
-
-  /**
-   * FreeMem. The caller supplies the length on the Amiga and this ignores it,
-   * for the reason the array batch documents at length: `S Ainit` frees the
-   * WRONG BLOCK with the RIGHT SIZE, and a model that trusted the size would
-   * turn that defect into an arena corruption nothing could observe. What it
-   * does reproduce is which block goes back.
-   */
-  freeMem(addr: number): void {
-    const off = (addr >>> 0) - HEAP_BASE
-    const len = this.live.get(off)
-    if (len === undefined) return
-    this.live.delete(off)
-    this.chipBlocks.delete(off)
-    this.free.push({ off, len })
-    this.free.sort((a, b) => a.off - b.off)
-    for (let i = this.free.length - 1; i > 0; i--) {
-      const prev = this.free[i - 1]!
-      const here = this.free[i]!
-      if (prev.off + prev.len === here.off) {
-        prev.len += here.len
-        this.free.splice(i, 1)
-      }
-    }
-  }
-
-  /** is this address inside a block that was asked for as chip memory? */
-  chip(addr: number): boolean {
-    const off = (addr >>> 0) - HEAP_BASE
-    for (const base of this.chipBlocks) {
-      const len = this.live.get(base)
-      if (len !== undefined && off >= base && off < base + len) return true
-    }
-    return false
-  }
-
-  /** the length a block was given, or 0 — for `S Sam Del` and the array frees */
-  sizeOf(addr: number): number {
-    return this.live.get((addr >>> 0) - HEAP_BASE) ?? 0
-  }
-
-  /**
-   * Hand back the FRONT of a block and keep the rest, which is what
-   * `L_SamLoad3`'s 8SVX arm does: `FreeMem(block, 104)` and then carry on
-   * using `block + 104`. AmigaOS allows it — a block is not an object, it is
-   * a range on the memory list — and this is the one caller.
-   */
-  shrinkFront(addr: number, bytes: number): void {
-    const off = (addr >>> 0) - HEAP_BASE
-    const len = this.live.get(off)
-    if (len === undefined || bytes <= 0 || bytes >= len) return
-    this.live.delete(off)
-    const chip = this.chipBlocks.delete(off)
-    this.live.set(off + bytes, len - bytes)
-    if (chip) this.chipBlocks.add(off + bytes)
-    this.free.push({ off, len: bytes })
-    this.free.sort((a, b) => a.off - b.off)
-  }
-}
+export const newSlnHeap = (): MemPool => new MemPool(HEAP_BASE, HEAP_RESERVED)
 
 /**
  * One of the eight array slots — `Abase[n]` and the five attribute tables
@@ -329,7 +217,7 @@ export interface SlnState {
   /** Atype — bit n set means the USER supplied array n's memory */
   atype: number
   /** the AllocMem pool everything above is carved out of */
-  heap: SlnHeap
+  heap: MemPool
   /** `IWindow` — the one iconify window, open only while S Iconify is blocked */
   iconWindow: Window | null
   /** SamBankNr — which AMOS bank the sample chain lives in; 0 means none */
@@ -361,7 +249,7 @@ export function newSlnState(rt?: Runtime): SlnState {
     interVar: new Array<number>(SLN_INTERRUPTS).fill(0),
     arrays: Array.from({ length: SLN_ARRAYS }, newArray),
     atype: 0,
-    heap: new SlnHeap(),
+    heap: newSlnHeap(),
     iconWindow: null,
     samBankNr: 0,
     volume: [0, 0, 0, 0],

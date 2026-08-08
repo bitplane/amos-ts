@@ -39,6 +39,7 @@ import {
   newGameSupportState,
 } from './gamesupport'
 import { SLN_ERRORS, makeSlnFunctions, makeSlnInstructions, newSlnState } from './sln'
+import { MAKE_ERRORS, makeMakeFunctions, makeMakeInstructions, newMakeState } from './make'
 import { newStarsState, makeStarsFunctions, makeStarsInstructions } from './stars'
 import { newAgaState, makeAgaFunctions, makeAgaInstructions } from './aga'
 import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
@@ -5663,6 +5664,18 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeSlnInstructions,
     functions: makeSlnFunctions,
     errors: SLN_ERRORS,
+  },
+  {
+    // Make Lib 1.30 at slot 17 --- `move.l a3,$1f8(a5)` in routine 0, and its
+    // own doc says "The extension number of MakeLib is 17." exec's memory and
+    // list routines, a C-shaped stdio, and three graphics keywords; see make.ts
+    ids: ['make-1.30'],
+    init: (rt) => {
+      rt.make = newMakeState()
+    },
+    instructions: makeMakeInstructions,
+    functions: makeMakeFunctions,
+    errors: MAKE_ERRORS,
   },
   {
     // stars.lib (AMOS 1.3) and starspro.lib (AMOS Pro) are different binaries

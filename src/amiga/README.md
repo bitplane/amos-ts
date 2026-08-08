@@ -36,6 +36,14 @@ point rather than blunting it: exec owns the pool sizes and the arithmetic,
 while what is *in* a pool stays with the Runtime, because a bank is chip only
 because an AMOS bank flag says so. Mechanism here, accounting there.
 
+`MemPool` — first-fit `AllocMem`/`FreeMem` over one mapped buffer — arrived
+there the long way and is the rule working. It was written inside `sln.ts`
+with a note saying it would move if a second extension ever wanted `AllocMem`;
+Make 1.30, whose whole first half is `Ma Malloc` and exec lists, is that
+second extension. Where the pool is MAPPED still belongs to the caller: the
+base and the size come from the caller's own memory region, because that
+region is the caller's declaration and not exec's.
+
 The other half of exec is deliberately absent. There is one task in this port,
 so Forbid and Permit have nothing to forbid and stay n/a; message ports and
 signals have no second task to talk to. Modelling them now would be inventing
@@ -93,7 +101,7 @@ really does differ from the real one and saying where is the whole job.
 
 | module | models |
 |---|---|
-| `exec.ts` | `AvailMem`'s pools and the library list — `OpenLibrary` |
+| `exec.ts` | `AvailMem`'s pools, the library list — `OpenLibrary` — and `AllocMem` |
 | `graphics.ts` | `BitMap` and `RastPort` — bitplanes, pens, and the two pixel funnels |
 | `planar.ts` | the chunky/planar bijection and the word-at-a-time span ops |
 | `blitter.ts` | BLTCON0/1, the logic function, BLTSIZE and `BltBitMapRastPort` |

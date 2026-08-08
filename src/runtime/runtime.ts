@@ -37,6 +37,7 @@ import { type JdState } from './jd'
 import { type SticksState } from './sticks'
 import { gamesupportVbl, type GameSupportState } from './gamesupport'
 import { slnVbl, type SlnState } from './sln'
+import type { MakeState } from './make'
 import { starfieldVbl, type StarsState } from './stars'
 import { type AgaState } from './aga'
 import { amcafPtVbl, type AmcafState } from './amcaf'
@@ -890,7 +891,8 @@ export class Runtime {
    * holds a pointer to the first and every sample's header points at the next.
    * So a program walks a linked list through Leek, and the list only exists if
    * the blocks are laid out in one address space with real gaps between them.
-   * One region backed by one buffer is that space; see `SlnHeap` in sln.ts.
+   * One region backed by one buffer is that space; see `MemPool` in
+   * ../amiga/exec.ts and `newSlnHeap` in sln.ts.
    *
    * 0x44000000 because the screen bitplane region below it claims only
    * 0x40000000..0x40ffffff (16 slots of 1MB) and the screen control blocks
@@ -898,6 +900,22 @@ export class Runtime {
    */
   static readonly SLN_HEAP_BASE = 0x44000000
   static readonly SLN_HEAP_RESERVED = 0x04000000
+
+  /**
+   * Make 1.30's AllocMem pool.
+   *
+   * The second caller of `MemPool`, and the one that made it shared. Make's
+   * whole first half is exec — `Ma Malloc` hands a program a block and expects
+   * it to thread the library's own `MinList` through the eight bytes in front
+   * of it, so the blocks have to be at real, ordered addresses in one space
+   * exactly as SLN's do.
+   *
+   * 0x4c000000 because the screen control blocks below it claim only
+   * 0x48000000..0x48010000 and the copper lists start at 0x50000000. See
+   * `newMakeState` in make.ts.
+   */
+  static readonly MAKE_HEAP_BASE = 0x4c000000
+  static readonly MAKE_HEAP_RESERVED = 0x04000000
 
   /**
    * The interpreter configuration block (PI_*, +Equ.s:1590-1650, defaults
@@ -919,6 +937,8 @@ export class Runtime {
   gamesupport!: GameSupportState
   /** SLN 2.0's data zone (`MB` in sln_extII.s) — slot 24; see sln.ts */
   sln!: SlnState
+  /** Make 1.30's forty-byte data zone, its two MinLists and its pool — slot 17 */
+  make!: MakeState
   /** Stars 2.33's interrupt-driven starfield, slot 20 */
   stars!: StarsState
   /** AGA 1.0's 256-colour screens, blocks and shared palette, slot 20 */
@@ -1267,6 +1287,9 @@ export class Runtime {
         // synthesized read-only block; writes land in a throwaway copy
         return s ? within(this.screenCtrlBlock(s), off) : null
       },
+    ),
+    bufferRegion('Make heap', Runtime.MAKE_HEAP_BASE, Runtime.MAKE_HEAP_RESERVED, () =>
+      this.make ? this.make.pool.buffer : null,
     ),
     slottedRegion('copper lists', Runtime.COPPER_BASE, Runtime.COPPER_SLOT, 2, (index, off) =>
       within(index === 0 ? this.copBufA : this.copBufB, off),

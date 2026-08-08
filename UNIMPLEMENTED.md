@@ -12,7 +12,7 @@ Core AMOS Professional is complete — the display pipeline, the audio pipeline,
 the language, banks, files, menus, the Interface dialog engine and the file
 selector are all at 100%. So is every extension a stock installation ships
 (Music, Compact, Request, Compiler, IOPorts) and every third-party one the
-port has started: fifty-four extension releases read 100% in `KEYWORDS.md`,
+port has started: fifty-five extension releases read 100% in `KEYWORDS.md`,
 among them AMCAF 1.40/1.50, the JD family, EasyLife, TOME, TURBO Plus,
 Personnal, LDos, AMOS 3D, PowerBobs, MED 7.1, EME 3.0 and P61.
 
@@ -21,7 +21,7 @@ sits between 0% and 100%: an extension is finished or it has not been begun.
 That is the ratchet working, and it is the number to watch — a row appearing
 in the middle means a thread was left hanging.
 
-3842 keywords are implemented, 3733 of them faithful.
+3874 keywords are implemented, 3765 of them faithful.
 
 ### The census
 
@@ -79,7 +79,6 @@ extension keyword. The count is keywords with no handler at all:
 | Delta 1.6 / 1.4 | 46 / 26 | `intuition.library` |
 | Tools 1.01 | 33 | |
 | jd-int 1.3 | 33 | `intuition.library` — findings banked |
-| Make 1.30 | 32 | |
 | BSDSocket 1.1.4 | 30 | sockets |
 | LSerial 2.1 | 15 | |
 | BUtility 1.21 | 15 | reqtools / asl |
@@ -123,6 +122,34 @@ the sector image it wants --- so a mounted disk is served byte for byte and
 `S Disk Rename` really does rewrite the root block. And `Protracker` gained
 `trigVolPercent`, the percentage SLN's replayer applies at the instrument
 trigger and nowhere else.
+
+**Make Lib 1.30 came off this table as well**, and it is the small row that
+paid for something larger. All 32 read 100% and all 32 are faithful. Its
+anonymous author wrote it because *"AMOSPro is missing usable memory
+allocation routines and it doesn't have any routines to handle lists and nodes
+at all"*, so it is `AllocMem`, `AllocVec`, a `malloc` with its own free-all,
+eight of exec's list routines, a C-shaped `stdio` over `dos.library`, and
+three graphics keywords belonging to neither. The manual documents every
+keyword, which makes it one of the few rows where the binary and its own
+description can be read against each other line by line — and they disagree
+four times, the binary winning each time. `Ma Fopen`'s third mode is not `"a"`
+but *every character that is not R or W*, empty strings included. `Ma Fread`,
+`Ma Fwrite` and `Ma Fseek` each branch past the instruction that would have
+written their result when the file handle is zero, so all three hand back
+their own last argument: a write that never happened reports every byte sent.
+`Ma Point` is not AMOS's `Point` — no clip window, and it walks `EcCurrent`
+where AMOS walks `EcLogic`. And `Ma Realloc(0,n)` never writes a return value
+at all. One defect is the binary's alone: `Ma Paste Icon` takes the plane
+count from the SCREEN and never reads the icon's own, four bytes into the
+record it has just loaded, so a one-plane icon on a four-plane screen paints
+three planes of its neighbours.
+
+What it paid for is `MemPool` in `src/amiga/exec.ts`. First-fit `AllocMem`
+over one mapped buffer was written inside `sln.ts` with a note saying it would
+move if a second extension ever wanted it; Make, whose whole first half is
+`Ma Malloc` and exec lists, is that second extension, so it moved. Where the
+pool is *mapped* stayed with the caller, because a memory region is the
+caller's declaration and not exec's.
 
 **This table has been wrong before, and the fix is to read it off
 `KEYWORDS.md`.** It used to list AMCAF 1.50, Range 1.0 and 2.0, AMOSPro
