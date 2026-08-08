@@ -257,8 +257,84 @@ export function makeGameSupportInstructions(rt: Runtime): Record<string, Instr> 
       if (sw16(low) < 0) gsError(1)
       rt.gamesupport.speed = (speed & ~0xffff) | low
     },
+
+    /**
+     * Gsmulti Off and Gsmulti On — routines 10 ($21cc) and 11 ($21e0), twenty
+     * bytes each and one call apiece:
+     *
+     *     movea.l $4.l, a6 / jsr -$84(a6)      Forbid
+     *     movea.l $4.l, a6 / jsr -$8a(a6)      Permit
+     *
+     * so "multi" is multitasking, and the pair are exec's `Forbid`/`Permit`
+     * under a game-writer's name. Neither is in the guide.
+     *
+     * Observably nothing here, and `../amiga/exec.ts` says why in its own
+     * header: *"There is one task here, so Forbid and Permit have nothing to
+     * forbid"*. These are the first callers it has ever had and they do not
+     * change that — exec's nesting count (`TDNestCnt`) has no reader, because
+     * neither keyword returns anything and nothing else in the port asks.
+     *
+     * DEVIATION: on the machine Forbid stops every other task until the
+     * matching Permit, which is what makes the pair worth having — a game
+     * brackets a tight loop with them to keep the disk and the mouse from
+     * stealing cycles. Nothing here competes for cycles, so the bracket has no
+     * effect. Unbalanced nesting is likewise invisible: `Gsmulti Off` twice
+     * and `Gsmulti On` once leaves a real Amiga forbidden, and leaves this
+     * exactly as it was.
+     */
+    'gsmulti off'() {},
+    'gsmulti on'() {},
   }
 }
+
+/**
+ * The Newton-Raphson integer square root that `Gssqr` and `Gspyth` share.
+ *
+ * Byte for byte the same loop in both ($21b0 and $2c14); only the seed and the
+ * iteration count differ. Every step is a 68000 instruction with its exact
+ * width, because the widths are where the behaviour is:
+ *
+ *     move.l d2, d1        the guess
+ *     move.l d0, d2
+ *     divu.w d1, d2        UNSIGNED 32/16 — quotient low word, remainder high
+ *     ext.l  d2            sign-extend the QUOTIENT WORD
+ *     add.l  d1, d2
+ *     lsr.l  #$1, d2       LOGICAL, so a negative sum comes back huge
+ *     cmp.l  d1, d2 / beq  settled
+ *     dbra   d3
+ *
+ * Three consequences a caller can reach, none of them guarded:
+ *
+ *  - `divu.w` reads the dividend UNSIGNED, so a negative argument is a value
+ *    near 2^32 rather than an error.
+ *  - a quotient wider than 16 bits overflows: the 68000 sets V and leaves the
+ *    destination ALONE, so `d2` stays the dividend and `ext.l` then takes its
+ *    low word. That is why both routines want a seed in the right ballpark.
+ *  - a zero divisor is a 68000 zero-divide EXCEPTION. The routines never check
+ *    for one and `Gssqr` can be handed an argument that produces one — see
+ *    below. There is no exception vector in this port, so it surfaces as AMOS
+ *    error 20, which is the nearest true thing to say.
+ */
+function newtonSqrt(x: number, seed: number, rounds: number): number {
+  const dividend = x >>> 0
+  let d2 = seed | 0
+  for (let i = 0; i <= rounds; i++) {
+    const d1 = d2 | 0
+    const divisor = d1 & 0xffff
+    if (divisor === 0) throw new AmosError('Division by zero', 20)
+    const q = Math.floor(dividend / divisor)
+    // overflow leaves the register untouched, so ext.l takes the DIVIDEND's
+    // low word rather than a quotient that would not fit
+    d2 = sw16(q > 0xffff ? dividend : q)
+    d2 = (d2 + d1) | 0
+    d2 = d2 >>> 1
+    if (d2 === d1) break
+  }
+  return d2 | 0
+}
+
+/** `addq.w #$7, dn` — seven onto the low word, the high word untouched */
+const addq7w = (v: number): number => (v & ~0xffff) | ((v + 7) & 0xffff)
 
 export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
   const st = (): GameSupportState => rt.gamesupport
@@ -403,6 +479,72 @@ export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
     },
     'gsreadsega'(): Value {
       return VI(0)
+    },
+
+    /**
+     * =Gssqr(x) — routine 9 ($21a0), forty-four bytes and undocumented; the
+     * guide's command list does not mention it at all.
+     *
+     *     move.l (a3)+, d0 / move.l d0, d2
+     *     beq    -> return d2, which is the zero it just tested
+     *     lsr.l  #$8, d2 / ext.l d2 / addq.w #$7, d2      the seed
+     *     moveq  #$4, d3                                  five passes
+     *     ...the shared Newton loop...
+     *
+     * The seed is `(x >> 8) + 7`, which for anything under a megabyte is
+     * within a factor of two of the answer, and five passes settle it. `lsr.l`
+     * is logical and `ext.l` sign-extends the WORD, so an argument at or above
+     * $800000 seeds NEGATIVE and the loop runs on a divisor `divu.w` reads as
+     * a large unsigned number instead.
+     *
+     * The one argument that breaks it: the seed's low word is zero when
+     * `x >> 8` ends in $fff9, so `Gssqr(16775936)` — $fff900 — divides by
+     * zero. The routine has no guard for it. On the machine that is a 68000
+     * exception, not an AMOS error.
+     */
+    'gssqr'(_, a): Value {
+      const x = int(a[0]!)
+      if (x === 0) return VI(0)
+      return VI(newtonSqrt(x, addq7w(sw16(x >>> 8)), 4))
+    },
+
+    /**
+     * =Gspyth(x,y) — routine 97 ($2bea), seventy bytes. The guide calls it
+     * *"a highly optimised (at the expense of accuracy) function to apply
+     * Pythagoras' theorem [...] equivalent to d=Sqr(x*x+y*y), but is nearly 3
+     * times as fast when the program is compiled"*.
+     *
+     *     move.l (a3)+, d0 / bpl / neg.l d0        |x|
+     *     move.l (a3)+, d1 / bpl / neg.l d1        |y|
+     *     move.l d0, d2 / add.l d1, d2 / add.l d1, d2      |x| + 2|y|
+     *     muls.w d1, d1 / muls.w d0, d0 / add.l d1, d0     x*x + y*y
+     *     tst.l  d0 / beq -> return d2, which is 0 when both were
+     *     lsr.l  #$1, d2 / ext.l d2 / addq.w #$7, d2       the seed
+     *     moveq  #$6, d3                                   seven passes
+     *
+     * The seed is asymmetric — `(|x| + 2|y|) / 2 + 7`, so y counts double —
+     * even though the guide says *"though the order doesn't matter!"*. Seven
+     * passes is two more than `Gssqr` gets and is enough to converge from
+     * either seed, so the guide is right about the ANSWER and wrong about the
+     * arithmetic. Swap the arguments and the same number comes out by a
+     * different route.
+     *
+     * `muls.w` is a SIGNED 16x16 multiply, so only the low word of each
+     * argument is squared. That is the whole of the guide's *"please keep the
+     * values of x & y below about 20000, since results become unpredictable if
+     * larger numbers are used"* — past 32767 the low word is a different
+     * number, and past 46340 the sum overflows 32 bits as well.
+     */
+    'gspyth'(_, a): Value {
+      // `bpl / neg.l`, which for $80000000 is a no-op — Math.abs would leave
+      // the 32-bit range there, and `| 0` puts it back where `neg.l` does
+      const abs = (v: number): number => (v < 0 ? -v | 0 : v)
+      const x = abs(int(a[0]!))
+      const y = abs(int(a[1]!))
+      const seed = (x + y + y) | 0
+      const sq = (sw16(y) * sw16(y) + sw16(x) * sw16(x)) | 0
+      if (sq === 0) return VI(seed)
+      return VI(newtonSqrt(sq, addq7w(sw16(seed >>> 1)), 6))
     },
   }
 }

@@ -1373,6 +1373,7 @@ export const FAITHFUL = new Set<string>([
   // opens, and every routine below is read off the binary.
   'gsreadport', 'gstimer', 'gsmousedx', 'gsmousedy',
   'gssetmousespeed', 'gscontrollertype', 'gsreadsega',
+  'gssqr', 'gspyth', 'gsmulti on', 'gsmulti off',
 
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
@@ -4136,6 +4137,28 @@ export const NOTES: Record<string, string> = {
     "machine without the driver returns, so 0 is the faithful answer and not a stub.",
   "gsreadsega":
     "Routine 99 ($2c54), `moveq #$0,d0 / jsr -$42(a6)` = GSReadButtons(0) on the same absent driver library.",
+  "gssqr":
+    "Routine 9 ($21a0), UNDOCUMENTED --- the guide's command list does not mention it. Newton-Raphson from a " +
+    "seed of (x>>8)+7 with five passes, and it fails in three ways as x grows, none of them guarded. Exact for " +
+    "perfect squares to 1994^2; drifts above that, by as much as 19 near the top, because five passes cannot " +
+    "reach the answer from a seed of x/256; goes to garbage at $800000, where `ext.l` reads the seed word as " +
+    "negative; and divides by zero in the $fff900 window, where the seed's low word lands on 0 (a 68000 " +
+    "exception on the machine, surfaced here as AMOS error 20). The loop also exits only when a pass repeats " +
+    "its own guess, so a two-cycle runs out on whichever side `dbra` leaves it --- Gssqr(99) is 10, not 9.",
+  "gspyth":
+    "Routine 97 ($2bea). The guide calls it 'equivalent to d=Sqr(x*x+y*y), but nearly 3 times as fast when the " +
+    "program is compiled'. The same Newton loop as Gssqr with a far better seed --- (|x|+2|y|)/2+7 --- and " +
+    "seven passes instead of five. THE ORDER MATTERS, and the guide's 'though the order doesn't matter!' is " +
+    "wrong: y counts double in the seed, so Gspyth(1,19999) settles on 19999 and Gspyth(19999,1) runs away to " +
+    "33556598. `muls.w` squares only the low word of each argument, which is the whole of the guide's 'keep the " +
+    "values of x & y below about 20000' --- and when both low words are zero the `tst.l/beq` hands back " +
+    "|x|+2|y| instead of a distance, so Gspyth(65536,0) is 65536.",
+  "gsmulti off":
+    "Routine 10 ($21cc), `jsr -$84(a6)` on exec = Forbid. 'Multi' is multitasking. Undocumented. DEVIATION: " +
+    "there is one task in this port, so there is nothing to forbid --- see src/amiga/exec.ts's own header. " +
+    "Unbalanced nesting is invisible for the same reason.",
+  "gsmulti on":
+    "Routine 11 ($21e0), `jsr -$8a(a6)` = Permit, the other half.",
   "stick joy":
     "Routine 5 ($432), reading CIA-A PRB ($bfe101) bits 0-3. The manual calls this the serial port throughout; " +
     "the register says otherwise — CIA-A PRB is the parallel-port DATA register, and Stick Fire's $bfd000 bits " +

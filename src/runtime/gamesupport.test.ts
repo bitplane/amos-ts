@@ -242,3 +242,137 @@ describe('GameSupport: the gsjoystick driver, which nobody has', () => {
     expect(num('Print Gsreadsega')).toBe(0)
   })
 })
+
+describe('GameSupport: Gssqr, which the guide never mentions', () => {
+  /**
+   * Its usable domain, which nothing documents because nothing documents the
+   * keyword. The seed is `(x >> 8) + 7` and there are only five passes, so it
+   * fails in three different ways as the argument grows, and all three are
+   * pinned below rather than hidden behind a well-chosen example.
+   */
+  it('is exact for perfect squares up to 1994 squared', () => {
+    for (const n of [1, 4, 9, 16, 100, 144, 1024, 1993, 1994]) {
+      expect(num(`Print Gssqr(${n * n})`), `${n}^2`).toBe(n)
+    }
+    // 1995 is the first that is not: five passes have not converged and it
+    // lands one above. From here up it drifts, by as much as 19 near the top.
+    expect(num('Print Gssqr(3980025)')).toBe(1996)
+  })
+
+  it('goes to garbage at $800000, where ext.l makes the seed negative', () => {
+    // `lsr.l #$8, d2 / ext.l d2` — the seed is the low WORD of x>>8, signed.
+    // At $800000 that word reaches $8000 and the guess goes negative; `lsr.l
+    // #$1` then turns the sum into a number near 2^31 and it never recovers.
+    expect(num('Print Gssqr(8388607)')).toBe(2916) // just under: still sane
+    expect(num('Print Gssqr(8388608)')).toBe(134216840) // $800000: garbage
+  })
+
+  it('returns zero for zero, before it can divide by anything', () => {
+    // `move.l d0,d2 / beq` — the early exit hands back the zero it tested
+    expect(num('Print Gssqr(0)')).toBe(0)
+  })
+
+  it('mostly truncates, but five passes are not always enough to settle', () => {
+    expect(num('Print Gssqr(2)')).toBe(1)
+    expect(num('Print Gssqr(10)')).toBe(3)
+    expect(num('Print Gssqr(101)')).toBe(10)
+    // 99 does NOT truncate. The iteration oscillates 10, 9, 10, 9, 10 and
+    // `dbra` runs out on the high side, so the routine answers 10 where
+    // Sqr(99) is 9.949. `beq` only exits when a pass repeats its own guess,
+    // and a two-cycle never does.
+    expect(num('Print Gssqr(99)')).toBe(10)
+  })
+
+  it('divides by zero at $fff900, because the seed’s low word lands on 0', () => {
+    // `lsr.l #$8 / ext.l / addq.w #$7` — (x>>8) ending in $fff9 seeds a low
+    // word of zero and the routine has NO guard. On the machine this is a
+    // 68000 zero-divide exception rather than an AMOS error; there is no
+    // vector here, so it surfaces as error 20, the nearest true thing to say.
+    expect(() => run('Print Gssqr(16775424)')).toThrow(/Division by zero/i)
+    // and it is a narrow window: one count either side is fine
+    expect(() => run('Print Gssqr(16775423)')).not.toThrow()
+    expect(() => run('Print Gssqr(16775680)')).not.toThrow()
+  })
+})
+
+describe('GameSupport: Gspyth', () => {
+  it('is Sqr(x*x+y*y), to the integer below', () => {
+    // the guide: "equivalent to d=Sqr(x*x+y*y), but is nearly 3 times as fast"
+    for (const [x, y] of [
+      [3, 4],
+      [5, 12],
+      [8, 15],
+      [30, 44],
+      [1, 10],
+      [300, 400],
+    ] as const) {
+      expect(num(`Print Gspyth(${x},${y})`), `${x},${y}`).toBe(Math.floor(Math.sqrt(x * x + y * y)))
+    }
+  })
+
+  it('takes the absolute value of both arguments', () => {
+    // `bpl / neg.l` on each, so the quadrant never reaches the arithmetic
+    expect(num('Print Gspyth(-3,4)')).toBe(5)
+    expect(num('Print Gspyth(3,-4)')).toBe(5)
+    expect(num('Print Gspyth(-3,-4)')).toBe(5)
+  })
+
+  /**
+   * **The order DOES matter, and the guide says it does not.**
+   *
+   * The seed is `(|x| + 2|y|) / 2 + 7`, so y counts double. For a long thin
+   * triangle that is the difference between a seed near the answer and a seed
+   * near half of it — and half is fatal, because `ext.l` sign-extends the
+   * QUOTIENT WORD. A first quotient above 32767 comes back NEGATIVE, `lsr.l
+   * #$1` then turns the negative sum into a number near 2^31, and the
+   * iteration never recovers.
+   *
+   * This is the whole of the guide's *"please keep the values of x & y below
+   * about 20000, since results become unpredictable if larger numbers are
+   * used"*, and its *"though the order doesn't matter!"* is wrong.
+   */
+  it('converges either way round for ordinary triangles', () => {
+    for (const [x, y] of [
+      [3, 400],
+      [400, 3],
+      [300, 400],
+      [400, 300],
+    ] as const) {
+      expect(num(`Print Gspyth(${x},${y})`), `${x},${y}`).toBe(Math.floor(Math.sqrt(x * x + y * y)))
+    }
+  })
+
+  it('but diverges for a long thin triangle the WRONG way round', () => {
+    // y large: the seed is ~19999 and the answer is 19999, so it settles
+    expect(num('Print Gspyth(1,19999)')).toBe(19999)
+    // x large: the seed is ~10000 for the same answer, the first quotient is
+    // ~39968, `ext.l` reads that word as -25568, and it runs away
+    expect(num('Print Gspyth(19999,1)')).toBe(33556598)
+  })
+
+  it('squares only the LOW WORD, which is the guide’s 20000 warning', () => {
+    // `muls.w` is a signed 16x16 multiply. 65536 has a low word of zero, so
+    // both squares vanish and `tst.l d0 / beq` hands back |x| + 2|y| instead
+    // of a distance at all.
+    expect(num('Print Gspyth(65536,0)')).toBe(65536)
+    expect(num('Print Gspyth(0,65536)')).toBe(131072)
+    // and 40000 is read as its signed low word, -25536
+    expect(num('Print Gspyth(40000,0)')).toBe(25536)
+  })
+
+  it('answers 0 for the origin', () => {
+    expect(num('Print Gspyth(0,0)')).toBe(0)
+  })
+})
+
+describe('GameSupport: Gsmulti On and Off', () => {
+  it('are exec’s Forbid and Permit, and observably nothing here', () => {
+    // routines 10 ($21cc) and 11 ($21e0): `jsr -$84(a6)` and `jsr -$8a(a6)` on
+    // exec, which are Forbid and Permit. There is one task in this port, so
+    // there is nothing to forbid --- see ../amiga/exec.ts's own header. They
+    // must still run without raising, and unbalanced nesting must not either.
+    expect(() => run('Gsmulti Off : Gsmulti On')).not.toThrow()
+    expect(() => run('Gsmulti Off : Gsmulti Off : Gsmulti On')).not.toThrow()
+    expect(() => run('Gsmulti On')).not.toThrow()
+  })
+})
