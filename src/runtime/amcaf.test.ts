@@ -17,8 +17,7 @@ import { Machine } from '../amiga/machine'
 
 /**
  * AMCAF (Chris Hodges), against `AMCAF.Guide` and `AMOSPro_AMCAF.Lib`
- * disassembled with `extdis amcaf-1.50`. Slice 0 proves the plumbing only:
- * identity, slot binding, and that wiring an empty port displaced nothing.
+ * disassembled with `extdis amcaf-1.50`.
  */
 const table = new TokenTable(CORE_TOKENS)
 /** "Its documentation states the extension expects slot 8" */
@@ -148,7 +147,7 @@ describe('AMCAF identity', () => {
   })
 })
 
-describe('the slice-0 wiring', () => {
+describe('AMCAF registration', () => {
   it('binds at slot 8: an AMCAF keyword resolves to its own name', () => {
     // the name in the error is the proof: a keyword nothing core knows can
     // only have come from slot 8's table, so identity, slot binding and
@@ -209,7 +208,7 @@ describe('the slice-0 wiring', () => {
   })
 })
 
-describe('slice 1: maths and bit operations', () => {
+describe('maths and bit operations', () => {
   const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
 
   it('Even and Odd are the low bit, -1 or 0 ($4c9a)', () => {
@@ -303,9 +302,8 @@ describe('slice 1: maths and bit operations', () => {
    *
    * The init at $a2d8 copies 255 quarter-table entries, writes $100 as the
    * 256th, then mirrors — which puts the maximum at index 255 and 767 and
-   * leaves DOUBLED zeros at 0/1023 and 511/512. An earlier pass here
-   * generated `round(256*sin)` over a symmetric 1024 and disagreed with the
-   * shipped table at 770 of 1024 entries.
+   * leaves DOUBLED zeros at 0/1023 and 511/512. A symmetric
+   * `round(256*sin)` table disagrees with 770 of the 1024 shipped entries.
    *
    * Reproduced rather than corrected: a program that plots a circle with
    * Qsin/Qcos gets AMCAF's circle, one unit out of round in the same place
@@ -331,8 +329,8 @@ describe('slice 1: maths and bit operations', () => {
 
   /**
    * The four axes above pass under an arctangent OR the library's table, so
-   * they cannot tell the two apart — and an earlier pass here used
-   * `Math.atan2` with `Math.round`, which disagrees with the shipped table at
+   * they cannot tell the two apart. `Math.atan2` with `Math.round` disagrees
+   * with the shipped table at
    * 3808 of the 6561 points in a 81x81 grid. These are angles where they
    * differ, so the test fails if anyone swaps the table back for a formula.
    */
@@ -357,7 +355,7 @@ describe('slice 1: maths and bit operations', () => {
   })
 })
 
-describe('slice 2: strings', () => {
+describe('strings', () => {
   const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
 
   it('Chr.w$/Chr.l$ and Asc.w/Asc.l round-trip a number through bytes', () => {
@@ -429,9 +427,7 @@ describe('slice 2: strings', () => {
   })
 
   it('Scanstr$ answers the library\'s own names, which are German and lower case', () => {
-    // the table at $63f8, extracted rather than invented -- this port used to
-    // answer Amiga rawkey names of its own ("Space", "A", "F1") on the belief
-    // that AMCAF shipped no table, which it does
+    // the library's German, lower-case table at $63f8
     expect(p('Scanstr$($40)')).toBe('space')
     expect(p('Scanstr$($20)')).toBe('a')
     // padded to three columns in the library: "F 1".."F 9", then "F10"
@@ -450,7 +446,7 @@ describe('slice 2: strings', () => {
   })
 })
 
-describe('slice 3: date and time', () => {
+describe('date and time', () => {
   const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
 
   it('day zero is 1 January 1978, and it was a Sunday', () => {
@@ -594,7 +590,7 @@ describe('slice 3: date and time', () => {
   })
 })
 
-describe('slice 4: banks', () => {
+describe('banks', () => {
   const setup = ['Reserve As Work 5,64', 'Loke Start(5),$12345678']
 
   it('Bank Name sets an eight-character id, and Bank Name$ reads it back', () => {
@@ -647,7 +643,7 @@ describe('slice 4: banks', () => {
     // Dload's `moveq #$1,d1` against Wload's `moveq #$0,d1` -- and four
     // engine banks were being made Data against a `moveq #$0,d1`. It is not
     // cosmetic: Bnk_BitData (+Equ.s:1865) is what makes a bank survive
-    // Erase Temp, so these used to outlive it and on the machine do not.
+    // Erase Temp, so these banks do not survive it.
     const { rt } = run([
       'Screen Open 0,64,64,4,Lowres',
       'Make Pix Mask 0,0,0 To 8,8,5', // routine 225, `moveq #$0,d1` at $51f4
@@ -674,8 +670,7 @@ describe('slice 4: banks', () => {
   })
 
   it('Bank Copy over an existing bank Reserves rather than keeping its identity', () => {
-    // the target used to keep the name and flags it had, which routine 56
-    // never does -- there is one unconditional `Rjsr routine 1103` in it
+    // routine 56 unconditionally calls Reserve (`Rjsr routine 1103`)
     const { rt } = run([...setup, 'Reserve As Data 6,8', 'Bank Name 6,"Old"', 'Bank Copy 5 To 6'])
     const b = rt.memBanks.get(6)!
     expect(b.name).toBe('Work') // bank 5's, which Reserve As Work left unpadded
@@ -786,7 +781,7 @@ describe('slice 4: banks', () => {
   })
 })
 
-describe('slice 5: disk and DOS objects', () => {
+describe('disk and DOS objects', () => {
   const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
 
   /** a Runtime with one writable volume, which the file keywords need */
@@ -899,9 +894,7 @@ describe('slice 5: disk and DOS objects', () => {
    *
    *   cmp.b #$61,d2 / bcs / cmp.b #$7a,d2 / bhi / subi.b #$20,d2
    *
-   * which an earlier pass left out, so the port hashed by case. AmigaDOS
-   * directory lookup is case-insensitive and depends on this, so a program
-   * walking real hash chains was being sent to the wrong bucket.
+   * AmigaDOS directory lookup is case-insensitive and depends on this fold.
    */
   it('Dos Hash folds case, and only ASCII a..z', () => {
     expect(p('Dos Hash("AMOSPro")')).toBe(p('Dos Hash("amospro")'))
@@ -946,8 +939,7 @@ describe('slice 5: disk and DOS objects', () => {
   })
 
   /**
-   * The three failure paths, which are three distinct AMOS error numbers
-   * rather than the one generic the port used to raise. Routines 390, 391 and
+   * The three failure paths use distinct AMOS error numbers. Routines 390, 391 and
    * 392 are each `Rbsr 354 / moveq #n,d0 / Rjmp L_Error`, and d0 is the AMOS
    * error number: $17 = 23, $51 = 81, $5e = 94. The texts are AMOS's own and
    * have nothing to do with what failed — the extension ships no message
@@ -1192,8 +1184,7 @@ describe('slice 5: disk and DOS objects', () => {
    * 1121` resolves the source and `Rjsr routine 1103` RESERVES the
    * destination, with the name "Work    " sitting at $5a78 right after the
    * code. The size comes off PP20's last long, `move.l -$4(a0,d6.l),d2 /
-   * lsr.l #$8,d2`. An earlier pass read both arguments as addresses and
-   * decrunched in place.
+   * lsr.l #$8,d2`.
    */
   it('Ppunpack decrunches one BANK into another it reserves itself', () => {
     const packed = pp20Crunch(new Uint8Array(64).fill(0x5a))
@@ -1313,7 +1304,7 @@ describe('slice 5: disk and DOS objects', () => {
   })
 })
 
-describe('slice 6: colour and palette', () => {
+describe('colour and palette', () => {
   const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
   const scr = ['Screen Open 0,320,200,16,Lowres']
 
@@ -1383,7 +1374,7 @@ describe('slice 6: colour and palette', () => {
    *
    * `cmp.w d6,d7 / bgt` with an `exg` pair behind it SWAPS the two ends when
    * they arrive the wrong way round, so a descending spread is the same blend
-   * as the ascending one. The port used to refuse it.
+   * as the ascending one.
    *
    * Each gun is worked at double scale and halved with the carry added back
    * (`lsr.w #$1,d1 / addx.w d2,d1`), so both halves round to nearest before
@@ -1480,9 +1471,8 @@ describe('slice 6: colour and palette', () => {
    * Routine 161's last arm is an open `else`, not a fourth range, so a control
    * above 63 stays in the green branch instead of wrapping round to the
    * palette. `subi.w #$30,d0 / lsl.b #$4,d0` is a BYTE shift: 64 becomes $10
-   * and shifts clean out of the byte, so the green nibble is 0 — where an
-   * earlier pass masked with `& 63`, turning 64 into 0 and reading palette
-   * entry 0 instead.
+   * and shifts clean out of the byte, so the green nibble is 0. Masking the
+   * index with `& 63` would incorrectly read palette entry 0.
    */
   it('Ham Colour does not mask the control to 63', () => {
     expect(p('Ham Colour(64,$FFF)')).toBe(String(0xf0f)) // green cleared, not palette[0]
@@ -1548,8 +1538,7 @@ describe('slice 6: colour and palette', () => {
 
   /**
    * `move.w $48(a0),d0 / btst #$b,d0 / Rbeq routine 390` — a screen that is
-   * not HAM is an error, not a no-op. The tests above used to fade a plain
-   * 16-colour screen quite happily.
+   * not HAM is an error, not a no-op.
    */
   it('Ham Fade Out refuses a screen that is not HAM', () => {
     expect(() => run([...scr, 'Ham Fade Out 0'])).toThrow(/illegal function call/i)
@@ -1615,9 +1604,7 @@ describe('slice 6: colour and palette', () => {
    * Routine 356 ($7f10) sums the three nibbles and divides by three: a flat
    * average, not a weighted luma. The divide is a 192-byte ramp built on entry
    * from 64 passes of `k, k, k+1`, so entry i is i/3 rounded to nearest. And
-   * it never touches the destination's palette -- an earlier pass overwrote it
-   * with a grey ramp, and wrote the chunky cache only to `invalidate()` it,
-   * which threw the conversion away before anything could read it.
+   * it never touches the destination's palette.
    */
   const grey = (rt: Runtime, x: number): number => rt.screens.get(1)!.rp.point(x, 0)
 
@@ -1683,7 +1670,7 @@ describe('slice 6: colour and palette', () => {
   })
 })
 
-describe('slice 7: graphics', () => {
+describe('graphics', () => {
     // 16 colours: the tests use pens up to 7, and a 4-colour screen would mask
   // them down to the palette's range
   const scr = ['Screen Open 0,64,32,16,Lowres', 'Cls 0']
@@ -1739,7 +1726,7 @@ describe('slice 7: graphics', () => {
   })
 
   /**
-   * Neither takes a COLOUR, which an earlier pass gave both. Fcircle is ten
+   * Neither takes a colour. Fcircle is ten
    * bytes — `move.l (a3),-(a3)` to duplicate the radius, then straight into
    * Fellipse — and Fellipse pops exactly four longs into d0-d3 for
    * `AreaEllipse(rp, xc, yc, a, b)` on GfxBase (-$ba), followed by AreaEnd
@@ -1790,7 +1777,7 @@ describe('slice 7: graphics', () => {
 
   /*
    * Routine 353 ($7dd4) is a per-scanline circle whose only write is
-   * `bchg.b d0,(a1,d1.w)`. An earlier pass swept it parametrically and OR-ed.
+   * `bchg.b d0,(a1,d1.w)`.
    */
   it('Bcircle toggles, which is why the same circle twice erases it', () => {
     const one = run([...scr, 'Bcircle 20,10,5,0'])
@@ -1871,7 +1858,7 @@ describe('slice 7: graphics', () => {
   })
 })
 
-describe('slice 7b: zoom, masks, C2P and the rest', () => {
+describe('zoom, masks, C2P and remaining graphics', () => {
   const scr = ['Screen Open 0,64,32,16,Lowres', 'Cls 0']
 
   /**
@@ -1887,8 +1874,7 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
    * table. The port errors instead of reading out of bounds — a corruption
    * that cannot be reproduced meaningfully.
    *
-   * Blitter Copy Limit (routines 60 and 61 — an earlier pass cited 305, which
-   * is Splinters territory) stores the rectangle Blitter Copy works within;
+   * Blitter Copy Limit (routines 60 and 61) stores the rectangle Blitter Copy works within;
    * C2p Shift/Fire and Pix Shift Down and the Shade Bob pair are the effect
    * engines' remaining entry points.
    */
@@ -1995,9 +1981,8 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
 
   /**
    * The far corner is EXCLUSIVE: `sub.w d4,d6 / subq.w #$1,d6` then `dbra d6`
-   * runs x2-x1 times from x1, so a 10x10 Bar counted 0,0 To 9,9 gives 81 and
-   * not the 100 an earlier pass expected. Counting the whole block needs
-   * 10,10.
+   * runs x2-x1 times from x1, so a Bar counted 0,0 To 9,9 gives 81. Counting
+   * the whole 10x10 block needs 10,10.
    */
   it('Count Pixels counts what is NOT the colour, over a half-open box', () => {
     // "Counts the pixels ... that DON'T have the colour index colour"
@@ -2185,8 +2170,7 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
    *     ...replicated into all four...
    *  L: move.l (a0)+,d1 / lsr.l d7,d1 / and.l d0,d1 / move.l d1,(a2)+
    *
-   * An earlier pass had it ADDING its last argument to each byte, which is
-   * neither the name nor the code.
+   * The last argument is a shift count, not a value added to each byte.
    */
   it('C2p Shift shifts each byte right, and leaves a partial longword alone', () => {
     const peek = (prog: string[], n: number): number[] => {
@@ -2212,8 +2196,7 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
   /**
    * Routine 76 ($2fa2) is a FLAME filter: five neighbours summed -- the byte
    * one row below, one row above, left, itself and right -- averaged through
-   * a table, then the decay taken off and clamped at zero. An earlier pass
-   * subtracted the decay from each byte on its own, which is a fade.
+   * a table, then the decay taken off and clamped at zero.
    *
    * NOTE: the routine walks the buffer FLAT, so "left" and "right" cross row
    * boundaries, and it reads a row either side of the buffer without
@@ -2428,7 +2411,7 @@ describe('slice 7b: zoom, masks, C2P and the rest', () => {
   })
 })
 
-describe('slice 8: the effect engines', () => {
+describe('effect engines', () => {
   const scr = ['Screen Open 0,64,32,16,Lowres', 'Cls 0']
 
   /**
@@ -2590,7 +2573,7 @@ describe('slice 8: the effect engines', () => {
    * "These coordinates must be given as block positions, that means that
    * position 1,4 corresponds to the screen coordinates 16,64."
    *
-   * The bank format is PLANAR, which an earlier pass had as chunky. Routine
+   * The bank format is planar. Routine
    * 270's opening reads two header words — the tile COUNT and `planes - 1` —
    * then `lsl.l #$5,d7` and a `dbra` accumulation, which makes a tile 32 bytes
    * per plane (sixteen rows of one word) with its planes contiguous. The paste
@@ -2619,7 +2602,7 @@ describe('slice 8: the effect engines', () => {
   })
 })
 
-describe('slice 9: Splinters and Td Stars', () => {
+describe('Splinters and Td Stars', () => {
   const scr = ['Screen Open 0,64,32,16,Lowres', 'Cls 0']
 
   /** the bank as words, which is how all three routines address it */
@@ -2631,8 +2614,7 @@ describe('slice 9: Splinters and Td Stars', () => {
   /**
    * Routine 94 ($33e6): `lsl.l #$2,d2 / addq.l #$8,d2` then Reserve, and the
    * header it writes is `move.w d7,(a0)+ / clr.w (a0)+ / moveq #$8,d0 /
-   * move.l d0,(a0)` — count, cursor, and the offset of the first entry. An
-   * earlier pass reserved count*4 and wrote no header at all.
+   * move.l d0,(a0)` — count, cursor, and the offset of the first entry.
    */
   it('Coords Bank reserves an eight-byte header and initialises it', () => {
     const { rt } = run([...scr, 'Coords Bank 4,100'])
@@ -2709,8 +2691,8 @@ describe('slice 9: Splinters and Td Stars', () => {
   })
 
   /**
-   * `move.w (a7),d0 / bne $3504` — a non-zero mode SHUFFLES the finished
-   * list, not "the scan order" an earlier pass assumed. The permutation
+   * `move.w (a7),d0 / bne $3504` — a non-zero mode shuffles the finished
+   * list. The permutation
    * itself is driven by VHPOSR and cannot be pinned here (see the NOTE on the
    * handler: the modelled beam stands still inside a keyword), so what is
    * pinned is that the same coordinates come back in a different order.
@@ -2774,12 +2756,8 @@ describe('slice 9: Splinters and Td Stars', () => {
    * and `move.l d0,(a0)` over `+$10..+$13` of every record. It marks the table
    * FREE and does nothing else.
    *
-   * An earlier pass read the manual's "the Splinters are fed with the
-   * coordinates and speeds you specified" as a description of this call and
-   * seeded a particle array from the coordinate bank here. That took every
-   * coordinate at once, ignored Splinters Max, and never advanced the bank's
-   * cursor — so the engine could not run out, which is the one thing the real
-   * one does.
+   * The coordinate bank is consumed by Splinters Fuel; this call does not
+   * seed particles.
    */
   it('Splinters Init only marks the table free — it reads nothing', () => {
     const { rt } = run([...scr, 'Turbo Plot 3,3,7', 'Coords Bank 4,100', 'Coords Read 0,0,0,0 To 9,9,4,0',
@@ -2882,10 +2860,8 @@ describe('slice 9: Splinters and Td Stars', () => {
   })
 
   /**
-   * Routines 296 and 297 ($6a84, $6a94) are sixteen bytes each: del, move,
-   * back, draw. An earlier pass had Single Do as restore-move-draw and Double
-   * Do as move-draw, on the reasoning that a double-buffered screen already
-   * carries the last frame as its background; both routines disagree.
+   * Routines 296 and 297 ($6a84, $6a94) are sixteen bytes each: delete, move,
+   * restore background, draw.
    *
    * `+$13` is what makes the two Dels different. Single clears it outright;
    * Double steps it `$ff -> 1 -> 0`, so the hole is punched into BOTH buffers
@@ -3353,7 +3329,7 @@ describe('slice 9: Splinters and Td Stars', () => {
   })
 })
 
-describe('slice 10: vectors and the extension internals', () => {
+describe('vectors and extension internals', () => {
   const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
 
   /**
@@ -3363,10 +3339,8 @@ describe('slice 10: vectors and the extension internals', () => {
    * Vec Rot Precalc projects every point through nine zeros: the rotated z is
    * zero, `tst.w d5 / Rbeq routine 390` fires, and the program STOPS.
    *
-   * An earlier pass made Precalc a no-op and recomputed from the angles on
-   * every call, and wrote a test asserting that it "changes no answer, which
-   * is why it can be a no-op". It changes every answer, including whether
-   * there is one.
+   * Calls use the cached matrix, including when deciding whether a divisor is
+   * zero.
    */
   it('Vec Rot without a Precalc projects through the zero matrix, and errors', () => {
     expect(() => run(['Vec Rot Angles 0,0,0', 'Vec Rot Pos 0,0,0', 'Print Vec Rot X(100,50,256)']))
@@ -3499,7 +3473,7 @@ describe('slice 10: vectors and the extension internals', () => {
   })
 })
 
-describe('slice 11: the four-player adaptor and the second mouse', () => {
+describe('four-player adaptor and second mouse', () => {
   const p = (expr: string): string => run([`Print ${expr}`]).out.trim()
 
   /**
@@ -3677,7 +3651,7 @@ describe('slice 11: the four-player adaptor and the second mouse', () => {
   })
 })
 
-describe('slice 12: ProTracker replay', () => {
+describe('ProTracker replay', () => {
   /** the smallest legal module: 31 sample headers, one pattern, one sample */
   const modBank = (): string[] => [
     'Reserve As Work 3,3000',
@@ -3692,12 +3666,8 @@ describe('slice 12: ProTracker replay', () => {
   /**
    * The one that could not be written before: the music actually plays.
    *
-   * `Pt Play` used to validate the signature, cache the bank, set a flag and
-   * stop. Nothing stepped a row, so `Pt Cpos` and `Pt Cpattern` answered 0 for
-   * the whole of any song and not one sample was ever launched by the replay
-   * — only by `Pt Sam Play` and its neighbours. The shared engine in
-   * `amiga/protracker.ts` steps it now, driven from `frame()` at the vertical
-   * blank the way routines 376 and 377 install it.
+   * The shared engine in `amiga/protracker.ts` is driven from `frame()` at the
+   * vertical blank, as routines 376 and 377 install it.
    *
    * The module here is poked together rather than loaded, and that is fine
    * for THIS assertion: the format reader is tested against six real modules
@@ -3722,7 +3692,7 @@ describe('slice 12: ProTracker replay', () => {
     expect(plays[0]!.voice).toBe(0)
     // 3546895 / 428 is the PAL rate for C-2
     expect(plays[0]!.freq).toBeCloseTo(3546895 / 428, 0)
-    // and the song moved off row 0, which is the thing that never happened
+    // and the song moved off row 0
     expect(rt.amcaf.pt.row).toBeGreaterThan(0)
   })
 

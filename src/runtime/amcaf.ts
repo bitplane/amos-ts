@@ -48,26 +48,18 @@
  * should prefer 1.50, and the guard itself is n/a: it fires only under the
  * AMOS Professional Compiler, which this port does not model.
  *
- * ## The Guide's history node is a primary source
+ * ## Manual changelog
  *
- * Unusually, the manual carries a dated changelog going back to 1993, and it
- * documents behaviour nothing else records — including bugs the author found
- * and fixed. Two examples worth having on file before the graphics slice:
+ * The manual's dated changelog records bugs fixed before these releases:
  *
  * - *"Found and removed an error in the Blitter Fill commands. Blitter Fill
  *   filled the screen one line to deep -> memory got corrupted."*
  * - *"Error in the tokenlist caused a wrong syntax of Blitter Fill to be
  *   converted into Pt Play. Funny :)"*
  *
- * Both are FIXED by the releases we hold, so neither is reproduced; they are
- * recorded because a program written against an older AMCAF may have been
- * built around them.
+ * Neither bug is present in the binaries implemented here.
  *
  * ## There are TWO failure mechanisms, and one of them has a message table
- *
- * This section used to say the extension ships no error strings at all. It
- * does, and the correction is worth stating because the original claim was
- * made from a genuine reading — it just stopped one branch short.
  *
  * Failures reach `L_Error` with an AMOS error NUMBER, which is a trappable
  * AMOS error and has no text of its own. Four of those are in use:
@@ -108,10 +100,8 @@
  * different tokens at different slots and coexist. Personnal keeps the plain
  * names.
  *
- * They cannot be declared ahead of the keywords: `extimpl.test.ts` requires
- * every qualified name to be one the port actually defines, which is what
- * stops the list rotting into a wish. So the declarations arrive with their
- * slices — Sload/Ssave in slice 5, the six Personnal names in slice 7.
+ * `extimpl.test.ts` requires every qualified name to be implemented by this
+ * port.
  *
  * The remaining six are latent (neither side ported): `Bank Name`,
  * `Bank Name$`, `Open Workbench`, `Pal Spread`, `Raster Wait`, `Xfire`.
@@ -119,8 +109,7 @@
  * ## State
  *
  * The extension keeps one data block, which `Amcaf Base` and `Amcaf Length`
- * hand a program the address and size of. Nothing is in it yet; each slice
- * adds the fields its keywords need.
+ * hand a program the address and size of.
  */
 
 import { Runtime } from './runtime'
@@ -3444,7 +3433,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     },
 
 
-    /* ---- slice 13: the remainder ---- */
+    /* ---- remaining commands ---- */
 
     /**
      * Smouse X n / Smouse Y n — place the second mouse.
@@ -4871,7 +4860,7 @@ function qtrig(angle: number, radius: number, quarterTurn: number): number {
 
 
 /* ------------------------------------------------------------------ *
- * Slice 2: strings
+ * Strings
  * ------------------------------------------------------------------ */
 
 /**
@@ -4929,7 +4918,7 @@ function padNum(v: number, n: number, pad: string): string {
 }
 
 /* ------------------------------------------------------------------ *
- * Slice 3: date and time
+ * Date and time
  * ------------------------------------------------------------------ */
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -5081,7 +5070,7 @@ const timeMins = (t: number): number => (t >>> 16) & 0xffff
 const timeTicks = (t: number): number => t & 0xffff
 
 /* ------------------------------------------------------------------ *
- * Slice 4: banks
+ * Banks
  * ------------------------------------------------------------------ */
 
 /**
@@ -5191,7 +5180,7 @@ function bankCodeOps(rt: Runtime): Record<string, Instr> {
 }
 
 /* ------------------------------------------------------------------ *
- * Slice 5: disk and DOS objects
+ * Disk and DOS objects
  * ------------------------------------------------------------------ */
 
 /**
@@ -5415,7 +5404,7 @@ function toolTypes(rt: Runtime, name: string): string {
 }
 
 /* ------------------------------------------------------------------ *
- * Slice 6: colour and palette
+ * Colour and palette
  * ------------------------------------------------------------------ */
 
 const rV = (rgb: number): number => (rgb >> 8) & 15
@@ -5558,7 +5547,7 @@ const fadeStep = (from: number, to: number): number => {
 }
 
 /* ------------------------------------------------------------------ *
- * Slice 7: graphics
+ * Graphics
  * ------------------------------------------------------------------ */
 
 /**
@@ -5938,7 +5927,7 @@ function transBank(rt: Runtime, n: number, need: number): Uint8Array | null {
 }
 
 /* ------------------------------------------------------------------ *
- * Slice 8: the effect engines
+ * Effect engines
  * ------------------------------------------------------------------ */
 
 /**
@@ -6089,7 +6078,7 @@ function exchangeImage(rt: Runtime, it: Interp, sprites: boolean): void {
 }
 
 /* ------------------------------------------------------------------ *
- * Slice 9: the particle engines
+ * Particle engines
  * ------------------------------------------------------------------ */
 
 /**
@@ -6891,7 +6880,7 @@ function tdStarsDraw(rt: Runtime): void {
 }
 
 /* ------------------------------------------------------------------ *
- * Slice 10: vector rotation
+ * Vector rotation
  * ------------------------------------------------------------------ */
 
 /**
@@ -7005,7 +6994,7 @@ function vecRot(rt: Runtime, a: Value[]): { x: number; y: number; z: number } {
 }
 
 /* ------------------------------------------------------------------ *
- * Slice 11: the four-player adaptor
+ * Four-player adaptor
  * ------------------------------------------------------------------ */
 
 /**
@@ -7054,7 +7043,7 @@ function amcafSmall(v: number, limit: number): number {
 }
 
 /* ------------------------------------------------------------------ *
- * Slice 12: ProTracker
+ * ProTracker
  * ------------------------------------------------------------------ */
 
 /**

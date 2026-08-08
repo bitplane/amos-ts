@@ -440,6 +440,11 @@ export const CITED_BY: Record<string, string[]> = {
   // and cites EasyLife's routines because its hand-rolled dispatch is the
   // independent confirmation of the two struct offsets the whole file rests on
   'src/amiga/boopsi.ts': ['easylife-1.10', 'easylife-1.09'],
+  // same reason: muimaster.ts and its test cite EasyLife's routines because
+  // its hand-rolled dispatch and its Tags bank are what the header is checked
+  // against -- 233 for the library open, 215 for the MUIP_Notify layout
+  'src/amiga/muimaster.ts': ['easylife-1.10', 'easylife-1.09'],
+  'src/amiga/muimaster.test.ts': ['easylife-1.10', 'easylife-1.09'],
   'src/runtime/range.ts': ['range-1.0', 'range-2.0'],
   'src/runtime/range.test.ts': ['range-1.0', 'range-2.0'],
   'src/runtime/first.ts': ['first-0.1'],
