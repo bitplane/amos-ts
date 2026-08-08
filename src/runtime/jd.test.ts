@@ -68,8 +68,8 @@ describe('JD: shifts and rotates (+|jd.s:3718-3800)', () => {
    * branches while the result is not -1 -- so from $FFFF it goes all the way
    * round rather than stopping. The trip count is `((count-1) & $FFFF) + 1`.
    *
-   * An earlier pass had this as "a count of zero shifts once", which is dbra
-   * read backwards, and asserted it here.
+   * A count of zero starts at -1; after its first body it decrements to -2 and
+   * branches.
    */
   it('a count of ZERO shifts 65536 times, not once', () => {
     // 65536 single-bit shifts of a 32-bit value leave nothing behind
@@ -758,8 +758,7 @@ describe('JD: files, memory and the device boundary (+|jd.s:2948-5769)', () => {
    * is PowerPacker's trailer -- three bytes of decrunched length plus one byte
    * of skip-bits -- so it answers a SIZE.
    *
-   * This port used to test the first four bytes for the literal "PP20" and
-   * answer -1 or 0, which is a signature check the routine never performs.
+   * The routine reads the trailer rather than checking a `PP20` signature.
    */
   it('Ppfind Mem reads the decrunched length out of the word before the address', () => {
     const out = run([
@@ -1019,8 +1018,7 @@ describe('JD: the keywords the gate caught', () => {
   })
 
   it('Ppdecrunch leaves the destination alone when the source is not PP20', () => {
-    // routine 120 (:5216). The port runs the same decruncher LDos slice 9
-    // wired up, behind the signature check the routine makes first
+    // routine 120 (:5216), through the shared decruncher after its signature check
     const out = run([
       'Reserve As Work 1,64 : Reserve As Work 2,64',
       'Loke Start(2),$AABBCCDD',

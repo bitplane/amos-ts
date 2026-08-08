@@ -1534,7 +1534,7 @@ describe.skipIf(!HAVE_OBJECTS)('AMOS 3D Td World ($2126c8, the fold at $212758, 
 
   it('turns the local frame with the object', () => {
     // a quarter turn about B sends the object's +z along the world's +x, the
-    // same prediction the attitude matrix was checked against in phase 4
+    // same prediction the attitude matrix uses
     const q = TD_REVOLUTION / 4
     const [x, y, z] = world(`Td Object 1,"dice",0,0,0,0,${q},0`)
     expect(Math.abs(x! - 1000)).toBeLessThanOrEqual(1)

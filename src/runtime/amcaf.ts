@@ -418,9 +418,7 @@ export interface AmcafState {
    * nine-word MATRIX at `$31e`, and the only thing that writes that matrix is
    * Vec Rot Precalc. So an angle set and not followed by a Precalc has no
    * effect at all, and a program that never calls Precalc projects through
-   * the all-zero matrix the cleared block starts with. The port used to
-   * recompute from the angles on every call, which quietly made Precalc
-   * unnecessary — see the keyword.
+   * the all-zero matrix the cleared block starts with.
    */
   vec: {
     /** `$300`/`$302`/`$304` — Vec Rot Pos, added AFTER the rotation */
@@ -487,8 +485,7 @@ export interface AmcafState {
    *
    * `Amcaf Base` returns its address and `Amcaf Length` its size, so a
    * program can poke the internals — which the manual describes as being for
-   * "Assembler and C freaks" and warns about. Both are slice 10; until then
-   * there is nothing to point at.
+   * "Assembler and C freaks" and warns about.
    */
   readonly present: true
 }
@@ -563,7 +560,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * lock — which failing is error 81, and `Examine()` into the block's own
      * FileInfoBlock at +$100, which failing is error 94.
      *
-     * The check an earlier pass had no reason to expect is the last one:
+     * The final check distinguishes a directory from a file:
      *
      *   tst.l  $4(a2)       ; fib_DirEntryType
      *   bmi.b  $3a70        ; negative -- a FILE -- so stop and fail
@@ -633,8 +630,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * (dos.library -$ba) with the value straight through.
      *
      * `move.l (a3)+,d2` takes the whole LONGWORD, so bits above the eight
-     * AmigaDOS names reach the library untouched; an earlier pass masked to a
-     * byte. Failure is error 81, the same as every other dos.library call here.
+     * AmigaDOS names reach the library untouched. Failure is error 81, the
+     * same as every other dos.library call here.
      */
     'protect object'(it) {
       const path = it.evalStr()
@@ -764,8 +761,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * Pal Set palnr,index,colour — routine 338 ($74e6). "Palnr must be range
      * from 0 to 7", and the routine agrees: `cmp.w #$8,d0 / Rbge`.
      *
-     * The INDEX bound is the one the manual leaves out and an earlier pass got
-     * wrong. `cmp.w #$20,d1 / Rbge` — thirty-two, not 256 — and the address it
+     * The manual omits the index bound. `cmp.w #$20,d1 / Rbge` — thirty-two,
+     * not 256 — and the address it
      * works out confirms it: `add.w d1,d1 / lsl.w #$6,d0 / or.w d0,d1` is
      * `pal*64 + index*2` into a block at $4aa(a2), which is eight palettes of
      * thirty-two WORDS and no more. Both bounds also reject a negative.
@@ -786,9 +783,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *
      * Both are the same eight instructions with the `move.l` reversed, and
      * both copy `moveq #$f,d7` plus a `dbra` — SIXTEEN LONGWORDS, which is
-     * **thirty-two colours** and no more. An earlier pass copied up to 256, so
-     * on a 64- or 256-colour screen it was saving and restoring entries the
-     * extension never touches. The buffer it copies into is the same 32-word
+     * **thirty-two colours** and no more. The buffer it copies into is the
+     * same 32-word
      * block Pal Get and Pal Set index, which is why the two agree.
      *
      * Pal Set Screen ends `movea.l -$8(a5),a0 / jsr $4(a0)` — a View, so the
@@ -820,7 +816,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * Both pen numbers are checked against 32, and then `cmp.w d6,d7 / bgt`
      * with an `exg` pair behind it: **the ends are SWAPPED if they are the
      * wrong way round** rather than refused, so `Pal Spread 8,$FFF To 2,$000`
-     * is the same blend as `2,$000 To 8,$FFF`. An earlier pass errored on it.
+     * is the same blend as `2,$000 To 8,$FFF`.
      * A span of zero writes the one entry and returns.
      *
      * Each gun is worked out at DOUBLE scale and halved with the carry added
@@ -884,9 +880,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * 64 passes of `k, k, k+1` at $21b2, so entry i is i/3 ROUNDED TO NEAREST
      * — the same round-not-floor idiom that C2p Fire's table turned out to
      * use. Three nibbles summed and divided by three is a flat average of R, G
-     * and B, not a weighted luma; an earlier pass used the usual 77/151/28
-     * weights and also rewrote the destination's palette into a grey ramp,
-     * which this routine never touches. It also wrote the chunky cache and
+     * and B, not a weighted luma. The routine never rewrites the destination
+     * palette. It writes the chunky cache and
      * then called `invalidate()`, which threw the whole conversion away.
      *
      * Three source paths, chosen once by `move.w $50(a1),d5 / subq.w #$1,d5 /
@@ -955,7 +950,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       if (!s) amcafErr()
       // `move.w $48(a0),d0 / btst #$b,d0 / Rbeq routine 390` — bit 11 of the
       // screen's mode is HAM, and a screen without it is an error rather than
-      // a no-op. An earlier pass had no check here at all.
+      // a no-op.
       if (!s.ham) amcafErr()
 
       // `moveq #$f,d7` — SIXTEEN entries, not the whole palette
@@ -1236,8 +1231,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * FgPen and AreaPtrn, which is AMOS's `Ink` and `Set Pattern`. The token
      * table agrees: `I0,0,0` for Fcircle and `I0,0,0,0` for Fellipse.
      *
-     * An earlier pass read the last argument of each as a colour, which is one
-     * argument too many for Fcircle and made Fellipse's `b` the colour.
+     * Neither takes a colour: Fcircle takes three arguments and Fellipse four.
      *
      * A failing AreaEllipse or AreaEnd is error 23, which is how a fill too
      * big for the TmpRas reports itself.
@@ -1273,8 +1267,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * The odd argument is the point: the manual lists it beside Turbo Draw as
      * the way to draw the one-pixel boundary Blitter Fill then fills.
      *
-     * Routine 353 ($7dd4), 216 bytes, and an earlier pass had it as a
-     * trigonometric sweep that OR-ed pixels in. Three things it is not.
+     * Routine 353 ($7dd4), 216 bytes, is not a trigonometric sweep:
      *
      * It is a per-scanline circle, not a parametric one: `move.l d7,d4 /
      * mulu.w d4,d4` takes r squared once, then for each dy from r down to 0
@@ -1471,8 +1464,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * Mask Copy — THREE token entries and three routines. The table carries
      * `!mask copy` (id $086c, spec `I0t0,0`, routine 174) and two empty-named
      * continuations: `I0,0,0,0,0t0,0,0,0` (routine 175) and
-     * `I0,0,0,0,0t0,0,0,0,0` (routine 176). An earlier pass implemented only
-     * the middle one, made its mask optional, and never parsed the minterm.
+     * `I0,0,0,0,0t0,0,0,0,0` (routine 176).
      *
      * All three end in the same OS call:
      *
@@ -1561,8 +1553,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * "The coordinates x1 and x2 are rounded down to the next multiple of
      * eight, x3 is even rounded to the nearest multiple of 16."
      *
-     * The factor packs both nibbles, and an earlier pass had them THE WRONG
-     * WAY ROUND. The routine validates the mode before it touches anything
+     * The factor packs both nibbles. The routine validates the mode before it
+     * touches anything
      * else, which is what settles it:
      *
      *   move.l (a3)+,d0 / Rbmi routine 390          a negative mode
@@ -1668,8 +1660,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *
      * All SIX arguments are required. The spec is `I0,0,0t0,0,0` and routine
      * 78 pops six longs unconditionally with no short-form entry pushing
-     * defaults, so the offsets an earlier pass made optional cannot be
-     * omitted.
+     * defaults, so the offsets cannot be omitted.
      *
      * Two gates before any work happens:
      *
@@ -1795,8 +1786,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * Routine 223 is EIGHT BYTES — `moveq #$6,d0 / move.l d0,-(a3)` and a
      * branch into the worker — so the plane count is a hardcoded **SIX**, not
      * `Shade Bob Planes` and not an argument. The token table agrees: `I0,0`,
-     * two parameters. An earlier pass gave it an optional third and read the
-     * Shade Bob setting when it was absent.
+     * two parameters.
      *
      * The worker is a ripple adder rather than an arithmetic increment: per
      * plane, `btst` the bit, `bclr` and carry on if it was set, `bset` and
@@ -1878,8 +1868,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * mulu.w d7,d2` reserves (x2-x1) * (y2-y1) bytes, and only then does
      * `subq.w #$1,d6 / subq.w #$1,d7` turn the extents into loop counts.
      *
-     * The bank's name is the literal at $5252, which is **"Pix Mask"** with a
-     * space in the middle — not the "PixMask " an earlier pass guessed.
+     * The bank's name is the literal **"Pix Mask"** at $5252.
      *
      * And the mask is built from BITPLANE 0 alone. `movea.l (a2),a2` takes
      * the first plane pointer and `btst.l d4,(a2,d3.l)` tests that one bit,
@@ -1944,8 +1933,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * position x,y. These coordinates must be given as block positions, that
      * means that position 1,4 corresponds to the screen coordinates 16,64."
      *
-     * The bank format is the part an earlier pass had wrong: it read the tiles
-     * as CHUNKY bytes, and they are PLANAR. The routine's opening reads two
+     * The bank format is planar. The routine's opening reads two
      * header words —
      *
      *   move.l  (a3)+, d7        ; the tile number
@@ -2052,8 +2040,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *     Rbeq routine 389                        and out of memory if it fails
      *     move.w d7,(a0)+ / clr.w (a0)+ / moveq #$8,d0 / move.l d0,(a0)
      *
-     * An earlier pass reserved `count * 4` with no header at all, which is
-     * eight bytes short and left every reader of the bank without a count.
+     * The eight-byte header is required by every reader of the bank.
      *
      * NOTE: `move.w d2,d4 / move.l d4,d7` narrows the count to a WORD before
      * it is stored, while `lsl.l #$2,d2` sizes the Reserve from the full
@@ -2090,7 +2077,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * The colour is likewise a byte (`move.b d2,$2(a7)` / `cmp.b $a(a7),d0`).
      *
      * All EIGHT arguments are required; routine 95 pops eight longs and the
-     * spec is `I0,0,0,0t0,0,0,0`. An earlier pass had `mode` optional.
+     * spec is `I0,0,0,0t0,0,0,0`.
      *
      * Each hit is written as `x<<4` and `y<<4` at the bank's next slot:
      *
@@ -2164,8 +2151,6 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
        * $dff006 is VHPOSR, the raster beam, used as the entropy source; d7
        * holds the count and the index is the high word of accumulator *
        * count. d6 arrives as $ffff, the value the x loop's `dbra` left.
-       *
-       * An earlier pass parsed `mode` and threw it away as "the scan order".
        *
        * NOTE: the modelled beam does not advance while a keyword runs, so
        * `beamWord()` returns the same value every iteration here and the
@@ -2346,10 +2331,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * The manual's "the Splinters are fed with the coordinates and speeds you
      * specified" describes the ENGINE, not this call — the feeding happens one
      * splinter at a time in routine 385, when a free or dead splinter is found
-     * by a Move. An earlier pass read the manual and seeded a particle array
-     * from the coordinate bank here, which is a different design: it took
-     * every coordinate at once, ignored Splinters Max, and never advanced the
-     * bank's cursor, so the engine had no way to run out.
+     * by a Move. Init does not seed particles from the coordinate bank.
      *
      * With no bank it is error 23 (routine 390).
      */
@@ -2456,7 +2438,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
 
     /**
      * Td Stars Planes p1,p2 — routine 312 ($6ea6), and it takes TWO plane
-     * numbers rather than a count, which an earlier pass read as one.
+     * numbers rather than a count.
      *
      * It opens with a depth check that is the clearest use of AMCAF's own
      * message table in the whole extension:
@@ -2597,9 +2579,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *
      * So every star really is spawned at the origin and then run forward by
      * the SAME move routine Td Stars Move uses, which is what spreads them
-     * out along their own tracks rather than scattering them. An earlier pass
-     * invented `z: 1 + (i % 64)` and two multiplicative velocities here, a
-     * different design that matches none of the arithmetic.
+     * out along their own tracks rather than scattering them.
      *
      * NOTE: d5 is never initialised before the first star — `add.w (a1),d5`
      * reads whatever the interpreter left in it. `andi.w #$1f` bounds the
@@ -2689,8 +2669,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *     Rbra routine 319 (draw)
      *
      * THREE calls where the Splinters pair has four -- there is no Back step,
-     * because a star keeps nothing. An earlier pass had Double Do skip the
-     * del entirely, which is the one thing neither routine does.
+     * because a star keeps nothing. Both routines perform the delete step.
      */
     'td stars single do'(it) {
       void it
@@ -2755,10 +2734,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
     /**
      * Vec Rot Precalc — routine 4 ($1f96), 236 bytes, and IT IS NOT A NO-OP.
      *
-     * An earlier pass wrote "Nothing here caches a matrix, so this is a no-op
-     * — FAITHFUL rather than a stub, because the only thing a program can
-     * observe afterwards is that the following Vec Rot X/Y/Z give the same
-     * answers either way." That is exactly backwards. Routine 373, which is
+     * Routine 373, which is
      * every Vec Rot X/Y/Z with arguments, reads ONLY the nine-word matrix at
      * `$31e` — it never looks at an angle. This routine is the only thing
      * that writes that matrix.
@@ -3125,9 +3101,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * Pt Bank bank — "if you want to play back instruments from a music
      * module but the music bank has not yet been specified with Pt Play".
      *
-     * Routine 263 ($610c) is thirty-four bytes and does no such thing as the
-     * Pt Stop an earlier pass credited it with — there is no `Rbsr` in it at
-     * all. What it does:
+     * Routine 263 ($610c) is thirty-four bytes and contains no call to Pt Stop.
+     * It:
      *
      *     Rjsr    routine 1121            resolve the bank to an address
      *     move.l  d0, $2bc(a2)            keep it, as Pt Continue reads
@@ -3448,8 +3423,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *
      * so the coordinate is kept in the same speed-multiplied units the
      * counter reads accumulate in, and `Smouse X 10` under `Smouse Speed 2`
-     * puts the pointer at 40. Storing the raw value, as an earlier pass did,
-     * puts it somewhere else entirely whenever the speed is not 1.
+     * puts the pointer at 40.
      */
     'smouse x'(it) {
       rt.amcaf.smouse.x = aslW(it.evalInt(), rt.amcaf.smouse.speed)
@@ -3468,11 +3442,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * represents the upper left corner and x2,y2 the lower right ... This area
      * will be used for ALL screens."
      *
-     * An earlier pass parsed both forms and threw the values away, on the
-     * reasoning that a copy here is a bounded loop rather than a chip transfer
-     * that can run away. That is true of the SAFETY and false of the
-     * SEMANTICS: the rectangle is what Blitter Copy copies, so discarding it
-     * left the keyword with nothing to work on.
+     * The rectangle is observable semantics: Blitter Copy uses it.
      */
     'blitter copy limit'(it) {
       const first = it.evalInt()
@@ -4068,9 +4038,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
 
     /**
      * Ppunpack sourcebank To destinationbank — decrunch a PowerPacker BANK
-     * into a freshly reserved one. An earlier pass read the two arguments as
-     * ADDRESSES and decrunched in place, which is not what routine 236
-     * ($59ec) does with either of them:
+     * into a freshly reserved one. Routine 236 ($59ec) treats both arguments
+     * as bank numbers:
      *
      *     move.l (a3)+,d7 / move.l (a3)+,d0    the destination, then the source
      *     cmp.l  d0,d7 / Rbeq routine 390      the same bank twice is error 23
@@ -4150,10 +4119,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *         tst.w -$16(a5) / Rbmi routine 144
      *         rts
      *
-     * (An earlier pass here claimed 1.40's `rnp` had no `rts` and fell through
-     * into `Scanstr$`. It does not; that reading was of the wrong routine,
-     * 1.50's numbering applied to 1.40's table, which is shifted by fourteen.
-     * 1.40's routine 144 is the unregistered-copy arm, `moveq #0,d0` and out.)
+     * 1.40's `rnp` ends at this `rts`; its routine 144 is instead the
+     * unregistered-copy arm, `moveq #0,d0` and out.
      *
      * So these are implemented AS THE STUBS THEY ARE. Wiring a real RNC
      * decompressor in — the obvious reading of the manual, which still
@@ -4189,9 +4156,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * to Wload; each arm closes the file first with routine 362 and lets the
      * other keyword reopen it.
      *
-     * The "IMP!" arm used to be a DEVIATION here, for want of an Imploder
-     * decoder to route to. ../amiga/imploder.ts is that decoder, so the arm
-     * now dispatches as the binary does.
+     * The "IMP!" arm dispatches through the decoder in ../amiga/imploder.ts.
      */
     'ppfromdisk'(it) {
       const file = it.evalStr()
@@ -4544,8 +4509,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * bank number to routine 370 to be pushed back as a start/end pair, and
      * falls into 56 — so both spellings are one routine taking three longs.
      *
-     * The new bank is INHERITED rather than invented, which an earlier pass
-     * had as a bank named "Amcaf   ". Routine 56 reads the source's header:
+     * The new bank inherits the source's identity. Routine 56 reads its header:
      *
      *     move.w -$c(a0),d1 / andi.w #$fff0,d1 / tst.w d1 / bne
      *
@@ -4558,8 +4522,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * named "Work    ", and the address form has no header to read at all.
      *
      * There is no conditional in the routine either: it Reserves whatever the
-     * target is, where an earlier pass kept an existing target bank and swapped
-     * its payload, leaving the old name and flags on replaced contents.
+     * target is; an existing target does not retain its old name or flags.
      */
     'bank copy'(it) {
       const first = it.evalInt()
@@ -4617,8 +4580,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
  * rather than assumed.
  *
  * Every range check ends in a branch to one of a small group of routines past
- * the keyword-named ones, which an earlier pass could only describe as "a call
- * out of the extension". They are inside it, and each is three instructions:
+ * the keyword-named ones. They are internal, three-instruction error raisers:
  *
  *   routine 390  Rbsr 354 / moveq #$17,d0 / Rjmp L_Error   -- error 23
  *   routine 391  Rbsr 354 / moveq #$51,d0 / Rjmp L_Error   -- error 81
@@ -4691,12 +4653,8 @@ function extSlot(n: number): number {
 }
 
 /**
- * AMCAF's own messages, which an earlier pass reported did not exist.
- *
- * The header used to say "this extension ships no error strings at all",
- * having found no printable text where the failure branches led. It was
- * looking in the wrong place: the raisers above go to `L_Error` with an AMOS
- * error NUMBER, but there is a second mechanism — routine 397 —
+ * AMCAF's own requester messages. The raisers above go to `L_Error` with an
+ * AMOS error number, while routine 397 uses a second mechanism:
  *
  *     lea.l  $af94(pc), a0
  *     moveq  #$0, d1
@@ -4710,8 +4668,8 @@ function extSlot(n: number): number {
  * gate (routine 395, `moveq #$c,d0`) landing on "Kickstart 2.04 or greater
  * required", which is exactly what that gate is for.
  *
- * So the extension has two failure paths, not one: a trappable AMOS error and
- * a requester of its own. These are the requester's texts, in the binary's
+ * The extension therefore has a trappable AMOS error path and its own
+ * requester. These are the requester's texts, in the binary's
  * order, with index 0 left as the empty string the table itself begins with.
  */
 export const AMCAF_ERRORS = [
@@ -4770,9 +4728,8 @@ function amcafPath(s: string): string {
  * right by 8: `move.w (a0,d1.w),d3 / muls.w d0,d3 / asr.l #8,d3`. The shift
  * proves the scale is 256 and the `andi.w #$3ff` proves the length is 1024.
  *
- * The CONTENTS are the library's, not a reconstruction. An earlier pass could
- * not find the table and generated `round(256*sin)` instead, which disagreed
- * with the shipped one at 770 of its 1024 entries — by up to 3. The changelog
+ * The contents are the library's, not a reconstruction: `round(256*sin)`
+ * disagrees with 770 of the 1024 entries, by up to 3. The changelog
  * is what gave it away: *"Sine-Table moved and shortened, so I save about 1536
  * Bytes"*, and 2048 - 512 is exactly 1536, so what ships is a QUARTER table of
  * 256 words. It is at $a3a8 in 1.40 and $ab82 in 1.50, both byte-identical to
@@ -4871,14 +4828,8 @@ function qtrig(angle: number, radius: number, quarterTurn: number): number {
  * data, and it is the only thing that can make Scanstr$ answer what the
  * machine answers.
  *
- * This port used to say "AMCAF ships no string table at all -- a search of the
- * whole hunk for 'Space', 'Escape', 'Return' and friends finds nothing", and
- * answered with Amiga rawkey names of its own instead. The table was always
- * there. The search failed because Chris Hodges is German and the names are
- * lowercase: "ß", "ü", "keypad 0", "l-amiga", "caps lock". A negative search
- * result was taken as evidence of absence when it was evidence of looking for
- * the wrong string -- the same trap as the corpus greps that cannot see binary
- * files, wearing a different hat.
+ * The table is German and lower-case: "ß", "ü", "keypad 0", "l-amiga",
+ * "caps lock". Searches for English rawkey names therefore do not find it.
  *
  * DEFECT: ten entries are EMPTY (12, 14, 28, 44, 59, 71, 72, 73, 75, 104) and
  * routine 278 refuses them -- `tst.b (a0) / Rbeq routine 390`, error 23 --
@@ -5187,13 +5138,10 @@ function bankCodeOps(rt: Runtime): Record<string, Instr> {
  * Fill the FileInfoBlock, which is what `Examine` actually does — the
  * accessors afterwards are pure reads of it.
  *
- * NOTE: an earlier pass gave every accessor an optional path argument and had
- * it re-query the VFS on each call. The routines take no argument at all (12
+ * The accessors take no argument (12
  * to 20 bytes each, no library call in any of them) and the token table agrees,
- * specifying `"0"` or `"2"` — zero parameters — for all eight. Both halves of
- * that were wrong: the syntax accepted an argument AMOS never passes, and the
- * values tracked the live filesystem where the real extension reports whatever
- * the last Examine captured.
+ * specifying `"0"` or `"2"` — zero parameters — for all eight. They report
+ * the snapshot captured by the last Examine.
  */
 /**
  * What all five Scrn pointers do: raise error 47 with no screen open, and
@@ -5234,7 +5182,7 @@ function captureFib(rt: Runtime, path: string): AmcafFib {
  * characters. Both names are in the binary as literals, so the port's invented
  * "Amcaf   " was never on a real bank.
  *
- * Then the sign check the manual does document and an earlier pass missed:
+ * The manual documents the sign check:
  *
  *   move.l  d5, d0        ; the bank NUMBER
  *   bpl.b   ...
@@ -5288,9 +5236,7 @@ function saveBank(rt: Runtime, it: Interp): void {
   const ref = rt.bankRef(n)
   if (!ref) amcafErr()
   // `move.w -$c(a0),d0 / andi.w #$c,d0 / bne` -- Bnk_BitBob or Bnk_BitIcon.
-  // This used to test `kind !== 'memory'` on a map that cannot hold anything
-  // else, so the refusal it documents could never fire and a program saving
-  // the sprite bank got error 23 from the missing-bank path instead
+  // Only memory banks are valid; sprite and icon banks are rejected.
   if (isObjectBank(ref)) amcafMsg(4)
   const b = rt.memBanks.get(n)!
   rt.vfs?.writeFile(amcafPath(file), b.data)
@@ -5300,8 +5246,7 @@ function saveBank(rt: Runtime, it: Interp): void {
 /**
  * `Io Error$` texts — AMCAF's OWN table, read out of the binary.
  *
- * An earlier pass wrote "AMCAF ships no strings at all" and listed dos.library
- * codes from memory. It ships twenty-six of them. Routine 173 is a four-byte
+ * The binary ships twenty-six strings. Routine 173 is a four-byte
  * `Rbra routine 383`, and 383 ($a508) opens with a Kickstart check:
  *
  *     Rbsr routine 372                 movea.l $4.w,a0 / move.w $14(a0),d0
@@ -5461,8 +5406,7 @@ const penDist = (a: number, b: number): number =>
 function hamApply(c: number, oldRgb: number, palette: Uint16Array): number {
   // Routine 161 ($440a) does NOT decode this as two bits and a nibble. It is
   // a chain of unsigned WORD compares whose last arm is an open `else`, not a
-  // range check, so the control is not confined to 0..63 and an earlier pass
-  // masking it with `& 63` gave a different answer above that:
+  // range check, so the control is not confined to 0..63:
   //
   //   d0 <= $f    add.w d0,d0 / move.w $62(a1,d0.w),d3   palette, 16 entries
   //   d0 <= $1f   subi #$10 / andi.b #$f0,d3 / or.b      set BLUE
@@ -5485,7 +5429,7 @@ function hamApply(c: number, oldRgb: number, palette: Uint16Array): number {
  *
  * "As you cannot achieve the desired colour by plotting only one pixel in
  * [HAM]", so the routine searches — but it does NOT try all 64 controls, and
- * it does not measure with a sum of squares. An earlier pass did both.
+ * it does not measure with a sum of squares.
  *
  * There are only NINETEEN candidates: the sixteen palette entries, and one
  * per modify arm. A modify arm has exactly one sensible nibble, the one the
@@ -6020,8 +5964,8 @@ function shadeBob(rt: Runtime, it: Interp, dir: number): void {
  * cmp.b $12(a7),d4 / ble` falling through to `move.b $10(a7),d4`.
  *
  * The far corner is EXCLUSIVE: `sub.w d4,d6 / sub.w d5,d7 / subq.w #$1,d6 /
- * subq.w #$1,d7` and then dbra. An earlier pass had it inclusive, and the
- * `subq` pair was invisible because extdis rendered those six bytes as the
+ * subq.w #$1,d7` and then dbra. The `subq` pair was initially obscured because
+ * extdis rendered those six bytes as the
  * text run "SFSG?F" — see the note in src/cli/extdis.ts.
  *
  * NOTE: c1 and c2 are stored as BYTES (`move.b d1,(a7)` and `move.b d2,
@@ -6589,8 +6533,7 @@ function splintersActive(rt: Runtime): number {
  *
  * Routines 228 and 229 both open `move.l (a3)+,d7 / Rbmi 390` then
  * `cmp.b #4,d7 / Rbge 390`, so a negative channel or one past 3 is an ERROR
- * rather than something to mask. An earlier pass wrote `& 3`, which silently
- * answered for channel 0 where the machine stops the program.
+ * rather than something to mask.
  */
 function ptChan(v: number): number {
   if (v < 0 || v >= 4) amcafErr()
@@ -6744,8 +6687,7 @@ function tdStarSpawn(rt: Runtime, v: DataView, o: number, d6: { v: number }): vo
  *
  * And the acceleration is multiplicative: `move.w d2,d0 / lsr.w #$4,d0 /
  * add.w d0,d2` is v * 17/16 a step, with the negative arm doing the mirror
- * through `not.w`. Compounding is what makes a star appear to rush past — an
- * earlier pass added a constant to a `z` instead, which grows linearly.
+ * through `not.w`. Compounding makes a star appear to rush past.
  */
 function tdStarMove(rt: Runtime, v: DataView, o: number, d6: { v: number }): void {
   const st = rt.amcaf.stars
@@ -6849,8 +6791,7 @@ function tdStarsDel(rt: Runtime, prev: boolean): void {
  * keyword takes two plane NUMBERS and refuses a screen with fewer than four
  * colours. A fast star is bright, and Accelerate makes a star faster the
  * longer it has been running, so a field brightens towards the edges without
- * anything ever storing a depth. An earlier pass drew every star as a solid
- * `(1 << planes) - 1` and had no brightness at all.
+ * anything ever storing a depth.
  */
 function tdStarsDraw(rt: Runtime): void {
   const st = rt.amcaf.stars
@@ -7076,8 +7017,6 @@ function modSample(mod: Uint8Array, n: number): { off: number; len: number } | n
  * "The 'voice' parameter contains a bitmask, that describes, on which
  * channels the sample number 'samnr' should be replayed" — the manual is
  * explicit, and Pt Sam Freq / Pt Sam Stop / Pt Instr Play share the shape.
- * An earlier pass took it as an index in all four.
- *
  * Every one of the three starts `move.l $2c4(a2),d0 / Rbeq routine 390`, so
  * playing without a Pt Sam Bank is error 23 rather than the silent return the
  * port had. Sample 0 is an error and so is a number past the bank's count
@@ -7787,9 +7726,8 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * blanks (=1/50 of a second) from the parameter 'time'".
      *
      * That sentence does not say whether the count is within the second or
-     * within the minute, and an earlier pass read it as the whole low word —
-     * which made Ct Tick and Ct Second two resolutions of one field. The
-     * routine settles it: `divu.w #$32,d3` then `move.w d2,d3 / swap d3`
+     * within the minute. The routine settles it: `divu.w #$32,d3` then
+     * `move.w d2,d3 / swap d3`
      * keeps the REMAINDER, the same shape as Ct Minute. So the pair partition
      * the field, and Ct Tick is 0..49.
      */
@@ -7997,8 +7935,8 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * real `cmp.w #$25` on ExecBase's LIB_VERSION.
      *
      * The library calls are `jsr -$3c6(a6)` and `-$3cc(a6)` — the **NoCase**
-     * pair, `ParsePatternNoCase` and `MatchPatternNoCase`, not the plain ones
-     * an earlier pass assumed. So the match is case-INSENSITIVE, unlike LDos's
+     * pair, `ParsePatternNoCase` and `MatchPatternNoCase`. The match is
+     * case-insensitive, unlike LDos's
      * on the same matcher, which its own manual is explicit about.
      *
      * The conversion loop also treats an EMPTY pattern as `#?` rather than as
@@ -8130,7 +8068,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * #$7ff,d3`, and finally `divu.w #$48,d3` keeping the remainder. $48 is
      * 72, which is 512/4 - 56 — the bucket count of a standard block.
      *
-     * The case fold is the part an earlier pass missed:
+     * The hash applies this case fold:
      *
      *   cmp.b   #$61, d2      ; 'a'
      *   bcs.b   $368a
@@ -8355,7 +8293,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * — where a0 is `$62(a1)`, the palette, so the answer is `Colour(0)`.
      * There is no -1 anywhere in the routine. On a screen whose colour 0 is
      * black that reads as 0, which is presumably how the manual's claim
-     * survived. An earlier pass took the manual's word for it.
+     * survived.
      *
      * The routine scans BACKWARDS from x, carrying a mask in d0 of which
      * nibbles are already settled and stopping early once `cmp.w #$fff,d0`
@@ -8448,8 +8386,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      *
      * because HPOS counts colour clocks, which are two lores pixels each.
      *
-     * Y (routine 205, $4ea8; 1.40's routine 193, $4f7e) is a NINE-bit read,
-     * and that is the part an earlier pass got wrong:
+     * Y (routine 205, $4ea8; 1.40's routine 193, $4f7e) is a nine-bit read:
      *
      *     lea.l $dff005.l, a0
      *     move.b (a0)+, d3      VPOSR's low byte — bit 0 is V8
@@ -8563,9 +8500,8 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * back.
      *
      * NOTE: the guard below does not currently fire. Reading `rt.screen` with
-     * no screen open raises the core's own 'screen not opened' first, so a
-     * program does get an error where an earlier pass returned 0 — but it is
-     * not error 47 and not this code. Left in place deliberately: it is what
+     * no screen open raises the core's own 'screen not opened' first. It is
+     * not error 47 and not this code. The guard remains because it is what
      * routine 394 does, and it becomes live the moment the core hands back a
      * missing screen instead of throwing. Every extension that reads
      * $52c(a5) has the same question and it should be settled once.
@@ -8582,7 +8518,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * bytes. Note the sense, which the manual states and the name does not:
      * it "Counts the pixels ... that DON'T have the colour index colour".
      *
-     * The far corner is EXCLUSIVE, which an earlier pass had inclusive:
+     * The far corner is exclusive:
      *
      *   sub.w d4,d6 / Rbeq routine 390 / Rbmi routine 390    x2 - x1
      *   sub.w d5,d7 / Rbeq routine 390 / Rbmi routine 390    y2 - y1
@@ -8748,9 +8684,8 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     /**
      * =Amcaf Version$ — the extension's own version string.
      *
-     * Routine 19, and the string IS in the binary — an earlier pass said the
-     * hunk held no printable text at all and was looking in the wrong place.
-     * Four instructions and then the literal, length word and all:
+     * Routine 19 contains the string after four instructions, including its
+     * length word:
      *
      *   1.40, $2176:  0035 minus two -- 51 characters --
      *                 "AMCAF Erweiterung V1.40 26-Dec-95 von Chris Hodges."
@@ -9209,9 +9144,8 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     /**
      * =Qrnd(max) — routine 272 ($62ea), and the manual is wrong about it.
      *
-     * "Totally identical to the Rnd function, with the only difference, that
-     * this one is much faster" — so an earlier pass routed it to AMOS's own
-     * generator. It is a different generator entirely:
+     * The manual calls this "Totally identical to the Rnd function" and
+     * faster, but the binary uses a different generator:
      *
      *     move.w $dff006.l, d0
      *     add.w  d0, $292(a2)        stir the seed with the BEAM
@@ -9263,8 +9197,8 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      *     move.b (a0,d4.w),d3      the table is BYTES
      *     neg.w d3 / addi.w #$100,d3   the steep half mirrors about 256
      *
-     * An earlier pass used `Math.atan2` with `Math.round`, which is a
-     * different function: the shipped table is floor(atan(i/512)*1024/2pi) at
+     * `Math.atan2` with `Math.round` is a different function: the shipped
+     * table is floor(atan(i/512)*1024/2pi) at
      * all 513 entries, so rounding disagreed across most of the circle.
      *
      * DEFECT: the quadrant is decided by `tst.w`, a WORD test, while the

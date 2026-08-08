@@ -1048,7 +1048,7 @@ describe('Lansi: ANSI to AMOS control codes (LdosV25.DOC)', () => {
        `B$=Lansi(Chr$(12)) : Print Len(B$);Asc(B$)`].join('\n'),
     )
     // `move.b #$19,(a2)+` in routine 69: form feed becomes ONE byte, Clw —
-    // not the two-escape locate this port used to emit
+    // not a two-escape Locate sequence
     expect(out).toBe(' 4 10 8\n 1 25\n')
   })
 

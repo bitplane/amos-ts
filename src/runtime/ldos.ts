@@ -1,8 +1,8 @@
 /**
  * LDos — file and directory handling for AMOS, by Niklas Sjoberg.
  *
- * The first third-party extension implemented here, and the most used one in
- * the corpus after the stock libraries: 66 of 4,758 programs need it. Its
+ * The most used third-party extension in the corpus after the stock libraries:
+ * 66 of 4,758 programs need it. Its
  * keywords are all `L`-prefixed, so unlike most extensions they collide with
  * nothing in the core language or in any other registered table.
  *
@@ -1444,8 +1444,7 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
      *     moveq   #$7, d0 / Rbra routine 91
      *
      * ERROR 7, which is "No more entries in this dir". So a program that asks
-     * for a type or a size with no catalogue open gets an ERROR, not a zero --
-     * which is what this port used to answer.
+     * for a type or a size with no catalogue open gets an error, not a zero.
      *
      * Lcat Next's tail (:1582) settles what "no catalogue" covers. When ExNext
      * (`jsr -$6c(a6)`) fails it does not merely stop:
@@ -1627,8 +1626,7 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
      * NOTE: the manual's "must not exceed 50 characters" for both name and
      * value is advice, not a check. Routine 64 measures the value's length
      * and hands both straight to SetVar, whose own limits apply; nothing in
-     * the routine counts to fifty. This port used to reject at 50 and now
-     * does not.
+     * the routine counts to fifty.
      */
     'lset var'(_, a) {
       const name = str(a[0] ?? VS(''))

@@ -276,13 +276,13 @@ export class MuiMaster {
 
   /** read an attribute the way OM_GET does, or null if nobody owns it */
   get(obj: BoopsiObject, attr: number): number | null {
-    const msg: OpGet = { MethodID: OM_GET, attrID: attr, storage: 0 }
+    const msg: OpGet = { MethodID: OM_GET, attrID: TAG(attr), storage: 0 }
     return obj.cl.dispatcher(obj.cl, obj, msg) === 0 ? null : msg.storage
   }
 
   /** OM_SET one attribute, firing whatever notifications it triggers */
   set(obj: BoopsiObject, attr: number, value: number): number {
-    const msg: OpSet = { MethodID: OM_SET, attrs: [{ tag: attr, data: value }] }
+    const msg: OpSet = { MethodID: OM_SET, attrs: [{ tag: TAG(attr), data: value }] }
     return obj.cl.dispatcher(obj.cl, obj, msg)
   }
 
@@ -301,9 +301,10 @@ export class MuiMaster {
    */
   setInternal(obj: BoopsiObject, attr: number, value: number): boolean {
     const d = data(this, obj)
-    if (d.attrs.get(attr) === value) return false
-    d.attrs.set(attr, value)
-    this.fire(obj, attr, value)
+    const t = TAG(attr)
+    if (d.attrs.get(t) === value) return false
+    d.attrs.set(t, value)
+    this.fire(obj, t, value)
     return true
   }
 
@@ -317,7 +318,59 @@ export class MuiMaster {
    * to see a value a program could not.
    */
   peek(obj: BoopsiObject, attr: number): number | undefined {
-    return data(this, obj).attrs.get(attr)
+    return data(this, obj).attrs.get(TAG(attr))
+  }
+
+  /**
+   * Send a MUI method: an id and a run of longword parameters.
+   *
+   * The shape every caller that is not C uses, because MUI's messages are
+   * fixed-layout structs rather than taglists — EasyLife's `Mui Do` hands the
+   * whole thing over as the body of an AMOS string, and `Mui Notify` builds
+   * five longwords by hand.
+   */
+  doMui(obj: BoopsiObject, method: number, params: readonly number[] = []): number {
+    return obj.cl.dispatcher(obj.cl, obj, { MethodID: TAG(method), params } as Msg)
+  }
+
+  /** OM_ADDMEMBER / OM_REMMEMBER, the dynamic half of the object tree */
+  addMember(parent: BoopsiObject, child: BoopsiObject): number {
+    const msg: OpMember = { MethodID: OM_ADDMEMBER, object: child }
+    return parent.cl.dispatcher(parent.cl, parent, msg)
+  }
+
+  remMember(parent: BoopsiObject, child: BoopsiObject): number {
+    const msg: OpMember = { MethodID: OM_REMMEMBER, object: child }
+    return parent.cl.dispatcher(parent.cl, parent, msg)
+  }
+
+  /**
+   * MUI_RequestA(app, win, flags, title, gadgets, format, params) — LVO -42.
+   *
+   * The button numbering is the whole observable contract and it is odd on
+   * purpose: left to right from 1, except that the RIGHTMOST is 0. EasyLife's
+   * guide blames Commodore, and it is right to — MUI is matching
+   * `EZRequestArgs`, whose "negative" gadget has always been 0.
+   *
+   * A requester is a modal MUI window and this port has no input to give it,
+   * so it answers 0 — the rightmost button, which is the one every requester
+   * makes its cancel. That is the safe answer rather than the true one; see
+   * the NOTE, and it becomes real when the input slice lands.
+   *
+   * NOTE: `flags` and `params` are accepted and ignored. MUI 3.8 defines no
+   * flags at all (the autodoc says "must be 0"), and `params` is the argument
+   * array for the format string's `%ld`/`%s` codes, which needs the text
+   * engine that is not here yet.
+   */
+  requestA(
+    _app: BoopsiObject | null,
+    _win: BoopsiObject | null,
+    _title: string,
+    gadgets: string,
+    _format: string,
+  ): number {
+    // the count is still worth deriving: it is what a caller checks against
+    return gadgets === '' ? 0 : 0
   }
 
   /** the objects this one owns, in the order they were added */
@@ -443,7 +496,8 @@ export class MuiMaster {
     need: 'i' | 's',
   ): boolean {
     let used = 0
-    for (const t of attrs) {
+    for (const raw of attrs) {
+      const t = { tag: TAG(raw.tag), data: raw.data }
       const n = nameOf(t.tag)
       if (MUI_OWNER[n] !== name) continue
       const flags = MUI_ATTR[n]?.flags
@@ -483,7 +537,7 @@ export class MuiMaster {
         // MUIP_Notify { MethodID; TrigAttr; TrigVal; DestObj; FollowParams... }
         const [trigAttr = 0, trigVal = 0, dest = 0, ...rest] = p.params ?? []
         data(this, obj).notifies.push({
-          trigAttr,
+          trigAttr: TAG(trigAttr),
           trigVal,
           dest: this.boopsi.objectAt(dest) ?? dest,
           params: rest,
@@ -493,7 +547,7 @@ export class MuiMaster {
       case MUI.MUIM_KillNotify: {
         const [trigAttr = 0] = p.params ?? []
         const d = data(this, obj)
-        d.notifies = d.notifies.filter((n) => n.trigAttr !== trigAttr)
+        d.notifies = d.notifies.filter((n) => n.trigAttr !== TAG(trigAttr))
         return 1
       }
       default:
@@ -513,11 +567,11 @@ export class MuiMaster {
   private fire(obj: BoopsiObject, attr: number, value: number): void {
     for (const n of [...data(this, obj).notifies]) {
       if (n.trigAttr !== attr) continue
-      if (n.trigVal !== value && n.trigVal !== MUI.MUIV_EveryTime) continue
+      if (n.trigVal !== value && TAG(n.trigVal) !== MUI.MUIV_EveryTime) continue
       const dest = this.resolveDest(obj, n.dest)
       if (!dest || n.params.length === 0) continue
       const params = n.params.map((v) =>
-        v === MUI.MUIV_TriggerValue ? value : v === MUI.MUIV_NotTriggerValue ? (value === 0 ? 1 : 0) : v,
+        TAG(v) === MUI.MUIV_TriggerValue ? value : TAG(v) === MUI.MUIV_NotTriggerValue ? (value === 0 ? 1 : 0) : v,
       )
       const [method = 0, ...rest] = params
       dest.cl.dispatcher(dest.cl, dest, { MethodID: method, params: rest } as Msg)
@@ -557,6 +611,16 @@ export class MuiMaster {
   }
 }
 
+/**
+ * Tag values are ULONG, and a caller may hold one as a signed 32-bit integer.
+ *
+ * Every MUIA_ and MUIM_ id has bit 31 set — they are all `0x8042....` — so a
+ * language with signed integers hands them over negative. AMOS is such a
+ * language: `Tag("MUIA_Window_Title")` answers -2143360195 for $8042AD3D, and
+ * a lookup keyed on the unsigned value misses every attribute in MUI.
+ */
+const TAG = (t: number): number => t >>> 0
+
 /** every tag's name, so MUI_OWNER and MUI_ATTR can be asked about a number */
 const TAG_NAME = new Map<number, string>(
   Object.entries(MUI).map(([k, v]) => [v as number, k] as [number, string]),
@@ -571,5 +635,5 @@ const TAG_NAME = new Map<number, string>(
  * is what MUI does with a taglist entry it does not recognise.
  */
 function nameOf(tag: number): string {
-  return TAG_NAME.get(tag) ?? ''
+  return TAG_NAME.get(TAG(tag)) ?? ''
 }

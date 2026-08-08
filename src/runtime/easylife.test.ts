@@ -1100,6 +1100,196 @@ describe.skipIf(!existsSync(DEMOS))('EasyLife: the Tags bank, against a real one
   })
 })
 
+describe.skipIf(!existsSync(DEMOS))('EasyLife: the MUI twenty, on a real muimaster', () => {
+  const bootTags = (src: string): Boot => {
+    const b = boot(src)
+    b.rt.memBanks.set(13, {
+      kind: 'memory',
+      number: 13,
+      memType: 0,
+      name: 'Tags    ',
+      flags: 0,
+      data: demoBank('Tag_Editor.AMOS', 'Tags')!,
+    })
+    return b
+  }
+  const run = (src: string): string => {
+    const b = bootTags(OPEN + src)
+    mustFinish(b.rt.runHeadless(4000))
+    return b.text()
+  }
+  const fails = (src: string): string => {
+    const b = bootTags(OPEN + src)
+    try {
+      b.rt.runHeadless(4000)
+    } catch (e) {
+      return (e as Error).message
+    }
+    return 'did not throw'
+  }
+
+  it('Mui Begin then Mui New makes a real object', () => {
+    // the guide's own shape: Begin, build a taglist, New
+    expect(
+      run(
+        'Mui Begin True\n' +
+          'T$=Tag$("MUIA_Window_Title" To 0)+Tag$("TAG_DONE")\n' +
+          'W=Mui New("Window.mui",T$)\n' +
+          'Print W<>0\n',
+      ),
+    ).toBe('-1\n')
+  })
+
+  it('Mui New without a Mui Begin is message 25', () => {
+    expect(fails('W=Mui New("Window.mui")\n')).toContain('Missing Elmui Begin Instruction')
+  })
+
+  it('a class MUI does not have answers 0', () => {
+    expect(run('Mui Begin False\nPrint Mui New("Nonsuch.mui")\n')).toBe(' 0\n')
+  })
+
+  it('Mui Application is one only, and Mui App reads it back', () => {
+    expect(
+      run('Mui Begin False\nA=Mui Application(Tag$("TAG_DONE"))\nPrint A<>0;A=Mui App\n'),
+    ).toBe('-1-1\n')
+    expect(
+      fails('Mui Begin False\nA=Mui Application(Tag$("TAG_DONE"))\nMui Begin False\nB=Mui Application(Tag$("TAG_DONE"))\n'),
+    ).toContain('Illegal function call')
+  })
+
+  it('Mui Set and Mui Get carry a value through MUI', () => {
+    expect(
+      run(
+        'Mui Begin False\nW=Mui New("Window.mui")\n' +
+          'Mui Set W,"MUIA_Window_Title",1234\n' +
+          'Print Mui Get(W,"MUIA_Window_Title")\n',
+      ),
+    ).toBe(' 1234\n')
+  })
+
+  it('the To form takes the tag as a number', () => {
+    expect(
+      run(
+        'Mui Begin False\nW=Mui New("Window.mui")\n' +
+          'Mui Set W To Tag("MUIA_Window_Title"),7\n' +
+          'Print Mui Get(W To Tag("MUIA_Window_Title"))\n',
+      ),
+    ).toBe(' 7\n')
+  })
+
+  it('Mui Set Str and Mui Get$ round-trip a string through the pool', () => {
+    expect(
+      run(
+        'Mui Begin False\nS=Mui New("String.mui")\n' +
+          'Mui Set Str S,"MUIA_String_Contents","Fred"\n' +
+          'Print Mui Get$(S,"MUIA_String_Contents")\n',
+      ),
+    ).toBe('Fred\n')
+  })
+
+  it('Mui Get$ of a NULL string attribute is empty', () => {
+    expect(run('Mui Begin False\nS=Mui New("String.mui")\nPrint Len(Mui Get$(S,"MUIA_String_Contents"))\n')).toBe(
+      ' 0\n',
+    )
+  })
+
+  it('Mui Do sends a method, and Mui Fn answers it', () => {
+    // MUIM_Set is the method every Mui Set uses, so it is the one that can be
+    // checked from both directions
+    expect(
+      run(
+        'Mui Begin False\nW=Mui New("Window.mui")\n' +
+          'M$=Ellong$(Tag("MUIM_Set"))+Ellong$(Tag("MUIA_Window_Title"))+Ellong$(99)\n' +
+          'Mui Do W,M$\n' +
+          'Print Mui Get(W,"MUIA_Window_Title")\n',
+      ),
+    ).toBe(' 99\n')
+  })
+
+  it('Mui Notify fires the method it was given', () => {
+    expect(
+      run(
+        'Mui Begin False\nW=Mui New("Window.mui")\n' +
+          'Mui Begin False\nD=Mui New("Window.mui")\n' +
+          'M$=Ellong$(Tag("MUIM_Set"))+Ellong$(Tag("MUIA_Window_Title"))+Ellong$(55)\n' +
+          'Mui Notify W,"MUIA_Window_Activate",1 To D,M$\n' +
+          'Mui Set W,"MUIA_Window_Activate",1\n' +
+          'Print Mui Get(D,"MUIA_Window_Title")\n',
+      ),
+    ).toBe(' 55\n')
+  })
+
+  it('Mui Make Button and Mui Make Popbutton need no Mui Begin', () => {
+    expect(run('B=Mui Make Button("Ok")\nP=Mui Make Popbutton(Tag("MUII_PopUp"))\nPrint B<>0;P<>0\n')).toBe('-1-1\n')
+  })
+
+  it('Mui Add and Mui Remove move a child in and out of the tree', () => {
+    expect(
+      run(
+        'Mui Begin False\nG=Mui New("Group.mui")\n' +
+          'Mui Begin False\nT=Mui New("Text.mui")\n' +
+          'Mui Add T To G\nMui Remove T To G\nPrint 1\n',
+      ),
+    ).toBe(' 1\n')
+    // adding twice is Illegal Function Call -- "the CHILD is already part of
+    // the application tree"
+    expect(
+      fails(
+        'Mui Begin False\nG=Mui New("Group.mui")\n' +
+          'Mui Begin False\nT=Mui New("Text.mui")\n' +
+          'Mui Add T To G\nMui Add T To G\n',
+      ),
+    ).toContain('Illegal function call')
+  })
+
+  it('Mui Dispose refuses a child and takes a parent down whole', () => {
+    expect(
+      fails(
+        'Mui Begin False\nG=Mui New("Group.mui")\n' +
+          'Mui Begin False\nT=Mui New("Text.mui")\n' +
+          'Mui Add T To G\nMui Dispose T\n',
+      ),
+    ).toContain('Illegal function call')
+    expect(
+      fails(
+        'Mui Begin False\nG=Mui New("Group.mui")\n' +
+          'Mui Begin False\nT=Mui New("Text.mui")\n' +
+          'Mui Add T To G\nMui Dispose G\nPrint Mui Get(T,"MUIA_UserData")\n',
+      ),
+    ).toContain('Illegal MUI Object Address')
+  })
+
+  it('an address MUI never handed out is message 24', () => {
+    expect(fails('Mui Set 12345,"MUIA_Window_Title",1\n')).toContain('Illegal MUI Object Address')
+    expect(fails('Print Mui Get(0,"MUIA_Window_Title")\n')).toContain('Illegal MUI Object Address')
+  })
+
+  it('Mui Input without an application object is message 24', () => {
+    expect(fails('Print Mui Input\n')).toContain('Illegal MUI Object Address')
+  })
+
+  it('Mui Hook answers an address, and Mui Flush and Mui Request answer', () => {
+    expect(run('H=Mui Hook($1000,$99)\nPrint H<>0\n')).toBe('-1\n')
+    expect(
+      run('Mui Begin False\nW=Mui New("Window.mui")\nMui Flush W\nPrint Mui Request(0,"T","Ok","Hi")\n'),
+    ).toBe(' 0\n')
+  })
+
+  it("Mui Set Str's string is kept with the object and freed with it", () => {
+    // Tag Keep True files the string under the object, so disposing frees it
+    const b = bootTags(
+      OPEN +
+        'Tag Keep True\nMui Begin True\nS=Mui New("String.mui")\n' +
+        'Mui Set Str S,"MUIA_String_Contents","Fred"\n' +
+        'Print Mui Get$(S,"MUIA_String_Contents")\n' +
+        'Mui Dispose S\n',
+    )
+    mustFinish(b.rt.runHeadless(4000))
+    expect(b.text()).toBe('Fred\n')
+    expect(b.rt.easylife.tagStrings.size).toBe(0)
+  })
+})
+
 describe.skipIf(!existsSync(DEMOS))('EasyLife: Tag List$, against the real TagLists bank', () => {
   const bootLists = (src: string): Boot => {
     const b = boot(src)

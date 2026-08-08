@@ -279,8 +279,8 @@ describe('TOME: the two errors', () => {
 
 describe('TOME 3.1 is 4.23 with one keyword renamed', () => {
   it('the first 35 entries agree on id, spec and routine', () => {
-    // slice 0 established this against the binaries; pinned here so a
-    // regenerated table cannot quietly break the shared port
+    // The binary prefix is pinned so a regenerated table cannot break the
+    // shared port.
     const a = tome31.tokens
     const b = tome.tokens
     expect(a.length).toBe(35)

@@ -11,16 +11,13 @@
  *
  * ## Evidence
  *
- * `TOME.Lib`, 8,548-byte code hunk, 77 routines, and NOTHING ELSE. No manual
- * ships with either fixture, so every line below is read off the binary; there
- * is no prose to check it against and none to be misled by.
+ * `TOME.Lib`, 8,548-byte code hunk, 77 routines, and no accompanying manual.
+ * Every behavioural claim below is read from the binary.
  *
  * The version is the binary's own. Routine 27 is `Tme Ver$`, whose only job is
  * to report it, and the data block it reads holds `AMOS TOME Series IV`,
  * `TOME V4.23` and `TOME V4.23 Installed`, beside `(c) Shadow Software 1990`
- * and `by Aaron Fothergill`. This was registered as 4.0 (guessed from the
- * archive directory name) and then "corrected" to 4.24 from a secondary list.
- * Both were wrong. See the manifest.
+ * and `by Aaron Fothergill`. The manifests record the binary's 4.23 version.
  *
  * 3.1 IS A STRICT PREFIX. Its 35 table entries are identical to 4.23's first
  * 35 — id, name, spec and routine number — with one rename, `tile val bank`
@@ -83,7 +80,7 @@ import type { Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 
-/** The extension data block at `$158(a5)`, as far as this slice reads it. */
+/** The extension data block at `$158(a5)`. */
 export interface TomeState {
   /** $1a — the map bank number, resolved at each use rather than held */
   mapBank: number

@@ -268,7 +268,7 @@ describe('Personnal: bitplanes (L16/L17/L21/L85/L86/L109)', () => {
     expect(leek(eight, eight.personnal.bplConBase) & 0x7010).toBe(0x0010)
     // What the interpreter makes of that cannot be asserted here: nothing has
     // pointed the hardware at this list yet, so copRegs still holds its seeded
-    // defaults. Active Copper is batch 4, and the readback belongs with it.
+    // defaults. Active Copper owns that readback.
   })
 
   it('above six planes needs an Aga list; a Standard one ignores the ask', () => {
@@ -508,7 +508,7 @@ describe('Personnal: Mplot Draw and the field defines (L100/L105-107)', () => {
   })
 })
 
-describe('Personnal: the Mplot range is exclusive, and the rest of batch 3', () => {
+describe('Personnal: the Mplot range is exclusive and related commands', () => {
   it('Mplot Draw stops short of the last point, as the source does', () => {
     // Cmp.l a0,a1 / Bgt at _xxl (:4027) tests after the pointer has stepped a
     // whole point, so the range ends before `last`. The guide says the
@@ -1347,7 +1347,7 @@ describe('Personnal: the six the other blocks never reach', () => {
   })
 })
 
-describe('Personnal: the cruncher, the nibble peeks and the replayers (batch 11)', () => {
+describe('Personnal: the cruncher, nibble peeks and replayers', () => {
   const bank = ['Reserve As Work 10,24000', 'A=Start(10)', 'Create Standard A']
 
   it('Fpeek and Speek are the two nibbles of a byte', () => {
@@ -1389,7 +1389,7 @@ describe('Personnal: the cruncher, the nibble peeks and the replayers (batch 11)
     expect(leek(rt, rt.bankBase(10) + 8192 + 4)).toBeLessThan(5120)
     expect(leek(rt, rt.bankBase(10) + 8192 + 8)).toBe(2560) // bytes in one plane
     // the cookie routine 114 stamps last, at $6412 — Pic Unpack never checks
-    // it, but the block carries it and this port used to leave it zero
+    // it, but the block carries it
     expect(leek(rt, rt.bankBase(10) + 8192)).toBe(0x462e4333) // "F.C3"
   })
 
@@ -1429,13 +1429,12 @@ describe('Personnal: the cruncher, the nibble peeks and the replayers (batch 11)
     expect(() => run([...bank, 'Omd Play'].join('\n'))).toThrow(/Aucun module MMDx/)
     expect(() => run([...bank, 'Omd Load "RAM:nope.med"'].join('\n'), withRam())).toThrow(/Impossible de charger/)
     // Omd Stop and Omd Free raise nothing of their own: with no module they
-    // simply return, where this port used to raise error 25 (routines 130
-    // and 131, $69e8 and $6a30)
+    // simply return (routines 130 and 131, $69e8 and $6a30)
     expect(() => run([...bank, 'Omd Stop', 'Omd Free'].join('\n'))).not.toThrow()
   })
 })
 
-describe('Personnal: trig, IFF headers and the input reads (batch 10)', () => {
+describe('Personnal: trig, IFF headers and input reads', () => {
   const bank = ['Reserve As Work 10,24000', 'A=Start(10)']
 
   /** print a list of integer expressions without drawing between reads */

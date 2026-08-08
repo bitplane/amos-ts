@@ -11,6 +11,8 @@ import type { Bank, MemoryBank, SpriteBank } from '../loader/amosfile'
 import { parseAmosFile } from '../loader/amosfile'
 import { Collide } from './collide'
 import { Intuition, WB_SLOT } from '../amiga/intuition'
+import { Boopsi } from '../amiga/boopsi'
+import { MuiMaster } from '../amiga/muimaster'
 import type { DiskFont } from '../amiga/diskfont'
 import { FONT8 } from './font.gen'
 import { bufferRegion, claimedRegion, findRegion, slottedRegion, within } from '../amiga/memmap'
@@ -1582,6 +1584,34 @@ export class Runtime {
       })
     }
     return this.intuitionBase
+  }
+
+  /**
+   * The machine's ONE BOOPSI object space.
+   *
+   * intuition.library owns it — `imageclass` and `gadgetclass` are BOOPSI and
+   * shipped in Kickstart 2.0 — so muimaster gets a reference rather than a
+   * space of its own, exactly as on the machine, where a MUI object and a
+   * boopsi gadget are told apart by their class and nothing else.
+   */
+  private boopsiBase: Boopsi | null = null
+
+  get boopsi(): Boopsi {
+    this.boopsiBase ??= new Boopsi()
+    return this.boopsiBase
+  }
+
+  /**
+   * `muimaster.library`, built on that object space.
+   *
+   * Lazy for the same reason Intuition is: constructing it registers 64
+   * classes, and the overwhelming majority of AMOS programs never name one.
+   */
+  private muiBase: MuiMaster | null = null
+
+  get mui(): MuiMaster {
+    this.muiBase ??= new MuiMaster(this.boopsi)
+    return this.muiBase
   }
 
   /**

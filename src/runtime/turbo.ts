@@ -1,8 +1,8 @@
 /**
  * TURBO Plus — a large graphics and system extension by Manuel Andre.
  *
- * The most used unimplemented extension in the corpus: 136 programs across
- * its three builds. Those builds are one lineage rather than three
+ * One of the most used third-party extensions in the corpus: 136 programs
+ * across its three builds. Those builds are one lineage rather than three
  * extensions — 1.0's 134 keywords are a strict subset of 2.15's, and 1.9
  * shares 83 of its 87 with 1.0 — and the 2.15 manual says as much, calling
  * itself "a patched-up version of TURBO V1.0". So one set of handlers serves
@@ -49,12 +49,12 @@ import { sdrKeycode } from '../amiga/keyboard'
 /**
  * TURBO's own error messages, read out of the 2.15 binary at $6e44 — the
  * table routine 338 indexes with the code the failing routine leaves in d0.
- * The whole extension shares it, so every phase can raise the message the
+ * The whole extension shares it, so every routine can raise the message the
  * real library would have raised rather than an invented one. The author's
  * spelling is preserved, "allready" and all.
  *
- * Errors 19 upwards belong to phases not yet ported; they are listed because
- * the table is one artifact and splitting it would invite drift.
+ * Errors 19 upwards are retained because the table is one artifact and
+ * splitting it would invite drift.
  */
 export const TURBO_ERRORS = [
   'Check allready reserved',
@@ -860,8 +860,7 @@ function shiftArgs(rt: Runtime, it: Interp): { s: Screen; from: number; to: numb
   it.expect('to')
   const to = it.evalInt()
   // `cmp.w d6,d7 / Rble routine 62` in routines 79 and 80: the range has to
-  // be at least two planes wide. Shifting one plane onto itself is an error,
-  // not a no-op, which is where this port used to differ.
+  // be at least two planes wide. Shifting one plane onto itself is an error.
   if (to <= from) funcCall()
   return { s: screenForPlanes(rt, nr, [from, to]), from: from - 1, to: to - 1 }
 }

@@ -2315,9 +2315,7 @@ describe('zoom, masks, C2P and remaining graphics', () => {
    * X Raster (192, $4f68) reads $dff007 and doubles it, because HPOS counts
    * colour clocks and each is two lores pixels. Y Raster (193, $4f7e) is a
    * NINE-bit read — $dff005 supplies V8 above $dff006's eight — which is why
-   * a PAL frame's 312 lines fit. An earlier pass shifted a sixteen-bit word
-   * right by eight and masked with $1ff, so bit 8 could never be set and Y
-   * wrapped at 256.
+   * a PAL frame's 312 lines fit.
    */
   it('X Raster doubles the colour clock, Y Raster is nine bits wide', () => {
     // the modelled beam advances a line every 64 steps, so it takes a real
@@ -2350,8 +2348,7 @@ describe('zoom, masks, C2P and remaining graphics', () => {
   })
 
   /**
-   * The header of amcaf.ts used to say the hunk held no printable text at all.
-   * It holds the version string, four instructions into routine 19, length
+   * The hunk holds the version string four instructions into routine 19, length
    * word and all — and the two releases differ in LANGUAGE as well as version:
    *
    *   1.40, $2176:  "AMCAF Erweiterung V1.40 26-Dec-95 von Chris Hodges."
@@ -3041,8 +3038,7 @@ describe('Splinters and Td Stars', () => {
    * "the stars are moved by random values to avoid that they all start in the
    * origin", which turns out to be literal.
    *
-   * An earlier pass invented `z: 1 + (i % 64)` and two multiplicative
-   * velocities here. There is no z in a 12-byte star.
+   * A 12-byte star has no z coordinate.
    */
   it('Td Stars Init spawns at the origin and steps each star along its own track', () => {
     const { rt } = run([...scr, ...field])
@@ -3063,9 +3059,7 @@ describe('Splinters and Td Stars', () => {
 
   /**
    * Routine 388's acceleration is MULTIPLICATIVE — `move.w d2,d0 / lsr.w
-   * #$4,d0 / add.w d0,d2`, so v * 17/16 a step. Compounding is what makes a
-   * star appear to rush past; an earlier pass added a constant to a `z`,
-   * which grows linearly.
+   * #$4,d0 / add.w d0,d2`, so v * 17/16 a step. The acceleration compounds.
    */
   it('Td Stars Accelerate multiplies the speed by 17/16 a step', () => {
     const base = [...scr, 'Td Stars Bank 6,1', 'Td Stars Planes 0,1', 'Td Stars Limit',
@@ -3103,9 +3097,8 @@ describe('Splinters and Td Stars', () => {
    *                        >= 2  -> plane B alone
    *                        else  -> plane A alone
    *
-   * which is why the keyword takes two plane NUMBERS and refuses a screen
-   * with fewer than four colours. An earlier pass drew every star as a solid
-   * `(1 << planes) - 1` and had no brightness at all.
+   * which is why the keyword takes two plane numbers and refuses a screen
+   * with fewer than four colours.
    */
   it('Td Stars Draw spreads a star over two planes by its speed', () => {
     // one star, no acceleration, a limit box wide enough that it survives
@@ -3438,8 +3431,7 @@ describe('vectors and extension internals', () => {
   })
 
   /**
-   * `tst.w d5 / Rbeq routine 390` — a rotated distance of zero is error 23,
-   * where the port used to substitute 1 and carry on.
+   * `tst.w d5 / Rbeq routine 390` — a rotated distance of zero is error 23.
    */
   it('a projected distance of zero is an error', () => {
     expect(() =>
@@ -3813,9 +3805,8 @@ describe('ProTracker replay', () => {
   })
 
   /**
-   * Routine 263 ($610c) does no such thing as the `Rbsr` into Pt Stop an
-   * earlier pass credited it with — there is no `Rbsr` in it at all. Thirty
-   * four bytes: resolve the bank, keep the address at $2bc, range-check it,
+   * Routine 263 ($610c) contains no call to Pt Stop. Its thirty-four bytes
+   * resolve the bank, keep the address at $2bc, range-check it,
    * and tail into the replayer.
    *
    *     cmpa.l #$200000, a0

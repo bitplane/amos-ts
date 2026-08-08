@@ -168,8 +168,7 @@ describe('TURBO Check zones (TURBO_DocsV2.15.Asc)', () => {
   })
 
   it('the last reserved zone is usable — Reserve Check 4 gives 1..4', () => {
-    // the off-by-one this file used to encode: zone 4 of 4 read past the end
-    // and answered "Illegal function call"
+    // the final zone is valid: Reserve Check 4 creates zones 1 through 4
     const { out } = run(['Reserve Check 4', 'Set Check 4,10,10 To 50,50', 'Print Check(1 To 4,20,20)'].join('\n'))
     expect(out).toBe(' 4\n')
   })

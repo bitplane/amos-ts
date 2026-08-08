@@ -6,9 +6,9 @@
  *
  * `APD599/SOURCES/|jd.s` is the complete commented assembler, 122 KB, with a
  * label and a routine number per keyword (`L_per equ 61`, `L_reddim equ 148`).
- * It ships PowerPacked, which is why nothing had read it — `pp20Decrunch`
- * (../loader/powerpacker.ts) unpacks it, the same decruncher JD itself exposes
- * as `Jd Ppdecrunch`. The fixture keeps both: `jd.s` as distributed and
+ * It ships PowerPacked; `pp20Decrunch` (../loader/powerpacker.ts) unpacks it,
+ * the same decruncher JD itself exposes as `Jd Ppdecrunch`. The fixture keeps
+ * both: `jd.s` as distributed and
  * `jd.s.unpacked` derived from it, and every citation below is a line in the
  * unpacked file.
  *
@@ -124,17 +124,15 @@ export function outdim(): never {
  *   loop:  <op>.l #1,d3
  *          dbra d2,loop
  *
- * Three consequences, all reachable from BASIC and none of them in the manual.
- * The first two an earlier pass had, and the third it got backwards:
+ * Three consequences are reachable from BASIC and absent from the manual:
  *
  *  - The count is not masked to the operand. `lsl.l #1` thirty-three times
  *    really is thirty-three shifts, so a large count zeroes an lsl/lsr/asl and
  *    saturates an asr, where a single 68k `lsl.l #n,dn` would take n mod 64.
  *  - `sub.l #1,d2` sets X, which roxl/roxr then rotate THROUGH: a count of
  *    zero borrows and leaves X set, any other count clears it.
- *  - DEFECT: a COUNT OF ZERO does not shift once, it shifts 65536 times. This
- *    port had "the loop exits after that first shift", which is `dbra` read
- *    backwards. `dbra` decrements and branches while the result is NOT -1, and
+ *  - DEFECT: a COUNT OF ZERO does not shift once, it shifts 65536 times.
+ *    `dbra` decrements and branches while the result is NOT -1, and
  *    it works on the low WORD:
  *
  *        count 1  ->  d2 = 0       body once, then 0-1 = -1, exit
@@ -146,9 +144,8 @@ export function outdim(): never {
  *    `Jd Lsl(0,1)` is 0, `Jd Asr(0,-8)` is -1, and `Jd Rol(0,v)` happens to be
  *    v again only because 65536 is a multiple of 32.
  *
- *    The same wrap makes a NEGATIVE count finite rather than a hang -- the
- *    earlier pass raised error 23 to avoid one -- and makes the count
- *    effectively modulo 65536, so `Jd Lsl(65537,1)` shifts ONCE.
+ *    The same wrap makes a negative count finite rather than a hang and makes
+ *    the count effectively modulo 65536, so `Jd Lsl(65537,1)` shifts once.
  */
 function shiftLoop(count: number, value: number, step: (v: number, x: number) => [number, number]): number {
   let v = value | 0
@@ -1597,9 +1594,8 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
 
     /**
      * Jd Ppdecrunch source,dest,len — routine 120 (+|jd.s:5216). Decrunches a
-     * PowerPacked block in memory. This port has the decruncher already
-     * (../loader/powerpacker.ts, which LDos slice 9 wired up and which
-     * unpacked JD's own source), so this is the same code the library calls.
+     * PowerPacked block in memory. It uses the shared decruncher in
+     * ../loader/powerpacker.ts, the same code the library calls.
      */
     'jd ppdecrunch'(it) {
       const src = it.evalInt()

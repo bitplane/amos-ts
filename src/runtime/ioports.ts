@@ -17,8 +17,8 @@
  * would on a machine with a bare port.
  *
  * These are `absent` rather than `impossible` in host.ts terms. Web Serial
- * and the browser print pipeline can supply real hardware, and slices 2 and
- * 3 wire them up; nothing here assumes they are missing forever.
+ * and the browser print pipeline can supply real hardware; nothing here
+ * assumes they are missing forever.
  */
 import { VI, VS, AmosError, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
@@ -415,9 +415,8 @@ export function makeIoPortsInstructions(rt: Runtime): Record<string, Instr> {
      * `.parX` with every flag already cleared, which is no parity again.
      *
      * The dispatch is WORD-sized throughout — `tst.w d1`, then `cmp.w #1,d1`
-     * and the rest — so it is the low word that decides. 65536 is EVEN on the
-     * real machine and this port used to make it 'none'; the sign test is a
-     * word test too, so 32768 is negative here and no parity.
+     * and the rest — so it is the low word that decides. 65536 is even; the
+     * sign test is a word test too, so 32768 is negative here and no parity.
      */
     'serial parity'(it) {
       const n = it.evalInt()

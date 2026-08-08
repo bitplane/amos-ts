@@ -21,7 +21,7 @@
  *
  * So the keywords here write real copper words into the program's memory,
  * and what appears on screen is whatever Runtime's list interpreter makes of
- * them once the program points the hardware at it (`Active Copper`, batch 4).
+ * them once the program points the hardware at it (`Active Copper`).
  * Building a list does not display it, here or on the Amiga.
  */
 import { AmosError, VI, int, type Value } from '../interp/values'
@@ -97,7 +97,7 @@ export interface PersonnalState {
   line: number
   /** _Aga — 0 for a Create Standard list, non-zero for Create Aga */
   aga: number
-  /** _2nd — the second playfield's list, batch 6 */
+  /** _2nd — the second playfield's list */
   second: number
   /** _XY — screen size, defaulting to 320x192 ($140,$C0) */
   xy: [number, number]
@@ -520,8 +520,8 @@ function mosaic(rt: Runtime, base: number, n: number): void {
 /**
  * The blitter's logic function unit, applied a word at a time. LF is the low
  * byte of BLTCON0: bit (A<<2 | B<<1 | C) of it says what D is for that
- * combination of source bits. There is no blitter here, so the batch-8
- * keywords that set one up compute their minterm directly instead of driving
+ * combination of source bits. There is no blitter here, so the keywords that
+ * set one up compute their minterm directly instead of driving
  * $DFF040-$DFF058. Every one of them uses zero modulos and full first/last
  * word masks, which is what makes a plain word loop equivalent.
  */
@@ -727,7 +727,7 @@ function s32Expand(rt: Runtime, base: number, tile: boolean): void {
  * blits from address zero — the up-front check is on the control block, not
  * the plane.
  *
- * Blitter Clear is one of the two keywords in this batch that the published
+ * Blitter Clear is one of the two keywords that the published
  * 1.1a source leaves as an empty label; it exists only in the shipped binary,
  * so this is read off the disassembly rather than the source.
  */
@@ -1140,7 +1140,7 @@ function planeCol(rt: Runtime, n: number, allow: boolean): void {
  *
  * There is no collision hardware here and nothing writes CLXDAT, so it reads
  * 0 and every one of them answers -1. That is the deviation that matters, far
- * more than the polarity. NOTES entry at closeout.
+ * more than the polarity. This deviation is recorded in the coverage notes.
  */
 function clxBit(rt: Runtime, bit: number | null): number {
   void rt
@@ -1840,7 +1840,8 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
      *
      * The low-nibble half is written but not displayed: the interpreter reads
      * COLOR moves as 12-bit and does not honour LOCT, so the visible result
-     * is the high nibbles alone. NOTES entry at closeout.
+     * is the high nibbles alone. This deviation is recorded in the coverage
+     * notes.
      */
     'set aga color'(it) {
       const reg = it.evalInt()
@@ -2178,8 +2179,8 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
      * They deliberately do NOT raise the library-not-found errors 17 and 21.
      * A machine without those libraries would, but ours is missing a decoder,
      * not a library, and dressing one up as the other would put a stop where
-     * the program expects music. NOTES entry at closeout; the closable path
-     * is a real P61 decoder, which `med play` already sets the precedent for.
+     * the program expects music. A real P61 decoder would close this gap;
+     * `med play` has the same kind of back-end dependency.
      */
     /**
      * P61 Play has TWO table entries: id $09CC with spec `I0` and id $09DC
@@ -2831,9 +2832,8 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     // added: two core sprite tests broke and the census lost two programs.
     //
     // On a real machine the two are different tokens, core against ext13, and
-    // both exist. Here core wins, because core programs are the many and
-    // Personnal's collision readers answer a constant anyway (see clxBit).
-    // NOTES entry at closeout; the general problem is its own task.
+    // both exist. Here core wins because Personnal's collision readers answer
+    // a constant anyway (see clxBit).
 
     /** Playfields Col (L45, +AMOSPro_Personnal.Lib.s:1992) — CLXDAT bit 0, playfield against playfield */
     'playfields col'(): Value {

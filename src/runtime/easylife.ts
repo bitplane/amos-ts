@@ -136,6 +136,18 @@ import {
   structDef,
   typeTable,
 } from './elstruct'
+import {
+  muiAdopt,
+  muiAttach,
+  muiDetach,
+  muiFind,
+  muiFree,
+  newMuiRegistry,
+  type MuiRegistry,
+} from './elmui'
+import { MUI, MUIC } from '../amiga/muimaster.gen'
+import type { BoopsiObject } from '../amiga/boopsi'
+import type { MuiNode } from './elmui'
 
 /**
  * The extension's own error messages, in block order, and the index is
@@ -333,6 +345,12 @@ export interface EasyLifeState {
   iconWidth: number
   /** Eliconify Amos is a loop; true while it is going round it */
   iconAmos: boolean
+  /**
+   * `$c2`, `$c6`, `$e8` and `$cc` --- routine 238's object registry, the
+   * `Mui Begin` counter, the application object and the signal mask. See
+   * `elmui.ts`, which is the half of MUI that belongs to the extension.
+   */
+  mui: MuiRegistry
 }
 
 export const newEasyLifeState = (): EasyLifeState => ({
@@ -362,6 +380,7 @@ export const newEasyLifeState = (): EasyLifeState => ({
   iconMenuDown: false,
   iconWidth: 0,
   iconAmos: false,
+  mui: newMuiRegistry(),
 })
 
 /** the unsigned view of an AMOS 32-bit integer, which is how routine 153 compares */
@@ -1009,17 +1028,20 @@ function tagAlloc(rt: Runtime, bytes: number): number {
  * `$c6`, the one `Mui New` is about to create, and `Tag Keep False` clears it
  * so the string goes in the temporary buffer instead.
  *
- * NOTE: routine 238's object registry is the MUI half and is not modelled —
- * `$c6` is always 0 here because no `Mui New` can run, so an explicit OBJECT
- * always fails its `cmp.l (a1),d3` and raises message 24, and `Tag Keep True`
- * without an object behaves as `Tag Keep False` does. The storage itself,
- * which is what the address and the NUL termination are, is exact.
+ * The key the string is filed under is routine 240's three-way choice at
+ * $34a0: an explicit OBJECT if one was given, else the pending `$c6` handle,
+ * and 0 — the temporary node, emptied after every `Mui New` — when `Tag Keep`
+ * is off. Routine 238 then refuses an explicit object it does not know, which
+ * is message 24.
  */
 function tagStore(rt: Runtime, s: string, obj: number, explicit: boolean): number {
   if (s.length === 0) return 0
-  // routine 238: an OBJECT that is neither 0 nor the pending `$c6` is refused
-  if (explicit && obj !== 0) elError(24)
+  const reg = rt.easylife.mui
+  const key = explicit ? obj : rt.easylife.tagKeep === 0 ? 0 : reg.pending
+  const node = muiFind(reg, key)
+  if (!node) elError(24)
   const at = tagAlloc(rt, (s.length + 14) & ~7)
+  node.strings.push(at)
   writeBytes(rt, at, s)
   const m = rt.resolveWrite(at + s.length)
   if (m) m.data[m.off] = 0
@@ -1104,6 +1126,173 @@ function tagList(rt: Runtime, name: string, args: number[]): Value {
 /** the twelve- and eight-byte strings the Tag$ family builds, big-endian */
 const tagLongs = (vals: number[]): Value =>
   VS(vals.map((v) => String.fromCharCode((v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff)).join(''))
+
+/** and the way back: an AMOS string read as a run of big-endian longwords */
+const longsOf = (s: string): number[] => {
+  const out: number[] = []
+  for (let i = 0; i + 4 <= s.length; i += 4) {
+    out.push(
+      (((s.charCodeAt(i) & 0xff) << 24) |
+        ((s.charCodeAt(i + 1) & 0xff) << 16) |
+        ((s.charCodeAt(i + 2) & 0xff) << 8) |
+        (s.charCodeAt(i + 3) & 0xff)) >>>
+        0,
+    )
+  }
+  return out
+}
+
+// ---- MUI (routines 205-243) ------------------------------------------------
+
+/**
+ * Routine 231 ($3192) — an AMOS number to the object it names.
+ *
+ * Three refusals, in the routine's order: zero is never an object; a NEGATIVE
+ * handle at or above the `Mui Begin` counter is one of the pending keys and
+ * not a real object yet; and anything routine 238 cannot find is message 24.
+ *
+ * A positive key goes straight to 238, which is where an address MUI never
+ * handed out is caught.
+ */
+function muiObj(rt: Runtime, key: number): { obj: BoopsiObject; node: MuiNode } {
+  const reg = rt.easylife.mui
+  if (key === 0) elError(24)
+  if (key < 0 && key >= reg.pending) elError(24)
+  const node = muiFind(reg, key)
+  if (!node) elError(24)
+  const obj = rt.boopsi.objectAt(key)
+  if (!obj) elError(24)
+  return { obj, node }
+}
+
+/** free a node's subtree, and drop the strings it owned out of the pool record */
+function muiFlushNode(rt: Runtime, key: number): void {
+  for (const at of muiFree(rt.easylife.mui, key)) rt.easylife.tagStrings.delete(at)
+}
+
+/**
+ * Routines 219 and 220 ($2fa0, $2fc0) — create an object and adopt it.
+ *
+ * The library call, then routine 241 on the temporary node (which is what
+ * throws away the strings `Tag Keep False` stored), then routine 232, which
+ * gives the object the pending node and its strings.
+ *
+ * Message 25 when there was no `Mui Begin`: routine 232's `tst.l d6 / beq`.
+ * The guide spends a whole section on why that error can surface a long way
+ * from the missing instruction, because the counter is global rather than
+ * per-procedure.
+ */
+function muiCreate(rt: Runtime, cls: string, tags: string): number {
+  const made = rt.mui.newObjectA(cls, muiTags(rt, tags))
+  muiFlushNode(rt, 0)
+  if (!made) return 0
+  const keep = muiAdopt(rt.easylife.mui, made.address)
+  if (keep === null) elError(25)
+  rt.easylife.tagKeep = keep
+  return made.address
+}
+
+/**
+ * A `TAGLIST$` as MUI's taglist.
+ *
+ * The string is longword pairs — `Tag$` and `Tag Str$` built it that way —
+ * and TAG_DONE ends it. EasyLife hands MUI the string body directly, so the
+ * pairing is the program's responsibility and an odd trailing longword is
+ * simply ignored, which is what MUI's own tag walker does with it.
+ */
+function muiTags(_rt: Runtime, s: string): Array<{ tag: number; data: number }> {
+  const l = longsOf(s)
+  const out: Array<{ tag: number; data: number }> = []
+  for (let i = 0; i + 1 < l.length; i += 2) {
+    if (l[i] === 0) break
+    out.push({ tag: l[i]!, data: l[i + 1]! })
+  }
+  return out
+}
+
+/**
+ * The `,TAG$` and `To TAG` forms every setter and getter takes.
+ *
+ * Routine 234's shape: the comma form resolves the name through bank 13
+ * (routine 203) and the `To` form is the number already. The guide's own
+ * reason for having both is `Tag`: "You may use the Tag function for MUIV
+ * values".
+ */
+function muiTagArg(rt: Runtime, it: Interp): number {
+  if (it.accept('to')) return it.evalInt() | 0
+  it.expect(',')
+  const v = it.evalExpr()
+  return v.k === 'str' ? tagValue(rt, str(v)) : int(v) | 0
+}
+
+/** routines 207-210 — GetAttr, for both the comma and the `To` forms */
+function muiGet(rt: Runtime, a: Value[]): number | null {
+  const obj = muiObj(rt, int(a[0] ?? VI(0))).obj
+  const t = a[1] ?? VI(0)
+  return rt.mui.get(obj, t.k === 'str' ? tagValue(rt, str(t)) : int(t) | 0)
+}
+
+/**
+ * A `STRPTR` answer read back as an AMOS string.
+ *
+ * Every string MUI holds for an EasyLife program came from the tag pool, so
+ * the pool's own record is the whole dictionary. An address it does not know
+ * answers empty, which is also what routine 210 does with a NULL.
+ */
+function muiStrAt(rt: Runtime, at: number): string {
+  return at === 0 ? '' : (rt.easylife.tagStrings.get(at) ?? '')
+}
+
+/** routine 242 ($3582) — unlink one pooled string from an object's chain */
+function muiDropString(rt: Runtime, key: number, at: number): void {
+  const n = rt.easylife.mui.nodes.get(key)
+  if (n) {
+    const i = n.strings.indexOf(at)
+    if (i >= 0) n.strings.splice(i, 1)
+  }
+  rt.easylife.tagStrings.delete(at)
+}
+
+/** routines 223 and 224 — MUI_MakeObjectA, registered with `d4 = $ff` */
+function muiMake(rt: Runtime, type: number, param: string | number): number {
+  const p = typeof param === 'string' ? tagStore(rt, param, 0, false) : param
+  const made = rt.mui.makeObjectA(type, [p])
+  if (!made) return 0
+  muiFind(rt.easylife.mui, made.address, true)
+  return made.address
+}
+
+/** routine 213 — the taglist string dispatched as a method, then the flush */
+function muiDoMethod(rt: Runtime, obj: BoopsiObject, tags: string): number {
+  const l = longsOf(tags)
+  const r = rt.mui.doMui(obj, l[0] ?? 0, l.slice(1))
+  muiFlushNode(rt, 0)
+  return r
+}
+
+/**
+ * Routine 228 ($312a) — a `struct Hook` in the tag pool.
+ *
+ * Twenty-four bytes, of which `h_Entry` at `$8` is the extension's own
+ * trampoline (`$d0` of the companion struct), `h_SubEntry` at `$c` is the
+ * program's ADDRESS and `h_Data` at `$10` is its DATA. Only the address is
+ * observable from AMOS, so the fields are written into the pool where a
+ * program that Peeks at them finds what it put there.
+ */
+function muiHook(rt: Runtime, addr: number, data: number): number {
+  const at = tagAlloc(rt, 0x18)
+  const put = (off: number, v: number): void => {
+    const m = rt.resolveWrite(at + off)
+    if (!m) return
+    m.data[m.off] = (v >>> 24) & 0xff
+    m.data[m.off + 1] = (v >>> 16) & 0xff
+    m.data[m.off + 2] = (v >>> 8) & 0xff
+    m.data[m.off + 3] = v & 0xff
+  }
+  put(0xc, addr)
+  put(0x10, data)
+  return at
+}
 
 // ---- structured variables --------------------------------------------------
 
@@ -2225,25 +2414,148 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
      * comma form and only differs in resolving that last argument through
      * routine 203's bank-13 name lookup first.
      *
-     * NOTE: the registration is routine 238's MUI object list, which cannot
-     * hold anything while `Mui New` is unimplemented, so a real object
-     * pointer always reaches the `cmp.l (a1),d3` that rejects an unknown
-     * object and raises message 24. That test is against the `Mui Begin`
-     * counter at `$c6`, which counts DOWN from zero (routine 217's
-     * `subq.l #$1,d6`), so with no objects and no Begin it is zero and the
-     * `bpl` sends everything above it to the error. Zero and negatives fall
-     * through to the allocate-a-node path instead, and answer normally. The
-     * keyword is dispatched and its error is the real one; the success path
-     * waits on slice 11.
+     * The registration is routine 238's list: the PENDING object's node is
+     * fetched first (`$c6`, `d4 = 0`), then CHILD_OBJECT's, and the child is
+     * front-inserted into the parent's chain with `$1c` set. An object that
+     * is already someone's child is Illegal Function Call
+     * (`move.l $1c(a2),d2 / Rbne routine 3`), which is the guide's "you can
+     * only dispose of an OBJECT if it is NOT the child of another object"
+     * from the other end.
      */
     'tag attach$'(_, a): Value {
       const obj = int(a[0] ?? VI(0))
       const t = a[1] ?? VI(0)
       const tag = t.k === 'str' ? tagValue(rt, str(t)) : int(t)
-      // routine 238 on `$c6`, which is 0, then on CHILD_OBJECT
-      if (obj > 0) elError(24)
+      const reg = rt.easylife.mui
+      const parent = muiFind(reg, reg.pending)!
+      const child = muiFind(reg, obj)
+      if (!child) elError(24)
+      if (!muiAttach(parent, child)) funcCall()
       return tagLongs([tag, obj])
     },
+
+    // ---- MUI, routines 205-237 ---------------------------------------------
+
+    /**
+     * =Mui New(CLASS$ [,TAGLIST$]) — routines 218 and 219 ($2f92, $2fa0).
+     *
+     * `MUI_NewObjectA(class, tags)` at LVO -30, then the adoption. Routine
+     * 218 is the one-argument form and differs only in pushing the empty
+     * taglist at $2f9a.
+     *
+     * "The address of the newly created object is returned, or 0 if the
+     * object could not be created (Normally due to an error in the taglist)."
+     */
+    'mui new': (_, a): Value => VI(muiCreate(rt, str(a[0] ?? VS('')), a.length > 1 ? str(a[1]!) : '')),
+    /**
+     * =Mui Application(TAGLIST$) — routine 220 ($2fc0).
+     *
+     * `Mui New` with the class name wired to "Application.mui" (the literal
+     * at $2ffa) and two extra jobs: it refuses when one already exists
+     * (`tst.l (a1) / Rbne routine 3`, the guide's "You may only create one
+     * application object at a time"), and it clears the signal mask at `$cc`.
+     */
+    'mui application'(_, a): Value {
+      const reg = rt.easylife.mui
+      if (reg.app) funcCall()
+      const at = muiCreate(rt, MUIC.MUIC_Application, str(a[0] ?? VS('')))
+      reg.app = at === 0 ? null : rt.boopsi.objectAt(at)
+      reg.signals = 0
+      return VI(at)
+    },
+    /** =Mui App — routine 221 ($300a), `$e8` read back, 0 when there is none */
+    'mui app': (): Value => VI(rt.easylife.mui.app?.address ?? 0),
+    /**
+     * =Mui Make Button(LABEL$) / =Mui Make Popbutton(IMAGE) — routines 223
+     * and 224 ($3048, $3062), `MUI_MakeObjectA` at LVO -120 with MUIO_Button
+     * (2) and MUIO_PopButton (8).
+     *
+     * Both end `moveq #$ff,d4 / Rbra routine 238`, which registers the new
+     * object unconditionally rather than adopting a pending node — so, as the
+     * guide says, "You do not need to call Mui Begin before this function,
+     * and stored strings are not assigned to this object".
+     */
+    'mui make button': (_, a): Value => VI(muiMake(rt, MUI.MUIO_Button, str(a[0] ?? VS('')))),
+    'mui make popbutton': (_, a): Value => VI(muiMake(rt, MUI.MUIO_PopButton, int(a[0] ?? VI(0)))),
+    /**
+     * =Mui Get(OBJECT,TAG$) / (OBJECT To TAG) — routine 207 ($2de6), which
+     * resolves the name and tails into routine 208 ($2df0).
+     *
+     * `GetAttr` at intuition.library -654, which is the ONE Intuition call in
+     * the whole MUI block. "The attribute you attempt to get must be
+     * readable ... the 'G' flag must be present" — an attribute without it
+     * answers 0 here because GetAttr answered FALSE and routine 208 reads its
+     * storage longword back regardless.
+     */
+    'mui get': (_, a): Value => VI(muiGet(rt, a) ?? 0),
+    /**
+     * =Mui Get$(OBJECT,TAG$) — routines 209 and 210 ($2e1c, $2e26).
+     *
+     * The same GetAttr, then the answer read as a C string. "If the string
+     * attribute is NULL, Mui Get$ returns an empty string" is routine 210's
+     * `tst.l d3 / bne` past the empty literal at $2e48.
+     */
+    'mui get$': (_, a): Value => VS(muiStrAt(rt, muiGet(rt, a) ?? 0)),
+    'mui fn': (_, a): Value => {
+      const obj = muiObj(rt, int(a[0] ?? VI(0))).obj
+      return VI(muiDoMethod(rt, obj, str(a[1] ?? VS(''))))
+    },
+    /**
+     * =Mui Hook(ADDRESS,DATA) — routine 228 ($312a).
+     *
+     * Twenty-four bytes: `struct Hook`'s MinNode, then `h_Entry` from the
+     * extension's own trampoline at `$d0`, then `h_SubEntry` = ADDRESS and
+     * `h_Data` = DATA. "DATA is a longword that will be in register A4 when
+     * the hook code is called by MUI."
+     *
+     * NOTE: the hook is built and its address answered, so a taglist that
+     * carries one is well formed and every keyword around it behaves. What
+     * cannot happen is the call: ADDRESS is 68k machine code, and there is no
+     * 68k here to run it. A MUI class reaching this hook would find an entry
+     * point that does nothing, which is the same boundary `Amos Call` and
+     * `Jd Exec` sit on.
+     */
+    'mui hook': (_, a): Value => VI(muiHook(rt, int(a[0] ?? VI(0)), int(a[1] ?? VI(0)))),
+    /**
+     * =Mui Input — routine 225 ($3078).
+     *
+     * The guide sets out the whole routine: abort if the AMOS screen is in
+     * front, else lock it; Wait() on the signals the last call handed back;
+     * MUIM_Application_Input; store the new signals; restore the lock; answer
+     * the method's result.
+     *
+     * DEVIATION: there is no Wait. exec's Wait blocks the task until a signal
+     * arrives, and this port has one thread that must return to the frame
+     * loop — so the signal mask is kept and honoured as state, and the input
+     * method is asked what happened since last time. A program spinning on
+     * `Mui Input` sees the same sequence of return ids; what it does not see
+     * is the CPU going idle between them.
+     */
+    'mui input': (): Value => {
+      const reg = rt.easylife.mui
+      if (!reg.app) elError(24)
+      return VI(rt.mui.doMui(reg.app, MUI.MUIM_Application_Input, [0]))
+    },
+    /**
+     * =Mui Request(WIN,TITLE$,GAD$,TEXT$[,PAR$]) — routines 229 and 230
+     * ($314e, $3158), `MUI_RequestA` at LVO -42. The five-argument form
+     * passes PAR$ as the `params` array; routine 229 is the four-argument one
+     * and pushes -2 for it.
+     *
+     * "The result is the number of the button pressed. Buttons are numbered
+     * left to right, beginning with 1, except that the rightmost button is
+     * button 0. (Commodores fault, not mine)".
+     */
+    'mui request': (_, a): Value =>
+      VI(
+        rt.mui.requestA(
+          rt.easylife.mui.app,
+          int(a[0] ?? VI(0)) === 0 ? null : muiObj(rt, int(a[0]!)).obj,
+          str(a[1] ?? VS('')),
+          str(a[2] ?? VS('')),
+          str(a[3] ?? VS('')),
+        ),
+      ),
     /**
      * =Tag List$(NAME$ [,A1..A8]) — routines 246 to 254, nine arities of one
      * entry, all reaching routine 245 with the count in d4.
@@ -3431,6 +3743,160 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
       if (n < 0x1000) funcCall()
       if (n >= 0x40001) funcCall()
       rt.easylife.tagBlockSize = n
+    },
+
+
+    // ---- MUI, routines 205-237 ---------------------------------------------
+
+    /**
+     * Mui Begin TRUE/FALSE — routine 217 ($2f70).
+     *
+     * Takes the node keyed by the counter, saves the current `Tag Keep` in
+     * its `$18`, sets the new one, and counts the counter DOWN. So every
+     * `Tag Str` between here and the next `Mui New` files its string under a
+     * key that does not exist yet, and routine 232 hands the whole lot to the
+     * object once it does. "Calls to Mui Begin can be nested arbitrarily
+     * deep" is that counter and nothing else.
+     */
+    'mui begin'(it): void {
+      const reg = rt.easylife.mui
+      muiFind(reg, reg.pending, true)!.savedKeep = rt.easylife.tagKeep
+      rt.easylife.tagKeep = it.evalInt() | 0
+      reg.pending--
+    },
+    /**
+     * Mui Dispose OBJECT — routine 222 ($3016).
+     *
+     * Refuses a child (`move.l $1c(a2),d1 / Rbne routine 3`) because MUI
+     * disposes those with their parent; forgets the application object if
+     * that is what this was; `MUI_DisposeObject` at LVO -36; then routine 241
+     * over the node, which frees the subtree's strings.
+     */
+    'mui dispose'(it): void {
+      const { obj, node } = muiObj(rt, it.evalInt() | 0)
+      if (node.attached) funcCall()
+      const reg = rt.easylife.mui
+      if (reg.app === obj) reg.app = null
+      rt.mui.disposeObject(obj)
+      muiFlushNode(rt, obj.address)
+    },
+    /**
+     * Mui Set OBJECT,TAG$,VALUE — routines 205 and 206 ($2da6, $2db4).
+     *
+     * MUIM_Set ($8042549a) rather than OM_SET, which is why routine 206's
+     * inline message at $2dda is three longwords — method, attribute, value —
+     * instead of a taglist.
+     */
+    'mui set'(it): void {
+      const obj = muiObj(rt, it.evalInt() | 0).obj
+      const tag = muiTagArg(rt, it)
+      it.expect(',')
+      rt.mui.set(obj, tag, it.evalInt() | 0)
+    },
+    /**
+     * Mui Set Str OBJECT,TAG$,STRING$ — routines 211 and 212 ($2e4c, $2e5a).
+     *
+     * The string has to outlive the statement, so it goes into the tag pool
+     * exactly as `Tag Str` puts it there and the attribute is set to its
+     * address. With `Tag Keep` on, the old value is read back with GetAttr
+     * first and freed if it was one of ours (routine 242) — "if the old
+     * setting of the tag that is being changed is recognised as a stored
+     * string, it is deallocated first".
+     */
+    'mui set str'(it): void {
+      const key = it.evalInt() | 0
+      const obj = muiObj(rt, key).obj
+      const tag = muiTagArg(rt, it)
+      it.expect(',')
+      const s = str(it.evalExpr())
+      if (rt.easylife.tagKeep !== 0) {
+        const old = rt.mui.get(obj, tag) ?? 0
+        if (old !== 0 && rt.easylife.tagStrings.has(old)) muiDropString(rt, key, old)
+      }
+      rt.mui.set(obj, tag, tagStore(rt, s, key, true))
+    },
+    /**
+     * Mui Do OBJECT,TAGLIST$ / =Mui Fn(OBJECT,TAGLIST$) — routine 213 ($2eca),
+     * one routine for both.
+     *
+     * The taglist string IS the message: its first longword is the MUIM_ id
+     * and the rest are that method's parameters, which is why the guide warns
+     * "these taglists do not obey the rule of tags occurring in pairs, and
+     * order is usually important". Routine 241 on the temporary node
+     * afterwards, so a `Tag Str$` built for the call is freed by it.
+     */
+    'mui do'(it): void {
+      const obj = muiObj(rt, it.evalInt() | 0).obj
+      it.expect(',')
+      muiDoMethod(rt, obj, str(it.evalExpr()))
+    },
+    /**
+     * Mui Notify OBJECT,TAG$,VALUE To DEST,TAGLIST$ — routines 214 and 215
+     * ($2ef2, $2f04).
+     *
+     * A specialised `Mui Do`: routine 215 builds MUIP_Notify by hand, and the
+     * order it writes the fields in is what confirms the struct —
+     * FollowParams count at `$10`, DestObj at `$c`, TrigVal at `$8`, TrigAttr
+     * at `$4`, MUIM_Notify at `$0`. "Unlike when creating MUIM_Notify
+     * taglists by hand, you do not have to include the length of the TAGLIST$
+     * anywhere in the arguments" is that count, which EasyLife computes.
+     */
+    'mui notify'(it): void {
+      const obj = muiObj(rt, it.evalInt() | 0).obj
+      const tag = muiTagArg(rt, it)
+      it.expect(',')
+      const value = it.evalInt() | 0
+      it.expect('to')
+      const dest = it.evalInt() | 0
+      it.expect(',')
+      const params = longsOf(str(it.evalExpr()))
+      rt.mui.doMui(obj, MUI.MUIM_Notify, [tag, value, dest, ...params])
+      muiFlushNode(rt, 0)
+    },
+    /**
+     * Mui Flush OBJECT — routine 227 ($311c).
+     *
+     * "Erases from memory all strings attached to an OBJECT, without
+     * disposing of the OBJECT", then re-registers the object so it can own
+     * strings again — the `moveq #$ff,d4 / Rbra routine 238` tail.
+     *
+     * NOTE: the routine pops the object into d6 and then calls routine 241,
+     * which selects its node by d0 — a register nothing on this path writes.
+     * So the machine frees whatever node d0 happened to name and leaves the
+     * object's strings alone, which is not what the guide describes. It
+     * cannot be reproduced either: there are no 68k registers here, so
+     * "whatever d0 held" has no value to stand in for it. The documented
+     * behaviour is implemented and the discrepancy recorded, rather than a
+     * guess at what a stale register would have selected.
+     */
+    'mui flush'(it): void {
+      const key = it.evalInt() | 0
+      muiObj(rt, key)
+      muiFlushNode(rt, key)
+      muiFind(rt.easylife.mui, key, true)
+    },
+    /**
+     * Mui Add CHILD To PARENT / Mui Remove CHILD To PARENT — routines 236 and
+     * 237 ($329a, $32e0), OM_ADDMEMBER ($109) and OM_REMMEMBER ($10a) with
+     * EasyLife's own chain kept alongside.
+     *
+     * Both resolve CHILD first and PARENT second. Add refuses an object that
+     * is already in the tree, and Remove refuses one that is not a child of
+     * the parent named — both Illegal Function Call.
+     */
+    'mui add'(it): void {
+      const child = muiObj(rt, it.evalInt() | 0)
+      it.expect('to')
+      const parent = muiObj(rt, it.evalInt() | 0)
+      if (!muiAttach(parent.node, child.node)) funcCall()
+      rt.mui.addMember(parent.obj, child.obj)
+    },
+    'mui remove'(it): void {
+      const child = muiObj(rt, it.evalInt() | 0)
+      it.expect('to')
+      const parent = muiObj(rt, it.evalInt() | 0)
+      if (!muiDetach(parent.node, child.node)) funcCall()
+      rt.mui.remMember(parent.obj, child.obj)
     },
 
     // ---- structured variables, routines 262-295 ----------------------------
