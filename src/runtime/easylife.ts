@@ -1064,8 +1064,13 @@ function tagStore(rt: Runtime, s: string, obj: number, explicit: boolean): numbe
  *     +$4  the head of the pointer-patch chain
  *     +$8  the head of the argument-patch chain
  *     +$c  the head of the bank-number chain
- *     +$10 the declared argument count, which must equal the arity called
- *          (`cmp.l (a2)+,d4 / Rbne routine 3`)
+ *     +$10 the declared argument count IN BYTES, which must equal the arity
+ *          called times four. Routine 245 opens with `asl.l #$2,d4 /
+ *          adda.l d4,a3` to step the parameter stack over the arguments and
+ *          never restores d4, so the `cmp.l (a2)+,d4` at $36a0 is against the
+ *          SHIFTED count. The template's own argument chain is the check on
+ *          that reading: MAKE_Menuitem declares $8 and its chain names
+ *          arguments 1 and 2 and no others.
  *     +$14 the body
  *
  * Each chain threads through the body itself: at the site, the high word is
@@ -1081,9 +1086,10 @@ function tagStore(rt: Runtime, s: string, obj: number, explicit: boolean): numbe
  *   banks     the operand is a bank number and the site becomes its address,
  *             or error 36 if there is no such bank
  *
- * Checked against Tag_Editor.AMOS's own bank 14. MAKE_Menuitem declares 8
- * arguments, a 20-byte body, and an argument chain 12 -> 4: the site at 12
- * carries $0004 next and $0002 index, the site at 4 carries $0000 and $0001.
+ * Checked against Tag_Editor.AMOS's own bank 14. MAKE_Menuitem declares $8 --
+ * TWO arguments -- a 20-byte body, and an argument chain 12 -> 4: the site at
+ * 12 carries $0004 next and $0002 index, the site at 4 carries $0000 and
+ * $0001.
  *
  * NOTE: the copy loop moves `(bodyLen>>2)+1` longwords into a buffer asked
  * for as `bodyLen+2`, so the real extension writes up to four bytes past what
@@ -1103,7 +1109,7 @@ function tagList(rt: Runtime, name: string, args: number[]): Value {
   const at = 4 + ((found + v.getUint32(0, false)) | 0)
   const len = v.getUint32(at, false)
   const chains = [v.getUint32(at + 4, false), v.getUint32(at + 8, false), v.getUint32(at + 12, false)]
-  if (v.getUint32(at + 16, false) !== args.length) funcCall()
+  if (v.getUint32(at + 16, false) !== args.length * 4) funcCall()
   const body = d.slice(at + 20, at + 20 + len)
   const bv = new DataView(body.buffer, body.byteOffset, body.byteLength)
   const past = rt.bankBase(st.tagListBank) + at + 20 + len

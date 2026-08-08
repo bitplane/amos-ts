@@ -1329,7 +1329,7 @@ describe.skipIf(!existsSync(DEMOS))('EasyLife: Tag List$, against the real TagLi
     // its argument chain is 12 -> 4, so A1 lands at offset 4 and A2 at 12
     const out = expand(
       OPEN +
-        'A$=Tag List$("MAKE_Menuitem",111,222,0,0,0,0,0,0)\n' +
+        'A$=Tag List$("MAKE_Menuitem",111,222)\n' +
         'For I=0 To 4 : Print Ellong(Mid$(A$,I*4+1,4)) : Next I\n',
     )
     expect(out.length).toBe(5)
@@ -1344,7 +1344,7 @@ describe.skipIf(!existsSync(DEMOS))('EasyLife: Tag List$, against the real TagLi
     // NOT_Menu's chain is 24 -> 12, and the site at 12 carries index 0
     const out = expand(
       OPEN +
-        'A$=Tag List$("NOT_Menu",7,0,0,0)\n' +
+        'A$=Tag List$("NOT_Menu",7)\n' +
         'For I=0 To 6 : Print Ellong(Mid$(A$,I*4+1,4)) : Next I\n',
     )
     expect(out.length).toBe(7)
@@ -1361,7 +1361,7 @@ describe.skipIf(!existsSync(DEMOS))('EasyLife: Tag List$, against the real TagLi
   it('the pointer chain resolves into the bank, past the body', () => {
     // KeyButton (bank 67's copy of it) is the one template with a d7 chain;
     // bank 14's MAKE_KeyButton is the same shape
-    const b = bootLists(OPEN + 'A$=Tag List$("MAKE_KeyButton",1,2,3,4,5,6,7,8)\nPrint Len(A$)\n')
+    const b = bootLists(OPEN + 'A$=Tag List$("MAKE_KeyButton",1,2)\nPrint Len(A$)\n')
     mustFinish(b.rt.runHeadless(2000))
     expect(b.text()).toBe(' 60\n')
   })
