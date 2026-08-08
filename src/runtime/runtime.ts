@@ -882,6 +882,24 @@ export class Runtime {
   static readonly CODEMOD_SLOTS = 16
 
   /**
+   * SLN 2.0's AllocMem heap.
+   *
+   * Unlike Personnal's and MED's single blocks, SLN allocates MANY: `S Ainit`
+   * takes one per array and hands the address back through `=S Abase`, and
+   * `S Sam Load` takes one per sample and CHAINS them by address — the bank
+   * holds a pointer to the first and every sample's header points at the next.
+   * So a program walks a linked list through Leek, and the list only exists if
+   * the blocks are laid out in one address space with real gaps between them.
+   * One region backed by one buffer is that space; see `SlnHeap` in sln.ts.
+   *
+   * 0x44000000 because the screen bitplane region below it claims only
+   * 0x40000000..0x40ffffff (16 slots of 1MB) and the screen control blocks
+   * start at 0x48000000, so this fits between them without moving anything.
+   */
+  static readonly SLN_HEAP_BASE = 0x44000000
+  static readonly SLN_HEAP_RESERVED = 0x04000000
+
+  /**
    * The interpreter configuration block (PI_*, +Equ.s:1590-1650, defaults
    * from +Interpreter_Config.s). Editable defaults rather than constants:
    * the file selector stores its Sort/Size/Store toggles and its window
@@ -1235,6 +1253,9 @@ export class Runtime {
           phy ? off - Runtime.SCREEN_PHY_OFFSET : off,
         )
       },
+    ),
+    bufferRegion('SLN heap', Runtime.SLN_HEAP_BASE, Runtime.SLN_HEAP_RESERVED, () =>
+      this.sln ? this.sln.heap.buffer : null,
     ),
     slottedRegion(
       'screen control blocks',

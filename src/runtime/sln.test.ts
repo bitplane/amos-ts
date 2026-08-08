@@ -202,3 +202,168 @@ describe('SLN: the eight user interrupts', () => {
     expect(rt.sln.interBase[0]).toBe(1000000)
   })
 })
+
+describe('SLN: the eight arrays', () => {
+  it('S Ainit allocates, and the dimensions are the argument plus one', () => {
+    // routine 11: addi.l #$1 on each of z, y and x before anything else
+    const { rt } = run('S Ainit 0,2,9,4,1')
+    expect(rt.sln.arrays[0]!.x).toBe(10)
+    expect(rt.sln.arrays[0]!.y).toBe(5)
+    expect(rt.sln.arrays[0]!.z).toBe(2)
+    expect(rt.sln.arrays[0]!.cell).toBe(2)
+    // 10 * 5 * 2 * 2 bytes
+    expect(num('S Ainit 0,2,9,4,1 : Print S Asize(0)')).toBe(200)
+    expect(num('S Ainit 0,2,9,4,1 : Print S Abase(0)')).not.toBe(0)
+  })
+
+  it('=S Atype answers the CELL SIZE, which is what the extension calls a type', () => {
+    // routine 18 reads Acell, a byte per slot, and never touches the Atype
+    // bitmap; `S Ainit`'s second argument is called the type throughout
+    expect(num('S Ainit 3,4,7,0,0 : Print S Atype(3)')).toBe(4)
+    expect(num('S Ainit 3,1,7,0,0 : Print S Atype(3)')).toBe(1)
+  })
+
+  it('rejects cell sizes 0, 3 and 5 and above, and accepts 1, 2 and 4', () => {
+    for (const cell of [0, 3, 5, 9]) {
+      const b = boot(`S Ainit 0,${cell},7,0,0`)
+      expect(() => mustFinish(b.rt.runHeadless(2_000)), `cell ${cell}`).toThrow(SLN_ERRORS[0])
+    }
+    for (const cell of [1, 2, 4]) expect(num(`S Ainit 0,${cell},7,0,0 : Print S Atype(0)`)).toBe(cell)
+  })
+
+  it('a 1D array round-trips through S Aset and =S Array', () => {
+    expect(num('S Ainit 0,4,9,0,0 : S Aset 0,5,123456 : Print S Array(0,5)')).toBe(123456)
+    expect(num('S Ainit 0,2,9,0,0 : S Aset 0,5,-3 : Print S Array(0,5)')).toBe(-3)
+  })
+
+  it('DEFECT: a BYTE cell is stored signed and read back UNSIGNED', () => {
+    // move.b on the way in, `clr.l d3 / move.b (a2),d3` on the way out --- no
+    // ext.b, where the WORD path has an ext.l and does round-trip
+    expect(num('S Ainit 0,1,9,0,0 : S Aset 0,1,-1 : Print S Array(0,1)')).toBe(255)
+    expect(num('S Ainit 0,2,9,0,0 : S Aset 0,1,-1 : Print S Array(0,1)')).toBe(-1)
+  })
+
+  it('DEFECT: a negative WORD store FORCES bit 15 instead of truncating', () => {
+    // btst #$1f,d7 / bset #$f,d7 (both LONG, register operands) at $d9c
+    // -65536 is $ffff0000, whose low word is 0, so a move.w would write 0
+    expect(num('S Ainit 0,2,9,0,0 : S Aset 0,1,-65536 : Print S Array(0,1)')).toBe(-32768)
+    // a value whose sign and low word agree is unaffected, which is why this
+    // survived: -2 is $fffffffe and $fffffffe already has bit 15 set
+    expect(num('S Ainit 0,2,9,0,0 : S Aset 0,1,-2 : Print S Array(0,1)')).toBe(-2)
+  })
+
+  it('DEFECT: a 1D read allows index == Xsize where the write does not', () => {
+    // routine 23 has no `subi.l #1,d4` and uses cmp.w; routine 21 has both
+    expect(num('S Ainit 0,4,9,0,0 : Print S Array(0,10)')).toBe(0)
+    const b = boot('S Ainit 0,4,9,0,0 : S Aset 0,10,1')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[0])
+    // and index 11 is out of range for the reader too
+    const c = boot('S Ainit 0,4,9,0,0 : Print S Array(0,11)')
+    expect(() => mustFinish(c.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[0])
+  })
+
+  it('a 2D array indexes as y * Xsize + x', () => {
+    const src = 'S Ainit 1,4,3,2,0 : S Aset 1,2,1,777 : '
+    expect(num(`${src}Print S Array(1,2,1)`)).toBe(777)
+    // the same cell, reached through the address: (1 * 4 + 2) * 4 bytes
+    expect(num(`${src}Print Leek(S Abase(1)+24)`)).toBe(777)
+  })
+
+  it('DEFECT: the 2D bound check tests Y against XSIZE and never checks X', () => {
+    // routine 22: `cmp.l d0,d4` against Aysize-1 with NO branch after it, then
+    // the same d0 against Axsize-1 with the branch. Confirmed at $1258/$126c.
+    // Xsize 4, Ysize 3: y = 3 is out of range and is accepted...
+    expect(num('S Ainit 1,4,3,2,0 : S Aset 1,0,3,5 : Print S Array(1,0,3)')).toBe(5)
+    // ...while y = 4 is refused, because the limit being applied is Xsize-1
+    const b = boot('S Ainit 1,4,3,2,0 : Print S Array(1,0,4)')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[0])
+    // and X is never checked at all, however far out it goes
+    expect(num('S Ainit 1,4,3,2,0 : S Aset 1,99,0,5 : Print S Array(1,99,0)')).toBe(5)
+  })
+
+  it('the 3D pair is the one that checks all three bounds properly', () => {
+    const src = 'S Ainit 2,4,3,3,3 : '
+    expect(num(`${src}S Aset 2,1,2,3,42 : Print S Array(2,1,2,3)`)).toBe(42)
+    for (const idx of ['4,0,0', '0,4,0', '0,0,4']) {
+      const b = boot(`${src}Print S Array(2,${idx})`)
+      expect(() => mustFinish(b.rt.runHeadless(2_000)), idx).toThrow(SLN_ERRORS[0])
+    }
+  })
+
+  it('DEFECT: the address form adds ONE, TWO and THREE to z, y and x', () => {
+    // routine 31 at $14f2/$14fa/$1502 --- `#$1`, `#$2`, `#$3` where routine 11
+    // has three `#$1`s. So an array over the program's own buffer reports two
+    // more rows and three more columns than were asked for.
+    const { rt } = run('Reserve As Work 7,4096 : S Ainit 4,7,2,9,4,1')
+    expect(rt.sln.arrays[4]!.x).toBe(12) // asked for 9
+    expect(rt.sln.arrays[4]!.y).toBe(6) // asked for 4
+    expect(rt.sln.arrays[4]!.z).toBe(2) // asked for 1 --- this one is right
+    expect(rt.sln.arrays[4]!.base).toBe(rt.bankBase(7) >>> 0)
+    // read back through the keywords, which is where a program would see it
+    expect(num('Reserve As Work 7,4096 : S Ainit 4,7,2,9,4,1 : Print S Axsize(4)')).toBe(12)
+    expect(num('Reserve As Work 7,4096 : S Ainit 4,7,2,9,4,1 : Print S Aysize(4)')).toBe(6)
+    expect(num('Reserve As Work 7,4096 : S Ainit 4,7,2,9,4,1 : Print S Azsize(4)')).toBe(2)
+  })
+
+  it('the address form sets the Atype bit and the allocating form never clears it', () => {
+    // routine 31 has `dlea Atype,a1 / bset.b d3,(a1)`; routine 11's matching
+    // bclr is `bclr.b d3,$40(a1)` off Axsize, which is AZSIZE, not Atype
+    const { rt } = run('Reserve As Work 7,4096 : S Ainit 4,7,2,9,4,1 : S Ainit 4,2,9,4,1')
+    expect(rt.sln.atype & (1 << 4)).not.toBe(0)
+    // ...so the block routine 11 just allocated is now unfreeable
+    expect(rt.sln.arrays[4]!.base).not.toBe(rt.bankBase(7) >>> 0)
+  })
+
+  it('DEFECT: re-initialising slot N frees slot ZERO’s memory', () => {
+    // movea.l (a2),a1 at $e2c --- Abase[0], not Abase[nr], with Asize[nr]
+    const { rt } = run('S Ainit 0,4,99,0,0 : S Ainit 3,4,99,0,0 : S Ainit 3,4,49,0,0')
+    // re-initialising 3 handed array ZERO's 400 bytes back, so the 200 bytes
+    // array 3 then asks for are carved out of them: the two slots now name the
+    // same address, and writing one is writing the other
+    expect(rt.sln.arrays[3]!.base).toBe(rt.sln.arrays[0]!.base)
+    expect(rt.sln.heap.sizeOf(rt.sln.arrays[0]!.base)).toBe(200)
+  })
+
+  it('DEFECT: S Aerase re-allocates a one-byte array instead of erasing', () => {
+    // routine 33 pushes cell 1 and x = y = z = 0, and routine 11 only erases
+    // when x + 1 == 0
+    expect(num('S Ainit 0,4,99,0,0 : S Aerase 0 : Print S Asize(0)')).toBe(1)
+    expect(num('S Ainit 0,4,99,0,0 : S Aerase 0 : Print S Axsize(0)')).toBe(1)
+    expect(num('S Ainit 0,4,99,0,0 : S Aerase 0 : Print S Abase(0)')).not.toBe(0)
+    // x = -1 is the only thing that reaches L_ArrayErase, and it does erase
+    expect(num('S Ainit 0,4,99,0,0 : S Ainit 0,4,-1,0,0 : Print S Abase(0)')).toBe(0)
+    expect(num('S Ainit 0,4,99,0,0 : S Ainit 0,4,-1,0,0 : Print S Asize(0)')).toBe(0)
+  })
+
+  it('S Aerase All does the same to all eight slots', () => {
+    const { rt } = run('S Ainit 0,4,99,0,0 : S Ainit 7,4,99,0,0 : S Aerase All')
+    for (let n = 0; n < 8; n++) expect(rt.sln.arrays[n]!.size, `slot ${n}`).toBe(1)
+  })
+
+  it('DEFECT: S Aclear writes four bytes per byte of array', () => {
+    // `move.l Asize,d1 / subi.l #1,d1` then a dbra over `clr.l (a1)+`
+    const { rt } = run('S Ainit 0,1,15,0,0 : S Ainit 1,1,15,0,0 : S Aset 1,0,99 : S Aclear 0')
+    expect(rt.sln.arrays[0]!.size).toBe(16)
+    // array 1 sits above array 0 in the pool and is inside the 64 bytes the
+    // clear reaches, so its first cell has been zeroed by a clear of array 0
+    expect(rt.sln.arrays[1]!.base).toBeGreaterThan(rt.sln.arrays[0]!.base)
+    expect(num('S Ainit 0,1,15,0,0 : S Ainit 1,1,15,0,0 : S Aset 1,0,99 : S Aclear 0 : Print S Array(1,0)')).toBe(0)
+  })
+
+  it('DEFECT: the size computation truncates to 16 bits at every multiply', () => {
+    // `mulu` is 16 x 16 -> 32 and the product feeds the next one's low word,
+    // so 300 x 300 x 4 is not 360000
+    expect(num('S Ainit 0,4,299,299,0 : Print S Asize(0)')).toBe(((300 * 300) & 0xffff) * 4)
+  })
+
+  it('the array attribute readers share the interrupt readers’ word guard', () => {
+    expect(num('Print S Asize(-1)')).toBe(0)
+    const b = boot('Print S Asize(8)')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[0])
+  })
+
+  it('an array is real memory: Loke and Leek reach it through S Abase', () => {
+    expect(num('S Ainit 0,4,9,0,0 : Loke S Abase(0)+8,1234567 : Print S Array(0,2)')).toBe(1234567)
+    expect(num('S Ainit 0,4,9,0,0 : S Aset 0,2,7654321 : Print Leek(S Abase(0)+8)')).toBe(7654321)
+  })
+})

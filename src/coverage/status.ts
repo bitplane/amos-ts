@@ -1395,6 +1395,11 @@ export const FAITHFUL = new Set<string>([
   's mouse on', 's mouse off', 's x mouse', 's y mouse',
   's x mouse=', 's y mouse=', 's mouse button',
   's ibase', 's iadr', 's ierase', 's ifree',
+  // Batch 2 -- the eight typed arrays. Eleven routines that do not agree with
+  // each other about bounds, widths or which slot they are touching; every
+  // disagreement is in the NOTES and every one was confirmed in the binary.
+  's ainit', 's aset', 's array', 's aclear', 's aerase', 's aerase all',
+  's asize', 's abase', 's axsize', 's aysize', 's azsize', 's atype',
 
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
@@ -4387,6 +4392,77 @@ export const NOTES: Record<string, string> = {
     "exactly, so S Ibase, S Iadr, S Ifree and S Ierase all answer correctly and a program can install and read " +
     "back its hooks; the routine simply never runs. It raises nothing, because the failure is once a frame " +
     "rather than once at the call.",
+
+  "s ainit":
+    "Routines 11 (allocate) and 31 (use the program's own memory). Each dimension is stored one MORE than the " +
+    "argument, and `x + 1 == 0` is the private signal that means erase, which is why S Ainit n,1,-1,0,0 is the " +
+    "only way to reach L_ArrayErase. The checks are all WORD-sized: nr >= 8 signed, cell == 3, cell >= 5 " +
+    "signed, cell <= 0 UNSIGNED -- so only a cell size of exactly zero is caught and a negative one passes all " +
+    "three. THREE DEFECTS, all confirmed in the binary. (1) The free before re-initialising reads " +
+    "`movea.l (a2),a1` at $e2c, which is Abase[ZERO], with Asize[nr] as the length: re-initialising array 3 " +
+    "hands array 0's block back, and the next allocation is carved out of it, so two slots end up naming one " +
+    "address. With array 0 unused it is FreeMem(NULL,n), which gurus. (2) The attributes are stored through one " +
+    "lea on Axsize and the last store is `bclr.b d3,$40(a1)` --- Axsize+$40 is AZSIZE, where Atype is at " +
+    "Axsize+$60 --- so the 'user supplied this memory' bit is never cleared and every block allocated into a " +
+    "slot that once held a user array leaks. Routine 31 sets that bit correctly, which is what makes the " +
+    "failure visible. (3) `mulu` is 16x16 and each product feeds the next one's LOW WORD, so x*y*z*cell " +
+    "truncates at every step and an array of more than 65535 elements allocates far less than it needs. " +
+    "Routine 31 has a defect of its own: `addi.l #$1,d7 / #$2,d6 / #$3,d5` at $14f2-$1502, so an array over " +
+    "the program's own buffer reports TWO more rows and THREE more columns than were asked for, and S Array " +
+    "will index into them. Both forms take a bank number at or below 65536 in place of an address.",
+  "s array":
+    "Routines 23 (one index), 22 (two) and 14 (three). The 3D pair is the only one that checks all its bounds " +
+    "properly. DEFECT in the 1D reader: `move.l (a1),d4` with NO `subi.l #1` and a `cmp.w`, where the writer " +
+    "(routine 21) has both --- so index == Xsize can be READ and not written, one element past the end, and " +
+    "only the low 16 bits of the index are checked. DEFECT in the 2D pair: at $1258 the Y index is compared " +
+    "with Aysize-1 and NO BRANCH FOLLOWS, then at $126c the same Y is compared with AXSIZE-1 and that is the " +
+    "one that raises. X is never bounds-checked at all. The index arithmetic itself is right: y*Xsize+x, and " +
+    "z*Ysize*Xsize+y*Xsize+x for three dimensions, with mulu truncating the running product to 16 bits. " +
+    "Element widths: a BYTE cell reads back ZERO-extended (`clr.l d3 / move.b`, no ext.b) where a WORD cell " +
+    "has an `ext.l` and round-trips.",
+  "s aset":
+    "Routines 21, 20 and 19, the writing half of S Array and carrying the same 1D/2D bound defects. Two of its " +
+    "own. DEFECT: the WORD store does not truncate a negative value, it FORCES the sign bit --- " +
+    "`btst.b #$1f,d7 / bne / bset.b #$f,d7` at $d9c, both LONG btst/bset because the operand is a register --- " +
+    "so storing -65536 ($ffff0000, low word zero) writes $8000 and reads back -32768. It is invisible unless a " +
+    "value's sign and its low word disagree, which is why it survived. DEFECT: every writing routine ends " +
+    "`adda d0,a2`, a WORD add sign-extended, where the 1D and 3D readers end `adda.l`. So an array over 32K can " +
+    "be read to the end and only written in its first 32K; past that the offset goes negative and the write " +
+    "lands BELOW the array's base.",
+  "s aclear":
+    "Routine 30. DEFECT: the counter is the array's length in BYTES and the loop writes LONGWORDS --- " +
+    "`move.l Asize,d1 / subi.l #1,d1` then a dbra over `clr.l (a1) / adda.l #4,a1` at $14d0-$14e2 --- so it " +
+    "clears four times the array and runs into whatever is next in the memory list. `dbra` counts on a word, " +
+    "so the run is Asize mod 65536 longwords. The heap here is one contiguous buffer, so the overrun lands on " +
+    "the neighbouring allocation exactly as it does on the machine. The guard is a SIGNED long compare, so a " +
+    "negative slot number passes it and indexes off the table; the routine's own Abase == 0 test ends it.",
+  "s aerase":
+    "Routine 33, and it does not erase. It pushes cell size 1 and x = y = z = 0 and falls into S Ainit, which " +
+    "adds one to each dimension and only treats x + 1 == 0 as the erase signal --- so the slot is freed " +
+    "(through routine 11's wrong-block free) and immediately RE-ALLOCATED as a 1 x 1 x 1 array of one-byte " +
+    "cells. =S Abase still answers non-zero, =S Asize answers 1, and the slot is still marked initialised.",
+  "s aerase all":
+    "Routine 34: the same eight times with the slot number counting 0 to 7, inheriting everything S Aerase " +
+    "gets wrong. It is called by the extension's DEFAULT and END routines, so a program that runs to the end " +
+    "leaves eight one-byte allocations behind.",
+  "s asize":
+    "Routine 12 --- Asize[nr], the BYTE count that went to AllocMem, so it carries the 16-bit truncation of " +
+    "S Ainit's size arithmetic. Shares the word-guard-long-index defect described under =S Ibase.",
+  "s abase":
+    "Routine 13 --- Abase[nr]. A real address here: the arrays live in the AllocMem pool mapped at " +
+    "Runtime.SLN_HEAP_BASE, so Peek, Leek and Loke reach the same bytes S Array and S Aset do.",
+  "s axsize":
+    "Routine 15 --- Axsize[nr], which is the argument plus one, or plus THREE through the address form of " +
+    "S Ainit. Same word guard as =S Asize.",
+  "s aysize":
+    "Routine 16 --- Aysize[nr], the argument plus one, or plus TWO through the address form.",
+  "s azsize":
+    "Routine 17 --- Azsize[nr]. The only dimension the address form of S Ainit increments correctly.",
+  "s atype":
+    "Routine 18, and 'type' means the CELL SIZE. It reads Acell, a byte per slot, with no `mulu #4` and with " +
+    "the `adda d1,a0` that would have been needed commented out in the source --- the index is the " +
+    "displacement. So it answers 1, 2 or 4, the same number S Ainit's second argument takes, which the " +
+    "extension calls the type throughout. Nothing reads the real Atype bitmap back out.",
 
   "stick joy":
     "Routine 5 ($432), reading CIA-A PRB ($bfe101) bits 0-3. The manual calls this the serial port throughout; " +
