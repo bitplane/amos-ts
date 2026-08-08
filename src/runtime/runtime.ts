@@ -40,6 +40,7 @@ import { slnVbl, type SlnState } from './sln'
 import type { MakeState } from './make'
 import type { ToolsState } from './tools'
 import type { DeltaState } from './delta'
+import type { LSerialState } from './lserial'
 import { starfieldVbl, type StarsState } from './stars'
 import { type AgaState } from './aga'
 import { amcafPtVbl, type AmcafState } from './amcaf'
@@ -959,6 +960,8 @@ export class Runtime {
   tools!: ToolsState
   /** Delta 1.4's one piece of state: how far Delta Wait Double Mouse has got */
   delta!: DeltaState
+  /** LSerial 2.1's one open device, its outstanding Mulsend and its XPR base */
+  lserial!: LSerialState
   /** Stars 2.33's interrupt-driven starfield, slot 20 */
   stars!: StarsState
   /** AGA 1.0's 256-colour screens, blocks and shared palette, slot 20 */

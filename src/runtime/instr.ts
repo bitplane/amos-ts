@@ -42,6 +42,7 @@ import { SLN_ERRORS, makeSlnFunctions, makeSlnInstructions, newSlnState } from '
 import { MAKE_ERRORS, makeMakeFunctions, makeMakeInstructions, newMakeState } from './make'
 import { TOOLS_ERRORS, makeToolsFunctions, makeToolsInstructions, newToolsState } from './tools'
 import { makeDeltaFunctions, makeDeltaInstructions, newDeltaState } from './delta'
+import { LSERIAL_ERRORS, makeLSerialFunctions, makeLSerialInstructions, newLSerialState } from './lserial'
 import { newStarsState, makeStarsFunctions, makeStarsInstructions } from './stars'
 import { newAgaState, makeAgaFunctions, makeAgaInstructions } from './aga'
 import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
@@ -5678,6 +5679,19 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeMakeInstructions,
     functions: makeMakeFunctions,
     errors: MAKE_ERRORS,
+  },
+  {
+    // LSerial 2.1 at slot 11 --- Niklas Sjoberg's serial.device wrapper,
+    // written because AMOS's own would not reopen a closed device. The doc is
+    // unusually firm about the slot: "you MUST place LSerial as extension
+    // number eleven (11)", and routine 0's `$198(a5)` agrees. See lserial.ts
+    ids: ['lserial-2.1'],
+    init: (rt) => {
+      rt.lserial = newLSerialState()
+    },
+    instructions: makeLSerialInstructions,
+    functions: makeLSerialFunctions,
+    errors: LSERIAL_ERRORS,
   },
   {
     // Delta 1.4 at slot 15 --- Lukasz Zelezny's public-domain toolbox. Routine

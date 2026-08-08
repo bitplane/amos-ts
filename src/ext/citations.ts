@@ -382,6 +382,8 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/tools.test.ts': ['tools-1.01'],
   'src/runtime/delta.ts': ['delta-1.4'],
   'src/runtime/delta.test.ts': ['delta-1.4'],
+  'src/runtime/lserial.ts': ['lserial-2.1'],
+  'src/runtime/lserial.test.ts': ['lserial-2.1'],
   'src/runtime/stars.ts': ['stars-2.33'],
   'src/runtime/stars.test.ts': ['stars-2.33'],
   'src/runtime/locale.ts': ['locale-0.26'],

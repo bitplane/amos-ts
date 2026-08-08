@@ -12,7 +12,7 @@ Core AMOS Professional is complete — the display pipeline, the audio pipeline,
 the language, banks, files, menus, the Interface dialog engine and the file
 selector are all at 100%. So is every extension a stock installation ships
 (Music, Compact, Request, Compiler, IOPorts) and every third-party one the
-port has started: fifty-seven extension releases read 100% in `KEYWORDS.md`,
+port has started: fifty-eight extension releases read 100% in `KEYWORDS.md`,
 among them AMCAF 1.40/1.50, the JD family, EasyLife, TOME, TURBO Plus,
 Personnal, LDos, AMOS 3D, PowerBobs, MED 7.1, EME 3.0 and P61.
 
@@ -21,7 +21,7 @@ sits between 0% and 100%: an extension is finished or it has not been begun.
 That is the ratchet working, and it is the number to watch — a row appearing
 in the middle means a thread was left hanging.
 
-3933 keywords are implemented, 3824 of them faithful.
+3948 keywords are implemented, 3838 of them faithful.
 
 ### The census
 
@@ -79,7 +79,6 @@ extension keyword. The count is keywords with no handler at all:
 | Delta 1.6 | 46 | `intuition.library` |
 | jd-int 1.3 | 33 | `intuition.library` — findings banked |
 | BSDSocket 1.1.4 | 30 | sockets |
-| LSerial 2.1 | 15 | |
 | BUtility 1.21 | 15 | reqtools / asl |
 
 **GameSupport 1.2 came off this table, and it is worth saying what it cost.**
@@ -212,6 +211,32 @@ and the write has it clear, so it clears the bits present in `$0000` — while
 `Delta Inter Off` works, so interrupts can be turned off and not back on. And
 **`Delta Decrunch XX` sets colour one**, because `move.l d0,$dff180` writes two
 registers and the argument is a word.
+
+**LSerial 2.1 came off it too.** All 15 read 100% — 14 faithful, `Lxpr`
+approximated. Niklas Sjöberg wrote it because AMOS's own serial would not
+survive a close and a reopen (*"in 1.2/1.3 it worked, but only sometimes and
+only a little :-)"*), and twelve of the fifteen are a thin, honest layer over
+exec's `DoIO`/`SendIO`/`CheckIO` on three `IOExtSer` requests — which made them
+cheap, because `rt.host.serial` and the `SerialLineParams` contract were
+already there for IOPorts.
+
+`Lxpr` is the one that is not. It is 7,220 bytes and a whole XPR host in a
+single keyword, and the doc says why it is a single keyword: *"the AMOS compiler
+treats all functions as local, as it datas"*, so splitting the twenty-two
+callbacks would have linked the XPR block into every program that used any other
+`Lserial` command. Its dispatch, its NUL-termination checks and every arm that
+does not need a library are exact; what cannot happen is a transfer, because no
+`xpr*.library` is modelled — and `XPROPEN` correctly reports that, which is what
+a machine without one does.
+
+Two defects. `Lser Get`'s size guard is unsigned, so it refuses a count of zero
+and lets a negative one through as a number near four billion. And `Linkey$`'s
+control-key fold uses `bcc` where it needed `bhi`, so CONTROL with a *shifted* Z
+gives `Chr$(250)` where every other shifted letter gives 1 to 25. The build held
+here is the unregistered one, and all ten of its error paths flash the screen
+white and print *" UNREGISTERED SHAREWARE version of LSerial!  Author really
+should register!"* on the Workbench screen before raising. The error is
+reproduced; the nag is not.
 
 **This table has been wrong before, and the fix is to read it off
 `KEYWORDS.md`.** It used to list AMCAF 1.50, Range 1.0 and 2.0, AMOSPro

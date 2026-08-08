@@ -70,7 +70,7 @@ deviations.
 | ldos-2.5 | 77 | 58 | 7 | 0 | 100% |
 | ldos-2.6 | 85 | 66 | 7 | 0 | 100% |
 | locale-0.26 | 20 | 20 | 0 | 0 | 100% |
-| lserial-2.1 | 15 | 0 | 0 | 15 | 0% |
+| lserial-2.1 | 15 | 14 | 1 | 0 | 100% |
 | make-1.30 | 32 | 32 | 0 | 0 | 100% |
 | med-7.1 | 28 | 27 | 1 | 0 | 100% |
 | memory | 14 | 12 | 2 | 0 | 100% |
@@ -105,7 +105,7 @@ deviations.
 | turbo-plus-2.15 | 152 | 147 | 4 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 6216 | 3824 | 109 | 2091 | 65% |
+| **total** | 6216 | 3838 | 110 | 2076 | 66% |
 
 ## aga-1.0 (100%)
 
@@ -365,9 +365,10 @@ deviations.
 
 - **faithful**: `catalog active` *(Faithful, including the defect. NOT reproduced is a later Catalog String$ following the dangling pointer into freed memory: here the catalog is gone and the caller's default comes back, which is what the routine would do if the field had been cleared properly)*, `catalog string$`, `close catalog`, `date$`, `datetime$`, `emit catalog description`, `emit close`, `format date$` *(Two deliberate departures from AROS, whose FormatDate this is written against: %j is leap-correct here where AROS computes mday+dayspermonth[month] with no adjustment while its own %U/%W apply one (the two disagree from 1 March of any leap year, and the source carries a 'TODO: Julian date not tested' beside it), and %Z expands to nothing because AROS marks it 'Unimplemented in 3.1'. %I is left as AROS has it -- hour%12, so noon and midnight both print 00 -- and flagged as the one directive whose output looks wrong rather than merely different)*, `locale active`, `locale compare` *(Faithful, and it CORRECTS the documentation.)*, `locale lower$`, `locale string$`, `locale upper$`, `lowerchar`, `open catalog`, `short date$`, `short datetime$`, `short time$`, `time$`, `upperchar`
 
-## lserial-2.1 (0%)
+## lserial-2.1 (100%)
 
-- **missing**: `lcarrier`, `linkey$`, `lser baud`, `lser brk`, `lser close`, `lser get`, `lser mul check`, `lser mul send`, `lser open`, `lser params`, `lser query`, `lser read`, `lser send`, `lser status`, `lxpr`
+- **faithful**: `lcarrier`, `linkey$` *(DEFECT: `cmp.b #$5a,d1 / bcc` skips the lowercase fold for 'Z' itself as well as everything above it, so CTRL with a SHIFTED Z gives Chr$(250) where every other shifted letter gives 1 to 25.)*, `lser baud`, `lser brk`, `lser close`, `lser get` *(DEFECT: `cmp.l #$0,d3 / bhi` is UNSIGNED, so a count of zero is refused (error 4, "Invalid read size!") and a NEGATIVE one passes as a number near four billion. DEVIATION: on the machine it blocks inside DoIO, which the doc warns of -- "This can cause AMOS to hang if you haven't any CARRIER"; here it yields the frame and re-runs, so a program that never receives its characters waits for ever, as it would, while everything else keeps running, as it would not.)*, `lser mul check`, `lser mul send` *(DEVIATION: the host write here is fire-and-forget by design, so Lser Mulcheck (routine 8, CheckIO) answers true on the next statement where a real 300-baud line would still be going.)*, `lser open`, `lser params`, `lser query`, `lser read`, `lser send`, `lser status`
+- **approximated**: `lxpr` *(APPROXIMATED.)*
 
 ## make-1.30 (100%)
 

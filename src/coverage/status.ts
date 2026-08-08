@@ -1472,6 +1472,16 @@ export const FAITHFUL = new Set<string>([
   'delta english mile$', 'delta american mile$',
   'delta radian$', 'delta degree$', 'delta euler$',
 
+  // --- LSerial 2.1 (Niklas Sjoberg), slot 11: a serial.device wrapper
+  // written because AMOS's own would not reopen a closed device. BINARY tier
+  // with a thorough .DOC that gives every argument order, the whole io_Status
+  // bit table and the XPR contract, and the two agree everywhere. `Lxpr` is
+  // APPROXIMATED and deliberately absent from this list -- see its NOTES.
+  // The shareware nag every error path prints is a DEVIATION, in the header.
+  'lser open', 'lser close', 'lser send', 'lser read', 'lser query',
+  'lser mul send', 'lser mul check', 'lser get', 'lcarrier',
+  'lser brk', 'lser baud', 'lser params', 'lser status', 'linkey\$',
+
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
   // an identical token table, so this covers AMOS 1.3 and AMOS Pro alike.
@@ -2855,6 +2865,59 @@ export const NA = new Set<string>([
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  // ---- LSerial 2.1, slot 11 ------------------------------------------------
+  "lser open":
+    "Routine 1 ($3bc), 800 bytes: two message ports and two IORequests, then OpenDevice. The eight arguments pop " +
+    "right to left, so the name is read first and the baud rate last, and only io_SerFlags is written BEFORE the " +
+    "open -- which the doc explains, \"it is always best to decide if access shall be shared or exclusive when " +
+    "opening the device\". Errors 0, 1 and 2 in order: already open, empty name, OpenDevice failed. NOTE: the " +
+    "doc's own \"BUF_SIZE MUST be >512 bytes\" is not checked anywhere.",
+  "lser get":
+    "Routine 9 ($938), 226 bytes. DEFECT: `cmp.l #$0,d3 / bhi` is UNSIGNED, so a count of zero is refused (error " +
+    "4, \"Invalid read size!\") and a NEGATIVE one passes as a number near four billion. DEVIATION: on the " +
+    "machine it blocks inside DoIO, which the doc warns of -- \"This can cause AMOS to hang if you haven't any " +
+    "CARRIER\"; here it yields the frame and re-runs, so a program that never receives its characters waits for " +
+    "ever, as it would, while everything else keeps running, as it would not.",
+  "lser read":
+    "Routine 4 ($79c), 260 bytes: SDCMD_QUERY then CMD_READ of everything waiting. NOTE: `cmp.l #$fa00,d4 / bcc` " +
+    "raises error 3, \"Overflow in string buffer!\", above 64000 bytes -- a real ceiling rather than a " +
+    "formality, since the doc's own warning is \"WARNING If there are VERY many characters to read AMOS may " +
+    "crash\". Nothing waiting gives AMOS's shared empty string at $68a(a5).",
+  "lser mul send":
+    "Routine 7 ($8da), 54 bytes: the same CMD_WRITE as Lser Send through SendIO instead of DoIO, on the SECOND " +
+    "request at +$74 so a read can happen while it is outstanding. DEVIATION: the host write here is " +
+    "fire-and-forget by design, so Lser Mulcheck (routine 8, CheckIO) answers true on the next statement where a " +
+    "real 300-baud line would still be going.",
+  "lcarrier":
+    "Routine 10 ($a1a), 46 bytes: SDCMD_QUERY then `btst #$5` on io_Status ($50). Bit 5 is Carrier Detect and is " +
+    "ACTIVE LOW, so the routine answers -1 on `beq` -- carrier present is the bit CLEAR, which reads backwards " +
+    "and is right. Lser Status (routine 16) hands back the same word unsigned; the idle state of a port with " +
+    "nothing on it is every active-low line set, $f8.",
+  "lser params":
+    "Routine 15 ($2776), 60 bytes: six fields into the read request and one SDCMD_SETPARAMS. The pops give the " +
+    "doc's order exactly -- FLAGS to io_SerFlags ($4f), EXTFlags to io_ExtFlags ($38), BRKtime to io_BrkTime " +
+    "($40), BUF_SIZE to io_RBufLen ($34), STOP to io_StopBits ($4e), and RWlen to BOTH io_ReadLen and " +
+    "io_WriteLen ($4c and $4d), which is why the doc calls it one parameter. Lser Baud (routine 12) is io_Baud " +
+    "on both requests, and is the only keyword that touches the write one for anything but a write.",
+  "linkey\$":
+    "Routine 14 ($26d2), 164 bytes. `SyCall Inkey` hands back a longword -- ASCII in bits 0-7, the raw key code " +
+    "in 8-15, the QUALIFIER byte in 24-31 -- and `asr.w #$8,d1` shifts the raw code down without disturbing the " +
+    "qualifiers, which is what makes `btst #$1b` (bit 3 of the qualifier byte, raw key $63, CTRL) still work " +
+    "afterwards. Cursor keys 28-31 become ESC[C, ESC[D, ESC[A and ESC[B. DEFECT: `cmp.b #$5a,d1 / bcc` skips the " +
+    "lowercase fold for 'Z' itself as well as everything above it, so CTRL with a SHIFTED Z gives Chr$(250) " +
+    "where every other shifted letter gives 1 to 25. NOTE: 'h' with CTRL is singled out and becomes $7f, DEL, " +
+    "rather than backspace -- which is what a VT100 host expects.",
+  "lxpr":
+    "Routine 13 ($a9e), 7,220 bytes -- a whole XPR host in one keyword, which the doc explains: \"the AMOS " +
+    "compiler treats all functions as local, as it datas\", so splitting the twenty-two callbacks would have " +
+    "linked the XPR block into every program using any other Lserial command. APPROXIMATED. The dispatch on the " +
+    "fourth argument is exact and reproduced -- 5 READ, 6 WRITE (checked first, as the doc says), 2 OPEN, 3 " +
+    "CLOSE, 4 SETUP, 0 SEND, 1 RECEIVE, 7 CUSTOMIZE, anything else error 8 -- as are the NUL-termination checks " +
+    "(error 5) and the empty-argument check (error 6). OPEN is OldOpenLibrary and answers the empty string " +
+    "because no xpr*.library is modelled, which is what a machine without one does; CLOSE with nothing open " +
+    "returns untouched; READ and WRITE fall through to the plain SDCMD_QUERY/CMD_READ and CMD_WRITE that Lser " +
+    "Read and Lser Send run. What cannot happen is a TRANSFER: SEND, RECEIVE, SETUP and CUSTOMIZE all need a " +
+    "library that opened, and none can.",
   // ---- Delta 1.4, slot 15 --------------------------------------------------
   "delta about$":
     "Routine 19 ($406), 142 bytes, and the shape all nine string functions share. DEFECT: `movea.w (buffer).L,a1` " +
