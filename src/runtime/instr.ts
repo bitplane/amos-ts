@@ -41,6 +41,7 @@ import {
 import { SLN_ERRORS, makeSlnFunctions, makeSlnInstructions, newSlnState } from './sln'
 import { MAKE_ERRORS, makeMakeFunctions, makeMakeInstructions, newMakeState } from './make'
 import { TOOLS_ERRORS, makeToolsFunctions, makeToolsInstructions, newToolsState } from './tools'
+import { makeDeltaFunctions, makeDeltaInstructions, newDeltaState } from './delta'
 import { newStarsState, makeStarsFunctions, makeStarsInstructions } from './stars'
 import { newAgaState, makeAgaFunctions, makeAgaInstructions } from './aga'
 import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
@@ -5677,6 +5678,18 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeMakeInstructions,
     functions: makeMakeFunctions,
     errors: MAKE_ERRORS,
+  },
+  {
+    // Delta 1.4 at slot 15 --- Lukasz Zelezny's public-domain toolbox. Routine
+    // 0 is `moveq #$e,d0 / rts` and nothing else; the guide says slot 15. Five
+    // of its fourteen instructions are Misc 1.0's routines instruction for
+    // instruction, inverted drive-motor defect and all; see delta.ts
+    ids: ['delta-1.4'],
+    init: (rt) => {
+      rt.delta = newDeltaState()
+    },
+    instructions: makeDeltaInstructions,
+    functions: makeDeltaFunctions,
   },
   {
     // Tools 1.01 at slot 23 --- Tor Erik Ottinsen's personal toolbox, made

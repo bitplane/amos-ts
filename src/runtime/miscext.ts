@@ -32,22 +32,16 @@ import { joyFire } from '../interp/gameport'
 import type { Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 
-export interface MiscExtState {
-  /**
-   * The disk drive's LED, as CIA-B's port B leaves it.
-   *
-   * Not a thing this port renders — it is kept because the two keywords that
-   * write it are otherwise unobservable, and because which way round they
-   * leave it is the extension's most interesting bug. See `dled on`.
-   */
-  driveLed: boolean
-}
+/**
+ * Nothing. The one thing this extension kept — the drive motor CIA-B's port B
+ * leaves running — moved onto the Runtime when Delta 1.4 turned out to write
+ * the same four bytes, and `Runtime.driveMotor` says so.
+ */
+export type MiscExtState = Record<string, never>
 
-export const newMiscExtState = (): MiscExtState => ({ driveLed: false })
+export const newMiscExtState = (): MiscExtState => ({})
 
 export function makeMiscExtInstructions(rt: Runtime): Record<string, Instr> {
-  const st = (): MiscExtState => rt.miscExt
-
   return {
     /**
      * Display Off — routine 3 (:106), two instructions:
@@ -122,15 +116,19 @@ export function makeMiscExtInstructions(rt: Runtime): Record<string, Instr> {
      * is for, but maybe when the drive led doesn't stop reading, use the next
      * command." Reproduced as read, which is why `Dled On` clears the flag.
      *
+     * Delta 1.4's `Delta Drive Motor On`/`Off` are these same four writes,
+     * constant for constant, and inherit the inversion with them. The flag
+     * they share is `Runtime.driveMotor`; see delta.ts.
+     *
      * NOTE: the direction-register reasoning is 6526 behaviour rather than
      * something the source states. The source gives the four writes; that a
      * released line reads inactive is the part supplied from the chip.
      */
     'dled on'() {
-      st().driveLed = false
+      rt.driveMotor = false
     },
     'dled off'() {
-      st().driveLed = true
+      rt.driveMotor = true
     },
 
     /**

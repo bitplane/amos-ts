@@ -12,7 +12,7 @@ Core AMOS Professional is complete — the display pipeline, the audio pipeline,
 the language, banks, files, menus, the Interface dialog engine and the file
 selector are all at 100%. So is every extension a stock installation ships
 (Music, Compact, Request, Compiler, IOPorts) and every third-party one the
-port has started: fifty-six extension releases read 100% in `KEYWORDS.md`,
+port has started: fifty-seven extension releases read 100% in `KEYWORDS.md`,
 among them AMCAF 1.40/1.50, the JD family, EasyLife, TOME, TURBO Plus,
 Personnal, LDos, AMOS 3D, PowerBobs, MED 7.1, EME 3.0 and P61.
 
@@ -21,7 +21,7 @@ sits between 0% and 100%: an extension is finished or it has not been begun.
 That is the ratchet working, and it is the number to watch — a row appearing
 in the middle means a thread was left hanging.
 
-3907 keywords are implemented, 3798 of them faithful.
+3933 keywords are implemented, 3824 of them faithful.
 
 ### The census
 
@@ -76,7 +76,7 @@ extension keyword. The count is keywords with no handler at all:
 | The Game 0.9 | 103 | |
 | Opal 1.1 | 78 | OpalVision hardware |
 | D-SAM 1.01 | 50 | |
-| Delta 1.6 / 1.4 | 46 / 26 | `intuition.library` |
+| Delta 1.6 | 46 | `intuition.library` |
 | jd-int 1.3 | 33 | `intuition.library` — findings banked |
 | BSDSocket 1.1.4 | 30 | sockets |
 | LSerial 2.1 | 15 | |
@@ -179,6 +179,39 @@ running sum that makes the keystream depend on a byte's position. `range` is
 slot-qualified, because Range 2.6/2.9Plus claims the name too — which the
 guide half-admits: *"a somewhat optimized version of the Range command in the
 Shuffle Extension"*.
+
+**Delta 1.4 came off it, and the row was wrong about why it was there.** It
+sat under "`intuition.library`" because it was grouped with Delta 1.6. It needs
+nothing: fourteen instructions that poke the hardware and twelve functions that
+return constants, and the only `intuition.library` string in the binary is in a
+routine past the last keyword that nothing calls. All 26 read 100%, all
+faithful.
+
+What it turned out to be is somebody else's extension with constants bolted on.
+**Five of its fourteen instructions are Misc 1.0's routines instruction for
+instruction** — `Delta Drive Motor On`/`Off` is `Dled On`/`Dled Off`, `Delta
+Mouse Off` is `Mouse Off`, `Delta Change Disk` is `Disk Wait`, `Delta Wait Fire`
+is `Firewait` — and `Delta Reset` is Misc's `Reset`. Same constants, same order,
+same 500-iteration delay calling the same push-sixteen-registers-and-pop-them-
+back subroutine, same `FindName` for a task called "Validator". Misc ships its
+source and Delta does not, so this half of the extension arrives with a witness,
+inverted drive-motor defect and all. That inversion is why `Runtime.driveMotor`
+exists now: two extensions write the same CIA-B port-B bit and neither knows
+about the other, which is exactly the test `spriteDma` and `videoOff` already
+passed.
+
+Its own defects are better than the borrowed ones. **Every one of the nine
+string functions builds its string at address zero.** They use `movea.w
+(buffer).L` where `lea` was wanted, so they read the *word at* their twenty-byte
+buffer instead of loading its address — it is zero — and write there. It works,
+because the pointer handed back is read the same wrong way and is zero too, so
+the caller finds the string exactly where it was put. The price is the 68000's
+exception vectors: `Delta About$` is twenty-four bytes, which is vectors 0 to 5.
+**`Delta Inter On` does nothing at all** — INTENA's bit 15 chooses set or clear
+and the write has it clear, so it clears the bits present in `$0000` — while
+`Delta Inter Off` works, so interrupts can be turned off and not back on. And
+**`Delta Decrunch XX` sets colour one**, because `move.l d0,$dff180` writes two
+registers and the argument is a word.
 
 **This table has been wrong before, and the fix is to read it off
 `KEYWORDS.md`.** It used to list AMCAF 1.50, Range 1.0 and 2.0, AMOSPro

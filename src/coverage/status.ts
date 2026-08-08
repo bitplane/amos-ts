@@ -1456,6 +1456,22 @@ export const FAITHFUL = new Set<string>([
   'oui data', 'oui set data', 'oui edata', 'oui set edata',
   'oui reserve text', 'oui set text', 'oui text',
 
+  // --- Delta 1.4 (Lukasz Zelezny), slot 15: fourteen hardware pokes and
+  // twelve constants. BINARY tier with an AmigaGuide that covers every
+  // keyword briefly. FIVE of the instructions are Misc 1.0's routines
+  // instruction for instruction -- the two drive-motor keywords, Mouse Off,
+  // Change Disk and Wait Fire -- and Delta Reset is Misc's Reset, so a
+  // SOURCE-tier witness stands behind the half of this extension that does
+  // anything to the machine. See delta.ts.
+  'delta pal', 'delta ntsc', 'delta no synchro', 'delta decrunch',
+  'delta inter on', 'delta inter off', 'delta mouse off', 'delta reset',
+  'delta drive motor on', 'delta drive motor off', 'delta change disk',
+  'delta wait left mouse', 'delta wait fire', 'delta wait double mouse',
+  'delta brithday', 'delta pi#', 'delta e#', 'delta about$',
+  'delta yard$', 'delta feet$', 'delta inch$',
+  'delta english mile$', 'delta american mile$',
+  'delta radian$', 'delta degree$', 'delta euler$',
+
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
   // an identical token table, so this covers AMOS 1.3 and AMOS Pro alike.
@@ -2839,13 +2855,72 @@ export const NA = new Set<string>([
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  // ---- Delta 1.4, slot 15 --------------------------------------------------
+  "delta about$":
+    "Routine 19 ($406), 142 bytes, and the shape all nine string functions share. DEFECT: `movea.w (buffer).L,a1` " +
+    "reads the WORD AT the twenty-byte buffer and sign-extends it, where `lea` was wanted -- the buffer is zeros, " +
+    "so a1 is 0 and the string is built at ADDRESS ZERO. It works, because the pointer handed back is read the " +
+    "same wrong way and is 0 too, so the caller finds the string exactly where it was put. What it costs is the " +
+    "68000's exception vectors: this one is 24 bytes, which is vectors 0 to 5. NOT REPRODUCED -- there is no " +
+    "vector table here, and the strings come back as they do on the machine. The relocation table (38 " +
+    "HUNK_RELOC32 entries) is what proves the operands really point at the buffer.",
+  "delta decrunch":
+    "Routine 3 ($280), 40 bytes. DEFECT: `move.l d0,$dff180` is a LONGWORD write to COLOR00, so the high word " +
+    "lands in COLOR00 and the low word in COLOR01 -- the argument is a word, so colour 0 goes black and colour 1 " +
+    "gets the value, the reverse of the guide's \"This efect using colour 0\". DEFECT: both range checks are WORD " +
+    "tests on a longword, and `cmpi.w #$1000` is SIGNED, so a negative number passes both while 65536 is refused " +
+    "as if it were 0. NOTE: no loop -- the guide calls it an effect and it is one write, which the copper would " +
+    "undo on the next frame.",
+  "delta inter on":
+    "Routine 6 ($2da), ten bytes. DEFECT: `move.w #$0,$dff09a` -- INTENA's bit 15 chooses set or clear, and with " +
+    "it clear the write clears the bits present in $0000, which is none. The keyword does nothing whatever; it " +
+    "needed $c000. Delta Inter Off (routine 11) is $4000 and really does take INTEN down, so interrupts can be " +
+    "turned off and not back on. DEVIATION: Inter Off is not reproduced -- interrupts off stops the vertical " +
+    "blank and AMOS with it, and reproducing that faithfully means hanging.",
+  "delta pal":
+    "Routine 7 ($2e4), ten bytes: `move.b #$20,$dff1dc`. NOTE: that is BEAMCON0's HIGH half, and PAL is bit 5 in " +
+    "the low one -- the bit only arrives because the 68000 duplicates a byte across both halves of the data bus " +
+    "during a byte write, so the register latches $2020, PAL plus VARBEAMEN. Personnal's Set Pal writes the same " +
+    "register as a word and gets $0020. DEVIATION: nothing reads beamcon0 in this port, as Personnal's two " +
+    "already record.",
+  "delta drive motor on":
+    "Routine 15 ($3ce), 26 bytes, and Misc 1.0's `Dled On` instruction for instruction -- $7f then $77 to CIA-B " +
+    "port B, then the DIRECTION register at $bfd300. DEFECT: the pair is the wrong way round. On writes 0, making " +
+    "the port INPUTS so it stops driving the active-low /MTR and the motor stops; Off writes $ff, driving the $77 " +
+    "still in the data register and keeping it running. Misc ships the source that proves it; see miscext.ts.",
+  "delta change disk":
+    "Routine 13 ($348), 120 bytes, and Misc 1.0's `Disk Wait` instruction for instruction: wait for CIA-A port A " +
+    "bit 4 (the disk-change line) to fall, a 500-iteration delay, then Disable/FindName over ExecBase's TaskReady " +
+    "($196) and TaskWait ($1a4) lists for a task named \"Validator\" until it has gone. DEVIATION: returns at " +
+    "once. There is no floppy to insert -- volumes here are mounted -- and one task, so no validator to outlive.",
+  "delta wait double mouse":
+    "Routine 5 ($2b2), 40 bytes. DEFECT: press, delay, press, with no wait for a RELEASE between them -- so a " +
+    "button still held when the delay runs out satisfies the second wait and one click counts as a double. NOTE: " +
+    "`subi.w #$1,d0` decrements the LOW WORD of a longword argument, so a delay of 0 burns 65,536 turns rather " +
+    "than none. DEVIATION: the delay is a busy loop of about 26 bus cycles a turn and this waits in FRAMES, " +
+    "because a frame is the finest grain at which the button can change here.",
+  "delta reset":
+    "Routine 10 ($306), 30 bytes: SuperState, Disable, `clr.l $4.w`, `lea $fc0000.l,a0`, RESET, `jmp (a0)`. Misc " +
+    "1.0's Reset instruction for instruction, and the ExecBase wipe makes it a COLD one. Asks the machine and " +
+    "ends the program, as AMCAF's Reset Computer does; ../amiga/machine.ts carries the reading for both.",
+  "delta pi#":
+    "Routine 17 ($3f2), ten bytes: `move.l #$c90fdb42,d3` with `moveq #$1,d2` for the float type. Motorola Fast " +
+    "Floating Point -- a 24-bit mantissa, so it is 3.1415925 and not 3.14159265. Delta E# (routine 18) is " +
+    "$adf85442, 2.7182813. NOTE: Delta Brithday (routine 16) is an INTEGER, 22999213, and the guide says only " +
+    "\"Return my birthday\" -- it is not a date in any obvious layout, so the number is reported as it stands.",
+  "delta radian$":
+    "Routine 25 ($5b2), 70 bytes. NOTE: the string ends in $b0, the degree sign, and Delta Degree$ (routine 26) " +
+    "ends in \"rd\" -- so the guide's own `Radian#=Val(Delta Radian$)` depends on Val stopping at the first " +
+    "character that is not part of a number. The values are right: 57.29578 degrees to a radian, 0.01745 radians " +
+    "to a degree, 1852 metres to an international nautical mile and 1853.25 to a US one.",
   // ---- AMOSPro Tools 1.01, slot 23 -----------------------------------------
   "array dim":
     "Routine 16 ($3e6), 70 bytes: `(SX+1)*(SY+1)+4` bytes reserved as a WORK bank named \"Array   \", with `SX+1` " +
     "written into the four -- the stride every later access multiplies by. NOTE: it also records both dimensions " +
-    "at data zone +$10 and +$14 and no routine ever reads either. NOTE: the failure arm is error 24, \"Bank " +
-    "already reserved\", where the guide promises the bank is erased and re-made; this port's Reserve replaces " +
-    "throughout, so the guide's behaviour is what happens and the arm is unreachable.",
+    "at data zone +$10 and +$14 and no routine ever reads either. NOTE: the failure arm is `moveq #$18,d0`, AMOS " +
+    "error 24 \"Out of memory\" -- not a complaint about the bank. Bnk_Reserve frees an existing bank of that " +
+    "number and takes a new one, which is what the guide says happens; this port's Reserve replaces too and has " +
+    "no allocation that can fail, so the arm is unreachable.",
   "array set":
     "Routine 17 ($42c), 44 bytes. DEFECT: `mulu.w d3,d0` multiplies X by the stride, and the stride is `SX+1`, " +
     "so the element at (X,Y) is at `X*(SX+1)+Y` and the array is really indexed [0..SY][0..SX] -- the dimensions " +

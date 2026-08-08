@@ -203,8 +203,10 @@ describe('Tools: the byte array', () => {
   })
 
   it('Array Dim replaces an existing bank rather than refusing', () => {
-    // the routine's failure arm is error 24, "Bank already reserved"; the
-    // guide promises the opposite and this port's Reserve replaces throughout
+    // Bnk_Reserve frees an existing bank of that number and takes a new one,
+    // which is what the guide says: "If the memory bank already exists, it
+    // will be erased before the array bank is created!" The routine's only
+    // failure arm is error 24, "Out of memory"
     const src = [
       'Set Array Bank 5 : Array Dim 9,9',
       'Array Set 0,0,5',

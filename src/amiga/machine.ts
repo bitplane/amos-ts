@@ -69,6 +69,9 @@
  *       backing off two bytes so the `jmp (a0)` is already in the prefetch
  *       queue when the bus goes down, then `RESET` and `jmp (a0)`.
  *   craft 1.0 r188/r189           `Hard Reset` / `Warm Reset`  above.
+ *   delta 1.4 r10                 `Delta Reset`  Misc's seven instructions
+ *       exactly, ExecBase wipe and all, so cold. Five more of Delta's
+ *       routines are Misc's too; see ../runtime/delta.ts.
  *   misc 1.0 r10                  `Reset`  source tier, above. Cold.
  *   the-game 0.9 r4               `G Reboot`  three instructions:
  *       `movea.l $4.w,a6 / jsr -$2d6(a6) / rts`. ColdReboot, no version check.

@@ -39,6 +39,7 @@ import { gamesupportVbl, type GameSupportState } from './gamesupport'
 import { slnVbl, type SlnState } from './sln'
 import type { MakeState } from './make'
 import type { ToolsState } from './tools'
+import type { DeltaState } from './delta'
 import { starfieldVbl, type StarsState } from './stars'
 import { type AgaState } from './aga'
 import { amcafPtVbl, type AmcafState } from './amcaf'
@@ -956,6 +957,8 @@ export class Runtime {
   make!: MakeState
   /** Tools 1.01's memory position, its two bank numbers and its text pool — slot 23 */
   tools!: ToolsState
+  /** Delta 1.4's one piece of state: how far Delta Wait Double Mouse has got */
+  delta!: DeltaState
   /** Stars 2.33's interrupt-driven starfield, slot 20 */
   stars!: StarsState
   /** AGA 1.0's 256-colour screens, blocks and shared palette, slot 20 */
@@ -987,6 +990,17 @@ export class Runtime {
    * suggests someone add a `Mouse On`.
    */
   spriteDma = true
+  /**
+   * CIA-B port B bit 7, /MTR — the floppy motor, and the drive light with it.
+   *
+   * Here rather than in an extension's state for the same reason `spriteDma`
+   * is: TWO extensions drive it and neither knows about the other. Misc 1.0's
+   * `Dled On`/`Dled Off` and Delta 1.4's `Delta Drive Motor On`/`Off` are the
+   * same four writes instruction for instruction, down to the direction
+   * register that makes both pairs the wrong way round — see miscext.ts, which
+   * has the author's own source, and delta.ts, which does not.
+   */
+  driveMotor = false
   /**
    * COP1LC, when something outside the interpreter has pointed it somewhere —
    * Personnal's Active Copper writes $dff080 with the list it built in a

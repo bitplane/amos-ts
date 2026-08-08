@@ -88,13 +88,13 @@ describe('Misc 1.0: Dled On and Dled Off are the wrong way round', () => {
    * 255 (all outputs, driving the 119 still in the data register — LED on).
    */
   it('Dled On puts the LED out and Dled Off lights it', () => {
-    expect(run('Dled On').miscExt.driveLed).toBe(false)
-    expect(run('Dled Off').miscExt.driveLed).toBe(true)
-    expect(run('Dled Off : Dled On').miscExt.driveLed).toBe(false)
+    expect(run('Dled On').driveMotor).toBe(false)
+    expect(run('Dled Off').driveMotor).toBe(true)
+    expect(run('Dled Off : Dled On').driveMotor).toBe(false)
   })
 
   it('starts out unlit', () => {
-    expect(boot('Rem').miscExt.driveLed).toBe(false)
+    expect(boot('Rem').driveMotor).toBe(false)
   })
 })
 

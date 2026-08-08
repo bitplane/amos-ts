@@ -257,11 +257,12 @@ export function makeToolsInstructions(rt: Runtime): Record<string, Instr> {
      * every later access multiplies by. `d1 = 0` makes it a WORK bank rather
      * than a Data one, so `Erase Temp` takes the array with it.
      *
-     * NOTE: the failure arm is error 24, "Bank already reserved". The guide
-     * promises the opposite — *"If the memory bank already exists, it will be
-     * erased before the array bank is created!"* — and this port's `Reserve`
-     * replaces an existing bank throughout, so the guide's behaviour is what
-     * happens here and the arm is unreachable.
+     * NOTE: the failure arm is `moveq #$18,d0` — AMOS error 24, "Out of
+     * memory", not a complaint about the bank. `Bnk_Reserve` frees an existing
+     * bank of that number and takes a new one, which is exactly what the guide
+     * says: *"If the memory bank already exists, it will be erased before the
+     * array bank is created!"*. This port's `Reserve` replaces too, and it has
+     * no allocation that can fail, so the arm is unreachable here.
      *
      * NOTE: `addq.w #$1` and `mulu.w` are WORD operations on longword
      * arguments, so a dimension of 65535 becomes 0 and the reserve fails on
