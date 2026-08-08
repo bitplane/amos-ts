@@ -120,6 +120,14 @@ const gsError = (n: number): never => {
   throw new AmosError(GAMESUPPORT_ERRORS[n] ?? `GameSupport error ${n}`)
 }
 
+/**
+ * `GSC2P_DebugMode`, $1a into the C2P info block — and the ABSOLUTE address
+ * `Gsc2pdebug` toggles when no library is open, because it is the one C2P
+ * routine with no null check. On the machine that is inside exec's exception
+ * vector table.
+ */
+const C2P_DEBUGMODE = 0x1a
+
 /** the two ports GameSupport reads, which are the two the hardware has */
 const MAX_GAMEPORT = 1
 
@@ -585,6 +593,75 @@ export function makeGameSupportInstructions(rt: Runtime): Record<string, Instr> 
      * *"Ranging from 0 to 64"*, and nothing checks: a larger level multiplies
      * past full volume and the replayer's own clamp is what stops it.
      */
+    /**
+     * Gsclosec2plib — routine 81 ($2780), and `L_CloseC2PLib` in the source.
+     * `GSCleanupC2P` then `CloseLibrary`, both behind a `beq .dontbother`.
+     */
+    'gsclosec2plib'() {
+      // no library open, so nothing to clean up and nothing to close
+    },
+
+    /**
+     * Gssetc2pcolour index, colour — routine 83 ($27e8), `L_GSSetC2PPalette`:
+     *
+     *     move.l (a3)+, d0 / move.l (a3)+, d1        colour, then index
+     *     move.l $62(a1), d2 / beq -> nothing        no info block
+     *     move.w #$ffff, $18(a0)                     GSC2P_ColourMapDirty
+     *     move.l $14(a0), d2 / beq -> nothing        GSC2P_ColourMap
+     *     lsl.l #$2, d1 / move.l d0, (a0, d1.w)      one LONGWORD an entry
+     *
+     * The arguments pop right to left, which is how the second one reaches d0
+     * and is the value. Nothing range-checks the index, and the displacement
+     * is `d1.w`, so an index above 16383 wraps into the low 64K of the map
+     * rather than running past it.
+     */
+    'gssetc2pcolour'(it) {
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      // no info block: `beq` before the map is even looked at
+    },
+
+    /**
+     * Gssetc2pregion x1,y1 To x2,y2 — routine 84 ($2812), `L_GSC2PSetRegion`.
+     *
+     * Four pops, right to left, so d0 is y2 and d3 is x1, and they go to
+     * `$c`/`$10`/`$a`/`$e` — Bottom, Right, Top and Left. Words, so a
+     * coordinate above 65535 wraps.
+     */
+    'gssetc2pregion'(it) {
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect('to')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      // `move.l $62(a0), d4 / beq` — no info block, so none of it is stored
+    },
+
+    /**
+     * Gsc2pdebug — routine 86 ($2846), four instructions:
+     *
+     *     movea.l $258(a5), a0
+     *     movea.l $62(a0), a0        the info block
+     *     not.w   $1a(a0)            GSC2P_DebugMode, toggled
+     *
+     * **There is no zero check**, and `L_GSC2PDebug` in the source has none
+     * either — every other C2P routine guards `$62` and this one does not. With
+     * no library open the block pointer is zero, so on the machine this is
+     * `not.w $1a` against absolute address $1a: the low word of exec's CHK
+     * exception vector, flipped. The port has no region there, so the write
+     * lands nowhere and the toggle is observably nothing; it is written as a
+     * real attempt rather than skipped, because the defect is the point.
+     */
+    'gsc2pdebug'() {
+      const m = rt.resolveWrite(C2P_DEBUGMODE)
+      if (!m || m.off + 1 >= m.data.length) return
+      m.data[m.off] = ~m.data[m.off]! & 0xff
+      m.data[m.off + 1] = ~m.data[m.off + 1]! & 0xff
+    },
+
     'gstrack volume'(it) {
       const v = it.evalInt() & 0xffff
       // `fadeTo` as well as `master`: P61's fade walks one toward the other
@@ -951,6 +1028,65 @@ export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
      * ProTracker, and is very useful for synchronising graphical lightshows
      * with music."*
      */
+    /**
+     * =Gsopenc2plib(name$) — routine 80 ($2714), and `L_OpenC2PLib` in the
+     * source, which is one of the few things `GameSupport.s` does carry whole:
+     *
+     *     move.w (a0)+, d7 / subq.w #$1, d7 / bmi -> 0    an EMPTY name fails
+     *     lea $157(a1), a2 / copy the string / terminate
+     *     lea $147(a1), a1 / OpenLibrary
+     *     move.l d0, $5e(a1) / beq -> 0
+     *     jsr -$2a(a6)  -> $62(a1)     GSGetC2PInfo
+     *     jsr -$1e(a6)                 GSInitialiseC2P, and its result IS the
+     *                                  answer
+     *
+     * $147 holds `"GSChunky2Planar/"`, exactly sixteen characters, and $157 is
+     * where the caller's string is appended — so `Gsopenc2plib("Fast")` opens
+     * `GSChunky2Planar/Fast`. The name is a MODULE and not a version.
+     *
+     * ## Why all seven of these answer "no library"
+     *
+     * The whole C2P block is a shim over `GSDrivers/` modules that were never
+     * released. The guide's Modules node describes the scheme in the future
+     * tense — *"Several of GameSupport's major features are (read: will be!)
+     * `subcontracted' to a separate module"*, with ChunkyToPlanar listed under
+     * "Modules planned so far" — and no such library is in the archive.
+     *
+     * So this is the same situation as `Gscontrollertype`'s driver, and the
+     * same verdict: the not-open arm is what every real machine ran, every
+     * routine has one, and none of them raise. The seven are complete, not
+     * stubbed. `src/amiga/planar.ts` is NOT wired in behind them: it is this
+     * port's own chunky/planar conversion, not Robinson's module, and pointing
+     * one at the other would invent a library rather than model one.
+     *
+     * The one routine with no such arm is `Gsc2pdebug`, and that is a defect
+     * rather than a difference — see it below.
+     */
+    'gsopenc2plib'(_, a): Value {
+      // the name is copied and the library opened whatever it says; with none
+      // installed the `beq` after OpenLibrary is the arm every call takes
+      void str(a[0]!)
+      return VI(0)
+    },
+
+    /**
+     * =Gschunky2planar — routine 82 ($27b2), `L_C2PGo`: `GSGoC2P` on the open
+     * library, or 0. It takes no argument; the region and the palette are set
+     * beforehand and the conversion reads them out of the info block.
+     */
+    'gschunky2planar'(): Value {
+      return VI(0)
+    },
+
+    /**
+     * =Gsc2pinfo — routine 85 ($283a), two instructions: the info block
+     * pointer as it stands. Zero until a library opens, which is the address a
+     * caller would then peek the structure through.
+     */
+    'gsc2pinfo'(): Value {
+      return VI(0)
+    },
+
     'gscmd8data'(): Value {
       const r = st().music.replay
       const v = r.cmd8 & 0xffff

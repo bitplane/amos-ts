@@ -1378,6 +1378,8 @@ export const FAITHFUL = new Set<string>([
   'gstrack play', 'gstrack stop', 'gstrack loop', 'gstrack loop on',
   'gstrack loop off', 'gstrack loop defer', 'gstrack gosub',
   'gstrack transpose', 'gstrack volume', 'gscmd8data',
+  'gsopenc2plib', 'gsclosec2plib', 'gschunky2planar', 'gssetc2pcolour',
+  'gssetc2pregion', 'gsc2pinfo', 'gsc2pdebug',
 
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
@@ -4213,6 +4215,37 @@ export const NOTES: Record<string, string> = {
     "Routine 25 ($2350), a `move.w` into $18. The player applies it with `mulu.w $1c32(pc),d0 / lsr.l #$6,d0` " +
     "($157c), which is Protracker.master's own arithmetic. Nothing range-checks: past 64 it multiplies beyond " +
     "full volume and only the replayer's clamp stops it.",
+  "gsopenc2plib":
+    "Routine 80 ($2714), and L_OpenC2PLib in the author's own source, which carries the whole C2P block. " +
+    "$147 holds exactly sixteen characters, \"GSChunky2Planar/\", and the caller's string is appended at $157, " +
+    "so Gsopenc2plib(\"Fast\") opens GSChunky2Planar/Fast. An EMPTY name never reaches OpenLibrary. The LVOs on " +
+    "that library are -30 GSInitialiseC2P, -36 GSCleanupC2P, -42 GSGetC2PInfo and -48 GSGoC2P. NOTE the whole " +
+    "block is a shim over GSDrivers/ modules that were never released --- the guide's Modules node lists " +
+    "ChunkyToPlanar under 'Modules planned so far' and describes the scheme in the future tense --- so the " +
+    "library-absent arm is what every real machine ran, and it is complete rather than stubbed. " +
+    "src/amiga/planar.ts is deliberately NOT wired in behind these: it is this port's own conversion, not " +
+    "Robinson's module, and pointing one at the other would invent a library rather than model one.",
+  "gsclosec2plib":
+    "Routine 81 ($2780): GSCleanupC2P then CloseLibrary, both behind a `beq .dontbother`.",
+  "gschunky2planar":
+    "Routine 82 ($27b2): GSGoC2P on the open library, or 0. Takes no argument --- the region and the palette are " +
+    "set beforehand and the conversion reads them out of the info block.",
+  "gssetc2pcolour":
+    "Routine 83 ($27e8). Arguments pop right to left, so the second reaches d0 and is the value. It marks " +
+    "GSC2P_ColourMapDirty ($18) before it looks at the map ($14) and one entry is a LONGWORD. Nothing " +
+    "range-checks the index, and the displacement is `d1.w`, so an index above 16383 wraps into the low 64K of " +
+    "the map rather than running past it.",
+  "gssetc2pregion":
+    "Routine 84 ($2812). Four pops right to left, so d0 is y2 and d3 is x1, into $c/$10/$a/$e --- Bottom, " +
+    "Right, Top and Left. Words, so a coordinate above 65535 wraps.",
+  "gsc2pinfo":
+    "Routine 85 ($283a), two instructions: the info block pointer as it stands, which is the address a caller " +
+    "would peek the structure through. Zero until a library opens.",
+  "gsc2pdebug":
+    "Routine 86 ($2846). DEFECT: `movea.l $62(a0),a0 / not.w $1a(a0)` with NO zero check, and the source agrees " +
+    "--- every other C2P routine guards $62 and this one does not. With no library open the block pointer is " +
+    "zero, so on the machine this toggles the low word of absolute $1a, inside exec's exception vector table. " +
+    "There is no region there here, so the write lands nowhere.",
   "gscmd8data":
     "Routine 14 ($229c), five instructions, and the read CLEARS the word. The bits come from command 8tb in the " +
     "module ($11f4): t is the tick to fire on and b the bit to set, with t=0 meaning the row tick. ProTracker " +

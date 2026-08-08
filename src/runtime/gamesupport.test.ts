@@ -814,3 +814,50 @@ describe('GameSupport: Gscmd8data', () => {
     expect(music(b).replay.cmd8).toBe(0b10010)
   })
 })
+
+describe('GameSupport: the chunky-to-planar shim, whose module nobody has', () => {
+  /**
+   * The whole C2P block is `L_OpenC2PLib` through `L_GSC2PDebug` in the
+   * author's own `GameSupport.s` — one of the few parts the archive carries
+   * whole — and every one of them is a wrapper over a `GSDrivers/` module.
+   *
+   * No such module ships or was ever released: the guide's Modules node has
+   * ChunkyToPlanar under *"Modules planned so far"* and describes the scheme in
+   * the future tense. So the library-absent arm is what every real machine ran,
+   * six of the seven routines have one, and none of those six raise. That
+   * makes these complete rather than stubbed.
+   */
+  it('Gsopenc2plib answers 0, and prefixes the name with GSChunky2Planar/', () => {
+    // `lea $147(a1),a1` for OpenLibrary and `lea $157(a1),a2` for the caller's
+    // string --- $147 holds exactly sixteen characters, "GSChunky2Planar/", so
+    // Gsopenc2plib("Fast") opens GSChunky2Planar/Fast
+    expect(num('Print Gsopenc2plib("Fast")')).toBe(0)
+    // and an empty name never reaches OpenLibrary at all:
+    // `move.w (a0)+,d7 / subq.w #$1,d7 / bmi`
+    expect(num('Print Gsopenc2plib("")')).toBe(0)
+  })
+
+  it('the readers answer 0 and the setters do nothing, without raising', () => {
+    expect(num('Print Gschunky2planar')).toBe(0)
+    expect(num('Print Gsc2pinfo')).toBe(0)
+    expect(() => run('Gsclosec2plib')).not.toThrow()
+    expect(() => run('Gssetc2pcolour 3,255')).not.toThrow()
+    expect(() => run('Gssetc2pregion 0,0 To 319,255')).not.toThrow()
+  })
+
+  it('Gsc2pdebug has NO null check, which is a defect and not a difference', () => {
+    // routine 86 ($2846) is `movea.l $62(a0),a0 / not.w $1a(a0)` and the source
+    // agrees --- every other C2P routine guards $62 and this one does not. With
+    // no library the block pointer is zero, so on the machine this toggles the
+    // low word of absolute $1a, inside exec's exception vector table. There is
+    // no region there here, so the write lands nowhere.
+    expect(() => run('Gsc2pdebug')).not.toThrow()
+  })
+
+  it('src/amiga/planar.ts is deliberately NOT wired in behind these', () => {
+    // it is this port's own chunky/planar conversion, not Robinson's module.
+    // Pointing one at the other would invent a library rather than model one,
+    // and would make Gsc2pinfo hand back a structure no program has ever seen.
+    expect(num('Print Gsc2pinfo')).toBe(0)
+  })
+})
