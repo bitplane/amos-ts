@@ -78,6 +78,7 @@ import { bltBitMap } from '../amiga/blitter'
 import { AmosError, VI, VS, funcCall, int } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
+import { sw16 } from './word'
 import type { Runtime } from './runtime'
 
 /** The extension data block at `$158(a5)`. */
@@ -458,9 +459,8 @@ const wrL = (b: Uint8Array, at: number, v: number): void => {
   wrW(b, at, (v >>> 16) & 0xffff)
   wrW(b, at + 2, v & 0xffff)
 }
-/** `ext.w` on a byte, and a word read as signed — both appear in routine 45. */
+/** `ext.w` on a byte — routine 45; the word form is sw16. */
 const sb = (v: number): number => (v << 24) >> 24
-const sw = (v: number): number => (v << 16) >> 16
 
 /** 64 bytes an animation: `asl.l #$6,d3` in every routine that indexes one. */
 const ANIM = 64
@@ -560,14 +560,14 @@ function stepAnims(rt: Runtime): void {
         // the movement arm: dx, dy, tile
         d4 = (d4 + sb(d2)) & 0xffff
         d6 = (d6 + 1) & 0xffff
-        if (sw(d6) >= sw(d1)) {
+        if (sw16(d6) >= sw16(d1)) {
           pc = 0x17e4
           continue
         }
         d5 = (d5 + sb(list[r + 0x14 + d6] ?? 0)) & 0xffff
         d2 = 0 // clr.l d2 — so a triple cut short here pokes tile 0
         d6 = (d6 + 1) & 0xffff
-        if (sw(d6) >= sw(d1)) {
+        if (sw16(d6) >= sw16(d1)) {
           pc = 0x17e4
           continue
         }
@@ -581,7 +581,7 @@ function stepAnims(rt: Runtime): void {
       }
       if (pc === 0x1756) {
         d6 = (d6 + 1) & 0xffff
-        if (sw(d6) >= sw(d1)) {
+        if (sw16(d6) >= sw16(d1)) {
           pc = 0x17e4
           continue
         }
@@ -1248,10 +1248,10 @@ export function makeTomeInstructions(rt: Runtime): Record<string, Instr> {
       s.handleScreen = screen
       s.handleX = x & 0xffff // move.w d0,$0(a0)
       s.handleY = y & 0xffff
-      const oldX = sw(s.handleOldX)
-      const oldY = sw(s.handleOldY)
-      const newX = sw(s.handleX)
-      const newY = sw(s.handleY)
+      const oldX = sw16(s.handleOldX)
+      const oldY = sw16(s.handleOldY)
+      const newX = sw16(s.handleX)
+      const newY = sw16(s.handleY)
       const settle = (): void => {
         s.handleOldX = s.handleX // $18e8
         s.handleOldY = s.handleY

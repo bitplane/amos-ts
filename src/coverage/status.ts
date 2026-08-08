@@ -2739,164 +2739,164 @@ export const NOTES: Record<string, string> = {
   "paste brik":
     "Routine 24 ($1048), 170 bytes. DEFECT: x and y are taken UNSIGNED.",
   "map scan x":
-    "Routine 8 (\\$840), 162 bytes, and Map Scan Y is routine 9 (\\$8e2), TEN bytes -- `Rbsr routine 8` then" +
-    "`move.l \\$44(a0),d3`, so asking for the y runs the whole search again and reads the other half of the answer" +
+    "Routine 8 (\\$840), 162 bytes, and Map Scan Y is routine 9 (\\$8e2), TEN bytes -- `Rbsr routine 8` then " +
+    "`move.l \\$44(a0),d3`, so asking for the y runs the whole search again and reads the other half of the answer " +
     "out of the same scratch pair at \\$40/\\$44. DEFECT: the map's own bounds do not work.",
   "map plot":
-    "Routine 20 (\\$f20), 120 bytes, and the argument order is the surprise: the pops are d5, d4, d6, and d5 is" +
-    "tested against \\$18 (the map height) and d4 against \\$16, so the FIRST argument is the tile -- `Map Plot" +
-    "t,x,y` and not `Map Plot x,y,t`. DEVIATION: only the far edges are checked, `cmp.w \\$18(a0),d5 / Rbge` and" +
-    "the same for x, with nothing testing for a negative one; a negative y then goes through an unsigned `mulu.w`" +
-    "and the write lands before the map bank. Not reproduced, as in Map Brik. NOTE: the bank is resolved through" +
-    "routine 66 BEFORE the capacity at \\$7a is tested, so a program that records without calling Map Anim Bank" +
-    "first gets Start()'s \"bank not reserved\" if the shipped default bank 9 does not exist, and silence if it" +
+    "Routine 20 (\\$f20), 120 bytes, and the argument order is the surprise: the pops are d5, d4, d6, and d5 is " +
+    "tested against \\$18 (the map height) and d4 against \\$16, so the FIRST argument is the tile -- `Map Plot " +
+    "t,x,y` and not `Map Plot x,y,t`. DEVIATION: only the far edges are checked, `cmp.w \\$18(a0),d5 / Rbge` and " +
+    "the same for x, with nothing testing for a negative one; a negative y then goes through an unsigned `mulu.w` " +
+    "and the write lands before the map bank. Not reproduced, as in Map Brik. NOTE: the bank is resolved through " +
+    "routine 66 BEFORE the capacity at \\$7a is tested, so a program that records without calling Map Anim Bank " +
+    "first gets Start()'s \"bank not reserved\" if the shipped default bank 9 does not exist, and silence if it " +
     "does",
   "map brik":
-    "Routine 23 ($fbc), 140 bytes, the map-editing counterpart of Paste Brik: the brik's cells are stamped into" +
-    "the MAP at (x,y) instead of drawn. DEVIATION: only the FAR edges are checked. Not reproduced: there is no" +
+    "Routine 23 ($fbc), 140 bytes, the map-editing counterpart of Paste Brik: the brik's cells are stamped into " +
+    "the MAP at (x,y) instead of drawn. DEVIATION: only the FAR edges are checked. Not reproduced: there is no " +
     "memory before a bank here to scribble on, and the cells that would land outside are skipped",
   "map base":
-    "Routine 28 ($1158), ten bytes: `movea.l $158(a5),a0 / move.l a0,d3`. NOTE: the block is an object here, not" +
-    "bytes at an address, so there is no pointer to give that would mean anything. APPROXIMATED in the value only" +
+    "Routine 28 ($1158), ten bytes: `movea.l $158(a5),a0 / move.l a0,d3`. NOTE: the block is an object here, not " +
+    "bytes at an address, so there is no pointer to give that would mean anything. APPROXIMATED in the value only " +
     "-- the routine itself is fully read, and it does nothing else.",
   "map anim":
-    "Routine 44 (\\$163e), 146 bytes, and the only keyword in TOME that takes a string. DEFECT: `neg.w` on a LONG" +
-    "register leaves the high word alone, so a negative number reaches `cmp.l \\$76(a0),d3` still looking negative" +
-    "and passes the capacity test whatever the capacity is; only the positive arm is bounded. DEFECT: the frame" +
-    "count stored at \\$a is the string's own length but the copy loop stops at 44 (`cmp.l #\\$2c,d1 / bge`), so a" +
-    "longer string leaves \\$a claiming frames that were never copied and the stepper reads them out of the next" +
-    "record. NOTE: \\$e is built with `mulu.w \\$16(a0),d5`, and \\$16 is a CACHE that only the drawing routines and" +
-    "Map Scan write; before any of those has run it still holds the shipped 200, so Map Anim called first" +
+    "Routine 44 (\\$163e), 146 bytes, and the only keyword in TOME that takes a string. DEFECT: `neg.w` on a LONG " +
+    "register leaves the high word alone, so a negative number reaches `cmp.l \\$76(a0),d3` still looking negative " +
+    "and passes the capacity test whatever the capacity is; only the positive arm is bounded. DEFECT: the frame " +
+    "count stored at \\$a is the string's own length but the copy loop stops at 44 (`cmp.l #\\$2c,d1 / bge`), so a " +
+    "longer string leaves \\$a claiming frames that were never copied and the stepper reads them out of the next " +
+    "record. NOTE: \\$e is built with `mulu.w \\$16(a0),d5`, and \\$16 is a CACHE that only the drawing routines and " +
+    "Map Scan write; before any of those has run it still holds the shipped 200, so Map Anim called first " +
     "computes an offset for a 200-wide map whatever the bank says.",
   "map handle":
-    "Routine 47 (\\$1824), 662 bytes, a fifth of the library and the reason the four edge draws exist. DEVIATION:" +
-    "the blit's size arguments start as the view's FAR corner rather than a width, and \\$19c8-\\$1a50 clip and" +
-    "clamp them against AMOS's screen structure at \\$4c/\\$4e before the call; our bltBitMap clips against the" +
-    "bitmap itself, so that arithmetic is the back-end's rather than transcribed. NOTE: `Rjsr` at \\$1990 is" +
-    "printed as `L_GetEc` by extdis and is not that -- it takes a screen NUMBER in d1 and returns that screen's" +
-    "plane table in d0 with its structure in a0. NOTE: the block ships \\$7e+\\$4 as ZERO, not -1, so without a Map" +
+    "Routine 47 (\\$1824), 662 bytes, a fifth of the library and the reason the four edge draws exist. DEVIATION: " +
+    "the blit's size arguments start as the view's FAR corner rather than a width, and \\$19c8-\\$1a50 clip and " +
+    "clamp them against AMOS's screen structure at \\$4c/\\$4e before the call; our bltBitMap clips against the " +
+    "bitmap itself, so that arithmetic is the back-end's rather than transcribed. NOTE: `Rjsr` at \\$1990 is " +
+    "printed as `L_GetEc` by extdis and is not that -- it takes a screen NUMBER in d1 and returns that screen's " +
+    "plane table in d0 with its structure in a0. NOTE: the block ships \\$7e+\\$4 as ZERO, not -1, so without a Map " +
     "Handle Init first the very first call compares against (0,0) and scrolls rather than redrawing",
   "map fall":
-    "Routine 50 (\\$1ae2), 458 bytes: Boulder Dash in one keyword. DEFECT: after a tile falls, `movem.l" +
-    "(a7)+,d5-d6` restores the FALLING tile's type and \\$1b38 copies it into the landing type, though that cell" +
-    "now holds the argument -- so the scan believes the vacated cell is still solid and the tile above it will" +
-    "not fall in the same call. DEFECT: a sideways roll reaches the recorder with d0 still the column loop" +
-    "variable, so the update record names the cell the tile came FROM; the vacated cell is recorded twice and the" +
-    "arrival never, and under Map Update a rolling tile leaves a trail. NOTE: the recorder at \\$1bb2 never tests" +
-    "\\$68, so Map Fall appends to the update list and arms it whether or not Map Update On was ever called, where" +
+    "Routine 50 (\\$1ae2), 458 bytes: Boulder Dash in one keyword. DEFECT: after a tile falls, `movem.l " +
+    "(a7)+,d5-d6` restores the FALLING tile's type and \\$1b38 copies it into the landing type, though that cell " +
+    "now holds the argument -- so the scan believes the vacated cell is still solid and the tile above it will " +
+    "not fall in the same call. DEFECT: a sideways roll reaches the recorder with d0 still the column loop " +
+    "variable, so the update record names the cell the tile came FROM; the vacated cell is recorded twice and the " +
+    "arrival never, and under Map Update a rolling tile leaves a trail. NOTE: the recorder at \\$1bb2 never tests " +
+    "\\$68, so Map Fall appends to the update list and arms it whether or not Map Update On was ever called, where " +
     "routine 45 and Map Swap Tile both check first",
   "map an move":
-    "Routine 56 (\\$1e52), 40 bytes: two word stores into \\$0 and \\$2 of the animation record, and nothing else." +
+    "Routine 56 (\\$1e52), 40 bytes: two word stores into \\$0 and \\$2 of the animation record, and nothing else. " +
     "DEFECT: the map offset at \\$e is NOT recomputed.",
   "map an point":
-    "Routine 54 (\\$1dde), 36 bytes: the animation's current frame index, straight out of \\$c. DEVIATION: out of" +
-    "range it sets neither d3 nor d2 -- it returns with the result registers holding whatever the last extension" +
-    "function left there, so the answer is the previous call's value WITH the previous call's type, and a string" +
+    "Routine 54 (\\$1dde), 36 bytes: the animation's current frame index, straight out of \\$c. DEVIATION: out of " +
+    "range it sets neither d3 nor d2 -- it returns with the result registers holding whatever the last extension " +
+    "function left there, so the answer is the previous call's value WITH the previous call's type, and a string " +
     "function ahead of it would make `=Map An Point(999)` evaluate to a string.",
   "reserve pbobs":
-    "Routine 6 (\\$10e2), 100 bytes. NOTE: the cap is 64, `cmp.l #\\$40,d0 / Rbhi`, and that is a property of the" +
-    "SHAREWARE build we hold; the doc says a registered copy does 256 and that copy is not here to read. NOTE:" +
-    "the `tst.w \\$c(a2) / Rbne routine 125` at \\$10ea is dead code --- the Pbob Erase two instructions earlier" +
+    "Routine 6 (\\$10e2), 100 bytes. NOTE: the cap is 64, `cmp.l #\\$40,d0 / Rbhi`, and that is a property of the " +
+    "SHAREWARE build we hold; the doc says a registered copy does 256 and that copy is not here to read. NOTE: " +
+    "the `tst.w \\$c(a2) / Rbne routine 125` at \\$10ea is dead code --- the Pbob Erase two instructions earlier " +
     "ends with `clr.w \\$c(a2)`, so the field it tests is always zero by the time it is tested.",
   "pbob erase":
-    "Routine 10 (\\$15cc), 138 bytes. DEVIATION, and it is the significant one in this extension: routine 0" +
-    "installs a reset hook at \\$6e0 into both \\$1bc(a5) and \\$1c0(a5), and that hook calls Pbob Erase and Psprite" +
-    "Erase --- both reproduced --- but FIRST calls \\$7e6, which opens Screen 0 at 320x200x4 Lowres, prints" +
-    "\"PowerBobs V1.0\", \"Unregistered version.\", \"(c) PowerSoft\" and \"Press the Enter key to continue.\" (strings" +
+    "Routine 10 (\\$15cc), 138 bytes. DEVIATION, and it is the significant one in this extension: routine 0 " +
+    "installs a reset hook at \\$6e0 into both \\$1bc(a5) and \\$1c0(a5), and that hook calls Pbob Erase and Psprite " +
+    "Erase --- both reproduced --- but FIRST calls \\$7e6, which opens Screen 0 at 320x200x4 Lowres, prints " +
+    "\"PowerBobs V1.0\", \"Unregistered version.\", \"(c) PowerSoft\" and \"Press the Enter key to continue.\" (strings " +
     "at \\$900/\\$910/\\$926/\\$932) and then spins `cmp.w #\\$d,d1 / bne \\$8b4` until Return arrives. Not reproduced.",
   "x pbob":
-    "Routines 13 (\\$20d0), 14 (\\$20f4) and 5 (\\$10ba) --- X Pbob, Y Pbob and I Pbob, thirty-six to forty bytes" +
+    "Routines 13 (\\$20d0), 14 (\\$20f4) and 5 (\\$10ba) --- X Pbob, Y Pbob and I Pbob, thirty-six to forty bytes " +
     "each and the same shape. DEVIATION: none of the three tests the structure pointer, where Set Pbob does.",
   "pbob":
-    "Routine 2 (\\$f64), 246 bytes for `Pbob nr,x,y,image`, and routine 15 (\\$211a) for the array form `Pbob" +
-    "ax,ay,ai,start To end`; neither appears in extdis's --list because both are unnamed alternate entries under" +
-    "the `!pbob` primary. NOTE: the array form is documented as skipping three tests the single form makes ---" +
-    "the width, the height against the maximum, and the array length --- which the doc spells out and advises" +
+    "Routine 2 (\\$f64), 246 bytes for `Pbob nr,x,y,image`, and routine 15 (\\$211a) for the array form `Pbob " +
+    "ax,ay,ai,start To end`; neither appears in extdis's --list because both are unnamed alternate entries under " +
+    "the `!pbob` primary. NOTE: the array form is documented as skipping three tests the single form makes --- " +
+    "the width, the height against the maximum, and the array length --- which the doc spells out and advises " +
     "testing with the slow form first",
   "pbob off":
-    "Routines 3 (\\$105a), 4 (\\$108a) and 21 (\\$25fe) --- three forms of one keyword, 48 to 80 bytes each, and all" +
-    "three do the same single thing: `st.b \\$12(a1)`, the off-screen flag Pbob's own clip test writes. DEVIATION:" +
-    "none of the three tests the structure pointer before writing through it, where Set Pbob does, so on the real" +
+    "Routines 3 (\\$105a), 4 (\\$108a) and 21 (\\$25fe) --- three forms of one keyword, 48 to 80 bytes each, and all " +
+    "three do the same single thing: `st.b \\$12(a1)`, the off-screen flag Pbob's own clip test writes. DEVIATION: " +
+    "none of the three tests the structure pointer before writing through it, where Set Pbob does, so on the real " +
     "machine Pbob Off over a reserved-but-undefined Pbob writes a byte to address \\$12.",
   "pswap clear":
     "Routine 39 (\\$33fe), TWELVE bytes: `eori.w #\\$4,\\$14(a2)`.",
   "pdraw 25fps":
     "Routine 38 (\\$33da), 36 bytes.",
   "pbob draw":
-    "Routine 9 (\\$1318), 692 bytes, the biggest routine in the extension, and it makes TWO passes over the range." +
-    "NOTE: BLTCON0 is \\$09f0 in Pbob Draw, Pbob Clear and Pbob Update alike --- USEA and USED only, minterm \\$f0," +
-    "D = A. That is the sharpest difference from an AMOS bob, it is in no documentation, and only the register" +
-    "value says it. NOTE: the blitter fields the routine computes --- \\$20 a destination byte offset, \\$18 a" +
-    "BLTSIZE, \\$16 a modulo, \\$1a a plane count --- are kept here as the clipped rectangle they describe, because" +
+    "Routine 9 (\\$1318), 692 bytes, the biggest routine in the extension, and it makes TWO passes over the range. " +
+    "NOTE: BLTCON0 is \\$09f0 in Pbob Draw, Pbob Clear and Pbob Update alike --- USEA and USED only, minterm \\$f0, " +
+    "D = A. That is the sharpest difference from an AMOS bob, it is in no documentation, and only the register " +
+    "value says it. NOTE: the blitter fields the routine computes --- \\$20 a destination byte offset, \\$18 a " +
+    "BLTSIZE, \\$16 a modulo, \\$1a a plane count --- are kept here as the clipped rectangle they describe, because " +
     "nothing reads them from BASIC and the pixels are what has to match.",
   "pbob clear":
-    "Routine 8 (\\$1246), 210 bytes: the save buffers back onto the screen, over the range given, through the" +
+    "Routine 8 (\\$1246), 210 bytes: the save buffers back onto the screen, over the range given, through the " +
     "CLEAR selector at \\$14(a2) that Pswap Clear flips.",
   "pbob update":
-    "Routine 22 (\\$264e), 786 bytes: Pbob Clear and Pbob Draw over EVERY Pbob in one call, through a THIRD" +
+    "Routine 22 (\\$264e), 786 bytes: Pbob Clear and Pbob Draw over EVERY Pbob in one call, through a THIRD " +
     "selector at \\$16(a2) --- draw has \\$12 and clear has \\$14.",
   "pinc":
-    "Routines 58-77, the array arithmetic block, and the fastest way a program moves a whole table of Pbob" +
-    "coordinates. DEVIATION: these reach whatever the address space makes CONTIGUOUS, which is memory banks ---" +
-    "the doc's own second option, \"It is also possible to use AMOS/Pro banks for storing the X/Y coordinates and" +
+    "Routines 58-77, the array arithmetic block, and the fastest way a program moves a whole table of Pbob " +
+    "coordinates. DEVIATION: these reach whatever the address space makes CONTIGUOUS, which is memory banks --- " +
+    "the doc's own second option, \"It is also possible to use AMOS/Pro banks for storing the X/Y coordinates and " +
     "the Image of the Pbob's\" --- but NOT a Varptr into a BASIC array.",
   "pmul":
-    "Routine 62 (\\$3bd8), with Pmul Shift routine 63 and Pdiv routine 77. NOTE: `adda.l d6,a1` at \\$3efc adds the" +
-    "start offset to a1, which Pdiv never loads and never reads --- three pointers adjusted where only two were" +
+    "Routine 62 (\\$3bd8), with Pmul Shift routine 63 and Pdiv routine 77. NOTE: `adda.l d6,a1` at \\$3efc adds the " +
+    "start offset to a1, which Pdiv never loads and never reads --- three pointers adjusted where only two were " +
     "popped.",
   "same":
     "Routine 68 (\\$3cf4), TEN bytes and no arguments: `move.l #\\$80000000,d3 / moveq #\\$0,d2 / rts`.",
   "psprite max":
-    "Routine 35 (\\$337a), 28 bytes: `cmp.l #\\$80,d0 / Rbhi` caps it at 128 and `subq.l #\\$1,d0` stores the count" +
+    "Routine 35 (\\$337a), 28 bytes: `cmp.l #\\$80,d0 / Rbhi` caps it at 128 and `subq.l #\\$1,d0` stores the count " +
     "LESS ONE at \\$24e, which is why the block's shipped 63 means 64 Psprites.",
   "set psprite colours":
-    "Routine 43 (\\$3504), 40 bytes, and it accepts 16 or 4 and nothing else --- `Rbne routine 125` for anything" +
+    "Routine 43 (\\$3504), 40 bytes, and it accepts 16 or 4 and nothing else --- `Rbne routine 125` for anything " +
     "third.",
   "x psprite":
     "Routines 36 (\\$3396) and 37 (\\$33b8).",
   "xscr mouse":
-    "Routines 24 (\\$29ac) and 25 (\\$29c2), 22 bytes each: AMOS's own mouse position out of \\$-1580(a5) and" +
-    "\\$-157e(a5), handed to `jsr \\$30(a0)` through -\\$4(a5), which is the hardware-to-screen conversion X Screen" +
+    "Routines 24 (\\$29ac) and 25 (\\$29c2), 22 bytes each: AMOS's own mouse position out of \\$-1580(a5) and " +
+    "\\$-157e(a5), handed to `jsr \\$30(a0)` through -\\$4(a5), which is the hardware-to-screen conversion X Screen " +
     "and Y Screen also use.",
   "pbob fastcol":
-    "Routines 16 (\\$22c0) and 17 (\\$2332) for Pbob-vs-Pbob, with the same pair in 20/19 (Pbob vs Psprite), 52/53" +
+    "Routines 16 (\\$22c0) and 17 (\\$2332) for Pbob-vs-Pbob, with the same pair in 20/19 (Pbob vs Psprite), 52/53 " +
     "(Psprite vs Psprite) and 56/55 (Psprite vs Pbob).",
   "pfast bobcol":
-    "Routines 18 (\\$2426), 50, 54 and 57 --- one reader a pairing, picking up what the matching Fastcol left in" +
+    "Routines 18 (\\$2426), 50, 54 and 57 --- one reader a pairing, picking up what the matching Fastcol left in " +
     "its table.",
   "psync every":
     "Routines 42 (\\$34d4), 49 (\\$376a) and 48 (\\$374a).",
   "pchannel to pbob":
-    "Routines 40 (\\$340a) and 44 (\\$352c): attach an AMAL channel to a Pbob or Psprite so the channel's movement" +
+    "Routines 40 (\\$340a) and 44 (\\$352c): attach an AMAL channel to a Pbob or Psprite so the channel's movement " +
     "drives it.",
   "psync pbob":
-    "Routines 41 (\\$3460) and 45 (\\$3580): run the attached channels over a range of objects, but only when the" +
-    "countdown at \\$28 (or \\$24) has expired --- `tst.w \\$28(a2) / bne` skips the whole thing and `move.w" +
-    "\\$2a(a2),\\$28(a2)` reloads it. DEVIATION: the channel is stepped through the core AMAL interpreter rather" +
+    "Routines 41 (\\$3460) and 45 (\\$3580): run the attached channels over a range of objects, but only when the " +
+    "countdown at \\$28 (or \\$24) has expired --- `tst.w \\$28(a2) / bne` skips the whole thing and `move.w " +
+    "\\$2a(a2),\\$28(a2)` reloads it. DEVIATION: the channel is stepped through the core AMAL interpreter rather " +
     "than PowerBobs' own copy.",
   "convert sprites":
-    "Routine 28 (\\$2a34), 776 bytes: AMOS's sprite bank turned into PowerBobs' own chip-memory copy, one" +
-    "`AllocMem(\\$4e20, MEMF_CHIP|MEMF_CLEAR)` carved into sixteen chunks of \\$4e2 whose addresses fill the tables" +
-    "at \\$1bc and \\$1fc. NOTE: only the per-sprite HEIGHT survives into anything a program can observe --- it is" +
+    "Routine 28 (\\$2a34), 776 bytes: AMOS's sprite bank turned into PowerBobs' own chip-memory copy, one " +
+    "`AllocMem(\\$4e20, MEMF_CHIP|MEMF_CLEAR)` carved into sixteen chunks of \\$4e2 whose addresses fill the tables " +
+    "at \\$1bc and \\$1fc. NOTE: only the per-sprite HEIGHT survives into anything a program can observe --- it is " +
     "what Psprite Fastcol adds to a collision box.",
   "psprite":
-    "Routine 30 (\\$2e20), 66 bytes, with the array form at routine 51 (\\$37da); both are unnamed alternates under" +
+    "Routine 30 (\\$2e20), 66 bytes, with the array form at routine 51 (\\$37da); both are unnamed alternates under " +
     "`!psprite`.",
   "psprite off":
     "Routines 32 (\\$2e80), 31 (\\$2e62) and 33 (\\$2e9e), three forms of one keyword.",
   "psprite update":
-    "Routine 34 (\\$2ed0), 1194 bytes and the largest routine in the extension after Pbob Draw. DEVIATION: this" +
-    "hands each entry to the runtime's own hardware sprites instead. Which sprite is where, showing which image," +
-    "is the same; the copper list the routine writes is not reproduced, because the display path here is a copper" +
+    "Routine 34 (\\$2ed0), 1194 bytes and the largest routine in the extension after Pbob Draw. DEVIATION: this " +
+    "hands each entry to the runtime's own hardware sprites instead. Which sprite is where, showing which image, " +
+    "is the same; the copper list the routine writes is not reproduced, because the display path here is a copper " +
     "interpreter the core sprite system already feeds",
   "serial error":
     "Returns 0.",
   "serial speed":
-    "Faithful, and worth a note only because the token table declares it TWICE — `+IO_Ports.s:117` and `:123`" +
-    "both emit `dc.b \"serial spee\",\"d\"+$80,\"I0,0\",-1` above the same `dc.w L_InSerialSpeed,L_Nul`, so ids $0048" +
+    "Faithful, and worth a note only because the token table declares it TWICE — `+IO_Ports.s:117` and `:123` " +
+    "both emit `dc.b \"serial spee\",\"d\"+$80,\"I0,0\",-1` above the same `dc.w L_InSerialSpeed,L_Nul`, so ids $0048 " +
     "and $0086 are the same keyword pointing at the same routine. Evidence: routine 12 ($440).",
   "serial x":
-    "The XON/XOFF characters are stored in IO_CTLCHAR and the enable flag is honoured, but Web Serial has no" +
+    "The XON/XOFF characters are stored in IO_CTLCHAR and the enable flag is honoured, but Web Serial has no " +
     "software flow control at all — it offers 'none' or 'hardware' only.",
   "serial parity":
     "The five AMOS settings are all recorded, but Web Serial takes none/even/odd only.",
@@ -2907,7 +2907,7 @@ export const NOTES: Record<string, string> = {
   "printer error":
     "Returns 0, for the same reason as Serial Error: nothing is attached, so nothing fails",
   "printer online":
-    "Returns 0, meaning not online — and 0 is the DEFAULT in FnPrinterOnline (+IO_Ports.s:780), not its failure" +
+    "Returns 0, meaning not online — and 0 is the DEFAULT in FnPrinterOnline (+IO_Ports.s:780), not its failure " +
     "path as this note used to say.",
   "printer base":
     "Returns 0 -- the PrinterData/IORequest address, which does not exist here.",
@@ -2916,397 +2916,397 @@ export const NOTES: Record<string, string> = {
   "parallel base":
     "Returns 0.",
   "printer dump":
-    "Rasterises the region and hands it to the host as a page (host.printerPage); where it then goes -- a print" +
+    "Rasterises the region and hands it to the host as a page (host.printerPage); where it then goes -- a print " +
     "dialog, a download -- is the host's decision, as it is the printer driver's on a real machine.",
   "parallel input$":
     "Returns the empty string.",
   "multi no":
-    "SetTaskPri(FindTask(NULL), 20) in the binary, which is exactly what the manual describes. There is no" +
-    "scheduler here to apply a priority to, so the value is recorded and nothing else happens — and the" +
-    "consequence the manual warns about, that under AMOS 1.3 'the keyboard and mouse are disabled', is" +
-    "deliberately not reproduced: it is the reason Left Click and Raw Key exist, and simulating an input blackout" +
+    "SetTaskPri(FindTask(NULL), 20) in the binary, which is exactly what the manual describes. There is no " +
+    "scheduler here to apply a priority to, so the value is recorded and nothing else happens — and the " +
+    "consequence the manual warns about, that under AMOS 1.3 'the keyboard and mouse are disabled', is " +
+    "deliberately not reproduced: it is the reason Left Click and Raw Key exist, and simulating an input blackout " +
     "would break programs rather than emulate one",
   "multi yes":
     "The counterpart, SetTaskPri(..., 0).",
   "amos pri":
-    "Records a task priority. Routine 125 ($4600) tests both ends of the documented -128..20 range and branches" +
-    "to its own rts when either fails, so an out-of-range value is silently IGNORED — neither clamped nor" +
+    "Records a task priority. Routine 125 ($4600) tests both ends of the documented -128..20 range and branches " +
+    "to its own rts when either fails, so an out-of-range value is silently IGNORED — neither clamped nor " +
     "reported — and that is reproduced: set 100 and the priority stays where it was",
   "vbl wait":
-    "Four instructions in the binary: a busy-wait on the low byte of VHPOSR ($dff006) until it equals the" +
-    "requested line. That is sub-frame beam racing, and its whole purpose — the manual's example scrolls only the" +
-    "top 100 lines and then waits for line 101, so the work happens in scanlines the display is not using — has" +
+    "Four instructions in the binary: a busy-wait on the low byte of VHPOSR ($dff006) until it equals the " +
+    "requested line. That is sub-frame beam racing, and its whole purpose — the manual's example scrolls only the " +
+    "top 100 lines and then waits for line 101, so the work happens in scanlines the display is not using — has " +
     "no meaning against a compositor that draws once per frame.",
   "raw key":
-    "The manual says 'Does the same thing as the Key State function but works even if multitasking is disabled." +
+    "The manual says 'Does the same thing as the Key State function but works even if multitasking is disabled. " +
     "Evidence: routine 22 ($1150).",
   "is raw key":
     "Routine 171 ($5072) is `not.b` / `ror.b #1` on $bfec01 and nothing else, and the manual's warning — 'Beware!",
   "check":
-    "TURBO's own zone system, which the manual is explicit is 'not compatible with the normal Zone commands'. The" +
-    "manual's \"Returns 1 is the result is true, 0 if not\" is true of zone 1 and of nothing else: routine 335" +
-    "writes the zone's own number into the entry's leading word and routine 16 returns that word, so a hit on" +
+    "TURBO's own zone system, which the manual is explicit is 'not compatible with the normal Zone commands'. The " +
+    "manual's \"Returns 1 is the result is true, 0 if not\" is true of zone 1 and of nothing else: routine 335 " +
+    "writes the zone's own number into the entry's leading word and routine 16 returns that word, so a hit on " +
     "zone 7 answers 7.",
   "reserve check":
-    "Routine 337 ($6dee) refuses to reserve twice — TURBO error 0, \"Check allready reserved\" — and bounds the" +
-    "count at 32000 BEFORE that test. Not reproduced: a negative count passes the signed bound and then goes" +
-    "through `mulu.w #$a`, which reads it unsigned and asks AllocMem for six hundred kilobytes; this treats it as" +
+    "Routine 337 ($6dee) refuses to reserve twice — TURBO error 0, \"Check allready reserved\" — and bounds the " +
+    "count at 32000 BEFORE that test. Not reproduced: a negative count passes the signed bound and then goes " +
+    "through `mulu.w #$a`, which reads it unsigned and asks AllocMem for six hundred kilobytes; this treats it as " +
     "zero",
   "reset check":
-    "Routine 334 ($6d4c) bounds the zone number LESS ONE against the count, where Set Check next door bounds the" +
+    "Routine 334 ($6d4c) bounds the zone number LESS ONE against the count, where Set Check next door bounds the " +
     "number itself.",
   "set check":
     "`movem.w d0-d4,(a0)` stores the zone number and the four coordinates exactly as they were pushed.",
   "hit bob check":
-    "The manual calls dx and dy \"a displacement in opposite to the bob's hot spot\", and routine 136 ($472a) is" +
+    "The manual calls dx and dy \"a displacement in opposite to the bob's hot spot\", and routine 136 ($472a) is " +
     "`add.l (a3)+,d2 / add.l (a3)+,d1` — it ADDS them, in the same direction Hit Bob Zone does.",
   "hit spr check":
-    "Routine 21 ($10ce) is Hit Bob Check with one extra instruction, `jsr $30(a0)` after the displacement is" +
-    "added: Check zones are screen rectangles — 'Define a rectangular screen area' — and a sprite's position is" +
-    "in hardware coordinates, so the pair is converted before the scan, the same conversion Hzone makes for Hit" +
+    "Routine 21 ($10ce) is Hit Bob Check with one extra instruction, `jsr $30(a0)` after the displacement is " +
+    "added: Check zones are screen rectangles — 'Define a rectangular screen area' — and a sprite's position is " +
+    "in hardware coordinates, so the pair is converted before the scan, the same conversion Hzone makes for Hit " +
     "Spr Zone",
   "x icon":
-    "Routines 87-89 ($330e, $334e, $3390) walk the bank list for type 2 themselves rather than asking AMOS, and" +
-    "every step of the way out is an error: `Rble routine 62` for a number at or below zero, routine 130 (AMOS" +
-    "error 36, Bank not reserved) for no icon bank, routine 131 (error 74, Icon not defined) for a number past" +
-    "the count or a hole in the table. Note they ask for the icon bank unconditionally where Icon Check reads its" +
+    "Routines 87-89 ($330e, $334e, $3390) walk the bank list for type 2 themselves rather than asking AMOS, and " +
+    "every step of the way out is an error: `Rble routine 62` for a number at or below zero, routine 130 (AMOS " +
+    "error 36, Bank not reserved) for no icon bank, routine 131 (error 74, Icon not defined) for a number past " +
+    "the count or a hole in the table. Note they ask for the icon bank unconditionally where Icon Check reads its " +
     "bank number out of the Scene Icon Bank setting, so the two disagree about which bank 'the icons' means",
   "workbench open":
-    "The counterpart to Close Workbench, which this port already treats as faithful because there is no Workbench" +
+    "The counterpart to Close Workbench, which this port already treats as faithful because there is no Workbench " +
     "memory to free.",
   "memory fill":
-    "Both fill loops in routine 140 ($4810) decrement the count after writing and continue while it is not yet" +
-    "negative, so the region is inclusive of the END address: Memory Fill a To b writes b-a+1 bytes. The manual's" +
-    "own example, \"Memory Fill Start(6) to Bank End (6),A$\", therefore writes one byte past the bank, because" +
+    "Both fill loops in routine 140 ($4810) decrement the count after writing and continue while it is not yet " +
+    "negative, so the region is inclusive of the END address: Memory Fill a To b writes b-a+1 bytes. The manual's " +
+    "own example, \"Memory Fill Start(6) to Bank End (6),A$\", therefore writes one byte past the bank, because " +
     "Bank End is already one past the last byte.",
   "byte hunt":
-    "Byte Hunt and Word Hunt are the same ninety bytes at two operand sizes, and three things follow that the" +
+    "Byte Hunt and Word Hunt are the same ninety bytes at two operand sizes, and three things follow that the " +
     "manual does not say.",
   "string hunt":
     "Two deviations, both at the edges. Evidence: Routine 169 ($4f84).",
   "t clip":
-    "Routine 149 ($4b0c) is divs.w then muls.w on a longword variable, guarded by a longword test. What is not" +
-    "reproduced is the divisor above 65535 whose low word is zero — that passes the guard and then takes the 68k" +
-    "divide-by-zero exception, and with no trap to take it raises the same illegal function call the guard would" +
+    "Routine 149 ($4b0c) is divs.w then muls.w on a longword variable, guarded by a longword test. What is not " +
+    "reproduced is the divisor above 65535 whose low word is zero — that passes the guard and then takes the 68k " +
+    "divide-by-zero exception, and with no trap to take it raises the same illegal function call the guard would " +
     "have",
   "line 3d":
-    "Routine 41 ($155e) projects with `asl.l #$7` then `divs.w` — sixteen bits of quotient for a dividend that" +
+    "Routine 41 ($155e) projects with `asl.l #$7` then `divs.w` — sixteen bits of quotient for a dividend that " +
     "has just been shifted up seven places.",
   "bank end":
-    "Routine 312 ($5dc4) tells a sprite or icon bank from a data bank by comparing the longword at a0-8 — the" +
-    "first half of the eight-character bank name — with 'Icon' and 'Spri', and answers the negated image count" +
+    "Routine 312 ($5dc4) tells a sprite or icon bank from a data bank by comparing the longword at a0-8 — the " +
+    "first half of the eight-character bank name — with 'Icon' and 'Spri', and answers the negated image count " +
     "for those.",
   "plane shift up":
-    "Routines 79 and 80 ($22ea, $235e) open `cmp.w d6,d7 / Rble routine 62`: the range has to be at least two" +
+    "Routines 79 and 80 ($22ea, $235e) open `cmp.w d6,d7 / Rble routine 62`: the range has to be at least two " +
     "planes wide, so shifting a single plane onto itself is an error rather than a no-op.",
   "plane update":
-    "Routine 81 ($23d2) CopyMems the screen's $48-byte header aside, adds the six-long offset table into all" +
+    "Routine 81 ($23d2) CopyMems the screen's $48-byte header aside, adds the six-long offset table into all " +
     "three plane tables, asks AMOS to rebuild the display, and CopyMems the header back.",
   "build static block":
-    "Routine 95 ($35e8) walks AMOS's block list and indexes each entry by its own number with no bounds check —" +
-    "\"Be sure that you have reserved enough memory for all entries!\" — and no test that a table was ever reserved" +
+    "Routine 95 ($35e8) walks AMOS's block list and indexes each entry by its own number with no bounds check — " +
+    "\"Be sure that you have reserved enough memory for all entries!\" — and no test that a table was ever reserved " +
     "either, so with none it writes through a null pointer.",
   "f paste icon":
     "",
   "f 16 icon":
-    "Routines 83 and 84 ($258a, $2c94) clip at the NEAR edge, which is what really separates them from the rest" +
-    "of the family: a negative coordinate is subtracted off the icon's own height or width and the remainder is" +
+    "Routines 83 and 84 ($258a, $2c94) clip at the NEAR edge, which is what really separates them from the rest " +
+    "of the family: a negative coordinate is subtracted off the icon's own height or width and the remainder is " +
     "drawn from the screen edge.",
   "f 16proc icon":
-    "The five F icon keywords differ in what they refuse to do rather than in what they draw: the" +
-    "width-specialised ones skip the 16-pixel chop of X, and the two processor ones drive the CPU instead of the" +
-    "blitter and lose the mask with it ('Masking is not supported!'). Both of those survive here — and so does" +
-    "the one the manual never mentions, that routines 85 and 86 apply `andi.w #$fff0` to the Y coordinate as well" +
-    "as the X, so the icon lands on a sixteen-LINE boundary too. What cannot is the point of them — there is no" +
-    "blitter to be faster than, so F 16proc Icon and F 32proc Icon are the same speed as the rest, where on a" +
+    "The five F icon keywords differ in what they refuse to do rather than in what they draw: the " +
+    "width-specialised ones skip the 16-pixel chop of X, and the two processor ones drive the CPU instead of the " +
+    "blitter and lose the mask with it ('Masking is not supported!'). Both of those survive here — and so does " +
+    "the one the manual never mentions, that routines 85 and 86 apply `andi.w #$fff0` to the Y coordinate as well " +
+    "as the X, so the icon lands on a sixteen-LINE boundary too. What cannot is the point of them — there is no " +
+    "blitter to be faster than, so F 16proc Icon and F 32proc Icon are the same speed as the rest, where on a " +
     "real machine choosing the wrong one for your CPU was the difference the manual spends a page on",
   "icon check":
-    "Reports -1 for a defined icon with no mask, 1 with one, 0 for a missing one, and 0 rather than an error when" +
-    "there is no bank — 'in AMOSPro you don't get an error'. It can even check BOB/SPRITE banks, as the bank has" +
-    "the same format.' It never checks the lookup succeeded, so a missing bank reads address zero on the Amiga;" +
+    "Reports -1 for a defined icon with no mask, 1 with one, 0 for a missing one, and 0 rather than an error when " +
+    "there is no bank — 'in AMOSPro you don't get an error'. It can even check BOB/SPRITE banks, as the bank has " +
+    "the same format.' It never checks the lookup succeeded, so a missing bank reads address zero on the Amiga; " +
     "here it gives the documented 0",
   "scene 16 view":
-    "The whole viewport family carries a regression the 2.15 rewrite introduced, and it is reproduced rather than" +
+    "The whole viewport family carries a regression the 2.15 rewrite introduced, and it is reproduced rather than " +
     "corrected.",
   "scene bank":
-    "Holds the bank number and resolves it at each use, where the library holds the pointer GetBank returned." +
+    "Holds the bank number and resolves it at each use, where the library holds the pointer GetBank returned. " +
     "Scene Bank also resolves the icon bank, so a missing icon bank is reported here, as the manual says it is",
   "scene icon bank":
-    "Bank 1 is the sprite bank and bank 2 the icon bank; any other number can only be a plain memory bank in this" +
-    "port's model, so it fails the routine's 'Icon'/'Spri' cookie test with the extension's own error 26. The" +
-    "manual's suggestion of appending bobs and sprites to a single bank and switching to it works for 1 and 2," +
+    "Bank 1 is the sprite bank and bank 2 the icon bank; any other number can only be a plain memory bank in this " +
+    "port's model, so it fails the routine's 'Icon'/'Spri' cookie test with the extension's own error 26. The " +
+    "manual's suggestion of appending bobs and sprites to a single bank and switching to it works for 1 and 2, " +
     "which is what programs use",
   "scene 16 change":
-    "The manual says \"the change made on screen and in the Scene bank\"; the routine ends at the bank write and" +
+    "The manual says \"the change made on screen and in the Scene bank\"; the routine ends at the bank write and " +
     "draws nothing.",
   "scene scan y":
     "Undocumented in either manual.",
   "scene check":
-    "The bound is cmp.w/Rbhi, a strictly-greater test, so a coordinate equal to the width or height is accepted" +
+    "The bound is cmp.w/Rbhi, a strictly-greater test, so a coordinate equal to the width or height is accepted " +
     "and indexes one tile past the row or the map.",
   "scene 32 draw":
-    "Chops XSCREEN with andi.w #$fff0, the same 16-pixel mask the 16 version uses, despite the manual's" +
+    "Chops XSCREEN with andi.w #$fff0, the same 16-pixel mask the 16 version uses, despite the manual's " +
     "\"XSCREEN/YSCREEN are chopped to lie on a 16/32 bit boundary\".",
   "scene convert":
-    "The source bank is fetched with no check and read immediately, so on the Amiga a missing bank reads address" +
+    "The source bank is fetched with no check and read immediately, so on the Amiga a missing bank reads address " +
     "zero.",
   "scene 16 def":
-    "The 78-byte definition record captures the scene and icon banks as pointers, so a definition outlives the" +
+    "The 78-byte definition record captures the scene and icon banks as pointers, so a definition outlives the " +
     "Scene Bank setting that made it and Scene 16 Restore keeps drawing from wherever it was pointed.",
   "td keep on":
     "A cache switch: 'Td Keep Off tells 3D not to keep objects in memory, but to load them each time'.",
   "td quit":
-    "'Unload the 3D extensions along with all objects and release all 3D memory.' There is no separately loaded" +
+    "'Unload the 3D extensions along with all objects and release all 3D memory.' There is no separately loaded " +
     "engine here to unload — c3d.lib is this module — so it is the object clear and the state reset",
   "td angle":
-    "Angles are 65536 units to the revolution, which is what the matrix builder at $213df8 works in — it reduces" +
+    "Angles are 65536 units to the revolution, which is what the matrix builder at $213df8 works in — it reduces " +
     "by quadrant with btst #6/#7 on the high byte and reflects about $8000.",
   "td position x":
-    "The position and attitude readers are one engine routine each plus an axis selector in d2, so Td Position" +
+    "The position and attitude readers are one engine routine each plus an axis selector in d2, so Td Position " +
     "X/Y/Z is $2119ec with 0/1/2 and Td Attitude A/B/C is $211bf8 the same way.",
   "td cls":
-    "Clears the top Td Screen Height lines to colour 0, after the three checks $2114be makes on the AMOS screen:" +
-    "exactly 320 wide, at least 4 bitplanes, and at least as tall as Td Screen Height. What is not reproduced is" +
+    "Clears the top Td Screen Height lines to colour 0, after the three checks $2114be makes on the AMOS screen: " +
+    "exactly 320 wide, at least 4 bitplanes, and at least as tall as Td Screen Height. What is not reproduced is " +
     "the clear being a blitter fill of the 3D area only — here it is a plot loop over the same rectangle",
   "td move x":
     "The six string forms — Td Move X/Y/Z and Td Angle A/B/C — are $211822 and $211a14 with the axis in d2.",
   "td range":
-    "Equal object numbers return zero before either is validated ($211d9c compares first), so Td Range(99,99) is" +
+    "Equal object numbers return zero before either is validated ($211d9c compares first), so Td Range(99,99) is " +
     "0 rather than \"Invalid object number\".",
   "td redraw":
-    "The model is the engine's and the rasteriser is ours. The polygons and their pens are right; the bits are" +
-    "not guaranteed identical, a long shallow edge can land a column either side of where Bresenham would have" +
-    "put it, and the phase of the two-pen dither — which pen falls on the even squares — is a choice, because it" +
+    "The model is the engine's and the rasteriser is ours. The polygons and their pens are right; the bits are " +
+    "not guaranteed identical, a long shallow edge can land a column either side of where Bresenham would have " +
+    "put it, and the phase of the two-pen dither — which pen falls on the even squares — is a choice, because it " +
     "is decided inside the fill that is not reproduced.",
   "td surface points":
-    "The four anchors are recorded where the engine records them, at a4+$486f with the flag at a4+$4873, and" +
-    "nothing maps a surface through them: a surface's first four slots are still the face's own four corners," +
+    "The four anchors are recorded where the engine records them, at a4+$486f with the flag at a4+$4873, and " +
+    "nothing maps a surface through them: a surface's first four slots are still the face's own four corners, " +
     "which is what $217424 fills them with.",
   "td visible":
-    "$211d64 answers 0 when the byte at $f8 of the instance is set and the one at $cb is clear. $f8 is a" +
-    "culled-this-frame flag: $219038 clears it at the top of each object's pass and $2190c8 sets it when the" +
-    "object fails a distance test, `d6 + a4+$b34 < d7`. An object rejected wholly by the near limit agrees with" +
-    "the engine; one the engine culls early for being too far, and this one drops face by face, can disagree at" +
+    "$211d64 answers 0 when the byte at $f8 of the instance is set and the one at $cb is clear. $f8 is a " +
+    "culled-this-frame flag: $219038 clears it at the top of each object's pass and $2190c8 sets it when the " +
+    "object fails a distance test, `d6 + a4+$b34 < d7`. An object rejected wholly by the near limit agrees with " +
+    "the engine; one the engine culls early for being too far, and this one drops face by face, can disagree at " +
     "the margin.",
   "td advanced":
-    "Hands back an address on the Amiga: a4 itself for object zero, otherwise the instance pointer ($212f0c)." +
-    "There is no address space here for one to mean anything in, so this answers zero — the same reason peek," +
+    "Hands back an address on the Amiga: a4 itself for object zero, otherwise the instance pointer ($212f0c). " +
+    "There is no address space here for one to mean anything in, so this answers zero — the same reason peek, " +
     "poke and start are approximated.",
   "td load":
-    "The engine gates its \".3DO\" suffix on a flag at a4+$b1a whose setter is not on any path traced so far; every" +
-    "shipped demo loads by bare name, so the suffix is always added here and a name that already carries an" +
+    "The engine gates its \".3DO\" suffix on a flag at a4+$b1a whose setter is not on any path traced so far; every " +
+    "shipped demo loads by bare name, so the suffix is always added here and a name that already carries an " +
     "extension keeps it.",
   "multi bload":
-    "The only genuinely concurrent keyword in the extension: it CreateProc()s an AmigaDOS process — up to five at" +
-    "once — which opens the file, reserves a bank the size of it under the eight characters given, reads it and" +
-    "exits, while BASIC carries on. Every program that uses these three waits on Multi Bl Ended before touching" +
-    "the bank and cannot tell the difference; what is not reproduced is the overlap itself, so a program" +
+    "The only genuinely concurrent keyword in the extension: it CreateProc()s an AmigaDOS process — up to five at " +
+    "once — which opens the file, reserves a bank the size of it under the eight characters given, reads it and " +
+    "exits, while BASIC carries on. Every program that uses these three waits on Multi Bl Ended before touching " +
+    "the bank and cannot tell the difference; what is not reproduced is the overlap itself, so a program " +
     "animating a loading screen sees the load complete in one frame",
   "cpu info":
     "Reports 20, a 68020.",
   "parse$":
-    "Undocumented, and it does not return a string despite the name: routine 180 ($5430) leaves an integer in d3" +
-    "— which alternative of a '|' separated list matched word N of the source, counting from one, or the fourth" +
+    "Undocumented, and it does not return a string despite the name: routine 180 ($5430) leaves an integer in d3 " +
+    "— which alternative of a '|' separated list matched word N of the source, counting from one, or the fourth " +
     "argument when none did.",
   "chip largest":
     "AvailMem(MEMF_CHIP|MEMF_LARGEST).",
   "plane offset":
-    "The offset table is the routine's own — a byte offset of y*rowBytes+x per plane, accumulating unless the new" +
+    "The offset table is the routine's own — a byte offset of y*rowBytes+x per plane, accumulating unless the new " +
     "offset works out to zero, and cleared for a whole screen by a negative plane number.",
   "f put static block":
     "The static list is a lookup optimisation over the same blocks, so this draws what F Put Block draws.",
   "f circle":
-    "Eight-way symmetry with the column height taken from an integer square root computed in WORDS, which is the" +
-    "whole of the documented bug: 'do not use a radius above 180...there will be no crash, but the result is" +
-    "definitely not a circle!' — r*r-x*x stops fitting in sixteen bits at 182, and this overflows where the" +
-    "routine overflows. Not modelled: the manual's other caveat, that a hires screen turns the circle into an" +
+    "Eight-way symmetry with the column height taken from an integer square root computed in WORDS, which is the " +
+    "whole of the documented bug: 'do not use a radius above 180...there will be no crash, but the result is " +
+    "definitely not a circle!' — r*r-x*x stops fitting in sixteen bits at 182, and this overflows where the " +
+    "routine overflows. Not modelled: the manual's other caveat, that a hires screen turns the circle into an " +
     "ellipse, because that is a property of the pixel aspect of the display rather than of the pixels written",
   "f sqr":
     "Undocumented, and faithful including both of routine 65's ($1f18) defects.",
   "f draw":
-    "The token spec is I0,0t0,0 in 1.0, 1.9 and 2.15 alike, so only the To form exists — the manual's shorter 'F" +
-    "Draw X,Y' cannot be written and would not parse on the real machine either. Ignores the Set Line pattern, as" +
+    "The token spec is I0,0t0,0 in 1.0, 1.9 and 2.15 alike, so only the To form exists — the manual's shorter 'F " +
+    "Draw X,Y' cannot be written and would not parse on the real machine either. Ignores the Set Line pattern, as " +
     "the manual admits ('this will be corrected in a future update'), and the plane mask",
   "blit left":
-    "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one" +
+    "The scroll is modelled as what the blitter does rather than by emulating it: the region's pixels are one " +
     "stream, rows joined end to end, shifted by the barrel-shift amount.",
   "cd year":
-    "Routine 322 ($7104 in 1.50, 308/$7398 in 1.40): a subtract-a-year-at-a-time loop from 1978 that leaves the" +
-    "remaining days behind for the month splitter, which is why Cd Month is six bytes of `Rbsr` into it and Cd" +
-    "Day six more into Cd Month. DEFECT: the leap test is `move.b d3,d4 / andi.b #$3,d4` -- a bare `year AND 3`," +
-    "with no hundred-or-four-hundred correction -- so AMCAF gives 2100 a 29 February and every date it reports" +
+    "Routine 322 ($7104 in 1.50, 308/$7398 in 1.40): a subtract-a-year-at-a-time loop from 1978 that leaves the " +
+    "remaining days behind for the month splitter, which is why Cd Month is six bytes of `Rbsr` into it and Cd " +
+    "Day six more into Cd Month. DEFECT: the leap test is `move.b d3,d4 / andi.b #$3,d4` -- a bare `year AND 3`, " +
+    "with no hundred-or-four-hundred correction -- so AMCAF gives 2100 a 29 February and every date it reports " +
     "from 1 March 2100 is a day behind the calendar.",
   "cd month":
-    "Routine 323, and then routine 338 ($811e) -- the splitter no token names. February's extra day is added to" +
+    "Routine 323, and then routine 338 ($811e) -- the splitter no token names. February's extra day is added to " +
     "the table entry in place, guarded by the same `year AND 3`, so it inherits Cd Year's defect",
   "cd day":
     "Routine 324: `Rbsr` Cd Month then `move.l d0,d3 / addq.b #$1,d3`.",
   "cd weekday":
-    "Routine 325 ($7140): `(days+6) divu 7`, remainder plus one. DEFECT: `divu.w` is a 32-by-16 divide and the" +
+    "Routine 325 ($7140): `(days+6) divu 7`, remainder plus one. DEFECT: `divu.w` is a 32-by-16 divide and the " +
     "68000 leaves its operand UNTOUCHED when the quotient will not fit a word.",
   "cd date$":
-    "Routine 328 ($71f8), which writes a length word of 13 before any digit and builds the string from two" +
-    "OVERLAPPING four-byte tables: `lea $7556(pc,d6.w)` with d6 = month*4 puts month 1 at $755a and month 0 on" +
+    "Routine 328 ($71f8), which writes a length word of 13 before any digit and builds the string from two " +
+    "OVERLAPPING four-byte tables: `lea $7556(pc,d6.w)` with d6 = month*4 puts month 1 at $755a and month 0 on " +
     "$7556, which is the seventh weekday slot 'Sun '.",
   "ct tick":
-    "Routine 332 ($72f4). The manual's 'the number of vertical blanks (=1/50 of a second)' does not say whether" +
+    "Routine 332 ($72f4). The manual's 'the number of vertical blanks (=1/50 of a second)' does not say whether " +
     "the count is within the second or the minute.",
   "ct time$":
-    "Routine 333 ($7306), a length word of 8 written before any digit. DEFECT: the two-digit printer it shares" +
-    "with Cd Date$ ($7638 and $7514, the same code assembled twice) is not a formatter -- it starts each" +
-    "character at '0' and counts up, byte-wide, with no upper bound, so an hour count of 100 walks the tens" +
+    "Routine 333 ($7306), a length word of 8 written before any digit. DEFECT: the two-digit printer it shares " +
+    "with Cd Date$ ($7638 and $7514, the same code assembled twice) is not a formatter -- it starts each " +
+    "character at '0' and counts up, byte-wide, with no upper bound, so an hour count of 100 walks the tens " +
     "character ten past '0' onto ':' rather than widening the string.",
   "cd string":
-    "Routine 327 ($71a8) really is dos.library: `movea.l $2b8(a5),a6 / jsr -$2ee(a6)` is StrToDate, guarded by" +
-    "`cmp.w #$25,$14(a0)` against ExecBase's LIB_VERSION -- the manual's 'only works on OS2.0 and higher', not" +
-    "modelled because the machine this port describes is an A1200 and the check can only pass. DEVIATION: the" +
-    "library matches those words with `Strnicmp(table[t], ptr, strlen(table[t]))`, a case-insensitive PREFIX" +
-    "test, so 'Todayish' is Today and '12-November-89' matches 'Nov' and then fails on the leftover 'ember'. This" +
-    "port matches the whole word and also accepts the full month names the manual promises, which is the union of" +
+    "Routine 327 ($71a8) really is dos.library: `movea.l $2b8(a5),a6 / jsr -$2ee(a6)` is StrToDate, guarded by " +
+    "`cmp.w #$25,$14(a0)` against ExecBase's LIB_VERSION -- the manual's 'only works on OS2.0 and higher', not " +
+    "modelled because the machine this port describes is an A1200 and the check can only pass. DEVIATION: the " +
+    "library matches those words with `Strnicmp(table[t], ptr, strlen(table[t]))`, a case-insensitive PREFIX " +
+    "test, so 'Todayish' is Today and '12-November-89' matches 'Nov' and then fails on the leftover 'ember'. This " +
+    "port matches the whole word and also accepts the full month names the manual promises, which is the union of " +
     "the two -- no string a real machine accepted is refused here",
   "ct string":
-    "Routine 326 ($7152), Cd String's twin: the same StrToDate call with dat_StrTime filled in and dat_StrDate" +
-    "cleared, then ds_Minute packed over ds_Tick the way Current Time does. NOTE: both String keywords copy the" +
-    "AMOS string to the START of the extension's own block with no length check, and the DateTime they fill in" +
-    "sits at +$380 of that same block, so an argument of 896 characters or more overwrites the structure it is" +
-    "about to be parsed into. Not reproduced -- there is no block here to overrun -- but it is why an over-long" +
+    "Routine 326 ($7152), Cd String's twin: the same StrToDate call with dat_StrTime filled in and dat_StrDate " +
+    "cleared, then ds_Minute packed over ds_Tick the way Current Time does. NOTE: both String keywords copy the " +
+    "AMOS string to the START of the extension's own block with no length check, and the DateTime they fill in " +
+    "sits at +$380 of that same block, so an argument of 896 characters or more overwrites the structure it is " +
+    "about to be parsed into. Not reproduced -- there is no block here to overrun -- but it is why an over-long " +
     "argument on a real machine misbehaves rather than simply failing",
   "amcaf base":
-    "'Gives back the address of the AMCAF data base' and Amcaf Length its size, for the 'Assembler and C freaks'" +
+    "'Gives back the address of the AMCAF data base' and Amcaf Length its size, for the 'Assembler and C freaks' " +
     "the manual addresses. APPROXIMATED",
   "amos task":
-    "Routine 339 ($7518), twenty bytes and nothing but the call: `suba.l a1,a1 / movea.l $4.w,a6 / jsr -$126(a6)`" +
-    "is FindTask(NULL), and its result is the answer. NOTE: zero is a value FindTask never returns for a running" +
-    "task, so `If Amos Task<>0` takes the other branch here; Extbase answers a synthetic non-zero instead" +
+    "Routine 339 ($7518), twenty bytes and nothing but the call: `suba.l a1,a1 / movea.l $4.w,a6 / jsr -$126(a6)` " +
+    "is FindTask(NULL), and its result is the answer. NOTE: zero is a value FindTask never returns for a running " +
+    "task, so `If Amos Task<>0` takes the other branch here; Extbase answers a synthetic non-zero instead " +
     "precisely because that comparison is its documented use, and nothing documents one for this",
   "vec rot y":
-    "Routine 8 ($20aa), fourteen bytes: `movea.l $168(a5),a2 / move.w $30e(a2),d3 / ext.l d3`. APPROXIMATED" +
+    "Routine 8 ($20aa), fourteen bytes: `movea.l $168(a5),a2 / move.w $30e(a2),d3 / ext.l d3`. APPROXIMATED " +
     "refers to the rotation ORDER, which was not recovered; these three readers are exact",
   "vec rot z":
-    "Routine 10 ($20c6), fourteen bytes: `move.w $310(a2),d3 / ext.l d3`, the third of the three adjacent cache" +
+    "Routine 10 ($20c6), fourteen bytes: `move.w $310(a2),d3 / ext.l d3`, the third of the three adjacent cache " +
     "words.",
   "pt cpattern":
-    "Routine 240 ($5d0e), eighteen bytes: `movea.l $2cc(a2),a0 / move.b -$c(a0),d3` -- a BYTE taken twelve back" +
-    "from the replayer's live pointer, and masked by nothing. DEVIATION: that engine is transcribed from Player" +
-    "6.1A's source, not from AMCAF's own replayer at $9bac, which has not been disassembled -- the two are both" +
-    "faithful ProTracker replayers and agree on the format and the sixteen effects, but where they differ in a" +
+    "Routine 240 ($5d0e), eighteen bytes: `movea.l $2cc(a2),a0 / move.b -$c(a0),d3` -- a BYTE taken twelve back " +
+    "from the replayer's live pointer, and masked by nothing. DEVIATION: that engine is transcribed from Player " +
+    "6.1A's source, not from AMCAF's own replayer at $9bac, which has not been disassembled -- the two are both " +
+    "faithful ProTracker replayers and agree on the format and the sixteen effects, but where they differ in a " +
     "corner this follows Paananen.",
   "pt cpos":
-    "Routine 241 ($5d20), twenty bytes: `movea.l $2cc(a2),a0 / move.w -$4(a0),d3 / lsr.w #$4,d3` -- a WORD four" +
-    "back from the live pointer, shifted down four, so the row is a packed field rather than a plain counter. The" +
-    "`& 63` in the port is the manual's stated range ('a number between 0 and 63'), not the routine's, which" +
+    "Routine 241 ($5d20), twenty bytes: `movea.l $2cc(a2),a0 / move.w -$4(a0),d3 / lsr.w #$4,d3` -- a WORD four " +
+    "back from the live pointer, shifted down four, so the row is a packed field rather than a plain counter. The " +
+    "`& 63` in the port is the manual's stated range ('a number between 0 and 63'), not the routine's, which " +
     "masks nothing. APPROXIMATED for the same reason as Pt Cpattern: nothing steps the patterns here",
   "extpath$":
-    "Routine 98 ($35e2), 120 bytes, and it has nothing to do with extensions. DEFECT: this port read the NAME as" +
-    "'where an extension was loaded from', answered the empty string for every argument, and never looked at" +
-    "routine 98 -- the token spec is `\"22\"`, string in and string out, which the old reading could not have" +
+    "Routine 98 ($35e2), 120 bytes, and it has nothing to do with extensions. DEFECT: this port read the NAME as " +
+    "'where an extension was loaded from', answered the empty string for every argument, and never looked at " +
+    "routine 98 -- the token spec is `\"22\"`, string in and string out, which the old reading could not have " +
     "explained.",
   "write cli":
     "Writes to the CLI the program was started from.",
   "pt stop":
     "Routine 267 ($6196).",
   "pt cia speed":
-    "Routine 259 ($6016) and selector 5 of routine 381. Selector 5 is where the value is sanitised, and it is not" +
-    "the clamp the manual implies: `cmp.w #$20,d0 / bge / moveq #$20,d0` puts a FLOOR at 32 bpm and then `andi.w" +
-    "#$ff,d0` masks to a byte with no ceiling test at all, so 300 bpm becomes 44 and 256 becomes 0 -- which the" +
-    "very next instruction divides by. NOTE: the zero arm never writes 125 anywhere; VBL timing is 50 ticks a" +
-    "second whatever the word holds, which at ProTracker's default six ticks a row IS 125 bpm, so the manual" +
+    "Routine 259 ($6016) and selector 5 of routine 381. Selector 5 is where the value is sanitised, and it is not " +
+    "the clamp the manual implies: `cmp.w #$20,d0 / bge / moveq #$20,d0` puts a FLOOR at 32 bpm and then `andi.w " +
+    "#$ff,d0` masks to a byte with no ceiling test at all, so 300 bpm becomes 44 and 256 becomes 0 -- which the " +
+    "very next instruction divides by. NOTE: the zero arm never writes 125 anywhere; VBL timing is 50 ticks a " +
+    "second whatever the word holds, which at ProTracker's default six ticks a row IS 125 bpm, so the manual " +
     "describes the effect rather than a store",
   "pt vu":
     "Routine 260 ($605e).",
   "pt sam play":
-    "Routines 250 ($5eb6), 251 and 252 -- the one-, two- and three-argument forms of `Pt Sam Play" +
-    "voice,samnr,freq`. The OPTIONAL argument is the LEADING one: routine 250 supplies `moveq #$f,d2` itself, so" +
-    "a bare call plays on all four channels, which is the manual exactly ('if it is ommitted, the sound effect" +
+    "Routines 250 ($5eb6), 251 and 252 -- the one-, two- and three-argument forms of `Pt Sam Play " +
+    "voice,samnr,freq`. The OPTIONAL argument is the LEADING one: routine 250 supplies `moveq #$f,d2` itself, so " +
+    "a bare call plays on all four channels, which is the manual exactly ('if it is ommitted, the sound effect " +
     "will be played on all four sound channels').",
   "pt instr length":
     "Routine 258 ($5fe6).",
   "pt free voice":
-    "Routines 238 ($5b80) and 239. A 1.50 addition with no manual entry, so DISASSEMBLY tier by the author's own" +
-    "admission that he had no time to document what 1.50 added -- and it is not the simple query the port had." +
-    "DEVIATION: the last arm, when every free voice is one the music holds, minimises two words of the live" +
-    "channel structures at -$13e(a1) -- the quietest music channel -- and the shared replay's channel block is" +
+    "Routines 238 ($5b80) and 239. A 1.50 addition with no manual entry, so DISASSEMBLY tier by the author's own " +
+    "admission that he had no time to document what 1.50 added -- and it is not the simple query the port had. " +
+    "DEVIATION: the last arm, when every free voice is one the music holds, minimises two words of the live " +
+    "channel structures at -$13e(a1) -- the quietest music channel -- and the shared replay's channel block is " +
     "not AMCAF's, so there is no `-$13e(a1)` to minimise over; it falls back to the lowest free voice",
   "pt play":
-    "Routines 264 ($612e) and 265. Which interrupt it ends in is Pt Cia Speed's $296(a2), the two timings" +
-    "installing through different code, which is why the manual says to choose the timing BEFORE Pt Play." +
+    "Routines 264 ($612e) and 265. Which interrupt it ends in is Pt Cia Speed's $296(a2), the two timings " +
+    "installing through different code, which is why the manual says to choose the timing BEFORE Pt Play. " +
     "DEVIATION: the `cmpa.l #$200000,a0` chip-RAM check is Pt Bank's and carries the same note",
   "pt bank":
-    "DEVIATION: the 2MB test compares a real address and this port models memory type as a flag on the bank, so" +
-    "enforcing it would reject every Reserve As Work bank, including on machines where all memory is chip and the" +
+    "DEVIATION: the 2MB test compares a real address and this port models memory type as a flag on the bank, so " +
+    "enforcing it would reject every Reserve As Work bank, including on machines where all memory is chip and the " +
     "original is happy Evidence: Routine 263 ($610c).",
   "pt sam bank":
-    "Routine 249 ($5ea4), three instructions: pop the bank number, `Rjsr routine 1121` to resolve it, keep the" +
+    "Routine 249 ($5ea4), three instructions: pop the bank number, `Rjsr routine 1121` to resolve it, keep the " +
     "ADDRESS at $2c4(a2).",
   "set trans source":
-    "Routine 147 ($4142), eighteen bytes: pop, `Rjsr routine 1121` to resolve a bank number to an address, keep" +
-    "it at $496(a2). DEVIATION: the machine keeps the ADDRESS, which is why the changelog writes the argument as" +
+    "Routine 147 ($4142), eighteen bytes: pop, `Rjsr routine 1121` to resolve a bank number to an address, keep " +
+    "it at $496(a2). DEVIATION: the machine keeps the ADDRESS, which is why the changelog writes the argument as " +
     "`bank/address` -- a raw pointer works as well as a bank, and a later Erase leaves it dangling.",
   "set trans map":
-    "Routine 149 ($4190), the same three pops and the same `addi.w #$1f / andi.w #$ffe0` width rounding as Alloc" +
-    "Trans Map, then routine 1121 instead of a Reserve. DEVIATION: bank number rather than address, as Set Trans" +
+    "Routine 149 ($4190), the same three pops and the same `addi.w #$1f / andi.w #$ffe0` width rounding as Alloc " +
+    "Trans Map, then routine 1121 instead of a Reserve. DEVIATION: bank number rather than address, as Set Trans " +
     "Source",
   "alloc trans map":
-    "Routine 148 ($4154). NOTE: a zero width or height asks for a bank of length 0, which the machine reserves" +
-    "happily and this port refuses with error 23 -- and the Reserve failing on the machine is the 24 of routine" +
+    "Routine 148 ($4154). NOTE: a zero width or height asks for a bank of length 0, which the machine reserves " +
+    "happily and this port refuses with error 23 -- and the Reserve failing on the machine is the 24 of routine " +
     "389, not 23",
   "alloc code bank":
     "Routine 150 ($41b6). NOTE: the size is stored and NEVER READ.",
   "alloc trans source":
     "Routine 146 ($411a).",
   "trans screen runtime":
-    "Routine 152 ($4220) over the shared set-up in routine 151 ($41e0). DEVIATION: routine 151 range-checks the" +
-    "bitplane against SIX and not against $50(a0), the screen's depth, where the library's own Blitter Copy" +
-    "(routine 63) does `cmp.w $50(a0),d4 / Rbge`; so naming plane 5 of a two-plane screen writes through a plane" +
-    "pointer AMOS left null. NOTE: there is no clip of any kind -- nothing compares ox, oy or the map's extent" +
-    "against the screen, and the author says so: \"Wrong or stupid parameter values are not checked for validity\"." +
-    "NOTE: neither the map nor the source pointer is checked for zero either, so with no Trans Map set the" +
+    "Routine 152 ($4220) over the shared set-up in routine 151 ($41e0). DEVIATION: routine 151 range-checks the " +
+    "bitplane against SIX and not against $50(a0), the screen's depth, where the library's own Blitter Copy " +
+    "(routine 63) does `cmp.w $50(a0),d4 / Rbge`; so naming plane 5 of a two-plane screen writes through a plane " +
+    "pointer AMOS left null. NOTE: there is no clip of any kind -- nothing compares ox, oy or the map's extent " +
+    "against the screen, and the author says so: \"Wrong or stupid parameter values are not checked for validity\". " +
+    "NOTE: neither the map nor the source pointer is checked for zero either, so with no Trans Map set the " +
     "machine walks from address zero; that raises error 23 here",
   "trans screen static":
-    "Routine 154 ($42fc) is TWO BYTES, `rts`, and the changelog says why: \"Trans Screen Static NOT YET" +
-    "IMPLEMENTED\". DEFECT: it does not quite do nothing. NOT REPRODUCED: this port evaluates arguments as it" +
-    "parses rather than onto a stack, so there is nothing to leak -- the four arguments are still consumed," +
+    "Routine 154 ($42fc) is TWO BYTES, `rts`, and the changelog says why: \"Trans Screen Static NOT YET " +
+    "IMPLEMENTED\". DEFECT: it does not quite do nothing. NOT REPRODUCED: this port evaluates arguments as it " +
+    "parses rather than onto a stack, so there is nothing to leak -- the four arguments are still consumed, " +
     "because the spec is what the parser follows Source: +ILib.s:6862; +Lib.s:18517.",
   "pt volume":
-    "Routine 261 ($6084), the MUSIC's volume at $4(a0) -- and NOT the volume a sample plays at, which is Pt Sam" +
-    "Volume's $2d0(a2). NOTE: `bpl` tests the whole long and `cmp.w #$40,d0 / bls` only the low word, so `Pt" +
+    "Routine 261 ($6084), the MUSIC's volume at $4(a0) -- and NOT the volume a sample plays at, which is Pt Sam " +
+    "Volume's $2d0(a2). NOTE: `bpl` tests the whole long and `cmp.w #$40,d0 / bls` only the low word, so `Pt " +
     "Volume 65536` is positive, has a low word of zero and stores silence.",
   "pt sam volume":
-    "Routines 244 ($5d98) and 245 -- two forms doing two different things, which the port had the wrong way" +
-    "round. Two arguments write AUDxVOL directly, for a channel that is actually playing (`tst.b (a1) / bne" +
-    "next`), which is the manual exactly: 'the command only has effect on the currently played sample, but not on" +
-    "the following samples'. NOTE: the clamp is `bpl` then a SIGNED `cmp.w #$40,d0 / ble`, where Pt Volume's is" +
-    "unsigned, so `Pt Sam Volume 32768` has a low word of $8000 that reads as negative, passes the ceiling test" +
+    "Routines 244 ($5d98) and 245 -- two forms doing two different things, which the port had the wrong way " +
+    "round. Two arguments write AUDxVOL directly, for a channel that is actually playing (`tst.b (a1) / bne " +
+    "next`), which is the manual exactly: 'the command only has effect on the currently played sample, but not on " +
+    "the following samples'. NOTE: the clamp is `bpl` then a SIGNED `cmp.w #$40,d0 / ble`, where Pt Volume's is " +
+    "unsigned, so `Pt Sam Volume 32768` has a low word of $8000 that reads as negative, passes the ceiling test " +
     "and is stored whole",
   "pt instr play":
-    "Routines 254 ($5f6c), 255 and 256 -- the same three forms as Pt Sam Play, and the shorter entries are where" +
-    "the defaults come from: `moveq #$f,d1 / move.l d1,-(a3)` for the voice and `move.l #$3d09,-(a3)` for the" +
+    "Routines 254 ($5f6c), 255 and 256 -- the same three forms as Pt Sam Play, and the shorter entries are where " +
+    "the defaults come from: `moveq #$f,d1 / move.l d1,-(a3)` for the voice and `move.l #$3d09,-(a3)` for the " +
     "frequency, so a bare call is all four channels at a flat 15625 Hz.",
   "pt instr address":
-    "Routine 257 ($5fb2), and it does not walk the module: it reads a CACHE of 31 longs at -$92(a5) that selector" +
-    "1 of routine 381 fills when Pt Play or Pt Bank installs a module, by summing the sample lengths from `module" +
+    "Routine 257 ($5fb2), and it does not walk the module: it reads a CACHE of 31 longs at -$92(a5) that selector " +
+    "1 of routine 381 fills when Pt Play or Pt Bank installs a module, by summing the sample lengths from `module " +
     "+ 1084 + patterns*1024`.",
   "pt raw play":
-    "Routine 248 ($5e90), twenty bytes, and the fourth parameter is a FREQUENCY IN HERTZ -- 'freq holds the" +
-    "replaying speed in Hertz' -- which routine 375 clamps to 400..30000 and turns into a period as $369E99/freq." +
-    "DEFECT: the negative-length idiom is broken. NOT reproduced: this port has no address space to run off the" +
-    "end of, so a negative length loops the sample as the author meant, and the difference is recorded rather" +
+    "Routine 248 ($5e90), twenty bytes, and the fourth parameter is a FREQUENCY IN HERTZ -- 'freq holds the " +
+    "replaying speed in Hertz' -- which routine 375 clamps to 400..30000 and turns into a period as $369E99/freq. " +
+    "DEFECT: the negative-length idiom is broken. NOT reproduced: this port has no address space to run off the " +
+    "end of, so a negative length loops the sample as the author meant, and the difference is recorded rather " +
     "than emulated",
   "pt data base":
-    "Routine 253 ($5f5a), and selector 4 of routine 381 is the surprise: `lea $9cea(pc),a0 / move.l a0,$2cc(a2) /" +
-    "move.l a2,$1e(a0)`. NOTE: answers 0 for the same reason the Scrn pointers do -- there is no byte layout here" +
+    "Routine 253 ($5f5a), and selector 4 of routine 381 is the surprise: `lea $9cea(pc),a0 / move.l a0,$2cc(a2) / " +
+    "move.l a2,$1e(a0)`. NOTE: answers 0 for the same reason the Scrn pointers do -- there is no byte layout here " +
     "for a program to walk. APPROXIMATED",
   "pjoy":
-    "'Corresponds to the AMOS function Joy, with the difference, that one of the parallel port joysticks is" +
-    "checked instead of the normal joysticks', with the same JOY_* bit layout. NOTE: there is no adaptor -- this" +
-    "is the same CIA-A PRB hardware sticks.ts models, and Sticks already answers 'no adaptor' honestly. The" +
+    "'Corresponds to the AMOS function Joy, with the difference, that one of the parallel port joysticks is " +
+    "checked instead of the normal joysticks', with the same JOY_* bit layout. NOTE: there is no adaptor -- this " +
+    "is the same CIA-A PRB hardware sticks.ts models, and Sticks already answers 'no adaptor' honestly. The " +
     "manual even ships a wiring diagram for building the cable",
   "xfire":
-    "AMCAF: 'If the lowlevel-library is available, all the other buttons can be checked aswell.' lowlevel.library" +
-    "is not modelled and a plain gameport has one button, so anything past the first reads as not pressed; the" +
+    "AMCAF: 'If the lowlevel-library is available, all the other buttons can be checked aswell.' lowlevel.library " +
+    "is not modelled and a plain gameport has one button, so anything past the first reads as not pressed; the " +
     "first is the ordinary fire the host already supplies.",
   "x smouse":
-    "NOTE: nothing drives a second mouse here, exactly as in the Sticks port where the manual is explicit that" +
+    "NOTE: nothing drives a second mouse here, exactly as in the Sticks port where the manual is explicit that " +
     "this is 'not ... the AMOS pointer'.",
   "speek":
     "'exactly the AMOS function Peek.",
@@ -3315,605 +3315,605 @@ export const NOTES: Record<string, string> = {
   "open workbench":
     "'Tries to open the workbench again, if it has been closed previously' with AMOS's Close Workbench.",
   "extbase":
-    "Routine 133 ($3c8e), 30 bytes: `lsl.w #$4,d0 / lea $f8(a5),a0 / move.l (a0,d0.w),d3` -- AMOS's extension" +
-    "table, 16 bytes a slot, and this reads the base at +$0 where Extdefault reads +$4 and Extremove +$8." +
+    "Routine 133 ($3c8e), 30 bytes: `lsl.w #$4,d0 / lea $f8(a5),a0 / move.l (a0,d0.w),d3` -- AMOS's extension " +
+    "table, 16 bytes a slot, and this reads the base at +$0 where Extdefault reads +$4 and Extremove +$8. " +
     "DEVIATION: the VALUE is synthetic.",
   "extdefault":
     "Routine 134 ($3cac), 44 bytes.",
   "extreinit":
-    "Routine 136 ($3d08), 96 bytes. DEVIATION: that entry point has no equivalent here, so what is reproduced is" +
-    "what running it DOES: the extension's state as at load, through the port's `init` hook. NOTE: message 14" +
-    "cannot fire; it is the extension reporting its own reinit failed, and rebuilding a state object has no way" +
+    "Routine 136 ($3d08), 96 bytes. DEVIATION: that entry point has no equivalent here, so what is reproduced is " +
+    "what running it DOES: the extension's state as at load, through the port's `init` hook. NOTE: message 14 " +
+    "cannot fire; it is the extension reporting its own reinit failed, and rebuilding a state object has no way " +
     "to",
   "extremove":
-    "Routine 135 ($3cd8), 48 bytes: `movea.l $8(a0,d0.w),a1 / clr.l $8(a0,d0.w)` and then a call through it if it" +
-    "was not null. 'Removes the extension in the slot from memory like when exiting AMOS', with the manual candid" +
-    "about the price -- 'Otherwise, you can lose memory or even crash your computer.' NOTE: a no-op past the" +
+    "Routine 135 ($3cd8), 48 bytes: `movea.l $8(a0,d0.w),a1 / clr.l $8(a0,d0.w)` and then a call through it if it " +
+    "was not null. 'Removes the extension in the slot from memory like when exiting AMOS', with the manual candid " +
+    "about the price -- 'Otherwise, you can lose memory or even crash your computer.' NOTE: a no-op past the " +
     "bounds check, and FAITHFUL for the reason Audio Free is.",
   "coords bank":
-    "TWO token entries and two routines. Routine 93 ($33d4) is eighteen bytes and reserves NOTHING: `movea.l" +
-    "$168(a5),a2 / move.l (a3)+,d0 / Rjsr routine 1121 / move.l d0,$266(a2) / rts`, which resolves the bank to an" +
-    "address and stores the pointer -- exactly the manual's 'the existing bank will only be switched to without" +
-    "erasing it. NOTE: `move.w d2,d4 / move.l d4,d7` narrows the count to a WORD before storing it while `lsl.l" +
-    "#$2,d2` sizes the Reserve from the full long, so above 65535 the two disagree in the binary too; that is" +
+    "TWO token entries and two routines. Routine 93 ($33d4) is eighteen bytes and reserves NOTHING: `movea.l " +
+    "$168(a5),a2 / move.l (a3)+,d0 / Rjsr routine 1121 / move.l d0,$266(a2) / rts`, which resolves the bank to an " +
+    "address and stores the pointer -- exactly the manual's 'the existing bank will only be switched to without " +
+    "erasing it. NOTE: `move.w d2,d4 / move.l d4,d7` narrows the count to a WORD before storing it while `lsl.l " +
+    "#$2,d2` sizes the Reserve from the full long, so above 65535 the two disagree in the binary too; that is " +
     "reproduced Evidence: Routine 94 ($33e6).",
   "coords read":
-    "Routine 95 ($3422), 276 bytes. NOTE: because the count is written back, a second Coords Read into the same" +
-    "bank is limited by the FIRST one's result rather than by the bank's capacity; reproduced. NOTE: the modelled" +
-    "beam does not advance while a keyword runs, so VHPOSR returns the same value every iteration and the shuffle" +
-    "is a fixed permutation where the real one is not -- reading VHPOSR is faithful, the standing-still is the" +
-    "port's clock. NOTE: nothing bounds-checks the bank against its own length; the routine trusts the limit" +
+    "Routine 95 ($3422), 276 bytes. NOTE: because the count is written back, a second Coords Read into the same " +
+    "bank is limited by the FIRST one's result rather than by the bank's capacity; reproduced. NOTE: the modelled " +
+    "beam does not advance while a keyword runs, so VHPOSR returns the same value every iteration and the shuffle " +
+    "is a fixed permutation where the real one is not -- reading VHPOSR is faithful, the standing-still is the " +
+    "port's clock. NOTE: nothing bounds-checks the bank against its own length; the routine trusts the limit " +
     "word, and the length test in the port is the port's",
   "c2p fire":
-    "NOTE: the routine reads a row either side of the buffer without checking, so the first and last rows sample" +
-    "memory outside it; the port reads zero there rather than whatever the heap held. NOTE: the walk is FLAT, so" +
+    "NOTE: the routine reads a row either side of the buffer without checking, so the first and last rows sample " +
+    "memory outside it; the port reads zero there rather than whatever the heap held. NOTE: the walk is FLAT, so " +
     "'left' and 'right' cross row boundaries. Evidence: Routine 76 ($2fa2); routine 396 ($aa92).",
   "c2p shift":
-    "NOTE: `lsr.l #$2,d6` counts LONGWORDS, so a size that is not a multiple of four leaves its last one to three" +
+    "NOTE: `lsr.l #$2,d6` counts LONGWORDS, so a size that is not a multiple of four leaves its last one to three " +
     "bytes untouched. Evidence: Routine 77 ($2ff2).",
   "set sprite priority":
-    "Routine 210 ($4f2c) is sixteen bytes and writes the CURRENT SCREEN, not a global: `move.l (a3)+,d0 / movea.l" +
-    "$52c(a5),a0 / andi.w #$3f,d0 / move.w d0,$4a(a0)`. $4a is two words before the width at $4c -- BPLCON2's" +
-    "PF1P0-2 and PF2P0-2 fields, the sprite-versus-playfield priority the manual means by 'Changes the sprite" +
-    "priority in Dual playfield mode'. NOTE: the screen pointer is not tested, so with none open the routine" +
+    "Routine 210 ($4f2c) is sixteen bytes and writes the CURRENT SCREEN, not a global: `move.l (a3)+,d0 / movea.l " +
+    "$52c(a5),a0 / andi.w #$3f,d0 / move.w d0,$4a(a0)`. $4a is two words before the width at $4c -- BPLCON2's " +
+    "PF1P0-2 and PF2P0-2 fields, the sprite-versus-playfield priority the manual means by 'Changes the sprite " +
+    "priority in Dual playfield mode'. NOTE: the screen pointer is not tested, so with none open the routine " +
     "writes through null; the port drops the write. NOTE: nothing in the modelled display reads the field yet",
   "raster wait":
-    "TWO token entries under the same name rather than a `!` multi-arity pair: id $0346 spec `I0` is routine 206" +
-    "($4eba) and id $0358 spec `I0,0` is routine 207 ($4ed8). Both spin on $dff004 read as a LONG with `lsr.l" +
-    "#$8` for the vertical position; the two-argument form then spins on the byte at $dff007 for the horizontal," +
-    "having halved its x argument with `lsr.l #$1,d2` because VHPOSR counts colour clocks where the manual's x is" +
-    "lowres pixels. d3 is the LAST argument, so `Raster Wait x,y` waits for line y at column x. DEVIATION: this" +
-    "port has no beam to spin on inside a keyword -- the modelled VHPOSR only advances between statements -- so" +
+    "TWO token entries under the same name rather than a `!` multi-arity pair: id $0346 spec `I0` is routine 206 " +
+    "($4eba) and id $0358 spec `I0,0` is routine 207 ($4ed8). Both spin on $dff004 read as a LONG with `lsr.l " +
+    "#$8` for the vertical position; the two-argument form then spins on the byte at $dff007 for the horizontal, " +
+    "having halved its x argument with `lsr.l #$1,d2` because VHPOSR counts colour clocks where the manual's x is " +
+    "lowres pixels. d3 is the LAST argument, so `Raster Wait x,y` waits for line y at column x. DEVIATION: this " +
+    "port has no beam to spin on inside a keyword -- the modelled VHPOSR only advances between statements -- so " +
     "both forms wait one frame.",
   "set ntsc":
-    "Routines 208 ($4f04) and 209 ($4f18), twenty bytes each, and each does TWO things: `move.w #$0,$dff1dc.l` or" +
-    "`#$20` sets BEAMCON0, and `movea.l $4.w,a0 / move.b #$3c,$212(a0)` or `#$32` sets ExecBase->VBlankFrequency" +
-    "to 60 or 50. DEVIATION: only the BEAMCON0 half is reproduced. $212(a0) is a field of the real ExecBase," +
-    "which this port does not model as memory, and nothing here reads a frame rate from it -- the interpreter's" +
+    "Routines 208 ($4f04) and 209 ($4f18), twenty bytes each, and each does TWO things: `move.w #$0,$dff1dc.l` or " +
+    "`#$20` sets BEAMCON0, and `movea.l $4.w,a0 / move.b #$3c,$212(a0)` or `#$32` sets ExecBase->VBlankFrequency " +
+    "to 60 or 50. DEVIATION: only the BEAMCON0 half is reproduced. $212(a0) is a field of the real ExecBase, " +
+    "which this port does not model as memory, and nothing here reads a frame rate from it -- the interpreter's " +
     "tick is its own clock.",
   "blitter busy":
-    "Routine 68 ($2cce), twenty bytes: `btst.b #$6,$dff002.l` is bit 14 of DMACONR, BBUSY, and the answer is" +
+    "Routine 68 ($2cce), twenty bytes: `btst.b #$6,$dff002.l` is bit 14 of DMACONR, BBUSY, and the answer is " +
     "`moveq #$ff,d3` -- which is -1, not 1 -- when set, zero when clear.",
   "vec rot precalc":
     "Routine 4 ($1f96) is 236 BYTES and it is not a no-op. Evidence: routine 373 ($84e4).",
   "vec rot x":
-    "Routines 5 ($2082) and 6 ($208e) -- the three-argument form runs routine 373 ($84e4) and returns d3, the" +
-    "bare form reads the cached $30c. DEFECT: the arguments reach the matrix BACKWARDS. NOTE: `divs.w` is" +
-    "32-by-16 and a quotient too big for a word leaves the register untouched on the 68000 while setting V, which" +
-    "nothing tests -- so a point very close to the eye reports the PREVIOUS x or y. NOTE: a rotated distance of" +
+    "Routines 5 ($2082) and 6 ($208e) -- the three-argument form runs routine 373 ($84e4) and returns d3, the " +
+    "bare form reads the cached $30c. DEFECT: the arguments reach the matrix BACKWARDS. NOTE: `divs.w` is " +
+    "32-by-16 and a quotient too big for a word leaves the register untouched on the 68000 while setting V, which " +
+    "nothing tests -- so a point very close to the eye reports the PREVIOUS x or y. NOTE: a rotated distance of " +
     "zero is error 23, where the port substituted 1",
   "vec rot angles":
-    "Routine 3 ($1f6c): each angle is masked with `andi.w #$3ff` and then DOUBLED by `add.w d0,d0`, because it is" +
-    "kept as a byte offset into the 1024-entry word sine table rather than as an angle -- a program peeking $306" +
-    "finds twice what it set. NOTE: setting an angle has no effect until the next Vec Rot Precalc; see that" +
+    "Routine 3 ($1f6c): each angle is masked with `andi.w #$3ff` and then DOUBLED by `add.w d0,d0`, because it is " +
+    "kept as a byte offset into the 1024-entry word sine table rather than as an angle -- a program peeking $306 " +
+    "finds twice what it set. NOTE: setting an angle has no effect until the next Vec Rot Precalc; see that " +
     "keyword",
   "vec rot pos":
     "Routine 2 ($1f54), three words at $300.",
   "limit smouse":
-    "Routines 168 ($4682) and 169 ($46c4), and they share NOTHING with AMCAF's other two Limit keywords -- the" +
-    "port borrowed Splinters' reader for all three, and got two of the three wrong. NOTE: routine 168 loads" +
-    "$52c(a5) without testing it, where both particle Limits check; with no screen open it reads through a null" +
+    "Routines 168 ($4682) and 169 ($46c4), and they share NOTHING with AMCAF's other two Limit keywords -- the " +
+    "port borrowed Splinters' reader for all three, and got two of the three wrong. NOTE: routine 168 loads " +
+    "$52c(a5) without testing it, where both particle Limits check; with no screen open it reads through a null " +
     "pointer, and the port answers with the default 128,50 origin instead",
   "splinters fuel":
-    "Routine 290 ($69be) narrows the argument to a WORD at $27e, which routine 385 copies into each respawned" +
-    "splinter's +$14. NOTE: zero does not mean 'never'. The manual's 'If you set time to 0, the Splinters only" +
-    "disappear at the edges of the screen' describes what a zero fuel looks like once the coordinate list is" +
-    "spent -- every splinter dies at once and stays dead -- rather than unlimited life, which is how an earlier" +
+    "Routine 290 ($69be) narrows the argument to a WORD at $27e, which routine 385 copies into each respawned " +
+    "splinter's +$14. NOTE: zero does not mean 'never'. The manual's 'If you set time to 0, the Splinters only " +
+    "disappear at the edges of the screen' describes what a zero fuel looks like once the coordinate list is " +
+    "spent -- every splinter dies at once and stays dead -- rather than unlimited life, which is how an earlier " +
     "pass read it",
   "splinters init":
-    "Routine 295 ($6a60) is THIRTY-SIX BYTES and reads nothing: `movea.l $26a(a2),a0 / Rbeq routine 390 / move.w" +
-    "$280(a2),d7 / moveq #$ff,d0 / lea $10(a0),a0` then `move.l d0,(a0) / lea $16(a0),a0 / dbra d7`. The manual's" +
-    "'the Splinters are fed with the coordinates and speeds you specified' describes the ENGINE: feeding happens" +
+    "Routine 295 ($6a60) is THIRTY-SIX BYTES and reads nothing: `movea.l $26a(a2),a0 / Rbeq routine 390 / move.w " +
+    "$280(a2),d7 / moveq #$ff,d0 / lea $10(a0),a0` then `move.l d0,(a0) / lea $16(a0),a0 / dbra d7`. The manual's " +
+    "'the Splinters are fed with the coordinates and speeds you specified' describes the ENGINE: feeding happens " +
     "one splinter at a time in routine 385, when a Move finds one free, dead or out of bounds.",
   "splinters move":
-    "Routine 300 ($6c32) is the loop -- table at $26a, count at $280, coordinate bank at $266 with a missing one" +
-    "error 23, the Splinters Max allowance from $282, and VHPOSR into d6 -- calling routine 386 ($a904) once per" +
-    "record. 386 shifts the generations first (`move.l $4(a0),$8(a0) / move.b $11(a0),$12(a0)`), ALWAYS, then: a" +
-    "free splinter (+$10 = $ff) goes to routine 385 to respawn; a fresh one (+$13 set) sits still for one step;" +
-    "an exhausted one (+$14 = 0) respawns; otherwise `add.w $c(a0),d2` moves it and `add.w d2,$c(a0)` adds the" +
-    "gravity afterwards. NOTE: the beam retry is bounded at 64 attempts here. NOTE: routine 300 loads $52c(a5)" +
-    "and never tests it, so with no screen open routine 386 reads through a null pointer; error 47 stands in for" +
+    "Routine 300 ($6c32) is the loop -- table at $26a, count at $280, coordinate bank at $266 with a missing one " +
+    "error 23, the Splinters Max allowance from $282, and VHPOSR into d6 -- calling routine 386 ($a904) once per " +
+    "record. 386 shifts the generations first (`move.l $4(a0),$8(a0) / move.b $11(a0),$12(a0)`), ALWAYS, then: a " +
+    "free splinter (+$10 = $ff) goes to routine 385 to respawn; a fresh one (+$13 set) sits still for one step; " +
+    "an exhausted one (+$14 = 0) respawns; otherwise `add.w $c(a0),d2` moves it and `add.w d2,$c(a0)` adds the " +
+    "gravity afterwards. NOTE: the beam retry is bounded at 64 attempts here. NOTE: routine 300 loads $52c(a5) " +
+    "and never tests it, so with no screen open routine 386 reads through a null pointer; error 47 stands in for " +
     "the bus error",
   "splinters back":
-    "Routine 301 ($6c74) does TWO jobs. That is the engine's premise, 'they don't destroy the background and use" +
-    "the colour of the pixel they have removed': the colour is not in the coordinate bank and nothing else" +
+    "Routine 301 ($6c74) does TWO jobs. That is the engine's premise, 'they don't destroy the background and use " +
+    "the colour of the pixel they have removed': the colour is not in the coordinate bank and nothing else " +
     "supplies it, which is why the manual insists Back comes before Draw",
   "splinters draw":
     "Routine 302 ($6ce2) writes +$10 at the flat index +$4, skipping any splinter marked free.",
   "splinters single del":
-    "Routines 298 ($6aa4) and 299 ($6b66) are two passes each. The second is the HOLE, which nothing in the" +
-    "manual prepares you for -- a splinter lifted its colour off the picture, so where it came from is filled" +
+    "Routines 298 ($6aa4) and 299 ($6b66) are two passes each. The second is the HOLE, which nothing in the " +
+    "manual prepares you for -- a splinter lifted its colour off the picture, so where it came from is filled " +
     "with $27b, the byte Splinters Colour stored, once on the first Del after the spawn.",
   "splinters single do":
-    "Routines 296 ($6a84) and 297 ($6a94) are sixteen bytes each: `Rbsr routine 298`/`Rbsr routine 299`, then" +
-    "`Rbsr routine 300` (move), `Rbsr routine 301` (back) and `Rbra routine 302` (draw). FOUR steps, exactly what" +
+    "Routines 296 ($6a84) and 297 ($6a94) are sixteen bytes each: `Rbsr routine 298`/`Rbsr routine 299`, then " +
+    "`Rbsr routine 300` (move), `Rbsr routine 301` (back) and `Rbra routine 302` (draw). FOUR steps, exactly what " +
     "the manual tells a caller doing it by hand.",
   "splinters active":
-    "Routine 303 ($6d4a) counts a splinter unless ALL THREE colour bytes are $ff: `moveq #$ff,d0` leaves d0.w =" +
+    "Routine 303 ($6d4a) counts a splinter unless ALL THREE colour bytes are $ff: `moveq #$ff,d0` leaves d0.w = " +
     "$ffff, `cmp.w $10(a0),d0` covers +$10 and +$11 at once, then `cmp.b $12(a0),d0`.",
   "splinters limit":
-    "TWO routines behind one `!` token entry: 291 ($69ca) bare and 292 ($69f4) with four corners. NOTE: the" +
-    "private block arrives from `AllocMem #$10001` -- MEMF_CLEAR -- so before any call the box is 0,0 To 0,0," +
+    "TWO routines behind one `!` token entry: 291 ($69ca) bare and 292 ($69f4) with four corners. NOTE: the " +
+    "private block arrives from `AllocMem #$10001` -- MEMF_CLEAR -- so before any call the box is 0,0 To 0,0, " +
     "which routine 386 treats as nowhere.",
   "splinters max":
-    "Routine 289 ($69b2) narrows the argument to a WORD at $282. The manual's -1 for no limit works only because" +
+    "Routine 289 ($69b2) narrows the argument to a WORD at $282. The manual's -1 for no limit works only because " +
     "-1 narrows to $ffff, which is 65535 spawns rather than infinity",
   "splinters gravity":
-    "Routine 293 ($6a26) stores the pair RAW at $276/$278. NOTE: the speeds it is added to are in sixteenths of a" +
-    "pixel -- routine 386's `add.w $c(a0),d2` where d2 is the x<<4 position -- so `Splinters Gravity 1,1` is a" +
-    "sixteenth of a pixel per step per step, sixteen times gentler than the whole-pixel arithmetic an earlier" +
+    "Routine 293 ($6a26) stores the pair RAW at $276/$278. NOTE: the speeds it is added to are in sixteenths of a " +
+    "pixel -- routine 386's `add.w $c(a0),d2` where d2 is the x<<4 position -- so `Splinters Gravity 1,1` is a " +
+    "sixteenth of a pixel per step per step, sixteen times gentler than the whole-pixel arithmetic an earlier " +
     "pass used.",
   "td stars bank":
-    "'Each star consumes 12 bytes of memory.' Td Stars DO destroy the background, which is why the manual pairs" +
+    "'Each star consumes 12 bytes of memory.' Td Stars DO destroy the background, which is why the manual pairs " +
     "Draw with a matching Del rather than saving anything -- the opposite of Splinters",
   "td stars limit":
-    "Routines 305 ($6dba) bare and 306 ($6df2) with four corners, the SIXTY-FOURTHS twin of Splinters Limit --" +
-    "`lsl.w #$6` where Splinters uses 4, the same `subq` on the high pair making the far corner exclusive, and" +
-    "the same unsigned `cmp.w`/`exg.l` normalising. 'These coordinates must lie WITHIN the screen dimensions," +
-    "otherwise the stars could corrupt your memory': DEVIATION, they cannot here, because tdStarPoke drops an" +
-    "offset outside the planes. DEFECT: both forms also overwrite the ORIGIN and nothing documents it -- routine" +
-    "305 stores a LONGWORD at $256, exactly where Td Stars Origin (307) puts its pair -- and the explicit form" +
-    "computes that centre as `add.w d1,d0 / lsr.w #$1,d0` and `add.w d3,d2 / lsr.w #$1,d2`, which averages x1" +
+    "Routines 305 ($6dba) bare and 306 ($6df2) with four corners, the SIXTY-FOURTHS twin of Splinters Limit -- " +
+    "`lsl.w #$6` where Splinters uses 4, the same `subq` on the high pair making the far corner exclusive, and " +
+    "the same unsigned `cmp.w`/`exg.l` normalising. 'These coordinates must lie WITHIN the screen dimensions, " +
+    "otherwise the stars could corrupt your memory': DEVIATION, they cannot here, because tdStarPoke drops an " +
+    "offset outside the planes. DEFECT: both forms also overwrite the ORIGIN and nothing documents it -- routine " +
+    "305 stores a LONGWORD at $256, exactly where Td Stars Origin (307) puts its pair -- and the explicit form " +
+    "computes that centre as `add.w d1,d0 / lsr.w #$1,d0` and `add.w d3,d2 / lsr.w #$1,d2`, which averages x1 " +
     "with y1 and x2 with y2, MIXING THE AXES.",
   "td stars init":
-    "Routine 308 ($6e46), and 'the stars are moved by random values to avoid that they all start in the origin'" +
-    "is LITERAL: `Rbsr routine 387` spawns the star at the origin, `clr.l $4(a0)` gives it no previous position," +
-    "and `add.w (a1),d5 / andi.w #$1f,d5` then `Rbsr routine 388 / dbra d5` runs it forward 0 to 31 steps with" +
-    "the SAME move routine Td Stars Move uses. NOTE: d5 is never initialised before the first star, so `add.w" +
-    "(a1),d5` reads whatever the interpreter left; `andi.w #$1f` bounds it to 0..31 either way and every later" +
-    "star is deterministic. NOTE: the beam retry in 387 is bounded at 64 attempts here, for the same reason as" +
+    "Routine 308 ($6e46), and 'the stars are moved by random values to avoid that they all start in the origin' " +
+    "is LITERAL: `Rbsr routine 387` spawns the star at the origin, `clr.l $4(a0)` gives it no previous position, " +
+    "and `add.w (a1),d5 / andi.w #$1f,d5` then `Rbsr routine 388 / dbra d5` runs it forward 0 to 31 steps with " +
+    "the SAME move routine Td Stars Move uses. NOTE: d5 is never initialised before the first star, so `add.w " +
+    "(a1),d5` reads whatever the interpreter left; `andi.w #$1f` bounds it to 0..31 either way and every later " +
+    "star is deterministic. NOTE: the beam retry in 387 is bounded at 64 attempts here, for the same reason as " +
     "the Splinters spawn -- the modelled beam stands still inside a keyword",
   "td stars move":
-    "Routines 317 ($6fd4) for the whole table and 318 ($6ffc) for one, both over routine 388 ($a9be). 388 saves" +
-    "the previous position with `move.l (a0),$4(a0)` -- which is all Double Del needs -- then adds the speed," +
-    "clips against $24e..$254 with `bcs`/`bcc`, UNSIGNED where the Splinters engine's clip is signed, and adds" +
+    "Routines 317 ($6fd4) for the whole table and 318 ($6ffc) for one, both over routine 388 ($a9be). 388 saves " +
+    "the previous position with `move.l (a0),$4(a0)` -- which is all Double Del needs -- then adds the speed, " +
+    "clips against $24e..$254 with `bcs`/`bcc`, UNSIGNED where the Splinters engine's clip is signed, and adds " +
     "the gravity AFTER the move. DEFECT: the indexed form's stride is wrong.",
   "td stars draw":
-    "Routine 319 ($7026), and a star's BRIGHTNESS is its speed: `move.w $8(a0),d3 / bpl / neg.w d3` and the same" +
-    "for $a, `add.w d4,d3 / lsr.w #$6,d3` for whole pixels a step, then `cmp.w #$3,d3 / bge` sets both named" +
-    "planes, `cmp.w #$2,d3 / bge` sets plane B alone, and anything slower sets plane A alone. NOTE: the address" +
-    "is a BYTE offset built as `(y>>6) * ($4c(a1)>>3) + ((x>>6)>>3)`, so the row stride is the screen WIDTH in" +
-    "bytes rather than the BitMap's bytesPerRow; the two agree for every AMOS screen and the port reproduces the" +
+    "Routine 319 ($7026), and a star's BRIGHTNESS is its speed: `move.w $8(a0),d3 / bpl / neg.w d3` and the same " +
+    "for $a, `add.w d4,d3 / lsr.w #$6,d3` for whole pixels a step, then `cmp.w #$3,d3 / bge` sets both named " +
+    "planes, `cmp.w #$2,d3 / bge` sets plane B alone, and anything slower sets plane A alone. NOTE: the address " +
+    "is a BYTE offset built as `(y>>6) * ($4c(a1)>>3) + ((x>>6)>>3)`, so the row stride is the screen WIDTH in " +
+    "bytes rather than the BitMap's bytesPerRow; the two agree for every AMOS screen and the port reproduces the " +
     "routine's arithmetic rather than the BitMap's",
   "td stars single del":
     "Routines 315 ($6efe) and 316 ($6f68).",
   "td stars single do":
-    "Routines 313 ($6ee6) and 314 ($6ef2), twelve bytes each: `Rbsr routine 315`/`Rbsr routine 316`, then `Rbsr" +
+    "Routines 313 ($6ee6) and 314 ($6ef2), twelve bytes each: `Rbsr routine 315`/`Rbsr routine 316`, then `Rbsr " +
     "routine 317` (move) and `Rbra routine 319` (draw).",
   "td stars planes":
-    "Routine 312 ($6ea6) takes TWO plane numbers, not a count -- token spec `I0,0` -- and its opening depth check" +
-    "is the clearest use of AMCAF's own message table anywhere in the extension: `cmp.w #$2,d0 / bge` else `moveq" +
+    "Routine 312 ($6ea6) takes TWO plane numbers, not a count -- token spec `I0,0` -- and its opening depth check " +
+    "is the clearest use of AMCAF's own message table anywhere in the extension: `cmp.w #$2,d0 / bge` else `moveq " +
     "#$f,d0 / Rbra routine 397`, and message fifteen is 'At least 4 colours required in screen'.",
   "td stars origin":
-    "Routine 307 ($6e30) shifts both arguments into SIXTY-FOURTHS (`lsl.w #$6`) and stores them at $256/$258," +
-    "which routine 387 then copies into a new star with a single `move.l`. NOTE: Td Stars Limit overwrites both" +
+    "Routine 307 ($6e30) shifts both arguments into SIXTY-FOURTHS (`lsl.w #$6`) and stores them at $256/$258, " +
+    "which routine 387 then copies into a new star with a single `move.l`. NOTE: Td Stars Limit overwrites both " +
     "-- see its own entry",
   "td stars gravity":
-    "Routine 309 ($6e80) stores the pair RAW at $25a/$25c. NOTE: like Splinters Gravity, the speeds it is added" +
+    "Routine 309 ($6e80) stores the pair RAW at $25a/$25c. NOTE: like Splinters Gravity, the speeds it is added " +
     "to are in the engine's own fixed point, so the unit is a SIXTY-FOURTH of a pixel per step per step",
   "td stars accelerate on":
-    "Routines 310 ($6e92) and 311 ($6e9c), 'if the stars are to be accelerated'. NOTE: the pair is asymmetric --" +
-    "On is `st.b $25e(a2)`, which writes $ff to the HIGH byte of the word, and Off is `clr.w $25e(a2)`, which" +
+    "Routines 310 ($6e92) and 311 ($6e9c), 'if the stars are to be accelerated'. NOTE: the pair is asymmetric -- " +
+    "On is `st.b $25e(a2)`, which writes $ff to the HIGH byte of the word, and Off is `clr.w $25e(a2)`, which " +
     "clears both.",
   "pix shift up":
-    "Routines 226/227 (Shift Up), 228/229 (Shift Down), 230/231 (Brighten) and 232/233 (Darken), each a pair with" +
-    "and without the mask bank. Shift WRAPS within that range where Brighten and Darken stop at its ends, and the" +
-    "manual introduces the family as the slower, limitable alternative to Shade Bobs, which 'cannot limit the" +
-    "colours to a certain range but only the amount of bitplanes'. NOTE: c1 and c2 are stored as BYTES (`move.b" +
-    "d1,(a7)`, `move.b d2,$2(a7)`), so a colour above 255 wraps into range. NOTE: the two range comparisons are" +
-    "not the same kind, `bmi` against c1 being signed and `bhi` against c2 unsigned, which cannot be told apart" +
-    "within the 0..63 of real colours. NOTE: a degenerate box does not error -- the subq underflows to $ffff and" +
+    "Routines 226/227 (Shift Up), 228/229 (Shift Down), 230/231 (Brighten) and 232/233 (Darken), each a pair with " +
+    "and without the mask bank. Shift WRAPS within that range where Brighten and Darken stop at its ends, and the " +
+    "manual introduces the family as the slower, limitable alternative to Shade Bobs, which 'cannot limit the " +
+    "colours to a certain range but only the amount of bitplanes'. NOTE: c1 and c2 are stored as BYTES (`move.b " +
+    "d1,(a7)`, `move.b d2,$2(a7)`), so a colour above 255 wraps into range. NOTE: the two range comparisons are " +
+    "not the same kind, `bmi` against c1 being signed and `bhi` against c2 unsigned, which cannot be told apart " +
+    "within the 0..63 of real colours. NOTE: a degenerate box does not error -- the subq underflows to $ffff and " +
     "the dbra runs 65536 times, the same runaway Bzoom has; doing nothing is this port's answer",
   "pptodisk":
-    "Routines 235 ($59e4) and 234 ($58d2). *'crunches and saves the bank numbered bank into the file file$ using" +
-    "the PowerPacker algorithm'*, and *'Sorry for the name Pptodisk but Ppsave has already been used by AMOS.'*" +
-    "235 is three instructions -- `moveq #$4,d0 / move.l d0,-(a3) / Rbra routine 234` -- so the DEFAULT" +
-    "EFFICIENCY IS 4, the manual's 'best, but slow', not 0. 234 frees any buffer a previous call left (routine" +
-    "354: FreeMem($364(a2), $368(a2))), opens powerpacker.library VERSION 35 (routine 368, failing to message 5" +
-    "'No powerpacker.library'), pops its three arguments and immediately pushes the efficiency back as scratch," +
-    "resolves the bank, and refuses one with either type bit set -- `move.w -$c(a0),d0 / andi.w #$c,d0` -- with" +
-    "message 4, 'No icons- or spritesbanks allowed'. NOTE: the efficiency is accepted and does not change the" +
-    "output. NOTE: message 5 cannot fire, because the PP20 codec is ours (src/amiga/powerpacker.ts) and so" +
-    "powerpacker.library is never absent, where on the machine it is a separate file a program may be running" +
+    "Routines 235 ($59e4) and 234 ($58d2). *'crunches and saves the bank numbered bank into the file file$ using " +
+    "the PowerPacker algorithm'*, and *'Sorry for the name Pptodisk but Ppsave has already been used by AMOS.'* " +
+    "235 is three instructions -- `moveq #$4,d0 / move.l d0,-(a3) / Rbra routine 234` -- so the DEFAULT " +
+    "EFFICIENCY IS 4, the manual's 'best, but slow', not 0. 234 frees any buffer a previous call left (routine " +
+    "354: FreeMem($364(a2), $368(a2))), opens powerpacker.library VERSION 35 (routine 368, failing to message 5 " +
+    "'No powerpacker.library'), pops its three arguments and immediately pushes the efficiency back as scratch, " +
+    "resolves the bank, and refuses one with either type bit set -- `move.w -$c(a0),d0 / andi.w #$c,d0` -- with " +
+    "message 4, 'No icons- or spritesbanks allowed'. NOTE: the efficiency is accepted and does not change the " +
+    "output. NOTE: message 5 cannot fire, because the PP20 codec is ours (src/amiga/powerpacker.ts) and so " +
+    "powerpacker.library is never absent, where on the machine it is a separate file a program may be running " +
     "without Source: +Equ.s:1867-8.",
   "launch":
-    "Routines 209 (1.40) and 221/222 ($512e/$513a): `Launch file$[,stacksize]`, and it starts an AmigaDOS binary" +
-    "as its own process. 221 pushes the default stack -- `move.w #$1000,d0`, 4096 -- and 222 does `jsr -$96(a6)`" +
-    "LoadSeg, `Rbeq routine 391` on failure, then `jsr -$8a(a6)` CreateProc(name, 0, segList, stackSize), and on" +
-    "failure `jsr -$9c(a6)` UnLoadSeg followed by `moveq #$b,d0 / Rbra routine 397`, message 11 'Couldn't launch" +
-    "process'. NOTE: nothing in this port can start a process, so a real binary always reaches the second failure" +
-    "-- which is the branch the routine itself takes when CreateProc returns NULL, out of memory on the machine," +
-    "rather than a stub. NOTE: on success the routine never UnLoadSegs, leaving the segment to the process it" +
+    "Routines 209 (1.40) and 221/222 ($512e/$513a): `Launch file$[,stacksize]`, and it starts an AmigaDOS binary " +
+    "as its own process. 221 pushes the default stack -- `move.w #$1000,d0`, 4096 -- and 222 does `jsr -$96(a6)` " +
+    "LoadSeg, `Rbeq routine 391` on failure, then `jsr -$8a(a6)` CreateProc(name, 0, segList, stackSize), and on " +
+    "failure `jsr -$9c(a6)` UnLoadSeg followed by `moveq #$b,d0 / Rbra routine 397`, message 11 'Couldn't launch " +
+    "process'. NOTE: nothing in this port can start a process, so a real binary always reaches the second failure " +
+    "-- which is the branch the routine itself takes when CreateProc returns NULL, out of memory on the machine, " +
+    "rather than a stub. NOTE: on success the routine never UnLoadSegs, leaving the segment to the process it " +
     "started; nothing to reproduce while nothing starts",
   "exec":
-    "Exec \"command\" — InExec (+Lib.s:3392), source tier and complete. NOTE: nothing in this port can run a" +
-    "command, so Execute always answers DOSFALSE and this always raises error 87 -- which is the branch the" +
-    "routine itself takes for a command that does not exist, and on a machine with no shell every command is one." +
+    "Exec \"command\" — InExec (+Lib.s:3392), source tier and complete. NOTE: nothing in this port can run a " +
+    "command, so Execute always answers DOSFALSE and this always raises error 87 -- which is the branch the " +
+    "routine itself takes for a command that does not exist, and on a machine with no shell every command is one. " +
     "Source: +Lib.s:3677.",
   "lexecute":
-    "A=Lexecute(\"programname\") — routine 51 ($3630), twelve instructions. The manual: *'A will be True if" +
-    "successful, False otherwise'*, and *'The program to be run can not use any CLI-I/O'* -- which is what those" +
-    "two zeroes mean. NOTE: the copy is unbounded, so on the machine a long enough name overruns the block; there" +
-    "is nothing to reproduce where a string is a string. NOTE: with no host process capability Execute answers" +
+    "A=Lexecute(\"programname\") — routine 51 ($3630), twelve instructions. The manual: *'A will be True if " +
+    "successful, False otherwise'*, and *'The program to be run can not use any CLI-I/O'* -- which is what those " +
+    "two zeroes mean. NOTE: the copy is unbounded, so on the machine a long enough name overruns the block; there " +
+    "is nothing to reproduce where a string is a string. NOTE: with no host process capability Execute answers " +
     "DOSFALSE, so this returns 0 -- 'False otherwise', the documented answer for a program that would not start",
   "lrun":
-    "A=Lrun(\"commands\",\"WINDOW\") — routine 50 ($33ca), and it is a script runner rather than a single command. It" +
-    "allocates a signal, finds its task and AddPorts a port named \"ldos\"; builds `\"NewCli \" + window + \" from" +
-    "t:ld.t\"` contiguously from $3502; opens `t:ld.t` with mode 1006, writes the commands, then writes the" +
-    "twenty-four bytes at $359f -- **\"t:sig_ldos\\nEndCli >NIL:\\n\"**, which is the *'Ldos will automatically" +
-    "append this'* the manual promises; writes a second file `t:sig_ldos`; Executes the NewCli line with both" +
-    "handles zero; and finally WaitPort/GetMsg/FreeSignal/RemPort. That is why the manual demands c:Run," +
-    "c:NewCli, c:EndCli and an assigned t:. DEFECT: the return value is meaningless -- the last call before `rts`" +
-    "is RemPort, which returns nothing, and `move.l d0,d3` hands whatever it left back. The manual knows: *'A" +
-    "will contain any number (see Technote below)'*. DEVIATION: `t:sig_ldos` is not written. DEVIATION: it does" +
-    "not block. WaitPort waits for that helper, and with no CLI started nothing ever signals, so reproducing it" +
-    "would hang the interpreter -- the same hang the manual warns of when a command fails and *'the" +
+    "A=Lrun(\"commands\",\"WINDOW\") — routine 50 ($33ca), and it is a script runner rather than a single command. It " +
+    "allocates a signal, finds its task and AddPorts a port named \"ldos\"; builds `\"NewCli \" + window + \" from " +
+    "t:ld.t\"` contiguously from $3502; opens `t:ld.t` with mode 1006, writes the commands, then writes the " +
+    "twenty-four bytes at $359f -- **\"t:sig_ldos\\nEndCli >NIL:\\n\"**, which is the *'Ldos will automatically " +
+    "append this'* the manual promises; writes a second file `t:sig_ldos`; Executes the NewCli line with both " +
+    "handles zero; and finally WaitPort/GetMsg/FreeSignal/RemPort. That is why the manual demands c:Run, " +
+    "c:NewCli, c:EndCli and an assigned t:. DEFECT: the return value is meaningless -- the last call before `rts` " +
+    "is RemPort, which returns nothing, and `move.l d0,d3` hands whatever it left back. The manual knows: *'A " +
+    "will contain any number (see Technote below)'*. DEVIATION: `t:sig_ldos` is not written. DEVIATION: it does " +
+    "not block. WaitPort waits for that helper, and with no CLI started nothing ever signals, so reproducing it " +
+    "would hang the interpreter -- the same hang the manual warns of when a command fails and *'the " +
     "Shell/CLI-window will never be closed'*",
   "reset computer":
-    "Routine 203 in 1.40, 215 ($4ff0) in 1.50, and it reboots two different ways: `Rbsr routine 372` reads exec's" +
-    "LIB_VERSION and `cmp.w #$25,d0` sends Kickstart 37+ to `jmp -$2d6(a6)`, ColdReboot, while below 37 it goes" +
-    "Supervisor (`jmp -$1e(a6)`) and hand-rolls it -- `lea $1000000,a0 / suba.l -$14(a0),a0` backs off by the ROM" +
-    "size stored at $FFFFEC, `movea.l $4(a0),a0` takes the ROM's initial PC, then `reset / jmp (a0)`. NOTE: a" +
-    "program that resets is counted as having ENDED rather than crashed, which is what it did; the census would" +
-    "otherwise report every one as a failure. NOTE: the web player carries the reset out by rebuilding the" +
-    "environment and KEEPING the filesystem, because a reset clears memory and not disks -- and cold and warm do" +
-    "the same thing there, since this port has no reset-survivable RAM for a warm boot to preserve. Source:" +
+    "Routine 203 in 1.40, 215 ($4ff0) in 1.50, and it reboots two different ways: `Rbsr routine 372` reads exec's " +
+    "LIB_VERSION and `cmp.w #$25,d0` sends Kickstart 37+ to `jmp -$2d6(a6)`, ColdReboot, while below 37 it goes " +
+    "Supervisor (`jmp -$1e(a6)`) and hand-rolls it -- `lea $1000000,a0 / suba.l -$14(a0),a0` backs off by the ROM " +
+    "size stored at $FFFFEC, `movea.l $4(a0),a0` takes the ROM's initial PC, then `reset / jmp (a0)`. NOTE: a " +
+    "program that resets is counted as having ENDED rather than crashed, which is what it did; the census would " +
+    "otherwise report every one as a failure. NOTE: the web player carries the reset out by rebuilding the " +
+    "environment and KEEPING the filesystem, because a reset clears memory and not disks -- and cold and warm do " +
+    "the same thing there, since this port has no reset-survivable RAM for a warm boot to preserve. Source: " +
     "+ILib.s:1849.",
   "turbo text":
-    "Routines 343 ($762a), 344 ($7630) and 345 ($7638), and the Guide does not mention this keyword ANYWHERE --" +
-    "no node, no command list, not even the changelog that at least named the transition family. DEFECT: the" +
-    "per-plane decomposition is wrong in two of its four cases. DEFECT: the clip subtracts without checking the" +
-    "sign, so an x at or past the right edge makes the count negative and `dbra` counts down from 65535, poking" +
-    "tens of thousands of characters past the bitplanes. NOT REPRODUCED -- nothing is drawn. NOTE: the fourth" +
-    "argument is dead. NOTE: it walks EcLogic, the plane pointers at offset 0, where COut uses EcCurrent ($30);" +
+    "Routines 343 ($762a), 344 ($7630) and 345 ($7638), and the Guide does not mention this keyword ANYWHERE -- " +
+    "no node, no command list, not even the changelog that at least named the transition family. DEFECT: the " +
+    "per-plane decomposition is wrong in two of its four cases. DEFECT: the clip subtracts without checking the " +
+    "sign, so an x at or past the right edge makes the count negative and `dbra` counts down from 65535, poking " +
+    "tens of thousands of characters past the bitplanes. NOT REPRODUCED -- nothing is drawn. NOTE: the fourth " +
+    "argument is dead. NOTE: it walks EcLogic, the plane pointers at offset 0, where COut uses EcCurrent ($30); " +
     "on a double-buffered screen those differ Source: +W.s:15646; +Equ.s:507; +Equ.s:686.",
   "change print font":
-    "Routine 141 ($400c), and at 22 bytes the whole keyword is one store: `Rjsr routine 1121` for the bank" +
-    "address, then `movea.l $52c(a5),a1 / movea.l $aa(a1),a1 / move.l a0,$8(a1)` -- the current screen, its" +
-    "EcWindow (+Equ.s:507), and WiFont (+Equ.s:686), the charset AMOS's console prints with. The manual's" +
-    "*'always 8x8 pixels big and contains 256 characters ... a memory bank of exactly 2 KB'* is exactly how COut" +
-    "reads it, `lsl.w #3,d1 / move.l WiFont(a5),a2 / add.w d1,a2` (+W.s:15661) -- indexed by the raw byte, no" +
-    "LoChar and no control-code exception. NOTE: nothing is checked -- not the 2KB, not the screen pointer." +
+    "Routine 141 ($400c), and at 22 bytes the whole keyword is one store: `Rjsr routine 1121` for the bank " +
+    "address, then `movea.l $52c(a5),a1 / movea.l $aa(a1),a1 / move.l a0,$8(a1)` -- the current screen, its " +
+    "EcWindow (+Equ.s:507), and WiFont (+Equ.s:686), the charset AMOS's console prints with. The manual's " +
+    "*'always 8x8 pixels big and contains 256 characters ... a memory bank of exactly 2 KB'* is exactly how COut " +
+    "reads it, `lsl.w #3,d1 / move.l WiFont(a5),a2 / add.w d1,a2` (+W.s:15661) -- indexed by the raw byte, no " +
+    "LoChar and no control-code exception. NOTE: nothing is checked -- not the 2KB, not the screen pointer. " +
     "Source: +W.s:13702.",
   "make bank font":
-    "Routine 139 ($3e78), 246 bytes. *'you can store any amiga font in a memory bank'*, and the font is `movea.l" +
-    "$52c(a5),a0 / movea.l $148(a0),a0 / movea.l $34(a0),a2` -- screen, Ec_RastPort, rp_Font. DEVIATION: with no" +
-    "Change Font done, rp_Font on the machine is whatever the screen opened with -- topaz in practice -- and this" +
-    "port has no copy of topaz unless the program's own disk carries one, so a null rp_Font serialises the" +
-    "interpreter's built-in 8x8 face instead: same YSize and XSize, different glyphs. NOTE: the thirty name bytes" +
-    "are usually blank, because ln_Name points at dfh_Name in the loadable size file and all eight fonts on the" +
-    "original partition leave that field zero -- the name a program asks by lives in the .font DESCRIPTOR. NOTE:" +
-    "neither $52c(a5) nor $34(a0) is tested before it is followed, so on the machine a program with no screen" +
-    "open dereferences null twice; here that is error 23. NOTE: four copied TextFont fields are not modelled and" +
-    "are written as zero -- ln_Type, ln_Pri, mn_ReplyPort and mn_Length -- and routine 140 clears two of them on" +
+    "Routine 139 ($3e78), 246 bytes. *'you can store any amiga font in a memory bank'*, and the font is `movea.l " +
+    "$52c(a5),a0 / movea.l $148(a0),a0 / movea.l $34(a0),a2` -- screen, Ec_RastPort, rp_Font. DEVIATION: with no " +
+    "Change Font done, rp_Font on the machine is whatever the screen opened with -- topaz in practice -- and this " +
+    "port has no copy of topaz unless the program's own disk carries one, so a null rp_Font serialises the " +
+    "interpreter's built-in 8x8 face instead: same YSize and XSize, different glyphs. NOTE: the thirty name bytes " +
+    "are usually blank, because ln_Name points at dfh_Name in the loadable size file and all eight fonts on the " +
+    "original partition leave that field zero -- the name a program asks by lives in the .font DESCRIPTOR. NOTE: " +
+    "neither $52c(a5) nor $34(a0) is tested before it is followed, so on the machine a program with no screen " +
+    "open dereferences null twice; here that is error 23. NOTE: four copied TextFont fields are not modelled and " +
+    "are written as zero -- ln_Type, ln_Pri, mn_ReplyPort and mn_Length -- and routine 140 clears two of them on " +
     "the way back in",
   "change bank font":
-    "Routine 140 ($3f6e), 158 bytes. NOTE: unlike Change Font this one never tests $52c(a5), so with no screen" +
+    "Routine 140 ($3f6e), 158 bytes. NOTE: unlike Change Font this one never tests $52c(a5), so with no screen " +
     "open the machine follows a null pointer; here it is error 23",
   "change font":
-    "Routines 142 ($4022), 143 ($402a) and 144 ($4030) -- two one-line trampolines pushing the defaults, `moveq" +
-    "#$8,d0` for the height and `clr.l -(a3)` for the style, then the worker. 144 is graphics.library and" +
-    "diskfont.library and nothing else: CloseFont on the RastPort's current face (`jsr -$4e(a6)`), a TextAttr" +
-    "built at $422(a2) with ta_YSize, ta_Style and `ta_Flags = FPF_DISKFONT`, OpenLibrary (`jsr -$228(a6)`)" +
-    "cached at $374(a2), OpenDiskFont (`jsr -$1e(a6)`) and SetFont (`jsr -$42(a6)`). NOTE: message 9 cannot fire" +
-    "here, because diskfont.library is modelled and so never absent, where the real one is a 51,200-byte file on" +
-    "the Fonts disk a program could genuinely be running without. NOTE: `style` is stored into ta_Style and then" +
-    "weighed inside OpenDiskFont, which will accept a near miss; this port's openDiskFont matches on the SIZE" +
+    "Routines 142 ($4022), 143 ($402a) and 144 ($4030) -- two one-line trampolines pushing the defaults, `moveq " +
+    "#$8,d0` for the height and `clr.l -(a3)` for the style, then the worker. 144 is graphics.library and " +
+    "diskfont.library and nothing else: CloseFont on the RastPort's current face (`jsr -$4e(a6)`), a TextAttr " +
+    "built at $422(a2) with ta_YSize, ta_Style and `ta_Flags = FPF_DISKFONT`, OpenLibrary (`jsr -$228(a6)`) " +
+    "cached at $374(a2), OpenDiskFont (`jsr -$1e(a6)`) and SetFont (`jsr -$42(a6)`). NOTE: message 9 cannot fire " +
+    "here, because diskfont.library is modelled and so never absent, where the real one is a 51,200-byte file on " +
+    "the Fonts disk a program could genuinely be running without. NOTE: `style` is stored into ta_Style and then " +
+    "weighed inside OpenDiskFont, which will accept a near miss; this port's openDiskFont matches on the SIZE " +
     "alone, so the style is parsed, bounded and ignored",
   "ppfromdisk":
-    "Routine 237 ($5a80), 256 bytes, is a universal loader and not a PowerPacker one. It opens the file (routine" +
-    "357, failing to 391, error 81), takes its size (359) and reads EIGHT bytes (360, failing to 392 after a" +
-    "close), then branches four ways on the signature: 'PP20' takes the AllocMem-and-decrunch path, 'PX20' is" +
-    "requester 7, 'IMP!' is `Rbra routine 138`, Imploder Load, and anything else is `Rbra routine 104`, Wload --" +
-    "so the manual's 'a file that is not PowerPacked is taken as it is' is literally a hand-off to another" +
-    "keyword, each arm closing the file first with routine 362 and letting the other one reopen it. DEVIATION:" +
+    "Routine 237 ($5a80), 256 bytes, is a universal loader and not a PowerPacker one. It opens the file (routine " +
+    "357, failing to 391, error 81), takes its size (359) and reads EIGHT bytes (360, failing to 392 after a " +
+    "close), then branches four ways on the signature: 'PP20' takes the AllocMem-and-decrunch path, 'PX20' is " +
+    "requester 7, 'IMP!' is `Rbra routine 138`, Imploder Load, and anything else is `Rbra routine 104`, Wload -- " +
+    "so the manual's 'a file that is not PowerPacked is taken as it is' is literally a hand-off to another " +
+    "keyword, each arm closing the file first with routine 362 and letting the other one reopen it. DEVIATION: " +
     "the 'IMP!' arm cannot be reproduced.",
   "object name$":
-    "Routine 114 ($3b20) is sixteen bytes and reads a FIXED offset: `lea $108(a2),a0 / moveq #$2,d2 / Rbsr" +
-    "routine 366`, so $108 is fib_FileName eight bytes into the cached FileInfoBlock at $100 -- the accessors" +
+    "Routine 114 ($3b20) is sixteen bytes and reads a FIXED offset: `lea $108(a2),a0 / moveq #$2,d2 / Rbsr " +
+    "routine 366`, so $108 is fib_FileName eight bytes into the cached FileInfoBlock at $100 -- the accessors " +
     "read whatever Examine Object last described and never take a path of their own",
   "object date":
-    "Routine 122 ($3b74) is twelve bytes: `move.l $184(a2),d3`. $184 less the FIB's own $100 is $84, 132, which" +
+    "Routine 122 ($3b74) is twelve bytes: `move.l $184(a2),d3`. $184 less the FIB's own $100 is $84, 132, which " +
     "is fib_Date.ds_Days",
   "object time":
-    "Routine 124 ($3b88) is twenty bytes and packs TWO fields into one long: `lea $18a(a2),a0 / move.w (a0),d3 /" +
-    "swap d3 / move.w $4(a0),d3`. $18a is 138, the LOW WORD of ds_Minute, and $4 past it is 142, the low word of" +
+    "Routine 124 ($3b88) is twenty bytes and packs TWO fields into one long: `lea $18a(a2),a0 / move.w (a0),d3 / " +
+    "swap d3 / move.w $4(a0),d3`. $18a is 138, the LOW WORD of ds_Minute, and $4 past it is 142, the low word of " +
     "ds_Tick -- so both are truncated to words and the high halves are thrown away",
   "rgb to rrggbb":
-    "Routine 91 ($3304), 50 bytes, and the pair is asymmetric in the way that matters: it puts each 4-bit gun in" +
+    "Routine 91 ($3304), 50 bytes, and the pair is asymmetric in the way that matters: it puts each 4-bit gun in " +
     "the HIGH nibble of its byte and leaves the low nibble ZERO.",
   "rrggbb to rgb":
     "Routine 90 ($32e2), 34 bytes.",
   "io error":
-    "Routine 172 ($4740) is eighteen bytes around one call, `movea.l $2b8(a5),a6 / jsr -$84(a6)`, which is" +
+    "Routine 172 ($4740) is eighteen bytes around one call, `movea.l $2b8(a5),a6 / jsr -$84(a6)`, which is " +
     "dos.library IoErr().",
   "bcircle":
-    "NOTE: the row stride is `$4c(a2) >> 3`, the screen's WIDTH rather than the BitMap's bytesPerRow, and" +
-    "`(a1,d1.w)` indexes it with a WORD -- which is what the string '32K-LIMIT!' sitting at $7ea2 immediately" +
-    "after the code is about. NOTE: the Newton loop has no bound of its own; the sixty-four-step guard is this" +
+    "NOTE: the row stride is `$4c(a2) >> 3`, the screen's WIDTH rather than the BitMap's bytesPerRow, and " +
+    "`(a1,d1.w)` indexes it with a WORD -- which is what the string '32K-LIMIT!' sitting at $7ea2 immediately " +
+    "after the code is about. NOTE: the Newton loop has no bound of its own; the sixty-four-step guard is this " +
     "port's, and it never bites Evidence: Routine 353 ($7dd4).",
   "disk type":
-    "Routine 100 ($3694), 114 bytes, walks the real DosList: `$2b8(a5)` is DOSBase, `$22` its dl_Root, `$18` the" +
-    "RootNode's rn_Info, `$4` the DosInfo's di_DevInfo, each a BPTR turned into a pointer by `adda.l a1,a1`" +
-    "twice, and `move.l $4(a1),d3` off the matching entry is dol_Type verbatim -- 0 a device, 1 an assign, 2 a" +
+    "Routine 100 ($3694), 114 bytes, walks the real DosList: `$2b8(a5)` is DOSBase, `$22` its dl_Root, `$18` the " +
+    "RootNode's rn_Info, `$4` the DosInfo's di_DevInfo, each a BPTR turned into a pointer by `adda.l a1,a1` " +
+    "twice, and `move.l $4(a1),d3` off the matching entry is dol_Type verbatim -- 0 a device, 1 an assign, 2 a " +
     "volume.",
   "disk state":
-    "Routine 101 ($3706) truncates at the colon exactly as Disk Type does and then does the real three-call" +
-    "dance: `Lock(name, -2)` at `-$54` with `moveq #$fe,d2` for SHARED_LOCK, `Info(lock, $168(a5))` at `-$72`" +
-    "into the extension block's own first bytes, and `UnLock` at `-$5a`. A failed Lock is routine 391 (error 81)" +
-    "and a failed Info routine 392 (error 94). The manual reserves -1 for a drive with no disk -- 'If no disk is in the drive, it" +
-    "normally should return -1, but I'm afraid...'. NOTE: nothing modelled here is write protected," +
+    "Routine 101 ($3706) truncates at the colon exactly as Disk Type does and then does the real three-call " +
+    "dance: `Lock(name, -2)` at `-$54` with `moveq #$fe,d2` for SHARED_LOCK, `Info(lock, $168(a5))` at `-$72` " +
+    "into the extension block's own first bytes, and `UnLock` at `-$5a`. A failed Lock is routine 391 (error 81) " +
+    "and a failed Info routine 392 (error 94). The manual reserves -1 for a drive with no disk -- 'If no disk is in the drive, it " +
+    "normally should return -1, but I'm afraid...'. NOTE: nothing modelled here is write protected, " +
     "mid-validation or in use, so a volume that resolves answers 0.",
   "io error$":
-    "Routine 173 is a four-byte `Rbra routine 383`, and 383 ($a508) opens with a Kickstart check -- `Rbsr routine" +
-    "372` is `movea.l $4.w,a0 / move.w $14(a0),d0`, exec.library's LIB_VERSION, against `cmp.w #$25,d0`." +
-    "DEVIATION: the modelled machine is a Kickstart 3 A1200, so the real routine takes the Fault() arm and" +
-    "dos.library's wording would win where the two differ. NOTE: the table omits codes dos.library has, 206 among" +
-    "them, and both arms answer the empty string for anything they do not know -- 'If no error number exists, an" +
+    "Routine 173 is a four-byte `Rbra routine 383`, and 383 ($a508) opens with a Kickstart check -- `Rbsr routine " +
+    "372` is `movea.l $4.w,a0 / move.w $14(a0),d0`, exec.library's LIB_VERSION, against `cmp.w #$25,d0`. " +
+    "DEVIATION: the modelled machine is a Kickstart 3 A1200, so the real routine takes the Fault() arm and " +
+    "dos.library's wording would win where the two differ. NOTE: the table omits codes dos.library has, 206 among " +
+    "them, and both arms answer the empty string for anything they do not know -- 'If no error number exists, an " +
     "empty string will be returned'",
   "ppunpack":
-    "Routine 236 ($59ec), 148 bytes, takes BANK NUMBERS and not addresses: `Rjsr routine 1121` resolves the" +
-    "source and `Rjsr routine 1103` RESERVES the destination, with the name 'Work ' sitting at $5a78 immediately" +
-    "after the code. NOTE: the kind bits live in the bank header twelve bytes below the data, which this port has" +
+    "Routine 236 ($59ec), 148 bytes, takes BANK NUMBERS and not addresses: `Rjsr routine 1121` resolves the " +
+    "source and `Rjsr routine 1103` RESERVES the destination, with the name 'Work ' sitting at $5a78 immediately " +
+    "after the code. NOTE: the kind bits live in the bank header twelve bytes below the data, which this port has " +
     "no equivalent of, so banks 1 and 2 stand in for the sprite and icon banks by AMOS convention",
   "exchange bob":
-    "Routines 212 ($4f44) and 213 ($4f8c) are the same 72 bytes apart from the bank they fetch, 1101 against" +
-    "1102. NOTE: the bound is `cmp.w d2,d0 / Rbhi routine 390` against the image count, an UNSIGNED compare, so" +
-    "image 0 passes it and then `subq.w #$1,d0 / lsl.w #$3,d0` indexes eight bytes BELOW the table -- the count" +
+    "Routines 212 ($4f44) and 213 ($4f8c) are the same 72 bytes apart from the bank they fetch, 1101 against " +
+    "1102. NOTE: the bound is `cmp.w d2,d0 / Rbhi routine 390` against the image count, an UNSIGNED compare, so " +
+    "image 0 passes it and then `subq.w #$1,d0 / lsl.w #$3,d0` indexes eight bytes BELOW the table -- the count " +
     "word and whatever precedes it.",
   "command name$":
-    "Routine 340 ($752c) asks three sources in order. DEVIATION: nothing here records the file a program was" +
-    "loaded from under a name the program itself could have used, so all three sources are empty and this answers" +
+    "Routine 340 ($752c) asks three sources in order. DEVIATION: nothing here records the file a program was " +
+    "loaded from under a name the program itself could have used, so all three sources are empty and this answers " +
     "empty -- the same nothing Tool Types$ gives, which keeps the pair consistent",
   "convert grey":
-    "Routine 79 is a four-byte `Rbra routine 356`; 356 ($7f10) is 690 bytes. NOTE: the sum can index past the" +
-    "ramp's 192 bytes -- a destination deeper than six planes reads whatever follows $21b2 in the extension" +
+    "Routine 79 is a four-byte `Rbra routine 356`; 356 ($7f10) is 690 bytes. NOTE: the sum can index past the " +
+    "ramp's 192 bytes -- a destination deeper than six planes reads whatever follows $21b2 in the extension " +
     "block.",
   "shade bob planes":
-    "'amount sets the number of bitplanes, that should be drawn in and must be a value between 1 and 6' -- the" +
-    "range is the routine's, and it is how a program protects the graphics in the higher planes from a shade bob." +
-    "NOTE: routine 384 ($a7c6) LOWERS it again at draw time, walking the screen's plane pointers for the first" +
-    "NULL and doing `addq.w #$1,d0 / sub.w d0,$286(a2)`, so a setting of six on a three-plane screen shades" +
+    "'amount sets the number of bitplanes, that should be drawn in and must be a value between 1 and 6' -- the " +
+    "range is the routine's, and it is how a program protects the graphics in the higher planes from a shade bob. " +
+    "NOTE: routine 384 ($a7c6) LOWERS it again at draw time, walking the screen's plane pointers for the first " +
+    "NULL and doing `addq.w #$1,d0 / sub.w d0,$286(a2)`, so a setting of six on a three-plane screen shades " +
     "three.",
   "shade bob up":
-    "Routines 286 ($6644) and 287 ($67e2), 414 and 410 bytes, sharing routine 384 ($a7c6) for their set-up." +
-    "DEFECT: the hot spot X is truncated to a signed byte and the hot spot Y is not. NOTE: clipping is by whole" +
-    "words left and right and whole rows top and bottom, with a barrel shift at $67a0 for an x that is not a" +
-    "multiple of 16 -- the net effect is an exact clip to the screen, so `point`/`putPixel` give it without the" +
-    "shifter. NOTE: neither the RastPort clip nor Set Planes is consulted, the routine walking the screen's plane" +
+    "Routines 286 ($6644) and 287 ($67e2), 414 and 410 bytes, sharing routine 384 ($a7c6) for their set-up. " +
+    "DEFECT: the hot spot X is truncated to a signed byte and the hot spot Y is not. NOTE: clipping is by whole " +
+    "words left and right and whole rows top and bottom, with a barrel shift at $67a0 for an x that is not a " +
+    "multiple of 16 -- the net effect is an exact clip to the screen, so `point`/`putPixel` give it without the " +
+    "shifter. NOTE: neither the RastPort clip nor Set Planes is consulted, the routine walking the screen's plane " +
     "pointers itself, which is why this is the one drawing keyword here built on `putPixel` rather than `plot`",
   "shade bob mask":
-    "Routine 284 ($6610) normalises to 0 or 1 rather than storing the argument, so any non-zero value means the" +
+    "Routine 284 ($6610) normalises to 0 or 1 rather than storing the argument, so any non-zero value means the " +
     "same thing. NOTE: the mask arm falls back.",
   "ptile bank":
-    "Kept for the manual's own assessment of the feature, which is unusually candid: 'Actually, you should not" +
+    "Kept for the manual's own assessment of the feature, which is unusually candid: 'Actually, you should not " +
     "read this command description.",
   "count pixels":
-    "Routine 92 ($3336), 158 bytes. Note the sense, which the manual states and the name hides: it 'Counts the" +
-    "pixels ... that DON'T have the colour index colour'. NOTE: the routine has no clipping whatever -- it walks" +
-    "plane memory from `y1 * ($4c >> 3)` with no test against the screen, so a region off the edge counts" +
-    "whatever is next in memory; skipping out-of-range points is the port's, not the routine's. NOTE: a screen" +
-    "number that does not resolve fails inside `L_GetEc`, which raises AMOS's own screen error rather than the 23" +
-    "the port raises here; the distinction is unverified and shares the standing question about $52c(a5) error" +
+    "Routine 92 ($3336), 158 bytes. Note the sense, which the manual states and the name hides: it 'Counts the " +
+    "pixels ... that DON'T have the colour index colour'. NOTE: the routine has no clipping whatever -- it walks " +
+    "plane memory from `y1 * ($4c >> 3)` with no test against the screen, so a region off the edge counts " +
+    "whatever is next in memory; skipping out-of-range points is the port's, not the routine's. NOTE: a screen " +
+    "number that does not resolve fails inside `L_GetEc`, which raises AMOS's own screen error rather than the 23 " +
+    "the port raises here; the distinction is unverified and shares the standing question about $52c(a5) error " +
     "numbers",
   "mask copy":
-    "THREE token entries and three routines. DEVIATION: a minterm other than $E0 is not reproduced -- which of A," +
-    "B and C carries the mask, the source and the destination is decided inside BltMaskBitMapRastPort, not in" +
-    "this binary, and the AROS material available here is a partial checkout with no rom/graphics sources, so" +
-    "there is nothing to verify a general minterm against; the $E0 behaviour is implemented for every value." +
-    "NOTE: `maskaddress` is a raw pointer into a caller-built bitplane; where it resolves to memory this port can" +
-    "read the mask is honoured, and where it does not the copy is unmasked -- the same picture an all-ones mask" +
+    "THREE token entries and three routines. DEVIATION: a minterm other than $E0 is not reproduced -- which of A, " +
+    "B and C carries the mask, the source and the destination is decided inside BltMaskBitMapRastPort, not in " +
+    "this binary, and the AROS material available here is a partial checkout with no rom/graphics sources, so " +
+    "there is nothing to verify a general minterm against; the $E0 behaviour is implemented for every value. " +
+    "NOTE: `maskaddress` is a raw pointer into a caller-built bitplane; where it resolves to memory this port can " +
+    "read the mask is honoured, and where it does not the copy is unmasked -- the same picture an all-ones mask " +
     "gives. Evidence: Routine 174 ($4756).",
   "bzoom":
-    "Routine 352 ($7b56), 638 bytes. The rounding is the blitter showing through and the manual spells it out:" +
-    "'The coordinates x1 and x2 are rounded down to the next multiple of eight, x3 is even rounded to the nearest" +
-    "multiple of 16'. DEVIATION: those same `subq`s are why a degenerate box does not error -- a zero extent" +
-    "underflows to $ffff and the dbra runs 65536 times, scribbling far past both bitmaps. NOTE: the masks are" +
-    "`andi.w`, clearing the low bits of the WORD and leaving the high word, so they are `& 0xff8` and `& 0xff0`" +
-    "rather than `& ~7` and `& ~15` -- which differ for a negative coordinate, where -8 becomes 4088. NOTE: the" +
-    "plane count is `move.w $50(a0),$334(a2)` off the SOURCE and six plane pointers are loaded for each screen" +
-    "regardless, so a destination shallower than the source is written past the end of its planes; the port masks" +
+    "Routine 352 ($7b56), 638 bytes. The rounding is the blitter showing through and the manual spells it out: " +
+    "'The coordinates x1 and x2 are rounded down to the next multiple of eight, x3 is even rounded to the nearest " +
+    "multiple of 16'. DEVIATION: those same `subq`s are why a degenerate box does not error -- a zero extent " +
+    "underflows to $ffff and the dbra runs 65536 times, scribbling far past both bitmaps. NOTE: the masks are " +
+    "`andi.w`, clearing the low bits of the WORD and leaving the high word, so they are `& 0xff8` and `& 0xff0` " +
+    "rather than `& ~7` and `& ~15` -- which differ for a negative coordinate, where -8 becomes 4088. NOTE: the " +
+    "plane count is `move.w $50(a0),$334(a2)` off the SOURCE and six plane pointers are loaded for each screen " +
+    "regardless, so a destination shallower than the source is written past the end of its planes; the port masks " +
     "to the source's depth instead, which also preserves a deeper destination's upper planes as the routine does.",
   "c2p convert":
-    "Routine 78 ($3036) is a 66-byte front-end; routine 382 ($9d0c) is 2044 bytes of converter. NOTE: the 68020" +
-    "gate cannot fire here, because the modelled machine is an A1200 and Cpu answers 68020 for the same reason." +
-    "NOTE: `oy` is never range-checked and `ox` is added to the row offset after the width check, so the real" +
-    "routine runs off the end of the bitmap or into the following row; the port's bounds test is the port's, not" +
+    "Routine 78 ($3036) is a 66-byte front-end; routine 382 ($9d0c) is 2044 bytes of converter. NOTE: the 68020 " +
+    "gate cannot fire here, because the modelled machine is an A1200 and Cpu answers 68020 for the same reason. " +
+    "NOTE: `oy` is never range-checked and `ox` is added to the row offset after the width check, so the real " +
+    "routine runs off the end of the bitmap or into the following row; the port's bounds test is the port's, not " +
     "the routine's",
   "blitter fill":
-    "Routine 74, and the manual is the specification of the chip's area-fill mode: 'It does only fill the gap" +
+    "Routine 74, and the manual is the specification of the chip's area-fill mode: 'It does only fill the gap " +
     "between two dots of a horizontal line. Evidence: Routine 75 ($2e5c).",
   "x raster":
-    "'This function returns the current X position of the raster beam in hardware coordinates.' The manual is" +
+    "'This function returns the current X position of the raster beam in hardware coordinates.' The manual is " +
     "candid about the value: 'This value is not very accurate because the raster beam is very fast, sigh'",
   "scrn rastport":
-    "Routines 279 to 283 are the same eighteen-byte routine five times: the current screen from $52c(a5), `Rbeq" +
-    "routine 394` when it is null, then one fixed offset and nothing else -- RastPort $148, BitMap $150," +
-    "LayerInfo $140, Layer $144, Region $14c. NOTE: this port has a RastPort and a BitMap as objects rather than" +
-    "bytes at an address, and models no Layer or LayerInfo at all. Returning a plausible pointer would invite" +
-    "exactly the poking the manual warns about, into memory whose layout is not the machine's, so these answer 0" +
-    "-- which a program checking before use reads as 'not available'. APPROXIMATED in the value. NOTE: the" +
-    "`amcafScreenErr` written for these is therefore unreachable as things stand, and whether the core's" +
-    "closed-screen error should become error 47 here is unsettled -- it needs the core's screen accessor looked" +
+    "Routines 279 to 283 are the same eighteen-byte routine five times: the current screen from $52c(a5), `Rbeq " +
+    "routine 394` when it is null, then one fixed offset and nothing else -- RastPort $148, BitMap $150, " +
+    "LayerInfo $140, Layer $144, Region $14c. NOTE: this port has a RastPort and a BitMap as objects rather than " +
+    "bytes at an address, and models no Layer or LayerInfo at all. Returning a plausible pointer would invite " +
+    "exactly the poking the manual warns about, into memory whose layout is not the machine's, so these answer 0 " +
+    "-- which a program checking before use reads as 'not available'. APPROXIMATED in the value. NOTE: the " +
+    "`amcafScreenErr` written for these is therefore unreachable as things stand, and whether the core's " +
+    "closed-screen error should become error 47 here is unsettled -- it needs the core's screen accessor looked " +
     "at, since every extension reading $52c(a5) has the same question",
   "ham colour":
-    "Routine 161 ($440a), 82 bytes. That is why the manual describes it as 'the colour value that is created," +
-    "when plotting a pixel in colour c directly behind the last point'. NOTE: only the palette arm touches the" +
-    "screen, guarded by `Rbeq routine 394` (error 47); that guard is not reachable here because reading the" +
+    "Routine 161 ($440a), 82 bytes. That is why the manual describes it as 'the colour value that is created, " +
+    "when plotting a pixel in colour c directly behind the last point'. NOTE: only the palette arm touches the " +
+    "screen, guarded by `Rbeq routine 394` (error 47); that guard is not reachable here because reading the " +
     "current screen raises the core's own error first, the same unsettled question as the Scrn pointers",
   "ham best":
-    "Routine 162 ($445c), 318 bytes. NOTE: that shortcut is `move.l d6,d3` narrowed by word operations, so it is" +
-    "the one path that leaks the argument's high word into the result; and the routine reads $52c(a5) with no" +
+    "Routine 162 ($445c), 318 bytes. NOTE: that shortcut is `move.l d6,d3` narrowed by word operations, so it is " +
+    "the one path that leaks the argument's high word into the result; and the routine reads $52c(a5) with no " +
     "guard, so the port's fallback palette is unreachable for the same reason as Ham Colour's",
   "ham point":
-    "Routine 160 ($4312), 248 bytes. DEVIATION: the manual says 'If the point x,y is not on the screen, rgb will" +
-    "contain -1' and it does not -- both guards land on the same three instructions, `moveq #$0,d3 / move.w" +
-    "(a0),d3 / moveq #$0,d2 / rts` with a0 = $62(a1), so an off-screen read answers the RGB of palette entry 0." +
-    "There is no -1 anywhere in the routine; on a screen whose colour 0 is black it reads as 0, which is" +
-    "presumably how the manual's claim survived. NOTE: two" +
+    "Routine 160 ($4312), 248 bytes. DEVIATION: the manual says 'If the point x,y is not on the screen, rgb will " +
+    "contain -1' and it does not -- both guards land on the same three instructions, `moveq #$0,d3 / move.w " +
+    "(a0),d3 / moveq #$0,d2 / rts` with a0 = $62(a1), so an off-screen read answers the RGB of palette entry 0. " +
+    "There is no -1 anywhere in the routine; on a screen whose colour 0 is black it reads as 0, which is " +
+    "presumably how the manual's claim survived. NOTE: two " +
     "things are deliberately not reproduced.",
   "ham fade out":
-    "Routine 163 ($459a), 156 bytes. After calling it 16 times, the Ham screen is completely black.' The manual" +
-    "explains the asymmetry: 'Technically, it's not possible to fade in a ham screen without enormous processor" +
-    "power, but for fading out, a modified Shade Bobs routine is' enough -- darkening is monotone and needs no" +
-    "search. Fading only the palette leaves every modify pixel at its original brightness, so the manual's" +
-    "sixteen-calls-to-black would not have held on a picture that uses any. NOTE: the bitmap walk is a flat" +
-    "longword count, `(($4c(a0) >> 5) * $4e(a0))`, so on a screen whose width is not a multiple of 32 it covers" +
-    "less than the bitmap and drifts out of step with the rows; that is reproduced as-is, since a plane's pixel" +
+    "Routine 163 ($459a), 156 bytes. After calling it 16 times, the Ham screen is completely black.' The manual " +
+    "explains the asymmetry: 'Technically, it's not possible to fade in a ham screen without enormous processor " +
+    "power, but for fading out, a modified Shade Bobs routine is' enough -- darkening is monotone and needs no " +
+    "search. Fading only the palette leaves every modify pixel at its original brightness, so the manual's " +
+    "sixteen-calls-to-black would not have held on a picture that uses any. NOTE: the bitmap walk is a flat " +
+    "longword count, `(($4c(a0) >> 5) * $4e(a0))`, so on a screen whose width is not a multiple of 32 it covers " +
+    "less than the bitmap and drifts out of step with the rows; that is reproduced as-is, since a plane's pixel " +
     "order is the chunky cache's pixel order while the row length is a whole number of bytes",
   "set rain colour":
-    "Changes a rainbow's colour index, which 'remove[s] the irretating limit to the first 16 colours'. DEVIATION:" +
-    "the manual's other use -- 'A colour index of -63 enables you to alter the hardware scrolling register, so" +
-    "you can create fancy water and wobbel effects' -- is a copper poke at a register this port reaches through" +
+    "Changes a rainbow's colour index, which 'remove[s] the irretating limit to the first 16 colours'. DEVIATION: " +
+    "the manual's other use -- 'A colour index of -63 enables you to alter the hardware scrolling register, so " +
+    "you can create fancy water and wobbel effects' -- is a copper poke at a register this port reaches through " +
     "the display list rather than by address, so the index is stored and the scroll case is not reproduced",
   "pt continue":
-    "Routine 266 ($616e) is stricter than the port had it: `move.l $2bc(a2),d0 / Rbeq routine 390` makes" +
-    "continuing with nothing ever played an ERROR rather than a no-op, which matters because Pt Stop -- its" +
-    "counterpart -- deliberately IS a no-op, a fix the changelog records. It then does `cmp.l #$200000,d0 / Rbge" +
-    "routine 390`, Pt Bank's chip-RAM check again, carrying the same DEVIATION: this port models memory type as a" +
+    "Routine 266 ($616e) is stricter than the port had it: `move.l $2bc(a2),d0 / Rbeq routine 390` makes " +
+    "continuing with nothing ever played an ERROR rather than a no-op, which matters because Pt Stop -- its " +
+    "counterpart -- deliberately IS a no-op, a fix the changelog records. It then does `cmp.l #$200000,d0 / Rbge " +
+    "routine 390`, Pt Bank's chip-RAM check again, carrying the same DEVIATION: this port models memory type as a " +
     "flag on the bank rather than as an address, so that comparison is not reproduced.",
   "pt voice":
-    "Routine 262 ($60a2) sets all four per-voice bytes to $FF first (`moveq #$ff,d1 / move.l d1,$a(a0)`) and then" +
-    "CLEARS the ones whose mask bit is clear, silencing each with `move.w #bit,$96(a1)` on DMACON and `clr.w` on" +
+    "Routine 262 ($60a2) sets all four per-voice bytes to $FF first (`moveq #$ff,d1 / move.l d1,$a(a0)`) and then " +
+    "CLEARS the ones whose mask bit is clear, silencing each with `move.w #bit,$96(a1)` on DMACON and `clr.w` on " +
     "that voice's AUDxVOL at $a8/$b8/$c8/$d8.",
   "jd star joker on":
-    "Routines 11 ($2ba) and 12 ($2ca), sixteen bytes each: `movea.l $2b8(a5),a0` for DOSBase, `movea.l" +
-    "$22(a0),a0` for dl_Root, then `bset.b #$18,$34(a0)` -- rn_Flags bit 24, RNF_WILDSTAR -- with `bclr` for Off." +
-    "NOTE: this is AmigaDOS's GLOBAL flag and not the extension's own, so it lives on Machine here and LDos's" +
-    "Lmatch reads the same field; a program that turns the star on for Jd Match turns it on for every pattern" +
+    "Routines 11 ($2ba) and 12 ($2ca), sixteen bytes each: `movea.l $2b8(a5),a0` for DOSBase, `movea.l " +
+    "$22(a0),a0` for dl_Root, then `bset.b #$18,$34(a0)` -- rn_Flags bit 24, RNF_WILDSTAR -- with `bclr` for Off. " +
+    "NOTE: this is AmigaDOS's GLOBAL flag and not the extension's own, so it lives on Machine here and LDos's " +
+    "Lmatch reads the same field; a program that turns the star on for Jd Match turns it on for every pattern " +
     "parse on the machine, which is what one RootNode means.",
   "scanstr$":
-    "Routine 278 (\\$63c8) reads a table of 105 NUL-terminated strings at \\$63f8..\\$65b6 -- the extension's own" +
-    "data, now extracted rather than invented. DEFECT: ten codes have an EMPTY entry (12, 14, 28, 44, 59, 71, 72," +
-    "73, 75, 104) and the routine refuses them with `tst.b (a0) / Rbeq routine 390`, AMOS error 23, where the" +
-    "manual promises an empty string for a code with no name; the library contradicts its documentation and this" +
+    "Routine 278 (\\$63c8) reads a table of 105 NUL-terminated strings at \\$63f8..\\$65b6 -- the extension's own " +
+    "data, now extracted rather than invented. DEFECT: ten codes have an EMPTY entry (12, 14, 28, 44, 59, 71, 72, " +
+    "73, 75, 104) and the routine refuses them with `tst.b (a0) / Rbeq routine 390`, AMOS error 23, where the " +
+    "manual promises an empty string for a code with no name; the library contradicts its documentation and this " +
     "port follows the library.",
   "rnp":
-    "The dead half of the RNC pair -- the author removed the two commands, put them back, and removed them again," +
-    "but the tokens had to stay because deleting one shifts every later token id. 1.50's routine 277 (\\$63c6) is" +
-    "a bare `rts`: no prologue, no body, so it hands the caller whatever the result register happened to hold at" +
-    "the call. 1.40's routine 263 (\\$64f2) is the same behind the shareware guard, `tst.w -\\$16(a5) / Rbmi" +
-    "routine 144`, and that arm is a `moveq #\\$0,d0` -- so an unregistered 1.40 answers 0 and everything else" +
-    "answers a stale register. DEVIATION: this port answers 0 always, which is 1.40's demo path exactly and the" +
+    "The dead half of the RNC pair -- the author removed the two commands, put them back, and removed them again, " +
+    "but the tokens had to stay because deleting one shifts every later token id. 1.50's routine 277 (\\$63c6) is " +
+    "a bare `rts`: no prologue, no body, so it hands the caller whatever the result register happened to hold at " +
+    "the call. 1.40's routine 263 (\\$64f2) is the same behind the shareware guard, `tst.w -\\$16(a5) / Rbmi " +
+    "routine 144`, and that arm is a `moveq #\\$0,d0` -- so an unregistered 1.40 answers 0 and everything else " +
+    "answers a stale register. DEVIATION: this port answers 0 always, which is 1.40's demo path exactly and the " +
     "only defined value available for the other case.",
   "amcaf version$":
-    "DEVIATION: one body of code serves both releases here and the token tables carry no registry id, so this" +
+    "DEVIATION: one body of code serves both releases here and the token tables carry no registry id, so this " +
     "cannot tell which was bound and answers with 1.50's.",
   "smouse speed":
-    "Routine 170 ($46e2) is not a plain store. Nothing bounds the value, so the manual's 'higher values than 4" +
-    "are not sensible' is advice rather than a check. NOTE: no test pins the rescale, because nothing in a" +
+    "Routine 170 ($46e2) is not a plain store. Nothing bounds the value, so the manual's 'higher values than 4 " +
+    "are not sensible' is advice rather than a check. NOTE: no test pins the rescale, because nothing in a " +
     "headless run moves a second mouse and zero rescales to zero",
   "splinters bank":
     "Routines 288 ($697c) and 304 ($6d84) are twins.",
   "splinters colour":
     "Routine 294 ($6a38): the plane count is bounded against the CURRENT SCREEN rather than against six.",
   "shade pix":
-    "Routine 223 ($5180) is EIGHT BYTES -- `moveq #$6,d0 / move.l d0,-(a3)` and a branch into routine 224 -- so" +
-    "the plane count is a hardcoded SIX, not Shade Bob Planes and not an argument. The manual's 'if the highest" +
-    "colour is reached, the colour is resetted to be cycled' falls out of that, and so does the early stop --" +
-    "`move.l a0,d0 / beq` bails on a null plane pointer, so a screen with fewer than six planes carries only as" +
+    "Routine 223 ($5180) is EIGHT BYTES -- `moveq #$6,d0 / move.l d0,-(a3)` and a branch into routine 224 -- so " +
+    "the plane count is a hardcoded SIX, not Shade Bob Planes and not an argument. The manual's 'if the highest " +
+    "colour is reached, the colour is resetted to be cycled' falls out of that, and so does the early stop -- " +
+    "`move.l a0,d0 / beq` bails on a null plane pointer, so a screen with fewer than six planes carries only as " +
     "far as it has",
   "paste ptile":
-    "NOTE: the count check is `Rbge`, which is SIGNED, so a negative tile number passes it and indexes backwards" +
-    "out of the bank. The manual's own view of the feature is worth keeping: 'Actually, you should not read this" +
+    "NOTE: the count check is `Rbge`, which is SIGNED, so a negative tile number passes it and indexes backwards " +
+    "out of the bank. The manual's own view of the feature is worth keeping: 'Actually, you should not read this " +
     "command description. Evidence: Routine 270 ($61e0).",
   "fcircle":
-    "Routine 350 ($7afa) is TEN BYTES: `move.l (a3),-(a3)` to duplicate the radius on the argument stack, then" +
+    "Routine 350 ($7afa) is TEN BYTES: `move.l (a3),-(a3)` to duplicate the radius on the argument stack, then " +
     "straight into Fellipse (351).",
   "turbo plot":
-    "Routine 348 ($7a16). NOTE: the row stride is `lsr.w #$3` of the WIDTH, truncating where a real BitMap rounds" +
+    "Routine 348 ($7a16). NOTE: the row stride is `lsr.w #$3` of the WIDTH, truncating where a real BitMap rounds " +
     "up to a word; every AMOS screen is a multiple of sixteen wide, so nothing reachable disagrees",
   "turbo draw":
-    "Routines 346 ($7760) and 347. DEFECT: that table at $7778 is SIX bytes -- `01 03 07 0f 1f 3f` -- indexed by" +
-    "`depth - 1`, and `move.b -$1(a0,d1.w),d0` with a depth of 7 or 8 reads the two bytes after it, which are the" +
+    "Routines 346 ($7760) and 347. DEFECT: that table at $7778 is SIX bytes -- `01 03 07 0f 1f 3f` -- indexed by " +
+    "`depth - 1`, and `move.b -$1(a0,d1.w),d0` with a depth of 7 or 8 reads the two bytes after it, which are the " +
     "first half of the next routine's `movea.l $168(a5),a2`: $24 and $6d.",
   "font style":
-    "Routine 145 ($40fe), seven instructions: the current screen, its RastPort at $148, `rp_Font` at $34, then" +
-    "`move.b $17(a1),d3`. The manual says it 'replaces the AMOS function Text Styles, because this one does not" +
-    "return the multicoloured font bit (Bit 6)'. DEFECT: it reads the wrong byte, by one. So it never reports a" +
-    "style at all and Set Text cannot move it; bit 6 there is FPF_DESIGNED, set on essentially every real font," +
-    "which is presumably why the off-by-one survived three years of releases -- the bit the manual promises" +
+    "Routine 145 ($40fe), seven instructions: the current screen, its RastPort at $148, `rp_Font` at $34, then " +
+    "`move.b $17(a1),d3`. The manual says it 'replaces the AMOS function Text Styles, because this one does not " +
+    "return the multicoloured font bit (Bit 6)'. DEFECT: it reads the wrong byte, by one. So it never reports a " +
+    "style at all and Set Text cannot move it; bit 6 there is FPF_DESIGNED, set on essentially every real font, " +
+    "which is presumably why the off-by-one survived three years of releases -- the bit the manual promises " +
     "always looks set. Source: +Lib.s:9896.",
   "amcaf aga notation on":
-    "Routines 80 ($307c) and 81 ($3088), twelve bytes each, each a single `move.w #n,$2d2(a2)`. The manual:" +
-    "'After calling Amcaf Aga Notation On, all AMCAF commands and functions take 24 bit values... The default" +
-    "setting is 12 bit.' DEFECT: the two are the wrong way round. NOTE: 'all AMCAF commands and functions' is" +
-    "wrong too -- the flag is read from exactly three addresses in the whole hunk, and they are Red Val, Green" +
+    "Routines 80 ($307c) and 81 ($3088), twelve bytes each, each a single `move.w #n,$2d2(a2)`. The manual: " +
+    "'After calling Amcaf Aga Notation On, all AMCAF commands and functions take 24 bit values... The default " +
+    "setting is 12 bit.' DEFECT: the two are the wrong way round. NOTE: 'all AMCAF commands and functions' is " +
+    "wrong too -- the flag is read from exactly three addresses in the whole hunk, and they are Red Val, Green " +
     "Val and Blue Val, so the manual's careful exception for the two conversion functions is redundant",
   "red val":
-    "Routines 87 ($327a), 88 ($329a) and 89 ($32c0) are the only readers of the notation flag in the hunk, and" +
+    "Routines 87 ($327a), 88 ($329a) and 89 ($32c0) are the only readers of the notation flag in the hunk, and " +
     "each opens `move.w $2d2(a2),d0 / cmp.w #$4,d0`.",
   "glue colour":
-    "Routine 86 ($3260), and it does NOT consult the notation flag: `moveq #$f,d0` then an `and` per gun, so" +
+    "Routine 86 ($3260), and it does NOT consult the notation flag: `moveq #$f,d0` then an `and` per gun, so " +
     "every component is masked to four bits and the answer is 12-bit whatever Red Val would have been reading",
   "best pen":
     "Routines 82 ($3094) and 83 ($30aa).",
   "pal set":
-    "Routines 337 and 338 ($74b4, $74e6). 'Palnr must be range from 0 to 7' and the routine agrees, but the INDEX" +
-    "bound is omitted by the manual: `cmp.w #$20,d1 / Rbge` is THIRTY-TWO," +
-    "not 256, and the address arithmetic confirms it -- `pal*64 + index*2` into a 512-byte block at $4aa(a2)," +
+    "Routines 337 and 338 ($74b4, $74e6). 'Palnr must be range from 0 to 7' and the routine agrees, but the INDEX " +
+    "bound is omitted by the manual: `cmp.w #$20,d1 / Rbge` is THIRTY-TWO, " +
+    "not 256, and the address arithmetic confirms it -- `pal*64 + index*2` into a 512-byte block at $4aa(a2), " +
     "eight palettes of 32 words.",
   "pal spread":
     "Routine 334 ($736a).",
   "rain fade":
     "'Rain Fade works step by step only.",
   "object protection$":
-    "Routine 127 ($3bb0), and note the argument: it takes the NUMERIC VALUE, not a path, and unlike its" +
-    "neighbours never touches the FileInfoBlock -- 'converts this numeric value into a string in the format" +
+    "Routine 127 ($3bb0), and note the argument: it takes the NUMERIC VALUE, not a path, and unlike its " +
+    "neighbours never touches the FileInfoBlock -- 'converts this numeric value into a string in the format " +
     "hsparwed'.",
   "examine dir":
     "Routine 109 ($3a32).",
   "examine object":
-    "Routine 112 ($3ad6), Examine Dir's twin with the lock released immediately -- which is why it works on a" +
+    "Routine 112 ($3ad6), Examine Dir's twin with the lock released immediately -- which is why it works on a " +
     "file as happily as on a directory and leaves a walk in progress alone.",
   "examine next$":
-    "Routine 110 ($3a80). With no lock held it is error 23, which is the manual's 'you may not make any further" +
+    "Routine 110 ($3a80). With no lock held it is error 23, which is the manual's 'you may not make any further " +
     "calls to Examine Next$' made enforceable.",
   "examine stop":
-    "Routine 111 ($3ab6): `UnLock` the lock at $37c and clear it, wrapped in a `movem.l` of everything it" +
+    "Routine 111 ($3ab6): `UnLock` the lock at $37c and clear it, wrapped in a `movem.l` of everything it " +
     "touches.",
   "object type":
-    "Routines 114 to 129 are each three or four instructions reading a fixed offset of the FileInfoBlock the last" +
-    "Examine filled in: Type $104 (fib+4, fib_DirEntryType raw), Name$ $108, Protection $174, Size $17c, Blocks" +
-    "$180, Date $184, Time the low words at $18a and $18e, Comment$ $190. NOTE: none accepts a path or re-queries" +
-    "the filesystem; all report the last Examine snapshot. None of" +
+    "Routines 114 to 129 are each three or four instructions reading a fixed offset of the FileInfoBlock the last " +
+    "Examine filled in: Type $104 (fib+4, fib_DirEntryType raw), Name$ $108, Protection $174, Size $17c, Blocks " +
+    "$180, Date $184, Time the low words at $18a and $18e, Comment$ $190. NOTE: none accepts a path or re-queries " +
+    "the filesystem; all report the last Examine snapshot. None of " +
     "them contains a library call, so a change made after the Examine stays invisible until the next one",
   "protect object":
     "Routine 130 ($3c02), `SetProtection` (dos.library -$ba).",
   "set object comment":
-    "Routine 131 ($3c20), `SetComment` (-$b4). NOTE: the routine copies the AMOS string with a plain `dbra` loop" +
-    "and no length check at all, so the 79-character FileNote limit is the LIBRARY's rather than the extension's" +
-    "-- an over-long comment reaches SetComment, which refuses it, and the result is error 81 rather than a" +
+    "Routine 131 ($3c20), `SetComment` (-$b4). NOTE: the routine copies the AMOS string with a plain `dbra` loop " +
+    "and no length check at all, so the 79-character FileNote limit is the LIBRARY's rather than the extension's " +
+    "-- an over-long comment reaches SetComment, which refuses it, and the result is error 81 rather than a " +
     "silently truncated note.",
   "set object date":
     "Routine 132 ($3c54), `SetFileDate` (-$18c).",
   "file copy":
-    "Routine 108 ($395e), and it shows exactly how 'you can even copy a file of 3 MB in size, even if you only" +
-    "got 100 KB of free memory': it asks `AllocMem` for the whole file, HALVES the request on failure and asks" +
-    "again, giving up only below $2800 -- ten kilobytes. NOTE: there is no memory pressure here and no chunking," +
+    "Routine 108 ($395e), and it shows exactly how 'you can even copy a file of 3 MB in size, even if you only " +
+    "got 100 KB of free memory': it asks `AllocMem` for the whole file, HALVES the request on failure and asks " +
+    "again, giving up only below $2800 -- ten kilobytes. NOTE: there is no memory pressure here and no chunking, " +
     "so the halving loop is behaviour this port cannot reach; the result is the same file either way",
   "dos hash":
-    "Routine 99 ($365a), the AmigaDOS directory hash instruction for instruction: seed with the length, then per" +
-    "character `mulu.w #$d,d3 / add.l d2,d3 / andi.l #$7ff,d3`, and finally `divu.w #$48,d3` keeping the" +
-    "remainder -- $48 is 72, which is 512/4-56, the bucket count of a standard block. DEFECT in the port rather" +
-    "than AMCAF: the case fold (`cmp.b #$61 / bcs / cmp.b #$7a / bhi / subi.b #$20`) was missing, so" +
+    "Routine 99 ($365a), the AmigaDOS directory hash instruction for instruction: seed with the length, then per " +
+    "character `mulu.w #$d,d3 / add.l d2,d3 / andi.l #$7ff,d3`, and finally `divu.w #$48,d3` keeping the " +
+    "remainder -- $48 is 72, which is 512/4-56, the bucket count of a standard block. DEFECT in the port rather " +
+    "than AMCAF: the case fold (`cmp.b #$61 / bcs / cmp.b #$7a / bhi / subi.b #$20`) was missing, so " +
     "the hash depended on case and a program walking real hash chains was sent to the wrong bucket.",
   "path$":
     "Evidence: Routines 96 and 97 ($3536, $358e).",
   "pattern match":
     "Routine 102 ($377a).",
   "wload":
-    "Routines 104 ($384a) and 103 ($37f0) differ in two constants and nothing else: the Reserve type -- `moveq" +
-    "#$0,d1` for Wload and `moveq #$1,d1` for Dload -- and an eight-character bank NAME that is a literal in the" +
-    "binary, `Work ` and `Datas `. The documented sign check is `bpl" +
-    "/ neg.w d0 / addq.w #$2,d1`, so a NEGATIVE bank number reserves in chip -- 'If bank is a negative number," +
+    "Routines 104 ($384a) and 103 ($37f0) differ in two constants and nothing else: the Reserve type -- `moveq " +
+    "#$0,d1` for Wload and `moveq #$1,d1` for Dload -- and an eight-character bank NAME that is a literal in the " +
+    "binary, `Work ` and `Datas `. The documented sign check is `bpl " +
+    "/ neg.w d0 / addq.w #$2,d1`, so a NEGATIVE bank number reserves in chip -- 'If bank is a negative number, " +
     "the file is loaded into Chip ram instead'.",
   "wsave":
-    "Routine 105 ($38a2), shared by Dsave -- 'Dsave is exactly the same as Wsave in every aspect', and the token" +
+    "Routine 105 ($38a2), shared by Dsave -- 'Dsave is exactly the same as Wsave in every aspect', and the token " +
     "table gives both names the same routine. Source: +Equ.s:1867-8.",
   "tool types$":
-    "NOTE: `.info` files are Workbench DiskObjects and this port does not decode them, so a program asking for" +
-    "tool types gets the empty string -- the same answer the manual gives for a file with no icon. The manual's" +
+    "NOTE: `.info` files are Workbench DiskObjects and this port does not decode them, so a program asking for " +
+    "tool types gets the empty string -- the same answer the manual gives for a file with no icon. The manual's " +
     "own note is worth keeping: 'The supplied file must not have a .info appended!'",
   "bank code mix.b":
     "Routine 37 ($25d2), and the only one of the five encoders the manual does not describe.",
@@ -3922,97 +3922,97 @@ export const NOTES: Record<string, string> = {
   "bank checksum":
     "Routine 55 ($27a6) and its worker 54 ($2782): a plain LONGWORD SUM of the region, then `eori.l #$faceface`.",
   "bank code rol.b":
-    "Rotate, not shift. The manual bounds the count to 1..7 on `.b` and 1..15 on `.w`, and 'To decode a bank" +
-    "either use the negative code with the same instruction or the same key code along with the Bank Code Ror" +
+    "Rotate, not shift. The manual bounds the count to 1..7 on `.b` and 1..15 on `.w`, and 'To decode a bank " +
+    "either use the negative code with the same instruction or the same key code along with the Bank Code Ror " +
     "command' -- so a negative count rotates the other way",
   "bank to chip":
-    "Routine 27. The manual's warning belongs to the hardware and not to us: \"Do not try to replay musics or" +
+    "Routine 27. The manual's warning belongs to the hardware and not to us: \"Do not try to replay musics or " +
     "sounds that resist in fast ram\"",
   "current time":
-    "Routine 321 ($70e0 in 1.50): `DateStamp()` into the extension's own block, then `move.w $6(a2),d3 / swap d3" +
-    "/ move.w $a(a2),d3` -- the LOW WORDS of ds_Minute and ds_Tick, the two high words dropped rather than" +
-    "checked. The manual spells the same format out: 'the time is created out of Wordswap(minutes)+ticks', and" +
+    "Routine 321 ($70e0 in 1.50): `DateStamp()` into the extension's own block, then `move.w $6(a2),d3 / swap d3 " +
+    "/ move.w $a(a2),d3` -- the LOW WORDS of ds_Minute and ds_Tick, the two high words dropped rather than " +
+    "checked. The manual spells the same format out: 'the time is created out of Wordswap(minutes)+ticks', and " +
     "says why: 'This is NOT a value in the standard DOS-format as this one would require two longwords'",
   "insstr$":
-    "Routine 187 ($4a44). The manual's example agrees -- 'dear ' at 6 into 'Hello Ben!' keeps 'Hello ' and gives" +
+    "Routine 187 ($4a44). The manual's example agrees -- 'dear ' at 6 into 'Hello Ben!' keeps 'Hello ' and gives " +
     "'Hello dear Ben!'.",
   "cutstr$":
-    "Routine 188 ($4aae), an INCLUSIVE 1-based run: 7 To 11 out of 'Hello dear Ben!' removes the five characters" +
-    "'dear '. NOTE: the routine's middle runs into bytes the disassembler cannot separate from code -- the same" +
-    "misdecode Vmod hits -- so its bound checks are legible but the exact arithmetic is not, and the manual's" +
+    "Routine 188 ($4aae), an INCLUSIVE 1-based run: 7 To 11 out of 'Hello dear Ben!' removes the five characters " +
+    "'dear '. NOTE: the routine's middle runs into bytes the disassembler cannot separate from code -- the same " +
+    "misdecode Vmod hits -- so its bound checks are legible but the exact arithmetic is not, and the manual's " +
     "worked example is what this follows",
   "asc.w":
-    "Routine 181. UNSIGNED, 0..65535, where the sibling Asc.l is signed -- the one asymmetry in the group, and" +
+    "Routine 181. UNSIGNED, 0..65535, where the sibling Asc.l is signed -- the one asymmetry in the group, and " +
     "both the manual and the routine agree on it.",
   "lsstr$":
     "Routine 178 ($488e).",
   "itemstr$":
     "Routines 190 and 191.",
   "lsr":
-    "Routine 197 ($4cec). DEVIATION: the keyword is named for a LOGICAL shift and the instruction is `asr.l`, an" +
-    "ARITHMETIC shift, so the sign bit is replicated and a negative value stays negative. That also makes the" +
-    "manual's 'does the same as a division by 2^n' false for negatives -- ASR rounds toward minus infinity where" +
+    "Routine 197 ($4cec). DEVIATION: the keyword is named for a LOGICAL shift and the instruction is `asr.l`, an " +
+    "ARITHMETIC shift, so the sign bit is replicated and a negative value stays negative. That also makes the " +
+    "manual's 'does the same as a division by 2^n' false for negatives -- ASR rounds toward minus infinity where " +
     "division rounds toward zero, so Lsr(-3,1) is -2 rather than -1.",
   "lsl":
-    "Routine 196 ($4ce2) is `asl.l d0,d3`. The manual says 'Rotates the number v to the left', which it does not" +
+    "Routine 196 ($4ce2) is `asl.l d0,d3`. The manual says 'Rotates the number v to the left', which it does not " +
     "-- bits leaving the top are lost.",
   "binlog":
-    "Routine 195 ($4cc2), and the routine is the specification: zero takes the `Rbeq` error branch, then it" +
-    "shifts right counting until bit 0 is set, shifts once more and errors if ANYTHING is left (`tst.l d0 /" +
-    "Rbne`). So a value that is not exactly a power of two is an error rather than a floor, which is what the" +
+    "Routine 195 ($4cc2), and the routine is the specification: zero takes the `Rbeq` error branch, then it " +
+    "shifts right counting until bit 0 is set, shifts once more and errors if ANYTHING is left (`tst.l d0 / " +
+    "Rbne`). So a value that is not exactly a power of two is an error rather than a floor, which is what the " +
     "manual promises",
   "qsqr":
-    "Routine 271 ($6286): an integer square root by Newton's method over a scaled start, with no maths library" +
+    "Routine 271 ($6286): an integer square root by Newton's method over a scaled start, with no maths library " +
     "involved.",
   "pt signal":
-    "Routine 268 ($61bc) CLEARS the byte as it reads it -- `move.b $2(a0),d3 / clr.b $2(a0)` -- so a signal is" +
-    "consumed by the first read and a second gives 0. The changelog pins the one documented value: 'When reaching" +
+    "Routine 268 ($61bc) CLEARS the byte as it reads it -- `move.b $2(a0),d3 / clr.b $2(a0)` -- so a signal is " +
+    "consumed by the first read and a second gives 0. The changelog pins the one documented value: 'When reaching " +
     "the end of a song, Pt Signal now reports $FF'",
   "pt cnote":
-    "Routine 243 ($5d5e). Returns a FREQUENCY, not a note number -- the manual says 'the frequency of an" +
-    "instrument being played' and the routine divides $369E99 (3,579,545, the NTSC Paula clock, used whatever the" +
-    "machine) by the channel's period word at +$10 of a 44-byte per-channel block, answering 0 when the period is" +
+    "Routine 243 ($5d5e). Returns a FREQUENCY, not a note number -- the manual says 'the frequency of an " +
+    "instrument being played' and the routine divides $369E99 (3,579,545, the NTSC Paula clock, used whatever the " +
+    "machine) by the channel's period word at +$10 of a 44-byte per-channel block, answering 0 when the period is " +
     "zero. Same DEVIATION as Pt Cpattern: the engine is Player 6.1A's, not AMCAF's",
   "pt cinstr":
-    "Routine 242 ($5d34), the same range check, then `move.b $2(a0,d7.w),d3 / lsr.w #4`. NOTE: a byte shifted" +
-    "right by four yields 0..15, so the routine cannot return the 16..31 its own manual promises -- the high bit" +
-    "of a ProTracker instrument number lives in the other half of the note word. APPROXIMATED for the same reason" +
+    "Routine 242 ($5d34), the same range check, then `move.b $2(a0,d7.w),d3 / lsr.w #4`. NOTE: a byte shifted " +
+    "right by four yields 0..15, so the routine cannot return the 16..31 its own manual promises -- the high bit " +
+    "of a ProTracker instrument number lives in the other half of the note word. APPROXIMATED for the same reason " +
     "as Pt Cnote",
   "pt sam freq":
     "Routine 246 ($5df6), and three things the manual's 'channel chan' hides.",
   "qsin":
-    "Routine 260 ($643a), and now FAITHFUL rather than APPROXIMATED because the table was found. DEFECT: the" +
-    "expansion at $a2d8 copies 255 entries, writes $100 as the 256th and mirrors, which puts the PEAK at index" +
+    "Routine 260 ($643a), and now FAITHFUL rather than APPROXIMATED because the table was found. DEFECT: the " +
+    "expansion at $a2d8 copies 255 entries, writes $100 as the 256th and mirrors, which puts the PEAK at index " +
     "255 and 767 rather than 256 and 768 and leaves DOUBLED zeros at 0/1023 and 511/512.",
   "qcos":
-    "Routine 259 ($6428), four instructions: `addi.w #$100,$6(a3)` then `Rbra` into Qsin. Inherits the table" +
+    "Routine 259 ($6428), four instructions: `addi.w #$100,$6(a3)` then `Rbra` into Qsin. Inherits the table " +
     "DEFECT recorded under Qsin",
   "qarc":
-    "Routine 261 ($646c). DEFECT: the quadrant is chosen by `tst.w`, a WORD test, while the magnitudes were taken" +
+    "Routine 261 ($646c). DEFECT: the quadrant is chosen by `tst.w`, a WORD test, while the magnitudes were taken " +
     "as longs, so a delta past 65535 whose low word reads positive lands in the wrong quadrant.",
   "qrnd":
-    "Routine 272. The manual says it is 'totally identical to the Rnd function, with the only difference, that" +
-    "this one is much faster', so it uses AMOS's own generator rather than a second one -- which is also what" +
+    "Routine 272. The manual says it is 'totally identical to the Rnd function, with the only difference, that " +
+    "this one is much faster', so it uses AMOS's own generator rather than a second one -- which is also what " +
     "makes a Randomize seed reach it",
   "vmod":
-    "Routines 185 ($49e6) and 186 ($4a10), two token forms of one idea. NOTE: the two-bound form's disassembly" +
-    "runs into data the disassembler renders as `dc.b \"BCHCNuD\"` and could not be read straight through; the" +
+    "Routines 185 ($49e6) and 186 ($4a10), two token forms of one idea. NOTE: the two-bound form's disassembly " +
+    "runs into data the disassembler renders as `dc.b \"BCHCNuD\"` and could not be read straight through; the " +
     "single-bound path is legible and the two-bound one follows the manual's worked description",
   "cpu":
-    "Routine 216 ($5026) reads ExecBase+$128 (AttnFlags) and maps the bits onto" +
-    "68000/68010/68020/68030/68040/68060 -- d3 starts as the longword $109a0, which is 68000 in decimal, and each" +
+    "Routine 216 ($5026) reads ExecBase+$128 (AttnFlags) and maps the bits onto " +
+    "68000/68010/68020/68030/68040/68060 -- d3 starts as the longword $109a0, which is 68000 in decimal, and each " +
     "hit overwrites only the low WORD so $9b4 turns it into $109b4 = 68020.",
   "fpu":
-    "Routine 217. The manual notes that on 68040/68060 the cpu contains the fpu and those numbers come back" +
+    "Routine 217. The manual notes that on 68040/68060 the cpu contains the fpu and those numbers come back " +
     "instead",
   "nop":
     "Routine 21 ($231a) is two bytes: `rts`.",
   "nfn":
     "Routine 22, the function half of the same idea: 'This function returns nothing useful.",
   "aga screen open":
-    "Routine 2 ($1050): 0..7 or error 5, must not already exist (error 1), always 320x256x8, brought to the" +
-    "front, and the default font selected on the way. DEVIATION: the original builds its OWN copper list outside" +
-    "AMOS's screen system, which is why the doc warns that 'Sprites,Bobs and Mouse related commands may react in" +
+    "Routine 2 ($1050): 0..7 or error 5, must not already exist (error 1), always 320x256x8, brought to the " +
+    "front, and the default font selected on the way. DEVIATION: the original builds its OWN copper list outside " +
+    "AMOS's screen system, which is why the doc warns that 'Sprites,Bobs and Mouse related commands may react in " +
     "a corrupting way on screen'.",
   "aga get palette":
     "Routine 5 ($11d8) is FOUR BYTES: `move.l (a3)+,d0 / rts`.",
@@ -4023,56 +4023,56 @@ export const NOTES: Record<string, string> = {
   "aga ink":
     "Routine 9 ($13a0): `move.b d0,$0(a2)`.",
   "aga bar":
-    "Routine 7 ($1236) = RectFill, but only after `cmp.w d0,d2 / ble` and `cmp.w d1,d3 / ble`, so an inverted or" +
+    "Routine 7 ($1236) = RectFill, but only after `cmp.w d0,d2 / ble` and `cmp.w d1,d3 / ble`, so an inverted or " +
     "degenerate bar is error 3.",
   "aga box":
     "Routine 6 ($11dc): Move to (x1,y1), then PolyDraw over four corners -- (x1,y2) (x2,y2) (x2,y1) (x1,y1).",
   "aga text":
-    "Routine 8 ($127e): TextExtent to measure, TextFit to clip, then the glyphs through rp_Font. DEVIATION: with" +
+    "Routine 8 ($127e): TextExtent to measure, TextFit to clip, then the glyphs through rp_Font. DEVIATION: with " +
     "no face opened this draws nothing, where the machine's RastPort would inherit the screen's default topaz.",
   "aga draw mode":
     "Routine 35 ($19e2) = SetDrMd(rp, n): Jam1 0, Jam2 1, XOR 2, INVERSVID 4, stored with no validation.",
   "aga sprite mode":
-    "Routine 36 ($19fe): patches $00, $80 or $c0 into a copper instruction for low, medium and high resolution" +
+    "Routine 36 ($19fe): patches $00, $80 or $c0 into a copper instruction for low, medium and high resolution " +
     "sprites.",
   "aga front screen":
-    "Routine 30 ($1868). Whether that is a live defect depends on what the dispatcher leaves in a2, which cannot" +
+    "Routine 30 ($1868). Whether that is a live defect depends on what the dispatcher leaves in a2, which cannot " +
     "be settled without executing the 68k -- n/a by policy.",
   "aga unpack":
     "Routine 48 ($1fd2), and the format is read off it rather than out of the doc, which describes none of it.",
   "aga spack":
     "Routine 47 ($1dee), the inverse of Aga Unpack's format.",
   "aga load bitplanes":
-    "Routine 29 ($1804): eight CopyMem calls of $2800 bytes each, straight into the planes in order -- $2800 is" +
+    "Routine 29 ($1804): eight CopyMem calls of $2800 bytes each, straight into the planes in order -- $2800 is " +
     "320/8 * 256, one whole plane.",
   "aga get block":
-    "Routine 18 ($1434): 0..4000 or error 8. DEVIATION: the doc says overwriting a block leaks the old one ('you" +
-    "will lose the memory that the previous block was using, so remember to AGA Del Block first'); a Map simply" +
+    "Routine 18 ($1434): 0..4000 or error 8. DEVIATION: the doc says overwriting a block leaks the old one ('you " +
+    "will lose the memory that the previous block was using, so remember to AGA Del Block first'); a Map simply " +
     "replaces it, so the leak is not reproduced",
   "aga use font":
-    "Routine 54 ($2324): OpenLibrary('diskfont.library') cached at $ba, CloseFont on the previous face, a" +
+    "Routine 54 ($2324): OpenLibrary('diskfont.library') cached at $ba, CloseFont on the previous face, a " +
     "TextAttr built at $c5 from name/ySize/style/flags, then OpenDiskFont.",
   "stars reset":
-    "Routine 4 ($1892), twelve bytes and undocumented: `movea.l $f80000,a0 / movea.l 4(a0),a0 / jmp (a0)` — it" +
-    "reads the initial PC out of the Kickstart ROM header and jumps to it, which is a hard machine reset." +
-    "DEVIATION: there is no machine to reboot, so the program ends, the same thing System and Edit do with AMOS's" +
-    "own leave-now keywords. Nothing in Stars.doc mentions this keyword at all, so no program can have been" +
+    "Routine 4 ($1892), twelve bytes and undocumented: `movea.l $f80000,a0 / movea.l 4(a0),a0 / jmp (a0)` — it " +
+    "reads the initial PC out of the Kickstart ROM header and jumps to it, which is a hard machine reset. " +
+    "DEVIATION: there is no machine to reboot, so the program ends, the same thing System and Edit do with AMOS's " +
+    "own leave-now keywords. Nothing in Stars.doc mentions this keyword at all, so no program can have been " +
     "relying on the reboot in a way the manual sanctioned",
   "stars wibble":
     "Routine 8 ($19f2): `move.l a4,-(a7) / movea.l (a7)+,a4 / rts`.",
   "stars vbl":
-    "Routine 5 ($189e). Documented as 'the same as Wait Vbl, but shows idle processor time', and it does that by" +
-    "busy-looping on COLOR00 between $000 and $800 until the VBL server flips the flag at +6 of the extension's" +
-    "block. DEVIATION: the wait is reproduced and the colour bar is not — the bar's width measures how long the" +
+    "Routine 5 ($189e). Documented as 'the same as Wait Vbl, but shows idle processor time', and it does that by " +
+    "busy-looping on COLOR00 between $000 and $800 until the VBL server flips the flag at +6 of the extension's " +
+    "block. DEVIATION: the wait is reproduced and the colour bar is not — the bar's width measures how long the " +
     "68k sat in that loop, which is a property of the host's speed rather than of the program",
   "stars on":
-    "Routine 6 ($18d8). The PRNG ($19ca) folds VHPOSR into its state on every call, so on the real machine the" +
-    "field depended on where the beam was; we model the beam, so the sequence is reproduced rather than" +
-    "approximated and simply becomes repeatable. Speed is not a parameter and is not documented: the movement" +
-    "loop counts DOWN while walking the arrays UP and takes ((i AND 7) + 1) pixels a frame from the counter, so a" +
+    "Routine 6 ($18d8). The PRNG ($19ca) folds VHPOSR into its state on every call, so on the real machine the " +
+    "field depended on where the beam was; we model the beam, so the sequence is reproduced rather than " +
+    "approximated and simply becomes repeatable. Speed is not a parameter and is not documented: the movement " +
+    "loop counts DOWN while walking the arrays UP and takes ((i AND 7) + 1) pixels a frame from the counter, so a " +
     "field is eight interleaved parallax layers",
   "stars off":
-    "Routine 7 ($19e2): clears the count and nothing else, so the stars already drawn stay on the screen until" +
+    "Routine 7 ($19e2): clears the count and nothing else, so the stars already drawn stay on the screen until " +
     "something overwrites them.",
   "stars blast":
     "Routine 3 ($181a).",
@@ -4081,411 +4081,411 @@ export const NOTES: Record<string, string> = {
   "cop palette":
     "Routine 10 ($1a1c).",
   "cop true palette":
-    "Routine 11 ($1aba), the 24-bit form: two passes over the same R,G,B bytes, high nibbles into the colour" +
-    "registers and low nibbles behind AGA's LOCT. DEFECT: the first register is computed with `lsl.w #4,d3` where" +
+    "Routine 11 ($1aba), the 24-bit form: two passes over the same R,G,B bytes, high nibbles into the colour " +
+    "registers and low nibbles behind AGA's LOCT. DEFECT: the first register is computed with `lsl.w #4,d3` where " +
     "Cop Palette has `lsl.w #1,d3` ($1ae8 against $1a40, confirmed byte-for-byte as E94B against E34B).",
   "cop screen":
     "Routine 12 ($1bd8).",
   "cop current":
     "Routine 13 ($1ca4), two instructions: `move.l -$804(a5),d3`, AMOS's own copper build pointer.",
   "multi joy":
-    "Routine 3 ($260). The manual contradicts itself and the binary settles it: its diagram reads '76543210 /" +
-    "ABCDUDLR', which would order the low nibble U,D,L,R downward from bit 3, but its value table says 1=up" +
-    "2=down 4=left 8=right 16=D 32=C 64=B 128=A. DEVIATION: buttons B, C and D need a two- or four-button adaptor" +
+    "Routine 3 ($260). The manual contradicts itself and the binary settles it: its diagram reads '76543210 / " +
+    "ABCDUDLR', which would order the low nibble U,D,L,R downward from bit 3, but its value table says 1=up " +
+    "2=down 4=left 8=right 16=D 32=C 64=B 128=A. DEVIATION: buttons B, C and D need a two- or four-button adaptor " +
     "wired to the POT pins, and nothing is attached, so only button A can ever report pressed",
   "multi fire":
     "Routine 4 ($368).",
   "stick joy":
-    "Routine 5 ($432), reading CIA-A PRB ($bfe101) bits 0-3. The manual calls this the serial port throughout;" +
-    "the register says otherwise — CIA-A PRB is the parallel-port DATA register, and Stick Fire's $bfd000 bits" +
+    "Routine 5 ($432), reading CIA-A PRB ($bfe101) bits 0-3. The manual calls this the serial port throughout; " +
+    "the register says otherwise — CIA-A PRB is the parallel-port DATA register, and Stick Fire's $bfd000 bits " +
     "0-1 are BUSY and POUT, also parallel.",
   "stick fire":
-    "Routine 16 ($8ce), CIA-B PRA bits 0 and 1. The TWO-argument form is a deliberate dead end and the manual" +
-    "owns up to it: 'I shouldn't really tell you this ... but if you enter =Stick Fire(Jport,button) it will" +
-    "return an error (This command has been provided so it can be easily updated to handle more buttons in later" +
+    "Routine 16 ($8ce), CIA-B PRA bits 0 and 1. The TWO-argument form is a deliberate dead end and the manual " +
+    "owns up to it: 'I shouldn't really tell you this ... but if you enter =Stick Fire(Jport,button) it will " +
+    "return an error (This command has been provided so it can be easily updated to handle more buttons in later " +
     "version)'.",
   "stick scan":
-    "Routine 6 ($4ea), two instructions: a POTGO write starting the paddle conversion that Stick X and Stick Y" +
+    "Routine 6 ($4ea), two instructions: a POTGO write starting the paddle conversion that Stick X and Stick Y " +
     "read a frame later.",
   "stick x":
     "Routine 7 ($4f8): POT0DAT or POT1DAT, low byte.",
   "mouse x":
-    "Routines 22/23 ($b16/$b46) and their function forms. The manual's BUGS entry corrects an earlier edition's" +
-    "syntax: 'instead of Mouse X = value (as stated) use Mouse X Mouse Number,value'. DEVIATION: on the real" +
-    "machine each mouse is its own accumulator fed from its own port, so mouse 0 and the AMOS pointer can drift" +
-    "apart; there is one pointer here so they cannot, and mouse 1 has nothing driving it and holds wherever it is" +
+    "Routines 22/23 ($b16/$b46) and their function forms. The manual's BUGS entry corrects an earlier edition's " +
+    "syntax: 'instead of Mouse X = value (as stated) use Mouse X Mouse Number,value'. DEVIATION: on the real " +
+    "machine each mouse is its own accumulator fed from its own port, so mouse 0 and the AMOS pointer can drift " +
+    "apart; there is one pointer here so they cannot, and mouse 1 has nothing driving it and holds wherever it is " +
     "put",
   "mouse clip":
     "Routine 19 ($a66), both arities.",
   "mouse button":
-    "Routine 21 ($ab4). The manual's table lists 3 as 'Middle Button Pressed', which the code does not support —" +
+    "Routine 21 ($ab4). The manual's table lists 3 as 'Middle Button Pressed', which the code does not support — " +
     "no third line is read anywhere in the routine",
   "mouse area":
-    "Routine 28 ($c96): reads the tracked pair for that mouse and calls AMOS's own zone test at $48 off the" +
+    "Routine 28 ($c96): reads the tracked pair for that mouse and calls AMOS's own zone test at $48 off the " +
     "library base.",
   "ctext":
-    "Ctext x,y,text$ — routine 7 ($570). A font is an AMOS ICON BANK plus a 768-byte side table, which is what" +
-    "its own documentation describes ('easy to use icon based text displays', CText.FONTS/Please_Read_Me!)." +
-    "DEVIATION: the callee is identified by what the surrounding code hands it rather than by name — `jsr" +
-    "$11c(a0)` off `-$4(a5)` resolves to no plausible entry under either table indexing, and AMOS's own source" +
+    "Ctext x,y,text$ — routine 7 ($570). A font is an AMOS ICON BANK plus a 768-byte side table, which is what " +
+    "its own documentation describes ('easy to use icon based text displays', CText.FONTS/Please_Read_Me!). " +
+    "DEVIATION: the callee is identified by what the surrounding code hands it rather than by name — `jsr " +
+    "$11c(a0)` off `-$4(a5)` resolves to no plausible entry under either table indexing, and AMOS's own source " +
     "has no equate for that offset",
   "font size":
     "Font Size w,h — routine 5 ($4c4), five instructions writing the two longs to +$a and +$e.",
   "plen":
-    "Plen(text$) — routine 6 ($4d6). Runs the same character walk as Ctext with nothing drawn: both routines" +
-    "`Rbsr routine 10` and then step the string identically, so the measurement cannot disagree with what Ctext" +
+    "Plen(text$) — routine 6 ($4d6). Runs the same character walk as Ctext with nothing drawn: both routines " +
+    "`Rbsr routine 10` and then step the string identically, so the measurement cannot disagree with what Ctext " +
     "will lay down.",
   "font base":
-    "Font Base — routine 8 ($67e), three instructions handing back the block address so a program can poke the" +
+    "Font Base — routine 8 ($67e), three instructions handing back the block address so a program can poke the " +
     "scalars directly.",
   "font data":
     "Font Data — routine 9 ($688): the block address plus $1e, the first of the three tables.",
   "kern$":
     "Kern$(n) — routine 11 ($6ca).",
   "blit clear":
-    "Faithful including the off-by-one, which contradicts the manual. The named-plane guard is then `subq.w #1,d0" +
-    ": cmp.w d7,d0 : bge <error>`, so a named plane has to be strictly below d7 and **the top bitplane cannot be" +
-    "cleared by name**: on an 8-colour screen the manual's own wording, 'An 8 colour screen has 3 bitplanes," +
-    "numbered 1 -> 3', fails on 3. The binary wins over the manual, the same rule that settled LDos's crypt" +
-    "routines. DEVIATION: where the low word is zero or negative the routine passes its own guard with d0" +
-    "negative and walks 65536 plane pointers into memory; that is unreproducible corruption, so it is reported as" +
+    "Faithful including the off-by-one, which contradicts the manual. The named-plane guard is then `subq.w #1,d0 " +
+    ": cmp.w d7,d0 : bge <error>`, so a named plane has to be strictly below d7 and **the top bitplane cannot be " +
+    "cleared by name**: on an 8-colour screen the manual's own wording, 'An 8 colour screen has 3 bitplanes, " +
+    "numbered 1 -> 3', fails on 3. The binary wins over the manual, the same rule that settled LDos's crypt " +
+    "routines. DEVIATION: where the low word is zero or negative the routine passes its own guard with d0 " +
+    "negative and walks 65536 plane pointers into memory; that is unreproducible corruption, so it is reported as " +
     "the same error the in-range failure gives Evidence: Routine 48 ($18b0).",
   "blit speed":
-    "Faithful including the defect. The manual's plain description ('you can change the SHIFT (speed) value after" +
+    "Faithful including the defect. The manual's plain description ('you can change the SHIFT (speed) value after " +
     "you have defined a scrolling zone') is true only from 8 up",
   "blit int on":
-    "Installs a VBLANK server at priority 9; here the runtime's vertical blank runs it once a frame, before the" +
-    "starfield's, which is the order the two priorities give. What cannot follow is the timing — on the real" +
-    "machine the server is preempted by anything that owns the blitter, which is why the manual warns against" +
+    "Installs a VBLANK server at priority 9; here the runtime's vertical blank runs it once a frame, before the " +
+    "starfield's, which is the order the two priorities give. What cannot follow is the timing — on the real " +
+    "machine the server is preempted by anything that owns the blitter, which is why the manual warns against " +
     "running Scene 16/32 Do with the interrupt on",
   "set planes":
-    "Writes rp_Mask, so it restricts AMOS's own drawing as well as TURBO's, as the manual says ('All normal" +
-    "graphic AMOS commands use this parameter'). The keywords the manual lists as ignoring the mask (F Draw, F" +
+    "Writes rp_Mask, so it restricts AMOS's own drawing as well as TURBO's, as the manual says ('All normal " +
+    "graphic AMOS commands use this parameter'). The keywords the manual lists as ignoring the mask (F Draw, F " +
     "Plot, F Point, F Circle, Plane Offset) ignore it here too",
   "display stars":
-    "The plot is a bset into the first bitplane, the wrap is the routine's own — including the bug the author" +
-    "owns up to in the Stars Clip entry ('This instruction works fine now as it is, but is not really finished" +
-    "yet...somethimes you don't get what you want!'), where wrapping past the left edge folds the overshoot into" +
-    "the register holding the right edge and every later star in the same pass wraps a column further in. What is" +
-    "not reproduced is what happens off-screen: the routine computes a byte address from its precomputed row" +
-    "table and checks nothing, so a star outside the screen — or a screen other than the one Reserve Stars ran" +
+    "The plot is a bset into the first bitplane, the wrap is the routine's own — including the bug the author " +
+    "owns up to in the Stars Clip entry ('This instruction works fine now as it is, but is not really finished " +
+    "yet...somethimes you don't get what you want!'), where wrapping past the left edge folds the overshoot into " +
+    "the register holding the right edge and every later star in the same pass wraps a column further in. What is " +
+    "not reproduced is what happens off-screen: the routine computes a byte address from its precomputed row " +
+    "table and checks nothing, so a star outside the screen — or a screen other than the one Reserve Stars ran " +
     "on, which the manual warns about in capitals — writes over whatever is there.",
   "stars int on":
-    "Installs a VBLANK server at priority -40; here the runtime's own vertical blank calls it, once a frame," +
+    "Installs a VBLANK server at priority -40; here the runtime's own vertical blank calls it, once a frame, " +
     "after AMOS's.",
   "reserve object chip":
-    "1.9 splits Reserve Object into Chip and Fast variants, and routines 28 and 29 differ in exactly one" +
+    "1.9 splits Reserve Object into Chip and Fast variants, and routines 28 and 29 differ in exactly one " +
     "longword: the AllocMem flags, MEMF_CHIP against MEMF_FAST.",
   "object draw":
-    "Faithful for any object that ends in a Stop element, which the manual demands in capitals: 'Make sure that" +
-    "the last ELEMENT of an OBJECT definition is a Stop instruction. And nothing unpredictable will happen.'" +
-    "Without one the four draw routines fall out of the attribute branch straight into the Move code and read" +
+    "Faithful for any object that ends in a Stop element, which the manual demands in capitals: 'Make sure that " +
+    "the last ELEMENT of an OBJECT definition is a Stop instruction. And nothing unpredictable will happen.' " +
+    "Without one the four draw routines fall out of the attribute branch straight into the Move code and read " +
     "four bytes past the vector list — the unpredictable thing the manual is warning about.",
   "object save":
-    "Writes the file the routine writes: 'OBJE', a word holding END-START, then a count word and COUNT*6 bytes" +
-    "for each defined object, silently skipping the ones that are not — which leaves a file Object Load reads" +
-    "short, exactly as the original does. The manual's claim that a name over 80 characters means 'nothing will" +
+    "Writes the file the routine writes: 'OBJE', a word holding END-START, then a count word and COUNT*6 bytes " +
+    "for each defined object, silently skipping the ones that are not — which leaves a file Object Load reads " +
+    "short, exactly as the original does. The manual's claim that a name over 80 characters means 'nothing will " +
     "happen' is wrong — the routine raises AMOS error 21, and so does this",
   "lfreq":
-    "LDos does not draw this requester — it calls req.library, which the manual gives away when it apologises" +
-    "that 'Currently the req.library doesn't support CG-fonts'. Approximated for the substitution, not for the" +
+    "LDos does not draw this requester — it calls req.library, which the manual gives away when it apologises " +
+    "that 'Currently the req.library doesn't support CG-fonts'. Approximated for the substitution, not for the " +
     "plumbing",
   "lpp decrunch":
-    "Decrunches PP20 with the decoder Ppload already uses, whose correctness is established in" +
-    "powerpacker.test.ts against reference decoders and a genuine crunched file. One deliberate departure: the" +
+    "Decrunches PP20 with the decoder Ppload already uses, whose correctness is established in " +
+    "powerpacker.test.ts against reference decoders and a genuine crunched file. One deliberate departure: the " +
     "manual is emphatic that 'no test is done to see if the bank really contains a powerpacked file!",
   "lpp mem":
-    "Reads the decrunched length out of the PP20 trailer's top 24 bits, which is why the manual insists END be" +
-    "the true end of the file rather than of the bank ('AMOS's banks are always rounded off to the nearest" +
-    "multiple of 4'). It does no validity checking, exactly as documented — arbitrary data returns whatever its" +
-    "last longword happens to say, and routine 40 ($1aec) shows how literally: nine instructions, `andi.l" +
+    "Reads the decrunched length out of the PP20 trailer's top 24 bits, which is why the manual insists END be " +
+    "the true end of the file rather than of the bank ('AMOS's banks are always rounded off to the nearest " +
+    "multiple of 4'). It does no validity checking, exactly as documented — arbitrary data returns whatever its " +
+    "last longword happens to say, and routine 40 ($1aec) shows how literally: nine instructions, `andi.l " +
     "#$ffffff00` then `asr.l #$8`.",
   "lansi":
-    "Translates ANSI escape sequences into the AMOS console's own control codes — ESC P n for pen, ESC B n for" +
-    "paper, ESC X/Y n to locate, ESC O/N with a +128 bias for relative moves (screen.ts, +Lib.s ChXxx) — which is" +
-    "what a BBS terminal written in AMOS needs. The manual's table is implemented as given, including its own" +
-    "stated limits: only Italics, Inverse and Underline are supported and other styles are ignored, and changing" +
-    "style does not clear the previous one. An escape split across calls is carried over, as documented. Routine" +
-    "69 ($2682) corrected five arms the manual could not have settled: ESC[K, ESC[M, ESC[J and ESC[L are single" +
-    "`move.b`s of 7, 26, 25 and 20, ESC[n@ is 18 repeated, and a bare form feed is 25 -- ClEol, ClLine, Clw," +
+    "Translates ANSI escape sequences into the AMOS console's own control codes — ESC P n for pen, ESC B n for " +
+    "paper, ESC X/Y n to locate, ESC O/N with a +128 bias for relative moves (screen.ts, +Lib.s ChXxx) — which is " +
+    "what a BBS terminal written in AMOS needs. The manual's table is implemented as given, including its own " +
+    "stated limits: only Italics, Inverse and Underline are supported and other styles are ignored, and changing " +
+    "style does not clear the previous one. An escape split across calls is carried over, as documented. Routine " +
+    "69 ($2682) corrected five arms the manual could not have settled: ESC[K, ESC[M, ESC[J and ESC[L are single " +
+    "`move.b`s of 7, 26, 25 and 20, ESC[n@ is 18 repeated, and a bare form feed is 25 -- ClEol, ClLine, Clw, " +
     "ScBas and ScDLine in AMOS's own control table (+W.s:16570).",
   "lopen":
-    "Files are read into memory whole on open and written back on Lclose, so the manual's warning that an" +
-    "unclosed file can corrupt the disk holds in the sense that the writes are simply lost — it cannot corrupt" +
-    "anything else. NOTE: an empty filename is a buffer overrun in routine 1 and is not reproduced — the name" +
-    "copy is `move.w (a0)+,d0 / subq.w #$1,d0` followed by a dbra, so a zero length underflows to $FFFF and" +
+    "Files are read into memory whole on open and written back on Lclose, so the manual's warning that an " +
+    "unclosed file can corrupt the disk holds in the sense that the writes are simply lost — it cannot corrupt " +
+    "anything else. NOTE: an empty filename is a buffer overrun in routine 1 and is not reproduced — the name " +
+    "copy is `move.w (a0)+,d0 / subq.w #$1,d0` followed by a dbra, so a zero length underflows to $FFFF and " +
     "writes 65536 bytes across LDos's own workspace.",
   "lsys stamp":
-    "Reads the host clock, which defaults to a fixed date so a headless corpus run stays reproducible; a host" +
-    "with a real clock (the browser) supplies one. Nothing about the keyword is approximated — what varies is" +
+    "Reads the host clock, which defaults to a fixed date so a headless corpus run stays reproducible; a host " +
+    "with a real clock (the browser) supplies one. Nothing about the keyword is approximated — what varies is " +
     "whether the machine it runs on has a clock, which is a property of the host rather than of the port",
   "lsys time":
-    "As Lsys Stamp. Formats HHMMSS with no separators, which the manual is explicit about: \"No extra \":\",\".\" or" +
+    "As Lsys Stamp. Formats HHMMSS with no separators, which the manual is explicit about: \"No extra \":\",\".\" or " +
     "\"-\" is added so that you easily can process this string to the format you like\"",
   "lcrypt":
-    "LdosV25.DOC documents the calling convention and says nothing whatever about the cipher, so this was read" +
-    "out of AMOSPro_Ldos.lib itself — Lcrypt at $4400, disassembled with capstone. The byte-width of the add is" +
-    "the part a manual could never have conveyed and the part that matters: widen it and the key diverges after" +
-    "one character. The disassembly is short, unambiguous and its two routines are exact inverses, and the tests" +
-    "hand-simulate the 68k key loop as an independent check — but this is evidence of a different kind from" +
+    "LdosV25.DOC documents the calling convention and says nothing whatever about the cipher, so this was read " +
+    "out of AMOSPro_Ldos.lib itself — Lcrypt at $4400, disassembled with capstone. The byte-width of the add is " +
+    "the part a manual could never have conveyed and the part that matters: widen it and the key diverges after " +
+    "one character. The disassembly is short, unambiguous and its two routines are exact inverses, and the tests " +
+    "hand-simulate the 68k key loop as an independent check — but this is evidence of a different kind from " +
     "source or a manual, and it is recorded as such",
   "ldecrypt":
-    "The inverse of Lcrypt, at $4436, and the only one of the pair that validates its argument: it opens cmp.w" +
-    "#4,d0 / bcc, while Lcrypt has no length check at all. So the manual's 'an error will be produced if the" +
-    "password is less than 4 characters long' is true of one of the two keywords, which the binary shows and the" +
+    "The inverse of Lcrypt, at $4436, and the only one of the pair that validates its argument: it opens cmp.w " +
+    "#4,d0 / bcc, while Lcrypt has no length check at all. So the manual's 'an error will be produced if the " +
+    "password is less than 4 characters long' is true of one of the two keywords, which the binary shows and the " +
     "documentation does not.",
   "get high word":
     "Faithful, and it is not what the doc says. Evidence: routine 6 ($7ae).",
   "cpu clear":
     "Faithful, which here means it always fails. Evidence: Routine 26 ($12c8).",
   "init cpu clear":
-    "Returns zero. This is a defect in the library rather than a limit of the port: the return register d4 is" +
-    "never initialised, and every failed validation branches straight to the exit that returns it, so most inputs" +
+    "Returns zero. This is a defect in the library rather than a limit of the port: the return register d4 is " +
+    "never initialised, and every failed validation branches straight to the exit that returns it, so most inputs " +
     "hand back whatever the caller happened to leave in d4.",
   "tft error$":
     "Returns the empty string, and the reason is the keyword's own premise.",
   "locale active":
     "Non-zero, which is the port choosing to report locale.library as PRESENT.",
   "catalog active":
-    "Faithful, including the defect. NOT reproduced is a later Catalog String$ following the dangling pointer" +
-    "into freed memory: here the catalog is gone and the caller's default comes back, which is what the routine" +
+    "Faithful, including the defect. NOT reproduced is a later Catalog String$ following the dangling pointer " +
+    "into freed memory: here the catalog is gone and the caller's default comes back, which is what the routine " +
     "would do if the field had been cleared properly",
   "open catalog":
-    "The catalog is read and parsed here, because on the machine that is locale.library's job rather than the" +
+    "The catalog is read and parsed here, because on the machine that is locale.library's job rather than the " +
     "extension's -- OpenCatalogA is behind the shim.",
   "format date$":
-    "Every directive the doc lists, plus %q and %Q which it does not -- and which matter, because the built-in" +
-    "locale's own time formats are made of %Q, so without them Time$ would print a literal Q. Two deliberate" +
-    "departures from AROS, whose FormatDate this is written against: %j is leap-correct here where AROS computes" +
-    "mday+dayspermonth[month] with no adjustment while its own %U/%W apply one (the two disagree from 1 March of" +
-    "any leap year, and the source carries a 'TODO: Julian date not tested' beside it), and %Z expands to nothing" +
-    "because AROS marks it 'Unimplemented in 3.1'. %I is left as AROS has it -- hour%12, so noon and midnight" +
+    "Every directive the doc lists, plus %q and %Q which it does not -- and which matter, because the built-in " +
+    "locale's own time formats are made of %Q, so without them Time$ would print a literal Q. Two deliberate " +
+    "departures from AROS, whose FormatDate this is written against: %j is leap-correct here where AROS computes " +
+    "mday+dayspermonth[month] with no adjustment while its own %U/%W apply one (the two disagree from 1 March of " +
+    "any leap year, and the source carries a 'TODO: Julian date not tested' beside it), and %Z expands to nothing " +
+    "because AROS marks it 'Unimplemented in 3.1'. %I is left as AROS has it -- hour%12, so noon and midnight " +
     "both print 00 -- and flagged as the one directive whose output looks wrong rather than merely different",
   "date$":
     "One of six keywords that are Format Date$ with a locale-supplied format string.",
   "locale string$":
-    "The whole table now, from AROS rather than guessed: ids 1-51 with DAY_1..7, ABDAY_1..7, MON_1..12," +
-    "ABMON_1..12, YESSTR, NOSTR, AM_STR, PM_STR, the hyphens and quotes, and the relative day names." +
-    "english.language stops at FUTURESTR (50) even though MAXSTRMSG is 52, because the id above it is LANG_NAME" +
+    "The whole table now, from AROS rather than guessed: ids 1-51 with DAY_1..7, ABDAY_1..7, MON_1..12, " +
+    "ABMON_1..12, YESSTR, NOSTR, AM_STR, PM_STR, the hyphens and quotes, and the relative day names. " +
+    "english.language stops at FUTURESTR (50) even though MAXSTRMSG is 52, because the id above it is LANG_NAME " +
     "which locale.h marks V50 -- an addition the v38 library this extension opens never had.",
   "locale compare":
     "Faithful, and it CORRECTS the documentation.",
   "locale upper$":
     "locale.library's own ISO-8859-1 code table, so Locale Lower$, Upperchar and Lowerchar are all one lookup.",
   "emit catalog description":
-    "Opens the file the way the routine does -- `move.l #$3ee,d2` is MODE_NEWFILE and `jsr -$1e(a6)` is" +
-    "dos.library Open, after `cmpi.w #$25,$14(a0)` checks for dos.library 37 or better, which is the doc's [2.0]" +
-    "marker -- and every Catalog String$ call thereafter appends an entry, emitted BEFORE the lookup ($57a" +
+    "Opens the file the way the routine does -- `move.l #$3ee,d2` is MODE_NEWFILE and `jsr -$1e(a6)` is " +
+    "dos.library Open, after `cmpi.w #$25,$14(a0)` checks for dos.library 37 or better, which is the doc's [2.0] " +
+    "marker -- and every Catalog String$ call thereafter appends an entry, emitted BEFORE the lookup ($57a " +
     "precedes $592) so the DEFAULT string is what gets recorded rather than the translation.",
   "jvp bin sort":
-    "Faithful, including two defects of the library's that a program can see. What is NOT reproduced is what" +
-    "happens after either overruns its buffer: the doc's own warning is 'The memory area is NOT checked in any" +
-    "way, so make sure you got it right, or CRASH', and here reads outside a resolved region answer 0 and writes" +
+    "Faithful, including two defects of the library's that a program can see. What is NOT reproduced is what " +
+    "happens after either overruns its buffer: the doc's own warning is 'The memory area is NOT checked in any " +
+    "way, so make sure you got it right, or CRASH', and here reads outside a resolved region answer 0 and writes " +
     "outside it are dropped.",
   "jvp str$":
     "Faithful to the intent, and the shipped binary does not quite express the intent.",
   "jvp msg bank":
     "The bank number, recovered differently. Source: +Lib.s:7920.",
   "init bpl scroll":
-    "The table is copied, the guard is honoured -- nine longs, error 6 if any is zero -- and the flag Start Int" +
+    "The table is copied, the guard is honoured -- nine longs, error 6 if any is zero -- and the flag Start Int " +
     "waits on is set, so the error behaviour a program can observe is exact.",
   "start int":
     "Faithful.",
   "qsort":
-    "Faithful, a Hoare partition over 32-bit values with the pivot from the middle element and a SIGNED" +
+    "Faithful, a Hoare partition over 32-bit values with the pivot from the middle element and a SIGNED " +
     "comparison (`cmp.l`).",
   "jd toggle click":
-    "Routine 13 ($2da) is not one flag but FOUR drives: the body runs with d0 = 0, 1, 2, 3 and for each does" +
-    "CreateMsgPort (-$29a), CreateIORequest (-$28e, $30 bytes), OpenDevice on 'trackdisk.device' -- the only" +
-    "device name in the hunk -- then `movea.l $18(a3),a0 / bchg.b d0,$35(a0)` on the unit, and CloseDevice /" +
+    "Routine 13 ($2da) is not one flag but FOUR drives: the body runs with d0 = 0, 1, 2, 3 and for each does " +
+    "CreateMsgPort (-$29a), CreateIORequest (-$28e, $30 bytes), OpenDevice on 'trackdisk.device' -- the only " +
+    "device name in the hunk -- then `movea.l $18(a3),a0 / bchg.b d0,$35(a0)` on the unit, and CloseDevice / " +
     "DeleteIORequest / DeleteMsgPort. DEVIATION: the state is kept and nothing clicks.",
   "jd moff key":
-    "Routine 142 ($7c12) reads CIA-A's keyboard serial register, because Jd Multi Off is exec's Forbid and a" +
-    "forbidden system stops updating AMOS's own key state. DEFECT: this routine does neither. Not reproduced: the" +
-    "`beq` loop meant to debounce it falls straight through in every case but one — the key being released" +
-    "between its two reads, where the release byte matches exactly and the routine spins until another key is" +
+    "Routine 142 ($7c12) reads CIA-A's keyboard serial register, because Jd Multi Off is exec's Forbid and a " +
+    "forbidden system stops updating AMOS's own key state. DEFECT: this routine does neither. Not reproduced: the " +
+    "`beq` loop meant to debounce it falls straight through in every case but one — the key being released " +
+    "between its two reads, where the release byte matches exactly and the routine spins until another key is " +
     "touched.",
   "jd match":
-    "Faithful, and worth recording because the library's own manual disagrees with itself. The matcher is the" +
-    "AmigaDOS one LDos already needed, shared rather than written twice -- the manual documents the same syntax" +
+    "Faithful, and worth recording because the library's own manual disagrees with itself. The matcher is the " +
+    "AmigaDOS one LDos already needed, shared rather than written twice -- the manual documents the same syntax " +
     "down to `%` matching nothing -- and the `star` flag it takes is precisely what Jd Star Joker On/Off sets",
   "lrol":
-    "The manual calls it 'a logical shift left' and the library's own error message agrees -- 'You can only shift" +
-    "31 bits a time!' -- but routine 85 ($3af6) is `rol.l`, a rotate: the bits that leave the top come back in at" +
+    "The manual calls it 'a logical shift left' and the library's own error message agrees -- 'You can only shift " +
+    "31 bits a time!' -- but routine 85 ($3af6) is `rol.l`, a rotate: the bits that leave the top come back in at " +
     "the bottom.",
   "lror":
     "The same rotate as Lrol, `ror.l` at $3b1e, and the same note applies to the manual calling it a shift",
   "lstrcmp":
     "Faithful to what the routine does, which is not what the manual sells.",
   "lcompress":
-    "The format is read out of routines 83 and 84 rather than documented anywhere -- LZ77 with a run case over a" +
+    "The format is read out of routines 83 and 84 rather than documented anywhere -- LZ77 with a run case over a " +
     "16-bit control-word bitstream, distances to 4098, matches to 271.",
   "ldecompress":
-    "Faithful, including a wart worth stating plainly. So a stream whose last group is partial is decoded past" +
-    "its end, and Ldecompress writes up to fifteen extra bytes and returns a length that counts them -- which is" +
-    "what the manual's 'you must keep track of how large this bank need to be yourself' is really warning about." +
-    "DEVIATION: on the Amiga those trailing bytes are whatever memory followed the compressed data and so are" +
+    "Faithful, including a wart worth stating plainly. So a stream whose last group is partial is decoded past " +
+    "its end, and Ldecompress writes up to fifteen extra bytes and returns a length that counts them -- which is " +
+    "what the manual's 'you must keep track of how large this bank need to be yourself' is really warning about. " +
+    "DEVIATION: on the Amiga those trailing bytes are whatever memory followed the compressed data and so are " +
     "undefined; the reads past the end give zero here.",
   "lhicol on":
-    "The flag itself is a byte in LDos's workspace and does nothing on its own; what it gates is Lansi's handling" +
-    "of SGR 2, which raises pens into 8-15 (`add.b $2b22(pc),d0`, $2a32). The offset applies to the PEN only --" +
-    "the paper path at $2a1e has no counterpart -- so backgrounds stay in 0-7 in either mode, and SGR 0 clears" +
-    "it. 16-colour mode is the default, as the manual says, which is why the keyword that exists to be called is" +
+    "The flag itself is a byte in LDos's workspace and does nothing on its own; what it gates is Lansi's handling " +
+    "of SGR 2, which raises pens into 8-15 (`add.b $2b22(pc),d0`, $2a32). The offset applies to the PEN only -- " +
+    "the paper path at $2a1e has no counterpart -- so backgrounds stay in 0-7 in either mode, and SGR 0 clears " +
+    "it. 16-colour mode is the default, as the manual says, which is why the keyword that exists to be called is " +
     "the Off one",
   "lset var":
-    "Writes a file into ENV:, which is what a global environment variable actually is — SetVar with" +
-    "GVF_GLOBAL_ONLY does exactly this — so the value is visible to Dir, to the browser file panel and to" +
-    "anything else that reads the filesystem, and outlives the program the way it does on the real machine. NOTE:" +
-    "the manual's 50-character limits on name and value are advice, not a check — routine 64 ($24da) measures the" +
-    "value's length only to pass it to SetVar and counts to nothing, so they are no longer enforced here either." +
+    "Writes a file into ENV:, which is what a global environment variable actually is — SetVar with " +
+    "GVF_GLOBAL_ONLY does exactly this — so the value is visible to Dir, to the browser file panel and to " +
+    "anything else that reads the filesystem, and outlives the program the way it does on the real machine. NOTE: " +
+    "the manual's 50-character limits on name and value are advice, not a check — routine 64 ($24da) measures the " +
+    "value's length only to pass it to SetVar and counts to nothing, so they are no longer enforced here either. " +
     "Evidence: routine 66 ($25dc).",
   "ldisk font":
-    "Reports whether the named font exists in the mounted Fonts: drawer and invalidates the disc font list so Get" +
-    "Rom Fonts picks it up, which is what the keyword is for. Two documented behaviours are not reproduced: it" +
-    "cannot distinguish 'already in memory' from 'not on the disk' (both return false, as the manual allows, but" +
-    "for the wrong reason), and the real routine 'is designed to always try to scale the selected font with a" +
-    "best match, it may return true even though the requested font wasn't available' — no scaling happens here," +
+    "Reports whether the named font exists in the mounted Fonts: drawer and invalidates the disc font list so Get " +
+    "Rom Fonts picks it up, which is what the keyword is for. Two documented behaviours are not reproduced: it " +
+    "cannot distinguish 'already in memory' from 'not on the disk' (both return false, as the manual allows, but " +
+    "for the wrong reason), and the real routine 'is designed to always try to scale the selected font with a " +
+    "best match, it may return true even though the requested font wasn't available' — no scaling happens here, " +
     "so a near-miss size fails where the original would succeed",
   "llobuffer":
-    "The manual calls this keyword Llowbuffer; the token table in the library says Llobuffer, and the table is" +
-    "what a program is actually written against. DEFECT: it does NOT convert A-Z only, whatever the manual says." +
-    "The two also disagree about their far end: routine 45 tests for the end of the range BEFORE its increment" +
-    "and routine 44 after it, so Llobuffer includes STOP and Lupbuffer excludes it. One instruction's position," +
+    "The manual calls this keyword Llowbuffer; the token table in the library says Llobuffer, and the table is " +
+    "what a program is actually written against. DEFECT: it does NOT convert A-Z only, whatever the manual says. " +
+    "The two also disagree about their far end: routine 45 tests for the end of the range BEFORE its increment " +
+    "and routine 44 after it, so Llobuffer includes STOP and Lupbuffer excludes it. One instruction's position, " +
     "and no manual could distinguish them Evidence: Routine 45 ($1c72).",
   "lchk data":
     "The manual gives no algorithm, only 'CHK will contain the checksum itself'. Evidence: routine 67 ($2634).",
   "lchk boot":
-    "Likewise undocumented, and a different algorithm — an end-around-carry sum over both boot blocks, holding" +
-    "out long index 1, complemented — exactly as the manual warns ('you must not use Lchk Data for the bootblock" +
-    "and Lchk Boot for datablocks'). DEFECT: the complement is `neg.l d3 / beq .done / subq.l #$1,d3`, so a block" +
+    "Likewise undocumented, and a different algorithm — an end-around-carry sum over both boot blocks, holding " +
+    "out long index 1, complemented — exactly as the manual warns ('you must not use Lchk Data for the bootblock " +
+    "and Lchk Boot for datablocks'). DEFECT: the complement is `neg.l d3 / beq .done / subq.l #$1,d3`, so a block " +
     "whose other 255 longs sum to exactly zero answers 0 where the rule says -1. Evidence: routine 68 ($2658).",
   "llargest free":
-    "Reports the largest single allocatable block rather than the total, which is the distinction the manual" +
-    "draws against Chip Free/Fast Free: 'This value is NOT the same as the AMOS commands Fast Free and Chip Free," +
-    "they return total unallocated memory-size, not the largest size you can allocate in one bank'. Answering" +
-    "that would make this keyword identical to Chip Free and contradict its own manual, so the figure is the" +
+    "Reports the largest single allocatable block rather than the total, which is the distinction the manual " +
+    "draws against Chip Free/Fast Free: 'This value is NOT the same as the AMOS commands Fast Free and Chip Free, " +
+    "they return total unallocated memory-size, not the largest size you can allocate in one bank'. Answering " +
+    "that would make this keyword identical to Chip Free and contradict its own manual, so the figure is the " +
     "pool's free total capped at half a megabyte.",
   "lcat type":
-    "Returns fib_DirEntryType from a real AmigaDOS FileInfoBlock — 2 for a directory, -3 for a file, not 1 and" +
-    "-1. The manual only says \"positive ... or negative\", which several values satisfy; the disassembly is a bare" +
-    "move.l $4(a0),d3 over the FileInfoBlock, so the entry type is handed back verbatim. Every sibling accessor" +
+    "Returns fib_DirEntryType from a real AmigaDOS FileInfoBlock — 2 for a directory, -3 for a file, not 1 and " +
+    "-1. The manual only says \"positive ... or negative\", which several values satisfy; the disassembly is a bare " +
+    "move.l $4(a0),d3 over the FileInfoBlock, so the entry type is handed back verbatim. Every sibling accessor " +
     "indexes the same structure at its documented offset",
   "lfile type":
-    "Returns the same fib_DirEntryType values as Lcat Type (2 and -3). Its own routine could not be decoded" +
-    "cleanly — the success path goes through an AMOS library-call macro capstone does not recognise — so this is" +
-    "inferred from the sibling keyword, which is documented in identical words and demonstrably returns the raw" +
+    "Returns the same fib_DirEntryType values as Lcat Type (2 and -3). Its own routine could not be decoded " +
+    "cleanly — the success path goes through an AMOS library-call macro capstone does not recognise — so this is " +
+    "inferred from the sibling keyword, which is documented in identical words and demonstrably returns the raw " +
     "entry type",
   "lcat first":
-    "A lock, not a first entry: it returns the directory and Lcat Next walks the contents, which is AmigaDOS" +
-    "Examine()/ExNext() rather than AMOS's Dir First$/Dir Next$. The manual says as much and the author's own" +
-    "Lrecursive.AMOS settles it — the result of Lcat First is discarded there and every entry comes from Lcat" +
-    "Next. What it RETURNS was the open question, because the manual calls it 'the file- or directoryname' in one" +
+    "A lock, not a first entry: it returns the directory and Lcat Next walks the contents, which is AmigaDOS " +
+    "Examine()/ExNext() rather than AMOS's Dir First$/Dir Next$. The manual says as much and the author's own " +
+    "Lrecursive.AMOS settles it — the result of Lcat First is discarded there and every entry comes from Lcat " +
+    "Next. What it RETURNS was the open question, because the manual calls it 'the file- or directoryname' in one " +
     "place and 'the path, requested by you' in another and no example prints it. Evidence: Routine 20 ($1466).",
   "lcat blocks":
-    "Disassembly shows the real routine simply returns fib_NumBlocks from the FileInfoBlock — the filesystem's" +
-    "own count, including the file header and any extension blocks. There is no block accounting in a virtual" +
-    "filesystem to produce that from, so this reports ceil(size / 512), the FFS data-block figure the manual" +
-    "quotes: right in magnitude, low by the filesystem's overhead, and approximated for exactly that reason" +
+    "Disassembly shows the real routine simply returns fib_NumBlocks from the FileInfoBlock — the filesystem's " +
+    "own count, including the file header and any extension blocks. There is no block accounting in a virtual " +
+    "filesystem to produce that from, so this reports ceil(size / 512), the FFS data-block figure the manual " +
+    "quotes: right in magnitude, low by the filesystem's overhead, and approximated for exactly that reason " +
     "rather than from any doubt about what the original does",
   "lcat push":
-    "The real Lcat Push writes a lock and a FileInfoBlock into 264 bytes of a bank the caller reserved — 4 plus" +
-    "260, which is exactly what routines 70 ($32f4) and 71 ($3336) move. Programs that follow the manual —" +
-    "reserve a bank, advance by 264 per level, pull in reverse — behave identically; a program that inspected or" +
-    "copied those 264 bytes would not, and the manual's warning that a bank holding something else 'MAY crash if" +
-    "you're unlucky' has no counterpart here. Neither routine validates anything, which has two consequences now" +
-    "reproduced: pushing with no catalogue open stores a null lock rather than doing nothing, and pulling a bank" +
-    "of zeros is SILENT — the documented 'No more entries in this dir' comes from the next Lcat accessor finding" +
+    "The real Lcat Push writes a lock and a FileInfoBlock into 264 bytes of a bank the caller reserved — 4 plus " +
+    "260, which is exactly what routines 70 ($32f4) and 71 ($3336) move. Programs that follow the manual — " +
+    "reserve a bank, advance by 264 per level, pull in reverse — behave identically; a program that inspected or " +
+    "copied those 264 bytes would not, and the manual's warning that a bank holding something else 'MAY crash if " +
+    "you're unlucky' has no counterpart here. Neither routine validates anything, which has two consequences now " +
+    "reproduced: pushing with no catalogue open stores a null lock rather than doing nothing, and pulling a bank " +
+    "of zeros is SILENT — the documented 'No more entries in this dir' comes from the next Lcat accessor finding " +
     "the null at $294, not from the pull",
   "ldev first":
     "Walks the mounted volumes and then the assigns, returning names without a colon as the manual specifies.",
   "ldev next":
     "Continues the Ldev First walk; see that entry for what is not modelled",
   "lldir$":
-    "LDos keeps its own current directory, which is the entire reason the keyword exists: the manual explains" +
-    "that Ldos never notices a Dir$ change, so a relative Lopen after one would fail. Routine 82 ($37de) adds two" +
-    "error arms the manual does not mention: an empty string is error 18 and anything that will not Lock is error" +
-    "22, \"LLdir$ can't find directory!\". NOTE: the routine leaks a lock per call — neither the new one nor the" +
-    "one CurrentDir hands back is ever released — and there is nothing to reproduce here, the current directory" +
+    "LDos keeps its own current directory, which is the entire reason the keyword exists: the manual explains " +
+    "that Ldos never notices a Dir$ change, so a relative Lopen after one would fail. Routine 82 ($37de) adds two " +
+    "error arms the manual does not mention: an empty string is error 18 and anything that will not Lock is error " +
+    "22, \"LLdir$ can't find directory!\". NOTE: the routine leaks a lock per call — neither the new one nor the " +
+    "one CurrentDir hands back is ever released — and there is nothing to reproduce here, the current directory " +
     "being a string",
   "lset comment":
-    "Raises error 5, \"Invalid comment\", above 79 characters rather than truncating — `cmp.l #$4e,d0` against the" +
+    "Raises error 5, \"Invalid comment\", above 79 characters rather than truncating — `cmp.l #$4e,d0` against the " +
     "length less one in routine 15 ($11e8).",
   "lset prot":
-    "Two error arms, both from routine 17 ($129c): an empty name is error 3 and SetProtection answering zero —" +
-    "what a name that does not exist gives — is error 6. DEVIATION: the mask goes to SetProtection as a full" +
-    "longword and is kept as a byte here, so the four AmigaDOS-reserved upper bits do not survive; nothing reads" +
+    "Two error arms, both from routine 17 ($129c): an empty name is error 3 and SetProtection answering zero — " +
+    "what a name that does not exist gives — is error 6. DEVIATION: the mask goes to SetProtection as a full " +
+    "longword and is kept as a byte here, so the four AmigaDOS-reserved upper bits do not survive; nothing reads " +
     "them, Lget Prot coming back through the same byte",
   "lget prot":
-    "Protection bits are stored per path in the virtual filesystem, since most volumes here are read-only (a disk" +
-    "image, a zip) and the bits must be settable regardless. Nothing enforces them: the manual notes that even" +
-    "real DOS 'doesn't care about some flags when it comes to directories' and that 'if you are running Kickstart" +
-    "1.2 or 1.3 DOS neglects most flags', so unenforced flags are within the documented range of behaviour — but" +
+    "Protection bits are stored per path in the virtual filesystem, since most volumes here are read-only (a disk " +
+    "image, a zip) and the bits must be settable regardless. Nothing enforces them: the manual notes that even " +
+    "real DOS 'doesn't care about some flags when it comes to directories' and that 'if you are running Kickstart " +
+    "1.2 or 1.3 DOS neglects most flags', so unenforced flags are within the documented range of behaviour — but " +
     "here no flag is enforced at all",
   "lset file date":
-    "Stores the datestamp, minutes and ticks — routine 81 ($3772) writes them into a DateStamp and calls" +
+    "Stores the datestamp, minutes and ticks — routine 81 ($3772) writes them into a DateStamp and calls " +
     "dos.library SetFileDate, whose result comes back verbatim, so a name that does not exist answers 0.",
   "ldate":
-    "Converts a datestamp to YYMMDD. The manual bounds the range at 2099 ('which should be enough?') and" +
-    "specifies that a negative stamp returns 780101, both of which hold here; the two-digit year is ambiguous" +
+    "Converts a datestamp to YYMMDD. The manual bounds the range at 2099 ('which should be enough?') and " +
+    "specifies that a negative stamp returns 780101, both of which hold here; the two-digit year is ambiguous " +
     "past 2000 in exactly the way the original is",
   "lmatch":
-    "The pattern syntax is fully documented — ? # (a|b) ~ [abc] [~abc] a-z % and the optional * — and is" +
-    "implemented in full, including negation, which is why it is a backtracking matcher rather than a RegExp." +
-    "Three checks the manual does not describe: both strings are verified NUL-terminated (error 23) rather than" +
-    "the terminator being assumed, a pattern of more than 50 bytes including its terminator is error 16, and" +
-    "ParsePattern answering 0 — a pattern with no wildcards in it — takes that same error arm, which is what the" +
+    "The pattern syntax is fully documented — ? # (a|b) ~ [abc] [~abc] a-z % and the optional * — and is " +
+    "implemented in full, including negation, which is why it is a backtracking matcher rather than a RegExp. " +
+    "Three checks the manual does not describe: both strings are verified NUL-terminated (error 23) rather than " +
+    "the terminator being assumed, a pattern of more than 50 bytes including its terminator is error 16, and " +
+    "ParsePattern answering 0 — a pattern with no wildcards in it — takes that same error arm, which is what the " +
     "'or no pattern' in the message means Evidence: routine 61 ($23c4).",
   "lwild":
-    "Returns ParsePattern's result verbatim — routine 80 ($3724) is `jsr -$348(a6) / move.l d0,d3` — so 0 for no" +
-    "wildcards, 1 for wildcards and -1 for a pattern that will not parse. The manual sanctions the middle case" +
-    "loosely ('TEST may contain anything (usually 1)') and says nothing about the third. Here the string ends" +
+    "Returns ParsePattern's result verbatim — routine 80 ($3724) is `jsr -$348(a6) / move.l d0,d3` — so 0 for no " +
+    "wildcards, 1 for wildcards and -1 for a pattern that will not parse. The manual sanctions the middle case " +
+    "loosely ('TEST may contain anything (usually 1)') and says nothing about the third. Here the string ends " +
     "where it ends, which is the same answer for any caller who follows the manual and appends Chr$(0)",
   "lword":
-    "A quoted word comes back with its quotes still attached, which the manual calls out as deliberate and" +
-    "surprising: a NULL word (\"\") returns two quote characters rather than an empty string, so callers can tell a" +
+    "A quoted word comes back with its quotes still attached, which the manual calls out as deliberate and " +
+    "surprising: a NULL word (\"\") returns two quote characters rather than an empty string, so callers can tell a " +
     "quoted phrase from a bare one",
   "lskip":
-    "Returns the address after the last skipped character. DEFECT: when every byte matches it answers STOP-1, not" +
+    "Returns the address after the last skipped character. DEFECT: when every byte matches it answers STOP-1, not " +
     "STOP. Evidence: Routine 48 ($1d84).",
   "lback hunt":
-    "Scans backwards over STOP..START-1 — the comparison in routine 74 ($33a8) is `cmp.b -(a0),d0`, a" +
-    "PRE-decrement, so START's own byte is never examined — and returns STOP when the character is absent. The" +
-    "manual does not say what an unsuccessful search returns, and the routine cannot distinguish it from a hit at" +
+    "Scans backwards over STOP..START-1 — the comparison in routine 74 ($33a8) is `cmp.b -(a0),d0`, a " +
+    "PRE-decrement, so START's own byte is never examined — and returns STOP when the character is absent. The " +
+    "manual does not say what an unsuccessful search returns, and the routine cannot distinguish it from a hit at " +
     "STOP either; STOP is the boundary the search ended at rather than a documented sentinel.",
   "lold":
     "NOTE: the manual is wrong about this one and the binary settles it. Evidence: Routine 7 ($1014).",
   "lcreate":
-    "As Lold, and the same correction: routine 8 ($101a) is `moveq #$1,d3 / moveq #$0,d2 / rts`, integer 1, the" +
+    "As Lold, and the same correction: routine 8 ($101a) is `moveq #$1,d3 / moveq #$0,d2 / rts`, integer 1, the " +
     "MODE_NEWFILE argument.",
   "lbstr":
-    "The manual warns 'No check is done to see whether the bufferlimit was exceeded or not so make sure there is" +
+    "The manual warns 'No check is done to see whether the bufferlimit was exceeded or not so make sure there is " +
     "room for the string'.",
   "lsave":
-    "Returns the bytes written, and the manual's disk-error cases ('disk full, or write error', dos.library" +
-    "returning -1) have no counterpart in a browser filesystem, so a short write can only happen when the source" +
+    "Returns the bytes written, and the manual's disk-error cases ('disk full, or write error', dos.library " +
+    "returning -1) have no counterpart in a browser filesystem, so a short write can only happen when the source " +
     "address runs out",
   "set tempras":
     "size/address validated and stored; the chunky renderer needs no temporary raster buffer",
   "bstart":
-    "the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths" +
+    "the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths " +
     "apply",
   "blength":
-    "the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths" +
+    "the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths " +
     "apply",
   "bgrab":
-    "the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths" +
+    "the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths " +
     "apply",
   "bsend":
-    "the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths" +
+    "the previous-program bank list needs a parent program (editor/Prun) — standalone the faithful failure paths " +
     "apply",
   "disc info$":
-    "format is exact (volume name + 10-char left-aligned free bytes); the free count is the Dfree constant —" +
+    "format is exact (volume name + 10-char left-aligned free bytes); the free count is the Dfree constant — " +
     "browser storage has no real quota",
   "dfree":
     "no real quota in the browser store — a large constant",
   "amal":
-    "the Amiga tells a bank program number from an AMAL string by whether the argument is below 1024, too small" +
-    "to be a string pointer (InMb1 +Lib.s:11857); our values are typed, so anything numeric takes the bank path" +
+    "the Amiga tells a bank program number from an AMAL string by whether the argument is below 1024, too small " +
+    "to be a string pointer (InMb1 +Lib.s:11857); our values are typed, so anything numeric takes the bank path " +
     "and a number above 1023 is a program number here rather than a stray pointer dereference",
   "anim":
     "the bank-program/string discrimination is by value type, like amal",
@@ -4494,45 +4494,45 @@ export const NOTES: Record<string, string> = {
   "move y":
     "the bank-program/string discrimination is by value type, like amal",
   "prun":
-    "the editor keeps a Prun'd accessory resident and re-enters it in place (Prg_AccAdr/Prg_DejaRunned," +
-    "+ILib.s:1552), so on the Amiga an accessory Prun'd twice can still be holding its variables; with no editor" +
-    "to own that residency the port loads a fresh structure each time, which is the same path the Amiga takes for" +
+    "the editor keeps a Prun'd accessory resident and re-enters it in place (Prg_AccAdr/Prg_DejaRunned, " +
+    "+ILib.s:1552), so on the Amiga an accessory Prun'd twice can still be holding its variables; with no editor " +
+    "to own that residency the port loads a fresh structure each time, which is the same path the Amiga takes for " +
     "a first Prun. Source: +ILib.s:1401.",
   "amplay":
-    "SetPlay (+W.s:7937) walks one list holding all four slot kinds per channel (Amal, Anim, Move X, Move Y) and" +
-    "so also writes the internal registers of the STOS slots of the channels below the last; only the AMAL slot's" +
+    "SetPlay (+W.s:7937) walks one list holding all four slot kinds per channel (Amal, Anim, Move X, Move Y) and " +
+    "so also writes the internal registers of the STOS slots of the channels below the last; only the AMAL slot's " +
     "registers are reachable from BASIC or used by PLay, so the port writes just those",
   "autoback":
     "mode 1 treated like 0",
   "rainbow":
     "rendered per scanline by the copper-walk compositor across the PAL overscan window (hardware lines 26-311)",
   "copper off":
-    "the interpreted list now takes its fetch geometry from the registers rather than from the screen the" +
+    "the interpreted list now takes its fetch geometry from the registers rather than from the screen the " +
     "pointers happen to hit. Source: +W.s:6293; +W.s:6822.",
   "cop logic":
-    "a mapped chip-RAM address; the system list is regenerated every vbl (the T_Actualise change-gating is not" +
+    "a mapped chip-RAM address; the system list is regenerated every vbl (the T_Actualise change-gating is not " +
     "modelled)",
   "hardcol":
-    "FnHardcol +Lib.s:12353 -> HColGet +W.s:115, over a CLXDAT computed from where the sprites and playfields" +
-    "actually are. Deviation: the real register accumulates what the beam passed over during the frame and clears" +
-    "on read; this samples the current positions, which agrees for the usual move / Wait Vbl / test but not for a" +
+    "FnHardcol +Lib.s:12353 -> HColGet +W.s:115, over a CLXDAT computed from where the sprites and playfields " +
+    "actually are. Deviation: the real register accumulates what the beam passed over during the frame and clears " +
+    "on read; this samples the current positions, which agrees for the usual move / Wait Vbl / test but not for a " +
     "sprite moved twice within one frame Source: +W.s:159.",
   "set hardcol":
-    "InSetHardcol +Lib.s:12346 -> HColSet +W.s:10018: CLXCON gets a fixed $F in the odd-sprite enables (AMOS" +
-    "never exposes those), the first argument in ENBP1-6 and the second in MVBP1-6, so a playfield pixel counts" +
+    "InSetHardcol +Lib.s:12346 -> HColSet +W.s:10018: CLXCON gets a fixed $F in the odd-sprite enables (AMOS " +
+    "never exposes those), the first argument in ENBP1-6 and the second in MVBP1-6, so a playfield pixel counts " +
     "as solid when every enabled plane carries the matching bit",
   "ldir":
-    "InLDir +Lib.s:5842 is InDir with ImpFlg set, and ImpFlg is the one thing ImpChaine (+Lib.s:5413) tests" +
+    "InLDir +Lib.s:5842 is InDir with ImpFlg set, and ImpFlg is the one thing ImpChaine (+Lib.s:5413) tests " +
     "before it prints — set, the line goes to PRT_Print instead of the window.",
   "ldir/w":
     "InLDirW +Lib.s:5793: the two-column form of the same, likewise to the printer",
   "read text":
-    "InReadText1/3 +Lib.s:14707 -> IRText 14755: the ASCII reader is not native code at all, it is dialog program" +
+    "InReadText1/3 +Lib.s:14707 -> IRText 14755: the ASCII reader is not native code at all, it is dialog program " +
     "1 of the system default resource bank, run on its own EcFsel screen sized PI_RtSx x PI_RtSy.",
   "set accessory":
     "the token table points this at L_InNull (+Lib.s:1474) and InNull is a single rts (+ILib.s:3748).",
   "set pattern":
-    "SPat +W.s:4730: positive numbers index the mouse bank past its first four images, which are the pointer" +
+    "SPat +W.s:4730: positive numbers index the mouse bank past its first four images, which are the pointer " +
     "shapes. Source: +W.s:16795.",
   "input$":
     "keyboard form is non-blocking best effort",
@@ -4557,34 +4557,34 @@ export const NOTES: Record<string, string> = {
   "sam raw":
     "unmapped addresses play nothing (the real machine plays whatever memory holds)",
   "music":
-    "the one-vbl repeat latch is modelled: a trigger enables DMA over the whole sample and the repeat pointers" +
-    "are poked at the top of the next interrupt (Tracker +Music.s:1678-1688), so the first pass always plays in" +
+    "the one-vbl repeat latch is modelled: a trigger enables DMA over the whole sample and the repeat pointers " +
+    "are poked at the top of the next interrupt (Tracker +Music.s:1678-1688), so the first pass always plays in " +
     "full. Source: +Music.s:1774.",
   "mubase":
     "only the vumeter bytes (MB+0..3) of the data zone are mapped",
   "track play":
-    "the one-vbl repeat latch is modelled (see music); the pattern argument is ignored (\"not supported in this" +
+    "the one-vbl repeat latch is modelled (see music); the pattern argument is ignored (\"not supported in this " +
     "version\" in the 68k too)",
   "med play":
-    "the replay reimplements the MMD0/MMD1 format (medplayer.library is not in the AMOS source): sampled" +
+    "the replay reimplements the MMD0/MMD1 format (medplayer.library is not in the AMOS source): sampled " +
     "instruments and the common effect subset; synthsounds are silent; CIA timing approximated at vbl granularity",
   "med midi on":
     "flag stored; no MIDI output exists in the port",
   "sam swap":
-    "the swap is consumed when a one-shot ends; on a looping voice the Amiga swaps at the loop boundary, here it" +
+    "the swap is consumed when a one-shot ends; on a looping voice the Amiga swaps at the loop boundary, here it " +
     "stays pending",
   "sam swapped":
     "chunk-granularity 0 state (Sami_pos == one chunk) is not modelled",
   "noise to":
-    "the WebAudio sink snapshots the noise buffer at trigger; the per-vbl random refresh mutates the live buffer" +
+    "the WebAudio sink snapshots the noise buffer at trigger; the per-vbl random refresh mutates the live buffer " +
     "as on the Amiga but is only re-heard on retrigger there",
   "led on":
     "filter flag reaches the sink; audibility depends on the host audio implementation",
   "led off":
     "filter flag reaches the sink; audibility depends on the host audio implementation",
   "load iff":
-    "every ILBM in the corpus (38 files) is decoded and checked structurally — one chunky byte per pixel, indices" +
-    "within the declared plane count, RGB4 palette entries — and round-tripped through our own encoder back to" +
+    "every ILBM in the corpus (38 files) is decoded and checked structurally — one chunky byte per pixel, indices " +
+    "within the declared plane count, RGB4 palette entries — and round-tripped through our own encoder back to " +
     "identical pixels, so the ByteRun1 unpacker cannot drift unnoticed.",
   "centre":
     "Border$ escapes inside the text are printed, not measured, when centring",
@@ -4595,7 +4595,7 @@ export const NOTES: Record<string, string> = {
   "timer":
     "writable, drives the frame clock directly",
   "rnd":
-    "Rnd(n) mixes a statement-paced pseudo-beam instead of the free-running raster, so runs stay reproducible;" +
+    "Rnd(n) mixes a statement-paced pseudo-beam instead of the free-running raster, so runs stay reproducible; " +
     "Rnd(-n) is the pure generator exactly as on the Amiga",
   "jd exval$":
     "The original's own bug, not reproduced. Source: +|jd.s:1810.",
@@ -4606,7 +4606,7 @@ export const NOTES: Record<string, string> = {
   "jd get string$":
     "The value is right and the editing is not.",
   "jd get number":
-    "See Jd Get String$: the bound and the value are faithful, the field painting and the editing keys are the" +
+    "See Jd Get String$: the bound and the value are faithful, the field painting and the editing keys are the " +
     "host's",
   "jd find":
     "Answers 0 for a STRING array. Source: +|jd.s:3878.",
@@ -4617,7 +4617,7 @@ export const NOTES: Record<string, string> = {
   "jd date$":
     "See Jd Time$: the hardware clock chip at $DC0000, answered from the host clock here",
   "jd spread":
-    "The end state, not the animation. What is lost is the motion between those two states, which is the" +
+    "The end state, not the animation. What is lost is the motion between those two states, which is the " +
     "port-wide timing deviation (#87) rather than a JD one",
   "jd tscroll":
     "See Jd Spread: the console state a program can observe afterwards is kept, the motion between is not",
@@ -4628,7 +4628,7 @@ export const NOTES: Record<string, string> = {
   "jd dpath":
     "An empty path.",
   "jd cpu":
-    "Answers 68020, and Jd Fpu 0 and Jd Chipset 2, for the machine this port already models rather than for a" +
+    "Answers 68020, and Jd Fpu 0 and Jd Chipset 2, for the machine this port already models rather than for a " +
     "real one.",
   "jd fpu":
     "See Jd Cpu: 0, a stock A1200 having no coprocessor",
@@ -4637,78 +4637,78 @@ export const NOTES: Record<string, string> = {
   "jd spline":
     "Draws in the current AMOS ink. Source: +|jd.s:4028.",
   "jd textfont":
-    "Opens a real .font through diskfont and hangs it on the current screen's rp_Font, so AMOS's own Text draws" +
-    "through it too -- which is what the manual means by \"for writing with >>Text<< or >>Jd Print<<\". DEVIATION" +
-    "on failure: with no such face the 68k leaves font_font zero and reads those two words through it anyway," +
+    "Opens a real .font through diskfont and hangs it on the current screen's rp_Font, so AMOS's own Text draws " +
+    "through it too -- which is what the manual means by \"for writing with >>Text<< or >>Jd Print<<\". DEVIATION " +
+    "on failure: with no such face the 68k leaves font_font zero and reads those two words through it anyway, " +
     "picking up whatever sits at $14 and $18 and calling SetFont(rp, NULL) with it. Source: +|jd.s:4177.",
   "jd print":
-    "Draws through the face Jd Textfont opened, at the TEXT cursor: Move(rp, X*fx, (Y+1)*fy-2) then Text, then" +
+    "Draws through the face Jd Textfont opened, at the TEXT cursor: Move(rp, X*fx, (Y+1)*fy-2) then Text, then " +
     "Locate(X+len, Y) (routine 89, +|jd.s:4215).",
   "jd checkprt":
     "Answers 0, no printer.",
   "jd key to asc":
-    "Answers 0, always -- the one keyword in the Colour library whose behaviour is not reproduced. The manual's" +
-    "example is `Jd Key To Asc(253) -> 49`, and 253 is not an Amiga rawkey, so those tables are AMOS's own rather" +
-    "than the keyboard's. This port does not carry them, and 0 is what the routine itself answers for a code it" +
+    "Answers 0, always -- the one keyword in the Colour library whose behaviour is not reproduced. The manual's " +
+    "example is `Jd Key To Asc(253) -> 49`, and 253 is not an Amiga rawkey, so those tables are AMOS's own rather " +
+    "than the keyboard's. This port does not carry them, and 0 is what the routine itself answers for a code it " +
     "cannot find; inventing a mapping that satisfied the one documented example would be worse",
   "jd fit":
     "Answers 1 and 0, not AMOS's -1 and 0 -- `move.l #1,d3` is routine 55's true path (+|col.s:1862).",
   "jd swap colours":
-    "Routines 26 and 27 (+|col.s:657, :679) validate nothing at all -- an index past the palette reads and writes" +
+    "Routines 26 and 27 (+|col.s:657, :679) validate nothing at all -- an index past the palette reads and writes " +
     "through get_colour/set_colour whatever is there.",
   "jd spread palette":
-    "Faithful including the guards, which are stricter than they look: routine 7 (+|col.s:261) demands both" +
-    "arguments in 1 to 31, so COLOUR 0 IS REJECTED with error 23 rather than clamped, a reversed pair is swapped" +
+    "Faithful including the guards, which are stricter than they look: routine 7 (+|col.s:261) demands both " +
+    "arguments in 1 to 31, so COLOUR 0 IS REJECTED with error 23 rather than clamped, a reversed pair is swapped " +
     "and retried, and a gap under two returns silently.",
   "jd prt center":
     "1.3 and 1.4 disagree, and the port answers per bound version rather than picking one.",
   "jd prt shade":
-    "The five numeric Prt keywords call intuition's GetPrefs, poke one field of the Preferences structure and" +
+    "The five numeric Prt keywords call intuition's GetPrefs, poke one field of the Preferences structure and " +
     "call SetPrefs.",
   "dialog open":
-    "SM screen-drag is a no-op; CA (machine code) raises a function call error; edit fields use a simplified line" +
+    "SM screen-drag is a no-op; CA (machine code) raises a function call error; edit fields use a simplified line " +
     "editor",
   "fsel$":
-    "Start_FSel -> End_FSel (+Lib.s:17756-19292) over dialog program 2 of the system resource bank: config-sized" +
-    "screen, the FsV_ variable block, Fs_NomDir's path/filter split, the incremental Fs_First/Fs_Next read with" +
-    "its sorted-insert view bump, Fs_GetName's Sizes column, all twenty Fs_Jumps zones, the Store directory" +
+    "Start_FSel -> End_FSel (+Lib.s:17756-19292) over dialog program 2 of the system resource bank: config-sized " +
+    "screen, the FsV_ variable block, Fs_NomDir's path/filter split, the incremental Fs_First/Fs_Next read with " +
+    "its sorted-insert view bump, Fs_GetName's Sizes column, all twenty Fs_Jumps zones, the Store directory " +
     "cache, Fs_Help type-ahead and the AppCentre slide.",
   "psel$":
-    "FnPSel (+Lib.s:6771) is a bare rts — four token-table variants and no implementation anywhere in AMOS" +
-    "Professional, so the keyword returns its last argument untouched. Nothing is approximated: this is what the" +
+    "FnPSel (+Lib.s:6771) is a bare rts — four token-table variants and no implementation anywhere in AMOS " +
+    "Professional, so the keyword returns its last argument untouched. Nothing is approximated: this is what the " +
     "original does",
   "resource$":
-    "all six blocks are present. -1..-1000 read the interpreter-config messages (Sys_Messages), still a" +
-    "transcription and sparse where the original is; -1001 and deeper read the editor tables generated" +
-    "byte-for-byte out of +Editor_Config.s by src/cli/genedmsg.ts (Ed_Systeme, the menu block from" +
-    "bin/Editor_Menus.asc, the editor messages, the test-time errors and the run-time errors), and -6001 is a" +
+    "all six blocks are present. -1..-1000 read the interpreter-config messages (Sys_Messages), still a " +
+    "transcription and sparse where the original is; -1001 and deeper read the editor tables generated " +
+    "byte-for-byte out of +Editor_Config.s by src/cli/genedmsg.ts (Ed_Systeme, the menu block from " +
+    "bin/Editor_Menus.asc, the editor messages, the test-time errors and the run-time errors), and -6001 is a " +
     "function call error as FnResource has it.",
   "set slider":
     "system patterns come from the machine mouse bank (fixtures/machine); without it, dither stand-ins",
   "mouse zone":
-    "FnMouseZone (+Lib.s:11077) is `moveq #0,d3 / SyCall ZoHd`, so it asks the CURRENT screen's zone table" +
-    "through the same ZoEc/GZone pair Hzone uses -- which means the hardware coordinate is bounds-tested against" +
-    "the displayed window before any zone is considered, and a point outside it answers 0 rather than falling" +
+    "FnMouseZone (+Lib.s:11077) is `moveq #0,d3 / SyCall ZoHd`, so it asks the CURRENT screen's zone table " +
+    "through the same ZoEc/GZone pair Hzone uses -- which means the hardware coordinate is bounds-tested against " +
+    "the displayed window before any zone is considered, and a point outside it answers 0 rather than falling " +
     "through to the table. Source: +W.s:11216.",
   "zone":
     "FnZone2/3 (+Lib.s:10974) -> SyZoGr -> GZone. Source: +W.s:10784.",
   "hzone":
-    "FnHZone2/3 (+Lib.s:11009) -> SyZoHd -> ZoEc -> GZone, the same path Mouse Zone takes, so it inherits ZoEc's" +
+    "FnHZone2/3 (+Lib.s:11009) -> SyZoHd -> ZoEc -> GZone, the same path Mouse Zone takes, so it inherits ZoEc's " +
     "bounds test as well as its hardware-to-screen conversion",
   "reserve zone":
-    "InReserveZone0 (+Lib.s:10924) is `moveq #0,d3`, so the bare form reserves ZERO zones: SyResZ frees the old" +
+    "InReserveZone0 (+Lib.s:10924) is `moveq #0,d3`, so the bare form reserves ZERO zones: SyResZ frees the old " +
     "table and SyRz1's `move.w d1,d0 / beq.s ZoOk` returns without allocating a new one.",
   "set zone":
     "Source: +W.s:11119.",
   "reset zone":
-    "SyRazZ (+W.s:11094) on a screen with no zones returns 29, and InResetZone1 alone turns that into error 73" +
+    "SyRazZ (+W.s:11094) on a screen with no zones returns 29, and InResetZone1 alone turns that into error 73 " +
     "rather than 23 (`.Err moveq #73,d0 / Rbra L_GoError`) -- the only place \"No zones defined\" is raised.",
   "set bob":
-    "InSetBob +Lib.s:12225 -> ResBOB +W.s:988. Its SIGN chooses what it means, which the manual does not say and" +
-    "only BbS1a-BbS1d (+W.s:1425-1439) does: 0 is the default %0000111111001010 = $0FCA, negative is a minterm" +
-    "with bit 15 cleared and the channel-enable bits forced on, positive is the whole BLTCON0 used verbatim." +
-    "DEVIATION: the blit evaluates the truth table per pixel per plane rather than per word, so the RESULT is the" +
-    "blitter's and the timing is not; and BLTCON1's shift, fill and descending-mode bits are ignored, since Set" +
+    "InSetBob +Lib.s:12225 -> ResBOB +W.s:988. Its SIGN chooses what it means, which the manual does not say and " +
+    "only BbS1a-BbS1d (+W.s:1425-1439) does: 0 is the default %0000111111001010 = $0FCA, negative is a minterm " +
+    "with bit 15 cleared and the channel-enable bits forced on, positive is the whole BLTCON0 used verbatim. " +
+    "DEVIATION: the blit evaluates the truth table per pixel per plane rather than per word, so the RESULT is the " +
+    "blitter's and the timing is not; and BLTCON1's shift, fill and descending-mode bits are ignored, since Set " +
     "Bob only ever supplies BLTCON0",
   "amos to front":
     "single-display host: the AMOS display is always at the front",
@@ -4725,7 +4725,7 @@ export const NOTES: Record<string, string> = {
   "prg first$":
     "aliases Dev First$ exactly as the 68k does",
   "sprite base":
-    "read-only synthesis, rebuilt when the image count changes; pokes are ignored and in-place pixel edits can be" +
+    "read-only synthesis, rebuilt when the image count changes; pokes are ignored and in-place pixel edits can be " +
     "stale until the count changes",
   "icon base":
     "read-only synthesis like sprite base",
@@ -4736,7 +4736,7 @@ export const NOTES: Record<string, string> = {
   "array":
     "int/float arrays map to live arena blocks; string arrays (pointer tables on the 68k) stay opaque handles",
   "varptr":
-    "arena slots: string blocks are snapshots that go stale on reassignment (as on the 68k); pokes flush back" +
+    "arena slots: string blocks are snapshots that go stale on reassignment (as on the 68k); pokes flush back " +
     "while the length matches",
   "vdialog":
     "integer reads of string-valued slots return 0 (raw pointers are not carried)",
@@ -4761,7 +4761,7 @@ export const NOTES: Record<string, string> = {
   "key shift":
     "CapsLock reflects the physical key, not the latched toggle",
   "every":
-    "fires at each statement rather than only at control points, and after (not during) a Wait — a timing nuance" +
+    "fires at each statement rather than only at control points, and after (not during) a Wait — a timing nuance " +
     "tied to the blocking model",
   "text":
     "single 8x8 face whatever Set Font selects; soft styles are synthesized approximations",
@@ -4780,11 +4780,11 @@ export const NOTES: Record<string, string> = {
   "sprite priority":
     "HsPri +W.s:11374. Source: +W.s:11742.",
   "set sprite buffer":
-    "InSetSpriteBuffer +Lib.s:12290 with HsSBuf/HsRBuf (+W.s:11268/11311): the >= 16 check errors, and the size" +
+    "InSetSpriteBuffer +Lib.s:12290 with HsSBuf/HsRBuf (+W.s:11268/11311): the >= 16 check errors, and the size " +
     "is stored as n+2 lines, leaving n words per multiplexer column.",
   "dual playfield":
-    "pairing is per-screen (EcDual) as on the hardware, so several pairs coexist down the display, each in its" +
-    "own copper band, each with its own Dual Priority, and sprites layer between the two playfields per EcCon2's" +
+    "pairing is per-screen (EcDual) as on the hardware, so several pairs coexist down the display, each in its " +
+    "own copper band, each with its own Dual Priority, and sprites layer between the two playfields per EcCon2's " +
     "PF1P/PF2P.",
   "screen open":
     "width masked to /16; the 1..1023 size bounds of EcCree are not enforced",
@@ -4793,10 +4793,10 @@ export const NOTES: Record<string, string> = {
   "screen colour":
     "HAM reports 64 — the real EcNbCol is stored as 64 by InScreenOpen, never 4096",
   "screen base":
-    "a read-only synthesized Ec control block (EcLogic/EcPhysic, geometry, EcNbCol, live EcPal, EcTLigne...);" +
+    "a read-only synthesized Ec control block (EcLogic/EcPhysic, geometry, EcNbCol, live EcPal, EcTLigne...); " +
     "pokes into it are ignored",
   "set font":
-    "real Amiga diskfonts render when a Fonts: drawer is mounted (drop one in the browser); without one, the" +
+    "real Amiga diskfonts render when a Fonts: drawer is mounted (drop one in the browser); without one, the " +
     "synthetic Workbench list with the 8x8 face stands in",
   "border$":
     "FnBorderD +Lib.s:14153 / Encadre +W.s:15169. Source: +W.s:9640.",
@@ -4813,91 +4813,91 @@ export const NOTES: Record<string, string> = {
   "comp here":
     "no native compiler overlay can load in the web port — always 0",
   "squash":
-    "decodes/encodes the exact Squasher format; the encoder uses a greedy longest-match rather than ST Squasher's" +
+    "decodes/encodes the exact Squasher format; the encoder uses a greedy longest-match rather than ST Squasher's " +
     "pre-scan heuristic, so packed size may differ",
   "ppload":
-    "PP20 decoder verified against genuine PowerPacker output (a real crunched AmigaGuide decodes byte-for-byte)" +
-    "and against two independent reference decoders; the real crunch algorithm is a ROM library, not in the AMOS" +
+    "PP20 decoder verified against genuine PowerPacker output (a real crunched AmigaGuide decodes byte-for-byte) " +
+    "and against two independent reference decoders; the real crunch algorithm is a ROM library, not in the AMOS " +
     "source, so this is a from-format reimplementation of a verified-correct decoder rather than a source port.",
   "ppsave":
-    "Writes a valid PP20 file — proven decodable by an independent reference decoder — but NOT bit-identical to" +
-    "real PowerPacker output: powerpacker.library makes different (better) crunch choices, and its encoder is not" +
+    "Writes a valid PP20 file — proven decodable by an independent reference decoder — but NOT bit-identical to " +
+    "real PowerPacker output: powerpacker.library makes different (better) crunch choices, and its encoder is not " +
     "in the AMOS source, so byte-exact parity is unverifiable.",
   "edit":
-    "InEdit +ILib.s:1858 returns to the AMOS editor (run-error 1000); there is no editor in the port, so the" +
+    "InEdit +ILib.s:1858 returns to the AMOS editor (run-error 1000); there is no editor in the port, so the " +
     "program halts",
   "direct":
-    "InDirect +ILib.s:1866 returns to direct mode (run-error 1001); no direct window exists in the port, so the" +
+    "InDirect +ILib.s:1866 returns to direct mode (run-error 1001); no direct window exists in the port, so the " +
     "program halts",
   "free":
-    "FnFree +Lib.s:13600 garbage-collects then reports TabBas-HiChaine (free variable space); no variable arena" +
+    "FnFree +Lib.s:13600 garbage-collects then reports TabBas-HiChaine (free variable space); no variable arena " +
     "exists here — returns a nominal figure",
   "chip free":
     "FnChipFree +Lib.s:2510 queries exec AvailMem(MEMF_CHIP).",
   "fast free":
     "FnFastFree +Lib.s:2517 queries exec AvailMem(MEMF_FAST).",
   "lprint":
-    "InLPrint +ILib.s:5067 routes Print to the printer device; no printer host, so the arguments are evaluated" +
+    "InLPrint +ILib.s:5067 routes Print to the printer device; no printer host, so the arguments are evaluated " +
     "(for side effects) then discarded",
   "dual priority":
     "the EcE27 error message text is a guess — the string is not in the source tree",
   "hrev block":
-    "RevBloc +W.s:12620 mirrors the block; the visible result matches, but the port reverses pixels directly" +
+    "RevBloc +W.s:12620 mirrors the block; the visible result matches, but the port reverses pixels directly " +
     "rather than via AMOS's stored orientation flag (bits $C000)",
   "vrev block":
-    "RevBloc +W.s:12620 mirrors the block vertically; visible result matches, but via direct pixel reversal" +
+    "RevBloc +W.s:12620 mirrors the block vertically; visible result matches, but via direct pixel reversal " +
     "rather than AMOS's orientation-flag mechanism",
   "allow plane col":
-    "reaches _BPlanesMask correctly but always sets CLXCON bit 0: the routine shifts the plane left six before" +
-    "`Bset d0,d1`, and Bset on a DATA register takes its bit number modulo 32, so n*64 is bit 0 for every n in" +
+    "reaches _BPlanesMask correctly but always sets CLXCON bit 0: the routine shifts the plane left six before " +
+    "`Bset d0,d1`, and Bset on a DATA register takes its bit number modulo 32, so n*64 is bit 0 for every n in " +
     "range",
   "forbid plane col":
     "the same modulo-32 Bset as Allow Plane Col — every plane clears the same CLXCON bit",
   "sprite col":
-    "Personnal's own, registered under its slot (`ext13:sprite col`) because core owns the plain name and asks a" +
-    "different question of different arguments — core's `Sprite Col(n[,first[,last]])` really checks a sprite" +
+    "Personnal's own, registered under its slot (`ext13:sprite col`) because core owns the plain name and asks a " +
+    "different question of different arguments — core's `Sprite Col(n[,first[,last]])` really checks a sprite " +
     "against a range.",
   "right click":
-    "Personnal's is registered under its slot too, though TURBO Plus's reads the same button (POTGOR bit 10," +
-    "DATLY, port 0 pin 9) to the same answer — the agreement is a fact about the two libraries rather than" +
+    "Personnal's is registered under its slot too, though TURBO Plus's reads the same button (POTGOR bit 10, " +
+    "DATLY, port 0 pin 9) to the same answer — the agreement is a fact about the two libraries rather than " +
     "something to depend on",
   "set color":
     "the FUNCTION form does not read a colour.",
   "create aga":
-    "differs from Create Standard in more than the colour block, which is easy to miss because the two routines" +
+    "differs from Create Standard in more than the colour block, which is easy to miss because the two routines " +
     "are otherwise line-for-line the same.",
   "change palette":
-    "reads _ColorBase without checking it, unlike every keyword that patches the list by name — with no list" +
+    "reads _ColorBase without checking it, unlike every keyword that patches the list by name — with no list " +
     "built it writes from address 0 onward, over the exception vectors.",
   "iff8bits to iff4bits":
-    "every \"n entries\" keyword in the palette group subtracts one BEFORE the loop and ends on Bpl, so a count of" +
-    "zero leaves the counter at -1 with the body already run: this (:3120), Change Palette (:2928), the two" +
+    "every \"n entries\" keyword in the palette group subtracts one BEFORE the loop and ends on Bpl, so a count of " +
+    "zero leaves the counter at -1 with the body already run: this (:3120), Change Palette (:2928), the two " +
     "Palette To Copper forms (:2957), Fade Palette (:3045) and Attribute Palette (:3087).",
   "iff8bits palette to copper":
     "the same unchecked _ColorBase as Change Palette",
   "iff4bits palette to copper":
-    "the same unchecked _ColorBase as Change Palette, and no mask on the way in, so a 4-bit CMAP byte above 15" +
+    "the same unchecked _ColorBase as Change Palette, and no mask on the way in, so a 4-bit CMAP byte above 15 " +
     "bleeds into the channel above it",
   "fade palette":
-    "steps each channel with a SIGNED byte compare (`Cmp.b` / `Blt`), so a channel of 128 or more reads as" +
+    "steps each channel with a SIGNED byte compare (`Cmp.b` / `Blt`), so a channel of 128 or more reads as " +
     "negative and moves away from its target rather than towards it.",
   "new color value":
-    "packs the channels with ADD where Set Color ORs, so a channel above 15 carries into the one above it instead" +
+    "packs the channels with ADD where Set Color ORs, so a channel above 15 carries into the one above it instead " +
     "of overlaying it",
   "set second color":
-    "Set Color's walk over the block, on _2pal, and error 7 rather than 1 when there is no second screen — but" +
+    "Set Color's walk over the block, on _2pal, and error 7 rather than 1 when there is no second screen — but " +
     "New Color Value's ADD packing rather than Set Color's OR.",
   "playfields col":
-    "answers -1 when the CLXDAT bit is CLEAR, the opposite of what the name suggests (Btst sets Z on a zero bit" +
-    "and the Bne skips the -1); and there is no collision hardware here, so CLXDAT reads 0 and it always answers" +
+    "answers -1 when the CLXDAT bit is CLEAR, the opposite of what the name suggests (Btst sets Z on a zero bit " +
+    "and the Bne skips the -1); and there is no collision hardware here, so CLXDAT reads 0 and it always answers " +
     "-1",
   "pf sprites col":
     "the same inverted test as Playfields Col, and the same always--1 answer for want of CLXDAT",
   "blit mask":
-    "BLTCON0 is $0F98, minterm $98 = (B AND C) OR (A AND NOT B AND NOT C) — NOT the $E2 mask-select the name" +
+    "BLTCON0 is $0F98, minterm $98 = (B AND C) OR (A AND NOT B AND NOT C) — NOT the $E2 mask-select the name " +
     "implies.",
   "l blit mask":
-    "blits yEnd rows starting at yStart where L Double Mask subtracts properly — the demos hand both 64,128 on a" +
+    "blits yEnd rows starting at yStart where L Double Mask subtracts properly — the demos hand both 64,128 on a " +
     "192-row screen.",
   "double mask":
     "the CPU form; computed as the source computes it, longword by longword",
@@ -4908,48 +4908,48 @@ export const NOTES: Record<string, string> = {
   "blitter copy limit":
     "",
   "make pix mask":
-    "Routine 225 ($51ce), 140 bytes, and three things in it were wrong. NOTE: the Reserve is `Rjsr routine 1103`" +
-    "guarded by `Rbeq routine 389`, so a failure is error 24 rather than the 23 this port's reserveBank raises" +
-    "for a non-positive length; only reachable for a degenerate box. NOTE: the subq pair was invisible until" +
+    "Routine 225 ($51ce), 140 bytes, and three things in it were wrong. NOTE: the Reserve is `Rjsr routine 1103` " +
+    "guarded by `Rbeq routine 389`, so a failure is error 24 rather than the 23 this port's reserveBank raises " +
+    "for a non-positive length; only reachable for a degenerate box. NOTE: the subq pair was invisible until " +
     "src/cli/extdis.ts stopped believing its text heuristic -- those six bytes read as 'SFSG?F'",
   "blitter copy":
-    "BLTCON0 $09F0, minterm $F0, computed rather than blitted; the first plane is copied before any null check," +
+    "BLTCON0 $09F0, minterm $F0, computed rather than blitted; the first plane is copied before any null check, " +
     "so only the control block is guarded",
   "low filter.w":
-    "filters exactly one element: the loop ends `Cmp.l a0,a1 / Blt`, which asks whether the END pointer is below" +
+    "filters exactly one element: the loop ends `Cmp.l a0,a1 / Blt`, which asks whether the END pointer is below " +
     "the current one — false on the first pass of any sane range.",
   "low filter.l":
     "the same one-element Blt as Low Filter.w",
   "f sprite":
-    "indexes the copper list by n*4 where the eight sprite pointers are two MOVEs and so eight bytes apart —" +
+    "indexes the copper list by n*4 where the eight sprite pointers are two MOVEs and so eight bytes apart — " +
     "`Lsl.l #2` should be `#3`.",
   "get even sprite":
-    "writes over the extension's own variables instead of the reserved buffer: `DLea _SpriteBase,a0 / Move.l" +
+    "writes over the extension's own variables instead of the reserved buffer: `DLea _SpriteBase,a0 / Move.l " +
     "a0,d1 / Move.l d1,a0` takes the ADDRESS of the variable and never dereferences it ($4592 in the binary).",
   "get odd sprite":
     "the same missing dereference as Get Even Sprite",
   "mplot draw":
-    "the point range EXCLUDES `last` (:4027), where the guide says inclusive — every shipped demo writes `Mplot" +
+    "the point range EXCLUDES `last` (:4027), where the guide says inclusive — every shipped demo writes `Mplot " +
     "Draw 1 To NUM` after reserving NUM, so the last point never draws on a real machine either.",
   "mplot modify":
     "the same exclusive range as Mplot Draw (:4136)",
   "mplot start plane":
-    "out of 1..8 is a plain rts, not error 14 — routine 120's two range branches both target $6668, which IS the" +
+    "out of 1..8 is a plain rts, not error 14 — routine 120's two range branches both target $6668, which IS the " +
     "rts.",
   "mplot load":
-    "reads count*260 bytes into a buffer sized count*6+8 — 260 is the AGA icon stride and Mplot Save writes with" +
+    "reads count*260 bytes into a buffer sized count*6+8 — 260 is the AGA icon stride and Mplot Save writes with " +
     "6.",
   "mplot save":
     "never sees its filename.",
   "set deform value":
-    "writes sixteen slots that nothing in the library ever reads — the only instructions touching the 1.1 data" +
+    "writes sixteen slots that nothing in the library ever reads — the only instructions touching the 1.1 data " +
     "bank +$70 are this write and its own bounds check",
   "iff convert":
-    "never reads BMHD's compression byte, so everything is decoded as ByteRun1 and an uncompressed ILBM comes out" +
-    "as noise; and its literal/run split is `Cmp.l #$80,d3 / Bgt`, making a control byte of exactly 128 a" +
+    "never reads BMHD's compression byte, so everything is decoded as ByteRun1 and an uncompressed ILBM comes out " +
+    "as noise; and its literal/run split is `Cmp.l #$80,d3 / Bgt`, making a control byte of exactly 128 a " +
     "129-byte literal where the format reserves it as a no-op.",
   "fc cos":
-    "a 360-entry table of the function scaled by 1000, included raw at :514 and not recomputable —" +
+    "a 360-entry table of the function scaled by 1000, included raw at :514 and not recomputable — " +
     "Math.trunc(fn*1000) misses ten entries.",
   "fc sin":
     "the same table lookup and the same broken normalisation for negative angles as Fc Cos",
@@ -4962,93 +4962,93 @@ export const NOTES: Record<string, string> = {
   "vb line wait":
     "spins on VPOSR waiting for a beam position; there is no beam, so it yields the frame",
   "aga reserve icon":
-    "writes _Icons BEFORE the allocation, so on a real machine a failed AllocMem leaves a count against a bank" +
+    "writes _Icons BEFORE the allocation, so on a real machine a failed AllocMem leaves a count against a bank " +
     "that does not exist.",
   "aga erase icon":
     "clears _Icons before testing _IcBase, so the error-9 path leaves both zero either way",
   "mplot erase":
-    "the same shape as Aga Erase Icon and it was missing here: no bank at all returns in silence, but a count" +
+    "the same shape as Aga Erase Icon and it was missing here: no bank at all returns in silence, but a count " +
     "with no base is error 11, with the count already cleared before that test (:3740).",
   "mplot define":
-    "bounds the point against the count in the bank HEADER (:3916) rather than the _Mplots register, so it bounds" +
+    "bounds the point against the count in the bank HEADER (:3916) rather than the _Mplots register, so it bounds " +
     "what was actually allocated.",
   "pic pack":
-    "produces the format the library's own Pic Unpack decodes, by the same two passes in the same order; the run" +
+    "produces the format the library's own Pic Unpack decodes, by the same two passes in the same order; the run " +
     "boundaries are proven by round-tripping through that decoder rather than against a reference file",
   "pic unpack":
-    "a control byte of zero fills the rest of the PLANE rather than emitting nothing — its decrement never" +
+    "a control byte of zero fills the rest of the PLANE rather than emitting nothing — its decrement never " +
     "satisfies the test.",
   "anim unpack":
     "Pic Unpack behind a frame table; the same zero-control-byte and end-guard behaviour",
   "plib ver":
-    "Routine 3 of Personnal-EXTRA.Lib.S (:99), eight instructions: `DLea _Exist,a0 / Move.l (a0),d0 / Cmp.l #0,d0" +
+    "Routine 3 of Personnal-EXTRA.Lib.S (:99), eight instructions: `DLea _Exist,a0 / Move.l (a0),d0 / Cmp.l #0,d0 " +
     "/ Beq LNOTLOADED / PsJsr AP_VERSION / Move.l d0,d3 / Moveq #0,d2 / Rts`.",
   "plib rev":
-    "Routine 4 (:113), the same eight instructions as Plib Ver with `Move.l d1,d3` where it has `Move.l d0,d3`" +
+    "Routine 4 (:113), the same eight instructions as Plib Ver with `Move.l d1,d3` where it has `Move.l d0,d3` " +
     "--- the second half of the one AP_VERSION answer rather than a second call.",
   "display off":
     "Routine 3 (Misc_Extension.asm:106), two instructions: `move.w #$01a0,$dff096` and `move.w #0,$dff180`.",
   "display on":
     "Routine 4 (:111): `move.w #$81a0,$dff096`, bit 15 SET, the same three bits back.",
   "mouse off":
-    "Routine 9 (:141): `move.w #$20,$dff096`, and $20 alone is SPREN. The manual says 'hides mouse and sprite 0';" +
-    "the register says ALL EIGHT sprites, because what goes is the DMA channel rather than a pointer. It also" +
-    "cannot be undone — there is no Mouse On in the table, and the manual asks the reader to write one:" +
+    "Routine 9 (:141): `move.w #$20,$dff096`, and $20 alone is SPREN. The manual says 'hides mouse and sprite 0'; " +
+    "the register says ALL EIGHT sprites, because what goes is the DMA channel rather than a pointer. It also " +
+    "cannot be undone — there is no Mouse On in the table, and the manual asks the reader to write one: " +
     "'Suggestion: If you want to expand this extension, why not make a Mouse On command?'",
   "dled on":
-    "Routine 7 (:129) and its twin Dled Off (routine 8, :135), which differ in one byte: both write 127 then 119" +
-    "to $bfd100 (CIA-B port B, the disk control lines) and then Dled On writes 0 to $bfd300 while Dled Off writes" +
-    "255. $bfd300 is the DIRECTION register. DEFECT: 0 makes the port INPUTS, so it stops driving the lines, they" +
-    "float high through their pull-ups, the active-low /MTR goes inactive and the LED goes OUT; 255 makes them" +
-    "outputs and drives the 119 still sitting in the data register, asserting /MTR and turning the LED ON. The" +
-    "two keywords are the wrong way round, and the manual half-noticed — 'Turns on drive led, don't ask me, where" +
-    "this is for, but maybe when the drive led doesn't stop reading, use the next command.' NOTE: the source" +
-    "gives the four writes; that a released line reads inactive is 6526 behaviour supplied from the chip rather" +
+    "Routine 7 (:129) and its twin Dled Off (routine 8, :135), which differ in one byte: both write 127 then 119 " +
+    "to $bfd100 (CIA-B port B, the disk control lines) and then Dled On writes 0 to $bfd300 while Dled Off writes " +
+    "255. $bfd300 is the DIRECTION register. DEFECT: 0 makes the port INPUTS, so it stops driving the lines, they " +
+    "float high through their pull-ups, the active-low /MTR goes inactive and the LED goes OUT; 255 makes them " +
+    "outputs and drives the 119 still sitting in the data register, asserting /MTR and turning the LED ON. The " +
+    "two keywords are the wrong way round, and the manual half-noticed — 'Turns on drive led, don't ask me, where " +
+    "this is for, but maybe when the drive led doesn't stop reading, use the next command.' NOTE: the source " +
+    "gives the four writes; that a released line reads inactive is 6526 behaviour supplied from the chip rather " +
     "than stated there",
   "dled off":
-    "routine 8 (:135), the same four writes as Dled On with 255 where it has 0 — see it for which way round they" +
+    "routine 8 (:135), the same four writes as Dled On with 255 where it has 0 — see it for which way round they " +
     "actually leave the LED",
   "firewait":
-    "Routine 12 (:171): `btst #07,$bfe001 / bne` back to itself. The manual: 'Nothing else than While Fire(1)=0 :" +
-    "Wend but more effective, cause it's in assembler.' A spin blocks the frame rather than the process here," +
-    "re-armed each frame as Vb Line Wait is; a program that never gets a press waits for ever, which is what it" +
+    "Routine 12 (:171): `btst #07,$bfe001 / bne` back to itself. The manual: 'Nothing else than While Fire(1)=0 : " +
+    "Wend but more effective, cause it's in assembler.' A spin blocks the frame rather than the process here, " +
+    "re-armed each frame as Vb Line Wait is; a program that never gets a press waits for ever, which is what it " +
     "would do on the machine",
   "clear ram":
-    "Routine 11 (:159): `AllocMem(99999999, 0)` on ExecBase (`jsr -198`) and FreeMem (-210) if it returns. The" +
-    "hundred megabytes are MEANT to fail — a failed AllocMem is what makes exec expunge unused libraries, devices" +
-    "and fonts, so the manual's 'Cleans up Memory by deleting all not-used fonts, libs, etc.' is a side effect of" +
-    "an allocation nobody wants to succeed rather than something the routine does. DEVIATION: nothing here is" +
+    "Routine 11 (:159): `AllocMem(99999999, 0)` on ExecBase (`jsr -198`) and FreeMem (-210) if it returns. The " +
+    "hundred megabytes are MEANT to fail — a failed AllocMem is what makes exec expunge unused libraries, devices " +
+    "and fonts, so the manual's 'Cleans up Memory by deleting all not-used fonts, libs, etc.' is a side effect of " +
+    "an allocation nobody wants to succeed rather than something the routine does. DEVIATION: nothing here is " +
     "expungeable, so this observably does nothing where a real machine would free memory and move Chip Free.",
   "disk wait":
-    "Routine 13 (:176), two waits in order. DEVIATION: this returns at once — there is no floppy to insert" +
-    "(volumes are mounted, not inserted) and no validator to outlive, and the alternative is to block for ever," +
-    "which would hang every program that uses it rather than reproduce anything. NOTE: the delay loop calls a" +
-    "subroutine (:201) that is `movem.l a0-a6/d0-d7,-(sp)` immediately followed by the matching pop and an rts —" +
+    "Routine 13 (:176), two waits in order. DEVIATION: this returns at once — there is no floppy to insert " +
+    "(volumes are mounted, not inserted) and no validator to outlive, and the alternative is to block for ever, " +
+    "which would hang every program that uses it rather than reproduce anything. NOTE: the delay loop calls a " +
+    "subroutine (:201) that is `movem.l a0-a6/d0-d7,-(sp)` immediately followed by the matching pop and an rts — " +
     "sixteen registers pushed and popped straight back, a deliberate burn that does nothing else",
   "c orange":
     "$A40.",
   "light green":
     "$2F2, and the reason it is worth a note is that the set is NOT computable.",
   "track tempo":
-    "Routine 116 ($3e3a), 22 bytes: `move.l (a3)+,d0`, `clr.b $bcf(a0)` — the tick within the row — then `adda.w" +
+    "Routine 116 ($3e3a), 22 bytes: `move.l (a3)+,d0`, `clr.b $bcf(a0)` — the tick within the row — then `adda.w " +
     "#$bce,a0 / move.b d0,(a0)`.",
   "patt loop on":
-    "Routine 113 ($3e16): `move.b #$1,$be9(a0)`, twelve bytes. NOTE: EME.doc says 'if used before Track Play, the" +
+    "Routine 113 ($3e16): `move.b #$1,$be9(a0)`, twelve bytes. NOTE: EME.doc says 'if used before Track Play, the " +
     "specified pattern will be repeated', and half of that is wrong.",
   "patt loop of":
     "Routine 114 ($3e22): `clr.b $be9(a0)`.",
   "patt loop no":
     "Routine 120 ($3e9a): `move.b #$2,$be9(a0)`.",
   "track sample on":
-    "Routine 122 ($3eb2) is byte for byte routine 121, Track Sample Off: `movea.l $f8(a5),a0 / moveq #$9,d0 /" +
+    "Routine 122 ($3eb2) is byte for byte routine 121, Track Sample Off: `movea.l $f8(a5),a0 / moveq #$9,d0 / " +
     "Rbra routine 123`, the error raiser, and message 9 is 'Only available in full version!'.",
   "track sample off":
     "routine 121 ($3ea6), the same twelve bytes as Track Sample On — see it",
   "trpos":
-    "Routine 117 ($3e50), eighteen bytes: `moveq #0,d3 / moveq #0,d2 / movea.l $f8(a5),a0 / adda.w #$bd0,a0 /" +
+    "Routine 117 ($3e50), eighteen bytes: `moveq #0,d3 / moveq #0,d2 / movea.l $f8(a5),a0 / adda.w #$bd0,a0 / " +
     "move.b (a0),d3`.",
   "trlen":
-    "Routine 118 ($3e62), the same eighteen bytes over $be7 — the song-length byte at $3b6 of a 31-sample module," +
+    "Routine 118 ($3e62), the same eighteen bytes over $be7 — the song-length byte at $3b6 of a 31-sample module, " +
     "cached at Track Play and cleared by Track Stop.",
   "trpat":
     "Routine 119 ($3e74), 38 bytes.",
@@ -5059,10 +5059,10 @@ export const NOTES: Record<string, string> = {
   "tr credits":
     "Demo-build only. Evidence: Routine 119 ($3ae2).",
   "p61 play":
-    "TWO extensions own this name and NOTES is keyed by name alone, so both belong here; they are registered" +
-    "slot-qualified and a program gets whichever library it loaded. NOTE, and it bounds what any of that proves:" +
-    "there is NO P61 module anywhere in the 6,400-program corpus or in the distribution, so the decoder is" +
-    "faithful-to-the-assembly and UNVERIFIED against a file some other tool wrote; making it audible does not" +
+    "TWO extensions own this name and NOTES is keyed by name alone, so both belong here; they are registered " +
+    "slot-qualified and a program gets whichever library it loaded. NOTE, and it bounds what any of that proves: " +
+    "there is NO P61 module anywhere in the 6,400-program corpus or in the distribution, so the decoder is " +
+    "faithful-to-the-assembly and UNVERIFIED against a file some other tool wrote; making it audible does not " +
     "change that.",
   "p61 stop":
     "Both extensions again.",
@@ -5083,68 +5083,68 @@ export const NOTES: Record<string, string> = {
   "p61 mvolume":
     "range-checks 0..63 and then the module, in that order, as routine 126 does; no audio",
   "p61 mpos":
-    "routine 127 is routine 126 twice over — the SAME 0..63 range check raising the same error 20, whose message" +
-    "is 'Les valeurs de volume vont de 0 a 63.' and is about volume in both, then the same library and module" +
+    "routine 127 is routine 126 twice over — the SAME 0..63 range check raising the same error 20, whose message " +
+    "is 'Les valeurs de volume vont de 0 a 63.' and is about volume in both, then the same library and module " +
     "checks.",
   "med fast load":
-    "routine 17 is routine 5 with three different LVOs and error 8, 'Fast Lade Fehler', in place of error 1. The" +
-    "Guide's distinction is chip versus fast ram, which this port has no split for, so the only observable" +
-    "difference is what =Med Is Fastplaying then reports. DEVIATION shared with Med Load: routine 37 checks the" +
-    "OLD mode's library at $b14 and the new mode is not stored until $b1a, so on the machine `Med Fast Load" +
+    "routine 17 is routine 5 with three different LVOs and error 8, 'Fast Lade Fehler', in place of error 1. The " +
+    "Guide's distinction is chip versus fast ram, which this port has no split for, so the only observable " +
+    "difference is what =Med Is Fastplaying then reports. DEVIATION shared with Med Load: routine 37 checks the " +
+    "OLD mode's library at $b14 and the new mode is not stored until $b1a, so on the machine `Med Fast Load " +
     "\"x\",1` with no octaplayer jumps through a zero base; this raises error 5 instead",
   "med continue":
-    "routine 9, ContModule on the mode's library. The token table spells it `med continue` where the Guide's node" +
+    "routine 9, ContModule on the mode's library. The token table spells it `med continue` where the Guide's node " +
     "title says 'Med Continus'; the binary wins.",
   "med init player":
     "routine 7, GetPlayer, with 0 = no MIDI and 1 = MIDI reaching the library in d0.",
   "med free player":
-    "routine 8, FreePlayer. The Guide: \"STOPT und entfernt die MED Player Routine\", so the stop is the library's" +
+    "routine 8, FreePlayer. The Guide: \"STOPT und entfernt die MED Player Routine\", so the stop is the library's " +
     "own and not a second Med Stop; the module stays loaded",
   "med unload":
-    "routine 11, and the only routine that calls two others — `Rbsr routine 4` then `Rbsr routine 8`, Med Stop" +
-    "then Med Free Player, before UnLoadModule and `move.l #$0,$3f2.l`. The DEFAULT hook at $312 does the same" +
+    "routine 11, and the only routine that calls two others — `Rbsr routine 4` then `Rbsr routine 8`, Med Stop " +
+    "then Med Free Player, before UnLoadModule and `move.l #$0,$3f2.l`. The DEFAULT hook at $312 does the same " +
     "minus the unload, which is the leak the Guide warns about: after a Ctrl+C only a reboot frees the module.",
   "med set tempo":
-    "routine 10 calls medplayer's -$42 whatever the mode is — no dispatch at all, unlike its neighbours. The" +
+    "routine 10 calls medplayer's -$42 whatever the mode is — no dispatch at all, unlike its neighbours. The " +
     "Guide's range is 0-240 with 1-10 the ProTracker tempos, and the routine clamps nothing, so nor does this",
   "med set mod nr":
-    "routine 13, SetModnum. The Guide: call it BEFORE Med Play, and a Load always resets it to 0 — so the number" +
+    "routine 13, SetModnum. The Guide: call it BEFORE Med Play, and a Load always resets it to 0 — so the number " +
     "is held for the next Play rather than repositioning a running module",
   "med reset midi":
     "routine 12, medplayer's -$5a with no dispatch.",
   "med reloc":
-    "routine 14. NOTE: what the library does is not knowable from this binary, and the Guide's own author wrote" +
+    "routine 14. NOTE: what the library does is not knowable from this binary, and the Guide's own author wrote " +
     "\"setzt ein geladenes MED Modul in den Uhrsprungs Zustand zurück. ???\" with the question marks.",
   "med set hq":
-    "routine 16 is MODE 1 ONLY: one `cmpi.l #$1,$3f6.l / beq` and every other mode returns having done nothing." +
+    "routine 16 is MODE 1 ONLY: one `cmpi.l #$1,$3f6.l / beq` and every other mode returns having done nothing. " +
     "The Guide sends the reader to OctaMED for what HQ means and gives the default as 0",
   "med fastplay on":
-    "routines 25 and 26 — two routines for one keyword, 25 loading `move.l #$40,d1` for the omitted buffer and 26" +
-    "popping one. The Guide's buffer rules (divisible by 4, strictly between 4 and 400) are the library's and" +
+    "routines 25 and 26 — two routines for one keyword, 25 loading `move.l #$40,d1` for the omitted buffer and 26 " +
+    "popping one. The Guide's buffer rules (divisible by 4, strictly between 4 and 400) are the library's and " +
     "neither routine enforces them, so nor does this",
   "med fastplay off":
     "routines 27 and 28, the same pair with `move.l #$0,d0`",
   "med 14bit mode on":
-    "routine 29 is `moveq #$1,d0 / bra` into routine 30's body at $dd0. The Guide: the default is always on, and" +
+    "routine 29 is `moveq #$1,d0 / bra` into routine 30's body at $dd0. The Guide: the default is always on, and " +
     "other MED formats ignore it",
   "med 14bit mode off":
     "routine 30, the `moveq #$0,d0` entry to the same body",
   "med set mixing freq":
-    "routine 31, MODE 2 ONLY. The Guide's 1000..65535 range and its 15000 default are the library's; the routine" +
+    "routine 31, MODE 2 ONLY. The Guide's 1000..65535 range and its 15000 default are the library's; the routine " +
     "checks nothing, so the value is stored as given",
   "med set mixbuffer":
     "routine 32, MODE 2 ONLY, unchecked. The Guide's default is 1024",
   "med pointer":
-    "routine 6, medplayer's -$54 whatever the mode. DEVIATION: the Guide says this one is unreliable — \"soll" +
+    "routine 6, medplayer's -$54 whatever the mode. DEVIATION: the Guide says this one is unreliable — \"soll " +
     "eigentlich die korrekte Startadresse ... zurück geben.",
   "med mod base":
-    "routine 23 is `move.l $3f2.l,d3` and nothing else — no module check, so with none loaded it answers 0. The" +
-    "address is real and Peek/Poke reach it (Runtime.MED_MODULE_BASE), which is the Guide's stated point: no AMOS" +
+    "routine 23 is `move.l $3f2.l,d3` and nothing else — no module check, so with none loaded it answers 0. The " +
+    "address is real and Peek/Poke reach it (Runtime.MED_MODULE_BASE), which is the Guide's stated point: no AMOS " +
     "bank is used, so this is how a program edits its module",
   "med get player":
-    "routine 15 loads the file through medplayer, asks -$6c which player it needs, unloads it again, and touches" +
-    "neither $3f2 nor $3f6 — so it is safe to call mid-song. The answer is fixed by the module generation and the" +
-    "Guide's own mode table names them: MMD0/MMD1 → 0, MMD2 → 1, MMD3 → 2. NOTE: the routine has NO failure path," +
+    "routine 15 loads the file through medplayer, asks -$6c which player it needs, unloads it again, and touches " +
+    "neither $3f2 nor $3f6 — so it is safe to call mid-song. The answer is fixed by the module generation and the " +
+    "Guide's own mode table names them: MMD0/MMD1 → 0, MMD2 → 1, MMD3 → 2. NOTE: the routine has NO failure path, " +
     "so a file that is not a module leaves the query running on a null pointer; here it answers 0",
   "med get sub songs":
     "routine 18, `move.b $33(a0),d0` — `extra_songs` in the MMD header, static file data, so this one is exact.",
@@ -5155,93 +5155,93 @@ export const NOTES: Record<string, string> = {
   "med seq num":
     "routine 21, `move.w $2e(a0),d0` — MMD `pseqnum`",
   "med counter":
-    "routine 22, `move.b $32(a0),d0` — MMD `counter`. The Guide, in full: \"Tja keine Ahnung wozu der gut sein" +
+    "routine 22, `move.b $32(a0),d0` — MMD `counter`. The Guide, in full: \"Tja keine Ahnung wozu der gut sein " +
     "soll.",
   "med is fastplaying":
-    "routine 24: mode 0 asks medplayer -$72 and mode 1 octaplayer -$60, but mode 2 does not ask anyone — `move.l" +
-    "#$ffffffff,d0` unconditionally, which is the Guide's complaint (\"funktioniert das nur bei MED Modulen die" +
-    "mit dem octamixplayer.library gespielt werden\") explained. NOTE: for modes 0 and 1 the library's answer is" +
-    "modelled by the Med Fastplay On/Off flag, since fast-ram replay is what that pair switches and this port has" +
+    "routine 24: mode 0 asks medplayer -$72 and mode 1 octaplayer -$60, but mode 2 does not ask anyone — `move.l " +
+    "#$ffffffff,d0` unconditionally, which is the Guide's complaint (\"funktioniert das nur bei MED Modulen die " +
+    "mit dem octamixplayer.library gespielt werden\") explained. NOTE: for modes 0 and 1 the library's answer is " +
+    "modelled by the Med Fastplay On/Off flag, since fast-ram replay is what that pair switches and this port has " +
     "no chip/fast split",
   "prop on":
-    "routine 1: `lea $10a(pc),a0 / move.l a0,$4(a5)`, which is VblRout[1] (+Equ.s:1177) — one of the eight" +
+    "routine 1: `lea $10a(pc),a0 / move.l a0,$4(a5)`, which is VblRout[1] (+Equ.s:1177) — one of the eight " +
     "per-frame slots AMOS calls at the vertical blank.",
   "prop off":
     "routine 2: `clr.l $4(a5)`, and nothing else at all",
   "paddle":
-    "routine 6. n is 0..3, unsigned-checked, and the pairing is not the obvious one: n<2 reads the POT0DAT" +
-    "snapshot and n>=2 the POT1DAT one, with the ODD number taking the low byte and the even one shifting down" +
-    "from the high. NOTE: no paddle attached, so the conversion never completes and the snapshot stays 0 — the" +
+    "routine 6. n is 0..3, unsigned-checked, and the pairing is not the obvious one: n<2 reads the POT0DAT " +
+    "snapshot and n>=2 the POT1DAT one, with the ODD number taking the low byte and the even one shifting down " +
+    "from the high. NOTE: no paddle attached, so the conversion never completes and the snapshot stays 0 — the " +
     "same answer Sticks' Stick X and Stick Y give for the same two registers.",
   "pad fire":
     "routine 7. NOTE: no paddle, so no counter movement and no button",
   "ext joy":
-    "routine 8: `move.b $bfe101,d3 / not.b d3`, then the low nibble for n=0 and `lsr.b #$4` for n=1. CIA-A PRB is" +
-    "the PARALLEL port's data lines and this is the four-player adaptor, one joystick per nibble — the readme" +
-    "says so and the register agrees, where Sticks' manual calls the same hardware the serial port and is wrong." +
+    "routine 8: `move.b $bfe101,d3 / not.b d3`, then the low nibble for n=0 and `lsr.b #$4` for n=1. CIA-A PRB is " +
+    "the PARALLEL port's data lines and this is the four-player adaptor, one joystick per nibble — the readme " +
+    "says so and the register agrees, where Sticks' manual calls the same hardware the serial port and is wrong. " +
     "NOTE: no adaptor; the lines idle high and `not.b` makes that zero, which is no direction",
   "ext fire":
-    "routine 9: CIA-B PRA ($bfd000) bit 2 for joystick 3 and bit 0 for joystick 4 — the parallel port BUSY and" +
-    "POUT handshake lines — and -1 when the bit is CLEAR, a button pulling a pulled-up line down. NOTE: no" +
+    "routine 9: CIA-B PRA ($bfd000) bit 2 for joystick 3 and bit 0 for joystick 4 — the parallel port BUSY and " +
+    "POUT handshake lines — and -1 when the bit is CLEAR, a button pulling a pulled-up line down. NOTE: no " +
     "adaptor, so both idle high and answer 0",
   "yfire":
-    "routine 11, the THIRD button --- routine 10 again on the X pot pins: bit $c (DATRX, right port pin 5) for" +
+    "routine 11, the THIRD button --- routine 10 again on the X pot pins: bit $c (DATRX, right port pin 5) for " +
     "n=1 and bit $8 (DATLX, left) for n=0, re-arming $c/$d and $8/$9",
   "library open":
     "routine 4: `moveq #$0,d0` then OpenLibrary, so ANY version will do, and a zero result is error 1.",
   "library close":
     "routine 5: CloseLibrary with no check of any kind.",
   "cli":
-    "routine 3, 468 bytes and the only large one. NOTE: this port has no shell, so execute() answers DOSFALSE," +
-    "the file is created and stays empty, neither text test fires, and the routine lands on its own error 0 — the" +
+    "routine 3, 468 bytes and the only large one. NOTE: this port has no shell, so execute() answers DOSFALSE, " +
+    "the file is created and stays empty, neither text test fires, and the routine lands on its own error 0 — the " +
     "branch it takes on an Amiga where the command could not run",
   "init thx":
-    "routine 4. The Guide says what the zeros buy: \"Init Thx initialises the filter data used by the replayer." +
-    "NOTE: nothing is charged for those bytes here, for the same reason PowerBobs' AllocMems are not: no keyword" +
+    "routine 4. The Guide says what the zeros buy: \"Init Thx initialises the filter data used by the replayer. " +
+    "NOTE: nothing is charged for those bytes here, for the same reason PowerBobs' AllocMems are not: no keyword " +
     "hands the address back, so the only observable would be Fast Free",
   "deinit thx":
-    "routine 5. DEFECT: the flag clear is `move.b #$ff,d1 / subi.b #$1,d1 / and.b d1,d0` — $FE, so it clears bit" +
+    "routine 5. DEFECT: the flag clear is `move.b #$ff,d1 / subi.b #$1,d1 / and.b d1,d0` — $FE, so it clears bit " +
     "0 ONLY and leaves PLAYING set.",
   "play thx":
     "routine 6. The Guide's usage is `Play Thx Start(Bank),SubSong`, so the address really is an AMOS bank's",
   "stop thx":
     "routine 7.",
   "volume thx":
-    "routine 8. The Guide gives the range as \"anything between 0 (silent) to 63 (very loud)\" and the routine" +
+    "routine 8. The Guide gives the range as \"anything between 0 (silent) to 63 (very loud)\" and the routine " +
     "enforces none of it: `move.b d7,(a1)` takes the low byte, so 64 and -1 both land",
   "change led":
     "routine 3: `bchg.b #$1,$bfe001`.",
   "wait mouse":
-    "routine 4: `btst.b #$6,$bfe001 / beq (done) / bra (again)`, spinning until the bit reads CLEAR, which is the" +
-    "LEFT button held. DEVIATION: the original is a bare busy loop with no vbl wait and no break check, so on the" +
+    "routine 4: `btst.b #$6,$bfe001 / beq (done) / bra (again)`, spinning until the bit reads CLEAR, which is the " +
+    "LEFT button held. DEVIATION: the original is a bare busy loop with no vbl wait and no break check, so on the " +
     "machine it burns the CPU and cannot be stopped by Control-C.",
   "wait joy":
     "routine 5, the same loop on bit 7 --- port 1 fire --- with the same deviation",
   "clear banks":
-    "routine 6 is one AMOS call and an rts: `Rjsr routine 1107`, which is `L_Bnk_EffAll` --- erase every bank." +
+    "routine 6 is one AMOS call and an rts: `Rjsr routine 1107`, which is `L_Bnk_EffAll` --- erase every bank. " +
     "Source: +B.s:2698.",
   "id get high id":
     "L3: FiGetHighID(), the highest type number the installed library knows.",
   "id get string":
-    "L4: FiGetIDString(num), the name of a type number. Not marked DEFECT because nothing here reproduces it: the" +
-    "bug is pointer arithmetic in a library this port does not have, and the keyword is unreachable while it is" +
+    "L4: FiGetIDString(num), the name of a type number. Not marked DEFECT because nothing here reproduces it: the " +
+    "bug is pointer arithmetic in a library this port does not have, and the keyword is unreachable while it is " +
     "absent",
   "id identify file":
-    "L5: step over the AMOS length word, FiAllocFileInfo (null is message 4), FiIdentifyFromName, then the type" +
+    "L5: step over the AMOS length word, FiAllocFileInfo (null is message 4), FiIdentifyFromName, then the type " +
     "as a WORD at FileInfo+4.",
   "id identify adresse":
-    "L6, byte for byte L5 with FiIdentify in place of FiIdentifyFromName and no length-word step, so the argument" +
+    "L6, byte for byte L5 with FiIdentify in place of FiIdentifyFromName and no length-word step, so the argument " +
     "is an address of data already in memory.",
   "id fileinfo":
-    "L7, three instructions with NO library check, so it answers even with nothing installed --- and what it" +
+    "L7, three instructions with NO library check, so it answers even with nothing installed --- and what it " +
     "answers is the pointer the last identify already freed",
   "id error":
     "L8, the same three instructions over IDerr, also unguarded.",
   "dump err$":
     "routine 12 walks the list at $5d2 by the index at $32, each entry a word length then the text, padded even.",
   "diskin":
-    "routine 29 into arm 42: TD_CHANGESTATE, whose io_Actual is 0 when a disk IS present, so this answers -1 for" +
-    "a disk in the drive. NOTE: there is no floppy drive here, so routine 35's OpenDevice on trackdisk.device" +
+    "routine 29 into arm 42: TD_CHANGESTATE, whose io_Actual is 0 when a disk IS present, so this answers -1 for " +
+    "a disk in the drive. NOTE: there is no floppy drive here, so routine 35's OpenDevice on trackdisk.device " +
     "fails and this reports it --- the same answer the machine gives for a unit with no drive attached.",
   "writeenable":
     "routine 30 into arm 43: TD_PROTSTATUS, io_Actual 0 when NOT protected, so -1 means writable.",
@@ -5252,11 +5252,11 @@ export const NOTES: Record<string, string> = {
   "trackformat":
     "routine 33 into arm 46.",
   "disk err$":
-    "routine 34 returns an INTEGER despite the name: `move.l $b0(a2),d3 / move.l #$0,d2`, and the token spec is" +
+    "routine 34 returns an INTEGER despite the name: `move.l $b0(a2),d3 / move.l #$0,d2`, and the token spec is " +
     "`0`.",
   "dump":
-    "routines 3, 4 and 5 --- one keyword with three arities. APPROXIMATED: the engine itself (routines 9-19," +
-    "printer.device's graphics dump) is not reproduced, so the answer is message 2, \"Not a graphics printer.\" ---" +
+    "routines 3, 4 and 5 --- one keyword with three arities. APPROXIMATED: the engine itself (routines 9-19, " +
+    "printer.device's graphics dump) is not reproduced, so the answer is message 2, \"Not a graphics printer.\" --- " +
     "the machine's own answer when the installed driver has no dump support, and the reason that message exists.",
   "omd load":
     "octaplayer.library is not in the AMOS source; the load is checked and remembered, the module is not decoded",
@@ -5265,11 +5265,11 @@ export const NOTES: Record<string, string> = {
   "omd stop":
     "raises nothing of its own.",
   "omd free":
-    "the same: routine 131 returns in silence when the module pointer at +$102 is zero, where this port raised" +
+    "the same: routine 131 returns in silence when the module pointer at +$102 is zero, where this port raised " +
     "error 25.",
   "mosaic x2":
-    "gains two termination guards the original lacks, neither of which fires on a real screen: a height under one" +
-    "block, and a row byte width that is not a multiple of four, both walk memory forever on the 68k and do" +
+    "gains two termination guards the original lacks, neither of which fires on a real screen: a height under one " +
+    "block, and a row byte width that is not a multiple of four, both walk memory forever on the 68k and do " +
     "nothing here",
   "mosaic x4":
     "the same two guards as Mosaic X2",
@@ -5280,453 +5280,453 @@ export const NOTES: Record<string, string> = {
   "mosaic x32":
     "the same two guards as Mosaic X2",
   "octets fill":
-    "an end equal to the start passes the routine's own Bmi and then fills memory until it faults; it writes" +
+    "an end equal to the start passes the routine's own Bmi and then fills memory until it faults; it writes " +
     "nothing here",
   "word switch":
-    "a range ending at or below its start swaps that one word and stops, on the machine as well as here — routine" +
+    "a range ending at or below its start swaps that one word and stops, on the machine as well as here — routine " +
     "119 closes on `cmpa.l a2,a1 / blt`, so a1 already past a2 falls through to the rts.",
   "s32 block to screen":
-    "steps rows by longs*4, its own `Lsl.l #2`, not the screen byte width, so a width that is not a whole number" +
+    "steps rows by longs*4, its own `Lsl.l #2`, not the screen byte width, so a width that is not a whole number " +
     "of longwords drifts — kept.",
   "s32 vertice to screen":
     "the same row-step drift and the same narrow-screen guard as S32 Block To Screen",
   "full view":
-    "does not step _CurrentLine after writing, alone among the appending keywords, so the next Copper Wait Line" +
+    "does not step _CurrentLine after writing, alone among the appending keywords, so the next Copper Wait Line " +
     "lays itself over the tail",
   "say":
-    "the AMOS side is exact — the ~ phoneme form, the translator path, the range checks and the asynchronous" +
-    "form's mouths — but the VOICE is not the Amiga's. narrator-ts ships a free rebuild of the formant tables" +
-    "(voice-free.json) because narrator.device's own are not redistributable, so it speaks and does not sound" +
+    "the AMOS side is exact — the ~ phoneme form, the translator path, the range checks and the asynchronous " +
+    "form's mouths — but the VOICE is not the Amiga's. narrator-ts ships a free rebuild of the formant tables " +
+    "(voice-free.json) because narrator.device's own are not redistributable, so it speaks and does not sound " +
     "like a real Amiga; supplying the original binary is the library's documented upgrade path.",
   "mouth read":
-    "exact, including that every failure path writes ONE WORD over bytes 88 and 89 so Mouth Width and Mouth" +
-    "Height both read -1 together — which is what the demos loop on — and that it does nothing unless an" +
+    "exact, including that every failure path writes ONE WORD over bytes 88 and 89 so Mouth Width and Mouth " +
+    "Height both read -1 together — which is what the demos loop on — and that it does nothing unless an " +
     "asynchronous Say is in flight",
   "mouth width":
     "the low nibble of the frame the device packs at hunk+0x30a0, which it splits into byte 88",
   "mouth height":
     "the high nibble, byte 89",
   "set talk":
-    "exact: sex and mode masked to a bit, pitch 65..320 and rate 40..400 refused rather than clamped, and any" +
+    "exact: sex and mode masked to a bit, pitch 65..320 and rate 40..400 refused rather than clamped, and any " +
     "parameter omitted (EntNul) leaves its field alone",
   "talk misc":
-    "exact, and note the bounds are AMOS's rather than the device's: volume 0..64 and sampfreq 5000..25000 where" +
+    "exact, and note the bounds are AMOS's rather than the device's: volume 0..64 and sampfreq 5000..25000 where " +
     "narrator-ts accepts up to 28000.",
   "talk stop":
-    "ends an asynchronous say and hands the voices back, as the routine does; there is no CheckIO/AbortIO race to" +
+    "ends an asynchronous say and hands the voices back, as the routine does; there is no CheckIO/AbortIO race to " +
     "model because the synthesis is not concurrent here",
   "elznsx":
-    "Routines 7 ($13ce) and 8 ($13da), the one- and two-argument forms, over the shared lookup at routines 4/5/6." +
-    "The guide's C_Elznsx note claims \"These commands return signed integers. (-32768 to 32767)\" and nothing in" +
-    "the routine sign-extends; its own C_ElznShift note contradicts it and matches the binary -- \"the new" +
-    "co-ordinates will be 65526,10 to 30,20\". Zone 0, or a zone past EcNZones, is AMOS 23; a reserved-but-unset" +
+    "Routines 7 ($13ce) and 8 ($13da), the one- and two-argument forms, over the shared lookup at routines 4/5/6. " +
+    "The guide's C_Elznsx note claims \"These commands return signed integers. (-32768 to 32767)\" and nothing in " +
+    "the routine sign-extends; its own C_ElznShift note contradicts it and matches the binary -- \"the new " +
+    "co-ordinates will be 65526,10 to 30,20\". Zone 0, or a zone past EcNZones, is AMOS 23; a reserved-but-unset " +
     "zone reads as four zeroes, which the guide does get right",
   "elzn shift":
-    "Routines 15 ($142e), 16 ($1436) and the body at 17 ($1458). The four adds are `add.w`, so coordinates wrap" +
-    "modulo 65536 and a zone shifted off the left edge reappears near 65535 -- deliberate, and the guide warns" +
-    "that AMOS's own =Zone(x,y) is confused by it while these readers are not. DEVIATION: the all-zones form on a" +
-    "screen with NO zones reserved hangs on the real machine -- routine 17 takes d4=1, d5=0, shifts both to 8 and" +
-    "0, and loops `cmp.l d4,d5 / beq` which can never match, writing four words through a null EcAZones and" +
+    "Routines 15 ($142e), 16 ($1436) and the body at 17 ($1458). The four adds are `add.w`, so coordinates wrap " +
+    "modulo 65536 and a zone shifted off the left edge reappears near 65535 -- deliberate, and the guide warns " +
+    "that AMOS's own =Zone(x,y) is confused by it while these readers are not. DEVIATION: the all-zones form on a " +
+    "screen with NO zones reserved hangs on the real machine -- routine 17 takes d4=1, d5=0, shifts both to 8 and " +
+    "0, and loops `cmp.l d4,d5 / beq` which can never match, writing four words through a null EcAZones and " +
     "stepping eight bytes at a time for ever. The guide documents an \"Illegal function call ...",
   "elzb add":
-    "Routines 100 ($1ea6), 101 ($1ec8) and 104 ($1f6a). NOTE: the guide documents a \"Not a Zone Bank\" error," +
-    "\"Zone banks are identified by them having the name 'Zones '\", and routine 101 never looks at the name: it" +
-    "calls L_Bnk_GetAdr with the number alone, so any bank whose first longword is a plausible group count is" +
+    "Routines 100 ($1ea6), 101 ($1ec8) and 104 ($1f6a). NOTE: the guide documents a \"Not a Zone Bank\" error, " +
+    "\"Zone banks are identified by them having the name 'Zones '\", and routine 101 never looks at the name: it " +
+    "calls L_Bnk_GetAdr with the number alone, so any bank whose first longword is a plausible group count is " +
     "accepted.",
   "el overlap":
     "Routine 153 ($26e0).",
   "el lapsx":
-    "Routines 154-157 ($2758-$277c), each `movea.l $1e8(a5),a0 / move.l $XX(a0),d3` and nothing else. NOTE:" +
-    "nothing initialises those fields -- they belong to an easylife.library base the extension merely opened, and" +
-    "the readers do no has-it-been-computed test, so El Lapsx before the first El Overlap reads whatever the" +
+    "Routines 154-157 ($2758-$277c), each `movea.l $1e8(a5),a0 / move.l $XX(a0),d3` and nothing else. NOTE: " +
+    "nothing initialises those fields -- they belong to an easylife.library base the extension merely opened, and " +
+    "the readers do no has-it-been-computed test, so El Lapsx before the first El Overlap reads whatever the " +
     "library left there.",
   "elmz reserve":
-    "Routine 80 ($1bd6). NUM is rounded UP to even (`addq.l #$1,d6 / andi.l #$fffffffe,d6`) and the table costs" +
-    "one and a half records a zone plus a trailer (`move.l d6,d7 / asr.l #$1,d7 / add.l d6,d7 / addq.l #$1,d7`)," +
-    "which is where the guide's \"A maximum of 5460 multi zones can be defined. (There is a good reason for that" +
-    "number!)\" comes from -- `cmp.l #$2000,d5 / Rbcc routine 3`, and 5460*3/2+1 = 8191. That is why the guide" +
-    "warns \"Normal screen zones will not work with multi zones installed, but will not produce error messages," +
-    "just unreliable results\", and why Reserve Zone and Elzb Add both destroy them: all three go through the one" +
-    "allocation. DEVIATION: NUM of zero or less scribbles memory on the machine -- `(0+1) & ~1` is 0, so one" +
-    "record is allocated and then `subq.l #$2,d2 / ... dbra d2` runs with d2 = -2, counting the LOW WORD down" +
-    "from $fffe for 65535 iterations of a four-byte write. NOTE: our model keeps the rectangles as the screen's" +
-    "zone records, so `Zone()` and `Elznsx` see them exactly as they would on the machine, but the index records" +
-    "read as unset rather than as the junk zones the 68k's bytes would decode to -- which is the half of the" +
+    "Routine 80 ($1bd6). NUM is rounded UP to even (`addq.l #$1,d6 / andi.l #$fffffffe,d6`) and the table costs " +
+    "one and a half records a zone plus a trailer (`move.l d6,d7 / asr.l #$1,d7 / add.l d6,d7 / addq.l #$1,d7`), " +
+    "which is where the guide's \"A maximum of 5460 multi zones can be defined. (There is a good reason for that " +
+    "number!)\" comes from -- `cmp.l #$2000,d5 / Rbcc routine 3`, and 5460*3/2+1 = 8191. That is why the guide " +
+    "warns \"Normal screen zones will not work with multi zones installed, but will not produce error messages, " +
+    "just unreliable results\", and why Reserve Zone and Elzb Add both destroy them: all three go through the one " +
+    "allocation. DEVIATION: NUM of zero or less scribbles memory on the machine -- `(0+1) & ~1` is 0, so one " +
+    "record is allocated and then `subq.l #$2,d2 / ... dbra d2` runs with d2 = -2, counting the LOW WORD down " +
+    "from $fffe for 65535 iterations of a four-byte write. NOTE: our model keeps the rectangles as the screen's " +
+    "zone records, so `Zone()` and `Elznsx` see them exactly as they would on the machine, but the index records " +
+    "read as unset rather than as the junk zones the 68k's bytes would decode to -- which is the half of the " +
     "aliasing the guide itself calls unreliable",
   "elmz  set":
-    "Routine 85 ($1ccc), and the two-argument `ElMz Set GROUP,ID` ERASES that zone through routine 86 ($1d46)." +
-    "NOTE: the corners are sorted rather than refused, but `cmp.l d1,d5 / bcc` is an UNSIGNED long compare while" +
-    "the stores are `move.w` -- so the guide's \"X1,Y1 and X2,Y2 are automatically sorted so X1 <= X2, and Y1 <=" +
-    "Y2\" holds for two coordinates of the same sign and inverts for a rectangle straddling zero, since -10 is" +
-    "$fffffff6 and sorts above +10. DEVIATION: the erase form tests `cmp.l #$ffff,d2` where routines 85, 87 and" +
-    "92 all test `cmp.w`, and routine 82 signals not-found with `moveq #$ff,d2` -- which is -1, not $0000ffff." +
+    "Routine 85 ($1ccc), and the two-argument `ElMz Set GROUP,ID` ERASES that zone through routine 86 ($1d46). " +
+    "NOTE: the corners are sorted rather than refused, but `cmp.l d1,d5 / bcc` is an UNSIGNED long compare while " +
+    "the stores are `move.w` -- so the guide's \"X1,Y1 and X2,Y2 are automatically sorted so X1 <= X2, and Y1 <= " +
+    "Y2\" holds for two coordinates of the same sign and inverts for a rectangle straddling zero, since -10 is " +
+    "$fffffff6 and sorts above +10. DEVIATION: the erase form tests `cmp.l #$ffff,d2` where routines 85, 87 and " +
+    "92 all test `cmp.w`, and routine 82 signals not-found with `moveq #$ff,d2` -- which is -1, not $0000ffff. " +
     "Source: +Edit.s:14414.",
   "elmz erase":
     "Routine 92 ($1dcc): routine 82 with `moveq #$0,d1`, the wildcard id, looped until it comes up empty.",
   "elmznsx":
-    "Routines 88-91 ($1d94-$1dbe) over the shared prologue at routine 87 ($1d6c), which pops ID then GROUP," +
-    "refuses either as zero with AMOS 23, and raises the extension's own \"Multi Zone Not Defined\" when the pair" +
-    "is not in the index. Each is `Rbsr routine 87 / move.w $N(a1,d2.w),d3 / ext.l d3`, so unlike the AMOS-zone" +
-    "readers these SIGN-extend -- the guide's \"The values returned are signed (-32768 to 32767)\" is right here," +
+    "Routines 88-91 ($1d94-$1dbe) over the shared prologue at routine 87 ($1d6c), which pops ID then GROUP, " +
+    "refuses either as zero with AMOS 23, and raises the extension's own \"Multi Zone Not Defined\" when the pair " +
+    "is not in the index. Each is `Rbsr routine 87 / move.w $N(a1,d2.w),d3 / ext.l d3`, so unlike the AMOS-zone " +
+    "readers these SIGN-extend -- the guide's \"The values returned are signed (-32768 to 32767)\" is right here, " +
     "where the same claim about Elznsx is not.",
   "elmzney":
     "Routine 91 ($1dbe), and DEFECT: its two instructions are in the wrong order.",
   "elmzone":
-    "Routine 95 ($1e08) stores X, Y and the group filter in the companion library's struct ($6e/$70/$74), resets" +
-    "the scan cursor at $72 and falls straight into Elmzonen; the two-argument form is routine 94, six bytes that" +
+    "Routine 95 ($1e08) stores X, Y and the group filter in the companion library's struct ($6e/$70/$74), resets " +
+    "the scan cursor at $72 and falls straight into Elmzonen; the two-argument form is routine 94, six bytes that " +
     "push a literal zero for the group, so \"no filter\" and \"group 0\" are the same thing.",
   "elmzonen":
     "Routine 96 ($1e28), which is both this keyword and the tail of Elmzone.",
   "elmzoneg":
-    "Routine 93 ($1df0), `moveq #$0,d3 / move.w $76(a0),d3` -- the group of whatever the last Elmzone or Elmzonen" +
+    "Routine 93 ($1df0), `moveq #$0,d3 / move.w $76(a0),d3` -- the group of whatever the last Elmzone or Elmzonen " +
     "found, zeroed when the scan came up empty.",
   "elf asc":
-    "Routines 18 and 19 into 35 ($1560), over the shared setup at routine 34 ($153a). NOTE: the guide says \"Any" +
-    "value of P is accepted, but is taken to be unsigned, so negative numbers are treated as very high positive" +
-    "numbers\", and `tst.l d3 / Rbmi routine 3` says otherwise -- a negative P is an Illegal Function Call in both" +
+    "Routines 18 and 19 into 35 ($1560), over the shared setup at routine 34 ($153a). NOTE: the guide says \"Any " +
+    "value of P is accepted, but is taken to be unsigned, so negative numbers are treated as very high positive " +
+    "numbers\", and `tst.l d3 / Rbmi routine 3` says otherwise -- a negative P is an Illegal Function Call in both " +
     "the forward setup and the backward one. A P past the end does find nothing, as documented",
   "elf char":
-    "Routines 26/27 into 40 ($160a), which walks A$ per source character rather than comparing one code --" +
-    "`move.w (a2),d7` then a `dbra` from the LAST character of the set down to the first. NOTE: the guide's" +
+    "Routines 26/27 into 40 ($160a), which walks A$ per source character rather than comparing one code -- " +
+    "`move.w (a2),d7` then a `dbra` from the LAST character of the set down to the first. NOTE: the guide's " +
     "\"Illegal Function Call: Either A$ is an empty string, or A is not between 0 and 255\" is half right.",
   "elf last asc":
-    "Routines 22/23 into 38 ($15da), over the backward setup at routine 37 ($15ac). P of 0, or past the length," +
+    "Routines 22/23 into 38 ($15da), over the backward setup at routine 37 ($15ac). P of 0, or past the length, " +
     "starts at the end, which the guide gets right.",
   "elf control":
-    "Routines 44 and 45 ($16ba, $16c4); routine 44 is ten bytes that push a literal zero for P. The test is" +
-    "`cmp.b #$20,d0 / bcc` and UNSIGNED, so only 0..31 count and a byte at 128 or above is not a control" +
-    "character -- which is what makes the guide's use of it work: \"This can be used to determine if a string is" +
+    "Routines 44 and 45 ($16ba, $16c4); routine 44 is ten bytes that push a literal zero for P. The test is " +
+    "`cmp.b #$20,d0 / bcc` and UNSIGNED, so only 0..31 count and a byte at 128 or above is not a control " +
+    "character -- which is what makes the guide's use of it work: \"This can be used to determine if a string is " +
     "printable.",
   "elf nth asc":
-    "Routine 53 ($1790) is routine 35 with the Nth counter loaded, `move.l (a3)+,d5 / subq.l #$1,d5 / Rbmi" +
-    "routine 3`, and the `dbra d5` after each match is what skips the first N-1. NOTE: routine 52, Elf Nth Char," +
-    "is the same twelve bytes WITHOUT that sign check, so `Elf Nth Asc(s$,a,0)` is an Illegal Function Call and" +
-    "`Elf Nth Char(s$,a$,0)` is not: N-1 becomes -1, the dbra decrements the low word to $fffe and branches, and" +
+    "Routine 53 ($1790) is routine 35 with the Nth counter loaded, `move.l (a3)+,d5 / subq.l #$1,d5 / Rbmi " +
+    "routine 3`, and the `dbra d5` after each match is what skips the first N-1. NOTE: routine 52, Elf Nth Char, " +
+    "is the same twelve bytes WITHOUT that sign check, so `Elf Nth Asc(s$,a,0)` is an Illegal Function Call and " +
+    "`Elf Nth Char(s$,a$,0)` is not: N-1 becomes -1, the dbra decrements the low word to $fffe and branches, and " +
     "the search would need 65536 matches -- which is to say it finds nothing and answers the miss value",
   "elf num asc":
-    "Routine 51 ($175e), a plain count with its own loop rather than a call into the search workers, and no fail" +
+    "Routine 51 ($175e), a plain count with its own loop rather than a call into the search workers, and no fail " +
     "flag.",
   "elf num char":
-    "Routine 50 ($174c), and it does not count a SET at all. NOTE: the guide says \"occurances of any character" +
-    "from A$ are counted\" and adds a note rationalising it -- \"If the string A$ contains more than one occurance" +
-    "of the same character it is still only counted once\" -- and neither sentence describes this routine. The" +
+    "Routine 50 ($174c), and it does not count a SET at all. NOTE: the guide says \"occurances of any character " +
+    "from A$ are counted\" and adds a note rationalising it -- \"If the string A$ contains more than one occurance " +
+    "of the same character it is still only counted once\" -- and neither sentence describes this routine. The " +
     "empty string IS an error here, which is the one thing the guide has right about it",
   "elf fail start":
-    "Routines 151 and 152 ($26c8, $26d4), twelve bytes each: `movea.l $1e8(a5),a0 / move.w #$0,$a0(a0)` and the" +
-    "same with $ffff. NOTE: these two are the extension's only undocumented keywords. The guide's index lists" +
-    "both and links them to `C_ElfFailStart`, and no such node exists in any of the three guides; what the" +
-    "setting means had to come from the readers. Elf Fail Start is the boot state and is what the Default hook" +
+    "Routines 151 and 152 ($26c8, $26d4), twelve bytes each: `movea.l $1e8(a5),a0 / move.w #$0,$a0(a0)` and the " +
+    "same with $ffff. NOTE: these two are the extension's only undocumented keywords. The guide's index lists " +
+    "both and links them to `C_ElfFailStart`, and no such node exists in any of the three guides; what the " +
+    "setting means had to come from the readers. Elf Fail Start is the boot state and is what the Default hook " +
     "restores, which the guide's CommandEffects node does say",
   "elpad asc$":
-    "Routines 145 and 146 ($25da, $25f0). NOTE: the guide says \"If the length of the string S$ is greater than or" +
+    "Routines 145 and 146 ($25da, $25f0). NOTE: the guide says \"If the length of the string S$ is greater than or " +
     "equal to L, these two functions return S$\".",
   "elpad char$":
-    "Routine 144 ($25c6), which takes the first character of A$ and joins routine 146 -- \"If A$ contains more" +
+    "Routine 144 ($25c6), which takes the first character of A$ and joins routine 146 -- \"If A$ contains more " +
     "than one character, the second and subsequent characters are ignored.",
   "elwb open":
-    "Routines 118, 119 and 120 ($213a, $214e, $217a) on intuition.library (`-$18a6(a5)`): OpenWorkBench (-$d2)," +
-    "WBenchToFront (-$156) and CloseWorkBench (-$4e), all three ending at routine 114 ($20c0), which is `moveq" +
-    "#$0,d2 / moveq #$0,d3 / tst.l d0 / beq / moveq #-$1,d3` and turns whatever the library returned into an AMOS" +
-    "boolean. \"AMOS provides a close workbench command, but it does not tell you whether the workbench did" +
-    "actually close or not.\" Close is WBenchToFront first and CloseWorkBench only if that says a screen is there," +
-    "else `moveq #$ff,d0` -- which is the guide's \"Elwb close returns true if the workbench is closed when the" +
-    "function has finished executing, even if it didn't close it because it was already closed\". These answered" +
-    "the ABSENT case until there was an Intuition; they are on the real one now (src/amiga/intuition.ts)," +
-    "including the documented side effect of bringing the Workbench screen to the front, which is not a side" +
+    "Routines 118, 119 and 120 ($213a, $214e, $217a) on intuition.library (`-$18a6(a5)`): OpenWorkBench (-$d2), " +
+    "WBenchToFront (-$156) and CloseWorkBench (-$4e), all three ending at routine 114 ($20c0), which is `moveq " +
+    "#$0,d2 / moveq #$0,d3 / tst.l d0 / beq / moveq #-$1,d3` and turns whatever the library returned into an AMOS " +
+    "boolean. \"AMOS provides a close workbench command, but it does not tell you whether the workbench did " +
+    "actually close or not.\" Close is WBenchToFront first and CloseWorkBench only if that says a screen is there, " +
+    "else `moveq #$ff,d0` -- which is the guide's \"Elwb close returns true if the workbench is closed when the " +
+    "function has finished executing, even if it didn't close it because it was already closed\". These answered " +
+    "the ABSENT case until there was an Intuition; they are on the real one now (src/amiga/intuition.ts), " +
+    "including the documented side effect of bringing the Workbench screen to the front, which is not a side " +
     "effect at all but the WBenchToFront that Close and Test both open with",
   "eliconify begin":
-    "Routine 124 ($21ee), 182 bytes, and the whole iconify window is in it: `tst.l $88(a2) / Rbne routine 3`" +
-    "(already open -> AMOS 23), OpenWorkBench (-$d2) or return 1, WBenchToFront (-$156), then `move.w (a1)+,d0 /" +
-    "asl.w #$3,d0 / addi.w #$50,d0` for a width of len(TITLE$) * 8 + 80, patched into the 48-byte `struct" +
-    "NewWindow` at $2274 along with the title, TopEdge and LeftEdge, then OpenWindow (-$cc) or return 2. NOTE: no" +
-    "WFLG_ACTIVATE, and the guide is explicit about the consequence: \"If you activate the window, then press the" +
+    "Routine 124 ($21ee), 182 bytes, and the whole iconify window is in it: `tst.l $88(a2) / Rbne routine 3` " +
+    "(already open -> AMOS 23), OpenWorkBench (-$d2) or return 1, WBenchToFront (-$156), then `move.w (a1)+,d0 / " +
+    "asl.w #$3,d0 / addi.w #$50,d0` for a width of len(TITLE$) * 8 + 80, patched into the 48-byte `struct " +
+    "NewWindow` at $2274 along with the title, TopEdge and LeftEdge, then OpenWindow (-$cc) or return 2. NOTE: no " +
+    "WFLG_ACTIVATE, and the guide is explicit about the consequence: \"If you activate the window, then press the " +
     "right mouse button\".",
   "eliconify test":
-    "Routine 125 ($22a4), 120 bytes: GetMsg (-$174) on Window->UserPort ($56) in a loop, and the first message" +
-    "past four filters ends it -- MouseX in 0..width-1 against the width saved at $8e, MouseY in 0..9, MENUDOWN" +
-    "($69) sets the latch and takes another message, and Class ($14) decides the answer: MOUSEBUTTONS ($8) is -1," +
-    "anything else (CLOSEWINDOW) is 1. DEFECT: the latch at $8c is dead. NOTE: no ReplyMsg anywhere, so every" +
+    "Routine 125 ($22a4), 120 bytes: GetMsg (-$174) on Window->UserPort ($56) in a loop, and the first message " +
+    "past four filters ends it -- MouseX in 0..width-1 against the width saved at $8e, MouseY in 0..9, MENUDOWN " +
+    "($69) sets the latch and takes another message, and Class ($14) decides the answer: MOUSEBUTTONS ($8) is -1, " +
+    "anything else (CLOSEWINDOW) is 1. DEFECT: the latch at $8c is dead. NOTE: no ReplyMsg anywhere, so every " +
     "message is leaked on the machine; the queue merely shortens here and the defect has no observable effect",
   "eliconify end":
-    "Routine 126 ($231c), forty bytes: `move.l $88(a2),d0 / movea.l d0,a0 / Rbeq routine 3` -- no window is AMOS" +
-    "23 -- then `move.l #$0,$88(a2)` BEFORE CloseWindow (-$48), so a failure inside the close cannot leave a" +
-    "stale pointer. It does not close the Workbench; the guide's procedure has the program bring AMOS back to" +
+    "Routine 126 ($231c), forty bytes: `move.l $88(a2),d0 / movea.l d0,a0 / Rbeq routine 3` -- no window is AMOS " +
+    "23 -- then `move.l #$0,$88(a2)` BEFORE CloseWindow (-$48), so a failure inside the close cannot leave a " +
+    "stale pointer. It does not close the Workbench; the guide's procedure has the program bring AMOS back to " +
     "front itself",
   "eliconify amos":
-    "Routine 123 ($21d4), TWENTY-SIX bytes, and every one of them is the other three: `Rbsr 124 / tst.l d3 / bne`" +
-    "(1 or 2 straight back), then `Rbsr 125 / tst.l d3 / beq` round again, `bmi` keeps a -1, otherwise `moveq" +
-    "#$0,d3` turns Test's 1 into 0, and `Rbsr 126`. DEVIATION: the loop is AMOS's frame loop rather than a `bra`" +
-    "-- the 68k routine spins with the program suspended and there is nothing to spin on here until the frame" +
-    "that delivers the click has run. NOTE: the guide's table for THIS keyword has -1 and 0 swapped, saying \"-1 =" +
-    "The close window gadget was pressed. 0 = Then right mouse button was pressed\", where the code does the" +
+    "Routine 123 ($21d4), TWENTY-SIX bytes, and every one of them is the other three: `Rbsr 124 / tst.l d3 / bne` " +
+    "(1 or 2 straight back), then `Rbsr 125 / tst.l d3 / beq` round again, `bmi` keeps a -1, otherwise `moveq " +
+    "#$0,d3` turns Test's 1 into 0, and `Rbsr 126`. DEVIATION: the loop is AMOS's frame loop rather than a `bra` " +
+    "-- the 68k routine spins with the program suspended and there is nothing to spin on here until the frame " +
+    "that delivers the click has run. NOTE: the guide's table for THIS keyword has -1 and 0 swapped, saying \"-1 = " +
+    "The close window gadget was pressed. 0 = Then right mouse button was pressed\", where the code does the " +
     "opposite.",
   "elxpk error":
-    "Routine 177 ($2a74), twelve bytes: the longword at $b6 of the companion struct, where every XPK keyword" +
+    "Routine 177 ($2a74), twelve bytes: the longword at $b6 of the companion struct, where every XPK keyword " +
     "stores its XpkUnpack/XpkPack result.",
   "st new":
-    "Routine 263 ($37d0) into the library's `ELST_New` (LVO -48, $25a) with `move.l #$10000,d1`, MEMF_CLEAR. That" +
-    "clear IS the guide's initialisation table -- \"\" for strings, 0.0, False, nil, and a ranged integer at its" +
-    "MINIMUM, because a ranged integer is stored biased by its minimum and all-bits-zero therefore is the lowest" +
-    "legal value. NOTE: the pool is exec's Allocate/Deallocate over a MemHeader the library builds inside each" +
-    "block at `block - $e` ($2f6), so it is first-fit on an eight-byte grain with coalescing; modelled that way" +
-    "in elstruct.ts because reuse after a free is observable and the guide's warning about dangling pointers" +
-    "depends on it. DEVIATION: EXT_DATA_SLOT is 64K, so a block size above it would run into its neighbour and is" +
+    "Routine 263 ($37d0) into the library's `ELST_New` (LVO -48, $25a) with `move.l #$10000,d1`, MEMF_CLEAR. That " +
+    "clear IS the guide's initialisation table -- \"\" for strings, 0.0, False, nil, and a ranged integer at its " +
+    "MINIMUM, because a ranged integer is stored biased by its minimum and all-bits-zero therefore is the lowest " +
+    "legal value. NOTE: the pool is exec's Allocate/Deallocate over a MemHeader the library builds inside each " +
+    "block at `block - $e` ($2f6), so it is first-fit on an eight-byte grain with coalescing; modelled that way " +
+    "in elstruct.ts because reuse after a free is observable and the guide's warning about dangling pointers " +
+    "depends on it. DEVIATION: EXT_DATA_SLOT is 64K, so a block size above it would run into its neighbour and is " +
     "capped; both sizes the guide documents ($2000 and $4000) are far below",
   "st free":
     "Routine 262 ($37b8), `ELST_Free` (LVO -42, $166).",
   "st free all":
-    "Routine 266 ($3834), `ELST_FreeBlocks` (LVO -72, $59c) -- the one keyword that gives the memory back," +
-    "FreeMem-ing every block and zeroing `$f8`, `$f4` and `$f0`. NOTE: the mode argument is documented and dead," +
+    "Routine 266 ($3834), `ELST_FreeBlocks` (LVO -72, $59c) -- the one keyword that gives the memory back, " +
+    "FreeMem-ing every block and zeroing `$f8`, `$f4` and `$f0`. NOTE: the mode argument is documented and dead, " +
     "`move.l $f8(a6),d1` overwriting d0 before anything reads it, and `St Free All` passes 0 anyway.",
   "st dup":
-    "Routine 267 ($384c): read the type word, `ELST_New` with d1 = 0 so NO clear, then `move.l (a2)+,(a1)+` over" +
-    "size/4 longwords -- the whole instance, header included. The guide: \"equivilent to (But faster than) S2=St" +
+    "Routine 267 ($384c): read the type word, `ELST_New` with d1 = 0 so NO clear, then `move.l (a2)+,(a1)+` over " +
+    "size/4 longwords -- the whole instance, header included. The guide: \"equivilent to (But faster than) S2=St " +
     "New(St Type(S1)) : St Copy S1 To S2\", and the difference is exactly the four-byte header St Copy skips",
   "st copy":
-    "Routine 268 ($387a). NOTE: routine 3 is `moveq #$17,d0 / Rjmp L_Error`, AMOS 23 -- message 39 \"Cannot copy" +
+    "Routine 268 ($387a). NOTE: routine 3 is `moveq #$17,d0 / Rjmp L_Error`, AMOS 23 -- message 39 \"Cannot copy " +
     "between structures of different types\" is in the extension's own table and NOTHING raises it.",
   "st type":
     "Routine 271 ($393a): the instance's own type word, straight out of its first two bytes.",
   "st len":
-    "Routine 272 ($395c), TEN BYTES: `Rbsr routine 271` for the validated lookup, then `movea.l d0,a0 / move.l" +
-    "(a0),d3`, the definition's first longword. The guide's arithmetic reproduces it: \"adding up the lengths of" +
-    "all the elements, adding 4, and rounding up to the next multiple of 8\", where a string counts \"Max Len+3" +
+    "Routine 272 ($395c), TEN BYTES: `Rbsr routine 271` for the validated lookup, then `movea.l d0,a0 / move.l " +
+    "(a0),d3`, the definition's first longword. The guide's arithmetic reproduces it: \"adding up the lengths of " +
+    "all the elements, adding 4, and rounding up to the next multiple of 8\", where a string counts \"Max Len+3 " +
     "rounded up to even\"",
   "st lookup":
-    "Routine 294 ($3a94), `ELST_Lookup` (LVO -30, $1d8) unwrapped. DEVIATION from the guide: `d0 = (a0)+.w / dbra" +
-    "d0` runs count+1 times, so the table's count word holds entries MINUS ONE where the guide's own format page" +
+    "Routine 294 ($3a94), `ELST_Lookup` (LVO -30, $1d8) unwrapped. DEVIATION from the guide: `d0 = (a0)+.w / dbra " +
+    "d0` runs count+1 times, so the table's count word holds entries MINUS ONE where the guide's own format page " +
     "writes `dc.w 3` for three; all five Structs banks in the archive agree with the binary.",
   "st get":
-    "Routines 273-276 ($3966-$397e) into the shared body 260 ($375e), `ELST_GetElement` (LVO -54, $3be) and then" +
-    "`move.l d0,d3 / moveq #$0,d2`. NOTE: that `moveq #$0,d2` is why the answer is always an AMOS INTEGER -- a" +
-    "Real element gives back its raw longword, and a string element gives back the ADDRESS of its NUL-terminated" +
-    "characters, which the guide says is the point (\"it can be used for any system library calls that require a" +
-    "pointer to a string, or in MUI taglists\"). DEFECT: the resolver's range test is `bmi` then `cmp.l d3,d2 /" +
-    "bcs`, which fails only when a subscript is GREATER than the bound, and both arms raise message 31 \"negative\"" +
+    "Routines 273-276 ($3966-$397e) into the shared body 260 ($375e), `ELST_GetElement` (LVO -54, $3be) and then " +
+    "`move.l d0,d3 / moveq #$0,d2`. NOTE: that `moveq #$0,d2` is why the answer is always an AMOS INTEGER -- a " +
+    "Real element gives back its raw longword, and a string element gives back the ADDRESS of its NUL-terminated " +
+    "characters, which the guide says is the point (\"it can be used for any system library calls that require a " +
+    "pointer to a string, or in MUI taglists\"). DEFECT: the resolver's range test is `bmi` then `cmp.l d3,d2 / " +
+    "bcs`, which fails only when a subscript is GREATER than the bound, and both arms raise message 31 \"negative\" " +
     "-- message 30 \"too high\" is never reached.",
   "st get$":
-    "Routines 277-280 ($3986-$399e) into routine 261 ($3782), which calls 260 and copies the characters out of" +
+    "Routines 277-280 ($3986-$399e) into routine 261 ($3782), which calls 260 and copies the characters out of " +
     "the instance into fresh AMOS string space.",
   "st set":
-    "Routines 282/284/286/288 ($39aa, $39d6, $3a02, $3a2e), `ELST_SetElement` (LVO -60, $46a) and a second" +
+    "Routines 282/284/286/288 ($39aa, $39d6, $3a02, $3a2e), `ELST_SetElement` (LVO -60, $46a) and a second " +
     "twelve-arm table at $49a.",
   "st set str":
-    "The same four routines, reached through the token entries whose value slot is a string. DEFECT: $522 copies" +
-    "`length + 2` bytes with a `dbra` and then writes a NUL, three bytes more than the length, into an element" +
+    "The same four routines, reached through the token entries whose value slot is a string. DEFECT: $522 copies " +
+    "`length + 2` bytes with a `dbra` and then writes a NUL, three bytes more than the length, into an element " +
     "whose stride is `maxlen + 2` -- while the compiler's element size is `maxlen + 3` rounded up to even.",
   "st cmp":
-    "Routines 290-293 ($3a7c-$3a8e) into routine 289 ($3a56), `ELST_StrCmp` (LVO -66, $548) -- compares in place," +
-    "which is the point (\"much faster than using If St Get$( INSTACE, ELEMENT )= STRING$\"). DEVIATION: the SIGN" +
+    "Routines 290-293 ($3a7c-$3a8e) into routine 289 ($3a56), `ELST_StrCmp` (LVO -66, $548) -- compares in place, " +
+    "which is the point (\"much faster than using If St Get$( INSTACE, ELEMENT )= STRING$\"). DEVIATION: the SIGN " +
     "is the guide's backwards.",
   "stv":
-    "Undocumented, and new in 1.10: it appears in no guide and 1.09 does not have it. NOTE: the write half is" +
-    "where the binary says something that cannot be carried over. 1.10 gives it four instruction slots," +
-    "281/283/285/287, each FOUR BYTES in front of the `St Set` body of the matching arity, which it then falls" +
-    "into -- and all four hold `4eac 3e2c`, `jsr $3e2c(a4)`. a4 has no value at a keyword's entry (the only three" +
-    "routines in 16KB that load it do so locally) and $3e2c is inside routine 300's inline message block, not" +
-    "code. 1.09's set family is 281-284 with no prologue, byte for byte the same forty-byte bodies, so the four" +
+    "Undocumented, and new in 1.10: it appears in no guide and 1.09 does not have it. NOTE: the write half is " +
+    "where the binary says something that cannot be carried over. 1.10 gives it four instruction slots, " +
+    "281/283/285/287, each FOUR BYTES in front of the `St Set` body of the matching arity, which it then falls " +
+    "into -- and all four hold `4eac 3e2c`, `jsr $3e2c(a4)`. a4 has no value at a keyword's entry (the only three " +
+    "routines in 16KB that load it do so locally) and $3e2c is inside routine 300's inline message block, not " +
+    "code. 1.09's set family is 281-284 with no prologue, byte for byte the same forty-byte bodies, so the four " +
     "bytes came in with the keyword.",
   "st output$":
-    "Routine 270 ($38f8), and DEFECT twice over -- identically in 1.09 and 1.10, so not a 1.10 regression. $38fc" +
-    "is `3012`, `move.w (a2),d0`, reading the type it is about to look up out of a register nothing in the" +
-    "routine loads (routine 271 does the same job with `3610`, off the pointer it popped). The pair does not" +
-    "round-trip on a real Amiga; the guide's \"returns a copy of the structure instance in a string\" is" +
+    "Routine 270 ($38f8), and DEFECT twice over -- identically in 1.09 and 1.10, so not a 1.10 regression. $38fc " +
+    "is `3012`, `move.w (a2),d0`, reading the type it is about to look up out of a register nothing in the " +
+    "routine loads (routine 271 does the same job with `3610`, off the pointer it popped). The pair does not " +
+    "round-trip on a real Amiga; the guide's \"returns a copy of the structure instance in a string\" is " +
     "implemented instead",
   "st input":
-    "Routine 269 ($38b4), and its two checks ARE right and are the only two places in the whole ST block that" +
-    "raise a message the extension owns: the string's first word against the instance's type (message 41) and its" +
-    "length against the definition's size (message 40). DEFECT: $38ba is `305b`, `movea.w (a3)+,a0` -- the" +
-    "instance address taken as a sign-extended WORD, so the high half of the pushed longword becomes the whole" +
+    "Routine 269 ($38b4), and its two checks ARE right and are the only two places in the whole ST block that " +
+    "raise a message the extension owns: the string's first word against the instance's type (message 41) and its " +
+    "length against the definition's size (message 40). DEFECT: $38ba is `305b`, `movea.w (a3)+,a0` -- the " +
+    "instance address taken as a sign-extended WORD, so the high half of the pushed longword becomes the whole " +
     "pointer and AMOS's parameter stack is left two bytes out of step for the rest of the statement.",
   "st save":
-    "Routine 265 ($3814), `ELST_SaveTree` (LVO -96, $6e8). NOTE: the library takes DOSBase from `$2b8(a5)`," +
-    "AMOS's own workspace register, which is still live because the extension calls in with `movea.l $1e8(a5),a6`" +
-    "and never touches a5. NOTE: the Open() failure exit sets d0 = $5e and routine 299 hands non-negative d0 to" +
-    "L_Error, so the AMOS error raised is 94, \"Next without For in animation string\" -- plainly not the message" +
+    "Routine 265 ($3814), `ELST_SaveTree` (LVO -96, $6e8). NOTE: the library takes DOSBase from `$2b8(a5)`, " +
+    "AMOS's own workspace register, which is still live because the extension calls in with `movea.l $1e8(a5),a6` " +
+    "and never touches a5. NOTE: the Open() failure exit sets d0 = $5e and routine 299 hands non-negative d0 to " +
+    "L_Error, so the AMOS error raised is 94, \"Next without For in animation string\" -- plainly not the message " +
     "meant, and raised unchanged here because the alternative is inventing one",
   "st load":
-    "Routine 264 ($37f2), `ELST_LoadTree` (LVO -90, $7b4) with `ELST_RelocateTable` ($8e4) after it: an instance" +
-    "is allocated per record with NO clear, its body read over the top, and then every pointer element's saved" +
-    "address is looked up in the old-address list and replaced by the new address at the same position. NOTE: a" +
-    "header claiming zero instances makes `subq.w #$1,d4` -1 and the `dbra` under it wrap to 65536 passes; St" +
-    "Save cannot write one, since the scan always returns the root, so it is refused rather than modelled. NOTE:" +
+    "Routine 264 ($37f2), `ELST_LoadTree` (LVO -90, $7b4) with `ELST_RelocateTable` ($8e4) after it: an instance " +
+    "is allocated per record with NO clear, its body read over the top, and then every pointer element's saved " +
+    "address is looked up in the old-address list and replaced by the new address at the same position. NOTE: a " +
+    "header claiming zero instances makes `subq.w #$1,d4` -1 and the `dbra` under it wrap to 65536 passes; St " +
+    "Save cannot write one, since the scan always returns the root, so it is refused rather than modelled. NOTE: " +
     "a bad magic sets d0 = $62, AMOS error 98, the same misdirected-number problem as St Save's 94",
   "st erase":
-    "Routine 295 ($3ab2) on LVO -108 ($97a), which the autodoc lists without naming: `ELST_TreeScan`, `ELST_Free`" +
-    "over every instance it found, `ELST_TreeScanFree`. DEFECT in the scan it sits on: `move.l d3,(a1)` seeds the" +
-    "list with the root and never sets its visited bit, so a pointer back to the root appends it a second time --" +
-    "against the guide's \"It is OK if your graph contains cycles ... DEFECT: an ARRAY of sub-structures is walked" +
-    "as element zero, count+1 times -- `dbra d5,$6bc` loops back onto the `bsr` without advancing a0, and the" +
+    "Routine 295 ($3ab2) on LVO -108 ($97a), which the autodoc lists without naming: `ELST_TreeScan`, `ELST_Free` " +
+    "over every instance it found, `ELST_TreeScanFree`. DEFECT in the scan it sits on: `move.l d3,(a1)` seeds the " +
+    "list with the root and never sets its visited bit, so a pointer back to the root appends it a second time -- " +
+    "against the guide's \"It is OK if your graph contains cycles ... DEFECT: an ARRAY of sub-structures is walked " +
+    "as element zero, count+1 times -- `dbra d5,$6bc` loops back onto the `bsr` without advancing a0, and the " +
     "same shape appears in the relocation at $964.",
   "eltest":
-    "1.09 ONLY --- 1.0 does not have it, 1.44 does not, and 1.10 dropped it and put `Stv` at the same id \\$e4e." +
-    "DEVIATION: the function half pops three longwords too, one more than its two arguments, and sets d0 where" +
-    "every other function here returns in d3 with a type in d2, so `=Eltest(a,b)` answers whatever d3 held from" +
+    "1.09 ONLY --- 1.0 does not have it, 1.44 does not, and 1.10 dropped it and put `Stv` at the same id \\$e4e. " +
+    "DEVIATION: the function half pops three longwords too, one more than its two arguments, and sets d0 where " +
+    "every other function here returns in d3 with a type in d2, so `=Eltest(a,b)` answers whatever d3 held from " +
     "the last thing that set it. Evidence: 1.09's routine 255 (\\$372a); 1.09's routine 256 (\\$3732).",
   "elzb multi add":
-    "Two forms on one name. NOTE: both walks run the groups DOWNWARD, from the count at bank+0 to 1, and that" +
-    "order decides which zone lands in which multi-zone slot, so it is reproduced rather than tidied. Evidence:" +
+    "Two forms on one name. NOTE: both walks run the groups DOWNWARD, from the count at bank+0 to 1, and that " +
+    "order decides which zone lands in which multi-zone slot, so it is reproduced rather than tidied. Evidence: " +
     "Routine 102 ($1f02); Routine 103 ($1f30).",
   "el error":
-    "1.0 only: 1.0's routine 165 ($191a), twenty bytes -- `movea.l $1e8(a5),a2 / adda.w #$44,a2 / move.l (a2),d3" +
-    "/ move.l #$0,(a2)`. This means that if other extensions produce an error, El Error will not contain the" +
-    "number of an EasyLife error you've already handled.\" DEVIATION: the doc says cleared to -1 and the" +
-    "instruction writes zero, which is also what a program sees before any error has been raised -- so the doc's" +
-    "value would have been the more useful of the two. NOTE: the field is module state in easylife.ts rather than" +
-    "EasyLifeState, because twenty-two call sites raise and only 1.0 can read it back; the doc block there says" +
+    "1.0 only: 1.0's routine 165 ($191a), twenty bytes -- `movea.l $1e8(a5),a2 / adda.w #$44,a2 / move.l (a2),d3 " +
+    "/ move.l #$0,(a2)`. This means that if other extensions produce an error, El Error will not contain the " +
+    "number of an EasyLife error you've already handled.\" DEVIATION: the doc says cleared to -1 and the " +
+    "instruction writes zero, which is also what a program sees before any error has been raised -- so the doc's " +
+    "value would have been the more useful of the two. NOTE: the field is module state in easylife.ts rather than " +
+    "EasyLifeState, because twenty-two call sites raise and only 1.0 can read it back; the doc block there says " +
     "what that costs",
   "elzqzqzq":
-    "1.44 only: 1.44's routine 133 ($1bda), TWO BYTES: `rts`. NOTE: `rts` does not pop the parameter stack the" +
-    "way every other routine in this extension does, leaving a3 four longwords deep on the machine; nothing here" +
+    "1.44 only: 1.44's routine 133 ($1bda), TWO BYTES: `rts`. NOTE: `rts` does not pop the parameter stack the " +
+    "way every other routine in this extension does, leaving a3 four longwords deep on the machine; nothing here " +
     "has a parameter stack to leak",
   "elqqzqzqq":
     "1.44 only: 1.44's routine 132 ($1bd8), TWO BYTES: `rts`.",
   "elxpk lof":
-    "Routine 185 ($2b66): NUL-terminate the filename, allocate a 94-byte XpkFib, build [XPK_InName][TAG_DONE] at" +
+    "Routine 185 ($2b66): NUL-terminate the filename, allocate a 94-byte XpkFib, build [XPK_InName][TAG_DONE] at " +
     "$2ba4, and call xpkmaster LVO -36 XpkExamineTags.",
   "elxpk load":
-    "Routines 170-173 ($2928, $2936, $2944, $295a) into 176 ($2998), one per syntax; each only sets d2/d5 and" +
-    "swaps the fourth tag id between $80005874 (XPK_Password) and $8000587e (the blank). DEFECT: the shrink at" +
-    "$2a06 frees nothing (d0 still holds XpkUnpackTags' result, so FreeMem(node,0)) and leaks the block AllocMem" +
-    "returns, so the bank keeps its whole ULen+232 reservation -- reproduced. DEFECT: $2a2c is `move.l d7,(a1)`," +
-    "writing the LVO offset -48 over the node's NEXT link where the d6 saved at $29f2 was meant ($2287 against" +
+    "Routines 170-173 ($2928, $2936, $2944, $295a) into 176 ($2998), one per syntax; each only sets d2/d5 and " +
+    "swaps the fourth tag id between $80005874 (XPK_Password) and $8000587e (the blank). DEFECT: the shrink at " +
+    "$2a06 frees nothing (d0 still holds XpkUnpackTags' result, so FreeMem(node,0)) and leaks the block AllocMem " +
+    "returns, so the bank keeps its whole ULen+232 reservation -- reproduced. DEFECT: $2a2c is `move.l d7,(a1)`, " +
+    "writing the LVO offset -48 over the node's NEXT link where the d6 saved at $29f2 was meant ($2287 against " +
     "$2286, and d6 is never read) -- not reproducible, this port has no node",
   "elxpk bload":
-    "Routines 174 and 175 ($2970, $2980) into 176 with d2 = d5 = -1, which is what `tst.l d5 / bmi` at $29ce" +
-    "skips the bank work on. NOTE: the guide's \"you must still allocate the 256 bytes\" is XPK_MARGIN, workspace" +
+    "Routines 174 and 175 ($2970, $2980) into 176 with d2 = d5 = -1, which is what `tst.l d5 / bmi` at $29ce " +
+    "skips the bank work on. NOTE: the guide's \"you must still allocate the 256 bytes\" is XPK_MARGIN, workspace " +
     "only the real master decodes through; nothing here writes past the unpacked length",
   "elxpk save":
-    "Routines 178 and 179 ($2a80, $2a92) into 180 ($2a9c) and 184 ($2b06). NOTE: only NONE is installed, so any" +
-    "other method answers XPKERR_MISSINGLIB (-15) through Elxpk Error, which is what an Amiga with an empty" +
-    "LIBS:Compressors/ does; and there is no list node in this port, so the 24 bytes are synthesised on save and" +
+    "Routines 178 and 179 ($2a80, $2a92) into 180 ($2a9c) and 184 ($2b06). NOTE: only NONE is installed, so any " +
+    "other method answers XPKERR_MISSINGLIB (-15) through Elxpk Error, which is what an Amiga with an empty " +
+    "LIBS:Compressors/ does; and there is no list node in this port, so the 24 bytes are synthesised on save and " +
     "read back on load rather than copied out of live memory Source: +B.s:1219; +Lib.s:8470.",
   "elxpk bsave":
-    "Routines 181 and 182 ($2ad0, $2ae2) into 183 ($2aec) and the same 184: four pops, METHOD$, FILENAME$," +
-    "LENGTH, START, then XpkPackTags at master LVO -42 with" +
+    "Routines 181 and 182 ($2ad0, $2ae2) into 183 ($2aec) and the same 184: four pops, METHOD$, FILENAME$, " +
+    "LENGTH, START, then XpkPackTags at master LVO -42 with " +
     "[XPK_InBuf][XPK_InLen][XPK_OutName][XPK_PackMethod][password or blank].",
   "el base":
-    "Routine 117 ($2110). NOTE: `El Base(0)` has no answer here -- a5 is AMOS's own system base and this port has" +
-    "no address for it -- so it answers 0, and an unoccupied slot answers 0 as it does on the machine Source:" +
+    "Routine 117 ($2110). NOTE: `El Base(0)` has no answer here -- a5 is AMOS's own system base and this port has " +
+    "no address for it -- so it answers 0, and an unoccupied slot answers 0 as it does on the machine Source: " +
     "+Equ.s:1176-1183.",
   "elpro":
     "Routine 148 ($26aa) is SIX BYTES: `moveq #$ff,d3 / moveq #$0,d2 / rts`, unconditionally true.",
   "elcompiled":
-    "Routine 149 ($26b0), and DEFECT: it answers -1 under the interpreter, the opposite of what it is for. The" +
-    "guide says \"=ElCompiled returns true if your program is running as a stand-alone program, and false when it" +
+    "Routine 149 ($26b0), and DEFECT: it answers -1 under the interpreter, the opposite of what it is for. The " +
+    "guide says \"=ElCompiled returns true if your program is running as a stand-alone program, and false when it " +
     "is being run under AMOS\", so under AMOS it is wrong every time.",
   "elexists":
     "Routines 105 ($1f9c) and 106 ($1fb8).",
   "elprotect":
-    "Routine 109 ($206a): routine 106 again, then `$74(a1)`, fib_Protection -- and unlike Elexists a failed Lock" +
-    "IS raised (`Rjmp L_Error` on d0). The bit sense is AmigaDOS's own inversion, which the guide sets out in" +
-    "full: \"For the lower 4 bits, a value of 0 means on, and 1 off, but for the upper 4 bits, 0 is off, and 1 is" +
+    "Routine 109 ($206a): routine 106 again, then `$74(a1)`, fib_Protection -- and unlike Elexists a failed Lock " +
+    "IS raised (`Rjmp L_Error` on d0). The bit sense is AmigaDOS's own inversion, which the guide sets out in " +
+    "full: \"For the lower 4 bits, a value of 0 means on, and 1 off, but for the upper 4 bits, 0 is off, and 1 is " +
     "not.",
   "els protect":
-    "Routine 110 ($208a): routine 1 to null-terminate the name, `cmp.w #$1,d0 / Rbeq routine 3` on an empty one," +
+    "Routine 110 ($208a): routine 1 to null-terminate the name, `cmp.w #$1,d0 / Rbeq routine 3` on an empty one, " +
     "then dos.library SetProtection.",
   "elexec":
-    "Routine 143 ($25a6): `movem.l d0-d7/a0-a7,-(a7)` around a dos.library Execute with both handles zero, then" +
-    "routine 114 turns the result into a boolean. NOTE: saving a7 in a movem and restoring it from that same" +
+    "Routine 143 ($25a6): `movem.l d0-d7/a0-a7,-(a7)` around a dos.library Execute with both handles zero, then " +
+    "routine 114 turns the result into a boolean. NOTE: saving a7 in a movem and restoring it from that same " +
     "movem is what the routine does; it is a no-op, not a stack switch",
   "elreset":
-    "Routine 108 ($203e): 1..25, then `$fc + (NUM-1)*16` off a5 -- ExtAdr plus FOUR, the slot's DEFAULT routine" +
+    "Routine 108 ($203e): 1..25, then `$fc + (NUM-1)*16` off a5 -- ExtAdr plus FOUR, the slot's DEFAULT routine " +
     "pointer -- and `jmp (a0)` if it is not null.",
   "elraster wait":
-    "Routine 107 ($2016), forty bytes: bound the line to 0..255, spin on VPOSR's low bit until the current line" +
-    "ends, then spin on VHPOSR's line byte until it equals LINE. DEVIATION: the modelled beam only advances" +
-    "between statements here, so there is nothing to spin on inside a keyword and this waits one frame -- the" +
+    "Routine 107 ($2016), forty bytes: bound the line to 0..255, spin on VPOSR's low bit until the current line " +
+    "ends, then spin on VHPOSR's line byte until it equals LINE. DEVIATION: the modelled beam only advances " +
+    "between statements here, so there is nothing to spin on inside a keyword and this waits one frame -- the " +
     "same limit AMCAF's Raster Wait carries",
   "elout":
-    "Routines 121 ($218e) and 122 ($219e), over the handle routine 0 stored at $94 from `Output()`. NOTE: this" +
-    "port has no CLI attached, so the handle is zero -- which is exactly what it is on the machine when AMOS was" +
+    "Routines 121 ($218e) and 122 ($219e), over the handle routine 0 stored at $94 from `Output()`. NOTE: this " +
+    "port has no CLI attached, so the handle is zero -- which is exactly what it is on the machine when AMOS was " +
     "started from Workbench.",
   "elin$":
-    "Routines 127, 128 and 129 ($2344, $2354, $2392) over the shared reader at 130 ($23b8) and the handle at $90" +
+    "Routines 127, 128 and 129 ($2344, $2354, $2392) over the shared reader at 130 ($23b8) and the handle at $90 " +
     "from `Input()`.",
   "elopen font":
-    "Routine 160 ($27a4), 220 bytes: fill the TextAttr at $80, try graphics.library OpenFont first, and only on a" +
+    "Routine 160 ($27a4), 220 bytes: fill the TextAttr at $80, try graphics.library OpenFont first, and only on a " +
     "miss open diskfont.library (message 14 if that fails) and OpenDiskFont (message 15 if that does).",
   "elset font":
-    "Routines 161, 162 and 163 ($2880, $28b8, $28e8): the same chain walk for the FONTID, then respectively" +
-    "unlink-and-close, put the TextFont on the current RastPort, and close the lot. A FONTID that is not in the" +
+    "Routines 161, 162 and 163 ($2880, $28b8, $28e8): the same chain walk for the FONTID, then respectively " +
+    "unlink-and-close, put the TextFont on the current RastPort, and close the lot. A FONTID that is not in the " +
     "chain -- including one already closed -- is AMOS 23, which the guide states for Elset Font.",
   "elpp load":
-    "Routine 55 ($17a0), 162 bytes. `cmp.l #$8,d0 / Rbcc routine 3` on the buffer, `Rbsr routine 58` to free" +
-    "whatever was there (\"If the chosen buffer already contained data, it is freed first\"), then routine 62 opens" +
-    "the library before the file is even looked at -- the guide's \"The Powerpacker Library is required to be in" +
-    "LIBS: even if the file your are loading in not crunched\". The PP20 magic decides whether to decrunch, which" +
-    "is what makes the guide's \"you don't have to worry about whether the file you are loading is crunched or" +
+    "Routine 55 ($17a0), 162 bytes. `cmp.l #$8,d0 / Rbcc routine 3` on the buffer, `Rbsr routine 58` to free " +
+    "whatever was there (\"If the chosen buffer already contained data, it is freed first\"), then routine 62 opens " +
+    "the library before the file is even looked at -- the guide's \"The Powerpacker Library is required to be in " +
+    "LIBS: even if the file your are loading in not crunched\". The PP20 magic decides whether to decrunch, which " +
+    "is what makes the guide's \"you don't have to worry about whether the file you are loading is crunched or " +
     "not\" true",
   "elpp buf":
-    "Routines 56 and 57 ($1842, $185e), twenty-eight bytes each over the eight-slot table at $2e -- two longwords" +
-    "a buffer, address then length. NOTE: the bound is `cmp.w #$8,d0` in these two where Elpp Load and Elpp" +
-    "Allocate use `cmp.l`, so a number whose LOW WORD is 0..7 gets through the readers -- 65536 reads buffer 0 --" +
+    "Routines 56 and 57 ($1842, $185e), twenty-eight bytes each over the eight-slot table at $2e -- two longwords " +
+    "a buffer, address then length. NOTE: the bound is `cmp.w #$8,d0` in these two where Elpp Load and Elpp " +
+    "Allocate use `cmp.l`, so a number whose LOW WORD is 0..7 gets through the readers -- 65536 reads buffer 0 -- " +
     "and is refused by the keywords that create one.",
   "elpp crunch":
-    "Routine 59 ($18b0), 260 bytes and the only keyword here that compresses. If it grows, \"Crunched File LONGER" +
-    "than source - Aborted\", which is the guide's reason for wrapping the call in On Error. DEVIATION:" +
-    "\"IMPORTANT: The crunched data overwrites the uncrunched data before it is saved\" -- src/amiga/powerpacker.ts" +
-    "crunches to a fresh buffer, so the source survives here. A program relying on that corruption would be" +
+    "Routine 59 ($18b0), 260 bytes and the only keyword here that compresses. If it grows, \"Crunched File LONGER " +
+    "than source - Aborted\", which is the guide's reason for wrapping the call in On Error. DEVIATION: " +
+    "\"IMPORTANT: The crunched data overwrites the uncrunched data before it is saved\" -- src/amiga/powerpacker.ts " +
+    "crunches to a fresh buffer, so the source survives here. A program relying on that corruption would be " +
     "relying on the thing the guide warns against",
   "elpp allocate":
-    "Routine 63 ($1a1c), twenty-four bytes: free the old buffer, AllocMem through routine 116 (or error 24), then" +
+    "Routine 63 ($1a1c), twenty-four bytes: free the old buffer, AllocMem through routine 116 (or error 24), then " +
     "the address and length into the slot.",
   "elpp free":
-    "Routine 58 ($187a). \"Freeing a buffer which is not allocated does not cause an error, it does nothing.\"" +
-    "NOTE: the guide's second form, `ElPp Free All`, is not a keyword -- the token table has one entry with one" +
-    "argument. What the guide links to is the Default command, whose hook walks all eight slots itself (routine" +
+    "Routine 58 ($187a). \"Freeing a buffer which is not allocated does not cause an error, it does nothing.\" " +
+    "NOTE: the guide's second form, `ElPp Free All`, is not a keyword -- the token table has one entry with one " +
+    "argument. What the guide links to is the Default command, whose hook walks all eight slots itself (routine " +
     "0's cleanup at $1222)",
   "elpp keep on":
-    "Routines 60 and 61 ($19b4, $19d0): OpenLibrary into $78 and CloseLibrary out of it, each guarded so a second" +
-    "call does nothing. \"The library is loaded into memory when you first use either of these commands, but may" +
-    "sometimes be removed again by the exec memory manger afterwards.\" NOTE: the codec is built in here and" +
-    "cannot fail to open or be flushed out, so the pair is bookkeeping -- the state is kept because the Default" +
+    "Routines 60 and 61 ($19b4, $19d0): OpenLibrary into $78 and CloseLibrary out of it, each guarded so a second " +
+    "call does nothing. \"The library is loaded into memory when you first use either of these commands, but may " +
+    "sometimes be removed again by the exec memory manger afterwards.\" NOTE: the codec is built in here and " +
+    "cannot fail to open or be flushed out, so the pair is bookkeeping -- the state is kept because the Default " +
     "hook is documented to call Elpp Keep Off",
   "elwtst":
     "Routines 70 and 71 ($1b08, $1b24), twenty-eight bytes each and identical but for the width.",
   "elwset":
-    "Routines 72, 74 and 76 ($1b40, $1b6c, $1b98), twenty-two bytes each: pop the address, pop and bound the bit," +
+    "Routines 72, 74 and 76 ($1b40, $1b6c, $1b98), twenty-two bytes each: pop the address, pop and bound the bit, " +
     "`move.w (a0),d1 / bXXX d0,d1 / move.w d1,(a0)`.",
   "ellclr":
-    "Routine 75 ($1b82), and DEVIATION: `20 10` is `move.l (a0),d0` where routine 74's `32 10` is `move.w" +
-    "(a0),d1` and `22 10` would have been the long equivalent. There is no defined value for d1 on entry, so the" +
+    "Routine 75 ($1b82), and DEVIATION: `20 10` is `move.l (a0),d0` where routine 74's `32 10` is `move.w " +
+    "(a0),d1` and `22 10` would have been the long equivalent. There is no defined value for d1 on entry, so the " +
     "defect is not reproducible even in principle; the intent, clearing the bit, is what runs here",
   "ellchg":
     "Routine 77 ($1bae), and DEFECT, reproduced: `01 c1` is `bset` where routine 76's `01 41` is `bchg`.",
   "ellong$":
-    "Routines 46-49 ($16f4..$174c), four ten-to-twenty-byte routines that are the pair AMOS lacks. Elword$ pops" +
-    "the argument as two words and keeps the LOW one (`move.w (a3)+,d0 / move.w (a3)+,(a0)+`), which is the" +
-    "guide's \"ElWord$ does not give error messages if the value is out of range, it simply stores the lower 2" +
-    "bytes\". Reading back, Ellong needs four bytes and Elword two (`cmp.w #$4,d0 / Rbcs routine 3`), and Elword" +
+    "Routines 46-49 ($16f4..$174c), four ten-to-twenty-byte routines that are the pair AMOS lacks. Elword$ pops " +
+    "the argument as two words and keeps the LOW one (`move.w (a3)+,d0 / move.w (a3)+,(a0)+`), which is the " +
+    "guide's \"ElWord$ does not give error messages if the value is out of range, it simply stores the lower 2 " +
+    "bytes\". Reading back, Ellong needs four bytes and Elword two (`cmp.w #$4,d0 / Rbcs routine 3`), and Elword " +
     "sign-extends, so 32768..65535 come back negative -- the guide says so and gives the workaround",
   "elextb":
-    "Routines 78 and 79 ($1bc4, $1bce), ten and eight bytes: `ext.w d3 / ext.l d3` from the low BYTE, and `ext.l" +
+    "Routines 78 and 79 ($1bc4, $1bce), ten and eight bytes: `ext.w d3 / ext.l d3` from the low BYTE, and `ext.l " +
     "d3` from the low word.",
   "elmem$":
-    "Routines 67 ($1a98) and 68 ($1ad4). NOTE: the bound is routine 67's `addq.l #$2,d3 / cmp.l #$10000,d3 / Rbcc" +
-    "routine 3`, so it is the length PLUS TWO that must stay under 65536 and the real maximum is 65533, where the" +
+    "Routines 67 ($1a98) and 68 ($1ad4). NOTE: the bound is routine 67's `addq.l #$2,d3 / cmp.l #$10000,d3 / Rbcc " +
+    "routine 3`, so it is the length PLUS TWO that must stay under 65536 and the real maximum is 65533, where the " +
     "guide says 65535",
   "elmem":
-    "Routine 69 ($1af4) and its wrapper 111 ($20b6), which is `Rbsr routine 69 / move.l a1,d3` -- the write, then" +
+    "Routine 69 ($1af4) and its wrapper 111 ($20b6), which is `Rbsr routine 69 / move.l a1,d3` -- the write, then " +
     "the address just past it.",
   "elbank name$":
-    "Routine 65 ($1a46): L_Bnk_GetAdr, then the eight bytes at `-$8(a2)` and `-$4(a2)` -- the name sits" +
-    "immediately before the data. \"The string returned is always 8 characters long, and is padded with trailing" +
-    "spaces\", and the guide's own idiom for trimming it uses the keyword slice 3 added: `Left$(NAME$,Elf Last Not" +
+    "Routine 65 ($1a46): L_Bnk_GetAdr, then the eight bytes at `-$8(a2)` and `-$4(a2)` -- the name sits " +
+    "immediately before the data. \"The string returned is always 8 characters long, and is padded with trailing " +
+    "spaces\", and the guide's own idiom for trimming it uses the keyword slice 3 added: `Left$(NAME$,Elf Last Not " +
     "Asc(NAME$,32))`",
   "els bank name":
     "Routine 66 ($1a72), the write side of the core's Bank Name$.",
   "elbnk here":
-    "Routine 158 ($2788). DEVIATION: it pops the parameter stack TWICE for a keyword whose spec declares one" +
-    "argument -- `20 1b` move.l (a3)+,d0, then `76 00 74 00` clearing d3 and d2, then `20 1b` again, overwriting" +
-    "d0. There is no shared parameter stack here to under-run, so what the routine intended is what runs: the" +
+    "Routine 158 ($2788). DEVIATION: it pops the parameter stack TWICE for a keyword whose spec declares one " +
+    "argument -- `20 1b` move.l (a3)+,d0, then `76 00 74 00` clearing d3 and d2, then `20 1b` again, overwriting " +
+    "d0. There is no shared parameter stack here to under-run, so what the routine intended is what runs: the " +
     "argument is looked up and the answer is -1 or 0, which is what the guide describes",
   "elmessage$":
-    "Routines 64 ($1a34) and 147 ($262c), and routine 147 is the only description of the message-bank format that" +
-    "exists. NOTE: no message bank exists anywhere in the archive. They come from \"the Message Bank Compiler" +
-    "PratchED extension program\", which the guide admits was never released -- \"For more information, read the" +
-    "message bank compiler documentation. (Which one day, I might even release!)\" So the layout is routine 147's" +
-    "alone, and the test that exercises it builds a bank to match, which proves the reader agrees with the" +
+    "Routines 64 ($1a34) and 147 ($262c), and routine 147 is the only description of the message-bank format that " +
+    "exists. NOTE: no message bank exists anywhere in the archive. They come from \"the Message Bank Compiler " +
+    "PratchED extension program\", which the guide admits was never released -- \"For more information, read the " +
+    "message bank compiler documentation. (Which one day, I might even release!)\" So the layout is routine 147's " +
+    "alone, and the test that exercises it builds a bank to match, which proves the reader agrees with the " +
     "reading and nothing more",
 }
 

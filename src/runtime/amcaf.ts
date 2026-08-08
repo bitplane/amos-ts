@@ -136,6 +136,7 @@ import type { DiskFont } from '../amiga/diskfont'
 import type { MemoryBank } from '../loader/amosfile'
 import { amigaMatch } from '../amiga/dospattern'
 import { joinAmigaPath } from '../amiga/vfs'
+import { sw16 } from './word'
 
 /**
  * The FileInfoBlock the Examine family fills in.
@@ -2239,9 +2240,9 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      */
     'splinters gravity'(it) {
       const sp = rt.amcaf.splinters
-      sp.gx = extW(it.evalInt())
+      sp.gx = sw16(it.evalInt())
       it.expect(',')
-      sp.gy = extW(it.evalInt())
+      sp.gy = sw16(it.evalInt())
     },
 
     /**
@@ -2298,16 +2299,16 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       if (it.atStmtEnd()) {
         const s = rt.screen
         if (!s) throw new AmosError('Screen not opened', 47)
-        sp.limit = { x1: 0, y1: 0, x2: extW(s.width * 16 - 1), y2: extW(s.height * 16 - 1) }
+        sp.limit = { x1: 0, y1: 0, x2: sw16(s.width * 16 - 1), y2: sw16(s.height * 16 - 1) }
         return
       }
-      let x1 = extW(it.evalInt() << 4)
+      let x1 = sw16(it.evalInt() << 4)
       it.expect(',')
-      let y1 = extW(it.evalInt() << 4)
+      let y1 = sw16(it.evalInt() << 4)
       it.expect('to')
-      let x2 = extW((it.evalInt() << 4) - 1)
+      let x2 = sw16((it.evalInt() << 4) - 1)
       it.expect(',')
-      let y2 = extW((it.evalInt() << 4) - 1)
+      let y2 = sw16((it.evalInt() << 4) - 1)
       // `cmp.w d0,d2 / bhi` — UNSIGNED, and the exchange is the whole long
       if (!((x2 & 0xffff) > (x1 & 0xffff))) [x1, x2] = [x2, x1]
       if (!((y2 & 0xffff) > (y1 & 0xffff))) [y1, y2] = [y2, y1]
@@ -2486,23 +2487,23 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       if (it.atStmtEnd()) {
         const s = rt.screen
         if (!s) throw new AmosError('Screen not opened', 47)
-        const x2 = extW(s.width * 64 - 1)
-        const y2 = extW(s.height * 64 - 1)
+        const x2 = sw16(s.width * 64 - 1)
+        const y2 = sw16(s.height * 64 - 1)
         st.limit = { x1: 0, y1: 0, x2, y2 }
         // the bare form's origin is `lsr.w #$1` of the SIZE before the
         // subtract — `move.w d0,d1 / subq.w #$1,d0 / lsr.w #$1,d1` — so it is
         // the true centre, unlike the explicit form below
-        st.ox = extW((s.width * 64) >> 1)
-        st.oy = extW((s.height * 64) >> 1)
+        st.ox = sw16((s.width * 64) >> 1)
+        st.oy = sw16((s.height * 64) >> 1)
         return
       }
-      let x1 = extW(it.evalInt() << 6)
+      let x1 = sw16(it.evalInt() << 6)
       it.expect(',')
-      let y1 = extW(it.evalInt() << 6)
+      let y1 = sw16(it.evalInt() << 6)
       it.expect('to')
-      let x2 = extW((it.evalInt() << 6) - 1)
+      let x2 = sw16((it.evalInt() << 6) - 1)
       it.expect(',')
-      let y2 = extW((it.evalInt() << 6) - 1)
+      let y2 = sw16((it.evalInt() << 6) - 1)
       if (!((x2 & 0xffff) > (x1 & 0xffff))) [x1, x2] = [x2, x1]
       if (!((y2 & 0xffff) > (y1 & 0xffff))) [y1, y2] = [y2, y1]
       st.limit = { x1, y1, x2, y2 }
@@ -2521,8 +2522,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
        * program calling Td Stars Limit after Td Stars Origin loses the origin
        * it asked for, on the machine too.
        */
-      st.ox = extW(((x1 + y1) & 0xffff) >>> 1)
-      st.oy = extW(((x2 + y2) & 0xffff) >>> 1)
+      st.ox = sw16(((x1 + y1) & 0xffff) >>> 1)
+      st.oy = sw16(((x2 + y2) & 0xffff) >>> 1)
     },
 
     /**
@@ -2532,9 +2533,9 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      */
     'td stars origin'(it) {
       const st = rt.amcaf.stars
-      st.ox = extW(it.evalInt() << 6)
+      st.ox = sw16(it.evalInt() << 6)
       it.expect(',')
-      st.oy = extW(it.evalInt() << 6)
+      st.oy = sw16(it.evalInt() << 6)
     },
 
     /**
@@ -2544,9 +2545,9 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      */
     'td stars gravity'(it) {
       const st = rt.amcaf.stars
-      st.gx = extW(it.evalInt())
+      st.gx = sw16(it.evalInt())
       it.expect(',')
-      st.gy = extW(it.evalInt())
+      st.gy = sw16(it.evalInt())
     },
 
     /**
@@ -2724,11 +2725,11 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      */
     'vec rot pos'(it) {
       const v = rt.amcaf.vec
-      v.px = extW(it.evalInt())
+      v.px = sw16(it.evalInt())
       it.expect(',')
-      v.py = extW(it.evalInt())
+      v.py = sw16(it.evalInt())
       it.expect(',')
-      v.pz = extW(it.evalInt())
+      v.pz = sw16(it.evalInt())
     },
 
     /**
@@ -3001,16 +3002,16 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       if (it.atStmtEnd()) {
         const x = (s?.displayX ?? 128) & 0x3ff
         const y = (s?.displayY ?? 50) & 0x3ff
-        sm.limit = { x1: x, y1: y, x2: extW(x + (s?.width ?? 0) - 1), y2: extW(y + (s?.height ?? 0) - 1) }
+        sm.limit = { x1: x, y1: y, x2: sw16(x + (s?.width ?? 0) - 1), y2: sw16(y + (s?.height ?? 0) - 1) }
         return
       }
-      const x1 = extW(it.evalInt())
+      const x1 = sw16(it.evalInt())
       it.expect(',')
-      const y1 = extW(it.evalInt())
+      const y1 = sw16(it.evalInt())
       it.expect('to')
-      const x2 = extW(it.evalInt())
+      const x2 = sw16(it.evalInt())
       it.expect(',')
-      const y2 = extW(it.evalInt())
+      const y2 = sw16(it.evalInt())
       sm.limit = { x1, y1, x2, y2 }
     },
 
@@ -4766,8 +4767,6 @@ const SIN256 = ((): Int16Array => {
   return t
 })()
 
-/** sign-extend a word, which is what `ext.l d3` does to the result */
-const extW = (v: number): number => (v << 16) >> 16
 
 /**
  * `asl.w dn,dm` and `asr.w dn,dm` — a WORD shifted by a REGISTER count.
@@ -4778,8 +4777,8 @@ const extW = (v: number): number => (v << 16) >> 16
  * of 32, which JS would treat as no shift at all -- must land on the 68000's
  * answer: everything shifted out, leaving 0 for `asl` and the sign for `asr`.
  */
-const aslW = (v: number, n: number): number => (n % 64 >= 16 ? 0 : extW(v << (n % 64)))
-const asrW = (v: number, n: number): number => (n % 64 >= 16 ? (extW(v) < 0 ? -1 : 0) : extW(v) >> (n % 64))
+const aslW = (v: number, n: number): number => (n % 64 >= 16 ? 0 : sw16(v << (n % 64)))
+const asrW = (v: number, n: number): number => (n % 64 >= 16 ? (sw16(v) < 0 ? -1 : 0) : sw16(v) >> (n % 64))
 
 /**
  * `Qarc`'s arctangent table — 513 BYTES at $a5a8 in 1.40, pointer at $69a.
@@ -4811,8 +4810,8 @@ const QARC = Uint8Array.from({ length: 513 }, (_, i) => Math.floor((Math.atan(i 
 function qtrig(angle: number, radius: number, quarterTurn: number): number {
   if (radius === 0) return 0
   const e = SIN256[(angle + quarterTurn) & 0x3ff]!
-  const p = Math.imul(e, extW(radius))
-  return extW((p >> 8) + ((p >> 7) & 1))
+  const p = Math.imul(e, sw16(radius))
+  return sw16((p >> 8) + ((p >> 7) & 1))
 }
 
 
@@ -6320,7 +6319,7 @@ function splRandomSpeed(rt: Runtime, d6: { v: number }): number {
     d0 = d6.v & 0x3f
     if (d0 !== 0) break
   }
-  return extW(d0 - 0x1f)
+  return sw16(d0 - 0x1f)
 }
 
 /**
@@ -6388,8 +6387,8 @@ function splintersMove(rt: Runtime): void {
     }
     v.setUint16(o + SPL_LIFE, v.getUint16(o + SPL_LIFE) - 1)
 
-    const x = extW(v.getInt16(o + SPL_X) + v.getInt16(o + SPL_VX))
-    const y = extW(v.getInt16(o + SPL_Y) + v.getInt16(o + SPL_VY))
+    const x = sw16(v.getInt16(o + SPL_X) + v.getInt16(o + SPL_VX))
+    const y = sw16(v.getInt16(o + SPL_Y) + v.getInt16(o + SPL_VY))
     if (x < lim.x1 || y < lim.y1 || x >= lim.x2 || y >= lim.y2) {
       allowance = splinterSpawn(rt, v, o, cv, allowance, d6)
       continue
@@ -6397,8 +6396,8 @@ function splintersMove(rt: Runtime): void {
     v.setInt16(o + SPL_X, x)
     v.setInt16(o + SPL_Y, y)
     v.setUint32(o + SPL_IDX, splIndex(rt, x, y))
-    v.setInt16(o + SPL_VX, extW(v.getInt16(o + SPL_VX) + sp.gx))
-    v.setInt16(o + SPL_VY, extW(v.getInt16(o + SPL_VY) + sp.gy))
+    v.setInt16(o + SPL_VX, sw16(v.getInt16(o + SPL_VX) + sp.gx))
+    v.setInt16(o + SPL_VY, sw16(v.getInt16(o + SPL_VY) + sp.gy))
   }
 }
 
@@ -6656,12 +6655,12 @@ function tdStarSpawn(rt: Runtime, v: DataView, o: number, d6: { v: number }): vo
   let d1 = 0
   for (let i = 0; i < 64; i++) {
     d6.v = (d6.v + rt.interp.beamWord()) & 0xffff
-    d0 = extW((d6.v & 0x7f) - 0x3f)
+    d0 = sw16((d6.v & 0x7f) - 0x3f)
     d6.v = (d6.v + rt.interp.beamWord()) & 0xffff
-    d1 = extW((d6.v & 0x7f) - 0x3f)
-    const m0 = d0 >= 0 ? d0 : extW(~d0)
-    const m1 = d1 >= 0 ? d1 : extW(~d1)
-    if (extW(m0 + m1) >= 0x10) break
+    d1 = sw16((d6.v & 0x7f) - 0x3f)
+    const m0 = d0 >= 0 ? d0 : sw16(~d0)
+    const m1 = d1 >= 0 ? d1 : sw16(~d1)
+    if (sw16(m0 + m1) >= 0x10) break
   }
   v.setInt16(o + TD_VX, d0)
   v.setInt16(o + TD_VY, d1)
@@ -6693,8 +6692,8 @@ function tdStarMove(rt: Runtime, v: DataView, o: number, d6: { v: number }): voi
   const st = rt.amcaf.stars
   if (o + TD > v.byteLength) return
   v.setUint32(o + TD_PREV, v.getUint32(o + TD_X))
-  const x = extW(v.getInt16(o + TD_X) + v.getInt16(o + TD_VX))
-  const y = extW(v.getInt16(o + TD_Y) + v.getInt16(o + TD_VY))
+  const x = sw16(v.getInt16(o + TD_X) + v.getInt16(o + TD_VX))
+  const y = sw16(v.getInt16(o + TD_Y) + v.getInt16(o + TD_VY))
   const u = (n: number): number => n & 0xffff
   if (u(x) < u(st.limit.x1) || u(y) < u(st.limit.y1) || u(x) >= u(st.limit.x2) || u(y) >= u(st.limit.y2)) {
     tdStarSpawn(rt, v, o, d6)
@@ -6702,12 +6701,12 @@ function tdStarMove(rt: Runtime, v: DataView, o: number, d6: { v: number }): voi
   }
   v.setInt16(o + TD_X, x)
   v.setInt16(o + TD_Y, y)
-  v.setInt16(o + TD_VX, extW(v.getInt16(o + TD_VX) + st.gx))
-  v.setInt16(o + TD_VY, extW(v.getInt16(o + TD_VY) + st.gy))
+  v.setInt16(o + TD_VX, sw16(v.getInt16(o + TD_VX) + st.gx))
+  v.setInt16(o + TD_VY, sw16(v.getInt16(o + TD_VY) + st.gy))
   if (st.accelerate === 0) return
   for (const at of [TD_VX, TD_VY]) {
     const s = v.getInt16(o + at)
-    v.setInt16(o + at, s >= 0 ? extW(s + ((s & 0xffff) >>> 4)) : extW(s - ((extW(~s) & 0xffff) >>> 4)))
+    v.setInt16(o + at, s >= 0 ? sw16(s + ((s & 0xffff) >>> 4)) : sw16(s - ((sw16(~s) & 0xffff) >>> 4)))
   }
 }
 
@@ -6805,7 +6804,7 @@ function tdStarsDraw(rt: Runtime): void {
     const y = v.getInt16(o + TD_Y)
     const vx = v.getInt16(o + TD_VX)
     const vy = v.getInt16(o + TD_VY)
-    const speed = (extW(Math.abs(vx) + Math.abs(vy)) & 0xffff) >>> 6
+    const speed = (sw16(Math.abs(vx) + Math.abs(vy)) & 0xffff) >>> 6
     if (speed >= 3) {
       tdStarPoke(rt, bm, x, y, st.planeA, true)
       tdStarPoke(rt, bm, x, y, st.planeB, true)
@@ -6848,30 +6847,30 @@ function vecRotPrecalc(rt: Runtime): void {
   const c2 = tab(v.angB + 0x200)
   const s3 = tab(v.angC)
   const c3 = tab(v.angC + 0x200)
-  const mul = (p: number, q: number): number => Math.imul(extW(p), extW(q))
+  const mul = (p: number, q: number): number => Math.imul(sw16(p), sw16(q))
   const m = v.m
 
   // row 0: `muls.w`/`asr.l #$8` on c2 against s1 and c1, then s2 straight
-  m[0] = extW(mul(c1, c2) >> 8)
-  m[1] = extW(mul(s1, c2) >> 8)
-  m[2] = extW(s2)
+  m[0] = sw16(mul(c1, c2) >> 8)
+  m[1] = sw16(mul(s1, c2) >> 8)
+  m[2] = sw16(s2)
 
   // row 1, where the `neg.w` on the second and third terms lives
   const d4 = mul(s3, s2) >> 8
   const d5 = mul(d4, s1)
   const r10 = mul(s1, c3) + mul(d4, c1)
   const r11 = mul(c1, c3) - d5
-  m[3] = extW(r10 >> 8)
-  m[4] = extW(-extW(r11 >> 8))
-  m[5] = extW(-extW(mul(s3, c2) >> 8))
+  m[3] = sw16(r10 >> 8)
+  m[4] = sw16(-sw16(r11 >> 8))
+  m[5] = sw16(-sw16(mul(s3, c2) >> 8))
 
   // row 2, the same shape with c3 and s3 exchanged
   const e0 = mul(c3, s2) >> 8
   const r20 = mul(s3, s1) - mul(e0, c1)
   const r21 = mul(s3, c1) + mul(e0, s1)
-  m[6] = extW(r20 >> 8)
-  m[7] = extW(-extW(r21 >> 8))
-  m[8] = extW(mul(c3, c2) >> 8)
+  m[6] = sw16(r20 >> 8)
+  m[7] = sw16(-sw16(r21 >> 8))
+  m[8] = sw16(mul(c3, c2) >> 8)
 }
 
 /**
@@ -6913,24 +6912,24 @@ function vecRotPrecalc(rt: Runtime): void {
 function vecRot(rt: Runtime, a: Value[]): { x: number; y: number; z: number } {
   const v = rt.amcaf.vec
   if (a.length < 3) return { x: v.x, y: v.y, z: v.z }
-  const x = extW(int(a[0]!))
-  const y = extW(int(a[1]!))
-  const z = extW(int(a[2]!))
+  const x = sw16(int(a[0]!))
+  const y = sw16(int(a[1]!))
+  const z = sw16(int(a[2]!))
   const m = v.m
-  const mul = (p: number, q: number): number => Math.imul(extW(p), extW(q))
+  const mul = (p: number, q: number): number => Math.imul(sw16(p), sw16(q))
   let d3 = mul(z, m[0]!) + mul(y, m[1]!) + mul(x, m[2]!)
   let d4 = mul(z, m[3]!) + mul(y, m[4]!) + mul(x, m[5]!)
   const d5raw = mul(z, m[6]!) + mul(y, m[7]!) + mul(x, m[8]!)
   d3 += v.px << 8
   d4 += v.py << 8
-  const d5 = extW((d5raw >> 8) + ((d5raw >> 7) & 1) + v.pz)
+  const d5 = sw16((d5raw >> 8) + ((d5raw >> 7) & 1) + v.pz)
   v.z = d5
   if (d5 === 0) amcafErr()
   // `divs.w`, so the quotient is a word and an overflow leaves the old value
   const qx = (d3 / d5) | 0
   const qy = (d4 / d5) | 0
-  if (qx === extW(qx)) v.x = qx
-  if (qy === extW(qy)) v.y = qy
+  if (qx === sw16(qx)) v.x = qx
+  if (qy === sw16(qy)) v.y = qy
   return { x: v.x, y: v.y, z: v.z }
 }
 
@@ -6978,7 +6977,7 @@ function fourPlayer(port: number): number {
  */
 function amcafSmall(v: number, limit: number): number {
   if (v < 0) amcafErr()
-  const w = extW(v)
+  const w = sw16(v)
   if (w >= limit) amcafErr()
   return w
 }
@@ -9209,14 +9208,14 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     qarc: (_, a) => {
       const dx = i0(a, 0) | 0
       const dy = i0(a, 1) | 0
-      if (dx === 0 && extW(dy) === 0) return VI(0)
+      if (dx === 0 && sw16(dy) === 0) return VI(0)
       const ax = Math.abs(dx)
       const ay = Math.abs(dy)
       let d3: number
       if (ax < ay) d3 = 256 - QARC[Math.floor((ax * 512) / ay)]!
       else d3 = QARC[Math.floor((ay * 512) / ax)]!
-      if (extW(dx) < 0) d3 = extW(dy) < 0 ? d3 - 512 : 512 - d3
-      else if (extW(dy) < 0) d3 = -d3
+      if (sw16(dx) < 0) d3 = sw16(dy) < 0 ? d3 - 512 : 512 - d3
+      else if (sw16(dy) < 0) d3 = -d3
       return VI(d3 & 0x3ff)
     },
 

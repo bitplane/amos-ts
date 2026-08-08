@@ -45,6 +45,7 @@ import type { BankImage, ObjectBank } from './objects'
 import type { Runtime } from './runtime'
 import type { Screen } from './screen'
 import { sdrKeycode } from '../amiga/keyboard'
+import { sw16 } from './word'
 
 /**
  * TURBO's own error messages, read out of the 2.15 binary at $6e44 — the
@@ -357,8 +358,6 @@ export function turboDefault(rt: Runtime): void {
   rt.turbo.scene.maskPalette = -1
 }
 
-/** 68k word truncation: the vector list stores words and Draw takes D0:16 */
-const w = (v: number): number => (v << 16) >> 16
 
 /**
  * The object a drawing keyword names, with the three checks the four draw
@@ -601,15 +600,15 @@ function starsStep(
     const dx = st.data[o + 2]!
     const dy = st.data[o + 3]!
     if (dx !== 0) {
-      const nx = w(x + dx)
-      if (nx >= x2) st.data[o] = w(nx - x2)
-      else if (nx < x1) st.data[o] = x2 = w(x2 + nx)
+      const nx = sw16(x + dx)
+      if (nx >= x2) st.data[o] = sw16(nx - x2)
+      else if (nx < x1) st.data[o] = x2 = sw16(x2 + nx)
       else st.data[o] = nx
     }
     if (dy !== 0 && !xOnly) {
-      const ny = w(y + dy)
-      if (ny < y1) st.data[o + 1] = y2 = w(y2 + ny)
-      else if (ny >= y2) st.data[o + 1] = w(ny - y2)
+      const ny = sw16(y + dy)
+      if (ny < y1) st.data[o + 1] = y2 = sw16(y2 + ny)
+      else if (ny >= y2) st.data[o + 1] = sw16(ny - y2)
       else st.data[o + 1] = ny
     }
     plot?.(x, y)
@@ -1670,7 +1669,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       const ox = it.evalInt()
       it.expect(',')
       const oy = it.evalInt()
-      objectWalk(rt, n, (x, y) => [w(x + ox), w(y + oy)])
+      objectWalk(rt, n, (x, y) => [sw16(x + ox), sw16(y + oy)])
     },
     'object mag draw'(it) {
       // Object Mag Draw OBJECT,MUL — routine 36. muls.w when MUL is
@@ -1679,8 +1678,8 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       // takes the multiply path and collapses the object onto the origin.
       const n = it.evalInt()
       it.expect(',')
-      const mul = w(it.evalInt())
-      objectWalk(rt, n, (x, y) => (mul < 0 ? [w(divsw(x, -mul)), w(divsw(y, -mul))] : [w(x * mul), w(y * mul)]))
+      const mul = sw16(it.evalInt())
+      objectWalk(rt, n, (x, y) => (mul < 0 ? [sw16(divsw(x, -mul)), sw16(divsw(y, -mul))] : [sw16(x * mul), sw16(y * mul)]))
     },
     'r object mag draw'(it) {
       // R Object Mag Draw OBJECT,X,Y,MUL — routine 37 scales first and adds
@@ -1691,9 +1690,9 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const oy = it.evalInt()
       it.expect(',')
-      const mul = w(it.evalInt())
+      const mul = sw16(it.evalInt())
       const scale = (v: number): number => (mul < 0 ? divsw(v, -mul) : v * mul)
-      objectWalk(rt, n, (x, y) => [w(scale(x) + ox), w(scale(y) + oy)])
+      objectWalk(rt, n, (x, y) => [sw16(scale(x) + ox), sw16(scale(y) + oy)])
     },
     'object erase'(it) {
       // Object Erase OBJECT — routine 328. "If OBJECT is negative, ALL
@@ -1721,7 +1720,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       const t = rt.turbo.objects
       const parts: number[] = [...'OBJE'].map((c) => c.charCodeAt(0))
       // the header's count is END-START, one less than the number of objects
-      parts.push((w(end - start) >> 8) & 0xff, w(end - start) & 0xff)
+      parts.push((sw16(end - start) >> 8) & 0xff, sw16(end - start) & 0xff)
       for (let i = start - 1; i <= end - 1; i++) {
         const p = t.els[i]
         // "If an object is not defined, it will skip to the next object
@@ -1887,16 +1886,16 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       const s = rt.screen
       const dx = it.evalInt()
       it.expect(',')
-      s.grX = w(s.grX + dx)
-      s.grY = w(s.grY + it.evalInt())
+      s.grX = sw16(s.grX + dx)
+      s.grY = sw16(s.grY + it.evalInt())
     },
     'r home'(it) {
       // Undocumented, and not relative at all: routine 26 ($1210) writes both
       // words of the graphics cursor, so it is Gr Locate under another name
       const s = rt.screen
-      s.grX = w(it.evalInt())
+      s.grX = sw16(it.evalInt())
       it.expect(',')
-      s.grY = w(it.evalInt())
+      s.grY = sw16(it.evalInt())
     },
     'r draw'(it) {
       // "draw a line relative to the graphics cursor... At the completion of
@@ -1907,7 +1906,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       const dx = it.evalInt()
       it.expect(',')
       const dy = it.evalInt()
-      s.line(s.grX, s.grY, w(s.grX + dx), w(s.grY + dy))
+      s.line(s.grX, s.grY, sw16(s.grX + dx), sw16(s.grY + dy))
     },
     'r box'(it) {
       // Routine 25 ($11c6): four Draws round the rectangle — right, down,
@@ -1920,10 +1919,10 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       const dy = it.evalInt()
       const x = s.grX
       const y = s.grY
-      s.line(x, y, w(x + dx), y)
-      s.line(w(x + dx), y, w(x + dx), w(y + dy))
-      s.line(w(x + dx), w(y + dy), x, w(y + dy))
-      s.line(x, w(y + dy), x, y)
+      s.line(x, y, sw16(x + dx), y)
+      s.line(sw16(x + dx), y, sw16(x + dx), sw16(y + dy))
+      s.line(sw16(x + dx), sw16(y + dy), x, sw16(y + dy))
+      s.line(x, sw16(y + dy), x, y)
     },
     'r bar'(it) {
       // Routine 27 ($1222): RectFill (`jsr -$132(a6)`) from the cursor to the
@@ -1937,7 +1936,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       if (dx < 0 || dy < 0) funcCall()
       const x = s.grX
       const y = s.grY
-      s.bar(x, y, w(x + dx), w(y + dy))
+      s.bar(x, y, sw16(x + dx), sw16(y + dy))
       s.grX = x
       s.grY = y
     },
@@ -2024,7 +2023,7 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       // $74 and $76 of the extension data block, where Line 3d reads them.
       const x = it.evalInt()
       it.expect(',')
-      rt.turbo.eye = { x: w(x), y: w(it.evalInt()) }
+      rt.turbo.eye = { x: sw16(x), y: sw16(it.evalInt()) }
     },
     'line 3d'(it) {
       // Line 3D x,y,z To x1,y1,z1 — routine 41 ($155e). "Our perspective
@@ -2049,8 +2048,8 @@ export function makeTurboInstructions(rt: Runtime): Record<string, Instr> {
       const [x, y, z, x1, y1, z1] = v as [number, number, number, number, number, number]
       if (z === 0 || z1 === 0) throw new AmosError('Division by zero', 20)
       const e = rt.turbo.eye
-      const px = (a: number, d: number): number => w(divsw((a << 7) | 0, d) + e.x)
-      const py = (a: number, d: number): number => w(divsw((a << 7) | 0, d) + e.y)
+      const px = (a: number, d: number): number => sw16(divsw((a << 7) | 0, d) + e.x)
+      const py = (a: number, d: number): number => sw16(divsw((a << 7) | 0, d) + e.y)
       // Move then Draw, so the graphics cursor is left at the far end
       s.grX = px(x, z)
       s.grY = py(y, z)
@@ -3079,7 +3078,7 @@ export function makeTurboFunctions(rt: Runtime): Record<string, Func> {
       const at = int(a[1] ?? VI(0))
       if (at <= 0) funcCall()
       // divs.w then muls.w, both on low words; divsw has the overflow
-      return VI((w(divsw(v, at)) * w(at)) | 0)
+      return VI((sw16(divsw(v, at)) * sw16(at)) | 0)
     },
     between(_, a) {
       // x=Between(low,value,high) — routine 150 ($4b1c). "If high is smaller

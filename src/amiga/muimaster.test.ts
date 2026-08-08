@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { OM_ADDMEMBER, OM_REMMEMBER, OM_SET, type BoopsiObject, type OpMember, type TagItem } from './boopsi'
-import { MuiMaster } from './muimaster'
+import { MUI_MAXMAX, MuiMaster, visibleLength } from './muimaster'
 import { MUI, MUIC, MUI_ATTR, MUI_OWNER, MUI_SUPER } from './muimaster.gen'
 import { parseAmosFile } from '../loader/amosfile'
 
@@ -269,6 +269,153 @@ describe('muimaster: MUI_MakeObjectA', () => {
   it('the shapes with no caller yet answer null rather than a wrong tree', () => {
     const m = new MuiMaster()
     expect(m.makeObjectA(MUI.MUIO_Slider, [0, 0, 10])).toBeNull()
+  })
+})
+
+describe('muimaster: MUIM_AskMinMax', () => {
+  const m = (): MuiMaster => {
+    const x = new MuiMaster()
+    // one pooled label, so a Text has something to measure
+    x.readString = (at) => (at === 1 ? 'Quit' : at === 2 ? 'Hello there' : '')
+    return x
+  }
+
+  it('a Text is as wide as its label and one line tall, and stretches sideways', () => {
+    const x = m()
+    const t = x.newObjectA(MUIC.MUIC_Text, [tag(MUI.MUIA_Text_Contents, 1)])!
+    expect(x.askMinMax(t)).toEqual({ minW: 32, minH: 8, maxW: MUI_MAXMAX, maxH: 8, defW: 32, defH: 8 })
+  })
+
+  it("MUI's own escapes take no room in a label", () => {
+    // "\033r" right-justifies and is two characters of formatting; a Text
+    // measured with them in is two pixels-per-code too wide. Tag_Editor's
+    // status lines are full of them
+    expect(visibleLength('\x1brLength: 0')).toBe(9)
+    expect(visibleLength('\x1bb\x1buBold')).toBe(4)
+    const x = m()
+    x.readString = () => '\x1brQuit'
+    const t = x.newObjectA(MUIC.MUIC_Text, [tag(MUI.MUIA_Text_Contents, 1)])!
+    expect(x.askMinMax(t).minW).toBe(32)
+  })
+
+  it('a Rectangle is a spacer: nothing of its own, unlimited both ways', () => {
+    const x = m()
+    const r = x.newObjectA(MUIC.MUIC_Rectangle)!
+    expect(x.askMinMax(r)).toEqual({ minW: 0, minH: 0, maxW: MUI_MAXMAX, maxH: MUI_MAXMAX, defW: 0, defH: 0 })
+  })
+
+  it('a frame costs two pixels on every edge, added by Area', () => {
+    const x = m()
+    const plain = x.askMinMax(x.newObjectA(MUIC.MUIC_Text, [tag(MUI.MUIA_Text_Contents, 1)])!)
+    const framed = x.askMinMax(
+      x.newObjectA(MUIC.MUIC_Text, [tag(MUI.MUIA_Text_Contents, 1), tag(MUI.MUIA_Frame, MUI.MUIV_Frame_Button)])!,
+    )
+    expect(framed.minW - plain.minW).toBe(4)
+    expect(framed.minH - plain.minH).toBe(4)
+  })
+
+  it('a vertical group sums its children and adds the spacing between them', () => {
+    const x = m()
+    const a = x.newObjectA(MUIC.MUIC_Text, [tag(MUI.MUIA_Text_Contents, 1)])!
+    const b = x.newObjectA(MUIC.MUIC_Text, [tag(MUI.MUIA_Text_Contents, 2)])!
+    const g = x.newObjectA(MUIC.MUIC_Group, [
+      tag(MUI.MUIA_Group_Child, a.address),
+      tag(MUI.MUIA_Group_Child, b.address),
+    ])!
+    const mm = x.askMinMax(g)
+    // heights add, with one pixel between; widths take the larger
+    expect(mm.minH).toBe(8 + 8 + 1)
+    expect(mm.minW).toBe(11 * 8)
+  })
+
+  it('a horizontal group does it the other way round', () => {
+    const x = m()
+    const a = x.newObjectA(MUIC.MUIC_Text, [tag(MUI.MUIA_Text_Contents, 1)])!
+    const b = x.newObjectA(MUIC.MUIC_Text, [tag(MUI.MUIA_Text_Contents, 2)])!
+    const g = x.newObjectA(MUIC.MUIC_Group, [
+      tag(MUI.MUIA_Group_Horiz, 1),
+      tag(MUI.MUIA_Group_Child, a.address),
+      tag(MUI.MUIA_Group_Child, b.address),
+    ])!
+    const mm = x.askMinMax(g)
+    expect(mm.minW).toBe(4 * 8 + 11 * 8 + 1)
+    expect(mm.minH).toBe(8)
+  })
+})
+
+describe('muimaster: layout', () => {
+  const two = (horiz: boolean, wa: number, wb: number): { x: MuiMaster; g: BoopsiObject; a: BoopsiObject; b: BoopsiObject } => {
+    const x = new MuiMaster()
+    x.readString = () => ''
+    const a = x.newObjectA(MUIC.MUIC_String, [tag(MUI.MUIA_Weight, wa)])!
+    const b = x.newObjectA(MUIC.MUIC_String, [tag(MUI.MUIA_Weight, wb)])!
+    const g = x.newObjectA(MUIC.MUIC_Group, [
+      tag(MUI.MUIA_Group_Horiz, horiz ? 1 : 0),
+      tag(MUI.MUIA_Group_Spacing, 0),
+      tag(MUI.MUIA_Group_Child, a.address),
+      tag(MUI.MUIA_Group_Child, b.address),
+    ])!
+    return { x, g, a, b }
+  }
+
+  it("equal weights halve the room, which is the autodoc's starting point", () => {
+    const { x, g, a, b } = two(true, 100, 100)
+    x.askMinMax(g)
+    x.layout(g, 0, 0, 100, 20)
+    expect(x.boxOf(a)!.width).toBe(50)
+    expect(x.boxOf(b)!.width).toBe(50)
+  })
+
+  it('200 against 100 makes the left one twice as big — 66 and 34', () => {
+    // "Because the left gadget is twice as heavy as the right gadget, it will
+    // become twice as big (about 66 pixel) as the right one (34 pixel)"
+    const { x, g, a, b } = two(true, 200, 100)
+    x.askMinMax(g)
+    x.layout(g, 0, 0, 100, 20)
+    expect([x.boxOf(a)!.width, x.boxOf(b)!.width]).toEqual([66, 34])
+  })
+
+  it('a weight of zero keeps an object at its minimum', () => {
+    const { x, g, a, b } = two(true, 0, 100)
+    const min = x.askMinMax(a).minW
+    x.askMinMax(g)
+    x.layout(g, 0, 0, 200, 20)
+    expect(x.boxOf(a)!.width).toBe(min)
+    expect(x.boxOf(b)!.width).toBe(200 - min)
+  })
+
+  it('children are placed in order, with the spacing between them', () => {
+    const x = new MuiMaster()
+    x.readString = () => ''
+    const kids = [0, 1, 2].map(() => x.newObjectA(MUIC.MUIC_Rectangle)!)
+    const g = x.newObjectA(MUIC.MUIC_Group, [
+      tag(MUI.MUIA_Group_Spacing, 4),
+      ...kids.map((k) => tag(MUI.MUIA_Group_Child, k.address)),
+    ])!
+    x.askMinMax(g)
+    x.layout(g, 10, 20, 100, 38)
+    // 38 = three tens and two fours
+    expect(kids.map((k) => x.boxOf(k)!.top)).toEqual([20, 34, 48])
+    expect(kids.map((k) => x.boxOf(k)!.height)).toEqual([10, 10, 10])
+    expect(kids.every((k) => x.boxOf(k)!.left === 10 && x.boxOf(k)!.width === 100)).toBe(true)
+  })
+
+  it('a frame pushes the children inside it', () => {
+    const x = new MuiMaster()
+    x.readString = () => ''
+    const k = x.newObjectA(MUIC.MUIC_Rectangle)!
+    const g = x.newObjectA(MUIC.MUIC_Group, [
+      tag(MUI.MUIA_Frame, MUI.MUIV_Frame_Group),
+      tag(MUI.MUIA_Group_Child, k.address),
+    ])!
+    x.askMinMax(g)
+    x.layout(g, 0, 0, 100, 100)
+    expect(x.boxOf(k)).toEqual({ left: 2, top: 2, width: 96, height: 96 })
+  })
+
+  it('an object with nothing laid out on it has no box', () => {
+    const x = new MuiMaster()
+    expect(x.boxOf(x.newObjectA(MUIC.MUIC_Text)!)).toBeNull()
   })
 })
 

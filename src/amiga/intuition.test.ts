@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   IDCMP_CLOSEWINDOW,
   IDCMP_MOUSEBUTTONS,
@@ -189,7 +191,8 @@ describe('the Workbench palette, against Preferences on the disk', () => {
    * than in the repo, and the test skips when it is not to hand — the same
    * shape as the diskfont tests against the original partition.
    */
-  const PREFS = 'fixtures/amigaos/WB1.3/system-configuration'
+  // resolved from this file, not the cwd, so a run from anywhere still finds it
+  const PREFS = join(dirname(fileURLToPath(import.meta.url)), '../../fixtures/amigaos/WB1.3/system-configuration')
 
   it.skipIf(!existsSync(PREFS))('color0-3 are the blue/white/black/orange of a 1.3 desktop', () => {
     const b = readFileSync(PREFS)

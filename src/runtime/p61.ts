@@ -32,7 +32,7 @@
  * as `P61_x-P61_motuuli(a0)`: Master, FadeTo, FadeSpeed, FadeCount, Pos,
  * Patt, CRow, Tempo, E8, Play.
  */
-import { AmosError, VI, funcCall, int } from '../interp/values'
+import { AmosError, VI, funcCall } from '../interp/values'
 import type { Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
@@ -357,5 +357,3 @@ export function makeP61Functions(rt: Runtime): Record<string, Func> {
     'p61 pos': (): Value => VI((rt.p61.pos << 16) >> 16),
   }
 }
-
-export { int }

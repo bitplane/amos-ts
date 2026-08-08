@@ -138,8 +138,49 @@ export interface Notification {
   params: readonly number[]
 }
 
+/**
+ * `struct MUI_MinMax` — what MUIM_AskMinMax fills in.
+ *
+ * The field ORDER in the header is MinWidth, MinHeight, MaxWidth, MaxHeight,
+ * DefWidth, DefHeight: max before def, which is not the order anyone writes
+ * it in prose and is worth naming rather than positional.
+ */
+export interface MinMax {
+  minW: number
+  minH: number
+  maxW: number
+  maxH: number
+  defW: number
+  defH: number
+}
+
+/** `#define MUI_MAXMAX 10000`, "use this if a dimension is not limited" */
+export const MUI_MAXMAX = 10000
+
+/**
+ * How much a frame costs on each edge.
+ *
+ * NOTE: two pixels. A real MUI frame is an image spec out of the user's
+ * preferences and can be any thickness — the built-ins run from a single line
+ * to a bevelled group border — so this is the smallest frame that has an
+ * inside and an outside rather than a measured value.
+ */
+const FRAME_EDGE = 2
+
+/** `struct IBox` — where the layout put an object */
+export interface Box {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
 /** what every MUI object carries, whatever its class */
 interface MuiData extends Record<string, unknown> {
+  /** `mad_MinMax`, once MUIM_AskMinMax has run */
+  minmax?: MinMax
+  /** `mad_Box` — position and dimension, once MUIM_Layout has run */
+  box?: Box
   /** attribute values, keyed by tag, for the attributes this class owns */
   attrs: Map<number, number>
   /** objects this one owns and will dispose with itself */
@@ -373,6 +414,195 @@ export class MuiMaster {
     return gadgets === '' ? 0 : 0
   }
 
+  // -- layout -------------------------------------------------------------
+
+  /**
+   * The font MUI measures with.
+   *
+   * NOTE: topaz 8 metrics, 8 pixels each way. On the machine this is the
+   * screen font a MUI object inherits through `_font(obj)`, and MUI's
+   * preferences can give a different one per object type — a list, a button
+   * and a window title can all differ. Nothing here reads MUI's prefs file,
+   * so every object measures in the system font, and that is the one number
+   * every reported size is proportional to.
+   */
+  fontX = 8
+  fontY = 8
+
+  /**
+   * MUIM_AskMinMax — what an object can be, before anything is placed.
+   *
+   * The protocol is additive and the developer guide is explicit about it:
+   * "let our superclass first fill in what it thinks about sizes ... now add
+   * the values specific to our object. note that we indeed need to *add*
+   * these values, not just set them". So Area contributes frame and inner
+   * spacing, and the leaf class adds its own content on top.
+   *
+   * Answers the object's own `mad_MinMax` and remembers it, since MUIM_Layout
+   * is a second pass over the same numbers.
+   */
+  askMinMax(obj: BoopsiObject): MinMax {
+    const mm: MinMax = { minW: 0, minH: 0, maxW: 0, maxH: 0, defW: 0, defH: 0 }
+    obj.cl.dispatcher(obj.cl, obj, { MethodID: MUI.MUIM_AskMinMax, mm } as Msg)
+    // MUI_MAXMAX is a ceiling rather than a sum: a group of three unlimited
+    // children is unlimited, not three times unlimited
+    mm.maxW = Math.min(mm.maxW, MUI_MAXMAX)
+    mm.maxH = Math.min(mm.maxH, MUI_MAXMAX)
+    mm.maxW = Math.max(mm.maxW, mm.minW)
+    mm.maxH = Math.max(mm.maxH, mm.minH)
+    mm.defW = Math.min(Math.max(mm.defW, mm.minW), mm.maxW)
+    mm.defH = Math.min(Math.max(mm.defH, mm.minH), mm.maxH)
+    data(this, obj).minmax = mm
+    return mm
+  }
+
+  /** the last MUIM_AskMinMax answer, or undefined if it has not been asked */
+  minMaxOf(obj: BoopsiObject): MinMax | undefined {
+    return data(this, obj).minmax
+  }
+
+  /**
+   * Give an object a rectangle, and let a group divide it among its children.
+   *
+   * Top down, after `askMinMax` has been bottom up. NOT a method: MUI's
+   * layout is internal and `mui.h` publishes no `MUIM_Layout` for it. What it
+   * does publish is `MUILM_MINMAX` and `MUILM_LAYOUT`, the two message types
+   * of `MUIA_Group_LayoutHook` — the escape hatch a custom group installs to
+   * lay itself out — so a class cannot intercept the pass at all, only
+   * replace its own group's half of it. Sending a method here would be
+   * inventing an entry point MUI does not have.
+   */
+  layout(obj: BoopsiObject, left: number, top: number, width: number, height: number): void {
+    data(this, obj).box = { left, top, width, height }
+    if (obj.cl.isA(this.groupClass)) this.layoutGroup(obj)
+  }
+
+  /** `_left(obj)` and friends — where the layout put it, or null */
+  boxOf(obj: BoopsiObject): Box | null {
+    return data(this, obj).box ?? null
+  }
+
+  /**
+   * Divide a group's box among its children.
+   *
+   * One dimension at a time: along the layout axis each child gets its
+   * minimum, then the slack is shared out by weight and clamped at each
+   * child's maximum; across the axis every child gets the full extent,
+   * clamped to its own maximum. The autodoc's worked example is the
+   * definition — "a 100 pixel wide horizontal group with two string gadgets
+   * ... give it a weight of 200 (and 100 for the right gadget) ... it will
+   * become twice as big (about 66 pixel) as the right one (34 pixel)".
+   *
+   * NOTE: this is the one-dimensional case. `MUIA_Group_Columns` and
+   * `MUIA_Group_Rows` make a group a grid, and neither is laid out here —
+   * a grid group falls back to its `MUIA_Group_Horiz` axis, which puts the
+   * right children in the right order and the wrong ones on the wrong row.
+   * Nothing in the corpus uses one yet.
+   */
+  private layoutGroup(obj: BoopsiObject): void {
+    const box = this.boxOf(obj)
+    if (!box) return
+    const kids = data(this, obj).children.filter((c) => c.cl.isA(this.areaClass))
+    if (kids.length === 0) return
+
+    const horiz = (this.peek(obj, MUI.MUIA_Group_Horiz) ?? 0) !== 0
+    const spacing = this.spacingOf(obj, horiz)
+    const inner = this.innerOf(obj)
+    const x0 = box.left + inner.left
+    const y0 = box.top + inner.top
+    const w = Math.max(0, box.width - inner.left - inner.right)
+    const h = Math.max(0, box.height - inner.top - inner.bottom)
+
+    const mm = kids.map((k) => this.minMaxOf(k) ?? this.askMinMax(k))
+    const along = horiz ? w : h
+    const across = horiz ? h : w
+    const room = along - spacing * (kids.length - 1)
+
+    const min = mm.map((m) => (horiz ? m.minW : m.minH))
+    const max = mm.map((m) => (horiz ? m.maxW : m.maxH))
+    /*
+     * A child with no weight of its own is weightless if it cannot grow and
+     * weighs 100 if it can, which is what makes two plain string gadgets
+     * share a group evenly without either of them saying so.
+     */
+    const weight = kids.map((k, i) => {
+      const own = this.peek(k, horiz ? MUI.MUIA_HorizWeight : MUI.MUIA_VertWeight) ?? this.peek(k, MUI.MUIA_Weight)
+      return Math.max(0, own ?? (max[i]! > min[i]! ? 100 : 0))
+    })
+
+    /*
+     * The WHOLE room is shared by weight, not the slack above the minimums.
+     * That is what the autodoc's worked example says, and the difference is
+     * visible in it: two string gadgets in a 100-pixel group weighted 200 and
+     * 100 come out "about 66" and "34", where sharing only the slack would
+     * give 58 and 41 for the same gadgets.
+     *
+     * A weight of zero is settled at its minimum before anything is shared —
+     * "an object with a weight of 0 will always stay" its own size — and a
+     * child that a clamp catches settles too, giving its room back to the
+     * rest on the next pass.
+     */
+    const size = kids.map(() => 0)
+    const settled = kids.map((_, i) => weight[i] === 0)
+    for (let i = 0; i < kids.length; i++) if (settled[i]) size[i] = min[i]!
+
+    for (let pass = 0; pass <= kids.length; pass++) {
+      const open = kids.map((_, i) => i).filter((i) => !settled[i])
+      if (open.length === 0) break
+      const total = open.reduce((a, i) => a + weight[i]!, 0)
+      if (total === 0) break
+      const taken = kids.reduce((a, _, i) => a + (settled[i] ? size[i]! : 0), 0)
+      const share = room - taken
+      let used = 0
+      let clamped = false
+      for (const [n, i] of open.entries()) {
+        // the last open child takes what the floors left behind, so the row
+        // fills exactly: 66 and 33 of 100 becomes 66 and 34
+        const want = n === open.length - 1 ? share - used : Math.floor((share * weight[i]!) / total)
+        used += want
+        const fit = Math.max(min[i]!, Math.min(max[i]!, want))
+        size[i] = fit
+        if (fit !== want) {
+          settled[i] = true
+          clamped = true
+        }
+      }
+      if (!clamped) break
+    }
+
+    let at = horiz ? x0 : y0
+    for (let i = 0; i < kids.length; i++) {
+      const other = Math.min(across, horiz ? mm[i]!.maxH : mm[i]!.maxW)
+      if (horiz) this.layout(kids[i]!, at, y0, size[i]!, other)
+      else this.layout(kids[i]!, x0, at, other, size[i]!)
+      at += size[i]! + spacing
+    }
+  }
+
+  /**
+   * `MUIA_Group_Spacing` and its two axis-specific forms.
+   *
+   * NOTE: the default is 1 pixel. The autodoc says "setting a spacing value
+   * for a group overrides the user's default settings", so the real default
+   * is a MUI preference and there is no prefs file here; 1 is the smallest
+   * value that keeps two adjacent objects visibly apart.
+   */
+  private spacingOf(obj: BoopsiObject, horiz: boolean): number {
+    const own = this.peek(obj, horiz ? MUI.MUIA_Group_HorizSpacing : MUI.MUIA_Group_VertSpacing)
+    return own ?? this.peek(obj, MUI.MUIA_Group_Spacing) ?? 1
+  }
+
+  /** `MUIA_InnerLeft` and friends, which a frame's own padding adds to */
+  private innerOf(obj: BoopsiObject): { left: number; top: number; right: number; bottom: number } {
+    const frame = (this.peek(obj, MUI.MUIA_Frame) ?? MUI.MUIV_Frame_None) !== MUI.MUIV_Frame_None ? FRAME_EDGE : 0
+    return {
+      left: frame + (this.peek(obj, MUI.MUIA_InnerLeft) ?? 0),
+      top: frame + (this.peek(obj, MUI.MUIA_InnerTop) ?? 0),
+      right: frame + (this.peek(obj, MUI.MUIA_InnerRight) ?? 0),
+      bottom: frame + (this.peek(obj, MUI.MUIA_InnerBottom) ?? 0),
+    }
+  }
+
   /** the objects this one owns, in the order they were added */
   children(obj: BoopsiObject): readonly BoopsiObject[] {
     return data(this, obj).children
@@ -445,6 +675,29 @@ export class MuiMaster {
       case OM_GET: {
         const g = msg as OpGet
         const o = obj as BoopsiObject
+        /*
+         * The four geometry attributes are `..g` and MUI fills them in
+         * itself: they read the box the layout put the object in rather than
+         * anything a program ever Set. A program asks for them after the
+         * window is open, which is why they answer null before it.
+         */
+        if (name === 'Area') {
+          const box = this.boxOf(o)
+          const edge =
+            TAG(g.attrID) === MUI.MUIA_LeftEdge
+              ? box?.left
+              : TAG(g.attrID) === MUI.MUIA_TopEdge
+                ? box?.top
+                : TAG(g.attrID) === MUI.MUIA_Width
+                  ? box?.width
+                  : TAG(g.attrID) === MUI.MUIA_Height
+                    ? box?.height
+                    : undefined
+          if (edge !== undefined) {
+            g.storage = edge
+            return 1
+          }
+        }
         if (MUI_OWNER[nameOf(g.attrID)] === name && (MUI_ATTR[nameOf(g.attrID)]?.flags ?? 'g').includes('g')) {
           g.storage = data(this, o).attrs.get(g.attrID) ?? 0
           return 1
@@ -468,10 +721,162 @@ export class MuiMaster {
         return 1
       }
 
+      case MUI.MUIM_AskMinMax:
+        return this.askMinMaxOf(name, cl, obj as BoopsiObject, msg)
+
       default:
         if (cl === this.notifyClass) return this.notifyMethod(cl, obj as BoopsiObject, msg)
         return doSuperMethodA(cl, obj, msg)
     }
+  }
+
+  /**
+   * One class's contribution to MUIM_AskMinMax.
+   *
+   * Additive, so each class hands the message up first and then adds its own
+   * content — that is the developer guide's own example and it is the reason
+   * a framed button is bigger than an unframed one without Text knowing that
+   * frames exist.
+   *
+   * NOTE: the leaf sizes below Area are the ones with no independent source.
+   * MUI's own are computed from the object's font AND its preferences — a
+   * string gadget's height is its font plus the frame the user chose, a
+   * cycle's width includes an image whose size is a prefs image spec. What is
+   * here is the font arithmetic with MUI's structure and without its prefs:
+   * every size is a multiple of the system font, which is the part that can
+   * be derived, and none of it is pixel-exact against a real MUI.
+   */
+  private askMinMaxOf(name: string, cl: BoopsiClass, obj: BoopsiObject, msg: Msg): number {
+    doSuperMethodA(cl, obj, msg)
+    const mm = (msg as Msg & { mm: MinMax }).mm
+    const fx = this.fontX
+    const fy = this.fontY
+
+    const add = (minW: number, minH: number, maxW: number, maxH: number, defW = minW, defH = minH): void => {
+      mm.minW += minW
+      mm.minH += minH
+      mm.maxW += maxW
+      mm.maxH += maxH
+      mm.defW += defW
+      mm.defH += defH
+    }
+    /** how many characters WIDE a label is: its escapes take no room */
+    const chars = (tag: number): number => visibleLength(this.textOf(obj, tag))
+
+    switch (name) {
+      case 'Area': {
+        // the frame and the inner spacing, which is what a superclass "thinks
+        // about sizes" means in the guide's example
+        const i = this.innerOf(obj)
+        add(i.left + i.right, i.top + i.bottom, i.left + i.right, i.top + i.bottom)
+        return 0
+      }
+      case 'Group':
+        this.groupMinMax(obj, mm)
+        return 0
+      case 'Rectangle':
+        // a spacer: no content, and unlimited in both directions
+        add(0, 0, MUI_MAXMAX, MUI_MAXMAX)
+        return 0
+      case 'Text':
+        // as wide as its text and one line tall; text stretches, it does not
+        // grow taller
+        add(chars(MUI.MUIA_Text_Contents) * fx, fy, MUI_MAXMAX, 0)
+        return 0
+      case 'String': {
+        // a fixed-height edit box: three characters at minimum, the declared
+        // MUIA_String_MaxLen as the default where there is one
+        const max = this.peek(obj, MUI.MUIA_String_MaxLen) ?? 0
+        add(3 * fx, fy, MUI_MAXMAX, 0, Math.max(3, Math.min(max, 40)) * fx, 0)
+        return 0
+      }
+      case 'Image':
+        // MUI's built-in images are drawn to the font's box
+        add(fx * 2, fy, 0, 0)
+        return 0
+      case 'Gauge':
+        // a bar: unlimited along its axis, one line across
+        if ((this.peek(obj, MUI.MUIA_Gauge_Horiz) ?? 0) !== 0) add(fx * 4, fy, MUI_MAXMAX, 0)
+        else add(fx, fy * 4, 0, MUI_MAXMAX)
+        return 0
+      case 'Cycle':
+      case 'Popasl':
+      case 'Popstring':
+      case 'Popobject':
+      case 'Poplist':
+      case 'Popscreen':
+        // a text box with something on the right to click
+        add(fx * 6, fy, MUI_MAXMAX, 0)
+        return 0
+      case 'List':
+      case 'Listview':
+      case 'Floattext':
+      case 'Dirlist':
+      case 'Volumelist':
+      case 'Scrmodelist':
+        // scrollable content: a few lines at minimum, unlimited either way
+        add(fx * 8, fy * 3, MUI_MAXMAX, MUI_MAXMAX, fx * 20, fy * 8)
+        return 0
+      default:
+        // every other Area subclass contributes nothing of its own yet, which
+        // leaves it exactly its frame and inner spacing
+        return 0
+    }
+  }
+
+  /**
+   * A group's own min/max: its children's, combined along its axis.
+   *
+   * Sums along, maxima across, plus the spacing between each pair. Area has
+   * already added the frame and inner spacing by the time this runs, since
+   * Group hands the message up first.
+   */
+  private groupMinMax(obj: BoopsiObject, mm: MinMax): void {
+    const kids = data(this, obj).children.filter((c) => c.cl.isA(this.areaClass))
+    if (kids.length === 0) return
+    const horiz = (this.peek(obj, MUI.MUIA_Group_Horiz) ?? 0) !== 0
+    const gaps = this.spacingOf(obj, horiz) * (kids.length - 1)
+    const each = kids.map((k) => this.minMaxOf(k) ?? this.askMinMax(k))
+
+    const sum = (f: (m: MinMax) => number): number => each.reduce((a, m) => a + f(m), 0)
+    const most = (f: (m: MinMax) => number): number => each.reduce((a, m) => Math.max(a, f(m)), 0)
+
+    if (horiz) {
+      mm.minW += sum((m) => m.minW) + gaps
+      mm.defW += sum((m) => m.defW) + gaps
+      mm.maxW += sum((m) => m.maxW) + gaps
+      mm.minH += most((m) => m.minH)
+      mm.defH += most((m) => m.defH)
+      mm.maxH += Math.min(...each.map((m) => m.maxH))
+    } else {
+      mm.minH += sum((m) => m.minH) + gaps
+      mm.defH += sum((m) => m.defH) + gaps
+      mm.maxH += sum((m) => m.maxH) + gaps
+      mm.minW += most((m) => m.minW)
+      mm.defW += most((m) => m.defW)
+      mm.maxW += Math.min(...each.map((m) => m.maxW))
+    }
+  }
+
+  /**
+   * How to read a STRPTR, which this layer cannot do for itself.
+   *
+   * A MUI object holds its labels as addresses, and an address means nothing
+   * here — there is no flat memory. The caller supplies the reader because
+   * the caller is the one that knows where a string can be: EasyLife's are in
+   * its tag pool for the ones `Tag Str` stored, and in bank 14 for the ones a
+   * `Tag List$` template appended after its body and patched a pointer to.
+   * Both are addresses in the same synthesized space, and only the runtime
+   * can resolve either.
+   *
+   * Without a reader every label measures as empty, which leaves a Text
+   * object as wide as its frame and nothing more.
+   */
+  readString: ((at: number) => string) | null = null
+
+  textOf(obj: BoopsiObject, tag: number): string {
+    const at = this.peek(obj, tag) ?? 0
+    return at === 0 ? '' : (this.readString?.(at) ?? '')
   }
 
   /** how many attributes the last applyOwn consumed — OM_SET's answer */
@@ -620,6 +1025,33 @@ export class MuiMaster {
  * a lookup keyed on the unsigned value misses every attribute in MUI.
  */
 const TAG = (t: number): number => t >>> 0
+
+/**
+ * A label's length in characters, with MUI's own escapes taken out.
+ *
+ * `mui.h` defines nine, all two characters beginning with ESC: `\033r`,
+ * `\033c`, `\033l` for justification, `\033n`, `\033b`, `\033i`, `\033u` for
+ * style, and `\0332`, `\0338` for the two text pens. They are formatting
+ * rather than text and take no room, so a Text object measured with them
+ * included is two characters too wide per code. Tag_Editor's own labels are
+ * full of them — "\033rLength: 0" is one of its status lines.
+ *
+ * NOTE: the styles are measured but not APPLIED. Bold and italic are wider
+ * than plain in a proportional face; the system font here is topaz 8, which
+ * is fixed-pitch, so every style is the same width and the distinction has
+ * nothing to show for itself yet.
+ */
+export function visibleLength(s: string): number {
+  let n = 0
+  for (let i = 0; i < s.length; i++) {
+    if (s.charCodeAt(i) === 27) {
+      i++
+      continue
+    }
+    n++
+  }
+  return n
+}
 
 /** every tag's name, so MUI_OWNER and MUI_ATTR can be asked about a number */
 const TAG_NAME = new Map<number, string>(

@@ -41,20 +41,20 @@ function chunkySnapshot(s: Screen): Uint8Array {
 function agree(s: Screen, what: string): void {
   const p = planeSnapshot(s)
   const c = chunkySnapshot(s)
-  if (!Buffer.from(p).equals(Buffer.from(c))) {
-    let first = -1
-    for (let i = 0; i < p.length; i++) {
-      if (p[i] !== c[i]) {
-        first = i
-        break
-      }
+  let first = -1
+  for (let i = 0; i < p.length; i++) {
+    if (p[i] !== c[i]) {
+      first = i
+      break
     }
-    throw new Error(
-      `${what}: planes and chunky disagree at ${first % s.width},${Math.floor(first / s.width)} ` +
-        `— planes ${p[first]}, chunky ${c[first]}`,
-    )
   }
-  expect(true).toBe(true)
+  expect(
+    first,
+    first < 0
+      ? what
+      : `${what}: planes and chunky disagree at ${first % s.width},${Math.floor(first / s.width)} ` +
+          `— planes ${p[first]}, chunky ${c[first]}`,
+  ).toBe(-1)
 }
 
 const scr = (w = 64, h = 32, cols = 16): Screen => new Screen(0, w, h, cols)

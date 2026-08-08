@@ -94,15 +94,15 @@ export function teardown(): void {
     return
   }
   const dispatched = readProbe()
+  if (dispatched.size === 0) {
+    throw new Error(
+      'faithfulness gate: the keyword probe recorded nothing. Is probe.setup.ts still in setupFiles?',
+    )
+  }
   if (dispatched.size < DISPATCH_FLOOR_WITH_CORPUS) {
     throw new Error(
       `faithfulness gate: only ${dispatched.size} keywords reached a handler, below the ` +
         `floor of ${DISPATCH_FLOOR_WITH_CORPUS}. Tests are not running, not merely failing.`,
-    )
-  }
-  if (dispatched.size === 0) {
-    throw new Error(
-      'faithfulness gate: the keyword probe recorded nothing. Is probe.setup.ts still in setupFiles?',
     )
   }
 

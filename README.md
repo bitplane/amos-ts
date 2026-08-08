@@ -129,11 +129,11 @@ Disassembly tools need `python3` with `capstone`.
 started. All twenty core areas in `KEYWORDS.md` read 100% — language, screens,
 drawing, menus, banks, text-io, objects, input, files, flow, memory, system,
 interface, AMAL, copper, palette, rainbows, windows and zones — as do
-forty-nine extension releases, among them AMCAF, the JD family, TOME, TURBO
-Plus, Personnal, LDos, AMOS 3D, MED, EME and P61. Nothing is half-ported: the
-remainder are extensions not yet begun.
+fifty-three extension releases, among them AMCAF, the JD family, EasyLife,
+TOME, TURBO Plus, Personnal, LDos, AMOS 3D, MED, EME and P61. Nothing is
+half-ported: the remainder are extensions not yet begun.
 
-**3244 keywords implemented, 3137 of them faithful** — verified against the 68k
+**3736 keywords implemented, 3628 of them faithful** — verified against the 68k
 source, corroborated by byte-exact artifacts and by the official manual where
 they agree. The order matters and is the project's governing rule: the code
 that shipped outranks the prose about it, and documentation is evidence only
@@ -148,7 +148,8 @@ IOPorts (38 — Serial, Printer and Parallel, with `Printer Dump` rendering a
 page and `Serial Open` reaching real hardware through Web Serial).
 
 The third-party extensions are the bulk of it. The largest: **AMCAF** (280
-across 1.40 and 1.50), **TURBO Plus** (153 across three versions), **Personnal**
+across 1.40 and 1.50), **EasyLife** (156 across 1.0, 1.09 and 1.10), **TURBO
+Plus** (153 across three versions), **Personnal**
 (128 across 1.0b and 1.1), **LDos** (85 across 2.5 and 2.6), **jd-prt** (69),
 **TOME** (67), **PowerBobs** (65), **AMOS 3D** (64, the engine reverse-engineered
 from `c3d.lib` — see `docs/amos3d/README.md`), **EME 3.0** (59) and **JD** (56).
@@ -157,32 +158,33 @@ from `c3d.lib` — see `docs/amos3d/README.md`), **EME 3.0** (59) and **JD** (56
 
 ### Corpus census
 
-`npx tsx src/cli/runreport.ts --all` runs all 497 corpus programs headless.
+`npx tsx src/cli/runreport.ts --all` runs all 513 corpus programs headless.
 
 | | |
 |---|---|
-| run to a stop | 479 |
-| **run with nothing skipped** | **431 (90%)** |
-| hit something unimplemented | 48 |
+| run to a stop | 489 |
+| **run with nothing skipped** | **440 (90%)** |
+| hit something unimplemented | 49 |
 
 Read the second row, not the "ended with nothing skipped" line the tool
 prints. That line counts only programs that *terminate*, and most AMOS
-programs are games and demos that never do — 235 hit the step cap and 139
+programs are games and demos that never do — 235 hit the step cap and 141
 block waiting on input, both of which are correct behaviour, not failure.
 
 That 90% is closer to a ceiling than it looks. Ranked by programs blocked
-rather than occurrences, the top gaps are `dreg` (29 programs), `doscall` (14),
+rather than occurrences, the top gaps are `dreg` (30 programs), `doscall` (14),
 `call` and `areg` (4 each) — all of them **n/a by policy**, because this port
 reads 68k machine code and never executes it. No keyword work moves them.
 
-`--by-program` says what the 50 are blocked on, but it counts programs per
+`--by-program` says what the 49 are blocked on, but it counts programs per
 keyword rather than partitioning them, so its rows overlap and cannot be
-added up. Partitioned, the 50 are: **38 blocked with no extension keyword
+added up. Partitioned, the 49 are: **36 blocked with no extension keyword
 involved** — overwhelmingly `dreg`/`areg`/`doscall`/`call`, the host and 68k
-escapes that are n/a by policy — and **12 that reach Intuition 1.3b, every
-one of which is Intuition's own bundled test suite** (`inttest1`..`6`,
-`bug1`, `bug2`, `bcollin`, `intuiviewer`, `test0`). No program in the corpus
-that someone wrote to *use* is blocked on an extension.
+escapes that are n/a by policy — and **13 that reach an extension, every one
+of which is that extension's own bundled program**: Intuition 1.3b's test
+suite (`inttest`, `inttest1`..`6`, `bug1`, `bug2`, `bcollin`, `intuiviewer`,
+`test0`) and OS DevKit 1.61's `os_help`. No program in the corpus that
+someone wrote to *use* is blocked on an extension.
 
 Hit counts are no guide at all here: `igadget read` is skipped 141,835 times
 across 3 programs, all of them those same self-tests looping.

@@ -1,5 +1,6 @@
 import type { PacPicture } from '../loader/pacpic'
 import type { ResourceBank } from '../loader/resource'
+import { sw16 } from './word'
 
 /**
  * The Interface language — AMOS Pro's dialog scripting engine, ported from
@@ -462,7 +463,6 @@ export interface EvalContext {
   host: DialogHost
 }
 
-const w16 = (n: number): number => (n << 16) >> 16
 
 /**
  * Evaluate one postfix expression up to (and consuming) its terminator.
@@ -539,7 +539,7 @@ export function evalExpr(cur: Cursor, ctx: EvalContext): DialogValue {
       case 6: { // * — muls: 16x16 signed (low words)
         need(2)
         const b = popInt()
-        stack.push(Math.imul(w16(popInt()), w16(b)))
+        stack.push(Math.imul(sw16(popInt()), sw16(b)))
         break
       }
       case 7: { // / — the dividend is truncated to its sign-extended low
@@ -550,9 +550,9 @@ export function evalExpr(cur: Cursor, ctx: EvalContext): DialogValue {
         // 68000 divide-by-zero trap — kept as a syntax error here.
         need(2)
         const b = popInt()
-        if (b === 0 || w16(b) === 0) synt()
-        const a = w16(popInt())
-        const q = Math.trunc(a / w16(b))
+        if (b === 0 || sw16(b) === 0) synt()
+        const a = sw16(popInt())
+        const q = Math.trunc(a / sw16(b))
         // divs overflow (-32768/-1) leaves the register unchanged
         stack.push(q === 32768 ? a : q)
         break

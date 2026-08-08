@@ -126,7 +126,14 @@ for (const raw of src.split('\n')) {
   const m = /^#define\s+(MUI[A-Z]*_[A-Za-z0-9_]+)\s+(.*)$/.exec(raw)
   if (!m) continue
   const [, name, rest] = m as unknown as [string, string, string]
-  if (section !== '' && tree.has(section)) owner.set(name, section)
+  /*
+   * Only a class's own vocabulary is attributed to it. MUIKEYF_, MUILM_,
+   * MUIMRI_ and MPEN_ are global — they are declared after the last class
+   * section, so the banner still in effect is Dtpic's and they would all be
+   * filed under it. MUI_OWNER exists to route an ATTRIBUTE to the class that
+   * stores it, and only the three prefixes below are ever that.
+   */
+  if (section !== '' && tree.has(section) && /^MUI[AMV]_/.test(name)) owner.set(name, section)
   const comment = /\/\*(.*?)\*\//.exec(rest)?.[1] ?? ''
   const value = rest.replace(/\/\*.*/, '').trim()
 
@@ -155,7 +162,7 @@ for (const raw of src.split('\n')) {
   if (a) attrs.set(name, { ver: Number.parseInt(a[1]!, 10), flags: a[2]!, type: a[3]! })
 }
 
-if (nums.size < 700 || classes.size < 60 || tree.size < 60 || owner.size < 600) {
+if (nums.size < 700 || classes.size < 60 || tree.size < 60 || owner.size < 550) {
   throw new Error(
     `mui.h parsed suspiciously thin: ${nums.size} constants, ${classes.size} classes, ` +
       `${tree.size} in the tree, ${owner.size} attributed to a class`,

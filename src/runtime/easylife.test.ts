@@ -1275,6 +1275,30 @@ describe.skipIf(!existsSync(DEMOS))('EasyLife: the MUI twenty, on a real muimast
     ).toBe(' 0\n')
   })
 
+  it('a laid-out object answers its own geometry through Mui Get', () => {
+    // MUIA_Width and friends are "..g": MUI fills them in from the layout and
+    // a program only reads them, which is why they are 0 until it has run
+    const b = bootTags(
+      OPEN +
+        'Mui Begin False\nT=Mui New("Text.mui")\n' +
+        'Mui Begin False\nG=Mui New("Group.mui",Tag$("MUIA_Group_Child" To T)+Tag$("TAG_DONE"))\n' +
+        'Print Mui Get(G,"MUIA_Width")\n',
+    )
+    mustFinish(b.rt.runHeadless(4000))
+    expect(b.text()).toBe(' 0\n')
+
+    const grp = [...b.rt.easylife.mui.nodes.keys()]
+      .map((k) => b.rt.boopsi.objectAt(k))
+      .find((o) => o && o.cl.id === 'Group.mui')!
+    b.rt.mui.askMinMax(grp)
+    b.rt.mui.layout(grp, 5, 6, 120, 40)
+    expect(b.rt.mui.get(grp, 0x8042b59c)).toBe(120)
+    expect(b.rt.mui.get(grp, 0x8042bec6)).toBe(5)
+    // and the Text child got the group's whole width, since a Text stretches
+    const txt = b.rt.mui.children(grp)[0]!
+    expect(b.rt.mui.boxOf(txt)!.width).toBe(120)
+  })
+
   it("Mui Set Str's string is kept with the object and freed with it", () => {
     // Tag Keep True files the string under the object, so disposing frees it
     const b = bootTags(

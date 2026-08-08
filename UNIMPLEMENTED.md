@@ -12,39 +12,40 @@ Core AMOS Professional is complete — the display pipeline, the audio pipeline,
 the language, banks, files, menus, the Interface dialog engine and the file
 selector are all at 100%. So is every extension a stock installation ships
 (Music, Compact, Request, Compiler, IOPorts) and every third-party one the
-port has started: forty-nine extension releases read 100% in `KEYWORDS.md`,
-among them AMCAF 1.40/1.50, the JD family, TOME, TURBO Plus, Personnal, LDos,
-AMOS 3D, PowerBobs, MED 7.1, EME 3.0 and P61.
+port has started: fifty-three extension releases read 100% in `KEYWORDS.md`,
+among them AMCAF 1.40/1.50, the JD family, EasyLife, TOME, TURBO Plus,
+Personnal, LDos, AMOS 3D, PowerBobs, MED 7.1, EME 3.0 and P61.
 
 **Nothing is partially ported.** Of the ninety-odd rows in the manifest, none
 sits between 0% and 100%: an extension is finished or it has not been begun.
 That is the ratchet working, and it is the number to watch — a row appearing
 in the middle means a thread was left hanging.
 
-3244 keywords are implemented, 3137 of them faithful.
+3736 keywords are implemented, 3628 of them faithful.
 
 ### The census
 
-`npx tsx src/cli/runreport.ts --all` runs all 497 corpus programs headless.
-**479 run to a stop, and 431 of those — 90% — do it without hitting a single
+`npx tsx src/cli/runreport.ts --all` runs all 513 corpus programs headless.
+**489 run to a stop, and 440 of those — 90% — do it without hitting a single
 unimplemented keyword.** That second figure is the coverage measure.
 
-The tool also prints "ended with nothing skipped" (83). Ignore it: it counts
+The tool also prints "ended with nothing skipped" (90). Ignore it: it counts
 only programs that *terminate*, and most AMOS programs are games and demos
-that never do. Of the 479, 235 hit the step cap and 139 block waiting on
+that never do. Of the 489, 235 hit the step cap and 141 block waiting on
 input — both correct behaviour, not failure.
 
-`--by-program` ranks the remaining 50 by how many programs each gap blocks,
+`--by-program` ranks the remaining 49 by how many programs each gap blocks,
 rather than by how often it is reached. The two orders are not the same and
 the difference is large: `igadget read` tops the occurrence list at 141,835
-hits and blocks three programs, while `dreg` blocks twenty-nine on sixty hits
+hits and blocks three programs, while `dreg` blocks thirty on sixty-one hits
 and `iscreen_open` blocks nine on eleven. Occurrence counts are a measure of
 how hot a gap is, never of how much it costs.
 
-Those rows overlap and must not be summed. Partitioned, the 50 are **38 with
+Those rows overlap and must not be summed. Partitioned, the 49 are **36 with
 no extension keyword involved at all** — almost entirely the n/a host and 68k
-escapes below — and **12 that are one extension's own test suite**, which the
-next section takes apart.
+escapes below — and **13 that are an extension's own bundled programs**
+(Intuition 1.3b's test suite and OS DevKit 1.61's `os_help`), which the next
+section takes apart.
 
 ## Not implemented
 
@@ -288,17 +289,22 @@ having.
 
 Of the 488 programs, 478 reach a stop. Where the other work goes:
 
-- **step cap (233)**: games and demos running their main loop happily until
+- **step cap (235)**: games and demos running their main loop happily until
   the cap. The census cannot "win" a game.
-- **blocked (139)**: waiting on input or the mouse forever — accessories and
+- **blocked (141)**: waiting on input or the mouse forever — accessories and
   demos idling in event loops. Correct behaviour.
-- **errors (6 kinds, 10 programs)**: `bank not reserved` (2), `Next without
+- **errors (16 kinds, 24 programs)**: `bank not reserved` (3), `Next without
   For` (2) and screens the program closed before drawing on them (2) all error
-  on real AMOS too. So does the last one, `Blit Clear` given a screen address
-  where a plane number belongs — the range check is the library's, read out of
-  routine 48, and TURBO rejects it too. `file not found` (2) and one `Object
-  file not found` are archive gaps: `tinycube.3DO` is in no archive found so
-  far, which is what stops the AMOS 3D demo Spunt's Village.
+  on real AMOS too. Archive gaps are the largest group: one `Object file not
+  found` (`tinycube.3DO` is in no archive found so far, which is what stops the
+  AMOS 3D demo Spunt's Village), `file not found` (3, all EasyLife demos) and
+  four TOME programs asking for `TOME_GOODIES:` directories and a
+  `levels/level1.map` that no archive here carries.
+- The remaining nine programs are **undiagnosed**, and are the honest tail of
+  this list rather than a verdict: `dialog syntax error` (2), `Disc error` (2),
+  `dialog function call error`, `variable expected`, `wrong number of
+  parameters for TEST1`, `Illegal function call` and `music bank not found`.
+  Five of the nine are EasyLife demos, which is where to start.
 
 `runreport` names the first program to hit each error, so this list can be
 rebuilt rather than remembered.

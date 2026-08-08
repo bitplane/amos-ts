@@ -1196,6 +1196,9 @@ function muiFlushNode(rt: Runtime, key: number): void {
  * per-procedure.
  */
 function muiCreate(rt: Runtime, cls: string, tags: string): number {
+  // muimaster needs to read a label to measure it, and cannot resolve an
+  // address itself -- see `MuiMaster.readString`
+  rt.mui.readString = (at) => muiStrAt(rt, at)
   const made = rt.mui.newObjectA(cls, muiTags(rt, tags))
   muiFlushNode(rt, 0)
   if (!made) return 0
@@ -1248,12 +1251,30 @@ function muiGet(rt: Runtime, a: Value[]): number | null {
 /**
  * A `STRPTR` answer read back as an AMOS string.
  *
- * Every string MUI holds for an EasyLife program came from the tag pool, so
- * the pool's own record is the whole dictionary. An address it does not know
- * answers empty, which is also what routine 210 does with a NULL.
+ * Two places a MUI string can live, and both are real addresses in this
+ * runtime's map. `Tag Str` put most of them in the tag pool and the pool
+ * keeps its own record, which is exact. The rest were appended after a
+ * `Tag List$` template in bank 14 and reached by the template's pointer
+ * chain, so they are only readable by walking the address space to the NUL —
+ * which is what routine 210's `Rbsr routine 68` does to whatever GetAttr
+ * answered, without caring where it came from.
+ *
+ * An address that resolves to nothing answers empty, as routine 210 does
+ * with a NULL.
  */
 function muiStrAt(rt: Runtime, at: number): string {
-  return at === 0 ? '' : (rt.easylife.tagStrings.get(at) ?? '')
+  if (at === 0) return ''
+  const pooled = rt.easylife.tagStrings.get(at)
+  if (pooled !== undefined) return pooled
+  let out = ''
+  for (let i = 0; i < 4096; i++) {
+    const m = rt.resolveAddr(at + i)
+    if (!m) break
+    const c = m.data[m.off]
+    if (c === undefined || c === 0) break
+    out += String.fromCharCode(c)
+  }
+  return out
 }
 
 /** routine 242 ($3582) — unlink one pooled string from an object's chain */

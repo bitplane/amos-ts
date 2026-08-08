@@ -15,6 +15,7 @@
  */
 
 import type { AmalBank } from '../loader/amalbank'
+import { sw16 } from './word'
 
 export class AmalCompileError extends Error {
   constructor(
@@ -476,7 +477,6 @@ export interface AmalHost {
   amalBank(): AmalBank | null
 }
 
-const w16 = (v: number): number => (v << 16) >> 16
 
 export class AmalChannel {
   pc: number | null = 0
@@ -519,46 +519,46 @@ export class AmalChannel {
   private evalOperand(o: Operand, host: AmalHost): number {
     switch (o.k) {
       case 'num':
-        return w16(o.v)
+        return sw16(o.v)
       case 'A':
-        return w16(this.target.get().a)
+        return sw16(this.target.get().a)
       case 'X':
-        return w16(this.target.get().x)
+        return sw16(this.target.get().x)
       case 'Y':
-        return w16(this.target.get().y)
+        return sw16(this.target.get().y)
       case 'R':
         return this.regs[o.i]!
       case 'G':
         return host.globals[o.i]!
       case 'XM':
-        return w16(host.mouseX())
+        return sw16(host.mouseX())
       case 'YM':
-        return w16(host.mouseY())
+        return sw16(host.mouseY())
       case 'K1':
         return host.mouseKey(1)
       case 'K2':
         return host.mouseKey(2)
       case 'J0':
-        return w16(host.joy(0))
+        return sw16(host.joy(0))
       case 'J1':
-        return w16(host.joy(1))
+        return sw16(host.joy(1))
       case 'O':
         return this.moveCount > 0 ? -1 : 0
       case 'Z':
-        return w16(host.random(this.eval(o.e, host)))
+        return sw16(host.random(this.eval(o.e, host)))
       case 'C':
-        return w16(host.col(this.eval(o.e, host)))
+        return sw16(host.col(this.eval(o.e, host)))
       case 'V':
-        return w16(host.vumeter(this.eval(o.e, host)))
+        return sw16(host.vumeter(this.eval(o.e, host)))
       case 'XS':
       case 'YS':
       case 'XH':
       case 'YH':
-        return w16(host.xy(o.k, this.eval(o.a, host), this.eval(o.b, host)))
+        return sw16(host.xy(o.k, this.eval(o.a, host), this.eval(o.b, host)))
       case 'BC':
-        return w16(host.bobCol(this.eval(o.a, host), this.eval(o.b, host), this.eval(o.c, host)))
+        return sw16(host.bobCol(this.eval(o.a, host), this.eval(o.b, host), this.eval(o.c, host)))
       case 'SC':
-        return w16(host.spriteCol(this.eval(o.a, host), this.eval(o.b, host), this.eval(o.c, host)))
+        return sw16(host.spriteCol(this.eval(o.a, host), this.eval(o.b, host), this.eval(o.c, host)))
     }
   }
 
@@ -581,25 +581,25 @@ export class AmalChannel {
           v = v > r ? -1 : 0
           break
         case '+':
-          v = w16(v + r)
+          v = sw16(v + r)
           break
         case '-':
-          v = w16(v - r)
+          v = sw16(v - r)
           break
         case '*':
-          v = w16(Math.imul(v, r))
+          v = sw16(Math.imul(v, r))
           break
         case '/':
-          v = r === 0 ? 0 : w16(Math.trunc(v / r))
+          v = r === 0 ? 0 : sw16(Math.trunc(v / r))
           break
         case '|':
-          v = w16(v | r)
+          v = sw16(v | r)
           break
         case '&':
-          v = w16(v & r)
+          v = sw16(v & r)
           break
         case '!':
-          v = w16(v ^ r)
+          v = sw16(v ^ r)
           break
       }
     }
@@ -730,7 +730,7 @@ export class AmalChannel {
         case 'next': {
           const forOp = ops[op.forI]!
           if (forOp.k === 'for' && forOp.reg.k === 'R') {
-            const v = w16(this.regs[forOp.reg.i]! + 1)
+            const v = sw16(this.regs[forOp.reg.i]! + 1)
             this.regs[forOp.reg.i] = v
             if ((this.forLimits.get(op.forI) ?? 0) >= v) {
               this.pc = op.forI + 1
@@ -792,7 +792,7 @@ export class AmalChannel {
               this.pc++
               continue
             }
-            this.regs[0] = w16(mv.speed) // R0 = the record's own tempo
+            this.regs[0] = sw16(mv.speed) // R0 = the record's own tempo
             this.regs[1] = 1 // R1 = 1: play forwards
             this.playData = bank.data
             this.playX = mv.xStart
@@ -837,7 +837,7 @@ export class AmalChannel {
     if (bx < 0x80) {
       // lsl.b #1 / asr.b #1: the step is signed on bit 6, so -64..63
       const step = (bx << 25) >> 25
-      this.target.set(w16(this.target.get().x + (forward ? step : -step)), null, null)
+      this.target.set(sw16(this.target.get().x + (forward ? step : -step)), null, null)
       this.playX += forward ? 1 : -1
     } else if (--this.waitX === 0) {
       this.playX += forward ? 1 : -1
@@ -851,7 +851,7 @@ export class AmalChannel {
     if (by === 0) return true
     if (by < 0x80) {
       const step = (by << 25) >> 25
-      this.target.set(null, w16(this.target.get().y + (forward ? step : -step)), null)
+      this.target.set(null, sw16(this.target.get().y + (forward ? step : -step)), null)
       this.playY += forward ? 1 : -1
     } else if (--this.waitY === 0) {
       this.playY += forward ? 1 : -1
