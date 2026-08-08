@@ -1400,6 +1400,9 @@ export const FAITHFUL = new Set<string>([
   // disagreement is in the NOTES and every one was confirmed in the binary.
   's ainit', 's aset', 's array', 's aclear', 's aerase', 's aerase all',
   's asize', 's abase', 's axsize', 's aysize', 's azsize', 's atype',
+  // Batch 3 -- the four that belong to no group: a character-set scan, the
+  // AmigaDOS block checksum, a file delete and the iconify window.
+  's compare$', 's checksum', 's delete', 's iconify',
 
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
@@ -4463,6 +4466,48 @@ export const NOTES: Record<string, string> = {
     "the `adda d1,a0` that would have been needed commented out in the source --- the index is the " +
     "displacement. So it answers 1, 2 or 4, the same number S Ainit's second argument takes, which the " +
     "extension calls the type throughout. Nothing reads the real Atype bitmap back out.",
+
+  "s compare$":
+    "Routine 35, and it is not a comparison: it scans SOURCE$ for the first character that appears ANYWHERE in " +
+    "MASK$ and returns its 1-based position, or 0. The mask is a SET --- the inner loop walks all of it for " +
+    "every source character. The `$` in the name is decoration: the spec is \"02,2,0,0\", whose leading 0 makes " +
+    "this an INTEGER function, and the routine ends `clr.l d2`. POS is checked with `cmp.l d2,d0 / rbcs`, " +
+    "UNSIGNED, so a negative POS is a huge number and raises; 0 and 1 both mean 'from the start' because " +
+    "`subq.l #1,d2 / ble` skips the adjustment for anything not positive. ENDPOS counts from the START and 0 " +
+    "means 'to the end'. DEVIATION: an empty mask or an empty source runs off the end of its buffer --- " +
+    "`move.w (a1)+,d1 / subi.w #1,d4` gives $ffff for a zero length and the dbra reads 65,536 bytes of " +
+    "whatever follows. Nothing here has a byte to give past the end of a string, so both answer 0.",
+  "s checksum":
+    "Routine 83 --- the AmigaDOS block checksum. 128 longwords subtracted from zero, then the longword at +20 " +
+    "added back because that is the field the checksum itself occupies, so the answer is the negated sum of " +
+    "the other 127. It reads 512 bytes from any address the port maps. S Disk Rename uses it on the root block " +
+    "it has just edited.",
+  "s delete":
+    "Routine 95. DEFECT: the file-or-directory test is `cmpi.l #$0,$4(a0) / bhi` at $3eb2, and a0 is NOT the " +
+    "FileInfoBlock --- Examine takes d1 and d2 and sets nothing in a0, and the last thing to write a0 was the " +
+    "filename copy loop at $3e54, which left it just past the AMOS string's characters. So the decision is " +
+    "made on four bytes of whatever follows that string in AMOS's string area and the FileInfoBlock the " +
+    "routine filled is never read. DEVIATION: those bytes are not modelled, so the FILE arm is taken --- what " +
+    "a zeroed string area gives, and the arm the author must have been testing. The consequence is that the " +
+    "directory arm, two thirds of the routine and a real recursive CurrentDir/ExNext/Delete walk, is " +
+    "unreachable in practice: S Delete on a directory is a plain DeleteFile, which succeeds for an empty one " +
+    "and raises 26 for any other. DEFECT: the out-of-memory arm reports the wrong message, because L_error1 " +
+    "(routine 98) is `move.l #$1,d1` where every other error routine writes d0, and d0 is what L_ErrorExt " +
+    "indexes with --- here it holds the zero AllocMem just returned, so the message is 'Illegal function " +
+    "call'.",
+  "s iconify":
+    "Routine 63. Flips to Workbench if AMOS is in front, freezes every AMAL channel, opens a NewWindow of " +
+    "200x12 with the program's x, y and width patched in --- IDCMP $200 is CLOSEWINDOW alone, flags $100e are " +
+    "ACTIVATE, CLOSEGADGET, DEPTHGADGET and DRAGBAR, Type 1 is WBENCHSCREEN --- then Wait()s on the port's " +
+    "signal bit until the gadget is clicked, closes, unfreezes and flips back. The height and both height " +
+    "limits are fixed at 12, so it cannot be resized into anything but a title bar; the width is written to " +
+    "nw_Width, nw_MinWidth and nw_MaxWidth alike, and a width of zero is the only argument check there is " +
+    "(error 6). NOTE it does NOT open the Workbench: the `IntCall -210` that would have is commented out in " +
+    "the source, so on a machine with the Workbench screen closed the OpenWindow fails and the program gets " +
+    "error 6. DEVIATION: Wait() suspends the whole task and there is one thread here, so the statement blocks " +
+    "and re-runs a frame later --- the same shape Eliconify Amos already uses, and for the same reason. " +
+    "src/amiga/intuition.ts opens the Workbench on demand for a WBENCHSCREEN NewWindow, which is AROS's " +
+    "behaviour and not this routine's.",
 
   "stick joy":
     "Routine 5 ($432), reading CIA-A PRB ($bfe101) bits 0-3. The manual calls this the serial port throughout; " +

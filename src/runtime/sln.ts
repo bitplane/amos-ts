@@ -75,8 +75,22 @@
  */
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
-import { AmosError, VI, int, type Value } from '../interp/values'
+import { AmosError, VI, int, str, type Value } from '../interp/values'
 import { mouseDat } from '../amiga/gameport'
+import {
+  IDCMP_CLOSEWINDOW,
+  WBENCHSCREEN,
+  WFLG_ACTIVATE,
+  WFLG_CLOSEGADGET,
+  WFLG_DEPTHGADGET,
+  WFLG_DRAGBAR,
+  type Window,
+} from '../amiga/intuition'
+
+/** `SyCall AmalFrz` / `AmalUfrz` — every channel at once, as Amal Freeze does */
+const amalFreeze = (rt: Runtime, on: boolean): void => {
+  for (const ch of rt.channels.values()) ch.frozen = on
+}
 
 /**
  * The twenty-eight messages, verbatim from `sln_extII.s`'s `ErrMess` table.
@@ -297,6 +311,8 @@ export interface SlnState {
   atype: number
   /** the AllocMem pool everything above is carved out of */
   heap: SlnHeap
+  /** `IWindow` — the one iconify window, open only while S Iconify is blocked */
+  iconWindow: Window | null
 }
 
 export function newSlnState(): SlnState {
@@ -315,6 +331,7 @@ export function newSlnState(): SlnState {
     arrays: Array.from({ length: SLN_ARRAYS }, newArray),
     atype: 0,
     heap: new SlnHeap(),
+    iconWindow: null,
   }
 }
 
@@ -877,6 +894,131 @@ export function makeSlnInstructions(rt: Runtime): Record<string, Instr> {
     's aerase all'(): void {
       for (let n = 0; n < SLN_ARRAYS; n++) arrayInit(rt, n, 1, 0, 0, 0)
     },
+
+    // ---- files and the iconify window -----------------------------------
+    /**
+     * Routine 95 — `S Delete filename$`, which deletes a file or, in code that
+     * is almost never reached, a whole directory tree.
+     *
+     *     Lock(name, -1)              exclusive; 0 -> error 27
+     *     AllocMem(260, MEMF_CLEAR)   0 -> routine 98
+     *     Examine(lock, fib)
+     *     cmpi.l #$0, $4(a0) / bhi    fib_DirEntryType > 0 -> the directory arm
+     *     FreeMem / UnLock / DeleteFile(name) / beq -> error 26
+     *
+     * DEFECT: `a0` is not the FileInfoBlock. `Examine` takes its arguments in
+     * d1 and d2 and sets nothing in a0, and the last thing to write a0 was the
+     * filename copy loop at $3e54, which left it pointing just past the AMOS
+     * string's characters. So the file-or-directory decision is made on four
+     * bytes of whatever follows that string in AMOS's string area, and the
+     * FileInfoBlock the routine went to the trouble of filling is never read.
+     * Confirmed at $3eb2.
+     *
+     * DEVIATION: those four bytes are not modelled, so the FILE arm is taken.
+     * That is the arm a zeroed string area gives — the normal case for a
+     * freshly loaded program — and it is the arm the author must have been
+     * testing, since it is the one that works. The consequence to know about
+     * is that the directory arm, which is two thirds of the routine and does a
+     * genuine recursive `CurrentDir`/`ExNext`/`Delete` walk, is unreachable in
+     * practice: `S Delete` on a directory calls AmigaDOS `DeleteFile` on it,
+     * which succeeds for an empty one and fails for any other.
+     *
+     * DEFECT: the out-of-memory arm reports the wrong message. `L_error1`
+     * (routine 98) is `move.l #$1,d1` where every other error routine writes
+     * d0, and d0 is what `L_ErrorExt` indexes the table with — so it raises
+     * whatever d0 held, which here is the zero AllocMem just returned. The
+     * message is "Illegal function call", not "Out of memory".
+     */
+    's delete'(it): void {
+      const path = it.evalStr()
+      // Lock(name, ACCESS_WRITE): a name that is not there gets no lock
+      if (rt.vfs?.exists(path) == null) slnError(27)
+      if (!rt.vfs!.deleteFile(path)) slnError(26)
+    },
+    /**
+     * Routine 63 — `S Iconify title$,x,y,width`.
+     *
+     *     move.w  T_AMOShere(a5),d3 / beq
+     *     EcCalD  AMOS_WB,0           AMOS is in front -> flip to Workbench
+     *     SyCall  AmalFrz
+     *     ...width; a width of ZERO is the only argument check, -> error 6
+     *     IntCall -204                OpenWindow; 0 -> AmalUfrz, error 6
+     *     move.b  MP_SIGBIT(port),d1 / bset d1,d0 / ExeCall -318   Wait()
+     *     IntCall -72                 CloseWindow
+     *     SyCall  AmalUfrz / EcCalD AMOS_WB,1
+     *
+     * The NewWindow at `IWindowStruc` decodes field for field: 20,20, 200x12,
+     * pens 0 and 1, IDCMP $200 (CLOSEWINDOW alone), Flags $100e — ACTIVATE,
+     * CLOSEGADGET, DEPTHGADGET, DRAGBAR — and Type 1, WBENCHSCREEN. The
+     * program's x, y and width overwrite three of those; the HEIGHT of 12 is
+     * fixed, and so are the min and max heights, so the window cannot be
+     * resized into anything but a title bar. Width is written to nw_Width,
+     * nw_MinWidth and nw_MaxWidth alike.
+     *
+     * NOTE it does NOT open the Workbench. The `IntCall -210` that would have
+     * is commented out in the source, so on a machine whose Workbench screen
+     * was closed the OpenWindow fails and the program gets error 6. This port
+     * is more forgiving in one place only, and it is not this file's choice:
+     * `intuition.ts`'s `openWindow` opens the Workbench on demand for a
+     * NewWindow of type WBENCHSCREEN, which is what AROS does.
+     *
+     * DEVIATION: `Wait()` on the port's signal bit suspends the whole task
+     * until the close gadget is clicked, and there is one thread here that has
+     * to get back to the frame loop. `it.block(..., true)` re-runs the whole
+     * statement on the next frame instead, which is what `Eliconify Amos`
+     * already does for the same reason — the block is what makes a frame go
+     * by, and the polling and the answer are the routine's.
+     */
+    's iconify'(it): void {
+      const st = rt.sln
+      if (st.iconWindow) {
+        // the second and later visits: the routine is inside Wait()
+        for (;;) {
+          const m = st.iconWindow.getMsg()
+          if (!m) {
+            it.block({ type: 'iconify' }, true)
+            return
+          }
+          if ((m.class & 0xffff) === IDCMP_CLOSEWINDOW) break
+        }
+        rt.intuition.closeWindow(st.iconWindow)
+        st.iconWindow = null
+        amalFreeze(rt, false)
+        return
+      }
+      const title = it.evalStr()
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const width = it.evalInt()
+      // SyCall AmalFrz -- every channel, which is `Amal Freeze` with no
+      // argument (InAmalFreeze +Lib.s)
+      amalFreeze(rt, true)
+      if (width === 0) {
+        amalFreeze(rt, false)
+        slnError(6)
+      }
+      const win = rt.intuition.openWindow({
+        leftEdge: x,
+        topEdge: y,
+        width,
+        height: 12,
+        detailPen: 0,
+        blockPen: 1,
+        idcmpFlags: IDCMP_CLOSEWINDOW,
+        flags: WFLG_ACTIVATE | WFLG_CLOSEGADGET | WFLG_DEPTHGADGET | WFLG_DRAGBAR,
+        title,
+        type: WBENCHSCREEN,
+      })
+      if (!win) {
+        amalFreeze(rt, false)
+        slnError(6)
+      }
+      st.iconWindow = win
+      it.block({ type: 'iconify' }, true)
+    },
   }
 }
 
@@ -953,6 +1095,79 @@ export function makeSlnFunctions(rt: Runtime): Record<string, Func> {
      * the type throughout. Nothing reads the real Atype bitmap back out.
      */
     's atype': (_, a): Value => VI(rt.sln.arrays[guardedSlot(int(a[0]!))]?.cell ?? 0),
+    /**
+     * Routine 35 — `=S Compare$(SOURCE$, MASK$, POS, ENDPOS)`.
+     *
+     * It is not a comparison: it is a scan for the first character of SOURCE$
+     * that appears ANYWHERE in MASK$, returning its 1-based position or 0. The
+     * mask is a set of characters, not a substring, and the inner loop walks
+     * the whole of it for every source character.
+     *
+     * NOTE the `$` in the name is decoration. The token spec is `"02,2,0,0"`,
+     * whose leading `0` makes this an INTEGER function of two strings and two
+     * integers, and the routine ends `clr.l d2` — AMOS's "the result is a
+     * number". So `A = S Compare$(a$, b$, 0, 0)` is the way to call it.
+     *
+     * POS is 1-based and clipped by `cmp.l d2,d0 / rbcs L_error0`, so a POS
+     * beyond the string raises; 0 and 1 both mean "from the start", because
+     * `subq.l #1,d2 / ble` skips the adjustment for anything not positive.
+     * ENDPOS counts from the START and 0 means "to the end": `d7 = len - ENDPOS`
+     * is the number of characters to drop, applied only when it is positive
+     * AND smaller than what is left to scan.
+     *
+     * DEVIATION: an EMPTY mask, or an empty source, runs off the end of its
+     * buffer. `move.w (a1)+,d1 / move.l d1,d4 / subi.w #1,d4` gives $ffff for a
+     * zero length and the `dbra` then reads 65,536 bytes of whatever follows.
+     * Nothing here has a byte to give past the end of a JS string, so both
+     * cases answer 0.
+     */
+    's compare$': (_, a): Value => {
+      const src = str(a[0]!)
+      const mask = str(a[1]!)
+      const pos = int(a[2]!)
+      const endPos = int(a[3]!)
+      let len = src.length
+      let count = len - 1
+      let from = 0
+      if (below(len, pos)) slnError(0)
+      if (pos - 1 > 0) {
+        count -= pos - 1
+        from += pos - 1
+      }
+      const drop = len - endPos
+      if (drop > 0 && count > drop) {
+        count -= drop
+        len -= drop
+      }
+      if (mask.length === 0 || src.length === 0) return VI(0)
+      for (let i = 0; i <= count; i++) {
+        if (mask.includes(src[from + i] ?? ' ')) return VI(len - (count - i))
+      }
+      return VI(0)
+    },
+    /**
+     * Routine 83 — `=S Checksum(ADR)`, and it is the AmigaDOS block checksum:
+     * 128 longwords SUBTRACTED from zero, then the longword at +20 added back
+     * because that is the field the checksum itself lives in. So the answer is
+     * the negated sum of the other 127 longwords, which is what a root block,
+     * a boot block or a file header wants at offset 20. `S Disk Rename` uses it
+     * on the root block it has just edited.
+     *
+     * Any address the port maps will do — a bank, an array from `=S Abase`, the
+     * 512-byte buffer `S Disk Read` filled.
+     */
+    's checksum': (_, a): Value => {
+      const base = int(a[0]!) >>> 0
+      const long = (off: number): number =>
+        (peek8(rt, base + off) * 0x1000000 +
+          (peek8(rt, base + off + 1) << 16) +
+          (peek8(rt, base + off + 2) << 8) +
+          peek8(rt, base + off + 3)) >>>
+        0
+      let sum = 0
+      for (let i = 0; i < 128; i++) sum = (sum - long(i * 4)) | 0
+      return VI((sum + long(20)) | 0)
+    },
     /** routines 14, 22 and 23 — three, two or one index */
     's array': (_, a): Value => {
       const st = rt.sln

@@ -14,6 +14,7 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
+import { AmigaFS } from '../amiga/vfs'
 import { SLN_ERRORS } from './sln'
 import { Runtime } from './runtime'
 
@@ -47,6 +48,21 @@ function run(src: string, prep?: (rt: Runtime) => void): Boot {
 }
 
 const num = (src: string, prep?: (rt: Runtime) => void): number => Number(run(src, prep).out().trim())
+
+/** the same, over a writable RAM: volume — S Delete and the sample bank need one */
+function bootFs(src: string): Boot {
+  const fs = new AmigaFS()
+  fs.mountMemory('RAM')
+  let printed = ''
+  const rt = new Runtime(tokenize(src, table, extensions), table, {
+    extensions,
+    extBindings: new Map([[SLN_SLOT, sln]]),
+    maxSteps: 200_000,
+    onText: (t) => (printed += t),
+    fs,
+  })
+  return { rt, out: () => printed }
+}
 
 describe('SLN: the mouse counter reader', () => {
   it('accumulates nothing until S Mouse On sets status bit 0', () => {
@@ -365,5 +381,110 @@ describe('SLN: the eight arrays', () => {
   it('an array is real memory: Loke and Leek reach it through S Abase', () => {
     expect(num('S Ainit 0,4,9,0,0 : Loke S Abase(0)+8,1234567 : Print S Array(0,2)')).toBe(1234567)
     expect(num('S Ainit 0,4,9,0,0 : S Aset 0,2,7654321 : Print Leek(S Abase(0)+8)')).toBe(7654321)
+  })
+})
+
+describe('SLN: S Compare$, S Checksum, S Delete and S Iconify', () => {
+  it('S Compare$ finds the first source character that is in the mask SET', () => {
+    // routine 35: an inner loop over the whole mask for every source
+    // character, so the mask is a set and not a substring
+    expect(num('Print S Compare$("hello","l",0,0)')).toBe(3)
+    expect(num('Print S Compare$("hello","xyz",0,0)')).toBe(0)
+    // "o" is at 5 and "e" at 2; the earliest source position wins
+    expect(num('Print S Compare$("hello","oe",0,0)')).toBe(2)
+  })
+
+  it('its `$` is decoration: the spec makes it an INTEGER function', () => {
+    // dc.b "s compare","$"+$80,"02,2,0,0" -- the leading 0 is the result type,
+    // and the routine ends `clr.l d2`
+    expect(num('A=S Compare$("hello","l",0,0) : Print A')).toBe(3)
+  })
+
+  it('POS is 1-based, and 0 and 1 both mean "from the start"', () => {
+    expect(num('Print S Compare$("hello","l",1,0)')).toBe(3)
+    expect(num('Print S Compare$("hello","l",4,0)')).toBe(4)
+    // ...but a NEGATIVE pos does not reach that: the range check above it is
+    // `cmp.l d2,d0 / rbcs`, unsigned, so -3 is a huge number and raises
+    const b = boot('Print S Compare$("hello","l",-3,0)')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[0])
+  })
+
+  it('POS past the end of the source raises', () => {
+    // cmp.l d2,d0 / rbcs L_error0
+    const b = boot('Print S Compare$("hello","l",6,0)')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[0])
+  })
+
+  it('ENDPOS counts from the start, and 0 means "to the end"', () => {
+    expect(num('Print S Compare$("hello","o",0,0)')).toBe(5)
+    // stop after 4 characters and the "o" at 5 is out of reach
+    expect(num('Print S Compare$("hello","o",0,4)')).toBe(0)
+    expect(num('Print S Compare$("hello","l",0,4)')).toBe(3)
+  })
+
+  it('DEVIATION: an empty mask runs off the end of its buffer, and answers 0', () => {
+    // move.w (a1)+,d1 / move.l d1,d4 / subi.w #1,d4 gives $ffff for a zero
+    // length, and the dbra then reads 65,536 bytes of whatever follows
+    expect(num('Print S Compare$("hello","",0,0)')).toBe(0)
+    expect(num('Print S Compare$("","l",0,0)')).toBe(0)
+  })
+
+  it('S Checksum is the AmigaDOS block checksum: -sum of the other 127 longs', () => {
+    // routine 83: `sub.l (a0)+,d3` 128 times from zero, then `add.l 20(a0),d3`
+    // to take the checksum field itself back out
+    const b = run(
+      'Reserve As Work 9,512 : Loke Start(9),$11111111 : Loke Start(9)+20,$22222222 : ' +
+        'Print S Checksum(Start(9))',
+    )
+    expect(Number(b.out().trim()) | 0).toBe(-0x11111111 | 0)
+  })
+
+  it('S Checksum makes a root block check out when written back to +20', () => {
+    const b = run(
+      'Reserve As Work 9,512 : Loke Start(9),2 : Loke Start(9)+8,72 : ' +
+        'Loke Start(9)+20,S Checksum(Start(9)) : Print S Checksum(Start(9))-Leek(Start(9)+20)',
+    )
+    // once the field holds the checksum, recomputing gives the field back
+    expect(b.out().trim()).toBe('0')
+  })
+
+  it('S Delete removes a file, and raises 27 for a name that is not there', () => {
+    const b = bootFs('Open Out 1,"RAM:doomed.txt" : Print #1,"x" : Close 1 : S Delete "RAM:doomed.txt"')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.rt.vfs?.exists('RAM:doomed.txt')).toBe(null)
+    const c = bootFs('S Delete "RAM:never-existed.txt"')
+    expect(() => mustFinish(c.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[27])
+  })
+
+  it('DEFECT: the file-or-directory test reads a stale a0, so the file arm is taken', () => {
+    // cmpi.l #$0,$4(a0) at $3eb2 -- a0 is the AMOS string pointer the copy loop
+    // left behind, not the FileInfoBlock Examine just filled. The directory arm
+    // is therefore unreachable in practice, and S Delete on a directory is a
+    // plain DeleteFile: fine for an empty one, error 26 for any other.
+    const b = bootFs('Mkdir "RAM:emptydir" : S Delete "RAM:emptydir"')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.rt.vfs?.exists('RAM:emptydir')).toBe(null)
+    const c = bootFs('Mkdir "RAM:fulldir" : Open Out 1,"RAM:fulldir/x" : Close 1 : S Delete "RAM:fulldir"')
+    expect(() => mustFinish(c.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[26])
+  })
+
+  it('S Iconify opens a 12-pixel Workbench window and blocks on it', () => {
+    // routine 63: NewWindow 200x12 with the width overwritten, IDCMP $200
+    // (CLOSEWINDOW alone), flags $100e, Type 1 = WBENCHSCREEN
+    const { rt } = boot('S Iconify "Paused",20,20,200 : Print "back"')
+    rt.frame()
+    const win = rt.sln.iconWindow
+    expect(win).not.toBe(null)
+    expect(win!.height).toBe(12)
+    expect(win!.width).toBe(200)
+    expect(win!.title).toBe('Paused')
+    // AmalFrz: every channel, and it stays frozen for as long as the window is up
+    for (let i = 0; i < 3; i++) rt.frame()
+    expect(rt.sln.iconWindow).not.toBe(null)
+  })
+
+  it('a width of zero is the only argument it checks, and it raises error 6', () => {
+    const b = boot('S Iconify "Paused",20,20,0')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[6])
   })
 })
