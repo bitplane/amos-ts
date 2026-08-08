@@ -488,3 +488,241 @@ describe('SLN: S Compare$, S Checksum, S Delete and S Iconify', () => {
     expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[6])
   })
 })
+
+/** a raw sample file: `n` bytes of data the loader will call n-24 long */
+const rawSample = (n: number): Uint8Array =>
+  Uint8Array.from({ length: n }, (_, i) => (i * 7) & 0xff)
+
+function bootSam(src: string, files: Record<string, Uint8Array> = {}): Boot {
+  const fs = new AmigaFS()
+  fs.mountMemory('RAM')
+  for (const [name, data] of Object.entries(files)) fs.writeFile(`RAM:${name}`, data)
+  let printed = ''
+  const rt = new Runtime(tokenize(src, table, extensions), table, {
+    extensions,
+    extBindings: new Map([[SLN_SLOT, sln]]),
+    maxSteps: 200_000,
+    onText: (t) => (printed += t),
+    fs,
+  })
+  return { rt, out: () => printed }
+}
+
+const samNum = (src: string, files: Record<string, Uint8Array> = {}): number => {
+  const b = bootSam(src, files)
+  mustFinish(b.rt.runHeadless(2_000))
+  return Number(b.out().trim())
+}
+
+describe('SLN: the sample bank', () => {
+  it('S Sam Bank Reserve makes an eight-byte "Sln.Sam." bank, defaulting to 6', () => {
+    const { rt } = run('S Sam Bank Reserve')
+    expect(rt.memBanks.get(6)?.name).toBe('Sln.Sam.')
+    expect(rt.memBanks.get(6)?.data.length).toBe(8)
+    expect(rt.sln.samBankNr).toBe(6)
+    expect(num('S Sam Bank Reserve 9 : Print S Sam Bank')).toBe(9)
+  })
+
+  it('S Sam Bank= is a WORD store with no validation at all', () => {
+    // routine 43: `move.w d0,(a0)` and nothing else --- the bank is not
+    // checked until something looks a sample up, and then it is error 4
+    expect(num('S Sam Bank=11 : Print S Sam Bank')).toBe(11)
+    expect(num('S Sam Bank=65538 : Print S Sam Bank')).toBe(2)
+    const b = boot('S Sam Bank=11 : Print S Sam Base(1)')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[4])
+  })
+
+  it('a bank number already in use is error 2', () => {
+    const b = boot('Reserve As Work 6,100 : S Sam Bank Reserve 6')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[2])
+  })
+
+  it('every sample keyword raises 4 with no bank set', () => {
+    const b = boot('Print S Sam Base(1)')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[4])
+  })
+
+  it('=S Sam Base walks the chain, and answers 0 past the end', () => {
+    // routine 50: sample 1 is the BANK's own `next`
+    const src = 'S Sam Bank Reserve : S Sam Load "RAM:a.raw" : S Sam Load "RAM:b.raw" : '
+    const files = { 'a.raw': rawSample(100), 'b.raw': rawSample(64) }
+    expect(samNum(`${src}Print S Sam Base(1)`, files)).not.toBe(0)
+    expect(samNum(`${src}Print S Sam Base(2)`, files)).not.toBe(0)
+    expect(samNum(`${src}Print S Sam Base(3)`, files)).toBe(0)
+    // S Sam Base(0) makes the counter -1, and dbra decrements before testing,
+    // so it walks off the end rather than answering the bank
+    expect(samNum(`${src}Print S Sam Base(0)`, files)).toBe(0)
+  })
+
+  it('DEFECT: a raw sample is 24 bytes shorter than the file it came from', () => {
+    // subi.l #$24,d5 in L_SamLoad3: the size ALLOCATED minus the size READ.
+    // The data is the whole file; the last 24 bytes are outside the length.
+    expect(samNum('S Sam Bank Reserve : S Sam Load "RAM:a.raw" : Print S Sam Length(1)', {
+      'a.raw': rawSample(100),
+    })).toBe(76)
+  })
+
+  it('a raw sample defaults to 8000 Hz, and S Set Freq changes it', () => {
+    const files = { 'a.raw': rawSample(100) }
+    expect(samNum('S Sam Bank Reserve : S Sam Load "RAM:a.raw" : Print S Sam Freq(1)', files)).toBe(8000)
+    expect(
+      samNum('S Sam Bank Reserve : S Sam Load "RAM:a.raw" : S Set Freq 1,11025 : Print S Sam Freq(1)', files),
+    ).toBe(11025)
+  })
+
+  it('=S Sam Length answers 0 for a sample that is not there, where =S Sam Freq raises', () => {
+    // routine 60 has `beq _end` where routine 56 has `rbeq L_error0`
+    expect(samNum('S Sam Bank Reserve : Print S Sam Length(1)')).toBe(0)
+    const b = bootSam('S Sam Bank Reserve : Print S Sam Freq(1)')
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[0])
+  })
+
+  it('the chain is real memory: the header links can be walked with Leek', () => {
+    // +0 previous (the BANK for sample 1), +4 next, +8 length, +12 frequency
+    const files = { 'a.raw': rawSample(100), 'b.raw': rawSample(64) }
+    const src = 'S Sam Bank Reserve : S Sam Load "RAM:a.raw" : S Sam Load "RAM:b.raw" : '
+    expect(samNum(`${src}Print Leek(S Sam Base(1)+4)-S Sam Base(2)`, files)).toBe(0)
+    expect(samNum(`${src}Print Leek(S Sam Base(2))-S Sam Base(1)`, files)).toBe(0)
+    expect(samNum(`${src}Print Leek(S Sam Base(1))-Start(6)`, files)).toBe(0)
+    expect(samNum(`${src}Print Leek(S Sam Base(2)+4)`, files)).toBe(0)
+  })
+
+  it('S Sam Load with a number splices in BEFORE that sample', () => {
+    const files = { 'a.raw': rawSample(100), 'b.raw': rawSample(64) }
+    const src = 'S Sam Bank Reserve : S Sam Load "RAM:a.raw" : S Sam Load "RAM:b.raw",1 : '
+    // b is now sample 1 and a is sample 2 --- 64-24 and 100-24
+    expect(samNum(`${src}Print S Sam Length(1)`, files)).toBe(40)
+    expect(samNum(`${src}Print S Sam Length(2)`, files)).toBe(76)
+  })
+
+  it('S Sam Del unlinks, including sample 1, whose "previous" is the bank', () => {
+    const files = { 'a.raw': rawSample(100), 'b.raw': rawSample(64) }
+    const src = 'S Sam Bank Reserve : S Sam Load "RAM:a.raw" : S Sam Load "RAM:b.raw" : '
+    expect(samNum(`${src}S Sam Del 1 : Print S Sam Length(1)`, files)).toBe(40)
+    expect(samNum(`${src}S Sam Del 1 : Print S Sam Base(2)`, files)).toBe(0)
+    expect(samNum(`${src}S Sam Del 2 : Print S Sam Length(1)`, files)).toBe(76)
+  })
+
+  it('S Sam Bank Save writes "Sln.Sam." and S Sam Bank Load reads it back', () => {
+    const files = { 'a.raw': rawSample(100), 'b.raw': rawSample(64) }
+    const b = bootSam(
+      'S Sam Bank Reserve : S Sam Load "RAM:a.raw" : S Sam Load "RAM:b.raw" : ' +
+        'S Set Freq 2,11025 : S Sam Bank Save "RAM:out.sam" : ' +
+        'S Sam Bank Erase : S Sam Bank Load "RAM:out.sam" : ' +
+        'Print S Sam Length(1);S Sam Length(2);S Sam Freq(2)',
+      files,
+    )
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().replace(/\s+/g, ' ')).toBe('76 40 11025')
+    const saved = b.rt.vfs!.read('RAM:out.sam')!
+    expect(String.fromCharCode(...saved.subarray(0, 8))).toBe('Sln.Sam.')
+    // header + data for each: (24 + 76) + (24 + 40)
+    expect(saved.length).toBe(8 + 100 + 64)
+  })
+
+  it('a file whose first eight bytes are not "Sln.Sam." is error 3', () => {
+    const b = bootSam('S Sam Bank Load "RAM:junk.sam"', { 'junk.sam': rawSample(64) })
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[3])
+  })
+
+  it('S Sam Clip records a range, and an END of zero deletes it', () => {
+    const files = { 'a.raw': rawSample(100) }
+    const src = 'S Sam Bank Reserve : S Sam Load "RAM:a.raw" : '
+    expect(samNum(`${src}S Sam Clip 1,10,40 : Print Leek(S Sam Base(1)+16)`, files)).toBe(10)
+    expect(samNum(`${src}S Sam Clip 1,10,40 : Print Leek(S Sam Base(1)+20)`, files)).toBe(40)
+    expect(samNum(`${src}S Sam Clip 1,10,40 : S Sam Clip 1,0,0 : Print Leek(S Sam Base(1)+20)`, files)).toBe(0)
+    // an END past the sample is clamped to its length, which is 76
+    expect(samNum(`${src}S Sam Clip 1,10,999 : Print Leek(S Sam Base(1)+20)`, files)).toBe(76)
+    // ...and an END below the START raises
+    const b = bootSam(`${src}S Sam Clip 1,40,10`, files)
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(SLN_ERRORS[0])
+  })
+
+  it('S Sam Play arms a stop timer in FRAMES, and the VBL hook fires it', () => {
+    // (times * length) / freq * 50, added to CIA-A's TOD, which ticks at the
+    // vertical blank. 76 bytes at 8000 Hz played once is 0.0095s -> 0 frames,
+    // so use a longer one: 7600 bytes at 8000 Hz is 0.95s -> 47 frames
+    const b = bootSam(
+      'S Sam Bank Reserve : S Sam Load "RAM:big.raw" : S Sam Play 1,1,1,63 : Wait Vbl : Wait Vbl',
+      { 'big.raw': rawSample(7624) },
+    )
+    b.rt.frame()
+    expect(b.rt.sln.status & (1 << 5)).not.toBe(0) // the timer is armed
+    expect(b.rt.sln.status2 & 1).not.toBe(0) // voice 0 is in use
+    const stop = b.rt.sln.voices[0]!.stopAt
+    expect(stop - (b.rt.interp.tick & 0xffffff)).toBeGreaterThan(40)
+    for (let i = 0; i < 60; i++) b.rt.frame()
+    expect(b.rt.sln.status & (1 << 5)).toBe(0)
+    expect(b.rt.sln.status2 & 1).toBe(0)
+  })
+
+  it('TIMES of zero leaves the timer unarmed, which is what makes it infinite', () => {
+    // `cmpi.l #0,d0 / beq SamPlayStart` skips the `or.w d5,d6` that sets
+    // Status bits 5-8, so nothing ever stops the DMA
+    const b = bootSam('S Sam Bank Reserve : S Sam Load "RAM:big.raw" : S Sam Play 1,0,1,63 : Wait Vbl', {
+      'big.raw': rawSample(7624),
+    })
+    b.rt.frame()
+    expect(b.rt.sln.status & (1 << 5)).toBe(0)
+    for (let i = 0; i < 200; i++) b.rt.frame()
+    expect(b.rt.sln.status2 & 1).not.toBe(0)
+  })
+
+  it('S Sam Stop clears the DMA, the timer AND the S Volume control bit', () => {
+    // routine 58 does `bclr #5+n` and `bclr #1+n` --- and bit 1+n is the
+    // volume-control bit S Volume set, so stopping a voice loses the level
+    const b = bootSam(
+      'S Sam Bank Reserve : S Sam Load "RAM:big.raw" : S Sam Play 1,1,1,63 : S Volume 1,20 : ' +
+        'Wait Vbl : S Sam Stop 1 : Wait Vbl',
+      { 'big.raw': rawSample(7624) },
+    )
+    b.rt.frame()
+    expect(b.rt.sln.status & 0b10).not.toBe(0)
+    b.rt.frame()
+    expect(b.rt.sln.status & 0b10).toBe(0)
+    expect(b.rt.sln.status2 & 1).toBe(0)
+  })
+
+  it('DEFECT: S Sam Play undoes an S Volume that came before it', () => {
+    // routine 40 pushes the channel mask back onto AMOS's own argument stack
+    // and calls L_StopSam before doing anything else, and StopSam's second
+    // bclr is the volume-control bit. So the documented order --- set the
+    // level, then play --- is exactly the order that loses it.
+    const b = bootSam(
+      'S Sam Bank Reserve : S Sam Load "RAM:big.raw" : S Volume 1,20 : S Sam Play 1,1,1,63 : Wait Vbl',
+      { 'big.raw': rawSample(7624) },
+    )
+    b.rt.frame()
+    expect(b.rt.sln.status & 0b10).toBe(0)
+    // ...and the level itself survives in Volume[0], so re-arming the bit
+    // brings it back without another S Volume
+    expect(b.rt.sln.volume[0]).toBe(20)
+  })
+
+  it('S Volume replaces the whole controlled set rather than adding to it', () => {
+    // and.w #%1111111111100001,d2 is the first thing it does
+    const { rt } = run('S Volume 2,10 : S Volume 1,32')
+    expect(rt.sln.status & 0b0001_1110).toBe(0b10) // voice 0 only
+    expect(rt.sln.volume[0]).toBe(32)
+  })
+
+  it('a volume of 64 or more raises, and so does a negative one', () => {
+    for (const v of ['64', '-1']) {
+      const b = boot(`S Volume 1,${v}`)
+      expect(() => mustFinish(b.rt.runHeadless(2_000)), v).toThrow(SLN_ERRORS[0])
+    }
+  })
+
+  it('S Sam Chip Load skips the chip copy S Sam Play would otherwise make', () => {
+    const files = { 'a.raw': rawSample(1024) }
+    const b = bootSam('S Sam Bank Reserve : S Sam Chip Load "RAM:a.raw" : S Sam Play 1,1,1,63', files)
+    mustFinish(b.rt.runHeadless(2_000))
+    // no copy was allocated, so nothing is marked "free it when it stops"
+    expect(b.rt.sln.status & (0b1111 << 9)).toBe(0)
+    expect(b.rt.sln.voices[0]!.base).toBe(0)
+    const c = bootSam('S Sam Bank Reserve : S Sam Load "RAM:a.raw" : S Sam Play 1,1,1,63', files)
+    mustFinish(c.rt.runHeadless(2_000))
+    expect(c.rt.sln.status & (1 << 9)).not.toBe(0)
+    expect(c.rt.sln.voices[0]!.base).not.toBe(0)
+  })
+})

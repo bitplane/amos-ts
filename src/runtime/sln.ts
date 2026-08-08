@@ -270,6 +270,24 @@ export class SlnHeap {
   sizeOf(addr: number): number {
     return this.live.get((addr >>> 0) - HEAP_BASE) ?? 0
   }
+
+  /**
+   * Hand back the FRONT of a block and keep the rest, which is what
+   * `L_SamLoad3`'s 8SVX arm does: `FreeMem(block, 104)` and then carry on
+   * using `block + 104`. AmigaOS allows it — a block is not an object, it is
+   * a range on the memory list — and this is the one caller.
+   */
+  shrinkFront(addr: number, bytes: number): void {
+    const off = (addr >>> 0) - HEAP_BASE
+    const len = this.live.get(off)
+    if (len === undefined || bytes <= 0 || bytes >= len) return
+    this.live.delete(off)
+    const chip = this.chipBlocks.delete(off)
+    this.live.set(off + bytes, len - bytes)
+    if (chip) this.chipBlocks.add(off + bytes)
+    this.free.push({ off, len: bytes })
+    this.free.sort((a, b) => a.off - b.off)
+  }
 }
 
 /**
@@ -313,6 +331,12 @@ export interface SlnState {
   heap: SlnHeap
   /** `IWindow` — the one iconify window, open only while S Iconify is blocked */
   iconWindow: Window | null
+  /** SamBankNr — which AMOS bank the sample chain lives in; 0 means none */
+  samBankNr: number
+  /** Volume[4] — what the VBL hook re-asserts into AUDxVOL, per voice */
+  volume: number[]
+  /** IChan/ISBase/ISLen, one entry per voice */
+  voices: SlnVoice[]
 }
 
 export function newSlnState(): SlnState {
@@ -332,6 +356,9 @@ export function newSlnState(): SlnState {
     atype: 0,
     heap: new SlnHeap(),
     iconWindow: null,
+    samBankNr: 0,
+    volume: [0, 0, 0, 0],
+    voices: Array.from({ length: 4 }, () => ({ stopAt: 0, base: 0, len: 0 })),
   }
 }
 
@@ -415,6 +442,29 @@ export function slnVbl(rt: Runtime): void {
     const y = accumulate(st.curY, st.prevY, counterY(rt))
     st.curY = y.cur
     st.prevY = y.prev
+  }
+  /*
+   * The volume control, third in the hook: for each of Status bits 1 to 4,
+   * `move.w Volume[n],$dff0a8+n*$10`. It is a re-assert, not a set, so a level
+   * asked for by `S Volume` beats anything the sample player or the tracker
+   * wrote in the same frame -- and it keeps beating it until `S Sam Stop`
+   * clears the bit, which is the only thing that does.
+   */
+  for (let v = 0; v < 4; v++) {
+    if (st.status & (1 << (v + 1))) rt.host.audio?.setVolume(v, st.volume[v]! & 63)
+  }
+  /*
+   * The stop timer, fourth and last. `move.b $bfea01/$bfe901/$bfe801,d3` reads
+   * CIA-A's time-of-day counter, which ticks at the VERTICAL BLANK, and each
+   * armed voice is stopped once the clock reaches its IChan. `blt` is signed
+   * on a 24-bit value, so a wrap of the TOD leaves a voice playing until it
+   * comes round again -- 93 hours, and not worth reproducing beyond the mask.
+   */
+  const now = rt.interp.tick & 0xff_ffff
+  for (let v = 0; v < 4; v++) {
+    if (!(st.status & (1 << (v + 5)))) continue
+    if (now < st.voices[v]!.stopAt) continue
+    samStop(rt, 1 << v)
   }
   /*
    * The user interrupts, which is where this port stops:
@@ -742,6 +792,269 @@ function element3D(st: SlnState, nr0: number, x: number, y: number, z: number, w
   return { addr: (slot.base + (write ? (off << 16) >> 16 : off)) >>> 0, cell: slot.cell }
 }
 
+/* ---- the sample player ------------------------------------------------ *
+ *
+ * A sample is a 24-byte header with its data straight after it, allocated out
+ * of the pool, and the samples of a bank form a doubly-linked list threaded
+ * through those headers. The bank itself is eight bytes and holds the head
+ * pointer at +4, which is why the list is walked by NUMBER rather than
+ * indexed: `=S Sam Base(3)` follows `next` three times.
+ *
+ *     +0   the PREVIOUS sample, or the BANK for sample 1
+ *     +4   the next sample, or 0
+ *     +8   length in bytes, not counting the header
+ *     +12  replay frequency in Hz
+ *     +16  clip start      +20 clip end, 0 meaning no clip
+ *     +24  the raw signed 8-bit data
+ *
+ * The layout is the source's own comment block, and a program can walk it
+ * with `Leek(S Sam Base(1)+4)`.
+ * ---------------------------------------------------------------------- */
+
+/** the sample header, as offsets, because eight routines index it by hand */
+const SAM_PREV = 0
+const SAM_NEXT = 4
+const SAM_LEN = 8
+const SAM_FREQ = 12
+const SAM_CLIP0 = 16
+const SAM_CLIP1 = 20
+export const SAM_HEADER = 24
+
+/** the PAL colour clock, and the period divisor `S Sam Play` uses verbatim */
+const PAL_CLOCK = 3546895
+
+const peek32 = (rt: Runtime, a: number): number =>
+  ((peek8(rt, a) << 24) | (peek8(rt, a + 1) << 16) | (peek8(rt, a + 2) << 8) | peek8(rt, a + 3)) >>> 0
+
+function poke32(rt: Runtime, a: number, v: number): void {
+  poke8(rt, a, v >>> 24)
+  poke8(rt, a + 1, v >>> 16)
+  poke8(rt, a + 2, v >>> 8)
+  poke8(rt, a + 3, v)
+}
+
+/**
+ * `=S Sam Base(NR)` — routine 50, and the routine every other sample keyword
+ * calls to turn a number into an address.
+ *
+ *     dlea SamBankNr / move.w (a0),d0 / beq -> error 4
+ *     Rjsr L_Bnk.GetAdr / beq -> error 4
+ *     move.l (a3)+,d1 / subq.l #1,d1
+ *  L: move.l 4(a0),a1 / beq -> 0 / move.l a1,a0 / dbra d1,L
+ *
+ * So sample 1 is the bank's own `next`, and 0 comes back for a number past
+ * the end of the chain. NOTE `S Sam Base(0)`: `subq.l #1` makes the counter
+ * -1, and `dbra` decrements BEFORE testing, so it walks the whole chain and
+ * answers 0 rather than answering the bank.
+ */
+function samBase(rt: Runtime, nr: number): number {
+  const st = rt.sln
+  if (st.samBankNr === 0) slnError(4)
+  const bank = rt.memBanks.get(st.samBankNr)
+  if (!bank) slnError(4)
+  let addr = rt.bankBase(st.samBankNr) >>> 0
+  let count = (nr - 1) | 0
+  for (;;) {
+    const next = peek32(rt, addr + SAM_NEXT)
+    if (next === 0) return 0
+    addr = next
+    if (count === 0) return addr
+    count = ((count - 1) & 0xffff) === 0xffff ? -1 : count - 1
+    if (count < 0) return 0
+  }
+}
+
+/** `L_GetAdrOfLastSam`, routine 52 — walk to the end, bank included */
+function lastSam(rt: Runtime): number {
+  const st = rt.sln
+  if (st.samBankNr === 0) slnError(4)
+  if (!rt.memBanks.get(st.samBankNr)) slnError(4)
+  let addr = rt.bankBase(st.samBankNr) >>> 0
+  for (;;) {
+    const next = peek32(rt, addr + SAM_NEXT)
+    if (next === 0) return addr
+    addr = next
+  }
+}
+
+/**
+ * `L_SamLoad3` — routine 54, the loader both `S Sam Load` and
+ * `S Sam Chip Load` go through, and it does not add the sample to the chain.
+ *
+ *     Open(name, MODE_OLDFILE)                   0 -> error 3
+ *     Seek(fh, 0, OFFSET_END) / Seek(fh, 0, OFFSET_BEGINNING)
+ *     d5 = the file length                       (Seek returns the OLD position)
+ *     AllocMem(d5 + 24, d7)                      0 -> error 3, not error 1
+ *     Read(fh, block + 24, d5)
+ *
+ * so the FILE lands at +24 and the 24 bytes in front of it are the header.
+ *
+ * DEFECT: the raw arm. `subi.l #$24,d5` — the recorded length is the FILE
+ * length minus twenty-four, where the data is the whole file. The author
+ * conflated the size he allocated with the size he read, and the last 24
+ * bytes of every raw sample are outside the length, so they never play. It
+ * round-trips through `S Sam Bank Save`, which writes `length + 24`, so
+ * nothing else notices.
+ *
+ * The 8SVX arm is stranger. It tests `"FORM"` at +0 and `"8SVX"` at +8 of the
+ * FILE, then assumes a fixed 104-byte IFF header: it moves the sample header
+ * forward to +104 (so the data starts at file offset 104), FreeMems the 104
+ * bytes it just walked past, records `filelen - 128` as the length, and takes
+ * the frequency from a WORD at file offset 32 — which is VHDR's
+ * samplesPerSec, correct, but only if the VHDR is the first chunk. The 104
+ * and the 128 disagree by exactly the header size, so the data also stops 24
+ * bytes short of the file. Neither number is read from the IFF, so an 8SVX
+ * whose header is not 104 bytes long loads as noise.
+ */
+function samLoadRaw(rt: Runtime, name: string, chip: boolean): number {
+  const bytes = rt.vfs?.read(name)
+  if (!bytes) slnError(3)
+  const file = bytes!
+  const block = rt.sln.heap.alloc(file.length + SAM_HEADER, { chip })
+  if (block === 0) slnError(3)
+  for (let i = 0; i < file.length; i++) poke8(rt, block + SAM_HEADER + i, file[i]!)
+  const magic = (off: number): string => String.fromCharCode(...file.subarray(off, off + 4))
+  if (file.length >= 12 && magic(0) === 'FORM' && magic(8) === '8SVX') {
+    const head = (block + 104) >>> 0
+    poke32(rt, head + SAM_LEN, (file.length - 128) >>> 0)
+    // move.w #0,116(a0) / move.w 56(a0),118(a0): the frequency is a WORD, and
+    // 56 off the BLOCK is file offset 32, VHDR's samplesPerSec
+    poke32(rt, head + SAM_FREQ, ((file[32] ?? 0) << 8) | (file[33] ?? 0))
+    poke32(rt, head + SAM_CLIP0, 0)
+    poke32(rt, head + SAM_CLIP1, 0)
+    rt.sln.heap.shrinkFront(block, 104)
+    return head
+  }
+  poke32(rt, block + SAM_LEN, (file.length - SAM_HEADER) >>> 0)
+  poke32(rt, block + SAM_FREQ, 8000) // "Set standard freq."
+  poke32(rt, block + SAM_CLIP0, 0)
+  poke32(rt, block + SAM_CLIP1, 0)
+  return block
+}
+
+/** routines 38 and 61 — load, then link on at the END of the chain */
+function samLoadAppend(rt: Runtime, name: string, chip: boolean): void {
+  const fresh = samLoadRaw(rt, name, chip)
+  const last = lastSam(rt)
+  poke32(rt, last + SAM_NEXT, fresh)
+  poke32(rt, fresh + SAM_PREV, last)
+  poke32(rt, fresh + SAM_NEXT, 0)
+}
+
+/**
+ * Routines 39 and 62 — load, then splice in BEFORE sample NR.
+ *
+ *     move.l (a0),(a1)    new.prev = nr.prev
+ *     move.l a1,(a0)      nr.prev  = new
+ *     move.l a0,4(a1)     new.next = nr
+ *     move.l (a1),a2 / move.l a1,4(a2)   nr.prev.next = new
+ *
+ * A number past the end of the chain falls through to the append path, so
+ * `S Sam Load "x",99` on a four-sample bank makes it the fifth.
+ */
+function samLoadInsert(rt: Runtime, name: string, nr: number, chip: boolean): void {
+  const fresh = samLoadRaw(rt, name, chip)
+  const at = samBase(rt, nr)
+  if (at === 0) {
+    const last = lastSam(rt)
+    poke32(rt, last + SAM_NEXT, fresh)
+    poke32(rt, fresh + SAM_PREV, last)
+    poke32(rt, fresh + SAM_NEXT, 0)
+    return
+  }
+  const prev = peek32(rt, at + SAM_PREV)
+  poke32(rt, fresh + SAM_PREV, prev)
+  poke32(rt, at + SAM_PREV, fresh)
+  poke32(rt, fresh + SAM_NEXT, at)
+  poke32(rt, prev + SAM_NEXT, fresh)
+}
+
+/** the eight-byte bank `S Sam Bank Reserve` makes, and its name */
+const SAM_BANK_NAME = 'Sln.Sam.'
+
+/** routines 44 and 53 — reserve the bank, zero both longwords, adopt it */
+function samBankReserve(rt: Runtime, nr: number): void {
+  if (rt.memBanks.get(nr)) slnError(2)
+  rt.reserveBank(nr, 8, SAM_BANK_NAME)
+  const base = rt.bankBase(nr) >>> 0
+  poke32(rt, base, 0)
+  poke32(rt, base + 4, 0)
+  rt.sln.samBankNr = nr & 0xffff
+}
+
+/**
+ * The chip copy `S Sam Play` makes when a sample is not already in chip
+ * memory, and the four `IChan` stop timers beside it.
+ *
+ * Status bits 5-8 mean "this voice has a stop time set" and bits 9-12 mean
+ * "free the chip copy when it stops". The VBL hook checks the first four
+ * against the CIA-A time-of-day counter, which on an Amiga ticks at the
+ * vertical blank — which is why `S Sam Play`'s arithmetic multiplies by 50.
+ */
+export interface SlnVoice {
+  /** IChan[n] — the TOD tick to stop at */
+  stopAt: number
+  /** ISBase[n] / ISLen[n] — the chip block, so the hook can free it */
+  base: number
+  len: number
+}
+
+/** an Int8Array over whatever the address resolves to, for the audio sink */
+function pcmAt(rt: Runtime, addr: number, len: number): Int8Array | null {
+  const m = rt.resolveAddr(addr >>> 0)
+  if (!m || len <= 0) return null
+  const n = Math.min(len, m.data.length - m.off)
+  if (n <= 0) return null
+  return new Int8Array(m.data.buffer, m.data.byteOffset + m.off, n)
+}
+
+/**
+ * `L_StopSam`'s body, routine 58 — shared with `S Sam Play`, which stops the
+ * voices it is about to use before it uses them.
+ *
+ *     move.w  d1,$dff096          DMACON, bit 15 clear: DMA off
+ *     bclr    #5+n,d0 / bclr #1+n,d0 / bclr #n,d3
+ *     btst    #9+n,d0 / beq       nothing to free
+ *     bsr     StopSamMemCheck / cmpi.l #1,d2 / bne   more than one user
+ *     FreeMem(ISLen[n], ISBase[n])
+ *
+ * so it clears the stop timer, the VOLUME CONTROL bit — which is `S Volume`'s,
+ * and a program that stops a voice loses the level it asked for on it — and
+ * the Status2 in-use bit, in that order.
+ *
+ * DEFECT: `StopSamMemCheck` does not count what it says it counts. It is
+ * `moveq #3,d6` over the four ISBase entries with `cmp.l (a2),d7 / bne` LEAVING
+ * the loop, so it counts a RUN of voices sharing this block from ISBase0
+ * onward and stops at the first that differs — not the total. Voices 0 and 2
+ * sharing one chip copy with voice 1 on something else each count one user,
+ * and the block is freed twice.
+ */
+function samStop(rt: Runtime, channels: number): void {
+  const st = rt.sln
+  for (let v = 0; v < 4; v++) {
+    if (!(channels & (1 << v))) continue
+    rt.host.audio?.stop(v)
+    st.status &= ~(1 << (v + 5))
+    st.status &= ~(1 << (v + 1))
+    st.status2 &= ~(1 << v)
+    if (!(st.status & (1 << (v + 9)))) continue
+    if (samMemUsers(st, v) === 1) st.heap.freeMem(st.voices[v]!.base)
+    st.voices[v] = { stopAt: st.voices[v]!.stopAt, base: 0, len: 0 }
+    st.status &= ~(1 << (v + 9))
+  }
+}
+
+/** `SamMemCheck` / `StopSamMemCheck` — the run, not the count; see `samStop` */
+function samMemUsers(st: SlnState, voice: number): number {
+  const want = st.voices[voice]!.base
+  let n = 0
+  for (let v = 0; v < 4; v++) {
+    if (st.voices[v]!.base !== want) break
+    n++
+  }
+  return n
+}
+
 export function makeSlnInstructions(rt: Runtime): Record<string, Instr> {
   return {
     // ---- mouse ---------------------------------------------------------
@@ -893,6 +1206,329 @@ export function makeSlnInstructions(rt: Runtime): Record<string, Instr> {
      */
     's aerase all'(): void {
       for (let n = 0; n < SLN_ARRAYS; n++) arrayInit(rt, n, 1, 0, 0, 0)
+    },
+
+    // ---- samples --------------------------------------------------------
+    /**
+     * Routine 37 — `S Volume CHANNELS, VOLUME`, and it is not a one-shot: it
+     * arms Status bits 1 to 4, and the VBL hook writes `Volume[n]` into AUDxVOL
+     * every frame for as long as they are set. So a level asked for here
+     * OVERRIDES whatever the replayer or a playing sample wants, once a frame,
+     * until something clears the bit.
+     *
+     *     and.w #%1111111111100001,d2     "Clear any former vol. control"
+     *
+     * is the first thing it does, so each call replaces the whole set rather
+     * than adding to it: `S Volume 1,32` after `S Volume 2,10` leaves voice 1
+     * uncontrolled. The range check is `cmpi #64,d0 / rbcc`, unsigned, so 64
+     * and above raise and a negative volume raises with them.
+     */
+    's volume'(it): void {
+      const st = rt.sln
+      const channels = it.evalInt()
+      it.expect(',')
+      const vol = it.evalInt()
+      if ((vol >>> 0) >= 64) slnError(0)
+      st.status &= 0b1111_1111_1110_0001
+      for (let v = 0; v < 4; v++) {
+        if (!(channels & (1 << v))) continue
+        st.status |= 1 << (v + 1)
+        st.volume[v] = vol & 0xffff
+      }
+    },
+    /** routines 43 — `S Sam Bank= NR`, a WORD store and no validation at all */
+    's sam bank='(it): void {
+      rt.sln.samBankNr = it.evalInt() & 0xffff
+    },
+    /**
+     * Routines 53 and 44 — `S Sam Bank Reserve [NR]`, defaulting to bank 6.
+     * `Bnk.Reserve` for eight bytes under the name "Sln.Sam.", both longwords
+     * cleared, and SamBankNr adopted. A bank number already in use is error 2.
+     */
+    's sam bank reserve'(it): void {
+      samBankReserve(rt, it.atStmtEnd() ? 6 : it.evalInt())
+    },
+    /** routines 38/39 (public memory) and 61/62 (chip) — see `samLoadRaw` */
+    's sam load'(it): void {
+      const name = it.evalStr()
+      if (it.accept(',')) samLoadInsert(rt, name, it.evalInt(), false)
+      else samLoadAppend(rt, name, false)
+    },
+    /**
+     * Routines 61 and 62 — the same loader with `move.l #$2,d7`, MEMF_CHIP.
+     * It matters to `S Sam Play`, which checks `TypeOfMem` and skips making a
+     * chip copy when the sample is already there.
+     */
+    's sam chip load'(it): void {
+      const name = it.evalStr()
+      if (it.accept(',')) samLoadInsert(rt, name, it.evalInt(), true)
+      else samLoadAppend(rt, name, true)
+    },
+    /** routine 41 — `S Set Freq NR, FREQ`, a plain longword into the header */
+    's set freq'(it): void {
+      const nr = it.evalInt()
+      it.expect(',')
+      const freq = it.evalInt()
+      const addr = samBase(rt, nr)
+      if (addr === 0) slnError(0)
+      poke32(rt, addr + SAM_FREQ, freq >>> 0)
+    },
+    /**
+     * Routine 51 — `S Sam Clip NR, START, END`.
+     *
+     * An END of ZERO deletes the clip, which is why the header's "no clip" is
+     * a zero end rather than a zero length. An END past the sample is clamped
+     * to the length; an END below the START raises. START is not checked
+     * against anything, so a start past the end of the sample is accepted and
+     * `S Sam Play` then computes a negative clip length and falls back to
+     * playing the whole sample.
+     */
+    's sam clip'(it): void {
+      const nr = it.evalInt()
+      it.expect(',')
+      const start = it.evalInt()
+      it.expect(',')
+      let end = it.evalInt()
+      const addr = samBase(rt, nr)
+      if (addr === 0) slnError(0)
+      if (end === 0) {
+        poke32(rt, addr + SAM_CLIP0, 0)
+        poke32(rt, addr + SAM_CLIP1, 0)
+        return
+      }
+      const len = peek32(rt, addr + SAM_LEN)
+      if (end > len) end = len
+      if (end < start) slnError(0)
+      poke32(rt, addr + SAM_CLIP0, start >>> 0)
+      poke32(rt, addr + SAM_CLIP1, end >>> 0)
+    },
+    /**
+     * Routine 40 — `S Sam Play NR, TIMES, CHANNELS, VOLUME`, and the whole of
+     * the player is in it.
+     *
+     * It stops the named channels first (`Rbsr L_StopSam` with the mask pushed
+     * back onto AMOS's own argument stack), then finds the sample, then makes
+     * sure the bytes it is about to hand Paula are in chip memory:
+     * `TypeOfMem` is -534, and `cmpi.l #$703,d0` is MEMF_PUBLIC|MEMF_CHIP|
+     * MEMF_LOCAL|MEMF_24BITDMA. Anything else gets an `AllocMem(len, MEMF_CHIP)`
+     * and a copy, and Status bits 9-12 remember to free it again.
+     *
+     * TIMES is not a loop counter. The routine starts the DMA and works out
+     * WHEN to stop it:
+     *
+     *     mulu d0,d2          times * length
+     *     divu d3,d2          / frequency          -> seconds, remainder high
+     *     ...quotient * 50, remainder * 50 / freq, added back
+     *     move.b $bfea01/$bfe901/$bfe801, d3       CIA-A time of day
+     *     add.l d3,d2 -> IChan[n]
+     *
+     * and CIA-A's TOD counts VERTICAL BLANKS, which is where the 50 comes from
+     * and why the answer is in frames. Amiga audio DMA repeats from AUDxLC
+     * forever, so what a program hears is the sample looping until the hook
+     * reaches that tick. TIMES = 0 leaves Status bits 5-8 clear and nothing
+     * ever stops it — "0 = infinite", which is the same mechanism, not a
+     * special case.
+     *
+     * The period is `3546895 / freq` truncated, so the frequency actually
+     * played is the period's rather than the one asked for.
+     *
+     * DEVIATION: `mulu` is 16x16, so `times * length` truncates both operands
+     * to their low words. A sample of more than 65535 bytes therefore gets a
+     * stop time computed from `length mod 65536` and cuts off early. That is
+     * the routine's, and it is reproduced; what is NOT the routine's is that
+     * the clock here is the frame counter rather than a real TOD, which comes
+     * to the same thing at 50Hz and drifts on a 60Hz machine, where the real
+     * TOD would too.
+     */
+    's sam play'(it): void {
+      const st = rt.sln
+      const nr = it.evalInt()
+      it.expect(',')
+      const times = it.evalInt()
+      it.expect(',')
+      const channels = it.evalInt() & ~0x8000_0000
+      it.expect(',')
+      const vol = it.evalInt() & ~0x8000_0000
+      if ((vol >>> 0) > 63) slnError(0)
+      if ((channels >>> 0) > 0b1111) slnError(0)
+      samStop(rt, channels)
+      const addr = samBase(rt, nr)
+      if (addr === 0) slnError(0)
+
+      const clipEnd = peek32(rt, addr + SAM_CLIP1)
+      const clipStart = peek32(rt, addr + SAM_CLIP0)
+      const length = peek32(rt, addr + SAM_LEN)
+      let dataAt = (addr + SAM_HEADER) >>> 0
+      let clipLen = 0
+      let owned = 0
+      if (st.heap.chip(addr)) {
+        if (clipEnd !== 0) {
+          const n = (clipEnd - clipStart) | 0
+          if (n >= 0) {
+            dataAt = (addr + SAM_HEADER + clipStart) >>> 0
+            clipLen = n
+          }
+        }
+      } else {
+        const n = clipEnd !== 0 ? (clipEnd - clipStart) | 0 : 0
+        const want = n > 0 ? n : length
+        const copy = st.heap.alloc(want, { chip: true })
+        if (copy === 0) slnError(5)
+        const from = (addr + SAM_HEADER + (n > 0 ? clipStart : 0)) >>> 0
+        for (let i = 0; i < want; i++) poke8(rt, copy + i, peek8(rt, from + i))
+        dataAt = copy
+        clipLen = n > 0 ? n : 0
+        owned = copy
+      }
+
+      const playLen = clipLen !== 0 ? clipLen : length
+      const freq = peek32(rt, addr + SAM_FREQ)
+      // the frame count, exactly as the routine computes it
+      let ticks = 0
+      if (freq !== 0) {
+        const total = mulu16(times, playLen)
+        const q = Math.floor(total / freq) & 0xffff
+        const r = total % freq
+        ticks = (q * 50 + (Math.floor((r * 50) / freq) & 0xffff)) | 0
+      }
+      const period = freq === 0 ? 0 : Math.floor(PAL_CLOCK / freq) & 0xffff
+      const now = rt.interp.tick & 0xff_ffff
+      const audio = rt.host.audio
+      const pcm = pcmAt(rt, dataAt, playLen)
+      for (let v = 0; v < 4; v++) {
+        if (!(channels & (1 << v))) continue
+        if (times !== 0) {
+          st.status |= 1 << (v + 5)
+          if (owned !== 0) st.status |= 1 << (v + 9)
+        }
+        st.voices[v] = { stopAt: (now + ticks) >>> 0, base: owned, len: playLen }
+        st.status2 |= 1 << v
+        if (pcm && period !== 0) audio?.play(v, pcm, PAL_CLOCK / period, vol, 0, playLen)
+      }
+    },
+    /**
+     * Routine 58 — `S Sam Stop CHANNELS`. `move.w d1,$dff096` with bit 15
+     * clear turns the DMA off, then the status bits go and, if this voice was
+     * the last user of a chip copy, the copy is freed.
+     *
+     * `SamMemCheck` is what decides that: it compares this voice's ISBase with
+     * all four and counts the matches, freeing only on exactly one. NOTE the
+     * loop is `moveq #3,d6 / dbra` with a `bne` that leaves it early, so it
+     * stops counting at the first voice whose base DIFFERS — it counts a run,
+     * not a total. Two voices sharing a copy with a third voice between them
+     * therefore both think they are alone, and the block is freed twice.
+     */
+    's sam stop'(it): void {
+      const channels = it.evalInt() & ~0x8000_0000
+      if ((channels >>> 0) > 0b1111) slnError(0)
+      samStop(rt, channels)
+    },
+    /**
+     * Routine 42 — `S Sam Del NR`, unlinking one sample and freeing it.
+     *
+     * It looks the sample up three times — NR, NR-1 and NR+1 — rather than
+     * following the links it already has, and re-pushes the argument onto
+     * AMOS's stack each time (`move.l (a3),-(sp)`, with the source's own
+     * comment *"Not a mistake!"*, because `S Sam Base` is what consumes it).
+     * Deleting sample 1 has its own arm: the previous "sample" is the bank.
+     */
+    's sam del'(it): void {
+      const nr = it.evalInt()
+      const victim = samBase(rt, nr)
+      if (victim === 0) slnError(0)
+      const prev = nr - 1 <= 0 ? rt.bankBase(rt.sln.samBankNr) >>> 0 : samBase(rt, nr - 1)
+      const next = samBase(rt, nr + 1)
+      poke32(rt, prev + SAM_NEXT, next)
+      if (next !== 0) poke32(rt, next + SAM_PREV, prev)
+      rt.sln.heap.freeMem(victim)
+    },
+    /**
+     * Routines 45 and 59 — `S Sam Bank Erase [NR]`. It deletes sample 1 over
+     * and over until `S Sam Base(1)` answers zero, then `Bnk.Eff` on the bank
+     * number. NOTE it erases whichever bank the ARGUMENT names while deleting
+     * out of whichever bank SamBankNr names, and nothing makes those the same:
+     * `S Sam Bank Erase 7` with the sample bank set to 6 empties bank 6 and
+     * erases bank 7.
+     */
+    's sam bank erase'(it): void {
+      const nr = it.atStmtEnd() ? rt.sln.samBankNr : it.evalInt()
+      for (let guard = 0; guard < 4096; guard++) {
+        const first = samBase(rt, 1)
+        if (first === 0) break
+        const next = peek32(rt, first + SAM_NEXT)
+        poke32(rt, (rt.bankBase(rt.sln.samBankNr) >>> 0) + SAM_NEXT, next)
+        if (next !== 0) poke32(rt, next + SAM_PREV, rt.bankBase(rt.sln.samBankNr) >>> 0)
+        rt.sln.heap.freeMem(first)
+      }
+      rt.eraseBank(nr)
+    },
+    /**
+     * Routines 46 and 47 — `S Sam Bank Load NAME$ [,NR]`, defaulting to bank 6.
+     *
+     * The file is "Sln.Sam." and then, per sample, the twelve bytes of the
+     * header up to and including the length, followed by `length + 12` more —
+     * which covers the frequency, the two clip fields and the data. So the
+     * on-disk record is the whole 24-byte header plus the data, split across
+     * two reads because the loader needs the length before it can allocate.
+     * The two link pointers are written to the file and thrown away on the way
+     * back in, which is what makes the file portable between sessions.
+     *
+     * A short read of the twelve-byte record ends the file cleanly (*"assuming
+     * that no more samples were saved"*); anything else is error 3.
+     */
+    's sam bank load'(it): void {
+      const name = it.evalStr()
+      const nr = it.accept(',') ? it.evalInt() : 6
+      const bytes = rt.vfs?.read(name)
+      if (!bytes) slnError(3)
+      const file = bytes!
+      const magic = String.fromCharCode(...file.subarray(0, 8))
+      if (magic !== SAM_BANK_NAME) slnError(3)
+      samBankReserve(rt, nr)
+      let at = 8
+      let prev = rt.bankBase(nr) >>> 0
+      while (at + 12 <= file.length) {
+        const len =
+          ((file[at + 8]! << 24) | (file[at + 9]! << 16) | (file[at + 10]! << 8) | file[at + 11]!) >>> 0
+        const block = rt.sln.heap.alloc(len + SAM_HEADER)
+        if (block === 0) slnError(1)
+        for (let i = 0; i < 12; i++) poke8(rt, block + i, file[at + i]!)
+        for (let i = 0; i < len + 12; i++) poke8(rt, block + 12 + i, file[at + 12 + i] ?? 0)
+        poke32(rt, prev + SAM_NEXT, block)
+        poke32(rt, block + SAM_PREV, prev)
+        poke32(rt, block + SAM_NEXT, 0)
+        prev = block
+        at += 12 + len + 12
+      }
+    },
+    /**
+     * Routines 48 and 49 — `S Sam Bank Save NAME$ [,NR]`. The two-argument
+     * form swaps SamBankNr for the duration and puts it back on every exit,
+     * failure included; the one-argument form pushes SamBankNr and falls into
+     * it, so it is the same code saving the current bank.
+     *
+     * Each sample is written as `header + length + 24` bytes straight out of
+     * memory, link pointers and all — see `S Sam Bank Load` for what happens
+     * to them on the way back.
+     */
+    's sam bank save'(it): void {
+      const st = rt.sln
+      const name = it.evalStr()
+      const nr = it.accept(',') ? it.evalInt() : st.samBankNr
+      const was = st.samBankNr
+      st.samBankNr = nr & 0xffff
+      try {
+        const out: number[] = [...SAM_BANK_NAME].map((c) => c.charCodeAt(0))
+        for (let n = 1; ; n++) {
+          const addr = samBase(rt, n)
+          if (addr === 0) break
+          const total = peek32(rt, addr + SAM_LEN) + SAM_HEADER
+          for (let i = 0; i < total; i++) out.push(peek8(rt, addr + i))
+        }
+        if (!rt.vfs?.writeFile(name, Uint8Array.from(out))) slnError(3)
+      } finally {
+        st.samBankNr = was
+      }
     },
 
     // ---- files and the iconify window -----------------------------------
@@ -1074,6 +1710,31 @@ export function makeSlnFunctions(rt: Runtime): Record<string, Func> {
      * `L_InterFree`, and this is that.
      */
     's ifree': (): Value => VI(rt.sln.interBase.filter((v) => v === 0).length),
+    // ---- samples --------------------------------------------------------
+    /** routine 55 — SamBankNr, straight out of the data zone */
+    's sam bank': (): Value => VI(rt.sln.samBankNr),
+    /** routine 50 — see `samBase`; 0 for a number past the end of the chain */
+    's sam base': (_, a): Value => VI(samBase(rt, int(a[0]!))),
+    /**
+     * Routine 56 — the header's frequency longword. A sample that is not there
+     * raises, where `=S Sam Length` on the same number answers 0.
+     */
+    's sam freq': (_, a): Value => {
+      const addr = samBase(rt, int(a[0]!))
+      if (addr === 0) slnError(0)
+      return VI(peek32(rt, addr + SAM_FREQ) | 0)
+    },
+    /**
+     * Routine 60 — the header's length. Seven instructions, and the missing
+     * one is the error: `cmpi.l #0,d3 / beq _end` returns the zero `S Sam Base`
+     * left in d3 rather than raising, so a sample that is not there is
+     * indistinguishable from one of length zero.
+     */
+    's sam length': (_, a): Value => {
+      const addr = samBase(rt, int(a[0]!))
+      return VI(addr === 0 ? 0 : peek32(rt, addr + SAM_LEN) | 0)
+    },
+
     // ---- arrays ---------------------------------------------------------
     /** routine 12 — Asize[nr], the BYTE count that went to AllocMem */
     's asize': (_, a): Value => VI(rt.sln.arrays[guardedSlot(int(a[0]!))]?.size ?? 0),

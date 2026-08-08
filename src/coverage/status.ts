@@ -1403,6 +1403,13 @@ export const FAITHFUL = new Set<string>([
   // Batch 3 -- the four that belong to no group: a character-set scan, the
   // AmigaDOS block checksum, a file delete and the iconify window.
   's compare$', 's checksum', 's delete', 's iconify',
+  // Batch 4 -- the sample player: a bank of chained AllocMem'd headers, a
+  // one-shot play whose "number of times" is a CIA time-of-day deadline, and
+  // a per-voice volume the VBL hook re-asserts.
+  's sam bank reserve', 's sam bank=', 's sam bank', 's sam bank erase',
+  's sam bank load', 's sam bank save', 's sam base', 's sam load',
+  's sam chip load', 's sam del', 's sam play', 's sam stop', 's sam clip',
+  's sam freq', 's set freq', 's sam length', 's volume',
 
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
@@ -4508,6 +4515,102 @@ export const NOTES: Record<string, string> = {
     "and re-runs a frame later --- the same shape Eliconify Amos already uses, and for the same reason. " +
     "src/amiga/intuition.ts opens the Workbench on demand for a WBENCHSCREEN NewWindow, which is AROS's " +
     "behaviour and not this routine's.",
+
+  "s sam bank reserve":
+    "Routines 53 and 44, defaulting to bank 6. Bnk.Reserve for EIGHT bytes under the name \"Sln.Sam.\", both " +
+    "longwords cleared, SamBankNr adopted; a number already in use is error 2. The bank is a head pointer and " +
+    "nothing else --- the samples themselves are AllocMem'd and chained through their own headers, which is " +
+    "why =S Sam Base(1) is the bank's `next` field.",
+  "s sam bank=":
+    "Routine 43 --- a WORD store into SamBankNr with no validation whatever. The bank is not checked until " +
+    "something looks a sample up.",
+  "s sam bank":
+    "Routine 55 --- SamBankNr, straight out of the data zone.",
+  "s sam base":
+    "Routine 50, and the routine every other sample keyword uses to turn a number into an address. It walks " +
+    "`4(a0)` from the bank, so sample 1 is the bank's own next pointer, and answers 0 past the end of the " +
+    "chain. NOTE S Sam Base(0): `subq.l #1` makes the counter -1 and `dbra` decrements before testing, so it " +
+    "walks the whole chain and answers 0 rather than answering the bank. A SamBankNr of zero, or a bank that " +
+    "is not reserved, is error 4.",
+  "s sam load":
+    "Routines 38 (append) and 39 (splice in BEFORE sample NR), over the shared loader at routine 54. The file " +
+    "is sized with two Seeks, AllocMem'd at length + 24 and read in at +24, so the 24 bytes in front of it are " +
+    "the header. DEFECT: `subi.l #$24,d5` records the FILE length minus twenty-four where the data is the " +
+    "whole file --- the author conflated the size he allocated with the size he read, and the last 24 bytes of " +
+    "every raw sample are outside the length and never play. It round-trips through S Sam Bank Save, which " +
+    "writes length + 24, so nothing else notices. The 8SVX arm tests \"FORM\" and \"8SVX\" and then assumes a " +
+    "FIXED 104-byte IFF header: it moves the sample header to +104, FreeMems the 104 bytes it walked past, " +
+    "records `filelen - 128` (so the data stops 24 bytes short as well) and takes the frequency from a WORD at " +
+    "file offset 32, which is VHDR's samplesPerSec and correct only if VHDR is the first chunk. Neither number " +
+    "is read from the IFF, so an 8SVX with any other header length loads as noise. A failed AllocMem is error " +
+    "3, not error 1.",
+  "s sam chip load":
+    "Routines 61 and 62 --- the same loader with `move.l #$2,d7`, MEMF_CHIP. It matters to S Sam Play, which " +
+    "checks TypeOfMem (-534) against $703 and skips making a chip copy when the sample is already there.",
+  "s sam del":
+    "Routine 42. It looks the sample up THREE times --- NR, NR-1 and NR+1 --- rather than following the links " +
+    "it already has, re-pushing the argument onto AMOS's stack each time (`move.l (a3),-(sp)`, with the " +
+    "author's own comment 'Not a mistake!', because S Sam Base is what consumes it). Deleting sample 1 has its " +
+    "own arm, where the previous sample is the bank.",
+  "s sam bank erase":
+    "Routines 45 and 59 --- delete sample 1 until S Sam Base(1) answers zero, then Bnk.Eff. NOTE it deletes " +
+    "out of whichever bank SamBankNr names and erases whichever bank the ARGUMENT names, and nothing makes " +
+    "those the same: S Sam Bank Erase 7 with the sample bank set to 6 empties bank 6 and erases bank 7.",
+  "s sam bank load":
+    "Routine 47 (46 defaults the bank to 6). The file is \"Sln.Sam.\" and then, per sample, the twelve bytes of " +
+    "header up to and including the length, followed by `length + 12` more --- so the record is the whole " +
+    "24-byte header plus the data, split across two reads because the loader needs the length before it can " +
+    "allocate. The two link pointers are written to the file and thrown away on the way back in. A short read " +
+    "of the twelve-byte record ends the file cleanly ('assuming that no more samples were saved'); a wrong " +
+    "magic or a failed read is error 3.",
+  "s sam bank save":
+    "Routine 49 (48 pushes SamBankNr and falls into it). The two-argument form swaps SamBankNr for the " +
+    "duration and puts it back on every exit, failure included. Each sample is written as `length + 24` bytes " +
+    "straight out of memory, link pointers and all.",
+  "s sam clip":
+    "Routine 51. An END of ZERO deletes the clip, which is why the header's 'no clip' is a zero END rather " +
+    "than a zero length; an END past the sample is clamped to the length, and an END below the START raises. " +
+    "START is not checked against anything, so a start past the end is accepted and S Sam Play then computes a " +
+    "negative clip length and falls back to the whole sample.",
+  "s sam play":
+    "Routine 40, and the whole player is in it. It stops the named channels first --- pushing the mask back " +
+    "onto AMOS's own argument stack and calling L_StopSam --- then finds the sample, then makes sure the bytes " +
+    "are in chip memory: TypeOfMem is -534 and `cmpi.l #$703,d0` is PUBLIC|CHIP|LOCAL|24BITDMA, anything else " +
+    "getting an AllocMem(MEMF_CHIP) copy that Status bits 9-12 remember to free. TIMES is NOT a loop counter: " +
+    "Amiga audio DMA repeats from AUDxLC forever, and the routine works out WHEN to stop it --- " +
+    "`(times * length) / freq`, quotient and remainder each scaled by 50, added to CIA-A's time-of-day " +
+    "counter, which ticks at the VERTICAL BLANK, which is where the 50 comes from. TIMES = 0 leaves bits 5-8 " +
+    "clear so nothing ever stops it, which is 'infinite' by the same mechanism rather than a special case. The " +
+    "period is `3546895 / freq` truncated, so what plays is the period's frequency and not the one asked for. " +
+    "DEFECT: S Sam Play undoes an S Volume that came before it on the same voice, because L_StopSam's second " +
+    "bclr is the volume-control bit --- the documented order is the order that loses the level. DEVIATION: " +
+    "`mulu` is 16x16, so a sample over 65535 bytes gets its stop time from `length mod 65536`; that is the " +
+    "routine's and is reproduced. What is not the routine's is that the clock here is the frame counter " +
+    "rather than a real TOD, which comes to the same thing at 50Hz.",
+  "s sam stop":
+    "Routine 58. DMACON off, then the stop-timer bit, the VOLUME CONTROL bit and the Status2 in-use bit, in " +
+    "that order --- so stopping a voice also loses whatever level S Volume asked for on it. DEFECT: " +
+    "StopSamMemCheck does not count what it says it counts. It is `moveq #3,d6` over the four ISBase entries " +
+    "with `cmp.l (a2),d7 / bne` LEAVING the loop, so it counts a RUN of voices sharing this block from ISBase0 " +
+    "onward and stops at the first that differs, not the total. Voices 0 and 2 sharing one chip copy with " +
+    "voice 1 on something else each count one user, and the block is freed twice.",
+  "s sam freq":
+    "Routine 56 --- the header's frequency longword. A sample that is not there RAISES here, where " +
+    "=S Sam Length on the same number answers 0.",
+  "s set freq":
+    "Routine 41 --- a plain longword into the header at +12. No range check; S Sam Play divides by it, and a " +
+    "frequency of zero would be a divide by zero on the machine.",
+  "s sam length":
+    "Routine 60, seven instructions, and the missing one is the error: `cmpi.l #0,d3 / beq _end` returns the " +
+    "zero S Sam Base left in d3 rather than raising, so a sample that is not there is indistinguishable from " +
+    "one of length zero. It carries S Sam Load's 24-byte shortfall.",
+  "s volume":
+    "Routine 37, and it is not a one-shot: it arms Status bits 1-4 and the VBL hook writes Volume[n] into " +
+    "AUDxVOL every frame for as long as they are set, so a level asked for here overrides the sample player " +
+    "and the tracker alike, once a frame, until something clears the bit. `and.w #%1111111111100001,d2` is " +
+    "the first thing it does, so each call REPLACES the controlled set rather than adding to it: S Volume 1,32 " +
+    "after S Volume 2,10 leaves voice 1 uncontrolled. The range check is `cmpi #64,d0 / rbcc`, unsigned, so 64 " +
+    "and above raise and so does a negative volume.",
 
   "stick joy":
     "Routine 5 ($432), reading CIA-A PRB ($bfe101) bits 0-3. The manual calls this the serial port throughout; " +
