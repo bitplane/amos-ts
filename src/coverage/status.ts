@@ -1765,6 +1765,11 @@ export const FAITHFUL = new Set<string>([
   // the third console animation, beside Jd Spread and Jd Tscroll -- the name
   // is about squashing TEXT, not a disk. Same pacing DEVIATION as those two.
   'jd squash',
+  // and the whole-disk writes, on the same image. Install carries a DEFECT
+  // and Format a NOTE; see NOTES.
+  'jd install',
+  'jd format',
+  'jd shortformat',
   // Jd Dled Off/On are Misc 1.0's pair constant for constant: the same three
   // writes to CIA-B's port B at $bfd100 and its direction register, sharing
   // `Runtime.driveMotor` with them. Jd Reset is `jmp $fc00d2` -- a reboot the
@@ -2701,16 +2706,6 @@ export const NA = new Set<string>([
   // (+|jd.s:835 with macros.s). No debugger, and deliberately crashing the
   // interpreter is not a service to anyone.
   'jd private',
-  // JD's whole-disk writes. Install lays down a boot block, and Format and
-  // Shortformat write whole 11-sector TRACKS with TD_FORMAT at `track * $1600`
-  // -- 160 tracks for one and tracks 80 and 81 for the other (+|jd.s:4692,
-  // :4715, :4931), each built out of a `roottrack` template held in the
-  // library's own data. Reading that template out and reproducing a format is
-  // the work these are waiting on; the sector-level half of the group is
-  // implemented on `AdfVolume.image`.
-  'jd install',
-  'jd format',
-  'jd shortformat',
   // JD Colour: the keywords that need a console window or a RastPort of their
   // own rather than a palette. Open/Close/Print/Input Con drive a CON: console
   // window through DOS. Screen Border, Wait Raster, Screen Convert and the six
@@ -2898,6 +2893,25 @@ export const NOTES: Record<string, string> = {
     "Validate task by scanning ExecBase's TaskReady and TaskWait lists with FindName. DEVIATION: it returns " +
     "instead of waiting. There is no drive to swap a disk in and no Validator to outlive, so the alternative is " +
     "to block for ever -- the same decision Delta 1.4's Delta Change Disk and Misc 1.0's Disk Wait take.",
+
+  "jd install":
+    "Routine 105 (+|jd.s:4692): the fixed boot block at `bbd` copied into the shared `bb` buffer and handed to " +
+    "Write Sector for sector 0, so it answers 0 for success and -1 for failure like that keyword. The table is " +
+    "\"DOS\", this block's own checksum, the root block at 880, and a boot routine that opens dos.library. " +
+    "DEFECT: `bb` is the SAME 512-byte buffer Read Sector fills, and Install writes only 54 of its 512 bytes " +
+    "before writing all of it -- the routine copies fourteen longs starting at the `dc.w 512` that heads the " +
+    "table, so two bytes go on AMOS's length word and the last two longs are truncated to one zero word. A " +
+    "program that reads a sector first lays that sector's tail down as the tail of its boot block.",
+  "jd format":
+    "Routine 106 (+|jd.s:4715): all 160 tracks written with TD_FORMAT at `track * $1600`, out of a single " +
+    "11-sector buffer that `nulltracks` zeroes once and that is NOT re-zeroed between tracks -- each special " +
+    "track edits only the bytes it cares about, so tracks 2 to 79 are whatever track 1 left and 82 upwards " +
+    "whatever track 81 left, zeros in both cases. Track 0 gets \"DOS\" and the root block pointer, track 80 the " +
+    "root block and bitmap from the `roottrack` template with NAME$ at +432 as a BCPL string and a fresh " +
+    "checksum. NOTE: the boot block it lays down has no boot CODE, only the header, so a formatted disk is not " +
+    "bootable until Jd Install has been over it -- which is why the two keywords exist separately and why their " +
+    "precomputed checksums differ. Jd Shortformat (routine 110) is the same loop bounded to tracks 80 and 81, so " +
+    "it writes a fresh root block and bitmap and leaves the rest of the disk alone.",
 
   // ---- JD Colour 2.0, slot 20 ----------------------------------------------
   "jd rprint":

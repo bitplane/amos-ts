@@ -780,15 +780,6 @@ describe('JD: files, memory and the device boundary (+|jd.s:2948-5769)', () => {
     expect(out.trim()).toBe(String((0xff000000 | 0) >> 8))
   })
 
-  it('the whole-disk writes are n/a: a format needs a track template first', () => {
-    // Install lays down a boot block and the two formats write whole
-    // 11-sector TRACKS with TD_FORMAT, built from a `roottrack` template held
-    // in the library's own data. The sector-level half of the group runs on
-    // AdfVolume.image; see the raw-floppy tests at the foot of this file
-    for (const k of ['jd install', 'jd format', 'jd shortformat']) {
-      expect(NA.has(k), k).toBe(true)
-    }
-  })
 })
 
 /* ------------------------------------------------------------------ *
@@ -1457,5 +1448,115 @@ describe('JD: the raw floppy, on the ADF underneath AmigaFS', () => {
   it('Diskchange returns rather than waiting for a drive that is not there', () => {
     const b = withDisk('Jd Diskchange : Print 1')
     expect(b.out().trim()).toBe('1')
+  })
+})
+
+describe('JD: the whole-disk writes', () => {
+  const BSIZE = 512
+  const ROOT = 880
+  const TRACK = 0x1600
+
+  function blank(): Uint8Array {
+    const b = new Uint8Array(901_120)
+    const v = new DataView(b.buffer)
+    b[0] = 0x44
+    b[1] = 0x4f
+    b[2] = 0x53
+    v.setInt32(ROOT * BSIZE + 0, 2, false)
+    v.setInt32(ROOT * BSIZE + 12, 72, false)
+    v.setInt32(ROOT * BSIZE + 508, 1, false)
+    b[ROOT * BSIZE + 432] = 3
+    b[ROOT * BSIZE + 433] = 0x4f
+    b[ROOT * BSIZE + 434] = 0x6c
+    b[ROOT * BSIZE + 435] = 0x64
+    return b
+  }
+
+  function go(src: string, image: Uint8Array): { out: string; image: Uint8Array } {
+    let out = ''
+    const fs = new AmigaFS()
+    fs.mount('DF0', new AdfVolume(image))
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 500_000,
+      fs,
+      onText: (t) => (out += t),
+    })
+    mustFinish(rt.runHeadless(500))
+    return { out: out.trim(), image }
+  }
+
+  it('Install lays down the boot block and answers 0', () => {
+    const r = go('Print Jd Install(0)', blank())
+    expect(r.out).toBe('0')
+    const v = new DataView(r.image.buffer)
+    expect(v.getUint32(0)).toBe(0x444f5300) // "DOS"
+    expect(v.getUint32(4)).toBe(0xc0200f19) // the block's own checksum
+    expect(v.getUint32(8)).toBe(0x370) // the root block, 880
+    // "dos.library" is in the boot routine it installs
+    expect(String.fromCharCode(...r.image.subarray(38, 49))).toBe('dos.library')
+  })
+
+  it('and answers -1 with no disk in the drive', () => {
+    let out = ''
+    const rt = new Runtime(tokenize('Print Jd Install(1)', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 200_000,
+      fs: new AmigaFS(),
+      onText: (t) => (out += t),
+    })
+    mustFinish(rt.runHeadless(200))
+    expect(out.trim()).toBe('-1')
+  })
+
+  it('Format writes a root block whose name and checksum are its own', () => {
+    const r = go('Print Jd Format(0,"Fresh")', blank())
+    expect(r.out).toBe('0')
+    expect(r.image[ROOT * BSIZE + 432]).toBe(5)
+    expect(String.fromCharCode(...r.image.subarray(ROOT * BSIZE + 433, ROOT * BSIZE + 438))).toBe('Fresh')
+    const v = new DataView(r.image.buffer, ROOT * BSIZE, BSIZE)
+    expect(v.getUint32(0)).toBe(2) // T_HEADER
+    expect(v.getUint32(508)).toBe(1) // ST_ROOT
+    expect(v.getUint32(0x138)).toBe(0xffffffff) // bm_flag
+    expect(v.getUint32(0x13c)).toBe(881) // the bitmap block
+    let sum = 0
+    for (let i = 0; i < 128; i++) sum = (sum + v.getUint32(i * 4)) | 0
+    expect(sum).toBe(0)
+  })
+
+  it('NOTE: a formatted disk has a boot HEADER but no boot code', () => {
+    // which is why Jd Install exists separately, and why the two checksums
+    // baked into the library differ
+    const r = go('Print Jd Format(0,"Fresh")', blank())
+    const v = new DataView(r.image.buffer)
+    expect(v.getUint32(0)).toBe(0x444f5300)
+    expect(v.getUint32(4)).toBe(0xbbb0a98f) // not Install's $c0200f19
+    expect(v.getUint32(12)).toBe(0) // no boot routine follows
+  })
+
+  it('Format clears the whole disk and Shortformat only the two tracks', () => {
+    const dirty = (): Uint8Array => {
+      const b = blank()
+      b.fill(0xaa, 40 * TRACK, 40 * TRACK + 16) // something on track 40
+      return b
+    }
+    const full = go('Print Jd Format(0,"A")', dirty())
+    expect(full.image[40 * TRACK]).toBe(0)
+
+    const quick = go('Print Jd Shortformat(0,"A")', dirty())
+    // the files are still there; nothing points at them any more
+    expect(quick.image[40 * TRACK]).toBe(0xaa)
+    expect(quick.image[ROOT * BSIZE + 432]).toBe(1)
+  })
+
+  it('the bitmap block says every block is free', () => {
+    const r = go('Print Jd Format(0,"A")', blank())
+    const v = new DataView(r.image.buffer, 881 * BSIZE, BSIZE)
+    // 1760 blocks need 55 longs of bits, and the two partial ones mark the end
+    expect(v.getUint32(4)).toBe(0xffffffff)
+    expect(v.getUint32(4 + 27 * 4)).toBe(0xffff3fff)
+    expect(v.getUint32(4 + 54 * 4)).toBe(0x3fffffff)
   })
 })

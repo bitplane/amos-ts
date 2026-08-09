@@ -243,6 +243,109 @@ function rootChecksum(block: Uint8Array): void {
   v.setUint32(0x14, sum >>> 0)
 }
 
+
+/** one 11-sector track, the unit both formats write in (`$1600` bytes) */
+const JD_TRACK = 0x1600
+
+/**
+ * `roottrack` (+|jd.s:631): 184 longwords covering sector 880 and the first
+ * 56 longs of 881, which the format then follows with 72 zero longs to finish
+ * the bitmap block. Written out as its non-zero fields rather than as 184
+ * literals, because that is what the fields ARE:
+ *
+ *   0    T_HEADER = 2                 78/79  bm_flag = -1, bitmap block 881
+ *   3    hash table size = 72         105-7  root modified date
+ *   5    checksum (recomputed)        108    disk name, BCPL, default "Empty"
+ *   127  ST_ROOT = 1                  121-3  volume created date
+ *   128  the bitmap block's checksum, then 55 longs of free-block bits
+ */
+const JD_ROOT_TRACK = ((): Uint32Array => {
+  const t = new Uint32Array(184)
+  t[0] = 0x00000002
+  t[3] = 0x00000048
+  t[5] = 0x86416369
+  t[78] = 0xffffffff
+  t[79] = 0x00000371
+  t[105] = 0x00001032
+  t[106] = 0x000002b4
+  t[107] = 0x000002d0
+  t[108] = 0x05456d70 // 'Empty' as a BCPL string: a length byte then 'Emp'
+  t[109] = 0x74790000 // 'ty' and the NUL
+  t[121] = 0x00001032
+  t[122] = 0x000002b4
+  t[123] = 0x000002d0
+  t[127] = 0x00000001
+  t[128] = 0xc000c037
+  for (let i = 129; i < 184; i++) t[i] = 0xffffffff
+  // 1760 blocks need 55 longs of bits; the two partial ones say where it ends
+  t[156] = 0xffff3fff
+  t[183] = 0x3fffffff
+  return t
+})()
+
+/**
+ * `bbd` (+|jd.s:4707), the boot block `Jd Install` lays down: "DOS", the
+ * checksum for this exact block, the root block at 880, and a boot routine
+ * that opens dos.library and enters it. The routine copies FOURTEEN longs
+ * starting at the `dc.w 512` that heads the table, so two of the 56 bytes go
+ * on AMOS's length word and the last two longs are truncated to a single zero
+ * word --- 54 bytes of boot block, not 56.
+ */
+const JD_BOOT_BLOCK = [
+  0x444f5300, 0xc0200f19, 0x00000370, 0x43fa0018, 0x4eaeffa0, 0x4a80670a, 0x20402068,
+  0x00167000, 0x4e7570ff, 0x60fa646f, 0x732e6c69, 0x62726172, 0x79000000,
+]
+
+/** the block checksum both formats use (t_checksum): clear $14, subtract, store */
+function trackChecksum(block: Uint8Array): void {
+  const v = new DataView(block.buffer, block.byteOffset, block.byteLength)
+  v.setUint32(0x14, 0)
+  let sum = 0
+  for (let i = 0; i < 128; i++) sum = (sum - v.getUint32(i * 4)) | 0
+  v.setUint32(0x14, sum >>> 0)
+}
+
+/**
+ * The body both formats share: a single 11-sector buffer written track by
+ * track, and NOT re-zeroed between them --- `nulltracks` clears it once and
+ * each special track edits only the bytes it cares about. Tracks 2 to 79 are
+ * therefore whatever track 1 left, and 82 upwards whatever track 81 left,
+ * which in both cases is zeros.
+ */
+function jdFormat(rt: Runtime, unit: number, name: string, first: number, last: number): number {
+  const d = jdDisk(rt, unit)
+  if (!d) return -1
+  const buf = new Uint8Array(JD_TRACK)
+  const v = new DataView(buf.buffer)
+  for (let track = first; track <= last; track++) {
+    if (track === 0) {
+      // "DOS", this block's own precomputed checksum, and the root block
+      v.setUint32(0, 0x444f5300)
+      v.setUint32(4, 0xbbb0a98f)
+      v.setUint32(8, 0x370)
+    } else if (track === 1) {
+      // three zero longs, undoing track 0's header in the shared buffer
+      v.setUint32(0, 0)
+      v.setUint32(4, 0)
+      v.setUint32(8, 0)
+    } else if (track === 81) {
+      buf.fill(0, 0, 241 * 4)
+    } else if (track === 80) {
+      for (let i = 0; i < JD_ROOT_TRACK.length; i++) v.setUint32(i * 4, JD_ROOT_TRACK[i]!)
+      buf.fill(0, 184 * 4, 256 * 4)
+      buf[432] = name.length & 0xff
+      for (let k = 0; k < name.length; k++) buf[433 + k] = name.charCodeAt(k) & 0xff
+      buf[433 + name.length] = 0
+      trackChecksum(buf.subarray(0, 512))
+    }
+    const off = track * JD_TRACK
+    if (off + JD_TRACK > d.image.length) return -1
+    d.image.set(buf, off)
+  }
+  d.invalidate?.()
+  return 0
+}
+
 export function makeJdFunctions(rt: Runtime): Record<string, Func> {
   void rt
   const arg = (a: Value[], i: number): number => int(a[i]!)
@@ -351,6 +454,56 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
   }
 
   return {
+    /**
+     * =Jd Install(DEVICE) --- routine 105 (+|jd.s:4692). Copies the fixed boot
+     * block out of `bbd` into the shared `bb` buffer and hands it to `Write
+     * Sector` for sector 0, so it answers 0 for success and -1 for failure
+     * like that keyword does.
+     *
+     * DEFECT: `bb` is the SAME 512-byte buffer `Read Sector` fills, and
+     * Install writes only 54 bytes into it before writing all 512 to the disk.
+     * So a program that reads a sector first lays down that sector's tail as
+     * the tail of its boot block. On a fresh run the buffer is zero and the
+     * boot block is clean.
+     */
+    'jd install'(_, a): Value {
+      const unit = int(a[0]!)
+      const d = jdDisk(rt, unit)
+      if (!d || d.image.length < 512) return VI(-1)
+      const block = new Uint8Array(512)
+      const v = new DataView(block.buffer)
+      for (let i = 0; i < JD_BOOT_BLOCK.length; i++) v.setUint32(i * 4, JD_BOOT_BLOCK[i]!)
+      d.image.set(block, 0)
+      d.invalidate?.()
+      return VI(0)
+    },
+
+    /**
+     * =Jd Format(DEVICE,NAME$) --- routine 106 (+|jd.s:4715). Writes all 160
+     * tracks with TD_FORMAT at `track * $1600`: track 0 gets "DOS" and the
+     * root block pointer, track 80 the root block and bitmap built from
+     * `roottrack` with NAME$ at +432 and a fresh checksum, and everything else
+     * zeros. Answers 0 for success and -1 for failure.
+     *
+     * NOTE: the boot block it lays down has no boot CODE, only the header ---
+     * a formatted disk is not a bootable one until `Jd Install` has been over
+     * it, which is why the two keywords exist separately and why their
+     * checksums differ.
+     */
+    'jd format'(_, a): Value {
+      return VI(jdFormat(rt, int(a[0]!), a[1]!.k === 'str' ? a[1]!.s : '', 0, 159))
+    },
+
+    /**
+     * =Jd Shortformat(DEVICE,NAME$) --- routine 110 (+|jd.s:4931). The same
+     * loop bounded to tracks 80 and 81, so it lays down a fresh root block and
+     * bitmap and leaves every other track alone. That is the whole of a quick
+     * format: the files are still on the disk and nothing points at them.
+     */
+    'jd shortformat'(_, a): Value {
+      return VI(jdFormat(rt, int(a[0]!), a[1]!.k === 'str' ? a[1]!.s : '', 80, 81))
+    },
+
     /**
      * =Read Sector(DEVICE,SECTOR) --- routine 50 (+|jd.s:2947). Opens
      * trackdisk on the unit, CMD_READ of 512 bytes at `sector * 512`, closes
