@@ -516,6 +516,13 @@ export const FAITHFUL = new Set<string>([
   'lstr',
   'lbstr',
   'lset eoln',
+  // LDos's own device channel -- one IORequest at +$298, not eight slots.
+  // Ldevice Open answers ZERO for success, which is OpenDevice's result and
+  // the opposite way round from the rest of the library; see NOTES.
+  'ldevice open',
+  'ldevice close',
+  'ldevice',
+  'ldevice error',
   'lold',
   'lcreate',
   'lwords',
@@ -1279,6 +1286,15 @@ export const FAITHFUL = new Set<string>([
   // it is what decides that a closed port raises error 141 rather than
   // reporting "not ready". No hardware is attached, which is a state a real
   // Amiga has too -- the devices open and the status reads bare.
+  //
+  // The core `Dev *` family drives the same layer directly, one channel per
+  // slot with its IORequest in mapped memory so `=Dev Base` gives a program
+  // an address it can really Doke. Dev Open and Dev Do carry a NOTE each.
+  'dev open', 'dev close', 'dev do', 'dev send', 'dev abort', 'dev base', 'dev check',
+  // Open Port is Open In with a different pair of constants -- mode 1005 and
+  // channel-type `%111` instead of `%010` -- and bit 2 is the only thing
+  // =Port checks before reading one byte. See NOTES for what -1 means.
+  'open port', 'port',
   'serial open',
   'serial close',
   'serial send',
@@ -2813,27 +2829,12 @@ export const NA = new Set<string>([
   'cmpcall',
   'comp load',
   'comp del',
-  // arbitrary exec device I/O — open any .device and fire IORequests
-  'dev open',
-  'dev send',
-  'dev do',
-  'dev close',
-  'dev abort',
-  'dev base',
-  'dev check',
   // the ARexx host bridge (rexxsyslib.library message ports) — no ARexx
   // system exists outside AmigaOS
   // --- LDos (third-party) ---
-  // The same two boundaries the core port already draws, reached through a
-  // different extension. Lrexx * is ARexx, which is n/a above for the core
-  // Arexx keywords: it needs an ARexx host, a message port and a resident
-  // rexxmast, none of which exist outside AmigaOS. Ldevice * is raw
-  // exec device I/O — OpenDevice/DoIO against trackdisk.device and the
-  // like — which is n/a above as `dev open`. Both are classified here rather
-  // than left as "missing" because no amount of work makes them possible;
-  // reporting them as unimplemented would overstate what is left to do.
-  // Lrun and Lexecute are host-modelled dos.library operations, so they are
-  // missing rather than n/a.
+  // The same boundary the core Arexx keywords draw, reached through a
+  // different extension: an ARexx host, a message port and a resident
+  // rexxmast, none of which exist outside AmigaOS.
   'lrexx make host',
   'lrexx remove host',
   'lrexx get msg',
@@ -2842,10 +2843,6 @@ export const NA = new Set<string>([
   'lrexx result1',
   'lrexx result2',
   'lrexx send msg',
-  'ldevice open',
-  'ldevice close',
-  'ldevice',
-  'ldevice error',
 
   'arexx open',
   'arexx close',
@@ -2854,9 +2851,6 @@ export const NA = new Set<string>([
   'arexx$',
   'arexx wait',
   'arexx answer',
-  // serial/parallel device channels ("SER:"/"PAR:" file ports)
-  'open port',
-  'port',
 ])
 
 /**
@@ -2869,6 +2863,44 @@ export const NA = new Set<string>([
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "port":
+    "`FnPort` (+Lib.s:5050): GetFile first, so a channel that is not open raises; then `btst #2,FhT(a2)` refuses " +
+    "one that was not opened by Open Port -- a file-type mismatch, not a quiet zero. Then WaitForChar for 50 " +
+    "microseconds, and nothing waiting answers TRUE (-1) through `L_FnTrue`, otherwise ONE byte is Read and " +
+    "returned. So -1 is \"no character yet\" and 0 to 255 is the character, which is why a program loops on it " +
+    "rather than testing for zero. Open Port itself is Open In with a different pair of constants: mode 1005 as " +
+    "Open In uses and channel-type flags `%111` where Open In pushes `%010`.",
+  "ldevice open":
+    "Routine 31 ($18ca): a channel already open is error 9, \"Device already open\"; otherwise FindTask(NULL) " +
+    "fills the port's mp_SigTask, AddPort links it, the name is copied and NUL-terminated, and OpenDevice runs. " +
+    "The answer is OpenDevice's own result, so ZERO means success -- the opposite way round from most of this " +
+    "library. There is ONE channel, not eight: the IORequest is a fixed block at +$298 of the workspace. " +
+    "`=Ldevice(COMMAND,DATA,LENGTH,OFFSET)` (routine 33) writes the four straight into the request at $1c, $28, " +
+    "$24 and $2c, DoIOs, and answers io_Actual at $20; `=Ldevice Error` (routine 39) is `move.b $1f(a1),d3` with " +
+    "d3 cleared first, so io_Error comes back UNSIGNED and a device error of -1 reads as 255.",
+
+  // ---- the core Dev * family, +Lib.s:3300-3385 ----------------------------
+  "dev open":
+    "`Lib_Par InDevOpen` (+Lib.s:3303). An empty name is a function-call error and so is a LENGTH of zero or " +
+    "less (`Rble L_FonCall`); a channel already open is error 140. NOTE: the message a failed OpenDevice raises " +
+    "is 145, which the error table words as the SERIAL device's -- `move.w #145,d3 / moveq #1,d4` gives the whole " +
+    "family one message and AMOS reused serial's rather than adding one, so a trackdisk that will not open " +
+    "reports a serial fault. NOTE: `Dev_Max equ 7` with `Dev_List rs.b 12*Dev_Max` disagree by one -- Dev.GetA2 " +
+    "admits 0 to 7 and Dev.Close sweeps eight, over a table of seven slots, so channel 7 reads and writes the " +
+    "twelve bytes after it. Eight slots are kept here; the arithmetic a program can see is the same and there " +
+    "is nothing past the table to corrupt. Which names open is DEV_MODELLED in runtime/device.ts: trackdisk, " +
+    "serial, printer and parallel are the four with a back end, and answering yes for anything else would be " +
+    "claiming a device that does nothing.",
+  "dev do":
+    "`InDevDo` (+Lib.s:3352): the command word into io_Command at +28 and the request run to completion, waiting " +
+    "first for anything still outstanding. The caller has already Doked io_Length (+36), io_Data (+40) and " +
+    "io_Offset (+44) into the channel's slice of the `Dev IORequests` region, which is what makes `=Dev Base` " +
+    "worth having. trackdisk CMD_READ, CMD_WRITE and CMD_UPDATE move bytes against the mounted ADF, the same " +
+    "path SLN's S Disk Read takes; serial CMD_READ and CMD_WRITE reach the host port. DEVIATION: a command the " +
+    "modelled device does not implement completes silently, where exec would set io_Error to IOERR_NOCMD and " +
+    "Dev.Error would raise -- reproducing that means claiming to know each device's whole command set, which " +
+    "reading four AMOS routines does not establish.",
+
   // ---- JD 5.3, slot 22 -----------------------------------------------------
   "jd read sector":
     "Routine 50 (+|jd.s:2947): OpenDevice on trackdisk, CMD_READ of 512 bytes at `sector * 512`, close, motor " +

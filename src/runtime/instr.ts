@@ -44,6 +44,21 @@ import { TOOLS_ERRORS, makeToolsFunctions, makeToolsInstructions, newToolsState 
 import { makeDeltaFunctions, makeDeltaInstructions, newDeltaState } from './delta'
 import { LSERIAL_ERRORS, makeLSerialFunctions, makeLSerialInstructions, newLSerialState } from './lserial'
 import { BUTILITY_ERRORS, makeBUtilityFunctions, makeBUtilityInstructions, newBUtilityState } from './butility'
+import {
+  DEV_IO_STRIDE,
+  DEV_MAX,
+  DEV_MODELLED,
+  devAbort,
+  devCheckIO,
+  devClose,
+  devDoIO,
+  devOpen,
+  devSendIO,
+  devSlotOf,
+  ioError,
+  newDevSlot,
+} from './device'
+import { DEV_SERIAL_DEFAULTS } from './device'
 import { newStarsState, makeStarsFunctions, makeStarsInstructions } from './stars'
 import { newAgaState, makeAgaFunctions, makeAgaInstructions } from './aga'
 import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
@@ -805,6 +820,121 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   return {
+    // ---- the Dev * family (+Lib.s:3300-3385) ---------------------------
+    /**
+     * Dev Open CHANNEL,NAME$,LENGTH,UNIT,FLAGS --- `Lib_Par InDevOpen`
+     * (+Lib.s:3303). An empty name is a function-call error and so is a
+     * LENGTH of zero or less (`Rble L_FonCall`); a channel already open is
+     * error 140, from `Dev.Open`'s own `.AOp` arm.
+     *
+     * NOTE: the error message a failed OpenDevice raises is 145, which the
+     * error table words as the SERIAL device's. `move.w #145,d3 / moveq #1,d4`
+     * sets one message for every failure, and AMOS reused serial's rather than
+     * giving the generic family one of its own -- so a trackdisk that will not
+     * open reports a serial fault.
+     *
+     * Which names open is `DEV_MODELLED` in device.ts: this port has a back
+     * end for trackdisk, serial, printer and parallel, and answering yes for
+     * anything else would be claiming a device that does nothing.
+     */
+    'dev open'(it) {
+      const chan = it.evalInt()
+      it.expect(',')
+      const name = it.evalStr()
+      it.expect(',')
+      const len = it.evalInt()
+      it.expect(',')
+      const unit = it.evalInt()
+      it.expect(',')
+      const flags = it.evalInt()
+      if (name === '' || len <= 0) throw new AmosError('function call error')
+      if (chan < 0 || chan > DEV_MAX) throw new AmosError('function call error')
+      const existing = rt.dev.channels.get(chan)
+      if (existing?.slot.open) throw ioError(140)
+      if (!DEV_MODELLED.has(name.toLowerCase())) throw ioError(145)
+      // the one modelled device with a real port behind it is opened now, so
+      // a host that cannot give one reports the same failure OpenDevice would
+      let serial
+      if (name.toLowerCase() === 'serial.device') {
+        serial = rt.host?.serial?.open(unit, DEV_SERIAL_DEFAULTS) ?? undefined
+        if (!serial) throw ioError(145)
+      }
+      const slot = newDevSlot(145, 1)
+      devOpen(slot)
+      const addr = Runtime.DEV_IO_BASE + chan * DEV_IO_STRIDE
+      rt.dev.io.fill(0, chan * DEV_IO_STRIDE, (chan + 1) * DEV_IO_STRIDE)
+      rt.dev.channels.set(chan, { slot, name, unit, flags, addr, len, ...(serial ? { serial } : {}) })
+    },
+
+    /**
+     * Dev Close [CHANNEL] --- `InDevClose0` and `InDevClose1` (+Lib.s:3325,
+     * :3332), two entries on one name. With no argument `Dev.Close` sweeps
+     * every channel from Dev_Max down to zero; with one it closes that
+     * channel alone. Closing a device that is not open is not an error, which
+     * is `Dev.CloseA2`'s own behaviour.
+     */
+    'dev close'(it) {
+      if (it.atStmtEnd()) {
+        for (const c of rt.dev.channels.values()) {
+          devClose(c.slot)
+          c.serial?.close()
+        }
+        rt.dev.channels.clear()
+        return
+      }
+      const chan = it.evalInt()
+      const c = devSlotOf(rt.dev, chan)
+      if (c) {
+        devClose(c.slot)
+        c.serial?.close()
+      }
+      rt.dev.channels.delete(chan)
+    },
+
+    /**
+     * Dev Do CHANNEL,COMMAND --- `InDevDo` (+Lib.s:3352). The command word is
+     * written into io_Command at `28(a1)` and the request run to completion,
+     * waiting first for anything still outstanding. A non-zero io_Error
+     * raises through `Dev.Error`.
+     */
+    'dev do'(it) {
+      const chan = it.evalInt()
+      it.expect(',')
+      const cmd = it.evalInt()
+      const c = devSlotOf(rt.dev, chan)
+      if (!c) throw ioError(141)
+      devDoIO(c.slot)
+      rt.devCommand(c, cmd)
+    },
+
+    /**
+     * Dev Send CHANNEL,COMMAND --- `InDevSend` (+Lib.s:3363), SendIO instead
+     * of DoIO, leaving the state byte at 2 so the next request waits for this
+     * one. DEVIATION: with every modelled transfer completing instantly the
+     * only observable difference from Dev Do is that state byte, which is
+     * what `=Dev Check` reads.
+     */
+    'dev send'(it) {
+      const chan = it.evalInt()
+      it.expect(',')
+      const cmd = it.evalInt()
+      const c = devSlotOf(rt.dev, chan)
+      if (!c) throw ioError(141)
+      devSendIO(c.slot)
+      rt.devCommand(c, cmd)
+    },
+
+    /**
+     * Dev Abort CHANNEL --- `InDevAbort` (+Lib.s:3374). AbortIO then WaitIO,
+     * and both are skipped unless the device is open AND something is in
+     * flight.
+     */
+    'dev abort'(it) {
+      const c = devSlotOf(rt.dev, it.evalInt())
+      if (!c) throw ioError(141)
+      devAbort(c.slot)
+    },
+
     // ---- screens ----
     'screen open'(it) {
       const n = it.evalInt()
@@ -3529,6 +3659,26 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       if (data == null) throw new AmosError(`file not found: ${path}`)
       rt.fileChans.set(n, { mode: 'in', path, data, pos: 0, out: [] })
     },
+    /**
+     * Open Port CHANNEL,NAME$ --- `InOpenPort` (+Lib.s:5078). Open In and
+     * Open Out with a different pair of constants: mode 1005 (MODE_OLDFILE)
+     * as Open In uses, and channel-type flags `%111` where Open In pushes
+     * `%010` and Open Out `%001`. Bit 2 is what marks it a PORT, and it is
+     * the only thing `=Port(n)` checks before reading.
+     *
+     * SER: and PAR: are the names the manual gives, and a real host serial
+     * port is bound when one is there; any other name opens as a file, which
+     * is what MODE_OLDFILE on an arbitrary string does on the machine too.
+     */
+    'open port'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const path = it.evalStr()
+      const serial = /^ser:/i.test(path) ? (rt.host?.serial?.open(0, DEV_SERIAL_DEFAULTS) ?? undefined) : undefined
+      const data = serial ? new Uint8Array(0) : rt.fs?.read(path)
+      if (data == null) throw new AmosError(`file not found: ${path}`)
+      rt.fileChans.set(n, { mode: 'in', path, data, pos: 0, out: [], port: true, ...(serial ? { serial } : {}) })
+    },
     'open out'(it) {
       const n = it.evalInt()
       it.expect(',')
@@ -4254,6 +4404,57 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It) => import
 export function makeFunctions(rt: Runtime): Record<string, Func> {
   const scr = (): Screen => rt.screen
   return {
+    /**
+     * =Port(CHANNEL) --- `FnPort` (+Lib.s:5050). `GetFile` first, so a
+     * channel that is not open raises; then `btst #2,FhT(a2)` refuses one
+     * that was not opened by `Open Port` -- a file-type mismatch, not a quiet
+     * zero. Then `WaitForChar` for 50 microseconds: nothing waiting answers
+     * TRUE (-1) through `L_FnTrue`, and otherwise ONE byte is Read and
+     * returned.
+     *
+     * So -1 is "no character yet" and 0 to 255 is the character, which is why
+     * a program loops on it rather than testing for zero.
+     */
+    'port'(_, a) {
+      const c = rt.fileChans.get(int(a[0]!))
+      if (!c) throw new AmosError('file not opened')
+      if (!c.port) throw new AmosError('file type mismatch')
+      if (c.serial) {
+        const got = c.serial.read()
+        return VI(got.length > 0 ? got[0]! & 0xff : -1)
+      }
+      if (c.pos >= c.data.length) return VI(-1)
+      return VI(c.data[c.pos++]! & 0xff)
+    },
+
+    /**
+     * =Dev Base(CHANNEL) --- `FnDevBase` (+Lib.s:3341): the first long of the
+     * slot, which is the IORequest pointer. A channel that was never opened
+     * answers zero, because `Dev.GetA2` only bounds-checks -- the "device not
+     * opened" error belongs to `Dev.GetIO`, which this does not go through.
+     *
+     * The address is real here: each channel owns a 256-byte slice of the
+     * `Dev IORequests` region, so a program can Doke io_Length, io_Data and
+     * io_Offset into it before `Dev Do` and the write lands where the
+     * transfer reads it.
+     */
+    'dev base'(_, a) {
+      const c = devSlotOf(rt.dev, int(a[0]!))
+      return VI(c ? c.addr : 0)
+    },
+
+    /**
+     * =Dev Check(CHANNEL) --- `FnDevCheck` (+Lib.s:3385). GetIO first, so a
+     * closed channel raises 141 rather than reporting "not ready"; then a
+     * channel that has never issued a function answers -1, the source's own
+     * "Simule le TRUE".
+     */
+    'dev check'(_, a) {
+      const c = devSlotOf(rt.dev, int(a[0]!))
+      if (!c) throw ioError(141)
+      return VI(devCheckIO(c.slot))
+    },
+
     point(_, a) {
       // RPoint +Lib.s:9586 calls GrXY, so =Point(x,y) moves the graphics
       // cursor to x,y as a side effect

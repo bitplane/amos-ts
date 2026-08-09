@@ -26,6 +26,7 @@
  * differ in a way a program can observe through Serial Check.
  */
 import { AmosError } from '../interp/values'
+import type { SerialLineParams, SerialPortHandle } from '../amiga/host'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 
 /**
@@ -137,4 +138,86 @@ export function devCheckIO(slot: DevSlot): number {
 export function devAbort(slot: DevSlot): void {
   devGetIO(slot)
   slot.state = 1
+}
+
+// ---- the Dev * keyword family (+Lib.s:3300-3385) -------------------------
+
+/**
+ * `Dev_Max equ 7` with `Dev_List rs.b 12*Dev_Max` (+Equ.s:1421).
+ *
+ * DEFECT: the two disagree by one. `Dev.GetA2` admits a channel with
+ * `cmp.l #Dev_Max,d0 / Rbhi L_FonCall`, so 0 to 7 inclusive pass, and
+ * `Dev.Close` sweeps `moveq #Dev_Max,d2` down through zero -- eight channels
+ * either way. The table is only seven slots of twelve bytes, so channel 7
+ * reads and writes the twelve bytes AFTER it, which belong to whatever
+ * +Equ.s declares next. Eight slots are kept here: the arithmetic a program
+ * can see is the same, and there is nothing beyond the table for it to
+ * corrupt.
+ */
+export const DEV_MAX = 7
+
+/** the devices this port has something behind */
+export const DEV_MODELLED: ReadonlyMap<string, string> = new Map([
+  // trackdisk is the one with a real back end: an ADF *is* the sector image
+  // it serves, which amiga/adf.ts exposes and SLN's S Disk Read already uses
+  ['trackdisk.device', 'the mounted ADF, through AdfVolume.image'],
+  // serial.device is modelled by amiga/host.ts's SerialPortHandle, which
+  // runtime/lserial.ts drives end to end
+  ['serial.device', 'the host serial port, through amiga/host.ts'],
+  // printer and parallel are modelled at the AMOS level by IOPorts
+  ['printer.device', 'IOPorts, through runtime/ioports.ts'],
+  ['parallel.device', 'IOPorts, through runtime/ioports.ts'],
+])
+
+/**
+ * What a bare `Dev Open "serial.device"` gets before the program pokes its
+ * own IOExtSer fields in. exec's OpenDevice does not set a line speed either;
+ * these are the port's defaults for a handle that has not been configured.
+ */
+export const DEV_SERIAL_DEFAULTS: SerialLineParams = {
+  baud: 9600,
+  dataBits: 8,
+  stopBits: 1,
+  parity: 'none',
+  rtsCts: false,
+  bufLen: 512,
+}
+
+/** one `Dev Open` channel: the slot, the request buffer, and what it opened */
+export interface DevChannel {
+  slot: DevSlot
+  name: string
+  unit: number
+  flags: number
+  /** where this channel's IORequest is mapped, which `=Dev Base(n)` answers */
+  addr: number
+  /** the structure length the caller asked for */
+  len: number
+  /** a real host port, for the one modelled device that has one */
+  serial?: SerialPortHandle
+}
+
+export interface DevState {
+  channels: Map<number, DevChannel>
+  /** the IORequest buffers, one region for all eight channels */
+  io: Uint8Array
+}
+
+/** every channel gets the same slice, which is what makes Dev Base arithmetic work */
+export const DEV_IO_STRIDE = 256
+
+export const newDevState = (): DevState => ({
+  channels: new Map(),
+  io: new Uint8Array(DEV_IO_STRIDE * (DEV_MAX + 1)),
+})
+
+/**
+ * `Dev.GetA2` (+Lib.s:3049): the channel number is bounds-checked and nothing
+ * else. An unopened channel is not an error HERE -- it becomes one in
+ * `Dev.GetIO`, which is why `=Dev Base(n)` on a channel that was never opened
+ * answers the slot's zeroed first long rather than raising.
+ */
+export function devSlotOf(st: DevState, n: number): DevChannel | null {
+  if (n < 0 || n > DEV_MAX) throw new AmosError('function call error')
+  return st.channels.get(n) ?? null
 }

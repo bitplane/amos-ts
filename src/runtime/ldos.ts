@@ -61,6 +61,8 @@ import type { Runtime } from './runtime'
  */
 import { amigaMatch, parsePatternResult } from '../amiga/dospattern'
 import { pp20Decrunch } from '../amiga/powerpacker'
+import { DEV_MODELLED, DEV_SERIAL_DEFAULTS } from './device'
+import type { SerialPortHandle } from '../amiga/host'
 import { execute } from '../amiga/process'
 import { DAY_MS, STAMP_EPOCH, stampToYmd as amigaStampToYmd } from '../amiga/datestamp'
 import { MAX_COMMENT, ST_FILE, ST_USERDIR, blocksFor } from '../amiga/dos'
@@ -315,11 +317,26 @@ export interface LdosState {
    * "Default is 10, normal Amiga LineFeed. (Unlike AMOS which tends to use
    * 13 for some reason...)") */
   eoln: number
+  /** the single Ldevice channel: the IORequest at +$298 and its port at +$2c8 */
+  device: LdosDevice | null
+}
+
+/**
+ * LDos's one device channel. `Ldevice Open` raises error 9 rather than opening
+ * a second, and every other keyword in the family raises error 10 without one.
+ */
+export interface LdosDevice {
+  name: string
+  unit: number
+  flags: number
+  /** io_Error at `$1f(a1)`, which `=Ldevice Error` reads as an unsigned byte */
+  error: number
+  serial?: SerialPortHandle
 }
 
 export const newLdosState = (): LdosState => ({ chans: new Map(), cat: null, pushed: new Map(), cwd: null, freqDir: '', freqFile: '', freqX: 3, freqY: 11,
   freqDevWidth: 12, freqFileWidth: 30, freqFiles: 14, freqFontSize: 0, ansiPending: '', devices: null,
-  hicol: true, ansiBright: 0, eoln: 10 })
+  hicol: true, ansiBright: 0, eoln: 10, device: null })
 
 /**
  * Resolve a path the way LDos does: against its own current directory when
@@ -459,6 +476,17 @@ function regionWrite(rt: Runtime, start: number, stop: number): { data: Uint8Arr
 
 export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
   return {
+    /**
+     * Ldevice Close --- routine 32 ($1946). `RemPort` on the message port and
+     * `CloseDevice` on the request, each guarded by its own pointer being
+     * non-zero, so closing when nothing is open does nothing and is not an
+     * error.
+     */
+    'ldevice close'() {
+      rt.ldos.device?.serial?.close()
+      rt.ldos.device = null
+    },
+
     /**
      * Lhicol On — routine 87 ($3b46). "Force Lansi to use non-standard
      * hi-col codes in ANSI sequence ... Note! 16 colour mode is now the
@@ -1001,6 +1029,59 @@ const LDOS_PATTERN_MAX = 50
 
 export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
   return {
+    /**
+     * =Ldevice Open(NAME$,UNIT,FLAGS) --- routine 31 ($18ca). A channel
+     * already open is error 9, "Device already open"; otherwise
+     * `FindTask(NULL)` fills the port's mp_SigTask, `AddPort` links it, the
+     * name is copied and NUL-terminated, and `OpenDevice` runs. The answer is
+     * OpenDevice's own result, so ZERO means success -- the opposite way round
+     * from most of this library.
+     *
+     * There is one channel, not eight: the IORequest is a fixed block at
+     * +$298 of the workspace. Which names open is `DEV_MODELLED` in
+     * device.ts, the same four the core `Dev *` family can reach.
+     */
+    'ldevice open'(_, a): Value {
+      const st = rt.ldos
+      if (st.device) throw new AmosError('Device already open')
+      const name = a[0]!.k === 'str' ? a[0]!.s : ''
+      const unit = int(a[1]!)
+      const flags = int(a[2]!)
+      if (!DEV_MODELLED.has(name.toLowerCase())) return VI(-1) // IOERR_OPENFAIL
+      let serial
+      if (name.toLowerCase() === 'serial.device') {
+        serial = rt.host?.serial?.open(unit, DEV_SERIAL_DEFAULTS) ?? undefined
+        if (!serial) return VI(-1)
+      }
+      st.device = { name, unit, flags, error: 0, ...(serial ? { serial } : {}) }
+      return VI(0)
+    },
+
+    /**
+     * =Ldevice(COMMAND,DATA,LENGTH,OFFSET) --- routine 33 ($19a4). No channel
+     * is error 10, "Device not open". The four arguments go straight into the
+     * IORequest -- io_Command at $1c, io_Data at $28, io_Length at $24 and
+     * io_Offset at $2c -- then `DoIO`, and the answer is io_Actual at $20.
+     *
+     * This is the same transfer the core `Dev Do` performs; the difference is
+     * only that LDos passes the fields as arguments where the core family has
+     * the program Doke them into the request itself.
+     */
+    'ldevice'(_, a): Value {
+      const d = rt.ldos.device
+      if (!d) throw new AmosError('Device not open')
+      const r = rt.devTransfer(d.name, d.unit, d.serial, int(a[0]!), int(a[2]!), int(a[1]!), int(a[3]!))
+      d.error = r.error
+      return VI(r.actual)
+    },
+
+    /**
+     * =Ldevice Error --- routine 39 ($1ad8), six instructions: `move.b
+     * $1f(a1),d3` with d3 cleared first, so io_Error comes back as an
+     * UNSIGNED byte. A device error of -1 therefore reads as 255.
+     */
+    'ldevice error': (): Value => VI(rt.ldos.device ? rt.ldos.device.error & 0xff : 0),
+
     /**
      * A=Lload(Channel,DEST,LENGTH) and A=Lsave(Channel,SOURCE,LENGTH) —
      * routines 3 ($f0c) and 4 ($f54) in 2.6, seventy-two bytes each and

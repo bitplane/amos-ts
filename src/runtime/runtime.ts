@@ -43,6 +43,8 @@ import type { DeltaState } from './delta'
 import type { LSerialState } from './lserial'
 import type { BUtilityState } from './butility'
 import type { JdColourState } from './jdcolour'
+import { type DevChannel, type DevState, newDevState, DEV_IO_STRIDE, DEV_MAX } from './device'
+import type { SerialPortHandle } from '../amiga/host'
 import { starfieldVbl, type StarsState } from './stars'
 import { type AgaState } from './aga'
 import { amcafPtVbl, type AmcafState } from './amcaf'
@@ -596,6 +598,13 @@ export class Runtime {
       data: Uint8Array
       pos: number
       out: number[]
+      /**
+       * `Open Port` sets bit 2 of FhT (+Lib.s:5078 opens with `#%111` where
+       * Open In uses `#%010`), and `=Port(n)` refuses a channel without it.
+       */
+      port?: boolean
+      /** a host serial port, when the name Open Port was given is a real one */
+      serial?: SerialPortHandle
       /** Field record layout (InField +ILib.s:4769) */
       fields?: Array<{ len: number; get: () => string; set: (v: string) => void }>
       recSize?: number
@@ -936,6 +945,10 @@ export class Runtime {
   static readonly TOOLS_TEXT_BASE = 0x3c000000
   static readonly TOOLS_TEXT_RESERVED = 0x04000000
 
+  /** the eight Dev Open IORequests, one 256-byte slice each */
+  static readonly DEV_IO_BASE = 0x3b000000
+  static readonly DEV_IO_RESERVED = DEV_IO_STRIDE * (DEV_MAX + 1)
+
   /**
    * The interpreter configuration block (PI_*, +Equ.s:1590-1650, defaults
    * from +Interpreter_Config.s). Editable defaults rather than constants:
@@ -968,6 +981,15 @@ export class Runtime {
   butility!: BUtilityState
   /** JD Colour's requester channel and guru alert, slot 20 */
   jdColour!: JdColourState
+  /**
+   * The eight `Dev Open` channels and the IORequests they hand out.
+   *
+   * `=Dev Base(n)` gives a program the address of its channel's IORequest so
+   * it can Doke io_Length, io_Data and io_Offset in before `Dev Do`, which is
+   * the whole point of the family -- so the requests are real mapped memory
+   * rather than an object, and land in `memRegions` below.
+   */
+  dev: DevState = newDevState()
   /**
    * Whether AMOS's file output ends its lines the Amiga way.
    *
@@ -1310,6 +1332,7 @@ export class Runtime {
         return { data: Uint8Array.of(0, (line >> 8) & 1, (vh >> 8) & 0xff, vh & 0xff), off }
       },
     },
+    bufferRegion('Dev IORequests', Runtime.DEV_IO_BASE, Runtime.DEV_IO_RESERVED, () => this.dev.io),
     bufferRegion('Tools text', Runtime.TOOLS_TEXT_BASE, Runtime.TOOLS_TEXT_RESERVED, () =>
       this.tools ? this.tools.text.buffer : null,
     ),
@@ -2838,6 +2861,97 @@ export class Runtime {
   speakWrite(c: { speak?: { buf: SpeakBuffer; voice: SpeakOptions } }, text: string): void {
     if (!c.speak) return
     for (const utterance of c.speak.buf.feed(text)) speakOne(this, utterance, c.speak.voice)
+  }
+
+  /**
+   * Move the bytes one IORequest asks for, and answer io_Actual and io_Error.
+   *
+   * Shared by the core `Dev *` family, which pokes its fields into mapped
+   * memory, and LDos's `Ldevice`, which passes them as arguments -- the two
+   * front ends differ and the transfer does not. Only the devices
+   * `DEV_MODELLED` names can be opened, so this never sees a name with
+   * nothing behind it.
+   *
+   * DEVIATION: a command the modelled device does not implement completes
+   * silently with io_Error left at zero. On the machine exec would set
+   * IOERR_NOCMD and the caller would raise; reproducing that means claiming
+   * to know each device's whole command set, which reading these routines
+   * does not establish.
+   */
+  devTransfer(
+    name: string,
+    unit: number,
+    serial: SerialPortHandle | undefined,
+    cmd: number,
+    length: number,
+    data: number,
+    offset: number,
+  ): { actual: number; error: number } {
+    const byte = (a: number): number => {
+      const m = this.resolveAddr(a >>> 0)
+      return m ? (m.data[m.off] ?? 0) : 0
+    }
+    const setByte = (a: number, val: number): void => {
+      const m = this.resolveWrite(a >>> 0)
+      if (m) m.data[m.off] = val & 0xff
+    }
+    if (name.toLowerCase() === 'trackdisk.device') {
+      const vol = this.vfs?.volume(`DF${unit}`)
+      const adf = vol as { image?: Uint8Array; invalidate?: () => void } | null
+      const image = adf?.image
+      // TDERR_DiskChanged is 29; an empty drive is what a program tests for
+      if (!image) return { actual: 0, error: 29 }
+      let moved = 0
+      // CMD_READ is 2, CMD_WRITE 3 and CMD_UPDATE 4
+      if (cmd === 2) {
+        for (; moved < length && offset + moved < image.length; moved++) setByte(data + moved, image[offset + moved]!)
+      } else if (cmd === 3) {
+        for (; moved < length && offset + moved < image.length; moved++) image[offset + moved] = byte(data + moved)
+        adf?.invalidate?.()
+      } else if (cmd === 4) {
+        adf?.invalidate?.()
+      }
+      return { actual: moved, error: 0 }
+    }
+    if (name.toLowerCase() === 'serial.device' && serial) {
+      if (cmd === 3) {
+        const out: number[] = []
+        for (let i = 0; i < length; i++) out.push(byte(data + i))
+        serial.write(Uint8Array.from(out))
+        return { actual: length, error: 0 }
+      }
+      if (cmd === 2) {
+        const got = serial.read().slice(0, length)
+        for (let i = 0; i < got.length; i++) setByte(data + i, got[i]!)
+        return { actual: got.length, error: 0 }
+      }
+    }
+    return { actual: 0, error: 0 }
+  }
+
+  /**
+   * Run one IORequest for a `Dev Do` or `Dev Send`.
+   *
+   * The command word goes into io_Command at +28 and the caller has already
+   * Doked io_Length (+36), io_Data (+40) and io_Offset (+44) into the
+   * channel's slice, which is exactly what a program written against this
+   * family does; io_Actual (+32) and io_Error (+31) come back the same way.
+   */
+  devCommand(c: DevChannel, cmd: number): void {
+    const base = c.addr - Runtime.DEV_IO_BASE
+    const v = new DataView(this.dev.io.buffer, this.dev.io.byteOffset, this.dev.io.byteLength)
+    v.setUint16(base + 28, cmd & 0xffff)
+    const r = this.devTransfer(
+      c.name,
+      c.unit,
+      c.serial,
+      cmd,
+      v.getUint32(base + 36),
+      v.getUint32(base + 40),
+      v.getUint32(base + 44),
+    )
+    v.setUint32(base + 32, r.actual)
+    v.setUint8(base + 31, r.error & 0xff)
   }
 
   closeChannel(n: number): void {

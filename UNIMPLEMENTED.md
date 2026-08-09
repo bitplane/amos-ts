@@ -53,11 +53,12 @@ section takes apart.
 ### Host-machine calls (~10k hits, mostly doscall)
 
 `Doscall/Execall/Gfxcall/Intcall`, `Dreg/Areg`, `Exec`, `Call` and
-machine-code procedures, `Lib Open/Call/Close`, `Dev Open/Send/...` device
-I/O, ARexx and `Open Port` — all classified n/a, because they reach AmigaOS
-ROM, devices or the ARexx system. 68k machine code is never executed here,
-which is a policy rather than a gap: reading and disassembling it is how much
-of the extension work was done.
+machine-code procedures, `Lib Open/Call/Close` and ARexx — all classified n/a,
+because they reach AmigaOS ROM or the ARexx system. 68k machine code is never
+executed here, which is a policy rather than a gap: reading and disassembling
+it is how much of the extension work was done. The `Dev *` family and
+`Open Port` are NOT among them: they drive AMOS's own device layer, which is
+modelled, over the four devices this port has a back end for.
 
 Between them `dreg` (29 programs) and `doscall` (14) are the two widest gaps
 in the census, and neither is closable.
@@ -448,7 +449,6 @@ Writing something for these would be a lie.
 
 | capability | keywords | what it needs |
 |---|---|---|
-| exec device I/O | 13 | a device registry `OpenDevice` resolves against. `runtime/lserial.ts` already models serial.device end to end through IORequests, so the shape is known. |
 | ARexx host | 15 | a modelled message port and a host name registry. There is no rexxmast and no interpreter for the ARexx language, so what `Arexx Execute` means has to be settled before any of it is written. |
 
 Each row is a stage of work, not a verdict.
