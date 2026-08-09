@@ -2676,21 +2676,41 @@ export const STRUCTURAL = new Set([
 ])
 
 /**
- * Tokens with no possible web semantics: editor-internal glue, plus keywords
- * that execute raw 68k machine code, call Amiga ROM library vectors, drive the
- * native compiler overlay, or open arbitrary exec devices. None of these can
- * run without *being* an Amiga, so they are n/a rather than "missing" — no
- * program's logic depends on them producing a result here.
+ * Tokens with nothing to implement: editor-internal glue, plus keywords that
+ * ARE raw 68k execution, deliberate debugger traps, syntax-only tokens the
+ * table points at `L_Syntax`, null vectors their own authors documented, and
+ * hardware below the layer this port models. No program's logic depends on
+ * them producing a result here.
  *
- * The line is whether a HOST could supply it. Things that are meaningful but
- * unrendered stay "missing", because they are portable to a host capability
- * and merely unbuilt: the copper list, serial, the printer, and — since the
- * process seam went in — running another program, which a browser tab cannot
- * do and Node does every day (`Exec`, `Lrun`, `Lexecute`; see
- * ../amiga/process.ts). ARexx is n/a and not an example of that, whatever an
- * earlier version of this paragraph claimed: it needs a language runtime and a
- * resident rexxmast, which is a subsystem to write rather than a capability to
- * plug in.
+ * ## What may be classified here, and what may not
+ *
+ * An n/a entry must name what the keyword IS. It may not name a capability
+ * this port lacks — that is a to-do, and it belongs in "missing" where the
+ * percentage counts it. "There is no requester", "AmigaFS is not a block
+ * device" and "no ARexx system exists outside AmigaOS" were all entries here
+ * and all three were work, not verdicts.
+ *
+ * ## The evidence an entry needs, which is the same an implementation needs
+ *
+ * n/a is the only classification with no verification obligation: a FAITHFUL
+ * keyword must be dispatched by a test or the coverage gate fails, and an n/a
+ * keyword has no handler to dispatch. Nothing but the reason itself stands
+ * between a wrong classification and permanent invisibility, because an n/a
+ * keyword is also out of the denominator.
+ *
+ * So: read the ROUTINE and read the DOC, and QUOTE from them. A citation is
+ * not evidence of having read what it points at. Four entries here cited a
+ * real source line and then described the keyword from its NAME — `Jd Squash`
+ * was "rewrites a file in place through trackdisk to defragment it
+ * (+|jd.s:5013)", and the line directly above the citation is the author's own
+ * `SQUASH string,richtung,delay`, which says it is a text effect. `Jd Rprint`
+ * was "through the printer path" and never touches a printer. `Jd Request` was
+ * "a file requester" and is an intuition AutoRequest. Every sound entry below
+ * quotes an instruction, an address or the author; every wrong one glossed.
+ *
+ * `src/ext/citations.test.ts` enforces the weakest mechanical part of this:
+ * an extension with no author source must name the manual it was read
+ * against, because prose is then the only thing that can catch a guess.
  */
 export const NA = new Set<string>([
   // Range 2.9Plus routine 72 ($134e). `=Library Call(base, offset)` adds the
@@ -2760,10 +2780,12 @@ export const NA = new Set<string>([
   // (+|jd.s:835 with macros.s). No debugger, and deliberately crashing the
   // interpreter is not a service to anyone.
   'jd private',
-  // TURBO Plus: routine 132 points COP1LC at graphics.library's own copper
-  // list and clears a flag in the AMOS workspace, handing the display back
-  // to the system so a developer can see the machine underneath. There is
-  // no system copper list here to hand it back to, and nothing underneath.
+  // TURBO Plus: routine 132 opens graphics.library, points COP1LC at its own
+  // copper list (`move.l $26(a0),$dff080`) and clears a flag in the AMOS
+  // workspace, handing the display back to the system so a developer can see
+  // the machine underneath -- and then takes `illegal #$4afc`, the same
+  // debugger trap Pdebug and Jd Private use. There is no system copper list
+  // here to hand the display back to and no debugger to drop into.
   'debug',
   // syntax-only phrases: the token table points these at L_Syntax, which
   // is not an implementation — it is the routine that says "this token

@@ -301,3 +301,54 @@ describe('self-citation', () => {
     expect(checkSelfCitation(text, findAnchors(text, (n) => own.has(n)), own, named)).toEqual([])
   })
 })
+
+/**
+ * A manual is evidence, and an unopened one is a silent hazard.
+ *
+ * The failure this catches is specific and has happened: a classification that
+ * cites a real source LINE and then describes the keyword from its NAME.
+ * `Jd Squash` was recorded as "rewrites a file in place through trackdisk to
+ * defragment it (+|jd.s:5013)" -- the line is right, and the line directly
+ * above it is the author's own `SQUASH string,richtung,delay`, which says it
+ * is a text effect. `Jd Rprint` was "through the printer path" and never
+ * touches a printer; `Jd Request` was "a file requester" and is an intuition
+ * AutoRequest. All three would have been caught by opening the manual, which
+ * gives every keyword a one-line Funktion.
+ *
+ * A citation cannot be checked against prose mechanically. What CAN be checked
+ * is that the manual a manifest declares was opened at all, so this asserts
+ * every ported extension names one of its own docs somewhere in the port.
+ */
+/** every extension id some port file already cites, i.e. every ported one */
+const CITED_BY_IDS = new Set(Object.values(CITED_BY).flat())
+
+describe('declared documentation is cited', () => {
+  it('every ported extension names one of its own docs', () => {
+    const all = readdirSync(join(src, 'runtime'))
+      .filter((f) => f.endsWith('.ts'))
+      .map((f) => readFileSync(join(src, 'runtime', f), 'latin1'))
+      .join('\n')
+      .concat(readFileSync(join(src, 'coverage', 'status.ts'), 'latin1'))
+    const missing: string[] = []
+    for (const f of readdirSync(join(src, 'ext', 'manifests'))) {
+      const m = JSON.parse(readFileSync(join(src, 'ext', 'manifests', f), 'utf8')) as {
+        id: string
+        evidence?: string
+        docs?: string[]
+      }
+      // only extensions with a handler registered: an unported one has
+      // nothing to cite from yet
+      if (!CITED_BY_IDS.has(m.id)) continue
+      // and only the ones with no author source. Where the source ships, it
+      // outranks the prose and the manual is a cross-check rather than the
+      // evidence; where it does not, the manual is the ONLY thing that can
+      // catch a keyword described from its name
+      if (m.evidence !== 'disassembly') continue
+      // a trailing slash is a directory of documentation, not a file to name
+      const docs = (m.docs ?? []).filter((d) => !d.endsWith('/'))
+      if (docs.length === 0) continue
+      if (!docs.some((d) => all.includes(d))) missing.push(`${m.id} declares ${docs.join(', ')} and cites none`)
+    }
+    expect(missing).toEqual([])
+  })
+})

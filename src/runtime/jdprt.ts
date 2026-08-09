@@ -8,6 +8,10 @@
  *
  * ## Evidence
  *
+ * `AMOSPro_Prt.Lib.MANUAL` gives every keyword a Funktion line and the pitch
+ * each escape sequence selects, which is the cross-check on the ones 1.4 added
+ * over 1.3 -- 1.4 ships no source.
+ *
  * `prt.s`, PowerPacked in the 1.3 fixture, 14.5 KB unpacked — the author's
  * own source, "This file is public domain" in its header, dated 20.05.1993.
  * The 1.4 additions have no source and come out of `AMOSPro_Prt.Lib` 1.4

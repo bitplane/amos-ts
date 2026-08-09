@@ -1,5 +1,6 @@
 /**
- * LSerial 2.1 — Niklas Sjöberg, fifteen keywords at slot 11.
+ * LSerial 2.1 — Niklas Sjöberg, fifteen keywords at slot 11, read off the
+ * binary and against the shipped `HELP.DOC`.
  *
  * A serial.device wrapper written because AMOS's own did not work: *"AMOS's
  * serial didn't work in 1.0/1.1, in 1.2/1.3 it worked, but only sometimes and

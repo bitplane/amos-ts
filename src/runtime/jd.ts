@@ -24,6 +24,12 @@
  * unverified. And slot 22 comes from the author's own build rather than from
  * our fingerprinting of the corpus.
  *
+ * The five keywords 5.9 added over 5.3 have no source and are read off
+ * `AMOSPro_JD.Lib` with 5.9's own `AMOSPro_JD.Lib.MANUAL` beside it, which
+ * fixes their contracts exactly: Jd Chipset is 0/1/2 for Original/ECS/AA, Jd
+ * Cpu is one of 68000 to 68040, and Jd Dpath answers a POSITION within the
+ * path rather than a string.
+ *
  * There is also a per-keyword English manual (`JD_Manual.eng`: name,
  * parameters, function, result, syntax, example). Where the two disagree the
  * source wins, and the disagreements are recorded at the keyword.

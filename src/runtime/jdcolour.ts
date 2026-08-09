@@ -9,7 +9,10 @@
  *
  * ## Evidence
  *
- * `APD599/SOURCES/|col.s`, 34 KB unpacked, PowerPacked like its sibling. The
+ * `APD599/SOURCES/|col.s`, 34 KB unpacked, PowerPacked like its sibling,
+ * which covers 1.4. The keywords 2.0 ADDED have no source and are read off
+ * `AMOSPro_JDColour.Lib` with `AMOSPro_JDColour.Lib.MAN` beside it, which
+ * gives every one of them a signature and a one-line Funktion. The
  * manual is JD's own (`JD_Manual.eng`), which documents all three libraries
  * together — which is why a reader of that manual cannot tell which keyword
  * belongs to which library, and the sources can.
