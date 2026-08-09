@@ -1967,6 +1967,12 @@ export const FAITHFUL = new Set<string>([
   'jd wswap',
   'jd lswap',
   'jd key to asc',
+  // four that were n/a for the company they kept rather than for what they
+  // do -- see the NA block. Jd File$ carries a DEFECT of its own; see NOTES.
+  'jd mouse',
+  'jd path$',
+  'jd file$',
+  'jd drive$',
   // TOME 4.23 / 3.1, the map engine: routines 10, 11, 14-19 and their two
   // shared helpers, 67 (resolve the map bank) and 70 (the icon bank and its
   // count). Read off TOME.Lib, which ships without a manual, so there is no
@@ -2706,26 +2712,28 @@ export const NA = new Set<string>([
   'jd squash',
   // JD Colour: the keywords that need a window, a requester or a device of
   // their own rather than a palette. Open/Close/Print/Input Con drive a CON:
-  // console window through DOS; Jd Request is a file requester; File$, Path$
-  // and Drive$ split an AmigaDOS path the way its own requester returns one;
-  // Jd Guru paints a fake guru meditation alert; Setoutput Amiga/Amos switch
-  // the output format between the two conventions; Jd Mouse counts Show/Hide
-  // nesting; Jd Rprint right-justifies through the printer path; Screen
-  // Border, Wait Raster, Screen Convert and the six Slide keywords animate or
-  // rewrite a whole screen through the RastPort; Load/Save Palette read and
-  // write a palette file whose format the source does not settle.
+  // console window through DOS; Jd Request is a file requester; Jd Guru paints
+  // a fake guru meditation alert; Setoutput Amiga/Amos switch the output
+  // format between the two conventions; Jd Rprint right-justifies through the
+  // printer path; Screen Border, Wait Raster, Screen Convert and the six Slide
+  // keywords animate or rewrite a whole screen through the RastPort;
+  // Load/Save Palette read and write a palette file whose format the source
+  // does not settle.
+  //
+  // FOUR came out of this list once they were read rather than grouped.
+  // `Jd Mouse` is four instructions reading the Show/Hide nesting counter out
+  // of the AMOS workspace, which is `Runtime.mouseShow`. `Jd File$`, `Jd Path$`
+  // and `Jd Drive$` do not touch the requester at all -- each is a backward
+  // scan for a separator and a copy (routines 62 and 79). They were n/a
+  // because of the company they were listed in.
   'jd open con',
   'jd close con',
   'jd print con',
   'jd input con',
   'jd request',
-  'jd file$',
-  'jd path$',
-  'jd drive$',
   'jd guru',
   'jd setoutput amiga',
   'jd setoutput amos',
-  'jd mouse',
   'jd rprint',
   'jd screen border',
   'jd wait raster',
@@ -2885,6 +2893,16 @@ export const NA = new Set<string>([
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  // ---- JD Colour 2.0, slot 20 ----------------------------------------------
+  "jd file\$":
+    "Routine 60 ($26ca, 2.0 only) over the scanner at routine 62. DEFECT: with NO separator in the path it drops " +
+    "the first character and reads one byte past the string. The scanner leaves d0 = 0 when it finds nothing, so " +
+    "`sub.l d0,d2` makes the tail the whole string and the `addq.w #$1,a1` that exists to step over the separator " +
+    "steps over character zero instead -- a1 having been left pointing at the start rather than at a separator -- " +
+    "and the `dbra` then copies the full length from one byte further on. `Jd File$(\"readme\")` is \"eadme\" plus " +
+    "whatever follows the string in the AMOS workspace. The dropped character is reproduced; the trailing byte is " +
+    "not, because there is no workspace here to read past and inventing one would be worse than being a byte short.",
+
   // ---- BUtility 1.21, slot 12 ----------------------------------------------
   "bfilereq":
     "Routine 4 ($7f6), 96 bytes: rtFileRequestA with the default copied into the shared buffer at data+$16 first, " +

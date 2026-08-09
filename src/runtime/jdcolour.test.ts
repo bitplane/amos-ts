@@ -235,3 +235,50 @@ describe('JD Colour: the separations the gate caught (+|col.s:519-640)', () => {
     expect(val('Jd Key To Asc(65)')).toBe('0')
   })
 })
+
+/**
+ * Four keywords that were n/a because of the list they were written into
+ * rather than because of what they do. None of them needs a window, a
+ * requester or a device.
+ */
+describe('JD Colour: the path helpers and the mouse counter', () => {
+  it('Jd Mouse reads the Show/Hide nesting counter', () => {
+    // routine 48 (+|col.s:1652) is `move.w -$1584(a5),d3 / ext.l d3` and
+    // nothing else -- the counter AMOS's own Hide/Show stack keeps
+    expect(run('Show On : Print Jd Mouse').trim()).toBe('0')
+    expect(run('Show On : Hide : Print Jd Mouse').trim()).toBe('-1')
+    expect(run('Show On : Hide : Hide : Print Jd Mouse').trim()).toBe('-2')
+    // and a matching Show brings it back, which is the point of the keyword
+    expect(run('Show On : Hide : Hide : Show : Print Jd Mouse').trim()).toBe('-1')
+  })
+
+  it('Jd Path$ keeps everything up to the last / or :', () => {
+    // routine 62's backward scan stops at either separator
+    expect(val('Jd Path$("DH0:Work/thing.txt")')).toBe('DH0:Work/')
+    expect(val('Jd Path$("DH0:thing.txt")')).toBe('DH0:')
+    expect(val('"["+Jd Path$("thing.txt")+"]"')).toBe('[]')
+    expect(val('"["+Jd Path$("")+"]"')).toBe('[]')
+  })
+
+  it('Jd Drive$ stops at the colon alone', () => {
+    // routine 79 carries its OWN copy of the scanner, testing only for ':'
+    expect(val('Jd Drive$("DH0:Work/thing.txt")')).toBe('DH0:')
+    expect(val('Jd Drive$("Work/thing.txt")')).toBe('')
+    expect(val('Jd Drive$("DH0:")')).toBe('DH0:')
+  })
+
+  it('Jd File$ takes the tail past the separator', () => {
+    expect(val('Jd File$("DH0:Work/thing.txt")')).toBe('thing.txt')
+    expect(val('Jd File$("DH0:thing.txt")')).toBe('thing.txt')
+    expect(val('"["+Jd File$("")+"]"')).toBe('[]')
+  })
+
+  it('DEFECT: with no separator Jd File$ drops the first character', () => {
+    // d0 comes back 0 from the scanner, so the `addq.w #$1,a1` meant to step
+    // over the separator steps over character zero instead. On the machine
+    // the dbra then also reads one byte past the string; there is no
+    // workspace here to read past, so the answer is that byte short
+    expect(val('Jd File$("readme")')).toBe('eadme')
+    expect(val('Jd File$("a")')).toBe('')
+  })
+})

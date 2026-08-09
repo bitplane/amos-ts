@@ -301,6 +301,83 @@ export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
       if (v.length === 0 || v.length >= 128) outdim()
       return VS(v.split('').join(' '))
     },
+
+    /**
+     * =Jd Mouse — routine 48 (+|col.s:1652), four instructions:
+     *
+     *     move.w -$1584(a5),d3 / ext.l d3 / moveq #0,d2 / rts
+     *
+     * A signed word straight out of the AMOS workspace, and nothing else. It
+     * is the Show/Hide NESTING counter, which is what makes the keyword worth
+     * having: AMOS's `Hide` can be stacked and only a matching run of `Show`s
+     * brings the pointer back, so a program that did not do the stacking
+     * itself has no other way to find out how deep it is. Zero is visible, and
+     * each unmatched `Hide` takes it one further negative.
+     *
+     * This was n/a, lumped in with the keywords that need a window or a
+     * requester of their own. It needs neither: the counter is `mouseShow` on
+     * the Runtime and has been since the core console keywords were written.
+     */
+    'jd mouse': (): Value => VI(rt.mouseShow),
+
+    /**
+     * =Jd Path$(p) and =Jd File$(p) — routines 61 and 60 (2.0 only, $26e8 and
+     * $26ca), both over the scanner at routine 62 ($26fe):
+     *
+     *     lea (a2,d0.w),a1
+     *     lop move.b -(a1),d1 / cmpi.b #$2f,d1 / beq / cmpi.b #$3a,d1 / beq
+     *         subq.w #$1,d0 / bne lop
+     *
+     * A backward scan for the last '/' or ':', leaving d0 = the number of
+     * characters up to AND INCLUDING it, or 0 when there is none. `Jd Path$`
+     * copies those d0 bytes; `Jd File$` takes `len - d0` from just past the
+     * separator.
+     *
+     * These were n/a as "split an AmigaDOS path the way its own requester
+     * returns one". They do not touch the requester: the whole of both is the
+     * scan above and a copy.
+     */
+    'jd path$'(_, a): Value {
+      const p = String(a[0]!.k === 'str' ? a[0]!.s : '')
+      const cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf(':'))
+      return VS(cut < 0 ? '' : p.slice(0, cut + 1))
+    },
+
+    /**
+     * DEFECT: with no separator at all, `Jd File$` drops the first character
+     * and reads one byte past the string.
+     *
+     * The scanner leaves d0 = 0 when it finds nothing, so `sub.l d0,d2` makes
+     * the tail the WHOLE string and `addq.w #$1,a1` — which is there to step
+     * over the separator — steps over the first character instead, a1 having
+     * been left pointing at character zero rather than at a separator. The
+     * `dbra` then copies the full length from one byte further on. So
+     * `Jd File$("readme")` is "eadme" plus whatever byte follows the string in
+     * the AMOS workspace.
+     *
+     * Reproduced as far as a string can be: the first character is dropped.
+     * The trailing byte is not invented — there is no workspace here to read
+     * past, and guessing at one would be worse than the length being short.
+     */
+    'jd file$'(_, a): Value {
+      const p = String(a[0]!.k === 'str' ? a[0]!.s : '')
+      if (p === '') return VS('')
+      const cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf(':'))
+      if (cut >= 0) return VS(p.slice(cut + 1))
+      return VS(p.slice(1)) // the defect, one byte short of the machine's
+    },
+
+    /**
+     * =Jd Drive$(p) — routine 79 (2.0 only, $2a60), with its own copy of the
+     * scanner at $2a76 that tests for ':' ALONE. So it answers everything up
+     * to and including the last colon — the volume or assign — and the empty
+     * string for a relative path. Also n/a until this was read.
+     */
+    'jd drive$'(_, a): Value {
+      const p = String(a[0]!.k === 'str' ? a[0]!.s : '')
+      const cut = p.lastIndexOf(':')
+      return VS(cut < 0 ? '' : p.slice(0, cut + 1))
+    },
   }
 }
 
