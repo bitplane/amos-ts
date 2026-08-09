@@ -47,7 +47,7 @@ import { BUTILITY_ERRORS, makeBUtilityFunctions, makeBUtilityInstructions, newBU
 import { newStarsState, makeStarsFunctions, makeStarsInstructions } from './stars'
 import { newAgaState, makeAgaFunctions, makeAgaInstructions } from './aga'
 import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
-import { makeJdColourFunctions, makeJdColourInstructions } from './jdcolour'
+import { makeJdColourFunctions, makeJdColourInstructions, newJdColourState } from './jdcolour'
 import { jdPrt11Aliases, makeJdPrtFunctions, makeJdPrtInstructions } from './jdprt'
 import { newTdState, TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td'
 import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
@@ -3585,7 +3585,10 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
         put(it.formatValue(it.evalExpr()))
         nl = true
       }
-      if (nl) put('\r\n') // sp14: CR+LF line ends
+      // sp14: CR+LF line ends, unless JD Colour's Write patch is in (see
+      // Runtime.amigaLineEnds), which turns the CR of a trailing CR+LF into
+      // an LF and shortens the buffer by one
+      if (nl) put(rt.amigaLineEnds ? '\n' : '\r\n')
       if (c.speak) rt.speakWrite(c, spoken.join(''))
     },
     'input #'(it) {
@@ -5784,6 +5787,9 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
   {
     // the Colour companion, its own library at its own slot (ExtNb equ 20-1)
     ids: ['jd-colour-1.4', 'jd-colour-2.0'],
+    init: (rt) => {
+      rt.jdColour = newJdColourState()
+    },
     instructions: makeJdColourInstructions,
     functions: makeJdColourFunctions,
   },

@@ -42,6 +42,7 @@ import type { ToolsState } from './tools'
 import type { DeltaState } from './delta'
 import type { LSerialState } from './lserial'
 import type { BUtilityState } from './butility'
+import type { JdColourState } from './jdcolour'
 import { starfieldVbl, type StarsState } from './stars'
 import { type AgaState } from './aga'
 import { amcafPtVbl, type AmcafState } from './amcaf'
@@ -965,6 +966,19 @@ export class Runtime {
   lserial!: LSerialState
   /** BUtility 1.21's shared requester buffers and its last XPK error, slot 12 */
   butility!: BUtilityState
+  /** JD Colour's requester channel and guru alert, slot 20 */
+  jdColour!: JdColourState
+  /**
+   * Whether AMOS's file output ends its lines the Amiga way.
+   *
+   * AMOS writes CR+LF; AmigaDOS text is LF alone. JD Colour's `Jd Setoutput
+   * Amiga` SetFunction-patches dos.library's `Write` so a buffer whose
+   * second-to-last byte is CR has it replaced by LF and its length dropped by
+   * one, and `Jd Setoutput Amos` puts the vector back. The patch is on
+   * dos.library rather than on the extension, so it changes every write AMOS
+   * makes -- which is why the flag is here and not in JdColourState.
+   */
+  amigaLineEnds = false
   /** Stars 2.33's interrupt-driven starfield, slot 20 */
   stars!: StarsState
   /** AGA 1.0's 256-colour screens, blocks and shared palette, slot 20 */
@@ -1620,15 +1634,7 @@ export class Runtime {
   dialogErrPos = 0
   /** a pending =Dialog Box quick channel (Dia_RunQuick) */
   dialogBoxChan: number | null = null
-  /**
-   * A modelled requester currently up for JD Colour's `Jd Request`.
-   *
-   * Here rather than in a JdState because JD Colour is its own library at its
-   * own slot and a program can load it without JD -- and because it is exactly
-   * what `dialogBoxChan` above is: a channel a blocking statement has to find
-   * again when it re-runs. See runtime/requester.ts.
-   */
-  jdRequestChan: number | null = null
+
 
   // ---- Fsel$ (Dsk.FileSelector / Start_FSel +Lib.s:17756) ----
   /**

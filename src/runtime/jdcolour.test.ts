@@ -5,6 +5,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
+import { AmigaFS } from '../amiga/vfs'
 import { NA } from '../coverage/status'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -303,13 +304,13 @@ describe('JD Colour: Jd Request, which is AutoRequest and not a file requester',
     // routine 71's tail is `move.l d0,d3 / beq / moveq #$ff,d3`, and the
     // manual's "Ergebnis: -1/0 = ja/nein"
     const yes = park('A=Jd Request("Quit?","","","","","Yes","No") : Print A')
-    const d = yes.rt.dialogs.get(yes.rt.jdRequestChan!)!
+    const d = yes.rt.dialogs.get(yes.rt.jdColour.requestChan!)!
     yes.rt.finishDialogRun(d, 1) // gadget 1 is the leftmost, which is Ja
     mustFinish(yes.rt.runHeadless(500))
     expect(yes.out().trim()).toBe('-1')
 
     const no = park('A=Jd Request("Quit?","","","","","Yes","No") : Print A')
-    no.rt.finishDialogRun(no.rt.dialogs.get(no.rt.jdRequestChan!)!, 2)
+    no.rt.finishDialogRun(no.rt.dialogs.get(no.rt.jdColour.requestChan!)!, 2)
     mustFinish(no.rt.runHeadless(500))
     expect(no.out().trim()).toBe('0')
   })
@@ -318,7 +319,7 @@ describe('JD Colour: Jd Request, which is AutoRequest and not a file requester',
     // d4 counts DOWN as the arguments pop right to left, so argument one is
     // the top line
     const b = park('A=Jd Request("one","two","three","","","Y","N")')
-    const d = b.rt.dialogs.get(b.rt.jdRequestChan!)!
+    const d = b.rt.dialogs.get(b.rt.jdColour.requestChan!)!
     expect(d.vars[0]).toBe('one')
     expect(d.vars[1]).toBe('two')
     expect(d.vars[2]).toBe('three')
@@ -327,7 +328,7 @@ describe('JD Colour: Jd Request, which is AutoRequest and not a file requester',
   it('drops empty body lines rather than drawing them blank', () => {
     // each of the five is scanned with NO default, so an empty one is skipped
     const b = park('A=Jd Request("one","","three","","","Y","N")')
-    const d = b.rt.dialogs.get(b.rt.jdRequestChan!)!
+    const d = b.rt.dialogs.get(b.rt.jdColour.requestChan!)!
     expect(d.vars[0]).toBe('one')
     expect(d.vars[1]).toBe('three')
   })
@@ -336,18 +337,152 @@ describe('JD Colour: Jd Request, which is AutoRequest and not a file requester',
     // the conditional the `move.l a0,d0 / beq $2798` makes: JA$ gets its
     // default only if the NEIN$ pop fell back to one
     const both = park('A=Jd Request("x","","","","","","")')
-    const d1 = both.rt.dialogs.get(both.rt.jdRequestChan!)!
+    const d1 = both.rt.dialogs.get(both.rt.jdColour.requestChan!)!
     expect(d1.vars[10]).toBe('Retry')
     expect(d1.vars[11]).toBe('Cancel')
 
     // supply a Nein and leave Ja empty: the Ja gadget gets NO text at all
     const one = park('A=Jd Request("x","","","","","","Stop")')
-    const d2 = one.rt.dialogs.get(one.rt.jdRequestChan!)!
+    const d2 = one.rt.dialogs.get(one.rt.jdColour.requestChan!)!
     expect(d2.vars[10]).toBe('')
     expect(d2.vars[11]).toBe('Stop')
   })
 
   it('raises when every body line is empty', () => {
     expect(() => run('A=Jd Request("","","","","","Y","N")')).toThrow(/llegal function call/)
+  })
+})
+
+describe('JD Colour: Jd Rprint, Jd Setoutput and Jd Guru', () => {
+  /** a Runtime that has run `src`, for the checks that read the bitmap */
+  function ran(src: string): Runtime {
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[20, col]]),
+      maxSteps: 200_000,
+      onText: () => {},
+    })
+    mustFinish(rt.runHeadless(500))
+    return rt
+  }
+
+  /** lit pixels in a band of the top text row */
+  function lit(rt: Runtime, x1: number, x2: number): number {
+    let n = 0
+    for (let y = 0; y < 8; y++) for (let x = x1; x <= x2; x++) if (rt.screen.point(x, y) !== 0) n++
+    return n
+  }
+
+  it('Jd Rprint right-justifies on the current row', () => {
+    // routine 54: (screen width in pixels / 8) - length gives the column, so
+    // on a 320-wide screen "abc" starts at column 37 -- x 296 to 319
+    const rt = ran('Screen Open 0,320,200,4,0 : Cls 0 : Jd Rprint "abc"')
+    expect(lit(rt, 296, 319)).toBeGreaterThan(0)
+    expect(lit(rt, 0, 295)).toBe(0)
+  })
+
+  it('and prints nothing at all for an empty string', () => {
+    // `move.w (a0)+,d1 / beq leer`
+    const rt = ran('Screen Open 0,320,200,4,0 : Cls 0 : Jd Rprint ""')
+    expect(lit(rt, 0, 319)).toBe(0)
+  })
+
+  it('NOTE: an over-long string is not clamped, so it prints where it stood', () => {
+    // `sub.w d1,d0 / ext.l d0` goes negative and a negative column means
+    // "leave it where it is". AMOS's own Centre clamps at zero; this does not,
+    // so the text starts after the "xy" already on the row rather than at 0
+    const rt = ran('Screen Open 0,320,200,4,0 : Cls 0 : Print "xy"; : Jd Rprint String$("z",60)')
+    expect(lit(rt, 0, 15)).toBeGreaterThan(0) // the "xy"
+    expect(lit(rt, 16, 31)).toBeGreaterThan(0) // and the z's carry straight on
+  })
+
+  it('Jd Setoutput Amiga switches the line ending, and Amos puts it back', () => {
+    // the dos.library Write patch turns a trailing CR+LF into a bare LF
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    fs.currentDir = 'RAM:'
+    const go = (src: string): string => {
+      const rt = new Runtime(tokenize(src, table, exts), table, {
+        extensions: exts,
+        extBindings: new Map([[20, col]]),
+        maxSteps: 200_000,
+        fs,
+        onText: () => {},
+      })
+      mustFinish(rt.runHeadless(500))
+      const b = rt.fs?.read('RAM:out.txt')
+      return b ? String.fromCharCode(...b) : ''
+    }
+    expect(go('Open Out 1,"RAM:out.txt" : Print #1,"hi" : Close 1')).toBe('hi\r\n')
+    expect(go('Jd Setoutput Amiga : Open Out 1,"RAM:out.txt" : Print #1,"hi" : Close 1')).toBe('hi\n')
+    expect(
+      go('Jd Setoutput Amiga : Jd Setoutput Amos : Open Out 1,"RAM:out.txt" : Print #1,"hi" : Close 1'),
+    ).toBe('hi\r\n')
+  })
+
+  it('and each is idempotent, which is what the guards are for', () => {
+    // `cmp.l #1,d0 / bne setami / rts` -- asking for the convention already in
+    // force returns without touching the vector
+    const rt = new Runtime(tokenize('Jd Setoutput Amiga : Jd Setoutput Amiga', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[20, col]]),
+      maxSteps: 200_000,
+      onText: () => {},
+    })
+    mustFinish(rt.runHeadless(500))
+    expect(rt.amigaLineEnds).toBe(true)
+  })
+
+  it('Jd Guru opens its own 640x32 two-colour screen and blocks', () => {
+    const rt = new Runtime(tokenize('Screen Open 0,320,200,4,0 : A=Jd Guru("Software Failure","Click a button")', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[20, col]]),
+      maxSteps: 200_000,
+      onText: () => {},
+    })
+    rt.frame()
+    const g = rt.screens.get(11)!
+    expect([g.width, g.height, g.nColors]).toEqual([640, 32, 2])
+    expect(g.palette[0]).toBe(0x000)
+    expect(g.palette[1]).toBe(0xd00)
+    // the border is drawn, so something is lit on the top row
+    expect(g.point(320, 1)).toBe(1)
+    // and it is still waiting
+    expect(rt.currentIndex).toBe(11)
+  })
+
+  it('answers 1 for the left button and 2 for the right, then restores', () => {
+    const go = (mouse: number): { a: string; rt: Runtime } => {
+      let out = ''
+      const rt = new Runtime(
+        tokenize('Screen Open 0,320,200,4,0 : A=Jd Guru("Guru","Meditation") : Print A', table, exts),
+        table,
+        { extensions: exts, extBindings: new Map([[20, col]]), maxSteps: 200_000, onText: (t) => (out += t) },
+      )
+      rt.frame()
+      rt.input.mouseK = mouse
+      mustFinish(rt.runHeadless(500))
+      return { a: out.trim(), rt }
+    }
+    const left = go(1)
+    // the two guru lines were written to its screen and land in the same
+    // text stream, so the answer is what follows them
+    expect(left.a.endsWith('1')).toBe(true)
+    // screen 11 is deleted and the program's own screen is current again
+    expect(left.rt.screens.has(11)).toBe(false)
+    expect(left.rt.currentIndex).toBe(0)
+    expect(go(2).a.endsWith('2')).toBe(true)
+  })
+
+  it('skips an empty line rather than printing it blank', () => {
+    // `cmp.w #0,(a1)+ / beq` on each of the two
+    const rt = new Runtime(tokenize('A=Jd Guru("only one","")', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[20, col]]),
+      maxSteps: 200_000,
+      onText: () => {},
+    })
+    rt.frame()
+    expect(rt.jdColour.guru).not.toBeNull()
   })
 })

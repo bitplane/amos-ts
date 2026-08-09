@@ -37,6 +37,7 @@ import { VI, VS, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { outdim } from './jd'
+import { Screen } from './screen'
 import { finishRequester, startRequester } from './requester'
 import type { RequesterSpec } from './requester'
 
@@ -54,6 +55,25 @@ const PPAL = Uint16Array.from([
   0x4f0, 0x5f0, 0x8f0, 0x9f0, 0xaf0, 0xcf0, 0xef0, 0xfd0,
   0xfd0, 0xfc0, 0xfa0, 0xf90, 0xf90, 0xf80, 0xf60, 0xf00,
 ])
+
+/**
+ * The screen `Jd Guru` opens for itself: 640x32 hires, one plane, and screen
+ * number 11 -- outside AMOS's user range of 0 to 7, so it cannot collide with
+ * a program's own. `gpal` is two words, black and $D00.
+ */
+const GURU_SCREEN = 11
+const GURU_WIDTH = 640
+const GURU_HEIGHT = 32
+const GURU_PALETTE = [0x000, 0xd00]
+
+export interface JdColourState {
+  /** a modelled requester currently up for `Jd Request` */
+  requestChan: number | null
+  /** the guru alert currently up, and the screen to go back to */
+  guru: { prev: number; flash: number } | null
+}
+
+export const newJdColourState = (): JdColourState => ({ requestChan: null, guru: null })
 
 /**
  * The shared body of routines 52 and 53. `d0 = ScOnAd+$60 - 1`, and above 31
@@ -428,29 +448,175 @@ export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
         body: body.join('\n'),
         gadgets: [ja, nein === '' ? 'Cancel' : nein],
       }
-      if (rt.jdRequestChan !== null) {
-        const r = finishRequester(rt, rt.jdRequestChan, spec)
+      if (rt.jdColour.requestChan !== null) {
+        const r = finishRequester(rt, rt.jdColour.requestChan, spec)
         if (r === null) {
-          it.block({ type: 'dialog', channel: rt.jdRequestChan }, true)
+          it.block({ type: 'dialog', channel: rt.jdColour.requestChan }, true)
           return VI(0)
         }
-        rt.jdRequestChan = null
+        rt.jdColour.requestChan = null
         // gadget 1 is the leftmost, which is JA$; anything else is nein
         return VI(r.ret === 1 ? -1 : 0)
       }
       const chan = startRequester(rt, spec)
       if (chan === null) return VI(0)
-      rt.jdRequestChan = chan
+      rt.jdColour.requestChan = chan
       it.block({ type: 'dialog', channel: chan }, true)
       return VI(0)
     },
+
+    /**
+     * =Jd Guru(TEXT1$,TEXT2$) --- routine 38 (+|col.s:1164). An imitation of
+     * the Guru Meditation alert, and the manual is plain about what it is for:
+     * a two-line message the program cannot be got past without a click.
+     *
+     * It creates screen 11 -- 640x32, one plane, mode $8000, two colours from
+     * `gpal`, which is `dc.w 0,$d00` -- makes it current, saves the screen
+     * that was, and centres TEXT1$ on row 1 and TEXT2$ on row 2 through AMOS's
+     * own Centre, each skipped when empty (`cmp.w #0,(a1)+ / beq`). Then it
+     * alternates a border between the two pens and polls both mouse buttons
+     * (`btst #6,$bfe001` and `btst #2,$dff016`), answering 1 for the left and
+     * 2 for the right. On the way out screen 11 is deleted and ScOn/ScOnAd are
+     * put back.
+     *
+     * The border is two rectangles: an outer one from (1,1) to (639,31) and
+     * two verticals at x=2 and x=638, drawn by graphics.library Move and Draw.
+     *
+     * DEVIATION: the flash is not paced. On the machine the pen alternates
+     * once per 65,536-iteration poll; here it advances once per frame, which
+     * is the port-wide timing deviation rather than a JD one. What a program
+     * can observe -- the screen, the text, the block, and which button ended
+     * it -- is the same.
+     */
+    'jd guru'(it, a): Value {
+      const st = rt.jdColour
+      if (st.guru) {
+        const k = rt.input.mouseK
+        // bit 0 is the left button and bit 1 the right, which is the order
+        // `btst #6,$bfe001` then `btst #2,$dff016` tests them in
+        if ((k & 3) !== 0) {
+          const { prev } = st.guru
+          st.guru = null
+          rt.closeScreen(GURU_SCREEN)
+          if (prev >= 0) rt.setCurrent(prev)
+          return VI(k & 1 ? 1 : 2)
+        }
+        // the border alternates while it waits
+        st.guru.flash ^= 1
+        guruBorder(rt, st.guru.flash)
+        it.block({ type: 'waitInput', mouse: true, key: false }, true)
+        return VI(0)
+      }
+      const text1 = a[0]?.k === 'str' ? a[0]!.s : ''
+      const text2 = a[1]?.k === 'str' ? a[1]!.s : ''
+      const prev = rt.screens.has(rt.currentIndex) ? rt.currentIndex : -1
+      const scr = new Screen(GURU_SCREEN, GURU_WIDTH, GURU_HEIGHT, 2, 0x8000)
+      rt.screens.set(GURU_SCREEN, scr)
+      rt.order = rt.order.filter((i) => i !== GURU_SCREEN)
+      rt.order.push(GURU_SCREEN)
+      rt.currentIndex = GURU_SCREEN
+      scr.cls(0)
+      for (let i = 0; i < GURU_PALETTE.length; i++) scr.palette[i] = GURU_PALETTE[i]!
+      // `cuoff` is `dc.b 27,'C0',0` -- the AMOS escape that hides the cursor
+      scr.cursorOn = false
+      // Locate 1,1 then Centre, Locate 2,2 then Centre; an empty line is not
+      // printed at all rather than printed blank
+      if (text1 !== '') {
+        scr.locate(Math.max(0, (scr.cols - text1.length) >> 1), 1)
+        it.write(text1)
+      }
+      if (text2 !== '') {
+        scr.locate(Math.max(0, (scr.cols - text2.length) >> 1), 2)
+        it.write(text2)
+      }
+      st.guru = { prev, flash: 1 }
+      guruBorder(rt, 1)
+      it.block({ type: 'waitInput', mouse: true, key: false }, true)
+      return VI(0)
+    },
+
   }
+}
+
+/**
+ * The `box` subroutine (+|col.s:1237): an outer rectangle from (1,1) to
+ * (639,31) and two verticals at x=2 and x=638 running from y=2 to y=31, all
+ * in pen `d0`. Redrawn in the other pen each time round the wait loop, which
+ * is what makes it flash.
+ */
+function guruBorder(rt: Runtime, pen: number): void {
+  const s = rt.screens.get(GURU_SCREEN)
+  if (!s) return
+  const r = GURU_WIDTH - 1
+  const b = GURU_HEIGHT - 1
+  s.line(1, 1, r, 1, pen)
+  s.line(r, 1, r, b, pen)
+  s.line(r, b, 1, b, pen)
+  s.line(1, b, 1, 1, pen)
+  s.line(2, 2, 2, b, pen)
+  s.line(r - 1, 2, r - 1, b, pen)
 }
 
 export function makeJdColourInstructions(rt: Runtime): Record<string, Instr> {
   const pal = (): Uint16Array => rt.screen.palette
 
   return {
+
+    /**
+     * Jd Setoutput Amiga and Jd Setoutput Amos --- routines 49 and 50
+     * (+|col.s:1656, :1664), both guards over the toggle at routine 51:
+     *
+     *     L49  Dmove sop,d0 / cmp.l #1,d0 / bne setami / rts
+     *     L50  Dmove sop,d0 / cmp.l #1,d0 / beq setamo / rts
+     *
+     * so each is idempotent -- asking for the convention already in force
+     * returns without doing anything.
+     *
+     * Routine 51 SetFunction-patches dos.library's `Write` (offset -48) with a
+     * stub of its own: `a0 = buffer + length - 2; cmp.b #13,(a0); bne through;
+     * move.b #10,(a0)+; move.b #0,(a0); sub.l #1,d3`. A buffer whose
+     * SECOND-TO-LAST byte is a carriage return has it replaced by a linefeed
+     * and its length shortened by one, which turns AMOS's CR+LF line ends into
+     * AmigaDOS's bare LF. `Jd Setoutput Amos` restores the saved vector.
+     *
+     * The flag is `Runtime.amigaLineEnds`, because the patch is on dos.library
+     * and applies to every write AMOS makes rather than to this extension's.
+     *
+     * DEVIATION: the patch tests the second-to-last byte of EVERY buffer
+     * handed to Write, so on the machine a binary `Put #` whose data happens
+     * to end in CR and one more byte is rewritten too -- the patch cannot tell
+     * text from anything else. Here the switch is applied where the line
+     * terminator is written, so only line ends change. Reproducing the rest
+     * would need a per-`Write` boundary that a buffered channel does not have.
+     */
+    'jd setoutput amiga'() {
+      rt.amigaLineEnds = true
+    },
+    'jd setoutput amos'() {
+      rt.amigaLineEnds = false
+    },
+
+    /**
+     * Jd Rprint TEXT$ --- routine 54 (+|col.s:1833). Right-justified text, and
+     * nothing to do with a printer: `XYCuWi` reads the cursor row, `$4c(a0)`
+     * is the screen width in pixels and `divu #8` turns it into columns, then
+     * `sub.w d1,d0` with the string length gives the column to Locate to
+     * before Print. An empty string takes `beq leer` and prints nothing.
+     *
+     * NOTE: there is no clamp. `sub.w d1,d0 / ext.l d0` hands Locate a
+     * NEGATIVE column when the string is wider than the screen, and a negative
+     * column means "leave it where it is" -- so an over-long string prints
+     * from wherever the cursor already was rather than from the left margin.
+     * AMOS's own Centre clamps at zero; this does not.
+     */
+    'jd rprint'(it) {
+      const text = it.evalStr()
+      if (text === '') return // `move.w (a0)+,d1 / beq leer`
+      const s = rt.screen
+      s.locate(s.cols - text.length, -1)
+      it.write(text)
+    },
+
     /**
      * Jd Swap Colours a,b and Jd Copy Colour a To b — the palette entries
      * exchanged and copied. These change the PALETTE, where Jd Change Colours

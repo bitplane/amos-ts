@@ -1969,11 +1969,16 @@ export const FAITHFUL = new Set<string>([
   'jd key to asc',
   // Jd Mouse reads the Show/Hide nesting counter (`Runtime.mouseShow`); the
   // three path helpers are a backward scan for a separator and a copy
-  // (routines 62 and 79). Jd File$ carries a DEFECT of its own; see NOTES.
+  // (routines 62 and 79). Jd File$ carries a DEFECT of its own, and Jd Rprint,
+  // Jd Guru and Jd Setoutput Amiga a NOTE each; see NOTES.
   'jd mouse',
   'jd path$',
   'jd file$',
   'jd drive$',
+  'jd rprint',
+  'jd guru',
+  'jd setoutput amiga',
+  'jd setoutput amos',
   // TOME 4.23 / 3.1, the map engine: routines 10, 11, 14-19 and their two
   // shared helpers, 67 (resolve the map bank) and 70 (the icon bank and its
   // count). Read off TOME.Lib, which ships without a manual, so there is no
@@ -2706,14 +2711,12 @@ export const NA = new Set<string>([
   // Squash rewrites a file in place through trackdisk to defragment it
   // (+|jd.s:5013) — the same missing block device.
   'jd squash',
-  // JD Colour: the keywords that need a window or a device of their own rather
-  // than a palette. Open/Close/Print/Input Con drive a CON: console window
-  // through DOS; Jd Guru paints a fake guru meditation alert; Setoutput
-  // Amiga/Amos switch the output format between the two conventions; Jd Rprint
-  // right-justifies through the printer path; Screen Border, Wait Raster,
-  // Screen Convert and the six Slide keywords animate or rewrite a whole
-  // screen through the RastPort; Load/Save Palette read and write a palette
-  // file whose format the source does not settle.
+  // JD Colour: the keywords that need a console window or a RastPort of their
+  // own rather than a palette. Open/Close/Print/Input Con drive a CON: console
+  // window through DOS. Screen Border, Wait Raster, Screen Convert and the six
+  // Slide keywords animate or rewrite a whole screen through the RastPort, and
+  // Load/Save Palette read and write a palette file whose format the source
+  // does not settle.
   //
   // Jd Request is NOT among them and is not a file requester: routine 66 is
   // `moveq #$4,d2 / Rbra routine 71`, which builds five IntuiTexts and calls
@@ -2723,10 +2726,6 @@ export const NA = new Set<string>([
   'jd close con',
   'jd print con',
   'jd input con',
-  'jd guru',
-  'jd setoutput amiga',
-  'jd setoutput amos',
-  'jd rprint',
   'jd screen border',
   'jd wait raster',
   'jd screen convert',
@@ -2886,6 +2885,31 @@ export const NA = new Set<string>([
  */
 export const NOTES: Record<string, string> = {
   // ---- JD Colour 2.0, slot 20 ----------------------------------------------
+  "jd rprint":
+    "Routine 54 (+|col.s:1833) and nothing to do with a printer: `XYCuWi` reads the cursor row, `$4c(a0)` is the " +
+    "screen width in pixels and `divu #8` turns it into columns, and `sub.w d1,d0` against the string length gives " +
+    "the column to Locate to before Print. An empty string takes `beq leer` and prints nothing. NOTE: there is no " +
+    "clamp -- `sub.w d1,d0 / ext.l d0` hands Locate a NEGATIVE column when the string is wider than the screen, " +
+    "and a negative column means \"leave it where it is\", so an over-long string prints from wherever the cursor " +
+    "already was rather than from the left margin. AMOS's own Centre clamps at zero; this does not.",
+  "jd guru":
+    "Routine 38 (+|col.s:1164): screen 11 at 640x32, one plane, mode $8000, two colours from `gpal` (`dc.w " +
+    "0,$d00`), TEXT1$ centred on row 1 and TEXT2$ on row 2 through AMOS's own Centre with an empty one skipped " +
+    "rather than printed blank, a border alternating between the two pens, and a poll of both mouse buttons " +
+    "(`btst #6,$bfe001` and `btst #2,$dff016`) answering 1 for the left and 2 for the right. Screen 11 is deleted " +
+    "and ScOn/ScOnAd restored on the way out. DEVIATION: the flash is not paced -- the machine alternates once " +
+    "per 65,536-iteration poll and this advances once per frame, which is the port-wide timing deviation rather " +
+    "than a JD one. The screen, the text, the block and which button ended it are the same.",
+  "jd setoutput amiga":
+    "Routines 49 and 50 (+|col.s:1656, :1664) guard the toggle at routine 51, so each is idempotent -- asking for " +
+    "the convention already in force returns without doing anything. Routine 51 SetFunction-patches dos.library's " +
+    "`Write` (offset -48) with a stub that tests the SECOND-TO-LAST byte of the buffer for a carriage return, " +
+    "replaces it with a linefeed and shortens the length by one, turning AMOS's CR+LF line ends into AmigaDOS's " +
+    "bare LF; Setoutput Amos restores the saved vector. The flag is `Runtime.amigaLineEnds`, because the patch is " +
+    "on dos.library and reaches every write AMOS makes. DEVIATION: the patch cannot tell text from anything else, " +
+    "so on the machine a binary `Put #` whose data ends in CR and one more byte is rewritten too. Here the switch " +
+    "is applied where the line terminator is written, so only line ends change; reproducing the rest would need a " +
+    "per-`Write` boundary a buffered channel does not have.",
   "jd request":
     "Routine 66 ($2748, 2.0 only) is `moveq #$4,d2 / Rbra routine 71`, and routine 71 ($2766) builds a chain of " +
     "five IntuiTexts by hand in a 1K buffer at $4f2(a5) -- topaz.font 8, left edge 15, ten pixels apart, laid out " +
