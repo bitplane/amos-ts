@@ -1482,6 +1482,21 @@ export const FAITHFUL = new Set<string>([
   'lser mul send', 'lser mul check', 'lser get', 'lcarrier',
   'lser brk', 'lser baud', 'lser params', 'lser status', 'linkey\$',
 
+  // --- BUtility 1.21 (Mariusz Rycyk), slot 12: a freeware facade over
+  // reqtools, asl and xpkmaster. BINARY tier with a .doc that gives every
+  // signature and a worked example, and the two agree everywhere. The three
+  // XPK keywords are real -- src/amiga/xpkmaster.ts is a port of the stream
+  // format, and a method this port has no sub-library for fails exactly as a
+  // machine without it would. The six accessors are buffer reads, and two of
+  // them share their buffer with the other two (a DEFECT, in the NOTES).
+  // The FIVE requesters are APPROXIMATED and deliberately absent from this
+  // list: the two file requesters go through AMOS's own selector as `Lfreq`
+  // does, and the three text requesters through runtime/requester.ts, which
+  // builds them out of the Interface dialog language. See butility.ts.
+  'bxpkpack', 'bxpkunpack', 'bxpkerror\$', 'bfilereqchg',
+  'breqfile\$', 'breqdir\$', 'baslfile\$', 'basldir\$',
+  'bgetlong', 'bgetstr\$',
+
   // --- Stars 2.33 (Jason G. Doig): Stars.doc plus every routine in the
   // 7,492-byte hunk. stars.lib and starspro.lib are different binaries with
   // an identical token table, so this covers AMOS 1.3 and AMOS Pro alike.
@@ -2865,6 +2880,57 @@ export const NA = new Set<string>([
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  // ---- BUtility 1.21, slot 12 ----------------------------------------------
+  "bfilereq":
+    "Routine 4 ($7f6), 96 bytes: rtFileRequestA with the default copied into the shared buffer at data+$16 first, " +
+    "because reqtools edits that buffer in place, and a tag list at data+$398 asking for REQPOS_CENTERSCR and " +
+    "RTFI_Flags = $10 = FREQF_PATGAD -- the pattern gadget `Bfilereqchg` exists to fill. APPROXIMATED for the " +
+    "substitution, not for the plumbing: there is no reqtools.library here, so AMOS's own selector stands in, the " +
+    "precedent `Lfreq` set for req.library. The answer is split the way reqtools splits it, NAME into the buffer " +
+    "and DRAWER into the requester, which is what makes the doc's own `KAT$+PLIK$` reassembly work.",
+  "baslfilereq":
+    "Routine 5 ($856), 104 bytes: four tag values at data+$424/$42c/$434/$43c filled right to left, so they land " +
+    "on ASL_File, ASL_Dir, the pattern tag (ASL_TagBase+10) and ASL_Hail in the doc's order, then AslRequest at " +
+    "`jsr -$3c(a6)`. The window is asked for 100x220. APPROXIMATED for the same reason as Bfilereq, and it writes " +
+    "the ASL requester's fields -- which the readers then share a buffer over, see Baslfile$.",
+  "binforeq":
+    "Routine 11 ($a02), 72 bytes: rtEZRequestA with the body in a1, the gadget string in a2 and a tag list at " +
+    "data+$374 carrying RT_Underscore = '_' (so \"_Yes|_No\" marks shortcuts), RT_ReqPos = REQPOS_CENTERSCR and " +
+    "RTEZ_ReqTitle. The answer is `move.l d0,d3` with no massaging, so the numbering is reqtools' own: leftmost " +
+    "is 1 counting up, RIGHTMOST is 0, which is why a two-gadget requester reads as a boolean. NOTE: with ONE " +
+    "gadget that rule makes it both first and last, so it answers 0; nothing in BUtility decides this and no " +
+    "example in the doc reads a one-gadget result. APPROXIMATED: an Interface dialog stands in for the reqtools " +
+    "requester, drawn in the grammar of the shipped Path:/Name: dialog. DEVIATION: the shortcut character is " +
+    "stripped rather than underlined, and Return and Escape reach the first and last gadgets instead.",
+  "bgetlongreq":
+    "Routine 12 ($a4a), 88 bytes: the default into the long at data+$26e -- which is both what rtGetLong edits " +
+    "and what `Bgetlong` reads -- then Max and Min to the tag values at data+$3d4 and $3cc (base+31 and base+30) " +
+    "and the body to data+$3dc. Answers -1 for accepted, 0 for cancelled. Because the long is edited IN PLACE, a " +
+    "cancel leaves the default sitting there and `Bgetlong` hands it back; nothing clears it. APPROXIMATED: a " +
+    "`DI` digit zone in an Interface dialog stands in.",
+  "bgetstrreq":
+    "Routine 14 ($aae), 114 bytes. DEFECT: the order of operations. The default is copied into the buffer at " +
+    "data+$274 by an UNBOUNDED byte loop and the body pointer is stored BEFORE `tst.l d0 / Rble` and " +
+    "`cmp.l #$100,d0 / Rbge` check the length, so an out-of-range Max chars raises error 5 with the copy already " +
+    "done and `Bgetstr$` answers the new default afterwards. The buffer runs data+$274..$373, 256 bytes, ending " +
+    "exactly where the EZRequest tag list begins, so a default longer than that overwrites the tag list -- " +
+    "modelled as far as a string can be (copy first, raise second), but nothing here can be scribbled on. The " +
+    "legal range the two checks leave is 1..255, which is what the doc says. APPROXIMATED: an `ED` edit zone in " +
+    "an Interface dialog stands in.",
+  "baslfile\$":
+    "Routine 9 ($978), 56 bytes. DEFECT: it copies the ASL requester's fr_File ($4) into data+$16 -- the SAME " +
+    "buffer `Breqfile$` reads -- before answering it, so calling `Baslfile$` changes what `Breqfile$` says. " +
+    "`Basldir$` and `Breqdir$` share data+$118 the same way. reqtools and asl are not separate namespaces in this " +
+    "extension; whichever ran last wins, and nothing in the doc mentions it.",
+  "bxpkpack":
+    "Routine 2 ($746), 104 bytes: four tags at data+$444 then XpkPack at `jsr -$2a(a6)`, and `move.l d0,$26a(a0)` " +
+    "stores the result whether or not it is zero so `Bxpkerror$` can be read straight after. The argument that " +
+    "goes NULL when empty is the PASSWORD -- the `tst.w d0 / bne / suba.l a0,a0` guard is on the last one popped, " +
+    "and the tag it fills is the one the unpack list also carries. NOTE: an empty METHOD leaves xpkmaster to pick " +
+    "its configured default on the machine; here it is taken as NONE, because src/amiga/xpkmaster.ts registers " +
+    "only the NONE packer. A named method this port has no sub-library for fails with XPKERR_NOMETHOD, which is " +
+    "what a machine missing that sub-library does too.",
+
   // ---- LSerial 2.1, slot 11 ------------------------------------------------
   "lser open":
     "Routine 1 ($3bc), 800 bytes: two message ports and two IORequests, then OpenDevice. The eight arguments pop " +

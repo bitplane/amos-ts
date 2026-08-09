@@ -115,6 +115,18 @@ const MODELLED: ReadonlyMap<string, number> = new Map([
   // OpenLibrary answer 0, which is the case MED 7.1 already handles and
   // reports in its own words. See runtime/medext.ts.
   ['medplayer.library', 7],
+  // the XPK compression master --- ../amiga/xpkmaster.ts is a real port of the
+  // stream format and the packer registry, and EasyLife already drives it.
+  // Version 4 because that is what BUtility's routine 0 asks for.
+  ['xpkmaster.library', 4],
+  // reqtools' and asl's file and text requesters, modelled by runtime/fsel.ts
+  // and runtime/requester.ts: AMOS's own file selector and its Interface
+  // dialog engine stand in for the windows, and every requester these two
+  // libraries are asked for here has one. The versions are the ones BUtility
+  // opens with -- v38 and v37, which are also the versions their own
+  // documentation calls the first with the tag-list API used above.
+  ['reqtools.library', 38],
+  ['asl.library', 37],
 ])
 
 /**

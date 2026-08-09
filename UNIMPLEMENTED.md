@@ -79,7 +79,6 @@ extension keyword. The count is keywords with no handler at all:
 | Delta 1.6 | 46 | `intuition.library` |
 | jd-int 1.3 | 33 | `intuition.library` — findings banked |
 | BSDSocket 1.1.4 | 30 | sockets |
-| BUtility 1.21 | 15 | reqtools / asl |
 
 **GameSupport 1.2 came off this table, and it is worth saying what it cost.**
 All 37 read 100% and all 37 are faithful. Three of its five groups turned out
@@ -237,6 +236,45 @@ here is the unregistered one, and all ten of its error paths flash the screen
 white and print *" UNREGISTERED SHAREWARE version of LSerial!  Author really
 should register!"* on the Workbench screen before raising. The error is
 reproduced; the nag is not.
+
+**BUtility 1.21 came off it, and the row's note — "reqtools / asl" — was the
+excuse rather than the reason.** All 15 read 100%: ten faithful, five
+approximated. Nothing about reqtools or asl was the obstacle. Three of the
+fifteen were free, because `src/amiga/xpkmaster.ts` is a real port of the XPK
+stream format that EasyLife already drives, and six more are buffer reads. Two
+are file requesters, and LDos's `Lfreq` had already settled those: AMOS's own
+selector stands in, approximated for the substitution and not for the plumbing.
+
+**Only three keywords ever needed anything new** — `Binforeq`, `Bgetlongreq`
+and `Bgetstrreq`, which are `rtEZRequest`, `rtGetLong` and `rtGetString` — and
+the case for calling them n/a rested on a claim that turned out to be false:
+that a modal requester was a piece of work in its own right. `src/runtime/
+dialog.ts` is 1,863 lines and is the whole Interface language, all 51
+instructions, the postfix evaluator and the prescan; `fsel.ts` already stands
+up a screen, runs a dialog program on it and blocks. A requester is a *script*
+in that language, not an engine. `src/runtime/requester.ts` writes those
+scripts, in the statement grammar of the default resource bank's own
+Path:/Name: dialog (program 3) — the one shipped dialog that draws with
+`IN`/`GB`/`GS`/`PR` primitives rather than 9-patches out of a bank whose image
+numbering is not ours, so the same script renders against any resource bank.
+AMOS Professional's editor ships the same three requesters as dialog scripts
+(`AMOSPro_Editor_Resource.Abk` program 0, labels 1, 12, 34 and 39), which is
+the evidence that this is AMOS's own way of building one and not an invention.
+
+Three defects, none of them in the doc. `Baslfile$` copies the ASL requester's
+name into data+$16 — the buffer `Breqfile$` reads — before answering it, and
+`Basldir$` and `Breqdir$` share data+$118 the same way, so reqtools and asl are
+not separate namespaces and whichever ran last wins. `Bgetstrreq` copies its
+default into the 256-byte buffer at data+$274 with an unbounded loop and stores
+the body pointer *before* checking that Max chars is in 1..255, so an
+out-of-range call raises with the copy already done — and a default longer than
+the buffer writes over the EZRequest tag list that begins at data+$374. And
+every one of the fifteen NUL-terminates its string arguments in place with
+`clr.b (a0,d0.w)`, one byte past the last character, in AMOS's own workspace.
+
+`src/amiga/exec.ts` gained the three libraries its `MODELLED` map had already
+named in a comment — xpkmaster v4, reqtools v38, asl v37 — which is what makes
+the five "not opened" arms unreachable rather than pretended.
 
 **This table has been wrong before, and the fix is to read it off
 `KEYWORDS.md`.** It used to list AMCAF 1.50, Range 1.0 and 2.0, AMOSPro

@@ -27,7 +27,7 @@ deviations.
 | amospro-request-2.0 | 3 | 0 | 3 | 0 | 100% |
 | banks | 20 | 19 | 1 | 0 | 100% |
 | bsdsocket-1.1.4 | 30 | 0 | 0 | 30 | 0% |
-| butility-1.21 | 15 | 0 | 0 | 15 | 0% |
+| butility-1.21 | 15 | 10 | 5 | 0 | 100% |
 | copper | 8 | 8 | 0 | 0 | 100% |
 | craft-1.0 | 138 | 0 | 0 | 136 | 0% |
 | ctext-1.0 | 6 | 6 | 0 | 0 | 100% |
@@ -105,7 +105,7 @@ deviations.
 | turbo-plus-2.15 | 152 | 147 | 4 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 6216 | 3838 | 110 | 2076 | 66% |
+| **total** | 6216 | 3848 | 115 | 2061 | 66% |
 
 ## aga-1.0 (100%)
 
@@ -172,9 +172,10 @@ deviations.
 
 - **missing**: `dns get address by name$`, `socket accept`, `socket bind`, `socket close socket`, `socket connect`, `socket create inet socket`, `socket errno`, `socket fdset is set`, `socket fdset set`, `socket fdset zero`, `socket get debug area`, `socket get host`, `socket get port`, `socket getsockopt int`, `socket herrno`, `socket inet ntoa$`, `socket library close`, `socket library open`, `socket listen`, `socket recv`, `socket recv$`, `socket reuse addr`, `socket select`, `socket send`, `socket send$`, `socket set nonblocking`, `socket set timeout`, `socket setsockopt int`, `socket wait async reading`, `socket wait async writing`
 
-## butility-1.21 (0%)
+## butility-1.21 (100%)
 
-- **missing**: `basldir$`, `baslfile$`, `baslfilereq`, `bfilereq`, `bfilereqchg`, `bgetlong`, `bgetlongreq`, `bgetstr$`, `bgetstrreq`, `binforeq`, `breqdir$`, `breqfile$`, `bxpkerror$`, `bxpkpack`, `bxpkunpack`
+- **faithful**: `basldir$`, `baslfile$` *(DEFECT: it copies the ASL requester's fr_File ($4) into data+$16 -- the SAME buffer `Breqfile$` reads -- before answering it, so calling `Baslfile$` changes what `Breqfile$` says.)*, `bfilereqchg`, `bgetlong`, `bgetstr$`, `breqdir$`, `breqfile$`, `bxpkerror$`, `bxpkpack`, `bxpkunpack`
+- **approximated**: `baslfilereq` *(APPROXIMATED for the same reason as Bfilereq, and it writes the ASL requester's fields -- which the readers then share a buffer over, see Baslfile$.)*, `bfilereq` *(APPROXIMATED for the substitution, not for the plumbing: there is no reqtools.library here, so AMOS's own selector stands in, the precedent `Lfreq` set for req.library.)*, `bgetlongreq` *(APPROXIMATED: a `DI` digit zone in an Interface dialog stands in.)*, `bgetstrreq` *(DEFECT: the order of operations. APPROXIMATED: an `ED` edit zone in an Interface dialog stands in.)*, `binforeq` *(APPROXIMATED: an Interface dialog stands in for the reqtools requester, drawn in the grammar of the shipped Path:/Name: dialog. DEVIATION: the shortcut character is stripped rather than underlined, and Return and Escape reach the first and last gadgets instead.)*
 
 ## copper (100%)
 

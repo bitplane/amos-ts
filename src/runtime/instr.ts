@@ -43,6 +43,7 @@ import { MAKE_ERRORS, makeMakeFunctions, makeMakeInstructions, newMakeState } fr
 import { TOOLS_ERRORS, makeToolsFunctions, makeToolsInstructions, newToolsState } from './tools'
 import { makeDeltaFunctions, makeDeltaInstructions, newDeltaState } from './delta'
 import { LSERIAL_ERRORS, makeLSerialFunctions, makeLSerialInstructions, newLSerialState } from './lserial'
+import { BUTILITY_ERRORS, makeBUtilityFunctions, makeBUtilityInstructions, newBUtilityState } from './butility'
 import { newStarsState, makeStarsFunctions, makeStarsInstructions } from './stars'
 import { newAgaState, makeAgaFunctions, makeAgaInstructions } from './aga'
 import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
@@ -5692,6 +5693,19 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeLSerialInstructions,
     functions: makeLSerialFunctions,
     errors: LSERIAL_ERRORS,
+  },
+  {
+    // BUtility 1.21 at slot 12 --- Mariusz Rycyk's freeware facade over
+    // reqtools, asl and xpkmaster. Routine 0 returns `moveq #$b,d0` = 11 =
+    // ExtNb and writes `$1a8(a5)`, both of which say slot 12, and the readme
+    // agrees: "Install BUtility.Lib as extension number 12". See butility.ts
+    ids: ['butility-1.21'],
+    init: (rt) => {
+      rt.butility = newBUtilityState()
+    },
+    instructions: makeBUtilityInstructions,
+    functions: makeBUtilityFunctions,
+    errors: BUTILITY_ERRORS,
   },
   {
     // Delta 1.4 at slot 15 --- Lukasz Zelezny's public-domain toolbox. Routine

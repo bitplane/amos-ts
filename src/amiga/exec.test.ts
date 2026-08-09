@@ -56,11 +56,25 @@ describe('exec: OpenLibrary', () => {
 
   it('answers 0 for a library nothing models', () => {
     // the honest answer, and the one that matters most as more extensions
-    // arrive: BSDSocket wants bsdsocket.library, BUtility wants reqtools
-    for (const name of ['bsdsocket.library', 'reqtools.library', 'asl.library', 'xpkmaster.library']) {
+    // arrive: BSDSocket wants bsdsocket.library and there are no sockets here
+    for (const name of ['bsdsocket.library', 'octaplayer.library', 'octamixplayer.library']) {
       expect(openLibrary(name, 0), name).toBe(0)
       expect(libraryPresent(name), name).toBe(false)
     }
+  })
+
+  it('models the three BUtility opens, at the versions it asks for', () => {
+    // routine 0 of BUtility.Lib is `OpenLibrary` three times and nothing
+    // else, and each base it stores is tested by every keyword that uses it.
+    // These moved out of the list above when butility.ts landed: the XPK
+    // master is a real port, and AMOS's own selector and dialog engine stand
+    // in for the two requester libraries. See runtime/requester.ts
+    expect(openLibrary('xpkmaster.library', 4)).toBeGreaterThan(0)
+    expect(openLibrary('reqtools.library', 38)).toBeGreaterThan(0)
+    expect(openLibrary('asl.library', 37)).toBeGreaterThan(0)
+    // and the version rule still bites, which is what keeps the arms real
+    expect(openLibrary('reqtools.library', 39)).toBe(0)
+    expect(openLibrary('xpkmaster.library', 5)).toBe(0)
   })
 
   it('refuses a version newer than the one answered for', () => {
