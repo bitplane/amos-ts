@@ -10,7 +10,6 @@
   "idBaseEvidence": "assumed",
   "evidence": "disassembly",
   "docs": [
-    "EasyLife.guide",
     "EasyLife.doc"
   ],
   "titleStrings": [
@@ -20,8 +19,7 @@
   "provenance": {
     "from": "AMOS PD Library CD, APD600/easy.",
     "note": "EasyLife.doc names it 'EASY LIFE Extension V1.0, Written By Paul Hickman'.",
-    "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only.",
-    "documentation": "The port is read against EasyLife.guide, an AmigaGuide edition that is NOT vendored here, so its citations cannot be checked against anything in this repository. The EasyLife.doc that IS shipped in the fixture documents an earlier and smaller command set -- it installs at extension 16 and predates the Elxpk and Elst* families -- so it is not a substitute. Vendoring the guide would close this."
+    "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
   },
   "notes": "72 named keywords: zone geometry accessors, string searching, and assorted conveniences. Documented, so manual tier. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs..",
   "recommendedSlot": 16

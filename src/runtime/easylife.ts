@@ -12,9 +12,19 @@
  * DISASSEMBLY tier, with an unusually good manual beside it.
  * `AMOSPro_EasyLife.Lib` (a 16,436-byte code hunk, 302 routines) plus
  * `Docs/extensions/EasyLife.guide`, `EasyLifeSTRUCT.guide` and
- * `EasyLifeMUI.guide`. Where the two disagree the binary wins, and over the
- * zone block alone they disagree five times — see the notes on `elznsx`,
- * `elzn shift`, `elzb add`, `elmz set` and `elmzney`.
+ * `EasyLifeMUI.guide`, all three vendored under the 1.10 fixture. Where the
+ * two disagree the binary wins, and over the zone block alone they disagree
+ * five times — see the notes on `elznsx`, `elzn shift`, `elzb add`,
+ * `elmz set` and `elmzney`.
+ *
+ * The 1.0 fixture ships `EasyLife.doc` instead, and it is NOT evidence for
+ * this port: it installs at extension 16 and documents an earlier and smaller
+ * command set, with no Elxpk and no Elst* at all. It is kept because it is
+ * what that release shipped, not because anything here was read against it.
+ *
+ * Quotes from the guides are verbatim, typos and all — `arbitarily`,
+ * `occuring`, `equivilent`, `to not obey`. A tidied quote cannot be checked
+ * against the file it came from, and citations.test.ts checks every one.
  *
  * ## Four identities, one port
  *
@@ -1668,8 +1678,8 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
      * =Elf Char(S$,A$[,P]) — routines 26/27 into 40 ($160a), which walks A$
      * per source character instead of comparing one code.
      *
-     * NOTE: the guide's "Illegal Function Call: Either A$ is an empty string,
-     * or A is not between 0 and 255" is half right. The empty set is NOT an
+     * NOTE: the guide lists under Illegal Function Call: "Either A$ is an
+     * empty string, or A is not between 0 and 255." That is half right. The empty set is NOT an
      * error here: `move.w (a2),d7` loads 0 and the `dbra d7` falls straight
      * through to the next source character, so the search simply never
      * matches and returns the miss value. Only `Elf Num Char` and `Elpad
@@ -2452,8 +2462,8 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
      * fetched first (`$c6`, `d4 = 0`), then CHILD_OBJECT's, and the child is
      * front-inserted into the parent's chain with `$1c` set. An object that
      * is already someone's child is Illegal Function Call
-     * (`move.l $1c(a2),d2 / Rbne routine 3`), which is the guide's "you can
-     * only dispose of an OBJECT if it is NOT the child of another object"
+     * (`move.l $1c(a2),d2 / Rbne routine 3`), which is the guide's "You can
+     * only dispose of an OBJECT if it is NOT the child of another object."
      * from the other end.
      */
     'tag attach$'(_, a): Value {
@@ -2633,7 +2643,7 @@ export function makeEasyLifeFunctions(rt: Runtime): Record<string, Func> {
      *
      * `ELST_New` with d1 = 0, so NO clear, then `move.l (a2)+,(a1)+` over
      * `size/4` longwords — the whole instance, type word included. The guide
-     * says it is "equivilent to (But faster than) S2=St New(St Type(S1)) :
+     * says it is "equivilent to (But faster than): S2=St New(St Type(S1)) :
      * St Copy S1 To S2", and the difference is exactly that: `St Copy` skips
      * the four-byte header and this does not.
      */
@@ -3855,8 +3865,9 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
      *
      * The taglist string IS the message: its first longword is the MUIM_ id
      * and the rest are that method's parameters, which is why the guide warns
-     * "these taglists do not obey the rule of tags occurring in pairs, and
-     * order is usually important". Routine 241 on the temporary node
+     * "these taglists to not obey the rule of tags occuring in pairs, and
+     * order is usually important" --- its typos, kept, because a quote that
+     * has been tidied cannot be checked against the file it came from. Routine 241 on the temporary node
      * afterwards, so a `Tag Str$` built for the call is freed by it.
      */
     'mui do'(it): void {
@@ -3899,7 +3910,7 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
      * So the machine frees whatever node d0 happened to name and leaves the
      * object's strings alone, which is not what the guide describes. It
      * cannot be reproduced either: there are no 68k registers here, so
-     * "whatever d0 held" has no value to stand in for it. The documented
+     * whatever d0 held has no value to stand in for it. The documented
      * behaviour is implemented and the discrepancy recorded, rather than a
      * guess at what a stale register would have selected.
      */

@@ -352,3 +352,63 @@ describe('declared documentation is cited', () => {
     expect(missing).toEqual([])
   })
 })
+
+/**
+ * A quote attributed to a document must be in that document.
+ *
+ * This is the check the n/a audit wanted and could not have: prose cannot be
+ * verified against a routine mechanically, but a QUOTE can be verified against
+ * a file. It only works when the file is vendored and the quote is verbatim,
+ * which is why both are required.
+ *
+ * AmigaGuide needs unpicking first. `@{"Mui Begin" link C_MuiNew}` renders as
+ * the words "Mui Begin", so the markup has to be replaced by its TEXT rather
+ * than deleted -- deleting it removes the keyword names and makes honest
+ * quotes look invented. `@{i}`/`@{ui}` carry no text and go. `[4\2\Powerpacker
+ * Library]` is the older link form, brackets and all. Double quotes become
+ * single because a JSDoc quote cannot nest them, and case is ignored because a
+ * quote spliced into a sentence gets its first letter lowered.
+ *
+ * Quotes containing a backtick are skipped: those are renderings of code with
+ * the port's own formatting, not passages lifted from prose.
+ */
+const guideText = (dir: string): string => {
+  const files = readdirSync(dir).filter((f) => f.endsWith('.guide'))
+  return files
+    .map((f) => readFileSync(join(dir, f), 'latin1'))
+    .join('\n')
+    .replace(/@\{\s*"([^"]*)"[^}]*\}/g, '$1')
+    .replace(/@\{[^}]*\}/g, '')
+    .replace(/\[[0-9]+\\[0-9]+\\([^\]]*)\]/g, '$1')
+    .replace(/"/g, "'")
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+}
+
+describe('quotes attributed to a guide are verbatim', () => {
+  it('every guide-attributed quote in easylife.ts is in a vendored guide', () => {
+    const guides = join(root, 'fixtures', 'extensions', 'easylife-1.10', 'Docs', 'extensions')
+    const all = guideText(guides)
+    const text = readFileSync(join(src, 'runtime', 'easylife.ts'), 'latin1')
+    const lines = text.split('\n')
+    const bad: string[] = []
+    for (const m of text.matchAll(/"([^"]{15,400})"/g)) {
+      const ln = text.slice(0, m.index).split('\n').length
+      if (!lines[ln - 1]!.trimStart().startsWith('*')) continue
+      // only quotes the surrounding comment attributes to the guide
+      if (!lines.slice(Math.max(0, ln - 5), ln).join(' ').toLowerCase().includes('guide')) continue
+      if (m[1]!.includes('`')) continue
+      const q = m[1]!
+        .replace(/\n\s*\*/g, ' ')
+        .replace(/"/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase()
+      // an ellipsis is a deliberate elision: each side must still be verbatim
+      const parts = q.split('...').map((x) => x.trim()).filter((x) => x.length >= 12)
+      const probes = parts.length > 0 ? parts : [q]
+      if (!probes.every((probe) => all.includes(probe))) bad.push(`easylife.ts:${ln} ${q.slice(0, 90)}`)
+    }
+    expect(bad).toEqual([])
+  })
+})
