@@ -66,14 +66,33 @@ const GURU_WIDTH = 640
 const GURU_HEIGHT = 32
 const GURU_PALETTE = [0x000, 0xd00]
 
+/**
+ * `Jd Open Con` builds its filename as "CON:" + the caller's window string.
+ * The "CON:" is a literal four bytes in the extension's data zone at +$214 and
+ * the string is copied to +$218, which is why the routine hands `Open` a
+ * pointer four bytes BEFORE the copy -- the two are one filename.
+ */
+const CON_PREFIX = 'CON:'
+
+/** where the synthetic console handles start; a DOS BPTR is only ever tested against zero */
+const CON_HANDLE_ORIGIN = 0x7f30_0000
+
 export interface JdColourState {
   /** a modelled requester currently up for `Jd Request` */
   requestChan: number | null
   /** the guru alert currently up, and the screen to go back to */
   guru: { prev: number; flash: number } | null
+  /** open CON: windows by handle, and the filename each was opened with */
+  consoles: Map<number, string>
+  nextConsole: number
 }
 
-export const newJdColourState = (): JdColourState => ({ requestChan: null, guru: null })
+export const newJdColourState = (): JdColourState => ({
+  requestChan: null,
+  guru: null,
+  consoles: new Map(),
+  nextConsole: CON_HANDLE_ORIGIN,
+})
 
 /**
  * The shared body of routines 52 and 53. `d0 = ScOnAd+$60 - 1`, and above 31
@@ -466,6 +485,56 @@ export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
+     * =Jd Open Con(WS$) --- routine 74 ($28e8). The window string is copied
+     * into the data zone at +$218 and `Open` is handed a pointer to +$214,
+     * where the four literal bytes "CON:" already sit -- so the two are one
+     * filename and the caller writes only the manual's "x/y/w/h/titel".
+     * MODE_OLDFILE ($3ed) is the mode, which is what a console wants. Answers
+     * the file handle, or 0 if it could not be opened.
+     *
+     * APPROXIMATED: there is no Intuition to put a window on, so a CON: window
+     * is AMOS's own console -- the same substitution `Fsel$` makes for a file
+     * requester. The geometry and the title are parsed and kept with the
+     * handle but nothing draws them, and the text shares the program's screen
+     * instead of having a window of its own. What a program can act on -- a
+     * non-zero handle, text going out, a line coming back -- is unchanged.
+     */
+    'jd open con'(_, a): Value {
+      const st = rt.jdColour
+      const spec = a[0]?.k === 'str' ? a[0]!.s : ''
+      const h = st.nextConsole++
+      st.consoles.set(h, CON_PREFIX + spec)
+      return VI(h)
+    },
+
+    /**
+     * =Jd Input Con(CON-BASE) --- routine 77 ($2972). `FGets` of up to 256
+     * bytes, then a scan that stops at the first NUL or linefeed to get the
+     * length, so the newline the user typed is not part of the answer. The
+     * 258-byte buffer is cleared afterwards.
+     *
+     * NOTE: a zero handle takes `beq.w $2a0e` straight to the `rts` without
+     * setting d3 or d2, so on the machine the answer is an uninitialised
+     * register pair -- a value of whatever type the last keyword happened to
+     * leave behind. The empty string is the only safe reading of that.
+     *
+     * NOTE: the copy is one byte long for a one-character line. `cmp.w #$1,d0
+     * / beq` jumps into the loop with d0 still 1, so `dbra` runs twice; the
+     * length word still says 1, so a program cannot see the extra byte, but it
+     * is written.
+     */
+    'jd input con'(it, a): Value {
+      const h = int(a[0]!)
+      if (h === 0 || !rt.jdColour.consoles.has(h)) return VS('')
+      const line = it.io.input ? it.io.input('') : ''
+      if (line === undefined) {
+        it.block({ type: 'input', prompt: '' }, true)
+        return VS('')
+      }
+      return VS(line)
+    },
+
+    /**
      * =Jd Guru(TEXT1$,TEXT2$) --- routine 38 (+|col.s:1164). An imitation of
      * the Guru Meditation alert, and the manual is plain about what it is for:
      * a two-line message the program cannot be got past without a click.
@@ -594,6 +663,32 @@ export function makeJdColourInstructions(rt: Runtime): Record<string, Instr> {
     },
     'jd setoutput amos'() {
       rt.amigaLineEnds = false
+    },
+
+    /**
+     * Jd Close Con CON-BASE --- routine 75 ($2926). `Close` on the handle,
+     * skipped entirely when it is zero (`cmp.l #$0,d1 / beq`), so closing a
+     * window that was never opened is not an error.
+     */
+    'jd close con'(it) {
+      const h = it.evalInt()
+      if (h === 0) return
+      rt.jdColour.consoles.delete(h)
+    },
+
+    /**
+     * Jd Print Con CON-BASE,TEXT$ --- routine 76 ($2944). `Write` of the whole
+     * string, with two guards ahead of it: a zero handle does nothing
+     * (`cmp.l #$0,d1 / beq`) and so does an empty string (`cmp.w #$0,d3 /
+     * beq`). No line ending is added; the caller supplies its own.
+     */
+    'jd print con'(it) {
+      const h = it.evalInt()
+      it.expect(',')
+      const text = it.evalStr()
+      if (h === 0 || text === '') return
+      if (!rt.jdColour.consoles.has(h)) return
+      it.write(text)
     },
 
     /**

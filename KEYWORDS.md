@@ -58,7 +58,7 @@ deviations.
 | jd-5.3 | 130 | 124 | 0 | 0 | 100% |
 | jd-5.9 | 133 | 127 | 0 | 0 | 100% |
 | jd-colour-1.4 | 44 | 31 | 0 | 0 | 100% |
-| jd-colour-2.0 | 56 | 38 | 1 | 0 | 100% |
+| jd-colour-2.0 | 56 | 41 | 2 | 0 | 100% |
 | jd-int-1.3 | 33 | 0 | 0 | 33 | 0% |
 | jd-k3-1.1 | 6 | 6 | 0 | 0 | 100% |
 | jd-prt-1.1 | 58 | 58 | 0 | 0 | 100% |
@@ -105,7 +105,7 @@ deviations.
 | turbo-plus-2.15 | 152 | 147 | 4 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 6216 | 3896 | 116 | 2061 | 66% |
+| **total** | 6216 | 3899 | 117 | 2061 | 66% |
 
 ## aga-1.0 (100%)
 
@@ -312,9 +312,9 @@ deviations.
 
 ## jd-colour-2.0 (100%)
 
-- **faithful**: `jd antique colour`, `jd blue value`, `jd bswap`, `jd complement colour`, `jd copy colour`, `jd cut off$`, `jd darkest colour`, `jd drive$`, `jd false colour`, `jd file$` *(DEFECT: with NO separator in the path it drops the first character and reads one byte past the string.)*, `jd fit`, `jd green value`, `jd grey colour`, `jd guru` *(DEVIATION: the flash is not paced -- the machine alternates once per 65,536-iteration poll and this advances once per frame, which is the port-wide timing deviation rather than a JD one.)*, `jd key to asc` *(Answers 0, always -- the one keyword in the Colour library whose behaviour is not reproduced. The manual's example is `Jd Key To Asc(253) -> 49`, and 253 is not an Amiga rawkey, so those tables are AMOS's own rather than the keyboard's. This port does not carry them, and 0 is what the routine itself answers for a code it cannot find; inventing a mapping that satisfied the one documented example would be worse)*, `jd lightest colour`, `jd lswap`, `jd mix colours`, `jd mouse`, `jd negative colour`, `jd path$`, `jd pseudo palette`, `jd red value`, `jd rgb value`, `jd rprint`, `jd separate black`, `jd separate blue`, `jd separate cyan`, `jd separate green`, `jd separate magenta`, `jd separate red`, `jd separate yellow`, `jd setoutput amiga` *(DEVIATION: the patch cannot tell text from anything else, so on the machine a binary `Put #` whose data ends in CR and one more byte is rewritten too.)*, `jd setoutput amos`, `jd spread palette`, `jd swap colours`, `jd tone colour`, `jd wswap`
-- **approximated**: `jd request` *(The manual: "Texte (1-5), Ja-Text und Nein-Text / Bool-Requester / Ergebnis: -1/0 = ja/nein". APPROXIMATED on the modelled requester (runtime/requester.ts); the topaz font, the pixel geometry and the Workbench screen are the chrome that is lost.)*
-- **n/a**: `jd change colours`, `jd close con`, `jd fill colour`, `jd input con`, `jd load palette`, `jd open con`, `jd print con`, `jd save palette`, `jd screen border`, `jd screen convert`, `jd slide down`, `jd slide left`, `jd slide right`, `jd slide up`, `jd slide x`, `jd slide y`, `jd wait raster`
+- **faithful**: `jd antique colour`, `jd blue value`, `jd bswap`, `jd close con`, `jd complement colour`, `jd copy colour`, `jd cut off$`, `jd darkest colour`, `jd drive$`, `jd false colour`, `jd file$` *(DEFECT: with NO separator in the path it drops the first character and reads one byte past the string.)*, `jd fit`, `jd green value`, `jd grey colour`, `jd guru` *(DEVIATION: the flash is not paced -- the machine alternates once per 65,536-iteration poll and this advances once per frame, which is the port-wide timing deviation rather than a JD one.)*, `jd input con`, `jd key to asc` *(Answers 0, always -- the one keyword in the Colour library whose behaviour is not reproduced. The manual's example is `Jd Key To Asc(253) -> 49`, and 253 is not an Amiga rawkey, so those tables are AMOS's own rather than the keyboard's. This port does not carry them, and 0 is what the routine itself answers for a code it cannot find; inventing a mapping that satisfied the one documented example would be worse)*, `jd lightest colour`, `jd lswap`, `jd mix colours`, `jd mouse`, `jd negative colour`, `jd path$`, `jd print con`, `jd pseudo palette`, `jd red value`, `jd rgb value`, `jd rprint`, `jd separate black`, `jd separate blue`, `jd separate cyan`, `jd separate green`, `jd separate magenta`, `jd separate red`, `jd separate yellow`, `jd setoutput amiga` *(DEVIATION: the patch cannot tell text from anything else, so on the machine a binary `Put #` whose data ends in CR and one more byte is rewritten too.)*, `jd setoutput amos`, `jd spread palette`, `jd swap colours`, `jd tone colour`, `jd wswap`
+- **approximated**: `jd open con` *(Routine 74 ($28e8): the window string is copied into the data zone at +$218 and `Open` is handed a pointer to +$214, where the four literal bytes "CON:" already sit -- so the two are one filename and the caller writes only the manual's "x/y/w/h/titel". APPROXIMATED: there is no Intuition to put a window on, so a CON: window is AMOS's own console -- the substitution Fsel$ makes for a file requester.)*, `jd request` *(The manual: "Texte (1-5), Ja-Text und Nein-Text / Bool-Requester / Ergebnis: -1/0 = ja/nein". APPROXIMATED on the modelled requester (runtime/requester.ts); the topaz font, the pixel geometry and the Workbench screen are the chrome that is lost.)*
+- **n/a**: `jd change colours`, `jd fill colour`, `jd load palette`, `jd save palette`, `jd screen border`, `jd screen convert`, `jd slide down`, `jd slide left`, `jd slide right`, `jd slide up`, `jd slide x`, `jd slide y`, `jd wait raster`
 
 ## jd-int-1.3 (0%)
 

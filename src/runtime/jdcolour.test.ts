@@ -191,10 +191,9 @@ describe('JD Colour: the palette instructions', () => {
     expect(out.trim()).toBe('2')
   })
 
-  it('the window and whole-screen keywords are n/a', () => {
-    // a CON: console window, and three that rewrite or animate a whole screen
-    // through the RastPort
-    for (const k of ['jd open con', 'jd screen convert', 'jd slide left', 'jd load palette']) {
+  it('the whole-screen keywords are n/a', () => {
+    // three that rewrite or animate a whole screen through the RastPort
+    for (const k of ['jd screen convert', 'jd slide left', 'jd load palette']) {
       expect(NA.has(k), k).toBe(true)
     }
   })
@@ -484,5 +483,63 @@ describe('JD Colour: Jd Rprint, Jd Setoutput and Jd Guru', () => {
     })
     rt.frame()
     expect(rt.jdColour.guru).not.toBeNull()
+  })
+})
+
+describe('JD Colour: the CON: window, on AMOS\'s own console', () => {
+  function boot(src: string): { rt: Runtime; out: () => string } {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[20, col]]),
+      maxSteps: 200_000,
+      onText: (t) => (out += t),
+    })
+    return { rt, out: () => out }
+  }
+
+  it('Open Con answers a non-zero handle and Close Con takes it back', () => {
+    const b = boot('C=Jd Open Con("0/0/640/100/Test") : Print C<>0 : Jd Close Con C : Print 1')
+    mustFinish(b.rt.runHeadless(200))
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([-1, 1])
+  })
+
+  it('the caller writes only x/y/w/h/title and the CON: is the extension\'s', () => {
+    // "CON:" is four literal bytes at data+$214 and the string is copied to
+    // +$218, which is why Open is handed a pointer four bytes before the copy
+    const b = boot('C=Jd Open Con("0/0/640/100/Test")')
+    mustFinish(b.rt.runHeadless(200))
+    const opened = [...b.rt.jdColour.consoles.values()]
+    expect(opened).toEqual(['CON:0/0/640/100/Test'])
+  })
+
+  it('Print Con writes the string with no line ending of its own', () => {
+    const b = boot('C=Jd Open Con("") : Jd Print Con C,"one" : Jd Print Con C,"two"')
+    mustFinish(b.rt.runHeadless(200))
+    expect(b.out()).toBe('onetwo')
+  })
+
+  it('and both of its guards do nothing rather than erroring', () => {
+    // `cmp.l #$0,d1 / beq` on the handle and `cmp.w #$0,d3 / beq` on the text
+    const b = boot('C=Jd Open Con("") : Jd Print Con 0,"nope" : Jd Print Con C,"" : Jd Close Con 0 : Print 9')
+    mustFinish(b.rt.runHeadless(200))
+    expect(b.out().trim()).toBe('9')
+  })
+
+  it('Input Con reads a line and strips the newline', () => {
+    const b = boot('C=Jd Open Con("") : A$=Jd Input Con(C) : Print "["+A$+"]"')
+    b.rt.frame() // parks on the input block
+    b.rt.submitLine('typed')
+    mustFinish(b.rt.runHeadless(200))
+    expect(b.out()).toContain('[typed]')
+  })
+
+  it('NOTE: a zero handle answers an uninitialised register pair', () => {
+    // `beq.w $2a0e` goes straight to the rts without setting d3 or d2, so the
+    // machine hands back whatever the last keyword left. The empty string is
+    // the only safe reading of that
+    const b = boot('Print "["+Jd Input Con(0)+"]"')
+    mustFinish(b.rt.runHeadless(200))
+    expect(b.out().trim()).toBe('[]')
   })
 })

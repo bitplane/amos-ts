@@ -1994,6 +1994,12 @@ export const FAITHFUL = new Set<string>([
   'jd guru',
   'jd setoutput amiga',
   'jd setoutput amos',
+  // the CON: window, on AMOS's own console. Open Con is APPROXIMATED and is
+  // deliberately absent from this list; the other three are the DOS calls
+  // around it, each with the guards the routines actually make.
+  'jd close con',
+  'jd print con',
+  'jd input con',
   // TOME 4.23 / 3.1, the map engine: routines 10, 11, 14-19 and their two
   // shared helpers, 67 (resolve the map bank) and 70 (the icon bank and its
   // count). Read off TOME.Lib, which ships without a manual, so there is no
@@ -2706,21 +2712,9 @@ export const NA = new Set<string>([
   // (+|jd.s:835 with macros.s). No debugger, and deliberately crashing the
   // interpreter is not a service to anyone.
   'jd private',
-  // JD Colour: the keywords that need a console window or a RastPort of their
-  // own rather than a palette. Open/Close/Print/Input Con drive a CON: console
-  // window through DOS. Screen Border, Wait Raster, Screen Convert and the six
-  // Slide keywords animate or rewrite a whole screen through the RastPort, and
-  // Load/Save Palette read and write a palette file whose format the source
-  // does not settle.
-  //
-  // Jd Request is NOT among them and is not a file requester: routine 66 is
-  // `moveq #$4,d2 / Rbra routine 71`, which builds five IntuiTexts and calls
-  // intuition's AutoRequest for a yes/no answer. It is APPROXIMATED on the
-  // modelled requester; see its NOTES entry.
-  'jd open con',
-  'jd close con',
-  'jd print con',
-  'jd input con',
+  // JD Colour: the keywords that rewrite or animate a whole screen through the
+  // RastPort, plus the two palette files whose format the source does not
+  // settle.
   'jd screen border',
   'jd wait raster',
   'jd screen convert',
@@ -2914,6 +2908,21 @@ export const NOTES: Record<string, string> = {
     "it writes a fresh root block and bitmap and leaves the rest of the disk alone.",
 
   // ---- JD Colour 2.0, slot 20 ----------------------------------------------
+  "jd open con":
+    "Routine 74 ($28e8): the window string is copied into the data zone at +$218 and `Open` is handed a pointer " +
+    "to +$214, where the four literal bytes \"CON:\" already sit -- so the two are one filename and the caller " +
+    "writes only the manual's \"x/y/w/h/titel\". MODE_OLDFILE ($3ed). APPROXIMATED: there is no Intuition to put " +
+    "a window on, so a CON: window is AMOS's own console -- the substitution Fsel$ makes for a file requester. " +
+    "The geometry and title are kept with the handle and nothing draws them, and the text shares the program's " +
+    "screen instead of having a window of its own; a non-zero handle, text going out and a line coming back are " +
+    "unchanged.",
+  "jd input con":
+    "Routine 77 ($2972): FGets of up to 256 bytes, then a scan stopping at the first NUL or linefeed for the " +
+    "length, so the newline is not part of the answer. NOTE: a zero handle takes `beq.w $2a0e` straight to the " +
+    "`rts` without setting d3 or d2, so the machine answers an uninitialised register pair -- a value of whatever " +
+    "type the last keyword left behind, for which the empty string is the only safe reading. NOTE: the copy runs " +
+    "one byte long for a ONE-character line, because `cmp.w #$1,d0 / beq` jumps into the loop with d0 still 1 and " +
+    "`dbra` then runs twice; the length word still says 1, so a program cannot see the extra byte.",
   "jd rprint":
     "Routine 54 (+|col.s:1833) and nothing to do with a printer: `XYCuWi` reads the cursor row, `$4c(a0)` is the " +
     "screen width in pixels and `divu #8` turns it into columns, and `sub.w d1,d0` against the string length gives " +
