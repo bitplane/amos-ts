@@ -217,6 +217,32 @@ function dateField(v: string, from: number, to: number): number {
   return Number(v.slice(from, to)) || 0
 }
 
+
+/**
+ * The sector image of a JD drive unit, or null when that drive is empty.
+ *
+ * `L_opend` (routine 52) is `OpenDevice("trackdisk.device", unit, ...)`, so
+ * the unit IS the keyword's `device` argument. An ADF *is* the sectors a
+ * caller reaching trackdisk past the filesystem wants, which is why
+ * `AdfVolume.image` exists; SLN's `S Disk Read` takes the same path.
+ */
+function jdDisk(rt: Runtime, unit: number): { image: Uint8Array; invalidate?: () => void } | null {
+  const vol = rt.vfs?.volume(`DF${unit}`)
+  const adf = vol as { image?: Uint8Array; invalidate?: () => void } | null
+  if (!adf?.image) return null
+  const inv = adf.invalidate
+  return inv ? { image: adf.image, invalidate: inv.bind(adf) } : { image: adf.image }
+}
+
+/** the root block's checksum: clear it, subtract all 128 longs, store (t_checksum2) */
+function rootChecksum(block: Uint8Array): void {
+  const v = new DataView(block.buffer, block.byteOffset, block.byteLength)
+  v.setUint32(0x14, 0)
+  let sum = 0
+  for (let i = 0; i < 128; i++) sum = (sum - v.getUint32(i * 4)) | 0
+  v.setUint32(0x14, sum >>> 0)
+}
+
 export function makeJdFunctions(rt: Runtime): Record<string, Func> {
   void rt
   const arg = (a: Value[], i: number): number => int(a[i]!)
@@ -325,6 +351,63 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
   }
 
   return {
+    /**
+     * =Read Sector(DEVICE,SECTOR) --- routine 50 (+|jd.s:2947). Opens
+     * trackdisk on the unit, CMD_READ of 512 bytes at `sector * 512`, closes
+     * it and drops the motor, and answers the sector as a 512-character
+     * string. A failure of any kind answers the EMPTY string, because the
+     * error exit hands back `trackerr`, which is `dc.l 0` --- a length word of
+     * zero and nothing else.
+     *
+     * DEFECT: the bounds check is on the wrong register. `movem.l (a3)+,d0-d1`
+     * pops right to left, so d0 is the SECTOR and d1 the DEVICE, and the
+     * source then tests `cmp.l #1759,d1` and `cmp.l #0,d1` --- the device
+     * against the sector range. A drive number is always 0 to 3, so the check
+     * never fires, and the sector itself is never checked at all. `Write
+     * Sector` was written from the same template and tests d0, which is right;
+     * this one is the copy that slipped.
+     */
+    'jd read sector'(_, a): Value {
+      const sector = int(a[1]!)
+      const unit = int(a[0]!)
+      const d = jdDisk(rt, unit)
+      // the bounds test the routine MEANT to make, reproduced where it lands:
+      // out of range simply reads nothing and answers the empty string
+      if (!d) return VS('')
+      const off = sector * 512
+      if (off < 0 || off + 512 > d.image.length) return VS('')
+      let out = ''
+      for (let k = 0; k < 512; k++) out += String.fromCharCode(d.image[off + k]!)
+      return VS(out)
+    },
+
+    /**
+     * =Write Sector(BLOCK$,DEVICE,SECTOR) --- routine 51 (+|jd.s:3001). The
+     * string must be EXACTLY 512 characters (`cmp.l #512,d2 / bne rwerr`);
+     * anything else is refused before the drive is touched. Then CMD_WRITE at
+     * `sector * 512` followed by CMD_UPDATE, so the write reaches the disk
+     * rather than trackdisk's track buffer. Answers 0 for success and -1 for
+     * failure --- the opposite way round from most of this library.
+     *
+     * Unlike `Read Sector` the range test here is on the right register, so a
+     * sector outside 0..1759 is refused.
+     */
+    'jd write sector'(_, a): Value {
+      const block = a[0]!.k === 'str' ? a[0]!.s : ''
+      const unit = int(a[1]!)
+      const sector = int(a[2]!)
+      if (block.length !== 512) return VI(-1)
+      if (sector < 0 || sector > 1759) return VI(-1)
+      const d = jdDisk(rt, unit)
+      if (!d) return VI(-1)
+      const off = sector * 512
+      if (off + 512 > d.image.length) return VI(-1)
+      for (let k = 0; k < 512; k++) d.image[off + k] = block.charCodeAt(k) & 0xff
+      // CMD_UPDATE: the filesystem's cached walks are stale now
+      d.invalidate?.()
+      return VI(0)
+    },
+
     ...out,
 
     /**
@@ -1547,6 +1630,86 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
      * Without one they reach the unimplemented path, which is what every
      * other n/a keyword in this port does.
      */
+
+    /**
+     * Jd Diskchange --- routine 42 (+|jd.s:2479). Spins on `$bfe001 & 16`, the
+     * disk-change line, until a disk is swapped; then a 500-iteration delay
+     * and a loop over ExecBase's TaskReady ($196) and TaskWait ($1a4) lists
+     * with `FindName` on "Validate", until the filesystem's validator has
+     * gone.
+     *
+     * DEVIATION: it returns instead of waiting. There is no drive to swap a
+     * disk in and no Validator task to outlive, so the alternative is to block
+     * for ever. This is the same decision Delta 1.4's `Delta Change Disk` and
+     * Misc 1.0's `Disk Wait` take, and for the same reason.
+     */
+    'jd diskchange'() {
+      /* nothing to wait for: see the DEVIATION above */
+    },
+
+    /**
+     * Jd Squash TEXT$,DIRECTION,DELAY --- routine 111 (+|jd.s:5012). Not a
+     * disk operation despite the name: it is the third of this library's
+     * console animations, beside `Jd Spread` and `Jd Tscroll`. The string is
+     * centred through AMOS's own Centre, then cut down from the middle a
+     * character at a time with `L_cut` and re-centred, waiting `DELAY` between
+     * frames through dos.library's Delay at `jsr -198(a6)`; a negative delay
+     * becomes 10 (`cmp.l #0,d2 / bpl d4ok / move.l #10,d2`). An empty string
+     * takes `beq sqend` and does nothing at all.
+     *
+     * It finishes at `vsqready` by centring `blank2`, which is `dc.b '  ',0` --
+     * two spaces -- so the line it leaves behind is blank.
+     *
+     * DEVIATION: the animation is not paced, which is the port-wide timing
+     * deviation (#87) rather than a JD one. What is written is the state the
+     * routine ends in, the same choice `Jd Spread` makes.
+     */
+    'jd squash'(it) {
+      const text = it.evalStr()
+      it.expect(',')
+      it.evalInt() // direction
+      it.expect(',')
+      it.evalInt() // delay, 10 when negative
+      if (text === '') return // `move.w (a0),d0 / beq sqend`
+      const pad = Math.max(0, (rt.screen.cols - 2) >> 1)
+      it.write(' '.repeat(pad) + '  \n')
+    },
+
+    /**
+     * Jd Relabel DEVICE,NAME$ --- routine 109 (+|jd.s:4888), and the one
+     * keyword in this group built out of the other two: it pushes its
+     * arguments back onto the stack and calls `Read Sector` for block 880 and
+     * `Write Sector` to put it back.
+     *
+     * Block 880 is the root block. The volume name lives at +432 as a BCPL
+     * string --- a length byte then the characters --- and the copy walks the
+     * AMOS string from its LOW length byte onwards (`add.l #1,a0`), so the
+     * length byte written is the low byte of the AMOS length and the
+     * characters follow until the NUL. Then `t_checksum2` clears the longword
+     * at $14, subtracts all 128 longs of the block from zero and stores the
+     * result there, which is AmigaDOS's block checksum.
+     *
+     * A failed read (`cmp.l #0,d3 / beq relerr`) abandons the whole thing, so
+     * a volume with no disk in the drive is left alone rather than half
+     * renamed.
+     */
+    'jd relabel'(it) {
+      const unit = it.evalInt()
+      it.expect(',')
+      const name = it.evalStr()
+      const d = jdDisk(rt, unit)
+      if (!d) return
+      const off = 880 * 512
+      if (off + 512 > d.image.length) return
+      const block = d.image.subarray(off, off + 512)
+      // the name at +432: a length byte, then the characters, then the NUL
+      // the copy loop carries over from the AMOS string
+      block[432] = name.length & 0xff
+      for (let k = 0; k < name.length; k++) block[433 + k] = name.charCodeAt(k) & 0xff
+      block[433 + name.length] = 0
+      rootChecksum(block)
+      d.invalidate?.()
+    },
 
     /**
      * Jd Dled Off and Jd Dled On — routines 146 and 147 (+|jd.s:5969, :5976).

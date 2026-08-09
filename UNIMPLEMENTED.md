@@ -449,7 +449,7 @@ Writing something for these would be a lie.
 | capability | keywords | what it needs |
 |---|---|---|
 | CON: console window | 4 | a DOS filehandle onto a console device. The port has a console and it has file handles; nothing joins them. |
-| block device | 8 | nothing new. `amiga/adf.ts` exposes the raw sector image and SLN's `S Disk Read`/`S Disk Write` are faithful through it. The work is the five that WRITE structures — boot block, root block, a whole format. |
+| whole-disk writes | 3 | `Jd Install` lays down a boot block and the two formats write whole 11-sector tracks with TD_FORMAT at `track * $1600`, built from a `roottrack` template held in the library's own data. Reading that template out is the work. The sector-level half of the group runs on `amiga/adf.ts`. |
 | exec device I/O | 13 | a device registry `OpenDevice` resolves against. `runtime/lserial.ts` already models serial.device end to end through IORequests, so the shape is known. |
 | RastPort / whole screen | 16 | `amiga/graphics.ts` and `amiga/intuition.ts` exist; three of the sixteen are raw structure POINTERS and may stay here until those structures are addressable. |
 | ARexx host | 15 | a modelled message port and a host name registry. There is no rexxmast and no interpreter for the ARexx language, so what `Arexx Execute` means has to be settled before any of it is written. |

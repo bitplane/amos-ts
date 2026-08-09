@@ -7,9 +7,10 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
+import { AmigaFS } from '../amiga/vfs'
+import { AdfVolume } from '../amiga/adf'
 import { NA } from '../coverage/status'
 import { makeAllInstructions } from './instr'
-import { AmigaFS } from '../amiga/vfs'
 import { NodeVolume } from '../cli/nodefs'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -779,17 +780,12 @@ describe('JD: files, memory and the device boundary (+|jd.s:2948-5769)', () => {
     expect(out.trim()).toBe(String((0xff000000 | 0) >> 8))
   })
 
-  it('the raw-floppy keywords are n/a — there is no block device under AmigaFS', () => {
-    for (const k of [
-      'jd read sector',
-      'jd write sector',
-      'jd install',
-      'jd format',
-      'jd shortformat',
-      'jd relabel',
-      'jd diskchange',
-      'jd squash',
-    ]) {
+  it('the whole-disk writes are n/a: a format needs a track template first', () => {
+    // Install lays down a boot block and the two formats write whole
+    // 11-sector TRACKS with TD_FORMAT, built from a `roottrack` template held
+    // in the library's own data. The sector-level half of the group runs on
+    // AdfVolume.image; see the raw-floppy tests at the foot of this file
+    for (const k of ['jd install', 'jd format', 'jd shortformat']) {
       expect(NA.has(k), k).toBe(true)
     }
   })
@@ -1337,5 +1333,129 @@ describe('JD: the drive LED and the reboot', () => {
     rt.runHeadless(20)
     expect(rt.machine.pendingReset?.kind).toBe('cold')
     expect(ran('Jd Reset').machine.pendingReset?.kind).toBe('warm')
+  })
+})
+
+describe('JD: the raw floppy, on the ADF underneath AmigaFS', () => {
+  const BSIZE = 512
+  const ROOT = 880
+  const DD = 901_120
+
+  /** the smallest image AdfVolume will mount: a DOS boot block and a root */
+  function disk(label = 'TestDisk'): Uint8Array {
+    const b = new Uint8Array(DD)
+    const v = new DataView(b.buffer)
+    b[0] = 0x44
+    b[1] = 0x4f
+    b[2] = 0x53
+    v.setInt32(ROOT * BSIZE + 0, 2, false) // T_HEADER
+    v.setInt32(ROOT * BSIZE + 12, 72, false) // hash table size
+    v.setInt32(ROOT * BSIZE + 508, 1, false) // ST_ROOT
+    b[ROOT * BSIZE + 432] = label.length
+    for (let i = 0; i < label.length; i++) b[ROOT * BSIZE + 433 + i] = label.charCodeAt(i)
+    return b
+  }
+
+  function withDisk(src: string, image = disk()): { rt: Runtime; out: () => string; image: Uint8Array } {
+    let out = ''
+    const fs = new AmigaFS()
+    fs.mount('DF0', new AdfVolume(image))
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 500_000,
+      fs,
+      onText: (t) => (out += t),
+    })
+    mustFinish(rt.runHeadless(500))
+    return { rt, out: () => out, image }
+  }
+
+  it('Read Sector hands back 512 characters of the sector', () => {
+    const img = disk()
+    img[3 * BSIZE] = 0x41
+    img[3 * BSIZE + 511] = 0x5a
+    const b = withDisk('A$=Jd Read Sector(0,3) : Print Len(A$);" ";Asc(A$);" ";Asc(Right$(A$,1))', img)
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([512, 0x41, 0x5a])
+  })
+
+  it('and answers the empty string when the drive is empty', () => {
+    // the error exit hands back `trackerr`, which is `dc.l 0`
+    let out = ''
+    const rt = new Runtime(tokenize('Print Len(Jd Read Sector(1,3))', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 200_000,
+      fs: new AmigaFS(),
+      onText: (t) => (out += t),
+    })
+    mustFinish(rt.runHeadless(200))
+    expect(out.trim()).toBe('0')
+  })
+
+  it('Write Sector round-trips and answers 0, refusing anything but 512 bytes', () => {
+    const b = withDisk(
+      'A$=String$("Q",512) : R=Jd Write Sector(A$,0,5) : B$=Jd Read Sector(0,5) : ' +
+        'Print R;" ";Asc(B$);" ";Jd Write Sector("short",0,5);" ";Jd Write Sector(A$,0,2000)',
+    )
+    // 0 for success, then the byte read back, then -1 twice: a string that is
+    // not exactly 512 (`cmp.l #512,d2 / bne`) and a sector past 1759
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([0, 0x51, -1, -1])
+  })
+
+  it('DEFECT: Read Sector never range-checks the sector', () => {
+    // `movem.l (a3)+,d0-d1` makes d0 the sector and d1 the device, and the
+    // routine tests d1 against 0..1759 -- the device against the sector range.
+    // A drive number always passes, so nothing checks the sector; Write
+    // Sector, from the same template, tests d0 and refuses
+    const b = withDisk('Print Len(Jd Read Sector(0,2000));" ";Jd Write Sector(String$("Q",512),0,2000)')
+    // reading past the end of the image answers the empty string rather than
+    // raising, because the routine has no check to raise from
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([0, -1])
+  })
+
+  it('Relabel rewrites the root block name and its checksum', () => {
+    const b = withDisk('Jd Relabel 0,"Renamed"')
+    const img = b.image
+    expect(img[ROOT * BSIZE + 432]).toBe(7)
+    expect(String.fromCharCode(...img.subarray(ROOT * BSIZE + 433, ROOT * BSIZE + 440))).toBe('Renamed')
+    // t_checksum2: clear $14, subtract all 128 longs, store -- so summing the
+    // finished block gives zero
+    const v = new DataView(img.buffer, ROOT * BSIZE, BSIZE)
+    let sum = 0
+    for (let i = 0; i < 128; i++) sum = (sum + v.getUint32(i * 4)) | 0
+    expect(sum).toBe(0)
+  })
+
+  it('and leaves the disk alone when the drive is empty', () => {
+    // `cmp.l #0,d3 / beq relerr` -- a failed read abandons the whole thing
+    const rt = new Runtime(tokenize('Jd Relabel 1,"Nope"', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 200_000,
+      fs: new AmigaFS(),
+      onText: () => {},
+    })
+    expect(() => mustFinish(rt.runHeadless(200))).not.toThrow()
+  })
+
+  it('Squash is a console animation, and leaves a blank line behind', () => {
+    // routine 111 finishes at `vsqready` by centring `blank2`, which is
+    // `dc.b '  ',0` -- so the line it leaves is blank, not the text
+    const b = withDisk('Screen Open 0,320,200,4,0 : Jd Squash "hello",1,5 : Print "after"')
+    const lines = b.out().split('\n')
+    expect(lines[0]!.trim()).toBe('')
+    expect(lines[1]).toBe('after')
+  })
+
+  it('and an empty string does nothing at all', () => {
+    // `move.w (a0),d0 / beq sqend`
+    const b = withDisk('Screen Open 0,320,200,4,0 : Jd Squash "",1,5 : Print "after"')
+    expect(b.out()).toBe('after\n')
+  })
+
+  it('Diskchange returns rather than waiting for a drive that is not there', () => {
+    const b = withDisk('Jd Diskchange : Print 1')
+    expect(b.out().trim()).toBe('1')
   })
 })

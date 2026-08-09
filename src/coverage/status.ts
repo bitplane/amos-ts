@@ -1755,6 +1755,16 @@ export const FAITHFUL = new Set<string>([
   'jd moff click',
   'jd moff key',
   'jd double click',
+  // the sector-level floppy access, on `AdfVolume.image` -- an ADF IS the
+  // sectors trackdisk hands back, which is the path SLN's S Disk Read takes.
+  // Read Sector carries a DEFECT and Diskchange a DEVIATION; see NOTES.
+  'jd read sector',
+  'jd write sector',
+  'jd relabel',
+  'jd diskchange',
+  // the third console animation, beside Jd Spread and Jd Tscroll -- the name
+  // is about squashing TEXT, not a disk. Same pacing DEVIATION as those two.
+  'jd squash',
   // Jd Dled Off/On are Misc 1.0's pair constant for constant: the same three
   // writes to CIA-B's port B at $bfd100 and its direction register, sharing
   // `Runtime.driveMotor` with them. Jd Reset is `jmp $fc00d2` -- a reboot the
@@ -2691,26 +2701,16 @@ export const NA = new Set<string>([
   // (+|jd.s:835 with macros.s). No debugger, and deliberately crashing the
   // interpreter is not a service to anyone.
   'jd private',
-  // JD's raw floppy access. Read Sector / Write Sector open trackdisk.device
-  // and move 512-byte blocks by sector number, bounded 0..1759 — one
-  // double-density floppy (+|jd.s:2948, :3002). Install writes a boot block,
-  // Format and Shortformat write a whole disk, Relabel renames a volume by
-  // rewriting its root block, and Diskchange waits for the drive's change
-  // line. AmigaFS is a filesystem, not a block device: there is no track
-  // buffer under it and no medium to format. A disk image the census can hold
-  // would answer Read Sector, but nothing here can answer the five that WRITE
-  // one, and implementing the reader alone would be a half-truth a program
-  // could not test for.
-  'jd read sector',
-  'jd write sector',
+  // JD's whole-disk writes. Install lays down a boot block, and Format and
+  // Shortformat write whole 11-sector TRACKS with TD_FORMAT at `track * $1600`
+  // -- 160 tracks for one and tracks 80 and 81 for the other (+|jd.s:4692,
+  // :4715, :4931), each built out of a `roottrack` template held in the
+  // library's own data. Reading that template out and reproducing a format is
+  // the work these are waiting on; the sector-level half of the group is
+  // implemented on `AdfVolume.image`.
   'jd install',
   'jd format',
   'jd shortformat',
-  'jd relabel',
-  'jd diskchange',
-  // Squash rewrites a file in place through trackdisk to defragment it
-  // (+|jd.s:5013) — the same missing block device.
-  'jd squash',
   // JD Colour: the keywords that need a console window or a RastPort of their
   // own rather than a palette. Open/Close/Print/Input Con drive a CON: console
   // window through DOS. Screen Border, Wait Raster, Screen Convert and the six
@@ -2884,6 +2884,21 @@ export const NA = new Set<string>([
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  // ---- JD 5.3, slot 22 -----------------------------------------------------
+  "jd read sector":
+    "Routine 50 (+|jd.s:2947): OpenDevice on trackdisk, CMD_READ of 512 bytes at `sector * 512`, close, motor " +
+    "off, and the sector as a 512-character string. Any failure answers the EMPTY string, because the error exit " +
+    "hands back `trackerr`, which is `dc.l 0` -- a length word of zero and nothing else. DEFECT: the bounds check " +
+    "is on the wrong register. `movem.l (a3)+,d0-d1` pops right to left, so d0 is the SECTOR and d1 the DEVICE, " +
+    "and the routine then tests `cmp.l #1759,d1` and `cmp.l #0,d1` -- the device against the sector range. A " +
+    "drive number is always 0 to 3, so the test never fires and the sector is never checked at all. Write Sector " +
+    "was written from the same template and tests d0, which is right.",
+  "jd diskchange":
+    "Routine 42 (+|jd.s:2479): spins on `$bfe001 & 16`, the disk-change line, then waits out the filesystem's " +
+    "Validate task by scanning ExecBase's TaskReady and TaskWait lists with FindName. DEVIATION: it returns " +
+    "instead of waiting. There is no drive to swap a disk in and no Validator to outlive, so the alternative is " +
+    "to block for ever -- the same decision Delta 1.4's Delta Change Disk and Misc 1.0's Disk Wait take.",
+
   // ---- JD Colour 2.0, slot 20 ----------------------------------------------
   "jd rprint":
     "Routine 54 (+|col.s:1833) and nothing to do with a printer: `XYCuWi` reads the cursor row, `$4c(a0)` is the " +
