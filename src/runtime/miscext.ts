@@ -132,6 +132,27 @@ export function makeMiscExtInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
+     * Reset — routine 10 (Misc_Extension.asm:147):
+     *
+     *     MOVEA.L 4.W,A6 / JSR -$0096(A6) / JSR -$0078(A6)   SuperState, Disable
+     *     CLR.L 4.W / LEA $00FC0000.L,A0 / RESET / JMP (A0)
+     *
+     * A cold reboot: ExecBase is wiped before the bus goes down, so nothing
+     * survives it. Delta 1.4's `Delta Reset` is these seven instructions
+     * exactly and has been faithful since Delta landed; this one was left n/a
+     * on the grounds that "a page will not be doing" a reboot, which was a
+     * statement about the host rather than about the keyword. The machine
+     * models a pending reset — ../amiga/machine.ts keeps a catalogue of every
+     * reboot keyword in the corpus, this one included — and the owner of the
+     * frame loop decides when the machine comes back. See delta.ts.
+     */
+    'reset'(it) {
+      rt.machine.requestReset('cold', 'reset')
+      it.halt('ended')
+      return 'jumped'
+    },
+
+    /**
      * Firewait — routine 12 (:171):
      *
      *     L12 btst    #07,$bfe001

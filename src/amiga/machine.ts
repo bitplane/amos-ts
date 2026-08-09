@@ -58,9 +58,9 @@
  *
  * ## The other reboot keywords
  *
- * Five extensions ship one, and all of them are the same two techniques. Only
- * AMCAF is ported; these readings are recorded here so the next port does not
- * have to redo them:
+ * Six extensions ship one, and all of them are the same two techniques. AMCAF,
+ * Delta, Misc and JD are ported; the rest are recorded here so the next port
+ * does not have to redo them:
  *
  *   amcaf 1.40 r203 / 1.50 r215  `Reset Computer`  `cmp.w #$25,d0` on
  *       LIB_VERSION: Kickstart 37+ takes `jmp -$2d6(a6)` — exec ColdReboot —
@@ -73,6 +73,11 @@
  *       exactly, ExecBase wipe and all, so cold. Five more of Delta's
  *       routines are Misc's too; see ../runtime/delta.ts.
  *   misc 1.0 r10                  `Reset`  source tier, above. Cold.
+ *   jd 5.3 r67                    `Jd Reset`  one instruction, `jmp $fc00d2`
+ *       (+|jd.s:3623) — an undocumented fixed address inside Kickstart, valid
+ *       for the ROM its author had and nothing else. It does NOT wipe
+ *       ExecBase, which is the test used throughout here, so it is the only
+ *       WARM one in this list.
  *   the-game 0.9 r4               `G Reboot`  three instructions:
  *       `movea.l $4.w,a6 / jsr -$2d6(a6) / rts`. ColdReboot, no version check.
  *   os-devkit 1.61 r501           `_Cold Reboot`  NOT READ — the extension is

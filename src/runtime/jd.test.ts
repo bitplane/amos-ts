@@ -581,9 +581,11 @@ describe('JD: input (+|jd.s:2031-3705, 5889-5984)', () => {
     expect(out.trim()).toBe('16, 3')
   })
 
-  it('Multi Off/On and the drive LED are n/a, with no handlers', () => {
-    // Multi Off is exec's Forbid; there is one task here and no LED
-    for (const k of ['jd multi off', 'jd multi on', 'jd dled off', 'jd dled on']) {
+  it('Multi Off/On are n/a, with no handlers', () => {
+    // exec's Forbid and Permit; there is one task here and nothing to forbid.
+    // The drive LED used to be in this list and should not have been -- see
+    // the Dled tests at the foot of this file
+    for (const k of ['jd multi off', 'jd multi on']) {
       expect(NA.has(k), k).toBe(true)
       expect(k in makeAllInstructions(bootJd()), k).toBe(false)
     }
@@ -685,9 +687,11 @@ describe('JD: screen readbacks and drawing (+|jd.s:1479-6199)', () => {
   })
 
   it('the machine-level keywords are n/a, with reasons', () => {
-    // a hard reset, an ILLEGAL instruction, and a graphics.library pointer
-    for (const k of ['jd reset', 'jd private', 'jd rastport']) expect(NA.has(k), k).toBe(true)
-    expect('jd reset' in makeAllInstructions(bootJd())).toBe(false)
+    // a deliberate ILLEGAL instruction to drop a debugger, and a
+    // graphics.library pointer that would address nothing. `Jd Reset` used to
+    // be in this list; a reboot is modelled, so it is implemented instead
+    for (const k of ['jd private', 'jd rastport']) expect(NA.has(k), k).toBe(true)
+    expect('jd private' in makeAllInstructions(bootJd())).toBe(false)
   })
 })
 
@@ -1261,5 +1265,81 @@ describe.skipIf(!existsSync(FONTS))('JD: Textfont and Print with a real face (+|
     let lit = 0
     for (let y = 50; y < 62; y++) for (let x = 40; x < 50; x++) if (rt.screen.point(x, y) === 3) lit++
     expect(lit).toBeGreaterThan(5)
+  })
+})
+
+describe('JD: the drive LED and the reboot, which used to be n/a', () => {
+  /** a Runtime that has run `src`, for the state-level checks */
+  function ran(src: string): Runtime {
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[22, jd]]),
+      maxSteps: 200_000,
+      onText: () => {},
+    })
+    rt.runHeadless(20)
+    return rt
+  }
+
+  /**
+   * Routines 146 and 147 (+|jd.s:5969, :5976) write 127 then 119 to $bfd100
+   * and then differ only in the direction register: Off writes 255 (outputs,
+   * driving the 119 still latched, so active-low /MTR is asserted -- LED on)
+   * and On writes 0 (inputs, floating inactive -- LED out). The inversion is
+   * the author's, not a misreading.
+   */
+  it('Jd Dled Off lights it and Jd Dled On puts it out', () => {
+    expect(ran('Jd Dled Off').driveMotor).toBe(true)
+    expect(ran('Jd Dled On').driveMotor).toBe(false)
+    expect(ran('Jd Dled Off : Jd Dled On').driveMotor).toBe(false)
+  })
+
+  it('is Misc 1.0\'s pair, register for register and constant for constant', () => {
+    // the reason this was n/a said "CIA-A PRA bit 1", the power LED. The
+    // source says $bfd100 -- CIA-B port B -- which is exactly what Misc
+    // writes, and Misc's pair was already faithful. One flag, two extensions
+    // that do not know about each other, which is why it is on the Runtime
+    const misc = extensionById('misc-1.0')!
+    const both = new Map([
+      [22, jd.table],
+      [23, misc.table],
+    ])
+    const rt = new Runtime(tokenize('Dled Off : Jd Dled On', table, both), table, {
+      extensions: both,
+      extBindings: new Map([
+        [22, jd],
+        [23, misc],
+      ]),
+      maxSteps: 200_000,
+      onText: () => {},
+    })
+    rt.runHeadless(20)
+    expect(rt.driveMotor).toBe(false)
+  })
+
+  /**
+   * Routine 67 (+|jd.s:3623) is one instruction, `jmp $fc00d2`. No
+   * `CLR.L 4.W`, so ExecBase survives and it is a WARM reboot by the test
+   * this port uses everywhere -- unlike Misc's and Delta's, which wipe it.
+   */
+  it('Jd Reset asks for a WARM reset, not a cold one', () => {
+    const rt = ran('Jd Reset : Jd Dled Off')
+    expect(rt.machine.pendingReset).toEqual({ kind: 'warm', by: 'jd reset' })
+    // and the program stopped there
+    expect(rt.driveMotor).toBe(false)
+  })
+
+  it('which is the one thing separating it from Misc 1.0\'s Reset', () => {
+    const misc = extensionById('misc-1.0')!
+    const exts23 = new Map([[23, misc.table]])
+    const rt = new Runtime(tokenize('Reset', table, exts23), table, {
+      extensions: exts23,
+      extBindings: new Map([[23, misc]]),
+      maxSteps: 200_000,
+      onText: () => {},
+    })
+    rt.runHeadless(20)
+    expect(rt.machine.pendingReset?.kind).toBe('cold')
+    expect(ran('Jd Reset').machine.pendingReset?.kind).toBe('warm')
   })
 })

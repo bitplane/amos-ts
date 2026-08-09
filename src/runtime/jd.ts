@@ -1548,6 +1548,55 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
      * other n/a keyword in this port does.
      */
 
+    /**
+     * Jd Dled Off and Jd Dled On — routines 146 and 147 (+|jd.s:5969, :5976).
+     *
+     *     L146  move.b #127,$bfd100 / move.b #119,$bfd100 / move.b #255,$bfd300
+     *     L147  move.b #127,$bfd100 / move.b #119,$bfd100 / move.b #0,$bfd300
+     *
+     * CIA-B's port B and its direction register, and these are Misc 1.0's
+     * `Dled On`/`Dled Off` constant for constant — the same three writes, the
+     * same register, the same inversion. Writing 255 to the direction register
+     * makes the lines OUTPUTS and drives the 119 already sitting in the data
+     * register, so /MTR is asserted and the LED comes on; writing 0 makes them
+     * inputs and they float inactive through their pull-ups. So `Jd Dled Off`
+     * turns the light ON and `Jd Dled On` turns it off, exactly as Misc's pair
+     * does. They share `Runtime.driveMotor` with it — two extensions writing
+     * one CIA line without knowing about each other, which is why the flag
+     * lives on the Runtime. See miscext.ts and delta.ts.
+     *
+     * These were n/a until this was read properly. The reason recorded against
+     * them was "CIA-A PRA bit 1", the power LED — the wrong chip, the wrong
+     * port and the wrong bit — while Misc's identical pair was already
+     * faithful. The register in the source is $bfd100.
+     */
+    'jd dled off'() {
+      rt.driveMotor = true
+    },
+    'jd dled on'() {
+      rt.driveMotor = false
+    },
+
+    /**
+     * Jd Reset — routine 67 (+|jd.s:3623), one instruction: `jmp $fc00d2`.
+     *
+     * A fixed address inside Kickstart, which is a reboot entry and not a
+     * documented one — it is valid for the ROM the author had and nothing
+     * guarantees it elsewhere. What separates a warm reboot from a cold one
+     * throughout this port is whether ExecBase is wiped: Misc 1.0's `Reset`
+     * and Delta's do `CLR.L 4.W` first and are cold, and this does not, so the
+     * resident list and a RAD: would survive it. Warm.
+     *
+     * DEVIATION: nothing here survives either kind yet, so the two produce the
+     * same observable result today — the distinction is modelled rather than
+     * synthesised, exactly as ../amiga/machine.ts says. Asking for the right
+     * one now is what makes it free later.
+     */
+    'jd reset'(it) {
+      rt.machine.requestReset('warm', 'jd reset')
+      it.halt('ended')
+      return 'jumped'
+    },
 
     /**
      * Jd Spread "text",direction,delay — routine 46 (+|jd.s:2755) — and

@@ -1755,6 +1755,14 @@ export const FAITHFUL = new Set<string>([
   'jd moff click',
   'jd moff key',
   'jd double click',
+  // these three were n/a and should not have been. Jd Dled Off/On are Misc
+  // 1.0's pair constant for constant -- the same three writes to CIA-B's port
+  // B at $bfd100 -- and Misc's were already faithful; the reason recorded
+  // against JD's named CIA-A PRA bit 1, the power LED, which is not the
+  // register in the source. Jd Reset is a reboot, and the machine models one.
+  'jd dled off',
+  'jd dled on',
+  'jd reset',
   'jd reduce dim',
   'jd reset dim',
   'jd array swap',
@@ -2135,10 +2143,12 @@ export const FAITHFUL = new Set<string>([
   'plib ver',
   'plib rev',
   // --- Misc 1.0, slot 23: Frank Otto's twelve odds and ends, whole source in
-  // the box. Eight here; Multi Off/On, Reset and Pal On are n/a — see the NA
-  // block and miscext.ts for why each one is.
+  // the box. Nine here; Multi Off/On and Pal On are n/a — see the NA block and
+  // miscext.ts for why each one is. `Reset` was n/a too and should not have
+  // been: it is `Delta Reset` instruction for instruction, and that was
+  // faithful, so one of the two was wrong. The machine models a pending reset.
   'display off', 'display on', 'mouse off', 'firewait',
-  'dled on', 'dled off', 'clear ram', 'disk wait',
+  'dled on', 'dled off', 'clear ram', 'disk wait', 'reset',
   // --- AMOSPro Colours 1.0, slot 23: Jan Normann Nielsen's named colour
   // constants. Twenty-seven zero-argument functions returning a 12-bit $RGB
   // value, every one an `equ` in the public-domain source that ships with it.
@@ -2655,9 +2665,11 @@ export const NA = new Set<string>([
   // MISC 1.0: Multi Off and Multi On are the SAME two calls — `jsr -132(a6)`
   // and `-138(a6)` on ExecBase (Misc_Extension.asm:117, :124) — reached from a
   // different library, so they are n/a for the same reason JD's are. `Reset`
-  // (:148) is SuperState, Disable, `CLR.L 4.W`, the RESET instruction and
-  // `JMP $00FC0000`: a cold reboot of the machine, which a page will not be
-  // doing. `Pal On` (:209) is the one the manual apologises for — the label
+  // (:148) USED to be here, on the grounds that a cold reboot "is not
+  // something a page will be doing" — which was a statement about the host and
+  // not about the keyword, and it contradicted `Delta Reset`, the same seven
+  // instructions, which was faithful. It is implemented; see miscext.ts.
+  // `Pal On` (:209) is the one the manual apologises for — the label
   // is followed only by RS.B/EQU/MACRO directives, which emit no code, so it
   // falls straight into `Go60`, a routine whose own comment reads ";put system
   // in NTSC mode" and whose first instruction reads `Flag_FatAgnus(a0)` with
@@ -2665,16 +2677,9 @@ export const NA = new Set<string>([
   // whatever a0 held. There is no behaviour to be faithful TO.
   'multi off',
   'multi on',
-  'reset',
   'pal on',
   'jd multi off',
   'jd multi on',
-  // and the drive LED: CIA-A PRA bit 1 (:5970, :5977). No LED.
-  'jd dled off',
-  'jd dled on',
-  // JD: `jmp $fc00d2` — a jump into Kickstart that reboots the machine
-  // (+|jd.s:3623). A page cannot reset the computer and should not be able to.
-  'jd reset',
   // the BUG macro's ILLEGAL instruction, there to drop a debugger in
   // (+|jd.s:835 with macros.s). No debugger, and deliberately crashing the
   // interpreter is not a service to anyone.

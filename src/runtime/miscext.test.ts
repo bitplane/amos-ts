@@ -98,6 +98,34 @@ describe('Misc 1.0: Dled On and Dled Off are the wrong way round', () => {
   })
 })
 
+describe('Misc 1.0: Reset', () => {
+  /**
+   * Routine 10 (:147): SuperState, Disable, `CLR.L 4.W`, `LEA $00FC0000,A0`,
+   * RESET, `JMP (A0)`. ExecBase is wiped, so it is a COLD reboot -- the same
+   * seven instructions Delta 1.4's `Delta Reset` carries, which is why one of
+   * the two being n/a while the other was faithful could not both be right.
+   */
+  it('asks the machine for a cold reset and ends the program', () => {
+    const rt = run('Reset : Dled Off')
+    expect(rt.machine.pendingReset).toEqual({ kind: 'cold', by: 'reset' })
+    // the statement after it never runs
+    expect(rt.driveMotor).toBe(false)
+  })
+
+  it('is the same request Delta Reset makes, from a different extension', () => {
+    const delta = extensionById('delta-1.4')!
+    const exts = new Map([[15, delta.table]])
+    const rt = new Runtime(tokenize('Delta Reset', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[15, delta]]),
+      maxSteps: 200_000,
+      onText: () => {},
+    })
+    rt.runHeadless(20)
+    expect(rt.machine.pendingReset?.kind).toBe('cold')
+  })
+})
+
 describe('Misc 1.0: Firewait', () => {
   it('falls straight through when fire is already down', () => {
     // `btst #07,$bfe001 / bne` — the bit is active LOW, so a set bit means
