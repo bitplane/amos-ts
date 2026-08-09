@@ -369,6 +369,10 @@ describe('declared documentation is cited', () => {
  * false accusations before it was noticed. `@{i}`/`@{ui}` carry no text and
  * go. `[4\2\Powerpacker Library]` is the older link form, brackets and all.
  *
+ * These guides are hand-wrapped, so a hyphenated word can be split across the
+ * break -- LDos writes NULL-terminated on one line and `NULL-\nTERMINATED` on
+ * another. A hyphen at end of line is rejoined before whitespace collapses.
+ *
  * ## Finding the quotes
  *
  * Quotes are the ODD segments of a comment split on `"`. A regex pairing
@@ -377,10 +381,15 @@ describe('declared documentation is cited', () => {
  * violations made entirely of the port's own prose.
  *
  * A quote counts as attributed only when the same SENTENCE that introduces it
- * names the guide or the manual. Blocks routinely quote three things at once
- * -- the guide, the library's own message table, and an AmigaOS autodoc --
- * and only the first is checkable here. The library's strings are read out of
- * the binary and allowed for the same reason.
+ * names the guide, the manual or the doc. Blocks routinely quote three things
+ * at once -- the extension's own document, the library's message table, and an
+ * AmigaOS autodoc -- and only the first is checkable here. The library's
+ * strings are read out of the binary and allowed for the same reason; the
+ * autodocs are not vendored, which is why ATTRIBUTION anchors to a word start.
+ *
+ * `\$` and `\"` are JSDoc escapes rather than characters of the quote, and the
+ * second must not end one: LDos quotes a sentence about the doublequote
+ * character, and splitting inside it flags a passage that is verbatim.
  *
  * Backticked quotes are skipped: those are renderings of code in the port's
  * own formatting, not passages lifted from prose.
@@ -390,6 +399,8 @@ interface QuoteCorpus {
   src: string
   /** directories holding its vendored .guide files */
   guides: string[]
+  /** individual prose documents it also quotes */
+  docs?: string[]
   /** its libraries, whose message tables a comment may quote instead */
   libs: string[]
 }
@@ -398,6 +409,8 @@ const AMIGAGUIDE_PORTS: QuoteCorpus[] = [
   {
     src: 'runtime/easylife.ts',
     guides: ['easylife-1.10/Docs/extensions'],
+    // 1.0's manual, which the port quotes where 1.10's guide is silent
+    docs: ['easylife-1.0/EasyLife.doc'],
     libs: ['easylife-1.10/AMOSPro_EasyLife.Lib'],
   },
   {
@@ -405,16 +418,52 @@ const AMIGAGUIDE_PORTS: QuoteCorpus[] = [
     guides: ['amcaf-1.50'],
     libs: ['amcaf-1.50/AMOSPro_AMCAF.Lib'],
   },
+  {
+    src: 'runtime/ldos.ts',
+    guides: ['ldos-2.6/Documentation'],
+    docs: ['ldos-2.6/Documentation/ldos.text'],
+    libs: ['ldos-2.6/AMOSPro_LDos.Lib'],
+  },
+  {
+    src: 'runtime/lserial.ts',
+    // the same manual in both formats; the .guide ships beside LDos
+    guides: ['ldos-2.6/Documentation'],
+    docs: [
+      'lserial-2.1/HELP.DOC',
+      'lserial-2.1/lserial-docs/LserialV21.DOC',
+      'lserial-2.1/lserial-docs/UpDateV21_LSerial.DOC',
+    ],
+    libs: ['lserial-2.1/LSerial.LIB'],
+  },
 ]
 
-const stripGuide = (s: string): string =>
+/**
+ * `soft` picks the reading of a hyphen at end of line. A guide is hand-wrapped
+ * and both kinds occur: LDos splits the real hyphen of NULL-terminated across
+ * a break, and LSerial splits the plain word terminal as term-/inal. Which is
+ * which cannot be told mechanically, so both readings go into the corpus and a
+ * quote matches whichever the word actually was.
+ */
+const stripGuide = (s: string, soft = false): string =>
   s
+    // LSerial's .DOC carries a per-line change bar: '*- ', or '++ ' when new
+    .replace(/^[ \t]*(\*-|\+\+)[ \t]?/gm, '')
+    .replace(/(\w)-\n[ \t]*(\w)/g, soft ? '$1$2' : '$1-$2')
     .replace(/@\{\s*"([^"]*)"[^}]*\}/g, '$1')
     .replace(/@\{[^}]*\}/g, '')
     .replace(/\[[0-9]+\\[0-9]+\\([^\]]*)\]/g, '$1')
     .replace(/"/g, "'")
     .replace(/\s+/g, ' ')
     .toLowerCase()
+
+const bothHyphenations = (s: string): string => stripGuide(s) + ' ' + stripGuide(s, true)
+
+/**
+ * A word that, in the sentence introducing a quote, makes it a citation. It
+ * must start a word: "autodoc" is Commodore's, not the extension's, and no
+ * AmigaOS autodoc is vendored for a quote to be checked against.
+ */
+const ATTRIBUTION = /(^|[^a-z])(guide|manual|docs?)/
 
 /** the printable strings in a library, which is where an error message is quoted from */
 const libStrings = (file: string): string => {
@@ -434,15 +483,16 @@ const libStrings = (file: string): string => {
 }
 
 describe('quotes attributed to a guide are verbatim', () => {
-  for (const { src: file, guides, libs } of AMIGAGUIDE_PORTS) {
+  for (const { src: file, guides, docs = [], libs } of AMIGAGUIDE_PORTS) {
     it(`every guide-attributed quote in ${file} is in a vendored guide`, () => {
       let corpus = ''
       for (const dir of guides) {
         const d = join(extFixtures, dir)
         for (const f of readdirSync(d)) {
-          if (f.endsWith('.guide') || f.endsWith('.Guide')) corpus += ' ' + stripGuide(readFileSync(join(d, f), 'latin1'))
+          if (/\.guide$/i.test(f)) corpus += ' ' + bothHyphenations(readFileSync(join(d, f), 'latin1'))
         }
       }
+      for (const doc of docs) corpus += ' ' + bothHyphenations(readFileSync(join(extFixtures, doc), 'latin1'))
       for (const l of libs) corpus += ' ' + libStrings(join(extFixtures, l))
 
       const lines = readFileSync(join(src, file), 'latin1').split('\n')
@@ -451,15 +501,20 @@ describe('quotes attributed to a guide are verbatim', () => {
       let start = 0
       const flush = (): void => {
         if (block.length === 0) return
-        const body = block.map((l) => l.replace(/^\s*\*\/?/, '')).join(' ')
-        const segs = body.split('"')
+        // `\$` is JSDoc's escape, not part of the quote; `\"` is a quotation
+        // mark INSIDE a quote, so it must not end one either
+        const body = block
+          .map((l) => l.replace(/^\s*\*\/?/, ''))
+          .join(' ')
+          .replace(/\\\$/g, '$')
+        const segs = body.split(/(?<!\\)"/).map((s) => s.replace(/\\"/g, '"'))
         for (let k = 1; k < segs.length; k += 2) {
           const q = segs[k]!.replace(/\s+/g, ' ').trim()
           if (q.length < 15 || q.includes('`')) continue
           // attributed only if the sentence introducing it names the document
           const lead = segs[k - 1]!.toLowerCase()
           const sentence = lead.slice(lead.lastIndexOf('.') + 1)
-          if (!sentence.includes('guide') && !sentence.includes('manual')) continue
+          if (!ATTRIBUTION.test(sentence)) continue
           const probes = q
             .split('...')
             .map((x) => x.trim().replace(/"/g, "'").toLowerCase())

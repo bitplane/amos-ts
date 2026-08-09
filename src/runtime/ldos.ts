@@ -432,7 +432,8 @@ function flush(rt: Runtime, c: LdosChannel): void {
  * (','), space or doublequote ('\"'). If doublequotes aren't matched, all
  * text from the first doublequote will be treated as one word. Two
  * doublequotes without any text between them will be treated as one word
- * (this is a 'NULL'-word) ... If there are more than one separator (TAB,
+ * (this is a 'NULL'-word, useful when for instance omitting a parameter).
+ * ... If there are more than one separator (TAB,
  * SPACE, COMMA) following each other they will be ignored."
  *
  * Quoted words keep their quotes, which the manual flags as surprising and
@@ -782,7 +783,7 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
      * Push does NOT test the lock first, so pushing with no scan open stores
      * a zero and a stale FileInfoBlock -- and pull does not test it either.
      * The manual's "If ADR points to NULLs (empty bank) you will receive the
-     * errormessage 'No more entries in this dir'" is therefore describing
+     * errormessage 'No more entries in this dir!'" is therefore describing
      * something that happens LATER: the zero lands at $294 and the next Lcat
      * accessor takes its own error-7 arm. This port raised at the Lcat Pull
      * line instead, which reports the right thing at the wrong statement.
@@ -1394,9 +1395,10 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
      * but it also fires on the path where the scan simply reached STOP, where
      * there was no increment to undo. Every byte from START to STOP-1 being
      * CHAR therefore answers STOP-1, not STOP, and `Lskip(c, X To X)` answers
-     * X-1. Reproduced: the manual's "will stop at STOP" is what the author
-     * meant and not what he wrote, and a program that walks a buffer with
-     * this will sit on the same byte forever at the end of it.
+     * X-1. Reproduced: the manual's "STOP is the maxaddress where Lskip will
+     * end if it couldn't find a character which wasn't CHAR" is what the
+     * author meant and not what he wrote, and a program that walks a buffer
+     * with this will sit on the same byte forever at the end of it.
      */
     lskip(_, a) {
       const ch = int(a[0] ?? VI(0)) & 0xff
@@ -1743,7 +1745,8 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
      * ceiling and answer the shared empty string when its first byte is zero;
      * the third is `move.w $36c(...),d3` and nothing else. That is how the
      * manual's "A$ will hold the LAST selected file. A$ will NOT empty even
-     * if the user clicked CANCEL, and something has been selected before"
+     * if the user clicked CANCEL, and something has been selected through the
+     * filerequester before"
      * works -- nothing CLEARS the field, rather than anything remembering it.
      * Likewise "you must set the filerequester to font-mode ($8-flag) in
      * order to update this field": routine 75 reports whatever last wrote
@@ -1885,8 +1888,9 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       return VI(rt.vfs?.deleteFile('ENV:' + name) ? -1 : 0)
     },
     /**
-     * A=Lrol(POSITIONS,VAR) — routine 85 ($3af6). The manual calls it "a
-     * logical shift left" and the library's own error message says "You can
+     * A=Lrol(POSITIONS,VAR) — routine 85 ($3af6). The manual heads its entry
+     * "Perform logical shift left, without modifying source variable" and the
+     * library's own error message says "You can
      * only shift 31 bits a time!", but the instruction is `rol.l`: bits
      * leaving the top come back in at the bottom. NOTE'd, because a program
      * written against the prose will disagree with the machine for any value
@@ -2053,12 +2057,12 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
      * is a pointer being described as a truth value. A non-zero constant is
      * within that and is what this answers, there being no font structure to
      * hand back. NOTE: the font is opened and never closed, one leak per
-     * call, and the manual's ".font MUST follow it" is its own advice rather
-     * than a check: the routine hands the name to OpenDiskFont, which fails
-     * on its own for anything else.
+     * call, and the manual's insistence on the `.font` suffix is its own
+     * advice rather than a check: the routine hands the name to OpenDiskFont,
+     * which fails on its own for anything else.
      *
      * The disc-font list invalidation below has no counterpart in routine 52.
-     * It is how the effect the keyword exists for -- "makes the font directly
+     * It is how the effect the keyword exists for -- "making it directly
      * available to Get Rom Fonts" -- reaches AMOS here, where the real one
      * got it from having the font open in the system font list.
      */
@@ -2195,8 +2199,8 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
      *
      * (d2 is the AMOS result type, 0 for integer; d3 is the value.)
      *
-     * The manual says "Lold - MAY CURRENTLY NOT BE USED!! These are here for
-     * future versions", and this port took that literally and made them
+     * The manual says "Lold - MAY CURRENTLY NOT BE USED!! ... These are here
+     * for future versions", and this port took that literally and made them
      * no-op INSTRUCTIONS. The binary disagrees on both counts: they are the
      * two MODE constants `Lopen` takes, and `Lopen 1,"x",Lcreate` is a
      * working line. The binary wins over the manual, and the manual's

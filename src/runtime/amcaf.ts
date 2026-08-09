@@ -1515,9 +1515,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * from an all-ones mask. Its stride is the SOURCE bitmap's, and it is
      * indexed by the source coordinates — that follows from the autodoc's
      * "mask plane of same dimensions as the source bitmap" rather than from
-     * the AMCAF binary, which only passes the pointer through. An earlier
-     * pass indexed the mask's rows from zero while indexing its columns from
-     * x1, which registers the mask with the source only when y1 is 0.
+     * the AMCAF binary, which only passes the pointer through.
      */
     'mask copy'(it) {
       const s1 = it.evalInt()

@@ -300,7 +300,7 @@ export function makeLSerialInstructions(rt: Runtime): Record<string, Instr> {
      * `Lser Mulcheck` answers true on the very next statement, where a real
      * one at 300 baud would not. The doc's warning is about the gap this port
      * does not have: *"If you try to send any more data before Mulsend has
-     * completed only garbage will be output."*
+     * completed only garbage will be output from the modem."*
      */
     'lser mul send'(it) {
       const s = it.evalStr()
@@ -440,9 +440,9 @@ export function makeLSerialFunctions(rt: Runtime): Record<string, Func> {
      *
      * Bit 5 is Carrier Detect and it is ACTIVE LOW, so the bit being CLEAR is
      * carrier present — which is why the routine answers -1 on `beq` and 0 on
-     * `bne`, the opposite way round from how it reads. The doc: *"You can use
-     * Lcarrier to check for carrier instead of using Lser Status (Lcarrier is
-     * faster)."*
+     * `bne`, the opposite way round from how it reads. The doc says so under
+     * Lser Status: *"You can use Lcarrier to check for carrier instead of
+     * using this function (Lcarrier is faster)."*
      */
     'lcarrier': () => {
       const d = device(rt)
@@ -530,7 +530,7 @@ export function makeLSerialFunctions(rt: Runtime): Record<string, Func> {
      *     anything else -> error 8, "Non valid XPR-command"
      *
      * READ and WRITE are checked FIRST, which the doc explains: *"XPRREAD and
-     * XPRWRITE are always checked for first, guaranteeing you as fast as
+     * XPRWRITE are always checked for first,guaranteeing you as fast as
      * possible reads and writes to/from the device."*
      *
      * APPROXIMATED, and here is the line. Every arm that does not need a
