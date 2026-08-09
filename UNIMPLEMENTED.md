@@ -12,16 +12,17 @@ Core AMOS Professional is complete — the display pipeline, the audio pipeline,
 the language, banks, files, menus, the Interface dialog engine and the file
 selector are all at 100%. So is every extension a stock installation ships
 (Music, Compact, Request, Compiler, IOPorts) and every third-party one the
-port has started: fifty-eight extension releases read 100% in `KEYWORDS.md`,
-among them AMCAF 1.40/1.50, the JD family, EasyLife, TOME, TURBO Plus,
-Personnal, LDos, AMOS 3D, PowerBobs, MED 7.1, EME 3.0 and P61.
+port has started — among them AMCAF 1.40/1.50, the JD family, EasyLife, TOME,
+TURBO Plus, Personnal, LDos, AMOS 3D, PowerBobs, MED 7.1, EME 3.0, P61 and
+BUtility. `KEYWORDS.md` has the per-row counts.
 
 **Nothing is partially ported.** Of the ninety-odd rows in the manifest, none
 sits between 0% and 100%: an extension is finished or it has not been begun.
 That is the ratchet working, and it is the number to watch — a row appearing
 in the middle means a thread was left hanging.
 
-3948 keywords are implemented, 3838 of them faithful.
+`KEYWORDS.md`'s total row carries the implemented and faithful counts. They
+are not repeated here, because a hand-copied total is a total that drifts.
 
 ### The census
 
@@ -237,29 +238,28 @@ white and print *" UNREGISTERED SHAREWARE version of LSerial!  Author really
 should register!"* on the Workbench screen before raising. The error is
 reproduced; the nag is not.
 
-**BUtility 1.21 came off it, and the row's note — "reqtools / asl" — was the
-excuse rather than the reason.** All 15 read 100%: ten faithful, five
-approximated. Nothing about reqtools or asl was the obstacle. Three of the
-fifteen were free, because `src/amiga/xpkmaster.ts` is a real port of the XPK
-stream format that EasyLife already drives, and six more are buffer reads. Two
-are file requesters, and LDos's `Lfreq` had already settled those: AMOS's own
-selector stands in, approximated for the substitution and not for the plumbing.
+**BUtility 1.21 came off it.** All 15 read 100%: ten faithful, five
+approximated. It is a facade over three third-party libraries — reqtools for
+requesters, asl for the system file requester, xpkmaster for compression — so
+it is thin, and the interesting part is which library each keyword reaches.
 
-**Only three keywords ever needed anything new** — `Binforeq`, `Bgetlongreq`
-and `Bgetstrreq`, which are `rtEZRequest`, `rtGetLong` and `rtGetString` — and
-the case for calling them n/a rested on a claim that turned out to be false:
-that a modal requester was a piece of work in its own right. `src/runtime/
-dialog.ts` is 1,863 lines and is the whole Interface language, all 51
-instructions, the postfix evaluator and the prescan; `fsel.ts` already stands
-up a screen, runs a dialog program on it and blocks. A requester is a *script*
-in that language, not an engine. `src/runtime/requester.ts` writes those
-scripts, in the statement grammar of the default resource bank's own
-Path:/Name: dialog (program 3) — the one shipped dialog that draws with
-`IN`/`GB`/`GS`/`PR` primitives rather than 9-patches out of a bank whose image
-numbering is not ours, so the same script renders against any resource bank.
-AMOS Professional's editor ships the same three requesters as dialog scripts
+Three of the fifteen are XPK and need nothing: `src/amiga/xpkmaster.ts` is a
+real port of the stream format that EasyLife already drives, and a method with
+no sub-library registered fails with XPKERR_NOMETHOD exactly as a machine
+missing that sub-library does. Six are buffer reads. Two are file requesters
+and take AMOS's own selector, the substitution LDos's `Lfreq` uses for
+req.library — approximated for the substitution, not for the plumbing.
+
+The last three are `rtEZRequest`, `rtGetLong` and `rtGetString`, and they run
+on `src/runtime/requester.ts`. That module writes Interface-language dialog
+scripts and runs them on a temporary channel the way `Dialog Box` does. The
+grammar is the default resource bank's own Path:/Name: dialog (program 3), the
+one shipped dialog that draws with `IN`/`GB`/`GS`/`PR` primitives rather than
+9-patches out of a bank whose image numbering is not ours — so the same script
+renders against any bank a program has loaded. AMOS Professional's editor
+ships an alert, a numeric input and a string input as dialog scripts of its own
 (`AMOSPro_Editor_Resource.Abk` program 0, labels 1, 12, 34 and 39), which is
-the evidence that this is AMOS's own way of building one and not an invention.
+what makes this AMOS's way of building a requester rather than an invention.
 
 Three defects, none of them in the doc. `Baslfile$` copies the ASL requester's
 name into data+$16 — the buffer `Breqfile$` reads — before answering it, and
@@ -272,9 +272,9 @@ the buffer writes over the EZRequest tag list that begins at data+$374. And
 every one of the fifteen NUL-terminates its string arguments in place with
 `clr.b (a0,d0.w)`, one byte past the last character, in AMOS's own workspace.
 
-`src/amiga/exec.ts` gained the three libraries its `MODELLED` map had already
-named in a comment — xpkmaster v4, reqtools v38, asl v37 — which is what makes
-the five "not opened" arms unreachable rather than pretended.
+`src/amiga/exec.ts` models all three libraries — xpkmaster v4, reqtools v38,
+asl v37 — which is what makes the five "not opened" arms unreachable rather
+than pretended.
 
 **This table has been wrong before, and the fix is to read it off
 `KEYWORDS.md`.** It used to list AMCAF 1.50, Range 1.0 and 2.0, AMOSPro
@@ -428,47 +428,34 @@ Base`/`Icon Base` and the IFF ANIM `Frame *` family are all faithful, and
 `Prun` runs a second program in its own structure on a real program stack
 (Prg_Push/Prg_Pull). Missing: the editor-integration keywords.
 
-## The n/a list is not a finished list
+## Not applicable, and what each one is waiting on
 
 An n/a entry removes a keyword from the denominator, so a wrong one is
-invisible for ever — which is the opposite of what the rest of this document
-is for. In August 2026 all 118 entries in `coverage/status.ts`'s NA set were
-read back against the code that exists now rather than the code that existed
-when each was written. **Forty-nine are defensible. The rest are blocked on a
-capability, and three of the five blocking reasons were already false.**
+invisible for ever. The set is 109 keywords and divides in two.
 
-**Defensible (49).** Keywords that ARE 68k execution and its register
-scaffolding (`Call`, `Lib Call`, `Areg`, `@_apml_@`); deliberate `ILLEGAL`
-traps meant to drop a machine-code debugger (`Pdebug`, `Jd Private`);
-syntax-only tokens the table points at `L_Syntax`, which is not an
-implementation but the routine that says "this cannot start a statement"
+**49 have nothing to implement.** Keywords that ARE 68k execution and its
+register scaffolding (`Call`, `Lib Call`, `Areg`, `@_apml_@`); deliberate
+`ILLEGAL` traps meant to drop a machine-code debugger (`Pdebug`,
+`Jd Private`); syntax-only tokens the table points at `L_Syntax`, which is not
+an implementation but the routine that says "this cannot start a statement"
 (`As`, `Follow`, `Screen Size`); null vectors the author documented as
-non-existent (`S Mask$`, `T Planes`); the editor internals and the compiler
-overlay; and `Trans Screen Dynamic`, which assembles 68k for a machine this is
-not. Nothing to write, and writing something would be a lie.
+non-existent (`S Mask$`, `T Planes`); direct writes to a battery clock or the
+floppy's MFM stream; the editor internals and the compiler overlay; and
+`Trans Screen Dynamic`, which assembles 68k for a machine this is not.
+Writing something for these would be a lie.
 
-**Blocked on one capability (69, now 60).** Grouped by what each needs:
+**60 are waiting on one capability each.** These are not permanent:
 
-| capability | keywords | the reason, checked |
+| capability | keywords | what it needs |
 |---|---|---|
-| requester / console | 13 | **false.** `runtime/dialog.ts` is the whole Interface language; a requester is a script in it. Nine closed — BUtility's three, `Jd Request`, and four that never needed one at all. Four left, all the CON: window. |
-| block device | 8 | **stale.** `amiga/adf.ts` exists and SLN's `S Disk Read`/`S Disk Write` are already faithful through it. An ADF *is* the sector image `Jd Read Sector` wants. |
-| exec device I/O | 13 | **weak.** `runtime/lserial.ts` already models a serial device end to end, which is most of what `Dev Open`/`Ldevice` ask for. |
-| ARexx host | 15 | untested. A message port is modellable; nobody has tried. |
-| RastPort / Intuition | 20 | `amiga/intuition.ts` and `amiga/graphics.ts` both exist. JD's slides and palette files are the bulk. |
+| CON: console window | 4 | a DOS filehandle onto a console device. The port has a console and it has file handles; nothing joins them. |
+| block device | 8 | nothing new. `amiga/adf.ts` exposes the raw sector image and SLN's `S Disk Read`/`S Disk Write` are faithful through it. The work is the five that WRITE structures — boot block, root block, a whole format. |
+| exec device I/O | 13 | a device registry `OpenDevice` resolves against. `runtime/lserial.ts` already models serial.device end to end through IORequests, so the shape is known. |
+| RastPort / whole screen | 16 | `amiga/graphics.ts` and `amiga/intuition.ts` exist; three of the sixteen are raw structure POINTERS and may stay here until those structures are addressable. |
+| ARexx host | 15 | a modelled message port and a host name registry. There is no rexxmast and no interpreter for the ARexx language, so what `Arexx Execute` means has to be settled before any of it is written. |
+| JD Colour leftovers | 4 | a fake guru screen, a dos.library `Write` patch that turns a trailing CR into LF, and a right-justifying printer path. |
 
-**Four were outright contradictions** and are fixed: Misc 1.0's `Reset` was
-n/a while `Delta Reset` — the same seven instructions — was faithful, and
-`Jd Dled Off`/`Jd Dled On` were n/a while Misc's identical pair was faithful,
-on a reason that named the wrong CIA, the wrong port and the wrong bit.
-`Jd Reset` went with them.
-
-**Three of the five closed so far were misdescribed rather than hard.**
-`Jd Mouse` is four instructions reading a counter this port already keeps.
-`Jd File$`/`Jd Path$`/`Jd Drive$` never touch a requester. `Jd Request` is not
-a file requester at all. Each was classified by the company it kept in a
-comment rather than by its own routine — which is the failure mode this
-section exists to catch.
+Each row is a stage of work, not a verdict.
 
 ## Implemented but approximated — the honesty list
 

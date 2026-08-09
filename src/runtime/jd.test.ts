@@ -582,9 +582,7 @@ describe('JD: input (+|jd.s:2031-3705, 5889-5984)', () => {
   })
 
   it('Multi Off/On are n/a, with no handlers', () => {
-    // exec's Forbid and Permit; there is one task here and nothing to forbid.
-    // The drive LED used to be in this list and should not have been -- see
-    // the Dled tests at the foot of this file
+    // exec's Forbid and Permit; there is one task here and nothing to forbid
     for (const k of ['jd multi off', 'jd multi on']) {
       expect(NA.has(k), k).toBe(true)
       expect(k in makeAllInstructions(bootJd()), k).toBe(false)
@@ -688,8 +686,7 @@ describe('JD: screen readbacks and drawing (+|jd.s:1479-6199)', () => {
 
   it('the machine-level keywords are n/a, with reasons', () => {
     // a deliberate ILLEGAL instruction to drop a debugger, and a
-    // graphics.library pointer that would address nothing. `Jd Reset` used to
-    // be in this list; a reboot is modelled, so it is implemented instead
+    // graphics.library pointer that would address nothing
     for (const k of ['jd private', 'jd rastport']) expect(NA.has(k), k).toBe(true)
     expect('jd private' in makeAllInstructions(bootJd())).toBe(false)
   })
@@ -1268,7 +1265,7 @@ describe.skipIf(!existsSync(FONTS))('JD: Textfont and Print with a real face (+|
   })
 })
 
-describe('JD: the drive LED and the reboot, which used to be n/a', () => {
+describe('JD: the drive LED and the reboot', () => {
   /** a Runtime that has run `src`, for the state-level checks */
   function ran(src: string): Runtime {
     const rt = new Runtime(tokenize(src, table, exts), table, {
@@ -1295,10 +1292,9 @@ describe('JD: the drive LED and the reboot, which used to be n/a', () => {
   })
 
   it('is Misc 1.0\'s pair, register for register and constant for constant', () => {
-    // the reason this was n/a said "CIA-A PRA bit 1", the power LED. The
-    // source says $bfd100 -- CIA-B port B -- which is exactly what Misc
-    // writes, and Misc's pair was already faithful. One flag, two extensions
-    // that do not know about each other, which is why it is on the Runtime
+    // both write $bfd100 -- CIA-B port B -- and its direction register at
+    // $bfd300. One flag, two extensions that do not know about each other,
+    // which is why it lives on the Runtime
     const misc = extensionById('misc-1.0')!
     const both = new Map([
       [22, jd.table],

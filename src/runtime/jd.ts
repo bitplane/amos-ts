@@ -1565,10 +1565,9 @@ export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
      * one CIA line without knowing about each other, which is why the flag
      * lives on the Runtime. See miscext.ts and delta.ts.
      *
-     * These were n/a until this was read properly. The reason recorded against
-     * them was "CIA-A PRA bit 1", the power LED — the wrong chip, the wrong
-     * port and the wrong bit — while Misc's identical pair was already
-     * faithful. The register in the source is $bfd100.
+     * NOTE: the direction-register reasoning is 6526 behaviour rather than
+     * anything the source states. The source gives the three writes; that a
+     * released line reads inactive is supplied from the chip.
      */
     'jd dled off'() {
       rt.driveMotor = true

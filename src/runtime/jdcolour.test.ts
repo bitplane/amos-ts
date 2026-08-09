@@ -191,8 +191,8 @@ describe('JD Colour: the palette instructions', () => {
   })
 
   it('the window and whole-screen keywords are n/a', () => {
-    // Jd Request used to be in this list, called a file requester. It is an
-    // intuition AutoRequest and is implemented on the modelled one
+    // a CON: console window, and three that rewrite or animate a whole screen
+    // through the RastPort
     for (const k of ['jd open con', 'jd screen convert', 'jd slide left', 'jd load palette']) {
       expect(NA.has(k), k).toBe(true)
     }

@@ -316,9 +316,8 @@ export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
      * itself has no other way to find out how deep it is. Zero is visible, and
      * each unmatched `Hide` takes it one further negative.
      *
-     * This was n/a, lumped in with the keywords that need a window or a
-     * requester of their own. It needs neither: the counter is `mouseShow` on
-     * the Runtime and has been since the core console keywords were written.
+     * The counter is `mouseShow` on the Runtime, which the core console
+     * keywords keep; this keyword only reads it.
      */
     'jd mouse': (): Value => VI(rt.mouseShow),
 

@@ -1592,9 +1592,9 @@ export const FAITHFUL = new Set<string>([
   'pjoy', 'pjup', 'pjdown', 'pjleft', 'pjright', 'pfire', 'xfire',
   'x smouse', 'y smouse', 'smouse key', 'smouse speed', 'limit smouse',
   // slice 12: ProTracker. Pt Data Base is APPROXIMATED (answers 0). The four
-  // LIVE-STATE queries -- Pt Cpos, Pt Cpattern, Pt Cnote and Pt Cinstr --
-  // used to be too, because this port loaded a module and never stepped it.
-  // `amiga/protracker.ts` steps it now, off Player 6.1A's source rather than
+  // LIVE-STATE queries -- Pt Cpos, Pt Cpattern, Pt Cnote and Pt Cinstr -- are
+  // faithful because the module is stepped rather than merely loaded:
+  // `amiga/protracker.ts` steps it, off Player 6.1A's source rather than
   // off AMCAF's own replayer at $9bac, which is the DEVIATION that file
   // records; the values are live and the reading behind them is another
   // library's.
@@ -1755,11 +1755,11 @@ export const FAITHFUL = new Set<string>([
   'jd moff click',
   'jd moff key',
   'jd double click',
-  // these three were n/a and should not have been. Jd Dled Off/On are Misc
-  // 1.0's pair constant for constant -- the same three writes to CIA-B's port
-  // B at $bfd100 -- and Misc's were already faithful; the reason recorded
-  // against JD's named CIA-A PRA bit 1, the power LED, which is not the
-  // register in the source. Jd Reset is a reboot, and the machine models one.
+  // Jd Dled Off/On are Misc 1.0's pair constant for constant: the same three
+  // writes to CIA-B's port B at $bfd100 and its direction register, sharing
+  // `Runtime.driveMotor` with them. Jd Reset is `jmp $fc00d2` -- a reboot the
+  // machine models, and the only WARM one in the corpus, because it is the
+  // only one that does not wipe ExecBase first.
   'jd dled off',
   'jd dled on',
   'jd reset',
@@ -1967,8 +1967,9 @@ export const FAITHFUL = new Set<string>([
   'jd wswap',
   'jd lswap',
   'jd key to asc',
-  // four that were n/a for the company they kept rather than for what they
-  // do -- see the NA block. Jd File$ carries a DEFECT of its own; see NOTES.
+  // Jd Mouse reads the Show/Hide nesting counter (`Runtime.mouseShow`); the
+  // three path helpers are a backward scan for a separator and a copy
+  // (routines 62 and 79). Jd File$ carries a DEFECT of its own; see NOTES.
   'jd mouse',
   'jd path$',
   'jd file$',
@@ -2150,9 +2151,8 @@ export const FAITHFUL = new Set<string>([
   'plib rev',
   // --- Misc 1.0, slot 23: Frank Otto's twelve odds and ends, whole source in
   // the box. Nine here; Multi Off/On and Pal On are n/a — see the NA block and
-  // miscext.ts for why each one is. `Reset` was n/a too and should not have
-  // been: it is `Delta Reset` instruction for instruction, and that was
-  // faithful, so one of the two was wrong. The machine models a pending reset.
+  // miscext.ts for why each one is. `Reset` is `Delta Reset` instruction for
+  // instruction, and the machine models a pending reset.
   'display off', 'display on', 'mouse off', 'firewait',
   'dled on', 'dled off', 'clear ram', 'disk wait', 'reset',
   // --- AMOSPro Colours 1.0, slot 23: Jan Normann Nielsen's named colour
@@ -2670,11 +2670,7 @@ export const NA = new Set<string>([
   // are implemented: they read the same host input the ordinary keywords do.
   // MISC 1.0: Multi Off and Multi On are the SAME two calls — `jsr -132(a6)`
   // and `-138(a6)` on ExecBase (Misc_Extension.asm:117, :124) — reached from a
-  // different library, so they are n/a for the same reason JD's are. `Reset`
-  // (:148) USED to be here, on the grounds that a cold reboot "is not
-  // something a page will be doing" — which was a statement about the host and
-  // not about the keyword, and it contradicted `Delta Reset`, the same seven
-  // instructions, which was faithful. It is implemented; see miscext.ts.
+  // different library, so they are n/a for the same reason JD's are.
   // `Pal On` (:209) is the one the manual apologises for — the label
   // is followed only by RS.B/EQU/MACRO directives, which emit no code, so it
   // falls straight into `Go60`, a routine whose own comment reads ";put system
@@ -2719,16 +2715,10 @@ export const NA = new Set<string>([
   // screen through the RastPort; Load/Save Palette read and write a palette
   // file whose format the source does not settle.
   //
-  // FIVE came out of this list once they were read rather than grouped, and
-  // the note that grouped them was wrong twice over. `Jd Mouse` is four
-  // instructions reading the Show/Hide nesting counter out of the AMOS
-  // workspace, which is `Runtime.mouseShow`. `Jd File$`, `Jd Path$` and
-  // `Jd Drive$` never touch a requester at all -- each is a backward scan for
-  // a separator and a copy (routines 62 and 79). And `Jd Request` is not a
-  // file requester, which is what this note used to call it: routine 66 is
-  // `moveq #$4,d2 / Rbra routine 71`, and routine 71 builds five IntuiTexts
-  // and calls intuition's AutoRequest for a yes/no answer. It is APPROXIMATED
-  // on the modelled requester; see its NOTES entry.
+  // Jd Request is NOT among them and is not a file requester: routine 66 is
+  // `moveq #$4,d2 / Rbra routine 71`, which builds five IntuiTexts and calls
+  // intuition's AutoRequest for a yes/no answer. It is APPROXIMATED on the
+  // modelled requester; see its NOTES entry.
   'jd open con',
   'jd close con',
   'jd print con',
