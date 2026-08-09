@@ -428,6 +428,48 @@ Base`/`Icon Base` and the IFF ANIM `Frame *` family are all faithful, and
 `Prun` runs a second program in its own structure on a real program stack
 (Prg_Push/Prg_Pull). Missing: the editor-integration keywords.
 
+## The n/a list is not a finished list
+
+An n/a entry removes a keyword from the denominator, so a wrong one is
+invisible for ever — which is the opposite of what the rest of this document
+is for. In August 2026 all 118 entries in `coverage/status.ts`'s NA set were
+read back against the code that exists now rather than the code that existed
+when each was written. **Forty-nine are defensible. The rest are blocked on a
+capability, and three of the five blocking reasons were already false.**
+
+**Defensible (49).** Keywords that ARE 68k execution and its register
+scaffolding (`Call`, `Lib Call`, `Areg`, `@_apml_@`); deliberate `ILLEGAL`
+traps meant to drop a machine-code debugger (`Pdebug`, `Jd Private`);
+syntax-only tokens the table points at `L_Syntax`, which is not an
+implementation but the routine that says "this cannot start a statement"
+(`As`, `Follow`, `Screen Size`); null vectors the author documented as
+non-existent (`S Mask$`, `T Planes`); the editor internals and the compiler
+overlay; and `Trans Screen Dynamic`, which assembles 68k for a machine this is
+not. Nothing to write, and writing something would be a lie.
+
+**Blocked on one capability (69, now 60).** Grouped by what each needs:
+
+| capability | keywords | the reason, checked |
+|---|---|---|
+| requester / console | 13 | **false.** `runtime/dialog.ts` is the whole Interface language; a requester is a script in it. Nine closed — BUtility's three, `Jd Request`, and four that never needed one at all. Four left, all the CON: window. |
+| block device | 8 | **stale.** `amiga/adf.ts` exists and SLN's `S Disk Read`/`S Disk Write` are already faithful through it. An ADF *is* the sector image `Jd Read Sector` wants. |
+| exec device I/O | 13 | **weak.** `runtime/lserial.ts` already models a serial device end to end, which is most of what `Dev Open`/`Ldevice` ask for. |
+| ARexx host | 15 | untested. A message port is modellable; nobody has tried. |
+| RastPort / Intuition | 20 | `amiga/intuition.ts` and `amiga/graphics.ts` both exist. JD's slides and palette files are the bulk. |
+
+**Four were outright contradictions** and are fixed: Misc 1.0's `Reset` was
+n/a while `Delta Reset` — the same seven instructions — was faithful, and
+`Jd Dled Off`/`Jd Dled On` were n/a while Misc's identical pair was faithful,
+on a reason that named the wrong CIA, the wrong port and the wrong bit.
+`Jd Reset` went with them.
+
+**Three of the five closed so far were misdescribed rather than hard.**
+`Jd Mouse` is four instructions reading a counter this port already keeps.
+`Jd File$`/`Jd Path$`/`Jd Drive$` never touch a requester. `Jd Request` is not
+a file requester at all. Each was classified by the company it kept in a
+comment rather than by its own routine — which is the failure mode this
+section exists to catch.
+
 ## Implemented but approximated — the honesty list
 
 These fall into two kinds, and the difference is the whole point of the list.
