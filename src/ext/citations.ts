@@ -366,8 +366,12 @@ export const CITED_BY: Record<string, string[]> = {
   // core file is checked against AMCAF's binary for those two citations
   // amcaf for the contested-name notes; easylife-1.0 because the alias map
   // that lives here cites the 1.0 routines it is mapping away from
-  'src/runtime/instr.ts': ['amcaf-1.50', 'easylife-1.0'],
-  'src/runtime/amcaf.test.ts': ['amcaf-1.50', 'amcaf-1.40'],
+  // easylife-1.10 for the guide node that names the keyword 1.0's Zb Install
+  // became; easylife-1.0 for the routines the alias map points away from
+  'src/runtime/instr.ts': ['amcaf-1.50', 'easylife-1.0', 'easylife-1.10'],
+  // ldos because Pattern Match's case handling is contrasted with LDos's,
+  // which the block quotes from LDos's own manual
+  'src/runtime/amcaf.test.ts': ['amcaf-1.50', 'amcaf-1.40', 'ldos-2.6'],
   'src/runtime/aga.ts': ['aga-1.0'],
   'src/runtime/aga.test.ts': ['aga-1.0'],
   'src/runtime/tft.ts': ['tft-0.6'],
@@ -402,7 +406,9 @@ export const CITED_BY: Record<string, string[]> = {
   // 5.3's table does. Listing 5.9 first made `Jd Draw Segment`'s correct
   // citation of routine 160 look like it named a sibling, because 5.9 moved
   // that keyword to 165 and put Jd Dpath at 160.
-  'src/runtime/jd.ts': ['jd-5.3', 'jd-5.9', 'jd-4.6'],
+  // jd-k3 because the JD state block carries JD-K3's settings, cited to K3's
+  // own manual
+  'src/runtime/jd.ts': ['jd-5.3', 'jd-5.9', 'jd-4.6', 'jd-k3-1.1'],
   'src/runtime/jd.test.ts': ['jd-5.3', 'jd-5.9', 'jd-4.6'],
   'src/runtime/jdcolour.ts': ['jd-colour-2.0', 'jd-colour-1.4'],
   'src/runtime/jdcolour.test.ts': ['jd-colour-2.0', 'jd-colour-1.4'],

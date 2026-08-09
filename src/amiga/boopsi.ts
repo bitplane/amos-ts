@@ -325,7 +325,7 @@ export class Boopsi {
    * null with nothing allocated. That is the behaviour EasyLife's guide
    * describes from the other side: "if they fail to create, they will return
    * 0 ... when you make them the child of another object, that object will
-   * also fail to create, as one of its children is null".
+   * also fail to create, as one of it's children is null".
    */
   newObjectA(cl: BoopsiClass | string, attrs: readonly TagItem[] = []): BoopsiObject | null {
     const c = typeof cl === 'string' ? this.classes.get(cl) : cl

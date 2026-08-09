@@ -515,8 +515,8 @@ export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
     /**
      * =Jd Request(L1$,L2$,L3$,L4$,L5$,JA$,NEIN$) — routine 66 (2.0 only,
      * $2748), which is `moveq #$4,d2 / Rbra routine 71` and nothing else. The
-     * manual: "Parameter: Texte (1-5), Ja-Text und Nein-Text / Funktion:
-     * Bool-Requester / Ergebnis: -1/0 = ja/nein".
+     * manual: "Parameter: Texte (1-5), Ja-Text und Nein-Text", "Funktion :
+     * Bool-Requester", "Ergebnis : -1/0 = ja/nein".
      *
      * Routine 71 ($2766) builds a chain of IntuiTexts by hand in a 1K buffer
      * at $4f2(a5) — all in topaz.font 8, left edge 15, and each line ten
@@ -974,8 +974,8 @@ export function makeJdColourInstructions(rt: Runtime): Record<string, Instr> {
      * Jd Swap Colours a,b and Jd Copy Colour a To b — the palette entries
      * exchanged and copied. These change the PALETTE, where Jd Change Colours
      * and Jd Fill Colour change PIXELS and leave the palette alone — the
-     * manual flags the latter two with "(palette will not be changed!)", which
-     * is the pairing to get right before writing either.
+     * manual flags the latter two with "(Palette bleibt!)" -- the palette
+     * stays -- which is the pairing to get right before writing either.
      *
      * Routines 26 (`L_cswap`, +|col.s:658) and 27 (`L_copc`, :680), and the
      * copy is the one whose direction is worth pinning because the token spec

@@ -370,8 +370,8 @@ function writeLong(rt: Runtime, a: number, v: number): void {
  * and `ELST_Free` calls `Deallocate`, which coalesces.
  *
  * That is why the guide's warning is worth heeding — "Once freed the memory
- * may be used by another structure ... it is possible that the new structure
- * does not begin at the same address as the old" — and it is why the port
+ * may be used by another structure ... It also possible that the new structure
+ * does not being at the same address as the old" — and it is why the port
  * models the free list rather than handing out fresh addresses: reuse after a
  * free is observable, and programs written against this library depend on
  * nothing else.
@@ -727,7 +727,7 @@ export function strCmp(rt: Runtime, r: Resolved, s: string): number {
  * DEFECT: the ROOT's flags word is never set — `move.l d3,(a1)` stores it
  * without marking it — so a cycle that comes back to the root appends the
  * root a second time. The guide promises "Each instance is only saved once"
- * and "It is OK if your graph contains cycles". Reproduced: a two-instance
+ * and "If is OK if your graph contains cycles". Reproduced: a two-instance
  * ring saves three records.
  *
  * DEFECT: an ARRAY of sub-structures is walked as element zero, count+1

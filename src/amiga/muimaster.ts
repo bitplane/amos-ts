@@ -134,7 +134,7 @@ export const MUIMASTER_MIN_FOR_EASYLIFE = 8
  *   MUIA_Window_RefWindow        the window to open relative to
  *
  * The rest are ownership, and the guide describes the consequence from the
- * AMOS side: "all of its children are recursively deallocated, along with
+ * AMOS side: "all of its children are recursively deallocated, allong with
  * their strings".
  */
 const NOT_A_CHILD: ReadonlySet<number> = new Set<number>([
@@ -468,7 +468,7 @@ export class MuiMaster {
    * The protocol is additive and the developer guide is explicit about it:
    * "let our superclass first fill in what it thinks about sizes ... now add
    * the values specific to our object. note that we indeed need to *add*
-   * these values, not just set them". So Area contributes frame and inner
+   * these values, not just set them!". So Area contributes frame and inner
    * spacing, and the leaf class adds its own content on top.
    *
    * Answers the object's own `mad_MinMax` and remembers it, since MUIM_Layout

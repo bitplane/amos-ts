@@ -2274,7 +2274,7 @@ describe('zoom, masks, C2P and remaining graphics', () => {
   })
 
   /**
-   * The manual: *"This function replaces the AMOS function Text Styles,
+   * The manual: *"This functions replaces the AMOS function Text Styles,
    * because this one does not return the multicoloured font bit (Bit 6). Apart
    * from this, Font Style is totally identical with the AMOS function."*
    *
@@ -2415,14 +2415,12 @@ describe('effect engines', () => {
   /**
    * Routine 223 is EIGHT bytes — `moveq #$6,d0 / move.l d0,-(a3)` and a branch
    * into the worker — so the plane count is a hardcoded SIX, not Shade Bob
-   * Planes and not an argument. The token table agrees at `I0,0`. An earlier
-   * pass gave it an optional third parameter and read the Shade Bob setting
-   * when it was absent, which made Shade Bob Planes look like it applied here.
+   * Planes and not an argument. The token table agrees at `I0,0`.
    *
    * The worker (224) is a ripple adder, not an arithmetic increment: per
    * plane, `btst` the bit, `bclr` and carry on if set, `bset` and stop if not.
-   * The manual's "if the highest colour is reached, the colour is resetted to
-   * be cycled" falls out of that, and so does the early stop — `move.l a0,d0 /
+   * The manual's "If the highest colour is reached, the colour is resetted to
+   * zero" falls out of that, and so does the early stop — `move.l a0,d0 /
    * beq` bails on a null plane pointer, so a screen with fewer than six planes
    * carries only as far as it has.
    */

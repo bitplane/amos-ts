@@ -212,9 +212,9 @@ export function makeAgaInstructions(rt: Runtime): Record<string, Instr> {
      * (routine 28), `cmp.w #$0,d0 / beq` to the error tail at routine 68 if it
      * is not open, and otherwise routine 33 to close it.
      *
-     * The doc's warning stands -- "if you close the top screen you will have to
-     * use AGA Front Screen to bring a new screen to the front" -- so nothing is
-     * promoted.
+     * The doc's warning stands -- "If you have more than one screen open and
+     * you close the top screen you will have to use AGA Front Screen to bring
+     * a new screen to the front" -- so nothing is promoted.
      */
     'aga screen close'(it) {
       const n = it.evalInt()

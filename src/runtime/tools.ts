@@ -34,7 +34,7 @@
  *
  *     +$00  0000 0000    Pos, the current memory position
  *     +$04  "Array   "   the bank name Array Dim reserves under
- *     +$0c  0000 0017    ArrayBank, 23 — the guide's "default is bank 23"
+ *     +$0c  0000 0017    ArrayBank, 23 — the guide's "default is bank number 23"
  *     +$10  0000 0000    the array's X dimension, recorded and never read
  *     +$14  0000 0000    its Y dimension, likewise
  *     +$18  0000 0018    OuiBank, 24

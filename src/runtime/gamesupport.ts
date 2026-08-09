@@ -44,7 +44,7 @@
  * all with `moveq #$0, d0` — any version will do. NOTE that the cold start
  * does NOT fail when one is missing; it stores zero and every keyword that
  * needs that library checks for itself. The guide's *"the lowlevel.library is
- * currently required for this function's operation"* is per-function, and the
+ * *currently* required for this function's operation"* is per-function, and the
  * extension's own BugsFixed node confirms it was once wrong about this:
  * *"Extension used to crash when used on Kickstart 1.3. This was due to faulty
  * library handling code trying to close lowlevel.library even if it wasn't
@@ -706,9 +706,9 @@ export function makeGameSupportInstructions(rt: Runtime): Record<string, Instr> 
      * the store is a `move.b`: the offset is kept as a BYTE, so ±127 and
      * anything past that wraps rather than saturating.
      *
-     * *"This unique command allows you to change the pitch at which a module
-     * replays [...] notes which are transposed beyond the legal range will be
-     * put up or down an octave to fit."* The octave fixup is in
+     * The guide: *"This unique command allows you to change the pitch at which
+     * a module replays [...] notes which are transposed beyond the legal range
+     * will be put up or down an octave to fit."* The octave fixup is in
      * `../amiga/protracker.ts`'s `transposed`, along with what "to fit" does
      * not cover.
      */
@@ -1199,7 +1199,7 @@ export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
      * $66 is `GSDrivers/gsjoystick.library`, one of the author's own driver
      * modules. The guide's Modules node describes the whole scheme in the
      * future tense — *"Several of GameSupport's major features are (read: will
-     * be!) subcontracted to a separate module"* — and no such library ships
+     * be!) 'subcontracted' to a separate module"* — and no such library ships
      * with the extension or was ever released.
      *
      * So these answer 0, and that is the FAITHFUL answer rather than a stub:
@@ -1484,8 +1484,8 @@ export function makeGameSupportFunctions(rt: Runtime): Record<string, Func> {
     /**
      * =Gspyth(x,y) — routine 97 ($2bea), seventy bytes. The guide calls it
      * *"a highly optimised (at the expense of accuracy) function to apply
-     * Pythagoras' theorem [...] equivalent to d=Sqr(x*x+y*y), but is nearly 3
-     * times as fast when the program is compiled"*.
+     * Pythagoras' theorem [...] The function is equivalent to d=Sqr(x*x+y*y),
+     * but is nearly 3 times as fast when the program is compiled"*.
      *
      *     move.l (a3)+, d0 / bpl / neg.l d0        |x|
      *     move.l (a3)+, d1 / bpl / neg.l d1        |y|

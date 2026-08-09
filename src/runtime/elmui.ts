@@ -129,7 +129,7 @@ export function muiAdopt(reg: MuiRegistry, obj: number): number | null {
  *     S$=Tag Str$(...)              -> node(-1) created, $18 UNWRITTEN
  *     OBJ=Mui New(...)   counter -1 -> reads node(-1).$18
  *
- * so the guide's "Mui New restores the previous object's Tag Keep setting"
+ * so the guide's "Mui New restores the previous objects Tag Keep setting"
  * holds for the second and later News of a nest and not for the first. On the
  * machine the value is whatever routine 239's pool block held, since AllocMem
  * is called without MEMF_CLEAR; the pool here is zero-filled, so an unwritten
@@ -170,7 +170,7 @@ export function muiFree(reg: MuiRegistry, key: number): number[] {
  * `move.l a2,$14(a1)`), and `$1c` is the guard: `Tag Attach$` and `Mui Add`
  * both refuse an object that is already attached, with Illegal Function Call.
  * `Mui Remove` clears it again, which is the guide's "you can add it to
- * another part of the application tree to move the object".
+ * another part of the application tree to 'move' the object".
  */
 export function muiAttach(parent: MuiNode, child: MuiNode): boolean {
   if (child.attached) return false

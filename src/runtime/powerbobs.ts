@@ -350,7 +350,7 @@ export function makePowerBobsInstructions(rt: Runtime): Record<string, Instr> {
      * With Pbob Dbuf on, the entire allocation happens twice and the second
      * structure goes in the slot's other half. So Pbob Dbuf has to be set
      * BEFORE any Pbob Height, exactly as the doc insists: "This command MUST
-     * preceed all following commands!"
+     * preceed all following commands !"
      */
     'pbob height'(it) {
       const nr = it.evalInt()
@@ -789,8 +789,8 @@ export function makePowerBobsInstructions(rt: Runtime): Record<string, Instr> {
      *
      * DEVIATION: the channel is stepped through the core AMAL interpreter
      * rather than through PowerBobs' own copy of it. The doc's headline claim
-     * for this family is "a New Amal command allowing all 64 channels to run
-     * under interrupts", and the interrupt half has nowhere to land here ---
+     * for this family is "New Amal command allowing all 64 channels to run
+     * under interrupts!", and the interrupt half has nowhere to land here ---
      * there is one thread and Psync is what advances a channel. What a
      * program observes, the channel advancing when the period expires, is
      * reproduced; the timing it would have had under a real vertical blank is

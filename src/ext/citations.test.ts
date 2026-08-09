@@ -361,6 +361,13 @@ describe('declared documentation is cited', () => {
  * a file. It only works when the file is vendored and the quote is verbatim,
  * which is why both are required.
  *
+ * The corpus is derived from CITED_BY: every vendored document belonging to
+ * every extension a file declares, plus those libraries' own string tables. A
+ * port is therefore checked as soon as it says what it was read from, and a
+ * quote that fails means one of three things -- the passage was altered, the
+ * document was never vendored, or the file cites a document it did not
+ * declare. All three have occurred, and all three are worth failing on.
+ *
  * ## Reading AmigaGuide
  *
  * `@{"Mui Begin" link C_MuiNew}` RENDERS as the words "Mui Begin", so the
@@ -373,6 +380,10 @@ describe('declared documentation is cited', () => {
  * break -- LDos writes NULL-terminated on one line and `NULL-\nTERMINATED` on
  * another. A hyphen at end of line is rejoined before whitespace collapses.
  *
+ * Prose that is not AmigaGuide gets the same treatment. A plain .DOC can carry
+ * a per-line change bar, and a worked example in a C developer guide carries
+ * the `**` of its comment block; both are markup and neither is text.
+ *
  * ## Finding the quotes
  *
  * Quotes are the ODD segments of a comment split on `"`. A regex pairing
@@ -380,8 +391,14 @@ describe('declared documentation is cited', () => {
  * the GAP between two quotes as though it were one, which produced a list of
  * violations made entirely of the port's own prose.
  *
+ * An indented run inside a block is disassembly or a worked example rather
+ * than prose, and is dropped before the split: its own quotation marks would
+ * otherwise pair with the paragraphs on either side of it.
+ *
  * A quote counts as attributed only when the same SENTENCE that introduces it
- * names the guide, the manual or the doc. Blocks routinely quote three things
+ * names the guide, the manual or the doc -- or when it follows an attributed
+ * quote with nothing but punctuation between, which is how a block quotes two
+ * lines of one entry. Blocks routinely quote three things
  * at once -- the extension's own document, the library's message table, and an
  * AmigaOS autodoc -- and only the first is checkable here. The library's
  * strings are read out of the binary and allowed for the same reason; the
@@ -394,48 +411,29 @@ describe('declared documentation is cited', () => {
  * Backticked quotes are skipped: those are renderings of code in the port's
  * own formatting, not passages lifted from prose.
  */
-interface QuoteCorpus {
-  /** the port file to scan */
-  src: string
-  /** directories holding its vendored .guide files */
-  guides: string[]
-  /** individual prose documents it also quotes */
-  docs?: string[]
-  /** its libraries, whose message tables a comment may quote instead */
-  libs: string[]
+/**
+ * Documents a port quotes that are not one of its extensions' own files, given
+ * relative to `fixtures/`. Everything else comes from CITED_BY, so a new port
+ * is checked the moment it declares what it was read from.
+ */
+const EXTRA_DOCS: Record<string, string[]> = {
+  // MUI is Stuntz's, not an AMOS extension; its developer guide is what the
+  // class protocol here is written against
+  'src/amiga/muimaster.ts': ['amigaos/MUI3.8/MUIdev.guide'],
 }
 
-const AMIGAGUIDE_PORTS: QuoteCorpus[] = [
-  {
-    src: 'runtime/easylife.ts',
-    guides: ['easylife-1.10/Docs/extensions'],
-    // 1.0's manual, which the port quotes where 1.10's guide is silent
-    docs: ['easylife-1.0/EasyLife.doc'],
-    libs: ['easylife-1.10/AMOSPro_EasyLife.Lib'],
-  },
-  {
-    src: 'runtime/amcaf.ts',
-    guides: ['amcaf-1.50'],
-    libs: ['amcaf-1.50/AMOSPro_AMCAF.Lib'],
-  },
-  {
-    src: 'runtime/ldos.ts',
-    guides: ['ldos-2.6/Documentation'],
-    docs: ['ldos-2.6/Documentation/ldos.text'],
-    libs: ['ldos-2.6/AMOSPro_LDos.Lib'],
-  },
-  {
-    src: 'runtime/lserial.ts',
-    // the same manual in both formats; the .guide ships beside LDos
-    guides: ['ldos-2.6/Documentation'],
-    docs: [
-      'lserial-2.1/HELP.DOC',
-      'lserial-2.1/lserial-docs/LserialV21.DOC',
-      'lserial-2.1/lserial-docs/UpDateV21_LSerial.DOC',
-    ],
-    libs: ['lserial-2.1/LSerial.LIB'],
-  },
-]
+/** not prose: markup, code, or a disc image sitting beside the manual */
+const NOT_PROSE = ['.info', '.s', '.abk', '.amos', '.adf', '.unpacked', '.lha', '.iff']
+const IS_LIB = /\.(lib|library)$/i
+
+/** whether a file is text at all, which is how a manual with no suffix is found */
+const isProse = (p: string): boolean => {
+  const b = readFileSync(p).subarray(0, 200_000)
+  if (b.length === 0) return false
+  let ok = 0
+  for (const c of b) if ((c >= 32 && c <= 126) || c === 9 || c === 10 || c === 13 || c >= 160) ok++
+  return ok / b.length > 0.95
+}
 
 /**
  * `soft` picks the reading of a hyphen at end of line. A guide is hand-wrapped
@@ -446,13 +444,15 @@ const AMIGAGUIDE_PORTS: QuoteCorpus[] = [
  */
 const stripGuide = (s: string, soft = false): string =>
   s
-    // LSerial's .DOC carries a per-line change bar: '*- ', or '++ ' when new
-    .replace(/^[ \t]*(\*-|\+\+)[ \t]?/gm, '')
+    // LSerial's .DOC carries a per-line change bar: '*- ', or '++ ' when new.
+    // '** ' is the C comment continuation in MUIdev's worked examples.
+    .replace(/^[ \t]*(\*-|\+\+|\*\*)[ \t]?/gm, '')
     .replace(/(\w)-\n[ \t]*(\w)/g, soft ? '$1$2' : '$1-$2')
     .replace(/@\{\s*"([^"]*)"[^}]*\}/g, '$1')
     .replace(/@\{[^}]*\}/g, '')
     .replace(/\[[0-9]+\\[0-9]+\\([^\]]*)\]/g, '$1')
-    .replace(/"/g, "'")
+    // GameSupport quotes a word the old typewriter way, `like this'
+    .replace(/[`"]/g, "'")
     .replace(/\s+/g, ' ')
     .toLowerCase()
 
@@ -467,7 +467,6 @@ const ATTRIBUTION = /(^|[^a-z])(guide|manual|docs?)/
 
 /** the printable strings in a library, which is where an error message is quoted from */
 const libStrings = (file: string): string => {
-  if (!existsSync(file)) return ''
   const bytes = readFileSync(file)
   const out: string[] = []
   let run = ''
@@ -482,56 +481,88 @@ const libStrings = (file: string): string => {
   return out.join(' ').replace(/"/g, "'").replace(/\s+/g, ' ').toLowerCase()
 }
 
-describe('quotes attributed to a guide are verbatim', () => {
-  for (const { src: file, guides, docs = [], libs } of AMIGAGUIDE_PORTS) {
-    it(`every guide-attributed quote in ${file} is in a vendored guide`, () => {
-      let corpus = ''
-      for (const dir of guides) {
-        const d = join(extFixtures, dir)
-        for (const f of readdirSync(d)) {
-          if (/\.guide$/i.test(f)) corpus += ' ' + bothHyphenations(readFileSync(join(d, f), 'latin1'))
-        }
+/** every vendored document and library belonging to the extensions a file cites */
+const corpusFor = (file: string): string => {
+  let corpus = ''
+  const walk = (dir: string): void => {
+    for (const name of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, name.name)
+      if (name.isDirectory()) {
+        walk(p)
+        continue
       }
-      for (const doc of docs) corpus += ' ' + bothHyphenations(readFileSync(join(extFixtures, doc), 'latin1'))
-      for (const l of libs) corpus += ' ' + libStrings(join(extFixtures, l))
+      if (IS_LIB.test(name.name)) corpus += ' ' + libStrings(p)
+      else if (NOT_PROSE.some((e) => name.name.toLowerCase().endsWith(e))) continue
+      else if (isProse(p)) corpus += ' ' + bothHyphenations(readFileSync(p, 'latin1'))
+    }
+  }
+  for (const id of CITED_BY[file] ?? []) {
+    const d = join(extFixtures, id)
+    if (existsSync(d)) walk(d)
+  }
+  for (const extra of EXTRA_DOCS[file] ?? []) {
+    corpus += ' ' + bothHyphenations(readFileSync(join(root, 'fixtures', extra), 'latin1'))
+  }
+  return corpus
+}
 
-      const lines = readFileSync(join(src, file), 'latin1').split('\n')
-      const bad: string[] = []
-      let block: string[] = []
-      let start = 0
-      const flush = (): void => {
-        if (block.length === 0) return
-        // `\$` is JSDoc's escape, not part of the quote; `\"` is a quotation
-        // mark INSIDE a quote, so it must not end one either
-        const body = block
-          .map((l) => l.replace(/^\s*\*\/?/, ''))
-          .join(' ')
-          .replace(/\\\$/g, '$')
-        const segs = body.split(/(?<!\\)"/).map((s) => s.replace(/\\"/g, '"'))
-        for (let k = 1; k < segs.length; k += 2) {
-          const q = segs[k]!.replace(/\s+/g, ' ').trim()
-          if (q.length < 15 || q.includes('`')) continue
-          // attributed only if the sentence introducing it names the document
-          const lead = segs[k - 1]!.toLowerCase()
-          const sentence = lead.slice(lead.lastIndexOf('.') + 1)
-          if (!ATTRIBUTION.test(sentence)) continue
-          const probes = q
-            .split('...')
-            .map((x) => x.trim().replace(/"/g, "'").toLowerCase())
-            .filter((x) => x.length >= 4)
-          const use = probes.length > 0 ? probes : [q.toLowerCase()]
-          if (!use.every((probe) => corpus.includes(probe))) bad.push(`${file}:${start + 1} ${q.slice(0, 90)}`)
-        }
-        block = []
-      }
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i]!.trimStart().startsWith('*')) {
-          if (block.length === 0) start = i
-          block.push(lines[i]!)
-        } else flush()
-      }
-      flush()
-      expect(bad).toEqual([])
+/** every quote in `file` attributed to a document, and whether the document has it */
+const unsourcedQuotes = (file: string, corpus: string): string[] => {
+  // the port is UTF-8 and the guides are latin-1; MED's is German, where
+  // reading either as the other turns every umlaut into a false positive
+  const lines = readFileSync(join(root, file), 'utf8').split('\n')
+  const bad: string[] = []
+  let block: string[] = []
+  let start = 0
+  const flush = (): void => {
+    if (block.length === 0) return
+    const body = block
+      .map((l) => l.replace(/^\s*\*\/?/, ''))
+      // an indented run is disassembly or a worked example, not prose, and its
+      // own quotation marks would split the paragraphs on either side of it
+      .filter((l) => !/^ {4,}\S/.test(l))
+      .join(' ')
+      // `\$` and `\"` are JSDoc escapes rather than characters of the quote
+      .replace(/\\\$/g, '$')
+    const segs = body.split(/(?<!\\)"/).map((s) => s.replace(/\\"/g, '"'))
+    let prevAttributed = false
+    for (let k = 1; k < segs.length; k += 2) {
+      const lead = segs[k - 1]!.toLowerCase()
+      let attributed = ATTRIBUTION.test(lead.slice(lead.lastIndexOf('.') + 1))
+      // a run of quotes joined by punctuation shares the one attribution
+      if (!attributed && prevAttributed && lead.trim().length <= 12 && !lead.includes('.')) attributed = true
+      prevAttributed = attributed
+      const q = segs[k]!.replace(/\s+/g, ' ').trim()
+      if (q.length < 15 || q.includes('`')) continue
+      if (!attributed) continue
+      // both elision markers, and any square bracket is the quoter's insertion
+      const probes = q
+        .split(/\[[^\]]*\]|\.\.\./)
+        .map((x) => x.trim().replace(/"/g, "'").toLowerCase())
+        .filter((x) => x.length >= 4)
+      const use = probes.length > 0 ? probes : [q.toLowerCase()]
+      if (!use.every((probe) => corpus.includes(probe))) bad.push(`${file}:${start + 1} ${q.slice(0, 90)}`)
+    }
+    block = []
+  }
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i]!.trimStart().startsWith('*')) {
+      if (block.length === 0) start = i
+      block.push(lines[i]!)
+    } else flush()
+  }
+  flush()
+  return bad
+}
+
+describe.skipIf(!existsSync(extFixtures))('quotes attributed to a document are verbatim', () => {
+  for (const file of Object.keys(CITED_BY)) {
+    if (!existsSync(join(root, file))) continue
+    // a fixture set that does not carry this extension has nothing to check
+    // against; an empty corpus would fail every quote rather than none
+    const present = (CITED_BY[file] ?? []).some((id) => existsSync(join(extFixtures, id)))
+    it.skipIf(!present)(`every document-attributed quote in ${file} is in a vendored document`, () => {
+      expect(unsourcedQuotes(file, corpusFor(file))).toEqual([])
     })
   }
 })
