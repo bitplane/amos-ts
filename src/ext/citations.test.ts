@@ -361,54 +361,122 @@ describe('declared documentation is cited', () => {
  * a file. It only works when the file is vendored and the quote is verbatim,
  * which is why both are required.
  *
- * AmigaGuide needs unpicking first. `@{"Mui Begin" link C_MuiNew}` renders as
- * the words "Mui Begin", so the markup has to be replaced by its TEXT rather
- * than deleted -- deleting it removes the keyword names and makes honest
- * quotes look invented. `@{i}`/`@{ui}` carry no text and go. `[4\2\Powerpacker
- * Library]` is the older link form, brackets and all. Double quotes become
- * single because a JSDoc quote cannot nest them, and case is ignored because a
- * quote spliced into a sentence gets its first letter lowered.
+ * ## Reading AmigaGuide
  *
- * Quotes containing a backtick are skipped: those are renderings of code with
- * the port's own formatting, not passages lifted from prose.
+ * `@{"Mui Begin" link C_MuiNew}` RENDERS as the words "Mui Begin", so the
+ * markup is replaced by its text rather than deleted -- deleting it removes
+ * the keyword names and makes honest quotes look invented, which cost two
+ * false accusations before it was noticed. `@{i}`/`@{ui}` carry no text and
+ * go. `[4\2\Powerpacker Library]` is the older link form, brackets and all.
+ *
+ * ## Finding the quotes
+ *
+ * Quotes are the ODD segments of a comment split on `"`. A regex pairing
+ * `"..."` gets this wrong whenever a short quote is skipped: it then matches
+ * the GAP between two quotes as though it were one, which produced a list of
+ * violations made entirely of the port's own prose.
+ *
+ * A quote counts as attributed only when the same SENTENCE that introduces it
+ * names the guide or the manual. Blocks routinely quote three things at once
+ * -- the guide, the library's own message table, and an AmigaOS autodoc --
+ * and only the first is checkable here. The library's strings are read out of
+ * the binary and allowed for the same reason.
+ *
+ * Backticked quotes are skipped: those are renderings of code in the port's
+ * own formatting, not passages lifted from prose.
  */
-const guideText = (dir: string): string => {
-  const files = readdirSync(dir).filter((f) => f.endsWith('.guide'))
-  return files
-    .map((f) => readFileSync(join(dir, f), 'latin1'))
-    .join('\n')
+interface QuoteCorpus {
+  /** the port file to scan */
+  src: string
+  /** directories holding its vendored .guide files */
+  guides: string[]
+  /** its libraries, whose message tables a comment may quote instead */
+  libs: string[]
+}
+
+const AMIGAGUIDE_PORTS: QuoteCorpus[] = [
+  {
+    src: 'runtime/easylife.ts',
+    guides: ['easylife-1.10/Docs/extensions'],
+    libs: ['easylife-1.10/AMOSPro_EasyLife.Lib'],
+  },
+  {
+    src: 'runtime/amcaf.ts',
+    guides: ['amcaf-1.50'],
+    libs: ['amcaf-1.50/AMOSPro_AMCAF.Lib'],
+  },
+]
+
+const stripGuide = (s: string): string =>
+  s
     .replace(/@\{\s*"([^"]*)"[^}]*\}/g, '$1')
     .replace(/@\{[^}]*\}/g, '')
     .replace(/\[[0-9]+\\[0-9]+\\([^\]]*)\]/g, '$1')
     .replace(/"/g, "'")
     .replace(/\s+/g, ' ')
     .toLowerCase()
+
+/** the printable strings in a library, which is where an error message is quoted from */
+const libStrings = (file: string): string => {
+  if (!existsSync(file)) return ''
+  const bytes = readFileSync(file)
+  const out: string[] = []
+  let run = ''
+  for (const b of bytes) {
+    if (b >= 0x20 && b <= 0x7e) run += String.fromCharCode(b)
+    else {
+      if (run.length >= 6) out.push(run)
+      run = ''
+    }
+  }
+  if (run.length >= 6) out.push(run)
+  return out.join(' ').replace(/"/g, "'").replace(/\s+/g, ' ').toLowerCase()
 }
 
 describe('quotes attributed to a guide are verbatim', () => {
-  it('every guide-attributed quote in easylife.ts is in a vendored guide', () => {
-    const guides = join(root, 'fixtures', 'extensions', 'easylife-1.10', 'Docs', 'extensions')
-    const all = guideText(guides)
-    const text = readFileSync(join(src, 'runtime', 'easylife.ts'), 'latin1')
-    const lines = text.split('\n')
-    const bad: string[] = []
-    for (const m of text.matchAll(/"([^"]{15,400})"/g)) {
-      const ln = text.slice(0, m.index).split('\n').length
-      if (!lines[ln - 1]!.trimStart().startsWith('*')) continue
-      // only quotes the surrounding comment attributes to the guide
-      if (!lines.slice(Math.max(0, ln - 5), ln).join(' ').toLowerCase().includes('guide')) continue
-      if (m[1]!.includes('`')) continue
-      const q = m[1]!
-        .replace(/\n\s*\*/g, ' ')
-        .replace(/"/g, "'")
-        .replace(/\s+/g, ' ')
-        .trim()
-        .toLowerCase()
-      // an ellipsis is a deliberate elision: each side must still be verbatim
-      const parts = q.split('...').map((x) => x.trim()).filter((x) => x.length >= 12)
-      const probes = parts.length > 0 ? parts : [q]
-      if (!probes.every((probe) => all.includes(probe))) bad.push(`easylife.ts:${ln} ${q.slice(0, 90)}`)
-    }
-    expect(bad).toEqual([])
-  })
+  for (const { src: file, guides, libs } of AMIGAGUIDE_PORTS) {
+    it(`every guide-attributed quote in ${file} is in a vendored guide`, () => {
+      let corpus = ''
+      for (const dir of guides) {
+        const d = join(extFixtures, dir)
+        for (const f of readdirSync(d)) {
+          if (f.endsWith('.guide') || f.endsWith('.Guide')) corpus += ' ' + stripGuide(readFileSync(join(d, f), 'latin1'))
+        }
+      }
+      for (const l of libs) corpus += ' ' + libStrings(join(extFixtures, l))
+
+      const lines = readFileSync(join(src, file), 'latin1').split('\n')
+      const bad: string[] = []
+      let block: string[] = []
+      let start = 0
+      const flush = (): void => {
+        if (block.length === 0) return
+        const body = block.map((l) => l.replace(/^\s*\*\/?/, '')).join(' ')
+        const segs = body.split('"')
+        for (let k = 1; k < segs.length; k += 2) {
+          const q = segs[k]!.replace(/\s+/g, ' ').trim()
+          if (q.length < 15 || q.includes('`')) continue
+          // attributed only if the sentence introducing it names the document
+          const lead = segs[k - 1]!.toLowerCase()
+          const sentence = lead.slice(lead.lastIndexOf('.') + 1)
+          if (!sentence.includes('guide') && !sentence.includes('manual')) continue
+          const probes = q
+            .split('...')
+            .map((x) => x.trim().replace(/"/g, "'").toLowerCase())
+            .filter((x) => x.length >= 4)
+          const use = probes.length > 0 ? probes : [q.toLowerCase()]
+          if (!use.every((probe) => corpus.includes(probe))) bad.push(`${file}:${start + 1} ${q.slice(0, 90)}`)
+        }
+        block = []
+      }
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i]!.trimStart().startsWith('*')) {
+          if (block.length === 0) start = i
+          block.push(lines[i]!)
+        } else flush()
+      }
+      flush()
+      expect(bad).toEqual([])
+    })
+  }
 })

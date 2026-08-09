@@ -17,7 +17,7 @@
  * The author says so himself: *"AMCAF V1.50beta4 is the FINAL RELEASE!
  * FREEWARE!"* and, of the manual, *"Sorry, but I didn't have time to update
  * the manual. You'll have to find out the new commands since V1.40
- * yourself."*
+ * yourself (or by looking at the history)."*
  *
  * So the honest split is **manual tier for the 1.40 subset** and
  * **disassembly tier for the twelve 1.50 additions** — the transparency
@@ -276,7 +276,7 @@ export interface SplinterState {
  * routine 388 multiplies the speed by 17/16 every step when Accelerate is on,
  * and routine 319 draws a star's BRIGHTNESS from how fast it is going. A star
  * that has been running longer is faster, so it is brighter and moving further
- * each frame — which reads as "coming towards you" without a third axis
+ * each frame — which reads as coming towards you without a third axis
  * anywhere. The port had a `z` and scaled the speed by it, which is a
  * different way to get a similar picture and matches none of the arithmetic.
  *
@@ -319,9 +319,9 @@ export interface TdStarState {
  *
  * The module itself stays in its AMOS bank; this holds only what the keywords
  * report and control. `cia` is the timing source the manual makes a point of:
- * "if you specify a value of zero, the timing will be switched from
+ * "if you specifiy a value of zero, the timing will be switched from
  * CIA-Timing to Vertical Blank Timing. Then the bpm rate is automatically set
- * to exactly 125."
+ * to exacty 125"
  */
 export interface PtState {
   bank: number
@@ -2276,8 +2276,10 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      *
      * Routine 300 loads that word into d5 once per Move and routine 385
      * decrements it, `tst.w d5 / beq` refusing to spawn at zero — so it is an
-     * UNSIGNED word allowance, and the manual's "-1 for no limit" works only
-     * because -1 narrows to $ffff, which is 65535 spawns rather than infinity.
+     * UNSIGNED word allowance. Passing -1 for no limit works only because -1
+     * narrows to $ffff, which is 65535 spawns rather than infinity — and the
+     * guide does not document -1 at all, giving the keyword one line: "Sets
+     * the maximum of new appearing splinters".
      */
     'splinters max'(it) {
       rt.amcaf.splinters.maxNew = it.evalInt() & 0xffff
@@ -2339,8 +2341,8 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * background and no pending spawn. It does not look at the screen, the
      * coordinate list, the fuel or the speeds.
      *
-     * The manual's "the Splinters are fed with the coordinates and speeds you
-     * specified" describes the ENGINE, not this call — the feeding happens one
+     * The manual's "They are fed with the coordinates and speeds you have
+     * specified earlier." describes the ENGINE, not this call — the feeding happens one
      * splinter at a time in routine 385, when a free or dead splinter is found
      * by a Move. Init does not seed particles from the coordinate bank.
      *
@@ -4472,7 +4474,7 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
      * the bank rather than a real pool, so the move is the flag.
      *
      * The manual's warning belongs to the machine and not to us: "Do not try
-     * to replay musics or sounds that resist in fast ram."
+     * to replay musicis or sounds that resist in fast ram."
      */
     'bank to chip'(it) {
       const b = rt.memBanks.get(it.evalInt())
@@ -8367,10 +8369,13 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
     'blitter busy': () => VI(0),
 
     /**
-     * =Turbo Point(x,y) — "Fast replacement for Point", clipped since V1.30.
+     * =Turbo Point(x,y) — "Fast replacement for Point", and clipped since
+     * V1.30.
      *
-     * Routine 349 ($7a8e), and the manual's "clipped since V1.30" means it
-     * ANSWERS -1 rather than that it declines to read:
+     * Routine 349 ($7a8e). The V1.30 changelog's "Added clipping for Turbo
+     * Plot, Shade Pix and Turbo Point. Now they are as secure as the normal
+     * Plot and Point commands." means it ANSWERS -1 rather than that it
+     * declines to read:
      *
      *     move.l (a3)+, d2 / bpl        the LAST argument, y
      *     addq.l #$4, a3               ...and if it is negative, skip x
@@ -8595,7 +8600,7 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      *   movea.l $34(a1), a1      ; rp_Font
      *   move.b  $17(a1), d3      ; the byte at TextFont + 23
      *
-     * The manual: *"This function replaces the AMOS function Text Styles,
+     * The manual: *"This functions replaces the AMOS function Text Styles,
      * because this one does not return the multicoloured font bit (Bit 6).
      * Apart from this, Font Style is totally identical with the AMOS
      * function."*
@@ -8824,7 +8829,8 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
      * is what the test pins.
      *
      * NOTE: nothing DRIVES a second mouse here, exactly as in the Sticks port,
-     * where the manual is explicit that this is "not ... the AMOS pointer".
+     * where the guide is explicit about what it is — "a second mouse
+     * connected to joystick port 1" — and not the AMOS pointer.
      * The position holds wherever a program last put it.
      */
     'x smouse': () => VI(asrW(rt.amcaf.smouse.x, rt.amcaf.smouse.speed)),
