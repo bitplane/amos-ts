@@ -45,6 +45,7 @@ import type { BUtilityState } from './butility'
 import type { JdColourState } from './jdcolour'
 import { type DevChannel, type DevState, newDevState, DEV_IO_STRIDE, DEV_MAX } from './device'
 import type { SerialPortHandle } from '../amiga/host'
+import { RexxPorts, type RexxMessage } from '../amiga/rexx'
 import { starfieldVbl, type StarsState } from './stars'
 import { type AgaState } from './aga'
 import { amcafPtVbl, type AmcafState } from './amcaf'
@@ -990,6 +991,14 @@ export class Runtime {
    * rather than an object, and land in `memRegions` below.
    */
   dev: DevState = newDevState()
+  /**
+   * The ARexx public ports a program has opened, and the messages waiting on
+   * them. Public so a host can drive an AMOS program from outside: register
+   * nothing and `post` to the port the program opened. See amiga/rexx.ts.
+   */
+  rexx = new RexxPorts()
+  /** the core Arexx family's own port and the message it is holding */
+  arexx: { port: string | null; held: RexxMessage | null } = { port: null, held: null }
   /**
    * Whether AMOS's file output ends its lines the Amiga way.
    *

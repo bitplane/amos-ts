@@ -516,6 +516,11 @@ export const FAITHFUL = new Set<string>([
   'lstr',
   'lbstr',
   'lset eoln',
+  // the Lrexx family, on the arm every one of them shares: rexxhost.library
+  // is not modelled, so its base is zero and error 24 is what a machine
+  // without the library reports too. Result1 and Result2 do not check it.
+  'lrexx make host', 'lrexx remove host', 'lrexx get msg', 'lrexx execute',
+  'lrexx reply', 'lrexx result1', 'lrexx result2', 'lrexx send msg',
   // LDos's own device channel -- one IORequest at +$298, not eight slots.
   // Ldevice Open answers ZERO for success, which is OpenDevice's result and
   // the opposite way round from the rest of the library; see NOTES.
@@ -1291,6 +1296,10 @@ export const FAITHFUL = new Set<string>([
   // slot with its IORequest in mapped memory so `=Dev Base` gives a program
   // an address it can really Doke. Dev Open and Dev Do carry a NOTE each.
   'dev open', 'dev close', 'dev do', 'dev send', 'dev abort', 'dev base', 'dev check',
+  // the ARexx port handshake, on amiga/rexx.ts. AMOS's own Arx_* code ships
+  // in the source, so this family is real: a program opens a public port and
+  // a host outside can send to it. See NOTES on `arexx`.
+  'arexx open', 'arexx close', 'arexx exist', 'arexx', 'arexx$', 'arexx wait', 'arexx answer',
   // Open Port is Open In with a different pair of constants -- mode 1005 and
   // channel-type `%111` instead of `%010` -- and bit 2 is the only thing
   // =Port checks before reading one byte. See NOTES for what -1 means.
@@ -2831,26 +2840,6 @@ export const NA = new Set<string>([
   'comp del',
   // the ARexx host bridge (rexxsyslib.library message ports) — no ARexx
   // system exists outside AmigaOS
-  // --- LDos (third-party) ---
-  // The same boundary the core Arexx keywords draw, reached through a
-  // different extension: an ARexx host, a message port and a resident
-  // rexxmast, none of which exist outside AmigaOS.
-  'lrexx make host',
-  'lrexx remove host',
-  'lrexx get msg',
-  'lrexx execute',
-  'lrexx reply',
-  'lrexx result1',
-  'lrexx result2',
-  'lrexx send msg',
-
-  'arexx open',
-  'arexx close',
-  'arexx exist',
-  'arexx',
-  'arexx$',
-  'arexx wait',
-  'arexx answer',
 ])
 
 /**
@@ -2878,6 +2867,28 @@ export const NOTES: Record<string, string> = {
     "`=Ldevice(COMMAND,DATA,LENGTH,OFFSET)` (routine 33) writes the four straight into the request at $1c, $28, " +
     "$24 and $2c, DoIOs, and answers io_Actual at $20; `=Ldevice Error` (routine 39) is `move.b $1f(a1),d3` with " +
     "d3 cleared first, so io_Error comes back UNSIGNED and a device error of -1 reads as 255.",
+
+  "arexx":
+    "`FnArexx` (+Lib.s:15064) has THREE answers, not two: 0 for no message, 1 for a message, and 2 for one whose " +
+    "rm_Action has RXFF_RESULT set, meaning the sender wants a result STRING and not just a return code -- a " +
+    "program branches on 2 to decide whether to build one. The family is AMOS's own Arx_* code over exec message " +
+    "ports, modelled by amiga/rexx.ts, so a host outside can send to the port a program opened and the whole " +
+    "handshake runs. What is NOT here is the ARexx LANGUAGE: rexxmast is a separate resident program, and an " +
+    "Amiga without it running answers nothing on the REXX port either -- the absent arm is the machine's, not a " +
+    "stub. `Arexx Open` refuses 32 characters or more (`cmp.w #32,d2 / Rbcc L_StooLong`) and any character at or " +
+    "below a space (`cmp.b #\" \",-1(a0) / Rble L_FonCall`), so a name with a space in it is a function-call " +
+    "error. `Arexx Close` is error 198 while a message is still held, which is what stops a sender waiting for a " +
+    "reply that is never coming. `Arexx Answer`'s string is dropped rather than raising when the sender did not " +
+    "ask for one.",
+  "lrexx make host":
+    "Routines 53 to 60 ($2106-$23c4). Every one opens by loading rexxhost.library's base from the workspace at " +
+    "+$5a8 and, if it is zero, `moveq #$18,d0 / Rbra routine 91` -- error 24, worded by the library's own message " +
+    "table as \"Missing part of ARexx (lib/server)\". rexxhost.library is not modelled here, so that is the arm " +
+    "these take, and it is the arm a machine without the library takes. amiga/rexx.ts DOES model public ARexx " +
+    "ports and the core Arexx family runs on it, but that family is AMOS's own Arx_* code, which ships in the " +
+    "source; wiring LDos's onto the same ports needs rexxhost.library's API, and six LVOs read out of a " +
+    "disassembly is not enough to claim it. `=Lrexx Result1` and `=Lrexx Result2` do NOT check the library -- " +
+    "four instructions each, a longword read from +$5b0 and +$5b4 -- so they answer the zero those slots hold.",
 
   // ---- the core Dev * family, +Lib.s:3300-3385 ----------------------------
   "dev open":

@@ -429,29 +429,43 @@ Base`/`Icon Base` and the IFF ANIM `Frame *` family are all faithful, and
 `Prun` runs a second program in its own structure on a real program stack
 (Prg_Push/Prg_Pull). Missing: the editor-integration keywords.
 
-## Not applicable, and what each one is waiting on
+## Not applicable
 
 An n/a entry removes a keyword from the denominator, so a wrong one is
-invisible for ever. The set is 109 keywords and divides in two.
+invisible for ever. The set is 49 keywords and every one of them has nothing
+to implement rather than something not yet done:
 
-**49 have nothing to implement.** Keywords that ARE 68k execution and its
-register scaffolding (`Call`, `Lib Call`, `Areg`, `@_apml_@`); deliberate
-`ILLEGAL` traps meant to drop a machine-code debugger (`Pdebug`,
-`Jd Private`); syntax-only tokens the table points at `L_Syntax`, which is not
-an implementation but the routine that says "this cannot start a statement"
-(`As`, `Follow`, `Screen Size`); null vectors the author documented as
-non-existent (`S Mask$`, `T Planes`); direct writes to a battery clock or the
-floppy's MFM stream; the editor internals and the compiler overlay; and
-`Trans Screen Dynamic`, which assembles 68k for a machine this is not.
-Writing something for these would be a lie.
+- **68k execution and its register scaffolding** — `Call`, `Execall`,
+  `Doscall`, `Gfxcall`, `Intcall`, `Lib Open/Call/Close/Base`, `Library Call`,
+  `Areg`, `Dreg`, `Lvo`, `@_apml_@`, `Cmpcall`. The whole keyword IS the jump.
+  `Trans Screen Dynamic` belongs here too: it assembles 68k into a bank, and
+  the only way to reach what it writes is `Call`.
+- **Deliberate crashes** — `Pdebug` and `Jd Private` take the 68000 ILLEGAL
+  trap on purpose, to drop a machine-code debugger. There is none, and
+  crashing the interpreter is not a service.
+- **Hardware below the layer that is modelled** — `Mfm Read` and
+  `Mfm Luecke` bit-bang the drive through CIA-B's port B rather than going
+  through trackdisk; `Jd Setdate` and `Jd Setclock` write a battery clock chip
+  at $DC0000 nibble by nibble; `Set 68020 Amal` patches AMAL's machine code in
+  place; `Debug` hands the display back to a system copper list that does not
+  exist here.
+- **The OS multitasking switch** — `Multi Off`/`Multi On` in two libraries are
+  exec's `Forbid` and `Permit`. There is one task and nothing to forbid.
+  `Pal On` is the one Misc's own manual apologises for: its label is followed
+  by directives that emit no code, so it falls into `Go60` and does the
+  opposite of its name before crashing on an unloaded register.
+- **Syntax-only tokens** — `As`, `Follow`, `Follow Off`, `Screen Size` and the
+  editor's own words point at `L_Syntax`, which is not an implementation but
+  the routine that says "this cannot start a statement".
+- **Null vectors the author documented** — `S Mask$` (*"This command is
+  non-existent!!! DO NOT USE"*) and `T Planes`, whose jump-table entry is 278
+  routines past the end of a 94-entry table.
+- **The editor and the compiler overlay** — `Ask/Call/Kill Editor`, `Monitor`,
+  `Include`, `Equ`, `Struc`, `Compile`, `Comp Load`, `Comp Del`.
 
-**60 are waiting on one capability each.** These are not permanent:
-
-| capability | keywords | what it needs |
-|---|---|---|
-| ARexx host | 15 | a modelled message port and a host name registry. There is no rexxmast and no interpreter for the ARexx language, so what `Arexx Execute` means has to be settled before any of it is written. |
-
-Each row is a stage of work, not a verdict.
+Nothing on this list is waiting on a capability. Every group that was —
+requesters, the CON: window, the block device, the RastPort, exec device I/O
+and the ARexx port handshake — has been built.
 
 ## Implemented but approximated — the honesty list
 

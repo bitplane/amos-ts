@@ -59,6 +59,7 @@ import {
   newDevSlot,
 } from './device'
 import { DEV_SERIAL_DEFAULTS } from './device'
+import { RXFF_RESULT } from '../amiga/rexx'
 import { newStarsState, makeStarsFunctions, makeStarsInstructions } from './stars'
 import { newAgaState, makeAgaFunctions, makeAgaInstructions } from './aga'
 import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
@@ -715,6 +716,18 @@ function slider(it: It, s: Screen, vertical: boolean): void {
   s.drawSlider(vertical, x1, y1, x2, y2, total, pos, size)
 }
 
+/**
+ * `Arx_Message` and the answer `=Arexx` builds on it (+Lib.s:15064): take a
+ * message if one is waiting and hold it, then report 0 for none, 1 for one,
+ * and 2 when the sender asked for a result string.
+ */
+function arexxPoll(rt: Runtime): number {
+  if (!rt.arexx.held && rt.arexx.port !== null) rt.arexx.held = rt.rexx.take(rt.arexx.port)
+  const m = rt.arexx.held
+  if (!m) return 0
+  return (m.action & RXFF_RESULT) !== 0 ? 2 : 1
+}
+
 export function makeInstructions(rt: Runtime): Record<string, Instr> {
   const scr = (): Screen => rt.screen
   const byIndex = (n: number): Screen => {
@@ -820,6 +833,68 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   return {
+    // ---- the Arexx family (+Lib.s:15025-15160) -------------------------
+    /**
+     * Arexx Open "PORT_NAME" --- `InArexxOpen` (+Lib.s:15039). The name is
+     * copied into `Arx_PortName` with two checks the manual does not mention:
+     * `cmp.w #32,d2 / Rbcc L_StooLong` refuses 32 characters or more, and
+     * `cmp.b #" ",-1(a0) / Rble L_FonCall` refuses any character at or below
+     * a space -- so a name with a space in it is a function-call error, not a
+     * port with a space in it.
+     */
+    'arexx open'(it) {
+      const name = it.evalStr()
+      if (name.length >= 32) throw new AmosError('string too long')
+      for (const ch of name) if (ch <= ' ') throw new AmosError('function call error')
+      if (!rt.rexx.open(name)) throw new AmosError('function call error')
+      rt.arexx.port = name
+    },
+
+    /**
+     * Arexx Close --- `InArexxClose` (+Lib.s:15095). Error 198 when a message
+     * is still being held: `tst.l Arx_Answer(a5) / bne .Err`. A program must
+     * answer before it may close, which is what stops a sender waiting for
+     * ever on a reply that is never coming.
+     */
+    'arexx close'() {
+      if (rt.arexx.held) throw new AmosError('Arexx message not answered', 198)
+      if (rt.arexx.port !== null) rt.rexx.close(rt.arexx.port)
+      rt.arexx.port = null
+    },
+
+    /**
+     * Arexx Wait --- `InArexxWait` (+Lib.s:15081): `Sys_WaitMul`,
+     * `Test_Normal`, then poll, round and round until a message arrives. It
+     * yields the frame rather than spinning, which is what WaitMul does.
+     *
+     * With nothing sending, this waits for ever -- and so does the machine
+     * with no ARexx script talking to it.
+     */
+    'arexx wait'(it) {
+      if (arexxPoll(rt) === 0) {
+        it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
+      }
+    },
+
+    /**
+     * Arexx Answer ERROR [,"answer"] --- `InArexxAnswer1`/`2` (+Lib.s:15140),
+     * two entries on one name; the one-argument form pushes AMOS's shared
+     * empty string as the answer. The result string is only attached when the
+     * sender set RXFF_RESULT in rm_Action -- `and.l #RXFF_RESULT,d0 / beq
+     * .NoResult` -- so answering a message that did not ask for one drops the
+     * string rather than raising.
+     */
+    'arexx answer'(it) {
+      const code = it.evalInt()
+      const answer = it.accept(',') ? it.evalStr() : ''
+      const m = rt.arexx.held
+      if (!m) throw new AmosError('function call error')
+      m.result1 = code
+      if ((m.action & RXFF_RESULT) !== 0) m.result2 = answer
+      m.replied = true
+      rt.arexx.held = null
+    },
+
     // ---- the Dev * family (+Lib.s:3300-3385) ---------------------------
     /**
      * Dev Open CHANNEL,NAME$,LENGTH,UNIT,FLAGS --- `Lib_Par InDevOpen`
@@ -4404,6 +4479,42 @@ export function makeRawFunctions(rt: Runtime): Record<string, (it: It) => import
 export function makeFunctions(rt: Runtime): Record<string, Func> {
   const scr = (): Screen => rt.screen
   return {
+    /**
+     * =Arexx Exist("port") --- `FnArexxExist` (+Lib.s:15025), which is
+     * `Arx_RegisterPort` with d0 = 0: a LOOKUP rather than a registration.
+     * Non-zero when a public port of that name is there. Names are
+     * case-sensitive, as exec's FindPort is.
+     */
+    'arexx exist'(_, a) {
+      const name = a[0]!.k === 'str' ? a[0]!.s : ''
+      return VI(rt.rexx.exists(name) ? -1 : 0)
+    },
+
+    /**
+     * =Arexx --- `FnArexx` (+Lib.s:15064). Three answers, not two: 0 for no
+     * message, 1 for a message, and 2 for a message whose rm_Action has
+     * RXFF_RESULT set, meaning the sender wants a result STRING and not just
+     * a return code. A program branches on 2 to decide whether to bother
+     * building one.
+     */
+    'arexx'() {
+      return VI(arexxPoll(rt))
+    },
+
+    /**
+     * =Arexx$(n) --- `FnArexxD` (+Lib.s:15106). Argument n of the message
+     * being held, 0 to 15 (`cmp.l #16,d3 / Rbcc L_FonCall`). The empty string
+     * when no message is held, when that argument slot is null, or when its
+     * `ra_Length` is zero -- three separate `Rbeq L_Ret_ChVide` arms for what
+     * a program sees as one answer.
+     */
+    'arexx$'(_, a) {
+      const n = int(a[0]!)
+      if (n < 0 || n >= 16) throw new AmosError('function call error')
+      const m = rt.arexx.held
+      return VS(m ? (m.args[n] ?? '') : '')
+    },
+
     /**
      * =Port(CHANNEL) --- `FnPort` (+Lib.s:5050). `GetFile` first, so a
      * channel that is not open raises; then `btst #2,FhT(a2)` refuses one

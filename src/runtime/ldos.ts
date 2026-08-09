@@ -63,6 +63,13 @@ import { amigaMatch, parsePatternResult } from '../amiga/dospattern'
 import { pp20Decrunch } from '../amiga/powerpacker'
 import { DEV_MODELLED, DEV_SERIAL_DEFAULTS } from './device'
 import type { SerialPortHandle } from '../amiga/host'
+
+/**
+ * LDos error 24, `moveq #$18,d0 / Rbra routine 91`, in the library's own
+ * words. Every `Lrexx *` keyword raises it when rexxhost.library's base at
+ * +$5a8 is zero, which it is here.
+ */
+const LREXX_ABSENT = 'Missing part of ARexx (lib/server)'
 import { execute } from '../amiga/process'
 import { DAY_MS, STAMP_EPOCH, stampToYmd as amigaStampToYmd } from '../amiga/datestamp'
 import { MAX_COMMENT, ST_FILE, ST_USERDIR, blocksFor } from '../amiga/dos'
@@ -476,6 +483,25 @@ function regionWrite(rt: Runtime, start: number, stop: number): { data: Uint8Arr
 
 export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
   return {
+    /**
+     * Lrexx Remove Host and Lrexx Reply --- routines 54 ($2160) and 57
+     * ($22c6). Both begin by loading `rexxhost.library`'s base from the
+     * workspace at +$5a8 and calling through it, and this port does not model
+     * that library, so both take the arm every keyword in the family shares.
+     * See `lrexx make host` in NOTES for why.
+     */
+    'lrexx remove host'() {
+      throw new AmosError(LREXX_ABSENT)
+    },
+    'lrexx reply'(it) {
+      it.evalStr()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      throw new AmosError(LREXX_ABSENT)
+    },
+
     /**
      * Ldevice Close --- routine 32 ($1946). `RemPort` on the message port and
      * `CloseDevice` on the request, each guarded by its own pointer being
@@ -1029,6 +1055,50 @@ const LDOS_PATTERN_MAX = 50
 
 export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
   return {
+    /**
+     * The `Lrexx *` family --- routines 53 to 60 ($2106-$23c4).
+     *
+     * Every one of them opens with the same two instructions: load
+     * `rexxhost.library`'s base from the workspace at +$5a8 and, if it is
+     * zero, `moveq #$18,d0 / Rbra routine 91` --- error 24, which the
+     * library's own message table words as "Missing part of ARexx
+     * (lib/server)". This port does not model rexxhost.library, so that is
+     * the arm they take, and it is the arm a machine without the library
+     * takes too.
+     *
+     * `src/amiga/rexx.ts` DOES model public ARexx ports, and the core
+     * `Arexx *` family runs on it -- but that family uses AMOS's own `Arx_*`
+     * code, which ships in the source. Wiring LDos's onto the same ports
+     * needs rexxhost.library's API, and six LVOs read out of a disassembly is
+     * not enough to claim it.
+     */
+    'lrexx make host'(_, a): Value {
+      const name = a[0]!.k === 'str' ? a[0]!.s : ''
+      void name
+      throw new AmosError(LREXX_ABSENT)
+    },
+    'lrexx get msg'(_, a): Value {
+      void int(a[0]!)
+      throw new AmosError(LREXX_ABSENT)
+    },
+    'lrexx execute'(_, a): Value {
+      void (a[0]!.k === 'str' ? a[0]!.s : '')
+      throw new AmosError(LREXX_ABSENT)
+    },
+    'lrexx send msg'(_, a): Value {
+      void a
+      throw new AmosError(LREXX_ABSENT)
+    },
+    /**
+     * =Lrexx Result1 and =Lrexx Result2 --- routines 58 ($230e) and 59
+     * ($231e), four instructions each: a longword read from +$5b0 and +$5b4
+     * and nothing else. They do NOT check the library, so they answer the
+     * zero those slots hold when nothing has ever filled them -- which is
+     * what a program sees here.
+     */
+    'lrexx result1': (): Value => VI(0),
+    'lrexx result2': (): Value => VI(0),
+
     /**
      * =Ldevice Open(NAME$,UNIT,FLAGS) --- routine 31 ($18ca). A channel
      * already open is error 9, "Device already open"; otherwise
