@@ -2710,27 +2710,29 @@ export const NA = new Set<string>([
   // Squash rewrites a file in place through trackdisk to defragment it
   // (+|jd.s:5013) — the same missing block device.
   'jd squash',
-  // JD Colour: the keywords that need a window, a requester or a device of
-  // their own rather than a palette. Open/Close/Print/Input Con drive a CON:
-  // console window through DOS; Jd Request is a file requester; Jd Guru paints
-  // a fake guru meditation alert; Setoutput Amiga/Amos switch the output
-  // format between the two conventions; Jd Rprint right-justifies through the
-  // printer path; Screen Border, Wait Raster, Screen Convert and the six Slide
-  // keywords animate or rewrite a whole screen through the RastPort;
-  // Load/Save Palette read and write a palette file whose format the source
-  // does not settle.
+  // JD Colour: the keywords that need a window or a device of their own rather
+  // than a palette. Open/Close/Print/Input Con drive a CON: console window
+  // through DOS; Jd Guru paints a fake guru meditation alert; Setoutput
+  // Amiga/Amos switch the output format between the two conventions; Jd Rprint
+  // right-justifies through the printer path; Screen Border, Wait Raster,
+  // Screen Convert and the six Slide keywords animate or rewrite a whole
+  // screen through the RastPort; Load/Save Palette read and write a palette
+  // file whose format the source does not settle.
   //
-  // FOUR came out of this list once they were read rather than grouped.
-  // `Jd Mouse` is four instructions reading the Show/Hide nesting counter out
-  // of the AMOS workspace, which is `Runtime.mouseShow`. `Jd File$`, `Jd Path$`
-  // and `Jd Drive$` do not touch the requester at all -- each is a backward
-  // scan for a separator and a copy (routines 62 and 79). They were n/a
-  // because of the company they were listed in.
+  // FIVE came out of this list once they were read rather than grouped, and
+  // the note that grouped them was wrong twice over. `Jd Mouse` is four
+  // instructions reading the Show/Hide nesting counter out of the AMOS
+  // workspace, which is `Runtime.mouseShow`. `Jd File$`, `Jd Path$` and
+  // `Jd Drive$` never touch a requester at all -- each is a backward scan for
+  // a separator and a copy (routines 62 and 79). And `Jd Request` is not a
+  // file requester, which is what this note used to call it: routine 66 is
+  // `moveq #$4,d2 / Rbra routine 71`, and routine 71 builds five IntuiTexts
+  // and calls intuition's AutoRequest for a yes/no answer. It is APPROXIMATED
+  // on the modelled requester; see its NOTES entry.
   'jd open con',
   'jd close con',
   'jd print con',
   'jd input con',
-  'jd request',
   'jd guru',
   'jd setoutput amiga',
   'jd setoutput amos',
@@ -2894,6 +2896,18 @@ export const NA = new Set<string>([
  */
 export const NOTES: Record<string, string> = {
   // ---- JD Colour 2.0, slot 20 ----------------------------------------------
+  "jd request":
+    "Routine 66 ($2748, 2.0 only) is `moveq #$4,d2 / Rbra routine 71`, and routine 71 ($2766) builds a chain of " +
+    "five IntuiTexts by hand in a 1K buffer at $4f2(a5) -- topaz.font 8, left edge 15, ten pixels apart, laid out " +
+    "by `d4 = d2*10+5` counting DOWN as the arguments pop right to left so they read top to bottom -- then calls " +
+    "intuition.library's AutoRequest at `jsr -$15c(a6)`, width `60 + widest*8` and height `47 + top`. The manual: " +
+    "\"Texte (1-5), Ja-Text und Nein-Text / Bool-Requester / Ergebnis: -1/0 = ja/nein\". APPROXIMATED on the " +
+    "modelled requester (runtime/requester.ts); the topaz font, the pixel geometry and the Workbench screen are " +
+    "the chrome that is lost. NOTE: the defaults are conditional and easy to miss. The scanner at $2846 answers " +
+    "a0 = -1 when it used a default and 0 when the argument was non-empty, and JA$ only gets its \"Retry\" " +
+    "through `move.l a0,d0 / beq` -- so supplying a NEIN$ and leaving JA$ empty gives a gadget with NO text, " +
+    "while leaving both empty gives Retry/Cancel. Empty body lines are dropped rather than drawn blank, and all " +
+    "five empty takes `tst.w d6 / Rbeq routine 73`, the same error arm as a 1K buffer overflow.",
   "jd file\$":
     "Routine 60 ($26ca, 2.0 only) over the scanner at routine 62. DEFECT: with NO separator in the path it drops " +
     "the first character and reads one byte past the string. The scanner leaves d0 = 0 when it finds nothing, so " +

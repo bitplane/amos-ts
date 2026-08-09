@@ -190,8 +190,10 @@ describe('JD Colour: the palette instructions', () => {
     expect(out.trim()).toBe('2')
   })
 
-  it('the window, requester and whole-screen keywords are n/a', () => {
-    for (const k of ['jd open con', 'jd request', 'jd screen convert', 'jd slide left', 'jd load palette']) {
+  it('the window and whole-screen keywords are n/a', () => {
+    // Jd Request used to be in this list, called a file requester. It is an
+    // intuition AutoRequest and is implemented on the modelled one
+    for (const k of ['jd open con', 'jd screen convert', 'jd slide left', 'jd load palette']) {
       expect(NA.has(k), k).toBe(true)
     }
   })
@@ -280,5 +282,72 @@ describe('JD Colour: the path helpers and the mouse counter', () => {
     // workspace here to read past, so the answer is that byte short
     expect(val('Jd File$("readme")')).toBe('eadme')
     expect(val('Jd File$("a")')).toBe('')
+  })
+})
+
+describe('JD Colour: Jd Request, which is AutoRequest and not a file requester', () => {
+  /** a Runtime parked on the requester, so the test can answer it */
+  function park(src: string): { rt: Runtime; out: () => string } {
+    let out = ''
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[20, col]]),
+      maxSteps: 2_000_000,
+      onText: (t) => (out += t),
+    })
+    rt.frame() // runHeadless would answer the block itself
+    return { rt, out: () => out }
+  }
+
+  it('answers -1 for the Ja gadget and 0 for the Nein one', () => {
+    // routine 71's tail is `move.l d0,d3 / beq / moveq #$ff,d3`, and the
+    // manual's "Ergebnis: -1/0 = ja/nein"
+    const yes = park('A=Jd Request("Quit?","","","","","Yes","No") : Print A')
+    const d = yes.rt.dialogs.get(yes.rt.jdRequestChan!)!
+    yes.rt.finishDialogRun(d, 1) // gadget 1 is the leftmost, which is Ja
+    mustFinish(yes.rt.runHeadless(500))
+    expect(yes.out().trim()).toBe('-1')
+
+    const no = park('A=Jd Request("Quit?","","","","","Yes","No") : Print A')
+    no.rt.finishDialogRun(no.rt.dialogs.get(no.rt.jdRequestChan!)!, 2)
+    mustFinish(no.rt.runHeadless(500))
+    expect(no.out().trim()).toBe('0')
+  })
+
+  it('lays the five lines out in the order they are written', () => {
+    // d4 counts DOWN as the arguments pop right to left, so argument one is
+    // the top line
+    const b = park('A=Jd Request("one","two","three","","","Y","N")')
+    const d = b.rt.dialogs.get(b.rt.jdRequestChan!)!
+    expect(d.vars[0]).toBe('one')
+    expect(d.vars[1]).toBe('two')
+    expect(d.vars[2]).toBe('three')
+  })
+
+  it('drops empty body lines rather than drawing them blank', () => {
+    // each of the five is scanned with NO default, so an empty one is skipped
+    const b = park('A=Jd Request("one","","three","","","Y","N")')
+    const d = b.rt.dialogs.get(b.rt.jdRequestChan!)!
+    expect(d.vars[0]).toBe('one')
+    expect(d.vars[1]).toBe('three')
+  })
+
+  it('defaults to Retry/Cancel only when Nein was left empty', () => {
+    // the conditional the `move.l a0,d0 / beq $2798` makes: JA$ gets its
+    // default only if the NEIN$ pop fell back to one
+    const both = park('A=Jd Request("x","","","","","","")')
+    const d1 = both.rt.dialogs.get(both.rt.jdRequestChan!)!
+    expect(d1.vars[10]).toBe('Retry')
+    expect(d1.vars[11]).toBe('Cancel')
+
+    // supply a Nein and leave Ja empty: the Ja gadget gets NO text at all
+    const one = park('A=Jd Request("x","","","","","","Stop")')
+    const d2 = one.rt.dialogs.get(one.rt.jdRequestChan!)!
+    expect(d2.vars[10]).toBe('')
+    expect(d2.vars[11]).toBe('Stop')
+  })
+
+  it('raises when every body line is empty', () => {
+    expect(() => run('A=Jd Request("","","","","","Y","N")')).toThrow(/llegal function call/)
   })
 })

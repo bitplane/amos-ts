@@ -37,6 +37,8 @@ import { VI, VS, int, type Value } from '../interp/values'
 import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
 import { outdim } from './jd'
+import { finishRequester, startRequester } from './requester'
+import type { RequesterSpec } from './requester'
 
 /** zerlege (+|col.s:221): a 12-bit colour into red, green, blue nibbles */
 const split = (v: number): [number, number, number] => [(v >> 8) & 15, (v >> 4) & 15, v & 15]
@@ -377,6 +379,71 @@ export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
       const p = String(a[0]!.k === 'str' ? a[0]!.s : '')
       const cut = p.lastIndexOf(':')
       return VS(cut < 0 ? '' : p.slice(0, cut + 1))
+    },
+
+    /**
+     * =Jd Request(L1$,L2$,L3$,L4$,L5$,JA$,NEIN$) — routine 66 (2.0 only,
+     * $2748), which is `moveq #$4,d2 / Rbra routine 71` and nothing else. The
+     * manual: "Parameter: Texte (1-5), Ja-Text und Nein-Text / Funktion:
+     * Bool-Requester / Ergebnis: -1/0 = ja/nein".
+     *
+     * Routine 71 ($2766) builds a chain of IntuiTexts by hand in a 1K buffer
+     * at $4f2(a5) — all in topaz.font 8, left edge 15, and each line ten
+     * pixels above the next, `d4 = d2*10+5` counting DOWN as the arguments pop
+     * right to left, so they read top to bottom in the order written — and
+     * then calls intuition.library's `AutoRequest` at `jsr -$15c(a6)` with the
+     * window in a0, the body chain in a1, the two gadget texts in a2/a3 and a
+     * width of `60 + widest*8` and height of `47 + top` in d2/d3. The result
+     * is `move.l d0,d3 / beq / moveq #$ff,d3`: -1 for the positive gadget and
+     * 0 for the negative, which is the manual's -1/0 = ja/nein.
+     *
+     * The DEFAULTS are worth spelling out, because they are conditional. The
+     * scanner at $2846 answers a0 = -1 when it fell back to a default and 0
+     * when the argument itself was non-empty. NEIN$ always has one ("Cancel",
+     * the length-prefixed string at $283e), but JA$ gets its "Retry" ($2836)
+     * ONLY through `move.l a0,d0 / beq $2798` — that is, only when NEIN$ was
+     * left empty. So supplying a NEIN$ and leaving JA$ empty gives a gadget
+     * with no text at all, while leaving both empty gives Retry/Cancel.
+     *
+     * An empty body line is dropped rather than drawn blank (the scanner is
+     * called with no default for those five), and a call with all five empty
+     * takes `tst.w d6 / Rbeq routine 73` — error 1, the same arm the 1K buffer
+     * overflow takes.
+     *
+     * APPROXIMATED: there is no intuition.library here, so an Interface dialog
+     * stands in, as it does for BUtility's reqtools requesters. See
+     * requester.ts. DEVIATION: the topaz font, the pixel geometry and the
+     * Workbench screen it would have opened on are the chrome that is lost;
+     * the line order, the defaults, the drop-empties rule and the -1/0 are the
+     * contract, and they are kept.
+     */
+    'jd request'(it, a): Value {
+      const s = (i: number): string => (a[i]?.k === 'str' ? a[i]!.s : '')
+      const body = [s(0), s(1), s(2), s(3), s(4)].filter((l) => l !== '')
+      if (body.length === 0) outdim()
+      const nein = s(6)
+      // "Retry" is only reached when NEIN$ was empty -- see above
+      const ja = s(5) !== '' ? s(5) : nein === '' ? 'Retry' : ''
+      const spec: RequesterSpec = {
+        kind: 'alert',
+        body: body.join('\n'),
+        gadgets: [ja, nein === '' ? 'Cancel' : nein],
+      }
+      if (rt.jdRequestChan !== null) {
+        const r = finishRequester(rt, rt.jdRequestChan, spec)
+        if (r === null) {
+          it.block({ type: 'dialog', channel: rt.jdRequestChan }, true)
+          return VI(0)
+        }
+        rt.jdRequestChan = null
+        // gadget 1 is the leftmost, which is JA$; anything else is nein
+        return VI(r.ret === 1 ? -1 : 0)
+      }
+      const chan = startRequester(rt, spec)
+      if (chan === null) return VI(0)
+      rt.jdRequestChan = chan
+      it.block({ type: 'dialog', channel: chan }, true)
+      return VI(0)
     },
   }
 }

@@ -1620,6 +1620,15 @@ export class Runtime {
   dialogErrPos = 0
   /** a pending =Dialog Box quick channel (Dia_RunQuick) */
   dialogBoxChan: number | null = null
+  /**
+   * A modelled requester currently up for JD Colour's `Jd Request`.
+   *
+   * Here rather than in a JdState because JD Colour is its own library at its
+   * own slot and a program can load it without JD -- and because it is exactly
+   * what `dialogBoxChan` above is: a channel a blocking statement has to find
+   * again when it re-runs. See runtime/requester.ts.
+   */
+  jdRequestChan: number | null = null
 
   // ---- Fsel$ (Dsk.FileSelector / Start_FSel +Lib.s:17756) ----
   /**

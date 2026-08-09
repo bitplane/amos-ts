@@ -27,6 +27,7 @@
  */
 import type { Runtime } from './runtime'
 import { DialogChannel, prescanDialog } from './dialog'
+import type { ResourceBank } from '../loader/resource'
 
 /** the system font the dialog engine measures with, for layout arithmetic */
 const CHAR_W = 8
@@ -181,7 +182,17 @@ export function startRequester(rt: Runtime, spec: RequesterSpec): number | null 
   const { script, vars } = requesterScript(spec)
   let c = 65536
   while (rt.dialogs.has(c)) c++
-  const chan = new DialogChannel(c, 32, rt.resource())
+  // A channel is constructed against a resource bank, but these scripts name
+  // nothing in one: no `ME` message, no `UN` or `BO` 9-patch. So a program
+  // that never loaded a bank still gets its requester rather than "resource
+  // bank not present", which is not an error the keyword can raise.
+  let res: ResourceBank
+  try {
+    res = rt.resource()
+  } catch {
+    res = { graphics: null, messages: [], programs: null }
+  }
+  const chan = new DialogChannel(c, 32, res)
   chan.script = script
   chan.screenNb = rt.currentIndex
   try {
