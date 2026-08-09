@@ -685,10 +685,9 @@ describe('JD: screen readbacks and drawing (+|jd.s:1479-6199)', () => {
     expect(lit2).toBeGreaterThan(0)
   })
 
-  it('the machine-level keywords are n/a, with reasons', () => {
-    // a deliberate ILLEGAL instruction to drop a debugger, and a
-    // graphics.library pointer that would address nothing
-    for (const k of ['jd private', 'jd rastport']) expect(NA.has(k), k).toBe(true)
+  it('the debugger trap is n/a, and has no handler', () => {
+    // a deliberate ILLEGAL instruction, there to drop a machine-code debugger
+    expect(NA.has('jd private')).toBe(true)
     expect('jd private' in makeAllInstructions(bootJd())).toBe(false)
   })
 })
@@ -873,9 +872,12 @@ describe('JD 5.9: the keywords the later table added', () => {
     expect(out.trim().split('\n').map((s) => s.trim())).toEqual(['AB', '1', '0'])
   })
 
-  it('the two intuition base keywords are n/a, as Jd Rastport is', () => {
-    expect(NA.has('jd intscreen base')).toBe(true)
-    expect(NA.has('jd intwindow base')).toBe(true)
+  it('the two intuition base keywords are 4.6\'s, not 5.9\'s', () => {
+    // T_ScreenAdr and T_WindowAdr; 5.3 dropped both names from its table and
+    // 5.9 did not bring them back, so only 4.6 can reach them
+    const names = (jd59.tokens ?? []).map((t) => t.name)
+    expect(names).not.toContain('jd intscreen base')
+    expect(names).not.toContain('jd intwindow base')
   })
 
   it('an empty path answers 1 rather than running off the end of the string', () => {
@@ -1558,5 +1560,69 @@ describe('JD: the whole-disk writes', () => {
     expect(v.getUint32(4)).toBe(0xffffffff)
     expect(v.getUint32(4 + 27 * 4)).toBe(0xffff3fff)
     expect(v.getUint32(4 + 54 * 4)).toBe(0x3fffffff)
+  })
+})
+
+describe('JD: the three structure pointers', () => {
+  function ptr(expr: string, scr: number): number {
+    let out = ''
+    const rt = new Runtime(
+      tokenize(`Screen Open 0,64,32,4,0 : Screen Open 1,64,32,4,0 : Screen ${scr} : Print ${expr}`, table, exts),
+      table,
+      { extensions: exts, extBindings: new Map([[22, jd]]), maxSteps: 500_000, onText: (t) => (out += t) },
+    )
+    mustFinish(rt.runHeadless(500))
+    return Number(out.trim())
+  }
+
+  it('are non-zero, stable per screen and distinct from each other', () => {
+    // nothing dereferences them: they exist to be handed to Gfxcall or
+    // Intcall, so a program tests them or compares them and nothing else
+    expect(ptr('Jd Rastport', 0)).not.toBe(0)
+    expect(ptr('Jd Rastport', 0)).toBe(ptr('Jd Rastport', 0))
+    expect(ptr('Jd Rastport', 0)).not.toBe(ptr('Jd Rastport', 1))
+  })
+
+  it('4.6 answers all three, which is the release that has them', () => {
+    // T_ScreenAdr and T_WindowAdr are 4.6's; the handlers are shared because
+    // one port serves 4.6, 5.3 and 5.9
+    const old = extensionById('jd-4.6')!
+    const oldExts = new Map([[22, old.table]])
+    const val = (expr: string): number => {
+      let out = ''
+      const rt = new Runtime(tokenize(`Screen Open 0,64,32,4,0 : Print ${expr}`, table, oldExts), table, {
+        extensions: oldExts,
+        extBindings: new Map([[22, old]]),
+        maxSteps: 500_000,
+        onText: (t) => (out += t),
+      })
+      mustFinish(rt.runHeadless(500))
+      return Number(out.trim())
+    }
+    expect(val('Jd Intscreen Base')).not.toBe(0)
+    expect(val('Jd Intwindow Base')).not.toBe(0)
+    expect(val('Jd Intscreen Base')).not.toBe(val('Jd Intwindow Base'))
+    expect(val('Jd Rastport')).not.toBe(val('Jd Intscreen Base'))
+  })
+
+  it('and 4.6 names the six slides, which 5.3 moved to JD Colour', () => {
+    // 4.6 carried them at routines 98 to 103 and JD Colour has the same six
+    // at 41 to 46, identical instruction for instruction. One implementation
+    // answers both; the JD impl declares them `viaCore` rather than
+    // registering a second copy, which would put one name in two layers
+    const old = extensionById('jd-4.6')!
+    const names = (old.tokens ?? []).map((t) => t.name)
+    expect(names).toContain('jd slide x')
+    expect((jd.tokens ?? []).map((t) => t.name)).not.toContain('jd slide x')
+  })
+
+  it('and 5.3 carries only Rastport, which is what its table has', () => {
+    // T_ScreenAdr and T_WindowAdr are 4.6's; 5.3 dropped both names. The
+    // handlers stay because one port serves both releases
+    const names = (jd.tokens ?? []).map((t) => t.name)
+    expect(names).toContain('jd rastport')
+    expect(names).not.toContain('jd intscreen base')
+    const old = extensionById('jd-4.6')!
+    expect((old.tokens ?? []).map((t) => t.name)).toContain('jd intscreen base')
   })
 })

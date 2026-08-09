@@ -1762,6 +1762,11 @@ export const FAITHFUL = new Set<string>([
   'jd write sector',
   'jd relabel',
   'jd diskchange',
+  // the three structure pointers, answered as synthetic identifiers -- see
+  // NOTES. Intscreen/Intwindow Base are in 4.6's table only.
+  'jd rastport',
+  'jd intscreen base',
+  'jd intwindow base',
   // the third console animation, beside Jd Spread and Jd Tscroll -- the name
   // is about squashing TEXT, not a disk. Same pacing DEVIATION as those two.
   'jd squash',
@@ -2000,6 +2005,24 @@ export const FAITHFUL = new Set<string>([
   'jd close con',
   'jd print con',
   'jd input con',
+  // the whole-screen group. The six slides and Screen Convert are runs of
+  // AMOS's own Screen Copy. Change Colours and Fill Colour share a row-restart
+  // defect, the palette files are 'APal' plus 32 words which the source
+  // settles exactly, and Wait Raster and the three structure pointers carry a
+  // note each -- all of them in NOTES.
+  'jd screen border',
+  'jd wait raster',
+  'jd screen convert',
+  'jd slide x',
+  'jd slide y',
+  'jd slide left',
+  'jd slide right',
+  'jd slide up',
+  'jd slide down',
+  'jd load palette',
+  'jd save palette',
+  'jd change colours',
+  'jd fill colour',
   // TOME 4.23 / 3.1, the map engine: routines 10, 11, 14-19 and their two
   // shared helpers, 67 (resolve the map bank) and 70 (the icon bank and its
   // count). Read off TOME.Lib, which ships without a manual, so there is no
@@ -2712,33 +2735,6 @@ export const NA = new Set<string>([
   // (+|jd.s:835 with macros.s). No debugger, and deliberately crashing the
   // interpreter is not a service to anyone.
   'jd private',
-  // JD Colour: the keywords that rewrite or animate a whole screen through the
-  // RastPort, plus the two palette files whose format the source does not
-  // settle.
-  'jd screen border',
-  'jd wait raster',
-  'jd screen convert',
-  'jd slide x',
-  'jd slide y',
-  'jd slide left',
-  'jd slide right',
-  'jd slide up',
-  'jd slide down',
-  'jd load palette',
-  'jd save palette',
-  'jd change colours',
-  'jd fill colour',
-  // graphics.library's RastPort pointer (T_RastPort, +|jd.s:2340). The value
-  // is only useful to something that then calls graphics.library, which this
-  // port does not have; handing out a number that addresses nothing would be
-  // worse than saying so.
-  'jd rastport',
-  // the same answer for the two 4.6 dropped by 5.3: T_ScreenAdr and
-  // T_WindowAdr (+jd-4.6/jd.s:3820, :3826), intuition's Screen and Window
-  // structures. Nothing here has either, and a number that addresses nothing
-  // is worse than saying so.
-  'jd intscreen base',
-  'jd intwindow base',
   // TURBO Plus: routine 132 points COP1LC at graphics.library's own copper
   // list and clears a flag in the AMOS workspace, handing the display back
   // to the system so a developer can see the machine underneath. There is
@@ -2907,7 +2903,37 @@ export const NOTES: Record<string, string> = {
     "precomputed checksums differ. Jd Shortformat (routine 110) is the same loop bounded to tracks 80 and 81, so " +
     "it writes a fresh root block and bitmap and leaves the rest of the disk alone.",
 
+  "jd rastport":
+    "The three structure pointers AMOS keeps for the current screen: `T_Rastport(a5)`, and in 4.6 `T_ScreenAdr` " +
+    "and `T_WindowAdr` (+jd-4.6/jd.s:3820, :3826), which 5.3 dropped. NOTE: nothing can dereference these. They " +
+    "exist to be handed to Gfxcall or Intcall, which execute 68k against the real structures and are out of " +
+    "scope by policy, so the value is only ever tested for being non-zero or passed straight back. What is " +
+    "answered is a synthetic identifier per screen, on amiga/exec.ts's convention for library bases: high, " +
+    "obviously not a real address, stable for a given screen and distinct between screens, so a program " +
+    "comparing two of them gets the right answer.",
+
   // ---- JD Colour 2.0, slot 20 ----------------------------------------------
+  "jd change colours":
+    "Routine 39 (+|col.s:1283): every pixel in the rectangle that is COL1 becomes COL2 and every COL2 becomes " +
+    "COL1 -- a swap, not a replace -- walked with ReadPixel and WritePixel. DEFECT: when a row ends, " +
+    "`Dmove mousek,d0` reloads the X register from the saved Y1 rather than from X1, because `Dsave d1,mousek` " +
+    "put y1 there. Only the FIRST row starts at x1; every row after it starts at column y1. Jd Fill Colour is " +
+    "the same routine with one test instead of two and carries it too. A region anchored at the origin, where " +
+    "x1 and y1 are both 0, hides it completely, which is presumably why it shipped.",
+  "jd slide x":
+    "Routines 41 to 46 (+|col.s:1380-1638): SOURCE copied onto DEST a column or a row at a time through " +
+    "`L_sccopy`, AMOS's own Screen Copy at minterm $CC. Slide X walks a one-pixel column from the right edge " +
+    "leftwards, laying each down at its final resting place, and the other five are the same loop over a " +
+    "different axis and direction; when the last pass finishes DEST holds SOURCE. DEVIATION: the animation is " +
+    "not paced, so what is written is the state the routine ends in -- the choice Jd Spread, Jd Tscroll and " +
+    "Jd Squash already make. The early exit goes with it: the machine polls `L_getk` every pass and key 117 " +
+    "stops the slide part way, leaving a partial image nothing here can produce.",
+  "jd wait raster":
+    "Routine 59 (+|col.s:1959): the line is made positive and folded into 0..256 by repeated subtraction, then " +
+    "the routine spins on `$dff006`, the high byte of VHPOSR, until the beam's vertical position matches. " +
+    "DEVIATION: there is no beam here. A given raster line comes round once per frame, so the wait is a frame -- " +
+    "what AMOS's own Wait Vbl does. A program syncing to the display gets frame-rate sync rather than sub-frame; " +
+    "the folding arithmetic is reproduced because a program can compute a line number from it.",
   "jd open con":
     "Routine 74 ($28e8): the window string is copied into the data zone at +$218 and `Open` is handed a pointer " +
     "to +$214, where the four literal bytes \"CON:\" already sit -- so the two are one filename and the caller " +

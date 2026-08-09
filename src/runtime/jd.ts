@@ -60,6 +60,7 @@ import { pp20Decrunch } from '../amiga/powerpacker'
 import type { Runtime } from './runtime'
 import { stampToDate } from '../amiga/datestamp'
 import { openDiskFont, type DiskFont } from '../amiga/diskfont'
+import { makeJdSlides } from './jdcolour'
 import { ST_FILE, ST_USERDIR } from '../amiga/dos'
 
 /**
@@ -243,6 +244,20 @@ function rootChecksum(block: Uint8Array): void {
   v.setUint32(0x14, sum >>> 0)
 }
 
+
+/**
+ * Synthetic identifiers for the three structure pointers.
+ *
+ * The convention is `amiga/exec.ts`'s, spelled out on its own library bases: a
+ * pointer only ever has to be non-zero and distinguishable, because nothing
+ * here dereferences one -- a graphics.library call is a TypeScript call in
+ * this port, not a jump through a negative offset. The range is high and
+ * obviously synthetic so a value that escapes into a program's variable is
+ * recognisable on sight.
+ */
+const JD_RASTPORT_ORIGIN = 0x7f40_0000
+const JD_SCREEN_ORIGIN = 0x7f41_0000
+const JD_WINDOW_ORIGIN = 0x7f42_0000
 
 /** one 11-sector track, the unit both formats write in (`$1600` bytes) */
 const JD_TRACK = 0x1600
@@ -454,6 +469,24 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
   }
 
   return {
+    /**
+     * =Jd Rastport --- `T_Rastport(a5)` (+|jd.s:2340) --- and, in 4.6 only,
+     * =Jd Intscreen Base and =Jd Intwindow Base, which are `T_ScreenAdr` and
+     * `T_WindowAdr` (+jd-4.6/jd.s:3820, :3826). 5.3 dropped the last two from
+     * its table; the handlers stay, because one port serves both.
+     *
+     * NOTE: nothing can dereference these. They exist to be handed to
+     * `Gfxcall` or `Intcall`, which execute 68k against the real structures
+     * and are out of scope by policy, so the value is only ever tested for
+     * being non-zero or passed straight back out. What is answered is a
+     * synthetic identifier per screen: high, obviously not a real address,
+     * stable for a given screen and distinct between screens, so a program
+     * comparing two of them gets the right answer.
+     */
+    'jd rastport': (): Value => VI(JD_RASTPORT_ORIGIN + rt.currentIndex),
+    'jd intscreen base': (): Value => VI(JD_SCREEN_ORIGIN + rt.currentIndex),
+    'jd intwindow base': (): Value => VI(JD_WINDOW_ORIGIN + rt.currentIndex),
+
     /**
      * =Jd Install(DEVICE) --- routine 105 (+|jd.s:4692). Copies the fixed boot
      * block out of `bbd` into the shared `bb` buffer and hands it to `Write
@@ -1773,6 +1806,11 @@ export function makeJdFunctions(rt: Runtime): Record<string, Func> {
 
 export function makeJdInstructions(rt: Runtime): Record<string, Instr> {
   return {
+    // 4.6 carried the six slides here; the implementation is shared with JD
+    // Colour, which still ships them. See jdcolour.ts
+    ...makeJdSlides(rt),
+
+
 
     /**
      * Jd Setdate and Jd Setclock are NOT here on purpose — see NA in

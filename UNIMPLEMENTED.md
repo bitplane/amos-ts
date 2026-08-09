@@ -449,7 +449,6 @@ Writing something for these would be a lie.
 | capability | keywords | what it needs |
 |---|---|---|
 | exec device I/O | 13 | a device registry `OpenDevice` resolves against. `runtime/lserial.ts` already models serial.device end to end through IORequests, so the shape is known. |
-| RastPort / whole screen | 16 | `amiga/graphics.ts` and `amiga/intuition.ts` exist; three of the sixteen are raw structure POINTERS and may stay here until those structures are addressable. |
 | ARexx host | 15 | a modelled message port and a host name registry. There is no rexxmast and no interpreter for the ARexx language, so what `Arexx Execute` means has to be settled before any of it is written. |
 
 Each row is a stage of work, not a verdict.

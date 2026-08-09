@@ -191,11 +191,11 @@ describe('JD Colour: the palette instructions', () => {
     expect(out.trim()).toBe('2')
   })
 
-  it('the whole-screen keywords are n/a', () => {
-    // three that rewrite or animate a whole screen through the RastPort
-    for (const k of ['jd screen convert', 'jd slide left', 'jd load palette']) {
-      expect(NA.has(k), k).toBe(true)
-    }
+  it('no JD Colour keyword is n/a any more', () => {
+    // the whole table is implemented; the import stays because this is the
+    // check that says so
+    const mine = [...NA].filter((k) => k.startsWith('jd ') && /colour|slide|con$|palette|raster|rastport/.test(k))
+    expect(mine).toEqual([])
   })
 })
 
@@ -541,5 +541,149 @@ describe('JD Colour: the CON: window, on AMOS\'s own console', () => {
     const b = boot('Print "["+Jd Input Con(0)+"]"')
     mustFinish(b.rt.runHeadless(200))
     expect(b.out().trim()).toBe('[]')
+  })
+})
+
+describe('JD Colour: the whole-screen group', () => {
+  function ran(src: string): Runtime {
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[20, col]]),
+      maxSteps: 2_000_000,
+      onText: () => {},
+    })
+    mustFinish(rt.runHeadless(500))
+    return rt
+  }
+
+  const OPEN = 'Screen Open 0,64,32,16,0 : Cls 0 : '
+
+  it('Screen Border paints everything OUTSIDE the rectangle', () => {
+    // four filled strips -- left, right, top, bottom -- not an outline
+    const rt = ran(`${OPEN}Jd Screen Border 3,10,8 To 40,24`)
+    expect(rt.screen.point(0, 0)).toBe(3) // outside
+    expect(rt.screen.point(5, 16)).toBe(3) // left strip
+    expect(rt.screen.point(50, 16)).toBe(3) // right strip
+    expect(rt.screen.point(20, 2)).toBe(3) // top strip
+    expect(rt.screen.point(20, 28)).toBe(3) // bottom strip
+    expect(rt.screen.point(20, 16)).toBe(0) // inside is untouched
+  })
+
+  it('Change Colours swaps the two, and Fill Colour replaces one', () => {
+    // anchored at the origin, where x1 and y1 are both 0, so the row-restart
+    // defect cannot show
+    const swap = ran(`${OPEN}Ink 1 : Bar 0,0 To 9,4 : Ink 2 : Bar 10,0 To 19,4 : Jd Change Colours 1,2,0,0 To 19,4`)
+    expect(swap.screen.point(5, 2)).toBe(2)
+    expect(swap.screen.point(15, 2)).toBe(1)
+
+    const fill = ran(`${OPEN}Ink 2 : Bar 0,0 To 19,4 : Jd Fill Colour 5 To 2,0,0 To 19,4`)
+    expect(fill.screen.point(5, 2)).toBe(5)
+  })
+
+  it('DEFECT: every row after the first starts at y1, not x1', () => {
+    // `Dmove mousek,d0` reloads X from the saved y1. With x1=10 and y1=0 the
+    // second row onwards sweeps from column 0, so a pixel at (2,1) that the
+    // caller placed OUTSIDE the region is changed anyway
+    const rt = ran(`${OPEN}Ink 1 : Bar 0,0 To 30,4 : Jd Fill Colour 5 To 1,10,0 To 30,4`)
+    // row 0 really did start at x1 = 10
+    expect(rt.screen.point(2, 0)).toBe(1)
+    // row 1 started at y1 = 0 instead, so a pixel left of x1 was swept
+    expect(rt.screen.point(2, 1)).toBe(5)
+  })
+
+  it('a slide leaves the destination holding the source', () => {
+    const rt = ran(
+      'Screen Open 0,64,32,16,0 : Cls 0 : Ink 3 : Bar 0,0 To 31,15 : ' +
+        'Screen Open 1,64,32,16,0 : Cls 0 : Jd Slide X 0 To 1',
+    )
+    const dst = rt.screens.get(1)!
+    expect(dst.point(5, 5)).toBe(3)
+    expect(dst.point(50, 25)).toBe(0)
+  })
+
+  it('all six slides do it, differing only in an animation nothing paces', () => {
+    for (const kw of ['Jd Slide X', 'Jd Slide Y', 'Jd Slide Left', 'Jd Slide Right', 'Jd Slide Up', 'Jd Slide Down']) {
+      const rt = ran(
+        'Screen Open 0,64,32,16,0 : Cls 0 : Ink 2 : Bar 0,0 To 63,31 : ' +
+          `Screen Open 1,64,32,16,0 : Cls 0 : ${kw} 0 To 1`,
+      )
+      expect(rt.screens.get(1)!.point(10, 10), kw).toBe(2)
+    }
+  })
+
+  it('Save Palette writes APal and 32 words, and Load Palette reads them back', () => {
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    fs.currentDir = 'RAM:'
+    const go = (src: string): Runtime => {
+      const rt = new Runtime(tokenize(src, table, exts), table, {
+        extensions: exts,
+        extBindings: new Map([[20, col]]),
+        maxSteps: 500_000,
+        fs,
+        onText: () => {},
+      })
+      mustFinish(rt.runHeadless(500))
+      return rt
+    }
+    go(`${OPEN}Colour 1,$F00 : Colour 2,$0F0 : Jd Save Palette "RAM:p.pal"`)
+    const raw = new AmigaFS() // read it back through the same volume
+    void raw
+    const saved = go('Rem').fs?.read('RAM:p.pal')
+    expect(saved).toBeDefined()
+    expect(String.fromCharCode(...saved!.subarray(0, 4))).toBe('APal')
+    expect(saved!.length).toBe(68)
+
+    const back = go(`${OPEN}Colour 1,$00F : Jd Load Palette "RAM:p.pal"`)
+    expect(back.screen.palette[1]).toBe(0xf00)
+    expect(back.screen.palette[2]).toBe(0x0f0)
+  })
+
+  it('and a file without the magic leaves the palette alone', () => {
+    // `cmp.l #'APal',(a0)+ / bne kmissing`, checked AFTER the read and close
+    const fs = new AmigaFS()
+    const ram = fs.mountMemory('RAM')
+    ram.write(['bad.pal'], new Uint8Array(68))
+    fs.currentDir = 'RAM:'
+    const rt = new Runtime(tokenize(`${OPEN}Colour 1,$00F : Jd Load Palette "RAM:bad.pal"`, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[20, col]]),
+      maxSteps: 500_000,
+      fs,
+      onText: () => {},
+    })
+    mustFinish(rt.runHeadless(500))
+    expect(rt.screen.palette[1]).toBe(0x00f)
+  })
+
+  it('Screen Convert scales, and identical resolutions do nothing', () => {
+    // `cmp.l d6,d7 / bne do_it` -- the same resolution both sides returns
+    const same = ran(
+      'Screen Open 0,64,32,16,0 : Cls 0 : Ink 3 : Bar 0,0 To 63,31 : ' +
+        'Screen Open 1,64,32,16,0 : Cls 0 : Jd Screen Convert 0,0 To 1,0',
+    )
+    expect(same.screens.get(1)!.point(10, 10)).toBe(0)
+
+    const wide = ran(
+      'Screen Open 0,32,32,16,0 : Cls 0 : Ink 3 : Bar 0,0 To 15,31 : ' +
+        'Screen Open 1,64,32,16,$8000 : Cls 0 : Jd Screen Convert 0,0 To 1,$8000',
+    )
+    // low to hires doubles across, so source column 15 lands at 30 and 31
+    expect(wide.screens.get(1)!.point(30, 10)).toBe(3)
+    expect(wide.screens.get(1)!.point(34, 10)).toBe(0)
+  })
+
+  it('Wait Raster folds its line and waits a frame', () => {
+    // `bpl rapo / neg.l d0` then repeated -256; there is no beam, so the wait
+    // is a frame, which is what a raster line comes round on
+    const rt = new Runtime(tokenize('Jd Wait Raster -300 : Print 1', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[20, col]]),
+      maxSteps: 500_000,
+      onText: () => {},
+    })
+    const before = rt.interp.tick
+    mustFinish(rt.runHeadless(500))
+    expect(rt.interp.tick).toBeGreaterThan(before)
   })
 })

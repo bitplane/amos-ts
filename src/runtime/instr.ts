@@ -5772,6 +5772,15 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     instructions: makeJdInstructions,
     functions: makeJdFunctions,
     errors: JD_ERRORS,
+    /**
+     * 4.6 carried the six slides in THIS library, at routines 98 to 103, and
+     * 5.3 moved them to JD Colour, which has the same six at routines 41 to
+     * 46 -- identical instruction for instruction. Both libraries can be
+     * loaded at once, at different slots, so the name is qualified in both
+     * and each slot dispatches to its own binding. The implementation is
+     * shared; see makeJdSlides in jdcolour.ts.
+     */
+    qualified: ['jd slide x', 'jd slide y', 'jd slide left', 'jd slide right', 'jd slide up', 'jd slide down'],
   },
   {
     // the K3 companion at slot 19 — six keywords, sharing the JD state
@@ -5792,6 +5801,8 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     },
     instructions: makeJdColourInstructions,
     functions: makeJdColourFunctions,
+    // the six slides are 4.6's too; see the JD entry above
+    qualified: ['jd slide x', 'jd slide y', 'jd slide left', 'jd slide right', 'jd slide up', 'jd slide down'],
   },
   {
     // the printer companion, slot 21 by its own manual. 1.1 is served through

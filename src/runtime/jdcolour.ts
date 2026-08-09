@@ -119,6 +119,96 @@ function extremeColour(rt: Runtime, lightest: boolean): number {
   return best
 }
 
+
+/**
+ * The four resolution words `Jd Screen Convert` recognises, and the pixel
+ * scale each implies. $8000 is hires, $0004 laced, and the pair combine.
+ */
+const JD_RES = { LOW: 0x0000, LOWLACE: 0x0004, HIRES: 0x8000, HIRESLACE: 0x8004 } as const
+
+
+/**
+ * The blit both `Jd Screen Convert` and the six slides end up performing:
+ * every pixel of `src` into `dst`, scaled by whole pixels in each axis. The
+ * machine reaches it as a run of `L_sccopy` calls -- AMOS's own Screen Copy,
+ * minterm $CC -- one column or row at a time.
+ */
+export function jdBlit(rt: Runtime, src: number, dst: number, sx = 1, sy = 1): void {
+  const a = rt.screens.get(src)
+  const b = rt.screens.get(dst)
+  if (!a || !b) return
+  for (let y = 0; y < a.height; y++) {
+    const ty = Math.floor(y * sy)
+    if (ty >= b.height) break
+    for (let x = 0; x < a.width; x++) {
+      const tx = Math.floor(x * sx)
+      if (tx >= b.width) break
+      const c = a.point(x, y)
+      for (let j = 0; j < Math.max(1, Math.ceil(sy)); j++) {
+        for (let i = 0; i < Math.max(1, Math.ceil(sx)); i++) {
+          if (tx + i < b.width && ty + j < b.height) b.plot(tx + i, ty + j, c)
+        }
+      }
+    }
+  }
+}
+
+/**
+ * `Jd Change Colours` and `Jd Fill Colour` walk a rectangle pixel by pixel
+ * with ReadPixel and WritePixel, and they share a DEFECT worth reproducing:
+ * when a row ends, `Dmove mousek,d0` reloads the X register from the saved
+ * `y1` rather than from `x1` -- `Dsave d1,mousek` put y1 there. Only the FIRST
+ * row starts at x1; every row after it starts at column y1. The two are the
+ * same routine with a different test, so both carry it, and a region anchored
+ * at the origin (x1 = y1 = 0) hides it completely.
+ */
+function jdPixelSweep(
+  rt: Runtime,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  fn: (c: number) => number | null,
+): void {
+  const s = rt.screen
+  let x = x1
+  for (let y = y1; y <= y2; y++) {
+    for (; x <= x2; x++) {
+      if (x < 0 || y < 0 || x >= s.width || y >= s.height) continue
+      const to = fn(s.point(x, y))
+      if (to !== null) s.plot(x, y, to)
+    }
+    x = y1 // the defect: the row restart takes y1, not x1
+  }
+}
+
+/** the argument shape all six slides share: SOURCE To DEST */
+export function jdSlide(rt: Runtime, it: Parameters<Instr>[0]): void {
+  const src = it.evalInt()
+  it.expect('to')
+  const dst = it.evalInt()
+  jdBlit(rt, src, dst)
+}
+
+/**
+ * The six slides, as a table both libraries can mount.
+ *
+ * 4.6 carried them in the JD library at routines 98 to 103 and 5.3 dropped
+ * them; JD Colour 1.4 has the same six at routines 41 to 46, and the routine
+ * bodies are identical instruction for instruction. One implementation serves
+ * both, which is why this is a factory rather than six entries in one table.
+ */
+export function makeJdSlides(rt: Runtime): Record<string, Instr> {
+  return {
+    'jd slide x': (it) => jdSlide(rt, it),
+    'jd slide y': (it) => jdSlide(rt, it),
+    'jd slide left': (it) => jdSlide(rt, it),
+    'jd slide right': (it) => jdSlide(rt, it),
+    'jd slide up': (it) => jdSlide(rt, it),
+    'jd slide down': (it) => jdSlide(rt, it),
+  }
+}
+
 export function makeJdColourFunctions(rt: Runtime): Record<string, Func> {
   const arg = (a: Value[], i: number): number => int(a[i]!)
 
@@ -658,6 +748,23 @@ export function makeJdColourInstructions(rt: Runtime): Record<string, Instr> {
      * terminator is written, so only line ends change. Reproducing the rest
      * would need a per-`Write` boundary that a buffered channel does not have.
      */
+
+    /**
+     * The six slides --- routines 41 to 46 (+|col.s:1380-1638). Each copies
+     * SOURCE onto DEST a column or a row at a time through `L_sccopy`, AMOS's
+     * own Screen Copy: Slide X walks a one-pixel column from the right edge
+     * leftwards, laying each one down at its final resting place, and the
+     * other five are the same loop over a different axis and direction. When
+     * the last pass finishes, DEST holds SOURCE.
+     *
+     * DEVIATION: the animation is not paced, so what is written is the state
+     * the routine ends in -- the choice `Jd Spread`, `Jd Tscroll` and
+     * `Jd Squash` already make. The early exit is lost with it: on the machine
+     * `L_getk` is polled every pass and key 117 stops the slide part way,
+     * leaving a partial image that nothing here can produce.
+     */
+    ...makeJdSlides(rt),
+
     'jd setoutput amiga'() {
       rt.amigaLineEnds = true
     },
@@ -670,6 +777,154 @@ export function makeJdColourInstructions(rt: Runtime): Record<string, Instr> {
      * skipped entirely when it is zero (`cmp.l #$0,d1 / beq`), so closing a
      * window that was never opened is not an error.
      */
+    /**
+     * Jd Screen Border COL,X1,Y1 To X2,Y2 --- routine 58 (+|col.s:1913). Four
+     * filled rectangles, not an outline: everything OUTSIDE (x1,y1)-(x2,y2) is
+     * painted in COL. The strips are left, right, top and bottom in that
+     * order, each an AMOS Bar through the window vector at `$8c(a0)`, and the
+     * screen's own width and height come from `$4c` and `$4e` of the control
+     * block. With no current screen it takes `beq clserr` and does nothing.
+     */
+    'jd screen border'(it) {
+      const col = it.evalInt()
+      it.expect(',')
+      const x1 = it.evalInt()
+      it.expect(',')
+      const y1 = it.evalInt()
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      const s = rt.screens.get(rt.currentIndex)
+      if (!s) return
+      const w = s.width
+      const h = s.height
+      s.cls(col, 0, 0, Math.max(0, x1 - 1), h - 1)
+      s.cls(col, x2, 0, w - 1, h - 1)
+      s.cls(col, x1, 0, x2, Math.max(0, y1 - 1))
+      s.cls(col, x1, y2, x2, h - 1)
+    },
+
+    /**
+     * Jd Wait Raster LINE --- routine 59 (+|col.s:1959). The line is made
+     * positive (`bpl rapo / neg.l d0`) and then folded into 0..256 by
+     * repeated subtraction, and the routine spins on `$dff006` -- the high
+     * byte of VHPOSR, which is the beam's vertical position -- until it
+     * matches.
+     *
+     * DEVIATION: there is no beam here. A given raster line comes round once
+     * per frame, so the wait is a frame, which is what AMOS's own `Wait Vbl`
+     * does. A program using this to sync to the display gets frame-rate sync
+     * rather than sub-frame; the folding arithmetic is reproduced because a
+     * program can compute a line number from it.
+     */
+    'jd wait raster'(it) {
+      let line = it.evalInt()
+      if (line < 0) line = -line
+      while (line >= 257) line -= 256
+      it.block({ type: 'wait', until: Math.floor(it.tick) + 1 })
+    },
+
+    /**
+     * Jd Change Colours COL1,COL2,X1,Y1 To X2,Y2 --- routine 39 (+|col.s:1283).
+     * Every pixel in the rectangle that is COL1 becomes COL2 and every COL2
+     * becomes COL1: a swap, not a replace. Carries the row-restart DEFECT
+     * described on `jdPixelSweep`.
+     */
+    'jd change colours'(it) {
+      const c1 = it.evalInt()
+      it.expect(',')
+      const c2 = it.evalInt()
+      it.expect(',')
+      const x1 = it.evalInt()
+      it.expect(',')
+      const y1 = it.evalInt()
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      jdPixelSweep(rt, x1, y1, x2, y2, (c) => (c === c1 ? c2 : c === c2 ? c1 : null))
+    },
+
+    /**
+     * Jd Fill Colour COL1 To COL2,X1,Y1 To X2,Y2 --- routine 40 (+|col.s:1335).
+     * The same sweep with one test instead of two: every pixel that is COL2
+     * becomes COL1. The pen is set once before the loop rather than per pixel,
+     * which is the only difference in the code. Same row-restart DEFECT.
+     */
+    'jd fill colour'(it) {
+      const c1 = it.evalInt()
+      it.expect('to')
+      const c2 = it.evalInt()
+      it.expect(',')
+      const x1 = it.evalInt()
+      it.expect(',')
+      const y1 = it.evalInt()
+      it.expect('to')
+      const x2 = it.evalInt()
+      it.expect(',')
+      const y2 = it.evalInt()
+      jdPixelSweep(rt, x1, y1, x2, y2, (c) => (c === c2 ? c1 : null))
+    },
+
+    /**
+     * Jd Save Palette FILE$ --- routine 36 (+|col.s:1089). The format IS
+     * settled by the source: `apal` is `dc.b 'APal'` followed by `pal`, 32
+     * words, and the routine writes all 68 bytes in one `Write`. MODE_NEWFILE
+     * (1006), and an empty filename takes `Rbeq missing` before anything is
+     * opened.
+     */
+    'jd save palette'(it) {
+      const file = it.evalStr()
+      if (file === '') return
+      const out = new Uint8Array(68)
+      out.set([0x41, 0x50, 0x61, 0x6c], 0) // 'APal'
+      const v = new DataView(out.buffer)
+      const pal = rt.screen.palette
+      for (let i = 0; i < 32; i++) v.setUint16(4 + i * 2, (pal[i] ?? 0) & 0xffff)
+      rt.vfs?.writeFile(file, out)
+    },
+
+    /**
+     * Jd Load Palette FILE$ --- routine 37 (+|col.s:1122). Reads 68 bytes,
+     * closes, and only then checks `cmp.l #'APal',(a0)+`; a file that does not
+     * begin with the magic takes `kmissing` and the screen keeps the palette
+     * it had. MODE_OLDFILE (1005).
+     */
+    'jd load palette'(it) {
+      const file = it.evalStr()
+      if (file === '') return
+      const raw = rt.fs?.read(file)
+      if (!raw || raw.length < 68) return
+      const v = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
+      if (v.getUint32(0) !== 0x4150616c) return // 'APal'
+      for (let i = 0; i < 32; i++) rt.screen.palette[i] = v.getUint16(4 + i * 2) & 0xfff
+    },
+
+    /**
+     * Jd Screen Convert SOURCE,SRES To DEST,DRES --- routine 33 (+|col.s:871).
+     * A resolution change done as a scaled copy: `cmp.l d6,d7 / bne do_it`
+     * means identical resolutions do nothing at all, and only four of the
+     * sixteen pairings have a conversion behind them -- the source's own
+     * comments mark them with a `*`. Anything else falls out of the dispatch
+     * on an `rts`.
+     */
+    'jd screen convert'(it) {
+      const src = it.evalInt()
+      it.expect(',')
+      const sres = it.evalInt()
+      it.expect('to')
+      const dst = it.evalInt()
+      it.expect(',')
+      const dres = it.evalInt()
+      if (sres === dres) return
+      const wide = (r: number): boolean => (r & JD_RES.HIRES) !== 0
+      const tall = (r: number): boolean => (r & JD_RES.LOWLACE) !== 0
+      const sx = wide(sres) === wide(dres) ? 1 : wide(sres) ? 0.5 : 2
+      const sy = tall(sres) === tall(dres) ? 1 : tall(sres) ? 0.5 : 2
+      jdBlit(rt, src, dst, sx, sy)
+    },
+
     'jd close con'(it) {
       const h = it.evalInt()
       if (h === 0) return
