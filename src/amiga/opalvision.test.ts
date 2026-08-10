@@ -8,10 +8,15 @@
  * the code that does it.
  */
 import { describe, expect, it } from 'vitest'
+import { encodeJpeg } from './jpeg'
 import {
   HIRES24,
   ILACE24,
+  NOTHUMBNAIL,
+  OL_ERR_FORMATUNKNOWN,
+  OL_ERR_MAXERR,
   OS,
+  OVERSCAN24,
   OVFASTFORMAT,
   OVTN_SIZE,
   OpalVision,
@@ -22,6 +27,7 @@ import {
   THUMB_PLANE,
   THUMB_ROW,
   THUMB_W,
+  VIRTUALSCREEN24,
   bytesPerLine,
   depthFor,
   frameTarget,
@@ -378,6 +384,96 @@ describe('IFF', () => {
     const wrongType = ov.saveIff(screen(ov, 0, 16, 2), 0).slice()
     wrongType.set([0x41, 0x4e, 0x49, 0x4d], 8) // FORM ANIM
     expect(ov.loadIff(wrongType, 0, 0, false)).toBe(4) // OL_ERR_NOTILBM
+  })
+})
+
+describe('JPEG', () => {
+  /**
+   * The saver reads the screen through `OVtoRGB` a row at a time, so a 24-bit
+   * screen goes out as the component bytes it holds.
+   */
+  it('saves a screen and reads it back', () => {
+    const ov = card()
+    const scrn = ov.newScreen(0, 40, 24, false)
+    for (let y = 0; y < 24; y++) {
+      for (let x = 0; x < 40; x++) {
+        ov.putPixel(scrn, x, y, (x * 6) | ((y * 10) << 8) | (((x + y) * 4) << 16))
+      }
+    }
+    const bytes = ov.saveJpeg(scrn, NOTHUMBNAIL, 95)!
+    expect(bytes).not.toBeNull()
+
+    const back = ov.loadJpeg(bytes, 0, VIRTUALSCREEN24, false)
+    expect(back).toBeGreaterThanOrEqual(OL_ERR_MAXERR)
+    expect(ov.peek16(back + OS.Width)).toBe(40)
+    expect(ov.peek16(back + OS.Height)).toBe(24)
+    let worst = 0
+    for (let y = 0; y < 24; y++) {
+      for (let x = 0; x < 40; x++) {
+        const want = (x * 6) | ((y * 10) << 8) | (((x + y) * 4) << 16)
+        const got = ov.getPixel(back, x, y)
+        for (let c = 0; c < 3; c++) {
+          const e = Math.abs(((got >>> (c * 8)) & 255) - ((want >>> (c * 8)) & 255))
+          if (e > worst) worst = e
+        }
+      }
+    }
+    expect(worst).toBeLessThanOrEqual(12)
+  })
+
+  /**
+   * "A thumbnail will also be written into the APP0 marker of the JFIF file
+   * unless the NOTHUMBNAIL flag is set", and it is the OVTN chunk with no
+   * length between the tag and the planes.
+   */
+  it('puts the OVTN chunk in APP0, tag and planes and nothing else', () => {
+    const ov = card()
+    const scrn = ov.newScreen(0, 64, 32, false)
+    const plain = ov.saveJpeg(scrn, NOTHUMBNAIL, 75)!
+    expect((plain[4]! << 8) | plain[5]!).toBe(16)
+
+    const withThumb = ov.saveJpeg(scrn, 0, 75)!
+    // 16 for the fixed part, 4 for the tag and 4320 for the planes
+    expect((withThumb[4]! << 8) | withThumb[5]!).toBe(4340)
+    expect(withThumb[18]).toBe(THUMB_W)
+    expect(withThumb[19]).toBe(THUMB_H)
+    expect(String.fromCharCode(...withThumb.subarray(20, 24))).toBe('OVTN')
+    expect(withThumb.subarray(24, 24 + OVTN_SIZE).length).toBe(OVTN_SIZE)
+    // and the picture is still readable past it
+    expect(ov.loadJpeg(withThumb, 0, VIRTUALSCREEN24, false)).toBeGreaterThanOrEqual(OL_ERR_MAXERR)
+  })
+
+  /**
+   * With no CAMG there is nothing to take a mode from, so hunk 3 $c50 takes one
+   * from the width: over 640 hires and overscan, over 370 hires, over 320
+   * overscan, and over 256 lines interlaced.
+   */
+  it('picks the display mode from the picture size', () => {
+    const ov = card()
+    const mode = (w: number, h: number): number => {
+      const src = new Uint8Array(w * h * 3).fill(0x40)
+      const scrn = ov.loadJpeg(encodeJpeg(src, w, h, { quality: 50 }), 0, VIRTUALSCREEN24, false)
+      expect(scrn).toBeGreaterThanOrEqual(OL_ERR_MAXERR)
+      const flags = ov.peek16(scrn + OS.Flags) & (HIRES24 | ILACE24 | OVERSCAN24)
+      ov.freeScreen(scrn)
+      return flags
+    }
+    expect(mode(320, 16)).toBe(0)
+    expect(mode(336, 16)).toBe(OVERSCAN24)
+    expect(mode(400, 16)).toBe(HIRES24)
+    expect(mode(704, 16)).toBe(HIRES24 | OVERSCAN24)
+    expect(mode(320, 288)).toBe(ILACE24)
+  })
+
+  it('answers OL_ERR_FORMATUNKNOWN for a JPEG it will not take', () => {
+    const ov = card()
+    expect(ov.loadJpeg(Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]), 0, 0, false)).toBe(
+      OL_ERR_FORMATUNKNOWN,
+    )
+  })
+
+  it('will not save a screen that is not there', () => {
+    expect(card().saveJpeg(0x1234, 0, 75)).toBeNull()
   })
 })
 

@@ -100,6 +100,7 @@ import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
 import { VI, str } from '../interp/values'
 import type { Bus } from '../amiga/opalvision'
+import { findApp0Thumbnail } from '../amiga/jpeg'
 import {
   ADDLOAD,
   CL_AUTO,
@@ -969,13 +970,15 @@ export function makeOpalFunctions(rt: Runtime): Record<string, Func> {
      * left, and the screen is the third pop, into `A0`, which is where the
      * AutoDoc wants it.
      *
-     * JPEG is not loaded. The AutoDoc's own restriction list is precise about
-     * what the loader accepts — *"a baseline loader as specified in the draft
-     * standard ISO/IEC Bis 10918-1 ... 8 bit quantization tables and Huffman
-     * entropy compression ... Y Cb Cr, RGB and Grey scale"* — and a decoder for
-     * it is not written yet, so a file whose first two bytes are the JPEG start
-     * marker gets `OL_ERR_FORMATUNKNOWN`, which is what the library answers for
-     * a file it cannot identify at all.
+     * A file whose first two bytes are the JPEG start marker goes to
+     * `OpalVision.loadJpeg` and everything else to `loadIff`. The AutoDoc's
+     * restriction list is what `../amiga/jpeg.ts` implements — *"a baseline
+     * loader as specified in the draft standard ISO/IEC Bis 10918-1 ... 8 bit
+     * quantization tables and Huffman entropy compression ... Y Cb Cr, RGB and
+     * Grey scale ... does not support non interleaved files, progressive,
+     * hierarchical or lossless modes"* — and a JPEG outside it gets
+     * `OL_ERR_FORMATUNKNOWN`, the code the library answers for a file it cannot
+     * identify at all.
      */
     ovloadimage24: (_it, a) => VI(loadImage(rt, int(a[0]), str(a[1]!), int(a[2]))),
     ovloadiff24: (_it, a) => VI(loadImage(rt, int(a[0]), str(a[1]!), int(a[2]))),
@@ -996,6 +999,28 @@ export function makeOpalFunctions(rt: Runtime): Record<string, Func> {
       if (!ov.screens.get(scrn >>> 0)) return VI(OL_ERR_OPENFILE)
       const bytes = ov.saveIff(scrn, flags)
       return VI(rt.vfs?.writeFile(name, bytes) === true ? 0 : OL_ERR_FILEWRITE)
+    },
+
+    /**
+     * Routine 73 ($10a0) — `=Ovsavejpeg24(SCREEN,NAME$,FLAGS,QUALITY)`. *"Error = 0
+     * if no error code, >0 if error occurred."*
+     *
+     * *"This generates a base line JPEG file using interleaved components,
+     * Huffman entropy compression and 8 bit quatization tables"* — the typo is
+     * the AutoDoc's — and the encoder is `../amiga/jpeg.ts`, which takes its
+     * tables, its quality law and its 4:2:0 sampling from the library's own
+     * code. Only the forward DCT is this port's own, so the file is a
+     * conformant baseline JPEG that differs from a real Amiga's in the low bits
+     * of some coefficients.
+     *
+     * `NOTHUMBNAIL` is the only flag, and it is the same bit `SaveIFF24` uses.
+     */
+    ovsavejpeg24: (_it, a) => {
+      const ov = card()
+      const scrn = int(a[0])
+      const bytes = ov.saveJpeg(scrn, int(a[2]), int(a[3]))
+      if (bytes === null) return VI(OL_ERR_OPENFILE)
+      return VI(rt.vfs?.writeFile(str(a[1]!), bytes) === true ? 0 : OL_ERR_FILEWRITE)
     },
 
     /**
@@ -1036,9 +1061,8 @@ export function makeOpalFunctions(rt: Runtime): Record<string, Func> {
      *
      * Hunk $a01e reads the file forward chunk by chunk and stops at the first
      * of `OVTN` — which it takes — or `BODY`, which means there was none. The
-     * JPEG arm looks for a thumbnail in an APP0 segment instead and is not
-     * modelled; a JPEG gets `OL_ERR_NOTHUMBNAIL`, which is also what the
-     * library answers for a JPEG that carries no thumbnail.
+     * JPEG arm looks in the APP0 segment instead, where `SaveJPEG24` writes the
+     * same chunk without a length: the tag and then 4320 bytes of planes.
      */
     ovdisplaythumbnail24: (_it, a) => {
       const ov = card()
@@ -1095,9 +1119,11 @@ const isJpeg = (data: Uint8Array): boolean => data[0] === 0xff && data[1] === 0x
 function loadImage(rt: Runtime, scrn: number, name: string, flags: number): number {
   const data = readFile(rt, name)
   if (data === null) return OL_ERR_OPENFILE
-  if (isJpeg(data)) return OL_ERR_NOTIFF
-  const addr = rt.opal.ov.loadIff(data, scrn, flags, false)
-  if (addr >= OL_ERR_MAXERR) rt.opal.ov.patched = true
+  const ov = rt.opal.ov
+  const addr = isJpeg(data)
+    ? ov.loadJpeg(data, scrn, flags, false)
+    : ov.loadIff(data, scrn, flags, false)
+  if (addr >= OL_ERR_MAXERR) ov.patched = true
   return addr
 }
 
@@ -1109,7 +1135,14 @@ function loadImage(rt: Runtime, scrn: number, name: string, flags: number): numb
  * which is why `SaveIFF24` puts it first of all the chunks.
  */
 function findThumbnail(data: Uint8Array): Uint8Array | number {
-  if (isJpeg(data)) return OL_ERR_NOTHUMBNAIL
+  if (isJpeg(data)) {
+    // the JPEG arm looks in APP0, where SaveJPEG24 puts the same chunk without
+    // its length -- four bytes of tag and then the planes
+    const app0 = findApp0Thumbnail(data)
+    if (!app0 || app0.data.length < 4 + OVTN_SIZE) return OL_ERR_NOTHUMBNAIL
+    if (String.fromCharCode(...app0.data.subarray(0, 4)) !== 'OVTN') return OL_ERR_NOTHUMBNAIL
+    return app0.data.slice(4, 4 + OVTN_SIZE)
+  }
   const tag = (i: number): string =>
     String.fromCharCode(data[i] ?? 0, data[i + 1] ?? 0, data[i + 2] ?? 0, data[i + 3] ?? 0)
   const u32 = (i: number): number =>

@@ -97,6 +97,7 @@
  * Preferences here. See `vStart`.
  */
 import { MemPool } from './exec'
+import { decodeJpeg, encodeJpeg } from './jpeg'
 
 /* ---- struct OpalScreen (devdocs/Assembler/opallib.i) ------------------ */
 
@@ -1763,6 +1764,133 @@ export class OpalVision {
   }
 
   /**
+   * Which screen a load lands in, for both halves of `LoadImage24`.
+   *
+   * *"If the screen pointer is NULL then LoadImage24 will open a screen itself,
+   * the screen it opens will be a display screen unless VIRTUALSCREEN24 is set
+   * ... If the passed screen structure is not NULL and the image being loaded
+   * is the same resolution, then it will be loaded into that screen. If this is
+   * not the case then the screen will be closed and a new screen of the same
+   * resolution as the file will be opened. However if KEEPRES24 is set, the
+   * file will be loaded into the supplied screen regardless of its
+   * resolution."*
+   *
+   * Zero means the open failed and the caller answers `OL_ERR_OUTOFMEM`.
+   */
+  private loadTarget(
+    flags: number,
+    width: number,
+    height: number,
+    scrn: number,
+    loadFlags: number,
+    ntsc: boolean,
+  ): number {
+    const RES = HIRES24 | ILACE24 | PLANES8 | PLANES15
+    let target = scrn >>> 0
+    if (target !== 0 && !(loadFlags & KEEPRES24)) {
+      if ((this.peek16(target + OS.Flags) & RES) !== (flags & RES)) {
+        this.freeScreen(target)
+        target = 0
+      }
+    }
+    if (target !== 0) return target
+    const virt = (loadFlags & VIRTUALSCREEN24) !== 0
+    const size = virt ? { width, height } : screenSize(flags, ntsc)
+    target = this.newScreen(flags | (loadFlags & CLOSEABLE24), size.width, size.height, !virt)
+    if (target === 0) return 0
+    if (!virt) {
+      if (this.active !== 0 && this.active !== target) this.freeScreen(this.active)
+      this.active = target
+    }
+    return target
+  }
+
+  /**
+   * `SaveJPEG24 (OScrn, FileName, Flags, Quality)`, as bytes.
+   *
+   * The screen is read a row at a time through `OVtoRGB`, which is what hunk 3
+   * $1e9a does: `x` fixed at 0, `Height` fixed at 1, and the y coordinate bumped
+   * after each call. That routine hands back *"three planes, one containing
+   * Red, one Blue and the last Green, each of these has one byte per pixel"* —
+   * the screen's own component bytes, with no attention to what they mean, so a
+   * palette-mapped screen saves its indices as red and an 8-bit screen saves
+   * dark. Reading them here through `getPixel` is the same read without the
+   * three intermediate buffers.
+   *
+   * *"A thumbnail will also be written into the APP0 marker of the JFIF file
+   * unless the NOTHUMBNAIL flag is set"*, and it is the `OVTN` chunk again —
+   * the four-byte tag and 4320 bytes of OpalVision planes, declared to JFIF as
+   * a 48 by 30 RGB thumbnail that it is not. See ../amiga/jpeg.ts.
+   *
+   * Making the thumbnail zeroes the screen's `RelX` and `RelY`, because
+   * `MakeThumbnail` does; the catalogue in ../runtime/opal.ts has it.
+   */
+  saveJpeg(scrn: number, saveFlags: number, quality: number): Uint8Array | null {
+    if (!this.screens.get(scrn >>> 0)) return null
+    const width = this.peek16(scrn + OS.Width)
+    const height = this.peek16(scrn + OS.Height)
+    if (width <= 0 || height <= 0) return null
+    const wanted = (saveFlags & NOTHUMBNAIL) === 0
+    const thumb = wanted
+      ? { x: THUMB_W, y: THUMB_H, data: taggedThumbnail(this.thumbnail(scrn)) }
+      : null
+    const pixels = new Uint8Array(width * height * 3)
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const v = this.getPixel(scrn, x, y)
+        const o = (y * width + x) * 3
+        pixels[o] = v & 0xff
+        pixels[o + 1] = (v >>> 8) & 0xff
+        pixels[o + 2] = (v >>> 16) & 0xff
+      }
+    }
+    return encodeJpeg(pixels, width, height, thumb ? { quality, thumbnail: thumb } : { quality })
+  }
+
+  /**
+   * `LoadImage24 (OScrn, FileName, Flags)` for the JPEG half.
+   *
+   * A JPEG carries no `CAMG`, so there is nothing to take a display mode from
+   * and hunk 3 $c50 takes one from the picture's width instead: over 640 is
+   * hires and overscan, over 370 is hires, over 320 is overscan, and anything
+   * else is plain lores. Over 256 lines is interlaced. The thresholds are the
+   * routine's own; that a JPEG is what reaches them is read from the branch at
+   * $c00, which sends a file with no mode information down this path.
+   *
+   * The screen is always true colour. Rows go in through `RGBtoOV` — hunk 3
+   * $142a — which writes three component bytes a pixel whatever the depth, so
+   * there is no palette-mapped arm here the way there is for IFF.
+   */
+  loadJpeg(data: Uint8Array, scrn: number, loadFlags: number, ntsc: boolean): number {
+    const img = decodeJpeg(data)
+    if (!img) return OL_ERR_FORMATUNKNOWN
+    let flags = 0
+    if (img.width > 640) flags = HIRES24 | OVERSCAN24
+    else if (img.width > 370) flags = HIRES24
+    else if (img.width > 320) flags = OVERSCAN24
+    if (img.height > 256) flags |= ILACE24
+    if (ntsc) flags |= NTSC24
+
+    const target = this.loadTarget(flags, img.width, img.height, scrn, loadFlags, ntsc)
+    if (target === 0) return OL_ERR_OUTOFMEM
+
+    const dw = this.peek16(target + OS.Width)
+    const dh = this.peek16(target + OS.Height)
+    for (let y = 0; y < Math.min(img.height, dh); y++) {
+      for (let x = 0; x < Math.min(img.width, dw); x++) {
+        const o = (y * img.width + x) * 3
+        this.putPixel(
+          target,
+          x,
+          y,
+          (img.pixels[o]! | (img.pixels[o + 1]! << 8) | (img.pixels[o + 2]! << 16)) >>> 0,
+        )
+      }
+    }
+    return target
+  }
+
+  /**
    * `LoadImage24 (OScrn, FileName, Flags)` for the IFF half.
    *
    * *"The IFF portion of this loader will load IFF 24bit, Fast Format 24 bit,
@@ -1847,24 +1975,9 @@ export class OpalVision {
     if (width > (flags & HIRES24 ? 640 : 320)) flags |= OVERSCAN24
     if (ntsc) flags |= NTSC24
 
-    const RES = HIRES24 | ILACE24 | PLANES8 | PLANES15
-    let target = scrn >>> 0
-    if (target !== 0 && !(loadFlags & KEEPRES24)) {
-      if ((this.peek16(target + OS.Flags) & RES) !== (flags & RES)) {
-        this.freeScreen(target)
-        target = 0
-      }
-    }
     const virt = (loadFlags & VIRTUALSCREEN24) !== 0
-    if (target === 0) {
-      const size = virt ? { width, height } : screenSize(flags, ntsc)
-      target = this.newScreen(flags | (loadFlags & CLOSEABLE24), size.width, size.height, !virt)
-      if (target === 0) return OL_ERR_OUTOFMEM
-      if (!virt) {
-        if (this.active !== 0 && this.active !== target) this.freeScreen(this.active)
-        this.active = target
-      }
-    }
+    const target = this.loadTarget(flags, width, height, scrn, loadFlags, ntsc)
+    if (target === 0) return OL_ERR_OUTOFMEM
 
     // the palette, whichever chunk carried it -- 768 bytes into OS_Palette,
     // which is the `move.l (a2)+,(a1)+` x 192 at hunk $917e
@@ -2027,6 +2140,19 @@ export const THUMB_ROW = 12
 export const THUMB_PLANE = THUMB_ROW * THUMB_H
 /** `move.l #$10e0,$b0c0.l` — the OVTN chunk's length, and it is always this */
 export const OVTN_SIZE = THUMB_PLANE * THUMB_PLANES
+
+/**
+ * The APP0 payload: the tag and then the planes, with no length between them.
+ *
+ * Hunk 3 $1cc0 writes the four bytes and hunk 3 $1ce4 writes the 4320 — unlike
+ * the IFF chunk of the same name, which carries `$10e0` in between.
+ */
+function taggedThumbnail(planes: Uint8Array): Uint8Array {
+  const out = new Uint8Array(4 + OVTN_SIZE)
+  out.set([0x4f, 0x56, 0x54, 0x4e])
+  out.set(planes, 4)
+  return out
+}
 
 /**
  * One pixel into the thumbnail block, with the screen's own two-bits-a-plane

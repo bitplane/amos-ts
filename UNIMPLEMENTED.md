@@ -16,16 +16,10 @@ port has started — among them AMCAF 1.40/1.50, the JD family, EasyLife, TOME,
 TURBO Plus, Personnal, LDos, AMOS 3D, PowerBobs, MED 7.1, EME 3.0, P61 and
 BUtility. `KEYWORDS.md` has the per-row counts.
 
-**One row is partially ported, and it is meant to be.** Of the ninety-odd rows
-in the manifest, all but one sit at 0% or 100%: an extension is finished or it
-has not been begun. That is the ratchet working, and it is the number to watch
-— a row appearing in the middle means a thread was left hanging.
-
-The exception is **Opal 1.1 at 77/78**. `Ovsavejpeg24` wants a baseline JPEG
-encoder, which is a codec rather than an extension keyword, and whether this
-port grows one is an open question and not an oversight. Until it is settled
-the row stays visible in the middle of the board, which is the point of
-counting this way.
+**Nothing is partially ported.** Every row in the manifest sits at 0% or 100%:
+an extension is finished or it has not been begun. That is the ratchet
+working, and it is the number to watch — a row appearing in the middle means a
+thread was left hanging.
 
 `KEYWORDS.md`'s total row carries the implemented and faithful counts. They
 are not repeated here, because a hand-copied total is a total that drifts.
@@ -128,7 +122,7 @@ the sector image it wants --- so a mounted disk is served byte for byte and
 trigger and nowhere else.
 
 **Opal 1.1 came off this table, and the note it carried — "OpalVision
-hardware" — was the wrong reason to keep it there.** 77 of its 78 read; 63 are
+hardware" — was the wrong reason to keep it there.** All 78 read; 63 are
 faithful. The row moved because the documentation turned out to exist: Opal
 Technology published its whole developer kit on Aminet in September 1993 as
 `driver/video/devdocs.lha`, and it holds `opal.library`'s AutoDocs, the
@@ -172,16 +166,30 @@ length. `src/runtime/opal.ts` catalogues all eight — including the five that
 belong to `src/amiga/opalvision.ts`, because `DEFECT:` may not live in that
 directory.
 
-The one keyword left is **`Ovsavejpeg24`**, which wants a baseline JPEG
-encoder, and the same missing codec is why the JPEG half of `Ovloadimage24`
-answers `OL_ERR_FORMATUNKNOWN` rather than loading. The AutoDoc is precise
-about what would be needed — *"a baseline loader as specified in the draft
-standard ISO/IEC Bis 10918-1 ... 8 bit quantization tables and Huffman entropy
-compression ... Y Cb Cr, RGB and Grey scale"*, with no progressive,
-hierarchical or lossless — so the work is determinate and simply has not been
-done. Everything else about image files is complete: the IFF loader takes
-24-bit, OpalVision fast format, palette mapped, HAM and Extra Half Brite, and
-the writer reproduces hunk $a39c chunk for chunk.
+**`Ovsavejpeg24` closed the row**, and it cost a codec rather than a keyword:
+`src/amiga/jpeg.ts` is a baseline encoder and decoder, the decoder being what
+lets the JPEG half of `Ovloadimage24` load instead of answering
+`OL_ERR_FORMATUNKNOWN`. The library's JPEG code turns out to be the
+Independent JPEG Group's, v4-era, compiled with SAS/C into the library's
+fourth hunk, so almost nothing there had to be guessed — the Annex K tables
+are in the binary at `$d41a`, `$d49a` and `$d27b`, `jpeg_set_quality` is at
+hunk 3 `$2668` and `jpeg_add_quant_table` at `$25da`, and the 4:2:0 sampling
+and marker order are readable at `$2740` and `$1d16`. Two of the library's own
+habits are reproduced rather than tidied: it emits a Huffman table per
+component instead of per table, so the two chrominance definitions go out
+three times between them, and the APP0 "thumbnail" is Opal's `OVTN` chunk
+declared to JFIF as the 48 × 30 RGB it is not.
+
+One piece is deliberately not the library's: the forward DCT. Matching IJG's
+integer transform bit for bit would make output byte-identical to an Amiga's
+and buys nothing, since nothing here reads a JPEG back except this decoder, so
+the file is a conformant baseline JPEG that differs in the low bits of some
+coefficients. The decoder replicates chrominance where libjpeg uses a triangle
+filter, which is the other place a picture can land a few levels off. Both
+keywords are approximated for those reasons and for no others. Everything else
+about image files is complete: the IFF loader takes 24-bit, OpalVision fast
+format, palette mapped, HAM and Extra Half Brite, and the writer reproduces
+hunk `$a39c` chunk for chunk.
 
 **Make Lib 1.30 came off this table as well**, and it is the small row that
 paid for something larger. All 32 read 100% and all 32 are faithful. Its
@@ -559,11 +567,11 @@ furniture.
   to `ADR` (device type, unit number, handler name) is not modelled, so the
   address argument is accepted and ignored.
 
-- `ovloadimage24`/`ovloadiff24` — load IFF, and answer
-  `OL_ERR_FORMATUNKNOWN` for a JPEG, which is what `opal.library` answers for
-  a file it cannot identify. Closable with the same codec `Ovsavejpeg24`
-  wants; the AutoDoc lists the exact subset of ISO/IEC 10918-1 that would be
-  needed.
+- `ovloadimage24`/`ovloadiff24`, `ovsavejpeg24` — the IFF half is exact and
+  the JPEG half is conformant but not byte-identical: the forward DCT is this
+  port's own float transform where the library uses IJG's integer one, and the
+  decoder replicates chrominance where libjpeg filters it, which can put a
+  4:2:0 picture about ten levels off what an Amiga would show.
 
 - `ovdrawline24`, `ovdrawellipse24` — the AutoDocs fix the arguments and the
   clipping and say nothing about which pixels a slope lands on, and the

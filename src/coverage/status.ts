@@ -6998,13 +6998,29 @@ export const NOTES: Record<string, string> = {
     "code\" returning 0",
   "ovloadimage24":
     "Routine 25 ($b9c), shared with Ovloadiff24 -- two token entries, one routine, because the library renamed " +
-    "the function and kept the old name \"to maintain backward compatibility\". APPROXIMATED because the JPEG " +
-    "half is not written: the AutoDoc's own restriction list is precise about it -- \"a baseline loader as " +
-    "specified in the draft standard ISO/IEC Bis 10918-1 ... 8 bit quantization tables and Huffman entropy " +
-    "compression\" -- and a file starting $ffd8 answers OL_ERR_FORMATUNKNOWN, which is what the library answers " +
-    "for a file it cannot identify at all. The IFF half is complete: 24-bit, OpalVision fast format, palette " +
-    "mapped, HAM and Extra Half Brite. DEFECT: `Opal.s` comments the first pop as \";OpalScreen pointer.\" and it " +
-    "is the FLAGS -- a wrong comment, not wrong code",
+    "the function and kept the old name \"to maintain backward compatibility\". Both halves are here. The IFF " +
+    "one is complete: 24-bit, OpalVision fast format, palette mapped, HAM and Extra Half Brite. The JPEG one " +
+    "reads what the AutoDoc says it reads -- \"a baseline loader as specified in the draft standard ISO/IEC Bis " +
+    "10918-1 ... 8 bit quantization tables and Huffman entropy compression ... Y Cb Cr, RGB and Grey scale\", " +
+    "and not \"non interleaved files, progressive, hierarchical or lossless modes\" -- and a JPEG outside that " +
+    "answers OL_ERR_FORMATUNKNOWN, the code the library gives a file it cannot identify at all. APPROXIMATED for " +
+    "the JPEG half only: the library is the Independent JPEG Group's code and upsamples chrominance with a " +
+    "triangle filter, while src/amiga/jpeg.ts replicates, so a 4:2:0 file lands up to about 10 levels off what " +
+    "an Amiga would show. With no CAMG to read a display mode from, hunk 3 $c50 takes one from the picture's " +
+    "width -- over 640 hires and overscan, over 370 hires, over 320 overscan -- and over 256 lines interlaced. " +
+    "DEFECT: `Opal.s` comments the first pop as \";OpalScreen pointer.\" and it is the FLAGS -- a wrong comment, " +
+    "not wrong code",
+  "ovsavejpeg24":
+    "Routine 73 ($10a0). The library's JPEG code is the Independent JPEG Group's, v4-era, compiled with SAS/C " +
+    "into the fourth hunk, and everything it chooses is read off that binary rather than guessed: the Annex K " +
+    "quantization tables it carries as zigzag words at $d41a and $d49a, the four Annex K Huffman tables at " +
+    "$d27b, jpeg_set_quality's 5000/q and 200-2q at hunk 3 $2668, jpeg_add_quant_table's (base*scale+50)/100 " +
+    "clamped to 1..255 at hunk 3 $25da, 4:2:0 sampling from the component array at hunk 3 $2740, and the marker " +
+    "order at hunk 3 $1d16. Two of its habits are reproduced: the scan header emits a DHT per component rather " +
+    "than per table, so tables 1 and 1 go out three times between them, and the APP0 \"thumbnail\" is the OVTN " +
+    "chunk -- tag then planes -- declared to JFIF as 48 x 30 RGB that it is not. APPROXIMATED in one place: the " +
+    "forward DCT is this port's own float transform and not IJG's integer one, so the file is a conformant " +
+    "baseline JPEG that differs from an Amiga's in the low bits of some coefficients",
   "ovloadiff24":
     "Routine 25 ($b9c). See Ovloadimage24: the same routine under the older name",
   "ovdownloadframe24":

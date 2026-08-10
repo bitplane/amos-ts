@@ -193,14 +193,113 @@ describe('image files', () => {
   })
 
   /**
-   * The JPEG half of the loader is not written. `OL_ERR_FORMATUNKNOWN` shares
-   * its number with `OL_ERR_NOTIFF` and is what the library answers for a file
-   * it cannot identify.
+   * `OL_ERR_FORMATUNKNOWN` shares its number with `OL_ERR_NOTIFF` and is what
+   * the library answers for a file it cannot identify — which now includes a
+   * JPEG the baseline decoder will not take, but not a JPEG as such.
    */
-  it('answers OL_ERR_FORMATUNKNOWN for a JPEG', () => {
+  it('answers OL_ERR_FORMATUNKNOWN for a JPEG it cannot decode', () => {
     const fs = withRam()
     fs.writeFile('RAM:pic.jpg', Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 16]))
     expect(num(['Print Ovloadimage24(0,"RAM:pic.jpg",0)'], fs)).toBe(3)
+  })
+
+  it('Ovsavejpeg24 answers 0 and writes a JFIF file', () => {
+    const fs = withRam()
+    expect(
+      vals(
+        [
+          'S=Ovcreatescreen24(0,64,16)',
+          'Ovsetpen24 S,200,40,90',
+          'Ovrectfill24 S,0,0,63,15',
+          'A=Ovsavejpeg24(S,"RAM:pic.jpg",0,75)',
+          'Print A',
+        ],
+        fs,
+      ),
+    ).toEqual([0])
+    const b = fs.readFile('RAM:pic.jpg')!
+    expect([b[0], b[1]]).toEqual([0xff, 0xd8])
+    expect(String.fromCharCode(...b.subarray(6, 10))).toBe('JFIF')
+    expect([b[b.length - 2], b[b.length - 1]]).toEqual([0xff, 0xd9])
+  })
+
+  it('Ovloadimage24 reads a saved JPEG back', () => {
+    const fs = withRam()
+    const [w, h, r, g, b] = vals(
+      [
+        'S=Ovcreatescreen24(0,64,16)',
+        'Ovsetpen24 S,200,40,90',
+        'Ovrectfill24 S,0,0,63,15',
+        'A=Ovsavejpeg24(S,"RAM:pic.jpg",4,95)',
+        'T=Ovloadimage24(0,"RAM:pic.jpg",8)',
+        'Print Deek(T);Deek(T+2)',
+        'Ovreadpixel24 T,32,8',
+        'Print Ovgetred24(T);Ovgetgreen24(T);Ovgetblue24(T)',
+      ],
+      fs,
+    )
+    expect([w, h]).toEqual([64, 16])
+    // JPEG is lossy: "This determines the amount of loss allowed in the
+    // compression of the image. 100 % corresponds to minimum loss"
+    expect(Math.abs(r! - 200)).toBeLessThanOrEqual(2)
+    expect(Math.abs(g! - 40)).toBeLessThanOrEqual(2)
+    expect(Math.abs(b! - 90)).toBeLessThanOrEqual(2)
+  })
+
+  /**
+   * A JPEG has no `CAMG`, so hunk 3 $c50 takes the display mode from the
+   * picture's width instead: over 370 pixels is hires.
+   */
+  it('opens a hires screen for a wide JPEG', () => {
+    const fs = withRam()
+    expect(
+      vals(
+        [
+          'S=Ovcreatescreen24(1,400,20)',
+          'A=Ovsavejpeg24(S,"RAM:wide.jpg",4,50)',
+          'T=Ovloadimage24(0,"RAM:wide.jpg",8)',
+          'Print Deek(T);Deek(T+2);Deek(T+16) and 1',
+        ],
+        fs,
+      ),
+    ).toEqual([400, 20, 1])
+  })
+
+  /**
+   * *"A thumbnail will also be written into the APP0 marker of the JFIF file
+   * unless the NOTHUMBNAIL flag is set"*, and `DisplayThumbnail24` looks there.
+   */
+  it('Ovdisplaythumbnail24 finds the thumbnail in a JPEG', () => {
+    const fs = withRam()
+    const b = run(
+      [
+        'S=Ovcreatescreen24(0,320,256)',
+        'Ovsetpen24 S,60,120,180',
+        'Ovrectfill24 S,0,0,319,255',
+        'A=Ovsavejpeg24(S,"RAM:pic.jpg",0,75)',
+        'T=Ovcreatescreen24(0,320,256)',
+        'Print Ovdisplaythumbnail24(T,"RAM:pic.jpg",0,0)',
+        'Ovreadpixel24 T,20,10',
+        'Print Ovgetred24(T);Ovgetgreen24(T);Ovgetblue24(T)',
+      ],
+      fs,
+    )
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([0, 60, 120, 180])
+  })
+
+  it('answers OL_ERR_NOTHUMBNAIL for a JPEG saved without one', () => {
+    const fs = withRam()
+    expect(
+      num(
+        [
+          'S=Ovcreatescreen24(0,64,16)',
+          'A=Ovsavejpeg24(S,"RAM:pic.jpg",4,75)',
+          'T=Ovcreatescreen24(0,64,16)',
+          'Print Ovdisplaythumbnail24(T,"RAM:pic.jpg",0,0)',
+        ],
+        fs,
+      ),
+    ).toBe(10)
   })
 })
 
