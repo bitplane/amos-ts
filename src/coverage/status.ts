@@ -2667,6 +2667,47 @@ export const FAITHFUL = new Set<string>([
   'mzone',
   'mzonen',
   'mzoneg',
+
+  // --- Opal 1.1 (Martin Boyd), from `Opal.s` -- the author's own source, and
+  // the whole shim -- and from Opal Technology's `devdocs.lha`, which carries
+  // `opal.library`'s AutoDocs, the hardware manual, the include files and the
+  // v4.3 library binary. The extension is SOURCE tier; the library behind it is
+  // DOCUMENTED with the binary present to settle whatever the AutoDocs leave
+  // open, which is how the two-bits-a-plane pixel layout was found.
+  //
+  // Screens and pixels. `CreateScreen24` fixes Depth and BytesPerLine,
+  // `WritePixel24` and `ReadPixel24` fix where a pixel lives, and
+  // `../amiga/opalvision.test.ts` disassembles both into assertions.
+  'ovopenscreen24', 'ovcreatescreen24', 'ovclosescreen24', 'ovfreescreen24',
+  'ovactivescreen24', 'ovclearscreen24', 'ovsetscreen24', 'ovrectfill24',
+  'ovwritepixel24', 'ovreadpixel24', 'ovsetpen24',
+  'ovgetred24', 'ovgetgreen24', 'ovgetblue24',
+  // The two stencils, which are colour bits: the playfield one is the low bit
+  // of plane 4 and the priority one the low bit of plane 8.
+  'ovwritepfpixel24', 'ovreadpfpixel24', 'ovsetpfstencil24', 'ovclearpfstencil24',
+  'ovwriteprpixel24', 'ovreadprpixel24', 'ovsetprstencil24', 'ovclearprstencil24',
+  // The six memory-format conversions, each with its own AutoDoc entry.
+  'ovilbmtoov', 'ovtoilbm', 'ovbitplanetoov', 'ovtobitplane', 'ovrgbtoov', 'ovtorgb',
+  // The CoPro bit setters, all one shape: "clears the OVPRI bit of all CoPro
+  // instructions", stopping at LastCoProIns when a display bottom is set.
+  'ovamigapriority', 'ovpriority', 'ovdualdisplay24', 'ovsingledisplay24',
+  'ovdualplayfield24', 'ovsingleplayfield24', 'ovenableprstencil24',
+  'ovdisableprstencil24', 'ovsethires24', 'ovsetlores24', 'ovsetcopro24',
+  'ovsetdisplaybottom24', 'ovcleardisplaybottom24',
+  // The control line register, whose twenty bits opallib.h names one by one.
+  'ovsetcontrolbit24', 'ovlatchdisplay24', 'ovautosync24',
+  // The frame buffer. `WriteFrame24` at hunk $3a36 turns a frame number into
+  // segments; `DownLoadFrame24` at $53ca reads them back.
+  'ovdisplayframe24', 'ovwriteframe24', 'ovrefresh24', 'ovdownloadframe24',
+  'ovclearquick24', 'ovupdateall24', 'ovupdatepfstencil24', 'ovstopupdate24',
+  'ovlowmemupdate24', 'ovlowmem2update24',
+  // The three register copies and the palette.
+  'ovupdateregs24', 'ovupdatepalette24', 'ovupdatecopro24', 'ovsetrgb24',
+  // Files. The IFF writer at hunk $a39c is reproduced chunk for chunk, the
+  // OVTN thumbnail at $ad0c plane for plane.
+  'ovsaveiff24', 'ovwritethumbnail24', 'ovdisplaythumbnail24',
+  // The two that never enter the library.
+  'ovconfig24', 'ovcopperrefresh',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -6919,6 +6960,97 @@ export const NOTES: Record<string, string> = {
     "message bank compiler documentation. (Which one day, I might even release!)\" So the layout is routine 147's " +
     "alone, and the test that exercises it builds a bank to match, which proves the reader agrees with the " +
     "reading and nothing more",
+
+  // --- Opal 1.1 ----------------------------------------------------------
+  "ovopenscreen24":
+    "Routine 3 ($962). The AMOS patch goes in FIRST -- `A_CALLOPAL AmosPatch24` with D0=1 -- and the pen is set " +
+    "after, and only two thirds of it. DEFECT: `clr.b OS_Pen_R(A0)` and `move.b #$FF,OS_Pen_G(A0)` and no third " +
+    "store, so blue is whatever the structure held; OpenScreen24 clears it, so the default pen is pure green in " +
+    "practice and nothing in the extension makes it so. DEFECT: `move.l D0,A0` runs whether or not the open " +
+    "answered NULL, so a failed open writes both pen bytes through address zero",
+  "ovwritepixel24":
+    "Routine 5 ($9d2), and the keyword that settles the pixel layout. An OpalVision plane holds TWO bits per " +
+    "pixel, four pixels to a byte, most significant pair leftmost: `moveq #$3f,d6 / ror.b d4,d6` is the mask, and " +
+    "plane p of a component carries bit p of that component byte as the pair's low half and bit p+4 as its high " +
+    "half. So 24-bit colour is twelve planes, not twenty-four, and a hires screen doubles that because its even " +
+    "and odd pixels sit in different banks. No document in the developer kit says any of this",
+  "ovcopperrefresh":
+    "Routine 79 ($1142), which is `AmosPatch24(1)` and nothing else, and is undocumented by the readme. DEFECT: " +
+    "the token entry `\"ovcopperrefres\",\"h\"+$80,\"00\"` declares a function of one integer and the routine " +
+    "pops nothing, leaving the argument on AMOS's parameter stack. This port consumes it, because the " +
+    "interpreter's stack is not the machine's and leaving a value on it would desync the caller rather than " +
+    "reproduce the leak",
+  "ovsetpen24":
+    "Routine 75 ($1108), one of the four keywords that never enters the library -- the readme lists them apart as " +
+    "\"AMOS Specific Commands\" and they exist because `opallib.h` does this with macros an AMOS program cannot " +
+    "use. Three `move.b` into $390, $391, $392, so only the low byte of each argument survives",
+  "ovwritethumbnail24":
+    "Routine 37 ($d04). The chunk is \"OVTN\", length $10e0, and 4320 bytes of 48 x 30 x 12 OpalVision pixels -- " +
+    "a layout no document in the developer kit describes, read out of hunk $ad0c. DEVIATION: `File` is an " +
+    "AmigaDOS handle, and nothing in AMOS produces one here except Make 1.1's `=Ma Fopen`, whose handle IS the " +
+    "BPTR `Open()` returned; any other value answers OL_ERR_FILEWRITE, which is what the library answers when the " +
+    "write comes up short",
+  "ovsaveiff24":
+    "Routine 27 ($c00). Hunk $a39c writes the thumbnail BEFORE `BMHD`, which the AutoDoc's chunk list does not " +
+    "say and `DisplayThumbnail24` depends on, since that routine gives up at `BODY`. DEVIATION: `ChunkFunction` " +
+    "is a 68000 entry point called in C convention with the DOS file handle on the stack, and there is no " +
+    "processor here to enter it on, so a non-zero value is treated as the AutoDoc's \"must return 0 or an error " +
+    "code\" returning 0",
+  "ovloadimage24":
+    "Routine 25 ($b9c), shared with Ovloadiff24 -- two token entries, one routine, because the library renamed " +
+    "the function and kept the old name \"to maintain backward compatibility\". APPROXIMATED because the JPEG " +
+    "half is not written: the AutoDoc's own restriction list is precise about it -- \"a baseline loader as " +
+    "specified in the draft standard ISO/IEC Bis 10918-1 ... 8 bit quantization tables and Huffman entropy " +
+    "compression\" -- and a file starting $ffd8 answers OL_ERR_FORMATUNKNOWN, which is what the library answers " +
+    "for a file it cannot identify at all. The IFF half is complete: 24-bit, OpalVision fast format, palette " +
+    "mapped, HAM and Extra Half Brite. DEFECT: `Opal.s` comments the first pop as \";OpalScreen pointer.\" and it " +
+    "is the FLAGS -- a wrong comment, not wrong code",
+  "ovloadiff24":
+    "Routine 25 ($b9c). See Ovloadimage24: the same routine under the older name",
+  "ovdownloadframe24":
+    "Routine 72 ($1082). The AutoDocs have no entry for it at all; the signature comes from " +
+    "`devdocs/Basic/opal_lib.fd` -- `DownLoadFrame24(Scrn,x,y,w,h)(A0,D0,D1,D2,D3)` -- and the behaviour from " +
+    "hunk $53ca, which takes the display down to SetLores24(0,290) and pulls the rectangle back over CIA-B's " +
+    "parallel port under Forbid. It is the only thing in the library that READS the frame buffer, which is why " +
+    "the twelve segments have contents here at all",
+  "ovdrawline24":
+    "Routine 39 ($d38). APPROXIMATED: the AutoDoc fixes the arguments and the clipping -- \"clipped ... per " +
+    "pixel\" -- but not which pixels a diagonal lands on, and the library's own line routine has not been read, " +
+    "so this is Bresenham and may differ by a pixel on a slope",
+  "ovdrawellipse24":
+    "Routine 68 ($101e). APPROXIMATED for the same reason as Ovdrawline24: \"a = horizontal radius of ellipse " +
+    "(must be >0)\" and \"set a=b for circles\" fix the arguments, and the midpoint ellipse here is not the " +
+    "library's algorithm",
+  "ovscroll24":
+    "Routine 24 ($b84). APPROXIMATED: the routine at hunk $01d8e has not been read, so what is here follows the " +
+    "AutoDoc's description of the move and not its edge behaviour",
+  "ovpalettemap24":
+    "Routine 22 ($b5a). APPROXIMATED: the AutoDoc says what palette mapping is for, not what the routine does to " +
+    "a screen that is already mapped",
+  "ovappendcopper24":
+    "Routine 18 ($af8). APPROXIMATED: the CoPro instruction list is modelled and the append is not read from the " +
+    "library",
+  "ovsetsprite24":
+    "Routine 13 ($a90). APPROXIMATED: the sprite pointer is stored and nothing displays it, because the Amiga " +
+    "half of an OpalVision display is not composited here",
+  "ovsetloadaddress24":
+    "Routine 31 ($c7c). APPROXIMATED: the palette load address register is kept and no update reads it back",
+  "ovfadein24":
+    "Routine 34 ($cc4). APPROXIMATED: the fade is a timed ramp on the machine and instant here, and the endpoint " +
+    "is what is modelled. It does nothing to a 15-bit screen, which is the Depth test the routine opens with",
+  "ovfadeout24":
+    "Routine 35 ($cda). See Ovfadein24, ending on black",
+  "ovfreezeframe24":
+    "Routine 63 ($f76). APPROXIMATED: freezing the frame needs the Scan Rate Converter module, which is an " +
+    "expansion this port has no reason to model, so the control-line bit is kept and nothing follows from it",
+  "ovregwait24":
+    "Routine 55 ($ebc). APPROXIMATED: \"waits for register information to be updated to the OpalVision before " +
+    "returning, or returns immediately if no updates are pending\", and with no raster to wait for there is never " +
+    "anything pending",
+  "ovupdatedelay24":
+    "Routine 9 ($a3c). APPROXIMATED: the delay counts frames and there are no frames here. The keyword's other " +
+    "half is real -- it \"initiates continuous updates ... which will continue until either Refresh24() or " +
+    "StopUpdate24() is called\" -- and while that is on, a download refreshes first",
 }
 
 /**

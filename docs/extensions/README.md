@@ -524,7 +524,7 @@ decisive between two neighbouring rows near the bottom.
 | 1 | `butility-1.21` | module | 15 / 15 |
 | 1 | `dump-1.0` | module | 8 / 8 |
 | 1 | `delta-1.4` | module | 26 / 26 |
-| 1 | `opal-1.1` | — | 0 / 78 |
+| 1 | `opal-1.1` | module | 77 / 78 |
 | 1 | `jotre-1.0` | module | 5 / 5 |
 | 1 | `turbo-plus-2.15` | module | 152 / 152 |
 

@@ -41,6 +41,7 @@ import {
 import { SLN_ERRORS, makeSlnFunctions, makeSlnInstructions, newSlnState } from './sln'
 import { MAKE_ERRORS, makeMakeFunctions, makeMakeInstructions, newMakeState } from './make'
 import { TOOLS_ERRORS, makeToolsFunctions, makeToolsInstructions, newToolsState } from './tools'
+import { OPAL_ERRORS, makeOpalFunctions, makeOpalInstructions, newOpalState } from './opal'
 import { makeDeltaFunctions, makeDeltaInstructions, newDeltaState } from './delta'
 import { LSERIAL_ERRORS, makeLSerialFunctions, makeLSerialInstructions, newLSerialState } from './lserial'
 import { BUTILITY_ERRORS, makeBUtilityFunctions, makeBUtilityInstructions, newBUtilityState } from './butility'
@@ -6050,6 +6051,22 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // guide even says whose it was first, "a somewhat optimized version of the
     // Range command in the Shuffle Extension"
     qualified: ['range'],
+  },
+  {
+    // Opal 1.1 at slot 21 --- Martin Boyd's shim over opal.library, the
+    // OpalVision 24-bit card's driver. `ExtNb EQU 21-1` in the extension's own
+    // source, `$238(a5)` in the assembled binary, and Andrew Burton's list and
+    // the AMOS FAQ both put OpalVision at 21. Opal Technology published the
+    // library's AutoDocs, its include files and the library itself as
+    // devdocs.lha, so the shim is SOURCE tier over a documented library; the
+    // card is modelled in ../amiga/opalvision.ts. See opal.ts
+    ids: ['opal-1.1'],
+    init: (rt) => {
+      rt.opal = newOpalState(Runtime.OPAL_BASE, Runtime.OPAL_RESERVED)
+    },
+    instructions: makeOpalInstructions,
+    functions: makeOpalFunctions,
+    errors: OPAL_ERRORS,
   },
   {
     // stars.lib (AMOS 1.3) and starspro.lib (AMOS Pro) are different binaries

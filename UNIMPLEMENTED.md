@@ -16,10 +16,16 @@ port has started — among them AMCAF 1.40/1.50, the JD family, EasyLife, TOME,
 TURBO Plus, Personnal, LDos, AMOS 3D, PowerBobs, MED 7.1, EME 3.0, P61 and
 BUtility. `KEYWORDS.md` has the per-row counts.
 
-**Nothing is partially ported.** Of the ninety-odd rows in the manifest, none
-sits between 0% and 100%: an extension is finished or it has not been begun.
-That is the ratchet working, and it is the number to watch — a row appearing
-in the middle means a thread was left hanging.
+**One row is partially ported, and it is meant to be.** Of the ninety-odd rows
+in the manifest, all but one sit at 0% or 100%: an extension is finished or it
+has not been begun. That is the ratchet working, and it is the number to watch
+— a row appearing in the middle means a thread was left hanging.
+
+The exception is **Opal 1.1 at 77/78**. `Ovsavejpeg24` wants a baseline JPEG
+encoder, which is a codec rather than an extension keyword, and whether this
+port grows one is an open question and not an oversight. Until it is settled
+the row stays visible in the middle of the board, which is the point of
+counting this way.
 
 `KEYWORDS.md`'s total row carries the implemented and faithful counts. They
 are not repeated here, because a hand-copied total is a total that drifts.
@@ -76,7 +82,6 @@ extension keyword. The count is keywords with no handler at all:
 | Intuition 1.3b | 183 | needs `intuition.library` first |
 | Craft 1.0 | 136 | commercial (Black Legend) |
 | The Game 0.9 | 103 | |
-| Opal 1.1 | 78 | OpalVision hardware |
 | D-SAM 1.01 | 50 | |
 | Delta 1.6 | 46 | `intuition.library` |
 | jd-int 1.3 | 33 | `intuition.library` — findings banked |
@@ -121,6 +126,62 @@ the sector image it wants --- so a mounted disk is served byte for byte and
 `S Disk Rename` really does rewrite the root block. And `Protracker` gained
 `trigVolPercent`, the percentage SLN's replayer applies at the instrument
 trigger and nowhere else.
+
+**Opal 1.1 came off this table, and the note it carried — "OpalVision
+hardware" — was the wrong reason to keep it there.** 77 of its 78 read; 63 are
+faithful. The row moved because the documentation turned out to exist: Opal
+Technology published its whole developer kit on Aminet in September 1993 as
+`driver/video/devdocs.lha`, and it holds `opal.library`'s AutoDocs, the
+*OpalVision Programmers Technical Reference Manual*, the include files, the FD
+file and the v4.3 library binary. Its `AMOS/` directory contains `Opal.lib`,
+`Opal.s` and `Opal.Readme` byte for byte identical to the extension fixture,
+so the shim and the library it calls come from one publisher and one author.
+
+The card is modelled in `src/amiga/opalvision.ts`: twelve 128K memory
+segments, a 290-instruction line coprocessor, the twenty-bit control line
+register, the playfield and priority stencils, and the frame buffer's
+contents, which are there because `DownLoadFrame24` reads them back.
+
+**The pixel layout is the finding, and no document in the kit states it.** An
+OpalVision plane holds *two* bits per pixel, four pixels to a byte, so 24-bit
+colour is twelve planes and not twenty-four — doubled in hires, where the even
+and odd pixels sit in different banks. `WritePixel24` and `CreateScreen24` in
+the shipped binary settle it, and once you know it three lines of documentation
+that read as errors turn out to be exact: the AutoDoc's *"BitPlanes will
+contain 4, 8, 12, 16 or 24 entries"* is precisely the five values the depth
+calculation can return, *"This value is not always width/8"* is true because it
+is never width/8, and the two stencils land on planes 4 and 8.
+
+Two more layouts were recovered the same way. The `OVTN` thumbnail chunk —
+4320 bytes of 48 x 30 x 12, and the scaler that fills it — appears in no
+document at all, and `DownLoadFrame24` has neither an AutoDoc entry nor a
+mention in the manual; the FD file gives its signature and hunk $53ca gives
+its behaviour.
+
+**Eight defects are reproduced**, three in the extension and five in the
+library. The extension never checks whether `opal.library` opened, so its one
+error message — *"Can't Open Opal.Library"* — is unreachable and a machine
+with no card gurus on the first keyword; `Ovcopperrefresh` declares an
+argument its routine never pops; and `Ovopenscreen24` sets two thirds of the
+default pen and writes both bytes through address zero when the open failed.
+In the library, `MaxFrames` over-reports in 15-bit mode, the thumbnail scaler
+bounds its rows against the horizontal limit, a thumbnail of an 8-bit screen
+comes out with red copied from green, taking a thumbnail zeroes the source
+screen's draw offsets, and fast format plus a mask writes a short `BODY`
+length. `src/runtime/opal.ts` catalogues all eight — including the five that
+belong to `src/amiga/opalvision.ts`, because `DEFECT:` may not live in that
+directory.
+
+The one keyword left is **`Ovsavejpeg24`**, which wants a baseline JPEG
+encoder, and the same missing codec is why the JPEG half of `Ovloadimage24`
+answers `OL_ERR_FORMATUNKNOWN` rather than loading. The AutoDoc is precise
+about what would be needed — *"a baseline loader as specified in the draft
+standard ISO/IEC Bis 10918-1 ... 8 bit quantization tables and Huffman entropy
+compression ... Y Cb Cr, RGB and Grey scale"*, with no progressive,
+hierarchical or lossless — so the work is determinate and simply has not been
+done. Everything else about image files is complete: the IFF loader takes
+24-bit, OpalVision fast format, palette mapped, HAM and Extra Half Brite, and
+the writer reproduces hunk $a39c chunk for chunk.
 
 **Make Lib 1.30 came off this table as well**, and it is the small row that
 paid for something larger. All 32 read 100% and all 32 are faithful. Its
@@ -498,6 +559,21 @@ furniture.
   to `ADR` (device type, unit number, handler name) is not modelled, so the
   address argument is accepted and ignored.
 
+- `ovloadimage24`/`ovloadiff24` — load IFF, and answer
+  `OL_ERR_FORMATUNKNOWN` for a JPEG, which is what `opal.library` answers for
+  a file it cannot identify. Closable with the same codec `Ovsavejpeg24`
+  wants; the AutoDoc lists the exact subset of ISO/IEC 10918-1 that would be
+  needed.
+
+- `ovdrawline24`, `ovdrawellipse24` — the AutoDocs fix the arguments and the
+  clipping and say nothing about which pixels a slope lands on, and the
+  library's own two routines have not been disassembled, so these are
+  Bresenham and midpoint and can differ by a pixel.
+
+- `ovscroll24`, `ovpalettemap24`, `ovappendcopper24`, `ovsetsprite24`,
+  `ovsetloadaddress24` — four routines not yet read, followed from their
+  AutoDoc descriptions alone.
+
 ### Will not close — the deviation is structural
 
 **There is no address space.** `peek`/`poke`/`start`/`screen base` work
@@ -574,6 +650,20 @@ difference.
   Two smaller ones: the whole utterance plays on voice 0 where the device
   allocates its own channels through `audio.device`, and the synchronous form
   does not hold the interpreter for the length of the audio.
+
+- `ovupdatedelay24`, `ovregwait24`, `ovfreezeframe24` — three OpalVision
+  keywords that wait on a raster. `UpdateDelay24` counts frames between frame
+  buffer updates; `RegWait24` *"waits for register information to be updated
+  ... or returns immediately if no updates are pending"*, and there is never
+  anything pending here; `FreezeFrame24` needs the Scan Rate Converter module,
+  an expansion card behind the card. What each one *sets* is kept and visible;
+  what each one *waits for* has nothing to wait for. The frame buffer itself
+  is modelled in full, so `Ovrefresh24` and `Ovdownloadframe24` are exact.
+
+- `ovfadein24`/`ovfadeout24` — the fade is a timed palette ramp on the
+  machine, taking a duration in frames, and is instant here. The endpoint is
+  what is reproduced, including the routines' own refusal to touch a 15-bit
+  screen.
 
 **Some encoders are not in the AMOS source.** `ppsave`/`squash` write valid
 files that an independent reference decoder reads, but the original crunchers'

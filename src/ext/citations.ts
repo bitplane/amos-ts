@@ -392,6 +392,8 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/butility.test.ts': ['butility-1.21'],
   'src/runtime/stars.ts': ['stars-2.33'],
   'src/runtime/stars.test.ts': ['stars-2.33'],
+  'src/runtime/opal.ts': ['opal-1.1'],
+  'src/runtime/opal.test.ts': ['opal-1.1'],
   'src/runtime/locale.ts': ['locale-0.26'],
   'src/runtime/locale.test.ts': ['locale-0.26'],
   'src/runtime/ldos.ts': ['ldos-2.6', 'ldos-2.5'],

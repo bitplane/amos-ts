@@ -495,6 +495,11 @@ describe.skipIf(!existsSync(extFixtures))('the whole corpus identifies without a
       // with the extension. Every id it uses lands in OS-DevKit's table, which
       // is what turns that entry's id base from assumed into calibrated.
       20: 'os-devkit-1.61',
+      // OpalExample.AMOS, out of Opal Technology's own developer archive. It is
+      // the only program in the corpus that uses slot 21, and every id it uses
+      // is in Opal's table -- which is the extension's own source agreeing with
+      // itself, since `ExtNb EQU 21-1` is two lines above the token list.
+      21: 'opal-1.1',
     })
   })
 })

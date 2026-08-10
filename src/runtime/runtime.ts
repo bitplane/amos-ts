@@ -39,6 +39,7 @@ import { gamesupportVbl, type GameSupportState } from './gamesupport'
 import { slnVbl, type SlnState } from './sln'
 import type { MakeState } from './make'
 import type { ToolsState } from './tools'
+import type { OpalState } from './opal'
 import type { DeltaState } from './delta'
 import type { LSerialState } from './lserial'
 import type { BUtilityState } from './butility'
@@ -946,6 +947,22 @@ export class Runtime {
   static readonly TOOLS_TEXT_BASE = 0x3c000000
   static readonly TOOLS_TEXT_RESERVED = 0x04000000
 
+  /**
+   * Opal 1.1's OpalScreen structures and their bitplanes.
+   *
+   * `Ovopenscreen24` hands the program the structure's ADDRESS and expects it
+   * to be poked through — the extension's own example does `Poke OSCRN+142,0`
+   * to narrow the pixel read mask — and `BitPlanes` is twenty-four more
+   * addresses inside it. So the whole of an OpalScreen has to sit somewhere a
+   * `Peek` can reach. See opal.ts.
+   *
+   * 0x56000000 because the eight PowerPacker buffers end exactly there and
+   * =Mubase is at 0x58000000, which leaves this thirty-two megabytes. A hires
+   * overscan 24-bit screen needs about 1.3MB of it.
+   */
+  static readonly OPAL_BASE = 0x56000000
+  static readonly OPAL_RESERVED = 0x02000000
+
   /** the eight Dev Open IORequests, one 256-byte slice each */
   static readonly DEV_IO_BASE = 0x3b000000
   static readonly DEV_IO_RESERVED = DEV_IO_STRIDE * (DEV_MAX + 1)
@@ -974,6 +991,8 @@ export class Runtime {
   make!: MakeState
   /** Tools 1.01's memory position, its two bank numbers and its text pool — slot 23 */
   tools!: ToolsState
+  /** Opal 1.1's OpalVision card, its screens and the pool they live in — slot 21 */
+  opal!: OpalState
   /** Delta 1.4's one piece of state: how far Delta Wait Double Mouse has got */
   delta!: DeltaState
   /** LSerial 2.1's one open device, its outstanding Mulsend and its XPR base */
@@ -1389,6 +1408,9 @@ export class Runtime {
         const b = this.ppBuffers[index]
         return b ? within(b, off) : null
       },
+    ),
+    bufferRegion('OpalVision screens', Runtime.OPAL_BASE, Runtime.OPAL_RESERVED, () =>
+      this.opal ? this.opal.ov.pool.buffer : null,
     ),
     // =Mubase points at the music extension data zone; the vumeter bytes at
     // MB+0..3 are the mapped part (FnMusicBase +Music.s:3907)
