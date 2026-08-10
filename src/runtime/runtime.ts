@@ -965,6 +965,22 @@ export class Runtime {
   static readonly OPAL_BASE = 0x56000000
   static readonly OPAL_RESERVED = 0x02000000
 
+  /**
+   * The Game 0.9's scratch area, which `=G Getmem` hands a program the address
+   * of.
+   *
+   * The keyword is `lea $352(a3),a0` and nothing else — the answer is a
+   * pointer into the extension's own data block, where 2,148 zero bytes sit
+   * between the library-name strings and the end of the block. A program pokes
+   * through it, so it has to be at a real address here too. thegame.ts cites
+   * the routine and explains the rest.
+   *
+   * 0x5a000000 because =Mubase sits at 0x58000000 and the Code Bank modules
+   * start at 0x5c000000, so this is the gap between them.
+   */
+  static readonly TGE_SCRATCH_BASE = 0x5a000000
+  static readonly TGE_SCRATCH_RESERVED = 0x00010000
+
   /** the eight Dev Open IORequests, one 256-byte slice each */
   static readonly DEV_IO_BASE = 0x3b000000
   static readonly DEV_IO_RESERVED = DEV_IO_STRIDE * (DEV_MAX + 1)
@@ -1417,6 +1433,9 @@ export class Runtime {
     // =Mubase points at the music extension data zone; the vumeter bytes at
     // MB+0..3 are the mapped part (FnMusicBase +Music.s:3907)
     bufferRegion('Mubase', Runtime.MUBASE_ADDR, 4, () => this.vuBytes),
+    bufferRegion('The Game scratch', Runtime.TGE_SCRATCH_BASE, Runtime.TGE_SCRATCH_RESERVED, () =>
+      this.thegame ? this.thegame.scratch : null,
+    ),
     slottedRegion(
       'GameSupport code modules',
       Runtime.CODEMOD_BASE,

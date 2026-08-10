@@ -14,6 +14,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { Runtime } from './runtime'
+import { BTN_RED, DIR_UP } from '../amiga/controller'
 import { PT_PLAY_VOLUME, thegameVbl } from './thegame'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -22,14 +23,17 @@ const TGE_SLOT = 14
 const tge = extensionById('the-game-0.9')!
 const extensions = new Map([[TGE_SLOT, tge.table]])
 
-function boot(src: string | string[], fs?: AmigaFS): Runtime {
+function boot(src: string | string[], fs?: AmigaFS): Booted {
   const text = Array.isArray(src) ? src.join('\n') : src
-  return new Runtime(tokenize(text, table, extensions), table, {
+  let printed = ''
+  const rt = new Runtime(tokenize(text, table, extensions), table, {
     extensions,
     extBindings: new Map([[TGE_SLOT, tge]]),
     maxSteps: 400_000,
+    onText: (t) => (printed += t),
     ...(fs ? { fs } : {}),
   })
+  return Object.assign(rt, { out: () => printed })
 }
 
 function run(src: string | string[], fs?: AmigaFS): Runtime {
@@ -51,6 +55,15 @@ function vals(src: string | string[], fs?: AmigaFS): number[] {
   })
   mustFinish(rt.runHeadless(2000))
   return printed.trim().split(/\s+/).map(Number)
+}
+
+/** a Runtime with its printed text collected, for a test that pokes it first */
+type Booted = Runtime & { readonly out: () => string }
+
+/** run a Runtime that a test has already poked, and read its numbers back */
+function printed(rt: Booted): number[] {
+  mustFinish(rt.runHeadless(2000))
+  return rt.out().trim().split(/\s+/).map(Number)
 }
 
 /**
@@ -277,5 +290,116 @@ describe('G Ptset Pos, G Ptpos and G Ptlength', () => {
 
   it('both answer zero with nothing loaded', () => {
     expect(vals(['Print G Ptpos;G Ptlength'], withRam())).toEqual([0, 0])
+  })
+})
+
+describe('the host and OS keywords', () => {
+  it('G Reboot asks for a cold reset', () => {
+    const rt = run('G Reboot', withRam())
+    expect(rt.machine.pendingReset).toEqual({ kind: 'cold', by: 'g reboot' })
+  })
+
+  it('=G Left Click and =G Right Click read the two buttons', () => {
+    const rt = boot('Print G Left Click;G Right Click', withRam())
+    rt.input.mouseK = 1
+    expect(printed(rt)).toEqual([-1, 0])
+  })
+
+  /**
+   * `cmpi.b #$ff,$dff006` — the low eight bits of the beam's vertical
+   * position, so it is true on one line in 256 and that line is not in the
+   * vertical blank at all.
+   */
+  it('=G Check Vbl is a compare against one raster line', () => {
+    expect([0, -1]).toContain(vals(['Print G Check Vbl'], withRam())[0])
+  })
+
+  /**
+   * The guide says "returns lowlevel bitmap" and the routine repacks it: the
+   * four directions into bits 3..0 reversed, and the seven pad buttons into
+   * bits 4 to 10.
+   */
+  it('=G Cd32 repacks ReadJoyPort rather than passing it through', () => {
+    const rt = boot('Print G Cd32(1)', withRam())
+    rt.input.ports[1] = { ...rt.input.ports[1]!, dirs: DIR_UP, buttons: BTN_RED }
+    // up is ReadJoyPort bit 3 and G Cd32 bit 0; red is bit 22 and bit 4
+    expect(printed(rt)).toEqual([0x001 | 0x010])
+  })
+
+  it('=G File Size answers the length, and leaks a FileInfoBlock doing it', () => {
+    const fs = withRam()
+    fs.writeFile('RAM:x.dat', new Uint8Array(1234))
+    expect(vals(['Print G File Size("RAM:x.dat")'], fs)).toEqual([1234])
+    // DEFECT: AllocMem($3e8) with no FreeMem, on every call
+    const rt = run(['A=G File Size("RAM:x.dat")', 'A=G File Size("RAM:x.dat")'], fs)
+    expect(rt.thegame.fibLeak).toBe(2000)
+  })
+
+  /**
+   * Three instructions: `lea $352(a3),a0`. The answer is the address of the
+   * extension's own scratch area, and a program poking it must find memory.
+   */
+  it('=G Getmem answers an address that can be poked', () => {
+    expect(
+      vals(['A=G Getmem', 'Poke A,123', 'Poke A+2147,45', 'Print Peek(A);Peek(A+2147)'], withRam()),
+    ).toEqual([123, 45])
+  })
+
+  /** DEFECT: the two overlapping longs leave x holding zero and y holding x */
+  it('G Set Mouse writes two overlapping longs', () => {
+    const rt = run('G Set Mouse 100,50', withRam())
+    // $b32..$b35 after `move.l d0,$b34` then `move.l d1,$b32`: the x store's
+    // low word lands on the y field and its high word on the x field
+    expect(rt.thegame.mouseX).toBe(0)
+    expect(rt.thegame.mouseY).toBe(100)
+  })
+
+  it('=G X Mouse accumulates rather than reporting a coordinate', () => {
+    const rt = boot('Print G X Mouse;G X Mouse', withRam())
+    rt.input.mouseX = 10
+    rt.input.mouseY = 0
+    // the first read seeds the counter, the second adds nothing new
+    const [a, b] = printed(rt)
+    expect(b).toBe(a)
+  })
+
+  /**
+   * The routine could not open workbench.library, so it closed icon.library
+   * and returned; there is no AppIcon and no port to check.
+   */
+  it('G Iconify does nothing and =G Icon Check stays false', () => {
+    expect(vals(['G Iconify "Title","RAM:icon"', 'Print G Icon Check'], withRam())).toEqual([0])
+  })
+
+  it('G Iconify takes the three-argument form too', () => {
+    const rt = run('G Iconify "Title","RAM:icon",1', withRam())
+    expect(rt.thegame.iconUp).toBe(false)
+  })
+
+  /** dos.library's Execute, and the value register is never set */
+  it('=G Cli always answers zero', () => {
+    expect(vals(['Print G Cli("list")'], withRam())).toEqual([0])
+  })
+
+  it('G Wait Lmb returns at once when the button is already down', () => {
+    const rt = boot('G Wait Lmb : Print 1', withRam())
+    rt.input.mouseK = 1
+    expect(printed(rt)).toEqual([1])
+  })
+
+  it('G Wait Rmb blocks until the right button goes down', () => {
+    let out = ''
+    const rt = new Runtime(tokenize('G Wait Rmb : Print 1', table, extensions), table, {
+      extensions,
+      extBindings: new Map([[TGE_SLOT, tge]]),
+      maxSteps: 400_000,
+      onText: (t) => (out += t),
+      fs: withRam(),
+    })
+    expect(rt.runHeadless(50).status).toBe('blocked')
+    expect(out).toBe('')
+    rt.input.mouseK = 2
+    mustFinish(rt.runHeadless(2000))
+    expect(out.trim()).toBe('1')
   })
 })

@@ -2718,6 +2718,12 @@ export const FAITHFUL = new Set<string>([
   // Only the tracker batch is ported so far; see src/runtime/thegame.ts.
   'g ptload', 'g ptplay', 'g ptstop', 'g ptfade', 'g ptpause', 'g ptunpause',
   'g ptvolume', 'g ptchan on', 'g ptchan off', 'g ptpos', 'g ptlength',
+  // The host and OS batch: five straight at the hardware, four at libraries
+  // this port models, and the AppIcon pair, which stops where the machine's
+  // own OpenLibrary test stops.
+  'g reboot', 'g left click', 'g wait lmb', 'g wait rmb', 'g check vbl',
+  'g cd32', 'g cli', 'g file size', 'g getmem', 'g iconify', 'g icon check',
+  'g right click', 'g set mouse',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -7020,6 +7026,67 @@ export const NOTES: Record<string, string> = {
     "width -- over 640 hires and overscan, over 370 hires, over 320 overscan -- and over 256 lines interlaced. " +
     "DEFECT: `Opal.s` comments the first pop as \";OpalScreen pointer.\" and it is the FLAGS -- a wrong comment, " +
     "not wrong code",
+  "g reboot":
+    "Routine 4 ($1682). `movea.l $4.w,a6 / jsr -$2d6(a6) / rts` -- ColdReboot with no version check. " +
+    "src/amiga/machine.ts catalogues it beside every other extension's reboot keyword",
+  "g left click":
+    "Routine 5 ($168c). `btst.b #$6,$bfe001`, CIA-A's PRA, active low -- so -1 when the bit is CLEAR. Unlike " +
+    "Right Click it goes nowhere near GMS",
+  "g right click":
+    "Routine 6 ($169e). Goes through GMS: `movea.l $b2e(a2),a0` then `cmp.w #$1,$14(a0)` on the input structure. " +
+    "Read from this port's own mouse instead, which is the same state by a shorter route",
+  "g check vbl":
+    "Routine 11 ($173e). One compare -- `cmpi.b #$ff,$dff006`, the low eight bits of the beam's vertical position " +
+    "-- so it is true on one line in 256, and on a PAL screen that is line 255, well down the visible picture and " +
+    "nowhere near the vertical blank the name promises",
+  "g cd32":
+    "Routine 12 ($1750). Opens lowlevel.library (name at block +$36, base at +$32) and calls ReadJoyPort. The " +
+    "guide's \"returns lowlevel bitmap\" is wrong: the routine REPACKS the result into eleven low bits of its own -- " +
+    "right/left/down/up from $1/$2/$4/$8 to $8/$4/$2/$1, play $20000 to $400, reverse $40000 to $100, forward " +
+    "$80000 to $200, green $100000 to $40, yellow $200000 to $80, red $400000 to $10, blue $800000 to $20",
+  "g wait lmb":
+    "Routine 13 ($188e). A loop on CIA-A PRA bit 6 with `Rjsr L_Tests` each pass, which is what the guide's \"all " +
+    "amal and stuff will still work\" means. The `G Update` inside it is guarded on the GMS screen pointer at " +
+    "block +$12c",
+  "g wait rmb":
+    "Routine 14 ($18b2). The same loop on bit 10 of POTINP at $dff016. DEFECT: its `G Update` is NOT guarded on " +
+    "the screen pointer the way Wait Lmb's is, so with no screen open it refreshes a display that is not there",
+  "g cli":
+    "Routine 60 ($24aa). dos.library's Execute(cmd,0,0), with `adda.l #$2,a0` over the AMOS string's length word. " +
+    "DEFECT: d3 -- the value register -- is left at the zero it held as an argument, so the function always " +
+    "answers 0, and the failure arm writes -1 into d2, which is the TYPE register, not the value",
+  "g file size":
+    "Routine 64 ($2698). AllocMem($3e8, MEMF_CLEAR), Lock(name, SHARED_LOCK), Examine, UnLock, then `move.l " +
+    "$7c(a4),d3` -- fib_Size. A failed lock is `moveq #$51,d0` into G Exit, error 81. DEFECT: the FileInfoBlock is " +
+    "never freed, on every call and on every path out",
+  "g getmem":
+    "Routine 65 ($270e). Three instructions -- `lea $352(a3),a0 / move.l a0,d3` -- so the answer is the ADDRESS of " +
+    "a scratch area inside the extension's own data block, 2,148 zero bytes between the last library name and the " +
+    "end of it, and not a figure for free memory. Undocumented; the guide has no node for it",
+  "g x mouse":
+    "Routine 78 ($2b74). An ACCUMULATOR and not a coordinate, whatever the guide's \"Returns the X HARDWARE " +
+    "coordinate\" says: GMS's input poll at -$24(a6) is called and the structure's x delta at +$e ADDED to the word " +
+    "at block +$b32. The guide marks it \"*GMS REQUIRED*\"; ported against this port's own mouse counters, seeded " +
+    "on the first read as GMS's own first poll is",
+  "g y mouse":
+    "Routine 79 ($2ba6). The same accumulator on +$b34. DEFECT: it loads the same two pointers as X Mouse and does " +
+    "NOT call the poll, so the delta it adds is whatever the last x read left behind -- reading y without reading " +
+    "x first moves nothing",
+  "g set mouse":
+    "Routine 80 ($2bce). DEFECT: two overlapping longs -- `move.l d0,$b34(a0)` then `move.l d1,$b32(a0)` into " +
+    "fields X Mouse and Y Mouse read back as WORDS at $b32 and $b34. The second store covers $b32..$b35, so its " +
+    "low word lands on the first store's field: x ends up holding the high half of the x argument, zero for any " +
+    "sane coordinate, y ends up holding its low half, and the y argument reaches nothing. The guide agrees without " +
+    "explaining, leaving both argument descriptions blank and saying \"DONT USE\"",
+  "g iconify":
+    "Routines 61 ($24d8) and 71 ($28c8), the two-argument and three-argument forms. Opens icon.library (name at " +
+    "block +$94) and then workbench.library (+$a6), and if the SECOND open fails it closes the first and returns " +
+    "having done nothing. That is the arm every call takes here: workbench.library is not modelled, the same wall " +
+    "GameSupport's Gsiconify meets, and nothing is faked past it",
+  "g icon check":
+    "Routine 72 ($2a44). GetMsg on the port at block +$b22, RemoveAppIcon through workbench.library at +$b8, then " +
+    "the port drained and deleted. `tst.l a0 / beq` on the port is the first thing it does and there is never one, " +
+    "because G Iconify could not open workbench.library",
   "g ptload":
     "Routine 15 ($18ca). `adda.w #2,a0` first, because an AMOS string is its length word and then its bytes. " +
     "THREE DEFECTS in seven instructions, all reproduced: OpenLibrary is called on every invocation and its result " +
