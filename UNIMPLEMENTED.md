@@ -16,10 +16,16 @@ port has started — among them AMCAF 1.40/1.50, the JD family, EasyLife, TOME,
 TURBO Plus, Personnal, LDos, AMOS 3D, PowerBobs, MED 7.1, EME 3.0, P61 and
 BUtility. `KEYWORDS.md` has the per-row counts.
 
-**Nothing is partially ported.** Every row in the manifest sits at 0% or 100%:
-an extension is finished or it has not been begun. That is the ratchet
-working, and it is the number to watch — a row appearing in the middle means a
-thread was left hanging.
+**One row is partially ported, and it is being worked on.** Every other row in
+the manifest sits at 0% or 100%: an extension is finished or it has not been
+begun. That is the ratchet working, and it is the number to watch — a row
+appearing in the middle means a thread was left hanging.
+
+The exception is **The Game Extension 0.9**, which is being ported in batches
+because sixty-one of its 103 keywords sit behind GMS and the rest do not. The
+batches are tracked as tasks and the row will read 0% or 100% again when they
+are done; while it is in the middle it is a thread being pulled, not one left
+hanging.
 
 `KEYWORDS.md`'s total row carries the implemented and faithful counts. They
 are not repeated here, because a hand-copied total is a total that drifts.
@@ -75,7 +81,7 @@ extension keyword. The count is keywords with no handler at all:
 | GUI 2.10 / 1.61 / 1.5b | 204 / 103 / 48 | `intuition.library` |
 | Intuition 1.3b | 183 | needs `intuition.library` first |
 | Craft 1.0 | 136 | commercial (Black Legend) |
-| The Game 0.9 | 103 | |
+| The Game 0.9 | 91 | in progress: the twelve tracker keywords are done |
 | D-SAM 1.01 | 50 | |
 | Delta 1.6 | 46 | `intuition.library` |
 | jd-int 1.3 | 33 | `intuition.library` — findings banked |

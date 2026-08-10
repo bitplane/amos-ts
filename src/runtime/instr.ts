@@ -38,6 +38,11 @@ import {
   makeGameSupportInstructions,
   newGameSupportState,
 } from './gamesupport'
+import {
+  makeTheGameFunctions,
+  makeTheGameInstructions,
+  newTheGameState,
+} from './thegame'
 import { SLN_ERRORS, makeSlnFunctions, makeSlnInstructions, newSlnState } from './sln'
 import { MAKE_ERRORS, makeMakeFunctions, makeMakeInstructions, newMakeState } from './make'
 import { TOOLS_ERRORS, makeToolsFunctions, makeToolsInstructions, newToolsState } from './tools'
@@ -5487,6 +5492,16 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     },
     instructions: makeLocaleInstructions,
     functions: makeLocaleFunctions,
+  },
+  {
+    // The Game 0.9 is a shim over other libraries; only the ptreplay half is
+    // ported so far. See thegame.ts and the batches in the task list.
+    ids: ['the-game-0.9'],
+    init: (rt) => {
+      rt.thegame = newTheGameState(rt)
+    },
+    instructions: makeTheGameInstructions,
+    functions: makeTheGameFunctions,
   },
   {
     ids: ['jvp-1.01'],

@@ -27,6 +27,7 @@ import type { MiscExtState } from './miscext'
 import type { FileIdState } from './fileid'
 import type { RangeState } from './range'
 import { jotreVbl, type JotreState } from './jotre'
+import { thegameVbl, type TheGameState } from './thegame'
 import type { MedExtState } from './medext'
 import { p61Vbl, type P61State } from './p61'
 import type { PowerBobsState } from './powerbobs'
@@ -574,6 +575,7 @@ export class Runtime {
   easylife!: EasyLifeState
   /** Jotre 1.0: the THX replayer's flag byte, module address and sub-song */
   jotre!: JotreState
+  thegame!: TheGameState
   /** Misc 1.0: the drive LED, which is all the state its twelve keywords have */
   miscExt!: MiscExtState
   /** Dump 1.1: the last printer-dump message index and the last device error */
@@ -4039,6 +4041,9 @@ export class Runtime {
     ercoleVbl(this.ercole)
     // Jotre's replayer interrupt is VblRout[0], gated on BOTH its flag bits
     jotreVbl(this.jotre)
+    // The Game's tracker keywords are ptreplay.library, which runs off a CIA
+    // timer on the machine and off the frame here -- see thegame.ts
+    thegameVbl(this)
     // TFT's own VBL server, when a program has armed it with Start Int
     tftVbl(this.tft)
     // GameSupport's cold start puts its hook in VblRout[0] and never removes

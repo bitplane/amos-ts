@@ -96,7 +96,7 @@ deviations.
 | system | 41 | 28 | 0 | 0 | 100% |
 | text-io | 37 | 36 | 1 | 0 | 100% |
 | tft-0.6 | 22 | 20 | 0 | 0 | 100% |
-| the-game-0.9 | 103 | 0 | 0 | 103 | 0% |
+| the-game-0.9 | 103 | 11 | 1 | 91 | 12% |
 | tome-3.1 | 34 | 33 | 1 | 0 | 100% |
 | tome-4.23 | 67 | 66 | 1 | 0 | 100% |
 | tools-1.01 | 33 | 33 | 0 | 0 | 100% |
@@ -105,7 +105,7 @@ deviations.
 | turbo-plus-2.15 | 152 | 147 | 4 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 6216 | 4039 | 132 | 1983 | 68% |
+| **total** | 6216 | 4050 | 133 | 1971 | 68% |
 
 ## aga-1.0 (100%)
 
@@ -482,9 +482,11 @@ deviations.
 - **faithful**: `cpu clear`, `cpu clear ntsc`, `cpu clear pal`, `get high word`, `get low word`, `get timer`, `get xmouse`, `get ymouse`, `init bpl scroll`, `init cpu clear` *(This is a defect in the library rather than a limit of the port: the return register d4 is never initialised, and every failed validation branches straight to the exit that returns it, so most inputs hand back whatever the caller happened to leave in d4.)*, `init timer`, `qsort`, `set bpl`, `start int`, `start timer`, `stop int`, `stop timer`, `tft error$`, `tft version`, `var mask`
 - **n/a**: `mfm luecke`, `mfm read`
 
-## the-game-0.9 (0%)
+## the-game-0.9 (12%)
 
-- **missing**: `g agaplasma`, `g amiga`, `g bitmap offset`, `g blur`, `g bob`, `g cd32`, `g check vbl`, `g circle`, `g cli`, `g close gms`, `g close req`, `g close reqtools`, `g cls`, `g colour`, `g copyarea`, `g decrypt`, `g def palette`, `g double buffer`, `g draw bob`, `g encrypt`, `g erase`, `g exit`, `g file size`, `g get img`, `g get palette`, `g getmem`, `g getscr`, `g handicap`, `g icon check`, `g iconify`, `g init bobs`, `g init encyrpt`, `g init gms`, `g init mbobs`, `g ink`, `g left click`, `g line`, `g load bobs`, `g load iff`, `g load pcx`, `g make rp`, `g oddno`, `g open reqtools`, `g own blitter`, `g palette`, `g paste bob`, `g plot`, `g point`, `g ptchan off`, `g ptchan on`, `g ptfade`, `g ptlength`, `g ptload`, `g ptpause`, `g ptplay`, `g ptpos`, `g ptset pos`, `g ptstop`, `g ptunpause`, `g ptvolume`, `g reboot`, `g rectangle`, `g reset`, `g rgb`, `g right click`, `g save bitmap`, `g save iff`, `g screen`, `g screen close`, `g screen copy`, `g screen hide`, `g screen offset`, `g screen open`, `g screen show`, `g set bob`, `g set img`, `g set mbob`, `g set mouse`, `g set pen`, `g set table`, `g setup bobs`, `g spaste bob`, `g stc pack`, `g stc unpack`, `g swap buffers`, `g tmap`, `g triple buffer`, `g unhandicap`, `g update`, `g wait lmb`, `g wait rmb`, `g word$`, `g x mouse`, `g y mouse`, `gcos`, `gham`, `ghires`, `glowres`, `gscreen colour`, `gscreen height`, `gscreen width`, `gsin`, `gsuperhires`
+- **faithful**: `g ptchan off`, `g ptchan on` *(The guide's "G Ptchan %0101 for chan 2 and 4 to be turned on" reads the binary literal left to right and is wrong. ptreplay ANDs the mask with the channels it can have first ($884 walks four audio nodes for a type word of 13); there is no audio.device arbitration here and no other task to lose a channel to, so all four are available)*, `g ptfade` *(The guide calls the argument a time in seconds and it is a RATE: ptreplay $6c2 writes it to both fade bytes and the interrupt at $9b8 counts one down, reloads it from the other and drops the volume word by one, so it is interrupt ticks per volume step. From ptreplay's own starting volume of 57 at the default tempo a rate of 1 does take about a second, which is presumably how the guide got there.)*, `g ptlength`, `g ptload`, `g ptpause`, `g ptplay` *(DEFECT: the token spec is `I`, no parameters, and the routine opens `move.l (a3)+,d0`, a read off AMOS's parameter stack that nothing pushed; ptreplay ignores d0, so the cost is the imbalance and not the value. Not reproduced -- this port hands a keyword its arguments as a list, so there is no stack to leave short, the same as Opal's Ovcopperrefresh in the other direction)*, `g ptpos` *(Undocumented: the guide has a node for Ptlength and none for this)*, `g ptstop` *(DEFECT: the handle at +$d0 is not cleared, so the guards still pass afterwards and a second Ptstop frees the same module twice)*, `g ptunpause`, `g ptvolume` *(The guide's "0-63" is the guide's: ptreplay $59e stores the word with no clamp, and its own PlayModule uses 57)*
+- **approximated**: `g ptset pos` *(The guide gives up on this one -- "jono not done. APPROXIMATED: ptreplay writes the byte raw with no test against the song's length and lets its interrupt find it, where Protracker.setPosition sends a position past the end back to 0, so the two differ for an out-of-range argument)*
+- **missing**: `g agaplasma`, `g amiga`, `g bitmap offset`, `g blur`, `g bob`, `g cd32`, `g check vbl`, `g circle`, `g cli`, `g close gms`, `g close req`, `g close reqtools`, `g cls`, `g colour`, `g copyarea`, `g decrypt`, `g def palette`, `g double buffer`, `g draw bob`, `g encrypt`, `g erase`, `g exit`, `g file size`, `g get img`, `g get palette`, `g getmem`, `g getscr`, `g handicap`, `g icon check`, `g iconify`, `g init bobs`, `g init encyrpt`, `g init gms`, `g init mbobs`, `g ink`, `g left click`, `g line`, `g load bobs`, `g load iff`, `g load pcx`, `g make rp`, `g oddno`, `g open reqtools`, `g own blitter`, `g palette`, `g paste bob`, `g plot`, `g point`, `g reboot`, `g rectangle`, `g reset`, `g rgb`, `g right click`, `g save bitmap`, `g save iff`, `g screen`, `g screen close`, `g screen copy`, `g screen hide`, `g screen offset`, `g screen open`, `g screen show`, `g set bob`, `g set img`, `g set mbob`, `g set mouse`, `g set pen`, `g set table`, `g setup bobs`, `g spaste bob`, `g stc pack`, `g stc unpack`, `g swap buffers`, `g tmap`, `g triple buffer`, `g unhandicap`, `g update`, `g wait lmb`, `g wait rmb`, `g word$`, `g x mouse`, `g y mouse`, `gcos`, `gham`, `ghires`, `glowres`, `gscreen colour`, `gscreen height`, `gscreen width`, `gsin`, `gsuperhires`
 
 ## tome-3.1 (100%)
 

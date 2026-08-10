@@ -2708,6 +2708,16 @@ export const FAITHFUL = new Set<string>([
   'ovsaveiff24', 'ovwritethumbnail24', 'ovdisplaythumbnail24',
   // The two that never enter the library.
   'ovconfig24', 'ovcopperrefresh',
+
+  // --- The Game Extension 0.9 beta (Peter Cahill), from `AMOSPro_Game.Lib`
+  // and, for the twelve tracker keywords, from ptreplay.library 6.6 itself --
+  // vendored at fixtures/libs/, because these routines are nothing but calls
+  // into it. `TGE.guide.beta` is read for intent only: it lags the shipped
+  // table, names six keywords the table does not have, and is wrong about the
+  // fade units, the channel bit order and the volume a play starts at.
+  // Only the tracker batch is ported so far; see src/runtime/thegame.ts.
+  'g ptload', 'g ptplay', 'g ptstop', 'g ptfade', 'g ptpause', 'g ptunpause',
+  'g ptvolume', 'g ptchan on', 'g ptchan off', 'g ptpos', 'g ptlength',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -7010,6 +7020,54 @@ export const NOTES: Record<string, string> = {
     "width -- over 640 hires and overscan, over 370 hires, over 320 overscan -- and over 256 lines interlaced. " +
     "DEFECT: `Opal.s` comments the first pop as \";OpalScreen pointer.\" and it is the FLAGS -- a wrong comment, " +
     "not wrong code",
+  "g ptload":
+    "Routine 15 ($18ca). `adda.w #2,a0` first, because an AMOS string is its length word and then its bytes. " +
+    "THREE DEFECTS in seven instructions, all reproduced: OpenLibrary is called on every invocation and its result " +
+    "stored over the last base, so two loads are two opens and at most one close; the open is never tested, and the " +
+    "next instruction is `jsr -$1e(a6)` through it, so a machine without LIBS:ptreplay.library jumps through zero; " +
+    "and a module already loaded is replaced at +$d0 without being unloaded",
+  "g ptplay":
+    "Routine 16 ($1918). ptreplay's PlayModule ($3a6) opens `move.w #$39,$e(a5)` -- so a play sets the volume to 57, " +
+    "discarding whatever Ptvolume set and not starting at full either. DEFECT: the token spec is `I`, no parameters, " +
+    "and the routine opens `move.l (a3)+,d0`, a read off AMOS's parameter stack that nothing pushed; ptreplay ignores " +
+    "d0, so the cost is the imbalance and not the value. Not reproduced -- this port hands a keyword its arguments as " +
+    "a list, so there is no stack to leave short, the same as Opal's Ovcopperrefresh in the other direction",
+  "g ptstop":
+    "Routine 17 ($1934). StopModule then UnLoadModule, guarded on both the library base and the handle. DEFECT: the " +
+    "handle at +$d0 is not cleared, so the guards still pass afterwards and a second Ptstop frees the same module twice",
+  "g ptfade":
+    "Routine 18 ($1962). The guide calls the argument a time in seconds and it is a RATE: ptreplay $6c2 writes it to " +
+    "both fade bytes and the interrupt at $9b8 counts one down, reloads it from the other and drops the volume word by " +
+    "one, so it is interrupt ticks per volume step. From ptreplay's own starting volume of 57 at the default tempo a " +
+    "rate of 1 does take about a second, which is presumably how the guide got there. A rate of ZERO is not a fast " +
+    "fade -- $6cc jumps to StopModule",
+  "g ptvolume":
+    "Routine 21 ($19b2). The guide's \"0-63\" is the guide's: ptreplay $59e stores the word with no clamp, and its own " +
+    "PlayModule uses 57",
+  "g ptpause":
+    "Routine 19 ($197e). ptreplay $514 sets the pause word at handle +$0c and silences the voices",
+  "g ptunpause":
+    "Routine 20 ($1998). ptreplay $528 clears the word and tests nothing, so un-pausing something that was never " +
+    "paused is not an error",
+  "g ptchan on":
+    "Routine 73 ($2ae4). BIT 0 IS THE FIRST CHANNEL -- ptreplay $6ea tests bit 0 and writes $dff0a0, which is AUD0. " +
+    "The guide's \"G Ptchan %0101 for chan 2 and 4 to be turned on\" reads the binary literal left to right and is " +
+    "wrong. ptreplay ANDs the mask with the channels it can have first ($884 walks four audio nodes for a type word of " +
+    "13); there is no audio.device arbitration here and no other task to lose a channel to, so all four are available",
+  "g ptchan off":
+    "Routine 74 ($2b00). The same mask the other way; see Ptchan On for the bit order",
+  "g ptset pos":
+    "Routine 75 ($2b1c). The guide gives up on this one -- \"jono not done. Pac, position meaning the pattern to " +
+    "continue from?\", the two authors' note to each other left in the shipped file -- and ptreplay $7fe answers it: " +
+    "`move.b d0,-$c(a0)`, the song position, the same byte Ptpos reads back. APPROXIMATED: ptreplay writes the byte " +
+    "raw with no test against the song's length and lets its interrupt find it, where Protracker.setPosition sends a " +
+    "position past the end back to 0, so the two differ for an out-of-range argument",
+  "g ptpos":
+    "Routine 76 ($2b38). The byte at handle -$0c. Undocumented: the guide has a node for Ptlength and none for this",
+  "g ptlength":
+    "Routine 77 ($2b56). ptreplay $5c8 follows the handle to the module and reads byte $3b6, which in a 31-sample " +
+    "module is the song length -- 20 bytes of title and thirty for each sample. So it is the number of positions, not " +
+    "a duration",
   "ovsavejpeg24":
     "Routine 73 ($10a0). The library's JPEG code is the Independent JPEG Group's, v4-era, compiled with SAS/C " +
     "into the fourth hunk, and everything it chooses is read off that binary rather than guessed: the Annex K " +
