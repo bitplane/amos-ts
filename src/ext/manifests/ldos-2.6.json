@@ -19,6 +19,6 @@
     "note": "Documentation coverage was measured by counting how many of the library's own keyword names appear in the files shipped beside it, taking only files that can be documentation (not disk images, example programs or the library itself). That measures the DOCUMENTATION, which is what the `docs` field records; it does not set the evidence tier, which follows from what is available to read.",
     "redistribution": "Third-party extension, redistribution terms unverified unless stated in the notes. Kept as a fixture for identification and reference only."
   },
-  "notes": "Later than the 2.5 registered (85 keywords against 77), and this archive carries LdosV25.guide documenting 84 of them — the AmigaGuide form of the same manual that lifted 2.5 off table tier. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs..",
+  "notes": "Later than the 2.5 registered (85 keywords against 77), and this archive carries LdosV25.guide documenting 84 of them, the AmigaGuide form of the 2.5 manual. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs..",
   "recommendedSlot": 10
 }

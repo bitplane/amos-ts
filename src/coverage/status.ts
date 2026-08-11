@@ -634,8 +634,8 @@ export const FAITHFUL = new Set<string>([
   'jvp version',
 
   // --- Locale 0.26 (third-party extension, by Johan Ostling) ---
-  // Manual tier: locale_ext.doc lists every keyword and the whole Format
-  // Date$ directive set, with the binary settling the rest. The extension is
+  // locale_ext.doc lists every keyword and the whole Format Date$ directive
+  // set, and AMOSPro_locale.lib settles the rest. The extension is
   // a shim over locale.library v38, so the port implements the slice of that
   // library it calls; see src/runtime/locale.ts.
   'open catalog',
@@ -1482,12 +1482,12 @@ export const FAITHFUL = new Set<string>([
   'oui reserve text', 'oui set text', 'oui text',
 
   // --- Delta 1.4 (Lukasz Zelezny), slot 15: fourteen hardware pokes and
-  // twelve constants. BINARY tier with an AmigaGuide that covers every
+  // twelve constants. DISASSEMBLY tier with an AmigaGuide that covers every
   // keyword briefly. FIVE of the instructions are Misc 1.0's routines
   // instruction for instruction -- the two drive-motor keywords, Mouse Off,
-  // Change Disk and Wait Fire -- and Delta Reset is Misc's Reset, so a
-  // SOURCE-tier witness stands behind the half of this extension that does
-  // anything to the machine. See delta.ts.
+  // Change Disk and Wait Fire -- and Delta Reset is Misc's Reset, so the half
+  // of this extension that does anything to the machine arrives with a
+  // witness whose own assembler source is published. See delta.ts.
   'delta pal', 'delta ntsc', 'delta no synchro', 'delta decrunch',
   'delta inter on', 'delta inter off', 'delta mouse off', 'delta reset',
   'delta drive motor on', 'delta drive motor off', 'delta change disk',

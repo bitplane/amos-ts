@@ -18,11 +18,13 @@
  *
  * ## Evidence order, and what this is NOT
  *
- * This is the manual tier. The header says what the author intended; the
- * library is what programs ran against, and where they disagree the library
- * wins — see ../amiga/README.md and the archive's SOURCE.md for
- * `aminet-mui-3.8`. So the values here are a starting point to be checked, not
- * an authority, and one check already exists: EasyLife's Tags bank ships the
+ * These values are TRANSCRIBED, not read off the code. The header says what
+ * the author intended; the library is what programs ran against, and where
+ * they disagree the library wins — see ../amiga/README.md and the archive's
+ * SOURCE.md for `aminet-mui-3.8`. `muimaster.library` 19.35 is held, so that
+ * comparison can actually be made and ./muidis.ts is what makes it; the
+ * values here are a starting point to be checked, not an authority. One
+ * check already exists besides: EasyLife's Tags bank ships the
  * same constants by name, resolved at run time out of bank 13, and
  * ../amiga/muimaster.test.ts compares the two tables entry by entry. Two
  * independent transcriptions agreeing is worth more than either alone.
@@ -190,9 +192,9 @@ out.push(`/**
  * own comment for the evidence and licensing position, and the archive at
  * amos-files/sources/aminet-mui-3.8/ for the full write-up.
  *
- * THIS IS THE MANUAL TIER. The header says what the author intended;
- * muimaster.library is what programs actually ran against, and where they
- * disagree the library decides.
+ * THESE VALUES ARE TRANSCRIBED, not read off the code. The header says what
+ * the author intended; muimaster.library is what programs actually ran
+ * against, and where they disagree the library decides.
  */
 
 /** every named MUI constant that resolves to a number */

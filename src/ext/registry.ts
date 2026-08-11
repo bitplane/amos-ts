@@ -39,26 +39,27 @@ export type ExtFormat =
  * parameter specs come free with the table, behaviour does not.
  *
  * The tier records the strongest evidence AVAILABLE, not whichever artifact a
- * porter happened to consult. That distinction is the whole rule, because the
- * two lower tiers are not evidence at all in the presence of a binary — they
- * are what you fall back on when there is nothing to read. So:
+ * porter happened to consult. That distinction is the whole rule, because
+ * `manual` is not evidence at all in the presence of a binary — it is what
+ * you fall back on when there is nothing to read. So:
  *
- *   **`manual` and `table` are legal only when there is no library binary.**
+ *   **`manual` is legal only when there is no library binary.**
  *
  * A shipped `.Lib` can always be disassembled: every keyword carries a routine
  * number, so the read is tens of instructions rather than thousands, and
  * src/cli/extdis.ts does the resolving. An extension whose binary we hold is
  * therefore never below `disassembly`, whatever its documentation looks like,
  * and `manual` for such an extension is a claim that we chose to believe a
- * paragraph over the code that shipped. ext.test.ts enforces this.
+ * paragraph over the code that shipped. ext.test.ts enforces this — for the
+ * field and, separately, for the prose that describes it, because the field
+ * was corrected once while twelve manifests went on narrating the old answer.
  *
- * The field said otherwise for a long time — 53 of 68 manifests declared
- * `manual` or `table` with the binary in the same directory, TURBO Plus 2.15
- * among them, after a session spent reading its 182 routines. The cause was a
- * heuristic recorded in those manifests' own provenance: the tier was assigned
- * by counting how many of the library's keyword names appeared in the
- * documentation beside it. That measures the DOCUMENTATION, which is a real
- * thing to know and is what the `docs` field is for.
+ * There is no tier below `manual`. There used to be a `table` — names and
+ * arities only, behaviour guessed — and nothing occupies it: 71 of the 72
+ * registered extensions hold a binary or the author's source, and the one
+ * that holds neither, intuition-1.3b, has its manual. The token table alone
+ * is what src/cli/libpool.ts produces from a scan, and a scan reads `.Lib`
+ * files, so even that path has the binary by construction.
  */
 export type ExtEvidence =
   /**
@@ -89,14 +90,11 @@ export type ExtEvidence =
    * No binary and no source; the extension's own manual or command reference
    * is all that describes it. A keyword ported from here cannot be marked
    * faithful, because there is nothing to check it against.
+   *
+   * One extension is here: intuition-1.3b, whose archive carries its token
+   * source and its own test programs and no library at all.
    */
   | 'manual'
-  /**
-   * Nothing but the token table, itself recovered from a program's tokenised
-   * stream. Names and arities are known and behaviour is guesswork. Faithful
-   * is unavailable, and the honest classification is structural.
-   */
-  | 'table'
 
 export interface ExtensionInfo {
   id: string

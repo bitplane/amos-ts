@@ -16,16 +16,12 @@ port has started — among them AMCAF 1.40/1.50, the JD family, EasyLife, TOME,
 TURBO Plus, Personnal, LDos, AMOS 3D, PowerBobs, MED 7.1, EME 3.0, P61 and
 BUtility. `KEYWORDS.md` has the per-row counts.
 
-**One row is partially ported, and it is being worked on.** Every other row in
-the manifest sits at 0% or 100%: an extension is finished or it has not been
-begun. That is the ratchet working, and it is the number to watch — a row
-appearing in the middle means a thread was left hanging.
-
-The exception is **The Game Extension 0.9**, which is being ported in batches
-because sixty-one of its 103 keywords sit behind GMS and the rest do not. The
-batches are tracked as tasks and the row will read 0% or 100% again when they
-are done; while it is in the middle it is a thread being pulled, not one left
-hanging.
+**Every row in the manifest reads 0% or 100%**: an extension is finished or it
+has not been begun. That is the ratchet working, and it is the number to watch
+— a row appearing in the middle means a thread was left hanging. The Game
+Extension 0.9 was the one exception for as long as it took to port, because
+sixty-one of its 103 keywords sit behind GMS and the rest do not, so it went
+in batches; it reads 100% now and the exception is closed.
 
 `KEYWORDS.md`'s total row carries the implemented and faithful counts. They
 are not repeated here, because a hand-copied total is a total that drifts.
@@ -75,17 +71,16 @@ in the census, and neither is closable.
 with real keyword names instead of `{ext12:$02d4}`, then stop at the first
 extension keyword. The count is keywords with no handler at all:
 
-| extension | missing | note |
+| extension | missing | what it is waiting on |
 |---|---|---|
-| OS DevKit 1.61 | 1047 | a wrapper over most of AmigaOS; needs the back-end, not the list |
-| GUI 2.10 / 1.61 / 1.5b | 204 / 103 / 48 | `intuition.library` |
-| Intuition 1.3b | 183 | needs `intuition.library` first |
-| Craft 1.0 | 136 | commercial (Black Legend) |
-| The Game 0.9 | 61 | in progress: everything but the GMS graphics |
-| D-SAM 1.01 | 50 | |
-| Delta 1.6 | 46 | `intuition.library` |
-| jd-int 1.3 | 33 | `intuition.library` — findings banked |
-| BSDSocket 1.1.4 | 30 | sockets |
+| OS DevKit 1.61 | 1047 | a wrapper over most of AmigaOS; needs the back-end, not the list. `gadtools`, `datatypes`, `iffparse` and `commodities` are the parts of it nothing here models |
+| GUI 2.10 / 1.61 / 1.5b | 204 / 103 / 48 | **`gadtools.library`**, and `asl.library` for the requesters. All three name gadtools and none of them names `intuition.library` |
+| Intuition 1.3b | 183 | nothing in `src/amiga` — the back-end landed. What it lacks is a binary: the archive is `itokens.s`, `cmdlist` and the author's twelve test programs, so this is the one row where a port has no code to read |
+| Craft 1.0 | 136 | nothing. It names no library at all, and every back-end its groups touch is here. Its help file is crunched, so the binary is the only account |
+| D-SAM 1.01 | 50 | nothing. `audio.device` and `dos.library`, both modelled |
+| Delta 1.6 | 46 | little. 26 of the 46 are Delta 1.4's, already faithful; of the 20 new ones four are machine code (n/a) and the rest want reqtools, `FindTask` and `WBenchToFront`, all of which exist |
+| jd-int 1.3 | 33 | nothing in `src/amiga` — findings banked, and the binary names no library, so it reaches Intuition through a base AMOS already holds |
+| BSDSocket 1.1.4 | 30 | `bsdsocket.library` **and** a host networking boundary. The only row here blocked on something outside AmigaOS |
 
 **GameSupport 1.2 came off this table, and it is worth saying what it cost.**
 All 37 read 100% and all 37 are faithful. Three of its five groups turned out
@@ -373,17 +368,24 @@ below rather than a footnote here. The iconify four came off this list when
 `OpenWindow` landed, and they are the first keywords in the port to open a
 real Intuition window.
 
-Five of the sixteen rows above wait on the same thing: **`intuition.library`,
-and a display path that can show a window.** That gate is now open, and the
-answer turned out to be one AMOS already had. `display.ts` is a single
+Two rows above still name Intuition, and neither is blocked by it. The gate
+that used to hold five of them — **`intuition.library`, and a display path
+that can show a window** — is open, and the answer turned out to be one AMOS
+already had. `display.ts` is a single
 copper-list interpreter, so an Intuition screen has to express itself as
 copper registers plus `BPLxPT` rather than as a second `Screen` — and AMOS
 opens screens BASIC cannot name for exactly that reason (EcFonc 8, EcEdit 9,
 EcFsel 10, EcReq 11, +Equ.s:792). The Workbench screen is one more of those,
 at slot 12. `src/amiga/intuition.ts` has OpenWorkBench, CloseWorkBench,
 WBenchToFront/Back, OpenWindow and CloseWindow on `src/amiga/layers.ts`,
-with the system gadgets and an IDCMP port; the roughly 550 keywords those
-five rows hold are now a keyword-list problem rather than a back-end one.
+with the system gadgets and an IDCMP port.
+
+**What the GUI trio actually wants is `gadtools.library`**, and the table used
+to say `intuition.library` because nobody had looked. All three name
+`gadtools.library` and `asl.library` in their strings and none of them names
+Intuition — GadTools is the OS 2.0 toolkit that builds gadgets and menus on
+top of Intuition, so it is one layer up and it is the layer that is missing.
+355 keywords sit behind it, the second-largest block on the board.
 
 **Intuition's census weight is an artefact, and this document used to report
 it as the largest remaining gap.** It is not. Twelve corpus programs reach an
@@ -393,10 +395,15 @@ arrived in `fixtures/extensions/intuition-1.3b/progs/` with the extension
 archive. Zero programs written to *use* it are in the corpus, and the huge
 occurrence counts are those self-tests looping.
 
-It is also the extension least able to move: its 183 keywords are windows,
-gadgets, menus and requesters, so nearly all of them would land as n/a until
-`intuition.library` exists in `src/amiga/`. That back-end, not the keyword
-list, is the actual prerequisite — see `src/amiga/README.md`.
+What holds it now is not the back-end but the evidence. Its 183 keywords are
+windows, gadgets, menus and requesters, and `src/amiga/intuition.ts` can serve
+those — but no `.Lib` for this extension has been found. The archive is
+`itokens.s`, `cmdlist` and the author's own twelve test programs, so the token
+table, the parameter specs and the `L_` routine names are all there and the
+routine bodies are nowhere. That makes it the one registered extension at
+`manual` tier, and the only one where a port would be reading names rather
+than code. **Check Aminet before accepting that** — the corpus machine's
+absence is not the world's.
 
 ### muimaster.library — surveyed, and parked behind Intuition
 
@@ -422,7 +429,8 @@ have given:
 - **Only 35 of the 65 classes are built in.** The other 30 ship as separate
   binaries in `MUI/Libs/mui/*.mui` and are loaded on demand, so they need a
   second resolution path `muidis` does not have yet. `Scrmodelist` has an
-  autodoc but no binary in MUI 3.8 — manual tier only.
+  autodoc and no binary anywhere in MUI 3.8, so it is the one class here with
+  nothing to read behind the documentation.
 - **The class tree corroborates `mui.h` exactly**, 0 parent mismatches. The
   binary carries one class the header never mentions: `Cclist.mui`.
 - **The autodocs undercount the protocol badly.** The 35 built-in classes hold

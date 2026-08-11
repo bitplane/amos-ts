@@ -11,9 +11,9 @@
  * own comment for the evidence and licensing position, and the archive at
  * amos-files/sources/aminet-mui-3.8/ for the full write-up.
  *
- * THIS IS THE MANUAL TIER. The header says what the author intended;
- * muimaster.library is what programs actually ran against, and where they
- * disagree the library decides.
+ * THESE VALUES ARE TRANSCRIBED, not read off the code. The header says what
+ * the author intended; muimaster.library is what programs actually ran
+ * against, and where they disagree the library decides.
  */
 
 /** every named MUI constant that resolves to a number */

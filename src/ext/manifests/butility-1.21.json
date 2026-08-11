@@ -16,11 +16,12 @@
   "titleStrings": [
     "$VER: 1.21"
   ],
-  "observedSlots": [12],
+  "observedSlots": [],
   "provenance": {
     "from": "Aminet dev/amos/BUtility.lha, BUtility/BUtility.Lib.",
     "note": "For AMOS 1.3 rather than AMOS Pro, per its own readme. The upload's Replaces field names an earlier BUtility.lha, so this is at least the second release. Ships a plain-text manual and a demo program; no source. The archive also carries .sig files beside the library and the demo, which are signatures rather than anything this registry reads.",
     "redistribution": "Uploaded to Aminet by the author. No licence text ships with it; terms beyond Aminet distribution are unstated."
   },
-  "notes": "15 keywords wrapping three third-party Amiga libraries its own readme names: reqtools.library for requesters, asl.library for the system file requester, and xpkmaster.library for compression. A facade over other people's libraries rather than an implementation, so porting it meant modelling those three. All fifteen are ported (src/runtime/butility.ts): ten faithful, five approximated. xpkmaster needed nothing -- src/amiga/xpkmaster.ts is a real port of the stream format that EasyLife already drives. The two file requesters go through AMOS's own selector, the precedent LDos's Lfreq set for req.library. The three text requesters -- rtEZRequest, rtGetLong, rtGetString -- go through src/runtime/requester.ts, which builds them out of the Interface dialog language using the statement grammar of the default resource bank's own Path:/Name: dialog (program 3), the one shipped dialog that draws with primitives instead of bank images. Slot 12 is confirmed three ways: routine 0's `moveq #$b,d0` = ExtNb 11, its `move.l a3,$1a8(a5)`, and the readme's \"Install BUtility.Lib as extension number 12\"."
+  "notes": "15 keywords wrapping three third-party Amiga libraries its own readme names: reqtools.library for requesters, asl.library for the system file requester, and xpkmaster.library for compression. A facade over other people's libraries rather than an implementation, so porting it meant modelling those three. All fifteen are ported (src/runtime/butility.ts): ten faithful, five approximated. xpkmaster needed nothing -- src/amiga/xpkmaster.ts is a real port of the stream format that EasyLife already drives. The two file requesters go through AMOS's own selector, the precedent LDos's Lfreq set for req.library. The three text requesters -- rtEZRequest, rtGetLong, rtGetString -- go through src/runtime/requester.ts, which builds them out of the Interface dialog language using the statement grammar of the default resource bank's own Path:/Name: dialog (program 3), the one shipped dialog that draws with primitives instead of bank images. Slot 12 is confirmed three ways: routine 0's `moveq #$b,d0` = ExtNb 11, its `move.l a3,$1a8(a5)`, and the readme's \"Install BUtility.Lib as extension number 12\".",
+  "recommendedSlot": 12
 }

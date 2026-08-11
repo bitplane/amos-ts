@@ -21,6 +21,6 @@
     "note": "EasyLife.doc names it 'EASY LIFE Extension V1.0, Written By Paul Hickman'.",
     "redistribution": "Third-party extension, redistribution terms unverified. The AMOS PD Library on CD (Weird Science, 1994), archive.org item cdrom-amospdcd. The disc's own Documents/Copyrights states Weird Science claims no copyright over the material, that parts are shareware with fees due, and that users should make no assumption that anything on it is public domain. Kept as a fixture for identification and reference only."
   },
-  "notes": "72 named keywords: zone geometry accessors, string searching, and assorted conveniences. Documented, so manual tier. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs..",
+  "notes": "72 named keywords: zone geometry accessors, string searching, and assorted conveniences. EasyLife.doc ships beside the library and describes them, with the binary to settle whatever it leaves open. Slot from Andrew Burton's AMOS Extensions List (kept at ultimateamiga.com, updated 2007-07-29), compiled from the AMOS-LIST archives 1994-1998, Amiga magazine clippings and coverdisk CDs..",
   "recommendedSlot": 16
 }

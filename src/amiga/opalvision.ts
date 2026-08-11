@@ -11,9 +11,11 @@
  *
  * ## Evidence
  *
- * SOURCE tier for the shim and DOCUMENTED tier for the library. Opal
- * Technology published the whole developer kit — `devdocs.lha` on Aminet,
- * uploaded 22 September 1993 — and the fixture carries it:
+ * SOURCE tier for the shim and DISASSEMBLY tier for the library, with the
+ * library's own AutoDocs beside it — an unusually good position, and it is
+ * the developer kit that supplies both. Opal Technology published the whole
+ * thing — `devdocs.lha` on Aminet, uploaded 22 September 1993 — and the
+ * fixture carries it:
  *
  * - `devdocs/opal.doc`, the AutoDocs, one entry per library function with the
  *   register each argument arrives in.

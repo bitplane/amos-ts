@@ -90,13 +90,17 @@ describe('scanLibraries', () => {
     expect(found.unresolvedIds).toEqual([])
   })
 
-  it('marks a scanned candidate as unregistered, with no evidence claimed', () => {
+  it('marks a scanned candidate as unregistered, and its evidence as the binary it was read from', () => {
     // a matching table says which table the slot held — not the extension's
-    // name, version, licence or behaviour, and the id base is only assumed
+    // name, version, licence or behaviour, and the id base is only assumed.
+    // The tier is the one thing a scan DOES establish: the input is a .Lib,
+    // so the binary is in hand and `disassembly` is what the registry rule
+    // requires. It read `table` once, which is the one tier a library
+    // scanner can never be entitled to.
     const dir = tree()
     writeFileSync(join(dir, 'Mystery.Lib'), fakeLegacyLib([['zap', 'I0']]))
     const ext = libAsExtension(scanLibraries([dir]).libs[0]!)
-    expect(ext.evidence).toBe('table')
+    expect(ext.evidence).toBe('disassembly')
     expect(ext.idBaseEvidence).toBe('assumed')
     expect(ext.observedSlots).toEqual([])
     expect(ext.provenance).toMatch(/^scanned from /)

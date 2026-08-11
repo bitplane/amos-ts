@@ -12,22 +12,29 @@
  * a reworking — which is exactly why the 1.50 manual documents 1.40. One port
  * serves both, the way the two Personnal releases and the three TURBOs do.
  *
- * ## Evidence tier: manual for 1.40, disassembly for what 1.50 added
+ * ## Evidence: the binary for all of it, the manual for most of it
  *
- * The author says so himself: *"AMCAF V1.50beta4 is the FINAL RELEASE!
- * FREEWARE!"* and, of the manual, *"Sorry, but I didn't have time to update
- * the manual. You'll have to find out the new commands since V1.40
- * yourself (or by looking at the history)."*
+ * Both builds are held, so the tier is `disassembly` throughout and `extdis
+ * amcaf-1.50` is how it is read: a 45,532-byte code hunk, jump table at +18,
+ * 354 routines from $1c28. What varies is how much prose stands beside the
+ * code, and for twelve keywords the answer is none. The author says so
+ * himself: *"AMCAF V1.50beta4 is the FINAL RELEASE! FREEWARE!"* and, of the
+ * manual, *"Sorry, but I didn't have time to update the manual. You'll have
+ * to find out the new commands since V1.40 yourself (or by looking at the
+ * history)."*
  *
- * So the honest split is **manual tier for the 1.40 subset** and
- * **disassembly tier for the twelve 1.50 additions** — the transparency
+ * Undocumented, therefore, and read from the routine alone: the transparency
  * group (`Trans Screen Static/Dynamic/Runtime`, `Alloc`/`Set Trans
  * Map`/`Source`), `Alloc Code Bank`, `Turbo Text`, `Pt Free Voice`, `Sload`
  * and `Ssave`. C2P is undocumented too: it appears only in the history node,
  * crediting Mikael Kalms' routine.
  *
- * Where the two disagree the binary wins. `extdis amcaf-1.50` decodes a
- * 45,532-byte code hunk, jump table at +18, 354 routines from $1c28.
+ * Where the manual and the binary disagree the binary wins, and it has to
+ * three times here — `Amcaf Aga Notation On` sets the mode it was already in
+ * (routines 80 and 81 have the pair the wrong way round), `Ham Point` is
+ * documented as answering -1 off-screen and there is no -1 in routine 160,
+ * and `Pal Set`'s index bound is 32 rather than the 256 the manual's silence
+ * invites. Each is written up at the keyword.
  *
  * ## The 1.40 binary we hold is the DEMO build, and 1.50 is the better oracle
  *

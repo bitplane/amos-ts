@@ -8,12 +8,22 @@
  *
  * ## Evidence
  *
- * Behaviour comes from `LdosV25.DOC`, the extension's own 81KB manual, which
- * documents every keyword with its syntax, parameter meanings, error results
- * and worked examples. That is manual-tier evidence, so these can be marked
- * faithful — tests cite the manual entry the way the core port cites 68k
- * source lines. There is no source for LDos, so where the manual is silent,
- * the behaviour is recorded as unknown rather than invented.
+ * `AMOSPro_Ldos.lib` is held, so behaviour is read out of it: 82 of the 85
+ * keywords cite the routine they came from, and `extaudit ldos-2.5` is what
+ * says so. `LdosV25.DOC`, the extension's own 81KB manual, is the commentary
+ * beside it — every keyword with its syntax, parameter meanings, error
+ * results and worked examples, which makes this one of the few ports where
+ * the code and its own description can be read against each other line by
+ * line. There is no assembler source, so where both are silent the behaviour
+ * is recorded as unknown rather than invented.
+ *
+ * Where they disagree the binary wins, and they do disagree: the manual
+ * states a password-length check that only one of the two crypt routines
+ * actually has. This header used to say the opposite — that the manual was
+ * the evidence and that being "manual tier" was what allowed these keywords
+ * to be marked faithful. It is the wrong way round in both halves. A held
+ * binary outranks any manual (docs/extensions/README.md, "Evidence tiers"),
+ * and documentation alone is the one tier that FORBIDS faithful.
  *
  * Version note: LDos 2.5's token table is a strict prefix of 2.6's — the same
  * 79 entries at the same offsets, with 8 keywords appended — so one set of

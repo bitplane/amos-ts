@@ -7,6 +7,7 @@ import { parseSource, TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { assembleTokenSource, tokensFromSource, SYMBOLIC } from './tokensrc'
 import { REGISTRY, allExtensions, extensionById, defaultSlotBindings } from './registry'
+import { EXT_INFO } from './tables.gen'
 import { collectUsage, identifyProgram, identifySlot, specArity, type SlotUsage } from './identify'
 
 type SlotUsageAcc = SlotUsage
@@ -103,9 +104,11 @@ describe('extension registry (src/ext/registry.ts)', () => {
   it('records provenance and an evidence tier for every extension', () => {
     for (const info of REGISTRY) {
       expect(info.provenance.length, info.id).toBeGreaterThan(10)
-      // four tiers, as docs/extensions/README.md documents them. `disassembly`
-      // was missing here until CText became the first entry to claim it.
-      expect(['source', 'disassembly', 'manual', 'table'], info.id).toContain(info.evidence)
+      // three tiers, as docs/extensions/README.md documents them.
+      // `disassembly` was missing here until CText became the first entry to
+      // claim it; `table` was removed when it became clear nothing could ever
+      // claim it, a library scan included (src/cli/libpool.ts reads .Lib files).
+      expect(['source', 'disassembly', 'manual'], info.id).toContain(info.evidence)
       expect(['calibrated', 'assumed'], info.id).toContain(info.idBaseEvidence)
     }
   })
@@ -136,7 +139,7 @@ describe('extension registry (src/ext/registry.ts)', () => {
         library?: string
         evidence: string
       }
-      if (m.library && (m.evidence === 'manual' || m.evidence === 'table')) {
+      if (m.library && m.evidence === 'manual') {
         offenders.push(`${m.id} says ${m.evidence} but ships ${m.library}`)
       }
     }
@@ -144,6 +147,52 @@ describe('extension registry (src/ext/registry.ts)', () => {
       offenders,
       'a held binary outranks any manual — raise these to `disassembly`, or ' +
         'to `source` if the assembler source is available too',
+    ).toEqual([])
+  })
+
+  it('never narrates a tier its own evidence field contradicts', () => {
+    // The field above is not where anybody reads the answer. `notes` is, and
+    // `notes` went on saying the old one: when the tier rule landed and 53
+    // manifests were corrected from `manual`/`table` to `disassembly`, the
+    // prose beside the field was left alone. Twelve manifests then spent
+    // months declaring "Table tier: ... behaviour is inferred from names and
+    // parameter specs" (CRAFT), "Documented, so manual tier" (EasyLife 1.0,
+    // Stars, LSerial) and "so this stays at table tier" (D-Sam) about
+    // libraries whose binaries are in fixtures/ and whose own field said
+    // `disassembly`. Craft's was quoted back as a reason not to port it.
+    //
+    // A field nobody reads is not enforcement, so the sentence is checked
+    // too. This looks for a tier NAME bound to the word "tier", which is
+    // narrow on purpose: describing the documentation ("Opal.Readme
+    // documents 76", "covers only 18 of its 87 keywords") is exactly what
+    // these fields are for and must stay legal. It is the claim about the
+    // TIER that has to match the field.
+    //
+    // It is deliberately strict about a manifest naming a tier that is not
+    // its own, even a true one. Delta 1.4 used to describe Misc 1.0's
+    // published source as "a SOURCE-tier witness", which is correct and was
+    // still worth rewriting: a tier belongs to an extension, and the reader
+    // scanning delta-1.4.json for its tier should not have to work out that
+    // this one is somebody else's.
+    const manifests = join(root, 'src', 'ext', 'manifests')
+    const offenders: string[] = []
+    for (const f of readdirSync(manifests).filter((n) => n.endsWith('.json'))) {
+      const m = JSON.parse(readFileSync(join(manifests, f), 'utf8')) as {
+        id: string
+        evidence: string
+        notes?: string
+        provenance?: { from?: string; note?: string; redistribution?: string }
+      }
+      const prose = [m.notes ?? '', ...Object.values(m.provenance ?? {})].join(' ')
+      for (const claim of prose.matchAll(/\b(source|disassembly|manual|table)[\s-]tier\b/gi)) {
+        const tier = claim[1]!.toLowerCase()
+        if (tier !== m.evidence) offenders.push(`${m.id} is ${m.evidence} but its prose says ${tier} tier`)
+      }
+    }
+    expect(
+      offenders,
+      'say what is available to read, and let it agree with `evidence` — how ' +
+        'much of the extension the documentation covers belongs in `docs`',
     ).toEqual([])
   })
 
@@ -534,5 +583,46 @@ describe('the documented registry table matches the registry', () => {
       .map((e) => e.id)
       .filter((id) => !table.includes(`\`${id}\``))
     expect(missing, 'run: npm run cli -- src/cli/genextdoc.ts').toEqual([])
+  })
+
+  it('carries the metadata the manifests currently hold', () => {
+    // tables.gen.ts is generated from the manifests AND from fixtures/, and
+    // only the manifests are committed — so the whole file cannot be rebuilt
+    // in CI and nothing was checking any of it. It went stale: eight records
+    // still held the pre-port write-ups for BUtility, Delta 1.4, GameSupport,
+    // LSerial, Make, Opal and SLN, and BUtility's observedSlots was empty
+    // where its manifest had found slot 12. A manifest edit without
+    // `npm run gentables` leaves the two disagreeing silently, and the
+    // generated copy is the one every consumer reads.
+    //
+    // Every field below comes verbatim from the manifest, so it can be
+    // compared without fixtures. `sha256` cannot — it is hashed from the
+    // library itself — and the token tables cannot either, which is the half
+    // that still needs the corpus and is checked by the tests above.
+    const manifests = join(root, 'src', 'ext', 'manifests')
+    const byId = new Map(EXT_INFO.map((e) => [e.id, e]))
+    const stale: string[] = []
+    for (const f of readdirSync(manifests).filter((n) => n.endsWith('.json'))) {
+      const m = JSON.parse(readFileSync(join(manifests, f), 'utf8'))
+      const got = byId.get(m.id)
+      if (!got) continue // its fixture is absent, so genext skipped it
+      const want = {
+        name: m.name,
+        version: m.version,
+        author: m.author ?? 'unknown',
+        evidence: m.evidence,
+        idBaseEvidence: m.idBaseEvidence,
+        defaultSlot: m.recommendedSlot,
+        observedSlots: m.observedSlots ?? [],
+        titleStrings: m.titleStrings ?? [],
+        provenance: `${m.provenance?.from ?? ''} ${m.provenance?.note ?? ''}`.trim(),
+        notes: m.notes ?? '',
+      }
+      for (const [k, v] of Object.entries(want)) {
+        const mine = (got as unknown as Record<string, unknown>)[k]
+        if (JSON.stringify(mine) !== JSON.stringify(v)) stale.push(`${m.id}.${k}`)
+      }
+    }
+    expect(stale, 'tables.gen.ts is behind the manifests — run: npm run gentables').toEqual([])
   })
 })

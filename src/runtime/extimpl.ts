@@ -179,19 +179,70 @@ export function implSlots(
  * extension through its slot number needs this direction: AMCAF's Extbase,
  * Extdefault and Extremove are `$f8(a5) + 16*(n-1)` and nothing else.
  *
- * Last-wins on a collision, which cannot happen with real bindings — a slot
- * holds one extension — and is arbitrary without them, where `implSlots`
- * falls back to every slot an identity has ever been seen at and two ports may
- * claim one. That fallback is for source listings and tests, which is also the
- * case where no program can be asking about a slot it did not name.
+ * A collision cannot happen with real bindings — a slot holds one extension —
+ * and it genuinely can without them, because `implSlots` then falls back to
+ * every slot an identity has ever claimed. Slot 12 is the live case: TURBO
+ * Plus recommends it AND corpus programs are seen using it there, while
+ * BUtility's readme, its `moveq #$b,d0` ExtNb and its `$1a8(a5)` store all
+ * say 12 as well.
+ *
+ * So the two claims are separated the way docs/extensions/README.md already
+ * separates them: **a slot a program was seen using is evidence; a slot a
+ * manual recommends is not.** Recommendations are laid down first and
+ * observations overwrite them, which puts TURBO Plus in slot 12 for a
+ * Runtime built from a source listing.
+ *
+ * This used to be last-wins over the order of EXT_IMPLS, which is to say
+ * arbitrary, and it silently changed hands the moment a manifest recorded a
+ * second claim on slot 12 — `Default` stopped running TURBO's reset hook and
+ * two tests caught it only because they assert what that hook does.
+ *
+ * Evidence does not separate all of them. Five more slots are claimed twice
+ * with nothing between the claims — 19 (JD-K3 / MED), 20 (JD Colour / Dump),
+ * 21 (JD Prt / Opal), 23 (Tools / Colours) and 25 (FileID / TFT) — because
+ * every one of those is somebody's recommendation and nothing more, which is
+ * precisely the collision this project says a slot number invites. There is
+ * no right answer there, so the tie goes to whichever identity sorts first
+ * and the point is only that it STAYS there. A real program load never
+ * reaches this: `identify.ts` binds the slot from the program's own token
+ * ids, and `bound` is then the whole answer.
  */
 export function implsBySlot(
   impls: readonly ExtensionImpl[],
   bound: ReadonlyMap<number, Extension> | null | undefined,
 ): Map<number, ExtensionImpl> {
   const out = new Map<number, ExtensionImpl>()
-  for (const impl of impls) for (const slot of implSlots(impl, bound)) out.set(slot, impl)
+  if (bound && bound.size > 0) {
+    for (const impl of impls) for (const slot of implSlots(impl, bound)) out.set(slot, impl)
+    return out
+  }
+  // strongest claim last, so it overwrites; within one strength, first by
+  // identity wins and later claimants are left alone
+  const ordered = [...impls].sort((a, b) => implLabel(a).localeCompare(implLabel(b)))
+  for (const pick of [recommendedSlotsForIds, observedSlotsForIds]) {
+    const pass = new Map<number, ExtensionImpl>()
+    for (const impl of ordered) for (const slot of pick(impl.ids)) if (!pass.has(slot)) pass.set(slot, impl)
+    for (const [slot, impl] of pass) out.set(slot, impl)
+  }
   return out
+}
+
+/** slots these identities' manuals or configs suggest — a claim, not evidence */
+function recommendedSlotsForIds(ids: readonly string[]): number[] {
+  const slots = new Set<number>()
+  for (const ext of allExtensions()) {
+    if (ids.includes(ext.id) && ext.defaultSlot !== undefined) slots.add(ext.defaultSlot)
+  }
+  return [...slots].sort((a, b) => a - b)
+}
+
+/** slots corpus programs were actually seen using these identities in */
+function observedSlotsForIds(ids: readonly string[]): number[] {
+  const slots = new Set<number>()
+  for (const ext of allExtensions()) {
+    if (ids.includes(ext.id)) for (const s of ext.observedSlots) slots.add(s)
+  }
+  return [...slots].sort((a, b) => a - b)
 }
 
 /**

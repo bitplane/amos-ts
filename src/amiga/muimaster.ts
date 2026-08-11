@@ -39,12 +39,15 @@
  * values that reach it are $e2, $dc, $d6 and $88, which sign-extend to exactly
  * those four.
  *
- * Constants and the class tree from `libraries/mui.h`, MUI 3.8,
- * muimaster.library 19.35. THIS IS THE MANUAL TIER: the header says what the
- * author intended, the library is what programs ran against, and where they
- * disagree the library decides. One independent check is already wired up —
- * EasyLife ships the same constants by name in its Tags bank, and
- * `muimaster.test.ts` compares the two tables.
+ * Constants and the class tree are TRANSCRIBED from `libraries/mui.h`, MUI
+ * 3.8 — which is a statement about where the numbers were typed from, not
+ * about what is available to read. `muimaster.library` 19.35 is held and
+ * `../cli/muidis.ts` reads it, so the header says what the author intended,
+ * the library is what programs ran against, and where they disagree the
+ * library decides. Two independent checks are wired up: EasyLife ships the
+ * same constants by name in its Tags bank and `muimaster.test.ts` compares
+ * the two tables, and the class tree below has been put against the binary's
+ * own class registry with zero parent mismatches.
  *
  * The notification message shape is confirmed against a binary rather than the
  * header. EasyLife's routine 215 ($2f04) builds `Mui Notify` by hand:
@@ -73,7 +76,8 @@
  * routine. Four things it established, none of which mui.h could have said:
  * only 35 of the 65 classes are built into the library (the rest are separate
  * `MUI/Libs/mui/*.mui` binaries); the class tree above agrees with the binary
- * exactly, which promotes it off the manual tier; the 35 hold 507 method-table
+ * exactly, so it is confirmed and not merely transcribed; the 35 hold 507
+ * method-table
  * entries of which 113 have NO NAME in mui.h; and `Group` and `Family` both
  * broadcast to their children before deferring to the superclass.
  *

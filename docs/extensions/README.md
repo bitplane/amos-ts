@@ -99,15 +99,23 @@ ever be called faithful:
 | `source` | Original assembler source is available; behaviour can be read directly. |
 | `disassembly` | The library binary is available. Ranks with `source`. |
 | `manual` | **No binary and no source.** Only the extension's own documentation describes it. |
-| `table` | **No binary, no source, no manual.** Names and arities only; behaviour is guesswork. |
 
 The tier records the strongest evidence **available**, not whichever artifact
 somebody happened to consult. That is the whole rule, and it has one hard
 consequence:
 
-> `manual` and `table` are legal only for an extension we hold **no binary**
-> for. If the `.Lib` is in the fixture, the tier is `disassembly` or better —
-> always, whatever the documentation looks like.
+> `manual` is legal only for an extension we hold **no binary** for. If the
+> `.Lib` is in the fixture, the tier is `disassembly` or better — always,
+> whatever the documentation looks like.
+
+There is no fourth tier. There was a `table` — names and arities only,
+behaviour guessed from them — and it is retired because nothing can occupy
+it. Every registered extension but one holds a binary or the author's source,
+the exception (`intuition-1.3b`) has its manual, and the only other way a
+token table enters this codebase is `src/cli/libpool.ts`, which scans `.Lib`
+files and so holds the binary by construction. A tier with no possible
+occupant is a tier that only ever gets claimed by mistake, and it was: it
+survived in twelve manifests' prose for as long as it survived in the type.
 
 A shipped binary can always be read. The token table makes it targeted rather
 than heroic: every keyword carries a routine number, so the read is tens of
@@ -129,10 +137,14 @@ particular keyword has actually been read is a per-keyword question, and
 implemented keywords cite the routine they came from and how many cite nothing.
 That number is the one to look at before believing a port is finished.
 
-What the two lower tiers cost is faithfulness itself. A keyword implemented
-from `manual` or `table` evidence **cannot** be marked faithful, however
-plausible the implementation looks. There is nothing to check it against; the
-honest classification is structural, with a NOTES entry saying so.
+What `manual` costs is faithfulness itself. A keyword implemented from
+documentation alone **cannot** be marked faithful, however plausible the
+implementation looks. There is nothing to check it against; the honest
+classification is structural, with a NOTES entry saying so. This cuts both
+ways, and the wrong way round is the one that actually happened: a port whose
+header called its evidence "manual tier" while the `.Lib` sat in its fixture
+directory was not being modest, it was declaring its own keywords unfaithful
+on the strength of a mislabel.
 
 `disassembly` is tracked apart from `source` because the failure mode differs.
 There are no symbols and no comments, data and code are easily confused (a
@@ -150,9 +162,13 @@ is the same activity as reading `+Lib.s`. Because the code is never run, a
 binary-only extension cannot be probed by experiment: behaviour has to be read
 out of the disassembly, or be marked unknown.
 
-The rule is enforced in `src/ext/ext.test.ts`, so a new manifest cannot quietly
-declare `manual` over a binary. Whether the documentation is any good is a
-separate and useful question — that is what the `docs` field is for.
+The rule is enforced in `src/ext/ext.test.ts` twice over, because once was not
+enough. A new manifest cannot quietly declare `manual` over a binary — and it
+cannot *narrate* one either. When the field was corrected, twelve manifests
+went on saying "table tier" and "manual tier" in their `notes`, which is where
+a reader actually looks, so the prose is checked against the field as well.
+Whether the documentation is any good is a separate and useful question — that
+is what the `docs` field is for.
 
 ## The registry
 
@@ -251,7 +267,7 @@ per keyword.
 | `tft-0.6` | TFT | disassembly | 22 | — | recommends 25 |
 | `locale-0.26` | Locale | disassembly | 20 | — | recommends 17 |
 | `sticks-1.01b` | Sticks | disassembly | 16 | 17 | recommends 17 |
-| `butility-1.21` | BUtility | disassembly | 15 | — | — |
+| `butility-1.21` | BUtility | disassembly | 15 | — | recommends 12 |
 | `lserial-2.1` | LSerial | disassembly | 15 | 11 | recommends 11 |
 | `ercole-1.7` | Ercole | disassembly | 11 | — | recommends 10 |
 | `stars-2.33` | Stars | disassembly | 11 | — | recommends 20 |
@@ -520,7 +536,7 @@ decisive between two neighbouring rows near the bottom.
 | 2 | `jd-colour-1.4` | module | 44 / 44 |
 | 2 | `os-devkit-1.61` | — | 0 / 1047 |
 | 2 | `ldos-2.6` | module | 85 / 85 |
-| 2 | `the-game-0.9` | — | 0 / 103 |
+| 2 | `the-game-0.9` | module | 103 / 103 |
 | 1 | `butility-1.21` | module | 15 / 15 |
 | 1 | `dump-1.0` | module | 8 / 8 |
 | 1 | `delta-1.4` | module | 26 / 26 |
@@ -545,6 +561,13 @@ Regenerate against a corpus with:
 ```
 npm run cli -- src/cli/libdemand.ts /path/to/corpus --libs /path/to/corpus --md docs/extensions/README.md
 ```
+
+The corpus is not on this machine, so despite the marker the "port" and
+"keywords answered" columns get hand-corrected as ports land — `the-game-0.9`
+went from `— | 0 / 103` to `module | 103 / 103` that way. The program counts
+are the part that needs the corpus and the part that never changes on its own;
+correcting a cell beside them beats leaving the table saying an extension is
+unported for however long it takes to reassemble 5,000 programs.
 
 ## Finding what is missing
 

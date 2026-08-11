@@ -253,8 +253,9 @@ export type RefreshType = 'simple' | 'smart' | 'super'
 
 /**
  * NOTE: the flag VALUES are the Commodore header's (graphics/clip.h), which
- * is the weakest tier this port uses — no binary in the archive passes them
- * and AROS's copy of the header is generated rather than checked in. Nothing
+ * is the thinnest evidence anything in this port rests on — no binary in the
+ * archive passes them and AROS's copy of the header is generated rather than
+ * checked in. Nothing
  * in the model below depends on them: the chain works in terms of
  * RefreshType, and this table exists only to decode a `flags` word if one
  * ever arrives from a real caller. AROS's own tests are what fix the

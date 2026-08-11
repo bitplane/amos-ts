@@ -117,8 +117,16 @@ export function scanLibraries(roots: string[]): ScanResult {
 /**
  * Dress a scanned library up as an Extension so identifySlot can score it
  * beside the registry. Everything that would make it a registry entry —
- * provenance, evidence tier, a calibrated id base — is explicitly absent or
+ * provenance, a calibrated id base, a write-up — is explicitly absent or
  * marked unknown, because a scan establishes none of those.
+ *
+ * The evidence tier is NOT among them. A scan's input is a `.Lib` file, so
+ * the binary is in hand by construction and the tier is `disassembly`, the
+ * same rule the registry runs on: the tier records what is available to
+ * read, and nobody having read it yet is a different fact. This field said
+ * `table` for a while, which claimed the opposite of what the scanner is —
+ * that only a token table had been recovered — for the one code path that
+ * can never be in that position.
  */
 export function libAsExtension(lib: ScannedLib): Extension {
   return {
@@ -128,7 +136,7 @@ export function libAsExtension(lib: ScannedLib): Extension {
     author: '',
     origin: 'third-party',
     format: lib.format === 'AP20' ? 'ap20' : 'legacy',
-    evidence: 'table',
+    evidence: 'disassembly',
     idBaseEvidence: 'assumed',
     observedSlots: [],
     titleStrings: [],

@@ -2,10 +2,10 @@
  * Locate — and disassemble — the routine behind a MUI class's method.
  *
  * `src/amiga/muimaster.ts` was built from `libraries/mui.h`: the class tree,
- * the 714 constants and the `isg` flags. That is the MANUAL tier, and the
- * file says so. This is the other side of it — `muimaster.library` 19.35, the
- * code that actually shipped, which under this project's governing rule
- * outranks the header wherever the two disagree.
+ * the 714 constants and the `isg` flags. Those are transcribed rather than
+ * read, and the file says so. This is the other side of it —
+ * `muimaster.library` 19.35, the code that actually shipped, which under this
+ * project's governing rule outranks the header wherever the two disagree.
  *
  * ## The path
  *
