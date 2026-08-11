@@ -2462,6 +2462,26 @@ export const FAITHFUL = new Set<string>([
   'fr scan all',
   'fr julia',
   'fr mandelbrot',
+  // Batch 9: Workbench, the CLI and the machine, and the group that proves
+  // the claim above -- not one of these opens a library. IntuitionBase is at
+  // -$18a6(a5), DOSBase at $620(a5) and ExecBase at absolute $4, all of them
+  // held by AMOS already.
+  'open workbench',
+  'wb to front',
+  'wb to back',
+  'cli execute',
+  'cli print',
+  'cli here',
+  'guru meditation',
+  'guru alert',
+  'set amos pri',
+  'amos pri',
+  'wb def prefs',
+  'wb prefs',
+  'set wb prefs',
+  'sys request',
+  'hard reset',
+  'warm reset',
   // --- Range 2.6 / 2.9Plus, slot 9: Shadow Software's AMOS Club extension.
   // One port for both builds; five slot-qualified names. Slice 1 --- the
   // self-contained half. See range.ts.
@@ -3013,6 +3033,11 @@ export const NA = new Set<string>([
   // MISC 1.0: Multi Off and Multi On are the SAME two calls — `jsr -132(a6)`
   // and `-138(a6)` on ExecBase (Misc_Extension.asm:117, :124) — reached from a
   // different library, so they are n/a for the same reason JD's are.
+  // CRAFT 1.0: routines 175 and 174 ($2ef4, $2ee6) are the same pair again,
+  // `jsr -$84(a6)` and `-$8a(a6)` on the ExecBase at absolute $4. A third
+  // product, one reason. Forbid NESTS on the machine, so a count was the one
+  // thing that could have been modelled — but nothing in any of the three
+  // libraries reads it back, so it would be state no program can observe.
   // `Pal On` (:209) is the one the manual apologises for — the label
   // is followed only by RS.B/EQU/MACRO directives, which emit no code, so it
   // falls straight into `Go60`, a routine whose own comment reads ";put system
@@ -3266,6 +3291,49 @@ export const NOTES: Record<string, string> = {
     "Routine 92 ($1950): `ext.l d3` on the stored word, so the $FFFF a deleted colour leaves behind comes back " +
     "as -1 -- \"if there is no colour available, a value of -1 is returned\".",
   "del bank colour": "Routine 93 ($196c): the $FFFF marker, written over one slot.",
+  "wb prefs":
+    "Routine 179 ($2f58): GetPrefs at -$84 off IntuitionBase, over an address AMOS routine 431 resolves and " +
+    "`btst #$0,d3 / Rbne routine 208` refuses if odd -- AMOS error 25, not one of CRAFT's. The size goes " +
+    "straight through, so a short one copies the front of the structure and that is Intuition's contract " +
+    "rather than this extension's. Wb Def Prefs is the same over GetDefPrefs (-$7e) and Set Wb Prefs over " +
+    "SetPrefs (-$144), whose two-argument form pushes -1 for the third and so makes the change permanent.",
+  "guru meditation":
+    "Routine 167 ($2e18). It does exactly what the name says: the second argument goes into the scratch area " +
+    "as the alert's parameter list, `bset #$1f,d7` makes the number a DEADEND alert, and `jmp -$6c(a6)` is " +
+    "exec's Alert, which for a deadend one never returns. This port answers that with a cold reset -- see " +
+    "../amiga/machine.ts for what a reset means here.",
+  "guru alert":
+    "Routines 168 to 172 onto the body at routine 173 ($2e5a): one to five lines, each laid into an IntuiText " +
+    "chain centred by `asl.w #2 / subi.w #$140 / neg.w` -- 320 less four times the length -- and stepped ten " +
+    "pixels a line from a first at 14. A line of 78 characters or more is error 23, an empty one is skipped, " +
+    "and a set with nothing in it at all is error 23 as well (`tst.w d5 / Rbeq routine 206`). Then DisplayAlert " +
+    "at -$5a, with AMOS's own display taken down and put back around it. \"If the user presses the right mouse " +
+    "button, the function returns a zero (False), but if the user presses the left button, the function returns " +
+    "a value of -1\". DEVIATION: this port draws it with the dialog machinery every other requester here uses, " +
+    "so the geometry is not the machine's; what a program can observe -- which lines are refused, and the " +
+    "answer -- is.",
+  "sys request":
+    "Routines 182 to 187 ($2fa8..$2fc6): AutoRequest at -$15c, through `ThisTask->pr_WindowPtr` at $b8. The " +
+    "argument order is the interesting part -- routine 187 pulls the LAST two off the stack as the gadget " +
+    "labels before it walks back over one to five body lines, which is how three arguments make a one-line " +
+    "requester and seven make a five-line one. \"If you use empty strings\" the labels are Retry and Cancel, " +
+    "and both words are in the hunk at $3096 and $308e with their length bytes in front, beside the " +
+    "topaz.font the IntuiTexts are drawn in.",
+  "cli here":
+    "Routine 203 ($325a). `ThisTask->pr_CLI` is a BPTR, which is what the two `adda.l a0,a0` are for, and then " +
+    "`cli_Background` at $2c decides: -1 for a FOREGROUND CLI, 0 for a background one, and 0 again for a " +
+    "process with no CLI at all. A program under this port was not started from a shell, so it is 0 -- the " +
+    "same answer the machine gives a Workbench-launched program.",
+  "cli execute":
+    "Routine 165 ($2dda): Output() and Input() off DOSBase at `$620(a5)`, then Execute at -$de. Passing both " +
+    "handles is what makes the command INHERIT the console, where EasyLife's Elexec passes zero and runs " +
+    "detached -- ../amiga/process.ts records the contrast, and this port has no shell behind either, so both " +
+    "answer DOSFALSE. Cli Print (routine 166) takes the same Output() and gives up on a zero one, which is " +
+    "what a Workbench-launched program has, so on the machine it prints nothing either.",
+  "hard reset":
+    "Routine 188 ($3106): Disable, Supervisor, `clr.l $4.w`, RESET, and a jump to $2 -- the ROM's entry. " +
+    "Clearing ExecBase first is the whole difference from Warm Reset (routine 189, $3122): the ROM finds " +
+    "nothing there and builds a new one, which is a cold boot. See ../amiga/machine.ts.",
   "fr mandelbrot":
     "Routine 160 ($2b8a) over the shared setup, routine 161 ($2c8c). Everything is 16-bit fixed point with 8192 " +
     "as one -- the manual says so for the coordinates and the iteration confirms it, because a product of two " +
@@ -4162,9 +4230,14 @@ export const NOTES: Record<string, string> = {
   "multi yes":
     "The counterpart, SetTaskPri(..., 0).",
   "amos pri":
-    "Records a task priority. Routine 125 ($4600) tests both ends of the documented -128..20 range and branches " +
-    "to its own rts when either fails, so an out-of-range value is silently IGNORED — neither clamped nor " +
-    "reported — and that is reproduced: set 100 and the priority stays where it was",
+    "The name is CONTESTED and this note covers both; each port qualifies its own. TURBO Plus records a task " +
+    "priority: routine 125 ($4600) tests both ends of the documented -128..20 range and branches to its own " +
+    "rts when either fails, so an out-of-range value is silently IGNORED — neither clamped nor reported — and " +
+    "that is reproduced: set 100 and the priority stays where it was. CRAFT's routine 177 ($2f22) reads " +
+    "`ThisTask->ln_Pri` at offset 9 off the task ExecBase keeps at $114, sign extended, and its Set Amos Pri " +
+    "(routine 176) writes SetTaskPri with a bound spelled as a ROUND TRIP rather than a comparison — `move.b " +
+    "d0,d1 / ext.w / ext.l / cmp.l d0,d1 / Rbne routine 206` — so anything that does not survive being cut to " +
+    "a signed byte is error 23 where TURBO Plus stays quiet.",
   "vbl wait":
     "Four instructions in the binary: a busy-wait on the low byte of VHPOSR ($dff006) until it equals the " +
     "requested line. That is sub-frame beam racing, and its whole purpose — the manual's example scrolls only the " +
@@ -4546,7 +4619,12 @@ export const NOTES: Record<string, string> = {
   "audio lock":
     "'When you start AMOS, the audio.device will be not informed, that AMOS wants to have the audio channels.",
   "open workbench":
-    "'Tries to open the workbench again, if it has been closed previously' with AMOS's Close Workbench.",
+    "The name is CONTESTED and this note covers both; each port qualifies its own, so a program gets the slot " +
+    "it bound. AMCAF's is 'Tries to open the workbench again, if it has been closed previously' with AMOS's " +
+    "Close Workbench, and its routine does nothing at all. CRAFT's is routine 162 ($2d9e): OpenWorkBench at " +
+    "-$d2 off the IntuitionBase it finds at `-$18a6(a5)`, a base AMOS is already holding -- there is not one " +
+    "library-name string in the whole CRAFT hunk. It stashes `seq` on the result in `$3c6(a5)` and nothing in " +
+    "the library reads it back.",
   "extbase":
     "Routine 133 ($3c8e), 30 bytes: `lsl.w #$4,d0 / lea $f8(a5),a0 / move.l (a0,d0.w),d3` -- AMOS's extension " +
     "table, 16 bytes a slot, and this reads the base at +$0 where Extdefault reads +$4 and Extremove +$8. " +

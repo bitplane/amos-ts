@@ -97,6 +97,9 @@ import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { FIB_SIZEOF, ID_WRITE_PROTECTED, MAX_COMMENT, entryType, fibBytes, type FibFields } from '../amiga/dos'
 import type { VolumeInfo } from '../amiga/vfs'
 import type { Screen } from './screen'
+import { preferencesBytes } from '../amiga/intuition'
+import { execute } from '../amiga/process'
+import { finishRequester, startRequester, type AlertSpec } from './requester'
 
 /**
  * CRAFT's one open directory scan, and the FileInfoBlock behind it.
@@ -121,6 +124,10 @@ export interface CraftState {
   turtle: DataView
   /** the fractal cursor and its colour table */
   fractal: CraftFractal
+  /** Forbid's nesting and the task priority */
+  system: CraftSystem
+  /** a Guru Alert or Sys Request the interpreter is blocked on */
+  request: { chan: number; spec: AlertSpec } | null
 }
 
 /**
@@ -202,6 +209,8 @@ export const newCraftState = (): CraftState => {
     ioError: 0,
     turtle,
     fractal: newCraftFractal(),
+    system: newCraftSystem(),
+    request: null,
   }
 }
 
@@ -841,6 +850,54 @@ export function makeCraftFunctions(rt: Runtime): Record<string, Func> {
     'tr pen state': () => VI(trFlag(rt.craft.turtle, TRF_PENUP) ? 0 : -1),
     /** =Tr Distance(x,y) — routine 121 ($2580) */
     'tr distance': (_, a) => VI(craftTrDistance(rt, trArgOf(rt, i0(a, 0), false), trArgOf(rt, i0(a, 1), false))),
+    /**
+     * =Amos Pri — routine 177 ($2f22), `ThisTask->ln_Pri` at offset 9, sign
+     * extended. CONTESTED with TURBO Plus and slot-qualified for it.
+     */
+    'amos pri': () => VI(rt.craft.system.pri),
+
+    /**
+     * =Cli Here — routine 203 ($325a). `ThisTask->pr_CLI` is a BPTR, which is
+     * what the two `adda.l a0,a0` are doing — shifting it left twice to make
+     * an address — and then `cli_Background` at $2c decides: -1 for a
+     * FOREGROUND CLI, 0 for a background one. A process with no CLI at all
+     * takes the `beq` and answers 0 as well.
+     *
+     * A program under this port was not started from a shell, so it is 0 —
+     * the same answer the machine gives a Workbench-launched program.
+     */
+    'cli here': () => VI(0),
+
+    /**
+     * =Guru Alert(line$[,...]) — routines 168 to 172 onto the body at routine
+     * 173 ($2e5a). One to five lines, each under 78 characters, and at least
+     * one of them not empty.
+     */
+    'guru alert'(it, a) {
+      // "if the user presses the right mouse button, the function returns a
+      // zero (False), but if the user presses the left button, the function
+      // returns a value of -1". A real red alert has no gadgets at all and
+      // reads the buttons directly, so these two stand in for them.
+      return craftRequest(rt, it, craftAlertSpec(a.map((v) => str(v)), ['Left button', 'Right button']))
+    },
+
+    /**
+     * =Sys Request(...) — routines 182 to 187 ($2fa8..$2fc6). AutoRequest,
+     * through `ThisTask->pr_WindowPtr`, and the argument list is body lines
+     * FIRST and the two gadget labels LAST: routine 187 reads the last two
+     * off the stack before it walks back over one to five body lines, which
+     * is how three arguments make one line and seven make five.
+     */
+    'sys request'(it, a) {
+      const strs = a.map((v) => str(v))
+      const neg = strs.pop() ?? ''
+      const pos = strs.pop() ?? ''
+      // "if you use empty strings \"\" instead of pos$ and neg$, the leftmost
+      // button is 'Retry' and the rightmost is 'Cancel'" -- and both words are
+      // in the hunk at $3096 and $308e, with their length bytes in front
+      return craftRequest(rt, it, craftAlertSpec(strs, [pos || 'Retry', neg || 'Cancel']))
+    },
+
     /** =Fr X Position — routine 140 ($27da), which raises if none was set */
     'fr x position': () => VI(frPlaced(rt).px),
     /** =Fr Y Position — routine 141 ($27f2) */
@@ -1745,6 +1802,126 @@ export function makeCraftInstructions(rt: Runtime): Record<string, Instr> {
      * that says they mean anything is cleared.
      */
     'fr reset': () => craftFrReset(rt),
+
+    // ---- Workbench, the CLI and the machine ----
+
+    /**
+     * Open Workbench — routine 162 ($2d9e). OpenWorkBench, and the result is
+     * stashed in `$3c6(a5)` as `seq`, so a screen that opened leaves 0 there
+     * and one that did not leaves -1. Nothing in this library reads it back.
+     *
+     * The name is CONTESTED with AMCAF, whose own is an empty no-op, so both
+     * are slot-qualified and a program gets whichever slot it bound.
+     */
+    'open workbench': () => {
+      rt.intuition.openWorkBench()
+    },
+    /** Wb To Front — routine 163 ($2db6), WBenchToFront */
+    'wb to front': () => {
+      rt.intuition.wBenchToFront()
+    },
+    /** Wb To Back — routine 164 ($2dc8), WBenchToBack */
+    'wb to back': () => {
+      rt.intuition.wBenchToBack()
+    },
+
+    /** Cli Execute cmd$ — routine 165 ($2dda) */
+    'cli execute': (it) => {
+      craftCli(rt, it.evalStr())
+    },
+
+    /**
+     * Cli Print s$ — routine 166 ($2dfa): Output(), and `beq` straight out if
+     * it is zero. A program launched from Workbench has no output handle, so
+     * on the machine this does nothing at all — and that is what a program
+     * running under this port is, so it does nothing here too. The length
+     * comes from the AMOS string's own word, not from a NUL, so an embedded
+     * zero is written like any other byte.
+     */
+    'cli print': (it) => {
+      it.evalStr()
+    },
+
+    /**
+     * Guru Meditation number,extra — routine 167 ($2e18). It does what it
+     * says: `bset #$1f,d7` makes the alert a DEADEND one and `jmp -$6c(a6)`
+     * is exec's Alert, which never comes back. The second argument is written
+     * into the scratch area as the alert's parameter list.
+     *
+     * A deadend Alert is a crash, so this port treats it as one: the machine
+     * is reset the way the two reset keywords ask for it. See ../amiga/
+     * machine.ts for what a reset means here.
+     */
+    'guru meditation'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      rt.machine.requestReset('cold', `guru meditation $${(n >>> 0).toString(16)}`)
+    },
+
+    /*
+     * Multi On and Multi Off are routines 174 and 175 ($2ee6, $2ef4) -- exec's
+     * Permit at -$8a and Forbid at -$84 -- and are deliberately NOT here. They
+     * are n/a for the reason JD's and MISC 1.0's pair already are, recorded in
+     * ../coverage/status.ts: there is one task, nothing to forbid, and no
+     * keyword in any of the three libraries that reads the nesting back. A
+     * handler would be state no program can observe.
+     */
+
+    /**
+     * Set Amos Pri n — routine 176 ($2f02), SetTaskPri on ThisTask. The bound
+     * is written as a round trip rather than a comparison: `move.b d0,d1 /
+     * ext.w / ext.l / cmp.l d0,d1 / Rbne routine 206`, so anything that does
+     * not survive being cut to a signed byte is error 23.
+     */
+    'set amos pri'(it) {
+      const n = it.evalInt()
+      if (((n << 24) >> 24) !== n) illegal()
+      rt.craft.system.pri = n
+    },
+
+    /**
+     * Wb Def Prefs addr,size — routine 178 ($2f36), GetDefPrefs. AMOS routine
+     * 431 turns the argument into an address and an odd one is error 25.
+     */
+    'wb def prefs'(it) {
+      const addr = it.evalInt()
+      it.expect(',')
+      craftPrefsTo(rt, addr, it.evalInt(), true)
+    },
+    /** Wb Prefs addr,size — routine 179 ($2f58), GetPrefs */
+    'wb prefs'(it) {
+      const addr = it.evalInt()
+      it.expect(',')
+      craftPrefsTo(rt, addr, it.evalInt(), false)
+    },
+    /**
+     * Set Wb Prefs addr,size[,realthing] — routines 180 and 181 ($2f7a,
+     * $2f82), SetPrefs. The two-argument form pushes -1 for the third, so it
+     * is the PERMANENT one: `moveq #$ff,d0 / move.l d0,-(a3)`.
+     *
+     * DEVIATION: the block is read and discarded. Nothing in this port takes
+     * its Workbench palette, its pointer or its printer name from Preferences
+     * — ../amiga/intuition.ts reads them off the disk instead — so there is
+     * nowhere for a written Preferences to land. The address is still checked,
+     * because that check is the extension's and not Intuition's.
+     */
+    'set wb prefs'(it) {
+      const addr = it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      if (it.accept(',')) it.evalInt()
+      if ((addr & 1) !== 0) addressError()
+    },
+
+    /**
+     * Hard Reset / Warm Reset — routines 188 and 189 ($3106, $3122). Disable,
+     * Supervisor, `RESET`, and a jump to $2, which is the ROM's entry. The
+     * hard one does `clr.l $4.w` first, so the ROM finds no ExecBase and
+     * builds a new one: a cold boot rather than a warm one.
+     */
+    'hard reset': () => rt.machine.requestReset('cold', 'craft hard reset'),
+    'warm reset': () => rt.machine.requestReset('warm', 'craft warm reset'),
 
     /** Tr Exec cmd$[,count] — routines 95 and 96 ($1a48, $1a7c) */
     'tr exec'(it) {
@@ -3277,4 +3454,126 @@ function frRender(rt: Runtime, iterM1: number, julia: { cr: number; ci: number }
   // "the scan area is always reset after a fractal drawing instruction"
   f.scanFrom = 0
   f.scanLines = 0x4000
+}
+
+/*
+ * ---- Workbench, the CLI, and the machine ----
+ *
+ * The group that proves the claim at the top of this file. Not one of these
+ * keywords opens a library: every one reaches a base AMOS is already holding,
+ * and the three bases are worth writing down because they are also the best
+ * evidence for which slot this extension belongs at.
+ *
+ *     -$18a6(a5)    IntuitionBase   OpenWorkBench -$d2, WBenchToFront -$156,
+ *                                   WBenchToBack -$150, DisplayAlert -$5a,
+ *                                   GetDefPrefs -$7e, GetPrefs -$84,
+ *                                   SetPrefs -$144, AutoRequest -$15c
+ *     $620(a5)      DOSBase         Output -$3c, Input -$36, Write -$30,
+ *                                   Execute -$de
+ *     $4 absolute   ExecBase        Forbid -$84, Permit -$8a, Alert -$6c,
+ *                                   SetTaskPri -$12c, Disable -$78,
+ *                                   Supervisor -$1e, ThisTask $114
+ *
+ * `-$18a6` sits eight bytes from the `-$18ae` GfxBase the turtle draws
+ * through, which is the cross-check that the first one is read right.
+ */
+
+/** what this group keeps: nothing the machine would not keep for it */
+export interface CraftSystem {
+  /** ThisTask->ln_Pri, as Set Amos Pri leaves it */
+  pri: number
+}
+
+export const newCraftSystem = (): CraftSystem => ({ pri: 0 })
+
+/**
+ * Routine 57 ($149e) turns an AMOS string into a NUL-terminated one for
+ * dos.library. Nothing to model — a JS string is already the value — but it
+ * is why `Cli Execute` can be handed a string with a zero length and gets an
+ * empty command rather than a fault.
+ */
+function craftCli(rt: Runtime, cmd: string): number {
+  // routine 165 passes Output() and Input(), so the command inherits the
+  // console rather than running detached; ../amiga/process.ts records the
+  // contrast with EasyLife's Elexec, which passes zero and does not
+  return execute(rt.host.process, { command: cmd, io: { input: 'console', output: 'console' } })
+}
+
+/**
+ * Routines 178, 179 and 181 ($2f36, $2f58, $2f82) — GetDefPrefs, GetPrefs and
+ * SetPrefs, all three over an address the caller supplies.
+ *
+ * AMOS routine 431 turns the argument into an address and `btst #$0,d3 /
+ * Rbne routine 208` refuses an odd one, which is AMOS error 25 rather than
+ * anything of CRAFT's. The size is passed straight through, so a caller
+ * asking for fewer bytes than the structure holds gets the front of it —
+ * that is Intuition's contract and not this extension's.
+ */
+function craftPrefsTo(rt: Runtime, addr: number, size: number, def: boolean): void {
+  if ((addr & 1) !== 0) addressError()
+  const src = preferencesBytes(def)
+  const n = Math.min(Math.max(size, 0), src.length)
+  for (let i = 0; i < n; i++) {
+    const m = rt.resolveWrite(addr + i)
+    if (m) m.data[m.off] = src[i]!
+  }
+}
+
+/**
+ * Routine 173 ($2e5a) — the body of =Guru Alert, and of five arities that
+ * differ only in how many lines they stack.
+ *
+ * It builds an IntuiText chain in the scratch area: each line is centred by
+ * `asl.w #2 / subi.w #$140 / neg.w`, which is `320 - 4*length`, and stepped
+ * ten pixels down the alert with `addi.w #$a,d6` from a first line at 14.
+ * A line of 78 characters or more is error 23 and an empty one is skipped, so
+ * five empty lines are error 23 too: `tst.w d5 / Rbeq routine 206` fires when
+ * nothing at all was laid down.
+ *
+ * Then DisplayAlert (-$5a) with a RECOVERY_ALERT height, and the answer is
+ * -1 for the left mouse button. AMOS's own display is taken down and put back
+ * around it through the jump table at `$120(a0)`, because an alert owns the
+ * screen while it is up.
+ */
+function craftAlertSpec(lines: string[], gadgets: string[]): AlertSpec {
+  let any = false
+  for (const line of lines) {
+    if (line.length === 0) continue
+    if (line.length >= 0x4e) illegal()
+    any = true
+  }
+  if (!any) illegal()
+  return { kind: 'alert', body: lines.filter((l) => l.length !== 0).join('\n'), gadgets }
+}
+
+/**
+ * The block-and-resume both requesters share, which is the shape every
+ * requester in this port takes: stand it up, block the interpreter on its
+ * dialog channel, and read the answer when the keyword runs again.
+ *
+ * DEVIATION: DisplayAlert and AutoRequest are drawn by this port's own dialog
+ * machinery rather than by Intuition. The alert's geometry is therefore not
+ * the machine's -- routine 173 centres each line on `320 - 4*length` and
+ * steps ten pixels a line, and none of that survives. What DOES survive is
+ * everything a program can observe: which lines are refused, that an empty
+ * set is error 23, and that the answer is -1 for the left button.
+ */
+function craftRequest(rt: Runtime, it: Interp, spec: AlertSpec): Value {
+  const st = rt.craft
+  if (st.request) {
+    const r = finishRequester(rt, st.request.chan, st.request.spec)
+    if (r === null) {
+      it.block({ type: 'dialog', channel: st.request.chan }, true)
+      return VI(0)
+    }
+    st.request = null
+    // AutoRequest and DisplayAlert both answer TRUE for the LEFT choice, and
+    // routine 173 turns anything non-zero into -1
+    return VI(r.ret !== 0 ? -1 : 0)
+  }
+  const chan = startRequester(rt, spec)
+  if (chan === null) return VI(0)
+  st.request = { chan, spec }
+  it.block({ type: 'dialog', channel: chan }, true)
+  return VI(0)
 }

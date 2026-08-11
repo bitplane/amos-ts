@@ -1316,3 +1316,138 @@ describe('CRAFT 1.0 — the fractal generator (routines 138..161)', () => {
     expect(val('Fr Get Colour(3)', pre)).toBe('3')
   })
 })
+
+describe('CRAFT 1.0 — Workbench, the CLI and the machine (routines 162..203)', () => {
+  /** one frame, which is enough to reach the dialog block and stop there */
+  const park = (b: { rt: Runtime }): void => {
+    b.rt.frame()
+  }
+
+  it('the Workbench three reach Intuition through a base AMOS already holds', () => {
+    /*
+     * `-$18a6(a5)` is IntuitionBase, eight bytes from the `-$18ae` GfxBase the
+     * turtle draws through, and the offsets off it are OpenWorkBench -$d2,
+     * WBenchToFront -$156 and WBenchToBack -$150. The library opens nothing:
+     * there is not one library-name string in the whole hunk.
+     */
+    const b = run('Open Workbench')
+    expect(b.rt.intuition.workBenchOpen()).toBe(true)
+    expect(() => run('Open Workbench\nWb To Back\nWb To Front')).not.toThrow()
+  })
+
+  it('=Cli Here is zero for a program Workbench started, which is every program here', () => {
+    // `ThisTask->pr_CLI` is a BPTR shifted left twice, then cli_Background at
+    // $2c: -1 for a FOREGROUND CLI and 0 for a background one or for none
+    expect(val('Cli Here')).toBe('0')
+  })
+
+  it('Set Amos Pri keeps a signed byte and =Amos Pri hands it back', () => {
+    // the bound is a round trip rather than a compare: `move.b d0,d1 / ext.w /
+    // ext.l / cmp.l d0,d1 / Rbne routine 206`
+    expect(val('Amos Pri')).toBe('0')
+    expect(val('Amos Pri', 'Set Amos Pri 5\n')).toBe('5')
+    expect(val('Amos Pri', 'Set Amos Pri -20\n')).toBe('-20')
+    expect(() => run('Set Amos Pri 128')).toThrow(/Illegal function call/)
+    expect(() => run('Set Amos Pri -129')).toThrow(/Illegal function call/)
+    expect(() => run('Set Amos Pri 127')).not.toThrow()
+  })
+
+  it('Wb Prefs fills the caller buffer with a Preferences structure', () => {
+    /*
+     * Routine 179 is GetPrefs over an address AMOS routine 431 resolves. The
+     * two offsets this port has confirmed against a real `system-configuration`
+     * are the four screen colours at 110 and PrinterFilename at 128, where
+     * "generic" sits on the 1.3.3 disk -- see ../amiga/intuition.ts.
+     */
+    const b = run('Reserve As Work 5,300\nWb Prefs Start(5),232\nPrint Deek(Start(5)+110);Peek(Start(5));Str Peek$(Start(5)+128,7)')
+    expect(b.out().trim()).toBe('90 8generic')
+  })
+
+  it('a Prefs buffer at an odd address is AMOS error 25, not one of CRAFT own', () => {
+    // `btst #$0,d3 / Rbne routine 208`
+    expect(() => run('Reserve As Work 5,300\nWb Prefs Start(5)+1,232')).toThrow(/Address error/)
+    expect(() => run('Reserve As Work 5,300\nWb Def Prefs Start(5)+1,232')).toThrow(/Address error/)
+    expect(() => run('Reserve As Work 5,300\nSet Wb Prefs Start(5)+1,232')).toThrow(/Address error/)
+  })
+
+  it('a short size copies the front of the structure and no more', () => {
+    // the size goes straight to Intuition, so this is its contract not CRAFT's
+    const b = run('Reserve As Work 5,300\nWb Prefs Start(5),4\nPrint Peek(Start(5));Peek(Start(5)+4)')
+    expect(b.out().trim()).toBe('8 0')
+  })
+
+  it('both resets ask the machine for one, and only the hard one is cold', () => {
+    // routine 188 does `clr.l $4.w` before the RESET so the ROM finds no
+    // ExecBase and builds a new one; routine 189 leaves it alone
+    expect(run('Hard Reset').rt.machine.pendingReset?.kind).toBe('cold')
+    expect(run('Warm Reset').rt.machine.pendingReset?.kind).toBe('warm')
+  })
+
+  it('Guru Meditation is a DEADEND alert, so it crashes the machine', () => {
+    // `bset #$1f,d7` is ALERT_TYPE deadend and `jmp -$6c(a6)` is exec's
+    // Alert, which for a deadend one never returns
+    expect(run('Guru Meditation 3,0').rt.machine.pendingReset?.kind).toBe('cold')
+  })
+
+  it('Guru Alert refuses an empty set of lines and a line of 78', () => {
+    // `cmpi.w #$4e,d0 / Rbcc routine 206` per line, and `tst.w d5 / Rbeq
+    // routine 206` when every line was empty
+    expect(() => run('A=Guru Alert("")')).toThrow(/Illegal function call/)
+    expect(() => run('A=Guru Alert("","","")')).toThrow(/Illegal function call/)
+    expect(() => run(`A=Guru Alert(String$("x",78))`)).toThrow(/Illegal function call/)
+    expect(() => run(`A=Guru Alert(String$("x",77))`)).not.toThrow()
+    // an empty line among real ones is skipped rather than refused
+    expect(() => run('A=Guru Alert("one","","three")')).not.toThrow()
+  })
+
+  it('Guru Alert answers 0 with nobody there to click, and -1 for the button', () => {
+    expect(val('A', 'A=Guru Alert("Software Failure")\n')).toBe('0')
+    const b = boot('A=Guru Alert("Software Failure") : Print A')
+    park(b)
+    const chan = b.rt.craft.request?.chan
+    expect(chan).toBeDefined()
+    b.rt.finishDialogRun(b.rt.dialogs.get(chan!)!, 1)
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.out().trim()).toBe('-1')
+  })
+
+  it('an empty Sys Request label falls back to Retry and Cancel', () => {
+    // "if you use empty strings "" instead of pos$ and neg$, the leftmost
+    // button is 'Retry' and the rightmost is 'Cancel'" -- and both words sit
+    // in the hunk at $3096 and $308e with their length bytes in front
+    const b = boot('A=Sys Request("Disk?","","")')
+    park(b)
+    const d = b.rt.dialogs.get(b.rt.craft.request!.chan)!
+    expect([d.vars[10], d.vars[11]]).toEqual(['Retry', 'Cancel'])
+  })
+
+  it('Sys Request reads its gadget labels off the END of the argument list', () => {
+    /*
+     * Routine 187 pulls the last two arguments before it walks back over one
+     * to five body lines, which is how three arguments make a one-line
+     * requester and seven make a five-line one.
+     */
+    const b = boot('A=Sys Request("Line one","Line two","Yes","No") : Print A')
+    park(b)
+    const d = b.rt.dialogs.get(b.rt.craft.request!.chan)!
+    expect(d.vars[10]).toBe('Yes')
+    expect(d.vars[11]).toBe('No')
+    b.rt.finishDialogRun(d, 1)
+    mustFinish(b.rt.runHeadless(2000))
+    expect(b.out().trim()).toBe('-1')
+  })
+
+  it('all five Sys Request arities parse, from one body line to five', () => {
+    for (let n = 1; n <= 5; n++) {
+      const body = Array.from({ length: n }, (_, i) => `"L${i}"`).join(',')
+      expect(val('A', `A=Sys Request(${body},"Yes","No")\n`), `${n} lines`).toBe('0')
+    }
+  })
+
+  it('Cli Execute inherits the console where EasyLife Elexec runs detached', () => {
+    // routine 165 passes Output() and Input() to Execute; there is no shell
+    // behind this port, so it answers DOSFALSE and nothing is invented
+    expect(() => run('Cli Execute "list"')).not.toThrow()
+    expect(() => run('Cli Print "hello"')).not.toThrow()
+  })
+})

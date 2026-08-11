@@ -5829,17 +5829,21 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     /*
      * `contested` puts CRAFT against another table on exactly four names --
      * `amos pri` with TURBO Plus, `open workbench` and `pal spread` with
-     * AMCAF, `set protect` with EasyLife. Only `pal spread` is live: AMCAF
-     * already qualifies it from its side, and the two are different keywords
-     * that happen to share a spelling -- "I0,0t0,0" against "I0t0", two colour
-     * VALUES against two colour REGISTERS. The other three arrive with the
-     * batches that implement them.
+     * AMCAF, `set protect` with EasyLife. Three of the four are now live and
+     * qualified: `pal spread` and `open workbench` against AMCAF, which
+     * already qualifies both from its side, and `amos pri` against TURBO
+     * Plus. `pal spread` is the interesting one -- the two are different
+     * keywords that happen to share a spelling, "I0,0t0,0" against "I0t0",
+     * two colour VALUES against two colour REGISTERS. `set protect` stays
+     * unqualified: EasyLife reaches the same SetProtection through an alias,
+     * so one handler serves both (see ALLOWED_UNDECLARED in
+     * contested.test.ts).
      *
      * Nothing else is listed, and that is deliberate: qualifying a name that
      * does not collide moves it out of reach. It is what made `Mem Type` parse
      * as a zero-argument function and print its own argument beside it.
      */
-    qualified: ['pal spread'],
+    qualified: ['pal spread', 'open workbench', 'amos pri'],
   },
   {
     // Jotre 1.0 at slot 22 --- Thomas Verduin's five-keyword shim over an

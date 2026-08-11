@@ -82,6 +82,66 @@ export const WB_HEIGHT = 256
 export const WB_DEPTH = 2
 
 /**
+ * `struct Preferences`, as GetPrefs (-126) and GetDefPrefs (-132) hand it out.
+ *
+ * 232 bytes, and the two offsets this port has actually CONFIRMED against a
+ * real file are the ones the comment at the top of this module names: the
+ * four screen colours at 110, 112, 114 and 116, and PrinterFilename at 128,
+ * where "generic" lands on the Workbench 1.3.3 disk. Everything below is
+ * placed relative to those two anchors.
+ *
+ * Only the fields this port has an answer for are filled in. The rest stay
+ * zero, which is a defensible Preferences rather than an invented one: a
+ * program reading a field nothing here models gets the same nothing it would
+ * get from a machine whose Preferences had never been saved.
+ */
+export const PREFERENCES_SIZEOF = 232
+
+/** the field offsets filled in below, named as intuition/preferences.h names them */
+export const PREF = {
+  fontHeight: 0,
+  printerPort: 1,
+  baudRate: 2,
+  /** color17..19, the sprite colours */
+  color17: 102,
+  pointerTicks: 108,
+  /** the four Workbench screen colours -- the anchor this decode was checked on */
+  color0: 110,
+  viewXOffset: 118,
+  viewYOffset: 119,
+  viewInitX: 120,
+  viewInitY: 122,
+  enableCli: 124,
+  printerType: 126,
+  /** "generic" on the 1.3 disk, and the second anchor */
+  printerFilename: 128,
+  laceWb: 185,
+} as const
+
+/**
+ * A Preferences block for a machine running this port: the Workbench palette
+ * this module already keeps, a topaz-8 font height, and the CLI enabled.
+ *
+ * `def` is GetDefPrefs rather than GetPrefs. On a real machine the two differ
+ * once anything has edited Preferences and been saved; here nothing can, so
+ * they answer alike and the flag exists to record that the distinction was
+ * read rather than missed.
+ */
+export function preferencesBytes(def = false): Uint8Array {
+  const out = new Uint8Array(PREFERENCES_SIZEOF)
+  const dv = new DataView(out.buffer)
+  out[PREF.fontHeight] = 8
+  dv.setUint16(PREF.baudRate, 9600)
+  dv.setUint16(PREF.pointerTicks, 1)
+  for (let i = 0; i < 4; i++) dv.setUint16(PREF.color0 + i * 2, WB_PALETTE[i]!)
+  dv.setInt16(PREF.viewInitX, 0)
+  dv.setInt16(PREF.viewInitY, 0)
+  dv.setUint16(PREF.enableCli, def ? 0 : 1)
+  for (const [i, c] of Array.from('generic').entries()) out[PREF.printerFilename + i] = c.charCodeAt(0)
+  return out
+}
+
+/**
  * What the machine has to be able to do for a screen to exist. Implemented on
  * the AMOS side (Runtime), because building a bitmap and putting it in the
  * copper list is the machine's job, not intuition.library's.
