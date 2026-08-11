@@ -323,10 +323,14 @@
  * `Show()` and `Hide()` are `visible`, and the AMOS_WB call every screen open
  * opens with is `Runtime.amosToBack()`: one call moves the whole AMOS display
  * behind the game's, which is the guide's *"Opens a screen in front of the
- * amigas current display"*. The argument is `moveq #$0,d1` and `=Amos Here`
- * is the same vector with -1, so 0 is taken here as the to-back arm; that
- * reading comes from the guide's sentence and not from AMOS's source, which
- * is not on this machine.
+ * amigas current display"*.
+ *
+ * What AMOS_WB's argument means is settled by the extension's own two calls.
+ * `G Screen Open` passes `moveq #$0,d1` and then opens a screen in front;
+ * `G Reset` passes `moveq #$1,d1` with every game screen just closed. So 0 is
+ * to-back and 1 is to-front, and -1 is the query `=Amos Here` makes — three
+ * values and three arms. AMOS's own source is not on this machine and is not
+ * needed for it.
  *
  * ## The extension's own error table
  *
@@ -589,6 +593,43 @@
  *   CopyPalette left there, the source palette pointer at best. Not
  *   reproducible and not observable here: the copy has already landed in the
  *   array the display reads.
+ * - **DEFECT: `G Init Gms`'s check that GMS is installed checks nothing.**
+ *   Before the open it locks `block + $12c` — the slot dpkernel's base is
+ *   about to go in, four zero bytes at that moment, so an empty filename.
+ *   The name it means is at +$112, and is the string the `OpenLibrary` two
+ *   arms later uses. AmigaDOS answers an empty name with a lock on the
+ *   current directory, so the guard passes everywhere; the failure it was
+ *   written for is caught by the open instead, which reports the same
+ *   message.
+ * - **DEFECT: `G Own Blitter` writes to address $2e.** `move.w #$1,$2e(a1)`
+ *   with a1 out of block +$da, and +$2e of dpkernel's base really is
+ *   `GVBase.OwnBlitter` — so the intent is exact and the pointer is not
+ *   there. One instruction in the whole code hunk writes +$da, on
+ *   `G Init Gms`'s hosted entry path, which only a GMS program calling in
+ *   through the PRGM record at $2f88 can reach. Nothing AMOS runs can. The
+ *   base is also at +$12c, four instructions from the store that should have
+ *   set both.
+ * - **DEFECT: `=G Make Rp` returns 3 and leaks 200 bytes.** `AllocMem`,
+ *   `move.l #$3,d3`, and then a `beq` and a `bra.w` to the same exit, so 140
+ *   of the routine's 192 bytes are unreachable and the block is never freed.
+ *   The `beq` could not fire in any case: the `move.l` between it and the
+ *   `tst.l` sets the flags. What the dead half does is worth recording — it
+ *   opens `graphics.library`, builds a RastPort and a BitMap over the block
+ *   and points them at the current GMS bitmap's pixels, which is the bridge
+ *   that would let AMOS's own drawing reach a GMS screen.
+ * - **DEFECT: `G Exit` raises whatever error number is lying in d0.** Its
+ *   spec is `I` and nothing pushes anything, and the `tst.l d0 / bne` means
+ *   the 16 it would default to is used only when the leftover happens to be
+ *   zero. An argument the author forgot to declare, the same slip as
+ *   `G Ptplay`'s in the other direction.
+ * - **DEFECT: `G Close Gms` shuts down a GMS it may not have started.** It
+ *   calls `CloseDPK` without testing +$d4, which routine 90's own teardown at
+ *   $30d6 does test. Unreachable from AMOS for the same reason as
+ *   `G Own Blitter`.
+ * - **NOTE: `G Init Gms`'s failure teardown ends in `ReplyMsg`.** `move.l
+ *   $d6(a3),d0 / beq / jsr -$17a(a6)` on ExecBase, and ReplyMsg takes its
+ *   message in a1. Nothing in the code hunk ever writes +$d6, so the branch
+ *   is never taken and the register is never wrong in practice.
  */
 import type { Func, Instr } from '../interp/builtins'
 import { AmosError, VI, VS, str } from '../interp/values'
@@ -721,6 +762,12 @@ export interface TheGameState {
    * `Ink` is a pen number.
    */
   gmsPen: WeakMap<Screen, number>
+  /** block +$12c — dpkernel's base, and the "is GMS up" test every keyword makes */
+  gmsBase: number
+  /** block +$d4 — set when it was `G Init Gms` that opened dpkernel */
+  gmsOwned: boolean
+  /** bytes `=G Make Rp` has allocated and never freed */
+  rpLeak: number
 
   /** whether `G Handicap` has run, so block +$b36 holds a task pointer */
   handicapped: boolean
@@ -762,6 +809,9 @@ export function newTheGameState(rt: Runtime): TheGameState {
     gmsScreen: null,
     gmsDefPalette: null,
     gmsPen: new WeakMap(),
+    gmsBase: 0,
+    gmsOwned: false,
+    rpLeak: 0,
     handicapped: false,
     priority: 0,
     savedPriority: 0,
@@ -786,6 +836,61 @@ export const GMS_DEFAULT_COLOURS = 32
 /** ScreenPrefs TopOfScrX/Y: where a GMS screen offset of (0,0) puts a screen */
 export const GMS_TOP_OF_SCREEN_X = 128
 export const GMS_TOP_OF_SCREEN_Y = 44
+
+/**
+ * Routine 151's table at $4214, delivered through `Rjmp L_ErrorExt` with the
+ * index in d0. Read out in full in the header; here to be thrown.
+ *
+ * Message 3 carries a version the reporter patches four digits over before it
+ * shows the string, which is why it reads `TGE2222` in the binary.
+ */
+export const TGE_ERRORS = [
+  "(TGE) You don't have the required library in LIBS:",
+  '(TGE) You NEED to do a: G Init Gms before using this command!',
+  "(TGE) This is NOT a TGE Bob Bank, please refer to 'TGE.Guide'",
+  '(TGE) Your TGE is out of date, This Bob bank requires TGE2222',
+  '(TGE) GMS2.0+ is not installed!! Read The Manual->Requirements',
+  'Music bank not found',
+  "Bob bank doesn't exist",
+  'Screen',
+  'Error in Encyrption ! ',
+]
+
+const tgeError = (n: number): never => {
+  throw new AmosError(TGE_ERRORS[n] ?? `TGE error ${n}`)
+}
+
+/** block +$112 — what `G Init Gms` hands `OpenLibrary`, path and all */
+export const GMS_DPKERNEL = 'GMS:libs/dpkernel.library'
+
+/**
+ * ExecBase +$128, `AttnFlags`, as the machine this port models has it.
+ *
+ * AFB_68020 and nothing else. The identity is settled elsewhere and has to
+ * stay consistent with it: AMCAF's `=Cpu` answers 68020, TURBO's `Cpu Info`
+ * answers 20, JD's `=Jd Cpu` agrees, and all three read this word and test
+ * bit 3 down to bit 0. `=G Amiga` is the only keyword in the port that hands
+ * the word back raw.
+ */
+export const TGE_ATTN_FLAGS = 1 << 1
+
+/**
+ * Routine 90 ($2f36) minus its arguments — the body `G Init Gms` and
+ * `G Screen Open` share, the latter by `Rbsr`ing straight into it.
+ *
+ * Idempotent, because the routine's first four instructions test +$12c and
+ * return if it is already set. Everything after the OpenLibrary is the five
+ * `OpenModule` calls and the `Get(ID_TASK)` for the input structure, which
+ * are bases and handles this port has no use for: a GMS call is a TypeScript
+ * call here, so there is nothing for a module base to be.
+ */
+function gmsInit(st: TheGameState): void {
+  if (st.gmsBase !== 0) return
+  const base = openLibrary(GMS_DPKERNEL, 2)
+  if (base === 0) tgeError(4)
+  st.gmsBase = base
+  st.gmsOwned = true
+}
 
 /**
  * A GMS `$00RRGGBB` as the port's `$0RGB` palette word.
@@ -1739,7 +1844,9 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const mode = gmsScreenMode(it.evalInt())
 
+      // AMOS_WB(0) then `Rbsr` into routine 90, in that order
       rt.amosToBack()
+      gmsInit(s)
       const slot = gmsSlot(n)
       // Free() + FreeMem() + table[N] = 0 before anything is allocated
       if (rt.screens.has(slot)) rt.closeScreen(slot)
@@ -2101,6 +2208,131 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       it.evalInt()
     },
+
+    // ---- starting and stopping GMS ----
+    /**
+     * Routine 90 ($2f36) — `G Init Gms`, the one keyword of the seven the
+     * guide has no node for either.
+     *
+     * `OpenLibrary("GMS:libs/dpkernel.library", 2)` into +$12c, +$d4 set to
+     * remember that it was this that opened it, then five `OpenModule` calls
+     * and a `Get(ID_TASK)` for the input structure. Idempotent: the first
+     * four instructions test +$12c and return. A failed open is message 4,
+     * *"(TGE) GMS2.0+ is not installed!! Read The Manual->Requirements"*.
+     *
+     * There is a second way in at $2fe2, and the PRGM record at $2f88 is what
+     * it is for: `"PRGM"`, a version pair, that address, and five pointers to
+     * `The Game Extension`, `Peter Cahill`, `30th Jan`, `PAC Productions` and
+     * `The BEST Extension`. A GMS program that has TGE's segment can find the
+     * entry through that block and call in with its own `DPKTask` in a0 —
+     * `cmpi.w #$12,(a0)` is `Head.ID == ID_TASK` — and TGE then takes the
+     * base from the task's +$60, which `tasks.h` gives as `DPKBase`. No AMOS
+     * program can reach it, which is what makes `G Own Blitter` useless.
+     *
+     * DEFECT: the check that GMS is installed checks nothing. Before the open
+     * it calls `Lock(d1, ACCESS_READ)` on `block + $12c` — the base slot,
+     * four zero bytes at that moment, so an empty filename — where the name
+     * it means to look for is at +$112, thirteen words along and the very
+     * string the OpenLibrary two arms later uses. AmigaDOS answers an empty
+     * name with a lock on the current directory, so the guard passes on every
+     * machine and catches nothing; the failure it exists for is caught by the
+     * OpenLibrary instead, which reports the same message.
+     */
+    'g init gms'() {
+      gmsInit(st())
+    },
+
+    /**
+     * Routine 119 ($40a8) — `G Close Gms`, undocumented.
+     *
+     * `Free()` on all five modules and on the input structure, `CloseDPK()`,
+     * and +$12c cleared. Guarded on +$12c, so calling it twice is safe.
+     *
+     * DEFECT: it does not test +$d4 before `CloseDPK`, which routine 90's own
+     * teardown at $30d6 does — so a TGE that inherited GMS from a host shuts
+     * the host's GMS down. Not reachable from AMOS, for the same reason
+     * `G Own Blitter` is not: nothing in BASIC can take the hosted path.
+     */
+    'g close gms'() {
+      const s = st()
+      if (s.gmsBase === 0) return
+      closeLibrary(s.gmsBase)
+      s.gmsBase = 0
+      s.gmsOwned = false
+    },
+
+    /**
+     * Routine 44 ($20de) — `G Reset`. *"Closes all opened TGE screens. Use
+     * this just before Amos To Back : Break On, when exiting the program."*
+     *
+     * Guarded on +$12c, then eight `G Screen Close` calls with 0 through 7 —
+     * literally: it points a3 at block +$bda as a parameter stack, pushes the
+     * number with `move.l #N,-(a3)` and `Rbsr`s routine 40, eight times over.
+     * Then `moveq #$1,d1 / EcCall AMOS_WB`.
+     *
+     * That last instruction is what settles what the AMOS_WB argument means.
+     * `G Screen Open` passes 0 and opens a screen the guide says goes *"in
+     * front of the amigas current display"*; this passes 1 with every game
+     * screen just closed. Back and front, in that order, and -1 is the query
+     * `=Amos Here` makes.
+     *
+     * It does NOT re-initialise anything, whatever the name suggests: GMS
+     * stays open and the current Screen and Bitmap pointers are left where
+     * the last close left them.
+     */
+    'g reset'() {
+      const s = st()
+      if (s.gmsBase === 0) return
+      const range = Runtime.screenRange('game')
+      for (let n = 0; n < range.count; n++) {
+        if (rt.screens.has(range.from + n)) rt.closeScreen(range.from + n)
+      }
+      rt.amosToFront()
+    },
+
+    /**
+     * Routine 59 ($248e) — `G Exit`, undocumented, and not an exit.
+     *
+     * `G Reset` and then `Rjsr L_Error` with d0 — AMOS's own error raiser,
+     * the one every extension reaches with `moveq #$17,d0` for Illegal
+     * function call. So the program stops with an error rather than ending.
+     *
+     * DEFECT: the code raised is whatever is in d0. Its spec is `I`, no
+     * parameters, so nothing put anything there, and the `tst.l d0 / bne`
+     * that guards the default means the 16 is used only when the leftover
+     * happens to be zero. The shape is an argument the author forgot to
+     * declare — `G Exit ERRORCODE` — and the same slip as `G Ptplay`'s,
+     * which pops one it never declared. Sixteen here, that being the only
+     * value this port can know about.
+     */
+    'g exit'() {
+      const s = st()
+      if (s.gmsBase !== 0) {
+        const range = Runtime.screenRange('game')
+        for (let n = 0; n < range.count; n++) {
+          if (rt.screens.has(range.from + n)) rt.closeScreen(range.from + n)
+        }
+        rt.amosToFront()
+      }
+      throw new AmosError(ED_RUN_MESSAGES[16]!, 16)
+    },
+
+    /**
+     * Routine 120 ($4100) — `G Own Blitter`, undocumented, and it cannot
+     * work.
+     *
+     * `move.w #$1,$2e(a1)` with a1 from block +$da, and +$2e of dpkernel's
+     * base is `GVBase.OwnBlitter`, *"0 = FALSE, 1 = TRUE"* in
+     * `globalbase.h` — so the intent is exact and the pointer is not there.
+     * Block +$da is written by ONE instruction in the code hunk, at $2ff6,
+     * on `G Init Gms`'s hosted entry path, and that path is reachable only by
+     * a GMS program calling in through the PRGM record. Everything AMOS can
+     * run leaves +$da zero, so the keyword writes a word to address $2e.
+     *
+     * +$12c holds the same base and is four instructions away in the routine
+     * that should have written both.
+     */
+    'g own blitter': () => {},
   }
 }
 
@@ -2506,5 +2738,45 @@ export function makeTheGameFunctions(rt: Runtime): Record<string, Func> {
      * reads its whole register, and the value register defect misses it.
      */
     'gscreen colour': () => VI(st().gmsScreen?.nColors ?? 0),
+
+    /**
+     * Routine 91 ($30f0) — `=G Amiga`, undocumented. Four instructions:
+     * `movea.l $4.w,a0 / moveq #$0,d3 / move.w $128(a0),d3 / moveq #$0,d2`.
+     *
+     * ExecBase +$128 is `AttnFlags`, so the answer is the raw processor
+     * flags word and not a model number — bit 0 68010, bit 1 68020, bit 2
+     * 68030, bit 3 68040, bit 4 68881, bit 5 68882, bit 7 68060. The machine
+     * this port models is an A1200, which AMCAF's `=Cpu`, TURBO's `Cpu Info`
+     * and JD's `=Jd Cpu` all answer for as bit 1 with no FPU; this answers
+     * the same machine in the raw form.
+     *
+     * It is also the one function in the extension that clears d3 before
+     * writing a word into it, which is how the four that do not can be called
+     * oversights rather than a convention.
+     */
+    'g amiga': () => VI(TGE_ATTN_FLAGS),
+
+    /**
+     * Routine 100 ($37d8) — `=G Make Rp`, undocumented, and 192 bytes of
+     * which 140 are unreachable.
+     *
+     * `AllocMem(200, MEMF_CLEAR)`, `move.l #$3,d3`, and then `beq` followed
+     * by `bra.w` to the same exit — so it always returns 3 and never frees
+     * the 200 bytes. The `beq` cannot fire either: `move.l #$3,d3` sets the
+     * flags between the `tst.l d0` and the branch.
+     *
+     * The dead half says what it was for. It opens the name at block +$6e —
+     * `graphics.library` — into +$80, calls `InitRastPort` (-$c6) and
+     * `InitBitMap` (-$186) over the two halves of that 200-byte block, reads
+     * the current GMS Bitmap's `Data` at +$c and stores it to absolute
+     * address 8, and returns the RastPort. A graphics.library RastPort over a
+     * GMS screen is exactly what AMOS's own drawing would need to reach one,
+     * so this is the bridge between the two halves of the extension, left
+     * switched off.
+     */
+    'g make rp': () => {
+      st().rpLeak += 200
+      return VI(3)
+    },
   }
 }

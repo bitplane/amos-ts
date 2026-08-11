@@ -127,6 +127,11 @@ const MODELLED: ReadonlyMap<string, number> = new Map([
   // documentation calls the first with the tag-list API used above.
   ['reqtools.library', 38],
   ['asl.library', 37],
+  // GMS's core, modelled by ../runtime/thegame.ts: a GMS screen is a slot in
+  // the machine's own screen table and a module call is a TypeScript call, so
+  // the base only has to be non-zero. Version 2 because that is what The Game
+  // Extension's `G Init Gms` demands, and the vendored library is V2.1.
+  ['dpkernel.library', 2],
 ])
 
 /**
@@ -149,15 +154,28 @@ const BASE_STRIDE = 0x0001_0000
  * and the check every well-written extension makes before giving up politely.
  */
 export function openLibrary(name: string, version = 0): number {
-  const key = name.toLowerCase()
+  const key = basename(name)
   const have = MODELLED.get(key)
   if (have === undefined || version > have) return 0
   return BASE_ORIGIN + [...MODELLED.keys()].indexOf(key) * BASE_STRIDE
 }
 
+/**
+ * A library name with any path in front of it taken off.
+ *
+ * `OpenLibrary` takes a path and not just a name — exec looks the whole string
+ * up in the resident list, and when that misses, DOS loads the file and the
+ * init sets `lib_Node.ln_Name` to the bare name, which is what every later
+ * open finds. So a library opened as `GMS:libs/dpkernel.library` is the same
+ * library another program opens as `dpkernel.library`, and this is where the
+ * two names are made to agree. The Game Extension is what forced it: it opens
+ * dpkernel by full path, on the assumption that a GMS: assign exists.
+ */
+const basename = (name: string): string => name.toLowerCase().split(/[/:]/).pop() ?? ''
+
 /** Whether a library is modelled at all, regardless of version. */
 export function libraryPresent(name: string): boolean {
-  return MODELLED.has(name.toLowerCase())
+  return MODELLED.has(basename(name))
 }
 
 /**

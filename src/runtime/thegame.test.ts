@@ -13,6 +13,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
+import { openLibrary } from '../amiga/exec'
 import { Runtime } from './runtime'
 import { BTN_RED, DIR_UP } from '../amiga/controller'
 import {
@@ -20,6 +21,8 @@ import {
   TGE_ENCRYPT_BANK_NAME,
   TGE_GFX_BASE,
   GMS_DEF_PALETTE_COLOURS,
+  GMS_DPKERNEL,
+  TGE_ATTN_FLAGS,
   gmsScreenMode,
   keyChecksum,
   thegameVbl,
@@ -1190,5 +1193,81 @@ describe('the GMS palette', () => {
   it('the RGBPalette G Def Palette allocates is two colours short', () => {
     // struct RGBPalette is 8 + 256*4 = 1032 and AllocMem is asked for 1024
     expect(GMS_DEF_PALETTE_COLOURS).toBe(254)
+  })
+})
+
+describe('starting and stopping GMS', () => {
+  const GAME = Runtime.screenRange('game')
+  const slot = (n: number): number => GAME.from + n
+
+  it('G Init Gms opens dpkernel.library, by the path it names', () => {
+    const rt = run('G Init Gms')
+    expect(rt.thegame.gmsBase).not.toBe(0)
+    expect(rt.thegame.gmsOwned).toBe(true)
+    expect(openLibrary(GMS_DPKERNEL, 2)).toBe(rt.thegame.gmsBase)
+  })
+
+  /** the first four instructions test +$12c and return */
+  it('G Init Gms twice is G Init Gms once', () => {
+    const rt = run(['G Init Gms', 'G Init Gms'])
+    expect(rt.thegame.gmsBase).toBe(openLibrary(GMS_DPKERNEL, 2))
+  })
+
+  /** routine 39 Rbsr's straight into routine 90, so it is not a prerequisite */
+  it('G Screen Open starts GMS by itself', () => {
+    const rt = run('G Screen Open 0,320,64,4,Glowres')
+    expect(rt.thegame.gmsBase).not.toBe(0)
+  })
+
+  it('G Close Gms puts the base back and can be called twice', () => {
+    const rt = run(['G Init Gms', 'G Close Gms', 'G Close Gms'])
+    expect(rt.thegame.gmsBase).toBe(0)
+    expect(rt.thegame.gmsOwned).toBe(false)
+  })
+
+  it('G Reset closes all eight screens and brings AMOS back to the front', () => {
+    const rt = run([
+      'G Screen Open 0,320,64,2,Glowres',
+      'G Screen Open 5,320,64,2,Glowres',
+      'G Reset',
+    ])
+    expect(rt.screens.has(slot(0))).toBe(false)
+    expect(rt.screens.has(slot(5))).toBe(false)
+    expect(rt.amosInFront()).toBe(true)
+    // and it re-initialises nothing, whatever the name says
+    expect(rt.thegame.gmsBase).not.toBe(0)
+  })
+
+  /** guarded on +$12c: with GMS never started it is the whole routine */
+  it('G Reset with GMS never started does nothing', () => {
+    const rt = run('G Reset')
+    expect(rt.thegame.gmsBase).toBe(0)
+  })
+
+  /**
+   * DEFECT: `Rjsr L_Error` with a d0 nothing set. Sixteen is the default the
+   * `tst.l d0 / bne` leaves, and the only value this port can know about.
+   */
+  it('G Exit closes the screens and then raises an AMOS error', () => {
+    const rt = boot(['G Screen Open 0,320,64,2,Glowres', 'G Exit'])
+    expect(() => mustFinish(rt.runHeadless(2000))).toThrow()
+    expect(rt.screens.has(slot(0))).toBe(false)
+  })
+
+  it('=G Amiga answers ExecBase AttnFlags for the machine this port models', () => {
+    expect(vals('Print G Amiga')).toEqual([TGE_ATTN_FLAGS])
+    expect(TGE_ATTN_FLAGS).toBe(2) // AFB_68020, no FPU: an A1200
+  })
+
+  /** DEFECT: a beq and a bra.w to the same exit, and the block is never freed */
+  it('=G Make Rp always answers 3 and leaks 200 bytes a call', () => {
+    expect(vals('Print G Make Rp;" ";G Make Rp')).toEqual([3, 3])
+    const rt = run('A=G Make Rp : A=G Make Rp : A=G Make Rp')
+    expect(rt.thegame.rpLeak).toBe(600)
+  })
+
+  /** DEFECT: it indexes block +$da, which only the hosted init path writes */
+  it('G Own Blitter cannot reach the flag it means to set', () => {
+    expect(() => run(['G Init Gms', 'G Own Blitter'])).not.toThrow()
   })
 })

@@ -2753,6 +2753,12 @@ export const FAITHFUL = new Set<string>([
   // Screen.palette is that array, so G Def Palette's pointer sharing is a
   // shared Uint16Array here too.
   'g ink', 'g colour', 'g palette', 'g def palette', 'g get palette',
+  // Starting and stopping GMS. dpkernel.library is in ../amiga/exec.ts's
+  // modelled set, so `G Init Gms` can fail the way the machine does; the five
+  // OpenModule calls after it are bases this port has no use for, a GMS call
+  // being a TypeScript call here.
+  'g init gms', 'g close gms', 'g reset', 'g exit', 'g amiga', 'g make rp',
+  'g own blitter',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -7430,6 +7436,56 @@ Type 0-2 -- is SetPenShape(a0l,d1w,d2w) at blitter -$fc, a different module, and
 memory of it: blitter.h has PSP_CIRCLE 1, PSP_SQUARE 2, PSP_PIXEL 3. APPROXIMATED: the arguments are evaluated \
 and nothing else happens, the three stray longwords being whatever is under AMOS's parameter stack pointer -- \
 deterministic on the machine and not modellable by a port that hands a keyword its arguments as a list",
+  "g init gms":
+    "Routine 90 ($2f36), 442 bytes, no guide node. OpenLibrary(\"GMS:libs/dpkernel.library\", 2) into +$12c, +$d4 \
+set to remember it was this that opened it, then five OpenModule calls and Get(ID_TASK) for the input structure. \
+Idempotent -- the first four instructions test +$12c and return. A failed open is message 4. The module bases are \
+not modelled: a GMS call is a TypeScript call here. DEFECT: the check that GMS is installed checks nothing -- \
+`Lock(block+$12c, ACCESS_READ)` on the base slot, four zero bytes at that moment, where the name it means is at \
++$112 and is the same string the OpenLibrary two arms later uses; AmigaDOS answers an empty name with a lock on \
+the current directory, so the guard passes everywhere. NOTE: the second entry at $2fe2 is for a GMS program \
+calling in, found through the PRGM record at $2f88 -- \"PRGM\", a version pair, that address and pointers to \"The \
+Game Extension\", \"Peter Cahill\", \"30th Jan\", \"PAC Productions\" and \"The BEST Extension\". No AMOS program \
+can reach it, which is what makes G Own Blitter useless",
+  "g close gms":
+    "Routine 119 ($40a8), no guide node. Free on all five modules and the input structure, CloseDPK, +$12c \
+cleared, and the whole of it guarded on +$12c so a second call is safe. DEFECT: no test of +$d4 before CloseDPK, \
+which routine 90's own teardown at $30d6 does test, so a TGE that inherited GMS from a host shuts the host's down \
+-- unreachable from AMOS, nothing in BASIC being able to take the hosted path",
+  "g reset":
+    "Routine 44 ($20de). Guarded on +$12c, then eight G Screen Close calls with 0 through 7 -- literally, by \
+pointing a3 at block +$bda as a parameter stack, pushing `move.l #N,-(a3)` and Rbsr'ing routine 40 eight times. \
+Then `moveq #$1,d1 / EcCall AMOS_WB`, which is what settles the argument: G Screen Open passes 0 and opens a \
+screen the guide says goes \"in front of the amigas current display\", and this passes 1 with every game screen \
+just closed, so 0 is back and 1 is front. It re-initialises nothing despite the name -- GMS stays open and the \
+current Screen and Bitmap pointers are left where the last close left them",
+  "g exit":
+    "Routine 59 ($248e), no guide node, and not an exit: G Reset and then `Rjsr L_Error` with d0, so the program \
+stops with an AMOS error. DEFECT: the code raised is whatever is in d0 -- the spec is `I` and nothing pushes \
+anything, and the `tst.l d0 / bne` means the 16 it defaults to is used only when the leftover happens to be zero. \
+The shape is an argument the author forgot to declare, the same slip as G Ptplay's the other way up. 16 here, \
+that being the only value this port can know about",
+  "g amiga":
+    "Routine 91 ($30f0), no guide node. Four instructions on ExecBase +$128, AttnFlags, handed back raw -- bit 0 \
+68010, 1 68020, 2 68030, 3 68040, 4 68881, 5 68882, 7 68060 -- where AMCAF's =Cpu, TURBO's Cpu Info and JD's =Jd \
+Cpu all read the same word and answer a model number. The machine those three answer for is an A1200, bit 1 and \
+no FPU, and this answers the same machine unreduced. It is also the one function in the extension that clears d3 \
+before writing a word into it, which is how the four that do not can be called oversights",
+  "g make rp":
+    "Routine 100 ($37d8), no guide node, 192 bytes of which 140 are unreachable. DEFECT: AllocMem(200), `move.l \
+#$3,d3`, then a beq and a bra.w to the same exit -- it always returns 3 and never frees the block. The beq could \
+not fire anyway, the move.l between it and the tst.l setting the flags. What the dead half does is worth \
+recording: it opens graphics.library from the name at block +$6e into +$80, calls InitRastPort (-$c6) and \
+InitBitMap (-$186) over the two halves of the block, reads the current GMS Bitmap's Data at +$c and stores it to \
+absolute address 8, and returns the RastPort -- the bridge that would let AMOS's own drawing reach a GMS screen, \
+left switched off",
+  "g own blitter":
+    "Routine 120 ($4100), no guide node, and it cannot work. `move.w #$1,$2e(a1)` with a1 out of block +$da, and \
++$2e of dpkernel's base is GVBase.OwnBlitter, \"0 = FALSE, 1 = TRUE\" in globalbase.h -- so the intent is exact \
+and the pointer is not there. One instruction in the code hunk writes +$da, at $2ff6 on G Init Gms's hosted entry \
+path, which only a GMS program calling in through the PRGM record can reach. Everything AMOS runs leaves +$da \
+zero, so the keyword writes a word to address $2e. The base is also at +$12c, four instructions from the store \
+that should have set both",
   "ovsavejpeg24":
     "Routine 73 ($10a0). The library's JPEG code is the Independent JPEG Group's, v4-era, compiled with SAS/C " +
     "into the fourth hunk, and everything it chooses is read off that binary rather than guessed: the Annex K " +
