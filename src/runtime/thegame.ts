@@ -294,10 +294,11 @@
  * - **DEFECT: `=G File Size` leaks its FileInfoBlock.** Routine 64 ($2698)
  *   allocates 1,000 bytes with `AllocMem` and never frees them, on every call
  *   and on every path out.
- * - **DEFECT: `G Wait Lmb` and `G Wait Rmb` disagree about the screen.**
- *   Routine 13 ($188e) tests block +$12c before calling `G Update` in the wait
- *   loop; routine 14 ($18b2) calls it unconditionally. With no screen open the
- *   right-button wait updates a display that is not there.
+ * - **DEFECT: `G Wait Lmb` and `G Wait Rmb` disagree about GMS.** Routine 13
+ *   ($188e) tests block +$12c — `dpkernel.library`'s base — before calling
+ *   `G Update` in the wait loop; routine 14 ($18b2) calls it unconditionally.
+ *   With GMS never started the right-button wait refreshes a display through
+ *   a library that was never opened.
  * - **DEFECT: `G Close Req` closes a library nothing opens.** Routine 8
  *   ($16d4) calls `CloseLibrary` on the base at +$0c, and no instruction in
  *   the code hunk ever writes that longword. The guide marks all four
@@ -694,8 +695,10 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
      *
      * `L_Tests` is what the guide's *"all amal and stuff"* means — AMOS's own
      * per-pass work, which is why the loop does not freeze the interpreter.
-     * The `G Update` is guarded on the GMS screen pointer, unlike `G Wait
-     * Rmb`'s; with no screen open there is nothing to refresh.
+     * The `G Update` is guarded on block +$12c, which is `dpkernel.library`'s
+     * BASE — `G Init Gms` writes it there from `OpenLibrary`, routine 90
+     * ($2fce) — so the test is whether GMS was ever started, not whether a
+     * screen is open. `G Wait Rmb` has no such test.
      */
     'g wait lmb': (it) => {
       if ((rt.input.mouseK & 1) !== 0) return

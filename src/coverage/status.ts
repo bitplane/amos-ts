@@ -7057,11 +7057,13 @@ export const NOTES: Record<string, string> = {
     "$80000 to $200, green $100000 to $40, yellow $200000 to $80, red $400000 to $10, blue $800000 to $20",
   "g wait lmb":
     "Routine 13 ($188e). A loop on CIA-A PRA bit 6 with `Rjsr L_Tests` each pass, which is what the guide's \"all " +
-    "amal and stuff will still work\" means. The `G Update` inside it is guarded on the GMS screen pointer at " +
-    "block +$12c",
+    "amal and stuff will still work\" means. The `G Update` inside it is guarded on block +$12c, which is " +
+    "dpkernel.library's BASE -- G Init Gms writes it there from OpenLibrary at routine 90 ($2fce) -- so the test " +
+    "is whether GMS was ever started, not whether a screen is open",
   "g wait rmb":
     "Routine 14 ($18b2). The same loop on bit 10 of POTINP at $dff016. DEFECT: its `G Update` is NOT guarded on " +
-    "the screen pointer the way Wait Lmb's is, so with no screen open it refreshes a display that is not there",
+    "dpkernel's base the way Wait Lmb's is, so with GMS never started it refreshes through a library that was " +
+    "never opened",
   "g cli":
     "Routine 60 ($24aa). dos.library's Execute(cmd,0,0), with `adda.l #$2,a0` over the AMOS string's length word. " +
     "DEFECT: d3 -- the value register -- is left at the zero it held as an argument, so the function always " +
