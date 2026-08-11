@@ -183,3 +183,82 @@ export function protectionString(protection: number): string {
 /** data bytes per block on the two filesystems */
 export const FFS_BLOCK_DATA = 512
 export const OFS_BLOCK_DATA = 488
+
+/**
+ * `struct InfoData`, what `Info()` fills in — dos/dos.h.
+ *
+ * Only the four fields anything here reads are named. `id_NumSoftErrors` and
+ * `id_UnitNumber` sit above them and `id_InUse` below; nothing asks.
+ */
+export const ID_NUMSOFTERRORS = 0
+export const ID_UNITNUMBER = 4
+export const ID_DISKSTATE = 8
+export const ID_NUMBLOCKS = 12
+export const ID_NUMBLOCKSUSED = 16
+export const ID_BYTESPERBLOCK = 20
+export const ID_DISKTYPE = 24
+export const ID_VOLUMENODE = 28
+export const ID_INUSE = 32
+
+/** id_DiskState */
+export const ID_WRITE_PROTECTED = 80
+export const ID_VALIDATING = 81
+export const ID_VALIDATED = 82
+
+/**
+ * id_DiskType, as longwords. The three-letter ones carry a version byte, so
+ * OFS is `DOS\0` and FFS is `DOS\1` — which is why CRAFT's manual describes
+ * `Disc Type$` as answering `"DOS"+Chr$(1)` for a Fast File System disk.
+ */
+export const ID_NO_DISK_PRESENT = -1
+export const ID_UNREADABLE_DISK = 0x42414400 // 'BAD\0'
+export const ID_DOS_DISK = 0x444f5300 // 'DOS\0'
+export const ID_FFS_DISK = 0x444f5301 // 'DOS\1'
+export const ID_INTER_DOS_DISK = 0x444f5302 // 'DOS\2'
+export const ID_INTER_FFS_DISK = 0x444f5303 // 'DOS\3'
+export const ID_NOT_REALLY_DOS = 0x4e444f53 // 'NDOS'
+export const ID_KICKSTART_DISK = 0x4b49434b // 'KICK'
+
+/** what `Examine()` and `ExNext()` fill a FileInfoBlock in from */
+export interface FibFields {
+  /** fib_DirEntryType — positive for a directory, negative for a file */
+  type: number
+  name: string
+  protection: number
+  size: number
+  days: number
+  mins: number
+  ticks: number
+  comment: string
+}
+
+/**
+ * Lay a FileInfoBlock out as the 260 bytes a program can Peek.
+ *
+ * Needed because some extensions hand the block's ADDRESS back rather than
+ * its fields — CRAFT's `Dr Fib` does, and its manual sends the reader to an
+ * appendix of offsets — so the struct has to exist as memory and not only as
+ * a record. `fib_DiskKey` is left zero: it is the block number the entry
+ * lives at, which is a real filesystem's business and not this one's.
+ *
+ * Both strings are BCPL-flavoured C: NUL-terminated and truncated to the room
+ * available, 107 characters for the name and `MAX_COMMENT` for the note.
+ */
+export function fibBytes(f: FibFields): Uint8Array {
+  const out = new Uint8Array(FIB_SIZEOF)
+  const v = new DataView(out.buffer)
+  v.setInt32(FIB_DIRENTRYTYPE, f.type, false)
+  v.setInt32(FIB_ENTRYTYPE, f.type, false)
+  v.setInt32(FIB_PROTECTION, f.protection, false)
+  v.setInt32(FIB_SIZE_, f.size, false)
+  v.setInt32(FIB_NUMBLOCKS, blocksFor(f.size), false)
+  v.setInt32(FIB_DATE, f.days, false)
+  v.setInt32(FIB_DATE + 4, f.mins, false)
+  v.setInt32(FIB_DATE + 8, f.ticks, false)
+  const put = (at: number, s: string, max: number): void => {
+    for (let i = 0; i < Math.min(s.length, max); i++) out[at + i] = s.charCodeAt(i) & 0xff
+  }
+  put(FIB_FILENAME, f.name, 107)
+  put(FIB_COMMENT, f.comment, MAX_COMMENT)
+  return out
+}

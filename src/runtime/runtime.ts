@@ -40,6 +40,7 @@ import { gamesupportVbl, type GameSupportState } from './gamesupport'
 import { slnVbl, type SlnState } from './sln'
 import type { MakeState } from './make'
 import type { ToolsState } from './tools'
+import type { CraftState } from './craft'
 import type { OpalState } from './opal'
 import type { DeltaState } from './delta'
 import type { LSerialState } from './lserial'
@@ -1068,6 +1069,21 @@ export class Runtime {
   static readonly TOOLS_TEXT_RESERVED = 0x04000000
 
   /**
+   * CRAFT's FileInfoBlock, which `Dr Fib` hands back the ADDRESS of.
+   *
+   * 0x3a000000 because it is the last free megabyte under the Dev IORequests
+   * at 0x3b000000 — 0x54000000 was the first choice and it is EasyLife's
+   * PowerPacker buffers, which memmap.test.ts said so immediately.
+   *
+   * One block, 260 bytes, reserved a page so nothing lands beside it. It is
+   * the scan's own buffer -- the extension keeps a single block at $4c6(a5)
+   * and every `Dr` accessor reads it -- so a program that Peeks it while a
+   * scan is open sees exactly what the accessors do.
+   */
+  static readonly CRAFT_FIB_BASE = 0x3a000000
+  static readonly CRAFT_FIB_RESERVED = 0x1000
+
+  /**
    * Opal 1.1's OpalScreen structures and their bitplanes.
    *
    * `Ovopenscreen24` hands the program the structure's ADDRESS and expects it
@@ -1137,6 +1153,8 @@ export class Runtime {
   butility!: BUtilityState
   /** JD Colour's requester channel and guru alert, slot 20 */
   jdColour!: JdColourState
+  /** CRAFT 1.0's open directory scan and the FileInfoBlock it publishes, slot 18 */
+  craft!: CraftState
   /**
    * The eight `Dev Open` channels and the IORequests they hand out.
    *
@@ -1496,6 +1514,9 @@ export class Runtime {
         return { data: Uint8Array.of(0, (line >> 8) & 1, (vh >> 8) & 0xff, vh & 0xff), off }
       },
     },
+    bufferRegion('CRAFT FileInfoBlock', Runtime.CRAFT_FIB_BASE, Runtime.CRAFT_FIB_RESERVED, () =>
+      this.craft ? this.craft.fib : null,
+    ),
     bufferRegion('Dev IORequests', Runtime.DEV_IO_BASE, Runtime.DEV_IO_RESERVED, () => this.dev.io),
     bufferRegion('Tools text', Runtime.TOOLS_TEXT_BASE, Runtime.TOOLS_TEXT_RESERVED, () =>
       this.tools ? this.tools.text.buffer : null,

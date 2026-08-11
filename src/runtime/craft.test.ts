@@ -5,6 +5,7 @@ import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
+import { AmigaFS } from '../amiga/vfs'
 import { craftKey, craftScramble, craftUnscramble, CRAFT_CIPHER_TABLE } from './craft'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -389,5 +390,176 @@ describe('CRAFT 1.0 — the memory group (routines 32..40)', () => {
     const [bank, range] = b.out().trim().split('\n')
     expect(range).toBe(' 0')
     expect(bank).toBe('1')
+  })
+})
+
+/** a runtime with RAM: mounted and a small tree in it */
+function withFS(src: string, opts: { free?: number } = {}): { rt: Runtime; out: () => string } {
+  const fs = new AmigaFS()
+  const ram = fs.mountMemory('RAM')
+  ram.freeBlocks = opts.free ?? 100
+  fs.writeFile('RAM:notes.txt', Uint8Array.from('hello world', (c) => c.charCodeAt(0)))
+  fs.mkdir('RAM:Docs')
+  fs.writeFile('RAM:Docs/a.txt', Uint8Array.from('aaa', (c) => c.charCodeAt(0)))
+  fs.writeFile('RAM:Docs/b.txt', Uint8Array.from('bb', (c) => c.charCodeAt(0)))
+  const exts = new Map([[18, craft.table]])
+  let printed = ''
+  const rt = new Runtime(tokenize(src, table, exts), table, {
+    extensions: exts,
+    extBindings: new Map([[18, craft]]),
+    maxSteps: 500_000,
+    fs,
+    onText: (t) => (printed += t),
+  })
+  mustFinish(rt.runHeadless(5000))
+  return { rt, out: () => printed }
+}
+
+const fsVal = (expr: string, pre = ''): string => withFS(`${pre}Print ${expr}`).out().trim()
+
+describe('CRAFT 1.0 — Dr File$ and Dr Path$ (routines 41, 42, 43)', () => {
+  it('splits at the last / or : and keeps the separator with the path', () => {
+    expect(fsVal('Dr File$("DF0:Games/Foo.AMOS")')).toBe('Foo.AMOS')
+    expect(fsVal('Dr Path$("DF0:Games/Foo.AMOS")')).toBe('DF0:Games/')
+    expect(fsVal('Dr File$("DF0:Foo")')).toBe('Foo')
+    expect(fsVal('Dr Path$("DF0:Foo")')).toBe('DF0:')
+  })
+
+  it('Dr Path$ answers empty when there is no separator at all', () => {
+    expect(fsVal('"["+Dr Path$("Foo.AMOS")+"]"')).toBe('[]')
+  })
+
+  it('DEFECT: Dr File$ loses the first character when there is no separator', () => {
+    /*
+     * Routine 43 leaves a1 on the separator and routine 41 steps past it with
+     * `addq.l #1,a1`. With nothing to find, a1 has walked down to the FIRST
+     * CHARACTER instead, so the same step skips it — the length is right and
+     * the start is one late.
+     */
+    expect(fsVal('"["+Dr File$("abc")+"]"')).toBe('[bc\x00]')
+  })
+})
+
+describe('CRAFT 1.0 — the disk queries (routines 44..49)', () => {
+  it('reports blocks free, used and sized from the volume', () => {
+    // RAM: is a memory volume: used is measured from what is in it, and free
+    // is whatever the caller set, because RAM: has no capacity of its own
+    expect(fsVal('Db Size("RAM:")')).toBe('512')
+    expect(fsVal('Db Used("RAM:")')).toBe('1')
+    expect(fsVal('Db Free("RAM:")')).toBe('100')
+  })
+
+  it('answers -1 for every one of them when the volume is not there', () => {
+    // the Lock fails, so Info never runs — the manual's "If there is no disc
+    // in the drive, these functions return a value of -1"
+    expect(fsVal('Db Free("DF7:")')).toBe('-1')
+    expect(fsVal('Db Used("DF7:")')).toBe('-1')
+    expect(fsVal('Db Size("DF7:")')).toBe('-1')
+    expect(fsVal('Disc State("DF7:")')).toBe('-1')
+  })
+
+  it('Disc State subtracts 80, turning AmigaDOS 80/81/82 into 0/1/2', () => {
+    expect(fsVal('Disc State("RAM:")')).toBe('2')
+  })
+
+  it('Disc Type$ cuts the longword at the first NUL, and is empty for no disk', () => {
+    expect(fsVal('Disc Type$("RAM:")')).toBe('DOS')
+    expect(fsVal('"["+Disc Type$("DF7:")+"]"')).toBe('[]')
+  })
+})
+
+describe('CRAFT 1.0 — the file queries (routines 50..54)', () => {
+  it('reads length, type, protection and comment off the FileInfoBlock', () => {
+    expect(fsVal('File Length("RAM:notes.txt")')).toBe('11')
+    // fib_DirEntryType: negative for a file, positive for a directory
+    expect(Number(fsVal('File Type("RAM:notes.txt")'))).toBeLessThan(0)
+    expect(Number(fsVal('File Type("RAM:Docs")'))).toBeGreaterThan(0)
+    expect(fsVal('File Length("RAM:Docs")')).toBe('0')
+  })
+
+  it('round-trips a comment and the protection bits', () => {
+    expect(fsVal('File Comment$("RAM:notes.txt")', 'Set Comment "RAM:notes.txt","a note"\n')).toBe('a note')
+    expect(fsVal('File Protect("RAM:notes.txt")', 'Set Protect "RAM:notes.txt",5\n')).toBe('5')
+    // "If you want to get rid of the comment, simply use empty string"
+    expect(fsVal('"["+File Comment$("RAM:notes.txt")+"]"', 'Set Comment "RAM:notes.txt",""\n')).toBe('[]')
+  })
+
+  it('raises on an object that is not there, and remembers the AmigaDOS number', () => {
+    // 205 is ERROR_OBJECT_NOT_FOUND, and routine 212 records IoErr before it
+    // raises — which is what leaves it behind for =Disc Error to report
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    const exts = new Map([[18, craft.table]])
+    const rt = new Runtime(tokenize('Print File Length("RAM:nope")', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[18, craft]]),
+      maxSteps: 100_000,
+      fs,
+    })
+    expect(() => mustFinish(rt.runHeadless(2000))).toThrow(/Illegal function call/)
+    expect(rt.craft.ioError).toBe(205)
+  })
+
+  it('Set Comment refuses a note past the 79 the FileNote holds', () => {
+    expect(() => withFS(`Set Comment "RAM:notes.txt",String$("x",80)`)).toThrow(/Illegal function call/)
+    expect(() => withFS(`Set Comment "RAM:notes.txt",String$("x",79)`)).not.toThrow()
+  })
+})
+
+describe('CRAFT 1.0 — the directory scanner (routines 59..67)', () => {
+  it('Dr Name$ answers the directory own name and opens the scan', () => {
+    // "It is always the name of the directory" — Examine on a lock gives the
+    // locked object, not its first child
+    expect(fsVal('Dr Name$("RAM:Docs")')).toBe('Docs')
+  })
+
+  it('Dr Next$ walks the entries and answers empty at the end', () => {
+    const b = withFS('A$=Dr Name$("RAM:Docs")\nDo\nB$=Dr Next$\nExit If B$=""\nPrint B$\nLoop')
+    expect(b.out().trim().split('\n').sort()).toEqual(['a.txt', 'b.txt'])
+  })
+
+  it('the accessors read the entry Dr Next$ last handed out', () => {
+    const b = withFS('A$=Dr Name$("RAM:Docs")\nB$=Dr Next$\nPrint B$;Dr Length;Dr Type<0')
+    // a.txt is 3 bytes and is a file, so Dr Type is negative
+    expect(b.out().trim()).toBe('a.txt 3-1')
+  })
+
+  it('DEFECT-adjacent: reading past the end is an error, because the block is freed', () => {
+    /*
+     * Routine 60 frees the scan block on ERROR_NO_MORE_ENTRIES before it
+     * answers "", so the NEXT call finds nothing to read. The manual says so
+     * without saying why: "If you continue reading the directory after
+     * getting an empty string, an error will be caused".
+     */
+    expect(() =>
+      withFS('A$=Dr Name$("RAM:Docs")\nA$=Dr Next$\nA$=Dr Next$\nA$=Dr Next$\nA$=Dr Next$'),
+    ).toThrow(/Illegal function call/)
+  })
+
+  it('Dr Next$ after a Dr Name$ that named a FILE is an error, not an empty string', () => {
+    // `tst.l $4(a2) / Rbmi routine 212` on the saved fib_DirEntryType
+    expect(() => withFS('A$=Dr Name$("RAM:notes.txt")\nA$=Dr Next$')).toThrow(/Illegal function call/)
+  })
+
+  it('Dr Forget closes the scan, so the accessors stop answering', () => {
+    expect(() => withFS('A$=Dr Name$("RAM:Docs")\nDr Forget\nPrint Dr Length')).toThrow(/Illegal function call/)
+  })
+
+  it('Dr Fib hands back an address the FileInfoBlock can be Peeked at', () => {
+    // routine 65 is `move.l a2,d3 / addq.l #8,d3` — the block's address, which
+    // is why this port maps it rather than keeping a record
+    const b = withFS(
+      'A$=Dr Name$("RAM:Docs")\nB$=Dr Next$\nF=Dr Fib\n' +
+        'Print Str Peek$(F+8,5);" ";Leek(F+124);" ";Deek(F+4)',
+    )
+    // fib_FileName at +8, fib_Size at +124, and the high word of fib_DirEntryType
+    // fib_FileName at +8, fib_Size at +124, and Deek(F+4) is the HIGH word of
+    // fib_DirEntryType — -3 for a file, so $ffff
+    expect(b.out().trim()).toBe('a.txt  3  65535')
+  })
+
+  it('Dr Fib is the address the region publishes', () => {
+    const b = withFS('A$=Dr Name$("RAM:Docs")\nPrint Dr Fib')
+    expect(Number(b.out().trim())).toBe(Runtime.CRAFT_FIB_BASE)
   })
 })

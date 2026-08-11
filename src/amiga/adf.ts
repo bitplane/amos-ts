@@ -30,8 +30,17 @@
  * header on each, leaving 488 usable bytes and recording the real length;
  * FFS uses all 512 bytes as data, so the length comes from the file size.
  */
-import type { DirEntry, FileMeta, Volume } from './vfs'
-import { MAX_COMMENT, ST_FILE, ST_ROOT, ST_USERDIR } from './dos'
+import type { DirEntry, FileMeta, Volume, VolumeInfo } from './vfs'
+import {
+  MAX_COMMENT,
+  ST_FILE,
+  ST_ROOT,
+  ST_USERDIR,
+  ID_DOS_DISK,
+  ID_FFS_DISK,
+  ID_VALIDATED,
+  ID_VALIDATING,
+} from './dos'
 
 /**
  * One file read out of the image.
@@ -78,6 +87,10 @@ const OFF = {
   mins: 424,
   ticks: 428,
   nameLen: 432,
+  /** bm_flag in the root block: -1 when the bitmap is valid */
+  bmFlag: 312,
+  /** bm_pages[0..24], the first 25 bitmap block pointers */
+  bmPages: 316,
   hashChain: 496,
   parent: 500,
   extension: 504,
@@ -315,6 +328,51 @@ export class AdfVolume implements Volume {
       throw new Error('no Amiga root block — image may be non-DOS or damaged')
     }
     this.info = infoOf(this.a, this.rootBlock)
+  }
+
+  /**
+   * `Info()` on the image — ./vfs.ts's VolumeInfo, read off the disk rather
+   * than assumed.
+   *
+   * The free count comes from the BITMAP, which is the only place it exists:
+   * `bm_pages` in the root block points at bitmap blocks, each a longword
+   * checksum followed by 127 longwords of bits, and a SET bit means the block
+   * is FREE. Bit 0 of the first longword is block 2 — the two boot blocks are
+   * not covered, which is why the capacity below is `blocks - 2`.
+   *
+   * `bm_flag` is -1 when the bitmap can be trusted and anything else means the
+   * disk was not unmounted cleanly, which is exactly `ID_VALIDATING`: what a
+   * real machine is doing while the validator walks it. There is no
+   * write-protect state here, because that belongs to the DRIVE and not to
+   * the image — a caller that models a write-protect tab imposes it itself.
+   */
+  dosInfo(extraBytes = 0): VolumeInfo {
+    const total = Math.max(0, this.a.blocks - 2)
+    const valid = this.a.i32(this.rootBlock, OFF.bmFlag) === -1
+    let free = 0
+    if (valid) {
+      let seen = 0
+      for (let page = 0; page < 25 && seen < total; page++) {
+        const block = this.a.u32(this.rootBlock, OFF.bmPages + page * 4)
+        if (block === 0 || !this.a.valid(block)) break
+        for (let word = 0; word < 127 && seen < total; word++) {
+          const bits = this.a.u32(block, 4 + word * 4)
+          for (let bit = 0; bit < 32 && seen < total; bit++, seen++) {
+            if ((bits >>> bit) & 1) free++
+          }
+        }
+      }
+    }
+    // writes land in the filesystem's overlay rather than in the image, but
+    // a fixed disk does not grow, so they come out of the free space
+    const extra = Math.ceil(extraBytes / BSIZE)
+    return {
+      numBlocks: total,
+      numBlocksUsed: Math.min(total, total - free + extra),
+      bytesPerBlock: BSIZE,
+      diskState: valid ? ID_VALIDATED : ID_VALIDATING,
+      diskType: this.a.ffs ? ID_FFS_DISK : ID_DOS_DISK,
+    }
   }
 
   /** the disk's own name, from the root block — what it should be mounted as */

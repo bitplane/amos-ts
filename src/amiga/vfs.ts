@@ -1,4 +1,5 @@
 import type { AmosFS } from './fs'
+import { FFS_BLOCK_DATA, ID_DOS_DISK, ID_VALIDATED } from './dos'
 
 /**
  * An Amiga-flavoured virtual filesystem:
@@ -21,11 +22,50 @@ export interface DirEntry {
   size: number
 }
 
+/**
+ * What `Info()` can say about a mounted volume — `struct InfoData`'s four
+ * interesting fields, in ./dos.ts's terms.
+ *
+ * The hook is `dosInfo` rather than `info` because AdfVolume already carries
+ * an `info` of its own — the label and filesystem it shows a user. This is
+ * dos.library's, and the two are not the same question.
+ *
+ * A volume answers this only if it HAS a geometry. A disk image does: the
+ * block count is its size and the free count is in its bitmap. A directory
+ * on the host or a tree built in memory does not, and says so by not
+ * implementing `info` at all, because inventing a floppy's worth of blocks
+ * for one would be a number a caller could not tell from a measured one.
+ */
+export interface VolumeInfo {
+  /** id_NumBlocks — the volume's capacity, less the boot blocks */
+  numBlocks: number
+  /** id_NumBlocksUsed */
+  numBlocksUsed: number
+  /** id_BytesPerBlock, 512 on every Amiga filesystem this models */
+  bytesPerBlock: number
+  /** id_DiskState — ID_WRITE_PROTECTED, ID_VALIDATING or ID_VALIDATED */
+  diskState: number
+  /** id_DiskType — ID_DOS_DISK, ID_FFS_DISK, ... */
+  diskType: number
+}
+
 /** a pluggable read side; MemoryVolume also supports writes */
 export interface Volume {
   read(segs: string[]): Uint8Array | null
   list(segs: string[]): DirEntry[] | null
   exists(segs: string[]): 'file' | 'dir' | null
+  /**
+   * The volume's geometry, for volumes that have one. Absent means the
+   * question cannot be answered — which is what `Info()` failing looks like
+   * from AmigaDOS, and is a better answer than a guess.
+   *
+   * `extraBytes` is what the write overlay is holding for this volume, since
+   * every write in this filesystem lands there rather than in the volume. How
+   * that counts is the VOLUME's business and the two answers differ: a disk
+   * image is a fixed size, so the extra comes out of its free space, while a
+   * memory volume grows and its free count is unaffected.
+   */
+  dosInfo?(extraBytes: number): VolumeInfo | null
   /**
    * The AmigaDOS metadata the volume carries in its own filesystem, for
    * volumes that have one. A real disk image does: the protection bits, the
@@ -47,6 +87,38 @@ const newDir = (name: string): MemDir => ({ name, dirs: new Map(), files: new Ma
 
 export class MemoryVolume implements Volume {
   root = newDir('')
+
+  /**
+   * Blocks to report as free. Zero by default, and that is a real statement
+   * rather than a placeholder: RAM: on an Amiga is exactly as big as the
+   * memory left, so a filesystem has no capacity to report and this one has
+   * no memory model to ask. A caller that HAS one — the Runtime knows its own
+   * pools — can set this and the number becomes meaningful.
+   */
+  freeBlocks = 0
+
+  /**
+   * A memory volume has no geometry, but it does know what is in it, so the
+   * used count and the block size are measured and the free count is whatever
+   * `freeBlocks` was told. DEVIATION: an unset `freeBlocks` makes the volume
+   * look full to anything that asks how much room is left.
+   */
+  dosInfo(extraBytes = 0): VolumeInfo {
+    let bytes = extraBytes
+    const walk = (d: MemDir): void => {
+      for (const f of d.files.values()) bytes += f.data.length
+      for (const sub of d.dirs.values()) walk(sub)
+    }
+    walk(this.root)
+    const used = Math.ceil(bytes / FFS_BLOCK_DATA)
+    return {
+      numBlocks: used + this.freeBlocks,
+      numBlocksUsed: used,
+      bytesPerBlock: FFS_BLOCK_DATA,
+      diskState: ID_VALIDATED,
+      diskType: ID_DOS_DISK,
+    }
+  }
 
   private walk(segs: string[], make = false): MemDir | null {
     let cur = this.root
@@ -383,6 +455,29 @@ export class AmigaFS implements AmosFS {
    * of — `AdfVolume.image`. Nothing else needs this, and nothing that reads
    * FILES should use it.
    */
+  /**
+   * `Info()` on a volume, by name with or without the colon.
+   *
+   * Null where the volume is not mounted OR where it has no geometry to
+   * report, and the caller cannot tell those apart — neither can a program
+   * on a real machine, which gets a failed `Info()` either way.
+   */
+  volumeInfo(name: string): VolumeInfo | null {
+    const key = name.toLowerCase().replace(/:$/, '')
+    const vol = this.volumeOf(key)
+    if (!vol?.dosInfo) return null
+    let bytes = 0
+    const dir = this.overlay.root.dirs.get(key)
+    if (dir) {
+      const walk = (d: MemDir): void => {
+        for (const f of d.files.values()) bytes += f.data.length
+        for (const sub of d.dirs.values()) walk(sub)
+      }
+      walk(dir)
+    }
+    return vol.dosInfo(bytes)
+  }
+
   volume(name: string): Volume | null {
     return this.volumeOf(name.toLowerCase().replace(/:$/, ''))
   }

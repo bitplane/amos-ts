@@ -18,7 +18,7 @@ import { makeColoursFunctions } from './colours'
 import { makeMiscExtInstructions, newMiscExtState } from './miscext'
 import { makePlibFunctions } from './plib'
 import { makeDumpFunctions, newDumpState } from './dump'
-import { makeCraftFunctions, makeCraftInstructions } from './craft'
+import { craftForget, makeCraftFunctions, makeCraftInstructions, newCraftState } from './craft'
 import { ERCOLE_ERRORS, makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
 import { EASYLIFE_ERRORS, makeEasyLifeFunctions, makeEasyLifeInstructions, newEasyLifeState } from './easylife'
 import { FILEID_ERRORS, makeFileIdFunctions, newFileIdState } from './fileid'
@@ -5804,6 +5804,12 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // arrive in later batches. It opens no library at all, so there is no
     // init hook and nothing to tear down. See craft.ts.
     ids: ['craft-1.0'],
+    init: (rt) => {
+      rt.craft = newCraftState()
+    },
+    // "This instruction is automatically executed when an AMOS program is run
+    // or a Default instruction is used" -- the manual on Dr Forget
+    defaults: craftForget,
     functions: makeCraftFunctions,
     instructions: makeCraftInstructions,
     // Nothing here is qualified. `contested` puts CRAFT against another table

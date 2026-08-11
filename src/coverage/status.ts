@@ -2356,6 +2356,33 @@ export const FAITHFUL = new Set<string>([
   'mem copy',
   'mem scramble',
   'mem unscramble',
+  // Batches 3 and 4: the disk queries and the `dr *` directory scanner. The
+  // volume geometry behind them is new back-end -- Volume.dosInfo in
+  // ../amiga/vfs.ts, read off the bitmap for a disk image -- and `Dr Fib`
+  // hands back an address, so ../amiga/dos.ts serialises a FileInfoBlock and
+  // Runtime maps it at CRAFT_FIB_BASE.
+  'dr file$',
+  'dr path$',
+  'db free',
+  'db used',
+  'db size',
+  'disc state',
+  'disc type$',
+  'disc error',
+  'file protect',
+  'file comment$',
+  'file length',
+  'file type',
+  'set protect',
+  'set comment',
+  'dr name$',
+  'dr next$',
+  'dr comment$',
+  'dr protect',
+  'dr length',
+  'dr type',
+  'dr fib',
+  'dr forget',
   // --- Range 2.6 / 2.9Plus, slot 9: Shadow Software's AMOS Club extension.
   // One port for both builds; five slot-qualified names. Slice 1 --- the
   // self-contained half. See range.ts.
@@ -3016,6 +3043,75 @@ export const NA = new Set<string>([
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "dr file$":
+    "Routine 41 ($12b0) over the splitter at 43 ($12e2), which walks back for `/` or `:`. DEFECT: with NO " +
+    "separator the answer is the string shifted one character left with a byte of whatever follows on the end. " +
+    "Routine 43 leaves a1 on the separator and routine 41 does `addq.l #1,a1` to step past it, but a failed scan " +
+    "walks a1 all the way down to the first CHARACTER and the same step skips it. The length is right and the " +
+    "start is one late. Reproduced with the trailing byte as NUL, which is the most this port can say about " +
+    "memory it does not own.",
+  "dr path$":
+    "Routine 42 ($12cc). Everything up to and INCLUDING the last separator, empty when there is none. It copies " +
+    "from the start of the string rather than from where the scan stopped, so it never meets routine 41's defect.",
+  "db free":
+    "Routine 44 ($1304): id_NumBlocks minus id_NumBlocksUsed off routine 49's Info, -1 when the Lock or the Info " +
+    "failed. Routine 49 sets `pr_WindowPtr` to -1 across the Lock so AmigaDOS cannot pop its \"please insert " +
+    "volume\" requester -- which is why a bad drive answers -1 instead of stopping the program dead.",
+  "db used": "Routine 45 ($131a): id_NumBlocksUsed, -1 on failure.",
+  "db size":
+    "Routine 46 ($132c): id_BytesPerBlock, -1 on failure. The manual's \"usually 488 bytes\" is the DATA an OFS " +
+    "block carries once its 24-byte header is off; id_BytesPerBlock is the block, so this answers 512 -- and the " +
+    "same manual gets it right two lines earlier by pointing at the CLI's Info, which prints 512 too.",
+  "disc state":
+    "Routine 47 ($133e): `id_DiskState - 80`, turning AmigaDOS's 80/81/82 into the manual's 0 write-protected, " +
+    "1 not yet validated, 2 validated. -1 is a failed Info, which is \"no disc\".",
+  "disc type$":
+    "Routine 48 ($1354): id_DiskType written out as four bytes and cut at the first NUL, so OFS is \"DOS\" and FFS " +
+    "is \"DOS\"+Chr$(1) exactly as the manual says. ID_NO_DISK_PRESENT is -1 and the routine turns it into a zero " +
+    "longword, which cuts to the empty string -- the same answer a failed Info gives.",
+  "disc error": "Routine 58. The AmigaDOS IoErr routine 212 recorded before it raised.",
+  "file protect": "Routine 50 ($13c8) over routine 54's Lock/Examine/UnLock: fib_Protection at +$74.",
+  "file comment$": "Routine 51 ($13d4): fib_Comment at +$90, as a C string.",
+  "file length": "Routine 52 ($13e0): fib_Size at +$7c, which is zero for a directory.",
+  "file type":
+    "Routine 53 ($13ec): fib_DirEntryType at +$4, so positive is a directory and negative a file. NOTE routine " +
+    "54 does NOT set `pr_WindowPtr` where routine 49 does, so on a real machine a bad volume here really does " +
+    "put a requester up -- the two halves of this extension disagree about that.",
+  "set protect":
+    "CRAFT routine 55 ($1430): dos.library's SetProtection. The manual tabulates the bits and they are FIBF_*, " +
+    "with the low four active low: 0 delete, 1 execute, 2 write, 3 read, 4 archive, 5 pure, 6 script, 7 hide. " +
+    "The name is CONTESTED and this note covers both: EasyLife 1.0 spells `Els Protect` this way, and its port " +
+    "reaches the same SetProtection through an alias, so the two agree on what the keyword does and differ only " +
+    "in which slot answers. See ALLOWED_UNDECLARED in ../runtime/contested.test.ts for why one handler still " +
+    "serves both.",
+  "set comment":
+    "Routine 56: SetComment. The manual's \"the maximum length of the comment is 79 characters\" is the LIBRARY's " +
+    "limit rather than the extension's -- an over-long note comes back as ERROR_COMMENT_TOO_BIG and routine 212 " +
+    "raises it. An empty string clears the note, as the manual says.",
+  "dr name$":
+    "Routine 59 ($14d0). Locks the path and Examines it, so the name it answers is the DIRECTORY'S OWN -- the " +
+    "manual's \"It is always the name of the directory\". It also opens the scan: routine 67 allocates the block, " +
+    "the lock goes at +0 and fib_DirEntryType is copied to +4 for Dr Next$ to check.",
+  "dr next$":
+    "Routine 60 ($151e), ExNext into the same block. Two things the manual only half says. `tst.l $4(a2) / Rbmi " +
+    "routine 212` runs first, so a Dr Next$ after a Dr Name$ that named a FILE is an error and not an empty " +
+    "string. And on ERROR_NO_MORE_ENTRIES the routine FREES the scan block before answering \"\" -- which is why " +
+    "\"If you continue reading the directory after getting an empty string, an error will be caused\": the block " +
+    "is gone and the next call cannot find one.",
+  "dr comment$": "Routine 61 ($1568): the open block's fib_Comment, at block+$98.",
+  "dr protect": "Routine 62 ($1576): the open block's fib_Protection, at block+$7c.",
+  "dr length": "Routine 63 ($1584): the open block's fib_Size, at block+$84.",
+  "dr type": "Routine 64 ($1592): the open block's fib_DirEntryType, at block+$c.",
+  "dr fib":
+    "Routine 65 ($15a0), `move.l a2,d3 / addq.l #8,d3` -- the ADDRESS of the FileInfoBlock, eight bytes into the " +
+    "scan block. It is why the block is real mapped memory in this port rather than a record: the manual sends " +
+    "the reader to an appendix of offsets and expects them to Peek it. Runtime.CRAFT_FIB_BASE is where it lands, " +
+    "and ../amiga/dos.ts's fibBytes lays the 260 bytes out. fib_DiskKey stays zero, being a real filesystem's " +
+    "block number and not this one's.",
+  "dr forget":
+    "Routine 66 ($15ae): `moveq #-1,d0 / Rbra routine 67`, which frees the whole scan block, FileInfoBlock " +
+    "included -- so the accessors stop answering, not just Dr Next$. It runs on Run and on Default too, which " +
+    "is the `defaults` hook in instr.ts.",
   "up case$":
     "Routine 3 ($d6e), and `bchg #5` over two ranges rather than a table -- 0x61..0x7a and 0xe0..0xfe -- which " +
     "is how it delivers the manual's \"they can convert all the special characters too. These characters include " +
@@ -8060,7 +8156,6 @@ export const SHARED_NOTES: Record<string, string> = {
   'elclose fonts': 'elset font',
   'easy base': 'el base',
   'protect': 'elprotect',
-  'set protect': 'els protect',
   'output exists': 'elout',
   'output': 'elout',
   'elwb close': 'elwb open',

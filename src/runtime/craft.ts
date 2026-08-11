@@ -94,6 +94,37 @@ import type { Func, Instr } from '../interp/builtins'
 import type { Interp } from '../interp/interp'
 import { AmosError, VI, VS, int, str, type Value } from '../interp/values'
 import { ED_RUN_MESSAGES } from '../interp/errors.gen'
+import { FIB_SIZEOF, ID_WRITE_PROTECTED, MAX_COMMENT, entryType, fibBytes, type FibFields } from '../amiga/dos'
+import type { VolumeInfo } from '../amiga/vfs'
+
+/**
+ * CRAFT's one open directory scan, and the FileInfoBlock behind it.
+ *
+ * The extension keeps a single block: routine 67 allocates it on `Dr Name$`,
+ * routine 66 (`Dr Forget`) frees it, and `Dr Next$` frees it itself on the
+ * way out. Every accessor reads that one block, which is why the manual warns
+ * that `Dr Next$` "changes all the information given by special functions".
+ */
+export interface CraftState {
+  /** the entries `Dr Next$` has left to hand out, or null when no scan is open */
+  scan: { dir: string; rest: string[] } | null
+  /** fib_DirEntryType of the object `Dr Name$` locked -- routine 59's $4(a2) */
+  scanType: number
+  /** the published block, mapped at Runtime.CRAFT_FIB_BASE */
+  fib: Uint8Array
+  /** the same block decoded, which is what the accessors actually read */
+  fields: FibFields | null
+  /** the last AmigaDOS error, what `Disc Error` answers */
+  ioError: number
+}
+
+export const newCraftState = (): CraftState => ({
+  scan: null,
+  scanType: 0,
+  fib: new Uint8Array(FIB_SIZEOF),
+  fields: null,
+  ioError: 0,
+})
 
 /** AMOS error 23, "Illegal function call" — routine 206 */
 const illegal = (): never => {
@@ -263,6 +294,21 @@ export function craftCount(hay: Uint8Array, from: number, count: number, needle:
     left--
   }
   return found
+}
+
+
+/**
+ * Routine 43, the path splitter both `Dr File$` and `Dr Path$` sit on.
+ *
+ * Walks back from the end for `/` or `:` and answers the 1-BASED position of
+ * the separator, or 0 when there is none.
+ */
+export function craftSplit(s: string): number {
+  for (let i = s.length - 1; i >= 0; i--) {
+    const c = s[i]
+    if (c === '/' || c === ':') return i + 1
+  }
+  return 0
 }
 
 export function makeCraftFunctions(rt: Runtime): Record<string, Func> {
@@ -472,8 +518,254 @@ export function makeCraftFunctions(rt: Runtime): Record<string, Func> {
       if ((addr & 1) !== 0) addressError()
       return VI(craftMemType(rt, addr))
     },
+
+    /**
+     * =Dr File$(filespec$) — routine 41 ($12b0) over the splitter at 43.
+     *
+     * DEFECT: with NO separator in the string it answers the string shifted
+     * one character left, with a byte of whatever follows on the end. Routine
+     * 43 leaves a1 on the separator it found, and routine 41 does
+     * `addq.l #1,a1` to step past it — but when the scan runs out instead of
+     * matching, a1 has walked all the way down to the first CHARACTER, so the
+     * same step skips it. The length is right and the start is one late, so
+     * `Dr File$("abc")` is "bc" plus one byte past the string. Reproduced with
+     * the trailing byte as NUL, which is the most this port can say about
+     * memory it does not own.
+     */
+    'dr file$': (_, a) => {
+      const s = s0(a, 0)
+      const at = craftSplit(s)
+      if (at === 0) return VS(s.length === 0 ? '' : `${s.slice(1)}\0`)
+      return VS(s.slice(at))
+    },
+
+    /**
+     * =Dr Path$(filespec$) — routine 42 ($12cc). Everything up to and
+     * INCLUDING the last separator, and the empty string when there is none.
+     * It copies from a2, the start of the string, so it never meets routine
+     * 41's problem.
+     */
+    'dr path$': (_, a) => VS(s0(a, 0).slice(0, craftSplit(s0(a, 0)))),
+
+    /** =Db Free(drive$) — routine 44 ($1304): id_NumBlocks - id_NumBlocksUsed */
+    'db free': (_, a) => {
+      const i = craftInfo(rt, s0(a, 0))
+      return VI(i ? i.numBlocks - i.numBlocksUsed : -1)
+    },
+    /** =Db Used(drive$) — routine 45 ($131a): id_NumBlocksUsed */
+    'db used': (_, a) => {
+      const i = craftInfo(rt, s0(a, 0))
+      return VI(i ? i.numBlocksUsed : -1)
+    },
+    /**
+     * =Db Size(drive$) — routine 46 ($132c): id_BytesPerBlock.
+     *
+     * The manual says a block is "usually 488 bytes", which is the DATA a
+     * 512-byte OFS block carries once its 24-byte header is taken off.
+     * `id_BytesPerBlock` is the block, so this answers 512 — and the same
+     * manual's Db Free/Db Used entry gets it right by pointing at the CLI's
+     * `Info`, which prints 512 too.
+     */
+    'db size': (_, a) => {
+      const i = craftInfo(rt, s0(a, 0))
+      return VI(i ? i.bytesPerBlock : -1)
+    },
+    /**
+     * =Disc State(drive$) — routine 47 ($133e), `id_DiskState - 80`, which
+     * turns AmigaDOS's 80/81/82 into the manual's 0 write-protected, 1 not yet
+     * validated, 2 validated. -1 when the Info fails, which is "no disc".
+     */
+    'disc state': (_, a) => {
+      const i = craftInfo(rt, s0(a, 0))
+      return VI(i ? i.diskState - ID_WRITE_PROTECTED : -1)
+    },
+    /**
+     * =Disc Type$(drive$) — routine 48 ($1354). id_DiskType written out as
+     * four bytes and cut at the first NUL, so OFS is "DOS" and FFS is
+     * "DOS"+Chr$(1) exactly as the manual says. ID_NO_DISK_PRESENT is -1 and
+     * the routine turns that into a zero longword, which cuts to "" — the
+     * same answer a failed Info gives.
+     */
+    'disc type$': (_, a) => {
+      const i = craftInfo(rt, s0(a, 0))
+      const t = i && i.diskType !== -1 ? i.diskType >>> 0 : 0
+      let out = ''
+      for (let sh = 24; sh >= 0; sh -= 8) {
+        const b = (t >>> sh) & 0xff
+        if (b === 0) break
+        out += String.fromCharCode(b)
+      }
+      return VS(out)
+    },
+
+    /** =File Protect(f$) — routine 50 ($13c8): fib_Protection */
+    'file protect': (_, a) => VI(craftExamine(rt, s0(a, 0)).protection),
+    /** =File Comment$(f$) — routine 51 ($13d4): fib_Comment */
+    'file comment$': (_, a) => VS(craftExamine(rt, s0(a, 0)).comment),
+    /** =File Length(f$) — routine 52 ($13e0): fib_Size, zero for a directory */
+    'file length': (_, a) => VI(craftExamine(rt, s0(a, 0)).size),
+    /**
+     * =File Type(f$) — routine 53 ($13ec): fib_DirEntryType, so positive is a
+     * directory and negative a file, which is the manual exactly.
+     */
+    'file type': (_, a) => VI(craftExamine(rt, s0(a, 0)).type),
+
+    /**
+     * =Disc Error — routine 58. The last AmigaDOS error, which every keyword
+     * here sets through routine 212's IoErr.
+     */
+    'disc error': () => VI(rt.craft.ioError),
+
+    /**
+     * =Dr Name$(path$) — routine 59 ($14d0). Locks the path, Examines it and
+     * answers fib_FileName, which for a directory is the DIRECTORY'S OWN name
+     * — the manual's "It is always the name of the directory". It also opens
+     * the scan: routine 67 allocates the block, the lock goes at +0 and
+     * fib_DirEntryType is copied to +4 for `Dr Next$` to check.
+     */
+    'dr name$': (_, a) => {
+      const path = s0(a, 0)
+      const kind = rt.vfs?.exists(path) ?? null
+      if (kind === null) craftDosError(rt, 205)
+      const fields = craftFields(rt, path)
+      craftPublish(rt, fields)
+      const st = rt.craft
+      st.scanType = fields.type
+      st.scan =
+        kind === 'dir' ? { dir: path, rest: (rt.vfs?.listDir(path) ?? []).map((e) => e.name) } : { dir: path, rest: [] }
+      st.ioError = 0
+      return VS(fields.name)
+    },
+
+    /**
+     * =Dr Next$ — routine 60 ($151e). ExNext into the same block.
+     *
+     * Two things the manual only half says. `Rbmi routine 212` on the saved
+     * fib_DirEntryType first, so calling this after a `Dr Name$` that named a
+     * FILE is an error rather than an empty string. And when ExNext reports
+     * ERROR_NO_MORE_ENTRIES the routine frees the scan block before answering
+     * "" — which is why "If you continue reading the directory after getting
+     * an empty string, an error will be caused": the block is gone and the
+     * next call cannot find one.
+     */
+    'dr next$': () => {
+      const st = rt.craft
+      if (st.scan === null) craftDosError(rt, 232)
+      if (st.scanType < 0) craftDosError(rt, 212)
+      const name = st.scan.rest.shift()
+      if (name === undefined) {
+        craftForget(rt)
+        return VS('')
+      }
+      craftPublish(rt, craftFields(rt, `${st.scan.dir}/${name}`))
+      return VS(name)
+    },
+
+    /** =Dr Comment$ — routine 61 ($1568): the block's fib_Comment */
+    'dr comment$': () => VS(craftCurrent(rt).comment),
+    /** =Dr Protect — routine 62 ($1576): the block's fib_Protection */
+    'dr protect': () => VI(craftCurrent(rt).protection),
+    /** =Dr Length — routine 63 ($1584): the block's fib_Size */
+    'dr length': () => VI(craftCurrent(rt).size),
+    /** =Dr Type — routine 64 ($1592): the block's fib_DirEntryType */
+    'dr type': () => VI(craftCurrent(rt).type),
+    /**
+     * =Dr Fib — routine 65 ($15a0), `move.l a2,d3 / addq.l #8,d3`: the ADDRESS
+     * of the FileInfoBlock, eight bytes into the scan block.
+     *
+     * This is why the block is real mapped memory here rather than a record —
+     * the manual sends the reader to an appendix of offsets and expects them
+     * to Peek it. Runtime.CRAFT_FIB_BASE is where it lands.
+     */
+    'dr fib': () => {
+      craftCurrent(rt)
+      return VI(Runtime.CRAFT_FIB_BASE)
+    },
   }
 }
+
+/**
+ * Routine 212: IoErr, mapped through the table at $32e8 to an AMOS error.
+ *
+ * The table is pairs of bytes, an AmigaDOS code and the AMOS number to raise,
+ * walked until the code matches or a zero ends it — so an unlisted IoErr
+ * lands on the terminator's partner. `Disc Error` reads the AmigaDOS number
+ * rather than the AMOS one, which is why it is recorded before the raise.
+ */
+function craftDosError(rt: Runtime, ioErr: number): never {
+  rt.craft.ioError = ioErr
+  throw new AmosError(ED_RUN_MESSAGES[23]!, 23)
+}
+
+/**
+ * Routine 49: Lock, Info, UnLock, with `pr_WindowPtr` set to -1 across the
+ * middle so AmigaDOS cannot pop its "please insert volume" requester. Answers
+ * null where the Lock or the Info failed, which is every caller's -1.
+ */
+function craftInfo(rt: Runtime, drive: string): VolumeInfo | null {
+  return rt.vfs?.volumeInfo(drive) ?? null
+}
+
+/** the fields Examine would fill in for `path` */
+function craftFields(rt: Runtime, path: string): FibFields {
+  const kind = rt.vfs?.exists(path) ?? null
+  if (kind === null) craftDosError(rt, 205)
+  const m = rt.vfs!.meta(path)
+  const size = kind === 'file' ? (rt.vfs!.readFile(path)?.length ?? 0) : 0
+  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf(':'))
+  return {
+    type: entryType(kind === 'dir'),
+    name: cut >= 0 ? path.slice(cut + 1) : path,
+    protection: m.protection ?? 0,
+    size,
+    days: m.days ?? 0,
+    mins: m.mins ?? 0,
+    ticks: m.ticks ?? 0,
+    comment: m.comment ?? '',
+  }
+}
+
+/** write a FileInfoBlock into the one published block */
+function craftPublish(rt: Runtime, f: FibFields): void {
+  rt.craft.fib.set(fibBytes(f))
+  rt.craft.fields = f
+}
+
+/**
+ * Routine 54: Lock, Examine, UnLock, raising through routine 212 on either
+ * failure. Unlike routine 49 it does NOT touch `pr_WindowPtr`, so on a real
+ * machine a bad volume here really does put a requester up.
+ */
+function craftExamine(rt: Runtime, path: string): FibFields {
+  const f = craftFields(rt, path)
+  rt.craft.ioError = 0
+  return f
+}
+
+/**
+ * Routine 67 with d0 = -1: the whole scan block goes, FileInfoBlock included.
+ * Clearing only the scan and leaving the block behind would let the accessors
+ * go on answering from a directory nobody is reading any more.
+ */
+export function craftForget(rt: Runtime): void {
+  const st = rt.craft
+  st.scan = null
+  st.scanType = 0
+  st.fields = null
+  st.fib.fill(0)
+}
+
+/**
+ * What the `Dr` accessors read: the block as it stands. Routine 67 with d0=0
+ * raises when no scan is open, which is the error the manual promises for a
+ * `Dr Next$` past the end.
+ */
+function craftCurrent(rt: Runtime): FibFields {
+  const f = rt.craft.fields
+  if (f === null) craftDosError(rt, 232)
+  return f
+}
+
 
 /**
  * Routine 36's TypeOfMem, as far as this port can answer it.
@@ -568,6 +860,48 @@ export function makeCraftInstructions(rt: Runtime): Record<string, Instr> {
     'mem scramble': (it) => craftMemCipher(rt, it, false),
     /** Mem Unscramble start To finish,p$ / bank,p$ — routines 39, 40 */
     'mem unscramble': (it) => craftMemCipher(rt, it, true),
+
+    /**
+     * Set Protect f$,bits — routine 55 ($1430), dos.library's SetProtection.
+     * The manual tabulates the bits, and they are FIBF_* with the low four
+     * active low: bit 0 delete, 1 execute, 2 write, 3 read, 4 archive,
+     * 5 pure, 6 script, 7 hide.
+     */
+    'set protect'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const bits = it.evalInt()
+      if (!rt.vfs || rt.vfs.exists(path) === null) craftDosError(rt, 205)
+      rt.vfs.setMeta(path, { protection: bits })
+      rt.craft.ioError = 0
+    },
+
+    /**
+     * Set Comment f$,com$ — routine 56, dos.library's SetComment.
+     *
+     * The manual's "the maximum length of the comment is 79 characters" is
+     * the LIBRARY's limit, not the extension's: an over-long note is
+     * ERROR_COMMENT_TOO_BIG from SetComment, which routine 212 turns into an
+     * AMOS error. An empty string clears it, as the manual says.
+     */
+    'set comment'(it) {
+      const path = it.evalStr()
+      it.expect(',')
+      const note = it.evalStr()
+      if (!rt.vfs || rt.vfs.exists(path) === null) craftDosError(rt, 205)
+      if (note.length > MAX_COMMENT) craftDosError(rt, 220)
+      rt.vfs.setMeta(path, { comment: note })
+      rt.craft.ioError = 0
+    },
+
+    /**
+     * Dr Forget — routine 66 ($15ae), `moveq #-1,d0 / Rbra routine 67`: free
+     * the scan block. The manual is right that it runs on Run and on Default;
+     * the `defaults` hook below is where that happens.
+     */
+    'dr forget'() {
+      craftForget(rt)
+    },
   }
 }
 
