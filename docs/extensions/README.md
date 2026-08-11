@@ -541,7 +541,7 @@ decisive between two neighbouring rows near the bottom.
 | 3 | `gui-1.5b` | — | 0 / 48 |
 | 3 | `d-sam-1.01` | — | 0 / 50 |
 | 3 | `jvp-1.01` | module | 11 / 11 |
-| 2 | `delta-1.6` | part | 26 / 46 |
+| 2 | `delta-1.6` | module | 26 / 46 |
 | 2 | `bsdsocket-1.1.4` | — | 0 / 30 |
 | 2 | `easylife-1.0` | module | 72 / 72 |
 | 2 | `locale-0.26` | module | 20 / 20 |

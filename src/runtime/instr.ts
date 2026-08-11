@@ -6149,7 +6149,22 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // 0 is `moveq #$e,d0 / rts` and nothing else; the guide says slot 15. Five
     // of its fourteen instructions are Misc 1.0's routines instruction for
     // instruction, inverted drive-motor defect and all; see delta.ts
-    ids: ['delta-1.4'],
+    /*
+     * 1.6 IS BOUND HERE TOO, and it costs nothing: all 26 of 1.4's entries sit
+     * at the id 1.6 gives the same keyword -- checked entry for entry, none
+     * moved and none absent, so 1.6 appended and did not rebuild. That is the
+     * whole test for whether one port can serve two identities, and it is the
+     * same evidence identifySlot resolves a slot with.
+     *
+     * Without the second id, a program bound to 1.6 got NOTHING from a port
+     * that already answers 26 of its 46 keywords, and the coverage table read
+     * 0% beside a row saying "26 of the 46 are Delta 1.4's, already faithful".
+     * The twenty 1.6 adds are still missing and still report as missing: four
+     * reqtools calls, four Workbench and public-screen ones, `delta find task`
+     * / `delta kill task`, and a `jsr`/`moveb`/`movew`/`movel` block that runs
+     * 68k code and waits on an interpreter this port does not have.
+     */
+    ids: ['delta-1.4', 'delta-1.6'],
     init: (rt) => {
       rt.delta = newDeltaState()
     },
