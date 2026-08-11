@@ -714,6 +714,7 @@ import { closeLibrary, openLibrary } from '../amiga/exec'
 import { Protracker, parseMod, type PtSong } from '../amiga/protracker'
 import { Runtime } from './runtime'
 import { Screen } from './screen'
+import { encodeIlbm, parseIlbm } from '../loader/iff'
 
 /** an argument that arrived as a Value */
 const int = (v: unknown): number => Number((v as { n?: number } | undefined)?.n ?? 0) | 0
@@ -2429,6 +2430,144 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
      * that should have written both.
      */
     'g own blitter': () => {},
+
+    // ---- pictures ----
+    /**
+     * Routine 43 ($1f58) — `G Load Iff FILE$,N`, undocumented, and the second
+     * way a GMS screen comes into existence.
+     *
+     * It opens like `G Screen Open`: AMOS_WB(0), `Rbsr` into routine 90, and
+     * the same Free / FreeMem / table[N] = 0 block. Then a two-field
+     * descriptor at block +$16c — `move.w #$11,(a0)` is `ID_FILENAME` from
+     * `register.i` and `$2(a0)` the string — and `Load(Source a0, ObjectID
+     * d0)` with d0 = `ID_PICTURE`. The Picture goes to +$168 and a failure
+     * jumps into `G Exit`.
+     *
+     * The screen is then built round the picture rather than round the
+     * template, which is why the routine can afford to skip the CopyMem its
+     * twin makes: `Get(ID_SCREEN)` for a blank one, `CopyStructure(Picture,
+     * Screen)` to take its width, height, depth, mode and palette — legal
+     * here precisely because the destination is uninitialised and
+     * CopyStructure writes *"Only the NULL fields in the Destination
+     * structure"* — then `Init`, `Copy(Picture->Bitmap, Screen->Bitmap)` for
+     * the pixels, `Show`, and `Free` on the Picture.
+     *
+     * So the 200 bytes it allocates hold one pointer, at +$4, and the
+     * `lea $1f6(a3),a0` two instructions before the register restore is a
+     * leftover from the routine it was copied out of.
+     */
+    'g load iff'(it) {
+      const s = st()
+      const file = it.evalStr()
+      it.expect(',')
+      const n = it.evalInt()
+      rt.amosToBack()
+      gmsInit(s)
+      const slot = gmsSlot(n)
+      const data = rt.vfs?.readFile(file) ?? rt.fs?.read(file) ?? null
+      if (!data) tgeError(0)
+      let img
+      try {
+        img = parseIlbm(data!)
+      } catch {
+        throw new AmosError(ED_RUN_MESSAGES[16]!, 16) // routine 43's own G Exit
+      }
+      if (rt.screens.has(slot)) rt.closeScreen(slot)
+      const sc = new Screen(
+        slot,
+        img.width,
+        img.height,
+        1 << img.depth,
+        ((img.mode & 0x8000) !== 0 ? 0x8000 : 0) | (img.mode & 0x804),
+      )
+      sc.displayX = GMS_TOP_OF_SCREEN_X
+      sc.displayY = GMS_TOP_OF_SCREEN_Y
+      for (let i = 0; i < img.palette.length && i < sc.palette.length; i++) sc.palette[i] = img.palette[i]!
+      sc.pixelsW().set(img.pixels.subarray(0, sc.width * sc.height))
+      rt.screens.set(slot, sc)
+      rt.order = rt.order.filter((i) => i !== slot)
+      rt.order.push(slot)
+      s.gmsCurrent = n
+      s.gmsScreen = sc
+    },
+
+    /**
+     * Routine 102 ($3bb0) — `G Save Iff FILE$`, undocumented.
+     *
+     * `SaveToFile(Object a0, Filename a1, Type a2)` on the CURRENT Bitmap,
+     * with the same `ID_FILENAME` descriptor and a null Type. The Bitmap's
+     * `Size` is read into d0 first and never used.
+     *
+     * DEFECT: the descriptor is built through a4 — `move.l a1,$2(a4) /
+     * move.w #$11,(a4)` — where routine 43 builds the identical thing at
+     * `block + $16c`. The save still works, because the same a4 is then
+     * handed to SaveToFile; what it costs is six bytes written over whatever
+     * a4 happened to point at. Same slip as `G Double Buffer`'s, which is not
+     * so lucky.
+     */
+    'g save iff'(it) {
+      const s = st()
+      const file = it.evalStr()
+      const sc = s.gmsScreen
+      if (!sc) return
+      const ok = rt.vfs?.writeFile(
+        file,
+        encodeIlbm({
+          width: sc.width,
+          height: sc.height,
+          depth: sc.depth,
+          mode: (sc.hires ? 0x8000 : 0) | (sc.ham ? 0x800 : 0) | (sc.laced ? 4 : 0),
+          palette: Array.from(sc.palette.subarray(0, sc.nColors)),
+          pixels: sc.bufferFor('logic'),
+        }),
+      )
+      if (ok !== true) tgeError(0)
+    },
+
+    /**
+     * Routine 87 ($2e46) — `G Save Bitmap FILE$,N`, undocumented, and not an
+     * IFF: the bitmap's bytes, as they are, with no header.
+     *
+     * `AllocMem` of the Bitmap's own `Size` at +$28, `Read(Object a0, Buffer
+     * a1, Length d0)` to pull the pixels out of it, and then dos.library
+     * directly — `Open(name, MODE_NEWFILE)` with `#$3ee` in d2, `Write`,
+     * `Close`. The filename is left on AMOS's parameter stack until after the
+     * allocation, which is why the failure arm at $2e88 pops it before
+     * jumping into `G Exit` with 24 rather than 16.
+     *
+     * DEVIATION: what comes out here is the planar data of the port's own
+     * bitmap, row by row and plane within row, which is the layout
+     * `../amiga/graphics.ts` keeps and the one GMS's ILBM bitmaps use. The
+     * buffer is not freed on the machine either way.
+     */
+    'g save bitmap'(it) {
+      const file = it.evalStr()
+      it.expect(',')
+      const sc = rt.screens.get(gmsSlot(it.evalInt()))
+      if (!sc) return
+      const planes = sc.planarView('log', false)
+      st().rpLeak += planes.length // AllocMem with no FreeMem, as with the RastPort
+      if (rt.vfs?.writeFile(file, planes) !== true) tgeError(0)
+    },
+
+    /**
+     * Routine 117 — `G Load Pcx FILE$,N`, undocumented, and it does not call
+     * the PCX module. `lea $f2(a3),a6 / jsr -$6(a6)`: `lea` where every other
+     * module call in the extension has `movea.l`, so a6 becomes
+     * `block + $f2` rather than the base stored there, and the `jsr` goes to
+     * `block + $ec` — into the middle of the extension's own table of module
+     * bases, which is data. Routine 112 makes the same call correctly with
+     * `movea.l $ee(a3),a6`, which is what makes this a typo and not a
+     * convention.
+     *
+     * Nothing is reproduced: executing a table of pointers as code is not
+     * something this port has an answer for, and no answer is right.
+     */
+    'g load pcx'(it) {
+      it.evalStr()
+      it.expect(',')
+      it.evalInt()
+    },
 
     // ---- drawing ----
     /** Routine 41 ($1f36) — `G Agaplasma`, one `rts`, and the guide agrees:

@@ -2765,6 +2765,10 @@ export const FAITHFUL = new Set<string>([
   // settles it -- see "Which GMS source wins".
   'g plot', 'g circle', 'g rectangle', 'g cls', 'g copyarea', 'g point',
   'g rgb', 'g blur', 'g agaplasma',
+  // Pictures. G Load Iff builds a screen round the loaded Picture rather
+  // than round the tag template, which is the other way a GMS screen comes
+  // into existence; ../loader/iff.ts is both ends of it.
+  'g load iff', 'g save iff', 'g save bitmap', 'g load pcx',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -7551,6 +7555,36 @@ NUMBER, with both registers set properly, which in this extension is worth recor
     "Routine 111 ($3e50), no guide node. ReadRGBPixel(Bitmap a0, XCoord d1, YCoord d2) -- the pixel's $00RRGGBB \
 rather than its index. DEFECT: it sets d3 and never d2, and d2 is where the Y argument was popped, so the TYPE a \
 program gets back is its own Y coordinate. Answered as an integer here, which is what the value is",
+  "g load iff":
+    "Routine 43 ($1f58), no guide node, and the second way a GMS screen comes into existence. It opens like G \
+Screen Open -- AMOS_WB(0), Rbsr into routine 90, the same Free/FreeMem/table[N]=0 block -- then builds a \
+two-field descriptor at block +$16c, `move.w #$11,(a0)` being ID_FILENAME from register.i and $2(a0) the string, \
+and calls Load(Source a0, ObjectID d0) with ID_PICTURE. The screen is then built round the picture and not round \
+the template: Get(ID_SCREEN) for a blank one, CopyStructure(Picture, Screen) for its width, height, depth, mode \
+and palette -- legal exactly because the destination is uninitialised and CopyStructure writes \"Only the NULL \
+fields in the Destination structure\" -- then Init, Copy for the pixels, Show, and Free on the Picture. NOTE: the \
+200 bytes it allocates hold one pointer at +$4, and the `lea $1f6(a3),a0` before the register restore is a \
+leftover from the routine this was copied out of; the CopyMem that would have used it is not here",
+  "g save iff":
+    "Routine 102 ($3bb0), no guide node. SaveToFile(Object a0, Filename a1, Type a2) on the current Bitmap with \
+the same ID_FILENAME descriptor and a null Type; the Bitmap Size read into d0 first is never used. DEFECT: the \
+descriptor is built through a4 -- `move.l a1,$2(a4) / move.w #$11,(a4)` -- where routine 43 builds the identical \
+thing at block +$16c. The save works, the same a4 being handed to SaveToFile; the cost is six bytes written over \
+whatever a4 pointed at. Same slip as G Double Buffer's, which is not so lucky",
+  "g save bitmap":
+    "Routine 87 ($2e46), no guide node, and not an IFF: the bitmap's bytes with no header. AllocMem of the \
+Bitmap's own Size at +$28, dpkernel Read(Object a0, Buffer a1, Length d0) to pull the pixels out, then \
+dos.library directly -- Open with #$3ee (MODE_NEWFILE) in d2, Write, Close. The filename is left on AMOS's \
+parameter stack until after the allocation, which is why the failure arm at $2e88 pops it before jumping into G \
+Exit with 24 rather than 16. DEVIATION: what comes out is the planar data of this port's own bitmap, row by row \
+and plane within row, which is the layout GMS's ILBM bitmaps use. The buffer is not freed on the machine either",
+  "g load pcx":
+    "Routine 117, no guide node, and it does not call the PCX module. `lea $f2(a3),a6 / jsr -$6(a6)`: lea where \
+every other module call in the extension has movea.l, so a6 becomes block+$f2 rather than the base stored there \
+and the jsr goes to block+$ec -- into the middle of the extension's own table of module bases, which is data. \
+Routine 112 makes the same call correctly with `movea.l $ee(a3),a6`, which is what makes this a typo and not a \
+convention. Nothing is reproduced: executing a table of pointers as code is not something this port has an answer \
+for, and no answer is right",
   "ovsavejpeg24":
     "Routine 73 ($10a0). The library's JPEG code is the Independent JPEG Group's, v4-era, compiled with SAS/C " +
     "into the fourth hunk, and everything it chooses is read off that binary rather than guessed: the Annex K " +

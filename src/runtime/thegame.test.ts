@@ -16,6 +16,7 @@ import { AmigaFS } from '../amiga/vfs'
 import { openLibrary } from '../amiga/exec'
 import { Runtime } from './runtime'
 import { Screen } from './screen'
+import { encodeIlbm, parseIlbm } from '../loader/iff'
 import { BTN_RED, DIR_UP } from '../amiga/controller'
 import {
   PT_PLAY_VOLUME,
@@ -1385,5 +1386,77 @@ describe('the GMS drawing keywords', () => {
     // comes after, sees black instead
     expect(scr(one).point(10, 9)).toBe(1)
     expect(scr(one).point(11, 10)).toBe(0)
+  })
+})
+
+describe('the GMS picture keywords', () => {
+  const GAME = Runtime.screenRange('game')
+  const slot = (n: number): number => GAME.from + n
+
+  /** a two-plane 16x8 ILBM with a lit pixel, through the port's own encoder */
+  function iffFile(): Uint8Array {
+    const pixels = new Uint8Array(16 * 8)
+    pixels[16 * 2 + 3] = 3
+    return encodeIlbm({
+      width: 16,
+      height: 8,
+      depth: 2,
+      mode: 0,
+      palette: [0x000, 0xf00, 0x0f0, 0xfff],
+      pixels,
+    })
+  }
+
+  const withIff = (): AmigaFS => {
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    fs.writeFile('RAM:pic.iff', iffFile())
+    return fs
+  }
+
+  it('G Load Iff opens a screen shaped like the picture', () => {
+    const rt = run('G Load Iff "RAM:pic.iff",2', withIff())
+    const sc = rt.screens.get(slot(2))!
+    expect([sc.width, sc.height, sc.depth]).toEqual([16, 8, 2])
+    expect(sc.point(3, 2)).toBe(3)
+    expect(sc.palette[3]).toBe(0xfff)
+    // and it is the current screen and in front, as G Screen Open leaves one
+    expect(rt.thegame.gmsScreen).toBe(sc)
+    expect(rt.order[rt.order.length - 1]).toBe(slot(2))
+  })
+
+  it('G Load Iff starts GMS by itself, like G Screen Open', () => {
+    const rt = run('G Load Iff "RAM:pic.iff",0', withIff())
+    expect(rt.thegame.gmsBase).not.toBe(0)
+  })
+
+  it('G Load Iff replaces whatever was at that screen number', () => {
+    const rt = run(['G Screen Open 1,320,64,4,Glowres', 'G Load Iff "RAM:pic.iff",1'], withIff())
+    expect(rt.screens.get(slot(1))!.width).toBe(16)
+  })
+
+  it('G Save Iff writes the current screen back as an ILBM', () => {
+    const fs = withIff()
+    const rt = run(['G Load Iff "RAM:pic.iff",0', 'G Save Iff "RAM:out.iff"'], fs)
+    const back = parseIlbm(fs.readFile('RAM:out.iff')!)
+    expect([back.width, back.height, back.depth]).toEqual([16, 8, 2])
+    expect(back.pixels[16 * 2 + 3]).toBe(3)
+    expect(rt.thegame.gmsScreen!.point(3, 2)).toBe(3)
+  })
+
+  /** not an IFF: the bitmap's own bytes, planar, with no header */
+  it('G Save Bitmap writes the planes raw', () => {
+    const fs = withIff()
+    run(['G Load Iff "RAM:pic.iff",0', 'G Save Bitmap "RAM:raw",0'], fs)
+    const raw = fs.readFile('RAM:raw')!
+    // 16 pixels is one word a row, two planes, eight rows
+    expect(raw.length).toBe(2 * 2 * 8)
+    expect(raw.some((b) => b !== 0)).toBe(true)
+  })
+
+  /** DEFECT: `lea` where every other module call has `movea.l` */
+  it('G Load Pcx does not call the PCX module, and nothing here pretends it does', () => {
+    const rt = run(['G Screen Open 0,320,64,4,Glowres', 'G Load Pcx "RAM:pic.pcx",0'], withIff())
+    expect(rt.screens.get(slot(0))!.width).toBe(320)
   })
 })
