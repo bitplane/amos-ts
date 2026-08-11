@@ -666,6 +666,37 @@ describe('the encryption keywords', () => {
 })
 
 /**
+ * The requesters. The guide marks all four "Removed"; three are still in the
+ * table with live routines and the opener is the one that really went.
+ */
+describe('the requester keywords', () => {
+  it('=G Open Reqtools answers a base', () => {
+    const rt = boot('Print G Open Reqtools', withRam())
+    const [base] = printed(rt)
+    expect(base).toBeGreaterThan(0)
+    expect(rt.thegame.reqtoolsBase).toBe(base)
+  })
+
+  /** DEFECT: +$1c is never cleared, so every call closes the same base */
+  it('G Close Reqtools can close the same base twice', () => {
+    const rt = run(
+      ['A=G Open Reqtools', 'G Close Reqtools', 'G Close Reqtools'],
+      withRam(),
+    )
+    expect(rt.thegame.reqtoolsCloses).toBe(2)
+    expect(rt.thegame.reqtoolsBase).not.toBe(0)
+  })
+
+  /**
+   * DEFECT: routine 8 closes the base at block +$0c and no instruction in
+   * the code hunk ever writes it. The opener is what "Removed" really means.
+   */
+  it('G Close Req closes a library nothing opens', () => {
+    expect(() => run('G Close Req', withRam())).not.toThrow()
+  })
+})
+
+/**
  * The two packers, which are the encryption pair with the password taken out.
  * The format is ../amiga/stonecracker.ts; what is checked here is the bank.
  */

@@ -149,6 +149,26 @@
  * 256 wide — and the sum leaves out the last character, so `"secret"` and
  * `"secreX"` unlock the same bank.
  *
+ * ## The extension's own error table
+ *
+ * Routine 151 ($41a6) is the error reporter, and it ends `Rjmp L_ErrorExt` on
+ * a table of NUL-terminated strings at $4214 with d0 as the index. Written
+ * down here once because half a dozen batches reach it:
+ *
+ *     0  "(TGE) You don't have the required library in LIBS:"
+ *     1  "(TGE) You NEED to do a: G Init Gms before using this command!"
+ *     2  "(TGE) This is NOT a TGE Bob Bank, please refer to 'TGE.Guide'"
+ *     3  "(TGE) Your TGE is out of date, This Bob bank requires TGE2222"
+ *     4  "(TGE) GMS2.0+ is not installed!! Read The Manual->Requirements"
+ *     5  "Music bank not found"
+ *     6  "Bob bank doesn't exist"
+ *     7  "Screen"
+ *     8  "Error in Encyrption ! "
+ *
+ * Message 3's `2222` is not a typo left in: the routine's first arm patches
+ * four digits over it, `divu.w #$10` and `addi.b #$30` twice per byte, so a
+ * bob bank carries the TGE version it wants and the message names it.
+ *
  * ## The value register
  *
  * `=Gsin`, `=Gcos`, `=GScreen Width` and `=GScreen Height` all end with
@@ -305,6 +325,7 @@ import {
   JPF_JOY_UP,
   readJoyPort,
 } from '../amiga/lowlevel'
+import { closeLibrary, openLibrary } from '../amiga/exec'
 import { Protracker, parseMod, type PtSong } from '../amiga/protracker'
 import { Runtime } from './runtime'
 
@@ -374,6 +395,10 @@ export interface TheGameState {
   /** block +$bd6 — the byte size the next `G Set Table` hands to `FreeMem` */
   trigBytes: number
 
+  /** block +$1c — reqtools.library's base, or 0 for "never opened" */
+  reqtoolsBase: number
+  /** how many times `G Close Reqtools` has closed it; it never clears +$1c */
+  reqtoolsCloses: number
   /** block +$c8 — stc.library's base, or 0 for "never opened" */
   stcBase: number
   /** how many times `G Encrypt` has opened it; it never tests, so it leaks */
@@ -413,6 +438,8 @@ export function newTheGameState(rt: Runtime): TheGameState {
     trig: null,
     cosAt: 0,
     trigBytes: 0,
+    reqtoolsBase: 0,
+    reqtoolsCloses: 0,
     stcBase: 0,
     stcOpens: 0,
     keySum: 0,
@@ -851,6 +878,43 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
       // inside Bnk_Reserve, which is where a wrong password usually lands
       rt.reserveBank(to, size, TGE_ENCRYPT_BANK_NAME)
       if (out) rt.memBanks.get(to)!.data.set(out.subarray(0, size))
+    },
+
+    /**
+     * Routine 8 ($16d4) — `G Close Req`. The guide says *"Removed"*, and it is
+     * half right: the OPENER went and this was left behind.
+     *
+     *     movea.l $c(a3),a1 / jsr -$19e(a6) / moveq #$0,d2 / rts
+     *
+     * `CloseLibrary` on the base at block +$0c, and no instruction anywhere in
+     * the code hunk writes that longword — the name `"req.library"` is still
+     * at +$10 with nothing referring to it either. So this closes a library
+     * nobody opened, every time, and the base it passes is always zero.
+     *
+     * The trailing `moveq #$0,d2` sets the TYPE register in an INSTRUCTION,
+     * where nothing reads it; the two reqtools keywords do the same.
+     */
+    'g close req': () => {
+      // exec tolerates a null base and there is nothing here to release
+      closeLibrary(0)
+    },
+
+    /**
+     * Routine 10 ($1722) — `G Close Reqtools`. *"Removed"* in the guide and
+     * not removed at all.
+     *
+     * `CloseLibrary` on the base at +$1c, which `=G Open Reqtools` really does
+     * write.
+     *
+     * DEFECT: +$1c is not cleared, so a second `G Close Reqtools` closes the
+     * same base again — and a third, and a fourth. On a machine that is a
+     * library's open count driven below zero and eventually an expunge of a
+     * library somebody else is using.
+     */
+    'g close reqtools': () => {
+      const s = st()
+      if (s.reqtoolsBase !== 0) s.reqtoolsCloses++
+      closeLibrary(s.reqtoolsBase)
     },
 
     /**
@@ -1480,6 +1544,33 @@ export function makeTheGameFunctions(rt: Runtime): Record<string, Func> {
       const len = d4 - d3
       s.wordLeak += len + 2
       return VS(text.slice(d3, d3 + len))
+    },
+
+    /**
+     * Routine 9 ($16f0) — `=G Open Reqtools`. The guide marks this one
+     * *"Removed"* as well and it is the one that is still here in full.
+     *
+     *     lea $20(a3),a1 / OpenLibrary(name, 0) -> $1c(a3)
+     *     tst.l d0 / beq -> Rbra routine 151 with d0 = 0
+     *     moveq #$0,d2 / move.l $a50.l,d3
+     *
+     * Any version will do. The answer is the base, and it is fetched through
+     * an ABSOLUTE address rather than through a3 — `$a50` is the data block's
+     * own +$1c, relocated at load time, so the two spellings mean the same
+     * longword.
+     *
+     * A failed open goes to routine 151, the extension's error reporter,
+     * which ends `Rjmp L_ErrorExt` on a message table at $4214; message 0 is
+     * *"(TGE) You don't have the required library in LIBS:"*. That arm is
+     * unreachable here — `../amiga/exec.ts` models `reqtools.library` and its
+     * requesters are `../runtime/requester.ts` — and the error table is
+     * written down in the header for the batches that will need the rest of
+     * it.
+     */
+    'g open reqtools': () => {
+      const s = st()
+      s.reqtoolsBase = openLibrary('reqtools.library')
+      return VI(s.reqtoolsBase)
     },
 
     /**

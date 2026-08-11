@@ -2733,6 +2733,8 @@ export const FAITHFUL = new Set<string>([
   'g init encyrpt', 'g encrypt', 'g decrypt',
   // and the same library without the password, which is the whole of batch 5
   'g stc pack', 'g stc unpack',
+  // The three requesters the guide says were removed and were not.
+  'g open reqtools', 'g close reqtools', 'g close req',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -7218,6 +7220,22 @@ inverse wants it last costs nothing. DEFECTS: the source bank is left decrypted,
 subtracts the magic from a longword that no longer has it; Bnk_GetAdr is not tested; and the OpenLibrary arm is \
 `tst.l d0` at $1c38 with NO branch after it -- the failure test was written and never connected, so a machine \
 without stc.library reaches `jsr -$24(a6)` through a zero base",
+  "g open reqtools":
+    "Routine 9 ($16f0). The guide marks all four requester commands \"Removed\" and this is the one that is still \
+here in full: OpenLibrary on the name at block +$20 with any version accepted, base to +$1c, and the base \
+returned -- fetched through an ABSOLUTE `move.l $a50.l,d3`, which is the same longword as +$1c(a3) after \
+relocation. src/amiga/exec.ts models reqtools.library and src/runtime/requester.ts is its requesters, so the \
+failure arm is unreachable here; on a machine without it, routine 151 reports \"(TGE) You don't have the \
+required library in LIBS:\"",
+  "g close reqtools":
+    "Routine 10 ($1722). CloseLibrary on the base at +$1c. DEFECT: +$1c is not cleared, so a second call closes \
+the same base again -- on a machine that drives a library's open count below zero and eventually expunges one \
+somebody else is using",
+  "g close req":
+    "Routine 8 ($16d4). CloseLibrary on the base at block +$0c, and NO instruction in the code hunk ever writes \
+that longword -- the name \"req.library\" is still at +$10 with nothing referring to it either. So the guide's \
+\"Removed\" is half right: the OPENER went and this was left behind closing a library nobody opened. The \
+trailing `moveq #$0,d2` sets the TYPE register in an instruction, where nothing reads it",
   "g stc pack":
     "Routine 98 ($35be). Undocumented -- the guide has no node for either packer and mentions stc.library only as \
 something the installer will put in LIBS:. The same 392 bytes as G Encrypt with the password and the scramble \
