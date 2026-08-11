@@ -449,10 +449,13 @@ describe('the APP0 thumbnail', () => {
 // run where the development kit is present.
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const LIB = join(root, 'fixtures/extensions/opal-1.1/devdocs/Libs/opal.library')
+// read per test rather than once here: `skipIf` marks the tests skipped but
+// vitest still runs the describe body to collect them, so a readFileSync at
+// this level throws where the corpus is absent instead of skipping
+const load = (): Uint8Array => new Uint8Array(readFileSync(LIB))
 describe.skipIf(!existsSync(LIB))('against opal.library itself', () => {
-  const lib = new Uint8Array(readFileSync(LIB))
-
   it('carries the same quantization tables, as words in zigzag order', () => {
+    const lib = load()
     const at = (base: number, table: readonly number[]): void => {
       for (let i = 0; i < 64; i++) {
         const v = (lib[base + i * 2]! << 8) | lib[base + i * 2 + 1]!
@@ -464,6 +467,7 @@ describe.skipIf(!existsSync(LIB))('against opal.library itself', () => {
   })
 
   it('carries the four standard Huffman tables, BITS then HUFFVAL', () => {
+    const lib = load()
     // they run from $d27b in this order, each array aligned to an even address,
     // so the check is that the byte runs are there and in that order rather
     // than that they are contiguous
