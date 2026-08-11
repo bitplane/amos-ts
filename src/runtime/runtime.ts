@@ -393,6 +393,12 @@ export interface RuntimeOptions {
 /** stand-in for a plane pointer that resolved to nothing */
 export const EMPTY_PLANE = new Uint8Array(0)
 
+/**
+ * Who owns a screen slot. See `Runtime.SCREEN_SLOTS` for the partition and
+ * why the owner is derived from the index rather than stored on the Screen.
+ */
+export type ScreenOwner = 'user' | 'amos' | 'game' | 'os'
+
 export class Runtime {
   readonly interp: Interp
   readonly input: InputState = newInputState()
@@ -665,12 +671,40 @@ export class Runtime {
 
   /**
    * HOW MANY SCREEN SLOTS THE MACHINE HAS, which is not the same as how many
-   * `Screen Open` can name.
+   * `Screen Open` can name, and WHO OWNS EACH ONE.
    *
-   * AMOS itself opens screens above the user range. EcFonc 8, EcEdit 9,
-   * EcFsel 10 and EcReq 11 (+Equ.s:792) are the accessory, editor, file
-   * selector and requester screens, and EC_FSEL is a live one — Fsel$ and the
-   * text reader both open there.
+   * The display is a single copper-list interpreter. Anything that wants to
+   * appear has to be a band in that list, so everything that opens a display
+   * — AMOS, the machine's OS, a game system that takes the machine over —
+   * competes for the same table. `../amiga/intuition.ts` states the rule from
+   * the other side: there is no second renderer to hang a screen off.
+   *
+   * AMOS answered the question before it was asked. It opens screens BASIC
+   * cannot name — EcFonc 8, EcEdit 9, EcFsel 10, EcReq 11 (+Equ.s:792) — and
+   * they are ordinary screens in every respect the hardware cares about: a
+   * slot in `screens`, a place in `order`, a band in the copper list, a slot
+   * in the chip address space. What makes one a system screen is only that
+   * `Screen Open` rejects the index.
+   *
+   * So the table is partitioned by OWNER, and the owner is derived from the
+   * index rather than stored, because a stored one can disagree with the
+   * partition and this cannot:
+   *
+   *      0-7   'user'   Screen Open
+   *      8-11  'amos'   AMOS's own: accessories, editor, file selector, requester
+   *     12-19  'game'   a game system that takes the display over -- GMS
+   *     20-31  'os'     intuition.library: Workbench, and a program's own
+   *
+   * THIRTY-TWO, and the number is chosen by address-space arithmetic rather
+   * than by taste. A slot costs a 1MB stride of `SCREEN_CHIP_BASE` and 4KB of
+   * `SCREEN_CTRL_BASE`, and costs nothing at all when empty — the slotted
+   * regions answer null for a slot with no screen. The next base above the
+   * bitplane region is `SLN_HEAP_BASE` at 0x44000000, which is 64 slots away,
+   * and the next above the control blocks is `MAKE_HEAP_BASE`, 16,384 away.
+   * So 64 is the ceiling and 32 takes half of it, leaving the other half for
+   * whatever needs to grow between them later. Widening again is free until
+   * it is not; widening AFTER a program's Peek addresses are in tests is a
+   * migration, which is why the room is taken now.
    *
    * DEFECT: this was 8, hardcoded in four places (both slotted regions here,
    * resolvePlanePtr and the inline BPL1PT decode in display.ts) while EC_FSEL
@@ -681,12 +715,80 @@ export class Runtime {
    * that reads them passed, and the composited display showed empty border.
    * Nobody caught it because the only path that reads the planes back is the
    * copper walk, and no test composited a system screen.
-   *
-   * Sixteen rather than twelve: the four above the AMOS ones are for screens
-   * this machine's OWNER opens rather than AMOS — an Intuition screen is a
-   * ViewPort in the same copper list and has nowhere else to be.
    */
-  static readonly SCREEN_SLOTS = 16
+  static readonly SCREEN_SLOTS = 32
+
+  /** where each owner's run of slots starts; the next one's start ends it */
+  static readonly SCREEN_OWNERS: ReadonlyArray<{ from: number; owner: ScreenOwner }> = [
+    { from: 0, owner: 'user' },
+    { from: 8, owner: 'amos' },
+    { from: 12, owner: 'game' },
+    { from: 20, owner: 'os' },
+  ]
+
+  /** who owns a slot; out of range is nobody's */
+  static screenOwner(index: number): ScreenOwner | null {
+    if (index < 0 || index >= Runtime.SCREEN_SLOTS) return null
+    let owner: ScreenOwner | null = null
+    for (const r of Runtime.SCREEN_OWNERS) if (index >= r.from) owner = r.owner
+    return owner
+  }
+
+  /**
+   * Whether a slot is AMOS's, which is the distinction the display-ordering
+   * keywords are about: `Amos To Back` puts the interpreter's whole display
+   * behind somebody else's, and the user's screens and AMOS's own system
+   * screens go together as one thing.
+   */
+  static amosOwned(index: number): boolean {
+    const o = Runtime.screenOwner(index)
+    return o === 'user' || o === 'amos'
+  }
+
+  /**
+   * The lowest free slot belonging to `owner`, or -1 when that owner's run is
+   * full. This is the allocator both `intuition.library` and GMS need, and
+   * having it here is what keeps the partition above private to this file.
+   */
+  freeScreenSlot(owner: ScreenOwner): number {
+    for (let i = 0; i < Runtime.SCREEN_SLOTS; i++) {
+      if (Runtime.screenOwner(i) === owner && !this.screens.has(i)) return i
+    }
+    return -1
+  }
+
+  /**
+   * `Amos To Front` / `Amos To Back` (AMOS_WB, +Lib.s:11361).
+   *
+   * Every AMOS-owned screen moves as one block and keeps its order within
+   * itself; everything else keeps its order too. With nothing but AMOS
+   * screens open — which is every program that has not started GMS or opened
+   * a Workbench — both are the identity, which is what made them no-ops here
+   * before there was anything else to be in front of.
+   */
+  amosToFront(): void {
+    this.orderAmos(false)
+  }
+
+  amosToBack(): void {
+    this.orderAmos(true)
+  }
+
+  private orderAmos(back: boolean): void {
+    const amos = this.order.filter((i) => Runtime.amosOwned(i))
+    const others = this.order.filter((i) => !Runtime.amosOwned(i))
+    this.order = back ? [...amos, ...others] : [...others, ...amos]
+  }
+
+  /**
+   * `=Amos Here` (FnAmosHere = AMOS_WB(-1)): is AMOS's display the frontmost
+   * thing? `order` runs back to front, so this is the last entry. An empty
+   * display is AMOS's by default — there is nothing in front of it.
+   */
+  amosInFront(): boolean {
+    const front = this.order[this.order.length - 1]
+    return front === undefined || Runtime.amosOwned(front)
+  }
 
   /**
    * Private data blocks belonging to extensions, mapped so that a program can
@@ -1724,9 +1826,9 @@ export class Runtime {
    * address space. What makes it a system screen is only that no keyword can
    * name it, because `Screen Open` rejects anything outside 0-7.
    *
-   * SCREEN_SLOTS is 16 for that reason: 0-7 the user's, 8-11 AMOS's own, and
-   * 12-15 for the machine's OWNER — an Intuition screen is a ViewPort in the
-   * same copper list and has nowhere else to be.
+   * That is the rule the whole slot table is partitioned by; see
+   * `SCREEN_SLOTS` for the four owners and for why the table is as wide as it
+   * is.
    */
   static readonly EC_FSEL = 10
 

@@ -2980,12 +2980,25 @@ export function makeInstructions(rt: Runtime): Record<string, Instr> {
       it.halt('ended')
       return 'jumped'
     },
-    // AMOS_WB window juggling (+Lib.s:11361): a single-display host has
-    // nothing to raise or lower — AMOS is always at the front
-    'amos to front': () => {},
-    'amos to back': () => {},
+    /**
+     * AMOS_WB window juggling (+Lib.s:11361).
+     *
+     * These used to be no-ops, on the grounds that a single-display host has
+     * nothing to raise or lower. That was true only while AMOS was the only
+     * thing that could own a display band: the machine has one copper list
+     * and one screen table, and `Runtime.SCREEN_SLOTS` now partitions it by
+     * owner so that intuition.library and a game system can hold slots of
+     * their own. AMOS's screens move as one block against theirs.
+     *
+     * With nothing but AMOS screens open both are still the identity, which
+     * is every program that has not started GMS or opened a Workbench.
+     */
+    'amos to front': () => rt.amosToFront(),
+    'amos to back': () => rt.amosToBack(),
     'amos lock'() {
-      rt.noFlip = true // InAmosLock: to front + T_NoFlip
+      // InAmosLock: to front + T_NoFlip, and now it can do both halves
+      rt.amosToFront()
+      rt.noFlip = true
     },
     'amos unlock'() {
       rt.noFlip = false
@@ -4691,10 +4704,11 @@ export function makeFunctions(rt: Runtime): Record<string, Func> {
       return VI(objBase(rt, 'icons', int(a[0]!)))
     },
     'amos here'(_, a) {
-      // FnAmosHere = AMOS_WB(-1): is the AMOS display in front? Always
-      // true on a single-display host
+      // FnAmosHere = AMOS_WB(-1): is the AMOS display in front? `order` runs
+      // back to front, so this asks who owns the last entry -- see
+      // Runtime.SCREEN_SLOTS for the partition
       void a
-      return VI(-1)
+      return VI(rt.amosInFront() ? -1 : 0)
     },
     // =Prg First$ and =Dev First$ are the SAME routine on the 68k
     // (FnPrgFirst/FnDevFirst +Lib.s:5539 both go through DevAcc/FillDev):
