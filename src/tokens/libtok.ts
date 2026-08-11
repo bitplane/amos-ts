@@ -23,7 +23,29 @@ export interface TokenEntry {
   /** token id = byte offset of this entry from the start of the table */
   id: number
   name: string
-  /** parameter/type spec chars, verbatim from the library */
+  /**
+   * Parameter/type spec chars, verbatim from the library.
+   *
+   * The first character is the KIND, and AMOS Professional's own extension
+   * docs give the whole alphabet (`|Music.s`, on the Tutorial disc, vendored
+   * under `fixtures/official-amos`):
+   *
+   *     I  instruction
+   *     0  function that returns a integer
+   *     1  function that returns a float
+   *     2  function that returns a string
+   *     V  reserved variable -- "you must state the type" after it
+   *
+   * The rest is the parameter list: a type per parameter, `,` or `t` (for
+   * `To`) between them. So `I0,0` is an instruction taking two integers, `20`
+   * is a string function of one integer, and `V0` is an integer reserved
+   * variable — no brackets and no arguments, the way `Timer` is written.
+   *
+   * The `V` matters and is easy to miss, because a `V0` entry has a function
+   * routine and nothing else distinguishes it from a `0`: fifteen of The
+   * Game's keywords are reserved variables, and its guide writes one of them
+   * as `A=G Oddno(B#)`, which will not tokenise.
+   */
   spec: string
   instr: number
   func: number

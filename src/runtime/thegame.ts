@@ -104,8 +104,97 @@
  * which is the same state by a shorter route; nothing about the values a
  * program sees depends on the structure they came out of.
  *
+ * ## The trigonometry tables
+ *
+ * `G Set Table` (routine 94, $31bc) builds them and `=Gsin`/`=Gcos` (85, 86)
+ * read them; nothing else in the extension does, and the guide has no node for
+ * the builder at all, so a program that calls either function without calling
+ * it first is reading through a null pointer.
+ *
+ * The layout, from the routine: `AllocMem(10n, MEMF_CLEAR)`, the sin pointer
+ * to the start at block +$bce and the cos pointer 2n bytes in at +$bd2, the
+ * byte size kept at +$bd6 so the next call can free it. So the table is 5n
+ * words long, entry `i` is the sine of `i` steps of a quarter-circle split n
+ * ways, and cos is the same table read n entries later — the standard trick,
+ * and it needs 5n rather than 4n+1 entries so that `Gcos(359)` still lands
+ * inside it.
+ *
+ * The values come from the worker at $323c: a cosine Taylor series to
+ * x^12/12! in 16.16 fixed point, then `lsr.l #$1` and the low word, which
+ * makes the stored word cos(x)*32768. `cos(0)` would be exactly $8000 and
+ * therefore negative, and the `tst.w d1 / dbpl d1` pair at $329e is what deals
+ * with it: DBcc decrements the low word when the condition is false, so a
+ * negative word is quietly turned into $7fff. Six values are written per pass
+ * — the eighth-circle symmetries — and entries 0 and 2n are never written at
+ * all, which is correct only because MEMF_CLEAR already left them zero and
+ * sin(0) and sin(pi) are zero.
+ *
+ * ## The value register
+ *
+ * `=Gsin`, `=Gcos`, `=GScreen Width` and `=GScreen Height` all end with
+ * `move.w <something>,d3` and no `moveq #$0,d3` in front of it, which writes
+ * the low half of the value register and leaves the high half holding whatever
+ * was there, and AMOS guarantees nothing about it. All the extension docs say
+ * is *"To send a function ... parameter back to AMOS, you load it in D3, ...
+ * and put its type in D2"* — the worked example vendored at
+ * `fixtures/official-amos/Tutorial/Extensions`, which is careful at every
+ * word-sized return of its own: `move.b 88(a0),d3 / ext.w d3 / ext.l d3` for
+ * `=Mouth Width`. So is AMOSPro.Lib itself, which writes either `moveq #$0,d3
+ * / move.w $9ea(a5),d3` or `move.w -$16(a5),d3 / ext.l d3`. This extension's
+ * own `=G Amiga` (routine 91) clears d3 first, so the author knew; the four
+ * above are oversights.
+ *
+ * This port takes the high half as zero, which is the only reading under which
+ * `=GScreen Width` reports a width. It costs `=Gsin` and `=Gcos` their sign;
+ * see the catalogue.
+ *
  * ## Defects
  *
+ * - **DEFECT: `=Gsin` and `=Gcos` cannot return a negative number.** Routines
+ *   85 and 86 read a table word into the low half of d3 and then `asr.l #$8`
+ *   the whole register. With the high half zero the shift is a logical one, so
+ *   the sine of 210 degrees comes back as 192 rather than -64: the word $C000
+ *   read as $0000C000. The guide says *"returns sin of angle B multiplyed by
+ *   128"*, and the magnitudes are right — it is only the top half of the
+ *   circle that is wrong, which is the half a program is least likely to test
+ *   first.
+ * - **DEFECT: `=Gsin` and `=Gcos` are declared to return a float.** Their
+ *   token spec is `10`, and the extension docs give `1` as
+ *   *"1--> function that returns a float"*. The routines set
+ *   the value register and never touch d2, the type register, so what a
+ *   program gets is whatever type the last thing evaluated left behind — an
+ *   integer, for the argument they were just given. Answered as an integer
+ *   here.
+ * - **DEFECT: `G Set Table 0` divides by zero.** The default is applied to the
+ *   wrong register. `asl.w #$1,d7` doubles the count, `tst.l d0 / bne` falls
+ *   through to `move.l #$b4,d0` when it is zero — so the SIZE defaults to a
+ *   180-word quarter — but the fill at $3232 is handed d6, which still holds
+ *   the original zero, and `divu.l d0,d1` at $3246 traps. There is no
+ *   exception vector in this port, so it surfaces as AMOS error 20, which is
+ *   what ../runtime/gamesupport.ts does with GameSupport's zero-divide.
+ * - **DEFECT: the last quarter of the table is one step out.** Four of the
+ *   five stores per pass walk outward from the quarter marks, and the fifth,
+ *   `move.w d1,-(a4)`, starts at entry 5n — one PAST the end — so entry
+ *   `5n-1-k` receives cos(k) where it should hold cos(k+1). With the usual
+ *   n of 90 that is entries 360..449, which is exactly what `=Gcos` reads for
+ *   270..359 degrees: `Gcos(270)` answers 2 instead of 0, being cos(271).
+ * - **DEFECT: `G Set Table` frees the old table before it knows it can build a
+ *   new one.** `FreeMem` runs first, and if the `AllocMem` then fails the two
+ *   pointers at +$bce and +$bd2 are left pointing at the memory just handed
+ *   back. `=Gsin` reads through them regardless.
+ * - **DEFECT: `G Handicap` gives AMOS the LOWEST priority.** The guide says
+ *   *"Gives Amos a priority of 256! Shutting off many system funcions thus
+ *   speeding up your code."* and routine 88 is `move.l #$80,d0` into
+ *   `SetTaskPri`, which takes a signed byte: $80 is -128, the bottom of the
+ *   range. So the keyword does the exact opposite of what its own
+ *   documentation promises, and the name is the accurate part.
+ * - **DEFECT: `G Unhandicap` on its own calls SetTaskPri with a null task.**
+ *   Routine 89 reads the task pointer from block +$b36 and the saved priority
+ *   from +$b3a without testing either, and nothing but `G Handicap` ever
+ *   writes them.
+ * - **DEFECT: `G Handicap` twice loses the original priority.** The second
+ *   call saves the -128 the first one installed, so `G Unhandicap` restores
+ *   the handicap.
  * - **DEFECT: `G Ptload` opens ptreplay.library every time it is called.**
  *   Routine 15 ($18ca) calls `OpenLibrary` unconditionally and stores the base
  *   over the previous one, so a program that loads two modules has opened the
@@ -160,7 +249,7 @@
  *   because the catalogue belongs in one place.
  */
 import type { Func, Instr } from '../interp/builtins'
-import { VI, str } from '../interp/values'
+import { AmosError, VI, str } from '../interp/values'
 import { counterDelta, joyDatX, joyDatY, mouseDat } from '../amiga/gameport'
 import { execute } from '../amiga/process'
 import {
@@ -188,6 +277,18 @@ export const PT_PLAY_VOLUME = 57
 
 /** the handle this port hands out; ptreplay's is an address and its value never shows */
 const PT_HANDLE = 1
+
+/**
+ * What `-$18ae(a5)` holds, and therefore what `=G Oddno` answers.
+ *
+ * AMOS keeps `graphics.library`'s base in its own workspace and every
+ * extension reaches it there; this one hands it to the program. It has to be a
+ * number, and it has to be one nothing mistakes for a real allocation:
+ * `../amiga/exec.ts` puts the bases its `OpenLibrary` hands out at
+ * `0x7f10_0000`, and this sits just below them, being a base too — one AMOS
+ * opened long before any of those.
+ */
+export const TGE_GFX_BASE = 0x7f0f_0000
 
 /**
  * The zero run at block +$352, which is what `=G Getmem` points at: 2,148
@@ -226,6 +327,20 @@ export interface TheGameState {
   iconClicked: boolean
   /** bytes `=G File Size` has allocated and never freed */
   fibLeak: number
+
+  /** block +$bce, the sin table — and, n entries in, the cos table at +$bd2 */
+  trig: Int16Array | null
+  /** (+$bd2 - +$bce) / 2: how far into it `=Gcos` starts */
+  cosAt: number
+  /** block +$bd6 — the byte size the next `G Set Table` hands to `FreeMem` */
+  trigBytes: number
+
+  /** whether `G Handicap` has run, so block +$b36 holds a task pointer */
+  handicapped: boolean
+  /** the task priority, which nothing here schedules on; see `G Handicap` */
+  priority: number
+  /** block +$b3a — the priority `G Unhandicap` puts back */
+  savedPriority: number
 }
 
 export function newTheGameState(rt: Runtime): TheGameState {
@@ -247,6 +362,87 @@ export function newTheGameState(rt: Runtime): TheGameState {
     iconUp: false,
     iconClicked: false,
     fibLeak: 0,
+    trig: null,
+    cosAt: 0,
+    trigBytes: 0,
+    handicapped: false,
+    priority: 0,
+    savedPriority: 0,
+  }
+}
+
+/** $3240: `move.l #$1921fb5,d1` — a quarter turn in 8.24 fixed point */
+const QUARTER_TURN_8_24 = 0x1921fb5
+
+/**
+ * One pass of the series at $3264..$329c: cos(x) as a 16.15 word, x in 16.16.
+ *
+ * Written as the 68020 arithmetic rather than as `Math.cos`, because the
+ * rounding is observable — a program reads these words through `=Gsin` and the
+ * shift throws all but the top eight bits away, so which side of a boundary a
+ * truncation lands on decides the answer. Both 64-bit products are taken apart
+ * the same way the routine does it: `move.w d4,d5 / swap d5` keeps bits 47..16
+ * of the product, which is the 16.16 result.
+ */
+function cosFixed(x16: number): number {
+  // mulu.l d5,d4:d5 — an UNSIGNED square, then neg.l
+  const sq = BigInt(x16 >>> 0) * BigInt(x16 >>> 0)
+  const minusX2 = -Number(BigInt.asIntN(32, sq >> 16n)) | 0
+
+  let sum = 0x00010000 // d1, and the series starts at 1.0
+  let term = 0x00010000 // d3
+  let k = 0 // d2
+  let fact = 1 // d6
+  do {
+    // muls.l d5,d4:d3 — signed this time, same middle 32 bits
+    term = Number(BigInt.asIntN(32, BigInt.asUintN(64, BigInt(term) * BigInt(minusX2)) >> 16n)) | 0
+    k += 1
+    fact = Math.imul(fact, k)
+    k += 1
+    fact = Math.imul(fact, k)
+    // divs.l truncates toward zero, which is what `|0` does to a negative
+    sum = (sum + ((term / fact) | 0)) | 0
+  } while (k >>> 0 < 12)
+
+  sum = sum >>> 1 // lsr.l #$1,d1
+  // tst.w d1 / dbpl d1: DBcc decrements the WORD when the condition fails, so
+  // the only value this can reach -- cos(0)'s $8000 -- becomes $7fff
+  if ((sum & 0x8000) !== 0) sum = (sum & ~0xffff) | ((sum - 1) & 0xffff)
+  return sum & 0xffff
+}
+
+/**
+ * The filler at $323c: `n` passes, six stores each, over a 5n-word table.
+ *
+ * `a0` walks up from entry n and `a1` down from it, `a3` up from 3n and `a2`
+ * down from it with the sign flipped, and `a4` down from 5n — which is one
+ * past the last entry rather than on it, and is the off-by-one in the
+ * catalogue. Entries 0 and 2n are left as `AllocMem(MEMF_CLEAR)` left them.
+ *
+ * A `G Set Table` past 32767 writes far outside the block it allocated,
+ * because the size came from a word shift and the fill did not: the count
+ * wraps to zero for the size, defaults to 180 words, and then n passes write
+ * over whatever follows. Nothing is corrupted here — the writes fall off the
+ * end of an `Int16Array` and are dropped — and that is a DEVIATION rather than
+ * a reproduction, there being no neighbouring allocation to trash.
+ */
+function fillTrig(table: Int16Array, n: number): void {
+  // divu.l d0,d1 with a zero divisor is a 68020 zero-divide exception, and
+  // there is no vector for one here; ../runtime/gamesupport.ts settled on AMOS
+  // error 20 as the nearest true thing to say
+  if ((n >>> 0) === 0) throw new AmosError('Division by zero', 20)
+  const step = Math.floor(QUARTER_TURN_8_24 / (n >>> 0))
+
+  let angle = 0 // d0, 8.24
+  for (let k = 0; k < n; k++) {
+    const v = cosFixed(angle >>> 8)
+    const neg = -v & 0xffff // neg.w on the same word
+    if (n + k < table.length) table[n + k] = v
+    if (n - k < table.length) table[n - k] = v
+    if (5 * n - 1 - k < table.length) table[5 * n - 1 - k] = v
+    if (3 * n - k < table.length) table[3 * n - k] = neg
+    if (3 * n + k < table.length) table[3 * n + k] = neg
+    angle = (angle + step) >>> 0
   }
 }
 
@@ -277,6 +473,26 @@ export function thegameVbl(rt: Runtime): void {
 
 /** every tracker keyword after `G Ptload` reaches through both of these */
 const live = (st: TheGameState): boolean => st.ptBase !== 0 && st.module !== 0
+
+/**
+ * `move.w (a1,d0.w),d3 / asr.l #$8,d3` — the tail `=Gsin` and `=Gcos` share.
+ *
+ * `from` is the pointer they start at, as a word index: 0 for +$bce and
+ * `cosAt` for +$bd2. The displacement is a SIGN-EXTENDED word, so an index
+ * from 16384 up reads below the table rather than above it, and neither
+ * routine tests for that or for the table being there at all — both cases are
+ * memory this port does not model, and both answer 0.
+ *
+ * The shift is arithmetic on a register whose high half the routine never
+ * wrote. Taken as zero here, which makes it a logical shift and costs the
+ * result its sign.
+ */
+function trigWord(st: TheGameState, index: number, from: number): number {
+  const disp = ((index << 1) & 0xffff) << 16 >> 16
+  const at = from + (disp >> 1)
+  const word = st.trig && at >= 0 && at < st.trig.length ? st.trig[at]! : 0
+  return (word & 0xffff) >> 8
+}
 
 export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): TheGameState => rt.thegame
@@ -352,6 +568,84 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
       put32(0, x) // move.l d1,$b32(a0)
       s.mouseX = ((bytes[0]! << 8) | bytes[1]!) & 0xffff
       s.mouseY = ((bytes[2]! << 8) | bytes[3]!) & 0xffff
+    },
+
+    /**
+     * Routine 94 ($31bc) — `G Set Table N`. Undocumented: the guide has no
+     * node for it, and `=Gsin` and `=Gcos` are useless without it.
+     *
+     * N is the number of steps in a quarter turn, so `G Set Table 90` is the
+     * degrees the `=Gcos` node means by *"The angle to use in degrees."* The
+     * routine frees the last table, allocates 10N bytes, points +$bce at the
+     * start and +$bd2 2N bytes in, and fills it.
+     *
+     *     move.l $bd6(a3),d0 / tst.l d0 / beq / movea.l $bce(a3),a1 / FreeMem
+     *     move.l d7,d6 / asl.w #$1,d7 / move.l d7,d0
+     *     tst.l d0 / bne / move.l #$b4,d0
+     *     move.l d0,d7 / mulu.l #$4,d1 / add.l d1,d0 / move.l d0,$bd6(a3)
+     *     AllocMem(d0, MEMF_CLEAR) / tst.l d0 / beq
+     *     move.l d0,$bce(a3) / add.l d7,d0 / move.l d0,$bd2(a3)
+     *
+     * Three things fall out of that and all three are reproduced: the doubling
+     * is a WORD shift while the size is a long, so a count of 32768 or more
+     * wraps; the default of 180 reaches the size and not the fill, so a count
+     * of zero divides by zero; and the free happens before the allocation, so
+     * a failed allocation leaves both pointers dangling.
+     */
+    'g set table': (it) => {
+      const s = st()
+      const n = it.evalInt()
+      // asl.w #$1,d7 on a long register: the high half is untouched
+      const doubled = (n & ~0xffff) | ((n << 1) & 0xffff)
+      const size = Math.imul(doubled === 0 ? 180 : doubled, 5)
+      const cosBytes = doubled === 0 ? 180 : doubled
+      s.trigBytes = size
+      // AllocMem answers zero for a size the machine has not got, and a
+      // negative count arrives here as one
+      if (size <= 0 || size > rt.chipFree() + rt.fastFree()) return
+      const table = new Int16Array(size >> 1)
+      fillTrig(table, n)
+      s.trig = table
+      s.cosAt = cosBytes >> 1
+    },
+
+    /**
+     * Routine 88 ($2eec) — `G Handicap`.
+     *
+     * `FindTask(NULL)` into block +$b36, then `SetTaskPri` with `move.l
+     * #$80,d0` and the old priority into +$b3a. SetTaskPri takes a SIGNED
+     * byte, so $80 is -128 and the guide's *"Gives Amos a priority of 256!
+     * ... thus speeding up your code"* is backwards in both halves — see the
+     * catalogue.
+     *
+     * There is no scheduler here to apply a priority to, so the value is
+     * recorded and nothing else happens, which is what ../runtime/turbo.ts
+     * does with `Multi No`.
+     */
+    'g handicap': () => {
+      const s = st()
+      s.savedPriority = s.priority
+      s.priority = -128
+      s.handicapped = true
+    },
+
+    /**
+     * Routine 89 ($2f18) — `G Unhandicap`. *"Removes the system restrictions
+     * brought abut by the G Handicap command."*
+     *
+     * `SetTaskPri` again, with the task and the priority read straight back
+     * out of +$b36 and +$b3a and neither of them tested. Called on its own
+     * that is a null task pointer, which is the catalogue's; called after two
+     * `G Handicap`s it restores the handicap, because the second one saved it.
+     */
+    'g unhandicap': () => {
+      const s = st()
+      if (!s.handicapped) {
+        // SetTaskPri(NULL, 0) writes through a null pointer on the machine;
+        // there is nothing to write through here
+        return
+      }
+      s.priority = s.savedPriority
     },
 
     /**
@@ -744,6 +1038,62 @@ export function makeTheGameFunctions(rt: Runtime): Record<string, Func> {
      * `workbench.library`.
      */
     'g icon check': () => VI(st().iconClicked ? -1 : 0),
+
+    /**
+     * Routine 30 ($1d14) — `=G Oddno`. The guide's node is one line, the
+     * synopsis `A=G Oddno(B#)`, and no description at all.
+     *
+     * Two instructions: `move.l -$18ae(a5),d3 / rts`. That slot is AMOS's
+     * `graphics.library` base — see `src/cli/oscalls.ts`, which names the
+     * whole set — so the answer is a library pointer and has nothing to do
+     * with odd numbers.
+     *
+     * The synopsis is wrong as well: the token spec is `V0`, and the extension
+     * docs give `V` as *"V--> reserved variable. In that case, you must ...
+     * state the type"*, the `0` being that type. So it takes no argument and no
+     * brackets, the way `Timer` does,
+     * and `G Oddno(B#)` will not tokenise. The routine agrees: it pops
+     * nothing.
+     *
+     * It sits between eight bare `rts` placeholders at routines 29 and 31-38,
+     * which is what an abandoned block of the jump table looks like.
+     */
+    'g oddno': () => VI(TGE_GFX_BASE),
+
+    /**
+     * Routine 85 ($2e1e) — `=Gsin(ANGLE)`. *"returns sin of angle B
+     * multiplyed by 128"*.
+     *
+     *     movea.l $1c8(a5),a0 / movea.l $bce(a0),a1
+     *     move.l (a3)+,d0 / asl.w #$1,d0
+     *     move.w (a1,d0.w),d3 / asr.l #$8,d3 / rts
+     *
+     * No bounds test and no table test. The index is doubled with a WORD
+     * shift and then used as a sign-extended word displacement, so it wraps
+     * every 32768 entries and reads backwards from the table for the second
+     * half of that; and with no `G Set Table` the base is zero and the read
+     * comes out of the bottom of memory. Neither is memory this port has, so
+     * both answer 0.
+     *
+     * `asr.l #$8` turns the stored cos(x)*32768 into the promised *128 — and
+     * loses the sign, because only the low half of d3 was written. See the
+     * catalogue.
+     */
+    'gsin': (_it, a) => VI(trigWord(st(), int(a[0]), 0)),
+
+    /**
+     * Routine 86 ($2e32) — `=Gcos(ANGLE)`. *"Returns the cosine of the angle
+     * multiplied by 128."*, with *"Angle -> The angle to use in degrees."*,
+     * which is only true after `G Set Table 90`.
+     *
+     * The same seven instructions on the pointer at +$bd2 instead of +$bce,
+     * which is the same table read n entries later. The last quarter of it is
+     * one step out and this is the function that reads it; see the catalogue.
+     */
+    'gcos': (_it, a) => {
+      const s = st()
+      return VI(trigWord(s, int(a[0]), s.cosAt))
+    },
 
     /**
      * Routine 76 ($2b38) — `=G Ptpos`, the byte at handle -$0c. Undocumented:

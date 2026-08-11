@@ -2724,6 +2724,10 @@ export const FAITHFUL = new Set<string>([
   'g reboot', 'g left click', 'g wait lmb', 'g wait rmb', 'g check vbl',
   'g cd32', 'g cli', 'g file size', 'g getmem', 'g iconify', 'g icon check',
   'g right click', 'g set mouse',
+  // The trigonometry table and the four keywords that are not GMS, not
+  // encryption and not a requester: a fixed-point cosine series, a task
+  // priority, and a reserved variable that answers with a library base.
+  'g set table', 'gsin', 'gcos', 'g oddno', 'g handicap', 'g unhandicap',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -7135,6 +7139,52 @@ export const NOTES: Record<string, string> = {
     "Routine 77 ($2b56). ptreplay $5c8 follows the handle to the module and reads byte $3b6, which in a 31-sample " +
     "module is the song length -- 20 bytes of title and thirty for each sample. So it is the number of positions, not " +
     "a duration",
+  "g set table":
+    "Routine 94 ($31bc). Undocumented -- the guide has no node for it, and Gsin and Gcos are useless without it. N " +
+    "is the steps in a quarter turn, so `G Set Table 90` is the degrees the Gcos node assumes. AllocMem(10N, " +
+    "MEMF_CLEAR), the sin pointer at block +$bce and the cos pointer 2N bytes on at +$bd2, the size at +$bd6; the " +
+    "worker at $323c fills 5N words with a cosine Taylor series to x^12/12! in 16.16, `lsr.l #$1` and the low word, " +
+    "so a word is cos(x)*32768 -- reproduced as the 68020 arithmetic, because the port's answers are what survives " +
+    "an `asr.l #$8`. cos(0) would be $8000 and so negative, and the `tst.w d1 / dbpl d1` pair at $329e turns it into " +
+    "$7fff. THREE DEFECTS, all reproduced. The doubling is `asl.w` while the size is a long, so a count of 32768 or " +
+    "more wraps to the 180 default and the fill then writes far outside the block (contained here rather than " +
+    "reproduced: there is no neighbouring allocation to trash). The default reaches the SIZE and not the count the " +
+    "fill is handed, so `G Set Table 0` runs `divu.l d0,d1` on zero -- surfaced as AMOS error 20, as GameSupport's " +
+    "zero-divide is. And FreeMem runs before AllocMem, so a failed allocation leaves +$bce and +$bd2 pointing at " +
+    "memory just handed back",
+  "gsin":
+    "Routine 85 ($2e1e). Seven instructions on the table G Set Table built: no test that there is one, no bounds " +
+    "test, and the index doubled with a WORD shift then used as a SIGN-EXTENDED displacement, so it wraps every " +
+    "32768 entries and reads backwards for half of that. Both cases are memory this port does not model and both " +
+    "answer 0. `asr.l #$8` is the guide's \"multiplyed by 128\". DEFECT: the routine writes only the LOW half of d3 " +
+    "and then shifts the whole register, so with the high half zero -- the only reading under which GScreen Width " +
+    "reports a width -- the shift is logical and the sine of 210 degrees comes back as 192 rather than -64. AMOS " +
+    "guarantees nothing about that half: the official example extension sign-extends at every word-sized return " +
+    "(`move.b 88(a0),d3 / ext.w d3 / ext.l d3`, |Music.s) and so does AMOSPro.Lib, and this extension's own G Amiga " +
+    "clears d3 first, so the author knew. SECOND DEFECT: the token spec is `10` and `1` is AMOS's code for a " +
+    "function returning a FLOAT, while the routine sets no type in d2 at all -- answered as an integer here",
+  "gcos":
+    "Routine 86 ($2e32). The same seven instructions on +$bd2, which is the same table read N entries later. Carries " +
+    "both of Gsin's defects, and reads the quarter that has a third: `move.w d1,-(a4)` starts at entry 5N, one past " +
+    "the end, so entries 4N..5N-1 hold cos(k+1) where they should hold cos(k). With the usual N of 90 those are " +
+    "exactly the entries Gcos reads for 270..359 degrees, and `Gcos(270)` answers 2 -- cos(271) -- instead of 0",
+  "g oddno":
+    "Routine 30 ($1d14). Two instructions, `move.l -$18ae(a5),d3 / rts`, and that slot is AMOS's graphics.library " +
+    "base (src/cli/oscalls.ts names the set), so the answer is a library pointer and has nothing to do with odd " +
+    "numbers. The guide's node is the synopsis `A=G Oddno(B#)` and no description, and the synopsis is wrong too: " +
+    "the spec is `V0` and `V` is AMOS's code for a RESERVED VARIABLE (|Music.s), so it takes no argument and no " +
+    "brackets, which is what the routine popping nothing already said. It sits among eight bare `rts` placeholders " +
+    "at routines 29 and 31-38",
+  "g handicap":
+    "Routine 88 ($2eec). FindTask(NULL) into block +$b36, then SetTaskPri with the old priority saved at +$b3a. " +
+    "DEFECT: the priority is `move.l #$80,d0` and SetTaskPri reads a SIGNED byte, so it is -128, the bottom of the " +
+    "range -- the guide's \"Gives Amos a priority of 256! Shutting off many system funcions thus speeding up your " +
+    "code\" is wrong in both halves and only the name is accurate. There is no scheduler here to apply a priority " +
+    "to, so the value is recorded and nothing else happens, as TURBO's Multi No does",
+  "g unhandicap":
+    "Routine 89 ($2f18). SetTaskPri again with the task and the priority read straight back out of +$b36 and +$b3a. " +
+    "TWO DEFECTS: neither is tested, so calling it on its own passes SetTaskPri a null task; and a second G Handicap " +
+    "saves the -128 the first installed, so the restore restores the handicap",
   "ovsavejpeg24":
     "Routine 73 ($10a0). The library's JPEG code is the Independent JPEG Group's, v4-era, compiled with SAS/C " +
     "into the fourth hunk, and everything it chooses is read off that binary rather than guessed: the Annex K " +

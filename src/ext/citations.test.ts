@@ -420,6 +420,12 @@ const EXTRA_DOCS: Record<string, string[]> = {
   // MUI is Stuntz's, not an AMOS extension; its developer guide is what the
   // class protocol here is written against
   'src/amiga/muimaster.ts': ['amigaos/MUI3.8/MUIdev.guide'],
+  // AMOS Professional's own extension docs are a worked example rather than a
+  // manual: |Music.s, on the Tutorial disc, is where the token spec's letters
+  // and the D2/D3 return convention are stated. The Game reads a word into D3
+  // without clearing it and declares a float return it never sets, and neither
+  // can be called a defect without the document that says what the rule is.
+  'src/runtime/thegame.ts': ['official-amos/Tutorial/Extensions/__uae____Music_s'],
 }
 
 /** not prose: markup, code, or a disc image sitting beside the manual */

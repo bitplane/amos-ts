@@ -15,7 +15,7 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { Runtime } from './runtime'
 import { BTN_RED, DIR_UP } from '../amiga/controller'
-import { PT_PLAY_VOLUME, thegameVbl } from './thegame'
+import { PT_PLAY_VOLUME, TGE_GFX_BASE, thegameVbl } from './thegame'
 
 const table = new TokenTable(CORE_TOKENS)
 /** the manifest's recommended slot; the extension itself names none */
@@ -401,5 +401,163 @@ describe('the host and OS keywords', () => {
     rt.input.mouseK = 2
     mustFinish(rt.runHeadless(2000))
     expect(out.trim()).toBe('1')
+  })
+})
+
+/**
+ * The trigonometry batch.
+ *
+ * `G Set Table` is undocumented and the two functions are useless without it,
+ * so the shape of the table is checked first and the functions against it.
+ * Every expectation here comes from the routines at $31bc and $323c rather
+ * than from `Math.sin`: the series is a fixed-point cosine to x^12/12!, and
+ * the port reproduces its arithmetic, not its intent.
+ */
+describe('the trigonometry tables', () => {
+  /** `G Set Table 90` is the degrees the =Gcos node assumes */
+  it('G Set Table allocates 10n bytes and points cos n entries in', () => {
+    const rt = run('G Set Table 90', withRam())
+    expect(rt.thegame.trigBytes).toBe(900)
+    expect(rt.thegame.trig!.length).toBe(450)
+    expect(rt.thegame.cosAt).toBe(90)
+  })
+
+  /**
+   * The table is a quarter of a cosine reflected into five quadrants, and it
+   * agrees with a real sine to a unit in 32768 across the first four of them.
+   * Entries 0 and 2n are never written by the fill at all — MEMF_CLEAR leaves
+   * them zero and sin(0) and sin(pi) are zero, so nobody noticed.
+   */
+  it('the table is a sine to within one part in 32768', () => {
+    const t = run('G Set Table 90', withRam()).thegame.trig!
+    let worst = 0
+    // 0..359: entry 360 begins the quarter that is a step out, below
+    for (let i = 0; i < 360; i++) {
+      worst = Math.max(worst, Math.abs(t[i]! - Math.round(Math.sin((i * Math.PI) / 180) * 32768)))
+    }
+    expect(worst).toBeLessThanOrEqual(1)
+    expect(t[0]).toBe(0)
+    expect(t[180]).toBe(0)
+    // cos(0) would be exactly $8000 and so negative as a word; the `tst.w /
+    // dbpl` pair at $329e turns it into $7fff
+    expect(t[90]).toBe(32767)
+  })
+
+  /**
+   * DEFECT: `move.w d1,-(a4)` starts at entry 5n, one past the end, so the
+   * last quarter holds cos(k+1) where it should hold cos(k).
+   */
+  it('the last quarter of the table is one step out', () => {
+    const t = run('G Set Table 90', withRam()).thegame.trig!
+    // entry 360 should be sin(360) = 0 and holds sin(361) instead
+    expect(t[359]).toBe(-573)
+    expect(t[360]).toBe(573)
+    expect(t[361]).toBe(1144)
+  })
+
+  it('=Gsin is the table shifted down eight, which is the guide’s *128', () => {
+    expect(vals(['G Set Table 90', 'Print Gsin(0);Gsin(30);Gsin(90)'], withRam())).toEqual([
+      0, 64, 127,
+    ])
+  })
+
+  it('=Gcos reads the same table ninety entries in', () => {
+    expect(vals(['G Set Table 90', 'Print Gcos(0);Gcos(60);Gcos(90)'], withRam())).toEqual([
+      127, 64, 0,
+    ])
+  })
+
+  /**
+   * DEFECT: the routine writes only the low half of the value register and
+   * then shifts the whole of it, so the negative half of the circle comes back
+   * as a large positive number — $C000 read as $0000C000.
+   */
+  it('=Gsin cannot answer a negative number', () => {
+    // sin(210) is -0.5, so -64; sin(270) is -1, so -128
+    expect(vals(['G Set Table 90', 'Print Gsin(210);Gsin(270)'], withRam())).toEqual([192, 128])
+    expect(vals(['G Set Table 90', 'Print Gcos(180)'], withRam())).toEqual([128])
+  })
+
+  /** the same off-by-one, seen from the function that reads that quarter */
+  it('=Gcos is a step out from 270 degrees on', () => {
+    expect(vals(['G Set Table 90', 'Print Gcos(270);Gcos(271)'], withRam())).toEqual([2, 4])
+  })
+
+  /**
+   * No table test and no bounds test: `movea.l $bce(a0),a1` and then straight
+   * into `move.w (a1,d0.w),d3`. Both read memory this port does not have.
+   */
+  it('=Gsin without a table reads through a null pointer', () => {
+    expect(vals(['Print Gsin(30);Gcos(30)'], withRam())).toEqual([0, 0])
+  })
+
+  it('=Gsin past the end of the table reads past the end of the table', () => {
+    expect(vals(['G Set Table 90', 'Print Gsin(450);Gsin(20000)'], withRam())).toEqual([0, 0])
+  })
+
+  /**
+   * DEFECT: the default of 180 is applied to the size and not to the count the
+   * fill is handed, so `divu.l d0,d1` at $3246 divides by zero. There is no
+   * exception vector here; AMOS error 20 is the nearest true thing to say.
+   */
+  it('G Set Table 0 divides by zero', () => {
+    expect(() => run('G Set Table 0', withRam())).toThrow(/Division by zero/i)
+  })
+
+  /** a negative count makes a negative size, and AllocMem answers zero */
+  it('G Set Table with a negative count builds nothing', () => {
+    const rt = run(['G Set Table 90', 'G Set Table -1'], withRam())
+    // DEFECT: FreeMem ran first, so the pointers left behind are dangling
+    expect(rt.thegame.trig!.length).toBe(450)
+    expect(rt.thegame.trigBytes).toBe(-10)
+  })
+
+  /** a count of 45 is half-degree steps, and the whole table scales with it */
+  it('G Set Table takes any resolution, not just 90', () => {
+    const rt = run('G Set Table 45', withRam())
+    expect(rt.thegame.trig!.length).toBe(225)
+    expect(rt.thegame.cosAt).toBe(45)
+    // entry 45 is a quarter turn whatever n is
+    expect(rt.thegame.trig![45]).toBe(32767)
+  })
+})
+
+describe('the rest of batch 1a', () => {
+  /**
+   * `move.l -$18ae(a5),d3` — AMOS's graphics.library base, and nothing to do
+   * with odd numbers. The spec is `V0`, a reserved variable, so it takes no
+   * brackets either.
+   */
+  it('=G Oddno answers the graphics.library base', () => {
+    expect(vals(['Print G Oddno'], withRam())).toEqual([TGE_GFX_BASE])
+  })
+
+  /**
+   * DEFECT: `move.l #$80,d0` into SetTaskPri, which reads a signed byte — so
+   * the guide's "priority of 256! ... thus speeding up your code" installs the
+   * lowest priority there is.
+   */
+  it('G Handicap sets the priority to -128, not to 128', () => {
+    const rt = run('G Handicap', withRam())
+    expect(rt.thegame.priority).toBe(-128)
+    expect(rt.thegame.handicapped).toBe(true)
+  })
+
+  it('G Unhandicap puts the old priority back', () => {
+    const rt = run(['G Handicap', 'G Unhandicap'], withRam())
+    expect(rt.thegame.priority).toBe(0)
+  })
+
+  /** DEFECT: the second call saves the handicap, so the restore restores it */
+  it('G Handicap twice loses the priority it displaced', () => {
+    const rt = run(['G Handicap', 'G Handicap', 'G Unhandicap'], withRam())
+    expect(rt.thegame.priority).toBe(-128)
+  })
+
+  /** DEFECT: neither the task pointer nor the saved priority is tested */
+  it('G Unhandicap on its own has no task to set', () => {
+    const rt = run('G Unhandicap', withRam())
+    expect(rt.thegame.priority).toBe(0)
+    expect(rt.thegame.handicapped).toBe(false)
   })
 })
