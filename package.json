@@ -1,6 +1,6 @@
 {
   "name": "amos-ts",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "description": "AMOS Professional interpreter and runtime for the web",
   "type": "module",
   "license": "MIT",
