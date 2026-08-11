@@ -151,35 +151,63 @@
  *
  * ## GMS
  *
- * Every keyword still missing is a GMS one, and GMS is the part of this
- * extension that cannot be read the way ptreplay and stc were:
- * `dpkernel.library` is not in the corpus and not on the machine that had the
- * other two, so the callee does not exist to disassemble. What there is, is
- * the call sites, and `G Init Gms` (routine 90, $2f36) lays the whole thing
- * out.
+ * Every keyword still missing is a GMS one. GMS is the Games Master System,
+ * Paul Manias / DreamWorld Productions, and `dpkernel.library` is its core.
  *
- * It opens `OpenLibrary("GMS:libs/dpkernel.library", 2)` — the name at block
- * +$112, and version 2 is demanded — into block +$12c, and sets the word at
- * +$d4 to 1 to remember that it was this that opened it. There is a second
- * way in at $2fe2 for a TGE running inside a GMS program already: `cmpi.w
- * #$12,(a0)` on a structure the caller left in a0 and the base is taken from
- * its +$60 instead, leaving +$d4 zero. A failure is `moveq #$4,d0` into
- * routine 151, message 4.
+ * It is VENDORED, at `fixtures/gms/`: Aminet `dev/misc/gms_user.lha`, the
+ * V2.1 user package of October 1998, which carries `dpkernel.library` V2.1
+ * (July 1998) — the version 2 that `G Init Gms` demands — the fifteen system
+ * modules, and a `System/References/` registry. Seven of the modules also
+ * have their C source published separately on Aminet as `dev/misc/gms_*.lha`,
+ * and those are vendored under `fixtures/gms/src/`. So this is the same
+ * evidence tier as ptreplay and stc after all, and better for seven modules:
+ * shipped source with register-level prototypes.
  *
- * Then it calls dpkernel's `-$54` five times — a module opener, `d0` a module
- * number and `a0` a name or NULL — and keeps both the handle and, from the
- * handle's own +$e, that module's function base:
+ * The source is read for semantics and offsets and NONE of it is copied —
+ * DreamWorld's terms allow it only for enhancing GMS itself, and this port
+ * reimplements from the format the way ../amiga/stonecracker.ts does and the
+ * way ../amiga/intuition.ts treats AROS.
  *
- *     d0 = 3            handle +$fe    base +$ea    the display module
- *     d0 = 1            handle +$fa    base +$e6    the drawing module
- *     d0 = 2            handle +$f6    base +$e2    never called
- *     d0 = $11          handle +$102   base +$ee
- *     d0 = 0, "pcx.mod" handle +$106   base +$f2    the PCX loader
+ * ## How TGE starts GMS
  *
- * `-$150` is the matching close, and `G Close Gms` (routine 119) calls it on
- * all five and on the input structure at +$b2e before `jsr -$30(a6)`. Last,
- * `-$14a(a6)` with d0 = 1 answers the input structure that batch 2 found at
- * +$b2e, and `-$5a` initialises it.
+ * `G Init Gms` (routine 90, $2f36) opens
+ * `OpenLibrary("GMS:libs/dpkernel.library", 2)` — the name at block +$112 —
+ * into block +$12c, and sets the word at +$d4 to 1 to remember that it was
+ * this that opened it. There is a second way in at $2fe2 for a TGE running
+ * inside a GMS program already: `cmpi.w #$12,(a0)` on a structure the caller
+ * left in a0, and the base is taken from its +$60 instead, leaving +$d4 zero.
+ * A failure is `moveq #$4,d0` into routine 151, message 4.
+ *
+ * Then dpkernel's `-$54` five times. That is a module opener: it builds a tag
+ * list on the stack — `$4000000c` carrying d0 and `$a000002a` carrying a0 —
+ * and hands it to the generic object allocator, so d0 is a module NUMBER and
+ * a0 an optional name. TGE keeps both the handle and, from the handle's +$e,
+ * that module's function base:
+ *
+ *     d0 = 3            handle +$fe    base +$ea    screens.mod
+ *     d0 = 1            handle +$fa    base +$e6    blitter.mod
+ *     d0 = 2            handle +$f6    base +$e2    sound.mod, never called
+ *     d0 = $11          handle +$102   base +$ee    colours.mod
+ *     d0 = 0, "pcx.mod" handle +$106   base +$f2    by name, not by number
+ *
+ * The numbering is dpkernel's own: twenty module names sit in its data hunk
+ * in one run, and a module's number is its 1-based position in it — blitter,
+ * sound, screens, vectors, cactus, anim, cards, text, objects, network, test,
+ * joyports, files, keyboard, pictures, music, colours, collision, strings,
+ * config. Ten of those are confirmed independently by the `.ref` files in
+ * `System/References/`, each of which states its own `ModNumber`, and all ten
+ * agree. So `$11` is colours.mod, and `=G Blur`'s call to its `-$6` is
+ * `BlurArea(a0 = Bitmap, d0 = StartX, d1 = StartY, d2 = Width, d3 = Height,
+ * d4 = Performance)` — which is why routine 112 subtracts the corners into d2
+ * and d3 before calling it.
+ *
+ * `-$150` and `-$5a` are object methods rather than plain functions: both
+ * fetch a class table and jump through it, `$54(a0)` for the free that
+ * `-$150` performs and `$74(a0)` for the init `-$5a` performs. `G Close Gms`
+ * (routine 119) calls `-$150` on all five modules and on the input structure
+ * at +$b2e before `jsr -$30(a6)`. `-$14a` with d0 = 1 is what answers that
+ * input structure, and 1 is `JoyData`'s ClassID in `joydata.ref` — which is
+ * the second source for what batch 2 read off the call sites alone.
  *
  * Two defects to carry into those batches. `G Close Gms` calls `-$30` — the
  * shutdown — without testing +$d4, which routine 90's own teardown at $30d6
