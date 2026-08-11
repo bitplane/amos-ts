@@ -18,7 +18,7 @@ import { makeColoursFunctions } from './colours'
 import { makeMiscExtInstructions, newMiscExtState } from './miscext'
 import { makePlibFunctions } from './plib'
 import { makeDumpFunctions, newDumpState } from './dump'
-import { CRAFT_ERRORS, craftForget, makeCraftFunctions, makeCraftInstructions, newCraftState } from './craft'
+import { CRAFT_ERRORS, craftForget, craftTrReset, makeCraftFunctions, makeCraftInstructions, newCraftState } from './craft'
 import { ERCOLE_ERRORS, makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
 import { EASYLIFE_ERRORS, makeEasyLifeFunctions, makeEasyLifeInstructions, newEasyLifeState } from './easylife'
 import { FILEID_ERRORS, makeFileIdFunctions, newFileIdState } from './fileid'
@@ -5808,8 +5808,12 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
       rt.craft = newCraftState()
     },
     // "This instruction is automatically executed when an AMOS program is run
-    // or a Default instruction is used" -- the manual on Dr Forget
-    defaults: craftForget,
+    // or a Default instruction is used" -- the manual on Dr Forget, and it
+    // says the same of Tr Reset ("this instruction is also automatically...")
+    defaults: (rt) => {
+      craftForget(rt)
+      craftTrReset(rt)
+    },
     functions: makeCraftFunctions,
     instructions: makeCraftInstructions,
     errors: CRAFT_ERRORS,

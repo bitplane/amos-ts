@@ -6,7 +6,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
-import { craftKey, craftScramble, craftUnscramble, CRAFT_CIPHER_TABLE } from './craft'
+import { craftKey, craftScramble, craftUnscramble, CRAFT_CIPHER_TABLE, TR } from './craft'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 18, off Burton's list and confirmed by the disk's own forty examples */
@@ -858,5 +858,317 @@ describe('CRAFT 1.0 — palette banks (routines 79..94)', () => {
     // leaves clear
     const b = run('Reserve As Palette 5,1\nReserve As Work 6,64\nErase Temp\nPrint Pal Count(5);Length(6)')
     expect(b.out().trim()).toBe('1 0')
+  })
+})
+
+describe('CRAFT 1.0 — the turtle (routines 95..137)', () => {
+  /** the pixels a turtle path left on screen 0, which draws in the current ink */
+  const drawn = (src: string): number[][] => {
+    const b = boot(src)
+    mustFinish(b.rt.runHeadless(5000))
+    const s = b.rt.screens.get(0)!
+    const out: number[][] = []
+    for (let y = 0; y < s.height; y++) for (let x = 0; x < s.width; x++) if (s.point(x, y) === s.ink) out.push([x, y])
+    return out
+  }
+
+  it('starts in the middle of the screen, facing north, with the pen down', () => {
+    // routine 113 seeds the position from the screen and routine 98 leaves
+    // bit 2 of the flags clear, which is the pen DOWN
+    expect(val('Tr X Pos;Tr Y Pos;Tr Get Angle;Tr Pen State')).toBe('160 100 0-1')
+  })
+
+  it('walks the eight compass points, and north is up', () => {
+    /*
+     * Routine 109 hands back dx = sin and dy = MINUS cos, so a heading of
+     * zero is (0, -1) and the turtle climbs the screen. The diagonals land on
+     * 70.7 pixels of each, which the half-pixel fraction rounds to 71.
+     */
+    const at = (a: number): string => val('Tr X Pos;Tr Y Pos', `Tr Angle ${a}\nTr Forward 100\n`)
+    expect([0, 45, 90, 135].map(at)).toEqual(['160 0', '231 29', '260 100', '231 171'])
+    expect([180, 225, 270, 315].map(at)).toEqual(['160 200', '89 171', '60 100', '89 29'])
+  })
+
+  it('closes a thirty-six step circle exactly, which is the whole fixed point', () => {
+    /*
+     * Twenty pixels forward and ten degrees right, thirty-six times. Every
+     * one of those steps goes through the sine series, the square root and a
+     * 16.16 accumulate, and the position is only ever rounded when it is
+     * READ -- so a turtle that comes back to 160,100 is a turtle whose
+     * arithmetic has not drifted a part in 65536 over 36 turns.
+     */
+    expect(val('Tr X Pos;Tr Y Pos;Tr Get Angle', 'Tr Exec "F 20;R 10",36\n')).toBe('160 100 0')
+  })
+
+  it('Tr Forw is Tr Forward, the same routine under a second name', () => {
+    // both token entries carry instruction 0x6b, so this is an alias and not
+    // a second keyword -- "Tr Forw is simply a shortened form of Tr Forward"
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Angle 90\nTr Forw 25\n')).toBe('185 100')
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Angle 90\nTr Forward 25\n')).toBe('185 100')
+  })
+
+  it('Tr Angle takes any integer and Tr Get Angle answers -179..180', () => {
+    // "there is no difference between using 180 or 540 (360+180)", and
+    // routine 100's last two instructions turn -180 into +180
+    expect(val('Tr Get Angle', 'Tr Angle 540\n')).toBe('180')
+    expect(val('Tr Get Angle', 'Tr Angle -180\n')).toBe('180')
+    expect(val('Tr Get Angle', 'Tr Angle 725\n')).toBe('5')
+    expect(val('Tr Get Angle', 'Tr Angle -725\n')).toBe('-5')
+  })
+
+  it('Tr Right and Tr Left turn relative to where the turtle already points', () => {
+    expect(val('Tr Get Angle', 'Tr Angle 90\nTr Right 45\n')).toBe('135')
+    expect(val('Tr Get Angle', 'Tr Angle 90\nTr Left 45\n')).toBe('45')
+  })
+
+  it('Tr Towards aims at a point, and the angle is recovered from the direction', () => {
+    /*
+     * Tr Towards writes the direction and marks the ANGLE stale, so reading
+     * it back runs routine 106 -- the arcsine series over the coefficient
+     * table -- rather than handing back what was stored.
+     */
+    const to = (x: number, y: number): string => val('Tr Get Angle', `Tr Towards ${x},${y}\n`)
+    expect([to(210, 100), to(160, 50), to(210, 50), to(160, 150)]).toEqual(['90', '0', '45', '180'])
+    expect([to(110, 100), to(110, 50), to(110, 150), to(210, 150)]).toEqual(['-90', '-45', '-135', '135'])
+  })
+
+  it('Tr Towards a point the turtle is already on turns it not at all', () => {
+    // `sub.l d3,d1 / bne / tst.l d0 / bne / rts` -- the check routine 121 has
+    // no equivalent of
+    expect(val('Tr Get Angle', 'Tr Angle 33\nTr Towards Tr X Pos,Tr Y Pos\n')).toBe('33')
+  })
+
+  it('Tr Distance is Pythagoras over the same normalising shift', () => {
+    expect(val('Tr Distance(160,150);Tr Distance(190,140);Tr Distance(100,100)')).toBe('50 50 60')
+  })
+
+  it('DEFECT: Tr Distance to the turtle own position never returns on a real Amiga', () => {
+    /*
+     * Routine 121 normalises with `lsl.l #1,d0 / bcs / lsl.l #1,d1 / bcc`
+     * looping back on itself, and with both deltas zero a carry can never
+     * appear. Tr Towards tests for that pair before it starts; this does not.
+     * DEVIATION: a port cannot hang, so it answers the 0 the arithmetic would
+     * have reached.
+     */
+    expect(val('Tr Distance(Tr X Pos,Tr Y Pos)')).toBe('0')
+  })
+
+  it('the pen decides whether a step leaves a line behind', () => {
+    expect(drawn('Tr Pen Up\nTr Forward 10')).toEqual([])
+    const line = drawn('Tr Forward 10')
+    expect(line.length).toBe(11)
+    expect(line[0]).toEqual([160, 90])
+    expect(line[10]).toEqual([160, 100])
+  })
+
+  it('Tr Move jumps without drawing and Tr Draw draws without turning', () => {
+    expect(drawn('Tr Move 10,10')).toEqual([])
+    const l = drawn('Tr Move 10,10\nTr Draw 10,14')
+    expect(l).toEqual([
+      [10, 10],
+      [10, 11],
+      [10, 12],
+      [10, 13],
+      [10, 14],
+    ])
+    expect(val('Tr Get Angle;Tr X Pos;Tr Y Pos', 'Tr Angle 90\nTr Move 10,10\nTr Draw 20,10\n')).toBe('90 20 10')
+  })
+
+  it('either coordinate of Tr Move may be written as nothing', () => {
+    // "Either parameter may be omitted, just remember to write the comma"
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Move 10,20\nTr Move 30,\n')).toBe('30 20')
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Move 10,20\nTr Move ,40\n')).toBe('10 40')
+  })
+
+  it('DEFECT: an omitted y on Tr Draw doubles the coordinate instead of keeping it', () => {
+    /*
+     * Routine 116 makes a delta out of the target by subtracting the current
+     * position, but routine 118 answers an omission by zeroing d0 and the
+     * subtraction that would have made d1 a delta is skipped with it. So d1
+     * is still the CURRENT y that routine 113 left in it, and routine 119
+     * adds that to the position. An omitted x is fine, because there the
+     * zero really is the delta that changes nothing.
+     */
+    // 121 and not 120: the half-pixel fraction the position carries doubles
+    // along with the whole part
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Move 50,60\nTr Draw 100,\n')).toBe('100 121')
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Move 50,60\nTr Draw ,80\n')).toBe('50 80')
+  })
+
+  it('the Rel forms take a step rather than a place', () => {
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Move 50,60\nTr Move Rel 10,-20\n')).toBe('60 40')
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Move 50,60\nTr Draw Rel -10,20\n')).toBe('40 80')
+  })
+
+  it('Tr Proportions scales the relative movers and nothing else', () => {
+    // "This instruction affects the Tr Forw, Tr Back, Tr Move Rel and Tr Draw
+    // Rel instructions and their TCL counterparts"
+    expect(val('Tr X Pos', 'Tr Proportions 2\nTr Angle 90\nTr Forward 50\n')).toBe('260')
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Proportions 2,3\nTr Move Rel 10,10\n')).toBe('180 130')
+    // absolute moves are in screen pixels whatever the coefficients say
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Proportions 2,3\nTr Move 10,10\n')).toBe('10 10')
+  })
+
+  it('one coefficient sets both, and zero or past sixteen is refused', () => {
+    // routine 125 is `move.l (a3),-(a3)`, a duplicate of the stacked value
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Proportions -2\nTr Move Rel 10,10\n')).toBe('140 80')
+    expect(() => run('Tr Proportions 0')).toThrow(/Illegal function call/)
+    expect(() => run('Tr Proportions 17')).toThrow(/Illegal function call/)
+    expect(() => run('Tr Proportions -16')).not.toThrow()
+    // and putting both back to one switches the scaling off again
+    expect(val('Tr X Pos', 'Tr Proportions 4\nTr Proportions 1\nTr Move Rel 10,\n')).toBe('170')
+  })
+
+  it('the home starts in the middle and Tr Home returns to it', () => {
+    expect(val('Tr X Home;Tr Y Home')).toBe('160 100')
+    expect(val('Tr X Pos;Tr Y Pos;Tr Get Angle', 'Tr Angle 90\nTr Move 10,10\nTr Home\n')).toBe('160 100 0')
+    expect(val('Tr X Home;Tr Y Home', 'Tr Set Home 20,30\n')).toBe('20 30')
+  })
+
+  it('DEFECT: Tr Set Home crosses its two fallbacks', () => {
+    /*
+     * The first value off the stack is y and its omitted case loads $44, the
+     * home X; the second is x and its omitted case loads $48, the home Y. So
+     * leaving one out copies the OTHER coordinate over it. Routine 114
+     * reaches the same "keep what was there" a different way and gets it
+     * right, which is what makes this a slip.
+     */
+    expect(val('Tr X Home;Tr Y Home', 'Tr Set Home 20,30\nTr Set Home 99,\n')).toBe('99 20')
+    expect(val('Tr X Home;Tr Y Home', 'Tr Set Home 20,30\nTr Set Home ,99\n')).toBe('30 99')
+  })
+
+  it('DEFECT: Tr Home cannot reach a home with a negative coordinate', () => {
+    // `moveq #0,d0 / move.w $44(a1),d0` ZERO-extends the integer half, so -10
+    // arrives at routine 118 as 65526 and is thrown out
+    expect(val('Tr X Home', 'Tr Set Home -10,50\n')).toBe('-10')
+    expect(() => run('Tr Set Home -10,50\nTr Home')).toThrow(/Illegal function call/)
+  })
+
+  it('Tr Remember and Tr Memorize are one slot each, not a stack', () => {
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Move 20,30\nTr Remember X\nTr Move 90,90\nTr Memorize X\n')).toBe('20 90')
+    expect(val('Tr Get Angle', 'Tr Angle 45\nTr Remember A\nTr Angle 90\nTr Memorize A\n')).toBe('45')
+    // the second Remember replaces the first
+    expect(val('Tr X Pos', 'Tr Move 20,30\nTr Remember X\nTr Move 40,30\nTr Remember X\nTr Memorize X\n')).toBe('40')
+  })
+
+  it('the first Remember primes the other slot from the matching home', () => {
+    // routines 131 and 132 each `bset #6` and, if the bit was clear, copy the
+    // home coordinate into the slot they did NOT just write
+    expect(val('Tr Y Pos', 'Tr Set Home 20,30\nTr Move 90,90\nTr Remember X\nTr Memorize Y\n')).toBe('30')
+    // and with nothing remembered at all, Memorize lands on the home
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Set Home 20,30\nTr Move 90,90\nTr Memorize X\nTr Memorize Y\n')).toBe('20 30')
+  })
+
+  it('Tr Reset puts everything back, including the pen and the home', () => {
+    // "the angle is set to the zero and the pen is set down... the turtle is
+    // returned to the home, whose coordinates are also reset... the
+    // instruction also resets the positions stored with the Tr Remember"
+    const pre = 'Tr Angle 90\nTr Pen Up\nTr Set Home 5,5\nTr Move 90,90\nTr Remember X\nTr Reset\n'
+    expect(val('Tr X Pos;Tr Y Pos;Tr Get Angle;Tr Pen State;Tr X Home', pre)).toBe('160 100 0-1 160')
+  })
+
+  it('Tr Base publishes the block the manual sends the reader to Peek', () => {
+    const b = run('Tr Angle 90\nTr Move 20,30\nB=Tr Base\nPrint Peek(B);Leek(B+14);Leek(B+18);Deek(B+2)')
+    // flags: angle live, direction stale, placed; then x and y in 16.16, and
+    // the top word of the heading, which is $4000 for a right angle
+    expect(b.out().trim()).toBe(`9 ${(20 << 16) | 0x8000} ${(30 << 16) | 0x8000} 16384`)
+  })
+})
+
+describe('CRAFT 1.0 — TCL, the Turtle Control Language (routine 96)', () => {
+  it('runs a semicolon-separated string of commands', () => {
+    expect(val('Tr X Pos;Tr Y Pos;Tr Get Angle', 'Tr Exec "F 50;R 90;F 30"\n')).toBe('190 50 90')
+  })
+
+  it('takes the long spelling as well as the short, because lower case is skipped', () => {
+    // "Only capital letters are necessary in command names"
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Exec "Forward 50;Right 90;Forw 30"\n')).toBe('190 50')
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Exec "MoveRel 5,5;DrawRel 5,5"\n')).toBe('170 110')
+  })
+
+  it("QUIRK: HOME in full capitals is a syntax error where Home and H are not", () => {
+    /*
+     * The collector takes at most two capitals, and `H` is cut to one by an
+     * instruction of its own -- there is no two-letter command starting with
+     * H, so a second capital could only make a name that is not in the table.
+     * That leaves OME to be read as the next command, and OM is not one.
+     */
+    expect(() => run('Tr Exec "Home"')).not.toThrow()
+    expect(() => run('Tr Exec "H"')).not.toThrow()
+    expect(() => run('Tr Exec "HOME"')).toThrow(/Turtle error: bad syntax/)
+  })
+
+  it('the count repeats the whole string, and zero runs it not at all', () => {
+    expect(val('Tr Y Pos', 'Tr Exec "F 10",4\n')).toBe('60')
+    expect(val('Tr Y Pos', 'Tr Exec "F 10",0\n')).toBe('100')
+    // `cmpi.l #$7d0,d0 / Rbhi routine 206` is UNSIGNED, so a negative count
+    // is a very large one
+    expect(() => run('Tr Exec "F 1",2001')).toThrow(/Illegal function call/)
+    expect(() => run('Tr Exec "F 1",-1')).toThrow(/Illegal function call/)
+  })
+
+  it('reports a bad command, a bad argument and a wrong argument count separately', () => {
+    expect(() => run('Tr Exec "XX 1"')).toThrow(/Turtle error: bad syntax/)
+    expect(() => run('Tr Exec "F 1,2"')).toThrow(/Turtle error: illegal number of parameters/)
+    expect(() => run('Tr Exec "H 1"')).toThrow(/Turtle error: illegal number of parameters/)
+    expect(() => run('Tr Exec "M 1"')).toThrow(/Turtle error: illegal number of parameters/)
+    // routine 217 sees bit 4 of the flags and raises CRAFT's error rather
+    // than AMOS's for an argument outside routine 118's bound
+    expect(() => run('Tr Exec "F 99999"')).toThrow(/Turtle error: illegal function call/)
+    expect(() => run('Tr Forward 99999')).toThrow(/Illegal function call/)
+  })
+
+  it('Tr Error is the position of the command that failed, and zero after a clean run', () => {
+    // $58 - $56: the length plus one, less what was left when it started
+    const b = boot('Tr Exec "F 10;R 90;ZZ"')
+    expect(() => mustFinish(b.rt.runHeadless(5000))).toThrow(/bad syntax/)
+    expect(b.rt.craft.turtle.getUint16(TR.total) - b.rt.craft.turtle.getUint16(TR.left)).toBe(11)
+    expect(val('Tr Error', 'Tr Exec "F 10"\n')).toBe('0')
+  })
+
+  it('I and P are the only commands with no keyword behind them', () => {
+    // "This instruction is a synonym to the Pen instruction"
+    const b = run('Tr Exec "P 5,3"')
+    expect([b.rt.screen.ink, b.rt.screen.gPaper]).toEqual([5, 3])
+    expect(run('Tr Exec "I 7"').rt.screen.ink).toBe(7)
+    expect(() => run('Tr Exec "I 32"')).toThrow(/Turtle error: illegal function call/)
+  })
+
+  it('every other command is the keyword routine, reached a second way', () => {
+    const pairs: Array<[string, string]> = [
+      ['A 90', 'Tr Angle 90'],
+      ['L 30', 'Tr Left 30'],
+      ['R 30', 'Tr Right 30'],
+      ['B 20', 'Tr Back 20'],
+      ['TO 10,10', 'Tr Towards 10,10'],
+      ['M 40,50', 'Tr Move 40,50'],
+      ['MR 4,5', 'Tr Move Rel 4,5'],
+      ['D 40,50', 'Tr Draw 40,50'],
+      ['DR 4,5', 'Tr Draw Rel 4,5'],
+      ['SH 12,13', 'Tr Set Home 12,13'],
+      ['H', 'Tr Home'],
+      ['PU', 'Tr Pen Up'],
+      ['PD', 'Tr Pen Down'],
+      ['RX', 'Tr Remember X'],
+      ['RY', 'Tr Remember Y'],
+      ['RA', 'Tr Remember A'],
+      ['MX', 'Tr Memorize X'],
+      ['MY', 'Tr Memorize Y'],
+      ['MA', 'Tr Memorize A'],
+    ]
+    const state = 'Print Tr X Pos;Tr Y Pos;Tr Get Angle;Tr X Home;Tr Y Home;Tr Pen State'
+    for (const [tcl, kw] of pairs) {
+      const viaTcl = run(`Tr Exec "F 7;R 20;${tcl}"\n${state}`).out()
+      const viaKeyword = run(`Tr Forward 7\nTr Right 20\n${kw}\n${state}`).out()
+      expect(viaTcl, tcl).toBe(viaKeyword)
+    }
+  })
+
+  it('a number ends at a space, and a comma may stand for an omitted one', () => {
+    // the `d3` flag in $1b6c is set by a space and tested before the next
+    // digit, so "1 2" is two numbers rather than twelve
+    expect(() => run('Tr Exec "M 1 2,3"')).toThrow(/Turtle error: illegal number of parameters/)
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Move 50,60\nTr Exec "M ,80"\n')).toBe('50 80')
+    expect(val('Tr X Pos;Tr Y Pos', 'Tr Move 50,60\nTr Exec "M 70,"\n')).toBe('70 60')
   })
 })

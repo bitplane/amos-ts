@@ -2405,6 +2405,45 @@ export const FAITHFUL = new Set<string>([
   'set bank colour',
   'bank colour',
   'del bank colour',
+  // Batches 6 and 7: the LOGO turtle, all 33 of it. The arithmetic is
+  // transcribed as a register machine rather than rewritten in floating
+  // point -- the position is 16.16 and only the integer half reaches the
+  // screen, so the rounding is the behaviour. `Tr Exec` is a whole
+  // interpreted language inside one keyword; its grammar came off routines
+  // 96 and the table at $1c88.
+  'tr reset',
+  'tr angle',
+  'tr get angle',
+  'tr left',
+  'tr right',
+  'tr towards',
+  'tr forward',
+  'tr forw',
+  'tr back',
+  'tr distance',
+  'tr pen up',
+  'tr pen down',
+  'tr pen state',
+  'tr move',
+  'tr move rel',
+  'tr draw',
+  'tr draw rel',
+  'tr x pos',
+  'tr y pos',
+  'tr exec',
+  'tr error',
+  'tr proportions',
+  'tr set home',
+  'tr home',
+  'tr x home',
+  'tr y home',
+  'tr remember x',
+  'tr remember y',
+  'tr remember a',
+  'tr memorize x',
+  'tr memorize y',
+  'tr memorize a',
+  'tr base',
   // --- Range 2.6 / 2.9Plus, slot 9: Shadow Software's AMOS Club extension.
   // One port for both builds; five slot-qualified names. Slice 1 --- the
   // self-contained half. See range.ts.
@@ -3209,6 +3248,94 @@ export const NOTES: Record<string, string> = {
     "Routine 92 ($1950): `ext.l d3` on the stored word, so the $FFFF a deleted colour leaves behind comes back " +
     "as -1 -- \"if there is no colour available, a value of -1 is returned\".",
   "del bank colour": "Routine 93 ($196c): the $FFFF marker, written over one slot.",
+  "tr base":
+    "Routine 137 ($2784), `moveq #$2e,d3 / add.l $208(a5),d3` -- the workspace address plus $2e. The manual is " +
+    "literal (\"returns the address of the internal turtle variable area\") and sends the reader to an appendix " +
+    "of offsets, so this port MAPS the block rather than mirroring it and a Peek of it reads what the keywords " +
+    "read. The layout is in no documentation: a flags byte, then the heading as a 32-bit binary angle, then the " +
+    "two direction words, position, home, proportions, the dash state and the three Tr Remember slots -- 56 " +
+    "bytes, and `TR` in ../runtime/craft.ts names every offset.",
+  "tr forward":
+    "Routine 107 ($20a6). The heading is kept TWICE and never both at once: $30 is a 32-bit binary angle where " +
+    "2^32 is a full turn, and $34/$38 are sine and MINUS cosine in SIGN-MAGNITUDE 16.16 -- bit 31 is the sign " +
+    "and the rest a magnitude of at most $10000. Bits 0 and 1 of the flags say which of the two is live, and " +
+    "routines 106 and 109 convert one into the other on demand. Tr Reset caching `clr.l $34 / move.l " +
+    "#$80010000,$38` for a heading of zero is what pins the format: north is (0, -1), so the LOGO convention " +
+    "and a screen whose y grows downwards agree with nothing negated later. The multiply itself is `mulu.w` on " +
+    "the magnitudes with the sign carried by `eor.l d3,d2` against a distance whose high word was left negative " +
+    "on purpose, and `btst #$10` for the magnitude of exactly 1.0, which no word can hold.",
+  "tr get angle":
+    "Routine 100 ($1dee) over routine 106 ($1f56). Routine 106 is the arcsine half of the conversion: the " +
+    "quadrant comes from the two sign bits and the size from one arcsine, which is enough because the pair is " +
+    "always a unit vector. The series behind it ($1ffe) has nine terms over a coefficient table at $208e, and " +
+    "one of the six tabulated pairs is wrong -- 63/1403 where arcsine wants 63/2816, so the divisor should be " +
+    "1408 ($580) and the file has 1403 ($57b). It sits on the eleventh-order term and cannot move a pixel. " +
+    "Going back the other way is not the same constant either: routine 101 multiplies by 11930464.7 and this " +
+    "divides by 11930624, thirteen parts in a million apart.",
+  "tr towards":
+    "Routine 104 ($1e7a). DEFECT: the aspect correction it goes through, routine 105 ($1f3a), tests the wrong " +
+    "register. The hires half loads the screen mode into d4 and tests d4; the interlace half then tests **d3**, " +
+    "which the caller left holding half the turtle's y. So the vertical correction never fires and Tr Towards " +
+    "aims at the wrong point on an interlaced screen. The same eight instructions are written correctly inside " +
+    "routine 119 at $246e, which is what makes this a slip rather than a decision.",
+  "tr distance":
+    "Routine 121 ($2580). DEFECT, and it locks the machine up: the normalising loop is `lsl.l #1,d0 / bcs / " +
+    "lsl.l #1,d1 / bcc` back on itself and a carry can never appear when both deltas are zero, so " +
+    "`Tr Distance(Tr X Pos, Tr Y Pos)` never returns. Tr Towards normalises the same way and tests for the " +
+    "zero pair first; this does not. DEVIATION: a port cannot hang, so it answers the 0 the arithmetic would " +
+    "have reached. It inherits routine 105's interlace bug as well.",
+  "tr draw":
+    "Routine 116 ($236c), which turns the absolute target into a delta and hands it to the shared mover with " +
+    "the scaling switched off. DEFECT: an omitted y is not handled. Routine 118 answers an omission by zeroing " +
+    "d0, and the subtraction that would have made d1 a delta is skipped along with it -- so d1 still holds the " +
+    "CURRENT y that routine 113 put there and the mover ADDS it, sending the turtle to twice its own y. An " +
+    "omitted x is fine, because there the zero really is the delta that changes nothing. Tr Move next door " +
+    "assigns instead of subtracting and gets both right.",
+  "tr move":
+    "Routine 114 ($2326), the only mover that does not go through routine 119: it writes the position outright, " +
+    "so neither the screen aspect nor Tr Proportions touches it. \"Either parameter may be omitted, just " +
+    "remember to write the comma\", and both omissions land correctly here.",
+  "tr set home":
+    "Routine 127 ($268a). DEFECT: the two fallbacks for an omitted parameter are CROSSED. The first value off " +
+    "the stack is y and its fallback loads $44, the home X; the second is x and its fallback loads $48, the " +
+    "home Y. So `Tr Set Home 10,` copies the old home's x onto its y, and `Tr Set Home ,20` does the mirror.",
+  "tr home":
+    "Routine 128 ($26b4): the heading back to zero, then Tr Move onto the home. DEFECT: the coordinates are " +
+    "handed over as `moveq #0,d0 / move.w $44(a1),d0`, which ZERO-extends the integer half, so a home with a " +
+    "negative coordinate arrives at routine 118 as 32768 or more and is thrown out. `Tr Set Home -10,50` " +
+    "followed by `Tr Home` is error 23 rather than a move, and every other keyword in the group takes a " +
+    "negative coordinate without complaint.",
+  "tr remember x":
+    "Routine 131 ($26fa), and the one thing it does beyond storing: the FIRST Remember to run also primes the " +
+    "OTHER slot from the matching home coordinate, so a Tr Memorize Y after only a Tr Remember X lands on the " +
+    "home's y rather than on nothing. One slot each and not a stack. Tr Remember A (routine 133) does not set " +
+    "that flag at all -- its slot is simply zeroed by Tr Reset, so a Memorize A with nothing remembered is a " +
+    "heading of zero.",
+  "tr proportions":
+    "Routines 125 and 126 ($2622, $2628). \"The limits of the parameters are -16 to 16 inclusive, and zero is " +
+    "not allowed\", which is exactly the pair of unsigned compares. The one-argument form is `move.l " +
+    "(a3),-(a3)` -- it duplicates the stacked value rather than passing an omitted marker, which is how one " +
+    "number sets both coefficients. The flag that switches the scaling on is RECOMPUTED from the pair " +
+    "afterwards, so putting both back to 1 turns it off again.",
+  "tr exec":
+    "Routines 95 and 96 ($1a48, $1a7c) -- a whole interpreted language inside one keyword, and its grammar is " +
+    "only in the binary. The command table at $1c88 is twenty-two entries of [offset][name, last byte with bit " +
+    "7 set][argument mask], and every one of them is a `Rbra` onto the routine its AMOS keyword already uses, " +
+    "so nothing in TCL is a second implementation. `I`/`P` is the exception and has no keyword: SetBPen then " +
+    "SetAPen, bounded 0..31. The mask is read a bit at a time and bit n-1 set means \"stopping after n " +
+    "arguments is allowed\". Names are at most TWO capitals with the lower case skipped, which is what \"only " +
+    "capital letters are necessary\" means -- and `H` is cut to one letter by an instruction of its own, so " +
+    "HOME spelled in full capitals parses as `H` and then chokes on `OM`. The repeat count is bounded by " +
+    "`cmpi.l #$7d0,d0 / Rbhi routine 206`, UNSIGNED, so a negative count is error 23 and zero runs nothing.",
+  "tr error":
+    "Routine 97 ($1d90), `$58 - $56`: the TCL string's length plus one, less what was left when the failing " +
+    "command started, which is that command's one-based position. A clean pass zeroes both words with one " +
+    "`clr.l`, so \"if there were no errors, a value of zero is given\". Bit 4 of the flags is set for the " +
+    "length of a Tr Exec and is how routine 217 chooses between CRAFT's \"Turtle error: illegal function " +
+    "call\" and AMOS's error 23 for the same out-of-range argument.",
+  "tr pen state":
+    "Routine 124 ($260e), `btst #2 / seq / ext.w / ext.l` -- so -1 for a pen that is DOWN. The flag is stored " +
+    "the other way up: bit 2 SET is up, which is why Tr Reset's `move.b #$3,$2e(a1)` leaves the pen down.",
   "dr forget":
     "Routine 66 ($15ae): `moveq #-1,d0 / Rbra routine 67`, which frees the whole scan block, FileInfoBlock " +
     "included -- so the accessors stop answering, not just Dr Next$. It runs on Run and on Default too, which " +

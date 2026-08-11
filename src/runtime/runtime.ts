@@ -1084,6 +1084,18 @@ export class Runtime {
   static readonly CRAFT_FIB_RESERVED = 0x1000
 
   /**
+   * CRAFT's turtle workspace -- what `=Tr Base` answers.
+   *
+   * "Returns the address of the internal turtle variable area", and the
+   * manual sends the reader to an appendix of offsets to Peek. The block is
+   * the extension's own from $2e of its workspace on, 56 bytes, and it is
+   * mapped rather than mirrored so a program that reads it sees the same
+   * bytes the keywords do -- see TR in ./craft.ts for what is where.
+   */
+  static readonly CRAFT_TURTLE_BASE = 0x3a001000
+  static readonly CRAFT_TURTLE_RESERVED = 0x1000
+
+  /**
    * Opal 1.1's OpalScreen structures and their bitplanes.
    *
    * `Ovopenscreen24` hands the program the structure's ADDRESS and expects it
@@ -1516,6 +1528,9 @@ export class Runtime {
     },
     bufferRegion('CRAFT FileInfoBlock', Runtime.CRAFT_FIB_BASE, Runtime.CRAFT_FIB_RESERVED, () =>
       this.craft ? this.craft.fib : null,
+    ),
+    bufferRegion('CRAFT turtle', Runtime.CRAFT_TURTLE_BASE, Runtime.CRAFT_TURTLE_RESERVED, () =>
+      this.craft ? new Uint8Array(this.craft.turtle.buffer) : null,
     ),
     bufferRegion('Dev IORequests', Runtime.DEV_IO_BASE, Runtime.DEV_IO_RESERVED, () => this.dev.io),
     bufferRegion('Tools text', Runtime.TOOLS_TEXT_BASE, Runtime.TOOLS_TEXT_RESERVED, () =>

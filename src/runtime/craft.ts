@@ -117,15 +117,83 @@ export interface CraftState {
   fields: FibFields | null
   /** the last AmigaDOS error, what `Disc Error` answers */
   ioError: number
+  /** the turtle's variable block, mapped at Runtime.CRAFT_TURTLE_BASE */
+  turtle: DataView
 }
 
-export const newCraftState = (): CraftState => ({
-  scan: null,
-  scanType: 0,
-  fib: new Uint8Array(FIB_SIZEOF),
-  fields: null,
-  ioError: 0,
-})
+/**
+ * The turtle's variable block — what `=Tr Base` hands out the address of.
+ *
+ * It is the extension's workspace at `$208(a5)` from offset $2e on, and the
+ * offsets below are the binary's less $2e. The whole group reads and writes
+ * through it, so it is kept as bytes here rather than as fields: the manual
+ * says "returns the address of the internal turtle variable area" and sends
+ * the reader off to Peek it, and a second copy of the state would be a second
+ * chance to disagree with what Peek sees.
+ *
+ * Every coordinate is signed 16.16 — routine 118 turns an argument into
+ * `value << 16` and routine 113 seeds a new turtle at the centre of the
+ * screen with a fraction of $8000, so the turtle stands in the middle of a
+ * pixel rather than on its corner.
+ *
+ * The two directions are NOT 16.16. `$34`/`$38` are SIGN-MAGNITUDE: bit 31 is
+ * the sign and the rest is a magnitude of at most $10000, so straight north
+ * is dx = 0, dy = $80010000, which is minus one and not a huge positive
+ * number. Routine 106 reads the sign with `tst.w` on the high word and
+ * strips it with `bclr #$1f`, which is what puts the format beyond doubt.
+ */
+export const TR = {
+  /** the flag bits below */
+  flags: 0x00,
+  /** heading, 2^32 = 360 degrees */
+  angle: 0x02,
+  /** sin(heading) = the x step, sign-magnitude 16.16 */
+  dx: 0x06,
+  /** -cos(heading) = the y step, so north is negative and the screen agrees */
+  dy: 0x0a,
+  x: 0x0e,
+  y: 0x12,
+  homeX: 0x16,
+  homeY: 0x1a,
+  /** Tr Proportions, 16.16, one by default */
+  propX: 0x1e,
+  propY: 0x22,
+  /** rp_linpatcnt as the turtle remembers it */
+  patCnt: 0x26,
+  /** FRST_DOT: 1 for the first segment after a jump, 0 once a line has been drawn */
+  frstDot: 0x27,
+  /** characters of the TCL string left when the current command started */
+  left: 0x28,
+  /** the TCL string's length plus one; =Tr Error is this minus `left` */
+  total: 0x2a,
+  remX: 0x2c,
+  remY: 0x30,
+  remA: 0x34,
+} as const
+
+/** the block runs from $2e to $65 of the workspace */
+export const TR_SIZEOF = 0x38
+
+/** $30 holds the heading and $34/$38 do not */
+const TRF_ANGLE = 0
+/** $34/$38 hold the heading and $30 does not */
+const TRF_DIR = 1
+/** the pen is UP — `Tr Pen Up` is `bset`, so a zeroed block draws */
+const TRF_PENUP = 2
+/** $3c/$40 have been placed; clear means "put me in the middle of the screen" */
+const TRF_PLACED = 3
+/** inside Tr Exec, which is how routine 217 knows which error to raise */
+const TRF_TCL = 4
+/** the proportions are not 1:1, so routine 119 has to scale */
+const TRF_PROP = 5
+/** the Tr Remember slots hold something */
+const TRF_REM = 6
+
+export const newCraftState = (): CraftState => {
+  const turtle = new DataView(new ArrayBuffer(TR_SIZEOF))
+  trResetBlock(turtle)
+  return { scan: null, scanType: 0, fib: new Uint8Array(FIB_SIZEOF), fields: null, ioError: 0, turtle }
+}
 
 /** AMOS error 23, "Illegal function call" — routine 206 */
 const illegal = (): never => {
@@ -741,6 +809,45 @@ export function makeCraftFunctions(rt: Runtime): Record<string, Func> {
     'bank colour': (_, a) => {
       const w = craftPalResolve(rt, i0(a, 0), i0(a, 1), PAL_USE).read(palIndex(i0(a, 2)))
       return VI(w === PAL_ABSENT ? -1 : w)
+    },
+
+    // ---- the turtle ----
+
+    /** =Tr Get Angle — routine 100 ($1dee) over routine 106 */
+    'tr get angle': () => VI(trBamToDeg(craftTrAngle(rt))),
+    /** =Tr X Pos — routine 111 ($22b8): `swap d0 / move.w d0,d3 / ext.l d3` */
+    'tr x pos': () => VI(trWhole(craftTrPos(rt).x)),
+    /** =Tr Y Pos — routine 112 ($22c6) */
+    'tr y pos': () => VI(trWhole(craftTrPos(rt).y)),
+    /** =Tr X Home — routine 129 ($26de), and this one DOES sign-extend */
+    'tr x home': () => VI(trWhole(craftTrPos(rt) && rt.craft.turtle.getInt32(TR.homeX))),
+    /** =Tr Y Home — routine 130 ($26ec) */
+    'tr y home': () => VI(trWhole(craftTrPos(rt) && rt.craft.turtle.getInt32(TR.homeY))),
+    /**
+     * =Tr Pen State — routine 124 ($260e), `btst #2 / seq / ext.w / ext.l`, so
+     * the answer is -1 for a pen that is DOWN. The flag is stored the other
+     * way up: bit 2 set is up, which is why a zeroed block draws.
+     */
+    'tr pen state': () => VI(trFlag(rt.craft.turtle, TRF_PENUP) ? 0 : -1),
+    /** =Tr Distance(x,y) — routine 121 ($2580) */
+    'tr distance': (_, a) => VI(craftTrDistance(rt, trArgOf(rt, i0(a, 0), false), trArgOf(rt, i0(a, 1), false))),
+    /**
+     * =Tr Base — routine 137 ($2784), `moveq #$2e,d3 / add.l $208(a5),d3`:
+     * the workspace address plus $2e, which is where the flags byte sits.
+     * "Returns the address of the internal turtle variable area", and the
+     * manual means it — the whole block is mapped here so a Peek of it agrees
+     * with what the keywords see. See TR above for the offsets.
+     */
+    'tr base': () => VI(Runtime.CRAFT_TURTLE_BASE),
+    /**
+     * =Tr Error — routine 97 ($1d90), `$58 - $56`: the length of the string
+     * plus one, less what was left when the failing command started, which is
+     * that command's one-based position. A clean Tr Exec zeroes both with one
+     * `clr.l`, so "if there were no errors, a value of zero is given".
+     */
+    'tr error': () => {
+      const t = rt.craft.turtle
+      return VI(((t.getUint16(TR.total) - t.getUint16(TR.left)) << 16) >> 16)
     },
   }
 }
@@ -1373,7 +1480,93 @@ export function makeCraftInstructions(rt: Runtime): Record<string, Instr> {
       const [bank, palette, index] = craftBankColourArgs(it)
       craftPalResolve(rt, bank, palette, PAL_USE).write(palIndex(index), PAL_ABSENT)
     },
+
+    // ---- the turtle ----
+
+    /** Tr Reset — routine 98 ($1da2), and the `defaults` hook runs it too */
+    'tr reset': () => craftTrReset(rt),
+    /** Tr Angle a — routine 99 ($1dd2) */
+    'tr angle': (it) => craftTrSetAngle(rt, it.evalInt()),
+    /** Tr Right a — routine 103 ($1e62) */
+    'tr right': (it) => craftTrTurn(rt, it.evalInt()),
+    /** Tr Left a — routine 102 ($1e5c), `neg.l (a3) / Rbra routine 103` */
+    'tr left': (it) => craftTrTurn(rt, -it.evalInt()),
+    /** Tr Towards x,y — routine 104 ($1e7a) */
+    'tr towards'(it) {
+      craftScreen(rt)
+      const p = trParsePair(rt, it)
+      craftTrTowards(rt, p.x, p.y)
+    },
+    /** Tr Forward d — routine 107 ($20a6) */
+    'tr forward': (it) => craftTrGo(rt, it, false),
+    /** Tr Forw d — the same token routine, so the same handler */
+    'tr forw': (it) => craftTrGo(rt, it, false),
+    /** Tr Back d — routine 108 ($2100), `neg.l (a3) / Rbra routine 107` */
+    'tr back': (it) => craftTrGo(rt, it, true),
+    /** Tr Pen Up — routine 122 ($25f6), `bset #2`: the flag is "up" */
+    'tr pen up': () => trSetFlag(rt.craft.turtle, TRF_PENUP),
+    /** Tr Pen Down — routine 123 ($2602) */
+    'tr pen down': () => trClrFlag(rt.craft.turtle, TRF_PENUP),
+    /** Tr Move x,y — routine 114 ($2326) */
+    'tr move'(it) {
+      const p = trParsePair(rt, it)
+      craftTrMove(rt, p.x, p.y)
+    },
+    /** Tr Move Rel dx,dy — routine 115 ($235c): scaled, and nothing drawn */
+    'tr move rel'(it) {
+      const p = trParsePair(rt, it)
+      craftTrStep(rt, p.x.v, p.y.v, 0)
+    },
+    /** Tr Draw x,y — routine 116 ($236c) */
+    'tr draw'(it) {
+      const p = trParsePair(rt, it)
+      craftTrDraw(rt, p.x, p.y)
+    },
+    /** Tr Draw Rel dx,dy — routine 117 ($2394): scaled, and drawn */
+    'tr draw rel'(it) {
+      const p = trParsePair(rt, it)
+      craftTrStep(rt, p.x.v, p.y.v, 1)
+    },
+    /** Tr Proportions x[,y] — routines 125 and 126 ($2622, $2628) */
+    'tr proportions'(it) {
+      const one = (): number | null => (it.atStmtEnd() || it.nm() === ',' ? null : it.evalInt())
+      const x = one()
+      // routine 125 duplicates the stacked value rather than passing a marker,
+      // so the one-argument form really does set both from the same number
+      craftTrProportions(rt, x, it.accept(',') ? one() : x)
+    },
+    /** Tr Set Home x,y — routine 127 ($268a) */
+    'tr set home'(it) {
+      const p = trParsePair(rt, it)
+      craftTrSetHome(rt, p.x, p.y)
+    },
+    /** Tr Home — routine 128 ($26b4) */
+    'tr home': () => craftTrHome(rt),
+    /** Tr Remember X — routine 131 ($26fa) */
+    'tr remember x': () => craftTrRemember(rt, false),
+    /** Tr Remember Y — routine 132 ($2712) */
+    'tr remember y': () => craftTrRemember(rt, true),
+    /** Tr Remember A — routine 133 ($272a) */
+    'tr remember a': () => craftTrRememberA(rt),
+    /** Tr Memorize X — routine 134 ($2734) */
+    'tr memorize x': () => craftTrMemorize(rt, false),
+    /** Tr Memorize Y — routine 135 ($2750) */
+    'tr memorize y': () => craftTrMemorize(rt, true),
+    /** Tr Memorize A — routine 136 ($276c) */
+    'tr memorize a': () => craftTrMemorizeA(rt),
+    /** Tr Exec cmd$[,count] — routines 95 and 96 ($1a48, $1a7c) */
+    'tr exec'(it) {
+      const src = it.evalStr()
+      craftTrExec(rt, src, it.accept(',') ? it.evalInt() : 1)
+    },
   }
+}
+
+/** Tr Forward and Tr Back, which differ only in the sign of their argument */
+function craftTrGo(rt: Runtime, it: Interp, back: boolean): void {
+  craftScreen(rt)
+  const d = trParseArg(rt, it)
+  craftTrForward(rt, back ? trNegArg(rt, d) : d)
 }
 
 /** the bound routines 76, 77 and 78 share: both registers under 32, screen open */
@@ -1448,4 +1641,1155 @@ function craftApply(rt: Runtime, addr: number, len: number, key: Cipher, back: b
     const m = rt.resolveWrite(addr + i)
     if (m) m.data[m.off] = out[i]!
   }
+}
+
+/*
+ * ---- the turtle's fixed point ----
+ *
+ * Transcribed instruction by instruction rather than rewritten in floating
+ * point, because the turtle's position is 16.16 and the line it draws is the
+ * INTEGER half of it: a rounding difference of one part in 65536 accumulates
+ * over a few hundred steps of a spiral into a pixel somewhere else. Every
+ * routine below keeps the original's registers, its word-versus-longword
+ * operand sizes and its rounding, and the comments name the address rather
+ * than the mathematics.
+ *
+ * Four pieces. Routine 110 is an integer square root by Newton's method.
+ * $2220 is cosine as a Taylor series in 0.16. $21e4 puts those together into
+ * sine and cosine for an angle already folded into the first octant, and
+ * routine 109's jump table does the folding. Going the other way, $1ffe is
+ * arcsine over a coefficient table and routine 106 recovers a heading from
+ * the two direction words.
+ */
+
+const u16 = (v: number): number => v & 0xffff
+const hiw = (v: number): number => Math.floor(v / 0x10000) & 0xffff
+/** `lsr.w #1` followed by the `bcc / addq.w #1` that rounds the bit back in */
+const halfUp = (v: number): number => u16((v >>> 1) + (v & 1))
+
+/**
+ * Routine 110 ($2278) — the integer square root everything else leans on.
+ *
+ * Newton, seeded by a normalising shift and iterated until two guesses agree:
+ * `divu.w d3,d4 / add.w d3,d4 / roxr.w #1,d4 / addx.w d5,d4` is the unsigned
+ * mean of the guess and the quotient, with the seventeenth bit carried
+ * through X and the odd rounded up. The argument is decremented first, so 0
+ * and 1 answer themselves, and $ffffffff answers $10000 — which is how 1.0
+ * survives a format with no room for it.
+ */
+function trSqrt(v: number): number {
+  const val = v >>> 0
+  if (val <= 1) return val
+  const d2 = (val - 1) >>> 0
+  if (d2 >= 0xffff0000) return 0x10000
+  let d4 = 0xffff
+  if ((d2 & 0x8000_0000) === 0) {
+    // `asl.l #2,d3 / bvs` — stop as soon as shifting two more bits would
+    // reach the sign, and halve the seed for every step it did not
+    let d3 = d2
+    while ((d3 & 0xe000_0000) === 0) {
+      d3 = (d3 << 2) >>> 0
+      d4 = (d4 >>> 1) & 0xffff
+    }
+  }
+  let d3 = 0
+  // the original spins until the guess stops moving; the bound is far past
+  // where a 32-bit Newton settles and exists only so that a `divu.w` which
+  // overflows -- the 68000 answers that by leaving its operands alone --
+  // cannot hang the interpreter
+  for (let i = 0; i < 40; i++) {
+    d3 = u16(d4)
+    if (d3 === 0) break
+    const q = Math.floor(d2 / d3)
+    d4 = q > 0xffff ? u16(d2) : q
+    const sum = d4 + d3
+    d4 = u16(((sum >>> 1) | (sum & 0x1_0000 ? 0x8000 : 0)) + (sum & 1))
+    if (d4 === d3) break
+  }
+  return u16(d3)
+}
+
+/**
+ * $2220 — cosine of a 0.16 radian angle, as `1 - x²/2 + x⁴/24 - x⁶/720`.
+ *
+ * Each term is `mulu.w` on the previous one's high word, so every one is a
+ * 0.16 value and the series runs out of precision exactly where the format
+ * does. The divisors are written as the two steps the code takes: `divu.w #12
+ * / lsr.w #1` is 24, and `divu.w #360 / lsr.w #1` is 720.
+ */
+function trCos(x: number): number {
+  // `mulu.w d0,d0 / swap / bpl / addq.w #1` -- the high word, rounded up when
+  // the half being discarded had its top bit set
+  const sq = u16(x) * u16(x)
+  const xx = u16(hiw(sq) + (sq & 0x8000 ? 1 : 0))
+  if (xx === 0) return 0x10000
+  let d2 = 0x10000 - halfUp(xx)
+  let w = hiw(xx * xx)
+  if (w === 0) return d2
+  d2 += halfUp(Math.floor(w / 12))
+  w = hiw(w * xx)
+  if (w === 0) return d2
+  return d2 - halfUp(Math.floor(w / 360))
+}
+
+/**
+ * The coefficient table at $208e, read as `mulu.w (a0)+ / divu.w (a0)+ /
+ * lsr.w #1` pairs — each entry is `m / 2d`, and the series they feed is
+ * arcsine's `x + x³/6 + 3x⁵/40 + 5x⁷/112 + …`.
+ *
+ * DEFECT: one nibble wide. The fourth pair is 63/1403, and the coefficient it
+ * stands for is 63/2816, so the divisor should be 1408 ($580) where the file
+ * has 1403 ($57b). The other five are exact. It sits on the eleventh-order
+ * term, so nothing drawn can show it — but it is what the table says and it
+ * is what this reproduces.
+ */
+export const CRAFT_ASIN_TABLE = [3, 20, 5, 56, 35, 576, 63, 1403, 231, 6656, 143, 5120]
+
+/**
+ * $1ffe — arcsine of a 0.16 value, answered in the same binary angle the
+ * heading uses.
+ *
+ * Nine terms: `x³/6` inline, six from the table, and two written out because
+ * their divisors will not fit in a word. The closing `mulu.w #$a2f9 / lsr.l
+ * #1 / add.l / lsr.l #2` is the one conversion here that has to be exact --
+ * $a2f9 plus a half, over four, is 10430.375, and 2^32 over 2π·65536 is
+ * 10430.378.
+ */
+function trAsinSeries(x: number): number {
+  const round = 0x8000
+  let d0 = u16(x)
+  const xx = hiw(u16(x) * u16(x) + round)
+  let w = hiw(u16(x) * xx + round)
+  let d3 = halfUp(Math.floor(w / 3))
+  if (d3 !== 0) {
+    d0 = u16(d0 + d3)
+    let running = true
+    for (let i = 0; i < 6 && running; i++) {
+      w = hiw(w * xx + round)
+      d3 = halfUp(Math.floor((w * CRAFT_ASIN_TABLE[i * 2]!) / CRAFT_ASIN_TABLE[i * 2 + 1]!) & 0xffff)
+      if (d3 === 0) running = false
+      else d0 = u16(d0 + d3)
+    }
+    if (running) {
+      // `mulu.w #$1923 / lsr.l #7 / divu.w #17 / lsr.w #8`, and the same again
+      // over 19: the last two coefficients of the series, too big to tabulate
+      w = hiw(w * xx + round)
+      let q = Math.floor(((w * 0x1923) >>> 7) / 0x11) & 0xffff
+      d3 = u16((q >>> 8) + ((q >>> 7) & 1))
+      if (d3 !== 0) {
+        d0 = u16(d0 + d3)
+        w = hiw(w * xx + round)
+        q = Math.floor(((w * 0x1923) >>> 8) / 0x13) & 0xffff
+        d0 = u16(d0 + u16((q >>> 8) + ((q >>> 7) & 1)))
+      }
+    }
+  }
+  const scaled = d0 * 0xa2f9 + (d0 >>> 1)
+  return ((scaled / 4) | 0) + ((scaled >>> 1) & 1)
+}
+
+/**
+ * $1fba — arcsine over the whole quarter turn.
+ *
+ * Bit 16 set is the magnitude 1.0 a word cannot hold, and answers a right
+ * angle directly. Above sin 45° ($b505) the series has run out of accuracy,
+ * so it reflects: `mulu.w d0,d0 / neg.l d0` is `1 - x²` in 0.32, because 1.0
+ * squared is 2^32 and wraps to nothing, and the root of that is the cosine to
+ * take the arcsine of instead.
+ */
+function trAsin(x: number): number {
+  if ((x & 0x1_0000) !== 0) return 0x4000_0000
+  if (u16(x) >= 0xb505) return (0x4000_0000 - trAsinSeries(trSqrt(-(u16(x) * u16(x)) >>> 0))) | 0
+  return x === 0 ? 0 : trAsinSeries(x)
+}
+
+/**
+ * $21e4 — sine and cosine for an angle already folded into 0..45°.
+ *
+ * `asl.l #3` scales the octant across the whole longword and the multiply by
+ * $c90fdaa2, which is π/4, turns it into 0.16 radians; exactly 45° overflows
+ * that shift and is answered with the constant $c910 instead. Cosine then
+ * comes from the series and sine from `sqrt(1 - cos²)` through the same 0.32
+ * wrap the arcsine uses.
+ */
+function trSinCos8(a: number): { sin: number; cos: number } {
+  let x: number
+  if ((a >>> 0) >= 0x2000_0000) x = 0xc910
+  else {
+    const b = hiw((a << 3) >>> 0)
+    const lo = b * 0xc90f + Math.floor((b * 0xdaa2) / 0x10000)
+    x = u16(hiw(lo) + (lo & 0x8000 ? 1 : 0))
+  }
+  const cos = trCos(x)
+  if (cos === 0) return { sin: 0x10000, cos: 0 }
+  return { sin: trSqrt(-(u16(cos) * u16(cos)) >>> 0), cos }
+}
+
+/** flip the sign bit of a sign-magnitude direction word */
+const trNeg = (v: number): number => (v ^ 0x8000_0000) >>> 0
+
+/**
+ * Routine 109's fold ($2138) — eight cases over the sign of the heading and
+ * which quarter it lands in, each a swap of sine for cosine and a `bchg
+ * #$1f` or two.
+ *
+ * The answer is dx = sin and dy = MINUS cos, which is why a heading of zero
+ * comes out (0, -1): the turtle faces north, the screen's y grows downwards,
+ * and the LOGO convention and the hardware agree with nothing negated later.
+ * Tr Reset caches exactly that pair, `clr.l $34 / move.l #$80010000,$38`,
+ * which is what confirms the format from the other end.
+ */
+function trDirection(angle: number): { dx: number; dy: number } {
+  const a = angle | 0
+  const m = (a < 0 ? -a : a) >>> 0
+  const flip = a < 0
+  let dx: number
+  let dy: number
+  if (m > 0x6000_0000) {
+    const r = trSinCos8((-((m - 0x8000_0000) | 0)) >>> 0)
+    dx = r.sin
+    dy = r.cos
+  } else if (m > 0x4000_0000) {
+    const r = trSinCos8((m - 0x4000_0000) >>> 0)
+    dx = r.cos
+    dy = r.sin
+  } else if (m > 0x2000_0000) {
+    const r = trSinCos8((-((m - 0x4000_0000) | 0)) >>> 0)
+    dx = r.cos
+    dy = trNeg(r.sin)
+  } else {
+    const r = trSinCos8(m)
+    dx = r.sin
+    dy = trNeg(r.cos)
+  }
+  // a negative heading is the positive one mirrored about the vertical: each
+  // of the four cases below the `tst.l d0 / bpl` carries ONE extra `bchg
+  // #$1f,d0` over its positive twin and none of them touches d1
+  return flip ? { dx: trNeg(dx), dy } : { dx, dy }
+}
+
+/**
+ * Routine 101 ($1e10) — degrees to the turtle's binary angle.
+ *
+ * `divs.w #360` first and the remainder pulled into -180..179, which is the
+ * manual's "there is no difference between using 180 or 540 (360+180)". The
+ * scale is `$b60b << 8` plus `$c16c >> 9`, and that pair is 11930464.7 --
+ * 2^32 over 360 to eight figures.
+ */
+function trDegToBam(deg: number): number {
+  let d1 = (deg | 0) % 360
+  if (d1 < -180) d1 += 360
+  else if (d1 >= 180) d1 -= 360
+  const neg = d1 < 0
+  const m = u16(neg ? -d1 : d1)
+  const v = (m * 0xb60b * 256 + halfUpLong(Math.floor((m * 0xc16c) / 256))) | 0
+  return (neg ? -v : v) | 0
+}
+
+/** `lsr.l #1 / bcc / addq.l #1` -- the longword half the degree scale rounds */
+const halfUpLong = (v: number): number => Math.floor(v / 2) + (v & 1)
+
+/**
+ * Routine 100 ($1dee) — the binary angle back to degrees, and the inverse is
+ * NOT the same constant: `asr.l #2 / divs.w #$5b06 / asr.w #7` divides by
+ * 11930624 where routine 101 multiplied by 11930464.7. Thirteen parts in a
+ * million, well under the one degree the answer is rounded to.
+ *
+ * The last two instructions are the manual's promise: -180 becomes +180, so
+ * "the result is always in the range -179 to 180 inclusive".
+ */
+function trBamToDeg(bam: number): number {
+  const q = (((bam | 0) >> 2) / 0x5b06) | 0
+  const s = q >> 7
+  const w = ((s >= 0 && (q & 0x40) !== 0 ? s + 1 : s) << 16) >> 16
+  return w === -180 ? 180 : w
+}
+
+/* ---- the turtle's state, and the keywords over it ---- */
+
+const trFlag = (v: DataView, b: number): boolean => (v.getUint8(TR.flags) & (1 << b)) !== 0
+const trSetFlag = (v: DataView, b: number): void => v.setUint8(TR.flags, v.getUint8(TR.flags) | (1 << b))
+const trClrFlag = (v: DataView, b: number): void => v.setUint8(TR.flags, v.getUint8(TR.flags) & ~(1 << b))
+/** the integer half of a 16.16 coordinate, which is the pixel it draws on */
+const trWhole = (v: number): number => v >> 16
+
+/**
+ * Routine 98 ($1da2) — Tr Reset, and the initial state of everything.
+ *
+ * `move.b #$3,$2e(a1)` is the interesting instruction: it sets the two
+ * "which representation is live" bits and CLEARS the rest, so the pen goes
+ * DOWN (bit 2 clear is down), the position is forgotten and will be taken
+ * from the screen again, the proportions switch off, and the Tr Remember
+ * slots are dropped. The proportion VALUES at $4c/$50 are not touched, so a
+ * later Tr Proportions with one parameter can still see the old other half.
+ */
+export function craftTrReset(rt: Runtime): void {
+  trResetBlock(rt.craft.turtle)
+}
+
+/**
+ * The same, over the bytes alone, because a fresh CraftState needs it too:
+ * AMOS runs every extension's Default entry before a program starts, so the
+ * flags are already 3 by the time the first keyword sees them and a turtle
+ * with a zeroed block is a state the machine never presents.
+ */
+function trResetBlock(t: DataView): void {
+  t.setUint8(TR.flags, 3)
+  t.setInt32(TR.angle, 0)
+  t.setUint32(TR.dx, 0)
+  t.setUint32(TR.dy, 0x8001_0000)
+  t.setUint8(TR.patCnt, 0xf)
+  t.setUint8(TR.frstDot, 1)
+  t.setInt32(TR.left, 0)
+  t.setInt32(TR.remA, 0)
+}
+
+/**
+ * Routine 113 ($22d4) — where the turtle is, placing it first if it has never
+ * been anywhere.
+ *
+ * A turtle with bit 3 clear is put in the middle of the current screen, or at
+ * 160,100 if none is open, with a fraction of $8000 — half a pixel, so the
+ * turtle stands in the middle of one rather than on its corner and a step of
+ * half a pixel either way still rounds to where it started. The home is set
+ * to the same place, which is the manual's "the coordinates of the home are
+ * in the middle of the screen by default".
+ */
+function craftTrPos(rt: Runtime): { x: number; y: number } {
+  const t = rt.craft.turtle
+  if (trFlag(t, TRF_PLACED)) return { x: t.getInt32(TR.x), y: t.getInt32(TR.y) }
+  trSetFlag(t, TRF_PLACED)
+  const s = rt.screens.get(rt.currentIndex)
+  const x = (((s ? s.width >> 1 : 0xa0) & 0xffff) << 16) | 0x8000
+  const y = (((s ? s.height >> 1 : 0x64) & 0xffff) << 16) | 0x8000
+  t.setInt32(TR.x, x | 0)
+  t.setInt32(TR.y, y | 0)
+  t.setInt32(TR.homeX, x | 0)
+  t.setInt32(TR.homeY, y | 0)
+  return { x: x | 0, y: y | 0 }
+}
+
+/**
+ * Routine 109 ($2106) — the heading as a pair of steps, computed from $30 if
+ * the sine and cosine on hand are stale.
+ *
+ * The pair of `bset`/`btst` at the top is the whole design of this group:
+ * $30 and $34/$38 are two spellings of one heading and each is recomputed
+ * from the other only when someone asks for it. A turtle with NEITHER bit set
+ * has never been touched, and this is where `Tr Reset` runs for it.
+ */
+function craftTrDir(rt: Runtime): { dx: number; dy: number } {
+  const t = rt.craft.turtle
+  if (trFlag(t, TRF_DIR)) return { dx: t.getUint32(TR.dx), dy: t.getUint32(TR.dy) }
+  trSetFlag(t, TRF_DIR)
+  if (!trFlag(t, TRF_ANGLE)) craftTrReset(rt)
+  const d = trDirection(t.getInt32(TR.angle))
+  t.setUint32(TR.dx, d.dx)
+  t.setUint32(TR.dy, d.dy)
+  return d
+}
+
+/**
+ * Routine 106 ($1f56) — the heading as an angle, computed from the two steps
+ * if the angle on hand is stale.
+ *
+ * The quadrant comes out of the two sign bits and the size out of one
+ * arcsine, which is enough because the pair is always a unit vector. It reads
+ * dy's sign with `tst.w $38(a1)` — a WORD test on the high half of the
+ * longword, which only makes sense for sign-magnitude and is the second
+ * witness for that format.
+ */
+function craftTrAngle(rt: Runtime): number {
+  const t = rt.craft.turtle
+  if (trFlag(t, TRF_ANGLE)) return t.getInt32(TR.angle)
+  trSetFlag(t, TRF_ANGLE)
+  if (!trFlag(t, TRF_DIR)) craftTrReset(rt)
+  const dx = t.getUint32(TR.dx)
+  const south = (t.getUint32(TR.dy) & 0x8000_0000) === 0
+  const west = (dx & 0x8000_0000) !== 0
+  const a = trAsin(dx & 0x7fff_ffff)
+  const v = south ? (west ? a - 0x8000_0000 : 0x8000_0000 - a) : west ? -a : a
+  t.setInt32(TR.angle, v | 0)
+  return v | 0
+}
+
+/**
+ * Routine 217 ($3328) — the failure every out-of-range turtle argument takes,
+ * and the one place bit 4 of the flags is read.
+ *
+ * Inside `Tr Exec` it is CRAFT's own "Turtle error: illegal function call";
+ * outside it is AMOS error 23. `bclr` rather than `btst`, so the bit is spent
+ * on the way through and a second failure in the same string reports as the
+ * plain AMOS one.
+ */
+function craftTrRange(rt: Runtime): never {
+  const t = rt.craft.turtle
+  const inTcl = trFlag(t, TRF_TCL)
+  trClrFlag(t, TRF_TCL)
+  if (!inTcl) illegal()
+  return craftError(5)
+}
+
+/** an argument as routine 118 ($23a4) leaves it: 16.16, or the omitted marker */
+interface TrArg {
+  /** the value shifted into 16.16; zero when omitted */
+  v: number
+  omitted: boolean
+}
+
+/**
+ * Routine 118 ($23a4) — every coordinate and distance in the group goes
+ * through it.
+ *
+ * $80000000, AMOS's marker for a parameter written as nothing, comes back
+ * with the carry set and a value of zero. Everything else is bounded
+ * -32767..32767 by a pair of unsigned compares and shifted up sixteen bits.
+ * NOTE the bound is not symmetric with a word: `cmpi.l #$ffff8001,d0 / bcc`
+ * admits -32767 and below that falls through to `cmpi.l #$8000,d0 / Rbcc`,
+ * so -32768 is rejected where -32767 is fine.
+ */
+function trArgOf(rt: Runtime, raw: number, omitted: boolean): TrArg {
+  if (omitted) return { v: 0, omitted: true }
+  if (raw < -32767 || raw > 32767) craftTrRange(rt)
+  return { v: (raw << 16) | 0, omitted: false }
+}
+
+/** the same, read straight out of the token stream */
+function trParseArg(rt: Runtime, it: Interp): TrArg {
+  if (it.atStmtEnd() || it.nm() === ',') return { v: 0, omitted: true }
+  return trArgOf(rt, it.evalInt(), false)
+}
+
+/** `x,y` -- the pair Tr Move, Tr Draw, Tr Set Home and the Rel forms all take */
+function trParsePair(rt: Runtime, it: Interp): { x: TrArg; y: TrArg } {
+  const x = trParseArg(rt, it)
+  it.expect(',')
+  return { x, y: trParseArg(rt, it) }
+}
+
+/** the screen-mode bits routines 105 and $246e read out of `$48(a0)`: HIRES and LACE */
+function trMode(rt: Runtime): number {
+  const s = rt.screens.get(rt.currentIndex)
+  if (!s) return 0
+  return (s.hires ? 0x8000 : 0) | (s.laced ? 4 : 0)
+}
+
+/**
+ * $24aa — the 16.16 by 16.16 multiply Tr Proportions is applied with, built
+ * out of three `mulu.w`s and a `muls.w` with the signs handled by hand.
+ */
+function trMulFix(a: number, b: number): number {
+  const aLo = u16(a)
+  const bLo = u16(b)
+  const bHi = (b >>> 16) & 0xffff
+  const d7 = Math.floor((bLo * aLo + 0x8000) / 0x10000)
+  const d5 = a < 0 ? -((((-a) >>> 16) & 0xffff) * bLo) : ((a >>> 16) & 0xffff) * bLo
+  const d6 = bHi & 0x8000 ? -(u16(0x10000 - bHi) * aLo) : bHi * aLo
+  const hh = u16((a >> 16) * (b >> 16))
+  return (((hh << 16) | 0) + d5 + d6 + d7) | 0
+}
+
+/**
+ * $246e — the aspect correction and the proportions, in that order.
+ *
+ * A hires screen's pixels are half as wide as the square ones the turtle
+ * thinks in, so a step across gets doubled; an interlaced one's are half as
+ * tall, so a step down does. A screen that is both gets neither, and that is
+ * right: hires interlaced pixels are square again.
+ */
+function trScale(rt: Runtime, dx: number, dy: number): { dx: number; dy: number } {
+  const t = rt.craft.turtle
+  const mode = trMode(rt)
+  let x = dx
+  let y = dy
+  if (mode === 0x8000) x = (x + x) | 0
+  else if (mode === 4) y = (y + y) | 0
+  if (trFlag(t, TRF_PROP)) {
+    x = trMulFix(x, t.getInt32(TR.propX))
+    y = trMulFix(y, t.getInt32(TR.propY))
+  }
+  return { dx: x, dy: y }
+}
+
+/**
+ * Routine 105 ($1f3a) — the same aspect correction the other way round, for
+ * Tr Towards and Tr Distance, which start from a screen delta and want a
+ * square one.
+ *
+ * DEFECT: and a clear one, because the same eight instructions are written
+ * correctly at $246e. The hires test loads the screen mode into d4 and then
+ * the interlace test reads **d3**, which the caller left holding half the
+ * turtle's current y. So the interlace half of this correction never fires
+ * for any y that is not exactly 3, and `Tr Towards` on an interlaced screen
+ * aims at the wrong point. The register is reproduced rather than repaired —
+ * a caller's d3 goes in and the same comparison is made against it.
+ */
+function trUnscale(rt: Runtime, dx: number, dy: number, d3: number): { dx: number; dy: number } {
+  const mode = trMode(rt)
+  if (mode === 0x8000) return { dx: dx >> 1, dy }
+  if (u16(d3) === 3) return { dx, dy: dy >> 1 }
+  return { dx, dy }
+}
+
+/**
+ * Routine 119 ($23d2) — every step the turtle takes ends here: scale the
+ * delta, add it to the position, and draw the segment if the caller asked.
+ *
+ * `d2` carries three things at once, which is why the callers set it to
+ * -1, 0, 1 and $ff rather than a flag. NEGATIVE skips the scaling, because an
+ * absolute Tr Draw has already worked in screen pixels; ZERO means do not
+ * draw; anything else draws.
+ *
+ * The line goes out as `Move` then `Draw` on graphics.library with the
+ * RastPort's dash state managed by hand around it, which is what `$54` and
+ * `$55` in the block are for — see craftTrLine.
+ */
+function craftTrStep(rt: Runtime, dx: number, dy: number, mode: number): void {
+  const t = rt.craft.turtle
+  const d = mode < 0 ? { dx, dy } : trScale(rt, dx, dy)
+  const from = craftTrPos(rt)
+  const to = { x: (from.x + d.dx) | 0, y: (from.y + d.dy) | 0 }
+  t.setInt32(TR.x, to.x)
+  t.setInt32(TR.y, to.y)
+  if ((mode & 0xffff) === 0) {
+    t.setUint8(TR.patCnt, 0xf)
+    t.setUint8(TR.frstDot, 1)
+    return
+  }
+  craftTrLine(rt, trWhole(from.x), trWhole(from.y), trWhole(to.x), trWhole(to.y))
+}
+
+/**
+ * The drawing half of routine 119, and the two bytes of RastPort state the
+ * turtle carries between segments.
+ *
+ * `$55` is FRST_DOT in rp_Flags: 1 for the first line after a jump and 0
+ * afterwards, so a chain of turtle segments does not plot its joins twice.
+ * `$54` is meant to be rp_linpatcnt, so that a `Set Line` dash runs unbroken
+ * along a turtle path. It does not work, and the reason is one byte wide:
+ * routine 119 writes it to `$1f(a1)` and reads it back from there, and
+ * rp_linpatcnt is at $1e — $1f is the `dummy` field graphics.library ignores.
+ * So `$54` round-trips through a hole and is always $f. It is kept here
+ * because =Tr Base publishes it and a program can read it.
+ *
+ * The dash still continues, because graphics.library's `Draw` carries
+ * rp_linpatcnt on its own and nothing here resets it; that is `linePtrnCont`
+ * below. What the routine does do to it is the second half of the same slip:
+ * the restore is `andi.l #$ff00fffe / or.l d6`, which KEEPS the counter the
+ * draw left and ORs the one from before it back on top, so a Set Line phase
+ * comes out of a turtle segment with bits from both.
+ *
+ * DEVIATION: FRST_DOT is not modelled. This port's Bresenham always plots the
+ * first pixel, so a chained segment's join is drawn twice. With the default
+ * solid pattern that is the same pixel in the same colour and invisible; with
+ * a Set Line dash it advances the phase one step further than the machine.
+ */
+function craftTrLine(rt: Runtime, x0: number, y0: number, x1: number, y1: number): void {
+  const t = rt.craft.turtle
+  const s = craftScreen(rt)
+  const before = s.rp.linePatCnt
+  const cont = s.rp.linePtrnCont
+  s.rp.linePtrnCont = true
+  s.line(x0, y0, x1, y1)
+  s.rp.linePatCnt = s.rp.linePatCnt | before
+  s.rp.linePtrnCont = cont
+  t.setUint8(TR.frstDot, 0)
+}
+
+/**
+ * Routine 114 ($2326) — Tr Move, which is the only mover that does not go
+ * through routine 119: it writes the position outright, so no aspect and no
+ * proportions.
+ *
+ * "Either parameter may be omitted, just remember to write the comma", and
+ * the omitted halves fall back correctly here: an omitted y is still in d1
+ * from routine 113 and an omitted x is reloaded from $3c. Tr Draw and Tr Set
+ * Home both try the same trick and both get it wrong; see their notes.
+ */
+function craftTrMove(rt: Runtime, x: TrArg, y: TrArg): void {
+  const t = rt.craft.turtle
+  const cur = craftTrPos(rt)
+  const ny = y.omitted ? cur.y : (y.v & ~0xffff) | 0x8000
+  const nx = x.omitted ? t.getInt32(TR.x) : (x.v & ~0xffff) | 0x8000
+  t.setInt32(TR.x, nx | 0)
+  t.setInt32(TR.y, ny | 0)
+  t.setUint8(TR.patCnt, 0xf)
+  t.setUint8(TR.frstDot, 1)
+}
+
+/**
+ * Routine 116 ($236c) — Tr Draw, which turns the absolute target into a delta
+ * and hands it to routine 119 with the scaling switched off.
+ *
+ * DEFECT: an omitted y is not handled. Routine 118 answers an omission by
+ * zeroing **d0**, and the subtraction that would have made d1 a delta is
+ * skipped along with it — so d1 is still the CURRENT y that routine 113 left
+ * there, and routine 119 adds it to the position. `Tr Draw 100,` draws to
+ * twice the current y. An omitted x is fine, because there d0 really is the
+ * zero that makes the delta nothing. Tr Move next door, which assigns instead
+ * of subtracting, gets both right.
+ */
+function craftTrDraw(rt: Runtime, x: TrArg, y: TrArg): void {
+  const t = rt.craft.turtle
+  const cur = craftTrPos(rt)
+  const dy = y.omitted ? cur.y : (((y.v & ~0xffff) | 0x8000) - t.getInt32(TR.y)) | 0
+  const dx = x.omitted ? 0 : (((x.v & ~0xffff) | 0x8000) - t.getInt32(TR.x)) | 0
+  craftTrStep(rt, dx, dy, -1)
+}
+
+/**
+ * Routine 107 ($20a6) — Tr Forward, the multiply that turns a heading and a
+ * distance into a step.
+ *
+ * The sign handling is the part worth keeping: `neg.w d3` leaves the DISTANCE
+ * negative in the high word while making the low word positive, so `eor.l
+ * d3,d2` against the sign-magnitude direction gives the sign of the product
+ * in one bit 31 without either operand having been converted. `btst #$10` is
+ * the magnitude of exactly 1.0, which `mulu.w` cannot see because it lives in
+ * bit 16 — that case shifts the distance up instead of multiplying.
+ */
+function craftTrForward(rt: Runtime, arg: TrArg): void {
+  const t = rt.craft.turtle
+  const dir = craftTrDir(rt)
+  const dist = arg.v >> 16
+  // the high word keeps the sign while the low word carries the magnitude
+  const d3 = dist < 0 ? (0xffff_0000 | u16(-dist)) >>> 0 : dist
+  const gun = (v: number): number => {
+    const mag = (v & 0x1_0000) !== 0 ? (u16(d3) << 16) >>> 0 : u16(d3) * u16(v)
+    return ((v ^ d3) & 0x8000_0000) !== 0 ? -mag | 0 : mag | 0
+  }
+  craftTrStep(rt, gun(dir.dx), gun(dir.dy), trFlag(t, TRF_PENUP) ? 0 : 0xff)
+}
+
+/**
+ * Routine 104 ($1e7a) — Tr Towards, which points the turtle at a place
+ * instead of at an angle.
+ *
+ * Both ends are halved before the subtraction so the difference cannot
+ * overflow, then the delta is normalised onto a unit vector by dividing both
+ * halves by their own length — `divu.w d2,d0` twice over the root from
+ * routine 110 — and stored as the direction, leaving the ANGLE stale for
+ * routine 106 to work out if anybody asks. A target the turtle is already
+ * standing on turns it not at all.
+ */
+function craftTrTowards(rt: Runtime, x: TrArg, y: TrArg): void {
+  const cur = craftTrPos(rt)
+  const d2 = cur.x >> 1
+  const d3 = cur.y >> 1
+  let d0 = ((((x.v & ~0xffff) | 0x8000) >> 1) - d2) | 0
+  let d1 = ((((y.v & ~0xffff) | 0x8000) >> 1) - d3) | 0
+  if (d0 === 0 && d1 === 0) return
+  const sc = trUnscale(rt, d0, d1, d3)
+  d0 = sc.dx
+  d1 = sc.dy
+  const d6 = d0
+  const d7 = d1
+  let a = Math.abs(d0) >>> 0
+  let b = Math.abs(d1) >>> 0
+  // `lsl.l #1` on each in turn with the carry undoing it: both go up together
+  // until ONE of them would lose its top bit, so the squares below keep as
+  // many significant digits as a longword has room for
+  while ((a & 0x8000_0000) === 0 && (b & 0x8000_0000) === 0) {
+    a = (a << 1) >>> 0
+    b = (b << 1) >>> 0
+  }
+  if (hiw(a) === 0) {
+    trStoreDir(rt, 0, 0x10000, d6, d7)
+    return
+  }
+  if (hiw(b) === 0) {
+    trStoreDir(rt, 0x10000, 0, d6, d7)
+    return
+  }
+  let sq = hiw(a) * hiw(a) + hiw(b) * hiw(b)
+  if (sq > 0xffff_ffff) {
+    sq = trHalfCarry(sq)
+    a = a >>> 1
+    b = b >>> 1
+  }
+  const len = trSqrt(sq)
+  // `btst #$10,d2` — a length of exactly 1.0 skips both divisions, and the
+  // `swap / clr.w / swap` that follows keeps the low word either way
+  if ((len & 0x1_0000) === 0) {
+    a = trDivW(a, len)
+    b = trDivW(b, len)
+  }
+  trStoreDir(rt, a & 0xffff, b & 0xffff, d6, d7)
+}
+
+/** `add.l / bcs / roxr.l #1 / lsr.l #1` — the 33-bit sum brought back into 30 bits */
+const trHalfCarry = (sum: number): number => ((0x8000_0000 | ((sum % 0x1_0000_0000) >>> 1)) >>> 1) >>> 0
+
+/** `divu.w`, which on a quotient too big for a word leaves its operand alone */
+function trDivW(v: number, by: number): number {
+  const q = Math.floor(v / by)
+  return q > 0xffff ? v : q
+}
+
+/** the tail of routine 104: put the signs back on and mark the angle stale */
+function trStoreDir(rt: Runtime, dx: number, dy: number, sx: number, sy: number): void {
+  const t = rt.craft.turtle
+  t.setUint32(TR.dx, sx < 0 ? (dx | 0x8000_0000) >>> 0 : dx)
+  t.setUint32(TR.dy, sy < 0 ? (dy | 0x8000_0000) >>> 0 : dy)
+  trSetFlag(t, TRF_DIR)
+  trClrFlag(t, TRF_ANGLE)
+}
+
+/**
+ * Routine 121 ($2580) — =Tr Distance, Pythagoras over the same normalising
+ * shift Tr Towards uses, with the shift count in d6 undone at the end.
+ *
+ * It goes through routine 105, so it inherits that routine's interlace bug:
+ * the vertical half of the aspect correction is tested against a register the
+ * caller left the turtle's y in.
+ */
+function craftTrDistance(rt: Runtime, x: TrArg, y: TrArg): number {
+  const cur = craftTrPos(rt)
+  const d2 = cur.x >> 1
+  const d3 = cur.y >> 1
+  let d0 = Math.abs(((((x.v & ~0xffff) | 0x8000) >> 1) - d2) | 0) >>> 0
+  let d1 = Math.abs(((((y.v & ~0xffff) | 0x8000) >> 1) - d3) | 0) >>> 0
+  const sc = trUnscale(rt, d0 | 0, d1 | 0, d3)
+  d0 = sc.dx >>> 0
+  d1 = sc.dy >>> 0
+  /*
+   * DEFECT: and a hard one. The normalising loop is `lsl.l #1,d0 / bcs / lsl.l
+   * #1,d1 / bcc` back on itself, with nothing to stop it if BOTH are zero. A
+   * carry can never appear, so `Tr Distance(Tr X Pos, Tr Y Pos)` — the
+   * distance from the turtle to where it is standing — locks the machine up.
+   * Tr Towards, which normalises the same way, tests for the zero pair first
+   * and returns; routine 121 does not.
+   *
+   * DEVIATION: a port cannot reproduce a hang, so this answers 0. It is the
+   * value the arithmetic would reach if the loop terminated.
+   */
+  if (d0 === 0 && d1 === 0) return 0
+  // d6 counts the normalising shifts, one behind because `addq.l #1,d6` runs
+  // at the top of the loop and the last pass shifts nothing
+  let d6 = -2
+  for (;;) {
+    d6++
+    if ((d0 & 0x8000_0000) !== 0 || (d1 & 0x8000_0000) !== 0) break
+    d0 = (d0 << 1) >>> 0
+    d1 = (d1 << 1) >>> 0
+  }
+  let sq = hiw(d0) * hiw(d0) + hiw(d1) * hiw(d1)
+  if (sq > 0xffff_ffff) {
+    sq = trHalfCarry(sq)
+    d6--
+  }
+  const r = trSqrt(sq)
+  const out = d6 < 0 ? (r << -d6) >>> 0 : r >>> d6
+  const lost = d6 > 0 && (r & (1 << (d6 - 1))) !== 0
+  return (out + (lost ? 1 : 0)) | 0
+}
+
+/**
+ * Routine 127 ($268a) — Tr Set Home.
+ *
+ * DEFECT: the two fallbacks for an omitted parameter are CROSSED. The first
+ * value off the stack is y and its fallback loads `$44`, the home X; the
+ * second is x and its fallback loads `$48`, the home Y. So `Tr Set Home 10,`
+ * moves the home's y onto the old home's x, and `Tr Set Home ,20` does the
+ * mirror of it. Routine 114 next door reaches the same "keep what was there"
+ * by a different route and gets it right, which is what makes this a slip
+ * rather than a design.
+ */
+function craftTrSetHome(rt: Runtime, x: TrArg, y: TrArg): void {
+  const t = rt.craft.turtle
+  craftTrPos(rt)
+  const d1 = y.omitted ? t.getInt32(TR.homeX) : y.v
+  const d0 = x.omitted ? t.getInt32(TR.homeY) : x.v
+  t.setInt32(TR.homeX, ((d0 & ~0xffff) | 0x8000) | 0)
+  t.setInt32(TR.homeY, ((d1 & ~0xffff) | 0x8000) | 0)
+}
+
+/**
+ * Routine 128 ($26b4) — Tr Home: the angle back to zero and a Tr Move onto
+ * the home coordinates.
+ *
+ * DEFECT: the coordinates are handed to Tr Move as `moveq #0,d0 / move.w
+ * $44(a1),d0`, which ZERO-extends the integer half. A home with a negative
+ * coordinate therefore arrives at routine 118 as 32768 or more and is thrown
+ * out — so `Tr Set Home -10,50` followed by `Tr Home` is error 23 rather than
+ * a move. Everything else in the group treats a negative coordinate as
+ * ordinary.
+ */
+function craftTrHome(rt: Runtime): void {
+  const t = rt.craft.turtle
+  craftTrPos(rt)
+  const hx = (t.getInt32(TR.homeX) >>> 16) & 0xffff
+  t.setInt32(TR.angle, 0)
+  trSetFlag(t, TRF_ANGLE)
+  trClrFlag(t, TRF_DIR)
+  const hy = (t.getInt32(TR.homeY) >>> 16) & 0xffff
+  craftTrMove(rt, trArgOf(rt, hx, false), trArgOf(rt, hy, false))
+}
+
+/**
+ * Routines 131 and 132 ($26fa, $2712) — Tr Remember X and Y, and the one
+ * thing they do beyond storing: the FIRST of them to run also primes the
+ * OTHER slot from the matching home coordinate, so a Tr Memorize Y after only
+ * a Tr Remember X puts the turtle on the home's y rather than on nothing.
+ */
+function craftTrRemember(rt: Runtime, wantY: boolean): void {
+  const t = rt.craft.turtle
+  const p = craftTrPos(rt)
+  t.setInt32(wantY ? TR.remY : TR.remX, wantY ? p.y : p.x)
+  if (trFlag(t, TRF_REM)) return
+  trSetFlag(t, TRF_REM)
+  t.setInt32(wantY ? TR.remX : TR.remY, t.getInt32(wantY ? TR.homeX : TR.homeY))
+}
+
+/** Routines 134 and 135 ($2734, $2750): the slot, or the home if nothing was ever remembered */
+function craftTrMemorize(rt: Runtime, wantY: boolean): void {
+  const t = rt.craft.turtle
+  craftTrPos(rt)
+  const from = trFlag(t, TRF_REM) ? (wantY ? TR.remY : TR.remX) : wantY ? TR.homeY : TR.homeX
+  t.setInt32(wantY ? TR.y : TR.x, t.getInt32(from))
+}
+
+/**
+ * Routine 126 ($2628) — Tr Proportions x[,y].
+ *
+ * "The limits of the parameters are -16 to 16 inclusive, and zero is not
+ * allowed", and the check is exactly that pair of unsigned compares. An
+ * omitted parameter leaves that coefficient alone; the ONE-argument form
+ * (routine 125) is `move.l (a3),-(a3)`, which duplicates the stacked value so
+ * both coefficients get it — "the x coefficient is used for the both
+ * coordinates".
+ *
+ * The flag at bit 5 is recomputed from the pair afterwards rather than set,
+ * so putting both back to 1 switches the scaling off again and costs nothing.
+ */
+function craftTrProportions(rt: Runtime, xs: number | null, ys: number | null): void {
+  const t = rt.craft.turtle
+  const one = (v: number | null): number => {
+    if (v === null) return 0
+    if (v === 0) craftTrRange(rt)
+    if (v < -16 || v > 16) craftTrRange(rt)
+    return (v << 16) | 0
+  }
+  const py = one(ys)
+  const px = one(xs)
+  if (px !== 0) t.setInt32(TR.propX, px)
+  if (py !== 0) t.setInt32(TR.propY, py)
+  if (t.getInt32(TR.propX) === 0x10000 && t.getInt32(TR.propY) === 0x10000) trClrFlag(t, TRF_PROP)
+  else trSetFlag(t, TRF_PROP)
+}
+
+/** Routine 99 ($1dd2) — Tr Angle: the heading outright, leaving the direction stale */
+function craftTrSetAngle(rt: Runtime, deg: number): void {
+  const t = rt.craft.turtle
+  t.setInt32(TR.angle, trDegToBam(deg))
+  trSetFlag(t, TRF_ANGLE)
+  trClrFlag(t, TRF_DIR)
+}
+
+/**
+ * Routine 103 ($1e62) — Tr Right, and Tr Left through it: routine 102 is
+ * `neg.l (a3) / Rbra routine 103`, negating the argument where it sits on the
+ * stack rather than duplicating the routine.
+ */
+function craftTrTurn(rt: Runtime, deg: number): void {
+  const t = rt.craft.turtle
+  const a = craftTrAngle(rt)
+  t.setInt32(TR.angle, (a + trDegToBam(deg)) | 0)
+  trClrFlag(t, TRF_DIR)
+}
+
+/** Routine 108 ($2100) — Tr Back, `neg.l (a3)` in front of Tr Forward */
+function trNegArg(rt: Runtime, a: TrArg): TrArg {
+  return a.omitted ? a : trArgOf(rt, -(a.v >> 16), false)
+}
+
+/** Routine 133 ($272a) — Tr Remember A. It does NOT set the remembered flag */
+function craftTrRememberA(rt: Runtime): void {
+  rt.craft.turtle.setInt32(TR.remA, craftTrAngle(rt))
+}
+
+/** Routine 136 ($276c) — Tr Memorize A, which reads a slot Tr Reset zeroes */
+function craftTrMemorizeA(rt: Runtime): void {
+  const t = rt.craft.turtle
+  t.setInt32(TR.angle, t.getInt32(TR.remA))
+  trSetFlag(t, TRF_ANGLE)
+  trClrFlag(t, TRF_DIR)
+}
+
+/**
+ * Routine 95 ($1a48) — Tr Exec's repeat count. "If the count is specified,
+ * the string is executed several (0-2000) times", and the guard is `cmpi.l
+ * #$7d0,d0 / Rbhi routine 206` — UNSIGNED, so a negative count is a large
+ * one and error 23 rather than nothing. A count of zero runs the string not
+ * at all, because `subq.l #1,d0 / bcs` leaves before the first pass.
+ */
+function craftTrExec(rt: Runtime, src: string, count: number): void {
+  if ((count >>> 0) > 2000) illegal()
+  for (let i = 0; i < count; i++) craftTclRun(rt, src)
+}
+
+/* ---- TCL, the Turtle Control Language ---- */
+
+/** the cursor routine 96 keeps in a0 and d7 */
+interface TclCursor {
+  s: string
+  i: number
+  n: number
+}
+
+/** error 4, "Turtle error: bad syntax" -- $1ac6, which spends the TCL bit first */
+function tclSyntax(rt: Runtime): never {
+  trClrFlag(rt.craft.turtle, TRF_TCL)
+  return craftError(4)
+}
+
+/** error 6, "Turtle error: illegal number of parameters" -- $1ad6 */
+function tclArity(rt: Runtime): never {
+  trClrFlag(rt.craft.turtle, TRF_TCL)
+  return craftError(6)
+}
+
+/**
+ * $1ada — collect one command name.
+ *
+ * At most TWO capitals, because that is the longest name in the table; the
+ * lower case after them is skipped, which is how `Forward` and `F` are the
+ * same command and what the manual means by "only capital letters are
+ * necessary in command names". A name ends at a space, a semicolon, a sign,
+ * a comma or a digit, and anything else is a syntax error.
+ *
+ * The odd instruction is the one that shortens `H` to a single letter. There
+ * is no two-letter command beginning with H, so allowing a second capital
+ * could only ever produce a name that is not in the table; cutting it short
+ * lets `H` butt straight up against the next command. It also means that
+ * HOME spelled in full capitals parses as `H` and then tries to read `OM` as
+ * the next command, which is a syntax error — the manual's "only capital
+ * letters are NECESSARY" turns out to be load-bearing.
+ */
+function tclWord(rt: Runtime, c: TclCursor): string {
+  let ch = 0
+  for (;;) {
+    if (c.i >= c.n) return ''
+    ch = c.s.charCodeAt(c.i++)
+    if (ch <= 0x20 || ch === 0x3b) continue
+    break
+  }
+  if (ch < 0x41 || ch > 0x5a) tclSyntax(rt)
+  let out = ''
+  let room = 2
+  for (;;) {
+    room--
+    if (room < 0) {
+      c.i--
+      return out
+    }
+    out += String.fromCharCode(ch)
+    if (ch === 0x48 && room === 1) room--
+    let next = 0
+    for (;;) {
+      if (c.i >= c.n) return out
+      next = c.s.charCodeAt(c.i++)
+      if (next <= 0x20 || next === 0x3b || (next >= 0x2b && next <= 0x2d) || (next >= 0x30 && next <= 0x39)) {
+        c.i--
+        return out
+      }
+      if (next < 0x2b || (next > 0x2d && next < 0x30) || (next > 0x39 && next < 0x41)) tclSyntax(rt)
+      if (next <= 0x5a) break
+      if (next < 0x61 || next > 0x7a) tclSyntax(rt)
+    }
+    ch = next
+  }
+}
+
+/** what $1b6c leaves behind: a value, and whether a comma followed it */
+interface TclNum {
+  v: number
+  omitted: boolean
+  /** -1 nothing was there, 0 a comma ended it, 1 it ended by itself */
+  kind: number
+}
+
+/**
+ * $1b6c — one numeric argument.
+ *
+ * Decimal only, with an optional sign, and the accumulate is `add.l d2,d2`
+ * three times over with a spare copy added back, so ten. Every one of those
+ * adds is followed by `bcs` onto the syntax error, which is how a number
+ * bigger than a longword is reported.
+ *
+ * A space INSIDE a number ends it: d3 is set on the first space and tested
+ * before the next digit is taken, and the flag is cleared again at the top of
+ * every iteration so it only ever means "the character before this one was a
+ * space".
+ */
+function tclNumber(rt: Runtime, c: TclCursor): TclNum {
+  let ch = 0
+  for (;;) {
+    if (c.i >= c.n) return { v: 0, omitted: true, kind: -1 }
+    ch = c.s.charCodeAt(c.i++)
+    if (ch <= 0x20) continue
+    break
+  }
+  if (ch === 0x3b) return { v: 0, omitted: true, kind: -1 }
+  if (ch === 0x2c) return { v: 0, omitted: true, kind: 0 }
+  let neg = false
+  let acc = 0
+  if (ch === 0x2d) neg = true
+  else if (ch !== 0x2b) {
+    const d = ch - 0x30
+    if (d < 0 || d > 9) {
+      c.i--
+      return { v: 0, omitted: true, kind: -1 }
+    }
+    acc = d
+  }
+  let kind = 1
+  for (;;) {
+    let spaced = false
+    let done = false
+    for (;;) {
+      if (c.i >= c.n) {
+        done = true
+        break
+      }
+      ch = c.s.charCodeAt(c.i++)
+      if (ch <= 0x20) {
+        spaced = true
+        continue
+      }
+      break
+    }
+    if (done) break
+    if (ch === 0x3b) break
+    if (ch === 0x2c) {
+      kind = 0
+      break
+    }
+    const d = ch - 0x30
+    if (spaced || d < 0 || d > 9) {
+      c.i--
+      break
+    }
+    acc = acc * 10 + d
+    if (acc > 0xffff_ffff) tclSyntax(rt)
+  }
+  let v = acc | 0
+  if (neg) {
+    if (acc === 0x8000_0000) tclSyntax(rt)
+    v = -v | 0
+  }
+  return { v, omitted: false, kind }
+}
+
+/**
+ * The table at $1c88 — twenty-two commands, every one of them a `Rbra` onto
+ * the routine its AMOS keyword uses, so nothing in TCL is a second
+ * implementation of anything. The exception is `I`/`P`, which have no keyword
+ * at all and go straight to SetAPen and SetBPen.
+ *
+ * `mask` is the byte after the name and it is read one bit at a time: bit n-1
+ * set means "stopping after n arguments is allowed", so 1 is exactly one
+ * argument, 2 is exactly two, 3 is one or two, and 0 is none.
+ */
+interface TclCmd {
+  mask: number
+  run: (rt: Runtime, a: TclNum[]) => void
+}
+
+function tclTable(): Record<string, TclCmd> {
+  const arg = (rt: Runtime, a: TclNum[], n: number): TrArg =>
+    a[n] === undefined || a[n]!.omitted ? { v: 0, omitted: true } : trArgOf(rt, a[n]!.v, false)
+  const raw = (a: TclNum[], n: number): number => (a[n] === undefined || a[n]!.omitted ? 0 : a[n]!.v)
+  return {
+    A: { mask: 1, run: (rt, a) => craftTrSetAngle(rt, raw(a, 0)) },
+    B: { mask: 1, run: (rt, a) => craftTrForward(rt, trNegArg(rt, arg(rt, a, 0))) },
+    D: { mask: 2, run: (rt, a) => craftTrDraw(rt, arg(rt, a, 0), arg(rt, a, 1)) },
+    DR: { mask: 2, run: (rt, a) => craftTrStep(rt, arg(rt, a, 0).v, arg(rt, a, 1).v, 1) },
+    F: { mask: 1, run: (rt, a) => craftTrForward(rt, arg(rt, a, 0)) },
+    H: { mask: 0, run: (rt) => craftTrHome(rt) },
+    I: { mask: 3, run: tclPen },
+    L: { mask: 1, run: (rt, a) => craftTrTurn(rt, -raw(a, 0)) },
+    M: { mask: 2, run: (rt, a) => craftTrMove(rt, arg(rt, a, 0), arg(rt, a, 1)) },
+    MA: { mask: 0, run: craftTrMemorizeA },
+    MR: { mask: 2, run: (rt, a) => craftTrStep(rt, arg(rt, a, 0).v, arg(rt, a, 1).v, 0) },
+    MX: { mask: 0, run: (rt) => craftTrMemorize(rt, false) },
+    MY: { mask: 0, run: (rt) => craftTrMemorize(rt, true) },
+    P: { mask: 3, run: tclPen },
+    PD: { mask: 0, run: (rt) => trClrFlag(rt.craft.turtle, TRF_PENUP) },
+    PU: { mask: 0, run: (rt) => trSetFlag(rt.craft.turtle, TRF_PENUP) },
+    R: { mask: 1, run: (rt, a) => craftTrTurn(rt, raw(a, 0)) },
+    RA: { mask: 0, run: craftTrRememberA },
+    RX: { mask: 0, run: (rt) => craftTrRemember(rt, false) },
+    RY: { mask: 0, run: (rt) => craftTrRemember(rt, true) },
+    SH: { mask: 2, run: (rt, a) => craftTrSetHome(rt, arg(rt, a, 0), arg(rt, a, 1)) },
+    TO: { mask: 2, run: (rt, a) => craftTrTowards(rt, arg(rt, a, 0), arg(rt, a, 1)) },
+  }
+}
+
+/**
+ * $1d1a — `I`/`P`, TCL's only command with no keyword behind it. Two
+ * arguments set the pattern colour through SetBPen and then the ink through
+ * SetAPen; one sets the ink alone. Both are bounded 0..31 by `moveq #$20,d1 /
+ * cmp.l d1,d0 / Rbcc routine 217`, and either may be written as nothing, in
+ * which case no call is made at all.
+ *
+ * It resets the dash state afterwards, exactly as a jump does.
+ */
+function tclPen(rt: Runtime, a: TclNum[]): void {
+  const s = craftScreen(rt)
+  const set = (n: TclNum | undefined, to: (v: number) => void): void => {
+    if (n === undefined || n.omitted) return
+    if ((n.v >>> 0) >= 32) craftTrRange(rt)
+    to(n.v)
+  }
+  if (a.length !== 1) set(a[1], (v) => (s.gPaper = v))
+  set(a[0], (v) => (s.ink = v))
+  rt.craft.turtle.setUint8(TR.patCnt, 0xf)
+  rt.craft.turtle.setUint8(TR.frstDot, 1)
+}
+
+/**
+ * Routine 96 ($1a7c) — one pass over a TCL string.
+ *
+ * The two words at $56 and $58 are what =Tr Error reports: the total length
+ * plus one, and how much was left when the current command started. On a
+ * clean run `clr.l $56` puts both back to zero, so the difference is zero;
+ * on a failure the raise goes straight out and they keep the position.
+ */
+function craftTclRun(rt: Runtime, src: string): void {
+  const t = rt.craft.turtle
+  trSetFlag(t, TRF_TCL)
+  const table = tclTable()
+  const c: TclCursor = { s: src, i: 0, n: src.length }
+  if (src.length !== 0) {
+    t.setUint16(TR.total, u16(src.length + 1))
+    for (;;) {
+      t.setUint16(TR.left, u16(c.n - c.i))
+      const word = tclWord(rt, c)
+      if (word === '') break
+      const cmd = table[word]
+      if (cmd === undefined) tclSyntax(rt)
+      const args: TclNum[] = []
+      if (cmd.mask === 0) {
+        if (tclNumber(rt, c).kind >= 0) tclArity(rt)
+      } else {
+        let mask = cmd.mask
+        for (;;) {
+          const n = tclNumber(rt, c)
+          args.push(n)
+          const bit = mask & 1
+          mask = (mask >>> 1) & 0xff
+          if (n.kind !== 0) {
+            if (bit === 0) tclArity(rt)
+            break
+          }
+          if (mask === 0) tclArity(rt)
+        }
+      }
+      cmd.run(rt, args)
+      if (c.i >= c.n) break
+    }
+  }
+  trClrFlag(t, TRF_TCL)
+  t.setInt32(TR.left, 0)
 }
