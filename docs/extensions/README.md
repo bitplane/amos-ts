@@ -269,6 +269,7 @@ per keyword.
 | `sticks-1.01b` | Sticks | disassembly | 16 | 17 | recommends 17 |
 | `butility-1.21` | BUtility | disassembly | 15 | — | recommends 12 |
 | `lserial-2.1` | LSerial | disassembly | 15 | 11 | recommends 11 |
+| `musicraft-1.0` | MusiCRAFT | disassembly | 12 | 19 | recommends 19 |
 | `ercole-1.7` | Ercole | disassembly | 11 | — | recommends 10 |
 | `stars-2.33` | Stars | disassembly | 11 | — | recommends 20 |
 | `dump-1.0` | Dump | disassembly | 8 | — | recommends 20 |
@@ -277,7 +278,6 @@ per keyword.
 | `jotre-1.0` | Jotre | disassembly | 5 | — | recommends 22 |
 | `first-0.1` | First | disassembly | 4 | — | recommends 22 |
 | `intuition-1.3b` | Intuition Extension | manual | 183 | 14 | recommends 25 |
-| `musicraft-1.0` | MusiCRAFT | manual | 12 | 19 | recommends 19 |
 
 <!-- END registry -->
 

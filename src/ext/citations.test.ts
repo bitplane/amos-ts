@@ -32,11 +32,23 @@ function sources(dir: string, out: string[] = []): string[] {
   return out
 }
 
-/** the id's library, or null if that fixture is not present */
+/**
+ * The id's library, or null if that fixture is not present.
+ *
+ * The MANIFEST names which build, and it has to: a fixture directory can hold
+ * more than one, and the routine numbering moves between them. CRAFT is the
+ * case that forced this -- its installer blob holds the AMOS 1.3 and AMOS Pro
+ * builds side by side, whose routines sit four bytes apart, so picking
+ * whichever sorted first checked every citation against a build nobody read.
+ */
 function library(id: string): Library | null {
   const dir = join(extFixtures, id)
   if (!existsSync(dir)) return null
-  const lib = readdirSync(dir).find((f) => /\.lib$/i.test(f))
+  const manifest = join(src, 'ext', 'manifests', `${id}.json`)
+  const named = existsSync(manifest)
+    ? (JSON.parse(readFileSync(manifest, 'utf8')) as { library?: string }).library
+    : undefined
+  const lib = named && existsSync(join(dir, named)) ? named : readdirSync(dir).find((f) => /\.lib$/i.test(f))
   if (!lib) return null
   const code = firstCodeHunk(new Uint8Array(readFileSync(join(dir, lib))))
   const addr = routineAddresses(code)

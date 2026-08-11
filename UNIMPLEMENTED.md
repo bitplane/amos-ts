@@ -79,7 +79,7 @@ extension keyword. The count is keywords with no handler at all:
 | D-SAM 1.01 | 50 | nothing. `audio.device` and `dos.library`, both modelled |
 | Delta 1.6 | 46 | little. 26 of the 46 are Delta 1.4's, already faithful; of the 20 new ones four are machine code (n/a) and the rest want reqtools, `FindTask` and `WBenchToFront`, all of which exist |
 | jd-int 1.3 | 33 | nothing in `src/amiga` — findings banked, and the binary names no library, so it reaches Intuition through a base AMOS already holds |
-| MusiCRAFT 1.0 | 12 | a binary. CRAFT's companion, registered off AMOSTools' table-only stub, so the names, specs and ids are real and the routine numbers are scrubbed out — there is nothing to disassemble. The second row here, with Intuition 1.3b, where the block is the artifact and not the back-end |
+| MusiCRAFT 1.0 | 12 | nothing. CRAFT's companion, and the binary was inside CRAFT's own installer blob the whole time — Data0 holds four libraries behind a four-word length table, and `parseAmosLibOld` stops at the first. 5,656 bytes of code behind 12 keywords, all of it readable |
 | BSDSocket 1.1.4 | 30 | `bsdsocket.library` **and** a host networking boundary. The only row here blocked on something outside AmigaOS |
 
 **Craft 1.0 came off this table, and it is worth saying what it cost.**
@@ -102,13 +102,12 @@ inside one keyword, and its grammar exists nowhere but the twenty-two-entry
 table at `$1c88`. The fractal generator is a second fixed-point engine at a
 different scale.
 
-Fourteen defects came out of the reading, none of them in the manual, and one
+Thirteen defects came out of the reading, none of them in the manual, and one
 of them hangs the machine: `Tr Distance` to the turtle's own position spins on
 a carry that two zero deltas cannot produce. The others range from a crossed
 pair of omitted-parameter fallbacks in `Tr Set Home` to `Fr Step`'s
-two-argument form never storing its second number, to `=Amos Pro` — three
-instructions, testing nothing, so the AMOS Professional build of the library
-answers "not AMOS Professional". Two hardware registers came into the memory
+two-argument form never storing its second number, and `Fr Mandelbrot` refusing an
+iteration count `Fr Julia` accepts. Two hardware registers came into the memory
 map along the way, CIA-A port A and POTGOR, because `=Hw Mouse Key` reads the
 silicon and a program that Peeks the same addresses has to agree with it.
 

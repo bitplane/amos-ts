@@ -1515,15 +1515,16 @@ describe('CRAFT 1.0 — the hardware and the odds and ends (routines 190..204)',
     expect(val('Craft Version')).toBe('100')
   })
 
-  it('DEFECT: =Amos Pro always answers 0, even in the AMOS Professional build', () => {
+  it('=Amos Pro is a constant, and the two builds carry different ones', () => {
     /*
-     * "Returns -1 if the program is running under AMOS Professional and 0 if
-     * it's running under AMOS", and routine 204 is `moveq #$0,d3 / moveq
-     * #$0,d2 / rts`. It tests nothing. The library held here is
-     * AMOSPro_CRAFT.Lib, so this is the AMOS Professional build saying it is
-     * not one.
+     * Routine 204 tests nothing: `moveq #?,d3 / moveq #$0,d2 / rts`. It is
+     * still correct, because the constant differs between the builds --
+     * `moveq #0,d3` in CRAFT.Lib and `moveq #-1,d3` in AMOSPro_CRAFT.Lib.
+     * Every other address this file cites is the 1.3 build's; this is the one
+     * keyword the two are known to disagree on, and a program under this port
+     * has the Pro build loaded.
      */
-    expect(val('Amos Pro')).toBe('0')
+    expect(val('Amos Pro')).toBe('-1')
   })
 
   it('=Amos Base is a constant, and named so it is findable', () => {

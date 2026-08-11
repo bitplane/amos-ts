@@ -964,18 +964,23 @@ export function makeCraftFunctions(rt: Runtime): Record<string, Func> {
     'craft version': () => VI(CRAFT_VERSION),
 
     /**
-     * =Amos Pro — routine 204 ($3282), and it is three instructions: `moveq
-     * #$0,d3 / moveq #$0,d2 / rts`.
+     * =Amos Pro — routine 204, three instructions and no test at all: `moveq
+     * #?,d3 / moveq #$0,d2 / rts`. "Returns -1 if the program is running
+     * under AMOS Professional and 0 if it's running under AMOS".
      *
-     * DEFECT: "returns -1 if the program is running under AMOS Professional
-     * and 0 if it's running under AMOS", and it tests nothing at all. The
-     * library held here is AMOSPro_CRAFT.Lib, so this is the AMOS Professional
-     * build answering "not AMOS Professional". Either two builds were shipped
-     * and this one's constant was never flipped, or the check was never
-     * written; only one .Lib survives, so both readings stand and the constant
-     * is reproduced.
+     * The constant differs BETWEEN THE TWO BUILDS, which is how a routine
+     * that tests nothing still answers correctly: `moveq #0,d3` at $3282 in
+     * CRAFT.Lib, `moveq #-1,d3` at $3276 in AMOSPro_CRAFT.Lib. Every other
+     * address cited in this file is CRAFT.Lib's, because that is the build
+     * this port read; this one keyword is the only place the two are known to
+     * disagree, and -1 is the answer for the build a program under this port
+     * would have loaded.
+     *
+     * It was briefly recorded here as a defect. That was this port reading
+     * the 1.3 build out of a file it had mislabelled as the Pro one — Data0
+     * holds four libraries, not one, and parseAmosLibOld stops at the first.
      */
-    'amos pro': () => VI(0),
+    'amos pro': () => VI(-1),
 
     /** =B.Swap(x) — routine 200 ($3232): the two NIBBLES of the low byte */
     'b.swap': (_, a) => VI(((i0(a, 0) << 4) & 0xf0) | ((i0(a, 0) >> 4) & 0x0f)),

@@ -4665,11 +4665,13 @@ export const NOTES: Record<string, string> = {
     "mapping a page of zeros would imply there was. The Game's =G Oddno hands back a bare library-base " +
     "constant for the same reason, where Tr Base and Mubase map real blocks because they have real blocks.",
   "amos pro":
-    "Routine 204 ($3282), three instructions: `moveq #$0,d3 / moveq #$0,d2 / rts`. DEFECT: \"returns -1 if the " +
-    "program is running under AMOS Professional and 0 if it's running under AMOS\", and it tests nothing at " +
-    "all. The library held here is AMOSPro_CRAFT.Lib, so this is the AMOS Professional build answering \"not " +
-    "AMOS Professional\". Either two builds were shipped and this one's constant was never flipped, or the " +
-    "check was never written; only one .Lib survives, so both readings stand.",
+    "Routine 204, three instructions and no test at all: `moveq #?,d3 / moveq #$0,d2 / rts`. It is still " +
+    "correct, because the CONSTANT DIFFERS BETWEEN THE TWO BUILDS -- `moveq #0,d3` at $3282 in CRAFT.Lib and " +
+    "`moveq #-1,d3` at $3276 in AMOSPro_CRAFT.Lib. Every other address cited for this extension is CRAFT.Lib's, " +
+    "because that is the build this port read; this is the one keyword the two are known to disagree on. It " +
+    "was briefly recorded here as a defect, which was this port reading the 1.3 build out of a file it had " +
+    "mislabelled -- the installer's Data0 blob holds FOUR libraries behind a four-word length table, and " +
+    "parseAmosLibOld stops at the first code hunk.",
   "b.swap":
     "Routines 200, 201 and 202 ($3232, $3242, $3252). \"These functions swap the upper and lower parts of a " +
     "specified segment (Byte, Word or Long word). Only the bits which are specified with the first letter of " +
