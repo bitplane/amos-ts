@@ -91,16 +91,33 @@ function identityStrings(file: string): { ver?: string | undefined; banner?: str
   return { ver, banner }
 }
 
-type Verdict = 'known' | 'variant' | 'new'
+/**
+ * `renumbered` is the fourth verdict and the one that took real data to find.
+ *
+ * A `variant` shares the match's TABLE: keywords sit at the same ids, because
+ * an id is a byte offset and appending entries does not move the ones in front
+ * of them. That is what a later release usually looks like, and it is why one
+ * registry entry can cover several of them.
+ *
+ * `renumbered` shares the NAMES and not the ids — the table was rebuilt, so
+ * every id a program recorded means something else now. IntuiExtend 1.6
+ * against 2.01b is the case: 294 entries, and only 45 of them still at the id
+ * 2.01b uses. Both have to be registered separately or a program tokenised
+ * against one detokenises to nonsense under the other, which is exactly the
+ * failure the `variant` label would hide.
+ */
+type Verdict = 'known' | 'variant' | 'renumbered' | 'new'
 
 interface Row {
   lib: ScannedLib
   verdict: Verdict
   /** the registered extension this is, or is closest to */
   match?: string | undefined
-  /** share of this table's names the match also has, 0..1 */
+  /** share of this table's entries the match has at the SAME id, 0..1 */
   overlap: number
-  /** keywords this table has that the match does not */
+  /** share of this table's names the match has anywhere in its table, 0..1 */
+  nameOverlap: number
+  /** keywords this table has that the match does not have at the same id */
   extra: number
   ver?: string | undefined
   banner?: string | undefined
@@ -119,12 +136,21 @@ const { libs, unreadable } = scanLibraries(roots)
  * out, it is the largest "new extension" in the report at 615 keywords, which
  * is both wrong and the first thing anyone would chase.
  */
+const entrySet = (tokens: readonly { id: number; name: string }[]): Set<string> =>
+  new Set(tokens.filter((t) => /[a-z]/i.test(t.name)).map((t) => `${t.id}:${t.name.trim().toLowerCase()}`))
+
 const registered = [
-  { id: 'AMOS Pro core (not an extension)', hash: tableHash(CORE_TOKENS), names: nameSet(CORE_TOKENS) },
+  {
+    id: 'AMOS Pro core (not an extension)',
+    hash: tableHash(CORE_TOKENS),
+    names: nameSet(CORE_TOKENS),
+    entries: entrySet(CORE_TOKENS),
+  },
   ...allExtensions().map((e) => ({
     id: e.id,
     hash: tableHash(e.tokens),
     names: nameSet(e.tokens),
+    entries: entrySet(e.tokens),
   })),
 ]
 
@@ -133,26 +159,73 @@ const rows: Row[] = libs.map((lib) => {
   const exact = registered.find((r) => r.hash === hash)
   const { ver, banner } = identityStrings(lib.file)
   if (exact) {
-    return { lib, verdict: 'known', match: exact.id, overlap: 1, extra: 0, ver, banner }
+    return { lib, verdict: 'known', match: exact.id, overlap: 1, nameOverlap: 1, extra: 0, ver, banner }
   }
   const mine = nameSet(lib.tokens)
-  let best = { id: '', overlap: 0, extra: mine.size }
+  const mineEntries = entrySet(lib.tokens)
+  /*
+   * Scored on (id, name) pairs rather than on names alone, which is what this
+   * used to do and what the new tables broke.
+   *
+   * THX 0.6 is six keywords, `thx play` through `thx end`, and DME 2.0 spells
+   * all six. On names that is 100% and reads as a variant; on ids it is ZERO,
+   * because they are different libraries by different authors that happen to
+   * share a prefix. Meanwhile Dump 1.0 is two of Dump 1.1's eight and would
+   * fail any symmetric score, but both of its entries sit at the ids 1.1 uses,
+   * which is what actually makes it an earlier release of the same table.
+   *
+   * The name score is kept beside it, because the two disagreeing is itself
+   * the signal — see `renumbered` on the Verdict type.
+   */
+  let best = { id: '', overlap: 0, nameOverlap: 0, extra: mineEntries.size, same: false }
+  for (const r of registered) {
+    if (r.entries.size === 0 || mineEntries.size === 0) continue
+    let shared = 0
+    for (const e of mineEntries) if (r.entries.has(e)) shared++
+    const overlap = shared / mineEntries.size
+    if (overlap <= best.overlap) continue
+    let sharedNames = 0
+    for (const n of mine) if (r.names.has(n)) sharedNames++
+    best = {
+      id: r.id,
+      overlap,
+      nameOverlap: mine.size ? sharedNames / mine.size : 0,
+      extra: mineEntries.size - shared,
+      // every entry at the same id under the same name, and no entry either
+      // side lacks. The hash above cannot see this for an `amostools` stub,
+      // because the scrub replaced the routine numbers the hash covers -- so
+      // 87 tables that ARE ours would otherwise report as variants of
+      // themselves at 100%
+      same: overlap === 1 && r.entries.size === mineEntries.size,
+    }
+  }
+  if (best.same) {
+    return { lib, verdict: 'known', match: best.id, overlap: 1, nameOverlap: 1, extra: 0, ver, banner }
+  }
+  // when the ids do not agree, ask the names before calling it new: a rebuilt
+  // table is a different table but not a different product
+  let byName = { id: '', nameOverlap: 0 }
   for (const r of registered) {
     if (r.names.size === 0 || mine.size === 0) continue
     let shared = 0
     for (const n of mine) if (r.names.has(n)) shared++
-    const overlap = shared / mine.size
-    if (overlap > best.overlap) best = { id: r.id, overlap, extra: mine.size - shared }
+    const nameOverlap = shared / mine.size
+    if (nameOverlap > byName.nameOverlap) byName = { id: r.id, nameOverlap }
   }
-  // half the names in common is a low bar deliberately: a later release that
+  // half the entries in common is a low bar deliberately: a later release that
   // renamed its prefix (EasyLife's `znsx` -> `elznsx`) still shares plenty,
   // and calling that "new" would bury the interesting rows
-  const verdict: Verdict = best.overlap >= 0.5 ? 'variant' : 'new'
-  return { lib, verdict, match: best.id || undefined, overlap: best.overlap, extra: best.extra, ver, banner }
+  if (best.overlap >= 0.5) {
+    return { lib, verdict: 'variant', match: best.id, overlap: best.overlap, nameOverlap: best.nameOverlap, extra: best.extra, ver, banner }
+  }
+  if (byName.nameOverlap >= 0.5) {
+    return { lib, verdict: 'renumbered', match: byName.id, overlap: best.overlap, nameOverlap: byName.nameOverlap, extra: mineEntries.size, ver, banner }
+  }
+  return { lib, verdict: 'new', match: undefined, overlap: best.overlap, nameOverlap: byName.nameOverlap, extra: mineEntries.size, ver, banner }
 })
 
 rows.sort((a, b) => {
-  const rank = { new: 0, variant: 1, known: 2 }
+  const rank = { new: 0, renumbered: 1, variant: 2, known: 3 }
   return rank[a.verdict] - rank[b.verdict] || b.lib.named - a.lib.named
 })
 
@@ -161,13 +234,15 @@ rows.sort((a, b) => {
 const pct = (x: number): string => `${Math.round(x * 100)}%`
 const short = (p: string): string => p.replace(/^.*?\/files\//, '')
 
-const counts = { new: 0, variant: 0, known: 0 }
+const counts = { new: 0, renumbered: 0, variant: 0, known: 0 }
 for (const r of rows) counts[r.verdict]++
 
 console.log(
   `${libs.length} distinct token table(s) from ${rows.reduce((n, r) => n + r.lib.copies.length, 0)} .Lib file(s)`,
 )
-console.log(`  new     ${counts.new}\n  variant ${counts.variant}\n  known   ${counts.known}`)
+console.log(
+  `  new        ${counts.new}\n  renumbered ${counts.renumbered}\n  variant    ${counts.variant}\n  known      ${counts.known}`,
+)
 if (unreadable.length > 0) console.log(`  ${unreadable.length} .Lib file(s) parsed as neither layout`)
 console.log('')
 
@@ -178,7 +253,9 @@ for (const r of rows) {
       ? `= ${r.match}`
       : r.verdict === 'variant'
         ? `~ ${r.match} (${pct(r.overlap)} shared, ${r.extra} extra)`
-        : 'NEW'
+        : r.verdict === 'renumbered'
+          ? `# ${r.match} (${pct(r.nameOverlap)} of the names, ${pct(r.overlap)} of the ids)`
+          : 'NEW'
   console.log(`${String(r.lib.named).padStart(5)} kw  ${r.lib.format.padEnd(6)} ${tag}`)
   console.log(`           ${short(r.lib.file)}`)
   if (r.ver) console.log(`           $VER: ${r.ver}`)
@@ -196,7 +273,9 @@ if (mdOut !== undefined) {
           ? `known — \`${r.match}\``
           : r.verdict === 'variant'
             ? `variant of \`${r.match}\` (${pct(r.overlap)}, +${r.extra})`
-            : '**new**'
+            : r.verdict === 'renumbered'
+              ? `renumbered \`${r.match}\` (${pct(r.nameOverlap)} names, ${pct(r.overlap)} ids)`
+              : '**new**'
       return `| ${r.lib.named} | ${r.lib.format} | ${v} | ${r.ver ?? ''} | \`${short(r.lib.file)}\` |`
     }),
   ]

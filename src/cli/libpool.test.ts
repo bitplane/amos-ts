@@ -39,6 +39,47 @@ function fakeLegacyLib(keywords: [name: string, spec: string][]): Uint8Array {
   ])
 }
 
+/**
+ * The AMOSTools shape: the same hunk shell and the same token table, with both
+ * length fields reading zero, no code at all, and every entry's two routine
+ * words overwritten with `====`.
+ */
+function fakeAmosToolsStub(keywords: [name: string, spec: string][]): Uint8Array {
+  const scrub = ch('====')
+  // the null entry is scrubbed too — `3d 3d 3d 3d 80 ff` is the first six
+  // bytes of every one of these files, which is what the check keys on
+  const table: number[] = [...scrub, 0x80, 0xff]
+  for (const [name, spec] of keywords) {
+    const n = ch(name)
+    n[n.length - 1]! |= 0x80
+    const entry = [...scrub, ...n, ...ch(spec), 0xff]
+    if (entry.length % 2 !== 0) entry.push(0)
+    table.push(...entry)
+  }
+  table.push(0, 0)
+  const u32 = (n: number): number[] => [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff]
+  // The code hunk begins at $20 and the table is `8 + jumpSize + 10` into it,
+  // the same offset parseAmosLibOld uses -- so with a jump size of zero the
+  // preamble is eighteen bytes and the table lands at $32, which is where
+  // every real one of these has its first `3d 3d 3d 3d 80 ff`.
+  const out = [
+    ...u32(0x3f3), // HUNK_HEADER
+    ...u32(0),
+    ...u32(1),
+    ...u32(0),
+    ...u32(0),
+    ...u32(0), // size table: zero, as the tool writes it
+    ...u32(0x3e9), // HUNK_CODE
+    ...u32(0), // and zero again
+    ...u32(0), // $20: the jump-table size long
+    ...u32(0), // the second size long
+    ...new Array(10).fill(0),
+    ...table,
+  ]
+  while (out.length < 0x40) out.push(0) // the parser's own minimum
+  return Uint8Array.from(out)
+}
+
 function tree(): string {
   const dir = mkdtempSync(join(tmpdir(), 'libscan-'))
   mkdirSync(join(dir, 'sub'), { recursive: true })
@@ -105,5 +146,42 @@ describe('scanLibraries', () => {
     expect(ext.observedSlots).toEqual([])
     expect(ext.provenance).toMatch(/^scanned from /)
     expect(ext.notes).toMatch(/not a registry entry/)
+  })
+
+  it('reads an AMOSTools stub, and caps its evidence at manual', () => {
+    // The scrub is the whole difference: no code, both hunk lengths zero, and
+    // `====` where the two routine words were. There is nothing to
+    // disassemble, so the tier the previous test asserts does NOT apply --
+    // ../ext/registry.ts caps this shape at `manual` and ../ext/ext.test.ts
+    // enforces the same cap on the manifests.
+    const dir = tree()
+    writeFileSync(join(dir, 'AMOSPro_Mystery.Lib-V1.00'), fakeAmosToolsStub([['zap', 'I0']]))
+    const { libs, unreadable } = scanLibraries([dir])
+    expect(unreadable).toEqual([])
+    expect(libs).toHaveLength(1)
+    expect(libs[0]!.format).toBe('amostools')
+    expect(libs[0]!.tokens.filter((t) => t.name !== '').map((t) => t.name)).toEqual(['zap'])
+    const ext = libAsExtension(libs[0]!)
+    expect(ext.format).toBe('amostools')
+    expect(ext.evidence).toBe('manual')
+  })
+
+  it('finds the stubs at all — their filenames do not end in .Lib', () => {
+    // AMOSTools names one file per RELEASE, `AMOSPro_CRAFT.Lib-V1.00`. A plain
+    // `.lib$` test saw none of the 132 tables in that directory.
+    const dir = tree()
+    writeFileSync(join(dir, 'Thing.Lib-V0.6'), fakeAmosToolsStub([['a', 'I']]))
+    writeFileSync(join(dir, 'Thing.lib'), fakeLegacyLib([['b', 'I']]))
+    writeFileSync(join(dir, 'Thing.readme'), fakeLegacyLib([['c', 'I']]))
+    expect(scanLibraries([dir]).libs).toHaveLength(2)
+  })
+
+  it('refuses a real library through the stub parser', () => {
+    // the scrub check is what makes trying `amostools` first safe: a genuine
+    // library falls through it to the layout parsers rather than being
+    // misread as a table with no code under it
+    const dir = tree()
+    writeFileSync(join(dir, 'Real.Lib'), fakeLegacyLib([['zap', 'I0']]))
+    expect(scanLibraries([dir]).libs[0]!.format).toBe('legacy')
   })
 })
