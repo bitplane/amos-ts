@@ -1,0 +1,22 @@
+{
+  "id": "intuiextend-1.6",
+  "name": "IntuiExtend",
+  "version": "1.6",
+  "author": "CIERP Philippe",
+  "source": "binary",
+  "library": "AMOSPro_IntuiExtend.lib",
+  "sha256": "c9e0c43346f852a31df3d99a6278bca1c8b7323099124392f115a68b54b77e0b",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "disassembly",
+  "docs": [],
+  "titleStrings": ["$VER: REGISTERED n", "To CIERP Philippe, IntuiExtend.lib v1.6"],
+  "recommendedSlot": 23,
+  "observedSlots": [],
+  "provenance": {
+    "from": "aminet dev/amos/intuiextend16.lha, held in the corpus at sources/aminet-dev-amos/files/intuiextend16/extentions/amospro/. A real library: 22,508 bytes of code.",
+    "note": "The archive ships BOTH builds, `extentions/amospro/AMOSPro_IntuiExtend.lib` (294 keywords, this entry) and `extentions/amos/AMOS_IntuiExtend.Lib` (269, vendored beside it and NOT registered -- a third distinct table, for AMOS 1.3). It also carries a `bonus/easylife/` directory holding somebody else's extension, which is why a filename search for EasyLife finds hits under this one. The $VER is a keyfile line rather than a version banner: `To CIERP Philippe, IntuiExtend.lib v1.6`, the author's own registered copy.",
+    "redistribution": "Aminet distribution terms unverified. Kept as a fixture for identification and reference only."
+  },
+  "notes": "294 keywords. REGISTERED SEPARATELY FROM 2.01b ON PURPOSE, and this is the case worth understanding: the two releases share most of their keyword NAMES and almost none of their IDS -- 45 of these 294 entries are still where 2.01b puts them. An id is a byte offset into the token table, so a later release that only appends keywords leaves the earlier ones alone and one registry entry can cover both, which is how turbo-plus-1.9 covers TURBO 1.5, 1.6 and 1.11. This table was REBUILT instead, so a program saved against 1.6 and read against 2.01b resolves almost every keyword to the wrong one. src/cli/libcat.ts calls that `renumbered` and this pair is what the verdict was added for. The AMOS 1.3 build in the same archive is a third table again, 269 keywords, and is vendored unregistered. Nothing is ported."
+}

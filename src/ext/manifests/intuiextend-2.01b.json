@@ -1,0 +1,22 @@
+{
+  "id": "intuiextend-2.01b",
+  "name": "IntuiExtend",
+  "version": "2.01b",
+  "author": "CIERP Philippe",
+  "source": "binary",
+  "library": "AMOSPro_IntuiExtend.lib",
+  "sha256": "a01e2eba260d5df9948c7828e175aead4d010afaca1aba340da823e3495b33a9",
+  "format": "legacy",
+  "idBaseEvidence": "assumed",
+  "evidence": "disassembly",
+  "docs": ["IntuiExtend_2.0.Guide"],
+  "titleStrings": ["AMOSPro IntuiExtend extension V 2.01b", "$VER: IntuiExtend v2.01b"],
+  "recommendedSlot": 23,
+  "observedSlots": [],
+  "provenance": {
+    "from": "aminet dev/amos/IntuiExtend20b.lha, held in the corpus at sources/aminet-dev-amos/files/IntuiExtend20b/distribution/extention/. A REAL LIBRARY, not an AMOSTools stub: 23,084 bytes of code hunk behind the table, so this one is `disassembly` rather than `manual`.",
+    "note": "The AmigaGuide is vendored beside it and is the extension's own: `@database Intuition AmosExtention.guide @Author CIERP Philippe (c)1995-98 @Version 2.0`, headed \"AmosPro IntuitionExtended by CIERP Philippe from AMIGAzette 83.\" It is in FRENCH, and it indexes the extension by group -- 3d, gadgets, graphics, menus, the PowerPacker library, screens, windows, the system, video and graphic modes, text. The 1.6 build's own $VER is a keyfile line, \"To CIERP Philippe, IntuiExtend.lib v1.6\", so the release was registered software.",
+    "redistribution": "Aminet distribution terms unverified. Kept as a fixture for identification and reference only."
+  },
+  "notes": "301 keywords, which makes it the LARGEST third-party table in this registry after OS-DevKit's 1,047 -- larger than AMCAF 1.50's 281. Most names carry a `wb ` prefix and the groups follow the Guide's index: screens (`wb screen open`, `wb screen base`, `wb screen rastport`), windows (`wb wind open`, `wb wind limit`, `wb wind rastport`), exec memory (`alloc mem`, `alloc abs`, `avail mem`, `copy mem`, `set taskpri`), dos segments (`load seg`, `unload seg`, `segment base`), drawing (`wb bevel box`, `wb turtle draw`, `wb paint`, `wb ellipse`, `wb bar`), and a `hard mouse key` that reads the hardware the way CRAFT's `=Hw Mouse Key` does. It shares only three names with anything registered, all with EasyLife. IT IS NOT `int-1.0`, the other `wb `-prefixed extension in this batch: the two share five NAMES and not one ID, and 62 keywords against 301. VERSION 1.6 IS A DIFFERENT TABLE, not an earlier prefix of this one -- of its 294 entries only 45 are still at the id 2.01b uses, so the table was rebuilt between releases and both have to be registered separately or a program tokenised against one detokenises to nonsense under the other. That is the case that put the `renumbered` verdict into src/cli/libcat.ts. Nothing is ported."
+}

@@ -1,0 +1,22 @@
+{
+  "id": "maxsdoor-0.20",
+  "name": "MAXS Door Handler",
+  "version": "0.20",
+  "author": "Ari Tsironis",
+  "source": "binary",
+  "library": "MAXSDoorHandler.Lib-V0.20",
+  "sha256": "75a805224d31a4a8f8d31819253ee6e95a82c155948fd535c22dcbff001eb20e",
+  "format": "amostools",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [],
+  "titleStrings": [],
+  "recommendedSlot": 16,
+  "observedSlots": [],
+  "provenance": {
+    "from": "AMOSTools/Extensions, out of aminet dev/amos/amostools.i386-aros.lha -- held in the corpus at sources/aminet-dev-amos/. Its author's README says the directory is \"every AMOS extension I can find, cut down to just their token tables with the make_extensions.pl script\", and names the ExoticA AMOS extensions wiki page as the list it works from.",
+    "redistribution": "Not redistributed here as software: the file carries no code at all. It is a token table with the library stripped out from under it, kept for identification and detokenising.",
+    "note": "ExoticA's AMOS extensions list places it at slot 16. Nothing here observes it in a program: the slot is the wiki's recommendation and no more."
+  },
+  "notes": "TABLE ONLY. This is an AMOSTools stub -- the hunk shell and the token table survive, both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. So the NAMES, the parameter SPECS and, because an id is the byte offset of its entry, the IDS are the original library's; the behaviour is not here and the evidence tier cannot rise above `manual` until a real binary turns up. The reader is checked against CRAFT and MusiCRAFT, which are held both ways, and agrees with them entry for entry -- see parseAmosToolsTable in src/tokens/libtok.ts. 21 keywords, all prefixed `m_` and none contested -- a BBS door API for the MAXS bulletin board: `m_portopen`/`m_portclose`, three character readers (`m_modemchar`, `m_screenchar`, `m_bbschar`), text out to the caller or the sysop console (`m_bbstext`, `m_localtext`), prompts, file show/check/edit, and the user record (`m_getusernum`, `m_getuserstr`, `m_newaccess`, `m_addtime`, `m_changeuserdata`, `m_twituser`). The naming is C-style throughout, which no other AMOS extension here does."
+}

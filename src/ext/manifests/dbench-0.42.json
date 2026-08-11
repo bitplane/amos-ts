@@ -1,0 +1,22 @@
+{
+  "id": "dbench-0.42",
+  "name": "DBench",
+  "version": "0.42",
+  "author": "Lázár Zoltán",
+  "source": "binary",
+  "library": "AMOSPro_DBench.Lib-V0.42",
+  "sha256": "ba43085117f394b1eb7c5c3290e3975e7e924c6536b617a9519f2e479899339b",
+  "format": "amostools",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [],
+  "titleStrings": [],
+  "recommendedSlot": 21,
+  "observedSlots": [],
+  "provenance": {
+    "from": "AMOSTools/Extensions, out of aminet dev/amos/amostools.i386-aros.lha -- held in the corpus at sources/aminet-dev-amos/. Its author's README says the directory is \"every AMOS extension I can find, cut down to just their token tables with the make_extensions.pl script\", and names the ExoticA AMOS extensions wiki page as the list it works from.",
+    "redistribution": "Not redistributed here as software: the file carries no code at all. It is a token table with the library stripped out from under it, kept for identification and detokenising.",
+    "note": "ExoticA's AMOS extensions list places it at slot 21. Nothing here observes it in a program: the slot is the wiki's recommendation and no more."
+  },
+  "notes": "TABLE ONLY. This is an AMOSTools stub -- the hunk shell and the token table survive, both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. So the NAMES, the parameter SPECS and, because an id is the byte offset of its entry, the IDS are the original library's; the behaviour is not here and the evidence tier cannot rise above `manual` until a real binary turns up. The reader is checked against CRAFT and MusiCRAFT, which are held both ways, and agrees with them entry for entry -- see parseAmosToolsTable in src/tokens/libtok.ts. 23 keywords, and it is SymBase cut down -- same author, same `db *` names, and 21 of its 23 entries sit at the id SymBase 0.94 gives the same keyword. THE TWO ARE THEREFORE NOT SEPARABLE by a program that uses only those 21: identifySlot will report `ambiguous`, which is the right answer rather than a failure, and the only extension pair here known to have that property. The two entries that differ are at $166, where DBench has `db goto` [I0] and 0.94 has `db get` [00], and at $174, where DBench has `db put` [I2,0] and 0.94 has `db getf` [10] -- so 0.94 did not append to this table, it inserted into it, and DBench is the earlier shape rather than a subset of the later one. What is missing against SymBase is everything past reading: no `db append`, `db delete`, `db pack`, `db sort` or `db locate`."
+}

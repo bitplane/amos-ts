@@ -1,0 +1,22 @@
+{
+  "id": "dme-2.0",
+  "name": "DOOM Music Extension",
+  "version": "2.0",
+  "author": "Thomas Reetz",
+  "source": "binary",
+  "library": "AMOSPro_DOOM_Music.Lib-V2.0",
+  "sha256": "0e8cf267d539dcaa22863ab0342306e780b2fc82eaa2b1a46affc2c8d51bae66",
+  "format": "amostools",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [],
+  "titleStrings": [],
+  "recommendedSlot": 15,
+  "observedSlots": [],
+  "provenance": {
+    "from": "AMOSTools/Extensions, out of aminet dev/amos/amostools.i386-aros.lha -- held in the corpus at sources/aminet-dev-amos/. Its author's README says the directory is \"every AMOS extension I can find, cut down to just their token tables with the make_extensions.pl script\", and names the ExoticA AMOS extensions wiki page as the list it works from.",
+    "redistribution": "Not redistributed here as software: the file carries no code at all. It is a token table with the library stripped out from under it, kept for identification and detokenising.",
+    "note": "ExoticA's AMOS extensions list places it at slot 15. Nothing here observes it in a program: the slot is the wiki's recommendation and no more."
+  },
+  "notes": "TABLE ONLY. This is an AMOSTools stub -- the hunk shell and the token table survive, both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. So the NAMES, the parameter SPECS and, because an id is the byte offset of its entry, the IDS are the original library's; the behaviour is not here and the evidence tier cannot rise above `manual` until a real binary turns up. The reader is checked against CRAFT and MusiCRAFT, which are held both ways, and agrees with them entry for entry -- see parseAmosToolsTable in src/tokens/libtok.ts. 220 entries, 184 distinct names, and 36 of the rows are literally called `nop` -- padding between the blocks, one per replayer, so a later version can add a keyword without moving anybody's ids. THIRTEEN REPLAYERS IN ONE LIBRARY, each with the same shape of load/play/stop/cont/volume/song pos/patt pos/vu: `dmed` (MED), `omed` (OctaMED), `omix` (OctaMIX, with a 14-bit mode), `sid`, `ptm` (ProTracker, and the only one with a CIA speed), `thx`, `p61`, `fc13`, `fc14`, `smon` (SoundMon), `sfx13`, `db` (DigiBooster, with a mixer and a boost rate), `tfmx`, `s3m` and `xm`, plus a `dme sam *` sampler. It shares four `p61 *` names with the registered P61 extension and all six `thx *` names with THX 0.6, and shares NOT ONE ID with either -- which is what made the cataloguer score on ids rather than names."
+}

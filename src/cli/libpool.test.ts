@@ -123,8 +123,18 @@ describe('scanLibraries', () => {
     const ids = libs[0]!.tokens.filter((t) => t.name !== '').map((t) => t.id)
     const usage: SlotUsage = { slot: 12, uses: new Map(ids.map((i) => [i, new Set([1])])), count: 2 }
 
-    // against the registry alone nothing explains it; with the library, it does
-    expect(identifySlot(usage).best).toBeUndefined()
+    /*
+     * Against the registry alone the answer is not this library.
+     *
+     * It used to be that NOTHING explained these two ids, and that was luck
+     * rather than design: `map do` and `map bank` are 6 and 8 characters, so
+     * their entries land at $6 and $16, and no registered table had keywords
+     * at both until DBench 0.42 arrived with `db use` and `db address` at
+     * exactly those offsets. Which is the point of the whole exercise -- two
+     * ids are not much of a fingerprint, and a slot resolved from a short
+     * program can land on a library its author never had.
+     */
+    expect(identifySlot(usage).best?.name).not.toBe('Tome.Lib')
     const found = identifySlot(usage, libs.map(libAsExtension))
     expect(found.confidence).toBe('exact')
     expect(found.best!.name).toBe('Tome.Lib')

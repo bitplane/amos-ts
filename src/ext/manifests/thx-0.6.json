@@ -1,0 +1,22 @@
+{
+  "id": "thx-0.6",
+  "name": "THX",
+  "version": "0.6",
+  "author": "Thomas Nokielski",
+  "source": "binary",
+  "library": "AMOSPro_THX.Lib-V0.6",
+  "sha256": "18f8e6856a38090aa03edc6b7b6f1bce8d5628cb91d878a79e4ebd4814e89589",
+  "format": "amostools",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [],
+  "titleStrings": [],
+  "recommendedSlot": 20,
+  "observedSlots": [],
+  "provenance": {
+    "from": "AMOSTools/Extensions, out of aminet dev/amos/amostools.i386-aros.lha -- held in the corpus at sources/aminet-dev-amos/. Its author's README says the directory is \"every AMOS extension I can find, cut down to just their token tables with the make_extensions.pl script\", and names the ExoticA AMOS extensions wiki page as the list it works from.",
+    "redistribution": "Not redistributed here as software: the file carries no code at all. It is a token table with the library stripped out from under it, kept for identification and detokenising.",
+    "note": "ExoticA's AMOS extensions list places it at slot 20. Nothing here observes it in a program: the slot is the wiki's recommendation and no more."
+  },
+  "notes": "TABLE ONLY. This is an AMOSTools stub -- the hunk shell and the token table survive, both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. So the NAMES, the parameter SPECS and, because an id is the byte offset of its entry, the IDS are the original library's; the behaviour is not here and the evidence tier cannot rise above `manual` until a real binary turns up. The reader is checked against CRAFT and MusiCRAFT, which are held both ways, and agrees with them entry for entry -- see parseAmosToolsTable in src/tokens/libtok.ts. Six keywords over a THX/AHX replayer: `thx load`, `thx play`, `thx stop`, `thx volume`, `=thx subsongs`, `=thx end`. NOT THE SAME EXTENSION AS JOTRE, which is also a THX shim and is registered at slot 22 with five keywords of its own spelling (`jolly *`), and not the same as DOOM Music 2.0, which spells all six of these names in its `thx` block. This one shares no ID with DME -- the names are a coincidence of what the format is called. `thx play` here takes two arguments where DME's takes one."
+}

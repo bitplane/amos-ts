@@ -1,0 +1,22 @@
+{
+  "id": "int-1.0",
+  "name": "Int",
+  "version": "1.0",
+  "author": "D.J.Software",
+  "source": "binary",
+  "library": "AMOSPro_Int.Lib-V1.0",
+  "sha256": "372655b233958beb9c8b3f1c222789edc593c1297fae1f9824f273d59a28f566",
+  "format": "amostools",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [],
+  "titleStrings": [],
+  "recommendedSlot": 25,
+  "observedSlots": [],
+  "provenance": {
+    "from": "AMOSTools/Extensions, out of aminet dev/amos/amostools.i386-aros.lha -- held in the corpus at sources/aminet-dev-amos/. Its author's README says the directory is \"every AMOS extension I can find, cut down to just their token tables with the make_extensions.pl script\", and names the ExoticA AMOS extensions wiki page as the list it works from.",
+    "redistribution": "Not redistributed here as software: the file carries no code at all. It is a token table with the library stripped out from under it, kept for identification and detokenising.",
+    "note": "ExoticA's AMOS extensions list places it at slot 25. Nothing here observes it in a program: the slot is the wiki's recommendation and no more."
+  },
+  "notes": "TABLE ONLY. This is an AMOSTools stub -- the hunk shell and the token table survive, both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. So the NAMES, the parameter SPECS and, because an id is the byte offset of its entry, the IDS are the original library's; the behaviour is not here and the evidence tier cannot rise above `manual` until a real binary turns up. The reader is checked against CRAFT and MusiCRAFT, which are held both ways, and agrees with them entry for entry -- see parseAmosToolsTable in src/tokens/libtok.ts. 62 keywords, every one prefixed `wb ` -- an Intuition and Workbench wrapper: windows (`wb open window` takes nine arguments, `wb window flags` nine more), screens, menus with sub-items, ASL requesters (`wb asl req` with nine), gadtools gadgets and strings, drawing, IFF and datatypes image loading, and a `wb joy`. NOT INTUIEXTEND, which is at slot 23 and also uses a `wb ` prefix: the two share five names and NOT ONE ID, and Int is 62 keywords against IntuiExtend's 301. Also not JD Intuition, which is registered at slot 18 with its own spelling. Three extensions wrapping the same OS library with three unrelated tables is the normal state of this ecosystem."
+}

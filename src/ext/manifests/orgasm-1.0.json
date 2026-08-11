@@ -1,0 +1,22 @@
+{
+  "id": "orgasm-1.0",
+  "name": "OrgAsm",
+  "version": "1.0demo",
+  "author": "Donald Cameron (T-Soft)",
+  "source": "binary",
+  "library": "OrgAsm.Lib-V1.0demo",
+  "sha256": "3e72b51e46cf07375cc695e16673c0c69b8c98da07022c27e2873ce3c6a86199",
+  "format": "amostools",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [],
+  "titleStrings": [],
+  "recommendedSlot": 20,
+  "observedSlots": [],
+  "provenance": {
+    "from": "AMOSTools/Extensions, out of aminet dev/amos/amostools.i386-aros.lha -- held in the corpus at sources/aminet-dev-amos/. Its author's README says the directory is \"every AMOS extension I can find, cut down to just their token tables with the make_extensions.pl script\", and names the ExoticA AMOS extensions wiki page as the list it works from.",
+    "redistribution": "Not redistributed here as software: the file carries no code at all. It is a token table with the library stripped out from under it, kept for identification and detokenising.",
+    "note": "ExoticA's AMOS extensions list places it at slot 20. Nothing here observes it in a program: the slot is the wiki's recommendation and no more."
+  },
+  "notes": "TABLE ONLY. This is an AMOSTools stub -- the hunk shell and the token table survive, both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. So the NAMES, the parameter SPECS and, because an id is the byte offset of its entry, the IDS are the original library's; the behaviour is not here and the evidence tier cannot rise above `manual` until a real binary turns up. The reader is checked against CRAFT and MusiCRAFT, which are held both ways, and agrees with them entry for entry -- see parseAmosToolsTable in src/tokens/libtok.ts. Thirteen keywords, and the only extension here whose names are not AMOS-shaped at all: every one is written `f<opengui>`, `f<closegui>`, `f<wait>`, `f<waitport>`, `f<getimsg>`, `f<replyimsg>`, `f<gotoamos>`, `f<gotowb>`, `f<openlib_intuition>`, `f<openlib_gadtools>`, `f<closelib_intuition>`, `f<closelib_gadtools>`, `f<itemaddress>` -- angle brackets included, which is legal in a token table because the tokeniser matches the bytes rather than an identifier. All thirteen are functions returning an integer. A gadtools shell, and a DEMO: the wiki records no full release, and the same author is behind Liberator, which is on its missing-extensions list."
+}
