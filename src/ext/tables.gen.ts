@@ -4019,6 +4019,22 @@ export const EXT_TABLES: Record<string, TokenEntry[]> = {
     { id: 0x009e, name: "pal on", spec: "I", instr: 0xe, func: 0xffff },
     { id: 0x00aa, name: "firewait", spec: "I", instr: 0xc, func: 0xffff },
   ],
+  "musicraft-1.0": [
+    { id: 0x0000, name: "", spec: "", instr: 0x3d3d, func: 0x3d3d },
+    { id: 0x0006, name: "st load", spec: "I2,0", instr: 0x1, func: 0xffff },
+    { id: 0x0016, name: "!st play", spec: "I0,0", instr: 0x1, func: 0xffff },
+    { id: 0x0028, name: "", spec: "I0", instr: 0x1, func: 0xffff },
+    { id: 0x0030, name: "st stop", spec: "I", instr: 0x1, func: 0xffff },
+    { id: 0x003e, name: "st pause on", spec: "I", instr: 0x1, func: 0xffff },
+    { id: 0x0050, name: "st pause off", spec: "I", instr: 0x1, func: 0xffff },
+    { id: 0x0062, name: "st voice", spec: "I0", instr: 0x1, func: 0xffff },
+    { id: 0x0072, name: "st channel", spec: "00", instr: 0xffff, func: 0x1 },
+    { id: 0x0084, name: "st vumeter speed", spec: "I0", instr: 0x1, func: 0xffff },
+    { id: 0x009c, name: "st volume", spec: "I", instr: 0x1, func: 0xffff },
+    { id: 0x00ac, name: "st get volume", spec: "0", instr: 0xffff, func: 0x1 },
+    { id: 0x00c0, name: "st base", spec: "0", instr: 0xffff, func: 0x1 },
+    { id: 0x00ce, name: "st version", spec: "0", instr: 0xffff, func: 0x1 },
+  ],
   "opal-1.1": [
     { id: 0x0000, name: "", spec: "", instr: 0x1, func: 0x0 },
     { id: 0x0006, name: "ovopenscreen24", spec: "00", instr: 0xffff, func: 0x3 },
@@ -7344,6 +7360,24 @@ export const EXT_INFO: ExtensionInfo[] = [
     "sha256": "b8554f71107cb756237f57501b9e2412835ec417aecb5b19e9380057e8346b6e",
     "provenance": "AMOS-Professional-Official/extensions/Misc-1.0 Manual.TXT documents every keyword and tells users to install it at interpreter-config number 23 — a recommendation, not a reservation, which is precisely how slot collisions arise.",
     "notes": "Small (13 tokens), fully documented AND source-complete, so this is the reference case for the extension pipeline. Misc_Extension.asm is the whole extension — its own token table (C_Tk/C_Off) and every routine — written in DevPac 2 and placed in the public domain, so behaviour is read rather than inferred. The source also bakes in the slot the manual recommends (ExtNb equ 23-1), which is exactly how slot collisions arise. The manual warns several keywords crash the real machine ('Pal On ... forces AMOS to crash'); faithful ports reproduce the documented behaviour, not the crash. No corpus program uses it, so the legacy id base is assumed from the shared legacy layout rather than calibrated against observed ids."
+  },
+  {
+    "id": "musicraft-1.0",
+    "name": "MusiCRAFT",
+    "version": "1.0",
+    "author": "Hannu Rummukainen (for Black Legend Ltd)",
+    "origin": "third-party",
+    "format": "amostools",
+    "evidence": "manual",
+    "idBaseEvidence": "assumed",
+    "defaultSlot": 19,
+    "observedSlots": [
+      19
+    ],
+    "titleStrings": [],
+    "sha256": "946dd490c1632073ff25ece5077685ffd44a54fdec4b45fd569903963b61bb6c",
+    "provenance": "AMOSTools (Aminet util/arc/amostools), AMOSTools/Extensions/AMOSPro_MusiCRAFT.Lib-V1.00 and MusiCRAFT.Lib-V1.00. Retrieved from the local aminet-dev-amos mirror, 2026-08-11. NO BINARY IS HELD, and this is the second registry entry that can say so -- the other is intuition-1.3b. What AMOSTools ships is not a library: the hunk shell survives and so does the token table, byte for byte, but both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. Names, parameter specs and ids are the original's and the routine numbers are gone. CORROBORATED against CRAFT, which is held BOTH ways: the AMOSTools CRAFT stub and the real AMOSPro_CRAFT.Lib on the installer disk agree on all 168 entries' id, name and spec, 0 differences -- see libtok.test.ts, which is what earns this table its trust and which vendors the CRAFT stub beside these two for exactly that purpose. The AMOS 1.3 build (MusiCRAFT.Lib-V1.00) is byte-identical in its table to the AMOS Pro one, so one entry covers both; both are vendored. Searched for a real binary before settling for this: Aminet has no package matching `musicraft`, and the CRAFT installer disk -- whose seven blobs are all unpacked now by src/cli/craftx.ts -- carries CRAFT's own library and a music module (`craft.jol` by Janne Leinonen) but no second .Lib. Fetching a real MusiCRAFT would move this to `disassembly` and is the thing to do before anything is ported.",
+    "notes": "CRAFT's companion, and the reason nine `St *` topics appear in CRAFT's help file with none of them in CRAFT's token table. 13 named keywords over 14 entries -- `!st play` carries the second arity as the unnamed row after it. Slot 19 is OBSERVED, not recommended: three of the example programs on the CRAFT disk (Sample_Demo, Toggle_Voice, Vumeter_Demo) bind it there, which is one better than CRAFT's own slot 18 has. THE TABLE DOCUMENTS TWO KEYWORDS THE HELP DOES NOT: `st volume` (spec `I`, so an instruction with no parameters at all) and `=st get volume` (spec `0`). The other eleven are the help's nine plus the two halves of `St Pause On/Off`, which are separate tokens. What it does, from that help: loads and plays sound/noise/protracker modules out of an AMOS bank -- \"note that currently this system supports new commands presented in Protracker 2.1, and the modules which are composed with earlier versions of sound/noisetracker may not work\" -- with pause, per-channel masking, a vumeter decay speed that interacts with AMOS's own =Vumeter, and =St Version \"multiplied with 100\". Nothing is ported: with the routines scrubbed out of the only table held, there is no behaviour to read."
   },
   {
     "id": "opal-1.1",

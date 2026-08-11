@@ -1,0 +1,26 @@
+{
+  "id": "musicraft-1.0",
+  "name": "MusiCRAFT",
+  "version": "1.0",
+  "author": "Hannu Rummukainen (for Black Legend Ltd)",
+  "source": "binary",
+  "library": "AMOSPro_MusiCRAFT.Lib",
+  "sha256": "946dd490c1632073ff25ece5077685ffd44a54fdec4b45fd569903963b61bb6c",
+  "format": "amostools",
+  "idBaseEvidence": "assumed",
+  "evidence": "manual",
+  "docs": [
+    "../craft-1.0/CRAFT_Help.txt"
+  ],
+  "titleStrings": [],
+  "observedSlots": [
+    19
+  ],
+  "recommendedSlot": 19,
+  "provenance": {
+    "from": "AMOSTools (Aminet util/arc/amostools), AMOSTools/Extensions/AMOSPro_MusiCRAFT.Lib-V1.00 and MusiCRAFT.Lib-V1.00. Retrieved from the local aminet-dev-amos mirror, 2026-08-11.",
+    "note": "NO BINARY IS HELD, and this is the second registry entry that can say so -- the other is intuition-1.3b. What AMOSTools ships is not a library: the hunk shell survives and so does the token table, byte for byte, but both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. Names, parameter specs and ids are the original's and the routine numbers are gone. CORROBORATED against CRAFT, which is held BOTH ways: the AMOSTools CRAFT stub and the real AMOSPro_CRAFT.Lib on the installer disk agree on all 168 entries' id, name and spec, 0 differences -- see libtok.test.ts, which is what earns this table its trust and which vendors the CRAFT stub beside these two for exactly that purpose. The AMOS 1.3 build (MusiCRAFT.Lib-V1.00) is byte-identical in its table to the AMOS Pro one, so one entry covers both; both are vendored. Searched for a real binary before settling for this: Aminet has no package matching `musicraft`, and the CRAFT installer disk -- whose seven blobs are all unpacked now by src/cli/craftx.ts -- carries CRAFT's own library and a music module (`craft.jol` by Janne Leinonen) but no second .Lib. Fetching a real MusiCRAFT would move this to `disassembly` and is the thing to do before anything is ported.",
+    "redistribution": "Commercial: published by Black Legend Ltd. Redistribution terms unverified. Kept as a fixture for identification and reference only."
+  },
+  "notes": "CRAFT's companion, and the reason nine `St *` topics appear in CRAFT's help file with none of them in CRAFT's token table. 13 named keywords over 14 entries -- `!st play` carries the second arity as the unnamed row after it. Slot 19 is OBSERVED, not recommended: three of the example programs on the CRAFT disk (Sample_Demo, Toggle_Voice, Vumeter_Demo) bind it there, which is one better than CRAFT's own slot 18 has. THE TABLE DOCUMENTS TWO KEYWORDS THE HELP DOES NOT: `st volume` (spec `I`, so an instruction with no parameters at all) and `=st get volume` (spec `0`). The other eleven are the help's nine plus the two halves of `St Pause On/Off`, which are separate tokens. What it does, from that help: loads and plays sound/noise/protracker modules out of an AMOS bank -- \"note that currently this system supports new commands presented in Protracker 2.1, and the modules which are composed with earlier versions of sound/noisetracker may not work\" -- with pause, per-channel masking, a vumeter decay speed that interacts with AMOS's own =Vumeter, and =St Version \"multiplied with 100\". Nothing is ported: with the routines scrubbed out of the only table held, there is no behaviour to read."
+}

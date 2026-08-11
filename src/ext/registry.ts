@@ -32,6 +32,15 @@ export type ExtFormat =
   | 'legacy'
   /** Assembled from the extension's own token-table source. */
   | 'source'
+  /**
+   * A token table with the library stripped out from under it: the shape the
+   * `AMOSTools/Extensions` directory ships, where the hunk shell and the
+   * table survive and every entry's two routine words are overwritten with
+   * `====`. Names, specs and ids are the original's -- checked entry for
+   * entry against CRAFT, which is held both ways -- and the routine numbers
+   * are gone, so a table read this way can never rise above `manual`.
+   */
+  | 'amostools'
 
 /**
  * How well we know what an extension's keywords actually *do*. This is

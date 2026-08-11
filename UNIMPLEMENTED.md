@@ -79,6 +79,7 @@ extension keyword. The count is keywords with no handler at all:
 | D-SAM 1.01 | 50 | nothing. `audio.device` and `dos.library`, both modelled |
 | Delta 1.6 | 46 | little. 26 of the 46 are Delta 1.4's, already faithful; of the 20 new ones four are machine code (n/a) and the rest want reqtools, `FindTask` and `WBenchToFront`, all of which exist |
 | jd-int 1.3 | 33 | nothing in `src/amiga` — findings banked, and the binary names no library, so it reaches Intuition through a base AMOS already holds |
+| MusiCRAFT 1.0 | 12 | a binary. CRAFT's companion, registered off AMOSTools' table-only stub, so the names, specs and ids are real and the routine numbers are scrubbed out — there is nothing to disassemble. The second row here, with Intuition 1.3b, where the block is the artifact and not the back-end |
 | BSDSocket 1.1.4 | 30 | `bsdsocket.library` **and** a host networking boundary. The only row here blocked on something outside AmigaOS |
 
 **Craft 1.0 came off this table, and it is worth saying what it cost.**

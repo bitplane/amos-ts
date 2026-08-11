@@ -98,6 +98,51 @@ export function parseAmosLib(bytes: Uint8Array): AmosLib {
   return { tokens: rebase(parseTokenTable(table)), code }
 }
 
+/** the four bytes AMOSTools writes where a token entry's two routine words were */
+const AMOSTOOLS_SCRUB = 0x3d3d3d3d
+
+/**
+ * A token table with the library stripped out from under it — the shape the
+ * `AMOSTools/Extensions` directory ships.
+ *
+ * These files keep a hunk header and a HUNK_CODE, but both length fields read
+ * zero and there is no code: what follows is the original library's token
+ * table, byte for byte, with every entry's `instr`/`func` pair overwritten
+ * with `====`. So the NAMES, the parameter SPECS and — because an id is the
+ * byte offset of its entry — the IDS all survive, and nothing else does.
+ *
+ * That makes them worth reading and worth distrusting in equal measure, so
+ * this refuses anything that does not carry the scrub: a real library must go
+ * through `parseAmosLibOld`, which can tell you what the routines are.
+ *
+ * The routine numbers come back the way `intuition-1.3b`'s assembled table
+ * reports its own unknown ones: the side the spec says exists is 1, AMOS's
+ * absent-routine marker in an AP20 table, and the other side is $ffff. The
+ * spec's first character is the only witness left to which is which.
+ *
+ * CORROBORATED against CRAFT, which is held here both ways: the stub's table
+ * agrees with the real `AMOSPro_CRAFT.Lib` on all 168 entries' id, name and
+ * spec. See libtok.test.ts.
+ */
+export function parseAmosToolsTable(bytes: Uint8Array): TokenEntry[] {
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  // the hunk shell is a formality here: header, HUNK_CODE, and two lengths
+  // that both lie. The three size longwords the library format puts at the
+  // head of its code hunk follow, and the table is 10 bytes past them.
+  if (bytes.length < 0x40 || v.getUint32(0) !== 0x0000_03f3) {
+    throw new Error('not an AMOSTools token table — no hunk header')
+  }
+  const start = 0x20 + 8 + v.getUint32(0x20) + 10
+  if (v.getUint32(start) !== AMOSTOOLS_SCRUB && v.getUint32(start + 4) !== AMOSTOOLS_SCRUB) {
+    throw new Error('not an AMOSTools token table — the routine words are not scrubbed')
+  }
+  return parseTokenTable(bytes.subarray(start)).map((t) => {
+    if (t.name === '' && t.spec === '') return t
+    const isInstr = t.spec.startsWith('I')
+    return { ...t, instr: isInstr ? 1 : 0xffff, func: isInstr ? 0xffff : 1 }
+  })
+}
+
 /**
  * Older / third-party extensions (TURBO Plus, GUI, Ldos) lack the AP20
  * magic of the stock AMOS Pro 2.0 libraries. Their code hunk begins with

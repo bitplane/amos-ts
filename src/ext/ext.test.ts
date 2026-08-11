@@ -137,9 +137,16 @@ describe('extension registry (src/ext/registry.ts)', () => {
       const m = JSON.parse(readFileSync(join(manifests, f), 'utf8')) as {
         id: string
         library?: string
+        format?: string
         evidence: string
       }
-      if (m.library && m.evidence === 'manual') {
+      // `amostools` is not a binary. It is that tool's redacted copy of a
+      // token table -- the hunk shell and the entries survive, both length
+      // fields read zero, there is no code, and every routine word is
+      // overwritten with `====`. Nothing in it can be disassembled, so an
+      // entry read that way cannot rise above `manual` and is not an offender
+      // here. See parseAmosToolsTable in ../tokens/libtok.ts.
+      if (m.library && m.evidence === 'manual' && m.format !== 'amostools') {
         offenders.push(`${m.id} says ${m.evidence} but ships ${m.library}`)
       }
     }
@@ -497,20 +504,13 @@ describe.skipIf(!existsSync(extFixtures))('the whole corpus identifies without a
     // `eltest` is a real discriminator and a program that used it would settle
     // this slot outright.
     //
-    // Slot 19 is a third kind: not too little evidence and not too much, but
-    // an extension this registry does not have. Three of the forty example
-    // programs off the CRAFT installer disk — Sample_Demo, Toggle_Voice and
-    // Vumeter_Demo — bind it, using ids 6, 40, 98, 114 and 132, and those are
-    // MusiCRAFT's. It is CRAFT's companion: nine `St *` topics in CRAFT's own
-    // help text document it (st load, st play, st stop, st pause, st voice,
-    // st channel, st vumeter speed, st base, st version) and not one of them
-    // is in CRAFT's token table. No binary is held. AMOSTools carries a
-    // 278-byte `AMOSPro_MusiCRAFT.Lib` naming the keywords, but it is a
-    // table-only stub in that tool's own layout rather than a library, and
-    // `parseAmosLibOld` will not read it. Registering MusiCRAFT is its own
-    // piece of work; until then `unknown` is the true answer and this is
-    // where that is said out loud.
-    const unidentifiable = new Set([9, 16, 19])
+    // Slot 19 USED to be a third kind — an extension this registry did not
+    // have — and is now registered as musicraft-1.0, so it identifies exactly
+    // off the ids the three CRAFT example programs that bind it use. What
+    // made that possible was reading AMOSTools' table-only stub, which is not
+    // a library: no code, and every routine word scrubbed to `====`. It still
+    // holds no binary and its evidence tier says so.
+    const unidentifiable = new Set([9, 16])
 
     const resolved: Record<number, string> = {}
     for (const [slot, usage] of merged) {
@@ -560,6 +560,10 @@ describe.skipIf(!existsSync(extFixtures))('the whole corpus identifies without a
       // third-party row here has, and they land on 18 — the slot Burton's list
       // recommends, arrived at from the programs alone.
       18: 'craft-1.0',
+      // CRAFT's companion, bound here by three of the example programs off
+      // the same installer disk. Registered from AMOSTools' scrubbed table,
+      // so the ids are the real ones and nothing behind them is.
+      19: 'musicraft-1.0',
       // OS-DevKit's own documentation ships an example program, which came in
       // with the extension. Every id it uses lands in OS-DevKit's table, which
       // is what turns that entry's id base from assumed into calibrated.

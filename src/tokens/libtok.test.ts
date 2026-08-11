@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseTokenTable } from './libtok'
+import { parseAmosLibOld, parseAmosToolsTable, parseTokenTable } from './libtok'
 import { firstCodeHunk } from '../amiga/hunk'
 
 const ch = (s: string) => [...s].map((c) => c.charCodeAt(0))
@@ -142,5 +142,48 @@ describe.skipIf(!existsSync(fixtures))('the entry walk agrees with Ver_Ech', () 
       expect(amosWalk(code.subarray(start)).slice(0, best.length), path).toEqual(best)
     }
     expect(checked).toBeGreaterThan(50)
+  })
+})
+
+/*
+ * The corroboration that earns `parseAmosToolsTable` its trust.
+ *
+ * AMOSTools ships token tables with the library stripped out from under them:
+ * the hunk shell survives, both length fields read zero, there is no code, and
+ * every entry's two routine words are overwritten with `====`. That is enough
+ * to register an extension by — names, specs and ids — and not enough to port
+ * one, and the only way to know the first half is true is to read a table both
+ * ways and compare.
+ *
+ * CRAFT is the extension that lets us: the real `AMOSPro_CRAFT.Lib` came off
+ * the installer disk, and AMOSTools has a stub of the same version. Everything
+ * `musicraft-1.0` claims rests on these two agreeing.
+ */
+const craftLib = join(fixtures, 'extensions', 'craft-1.0', 'AMOSPro_CRAFT.Lib')
+const craftStub = join(fixtures, 'extensions', 'musicraft-1.0', 'AMOSPro_CRAFT.Lib-V1.00')
+
+describe.skipIf(!existsSync(craftLib) || !existsSync(craftStub))('AMOSTools table stubs', () => {
+  it('agree with the real library on every id, name and spec', () => {
+    const real = parseAmosLibOld(new Uint8Array(readFileSync(craftLib))).tokens
+    const stub = parseAmosToolsTable(new Uint8Array(readFileSync(craftStub)))
+    expect(stub.length).toBe(real.length)
+    expect(stub.map((t) => [t.id, t.name, t.spec])).toEqual(real.map((t) => [t.id, t.name, t.spec]))
+  })
+
+  it('report the routine numbers as unknown rather than as the scrub', () => {
+    // $3d3d is not a routine, and a table read this way must not pretend it
+    // is. The side the SPEC says exists gets 1 -- AMOS's absent-routine
+    // marker, which is what intuition-1.3b's assembled table already uses for
+    // the same "present but unnumbered" case -- and the other side $ffff.
+    const stub = parseAmosToolsTable(new Uint8Array(readFileSync(craftStub)))
+    const upCase = stub.find((t) => t.name === 'up case$')!
+    expect([upCase.instr, upCase.func]).toEqual([0xffff, 1])
+    const strPoke = stub.find((t) => t.name === 'str poke')!
+    expect([strPoke.instr, strPoke.func]).toEqual([1, 0xffff])
+  })
+
+  it('refuse a real library, which has routine numbers worth reading', () => {
+    const real = new Uint8Array(readFileSync(craftLib))
+    expect(() => parseAmosToolsTable(real)).toThrow(/not scrubbed/)
   })
 })

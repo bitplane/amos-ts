@@ -13,7 +13,7 @@ import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
-import { parseAmosLib, parseAmosLibOld, type TokenEntry } from '../tokens/libtok'
+import { parseAmosLib, parseAmosLibOld, parseAmosToolsTable, type TokenEntry } from '../tokens/libtok'
 import { tokensFromSource } from '../ext/tokensrc'
 import type { ExtensionInfo } from '../ext/registry'
 
@@ -131,8 +131,8 @@ for (const file of readdirSync(manifestDir).sort()) {
     hash = sha(Buffer.from(src, 'latin1'))
   } else {
     const raw = readFileSync(join(extDir, dir, m.library))
-    const lib = m.format === 'ap20' ? parseAmosLib(raw) : parseAmosLibOld(raw)
-    tokens = lib.tokens
+    if (m.format === 'amostools') tokens = parseAmosToolsTable(raw)
+    else tokens = (m.format === 'ap20' ? parseAmosLib(raw) : parseAmosLibOld(raw)).tokens
     hash = sha(raw)
   }
   tables.set(m.id, tokens)
