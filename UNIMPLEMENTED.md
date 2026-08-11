@@ -81,7 +81,7 @@ extension keyword. The count is keywords with no handler at all:
 | GUI 2.10 / 1.61 / 1.5b | 204 / 103 / 48 | `intuition.library` |
 | Intuition 1.3b | 183 | needs `intuition.library` first |
 | Craft 1.0 | 136 | commercial (Black Legend) |
-| The Game 0.9 | 66 | in progress: everything but the GMS graphics, the requesters and the two packers |
+| The Game 0.9 | 64 | in progress: everything but the GMS graphics and the requesters |
 | D-SAM 1.01 | 50 | |
 | Delta 1.6 | 46 | `intuition.library` |
 | jd-int 1.3 | 33 | `intuition.library` — findings banked |

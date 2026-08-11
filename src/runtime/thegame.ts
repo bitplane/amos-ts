@@ -593,6 +593,22 @@ function swapKeyWords(bank: Uint8Array, sum: number, forward: boolean): void {
   }
 }
 
+/**
+ * `Rjsr L_Bnk_GetAdr` and no test of the result, which both `G Decrypt` and
+ * `G Stc Unpack` do.
+ *
+ * DEVIATION: on the machine a0 comes back zero and the routine goes on to
+ * read and write through it, which is a scribble on the bottom of memory and
+ * then a guru. There is no address zero here, so a bank that is not reserved
+ * raises AMOS's own error for that instead — the one every extension that
+ * DOES check the result raises, EasyLife's zone keywords among them.
+ */
+function missingBank(rt: Runtime, n: number): { data: Uint8Array } {
+  const b = rt.memBanks.get(n)
+  if (!b) throw new AmosError('Bank not reserved', 36)
+  return b
+}
+
 /** `addi.l #$1131511,(a0)` at $1b80, and the `subi.l` that undoes it */
 const ENCRYPT_MAGIC = 0x01131511
 
@@ -823,8 +839,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
         s.stcOpens++
         s.stcBase = 1
       }
-      const src = rt.memBanks.get(from)
-      if (!src) throw new AmosError(ED_RUN_MESSAGES[81]!, 81)
+      const src = missingBank(rt, from)
       addMagic(src.data, -ENCRYPT_MAGIC)
       swapKeyWords(src.data, s.keySum, false)
       const out = stcDecrunch(src.data)
@@ -835,6 +850,95 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
       // a zero or negative length is AMOS's own "Illegal function call" from
       // inside Bnk_Reserve, which is where a wrong password usually lands
       rt.reserveBank(to, size, TGE_ENCRYPT_BANK_NAME)
+      if (out) rt.memBanks.get(to)!.data.set(out.subarray(0, size))
+    },
+
+    /**
+     * Routine 98 ($35be) — `G Stc Pack FILE$,BANK`. Undocumented: the guide
+     * has no node for either packer, and mentions `stc.library` only as
+     * something the installer will put in `LIBS:`.
+     *
+     * The same 392 bytes as `G Encrypt` with the password and the scramble
+     * taken out — the FileInfoBlock, the lock, the library, the work buffer,
+     * the file buffer, the crunch through the tag list at +$138, the reserve
+     * and the copy — so the bank it leaves is a plain `S404` file that
+     * `G Stc Unpack` and stc.library both read. See ../amiga/stonecracker.ts.
+     *
+     * DEFECT: the copy length is wrong. `Bnk_Reserve` is given d4, the
+     * CRUNCHED length, and `CopyMem` is then given d6, the length of the file
+     * that was read:
+     *
+     *     move.l d4,d2 / Rjsr L_Bnk_Reserve      the crunched length
+     *     movea.l $4(a0),a0 / move.l d6,d0
+     *     movea.l $4.w,a6 / jsr -$270(a6)        the file's length
+     *
+     * `G Encrypt` has `move.l d4,d0` in the same place and is right. So for
+     * anything that actually crunches, this writes past the end of the bank
+     * by the difference — and for anything that does NOT crunch, which the
+     * format's nine-bits-a-byte literals make easy, the copy is SHORT and the
+     * bank keeps a truncated file that will not unpack. The overrun is
+     * contained here and the truncation is reproduced, both being what this
+     * port can honestly do with a write past an allocation.
+     *
+     * DEFECT: the FileInfoBlock is never freed, and `stc.library` is opened
+     * on every call, both as in `G Encrypt`.
+     *
+     * The error numbers differ from `G Encrypt`'s for the same conditions: a
+     * lock that fails is `Rbeq routine 59` with d0 still zero, and `G Exit`
+     * turns a zero into 16 — *"Illegal user function call"* — where
+     * `G Encrypt` says 81; and a missing `stc.library` is `moveq #$2,d0`,
+     * *"POP without GOSUB"*, where `G Encrypt` says 1.
+     */
+    'g stc pack': (it) => {
+      const s = st()
+      const file = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      s.fibLeak += 1000
+      const data = rt.vfs?.readFile(file) ?? rt.fs?.read(file) ?? null
+      if (!data) throw new AmosError(ED_RUN_MESSAGES[16]!, 16)
+      s.stcOpens++
+      s.stcBase = 1
+      const packed = stcCrunch(data)
+      rt.reserveBank(bank, packed.length, TGE_ENCRYPT_BANK_NAME)
+      // the copy takes the FILE's length, not the crunched one
+      rt.memBanks.get(bank)!.data.set(packed.subarray(0, Math.min(data.length, packed.length)))
+    },
+
+    /**
+     * Routine 99 ($3746) — `G Stc Unpack SOURCE,DEST`. Undocumented as well.
+     *
+     * `Bnk_GetAdr` the source, take the decrunched length out of the
+     * StoneCracker header at +$8, reserve the destination for exactly that
+     * under `TGE   En`, and decrunch. It is `G Decrypt` without the password,
+     * and where `G Decrypt`'s source has to be scrambled this one's is a
+     * plain `S404` file.
+     *
+     * DEFECT: the routine opens with `G Decrypt`'s password checksum —
+     * `move.w (a1),d1 / add.b (a1,d1.w),d4 / dbra d1` — and it has no
+     * password. Its spec is `I0,0` and it pops two integers, so `a1` is
+     * whatever the interpreter last left there; the loop reads a word from it
+     * as a length and then that many bytes. The result goes into d4 and d4 is
+     * never used again. A copy-and-paste left running over a stale pointer,
+     * and nothing here can reproduce reading through one.
+     *
+     * DEFECT: `Bnk_GetAdr` is not tested, and the `OpenLibrary` arm is the
+     * same `tst.l d0` with no branch that `G Decrypt` has.
+     */
+    'g stc unpack': (it) => {
+      const s = st()
+      const from = it.evalInt()
+      it.expect(',')
+      const to = it.evalInt()
+      if (s.stcBase === 0) {
+        s.stcOpens++
+        s.stcBase = 1
+      }
+      const src = missingBank(rt, from)
+      const d = src.data
+      const size = ((d[8]! << 24) | (d[9]! << 16) | (d[10]! << 8) | d[11]!) >>> 0
+      rt.reserveBank(to, size, TGE_ENCRYPT_BANK_NAME)
+      const out = stcDecrunch(d)
       if (out) rt.memBanks.get(to)!.data.set(out.subarray(0, size))
     },
 

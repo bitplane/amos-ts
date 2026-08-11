@@ -665,6 +665,71 @@ describe('the encryption keywords', () => {
   })
 })
 
+/**
+ * The two packers, which are the encryption pair with the password taken out.
+ * The format is ../amiga/stonecracker.ts; what is checked here is the bank.
+ */
+describe('the stc.library packers', () => {
+  const compressible = bytesOf('The Game Extension packs this with StoneCracker. '.repeat(40))
+  const withFile = (data: Uint8Array): AmigaFS => {
+    const fs = withRam()
+    fs.writeFile('RAM:plain.dat', data)
+    return fs
+  }
+
+  it('G Stc Pack leaves a crunched file in the bank', () => {
+    const rt = run('G Stc Pack "RAM:plain.dat",4', withFile(compressible))
+    const bank = rt.memBanks.get(4)!
+    expect(bank.name).toBe(TGE_ENCRYPT_BANK_NAME)
+    // no magic and no swaps this time: it is a plain S404 file
+    expect(Array.from(bank.data.subarray(0, 4))).toEqual([0x53, 0x34, 0x30, 0x34])
+    expect(bank.data.length).toBeLessThan(compressible.length / 2)
+  })
+
+  it('G Stc Unpack gives it back', () => {
+    const rt = run(['G Stc Pack "RAM:plain.dat",4', 'G Stc Unpack 4,5'], withFile(compressible))
+    expect(rt.memBanks.get(5)!.data).toEqual(compressible)
+  })
+
+  /**
+   * DEFECT: Bnk_Reserve gets the crunched length and CopyMem gets the FILE's
+   * length. For data that does not crunch, the copy is SHORT and the bank
+   * keeps a truncated file — reproduced, because the tail is observable.
+   */
+  it('G Stc Pack truncates the bank when the data does not crunch', () => {
+    const noise = new Uint8Array(600)
+    let x = 7
+    for (let i = 0; i < noise.length; i++) {
+      x = (Math.imul(x, 1103515245) + 12345) >>> 0
+      noise[i] = (x >>> 16) & 0xff
+    }
+    const rt = run('G Stc Pack "RAM:plain.dat",4', withFile(noise))
+    const bank = rt.memBanks.get(4)!.data
+    // nine bits a byte, so the crunch is longer than the file and the copy
+    // stops short of filling the bank
+    expect(bank.length).toBeGreaterThan(noise.length)
+    expect(bank[bank.length - 1]).toBe(0)
+  })
+
+  it('G Stc Unpack on a bank that is not crunched reserves and leaves it empty', () => {
+    // Decrunch answers 0 for a magic it does not know, having done nothing,
+    // and the destination bank was already reserved by then
+    const rt = run(['Reserve As Data 4,64', 'Poke$ Start(4)+8,Chr$(0)+Chr$(0)+Chr$(0)+Chr$(9)', 'G Stc Unpack 4,5'], withRam())
+    expect(rt.memBanks.get(5)!.data.length).toBe(9)
+    expect(Array.from(rt.memBanks.get(5)!.data)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0])
+  })
+
+  /** DEFECT: Bnk_GetAdr is not tested; there is no address zero here */
+  it('G Stc Unpack of a bank that is not there is Bank not reserved', () => {
+    expect(() => run('G Stc Unpack 12,13', withRam())).toThrow(/Bank not reserved/i)
+  })
+
+  /** a lock that fails is `Rbeq routine 59` with d0 zero, and G Exit makes that 16 */
+  it('G Stc Pack on a missing file is AMOS error 16, not G Encrypt\u2019s 81', () => {
+    expect(() => run('G Stc Pack "RAM:nothere",4', withRam())).toThrow(/Illegal user function call/i)
+  })
+})
+
 describe('=G Word$', () => {
   /**
    * The guide says "Not DONE". Both length tests are dead and the second scan

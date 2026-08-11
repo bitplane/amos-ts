@@ -2731,6 +2731,8 @@ export const FAITHFUL = new Set<string>([
   // The encryption scheme: a StoneCracker crunch into an AMOS bank with four
   // words shuffled by a one-byte password. src/amiga/stonecracker.ts.
   'g init encyrpt', 'g encrypt', 'g decrypt',
+  // and the same library without the password, which is the whole of batch 5
+  'g stc pack', 'g stc unpack',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -7216,6 +7218,28 @@ inverse wants it last costs nothing. DEFECTS: the source bank is left decrypted,
 subtracts the magic from a longword that no longer has it; Bnk_GetAdr is not tested; and the OpenLibrary arm is \
 `tst.l d0` at $1c38 with NO branch after it -- the failure test was written and never connected, so a machine \
 without stc.library reaches `jsr -$24(a6)` through a zero base",
+  "g stc pack":
+    "Routine 98 ($35be). Undocumented -- the guide has no node for either packer and mentions stc.library only as \
+something the installer will put in LIBS:. The same 392 bytes as G Encrypt with the password and the scramble \
+removed, so the bank it leaves is a plain S404 file; see src/amiga/stonecracker.ts. DEFECT: Bnk_Reserve is given \
+d4, the CRUNCHED length, and CopyMem is then given d6, the length of the FILE -- G Encrypt has `move.l d4,d0` in \
+the same place and is right. So anything that crunches is written past the end of the bank by the difference, and \
+anything that does not (nine-bits-a-byte literals make that easy) leaves a SHORT copy and a truncated file that \
+will not unpack. The overrun is contained here and the truncation reproduced. DEFECTS besides: the FileInfoBlock \
+never freed and stc.library opened on every call, both as in G Encrypt. The error numbers differ from G \
+Encrypt's for the same conditions: a failed lock is `Rbeq routine 59` with d0 still zero and G Exit turns zero \
+into 16, \"Illegal user function call\", where G Encrypt says 81; a missing stc.library is `moveq #$2,d0`, \
+\"POP without GOSUB\", where G Encrypt says 1",
+  "g stc unpack":
+    "Routine 99 ($3746). Bnk_GetAdr the source, take the decrunched length out of the StoneCracker header at +$8, \
+reserve the destination for exactly that under \"TGE   En\", decrunch. G Decrypt without the password. DEFECT: \
+it opens with G Decrypt's password checksum -- `move.w (a1),d1 / add.b (a1,d1.w),d4 / dbra d1` -- and has no \
+password: its spec is `I0,0`, it pops two integers, and a1 is whatever the interpreter left there, so the loop \
+reads a word from a stale pointer as a length and then that many bytes. d4 is never used again. Nothing here can \
+reproduce reading through a stale pointer. DEFECTS besides: Bnk_GetAdr untested, and the same disconnected \
+`tst.l d0` on the OpenLibrary result that G Decrypt has. A bank that is not reserved raises AMOS's own \"Bank \
+not reserved\" here, where the machine writes through a zero a0 -- a DEVIATION, there being no address zero. \
+S403 is not implemented: this is the keyword that can be handed one",
   "g word$":
     "Routine 81 ($2be0). APPROXIMATED. The guide says \"Not DONE\" and the routine agrees. Both scans put \
 `cmp.w d5,d3` immediately before `cmp.b d7,d0`, so the length compare's flags are gone before anything branches \
