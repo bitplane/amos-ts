@@ -6,7 +6,7 @@ import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { AmigaFS } from '../amiga/vfs'
-import { craftKey, craftScramble, craftUnscramble, CRAFT_CIPHER_TABLE, TR } from './craft'
+import { craftKey, craftScramble, craftUnscramble, CRAFT_CIPHER_TABLE, CRAFT_AMOS_BASE, TR } from './craft'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 18, off Burton's list and confirmed by the disk's own forty examples */
@@ -1449,5 +1449,95 @@ describe('CRAFT 1.0 — Workbench, the CLI and the machine (routines 162..203)',
     // behind this port, so it answers DOSFALSE and nothing is invented
     expect(() => run('Cli Execute "list"')).not.toThrow()
     expect(() => run('Cli Print "hello"')).not.toThrow()
+  })
+})
+
+describe('CRAFT 1.0 — the hardware and the odds and ends (routines 190..204)', () => {
+  it('=Hw Mouse Key reads the two hardware registers, and so can a program', () => {
+    /*
+     * Routine 190 goes to the silicon rather than to AMOS -- `btst.b
+     * #$6,$bfe001.l` for the left button on CIA-A's port A, and `#$a` and
+     * `#$8` on POTGOR at $dff016 for the right and the middle. That is what
+     * earns the manual's "it works whether the AMOS screen is displayed or
+     * not", and it is why both registers are in the memory map: a program
+     * that Peeks them itself has to get the same answer the keyword does.
+     * All three bits are ACTIVE LOW.
+     */
+    const b = boot('Print Hw Mouse Key;Peek($BFE001);Deek($DFF016)')
+    b.rt.input.mouseK = 1 | 4
+    mustFinish(b.rt.runHeadless(5000))
+    // left and middle down: CIA bit 6 clear, POTGOR bit 8 clear, bit 10 set
+    expect(b.out().trim()).toBe(`5 ${0xbf} ${0xffff & ~(1 << 8)}`)
+  })
+
+  it('and answers nothing at all with no button down', () => {
+    expect(val('Hw Mouse Key;Peek($BFE001);Deek($DFF016)')).toBe(`0 255 65535`)
+  })
+
+  it('the three Gr functions are the RastPort pens seen from outside', () => {
+    // routines 193, 194 and 195 all reach routine 196 with $19, $1a and $1b:
+    // rp_FgPen, rp_BgPen and rp_AOlPen. It is the same RastPort at
+    // `-$18ca(a5)` the turtle draws its lines through.
+    expect(val('Gr Ink;Gr Back;Gr Border', 'Ink 5,3,7\n')).toBe('5 3 7')
+    expect(() => run('Screen Close 0\nPrint Gr Ink')).toThrow(/Screen not opened/)
+  })
+
+  it('Gr Centre puts a string in the middle of the screen', () => {
+    const b = boot('Ink 3\nGr Centre 50,"AB"')
+    mustFinish(b.rt.runHeadless(5000))
+    const s = b.rt.screens.get(0)!
+    // (320 - 2*8) / 2 = 152, and the y is the baseline
+    let leftmost = -1
+    for (let x = 0; x < s.width && leftmost < 0; x++) {
+      for (let y = 40; y < 52; y++) if (s.point(x, y) === 3) leftmost = x
+    }
+    expect(leftmost).toBe(152)
+  })
+
+  it('the three swaps swap what their first letter says and nothing else', () => {
+    // routine 200 is two nibbles, 201 two bytes, 202 one `swap d3`
+    expect(val('B.Swap($AB);W.Swap($1234);L.Swap($12345678)')).toBe(`${0xba} ${0x3412} ${0x56781234}`)
+    // the upper parts are left alone: B.Swap only ever answers a byte
+    expect(val('B.Swap($12AB)')).toBe(String(0xba))
+    expect(val('W.Swap($99001234)')).toBe(String(0x3412))
+  })
+
+  it('=Beam Wait refuses a line past =Display Height', () => {
+    // the bound is AMOS's own, off the jump table at `$128(a0)` -- the same
+    // number Display Height answers. DEVIATION: the wait itself is not
+    // waited, for the reason AMCAF's Raster Wait already carries.
+    expect(() => run('Beam Wait 100')).not.toThrow()
+    expect(() => run('Beam Wait 400')).toThrow(/Illegal function call/)
+  })
+
+  it('=Craft Version is 100 and has to be divided by it', () => {
+    // "if this function returns 100, the real version is 1.00"
+    expect(val('Craft Version')).toBe('100')
+  })
+
+  it('DEFECT: =Amos Pro always answers 0, even in the AMOS Professional build', () => {
+    /*
+     * "Returns -1 if the program is running under AMOS Professional and 0 if
+     * it's running under AMOS", and routine 204 is `moveq #$0,d3 / moveq
+     * #$0,d2 / rts`. It tests nothing. The library held here is
+     * AMOSPro_CRAFT.Lib, so this is the AMOS Professional build saying it is
+     * not one.
+     */
+    expect(val('Amos Pro')).toBe('0')
+  })
+
+  it('=Amos Base is a constant, and named so it is findable', () => {
+    // `move.l a5,d3` and nothing else. Nothing is mapped there: see the
+    // keyword for why a page of zeros would be worse than an address that
+    // answers nothing.
+    expect(val('Amos Base')).toBe(String(CRAFT_AMOS_BASE))
+    expect(run('Print Peek(Amos Base)').out().trim()).toBe('0')
+  })
+
+  it('=Y Beam is the nine-bit vertical position', () => {
+    // `$dff004` as a LONGWORD, masked $1ff00 and shifted down eight: V8 from
+    // VPOSR's bit 0 and V7-0 from VHPOSR's high byte
+    expect(Number(val('Y Beam'))).toBeGreaterThanOrEqual(0)
+    expect(Number(val('Y Beam'))).toBeLessThan(512)
   })
 })

@@ -522,7 +522,7 @@ decisive between two neighbouring rows near the bottom.
 | 6 | `gui-1.61` | — | 0 / 103 |
 | 6 | `range-1.0` | module | 48 / 48 |
 | 5 | `stars-2.33` | module | 11 / 11 |
-| 4 | `craft-1.0` | part | 6 / 138 |
+| 4 | `craft-1.0` | module | 138 / 138 |
 | 4 | `tome-3.1` | module | 33 / 34 |
 | 4 | `aga-1.0` | module | 24 / 24 |
 | 3 | `gui-2.10` | — | 0 / 204 |

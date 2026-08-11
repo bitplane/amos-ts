@@ -1514,6 +1514,26 @@ export class Runtime {
    */
   private readonly memRegions: readonly MemRegion[] = [
     {
+      /*
+       * CIA-A port A. Bit 6 is FIR0 — the LEFT mouse button, and ACTIVE LOW,
+       * so a pressed button reads as a zero bit.
+       *
+       * Here because CRAFT's `=Hw Mouse Key` (routine 190, $313a) reads it
+       * with `btst.b #$6,$bfe001.l` rather than asking the operating system,
+       * which is the whole point of the keyword: "it works whether the AMOS
+       * screen is displayed or not". A program can reach the same register
+       * with Peek, and now gets the same answer the keyword does.
+       *
+       * One byte. The rest of CIA-A is not modelled, so nothing else in the
+       * $bfe000 page resolves.
+       */
+      name: 'CIA-A port A',
+      base: 0xbfe001,
+      reserved: 1,
+      live: () => 1,
+      resolve: (off) => ({ data: Uint8Array.of(this.input.mouseK & 1 ? 0xbf : 0xff), off }),
+    },
+    {
       // VPOSR/VHPOSR beam counters, synthesized per read from the pseudo-beam
       name: 'beam counters',
       base: 0xdff004,
@@ -1524,6 +1544,28 @@ export class Runtime {
         const vh = this.interp.beamWord()
         // VPOSR: V8 in bit 0 of the low byte; VHPOSR: V7-0 / H8-1
         return { data: Uint8Array.of(0, (line >> 8) & 1, (vh >> 8) & 0xff, vh & 0xff), off }
+      },
+    },
+    {
+      /*
+       * POTGOR, the pot-port input register, and the other half of `=Hw Mouse
+       * Key`: bit 10 is DATLY and bit 8 DATLX on port 0, which the mouse wires
+       * to its RIGHT and MIDDLE buttons. ACTIVE LOW again, and the four `OUT`
+       * bits below them read back as whatever POTGO last set, which is nothing
+       * here.
+       *
+       * A word, at $dff016. The port's own mouse has two buttons that a host
+       * reports and a third that nothing does, so the middle one is always up.
+       */
+      name: 'POTGOR',
+      base: 0xdff016,
+      reserved: 2,
+      live: () => 2,
+      resolve: (off) => {
+        let v = 0xffff
+        if (this.input.mouseK & 2) v &= ~(1 << 10)
+        if (this.input.mouseK & 4) v &= ~(1 << 8)
+        return { data: Uint8Array.of((v >> 8) & 0xff, v & 0xff), off }
       },
     },
     bufferRegion('CRAFT FileInfoBlock', Runtime.CRAFT_FIB_BASE, Runtime.CRAFT_FIB_RESERVED, () =>

@@ -898,6 +898,92 @@ export function makeCraftFunctions(rt: Runtime): Record<string, Func> {
       return craftRequest(rt, it, craftAlertSpec(strs, [pos || 'Retry', neg || 'Cancel']))
     },
 
+    // ---- the hardware, and the odds and ends ----
+
+    /**
+     * =Hw Mouse Key — routine 190 ($313a). "An extended version of =Mouse Key.
+     * It works whether the AMOS screen is displayed or not", and it earns that
+     * by going to the hardware rather than to AMOS: `btst.b #$6,$bfe001.l` for
+     * the left button on CIA-A's port A, and `btst.b #$a` and `#$8` on POTGOR
+     * at $dff016 for the right and the middle. All three are ACTIVE LOW, and
+     * the answer is bit 0 left, bit 1 right, bit 2 middle.
+     *
+     * Both registers are in the memory map (see Runtime.memRegions), so this
+     * reads them the way the routine does rather than short-cutting to the
+     * host's mouse — a program that Peeks $bfe001 itself gets the same answer.
+     */
+    'hw mouse key': () => {
+      const cia = rt.resolveAddr(0xbf_e001)
+      const pot = rt.resolveAddr(0xdf_f016)
+      const potw = pot ? ((pot.data[pot.off] ?? 0) << 8) | (pot.data[pot.off + 1] ?? 0) : 0xffff
+      let d3 = 0
+      if (((cia ? (cia.data[cia.off] ?? 0xff) : 0xff) & 0x40) === 0) d3 |= 1
+      if ((potw & (1 << 10)) === 0) d3 |= 2
+      if ((potw & (1 << 8)) === 0) d3 |= 4
+      return VI(d3)
+    },
+
+    /**
+     * =Y Beam — routine 191 ($3164). `$dff004` read as a LONGWORD, so VPOSR
+     * and VHPOSR at once, masked $1ff00 and shifted down eight: V8 out of
+     * VPOSR's bit 0 and V7-0 out of VHPOSR's high byte, which is the nine-bit
+     * vertical position.
+     */
+    'y beam': () => VI(rt.interp.beamLine() & 0x1ff),
+
+    /** =Gr Ink — routine 193 ($319a) onto 196: rp_FgPen at $19 off the RastPort */
+    'gr ink': () => VI(craftScreen(rt).ink & 0xff),
+    /** =Gr Back — routine 194 ($31a0), rp_BgPen at $1a */
+    'gr back': () => VI(craftScreen(rt).gPaper & 0xff),
+    /** =Gr Border — routine 195 ($31a6), rp_AOlPen at $1b */
+    'gr border': () => VI(craftScreen(rt).gBorder & 0xff),
+
+    /**
+     * =Amos Base — routine 198 ($3226), and the whole routine is `move.l
+     * a5,d3`: AMOS's own register, "the address of the internal data zone of
+     * AMOS".
+     *
+     * A CONSTANT here, and deliberately a named and exported one rather than
+     * a number buried in a return. What sits at a5 on the machine is several
+     * kilobytes of interpreter state — $208 for the CRAFT workspace, $5fa for
+     * the open-screen flag, $620 for DOSBase — and this port has none of that
+     * laid out in memory, so there is nothing to map and mapping a page of
+     * zeros would imply there was. The Game's =G Oddno hands back a bare
+     * library-base constant for the same reason; Tr Base and Mubase map real
+     * blocks because they have real blocks. An address that answers nothing is
+     * the honest one of the three, and CRAFT_AMOS_BASE is where to look when
+     * that stops being true.
+     */
+    'amos base': () => VI(CRAFT_AMOS_BASE),
+
+    /**
+     * =Craft Version — routine 199 ($322c), `moveq #$64,d3`. "Note that the
+     * version has to be divided by 100 before it can tell the truth, e.g. if
+     * this function returns 100, the real version is 1.00."
+     */
+    'craft version': () => VI(CRAFT_VERSION),
+
+    /**
+     * =Amos Pro — routine 204 ($3282), and it is three instructions: `moveq
+     * #$0,d3 / moveq #$0,d2 / rts`.
+     *
+     * DEFECT: "returns -1 if the program is running under AMOS Professional
+     * and 0 if it's running under AMOS", and it tests nothing at all. The
+     * library held here is AMOSPro_CRAFT.Lib, so this is the AMOS Professional
+     * build answering "not AMOS Professional". Either two builds were shipped
+     * and this one's constant was never flipped, or the check was never
+     * written; only one .Lib survives, so both readings stand and the constant
+     * is reproduced.
+     */
+    'amos pro': () => VI(0),
+
+    /** =B.Swap(x) — routine 200 ($3232): the two NIBBLES of the low byte */
+    'b.swap': (_, a) => VI(((i0(a, 0) << 4) & 0xf0) | ((i0(a, 0) >> 4) & 0x0f)),
+    /** =W.Swap(x) — routine 201 ($3242): the two BYTES of the low word */
+    'w.swap': (_, a) => VI((((i0(a, 0) & 0xff) << 8) | ((i0(a, 0) >> 8) & 0xff)) & 0xffff),
+    /** =L.Swap(x) — routine 202 ($3252), one `swap d3`: the two WORDS */
+    'l.swap': (_, a) => VI(((i0(a, 0) << 16) | ((i0(a, 0) >>> 16) & 0xffff)) | 0),
+
     /** =Fr X Position — routine 140 ($27da), which raises if none was set */
     'fr x position': () => VI(frPlaced(rt).px),
     /** =Fr Y Position — routine 141 ($27f2) */
@@ -1586,7 +1672,11 @@ export function makeCraftInstructions(rt: Runtime): Record<string, Instr> {
     },
     /** Tr Forward d — routine 107 ($20a6) */
     'tr forward': (it) => craftTrGo(rt, it, false),
-    /** Tr Forw d — the same token routine, so the same handler */
+    /**
+     * Tr Forw d — routine 107 ($20a6) again. Both token entries carry
+     * instruction $6b, so this is an ALIAS and not a second keyword: "Tr Forw
+     * is simply a shortened form of Tr Forward".
+     */
     'tr forw': (it) => craftTrGo(rt, it, false),
     /** Tr Back d — routine 108 ($2100), `neg.l (a3) / Rbra routine 107` */
     'tr back': (it) => craftTrGo(rt, it, true),
@@ -1922,6 +2012,42 @@ export function makeCraftInstructions(rt: Runtime): Record<string, Instr> {
      */
     'hard reset': () => rt.machine.requestReset('cold', 'craft hard reset'),
     'warm reset': () => rt.machine.requestReset('warm', 'craft warm reset'),
+
+    /**
+     * Beam Wait y — routine 192 ($3176). The bound comes from AMOS's own jump
+     * table at `$128(a0)`, which is why the manual can say "if the y is bigger
+     * than the number returned by =Display Height, an Illegal function call
+     * error is given" — it is the same number.
+     *
+     * DEVIATION: the wait is not waited. The routine's body is a three
+     * instruction spin on VPOSR, and a keyword that spins inside one
+     * interpreter step cannot advance a beam this port only advances between
+     * them — the same reason AMCAF's Raster Wait carries this note. The bound
+     * IS checked, because that is the observable half.
+     */
+    'beam wait'(it) {
+      const s = craftScreen(rt)
+      const y = it.evalInt()
+      // the same number =Display Height answers: MaxRaw +Lib.s:8835
+      const max = s.laced ? s.height : Math.min(283, Math.max(s.height, 256))
+      if ((y >>> 0) > max) illegal()
+    },
+
+    /**
+     * Gr Centre y,t$ — routine 197 ($31c2). TextLength on graphics.library to
+     * measure the string, `(screenWidth - width) / 2` for the x, then Move and
+     * Text. An omitted y is not an error: `cmpi.l #$80000000,d1` falls back to
+     * `$26(a1)`, which is rp_cp_y — the graphics cursor stays where it was.
+     */
+    'gr centre'(it) {
+      const s = craftScreen(rt)
+      const yArg = it.atStmtEnd() || it.nm() === ',' ? null : it.evalInt()
+      it.expect(',')
+      const t = it.evalStr()
+      const y = yArg ?? s.rp.cpY
+      // TextLength on a topaz-8 string is eight pixels a character
+      s.text((s.width - t.length * 8) >> 1, y, t)
+    },
 
     /** Tr Exec cmd$[,count] — routines 95 and 96 ($1a48, $1a7c) */
     'tr exec'(it) {
@@ -3217,6 +3343,19 @@ export const newCraftFractal = (): CraftFractal => ({
   scanFrom: 0,
   scanLines: 0x4000,
 })
+
+/**
+ * What `=Amos Base` answers.
+ *
+ * Not mapped, and see the keyword for why: a5 on the machine is kilobytes of
+ * interpreter state this port keeps as fields rather than as memory. The
+ * constant is here, exported and named, so that the day something does live
+ * there this is the one place to change.
+ */
+export const CRAFT_AMOS_BASE = 0x7f0c_0000
+
+/** `moveq #$64,d3` -- 100, and "the version has to be divided by 100" */
+export const CRAFT_VERSION = 100
 
 /** the escape radius squared, as routine 159 spells it: `movea.l #$10000000,a0` */
 export const FR_ESCAPE = 0x1000_0000

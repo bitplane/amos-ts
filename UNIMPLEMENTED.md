@@ -76,11 +76,46 @@ extension keyword. The count is keywords with no handler at all:
 | OS DevKit 1.61 | 1047 | a wrapper over most of AmigaOS; needs the back-end, not the list. `gadtools`, `datatypes`, `iffparse` and `commodities` are the parts of it nothing here models |
 | GUI 2.10 / 1.61 / 1.5b | 204 / 103 / 48 | **`gadtools.library`**, and `asl.library` for the requesters. All three name gadtools and none of them names `intuition.library` |
 | Intuition 1.3b | 183 | nothing in `src/amiga` — the back-end landed. What it lacks is a binary: the archive is `itokens.s`, `cmdlist` and the author's twelve test programs, so this is the one row where a port has no code to read |
-| Craft 1.0 | 136 | nothing. It names no library at all, and every back-end its groups touch is here. Its help file is crunched, so the binary is the only account |
 | D-SAM 1.01 | 50 | nothing. `audio.device` and `dos.library`, both modelled |
 | Delta 1.6 | 46 | little. 26 of the 46 are Delta 1.4's, already faithful; of the 20 new ones four are machine code (n/a) and the rest want reqtools, `FindTask` and `WBenchToFront`, all of which exist |
 | jd-int 1.3 | 33 | nothing in `src/amiga` — findings banked, and the binary names no library, so it reaches Intuition through a base AMOS already holds |
 | BSDSocket 1.1.4 | 30 | `bsdsocket.library` **and** a host networking boundary. The only row here blocked on something outside AmigaOS |
+
+**Craft 1.0 came off this table, and it is worth saying what it cost.**
+All 138 are read: 135 faithful, one approximated and two named n/a. The
+prediction above turned out right — it names no library at all, and every
+back-end its eight groups touch was already here — but the account of what
+that meant was too cheap. "Its help file is crunched" hid a whole recovery
+job: the disk ships an Installer and seven opaque blobs, and the packer behind
+them is an in-house one, `\SOLARIS/`, that had to be read out of a compiled
+AMOS program before a single line of the 42KB manual or any of the forty
+example programs could be looked at. That is `src/amiga/solaris.ts`, and it
+paid for itself in every batch after it.
+
+Two of the eight groups are subsystems rather than keyword lists. The turtle
+is a fixed-point engine — a Taylor cosine, an integer Newton square root, a
+nine-term arcsine over a coefficient table — transcribed register by register,
+because the position is 16.16 and only its integer half reaches the screen, so
+the rounding *is* the behaviour. `Tr Exec` is a whole interpreted language
+inside one keyword, and its grammar exists nowhere but the twenty-two-entry
+table at `$1c88`. The fractal generator is a second fixed-point engine at a
+different scale.
+
+Fourteen defects came out of the reading, none of them in the manual, and one
+of them hangs the machine: `Tr Distance` to the turtle's own position spins on
+a carry that two zero deltas cannot produce. The others range from a crossed
+pair of omitted-parameter fallbacks in `Tr Set Home` to `Fr Step`'s
+two-argument form never storing its second number, to `=Amos Pro` — three
+instructions, testing nothing, so the AMOS Professional build of the library
+answers "not AMOS Professional". Two hardware registers came into the memory
+map along the way, CIA-A port A and POTGOR, because `=Hw Mouse Key` reads the
+silicon and a program that Peeks the same addresses has to agree with it.
+
+The one keyword that is not faithful is `Mem Type`, approximated for the
+reason AMCAF's `Pt Bank` already is: a real machine decides chip against fast
+by where an address IS, and this port models memory type as a flag on the
+bank. `Multi On` and `Multi Off` are n/a for the reason JD's and MISC 1.0's
+identical pair already are.
 
 **GameSupport 1.2 came off this table, and it is worth saying what it cost.**
 All 37 read 100% and all 37 are faithful. Three of its five groups turned out

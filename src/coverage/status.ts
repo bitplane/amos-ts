@@ -2482,6 +2482,23 @@ export const FAITHFUL = new Set<string>([
   'sys request',
   'hard reset',
   'warm reset',
+  // Batch 10: the tail. Two hardware registers came into the memory map for
+  // `hw mouse key` -- CIA-A port A and POTGOR -- because the keyword's whole
+  // point is that it goes to the silicon, and a program that Peeks them
+  // itself has to get the same answer.
+  'hw mouse key',
+  'y beam',
+  'beam wait',
+  'gr ink',
+  'gr back',
+  'gr border',
+  'gr centre',
+  'amos base',
+  'craft version',
+  'b.swap',
+  'w.swap',
+  'l.swap',
+  'amos pro',
   // --- Range 2.6 / 2.9Plus, slot 9: Shadow Software's AMOS Club extension.
   // One port for both builds; five slot-qualified names. Slice 1 --- the
   // self-contained half. See range.ts.
@@ -4618,6 +4635,53 @@ export const NOTES: Record<string, string> = {
     "'exactly the AMOS function Peek.",
   "audio lock":
     "'When you start AMOS, the audio.device will be not informed, that AMOS wants to have the audio channels.",
+  "hw mouse key":
+    "Routine 190 ($313a), and it goes to the silicon rather than to AMOS -- `btst.b #$6,$bfe001.l` for the left " +
+    "button on CIA-A's port A, and `#$a` and `#$8` on POTGOR at $dff016 for the right and the middle, all three " +
+    "ACTIVE LOW, packed into bits 0, 1 and 2. That is what earns the manual's \"it works whether the AMOS " +
+    "screen is displayed or not\". Both registers were ADDED TO THE MEMORY MAP for this rather than " +
+    "short-cutting to the host's mouse, because a program can reach them with Peek and has to get the same " +
+    "answer the keyword does.",
+  "gr ink":
+    "Routine 193 ($319a) onto the shared body at routine 196: rp_FgPen at $19 off the RastPort at " +
+    "`-$18ca(a5)`, with Gr Back and Gr Border reading $1a and $1b. Worth more than three keywords -- it is the " +
+    "confirmation that `-$18ca(a5)` IS a RastPort, which is what makes the turtle's line-pattern slip a slip: " +
+    "routine 119 writes its counter to $1f, one short of rp_linpatcnt at $1e.",
+  "gr centre":
+    "Routine 197 ($31c2): TextLength on graphics.library, `(screenWidth - width) / 2`, then Move and Text. An " +
+    "omitted y is not an error -- `cmpi.l #$80000000,d1` falls back to `$26(a1)`, rp_cp_y, so the graphics " +
+    "cursor stays where it was.",
+  "beam wait":
+    "Routine 192 ($3176). The bound comes off AMOS's own jump table at `$128(a0)`, which is why the manual can " +
+    "say \"if the y is bigger than the number returned by =Display Height, an Illegal function call error is " +
+    "given\" -- it is the same number. DEVIATION: the wait is not waited. The body is a three-instruction spin " +
+    "on VPOSR, and a keyword that spins inside one interpreter step cannot advance a beam this port only " +
+    "advances between them; AMCAF's Raster Wait carries the same note. The bound IS checked.",
+  "amos base":
+    "Routine 198 ($3226), and the whole routine is `move.l a5,d3`: \"the address of the internal data zone of " +
+    "AMOS\". A CONSTANT here, exported as CRAFT_AMOS_BASE rather than buried in a return. What sits at a5 on " +
+    "the machine is kilobytes of interpreter state -- $208 for CRAFT's own workspace, $5fa for the open-screen " +
+    "flag, $620 for DOSBase -- and this port keeps all of that as fields, so there is nothing to map and " +
+    "mapping a page of zeros would imply there was. The Game's =G Oddno hands back a bare library-base " +
+    "constant for the same reason, where Tr Base and Mubase map real blocks because they have real blocks.",
+  "amos pro":
+    "Routine 204 ($3282), three instructions: `moveq #$0,d3 / moveq #$0,d2 / rts`. DEFECT: \"returns -1 if the " +
+    "program is running under AMOS Professional and 0 if it's running under AMOS\", and it tests nothing at " +
+    "all. The library held here is AMOSPro_CRAFT.Lib, so this is the AMOS Professional build answering \"not " +
+    "AMOS Professional\". Either two builds were shipped and this one's constant was never flipped, or the " +
+    "check was never written; only one .Lib survives, so both readings stand.",
+  "b.swap":
+    "Routines 200, 201 and 202 ($3232, $3242, $3252). \"These functions swap the upper and lower parts of a " +
+    "specified segment (Byte, Word or Long word). Only the bits which are specified with the first letter of " +
+    "the function are swapped\" -- so B.Swap is two nibbles of the low byte and answers a byte, W.Swap is two " +
+    "bytes of the low word, and L.Swap is one `swap d3` over the whole longword.",
+  "craft version":
+    "Routine 199 ($322c), `moveq #$64,d3`. \"Note that the version has to be divided by 100 before it can tell " +
+    "the truth, e.g. if this function returns 100, the real version is 1.00.\"",
+  "y beam":
+    "Routine 191 ($3164): `$dff004` read as a LONGWORD, so VPOSR and VHPOSR at once, masked $1ff00 and shifted " +
+    "down eight -- V8 out of VPOSR's bit 0 and V7-0 out of VHPOSR's high byte, which is the nine-bit vertical " +
+    "position. The same expression AMCAF's =Y Raster answers.",
   "open workbench":
     "The name is CONTESTED and this note covers both; each port qualifies its own, so a program gets the slot " +
     "it bound. AMCAF's is 'Tries to open the workbench again, if it has been closed previously' with AMOS's " +
