@@ -496,7 +496,21 @@ describe.skipIf(!existsSync(extFixtures))('the whole corpus identifies without a
     // music-1.62, which was deregistered because nothing could EVER prefer it,
     // `eltest` is a real discriminator and a program that used it would settle
     // this slot outright.
-    const unidentifiable = new Set([9, 16])
+    //
+    // Slot 19 is a third kind: not too little evidence and not too much, but
+    // an extension this registry does not have. Three of the forty example
+    // programs off the CRAFT installer disk — Sample_Demo, Toggle_Voice and
+    // Vumeter_Demo — bind it, using ids 6, 40, 98, 114 and 132, and those are
+    // MusiCRAFT's. It is CRAFT's companion: nine `St *` topics in CRAFT's own
+    // help text document it (st load, st play, st stop, st pause, st voice,
+    // st channel, st vumeter speed, st base, st version) and not one of them
+    // is in CRAFT's token table. No binary is held. AMOSTools carries a
+    // 278-byte `AMOSPro_MusiCRAFT.Lib` naming the keywords, but it is a
+    // table-only stub in that tool's own layout rather than a library, and
+    // `parseAmosLibOld` will not read it. Registering MusiCRAFT is its own
+    // piece of work; until then `unknown` is the true answer and this is
+    // where that is said out loud.
+    const unidentifiable = new Set([9, 16, 19])
 
     const resolved: Record<number, string> = {}
     for (const [slot, usage] of merged) {
@@ -540,6 +554,12 @@ describe.skipIf(!existsSync(extFixtures))('the whole corpus identifies without a
       // AMOS Pro install gives it
       12: 'turbo-plus-1.9',
       14: 'intuition-1.3b',
+      // The forty example programs off the CRAFT installer disk, which came
+      // out of its packed blobs (../amiga/solaris.ts). They use 88 of CRAFT's
+      // 138 ids between them, far and away the best fingerprint any
+      // third-party row here has, and they land on 18 — the slot Burton's list
+      // recommends, arrived at from the programs alone.
+      18: 'craft-1.0',
       // OS-DevKit's own documentation ships an example program, which came in
       // with the extension. Every id it uses lands in OS-DevKit's table, which
       // is what turns that entry's id base from assumed into calibrated.
