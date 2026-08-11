@@ -357,6 +357,75 @@
  * values and three arms. AMOS's own source is not on this machine and is not
  * needed for it.
  *
+ * ## The bob banks, of which there are three and a half
+ *
+ * Nothing here is in the guide — not a node, not a changelog line — so all of
+ * it comes off the routines and off `blitter.h`.
+ *
+ * The one that works is `G Load Bobs`'s. It reads a file, skips twenty bytes
+ * with `Seek(file, 20, OFFSET_BEGINNING)` and never looks at them: twenty is
+ * what an `AmBk` header takes in front of a saved memory bank — magic, number
+ * word, memory-type word, length longword, eight-character name — so the file
+ * is a bank and the payload is the bank's. It is reserved back under the name
+ * `"TGE  Bob"`, two spaces, out of block +$bc2, and its address goes to block
+ * +$1de. The payload:
+ *
+ *     +$00  WORD   $305f, which G Load Bobs and G Erase both test
+ *     +$02  WORD   $0900, and anything HIGHER is refused with message 3
+ *     +$04  WORD   count
+ *     +$06  LONG[count]  offsets to the image records, overwritten with
+ *                        pointers to AllocMem'd copies as they are read
+ *     +$06+4c LONG[count] one GMS Bitmap per image, built at load time
+ *     +$06+8c ...    zeroed to the end of the bank, and four bytes in, the
+ *                    Bobs G Set Img makes, at a stride of EIGHT
+ *
+ * and one image record, which is AMOS's own Bob record with a length on the
+ * front instead of a hot spot on the back:
+ *
+ *     +$00  LONG   the record's total length, which is what CopyMem is given
+ *     +$04  WORD   width in 16-pixel WORDS
+ *     +$06  WORD   height
+ *     +$08  WORD   depth
+ *     +$0a  the planar pixels — overwritten with a pointer to a chip copy
+ *
+ * The Bitmap of the second array is built from the tag list at block +$2f0,
+ * `$fffb0005` = `(ID_SPCTAGS<<16)|ID_BITMAP`: `BMA_Data` = the chip copy,
+ * `BMA_Width` = the record's width `<<4`, `BMA_Height`, `BMA_Planes`,
+ * `BMA_Size`, `BMA_MemType` 4, and `BMA_Type` copied off the current screen's
+ * Bitmap so a bob matches the display it was loaded for.
+ *
+ * The Bob of the third array is the tag list at block +$246, `$fffb0006` =
+ * TAGS_BOB: `BBA_GfxCoords` = the two-entry FrameList at block +$27e, which
+ * is `dc.w 0,0 / dc.w -1,-1` and so one frame at the source Bitmap's top left;
+ * `BBA_Width` = the record's width `<<4`; `BBA_Height`; `BBA_Attrib` = $82,
+ * which `blitter.h` names BBF_GENMASKS, *"Create and use masks for drawing
+ * this bob"*; and `BBA_SrcBitmap` = the second array's entry. `Init`'s
+ * container is the current Bitmap, so a Bob belongs to whichever screen was
+ * current when `G Set Img` made it.
+ *
+ * The other two and a half are stillborn.
+ *
+ * `G Init Bobs` reserves a bank of its own and writes `"TGE Bob "`, ONE space,
+ * over the reserve name, then $101 and $100 as its two longwords. `G Set Bob`
+ * then validates that bank by testing the four bytes at `Start(n)-4` for
+ * `" Bob"` and the word at `Start(n)+2` for $0101 — and the two tests want
+ * different worlds. If `Bnk_Reserve` answers the name field and `Bnk_GetAdr`
+ * the data eight bytes past it, the version matches and the name does not,
+ * `G Init Bobs` having just overwritten it. If both answer the same address,
+ * the name matches — the reserve name, `"TGE  Bob"`, whose last four bytes
+ * really are `" Bob"` — and the version is `"E "`. There is no third reading:
+ * the pair cannot be made to agree, so `G Set Bob` always falls out at $239a
+ * having recorded the bank NUMBER at +$1de and nothing else. Recording it
+ * there is itself the third fault, +$1de being where `G Load Bobs` keeps a
+ * pointer.
+ *
+ * `G Init Mbobs` wants `"TGE "` and `"MBOB"`, and asks for both AT THE SAME
+ * OFFSET: $2c8a and $2c94 are the identical `cmpi.l #imm,(a0)`, `0c90`, where
+ * the second wants `0ca8`, `cmpi.l #imm,$4(a0)`. No four bytes satisfy it, so
+ * the routine records the bank at +$1d8 and leaves. `G Set Mbob` reads +$1de
+ * for the bank it should read +$1d8 for, so even a fixed `G Init Mbobs` would
+ * not have reached it.
+ *
  * ## The extension's own error table
  *
  * Routine 151 ($41a6) is the error reporter, and it ends `Rjmp L_ErrorExt` on
@@ -689,6 +758,74 @@
  *   width `X2-X1`, and a rectangle of that width at X1 reaches X2-1, where
  *   the guide says *"corners at the specified points"*. `G Copyarea` and
  *   `G Blur` share the arithmetic and the same one-pixel edge.
+ * - **DEFECT: `G Load Bobs` copies half of every image.** `move.w $4(a0),d0 /
+ *   mulu.w $6(a0),d0 / mulu.w $8(a0),d0` is width times height times depth,
+ *   and the width there is in WORDS — the `asl.w #$4` two instructions later
+ *   turns the same field into `BMA_Width` in pixels, and `G Paste Bob`'s
+ *   inner loop counts it in `move.w`s. So the byte count wants a `*2` it has
+ *   not got, and both the AllocMem and the CopyMem are half the record. The
+ *   reading matters: if instead the field were a byte width, the size would be
+ *   right and every bob would be declared twice as wide as it is. Two sources
+ *   put it in words — AMOS's own Bob record, which this record otherwise is,
+ *   and the `<<4`.
+ * - **DEFECT: `G Load Bobs` cannot load a bank over 32,767 bytes.** The size
+ *   comes out of the FileInfoBlock as a longword and reaches `Bnk_Reserve` as
+ *   `move.l d3,d2 / ext.l d2`, sign-extending the low WORD of it. A 40,000
+ *   byte bank asks for -25,536 and AMOS answers Illegal function call. It also
+ *   leaks the 1,000-byte block it allocated for the FileInfoBlock, a4 being
+ *   overwritten with the bank address before anything frees it.
+ * - **DEFECT: `G Load Bobs` reports a missing file as a format error.** The
+ *   `Lock` failure and the `Open` failure both jump into `G Exit` with $51,
+ *   AMOS's "File format not recognised", where 82 is "File not found".
+ * - **DEFECT: `G Erase`'s Bob sweep is a fixed 256 iterations.** `moveq
+ *   #$ff,d7` and a `dbra`, with nothing anywhere in it about how big the bank
+ *   is — so on a small bank it walks off the end and calls `Free` on any
+ *   non-zero longword it finds past it. The two strides in it are not the
+ *   fault they look like: `adda.l #$4,a1` inside the test and another after
+ *   it advance eight for a full slot and four for an empty one, but the
+ *   four-byte step lands on the padding longword of an eight-byte entry,
+ *   which is always zero, and the next iteration steps over that. The walk
+ *   self-corrects; what it costs is that an empty slot spends two of the 256,
+ *   so a bank with more than 128 Bobs in it is not fully freed.
+ * - **DEFECT: `G Spaste Bob` blits a fixed 16 by 21.** `move.l #$10,d2 /
+ *   move.l #$15,d3` are BlitArea's Width and Height and nothing reads the
+ *   image's own, so an image of any other size is cropped or padded to one
+ *   sprite. Its X and Y do arrive — d4 and d5 are the two arguments popped
+ *   after the image number and are exactly XDest and YDest.
+ * - **DEFECT: `G Paste Bob` blits into the bob bank.** Three faults, and the
+ *   destination is the first: `movea.l $1de(a3),a4 / adda.l #$6,a4` aims the
+ *   write at the bank's own pointer array where every other keyword in the
+ *   batch has the Bitmap from +$1c2. The row stride is `move.l $12.l,d4`, an
+ *   absolute read of address $12 — half of one exception vector and half of
+ *   the next. And the row loop is re-entered by `dbra d1` without reloading
+ *   d0, which is $ffff by then, so the second row copies 65,536 words. The
+ *   two coordinate arguments are never read at all.
+ * - **DEFECT: `G Bob`'s slot table is fetched into the wrong register.**
+ *   `movea.l (a4),a4` loads it and `movea.l d0,a0` two instructions later
+ *   indexes d0 instead — bank number times four, an address in the vector
+ *   table. The guard above it is worse: `tst.l a4 / bne` falls through a
+ *   `movem.l (a7)+,d0-d7/a3-a6` that is the branch-NOT-taken arm, so an
+ *   absent table pops twelve registers, runs on into the arm that pops them
+ *   again, and returns to whatever forty-eight bytes up the stack holds.
+ * - **DEFECT: `G Tmap` scales by two screen pointers.** It reads `$10(a0)`
+ *   and `$14(a0)` off the GScreen where `screens.h` has MemPtr2 and MemPtr3,
+ *   the double- and triple-buffer pointers; Width and Height are at $20 and
+ *   $22, sixteen bytes further on. TGE's screens are single-buffered — its
+ *   own `G Double Buffer` indexes the wrong register and never sets the
+ *   attribute — so both are zero, both products are zero, and every pixel the
+ *   keyword draws is the source Bitmap's (0,0) whatever the projection said.
+ * - **DEFECT: `G Tmap` multiplies its X twice and its Y not at all.**
+ *   `muls.w $2e(a4),d2` then `muls.w $32(a4),d2`: the second wants d3, which
+ *   is the line under it and is only ever divided. With both scales zero it
+ *   costs nothing; with them fixed it would be the next fault to find.
+ * - **NOTE: `G Tmap`'s token entry declares a function and no instruction**,
+ *   `func` $5f against `instr` $ffff, and the routine sets neither d3 nor d2
+ *   before its `rts`. Its spec begins `I`, so it parses as the instruction it
+ *   is and the field is never consulted — the mirror image of `G Blur`'s.
+ * - **NOTE: `G Init Bobs` ignores its second argument.** `mulu.w #$4,d2` and
+ *   the difference between the two tag lists build a length of `count*4 + 56`
+ *   in d2, and `move.l #$2710,d2` overwrites it. Every bank it makes is
+ *   10,000 bytes.
  */
 import type { Func, Instr } from '../interp/builtins'
 import { AmosError, VI, VS, str } from '../interp/values'
@@ -714,6 +851,7 @@ import { closeLibrary, openLibrary } from '../amiga/exec'
 import { Protracker, parseMod, type PtSong } from '../amiga/protracker'
 import { Runtime } from './runtime'
 import { Screen } from './screen'
+import { BankImage } from './objects'
 import { encodeIlbm, parseIlbm } from '../loader/iff'
 
 /** an argument that arrived as a Value */
@@ -742,6 +880,53 @@ export const TGE_GFX_BASE = 0x7f0f_0000
  * bytes between the last library-name string and the end of the data block.
  */
 export const TGE_SCRATCH_SIZE = 2148
+
+/**
+ * One image record of a `G Load Bobs` bank, and the Bitmap built round it.
+ *
+ * `BankImage` is the port's AMOS Bob image and this record is an AMOS Bob
+ * image with a length longword on the front, so the geometry rule is the same
+ * one: the width is in 16-pixel words and `bankRowBytesFor` truncates rather
+ * than rounds, which is what the bank's bytes mean.
+ */
+export interface TgeBobImage {
+  /** +$4, a width in 16-pixel words */
+  widthWords: number
+  /** +$6 */
+  height: number
+  /** +$8, `BMA_Planes` */
+  depth: number
+  /** the second array's Bitmap: `BMA_Width` is `widthWords << 4` */
+  bitmap: BankImage
+}
+
+/** One Bob of the third array, which `G Set Img` makes and `G Draw Bob` draws. */
+export interface TgeBob {
+  /** `Bob->XCoord` and `Bob->YCoord`, at +$20 and +$22 */
+  x: number
+  y: number
+  /** `BBA_Width` and `BBA_Height`, off the image record */
+  width: number
+  height: number
+  /** `BBA_Attrib`, which the template ships as BBF_GENMASKS */
+  attrib: number
+  /** which image of the bank `BBA_SrcBitmap` points at */
+  image: number
+  /** `Init`'s container: the Bitmap that was current when it was made */
+  screen: Screen | null
+}
+
+/** The payload of a bank `G Load Bobs` loaded — see "The bob banks" above. */
+export interface TgeBobBank {
+  /** the AMOS bank it was reserved as, which is what `G Erase` erases */
+  number: number
+  /** +$2, and never above $900 */
+  version: number
+  /** the first two arrays, which are one array here */
+  images: TgeBobImage[]
+  /** the third array, sparse because its stride is eight and its step four */
+  bobs: Map<number, TgeBob>
+}
 
 export interface TheGameState {
   /** block +$58 — ptreplay.library's base, or 0 for "never opened" */
@@ -829,6 +1014,27 @@ export interface TheGameState {
   /** bytes `=G Make Rp` has allocated and never freed */
   rpLeak: number
 
+  /**
+   * block +$1de — the bob bank `G Load Bobs` loaded, decoded.
+   *
+   * The bank's own bytes stay in the bank and can be Peeked; what hangs here
+   * is the second and third arrays, which on the machine are pointers to
+   * AllocMem'd objects and here are the objects. DEVIATION: the first array
+   * therefore keeps the file's offsets where the machine overwrites them with
+   * pointers, there being no address to write.
+   */
+  gmsBobBank: TgeBobBank | null
+  /**
+   * block +$1de again, when `G Set Bob` has written a bank NUMBER over the
+   * pointer `G Load Bobs` left there. One longword on the machine, so
+   * whichever wrote last is what the other family of keywords dereferences.
+   */
+  gmsBobNumber: number
+  /** block +$1d8 — the bank `G Init Mbobs` found before rejecting it */
+  gmsMBobBank: number
+  /** bytes `G Load Bobs` has allocated and never freed: its FileInfoBlock */
+  bobLeak: number
+
   /** whether `G Handicap` has run, so block +$b36 holds a task pointer */
   handicapped: boolean
   /** the task priority, which nothing here schedules on; see `G Handicap` */
@@ -872,6 +1078,10 @@ export function newTheGameState(rt: Runtime): TheGameState {
     gmsBase: 0,
     gmsOwned: false,
     rpLeak: 0,
+    gmsBobBank: null,
+    gmsBobNumber: 0,
+    gmsMBobBank: 0,
+    bobLeak: 0,
     handicapped: false,
     priority: 0,
     savedPriority: 0,
@@ -896,6 +1106,22 @@ export const GMS_DEFAULT_COLOURS = 32
 /** ScreenPrefs TopOfScrX/Y: where a GMS screen offset of (0,0) puts a screen */
 export const GMS_TOP_OF_SCREEN_X = 128
 export const GMS_TOP_OF_SCREEN_Y = 44
+
+/** block +$bc2 — the eight characters both bob keywords reserve a bank under */
+export const TGE_BOB_BANK_NAME = 'TGE  Bob'
+/** the payload's first word, which `G Load Bobs` and `G Erase` both test */
+export const TGE_BOB_MAGIC = 0x305f
+/** +$2, and the highest `G Load Bobs` will accept */
+export const TGE_BOB_VERSION = 0x900
+/** the `Seek(file, 20, OFFSET_BEGINNING)`: an `AmBk` header, unread */
+export const TGE_BOB_FILE_HEADER = 20
+/** `move.l #$2710,d2` — every bank `G Init Bobs` makes, whatever it was asked for */
+export const TGE_INIT_BOBS_BYTES = 10000
+/** `move.l #$3e8,d0` for a FileInfoBlock, and a4 gone before any FreeMem */
+export const TGE_BOB_FIB_BYTES = 1000
+/** `move.l #$10,d2 / move.l #$15,d3` — BlitArea's Width and Height, fixed */
+export const TGE_SPASTE_WIDTH = 16
+export const TGE_SPASTE_HEIGHT = 21
 
 /**
  * Routine 151's table at $4214, delivered through `Rjmp L_ErrorExt` with the
@@ -1273,6 +1499,40 @@ function addMagic(bank: Uint8Array, delta: number): void {
  * wrote. Taken as zero here, which makes it a logical shift and costs the
  * result its sign.
  */
+/**
+ * The same table read as `trigWord`, but `G Tmap`'s `asr.w #$8` instead of
+ * `=Gsin`'s `asr.l #$8` — a shift inside the word, so this one keeps the sign
+ * that the two functions lose. Answers a signed byte-sized sine or cosine.
+ */
+function trigAsrW(st: TheGameState, index: number, from: number): number {
+  const disp = (((index << 1) & 0xffff) << 16) >> 16
+  const at = from + (disp >> 1)
+  const word = st.trig && at >= 0 && at < st.trig.length ? st.trig[at]! : 0
+  return ((word << 16) >> 16) >> 8
+}
+
+/**
+ * `Rbsr routine 44` — what `G Reset` does, which four routines reach on their
+ * way to an error and `G Exit` does before raising one.
+ */
+function gmsReset(rt: Runtime): void {
+  const range = Runtime.screenRange('game')
+  for (let n = 0; n < range.count; n++) {
+    if (rt.screens.has(range.from + n)) rt.closeScreen(range.from + n)
+  }
+  rt.amosToFront()
+}
+
+/** `Rbra routine 59` with d0 = code: `G Reset`, then AMOS's own error raiser */
+function gmsExit(rt: Runtime, code: number): never {
+  if (rt.thegame.gmsBase !== 0) gmsReset(rt)
+  throw new AmosError(ED_RUN_MESSAGES[code]!, code)
+}
+
+/** `BBF_MASK` and `BBF_GENMASKS` of `blitter.h`: the Attrib the template ships */
+const BBF_MASK = 0x02
+const BBF_GENMASKS = 0x82
+
 function trigWord(st: TheGameState, index: number, from: number): number {
   const disp = ((index << 1) & 0xffff) << 16 >> 16
   const at = from + (disp >> 1)
@@ -2403,15 +2663,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
      * value this port can know about.
      */
     'g exit'() {
-      const s = st()
-      if (s.gmsBase !== 0) {
-        const range = Runtime.screenRange('game')
-        for (let n = 0; n < range.count; n++) {
-          if (rt.screens.has(range.from + n)) rt.closeScreen(range.from + n)
-        }
-        rt.amosToFront()
-      }
-      throw new AmosError(ED_RUN_MESSAGES[16]!, 16)
+      gmsExit(rt, 16)
     },
 
     /**
@@ -2785,6 +3037,495 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
         dy,
       )
       it.charge((w * h) >> 4)
+    },
+
+    // ---- bobs ----
+    /**
+     * Routine 55 ($2278) — `G Init Bobs N,COUNT`, undocumented.
+     *
+     * `Bnk_Reserve` with the name at block +$bc2, then `"TGE Bob "` — one
+     * space, where the reserve name has two — and $101 and $100 over the
+     * first sixteen bytes. Nothing in the extension reads $100, and the only
+     * thing that reads $101 is `G Set Bob`, which cannot get that far. See
+     * "The bob banks" for why the pair is stillborn, and the catalogue for
+     * what happens to COUNT.
+     */
+    'g init bobs'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      it.evalInt() // count*4 + 56 into d2, and `move.l #$2710,d2` over the top
+      rt.reserveBank(n, TGE_INIT_BOBS_BYTES, TGE_BOB_BANK_NAME)
+      const bank = rt.memBanks.get(n)!.data
+      // "TGE " / "Bob " / $00000101 / $00000100, as four move.l's
+      bank.set([0x54, 0x47, 0x45, 0x20, 0x42, 0x6f, 0x62, 0x20, 0, 0, 1, 1, 0, 0, 1, 0])
+    },
+
+    /**
+     * Routine 56 ($22d2) — `G Setup Bobs`, undocumented, and one `rts`.
+     *
+     * Two bytes, no parameters, and the jump table's next entry is the byte
+     * after it — so this is not a routine that was gutted, it is one that was
+     * never written. It sits between `G Init Bobs` and `G Set Bob` in both
+     * the token table and the code, which is where the third step of a
+     * three-step setup would have gone.
+     */
+    'g setup bobs': () => {},
+
+    /**
+     * Routine 57 ($22d4) — `G Set Bob N`, undocumented.
+     *
+     * `move.l d0,$1de(a3)` before anything else, then `Bnk_GetAdr` and, on a
+     * bank that is not reserved, `moveq #$24,d0` into `G Exit` — AMOS's error
+     * 36, "Bank not reserved". Then the two magic tests, which cannot both
+     * pass; see "The bob banks". What the routine would have done next is
+     * plain enough from the dead code: `AllocMem(1024)` for a table of 256
+     * Bob slots, into block +$352 indexed by bank number and into the bank's
+     * own +$8.
+     *
+     * DEFECT: +$1de is where `G Load Bobs` keeps a POINTER. Writing a bank
+     * number over it leaves `G Draw Bob` and its four neighbours dereferencing
+     * a small integer, which is why this port drops the loaded bank here.
+     */
+    'g set bob'(it) {
+      const s = st()
+      const n = it.evalInt()
+      s.gmsBobNumber = n
+      s.gmsBobBank = null
+      if (!rt.bankRef(n)) gmsExit(rt, 36)
+      // the name test and the version test want different worlds; neither
+      // arm of the routine past $2334 is reachable
+    },
+
+    /**
+     * Routine 58 ($23a0) — `G Bob A,B,C,D`, undocumented, and it does not
+     * return.
+     *
+     * The slot table `G Set Bob` would have allocated is fetched with
+     * `movea.l (a4),a4` and indexed through d0; the guard on it falls through
+     * its own register restore. See the catalogue. What survives of the
+     * intent: A is a slot, B and C go to the Bob tag list's +$3c and +$44 —
+     * which are past its terminator and inside the list after it — and D is
+     * popped and never read.
+     *
+     * Nothing is reproduced. A routine that unbalances the stack by
+     * forty-eight bytes and returns through it has no behaviour to port.
+     */
+    'g bob'(it) {
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+    },
+
+    /**
+     * Routine 101 ($3898) — `G Load Bobs FILE$,N`, undocumented, and the one
+     * bob system in the extension that works.
+     *
+     * `Lock`, `Examine` for `fib_Size` at +$7c, `UnLock`, `Bnk_Reserve` of
+     * that many bytes under `"TGE  Bob"`, then `Open`, `Seek` twenty bytes in,
+     * `Read` and `Close`. The payload's layout and the two arrays it builds
+     * are written out under "The bob banks"; the three defects — the halved
+     * image copy, the word-sized length and the wrong error code — are in the
+     * catalogue.
+     *
+     * DEVIATION: the first array keeps the file's offsets. On the machine each
+     * one is overwritten with the address of an AllocMem'd copy of the record,
+     * and there is no address here to write; the copies hang off the state
+     * instead. The bank's bytes are otherwise the file's, and Peek reads them.
+     */
+    'g load bobs'(it) {
+      const s = st()
+      const file = it.evalStr()
+      it.expect(',')
+      const n = it.evalInt()
+      const data = rt.vfs?.readFile(file) ?? rt.fs?.read(file) ?? null
+      // Lock() failing raises $51 -- "File format not recognised" for a file
+      // that is not there, which is the routine's own choice of code
+      if (!data) throw new AmosError(ED_RUN_MESSAGES[81]!, 81)
+      s.bobLeak += TGE_BOB_FIB_BYTES
+      // move.l d3,d2 / ext.l d2: the low WORD of the size, sign-extended
+      rt.reserveBank(n, ((data.length & 0xffff) << 16) >> 16, TGE_BOB_BANK_NAME)
+      const bank = rt.memBanks.get(n)!.data
+      bank.set(data.subarray(TGE_BOB_FILE_HEADER, TGE_BOB_FILE_HEADER + bank.length))
+      const view = new DataView(bank.buffer, bank.byteOffset, bank.length)
+      const u16 = (o: number): number => (o + 2 <= bank.length ? view.getUint16(o) : 0)
+      const u32 = (o: number): number => (o + 4 <= bank.length ? view.getUint32(o) : 0)
+
+      if (u16(0) !== TGE_BOB_MAGIC) {
+        gmsReset(rt)
+        tgeError(2)
+      }
+      const version = u16(2)
+      if (version > TGE_BOB_VERSION) {
+        gmsReset(rt)
+        // Routine 151 patches the wanted version over message 3's "2222" --
+        // and gets only half of it there: the two HIGH nibbles go to a0, the
+        // message, and the two low ones to a4@(1) and a4@(3), which is the
+        // BANK, over the low byte of the magic and of the version it just
+        // read. So a $0900 bank asks for "TGE0202" and loses two bytes.
+        const hi = (v: number): string => String.fromCharCode(48 + ((v >> 4) & 15))
+        bank[1] = 48 + (version >> 8) % 16
+        bank[3] = 48 + version % 16
+        throw new AmosError(TGE_ERRORS[3]!.replace('2222', `${hi(version >> 8)}2${hi(version)}2`))
+      }
+
+      const count = u16(4)
+      const images: TgeBobImage[] = []
+      for (let i = 0; i < count; i++) {
+        const rec = u32(6 + 4 * i)
+        const widthWords = u16(rec + 4)
+        const height = u16(rec + 6)
+        const depth = u16(rec + 8)
+        // the CopyMem is widthWords*height*depth bytes where the planes want
+        // twice that, so the tail of the buffer stays as AllocMem left it
+        const half = widthWords * height * depth
+        const planes = new Uint8Array(widthWords * 2 * height * depth)
+        planes.set(bank.subarray(rec + 10, Math.min(rec + 10 + half, bank.length)))
+        images.push({
+          widthWords,
+          height,
+          depth,
+          bitmap: new BankImage(widthWords * 16, height, depth, 0, 0, planes),
+        })
+      }
+      // the tail from +$6+8*count is cleared to the end of the bank
+      bank.fill(0, Math.min(6 + 8 * count, bank.length))
+      s.gmsBobBank = { number: n, version, images, bobs: new Map() }
+      s.gmsBobNumber = 0
+    },
+
+    /**
+     * Routine 105 ($3c54) — `G Set Img BOB,X,Y,IMAGE`, undocumented, and what
+     * makes a Bob out of a loaded image.
+     *
+     * `cmp.w d3,d7 / bge` on the bank's count raises $44 — AMOS 68, "Bob not
+     * defined" — for an image the bank has not got, which is the only
+     * argument it checks. Then, if the slot is empty, the tag list at block
+     * +$246 is filled and `Init`ed with the current Bitmap as its container,
+     * and the object goes into the third array. Either way the coordinates
+     * are written straight into `Bob->XCoord` and `Bob->YCoord`, which is what
+     * makes the keyword cheap enough to call every frame.
+     */
+    'g set img'(it) {
+      const s = st()
+      const slot = it.evalInt()
+      it.expect(',')
+      const x = coord(it.evalInt())
+      it.expect(',')
+      const y = coord(it.evalInt())
+      it.expect(',')
+      const image = it.evalInt()
+      const bank = s.gmsBobBank
+      if (!bank) return
+      if (image >= bank.images.length) gmsExit(rt, 68)
+      let bob = bank.bobs.get(slot)
+      if (!bob) {
+        const img = bank.images[image]!
+        bob = {
+          x: 0,
+          y: 0,
+          width: img.widthWords << 4,
+          height: img.height,
+          attrib: BBF_GENMASKS,
+          image,
+          screen: s.gmsScreen,
+        }
+        bank.bobs.set(slot, bob)
+      }
+      bob.x = x
+      bob.y = y
+    },
+
+    /**
+     * Routine 116 ($3fe8) — `G Draw Bob N`, undocumented, and four
+     * instructions of arithmetic round `DrawBob(Bob a1)`.
+     *
+     * The register is right — the autodoc's synopsis is
+     * *"void DrawBob(APTR Bob [a1])"* and a1 is what the routine loads — and
+     * a null slot is tested for and returns. The Bob's `BBA_Attrib` is
+     * BBF_GENMASKS, so colour 0 is transparent; its FrameList is one frame at
+     * the source Bitmap's top left, so what is drawn is the whole image.
+     */
+    'g draw bob'(it) {
+      const s = st()
+      const bob = s.gmsBobBank?.bobs.get(it.evalInt())
+      if (!bob) return
+      const img = s.gmsBobBank!.images[bob.image]
+      const sc = bob.screen
+      if (!img || !sc) return
+      rt.blit(sc, { width: img.bitmap.width, height: img.bitmap.height, pixels: img.bitmap.pixels }, bob.x, bob.y, (bob.attrib & BBF_MASK) === 0)
+      it.charge((bob.width * bob.height) >> 4)
+    },
+
+    /**
+     * Routine 115 ($3f9a) — `G Spaste Bob X,Y,IMAGE`, undocumented, and the
+     * one keyword here that draws an image without making a Bob of it.
+     *
+     * `BlitArea(SrcBitmap a0, DestBitmap a1, XStart d0, YStart d1, Width d2,
+     * Height d3, XDest d4, YDest d5, Remap d6)` — the second array's Bitmap
+     * for the image, the current Bitmap for the screen, (0,0) for the corner
+     * and `moveq #$0,d6` for no remapping. A straight copy, so colour 0 is
+     * opaque where `G Draw Bob`'s is not. The fixed 16 by 21 is the catalogue.
+     */
+    'g spaste bob'(it) {
+      const s = st()
+      const x = coord(it.evalInt())
+      it.expect(',')
+      const y = coord(it.evalInt())
+      it.expect(',')
+      const img = s.gmsBobBank?.images[it.evalInt()]
+      const sc = s.gmsScreen
+      if (!img || !sc) return
+      const src = img.bitmap
+      for (let dy = 0; dy < TGE_SPASTE_HEIGHT; dy++) {
+        for (let dx = 0; dx < TGE_SPASTE_WIDTH; dx++) {
+          if (dx >= src.width || dy >= src.height) continue
+          if (x + dx < 0 || y + dy < 0 || x + dx >= sc.width || y + dy >= sc.height) continue
+          sc.plot(x + dx, y + dy, src.pixels[dy * src.width + dx]!)
+        }
+      }
+      it.charge((TGE_SPASTE_WIDTH * TGE_SPASTE_HEIGHT) >> 4)
+    },
+
+    /**
+     * Routine 96 ($3498) — `G Paste Bob A,B,IMAGE`, undocumented, and a
+     * hand-written blit that writes into the bob bank. See the catalogue for
+     * the three faults; nothing here is reproduced, a routine whose second
+     * row copies 65,536 words over its own pointer table having no behaviour
+     * to port. Its two coordinates are read off the parameter stack and
+     * dropped, which is faithful, that being what the routine does with them.
+     */
+    'g paste bob'(it) {
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+    },
+
+    /**
+     * Routine 97 ($3504) — `G Get Img X1,Y1,X2,Y2 To BANK,IMAGE`,
+     * undocumented, and disabled by its author.
+     *
+     * `$3514` is `bra.w $35b8`, straight to the register restore, and every
+     * one of the 160 bytes between them is unreachable. They read as a first
+     * attempt at grabbing an image off a screen: `Bnk_GetAdr`, a slot in the
+     * first array, `FreeMem` through a pointer it has just tested for NULL,
+     * `AllocMem` of `(X2-X1)*(Y2-Y1)*4` bytes, and a `ReadPixel` loop whose
+     * two `cmp.w`s at $35b2 and $35b6 have no branch after them, so it would
+     * have copied one pixel. The `bra` is the fix.
+     *
+     * So the keyword evaluates its six arguments and returns.
+     */
+    'g get img'(it) {
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect('to')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+    },
+
+    /**
+     * Routine 106 ($3d22) — `G Erase N`, undocumented, and the counterpart to
+     * `G Load Bobs`.
+     *
+     * `Bnk_GetAdr`, the $305f test — a bank that is not one returns quietly
+     * rather than raising message 2 the way the load does — then three sweeps.
+     * The Bobs of the third array go first, through dpkernel `Free` at -$150;
+     * then, per image, the chip copy at record +$a through `FreeMemBlock` at
+     * -$cc, the second array's Bitmap through `Free`, and the record itself
+     * through exec's `FreeMem` with the length it kept at +$0. `Bnk_Eff` last,
+     * which is what actually erases the bank.
+     */
+    'g erase'(it) {
+      const s = st()
+      const n = it.evalInt()
+      const bank = rt.memBanks.get(n)
+      if (!bank || bank.data.length < 2 || ((bank.data[0]! << 8) | bank.data[1]!) !== TGE_BOB_MAGIC) return
+      if (s.gmsBobBank?.number === n) s.gmsBobBank = null
+      rt.eraseBank(n)
+    },
+
+    /**
+     * Routine 82 ($2c6e) — `G Init Mbobs N`, undocumented, and it cannot get
+     * past its own second test: $2c8a and $2c94 are both `cmpi.l #imm,(a0)`,
+     * `0c90`, asking the same four bytes to spell `"TGE "` and `"MBOB"`. See
+     * "The bob banks".
+     *
+     * The dead code below it is a whole MBob system: a header of `"TGE MBOB"`,
+     * $14 and a version at +$8 and +$c, a count at +$10, an `AllocMem(256)`
+     * entry table into +$14, and then per MBob a 64-byte record from +$18 with
+     * an `AllocMem(64)` list terminated by $ffffffff at +$1c and the current
+     * screen's Bitmap at +$34. It is the only place in the extension that
+     * knows what an MBob is.
+     *
+     * What runs is `Bnk_GetAdr`, the address recorded at block +$1d8, and the
+     * bail. A bank that is not reserved does not even record.
+     */
+    'g init mbobs'(it) {
+      const s = st()
+      const n = it.evalInt()
+      if (rt.bankRef(n)) s.gmsMBobBank = n
+    },
+
+    /**
+     * Routine 83 ($2d44) — `G Set Mbob A,B,C,D`, undocumented.
+     *
+     * `movea.l $1de(a3),a0` — the BOB bank, where `G Init Mbobs` records the
+     * MBob bank six bytes along at +$1d8 — and then `movea.l $14(a0),a0` for
+     * the entry table, which on a $305f bank is the fifth longword of the
+     * image-offset array. So even with the impossible test at $2c94 fixed,
+     * this reads a bank it was never handed; with it unfixed the table is
+     * never allocated at all and +$1de is either zero or a pointer into the
+     * wrong bank.
+     *
+     * Nothing is reproduced. What survives of the intent: D indexes a
+     * four-byte entry of the table, A the record it appends to, and B and C
+     * are doubled into the entry's first two longwords — an MBEntry is
+     * `WORD XCoord, WORD YCoord, WORD Frame`, so the doubling is a stride the
+     * author had in mind and the entries it writes are twice as wide as one.
+     */
+    'g set mbob'(it) {
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+    },
+
+    /**
+     * Routine 95 ($32bc) — `G Tmap`, eight arguments, undocumented, and a
+     * perspective floor-mapper.
+     *
+     * It walks a rectangle of the destination screen, projects each pixel
+     * through a rotation and a divide, and copies whatever `ReadPixel` finds
+     * at the projected point on the source screen with `DrawPixel` — skipping
+     * the pixel when the colour comes back 0 or $ffff, and when the projection
+     * leaves the range -100 to 99. Both module calls are correct:
+     * `ReadPixel(Bitmap a0, XCoord d1, YCoord d2)` and `DrawPixel(Bitmap a0,
+     * XCoord d1, YCoord d2, Colour d3)`.
+     *
+     * The arguments arrive in the order AMOS pops them, which is the reverse
+     * of the order they are written:
+     *
+     *     G Tmap YEND, YSTART, XEND, XSTART, ANGLE, SCALE, DEST, SRC
+     *
+     * `SRC` and `DEST` are TGE screen numbers, `ANGLE` indexes the tables
+     * `G Set Table` built — `asl.w #$1,d7` and no bounds test — and `SCALE`
+     * is the divisor of the whole projection, so zero traps.
+     *
+     * Reproduced instruction for instruction, because almost none of it is
+     * 32-bit arithmetic: `move.w` into a register whose high half is left
+     * holding the last thing there, `sub.w` next to `sub.l` on the same
+     * register, and a `divs.w` whose remainder becomes the high half that the
+     * next iteration's `sub.l` then uses. Two defects run through it, both in
+     * the catalogue, and between them they make every pixel it draws the
+     * source's (0,0).
+     */
+    'g tmap'(it) {
+      const s = st()
+      const a: number[] = [it.evalInt()]
+      for (let i = 1; i < 8; i++) {
+        it.expect(',')
+        a.push(it.evalInt())
+      }
+      const [yEnd, yStart, xEnd, xStart, angle, scale, dest, src] = a as [
+        number, number, number, number, number, number, number, number,
+      ]
+      const srcScr = rt.screens.get(gmsSlot(src))
+      const dstScr = rt.screens.get(gmsSlot(dest))
+      if (!srcScr || !dstScr) return
+
+      const s16 = (v: number): number => (v << 16) >> 16
+      const lo = (r: number, v: number): number => ((r & ~0xffff) | (v & 0xffff)) | 0
+      const mulsw = (x: number, y: number): number => Math.imul(s16(x), s16(y)) | 0
+      /** divs.w: quotient in the low half, remainder in the high, and the
+       *  68000 leaves BOTH operands alone when the quotient will not fit */
+      const divsw = (r: number, d: number): number => {
+        const div = s16(d)
+        if (div === 0) throw new AmosError('Division by zero', 20)
+        const q = (r / div) | 0
+        if (q < -0x8000 || q > 0x7fff) return r
+        return ((((r % div) & 0xffff) << 16) | (q & 0xffff)) | 0
+      }
+      // GScreen->MemPtr2 and ->MemPtr3, which is what $10(a0) and $14(a0) are
+      // and not the Width and Height sixteen bytes further on. TGE's screens
+      // are single-buffered, so both are NULL; see the catalogue.
+      const w2e = 0
+      const w32 = 0
+      const w22 = scale & 0xffff
+      const w18 = trigAsrW(s, angle, s.cosAt)
+      const w1a = trigAsrW(s, angle, 0)
+      const w34 = mulsw(w1a, 0xa0) & 0xffff
+      // move.w $18(a4),d1 with d1 still holding DEST in its high half, then
+      // muls.l d2,d1 across the whole register
+      const w42 = Math.imul(lo(dest, w18), scale) | 0
+
+      let d0 = 0
+      let d1 = lo(dest, yStart)
+      let d2 = scale
+      let d5 = yStart
+      let d6 = yEnd
+      let d7 = angle
+      let drawn = 0
+      for (;;) {
+        d0 = lo(src, xStart)
+        for (;;) {
+          d7 = lo(d7, -s16(d0))
+          d7 = (d7 + 0x9c4000) | 0
+          d6 = lo(d6, w34)
+          d5 = mulsw(d0, w1a)
+          d6 = lo(d6, s16(d6) - s16(d5))
+          d6 = (d6 - w42) | 0
+          if (d6 === 0) throw new AmosError('Division by zero', 20)
+          d7 = (d7 / d6) | 0
+          d6 = mulsw(w1a, d7)
+          d2 = lo(d2, d6)
+          d6 = lo(d6, -s16(d6))
+          d6 = lo(d6, s16(d6) >> 4)
+          d6 = lo(d6, s16(d6) + 0x1f4)
+          d6 = mulsw(d6, d1)
+          d6 = lo(d6, s16(d6) - s16(0xfa00))
+          d6 = lo(d6, s16(d6) + s16(d2))
+          d2 = lo(d2, w22)
+          d6 = divsw(d6, d2)
+          const px = s16(d7)
+          const py = s16(d6)
+          if (px >= -100 && px < 100 && py >= -100 && py < 100) {
+            d2 = lo(d2, s16(d7) - s16(0xff9c))
+            d2 = mulsw(d2, w2e)
+            d2 = divsw(d2, 0xc8)
+            let d3 = lo(0, s16(d6) - s16(0xff9c))
+            d2 = mulsw(d2, w32) // the slip: this line wants d3
+            d3 = divsw(d3, 0xc8)
+            const sx = s16(d2)
+            const sy = s16(d3)
+            const colour =
+              sx >= 0 && sy >= 0 && sx < srcScr.width && sy < srcScr.height ? srcScr.point(sx, sy) : 0
+            d7 = lo(d7, colour)
+            if ((colour & 0xffff) !== 0xffff && (colour & 0xffff) !== 0) {
+              dstScr.plot(s16(d0), s16(d1), colour)
+              drawn++
+            }
+          }
+          d0 = lo(d0, s16(d0) + 1)
+          if ((d0 & 0xffff) === (xEnd & 0xffff)) break
+        }
+        d1 = lo(d1, s16(d1) + 1)
+        if ((d1 & 0xffff) === (yEnd & 0xffff)) break
+      }
+      it.charge(drawn >> 2)
     },
   }
 }

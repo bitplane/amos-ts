@@ -1460,3 +1460,349 @@ describe('the GMS picture keywords', () => {
     expect(rt.screens.get(slot(0))!.width).toBe(320)
   })
 })
+
+/**
+ * The bobs — batch 10, and the last of the extension.
+ *
+ * Three bob systems and a tile mapper, of which one system works. Nothing
+ * here is in `TGE.guide.beta`, so the bank format is read off routines 101
+ * and 106 and the two GMS structures out of
+ * `fixtures/gms/dev/Includes/graphics/blitter.h`.
+ */
+describe('the TGE bob banks', () => {
+  const GAME = Runtime.screenRange('game')
+  const slot = (n: number): number => GAME.from + n
+  const open = 'G Screen Open 0,64,32,4,Glowres'
+
+  /**
+   * One `G Load Bobs` file: an `AmBk` header (twenty bytes, unread), then the
+   * $305f payload. Each image is a solid rectangle of `colour`.
+   */
+  function bobFile(images: Array<{ w: number; h: number; depth: number; colour: number }>): Uint8Array {
+    const recs = images.map(({ w, h, depth, colour }) => {
+      const planes = new Uint8Array(w * 2 * h * depth)
+      // plane p is set throughout when bit p of the colour is
+      for (let p = 0; p < depth; p++) {
+        if ((colour >> p) & 1) planes.fill(0xff, p * w * 2 * h, (p + 1) * w * 2 * h)
+      }
+      const rec = new Uint8Array(10 + planes.length)
+      const v = new DataView(rec.buffer)
+      v.setUint32(0, rec.length)
+      v.setUint16(4, w)
+      v.setUint16(6, h)
+      v.setUint16(8, depth)
+      rec.set(planes, 10)
+      return rec
+    })
+    const n = recs.length
+    const dir = 6 + 8 * n
+    const total = dir + recs.reduce((t, r) => t + r.length, 0)
+    const out = new Uint8Array(20 + total)
+    const body = out.subarray(20)
+    const v = new DataView(body.buffer, body.byteOffset, body.length)
+    v.setUint16(0, 0x305f)
+    v.setUint16(2, 0x900)
+    v.setUint16(4, n)
+    let at = dir
+    recs.forEach((r, i) => {
+      v.setUint32(6 + 4 * i, at)
+      body.set(r, at)
+      at += r.length
+    })
+    return out
+  }
+
+  const withBobs = (data = bobFile([{ w: 1, h: 4, depth: 2, colour: 3 }])): AmigaFS => {
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    fs.writeFile('RAM:bobs.abk', data)
+    return fs
+  }
+
+  it('G Load Bobs reserves the bank under the reserve name and decodes the payload', () => {
+    const rt = run([open, 'G Load Bobs "RAM:bobs.abk",5'], withBobs())
+    const bank = rt.memBanks.get(5)!
+    expect(bank.name).toBe('TGE  Bob')
+    const decoded = rt.thegame.gmsBobBank!
+    expect(decoded.number).toBe(5)
+    expect(decoded.version).toBe(0x900)
+    expect(decoded.images.length).toBe(1)
+    expect([decoded.images[0]!.widthWords, decoded.images[0]!.height, decoded.images[0]!.depth]).toEqual([1, 4, 2])
+    // BMA_Width is the record's width `<<4`
+    expect(decoded.images[0]!.bitmap.width).toBe(16)
+  })
+
+  /** the twenty bytes it seeks past are an AmBk header, and it never reads them */
+  it('G Load Bobs skips exactly twenty bytes and leaves the payload in the bank', () => {
+    const data = withBobs()
+    const rt = run([open, 'G Load Bobs "RAM:bobs.abk",5'], data)
+    const bank = rt.memBanks.get(5)!.data
+    expect((bank[0]! << 8) | bank[1]!).toBe(0x305f)
+    // the bank is as long as the FILE, so the last twenty bytes are slack
+    expect(bank.length).toBe(data.readFile('RAM:bobs.abk')!.length)
+  })
+
+  /**
+   * DEFECT: the AllocMem and the CopyMem are `widthWords*height*depth` where
+   * the planes want twice that, so half of every image never arrives.
+   */
+  it('G Load Bobs copies half of every image', () => {
+    const rt = run([open, 'G Load Bobs "RAM:bobs.abk",5'], withBobs())
+    const img = rt.thegame.gmsBobBank!.images[0]!.bitmap
+    // 1 word wide, 4 high, 2 planes = 16 bytes of planes; 8 are copied, so
+    // plane 0 is whole and plane 1 is not there at all
+    expect(img.planes.length).toBe(16)
+    expect(Array.from(img.planes.subarray(0, 8)).every((b) => b === 0xff)).toBe(true)
+    expect(Array.from(img.planes.subarray(8)).every((b) => b === 0)).toBe(true)
+    // so the solid colour-3 rectangle reads back as colour 1
+    expect(img.pixels[0]).toBe(1)
+  })
+
+  it('G Load Bobs refuses a payload that is not $305f', () => {
+    const bad = bobFile([{ w: 1, h: 4, depth: 2, colour: 3 }])
+    bad[20] = 0
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    fs.writeFile('RAM:bobs.abk', bad)
+    expect(() => run([open, 'G Load Bobs "RAM:bobs.abk",5'], fs)).toThrow(/NOT a TGE Bob Bank/)
+  })
+
+  /**
+   * Only a version ABOVE $900 is refused: `bge` then `beq`, so anything
+   * lower falls straight through to the load.
+   */
+  it('G Load Bobs takes an older bank and refuses a newer one', () => {
+    const older = bobFile([{ w: 1, h: 4, depth: 2, colour: 3 }])
+    new DataView(older.buffer).setUint16(22, 0x800)
+    const fsOld = new AmigaFS()
+    fsOld.mountMemory('RAM')
+    fsOld.writeFile('RAM:bobs.abk', older)
+    expect(run([open, 'G Load Bobs "RAM:bobs.abk",5'], fsOld).thegame.gmsBobBank!.version).toBe(0x800)
+
+    const newer = bobFile([{ w: 1, h: 4, depth: 2, colour: 3 }])
+    new DataView(newer.buffer).setUint16(22, 0x1234)
+    const fsNew = new AmigaFS()
+    fsNew.mountMemory('RAM')
+    fsNew.writeFile('RAM:bobs.abk', newer)
+    // DEFECT: only the two HIGH nibbles reach the message; the low ones go
+    // into the bank, over the magic and the version
+    expect(() => run([open, 'G Load Bobs "RAM:bobs.abk",5'], fsNew)).toThrow(/requires TGE1232/)
+  })
+
+  /** DEFECT: `move.l d3,d2 / ext.l d2` sign-extends the low word of the size */
+  it('G Load Bobs cannot reserve a bank over 32,767 bytes', () => {
+    // 20 + 6 + 8 + (10 + 2*16370) = 32,784, so the length reaches Bnk_Reserve
+    // as -32,752 and AMOS refuses it
+    const big = bobFile([{ w: 1, h: 16370, depth: 1, colour: 1 }])
+    expect(big.length).toBe(0x8010)
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    fs.writeFile('RAM:big.abk', big)
+    expect(() => run([open, 'G Load Bobs "RAM:big.abk",5'], fs)).toThrow(/Illegal function call/i)
+  })
+
+  /** DEFECT: Lock() failing raises "File format not recognised", not "not found" */
+  it('G Load Bobs blames the format when the file is not there', () => {
+    expect(() => run([open, 'G Load Bobs "RAM:nothere",5'], withBobs())).toThrow(/File format not recognised/i)
+  })
+
+  it('G Set Img makes a Bob and moves it, and G Draw Bob draws it masked', () => {
+    const rt = run(
+      [open, 'G Load Bobs "RAM:bobs.abk",5', 'G Set Img 0,4,6,0', 'G Draw Bob 0'],
+      withBobs(),
+    )
+    const bob = rt.thegame.gmsBobBank!.bobs.get(0)!
+    expect([bob.x, bob.y, bob.width, bob.height, bob.image]).toEqual([4, 6, 16, 4, 0])
+    // BBF_GENMASKS, so colour 0 is transparent
+    expect(bob.attrib).toBe(0x82)
+    const sc = rt.screens.get(slot(0))!
+    expect(sc.point(4, 6)).toBe(1)
+    expect(sc.point(19, 9)).toBe(1)
+    expect(sc.point(3, 6)).toBe(0)
+  })
+
+  it('G Set Img keeps the Bob it already made and only moves it', () => {
+    const rt = run(
+      [open, 'G Load Bobs "RAM:bobs.abk",5', 'G Set Img 0,4,6,0', 'G Set Img 0,9,1,0'],
+      withBobs(),
+    )
+    expect(rt.thegame.gmsBobBank!.bobs.size).toBe(1)
+    const bob = rt.thegame.gmsBobBank!.bobs.get(0)!
+    expect([bob.x, bob.y]).toEqual([9, 1])
+  })
+
+  it('G Set Img refuses an image the bank has not got', () => {
+    expect(() => run([open, 'G Load Bobs "RAM:bobs.abk",5', 'G Set Img 0,0,0,3'], withBobs())).toThrow(
+      /Bob not defined/i,
+    )
+  })
+
+  it('G Draw Bob does nothing for a slot with no Bob in it', () => {
+    const rt = run([open, 'G Load Bobs "RAM:bobs.abk",5', 'G Draw Bob 4'], withBobs())
+    expect(rt.screens.get(slot(0))!.point(0, 0)).toBe(0)
+  })
+
+  /** DEFECT: BlitArea's Width and Height are `#$10` and `#$15`, always */
+  it('G Spaste Bob blits a fixed 16 by 21 and is opaque where G Draw Bob is not', () => {
+    const two = bobFile([
+      { w: 1, h: 4, depth: 2, colour: 3 },
+      { w: 2, h: 60, depth: 1, colour: 1 },
+    ])
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    fs.writeFile('RAM:bobs.abk', two)
+    const rt = run(['G Screen Open 0,64,32,4,Glowres', 'G Load Bobs "RAM:bobs.abk",5', 'G Spaste Bob 3,2,1'], fs)
+    const sc = rt.screens.get(slot(0))!
+    expect(sc.point(3, 2)).toBe(1)
+    // 16 wide from x=3, so columns 3..18 and no more, though the image is 32
+    expect(sc.point(18, 2)).toBe(1)
+    expect(sc.point(19, 2)).toBe(0)
+    // 21 high from y=2, so rows 2..22 and no more, though the image is 60
+    expect(sc.point(3, 22)).toBe(1)
+    expect(sc.point(3, 23)).toBe(0)
+  })
+
+  it('G Erase frees the bank and forgets it', () => {
+    const rt = run([open, 'G Load Bobs "RAM:bobs.abk",5', 'G Erase 5'], withBobs())
+    expect(rt.memBanks.has(5)).toBe(false)
+    expect(rt.thegame.gmsBobBank).toBe(null)
+  })
+
+  /** the $305f test, and a quiet return rather than message 2 */
+  it('G Erase leaves a bank that is not a bob bank alone', () => {
+    const rt = run(['Reserve As Work 5,64', 'G Erase 5'], withBobs())
+    expect(rt.memBanks.has(5)).toBe(true)
+  })
+
+  it('G Load Bobs leaks its FileInfoBlock', () => {
+    const rt = run([open, 'G Load Bobs "RAM:bobs.abk",5', 'G Load Bobs "RAM:bobs.abk",6'], withBobs())
+    expect(rt.thegame.bobLeak).toBe(2000)
+  })
+})
+
+/** The three keywords of the bob system that never worked, and the two dead ones. */
+describe('the TGE bob systems that do not work', () => {
+  it('G Init Bobs reserves 10,000 bytes whatever it is asked for, and stamps its own magic', () => {
+    const rt = run('G Init Bobs 7,4')
+    const bank = rt.memBanks.get(7)!
+    expect(bank.data.length).toBe(10000)
+    expect(bank.name).toBe('TGE  Bob')
+    expect(String.fromCharCode(...bank.data.subarray(0, 8))).toBe('TGE Bob ')
+    expect(Array.from(bank.data.subarray(8, 16))).toEqual([0, 0, 1, 1, 0, 0, 1, 0])
+  })
+
+  it('G Setup Bobs is one rts', () => {
+    expect(() => run('G Setup Bobs')).not.toThrow()
+  })
+
+  it('G Set Bob wants a reserved bank and then does nothing with it', () => {
+    expect(() => run('G Set Bob 7')).toThrow(/Bank not reserved/i)
+    const rt = run(['G Init Bobs 7,4', 'G Set Bob 7'])
+    expect(rt.thegame.gmsBobNumber).toBe(7)
+  })
+
+  /** +$1de is one longword: a bank NUMBER over it loses the loaded bank */
+  it('G Set Bob overwrites the pointer G Load Bobs left at +$1de', () => {
+    const body = new Uint8Array(20 + 6)
+    new DataView(body.buffer).setUint16(20, 0x305f)
+    new DataView(body.buffer).setUint16(22, 0x900)
+    const fs = new AmigaFS()
+    fs.mountMemory('RAM')
+    fs.writeFile('RAM:bobs.abk', body)
+    const rt = run(['G Load Bobs "RAM:bobs.abk",5', 'G Set Bob 5'], fs)
+    expect(rt.thegame.gmsBobBank).toBe(null)
+    expect(rt.thegame.gmsBobNumber).toBe(5)
+  })
+
+  it('G Bob evaluates four arguments and returns', () => {
+    expect(() => run(['G Init Bobs 7,4', 'G Set Bob 7', 'G Bob 0,1,2,3'])).not.toThrow()
+  })
+
+  /** DEFECT: $2c8a and $2c94 ask the same four bytes to spell two things */
+  it('G Init Mbobs records the bank and then fails its own test', () => {
+    const rt = run(['Reserve As Work 9,64', 'G Init Mbobs 9'])
+    expect(rt.thegame.gmsMBobBank).toBe(9)
+    expect(() => run('G Init Mbobs 9')).not.toThrow()
+  })
+
+  it('G Set Mbob evaluates four arguments and returns', () => {
+    expect(() => run(['Reserve As Work 9,64', 'G Init Mbobs 9', 'G Set Mbob 0,1,2,3'])).not.toThrow()
+  })
+
+  /** $3514 is `bra.w $35b8`: the author disabled it */
+  it('G Get Img is branched over in its entirety', () => {
+    const rt = run(['G Screen Open 0,64,32,4,Glowres', 'G Get Img 0,0,8,8 To 5,0'])
+    expect(rt.memBanks.has(5)).toBe(false)
+  })
+
+  it('G Paste Bob evaluates three arguments and draws nothing', () => {
+    const rt = run(['G Screen Open 0,64,32,4,Glowres', 'G Paste Bob 1,2,0'])
+    expect(rt.screens.get(Runtime.screenRange('game').from)!.point(1, 2)).toBe(0)
+  })
+})
+
+/**
+ * Routine 95, the tile mapper, and the one keyword of the batch with an
+ * algorithm in it. The projection is `(0x9c4000 - X) / (sin*160 - X*sin -
+ * cos*SCALE)` for the source X and a rotation of the row for the source Y,
+ * both clipped to -100..99; what makes the numbers here work is that
+ * `cos(0)*SCALE` has to reach $9c4000 before the first divide lands in range.
+ */
+describe('the TGE tile mapper', () => {
+  const GAME = Runtime.screenRange('game')
+  const slot = (n: number): number => GAME.from + n
+  const two = [
+    'G Screen Open 0,64,32,16,Glowres',
+    'G Screen Open 1,64,32,16,Glowres',
+    'G Set Table 90',
+    'G Screen 1',
+  ]
+  /** the whole rectangle it painted, as "x,y=c" */
+  const painted = (rt: Runtime): string[] => {
+    const sc = rt.screens.get(slot(0))!
+    const out: string[] = []
+    for (let y = 0; y < sc.height; y++) {
+      for (let x = 0; x < sc.width; x++) if (sc.point(x, y) !== 0) out.push(`${x},${y}=${sc.point(x, y)}`)
+    }
+    return out
+  }
+
+  /** the arguments are popped in reverse: YEND, YSTART, XEND, XSTART, ANGLE, SCALE, DEST, SRC */
+  it('G Tmap walks the rectangle its four coordinates name', () => {
+    const rt = run([...two, 'G Plot 0,0,5', 'G Screen 0', 'G Tmap 8,4,10,2,0,80000,0,1'])
+    const hits = painted(rt)
+    expect(hits.length).toBe(8 * 4)
+    expect(hits[0]).toBe('2,4=5')
+    expect(hits[hits.length - 1]).toBe('9,7=5')
+  })
+
+  /**
+   * DEFECT: `$10(a0)` and `$14(a0)` are the GScreen's MemPtr2 and MemPtr3,
+   * not its Width and Height sixteen bytes on, and TGE's screens are
+   * single-buffered — so both scales are zero and every pixel drawn is the
+   * source's (0,0), whatever the projection worked out.
+   */
+  it('G Tmap samples the source at (0,0) and nowhere else', () => {
+    const rt = run([...two, 'G Plot 0,0,5', 'G Plot 20,10,9', 'G Screen 0', 'G Tmap 8,4,10,2,0,80000,0,1'])
+    expect(new Set(painted(rt).map((h) => h.slice(-1)))).toEqual(new Set(['5']))
+  })
+
+  /** `cmp.w #$ffff,d7 / beq` and `cmp.w #$0,d7 / beq`, before the DrawPixel */
+  it('G Tmap draws nothing when the colour it read is zero', () => {
+    const rt = run([...two, 'G Screen 0', 'G Tmap 8,4,10,2,0,80000,0,1'])
+    expect(painted(rt)).toEqual([])
+  })
+
+  /** the four `cmp.w`s against -100 and 100, which a small SCALE never passes */
+  it('G Tmap draws nothing when the projection lands outside -100..99', () => {
+    const rt = run([...two, 'G Plot 0,0,5', 'G Screen 0', 'G Tmap 8,4,10,2,0,1,0,1'])
+    expect(painted(rt)).toEqual([])
+  })
+
+  /** SCALE divides the whole projection: `divs.l d6,d7` and then `divs.w d2,d6` */
+  it('G Tmap traps on a SCALE of zero', () => {
+    expect(() => run([...two, 'G Plot 0,0,5', 'G Screen 0', 'G Tmap 8,4,10,2,0,0,0,1'])).toThrow(
+      /Division by zero/i,
+    )
+  })
+})

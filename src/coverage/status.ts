@@ -2769,6 +2769,21 @@ export const FAITHFUL = new Set<string>([
   // than round the tag template, which is the other way a GMS screen comes
   // into existence; ../loader/iff.ts is both ends of it.
   'g load iff', 'g save iff', 'g save bitmap', 'g load pcx',
+  // Bobs. One of the three bob systems works: G Load Bobs reads an AmBk file
+  // whose payload is $305f, builds a GMS Bitmap per image and a Bob per
+  // G Set Img, and G Draw Bob and G Spaste Bob draw them. The bank layout and
+  // the two tag lists behind it are in thegame.ts under "The bob banks".
+  'g load bobs', 'g set img', 'g draw bob', 'g spaste bob', 'g erase',
+  // The other two systems never worked, and the reasons are in the routines
+  // rather than in this port: an impossible pair of magic tests, a slot table
+  // fetched into the wrong register, a blit aimed at the bank it reads from,
+  // an entry table read from the wrong block pointer, and a `bra` the author
+  // put in front of the whole of G Get Img.
+  'g init bobs', 'g setup bobs', 'g set bob', 'g bob',
+  'g init mbobs', 'g set mbob', 'g paste bob', 'g get img',
+  // The tile mapper, reproduced instruction for instruction because almost
+  // none of it is 32-bit arithmetic.
+  'g tmap',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -7585,6 +7600,131 @@ and the jsr goes to block+$ec -- into the middle of the extension's own table of
 Routine 112 makes the same call correctly with `movea.l $ee(a3),a6`, which is what makes this a typo and not a \
 convention. Nothing is reproduced: executing a table of pointers as code is not something this port has an answer \
 for, and no answer is right",
+  "g load bobs":
+    "Routine 101 ($3898), no guide node, and the one bob system in the extension that works. Lock, Examine for \
+fib_Size at +$7c, UnLock, Bnk_Reserve of that many bytes under the name at block +$bc2 -- \"TGE  Bob\", two \
+spaces -- then Open, `Seek(file, 20, OFFSET_BEGINNING)`, Read and Close. Twenty is an AmBk header, so the file is \
+a saved memory bank and the payload is the bank's: WORD $305f, WORD $0900, WORD count, count longword offsets to \
+image records, then count Bitmaps it builds itself, then a zeroed tail. A record is AMOS's own Bob record with a \
+length longword on the front instead of a hot spot on the back -- LONG size, WORD width in 16-pixel words, WORD \
+height, WORD depth, planes -- and the Bitmap comes off the tag list at block +$2f0, `$fffb0005` = \
+(ID_SPCTAGS<<16)|ID_BITMAP, with BMA_Type copied off the current screen's. DEFECT: `move.w $4(a0),d0 / mulu.w \
+$6(a0),d0 / mulu.w $8(a0),d0` wants a *2 it has not got, so the AllocMem and the CopyMem are both half the \
+record and half of every image never arrives. DEFECT: `move.l d3,d2 / ext.l d2` sign-extends the low word of the \
+file size, so a bank over 32,767 bytes reaches Bnk_Reserve negative and AMOS refuses it. DEFECT: a Lock or an \
+Open that fails raises $51, \"File format not recognised\", where 82 is \"File not found\". It also leaks the \
+1,000 bytes it allocated for the FileInfoBlock, a4 being overwritten with the bank address first. DEVIATION: the \
+offset array keeps the file's offsets, where the machine overwrites each with the address of an AllocMem'd copy; \
+the copies hang off the extension state instead and the bank's other bytes are the file's",
+  "g set img":
+    "Routine 105 ($3c54), no guide node -- `G Set Img BOB,X,Y,IMAGE`, and what makes a Bob out of a loaded image. \
+`cmp.w d3,d7 / bge` on the bank's count raises $44, AMOS 68 \"Bob not defined\", which is the only argument it \
+checks. An empty slot gets the tag list at block +$246 filled and Init'ed with the current Bitmap as its \
+container: `$fffb0006` is TAGS_BOB, BBA_GfxCoords the two-entry FrameList at block +$27e which is `dc.w 0,0 / \
+dc.w -1,-1`, BBA_Width the record's width <<4, BBA_Height, BBA_Attrib $82 which blitter.h names BBF_GENMASKS, \
+and BBA_SrcBitmap the Bitmap G Load Bobs made. Either way the coordinates go straight into Bob->XCoord and \
+Bob->YCoord at +$20 and +$22. The Bobs live in a third array at bank+$6+8*count+4 at a stride of eight, in the \
+region G Load Bobs zeroed",
+  "g draw bob":
+    "Routine 116 ($3fe8), no guide node. Four instructions of arithmetic round `DrawBob(Bob a1)`, and the \
+register is the one the autodoc gives -- \"void DrawBob(APTR Bob [a1])\". A null slot is tested for and returns. \
+The Bob's Attrib is BBF_GENMASKS so colour 0 is transparent, and its FrameList is one frame at the source \
+Bitmap's top left, so what is drawn is the whole image",
+  "g spaste bob":
+    "Routine 115 ($3f9a), no guide node -- `G Spaste Bob X,Y,IMAGE`, the one keyword here that draws an image \
+without making a Bob of it. `BlitArea(Source a0, Dest a1, XStart d0, YStart d1, Width d2, Height d3, XDest d4, \
+YDest d5, Remap d6)` with the image's Bitmap, the current Bitmap, (0,0) and `moveq #$0,d6` for no remapping -- a \
+straight copy, so colour 0 is opaque where G Draw Bob's is not. X and Y do arrive: d4 and d5 are the two \
+arguments popped after the image number and are exactly XDest and YDest. DEFECT: `move.l #$10,d2 / move.l \
+#$15,d3` are the Width and the Height and nothing reads the image's own, so every image is cropped or padded to \
+16 by 21",
+  "g erase":
+    "Routine 106 ($3d22), no guide node, and the counterpart to G Load Bobs. Bnk_GetAdr, the $305f test -- a \
+bank that is not one returns quietly rather than raising message 2 the way the load does -- then three sweeps: \
+the Bobs of the third array through dpkernel Free at -$150, then per image the chip copy at record +$a through \
+FreeMemBlock at -$cc, the second array's Bitmap through Free, and the record itself through exec FreeMem with \
+the length it kept at +$0. Bnk_Eff last. DEFECT: the Bob sweep is a fixed 256 iterations, `moveq #$ff,d7` and a \
+dbra with nothing in it about the bank's size, so on a small bank it walks off the end and Frees any non-zero \
+longword past it. Its two strides are not the fault they look like -- four for an empty slot and eight for a \
+full one, and the four-byte step lands on an eight-byte entry's padding longword, which is always zero -- but an \
+empty slot spends two of the 256, so a bank with more than 128 Bobs is not fully freed",
+  "g init bobs":
+    "Routine 55 ($2278), no guide node. Bnk_Reserve under the name at block +$bc2, \"TGE  Bob\" with two spaces, \
+then \"TGE Bob \" with ONE over the top and $101 and $100 as the next two longwords. Nothing reads $100 and only \
+G Set Bob reads $101, which cannot get that far. DEFECT: the second argument is ignored -- `mulu.w #$4,d2` and \
+the gap between two tag lists build count*4+56 in d2 and `move.l #$2710,d2` overwrites it, so every bank it \
+makes is 10,000 bytes",
+  "g setup bobs":
+    "Routine 56 ($22d2), no guide node, and one rts. Two bytes, no parameters, and the jump table's next entry \
+is the byte after it, so this is not a routine that was gutted but one that was never written. It sits between \
+G Init Bobs and G Set Bob in both the token table and the code, which is where the third step of a three-step \
+setup would have gone",
+  "g set bob":
+    "Routine 57 ($22d4), no guide node. `move.l d0,$1de(a3)` before anything else, then Bnk_GetAdr and, for a \
+bank that is not reserved, `moveq #$24,d0` into G Exit -- AMOS 36, \"Bank not reserved\". Then two magic tests \
+that cannot both pass: the four bytes at Start(n)-4 must spell \" Bob\" and the word at Start(n)+2 must be \
+$0101. If Bnk_Reserve answers the name field and Bnk_GetAdr the data eight bytes past it, the version matches \
+and the name does not, G Init Bobs having just overwritten it with \"TGE Bob \"; if both answer the same \
+address, the name matches -- the reserve name's last four bytes really are \" Bob\" -- and the version reads \
+\"E \". There is no third reading, so the routine always falls out at $239a. The dead code below says what it \
+would have done: AllocMem(1024) for 256 Bob slots, into block +$352 indexed by bank number and into the bank's \
++$8. DEFECT: +$1de is where G Load Bobs keeps a POINTER, so a bank number written over it leaves G Draw Bob and \
+its neighbours dereferencing a small integer -- which is why this port drops the loaded bank here",
+  "g bob":
+    "Routine 58 ($23a0), no guide node, and it does not return. DEFECT: the slot table G Set Bob would have \
+allocated is fetched with `movea.l (a4),a4` and then indexed through d0 -- bank number times four, an address in \
+the vector table. The guard is worse: `tst.l a4 / bne` falls through a `movem.l (a7)+,d0-d7/a3-a6` that is the \
+branch-NOT-taken arm, so an absent table pops twelve registers, runs on into the arm that pops them again, and \
+returns through whatever is forty-eight bytes up the stack. What survives of the intent: A is a slot, B and C go \
+to the Bob tag list's +$3c and +$44 -- past its terminator and inside the list after it -- and D is popped and \
+never read. Nothing is reproduced, a routine that returns through a corrupted stack having no behaviour to port",
+  "g init mbobs":
+    "Routine 82 ($2c6e), no guide node, and it cannot get past its own second test: $2c8a and $2c94 are both \
+`cmpi.l #imm,(a0)`, opcode 0c90, asking the same four bytes to spell \"TGE \" and \"MBOB\". The second wants \
+0ca8, `cmpi.l #imm,$4(a0)`. So what runs is Bnk_GetAdr, the address recorded at block +$1d8, and the bail; a \
+bank that is not reserved does not even record. The dead code is a whole MBob system and the only place in the \
+extension that knows what one is: a header of \"TGE MBOB\", $14 and a version at +$8 and +$c, a count at +$10, \
+an AllocMem(256) entry table into +$14, then per MBob a 64-byte record from +$18 with an AllocMem(64) list \
+terminated by $ffffffff at +$1c and the current screen's Bitmap at +$34",
+  "g set mbob":
+    "Routine 83 ($2d44), no guide node. DEFECT: `movea.l $1de(a3),a0` reads the BOB bank where G Init Mbobs \
+records the MBob bank six bytes along at +$1d8, and then `movea.l $14(a0),a0` for the entry table, which on a \
+$305f bank is the fifth longword of the image-offset array. So even with the impossible test at $2c94 fixed this \
+reads a bank it was never handed; with it unfixed the table is never allocated at all. What survives of the \
+intent: D indexes a four-byte entry, A the record it appends to, and B and C are doubled into the entry's first \
+two longwords -- an MBEntry is WORD XCoord, WORD YCoord, WORD Frame, so the entries it writes are twice as wide \
+as one. Nothing is reproduced",
+  "g paste bob":
+    "Routine 96 ($3498), no guide node, and a hand-written blit with three faults. DEFECT: the destination is \
+`movea.l $1de(a3),a4 / adda.l #$6,a4`, the bob bank's own pointer array, where every other keyword in the batch \
+has the Bitmap from +$1c2. DEFECT: the row stride is `move.l $12.l,d4`, an absolute read of address $12 -- half \
+of one exception vector and half of the next. DEFECT: the row loop is re-entered by `dbra d1` without reloading \
+d0, which is $ffff by then, so the second row copies 65,536 words. The two coordinate arguments are never read. \
+Nothing is reproduced",
+  "g get img":
+    "Routine 97 ($3504), no guide node, and disabled by its author: $3514 is `bra.w $35b8`, straight to the \
+register restore, and all 160 bytes between them are unreachable. They read as a first attempt at grabbing an \
+image off a screen -- Bnk_GetAdr, a slot in the first array, FreeMem through a pointer it has just tested for \
+NULL, AllocMem of (X2-X1)*(Y2-Y1)*4 bytes, and a ReadPixel loop whose two cmp.w's at $35b2 and $35b6 have no \
+branch after them, so it would have copied one pixel. The bra is the fix. The keyword evaluates its six \
+arguments and returns",
+  "g tmap":
+    "Routine 95 ($32bc), no guide node, eight arguments, and a perspective floor-mapper: it walks a rectangle of \
+the destination screen, projects each pixel through a rotation and a divide, and copies what `ReadPixel(Bitmap \
+a0, XCoord d1, YCoord d2)` finds at the projected point with `DrawPixel(Bitmap a0, XCoord d1, YCoord d2, Colour \
+d3)`, skipping colour 0 and $ffff and any projection outside -100..99. The arguments arrive in the order AMOS \
+pops them, which is the reverse of the order they are written: YEND, YSTART, XEND, XSTART, ANGLE, SCALE, DEST, \
+SRC. ANGLE indexes the tables G Set Table built, with `asl.w #$1,d7` and no bounds test, and SCALE divides the \
+whole projection, so zero traps. Reproduced instruction for instruction because almost none of it is 32-bit \
+arithmetic -- move.w into a register whose high half is left holding the last thing there, sub.w next to sub.l \
+on the same register, and a divs.w whose remainder becomes the high half the next iteration's sub.l uses. \
+DEFECT: it scales by two screen POINTERS, reading $10(a0) and $14(a0) off the GScreen where screens.h has \
+MemPtr2 and MemPtr3; Width and Height are at $20 and $22, sixteen bytes on. TGE's screens are single-buffered -- \
+its own G Double Buffer indexes the wrong register -- so both are zero and every pixel it draws is the source's \
+(0,0) whatever the projection said. DEFECT: `muls.w $2e(a4),d2` then `muls.w $32(a4),d2`, where the second wants \
+d3, so X is scaled twice and Y not at all. NOTE: its token entry declares a function and no instruction, func \
+$5f against instr $ffff, and the routine sets neither d3 nor d2 before its rts; its spec begins I, so it parses \
+as the instruction it is -- the mirror image of G Blur's entry",
   "ovsavejpeg24":
     "Routine 73 ($10a0). The library's JPEG code is the Independent JPEG Group's, v4-era, compiled with SAS/C " +
     "into the fourth hunk, and everything it chooses is read off that binary rather than guessed: the Annex K " +
