@@ -15,7 +15,14 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { Runtime } from './runtime'
 import { BTN_RED, DIR_UP } from '../amiga/controller'
-import { PT_PLAY_VOLUME, TGE_ENCRYPT_BANK_NAME, TGE_GFX_BASE, keyChecksum, thegameVbl } from './thegame'
+import {
+  PT_PLAY_VOLUME,
+  TGE_ENCRYPT_BANK_NAME,
+  TGE_GFX_BASE,
+  gmsScreenMode,
+  keyChecksum,
+  thegameVbl,
+} from './thegame'
 
 const table = new TokenTable(CORE_TOKENS)
 /** the manifest's recommended slot; the extension itself names none */
@@ -830,5 +837,244 @@ describe('the rest of batch 1a', () => {
     const rt = run('G Unhandicap', withRam())
     expect(rt.thegame.priority).toBe(0)
     expect(rt.thegame.handicapped).toBe(false)
+  })
+})
+
+describe('the GMS display', () => {
+  const GAME = Runtime.screenRange('game')
+
+  /** the slot a TGE screen number lands on; see "Where a GMS screen lives here" */
+  const slot = (n: number): number => GAME.from + n
+
+  it('opens a screen on a game slot, in front, with AMOS behind it', () => {
+    const rt = run('G Screen Open 0,320,256,16,Ghires')
+    const sc = rt.screens.get(slot(0))!
+    expect(sc).toBeDefined()
+    expect(Runtime.screenOwner(slot(0))).toBe('game')
+    // the whole AMOS display went behind before the screen was opened
+    expect(rt.order[rt.order.length - 1]).toBe(slot(0))
+    expect(rt.amosInFront()).toBe(false)
+  })
+
+  it('takes the height, the colours and the mode from the arguments', () => {
+    const rt = run('G Screen Open 2,320,200,32,Ghires')
+    const sc = rt.screens.get(slot(2))!
+    expect(sc.height).toBe(200)
+    expect(sc.nColors).toBe(32)
+    expect(sc.depth).toBe(5)
+    expect(sc.hires).toBe(true)
+    expect(sc.laced).toBe(false)
+  })
+
+  /**
+   * DEFECT: `moveq #$0,d1` for the AMOS_WB call lands on the X argument that
+   * was popped into the same register, so GSA_Width is set to zero and GMS
+   * takes its user default — which GMSPrefs ships as 320, and that is why
+   * nobody noticed.
+   */
+  it('ignores the width argument entirely', () => {
+    for (const w of [320, 640, 16]) {
+      const rt = run(`G Screen Open 0,${w},256,4,Glowres`)
+      expect(rt.screens.get(slot(0))!.width).toBe(320)
+    }
+  })
+
+  it('takes the GMSPrefs defaults for a zeroed height or colour count', () => {
+    const rt = run('G Screen Open 0,320,0,0,Glowres')
+    const sc = rt.screens.get(slot(0))!
+    expect(sc.height).toBe(256)
+    expect(sc.nColors).toBe(32)
+  })
+
+  it('opens at TopOfScr, where a GMS offset of (0,0) is', () => {
+    const rt = run('G Screen Open 0,320,256,4,Glowres')
+    const sc = rt.screens.get(slot(0))!
+    expect([sc.displayX, sc.displayY]).toEqual([128, 44])
+  })
+
+  it('holds eight screens at once, which is what the guide promises', () => {
+    const rt = run(Array.from({ length: 8 }, (_, i) => `G Screen Open ${i},320,64,2,Glowres`))
+    for (let i = 0; i < 8; i++) expect(rt.screens.has(slot(i)), `screen ${i}`).toBe(true)
+    // and none of them displaced a user screen
+    expect(rt.screens.has(0)).toBe(true)
+  })
+
+  /** DEFECT: nothing bounds the number, and entries 9 and 10 are live pointers */
+  it('refuses a screen number outside 0-7', () => {
+    expect(() => run('G Screen Open 8,320,256,4,Glowres')).toThrow(/illegal screen number/i)
+    expect(() => run('G Screen Close 9')).toThrow(/illegal screen number/i)
+  })
+
+  it('re-opening a number throws the old screen away first', () => {
+    const rt = run(['G Screen Open 1,320,256,4,Glowres', 'G Screen Open 1,320,100,8,Glowres'])
+    const sc = rt.screens.get(slot(1))!
+    expect(sc.height).toBe(100)
+    expect(rt.order.filter((i) => i === slot(1))).toHaveLength(1)
+  })
+
+  it('G Screen Close frees the slot', () => {
+    const rt = run(['G Screen Open 3,320,256,4,Glowres', 'G Screen Close 3'])
+    expect(rt.screens.has(slot(3))).toBe(false)
+  })
+
+  /**
+   * DEFECT: closing a screen that is not open reads the longword at absolute
+   * address 4 — ExecBase — and hands it to `Free()`. Refused here.
+   */
+  it('G Screen Close on a screen that is not open does nothing', () => {
+    const rt = run('G Screen Close 4')
+    expect(rt.screens.has(slot(4))).toBe(false)
+  })
+
+  /** DEFECT: neither +$1be nor +$1c2 is cleared, so the reads still answer */
+  it('=GScreen Width still answers after the screen is closed', () => {
+    expect(vals(['G Screen Open 0,320,120,8,Glowres', 'G Screen Close 0', 'Print Gscreen Height'])).toEqual([120])
+  })
+
+  it('G Screen Hide and G Screen Show move the visible flag', () => {
+    const rt = run(['G Screen Open 0,320,256,4,Glowres', 'G Screen Hide 0'])
+    expect(rt.screens.get(slot(0))!.visible).toBe(false)
+    const back = run(['G Screen Open 0,320,256,4,Glowres', 'G Screen Hide 0', 'G Screen Show 0'])
+    expect(back.screens.get(slot(0))!.visible).toBe(true)
+  })
+
+  /** the one screen number in the batch that is checked */
+  it('G Screen Hide -1 returns without touching anything', () => {
+    const rt = run(['G Screen Open 0,320,256,4,Glowres', 'G Screen Hide -1'])
+    expect(rt.screens.get(slot(0))!.visible).toBe(true)
+  })
+
+  it('G Screen selects which screen the property functions read', () => {
+    const out = vals([
+      'G Screen Open 0,320,100,4,Glowres',
+      'G Screen Open 1,320,200,32,Glowres',
+      'G Screen 0',
+      'Print Gscreen Height;" ";Gscreen Colour',
+      'G Screen 1',
+      'Print Gscreen Height;" ";Gscreen Colour',
+    ])
+    expect(out).toEqual([100, 4, 200, 32])
+  })
+
+  it('the property functions answer zero before any screen is open', () => {
+    expect(vals('Print Gscreen Width;" ";Gscreen Height;" ";Gscreen Colour')).toEqual([0, 0, 0])
+  })
+
+  it('G Screen Offset moves the screen on the monitor, from TopOfScr', () => {
+    const rt = run(['G Screen Open 0,320,256,4,Glowres', 'G Screen Offset 0,32,-10'])
+    const sc = rt.screens.get(slot(0))!
+    expect([sc.displayX, sc.displayY]).toEqual([160, 34])
+  })
+
+  it('G Bitmap Offset moves the bitmap inside the screen', () => {
+    const rt = run(['G Screen Open 0,320,256,4,Glowres', 'G Bitmap Offset 0,16,8'])
+    const sc = rt.screens.get(slot(0))!
+    expect([sc.offsetX, sc.offsetY]).toEqual([16, 8])
+  })
+
+  it('G Screen Copy copies the image', () => {
+    // Wait to get control while both screens exist: no TGE keyword ported yet
+    // draws, so the source has to be filled in from here
+    const rt = boot([
+      'G Screen Open 0,320,64,4,Glowres',
+      'G Screen Open 1,320,64,4,Glowres',
+      'Wait 5',
+      'G Screen Copy 0,1',
+    ])
+    rt.frame()
+    const src = rt.screens.get(slot(0))!
+    const dst = rt.screens.get(slot(1))!
+    src.plot(5, 5, 3)
+    src.plot(319, 63, 2)
+    expect(dst.point(5, 5)).toBe(0)
+    mustFinish(rt.runHeadless(2000))
+    expect(dst.point(5, 5)).toBe(3)
+    expect(dst.point(319, 63)).toBe(2)
+  })
+
+  /**
+   * DEFECT: the Bitmap's Palette is copied as a POINTER, so the destination
+   * stops having a palette of its own and a later change to either shows in
+   * both.
+   */
+  it('G Screen Copy gives both screens the same palette', () => {
+    const rt = run([
+      'G Screen Open 0,320,64,4,Glowres',
+      'G Screen Open 1,320,64,4,Glowres',
+      'G Screen Copy 0,1',
+    ])
+    const src = rt.screens.get(slot(0))!
+    const dst = rt.screens.get(slot(1))!
+    expect(dst.palette).toBe(src.palette)
+    src.palette[2] = 0x0f0f
+    expect(dst.palette[2]).toBe(0x0f0f)
+  })
+
+  it('G Update waits a frame', () => {
+    const rt = boot(['Print 1', 'G Update', 'Print 2'])
+    mustFinish(rt.runHeadless(2000))
+    expect(printed(rt)).toEqual([1, 2])
+  })
+
+  /** the five that provably do nothing; see the catalogue for each */
+  it('G Double Buffer, G Triple Buffer, G Swap Buffers and G Getscr do nothing', () => {
+    const rt = run([
+      'G Double Buffer',
+      'G Screen Open 0,320,64,4,Glowres',
+      'G Triple Buffer',
+      'G Swap Buffers',
+      'G Getscr',
+    ])
+    expect(rt.screens.get(slot(0))!.doubleBuffered).toBe(false)
+  })
+})
+
+describe('the G Screen Open mode normaliser', () => {
+  const mode = (m: number): number => gmsScreenMode(m)
+
+  /** the two AMOS constants, tested as words before anything else happens */
+  it('takes AMOS Lowres and Hires', () => {
+    expect(mode(0)).toBe(8) // SM_LORES
+    expect(mode(0x8000)).toBe(1) // SM_HIRES
+  })
+
+  it('passes the two GMS constants it recognises straight through', () => {
+    expect(mode(8)).toBe(8)
+    expect(mode(1)).toBe(1)
+  })
+
+  it('adds interlace to either resolution', () => {
+    expect(mode(12)).toBe(12) // SM_LORES|SM_LACED
+    expect(mode(5)).toBe(5) // SM_HIRES|SM_LACED
+    expect(mode(4)).toBe(12) // SM_LACED alone -> laced at the default
+  })
+
+  /** DEFECT: SM_SHIRES falls out of the default arm as hires-plus-interlace */
+  it('cannot express super-hires', () => {
+    expect(mode(2)).toBe(5)
+    expect(mode(mode(2))).toBe(5)
+  })
+
+  /** `tst.w` and `cmp.w`: only the low half is looked at */
+  it('tests the two AMOS constants as words', () => {
+    expect(mode(0x10000)).toBe(8)
+    expect(mode(0x18000)).toBe(1)
+  })
+})
+
+describe('the mode functions', () => {
+  it('answer the GMS ScrMode constants', () => {
+    expect(vals('Print Glowres;" ";Ghires;" ";Gsuperhires')).toEqual([8, 1, 2])
+  })
+
+  /** DEFECT: routine 48 sets the type register and never the value register */
+  it('=Gham answers zero, having nothing to answer', () => {
+    expect(vals('Print Gham')).toEqual([0])
+  })
+
+  it('a screen opened with =Ghires is hires and one with =Glowres is not', () => {
+    const rt = run(['G Screen Open 0,320,256,4,Ghires', 'G Screen Open 1,320,256,4,Glowres'])
+    expect(rt.screens.get(12)!.hires).toBe(true)
+    expect(rt.screens.get(13)!.hires).toBe(false)
   })
 })

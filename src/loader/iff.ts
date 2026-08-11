@@ -168,7 +168,14 @@ export function encodeIlbm(img: IlbmImage): Uint8Array {
   // the bitplane count: a CMAP wider than 2^depth is legal and real files use
   // it (AMOS 3D's Scrollpic.IFF is three planes with all 32 entries), and on
   // the Amiga the registers past the screen's depth still drive the sprites.
-  const n = Math.min(palette.length || 1 << depth, 32)
+  //
+  // The ceiling was 32, which is ECS's whole register file and was every
+  // picture in the corpus until GMS's own logos arrived:
+  // `gms/dev/Logos/GMSLogo-FullScreen.iff` is six planes with 64 CMAP entries
+  // and no EHB bit — an ordinary AGA picture — and 32 of its colours were
+  // being dropped on the way out. 256 is the AGA register file and what
+  // `Screen.palette` holds.
+  const n = Math.min(palette.length || 1 << depth, 256)
   for (let i = 0; i < n; i++) {
     const v = palette[i] ?? 0
     // RGB4 nibble → 8-bit, replicated into both nibbles like the Amiga

@@ -159,14 +159,97 @@
  * (July 1998) — the version 2 that `G Init Gms` demands — the fifteen system
  * modules, and a `System/References/` registry. Seven of the modules also
  * have their C source published separately on Aminet as `dev/misc/gms_*.lha`,
- * and those are vendored under `fixtures/gms/src/`. So this is the same
- * evidence tier as ptreplay and stc after all, and better for seven modules:
- * shipped source with register-level prototypes.
+ * and those are vendored under `fixtures/gms/src/`.
  *
- * The source is read for semantics and offsets and NONE of it is copied —
- * DreamWorld's terms allow it only for enhancing GMS itself, and this port
- * reimplements from the format the way ../amiga/stonecracker.ts does and the
- * way ../amiga/intuition.ts treats AROS.
+ * And the DEVELOPER SUITE, `dev/misc/gms_dev.lha`, at `fixtures/gms/dev/`.
+ * That is the one that matters, because it covers the two modules with no
+ * published source — `screens.mod` and `blitter.mod` — which are the two this
+ * extension leans on hardest. It carries:
+ *
+ *     Includes/graphics/screens.h    struct GScreen, field by field
+ *     Includes/graphics/blitter.h    struct Bitmap, and the tag names
+ *     Includes/dpkernel/dpkernel.h   struct Head, the tag type bits
+ *     Includes/dpkernel/prefs.h      struct ScreenPrefs
+ *     Includes/system/register.i     the ClassID numbers
+ *     Includes/fd/*.fd               every entry point, its arguments AND
+ *                                    the register each one arrives in
+ *     AutoDocs/*.guide               what each of them does, in prose
+ *
+ * So the GMS half of this file is no longer a reading of TGE's call sites. A
+ * `.fd` states the signature and an autodoc states the behaviour, and the
+ * fifteen `screens.mod` entries the port reaches are named by the module
+ * itself — `../amiga/gms.ts` records those tables and re-derives them from
+ * the binaries. Where the two could disagree they do not: `screens_lib.fd`
+ * lists the same 27 names in the same order that the module's own function
+ * list carries, marking three of them private with a `prv` prefix.
+ *
+ * None of DreamWorld's source or headers are copied — the material is read
+ * for semantics and offsets only, as ../amiga/stonecracker.ts treats the
+ * StoneCracker format and ../amiga/intuition.ts treats AROS.
+ *
+ * ## The two structures, and the tag list that builds one
+ *
+ * `struct Head` is twelve bytes on the front of every GMS object — `WORD ID,
+ * WORD Version, SysObject *Class, Stats *Stats` — which is why every field
+ * offset below starts at 12.
+ *
+ *     struct GScreen                     struct Bitmap
+ *     +$0c MemPtr1  the displayed buffer  +$0c Data       the pixels
+ *     +$10 MemPtr2  double buffer         +$10 Width
+ *     +$14 MemPtr3  triple buffer         +$12 ByteWidth
+ *     +$1c Raster   a Raster object       +$14 Height
+ *     +$20 Width    the viewport          +$16 Type       ILBM/planar/chunky
+ *     +$22 Height                         +$18 LineMod
+ *     +$24 XOffset  where it sits on the  +$1c PlaneMod
+ *     +$26 YOffset  monitor               +$20 Parent
+ *     +$28 BmpXOffset  which part of the  +$30 Planes
+ *     +$2a BmpYOffset  bitmap shows       +$34 AmtColours
+ *     +$2c ScrMode  SM_HIRES and friends  +$38 Palette    $00RRGGBB longs
+ *     +$30 Attrib   SCR_DBLBUFFER etc     +$3c Flags      BMF_HAM, BMF_EXTRAHB
+ *     +$38 Bitmap
+ *     +$3c Switch
+ *
+ * An object is not built by filling that in. `Init(Object a0, Container a1)`
+ * takes *"an Object, TagList, ListV1, ListV2 or an ObjectList"*, and what TGE
+ * hands it is a TagList: 200 bytes copied out of the data block at +$1f6 and
+ * patched. A tag is two longwords, `{ type|offset, value }`, and the header
+ * pair names the class — `$fffb0009` is `(ID_SPCTAGS<<16)|ID_SCREEN`, since
+ * `register.i` gives ID_SPCTAGS as -5 and ID_SCREEN as 9. The type bits are
+ * `dpkernel.h`'s: TLONG `1<<31`, TWORD `1<<30`, TAPTR `TLONG|1<<29`, TSTEPIN
+ * `1<<28`. The template, as shipped:
+ *
+ *     +$00  $fffb0009           TAGS_SCREEN — and Init writes the finished
+ *                               object back into THIS pair's value slot,
+ *                               which is why +$04 is where TGE reads it from
+ *     +$08  $80000030  $100     Attrib   = SCR_BLKBDR
+ *     +$10  $40000022  256      Height
+ *     +$18  $40000020  320      Width
+ *     +$20  $4000002c  1        ScrMode  = SM_HIRES
+ *     +$28  $10000038  0        TSTEPIN on Screen+$38 — everything after this
+ *                               tag addresses the BITMAP
+ *     +$30  $80000034  2        AmtColours
+ *     +$38  $a0000038  0        Palette
+ *     +$40  0                   end of list
+ *
+ * The block holds eight of those tag lists, one per screen, in a table at
+ * +$19a; +$195 is the current screen NUMBER; +$1be and +$1c2 are the current
+ * Screen and its Bitmap, which is where `=GScreen Width` and every drawing
+ * keyword start. Two more lists follow the first in the template, headed
+ * `$fffb0006` and `$fffb0007` — ID_BOB and the class after it — and belong to
+ * the bob batch rather than here.
+ *
+ * A tag whose value is left at zero takes the user's default. The Screen
+ * autodoc marks Width, Height and ScrMode *"Inheritance: User default."* and
+ * says of the last one *"If you do not fill in this field, you will get the
+ * user's default resolution."* — and it is `GMSPrefs` that holds those, in
+ * `Prefs/Default/screens.prefs`: the file is the
+ * `struct ScreenPrefs` of `prefs.h` XORed with $3d, and it decodes to
+ * ScrWidth 320, ScrHeight 256, Planes 5, ScrMode SM_LORES, ChipSet AGA and a
+ * top-of-screen corner of (128, 44). That last pair is what a GMS screen
+ * offset of (0,0) means — the autodoc says *"An offset of (0X,0Y) positions
+ * the Screen at the top left of the display"* — and AMOS's own hardware
+ * origin is (128, 50), near enough that the two coordinate systems are the
+ * same one with a different zero.
  *
  * ## How TGE starts GMS
  *
@@ -178,11 +261,13 @@
  * left in a0, and the base is taken from its +$60 instead, leaving +$d4 zero.
  * A failure is `moveq #$4,d0` into routine 151, message 4.
  *
- * Then dpkernel's `-$54` five times. That is a module opener: it builds a tag
- * list on the stack — `$4000000c` carrying d0 and `$a000002a` carrying a0 —
- * and hands it to the generic object allocator, so d0 is a module NUMBER and
- * a0 an optional name. TGE keeps both the handle and, from the handle's +$e,
- * that module's function base:
+ * Then dpkernel's `-$54` five times. `dpkernel_lib.fd` is `##bias 30`, so an
+ * LVO names an entry outright and no inference is needed for any of them:
+ * `-$54` is `OpenModule(ID d0, Name a0)`, `-$5a` is `Init(Object, Container)`,
+ * `-$114` `Show(Object)`, `-$126` `Hide(Object)`, `-$14a` `Get(ID)`, `-$150`
+ * `Free(Object)`, `-$168` `CopyStructure(Source, Destination)`, `-$19e`
+ * `Copy(Source, Dest)` and `-$30` `CloseDPK()`. TGE keeps both the handle
+ * OpenModule returns and, from the handle's +$e, that module's function base:
  *
  *     d0 = 3            handle +$fe    base +$ea    screens.mod
  *     d0 = 1            handle +$fa    base +$e6    blitter.mod
@@ -197,17 +282,16 @@
  * config. Ten of those are confirmed independently by the `.ref` files in
  * `System/References/`, each of which states its own `ModNumber`, and all ten
  * agree. So `$11` is colours.mod, and `=G Blur`'s call to its `-$6` is
- * `BlurArea(a0 = Bitmap, d0 = StartX, d1 = StartY, d2 = Width, d3 = Height,
- * d4 = Performance)` — which is why routine 112 subtracts the corners into d2
- * and d3 before calling it.
+ * `BlurArea(Bitmap a0, StartX d0, StartY d1, EndX d2, EndY d3, Setting d4)` —
+ * `colours_lib.fd` naming the corners the routine subtracts into d2 and d3.
  *
  * `-$150` and `-$5a` are object methods rather than plain functions: both
- * fetch a class table and jump through it, `$54(a0)` for the free that
- * `-$150` performs and `$74(a0)` for the init `-$5a` performs. `G Close Gms`
- * (routine 119) calls `-$150` on all five modules and on the input structure
- * at +$b2e before `jsr -$30(a6)`. `-$14a` with d0 = 1 is what answers that
- * input structure, and 1 is `JoyData`'s ClassID in `joydata.ref` — which is
- * the second source for what batch 2 read off the call sites alone.
+ * fetch a class table and jump through it, `$54(a0)` for `Free` and `$74(a0)`
+ * for `Init`. `G Close Gms` (routine 119) calls `Free` on all five modules
+ * and on the input structure at +$b2e before `CloseDPK`. `Get(1)` is what
+ * answers that input structure, and 1 is `JoyData`'s ClassID in
+ * `joydata.ref` — the second source for what batch 2 read off the call sites
+ * alone.
  *
  * Two defects to carry into those batches. `G Close Gms` calls `-$30` — the
  * shutdown — without testing +$d4, which routine 90's own teardown at $30d6
@@ -217,6 +301,32 @@
  * computes `block + $f2 - 6` and JUMPS THERE, into the middle of its own base
  * table. Routine 112 does the same call correctly with `movea.l $ee(a3),a6`,
  * which is what makes it a typo rather than a convention.
+ *
+ * ## Where a GMS screen lives here
+ *
+ * On a slot of its own, in the same table as every other screen. The machine
+ * has ONE copper list, so a display anything opens is a band in it, and
+ * `Runtime.SCREEN_SLOTS` partitions the table by owner: 0-7 the user's, 8-11
+ * AMOS's own system screens, 12-19 a game system's, 20-31 the OS's. TGE
+ * numbers its screens 0-7 and has exactly eight, so screen N is slot
+ * `Runtime.screenRange('game').from + N` and the arithmetic is the whole of
+ * the mapping.
+ *
+ * Nothing else is needed, because the two models agree about almost
+ * everything a keyword can see. GMS's `Screen->Width/Height` is the port's
+ * `Screen.width/height`; its `XOffset/YOffset` — where the display sits on
+ * the monitor — is `displayX/displayY`; its `BmpXOffset/BmpYOffset` — which
+ * part of a bitmap larger than the viewport shows — is `offsetX/offsetY`,
+ * which is what AMOS's own `Screen Offset` sets. TGE's two keywords are named
+ * the other way round from AMOS's, and that is the only confusion in it.
+ *
+ * `Show()` and `Hide()` are `visible`, and the AMOS_WB call every screen open
+ * opens with is `Runtime.amosToBack()`: one call moves the whole AMOS display
+ * behind the game's, which is the guide's *"Opens a screen in front of the
+ * amigas current display"*. The argument is `moveq #$0,d1` and `=Amos Here`
+ * is the same vector with -1, so 0 is taken here as the to-back arm; that
+ * reading comes from the guide's sentence and not from AMOS's source, which
+ * is not on this machine.
  *
  * ## The extension's own error table
  *
@@ -374,6 +484,79 @@
  *   requester commands *"Removed"* and three of them are still in the table;
  *   the opener is the one that really went. Batch 4 territory, recorded here
  *   because the catalogue belongs in one place.
+ * - **DEFECT: `G Screen Open` throws its width argument away.** The five
+ *   arguments pop into d0-d4 and the very next instructions are `moveq #$0,d1
+ *   / movea.l -$8(a5),a0 / jsr $120(a0)` — d1 is the AMOS_WB argument and it
+ *   is also X, which nothing saves and nothing puts back. So `move.l d1,$1c(a0)`
+ *   at $1e80 sets GSA_Width to zero, and a zeroed tag is the one GMS takes
+ *   the user's default for. Every TGE screen is `screens.prefs`'s ScrWidth
+ *   wide whatever
+ *   the program asked for, which on a stock GMS is 320 — so the bug is
+ *   invisible until somebody asks for 640.
+ * - **DEFECT: `=Gsuperhires` cannot open a super-hires screen.** It answers 2,
+ *   which is `SM_SHIRES`, and then $1d6e-$1dbc normalises the mode: 8 and 1
+ *   pass through, and everything else has 4 subtracted and is compared again,
+ *   so 2 becomes -2, matches none of the three arms, and falls out of the
+ *   default one as `1 + 4` — `SM_HIRES|SM_LACED`. `G Screen Open
+ *   0,320,256,16,Gsuperhires` opens an interlaced hi-res screen. The arm the
+ *   author wanted is not in the chain at all.
+ * - **DEFECT: `=Gham` returns whatever the last expression left behind.**
+ *   Routine 48 is `move.l #$0,d2 / rts`: it sets the TYPE register and never
+ *   touches d3. Its three neighbours are `moveq #<mode>,d3 / moveq #$0,d2`,
+ *   so the missing instruction is visible in the shape of the routine. There
+ *   is no HAM in GMS's ScrMode to have returned — HAM is `BMF_HAM` on the
+ *   Bitmap's Flags — which is presumably why it was never written.
+ * - **DEFECT: `G Double Buffer` and `G Triple Buffer` write into a register
+ *   nobody set.** Both are four instructions: `movea.l $1c8(a5),a0` loads the
+ *   data block into a0, and then `movea.l $1be(a4),a1` indexes **a4**. The
+ *   bytes are `20 6d 01 c8 / 22 6c 01 be`, so it is a4 and not a misprint.
+ *   The offset is wrong as well: the constants stored are $101 and $102,
+ *   which are `SCR_BLKBDR|SCR_DBLBUFFER` and `SCR_BLKBDR|SCR_TPLBUFFER`, and
+ *   +$0c of a Screen is MemPtr1. What they mean is the Attrib value slot of
+ *   the TEMPLATE at block +$1f6, which really is at +$0c of it and really
+ *   does ship as $100 — `lea $1f6(a0),a1` is the missing line. So neither
+ *   keyword can do what the guide says it does, and `G Swap Buffers` has
+ *   nothing to swap: `SwapBuffers()` on a screen with no second buffer
+ *   returns without doing anything.
+ * - **DEFECT: `G Screen Close` on a screen that was never opened frees
+ *   ExecBase.** Routine 40 fetches `table[N]`, which is zero, and then
+ *   `movea.l $4(a4),a0` — the longword at absolute address 4, which is
+ *   ExecBase — and hands that to `Free()`. The guard next to it,
+ *   `cmpa.l #$5120,a0`, tests for a constant that nothing can produce and
+ *   catches nothing. It also never clears the +$18c flag byte or the current
+ *   Screen and Bitmap at +$1be/+$1c2, so `=GScreen Width` after closing the
+ *   current screen reads the structure it just handed back.
+ * - **DEFECT: `G Screen Hide` clears screen 0's flag byte whichever screen it
+ *   hides.** `move.b #$ff,$18c(a3)`, with no index — routine 39 writes the
+ *   same table as `$18c(a3) + d0`. It costs nothing, because the byte is
+ *   written in two places and read in none.
+ * - **DEFECT: `G Screen Copy` gives both screens the same palette.** After
+ *   the image copy it does `move.l $38(a0),d5 / move.l d5,$38(a1)` on the two
+ *   Bitmaps, which is `Palette`, a POINTER. So the destination stops having a
+ *   palette of its own: a later `G Colour` on either screen changes both, and
+ *   closing the source leaves the destination pointing into freed memory.
+ *   Copying the 8 + 4*colours bytes is what was meant, and `CopyPalette()` in
+ *   colours.mod is the call that does it.
+ * - **DEFECT: `=GScreen Width`, `=GScreen Height` and `=GScreen Colour` read
+ *   through a null pointer before the first screen opens.** All three are
+ *   `movea.l $1c2(a1),a0` and then a load off it, with no test; +$1c2 ships
+ *   as zero.
+ * - **DEFECT: `G Getscr` resolves a screen number it never set and discards
+ *   the answer.** Routine 54 takes no arguments — its spec is `I` — and is
+ *   `move.l #$1,d0 / Rjsr <AMOS routine> / move.l a0,d0 / rts`. The routine
+ *   called takes the screen NUMBER in d1, not d0, and returns the screen in
+ *   a0; TGE sets d0, leaves d1 holding whatever the interpreter left there,
+ *   and then moves the result into d0, which for an instruction goes nowhere
+ *   — the value register is d3. So the keyword has no arguments, no result
+ *   and no effect, except that an unresolvable d1 raises AMOS's own
+ *   screen error.
+ * - **DEFECT: nothing bounds a TGE screen number.** The table at +$19a is
+ *   eight entries and no routine checks; entry 8 is the unused longword at
+ *   +$1ba, entry 9 is the current Screen pointer at +$1be and entry 10 is the
+ *   current Bitmap at +$1c2, so `G Screen Open 9,...` files a tag list where
+ *   the current screen belongs. DEVIATION: this port raises AMOS's illegal
+ *   screen number instead. The three fields are separate here rather than
+ *   adjacent longwords, so the aliasing has nothing to alias.
  */
 import type { Func, Instr } from '../interp/builtins'
 import { AmosError, VI, VS, str } from '../interp/values'
@@ -398,6 +581,7 @@ import {
 import { closeLibrary, openLibrary } from '../amiga/exec'
 import { Protracker, parseMod, type PtSong } from '../amiga/protracker'
 import { Runtime } from './runtime'
+import { Screen } from './screen'
 
 /** an argument that arrived as a Value */
 const int = (v: unknown): number => Number((v as { n?: number } | undefined)?.n ?? 0) | 0
@@ -478,6 +662,19 @@ export interface TheGameState {
   /** bytes `=G Word$` has allocated and never freed */
   wordLeak: number
 
+  /** block +$195 — the current screen NUMBER, which ships as zero */
+  gmsCurrent: number
+  /**
+   * block +$1be and +$1c2 — the current Screen and its Bitmap.
+   *
+   * One field for two pointers, because a `Screen` here is both: GMS splits
+   * the viewport from the pixels and this port does not. It holds the object
+   * rather than a slot number so that `G Screen Close`, which never clears
+   * either pointer, still reads the width it had — a freed structure nothing
+   * has reused yet reads exactly like this.
+   */
+  gmsScreen: Screen | null
+
   /** whether `G Handicap` has run, so block +$b36 holds a task pointer */
   handicapped: boolean
   /** the task priority, which nothing here schedules on; see `G Handicap` */
@@ -514,11 +711,85 @@ export function newTheGameState(rt: Runtime): TheGameState {
     stcOpens: 0,
     keySum: 0,
     wordLeak: 0,
+    gmsCurrent: 0,
+    gmsScreen: null,
     handicapped: false,
     priority: 0,
     savedPriority: 0,
   }
 }
+
+/**
+ * What a tag left at zero takes, out of GMSPrefs's shipped defaults.
+ *
+ * `fixtures/gms/Prefs/Default/screens.prefs` is a `struct ScreenPrefs`
+ * (`dev/Includes/dpkernel/prefs.h`) XORed with $3d — the key falls out of the
+ * padding, since the file is mostly zeroes and mostly $3d. It decodes to
+ * ChipSet AGA, ScrWidth 320, ScrHeight 256, Planes 5, ScrMode SM_LORES,
+ * ScrType ILBM, TopOfScr (128, 44), and a 256-entry palette starting white —
+ * every field plausible and the palette self-evidently right, which is what
+ * makes the key right.
+ */
+export const GMS_DEFAULT_WIDTH = 320
+export const GMS_DEFAULT_HEIGHT = 256
+/** Planes 5 in the prefs; the Bitmap's AmtColours is what TGE actually sets */
+export const GMS_DEFAULT_COLOURS = 32
+/** ScreenPrefs TopOfScrX/Y: where a GMS screen offset of (0,0) puts a screen */
+export const GMS_TOP_OF_SCREEN_X = 128
+export const GMS_TOP_OF_SCREEN_Y = 44
+
+/**
+ * TGE screen number to slot in the machine's one screen table. See "Where a
+ * GMS screen lives here".
+ *
+ * The range is asked for per call rather than once at load: runtime.ts imports
+ * this file and this file imports it back, so a `Runtime.` at module scope
+ * runs before the class exists.
+ *
+ * DEVIATION: the extension bounds nothing, and its table's neighbours are the
+ * current Screen and Bitmap pointers; see the catalogue. Refusing is the only
+ * thing this port can do with a number that would file a screen into a field
+ * that is not adjacent to anything here.
+ */
+function gmsSlot(n: number): number {
+  const range = Runtime.screenRange('game')
+  if (n < 0 || n >= range.count) throw new AmosError(`illegal screen number: ${n}`)
+  return range.from + n
+}
+
+/**
+ * $1d50..$1dbc — what `G Screen Open` makes of its mode argument.
+ *
+ * Two AMOS constants come in first: 0 is AMOS's Lowres and $8000 its Hires,
+ * both tested as WORDS, so the extension takes `Screen Open`'s own mode
+ * argument as well as its four `=G` functions. After that, `SM_LORES` (8) and
+ * `SM_HIRES` (1) pass straight through and everything else has 4 taken off it
+ * — a WORD subtract on a long register, so no borrow reaches the high half —
+ * and is compared again. That second round is how interlace gets in: 12 is
+ * `SM_LORES|SM_LACED` and 5 is `SM_HIRES|SM_LACED`, and 4 on its own means
+ * "laced, at the default resolution".
+ *
+ * Nothing reaches `SM_SHIRES`; see the catalogue.
+ */
+export function gmsScreenMode(mode: number): number {
+  let d4 = mode | 0
+  if ((d4 & 0xffff) === 0) d4 = 8
+  else if ((d4 & 0xffff) === 0x8000) d4 = 1
+  if (d4 === 8 || d4 === 1) return d4
+  // subq.w #$4,d4 on a longword register: the low half only
+  d4 = (d4 & ~0xffff) | (((d4 & 0xffff) - 4) & 0xffff)
+  if (d4 === 8 || d4 === 0) return 12
+  return 5
+}
+
+/**
+ * A GMS `ScrMode` as the mode word `Screen` takes, which is AMOS's.
+ *
+ * `SM_HIRES` is AMOS's $8000 and `SM_LACED` its $4. `SM_SHIRES` has no AMOS
+ * bit and never arrives, and `SM_SLACED` is not reachable either — the
+ * normaliser above emits only 1, 5, 8 and 12.
+ */
+const amosMode = (scrMode: number): number => ((scrMode & 1) !== 0 ? 0x8000 : 0) | (scrMode & 4)
 
 /** $3240: `move.l #$1921fb5,d1` — a quarter turn in 8.24 fixed point */
 const QUARTER_TURN_8_24 = 0x1921fb5
@@ -1365,6 +1636,255 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
       if (!live(s)) return
       s.replay.setPosition(pos)
     },
+
+    // ---- the GMS display ----
+    /**
+     * Routine 39 ($1d2a) — `G Screen Open N,X,Y,C,M`. *"Opens a screen in
+     * front of the amigas current display. Virtually identical to the normal
+     * AMOS command except it works in ECS,AGA and RTG."*
+     *
+     * The longest routine in the batch and the one everything else needs. In
+     * order: send AMOS's display to the back, start GMS if it is not already
+     * up (`Rbsr` straight into routine 90, so `G Init Gms` is not a
+     * prerequisite for this one), normalise the mode, throw away any screen
+     * already at N, copy the tag template, patch four of its values, `Init`
+     * it and `Show` the result. The X argument never survives to be patched
+     * in; see the catalogue.
+     *
+     * The `C` argument is the Bitmap's `AmtColours`, reached through the
+     * template's TSTEPIN tag, and the extra store next to it — `movea.l
+     * $3c(a0),a1 / move.l d3,$4(a1)` — writes the same count into the second
+     * longword of a palette, which is `RGBPalette`'s own colour count. The
+     * template ships that pointer null, so it only fires for a screen whose
+     * palette a previous keyword installed.
+     */
+    'g screen open'(it) {
+      const s = st()
+      const n = it.evalInt()
+      it.expect(',')
+      it.evalInt() // X: popped into d1 and overwritten before it is used
+      it.expect(',')
+      const y = it.evalInt()
+      it.expect(',')
+      const colours = it.evalInt()
+      it.expect(',')
+      const mode = gmsScreenMode(it.evalInt())
+
+      rt.amosToBack()
+      const slot = gmsSlot(n)
+      // Free() + FreeMem() + table[N] = 0 before anything is allocated
+      if (rt.screens.has(slot)) rt.closeScreen(slot)
+
+      // a zeroed tag takes the user default, which is what makes the lost X
+      // look like it works: GMSPrefs ships 320
+      const sc = new Screen(
+        slot,
+        GMS_DEFAULT_WIDTH,
+        (y & 0xffff) || GMS_DEFAULT_HEIGHT,
+        colours || GMS_DEFAULT_COLOURS,
+        amosMode(mode),
+      )
+      sc.displayX = GMS_TOP_OF_SCREEN_X
+      sc.displayY = GMS_TOP_OF_SCREEN_Y
+      rt.screens.set(slot, sc)
+      // Show(): in front, and AMOS is already behind
+      rt.order = rt.order.filter((i) => i !== slot)
+      rt.order.push(slot)
+      s.gmsCurrent = n
+      s.gmsScreen = sc
+    },
+
+    /**
+     * Routine 40 ($1ed4) — `G Screen Close N`. *"Closes the specified TGE
+     * screen."*
+     *
+     * `Free()` on the Screen, `FreeMem()` on the 200-byte tag list, and the
+     * table entry cleared. What it does with a screen that is not open, and
+     * what it leaves behind afterwards, are both in the catalogue.
+     */
+    'g screen close'(it) {
+      const slot = gmsSlot(it.evalInt())
+      if (!rt.screens.has(slot)) return
+      rt.closeScreen(slot)
+    },
+
+    /**
+     * Routine 49 ($217a) — `G Screen Hide N`. *"Hides the specified TGE
+     * screen (As with the amos command)."*
+     *
+     * `Hide(Screen)`, guarded by `cmp.l #$ffffffff,d0` — the only screen
+     * number any of these twenty tests, and the sentinel `Screen Hide`'s own
+     * optional argument uses.
+     */
+    'g screen hide'(it) {
+      const n = it.evalInt()
+      if (n === -1) return
+      const sc = rt.screens.get(gmsSlot(n))
+      if (sc) sc.visible = false
+    },
+
+    /**
+     * Routine 50 ($21be) — `G Screen Show N`. *"Shows the specified
+     * (previously hidden) TGE screen (As with the amos command)."*
+     *
+     * `Show(Screen)`, and no -1 guard this time.
+     */
+    'g screen show'(it) {
+      const sc = rt.screens.get(gmsSlot(it.evalInt()))
+      if (sc) sc.visible = true
+    },
+
+    /**
+     * Routine 92 ($30fe) — `G Screen N`, which the guide has no node for.
+     *
+     * AMOS's `Screen` for the game display: it writes the number to +$195 and
+     * the Screen and its Bitmap to +$1be and +$1c2, which is where every
+     * drawing keyword in the extension starts. Nothing else, and no check
+     * that the screen exists.
+     */
+    'g screen'(it) {
+      const s = st()
+      const n = it.evalInt()
+      s.gmsCurrent = n
+      s.gmsScreen = rt.screens.get(gmsSlot(n)) ?? null
+    },
+
+    /**
+     * Routine 93 ($3132) — `G Screen Copy SRC,DST`. *"Copies the Source
+     * screen to the Detination screen."*
+     *
+     * Three calls, of which the first does nothing. `CopyStructure()` is
+     * documented as writing *"Only the NULL fields in the Destination
+     * structure"* and warns that on an initialised destination *"you may find
+     * that CopyStructure() has no effect due to this condition"* — both
+     * screens here are initialised, so it is the palette store and the image
+     * copy that do the work. The palette store is a pointer assignment and is
+     * in the catalogue; `UpdatePalette()` then pushes the shared palette at
+     * the destination's copper list.
+     *
+     * DEVIATION: `Copy()` on two Bitmaps *"features automatic clipping and
+     * remapping"*, and `Screen.copyBuf` clips but does not remap. After the
+     * palette store the two screens have the same palette, so the indices
+     * mean the same thing in both and there is nothing to remap; a copy
+     * between different depths still loses the indices the destination cannot
+     * hold, which is what the planar encode does with them anyway.
+     */
+    'g screen copy'(it) {
+      const src = rt.screens.get(gmsSlot(it.evalInt()))
+      it.expect(',')
+      const dst = rt.screens.get(gmsSlot(it.evalInt()))
+      if (!src || !dst) return
+      Screen.copyBuf(
+        src,
+        src.bufferFor('logic'),
+        0,
+        0,
+        src.width,
+        src.height,
+        dst,
+        dst.bufferFor('logic', true),
+        0,
+        0,
+      )
+      // move.l $38(a0),d5 / move.l d5,$38(a1): the Bitmap's Palette POINTER
+      dst.palette = src.palette
+    },
+
+    /**
+     * Routine 103 ($3bec) — `G Screen Offset N,X,Y`. *"Used to change the
+     * position of the first pixel displayed on the screen ... The X and Y
+     * offsets are HARDWARE, coordinates."*
+     *
+     * `SetScrOffsets(Screen a0, ScrXOffset d0, ScrYOffset d1)`, which moves
+     * the whole screen on the monitor rather than the bitmap inside it — so
+     * the guide's description belongs to the keyword below and its last
+     * sentence belongs to this one. GMS measures from the display's top left,
+     * *"An offset of (0X,0Y) positions the Screen at the top left"*, and
+     * TopOfScr is where that is.
+     */
+    'g screen offset'(it) {
+      const sc = rt.screens.get(gmsSlot(it.evalInt()))
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      if (!sc) return
+      sc.displayX = GMS_TOP_OF_SCREEN_X + ((x << 16) >> 16)
+      sc.displayY = GMS_TOP_OF_SCREEN_Y + ((y << 16) >> 16)
+    },
+
+    /**
+     * Routine 104 ($3c20) — `G Bitmap Offset N,X,Y`, which the guide has no
+     * node for.
+     *
+     * `SetBmpOffsets(Screen a0, BmpXOffset d0, BmpYOffset d1)`: *"Moving the
+     * Bitmap to any position on the display, and for Hardware Scrolling."*
+     * This is AMOS's `Screen Offset` — which part of a bitmap bigger than the
+     * viewport is shown — and the routine is `G Screen Offset` with one LVO
+     * changed.
+     *
+     * DEVIATION: GMS requires `SCR_HSCROLL`/`SCR_VSCROLL` in the screen's
+     * Attrib for this to be legal, and TGE's template sets neither and has no
+     * keyword that would. Whether the shipped module refuses or scrolls
+     * anyway is not readable from the autodoc, and the port scrolls.
+     */
+    'g bitmap offset'(it) {
+      const sc = rt.screens.get(gmsSlot(it.evalInt()))
+      it.expect(',')
+      const x = it.evalInt()
+      it.expect(',')
+      const y = it.evalInt()
+      if (!sc) return
+      sc.offsetX = (x << 16) >> 16
+      sc.offsetY = (y << 16) >> 16
+    },
+
+    /**
+     * Routine 123 ($4168) — `G Double Buffer`. *"Used before G Screen Open,
+     * causes a double buffer to be set up."*
+     *
+     * It does not. Four instructions, two of them wrong; see the catalogue.
+     * A no-op here because a no-op is what it is — the address it computes is
+     * not one this port has, and the constant it stores is not one GMS reads
+     * at that offset.
+     */
+    'g double buffer': () => {},
+
+    /** Routine 125 ($4194) — `G Triple Buffer`, the same four instructions */
+    'g triple buffer': () => {},
+
+    /**
+     * Routine 124 ($417a) — `G Swap Buffers`. *"Cycles between the buffers in
+     * a Double or Triple buffered screen."*
+     *
+     * `SwapBuffers(Screen)` on the current screen, and that one really is the
+     * right call in the right register. It has nothing to do, because the two
+     * keywords that would have asked for a second buffer cannot: *"If the
+     * screen is double buffered, this function swaps Screen->MemPtr1 with
+     * Screen->MemPtr2"*, and no TGE screen ever is.
+     */
+    'g swap buffers': () => {},
+
+    /**
+     * Routine 53 ($224a) — `G Update`. *"Waits for a vbl, and also checks for
+     * an Amiga+M keypress (ie. allows the screen to multitask!)."*
+     *
+     * `WaitAVBL()`, and for once the guide is exactly right about a GMS call
+     * it never names: *"This version of WaitVBL() will automatically pause
+     * your Task if the user moves the focus to a different program."* The
+     * plain `WaitVBL()` sits two entries along and does not.
+     */
+    'g update': (it) => {
+      it.block({ type: 'wait', until: Math.floor(it.tick) + 1 })
+    },
+
+    /**
+     * Routine 54 ($2260) — `G Getscr`, which the guide has no node for.
+     *
+     * Nothing. It is in the catalogue for why: no arguments, no result, and a
+     * screen lookup through a register it never loads.
+     */
+    'g getscr': () => {},
   }
 }
 
@@ -1722,5 +2242,53 @@ export function makeTheGameFunctions(rt: Runtime): Record<string, Func> {
       const s = st()
       return VI(live(s) && s.song ? s.song.positions.length & 0xff : 0)
     },
+
+    // ---- the four mode constants, none of them documented ----
+    /**
+     * Routine 46 ($215e) — `=Glowres`, `SM_LORES`. `move.l #$8,d3 / moveq
+     * #$0,d2`, which is the shape all four should have had.
+     */
+    'glowres': () => VI(8),
+
+    /** Routine 47 ($2168) — `=Ghires`, `SM_HIRES` */
+    'ghires': () => VI(1),
+
+    /**
+     * Routine 45 ($2158) — `=Gsuperhires`, `SM_SHIRES`. The constant is
+     * right and `G Screen Open` cannot use it; see the catalogue.
+     */
+    'gsuperhires': () => VI(2),
+
+    /**
+     * Routine 48 ($2172) — `=Gham`, which never sets the value register.
+     *
+     * DEVIATION: what a program gets on the machine is the last thing
+     * evaluated, and this port hands keywords their arguments as values
+     * rather than through a shared register, so there is no last thing to
+     * hand back. Zero, which is at least a mode `G Screen Open` accepts —
+     * it is AMOS's Lowres, and the normaliser turns it into `SM_LORES`.
+     */
+    'gham': () => VI(0),
+
+    /**
+     * Routine 107 ($3e02) — `=GScreen Width`, undocumented. `movea.l
+     * $1c2(a1),a0 / move.w $10(a0),d3`: the BITMAP's Width, not the Screen's
+     * viewport, so a bitmap larger than its screen reports the bitmap.
+     *
+     * The word goes into d3 without clearing it first; see "The value
+     * register". A width is positive, so taking the high half as zero costs
+     * this one nothing.
+     */
+    'gscreen width': () => VI(st().gmsScreen?.width ?? 0),
+
+    /** Routine 108 ($3e12) — `=GScreen Height`, the Bitmap's +$14 */
+    'gscreen height': () => VI(st().gmsScreen?.height ?? 0),
+
+    /**
+     * Routine 109 ($3e22) — `=GScreen Colour`, the Bitmap's `AmtColours` at
+     * +$34. A LONG, and `move.l` — so this is the one of the three that
+     * reads its whole register, and the value register defect misses it.
+     */
+    'gscreen colour': () => VI(st().gmsScreen?.nColors ?? 0),
   }
 }

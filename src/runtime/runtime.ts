@@ -746,6 +746,22 @@ export class Runtime {
   }
 
   /**
+   * Where an owner's run begins and how many slots it has.
+   *
+   * `freeScreenSlot` below serves an allocator that does not care which slot
+   * it gets; this serves one that does. A GMS screen is numbered by the
+   * program — `G Screen Open 3,...` names screen 3 and `G Screen Close 3`
+   * has to find the same one — so the extension needs the run's base to add
+   * its own number to, and its length to refuse a number that would walk off
+   * the end.
+   */
+  static screenRange(owner: ScreenOwner): { from: number; count: number } {
+    const at = Runtime.SCREEN_OWNERS.findIndex((r) => r.owner === owner)
+    const from = Runtime.SCREEN_OWNERS[at]!.from
+    return { from, count: (Runtime.SCREEN_OWNERS[at + 1]?.from ?? Runtime.SCREEN_SLOTS) - from }
+  }
+
+  /**
    * The lowest free slot belonging to `owner`, or -1 when that owner's run is
    * full. This is the allocator both `intuition.library` and GMS need, and
    * having it here is what keeps the partition above private to this file.

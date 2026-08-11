@@ -2735,6 +2735,19 @@ export const FAITHFUL = new Set<string>([
   'g stc pack', 'g stc unpack',
   // The three requesters the guide says were removed and were not.
   'g open reqtools', 'g close reqtools', 'g close req',
+  // The GMS display. A TGE screen is a slot in the machine's one screen table
+  // like any other -- Runtime.screenRange('game') -- and the GMS structures
+  // behind these come from the developer suite at fixtures/gms/dev/, which
+  // has screens.h, the .fd signatures and the AutoDocs for the module that
+  // has no published source.
+  'g screen open', 'g screen close', 'g screen hide', 'g screen show',
+  'g screen', 'g screen copy', 'g screen offset', 'g bitmap offset',
+  'g update', 'gscreen width', 'gscreen height', 'gscreen colour',
+  'glowres', 'ghires', 'gsuperhires',
+  // and the five that provably do nothing: two buffer keywords that index the
+  // wrong register, the swap with nothing to swap, a screen lookup through a
+  // register nobody loads, and a mode function that never sets its result.
+  'g double buffer', 'g triple buffer', 'g swap buffers', 'g getscr', 'gham',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -7275,6 +7288,105 @@ OFFSET, a small integer handed back as a string pointer",
     "Routine 89 ($2f18). SetTaskPri again with the task and the priority read straight back out of +$b36 and +$b3a. " +
     "TWO DEFECTS: neither is tested, so calling it on its own passes SetTaskPri a null task; and a second G Handicap " +
     "saves the -128 the first installed, so the restore restores the handicap",
+  "g screen open":
+    "Routine 39 ($1d2a), 426 bytes. AMOS_WB to send the AMOS display behind, an Rbsr straight into routine 90 so \
+G Init Gms is not a prerequisite, the mode normaliser, then Free/FreeMem on any screen already at N, a 200-byte \
+tag list copied out of the template at block +$1f6, four of its values patched, Init and Show. The template is a \
+TAGS_SCREEN list and the offsets patched are its value slots, not a structure's fields: +$14 Height, +$1c Width, \
++$24 ScrMode and +$34 the Bitmap's AmtColours through a TSTEPIN. The screen becomes slot \
+Runtime.screenRange('game').from + N. DEFECT: `moveq #$0,d1` sets up the AMOS_WB argument over the X argument \
+that was just popped into the same register, and nothing puts it back -- so Width is set to zero, which GMS reads \
+as \"user default\", which GMSPrefs ships as 320. A program asking for 640 gets 320. DEFECT: nothing bounds N, and \
+table entries 9 and 10 are the current Screen and Bitmap pointers; this port raises AMOS's illegal screen number \
+instead, the three fields not being adjacent longwords here",
+  "g screen close":
+    "Routine 40 ($1ed4). Free on the Screen, FreeMem on the 200-byte tag list, table entry cleared. DEFECT: with \
+nothing open at N the table entry is zero and `movea.l $4(a4),a0` reads the longword at absolute address 4 -- \
+ExecBase -- and hands it to Free; the guard beside it, `cmpa.l #$5120,a0`, tests a constant nothing produces. \
+Refused here. DEFECT: it clears neither the +$18c flag byte nor +$1be/+$1c2, so GScreen Width after closing the \
+current screen reads the structure just handed back; the port keeps the Screen object for the same reason, which \
+is what unreused freed memory reads like",
+  "g screen hide":
+    "Routine 49 ($217a). Hide(Screen), and the only screen number in the batch that is checked -- `cmp.l \
+#$ffffffff,d0` returns on -1. DEFECT: `move.b #$ff,$18c(a3)` has no index, so it marks screen 0 hidden whichever \
+screen was hidden, where routine 39 writes the same table as `$18c(a3) + d0`. Costs nothing: the byte is written \
+in two places and read in none, so it is not modelled",
+  "g screen show":
+    "Routine 50 ($21be). Show(Screen), with no -1 guard and no test that the screen exists",
+  "g screen":
+    "Routine 92 ($30fe), no guide node. AMOS's Screen for the game display: the number to +$195, the Screen and its \
+Bitmap to +$1be and +$1c2, which is where every drawing keyword starts. No check that the screen is open",
+  "g screen copy":
+    "Routine 93 ($3132). CopyStructure, then the Bitmap palette store, UpdatePalette, then Copy on the two Bitmaps. \
+The CopyStructure does nothing and the autodoc says why -- it writes \"Only the NULL fields in the Destination \
+structure\" and both screens are initialised. DEFECT: `move.l $38(a0),d5 / move.l d5,$38(a1)` copies the Bitmap's \
+Palette POINTER, so the destination stops having a palette of its own -- a later G Colour on either changes both, \
+and closing the source leaves the other pointing into freed memory. Reproduced by sharing the array. DEVIATION: \
+Copy on two Bitmaps \"features automatic clipping and remapping\" and Screen.copyBuf clips but does not remap; \
+after the palette store the indices mean the same thing in both, so there is nothing to remap",
+  "g screen offset":
+    "Routine 103 ($3bec). SetScrOffsets(Screen a0, ScrXOffset d0, ScrYOffset d1) -- where the screen sits on the \
+monitor, which is the guide's last sentence (\"The X and Y offsets are HARDWARE, coordinates\") and not its \
+description, which belongs to G Bitmap Offset. GMS measures from the display's top left and GMSPrefs puts that at \
+TopOfScr (128,44), so the port adds that origin to reach AMOS's displayX/displayY",
+  "g bitmap offset":
+    "Routine 104 ($3c20), no guide node. SetBmpOffsets(Screen a0, BmpXOffset d0, BmpYOffset d1) -- which part of a \
+bitmap larger than its viewport is shown, which is AMOS's own Screen Offset. The same routine as G Screen Offset \
+with one LVO changed. DEVIATION: GMS wants SCR_HSCROLL/SCR_VSCROLL in Attrib for this to be legal and TGE's \
+template sets neither and has no keyword that would; whether the module refuses is not in the autodoc, and the \
+port scrolls",
+  "g update":
+    "Routine 53 ($224a). WaitAVBL() in screens.mod, and the guide is exactly right about a call it never names: \
+\"also checks for an Amiga+M keypress (ie. allows the screen to multitask!)\" is the autodoc's \"This version of \
+WaitVBL() will automatically pause your Task if the user moves the focus to a different program\". Plain WaitVBL \
+sits two entries along and does not",
+  "g double buffer":
+    "Routine 123 ($4168), and it does not double buffer. Four instructions: `movea.l $1c8(a5),a0` loads the data \
+block and `movea.l $1be(a4),a1` then indexes a4 -- the bytes are `20 6d 01 c8 / 22 6c 01 be`, so it is a4 and not \
+a misprint. The offset is wrong too: $101 is SCR_BLKBDR|SCR_DBLBUFFER and belongs in Attrib, and +$0c of a Screen \
+is MemPtr1. What it means is the Attrib value slot of the TEMPLATE at block +$1f6, which is at +$0c of it and \
+does ship as $100; `lea $1f6(a0),a1` is the missing line. A no-op here because a no-op is what it is",
+  "g triple buffer":
+    "Routine 125 ($4194). The same four instructions as G Double Buffer with $102 for $101, and broken the same \
+two ways",
+  "g swap buffers":
+    "Routine 124 ($417a). SwapBuffers(Screen) on the current screen, and this one really is the right call in the \
+right register -- it just has nothing to do, because the two keywords that would ask for a second buffer cannot. \
+The autodoc is conditional: \"If the screen is double buffered, this function swaps Screen->MemPtr1 with \
+Screen->MemPtr2\"",
+  "g getscr":
+    "Routine 54 ($2260), no guide node, and no effect. `move.l #$1,d0 / Rjsr <AMOS routine> / move.l a0,d0 / rts`: \
+the routine called takes the screen NUMBER in d1 and returns the screen in a0, TGE sets d0 instead and leaves d1 \
+holding whatever the interpreter left, and then moves the result into d0, which for an instruction goes nowhere -- \
+the value register is d3. No arguments (spec `I`), no result and nothing changed",
+  "glowres":
+    "Routine 46 ($215e). `move.l #$8,d3 / moveq #$0,d2` -- SM_LORES, and the shape all four mode functions should \
+have had. Undocumented; the guide names Lowres, Hires, SuperHires, Ebh, EHam, Chunky8 and Chunky16 as G Screen \
+Open modes and the table has keywords for four of them",
+  "ghires":
+    "Routine 47 ($2168). SM_HIRES, 1",
+  "gsuperhires":
+    "Routine 45 ($2158). SM_SHIRES, 2, and the constant is right. DEFECT: G Screen Open cannot use it. Its \
+normaliser at $1d6e-$1dbc passes 8 and 1 straight through and subtracts 4 from everything else before comparing \
+again, so 2 becomes -2, matches none of the three arms and falls out of the default one as 1+4 -- \
+SM_HIRES|SM_LACED. An interlaced hi-res screen is what the keyword opens",
+  "gham":
+    "Routine 48 ($2172), and it never sets the value register: `move.l #$0,d2 / rts` writes the TYPE register and \
+stops. Its three neighbours are `moveq #<mode>,d3 / moveq #$0,d2`, so the missing instruction is visible in the \
+shape of the routine, and there was no constant to write -- GMS has no HAM in ScrMode, HAM being BMF_HAM on the \
+Bitmap's Flags. DEVIATION: what a program gets is the last thing evaluated, and this port hands keywords their \
+arguments as values rather than through a shared register, so there is no last thing; zero, which the normaliser \
+turns into SM_LORES",
+  "gscreen width":
+    "Routine 107 ($3e02). `movea.l $1c2(a1),a0 / move.w $10(a0),d3` -- the BITMAP's Width, so a bitmap larger than \
+its screen reports the bitmap. DEFECT: no test on +$1c2, which ships zero, so all three of these read through a \
+null pointer before the first screen opens. The word goes into d3 without clearing it, which costs a width \
+nothing",
+  "gscreen height":
+    "Routine 108 ($3e12). The Bitmap's Height at +$14, with the same two defects",
+  "gscreen colour":
+    "Routine 109 ($3e22). The Bitmap's AmtColours at +$34, and a LONG -- `move.l`, so this is the one of the three \
+that writes its whole value register and the only one the uncleared-d3 defect misses",
   "ovsavejpeg24":
     "Routine 73 ($10a0). The library's JPEG code is the Independent JPEG Group's, v4-era, compiled with SAS/C " +
     "into the fourth hunk, and everything it chooses is read off that binary rather than guessed: the Annex K " +

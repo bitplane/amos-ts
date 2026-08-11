@@ -18,17 +18,46 @@ function* walk(dir: string): Generator<string> {
   }
 }
 
+/**
+ * Whether a file carries one of the signatures `parseAmosFile` knows.
+ *
+ * The editor saves listings as plain ASCII as well as tokenised, and the
+ * extension does not say which: GMS's `Source/AMOS/Moire.amos` is a listing,
+ * and handing it to the parser reads a source length out of the banner text
+ * and asks for 538MB. AMOS's own loader sniffs the signature first and so
+ * does this — but the test then insists the skipped file really is text, so
+ * that a truncated or damaged binary is still a failure and not a quiet
+ * exclusion.
+ */
+const SIGNED = /^(AMOS (Basic|Pro)|AmSp|AmIc|AmBk|AmBs)/
+const signature = (b: Uint8Array): string => String.fromCharCode(...b.subarray(0, 16))
+/** latin-1 text, the same rule citations.test.ts uses: an Amiga listing's
+ *  comment banners are drawn out of high-byte box characters */
+const isText = (b: Uint8Array): boolean => {
+  for (const c of b) if (c !== 9 && c !== 10 && c !== 13 && (c < 32 || (c > 126 && c < 160))) return false
+  return true
+}
+
 describe.skipIf(!existsSync(fixtures))('fixture corpus', () => {
   it('parses every .AMOS and .Abk file, source and banks', () => {
     const table = new TokenTable(CORE_TOKENS)
     let files = 0
+    let listings = 0
     for (const path of walk(fixtures)) {
+      const bytes = readFileSync(path)
+      if (!SIGNED.test(signature(bytes))) {
+        expect(isText(bytes), `${path} has no AMOS signature and is not a listing`).toBe(true)
+        listings++
+        continue
+      }
       files++
-      const amos = parseAmosFile(readFileSync(path))
+      const amos = parseAmosFile(bytes)
       expect(amos.diagnostics, path).toEqual([])
       if (amos.source.length > 0) parseSource(amos.source, table)
     }
     expect(files).toBeGreaterThan(400)
+    // and the exclusion stays small enough to notice if the sniff goes wrong
+    expect(listings).toBeLessThan(10)
   })
 
   it('detokenizes a known example faithfully', () => {

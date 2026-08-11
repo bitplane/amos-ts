@@ -425,7 +425,17 @@ const EXTRA_DOCS: Record<string, string[]> = {
   // and the D2/D3 return convention are stated. The Game reads a word into D3
   // without clearing it and declares a float return it never sets, and neither
   // can be called a defect without the document that says what the rule is.
-  'src/runtime/thegame.ts': ['official-amos/Tutorial/Extensions/__uae____Music_s'],
+  // and GMS's own developer suite, which is what the extension's sixty-one
+  // graphics keywords are calls into: the module autodocs say what each entry
+  // point does, and half of what the TGE guide gets right it gets right by
+  // repeating them
+  'src/runtime/thegame.ts': [
+    'official-amos/Tutorial/Extensions/__uae____Music_s',
+    'gms/dev/AutoDocs/Screens.guide',
+    'gms/dev/AutoDocs/Kernel.guide',
+    'gms/dev/AutoDocs/Objects/Screen.guide',
+    'gms/dev/AutoDocs/Objects/Bitmap.guide',
+  ],
   // StoneCracker's version string and credit are in the library itself, which
   // is also the only place its format is written down
   'src/amiga/stonecracker.ts': ['libs/stc.library'],
