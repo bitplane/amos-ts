@@ -386,8 +386,13 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/make.test.ts': ['make-1.30'],
   'src/runtime/tools.ts': ['tools-1.01'],
   'src/runtime/tools.test.ts': ['tools-1.01'],
-  'src/runtime/delta.ts': ['delta-1.4'],
-  'src/runtime/delta.test.ts': ['delta-1.4'],
+  // 1.6 first, as ldos.ts lists 2.6 first and for the same reason: the later
+  // binary is the fuller evidence, and 1.6 appended without moving an id so
+  // every routine NUMBER means the same thing in both. The addresses do not —
+  // the twenty 1.6 adds are cited at their 1.6 offsets and the twenty-six
+  // older keywords at their 1.4 ones, which is why both tables are listed
+  'src/runtime/delta.ts': ['delta-1.6', 'delta-1.4'],
+  'src/runtime/delta.test.ts': ['delta-1.6', 'delta-1.4'],
   'src/runtime/lserial.ts': ['lserial-2.1'],
   'src/runtime/lserial.test.ts': ['lserial-2.1'],
   'src/runtime/butility.ts': ['butility-1.21'],

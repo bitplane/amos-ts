@@ -77,9 +77,56 @@ extension keyword. The count is keywords with no handler at all:
 | GUI 2.10 / 1.61 / 1.5b | 204 / 103 / 48 | **`gadtools.library`**, and `asl.library` for the requesters. All three name gadtools and none of them names `intuition.library` |
 | Intuition 1.3b | 183 | nothing in `src/amiga` — the back-end landed. What it lacks is a binary: the archive is `itokens.s`, `cmdlist` and the author's twelve test programs, so this is the one row where a port has no code to read |
 | D-SAM 1.01 | 50 | nothing. `audio.device` and `dos.library`, both modelled |
-| Delta 1.6 | 46 | little. 26 of the 46 are Delta 1.4's, already faithful; of the 20 new ones four are machine code (n/a) and the rest want reqtools, `FindTask` and `WBenchToFront`, all of which exist |
 | jd-int 1.3 | 33 | nothing in `src/amiga` — findings banked, and the binary names no library, so it reaches Intuition through a base AMOS already holds |
 | BSDSocket 1.1.4 | 30 | `bsdsocket.library` **and** a host networking boundary. The only row here blocked on something outside AmigaOS |
+
+**Delta 1.6 came off this table in two steps, and the first step was free.**
+All 46 read 100%: 41 faithful, four approximated and `Jsr` n/a. It is the
+clearest case yet of a gap that was never a gap. 1.6 read 0% while 26 of its
+46 keywords were already implemented and already faithful, because 1.6
+*appended* — every one of 1.4's token entries sits at the id 1.6 gives the
+same keyword, none moved and none absent — and no `ExtensionImpl` had named
+the later identity. One string in `ids:` moved the row to 57% and turned the
+remaining twenty into work that could be seen. That failure mode has now bitten
+five times (`p61-1.2` at 22%, `amcaf-1.50` at 2%, EME 3.0 at 17%, `serial-1.2`
+at 0%, and this), and it is worth a check rather than an eye.
+
+The twenty are mostly AmigaOS: WBenchToFront and WBenchToBack, LockPubScreenList
+and its partner, FindTask and RemTask, DisplayBeep and DisplayAlert, three
+reqtools requesters and one from `req.library`. Four the guide's own contents
+marks "- PRIVATE -", and three of those turned out to be Poke, Doke and Loke
+with the arguments the other way round — `Moveb DATA,ADDRESS`. The fourth is
+`Jsr ADDRESS`, which is the jump and nothing else, so it is n/a rather than
+approximated.
+
+Two things had to be settled from the binary before any of it could be
+written. The first was the error path: routine 66 loads `moveq #$e,d2` and
+reading that 14 as a string length — which it looks exactly like — makes the
+message table unreadable and `d0` appear to be ignored. It is the extension
+slot, zero-based, as it is in seven other ports here, and `d0` indexes nine
+NUL-separated messages. Eight callers set it, each to a distinct value, and
+each lands on the right string. Three of the nine have no caller at all, which
+is why the guide wraps every reqtools example in
+`If Exist("LIBS:reqtools.library")` and warns "Else you will have GURU" — the
+library never checks that its libraries opened.
+
+The second was `rtPaletteRequestA`'s offset. Recalling the reqtools FD put it
+at -84, which would have made routine 43 a call into the wrong function with
+the title in the wrong register — a defect that is not there. The real FD
+ships in GUI 2.10's own `Tools/FD` directory in the corpus, and two private
+password entries and `rtFontRequestA` push the palette requester to -102 with
+its title in A2, which is exactly what the routine does.
+
+The best defect is `Delta Hard Reset`. It loads ExecBase into a6, never uses
+it, and clears absolute `$2a` instead of `$2a(a6)` — which is ColdCapture, the
+vector the ROM jumps through, and the only reason to load ExecBase at all. The
+relocation table proves the address is literal: 24 longwords are relocated and
+neither `$2a` nor the `$fc0000` it jumps to is among them.
+
+One keyword disagrees between the two releases and this port cannot tell them
+apart. `Delta Decrunch` raises AMOS's numbered errors in 1.4 and the
+extension's own messages in 1.6, from the same two checks. An `ExtensionImpl`
+has no way to ask which identity is bound, so the port keeps 1.4's and says so.
 
 **Craft 1.0 came off this table, and it is worth saying what it cost.**
 All 138 are read: 135 faithful, one approximated and two named n/a. The

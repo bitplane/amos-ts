@@ -51,8 +51,18 @@ import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 import { PT_PERIODS, Protracker, parseMod } from '../amiga/protracker'
 
 /**
- * The one message the extension carries of its own, at $15b0, raised through
- * `L_ErrorExt` with `d2 = 18` — its length, and the whole of the string.
+ * The one message the extension carries of its own, at $15c2, raised through
+ * routine 20 at $15b2:
+ *
+ *     lea $15c2(pc),a0 / moveq #0,d1 / moveq #$12,d2 / moveq #0,d3
+ *     Rjmp L_ErrorExt
+ *
+ * where a0 is the table base, d0 the index into it (its one caller at $15ac
+ * is `moveq #0,d0 / Rbra routine 20`), d1 zero for trappable, and d2 the
+ * extension slot ZERO-BASED — 18 is MusiCRAFT's 19, the same field Delta
+ * spells `#$e` for 15 and Range `#$8` for 9. That 18 is also the length of
+ * this particular string is a coincidence, and reading it as one is what
+ * sent Delta's identical routine 66 down a false trail.
  */
 export const MUSICRAFT_ERRORS: readonly string[] = ['Not a tracker bank']
 

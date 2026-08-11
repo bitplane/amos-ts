@@ -1,20 +1,37 @@
 /**
- * Delta 1.4 — Łukasz "DELTA" Żelezny, twenty-six keywords at slot 15.
+ * Delta — Łukasz "DELTA" Żelezny, twenty-six keywords at slot 15 in 1.4 and
+ * forty-six in 1.6.
  *
  * *"This is small extension for AMOSPro. This is public domain file. If you
  * like it then send me post-card."* Fourteen instructions that poke the
  * hardware and twelve functions that return constants, and the interesting
- * thing about it is how much of the first half is somebody else's.
+ * thing about it is how much of the first half is somebody else's. 1.6 adds
+ * twenty that are mostly AmigaOS: reqtools requesters, Workbench, public
+ * screens, tasks, and four the guide marks private.
  *
  * ## Evidence
  *
- * BINARY tier with an AmigaGuide that documents every keyword — briefly. The
- * library is a 1,936-byte code hunk with 30 jump-table entries, 26 of them
- * keywords; `extdis delta-1.4` disassembles it, and its 38 `HUNK_RELOC32`
- * offsets are what settle the string functions below. The slot is the guide's
- * — *"Enter 'AMOSPro_Delta.Lib' into slot 15"* — and routine 0 agrees: it is
- * `moveq #$e,d0 / rts`, the extension number 15-1 and nothing else. There is
- * no data zone and nothing is written to `$XX(a5)`.
+ * BINARY tier with an AmigaGuide, `amospro_delta.guide`, that documents every
+ * keyword — briefly, and sometimes wrongly; where it and the code disagree
+ * the code is what is written down here and the disagreement is said.
+ *
+ * ONE PORT SERVES BOTH RELEASES because 1.6 appended without moving an id:
+ * all 26 of 1.4's token entries sit at the id 1.6 gives the same keyword, so
+ * a routine NUMBER means the same thing in both. The addresses do not, and
+ * the two binaries are cited at their own offsets — 1.4's code hunk is 1,936
+ * bytes with 30 jump-table entries, 1.6's is 10,240 with 68.
+ *
+ * `extdis delta-1.4` and `extdis delta-1.6` disassemble them. 1.4's 38
+ * `HUNK_RELOC32` offsets are what settle the string functions below; 1.6 has
+ * 24, and their ABSENCE is evidence too — neither the `$2a` nor the `$fc0000`
+ * in `Delta Hard Reset` is relocated, so both are literal addresses.
+ *
+ * The slot is the guide's — *"Enter 'AMOSPro_Delta.Lib' into slot 15"* — and
+ * routine 0 agrees: it is `moveq #$e,d0 / rts`, the extension number 15-1 and
+ * nothing else. 1.4 has no data zone and writes nothing to `$XX(a5)`. 1.6
+ * READS one: six of its keywords fetch the library base from `$1d8(a5)`,
+ * which is `$f8 + 14*16` and so slot 15 from the binary rather than from the
+ * guide, and reach the three library-name strings at base+$512.
  *
  * ## Five keywords are Misc 1.0's, instruction for instruction
  *
@@ -78,8 +95,51 @@
  */
 import type { Runtime } from './runtime'
 import type { Func, Instr } from '../interp/builtins'
-import { AmosError, VF, VI, VS } from '../interp/values'
+import type { Value } from '../interp/values'
+import { AmosError, VF, VI, VS, int, str } from '../interp/values'
 import { joyFire } from '../interp/gameport'
+import { finishRequester, startRequester, type RequesterSpec } from './requester'
+
+/**
+ * The nine messages, at $26d4 in the code hunk, NUL-separated and packed.
+ *
+ * Every one is raised through routine 66 at $26c4:
+ *
+ *     lea $26d4(pc),a0 / moveq #0,d1 / moveq #$e,d2 / moveq #0,d3
+ *     Rjmp L_ErrorExt
+ *
+ * a0 the table base, d0 the index, d1 zero for trappable, and d2 the
+ * extension slot ZERO-BASED — $e is Delta's 15, the same field FileID spells
+ * `#$18` for 25 and Range `#$8` for 9. Eight of the nine have a caller and
+ * each sets d0 exactly once, which is what identifies the index: routine 48
+ * clears the lock flag and raises 6, landing on "already unlocked", and
+ * routine 49 is the lock path and raises 5, landing on "already locked".
+ *
+ * DEFECT: three are unreachable. Routine 37 (2), routine 38 (3) and routine
+ * 42 (4) have no caller anywhere in the file — so `Delta Change Bank` never
+ * checks that its address is a bank, no keyword checks that its library
+ * opened, and nothing ever fails to build an alert. The guide knows about the
+ * middle one: every reqtools example is wrapped in
+ * `If Exist("LIBS:reqtools.library")` and says *"Else you will have GURU."*
+ *
+ * Message 8 has no caller either, and names something this library does not
+ * do at all.
+ */
+export const DELTA_ERRORS: readonly string[] = [
+  'Variable is too small',
+  'Variable is too large',
+  'Bank is not defined',
+  'Cannot create intuition alert',
+  'Cannot open reqtools.library',
+  'Public screen already locked',
+  'Public screens already unlocked',
+  'Task not found',
+  'Not a tracker module',
+]
+
+const deltaError = (n: number): never => {
+  throw new AmosError(DELTA_ERRORS[n] ?? `Delta error ${n}`)
+}
 
 /**
  * The three phases of `Delta Wait Double Mouse`, which is the only keyword
@@ -92,9 +152,55 @@ export interface DeltaState {
   dblPhase: 0 | 1 | 2
   /** the tick the delay ends on, while `dblPhase` is 1 */
   dblUntil: number
+  /**
+   * The byte at $1e62, which is the whole of the public-screen lock: `Delta
+   * Lock Pub Screens` refuses unless it reads 0 and `Delta Unlock Pub
+   * Screens` unless it reads 1. It is the library's own flag and not
+   * Intuition's, so it starts clear and nothing else can move it.
+   */
+  pubLocked: boolean
+  /** a reqtools requester waiting on the user, over the block and back */
+  req: { chan: number; spec: RequesterSpec } | null
+  /**
+   * The long at $1d06. `Delta Reqtools Get Number` writes its default there,
+   * hands rtGetLongA a pointer to it, and reads the answer back out of the
+   * same four bytes — so a cancelled requester returns the default.
+   */
+  long: number
 }
 
-export const newDeltaState = (): DeltaState => ({ dblPhase: 0, dblUntil: 0 })
+export const newDeltaState = (): DeltaState => ({ dblPhase: 0, dblUntil: 0, pubLocked: false, req: null, long: 0 })
+
+/**
+ * The reqtools keywords, over the block that waits for the user.
+ *
+ * BUtility's shape, for BUtility's reason: a requester is an Interface dialog
+ * here, the keyword blocks on its channel, and the whole statement re-runs
+ * when it resumes — so the pending channel has to live on the state.
+ */
+function deltaRequester(rt: Runtime, it: Parameters<Func>[0], spec: RequesterSpec): Value | null {
+  const st = rt.delta
+  if (st.req) {
+    const r = finishRequester(rt, st.req.chan, st.req.spec)
+    if (r === null) {
+      it.block({ type: 'dialog', channel: st.req.chan }, true)
+      return null
+    }
+    st.req = null
+    if (spec.kind === 'long') {
+      // rtGetLongA edits the caller's long in place, so a cancel leaves the
+      // default sitting at $1d06 for the keyword to hand back
+      if (r.ret !== 0 && r.text !== '') st.long = Number(r.text) | 0
+      return VI(st.long)
+    }
+    return VI(r.ret)
+  }
+  const chan = startRequester(rt, spec)
+  if (chan === null) return spec.kind === 'long' ? VI(st.long) : VI(0)
+  st.req = { chan, spec }
+  it.block({ type: 'dialog', channel: chan }, true)
+  return null
+}
 
 /**
  * Motorola Fast Floating Point, which is what AMOS's `#` variables are and
@@ -396,11 +502,420 @@ export function makeDeltaInstructions(rt: Runtime): Record<string, Instr> {
       if (!down) return again()
       st.dblPhase = 0
     },
+
+    // ---- the twenty 1.6 adds ----
+
+    /**
+     * Routine 29 ($229a) — `Delta Hard Reset`, and the guide's whole entry is
+     * *"HARD RESET! CAUTION!"*
+     *
+     *     movea.l $4.l,a6                 ExecBase — loaded and NEVER USED
+     *     move.l  #$0,$2a.l
+     *     jmp     $fc0000.l
+     *
+     * DEFECT: `$2a` was meant to be `$2a(a6)`. ExecBase+$2a is ColdCapture,
+     * the vector the ROM jumps through on a reset, and clearing it is exactly
+     * what a keyword called Hard Reset would do before jumping to the ROM —
+     * which is why a6 is loaded at all. Written as an ABSOLUTE address it
+     * lands in the 68000's own vector table instead, on the low word of
+     * vector 10 and the high word of vector 11, and ColdCapture survives. The
+     * relocation table settles it: 24 longwords are relocated and neither the
+     * `$2a` nor the `$fc0000` is among them, so both are literal addresses.
+     *
+     * It also skips what `Delta Reset` does — no SuperState, no Disable, no
+     * `reset` instruction, and ExecBase left where it is.
+     *
+     * Asked of the machine rather than performed, as `Delta Reset` and
+     * AMCAF's `Reset Computer` are: performing a reset means building the
+     * Runtime that is being torn down. Cold, because the destination is the
+     * ROM's entry point.
+     */
+    'delta hard reset'(it) {
+      rt.machine.requestReset('cold', 'delta hard reset')
+      it.halt('ended')
+      return 'jumped'
+    },
+
+    /**
+     * Routine 30 ($22b2) — `Delta Blit Off`, which does not turn the blitter
+     * off. It WAITS for it:
+     *
+     *     btst.b #$e,$dff002 / bne
+     *
+     * DMACONR bit 14 is BBUSY, and the guide agrees with the code rather than
+     * with the name — *"Wait until blitter is off."* The `btst.b` on the even
+     * address tests the register's high byte, where a byte operand takes the
+     * bit number mod 8, so bit 14 of the word is what is read.
+     *
+     * A blit completes inside the keyword that started it here, so BBUSY is
+     * never set when anything can look — the wait is satisfied on entry,
+     * which is the same answer the machine gives for every blit that has
+     * already finished.
+     */
+    'delta blit off'() {
+      // nothing here can still be blitting
+    },
+
+    /**
+     * Routine 31 ($22be) — `Delta Crash XX`, which the guide calls *"some new
+     * visual effect"* and offers as `Do : Delta Crash Rnd(10000) : Loop`.
+     *
+     *     move.l (a3)+,d0
+     *     move.l d0,$dff108.l        BPL1MOD and BPL2MOD
+     *     move.l d0,$dff110.l        BPL1DAT and BPL2DAT
+     *
+     * Two longword writes over four word registers, the same doubling
+     * `Delta Decrunch` gets on COLOR00 — the high word reaches $108/$110 and
+     * the low word $10a/$112. Corrupting both bitplane modulos is what makes
+     * the display shear, and the bitplane data registers are written straight
+     * into the middle of a fetch.
+     *
+     * DEVIATION: neither register is modelled. The modulos here come from the
+     * screen's own width rather than from $dff108, and nothing reads $dff110
+     * at all, so the effect is evaluated and not shown — the same treatment
+     * `Delta No Synchro` gets, and for the same reason.
+     */
+    'delta crash'(it) {
+      it.evalInt()
+    },
+
+    /**
+     * Routine 33 ($2300) — `Delta Beep All`. Saves a3-a6 and calls routine 32
+     * ($22ce), which opens `intuition.library` and calls DisplayBeep (-96)
+     * with a NULL screen: beep EVERY screen, which is where the name comes
+     * from.
+     *
+     * DEFECT: routine 32 never checks what OpenLibrary returned — it goes
+     * straight to `movea.l d0,a6` — and it never closes the library either,
+     * so every call to any of the six keywords that use it leaks a reference.
+     * The base is kept at $1b02 and simply overwritten each time.
+     *
+     * DEVIATION: no display beep is modelled. AMOS's own screens are the
+     * display here and there is no Workbench flash behind them, so the
+     * keyword is reached and nothing is shown.
+     */
+    'delta beep all'() {
+      // no display beep: nothing here flashes a screen
+    },
+
+    /**
+     * Routine 36 ($231a) — `Delta Change Bank Start(OLDBANK) To NEWBANK`.
+     *
+     *     move.l  (a3)+,d1            NEWBANK, popped first
+     *     movea.l (a3)+,a0            the address
+     *     tst.w d1   / Rbeq 34        "Variable is too small"
+     *     tst.w d1   / Rbmi 34        and again for a negative word
+     *     cmpi.w #$1000,d1 / Rbge 35  "Variable is too large"
+     *     suba.l #$10,a0 / move.l d1,(a0)
+     *
+     * So a bank is renumbered by poking its header: AMOS keeps the bank
+     * number in the longword sixteen bytes before the data `Start()` answers,
+     * and this writes a new one over it.
+     *
+     * DEFECT: every check is a WORD test on a LONGWORD argument, and the
+     * write is a longword. $10001 has a low word of 1, passes all three, and
+     * is stored whole — so the bank ends up numbered 65537, which is outside
+     * AMOS's own 1..65535. The upper bound is 4095 rather than 65535, and
+     * signed, which is what makes the second test necessary at all.
+     *
+     * DEFECT: nothing checks that the address IS a bank. Routine 37 exists to
+     * say "Bank is not defined" and has no caller, so the sixteen bytes below
+     * any address at all are fair game.
+     *
+     * DEVIATION: there are no bank headers in this address space — a bank's
+     * `Start()` is a synthetic base and the sixteen bytes below it belong to
+     * nothing — so a matching bank is renumbered directly. An address that is
+     * not a bank's start falls through to the write the machine would do,
+     * which lands wherever `Loke` would land.
+     *
+     * NOTE: the guide says *"NEWBANK can't be number of existing bank"* and
+     * the library does not enforce it. On the machine two headers then claim
+     * one number and whichever the chain reaches first wins; here the map
+     * cannot hold both, so the new number replaces what was there.
+     */
+    'delta change bank'(it) {
+      const addr = it.evalInt()
+      it.expect('to')
+      const to = it.evalInt()
+      if ((to & 0xffff) === 0 || (to & 0x8000) !== 0) deltaError(0)
+      if (((to & 0xffff) << 16) >> 16 >= 0x1000) deltaError(1)
+      const from = rt.bankRefs().find((b) => b.address === (addr >>> 0))
+      const bank = from ? rt.memBanks.get(from.number) : undefined
+      if (bank) {
+        rt.memBanks.delete(from!.number)
+        rt.memBanks.set(to, { ...bank, number: to })
+        return
+      }
+      const m = rt.resolveWrite((addr - 0x10) >>> 0)
+      if (m && m.off + 3 < m.data.length) {
+        m.data[m.off] = (to >>> 24) & 0xff
+        m.data[m.off + 1] = (to >>> 16) & 0xff
+        m.data[m.off + 2] = (to >>> 8) & 0xff
+        m.data[m.off + 3] = to & 0xff
+      }
+    },
+
+    /**
+     * Routine 39 ($234c) — `Delta Intuition Message WIDTH,Chr$(POS)+TXT$`,
+     * *"some yellow message"*, which is DisplayAlert (-90) through routine 40
+     * ($2362). WIDTH reaches d1, and d1 is DisplayAlert's HEIGHT.
+     *
+     * DEFECT: the string is stored RAW. Routine 39 is `move.l (a3)+,$1b06.l`
+     * and routine 40 loads that straight into a0, so a0 points at the AMOS
+     * string's LENGTH WORD rather than at its characters — where routines 41,
+     * 53 and 55 all step over the length and write a NUL first. DisplayAlert's
+     * format is a word of x, a byte of y, the text, a NUL and a continuation
+     * byte, so the length word is read as the x position and the first
+     * character as y. That is why the guide says to write `Chr$(POS)+TXT$`:
+     * POS is the y the author could control, and x is whatever the string
+     * happens to be long. There is no NUL either, so the text runs on until
+     * some zero byte turns up in AMOS's string area.
+     *
+     * DEVIATION: no alert is modelled. DisplayAlert draws on the bare
+     * hardware above every screen, which this port has no surface for, and
+     * routine 38's "Cannot create intuition alert" has no caller so there is
+     * not even a failure arm to take.
+     */
+    'delta intuition message'(it) {
+      it.evalInt()
+      it.expect(',')
+      it.evalStr()
+    },
+
+    /**
+     * Routine 41 ($239e) — `Delta Reqtools Palette TITLE$`. NUL-terminates
+     * the title in place, stores the pointer at $1b06 and calls routine 43
+     * ($23c8), which opens `reqtools.library` and calls -102 with the title
+     * in a2, reqinfo in a3 and the taglist in a0.
+     *
+     * That is rtPaletteRequestA, exactly: `rtPaletteRequestA(title,reqinfo,
+     * taglist)(A2/A3,A0)`, thirteenth in the FD and so at bias 30 plus twelve
+     * sixes. The FD is `reqtools_lib.fd`, which ships in GUI 2.10's own
+     * `Tools/FD` directory in the corpus — the two private password entries
+     * and rtFontRequestA are what put the palette requester at -102 rather
+     * than the -84 a shorter list would give.
+     *
+     * APPROXIMATED: this port has no palette requester. The keyword is
+     * reached, the library is not opened and the palette is left alone, which
+     * is the cancel path of the requester the author called.
+     */
+    'delta reqtools palette'(it) {
+      it.evalStr()
+    },
+
+    /**
+     * Routine 56 ($2678) — `Delta Req Palette COLOUR`, *"number of first
+     * edited colour"*. The odd one out: `req.library` rather than reqtools,
+     * opened from the third name at $1d4f, with the colour in d0 and a call
+     * to -90.
+     *
+     * NOTE: no FD for req.library is in the corpus, so -90 is recorded as an
+     * offset and not named. The guide's example is `Print Delta Req Palette
+     * 2`, which cannot parse — the token spec is `I0`, an instruction with
+     * one integer, and there is no value to print.
+     *
+     * APPROXIMATED: as `Delta Reqtools Palette`, and for the same reason.
+     */
+    'delta req palette'(it) {
+      it.evalInt()
+    },
+
+    /**
+     * Routine 44 ($23fa) — `Delta Wb To Front`, WBenchToFront (-342), and
+     * routine 45 ($242e) `Delta Wb To Back`, WBenchToBack (-336). Both open
+     * `intuition.library` first, keep the base at $1b02 and never close it.
+     *
+     * The names are Delta's own, so they do not contest CRAFT's `Wb To
+     * Front` / `Wb To Back` — the same two calls, already modelled.
+     */
+    'delta wb to front'() {
+      rt.intuition.wBenchToFront()
+    },
+    'delta wb to back'() {
+      rt.intuition.wBenchToBack()
+    },
+
+    /**
+     * Routine 46 ($2462) — `Delta Lock Pub Screens`, and routine 47 ($24ac)
+     * `Delta Unlock Pub Screens`. LockPubScreenList (-522) and
+     * UnlockPubScreenList (-528), each guarded by the byte at $1e62:
+     *
+     *     cmpi.b #$0,$1e62 / beq .    lock:   anything else -> routine 49
+     *     cmpi.b #$1,$1e62 / beq .    unlock: anything else -> routine 48
+     *
+     * NOTE: the two failure arms are not symmetric, and routine 49 is the
+     * interesting one. Locking twice does not simply complain — routine 49
+     * opens intuition, calls UnlockPubScreenList, clears the flag and only
+     * then raises "Public screen already locked". So the error leaves the
+     * list UNLOCKED, and a program that traps it is in the state it started
+     * in. Routine 48 just clears the flag and raises "already unlocked".
+     *
+     * DEVIATION: no public screen list is modelled — this port has AMOS's own
+     * screens and no Intuition screen list behind them — so the flag is kept
+     * and the two calls are not made. The flag is what a program can see: the
+     * errors, and which of them it gets, are the whole observable behaviour.
+     */
+    'delta lock pub screens'() {
+      const st = rt.delta
+      if (st.pubLocked) {
+        st.pubLocked = false
+        deltaError(5)
+      }
+      st.pubLocked = true
+    },
+    'delta unlock pub screens'() {
+      const st = rt.delta
+      if (!st.pubLocked) deltaError(6)
+      st.pubLocked = false
+    },
+
+    /**
+     * Routine 51 ($2568) — `Delta Kill Task NAME$`. FindTask (-294) on the
+     * name, then RemTask (-288) on what it found.
+     *
+     *     tst.w d0 / Rbeq 52          "Task not found"
+     *
+     * DEFECT: the name is NOT NUL-terminated — the routine steps over the
+     * length word and hands FindTask the characters as they lie, where the
+     * three reqtools keywords all write a terminator first. FindTask compares
+     * against a C string, so the match runs on into whatever follows in AMOS's
+     * string area.
+     *
+     * DEFECT: `tst.w d0` tests the low WORD of a task pointer. A task at an
+     * address whose low sixteen bits are zero reports "Task not found".
+     *
+     * DEVIATION: there is one task here and it has no address, so FindTask
+     * answers nothing and this always raises "Task not found". The guide's own
+     * warning is *"Name of cannot be ' AMOS' ... if you will kill AMOS task
+     * then AMOS will crash"*, and refusing every name is the safe end of that.
+     */
+    'delta kill task'(it) {
+      it.evalStr()
+      deltaError(7)
+    },
+
+    /*
+     * `Jsr ADDRESS` is routine 57 ($26a6), `movea.l (a3)+,a0 / jsr (a0)`, and
+     * has NO HANDLER HERE ON PURPOSE — it is n/a, and ../coverage/status.ts
+     * carries the reading. It calls a 68000 subroutine at an address the
+     * program supplies, which is the whole keyword rather than a step in it,
+     * so there is nothing left to implement once 68k is out of scope. The
+     * three `Move*` below share its "- PRIVATE -" heading in the guide and
+     * are Poke, Doke and Loke, so they are implemented.
+     */
+
+    /**
+     * Routines 58, 59 and 60 ($26ac, $26b4, $26bc) — `Moveb`, `Movew` and
+     * `Movel DATA,ADDRESS`, the other three the guide marks private and
+     * describes as *"like Poke"*, *"like Doke"* and *"like Loke"*.
+     *
+     *     movea.l (a3)+,a0 / move.l (a3)+,d0 / move.b d0,(a0)
+     *
+     * The address pops first, so it is the LAST argument: these read
+     * `Moveb DATA,ADDRESS` where AMOS's own three read `Poke ADDRESS,DATA`.
+     * The guide spells it that way round too, and it is the only thing about
+     * them worth knowing.
+     */
+    'moveb'(it) {
+      const v = it.evalInt()
+      it.expect(',')
+      const m = rt.resolveWrite(it.evalInt() >>> 0)
+      if (m) m.data[m.off] = v & 0xff
+    },
+    'movew'(it) {
+      const v = it.evalInt()
+      it.expect(',')
+      const m = rt.resolveWrite(it.evalInt() >>> 0)
+      if (m && m.off + 1 < m.data.length) {
+        m.data[m.off] = (v >> 8) & 0xff
+        m.data[m.off + 1] = v & 0xff
+      }
+    },
+    'movel'(it) {
+      const v = it.evalInt()
+      it.expect(',')
+      const m = rt.resolveWrite(it.evalInt() >>> 0)
+      if (m && m.off + 3 < m.data.length) {
+        m.data[m.off] = (v >>> 24) & 0xff
+        m.data[m.off + 1] = (v >>> 16) & 0xff
+        m.data[m.off + 2] = (v >>> 8) & 0xff
+        m.data[m.off + 3] = v & 0xff
+      }
+    },
   }
 }
 
-export function makeDeltaFunctions(): Record<string, Func> {
+export function makeDeltaFunctions(rt: Runtime): Record<string, Func> {
   const out: Record<string, Func> = {
+    /**
+     * Routine 50 ($2548) — `=Delta Find Task(NAME$)`, FindTask (-294) with
+     * the address it answers straight into d3. The guide: *"if ADDRESS=0 then
+     * task not found."*
+     *
+     * DEFECT: the name is not NUL-terminated, exactly as `Delta Kill Task`
+     * does not — see there.
+     *
+     * DEVIATION: one task, and no address for it. ../amiga/exec.ts models
+     * exec with a single task on purpose, so there is no list to search and
+     * every name answers 0 — which is the answer the guide tells a program to
+     * test for.
+     */
+    'delta find task': (_it, a) => {
+      str(a[0]!)
+      return VI(0)
+    },
+
+    /**
+     * Routine 53 ($2598) — `=Delta Reqtools Requester(TITLE$,GADGET$)`,
+     * *"SELECTED - number of selected gadget"*.
+     *
+     * Both strings are NUL-terminated in place and stored, GADGET$ at $1b06
+     * and TITLE$ at $1c06 — that order, because the arguments pop right to
+     * left. Routine 54 ($25ce) then opens `reqtools.library` and calls -66
+     * with a1 = TITLE$, a2 = GADGET$ and a3, a4, a0 all zero, which is
+     * `rtEZRequestA(bodyfmt,gadfmt,reqinfo,argarray,taglist)(A1/A2/A3/A4,A0)`
+     * to the register.
+     *
+     * APPROXIMATED: an Interface dialog stands in for the reqtools requester,
+     * as it does for BUtility's `Binforeq`. The numbering is reqtools' own and
+     * comes back unchanged — gadget 1 is the leftmost and the RIGHTMOST
+     * answers 0, so the guide's `"Yes|No"` gives 1 for Yes.
+     */
+    'delta reqtools requester': (it, a) => {
+      const spec: RequesterSpec = { kind: 'alert', body: str(a[0]!), gadgets: str(a[1]!).split('|') }
+      return deltaRequester(rt, it, spec) ?? VI(0)
+    },
+
+    /**
+     * Routine 55 ($2616) — `=Delta Reqtools Get Number(TITLE$,DEF_NUMBER)`.
+     *
+     * DEF_NUMBER pops first and goes to the long at $1d06; TITLE$ is
+     * NUL-terminated and stored at $1b06. Then `reqtools.library` and -78
+     * with a1 = &$1d06, a2 = TITLE$, a3 and a0 zero — `rtGetLongA(longptr,
+     * title,reqinfo,taglist)(A1/A2/A3,A0)`. The answer is read back out of
+     * $1d06, so a cancelled requester returns the default it was given.
+     *
+     * NOTE: `move.l #$64,d0` sits between the two, and rtGetLongA takes
+     * nothing in d0 — it is rtGetStringA, one entry earlier at -72, that
+     * wants a maxchars there. Copied from the wrong prototype and harmless.
+     *
+     * APPROXIMATED: an Interface dialog again. No bounds are passed, so the
+     * min and max are the widest the dialog will take.
+     */
+    'delta reqtools get number': (it, a) => {
+      const st = rt.delta
+      if (!st.req) st.long = int(a[1]!) | 0
+      const spec: RequesterSpec = {
+        kind: 'long',
+        title: str(a[0]!),
+        body: str(a[0]!),
+        def: st.long,
+        min: -0x8000_0000,
+        max: 0x7fff_ffff,
+      }
+      return deltaRequester(rt, it, spec) ?? VI(st.long)
+    },
+
     /**
      * Routine 16 — `=Delta Brithday`, the author's own spelling.
      *

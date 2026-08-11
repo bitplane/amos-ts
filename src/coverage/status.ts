@@ -1497,6 +1497,18 @@ export const FAITHFUL = new Set<string>([
   'delta english mile$', 'delta american mile$',
   'delta radian$', 'delta degree$', 'delta euler$',
 
+  // --- Delta 1.6 adds twenty to the same table without moving one id, which
+  // is why one port serves both. Four of the twenty are approximated (the
+  // three reqtools calls and the req.library one, all requesters) and `Jsr`
+  // is n/a; these fifteen are faithful. Six of them reach AmigaOS through an
+  // intuition.library the library opens fresh every call and never closes.
+  'delta hard reset', 'delta blit off', 'delta crash', 'delta beep all',
+  'delta change bank', 'delta intuition message',
+  'delta wb to front', 'delta wb to back',
+  'delta lock pub screens', 'delta unlock pub screens',
+  'delta find task', 'delta kill task',
+  'moveb', 'movew', 'movel',
+
   // --- LSerial 2.1 (Niklas Sjoberg), slot 11: a serial.device wrapper
   // written because AMOS's own would not reopen a closed device. BINARY tier
   // with a thorough .DOC that gives every argument order, the whole io_Status
@@ -3021,6 +3033,13 @@ export const NA = new Set<string>([
   // LVO. Executing 68k is out of scope by policy, and there is nothing to
   // approximate: the whole keyword IS the jump.
   'library call',
+  // Delta 1.6 routine 57 ($26a6), two instructions: `movea.l (a3)+,a0 / jsr
+  // (a0)`. It calls a 68000 subroutine at an address the program supplies —
+  // that is the whole keyword, and the guide's own contents marks it and the
+  // three `Move*` beside it "- PRIVATE -". The other three are Poke, Doke and
+  // Loke and are implemented; this one is the jump, so executing 68k is not
+  // an ingredient of it but the thing itself.
+  'jsr',
   // Range 2.9Plus's phantom. The token entry at id 1156 names `t planes` and
   // gives its routine as 26,220 — the ASCII "fl" of the `float planes` its
   // own table swallowed, and 278 times past the end of a 94-entry jump table.
@@ -3898,7 +3917,129 @@ export const NOTES: Record<string, string> = {
     "gets the value, the reverse of the guide's \"This efect using colour 0\". DEFECT: both range checks are WORD " +
     "tests on a longword, and `cmpi.w #$1000` is SIGNED, so a negative number passes both while 65536 is refused " +
     "as if it were 0. NOTE: no loop -- the guide calls it an effect and it is one write, which the copper would " +
-    "undo on the next frame.",
+    "undo on the next frame. NOTE: 1.4 AND 1.6 DISAGREE HERE, and this port answers for both. 1.4 raises AMOS's " +
+    "numbered errors, `moveq #$17,d0 / Rjmp L_Error` for 23 and `#$1d` for 29; 1.6's routine 3 ($1e78) sends the " +
+    "same two checks to the extension's own table instead, \"Variable is too small\" and \"Variable is too " +
+    "large\". An ExtensionImpl cannot ask which identity is bound, so 1.4's numbered errors are what this raises.",
+  "delta hard reset":
+    "Routine 29 ($229a), 1.6, three instructions: `movea.l $4.l,a6 / move.l #$0,$2a.l / jmp $fc0000.l`, and the " +
+    "guide's entry for it is two words and two exclamation marks. DEFECT: `$2a` was meant to be `$2a(a6)` -- ExecBase+$2a is ColdCapture, the " +
+    "vector the ROM jumps through on a reset, and clearing it before jumping to ROM is exactly why a6 is loaded " +
+    "at all. As an absolute address it lands in the 68000's own vector table, on the low word of vector 10 and " +
+    "the high word of vector 11, and ColdCapture survives. The relocation table settles it: 24 longwords are " +
+    "relocated and neither $2a nor $fc0000 is among them. It also skips everything Delta Reset does -- no " +
+    "SuperState, no Disable, no `reset` instruction, ExecBase left alone. Asked of the machine rather than " +
+    "performed, as Delta Reset and AMCAF's Reset Computer are.",
+  "delta blit off":
+    "Routine 30 ($22b2), 1.6. It does NOT turn the blitter off: `btst.b #$e,$dff002 / bne` is DMACONR's BBUSY " +
+    "and the loop WAITS for it, which is what the guide says -- \"Wait until blitter is off\" -- and not what " +
+    "the name says. The `btst.b` on the even address reads the register's high byte, where a byte operand takes " +
+    "the bit number mod 8, so bit 14 of the word is the one tested. A blit finishes inside the keyword that " +
+    "starts it here, so BBUSY is never set when anything can look and the wait is satisfied on entry.",
+  "delta crash":
+    "Routine 31 ($22be), 1.6. `move.l d0,$dff108` and `move.l d0,$dff110` -- two longword writes over four word " +
+    "registers, the same doubling Delta Decrunch gets on COLOR00: the high word reaches BPL1MOD and BPL1DAT, the " +
+    "low word BPL2MOD and BPL2DAT. Corrupting both bitplane modulos is what shears the display. DEVIATION: " +
+    "neither register is modelled -- the modulos here come from the screen's own width and nothing reads $dff110 " +
+    "at all -- so the argument is evaluated and the effect is not shown, the same treatment Delta No Synchro gets.",
+  "delta beep all":
+    "Routine 33 ($2300), 1.6: saves a3-a6 and calls routine 32 ($22ce), which opens intuition.library and calls " +
+    "DisplayBeep (-96) with a NULL screen -- beep EVERY screen, which is the name. DEFECT: routine 32 never " +
+    "checks what OpenLibrary returned, going straight to `movea.l d0,a6`, and never closes the library, so all " +
+    "six keywords that use it leak a reference each call; the base is kept at $1b02 and overwritten. Routine 42 " +
+    "exists to say \"Cannot open reqtools.library\" and has no caller anywhere in the file. DEVIATION: no display " +
+    "beep is modelled -- AMOS's own screens are the display here and there is no Workbench flash behind them.",
+  "delta change bank":
+    "Routine 36 ($231a), 1.6. `Delta Change Bank Start(OLDBANK) To NEWBANK` renumbers a bank by poking its " +
+    "header: AMOS keeps the number in the longword sixteen bytes before the data Start() answers, and this " +
+    "writes a new one over it (`suba.l #$10,a0 / move.l d1,(a0)`). DEFECT: all three checks are WORD tests on a " +
+    "LONGWORD argument and the write is a longword, so $10001 has a low word of 1, passes every check and is " +
+    "stored whole -- the bank ends up numbered 65537, outside AMOS's own 1..65535. The upper bound is 4095 and " +
+    "signed, which is why a second `tst.w / Rbmi` is needed for negatives. DEFECT: nothing checks the address IS " +
+    "a bank -- routine 37 exists to say \"Bank is not defined\" and has no caller. DEVIATION: there are no bank " +
+    "headers in this address space, a bank's Start() being a synthetic base, so a matching bank is renumbered " +
+    "directly and any other address falls through to the write, which lands where Loke would. NOTE: the guide " +
+    "says \"NEWBANK can't be number of existing bank\" and nothing enforces it; on the machine two headers then " +
+    "claim one number and the first found wins, where the map here cannot hold both.",
+  "delta intuition message":
+    "Routine 39 ($234c), 1.6, \"some yellow message\": DisplayAlert (-90) through routine 40 ($2362), where the " +
+    "WIDTH the guide names reaches d1 and d1 is DisplayAlert's HEIGHT. DEFECT: the string is stored RAW -- " +
+    "`move.l (a3)+,$1b06.l`, loaded straight into a0 -- so a0 points at the AMOS string's LENGTH WORD, where " +
+    "routines 41, 53 and 55 all step over the length and write a NUL first. DisplayAlert's format is a word of " +
+    "x, a byte of y, the text, a NUL and a continuation byte, so the length is read as x and the first character " +
+    "as y. That is what the guide's `Chr$(POS)+TXT$` is for: POS is the y the author could control and x is " +
+    "however long the string happens to be. No NUL either, so the text runs on until some zero byte turns up in " +
+    "AMOS's string area. DEVIATION: no alert is modelled -- DisplayAlert draws on the bare hardware above every " +
+    "screen, which this port has no surface for, and routine 38's \"Cannot create intuition alert\" has no caller.",
+  "delta wb to front":
+    "Routine 44 ($23fa), 1.6: opens intuition.library and calls WBenchToFront (-342). Delta Wb To Back is " +
+    "routine 45 ($242e), WBenchToBack (-336). Both keep the base at $1b02 and never close it. The names are " +
+    "Delta's own, so they do not contest CRAFT's Wb To Front and Wb To Back -- the same two calls, already here.",
+  "delta wb to back": "Routine 45 ($242e), 1.6, WBenchToBack (-336). See delta wb to front.",
+  "delta lock pub screens":
+    "Routine 46 ($2462), 1.6: LockPubScreenList (-522), guarded by `cmpi.b #$0,$1e62`. Delta Unlock Pub Screens " +
+    "is routine 47 ($24ac), UnlockPubScreenList (-528), guarded by `cmpi.b #$1,$1e62`. NOTE: the failure arms " +
+    "are not symmetric and routine 49 is the interesting one -- locking twice does not simply complain, it opens " +
+    "intuition, calls UnlockPubScreenList, clears the flag and THEN raises \"Public screen already locked\", so " +
+    "the error leaves the list unlocked and a program that traps it is back where it started. Routine 48 just " +
+    "clears the flag and raises \"already unlocked\". DEVIATION: no public screen list is modelled -- this port " +
+    "has AMOS's own screens and no Intuition screen list behind them -- so the flag is kept and the two calls " +
+    "are not made. The flag, and which error it produces, is the whole of what a program can see.",
+  "delta unlock pub screens": "Routine 47 ($24ac), 1.6, UnlockPubScreenList (-528). See delta lock pub screens.",
+  "delta find task":
+    "Routine 50 ($2548), 1.6: FindTask (-294), the address straight into d3, and the guide says \"if ADDRESS=0 " +
+    "then task not found\". DEFECT: the name is NOT NUL-terminated -- the routine steps over the length word and " +
+    "hands FindTask the characters as they lie, where routines 41, 53 and 55 all write a terminator first, so " +
+    "the comparison runs on into whatever follows in AMOS's string area. DEVIATION: src/amiga/exec.ts models " +
+    "exec with a single task on purpose, so there is no list to search and every name answers 0 -- which is the " +
+    "answer the guide tells a program to test for.",
+  "delta kill task":
+    "Routine 51 ($2568), 1.6: FindTask (-294) then RemTask (-288). DEFECT: the name is not NUL-terminated, as " +
+    "Delta Find Task's is not. DEFECT: `tst.w d0` tests the low WORD of a task pointer, so a task at an address " +
+    "whose low sixteen bits are zero reports \"Task not found\". DEVIATION: one task here and no address for it, " +
+    "so this always raises \"Task not found\" (message 7, routine 52). The guide's own warning is that the name " +
+    "\"cannot be ' AMOS', this is AMOS task name and if you will kill AMOS task then AMOS will crash\".",
+  "delta reqtools requester":
+    "Routine 53 ($2598), 1.6. Both strings are NUL-terminated in place and stored -- GADGET$ at $1b06 and " +
+    "TITLE$ at $1c06, that order, because arguments pop right to left. Routine 54 ($25ce) opens " +
+    "reqtools.library and calls -66 with a1 = TITLE$, a2 = GADGET$ and a3, a4, a0 zero, which is " +
+    "`rtEZRequestA(bodyfmt,gadfmt,reqinfo,argarray,taglist)(A1/A2/A3/A4,A0)` to the register. APPROXIMATED: an " +
+    "Interface dialog stands in for the reqtools requester, as it does for BUtility's Binforeq. The numbering is " +
+    "reqtools' own and comes back unchanged -- gadget 1 is the leftmost and the RIGHTMOST answers 0, so the " +
+    "guide's \"Yes|No\" gives 1 for Yes. DEFECT: routine 54 does not check that the library opened, which is why " +
+    "every example in the guide is wrapped in `If Exist(\"LIBS:reqtools.library\")` and says \"Else you will " +
+    "have GURU.\"",
+  "delta reqtools get number":
+    "Routine 55 ($2616), 1.6. DEF_NUMBER pops first into the long at $1d06 and TITLE$ is NUL-terminated at " +
+    "$1b06; then reqtools.library and -78 with a1 = &$1d06, a2 = TITLE$, a3 and a0 zero -- " +
+    "`rtGetLongA(longptr,title,reqinfo,taglist)(A1/A2/A3,A0)`. The answer is read back out of $1d06, so a " +
+    "cancelled requester returns the default it was given. NOTE: `move.l #$64,d0` sits between the two and " +
+    "rtGetLongA takes nothing in d0 -- it is rtGetStringA, one entry earlier at -72, that wants a maxchars " +
+    "there. Copied from the wrong prototype and harmless. APPROXIMATED: an Interface dialog again, and no bounds " +
+    "are passed so the min and max are the widest the dialog will take.",
+  "delta reqtools palette":
+    "Routine 41 ($239e), 1.6: NUL-terminates the title in place, stores the pointer at $1b06 and calls routine " +
+    "43 ($23c8), which opens reqtools.library and calls -102 with the title in a2, reqinfo in a3 and the taglist " +
+    "in a0. That is rtPaletteRequestA exactly -- `rtPaletteRequestA(title,reqinfo,taglist)(A2/A3,A0)`, " +
+    "thirteenth in the FD and so at bias 30 plus twelve sixes. The FD is reqtools_lib.fd, which ships in GUI " +
+    "2.10's own Tools/FD directory in the corpus; the two private password entries and rtFontRequestA are what " +
+    "put the palette requester at -102 rather than the -84 a shorter list would give. APPROXIMATED: this port " +
+    "has no palette requester, so the keyword is reached, the library is not opened and the palette is left " +
+    "alone -- the cancel path of the requester the author called.",
+  "delta req palette":
+    "Routine 56 ($2678), 1.6, and the odd one out: req.library rather than reqtools, opened from the third name " +
+    "at $1d4f, with the colour in d0 and a call to -90. NOTE: no FD for req.library is in the corpus, so -90 is " +
+    "recorded as an offset and not named. The guide's example is `Print Delta Req Palette 2`, which cannot parse " +
+    "-- the token spec is `I0`, an instruction taking one integer, and there is no value to print. " +
+    "APPROXIMATED: as Delta Reqtools Palette, and for the same reason.",
+  moveb:
+    "Routine 58 ($26ac), 1.6, one of the four the guide's contents marks \"- PRIVATE -\": \"Thats are my " +
+    "private commands, but if you want you can use these commands.\" `movea.l (a3)+,a0 / move.l (a3)+,d0 / " +
+    "move.b d0,(a0)`. The address pops first, so it is the LAST argument: these read `Moveb DATA,ADDRESS` where " +
+    "AMOS's own three read `Poke ADDRESS,DATA`. The guide spells it that way round too and describes them as " +
+    "\"like Poke\", \"like Doke\" and \"like Loke\", which is all three exactly.",
+  movew: "Routine 59 ($26b4), 1.6 -- Doke with the arguments the other way round. See moveb.",
+  movel: "Routine 60 ($26bc), 1.6 -- Loke with the arguments the other way round. See moveb.",
   "delta inter on":
     "Routine 6 ($2da), ten bytes. DEFECT: `move.w #$0,$dff09a` -- INTENA's bit 15 chooses set or clear, and with " +
     "it clear the write clears the bits present in $0000, which is none. The keyword does nothing whatever; it " +

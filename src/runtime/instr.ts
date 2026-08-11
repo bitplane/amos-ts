@@ -63,7 +63,7 @@ import { SLN_ERRORS, makeSlnFunctions, makeSlnInstructions, newSlnState } from '
 import { MAKE_ERRORS, makeMakeFunctions, makeMakeInstructions, newMakeState } from './make'
 import { TOOLS_ERRORS, makeToolsFunctions, makeToolsInstructions, newToolsState } from './tools'
 import { OPAL_ERRORS, makeOpalFunctions, makeOpalInstructions, newOpalState } from './opal'
-import { makeDeltaFunctions, makeDeltaInstructions, newDeltaState } from './delta'
+import { DELTA_ERRORS, makeDeltaFunctions, makeDeltaInstructions, newDeltaState } from './delta'
 import { LSERIAL_ERRORS, makeLSerialFunctions, makeLSerialInstructions, newLSerialState } from './lserial'
 import { BUTILITY_ERRORS, makeBUtilityFunctions, makeBUtilityInstructions, newBUtilityState } from './butility'
 import {
@@ -6159,10 +6159,15 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
      * Without the second id, a program bound to 1.6 got NOTHING from a port
      * that already answers 26 of its 46 keywords, and the coverage table read
      * 0% beside a row saying "26 of the 46 are Delta 1.4's, already faithful".
-     * The twenty 1.6 adds are still missing and still report as missing: four
-     * reqtools calls, four Workbench and public-screen ones, `delta find task`
-     * / `delta kill task`, and a `jsr`/`moveb`/`movew`/`movel` block that runs
-     * 68k code and waits on an interpreter this port does not have.
+     *
+     * ONE KEYWORD DISAGREES BETWEEN THE TWO and this port cannot tell them
+     * apart. `Delta Decrunch` is routine 3 in both; 1.4 raises AMOS's numbered
+     * errors from it, `moveq #$17,d0 / Rjmp L_Error` for 23 and `#$1d` for 29,
+     * and 1.6 sends the same two checks to its own message table instead,
+     * "Variable is too small" and "Variable is too large". An ExtensionImpl
+     * has no way to ask which of its identities is bound, so the port keeps
+     * 1.4's numbered errors — the release it was written from — and the
+     * difference is recorded here and in status.ts rather than modelled.
      */
     ids: ['delta-1.4', 'delta-1.6'],
     init: (rt) => {
@@ -6170,6 +6175,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     },
     instructions: makeDeltaInstructions,
     functions: makeDeltaFunctions,
+    errors: DELTA_ERRORS,
   },
   {
     // Tools 1.01 at slot 23 --- Tor Erik Ottinsen's personal toolbox, made
