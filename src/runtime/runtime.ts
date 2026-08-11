@@ -41,6 +41,7 @@ import { slnVbl, type SlnState } from './sln'
 import type { MakeState } from './make'
 import type { ToolsState } from './tools'
 import type { CraftState } from './craft'
+import { musicraftVbl, type MusicraftState } from './musicraft'
 import type { OpalState } from './opal'
 import type { DeltaState } from './delta'
 import type { LSerialState } from './lserial'
@@ -1167,6 +1168,8 @@ export class Runtime {
   jdColour!: JdColourState
   /** CRAFT 1.0's open directory scan and the FileInfoBlock it publishes, slot 18 */
   craft!: CraftState
+  /** MusiCRAFT 1.0's replayer, its vumeters and its voice mask, slot 19 */
+  musicraft!: MusicraftState
   /**
    * The eight `Dev Open` channels and the IORequests they hand out.
    *
@@ -4252,6 +4255,10 @@ export class Runtime {
     amcafPtVbl(this)
     // P61 1.2's replayer — the same engine, off a packed module
     p61Vbl(this)
+    // MusiCRAFT's is an exec VERTB server at priority 0 rather than an AMOS
+    // VblRout slot, so it runs behind AMOS's own music — which is what lets it
+    // have the last word on the vumeter bytes AMOS just wrote
+    musicraftVbl(this)
     // Ercole's Prop On puts its POT sampler in VblRout[1] (+Equ.s:1177)
     ercoleVbl(this.ercole)
     // Jotre's replayer interrupt is VblRout[0], gated on BOTH its flag bits

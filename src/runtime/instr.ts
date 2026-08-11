@@ -27,6 +27,13 @@ import {
   makeCraftInstructions,
   newCraftState,
 } from './craft'
+import {
+  MUSICRAFT_ERRORS,
+  makeMusicraftFunctions,
+  makeMusicraftInstructions,
+  musicraftStop,
+  newMusicraftState,
+} from './musicraft'
 import { ERCOLE_ERRORS, makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
 import { EASYLIFE_ERRORS, makeEasyLifeFunctions, makeEasyLifeInstructions, newEasyLifeState } from './easylife'
 import { FILEID_ERRORS, makeFileIdFunctions, newFileIdState } from './fileid'
@@ -5844,6 +5851,37 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
      * as a zero-argument function and print its own argument beside it.
      */
     qualified: ['pal spread', 'open workbench', 'amos pri'],
+  },
+  {
+    // MusiCRAFT 1.0 at slot 19 --- CRAFT's companion, and the same author's.
+    // The slot is no longer only observed: routine 0 is `move.l a4,$218(a5)`,
+    // and `$f8 + 18*16` IS $218 on the ExtAdr layout, so the binary says 19
+    // the way Jotre's says 22. It fills the whole entry --- $21c (DEFAULT) and
+    // $220 (REMOVE) both get the St Stop routine at $1fa, so `Default` stops a
+    // song, and the fourth longword at $224 gets $158, which re-checks that
+    // the bank St Play was given is still a "Tracker " bank and stops the
+    // player if it is not. A stock PT2.1A replayer with eleven keywords in
+    // front of it; the tick is an exec VERTB server and is stepped from
+    // Runtime.frame(). See musicraft.ts.
+    ids: ['musicraft-1.0'],
+    init: (rt) => {
+      rt.musicraft = newMusicraftState(rt)
+    },
+    defaults: (rt) => {
+      musicraftStop(rt)
+    },
+    instructions: makeMusicraftInstructions,
+    functions: makeMusicraftFunctions,
+    errors: MUSICRAFT_ERRORS,
+    /*
+     * `st load` is the extension's one contested name, against EasyLife's
+     * structure loader. The two do not in fact reach each other --- EasyLife's
+     * is `=St Load(FILENAME$)`, a function, and this one is an instruction, so
+     * they sit in different dispatch tables --- but the invariant in
+     * contested.ts is by name and the cost of honouring it is nothing. This
+     * side qualifies; EasyLife's keeps the plain key it has always had.
+     */
+    qualified: ['st load'],
   },
   {
     // Jotre 1.0 at slot 22 --- Thomas Verduin's five-keyword shim over an

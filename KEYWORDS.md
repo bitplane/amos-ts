@@ -76,7 +76,7 @@ deviations.
 | memory | 14 | 12 | 2 | 0 | 100% |
 | menus | 24 | 24 | 0 | 0 | 100% |
 | misc-1.0 | 12 | 9 | 0 | 0 | 100% |
-| musicraft-1.0 | 12 | 0 | 0 | 12 | 0% |
+| musicraft-1.0 | 12 | 11 | 1 | 0 | 100% |
 | objects | 56 | 55 | 1 | 0 | 100% |
 | opal-1.1 | 78 | 63 | 15 | 0 | 100% |
 | os-devkit-1.61 | 1047 | 0 | 0 | 1047 | 0% |
@@ -106,7 +106,7 @@ deviations.
 | turbo-plus-2.15 | 152 | 148 | 3 | 0 | 100% |
 | windows | 11 | 11 | 0 | 0 | 100% |
 | zones | 3 | 3 | 0 | 0 | 100% |
-| **total** | 6228 | 4273 | 137 | 1756 | 72% |
+| **total** | 6228 | 4284 | 138 | 1744 | 72% |
 
 ## aga-1.0 (100%)
 
@@ -392,9 +392,10 @@ deviations.
 - **faithful**: `clear ram` *(The hundred megabytes are MEANT to fail — a failed AllocMem is what makes exec expunge unused libraries, devices and fonts, so the manual's 'Cleans up Memory by deleting all not-used fonts, libs, etc.' is a side effect of an allocation nobody wants to succeed rather than something the routine does. DEVIATION: nothing here is expungeable, so this observably does nothing where a real machine would free memory and move Chip Free.)*, `disk wait` *(DEVIATION: this returns at once — there is no floppy to insert (volumes are mounted, not inserted) and no validator to outlive, and the alternative is to block for ever, which would hang every program that uses it rather than reproduce anything.)*, `display off`, `display on`, `dled off`, `dled on` *(DEFECT: 0 makes the port INPUTS, so it stops driving the lines, they float high through their pull-ups, the active-low /MTR goes inactive and the LED goes OUT; 255 makes them outputs and drives the 119 still sitting in the data register, asserting /MTR and turning the LED ON. The two keywords are the wrong way round, and the manual half-noticed — 'Turns on drive led, don't ask me, where this is for, but maybe when the drive led doesn't stop reading, use the next command.' NOTE: the source gives the four writes; that a released line reads inactive is 6526 behaviour supplied from the chip rather than stated there)*, `firewait` *(The manual: 'Nothing else than While Fire(1)=0 : Wend but more effective, cause it's in assembler.' A spin blocks the frame rather than the process here, re-armed each frame as Vb Line Wait is; a program that never gets a press waits for ever, which is what it would do on the machine)*, `mouse off` *(The manual says 'hides mouse and sprite 0'; the register says ALL EIGHT sprites, because what goes is the DMA channel rather than a pointer. It also cannot be undone — there is no Mouse On in the table, and the manual asks the reader to write one: 'Suggestion: If you want to expand this extension, why not make a Mouse On command?')*, `reset`
 - **n/a**: `multi off`, `multi on`, `pal on`
 
-## musicraft-1.0 (0%)
+## musicraft-1.0 (100%)
 
-- **missing**: `st base`, `st channel`, `st get volume`, `st load`, `st pause off`, `st pause on`, `st play`, `st stop`, `st version`, `st voice`, `st volume`, `st vumeter speed`
+- **faithful**: `st channel`, `st get volume`, `st load`, `st pause off`, `st pause on`, `st play` *(DEVIATION: a start position past the song length.)*, `st stop`, `st version`, `st voice`, `st volume` *(DEFECT: the token table gives it the spec `I` -- an instruction with no parameters -- and the routine is `move.l (a3)+,d0 / rts`, which pops one anyway. DEVIATION: the phantom pop moves AMOS's arithmetic-stack pointer four bytes past whatever the last expression left, and there is no such stack here to move.)*, `st vumeter speed`
+- **approximated**: `st base` *(APPROXIMATED: the layout is the machine's and complete, and sixteen fields are live because the engine holds them -- the row cell at $0-$3, period, finetune, volume, the DMA bit, the tone-portamento pair, the vibrato and tremolo pairs, the sample offset and the two added words.)*
 
 ## objects (100%)
 

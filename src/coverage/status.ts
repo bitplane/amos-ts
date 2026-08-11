@@ -2499,6 +2499,22 @@ export const FAITHFUL = new Set<string>([
   'w.swap',
   'l.swap',
   'amos pro',
+  // --- MusiCRAFT 1.0, slot 19: CRAFT's companion, same author, same disk --
+  // its binary was inside the same Data0 blob. A stock PT2.1A replayer with
+  // eleven keywords in front of it, so ../amiga/protracker.ts does the replay
+  // and musicraft.ts holds only what MusiCRAFT adds to it. `st base` is
+  // APPROXIMATED and absent here, and `st load` is already listed above under
+  // EasyLife, which spells the same name for a different thing. See musicraft.ts.
+  'st play',
+  'st stop',
+  'st pause on',
+  'st pause off',
+  'st voice',
+  'st channel',
+  'st vumeter speed',
+  'st volume',
+  'st get volume',
+  'st version',
   // --- Range 2.6 / 2.9Plus, slot 9: Shadow Software's AMOS Club extension.
   // One port for both builds; five slot-qualified names. Slice 1 --- the
   // self-contained half. See range.ts.
@@ -4672,6 +4688,85 @@ export const NOTES: Record<string, string> = {
     "was briefly recorded here as a defect, which was this port reading the 1.3 build out of a file it had " +
     "mislabelled -- the installer's Data0 blob holds FOUR libraries behind a four-word length table, and " +
     "parseAmosLibOld stops at the first code hunk.",
+
+  // ---- MusiCRAFT 1.0, slot 19 ----------------------------------------------
+  // Addresses are AMOSPro_MusiCRAFT.Lib's. Routine 0 is $11e..$13c4 and is the
+  // whole player; `$218(a5)` holds $ddc, which sits INSIDE it, so the player's
+  // routines are at negative offsets from the base and its data at positive
+  // ones. `st load`'s note is up with EasyLife's, which spells the same name.
+  "st play":
+    "Routines 4 and 5 ($1482, $148a), the one-argument form pushing a zero and falling into the two. \"This " +
+    "instruction plays a module installed in bank b_nro. If the optional parameter is included, the instruction " +
+    "starts to play the module from the position pos.\" `moveq #$7f,d0 / cmp.l d0,d7 / Rbhi` is the only check " +
+    "the position gets -- 0 to 127, unsigned, and never against the song length. The bank must exist (error 36) " +
+    "and must be named \"Tracker \" (\"Not a tracker bank\"); unlike SLN's S Track Play there is no address form, " +
+    "so a module loaded any other way cannot be played. Then mt_init at $2f4: mt_speed AND mt_counter both 6, " +
+    "so the first vertical blank plays a row instead of waiting six for it, and the voice mask back to $f. There " +
+    "is NO times-to-play -- mt_NextPosition at $724 wraps to 0 at the song length and the module runs until " +
+    "something stops it. DEVIATION: a start position past the song length. The machine indexes the whole " +
+    "128-byte order table with it and plays whatever is there, almost always pattern 0, and one pattern later " +
+    "the wrap brings it home; Protracker.load keeps only the used positions and starts at 0. The two agree for " +
+    "every position the song actually has.",
+  "st stop":
+    "Routine 6 ($14d0), a jump to base-$be2. \"Stops the music started with the instruction St Play.\" `move.w " +
+    "$1de(pc),d0 / beq` first, so with nothing playing it does nothing at all -- not even silence. Otherwise the " +
+    "voice mask goes to zero (which silences all four and turns their DMA off), the run flag clears, and " +
+    "RemIntServer takes the VERTB server back out. NOTE the last instruction is `bclr #1,$bfe001`, the audio " +
+    "filter back on after mt_init's `bset` turned it off; nothing in the modelled machine hears either.",
+  "st pause on":
+    "Routine 7 ($14d8). \"These instructions pause/unpause the current module.\" `clr.w $5e2(a0)` -- the word at " +
+    "$13be the tick tests before it does anything -- and then the silence routine at $38c, which zeroes all four " +
+    "AUDxVOL and turns all four DMA channels off whatever the voice mask says.",
+  "st pause off":
+    "Routine 8 ($14e4). It clears each channel's n_dmabit before setting the flag back, which does nothing a " +
+    "program can see: that field is only ever read to turn DMA off ahead of a trigger that is about to set it " +
+    "again from the channel's own $2a. What a program CAN see is that St Pause On left the voices dead and " +
+    "nothing here brings them back -- each channel is silent until its own next instrument.",
+  "st voice":
+    "Routine 9 ($14fe), a jump to base-$bb2. \"This instruction works like the normal AMOS voice instruction; it " +
+    "switches the audio channels on and off. If a bit is set to -1 in the parameter bit_mask, the channel is " +
+    "active and if a bit is set to 0, the channel is not active.\" `andi.w #$f,d0` at $234 is the whole of the " +
+    "range checking, so St Voice -1 is all four on and St Voice 16 is all four off. A voice turned off has its " +
+    "$2a cleared, and the replay skips a zero $2a everywhere -- the volume write at $5aa, and at $634 the " +
+    "trigger, the DMA and the vumeter byte with it. NOTE the mask does not survive an St Play: mt_init writes " +
+    "$f over it at $36c, so setting voices before starting the module is set for nobody.",
+  "st channel":
+    "Routine 10 ($1508). \"Returns a value of -1, if the channel c is used by CRAFT module playing system.\" " +
+    "`moveq #$4,d1 / cmp.l d1,d0 / Rbcc` -- unsigned, so 0 to 3 and anything else is error 23. The bit comes " +
+    "out of the low byte at $13bd of the same word St Voice writes, which is zero until the first St Play.",
+  "st vumeter speed":
+    "Routine 11 ($1524). \"Sets the decreasing speed of the vumeters of the current module. If the speed is set " +
+    "to zero, the function =Vumeter works normally. When you use a non-zero value, it'll be subtracted from the " +
+    "current value.\" `moveq #$40,d1 / cmp.l d1,d0 / Rbhi`, so 0 to 64 unsigned. The pass that spends it is the " +
+    "interrupt server at $278, and it BRACKETS the tick: the four bytes at $2ee are decayed (or cleared, when " +
+    "the speed is zero) in front of it and copied to `$f8(a5)` -- AMOS's own vumeter bytes, the four =Vumeter " +
+    "reads and clears -- behind it. With a speed set MusiCRAFT owns them outright; with it at zero only the " +
+    "bytes it has just written are copied out, which is the whole of what \"works normally\" means. The decay " +
+    "runs in front of the pause test at $3c8, so a paused module's meters keep falling.",
+  "st volume":
+    "Routine 12 ($1538), and the help does not document it. DEFECT: the token table gives it the spec `I` -- an " +
+    "instruction with no parameters -- and the routine is `move.l (a3)+,d0 / rts`, which pops one anyway. Its " +
+    "other half, =St Get Volume, is four bytes of `moveq #$40,d3`, so there is no volume in this extension at " +
+    "all: the pair is a stub that shipped. DEVIATION: the phantom pop moves AMOS's arithmetic-stack pointer " +
+    "four bytes past whatever the last expression left, and there is no such stack here to move. What the " +
+    "machine does next is not known and is not guessed at -- the keyword takes nothing and does nothing.",
+  "st get volume":
+    "Routine 13 ($153c): `moveq #$40,d3 / moveq #$0,d2 / rts`. A constant, not a reading, and undocumented like " +
+    "the instruction it belongs to. See `st volume`.",
+  "st base":
+    "Routine 14 ($1542): `move.l $218(a5),d3 / addi.l #$496,d3`. \"Returns the address of the internal data zone " +
+    "of the player routine\" -- which is base+$496, the first of the four channel structures St Stop walks at a " +
+    "stride of $2e. The structure is ProTracker's 42 bytes with two words added, both MusiCRAFT's own: $2a is " +
+    "the voice's DMA bit or zero, and $2c is the finetune already multiplied by 72. APPROXIMATED: the layout is " +
+    "the machine's and complete, and sixteen fields are live because the engine holds them -- the row cell at " +
+    "$0-$3, period, finetune, volume, the DMA bit, the tone-portamento pair, the vibrato and tremolo pairs, the " +
+    "sample offset and the two added words. The rest are zero, and they are the ones that are ADDRESSES " +
+    "(n_start, n_loopstart, n_wavestart) together with the lengths that only mean anything beside them: there " +
+    "is no chip RAM here for a sample to live in, so there is no pointer to give. Reads see the mirror and " +
+    "writes do not reach the replay.",
+  "st version":
+    "Routine 15 ($1550): `moveq #$64,d3`, in both builds. \"Returns the current version number of MusiCRAFT " +
+    "multiplied by 100 (1.00=100).\" The same shape as CRAFT's own =Craft Version, and the same answer.",
   "b.swap":
     "Routines 200, 201 and 202 ($3232, $3242, $3252). \"These functions swap the upper and lower parts of a " +
     "specified segment (Byte, Word or Long word). Only the bits which are specified with the first letter of " +
@@ -7496,7 +7591,22 @@ export const NOTES: Record<string, string> = {
     "L_Error, so the AMOS error raised is 94, \"Next without For in animation string\" -- plainly not the message " +
     "meant, and raised unchanged here because the alternative is inventing one",
   "st load":
-    "Routine 264 ($37f2), `ELST_LoadTree` (LVO -90, $7b4) with `ELST_RelocateTable` ($8e4) after it: an instance " +
+    "The name is CONTESTED and this note covers both, though for once the two do not reach each other: " +
+    "EasyLife's is a FUNCTION and MusiCRAFT's an INSTRUCTION, so they sit in different dispatch tables. " +
+    "MusiCRAFT's is routine 3 ($13c6) -- \"Loads a sound/noise/protracker module f$ to bank b_nro\", with the " +
+    "help's warning that \"currently this system supports new commands presented in Protracker 2.1, and the " +
+    "modules which are composed with earlier versions of sound/noisetracker may not work\". A bank of 65536 or " +
+    "more is error 23 (`tst.w (a3)`, the high word), a bank of zero is error 23, and a bank that already exists " +
+    "is error 35 -- it refuses rather than replacing. An empty filename is error 23 and one of 1024 characters " +
+    "or more is error 23. The reserve is Bnk_BitData | Bnk_BitChip under the name \"Tracker \", for the file's " +
+    "length PLUS FOUR: not slack, but the longword mt_init's sample walk writes past the last sample. A file " +
+    "that will not open is error 81, \"File format not recognised\", for a file it never got as far as reading; " +
+    "`moveq #$51,d0` at $1476 is the routine's own choice and it is raised unchanged. A short read is error 94, " +
+    "which nothing here can produce. The AMOS 1.3 build does the same by hand through the $816(a5) bank table, " +
+    "writing \"Trac\"/\"ker \" itself and asking for length plus TWELVE -- the same four bytes with the name in " +
+    "front -- and its one visible difference is the range: `subq.l #1 / cmp.l #$10 / Rbcc`, banks 1 to 16. " +
+    "EASYLIFE's, from here down: routine 264 ($37f2), `ELST_LoadTree` (LVO -90, $7b4) with " +
+    "`ELST_RelocateTable` ($8e4) after it: an instance " +
     "is allocated per record with NO clear, its body read over the top, and then every pointer element's saved " +
     "address is looked up in the old-address list and replaced by the new address at the same position. NOTE: a " +
     "header claiming zero instances makes `subq.w #$1,d4` -1 and the `dbra` under it wrap to 65536 passes; St " +

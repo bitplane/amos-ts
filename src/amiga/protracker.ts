@@ -313,6 +313,21 @@ export class Protracker {
   voices = 0b1111
 
   /**
+   * A note-on tap, for a replayer whose caller keeps a meter per voice.
+   *
+   * MusiCRAFT's does: it carries d7 through the voice loop pointing at one of
+   * four bytes of its own, and writes the channel volume into it at the
+   * instrument trigger (`move.b n_volume(a6),(a0)`) and a zero at `ECx`. Those
+   * are the only two places, which is why this is a callback and not something
+   * read back off the channel afterwards — a volume slide moves `n_volume`
+   * without touching the meter, and that difference is audible in the meter.
+   *
+   * Called with the value the machine writes, after the `voices` gate that
+   * decides whether the trigger happens at all. Nobody else sets it.
+   */
+  onVu?: (voice: number, volume: number) => void
+
+  /**
    * A PERCENTAGE applied to the sample's own volume when an instrument
    * triggers, for a replayer whose caller wants the module quieter without
    * touching the module — SLN's `S Track Volume`, whose `mt_VolFaktor` starts
@@ -881,6 +896,7 @@ export class Protracker {
         if (arg !== this.counter) return
         ch.volume = 0
         ch.shadow = 0
+        this.onVu?.(v, 0)
         return
       case 0xd: // EDx note delay: the trigger the row tick withheld
         if (arg !== this.counter) return
@@ -1044,6 +1060,7 @@ export class Protracker {
   /** `P61_zample`: DMA off, point at the sample, DMA on */
   private trigger(v: number, ch: PtChannel, offsetBytes: number): void {
     if (!(this.voices & (1 << v))) return
+    this.onVu?.(v, ch.volume)
     const s = ch.sample
     if (!s || s.pcm.length === 0) return
     const off = Math.max(0, offsetBytes)

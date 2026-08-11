@@ -79,7 +79,6 @@ extension keyword. The count is keywords with no handler at all:
 | D-SAM 1.01 | 50 | nothing. `audio.device` and `dos.library`, both modelled |
 | Delta 1.6 | 46 | little. 26 of the 46 are Delta 1.4's, already faithful; of the 20 new ones four are machine code (n/a) and the rest want reqtools, `FindTask` and `WBenchToFront`, all of which exist |
 | jd-int 1.3 | 33 | nothing in `src/amiga` — findings banked, and the binary names no library, so it reaches Intuition through a base AMOS already holds |
-| MusiCRAFT 1.0 | 12 | nothing. CRAFT's companion, and the binary was inside CRAFT's own installer blob the whole time — Data0 holds four libraries behind a four-word length table, and `parseAmosLibOld` stops at the first. 5,656 bytes of code behind 12 keywords, all of it readable |
 | BSDSocket 1.1.4 | 30 | `bsdsocket.library` **and** a host networking boundary. The only row here blocked on something outside AmigaOS |
 
 **Craft 1.0 came off this table, and it is worth saying what it cost.**
@@ -116,6 +115,22 @@ reason AMCAF's `Pt Bank` already is: a real machine decides chip against fast
 by where an address IS, and this port models memory type as a flag on the
 bank. `Multi On` and `Multi Off` are n/a for the reason JD's and MISC 1.0's
 identical pair already are.
+
+**MusiCRAFT 1.0 came off it the day after, and cost almost nothing.**
+All 12 are read: 11 faithful and `=St Base` approximated. It is CRAFT's
+companion by the same author on the same disk, and the reason it was cheap is
+that most of it was already written: routine 0 is 4,774 of its 5,648 bytes and
+is a stock PT2.1A replayer, so it goes over `src/amiga/protracker.ts` the way
+AMCAF, P61, MED, GameSupport and SLN do, and the work is reading what it
+*adds*. Two words on the channel structure, four vumeter bytes that decay by
+`St Vumeter Speed` and are copied into AMOS's own every frame, a pause word,
+and no CIA tempo — every `Fxx` is a speed, exactly as in SLN's.
+
+It also settled its own slot. `move.l a4,$218(a5)` in routine 0 is
+`$f8 + 18*16`, so 19 is the binary's word and not just three example programs'.
+The one defect is a stub that shipped: `St Volume` is declared with no
+parameters and pops one anyway, and `=St Get Volume` answers a constant 64, so
+there is no volume control in the extension at all.
 
 **GameSupport 1.2 came off this table, and it is worth saying what it cost.**
 All 37 read 100% and all 37 are faithful. Three of its five groups turned out
