@@ -426,6 +426,9 @@ const EXTRA_DOCS: Record<string, string[]> = {
   // without clearing it and declares a float return it never sets, and neither
   // can be called a defect without the document that says what the rule is.
   'src/runtime/thegame.ts': ['official-amos/Tutorial/Extensions/__uae____Music_s'],
+  // StoneCracker's version string and credit are in the library itself, which
+  // is also the only place its format is written down
+  'src/amiga/stonecracker.ts': ['libs/stc.library'],
 }
 
 /** not prose: markup, code, or a disc image sitting beside the manual */

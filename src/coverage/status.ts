@@ -2728,6 +2728,9 @@ export const FAITHFUL = new Set<string>([
   // encryption and not a requester: a fixed-point cosine series, a task
   // priority, and a reserved variable that answers with a library base.
   'g set table', 'gsin', 'gcos', 'g oddno', 'g handicap', 'g unhandicap',
+  // The encryption scheme: a StoneCracker crunch into an AMOS bank with four
+  // words shuffled by a one-byte password. src/amiga/stonecracker.ts.
+  'g init encyrpt', 'g encrypt', 'g decrypt',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -7181,6 +7184,49 @@ export const NOTES: Record<string, string> = {
     "range -- the guide's \"Gives Amos a priority of 256! Shutting off many system funcions thus speeding up your " +
     "code\" is wrong in both halves and only the name is accurate. There is no scheduler here to apply a priority " +
     "to, so the value is recorded and nothing else happens, as TURBO's Multi No does",
+  "g init encyrpt":
+    "Routine 28 ($1cee). The table's own misspelling, which has to stay -- it is what a program tokenises against. \
+Bnk_Reserve of 100,000 bytes in bank 9 under the name \"TGE   En\", result untested, and pointless: G Encrypt \
+reserves the bank it was given whatever this did, and Bnk_Reserve frees an existing bank of that number first. \
+DEFECT: `bset.b #$0,d1` on a register nothing initialises, so the bank type is Bnk_BitData ORed with whatever the \
+interpreter left. G Encrypt writes the same bset sixteen bytes before a `moveq #$1,d1` that overwrites it, so the \
+author had the idiom and used it once by accident. Reserved as a Data bank here",
+  "g encrypt":
+    "Routine 26 ($19d6). The guide's \"G Encyrpt File$,Bank,Password$\" under a misspelled node name, and the \
+argument order is right. Checksum the password to block +$b2a, AllocMem a FileInfoBlock, Lock/Examine/UnLock the \
+file for its size, OpenLibrary(\"stc.library\"), take a work buffer and a file buffer from it, read the file, \
+crunch it through the tag list at block +$138 (source, length, work buffer, and a hard 12 for the offset width), \
+Bnk_Reserve the bank as Data under \"TGE   En\", copy, then add $1131511 to the first longword and swap four words \
+at bank+8 with four at bank+16+<a byte of the checksum>. The compression is StoneCracker 4.04, reproduced from \
+stc.library 3.322 in src/amiga/stonecracker.ts. THE PASSWORD IS ONE BYTE: `add.b` cannot carry, the doubled sum is \
+stored as a longword whose top two bytes are therefore always zero, and the loop that makes it covers offsets \
+len..0 of the AMOS string -- so both bytes of the LENGTH are in the sum and the last character is not. \
+\"secret\" and \"secreX\" unlock the same bank. DEFECTS: OpenLibrary on every call with the base stored over the \
+last, as G Ptload does and as G Decrypt next door does not; the FileInfoBlock never freed; and the swaps reaching \
+bank+272 with no length test, which a short crunch writes past -- contained here rather than reproduced, and \
+skipped symmetrically by G Decrypt so the pair still round-trips. The error numbers are AMOS's used as the \
+author's: 24 \"Out of memory\" is apt, 81 \"File format not recognised\" is for a file that would not lock, and 1 \
+\"RETURN without GOSUB\" is for a missing stc.library",
+  "g decrypt":
+    "Routine 27 ($1bee). Spec `I0t0,2`, so `G Decrypt SOURCE To DEST,PASSWORD$` -- the guide's \"G Decyrpt \
+sourcebank to destbank\" is a parameter short. Undoes the swaps and the magic in the SOURCE bank, takes the \
+decrunched length out of the StoneCracker header at +$8, reserves the destination for exactly that, and \
+decrunches. The magic and the swaps commute, sixteen bytes apart, so doing the subtraction first where the \
+inverse wants it last costs nothing. DEFECTS: the source bank is left decrypted, so a second G Decrypt of it \
+subtracts the magic from a longword that no longer has it; Bnk_GetAdr is not tested; and the OpenLibrary arm is \
+`tst.l d0` at $1c38 with NO branch after it -- the failure test was written and never connected, so a machine \
+without stc.library reaches `jsr -$24(a6)` through a zero base",
+  "g word$":
+    "Routine 81 ($2be0). APPROXIMATED. The guide says \"Not DONE\" and the routine agrees. Both scans put \
+`cmp.w d5,d3` immediately before `cmp.b d7,d0`, so the length compare's flags are gone before anything branches \
+on them and neither scan can stop at the end of the string -- on the machine they run into AMOS's string bank \
+until a byte happens to match the separator. And `adda.l d3,a0` moves the base to the separator while the second \
+scan still indexes from d3, counting the offset twice, so the field is looked for at twice the separator's \
+offset and copied from two characters past it. There is no string bank here, so both scans stop at the end of \
+the text and the answer is the empty string for any string short enough that the doubled offset is already past \
+its end -- which is almost every call. DEFECTS besides: the result is AllocMem'd and never freed, `moveq #$2,d2` \
+is missing so the TYPE register is never set, and an AllocMem failure returns with d3 still holding the scan \
+OFFSET, a small integer handed back as a string pointer",
   "g unhandicap":
     "Routine 89 ($2f18). SetTaskPri again with the task and the priority read straight back out of +$b36 and +$b3a. " +
     "TWO DEFECTS: neither is tested, so calling it on its own passes SetTaskPri a null task; and a second G Handicap " +

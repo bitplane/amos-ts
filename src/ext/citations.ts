@@ -427,6 +427,9 @@ export const CITED_BY: Record<string, string[]> = {
   // 4.23 FIRST: 3.1 is a strict PREFIX of it -- same ids, specs and routine
   // numbers for its 35 entries -- so every citation holds for either, and the
   // longer table is the one that can resolve all of them
+  // the codec belongs to no extension -- The Game drives it, and registering
+  // it here is what puts stc.library's own strings in reach of the quote check
+  'src/amiga/stonecracker.ts': ['the-game-0.9'],
   'src/amiga/p61.ts': ['p61-1.2'],
   'src/runtime/p61.ts': ['p61-1.2'],
   'src/runtime/p61.test.ts': ['p61-1.2'],

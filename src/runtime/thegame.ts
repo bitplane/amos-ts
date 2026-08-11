@@ -129,6 +129,26 @@
  * all, which is correct only because MEMF_CLEAR already left them zero and
  * sin(0) and sin(pi) are zero.
  *
+ * ## The encryption scheme
+ *
+ * `G Encrypt` and `G Decrypt` are a StoneCracker crunch with four words
+ * shuffled by a password, and `G Init Encyrpt` is a bank reserve that nothing
+ * needs. The compression is `stc.library`, StoneCracker 3.322, found in three
+ * partitions of the corpus machine and vendored at
+ * `fixtures/libs/stc.library` — and the format is reproduced in
+ * `../amiga/stonecracker.ts`, which also answers for `G Stc Pack` and `G Stc
+ * Unpack`. The entry points, their arguments and the file layout are all
+ * documented there.
+ *
+ * The password is worth its own sentence, because "encryption" is a strong
+ * word for it. The key is one byte: the routine sums the password's bytes
+ * with `add.b`, which cannot carry, doubles the result, and stores it as a
+ * longword whose top two bytes are therefore always zero. Those four bytes
+ * are the four swap indices. So two of the four swaps are always the same
+ * swap, the third has two possible values, and the whole password space is
+ * 256 wide — and the sum leaves out the last character, so `"secret"` and
+ * `"secreX"` unlock the same bank.
+ *
  * ## The value register
  *
  * `=Gsin`, `=Gcos`, `=GScreen Width` and `=GScreen Height` all end with
@@ -195,6 +215,23 @@
  * - **DEFECT: `G Handicap` twice loses the original priority.** The second
  *   call saves the -128 the first one installed, so `G Unhandicap` restores
  *   the handicap.
+ * - **DEFECT: `G Encrypt` opens stc.library every time it is called.** Routine
+ *   26 ($19d6) stores the base over the last one with no test, the same
+ *   defect as `G Ptload` — and `G Decrypt` next door tests it first, so the
+ *   author knew the pattern.
+ * - **DEFECT: `G Decrypt` leaves the source bank decrypted.** It undoes the
+ *   magic and the swaps in place and never puts them back, so a second
+ *   `G Decrypt` of the same bank subtracts the magic from a longword that no
+ *   longer has it.
+ * - **DEFECT: `G Decrypt`'s library check tests and then ignores its own
+ *   result.** `tst.l d0` at $1c38 with no branch after it: the failure arm was
+ *   written and then not connected.
+ * - **DEFECT: `=G Word$` has two dead length tests.** Both scans put
+ *   `cmp.w d5,d3` immediately before `cmp.b d7,d0`, so the flags from the
+ *   length compare are gone before anything branches on them and neither scan
+ *   can stop at the end of the string. And `adda.l d3,a0` before a second
+ *   scan that indexes from `d3` counts the offset twice. The guide says
+ *   *"Not DONE"* and means it.
  * - **DEFECT: `G Ptload` opens ptreplay.library every time it is called.**
  *   Routine 15 ($18ca) calls `OpenLibrary` unconditionally and stores the base
  *   over the previous one, so a program that loads two modules has opened the
@@ -249,7 +286,9 @@
  *   because the catalogue belongs in one place.
  */
 import type { Func, Instr } from '../interp/builtins'
-import { AmosError, VI, str } from '../interp/values'
+import { AmosError, VI, VS, str } from '../interp/values'
+import { ED_RUN_MESSAGES } from '../interp/errors.gen'
+import { stcCrunch, stcDecrunch } from '../amiga/stonecracker'
 import { counterDelta, joyDatX, joyDatY, mouseDat } from '../amiga/gameport'
 import { execute } from '../amiga/process'
 import {
@@ -335,6 +374,15 @@ export interface TheGameState {
   /** block +$bd6 — the byte size the next `G Set Table` hands to `FreeMem` */
   trigBytes: number
 
+  /** block +$c8 — stc.library's base, or 0 for "never opened" */
+  stcBase: number
+  /** how many times `G Encrypt` has opened it; it never tests, so it leaks */
+  stcOpens: number
+  /** block +$b2a — the password checksum, and the four bytes of the key */
+  keySum: number
+  /** bytes `=G Word$` has allocated and never freed */
+  wordLeak: number
+
   /** whether `G Handicap` has run, so block +$b36 holds a task pointer */
   handicapped: boolean
   /** the task priority, which nothing here schedules on; see `G Handicap` */
@@ -365,6 +413,10 @@ export function newTheGameState(rt: Runtime): TheGameState {
     trig: null,
     cosAt: 0,
     trigBytes: 0,
+    stcBase: 0,
+    stcOpens: 0,
+    keySum: 0,
+    wordLeak: 0,
     handicapped: false,
     priority: 0,
     savedPriority: 0,
@@ -474,6 +526,85 @@ export function thegameVbl(rt: Runtime): void {
 /** every tracker keyword after `G Ptload` reaches through both of these */
 const live = (st: TheGameState): boolean => st.ptBase !== 0 && st.module !== 0
 
+/** the bank name both encryption keywords reserve under, block +$bb6 */
+export const TGE_ENCRYPT_BANK_NAME = 'TGE   En'
+
+/**
+ * The password checksum at $19e0 and $1bfa, which is the whole of the key.
+ *
+ *     moveq #$0,d0 / move.w (a1),d1
+ *     .loop add.b (a1,d1.w),d0 / dbra d1,.loop
+ *     asl.l #$1,d0
+ *
+ * `a1` is the AMOS string, so offset 0 and 1 are its LENGTH word and the
+ * characters start at 2 — and the loop counts DOWN from the length, covering
+ * offsets `len` to 0. So the two bytes of the length are part of the sum and
+ * the last character of the password is NOT: `"secret"` and `"secreX"` have
+ * the same key. `add.b` also means the sum is taken modulo 256 with no carry
+ * out, so the doubling leaves 0..510 and the key is really nine bits.
+ */
+export function keyChecksum(key: string): number {
+  const len = key.length & 0xffff
+  let sum = 0
+  for (let off = 0; off <= len; off++) {
+    const b = off === 0 ? len >>> 8 : off === 1 ? len & 0xff : key.charCodeAt(off - 2) & 0xff
+    sum = (sum + b) & 0xff
+  }
+  return sum << 1
+}
+
+/**
+ * The four word swaps at $1b8a and $1c50, which are the obfuscation.
+ *
+ * The checksum is stored as a LONGWORD at block +$b2a and then read back a
+ * byte at a time, so the four indices are the four bytes of a number that
+ * never exceeds 510: the first two are always zero, the third is 0 or 1, and
+ * only the fourth carries the password. Each index picks a word at
+ * `bank + 16 + index` and swaps it with one of the four words at `bank + 8`.
+ *
+ * `G Encrypt` walks the indices 0,1,2,3 against +$8,+$a,+$c,+$e and `G
+ * Decrypt` walks 3,2,1,0 against +$e,+$c,+$a,+$8, which is the inverse. The
+ * magic longword the two add and subtract at the very front commutes with all
+ * of it, being sixteen bytes away, so the order they do THAT in — first in
+ * both routines, where the inverse would want it last — costs nothing.
+ *
+ * DEFECT: `bank + 16 + index` reaches `bank + 272` and nothing tests the
+ * bank's length, so a short crunch and a heavy password write past the end.
+ * That one is contained here rather than reproduced: a swap that would leave
+ * the bank is skipped — there is no next allocation to corrupt — and because
+ * `G Decrypt` skips exactly the same ones, a bank encrypted and decrypted in
+ * this port still round-trips. `move.w` at an ODD address is also an address
+ * error on a 68000, which this extension is not for: it uses `mulu.l` and
+ * `divu.l` in `G Set Table` and so needs an 020 anyway.
+ */
+function swapKeyWords(bank: Uint8Array, sum: number, forward: boolean): void {
+  const order = forward ? [0, 1, 2, 3] : [3, 2, 1, 0]
+  for (const i of order) {
+    const index = (sum >>> (24 - 8 * i)) & 0xff
+    const a = 16 + index
+    const b = 8 + 2 * i
+    if (a + 1 >= bank.length || b + 1 >= bank.length) continue
+    const t0 = bank[a]!
+    const t1 = bank[a + 1]!
+    bank[a] = bank[b]!
+    bank[a + 1] = bank[b + 1]!
+    bank[b] = t0
+    bank[b + 1] = t1
+  }
+}
+
+/** `addi.l #$1131511,(a0)` at $1b80, and the `subi.l` that undoes it */
+const ENCRYPT_MAGIC = 0x01131511
+
+function addMagic(bank: Uint8Array, delta: number): void {
+  if (bank.length < 4) return
+  const v = (((bank[0]! << 24) | (bank[1]! << 16) | (bank[2]! << 8) | bank[3]!) + delta) >>> 0
+  bank[0] = (v >>> 24) & 0xff
+  bank[1] = (v >>> 16) & 0xff
+  bank[2] = (v >>> 8) & 0xff
+  bank[3] = v & 0xff
+}
+
 /**
  * `move.w (a1,d0.w),d3 / asr.l #$8,d3` — the tail `=Gsin` and `=Gcos` share.
  *
@@ -568,6 +699,143 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
       put32(0, x) // move.l d1,$b32(a0)
       s.mouseX = ((bytes[0]! << 8) | bytes[1]!) & 0xffff
       s.mouseY = ((bytes[2]! << 8) | bytes[3]!) & 0xffff
+    },
+
+    /**
+     * Routine 28 ($1cee) — `G Init Encyrpt`, the table's own misspelling and
+     * the one that has to stay, being what a program tokenises against. The
+     * guide has no node for it.
+     *
+     *     moveq #$9,d0 / bset.b #$0,d1 / move.l #$186a0,d2
+     *     lea $bb6(a3),a0 / Rjsr L_Bnk_Reserve
+     *
+     * A hundred thousand bytes in bank 9, named `TGE   En`, and the result is
+     * never tested. It is also pointless: `G Encrypt` reserves the bank it
+     * was given whatever this did, and `Bnk_Reserve` frees an existing bank of
+     * that number first — so the only lasting effect of calling this is a
+     * 100,000-byte bank 9 that stays until something else takes it.
+     *
+     * DEFECT: `bset.b #$0,d1` on a register nothing here initialises. Bit 0 is
+     * `Bnk_BitData`, so the bank is at least a Data one, but every other flag
+     * bit is whatever the interpreter last left in d1. `G Encrypt` does the
+     * same `bset` sixteen bytes before a `moveq #$1,d1` that overwrites it, so
+     * the author had the idiom and used it once by accident and once for
+     * real. Reserved as a Data bank here, which is the reading with bit 0 set
+     * and nothing else.
+     */
+    'g init encyrpt': () => {
+      rt.reserveBank(9, 100_000, TGE_ENCRYPT_BANK_NAME)
+    },
+
+    /**
+     * Routine 26 ($19d6) — `G Encrypt FILE$,BANK,PASSWORD$`, which is exactly
+     * the guide's *"G Encyrpt File$,Bank,Password$"* under a misspelled node
+     * name. It crunches a file with StoneCracker, puts it in a bank, and
+     * scrambles four words of the result with the password.
+     *
+     * The steps, and every failure arm, from the routine:
+     *
+     *     checksum the password           -> block +$b2a
+     *     AllocMem($3e8, MEMF_CLEAR)      a FileInfoBlock; error 24 if it fails
+     *     Lock(file, SHARED) / Examine / UnLock          error 81 if it fails
+     *     OpenLibrary("stc.library", 0)   -> +$c8; error 1 if it fails
+     *     stc -$2a                        a work buffer; silent exit if none
+     *     stc -$6c(file, fib_Size + $100) the file buffer, error 81 if none
+     *     stc -$48                        read it; silent exit on zero
+     *     stc -$60(the tag list at +$138) crunch; silent exit on zero
+     *     Bnk_Reserve(BANK, Data, len, "TGE   En")       silent exit on zero
+     *     CopyMem / stc -$30 / stc -$42   and then the scramble
+     *
+     * The tag list is a static one in the data block and only three of its
+     * five values are ever written: the source at +$13c, the length at +$144
+     * and the work buffer at +$15c. The other two are `$80000004 = 0` and
+     * `$80000009 = 12`, and the twelve is the offset width — a 4,640-byte
+     * window. See ../amiga/stonecracker.ts.
+     *
+     * The errors are AMOS's numbers used as if they were the author's: 24 is
+     * *"Out of memory"* and apt, 81 is *"File format not recognised"* for a
+     * file that could not be locked, and 1 is *"RETURN without GOSUB"* for a
+     * missing `stc.library`. All three go through `G Exit`, which does a
+     * `G Reset` on the way.
+     *
+     * DEFECT: `OpenLibrary` is called on every invocation and the base stored
+     * over the last one, so `stc.library` is opened as many times as this is
+     * called and closed at most once — the same defect as `G Ptload`, and
+     * `G Decrypt` next door tests the base first.
+     * DEFECT: the FileInfoBlock is never freed, on any path.
+     * DEFECT: the scramble writes at `bank + 16 + <a byte of the checksum>`,
+     * up to `bank + 272`, with no test that the bank is that long. A password
+     * whose checksum's low byte is large, over a file that crunches to less
+     * than 272 bytes, writes past the bank.
+     */
+    'g encrypt': (it) => {
+      const s = st()
+      const file = it.evalStr()
+      it.expect(',')
+      const bank = it.evalInt()
+      it.expect(',')
+      s.keySum = keyChecksum(it.evalStr())
+
+      s.fibLeak += 1000
+      const data = rt.vfs?.readFile(file) ?? rt.fs?.read(file) ?? null
+      if (!data) throw new AmosError(ED_RUN_MESSAGES[81]!, 81)
+      s.stcOpens++
+      s.stcBase = 1
+      const packed = stcCrunch(data)
+      rt.reserveBank(bank, packed.length, TGE_ENCRYPT_BANK_NAME)
+      const bytes = rt.memBanks.get(bank)!.data
+      bytes.set(packed)
+      addMagic(bytes, ENCRYPT_MAGIC)
+      swapKeyWords(bytes, s.keySum, true)
+      // `move.l #$0,(a1)` — the checksum is wiped once it has been used
+      s.keySum = 0
+    },
+
+    /**
+     * Routine 27 ($1bee) — `G Decrypt SOURCE To DEST,PASSWORD$`.
+     *
+     * The guide's synopsis is *"G Decyrpt sourcebank to destbank"*, with no
+     * password at all; the token spec is `I0t0,2` and the routine pops a
+     * string, so the guide is a parameter short.
+     *
+     * It undoes the scramble IN THE SOURCE BANK, reads the decrunched length
+     * out of the StoneCracker header at +$8, reserves the destination for
+     * exactly that, and calls stc's decruncher.
+     *
+     * DEFECT: the source bank is left decrypted. Nothing puts the magic or
+     * the words back, so a second `G Decrypt` of the same bank subtracts the
+     * magic from a longword that no longer has it and hands the decruncher a
+     * header it will not recognise.
+     * DEFECT: `Bnk_GetAdr` is not tested, so decrypting a bank that does not
+     * exist scrambles whatever is at address zero.
+     * DEFECT: the `OpenLibrary` arm is `tst.l d0` with NO branch after it —
+     * the compare is written and the result thrown away — so a machine
+     * without `stc.library` reaches `jsr -$24(a6)` through a zero base.
+     */
+    'g decrypt': (it) => {
+      const s = st()
+      const from = it.evalInt()
+      it.expect('to')
+      const to = it.evalInt()
+      it.expect(',')
+      s.keySum = keyChecksum(it.evalStr())
+      if (s.stcBase === 0) {
+        s.stcOpens++
+        s.stcBase = 1
+      }
+      const src = rt.memBanks.get(from)
+      if (!src) throw new AmosError(ED_RUN_MESSAGES[81]!, 81)
+      addMagic(src.data, -ENCRYPT_MAGIC)
+      swapKeyWords(src.data, s.keySum, false)
+      const out = stcDecrunch(src.data)
+      // `move.l $8(a1),d2` is the reserve size, and it is the crunched
+      // header's own decrunched length -- so a wrong password reserves a
+      // bank of whatever the scrambled bytes happen to say
+      const size = ((src.data[8]! << 24) | (src.data[9]! << 16) | (src.data[10]! << 8) | src.data[11]!) >>> 0
+      // a zero or negative length is AMOS's own "Illegal function call" from
+      // inside Bnk_Reserve, which is where a wrong password usually lands
+      rt.reserveBank(to, size, TGE_ENCRYPT_BANK_NAME)
+      if (out) rt.memBanks.get(to)!.data.set(out.subarray(0, size))
     },
 
     /**
@@ -1038,6 +1306,77 @@ export function makeTheGameFunctions(rt: Runtime): Record<string, Func> {
      * `workbench.library`.
      */
     'g icon check': () => VI(st().iconClicked ? -1 : 0),
+
+    /**
+     * Routine 81 ($2be0) — `=G Word$(TEXT$,N,SEP)`. The guide's node is the
+     * synopsis and the words *"Not DONE"*, and the routine is why.
+     *
+     * It is meant to be the Nth separated field of a string. What it does:
+     *
+     *     move.w (a0),d5             the length, for a test that never runs
+     *     moveq #$1,d3
+     *     .find addq.w #$1,d3 / move.b (a0,d3.w),d0
+     *           cmp.w d5,d3 / cmp.b d7,d0 / bne .find
+     *           subq.w #$1,d6 / tst.l d6 / bne .find
+     *     adda.l d3,a0
+     *     move.l d3,d4
+     *     .next addq.w #$1,d4 / move.b (a0,d4.w),d0
+     *           cmp.w d5,d4 / cmp.b d7,d0 / bne .next
+     *
+     * DEFECT: both length tests are dead. `cmp.w d5,d3` sets the flags and
+     * `cmp.b d7,d0` immediately overwrites them, so neither scan ever stops
+     * at the end of the string — they run into whatever follows it in AMOS's
+     * string bank until a byte happens to equal the separator.
+     *
+     * DEFECT: `adda.l d3,a0` moves the base to the separator and the second
+     * scan then indexes from `d3 + 1` off that base, counting `d3` twice. So
+     * the field is looked for at twice the offset of the separator, and the
+     * copy runs from `TEXT$ + d3` — two characters past the separator,
+     * because `d3` is an offset into the string INCLUDING its length word.
+     *
+     * Neither is reproducible here, and reproducing them is not the point:
+     * there is no string bank behind an AMOS string in this port, so both
+     * scans stop at the end of the text. APPROXIMATED, and what a program
+     * gets is the empty string for almost every call — which is also what the
+     * two defects add up to on the machine for any string short enough that
+     * the second scan's doubled offset is already past the end of it.
+     *
+     * DEFECT: the AllocMem is never freed, so every call leaks its result.
+     * DEFECT: `moveq #$2,d2` is missing — the routine sets the value register
+     * and never the TYPE register, exactly as `=Gsin` does.
+     * DEFECT: on an AllocMem failure the routine returns without touching d3,
+     * which still holds the SCAN OFFSET — a small integer handed back as a
+     * string pointer.
+     */
+    'g word$': (_it, a) => {
+      const s = st()
+      const text = str(a[0]!)
+      const which = int(a[1])
+      const sep = int(a[2]) & 0xff
+      // byte at raw offset k: 0 and 1 are the length word, then the text
+      const at = (k: number): number =>
+        k === 0 ? (text.length >>> 8) & 0xff : k === 1 ? text.length & 0xff : (text.charCodeAt(k - 2) ?? -1) & 0xff
+      const end = text.length + 2
+
+      // the first scan: the Nth separator, counting down d6
+      let d3 = 1
+      let left = which
+      for (;;) {
+        d3 += 1
+        if (d3 >= end) return VS('')
+        if (at(d3) === sep && --left === 0) break
+      }
+      // the second scan, from a base the routine has already advanced by d3
+      let d4 = d3
+      for (;;) {
+        d4 += 1
+        if (d3 + d4 >= end) return VS('')
+        if (at(d3 + d4) === sep) break
+      }
+      const len = d4 - d3
+      s.wordLeak += len + 2
+      return VS(text.slice(d3, d3 + len))
+    },
 
     /**
      * Routine 30 ($1d14) — `=G Oddno`. The guide's node is one line, the

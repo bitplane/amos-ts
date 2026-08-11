@@ -15,7 +15,7 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { Runtime } from './runtime'
 import { BTN_RED, DIR_UP } from '../amiga/controller'
-import { PT_PLAY_VOLUME, TGE_GFX_BASE, thegameVbl } from './thegame'
+import { PT_PLAY_VOLUME, TGE_ENCRYPT_BANK_NAME, TGE_GFX_BASE, keyChecksum, thegameVbl } from './thegame'
 
 const table = new TokenTable(CORE_TOKENS)
 /** the manifest's recommended slot; the extension itself names none */
@@ -86,6 +86,9 @@ function modFile(positions: number[]): Uint8Array {
   out[1085] = 0xac
   return out
 }
+
+/** an AMOS string's bytes, for a payload a test wants to compare against */
+const bytesOf = (s: string): Uint8Array => new Uint8Array([...s].map((c) => c.charCodeAt(0)))
 
 const withRam = (data = modFile([0, 0, 0, 0])): AmigaFS => {
   const fs = new AmigaFS()
@@ -519,6 +522,178 @@ describe('the trigonometry tables', () => {
     expect(rt.thegame.cosAt).toBe(45)
     // entry 45 is a quarter turn whatever n is
     expect(rt.thegame.trig![45]).toBe(32767)
+  })
+})
+
+/**
+ * The encryption batch.
+ *
+ * The compression underneath is ../amiga/stonecracker.ts and is tested there;
+ * what is checked here is the container The Game wraps round it — the bank,
+ * the magic longword, the four swaps and the password that drives them.
+ */
+describe('the encryption keywords', () => {
+  const withFile = (data: Uint8Array): AmigaFS => {
+    const fs = withRam()
+    fs.writeFile('RAM:secret.dat', data)
+    return fs
+  }
+  /** something that will not crunch to nothing, so the bank is a real size */
+  const payload = ((): Uint8Array => {
+    const out = new Uint8Array(900)
+    let x = 12345
+    for (let i = 0; i < out.length; i++) {
+      x = (Math.imul(x, 1103515245) + 12345) >>> 0
+      out[i] = (x >>> 16) & 0xff
+    }
+    return out
+  })()
+
+  it('G Init Encyrpt reserves a hundred thousand bytes in bank 9', () => {
+    const rt = run('G Init Encyrpt', withRam())
+    const b = rt.memBanks.get(9)!
+    expect(b.data.length).toBe(100_000)
+    expect(b.name).toBe(TGE_ENCRYPT_BANK_NAME)
+    // `bset.b #$0,d1` on an uninitialised register: bit 0 is Bnk_BitData
+    expect(b.flags & 1).toBe(1)
+  })
+
+  it('G Encrypt fills the bank it is given, not bank 9', () => {
+    const rt = run('G Encrypt "RAM:secret.dat",5,"password"', withFile(payload))
+    expect(rt.memBanks.get(5)!.name).toBe(TGE_ENCRYPT_BANK_NAME)
+    expect(rt.memBanks.has(9)).toBe(false)
+  })
+
+  it('the bank holds a crunch of the file', () => {
+    const text = bytesOf('AMOS Professional and The Game Extension. '.repeat(40))
+    const rt = run('G Encrypt "RAM:secret.dat",5,"password"', withFile(text))
+    expect(rt.memBanks.get(5)!.data.length).toBeLessThan(text.length / 2)
+    expect(run(['G Encrypt "RAM:secret.dat",5,"p"', 'G Decrypt 5 To 6,"p"'], withFile(text)).memBanks.get(6)!.data).toEqual(text)
+  })
+
+  it('G Decrypt gives the file back', () => {
+    const rt = run(
+      ['G Encrypt "RAM:secret.dat",5,"password"', 'G Decrypt 5 To 6,"password"'],
+      withFile(payload),
+    )
+    expect(rt.memBanks.get(6)!.data).toEqual(payload)
+  })
+
+  /** the four swaps and the magic longword, with nothing in between */
+  it('the encrypted bank is not the crunched file', () => {
+    const rt = run('G Encrypt "RAM:secret.dat",5,"password"', withFile(payload))
+    const bank = rt.memBanks.get(5)!.data
+    // `S404` plus $1131511 in the first longword
+    expect(bank[0]).not.toBe(0x53)
+    // and the four swaps reach up to bank + 272, which this one is long
+    // enough for -- see the short-bank case below
+    expect(bank.length).toBeGreaterThan(272)
+  })
+
+  /**
+   * The password is one byte: `add.b` cannot carry, and the doubled sum is
+   * stored as a longword whose top two bytes are therefore always zero.
+   */
+  it('a password differing only in its last character unlocks the bank', () => {
+    // the checksum loop walks offsets len..0 of the AMOS string, so the last
+    // character is never added
+    const rt = run(
+      ['G Encrypt "RAM:secret.dat",5,"secret"', 'G Decrypt 5 To 6,"secreX"'],
+      withFile(payload),
+    )
+    expect(rt.memBanks.get(6)!.data).toEqual(payload)
+  })
+
+  it('two passwords with the same byte sum unlock each other', () => {
+    // "ab" and "ba" differ, but only the first character of each is summed
+    expect(keyChecksum('ab')).toBe(keyChecksum('aX'))
+    expect(keyChecksum('')).toBe(0)
+  })
+
+  /** DEFECT: nothing puts the source bank back the way it was */
+  it('G Decrypt leaves the source bank decrypted', () => {
+    const rt = run(
+      ['G Encrypt "RAM:secret.dat",5,"password"', 'G Decrypt 5 To 6,"password"'],
+      withFile(payload),
+    )
+    const bank = rt.memBanks.get(5)!.data
+    // it is the plain crunched file again, magic and all
+    expect(Array.from(bank.subarray(0, 4))).toEqual([0x53, 0x34, 0x30, 0x34])
+  })
+
+  /** DEFECT: OpenLibrary on every call, the base stored over the last */
+  it('G Encrypt opens stc.library again every time', () => {
+    const rt = run(
+      ['G Encrypt "RAM:secret.dat",5,"a"', 'G Encrypt "RAM:secret.dat",6,"a"'],
+      withFile(payload),
+    )
+    expect(rt.thegame.stcOpens).toBe(2)
+    // G Decrypt tests the base first, so it adds nothing
+    const rt2 = run(
+      ['G Encrypt "RAM:secret.dat",5,"a"', 'G Decrypt 5 To 6,"a"'],
+      withFile(payload),
+    )
+    expect(rt2.thegame.stcOpens).toBe(1)
+  })
+
+  /**
+   * DEFECT: the swaps reach bank + 272 with no length test, and it is
+   * contained here rather than reproduced.
+   * A file that crunches to less than that is written past on the machine;
+   * the swap is skipped here, and skipped the same way by G Decrypt, so the
+   * pair still round-trips.
+   */
+  it('a bank too short for the swaps still round-trips', () => {
+    const tiny = bytesOf('tiny')
+    const rt = run(
+      ['G Encrypt "RAM:secret.dat",5,"password"', 'G Decrypt 5 To 6,"password"'],
+      withFile(tiny),
+    )
+    expect(rt.memBanks.get(5)!.data.length).toBeLessThan(272)
+    expect(rt.memBanks.get(6)!.data).toEqual(tiny)
+  })
+
+  /** DEFECT: the FileInfoBlock goes on every call, as it does for File Size */
+  it('G Encrypt leaks a FileInfoBlock', () => {
+    const rt = run('G Encrypt "RAM:secret.dat",5,"a"', withFile(payload))
+    expect(rt.thegame.fibLeak).toBe(1000)
+  })
+
+  /** a file that will not lock is `moveq #$51,d0` into G Exit */
+  it('G Encrypt on a missing file is AMOS error 81', () => {
+    expect(() => run('G Encrypt "RAM:nothere",5,"a"', withRam())).toThrow(/File format not recognised/i)
+  })
+})
+
+describe('=G Word$', () => {
+  /**
+   * The guide says "Not DONE". Both length tests are dead and the second scan
+   * counts the separator's offset twice, so on the machine it reads past the
+   * string into AMOS's string bank; there is no such bank here, both scans
+   * stop at the end of the text, and the answer is the empty string for any
+   * string short enough that the doubled offset is already past its end.
+   */
+  it('answers the empty string for an ordinary call', () => {
+    expect(vals(['A$=G Word$("one two three",1,32)', 'Print Len(A$)'], withRam())).toEqual([0])
+  })
+
+  it('answers the empty string when the separator is not there at all', () => {
+    expect(vals(['A$=G Word$("no separators here",1,124)', 'Print Len(A$)'], withRam())).toEqual([0])
+  })
+
+  /**
+   * The doubled offset only lands inside the string when the first separator
+   * is very near the front and the string is long, which is the one shape
+   * where the routine returns anything — and what it returns starts two
+   * characters after the separator, not one.
+   */
+  it('returns a field only when the doubled offset lands inside the string', () => {
+    // the separator is at text index 0, so d3 = 2, the field starts at text
+    // index 2 -- one character further on than it should -- and the second
+    // scan looks for the next separator from raw offset d3 + d3 + 1
+    const rt = boot('A$=G Word$("|abcdef|ghij",1,124) : Print A$;"."', withRam())
+    mustFinish(rt.runHeadless(2000))
+    expect(rt.out().trim()).toBe('bcdef.')
   })
 })
 
