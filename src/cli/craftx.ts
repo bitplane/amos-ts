@@ -23,6 +23,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { isSolaris, solarisDecrunch } from '../amiga/solaris'
+import { parseAmosFile } from '../loader/amosfile'
 
 export interface BlobEntry {
   /** the AmigaDOS path the installer would have written it to */
@@ -88,6 +89,21 @@ if (process.argv[1]?.endsWith('craftx.ts')) {
       // "DF0:Examples/Turtle/Plant.AMOS" -> "Examples/Turtle/Plant.AMOS"
       const rel = e.path.includes(':') ? e.path.slice(e.path.indexOf(':') + 1) : e.path
       let dest = join(to, rel)
+      mkdirSync(dirname(dest), { recursive: true })
+      /*
+       * CRAFT_Help.AMOS is the manual, and it is a PROGRAM: the text is bank
+       * 1, 42,874 bytes of it, indexed by 139 DATA statements in the source.
+       * Nothing that greps documentation can see inside an AMOS bank, so the
+       * text is written out beside it — which is what lets citations.test.ts
+       * check a quotation in the port against the sentence it came from.
+       */
+      if (rel.endsWith('CRAFT_Help.AMOS')) {
+        const bank = parseAmosFile(e.data).banks.find((b) => b.kind === 'memory')
+        if (bank) {
+          writeFileSync(`${dest.slice(0, -5)}.txt`, bank.data)
+          files++
+        }
+      }
       /*
        * Two blobs carry the same paths with different contents: Data1's
        * accessories are AMOS 1.3 builds and Data4's are AMOS Pro ones, and

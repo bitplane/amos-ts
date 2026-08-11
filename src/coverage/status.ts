@@ -2331,6 +2331,31 @@ export const FAITHFUL = new Set<string>([
   'id error',
   // --- Dump 1.1, slot 20: printer dump and raw trackdisk. `dump` itself is
   // APPROXIMATED and deliberately absent here; see dump.ts.
+  // --- CRAFT 1.0, slot 18: Hannu Rummukainen's toolbox for Black Legend.
+  // Read off the 13,396-byte hunk with the disk's own 42KB help text and
+  // forty example programs beside it, all three unpacked out of the
+  // installer by ../amiga/solaris.ts. Batches 1 and 2: strings and memory.
+  // `mem type` is APPROXIMATED and absent here. See craft.ts.
+  'up case$',
+  'lo case$',
+  'flip case$',
+  'left trim$',
+  'right trim$',
+  'bw instr',
+  'chr conv$',
+  'str count',
+  'mem str count',
+  'str scramble$',
+  'str unscramble$',
+  'hex dump$',
+  'chr dump$',
+  'str peek$',
+  'str poke',
+  'chip max block',
+  'fast max block',
+  'mem copy',
+  'mem scramble',
+  'mem unscramble',
   // --- Range 2.6 / 2.9Plus, slot 9: Shadow Software's AMOS Club extension.
   // One port for both builds; five slot-qualified names. Slice 1 --- the
   // self-contained half. See range.ts.
@@ -2991,6 +3016,94 @@ export const NA = new Set<string>([
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "up case$":
+    "Routine 3 ($d6e), and `bchg #5` over two ranges rather than a table -- 0x61..0x7a and 0xe0..0xfe -- which " +
+    "is how it delivers the manual's \"they can convert all the special characters too. These characters include " +
+    "e.g. \u00e6, \u00fc, \u00e4, \u00f6, \u00e1, \u00e7, \u00e9, \u00f1\". DEFECT: 0xf7 is Latin-1's DIVISION SIGN " +
+    "and it sits inside the second range at exactly the case offset, so Up Case$ answers the multiplication sign. " +
+    "0xff is spared, because the range stops one short of it.",
+  "lo case$":
+    "Routine 4 ($da4), the mirror of Up Case$ over 0x41..0x5a and 0xc0..0xde, and it inherits the same DEFECT " +
+    "from the other side: 0xd7 is the MULTIPLICATION SIGN and comes back as 0xf7. 0xdf, which has no upper case, " +
+    "falls outside the range and is left alone.",
+  "flip case$":
+    "Routine 5 ($dda). Four range tests and two equality tests: 0xdf and 0xff are named explicitly and spared, " +
+    "everything from 0xc0 up is flipped, and the two maths signs go round with the letters as they do in the " +
+    "other two.",
+  "left trim$":
+    "Routines 7 ($e30) and 6. The trim argument is a SET, not a character -- the inner `cmp.b (a0)+ / dbeq` scans " +
+    "the whole of it -- and the one-argument form is four instructions that push the inline string at $e2c, a " +
+    "length word of 1 and a space. An EMPTY trim set is `Rbcs routine 206`, AMOS error 23, rather than a no-op.",
+  "right trim$": "Routine 9 ($e78), the same walk from the other end, with routine 8 supplying the same default space.",
+  "bw instr":
+    "Routine 11 ($ec0). Instr backwards: the last character of f$ is matched first, scanning down from s$+p, then " +
+    "the rest is confirmed forwards with `cmpm.b`. The result is 1-based and 0 means no match. `p` defaults to " +
+    "the length of s$, is clamped to it when larger, and a negative one is `Rbmi routine 206`. The manual's " +
+    "\"the function does not accept an occurrence of f$ if it extends past the position p\" falls out of where the " +
+    "scan starts.",
+  "chr conv$":
+    "Routine 12 ($f20). Both codes are compared against 255 UNSIGNED before anything else -- `moveq #0,d0 / " +
+    "not.b d0 / cmp.l d0,d6 / Rbhi routine 206` -- so 256 and -1 are both error 23.",
+  "str count":
+    "Routines 16 ($f94) and 17 ($fa8). DEFECT: the arguments are the other way round from the manual, which says " +
+    "\"Str Count(search$, string$)\" and \"counts how many times does the search$ occur in the string$\". Routine 16 " +
+    "pops the LAST argument into a2 and the first into a0; routine 17 reads a2's length word as the needle and " +
+    "scans a0 -- so the FIRST argument is the string being searched. The author's own Dir_Read_Special.AMOS " +
+    "writes `Str Count(A$,\"*\")` with A$ the path, which is the binary's order, so the help is what is wrong. " +
+    "The rest matches it: a hit steps past the whole occurrence, which is why \"aaaa\" holds two \"aa\" and not three.",
+  "mem str count":
+    "Routines 13 ($f5a) and 14 ($f6a) onto the same routine 17. The range form passes `end - start`, which " +
+    "routine 17 wants as a length minus one, so start and end are both included. DEFECT: the BANK form passes " +
+    "routine 15's length unsubtracted and reads one byte past the bank. Mem Scramble and Mem Unscramble resolve " +
+    "banks through the same routine 15 and do `subq.l #1,d0` first, which is what makes this an omission rather " +
+    "than a convention. In this port every bank sits alone in its own megabyte, so the extra byte reads as zero.",
+  "str scramble$":
+    "Routines 18, 22, 23 and 19. A real stream cipher, not an XOR: the keystream depends on a running 32-bit d5, " +
+    "the plaintext byte, the password position and the number of bytes left, so one repeated plaintext byte comes " +
+    "out different every time. An empty password is `Rbeq routine 206`, error 23. The key schedule ends " +
+    "`andi.w #30,d0 / add.l (-44,pc,d0.w),d5`, which reaches sixteen overlapping longwords at $1078 -- routine " +
+    "23's OWN first instructions. It mixes a longword of its own code into the key.",
+  "str unscramble$": "Routines 20, 22, 23 and 21 -- routine 19's inverse, sharing the key schedule exactly.",
+  "hex dump$":
+    "Routines 25 ($10b2) and 24. Uppercase (`add.b #7` above nine, then `#48`), a space after every `sep` bytes " +
+    "but never after the last, so the result is `2*len + (len-1)/sep` characters. `sep` defaults to 4, pushed by " +
+    "routine 24. A `sep` of zero, or one at least as big as `len`, takes the no-space path -- the routine sets " +
+    "d4 to -1 so the counter cannot reach zero. The range check is `tst.w (a3)` on the argument's HIGH word, so " +
+    "65535 is legal and 65536 is error 23.",
+  "chr dump$":
+    "Routine 26 ($1120). A byte survives when `b AND $60` is non-zero and becomes a full stop otherwise, which " +
+    "is exactly the manual's \"All the characters that can't be printed (0-31 and 128-159) are converted to full " +
+    "stop\" -- those are precisely the bytes with neither bit 5 nor bit 6.",
+  "str peek$":
+    "Routines 28 ($114a) and 27. Only the FIRST character of stop$ is used: the routine loads its length word " +
+    "into d6 and never reads d6 again. An empty stop$ counts as absent. A length whose high word is non-zero is " +
+    "not an error but a silent clamp to 65500. DEFECT: when the stop character is never found the scan still " +
+    "walks all `len` bytes, and the `subq.l #1` that exists to drop the stop character eats a real one instead, " +
+    "so the answer is one byte short. The two-argument form never reaches that code and returns all `len`.",
+  "str poke": "Routine 29 ($119a). No bound of any kind, and an empty string writes nothing -- `subq.w #1,d0 / bcs` guards the loop.",
+  "chip max block":
+    "Routine 32 ($11fc): `move.l #$20002,d1` into routine 34, which is `jsr -216(ExecBase)` -- " +
+    "AvailMem(MEMF_CHIP|MEMF_LARGEST). DEVIATION: the modelled pools track a total rather than a largest free " +
+    "block, so this answers what Chip Free does. TURBO Plus's Chip Largest is the same call and carries the same note.",
+  "fast max block": "Routine 33 ($1206), the same call with $20004, MEMF_FAST|MEMF_LARGEST. Same DEVIATION as Chip Max Block.",
+  "mem copy":
+    "Routine 35 ($1222): `sub.l a0,d0 / addq.l #1,d0` then exec's CopyMem (-624), so the range INCLUDES both " +
+    "ends and `Mem Copy a,a To b` moves one byte. The manual sells it as \"almost the same instruction as Copy, " +
+    "but it allows you to use addresses which are not dividend by four\", which is CopyMem's byte granularity " +
+    "against AMOS's longword Copy.",
+  "mem type":
+    "APPROXIMATED. Routine 36 ($123a) is `btst #0,d3 / Rbne routine 208` -- an odd address is AMOS error 25, " +
+    "\"Address error\" -- and then exec's TypeOfMem (-534), whose flags are the manual's bit table: 1 public, " +
+    "2 chip, 4 fast. The check and the error are exact. What cannot be is the answer: a real machine decides " +
+    "chip against fast by WHERE the address is, and this port models memory type as a flag on the bank, so an " +
+    "address inside a bank answers from that flag, any other modelled region answers fast, and an address in no " +
+    "region answers 0 -- which is TypeOfMem's own answer for memory outside the system list.",
+  "mem scramble":
+    "Routines 37 ($125c) and 38. Two forms over the shared cipher: `start To finish` is inclusive and a " +
+    "backwards range is `Rbcs routine 206`, error 23; the bank form resolves through routine 15, whose unsigned " +
+    "`cmp.l #16` makes bank 0 as illegal as bank 17. Both subtract one from the length before the core, which " +
+    "Mem Str Count's bank form does not.",
+  "mem unscramble": "Routines 39 ($1286) and 40, the same two forms onto routine 21.",
   "port":
     "`FnPort` (+Lib.s:5050): GetFile first, so a channel that is not open raises; then `btst #2,FhT(a2)` refuses " +
     "one that was not opened by Open Port -- a file-type mismatch, not a quiet zero. Then WaitForChar for 50 " +

@@ -18,6 +18,7 @@ import { makeColoursFunctions } from './colours'
 import { makeMiscExtInstructions, newMiscExtState } from './miscext'
 import { makePlibFunctions } from './plib'
 import { makeDumpFunctions, newDumpState } from './dump'
+import { makeCraftFunctions, makeCraftInstructions } from './craft'
 import { ERCOLE_ERRORS, makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
 import { EASYLIFE_ERRORS, makeEasyLifeFunctions, makeEasyLifeInstructions, newEasyLifeState } from './easylife'
 import { FILEID_ERRORS, makeFileIdFunctions, newFileIdState } from './fileid'
@@ -5543,6 +5544,8 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     functions: makeTurboFunctions,
     defaults: turboDefault,
     errors: TURBO_ERRORS,
+    // CRAFT declares `amos pri` too, so bind this one to TURBO's own slot
+    qualified: ['amos pri'],
   },
   {
     // P61 1.2 at slot 25 --- Chris Hodges' wrapper around Jarno Paananen's
@@ -5796,6 +5799,22 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     functions: makeDumpFunctions,
   },
   {
+    // CRAFT 1.0 at slot 18 --- Hannu Rummukainen's toolbox for Black Legend.
+    // Eight unrelated groups; the string and memory ones are here, the rest
+    // arrive in later batches. It opens no library at all, so there is no
+    // init hook and nothing to tear down. See craft.ts.
+    ids: ['craft-1.0'],
+    functions: makeCraftFunctions,
+    instructions: makeCraftInstructions,
+    // Nothing here is qualified. `contested` puts CRAFT against another table
+    // on exactly four names -- `amos pri` with TURBO Plus, `open workbench`
+    // and `pal spread` with AMCAF, `set protect` with EasyLife -- and all
+    // four belong to batches still to come. None of this batch's fifteen is
+    // claimed by anything else, and qualifying a name that does not collide
+    // moves it out of reach: it is what made `Mem Type` parse as a
+    // zero-argument function and print its own argument beside it.
+  },
+  {
     // Jotre 1.0 at slot 22 --- Thomas Verduin's five-keyword shim over an
     // embedded THX Sound System 2.0 replayer. No functions, and no `defaults`
     // hook: routine 0 installs its teardown at the slot entry's +$8 (REMOVE)
@@ -5872,7 +5891,11 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
      * arrives with the slice that implements it, and until then a program at
      * slot 16 gets the unimplemented answer rather than AMCAF's routine.
      */
-    qualified: ['set ntsc', 'set pal', 'speek', 'blitter copy limit', 'blitter copy', 'blitter clear', 'raster wait'],
+    // `open workbench` and `pal spread` are CRAFT's names as well
+    qualified: [
+      'set ntsc', 'set pal', 'speek', 'blitter copy limit', 'blitter copy', 'blitter clear', 'raster wait',
+      'open workbench', 'pal spread',
+    ],
     /*
      * 1.50's two additions, which its own guide says ARE Music's:
      *

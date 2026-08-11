@@ -11,6 +11,23 @@ import { contestedReport, undeclaredLive } from './contested'
  */
 const ALLOWED_UNDECLARED = new Set<string>([
   /**
+   * NOT the case above, and it is here on borrowed time.
+   *
+   * CRAFT declares `Set Protect` and so does EasyLife, and EasyLife's is an
+   * ALIAS onto `Els Protect` rather than an entry in its own table — so it
+   * cannot be qualified, which is what the failure message asks for. CRAFT's
+   * side is real work: routine 55 is SetProtection, and its failure path is
+   * routine 212, a table at $32e8 mapping IoErr codes to AMOS error numbers
+   * that every one of CRAFT's file keywords goes through. That table belongs
+   * with them, in the disk-and-file batch, not bolted on here for one
+   * keyword.
+   *
+   * Until then EasyLife answers for both. The entry clears ITSELF: the test
+   * below fails the moment `set protect` stops being undeclared, so landing
+   * CRAFT's file group forces this line out.
+   */
+  'set protect',
+  /**
    * AMCAF 1.50 added these deliberately as the Music extension's, and said so:
    *
    *   V1.43 02-Nov-96

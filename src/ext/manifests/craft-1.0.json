@@ -10,7 +10,8 @@
   "idBaseEvidence": "assumed",
   "evidence": "disassembly",
   "docs": [
-    "CRAFT_Help.AMOS"
+    "CRAFT_Help.AMOS",
+    "CRAFT_Help.txt"
   ],
   "titleStrings": [],
   "observedSlots": [],
