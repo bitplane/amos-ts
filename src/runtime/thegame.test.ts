@@ -19,6 +19,7 @@ import {
   PT_PLAY_VOLUME,
   TGE_ENCRYPT_BANK_NAME,
   TGE_GFX_BASE,
+  GMS_DEF_PALETTE_COLOURS,
   gmsScreenMode,
   keyChecksum,
   thegameVbl,
@@ -1076,5 +1077,118 @@ describe('the mode functions', () => {
     const rt = run(['G Screen Open 0,320,256,4,Ghires', 'G Screen Open 1,320,256,4,Glowres'])
     expect(rt.screens.get(12)!.hires).toBe(true)
     expect(rt.screens.get(13)!.hires).toBe(false)
+  })
+})
+
+describe('the GMS palette', () => {
+  const GAME = Runtime.screenRange('game')
+  const slot = (n: number): number => GAME.from + n
+  const open = (n: number, colours = 32): string => `G Screen Open ${n},320,64,${colours},Glowres`
+
+  it('G Colour sets one colour of the current screen', () => {
+    const rt = run([open(0), 'G Colour 3,$FF8800'])
+    expect(rt.screens.get(slot(0))!.palette[3]).toBe(0xf80)
+  })
+
+  it('G Colour follows G Screen', () => {
+    const rt = run([open(0), open(1), 'G Screen 0', 'G Colour 1,$FF0000', 'G Screen 1', 'G Colour 1,$00FF00'])
+    expect(rt.screens.get(slot(0))!.palette[1]).toBe(0xf00)
+    expect(rt.screens.get(slot(1))!.palette[1]).toBe(0x0f0)
+  })
+
+  /**
+   * DEFECT: the buffer is filled from d0 up by pops that run right to left,
+   * so it holds C8..C1 and ChangeColours reads it forwards. The guide's own
+   * worked example says colour `First` takes Colour1; it takes Colour8.
+   */
+  it('G Palette writes its eight colours backwards', () => {
+    const rt = run([open(0), 'G Palette 3,$110000,$220000,$330000,$440000,$550000,$660000,$770000,$880000'])
+    const p = rt.screens.get(slot(0))!.palette
+    // C8 = $880000 lands on colour 3, C1 = $110000 on colour 10
+    expect(p[3]).toBe(0x800)
+    expect(p[10]).toBe(0x100)
+  })
+
+  it('G Palette starts where it is told to', () => {
+    const rt = run([open(0), 'G Palette 0,$F00000,$0,$0,$0,$0,$0,$0,$0'])
+    // C1 is the LAST of the eight, so it lands on colour 7
+    expect(rt.screens.get(slot(0))!.palette[7]).toBe(0xf00)
+    expect(rt.screens.get(slot(0))!.palette[0]).toBe(0)
+  })
+
+  /** and the routine next door pops the other way and is right */
+  it('G Def Palette writes its eight colours in order', () => {
+    const rt = run(['G Def Palette 2,$110000,$220000,$330000,$440000,$550000,$660000,$770000,$880000', open(0)])
+    const p = rt.screens.get(slot(0))!.palette
+    expect(p[2]).toBe(0x100)
+    expect(p[9]).toBe(0x800)
+  })
+
+  it('G Def Palette reaches screens opened after it and not before', () => {
+    const rt = run([open(0), 'G Def Palette 1,$FF0000,$0,$0,$0,$0,$0,$0,$0', open(1)])
+    expect(rt.screens.get(slot(0))!.palette[1]).not.toBe(0xf00)
+    expect(rt.screens.get(slot(1))!.palette[1]).toBe(0xf00)
+  })
+
+  /**
+   * BMA_Palette is a pointer tag, so the template hands every screen the same
+   * array. A G Colour on one is a G Colour on all of them.
+   */
+  it('every screen opened after a G Def Palette shares one palette', () => {
+    const rt = run([
+      'G Def Palette 0,$0,$0,$0,$0,$0,$0,$0,$0',
+      open(0),
+      open(1),
+      'G Screen 0',
+      'G Colour 5,$00FF00',
+    ])
+    const a = rt.screens.get(slot(0))!
+    const b = rt.screens.get(slot(1))!
+    expect(b.palette).toBe(a.palette)
+    expect(b.palette[5]).toBe(0x0f0)
+  })
+
+  it('G Get Palette copies the source palette to the destination', () => {
+    const rt = run([open(0), open(1), 'G Screen 0', 'G Colour 4,$FF00FF', 'G Get Palette 0,1'])
+    expect(rt.screens.get(slot(1))!.palette[4]).toBe(0xf0f)
+    // a copy, not the pointer share G Screen Copy does
+    expect(rt.screens.get(slot(1))!.palette).not.toBe(rt.screens.get(slot(0))!.palette)
+  })
+
+  /** the count comes from the DESTINATION bitmap's AmtColours */
+  it('G Get Palette copies only as many colours as the destination holds', () => {
+    const rt = run([
+      open(0, 32),
+      open(1, 4),
+      'G Screen 0',
+      'G Colour 1,$FF0000',
+      'G Colour 8,$00FF00',
+      'G Get Palette 0,1',
+    ])
+    const dst = rt.screens.get(slot(1))!
+    expect(dst.palette[1]).toBe(0xf00)
+    expect(dst.palette[8]).not.toBe(0x0f0)
+  })
+
+  it('G Ink sets the bitmap pen, as an RGB and not an index', () => {
+    const rt = run([open(0), 'G Ink $FF8000'])
+    expect(rt.thegame.gmsPen.get(rt.screens.get(slot(0))!)).toBe(0xff8000)
+  })
+
+  it("G Ink follows G Screen, the pen being the bitmap's", () => {
+    const rt = run([open(0), open(1), 'G Screen 0', 'G Ink $010203', 'G Screen 1', 'G Ink $040506'])
+    expect(rt.thegame.gmsPen.get(rt.screens.get(slot(0))!)).toBe(0x010203)
+    expect(rt.thegame.gmsPen.get(rt.screens.get(slot(1))!)).toBe(0x040506)
+  })
+
+  /** DEFECT: routine 112 is G Blur, popping five where the spec pushes two */
+  it('G Set Pen does nothing that can be modelled', () => {
+    const rt = run([open(0), 'G Ink $FF0000', 'G Set Pen 2,4'])
+    expect(rt.thegame.gmsPen.get(rt.screens.get(slot(0))!)).toBe(0xff0000)
+  })
+
+  it('the RGBPalette G Def Palette allocates is two colours short', () => {
+    // struct RGBPalette is 8 + 256*4 = 1032 and AllocMem is asked for 1024
+    expect(GMS_DEF_PALETTE_COLOURS).toBe(254)
   })
 })

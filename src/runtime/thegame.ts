@@ -557,6 +557,38 @@
  *   the current screen belongs. DEVIATION: this port raises AMOS's illegal
  *   screen number instead. The three fields are separate here rather than
  *   adjacent longwords, so the aliasing has nothing to alias.
+ * - **DEFECT: `G Palette` puts its eight colours in backwards.** Routine 67
+ *   pops into d0 first and stores d0 at the front of the buffer, and pops run
+ *   right to left — so the buffer holds C8, C7 … C1, and `ChangeColours`
+ *   reads it forwards from `First`. The guide's own worked example is the
+ *   thing this contradicts: *"G Palette 3,$000000,$FFFFFF, ... will start at
+ *   colour 3 (0,1,2,`3'). Putting 3 as black, 4 as white"* — the routine puts
+ *   colour 3 white and colour 10 black. `G Def Palette`, the next routine
+ *   along, pops descending and gets it right.
+ * - **DEFECT: `G Ink` takes an RGB and its guide node says otherwise.** *"The
+ *   number (not $RRGGBB value) of the colour to use."* — and routine 7 calls
+ *   `SetRGBPen`, whose autodoc is *"LONG SetRGBPen(*Bitmap [a0], LONG RGB
+ *   [d0])"*. There is no pen-by-index call in blitter.mod for the node to
+ *   have been describing; it is describing AMOS's `Ink`.
+ * - **DEFECT: `G Set Pen` IS `G Blur`, and cannot work.** Both token entries
+ *   name instruction 112. The routine pops FIVE longwords, subtracts the near
+ *   corner from the far one and calls `BlurArea` in colours.mod; `G Set Pen`'s
+ *   spec is `I0,0` and pushes two. So it reads three longwords nobody pushed
+ *   and blurs a rectangle made out of them. What the guide describes —
+ *   *"Sets the style and radius of the brush"*, with *"Type -> values 0-2,
+ *   0-> Pixel 1-> Square 2-> Circle"* — is `SetPenShape(a0l,d1w,d2w)` at
+ *   blitter -$fc, a different module, and even the numbering is somebody's
+ *   memory of it: blitter.h has PSP_CIRCLE 1, PSP_SQUARE 2, PSP_PIXEL 3.
+ * - **DEFECT: `G Def Palette`'s block is eight bytes short.**
+ *   `AllocMem #$400` for a `struct RGBPalette`, which is two longwords and
+ *   256 `RGB`s — 1,032. So the block holds 254 colours, and a `First` above
+ *   246 writes past the end of it.
+ * - **DEFECT: `G Get Palette` hands `UpdatePalette` a palette.** Routine 118
+ *   ends `jsr -$1e(a6)` into `CopyPalette` and then `jsr -$90(a6)` into
+ *   `UpdatePalette`, which takes a Screen in a0 — and a0 is whatever
+ *   CopyPalette left there, the source palette pointer at best. Not
+ *   reproducible and not observable here: the copy has already landed in the
+ *   array the display reads.
  */
 import type { Func, Instr } from '../interp/builtins'
 import { AmosError, VI, VS, str } from '../interp/values'
@@ -674,6 +706,21 @@ export interface TheGameState {
    * has reused yet reads exactly like this.
    */
   gmsScreen: Screen | null
+  /**
+   * The `RGBPalette` `G Def Palette` allocates and hangs off the screen
+   * TEMPLATE, so every screen opened afterwards SHARES it — the tag is
+   * `BMA_Palette`, a TAPTR, and GMS takes the pointer rather than the
+   * colours. Held as the port's `$0RGB` words rather than GMS's `$00RRGGBB`
+   * longs, because `Screen.palette` is what it ends up being.
+   */
+  gmsDefPalette: Uint16Array | null
+  /**
+   * `Bitmap->prvPen` — what `G Ink` sets and what the shape keywords draw
+   * with. Per bitmap on the machine and per screen here, which is the same
+   * thing; kept out of `Screen` because it is a 24-bit RGB and AMOS's own
+   * `Ink` is a pen number.
+   */
+  gmsPen: WeakMap<Screen, number>
 
   /** whether `G Handicap` has run, so block +$b36 holds a task pointer */
   handicapped: boolean
@@ -713,6 +760,8 @@ export function newTheGameState(rt: Runtime): TheGameState {
     wordLeak: 0,
     gmsCurrent: 0,
     gmsScreen: null,
+    gmsDefPalette: null,
+    gmsPen: new WeakMap(),
     handicapped: false,
     priority: 0,
     savedPriority: 0,
@@ -737,6 +786,26 @@ export const GMS_DEFAULT_COLOURS = 32
 /** ScreenPrefs TopOfScrX/Y: where a GMS screen offset of (0,0) puts a screen */
 export const GMS_TOP_OF_SCREEN_X = 128
 export const GMS_TOP_OF_SCREEN_Y = 44
+
+/**
+ * A GMS `$00RRGGBB` as the port's `$0RGB` palette word.
+ *
+ * Straight truncation, which is what the Amiga's colour registers do with a
+ * 24-bit value on ECS, and what `../loader/iff.ts` does in the same
+ * direction. GMS is 24-bit throughout — `Screen->prvColBits` picks 12 or 24
+ * at the hardware — and this port's palette is twelve, so the low nibble of
+ * each component is where the difference goes.
+ */
+const rgb12 = (v: number): number => (((v >>> 20) & 15) << 8) | (((v >>> 12) & 15) << 4) | ((v >>> 4) & 15)
+
+/**
+ * How many colours fit in the block `G Def Palette` allocates.
+ *
+ * `struct RGBPalette` is `LONG ID, LONG AmtColours, struct RGB Col[256]`,
+ * which is 1,032 bytes, and routine 69 asks `AllocMem` for $400 — 1,024. So
+ * the block holds 254 colours and the last two are somebody else's memory.
+ */
+export const GMS_DEF_PALETTE_COLOURS = (0x400 - 8) / 4
 
 /**
  * TGE screen number to slot in the machine's one screen table. See "Where a
@@ -1686,6 +1755,11 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
       )
       sc.displayX = GMS_TOP_OF_SCREEN_X
       sc.displayY = GMS_TOP_OF_SCREEN_Y
+      // BMA_Palette is a POINTER tag, so a G Def Palette before this shares
+      // one array with every screen opened after it. The store the routine
+      // makes through it -- `movea.l $3c(a0),a1 / move.l d3,$4(a1)` -- is
+      // RGBPalette's AmtColours, and there is no header on this side to hold
+      if (s.gmsDefPalette) sc.palette = s.gmsDefPalette
       rt.screens.set(slot, sc)
       // Show(): in front, and AMOS is already behind
       rt.order = rt.order.filter((i) => i !== slot)
@@ -1885,6 +1959,148 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
      * screen lookup through a register it never loads.
      */
     'g getscr': () => {},
+
+    // ---- the palette ----
+    /**
+     * Routine 7 ($16b8) — `G Ink C`. *"Changes the current ink colour for use
+     * with the G Circle and G Rectangle commands."*
+     *
+     * `SetRGBPen(Bitmap a0, RGB d0)` in blitter.mod, on the current Bitmap.
+     *
+     * DEFECT: the guide says the argument is *"The number (not $RRGGBB value)
+     * of the colour to use."* and it is the $RRGGBB value. GMS has no
+     * pen-by-index call to have meant instead — `SetRGBPen` is the only pen
+     * setter in the module, and its autodoc is *"LONG SetRGBPen(*Bitmap [a0],
+     * LONG RGB [d0])"*. Whoever wrote the node was describing AMOS's `Ink`.
+     */
+    'g ink'(it) {
+      const s = st()
+      const rgb = it.evalInt() >>> 0
+      if (s.gmsScreen) s.gmsPen.set(s.gmsScreen, rgb)
+    },
+
+    /**
+     * Routine 67 ($274e) — `G Palette First,C1..C8`. *"Sets the palette in
+     * the format of: First -> The first colour of the palette to change.
+     * Colour1 -> The $RRGGBB value that the `first' colour is set to."*
+     *
+     * `AllocMem(100)`, the eight colours written into it, then
+     * `ChangeColours(Screen a0, Colours a1, StartColour d0, AmtColours d1)`
+     * with d1 = 8, `UpdatePalette` and `FreeMem`. The buffer is a bare array
+     * of 24-bit longs and not an `RGBPalette` — the autodoc's own example is
+     * `Palette = { 0xffffff, 0xff0000, 0x00ff00, 0x0000ff }` — so the
+     * headerless 100 bytes are right.
+     *
+     * DEFECT: the eight colours go in backwards; see the catalogue.
+     */
+    'g palette'(it) {
+      const s = st()
+      const first = it.evalInt()
+      const cols: number[] = []
+      for (let i = 0; i < 8; i++) {
+        it.expect(',')
+        cols.push(it.evalInt())
+      }
+      const sc = s.gmsScreen
+      if (!sc) return
+      // the buffer is filled from d0 up with pops that run right to left, so
+      // it holds C8..C1, and ChangeColours reads it forwards
+      cols.reverse()
+      for (let i = 0; i < 8; i++) {
+        const c = first + i
+        if (c >= 0 && c < sc.palette.length) sc.palette[c] = rgb12(cols[i]!)
+      }
+    },
+
+    /**
+     * Routine 69 ($281e) — `G Def Palette First,C1..C8`. *"As with G Palette,
+     * but you use this one BEFORE you open a screen, this way all screens
+     * will have this palette when openend."*
+     *
+     * Exactly that, and more literally than the sentence suggests: it hangs
+     * an `RGBPalette` off the screen TEMPLATE's `BMA_Palette` tag, which is a
+     * pointer tag, so every screen opened afterwards shares one palette
+     * array. A `G Colour` on any of them is a `G Colour` on all of them.
+     *
+     * The block is allocated once, `MEMF_CLEAR`, and stamped
+     * `move.l #$1c0001,(a1)` — `PALETTE_ARRAY`, being `(ID_PALETTE<<16)|1`
+     * with ID_PALETTE 28 in `register.i`. `G Screen Open` fills in the second
+     * longword, `AmtColours`, which is why it carries that odd store through
+     * `$3c(a0)`; there is no header here to fill in.
+     *
+     * This one pops its colours DESCENDING and gets the order right, which is
+     * the routine next door to the one that does not.
+     */
+    'g def palette'(it) {
+      const s = st()
+      const first = it.evalInt()
+      const cols: number[] = []
+      for (let i = 0; i < 8; i++) {
+        it.expect(',')
+        cols.push(it.evalInt())
+      }
+      const pal = s.gmsDefPalette ?? (s.gmsDefPalette = new Uint16Array(256))
+      for (let i = 0; i < 8; i++) {
+        const c = first + i
+        if (c >= 0 && c < pal.length) pal[c] = rgb12(cols[i]!)
+      }
+    },
+
+    /**
+     * Routine 70 ($28a2) — `G Colour N,$RGB`. *"Changes the specified colour
+     * to the RRGGBB values given."*
+     *
+     * `UpdateColour(Screen a0, Colour d0, Value d1)` then
+     * `UpdatePalette(Screen)`, both on +$1be, and both correct. Four
+     * instructions with nothing wrong in them, which in this extension is
+     * worth saying.
+     */
+    'g colour'(it) {
+      const s = st()
+      const n = it.evalInt()
+      it.expect(',')
+      const rgb = it.evalInt()
+      const sc = s.gmsScreen
+      if (sc && n >= 0 && n < sc.palette.length) sc.palette[n] = rgb12(rgb)
+    },
+
+    /**
+     * Routine 118 ($4046) — `G Get Palette SRC,DST`. *"Changes the palette in
+     * DstScreen to the SrcScreen's Palette."*
+     *
+     * `CopyPalette(SrcPalette a0, DestPalette a1, ColStart d0, AmtColours d1,
+     * DestCol d2)` in colours.mod, with both ends reached the long way — tag
+     * list, Screen, Bitmap, Palette — and the count taken from the
+     * DESTINATION Bitmap's `AmtColours`, so a shallow destination copies
+     * fewer colours than a deep source has.
+     */
+    'g get palette'(it) {
+      const src = rt.screens.get(gmsSlot(it.evalInt()))
+      it.expect(',')
+      const dst = rt.screens.get(gmsSlot(it.evalInt()))
+      if (!src || !dst) return
+      const n = Math.min(dst.nColors, src.palette.length, dst.palette.length)
+      for (let i = 0; i < n; i++) dst.palette[i] = src.palette[i]!
+    },
+
+    /**
+     * Routine 112 ($3e70) — `G Set Pen TYPE,RADIUS`, and it is `G Blur`.
+     *
+     * Both token entries name instruction 112, and the routine is `G Blur`'s:
+     * five pops, two subtractions and `BlurArea` in colours.mod. `G Set Pen`
+     * declares two arguments. See the catalogue.
+     *
+     * APPROXIMATED: the arguments are evaluated and nothing else happens.
+     * What the machine blurs depends on three longwords this keyword never
+     * pushed, which are whatever is still under AMOS's parameter stack
+     * pointer — deterministic for a given program and not modellable by a
+     * port that hands a keyword its arguments as a list.
+     */
+    'g set pen'(it) {
+      it.evalInt()
+      it.expect(',')
+      it.evalInt()
+    },
   }
 }
 

@@ -2748,6 +2748,11 @@ export const FAITHFUL = new Set<string>([
   // wrong register, the swap with nothing to swap, a screen lookup through a
   // register nobody loads, and a mode function that never sets its result.
   'g double buffer', 'g triple buffer', 'g swap buffers', 'g getscr', 'gham',
+  // The palette. `Screen->Bitmap->Palette` is the array everything writes
+  // through -- ChangeColours, UpdateColour and CopyPalette all say so -- and
+  // Screen.palette is that array, so G Def Palette's pointer sharing is a
+  // shared Uint16Array here too.
+  'g ink', 'g colour', 'g palette', 'g def palette', 'g get palette',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -7387,6 +7392,44 @@ nothing",
   "gscreen colour":
     "Routine 109 ($3e22). The Bitmap's AmtColours at +$34, and a LONG -- `move.l`, so this is the one of the three \
 that writes its whole value register and the only one the uncleared-d3 defect misses",
+  "g ink":
+    "Routine 7 ($16b8). SetRGBPen(Bitmap a0, RGB d0) in blitter.mod, on the current Bitmap at +$1c2. DEFECT: the \
+guide says the argument is \"The number (not $RRGGBB value) of the colour to use\" and it is the $RRGGBB value -- \
+blitter.mod has no pen-by-index call for the node to have meant instead, SetRGBPen being the only pen setter in \
+it. The node is describing AMOS's Ink",
+  "g palette":
+    "Routine 67 ($274e). AllocMem(100), the eight colours into it, ChangeColours(Screen a0, Colours a1, \
+StartColour d0, AmtColours d1=8), UpdatePalette, FreeMem. The buffer is a bare array of 24-bit longs and not an \
+RGBPalette, which is right -- the autodoc's own example is a plain LONG array. DEFECT: the colours go in \
+BACKWARDS. It pops into d0 first and stores d0 at the front, and pops run right to left, so the buffer holds \
+C8..C1 and ChangeColours reads it forwards from First. The guide's worked example says the opposite: \"will start \
+at colour 3 (0,1,2,`3'). Putting 3 as black, 4 as white\" -- the routine puts 3 white and 10 black",
+  "g def palette":
+    "Routine 69 ($281e), and the guide is exactly right about it: \"you use this one BEFORE you open a screen, \
+this way all screens will have this palette when openend\". More literally than that reads -- the RGBPalette is \
+hung off the screen TEMPLATE's BMA_Palette, a POINTER tag, so every screen opened afterwards shares one array and \
+a G Colour on any of them is a G Colour on all. The block is stamped `move.l #$1c0001,(a1)` = PALETTE_ARRAY = \
+(ID_PALETTE<<16)|1, and G Screen Open fills in its AmtColours. This one pops DESCENDING and gets the colour order \
+right, next door to the one that does not. DEFECT: AllocMem is asked for $400 and struct RGBPalette is 1,032 \
+bytes, so the block holds 254 colours and a First above 246 writes past it",
+  "g colour":
+    "Routine 70 ($28a2). UpdateColour(Screen a0, Colour d0, Value d1) then UpdatePalette(Screen), both on +$1be. \
+Four instructions with nothing wrong in them, which in this extension is worth recording",
+  "g get palette":
+    "Routine 118 ($4046). CopyPalette(SrcPalette a0, DestPalette a1, ColStart d0, AmtColours d1, DestCol d2) in \
+colours.mod, both ends reached through tag list, Screen, Bitmap, Palette. The count is the DESTINATION Bitmap's \
+AmtColours, so a shallow destination copies fewer colours than a deep source has. DEFECT: the UpdatePalette that \
+follows takes a Screen in a0 and gets whatever CopyPalette left there. Not observable here -- the copy has \
+already landed in the array the display reads",
+  "g set pen":
+    "Routine 112 ($3e70), and it IS G Blur: both token entries name instruction 112. Five pops, `sub.w d0,d2 / \
+sub.w d1,d3`, and BlurArea(Bitmap a0, StartX d0, StartY d1, EndX d2, EndY d3, Setting d4) in colours.mod. DEFECT: \
+G Set Pen's spec is `I0,0` and pushes two, so three of the five pops read longwords nobody pushed and the \
+rectangle blurred is made out of them. What the guide describes -- \"Sets the style and radius of the brush\", \
+Type 0-2 -- is SetPenShape(a0l,d1w,d2w) at blitter -$fc, a different module, and even the numbering is somebody's \
+memory of it: blitter.h has PSP_CIRCLE 1, PSP_SQUARE 2, PSP_PIXEL 3. APPROXIMATED: the arguments are evaluated \
+and nothing else happens, the three stray longwords being whatever is under AMOS's parameter stack pointer -- \
+deterministic on the machine and not modellable by a port that hands a keyword its arguments as a list",
   "ovsavejpeg24":
     "Routine 73 ($10a0). The library's JPEG code is the Independent JPEG Group's, v4-era, compiled with SAS/C " +
     "into the fourth hunk, and everything it chooses is read off that binary rather than guessed: the Annex K " +
