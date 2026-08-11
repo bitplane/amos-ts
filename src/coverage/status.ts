@@ -2444,6 +2444,24 @@ export const FAITHFUL = new Set<string>([
   'tr memorize y',
   'tr memorize a',
   'tr base',
+  // Batch 8: the fractal generator. A complex-plane cursor in 1/8192 fixed
+  // point and an escape-time renderer whose iteration is `muls.w` on
+  // 26-fraction products, `asl.l #3 / swap` back to thirteen, and
+  // `cmp.l #$10000000` for |z| squared over four.
+  'fr reset',
+  'fr position',
+  'fr x position',
+  'fr y position',
+  'fr step',
+  'fr x step',
+  'fr y step',
+  'fr window',
+  'fr colour',
+  'fr get colour',
+  'fr scan',
+  'fr scan all',
+  'fr julia',
+  'fr mandelbrot',
   // --- Range 2.6 / 2.9Plus, slot 9: Shadow Software's AMOS Club extension.
   // One port for both builds; five slot-qualified names. Slice 1 --- the
   // self-contained half. See range.ts.
@@ -3248,6 +3266,52 @@ export const NOTES: Record<string, string> = {
     "Routine 92 ($1950): `ext.l d3` on the stored word, so the $FFFF a deleted colour leaves behind comes back " +
     "as -1 -- \"if there is no colour available, a value of -1 is returned\".",
   "del bank colour": "Routine 93 ($196c): the $FFFF marker, written over one slot.",
+  "fr mandelbrot":
+    "Routine 160 ($2b8a) over the shared setup, routine 161 ($2c8c). Everything is 16-bit fixed point with 8192 " +
+    "as one -- the manual says so for the coordinates and the iteration confirms it, because a product of two " +
+    "of them carries 26 fractional bits and `asl.l #3 / swap` is a multiply by eight and a shift down sixteen, " +
+    "which is a division by 8192. The escape test is `cmp.l #$10000000,d4` on that product, and $10000000 over " +
+    "2^26 is four. DEFECT: the iteration guard is not Fr Julia's. Routine 159 uses `subq.w #$1,d0 / Rbcs`, " +
+    "which refuses only zero; this uses `Rbls`, which is carry OR zero, so `Fr Mandelbrot 1` is error 23 where " +
+    "`Fr Julia 0,0,1` draws. The manual calls the two \"identical\".",
+  "fr julia":
+    "Routine 159 ($2a4c), and the only difference from Fr Mandelbrot is where c comes from: here the keyword " +
+    "and there the pixel, which is why the Mandelbrot arm is sixty bytes shorter. The answer per pixel is the " +
+    "iteration at which the orbit escaped counting from ONE, or index zero for a point that never did -- \"as " +
+    "the iteration count starts from one, the index number zero has a special meaning\". The colour byte is " +
+    "written a bit at a time across as many bitplanes as the screen has, which is \"the colour number may be " +
+    "bigger than the screen mode would allow, because in such cases only the lower bits of the number are " +
+    "used\".",
+  "fr step":
+    "Routines 143 and 142 ($2828, $280a). DEFECT, and it takes the whole two-argument form with it: routine 142 " +
+    "stores **d0** into the y step where it means d2, and d0 is the X argument. So `Fr Step 4,8` sets both " +
+    "steps to 4; and `Fr Step ,8`, where d0 is the -1 that means \"x omitted\", sets the y step to $ffff -- " +
+    "65535, sixty-four times the 1024 routine 144 has just finished enforcing. Only the one-argument form, " +
+    "which sets both from one number on purpose, does what it says, and that is presumably why the manual " +
+    "writes `Fr Step xy` first.",
+  "fr window":
+    "Routines 151, 152 and 153 ($294a, $295c, $2974) onto routine 154 ($2994). The one-argument form pushes " +
+    "four omitted markers and falls into the five-argument one, so `Fr Window 2` is `Fr Window 2,,,,`. An " +
+    "omitted x or y is zero and an omitted width or height is the screen's less the corner -- routine 154 " +
+    "reaches back down its own argument stack for that corner with `sub.w $6(a3),d0`, reading the low word of " +
+    "a value it has not popped yet. \"The x, y, width and height parameters are not checked until a Fr Julia " +
+    "or Fr Mandelbrot instruction is issued\", and routine 161 is where that happens: the rectangle is clipped " +
+    "against the screen's clip window and the Fr Scan band, and a band left with nothing in it draws nothing " +
+    "rather than failing.",
+  "fr scan":
+    "Routines 156 and 157 ($29f4, $2a08). The ONE-argument form draws a single line, `move.w #$1,$2c(a1)`; the " +
+    "two-argument one takes a height of 1..16383 and refuses zero. Routine 161 recomputes the plane coordinate " +
+    "from the band's own first line, so scanning the middle of a picture draws the pixels a whole one would " +
+    "draw there. \"The scan area is always reset after a fractal drawing instruction\" -- both drawing " +
+    "routines end with `clr.w $2a(a1) / move.w #$4000,$2c(a1)`.",
+  "fr colour":
+    "Routine 147 ($287e) over routine 149 ($28ba), which allocates 1025 bytes on first use and seeds them with " +
+    "a byte counter -- index n starts as colour n & 255. Index 0..1024 and colour 0..255. Fr Reset frees the " +
+    "table, so the counter comes back.",
+  "fr position":
+    "Routine 139 ($27a8): the plane coordinate of the window's TOP LEFT corner in units of 1/8192, both halves " +
+    "bounded to a signed word. It is also the only thing that sets the flag routine 161 tests -- Fr Reset " +
+    "clears that flag and leaves the values where they are.",
   "tr base":
     "Routine 137 ($2784), `moveq #$2e,d3 / add.l $208(a5),d3` -- the workspace address plus $2e. The manual is " +
     "literal (\"returns the address of the internal turtle variable area\") and sends the reader to an appendix " +

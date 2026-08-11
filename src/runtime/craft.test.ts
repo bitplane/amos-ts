@@ -1172,3 +1172,147 @@ describe('CRAFT 1.0 — TCL, the Turtle Control Language (routine 96)', () => {
     expect(val('Tr X Pos;Tr Y Pos', 'Tr Move 50,60\nTr Exec "M 70,"\n')).toBe('70 60')
   })
 })
+
+describe('CRAFT 1.0 — the fractal generator (routines 138..161)', () => {
+  /** a rendered screen 0, read directly: Print would scroll text over the picture */
+  const draw = (src: string): { at: (x: number, y: number) => number; row: (y: number, x0: number, n: number) => number[] } => {
+    const b = boot(src)
+    mustFinish(b.rt.runHeadless(20_000))
+    const s = b.rt.screens.get(0)!
+    return {
+      at: (x, y) => s.point(x, y),
+      row: (y, x0, n) => Array.from({ length: n }, (_, i) => s.point(x0 + i, y)),
+    }
+  }
+
+  /** the standard setup: the whole screen, the origin at the top left, 1/128 per pixel */
+  const SET = 'Fr Window 0\nFr Position 0,0\nFr Step 64\nFr Colour 0,5\n'
+
+  it('the colour table starts as a byte counter and index zero means "in the set"', () => {
+    // routine 149 allocates 1025 bytes and fills them with `move.b d2,(a0)+ /
+    // addq.b #1,d2`, so it wraps every 256
+    expect(val('Fr Get Colour(0);Fr Get Colour(1);Fr Get Colour(255);Fr Get Colour(256)')).toBe('0 1 255 0')
+    expect(val('Fr Get Colour(7)', 'Fr Colour 7,31\n')).toBe('31')
+    expect(() => run('Fr Colour 1025,1')).toThrow(/Illegal function call/)
+    expect(() => run('Fr Colour 1,256')).toThrow(/Illegal function call/)
+    expect(() => run('Print Fr Get Colour(1025)')).toThrow(/Illegal function call/)
+  })
+
+  it('the position and the step have to be set, and say so in CRAFT own words', () => {
+    // routines 214 and 215, which are indices 1 and 2 of the message table
+    expect(() => run('Print Fr X Position')).toThrow(/No fractal position defined/)
+    expect(() => run('Print Fr X Step')).toThrow(/No fractal step specified/)
+    expect(val('Fr X Position;Fr Y Position', 'Fr Position -100,200\n')).toBe('-100 200')
+    expect(() => run('Fr Position 32768,0')).toThrow(/Illegal function call/)
+  })
+
+  it('a step is 1..1024 and one number sets both', () => {
+    expect(val('Fr X Step;Fr Y Step', 'Fr Step 4\n')).toBe('4 4')
+    expect(() => run('Fr Step 0')).toThrow(/Illegal function call/)
+    expect(() => run('Fr Step 1025')).toThrow(/Illegal function call/)
+    expect(() => run('Fr Step 1024')).not.toThrow()
+  })
+
+  it('DEFECT: the two-argument Fr Step never stores its second number', () => {
+    /*
+     * Routine 142 stores d0 into the y step where it means d2, and d0 is the
+     * X argument. So both steps come out of the first number -- and when the
+     * first is the one left out, d0 is the -1 that says so and the y step
+     * becomes $ffff, sixty-four times the 1024 the routine has just finished
+     * enforcing. Only the one-argument form works.
+     */
+    expect(val('Fr X Step;Fr Y Step', 'Fr Step 4,8\n')).toBe('4 4')
+    expect(val('Fr X Step;Fr Y Step', 'Fr Step 4\nFr Step ,8\n')).toBe('4 65535')
+    expect(val('Fr X Step;Fr Y Step', 'Fr Step 4\nFr Step 9,\n')).toBe('9 4')
+  })
+
+  it('draws the Mandelbrot set, and the origin is inside it', () => {
+    /*
+     * Position 0,0 with a step of 64 puts the complex origin at the top left
+     * corner and walks 1/128 per pixel, so the whole of this window is the
+     * cardioid's neighbourhood. Colour index 0 is a point that never escaped.
+     */
+    const d = draw(`${SET}Fr Mandelbrot 20`)
+    expect(d.at(0, 0)).toBe(5)
+    expect(d.at(0, 5)).toBe(5)
+    // far enough out and it escapes on the first test: |c| over two
+    expect(d.at(300, 0)).toBe(1)
+  })
+
+  it('walks the plane one step per pixel across and one DOWN the imaginary axis', () => {
+    // `add.w (a7),d0` per pixel with the x step, and `sub.w $20(a1),d1` per
+    // row -- SUBTRACTED, so the picture is the right way up mathematically
+    const d = draw('Fr Window 0\nFr Position -16384,8192\nFr Step 128\nFr Colour 0,5\nFr Mandelbrot 50')
+    // -2,+1 at the corner and 1/64 per pixel, so the origin is at 128,64
+    expect(d.at(128, 64)).toBe(5)
+    expect(d.at(96, 64)).toBe(5)
+    expect(d.at(0, 0)).toBe(1)
+  })
+
+  it('Fr Julia takes its constant from the keyword where Fr Mandelbrot takes it from the pixel', () => {
+    // "identical to the Fr Julia instruction" except for where c comes from,
+    // which is the whole difference between routines 159 and 160
+    const d = draw('Fr Window 0\nFr Position -16384,8192\nFr Step 128\nFr Colour 0,5\nFr Julia -820,1640,50')
+    expect(d.at(128, 64)).toBe(5)
+    expect(d.at(0, 0)).toBe(1)
+  })
+
+  it("DEFECT: Fr Mandelbrot refuses one iteration where Fr Julia accepts it", () => {
+    // `subq.w #$1,d0 / Rbcs` in routine 159 against `Rbls` in routine 160:
+    // BLS is carry OR zero, so the Mandelbrot arm throws out 1 as well as 0
+    expect(() => run(`${SET}Fr Julia 0,0,1`)).not.toThrow()
+    expect(() => run(`${SET}Fr Mandelbrot 1`)).toThrow(/Illegal function call/)
+    expect(() => run(`${SET}Fr Mandelbrot 2`)).not.toThrow()
+    expect(() => run(`${SET}Fr Mandelbrot 1025`)).toThrow(/Illegal function call/)
+  })
+
+  it('Fr Window bounds the picture, and one argument means the whole screen', () => {
+    const d = draw(`Fr Window 0,10,10,20,10\nFr Position 0,0\nFr Step 64\nFr Colour 0,5\nFr Mandelbrot 20`)
+    expect(d.row(10, 8, 4)).toEqual([1, 1, 5, 5])
+    expect([d.at(29, 10), d.at(30, 10), d.at(10, 9), d.at(10, 20)]).toEqual([5, 1, 1, 1])
+    // `Fr Window 0` pushes four omitted markers and falls into the five-argument
+    // form, so it is `Fr Window 0,,,,` and covers everything -- the far corner
+    // escapes on the first test, so it is index 1 and coloured to prove it
+    expect(draw(`${SET}Fr Colour 1,6\nFr Mandelbrot 20`).at(319, 199)).toBe(6)
+    expect(() => run('Fr Window 8')).toThrow(/Valid screen numbers/)
+  })
+
+  it('Fr Scan draws a band, and one line unless a height is given', () => {
+    // routine 156 sets the height to ONE; Fr Scan All puts it back to 16384
+    expect(draw(`${SET}Fr Scan 5,3\nFr Mandelbrot 20`).row(0, 0, 1).concat([])).toEqual([1])
+    const band = draw(`${SET}Fr Scan 5,3\nFr Mandelbrot 20`)
+    expect(Array.from({ length: 10 }, (_, y) => band.at(0, y))).toEqual([1, 1, 1, 1, 1, 5, 5, 5, 1, 1])
+    const one = draw(`${SET}Fr Scan 5\nFr Mandelbrot 20`)
+    expect(Array.from({ length: 8 }, (_, y) => one.at(0, y))).toEqual([1, 1, 1, 1, 1, 5, 1, 1])
+  })
+
+  it('a band draws the same pixels a whole picture would draw there', () => {
+    // routine 161 recomputes the plane coordinate from the surviving corner,
+    // `mulu.w $20(a1),d4 / neg.l d4 / add.w $1c(a1),d4`
+    const whole = draw('Fr Window 0\nFr Position -16384,8192\nFr Step 128\nFr Colour 0,5\nFr Mandelbrot 30')
+    const band = draw('Fr Window 0\nFr Position -16384,8192\nFr Step 128\nFr Colour 0,5\nFr Scan 64,1\nFr Mandelbrot 30')
+    expect(band.row(64, 100, 40)).toEqual(whole.row(64, 100, 40))
+  })
+
+  it('the scan band is reset by every drawing instruction, and by Fr Scan All', () => {
+    // "the scan area is always reset after a fractal drawing instruction"
+    const twice = draw(`${SET}Fr Scan 5,3\nFr Mandelbrot 20\nFr Mandelbrot 20`)
+    expect(twice.at(0, 0)).toBe(5)
+    const cancelled = draw(`${SET}Fr Scan 5,3\nFr Scan All\nFr Mandelbrot 20`)
+    expect(cancelled.at(0, 0)).toBe(5)
+  })
+
+  it('a colour bigger than the screen holds keeps only its low bits', () => {
+    // the original writes the byte a bit at a time across as many bitplanes
+    // as the screen has, which is the manual's "only the lower bits are used"
+    expect(draw(`${SET}Fr Colour 0,21\nFr Mandelbrot 20`).at(0, 0)).toBe(21 & 15)
+  })
+
+  it('Fr Reset drops the window, the position, the steps and the colour table', () => {
+    const pre = `${SET}Fr Colour 3,9\nFr Reset\n`
+    expect(() => run(`${pre}Print Fr X Position`)).toThrow(/No fractal position defined/)
+    expect(() => run(`${pre}Print Fr X Step`)).toThrow(/No fractal step specified/)
+    expect(() => run(`${pre}Fr Position 0,0\nFr Step 8\nFr Mandelbrot 4`)).toThrow(/No fractal window defined/)
+    expect(val('Fr Get Colour(3)', pre)).toBe('3')
+  })
+})

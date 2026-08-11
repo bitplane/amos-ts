@@ -119,6 +119,8 @@ export interface CraftState {
   ioError: number
   /** the turtle's variable block, mapped at Runtime.CRAFT_TURTLE_BASE */
   turtle: DataView
+  /** the fractal cursor and its colour table */
+  fractal: CraftFractal
 }
 
 /**
@@ -192,7 +194,15 @@ const TRF_REM = 6
 export const newCraftState = (): CraftState => {
   const turtle = new DataView(new ArrayBuffer(TR_SIZEOF))
   trResetBlock(turtle)
-  return { scan: null, scanType: 0, fib: new Uint8Array(FIB_SIZEOF), fields: null, ioError: 0, turtle }
+  return {
+    scan: null,
+    scanType: 0,
+    fib: new Uint8Array(FIB_SIZEOF),
+    fields: null,
+    ioError: 0,
+    turtle,
+    fractal: newCraftFractal(),
+  }
 }
 
 /** AMOS error 23, "Illegal function call" — routine 206 */
@@ -831,6 +841,26 @@ export function makeCraftFunctions(rt: Runtime): Record<string, Func> {
     'tr pen state': () => VI(trFlag(rt.craft.turtle, TRF_PENUP) ? 0 : -1),
     /** =Tr Distance(x,y) — routine 121 ($2580) */
     'tr distance': (_, a) => VI(craftTrDistance(rt, trArgOf(rt, i0(a, 0), false), trArgOf(rt, i0(a, 1), false))),
+    /** =Fr X Position — routine 140 ($27da), which raises if none was set */
+    'fr x position': () => VI(frPlaced(rt).px),
+    /** =Fr Y Position — routine 141 ($27f2) */
+    'fr y position': () => VI(frPlaced(rt).py),
+    /**
+     * =Fr X Step — routine 145 ($285a). A step of zero has never been set and
+     * is CRAFT's error 2; the read is `move.w` into a zeroed register, so the
+     * $ffff the two-argument Fr Step can leave behind comes back as 65535.
+     */
+    'fr x step': () => VI(frStep(rt.craft.fractal.sx)),
+    /** =Fr Y Step — routine 146 ($286c) */
+    'fr y step': () => VI(frStep(rt.craft.fractal.sy)),
+    /** =Fr Get Colour(index) — routine 148 ($28a0) */
+    'fr get colour': (_, a) => {
+      const table = frColours(rt)
+      const index = i0(a, 0)
+      if ((index >>> 0) > 0x400) illegal()
+      return VI(table[index]!)
+    },
+
     /**
      * =Tr Base — routine 137 ($2784), `moveq #$2e,d3 / add.l $208(a5),d3`:
      * the workspace address plus $2e, which is where the flags byte sits.
@@ -1554,6 +1584,168 @@ export function makeCraftInstructions(rt: Runtime): Record<string, Instr> {
     'tr memorize y': () => craftTrMemorize(rt, true),
     /** Tr Memorize A — routine 136 ($276c) */
     'tr memorize a': () => craftTrMemorizeA(rt),
+    // ---- fractals ----
+
+    /**
+     * Fr Position x,y — routine 139 ($27a8). The plane coordinate of the
+     * window's TOP LEFT corner, in units of 1/8192, and both bounded to a
+     * signed word. It is also the only thing that sets the "position defined"
+     * flag the drawing instructions insist on.
+     */
+    'fr position'(it) {
+      const f = rt.craft.fractal
+      const x = frCoord(it.evalInt())
+      it.expect(',')
+      f.py = frCoord(it.evalInt())
+      f.px = x
+      f.placed = true
+    },
+
+    /**
+     * Fr Step xy / Fr Step [xstep],[ystep] — routines 143 and 142 ($2828,
+     * $280a).
+     *
+     * DEFECT: and it takes the whole two-argument form with it. Routine 142
+     * stores **d0** into the y step where it means d2, and d0 is the x
+     * argument.
+     * So `Fr Step 4,8` sets both steps to 4, and `Fr Step ,8` — where d0 is
+     * the -1 that means "x omitted" — sets the y step to $ffff, which is
+     * 65535 and sixty-four times the 1024 routine 144 just finished
+     * enforcing. Only the one-argument form, which sets both from one number
+     * on purpose, does what it says. That is presumably why the manual writes
+     * `Fr Step xy` first.
+     */
+    'fr step'(it) {
+      const f = rt.craft.fractal
+      const x = frStepArg(it)
+      if (!it.accept(',')) {
+        f.sx = x
+        f.sy = x
+        return
+      }
+      const y = frStepArg(it)
+      if (x >= 0) f.sx = x
+      if (y >= 0) f.sy = x & 0xffff
+    },
+
+    /**
+     * Fr Window screen / Fr Window [screen,]x,y,width,height — routines 151,
+     * 152 and 153 ($294a, $295c, $2974).
+     *
+     * The one-argument form pushes four omitted markers and falls into the
+     * five-argument one, so `Fr Window 2` is `Fr Window 2,,,,` and covers the
+     * whole of screen 2. The four-argument form has no screen number and uses
+     * the current one. "The x, y, width and height parameters are not checked
+     * until a Fr Julia or Fr Mandelbrot instruction is issued" — routine 161
+     * is where the clipping happens, and nothing here looks at them.
+     */
+    'fr window'(it) {
+      const first = frWinArg(it)
+      if (!it.accept(',')) {
+        if ((first >>> 0) >= 8) throw new AmosError(ED_RUN_MESSAGES[50]!, 50)
+        const s = rt.screens.get(first)
+        if (!s) throw new AmosError(ED_RUN_MESSAGES[47]!, 47)
+        frWindowFrom(rt, s, -1, -1, -1, -1)
+        rt.craft.fractal.screen = first
+        return
+      }
+      const a = frWinArg(it)
+      it.expect(',')
+      const b = frWinArg(it)
+      it.expect(',')
+      const c = frWinArg(it)
+      if (!it.accept(',')) {
+        // the four-argument form: x,y,width,height on the current screen
+        const s = craftScreen(rt)
+        frWindowFrom(rt, s, first, a, b, c)
+        rt.craft.fractal.screen = rt.currentIndex
+        return
+      }
+      const d = frWinArg(it)
+      if ((first >>> 0) >= 8) throw new AmosError(ED_RUN_MESSAGES[50]!, 50)
+      const s = rt.screens.get(first)
+      if (!s) throw new AmosError(ED_RUN_MESSAGES[47]!, 47)
+      frWindowFrom(rt, s, a, b, c, d)
+      rt.craft.fractal.screen = first
+    },
+
+    /**
+     * Fr Scan startline[,height] — routines 156 and 157 ($29f4, $2a08). The
+     * one-argument form draws ONE line: `move.w #$1,$2c(a1)`.
+     */
+    'fr scan'(it) {
+      const f = rt.craft.fractal
+      const start = frWinArg(it)
+      if (!it.accept(',')) {
+        f.scanFrom = start
+        f.scanLines = 1
+        return
+      }
+      const h = frWinArg(it)
+      if (h === 0) illegal()
+      const lines = h > 0 ? h : f.scanLines
+      if (start >= 0) f.scanFrom = start
+      f.scanLines = lines
+    },
+
+    /** Fr Scan All — routine 155 ($29e4): line 0 and 16384 of them */
+    'fr scan all'() {
+      const f = rt.craft.fractal
+      f.scanFrom = 0
+      f.scanLines = 0x4000
+    },
+
+    /**
+     * Fr Colour index,col — routine 147 ($287e). Index 0..1024 and colour
+     * 0..255; index zero is the colour of a point INSIDE the set.
+     */
+    'fr colour'(it) {
+      const table = frColours(rt)
+      const index = it.evalInt()
+      it.expect(',')
+      const col = it.evalInt()
+      if ((col >>> 0) > 0xff) illegal()
+      if ((index >>> 0) > 0x400) illegal()
+      table[index] = col
+    },
+
+    /**
+     * Fr Julia cr,ci,iterations — routine 159 ($2a4c). The constant is in the
+     * same 1/8192 units as the coordinates and the iteration limit is 1..1024.
+     */
+    'fr julia'(it) {
+      const cr = frCoord(it.evalInt())
+      it.expect(',')
+      const ci = frCoord(it.evalInt())
+      it.expect(',')
+      const n = it.evalInt()
+      if ((n >>> 0) > 0x400 || n === 0) illegal()
+      frRender(rt, n - 1, { cr, ci })
+    },
+
+    /**
+     * Fr Mandelbrot iterations — routine 160 ($2b8a), "identical to the Fr
+     * Julia instruction" except that c comes from the pixel.
+     *
+     * DEFECT: not quite identical. Julia guards its iteration count with
+     * `subq.w #$1,d0 / Rbcs`, which refuses only zero; this one uses `Rbls`,
+     * which is carry OR zero, so it refuses ONE as well. `Fr Mandelbrot 1` is
+     * error 23 where `Fr Julia 0,0,1` draws.
+     */
+    'fr mandelbrot'(it) {
+      const n = it.evalInt()
+      if ((n >>> 0) > 0x400 || n <= 1) illegal()
+      frRender(rt, n - 1, null)
+    },
+
+    /**
+     * Fr Reset — routine 138 ($278e): the window, the position flag and both
+     * steps go, the scan band goes back to everything, and the colour table
+     * is freed. The position VALUES are left where they are; only the flag
+     * that says they mean anything is cleared.
+     */
+    'fr reset': () => craftFrReset(rt),
+
     /** Tr Exec cmd$[,count] — routines 95 and 96 ($1a48, $1a7c) */
     'tr exec'(it) {
       const src = it.evalStr()
@@ -2792,4 +2984,297 @@ function craftTclRun(rt: Runtime, src: string): void {
   }
   trClrFlag(t, TRF_TCL)
   t.setInt32(TR.left, 0)
+}
+
+/*
+ * ---- the fractal generator ----
+ *
+ * A cursor over the complex plane and a renderer, sharing the same workspace
+ * the turtle uses and reaching it at lower offsets. Everything is 16-bit
+ * fixed point with 8192 as one — the manual says so for the coordinates ("the
+ * unit used is 1/8192", "by multiplying their real values by 8192") and the
+ * iteration confirms it: a product of two of them has 26 fractional bits, and
+ * `asl.l #3 / swap` is a multiply by eight and a shift down sixteen, which is
+ * a division by 8192.
+ *
+ * The escape test is `cmp.l #$10000000,d4` on that 26-bit product, and
+ * $10000000 over 2^26 is 4 — the standard |z|² ≥ 4.
+ */
+
+/** what the fractal half of the workspace holds; there is no Fr Base to publish it */
+export interface CraftFractal {
+  /** $e: the screen the window is on, or -1 for none */
+  screen: number
+  /** $10..$16: the window rectangle, unchecked until a set is drawn */
+  wx: number
+  wy: number
+  ww: number
+  wh: number
+  /** $18: whether Fr Position has ever run */
+  placed: boolean
+  /** $1a/$1c: the plane coordinate of the window's top left corner, in 1/8192 */
+  px: number
+  py: number
+  /** $1e/$20: the plane step between two pixels, 1..1024 */
+  sx: number
+  sy: number
+  /** $26: 1025 bytes, index 0..1024, allocated on first use and freed by Fr Reset */
+  colours: Uint8Array | null
+  /** $2a/$2c: the Fr Scan band, reset after every drawing instruction */
+  scanFrom: number
+  scanLines: number
+}
+
+export const newCraftFractal = (): CraftFractal => ({
+  screen: -1,
+  wx: 0,
+  wy: 0,
+  ww: 0,
+  wh: 0,
+  placed: false,
+  px: 0,
+  py: 0,
+  sx: 0,
+  sy: 0,
+  colours: null,
+  scanFrom: 0,
+  scanLines: 0x4000,
+})
+
+/** the escape radius squared, as routine 159 spells it: `movea.l #$10000000,a0` */
+export const FR_ESCAPE = 0x1000_0000
+
+/** one is 8192, so a product of two coordinates carries 26 fractional bits */
+export const FR_ONE = 8192
+
+const w16 = (v: number): number => (v << 16) >> 16
+const mul16 = (a: number, b: number): number => (w16(a) * w16(b)) | 0
+
+/**
+ * Routine 149 ($28ba) — the colour table, allocated on first use and seeded
+ * with a byte counter: index n gets colour n & 255. 1025 bytes, because the
+ * index runs 0..1024 and zero is "this point is in the set".
+ */
+function frColours(rt: Runtime): Uint8Array {
+  const f = rt.craft.fractal
+  if (f.colours === null) {
+    f.colours = new Uint8Array(1025).map((_, i) => i & 0xff)
+  }
+  return f.colours
+}
+
+/** routine 139's bound: a plane coordinate is a signed word */
+function frCoord(v: number): number {
+  if (v < -32768 || v > 32767) illegal()
+  return v
+}
+
+/** routines 140 and 141: the position, or CRAFT's "No fractal position defined" */
+function frPlaced(rt: Runtime): CraftFractal {
+  const f = rt.craft.fractal
+  if (!f.placed) craftError(1)
+  return f
+}
+
+/** routines 145 and 146: a step of zero is "No fractal step specified" */
+function frStep(v: number): number {
+  if ((v & 0xffff) === 0) craftError(2)
+  return v & 0xffff
+}
+
+/** Routine 138 ($278e), and the `defaults` hook: "automatically executed when an AMOS program is run" */
+export function craftFrReset(rt: Runtime): void {
+  const f = rt.craft.fractal
+  f.scanFrom = 0
+  f.scanLines = 0x4000
+  f.screen = -1
+  f.placed = false
+  f.sx = 0
+  f.sy = 0
+  f.colours = null
+}
+
+/**
+ * Routine 144 ($283a) — a step, which must be 1..1024. An omitted one comes
+ * back as -1 and the caller tests for it with `bmi`.
+ */
+function frStepArg(it: Interp): number {
+  if (it.atStmtEnd() || it.nm() === ',') return -1
+  const v = it.evalInt()
+  if ((v >>> 0) > 0x400 || (v & 0xffff) === 0) illegal()
+  return v
+}
+
+/**
+ * Routine 158 ($2a2c) — the window and scan arguments: omitted comes back as
+ * -1, everything else must be 0..16383, and the caller reads the sign to tell
+ * "not given" from "given as zero".
+ */
+function frWinArg(it: Interp): number {
+  if (it.atStmtEnd() || it.nm() === ',') return -1
+  const v = it.evalInt()
+  if ((v >>> 0) >= 0x4000) illegal()
+  return v
+}
+
+/**
+ * Routine 154 ($2994) — the four window numbers, popped last-first.
+ *
+ * "You don't have to specify every parameter, but the commas must remain. An
+ * omitted parameter is thought to mean 'as big as possible with the current
+ * screen size'": an omitted x or y is zero, and an omitted width or height is
+ * the screen's less the corner. The routine reaches back down its own
+ * argument stack for that corner — `sub.w $6(a3),d0` reads the low word of a
+ * value it has not popped yet — which is why an omitted y makes the height
+ * the whole screen rather than the whole screen less nothing.
+ */
+function frWindowFrom(rt: Runtime, s: Screen, x: number, y: number, w: number, h: number): void {
+  const f = rt.craft.fractal
+  f.screen = -1
+  if (h === 0 || w === 0) illegal()
+  f.wh = h > 0 ? h : w16(s.height - Math.max(y, 0))
+  f.ww = w > 0 ? w : w16(s.width - Math.max(x, 0))
+  f.wy = y > 0 ? y : 0
+  f.wx = x > 0 ? x : 0
+}
+
+/**
+ * Routine 161 ($2c8c) — everything a drawing instruction needs, or nothing.
+ *
+ * Three refusals first, and they are CRAFT's own messages rather than AMOS's:
+ * no window, no position, no step. Then the window is clipped against the
+ * screen's clipping rectangle and the Fr Scan band, and the plane coordinate
+ * of the first pixel is recomputed from whatever survived — so scanning a
+ * band in the middle of the picture draws the same pixels there that a whole
+ * one would.
+ *
+ * A screen with no bitplanes, or a band entirely off the window, answers Z
+ * set and the caller draws nothing at all rather than failing.
+ */
+interface FrPlan {
+  x0: number
+  y0: number
+  cols: number
+  rows: number
+  cr: number
+  ci: number
+}
+
+function frPlan(rt: Runtime): FrPlan | null {
+  const f = rt.craft.fractal
+  if (f.screen < 0) craftError(0)
+  if (!f.placed) craftError(1)
+  if (f.sx === 0 || f.sy === 0) craftError(2)
+  const s = rt.screens.get(f.screen)
+  if (!s) craftError(0)
+  // the clip rectangle AMOS keeps at $ee..$f4, which with no Set Clip is the
+  // whole screen; the two maxima are exclusive here, as the subtractions show
+  const cl = s.clip
+  const clx1 = cl ? cl.x1 : 0
+  const cly1 = cl ? cl.y1 : 0
+  const clx2 = cl ? cl.x2 + 1 : s.width
+  const cly2 = cl ? cl.y2 + 1 : s.height
+
+  let d5 = w16(f.wh - f.scanFrom)
+  if (d5 < 0) return null
+  if (d5 > f.scanLines) d5 = f.scanLines
+  let d4 = f.scanFrom
+  let d6 = f.wx
+  let d7 = f.ww
+  let d0 = w16(cly1 - f.wy)
+  if (d0 > 0) {
+    d0 = w16(d0 - d4)
+    if (d0 > 0) {
+      d4 = w16(d4 + d0)
+      d5 = w16(d5 - d0)
+      if (d5 <= 0) return null
+    }
+  }
+  d0 = w16(cly2 - w16(f.wy + d4))
+  if (d0 <= 0) return null
+  if (d0 < d5) d5 = d0
+  d0 = w16(clx1 - d6)
+  if (d0 > 0) {
+    d6 = w16(d6 + d0)
+    d7 = w16(d7 - d0)
+    if (d7 <= 0) return null
+  }
+  d0 = w16(clx2 - d6)
+  if (d0 <= 0) return null
+  if (d0 < d7) d7 = d0
+
+  // the plane coordinate of the first pixel that survived, `mulu.w` and a
+  // word add -- so a big scan offset times a big step wraps rather than
+  // saturating, exactly as it does on the machine
+  const ci = w16((d4 === 0 ? 0 : -(((d4 & 0xffff) * (f.sy & 0xffff)) | 0)) + f.py)
+  const dx = w16(d6 - f.wx)
+  const cr = w16((dx === 0 ? 0 : ((dx & 0xffff) * (f.sx & 0xffff)) | 0) + f.px)
+  return { x0: d6, y0: w16(f.wy + d4), cols: d7, rows: d5, cr, ci }
+}
+
+/**
+ * The escape-time iteration, routines 159 and 160 sharing one loop.
+ *
+ * Julia takes c from the keyword and z from the pixel; Mandelbrot takes both
+ * from the pixel, which is the whole difference between the two routines and
+ * the reason the Mandelbrot one is sixty bytes shorter. The answer is the
+ * iteration at which |z|² reached four, from 1, or ZERO for a point that
+ * never escaped — "as the iteration count starts from one, the index number
+ * zero has a special meaning".
+ */
+function frIterate(zr0: number, zi0: number, cr: number, ci: number, iterM1: number): number {
+  let zr = w16(zr0)
+  let zi = w16(zi0)
+  let zi2 = mul16(zi, zi)
+  let zrzi = mul16(zr, zi)
+  let zr2 = mul16(zr, zr)
+  let d4 = (zi2 + zr2) | 0
+  let d6 = iterM1
+  while (d4 < FR_ESCAPE) {
+    d6--
+    if (d6 < 0) return 0
+    // `sub.l a2,d2 / asl.l #3 / swap` and `asl.l #4 / swap`: the products
+    // carry 26 fractional bits and come back to 13
+    const nzr = w16((((zr2 - zi2) | 0) << 3) >> 16)
+    const nzi = w16((zrzi << 4) >> 16)
+    zr = w16(nzr + cr)
+    zi = w16(nzi + ci)
+    zi2 = mul16(zi, zi)
+    zrzi = mul16(zr, zi)
+    zr2 = mul16(zr, zr)
+    d4 = (zi2 + zr2) | 0
+  }
+  return iterM1 - d6 + 1
+}
+
+/**
+ * The pixel walk both drawing instructions share.
+ *
+ * The original writes the colour a bit at a time with `bset`/`bclr` across
+ * the screen's bitplanes, taking as many low bits of it as there are planes,
+ * which is the manual's "the colour number may be bigger than the screen mode
+ * would allow, because in such cases only the lower bits of the number are
+ * used". Masking to the depth is the same thing said in one line.
+ */
+function frRender(rt: Runtime, iterM1: number, julia: { cr: number; ci: number } | null): void {
+  const f = rt.craft.fractal
+  const table = frColours(rt)
+  const plan = frPlan(rt)
+  if (plan !== null) {
+    const s = rt.screens.get(f.screen)!
+    const mask = (1 << s.depth) - 1
+    let ci = plan.ci
+    for (let row = 0; row < plan.rows; row++) {
+      let cr = plan.cr
+      for (let col = 0; col < plan.cols; col++) {
+        const n = julia === null ? frIterate(cr, ci, cr, ci, iterM1) : frIterate(cr, ci, julia.cr, julia.ci, iterM1)
+        s.plot(plan.x0 + col, plan.y0 + row, table[n]! & mask)
+        cr = w16(cr + f.sx)
+      }
+      ci = w16(ci - f.sy)
+    }
+  }
+  // "the scan area is always reset after a fractal drawing instruction"
+  f.scanFrom = 0
+  f.scanLines = 0x4000
 }

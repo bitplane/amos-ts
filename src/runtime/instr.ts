@@ -18,7 +18,15 @@ import { makeColoursFunctions } from './colours'
 import { makeMiscExtInstructions, newMiscExtState } from './miscext'
 import { makePlibFunctions } from './plib'
 import { makeDumpFunctions, newDumpState } from './dump'
-import { CRAFT_ERRORS, craftForget, craftTrReset, makeCraftFunctions, makeCraftInstructions, newCraftState } from './craft'
+import {
+  CRAFT_ERRORS,
+  craftForget,
+  craftFrReset,
+  craftTrReset,
+  makeCraftFunctions,
+  makeCraftInstructions,
+  newCraftState,
+} from './craft'
 import { ERCOLE_ERRORS, makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
 import { EASYLIFE_ERRORS, makeEasyLifeFunctions, makeEasyLifeInstructions, newEasyLifeState } from './easylife'
 import { FILEID_ERRORS, makeFileIdFunctions, newFileIdState } from './fileid'
@@ -5813,6 +5821,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     defaults: (rt) => {
       craftForget(rt)
       craftTrReset(rt)
+      craftFrReset(rt)
     },
     functions: makeCraftFunctions,
     instructions: makeCraftInstructions,
