@@ -149,6 +149,47 @@
  * 256 wide — and the sum leaves out the last character, so `"secret"` and
  * `"secreX"` unlock the same bank.
  *
+ * ## GMS
+ *
+ * Every keyword still missing is a GMS one, and GMS is the part of this
+ * extension that cannot be read the way ptreplay and stc were:
+ * `dpkernel.library` is not in the corpus and not on the machine that had the
+ * other two, so the callee does not exist to disassemble. What there is, is
+ * the call sites, and `G Init Gms` (routine 90, $2f36) lays the whole thing
+ * out.
+ *
+ * It opens `OpenLibrary("GMS:libs/dpkernel.library", 2)` — the name at block
+ * +$112, and version 2 is demanded — into block +$12c, and sets the word at
+ * +$d4 to 1 to remember that it was this that opened it. There is a second
+ * way in at $2fe2 for a TGE running inside a GMS program already: `cmpi.w
+ * #$12,(a0)` on a structure the caller left in a0 and the base is taken from
+ * its +$60 instead, leaving +$d4 zero. A failure is `moveq #$4,d0` into
+ * routine 151, message 4.
+ *
+ * Then it calls dpkernel's `-$54` five times — a module opener, `d0` a module
+ * number and `a0` a name or NULL — and keeps both the handle and, from the
+ * handle's own +$e, that module's function base:
+ *
+ *     d0 = 3            handle +$fe    base +$ea    the display module
+ *     d0 = 1            handle +$fa    base +$e6    the drawing module
+ *     d0 = 2            handle +$f6    base +$e2    never called
+ *     d0 = $11          handle +$102   base +$ee
+ *     d0 = 0, "pcx.mod" handle +$106   base +$f2    the PCX loader
+ *
+ * `-$150` is the matching close, and `G Close Gms` (routine 119) calls it on
+ * all five and on the input structure at +$b2e before `jsr -$30(a6)`. Last,
+ * `-$14a(a6)` with d0 = 1 answers the input structure that batch 2 found at
+ * +$b2e, and `-$5a` initialises it.
+ *
+ * Two defects to carry into those batches. `G Close Gms` calls `-$30` — the
+ * shutdown — without testing +$d4, which routine 90's own teardown at $30d6
+ * does test, so a TGE that inherited GMS from its host shuts the host's GMS
+ * down. And `G Load Pcx` (routine 117) is `lea $f2(a3),a6 / jsr -$6(a6)`:
+ * `lea`, not `movea.l`, so it does not call the PCX module at all — it
+ * computes `block + $f2 - 6` and JUMPS THERE, into the middle of its own base
+ * table. Routine 112 does the same call correctly with `movea.l $ee(a3),a6`,
+ * which is what makes it a typo rather than a convention.
+ *
  * ## The extension's own error table
  *
  * Routine 151 ($41a6) is the error reporter, and it ends `Rjmp L_ErrorExt` on
