@@ -500,6 +500,18 @@ describe('CRAFT 1.0 — the file queries (routines 50..54)', () => {
     expect(rt.craft.ioError).toBe(205)
   })
 
+  it('Disc Error reports the AmigaDOS code, not the AMOS one', () => {
+    /*
+     * Routine 212 stores IoErr before it maps the code through the table at
+     * $32e8, and routine 58 hands back the stored one. 205 is
+     * ERROR_OBJECT_NOT_FOUND, which the map turns into AMOS's error 23 --
+     * two different numbers for one failure, and this is the keyword that
+     * sees the AmigaDOS half.
+     */
+    const b = withFS('E=0\nOn Error Goto SKIP\nA=File Length("RAM:nope.txt")\nSKIP:\nPrint Disc Error')
+    expect(b.out().trim()).toBe('205')
+  })
+
   it('Set Comment refuses a note past the 79 the FileNote holds', () => {
     expect(() => withFS(`Set Comment "RAM:notes.txt",String$("x",80)`)).toThrow(/Illegal function call/)
     expect(() => withFS(`Set Comment "RAM:notes.txt",String$("x",79)`)).not.toThrow()
@@ -522,6 +534,16 @@ describe('CRAFT 1.0 — the directory scanner (routines 59..67)', () => {
     const b = withFS('A$=Dr Name$("RAM:Docs")\nB$=Dr Next$\nPrint B$;Dr Length;Dr Type<0')
     // a.txt is 3 bytes and is a file, so Dr Type is negative
     expect(b.out().trim()).toBe('a.txt 3-1')
+  })
+
+  it('Dr Comment$ and Dr Protect read the same block as the rest', () => {
+    // fib_Comment and fib_Protection out of the one FileInfoBlock, so they
+    // answer for whatever Dr Next$ left there
+    const b = withFS(
+      'Set Comment "RAM:Docs/a.txt","first"\nSet Protect "RAM:Docs/a.txt",5\n' +
+        'A$=Dr Name$("RAM:Docs")\nRepeat \nB$=Dr Next$\nUntil B$="a.txt" or B$=""\nPrint Dr Comment$;Dr Protect',
+    )
+    expect(b.out().trim()).toBe('first 5')
   })
 
   it('DEFECT-adjacent: reading past the end is an error, because the block is freed', () => {
@@ -561,5 +583,280 @@ describe('CRAFT 1.0 — the directory scanner (routines 59..67)', () => {
   it('Dr Fib is the address the region publishes', () => {
     const b = withFS('A$=Dr Name$("RAM:Docs")\nPrint Dr Fib')
     expect(Number(b.out().trim())).toBe(Runtime.CRAFT_FIB_BASE)
+  })
+})
+
+describe('CRAFT 1.0 — the colour guns (routines 68..75)', () => {
+  it('Pal Red/Green/Blue slice the nibbles out of a colour register', () => {
+    expect(val('Pal Red(1);Pal Green(1);Pal Blue(1)', 'Colour 1,$C5A\n')).toBe('12 5 10')
+  })
+
+  it('Set Red/Green/Blue change one nibble and leave the other two', () => {
+    expect(val('Colour(3)', 'Colour 3,$123\nSet Red 3,15\n')).toBe(String(0xf23))
+    expect(val('Colour(3)', 'Colour 3,$123\nSet Green 3,15\n')).toBe(String(0x1f3))
+    expect(val('Colour(3)', 'Colour 3,$123\nSet Blue 3,15\n')).toBe(String(0x12f))
+  })
+
+  it('the setters clamp instead of erroring, exactly as the manual promises', () => {
+    // "you don't have to worry whether the value is too big or too small
+    // because these instructions automatically convert them (x>15 => x=15 and
+    // x<0 => x=0)"
+    expect(val('Colour(3)', 'Colour 3,$000\nSet Red 3,99\n')).toBe(String(0xf00))
+    expect(val('Colour(3)', 'Colour 3,$FFF\nSet Red 3,-99\n')).toBe(String(0x0ff))
+  })
+
+  it('a NEGATIVE argument is a colour VALUE, not a register', () => {
+    /*
+     * Routine 74 peeks the high word with `tst.w (a3)`, and a negative
+     * argument is popped, negated and handed straight back for the caller to
+     * slice: "if it's negative, the function returns a value which is
+     * calculated by taking the current component out of the absolute value of
+     * the parameter, which is considered a colour value". No screen register
+     * is read at all.
+     */
+    expect(val('Pal Red(-$F0A);Pal Green(-$F0A);Pal Blue(-$F0A)')).toBe('15 0 10')
+  })
+
+  it('UNDOCUMENTED: registers 32..63 read the half-brite value of register n-32', () => {
+    /*
+     * `btst #5,d2` on the colour number, then `lsr.w #1 / andi.w #$777`. The
+     * manual's only trace of this is the parenthesis "(0-63)" under Pal Red,
+     * and the test is on the NUMBER rather than on the screen -- a 16-colour
+     * screen answers the halved value just the same, because nothing here
+     * asks whether Extra Half Brite is switched on.
+     */
+    expect(val('Pal Red(33);Pal Green(33);Pal Blue(33)', 'Colour 1,$E85\n')).toBe('7 4 2')
+    // the mask is applied AFTER the shift, so the bottom bit of each nibble
+    // falls into the next one down and is then cut away
+    expect(val('Pal Blue(33)', 'Colour 1,$011\n')).toBe('0')
+  })
+
+  it("DEFECT: the setter's bound is 32 where the getter's is 64", () => {
+    // routine 74 is `cmpi.w #$40,d1`, routine 75 `moveq #$20,d0 / cmp.l d0,d3`
+    expect(val('Pal Red(40)', 'Colour 8,$F00\n')).toBe('7')
+    expect(() => run('Set Red 40,15')).toThrow(/Illegal function call/)
+    expect(() => run('Print Pal Red(64)')).toThrow(/Illegal function call/)
+  })
+
+  it('every one of the six wants a screen open', () => {
+    expect(() => run('Screen Close 0\nPrint Pal Red(0)')).toThrow(/Screen not opened/)
+    expect(() => run('Screen Close 0\nSet Red 0,1')).toThrow(/Screen not opened/)
+  })
+})
+
+describe('CRAFT 1.0 — the register keywords (routines 76..78)', () => {
+  it('Pal Copy takes col1 to col2, one way only', () => {
+    expect(val('Colour(1);Colour(2)', 'Colour 1,$ABC\nColour 2,$123\nPal Copy 1 To 2\n')).toBe('2748 2748')
+    expect(val('Colour(1);Colour(2)', 'Colour 1,$ABC\nColour 2,$123\nPal Copy 2 To 1\n')).toBe('291 291')
+  })
+
+  it('Pal Swap exchanges two registers', () => {
+    expect(val('Colour(1);Colour(2)', 'Colour 1,$ABC\nColour 2,$123\nPal Swap 1,2\n')).toBe('291 2748')
+  })
+
+  it('Pal Spread ramps the registers between its two ends', () => {
+    /*
+     * $000 to $FFF over four steps is $444, $777, $BBB -- and the middle one
+     * is the arithmetic showing through. Each component runs in an
+     * accumulator with eight fractional bits and a bias of +127 added once,
+     * where rounding would want +128; the step here is exactly 960, so the
+     * halfway value is 2047 and its nibble is 7 rather than the 8 one unit of
+     * bias more would have given.
+     */
+    const pre = 'Colour 0,$000\nColour 4,$FFF\nPal Spread 0 To 4\n'
+    expect(val('Colour(1);Colour(2);Colour(3)', pre)).toBe(`${0x444} ${0x777} ${0xbbb}`)
+  })
+
+  it('Pal Spread sorts its ends, so the ramp always runs low to high', () => {
+    /*
+     * `sub.w d0,d1 / bcc / neg.w d1 / sub.w d1,d0` leaves the LOWER register
+     * in d0 whichever way round the caller wrote them, and the ramp then runs
+     * from the value AT the low register towards the value at the high one.
+     * Writing it backwards does not reverse the gradient.
+     */
+    const up = 'Colour 0,$000\nColour 4,$FFF\nPal Spread 0 To 4\n'
+    const down = 'Colour 0,$000\nColour 4,$FFF\nPal Spread 4 To 0\n'
+    expect(val('Colour(1);Colour(3)', up)).toBe(val('Colour(1);Colour(3)', down))
+  })
+
+  it('Pal Spread rewrites its far end, harmlessly, and touches nothing outside', () => {
+    /*
+     * The loop runs `distance` times starting at the low register's
+     * neighbour, so its LAST write lands on col2 itself rather than stopping
+     * short of it. That is invisible, and provably so: the accumulated value
+     * is `target + 127 - r` where r is the truncated remainder, r is at most
+     * distance-1 and distance is at most 31, so 127 - r never borrows out of
+     * the nibble. col2 is rewritten with exactly what it held.
+     *
+     * Outside col1..col2 nothing is written at all -- the buffer starts as 32
+     * words of the $FFFF marker and only the run is filled in.
+     */
+    const b = run('Colour 0,$000\nColour 7,$FFF\nColour 9,$789\nPal Spread 0 To 7\nPrint Colour(7);Colour(9)')
+    expect(b.out().trim()).toBe(`${0xfff} ${0x789}`)
+  })
+
+  it('Pal Spread does nothing at all for adjacent or equal registers', () => {
+    // `beq` on the difference, then `cmpi.w #1,d1 / bne`
+    expect(val('Colour(4)', 'Colour 3,$000\nColour 4,$FFF\nPal Spread 3 To 4\n')).toBe(String(0xfff))
+    expect(val('Colour(3)', 'Colour 3,$ABC\nPal Spread 3 To 3\n')).toBe(String(0xabc))
+  })
+
+  it('all three refuse a register of 32 or more', () => {
+    expect(() => run('Pal Copy 0 To 32')).toThrow(/Illegal function call/)
+    expect(() => run('Pal Swap 32,0')).toThrow(/Illegal function call/)
+    expect(() => run('Pal Spread 0 To 32')).toThrow(/Illegal function call/)
+  })
+})
+
+describe('CRAFT 1.0 — palette banks (routines 79..94)', () => {
+  it('Reserve As Palette makes a bank of the size the record layout implies', () => {
+    // 8 bytes of name and 64 per palette, so three palettes is 200 on the
+    // machine -- this port keeps the name beside the data, so Length is 192
+    const b = run('Reserve As Palette 5,3\nPrint Length(5);Pal Count(5)')
+    expect(b.out().trim()).toBe('192 3')
+  })
+
+  it('Pal Count answers zero for a bank that is not there', () => {
+    // "If the bank is empty a value of zero is returned" -- d2 = 3 is the one
+    // mode routine 94 lets past its `tst.w d2 / Rbeq routine 209`
+    expect(val('Pal Count(9)')).toBe('0')
+  })
+
+  it('Pal To Bank and Pal From Bank carry a palette out and back', () => {
+    const b = run(
+      'Reserve As Palette 5,2\nColour 1,$ABC\nPal To Bank 5,2\n' +
+        'Colour 1,$000\nPal From Bank 5,2\nPrint Colour(1)',
+    )
+    expect(b.out().trim()).toBe(String(0xabc))
+  })
+
+  it('the one-argument Pal To Bank creates a one-palette bank', () => {
+    // routine 81: `moveq #1,d0 / move.l d0,-(a3) / moveq #1,d2`
+    const b = run('Colour 1,$ABC\nPal To Bank 7\nPrint Length(7);Pal Count(7);Bank Colour(7,1,1)')
+    expect(b.out().trim()).toBe(`64 1 ${0xabc}`)
+  })
+
+  it('QUIRK: only the three-argument form creates a bank when n is left out', () => {
+    /*
+     * Routine 83 alone tests the stacked palette against $80000000, AMOS's
+     * omitted-parameter marker, and sets d2 = 1 when it finds it. Routine 82,
+     * the two-argument trampoline, does not look -- so the same omission
+     * reserves a bank in one form and is error 36 in the other.
+     */
+    expect(() => run('Pal To Bank 6,,-1')).not.toThrow()
+    expect(() => run('Pal To Bank 6,')).toThrow(/Bank not reserved/)
+  })
+
+  it('a mask writes ABSENCE over what it excludes, rather than skipping it', () => {
+    /*
+     * Routine 84 stores $FFFF where the mask bit is clear, and $FFFF is the
+     * marker AMOS's own palette routine passes over. So a second Pal To Bank
+     * with a narrower mask does not leave the first one's colours behind: it
+     * deletes them, and =Bank Colour answers -1 for what is gone.
+     */
+    const b = run(
+      'Reserve As Palette 5,1\nColour 1,$111\nColour 2,$222\nPal To Bank 5,1,%110\n' +
+        'Pal To Bank 5,1,%10\nPrint Bank Colour(5,1,1);Bank Colour(5,1,2)',
+    )
+    expect(b.out().trim()).toBe(`${0x111}-1`)
+  })
+
+  it('an absent colour is left unchanged on the way back in', () => {
+    // "if you use Pal From Bank or Pal Swap Bank, the colour index whose
+    // representative is deleted from a bank, won't be changed"
+    const b = run(
+      'Colour 1,$111\nColour 2,$222\nPal To Bank 5\nDel Bank Colour 5,1,2\n' +
+        'Colour 1,$000\nColour 2,$999\nPal From Bank 5\nPrint Colour(1);Colour(2)',
+    )
+    expect(b.out().trim()).toBe(`${0x111} ${0x999}`)
+  })
+
+  it('Pal Swap Bank really swaps, in both directions at once', () => {
+    const b = run(
+      'Colour 1,$111\nPal To Bank 5\nColour 1,$222\nPal Swap Bank 5\n' +
+        'Print Colour(1);Bank Colour(5,1,1)',
+    )
+    expect(b.out().trim()).toBe(`${0x111} ${0x222}`)
+  })
+
+  it('DEFECT: a masked Pal Swap Bank erases the bank colours it did not swap', () => {
+    /*
+     * Routine 90's return leg is the same masked copy as its outward one, so
+     * the bank's excluded slots are written with $FFFF rather than left
+     * alone. The manual claims only that the mask "limits the colours
+     * transferred from the bank"; nothing warns that the ones it does not
+     * transfer are destroyed.
+     */
+    const b = run(
+      'Colour 1,$111\nColour 2,$222\nPal To Bank 5\nPal Swap Bank 5,1,%10\n' +
+        'Print Bank Colour(5,1,1);Bank Colour(5,1,2)',
+    )
+    expect(b.out().trim()).toBe(`${0x111}-1`)
+  })
+
+  it('Set Bank Colour writes one slot, and -1 alone deletes it', () => {
+    /*
+     * `moveq #$ff,d0 / cmp.l d0,d7 / beq` -- the comparison is against minus
+     * one as a LONGWORD and only that exact value skips the `andi.w #$fff`.
+     * So -1 is Del Bank Colour by another name and -2 is an ordinary $ffe.
+     */
+    const b = run(
+      'Reserve As Palette 5,1\nSet Bank Colour 5,1,3,$ABC\nSet Bank Colour 5,1,4,-1\n' +
+        'Set Bank Colour 5,1,5,-2\nPrint Bank Colour(5,1,3);Bank Colour(5,1,4);Bank Colour(5,1,5)',
+    )
+    expect(b.out().trim()).toBe(`${0xabc}-1 ${0xffe}`)
+  })
+
+  it('the palette number may be written as nothing, and means the first', () => {
+    /*
+     * "If you omit the parameter n, the instruction will affect the first
+     * palette stored in the bank" -- routine 94 turns the $80000000 marker
+     * into 1 for every keyword in the group, not just Set Bank Colour. Read
+     * back through the FUNCTION with the palette spelled out, because an
+     * elided function argument reaches this port as -1 and cannot be told
+     * apart from one the caller wrote.
+     */
+    const b = run('Reserve As Palette 5,2\nSet Bank Colour 5,,3,$ABC\nDel Bank Colour 5,,4\n' +
+      'Print Bank Colour(5,1,3);Bank Colour(5,1,4)')
+    expect(b.out().trim()).toBe(`${0xabc}-1`)
+  })
+
+  it('a reserved bank that is not a palette bank is CRAFT own error', () => {
+    /*
+     * Routine 94 compares the bank's first eight bytes against "Palettes"
+     * before it judges the length, and routine 216 is `moveq #3,d0 / Rbra
+     * routine 218` -- index 3 of the message table at $334c.
+     */
+    expect(() => run('Reserve As Work 5,4096\nPal To Bank 5,1')).toThrow(/Not a palette bank/)
+    expect(() => run('Reserve As Work 5,4096\nPrint Pal Count(5)')).toThrow(/Not a palette bank/)
+    // and the name check comes FIRST: a too-short bank still reports this
+    expect(() => run('Reserve As Work 5,8\nPal To Bank 5,1')).toThrow(/Not a palette bank/)
+  })
+
+  it('Reserve As Palette refuses a bank that is already there', () => {
+    // d2 = 2 is checked before the name is, so it never reports on contents
+    expect(() => run('Reserve As Palette 5,1\nReserve As Palette 5,1')).toThrow(/Bank already reserved/)
+    expect(() => run('Reserve As Work 5,64\nReserve As Palette 5,1')).toThrow(/Bank already reserved/)
+  })
+
+  it('asking for a palette the bank does not hold is error 36', () => {
+    // `cmp.l d0,d3 / bls` against `length - 72`, then `tst.w d2 / Rbmi 209`
+    expect(() => run('Reserve As Palette 5,2\nPal To Bank 5,3')).toThrow(/Bank not reserved/)
+    expect(() => run('Reserve As Palette 5,2\nPal From Bank 5,2')).not.toThrow()
+  })
+
+  it('the bank number is 1..16 and the colour index 0..31', () => {
+    expect(() => run('Pal To Bank 0')).toThrow(/Illegal function call/)
+    expect(() => run('Pal To Bank 17')).toThrow(/Illegal function call/)
+    expect(() => run('Reserve As Palette 5,1\nSet Bank Colour 5,1,32,0')).toThrow(/Illegal function call/)
+    expect(() => run('Reserve As Palette 5,1\nPrint Bank Colour(5,1,32)')).toThrow(/Illegal function call/)
+  })
+
+  it('a palette bank is a Data bank, so Erase Temp spares it', () => {
+    // routine 94 allocates with `bset #31,d1` on the length, which is
+    // Bnk_BitData -- the same bit Reserve As Data sets and Reserve As Work
+    // leaves clear
+    const b = run('Reserve As Palette 5,1\nReserve As Work 6,64\nErase Temp\nPrint Pal Count(5);Length(6)')
+    expect(b.out().trim()).toBe('1 0')
   })
 })

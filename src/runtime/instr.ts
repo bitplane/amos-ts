@@ -18,7 +18,7 @@ import { makeColoursFunctions } from './colours'
 import { makeMiscExtInstructions, newMiscExtState } from './miscext'
 import { makePlibFunctions } from './plib'
 import { makeDumpFunctions, newDumpState } from './dump'
-import { craftForget, makeCraftFunctions, makeCraftInstructions, newCraftState } from './craft'
+import { CRAFT_ERRORS, craftForget, makeCraftFunctions, makeCraftInstructions, newCraftState } from './craft'
 import { ERCOLE_ERRORS, makeErcoleFunctions, makeErcoleInstructions, newErcoleState } from './ercole'
 import { EASYLIFE_ERRORS, makeEasyLifeFunctions, makeEasyLifeInstructions, newEasyLifeState } from './easylife'
 import { FILEID_ERRORS, makeFileIdFunctions, newFileIdState } from './fileid'
@@ -5812,13 +5812,21 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     defaults: craftForget,
     functions: makeCraftFunctions,
     instructions: makeCraftInstructions,
-    // Nothing here is qualified. `contested` puts CRAFT against another table
-    // on exactly four names -- `amos pri` with TURBO Plus, `open workbench`
-    // and `pal spread` with AMCAF, `set protect` with EasyLife -- and all
-    // four belong to batches still to come. None of this batch's fifteen is
-    // claimed by anything else, and qualifying a name that does not collide
-    // moves it out of reach: it is what made `Mem Type` parse as a
-    // zero-argument function and print its own argument beside it.
+    errors: CRAFT_ERRORS,
+    /*
+     * `contested` puts CRAFT against another table on exactly four names --
+     * `amos pri` with TURBO Plus, `open workbench` and `pal spread` with
+     * AMCAF, `set protect` with EasyLife. Only `pal spread` is live: AMCAF
+     * already qualifies it from its side, and the two are different keywords
+     * that happen to share a spelling -- "I0,0t0,0" against "I0t0", two colour
+     * VALUES against two colour REGISTERS. The other three arrive with the
+     * batches that implement them.
+     *
+     * Nothing else is listed, and that is deliberate: qualifying a name that
+     * does not collide moves it out of reach. It is what made `Mem Type` parse
+     * as a zero-argument function and print its own argument beside it.
+     */
+    qualified: ['pal spread'],
   },
   {
     // Jotre 1.0 at slot 22 --- Thomas Verduin's five-keyword shim over an

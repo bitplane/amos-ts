@@ -2383,6 +2383,28 @@ export const FAITHFUL = new Set<string>([
   'dr type',
   'dr fib',
   'dr forget',
+  // Batch 5: the palette group. Six colour guns over the current screen and
+  // eleven keywords over a palette bank, whose record layout -- "Palettes",
+  // then 32 words per palette with $FFFF for an absent colour -- is in no
+  // documentation and comes off routines 84 and 94. `pal spread` is
+  // slot-qualified: AMCAF spells the name too, over different parameters.
+  'set red',
+  'set green',
+  'set blue',
+  'pal red',
+  'pal green',
+  'pal blue',
+  'pal spread',
+  'pal swap',
+  'pal copy',
+  'pal count',
+  'reserve as palette',
+  'pal to bank',
+  'pal from bank',
+  'pal swap bank',
+  'set bank colour',
+  'bank colour',
+  'del bank colour',
   // --- Range 2.6 / 2.9Plus, slot 9: Shadow Software's AMOS Club extension.
   // One port for both builds; five slot-qualified names. Slice 1 --- the
   // self-contained half. See range.ts.
@@ -3108,6 +3130,85 @@ export const NOTES: Record<string, string> = {
     "the reader to an appendix of offsets and expects them to Peek it. Runtime.CRAFT_FIB_BASE is where it lands, " +
     "and ../amiga/dos.ts's fibBytes lays the 260 bytes out. fib_DiskKey stays zero, being a real filesystem's " +
     "block number and not this one's.",
+  "pal red":
+    "Routine 68 ($161e) over the shared getter, routine 74 ($1652), then bits 8-11. Routine 74 does two things " +
+    "beyond returning a register. A NEGATIVE argument is a colour VALUE rather than a number -- `tst.w (a3) / " +
+    "bpl` peeks the stacked high word, and a negative one is popped, negated and handed straight back, which " +
+    "is the manual's \"if it's negative, the function returns a value which is calculated by taking the current " +
+    "component out of the absolute value of the parameter\". And the bound is SIXTY-FOUR: `cmpi.w #$40,d1`, " +
+    "then `andi.w #$1f` with `btst #5,d2` on the original, so colours 32..63 read register n-32 through " +
+    "`lsr.w #1 / andi.w #$777`. That is Extra Half Brite, the manual's only trace of it is the parenthesis " +
+    "\"(0-63)\", and the test is on the NUMBER and not on the screen -- a 16-colour screen answers the halved " +
+    "value just the same.",
+  "pal green": "Routine 70 ($1630): routine 74, then bits 4-7. See `pal red` for what routine 74 does.",
+  "pal blue": "Routine 72 ($1642): routine 74, then bits 0-3. See `pal red` for what routine 74 does.",
+  "set red":
+    "Routine 69 ($162a), `moveq #8,d4 / Rbra routine 75` -- d4 is the shift and routine 75 ($1692) is the whole " +
+    "setter. It clamps as promised (\"x>15 => x=15 and x<0 => x=0\"), reads the register, replaces one nibble " +
+    "and writes it back. DEFECT: its bound is not the getter's. Routine 74 admits 0..63 and reads the upper " +
+    "half through the half-brite shift; this one is `moveq #$20,d0 / cmp.l d0,d3 / Rbcc routine 206`, so " +
+    "THIRTY-TWO. `Set Red 40,15` is error 23 while `Pal Red(40)` answers happily.",
+  "set green": "Routine 71 ($163c), `moveq #4,d4` into routine 75. See `set red` for the bound.",
+  "set blue": "Routine 73 ($164c), `moveq #0,d4` into routine 75. See `set red` for the bound.",
+  "pal copy":
+    "Routine 78 ($1804): read col1, write col2, through AMOS's own colour get and set at $34 and $38 off the " +
+    "jump table at $fff8(a5). \"Note that this instruction should not be used with flashing colours\", which is " +
+    "true of the whole group -- none of them touch the Flash table, so the next flash step overwrites them.",
+  "pal swap": "Routine 77 ($17bc): two gets, then two sets crossed over. Both registers are bounded at 32.",
+  "pal spread":
+    "The name is CONTESTED and this note covers both. AMCAF 1.40/1.50 has routine 334 ($736a); CRAFT 1.0 has " +
+    "routine 76 ($16d4), and they are different keywords that happen to share a spelling -- the parameter " +
+    "lists are \"I0,0t0,0\" against \"I0t0\", AMCAF's taking two colour VALUES and CRAFT's two colour " +
+    "REGISTERS whose current contents are the ends of the ramp. Both ports qualify it, so a program gets the " +
+    "one at the slot it bound. The rest of this note is CRAFT's. Four " +
+    "things the prose leaves out. The ends are SORTED (`sub.w d0,d1 / bcc / neg.w d1 / sub.w d1,d0`), so `Pal " +
+    "Spread 7 To 2` fills the same registers as `Pal Spread 2 To 7`. Adjacent or equal registers do nothing. " +
+    "Each component runs in an accumulator holding the nibble at bits 8-11 over eight fractional bits, with a " +
+    "bias of +127 added once where rounding would want +128 -- so an exact halfway value rounds DOWN, and " +
+    "$000 to $FFF over four steps is $444, $777, $BBB rather than $444, $888, $BBB. And the loop's last write " +
+    "lands on col2 itself; that is harmless, because the accumulated value is `target + 127 - r` for a " +
+    "truncated remainder r under the distance, and the distance cannot exceed 31.",
+  "reserve as palette":
+    "Routine 79 ($1834), `moveq #2,d2 / Rbra routine 94` -- the resolver does the work. It allocates 72 + " +
+    "64*(n-1) bytes and stamps \"Palettes\" over the first eight, and `bset #31,d1` on the length is " +
+    "Bnk_BitData, so a palette bank survives Erase Temp like a Reserve As Data one. An existing bank is error " +
+    "35 and that check comes before the name is looked at, so it never reports on a bank's contents.",
+  "pal count":
+    "Routine 80 ($183a): stack palette 1, `moveq #3,d2 / Rbsr routine 94`, answer d4. The count is `((length - " +
+    "72) >> 6) + 1`. An unreserved bank answers 0 rather than raising -- \"if the bank is empty a value of zero " +
+    "is returned\" -- but a bank that is reserved and is NOT a palette bank still raises, because routine 94 " +
+    "compares the name before it looks at what the caller asked for.",
+  "pal to bank":
+    "Routines 81, 82 and 83 ($184a, $1856, $185e) onto the worker at routine 84 ($1870), which is where the " +
+    "record layout is: \"Palettes\", then 32 words per palette, and a word of $FFFF meaning ABSENT rather than " +
+    "black. It is the same $FFFF core AMOS's PalRout passes over, which is what lets a masked palette be " +
+    "installed by handing over all 32 words. So \"the mask limits the colours transferred to the bank\" by " +
+    "WRITING an absence, not by leaving the slot alone: a second Pal To Bank over the same palette with a " +
+    "narrower mask deletes what the first one put there. QUIRK: routine 83 alone tests the stacked palette " +
+    "against $80000000, AMOS's omitted-parameter marker, and sets d2 = 1 when it finds it -- so `Pal To Bank " +
+    "5,,-1` reserves a bank where `Pal To Bank 5,` is error 36.",
+  "pal from bank":
+    "Routines 85, 86 and 87 ($1892, $189a, $18aa). d2 = 0 in all three, so this family never creates a bank: " +
+    "\"if there is no bank b or it doesn't have enough palettes, an error will be given\". The two-argument " +
+    "form hands the bank's own 64 bytes straight to AMOS, markers and all, which is \"the colour index whose " +
+    "representative is deleted from a bank, won't be changed\"; the three-argument one ANDs the caller's mask " +
+    "on top by writing $FFFF over what it excludes.",
+  "pal swap bank":
+    "Routines 88, 89 and 90 ($18d8, $18e0, $18e8). Routine 90 makes two masked copies in the work area at " +
+    "$4c6(a5) before it writes anything, which is what makes it a swap rather than two overwrites, and it " +
+    "spells its mask walk `ror.l #1,d7` rather than `lsr.l` so d7 survives all three passes. DEFECT: the copy " +
+    "going BACK into the bank is masked the same way as the one coming out, so a partial mask does not " +
+    "preserve the bank's other colours -- it ERASES them to $FFFF. The manual claims only that the mask " +
+    "\"limits the colours transferred from the bank\" and says nothing about the return leg.",
+  "set bank colour":
+    "Routine 91 ($192c). `moveq #$ff,d0 / cmp.l d0,d7 / beq` -- the value is compared against MINUS ONE as a " +
+    "longword before it is masked, and only that exact value skips the `andi.w #$fff`. So -1 writes the " +
+    "absence marker and is Del Bank Colour by another name, while -2 is masked to $ffe and is an ordinary " +
+    "near-white.",
+  "bank colour":
+    "Routine 92 ($1950): `ext.l d3` on the stored word, so the $FFFF a deleted colour leaves behind comes back " +
+    "as -1 -- \"if there is no colour available, a value of -1 is returned\".",
+  "del bank colour": "Routine 93 ($196c): the $FFFF marker, written over one slot.",
   "dr forget":
     "Routine 66 ($15ae): `moveq #-1,d0 / Rbra routine 67`, which frees the whole scan block, FileInfoBlock " +
     "included -- so the accessors stop answering, not just Dr Next$. It runs on Run and on Default too, which " +
@@ -4794,8 +4895,6 @@ export const NOTES: Record<string, string> = {
     "bound is omitted by the manual: `cmp.w #$20,d1 / Rbge` is THIRTY-TWO, " +
     "not 256, and the address arithmetic confirms it -- `pal*64 + index*2` into a 512-byte block at $4aa(a2), " +
     "eight palettes of 32 words.",
-  "pal spread":
-    "Routine 334 ($736a).",
   "rain fade":
     "'Rain Fade works step by step only.",
   "object protection$":
