@@ -187,6 +187,31 @@
  * for semantics and offsets only, as ../amiga/stonecracker.ts treats the
  * StoneCracker format and ../amiga/intuition.ts treats AROS.
  *
+ * ## Which GMS source wins
+ *
+ * There are four accounts of what an entry point takes, and they disagree,
+ * so the order matters. In increasing authority:
+ *
+ * 1. The name string in the module's own jump table — types only, and it can
+ *    be a revision behind. `DrawLine(a0l,d0w,d1w,d2w,d3w,d4l)` names five
+ *    data registers where the routine at blitter.mod $3250 plainly reads six,
+ *    `moveal %d5,%a2 / moveal %d6,%a3` being its colour and its mask.
+ * 2. The `.fd`, which adds argument NAMES and the actual registers. Right
+ *    about registers everywhere it has been checked; wrong about a name at
+ *    least once, calling BlurArea's third and fourth EndX and EndY.
+ * 3. The autodoc, which is the fullest and describes behaviour — but of a
+ *    later revision than the shipped modules in places. It gives PenCircle a
+ *    `Fill [d4]` the shipped blitter.mod does not have: $504a is
+ *    `moveq #$0,d4` and d4 is that routine's own loop counter.
+ * 4. The module's code, and the published C where there is any. `colours.c`
+ *    settles BlurArea as `(Bitmap, XStart, YStart, Width, Height, Setting)`,
+ *    which is what makes TGE's `sub.w` correct rather than an off-by-corner.
+ *
+ * TGE itself is a fifth source and a good one, being a program that was made
+ * to work against the shipped modules: its `move.l #$ffffffff,d6` before
+ * DrawLine is independent confirmation of the mask argument the module's own
+ * name string leaves out.
+ *
  * ## The two structures, and the tag list that builds one
  *
  * `struct Head` is twelve bytes on the front of every GMS object — `WORD ID,
@@ -282,8 +307,8 @@
  * config. Ten of those are confirmed independently by the `.ref` files in
  * `System/References/`, each of which states its own `ModNumber`, and all ten
  * agree. So `$11` is colours.mod, and `=G Blur`'s call to its `-$6` is
- * `BlurArea(Bitmap a0, StartX d0, StartY d1, EndX d2, EndY d3, Setting d4)` —
- * `colours_lib.fd` naming the corners the routine subtracts into d2 and d3.
+ * `BlurArea(Bitmap a0, XStart d0, YStart d1, Width d2, Height d3, Setting
+ * d4)`, which is why routine 112 subtracts the corners into d2 and d3.
  *
  * `-$150` and `-$5a` are object methods rather than plain functions: both
  * fetch a class table and jump through it, `$54(a0)` for `Free` and `$74(a0)`
@@ -630,6 +655,40 @@
  *   $d6(a3),d0 / beq / jsr -$17a(a6)` on ExecBase, and ReplyMsg takes its
  *   message in a1. Nothing in the code hunk ever writes +$d6, so the branch
  *   is never taken and the register is never wrong in practice.
+ * - **DEFECT: `G Line`'s three-argument form does not return.** Routine 68 is
+ *   routine 66 with two arguments taken off and three faults added. It has no
+ *   `movem.l a0-a6,-(a7)` on the way in and a `movem.l (a7)+,a0-a6` on the
+ *   way out, so it lifts twenty-eight bytes off the stack that nobody put
+ *   there and `rts` returns into whatever is above them. It never loads the
+ *   Bitmap into a0 either — `move.l $1c2(a3),d0` puts it in the wrong
+ *   register, and reads it off a3, which at that point is AMOS's parameter
+ *   stack and not the data block. APPROXIMATED as a no-op: three arguments
+ *   evaluated and nothing drawn, which is the nearest a port can get to a
+ *   keyword that does not come back.
+ * - **DEFECT: `G Rectangle` fills or does not fill at random.** `PenRect`'s
+ *   sixth argument is `Fill [d4]` — blitter.mod $5a30-$5a5e saves d4 and
+ *   branches on its low word — and routine 121 pops four arguments into
+ *   d0-d3 and never touches d4. `G Circle` next door clears d3 before its
+ *   call, so the author had the habit and missed it here. DEVIATION: this
+ *   port draws the outline, there being nothing for a leftover register to
+ *   be.
+ * - **DEFECT: `G Blur`'s Percent argument is a flag.** `colours.c` opens
+ *   `if (Setting < 1) return` and never reads it again, so the guide's
+ *   *"Percentage (1-100) of how much you want it to smudge the area"* is one
+ *   fixed blur for the whole range — which its own next sentence, *"The Speed
+ *   is roughly the same for all 1-100"*, is the symptom of.
+ * - **DEFECT: `=G Rgb` leaves the type register holding its Y argument.**
+ *   Routine 111 sets d3 and never d2, and d2 is where Y was popped. The same
+ *   class as `=Gsin`'s missing type, and worse, because the value there is a
+ *   coordinate rather than a leftover.
+ * - **NOTE: `G Blur`'s token entry declares a function as well as an
+ *   instruction**, `instr` 112 and `func` 1 where every other
+ *   instruction-only keyword in the table carries `$ffff`. Its spec begins
+ *   `I`, so the field is never consulted.
+ * - **NOTE: `G Rectangle` stops a pixel short.** `sub.w d0,d2` makes the
+ *   width `X2-X1`, and a rectangle of that width at X1 reaches X2-1, where
+ *   the guide says *"corners at the specified points"*. `G Copyarea` and
+ *   `G Blur` share the arithmetic and the same one-pixel edge.
  */
 import type { Func, Instr } from '../interp/builtins'
 import { AmosError, VI, VS, str } from '../interp/values'
@@ -902,6 +961,43 @@ function gmsInit(st: TheGameState): void {
  * each component is where the difference goes.
  */
 const rgb12 = (v: number): number => (((v >>> 20) & 15) << 8) | (((v >>> 12) & 15) << 4) | ((v >>> 4) & 15)
+
+/** a coordinate as the blitter takes it: `d1w`, a sign-extended word */
+const coord = (v: number): number => (v << 16) >> 16
+
+/** the port's `$0RGB` back out as GMS's `$00RRGGBB`, each nibble replicated */
+const rgb24 = (v: number): number =>
+  ((((v >> 8) & 15) * 17) << 16) | ((((v >> 4) & 15) * 17) << 8) | ((v & 15) * 17)
+
+/**
+ * `ClosestColour(RGB d0, Palette a0)` — *"Returns the colour number in the
+ * palette that best matches the given RGB colour"*, and the answer every pen
+ * and every `DrawRGBPixel` on a planar bitmap needs.
+ *
+ * DEVIATION: colours.mod's published source weights the three components
+ * against a `HIQUALITY` switch it says *"should be in GMSPrefs"*; this is a
+ * plain squared distance over the port's twelve bits. Reimplemented rather
+ * than transcribed, as everything else here is.
+ */
+function closestColour(sc: Screen, rgb: number): number {
+  let best = 0
+  let bestAt = Infinity
+  for (let i = 0; i < sc.nColors && i < sc.palette.length; i++) {
+    const p = rgb24(sc.palette[i]!)
+    const dr = ((p >> 16) & 255) - ((rgb >> 16) & 255)
+    const dg = ((p >> 8) & 255) - ((rgb >> 8) & 255)
+    const db = (p & 255) - (rgb & 255)
+    const d = dr * dr + dg * dg + db * db
+    if (d < bestAt) {
+      bestAt = d
+      best = i
+    }
+  }
+  return best
+}
+
+/** the index `SetRGBPen`'s colour comes out as on this screen */
+const penIndex = (st: TheGameState, sc: Screen): number => closestColour(sc, st.gmsPen.get(sc) ?? 0)
 
 /**
  * How many colours fit in the block `G Def Palette` allocates.
@@ -2333,6 +2429,224 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
      * that should have written both.
      */
     'g own blitter': () => {},
+
+    // ---- drawing ----
+    /** Routine 41 ($1f36) — `G Agaplasma`, one `rts`, and the guide agrees:
+     *  its whole node is the words *"NOT DONE"* */
+    'g agaplasma': () => {},
+
+    /**
+     * Routines 42 ($1f38) and 110 ($3e32) — `G Plot X,Y[,C]`, two arities on
+     * one name. *"Places a pixel, in the specified colour, at the specified
+     * point. If X and Y are bigger than the screen (like x=340) no error will
+     * report and no pixel will be drawn."*
+     *
+     * With a colour it is `DrawPixel(Bitmap a0, XCoord d1, YCoord d2, Colour
+     * d3)`; without, `PenPixel(Bitmap a0, X d0, Y d1)`, which draws in the
+     * pen `G Ink` set. Both correct, and the guide's note about coordinates
+     * off the screen is the blitter's clipping rather than the extension's.
+     */
+    'g plot'(it) {
+      const s = st()
+      const x = coord(it.evalInt())
+      it.expect(',')
+      const y = coord(it.evalInt())
+      const sc = s.gmsScreen
+      const c = it.accept(',') ? it.evalInt() : null
+      if (!sc) return
+      sc.plot(x, y, c ?? penIndex(s, sc))
+    },
+
+    /**
+     * Routines 66 ($2724) and 68 ($27fa) — `G Line X1,Y1 To X2,Y2,C`, and a
+     * three-argument form that cannot run.
+     *
+     * Routine 66 is right: `DrawLine(Bitmap a0, XStart d1, YStart d2, XEnd
+     * d3, YEnd d4, Colour d5, Mask d6)` with `move.l #$ffffffff,d6`, which
+     * the autodoc calls for — *"A 32 bit masking value. Use 0xffffffff for an
+     * uninterrupted line."*
+     *
+     * Routine 68 is the same call with three arguments and three faults; see
+     * the catalogue. This port takes the short form as the no-op it has to
+     * be.
+     */
+    'g line'(it) {
+      const s = st()
+      const a = coord(it.evalInt())
+      it.expect(',')
+      const b = coord(it.evalInt())
+      if (!it.accept('to')) {
+        // routine 68: three arguments, and it does not return
+        it.expect(',')
+        it.evalInt()
+        return
+      }
+      const x2 = coord(it.evalInt())
+      it.expect(',')
+      const y2 = coord(it.evalInt())
+      it.expect(',')
+      const c = it.evalInt()
+      s.gmsScreen?.line(a, b, x2, y2, c)
+    },
+
+    /**
+     * Routine 51 ($21f2) — `G Circle X,Y,R`. *"Draws a circle with a centre
+     * at the specified coordinates, with the specified radius."*
+     *
+     * `PenCircle(Bitmap a0, X d0, Y d1, RadiusX d2, RadiusY d3)` and
+     * `moveq #$0,d3`, which is right for a reason the extension's author may
+     * not have known: blitter.mod $506c is `tst.w` on the saved d3 and a
+     * branch, so a zero vertical radius takes the circle arm and the
+     * horizontal radius is used for both. The keyword draws in the pen.
+     *
+     * The autodoc gives PenCircle a sixth argument, `Fill [d4]`, and the
+     * shipped module has no such thing — $504a is `moveq #$0,d4` and d4 is
+     * the routine's own loop variable from there on.
+     */
+    'g circle'(it) {
+      const s = st()
+      const x = coord(it.evalInt())
+      it.expect(',')
+      const y = coord(it.evalInt())
+      it.expect(',')
+      const r = coord(it.evalInt())
+      const sc = s.gmsScreen
+      if (sc) sc.ellipse(x, y, r, r, penIndex(s, sc), false)
+    },
+
+    /**
+     * Routine 121 ($4110) — `G Rectangle X1,Y1,X2,Y2`. *"Draws a rectangle
+     * with corners at the specified points."*
+     *
+     * `PenRect(Bitmap a0, X d0, Y d1, Width d2, Height d3, Fill d4)`, with
+     * the far corner turned into a width and a height by `sub.w`. The fill
+     * flag is the defect; see the catalogue. A width of `X2-X1` reaches
+     * `X2-1`, so the rectangle stops one pixel short of the corner named.
+     */
+    'g rectangle'(it) {
+      const s = st()
+      const x1 = coord(it.evalInt())
+      it.expect(',')
+      const y1 = coord(it.evalInt())
+      it.expect(',')
+      const x2 = coord(it.evalInt())
+      it.expect(',')
+      const y2 = coord(it.evalInt())
+      const sc = s.gmsScreen
+      if (!sc) return
+      const w = coord(x2 - x1)
+      const h = coord(y2 - y1)
+      if (w < 1 || h < 1) return
+      sc.box(x1, y1, x1 + w - 1, y1 + h - 1, penIndex(s, sc))
+    },
+
+    /**
+     * Routine 52 ($2214) — `G Cls`. *"Clears the TGE screen with colour 0"*,
+     * and it does: dpkernel's `Clear(Object)` on the current Screen, which
+     * the object's own autodoc gives as *"Clear the Screen->Bitmap's current
+     * data area"*.
+     *
+     * It reaches the Screen through the table and +$195 rather than through
+     * +$1be like everything else, which comes to the same thing.
+     */
+    'g cls'() {
+      st().gmsScreen?.cls(0)
+    },
+
+    /**
+     * Routine 112 ($3e70) — `G Blur P,X1,Y1 To X2,Y2`. *"This command Blur's
+     * a area of the current screen with the roughness of Percent."*
+     *
+     * `BlurArea(Bitmap a0, XStart d0, YStart d1, Width d2, Height d3, Setting
+     * d4)`, the far corner subtracted into a width and a height, which is
+     * right — the published `colours.c` names those two Width and Height
+     * where the `.fd` and the autodoc both call them EndX and EndY.
+     *
+     * The algorithm is that source's, reimplemented: each pixel becomes the
+     * average of its four ORTHOGONAL neighbours and not itself, a read off
+     * the bitmap counts as black, and the write is in place so a pixel's left
+     * and upper neighbours are already blurred when it is reached.
+     *
+     * DEFECT: `Percent` is a flag. The routine's first line is
+     * `if (Setting < 1) return` and nothing reads it again, so the guide's
+     * *"Percentage (1-100) of how much you want it to smudge the area"* is
+     * one blur for every value in the range. Its next sentence, *"The Speed
+     * is roughly the same for all 1-100"*, is exactly why.
+     */
+    'g blur'(it) {
+      const s = st()
+      const setting = it.evalInt()
+      it.expect(',')
+      const x1 = coord(it.evalInt())
+      it.expect(',')
+      const y1 = coord(it.evalInt())
+      it.expect('to')
+      const x2 = coord(it.evalInt())
+      it.expect(',')
+      const y2 = coord(it.evalInt())
+      const sc = s.gmsScreen
+      if (!sc) return
+      const w = coord(x2 - x1)
+      const h = coord(y2 - y1)
+      if (setting < 1 || w < 1 || h < 1) return
+      const at = (x: number, y: number): number =>
+        x < 0 || y < 0 || x >= sc.width || y >= sc.height ? 0 : rgb24(sc.palette[sc.point(x, y)]!)
+      for (let y = y1; y < y1 + h; y++) {
+        for (let x = x1; x < x1 + w; x++) {
+          const n = [at(x, y - 1), at(x, y + 1), at(x - 1, y), at(x + 1, y)]
+          const avg = (sh: number): number => (n.reduce((t, v) => t + ((v >> sh) & 255), 0) / 4) | 0
+          sc.plot(x, y, closestColour(sc, (avg(16) << 16) | (avg(8) << 8) | avg(0)))
+        }
+      }
+      it.charge((w * h) >> 4)
+    },
+
+    /**
+     * Routine 114 ($3f3e) — `G Copyarea SRC,DST,X1,Y1 To X2,Y2,DX,DY`.
+     * *"This command copys a rectangular area from one screen to another
+     * screen at any position ... It is OK and faster to have the src and dest
+     * screen the same."*
+     *
+     * `BlitArea(SrcBitmap a0, DestBitmap a1, XStart d0, YStart d1, Width d2,
+     * Height d3, XDest d4, YDest d5, Remap d6)`, the two bitmaps fetched the
+     * long way through the screen table, the far corner subtracted into a
+     * width and a height, and `moveq #$0,d6` — no remapping. Correct, and
+     * with the arguments in the order the guide gives them.
+     */
+    'g copyarea'(it) {
+      const src = rt.screens.get(gmsSlot(it.evalInt()))
+      it.expect(',')
+      const dst = rt.screens.get(gmsSlot(it.evalInt()))
+      it.expect(',')
+      const x1 = coord(it.evalInt())
+      it.expect(',')
+      const y1 = coord(it.evalInt())
+      it.expect('to')
+      const x2 = coord(it.evalInt())
+      it.expect(',')
+      const y2 = coord(it.evalInt())
+      it.expect(',')
+      const dx = coord(it.evalInt())
+      it.expect(',')
+      const dy = coord(it.evalInt())
+      if (!src || !dst) return
+      const w = coord(x2 - x1)
+      const h = coord(y2 - y1)
+      if (w < 1 || h < 1) return
+      Screen.copyBuf(
+        src,
+        src.bufferFor('logic'),
+        x1,
+        y1,
+        x1 + w,
+        y1 + h,
+        dst,
+        dst.bufferFor('logic', true),
+        dx,
+        dy,
+      )
+      it.charge((w * h) >> 4)
+    },
   }
 }
 
@@ -2777,6 +3091,34 @@ export function makeTheGameFunctions(rt: Runtime): Record<string, Func> {
     'g make rp': () => {
       st().rpLeak += 200
       return VI(3)
+    },
+
+    /**
+     * Routine 84 ($2dfc) — `=G Point(X,Y)`, whose guide node is headed
+     * `A=G Pixel(B,C)` and whose text spells it right. *"Returns the number
+     * of the on-screen colour at the specified coordinates."*
+     *
+     * `ReadPixel(Bitmap a0, XCoord d1, YCoord d2)`, `move.l d0,d3` and
+     * `moveq #$0,d2`. A colour NUMBER, and both registers set properly.
+     */
+    'g point': (_it, a) => {
+      const sc = st().gmsScreen
+      return VI(sc ? sc.point(coord(int(a[0])), coord(int(a[1]))) : 0)
+    },
+
+    /**
+     * Routine 111 ($3e50) — `=G Rgb(X,Y)`, undocumented, and the RGB half of
+     * the function above: `ReadRGBPixel(Bitmap a0, XCoord d1, YCoord d2)`,
+     * which answers the pixel's $00RRGGBB rather than its index.
+     *
+     * DEFECT: it never sets d2, the TYPE register, and d2 is where the Y
+     * argument was left. So the type a program gets back is its own Y
+     * coordinate. Answered as an integer here, which is what the value is.
+     */
+    'g rgb': (_it, a) => {
+      const sc = st().gmsScreen
+      if (!sc) return VI(0)
+      return VI(rgb24(sc.palette[sc.point(coord(int(a[0])), coord(int(a[1])))]!))
     },
   }
 }

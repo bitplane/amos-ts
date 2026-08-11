@@ -2759,6 +2759,12 @@ export const FAITHFUL = new Set<string>([
   // being a TypeScript call here.
   'g init gms', 'g close gms', 'g reset', 'g exit', 'g amiga', 'g make rp',
   'g own blitter',
+  // Drawing. blitter.mod's entry points are named by ../amiga/gms.ts and
+  // signed by fixtures/gms/dev/Includes/fd/blitter_lib.fd; where the module's
+  // own name strings and the fd disagree the fd wins, and the module's code
+  // settles it -- see "Which GMS source wins".
+  'g plot', 'g circle', 'g rectangle', 'g cls', 'g copyarea', 'g point',
+  'g rgb', 'g blur', 'g agaplasma',
 ])
 
 /** Tokens the interpreter handles structurally (dispatch, literals, glue). */
@@ -7486,6 +7492,65 @@ and the pointer is not there. One instruction in the code hunk writes +$da, at $
 path, which only a GMS program calling in through the PRGM record can reach. Everything AMOS runs leaves +$da \
 zero, so the keyword writes a word to address $2e. The base is also at +$12c, four instructions from the store \
 that should have set both",
+  "g agaplasma":
+    "Routine 41 ($1f36), one rts, and the guide's whole node for it is the words \"NOT DONE\"",
+  "g plot":
+    "Routines 42 ($1f38) and 110 ($3e32), two arities on one name. With a colour it is DrawPixel(Bitmap a0, \
+XCoord d1, YCoord d2, Colour d3); without, PenPixel(Bitmap a0, X d0, Y d1), which draws in the pen G Ink set. \
+Both correct. The guide's \"If X and Y are bigger than the screen (like x=340) no error will report and no pixel \
+will be drawn\" is the blitter's clipping and not the extension's",
+  "g line":
+    "Routines 66 ($2724) and 68 ($27fa). The five-argument form is right: DrawLine(Bitmap a0, XStart d1, YStart \
+d2, XEnd d3, YEnd d4, Colour d5, Mask d6) with `move.l #$ffffffff,d6`, which the autodoc asks for -- \"A 32 bit \
+masking value. Use 0xffffffff for an uninterrupted line.\" That `move.l` is also independent proof that the \
+module's own name string, which lists five data registers, is a revision behind the six the code reads. DEFECT: \
+the three-argument form does not return. Routine 68 has no `movem.l a0-a6,-(a7)` going in and a `movem.l \
+(a7)+,a0-a6` coming out, so it lifts 28 bytes off the stack nobody pushed and rts returns above them; it also \
+never loads the Bitmap into a0, putting it in d0, and reads it off a3 -- the parameter stack, not the data block. \
+APPROXIMATED: three arguments evaluated and nothing drawn, which is the nearest a port gets to a keyword that \
+does not come back",
+  "g circle":
+    "Routine 51 ($21f2). PenCircle(Bitmap a0, X d0, Y d1, RadiusX d2, RadiusY d3) and `moveq #$0,d3`, which is \
+right for a reason the author may not have known: blitter.mod $506c tests the saved d3 and branches, so a zero \
+vertical radius takes the circle arm and the horizontal radius serves for both. Draws in the pen. NOTE: the \
+autodoc gives PenCircle a sixth argument, Fill [d4], and the shipped module has none -- $504a is `moveq #$0,d4` \
+and d4 is that routine's own loop counter from there on",
+  "g rectangle":
+    "Routine 121 ($4110). PenRect(Bitmap a0, X d0, Y d1, Width d2, Height d3, Fill d4), the far corner subtracted \
+into a width and a height. DEFECT: it never sets d4, and PenRect really does branch on it -- blitter.mod \
+$5a30-$5a5e saves d4 and tests its low word for the fill path. G Circle next door clears d3 before its own call, \
+so the habit was there and missed here. DEVIATION: the outline is drawn, there being nothing for a leftover \
+register to be. NOTE: a width of X2-X1 reaches X2-1, so the rectangle stops a pixel short of the corner the guide \
+names; G Copyarea and G Blur share the arithmetic and the edge",
+  "g cls":
+    "Routine 52 ($2214). dpkernel's Clear(Object) on the current Screen, which the Screen object's own autodoc \
+gives as \"Clear the Screen->Bitmap's current data area\" -- the guide's \"Clears the TGE screen with colour 0\" \
+is right. It reaches the Screen through the table and +$195 rather than +$1be like everything else, which comes \
+to the same thing",
+  "g blur":
+    "Routine 112 ($3e70), which is also G Set Pen. BlurArea(Bitmap a0, XStart d0, YStart d1, Width d2, Height d3, \
+Setting d4) -- the published colours.c names the third and fourth Width and Height where the .fd and the autodoc \
+both say EndX and EndY, which is what makes the `sub.w` correct rather than an off-by-corner. The algorithm is \
+that source's, reimplemented: each pixel becomes the average of its four ORTHOGONAL neighbours and not itself, a \
+read off the bitmap counts as black, and the write is in place so a pixel's left and upper neighbours are already \
+blurred when it is reached. DEFECT: Percent is a flag. `if (Setting < 1) return` is the routine's first line and \
+nothing reads it again, so the guide's \"Percentage (1-100) of how much you want it to smudge the area\" is one \
+fixed blur across the range -- and its next sentence, \"The Speed is roughly the same for all 1-100\", is the \
+symptom. NOTE: the token entry declares func 1 as well as instr 112, where every other instruction-only keyword \
+carries $ffff; the spec begins `I`, so it is never consulted",
+  "g copyarea":
+    "Routine 114 ($3f3e). BlitArea(SrcBitmap a0, DestBitmap a1, XStart d0, YStart d1, Width d2, Height d3, XDest \
+d4, YDest d5, Remap d6), both bitmaps fetched the long way through the screen table, the far corner subtracted \
+into a width and a height, and `moveq #$0,d6` for no remapping. Correct, and in the argument order the guide \
+gives -- which also confirms that a0 is the source",
+  "g point":
+    "Routine 84 ($2dfc). ReadPixel(Bitmap a0, XCoord d1, YCoord d2), `move.l d0,d3`, `moveq #$0,d2`: a colour \
+NUMBER, with both registers set properly, which in this extension is worth recording. The guide's node is headed \
+`A=G Pixel(B,C)`, an earlier name, and its text spells the shipped one",
+  "g rgb":
+    "Routine 111 ($3e50), no guide node. ReadRGBPixel(Bitmap a0, XCoord d1, YCoord d2) -- the pixel's $00RRGGBB \
+rather than its index. DEFECT: it sets d3 and never d2, and d2 is where the Y argument was popped, so the TYPE a \
+program gets back is its own Y coordinate. Answered as an integer here, which is what the value is",
   "ovsavejpeg24":
     "Routine 73 ($10a0). The library's JPEG code is the Independent JPEG Group's, v4-era, compiled with SAS/C " +
     "into the fourth hunk, and everything it chooses is read off that binary rather than guessed: the Annex K " +

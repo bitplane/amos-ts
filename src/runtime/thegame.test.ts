@@ -15,6 +15,7 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { openLibrary } from '../amiga/exec'
 import { Runtime } from './runtime'
+import { Screen } from './screen'
 import { BTN_RED, DIR_UP } from '../amiga/controller'
 import {
   PT_PLAY_VOLUME,
@@ -1269,5 +1270,120 @@ describe('starting and stopping GMS', () => {
   /** DEFECT: it indexes block +$da, which only the hosted init path writes */
   it('G Own Blitter cannot reach the flag it means to set', () => {
     expect(() => run(['G Init Gms', 'G Own Blitter'])).not.toThrow()
+  })
+})
+
+describe('the GMS drawing keywords', () => {
+  const GAME = Runtime.screenRange('game')
+  const slot = (n: number): number => GAME.from + n
+  const open = 'G Screen Open 0,320,64,16,Glowres'
+  const scr = (rt: Runtime, n = 0): Screen => rt.screens.get(slot(n))!
+  /** an all-black palette to open against, so a pen resolves to one index */
+  const blank = 'G Def Palette 0,$0,$0,$0,$0,$0,$0,$0,$0'
+
+  /** the guide's whole node for it is the words "NOT DONE" */
+  it('G Agaplasma is one rts', () => {
+    expect(() => run([open, 'G Agaplasma'])).not.toThrow()
+  })
+
+  it('G Plot X,Y,C draws in the colour it is given', () => {
+    const rt = run([open, 'G Plot 10,20,7'])
+    expect(scr(rt).point(10, 20)).toBe(7)
+  })
+
+  /**
+   * The two-argument form is PenPixel, which draws in the G Ink pen — and the
+   * pen is an RGB, so it has to be resolved against the palette. A blank
+   * palette from G Def Palette is what makes the index unambiguous: with
+   * AMOS's own defaults several entries are equidistant from a primary.
+   */
+  it('G Plot X,Y draws in the pen', () => {
+    const rt = run([blank, open, 'G Colour 5,$FF0000', 'G Ink $FF0000', 'G Plot 3,4'])
+    expect(scr(rt).point(3, 4)).toBe(5)
+  })
+
+  it('G Line draws between the two points', () => {
+    const rt = run([open, 'G Line 0,0 To 10,0,9'])
+    expect(scr(rt).point(0, 0)).toBe(9)
+    expect(scr(rt).point(5, 0)).toBe(9)
+    expect(scr(rt).point(10, 0)).toBe(9)
+  })
+
+  /** DEFECT: routine 68 pops seven registers it never pushed and never returns */
+  it('the three-argument G Line draws nothing', () => {
+    const rt = run([open, 'G Line 5,5,9'])
+    expect(scr(rt).point(5, 5)).toBe(0)
+  })
+
+  it('G Circle draws a circle, the zero vertical radius meaning "same"', () => {
+    const rt = run([blank, open, 'G Colour 3,$FFFFFF', 'G Ink $FFFFFF', 'G Circle 30,30,10'])
+    const s = scr(rt)
+    expect(s.point(40, 30)).toBe(3)
+    expect(s.point(20, 30)).toBe(3)
+    // and vertically too, which a RadiusY of zero taken literally would not give
+    expect(s.point(30, 20)).toBe(3)
+    expect(s.point(30, 40)).toBe(3)
+    expect(s.point(30, 30)).toBe(0)
+  })
+
+  /**
+   * DEFECT: PenRect's Fill is d4 and routine 121 never sets it. The outline
+   * is what this port draws; and the width being X2-X1 stops it a pixel short
+   * of the corner the guide names.
+   */
+  it('G Rectangle draws an outline, one pixel short of its far corner', () => {
+    const rt = run([blank, open, 'G Colour 2,$00FF00', 'G Ink $00FF00', 'G Rectangle 5,5,15,15'])
+    const s = scr(rt)
+    expect(s.point(5, 5)).toBe(2)
+    expect(s.point(14, 14)).toBe(2)
+    expect(s.point(15, 15)).toBe(0)
+    expect(s.point(10, 10)).toBe(0) // not filled
+  })
+
+  it('G Cls clears the current screen to colour 0', () => {
+    const rt = run([open, 'G Plot 1,1,7', 'G Cls'])
+    expect(scr(rt).point(1, 1)).toBe(0)
+  })
+
+  it('=G Point answers the colour number and =G Rgb the RGB', () => {
+    expect(vals([open, 'G Colour 6,$FF8800', 'G Plot 2,2,6', 'Print G Point(2,2);" ";G Rgb(2,2)'])).toEqual([
+      6,
+      // the palette is twelve bits, so $FF8800 stored and read back is $FF8800
+      0xff8800,
+    ])
+  })
+
+  it('G Copyarea moves a rectangle between two screens', () => {
+    const rt = run([
+      open,
+      'G Screen Open 1,320,64,16,Glowres',
+      'G Screen 0',
+      'G Plot 4,4,5',
+      'G Copyarea 0,1,0,0 To 8,8,20,20',
+    ])
+    expect(scr(rt, 1).point(24, 24)).toBe(5)
+    expect(scr(rt, 1).point(4, 4)).toBe(0)
+  })
+
+  /**
+   * DEFECT: `if (Setting < 1) return` is the whole of what Percent does. The
+   * palette holds black, a quarter grey and white so that an average of one
+   * white neighbour and three black ones has somewhere to land.
+   */
+  it('G Blur does nothing below a Percent of 1 and the same thing above it', () => {
+    const src = [blank, open, 'G Colour 1,$444444', 'G Colour 15,$FFFFFF', 'G Plot 10,10,15']
+    const off = run([...src, 'G Blur 0,8,8 To 14,14'])
+    expect(scr(off).point(10, 10)).toBe(15)
+    const one = run([...src, 'G Blur 1,8,8 To 14,14'])
+    const hundred = run([...src, 'G Blur 100,8,8 To 14,14'])
+    expect(scr(one).point(10, 10)).toBe(scr(hundred).point(10, 10))
+    // the lit pixel loses its own colour: the average is of its four
+    // neighbours and NOT of itself, and all four are black
+    expect(scr(one).point(10, 10)).toBe(0)
+    // the pixel ABOVE it took a quarter of the white, being reached while it
+    // was still lit -- the write is in place, so the one to its RIGHT, which
+    // comes after, sees black instead
+    expect(scr(one).point(10, 9)).toBe(1)
+    expect(scr(one).point(11, 10)).toBe(0)
   })
 })
