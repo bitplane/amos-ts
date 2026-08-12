@@ -28,6 +28,7 @@ import type { FileIdState } from './fileid'
 import type { RangeState } from './range'
 import { jotreVbl, type JotreState } from './jotre'
 import type { JdIntState } from './jdint'
+import type { AmonState } from './amon'
 import { thegameVbl, type TheGameState } from './thegame'
 import type { MedExtState } from './medext'
 import { p61Vbl, type P61State } from './p61'
@@ -1169,6 +1170,8 @@ export class Runtime {
   jdColour!: JdColourState
   /** JD Intuition 1.3's current window and screen, its two lists and its gadgets, slot 18 */
   jdint!: JdIntState
+  /** AMon's rodent position, its four limits and the two raw counter bytes, slot 25 (1.03: 16) */
+  amon!: AmonState
   /** CRAFT 1.0's open directory scan and the FileInfoBlock it publishes, slot 18 */
   craft!: CraftState
   /** MusiCRAFT 1.0's replayer, its vumeters and its voice mask, slot 19 */

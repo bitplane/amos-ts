@@ -25,8 +25,8 @@ keyword up in `status.ts` for why it is classified the way it is.
 | amal-stos            |       10 |       10 |            0 |       0 |     100% |
 | amcaf-1.40           |      268 |      247 |           21 |       0 |     100% |
 | amcaf-1.50           |      280 |      258 |           21 |       0 |     100% |
-| amon-1.03            |       18 |        0 |            0 |      18 |       0% |
-| amon-1.04            |       24 |        0 |            0 |      24 |       0% |
+| amon-1.03            |       18 |       18 |            0 |       0 |     100% |
+| amon-1.04            |       24 |       24 |            0 |       0 |     100% |
 | amos3d-1.0           |       64 |       60 |            4 |       0 |     100% |
 | amospro-colours-1.0  |       27 |       27 |            0 |       0 |     100% |
 | amospro-compact-2.0  |        3 |        3 |            0 |       0 |     100% |
@@ -126,7 +126,7 @@ keyword up in `status.ts` for why it is classified the way it is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7362 |     4357 |          143 |    2799 |      62% |
+| **total**            |     7362 |     4399 |          143 |    2757 |      62% |
 
 ## aga-1.0 (100%)
 
@@ -247,15 +247,15 @@ keyword up in `status.ts` for why it is classified the way it is.
   `scrn region`, `vec rot x`, `vec rot y`, `vec rot z`
 - **n/a** (1): `trans screen dynamic`
 
-## amon-1.03 (0%)
+## amon-1.03 (100%)
 
-- **missing** (18): `fast angle`, `fast circle`, `fast joy0`, `fast joy1`, `fast plot`,
+- **faithful** (18): `fast angle`, `fast circle`, `fast joy0`, `fast joy1`, `fast plot`,
   `key press`, `keycode`, `limit rodent`, `lrodent`, `mul cos`, `mul sin`, `rodent key`,
   `rodent x`, `rodent y`, `rrodent`, `set rodent`, `test add`, `video wait`
 
-## amon-1.04 (0%)
+## amon-1.04 (100%)
 
-- **missing** (24): `array plot`, `count colour`, `fast angle`, `fast circle`, `fast joy0`,
+- **faithful** (24): `array plot`, `count colour`, `fast angle`, `fast circle`, `fast joy0`,
   `fast joy1`, `fast plot`, `fast point`, `find colour`, `joy3`, `joy4`, `key press`, `keycode`,
   `limit rodent`, `lrodent`, `mul cos`, `mul sin`, `rodent key`, `rodent x`, `rodent y`,
   `rrodent`, `set rodent`, `test add`, `video wait`

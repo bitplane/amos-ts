@@ -393,6 +393,9 @@ export const CITED_BY: Record<string, string[]> = {
   // older keywords at their 1.4 ones, which is why both tables are listed
   'src/runtime/jdint.ts': ['jd-int-1.3'],
   'src/runtime/jdint.test.ts': ['jd-int-1.3'],
+  'src/runtime/amon.ts': ['amon-1.04', 'amon-1.03'],
+  'src/runtime/amon.test.ts': ['amon-1.04', 'amon-1.03'],
+  'src/runtime/amon.corpus.test.ts': ['amon-1.04', 'amon-1.03'],
   'src/runtime/delta.ts': ['delta-1.6', 'delta-1.4'],
   'src/runtime/delta.test.ts': ['delta-1.6', 'delta-1.4'],
   'src/runtime/lserial.ts': ['lserial-2.1'],

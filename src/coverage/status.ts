@@ -1500,6 +1500,19 @@ export const FAITHFUL = new Set<string>([
   'jd intline', 'jd intellipse', 'jd intfill', 'jd intpoint', 'jd intplot',
   'jd use intscreen', 'jd use intwindow', 'jd show intscreen', 'jd show intwindow',
   'jd intcls', 'jd intmove', 'jd intscreen width', 'jd intscreen height',
+  // ---- AMon 1.04 at slot 25 and 1.03 at slot 16 ----------------------------
+  // Every one read from AmosPro_Amon.lib, with the argument orders checked
+  // against the author's own example programs -- the shipped documents are an
+  // install note and a copyright page and describe no keyword at all. The two
+  // libraries share eighteen names and seventeen identical routines; the
+  // rodent limits 1.03 ships as zeros and Fast Circle's error number are the
+  // two a program can tell apart, and both are modelled. Both tables are held
+  // to the shipped bytes by amon.corpus.test.ts. See amon.ts.
+  'rodent x', 'rodent y', 'set rodent', 'limit rodent', 'lrodent', 'rrodent',
+  'rodent key', 'video wait', 'fast angle', 'fast joy0', 'fast joy1',
+  'keycode', 'key press', 'mul sin', 'mul cos', 'fast plot', 'fast point',
+  'fast circle', 'array plot', 'test add', 'joy3', 'joy4',
+  'count colour', 'find colour',
   'delta inter on', 'delta inter off', 'delta mouse off', 'delta reset',
   'delta drive motor on', 'delta drive motor off', 'delta change disk',
   'delta wait left mouse', 'delta wait fire', 'delta wait double mouse',
@@ -3999,7 +4012,7 @@ export const NOTES: Record<string, string> = {
     "undo on the next frame. NOTE: 1.4 AND 1.6 DISAGREE HERE, and this port answers for both. 1.4 raises AMOS's " +
     "numbered errors, `moveq #$17,d0 / Rjmp L_Error` for 23 and `#$1d` for 29; 1.6's routine 3 ($1e78) sends the " +
     "same two checks to the extension's own table instead, \"Variable is too small\" and \"Variable is too " +
-    "large\". An ExtensionImpl cannot ask which identity is bound, so 1.4's numbered errors are what this raises.",
+    "large\". The port keeps 1.4's numbered errors; modelling the difference from `rt.extBindings` is a pending task.",
   "delta hard reset":
     "Routine 29 ($229a), 1.6, three instructions: `movea.l $4.l,a6 / move.l #$0,$2a.l / jmp $fc0000.l`, and the " +
     "guide's entry for it is two words and two exclamation marks. DEFECT: `$2a` was meant to be `$2a(a6)` -- ExecBase+$2a is ColdCapture, the " +
