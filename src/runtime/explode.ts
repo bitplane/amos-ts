@@ -771,9 +771,12 @@ export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
      * reads past four characters is whatever the string heap holds.
      *
      * DEVIATION: this port's xpkmaster has one packer registered, XPK_NONE
-     * ("----"), because a sub-library is a separate binary and the corpus has
-     * none. A method it does not know is `XPKERR_NOFUNC`, recorded in
-     * `Xpk Errn` exactly as a missing sub-library would be on the machine.
+     * ("----"), so a method it does not know is `XPKERR_NOFUNC` — recorded in
+     * `Xpk Errn` exactly as a missing sub-library would be on the machine
+     * with an empty `LIBS:Compressors/`. That is a real configuration and not
+     * an evasion, but it is also not the only one available: nine sub-
+     * libraries are on the AMOS PD Library CD 1994 and could be ported. See
+     * ../amiga/xpkmaster.ts.
      */
     'xpk pack': (it) => xpkWork(rt, it, false),
     'xpk crypt': (it) => xpkWork(rt, it, true),

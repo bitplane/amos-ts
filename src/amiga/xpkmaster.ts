@@ -54,6 +54,12 @@
  * "the XPK libraries are not included in this distribution, you must obtain
  * the XPK compression archive separately".
  *
+ * But it is a CHOICE and not a limit, which was stated wrongly here until
+ * 2026-08-12: nine of those sub-libraries are held, 1,040 to 4,052 bytes
+ * apiece, in `COMPRESSORS/` on all three Library volumes of the AMOS PD
+ * Library CD 1994 — BLZW, CBR0, FEAL, HUFF, IDEA, IMPL, NONE, NUKE and RLEN.
+ * Porting them is work nobody has done, not evidence nobody has.
+ *
  * ## The errors are plain Errors
  *
  * Same rule as `./powerpacker.ts`: a codec does not get to name AMOS error
