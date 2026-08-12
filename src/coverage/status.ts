@@ -1552,6 +1552,26 @@ export const FAITHFUL = new Set<string>([
   'rs structure', 'rs start', 'rs finish', 'rs length', 'rs clear', 'rs fill',
   'rs byte', 'rs word', 'rs long', 'rs aptr', 'rs char', 'rs set', 'rs bset',
   'rs wset', 'rs lset', 'rs erase', 'rs',
+  // Batches 5, 6, 8, 9 and 10 -- the waits, the file and Cd keywords, the
+  // fonts, the battery clock and drives, and the system group. Four things
+  // worth knowing without opening explode.ts: `Stop Loop` tests Inkey with
+  // `tst.l` where `Wait Loop` uses `tst.w`, so an Amiga key alone ends one
+  // and not the other; the wait FUNCTIONS answer a mouse button NEGATED and
+  // a key positive; `Cd Set` builds a path nothing else in the library reads
+  // (every file keyword goes through AMOS's own current directory); and
+  // `Amcaf Crack On`/`Off` are not implemented as a crack, on the authority
+  // of the author's own manual calling them illegal.
+  'clear mouse', 'pause', 'stop loop', 'wait loop', 'wait mouse',
+  'file path$', 'file blocks', 'file size', 'file type', 'hof',
+  'file protection', 'cd path$', 'cd set', 'cd parent',
+  'font open', 'font set', 'font close', 'font name$', 'font height',
+  'font base',
+  'hard time$', 'hard date$', 'set hard time', 'set hard date',
+  'drive state', 'dev state', 'drive busy',
+  'vectorptr', 'hardreset', 'softreset', 'flush', 'avail free',
+  'open workbench', 'workbench', 'amos state', 'amcaf crack on',
+  'amcaf crack off', 'explode$', 'explode base', 'extension$',
+  'extension base',
   'delta inter on', 'delta inter off', 'delta mouse off', 'delta reset',
   'delta drive motor on', 'delta drive motor off', 'delta change disk',
   'delta wait left mouse', 'delta wait fire', 'delta wait double mouse',

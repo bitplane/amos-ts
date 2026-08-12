@@ -14,6 +14,7 @@ import { extensionById } from '../ext/registry'
 import { AmigaFS } from '../amiga/vfs'
 import { BankImage, ObjectBank } from './objects'
 import { Runtime } from './runtime'
+import { JOY_FIRE } from '../interp/gameport'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 7 — `ExtNb equ 7-1`, line 16 of the source */
@@ -659,5 +660,205 @@ describe('Explode: Rs Erase', () => {
     mustFinish(b.rt.runHeadless(2_000))
     // the freed block is reused rather than bumped past
     expect(b.rt.explode.rs[1]!.start).toBe(0x3800_0008)
+  })
+})
+
+describe('Explode: the wait group', () => {
+  it('the functions answer a MOUSE button negated and a key positive', () => {
+    // `cmpi.w #3,d3 / bgt.s .Skip / neg.l d3` -- 3 or below is a mouse code
+    const b = boot('Print Wait Loop')
+    b.rt.input.mouseK = 1
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('-1')
+    const r = boot('Print Wait Loop')
+    r.rt.input.mouseK = 2
+    mustFinish(r.rt.runHeadless(2_000))
+    expect(r.out().trim()).toBe('-2')
+    const both = boot('Print Wait Loop')
+    both.rt.input.mouseK = 3
+    mustFinish(both.rt.runHeadless(2_000))
+    expect(both.out().trim()).toBe('-3')
+  })
+
+  it('and a key comes back as itself', () => {
+    const b = boot('Print Wait Loop')
+    b.rt.input.keyQueue.push({ ch: 'A', scan: 0 })
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('65')
+  })
+
+  it('Pause answers 0 when nothing happened, which is the timeout', () => {
+    expect(run('Print Pause(0)')).toBe('0')
+  })
+
+  it('Wait Mouse and Clear Mouse are the two halves of a click', () => {
+    // Clear Mouse swallows a button that is already down; Wait Mouse waits
+    // for the next one
+    const b = boot('Clear Mouse\nPrint "through"')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('through')
+    const w = boot('Wait Mouse\nPrint "clicked"')
+    w.rt.input.mouseK = 1
+    mustFinish(w.rt.runHeadless(2_000))
+    expect(w.out().trim()).toBe('clicked')
+  })
+
+  it('Stop Loop ends on the JOYSTICK too, which Wait Loop does not', () => {
+    // `btst #7,$BFE001` straight at CIA-A port A -- port 1's fire button
+    const b = boot('Stop Loop\nPrint "fired"')
+    b.rt.input.joy = JOY_FIRE
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('fired')
+  })
+})
+
+describe('Explode: the file keywords', () => {
+  const payload = Uint8Array.from([1, 2, 3, 4, 5])
+
+  it('File Size and File Blocks answer -1 for a file that is not there', () => {
+    // ";-1 = Fehler" in the author's own comment, and the only way to tell a
+    // missing file from an empty one
+    expect(run('Print File Size("RAM:nope")', emptyFs())).toBe('-1')
+    expect(run('Print File Blocks("RAM:nope")', emptyFs())).toBe('-1')
+  })
+
+  it('and the real size for one that is', () => {
+    expect(run('Print File Size("RAM:f.dat")', withFile('f.dat', payload))).toBe('5')
+    expect(run('Print File Blocks("RAM:f.dat")', withFile('f.dat', payload))).toBe('1')
+  })
+
+  it('File Type is 0 missing, -1 a file and -2 a directory', () => {
+    const fs = withFile('f.dat', payload)
+    fs.mkdir('RAM:sub')
+    expect(run('Print File Type("RAM:nope")', fs)).toBe('0')
+    expect(run('Print File Type("RAM:f.dat")', fs)).toBe('-1')
+    expect(run('Print File Type("RAM:sub")', fs)).toBe('-2')
+  })
+
+  it('File Path$ prefixes the current directory -- and keeps the NUL', () => {
+    // DEFECT: `dbra d0,.4` runs one time too many and copies the terminator
+    // into the AMOS string
+    expect(run('Print Left$(File Path$("x"),5)', emptyFs())).toBe('RAM:x')
+    expect(run('Print Asc(Right$(File Path$("x"),1))', emptyFs())).toBe('0')
+    // "RAM:x" is five characters and the string is six
+    expect(run('Print Len(File Path$("x"))', emptyFs())).toBe('6')
+  })
+
+  it('an empty or over-long filename is error 23 wherever it appears', () => {
+    expect(() => run('A=File Size("")', emptyFs())).toThrow(/function call/i)
+    expect(() => run(`A=File Size("${'x'.repeat(129)}")`, emptyFs())).toThrow(/function call/i)
+  })
+
+  it('Hof needs an OPEN channel and says so with error 97', () => {
+    // `Rbeq L_FNopen` -- and 97 is a number this port could not name until
+    // the error table was fixed
+    expect(() => run('A=Hof(1)', emptyFs())).toThrow(/File not opened/i)
+    expect(() => run('A=Hof(0)', emptyFs())).toThrow(/function call/i)
+    expect(() => run('A=Hof(10)', emptyFs())).toThrow(/function call/i)
+  })
+})
+
+describe('Explode: Cd Set, Cd Path$ and Cd Parent', () => {
+  it('Cd Set appends a slash unless there is already one or a colon', () => {
+    expect(run('Cd Set "DH0:work"\nPrint Cd Path$')).toBe('DH0:work/')
+    expect(run('Cd Set "DH0:"\nPrint Cd Path$')).toBe('DH0:')
+    expect(run('Cd Set "DH0:work/"\nPrint Cd Path$')).toBe('DH0:work/')
+  })
+
+  it('Cd Parent drops the last component and stops at the volume', () => {
+    expect(run('Cd Set "DH0:a/b"\nCd Parent\nPrint Cd Path$')).toBe('DH0:a/')
+    expect(run('Cd Set "DH0:a"\nCd Parent\nPrint Cd Path$')).toBe('DH0:')
+    expect(run('Cd Set "DH0:"\nCd Parent\nPrint Cd Path$')).toBe('DH0:')
+  })
+
+  it('and an empty path is error 23, because the length test wraps', () => {
+    expect(() => run('Cd Set ""')).toThrow(/function call/i)
+  })
+})
+
+describe('Explode: the font slots', () => {
+  it('are numbered 1 to 8, and 0 is as much an error as 9', () => {
+    // `cmpi.l #my_FntMax,d0 / Rbpl` then `subq.l #1,d0 / Rbmi` -- the one
+    // place this library counts from one
+    expect(() => run('A=Font Height(0)')).toThrow(/function call/i)
+    expect(() => run('A=Font Height(9)')).toThrow(/function call/i)
+    expect(run('Print Font Height(1)')).toBe('0')
+  })
+
+  it('an unopened slot answers empty and zero rather than raising', () => {
+    expect(run('Print Len(Font Name$(3));" ";Font Height(3);" ";Font Base(3)')).toBe('0 0 0')
+  })
+
+  it('and Font Close is silent about a slot that was never open', () => {
+    expect(run('Font Close 4\nFont Close\nPrint "ok"')).toBe('ok')
+  })
+})
+
+describe('Explode: the clock and the drives', () => {
+  it('Hard Time$ and Hard Date$ are eight characters with their own separator', () => {
+    expect(run('Print Len(Hard Time$);" ";Mid$(Hard Time$,3,1)')).toBe('8 :')
+    expect(run('Print Len(Hard Date$);" ";Mid$(Hard Date$,3,1)')).toBe('8 -')
+  })
+
+  it('Set Hard Time and Set Hard Date check the LENGTH and nothing else', () => {
+    // `cmpi.w #8,(a0)+ / Rbne L_IFunc`, and L_SetTimeDate never looks at the
+    // separators -- it reads positions 0,1 3,4 6,7
+    expect(run('Set Hard Time "12:34:56"\nPrint "ok"')).toBe('ok')
+    expect(run('Set Hard Time "12x34x56"\nPrint "ok"')).toBe('ok')
+    expect(() => run('Set Hard Time "12:34"')).toThrow(/function call/i)
+    expect(() => run('Set Hard Date "01-02-034"')).toThrow(/function call/i)
+  })
+
+  it('Drive State is 0 for a drive that is not there', () => {
+    expect(run('Print Drive State(3)', emptyFs())).toBe('0')
+  })
+
+  it('Dev State is 0 for a volume that is not there and -3 for a writable one', () => {
+    expect(run('Print Dev State("NOPE:")', emptyFs())).toBe('0')
+    expect(run('Print Dev State("RAM:")', emptyFs())).toBe('-3')
+  })
+})
+
+describe('Explode: the system group', () => {
+  it('Avail Free is the machine total, not AMOS’s own', () => {
+    // "der insgesamt frei verwendbare Speicherbereich"
+    expect(Number(run('Print Avail Free'))).toBeGreaterThan(0)
+  })
+
+  it('Vectorptr answers 0, which is a machine with nothing hooked into reboot', () => {
+    expect(run('Print Vectorptr')).toBe('0')
+  })
+
+  it('Workbench and Amos State answer the two booleans they promise', () => {
+    expect(run('Print Workbench;" ";Amos State')).toBe('-1 -1')
+  })
+
+  it('Explode$ names the library and Explode Base is its data zone', () => {
+    expect(run('Print Left$(Explode$,7)')).toBe('Explode')
+    // ExtNb equ 7-1, so slot 6 of the extension data region
+    expect(run('Print Hex$(Explode Base)')).toBe('$78060000')
+  })
+
+  it('Extension$ takes the slot as it stands and Extension Base takes it plus one', () => {
+    // `Extension$` indexes AdTokens directly; `Extension Base` does subq #1
+    // first, so these two name the SAME extension
+    expect(run('Print Hex$(Extension Base(8))')).toBe('$78070000')
+    expect(run('Print Extension Base(0)')).toBe('0')
+    // a slot with nothing in it answers the empty string, which is
+    // `move.l ChVide(a5),d3` before the table is even indexed
+    expect(run('Print Len(Extension$(2))')).toBe('0')
+  })
+
+  it('Amcaf Crack On and Off are accepted and crack nothing', () => {
+    // the author's own manual: "Diese Befehle sind nicht legal, bei
+    // Anwendung wird gegen das Urheberrecht verstossen"
+    expect(run('Amcaf Crack On\nAmcaf Crack Off\nPrint "ok"')).toBe('ok')
+  })
+
+  it('Hardreset and Softreset stop the program, which is the nearest honest thing', () => {
+    const b = boot('Print "before"\nSoftreset\nPrint "after"')
+    b.rt.runHeadless(2_000)
+    expect(b.out()).toContain('before')
+    expect(b.out()).not.toContain('after')
   })
 })

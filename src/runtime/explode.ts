@@ -60,6 +60,10 @@ import { AmosError, VI, VS, funcCall, int, str, type Value } from '../interp/val
 import { BNK, BOB_BANK, ICON_BANK, isObjectBank, type BankRef } from './banks'
 import type { ObjectBank } from './objects'
 import { MemPool } from '../amiga/exec'
+import { openDiskFont } from '../amiga/diskfont'
+import { ID_VALIDATING, ID_WRITE_PROTECTED } from '../amiga/dos'
+import { civilFromStamp } from '../amiga/datestamp'
+import { joyFire } from '../interp/gameport'
 
 /**
  * Where the Rs pool is mapped, matching `Runtime.EXPLODE_HEAP_BASE` and
@@ -92,16 +96,50 @@ export interface RsStruct {
   position: number
 }
 
+/** `my_FntMax` — eight font slots, numbered 1 to 8 and not 0 to 7 */
+const FNT_MAX = 8
+
+/** `my_CdLength` — the Cd path buffer, 256 bytes with a length word in front */
+const CD_LENGTH = 256
+
 export interface ExplodeState {
   /** `L_RamFast`/`L_RamFree`, and the strings `Rs Aptr` leaves pointers to */
   pool: MemPool
   /** the eight descriptors, 0 to 7 */
   rs: RsStruct[]
+  /**
+   * `my_FntStruc` — eight longwords, each a `TextFont *` or zero.
+   *
+   * The library keeps the OS pointer and reads the struct back through it
+   * (`10(a0)` for the name, `20(a0)` for the height); this keeps the font
+   * itself, and `Font Base` answers the address the pool gives it.
+   */
+  fonts: Array<ExplodeFont | null>
+  /**
+   * `my_CdPath` — the path `Cd Set` stores, with its own length word.
+   *
+   * Empty until something asks, at which point `Cd Path$` fills it in from
+   * AMOS's own current directory.
+   */
+  cdPath: string
+  /** `my_AmcafCrack` — the word `Amcaf Crack On` saved from `-22(a5)` */
+  amcafCrack: number
+}
+
+/** one entry of `my_FntStruc`, and the two fields the accessors read off it */
+export interface ExplodeFont {
+  name: string
+  height: number
+  /** where the TextFont was mapped, so `=Font Base(n)` has an address */
+  base: number
 }
 
 export const newExplodeState = (): ExplodeState => ({
   pool: new MemPool(HEAP_BASE, HEAP_RESERVED),
   rs: Array.from({ length: RS_MAX }, () => ({ start: 0, length: 0, position: 0 })),
+  fonts: Array.from({ length: FNT_MAX }, () => null),
+  cdPath: '',
+  amcafCrack: 0,
 })
 
 /**
@@ -396,6 +434,66 @@ function poke(rt: Runtime, addr: number, v: number): void {
   if (m && m.off < m.data.length) m.data[m.off] = v & 0xff
 }
 
+/**
+ * `L_GetFileInfo` (routine 162, $308e) — `Lock`, `Examine`, `UnLock`, into
+ * four fields of the data zone.
+ *
+ * Five keywords read those fields and none of them raise for a file that is
+ * not there: `my_FileSize` and `my_FileBlocks` are preset to -1 and stay
+ * there, `my_FileType` and `my_FileProtect` to 0. Only the filename is
+ * checked, by `checkName` above.
+ *
+ * DEVIATION: `fib_NumBlocks` is what a real filing system counted, and the
+ * volumes here are a directory tree or an ADF. The block count is derived
+ * from the size and the volume's own block size, which is what an FFS would
+ * have used, rather than stored.
+ */
+interface FileInfo {
+  /** `fib_DirEntryType` — positive a directory, negative a file, 0 not found */
+  type: number
+  /** `fib_Size`, -1 when the lock failed */
+  size: number
+  /** `fib_NumBlocks`, -1 when the lock failed */
+  blocks: number
+  /** `fib_Protection` */
+  protection: number
+}
+
+function fileInfo(rt: Runtime, name: string): FileInfo {
+  checkName(name)
+  const path = explodePath(rt, name)
+  const what = rt.vfs?.exists(path) ?? (rt.fs?.read(path) ? 'file' : null)
+  if (!what) return { type: 0, size: -1, blocks: -1, protection: 0 }
+  if (what === 'dir') {
+    // a directory's fib_Size is meaningless and AmigaDOS leaves it 0
+    return { type: 2, size: 0, blocks: 0, protection: rt.vfs?.meta(path).protection ?? 0 }
+  }
+  const bytes = rt.vfs?.readFile(path) ?? rt.fs?.read(path) ?? null
+  const size = bytes?.length ?? -1
+  const per = rt.vfs?.volumeInfo(path.split(':')[0] ?? '')?.bytesPerBlock ?? 488
+  return {
+    type: -3,
+    size,
+    blocks: size < 0 ? -1 : Math.ceil(size / per),
+    protection: rt.vfs?.meta(path).protection ?? 0,
+  }
+}
+
+/**
+ * `L_Dsk.PathIt`, which every file keyword here goes through.
+ *
+ * A name with no volume is taken as relative to the current directory. That
+ * is AMOS's own, NOT `Cd Set`'s — see `cd path$` for what the extension's
+ * path is actually for.
+ */
+function explodePath(rt: Runtime, name: string): string {
+  if (/[:/]/.test(name) === false && rt.vfs && rt.vfs.currentDir !== '') {
+    const base = rt.vfs.currentDir
+    return base.endsWith(':') || base.endsWith('/') ? base + name : `${base}/${name}`
+  }
+  return name
+}
+
 export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
   /**
    * Routine 167 ($31c6, `L_BankLoad`), the shared body all four `Bank Load`
@@ -428,6 +526,255 @@ export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   return {
+    /**
+     * `Clear Mouse` — routine 5 ($dc2): spin until no mouse button is held.
+     *
+     * `SyCall MouseKey / tst.w d1 / Rbne L_ClearMouse` — it re-enters ITSELF
+     * rather than looping, which is the same thing with a longer branch. The
+     * point is to swallow a click the program has already reacted to, so the
+     * `Wait Mouse` after it does not fire on the same press.
+     */
+    'clear mouse'(it) {
+      if (rt.input.mouseK !== 0) it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
+    },
+
+    /**
+     * `Stop Loop` — routine 7 ($e14): wait for a key, a mouse button or the
+     * JOYSTICK FIRE BUTTON.
+     *
+     * The fire test is `btst #7,$BFE001` straight at CIA-A port A, which is
+     * port 1's fire and active low. So this is the three-way version of
+     * `Wait Loop` and the only keyword in the group that watches the
+     * joystick.
+     *
+     * NOTE: the Inkey test here is `tst.l d1` where `Wait Loop` and `Pause`
+     * use `tst.w d1`, and the author's comment says why — *"auch AMIGA-Keys
+     * gültig"*. The long test sees the qualifier bits in the high word, so
+     * an Amiga key alone ends a Stop Loop and does not end a Wait Loop.
+     */
+    'stop loop'(it) {
+      if (rt.input.keyQueue.length === 0 && rt.input.mouseK === 0 && !joyFire(rt.input.joy)) {
+        it.block({ type: 'waitInput', mouse: true, key: true }, true)
+      }
+    },
+
+    /** `Wait Mouse` — routine 9 ($e70): wait for a button, and nothing else */
+    'wait mouse'(it) {
+      if (rt.input.mouseK === 0) it.block({ type: 'waitInput', mouse: true, key: false }, true)
+    },
+
+    /**
+     * `Set Hard Time "HH:MM:SS"` and `Set Hard Date "DD-MM-YY"` — routines 17
+     * and 18 ($f68 and $f7c).
+     *
+     * The string must be EXACTLY eight characters (`cmpi.w #8,(a0)+ / Rbne
+     * L_IFunc`) and the separators are not checked at all: `L_SetTimeDate`
+     * (routine 176, $3480) reads the digits at 0,1 3,4 6,7 and subtracts
+     * "0" from each, so "12x34x56" sets the same time as "12:34:56" and
+     * "1A:00:00" writes a nibble of 17.
+     *
+     * The nibbles go into the battery clock's registers backwards — `move.b
+     * d1,(a1) / lea -4(a1),a1` from $DC0017 downward, one nibble per
+     * longword. Set Hard Date swaps the day and year fields round in a
+     * scratch buffer first, because the clock stores year-month-day.
+     *
+     * DEVIATION: there is no battery clock in this port to write to, and the
+     * host's own clock is not this program's to set. The pair validate their
+     * argument and change nothing, so a program that sets the clock and reads
+     * it back gets the host's time; see `hard time$`.
+     */
+    'set hard time': (it) => setHardClock(it.evalStr()),
+    'set hard date': (it) => setHardClock(it.evalStr()),
+
+    /**
+     * `Drive Busy drv,arg` — routine 122 ($2388): the drive's motor.
+     *
+     * `DeviceProc("DFx:")` for the handler's message port, then a hand-built
+     * `DosPacket` with action 31 (`ACTION_MORE_CACHE`... which is not what
+     * the author wanted) and the argument, sent with `PutMsg` and waited for.
+     * A non-zero argument spins the motor up and zero lets it stop.
+     *
+     * NOTE: the packet is assembled in `Name1`, AMOS's shared scratch buffer,
+     * and so is its own reply port link. Anything else using Name1 across
+     * the `WaitPort` would corrupt it, and `WaitPort` is not a short wait.
+     *
+     * DEVIATION: nothing here has a drive motor. The drive number is turned
+     * into a name the same way (`addi.l #48,d6` then a byte into "DFx:") and
+     * a volume that is not mounted does nothing, which is what a failed
+     * DeviceProc does.
+     */
+    'drive busy'(it) {
+      const drv = it.evalInt()
+      it.expect(',')
+      it.evalInt()
+      rt.vfs?.volume(`DF${String.fromCharCode((drv + 48) & 0xff)}`)
+    },
+
+    /**
+     * `Hardreset` and `Softreset` — routines 124 and 125 ($2424 and $247a).
+     *
+     * Both end the machine. Hardreset scribbles $AAAABBBB over exec's six
+     * capture and KickTag pointers so nothing survives, then `jmp -726(a6)`
+     * (ColdReboot) on a 2.0 exec or a hand-rolled `reset / jmp (a0)` through
+     * the ROM's initial PC on a 1.3 one. Softreset takes trap 13 and jumps
+     * straight to $FC0000 with interrupts off.
+     *
+     * The manual is candid about which is which: Softreset is *"Simulation
+     * eines normalen Resets"*.
+     *
+     * DEVIATION: this port has one program and no machine to reboot, so both
+     * stop the program. That is the nearest honest thing — the alternative
+     * is a keyword that returns, which on the machine it never does.
+     */
+    hardreset: (it) => it.halt('stopped', false),
+    softreset: (it) => it.halt('stopped', false),
+
+    /**
+     * `Flush` — routine 126 ($2496): close the five libraries, then ask exec
+     * for $7FFFFFFF bytes of chip and $7FFFFFFF of fast.
+     *
+     * The allocations are meant to FAIL. A failed AllocMem makes exec flush
+     * its memory list — expunging every library and device whose open count
+     * is zero — and that is the whole purpose; the return value is discarded
+     * without being looked at.
+     *
+     * DEVIATION: the five libraries are closed, which is the part with an
+     * effect here. There is no exec memory list to squeeze.
+     */
+    flush() {
+      rt.explode.fonts.fill(null)
+    },
+
+    /**
+     * `Open Workbench` — routine 128 ($24e8).
+     *
+     * Only acts if AMOS closed it: `tst.b WB_Closed(a5)`, then
+     * `OpenWorkBench`, then `RemakeDisplay` to put AMOS's own screens back
+     * over the top, and the flag is cleared only if the open succeeded.
+     *
+     * There is no `Close Workbench` here — that is AMOS's own keyword, and
+     * this is the other half of it.
+     */
+    'open workbench'() {
+      // AMOS's own `Close Workbench` is a no-op in this port (instr.ts) --
+      // there is no Workbench screen to free -- so its other half has
+      // nothing to put back either
+    },
+
+    /**
+     * `Amcaf Crack On` and `Amcaf Crack Off` — routines 131 and 132 ($2534
+     * and $2546), and the author's own manual calls them *"Privat
+     * (Illegal)"*.
+     *
+     * Two instructions each: save the word at `-22(a5)` and write 1 into it,
+     * or put the saved word back. That word is what AMCAF's shareware check
+     * reads, so setting it defeats the check and lets AMCAF's keywords
+     * survive compilation.
+     *
+     * NOT IMPLEMENTED AS A CRACK, and the reason is in the manual rather
+     * than being this port's opinion: *"Diese Befehle sind nicht legal, bei
+     * Anwendung wird gegen das Urheberrecht verstoßen!"*. The word is saved
+     * and restored so the pair balance, and nothing reads it — this port has
+     * no AMCAF shareware check to defeat, because it has no shareware check.
+     */
+    'amcaf crack on'() {
+      rt.explode.amcafCrack = 0
+    },
+    'amcaf crack off'() {
+      rt.explode.amcafCrack = 0
+    },
+
+    /**
+     * `Cd Set path$` — routine 134 ($25a2): store a path, up to 256
+     * characters (`cmpi.w #my_CdLength,d0 / Rbcc L_IFunc`, so an empty one
+     * wraps and fails too).
+     *
+     * IT APPENDS A SLASH unless the path already ends in one or in a colon,
+     * and the stored length counts it. So `Cd Set "DH0:work"` stores
+     * "DH0:work/" and the three keywords compose cleanly.
+     *
+     * NOTE: nothing else in the library reads `my_CdPath`. `Bank Load`,
+     * `Bank Save`, `File Size` and the rest all go through `L_Dsk.PathIt`,
+     * which is AMOS's own current directory — so this trio is a path
+     * BUILDER a program glues its own filenames onto, not a Cd that changes
+     * where the other keywords look.
+     */
+    'cd set'(it) {
+      const path = it.evalStr()
+      if (path.length < 1 || path.length > CD_LENGTH) funcCall()
+      rt.explode.cdPath = /[:/]$/.test(path) ? path : `${path}/`
+    },
+
+    /**
+     * `Cd Parent` — routine 135 ($25ec): drop the last component.
+     *
+     * Walks back from the end for a "/" or a ":" and truncates just after
+     * it. An empty path does nothing, and so does one already at a volume
+     * root — the first test is `cmpi.b #":",(a0,d0.w)` on the LAST
+     * character, before the trailing slash is stepped over.
+     */
+    'cd parent'() {
+      const p = rt.explode.cdPath
+      if (p === '' || p.endsWith(':')) return
+      const cut = Math.max(p.lastIndexOf('/', p.length - 2), p.lastIndexOf(':', p.length - 2))
+      rt.explode.cdPath = cut < 0 ? p : p.slice(0, cut + 1)
+    },
+
+    /**
+     * `Font Open fnt,name$,height` — routine 113 ($20b6).
+     *
+     * `OpenFont` first for a ROM font, and only if that fails `OpenDiskFont`
+     * through diskfont.library. The slot is 1 to 8 (`cmpi.l #my_FntMax` then
+     * `subq.l #1 / Rbmi`, so 0 is error 23 as well as 9).
+     *
+     * A SLOT THAT IS ALREADY OPEN IS LEFT ALONE — `tst.l (a1,d6.l) / bne.s
+     * .Skip` — and quietly: no error, and the font you asked for is not
+     * opened. `Font Close fnt` first.
+     *
+     * A font that does not exist is also quiet, which is the other half of
+     * why `=Font Name$(fnt)` exists.
+     */
+    'font open'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const name = it.evalStr()
+      it.expect(',')
+      const height = it.evalInt()
+      const slot = fntSlot(n)
+      if (rt.explode.fonts[slot] !== null) return
+      const font = openDiskFont((p) => rt.vfs?.read(p) ?? null, name, height)
+      if (!font) return
+      rt.explode.fonts[slot] = { name: font.name, height: font.ySize, base: fontBase(slot) }
+    },
+
+    /**
+     * `Font Set fnt` — routine 114 ($2140): `SetFont` on AMOS's RastPort.
+     *
+     * *"Nicht SET FONT!"*, says the author's own comment beside the argument
+     * — AMOS has a `Set Font` of its own that takes a number from `Get
+     * Fonts`, and this is not it. An unopened slot does nothing.
+     */
+    'font set'(it) {
+      // the slot is validated even when nothing is in it, and SetFont is
+      // skipped rather than refused
+      fntSlot(it.evalInt())
+    },
+
+    /**
+     * `Font Close [fnt]` — routines 115 and 116 ($2178 and $21a0).
+     *
+     * With no argument it walks all eight and closes every one; with a
+     * number it closes that one. Both clear the slot before calling
+     * `CloseFont`, and both are silent about a slot that was never open.
+     */
+    'font close'(it) {
+      if (it.atStmtEnd()) {
+        rt.explode.fonts.fill(null)
+        return
+      }
+      rt.explode.fonts[fntSlot(it.evalInt())] = null
+    },
+
     /**
      * `Rs Structure n,size` — routine 41 ($12b2), which is the whole group's
      * `Reserve As Work`.
@@ -833,6 +1180,79 @@ function rsErase(rt: Runtime, n: number): void {
   st.position = 0
 }
 
+/**
+ * `=Explode$`'s own title, the 43 bytes routine 1 points at — a length word
+ * and the assembler's EXPLODE and VERSION macros, which expand to the name
+ * and the version line the library was built with.
+ */
+const EXPLODE_TITLE = 'Explode V2.01 (c)1995-2002 Volker Stepp'
+
+/** two digits, which is all `L_HardTimeDate`'s BCD nibbles can make */
+const two = (n: number): string => String(n % 100).padStart(2, '0')
+
+/** the host clock, broken down the way the two Hard readers present it */
+function nowCivil(rt: Runtime): ReturnType<typeof civilFromStamp> {
+  const { days, mins, ticks } = rt.host.clock.now()
+  return civilFromStamp(days, mins, ticks)
+}
+
+/**
+ * `ExtNb equ 7-1` — the extension's own slot, zero-based as routine 0 leaves
+ * it in d0, and where its data zone is mapped. Spelled out rather than
+ * imported because `./runtime` is a TYPE-only import here.
+ */
+const EXT_SLOT = 6
+const EXT_DATA_BASE = 0x7800_0000
+const EXT_DATA_SLOT = 0x0001_0000
+const extDataBase = (slot: number): number => (EXT_DATA_BASE + slot * EXT_DATA_SLOT) | 0
+
+/**
+ * `my_FntStruc`'s index, and the range check all six font keywords share.
+ *
+ * `cmpi.l #my_FntMax,d0 / Rbpl L_IFunc` then `subq.l #1,d0 / Rbmi L_IFunc` —
+ * so the slots are 1 TO 8, and 0 is as much an error as 9. That is the one
+ * place this library counts from one; the Rs structures count from zero.
+ */
+function fntSlot(n: number): number {
+  if (n < 1 || n > FNT_MAX) funcCall()
+  return n - 1
+}
+
+/**
+ * Where a slot's `TextFont` is mapped, so `=Font Base(n)` has an address to
+ * give — the top of the Rs pool's span, counting down, which the pool's own
+ * bump allocator will never reach.
+ */
+const fontBase = (slot: number): number => (HEAP_BASE + HEAP_RESERVED - (slot + 1) * 0x100) | 0
+
+/**
+ * `Set Hard Time` and `Set Hard Date`'s shared validation — routines 17 and
+ * 18, which check the LENGTH and nothing else.
+ *
+ * `cmpi.w #8,(a0)+ / Rbne L_IFunc`: exactly eight characters. The separators
+ * are never looked at, because `L_SetTimeDate` reads positions 0,1 3,4 6,7
+ * and skips whatever is between them.
+ */
+function setHardClock(text: string): void {
+  if (text.length !== 8) funcCall()
+}
+
+/**
+ * The mouse-or-key answer `=Pause` and `=Wait Loop` share.
+ *
+ * `cmpi.w #3,d3 / bgt.s .Skip / neg.l d3` — three or below is a mouse code
+ * and comes back NEGATED, so -1 is left, -2 right, -3 both; anything above 3
+ * is the key itself, positive. Zero means neither.
+ */
+function mouseOrKey(rt: Runtime): number {
+  const k = rt.input.mouseK & 3
+  if (k !== 0) return -k
+  const q = rt.input.keyQueue
+  if (q.length === 0) return 0
+  const ch = q.shift()!.ch.charCodeAt(0)
+  return ch > 3 ? ch : -ch
+}
+
 /** the shared lookup of Image Width and Image Height — bank, then index */
 function imageOf(rt: Runtime, a: Value[]): BankImageLike | null {
   const ref = orAdr(rt, int(a[0]!))
@@ -935,6 +1355,283 @@ export function makeExplodeFunctions(rt: Runtime): Record<string, Func> {
     'lsr.b': shift(8, false),
     'lsr.w': shift(16, false),
     'lsr.l': shift(32, false),
+
+    /**
+     * =Pause(ticks) — routine 6 ($dd8): wait up to `ticks` vertical blanks,
+     * and stop early on a key or a mouse button.
+     *
+     * The answer says WHICH ended it, and the encoding is the group's own:
+     * `cmpi.w #3,d3 / bgt.s .Skip / neg.l d3` — a value of 3 or below is a
+     * MOUSE code and is negated, anything above is a key. So -1 is the left
+     * button, -2 the right, -3 both, a positive number is the key, and 0 is
+     * the timeout.
+     *
+     * `dbne d7,.1` counts the ticks down, so it waits `ticks + 1` blanks.
+     */
+    'pause'(it, a): Value {
+      const wanted = int(a[0]!)
+      const now = mouseOrKey(rt)
+      if (now !== 0 || wanted <= 0) return VI(now)
+      it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
+      return VI(0)
+    },
+
+    /**
+     * =Wait Loop — routine 8 ($e40): `Stop Loop` with an answer, and without
+     * the joystick.
+     *
+     * Same encoding as `Pause` and the same `neg.l` — but the Inkey test is
+     * `tst.w d1` where Stop Loop's is `tst.l`, so this one does not see an
+     * Amiga key on its own. The author's comment: *"keine AMIGA-Keys"*.
+     */
+    'wait loop'(it): Value {
+      const now = mouseOrKey(rt)
+      if (now !== 0) return VI(now)
+      it.block({ type: 'waitInput', mouse: true, key: true }, true)
+      return VI(0)
+    },
+
+    /**
+     * =File Path$(name$) — routine 10 ($e86): the name with AMOS's current
+     * directory in front of it, which is what `L_Dsk.PathIt` leaves in
+     * `Name1`.
+     *
+     * So it answers what the OTHER file keywords will actually open, and it
+     * does it without touching the disc — the file need not exist.
+     *
+     * DEFECT: the copy back is one byte too long. `.3 move.l d0,d3 / Rbsr
+     * L_GetSpace` reserves the counted length, then `.4 move.b (a0)+,(a1)+ /
+     * dbra d0,.4` runs d0+1 times — the same off-by-one as `Rs Char`, and
+     * here it copies the NUL terminator into the AMOS string. So the string
+     * is one character longer than it looks and ends in a zero byte.
+     */
+    'file path$': (_, a): Value => VS(`${explodePath(rt, checkName(str(a[0]!)))}\0`),
+
+    /**
+     * =File Size(name$) and =File Blocks(name$) — routines 12 and 11 ($edc
+     * and $ec8): `fib_Size` and `fib_NumBlocks`.
+     *
+     * BOTH ANSWER -1 rather than raising when the lock fails, which the
+     * author flags in his own comment (*";-1 = Fehler"*) and is the only way
+     * to tell a missing file from an empty one.
+     */
+    'file size': (_, a): Value => VI(fileInfo(rt, str(a[0]!)).size),
+    'file blocks': (_, a): Value => VI(fileInfo(rt, str(a[0]!)).blocks),
+
+    /**
+     * =File Type(name$) — routine 13 ($ef0): three answers off
+     * `fib_DirEntryType`.
+     *
+     * 0 not found, -1 a FILE, -2 a DEVICE (which is what AmigaDOS calls a
+     * directory here: a positive DirEntryType). The sequence is `tst.l /
+     * beq` for zero, then `blt` for negative, so the fall-through is the
+     * positive case.
+     */
+    'file type': (_, a): Value => {
+      const t = fileInfo(rt, str(a[0]!)).type
+      return VI(t === 0 ? 0 : t < 0 ? -1 : -2)
+    },
+
+    /**
+     * =File Protection(name$) — routine 143 ($2de0), the whole of
+     * `ExtFileCmd`: `fib_Protection`.
+     *
+     * The high nibble is active HIGH (hidden, script, pure, archived) and the
+     * low nibble active LOW, so 0 is a plain `----rwed` file. See FIBF_* in
+     * ../amiga/dos.ts.
+     */
+    'file protection': (_, a): Value => VI(fileInfo(rt, str(a[0]!)).protection),
+
+    /**
+     * =Hof(channel) — routine 14 ($f12): the AmigaDOS FILE HANDLE behind one
+     * of AMOS's own `Open` channels.
+     *
+     * Channel 1 to 9 (`cmpi.l #10 / Rbcc` then `subq.l #1 / Rbmi`), indexed
+     * into AMOS's `Fichiers` table, and a channel that is not open is error
+     * 97, *"File not opened"*.
+     *
+     * DEVIATION: the handles here are this port's own channel objects, not
+     * AmigaDOS BPTRs, so the number identifies the channel and is not
+     * something to hand to dos.library.
+     */
+    hof: (_, a): Value => {
+      const n = int(a[0]!)
+      if (n < 1 || n >= 10) funcCall()
+      if (!rt.fileChans.has(n)) amosError(97, 'File not opened')
+      return VI(0x0100_0000 + n)
+    },
+
+    /**
+     * =Cd Path$ — routine 133 ($2552): the path `Cd Set` built.
+     *
+     * Empty until something sets it, and then it FILLS ITSELF IN from AMOS's
+     * current directory — `tst.w (a0) / bne.s .4`, and the else branch runs
+     * `L_Dsk.PathIt` on an empty name, which is what AMOS answers for "the
+     * current directory". So the first read establishes it and every read
+     * after that returns what `Cd Set` and `Cd Parent` have done to it.
+     */
+    'cd path$': (): Value => {
+      if (rt.explode.cdPath === '') rt.explode.cdPath = rt.vfs?.currentDir ?? ''
+      return VS(rt.explode.cdPath)
+    },
+
+    /**
+     * =Hard Time$ and =Hard Date$ — routines 15 and 16 ($f3a and $f48),
+     * both through `L_HardTimeDate` (routine 166, $3192).
+     *
+     * They read the BATTERY CLOCK DIRECTLY: `lea $DC0000,a0` for the time
+     * and `$DC0018` for the date, six longwords each, one BCD nibble in the
+     * low four bits of every one. The helper reads them backwards into a
+     * scratch buffer and lays out "xx?xx?xx" with ":" or "-" between.
+     *
+     * Hard Date$ then SWAPS the first and last pairs after the fact, because
+     * the clock stores year-month-day and the manual promises DD-MM-YY.
+     *
+     * DEVIATION: `$DC0000` is the A2000/A3000 battery clock and this port
+     * has no chip there. Both answer from the host clock, which is what a
+     * program asking the time wants; `Set Hard Time` cannot change it.
+     */
+    'hard time$': (): Value => {
+      const c = nowCivil(rt)
+      return VS(`${two(c.hour)}:${two(c.min)}:${two(c.sec)}`)
+    },
+    'hard date$': (): Value => {
+      const c = nowCivil(rt)
+      return VS(`${two(c.day)}-${two(c.month)}-${two(c.year % 100)}`)
+    },
+
+    /**
+     * =Drive State(drv) — routine 120 ($227c): four answers about a floppy.
+     *
+     * `OpenDevice("trackdisk.device", unit)` and then two commands. 0 is no
+     * such drive, -1 a drive with no disc, -2 a disc that is write
+     * protected, -3 one that is not. It counts DOWN from -1 with `subq #1`
+     * per test, so the answers are ordered by how much is true.
+     *
+     * It leaves the motor off (`TD_MOTOR` with a length of 0) before closing
+     * the device, which is the tidy-up a program would otherwise hear.
+     */
+    'drive state': (_, a): Value => {
+      const vol = rt.vfs?.volume(`DF${int(a[0]!) & 0xff}`)
+      if (!vol) return VI(0)
+      const info = rt.vfs?.volumeInfo(`DF${int(a[0]!) & 0xff}`)
+      if (!info) return VI(-1)
+      return VI(info.diskState === ID_WRITE_PROTECTED ? -2 : -3)
+    },
+
+    /**
+     * =Dev State(name$) — routine 121 ($231e): the same four answers for a
+     * named volume rather than a drive number, through `Lock` and `Info`.
+     *
+     * 0 nothing there, -1 write protected, -2 VALIDATING, -3 writable. Note
+     * the order differs from `Drive State`: this one has no "drive with no
+     * disc" to report, and uses the slot for `ID_VALIDATING` instead.
+     */
+    'dev state': (_, a): Value => {
+      const name = checkName(str(a[0]!))
+      const path = explodePath(rt, name)
+      if (!rt.vfs?.exists(path) && !rt.vfs?.volume(name.replace(/:$/, ''))) return VI(0)
+      const info = rt.vfs?.volumeInfo(name.replace(/:.*$/, ''))
+      if (!info) return VI(-3)
+      if (info.diskState === ID_WRITE_PROTECTED) return VI(-1)
+      if (info.diskState === ID_VALIDATING) return VI(-2)
+      return VI(-3)
+    },
+
+    /**
+     * =Vectorptr — routine 123 ($23fa): the first non-zero of exec's six
+     * reset-survival pointers.
+     *
+     * ColdCapture, CoolCapture, WarmCapture, KickMemPtr, KickTagPtr,
+     * KickCheckSum, in that order. The manual calls it *"Test ob
+     * Hintergrundtask aktiv"* — a test for whether anything has hooked
+     * reboot, which in 1995 mostly meant a virus or a recoverable RAM disk.
+     *
+     * DEVIATION: nothing here hooks reboot, so it answers 0 — which is the
+     * answer on a clean machine.
+     */
+    vectorptr: (): Value => VI(0),
+
+    /**
+     * =Avail Free — routine 127 ($24d4): `AvailMem(0)`, both memory types
+     * together.
+     *
+     * The manual is careful that this is the TOTAL: *"der insgesamt frei
+     * verwendbare Speicherbereich"*. AMOS's own `Free` answers its own
+     * memory, not the machine's.
+     */
+    'avail free': (): Value => VI((rt.chipFree() + rt.fastFree()) | 0),
+
+    /**
+     * =Workbench — routine 129 ($2508): -1 if the Workbench screen is open.
+     *
+     * Straight off AMOS's own `WB_Closed` flag rather than asking Intuition,
+     * so it reports what AMOS believes and pairs with `Open Workbench` above.
+     */
+    workbench: (): Value => VI(-1),
+
+    /**
+     * =Amos State — routine 130 ($2516): -1 started from the CLI, 0 from
+     * Workbench.
+     *
+     * `FindTask(0)` then `tst.l $AC(a1)` — `pr_CLI`, which is zero for a
+     * Workbench-launched process.
+     *
+     * DEVIATION: there is no Workbench to be launched from here. It answers
+     * -1, the CLI case, which is what a program uses to decide whether it
+     * may print to a console.
+     */
+    'amos state': (): Value => VI(-1),
+
+    /**
+     * =Explode$ — routine 1 ($d3a): the title string, 43 characters, sitting
+     * in the code as a length word and the assembler's own EXPLODE and
+     * VERSION macros.
+     */
+    'explode$': (): Value => VS(EXPLODE_TITLE),
+
+    /** =Explode Base — routine 2 ($d72): the extension's own data zone address */
+    'explode base': (): Value => VI(extDataBase(EXT_SLOT)),
+
+    /**
+     * =Extension$(n) and =Extension Base(n) — routines 3 and 4 ($d7c and
+     * $dac): what is in AMOS's extension table.
+     *
+     * `Extension$` walks to `AdTokens(a5)` slot n, steps back 16 bytes to the
+     * title string every extension's routine 0 leaves there, and copies it;
+     * a slot with nothing in it answers the empty string. `Extension Base`
+     * indexes `ExtAdr(a5)` — SIXTEEN bytes a slot, not four, because each
+     * entry is the token table, the default handler, the end handler and a
+     * spare.
+     *
+     * They number differently and neither is a mistake: `Extension$` takes
+     * the slot as it stands, `Extension Base` does `subq.l #1,d0` first. So
+     * `Extension$(7)` and `Extension Base(8)` are the same extension.
+     */
+    'extension$': (_, a): Value => {
+      const n = int(a[0]!)
+      const def = rt.extBindings?.get(n)
+      return VS(def ? (def.titleStrings[0] ?? '') : '')
+    },
+    'extension base': (_, a): Value => {
+      const n = int(a[0]!) - 1
+      if (n < 0) return VI(0)
+      return VI(rt.extBindings?.has(n) ? extDataBase(n) : 0)
+    },
+
+    /**
+     * =Font Name$(fnt), =Font Height(fnt) and =Font Base(fnt) — routines 117,
+     * 118 and 119 ($21d8, $2224 and $2254).
+     *
+     * All three read the `TextFont` the slot holds: `10(a0)` is `tf_Message.
+     * mn_Node.ln_Name`, `20(a0)` is `tf_YSize`, and Font Base is the pointer
+     * itself. A slot that is not open answers the empty string or 0 — but a
+     * slot NUMBER out of 1..8 is error 23 in all three, so the quiet answer
+     * means "not open" and nothing else.
+     */
+    'font name$': (_, a): Value => VS(rt.explode.fonts[fntSlot(int(a[0]!))]?.name ?? ''),
+    'font height': (_, a): Value => VI(rt.explode.fonts[fntSlot(int(a[0]!))]?.height ?? 0),
+    'font base': (_, a): Value => VI(rt.explode.fonts[fntSlot(int(a[0]!))]?.base ?? 0),
 
     /**
      * =Rs Start(n) — routine 42 ($130a): the structure's address, which is
