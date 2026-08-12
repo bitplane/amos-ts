@@ -217,6 +217,7 @@ per keyword.
 | `amospro-ioports-2.0`  | IOPorts                               | source      |       38 |       6 | stock, slot 6 |
 | `gamesupport-1.2`      | GameSupport                           | source      |       37 |       — | recommends 23 |
 | `amospro-colours-1.0`  | AMOSPro Colours                       | source      |       27 |       — | recommends 23 |
+| `maxsdoor-0.20`        | MAXS Door Handler                     | source      |       21 |       — | recommends 16 |
 | `amospro-compiler-2.0` | Compiler                              | source      |       15 |       5 | stock, slot 5 |
 | `serial-1.2`           | Serial (AMOS 1.3)                     | source      |       15 |       — | —             |
 | `misc-1.0`             | Misc Extension                        | source      |       12 |       — | recommends 23 |
@@ -232,6 +233,7 @@ per keyword.
 | `amcaf-1.50`           | AMCAF                                 | disassembly |      280 |       — | recommends 8  |
 | `amcaf-1.40`           | AMCAF                                 | disassembly |      268 |       — | —             |
 | `gui-2.10`             | GUI                                   | disassembly |      204 |       — | recommends 24 |
+| `dme-2.0`              | DOOM Music Extension                  | disassembly |      184 |       — | recommends 15 |
 | `easylife-1.09`        | EasyLife                              | disassembly |      156 |       — | —             |
 | `easylife-1.10`        | Easy Life                             | disassembly |      156 |       — | recommends 16 |
 | `turbo-plus-2.15`      | TURBO Plus                            | disassembly |      152 |       — | —             |
@@ -251,10 +253,12 @@ per keyword.
 | `tome-4.23`            | TOME                                  | disassembly |       67 |       7 | recommends 7  |
 | `powerbobs-1.0`        | Power Bobs                            | disassembly |       65 |       — | recommends 13 |
 | `amos3d-1.0`           | AMOS 3D                               | disassembly |       64 |       4 | recommends 4  |
+| `int-1.0`              | Int                                   | disassembly |       62 |       — | recommends 25 |
 | `eme-3.0`              | Enhanced Music Extension              | disassembly |       59 |       — | recommends 1  |
 | `jd-prt-1.1`           | JD Printer                            | disassembly |       58 |       — | —             |
 | `jd-colour-2.0`        | JD Colour                             | disassembly |       56 |       — | recommends 20 |
 | `eme-3.0-demo`         | Enhanced Music Extension (demo build) | disassembly |       55 |       — | —             |
+| `symbase-0.94`         | SymBase                               | disassembly |       51 |       — | recommends 21 |
 | `d-sam-1.01`           | D-Sam                                 | disassembly |       50 |       — | recommends 15 |
 | `gui-1.5b`             | GUI                                   | disassembly |       48 |       — | —             |
 | `range-1.0`            | Range                                 | disassembly |       48 |       — | recommends 9  |
@@ -268,29 +272,25 @@ per keyword.
 | `delta-1.4`            | Delta                                 | disassembly |       26 |       — | recommends 15 |
 | `aga-1.0`              | AMOS AGA                              | disassembly |       24 |       — | recommends 20 |
 | `amon-1.04`            | Amon                                  | disassembly |       24 |       — | recommends 25 |
+| `dbench-0.42`          | DBench                                | disassembly |       23 |       — | recommends 21 |
 | `tft-0.6`              | TFT                                   | disassembly |       22 |       — | recommends 25 |
 | `locale-0.26`          | Locale                                | disassembly |       20 |       — | recommends 17 |
 | `amon-1.03`            | Amon                                  | disassembly |       18 |       — | recommends 16 |
 | `sticks-1.01b`         | Sticks                                | disassembly |       16 |      17 | recommends 17 |
 | `butility-1.21`        | BUtility                              | disassembly |       15 |       — | recommends 12 |
 | `lserial-2.1`          | LSerial                               | disassembly |       15 |      11 | recommends 11 |
+| `orgasm-1.0`           | OrgAsm                                | disassembly |       13 |       — | recommends 20 |
 | `musicraft-1.0`        | MusiCRAFT                             | disassembly |       12 |      19 | recommends 19 |
 | `ercole-1.7`           | Ercole                                | disassembly |       11 |       — | recommends 10 |
 | `stars-2.33`           | Stars                                 | disassembly |       11 |       — | recommends 20 |
 | `dump-1.0`             | Dump                                  | disassembly |        8 |       — | recommends 20 |
 | `ctext-1.0`            | CText                                 | disassembly |        6 |       8 | recommends 8  |
+| `display-0.01`         | Display                               | disassembly |        6 |       — | recommends 24 |
 | `jd-k3-1.1`            | JD K3                                 | disassembly |        6 |       — | recommends 19 |
+| `thx-0.6`              | THX                                   | disassembly |        6 |       — | recommends 20 |
 | `jotre-1.0`            | Jotre                                 | disassembly |        5 |       — | recommends 22 |
 | `first-0.1`            | First                                 | disassembly |        4 |       — | recommends 22 |
-| `dme-2.0`              | DOOM Music Extension                  | manual      |      184 |       — | recommends 15 |
 | `intuition-1.3b`       | Intuition Extension                   | manual      |      183 |      14 | recommends 25 |
-| `int-1.0`              | Int                                   | manual      |       62 |       — | recommends 25 |
-| `symbase-0.94`         | SymBase                               | manual      |       51 |       — | recommends 21 |
-| `dbench-0.42`          | DBench                                | manual      |       23 |       — | recommends 21 |
-| `maxsdoor-0.20`        | MAXS Door Handler                     | manual      |       21 |       — | recommends 16 |
-| `orgasm-1.0`           | OrgAsm                                | manual      |       13 |       — | recommends 20 |
-| `display-0.01`         | Display                               | manual      |        6 |       — | recommends 24 |
-| `thx-0.6`              | THX                                   | manual      |        6 |       — | recommends 20 |
 
 <!-- END registry -->
 

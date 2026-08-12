@@ -4,19 +4,21 @@
   "version": "0.42",
   "author": "Lázár Zoltán",
   "source": "binary",
-  "library": "AMOSPro_DBench.Lib-V0.42",
-  "sha256": "ba43085117f394b1eb7c5c3290e3975e7e924c6536b617a9519f2e479899339b",
-  "format": "amostools",
+  "library": "AMOSPro_DBench.Lib",
+  "sha256": "800c5e904f4816f839931ed63d59f8d23b514947de6d588824ca5a66938369df",
+  "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
-  "docs": [],
+  "evidence": "disassembly",
+  "docs": [
+    "DataBench.Guide"
+  ],
   "titleStrings": [],
   "recommendedSlot": 21,
   "observedSlots": [],
   "provenance": {
-    "from": "AMOSTools/Extensions, out of aminet dev/amos/amostools.i386-aros.lha -- held in the corpus at sources/aminet-dev-amos/. Its author's README says the directory is \"every AMOS extension I can find, cut down to just their token tables with the make_extensions.pl script\", and names the ExoticA AMOS extensions wiki page as the list it works from.",
-    "redistribution": "Not redistributed here as software: the file carries no code at all. It is a token table with the library stripped out from under it, kept for identification and detokenising.",
-    "note": "ExoticA's AMOS extensions list places it at slot 21. Nothing here observes it in a program: the slot is the wiki's recommendation and no more."
+    "from": "kyzer.me.uk/amos/other/dbench042.lha, retrieved 2026-08-12 and held in the corpus at sources/kyzer-dbench/. 80,503 bytes, sha256 034af04116eb409a5fe899647d5a9aa43c9292b20fe40e5a7203c1f339c5c21d. The guide was also fetched separately from kyzer.me.uk/amos/docs/dbench/ and the copies agree.",
+    "note": "Slot 21 is ExoticA's wiki. SymBase's own Installer script claims 21 for SymBase, and if these are one product at two ages they cannot both hold it -- unresolved, and neither is observed in a program.",
+    "redistribution": "Not redistributed by amos-ts; fixtures/ is gitignored."
   },
-  "notes": "TABLE ONLY. This is an AMOSTools stub -- the hunk shell and the token table survive, both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. So the NAMES, the parameter SPECS and, because an id is the byte offset of its entry, the IDS are the original library's; the behaviour is not here and the evidence tier cannot rise above `manual` until a real binary turns up. The reader is checked against CRAFT and MusiCRAFT, which are held both ways, and agrees with them entry for entry -- see parseAmosToolsTable in src/tokens/libtok.ts. 23 keywords, and it is SymBase cut down -- same author, same `db *` names, and 21 of its 23 entries sit at the id SymBase 0.94 gives the same keyword. THE TWO ARE THEREFORE NOT SEPARABLE by a program that uses only those 21: identifySlot will report `ambiguous`, which is the right answer rather than a failure, and the only extension pair here known to have that property. The two entries that differ are at $166, where DBench has `db goto` [I0] and 0.94 has `db get` [00], and at $174, where DBench has `db put` [I2,0] and 0.94 has `db getf` [10] -- so 0.94 did not append to this table, it inserted into it, and DBench is the earlier shape rather than a subset of the later one. What is missing against SymBase is everything past reading: no `db append`, `db delete`, `db pack`, `db sort` or `db locate`."
+  "notes": "REPLACES AN AMOSTOOLS STUB. Until 2026-08-12 this row held only the token table with the library stripped out from under it -- both length fields zero, no code, every routine word overwritten with `====` -- so the tier could not rise above `manual`. The real library's table is IDENTICAL to the stub's, entry for entry, id for id and spec for spec, which is a check on the AMOSTools reader as much as on this registration. What changes is that the code is now here to read. DBENCH AND SYMBASE ARE THE SAME PRODUCT AT TWO AGES, both by Lázár Zoltán. dbench-0.42's 24 keywords are symbase-0.94's first 24, in the same order, with the same ids -- `db sel`, `db use`, `db address`, `db close`, `db flen`, `db fieldno`, `db saved on`, `db saved off` and on. Neither should be ported without the other open. SymBase 0.92's readme records a keyword REMOVAL -- \"REM: Date functions removed to a separate extension / No more needs date.library\" -- which is exactly the shape that makes one build's tokens detokenise to nonsense under another, so the `renumbered` verdict may apply across the family and has not been checked. THE ARCHIVE'S BEST EVIDENCE IS NOT THE GUIDE: `Symbiose.AMOS`, 29,912 bytes, is a complete application written against this extension, and a program that uses a keyword settles what it does better than a paragraph describing it. `Tools/CreateDBF` is a companion, `OBUDAAT.DBF` a 62KB sample database in dBASE III format -- so the on-disc format is a documented one and the port would not have to guess it -- and four .abk banks carry the interface graphics."
 }

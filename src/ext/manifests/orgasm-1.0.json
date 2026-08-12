@@ -4,19 +4,21 @@
   "version": "1.0demo",
   "author": "Donald Cameron (T-Soft)",
   "source": "binary",
-  "library": "OrgAsm.Lib-V1.0demo",
-  "sha256": "3e72b51e46cf07375cc695e16673c0c69b8c98da07022c27e2873ce3c6a86199",
-  "format": "amostools",
+  "library": "Tiny.lib",
+  "sha256": "a0f2460e41ce72225bc791f65f0710a26acd4397e99f4a772e0db590442a1149",
+  "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
-  "docs": [],
+  "evidence": "disassembly",
+  "docs": [
+    "OrgAsm.Readme"
+  ],
   "titleStrings": [],
   "recommendedSlot": 20,
   "observedSlots": [],
   "provenance": {
-    "from": "AMOSTools/Extensions, out of aminet dev/amos/amostools.i386-aros.lha -- held in the corpus at sources/aminet-dev-amos/. Its author's README says the directory is \"every AMOS extension I can find, cut down to just their token tables with the make_extensions.pl script\", and names the ExoticA AMOS extensions wiki page as the list it works from.",
-    "redistribution": "Not redistributed here as software: the file carries no code at all. It is a token table with the library stripped out from under it, kept for identification and detokenising.",
-    "note": "ExoticA's AMOS extensions list places it at slot 20. Nothing here observes it in a program: the slot is the wiki's recommendation and no more."
+    "from": "kyzer.me.uk/amos/other/orgasm.lha, retrieved 2026-08-12 and held in the corpus at sources/kyzer-orgasm/. 30,426 bytes, sha256 704d9dd3e280e152907bbf0339289c69e6b9ed020a50cd4b15e4cbc2802a9518. The readme was fetched separately from kyzer.me.uk/amos/docs/orgasm/OrgAsm.Readme and the copies agree.",
+    "note": "Slot 20 is ExoticA's AMOS extensions wiki. Nothing here observes it and the readme does not say.",
+    "redistribution": "\"OrgAsm by T-SOFT (c)1994 D.Cameron All Rights Reserved\". Not redistributed by amos-ts; fixtures/ is gitignored."
   },
-  "notes": "TABLE ONLY. This is an AMOSTools stub -- the hunk shell and the token table survive, both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. So the NAMES, the parameter SPECS and, because an id is the byte offset of its entry, the IDS are the original library's; the behaviour is not here and the evidence tier cannot rise above `manual` until a real binary turns up. The reader is checked against CRAFT and MusiCRAFT, which are held both ways, and agrees with them entry for entry -- see parseAmosToolsTable in src/tokens/libtok.ts. Thirteen keywords, and the only extension here whose names are not AMOS-shaped at all: every one is written `f<opengui>`, `f<closegui>`, `f<wait>`, `f<waitport>`, `f<getimsg>`, `f<replyimsg>`, `f<gotoamos>`, `f<gotowb>`, `f<openlib_intuition>`, `f<openlib_gadtools>`, `f<closelib_intuition>`, `f<closelib_gadtools>`, `f<itemaddress>` -- angle brackets included, which is legal in a token table because the tokeniser matches the bytes rather than an identifier. All thirteen are functions returning an integer. A gadtools shell, and a DEMO: the wiki records no full release, and the same author is behind Liberator, which is on its missing-extensions list."
+  "notes": "REPLACES AN AMOSTOOLS STUB. Until 2026-08-12 this row held only the token table with the library stripped out from under it -- both length fields zero, no code, every routine word overwritten with `====` -- so the tier could not rise above `manual`. The real library's table is IDENTICAL to the stub's, entry for entry, id for id and spec for spec, which is a check on the AMOSTools reader as much as on this registration. What changes is that the code is now here to read. THE LIBRARY IS CALLED `Tiny.lib` and nothing about that filename says which extension it is -- it was identified from its token table, which carries `opengui`, `closegui`, `wait`, `waitport`, `getimsg`, `replyimsg`, `gotoamos`, `gotowb`, this row's names exactly. 1,208 bytes, the smallest library registered. WHAT IT IS FOR, and it explains the odd keyword names: OrgAsm is a TRANSLATOR, not a GUI library. In the author's words it \"'sits' between two other programs, namely GadToolsBox and A68k\" -- you paint an interface in GadToolsBox, save it as assembler, and OrgAsm rewrites that source into something AMOS can use and assembles it into Ram:GUI.BIN and Ram:GUI.ASC. The extension is only the runtime that loads the resulting blob and pumps its message port, which is why fourteen keywords is enough and why they are spelled `f<opengui>` rather than `Open Gui`. The six example programs (1_Buttons through 6-TooMany, 6KB to 14KB) are the only demonstration of what the keywords do -- the readme documents the translator, not the runtime."
 }

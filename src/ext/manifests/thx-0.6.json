@@ -4,19 +4,21 @@
   "version": "0.6",
   "author": "Thomas Nokielski",
   "source": "binary",
-  "library": "AMOSPro_THX.Lib-V0.6",
-  "sha256": "18f8e6856a38090aa03edc6b7b6f1bce8d5628cb91d878a79e4ebd4814e89589",
-  "format": "amostools",
+  "library": "AMOSPRO_THX.lib",
+  "sha256": "75177a46f1979be746e033a8e5d61535dc53c7ce30733bff6f3d25f833ab1c67",
+  "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
-  "docs": [],
+  "evidence": "disassembly",
+  "docs": [
+    "THXLib.guide"
+  ],
   "titleStrings": [],
   "recommendedSlot": 20,
   "observedSlots": [],
   "provenance": {
-    "from": "AMOSTools/Extensions, out of aminet dev/amos/amostools.i386-aros.lha -- held in the corpus at sources/aminet-dev-amos/. Its author's README says the directory is \"every AMOS extension I can find, cut down to just their token tables with the make_extensions.pl script\", and names the ExoticA AMOS extensions wiki page as the list it works from.",
-    "redistribution": "Not redistributed here as software: the file carries no code at all. It is a token table with the library stripped out from under it, kept for identification and detokenising.",
-    "note": "ExoticA's AMOS extensions list places it at slot 20. Nothing here observes it in a program: the slot is the wiki's recommendation and no more."
+    "from": "kyzer.me.uk/amos/aminet/THXLib06.lha, retrieved 2026-08-12 and held in the corpus at sources/kyzer-thx/. 20,814 bytes, sha256 3e25cf9f2acab8f1ad32787858305f76e0f13a2a3576dd7f0abbb63afa920435. Originally Aminet CD 16. The guide and readme were also fetched separately from kyzer.me.uk/amos/docs/thx/ and the copies agree.",
+    "note": "Slot 20 is ExoticA's AMOS extensions wiki and is not observed here.",
+    "redistribution": "Not redistributed by amos-ts; fixtures/ is gitignored."
   },
-  "notes": "TABLE ONLY. This is an AMOSTools stub -- the hunk shell and the token table survive, both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. So the NAMES, the parameter SPECS and, because an id is the byte offset of its entry, the IDS are the original library's; the behaviour is not here and the evidence tier cannot rise above `manual` until a real binary turns up. The reader is checked against CRAFT and MusiCRAFT, which are held both ways, and agrees with them entry for entry -- see parseAmosToolsTable in src/tokens/libtok.ts. Six keywords over a THX/AHX replayer: `thx load`, `thx play`, `thx stop`, `thx volume`, `=thx subsongs`, `=thx end`. NOT THE SAME EXTENSION AS JOTRE, which is also a THX shim and is registered at slot 22 with five keywords of its own spelling (`jolly *`), and not the same as DOOM Music 2.0, which spells all six of these names in its `thx` block. This one shares no ID with DME -- the names are a coincidence of what the format is called. `thx play` here takes two arguments where DME's takes one."
+  "notes": "REPLACES AN AMOSTOOLS STUB. Until 2026-08-12 this row held only the token table with the library stripped out from under it -- both length fields zero, no code, every routine word overwritten with `====` -- so the tier could not rise above `manual`. The real library's table is IDENTICAL to the stub's, entry for entry, id for id and spec for spec, which is a check on the AMOSTools reader as much as on this registration. What changes is that the code is now here to read. Six named keywords -- `Thx Play`, `Thx Stop`, `Thx Load`, `Thx Volume`, `=Thx Subsongs`, `Thx End` -- and a seventh unnamed entry, which is routine 0's default that every extension has. THE KEYWORDS ARE THE SMALL HALF OF THE JOB. THX (The Player / AHX, by Dexter and Pink) is a SYNTHESISED chiptune format: a song is a few hundred bytes because the instruments are generated rather than sampled. Nothing in src/amiga replays it, and writing one is the same shape of problem protracker.ts was. The archive ships NINE REAL SONGS in example/songs/ -- Back in 1986, Commando-Highscore, Drums, Extra, Hawkeye-Loader, Inside, Raider of the Daim, Sometimes, Urban Shuffle, 352 to 3,312 bytes -- which is a better starting position than ProTracker had. example/THXLib_Example.AMOS shows the keywords in use. DME 2.0 also carries a `thx *` block, sharing all six names and NOT ONE id with this table, so a program written for one detokenises to nonsense under the other. CAUTION when quoting THXLib.guide: it is one of the four documents behind the nine unbalanced quotations in status.ts NOTES."
 }

@@ -4,19 +4,22 @@
   "version": "0.20",
   "author": "Ari Tsironis",
   "source": "binary",
-  "library": "MAXSDoorHandler.Lib-V0.20",
-  "sha256": "75a805224d31a4a8f8d31819253ee6e95a82c155948fd535c22dcbff001eb20e",
-  "format": "amostools",
+  "library": "MAXSDoorHandler.Lib",
+  "sha256": "799918c865ac1cb53d187e7cbabe291d25c1907cb9a8ea7623eeafc2c8f9140c",
+  "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
-  "docs": [],
+  "evidence": "source",
+  "docs": [
+    "AMOSDoors4MAXS.doc",
+    "AMOSDoorFuncs.doc"
+  ],
   "titleStrings": [],
   "recommendedSlot": 16,
   "observedSlots": [],
   "provenance": {
-    "from": "AMOSTools/Extensions, out of aminet dev/amos/amostools.i386-aros.lha -- held in the corpus at sources/aminet-dev-amos/. Its author's README says the directory is \"every AMOS extension I can find, cut down to just their token tables with the make_extensions.pl script\", and names the ExoticA AMOS extensions wiki page as the list it works from.",
-    "redistribution": "Not redistributed here as software: the file carries no code at all. It is a token table with the library stripped out from under it, kept for identification and detokenising.",
-    "note": "ExoticA's AMOS extensions list places it at slot 16. Nothing here observes it in a program: the slot is the wiki's recommendation and no more."
+    "from": "aminet.net/comm/bbs/ArisDoors4MAXs.lha, retrieved 2026-08-12 and held in the corpus at sources/kyzer-maxsdoor/. 714,884 bytes, sha256 df13b1aa671f4534be08d6e065e62a6061cfe4c1e00d13365962e05932fa584c. The two .doc files were also fetched separately from kyzer.me.uk/amos/docs/maxsdoorhandler/ and the copies agree.",
+    "note": "SLOT STATED BY THE AUTHOR, not recommended by anybody: _MAXSDoorHandler.s opens `ExtNb equ 16-1`, and the `-1` is the zero-based form that reaches d2 in L_ErrorExt. ExoticA's wiki also said 16.",
+    "redistribution": "Not redistributed by amos-ts; fixtures/ is gitignored."
   },
-  "notes": "TABLE ONLY. This is an AMOSTools stub -- the hunk shell and the token table survive, both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. So the NAMES, the parameter SPECS and, because an id is the byte offset of its entry, the IDS are the original library's; the behaviour is not here and the evidence tier cannot rise above `manual` until a real binary turns up. The reader is checked against CRAFT and MusiCRAFT, which are held both ways, and agrees with them entry for entry -- see parseAmosToolsTable in src/tokens/libtok.ts. 21 keywords, all prefixed `m_` and none contested -- a BBS door API for the MAXS bulletin board: `m_portopen`/`m_portclose`, three character readers (`m_modemchar`, `m_screenchar`, `m_bbschar`), text out to the caller or the sysop console (`m_bbstext`, `m_localtext`), prompts, file show/check/edit, and the user record (`m_getusernum`, `m_getuserstr`, `m_newaccess`, `m_addtime`, `m_changeuserdata`, `m_twituser`). The naming is C-style throughout, which no other AMOS extension here does."
+  "notes": "SOURCE TIER. `_MAXSDoorHandler.s`, 46,126 bytes of the author's own commented assembler, ships in the archive -- the SECOND extension in this corpus to arrive that way, after Explode, and again nothing in any catalogue said so. Labels, includes, structure offsets, and its own equates: `ExtNb equ 16-1`, `MsgLength equ 106`. REPLACES AN AMOSTOOLS STUB. Until 2026-08-12 this row held only the token table with the library stripped out from under it -- both length fields zero, no code, every routine word overwritten with `====` -- so the tier could not rise above `manual`. The real library's table is IDENTICAL to the stub's, entry for entry, id for id and spec for spec, which is a check on the AMOSTools reader as much as on this registration. What changes is that the code is now here to read. CAUTION, AND IT MATTERS FOR EVERY CITATION: the source is dated 3 January 1995 and the library 29 May 1994, EIGHT MONTHS EARLIER. They are not guaranteed to be the same build. Check the token table against the listing before treating a line of the source as a statement about this binary; where they disagree the binary is what programs ran against. WHAT IT IS FOR: 22 keywords that let an AMOS program be a door for MAX's BBS -- `m_portopen`, `m_portclose`, `m_bbstext`, `m_localtext`, `m_modemchar`, `m_screenchar`, `m_bbschar`, `m_prompttext` and the rest. It is message-port plumbing over a 106-byte DoorMsg, which is why the source's second equate is that length. THE ARCHIVE IS ~200 FILES OF EVIDENCE: about twenty complete BBS doors written in AMOS by the same author -- AriSE, Nice_Chat, Sysop_door, Section_Mover, DirectDownLoad and the nine settings/ programs -- most with their .AMOS sources beside the compiled binaries. Programs written against a 22-keyword extension BY THE PERSON WHO WROTE IT are the best available statement of what the keywords are for. `Aridoorstuff.h` is the C-side header for the same protocol."
 }

@@ -4,19 +4,22 @@
   "version": "1.0",
   "author": "D.J.Software",
   "source": "binary",
-  "library": "AMOSPro_Int.Lib-V1.0",
-  "sha256": "372655b233958beb9c8b3f1c222789edc593c1297fae1f9824f273d59a28f566",
-  "format": "amostools",
+  "library": "AMOSPRO_Int.Lib",
+  "sha256": "4b022e82966e7da7113e1118917676bc83a7dd1095ad3996cf243d6bef6d9ac8",
+  "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
-  "docs": [],
+  "evidence": "disassembly",
+  "docs": [
+    "Intuition_lib.txt",
+    "commands.txt"
+  ],
   "titleStrings": [],
   "recommendedSlot": 25,
   "observedSlots": [],
   "provenance": {
-    "from": "AMOSTools/Extensions, out of aminet dev/amos/amostools.i386-aros.lha -- held in the corpus at sources/aminet-dev-amos/. Its author's README says the directory is \"every AMOS extension I can find, cut down to just their token tables with the make_extensions.pl script\", and names the ExoticA AMOS extensions wiki page as the list it works from.",
-    "redistribution": "Not redistributed here as software: the file carries no code at all. It is a token table with the library stripped out from under it, kept for identification and detokenising.",
-    "note": "ExoticA's AMOS extensions list places it at slot 25. Nothing here observes it in a program: the slot is the wiki's recommendation and no more."
+    "from": "aliensrcooluk.com/public/Amiga/AMOS/Intuition.LHA, retrieved 2026-08-12 and held in the corpus at sources/kyzer-int/. 457,460 bytes, sha256 63448b79d5a72fc97ec69e337d41096873dd9d8b4766fef5ccf29ca0e7382955. The two docs were fetched from kyzer.me.uk/amos/docs/int/.",
+    "note": "Slot 25 is ExoticA's AMOS extensions wiki and is not observed here. The archive is titled for Intuition and Int 1.0 is only part of it -- see the notes.",
+    "redistribution": "Distributed as a demo. Not redistributed by amos-ts; fixtures/ is gitignored."
   },
-  "notes": "TABLE ONLY. This is an AMOSTools stub -- the hunk shell and the token table survive, both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. So the NAMES, the parameter SPECS and, because an id is the byte offset of its entry, the IDS are the original library's; the behaviour is not here and the evidence tier cannot rise above `manual` until a real binary turns up. The reader is checked against CRAFT and MusiCRAFT, which are held both ways, and agrees with them entry for entry -- see parseAmosToolsTable in src/tokens/libtok.ts. 62 keywords, every one prefixed `wb ` -- an Intuition and Workbench wrapper: windows (`wb open window` takes nine arguments, `wb window flags` nine more), screens, menus with sub-items, ASL requesters (`wb asl req` with nine), gadtools gadgets and strings, drawing, IFF and datatypes image loading, and a `wb joy`. NOT INTUIEXTEND, which is at slot 23 and also uses a `wb ` prefix: the two share five names and NOT ONE ID, and Int is 62 keywords against IntuiExtend's 301. Also not JD Intuition, which is registered at slot 18 with its own spelling. Three extensions wrapping the same OS library with three unrelated tables is the normal state of this ecosystem."
+  "notes": "REPLACES AN AMOSTOOLS STUB. Until 2026-08-12 this row held only the token table with the library stripped out from under it -- both length fields zero, no code, every routine word overwritten with `====` -- so the tier could not rise above `manual`. The real library's table is IDENTICAL to the stub's, entry for entry, id for id and spec for spec, which is a check on the AMOSTools reader as much as on this registration. What changes is that the code is now here to read. IT SHIPS IN BOTH HOST BUILDS and both are held: `AMOSPRO_Int.Lib` (AMOS Pro, 24,688 bytes, the one registered) and `Int.Lib` (AMOS 1.3, 24,212 bytes, sha256 95f64c08440f7ec83041e365bf2c495dcb539fc674901224c6bde1358f32e7a7). Their jump-table and token-table lengths are IDENTICAL -- $ca and $5c0 -- so the whole 476-byte difference is in the code. That makes the pair a controlled comparison of what the two hosts need from the same extension, which nothing else in the registry offers. NOT THE SAME EXTENSION AS jd-int-1.3 despite both prefixing `wb `: five names in common and zero ids in common. THE ARCHIVE CARRIES TWO MORE EXTENSIONS, and one of them settles a standing gap. `Intuition_1.3_Demo/` holds Intuition.Lib in both flavours (AMOS 1.3, 41,284 bytes; AMOS Pro, 40,676) -- the intuition-1.3b row was until now the ONE registered port with no binary at all. Two cautions before that row moves off `manual`: this is 1.3 and not 1.3b, which bears directly on the five keyword names the two builds disagree about; and it is a DEMO that warns at run time \"Intuition.lib: warning: Can't open reqtools.library v38.  Some commands may not work properly\", so some routines may be stubbed. Its two builds differ in TOKEN TABLE size ($25e against $232), so unlike Int they are not one table twice. `Intuition_1.6/AMOSPro_IntuiExt_1.6.lib` is a third copy of IntuiExtend 1.6, with its own examples and data directory."
 }

@@ -4,19 +4,21 @@
   "version": "0.94",
   "author": "Lázár Zoltán",
   "source": "binary",
-  "library": "AMOSPro_SymBase.Lib-V0.94",
-  "sha256": "9173e85c7824ab61a56080a74dd83c23c54fb116a61e981966cbd745a1e00cf1",
-  "format": "amostools",
+  "library": "SBASE_EX",
+  "sha256": "9a46f2bc69a1d4dbee375473c9b1f118a8231656e1d181989065c6642c4bf59e",
+  "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
-  "docs": [],
+  "evidence": "disassembly",
+  "docs": [
+    "SymBase.readme"
+  ],
   "titleStrings": [],
   "recommendedSlot": 21,
   "observedSlots": [],
   "provenance": {
-    "from": "AMOSTools/Extensions, out of aminet dev/amos/amostools.i386-aros.lha -- held in the corpus at sources/aminet-dev-amos/. Its author's README says the directory is \"every AMOS extension I can find, cut down to just their token tables with the make_extensions.pl script\", and names the ExoticA AMOS extensions wiki page as the list it works from.",
-    "redistribution": "Not redistributed here as software: the file carries no code at all. It is a token table with the library stripped out from under it, kept for identification and detokenising.",
-    "note": "ExoticA's AMOS extensions list places it at slot 21. Nothing here observes it in a program: the slot is the wiki's recommendation and no more."
+    "from": "aminet.net/dev/amos/SymBase.lha, retrieved 2026-08-12 and held in the corpus at sources/symbase/. 201,898 bytes, sha256 6099443f78fabda8f88b0dc3d7ad036cb3298f18fc1556560ac271764f48d2e7. THREE EARLIER DEMOS were taken with it, from kyzer.me.uk/amos/aminet/ -- SymBase_058.lha (60,257 bytes, Aminet CD 31), SymBase_085.lha (197,866, CD 47) and SymBase_092.lha (201,545, CD 52). The author's own page is kezdobetu.hu/amiga/symbase/sb_main.html and was not needed.",
+    "note": "SLOT STATED BY THE AUTHOR: the archive's own Installer script says \"The SymBase extension developed to use the 21th extension slot.\" ExoticA's wiki also said 21. Author's spelling kept.",
+    "redistribution": "The 0.94 readme: \"In the present state of the development, everything in this archive are under the term of Free Software. It may be change in time.\" Author's spelling kept. Not redistributed by amos-ts; fixtures/ is gitignored."
   },
-  "notes": "TABLE ONLY. This is an AMOSTools stub -- the hunk shell and the token table survive, both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. So the NAMES, the parameter SPECS and, because an id is the byte offset of its entry, the IDS are the original library's; the behaviour is not here and the evidence tier cannot rise above `manual` until a real binary turns up. The reader is checked against CRAFT and MusiCRAFT, which are held both ways, and agrees with them entry for entry -- see parseAmosToolsTable in src/tokens/libtok.ts. 51 keywords, an xBase-style database: `db use` opens a .dbf, `db select`/`db goto`/`db skip` move, `db get$`/`db put$`/`db field` read and write, `db append`/`db delete`/`db recall`/`db pack`/`db zap` edit, `db locate`/`db found` search, `db order`/`db sort` index. Fifteen of them are RESERVED VARIABLES (spec `V0`) rather than functions -- `db sel`, `db recno`, `db reccount`, `db state` -- which is the distinction that has to be got right or they will not tokenise. FOUR RELEASES ARE IN THE ARCHIVE and they are FOUR DIFFERENT TABLES: 0.58 (35 keywords), 0.85 (46), 0.92 (54) and 0.94 (51). 0.58 against 0.94 keeps only 21 entries at the same id, so a program tokenised against one does not read under another; the other three are vendored here unregistered, and each needs its own entry if a program ever turns up that wants it. The corpus holds the SymBase 0.94 distribution (sources/aminet-dev-amos/files/SymBase/) with three AmigaGuides and an installer, but no .Lib -- `libinstall` puts one there, and what it puts is not in the archive."
+  "notes": "REPLACES AN AMOSTOOLS STUB. Until 2026-08-12 this row held only the token table with the library stripped out from under it -- both length fields zero, no code, every routine word overwritten with `====` -- so the tier could not rise above `manual`. The real library's table is IDENTICAL to the stub's, entry for entry, id for id and spec for spec, which is a check on the AMOSTools reader as much as on this registration. What changes is that the code is now here to read. THE LIBRARY IS CALLED `SBASE_EX` -- not a .lib, and not named for the product. The archive's own Installer script settles it: `(set #libname \"SBASE_EX\")` then `(set #newlibname \"AmosPro_SymBase.Lib\")`, so the file is renamed on the way in. It was found by its token table, which opens `db se`, `db us`, `db addres`, `db clos` with the high bit on each name's last character as AMOS stores them. DBENCH AND SYMBASE ARE THE SAME PRODUCT AT TWO AGES, both by Lázár Zoltán. dbench-0.42's 24 keywords are symbase-0.94's first 24, in the same order, with the same ids -- `db sel`, `db use`, `db address`, `db close`, `db flen`, `db fieldno`, `db saved on`, `db saved off` and on. Neither should be ported without the other open. SymBase 0.92's readme records a keyword REMOVAL -- \"REM: Date functions removed to a separate extension / No more needs date.library\" -- which is exactly the shape that makes one build's tokens detokenise to nonsense under another, so the `renumbered` verdict may apply across the family and has not been checked. FOUR VERSIONS ARE HELD and the earlier three are what make the renumbering question answerable: 0.58 is a third the size of 0.85, so something large changed between them. The stub collection had all four token tables; the real 0.94 binary is the one registered.  ALSO IN THE ARCHIVE: Comp/SymBase/Tools/ -- Create, Dedit, DSort, Index, Server and Client, all compiled AMOS programs, with Examples/BOOKSHELF and its source. `Libs/gui.library` (46,948 bytes) is there because the tools need it; that is the GUI family's back-end, not SymBase's, and it is the first copy of it in the corpus."
 }
