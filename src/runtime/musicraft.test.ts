@@ -122,10 +122,9 @@ describe('MusiCRAFT: St Load', () => {
     expect(() => run('St Load "",5')).toThrow('Illegal function call')
   })
 
-  it('a file that will not open is error 81, which is the routine’s own choice', () => {
-    // `moveq #$51,d0` at $1476. "File format not recognised" for a file it
-    // never got as far as reading is odd, and it is what the library raises
-    expect(() => run('St Load "RAM:nothing.mod",5', null)).toThrow('File format not recognised')
+  it('a file that will not open is error 81', () => {
+    // `moveq #$51,d0` at $1476 -- AMOS's "File not found"
+    expect(() => run('St Load "RAM:nothing.mod",5', null)).toThrow('File not found')
   })
 })
 

@@ -774,9 +774,6 @@
  *   byte bank asks for -25,536 and AMOS answers Illegal function call. It also
  *   leaks the 1,000-byte block it allocated for the FileInfoBlock, a4 being
  *   overwritten with the bank address before anything frees it.
- * - **DEFECT: `G Load Bobs` reports a missing file as a format error.** The
- *   `Lock` failure and the `Open` failure both jump into `G Exit` with $51,
- *   AMOS's "File format not recognised", where 82 is "File not found".
  * - **DEFECT: `G Erase`'s Bob sweep is a fixed 256 iterations.** `moveq
  *   #$ff,d7` and a `dbra`, with nothing anywhere in it about how big the bank
  *   is — so on a small bank it walks off the end and calls `Free` on any
@@ -1669,11 +1666,11 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
      * `$80000009 = 12`, and the twelve is the offset width — a 4,640-byte
      * window. See ../amiga/stonecracker.ts.
      *
-     * The errors are AMOS's numbers used as if they were the author's: 24 is
-     * *"Out of memory"* and apt, 81 is *"File format not recognised"* for a
-     * file that could not be locked, and 1 is *"RETURN without GOSUB"* for a
-     * missing `stc.library`. All three go through `G Exit`, which does a
-     * `G Reset` on the way.
+     * The errors are AMOS's own numbers and two of the three are apt: 24 is
+     * *"Out of memory"* and 81 is *"File not found"* for a file that could
+     * not be locked. The third is not — 1 is *"RETURN without GOSUB"*, raised
+     * for a missing `stc.library`. All three go through `G Exit`, which does
+     * a `G Reset` on the way.
      *
      * DEFECT: `OpenLibrary` is called on every invocation and the base stored
      * over the last one, so `stc.library` is opened as many times as this is
@@ -3142,8 +3139,7 @@ export function makeTheGameInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const n = it.evalInt()
       const data = rt.vfs?.readFile(file) ?? rt.fs?.read(file) ?? null
-      // Lock() failing raises $51 -- "File format not recognised" for a file
-      // that is not there, which is the routine's own choice of code
+      // Lock() failing raises $51 -- AMOS error 81, "File not found"
       if (!data) throw new AmosError(ED_RUN_MESSAGES[81]!, 81)
       s.bobLeak += TGE_BOB_FIB_BYTES
       // move.l d3,d2 / ext.l d2: the low WORD of the size, sign-extended

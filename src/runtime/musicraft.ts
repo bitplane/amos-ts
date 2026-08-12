@@ -359,8 +359,7 @@ export function makeMusicraftInstructions(rt: Runtime): Record<string, Instr> {
      * error 23, and a bank that already exists is error 35 — this does not
      * erase, it refuses. An empty filename is error 23 and one of 1024
      * characters or more is error 23. A file that will not open is error 81,
-     * "File format not recognised", which is a strange choice and the
-     * routine's own: `moveq #$51,d0` at $1476.
+     * "File not found": `moveq #$51,d0` at $1476.
      *
      * The reserve is `Bnk_BitData | Bnk_BitChip` under the name "Tracker ",
      * for the file's length PLUS FOUR. The four bytes are not slack: `mt_init`

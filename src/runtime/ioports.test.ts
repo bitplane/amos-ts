@@ -8,6 +8,7 @@ import { makeIoPortsFunctions } from './ioports'
 import { VI, VS } from '../interp/values'
 import { fixedClock, type SerialHost, type SerialLineParams } from '../amiga/host'
 import { AMOS_ERRORS } from '../interp/values'
+import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 
 const table = new TokenTable(CORE_TOKENS)
 // IOPorts is slot 6 (`ExtNb equ 6-1`, +IO_Ports.s:46)
@@ -462,18 +463,20 @@ describe('IOPorts: a real host port (Host.serial)', () => {
   })
 })
 
-describe('Err$ resolves device errors, not the message 14 rows above them', () => {
+describe('Err$ resolves device errors at their own number', () => {
   /**
-   * `ED_RUN_MESSAGES` is the editor's message block and its index is NOT the
-   * AMOS error number throughout. Core errors index directly — 23 is "Illegal
-   * function call", the code every funcCall() raises. From index 126 the device
-   * block begins and the error number runs 14 ahead, which +IO_Ports.s anchors
-   * twice: it opens serial with `move.w #145,d3` and parallel with `#171`, and
-   * those are the first message of each device's block.
+   * `ED_RUN_MESSAGES` is the editor's message block and its index IS the AMOS
+   * error number, all the way through. The device range is pinned here because
+   * it is the range that proved it: +IO_Ports.s opens serial with `move.w
+   * #145,d3` and parallel with `#171`, and those are the first message of each
+   * device's block.
    *
-   * AMOS_ERRORS was built by index alone, so Err$ lied after any trapped device
-   * error. Both ranges are pinned here because a single mapping cannot serve
-   * both and a future "simplification" would silently break one.
+   * This block used to assert the opposite — that the device codes ran 14
+   * ahead of their index — and the +14 it asserted was a correction fitted to
+   * the wrong fault. The generator was dropping fourteen records from the
+   * middle of the block, so the device messages really did sit fourteen rows
+   * low; adding 14 back put them right and left everything between wrong. See
+   * AMOS_ERRORS in ../interp/values.ts.
    */
   it('keeps the core range indexed directly', () => {
     expect(AMOS_ERRORS[1]).toBe('RETURN without GOSUB')
@@ -481,13 +484,31 @@ describe('Err$ resolves device errors, not the message 14 rows above them', () =
     expect(AMOS_ERRORS[24]).toBe('Out of memory')
   })
 
-  it('shifts the device block by the 14 the library documents', () => {
+  it('and the device block, at the numbers the library passes around', () => {
     // Dev.GetIO's two, +Lib.s:3068-3260
     expect(AMOS_ERRORS[140]).toBe('Device already opened')
     expect(AMOS_ERRORS[141]).toBe('Device not opened')
     // the two the source names outright
     expect(AMOS_ERRORS[145]).toBe('Serial device already in use')
     expect(AMOS_ERRORS[171]).toBe('Parallel device already used')
+  })
+
+  it('has every record the block declares, which is what keeps the index true', () => {
+    // 201 EdT records in .Error1, index 0 being the empty one it opens with.
+    // A SHORT BLOCK IS THE FAILURE MODE: nothing about a dropped record looks
+    // wrong on its own, it just moves every message after it down one.
+    expect(ED_RUN_MESSAGES.length).toBe(201)
+  })
+
+  it('and the fourteen records that used to be missing entirely', () => {
+    // `EdT 80,<Directory not found>  204` and its thirteen neighbours, each
+    // carrying the AmigaDOS code it maps from after the closing bracket
+    expect(AMOS_ERRORS[80]).toBe('Directory not found')
+    expect(AMOS_ERRORS[81]).toBe('File not found')
+    expect(AMOS_ERRORS[93]).toBe('No disc in drive')
+    // and the record straight after them, which is what Explode's L_IOError
+    // raises and what the block used to number 80
+    expect(AMOS_ERRORS[94]).toBe('I/O error')
   })
 
   it('leaves no core message stranded at a device code', () => {

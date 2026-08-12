@@ -10,9 +10,15 @@
  * Each block is a run of records {pad byte, length byte, bytes}, walked
  * 1-based by GetMessage (+B.s:590) which skips the leading pad and stops
  * at a length of $FF. The EdT/EdD macros (+Editor_Config.s:37-47) emit
- * exactly that, so parsing the macro calls in order reproduces the block:
- * the number in the macro call is a comment, not an index — .Error1 starts
- * its numbering at 0, so a run-time error code is one behind its record.
+ * exactly that, so parsing the macro calls IN ORDER reproduces the block —
+ * and the order is the whole contract. The number in the macro call is a
+ * comment; position is what GetMessage counts. In .Error1 the two agree,
+ * record 0 being the empty one the block opens with, so an index into the
+ * generated table is an AMOS run-time error number.
+ *
+ * WHICH IS WHY A DROPPED LINE IS NOT A MISSING STRING. It shortens the block
+ * and moves every record after it, and nothing downstream can tell. Read
+ * `block` below before touching its line pattern.
  *
  * The menu block is `IncBin "bin/Editor_Menus.asc"`, a prebuilt file in
  * the same record format, so it is read as bytes rather than parsed.
@@ -59,7 +65,17 @@ function block(from: string, to: string): string[] {
   const out: string[] = []
   for (let i = start; i < end; i++) {
     const line = src[i]!
-    const m = /\b(EdT|EdD)\s+-?\d+\s*,\s*<([\s\S]*)>\s*$/.exec(line)
+    // The trailing group is NOT decoration. Twenty-nine records carry a
+    // comment after the closing `>` with nothing to mark it as one — the
+    // AmigaDOS code a disc error maps from (`EdT 80,<Directory not
+    // found>  204`), the music error's own index, or a `v1.1`. Anchoring on
+    // `>\s*$` skipped every one of them, and a SKIPPED RECORD IS NOT A
+    // MISSING STRING: it shortens the block, so every message after it
+    // reports under the wrong number. Fourteen went missing from the
+    // run-time error table alone, which is why 94 "I/O error" through 139
+    // used to answer as 80..125. `(.*)` is greedy and so takes the LAST `>`
+    // on the line, which is what closes the record.
+    const m = /\b(EdT|EdD)\s+-?\d+\s*,\s*<(.*)>(?:[ \t]+\S.*)?[ \t]*$/.exec(line)
     if (!m) {
       // a bare `dc.b 0,$FF` terminates the block early (Ed_Systeme, Ed_Messages)
       if (/dc\.b\s+0\s*,\s*\$[fF][fF]/.test(line)) break

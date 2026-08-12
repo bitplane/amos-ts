@@ -39,33 +39,30 @@ export function ffpRound(n: number): number {
  * returns the number, Err$ returns the message.
  *
  * Generated from the assembler source rather than transcribed, so it is the
- * whole table — 175 records, where the hand-written version carried the 73 that
+ * whole table — 201 records, where the hand-written version carried the 73 that
  * had come up.
  *
- * The index is NOT the error number throughout. For the core errors it is:
- * index 23 is "Illegal function call", which is the code every funcCall() in
- * this port throws, and the same holds for 1, 2, 7, 20, 21, 24 and 25 — eight
- * for eight against the codes the runtime itself raises.
+ * THE INDEX IS THE ERROR NUMBER, with no offset anywhere. Record 0 is the
+ * empty one the block opens with, and after that every `EdT n` lands on n.
+ * Six independent anchors agree, spread across the whole range: `Rn_NoF moveq
+ * #81` on "File not found" and `.DErr moveq #101` on "Disc error" (both
+ * +ILib.s:1524-8), `PRun_Acc moveq #102` on "Instruction not allowed here"
+ * (+ILib.s:1605), +IO_Ports.s opening serial with `move.w #145,d3` and
+ * parallel with `#171` on the first message of each device's block, and
+ * Dev.GetIO's 140 and 141 on "Device already opened" and "Device not opened".
  *
- * From index 126 the DEVICE block begins, and there the error number runs 14
- * ahead of the index. That is anchored in the library rather than inferred:
- * +IO_Ports.s opens serial with `move.w #145,d3` and parallel with `#171`, and
- * index 131 is "Serial device already in use" while 157 is "Parallel device
- * already used" — the first message of each device's block. Dev.GetIO's 140 and
- * 141 land the same way, on "Device already opened" and "Device not opened".
- *
- * Building this map by index alone therefore made Err$ lie after any trapped
- * device error: Err$(145) answered "Break detected" and Err$(171) "No Arexx
- * message waiting". Nothing in the port raises a code in 126..139, so shifting
- * the whole block up by 14 costs no core message.
+ * This map used to shift everything from index 126 up by 14, which was a
+ * correction fitted to the wrong fault. The table itself was short: the
+ * generator's line pattern required the record to END at its closing `>`, and
+ * twenty-nine records carry an unmarked comment after it — among them the
+ * fourteen AmigaDOS-mapped disc errors, `EdT 80,<Directory not found>  204`
+ * and its neighbours. Fourteen dropped records shortened the block by
+ * fourteen, so the device messages came out 14 low and shifting them back up
+ * hid it. Everything BETWEEN — 94 "I/O error" through 139 — stayed wrong, and
+ * that is the range Explode's own error table raises from.
  */
-const DEVICE_BLOCK_START = 126
-const DEVICE_CODE_OFFSET = 14
-
 export const AMOS_ERRORS: Record<number, string> = Object.fromEntries(
-  ED_RUN_MESSAGES.map((m, i) => [i < DEVICE_BLOCK_START ? i : i + DEVICE_CODE_OFFSET, m]).filter(
-    ([, m]) => m !== '',
-  ),
+  ED_RUN_MESSAGES.map((m, i) => [i, m]).filter(([, m]) => m !== ''),
 )
 
 /**

@@ -32,17 +32,16 @@ import { ED_RUN_MESSAGES } from '../interp/errors.gen'
 /**
  * AMOS run-time error N, with the interpreter's own wording.
  *
- * ED_RUN_MESSAGES is generated from +Editor_Config.s and is offset by 14
- * from the numbers the assembler passes around: index 126 is error 140.
- * That offset is not a guess — the source opens serial with `move.w #145,d3`
- * and parallel with `#171`, and those land exactly on "Serial device already
- * in use" and "Parallel device already used", the first message of each
- * device's block.
+ * ED_RUN_MESSAGES is generated from +Editor_Config.s and its index IS the
+ * error number: `move.w #145,d3` in +IO_Ports.s lands on "Serial device
+ * already in use" and `#171` on "Parallel device already used", the first
+ * message of each device's block. This used to subtract 14 first, because
+ * the generator was dropping fourteen records earlier in the block and every
+ * message after them sat fourteen rows low; see AMOS_ERRORS in
+ * ../interp/values.ts for what the fourteen were.
  */
-const MSG_OFFSET = 14
-
 export function ioError(n: number): AmosError {
-  const text = ED_RUN_MESSAGES[n - MSG_OFFSET]
+  const text = ED_RUN_MESSAGES[n]
   return new AmosError(text && text.length > 0 ? text : `Device error ${n}`, n)
 }
 

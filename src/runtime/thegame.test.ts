@@ -674,7 +674,7 @@ describe('the encryption keywords', () => {
 
   /** a file that will not lock is `moveq #$51,d0` into G Exit */
   it('G Encrypt on a missing file is AMOS error 81', () => {
-    expect(() => run('G Encrypt "RAM:nothere",5,"a"', withRam())).toThrow(/File format not recognised/i)
+    expect(() => run('G Encrypt "RAM:nothere",5,"a"', withRam())).toThrow(/File not found/i)
   })
 })
 
@@ -1601,9 +1601,9 @@ describe('the TGE bob banks', () => {
     expect(() => run([open, 'G Load Bobs "RAM:big.abk",5'], fs)).toThrow(/Illegal function call/i)
   })
 
-  /** DEFECT: Lock() failing raises "File format not recognised", not "not found" */
-  it('G Load Bobs blames the format when the file is not there', () => {
-    expect(() => run([open, 'G Load Bobs "RAM:nothere",5'], withBobs())).toThrow(/File format not recognised/i)
+  /** Lock() failing is `moveq #$51,d0` into G Exit -- error 81 */
+  it('G Load Bobs on a missing file is AMOS error 81', () => {
+    expect(() => run([open, 'G Load Bobs "RAM:nothere",5'], withBobs())).toThrow(/File not found/i)
   })
 
   it('G Set Img makes a Bob and moves it, and G Draw Bob draws it masked', () => {

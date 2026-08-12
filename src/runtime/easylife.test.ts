@@ -2433,7 +2433,7 @@ describe.skipIf(!existsSync(DEMOS))('EasyLife: saving and loading a graph of str
       msg = (e as Error).message
     }
     // $a1c sets d0 = $62, and routine 299 hands a non-negative d0 to L_Error
-    expect(msg).toMatch(/^Instruction only valid in autotest/)
+    expect(msg).toMatch(/^File type mismatch/)
   })
 })
 

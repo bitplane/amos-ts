@@ -265,7 +265,7 @@ export const EDM_MESSAGES: readonly string[] = [
   ' Quit                     ',
 ]
 
-/** 218 messages */
+/** 221 messages */
 export const ED_MESSAGES: readonly string[] = [
   'Link cursor movement: please click on the window to link...',
   'Cannot hide the last window.',
@@ -453,6 +453,9 @@ export const ED_MESSAGES: readonly string[] = [
   'Disc error',
   'Out of memory: cannot open menus.',
   'Low memory: clearing program display.',
+  'This was the last window. Quit AMOS Professional?',
+  'See Latest News in the Help menu',
+  'for information about this version.',
   '',
   '',
   '',

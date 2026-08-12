@@ -329,18 +329,15 @@ describe('Resource$ reaches all six message tables (FnResource +ILib.s:6699)', (
     expect(runOut('Print Err$(12)')).toBe(ED_RUN_MESSAGES[12] + '\n')
   })
 
-  it('device codes read 14 rows below their number', () => {
-    // From index 126 the block's DEVICE section begins and the error number
-    // runs 14 ahead of the index. +IO_Ports.s anchors it twice --
-    // `move.w #145,d3` for serial and `#171` for parallel -- and Dev.GetIO's
-    // 140/141 land the same way. This test used to assert Err$(174) was
-    // ED_RUN_MESSAGES[174], which is exactly what made Err$ lie after any
-    // trapped device error.
+  it('device codes read at their own row, like every other code', () => {
+    // +IO_Ports.s anchors the device range twice -- `move.w #145,d3` for
+    // serial and `#171` for parallel -- and Dev.GetIO's 140/141 land the same
+    // way. This test used to assert the block ran 14 rows below these numbers
+    // and had to be shifted; the block was simply fourteen records short.
     expect(runOut('Print Err$(140)')).toBe('Device already opened\n')
     expect(runOut('Print Err$(145)')).toBe('Serial device already in use\n')
     expect(runOut('Print Err$(171)')).toBe('Parallel device already used\n')
-    // so the block's last record, index 174, is code 188
-    expect(runOut('Print Err$(188)')).toBe(ED_RUN_MESSAGES[174] + '\n')
+    expect(runOut('Print Err$(188)')).toBe(ED_RUN_MESSAGES[188] + '\n')
   })
 })
 

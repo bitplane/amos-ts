@@ -12,7 +12,7 @@
  * +ILib.s:6699), which is why FnResource has to name both files.
  */
 
-/** 175 messages */
+/** 201 messages */
 export const ED_RUN_MESSAGES: readonly string[] = [
   '',
   'RETURN without GOSUB',
@@ -94,6 +94,20 @@ export const ED_RUN_MESSAGES: readonly string[] = [
   'Copper list too long',
   'Illegal copper parameter',
   'File already exists',
+  'Directory not found',
+  'File not found',
+  'Illegal file name',
+  'Disc is not validated',
+  'Disc is write protected',
+  'Directory not empty',
+  'Device not available',
+  '',
+  'Disc full',
+  'File is protected against deletion',
+  'File is write protected',
+  'File is protected against reading',
+  'Not an AmigaDOS disc',
+  'No disc in drive',
   'I/O error',
   'File format not recognised',
   'File already opened',
@@ -178,6 +192,18 @@ export const ED_RUN_MESSAGES: readonly string[] = [
   '',
   'Parallel port reset',
   'Parallel initialisation error',
+  'Wave not defined',
+  'Sample not defined',
+  'Sample bank not found',
+  '256 characters for a wave',
+  'Wave 0 and 1 are reserved',
+  'Music bank not found',
+  'Music not defined',
+  'Can\'t open narrator',
+  'Not a tracker module',
+  'Cannot load med.library',
+  'Cannot start med.library',
+  'Not a med module',
   '',
   '',
   '',
