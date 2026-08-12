@@ -4,19 +4,21 @@
   "version": "1.04",
   "author": "Paul Overy",
   "source": "binary",
-  "library": "AMOSPro_Amon.Lib-V1.04",
+  "library": "AmosPro_Amon.lib",
   "sha256": "e7f0f88ed030c125d5d8e8667d89b0c5dcaa8cf23dce19f6c5854a4d000f6acb",
-  "format": "amostools",
+  "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
-  "docs": [],
+  "evidence": "disassembly",
+  "docs": [
+    "Amon_1.04.doc"
+  ],
   "titleStrings": [],
-  "recommendedSlot": 15,
+  "recommendedSlot": 25,
   "observedSlots": [],
   "provenance": {
-    "from": "AMOSTools/Extensions, out of aminet dev/amos/amostools.i386-aros.lha -- held in the corpus at sources/aminet-dev-amos/. Its author's README says the directory is \"every AMOS extension I can find, cut down to just their token tables with the make_extensions.pl script\", and names the ExoticA AMOS extensions wiki page as the list it works from.",
-    "redistribution": "Not redistributed here as software: the file carries no code at all. It is a token table with the library stripped out from under it, kept for identification and detokenising.",
-    "note": "ExoticA's AMOS extensions list places it at slot 15. Nothing here observes it in a program: the slot is the wiki's recommendation and no more."
+    "from": "kyzer.me.uk/amos/other/amon-v1.04.lha, retrieved 2026-08-12 and held in the corpus at sources/kyzer-amon/. Stuart Caie's AMOS extension archive -- \"old archives go offline, so now I maintain my own archives of them\". The package carries the library twice, identically, once for AMOS Classic and once for AMOS Pro; this is the APSystem copy.",
+    "note": "REPLACES an AMOSTools stub. The file registered here until 2026-08-12 was 528 bytes with a zero-length code hunk and `====` in every routine word -- enough to detokenise and useless for reading behaviour. Its names, ids and specs match this real 1.04 exactly, so nothing about identification changes; what changes is that the code is now here to read. The same stub was filed under BOTH `Amon.Lib-V1.03` and `Amon.Lib-V1.04` with one sha256 between them, so the collection's \"1.03\" was never 1.03.",
+    "redistribution": "Shareware: free under the interpreter, GBP 5 to the author for use in compiled code. Not redistributed by amos-ts; fixtures/ is gitignored."
   },
-  "notes": "TABLE ONLY. This is an AMOSTools stub -- the hunk shell and the token table survive, both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. So the NAMES, the parameter SPECS and, because an id is the byte offset of its entry, the IDS are the original library's; the behaviour is not here and the evidence tier cannot rise above `manual` until a real binary turns up. The reader is checked against CRAFT and MusiCRAFT, which are held both ways, and agrees with them entry for entry -- see parseAmosToolsTable in src/tokens/libtok.ts. 24 keywords and not one of them contested: a fast-maths and input block. `rodent *` is a mouse (`rodent x`, `set rodent`, `limit rodent`, `lrodent`, `rrodent`, `rodent key`), `fast angle`, `mul sin`, `mul cos`, `fast plot`, `fast point`, `fast circle` and `array plot` are the arithmetic, `keycode`/`key press` the keyboard, `joy3`/`joy4` two more sticks, and `count colour`/`find colour` search a screen. THE 1.03 AND 1.04 RELEASES ARE THE SAME FILE, byte for byte, so one entry covers both and 1.03 is vendored beside it as the proof."
+  "notes": "Paul Overy's mouse, keyboard, joystick, fixed-point trigonometry and fast graphics library. 24 keywords. THE SLOT IS 25, NOT 15. The 15 came from ExoticA's extensions wiki and the library contradicts it twice: routine 0 publishes its base to `$278(a5)`, and `$f8 + (25-1)*16` IS $278, then returns `moveq #$18,d0`, the extension number zero-based. The author's install note agrees -- \"Enter the name of the new extension in >>>slot 25<<<\". WHAT IT IS FOR, in the author's words: \"Amos can be sped up by throwing out the multitasking system... However this does have one bad side effect in that, mouse control is lost. In fact all Amos mouse/keyboard commands because useless.\" With Execall(-132) (Forbid) in force AMOS's own input keywords die, because input.device feeds them through the multitasking system; AMon reads the hardware instead. That is why the mouse keywords are duplicated under joke names -- Rodent X, Lrodent, Rrodent -- rather than replacing AMOS's: both sets exist and they work under opposite conditions. 1.03 is a SEPARATE IDENTITY, not a prefix: the two share all 18 of 1.03's names and two of them MOVED, `test add` from id 306 to 374 and `fast circle` from 330 to 326, so a 1.03 program's `Test Add` is `Fast Point` in 1.04. The six 1.04 adds are Fast Point, Array Plot, Joy3, Joy4, Count Colour and Find Colour."
 }
