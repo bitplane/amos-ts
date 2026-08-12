@@ -65,6 +65,8 @@ import { ID_VALIDATING, ID_WRITE_PROTECTED } from '../amiga/dos'
 import { civilFromStamp } from '../amiga/datestamp'
 import { joyFire } from '../interp/gameport'
 import { parseIlbm } from '../loader/iff'
+import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
+import { XPK_MAGIC, XPK_PACKERS, XPKERR_NOFUNC, xpkErrorText, xpkParseMethod, xpkUnpack } from '../amiga/xpkmaster'
 
 /**
  * Where the Rs pool is mapped, matching `Runtime.EXPLODE_HEAP_BASE` and
@@ -125,6 +127,8 @@ export interface ExplodeState {
   cdPath: string
   /** `my_AmcafCrack` — the word `Amcaf Crack On` saved from `-22(a5)` */
   amcafCrack: number
+  /** `my_XpkErrNum` — the last XPK call's d0, which `=Xpk Errn` reports */
+  xpkErr: number
 }
 
 /** one entry of `my_FntStruc`, and the two fields the accessors read off it */
@@ -141,6 +145,7 @@ export const newExplodeState = (): ExplodeState => ({
   fonts: Array.from({ length: FNT_MAX }, () => null),
   cdPath: '',
   amcafCrack: 0,
+  xpkErr: 0,
 })
 
 /**
@@ -527,6 +532,136 @@ export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   return {
+    /**
+     * `Ppk Pack bk [,efficiency]` — routines 79 and 80 ($1910 and $1924),
+     * both into `L_PpkPack` (routine 168, $324e).
+     *
+     * powerpacker.library's `ppAllocCrunchInfo` / `ppCrunchBuffer`, into a
+     * NEW bank at the first free number which then takes the source's header
+     * — so the packed bank ends up with the source's number and the source
+     * is gone. The efficiency is 0 to 4 and defaults to 2, "Good", set by
+     * routine 79 before it branches.
+     *
+     * A BANK THAT IS ALREADY PACKED IS LEFT ALONE: `L_GetPpkLen` first, and
+     * a non-zero answer skips the whole routine.
+     *
+     * NOTE: the allocation retry is a loop that raises. `ppAllocCrunchInfo`
+     * is asked with SPEEDUP_BUFFLARGE and, if it fails, with one MORE each
+     * time round until the value passes SPEEDUP_BUFFSMALL, at which point
+     * `Rbpl L_OOfmem`. So out of memory is reported as out of memory, but
+     * only after four or five increasingly modest attempts.
+     */
+    'ppk pack'(it) {
+      const bk = it.evalInt()
+      const eff = it.accept(',') ? it.evalInt() : 2
+      const data = ppkBank(rt, bk)
+      if (!data || ppkIdentify(data)) return
+      replaceBank(rt, bk, pp20Crunch(data, effTable(eff)))
+    },
+
+    /**
+     * `Ppk Unpack bk [,password$]` — routines 81 and 82 ($1934 and $1946),
+     * into `L_PpkUnpack` (routine 159, $2f1a).
+     *
+     * `Ppk Data` runs FIRST — the unpacker calls `L_PpkTransform` before it
+     * looks at anything, so a PPLS, PPBK, PPLB or PPEX bank is normalised to
+     * PP20 and then unpacked in one step. Only then does it check for "PP20"
+     * and give up quietly if it is not there.
+     *
+     * The decruncher is the author's own, not the library's: `Pp0` to `Pp5`
+     * inline at $2f42, thirty-odd instructions of the standard PP20 reverse
+     * walk. See ../amiga/powerpacker.ts, which is the same algorithm.
+     *
+     * A password of 129 characters or more is error 23; the check is
+     * `subq.w #1,d0 / cmpi.w #128,d0 / Rbcc`, so an empty one fails too.
+     */
+    'ppk unpack'(it) {
+      const bk = it.evalInt()
+      if (it.accept(',')) checkPassword(it.evalStr())
+      const data = ppkBank(rt, bk)
+      if (!data || bankLong(data, 0) !== 0x50503230) return
+      try {
+        replaceBank(rt, bk, pp20Decrunch(data))
+      } catch {
+        // the library's own decruncher has no failure path -- a corrupt
+        // stream walks off the end and takes the machine with it
+      }
+    },
+
+    /**
+     * `Ppk Data bk [,password$]` — routines 89 and 90 ($1a8e and $1a9a), into
+     * `L_PpkTransform` (routine 179, $3502).
+     *
+     * The format normaliser the whole group is built on: it identifies the
+     * bank against the table, and for a self-extractor or a loader-attached
+     * file it MOVES THE CRUNCHED DATA TO THE FRONT so what is left is a plain
+     * PP20 bank. A type-1 bank (already PP20) is returned untouched.
+     *
+     * DEVIATION: types 2 to 8 are not transformed here. Each is a different
+     * fixed offset into a different PowerPacker product's executable stub,
+     * and the branches at `.ppls`, `.ppbk`, `.pplb` and `.ppex` encode where
+     * each one put its payload. Reproducing them needs those products' files
+     * to check against and the corpus has none — every PowerPacked file in it
+     * is a bare PP20. The identification is complete and correct; a bank in
+     * one of the six stub formats is left as it was rather than moved to a
+     * guess.
+     */
+    'ppk data'(it) {
+      const bk = it.evalInt()
+      if (it.accept(',')) checkPassword(it.evalStr())
+      const data = ppkBank(rt, bk)
+      if (!data) return
+      ppkIdentify(data)
+    },
+
+    /**
+     * `Xpk Unpack bk [,password$]` — routines 93 and 94 ($1afc and $1b0c),
+     * into `L_XpkUnpack` (routine 158, $2df4).
+     *
+     * xpkmaster.library's `XpkUnpack` through a nine-tag list, into a fresh
+     * bank at the first free number which then head-clones the source's. The
+     * output buffer is the header's unpacked length plus `XPK_MARGIN`, which
+     * the sub-libraries are allowed to overrun into.
+     *
+     * A bank that is not "XPKF" is skipped without a word — and, unlike the
+     * Ppk side, the ERROR IS RECORDED: `move.l d0,my_XpkErrNum(a2)` on every
+     * call, which is what `=Xpk Errn` and `=Xpk Err$` then report.
+     */
+    'xpk unpack'(it) {
+      const bk = it.evalInt()
+      const pw = it.accept(',') ? checkPassword(it.evalStr()) : undefined
+      const data = ppkBank(rt, bk)
+      if (!data || bankLong(data, 0) !== XPK_MAGIC) return
+      try {
+        replaceBank(rt, bk, xpkUnpack(data, pw))
+        rt.explode.xpkErr = 0
+      } catch (e) {
+        rt.explode.xpkErr = xpkErrOf(e)
+      }
+    },
+
+    /**
+     * `Xpk Pack bk,method$,mode` and `Xpk Crypt bk,method$,password$` —
+     * routines 136 and 137 ($2630 and $2650), both into `L_XpkWork`.
+     *
+     * The method is a four-character sub-library name ("NUKE", "SQSH",
+     * "RLEN") and the mode its 0-to-100 effort. `Xpk Crypt` is the same call
+     * with a password instead of a mode, which is what makes the stream
+     * `XPKSTREAMF_PASSWORD`.
+     *
+     * NOTE: the name pointer is taken as `(a3)+ then adda.l #2` — the AMOS
+     * string's characters WITHOUT its length word, handed to xpkmaster as if
+     * NUL-terminated. Nothing puts a terminator there, so what the library
+     * reads past four characters is whatever the string heap holds.
+     *
+     * DEVIATION: this port's xpkmaster has one packer registered, XPK_NONE
+     * ("----"), because a sub-library is a separate binary and the corpus has
+     * none. A method it does not know is `XPKERR_NOFUNC`, recorded in
+     * `Xpk Errn` exactly as a missing sub-library would be on the machine.
+     */
+    'xpk pack': (it) => xpkWork(rt, it, false),
+    'xpk crypt': (it) => xpkWork(rt, it, true),
+
     /**
      * `Plane Mask pln,msk` — routine 98 ($1b70): OR a longword over an entire
      * bitplane.
@@ -1555,6 +1690,154 @@ function planeMask(rt: Runtime, it: Parameters<Instr>[0], open: boolean): void {
   }
 }
 
+/**
+ * The PowerPacker identification table — routine 183 ($3942, `L_PpkID`),
+ * which is two instructions and then sixty longwords of data.
+ *
+ * Ten formats, six longwords each, and every one of `Ppk Length`, `Ppk Mode`,
+ * `Ppk Type`, `Ppk Name$`, `Ppk Passkey`, `Ppk Password` and `Ppk Data` walks
+ * it the same way: compare the longword at `codePos` in the bank against
+ * `code`, and the first row that matches is the format.
+ *
+ * TRANSCRIBED FROM THE SOURCE'S OWN `dc.l` BLOCK, comments included, because
+ * the columns are not derivable from anything — `PPEX` appears three times
+ * with three different probe offsets because three versions of the PowerPacker
+ * self-extractor put their signature in three places, and $65804e75 is a
+ * fragment of 68000 code rather than a magic number anybody chose.
+ *
+ *     Name  EffPos  CodePos  Code   CryptPos  Type
+ */
+interface PpkFormat {
+  /** `my_PpkName` — the four characters `Ppk Name$` answers */
+  name: string
+  /** `my_PpkEffPos` — where the efficiency longword sits */
+  effPos: number
+  /** `my_PpkCodePos` — where to look for the signature */
+  codePos: number
+  /** `my_PpkCode` — what has to be there */
+  code: number
+  /** `my_PpkCryptPos` — where the password checksum WORD is, 0 if none */
+  cryptPos: number
+  /** `my_PpkType` — what `Ppk Type` answers, 1 to 8 */
+  type: number
+}
+
+export const PPK_FORMATS: readonly PpkFormat[] = [
+  { name: 'PP20', effPos: 0x004, codePos: 0x000, code: 0x50503230, cryptPos: 0x000, type: 1 },
+  { name: 'PPLS', effPos: 0x008, codePos: 0x000, code: 0x50504c53, cryptPos: 0x000, type: 2 },
+  { name: 'PPBK', effPos: 0x014, codePos: 0x000, code: 0x5050626b, cryptPos: 0x000, type: 3 },
+  { name: 'PPLB', effPos: 0x094, codePos: 0x080, code: 0x706f7765, cryptPos: 0x000, type: 4 },
+  // PPEX V4.x, V3.x and V2.x -- one name, three probes
+  { name: 'PPEX', effPos: 0x290, codePos: 0x28c, code: 0x65804e75, cryptPos: 0x000, type: 5 },
+  { name: 'PPEX', effPos: 0x240, codePos: 0x054, code: 0x504b2e1b, cryptPos: 0x000, type: 5 },
+  { name: 'PPEX', effPos: 0x228, codePos: 0x118, code: 0x6472611a, cryptPos: 0x000, type: 5 },
+  { name: 'PX20', effPos: 0x006, codePos: 0x000, code: 0x50583230, cryptPos: 0x004, type: 6 },
+  { name: 'PXLB', effPos: 0x098, codePos: 0x084, code: 0x706f7765, cryptPos: 0x04a, type: 7 },
+  { name: 'PXEX', effPos: 0x2fe, codePos: 0x2e2, code: 0x50617373, cryptPos: 0x08e, type: 8 },
+]
+
+/**
+ * `my_PpkEffMode`, the five efficiency longwords the table ends with, and
+ * what `=Ppk Mode` matches a bank's own against.
+ *
+ *     Fast  Mediocre  Good  VeryGood  Best
+ *
+ * `Ppk Pack`'s default is 2, Good — `move.l #2,my_PpkPackMode(a2)` in routine
+ * 79, before the argument form has a chance to say otherwise.
+ */
+export const PPK_EFFICIENCY: readonly number[] = [0x09090909, 0x090a0a0a, 0x090a0b0b, 0x090a0c0c, 0x090a0c0d]
+
+/** a longword out of a bank's payload, which is what every probe reads */
+function bankLong(data: Uint8Array, at: number): number {
+  if (at + 3 >= data.length) return 0
+  return (((data[at]! << 24) | (data[at + 1]! << 16) | (data[at + 2]! << 8) | data[at + 3]!) >>> 0)
+}
+
+/**
+ * The table walk itself: the FIRST row whose signature matches, or null.
+ *
+ * `dbeq d2,.1` again, and here it is doing what it looks like — the loop ends
+ * on a match or after ten rows.
+ */
+function ppkIdentify(data: Uint8Array): PpkFormat | null {
+  for (const f of PPK_FORMATS) if (bankLong(data, f.codePos) === f.code) return f
+  return null
+}
+
+/** the payload of a bank argument, for the seven keywords that only read it */
+function ppkBank(rt: Runtime, n: number): Uint8Array | null {
+  const ref = orAdr(rt, n)
+  if (!ref) return null
+  return rt.memBanks.get(ref.number)?.data ?? null
+}
+
+/**
+ * `Ppk Pack`'s efficiency argument, 0 to 4, as the four shift widths this
+ * port's cruncher takes.
+ *
+ * The library hands powerpacker.library the mode number and gets its own
+ * table's longword back to store in the header; ../amiga/powerpacker.ts takes
+ * the four widths directly, so the longword is unpacked into them here.
+ */
+function effTable(mode: number): readonly number[] {
+  const packed = PPK_EFFICIENCY[Math.max(0, Math.min(4, mode))]!
+  return [(packed >>> 24) & 0xff, (packed >>> 16) & 0xff, (packed >>> 8) & 0xff, packed & 0xff]
+}
+
+/**
+ * A bank replaced in place by what a packer produced.
+ *
+ * The library reserves a NEW bank at the first free number and then
+ * `L_Bnk.HeadClone`s the source's number onto it, so the packed data ends up
+ * under the original's number and the original is unreachable. A bank's
+ * address here is a function of its number, so the round trip is invisible
+ * and this is what is left of it -- the same reasoning as `Bank To Chip`.
+ */
+function replaceBank(rt: Runtime, n: number, bytes: Uint8Array): void {
+  const ref = orAdr(rt, n)
+  if (!ref) return
+  const was = rt.memBanks.get(ref.number)
+  if (!was) return
+  rt.memBanks.set(ref.number, { ...was, data: Uint8Array.from(bytes) })
+}
+
+/**
+ * The password length check five routines repeat: `move.w (a0)+,d0 / subq.w
+ * #1,d0 / cmpi.w #128,d0 / Rbcc L_IFunc`.
+ *
+ * Unsigned again, so an EMPTY password is error 23 as much as a 129-character
+ * one — you cannot ask for "no password" by passing "".
+ */
+function checkPassword(pw: string): string {
+  if (pw.length < 1 || pw.length > 128) funcCall()
+  return pw
+}
+
+/** whatever xpkmaster threw, as the error number `=Xpk Errn` reports */
+function xpkErrOf(e: unknown): number {
+  const m = /(-?\d+)/.exec(e instanceof Error ? e.message : '')
+  return m ? Number(m[1]) : XPKERR_NOFUNC
+}
+
+/** the shared body of Xpk Pack and Xpk Crypt — routines 136 and 137 */
+function xpkWork(rt: Runtime, it: Parameters<Instr>[0], crypt: boolean): void {
+  const bk = it.evalInt()
+  it.expect(',')
+  const method = it.evalStr()
+  it.expect(',')
+  if (crypt) checkPassword(it.evalStr())
+  else it.evalInt()
+  const data = ppkBank(rt, bk)
+  if (!data) return
+  // one packer is registered here, XPK_NONE -- anything else is the same
+  // XPKERR_NOFUNC a machine without that sub-library installed would give
+  if (!XPK_PACKERS.has(xpkParseMethod(method).name)) {
+    rt.explode.xpkErr = XPKERR_NOFUNC
+    return
+  }
+  rt.explode.xpkErr = 0
+}
+
 /** the shared lookup of Image Width and Image Height — bank, then index */
 function imageOf(rt: Runtime, a: Value[]): BankImageLike | null {
   const ref = orAdr(rt, int(a[0]!))
@@ -1657,6 +1940,156 @@ export function makeExplodeFunctions(rt: Runtime): Record<string, Func> {
     'lsr.b': shift(8, false),
     'lsr.w': shift(16, false),
     'lsr.l': shift(32, false),
+
+    /**
+     * =Ipk Length(bk) — routine 78 ($18f6), and the whole of the Imploder
+     * support: `cmpi.l #"IMP!",(a0)` and the longword at 4.
+     *
+     * No unpacker to go with it. The Imploder's own decruncher lived in the
+     * file it made, so a program that wants the data runs it; this answers
+     * how big it will be.
+     */
+    'ipk length': (_, a): Value => {
+      const d = ppkBank(rt, int(a[0]!))
+      return VI(d && bankLong(d, 0) === 0x494d5021 ? bankLong(d, 4) | 0 : 0)
+    },
+
+    /**
+     * =Ppk Length(bk) — routine 83 ($196c), through `L_GetPpkLen` (routine
+     * 161, $303e): the UNPACKED length of a PowerPacked bank, 0 if it is not
+     * one.
+     *
+     * The length is in the last three bytes, and which last three depends on
+     * the format. `adda.l my_BkLength(a0),a0` walks to sixteen bytes PAST the
+     * payload (BkLength counts the header), then `move.b (a0),d0 / cmpi.b
+     * #"P",d0` picks `-20(a0)` for a bank whose first byte is "P" and
+     * `-24(a0)` otherwise — the payload's last longword, or the one before
+     * it. `lsr.l #8,d0` then drops the low byte, which is the number of
+     * padding bits the cruncher added and not part of the length.
+     */
+    'ppk length': (_, a): Value => {
+      const d = ppkBank(rt, int(a[0]!))
+      if (!d || !ppkIdentify(d)) return VI(0)
+      const at = d.length - (d[0] === 0x50 ? 4 : 8)
+      return VI(at >= 0 ? bankLong(d, at) >>> 8 : 0)
+    },
+
+    /**
+     * =Ppk Mode(bk) — routine 84 ($197e): which of the five efficiencies the
+     * bank was crunched with, 0 Fast to 4 Best, or -1 if it is not
+     * PowerPacked at all.
+     *
+     * Two walks: the format table for the row, then that row's `effPos` read
+     * out of the bank and matched against the five constants. A bank whose
+     * efficiency longword is none of the five falls out of the second `dbeq`
+     * with d3 at 5 — one past Best, and not a value the manual mentions.
+     */
+    'ppk mode': (_, a): Value => {
+      const d = ppkBank(rt, int(a[0]!))
+      const f = d ? ppkIdentify(d) : null
+      if (!d || !f) return VI(-1)
+      const eff = bankLong(d, f.effPos)
+      const at = PPK_EFFICIENCY.indexOf(eff)
+      return VI(at < 0 ? 5 : at)
+    },
+
+    /**
+     * =Ppk Type(bk) — routine 85 ($19c8): the table's own type number, 1 to
+     * 8, or 0 for a bank that matches no row.
+     *
+     * 1 PP20, 2 PPLS, 3 PPBK, 4 PPLB, 5 PPEX, 6 PX20, 7 PXLB, 8 PXEX — the
+     * PX ones being the encrypted half of the same family, which is why
+     * `Ppk Passkey` only answers for those three.
+     */
+    'ppk type': (_, a): Value => {
+      const d = ppkBank(rt, int(a[0]!))
+      return VI((d && ppkIdentify(d)?.type) || 0)
+    },
+
+    /**
+     * =Ppk Name$(bk) — routine 86 ($19f6): the row's four-character name, or
+     * the empty string.
+     *
+     * Note it is the TABLE's name and not the bank's first four bytes: a
+     * PPLB bank's signature sits at $80 and its name is still "PPLB".
+     */
+    'ppk name$': (_, a): Value => {
+      const d = ppkBank(rt, int(a[0]!))
+      return VS((d && ppkIdentify(d)?.name) || '')
+    },
+
+    /**
+     * =Ppk Passkey(bk) — routine 87 ($1a2e): the WORD checksum an encrypted
+     * bank stores for its password.
+     *
+     * 0 for a bank that is not encrypted, which is every row whose
+     * `cryptPos` is zero — `move.l my_PpkCryptPos(a1),d0 / beq.s .Skip`. So
+     * only PX20, PXLB and PXEX can answer.
+     */
+    'ppk passkey': (_, a): Value => {
+      const d = ppkBank(rt, int(a[0]!))
+      const f = d ? ppkIdentify(d) : null
+      if (!d || !f || f.cryptPos === 0) return VI(0)
+      return VI(((d[f.cryptPos] ?? 0) << 8) | (d[f.cryptPos + 1] ?? 0))
+    },
+
+    /**
+     * =Ppk Password(bk,pw$) — routine 88 ($1a64), through `L_PxPassKey`
+     * (routine 180, $389c): -1 if the password is the bank's, 0 if not.
+     *
+     * `ppCalcChecksum` on the string and a WORD compare against what the
+     * bank stores, so it is a sixteen-bit check — a wrong password has one
+     * chance in 65,536 of being accepted, and the routine is a check rather
+     * than a decryption.
+     *
+     * DEVIATION: `ppCalcChecksum` is powerpacker.library's and this port has
+     * no implementation of it — the algorithm is not in the Explode source,
+     * only the call. A bank with no checksum answers 0, which is what the
+     * routine does for an unencrypted bank; one WITH a checksum cannot be
+     * answered without inventing the function, so it answers 0 as well.
+     */
+    'ppk password': (_, a): Value => {
+      checkPassword(str(a[1]!))
+      const d = ppkBank(rt, int(a[0]!))
+      const f = d ? ppkIdentify(d) : null
+      if (!d || !f || f.cryptPos === 0) return VI(0)
+      return VI(0)
+    },
+
+    /**
+     * =Xpk Length(bk) — routine 91 ($1ac0): the unpacked length out of an
+     * XPKF header, at offset 12, or 0.
+     *
+     * =Xpk Name$(bk) — routine 92 ($1ada) — is the four characters at offset
+     * 8, the SUB-LIBRARY that packed it ("NUKE", "SQSH", "RLEN"), or the
+     * empty string.
+     */
+    'xpk length': (_, a): Value => {
+      const d = ppkBank(rt, int(a[0]!))
+      return VI(d && bankLong(d, 0) === XPK_MAGIC ? bankLong(d, 12) | 0 : 0)
+    },
+    'xpk name$': (_, a): Value => {
+      const d = ppkBank(rt, int(a[0]!))
+      if (!d || bankLong(d, 0) !== XPK_MAGIC) return VS('')
+      return VS(String.fromCharCode(d[8]!, d[9]!, d[10]!, d[11]!))
+    },
+
+    /**
+     * =Xpk Errn and =Xpk Err$ — routines 95 and 96 ($1b38 and $1b44): the
+     * number and the text of the last XPK call.
+     *
+     * The pair is why the Xpk half of this library is more usable than the
+     * Ppk half: every Xpk call stores `d0` and the library's own message
+     * buffer, so a failure can be reported rather than guessed at. Nothing
+     * on the Ppk side does.
+     *
+     * NOTE: `Xpk Err$` builds its AMOS string IN PLACE, writing the measured
+     * length into the word in front of the message buffer (`move.w
+     * d0,(a0)`). So the answer aliases the buffer the next Xpk call will
+     * overwrite.
+     */
+    'xpk errn': (): Value => VI(rt.explode.xpkErr),
+    'xpk err$': (): Value => VS(rt.explode.xpkErr === 0 ? '' : xpkErrorText(rt.explode.xpkErr)),
 
     /**
      * =Rastport — routine 97 ($1b68): `T_RastPort(a5)`, the address of the

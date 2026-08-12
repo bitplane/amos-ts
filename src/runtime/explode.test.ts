@@ -15,6 +15,9 @@ import { AmigaFS } from '../amiga/vfs'
 import { BankImage, ObjectBank } from './objects'
 import { Runtime } from './runtime'
 import { JOY_FIRE } from '../interp/gameport'
+import { pp20Crunch } from '../amiga/powerpacker'
+import { PPK_EFFICIENCY, PPK_FORMATS } from './explode'
+import { XPK_PACKERS } from '../amiga/xpkmaster'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 7 — `ExtNb equ 7-1`, line 16 of the source */
@@ -1013,5 +1016,116 @@ describe('Explode: Iff Bank', () => {
   it('and a bank with no BMHD in it is error 31, not AMOS’s own error 30', () => {
     // `Rbne L_NoIff`, which is `moveq #31,d0`
     expect(() => run('Reserve As Work 4,64 : Iff Bank 4 To 1')).toThrow(/IFF compression/i)
+  })
+})
+
+describe('Explode: the packer identification table', () => {
+  /** a bare PP20 stream, which is what Ppk Pack leaves in the bank */
+  function pp20(payload = 'ABCDABCDABCDABCD'): Uint8Array {
+    return pp20Crunch(Uint8Array.from([...payload].map((c) => c.charCodeAt(0))))
+  }
+
+  function withBank(bytes: Uint8Array, src: string): { rt: Runtime; out: () => string } {
+    const b = boot(src)
+    b.rt.reserveBank(4, bytes.length, 'Work', false, false)
+    b.rt.memBanks.get(4)!.data.set(bytes)
+    return b
+  }
+
+  const ask = (bytes: Uint8Array, expr: string): string => {
+    const b = withBank(bytes, `Print ${expr}`)
+    mustFinish(b.rt.runHeadless(3_000))
+    return b.out().trim().replace(/\s+/g, ' ')
+  }
+
+  it('names a PP20 bank and its type, and says nothing about a plain one', () => {
+    expect(ask(pp20(), 'Ppk Name$(4);" ";Ppk Type(4)')).toBe('PP20 1')
+    expect(ask(Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]), 'Len(Ppk Name$(4));" ";Ppk Type(4)')).toBe('0 0')
+  })
+
+  it('the table is the source’s own dc.l block, all ten rows', () => {
+    // three of them are PPEX, one name and three probe offsets
+    expect(PPK_FORMATS.length).toBe(10)
+    expect(PPK_FORMATS.filter((f) => f.name === 'PPEX').length).toBe(3)
+    expect(PPK_FORMATS.map((f) => f.type)).toEqual([1, 2, 3, 4, 5, 5, 5, 6, 7, 8])
+    // only the PX family carries a password checksum
+    expect(PPK_FORMATS.filter((f) => f.cryptPos !== 0).map((f) => f.name)).toEqual(['PX20', 'PXLB', 'PXEX'])
+  })
+
+  it('Ppk Length is the unpacked size and Ppk Mode the efficiency', () => {
+    expect(ask(pp20(), 'Ppk Length(4)')).toBe('16')
+    // the port's cruncher uses DEFAULT_EFFICIENCY, [9,10,12,13], which is
+    // $090a0c0d -- the table's last row, "Best"
+    expect(ask(pp20(), 'Ppk Mode(4)')).toBe('4')
+    expect(ask(Uint8Array.from([1, 2, 3, 4]), 'Ppk Mode(4)')).toBe('-1')
+  })
+
+  it('the five efficiency longwords are the table’s own', () => {
+    expect(PPK_EFFICIENCY).toEqual([0x09090909, 0x090a0a0a, 0x090a0b0b, 0x090a0c0c, 0x090a0c0d])
+  })
+
+  it('Ppk Passkey answers only for the encrypted half of the family', () => {
+    expect(ask(pp20(), 'Ppk Passkey(4)')).toBe('0')
+  })
+
+  it('Ppk Unpack round-trips a bank the port packed', () => {
+    const b = withBank(pp20('ABCDABCDABCDABCD'), 'Ppk Unpack 4\nPrint Length(4);" ";Peek$(Start(4),4)')
+    mustFinish(b.rt.runHeadless(3_000))
+    expect(b.out().trim().replace(/\s+/g, ' ')).toBe('16 ABCD')
+  })
+
+  it('and Ppk Pack leaves an already-packed bank alone', () => {
+    // `L_GetPpkLen` first, and a non-zero answer skips the routine
+    const packed = pp20()
+    const b = withBank(packed, 'Ppk Pack 4\nPrint Length(4)')
+    mustFinish(b.rt.runHeadless(3_000))
+    expect(b.out().trim()).toBe(String(packed.length))
+  })
+
+  it('Ipk Length reads an IMP! header and nothing else', () => {
+    const imp = Uint8Array.from([0x49, 0x4d, 0x50, 0x21, 0, 0, 0x10, 0x00])
+    expect(ask(imp, 'Ipk Length(4)')).toBe('4096')
+    expect(ask(pp20(), 'Ipk Length(4)')).toBe('0')
+  })
+
+  it('an empty password is error 23, because the length check is unsigned', () => {
+    // `subq.w #1,d0 / cmpi.w #128,d0 / Rbcc` -- 0 wraps to 65535
+    expect(() => run('Reserve As Work 4,16 : Ppk Unpack 4,""')).toThrow(/function call/i)
+    expect(() => run(`Reserve As Work 4,16 : Ppk Unpack 4,"${'x'.repeat(129)}"`)).toThrow(/function call/i)
+  })
+})
+
+describe('Explode: the XPK half, which reports its errors', () => {
+  it('Xpk Length and Xpk Name$ read the XPKF header', () => {
+    const hdr = new Uint8Array(32)
+    hdr.set([0x58, 0x50, 0x4b, 0x46])
+    hdr.set([0x4e, 0x55, 0x4b, 0x45], 8) // "NUKE"
+    hdr[14] = 0x08 // unpacked length 2048 at offset 12
+    const b = boot('Print Xpk Length(4);" ";Xpk Name$(4)')
+    b.rt.reserveBank(4, hdr.length, 'Work', false, false)
+    b.rt.memBanks.get(4)!.data.set(hdr)
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().replace(/\s+/g, ' ')).toBe('2048 NUKE')
+  })
+
+  it('and answer 0 and empty for a bank that is not XPKF', () => {
+    expect(run('Reserve As Work 4,32 : Print Xpk Length(4);" ";Len(Xpk Name$(4))')).toBe('0 0')
+  })
+
+  it('Xpk Errn starts at 0 and Xpk Err$ with it', () => {
+    expect(run('Print Xpk Errn;" ";Len(Xpk Err$)')).toBe('0 0')
+  })
+
+  it('a sub-library this port has not got is XPKERR_NOFUNC, recorded not raised', () => {
+    // the same answer a machine without that sub-library installed gives
+    const out = run('Reserve As Work 4,64 : Xpk Pack 4,"NUKE",50 : Print Xpk Errn;" ";Xpk Err$')
+    expect(out.startsWith('-1 ')).toBe(true)
+  })
+
+  it('and the one packer that IS registered goes through', () => {
+    // XPK_NONE, the "----" pass-through -- the only sub-library here,
+    // because a real one is a separate binary the corpus has not got
+    const name = [...XPK_PACKERS.keys()][0]!
+    expect(run(`Reserve As Work 4,64 : Xpk Pack 4,"${name}",50 : Print Xpk Errn`)).toBe('0')
   })
 })

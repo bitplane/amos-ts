@@ -1583,6 +1583,18 @@ export const FAITHFUL = new Set<string>([
   'rastport', 'plane mask', 'plane clear', 'plane get', 'plane put',
   'plane length', 'plane copy', 'plane swap', 'plane negative',
   'plane merge', 'plane close', 'plane open', 'plane active', 'iff bank',
+  // Batch 11, the PowerPacker, XPK and Imploder keywords -- routines 78 to
+  // 96 plus 136 and 137. The heart of the group is one data table, routine
+  // 183: ten formats by six longwords, transcribed from the source's own
+  // `dc.l` block because nothing about it is derivable -- PPEX appears three
+  // times with three probe offsets because three versions of the
+  // self-extractor put their signature in three places. Seven keywords walk
+  // it. The Xpk half records its error where the Ppk half does not, which is
+  // what `=Xpk Errn` and `=Xpk Err$` are for.
+  'ipk length', 'ppk pack', 'ppk unpack', 'ppk length', 'ppk mode',
+  'ppk type', 'ppk name$', 'ppk passkey', 'ppk password', 'ppk data',
+  'xpk length', 'xpk name$', 'xpk unpack', 'xpk errn', 'xpk err$',
+  'xpk pack', 'xpk crypt',
   'delta inter on', 'delta inter off', 'delta mouse off', 'delta reset',
   'delta drive motor on', 'delta drive motor off', 'delta change disk',
   'delta wait left mouse', 'delta wait fire', 'delta wait double mouse',
