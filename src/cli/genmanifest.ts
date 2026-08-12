@@ -105,6 +105,24 @@ for (const impl of extensionImpls()) {
   }
 }
 
+/**
+ * A keyword name safe to write into a markdown file.
+ *
+ * A name is arbitrary bytes out of a third-party binary, and one of them is
+ * not text: `intuiextend-2.01b` id 2154 begins with a NUL. Writing it raw made
+ * KEYWORDS.md a BINARY FILE as far as git is concerned — no diff, no blame, no
+ * grep — for the sake of one byte in 7,362 keywords. The byte is real and is
+ * not this generator's to correct, so it is shown rather than emitted.
+ *
+ * Escaped, not stripped. `\x00rwb get menu adr` is a true rendering of a
+ * broken table entry; ` rwb get menu adr` would look like a name with a
+ * leading space, which is a different and wrong claim.
+ */
+function printable(name: string): string {
+  // eslint-disable-next-line no-control-regex
+  return name.replace(/[\u0000-\u001f\u007f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`)
+}
+
 function keywordNames(defs: Array<{ name: string }>): string[] {
   const out = new Set<string>()
   for (const e of defs) {
@@ -348,7 +366,7 @@ ${summary}
       const subset = rs.filter((r) => r.status === status)
       if (subset.length === 0) continue
       const lead = `- **${status}** (${subset.length}): `
-      md += `${lead}${wrap(subset.map((r) => `\`${r.name}\``), 96, '  ', lead.length)}\n`
+      md += `${lead}${wrap(subset.map((r) => `\`${printable(r.name)}\``), 96, '  ', lead.length)}\n`
     }
   }
   return md

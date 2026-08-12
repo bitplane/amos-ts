@@ -809,7 +809,7 @@ keyword up in `status.ts` for why it is classified the way it is.
 
 ## intuiextend-2.01b (0%)
 
-- **missing** (301): ` rwb get menu adr`, `adr add`, `adr dec`, `adr inc`, `adr sub`,
+- **missing** (301): `\x00rwb get menu adr`, `adr add`, `adr dec`, `adr inc`, `adr sub`,
   `adr swap.b`, `adr swap.l`, `adr swap.w`, `alloc abs`, `alloc mem`, `amos rastport`,
   `app create icon`, `app free icon`, `app get arglist`, `app get numarg`, `avail mem`,
   `copy mem`, `first screen`, `free mem`, `get item msg`, `get menu code`, `get menu msg`,

@@ -50,4 +50,29 @@ describe('the committed coverage manifest', () => {
     expect(summary).toContain(`${missing} missing`)
     expect(summary).toContain(`${faithful! + approximated!} implemented`)
   })
+
+  it('is a TEXT file, which one keyword name nearly cost it', () => {
+    /*
+     * `intuiextend-2.01b` id 2154 begins with a NUL. Writing it raw made this
+     * file binary as far as git is concerned -- no diff, no blame, and `grep`
+     * silently refusing to match anything in it -- for one byte in 7,362
+     * keywords. genmanifest escapes control characters now; this is the
+     * invariant, because a second such name would break it the same way and
+     * nothing else would notice.
+     */
+    const bytes = readFileSync(MANIFEST)
+    const bad: string[] = []
+    for (let i = 0; i < bytes.length; i++) {
+      const b = bytes[i]!
+      if (b === 0x09 || b === 0x0a || b === 0x0d) continue
+      if (b < 0x20 || b === 0x7f) bad.push(`offset ${i}: 0x${b.toString(16)}`)
+    }
+    expect(bad).toEqual([])
+  })
+
+  it('shows the broken name rather than tidying it away', () => {
+    // escaped, not stripped: ` rwb get menu adr` would read as a name with a
+    // leading space, which is a different and wrong claim about the table
+    expect(buildManifest()).toContain('`\\x00rwb get menu adr`')
+  })
 })
