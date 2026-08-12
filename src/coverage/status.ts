@@ -1513,6 +1513,14 @@ export const FAITHFUL = new Set<string>([
   'keycode', 'key press', 'mul sin', 'mul cos', 'fast plot', 'fast point',
   'fast circle', 'array plot', 'test add', 'joy3', 'joy4',
   'count colour', 'find colour',
+  // ---- Explode 2.01 at slot 7, going in by functional group ---------------
+  // SOURCE tier: the author's own commented assembler ships with the library.
+  // Batch 1, the `VariableCmd` group -- routines 59 to 73, all pure. The
+  // three widths of Lsl/Lsr are not a rounding: `lsl.b` shifts the low byte
+  // and leaves the other twenty-four bits, and the routine returns all of it.
+  'byte', 'byte$', 'word', 'word$', 'long', 'long$',
+  'lsl.b', 'lsl.w', 'lsl.l', 'lsr.b', 'lsr.w', 'lsr.l',
+  'even', 'odd', 'align',
   'delta inter on', 'delta inter off', 'delta mouse off', 'delta reset',
   'delta drive motor on', 'delta drive motor off', 'delta change disk',
   'delta wait left mouse', 'delta wait fire', 'delta wait double mouse',

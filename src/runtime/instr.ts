@@ -88,6 +88,7 @@ import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd
 import { makeJdColourFunctions, makeJdColourInstructions, newJdColourState } from './jdcolour'
 import { makeJdIntFunctions, makeJdIntInstructions, newJdIntState } from './jdint'
 import { isAmon103, makeAmonFunctions, makeAmonInstructions, newAmonState } from './amon'
+import { makeExplodeFunctions } from './explode'
 import { jdPrt11Aliases, makeJdPrtFunctions, makeJdPrtInstructions } from './jdprt'
 import { newTdState, TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td'
 import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
@@ -6328,6 +6329,16 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     },
     instructions: makeAmonInstructions,
     functions: makeAmonFunctions,
+  },
+  {
+    /*
+     * Explode 2.01 at slot 7 --- Volker Stepprath's toolbox: packers, banks,
+     * files, a structure allocator, bitplanes, fonts and system odds. SOURCE
+     * tier, and the slot is the source's own, `ExtNb equ 7-1`. Being ported
+     * in batches by functional group; see explode.ts.
+     */
+    ids: ['explode-2.01'],
+    functions: makeExplodeFunctions,
   },
   {
     // the Colour companion, its own library at its own slot (ExtNb equ 20-1)
