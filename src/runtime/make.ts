@@ -69,10 +69,15 @@
  *
  * ## The dead half of the jump table
  *
- * Two entries sit past the last keyword. Routine 36 is `L_ErrorExt` with
- * `d3 = 0` and the string *"Out of memory!"*; routine 37 is the same call with
- * `d3 = -1` and *"AMOSPro Make's Lib 1.30"*, which is the extension's identity
- * banner. NOTHING IN THE LIBRARY CALLS EITHER: every allocation failure here is
+ * Two entries sit past the last keyword, and they are the pair AMOS's
+ * extension skeleton ships rather than two messages. Routine 36 ($8d6) is the
+ * message-printing half — `d3 = 0` over the string *"Out of memory!"* — and
+ * routine 37 ($8f6) is the no-message half, `d3 = -1`, which is why the `lea`
+ * in it does not matter: with d3 set the text is never looked up, and what it
+ * points at is *"AMOSPro Make's Lib 1.30"*, the identity banner that happens
+ * to be next in the hunk. See ../runtime/extimpl.ts's `errors`.
+ *
+ * NOTHING IN THE LIBRARY CALLS EITHER: every allocation failure here is
  * reported by returning 0, which is what the doc promises throughout (*"ptr =
  * pointer to memory block or 0 if not enough memory"*). `MAKE_ERRORS` records
  * the message because the table is the extension's, but no keyword can raise

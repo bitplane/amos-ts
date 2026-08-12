@@ -476,6 +476,33 @@ Prt 1.1 and 1.3 carry the same 46 escape sequences, verified byte for byte,
 which is what makes one handler correct for both; 1.4 changed two of them and
 needs the version branch it already had.
 
+### While you are reading: how the library raises its own errors
+
+```
+npm run cli -- src/cli/errscan.ts
+```
+
+Extension call 1025, `L_ErrorExt`. Every library that has messages of its own
+raises them through it, and 43 of the 49 registered binaries that call it do so
+from exactly two sites, because AMOS's extension skeleton ships the pair. The
+full account — with the lines from AMOS's interpreter, its compiled runtime and
+the commented Voodoo 3D skeleton — is on `ExtensionImpl.errors` in
+`src/runtime/extimpl.ts`. In brief: **a0** the NUL-separated table, **d0** the
+zero-based index into it, **d1** a threshold below which an error cannot be
+trapped (extensions pass 0, so all of theirs can), **d2** the extension number
+zero-based, **d3** 0 to print the message and -1 not to.
+
+Read from one disassembly this shape is ambiguous, and five ports here got it
+wrong in four different ways — `d3` called "the index", `d1 = 0` read as a
+boolean, and the whole thing called a requester when the interpreter's own
+comment on that arm is `Erreur normale, branche a l'editeur`. Read across all
+49 at once it is unambiguous, which is what the CLI is for.
+
+**`d2` also tells you the slot**, zero-based, independently of any manual —
+useful because most `defaultSlot` values come from a wiki list. All 34 with a
+manifest slot agree with their binary; eleven more have no manifest slot and
+`d2` is the only evidence there is.
+
 ### And whether a port already answers a release nobody named
 
 ```

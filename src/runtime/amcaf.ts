@@ -80,7 +80,8 @@
  * the AMOS text has nothing to do with what failed. That is still what a
  * program's `Errn` reports.
  *
- * But routine 397 goes to `L_ErrorExt` instead — a REQUESTER — with a
+ * But routine 397 goes to `L_ErrorExt` instead — the extension's OWN message
+ * table rather than AMOS's — with a
  * message index in d0 and a NUL-separated list of nineteen strings at $af94,
  * from "Can't reopen Workbench" to "MC68020 or higher required!". `AMCAF_ERRORS`
  * below holds them. The list starts on the terminator before the first string,
@@ -4671,7 +4672,7 @@ function extSlot(n: number): number {
 }
 
 /**
- * AMCAF's own requester messages. The raisers above go to `L_Error` with an
+ * AMCAF's own error messages. The raisers above go to `L_Error` with an
  * AMOS error number, while routine 397 uses a second mechanism:
  *
  *     lea.l  $af94(pc), a0
@@ -4680,14 +4681,17 @@ function extSlot(n: number): number {
  *     moveq  #$7, d2
  *     Rjmp   L_ErrorExt
  *
- * which puts up a REQUESTER, and $af94 is the head of a NUL-separated list of
+ * the message-printing half of the `L_ErrorExt` pair every extension ships
+ * (`d3 = 0` prints, `d2 = 7` is slot 8 zero-based, `d1 = 0` makes it
+ * trappable — see ../runtime/extimpl.ts's `errors`). $af94 is the head of a
+ * NUL-separated list of
  * nineteen strings. The index is d0 from the caller and the list starts on the
  * terminator BEFORE the first string, so it is 1-based — proved by the OS-2.0
  * gate (routine 395, `moveq #$c,d0`) landing on "Kickstart 2.04 or greater
  * required", which is exactly what that gate is for.
  *
- * The extension therefore has a trappable AMOS error path and its own
- * requester. These are the requester's texts, in the binary's
+ * So the extension has two error paths, both trappable: AMOS's numbered one
+ * and its own text. These are its texts, in the binary's
  * order, with index 0 left as the empty string the table itself begins with.
  */
 export const AMCAF_ERRORS = [

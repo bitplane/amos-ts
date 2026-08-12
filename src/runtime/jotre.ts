@@ -98,8 +98,13 @@ import type { Runtime } from './runtime'
 
 /**
  * Routine 3's message table at $2d0c — four NUL-separated strings, indexed
- * 0-based by the error byte at $2d0b, which is block+$2bd1. Delivered as a
- * requester: `Rjmp L_ErrorExt` with `moveq #$15,d2`, the slot zero-based.
+ * 0-based by the error byte at $2d0b, which is block+$2bd1. Delivered through
+ * `Rjmp L_ErrorExt` with `moveq #$15,d2`, the slot zero-based, and `moveq
+ * #$0,d1`, which makes it trappable — see ../runtime/extimpl.ts's `errors`.
+ *
+ * NOTE: Jotre ships only the message-printing half of the pair every other
+ * extension has both of. There is no `d3 = -1` routine, so a program compiled
+ * with -E0 has nothing to call.
  *
  * Every raiser lands right — `Init Thx` writes 2 when it is already up and 0
  * when InitPlayer fails, `Play Thx` writes 3 when InitModule does, and all
@@ -112,7 +117,7 @@ export const JOTRE_ERRORS = [
   "Couldn't Initialise Module/SubSong!",
 ]
 
-/** routine 3 ($2dfa) — the requester, by the code left at block+$2bd1 */
+/** routine 3 ($2dfa) — raise one, by the code left at block+$2bd1 */
 const jotreErr = (n: number): never => {
   throw new AmosError(JOTRE_ERRORS[n] ?? `Jotre error ${n}`)
 }

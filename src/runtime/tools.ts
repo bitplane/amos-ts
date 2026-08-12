@@ -66,9 +66,18 @@ import { AmosError, VI, VS, int } from '../interp/values'
 import { MemPool } from '../amiga/exec'
 
 /**
- * The extension's error table, as routine 48 spells it: `moveq #$16,d2` is the
- * extension number (23-1) and `moveq #$0,d3` the index. One entry, raised by
- * `Oui New` alone.
+ * The extension's error table — one entry, raised by `Oui New` alone.
+ *
+ * Routine 48 ($806) is the standard message-printing half of the `L_ErrorExt`
+ * pair every extension ships: `moveq #$0,d0 / moveq #$0,d1 / moveq #$16,d2 /
+ * moveq #$0,d3` over a `lea` of the string. d2 is the extension number 23-1
+ * and d0 is the index, which is 0 because there is only the one message.
+ *
+ * NOTE: this used to call `moveq #$0,d3` "the index", which it is not — d3
+ * chooses whether the message is printed at all, and it is unfalsifiable from
+ * Tools alone because a table of one makes index 0 and "print" indistinguishable.
+ * The pair's other half is routine 49 ($83a), `d3 = -1` with no table, which is
+ * what settles it. ../runtime/extimpl.ts's `errors` field carries the account.
  */
 export const TOOLS_ERRORS = ['Maximum number of elements reached']
 

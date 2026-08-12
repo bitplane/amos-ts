@@ -104,12 +104,13 @@ import { JPF_BUTTON_BLUE, readJoyPort } from '../amiga/lowlevel'
 
 /**
  * Routine 17's message table at $656 — four NUL-separated strings, indexed
- * 0-based by d0, delivered as a requester (`Rjmp L_ErrorExt` with
- * `moveq #$9,d2`, the slot zero-based).
+ * 0-based by d0, delivered through `Rjmp L_ErrorExt` with `moveq #$9,d2`, the
+ * slot zero-based, and `moveq #$0,d1`, which makes it trappable — see
+ * ../runtime/extimpl.ts's `errors` for the reading.
  *
  * Message 3 is built in place and the trailing spaces are load-bearing:
  * "Cli error = " runs to $6bb and the 32-byte buffer `Cli` reads the output
- * file into starts at $6bc, so the requester shows AmigaDOS's own complaint
+ * file into starts at $6bc, so the message carries AmigaDOS's own complaint
  * appended to the extension's. Routine 3 fills the first four bytes of that
  * buffer with `$20202020` before every call.
  */
@@ -120,7 +121,7 @@ export const ERCOLE_ERRORS = [
   'Cli error = ',
 ]
 
-/** routine 17 ($646) — the requester, by the index the caller puts in d0 */
+/** routine 17 ($646) — raise one, by the index the caller puts in d0 */
 const ercoleErr = (n: number, extra = ''): never => {
   throw new AmosError((ERCOLE_ERRORS[n] ?? `Ercole error ${n}`) + extra)
 }

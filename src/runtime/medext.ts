@@ -115,9 +115,16 @@ import { openLibrary } from '../amiga/exec'
  * Load` passes 2 then 7 then 8, and every keyword needing a module passes 3.
  * 4 and 9 have no caller.
  *
- * The delivery is a REQUESTER, not a trappable AMOS error — `Rjmp
- * L_ErrorExt` with `moveq #$12,d2`, the same shape as AMCAF's routine 397.
- * A message-carrying AmosError is how this port already spells that.
+ * Delivered through `L_ErrorExt` with `moveq #$12,d2`, the slot zero-based,
+ * and `moveq #$0,d1` — which makes it a TRAPPABLE AMOS error carrying the
+ * extension's own text, not a requester. This block used to say the opposite
+ * on both counts; ../runtime/extimpl.ts's `errors` field has the reading, out
+ * of AMOS's own interpreter and compiler runtime.
+ *
+ * NOTE: MED is one of three libraries whose second `L_ErrorExt` site also
+ * passes `d3 = 0` where every other extension's passes -1, so it prints a
+ * message on the compiled path too. A message-carrying AmosError is how this
+ * port spells all of it.
  */
 export const MED_ERRORS = [
   'medplayer.library V7.+ nicht geöffnet',
@@ -132,7 +139,7 @@ export const MED_ERRORS = [
   'DEMO Version !!! Keine Fehler Meldungen.',
 ]
 
-/** routine 38 ($eb0) — the requester, by the index the caller puts in d0 */
+/** routine 38 ($eb0) — raise one of the messages, by the index the caller puts in d0 */
 const medErr = (n: number): never => {
   throw new AmosError(MED_ERRORS[n] ?? `MED error ${n}`)
 }

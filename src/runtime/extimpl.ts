@@ -146,6 +146,58 @@ export interface ExtensionImpl {
    * nothing checks is decoration — this field was set by six ports and skipped
    * by five that export an identically shaped table, so the question it exists
    * to answer had five silent wrong answers.
+   *
+   * ## `L_ErrorExt`, settled — this is the account every port cites
+   *
+   * Extension call 1025 (`L_Error` is 1024 and falls straight into it). Every
+   * table here is raised through it, and of the 49 registered binaries that
+   * call it at all, 43 call it from exactly TWO sites — because AMOS's
+   * extension skeleton ships the pair. AMOS's own Voodoo 3D source names them
+   * and says why:
+   *
+   *     *  Custom errors come in two flavors the first prints an error message,
+   *     *  it is always used by the interpreter and by a compiled program when
+   *     *  the -E1 option is specified. The second library routine does not
+   *     *  print anything ... used in programs compiled under the -E0 option.
+   *     *  Both routines expect the following registers to be set up:
+   *     *        d0=error number
+   *     *        d1=trappable
+   *     *        d2=extension number
+   *
+   *     ErrCustomMsg: lea ErrorMsgs(pc),a0 / moveq #0,d3   * d3=Print messages
+   *     ErrCustom:    moveq #0,d1 / moveq #ExtNb,d2
+   *                   moveq #-1,d3                         * d3=No messages
+   *
+   * - **a0** the message table: NUL-separated strings, packed, no count.
+   * - **d0** the error number, and a ZERO-BASED index into that table.
+   * - **d1** is a THRESHOLD, not a flag. `+ILib.s:1297` is `cmp.w d1,d0 / bcs
+   *   rErr1`, and `rErr1` is the arm no `On Error` can reach — so an error
+   *   BELOW d1 cannot be trapped. `L_Error` passes 19, which is why AMOS's
+   *   first nineteen are fatal; extensions pass 0, and nothing is below zero,
+   *   so every extension error is trappable. GameSupport's source comments
+   *   that exact `moveq #0,d1` `* Can be trapped`, and `+ILib.s:1425` passes
+   *   `#512` with the comment `Force l'arret!` to make one that is not.
+   * - **d2** the extension number, ZERO-BASED. In the interpreter it is also
+   *   the switch: `tst.w d2 / bpl.s .Ext` (:1379) walks the table only when d2 is
+   *   non-negative, and -1 (what `L_Error` passes) clears a0 instead.
+   * - **d3** 0 to print the message, -1 not to. Read ONLY by the compiled
+   *   runtime — `_LIB.S:17954` is `tst.w d3 / bne.s rErr5`, skipping the
+   *   lookup — and ignored by the interpreter, which is exactly why the 3D
+   *   source explains the pair in terms of `-E1` and `-E0`.
+   *
+   * The six that do not ship both halves are worth knowing, since each is a
+   * question rather than a rule. CText, Range 1.0/2.0, TOME 3.1/4.23 and
+   * IntuiExtend 2.01b have no message-printing half at all, so nothing in them
+   * can show a text of their own; Jotre has no no-message half, so a program
+   * compiled with -E0 has nothing to call. FileID, MED and SLN have two sites
+   * and pass `d3 = 0` at BOTH, printing a message on either path.
+   *
+   * It is NOT a requester. The interpreter's own comment on the arm that
+   * displays it is `Erreur normale, branche a l'editeur` (+ILib.s:1381), and the compiled
+   * runtime copies the string into `Name2(a5)`, appends a full stop
+   * (`move.b #".",-1(a1)`, :17970) and falls into `L_Abort`. Four ports here called it
+   * a requester and one called it "a REQUESTER, not a trappable AMOS error",
+   * which is backwards on both halves.
    */
   readonly errors?: readonly string[]
 }

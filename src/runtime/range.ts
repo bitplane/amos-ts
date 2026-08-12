@@ -1075,7 +1075,7 @@ export function makeRangeInstructions(rt: Runtime): Record<string, Instr> {
      *     moveq #$0,d1 / moveq #$8,d2 / moveq #$ff,d3
      *     Rjmp L_ErrorExt
      *
-     * the extension-error requester every other slot raises the same way —
+     * the extension error every other slot raises the same way —
      * MED with `#$12`, Ercole `#$9`, Jotre `#$15` — where d2 is the slot
      * zero-based, and 8 is Range's 9. It never touches a3, so the SIX
      * arguments its spec declares (`I0,0,0t0,0,0`, i.e. `Set Bzone a,b,c To
@@ -1083,9 +1083,15 @@ export function makeRangeInstructions(rt: Runtime): Record<string, Instr> {
      * the parser must and then discards them, which is what the keyword does.
      *
      * NOTE: unlike AMCAF, Ercole and Jotre, Range passes NO message table —
-     * there is no `lea <strings>(pc),a0` and no index in d0, only d3 = -1. So
-     * the text the requester would show cannot be recovered from the binary,
-     * and the message here is this port's own.
+     * there is no `lea <strings>(pc),a0` and no index in d0, only d3 = -1.
+     * That is not a gap in the reading: `d3 = -1` IS the no-message half of
+     * the pair every extension ships, so there is no text to recover and the
+     * message here is this port's own. What Range does not do is set d0, so
+     * on the machine the error number is whatever was left in it. Range is one
+     * of six registered libraries with no message-printing half anywhere —
+     * CText, TOME 3.1 and 4.23 and IntuiExtend 2.01b are the others — so it
+     * has no text of its own to show under any option. See
+     * ../runtime/extimpl.ts's `errors`.
      *
      * The body Set Bzone once had is still in the file, orphaned at $1612
      * between Wipe's `rts` and Wipe's ESC string: it peeks four longs, calls
