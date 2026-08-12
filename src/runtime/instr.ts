@@ -5560,7 +5560,12 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     defaults: turboDefault,
     errors: TURBO_ERRORS,
     // CRAFT declares `amos pri` too, so bind this one to TURBO's own slot
-    qualified: ['amos pri'],
+    qualified: [
+      'amos pri',
+      // Explode 2.01 spells all seven, and `Plane Swap` is `I0,0` there
+      // against `I0,0,0` here -- a handler reading one argument too many.
+      'lsl.b', 'lsl.l', 'lsl.w', 'lsr.b', 'lsr.l', 'lsr.w', 'plane swap',
+    ],
   },
   {
     // P61 1.2 at slot 25 --- Chris Hodges' wrapper around Jarno Paananen's
@@ -5573,7 +5578,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     },
     instructions: makeP61Instructions,
     functions: makeP61Functions,
-    qualified: ['p61 play', 'p61 stop'],
+    qualified: ['p61 play', 'p61 stop', 'p61 pause', 'p61 volume'],
   },
   {
     // PowerBobs 1.0 at slot 13, by the author of TURBO Plus. The SHAREWARE
@@ -5792,6 +5797,8 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // CIA-A PRA accesses and one AMOS call. See first.ts.
     ids: ['first-0.1'],
     instructions: makeFirstInstructions,
+    // Explode 2.01 spells `Wait Mouse` too.
+    qualified: ['wait mouse'],
   },
   {
     // FileID 1.0 at slot 25 --- Haiko Lemser's wrapper around FileID.library,
@@ -5850,7 +5857,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
      * does not collide moves it out of reach. It is what made `Mem Type` parse
      * as a zero-argument function and print its own argument beside it.
      */
-    qualified: ['pal spread', 'open workbench', 'amos pri'],
+    qualified: ['pal spread', 'open workbench', 'amos pri', 'file type'],
   },
   {
     // MusiCRAFT 1.0 at slot 19 --- CRAFT's companion, and the same author's.
@@ -5926,7 +5933,13 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     functions: makePersonnalFunctions,
     defaults: personnalDefault,
     // core owns Sprite Col and TURBO owns Right Click
-    qualified: ['sprite col', 'right click'],
+    qualified: [
+      'sprite col', 'right click',
+      // Intuition 1.3b spells `Ehb` and `Ham`, and DME 2.0 spells the two P61
+      // names P61 1.2 already qualifies from its side -- so Personnal held the
+      // plain key for both and answered DME's programs with it.
+      'ehb', 'ham', 'p61 play', 'p61 stop',
+    ],
     errors: PERSONNAL_ERRORS,
   },
   {
@@ -5964,6 +5977,11 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     qualified: [
       'set ntsc', 'set pal', 'speek', 'blitter copy limit', 'blitter copy', 'blitter clear', 'raster wait',
       'open workbench', 'pal spread',
+      // and four an UNPORTED product claims, which is the same collision with
+      // nobody on the other side to declare it: Explode 2.01 spells `Bank To
+      // Chip`, `Even` and `Odd`, and DME 2.0 spells `Nop` -- as a FUNCTION,
+      // where AMCAF's is an instruction. See answeredForUnported in contested.ts.
+      'bank to chip', 'even', 'odd', 'nop',
     ],
     /*
      * 1.50's two additions, which its own guide says ARE Music's:
@@ -6072,6 +6090,9 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     },
     instructions: makeCtextInstructions,
     functions: makeCtextFunctions,
+    // Explode 2.01 spells `Font Base` too, and takes two arguments to this
+    // one's none.
+    qualified: ['font base'],
   },
   {
     ids: ['sticks-1.01b'],

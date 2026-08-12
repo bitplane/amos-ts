@@ -416,6 +416,24 @@ declares them in `qualified` so each answers only on its own slot (see
 `src/runtime/extimpl.ts`). Finding that out afterwards means threading the
 declaration back through work that is already finished.
 
+Two ported products settle a shared name between them: **one keeps the bare
+key** as the default and the other qualifies, and each is served on its own
+slots. Both mechanisms produce a slot-qualified key — `qualified` and
+`aliases` alike — so a name reached only through an alias is already declared
+and needs nothing further.
+
+**Registering a table you have not ported is the case with no second side.**
+It hands that product's keyword names to whoever already answers them, and the
+unported product has no `ExtensionImpl` to declare anything on, so its programs
+get the other product's handler under the other product's contract. Twenty
+names were in that state. `Nop` is a function in DME 2.0 and an instruction in
+AMCAF; `Plane Swap` takes two arguments in Explode and three in TURBO Plus —
+so the handler does not merely behave differently, it reads a different number
+of arguments off the stack. The fix comes from the only side that can give it:
+the **ported** product qualifies, the bare key goes away, and the unported
+product's programs get an unimplemented keyword, which is what they have.
+`answeredForUnported()` is the standing check.
+
 Run it with no argument for the whole picture — `live` is what is misdispatching
 today, `armed` is what the next port sets off.
 

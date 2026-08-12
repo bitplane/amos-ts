@@ -650,10 +650,27 @@ by keyword NAME, and several extensions share names, so porting Personnal once
 moved `p61-1.2` to 22% and `amcaf-1.50` to 2% without a line of either being
 written. #226 fixed the measure: an extension is credited only for names a port
 declares against its registry identity, with `viaCore` for the keywords a
-library's own author copied from another and said so. Dispatch never had the
-problem — a layer needing its own version of a name another layer owns
-registers under a slot-qualified key (`ext13:sprite col`), which the
+library's own author copied from another and said so. The mechanism for
+dispatch is the same idea — a layer needing its own version of a name another
+layer owns registers under a slot-qualified key (`ext13:sprite col`), which the
 interpreter tries first.
+
+**Dispatch had a version of it too, and this used to say it did not.** Two
+PORTED products settle a shared name between them, one keeping the bare key as
+the default and the other qualifying. A product that is registered but NOT
+ported has no `ExtensionImpl` to take either half of that deal, so its programs
+got whichever ported product held the bare key — twenty names, including
+seventeen of Explode 2.01's and DME 2.0's `Nop`, which is a FUNCTION there and
+an instruction in AMCAF. `undeclaredLive` could not see any of it, because it
+requires both sides ported. `answeredForUnported` is the other half and the
+ported side now qualifies all twenty, so the bare keys are gone.
+
+Seven more were never wrong at all and only looked it: the report asked
+`impl.qualified` whether a name had been declared, and EasyLife reaches `long`,
+`word`, `pp crunch` and four others through `aliases`, which produce exactly
+the same `ext16:` key. It asks the dispatch table now. That also cleared
+`set protect` off the knowingly-undeclared list, where it had been sitting on a
+note that said aliases "cannot be qualified".
 
 The opposite failure is the live one, and it has bitten twice: an extension
 that IS implemented reporting 0% because no `ExtensionImpl` named its identity.

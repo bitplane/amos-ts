@@ -42,10 +42,18 @@ export interface Contested {
   /** the products claiming it, core first then alphabetical */
   products: string[]
   tier: Tier
-  /** some port has moved it onto a slot-qualified key */
+  /** some port answers it on a slot-qualified key, by `qualified` or by `aliases` */
   declared: boolean
   /** something answers it today */
   implemented: boolean
+  /**
+   * A handler answers it under the BARE name, so any program reaches it
+   * whatever it loaded. One product is allowed to hold this — it is the
+   * default, and the other claimants qualify around it. What is never right is
+   * an unported claimant, which has no port to qualify on and so has no way to
+   * stop being answered for; see `answeredForUnported`.
+   */
+  plain: boolean
 }
 
 export interface ContestedReport {
@@ -112,20 +120,31 @@ export function contestedReport(): ContestedReport {
   }
 
   const ported = new Set<string>()
-  const declared = new Set<string>()
-  for (const impl of extensionImpls()) {
-    for (const id of impl.ids) ported.add(product(id))
-    for (const n of impl.qualified ?? []) declared.add(n)
-  }
+  for (const impl of extensionImpls()) for (const id of impl.ids) ported.add(product(id))
   ported.add('AMOS core')
 
+  /**
+   * Declared is asked of the DISPATCH TABLE, not of `impl.qualified`.
+   *
+   * Reading the declaration was the obvious way and it was wrong twice over.
+   * `qualified` is not the only thing that produces a slot-qualified key:
+   * `aliases` does too, and EasyLife 1.0's are why `long`, `long$`, `word`,
+   * `word$`, `pp crunch`, `pp free` and `pp len` reported as undeclared
+   * collisions when every one of them is already `ext16:` and reachable by
+   * nothing else. Seven false alarms in a report whose whole job is to be
+   * believed.
+   *
+   * And it answers the question that actually matters. `qualified` says a port
+   * asked; the key says whether any program can still reach the name without
+   * naming a slot. Those come apart whenever a port lists a name it does not
+   * implement, and the second is the one a program can feel.
+   */
   const coreTable = new TokenTable(CORE_TOKENS)
   const rt = new Runtime(tokenize('', coreTable), coreTable, {})
-  const implemented = new Set(
-    [...Object.keys(makeAllInstructions(rt)), ...Object.keys(makeAllFunctions(rt))].map((n) =>
-      n.replace(/^ext\d+:/, ''),
-    ),
-  )
+  const keys = [...Object.keys(makeAllInstructions(rt)), ...Object.keys(makeAllFunctions(rt))]
+  const plain = new Set(keys.filter((n) => !/^ext\d+:/.test(n)))
+  const implemented = new Set(keys.map((n) => n.replace(/^ext\d+:/, '')))
+  const qualifiedKeys = new Set(keys.filter((n) => /^ext\d+:/.test(n)).map((n) => n.replace(/^ext\d+:/, '')))
 
   const owners = new Map<string, string[]>()
   for (const [p, ns] of claims) for (const n of ns) owners.set(n, [...(owners.get(n) ?? []), p])
@@ -141,8 +160,9 @@ export function contestedReport(): ContestedReport {
         name,
         products: ps.sort((a, b) => rank(a).localeCompare(rank(b))),
         tier,
-        declared: declared.has(name),
+        declared: qualifiedKeys.has(name),
         implemented: impl,
+        plain: plain.has(name),
       }
     })
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -161,4 +181,31 @@ export function contestedReport(): ContestedReport {
  */
 export function undeclaredLive(): Contested[] {
   return contestedReport().rows.filter((r) => r.tier === 'live' && !r.declared)
+}
+
+/**
+ * The other half: a name answered under its bare spelling that a REGISTERED
+ * BUT UNPORTED product also claims.
+ *
+ * `undeclaredLive` needs both sides ported, which is what let this through.
+ * Two ported products settle a shared name between them — one keeps the bare
+ * key as the default and the other qualifies, and each is served on its own
+ * slots. An unported claimant cannot take either half of that deal. It has no
+ * `ExtensionImpl` to declare anything on, so its programs get the other
+ * product's handler under the other product's contract, and nothing in the
+ * tree says so.
+ *
+ * That is not theoretical. `Nop` is a FUNCTION in DME 2.0 and an INSTRUCTION
+ * in AMCAF; `Plane Swap` takes two arguments in Explode and three in TURBO
+ * Plus; `Font Base` is `00` in Explode and `0` in CText. A program of the
+ * unported product does not merely get the wrong behaviour, it gets a handler
+ * that reads a different number of arguments off the stack.
+ *
+ * The fix is the same one, applied from the only side that can: the ported
+ * product qualifies, the bare key goes away, and the unported product's
+ * programs get an unimplemented keyword — which is what they have.
+ */
+export function answeredForUnported(): Contested[] {
+  const { rows, ported } = contestedReport()
+  return rows.filter((r) => r.plain && r.products.some((p) => !ported.has(p)) && r.products.some((p) => ported.has(p)))
 }
