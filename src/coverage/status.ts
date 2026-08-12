@@ -1603,6 +1603,14 @@ export const FAITHFUL = new Set<string>([
   // in it, reproduced. `Lpk Length` reads lh.library's own "LH18" marker
   // without needing the library.
   'bpk unpack', 'bpk length', 'lpk length',
+  // Batch 12b -- `Lpk Unpack`, over a port of lh.library 1.8's LhDecode in
+  // ../amiga/lh.ts. The library is LZHUF with two of its constants changed:
+  // the shortest match is ONE byte, not three, and there is no `reconst` at
+  // all -- the tree stops adapting at MAX_FREQ instead of rebuilding. Both
+  // are pinned against the shipped binary in lh.corpus.test.ts. `Lpk Pack`
+  // is APPROXIMATED and does nothing: the encoder is not ported, and a
+  // stream only this port could read would be worse than no stream.
+  'lpk unpack',
   'delta inter on', 'delta inter off', 'delta mouse off', 'delta reset',
   'delta drive motor on', 'delta drive motor off', 'delta change disk',
   'delta wait left mouse', 'delta wait fire', 'delta wait double mouse',

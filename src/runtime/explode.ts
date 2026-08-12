@@ -67,6 +67,7 @@ import { joyFire } from '../interp/gameport'
 import { parseIlbm } from '../loader/iff'
 import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 import { bpkDecrunch, bpkLength } from '../amiga/bytekiller'
+import { lhUnpackBank } from '../amiga/lh'
 import { XPK_MAGIC, XPK_PACKERS, XPKERR_NOFUNC, xpkErrorText, xpkParseMethod, xpkUnpack } from '../amiga/xpkmaster'
 
 /**
@@ -533,6 +534,49 @@ export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   return {
+    /**
+     * `Lpk Unpack bk` — routine 141 ($28c2): lh.library's `LhDecode`.
+     *
+     * The bank has to start "LH18" — which is the LIBRARY'S VERSION, "LH"
+     * and "1.8", not a format identifier, so nothing but `Lpk Pack` ever
+     * wrote one. The longword after it is the original length, and the
+     * decoder fills a bank of exactly that. See ../amiga/lh.ts.
+     *
+     * Quiet about a bank it does not recognise, like every other unpacker
+     * here.
+     */
+    'lpk unpack'(it) {
+      const bk = it.evalInt()
+      const data = ppkBank(rt, bk)
+      if (!data) return
+      const out = lhUnpackBank(data)
+      if (out) replaceBank(rt, bk, out)
+    },
+
+    /**
+     * `Lpk Pack bk` — routine 140 ($27dc): lh.library's `LhEncode`, and NOT
+     * implemented.
+     *
+     * The decoder is ported and the encoder is not. Writing one means
+     * reproducing the library's match search and its adaptive-Huffman
+     * emitter bit for bit — anything less produces a stream that decodes to
+     * the right bytes through this port and to nothing at all through the
+     * real library, which is a worse answer than none.
+     *
+     * DEVIATION: it does nothing and leaves the bank alone, which is what
+     * the routine itself does when `CreateBuffer` fails — `tst.l d0 / beq
+     * .Skip`, no error, no change. So a program sees the outcome of a
+     * machine with too little memory to pack rather than a wrong stream.
+     *
+     * NOTE for whoever writes it: the destination is sized `SrcSize +
+     * SrcSize/8` (`move.l d0,d1 / lsr.l #3,d1 / add.l d1,d0`), and adaptive
+     * Huffman on incompressible data can exceed that. Whether `LhEncode`
+     * honours `lh_DstSize` or writes past it has not been established.
+     */
+    'lpk pack'(it) {
+      it.evalInt()
+    },
+
     /**
      * `Bpk Unpack bk` — routine 74 ($1702), and the only decruncher in this
      * library the author WROTE OUT rather than called a library for.
