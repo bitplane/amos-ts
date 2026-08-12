@@ -195,14 +195,62 @@ interface Row {
   note: string
 }
 
-/** Keep the manifest as an index; status.ts remains the evidence source. */
+/**
+ * Keep the manifest as an index; status.ts remains the evidence source.
+ *
+ * `NOTE:` is one alternative and the rest are words, which is why it sits
+ * OUTSIDE the `\b...\b`: a trailing word boundary cannot follow a colon, since
+ * `:` and the space after it are both non-word characters. So `NOTE:` never
+ * matched, and a sentence whose only marker was `NOTE:` was dropped from the
+ * manifest while reading as if it had been considered. 134 of the 1,248 NOTES
+ * entries were losing at least one sentence that way — Delta's string
+ * constants lost all of theirs, which is how it was found.
+ *
+ * The word list keeps its boundaries, and must: `\bnote\b` under the `i` flag
+ * would match the ordinary English word and pull in prose that qualifies
+ * nothing. The marker form is the whole point of requiring the colon.
+ */
 export function manifestNote(note: string | undefined): string {
   if (!note) return ''
-  const sentences = note.split(/(?<=[.!?])\s+(?=(?:[A-Z`"']|NOTE|DEVIATION|DEFECT))/)
-  const qualifications = sentences.filter((sentence) =>
-    /\b(?:DEVIATION|DEFECT|NOTE:|manual|documentation|documented|guide|disagree|contradict|unverified|not reproduced|approximated)\b/i.test(sentence),
+  const marker =
+    /(?:NOTE:|\b(?:DEVIATION|DEFECT|manual|documentation|documented|guide|disagree|contradict|unverified|not reproduced|approximated)\b)/i
+  const qualifications = quoteSafe(note.split(/(?<=[.!?])\s+(?=(?:[A-Z`"']|NOTE|DEVIATION|DEFECT))/)).filter((c) =>
+    marker.test(c),
   )
   return [...new Set(qualifications)].join(' ')
+}
+
+/**
+ * Sentences regrouped so that no quotation is ever split across the boundary.
+ *
+ * A quoted passage of an author's own prose often runs to two sentences, and
+ * only one of them carries a marker. Filtering sentence by sentence then
+ * publishes half a quotation with one quote mark — either a fragment that
+ * opens and never closes, or a tail that closes something never opened. Both
+ * read as complete quotations of something the author did not write, which is
+ * the one thing a citation must never do.
+ *
+ * So a sentence that leaves a quote mark unclosed absorbs the following one,
+ * and keeps absorbing until the quote closes. Selecting the chunk then takes
+ * the whole quotation or none of it. Both quote conventions in these notes are
+ * counted, straight and curly.
+ */
+function quoteSafe(sentences: string[]): string[] {
+  const out: string[] = []
+  let held = ''
+  for (const s of sentences) {
+    held = held === '' ? s : `${held} ${s}`
+    const straight = (held.match(/"/g) ?? []).length
+    const opened = (held.match(/“/g) ?? []).length
+    const closed = (held.match(/”/g) ?? []).length
+    if (straight % 2 === 0 && opened === closed) {
+      out.push(held)
+      held = ''
+    }
+  }
+  // an unterminated quotation runs to the end of the note; keep it whole
+  if (held !== '') out.push(held)
+  return out
 }
 
 const rows: Row[] = []

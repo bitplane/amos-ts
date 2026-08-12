@@ -3904,13 +3904,20 @@ export const NOTES: Record<string, string> = {
     "library that opened, and none can.",
   // ---- Delta 1.4, slot 15 --------------------------------------------------
   "delta about$":
-    "Routine 19 ($406), 142 bytes, and the shape all nine string functions share. DEFECT: `movea.w (buffer).L,a1` " +
-    "reads the WORD AT the twenty-byte buffer and sign-extends it, where `lea` was wanted -- the buffer is zeros, " +
-    "so a1 is 0 and the string is built at ADDRESS ZERO. It works, because the pointer handed back is read the " +
-    "same wrong way and is 0 too, so the caller finds the string exactly where it was put. What it costs is the " +
-    "68000's exception vectors: this one is 24 bytes, which is vectors 0 to 5. NOT REPRODUCED -- there is no " +
-    "vector table here, and the strings come back as they do on the machine. The relocation table (38 " +
-    "HUNK_RELOC32 entries) is what proves the operands really point at the buffer.",
+    "1.6's routine 19 ($1fdc), 1.4's 19 ($406), the longest of the nine string functions and the one that runs " +
+    "off the end of the buffer they share. DEFECT: in 1.4, `movea.w (buffer).L,a1` reads the WORD AT the " +
+    "twenty-byte buffer and sign-extends it, where `lea` was wanted -- the buffer is zeros, so a1 is 0 and every " +
+    "1.4 string is built at ADDRESS ZERO, over the 68000's exception vectors, and this one is 24 bytes, which " +
+    "is vectors 0 to 5. It works anyway, because the pointer handed back is read the same wrong way and is 0 " +
+    "too, so the caller finds the string exactly where it was put. The relocation table (38 HUNK_RELOC32 " +
+    "entries) is what proves the operands really point at the buffer. 1.6 fixed that in passing, by moving the " +
+    "whole library to `movea.l $1d8(a5),a1 / adda.w #offset,a1` so that it works from its slot base. DEFECT: " +
+    "in 1.6, with a real buffer to write into, the shortfall shows -- the string is 22 characters, so with its " +
+    "length word it is 24 bytes going into the 20 the author reserved, and the last four land on the first " +
+    "longword of Delta Decrunch, whose `move.l (a3)+,d0 / tst.w d0` becomes the four characters the string ends " +
+    "with, \"Fnz!\", and decodes as `not.w $7a21(a6)`. NOT REPRODUCED, either of them: there is no vector table " +
+    "here to overwrite and no code memory for a string to land in, and the strings come back as they do on the " +
+    "machine.",
   "delta decrunch":
     "Routine 3 ($280), 40 bytes. DEFECT: `move.l d0,$dff180` is a LONGWORD write to COLOR00, so the high word " +
     "lands in COLOR00 and the low word in COLOR01 -- the argument is a word, so colour 0 goes black and colour 1 " +
@@ -4073,15 +4080,27 @@ export const NOTES: Record<string, string> = {
     "1.0's Reset instruction for instruction, and the ExecBase wipe makes it a COLD one. Asks the machine and " +
     "ends the program, as AMCAF's Reset Computer does; ../amiga/machine.ts carries the reading for both.",
   "delta pi#":
-    "Routine 17 ($3f2), ten bytes: `move.l #$c90fdb42,d3` with `moveq #$1,d2` for the float type. Motorola Fast " +
-    "Floating Point -- a 24-bit mantissa, so it is 3.1415925 and not 3.14159265. Delta E# (routine 18) is " +
-    "$adf85442, 2.7182813. NOTE: Delta Brithday (routine 16) is an INTEGER, 22999213, and the guide says only " +
-    "\"Return my birthday\" -- it is not a date in any obvious layout, so the number is reported as it stands.",
+    "1.6's routine 17 ($1fc8), 1.4's 17 ($3f2), ten bytes: `move.l #$c90fdb42,d3` with `moveq #$1,d2` for the float " +
+    "type. NOTE: Motorola Fast Floating Point has a 24-bit mantissa, so it is 3.1415925 and not 3.14159265, and " +
+    "no program can get more out of it than seven digits. Delta E# " +
+    "(routine 18) is the same ten bytes with the halves swapped and $adf85442 in them, 2.7182813.",
+  "delta brithday":
+    "1.6's routine 16 ($1fbe), 1.4's 16 ($3e8), ten bytes: `moveq #$0,d2 / move.l #$15f70ad,d3`. The type byte says " +
+    "INTEGER, so it is 22999213, and the guide says only \"Return my birthday\" -- it is not a date in any " +
+    "obvious layout, so the number is reported as it stands. The spelling is the author's.",
+  "delta yard$":
+    "Routines 19 to 27, the nine string constants, all one shape: `move.w #len,(a1)+` then that many `move.b " +
+    "#char,(a1)+` into a buffer, d2 set to 2 for the string type, and the buffer's address back in d3. NOTE: the " +
+    "characters are immediates, so these values are read and not inferred: 0.9144 metres to a yard, 0.3048 to " +
+    "a foot, 0.0254 to an inch, 1852 to an international nautical mile, 1853.25 to a US one, and 0.57722 for " +
+    "Euler's gamma. NOTE: the author reserved two ten-byte buffers side by side, loads the second one twice at " +
+    "the top of every routine and never uses it, and builds into the first -- see Delta About$ for what twenty " +
+    "bytes are not enough for.",
   "delta radian$":
-    "Routine 25 ($5b2), 70 bytes. NOTE: the string ends in $b0, the degree sign, and Delta Degree$ (routine 26) " +
-    "ends in \"rd\" -- so the guide's own `Radian#=Val(Delta Radian$)` depends on Val stopping at the first " +
-    "character that is not part of a number. The values are right: 57.29578 degrees to a radian, 0.01745 radians " +
-    "to a degree, 1852 metres to an international nautical mile and 1853.25 to a US one.",
+    "1.6's routine 25 ($21ac), 1.4's 25 ($5b2), 70 bytes. NOTE: the string ends in $b0, the degree sign, and Delta " +
+    "Degree$ (routine 26) ends in \"rd\" -- so the guide's own `Radian#=Val(Delta Radian$)` depends on Val " +
+    "stopping at the first character that is not part of a number. Both values are right, 57.29578 degrees to a " +
+    "radian and 0.01745 radians to a degree. The two defects in the shape these share are under Delta About$.",
   // ---- AMOSPro Tools 1.01, slot 23 -----------------------------------------
   "array dim":
     "Routine 16 ($3e6), 70 bytes: `(SX+1)*(SY+1)+4` bytes reserved as a WORK bank named \"Array   \", with `SX+1` " +
@@ -8685,6 +8704,14 @@ as the instruction it is -- the mirror image of G Blur's entry",
  * validates both names and requires the target to have a note.
  */
 export const SHARED_NOTES: Record<string, string> = {
+  // Delta 1.4/1.6 — one shape, one reading: routines 19 to 27 (and 17/18 for the two FFP constants)
+  'delta e#': 'delta pi#',
+  'delta feet$': 'delta yard$',
+  'delta inch$': 'delta yard$',
+  'delta english mile$': 'delta yard$',
+  'delta american mile$': 'delta yard$',
+  'delta euler$': 'delta yard$',
+  'delta degree$': 'delta radian$',
   'psync every pbob': 'psync every',
   'psync every psprite': 'psync every',
   'pchannel to psprite': 'pchannel to pbob',

@@ -53,32 +53,44 @@
  * `Delta Reset` is Misc's `Reset` as well, and ../amiga/machine.ts already
  * carries the reading.
  *
- * ## Every string function writes to address zero
+ * ## The nine string functions, and the two buffers they are ten bytes short of
  *
- * The nine `$` functions share a shape, and it is wrong in a way that works:
+ * Routines 19 to 27. All nine share one shape in both releases: point a1 at a
+ * buffer, `move.w #len,(a1)+` and then that many `move.b #char,(a1)+`, set d2
+ * to 2 for the string type, point a0 at the buffer again and `move.l a0,d3`.
+ * There is no encoding question anywhere in them — the characters are
+ * immediates in the instruction stream, so `STRINGS` below is the bytes.
  *
- *     movea.w (buffer).L,a0        ; twice, and both are dead
- *     movea.w (buffer).L,a1
- *     move.w  #len,(a1)+ / move.b #char,(a1)+ ...
- *     moveq   #2,d2
- *     movea.w (buffer).L,a0 / move.l a0,d3
+ * The author reserved TWO ten-byte buffers, side by side, immediately before
+ * code. In 1.4 they are at $480 and $48a, and 1.4's routine 20 ($494) begins
+ * where the second one ends; in 1.6 they are at base+$1952 and base+$195c —
+ * hunk $1e64 and $1e6e — and 1.6's routine 3 ($1e78) begins where the second
+ * one ends. Every routine loads a0 with the SECOND buffer twice at the top and
+ * overwrites it both times, builds into the first, and never uses the second
+ * for anything. Twenty bytes, and the length word costs two of them.
  *
- * `movea.w` on an absolute long address reads the WORD AT the buffer and
- * sign-extends it into the register. It does not load the buffer's address —
- * that would be `lea`. The buffer is twenty bytes of zeros in the code hunk
- * (the relocation table confirms the operands are relocated, so they really do
- * point at it), so `a1` is 0, the string is built at ADDRESS ZERO, and `a0` is
- * 0 again at the end — which is the address the string was built at. The
- * caller is handed a pointer to address 0 and finds exactly the string it
- * asked for.
+ * DEFECT: `Delta About$` is a 22-character string, so it writes 24 bytes into
+ * 20 and the last four land on whatever follows. In 1.6 that is the first
+ * longword of `Delta Decrunch`, whose `move.l (a3)+,d0 / tst.w d0` — `201b
+ * 4a40` — becomes `466e 7a21`, the "Fnz!" that ends the string, and the next
+ * program to decrunch executes `not.w $7a21(a6)` instead. NOT REPRODUCED:
+ * there is no code memory here for a string to land in.
  *
- * DEFECT: so it works, and it works by writing over the 68000's exception
- * vectors. `Delta About$` is twenty-four bytes, which is vectors 0 to 5 — the
- * initial stack pointer and PC, bus error, address error, illegal instruction
- * and divide-by-zero. Every one of the shorter functions writes at least the
- * first eight. NOT REPRODUCED, because there is no vector table here to
- * corrupt: the strings come back, which is what the machine does too, and the
- * cost is one this port cannot charge.
+ * DEFECT: in 1.4 only, the buffers are addressed as `movea.w (buffer).L,a1`,
+ * which reads the WORD AT the buffer and sign-extends it rather than loading
+ * its address — that would be `lea`. The relocation table confirms the
+ * operands are relocated, so they really do point at the buffer; the buffer is
+ * zeros, so a1 is 0 and the string is built at ADDRESS ZERO, over the 68000's
+ * exception vectors. `Delta About$` reaches vectors 0 to 5 — the initial stack
+ * pointer and PC, bus error, address error, illegal instruction and
+ * divide-by-zero. It still WORKS, because the closing `movea.w (buffer).L,a0`
+ * is wrong the same way and hands back 0, which is where the string is.
+ *
+ * 1.6 fixed it, and not deliberately: the release moved every absolute
+ * reference to `movea.l $1d8(a5),a1 / adda.w #offset,a1` so that the library
+ * works from its slot base, and the string functions came right on the way
+ * past. Which is why the overrun above is 1.6's alone — 1.4 never reaches the
+ * buffer to run off the end of it.
  *
  * ## Two keywords that do not do what they say
  *
@@ -225,22 +237,37 @@ const DELTA_PI = ffp(0xc90fdb42)
 const DELTA_E = ffp(0xadf85442)
 
 /**
- * The nine strings, byte for byte, in jump-table order.
+ * The nine strings, byte for byte, in jump-table order — routines 19 to 27,
+ * each cited at both releases' addresses below.
  *
- * Every one is `move.w #len` followed by that many `move.b #char`, so there is
- * no encoding question: these are the bytes. Two carry a unit suffix that
- * `Val` will stop at, which the guide's own `Radian#=Val(Delta Radian$)` does
- * not mention — see `delta radian$`.
+ * Read off the immediates: `move.w #$16` then 22 `move.b`, `move.w #$6` then
+ * six, and so on down. See the header for the shape they share and for the
+ * two defects in it.
+ *
+ * The values are right — 0.9144 m to a yard, 0.3048 to a foot, 0.0254 to an
+ * inch, 1852 to an international nautical mile, 1853.25 to a US one, 57.29578°
+ * to a radian, 0.01745 rad to a degree, and 0.57722 for Euler's γ. Two carry a
+ * unit suffix that `Val` will stop at, which the guide's own
+ * `Radian#=Val(Delta Radian$)` does not mention — see `delta radian$`.
  */
 const STRINGS: Record<string, string> = {
+  // 1.6's routine 19 ($1fdc), 1.4's 19 ($406) — `move.w #$16` and 22 characters, four more than there is room for
   'delta about$': 'Delta of Opium^Hv^Fnz!',
+  // 1.6's routine 20 ($2066), 1.4's 20 ($494)
   'delta yard$': '0.9144',
+  // 1.6's routine 21 ($20a8), 1.4's 21 ($4ce)
   'delta feet$': '0.3048',
+  // 1.6's routine 22 ($20ea), 1.4's 22 ($508)
   'delta inch$': '0.0254',
+  // 1.6's routine 23 ($212c), 1.4's 23 ($542)
   'delta english mile$': '1852',
+  // 1.6's routine 24 ($2166), 1.4's 24 ($574)
   'delta american mile$': '1853.25',
+  // 1.6's routine 25 ($21ac), 1.4's 25 ($5b2) — the last byte is $b0, the degree sign
   'delta radian$': '57.29578°',
+  // 1.6's routine 26 ($21fa), 1.4's 26 ($5f8) — and this one ends "rd", $72 $64
   'delta degree$': '0.01745rd',
+  // 1.6's routine 27 ($2248), 1.4's 27 ($63e)
   'delta euler$': '0.57722',
 }
 
@@ -917,38 +944,40 @@ export function makeDeltaFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /**
-     * Routine 16 — `=Delta Brithday`, the author's own spelling.
+     * 1.6's routine 16 ($1fbe), 1.4's 16 ($3e8) — `=Delta Brithday`, the
+     * author's own spelling.
      *
-     * `moveq #$0,d2 / move.l #$15f70ad,d3` — an INTEGER, 22999213, and the
+     * Ten bytes: `moveq #$0,d2 / move.l #$15f70ad,d3` — an INTEGER, and the
      * guide says only *"Return my birthday."* Nothing anywhere says how to
      * read it, and it is not a date in any of the obvious layouts, so it is
      * reported as the number the routine returns.
      */
     'delta brithday': () => VI(0x015f70ad),
 
-    /** Routine 17 — `=Delta Pi#`: the FFP longword $c90fdb42, which is π to seven digits */
+    /** 1.6's routine 17 ($1fc8), 1.4's 17 ($3f2) — `=Delta Pi#`: FFP $c90fdb42, which is π to seven digits */
     'delta pi#': () => VF(DELTA_PI),
 
     /**
-     * Routine 18 — `=Delta E#`: $adf85442. The guide calls it *"rule of
-     * naturals logarithms"*, which is e, and FFP again stops it at seven
-     * digits.
+     * 1.6's routine 18 ($1fd2), 1.4's 18 ($3fc) — `=Delta E#`: `move.l
+     * #$adf85442,d3 / moveq #$1,d2`, the same ten bytes as `Delta Pi#` with
+     * the two halves swapped. The guide calls it *"rule of naturals
+     * logarithms"*,
+     * which is e, and FFP again stops it at seven digits.
      */
     'delta e#': () => VF(DELTA_E),
   }
 
   /**
-   * Routines 19 to 27 — the nine string constants.
+   * Routines 19 to 27 — the nine string constants, read at `STRINGS` above.
    *
    * All one shape: build the string a byte at a time and hand back a pointer.
-   * See the header for where the pointer points and why it works anyway.
+   * See the header for where the pointer points, why it works anyway in 1.4,
+   * and what `Delta About$` runs off the end of in 1.6.
    *
    * NOTE on two of them. `Delta Radian$` ends in `$b0`, the degree sign, and
    * `Delta Degree$` in "rd" — so the guide's own `Radian#=Val(Delta Radian$)`
    * relies on `Val` stopping at the first character that is not a number,
-   * which AMOS's does. The values themselves are right: 0.9144 m to a yard,
-   * 1852 m to an international nautical mile, 1853.25 to a US one, 57.29578°
-   * to a radian, and 0.57722 for Euler's γ.
+   * which AMOS's does.
    */
   for (const [name, value] of Object.entries(STRINGS)) out[name] = () => VS(value)
   return out

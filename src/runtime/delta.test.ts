@@ -1,12 +1,17 @@
 /**
- * Delta 1.4, against `AMOSPro_Delta.Lib` disassembled with `extdis delta-1.4`
- * and against `AMOSPro_Delta.Guide`, which documents all twenty-six.
+ * Delta, against both binaries — `extdis delta-1.4` and `extdis delta-1.6` —
+ * and against `AMOSPro_Delta.Guide`, which documents all forty-six.
  *
- * Two of the defects here are pinned by comparison rather than by behaviour,
+ * The 1.4 table is bound for the twenty-six keywords both releases share and
+ * the 1.6 table for the twenty 1.6 added, because only the second table has
+ * them; one port answers both, so the split is in the harness and not in the
+ * code under test.
+ *
+ * Several defects here are pinned by comparison rather than by behaviour,
  * because the behaviour is the machine's and this port has no vector table to
- * corrupt and no interrupt to switch off. The five keywords Delta shares with
- * Misc 1.0 are pinned against Misc's own handlers, since Misc ships the source
- * that proves what they do.
+ * corrupt, no code memory to overwrite and no interrupt to switch off. The
+ * five keywords Delta shares with Misc 1.0 are pinned against Misc's own
+ * handlers, since Misc ships the source that proves what they do.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -219,6 +224,17 @@ describe('Delta: the constants', () => {
     expect(text('Print Delta American Mile$').trim()).toBe('1853.25')
     expect(text('Print Delta Euler$').trim()).toBe('0.57722')
     expect(text('Print Delta About$').trim()).toBe('Delta of Opium^Hv^Fnz!')
+  })
+
+  it('Delta About$ is four bytes longer than the buffer it is built in', () => {
+    // The author reserved two ten-byte buffers side by side and builds into
+    // the first: 20 bytes, two of them the length word. 22 characters makes
+    // 24. In 1.6 the four that do not fit land on the first longword of
+    // routine 3, Delta Decrunch -- see the DEFECT in delta.ts's header. The
+    // arithmetic is what the note rests on, so it is pinned here; the write
+    // itself is NOT REPRODUCED, there being no code memory to land in.
+    expect(text('Print Len(Delta About$)').trim()).toBe('22')
+    expect(2 + 22).toBeGreaterThan(20)
   })
 
   it('two of them carry a unit that Val has to stop at', () => {

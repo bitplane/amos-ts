@@ -123,6 +123,20 @@ vector the ROM jumps through, and the only reason to load ExecBase at all. The
 relocation table proves the address is literal: 24 longwords are relocated and
 neither `$2a` nor the `$fc0000` it jumps to is among them.
 
+Reading 1.6 also settled something about 1.4. The nine string functions build
+their strings at address zero in 1.4 (below), and 1.6 fixed that — not
+deliberately, but because the release moved every absolute reference to
+`movea.l $1d8(a5),ax / adda.w #offset,ax` so the library works from its slot
+base, and the string functions came right on the way past. Which exposes the
+defect underneath: the author reserved two ten-byte buffers side by side and
+builds into the first, so `Delta About$` is twenty-four bytes going into
+twenty, and the four that do not fit land on whatever follows. In 1.6 that is
+the first longword of `Delta Decrunch`, whose `move.l (a3)+,d0 / tst.w d0`
+becomes the `Fnz!` the string ends with and decodes as `not.w $7a21(a6)`.
+Neither is reproduced — there is no vector table here to overwrite and no code
+memory for a string to land in — and both are now written down where the
+keyword is.
+
 One keyword disagrees between the two releases and this port cannot tell them
 apart. `Delta Decrunch` raises AMOS's numbered errors in 1.4 and the
 extension's own messages in 1.6, from the same two checks. An `ExtensionImpl`
@@ -367,13 +381,15 @@ exists now: two extensions write the same CIA-B port-B bit and neither knows
 about the other, which is exactly the test `spriteDma` and `videoOff` already
 passed.
 
-Its own defects are better than the borrowed ones. **Every one of the nine
+Its own defects are better than the borrowed ones. **Every one of 1.4's nine
 string functions builds its string at address zero.** They use `movea.w
 (buffer).L` where `lea` was wanted, so they read the *word at* their twenty-byte
 buffer instead of loading its address — it is zero — and write there. It works,
 because the pointer handed back is read the same wrong way and is zero too, so
 the caller finds the string exactly where it was put. The price is the 68000's
 exception vectors: `Delta About$` is twenty-four bytes, which is vectors 0 to 5.
+1.6 fixed the addressing and inherited a different problem with the same
+twenty-four bytes; see the Delta 1.6 section above.
 **`Delta Inter On` does nothing at all** — INTENA's bit 15 chooses set or clear
 and the write has it clear, so it clears the bits present in `$0000` — while
 `Delta Inter Off` works, so interrupts can be turned off and not back on. And
