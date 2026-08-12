@@ -1603,14 +1603,17 @@ export const FAITHFUL = new Set<string>([
   // in it, reproduced. `Lpk Length` reads lh.library's own "LH18" marker
   // without needing the library.
   'bpk unpack', 'bpk length', 'lpk length',
-  // Batch 12b -- `Lpk Unpack`, over a port of lh.library 1.8's LhDecode in
-  // ../amiga/lh.ts. The library is LZHUF with two of its constants changed:
-  // the shortest match is ONE byte, not three, and there is no `reconst` at
-  // all -- the tree stops adapting at MAX_FREQ instead of rebuilding. Both
-  // are pinned against the shipped binary in lh.corpus.test.ts. `Lpk Pack`
-  // is APPROXIMATED and does nothing: the encoder is not ported, and a
-  // stream only this port could read would be worse than no stream.
-  'lpk unpack',
+  // Batch 12b -- `Lpk Unpack` and `Lpk Pack`, over a port of BOTH halves of
+  // lh.library 1.8 in ../amiga/lh.ts. The library is LZHUF with three of its
+  // constants changed: the shortest match is ONE byte where LZHUF's is three
+  // (and the encoder does code two-byte matches), there is no `reconst` at
+  // all -- the tree stops adapting at MAX_FREQ instead of rebuilding, on both
+  // sides -- and the encoder skips LZHUF's F-position tree seeding. All of it
+  // is pinned against the shipped binary in lh.corpus.test.ts, including the
+  // defect: `LhEncode` WRITES lh_DstSize and reads it nowhere, so `Lpk Pack`'s
+  // SrcSize + SrcSize/8 destination is a heap overrun for anything short and
+  // incompressible.
+  'lpk unpack', 'lpk pack',
   // Batch 12c -- `Dpk Name$`, over decrunch.library (DecrunchLib 35.237,
   // LICENCEWARE, Georg Hoermann). The keyword only ever IDENTIFIES, and
   // identification is the part that can be reproduced whole: 16 data magics,

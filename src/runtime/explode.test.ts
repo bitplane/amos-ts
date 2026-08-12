@@ -1289,10 +1289,35 @@ describe('Explode: ByteKiller and the lh.library header', () => {
     expect(run('Reserve As Work 4,32 : Lpk Unpack 4 : Print Length(4)')).toBe('32')
   })
 
-  it('Lpk Pack does nothing, which is what routine 140 does with no buffer', () => {
-    // the encoder at $628 is not ported. `tst.l d0 / beq .Skip` after a
-    // failed CreateBuffer -- no error, no change
-    expect(run('Reserve As Work 4,64 : Lpk Pack 4 : Print Length(4)')).toBe('64')
+  it('Lpk Pack packs a bank, and Lpk Unpack takes it back', () => {
+    // routine 140 ($27dc). The bank keeps its number and name -- GetFree,
+    // Reserve, then Bnk.HeadClone puts the source's header back on it
+    const src = [...'AMOS Professional'].map((c) => c.charCodeAt(0))
+    const b = boot(
+      [
+        'Reserve As Work 4,17',
+        ...src.map((v, i) => `Poke Start(4)+${i},${v}`),
+        'Lpk Pack 4',
+        'L=Length(4)',
+        'Lpk Unpack 4',
+        'Print L;" ";Length(4);" ";Peek(Start(4));" ";Peek(Start(4)+16)',
+      ].join('\n'),
+    )
+    mustFinish(b.rt.runHeadless(4_000))
+    const [packed, back, first, last] = b.out().trim().split(/\s+/).map(Number)
+    // the packed bank carries the eight-byte "LH18" header, and unpacking
+    // gives back exactly what went in
+    expect([back, first, last]).toEqual([17, 65, 108])
+    expect(packed).toBeGreaterThan(8)
+  })
+
+  it('and the packed bank is the header Lpk Length can read', () => {
+    const b = boot('Reserve As Work 4,600 : Lpk Pack 4 : Print Lpk Length(4);" ";Length(4)')
+    mustFinish(b.rt.runHeadless(4_000))
+    const [declared, packed] = b.out().trim().split(/\s+/).map(Number)
+    expect(declared).toBe(600)
+    // 600 zero bytes is a single long match, so this really did compress
+    expect(packed).toBeLessThan(100)
   })
 
   it('Lpk Length reads lh.library’s own LH18 marker', () => {

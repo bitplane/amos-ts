@@ -67,7 +67,7 @@ import { joyFire } from '../interp/gameport'
 import { parseIlbm } from '../loader/iff'
 import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 import { bpkDecrunch, bpkLength } from '../amiga/bytekiller'
-import { lhUnpackBank } from '../amiga/lh'
+import { lhPackBank, lhUnpackBank } from '../amiga/lh'
 import { dlDecrunch, dlInitItem } from '../amiga/decrunchlib'
 import { XPK_MAGIC, XPK_PACKERS, XPKERR_NOFUNC, xpkErrorText, xpkParseMethod, xpkUnpack } from '../amiga/xpkmaster'
 
@@ -555,27 +555,33 @@ export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * `Lpk Pack bk` — routine 140 ($27dc): lh.library's `LhEncode`, and NOT
-     * implemented.
+     * `Lpk Pack bk` — routine 140 ($27dc): lh.library's `LhEncode`, into a
+     * bank of "LH18", the original length, and the stream.
      *
-     * The decoder is ported and the encoder is not. Writing one means
-     * reproducing the library's match search and its adaptive-Huffman
-     * emitter bit for bit — anything less produces a stream that decodes to
-     * the right bytes through this port and to nothing at all through the
-     * real library, which is a worse answer than none.
+     * The same arrangement `Ppk Pack` uses — `Bnk.GetFree`, `Bnk.Reserve`
+     * with `my_BkNameWork`, then `Bnk.HeadClone` puts the source's number and
+     * name back on it — so the bank keeps its identity and changes contents.
+     * See ../amiga/lh.ts for the encoder itself.
      *
-     * DEVIATION: it does nothing and leaves the bank alone, which is what
-     * the routine itself does when `CreateBuffer` fails — `tst.l d0 / beq
-     * .Skip`, no error, no change. So a program sees the outcome of a
-     * machine with too little memory to pack rather than a wrong stream.
+     * DEFECT: the destination is sized `SrcSize + SrcSize/8`
+     * (source lines 3341-3347), and `LhEncode` never reads `lh_DstSize` — it
+     * WRITES it at $640 with what it produced and is bounded by nothing.
+     * Adaptive Huffman starts at nine bits a literal, so anything
+     * incompressible and short goes over: an eight-byte bank of noise packs
+     * to ten bytes into a nine-byte allocation. On the machine that is two
+     * bytes past a `RamFast` block with no diagnostic at all.
      *
-     * NOTE for whoever writes it: the destination is sized `SrcSize +
-     * SrcSize/8` (`move.l d0,d1 / lsr.l #3,d1 / add.l d1,d0`), and adaptive
-     * Huffman on incompressible data can exceed that. Whether `LhEncode`
-     * honours `lh_DstSize` or writes past it has not been established.
+     * DEVIATION: this port grows its output instead, so the bank is right and
+     * nothing is corrupted. Reproducing the overrun would mean modelling
+     * AMOS's heap layout closely enough for the damage to land where it
+     * landed in 1993, and the result would still be a program that crashed
+     * differently.
      */
     'lpk pack'(it) {
-      it.evalInt()
+      const bk = it.evalInt()
+      const data = ppkBank(rt, bk)
+      if (!data || data.length === 0) return
+      replaceBank(rt, bk, lhPackBank(data))
     },
 
     /**

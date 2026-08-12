@@ -55,7 +55,7 @@ keyword up in `status.ts` for why it is classified the way it is.
 | eme-3.0              |       59 |       58 |            1 |       0 |     100% |
 | eme-3.0-demo         |       55 |       54 |            1 |       0 |     100% |
 | ercole-1.7           |       11 |       11 |            0 |       0 |     100% |
-| explode-2.01         |      131 |      129 |            2 |       0 |     100% |
+| explode-2.01         |      131 |      130 |            1 |       0 |     100% |
 | fileid-1.0           |        6 |        6 |            0 |       0 |     100% |
 | files                |       23 |       22 |            0 |       0 |     100% |
 | first-0.1            |        4 |        4 |            0 |       0 |     100% |
@@ -126,7 +126,7 @@ keyword up in `status.ts` for why it is classified the way it is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7362 |     4528 |          145 |    2626 |      64% |
+| **total**            |     7362 |     4529 |          144 |    2626 |      64% |
 
 ## aga-1.0 (100%)
 
@@ -597,7 +597,7 @@ keyword up in `status.ts` for why it is classified the way it is.
 
 ## explode-2.01 (100%)
 
-- **faithful** (129): `align`, `amcaf crack off`, `amcaf crack on`, `amos state`, `avail free`,
+- **faithful** (130): `align`, `amcaf crack off`, `amcaf crack on`, `amos state`, `avail free`,
   `bank as data`, `bank as work`, `bank clone`, `bank free`, `bank load`, `bank save`,
   `bank to chip`, `bpk length`, `bpk unpack`, `byte`, `byte$`, `cd parent`, `cd path$`,
   `cd set`, `clear mouse`, `dev state`, `dpk name$`, `drive busy`, `drive state`, `even`,
@@ -605,9 +605,9 @@ keyword up in `status.ts` for why it is classified the way it is.
   `file protection`, `file size`, `file type`, `finish`, `flush`, `font base`, `font close`,
   `font height`, `font name$`, `font open`, `font set`, `format$`, `hard date$`, `hard time$`,
   `hardreset`, `hof`, `iff bank`, `image height`, `image swap`, `image width`, `ipk length`,
-  `long`, `long$`, `lpk length`, `lpk unpack`, `lsl.b`, `lsl.l`, `lsl.w`, `lsr.b`, `lsr.l`,
-  `lsr.w`, `number`, `odd`, `open workbench`, `pause`, `pcpn$`, `pcsr$`, `pdef$`, `pinv$`,
-  `pjam$`, `plane active`, `plane clear`, `plane close`, `plane copy`, `plane get`,
+  `long`, `long$`, `lpk length`, `lpk pack`, `lpk unpack`, `lsl.b`, `lsl.l`, `lsl.w`, `lsr.b`,
+  `lsr.l`, `lsr.w`, `number`, `odd`, `open workbench`, `pause`, `pcpn$`, `pcsr$`, `pdef$`,
+  `pinv$`, `pjam$`, `plane active`, `plane clear`, `plane close`, `plane copy`, `plane get`,
   `plane length`, `plane mask`, `plane merge`, `plane negative`, `plane open`, `plane put`,
   `plane swap`, `ppk data`, `ppk length`, `ppk mode`, `ppk name$`, `ppk pack`, `ppk passkey`,
   `ppk password`, `ppk type`, `ppk unpack`, `psad$`, `pund$`, `rastport`, `rs`, `rs aptr`,
@@ -616,7 +616,7 @@ keyword up in `status.ts` for why it is classified the way it is.
   `set hard date`, `set hard time`, `softreset`, `stop loop`, `vectorptr`, `wait loop`,
   `wait mouse`, `word`, `word$`, `workbench`, `xpk crypt`, `xpk err$`, `xpk errn`, `xpk length`,
   `xpk name$`, `xpk pack`, `xpk unpack`
-- **approximated** (2): `dpk unpack`, `lpk pack`
+- **approximated** (1): `dpk unpack`
 
 ## fileid-1.0 (100%)
 

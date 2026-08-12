@@ -19,7 +19,7 @@
  * `Lpk Pack` would ever have written one.
  */
 import { describe, expect, it } from 'vitest'
-import { lhDecode, lhMatchLength, lhUnpackBank } from './lh'
+import { lhDecode, lhEncode, lhMatchLength, lhPackBank, lhUnpackBank } from './lh'
 
 const N_CHAR = 317
 const ROOT = 2 * N_CHAR - 2
@@ -145,5 +145,102 @@ describe('lh.library: Explode’s LH18 wrapper', () => {
     expect(lhUnpackBank(bank('LH17', 1, pack(initialPath(90))))).toBe(null)
     expect(lhUnpackBank(bank('-lh5', 1, pack(initialPath(90))))).toBe(null)
     expect(lhUnpackBank(new Uint8Array(4))).toBe(null)
+  })
+})
+
+describe('lh.library: LhEncode', () => {
+  /**
+   * The one assertion here that does not rely on the decoder.
+   *
+   * The encoder's FIRST symbol goes out on the initial tree, whose paths this
+   * file already derives from the tree's defining recurrence. So the opening
+   * bits of a stream can be predicted without running anything of ./lh.ts's,
+   * and if the emitter's bit order, its left-justification or its leaf-to-root
+   * walk were wrong, this is where it would show.
+   */
+  it('opens with the initial tree’s path for the first byte, bit for bit', () => {
+    for (const first of [0, 1, 65, 200, 255]) {
+      const enc = lhEncode(Uint8Array.from([first, 7, 7, 7]))
+      const want = initialPath(first)
+      const got = want.map((_, i) => (enc[i >> 3]! >> (7 - (i & 7))) & 1)
+      expect([first, got]).toEqual([first, want])
+    }
+  })
+
+  /*
+   * Everything below round-trips, which is NECESSARY AND NOT SUFFICIENT --
+   * ./bytekiller.test.ts's lesson, and the reason the check above exists. Two
+   * halves written from one reading agree with each other whether or not the
+   * reading was right. What makes these worth having is that the decoder was
+   * written and pinned against the binary BEFORE the encoder existed, so a
+   * failure here is a real disagreement between two independently derived
+   * pieces of code, and the corpus test holds the shared constants.
+   */
+  it('round-trips the shapes that exercise different paths', () => {
+    const cases: Array<[string, Uint8Array]> = [
+      ['one byte', Uint8Array.from([65])],
+      ['two bytes', Uint8Array.from([65, 66])],
+      ['a run longer than the window', new Uint8Array(9000).fill(65)],
+      ['every byte value', Uint8Array.from({ length: 256 }, (_, i) => i)],
+      ['a ramp past 4096, so the window wraps', Uint8Array.from({ length: 9000 }, (_, i) => i & 255)],
+      ['text with real matches', new TextEncoder().encode('the quick brown fox. '.repeat(200))],
+    ]
+    for (const [name, src] of cases) {
+      expect([name, [...lhDecode(lhEncode(src), src.length)]]).toEqual([name, [...src]])
+    }
+  })
+
+  it('and a match longer than sixty bytes, which has to be split', () => {
+    // the search reports 61 for a full-length compare and only the clamp to
+    // `len` keeps it inside the 60 the unrolled copy can do
+    const src = new Uint8Array(500).fill(0x5a)
+    expect([...lhDecode(lhEncode(src), src.length)]).toEqual([...src])
+  })
+
+  it('an overlapping match decodes as it is written, a byte at a time', () => {
+    // "ababab..." is one match whose source overlaps its own destination
+    const src = Uint8Array.from({ length: 300 }, (_, i) => (i & 1 ? 0x62 : 0x61))
+    expect([...lhDecode(lhEncode(src), src.length)]).toEqual([...src])
+  })
+
+  it('compresses what it should: a repeated run costs almost nothing', () => {
+    expect(lhEncode(new Uint8Array(4000).fill(7)).length).toBeLessThan(200)
+  })
+
+  it('DEFECT: the output can exceed the buffer Lpk Pack sizes for it', () => {
+    // `Lpk Pack` allocates SrcSize + SrcSize/8 and LhEncode reads lh_DstSize
+    // nowhere -- see ./lh.corpus.test.ts, which checks that the field is
+    // written and never read. Adaptive Huffman opens at nine bits a literal,
+    // so short incompressible input goes over immediately.
+    const src = Uint8Array.from([0x1f, 0x8b, 0x42, 0xd7, 0x03, 0xa9, 0x6e, 0xf4])
+    const budget = src.length + (src.length >> 3)
+    expect(budget).toBe(9)
+    expect(lhEncode(src).length).toBeGreaterThan(budget)
+  })
+
+  it('and an empty source is refused rather than run', () => {
+    // DEVIATION: the library's own loop takes `len` to -1 and writes 65535
+    // symbols of rubbish before the counter wraps. A reserved bank always has
+    // a payload, so Lpk Pack cannot reach it.
+    expect(lhEncode(new Uint8Array(0)).length).toBeGreaterThan(0)
+    expect([...lhDecode(lhEncode(new Uint8Array(0)), 8)]).toEqual([])
+  })
+})
+
+describe('lh.library: Lpk Pack’s bank, and Lpk Unpack’s reading of it', () => {
+  it('the two wrappers are each other’s inverse', () => {
+    const src = new TextEncoder().encode('AMOS Professional Explode 2.01, packed with lh.library 1.8. '.repeat(30))
+    const bank = lhPackBank(src)
+    expect(String.fromCharCode(...bank.subarray(0, 4))).toBe('LH18')
+    // the original length is the longword after the magic, which is what the
+    // bank gets reserved to
+    expect((bank[4]! << 24) | (bank[5]! << 16) | (bank[6]! << 8) | bank[7]!).toBe(src.length)
+    expect([...lhUnpackBank(bank)!]).toEqual([...src])
+  })
+
+  it('and a single byte still gets the eight-byte header', () => {
+    const bank = lhPackBank(Uint8Array.from([0xff]))
+    expect(bank.length).toBeGreaterThan(8)
+    expect([...lhUnpackBank(bank)!]).toEqual([0xff])
   })
 })
