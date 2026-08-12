@@ -418,40 +418,6 @@ function mulTrig(angle: number, value: number, cos: boolean): number {
   return neg ? -out : out
 }
 
-/**
- * A longword array at an address, read and written BYTE BY BYTE.
- *
- * The byte loop is not stylistic. An address from `Varptr` lands in the
- * variable arena, whose region hands back a Proxy over the slot so that an
- * indexed write flushes the bytes back into the AMOS variable — and a
- * DataView taken over the same `buffer` writes straight past the trap, so the
- * program never sees the change. Every extension that writes through a
- * Varptr has to go through the elements.
- */
-interface Longs {
-  get: (i: number) => number
-  set: (i: number, v: number) => void
-}
-
-function longsAt(rt: Runtime, addr: number): Longs | null {
-  const m = rt.resolveWrite(addr >>> 0)
-  if (!m) return null
-  const { data, off } = m
-  return {
-    get: (i) => {
-      const a = off + i * 4
-      return ((data[a]! << 24) | (data[a + 1]! << 16) | (data[a + 2]! << 8) | data[a + 3]!) | 0
-    },
-    set: (i, v) => {
-      const a = off + i * 4
-      data[a] = (v >>> 24) & 0xff
-      data[a + 1] = (v >>> 16) & 0xff
-      data[a + 2] = (v >>> 8) & 0xff
-      data[a + 3] = v & 0xff
-    },
-  }
-}
-
 export function makeAmonInstructions(rt: Runtime): Record<string, Instr> {
   const st = (): AmonState => rt.amon
 
@@ -606,10 +572,10 @@ export function makeAmonInstructions(rt: Runtime): Record<string, Instr> {
       it.expect(',')
       const count = it.evalInt()
       if (ca < 0) funcCall()
-      const xs = longsAt(rt, xa)
-      const ys = longsAt(rt, ya)
+      const xs = rt.longsAt(xa)
+      const ys = rt.longsAt(ya)
       const literal = (ca >>> 0) <= 0x1000
-      const cs = literal ? null : longsAt(rt, ca)
+      const cs = literal ? null : rt.longsAt(ca)
       if (!xs || !ys || (!literal && !cs)) return
       for (let i = 0; i <= count; i++) {
         const c = literal ? ca : cs!.get(i)
@@ -638,8 +604,8 @@ export function makeAmonInstructions(rt: Runtime): Record<string, Instr> {
       const value = it.evalInt()
       it.expect(',')
       const count = it.evalInt()
-      const s = longsAt(rt, src)
-      const d = longsAt(rt, dest)
+      const s = rt.longsAt(src)
+      const d = rt.longsAt(dest)
       if (!s || !d) return
       for (let i = 0; i <= count; i++) if (s.get(i) === match) d.set(i, (d.get(i) + value) | 0)
     },
@@ -658,7 +624,7 @@ function fastJoy(rt: Runtime, port: 0 | 1): Instr {
     const yStep = it.evalInt()
     const w = joyDat(rt, port)
     const bump = (addr: number, by: number): void => {
-      const cell = longsAt(rt, addr)
+      const cell = rt.longsAt(addr)
       cell?.set(0, (cell.get(0) + by) | 0)
     }
     if ((w & 1) ^ ((w & 2) >> 1)) bump(yAddr, yStep)

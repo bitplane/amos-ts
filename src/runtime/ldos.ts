@@ -850,21 +850,27 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       if (rt.vfs?.exists(dir) == null) throw new AmosError("LLdir$ can't find directory!")
       rt.ldos.cwd = dir
     },
+    /**
+     * Lcrypt START,LONGS,"password" — "LONGS is the length divided by four.
+     * Fx LONGS=Length(10)/4 ... the password is casesensitive!"
+     *
+     * Both halves of the pair go through `rt.longsAt`, and both used to
+     * resolve for READING and then write through a DataView. Two faults in
+     * one line: an address in the Varptr arena took the write into a
+     * throwaway copy, so `Lcrypt Varptr(A(0)),4,"secret"` left A in clear;
+     * and resolving for reading is wrong on its own terms, since the read
+     * path is allowed to synthesize an image nothing writes back.
+     */
     lcrypt(it) {
-      // Lcrypt START,LONGS,"password" — "LONGS is the length divided by four.
-      // Fx LONGS=Length(10)/4 ... the password is casesensitive!"
       const start = it.evalInt()
       it.expect(',')
       const longs = it.evalInt()
       it.expect(',')
       const key = ldosKey(it.evalStr())
-      const m = rt.resolveAddr(start)
-      if (!m) return
-      const n = Math.min(longs, (m.data.length - m.off) >> 2)
-      const v = new DataView(m.data.buffer, m.data.byteOffset + m.off)
-      for (let i = 0; i < n; i++) {
-        v.setUint32(i * 4, ((((v.getUint32(i * 4, false) + 0x20) >>> 0) ^ key) >>> 0), false)
-      }
+      const v = rt.longsAt(start)
+      if (!v) return
+      const n = Math.min(longs, v.length)
+      for (let i = 0; i < n; i++) v.set(i, (((v.getU(i) + 0x20) >>> 0) ^ key) >>> 0)
     },
     ldecrypt(it) {
       // The exact inverse, and the only one of the pair that checks the
@@ -876,13 +882,10 @@ export function makeLdosInstructions(rt: Runtime): Record<string, Instr> {
       const password = it.evalStr()
       if (password.length < 4) throw new AmosError('To short password-string!')
       const key = ldosKey(password)
-      const m = rt.resolveAddr(start)
-      if (!m) return
-      const n = Math.min(longs, (m.data.length - m.off) >> 2)
-      const v = new DataView(m.data.buffer, m.data.byteOffset + m.off)
-      for (let i = 0; i < n; i++) {
-        v.setUint32(i * 4, (((v.getUint32(i * 4, false) ^ key) >>> 0) - 0x20) >>> 0, false)
-      }
+      const v = rt.longsAt(start)
+      if (!v) return
+      const n = Math.min(longs, v.length)
+      for (let i = 0; i < n; i++) v.set(i, (((v.getU(i) ^ key) >>> 0) - 0x20) >>> 0)
     },
     /**
      * Lpp Decrunch START,END To DEST — routine 41 ($1b02), 190 bytes, and the
@@ -2132,10 +2135,9 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
       // fits in 24 bits, but does from arbitrary data, and the manual's "It
       // does no validity checking" is exactly that.
       const end = int(a[0] ?? VI(0))
-      const m = rt.resolveAddr(end - 4)
-      if (!m || m.data.length - m.off < 4) return VI(0)
-      const v = new DataView(m.data.buffer, m.data.byteOffset + m.off, 4)
-      return VI(v.getInt32(0, false) >> 8)
+      const v = rt.longsAt(end - 4, false)
+      if (!v || v.length < 1) return VI(0)
+      return VI(v.get(0) >> 8)
     },
     /**
      * CHK=Lchk Data(ADR) — routine 67 ($2634), 36 bytes. "ADR points to a
@@ -2154,11 +2156,10 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
      * Lchk Boot below.
      */
     'lchk data'(_, a) {
-      const m = rt.resolveAddr(int(a[0] ?? VI(0)))
-      if (!m || m.data.length - m.off < 512) return VI(0)
-      const v = new DataView(m.data.buffer, m.data.byteOffset + m.off, 512)
+      const v = rt.longsAt(int(a[0] ?? VI(0)), false)
+      if (!v || v.length < 128) return VI(0)
       let sum = 0
-      for (let i = 0; i < 128; i++) if (i !== 5) sum = (sum + v.getUint32(i * 4, false)) >>> 0
+      for (let i = 0; i < 128; i++) if (i !== 5) sum = (sum + v.getU(i)) >>> 0
       return VI((-sum | 0))
     },
     /**
@@ -2188,13 +2189,12 @@ export function makeLdosFunctions(rt: Runtime): Record<string, Func> {
      * never decrements. Reproduced.
      */
     'lchk boot'(_, a) {
-      const m = rt.resolveAddr(int(a[0] ?? VI(0)))
-      if (!m || m.data.length - m.off < 1024) return VI(0)
-      const v = new DataView(m.data.buffer, m.data.byteOffset + m.off, 1024)
+      const v = rt.longsAt(int(a[0] ?? VI(0)), false)
+      if (!v || v.length < 256) return VI(0)
       let sum = 0
       for (let i = 0; i < 256; i++) {
         if (i === 1) continue // the checksum long itself
-        sum += v.getUint32(i * 4, false)
+        sum += v.getU(i)
         if (sum > 0xffffffff) sum = (sum + 1) >>> 0 // end-around carry
       }
       const neg = -sum | 0

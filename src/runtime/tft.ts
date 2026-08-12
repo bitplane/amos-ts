@@ -167,6 +167,12 @@ export function makeTftInstructions(rt: Runtime): Record<string, Instr> {
      * in qsort_1_array reads `Qsort Varptr(TEST(0)),0,20`.
      *
      * The author credits Thomas Nokjelski with the algorithm.
+     *
+     * The array goes through `rt.longsAt`, and it has to: this sorted into a
+     * DataView over `resolveWrite`'s buffer, which for the Varptr arena is a
+     * throwaway copy behind a write-through Proxy. `Qsort Varptr(A(0)),0,4`
+     * left the array in its original order — the sort ran, on bytes nothing
+     * read again — and that is the ONLY way the keyword is ever called.
      */
     qsort(it) {
       const adr = it.evalInt()
@@ -179,13 +185,10 @@ export function makeTftInstructions(rt: Runtime): Record<string, Instr> {
       // address whose low word happens to be zero
       if (adr === 0) throw new AmosError('TFT error 11: Qsort needs an array address')
       if (last <= first) return
-      const m = rt.resolveWrite(adr)
-      if (!m) throw new AmosError('TFT error 11: Qsort needs an array address')
-      const v = new DataView(m.data.buffer, m.data.byteOffset + m.off)
-      const room = (m.data.length - m.off) >> 2
-      if (last >= room) throw new AmosError('TFT error 11: Qsort needs an array address')
-      const get = (i: number): number => v.getInt32(i * 4, false)
-      const set = (i: number, x: number): void => v.setInt32(i * 4, x, false)
+      const v = rt.longsAt(adr)
+      if (!v) throw new AmosError('TFT error 11: Qsort needs an array address')
+      if (last >= v.length) throw new AmosError('TFT error 11: Qsort needs an array address')
+      const { get, set } = v
       const sort = (lo: number, hi: number): void => {
         let i = lo
         let j = hi
@@ -258,12 +261,10 @@ export function makeTftInstructions(rt: Runtime): Record<string, Instr> {
      */
     'init bpl scroll'(it) {
       const adr = it.evalInt()
-      const m = rt.resolveAddr(adr)
-      if (!m) throw new AmosError('TFT error 6: the bitplane list holds a zero entry')
-      const v = new DataView(m.data.buffer, m.data.byteOffset + m.off)
-      const room = (m.data.length - m.off) >> 2
-      for (let i = 0; i < Math.min(9, room); i++) {
-        if (v.getUint32(i * 4, false) === 0) {
+      const v = rt.longsAt(adr, false)
+      if (!v) throw new AmosError('TFT error 6: the bitplane list holds a zero entry')
+      for (let i = 0; i < Math.min(9, v.length); i++) {
+        if (v.getU(i) === 0) {
           throw new AmosError('TFT error 6: the bitplane list holds a zero entry')
         }
       }

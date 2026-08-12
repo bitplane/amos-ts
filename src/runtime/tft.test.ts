@@ -56,6 +56,16 @@ describe('the word splitters take a VALUE, not an address', () => {
 })
 
 describe('Qsort (routine 20)', () => {
+  /*
+   * These sort a memory BANK, and that is worth knowing about them: a bank's
+   * bytes are an ordinary array, where the Varptr the demo actually passes —
+   * `Qsort Varptr(TEST(0)),0,20` — is a write-through Proxy over a copy of
+   * the AMOS variable. Every assertion below passed for months while the
+   * keyword sorted nothing at all through the call shape it documents,
+   * because the harness never used that shape. ../runtime/varptr.test.ts is
+   * where the Varptr side is held now.
+   */
+
   /** poke the values in, sort, and read them back through Leek */
   const sortDemo = (values: number[], first: number, last: number): number[] => {
     const { out } = run(

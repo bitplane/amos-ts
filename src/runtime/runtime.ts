@@ -300,6 +300,22 @@ export interface StosMove {
 const ARRAY_HEADER = 6
 
 /**
+ * `Uint8Array` methods that CHANGE the bytes, so a Varptr slot handed out
+ * through one of them has to flush back into the AMOS variable.
+ *
+ * `set`, `fill` and `copyWithin` are not exotic: they are how the port moves
+ * a block, and AMOS's own `Copy` reaches its destination through two of
+ * them. `sort` and `reverse` are here for completeness rather than because
+ * anything calls them on mapped memory.
+ *
+ * `subarray` is deliberately NOT here. It writes nothing itself, but the
+ * view it returns shares the buffer and carries no trap, so a write through
+ * one is lost exactly as a DataView's is. Nothing in the tree does it; if
+ * something starts to, this is the list that should have caught it.
+ */
+const MUTATORS = new Set(['set', 'fill', 'copyWithin', 'sort', 'reverse'])
+
+/**
  * The face Intuition draws window titles in — topaz 8, as a `struct
  * TextFont`, so `RastPort.text` can render it like any other opened font.
  *
@@ -1508,6 +1524,42 @@ export class Runtime {
   /** resolve for writing (Poke): a screen plane write marks the chunky side stale */
   resolveWrite(addr: number): { data: Uint8Array; off: number } | null {
     return this.resolveInto(addr, true)
+  }
+
+  /**
+   * A longword array at an AMOS address — the shape every extension taking
+   * `Varptr(A(0))` wants, and the one way to write one that is correct.
+   *
+   * USE THIS RATHER THAN A DataView. `new DataView(m.data.buffer, …)` over a
+   * `resolveWrite` result reads fine and writes into nothing: an address in
+   * the Varptr arena resolves to a Proxy whose job is to push writes back
+   * into the AMOS variable, and reaching `.buffer` steps around it. The byte
+   * loop below goes through the indexed trap, so it works for the arena, for
+   * banks and for every mapped region alike. See the arena's own comment.
+   *
+   * `length` is how many whole longwords are left in the region from `addr`,
+   * so a caller can bound itself the way the 68k could not.
+   */
+  longsAt(addr: number, write = true): { get: (i: number) => number; getU: (i: number) => number; set: (i: number, v: number) => void; length: number } | null {
+    const m = write ? this.resolveWrite(addr >>> 0) : this.resolveAddr(addr >>> 0)
+    if (!m) return null
+    const { data, off } = m
+    const getU = (i: number): number => {
+      const a = off + i * 4
+      return (((data[a]! << 24) | (data[a + 1]! << 16) | (data[a + 2]! << 8) | data[a + 3]!) >>> 0)
+    }
+    return {
+      getU,
+      get: (i) => getU(i) | 0,
+      set: (i, v) => {
+        const a = off + i * 4
+        data[a] = (v >>> 24) & 0xff
+        data[a + 1] = (v >>> 16) & 0xff
+        data[a + 2] = (v >>> 8) & 0xff
+        data[a + 3] = v & 0xff
+      },
+      length: (data.length - off) >> 2,
+    }
   }
 
   /**
@@ -3345,14 +3397,31 @@ export class Runtime {
     return n
   }
 
-  // ---- the Varptr variable arena -----------------------------------------
-  // Variables mapped into the fake address space (FnVarPtr +ILib.s:4087):
-  // integer/float cells get a stable 4-byte slot that syncs from the
-  // variable on reads and flushes Pokes back; strings are snapshotted
-  // (length word + chars, Varptr returns chars) exactly as the 68k hands
-  // out the current string block — reassignment leaves the old address
-  // stale there too. Pokes into a string flush back while the variable
-  // still has the snapshot's length.
+  /*
+   * ---- the Varptr variable arena -----------------------------------------
+   *
+   * Variables mapped into the fake address space (FnVarPtr +ILib.s:4087):
+   * integer/float cells get a stable 4-byte slot that syncs from the
+   * variable on reads and flushes Pokes back; strings are snapshotted
+   * (length word + chars, Varptr returns chars) exactly as the 68k hands
+   * out the current string block — reassignment leaves the old address
+   * stale there too. Pokes into a string flush back while the variable
+   * still has the snapshot's length.
+   *
+   * ## The flush, and the one way round it that is left
+   *
+   * A slot is handed out as a Proxy so that writing to it writes THROUGH to
+   * the AMOS variable. The trap covers `view[i] = x` and, since a write
+   * through any of `MUTATORS` was found to be silently lost, those too.
+   *
+   * What no Proxy can cover is `view.buffer`. A DataView built over it holds
+   * the raw ArrayBuffer and writes past every trap there is, so the bytes
+   * change and the variable does not. Three keywords did exactly that and
+   * three keywords did nothing: TFT's `Qsort` — whose only documented call
+   * is `Qsort Varptr(TEST(0)),0,20` — and LDos's `Lcrypt` and `Ldecrypt`.
+   * `longsAt` below exists so that no fourth has to invent the byte loop,
+   * and `varptr.test.ts` holds every path to the same promise.
+   */
 
   private varSlots: Array<{
     addr: number
@@ -3386,7 +3455,19 @@ export class Runtime {
       },
       get(t, prop): unknown {
         const val = (t as unknown as Record<string | symbol, unknown>)[prop]
-        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val
+        if (typeof val !== 'function') return val
+        const fn = (val as (...a: unknown[]) => unknown).bind(t)
+        // A bulk write has to flush as surely as `view[i] = x` does. It did
+        // not, and that is not a hypothetical: AMOS's own `Copy` reaches the
+        // destination through `.copyWithin`/`.set`, and `Copy Varptr(B(0)),…
+        // To Varptr(A(0))` left A untouched. Poke was fine, because Poke is
+        // the one write that goes through the indexed trap above.
+        if (!MUTATORS.has(prop as string)) return fn
+        return (...a: unknown[]): unknown => {
+          const out = fn(...a)
+          slot.flush()
+          return out
+        }
       },
     }) as Uint8Array
     this.varArenaNext += (size + 15) & ~15
