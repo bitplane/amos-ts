@@ -7548,7 +7548,9 @@ export const NOTES: Record<string, string> = {
     "routine 32, MODE 2 ONLY, unchecked. The Guide's default is 1024",
   "med pointer":
     "routine 6, medplayer's -$54 whatever the mode. DEVIATION: the Guide says this one is unreliable — \"soll " +
-    "eigentlich die korrekte Startadresse ... zurück geben.",
+    "eigentlich die korrekte Startadresse eines geladenen MED Moduls zurück geben. Aber leider tut er das nicht " +
+    "immer korrekt.\" Which is why the same Guide adds `Med Mod Base`: \"Dieser gibt IMMER die korrekte " +
+    "Startadresse eines mit Med Load geladenen MED Modules zurück.\"",
   "med mod base":
     "routine 23 is `move.l $3f2.l,d3` and nothing else — no module check, so with none loaded it answers 0. The " +
     "address is real and Peek/Poke reach it (Runtime.MED_MODULE_BASE), which is the Guide's stated point: no AMOS " +
@@ -7567,8 +7569,9 @@ export const NOTES: Record<string, string> = {
   "med seq num":
     "routine 21, `move.w $2e(a0),d0` — MMD `pseqnum`",
   "med counter":
-    "routine 22, `move.b $32(a0),d0` — MMD `counter`. The Guide, in full: \"Tja keine Ahnung wozu der gut sein " +
-    "soll.",
+    "routine 22, `move.b $32(a0),d0` — MMD `counter`. The Guide's entry for it, in full: \"Tja keine Ahnung " +
+    "wozu der gut sein soll. Gibt aber irgend einen Wert zurück. (Toll nich ???)\" So the port returns the byte " +
+    "and knows no more about it than the author did.",
   "med is fastplaying":
     "routine 24: mode 0 asks medplayer -$72 and mode 1 octaplayer -$60, but mode 2 does not ask anyone — `move.l " +
     "#$ffffffff,d0` unconditionally, which is the Guide's complaint (\"funktioniert das nur bei MED Modulen die " +
@@ -7608,9 +7611,10 @@ export const NOTES: Record<string, string> = {
     "the file is created and stays empty, neither text test fires, and the routine lands on its own error 0 — the " +
     "branch it takes on an Amiga where the command could not run",
   "init thx":
-    "routine 4. The Guide says what the zeros buy: \"Init Thx initialises the filter data used by the replayer. " +
-    "NOTE: nothing is charged for those bytes here, for the same reason PowerBobs' AllocMems are not: no keyword " +
-    "hands the address back, so the only observable would be Fast Free",
+    "routine 4. The Guide says what the zeros buy: \"Init Thx initialises the filter data used by the " +
+    "replayer. This wil grab 414768 bytes of public memory.\" (\"wil\" is the author's.) NOTE: nothing is " +
+    "charged for those bytes here, for the same reason PowerBobs' AllocMems are not: no keyword hands the " +
+    "address back, so the only observable would be Fast Free",
   "deinit thx":
     "routine 5. DEFECT: the flag clear is `move.b #$ff,d1 / subi.b #$1,d1 / and.b d1,d0` — $FE, so it clears bit " +
     "0 ONLY and leaves PLAYING set.",
@@ -7739,7 +7743,9 @@ export const NOTES: Record<string, string> = {
     "that AMOS's own =Zone(x,y) is confused by it while these readers are not. DEVIATION: the all-zones form on a " +
     "screen with NO zones reserved hangs on the real machine -- routine 17 takes d4=1, d5=0, shifts both to 8 and " +
     "0, and loops `cmp.l d4,d5 / beq` which can never match, writing four words through a null EcAZones and " +
-    "stepping eight bytes at a time for ever. The guide documents an \"Illegal function call ...",
+    "stepping eight bytes at a time for ever. The guide documents an \"Illegal function call\" for this case " +
+    "-- \"No zones are reserved on the given screen\" -- so the hang is the library failing to do what its own " +
+    "documentation promises.",
   "elzb add":
     "Routines 100 ($1ea6), 101 ($1ec8) and 104 ($1f6a). NOTE: the guide documents a \"Not a Zone Bank\" error, " +
     "\"Zone banks are identified by them having the name 'Zones '\", and routine 101 never looks at the name: it " +
@@ -7807,8 +7813,8 @@ export const NOTES: Record<string, string> = {
   "elf control":
     "Routines 44 and 45 ($16ba, $16c4); routine 44 is ten bytes that push a literal zero for P. The test is " +
     "`cmp.b #$20,d0 / bcc` and UNSIGNED, so only 0..31 count and a byte at 128 or above is not a control " +
-    "character -- which is what makes the guide's use of it work: \"This can be used to determine if a string is " +
-    "printable.",
+    "character -- which is what makes the guide's use of it work: \"This can be used to determine if a string " +
+    "is printable.\"",
   "elf nth asc":
     "Routine 53 ($1790) is routine 35 with the Nth counter loaded, `move.l (a3)+,d5 / subq.l #$1,d5 / Rbmi " +
     "routine 3`, and the `dbra d5` after each match is what skips the first N-1. NOTE: routine 52, Elf Nth Char, " +
@@ -7834,7 +7840,8 @@ export const NOTES: Record<string, string> = {
     "equal to L, these two functions return S$\".",
   "elpad char$":
     "Routine 144 ($25c6), which takes the first character of A$ and joins routine 146 -- \"If A$ contains more " +
-    "than one character, the second and subsequent characters are ignored.",
+    "than one character, the second and subsequent characters are ignored. In the future I intend to change this " +
+    "to repeatedly use the whole of A$ to pad S$.\" The future did not arrive: 1.44 still ignores them.",
   "elwb open":
     "Routines 118, 119 and 120 ($213a, $214e, $217a) on intuition.library (`-$18a6(a5)`): OpenWorkBench (-$d2), " +
     "WBenchToFront (-$156) and CloseWorkBench (-$4e), all three ending at routine 114 ($20c0), which is `moveq " +
@@ -7982,7 +7989,9 @@ export const NOTES: Record<string, string> = {
     "Routine 295 ($3ab2) on LVO -108 ($97a), which the autodoc lists without naming: `ELST_TreeScan`, `ELST_Free` " +
     "over every instance it found, `ELST_TreeScanFree`. DEFECT in the scan it sits on: `move.l d3,(a1)` seeds the " +
     "list with the root and never sets its visited bit, so a pointer back to the root appends it a second time -- " +
-    "against the guide's \"It is OK if your graph contains cycles ... DEFECT: an ARRAY of sub-structures is walked " +
+    "against EasyLifeSTRUCT.guide's \"If is OK if your graph contains cycles e.g. Instance A contains a pointer " +
+    "to B & Instance B a pointer back to A. Each instance is only saved once.\" -- \"If is OK\" is the " +
+    "author's. DEFECT: an ARRAY of sub-structures is walked " +
     "as element zero, count+1 times -- `dbra d5,$6bc` loops back onto the `bsr` without advancing a0, and the " +
     "same shape appears in the relocation at $964.",
   "eltest":
@@ -7996,8 +8005,9 @@ export const NOTES: Record<string, string> = {
     "Routine 102 ($1f02); Routine 103 ($1f30).",
   "el error":
     "1.0 only: 1.0's routine 165 ($191a), twenty bytes -- `movea.l $1e8(a5),a2 / adda.w #$44,a2 / move.l (a2),d3 " +
-    "/ move.l #$0,(a2)`. This means that if other extensions produce an error, El Error will not contain the " +
-    "number of an EasyLife error you've already handled.\" DEVIATION: the doc says cleared to -1 and the " +
+    "/ move.l #$0,(a2)`. The doc: \"The El Error value is cleared to -1 when it is read. This means that if " +
+    "other extensions produce an error, El Error will not contain the number of an EasyLife error you've already " +
+    "handled.\" DEVIATION: the doc says cleared to -1 and the " +
     "instruction writes zero, which is also what a program sees before any error has been raised -- so the doc's " +
     "value would have been the more useful of the two. NOTE: the field is module state in easylife.ts rather than " +
     "EasyLifeState, because twenty-two call sites raise and only 1.0 can read it back; the doc block there says " +
@@ -8046,8 +8056,8 @@ export const NOTES: Record<string, string> = {
   "elprotect":
     "Routine 109 ($206a): routine 106 again, then `$74(a1)`, fib_Protection -- and unlike Elexists a failed Lock " +
     "IS raised (`Rjmp L_Error` on d0). The bit sense is AmigaDOS's own inversion, which the guide sets out in " +
-    "full: \"For the lower 4 bits, a value of 0 means on, and 1 off, but for the upper 4 bits, 0 is off, and 1 is " +
-    "not.",
+    "full: \"For the lower 4 bits, a value of 0 means on, and 1 off, but for the upper 4 bits, 0 is off, and 1 " +
+    "is not.\"",
   "els protect":
     "Routine 110 ($208a): routine 1 to null-terminate the name, `cmp.w #$1,d0 / Rbeq routine 3` on an empty one, " +
     "then dos.library SetProtection.",

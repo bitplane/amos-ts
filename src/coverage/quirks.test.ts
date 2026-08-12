@@ -14,6 +14,7 @@
  * shareable thing in the codebase.
  */
 import { describe, it, expect } from 'vitest'
+import { NOTES, SHARED_NOTES } from './status'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -113,5 +114,36 @@ describe('deviation and defect markers', () => {
       })
       .map(at)
     expect(bare).toEqual([])
+  })
+})
+
+describe('quotations in the coverage notes', () => {
+  /*
+   * A note with an odd number of quote marks is either a quotation that opens
+   * and never closes, or a tail that closes one never opened. Both publish a
+   * FRAGMENT of an author's prose as if it were the whole of it, which is the
+   * "quotes must be verifiable" rule broken in the quietest possible way —
+   * nothing looks wrong, the sentence just stops.
+   *
+   * Nine of them existed. Closing them found two things worth more than the
+   * tidiness: `st erase` had CORRECTED the author, quoting "It is OK if your
+   * graph contains cycles" where EasyLifeSTRUCT.guide says "If is OK"; and
+   * `med counter` was quoting one line of a three-line node whose other two
+   * lines are the joke that makes it worth quoting at all.
+   *
+   * There is no legitimate odd count. A note that needs a bare quote mark —
+   * an inch sign, a lone double-prime — can spell it some other way.
+   */
+  const all = [...Object.entries(NOTES), ...Object.entries(SHARED_NOTES)]
+
+  it('are balanced, every one of them', () => {
+    const odd = all.filter(([, v]) => ((v.match(/"/g) ?? []).length & 1) === 1).map(([k]) => k)
+    expect(odd).toEqual([])
+  })
+
+  it('and there are enough notes here for that to mean something', () => {
+    // guards against the check passing because the import broke
+    expect(all.length).toBeGreaterThan(1300)
+    expect(all.filter(([, v]) => v.includes('"')).length).toBeGreaterThan(200)
   })
 })
