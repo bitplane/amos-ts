@@ -458,6 +458,31 @@ Prt 1.1 and 1.3 carry the same 46 escape sequences, verified byte for byte,
 which is what makes one handler correct for both; 1.4 changed two of them and
 needs the version branch it already had.
 
+### And whether a port already answers a release nobody named
+
+```
+npm run cli -- src/cli/versweep.ts --all
+```
+
+The other half of the same problem. A release that IS implemented reads 0%
+when no `ExtensionImpl` names its identity, because dispatch is by name and
+nothing said the two tables were the same library. EME 3.0 read 17% that way,
+`serial-1.2` read 0%, and `delta-1.6` read 0% while 26 of its 46 keywords were
+already faithful. Each was one string in `ids:`.
+
+The sweep is a standing test now, so a new registration that a port already
+covers fails `versweep.test.ts` rather than sitting at zero. Its criterion is
+one thing — **no keyword name the two releases share may sit at a different
+id** — and everything else is allowed. Adding keywords is the point of looking;
+dropping them is harmless, because a handler no table entry reaches never
+fires. Requiring a superset was the first attempt and it rejected `serial-1.2`,
+one of the three cases the check exists to catch.
+
+A `renumbered` verdict is not a refusal, it is a question. Dispatch would still
+work — every identity brings its own table — but a rebuilt table is no longer
+evidence that the routine behind a shared name is the routine the port read.
+Read the binary before adding that one.
+
 ## The published list
 
 Andrew Burton maintained an AMOS Extensions List from the AMOS-LIST archives,

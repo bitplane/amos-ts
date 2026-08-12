@@ -87,9 +87,52 @@ clearest case yet of a gap that was never a gap. 1.6 read 0% while 26 of its
 *appended* — every one of 1.4's token entries sits at the id 1.6 gives the
 same keyword, none moved and none absent — and no `ExtensionImpl` had named
 the later identity. One string in `ids:` moved the row to 57% and turned the
-remaining twenty into work that could be seen. That failure mode has now bitten
-five times (`p61-1.2` at 22%, `amcaf-1.50` at 2%, EME 3.0 at 17%, `serial-1.2`
-at 0%, and this), and it is worth a check rather than an eye.
+remaining twenty into work that could be seen. That failure mode had bitten
+twice before — EME 3.0 at 17% and `serial-1.2` at 0% — and it is now a check
+rather than an eye: `versweep.ts`, standing in `versweep.test.ts`. (It has NOT
+bitten five times. `p61-1.2` at 22% and `amcaf-1.50` at 2% were the opposite
+failure, coverage credited by keyword name to extensions nobody had written a
+line of, and #226 fixed the measure. Both stories end in a wrong percentage
+and that is all they share.)
+
+**The sweep's answer is that nothing else is waiting.** No registered release
+shares every id it has in common with a ported one and goes unnamed, so there
+is no second Delta in the registry. Nor is there one in the corpus: `libcat`
+over all 502 `.Lib` files finds 28 variants of registered libraries, and every
+variant carrying keywords the registered release lacks is an AMOSTools stub —
+a token table with the code stripped out. The one readable exception is not a
+version at all; it is three paragraphs down.
+
+Getting the criterion right took the test rather than the thinking. The first
+version required a candidate to be a strict SUPERSET of the bound release,
+which rejects `serial-1.2` — 15 shared keywords at 15 identical ids, 23
+dropped, nothing added — and `serial-1.2` is one of the three cases the check
+exists to catch. What actually matters is one thing: no name the two releases
+share may sit at a different id. Adding keywords is the interesting case and
+dropping them is harmless, since a handler no table entry reaches never fires.
+
+The five candidates the sweep rejects as `renumbered` are not releases either.
+They are different extensions sharing one to three keyword names with
+something ported — Explode's reaching CText, IntuiExtend's reaching EasyLife —
+with no id in common, which is what a coincidence looks like. IntuiExtend 1.6
+and 2.01b remain the counter-case the criterion has to keep refusing: 45 shared
+names of 294, almost none at the same id, because 2.01b rebuilt its table.
+
+**What the stubs would add, if a real binary ever turns up.** Four of the
+AMOSTools tables are later releases of something ported: `AMOSPro_TFT.Lib-V0.7`
+brings seven keywords TFT 0.6 lacks (`Init Cpu Clear Long`/`Word`, `Clear
+Cache`, `Make Tangens List`, `Get Tangens`, `Init Tick Timer`, `Get Tick
+Timer`), `AMOSPro_3d.Lib-V1.02AP` brings `Td Rotate`, `3d.lib-V1.50` brings
+`Td Tony 5`, and the two Music 3.0 demo tables bring ten to twelve of the
+tracker keywords EME 3.0 already answers. None can be read — the code is gone
+and both length fields are zero — so they stay with the other stubs.
+
+**The one readable oddity is a hybrid.** `APD426/AMOS_System/Music.Lib` is a
+legacy binary of 42 entries: 39 of AMOSPro Music's, plus `Starset`, `Starstop`
+and `Starplay` at ids 528, 544 and 558. They are not Stars 2.33's, which names
+everything `Stars Blast`, `Stars Reset` and so on; somebody merged a starfield
+routine into their copy of Music.Lib. It is a registration question rather than
+a binding one, and it is queued.
 
 The twenty are mostly AmigaOS: WBenchToFront and WBenchToBack, LockPubScreenList
 and its partner, FindTask and RemTask, DisplayBeep and DisplayAlert, three
