@@ -543,6 +543,76 @@ export class RastPort {
   }
 
   /**
+   * `Flood(rp,mode,x,y)` — graphics.library -330.
+   *
+   * Two modes, and they ask different questions about where to stop. Mode 1
+   * fills OUTWARDS FROM the seed until it meets rp_AOlPen: every pixel that
+   * is not the outline colour is inside. Mode 0 fills every pixel CONNECTED
+   * to the seed that has the same colour the seed had, which is the
+   * paint-bucket a drawing program has. `graphics_lib.fd` gives the
+   * registers, `Flood(rp,mode,x,y)(a1,d2,d0/d1)`, and jd-int passes 1.
+   *
+   * Four-connected, scanline-filled, and bounded by the clip rectangle. A
+   * seed already on the stopping colour fills nothing, which is what makes
+   * mode 1 safe to call on a closed outline.
+   *
+   * The TmpRas is not decoration and it is not modelled as memory. Flood's
+   * scratch bitmap IS the visited set — one flag bit per pixel — and that is
+   * why `InitTmpRas` is mandatory on the machine and why jd-int allocates a
+   * raster around every call. Filling a pixel cannot stand in for marking it:
+   * in outline mode the fill colour is itself "not the outline pen", so a
+   * filled pixel still qualifies to spread and the walk never ends. This
+   * keeps the visited set as a Set of pixel indices, which is the same idea
+   * without the allocation.
+   *
+   * DEVIATION: a caller that never set `TmpRas` still gets its fill, where
+   * the machine would do nothing at all. Refusing without one would model an
+   * allocation this port does not make.
+   */
+  flood(mode: number, x: number, y: number, c = this.fgPen): void {
+    x = Math.trunc(x)
+    y = Math.trunc(y)
+    if (!this.inClip(x, y)) return
+    const seed = this.point(x, y)
+    // mode 1 stops AT the outline pen, mode 0 spreads over the seed's colour
+    const spreads = (px: number, py: number): boolean =>
+      this.inClip(px, py) && (mode === 0 ? this.point(px, py) === seed : this.point(px, py) !== this.aOlPen)
+    if (!spreads(x, y)) return
+
+    const seen = new Set<number>()
+    const mark = (px: number, py: number): boolean => {
+      const k = py * this.width + px
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    }
+    const open = (px: number, py: number): boolean => spreads(px, py) && !seen.has(py * this.width + px)
+
+    const stack: Array<[number, number]> = [[x, y]]
+    while (stack.length > 0) {
+      const [sx, sy] = stack.pop()!
+      if (!open(sx, sy)) continue
+      let left = sx
+      while (open(left - 1, sy)) left--
+      let right = sx
+      while (open(right + 1, sy)) right++
+      for (let i = left; i <= right; i++) {
+        mark(i, sy)
+        this.plot(i, sy, c)
+      }
+      for (const ny of [sy - 1, sy + 1]) {
+        let run = false
+        for (let i = left; i <= right; i++) {
+          if (open(i, ny)) {
+            if (!run) stack.push([i, ny])
+            run = true
+          } else run = false
+        }
+      }
+    }
+  }
+
+  /**
    * An ellipse about (cx,cy), outline or filled.
    *
    * The outline is a sampled parametric walk joined by `draw` rather than a

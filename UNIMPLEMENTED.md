@@ -77,8 +77,40 @@ extension keyword. The count is keywords with no handler at all:
 | GUI 2.10 / 1.61 / 1.5b | 204 / 103 / 48 | **`gadtools.library`**, and `asl.library` for the requesters. All three name gadtools and none of them names `intuition.library` |
 | Intuition 1.3b | 183 | nothing in `src/amiga` — the back-end landed. What it lacks is a binary: the archive is `itokens.s`, `cmdlist` and the author's twelve test programs, so this is the one row where a port has no code to read |
 | D-SAM 1.01 | 50 | nothing. `audio.device` and `dos.library`, both modelled |
-| jd-int 1.3 | 33 | nothing in `src/amiga` — findings banked, and the binary names no library, so it reaches Intuition through a base AMOS already holds |
 | BSDSocket 1.1.4 | 30 | `bsdsocket.library` **and** a host networking boundary. The only row here blocked on something outside AmigaOS |
+
+**JD Intuition 1.3 came off this table, and it took two methods and a flood
+fill.** All 33 read 100%: 32 faithful and `Jd Intevent` approximated. The row
+above said it was waiting on "nothing in `src/amiga`", and that was nearly
+right — `Intuition` already had OpenWindow, CloseWindow, the window list, the
+layer chain and the IDCMP queue, all of it put there for EasyLife's `Eliconify
+Begin`. What was missing was a way to open a screen that is not the Workbench,
+`RastPort.flood`, and boolean gadgets on a window. Three additions, and the
+back-end is what the GUI family and Intuition 1.3b will want next.
+
+`Flood` is the one worth recording. It loops forever without a visited set,
+because in outline mode a filled pixel is still "not the outline pen" and so
+still qualifies to spread — which is exactly why the machine demands a TmpRas
+and why jd-int allocates a raster around every call. The scratch bitmap IS the
+visited map. An earlier draft of the comment here claimed nothing needed it.
+
+The reading turned up two places the manual is wrong and four defects. `Jd Open
+Intscreen` does not take X and Y whatever the manual says — routine 5 writes
+zeros into LeftEdge and TopEdge and spends the four arguments on Width, Height,
+**Depth** and **ViewModes**. `Jd Intcolour` takes two arguments and writes a
+palette entry, where the manual gives one and calls it the drawing colour.
+`Jd Intscreen Width` and `Jd Intscreen Height` are off by one field each,
+reading TopEdge and Width where they want Width and Height; the same binary
+confirms the struct layout by taking the ViewPort at `$2c` and the RastPort at
+`$54`. `Jd Intfill` skips the null check every other drawing keyword makes,
+sizes its TmpRas at a flat 40,960 bytes whatever it allocated, and then frees
+the raster by reading two words of its own pixels as the dimensions.
+
+And one thing that is not a defect but reads like one: `Jd Intfill` is Flood in
+outline mode, and nothing in the extension sets `rp_AOlPen`. The boundary is
+therefore always colour 0, whatever pen the program drew its outline in, so a
+region cleared to 0 cannot be filled at all and an outline in pen 1 does not
+bound anything. That is what the code does.
 
 **Delta 1.6 came off this table in two steps, and the first step was free.**
 All 46 read 100%: 41 faithful, four approximated and `Jsr` n/a. It is the

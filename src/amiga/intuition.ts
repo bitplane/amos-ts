@@ -201,6 +201,20 @@ export interface ScreenSpec {
 export const WB_SLOT = 12
 
 /**
+ * Where a CUSTOM screen goes — `OpenScreen` with `NewScreen.Type` of
+ * CUSTOMSCREEN, which is what jd-int's `Jd Open Intscreen` asks for.
+ *
+ * Above the Workbench, for the same reason the Workbench is above AMOS's own
+ * system screens: nothing that shares this address space may collide, and the
+ * slot decides the copper band. Eight of them, which is more than any program
+ * in the corpus opens and cheap to bound — an unbounded pool would let a
+ * program in a loop allocate bitmaps until the machine died, where the real
+ * OpenScreen fails on chip RAM and returns NULL.
+ */
+export const CUSTOM_SLOT_FIRST = 13
+export const CUSTOM_SLOT_COUNT = 8
+
+/**
  * NOTE: the Workbench screen opens at hardware line 44, not at the top of the
  * raster. AMOS's default screen sits at line 50 (EcYBase+24) and a real
  * Workbench sits a little above it; the exact figure is a Preferences
@@ -222,6 +236,12 @@ export const IDCMP_NEWSIZE = 0x2
 export const IDCMP_REFRESHWINDOW = 0x4
 export const IDCMP_MOUSEBUTTONS = 0x8
 export const IDCMP_MOUSEMOVE = 0x10
+export const IDCMP_GADGETDOWN = 0x20
+export const IDCMP_GADGETUP = 0x40
+export const IDCMP_MENUPICK = 0x100
+export const IDCMP_DISKINSERTED = 0x8000
+export const IDCMP_DISKREMOVED = 0x1_0000
+export const IDCMP_VANILLAKEY = 0x20_0000
 export const IDCMP_CLOSEWINDOW = 0x200
 export const IDCMP_ACTIVEWINDOW = 0x4_0000
 export const IDCMP_INACTIVEWINDOW = 0x8_0000
@@ -321,6 +341,14 @@ export interface IntuiMessage {
   mouseY: number
   seconds: number
   micros: number
+  /**
+   * IntuiMessage.IAddress. On the machine this is a pointer whose meaning
+   * depends on the class; the only class anything here raises it for is
+   * GADGETUP, where it points at the Gadget and a program reads GadgetID out
+   * of it. There are no gadget structures in this address space, so the id
+   * IS the address as far as a caller can tell — which is all jd-int wants.
+   */
+  iaddress: number
 }
 
 /** which part of the border the pointer is over */
@@ -415,7 +443,7 @@ export class Window {
    * which is what keeps a program that only listens for CLOSEWINDOW from
    * drowning in MOUSEMOVE.
    */
-  post(cls: number, code: number, qualifier = 0, seconds = 0, micros = 0): boolean {
+  post(cls: number, code: number, qualifier = 0, seconds = 0, micros = 0, iaddress = 0): boolean {
     if ((this.idcmpFlags & cls) === 0) return false
     this.queue.push({
       class: cls,
@@ -425,6 +453,7 @@ export class Window {
       mouseY: this.mouseY,
       seconds,
       micros,
+      iaddress,
     })
     return true
   }
@@ -438,6 +467,44 @@ export class Window {
     if ((this.flags & WFLG_DRAGBAR) !== 0) return 'drag'
     return 'body'
   }
+
+  /**
+   * The window's own gadget list — `AddGadget` (-42) and `RemoveGList` (-444).
+   *
+   * Only what a BOOLEAN gadget needs: a rectangle relative to the window and
+   * the `GadgetID` that comes back in the IDCMP message. Intuition's Gadget
+   * carries imagery, text, mutual-exclude and a SpecialInfo union as well;
+   * none of that is here because nothing that opens one of these fills any of
+   * it in — jd-int CopyMems a 48-byte template whose only live fields are the
+   * four geometry words and the id.
+   *
+   * Kept in front-to-back order, and `gadgetAt` walks it that way, so a
+   * gadget added later and overlapping an earlier one takes the click. That
+   * is AddGadget's `position` of -1 (add at the END of the list) combined
+   * with Intuition testing the list in order.
+   */
+  readonly gadgets: UserGadget[] = []
+
+  /** the frontmost gadget containing a window-relative point, or null */
+  gadgetAt(rx: number, ry: number): UserGadget | null {
+    for (const g of this.gadgets) {
+      if (rx >= g.leftEdge && rx < g.leftEdge + g.width && ry >= g.topEdge && ry < g.topEdge + g.height) return g
+    }
+    return null
+  }
+}
+
+/**
+ * A boolean gadget in a window, as much of `struct Gadget` as anything here
+ * fills in. `id` is GadgetID at offset 38, which is what an IDCMP GADGETUP
+ * message's caller reads back out of `IAddress`.
+ */
+export interface UserGadget {
+  leftEdge: number
+  topEdge: number
+  width: number
+  height: number
+  id: number
 }
 
 export class Intuition {
@@ -530,6 +597,8 @@ export class Intuition {
   private drag: { w: Window; ox: number; oy: number } | null = null
   /** a system gadget pressed but not yet released — RelVerify */
   private armed: { w: Window; part: WindowPart } | null = null
+  /** the boolean gadget a press landed on, waiting for the release that fires it */
+  private armedGadget: { w: Window; g: UserGadget } | null = null
   private buttons = 0
 
   /** every open window, backmost first */
@@ -610,6 +679,73 @@ export class Intuition {
     this.dirty = true
     if ((nw.flags & WFLG_ACTIVATE) !== 0) this.activateWindow(w)
     return w
+  }
+
+  /**
+   * `OpenScreen(newScreen)` — intuition.library -198, for a CUSTOMSCREEN.
+   *
+   * Returns the address a program holds as `struct Screen *`, or 0 when there
+   * is no slot left or the geometry is not one this display can show. The
+   * Workbench is NOT reachable this way: `openWorkBench` owns WB_SLOT and the
+   * two must not fight over it, which is also why `NewScreen.Type` decides
+   * between them at the caller rather than here.
+   *
+   * DEVIATION: the machine's OpenScreen fails on chip RAM before it fails on
+   * anything else, and the failure a program can actually provoke is a depth
+   * or a width the display cannot do. Depth is bounded at 6 — 5 bitplanes
+   * plus HAM/EHB is the most an OCS display fetches — and a zero or negative
+   * dimension is refused. Everything else opens.
+   */
+  openScreen(spec: ScreenSpec): number {
+    if (spec.width <= 0 || spec.height <= 0) return 0
+    if (spec.depth <= 0 || spec.depth > 6) return 0
+    let slot = -1
+    for (let i = 0; i < CUSTOM_SLOT_COUNT; i++) {
+      if (!this.host.isOpen(CUSTOM_SLOT_FIRST + i)) {
+        slot = CUSTOM_SLOT_FIRST + i
+        break
+      }
+    }
+    if (slot < 0) return 0
+    this.host.openScreen(slot, spec)
+    if (!this.host.isOpen(slot)) return 0
+    this.host.screenToFront(slot)
+    this.dirty = true
+    return this.host.screenAddr(slot)
+  }
+
+  /**
+   * `CloseScreen(screen)` — intuition.library -66. False when the address is
+   * not a screen this opened, or when a window is still on it: the machine
+   * leaves a screen with windows open and CloseScreen returns FALSE, which is
+   * the same protection `closeWorkBench` already has through its visitor
+   * count.
+   */
+  closeScreen(addr: number): boolean {
+    const slot = this.slotOf(addr)
+    if (slot === null) return false
+    if (this.open.some((w) => w.screenSlot === slot)) return false
+    this.infos.delete(slot)
+    this.dirty = true
+    return this.host.closeScreen(slot)
+  }
+
+  /** the custom slot holding this `struct Screen *`, or null */
+  slotOf(addr: number): number | null {
+    if (addr === 0) return null
+    for (let i = 0; i < CUSTOM_SLOT_COUNT; i++) {
+      const slot = CUSTOM_SLOT_FIRST + i
+      if (this.host.isOpen(slot) && this.host.screenAddr(slot) === addr) return slot
+    }
+    return null
+  }
+
+  /** `ScreenToFront(screen)` — intuition.library -252 */
+  screenToFront(addr: number): void {
+    const slot = this.slotOf(addr)
+    if (slot === null) return
+    this.host.screenToFront(slot)
+    this.dirty = true
   }
 
   /** intuition.library -72 */
@@ -757,11 +893,26 @@ export class Intuition {
       if (w) {
         this.activateWindow(w)
         const part = w.partAt(x - w.leftEdge, y - w.topEdge)
-        if (part === 'drag') this.drag = { w, ox: x - w.leftEdge, oy: y - w.topEdge }
+        const g = part === 'body' ? w.gadgetAt(x - w.leftEdge, y - w.topEdge) : null
+        if (g) {
+          // a boolean gadget with GA_RelVerify fires on RELEASE, so the press
+          // only arms it; `armedGadget` is the same idea as `armed` for the
+          // system gadgets and cancels the same way, by moving off it
+          this.armedGadget = { w, g }
+          w.post(IDCMP_GADGETDOWN, 0, 0, seconds, micros, g.id)
+        } else if (part === 'drag') this.drag = { w, ox: x - w.leftEdge, oy: y - w.topEdge }
         else if (part === 'body') w.post(IDCMP_MOUSEBUTTONS, SELECTDOWN, 0, seconds, micros)
         else this.armed = { w, part }
       }
     } else if (!left && wasLeft) {
+      const ag = this.armedGadget
+      this.armedGadget = null
+      if (ag) {
+        if (ag.w.gadgetAt(x - ag.w.leftEdge, y - ag.w.topEdge) === ag.g) {
+          ag.w.post(IDCMP_GADGETUP, 0, 0, seconds, micros, ag.g.id)
+        }
+        return
+      }
       const a = this.armed
       this.armed = null
       if (a && a.w.partAt(x - a.w.leftEdge, y - a.w.topEdge) === a.part) {

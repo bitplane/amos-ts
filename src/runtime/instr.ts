@@ -86,6 +86,7 @@ import { newStarsState, makeStarsFunctions, makeStarsInstructions } from './star
 import { newAgaState, makeAgaFunctions, makeAgaInstructions } from './aga'
 import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd'
 import { makeJdColourFunctions, makeJdColourInstructions, newJdColourState } from './jdcolour'
+import { makeJdIntFunctions, makeJdIntInstructions, newJdIntState } from './jdint'
 import { jdPrt11Aliases, makeJdPrtFunctions, makeJdPrtInstructions } from './jdprt'
 import { newTdState, TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td'
 import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
@@ -6284,6 +6285,20 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     // to K3's own slot so the two do not become one. See jdk3.ts.
     qualified: ['jd relabel'],
     errors: JD_ERRORS,
+  },
+  {
+    /*
+     * JD Intuition 1.3 at slot 18 --- an Intuition screen, a window on it,
+     * graphics.library primitives and an IDCMP loop. The slot is the binary's
+     * own twice over: routine 0 ends `moveq #$11,d0` and every routine reaches
+     * its data zone through `$208(a5)`, which is `$f8 + 17*16`. See jdint.ts.
+     */
+    ids: ['jd-int-1.3'],
+    init: (rt) => {
+      rt.jdint = newJdIntState()
+    },
+    instructions: makeJdIntInstructions,
+    functions: makeJdIntFunctions,
   },
   {
     // the Colour companion, its own library at its own slot (ExtNb equ 20-1)

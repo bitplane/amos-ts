@@ -9,7 +9,7 @@ original 68k source, the official manual, or byte-exact artifacts;
 Percentages exclude n/a (editor-internal tokens).
 
 The evidence is not here and never was — the classification, the assembly
-citations and the 1172 qualifying notes all live in
+citations and the 1181 qualifying notes all live in
 `src/coverage/status.ts`, which is the source this file is generated FROM.
 Those notes used to be inlined here too, which took the file past 400KB of one
 enormous line per area; GitHub declines to render a file that size, so the
@@ -74,7 +74,7 @@ keyword up in `status.ts` for why it is classified the way it is.
 | jd-5.9               |      133 |      128 |            0 |       0 |     100% |
 | jd-colour-1.4        |       44 |       44 |            0 |       0 |     100% |
 | jd-colour-2.0        |       56 |       54 |            2 |       0 |     100% |
-| jd-int-1.3           |       33 |        0 |            0 |      33 |       0% |
+| jd-int-1.3           |       33 |       32 |            1 |       0 |     100% |
 | jd-k3-1.1            |        6 |        6 |            0 |       0 |     100% |
 | jd-prt-1.1           |       58 |       58 |            0 |       0 |     100% |
 | jd-prt-1.3           |       63 |       63 |            0 |       0 |     100% |
@@ -125,7 +125,7 @@ keyword up in `status.ts` for why it is classified the way it is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7344 |     4325 |          142 |    2814 |      61% |
+| **total**            |     7344 |     4357 |          143 |    2781 |      62% |
 
 ## aga-1.0 (100%)
 
@@ -1001,15 +1001,16 @@ keyword up in `status.ts` for why it is classified the way it is.
   `jd spread palette`, `jd swap colours`, `jd tone colour`, `jd wait raster`, `jd wswap`
 - **approximated** (2): `jd open con`, `jd request`
 
-## jd-int-1.3 (0%)
+## jd-int-1.3 (100%)
 
-- **missing** (33): `jd close intscreen`, `jd close intwindow`, `jd intbar`, `jd intbox`,
+- **faithful** (32): `jd close intscreen`, `jd close intwindow`, `jd intbar`, `jd intbox`,
   `jd intclass`, `jd intcls`, `jd intcolour`, `jd intcurs(x)`, `jd intcurs(y)`,
-  `jd intdrawmode`, `jd intellipse`, `jd intevent`, `jd intfill`, `jd intline`, `jd intlocate`,
+  `jd intdrawmode`, `jd intellipse`, `jd intfill`, `jd intline`, `jd intlocate`,
   `jd intmouse(x)`, `jd intmouse(y)`, `jd intmove`, `jd intpaper`, `jd intpen`, `jd intplot`,
   `jd intpoint`, `jd intprint`, `jd intscreen height`, `jd intscreen width`, `jd intzone`,
   `jd open intscreen`, `jd open intwindow`, `jd rem intzones`, `jd show intscreen`,
   `jd show intwindow`, `jd use intscreen`, `jd use intwindow`
+- **approximated** (1): `jd intevent`
 
 ## jd-k3-1.1 (100%)
 

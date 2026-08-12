@@ -1489,6 +1489,17 @@ export const FAITHFUL = new Set<string>([
   // of this extension that does anything to the machine arrives with a
   // witness whose own assembler source is published. See delta.ts.
   'delta pal', 'delta ntsc', 'delta no synchro', 'delta decrunch',
+  // ---- JD Intuition 1.3, slot 18 -------------------------------------------
+  // Every one read from AMOSPro_JDInt.Lib with the LVOs checked against the FD
+  // files in GUI 2.10's Tools/FD. `jd intevent` is the one exception and is
+  // APPROXIMATED; see its note.
+  'jd open intwindow', 'jd close intwindow', 'jd open intscreen', 'jd close intscreen',
+  'jd intlocate', 'jd intprint', 'jd intpen', 'jd intpaper', 'jd intdrawmode',
+  'jd intbar', 'jd intmouse(x)', 'jd intmouse(y)', 'jd intclass', 'jd intcolour',
+  'jd intcurs(x)', 'jd intcurs(y)', 'jd intzone', 'jd rem intzones', 'jd intbox',
+  'jd intline', 'jd intellipse', 'jd intfill', 'jd intpoint', 'jd intplot',
+  'jd use intscreen', 'jd use intwindow', 'jd show intscreen', 'jd show intwindow',
+  'jd intcls', 'jd intmove', 'jd intscreen width', 'jd intscreen height',
   'delta inter on', 'delta inter off', 'delta mouse off', 'delta reset',
   'delta drive motor on', 'delta drive motor off', 'delta change disk',
   'delta wait left mouse', 'delta wait fire', 'delta wait double mouse',
@@ -3903,6 +3914,67 @@ export const NOTES: Record<string, string> = {
     "Read and Lser Send run. What cannot happen is a TRANSFER: SEND, RECEIVE, SETUP and CUSTOMIZE all need a " +
     "library that opened, and none can.",
   // ---- Delta 1.4, slot 15 --------------------------------------------------
+  // ---- JD Intuition 1.3, slot 18 -------------------------------------------
+  "jd open intscreen":
+    "Routine 5 ($892). NOTE: the MANUAL IS WRONG about the arguments. It says \"X, Y, Breite und Hoehe\"; the " +
+    "routine writes `move.w #$0` into NewScreen.LeftEdge and TopEdge and puts the four arguments in Width, " +
+    "Height, DEPTH and VIEWMODES. Type is $10f, CUSTOMSCREEN|SCREENQUIET. A program written from the manual " +
+    "opens a screen of its intended size at depth W and view mode H.",
+  "jd intcolour":
+    "Routine 18 ($d44). NOTE: the manual gives ONE parameter, \"Farb-Nr.\", and calls it \"setzt Zeichenfarbe\" " +
+    "-- the drawing colour, which is Jd Intpen. The routine pops TWO, splits the second by `divu #$100` then " +
+    "`divu #$10` into a three-nibble $RGB, and calls SetRGB4 on $2c(screen), the ViewPort. It is a palette " +
+    "write and it does nothing without a current Intuition screen: this is one of the two drawing keywords " +
+    "that never calls routine 30, so the AMOS fallback does not apply.",
+  "jd intscreen width":
+    "Routine 39 ($1470). DEFECT: `move.w $a(a0),d3` is Screen->TopEdge, not Width -- Width is $c and Height " +
+    "$e. The screen is opened with TopEdge 0, so this answers 0 for every screen the extension opens. The " +
+    "layout is confirmed by the same binary: routine 18 takes the ViewPort at $2c and routine 30 the RastPort " +
+    "at $54, which are 44 and 84, exactly where the standard struct puts them. Reproduced.",
+  "jd intscreen height":
+    "Routine 40 ($148e). DEFECT: `move.w $c(a0),d3` is Screen->Width, so this answers the WIDTH and the pair " +
+    "is off by one field each. Reproduced.",
+  "jd intfill":
+    "Routine 26 ($115e): Flood (-330) in mode 1, the outline mode, which spreads over every connected pixel " +
+    "that is NOT rp_AOlPen. NOTE: nothing in this extension sets AOlPen -- there is no keyword for it -- so " +
+    "the boundary is always colour 0 whatever the program drew its outline in, and a region cleared to 0 " +
+    "cannot be filled at all. DEFECT: the RastPort comes from $32 of the current window with NO null check, " +
+    "where every other drawing keyword goes through routine 30's three-way fallback; with none open the " +
+    "machine reads address $32. Reproduced as doing nothing. DEFECT: routine 31 allocates the TmpRas with " +
+    "`AllocRaster(width,height)` and then declares it to InitTmpRas as a flat `#$a000`, 40,960 bytes, where a " +
+    "640x256 window's raster is 20,480. DEFECT: routine 32 frees it by reading $8 and $a OFF THE RASTER " +
+    "POINTER as the width and height -- two words of its own pixels. Neither memory defect is reproduced: " +
+    "RastPort.flood keeps its visited set as a Set and allocates nothing.",
+  "jd intevent":
+    "Routine 10 ($b12) over routine 9 ($ace), which is Wait(1 << UserPort->mp_SigBit) then GetMsg then " +
+    "ReplyMsg. It BLOCKS until a class it recognises arrives, and loops back to the Wait on one it does not " +
+    "-- GADGETDOWN is in the IDCMP mask and is thrown away. The classes are the manual's: 0 disk removed, 1 " +
+    "disk inserted, 2 menu (Code, unless it is MENUNULL), 3 gadget (GadgetID from $26 of IAddress), 4 key " +
+    "(Code as a signed byte). Without a current window it does not wait at all and answers -1. APPROXIMATED: " +
+    "a keystroke that has not been turned into a VANILLAKEY message is read straight off the key queue and " +
+    "reported as class 4, because nothing here runs input.device's path into IDCMP.",
+  "jd intlocate":
+    "Routine 7 ($a60): `asl.l #$3` on each argument, then `+2` on the x and `+$10` on the y before Move " +
+    "(-240). An 8x8 character cell with the origin two pixels in and sixteen down, which clears the window " +
+    "border and title bar. Jd Intmove (routine 38) is the same call without the arithmetic.",
+  "jd open intwindow":
+    "Routine 3 ($662): a NewWindow at zone+$c8, IDCMPFlags $218160 and Flags $21000, then OpenWindow (-204). " +
+    "NOTE: an EMPTY title is not merely a missing one -- routine 3 tests the length and, when it is zero, " +
+    "nulls the pointer AND rewrites Flags to $21800, adding WFLG_BORDERLESS. On a current Intuition screen " +
+    "Type becomes CUSTOMSCREEN and Flags gains $100, WFLG_BACKDROP. DEFECT: the OpenWindow result is never " +
+    "checked, so the list node is allocated and linked with a null window in it; the keyword does answer 0, " +
+    "which is what a program can test.",
+  "jd intzone":
+    "Routine 21 ($dfc): X2 and Y2 become a WIDTH and HEIGHT by subtraction, the five values go into a " +
+    "48-byte Gadget template at zone+$70 whose GadgetID lands at zone+$96, and the template is CopyMemQuick'd " +
+    "into a fresh AllocMem before AddGadget (-42) and RefreshGList (-432). NOTE: the number is the gadget's " +
+    "id AND the count given to RefreshGList AND the `cmp.w #$1` that decides whether this one heads the list, " +
+    "so the numbers are meant to run 1, 2, 3. Any other numbering still works, because AddGadget appends and " +
+    "the id reaches the message either way. Nothing happens without a current window, which it does check.",
+  "jd intcls":
+    "TWO token ids and TWO routines, which is the author being careful rather than the usual arity accident: " +
+    "id 496 is spec `I` and runs routine 27 ($1198), ClearScreen (-48); id 512 is spec `I0` and runs routine " +
+    "37 ($1422), SetRast (-234). Neither is in the manual, which documents only \"Jd Intcls [C]\".",
   "delta about$":
     "1.6's routine 19 ($1fdc), 1.4's 19 ($406), the longest of the nine string functions and the one that runs " +
     "off the end of the buffer they share. DEFECT: in 1.4, `movea.w (buffer).L,a1` reads the WORD AT the " +
