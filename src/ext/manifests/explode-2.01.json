@@ -2,21 +2,24 @@
   "id": "explode-2.01",
   "name": "Explode",
   "version": "2.01",
-  "author": "unknown",
+  "author": "Volker Stepprath",
   "source": "binary",
-  "library": "AMOSPro_Explode.Lib-V2.01",
-  "sha256": "bc3e72fcc0fc41092fc17ddc45f23e75ebfb27c7e3e21d6dc7f8b022178b8c31",
-  "format": "amostools",
+  "library": "AMOSPro_Explode.Lib",
+  "sha256": "43d0191b01def906e3689940d03cd317b7c9f06edd80fba3b7707474e9ce5e42",
+  "format": "legacy",
   "idBaseEvidence": "assumed",
-  "evidence": "manual",
-  "docs": [],
+  "evidence": "source",
+  "docs": [
+    "AMOSPro_Explode_Lib.s",
+    "AMOSPro_ExplodeV2.01.Dok"
+  ],
   "titleStrings": [],
   "recommendedSlot": 7,
   "observedSlots": [],
   "provenance": {
-    "from": "AMOSTools/Extensions, out of aminet dev/amos/amostools.i386-aros.lha -- held in the corpus at sources/aminet-dev-amos/. Its author's README says the directory is \"every AMOS extension I can find, cut down to just their token tables with the make_extensions.pl script\", and names the ExoticA AMOS extensions wiki page as the list it works from.",
-    "redistribution": "Not redistributed here as software: the file carries no code at all. It is a token table with the library stripped out from under it, kept for identification and detokenising.",
-    "note": "ExoticA's AMOS extensions list places it at slot 7. Nothing here observes it in a program: the slot is the wiki's recommendation and no more."
+    "from": "kyzer.me.uk/amos/other/AMOSPro_Explode_Lib_v2_01.rar, retrieved 2026-08-12 and held in the corpus at sources/kyzer-explode/. Stuart Caie's AMOS extension archive -- \"old archives go offline, so now I maintain my own archives of them\". The archive carries three things: the 15,168-byte library, the author's own commented assembler source, and a 65KB German manual with an entry per keyword.",
+    "note": "REPLACES an AMOSTools stub, and lifts the tier two steps rather than one. The file registered here until 2026-08-12 was 2,336 bytes -- a hunk shell and the token table with both length fields reading zero, no code, and every routine word overwritten with `====`. What arrived is not merely a binary: `AMOSPro_Explode_Lib.s` is the file the library was built from, 90,716 bytes and 4,639 lines, with the author's labels, structure offsets and comments intact. Extraction needs `unrar`; 7-Zip lists the archive correctly and then fails every member with `Unsupported Method`, leaving zero-byte files while returning exit status 0.",
+    "redistribution": "The source header says \"This V2.01 is public domain\"; the manual's title line and closing notice say Giftware and ask a regular user to send the author a postcard. Both statements are the author's own and they are recorded rather than reconciled. Not redistributed by amos-ts; fixtures/ is gitignored."
   },
-  "notes": "TABLE ONLY. This is an AMOSTools stub -- the hunk shell and the token table survive, both length fields read zero, there is no code, and every entry's two routine words are overwritten with `====`. So the NAMES, the parameter SPECS and, because an id is the byte offset of its entry, the IDS are the original library's; the behaviour is not here and the evidence tier cannot rise above `manual` until a real binary turns up. The reader is checked against CRAFT and MusiCRAFT, which are held both ways, and agrees with them entry for entry -- see parseAmosToolsTable in src/tokens/libtok.ts. 131 keywords, and the widest overlap with anything already registered of the eleven that came off this archive: 18 of its names are claimed elsewhere, 7 by TURBO Plus, 4 each by EasyLife and AMCAF, 2 by CRAFT. Some of that is deliberate rather than accidental -- it declares `amcaf crack on` and `amcaf crack off` in its own table. The groups are a `rs *` structure allocator, packer front ends for BPK, DPK, IPK, PPK, XPK and LPK, a `plane *` bitplane block, fonts, and the usual system odds. The ExoticA wiki gives slot 7 (sharing with TOME) and names no author, pointing at the author's site https://testaware.wordpress.com/amiga/."
+  "notes": "Volker Stepprath's toolbox: 131 keywords of packers, banks, files, fonts, bitplanes, a structure allocator and system odds. SOURCE tier -- the author's commented assembler ships with the library, which for a third-party extension this size is rare and did not exist for Explode anywhere else that has been looked. THE SLOT IS THE SOURCE'S OWN: `ExtNb equ 7-1` on line 16, where this entry previously had 7 from ExoticA's wiki and said so. Same answer, better evidence -- and the opposite of AMon, where the wiki said 15 and the binary said 25. THE STUB READER IS VINDICATED: this is the first independent check `parseAmosToolsTable` has ever had, and it agrees exactly -- 131 named keywords in both, zero names in one and not the other, zero parameter-spec mismatches, 143 rows against the source's 142 plus the library header row. The sixteen groups the source names are Extension, Wait, File, Time, Bank, Text, Structure, Variable, Packer, Gfx, Font, Device, Special, ExtPacker, ExtBank and ExtFile. At run time it calls out to xpkmaster.library, powerpacker.library, lh.library, decrunch.library and diskfont.library. Two keywords are a crack the author himself warns against -- `Amcaf Crack On` and `Amcaf Crack Off` defeat AMCAF's shareware check so its keywords survive compilation, and the manual says \"Diese Befehle sind nicht legal, bei Anwendung wird gegen das Urheberrecht verstossen\". V1.15e moved function offsets (\"Attention: This version never works with one below!\"), so an earlier release cannot be detokenised with this table."
 }

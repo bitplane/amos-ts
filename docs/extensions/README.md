@@ -205,6 +205,7 @@ per keyword.
 
 | id                     | name                                  | evidence    | keywords | seen at | slot          |
 | ---------------------- | ------------------------------------- | ----------- | -------: | ------: | ------------- |
+| `explode-2.01`         | Explode                               | source      |      131 |       — | recommends 7  |
 | `jd-5.3`               | JD                                    | source      |      130 |      22 | —             |
 | `jd-4.6`               | JD                                    | source      |      125 |      22 | —             |
 | `personal-1.0b`        | Personnal Extension                   | source      |      108 |      13 | —             |
@@ -283,7 +284,6 @@ per keyword.
 | `first-0.1`            | First                                 | disassembly |        4 |       — | recommends 22 |
 | `dme-2.0`              | DOOM Music Extension                  | manual      |      184 |       — | recommends 15 |
 | `intuition-1.3b`       | Intuition Extension                   | manual      |      183 |      14 | recommends 25 |
-| `explode-2.01`         | Explode                               | manual      |      131 |       — | recommends 7  |
 | `int-1.0`              | Int                                   | manual      |       62 |       — | recommends 25 |
 | `symbase-0.94`         | SymBase                               | manual      |       51 |       — | recommends 21 |
 | `dbench-0.42`          | DBench                                | manual      |       23 |       — | recommends 21 |
