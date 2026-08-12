@@ -1572,6 +1572,17 @@ export const FAITHFUL = new Set<string>([
   'open workbench', 'workbench', 'amos state', 'amcaf crack on',
   'amcaf crack off', 'explode$', 'explode base', 'extension$',
   'extension base',
+  // Batch 7, `GfxCmd` -- routines 97 to 112. Whole-bitplane surgery on the
+  // current screen: OR a mask over one, clear it, invert it, copy/merge/swap
+  // a pair, take one to a bank and back. `Plane Open`/`Plane Close` are the
+  // odd two out -- they move rp_Mask and touch no pixels -- and they carry
+  // a reproduced defect: the range loop's `dbeq` reads Z from bclr's
+  // OLD bit value, so it stops at the first bit that was already the way it
+  // is being set. `Iff Bank` is a whole ILBM reader in the library and the
+  // port's own reader here; the checks a program can see are reproduced.
+  'rastport', 'plane mask', 'plane clear', 'plane get', 'plane put',
+  'plane length', 'plane copy', 'plane swap', 'plane negative',
+  'plane merge', 'plane close', 'plane open', 'plane active', 'iff bank',
   'delta inter on', 'delta inter off', 'delta mouse off', 'delta reset',
   'delta drive motor on', 'delta drive motor off', 'delta change disk',
   'delta wait left mouse', 'delta wait fire', 'delta wait double mouse',

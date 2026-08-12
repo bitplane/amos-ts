@@ -64,6 +64,7 @@ import { openDiskFont } from '../amiga/diskfont'
 import { ID_VALIDATING, ID_WRITE_PROTECTED } from '../amiga/dos'
 import { civilFromStamp } from '../amiga/datestamp'
 import { joyFire } from '../interp/gameport'
+import { parseIlbm } from '../loader/iff'
 
 /**
  * Where the Rs pool is mapped, matching `Runtime.EXPLODE_HEAP_BASE` and
@@ -526,6 +527,217 @@ export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   return {
+    /**
+     * `Plane Mask pln,msk` — routine 98 ($1b70): OR a longword over an entire
+     * bitplane.
+     *
+     * `or.l d6,(a0)+` for the whole plane, so it is not a mask in the
+     * RastPort sense — it SETS every bit the argument names, in every
+     * longword of the plane. A mask of $FFFFFFFF fills the plane; one of
+     * $AAAAAAAA lays a vertical stripe over whatever was there.
+     *
+     * The plane number is checked against `EcMaxPlans` (6) and the screen
+     * must be open — `tst.l ScOnAd(a5) / Rbeq L_SNopen`, error 47. A plane
+     * the screen does not have is silently nothing, which is how the whole
+     * group behaves.
+     */
+    'plane mask'(it) {
+      const pln = it.evalInt()
+      it.expect(',')
+      const msk = it.evalInt()
+      overPlane(rt, pln, (b, at) => {
+        const v = ((b[at]! << 24) | (b[at + 1]! << 16) | (b[at + 2]! << 8) | b[at + 3]!) | msk
+        b[at] = (v >>> 24) & 0xff
+        b[at + 1] = (v >>> 16) & 0xff
+        b[at + 2] = (v >>> 8) & 0xff
+        b[at + 3] = v & 0xff
+      })
+    },
+
+    /**
+     * `Plane Clear pln` — routine 99 ($1bb0): `BltClear` on the whole plane.
+     *
+     * The only one of the group that goes to the blitter rather than the
+     * CPU, and the only one whose byte count is not rounded down to a
+     * longword — see `Plane Negative` for why that matters.
+     */
+    'plane clear'(it) {
+      const b = planeBytes(rt, it.evalInt())
+      if (b) b.buf.fill(0, b.at, b.at + b.size)
+    },
+
+    /**
+     * `Plane Negative pln` — routine 105 ($1d7c): `not.l (a0)+` over the
+     * plane, which inverts every pixel in it.
+     *
+     * NOTE: the loop is `lsr.l #2,d0 / subq #1,d0` and then a `dbra`, so it
+     * covers `planeSize / 4` longwords and any last 1 to 3 bytes are LEFT
+     * ALONE. A plane's size is bytesPerRow * rows and both are even, so the
+     * remainder is 0 or 2 — and at 2 the final word survives the inversion.
+     * `Plane Mask`, `Plane Swap` and `Plane Merge` all share the arithmetic
+     * and the same edge.
+     */
+    'plane negative'(it) {
+      overPlane(rt, it.evalInt(), (b, at) => {
+        b[at] = ~b[at]! & 0xff
+        b[at + 1] = ~b[at + 1]! & 0xff
+        b[at + 2] = ~b[at + 2]! & 0xff
+        b[at + 3] = ~b[at + 3]! & 0xff
+      })
+    },
+
+    /**
+     * `Plane Copy src To dst` — routine 103 ($1cca): `CopyMem` one plane over
+     * another.
+     *
+     * `Plane Merge src To dst` — routine 106 ($1dba) — is the same walk with
+     * `or.l` instead, so the destination keeps what it had and gains the
+     * source's set bits.
+     *
+     * BOTH REFUSE A PLANE TO ITSELF: `cmp.l d6,d7 / beq.s .Skip` on the
+     * plane ADDRESSES, not the numbers. So `Plane Copy 0 To 0` does nothing,
+     * and so would a copy between two numbers that happened to name one
+     * plane.
+     */
+    'plane copy': (it) => planePair(rt, it, (_d, sv) => sv),
+    'plane merge': (it) => planePair(rt, it, (d, sv) => d | sv),
+
+    /**
+     * `Plane Swap a,b` — routine 104 ($1d22): exchange two planes, a
+     * longword at a time.
+     *
+     * The cheap way to animate: two planes of a four-plane screen swapped
+     * every frame is a two-frame loop with no blitting. Same
+     * plane-to-itself guard as Copy and Merge.
+     */
+    'plane swap'(it) {
+      const a = it.evalInt()
+      it.expect(',')
+      const b = it.evalInt()
+      const pa = planeBytes(rt, a)
+      const pb = planeBytes(rt, b)
+      if (!pa || !pb || pa.at === pb.at) return
+      const n = (Math.min(pa.size, pb.size) >> 2) << 2
+      for (let i = 0; i < n; i++) {
+        const t = pa.buf[pa.at + i]!
+        pa.buf[pa.at + i] = pb.buf[pb.at + i]!
+        pb.buf[pb.at + i] = t
+      }
+    },
+
+    /**
+     * `Plane Get pln To bk` — routine 100 ($1bee): reserve a Work bank the
+     * size of one plane and copy the plane into it.
+     *
+     * `Plane Put pln To bk` — routine 101 ($1c4a) — reads the arguments the
+     * other way round in the source text (`Plane Put bk To pln` is what the
+     * spec `I0t0` and the pops say) and copies back, CLAMPED to the plane:
+     * `cmp.l d0,d5 / ble.s .1 / move.l d0,d5`, so a bank bigger than a plane
+     * is truncated rather than overrunning.
+     *
+     * Plane Get's bank is a plain `Bnk.Reserve`, so an existing bank of that
+     * number is erased first, and a failure is error 24.
+     */
+    'plane get'(it) {
+      const pln = it.evalInt()
+      it.expect('to')
+      const bk = it.evalInt()
+      const p = planeBytes(rt, pln)
+      if (!p) return
+      rt.eraseBank(bk & 0xffff)
+      rt.reserveBank(bk & 0xffff, p.size, 'Work', false, false)
+      rt.memBanks.get(bk & 0xffff)!.data.set(p.buf.subarray(p.at, p.at + p.size))
+    },
+
+    'plane put'(it) {
+      const bk = it.evalInt()
+      it.expect('to')
+      const pln = it.evalInt()
+      const ref = orAdr(rt, bk)
+      const p = planeBytes(rt, pln)
+      if (!ref || !p) return
+      const bank = rt.memBanks.get(ref.number)
+      if (!bank) return
+      const n = Math.min(bank.data.length, p.size)
+      p.buf.set(bank.data.subarray(0, n), p.at)
+    },
+
+    /**
+     * `Plane Open [pln [To pln]]` and `Plane Close [pln [To pln]]` —
+     * routines 107 to 110 ($1e12, $1e26,
+     * $1e52 and $1e66).
+     *
+     * These are the RastPort write mask, `rp_Mask`, and the only pair in the
+     * group that does not touch pixels: a closed plane is one a draw cannot
+     * reach, so it keeps whatever it had.
+     *
+     * The range form SORTS ITS ARGUMENTS. `cmp.l d1,d0 / bge.s .1 / exg.l
+     * d0,d1` — `Plane Close 4 To 1` closes 1 to 4 exactly as `1 To 4` does.
+     *
+     * DEFECT: the range loop cannot reach the last plane. It closes with
+     * `bclr d1,rp_Mask(a0) / addq.l #1,d1 / dbeq d0,.2`, and `bclr` sets Z
+     * from the bit's OLD value — so the moment it hits a bit that was
+     * already clear, the EQ satisfies and the loop stops. `Plane Close 0 To
+     * 3` on a mask that has already lost plane 1 never reaches 2 or 3.
+     * `Plane Open` has the identical bug with `bset`, where it stops at the
+     * first bit that was already SET.
+     */
+    'plane close': (it) => planeMask(rt, it, false),
+    'plane open': (it) => planeMask(rt, it, true),
+
+    /**
+     * `Iff Bank bk To screen` — routine 112 ($1ebc), and the largest routine
+     * in the library: a whole ILBM reader.
+     *
+     * *"Zunaechst scheint der Befehl ein wenig ueberfluessig, da ja in
+     * AMOSPro bereits der Befehl 'Load Iff' existiert"* — and then the
+     * manual gives the reason: a PACKED picture would otherwise have to be
+     * unpacked to a file first and loaded back. This takes it from the bank
+     * an `Xpk Unpack` just left it in.
+     *
+     * It hunts BMHD two bytes at a time over the first 1024 tries, reads the
+     * width, height, depth and compression, then walks CMAP, CAMG, ABIT and
+     * BODY the same way. The view mode is GUESSED where CAMG is absent —
+     * over 352 wide and 16 colours or fewer is hires, over 300 lines is
+     * laced, 64 colours without bit 7 is HAM — and then masked to
+     * `%1000100010000100`, the four flags AMOS's own screens understand.
+     *
+     * A WIDTH THAT IS NOT A MULTIPLE OF 16 IS ERROR 48. `divs #16 / swap /
+     * tst.w / Rbne L_IScrn` — the screen it opens has to be word-aligned.
+     * A screen number above 7 is error 23, and a bank with no BMHD in its
+     * first 2048 bytes is error 31.
+     *
+     * DEVIATION: this port has an ILBM reader of its own in ../loader/iff.ts
+     * and `Load Iff` already uses it. Reproducing a second parser to be
+     * bug-compatible with the chunk hunt would mean reproducing its bugs
+     * without a program that needs them; the checks that a program CAN see
+     * -- the screen number, the width, the missing-BMHD case -- are done
+     * here and the decode is the shared one.
+     */
+    'iff bank'(it) {
+      const bk = it.evalInt()
+      it.expect('to')
+      const scrn = it.evalInt()
+      if (scrn >>> 0 >= 8) funcCall()
+      const ref = orAdr(rt, bk)
+      if (!ref) return
+      const bank = rt.memBanks.get(ref.number)
+      if (!bank) amosError(31, 'IFF compression not recognised')
+      let img
+      try {
+        img = parseIlbm(bank.data)
+      } catch {
+        // the chunk hunt running off the end is `Rbne L_NoIff`, error 31 --
+        // NOT AMOS's own error 30 for a bad FORM
+        amosError(31, 'IFF compression not recognised')
+      }
+      if (img.width % 16 !== 0) amosError(48, 'Illegal screen parameter')
+      rt.openScreen(scrn, img.width, img.height, img.mode & 0x800 ? 4096 : 1 << img.depth, (img.mode & 0x8000) | (img.mode & 4))
+      const s = rt.screens.get(scrn)!
+      for (let i = 0; i < Math.min(32, img.palette.length); i++) s.palette[i] = img.palette[i]!
+      rt.blit(s, img, 0, 0, true, -1)
+    },
+
     /**
      * `Clear Mouse` — routine 5 ($dc2): spin until no mouse button is held.
      *
@@ -1202,6 +1414,9 @@ function nowCivil(rt: Runtime): ReturnType<typeof civilFromStamp> {
  * imported because `./runtime` is a TYPE-only import here.
  */
 const EXT_SLOT = 6
+/** `Runtime.SCREEN_CTRL_BASE` and `SCREEN_CTRL_SLOT`, for the same reason */
+const SCREEN_CTRL_BASE = 0x4800_0000
+const SCREEN_CTRL_SLOT = 0x0000_1000
 const EXT_DATA_BASE = 0x7800_0000
 const EXT_DATA_SLOT = 0x0001_0000
 const extDataBase = (slot: number): number => (EXT_DATA_BASE + slot * EXT_DATA_SLOT) | 0
@@ -1251,6 +1466,93 @@ function mouseOrKey(rt: Runtime): number {
   if (q.length === 0) return 0
   const ch = q.shift()!.ch.charCodeAt(0)
   return ch > 3 ? ch : -ch
+}
+
+/**
+ * `EcMaxPlans` (+Equ.s:480) — *"6 Plans pour le moment!"*, and every plane
+ * keyword tests against it.
+ */
+const EC_MAX_PLANS = 6
+
+/**
+ * One plane of the current screen: the buffer, where the plane starts in it,
+ * and how long it is.
+ *
+ * The three guards every plane keyword shares, in the order they apply:
+ * `cmpi.l #EcMaxPlans,d7 / bpl.s .Skip` (quiet), `tst.l ScOnAd(a5) / Rbeq
+ * L_SNopen` (error 47), and `move.l bm_Planes(a0,d7.l),d7 / beq.s .Skip` for
+ * a plane the screen does not have (quiet again).
+ *
+ * DEVIATION: the first test is SIGNED. `bpl` after `cmpi.l #6,d7` skips when
+ * d7 - 6 is positive, so a NEGATIVE plane number passes it, and `lsl.l #2,d7`
+ * then indexes backwards off `bm_Planes` into the BitMap header — bm_Rows,
+ * bm_Flags and the pointer above it. There is no BitMap struct here to read
+ * backwards through, so a negative number is out of range.
+ */
+function planeBytes(rt: Runtime, pln: number): { buf: Uint8Array; at: number; size: number } | null {
+  if (pln < 0 || pln >= EC_MAX_PLANS) return null
+  // `tst.l ScOnAd(a5) / Rbeq L_SNopen`
+  const s = rt.screens.get(rt.currentIndex) ?? null
+  if (!s) amosError(47, 'Screen not opened')
+  if (pln >= s.depth) return null
+  const size = s.rowBytes * s.height
+  return { buf: s.planarView('log', true), at: pln * s.planeSize, size }
+}
+
+/** the longword walk Plane Mask and Plane Negative share, remainder and all */
+function overPlane(rt: Runtime, pln: number, each: (b: Uint8Array, at: number) => void): void {
+  const p = planeBytes(rt, pln)
+  if (!p) return
+  // `lsr.l #2,d0 / subq #1,d0` then dbra: whole longwords only, and a
+  // trailing word is left as it was
+  for (let i = 0; i + 4 <= p.size; i += 4) each(p.buf, p.at + i)
+}
+
+/** the shared body of Plane Copy and Plane Merge — routines 103 and 106 */
+function planePair(rt: Runtime, it: Parameters<Instr>[0], combine: (dst: number, src: number) => number): void {
+  const src = it.evalInt()
+  it.expect('to')
+  const dst = it.evalInt()
+  const ps = planeBytes(rt, src)
+  const pd = planeBytes(rt, dst)
+  // `cmp.l d6,d7 / beq.s .Skip` -- the plane ADDRESSES, not the numbers
+  if (!ps || !pd || ps.at === pd.at) return
+  const n = Math.min(ps.size, pd.size)
+  for (let i = 0; i < n; i++) pd.buf[pd.at + i] = combine(pd.buf[pd.at + i]!, ps.buf[ps.at + i]!) & 0xff
+}
+
+/**
+ * The shared body of Plane Open and Plane Close — routines 107 to 110, and
+ * the `dbeq` defect they share.
+ *
+ * `bclr d1,rp_Mask(a0) / addq.l #1,d1 / dbeq d0,.2`: bclr sets Z from the
+ * bit's OLD value, so the loop stops at the first bit that was already the
+ * way it is being set. Reproduced, because a program that closes a range
+ * twice sees it.
+ */
+function planeMask(rt: Runtime, it: Parameters<Instr>[0], open: boolean): void {
+  let from = it.evalInt()
+  if (from < 0 || from >= EC_MAX_PLANS) {
+    if (it.accept('to')) it.evalInt()
+    return
+  }
+  const s = rt.screens.get(rt.currentIndex) ?? null
+  if (!it.accept('to')) {
+    if (s) s.planeMask = open ? s.planeMask | (1 << from) : s.planeMask & ~(1 << from)
+    return
+  }
+  let to = it.evalInt()
+  if (to < 0 || to >= EC_MAX_PLANS || !s) return
+  // `cmp.l d1,d0 / bge.s .1 / exg.l d0,d1` -- the pair is sorted, so
+  // `4 To 1` is the same range as `1 To 4`
+  if (from > to) [from, to] = [to, from]
+  for (let n = from; n <= to; n++) {
+    const was = (s.planeMask >> n) & 1
+    s.planeMask = open ? s.planeMask | (1 << n) : s.planeMask & ~(1 << n)
+    // the dbeq: Z from the old bit, so an already-set bit ends an Open and
+    // an already-clear one ends a Close
+    if (was === (open ? 1 : 0)) return
+  }
 }
 
 /** the shared lookup of Image Width and Image Height — bank, then index */
@@ -1355,6 +1657,52 @@ export function makeExplodeFunctions(rt: Runtime): Record<string, Func> {
     'lsr.b': shift(8, false),
     'lsr.w': shift(16, false),
     'lsr.l': shift(32, false),
+
+    /**
+     * =Rastport — routine 97 ($1b68): `T_RastPort(a5)`, the address of the
+     * current screen's RastPort.
+     *
+     * One instruction, and it exists so a program can call graphics.library
+     * itself. The manual's example does exactly that — `Areg(1)=Rastport`
+     * then `Gfxcall(-240)`, which is `Move`, and `-246`, which is `Draw`.
+     *
+     * DEVIATION: there is no graphics.library here to hand it to, and no
+     * RastPort struct in the address space. It answers the screen's control
+     * block address, which is the nearest thing this port has that stands
+     * for "the current screen's drawing state".
+     */
+    rastport: (): Value => VI((SCREEN_CTRL_BASE + rt.currentIndex * SCREEN_CTRL_SLOT) | 0),
+
+    /**
+     * =Plane Length — routine 102 ($1ca8): one plane's size in bytes,
+     * `bm_BytesPerRow * bm_Rows`.
+     *
+     * The size `Plane Get`'s bank comes out, and the number to Reserve
+     * before a `Plane Put`. Answers 0 with no screen open rather than
+     * raising — the `tst.l ScOnAd(a5)` here is `beq.s .Skip`, not the
+     * `Rbeq L_SNopen` the instructions use.
+     */
+    'plane length': (): Value => {
+      const s = rt.screens.get(rt.currentIndex)
+      return VI(s ? s.rowBytes * s.height : 0)
+    },
+
+    /**
+     * =Plane Active(pln) — routine 111 ($1e92): -1 if the plane both EXISTS
+     * and is open.
+     *
+     * Two tests, and the pair is the point: `tst.l bm_Planes(a1,d1.l)` for a
+     * plane the screen has, then `btst d0,rp_Mask(a0)` for one `Plane Close`
+     * has not shut. Either failing answers 0, so this cannot tell "no such
+     * plane" from "closed".
+     */
+    'plane active': (_, a): Value => {
+      const pln = int(a[0]!)
+      if (pln < 0 || pln >= EC_MAX_PLANS) return VI(0)
+      const s = rt.screens.get(rt.currentIndex)
+      if (!s || pln >= s.depth) return VI(0)
+      return VI((s.planeMask >> pln) & 1 ? -1 : 0)
+    },
 
     /**
      * =Pause(ticks) — routine 6 ($dd8): wait up to `ticks` vertical blanks,

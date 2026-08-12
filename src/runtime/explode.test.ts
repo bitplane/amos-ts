@@ -862,3 +862,156 @@ describe('Explode: the system group', () => {
     expect(b.out()).not.toContain('after')
   })
 })
+
+describe('Explode: the bitplane group', () => {
+  // 16 colours is FOUR planes, which is what the range tests need
+  const open = 'Screen Open 0,64,16,16,Lowres : Cls 0'
+
+  it('Plane Length is one plane, and Plane Active needs it open AND present', () => {
+    // 64 pixels is 8 bytes a row, 16 rows
+    expect(run([open, 'Print Plane Length'].join('\n'))).toBe('128')
+    expect(run([open, 'Print Plane Active(0);" ";Plane Active(3);" ";Plane Active(5)'].join('\n'))).toBe('-1 -1 0')
+  })
+
+  it('Plane Mask ORs a longword over the whole plane', () => {
+    // not a mask in the RastPort sense -- it SETS every bit named
+    expect(run([open, 'Plane Mask 0,$FFFFFFFF', 'Print Point(0,0);" ";Point(63,15)'].join('\n'))).toBe('1 1')
+    expect(run([open, 'Plane Mask 1,$FFFFFFFF', 'Print Point(0,0)'].join('\n'))).toBe('2')
+  })
+
+  it('Plane Clear empties one and leaves the others', () => {
+    expect(
+      run([open, 'Plane Mask 0,$FFFFFFFF', 'Plane Mask 1,$FFFFFFFF', 'Plane Clear 0', 'Print Point(0,0)'].join('\n')),
+    ).toBe('2')
+  })
+
+  it('Plane Negative inverts one', () => {
+    expect(run([open, 'Plane Negative 0', 'Print Point(0,0);" ";Point(63,15)'].join('\n'))).toBe('1 1')
+  })
+
+  it('Plane Copy and Plane Merge, and neither will touch a plane to itself', () => {
+    expect(run([open, 'Plane Mask 0,$FFFFFFFF', 'Plane Copy 0 To 1', 'Print Point(0,0)'].join('\n'))).toBe('3')
+    // Merge keeps what the destination had
+    expect(
+      run([open, 'Plane Mask 0,$FF000000', 'Plane Mask 1,$00FF0000', 'Plane Merge 0 To 1', 'Print Point(0,0)'].join('\n')),
+    ).toBe('3')
+    // `cmp.l d6,d7 / beq.s .Skip` on the plane addresses
+    expect(run([open, 'Plane Mask 0,$FFFFFFFF', 'Plane Copy 0 To 0', 'Print Point(0,0)'].join('\n'))).toBe('1')
+  })
+
+  it('Plane Swap exchanges two', () => {
+    expect(run([open, 'Plane Mask 0,$FFFFFFFF', 'Plane Swap 0,1', 'Print Point(0,0)'].join('\n'))).toBe('2')
+  })
+
+  it('Plane Get takes a plane to a bank and Plane Put brings it back', () => {
+    const src = [
+      open,
+      'Plane Mask 0,$FFFFFFFF',
+      'Plane Get 0 To 5',
+      'Plane Clear 0',
+      'Print Point(0,0);" ";Length(5);" ";',
+      'Plane Put 5 To 0',
+      'Print Point(0,0)',
+    ].join('\n')
+    expect(run(src)).toBe('0 128 1')
+  })
+
+  it('and a bank longer than a plane is CLAMPED rather than overrunning', () => {
+    // `cmp.l d0,d5 / ble.s .1 / move.l d0,d5`
+    const src = [open, 'Reserve As Work 5,4096', 'Plane Put 5 To 0', 'Print "survived"'].join('\n')
+    expect(run(src)).toBe('survived')
+  })
+
+  it('Plane Close and Plane Open move rp_Mask and no pixels', () => {
+    expect(run([open, 'Plane Close 0', 'Print Plane Active(0);" ";Plane Active(1)'].join('\n'))).toBe('0 -1')
+    expect(run([open, 'Plane Close 0', 'Plane Open 0', 'Print Plane Active(0)'].join('\n'))).toBe('-1')
+  })
+
+  it('the range form SORTS its arguments, so 3 To 1 is 1 To 3', () => {
+    // `cmp.l d1,d0 / bge.s .1 / exg.l d0,d1`
+    expect(run([open, 'Plane Close 3 To 1', 'Print Plane Active(1);" ";Plane Active(3)'].join('\n'))).toBe('0 0')
+  })
+
+  it('DEFECT: the range stops at the first bit already set the way it is going', () => {
+    // `bclr d1,rp_Mask(a0) / addq.l #1,d1 / dbeq d0,.2` -- bclr sets Z from
+    // the OLD bit, so closing plane 1 first stops the sweep dead there
+    const src = [open, 'Plane Close 1', 'Plane Close 0 To 3', 'Print Plane Active(2);" ";Plane Active(3)'].join('\n')
+    expect(run(src)).toBe('-1 -1')
+  })
+
+  it('a plane number at or above 6 is silent, and so is one the screen has not got', () => {
+    expect(run([open, 'Plane Mask 6,$FFFFFFFF', 'Plane Clear 9', 'Print Point(0,0)'].join('\n'))).toBe('0')
+  })
+
+  it('and with no screen open the instructions are error 47', () => {
+    // `tst.l ScOnAd(a5) / Rbeq L_SNopen` in every one of them
+    expect(() => run('Screen Close 0 : Plane Clear 0')).toThrow(/[Ss]creen not open/i)
+    expect(() => run('Screen Close 0 : Plane Mask 0,1')).toThrow(/[Ss]creen not open/i)
+  })
+
+  it('Rastport answers an address that moves with the current screen', () => {
+    const src = ['Screen Open 0,64,16,4,Lowres', 'Screen Open 1,64,16,4,Lowres', 'A=Rastport', 'Screen 0', 'Print A-Rastport'].join('\n')
+    expect(run(src)).toBe(String(0x1000))
+  })
+})
+
+describe('Explode: Iff Bank', () => {
+  /** the smallest ILBM this port's reader will take: 32x2, one plane */
+  function ilbm(width = 32, rows = 16): Uint8Array {
+    const bpr = (width >> 3)
+    const body = new Uint8Array(bpr * rows)
+    body.fill(0xff)
+    const bmhd = new Uint8Array(20)
+    const dv = new DataView(bmhd.buffer)
+    dv.setUint16(0, width)
+    dv.setUint16(2, rows)
+    bmhd[8] = 1 // depth
+    bmhd[10] = 0 // uncompressed
+    const chunk = (id: string, data: Uint8Array): number[] => {
+      const out = [...id].map((c) => c.charCodeAt(0))
+      out.push((data.length >>> 24) & 0xff, (data.length >>> 16) & 0xff, (data.length >>> 8) & 0xff, data.length & 0xff)
+      out.push(...data)
+      if (data.length & 1) out.push(0)
+      return out
+    }
+    const inner = [
+      ...[...'ILBM'].map((c) => c.charCodeAt(0)),
+      ...chunk('BMHD', bmhd),
+      ...chunk('CMAP', Uint8Array.from([0, 0, 0, 0xff, 0xff, 0xff])),
+      ...chunk('BODY', body),
+    ]
+    return Uint8Array.from([
+      ...[...'FORM'].map((c) => c.charCodeAt(0)),
+      (inner.length >>> 24) & 0xff,
+      (inner.length >>> 16) & 0xff,
+      (inner.length >>> 8) & 0xff,
+      inner.length & 0xff,
+      ...inner,
+    ])
+  }
+
+  /** the bank is filled before the program starts, as a Bank Load would */
+  function withBank(bytes: Uint8Array, src: string): { rt: Runtime; out: () => string } {
+    const b = boot(src)
+    b.rt.reserveBank(4, bytes.length, 'Work', false, false)
+    b.rt.memBanks.get(4)!.data.set(bytes)
+    return b
+  }
+
+  it('opens a screen from a bank and paints it', () => {
+    // Point BEFORE Print: the Print lands at 0,0 and would draw over the
+    // very pixel being asked about
+    const b = withBank(ilbm(), 'Iff Bank 4 To 1\nP=Point(0,0)\nPrint Screen Width;" ";Screen Height;" ";P')
+    mustFinish(b.rt.runHeadless(3_000))
+    expect(b.out().trim().replace(/\s+/g, ' ')).toBe('32 16 1')
+  })
+
+  it('a screen number above 7 is error 23', () => {
+    expect(() => run('Reserve As Work 4,64 : Iff Bank 4 To 8')).toThrow(/function call/i)
+  })
+
+  it('and a bank with no BMHD in it is error 31, not AMOS’s own error 30', () => {
+    // `Rbne L_NoIff`, which is `moveq #31,d0`
+    expect(() => run('Reserve As Work 4,64 : Iff Bank 4 To 1')).toThrow(/IFF compression/i)
+  })
+})
