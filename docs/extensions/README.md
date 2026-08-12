@@ -193,8 +193,12 @@ Ordered by evidence tier, then by size. "Keywords" counts DISTINCT named table
 entries, matching `KEYWORDS.md`: unnamed entries are argument-count and
 function-form variants of the keyword above them, and a name can legitimately
 appear twice (IOPorts declares `serial speed` at two ids). "Seen at" is the
-slots corpus programs actually used it in, which is evidence; "Slot" is what
-the config or the extension's own manual suggests, which is not.
+slots corpus programs actually used it in, which is evidence; "Slot" is where
+it belongs. Three kinds of answer, strongest first: "states N" is the
+library's own word — `d2` at its extension-call-1025 sites is the extension
+number, compiled in by whoever built it, and 62 rows carry one. "stock, slot
+N" is +Interpreter_Config.s. "recommends N" is a manual or a wiki page, which
+is a claim and not evidence. Eleven of the 62 have nothing but the binary.
 
 "Evidence" is what is available to read, not what has been read — see the tier
 rule above. Nearly every row says `source` or `disassembly` because a held
@@ -208,87 +212,87 @@ per keyword.
 | `explode-2.01`         | Explode                               | source      |      131 |       — | recommends 7  |
 | `jd-5.3`               | JD                                    | source      |      130 |      22 | —             |
 | `jd-4.6`               | JD                                    | source      |      125 |      22 | —             |
-| `personal-1.0b`        | Personnal Extension                   | source      |      108 |      13 | —             |
-| `opal-1.1`             | Opal                                  | source      |       78 |       — | recommends 21 |
-| `sln-2.0`              | SLN                                   | source      |       70 |       — | recommends 24 |
+| `personal-1.0b`        | Personnal Extension                   | source      |      108 |      13 | states 13     |
+| `opal-1.1`             | Opal                                  | source      |       78 |       — | states 21     |
+| `sln-2.0`              | SLN                                   | source      |       70 |       — | states 24     |
 | `jd-prt-1.3`           | JD Printer                            | source      |       63 |       — | —             |
 | `amospro-music-2.0`    | Music                                 | source      |       49 |       1 | stock, slot 1 |
-| `jd-colour-1.4`        | JD Colour                             | source      |       44 |       — | —             |
+| `jd-colour-1.4`        | JD Colour                             | source      |       44 |       — | states 20     |
 | `amospro-ioports-2.0`  | IOPorts                               | source      |       38 |       6 | stock, slot 6 |
-| `gamesupport-1.2`      | GameSupport                           | source      |       37 |       — | recommends 23 |
+| `gamesupport-1.2`      | GameSupport                           | source      |       37 |       — | states 23     |
 | `amospro-colours-1.0`  | AMOSPro Colours                       | source      |       27 |       — | recommends 23 |
-| `maxsdoor-0.20`        | MAXS Door Handler                     | source      |       21 |       — | recommends 16 |
+| `maxsdoor-0.20`        | MAXS Door Handler                     | source      |       21 |       — | states 16     |
 | `amospro-compiler-2.0` | Compiler                              | source      |       15 |       5 | stock, slot 5 |
-| `serial-1.2`           | Serial (AMOS 1.3)                     | source      |       15 |       — | —             |
+| `serial-1.2`           | Serial (AMOS 1.3)                     | source      |       15 |       — | states 6      |
 | `misc-1.0`             | Misc Extension                        | source      |       12 |       — | recommends 23 |
-| `jvp-1.01`             | JVP NoKids                            | source      |       11 |       — | recommends 25 |
-| `p61-1.2`              | P61 Music                             | source      |        9 |       — | recommends 25 |
-| `fileid-1.0`           | FileID                                | source      |        6 |       — | recommends 25 |
+| `jvp-1.01`             | JVP NoKids                            | source      |       11 |       — | states 25     |
+| `p61-1.2`              | P61 Music                             | source      |        9 |       — | states 25     |
+| `fileid-1.0`           | FileID                                | source      |        6 |       — | states 25     |
 | `amospro-compact-2.0`  | Compact                               | source      |        3 |       2 | stock, slot 2 |
 | `amospro-request-2.0`  | Request                               | source      |        3 |       3 | stock, slot 3 |
-| `personnal-extra-1.0a` | Personnal EXTRA                       | source      |        2 |       — | —             |
+| `personnal-extra-1.0a` | Personnal EXTRA                       | source      |        2 |       — | states 17     |
 | `os-devkit-1.61`       | OS-DevKit                             | disassembly |     1047 |      20 | recommends 20 |
-| `intuiextend-2.01b`    | IntuiExtend                           | disassembly |      301 |       — | recommends 23 |
+| `intuiextend-2.01b`    | IntuiExtend                           | disassembly |      301 |       — | states 23     |
 | `intuiextend-1.6`      | IntuiExtend                           | disassembly |      294 |       — | recommends 23 |
-| `amcaf-1.50`           | AMCAF                                 | disassembly |      280 |       — | recommends 8  |
-| `amcaf-1.40`           | AMCAF                                 | disassembly |      268 |       — | —             |
-| `gui-2.10`             | GUI                                   | disassembly |      204 |       — | recommends 24 |
-| `dme-2.0`              | DOOM Music Extension                  | disassembly |      184 |       — | recommends 15 |
-| `easylife-1.09`        | EasyLife                              | disassembly |      156 |       — | —             |
-| `easylife-1.10`        | Easy Life                             | disassembly |      156 |       — | recommends 16 |
-| `turbo-plus-2.15`      | TURBO Plus                            | disassembly |      152 |       — | —             |
-| `craft-1.0`            | CRAFT                                 | disassembly |      138 |       — | recommends 18 |
-| `turbo-plus-1.0`       | TURBO Plus Extension                  | disassembly |      134 |      12 | recommends 12 |
+| `amcaf-1.50`           | AMCAF                                 | disassembly |      280 |       — | states 8      |
+| `amcaf-1.40`           | AMCAF                                 | disassembly |      268 |       — | states 8      |
+| `gui-2.10`             | GUI                                   | disassembly |      204 |       — | states 24     |
+| `dme-2.0`              | DOOM Music Extension                  | disassembly |      184 |       — | states 15     |
+| `easylife-1.09`        | EasyLife                              | disassembly |      156 |       — | states 16     |
+| `easylife-1.10`        | Easy Life                             | disassembly |      156 |       — | states 16     |
+| `turbo-plus-2.15`      | TURBO Plus                            | disassembly |      152 |       — | states 12     |
+| `craft-1.0`            | CRAFT                                 | disassembly |      138 |       — | states 18     |
+| `turbo-plus-1.0`       | TURBO Plus Extension                  | disassembly |      134 |      12 | states 12     |
 | `jd-5.9`               | JD                                    | disassembly |      133 |       — | recommends 22 |
-| `personnal-1.1`        | Personnal                             | disassembly |      126 |      13 | —             |
-| `easylife-1.44`        | Easy Life                             | disassembly |      108 |       — | recommends 16 |
-| `gui-1.61`             | AMOSPro GUI Extension                 | disassembly |      103 |      24 | recommends 24 |
-| `the-game-0.9`         | The Game Extension                    | disassembly |      103 |       — | recommends 14 |
-| `turbo-plus-1.9`       | TURBO Plus                            | disassembly |       87 |      12 | recommends 12 |
-| `ldos-2.6`             | LDos                                  | disassembly |       85 |       — | recommends 10 |
-| `ldos-2.5`             | LDos                                  | disassembly |       77 |      10 | recommends 10 |
-| `range-2.0`            | Range                                 | disassembly |       73 |       — | recommends 9  |
-| `easylife-1.0`         | Easy Life                             | disassembly |       72 |       — | recommends 16 |
+| `personnal-1.1`        | Personnal                             | disassembly |      126 |      13 | states 13     |
+| `easylife-1.44`        | Easy Life                             | disassembly |      108 |       — | states 16     |
+| `gui-1.61`             | AMOSPro GUI Extension                 | disassembly |      103 |      24 | states 24     |
+| `the-game-0.9`         | The Game Extension                    | disassembly |      103 |       — | states 14     |
+| `turbo-plus-1.9`       | TURBO Plus                            | disassembly |       87 |      12 | states 12     |
+| `ldos-2.6`             | LDos                                  | disassembly |       85 |       — | states 10     |
+| `ldos-2.5`             | LDos                                  | disassembly |       77 |      10 | states 10     |
+| `range-2.0`            | Range                                 | disassembly |       73 |       — | states 9      |
+| `easylife-1.0`         | Easy Life                             | disassembly |       72 |       — | states 16     |
 | `jd-prt-1.4`           | JD Printer                            | disassembly |       69 |       — | recommends 21 |
-| `tome-4.23`            | TOME                                  | disassembly |       67 |       7 | recommends 7  |
-| `powerbobs-1.0`        | Power Bobs                            | disassembly |       65 |       — | recommends 13 |
-| `amos3d-1.0`           | AMOS 3D                               | disassembly |       64 |       4 | recommends 4  |
-| `int-1.0`              | Int                                   | disassembly |       62 |       — | recommends 25 |
-| `eme-3.0`              | Enhanced Music Extension              | disassembly |       59 |       — | recommends 1  |
+| `tome-4.23`            | TOME                                  | disassembly |       67 |       7 | states 7      |
+| `powerbobs-1.0`        | Power Bobs                            | disassembly |       65 |       — | states 13     |
+| `amos3d-1.0`           | AMOS 3D                               | disassembly |       64 |       4 | states 4      |
+| `int-1.0`              | Int                                   | disassembly |       62 |       — | states 25     |
+| `eme-3.0`              | Enhanced Music Extension              | disassembly |       59 |       — | states 1      |
 | `jd-prt-1.1`           | JD Printer                            | disassembly |       58 |       — | —             |
-| `jd-colour-2.0`        | JD Colour                             | disassembly |       56 |       — | recommends 20 |
-| `eme-3.0-demo`         | Enhanced Music Extension (demo build) | disassembly |       55 |       — | —             |
-| `symbase-0.94`         | SymBase                               | disassembly |       51 |       — | recommends 21 |
-| `d-sam-1.01`           | D-Sam                                 | disassembly |       50 |       — | recommends 15 |
-| `gui-1.5b`             | GUI                                   | disassembly |       48 |       — | —             |
-| `range-1.0`            | Range                                 | disassembly |       48 |       — | recommends 9  |
-| `delta-1.6`            | Delta                                 | disassembly |       46 |       — | recommends 15 |
-| `tome-3.1`             | TOME                                  | disassembly |       34 |       — | —             |
+| `jd-colour-2.0`        | JD Colour                             | disassembly |       56 |       — | states 20     |
+| `eme-3.0-demo`         | Enhanced Music Extension (demo build) | disassembly |       55 |       — | states 1      |
+| `symbase-0.94`         | SymBase                               | disassembly |       51 |       — | states 21     |
+| `d-sam-1.01`           | D-Sam                                 | disassembly |       50 |       — | states 15     |
+| `gui-1.5b`             | GUI                                   | disassembly |       48 |       — | states 24     |
+| `range-1.0`            | Range                                 | disassembly |       48 |       — | states 9      |
+| `delta-1.6`            | Delta                                 | disassembly |       46 |       — | states 15     |
+| `tome-3.1`             | TOME                                  | disassembly |       34 |       — | states 7      |
 | `jd-int-1.3`           | JD Intuition                          | disassembly |       33 |       — | recommends 18 |
-| `tools-1.01`           | Tools                                 | disassembly |       33 |       — | recommends 23 |
-| `make-1.30`            | Make                                  | disassembly |       32 |       — | recommends 17 |
+| `tools-1.01`           | Tools                                 | disassembly |       33 |       — | states 23     |
+| `make-1.30`            | Make                                  | disassembly |       32 |       — | states 17     |
 | `bsdsocket-1.1.4`      | BSDSocket                             | disassembly |       30 |       — | recommends 18 |
-| `med-7.1`              | MED                                   | disassembly |       28 |       — | recommends 19 |
+| `med-7.1`              | MED                                   | disassembly |       28 |       — | states 19     |
 | `delta-1.4`            | Delta                                 | disassembly |       26 |       — | recommends 15 |
-| `aga-1.0`              | AMOS AGA                              | disassembly |       24 |       — | recommends 20 |
-| `amon-1.04`            | Amon                                  | disassembly |       24 |       — | recommends 25 |
-| `dbench-0.42`          | DBench                                | disassembly |       23 |       — | recommends 21 |
-| `tft-0.6`              | TFT                                   | disassembly |       22 |       — | recommends 25 |
-| `locale-0.26`          | Locale                                | disassembly |       20 |       — | recommends 17 |
-| `amon-1.03`            | Amon                                  | disassembly |       18 |       — | recommends 16 |
-| `sticks-1.01b`         | Sticks                                | disassembly |       16 |      17 | recommends 17 |
-| `butility-1.21`        | BUtility                              | disassembly |       15 |       — | recommends 12 |
-| `lserial-2.1`          | LSerial                               | disassembly |       15 |      11 | recommends 11 |
+| `aga-1.0`              | AMOS AGA                              | disassembly |       24 |       — | states 20     |
+| `amon-1.04`            | Amon                                  | disassembly |       24 |       — | states 25     |
+| `dbench-0.42`          | DBench                                | disassembly |       23 |       — | states 21     |
+| `tft-0.6`              | TFT                                   | disassembly |       22 |       — | states 25     |
+| `locale-0.26`          | Locale                                | disassembly |       20 |       — | states 17     |
+| `amon-1.03`            | Amon                                  | disassembly |       18 |       — | states 16     |
+| `sticks-1.01b`         | Sticks                                | disassembly |       16 |      17 | states 17     |
+| `butility-1.21`        | BUtility                              | disassembly |       15 |       — | states 12     |
+| `lserial-2.1`          | LSerial                               | disassembly |       15 |      11 | states 11     |
 | `orgasm-1.0`           | OrgAsm                                | disassembly |       13 |       — | recommends 20 |
-| `musicraft-1.0`        | MusiCRAFT                             | disassembly |       12 |      19 | recommends 19 |
-| `ercole-1.7`           | Ercole                                | disassembly |       11 |       — | recommends 10 |
-| `stars-2.33`           | Stars                                 | disassembly |       11 |       — | recommends 20 |
+| `musicraft-1.0`        | MusiCRAFT                             | disassembly |       12 |      19 | states 19     |
+| `ercole-1.7`           | Ercole                                | disassembly |       11 |       — | states 10     |
+| `stars-2.33`           | Stars                                 | disassembly |       11 |       — | states 20     |
 | `dump-1.0`             | Dump                                  | disassembly |        8 |       — | recommends 20 |
-| `ctext-1.0`            | CText                                 | disassembly |        6 |       8 | recommends 8  |
-| `display-0.01`         | Display                               | disassembly |        6 |       — | recommends 24 |
+| `ctext-1.0`            | CText                                 | disassembly |        6 |       8 | states 8      |
+| `display-0.01`         | Display                               | disassembly |        6 |       — | states 24     |
 | `jd-k3-1.1`            | JD K3                                 | disassembly |        6 |       — | recommends 19 |
-| `thx-0.6`              | THX                                   | disassembly |        6 |       — | recommends 20 |
-| `jotre-1.0`            | Jotre                                 | disassembly |        5 |       — | recommends 22 |
+| `thx-0.6`              | THX                                   | disassembly |        6 |       — | states 20     |
+| `jotre-1.0`            | Jotre                                 | disassembly |        5 |       — | states 22     |
 | `first-0.1`            | First                                 | disassembly |        4 |       — | recommends 22 |
 | `intuition-1.3b`       | Intuition Extension                   | manual      |      183 |      14 | recommends 25 |
 

@@ -121,6 +121,28 @@ export interface ExtensionInfo {
   idBaseEvidence: 'calibrated' | 'assumed'
   /** Slot the stock config assigns, or the extension's docs recommend. */
   defaultSlot?: number
+  /**
+   * The slot the LIBRARY ITSELF states, and the strongest of the three.
+   *
+   * Extension call 1025 raises a library's own error message, and `d2` at the
+   * call site is the extension number, zero-based — so any library that can
+   * report an error has its slot compiled into it, put there by whoever built
+   * it. That outranks `defaultSlot`, which is a manual or a wiki page
+   * recommending something, and it outranks `observedSlots`, which is where
+   * one person happened to install it.
+   *
+   * DERIVED, NOT TRANSCRIBED. src/cli/genext.ts reads it out of the binary
+   * with the same scan src/cli/errscan.ts uses, so it cannot drift from the
+   * file the way a hand-copied number would; regenerating recomputes it. It
+   * lives here rather than only in errscan because errscan needs the corpus
+   * and this file is committed, so the evidence survives a checkout with no
+   * `fixtures/`.
+   *
+   * Absent when the library raises no errors of its own — fourteen keywords
+   * with no failure path need no message table — which is a fact about the
+   * library and not a gap in the reading.
+   */
+  statedSlot?: number
   /** Slots this extension has actually been seen occupying in real programs. */
   observedSlots: number[]
   /** Identity strings embedded in the library binary ($VER cookies, banners). */

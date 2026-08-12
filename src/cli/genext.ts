@@ -25,6 +25,8 @@ const sys = join(root, 'fixtures', 'official-amos', 'APSystem')
  * So the registry's documentation and provenance survive a clone even though
  * the binaries have to be supplied locally.
  */
+import { sitesIn } from './errscan'
+
 const manifestDir = join(root, 'src', 'ext', 'manifests')
 const extDir = join(root, 'fixtures', 'extensions')
 
@@ -113,6 +115,35 @@ for (const { id, name, slot, file, earlier } of STOCK) {
   })
 }
 
+/**
+ * The slot the library states about itself, out of `d2` at its own
+ * `L_ErrorExt` call sites.
+ *
+ * The same scan ./errscan.ts reports with, run here so the answer lands in the
+ * committed table instead of only in a tool that needs the corpus. See
+ * `statedSlot` in ../ext/registry.ts for why this outranks the manifest's
+ * recommendation.
+ *
+ * `undefined` when the library raises no errors — no sites, nothing stated —
+ * and also when its own sites DISAGREE, which no registered library does
+ * today. A disagreement is a finding rather than a value to average, so it is
+ * reported and dropped rather than guessed at.
+ */
+function slotFromBinary(id: string, raw: Uint8Array): number | undefined {
+  const stated = new Set(
+    sitesIn(id, raw)
+      .map((s) => s.d2)
+      .filter((v): v is number => v !== undefined),
+  )
+  if (stated.size === 0) return undefined
+  if (stated.size > 1) {
+    console.warn(`${id}: its own L_ErrorExt sites disagree about d2 — ${[...stated].join(', ')}`)
+    return undefined
+  }
+  // d2 is zero-based; a slot is not
+  return [...stated][0]! + 1
+}
+
 for (const file of readdirSync(manifestDir).sort()) {
   if (!file.endsWith('.json')) continue
   const m = JSON.parse(readFileSync(join(manifestDir, file), 'utf8'))
@@ -123,6 +154,7 @@ for (const file of readdirSync(manifestDir).sort()) {
   }
   let tokens: TokenEntry[]
   let hash = m.sha256 ?? ''
+  let statedSlot: number | undefined
   if (m.source === 'tokens') {
     const src = readFileSync(join(extDir, dir, m.tokenSource), 'latin1')
     tokens = tokensFromSource(src, { defines: m.assembleDefines ?? [] })
@@ -134,6 +166,7 @@ for (const file of readdirSync(manifestDir).sort()) {
     if (m.format === 'amostools') tokens = parseAmosToolsTable(raw)
     else tokens = (m.format === 'ap20' ? parseAmosLib(raw) : parseAmosLibOld(raw)).tokens
     hash = sha(raw)
+    statedSlot = slotFromBinary(m.id, new Uint8Array(raw))
   }
   tables.set(m.id, tokens)
   infos.push({
@@ -146,6 +179,7 @@ for (const file of readdirSync(manifestDir).sort()) {
     evidence: m.evidence,
     idBaseEvidence: m.idBaseEvidence,
     defaultSlot: m.recommendedSlot,
+    ...(statedSlot === undefined ? {} : { statedSlot }),
     observedSlots: m.observedSlots ?? [],
     titleStrings: m.titleStrings ?? [],
     sha256: hash,

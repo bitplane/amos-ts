@@ -24,6 +24,18 @@
  * releases whose manifest has no slot at all, it is the only evidence there is.
  * A disagreement here is a real finding; there are none today.
  *
+ * That number is no longer only here. ../cli/genext.ts calls `sitesIn` below
+ * and writes the answer into the registry as `statedSlot`, so it survives a
+ * checkout with no `fixtures/` and can be read without running anything. The
+ * manifests were deliberately NOT edited to fill in the eleven: `defaultSlot`
+ * means "somebody recommended this" and copying binary evidence into it would
+ * destroy the distinction the two fields exist to make.
+ *
+ * This tool stays because it is the wider net — it reports every call site and
+ * its registers, walks any file in the corpus index rather than only the
+ * registered fixtures, and answers the question `statedSlot` reduces to one
+ * number.
+ *
  * Usage:
  *   npm run cli -- src/cli/errscan.ts [--quiet]
  *

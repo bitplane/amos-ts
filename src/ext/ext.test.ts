@@ -258,6 +258,46 @@ describe('extension registry (src/ext/registry.ts)', () => {
     expect(bound.get(4)).toBeUndefined()
   })
 
+  it('never records a recommended slot the library itself contradicts', () => {
+    /*
+     * `statedSlot` is `d2` at the library's own extension-call-1025 sites --
+     * the extension number, zero-based, compiled in by whoever built it. It
+     * outranks `defaultSlot`, which is a manual or a wiki page recommending
+     * something, so a disagreement is a manifest to correct and not a value to
+     * choose between. There are none, and this is what keeps it that way.
+     */
+    const clash = REGISTRY.filter(
+      (e) => e.statedSlot !== undefined && e.defaultSlot !== undefined && e.statedSlot !== e.defaultSlot,
+    ).map((e) => `${e.id}: manifest says ${e.defaultSlot}, the binary says ${e.statedSlot}`)
+    expect(clash).toEqual([])
+  })
+
+  it('reads a slot out of the binary for every library that can raise an error', () => {
+    // 62 of 86, and the 24 without one are libraries with no error path rather
+    // than libraries this failed to read -- the count is here so a scan that
+    // silently stopped working shows up as a number going down
+    const stated = REGISTRY.filter((e) => e.statedSlot !== undefined)
+    expect(stated.length).toBeGreaterThanOrEqual(62)
+    // eleven of them have no manifest slot at all, so the binary is the only
+    // evidence that exists for where they belong
+    const onlyEvidence = stated.filter((e) => e.defaultSlot === undefined).map((e) => e.id)
+    expect(onlyEvidence).toEqual([
+      'amcaf-1.40',
+      'easylife-1.09',
+      'eme-3.0-demo',
+      'gui-1.5b',
+      'jd-colour-1.4',
+      'personal-1.0b',
+      'personnal-1.1',
+      'personnal-extra-1.0a',
+      'serial-1.2',
+      'tome-3.1',
+      'turbo-plus-2.15',
+    ])
+    // and every slot is in range: AMOS Pro loads 26 of them
+    for (const e of stated) expect([e.id, e.statedSlot! >= 1 && e.statedSlot! <= 26]).toEqual([e.id, true])
+  })
+
   it('keys the registry by identity, never by slot', () => {
     const ids = REGISTRY.map((e) => e.id)
     expect(new Set(ids).size).toBe(ids.length)

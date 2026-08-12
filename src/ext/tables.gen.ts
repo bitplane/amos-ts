@@ -7820,6 +7820,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 20,
+    "statedSlot": 20,
     "observedSlots": [],
     "titleStrings": [
       "$VER: AGA Extension © '95 N.Critten v1.00 Build 312"
@@ -7837,6 +7838,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
+    "statedSlot": 8,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "501529ea1b0353f710c375bca55bd2c838b1d67063430292c4c13f7aac4ddd98",
@@ -7853,6 +7855,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 8,
+    "statedSlot": 8,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "9894a7e216ff501244bbcdc47d3830abdbcf4382d4f4a6daa43551faa87917e4",
@@ -7869,6 +7872,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 16,
+    "statedSlot": 16,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "d59d4a49b04bbb665ad72cc1d2acb0ba9acdcbe4ab2f33190c0ed73390bd8411",
@@ -7885,6 +7889,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 25,
+    "statedSlot": 25,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "535e98d5b3926a6b1e1b172e296222e7aee73355b849949825f4cd928fca414e",
@@ -7901,6 +7906,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 4,
+    "statedSlot": 4,
     "observedSlots": [
       4
     ],
@@ -7953,6 +7959,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 12,
+    "statedSlot": 12,
     "observedSlots": [],
     "titleStrings": [
       "$VER: 1.21"
@@ -7971,6 +7978,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 18,
+    "statedSlot": 18,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "371d7b50dbf5b76a388e4704c17664deb2f4e7129882e9def89e9a8bfcb9d160",
@@ -7987,6 +7995,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 8,
+    "statedSlot": 8,
     "observedSlots": [
       8
     ],
@@ -8005,6 +8014,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 15,
+    "statedSlot": 15,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "045b7f8f5b97bd86737d96653a612ce6c9f1657439954b607b0aad572d125d94",
@@ -8021,6 +8031,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 21,
+    "statedSlot": 21,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "800c5e904f4816f839931ed63d59f8d23b514947de6d588824ca5a66938369df",
@@ -8053,6 +8064,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 15,
+    "statedSlot": 15,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "97fbb8acb3347dfb91dcf73ebf240722a40702b9b9f200bb7da3505c2eb3aeed",
@@ -8069,6 +8081,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 24,
+    "statedSlot": 24,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "25355ca5571932ff0d819f59759b620611537d346a7e0e173c49a9838a5cf688",
@@ -8085,6 +8098,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 15,
+    "statedSlot": 15,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "f5bb665a91416cca066573c130734490f90feb6543f4196209863bca6c1794b1",
@@ -8117,6 +8131,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 16,
+    "statedSlot": 16,
     "observedSlots": [],
     "titleStrings": [
       "Computer Programmers: EASY LIFE (V1.0)"
@@ -8134,6 +8149,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
+    "statedSlot": 16,
     "observedSlots": [],
     "titleStrings": [
       "Computer Programmers: EASY LIFE V1.09",
@@ -8153,6 +8169,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 16,
+    "statedSlot": 16,
     "observedSlots": [],
     "titleStrings": [
       "Computer Programmers: EASY LIFE V1.10",
@@ -8172,6 +8189,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 16,
+    "statedSlot": 16,
     "observedSlots": [],
     "titleStrings": [
       "Computer Programmers: EASY LIFE V1.44",
@@ -8190,6 +8208,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
+    "statedSlot": 1,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "a3f69e32ec3015f82fdb220aacc9f80bc9631425a464e6ac0a8119981e6bfb95",
@@ -8206,6 +8225,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 1,
+    "statedSlot": 1,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "a2d081aadec4a72c9b4399503c56f9b9b2c613692aa03161515eb041fd568116",
@@ -8222,6 +8242,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 10,
+    "statedSlot": 10,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "2ad07234daf37eedb0c4fae550b71d39c0be4aafccd24b03e55aa273a02a783e",
@@ -8254,6 +8275,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "source",
     "idBaseEvidence": "assumed",
     "defaultSlot": 25,
+    "statedSlot": 25,
     "observedSlots": [],
     "titleStrings": [
       "$VER: FileID Extension V1.0 by Haiko Lemser"
@@ -8288,6 +8310,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "source",
     "idBaseEvidence": "assumed",
     "defaultSlot": 23,
+    "statedSlot": 23,
     "observedSlots": [],
     "titleStrings": [
       "$VER: 1.2"
@@ -8305,6 +8328,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
+    "statedSlot": 24,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "a4ffb518a1d75c9b81ac7a693b9c7ca055b6efc6aa7dcfea83fbf906929f1324",
@@ -8321,6 +8345,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 24,
+    "statedSlot": 24,
     "observedSlots": [
       24
     ],
@@ -8342,6 +8367,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 24,
+    "statedSlot": 24,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "49343990a3b4fe5961daa5519ff17cf4c6f67590fbf93bef2da93505aae22c1a",
@@ -8358,6 +8384,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 25,
+    "statedSlot": 25,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "4b022e82966e7da7113e1118917676bc83a7dd1095ad3996cf243d6bef6d9ac8",
@@ -8393,6 +8420,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 23,
+    "statedSlot": 23,
     "observedSlots": [],
     "titleStrings": [
       "AMOSPro IntuiExtend extension V 2.01b",
@@ -8485,6 +8513,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "source",
     "idBaseEvidence": "assumed",
+    "statedSlot": 20,
     "observedSlots": [],
     "titleStrings": [
       "$VER: 1.4"
@@ -8503,6 +8532,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 20,
+    "statedSlot": 20,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "f3f19d866d7ef09b7e3e69aa933ab6f32b18eb0c0cc3636bdf900e339aa760fb",
@@ -8602,6 +8632,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 22,
+    "statedSlot": 22,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "a36a562bd36c2515ee7738c338df6bb0e42336f38e9f008af2c9582666f47d4e",
@@ -8618,6 +8649,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "source",
     "idBaseEvidence": "assumed",
     "defaultSlot": 25,
+    "statedSlot": 25,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "d985288a5f7b15e008ca01b797ca7dc8bf8101d0ca28894c14c2c5e76bb03d57",
@@ -8634,6 +8666,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 10,
+    "statedSlot": 10,
     "observedSlots": [
       10
     ],
@@ -8655,6 +8688,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 10,
+    "statedSlot": 10,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "cbb06295b1ea418042507f81a7c228c838e1668f81d8659a50692a7c6dfd07f5",
@@ -8671,6 +8705,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 17,
+    "statedSlot": 17,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "a26f5c0ffd26707473ab33521e3ee57d19cc914ec7982da0914f2b72e3cd4bde",
@@ -8687,6 +8722,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 11,
+    "statedSlot": 11,
     "observedSlots": [
       11
     ],
@@ -8707,6 +8743,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 17,
+    "statedSlot": 17,
     "observedSlots": [],
     "titleStrings": [
       "$VER: 1.30"
@@ -8725,6 +8762,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "source",
     "idBaseEvidence": "assumed",
     "defaultSlot": 16,
+    "statedSlot": 16,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "799918c865ac1cb53d187e7cbabe291d25c1907cb9a8ea7623eeafc2c8f9140c",
@@ -8741,6 +8779,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 19,
+    "statedSlot": 19,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "f3e952736d48d27afbf13dca58a3466f05fa87bb3dc48e1c7a7324f89af58e25",
@@ -8776,6 +8815,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 19,
+    "statedSlot": 19,
     "observedSlots": [
       19
     ],
@@ -8794,6 +8834,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "source",
     "idBaseEvidence": "assumed",
     "defaultSlot": 21,
+    "statedSlot": 21,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "5ba39156b0e3993d9421a1b6b6fe3e706139ea30a8ca137bfe6ff77b1d6d1086",
@@ -8844,6 +8885,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "source",
     "idBaseEvidence": "assumed",
     "defaultSlot": 25,
+    "statedSlot": 25,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "d0feb58b13ee040f2b6dd3f91df602973d0ae5e8fc93fd1d3bd931be795e64d6",
@@ -8859,6 +8901,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "source",
     "idBaseEvidence": "assumed",
+    "statedSlot": 13,
     "observedSlots": [
       13
     ],
@@ -8880,6 +8923,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
+    "statedSlot": 13,
     "observedSlots": [
       13
     ],
@@ -8900,6 +8944,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "source",
     "idBaseEvidence": "assumed",
+    "statedSlot": 17,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "f2c5d5ecb1a283ba108de3c53d0698f9f70611848d41e60afeded6cdb2fccf0c",
@@ -8916,6 +8961,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 13,
+    "statedSlot": 13,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "dd2afda0692d93a5f58def26631e54798bac1f255413eb4a62dc45482c12c50e",
@@ -8932,6 +8978,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 9,
+    "statedSlot": 9,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "6f0c171fa3fdb95534025590d6fb2e067c7bfa9794c83bcf9451c1a07bdc60c1",
@@ -8948,6 +8995,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 9,
+    "statedSlot": 9,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "d7ed3132015170a4f5cceb3118353c3c791b78c215bfd00529199f0b8213bdb1",
@@ -8963,6 +9011,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "source",
     "idBaseEvidence": "assumed",
+    "statedSlot": 6,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "36ded9a0852874ff5ccb793486725f346047818ce3cbe2e8b1cdc7b5e0c2054d",
@@ -8979,6 +9028,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "source",
     "idBaseEvidence": "assumed",
     "defaultSlot": 24,
+    "statedSlot": 24,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "7bcf644759b003e24785357d618589b53e060baa48539556751b53ed0d5ea6f6",
@@ -8995,6 +9045,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 20,
+    "statedSlot": 20,
     "observedSlots": [],
     "titleStrings": [
       "$VER: 2.33"
@@ -9013,6 +9064,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 17,
+    "statedSlot": 17,
     "observedSlots": [
       17
     ],
@@ -9033,6 +9085,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 21,
+    "statedSlot": 21,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "9a46f2bc69a1d4dbee375473c9b1f118a8231656e1d181989065c6642c4bf59e",
@@ -9049,6 +9102,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 25,
+    "statedSlot": 25,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "5bd9a537ba0d8566f4713b29fb6e8ed5bc9e763971a145e4ebffc8a47743879f",
@@ -9065,6 +9119,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 14,
+    "statedSlot": 14,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "e2b859aba0343043d86e917cf676afb75a71e175e41c8d25fb2fb33564f82adf",
@@ -9081,6 +9136,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 20,
+    "statedSlot": 20,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "75177a46f1979be746e033a8e5d61535dc53c7ce30733bff6f3d25f833ab1c67",
@@ -9096,6 +9152,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
+    "statedSlot": 7,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "fc9e01bbd6b543c065e5c3597c95bd7d24c10acc61fe24d6a317079cf1dee465",
@@ -9112,6 +9169,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 7,
+    "statedSlot": 7,
     "observedSlots": [
       7
     ],
@@ -9132,6 +9190,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
     "defaultSlot": 23,
+    "statedSlot": 23,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "0ae921b0de8f81d3dc522890ea3fac1191c78c6aaf0c490e2175750c98431b31",
@@ -9148,6 +9207,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 12,
+    "statedSlot": 12,
     "observedSlots": [
       12
     ],
@@ -9169,6 +9229,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "evidence": "disassembly",
     "idBaseEvidence": "calibrated",
     "defaultSlot": 12,
+    "statedSlot": 12,
     "observedSlots": [
       12
     ],
@@ -9188,6 +9249,7 @@ export const EXT_INFO: ExtensionInfo[] = [
     "format": "legacy",
     "evidence": "disassembly",
     "idBaseEvidence": "assumed",
+    "statedSlot": 12,
     "observedSlots": [],
     "titleStrings": [],
     "sha256": "ddc8abb16f35cd2fb4230e2c70dc85e6bcbbfe5f73ebcc6712135471faaafb07",

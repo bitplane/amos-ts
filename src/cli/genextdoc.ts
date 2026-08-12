@@ -52,8 +52,16 @@ const rows = [...EXT_INFO]
   )
   .map((e) => {
     const slots = e.observedSlots.length > 0 ? e.observedSlots.join(', ') : '—'
+    // the binary's own word first, because it is the only one of the three
+    // that nobody chose after the fact
     const where =
-      e.origin === 'stock' ? `stock, slot ${e.defaultSlot}` : e.defaultSlot ? `recommends ${e.defaultSlot}` : '—'
+      e.statedSlot !== undefined
+        ? `states ${e.statedSlot}`
+        : e.origin === 'stock'
+          ? `stock, slot ${e.defaultSlot}`
+          : e.defaultSlot
+            ? `recommends ${e.defaultSlot}`
+            : '—'
     return [`\`${e.id}\``, e.name, e.evidence, String(named(e.id)), slots, where]
   })
 
@@ -65,8 +73,12 @@ const table = [
   'entries, matching `KEYWORDS.md`: unnamed entries are argument-count and',
   'function-form variants of the keyword above them, and a name can legitimately',
   'appear twice (IOPorts declares `serial speed` at two ids). "Seen at" is the',
-  "slots corpus programs actually used it in, which is evidence; \"Slot\" is what",
-  "the config or the extension's own manual suggests, which is not.",
+  "slots corpus programs actually used it in, which is evidence; \"Slot\" is where",
+  'it belongs. Three kinds of answer, strongest first: "states N" is the',
+  'library\'s own word — `d2` at its extension-call-1025 sites is the extension',
+  'number, compiled in by whoever built it, and 62 rows carry one. "stock, slot',
+  'N" is +Interpreter_Config.s. "recommends N" is a manual or a wiki page, which',
+  'is a claim and not evidence. Eleven of the 62 have nothing but the binary.',
   '',
   '"Evidence" is what is available to read, not what has been read — see the tier',
   'rule above. Nearly every row says `source` or `disassembly` because a held',
