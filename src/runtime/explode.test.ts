@@ -1129,3 +1129,66 @@ describe('Explode: the XPK half, which reports its errors', () => {
     expect(run(`Reserve As Work 4,64 : Xpk Pack 4,"${name}",50 : Print Xpk Errn`)).toBe('0')
   })
 })
+
+describe('Explode: ByteKiller and the lh.library header', () => {
+  /** the smallest ByteKiller stream there is: one literal byte */
+  function bpk(): Uint8Array {
+    // 0 0 + three bits of 0 (one byte) + 'Z', with the packer's sentinel
+    const bits = [0, 0, 0, 0, 0, ...[0, 1, 0, 1, 1, 0, 1, 0]]
+    let head = 0
+    bits.forEach((b, n) => {
+      if (b) head = (head | (1 << n)) >>> 0
+    })
+    head = (head | (1 << bits.length)) >>> 0
+    const out = new Uint8Array(16)
+    const put = (at: number, v: number): void => {
+      out[at] = (v >>> 24) & 0xff
+      out[at + 1] = (v >>> 16) & 0xff
+      out[at + 2] = (v >>> 8) & 0xff
+      out[at + 3] = v & 0xff
+    }
+    put(0, 4)
+    put(4, 1)
+    put(8, 0x12345678)
+    put(12, head)
+    return out
+  }
+
+  function withBank(bytes: Uint8Array, src: string): { rt: Runtime; out: () => string } {
+    const b = boot(src)
+    b.rt.reserveBank(4, bytes.length, 'Work', false, false)
+    b.rt.memBanks.get(4)!.data.set(bytes)
+    return b
+  }
+
+  it('Bpk Length recognises a ByteKiller bank and answers its decrunched size', () => {
+    const b = withBank(bpk(), 'Print Bpk Length(4)')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('1')
+  })
+
+  it('and answers 0 for anything it does not recognise', () => {
+    expect(run('Reserve As Work 4,32 : Print Bpk Length(4)')).toBe('0')
+  })
+
+  it('Bpk Unpack replaces the bank with what came out', () => {
+    const b = withBank(bpk(), 'Bpk Unpack 4\nPrint Length(4);" ";Peek(Start(4))')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().replace(/\s+/g, ' ')).toBe('1 90')
+  })
+
+  it('and leaves a bank it does not recognise alone, without complaining', () => {
+    // the sniff fails and the routine falls through to `Bk9`, a bare rts
+    expect(run('Reserve As Work 4,32 : Bpk Unpack 4 : Print Length(4)')).toBe('32')
+  })
+
+  it('Lpk Length reads lh.library’s own LH18 marker', () => {
+    const lh = new Uint8Array(16)
+    lh.set([0x4c, 0x48, 0x31, 0x38]) // "LH18"
+    lh[7] = 0x40 // decoded length 64 at offset 4
+    const b = withBank(lh, 'Print Lpk Length(4)')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim()).toBe('64')
+    expect(run('Reserve As Work 4,32 : Print Lpk Length(4)')).toBe('0')
+  })
+})

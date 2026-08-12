@@ -1595,6 +1595,14 @@ export const FAITHFUL = new Set<string>([
   'ppk type', 'ppk name$', 'ppk passkey', 'ppk password', 'ppk data',
   'xpk length', 'xpk name$', 'xpk unpack', 'xpk errn', 'xpk err$',
   'xpk pack', 'xpk crypt',
+  // Batch 12a -- the three of the last seven that need no external library.
+  // ByteKiller is the reason this is possible: routine 74 does not call out,
+  // it carries the whole decruncher inline as `Bk1` to `Bk9`, so the
+  // algorithm is in the vendored SOURCE rather than in a binary. See
+  // ../amiga/bytekiller.ts. `Bpk Length` is a header sniff with a real hole
+  // in it, reproduced. `Lpk Length` reads lh.library's own "LH18" marker
+  // without needing the library.
+  'bpk unpack', 'bpk length', 'lpk length',
   'delta inter on', 'delta inter off', 'delta mouse off', 'delta reset',
   'delta drive motor on', 'delta drive motor off', 'delta change disk',
   'delta wait left mouse', 'delta wait fire', 'delta wait double mouse',

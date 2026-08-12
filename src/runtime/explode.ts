@@ -66,6 +66,7 @@ import { civilFromStamp } from '../amiga/datestamp'
 import { joyFire } from '../interp/gameport'
 import { parseIlbm } from '../loader/iff'
 import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
+import { bpkDecrunch, bpkLength } from '../amiga/bytekiller'
 import { XPK_MAGIC, XPK_PACKERS, XPKERR_NOFUNC, xpkErrorText, xpkParseMethod, xpkUnpack } from '../amiga/xpkmaster'
 
 /**
@@ -532,6 +533,31 @@ export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   return {
+    /**
+     * `Bpk Unpack bk` — routine 74 ($1702), and the only decruncher in this
+     * library the author WROTE OUT rather than called a library for.
+     *
+     * `Bk1` to `Bk9`, sixty-odd instructions inline, which is why this port
+     * has ByteKiller at all: the algorithm is in the vendored source rather
+     * than in a binary nobody kept. See ../amiga/bytekiller.ts.
+     *
+     * A bank `L_GetBpkLen` does not recognise falls straight through to `Bk9`
+     * — a bare `rts` — so it is silent, not an error. Success reserves a bank
+     * at the first free number and head-clones the source's onto it, the same
+     * arrangement `Ppk Unpack` and `Xpk Unpack` use.
+     */
+    'bpk unpack'(it) {
+      const bk = it.evalInt()
+      const data = ppkBank(rt, bk)
+      if (!data || bpkLength(data) === 0) return
+      try {
+        replaceBank(rt, bk, bpkDecrunch(data))
+      } catch {
+        // the original has no bounds check anywhere in those sixty
+        // instructions; a corrupt stream takes the machine with it
+      }
+    },
+
     /**
      * `Ppk Pack bk [,efficiency]` — routines 79 and 80 ($1910 and $1924),
      * both into `L_PpkPack` (routine 168, $324e).
@@ -1952,6 +1978,34 @@ export function makeExplodeFunctions(rt: Runtime): Record<string, Func> {
     'ipk length': (_, a): Value => {
       const d = ppkBank(rt, int(a[0]!))
       return VI(d && bankLong(d, 0) === 0x494d5021 ? bankLong(d, 4) | 0 : 0)
+    },
+
+    /**
+     * =Bpk Length(bk) — routine 75 ($17f4), which is `L_GetBpkLen` and
+     * nothing else.
+     *
+     * A sniff rather than a magic number, and it has a real hole in it — see
+     * `bpkLength` in ../amiga/bytekiller.ts, which reproduces the `tst.b
+     * 5(a0)` that rejects anything decrunching to 64KB or more.
+     */
+    'bpk length': (_, a): Value => {
+      const d = ppkBank(rt, int(a[0]!))
+      return VI(d ? bpkLength(d) : 0)
+    },
+
+    /**
+     * =Lpk Length(bk) — routine 139 ($27c2): the decoded length out of an
+     * lh.library bank, or 0.
+     *
+     * `cmpi.l #"LH18",(a0)` and the longword at 4 — the two-longword header
+     * `Lpk Pack` writes in front of what lh.library's `LhEncode` produced.
+     * The magic is the library's own version marker rather than anything
+     * standard, so a bank packed by any other LZH tool will not be
+     * recognised.
+     */
+    'lpk length': (_, a): Value => {
+      const d = ppkBank(rt, int(a[0]!))
+      return VI(d && bankLong(d, 0) === 0x4c483138 ? bankLong(d, 4) | 0 : 0)
     },
 
     /**
