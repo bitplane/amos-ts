@@ -1521,6 +1521,13 @@ export const FAITHFUL = new Set<string>([
   'byte', 'byte$', 'word', 'word$', 'long', 'long$',
   'lsl.b', 'lsl.w', 'lsl.l', 'lsr.b', 'lsr.w', 'lsr.l',
   'even', 'odd', 'align',
+  // Batch 2, `TextCmd` -- routines 33 to 40. Six three-byte escape builders
+  // over one shared routine, the eight-sequence Pdef$ constant, and Format$,
+  // which is exec's RawDoFmt and not the author's own. THREE of the six
+  // escapes did not exist in this port's console until this batch: ESC I, S
+  // and U are what `Inverse On`, `Shade On` and `Under On` look like inside a
+  // string, and screen.ts ignored all three.
+  'pinv$', 'psad$', 'pund$', 'pcpn$', 'pjam$', 'pcsr$', 'pdef$', 'format$',
   'delta inter on', 'delta inter off', 'delta mouse off', 'delta reset',
   'delta drive motor on', 'delta drive motor off', 'delta change disk',
   'delta wait left mouse', 'delta wait fire', 'delta wait double mouse',

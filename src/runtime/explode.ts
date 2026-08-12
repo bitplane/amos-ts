@@ -80,7 +80,147 @@ function shifted(value: number, count: number, bits: number, left: boolean): num
   return ((whole & (mask ^ 0xffff_ffff)) | out) | 0
 }
 
-export function makeExplodeFunctions(_rt: Runtime): Record<string, Func> {
+/**
+ * `Pdef$`'s twenty-four constant bytes — routine 39 ($1240), assembled as
+ * three longwords and read out here as what they are.
+ *
+ *     ESC I 0   inverse off      ESC B 0   paper 0
+ *     ESC S 0   shade off        ESC D 3   cursor colour 3
+ *     ESC U 0   underline off    ESC W 0   writing mode 0
+ *     ESC P 1   pen 1            ESC C 1   cursor on
+ *
+ * So "default" is the author's idea of it rather than AMOS's boot state, and
+ * it sets two things no other keyword in the group can reach — the pen and
+ * the paper.
+ */
+const PDEF = '\x1bI0\x1bS0\x1bU0\x1bP1\x1bB0\x1bD3\x1bW0\x1bC1'
+
+/**
+ * exec's `RawDoFmt` (-522), enough of it for `Format$`.
+ *
+ * The extension does not format anything itself: routine 40 hands the string
+ * and a data pointer straight to exec and copies back what lands in AMOS's
+ * scratch buffer. So the specification is exec's, and the part that matters
+ * is the ARGUMENT WIDTH — `%d` takes a WORD off the buffer and `%ld` a
+ * longword, which is why the author's own example feeds it `Rs Word` and not
+ * `Rs Long`:
+ *
+ *     A$="Extension:%s Version:%d.%d Datum:%x-%x-%x"
+ *     Print Format$(A$,Rs Start(0))
+ *
+ * `%s` takes a longword POINTER to NUL-terminated characters, which is what
+ * `Rs Aptr` puts in the buffer.
+ */
+function rawDoFmt(rt: Runtime, fmt: string, base: number): string {
+  let out = ''
+  let off = 0
+  const word = (): number => {
+    const v = readWord(rt, base + off)
+    off += 2
+    return v
+  }
+  const long = (): number => {
+    const v = readLong(rt, base + off)
+    off += 4
+    return v
+  }
+  for (let i = 0; i < fmt.length; i++) {
+    if (fmt[i] !== '%') {
+      out += fmt[i]
+      continue
+    }
+    i++
+    if (fmt[i] === '%') {
+      out += '%'
+      continue
+    }
+    let left = false
+    let pad = ' '
+    if (fmt[i] === '-') {
+      left = true
+      i++
+    }
+    if (fmt[i] === '0') {
+      pad = '0'
+      i++
+    }
+    let width = ''
+    while (fmt[i] !== undefined && fmt[i]! >= '0' && fmt[i]! <= '9') width += fmt[i++]
+    let limit = ''
+    if (fmt[i] === '.') {
+      i++
+      while (fmt[i] !== undefined && fmt[i]! >= '0' && fmt[i]! <= '9') limit += fmt[i++]
+    }
+    const isLong = fmt[i] === 'l'
+    if (isLong) i++
+    const type = fmt[i] ?? ''
+    let text: string
+    switch (type) {
+      case 'd':
+        text = String(isLong ? long() | 0 : ((word() << 16) >> 16))
+        break
+      case 'u':
+        text = String((isLong ? long() : word()) >>> 0)
+        break
+      case 'x':
+        text = ((isLong ? long() : word()) >>> 0).toString(16)
+        break
+      case 'c':
+        text = String.fromCharCode((isLong ? long() : word()) & 0xff)
+        break
+      case 's':
+        text = cstring(rt, long())
+        break
+      default:
+        // exec copies an unrecognised specifier through untouched
+        out += `%${type}`
+        continue
+    }
+    if (limit !== '' && type === 's') text = text.slice(0, Number(limit))
+    const w = Number(width || 0)
+    if (text.length < w) text = left ? text.padEnd(w, ' ') : text.padStart(w, pad)
+    out += text
+  }
+  return out
+}
+
+/** a word out of the address space, big-endian */
+function readWord(rt: Runtime, addr: number): number {
+  const m = rt.resolveAddr(addr >>> 0)
+  if (!m) return 0
+  return ((m.data[m.off] ?? 0) << 8) | (m.data[m.off + 1] ?? 0)
+}
+
+/** a longword out of the address space, big-endian */
+function readLong(rt: Runtime, addr: number): number {
+  const v = rt.longsAt(addr, false)
+  return v ? v.get(0) : 0
+}
+
+/** NUL-terminated characters at an address, bounded so a bad pointer cannot hang */
+function cstring(rt: Runtime, addr: number): string {
+  const m = rt.resolveAddr(addr >>> 0)
+  if (!m) return ''
+  let s = ''
+  for (let i = m.off; i < m.data.length && m.data[i] !== 0 && s.length < 4096; i++) {
+    s += String.fromCharCode(m.data[i]!)
+  }
+  return s
+}
+
+export function makeExplodeFunctions(rt: Runtime): Record<string, Func> {
+  /**
+   * Routine 163 ($3841 in the source, `L_PrtSeq`), which all six of the
+   * Pxxx$ keywords tail into: three bytes, ESC then the routine's own letter
+   * then `arg + "0"`.
+   *
+   * The addition is a BYTE add, so an argument of 10 gives ":" rather than
+   * being rejected, and one of 208 wraps back round to "0". The console then
+   * reads whatever character arrived; nothing here range-checks.
+   */
+  const seq = (letter: string): Func =>
+    (_, a): Value => VS(`\x1b${letter}${String.fromCharCode((int(a[0]!) + 0x30) & 0xff)}`)
+
   /** the shared body of Lsl.b/.w/.l and Lsr.b/.w/.l — routines 65 to 70 */
   const shift = (bits: number, left: boolean): Func =>
     (_, a): Value => VI(shifted(int(a[1]!), int(a[0]!), bits, left))
@@ -163,6 +303,58 @@ export function makeExplodeFunctions(_rt: Runtime): Record<string, Func> {
       if (n === 0) funcCall()
       const rem = (v % n) & 0xffff
       return VI(rem === 0 ? v : (v + n - rem) | 0)
+    },
+
+    /*
+     * The print sequences — routines 33 to 38 ($1210 to $1238), one letter
+     * each into the shared builder.
+     *
+     * These build STRINGS for AMOS's own Print and change nothing themselves,
+     * which is what makes them worth having: `Inverse On` is an instruction
+     * and cannot happen in the middle of a Print, where `Pinv$(1)` can. The
+     * manual's example is exactly that shape:
+     *
+     *     Print "Ein ";Pinv$(1);" negativ ";Pinv$(0);" Beispiel"
+     *
+     * THREE OF THE SIX ESCAPES DID NOT EXIST IN THIS PORT until they were
+     * written for this batch. The console handled ESC P, B, C, D, W and six
+     * more, and ignored I, S and U — so a program of the shape above printed
+     * the escape bytes as characters. Added to ../runtime/screen.ts against
+     * the same three window fields `Inverse On`, `Shade On` and `Under On`
+     * set. That is a gap in the CORE, found by porting an extension.
+     */
+    'pinv$': seq('I'),
+    'psad$': seq('S'),
+    'pund$': seq('U'),
+    'pcpn$': seq('D'),
+    'pjam$': seq('W'),
+    'pcsr$': seq('C'),
+
+    /** =Pdef$ — routine 39 ($1240): the eight-sequence constant above */
+    'pdef$': (): Value => VS(PDEF),
+
+    /**
+     * =Format$("fmt",buffer) — routine 40 ($1264).
+     *
+     * `Rjsr L_Bnk.OrAdr` on the second argument, so it is a bank number or an
+     * address, and then the whole job goes to exec: `EXE RawDoFmt` with the
+     * format string, the buffer as the argument stream and a two-instruction
+     * callback that appends a byte. The result is measured, a string is
+     * reserved and it is copied in.
+     *
+     * So the formatter is exec's, not the author's, and the widths are
+     * exec's too -- `%d` eats a WORD. See `rawDoFmt`.
+     */
+    'format$': (_, a): Value => {
+      const fmt = str(a[0]!)
+      const where = int(a[1]!)
+      // bankOrAddr raises 'bank not reserved' for a bank that is not there,
+      // which is what L_Bnk.OrAdr does
+      const m = rt.bankOrAddr(where)
+      if (!m) return VS('')
+      // the arguments are walked by ADDRESS rather than through `m`, because
+      // %s follows a pointer that may land in another region entirely
+      return VS(rawDoFmt(rt, fmt, where >= 0 && where < 0x10000 ? rt.bankBase(where) : where))
     },
   }
 }

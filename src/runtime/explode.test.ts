@@ -123,3 +123,107 @@ describe('Explode: Even, Odd and Align', () => {
     expect(() => run('A=Align(10,0)')).toThrow(/function call/i)
   })
 })
+
+describe('Explode: the print sequences', () => {
+  /*
+   * Routines 33 to 38 all tail into one three-byte builder: ESC, the
+   * routine's own letter, and the argument plus "0". They change nothing
+   * themselves — AMOS's Print does the work when it meets the escape.
+   */
+  it('each is ESC, a letter and a digit', () => {
+    expect(val('Len(Pinv$(1))')).toBe('3')
+    expect(val('Asc(Mid$(Pinv$(1),1,1))')).toBe('27')
+    expect(val('Mid$(Pinv$(1),2,2)')).toBe('I1')
+    expect(val('Mid$(Psad$(0),2,2)')).toBe('S0')
+    expect(val('Mid$(Pund$(1),2,2)')).toBe('U1')
+    expect(val('Mid$(Pcpn$(3),2,2)')).toBe('D3')
+    expect(val('Mid$(Pjam$(2),2,2)')).toBe('W2')
+    expect(val('Mid$(Pcsr$(0),2,2)')).toBe('C0')
+  })
+
+  it('the digit is a BYTE add, so an argument past 9 runs off the end of the digits', () => {
+    // `addi.b #"0",d1` with nothing to stop it
+    expect(val('Mid$(Pinv$(10),3,1)')).toBe(':')
+    expect(val('Asc(Mid$(Pinv$(208),3,1))')).toBe('0') // wrapped right round
+  })
+
+  it('Pdef$ is eight sequences and sets the pen and paper the others cannot', () => {
+    expect(val('Len(Pdef$)')).toBe('24')
+    // ESC I0 S0 U0 P1 B0 D3 W0 C1
+    expect(val('Mid$(Pdef$,2,2)')).toBe('I0')
+    expect(val('Mid$(Pdef$,11,2)')).toBe('P1')
+    expect(val('Mid$(Pdef$,14,2)')).toBe('B0')
+    expect(val('Mid$(Pdef$,23,2)')).toBe('C1')
+  })
+
+  it('and AMOS Print ACTS on them, which needed three escapes core did not have', () => {
+    // ESC I, S and U were missing from screen.ts until this batch; the
+    // manual's own shape is `Print "a";Pinv$(1);"b"`
+    const rt = boot('Print Pinv$(1);"x"').rt
+    mustFinish(rt.runHeadless(2_000))
+    expect(rt.screen.curWin.inverse).toBe(true)
+    const off = boot('Print Pinv$(1);"x";Pinv$(0);"y"').rt
+    mustFinish(off.runHeadless(2_000))
+    expect(off.screen.curWin.inverse).toBe(false)
+  })
+
+  it('Pund$ and Psad$ reach the same fields Under On and Shade On set', () => {
+    const u = boot('Print Pund$(1);"x"').rt
+    mustFinish(u.runHeadless(2_000))
+    expect(u.screen.curWin.style & 1).toBe(1)
+    const s = boot('Print Psad$(1);"x"').rt
+    mustFinish(s.runHeadless(2_000))
+    expect(s.screen.curWin.shade).toBe(true)
+  })
+
+  it('and Pdef$ puts all three back, plus the pen and paper', () => {
+    const rt = boot('Pen 5 : Paper 3 : Inverse On : Under On : Shade On\nPrint Pdef$').rt
+    mustFinish(rt.runHeadless(2_000))
+    const w = rt.screen.curWin
+    expect([w.inverse, w.shade, w.style & 1]).toEqual([false, false, 0])
+    expect([w.pen, w.paper]).toEqual([1, 0])
+  })
+})
+
+describe('Explode: Format$, which is exec RawDoFmt', () => {
+  /*
+   * Routine 40 hands the string and a buffer to exec and copies back what
+   * comes out, so the widths are exec's: %d eats a WORD off the buffer and
+   * %ld a longword. The author's own example feeds it Rs Word for %d.
+   */
+  const withBuf = (fmt: string, pokes: string[]): string =>
+    val(`Format$("${fmt}",Start(9))`, ['Reserve As Work 9,64', ...pokes].join('\n'))
+
+  it('%d takes a WORD and %ld a longword', () => {
+    expect(withBuf('v=%d', ['Doke Start(9),1234'])).toBe('v=1234')
+    expect(withBuf('v=%ld', ['Loke Start(9),123456'])).toBe('v=123456')
+    // and %d is signed off that word
+    expect(withBuf('v=%d', ['Doke Start(9),$FFFF'])).toBe('v=-1')
+  })
+
+  it('walks the buffer, one argument after another', () => {
+    expect(withBuf('%d.%d', ['Doke Start(9),1', 'Doke Start(9)+2,53'])).toBe('1.53')
+    expect(withBuf('%x-%x', ['Doke Start(9),$28', 'Doke Start(9)+2,$4'])).toBe('28-4')
+  })
+
+  it('%s follows a longword POINTER, which is what Rs Aptr leaves', () => {
+    const src = [
+      'Reserve As Work 9,64',
+      'A$="Explode"+Chr$(0)',
+      'Loke Start(9),Varptr(A$)',
+      'Print Format$("name=%s",Start(9))',
+    ].join('\n')
+    expect(run(src)).toBe('name=Explode')
+  })
+
+  it('handles a width, a zero pad and a literal percent', () => {
+    expect(withBuf('[%6d]', ['Doke Start(9),42'])).toBe('[ 42]')
+    expect(withBuf('[%-6d]', ['Doke Start(9),42'])).toBe('[42 ]')
+    expect(withBuf('[%06d]', ['Doke Start(9),42'])).toBe('[000042]')
+    expect(withBuf('100%%', [])).toBe('100%')
+  })
+
+  it('and a bank that was never reserved is AMOS error 36', () => {
+    expect(() => run('A$=Format$("x",9)')).toThrow(/bank not reserved/i)
+  })
+})

@@ -1203,6 +1203,34 @@ export class Screen {
             this.cursorOn = arg(1) !== 0
             ti += 2
             break
+          /*
+           * The three TEXT STYLES, and they were missing until Explode
+           * 2.01's port went looking for them.
+           *
+           * `Inverse On`, `Shade On` and `Under On` are instructions here and
+           * were only instructions, so nothing could turn a style on in the
+           * MIDDLE of a string — which is the whole reason the escape form
+           * exists. Explode's Pinv$, Psad$ and Pund$ are three-byte builders
+           * for exactly these, and its manual uses them inline:
+           *
+           *     Print "Ein ";Pinv$(1);" negativ ";Pinv$(0);" Beispiel"
+           *
+           * so a program of that shape printed the escapes as text. The
+           * fields are the same three the instructions set.
+           */
+          case 'I':
+            w.inverse = arg(1) !== 0
+            ti += 2
+            break
+          case 'S':
+            w.shade = arg(1) !== 0
+            ti += 2
+            break
+          case 'U':
+            if (arg(1) !== 0) w.style |= 1
+            else w.style &= ~1
+            ti += 2
+            break
           case 'W':
             w.writing2 = arg(1) >> 3
             w.writing1 = arg(1) & 7
