@@ -59,6 +59,50 @@ import type { Runtime } from './runtime'
 import { AmosError, VI, VS, funcCall, int, str, type Value } from '../interp/values'
 import { BNK, BOB_BANK, ICON_BANK, isObjectBank, type BankRef } from './banks'
 import type { ObjectBank } from './objects'
+import { MemPool } from '../amiga/exec'
+
+/**
+ * Where the Rs pool is mapped, matching `Runtime.EXPLODE_HEAP_BASE` and
+ * `EXPLODE_HEAP_RESERVED`. Spelled out rather than imported because
+ * `./runtime` is a TYPE-only import here; `memmap.test.ts` holds the two to
+ * agreeing.
+ */
+const HEAP_BASE = 0x3800_0000
+const HEAP_RESERVED = 0x0200_0000
+
+/** `my_RsMax` — eight structures, and the source says so twice */
+const RS_MAX = 8
+
+/**
+ * One `Rs Structure`, which on the machine is twelve bytes of the extension's
+ * data zone: `my_RsStart` 0, `my_RsLength` 4, `my_RsPosition` 8, with
+ * `my_RsSIZEOF` 12 and `my_RsStruc rs.b 12*8` holding all eight (source lines
+ * 104-109).
+ *
+ * `start` of zero means unallocated and the routines test exactly that, so
+ * the three fields are kept as the library keeps them rather than collapsed
+ * into an optional.
+ */
+export interface RsStruct {
+  /** `my_RsStart` — the address `=Rs Start(n)` answers, 0 when unallocated */
+  start: number
+  /** `my_RsLength` — what was asked for, and what `Rs Clear` zeroes */
+  length: number
+  /** `my_RsPosition` — the write cursor every Rs Byte/Word/Long advances */
+  position: number
+}
+
+export interface ExplodeState {
+  /** `L_RamFast`/`L_RamFree`, and the strings `Rs Aptr` leaves pointers to */
+  pool: MemPool
+  /** the eight descriptors, 0 to 7 */
+  rs: RsStruct[]
+}
+
+export const newExplodeState = (): ExplodeState => ({
+  pool: new MemPool(HEAP_BASE, HEAP_RESERVED),
+  rs: Array.from({ length: RS_MAX }, () => ({ start: 0, length: 0, position: 0 })),
+})
 
 /**
  * The characters of an AMOS string as bytes, padded with zeros.
@@ -305,6 +349,53 @@ function checkName(name: string): string {
   return name
 }
 
+/**
+ * The prologue every one of the seventeen Rs routines opens with:
+ *
+ *     cmpi.l #my_RsMax,d7        8
+ *     Rbge   L_IFunc             (Rs Length and Rs Erase n take .Skip instead)
+ *     mulu   #my_RsSIZEOF,d7     12
+ *     XLEA   my_RsStruc,a0 / adda.l d7,a0
+ *
+ * DEVIATION: A NEGATIVE NUMBER IS NOT CAUGHT BY THAT COMPARE. `cmpi.l/bge` is
+ * signed, so -1 gets past it, and `mulu` is a 16-by-16 UNSIGNED multiply that
+ * sees only d7's low word — so `Rs Structure -1,10` computes 65535 * 12 and
+ * writes a descriptor 786,420 bytes past the data zone, into whatever the
+ * extension's neighbour is using. There is no linear data zone here to walk
+ * off the end of, so this port has nothing to walk into: a negative number is
+ * out of range, and out of range is what these routines already have an
+ * answer for.
+ *
+ * `raise` says which answer. Fifteen routines raise error 23; `Rs Length` and
+ * `Rs Erase n` branch quietly to their own `rts`.
+ */
+function rsSlot(rt: Runtime, n: number, raise: boolean): RsStruct | null {
+  if (n < 0 || n >= RS_MAX) {
+    if (raise) funcCall()
+    return null
+  }
+  return rt.explode.rs[n]!
+}
+
+/**
+ * The second half of most of them: the cursor, which must not be zero.
+ *
+ * `move.l my_RsPosition(a0),d0 / Rbeq L_IFunc` — writing to a structure that
+ * was never allocated is error 23, and the test is on the POSITION rather
+ * than the start.
+ */
+function rsCursor(rt: Runtime, n: number): { st: RsStruct; at: number } {
+  const st = rsSlot(rt, n, true)!
+  if (st.position === 0) funcCall()
+  return { st, at: st.position }
+}
+
+/** one byte into the address space at `addr`, wherever that lands */
+function poke(rt: Runtime, addr: number, v: number): void {
+  const m = rt.resolveWrite(addr >>> 0)
+  if (m && m.off < m.data.length) m.data[m.off] = v & 0xff
+}
+
 export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
   /**
    * Routine 167 ($31c6, `L_BankLoad`), the shared body all four `Bank Load`
@@ -337,6 +428,207 @@ export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
   }
 
   return {
+    /**
+     * `Rs Structure n,size` — routine 41 ($12b2), which is the whole group's
+     * `Reserve As Work`.
+     *
+     * Frees whatever the slot held first, then `L_RamFast` for `size`, and
+     * sets all three fields: start and position to the address, length to
+     * the size. So a fresh structure's cursor is at its start.
+     *
+     * The manual: *"Hierbei können gleichzeitig 8 verschiedene Strukturen
+     * (0-7) bearbeitet werden. Die größe einer Struktur wird in Bytes
+     * übergeben."*
+     *
+     * NOTE: nothing checks that the size is positive. `RamFast` of zero or
+     * less fails and comes back through `Rbeq L_OOfmem`, which is error 24,
+     * and that is what happens here — the pool returns 0 for any length at
+     * or below zero.
+     */
+    'rs structure'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const size = it.evalInt()
+      const st = rsSlot(rt, n, true)!
+      if (st.start !== 0) rt.explode.pool.freeMem(st.start)
+      const at = rt.explode.pool.alloc(size)
+      if (at === 0) amosError(24, 'Out of memory')
+      st.start = at
+      st.length = size
+      st.position = at
+    },
+
+    /**
+     * `Rs Clear n` — routine 45 ($1382): `clr.b (a1)+` for `Length` bytes.
+     *
+     * DEVIATION: the loop is not guarded and this port will not run it as
+     * written. `movea.l my_RsStart(a0),a1 / move.l my_RsLength(a0),d0 /
+     * subq.l #1,d0` with nothing between them, so on a structure that was
+     * never allocated a1 is 0 and d0 becomes -1 — and `dbra` tests the low
+     * WORD, so it writes 65,536 zero bytes starting at address 0. That is
+     * the vector table, and it is the end of the machine. An unallocated
+     * structure clears nothing here.
+     */
+    'rs clear'(it) {
+      const st = rsSlot(rt, it.evalInt(), true)!
+      if (st.start === 0) return
+      for (let i = 0; i < st.length; i++) poke(rt, st.start + i, 0)
+    },
+
+    /**
+     * `Rs Fill n,char,count` — routine 46 ($13b0), and TWO quirks in eleven
+     * instructions.
+     *
+     * FIRST, the guard is the wrong quantity. `cmp.l my_RsLength(a0),d6 /
+     * bge.s .2` tests the COUNT against the structure's LENGTH, not the
+     * cursor against the end — so a count at or above the length writes
+     * NOTHING AT ALL, and a count below it writes from wherever the cursor
+     * happens to be with no bound on the far end. Filling the last four
+     * bytes of a fifty-byte structure runs off it.
+     *
+     * SECOND, FILLING WITH CHARACTER ZERO WRITES ONE BYTE. The loop closes
+     * with `dbeq d6,.1` and the `move.b d5,(a1)+` before it sets Z when the
+     * byte written is zero, so the first pass satisfies the EQ and falls
+     * out. `Rs Fill 0,0,100` is not how you clear a structure; `Rs Clear` is.
+     *
+     * The count is a countdown from `count` to -1, so `count + 1` bytes.
+     */
+    'rs fill'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const char = it.evalInt() & 0xff
+      it.expect(',')
+      const count = it.evalInt()
+      const { st } = rsCursor(rt, n)
+      if (count >= st.length) return
+      let at = st.position
+      for (let d = count; d >= 0; d--) {
+        poke(rt, at++, char)
+        if (char === 0) break
+      }
+      st.position = at
+    },
+
+    /**
+     * `Rs Byte n,#`, `Rs Word n,#` and `Rs Long n,#` — routines 47, 48 and 49
+     * ($13ec, $141c and $1456). One, two and four bytes at the cursor,
+     * big-endian, and the cursor moves by what was written.
+     *
+     * Word and Long do it the long way round on purpose. `movea.l a3,a2 /
+     * lea 4(a3),a3` takes the ADDRESS of the argument still sitting on the
+     * stack and then copies out of it a byte at a time — `move.b 2(a2),(a1)+
+     * / move.b 3(a2),(a1)+` for a word, a `REPT 4` for a long. The author's
+     * comment says why: *"Auch ungerade Adresse"*. A `move.w` to an odd
+     * address is an address error on a 68000, and a structure cursor lands
+     * wherever the fields before it left it.
+     */
+    'rs byte': (it) => rsPut(rt, it, 1),
+    'rs word': (it) => rsPut(rt, it, 2),
+    'rs long': (it) => rsPut(rt, it, 4),
+
+    /**
+     * `Rs Aptr n,$` — routine 50 ($1490): a POINTER to a NUL-terminated copy
+     * of the string, four bytes at the cursor.
+     *
+     * This is what fills the argument buffer `Format$`'s `%s` reads, and the
+     * author's own example is `Rs Aptr 0,"..."` then `Format$(A$,Rs
+     * Start(0))`.
+     *
+     * AN EMPTY STRING DOES NOTHING. `move.w (a2)+,d0 / beq.s .Skip` — not a
+     * null pointer, not four zero bytes; the cursor does not even move.
+     *
+     * DEFECT: it copies ONE CHARACTER TOO MANY. `dbeq d0,.1` counts d0 down
+     * from the length to -1, which is length+1 passes, so the byte after the
+     * string comes along with it and the NUL goes after THAT. On the machine
+     * that byte is whatever the string workspace holds next. DEVIATION: the
+     * length is reproduced and the byte is zero, the same choice `chars`
+     * makes above — inventing a neighbour is worse than being short.
+     *
+     * DEVIATION: the pointer outlives the string on the machine and does not
+     * here. `L_GetSpace` takes AMOS's string workspace, which the next
+     * expression may reuse, so a stored Aptr can go stale; this pool does
+     * not move.
+     */
+    'rs aptr'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const text = it.evalStr()
+      const { st } = rsCursor(rt, n)
+      if (text.length === 0) return
+      const body = rsCopyLength(text)
+      const at = rt.explode.pool.alloc(body.length + 1)
+      if (at === 0) amosError(24, 'Out of memory')
+      for (let i = 0; i < body.length; i++) poke(rt, at + i, body.charCodeAt(i))
+      poke(rt, at + body.length, 0)
+      for (let i = 0; i < 4; i++) poke(rt, st.position + i, (at >>> (24 - i * 8)) & 0xff)
+      st.position += 4
+    },
+
+    /**
+     * `Rs Char n,$` — routine 51 ($14dc): the characters themselves, with no
+     * terminator, and the cursor moves past them.
+     *
+     * An empty string does nothing, as `Rs Aptr` does nothing, and the same
+     * `dbeq` copies one byte too many — so the cursor advances by LENGTH + 1
+     * and the last of them is not a character of the string. Both are
+     * reproduced; see `Rs Aptr` for what the extra byte is.
+     */
+    'rs char'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const text = it.evalStr()
+      const { st } = rsCursor(rt, n)
+      if (text.length === 0) return
+      const body = rsCopyLength(text)
+      for (let i = 0; i < body.length; i++) poke(rt, st.position + i, body.charCodeAt(i))
+      st.position += body.length
+    },
+
+    /**
+     * `Rs Set n,offset`, `Rs Bset n,#`, `Rs Wset n,#` and `Rs Lset n,#` —
+     * routines 52 to 55 ($1516, $1544,
+     * $1572 and $15a2).
+     *
+     * `Rs Set` puts the cursor at START plus the offset and is the only one
+     * that reads the start; the other three move it by the amount times one,
+     * two and four. The manual: *"Die Werte können dabei auch Negativ
+     * sein."*
+     *
+     * `Rs Set` tests the START and raises on an unallocated structure; the
+     * three relative ones test the POSITION. Same answer, different field.
+     */
+    'rs set'(it) {
+      const n = it.evalInt()
+      it.expect(',')
+      const off = it.evalInt()
+      const st = rsSlot(rt, n, true)!
+      if (st.start === 0) funcCall()
+      st.position = (st.start + off) | 0
+    },
+    'rs bset': (it) => rsMove(rt, it, 1),
+    'rs wset': (it) => rsMove(rt, it, 2),
+    'rs lset': (it) => rsMove(rt, it, 4),
+
+    /**
+     * `Rs Erase [n]` — routines 56 and 57 ($15d2 and $15d6), the second of
+     * which is `L_RsEraseAll` (routine 184, $3a4c) walking all eight.
+     *
+     * Both free the block and clear the three fields, and both are silent
+     * about a number out of range.
+     *
+     * NOTE: `move.l my_RsLength(a0),d0 / beq.s .Skip` — A ZERO LENGTH SKIPS
+     * THE WHOLE THING, fields included. `Rs Structure 0,0` cannot happen
+     * (the allocation fails first), so the only way to see it is a structure
+     * that was already erased, where there is nothing to clear anyway.
+     */
+    'rs erase'(it) {
+      if (it.atStmtEnd()) {
+        for (let n = 0; n < RS_MAX; n++) rsErase(rt, n)
+        return
+      }
+      rsErase(rt, it.evalInt())
+    },
+
     /**
      * `Bank Load name$ [To bk] [,mask]` — routines 19 to 22 ($fa6, $fbe, $fd6, $fea).
      *
@@ -495,6 +787,52 @@ export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
   }
 }
 
+/**
+ * How many bytes `Rs Aptr` and `Rs Char` actually copy.
+ *
+ * `dbeq d0,.1` after `move.b (a2)+,(a1)+` counts d0 down from the LENGTH to
+ * -1, which is length+1 passes, and the EQ ends it early on a zero byte. So
+ * the copy is one character longer than the string unless the string has a
+ * NUL in it, in which case it stops there.
+ */
+function rsCopyLength(text: string): string {
+  const stop = text.indexOf('\0')
+  return stop >= 0 ? text.slice(0, stop + 1) : `${text}\0`
+}
+
+/** the shared body of Rs Byte, Rs Word and Rs Long — routines 47, 48 and 49 */
+function rsPut(rt: Runtime, it: Parameters<Instr>[0], width: number): void {
+  const n = it.evalInt()
+  it.expect(',')
+  const v = it.evalInt()
+  const { st } = rsCursor(rt, n)
+  // big-endian, and byte at a time because the routines are: the low
+  // `width` bytes of the longword the argument arrived as
+  for (let i = 0; i < width; i++) poke(rt, st.position + i, (v >>> ((width - 1 - i) * 8)) & 0xff)
+  st.position += width
+}
+
+/** the shared body of Rs Bset, Rs Wset and Rs Lset — routines 53, 54 and 55 */
+function rsMove(rt: Runtime, it: Parameters<Instr>[0], scale: number): void {
+  const n = it.evalInt()
+  it.expect(',')
+  const by = it.evalInt()
+  const { st } = rsCursor(rt, n)
+  st.position = (st.position + by * scale) | 0
+}
+
+/** one slot of Rs Erase — routine 57, and the body L_RsEraseAll repeats */
+function rsErase(rt: Runtime, n: number): void {
+  const st = rsSlot(rt, n, false)
+  // `move.l my_RsLength(a0),d0 / beq.s .Skip`: a zero length leaves even the
+  // fields alone
+  if (!st || st.length === 0) return
+  if (st.start !== 0) rt.explode.pool.freeMem(st.start)
+  st.start = 0
+  st.length = 0
+  st.position = 0
+}
+
 /** the shared lookup of Image Width and Image Height — bank, then index */
 function imageOf(rt: Runtime, a: Value[]): BankImageLike | null {
   const ref = orAdr(rt, int(a[0]!))
@@ -597,6 +935,50 @@ export function makeExplodeFunctions(rt: Runtime): Record<string, Func> {
     'lsr.b': shift(8, false),
     'lsr.w': shift(16, false),
     'lsr.l': shift(32, false),
+
+    /**
+     * =Rs Start(n) — routine 42 ($130a): the structure's address, which is
+     * what a program Pokes through and what `Format$` is handed.
+     *
+     * UNALLOCATED IS ERROR 23, not zero: `move.l my_RsStart(a0),d3 / Rbeq
+     * L_IFunc`. Only `Rs Length` answers for a structure that is not there.
+     */
+    'rs start': (_, a): Value => {
+      const st = rsSlot(rt, int(a[0]!), true)!
+      if (st.start === 0) funcCall()
+      return VI(st.start)
+    },
+
+    /** =Rs Finish(n) — routine 43 ($1332): start + length, and error 23 unallocated */
+    'rs finish': (_, a): Value => {
+      const st = rsSlot(rt, int(a[0]!), true)!
+      if (st.start === 0) funcCall()
+      return VI((st.start + st.length) | 0)
+    },
+
+    /**
+     * =Rs Length(n) — routine 44 ($135e): the size asked for.
+     *
+     * The one keyword in the group that never raises. `moveq #0,d3` before
+     * the range test and `bge.s .Skip` instead of `Rbge L_IFunc`, so a
+     * number out of range and a structure that was never allocated both
+     * answer 0 — which makes it the only safe way to ask whether a slot is
+     * in use.
+     */
+    'rs length': (_, a): Value => VI(rsSlot(rt, int(a[0]!), false)?.length ?? 0),
+
+    /**
+     * =Rs(n) — routine 58 ($160e): POSITION minus START, the cursor as an
+     * offset into the structure.
+     *
+     * So it is how far the Rs Byte/Word/Long/Char writes have got, and the
+     * manual's example builds a structure and prints it to check. Error 23
+     * on a cursor of zero, as the writers are.
+     */
+    rs: (_, a): Value => {
+      const { st } = rsCursor(rt, int(a[0]!))
+      return VI((st.position - st.start) | 0)
+    },
 
     /**
      * =Bank Free(min) — routine 26 ($10ce), which is `L_Bnk.GetFree`

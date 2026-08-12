@@ -1539,6 +1539,19 @@ export const FAITHFUL = new Set<string>([
   'bank load', 'bank save', 'bank as work', 'bank as data', 'bank free',
   'bank clone', 'number', 'finish', 'image swap', 'image width',
   'image height', 'bank to chip',
+  // Batch 4, `StructureCmd` -- routines 41 to 58 plus L_RsEraseAll at 184.
+  // Eight numbered blocks with a write cursor, which is what fills the buffer
+  // Format$ reads. They needed the port's first Explode STATE and a MemPool
+  // region of its own, because `=Rs Start(n)` is an address a program Pokes
+  // through. Three quirks are reproduced and tested: Rs Char and Rs Aptr copy
+  // ONE BYTE TOO MANY (`dbeq` counts length+1), Rs Fill with character zero
+  // writes exactly one byte (move.b sets Z and the same dbeq reads it), and a
+  // count at or above the structure's length fills nothing. Rs Clear's
+  // unguarded loop is NOT reproduced -- on an unallocated structure it writes
+  // 64K of zeros from address 0.
+  'rs structure', 'rs start', 'rs finish', 'rs length', 'rs clear', 'rs fill',
+  'rs byte', 'rs word', 'rs long', 'rs aptr', 'rs char', 'rs set', 'rs bset',
+  'rs wset', 'rs lset', 'rs erase', 'rs',
   'delta inter on', 'delta inter off', 'delta mouse off', 'delta reset',
   'delta drive motor on', 'delta drive motor off', 'delta change disk',
   'delta wait left mouse', 'delta wait fire', 'delta wait double mouse',

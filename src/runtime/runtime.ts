@@ -29,6 +29,7 @@ import type { RangeState } from './range'
 import { jotreVbl, type JotreState } from './jotre'
 import type { JdIntState } from './jdint'
 import type { AmonState } from './amon'
+import type { ExplodeState } from './explode'
 import { thegameVbl, type TheGameState } from './thegame'
 import type { MedExtState } from './medext'
 import { p61Vbl, type P61State } from './p61'
@@ -1088,6 +1089,21 @@ export class Runtime {
   static readonly TOOLS_TEXT_RESERVED = 0x04000000
 
   /**
+   * Explode 2.01's `Rs Structure` pool, and the strings `Rs Aptr` puts
+   * pointers to.
+   *
+   * The eight structures are `L_RamFast` blocks whose addresses a program
+   * reads back with `=Rs Start(n)` and then Pokes through, so they have to be
+   * real and ordered — the same reason SLN and Make have pools. `Rs Aptr`
+   * needs the second half of it: it stores a POINTER to a NUL-terminated
+   * copy of a string, and AMOS's own string workspace has no addresses here.
+   *
+   * 0x38000000 because it ends exactly where CRAFT's FileInfoBlock begins.
+   */
+  static readonly EXPLODE_HEAP_BASE = 0x38000000
+  static readonly EXPLODE_HEAP_RESERVED = 0x02000000
+
+  /**
    * CRAFT's FileInfoBlock, which `Dr Fib` hands back the ADDRESS of.
    *
    * 0x3a000000 because it is the last free megabyte under the Dev IORequests
@@ -1188,6 +1204,8 @@ export class Runtime {
   jdint!: JdIntState
   /** AMon's rodent position, its four limits and the two raw counter bytes, slot 25 (1.03: 16) */
   amon!: AmonState
+  /** Explode 2.01's eight Rs structures and the pool they live in, slot 7 */
+  explode!: ExplodeState
   /** CRAFT 1.0's open directory scan and the FileInfoBlock it publishes, slot 18 */
   craft!: CraftState
   /** MusiCRAFT 1.0's replayer, its vumeters and its voice mask, slot 19 */
@@ -1629,6 +1647,9 @@ export class Runtime {
         return { data: Uint8Array.of((v >> 8) & 0xff, v & 0xff), off }
       },
     },
+    bufferRegion('Explode heap', Runtime.EXPLODE_HEAP_BASE, Runtime.EXPLODE_HEAP_RESERVED, () =>
+      this.explode ? this.explode.pool.buffer : null,
+    ),
     bufferRegion('CRAFT FileInfoBlock', Runtime.CRAFT_FIB_BASE, Runtime.CRAFT_FIB_RESERVED, () =>
       this.craft ? this.craft.fib : null,
     ),

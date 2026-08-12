@@ -500,3 +500,164 @@ describe('Explode: Bnk.OrAdr, which every one of these goes through', () => {
     expect(run('Reserve As Work 2000,8\nPrint Number(Start(2000))')).toBe('2000')
   })
 })
+
+describe('Explode: the Rs structure allocator', () => {
+  it('Rs Structure hands out a real address, and the three fields follow it', () => {
+    // the manual's own example, minus the Print of an address that moves
+    expect(run('Rs Structure 1,50\nPrint Rs Finish(1)-Rs Start(1);" ";Rs Length(1);" ";Rs(1)')).toBe('50 50 0')
+  })
+
+  it('and the address is one Poke and Peek can reach, which is the point', () => {
+    expect(run('Rs Structure 0,16\nPoke Rs Start(0)+3,77\nPrint Peek(Rs Start(0)+3)')).toBe('77')
+  })
+
+  it('eight of them, 0 to 7, and 8 is error 23', () => {
+    expect(run('Rs Structure 7,8\nPrint Rs Length(7)')).toBe('8')
+    expect(() => run('Rs Structure 8,8')).toThrow(/function call/i)
+  })
+
+  it('a NEGATIVE number is out of range here, where the library walks off its data zone', () => {
+    // `cmpi.l #8,d7 / Rbge` is signed and `mulu` sees only the low word, so
+    // -1 computes 65535*12 on the machine
+    expect(() => run('Rs Structure -1,8')).toThrow(/function call/i)
+  })
+
+  it('reserving over a live structure frees the old block first', () => {
+    const b = boot('Rs Structure 0,64\nRs Structure 0,32')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.rt.explode.rs[0]!.length).toBe(32)
+  })
+})
+
+describe('Explode: Rs Start, Rs Finish, Rs Length and =Rs', () => {
+  it('Rs Length is the only one that answers for a structure that is not there', () => {
+    // `moveq #0,d3` before the test and `bge.s .Skip` instead of Rbge
+    expect(run('Print Rs Length(0);" ";Rs Length(8);" ";Rs Length(-1)')).toBe('0 0 0')
+  })
+
+  it('and the other three raise error 23 on one', () => {
+    expect(() => run('A=Rs Start(0)')).toThrow(/function call/i)
+    expect(() => run('A=Rs Finish(0)')).toThrow(/function call/i)
+    expect(() => run('A=Rs(0)')).toThrow(/function call/i)
+  })
+
+  it('=Rs is the cursor as an offset, so it counts what has been written', () => {
+    expect(run('Rs Structure 0,64\nRs Byte 0,1\nRs Word 0,2\nRs Long 0,3\nPrint Rs(0)')).toBe('7')
+  })
+})
+
+describe('Explode: writing into a structure', () => {
+  const dump = (n: number): string =>
+    `Rs Set 0,0 : For I=0 To ${n - 1} : Print Peek(Rs Start(0)+I);" "; : Next I`
+
+  it('Rs Byte, Rs Word and Rs Long are big-endian and move the cursor by their width', () => {
+    expect(run(['Rs Structure 0,16', 'Rs Byte 0,$AA', 'Rs Word 0,$1234', 'Rs Long 0,$01020304', dump(7)].join('\n'))).toBe(
+      '170 18 52 1 2 3 4',
+    )
+  })
+
+  it('and they write at an ODD address without complaint, which is why they exist', () => {
+    // `move.b 2(a2),(a1)+` a byte at a time -- "Auch ungerade Adresse". A
+    // move.w to an odd address is an address error on a 68000
+    expect(run(['Rs Structure 0,16', 'Rs Byte 0,0', 'Rs Long 0,$01020304', 'Print Rs(0)'].join('\n'))).toBe('5')
+  })
+
+  it('Rs Char copies the characters -- and ONE BYTE TOO MANY', () => {
+    // `dbeq d0,.1` counts from the LENGTH down to -1, so length+1 passes
+    expect(run('Rs Structure 0,16\nRs Char 0,"AB"\nPrint Rs(0)')).toBe('3')
+    expect(run(['Rs Structure 0,16', 'Rs Char 0,"AB"', dump(3)].join('\n'))).toBe('65 66 0')
+  })
+
+  it('and an EMPTY string does nothing at all, cursor included', () => {
+    expect(run('Rs Structure 0,16\nRs Char 0,""\nPrint Rs(0)')).toBe('0')
+    expect(run('Rs Structure 0,16\nRs Aptr 0,""\nPrint Rs(0)')).toBe('0')
+  })
+
+  it('Rs Aptr stores a POINTER to a NUL-terminated copy', () => {
+    const out = run(
+      ['Rs Structure 0,16', 'Rs Aptr 0,"Hi"', 'P=Leek(Rs Start(0))', 'Print Rs(0);" ";Peek(P);" ";Peek(P+1);" ";Peek(P+2)'].join('\n'),
+    )
+    // four bytes of pointer, then H, i and the byte the dbeq took too many
+    expect(out).toBe('4 72 105 0')
+  })
+
+  it('and Format$ reads that pointer back, which is what the pair is for', () => {
+    // the author's own shape: Rs Aptr then Format$(A$,Rs Start(0))
+    expect(run('Rs Structure 0,16\nRs Aptr 0,"Explode"\nPrint Format$("name=%s",Rs Start(0))')).toBe('name=Explode')
+  })
+
+  it('writing to a structure that was never allocated is error 23', () => {
+    expect(() => run('Rs Byte 0,1')).toThrow(/function call/i)
+    expect(() => run('Rs Char 0,"a"')).toThrow(/function call/i)
+  })
+})
+
+describe('Explode: the cursor, and Rs Clear and Rs Fill', () => {
+  it('Rs Set is absolute from the start; Bset, Wset and Lset are relative and scaled', () => {
+    // the manual's example, and it prints 60 for 20 + 10*2 + 5*4
+    expect(run(['Rs Structure 0,60', 'Rs Bset 0,20', 'Rs Wset 0,10', 'Rs Lset 0,5', 'Print Rs(0)'].join('\n'))).toBe('60')
+    expect(run(['Rs Structure 0,60', 'Rs Bset 0,20', 'Rs Set 0,0', 'Print Rs(0)'].join('\n'))).toBe('0')
+  })
+
+  it('and the amounts may be negative -- "Die Werte koennen dabei auch Negativ sein"', () => {
+    expect(run(['Rs Structure 0,60', 'Rs Bset 0,20', 'Rs Lset 0,-3', 'Print Rs(0)'].join('\n'))).toBe('8')
+  })
+
+  it('Rs Clear zeroes the whole structure, cursor wherever it is', () => {
+    const out = run(
+      ['Rs Structure 0,4', 'Rs Long 0,$01020304', 'Rs Clear 0', 'Print Peek(Rs Start(0));" ";Peek(Rs Start(0)+3)'].join('\n'),
+    )
+    expect(out).toBe('0 0')
+  })
+
+  it('and on an unallocated structure it clears NOTHING, where the library clears 64K from address 0', () => {
+    // `movea.l my_RsStart(a0),a1 / move.l my_RsLength(a0),d0 / subq.l #1,d0`
+    // with no guard: a1 = 0 and d0 = -1, and dbra tests the low word
+    expect(run('Rs Clear 0\nPrint "alive"')).toBe('alive')
+  })
+
+  it('Rs Fill writes count+1 bytes from the cursor', () => {
+    const out = run(
+      ['Rs Structure 0,16', 'Rs Fill 0,65,3', 'Print Rs(0);" ";Peek(Rs Start(0));" ";Peek(Rs Start(0)+3)'].join('\n'),
+    )
+    expect(out).toBe('4 65 65')
+  })
+
+  it('a count at or above the LENGTH writes nothing -- the guard is the wrong quantity', () => {
+    // `cmp.l my_RsLength(a0),d6 / bge.s .2` tests the count against the
+    // length, not the cursor against the end
+    expect(run('Rs Structure 0,4\nRs Fill 0,65,4\nPrint Rs(0);" ";Peek(Rs Start(0))')).toBe('0 0')
+  })
+
+  it('and FILLING WITH ZERO WRITES ONE BYTE, because move.b sets Z and dbeq reads it', () => {
+    expect(run('Rs Structure 0,16\nRs Fill 0,0,10\nPrint Rs(0)')).toBe('1')
+  })
+})
+
+describe('Explode: Rs Erase', () => {
+  it('with a number it frees that one and leaves the others', () => {
+    expect(run(['Rs Structure 0,8', 'Rs Structure 1,16', 'Rs Erase 0', 'Print Rs Length(0);" ";Rs Length(1)'].join('\n'))).toBe(
+      '0 16',
+    )
+  })
+
+  it('with none it walks all eight -- L_RsEraseAll', () => {
+    const out = run(
+      ['Rs Structure 0,8', 'Rs Structure 3,16', 'Rs Structure 7,32', 'Rs Erase', 'Print Rs Length(0);" ";Rs Length(3);" ";Rs Length(7)'].join(
+        '\n',
+      ),
+    )
+    expect(out).toBe('0 0 0')
+  })
+
+  it('and a number out of range is silent, unlike the rest of the group', () => {
+    expect(run('Rs Erase 9\nPrint "ok"')).toBe('ok')
+  })
+
+  it('the memory comes back, so a program can cycle structures', () => {
+    const b = boot('Rs Structure 0,4096\nRs Erase 0\nRs Structure 1,4096')
+    mustFinish(b.rt.runHeadless(2_000))
+    // the freed block is reused rather than bumped past
+    expect(b.rt.explode.rs[1]!.start).toBe(0x3800_0008)
+  })
+})

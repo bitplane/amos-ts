@@ -55,7 +55,7 @@ keyword up in `status.ts` for why it is classified the way it is.
 | eme-3.0              |       59 |       58 |            1 |       0 |     100% |
 | eme-3.0-demo         |       55 |       54 |            1 |       0 |     100% |
 | ercole-1.7           |       11 |       11 |            0 |       0 |     100% |
-| explode-2.01         |      131 |       35 |            0 |      96 |      27% |
+| explode-2.01         |      131 |       52 |            0 |      79 |      40% |
 | fileid-1.0           |        6 |        6 |            0 |       0 |     100% |
 | files                |       23 |       22 |            0 |       0 |     100% |
 | first-0.1            |        4 |        4 |            0 |       0 |     100% |
@@ -126,7 +126,7 @@ keyword up in `status.ts` for why it is classified the way it is.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7362 |     4434 |          143 |    2722 |      63% |
+| **total**            |     7362 |     4451 |          143 |    2705 |      63% |
 
 ## aga-1.0 (100%)
 
@@ -595,14 +595,16 @@ keyword up in `status.ts` for why it is classified the way it is.
 - **faithful** (11): `cli`, `ext fire`, `ext joy`, `library close`, `library open`, `pad fire`,
   `paddle`, `prop off`, `prop on`, `xfire`, `yfire`
 
-## explode-2.01 (27%)
+## explode-2.01 (40%)
 
-- **faithful** (35): `align`, `bank as data`, `bank as work`, `bank clone`, `bank free`,
+- **faithful** (52): `align`, `bank as data`, `bank as work`, `bank clone`, `bank free`,
   `bank load`, `bank save`, `bank to chip`, `byte`, `byte$`, `even`, `finish`, `format$`,
   `image height`, `image swap`, `image width`, `long`, `long$`, `lsl.b`, `lsl.l`, `lsl.w`,
   `lsr.b`, `lsr.l`, `lsr.w`, `number`, `odd`, `pcpn$`, `pcsr$`, `pdef$`, `pinv$`, `pjam$`,
-  `psad$`, `pund$`, `word`, `word$`
-- **missing** (96): `amcaf crack off`, `amcaf crack on`, `amos state`, `avail free`,
+  `psad$`, `pund$`, `rs`, `rs aptr`, `rs bset`, `rs byte`, `rs char`, `rs clear`, `rs erase`,
+  `rs fill`, `rs finish`, `rs length`, `rs long`, `rs lset`, `rs set`, `rs start`,
+  `rs structure`, `rs word`, `rs wset`, `word`, `word$`
+- **missing** (79): `amcaf crack off`, `amcaf crack on`, `amos state`, `avail free`,
   `bpk length`, `bpk unpack`, `cd parent`, `cd path$`, `cd set`, `clear mouse`, `dev state`,
   `dpk name$`, `dpk unpack`, `drive busy`, `drive state`, `explode base`, `explode$`,
   `extension base`, `extension$`, `file blocks`, `file path$`, `file protection`, `file size`,
@@ -612,11 +614,9 @@ keyword up in `status.ts` for why it is classified the way it is.
   `plane clear`, `plane close`, `plane copy`, `plane get`, `plane length`, `plane mask`,
   `plane merge`, `plane negative`, `plane open`, `plane put`, `plane swap`, `ppk data`,
   `ppk length`, `ppk mode`, `ppk name$`, `ppk pack`, `ppk passkey`, `ppk password`, `ppk type`,
-  `ppk unpack`, `rastport`, `rs`, `rs aptr`, `rs bset`, `rs byte`, `rs char`, `rs clear`,
-  `rs erase`, `rs fill`, `rs finish`, `rs length`, `rs long`, `rs lset`, `rs set`, `rs start`,
-  `rs structure`, `rs word`, `rs wset`, `set hard date`, `set hard time`, `softreset`,
-  `stop loop`, `vectorptr`, `wait loop`, `wait mouse`, `workbench`, `xpk crypt`, `xpk err$`,
-  `xpk errn`, `xpk length`, `xpk name$`, `xpk pack`, `xpk unpack`
+  `ppk unpack`, `rastport`, `set hard date`, `set hard time`, `softreset`, `stop loop`,
+  `vectorptr`, `wait loop`, `wait mouse`, `workbench`, `xpk crypt`, `xpk err$`, `xpk errn`,
+  `xpk length`, `xpk name$`, `xpk pack`, `xpk unpack`
 
 ## fileid-1.0 (100%)
 
