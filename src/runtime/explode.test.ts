@@ -18,6 +18,7 @@ import { JOY_FIRE } from '../interp/gameport'
 import { pp20Crunch } from '../amiga/powerpacker'
 import { PPK_EFFICIENCY, PPK_FORMATS } from './explode'
 import { XPK_PACKERS } from '../amiga/xpkmaster'
+import { DL_SIGNATURES } from '../amiga/decrunchlib.gen'
 
 const table = new TokenTable(CORE_TOKENS)
 /** slot 7 — `ExtNb equ 7-1`, line 16 of the source */
@@ -738,6 +739,17 @@ describe('Explode: the file keywords', () => {
     expect(run('Print File Type("RAM:sub")', fs)).toBe('-2')
   })
 
+  it('File Protection is the four RWED bits, and -1 for a file that is not there', () => {
+    // routine 40 ($1298): fib_Protection off routine 48's Examine, and the
+    // Amiga's bits are ACTIVE LOW -- a plain file reads 0, not 15
+    const fs = withFile('f.dat', payload)
+    expect(run('Print File Protection("RAM:f.dat")', fs)).toBe('0')
+    // and a missing file answers 0 as well, not -1: routine 162 opens with
+    // `clr.l my_FileProtect(a2)` where it sets my_FileSize to -1, so the two
+    // keywords disagree about how a failed Lock looks
+    expect(run('Print File Protection("RAM:nope")', fs)).toBe('0')
+  })
+
   it('File Path$ prefixes the current directory -- and keeps the NUL', () => {
     // DEFECT: `dbra d0,.4` runs one time too many and copies the terminator
     // into the AMOS string
@@ -795,6 +807,25 @@ describe('Explode: the font slots', () => {
   it('and Font Close is silent about a slot that was never open', () => {
     expect(run('Font Close 4\nFont Close\nPrint "ok"')).toBe('ok')
   })
+
+  it('Font Open is quiet about a font that is not there, and leaves the slot empty', () => {
+    // routine 113 ($20cc): `OpenDiskFont` failing is `tst.l d0 / beq .Skip`
+    // -- no error, and =Font Name$ is the only way to find out
+    expect(run('Font Open 1,"nope.font",8\nPrint Len(Font Name$(1));" ";Font Height(1)', emptyFs())).toBe('0 0')
+  })
+
+  it('Font Set validates the slot even when nothing is in it', () => {
+    // *"Nicht SET FONT!"* -- AMOS has a Set Font of its own and this is not
+    // it. An unopened slot does nothing; an out-of-range one is still error 23
+    expect(run('Font Set 1\nPrint "ok"')).toBe('ok')
+    expect(() => run('Font Set 9')).toThrow(/function call/i)
+  })
+
+  it('Flush closes the five libraries, which here is the font slots', () => {
+    // routine 126 ($2496). The two $7FFFFFFF AllocMems after it are MEANT to
+    // fail -- that is what makes exec expunge -- and there is no exec here
+    expect(run('Font Open 1,"nope.font",8\nFlush\nPrint Len(Font Name$(1))', emptyFs())).toBe('0')
+  })
 })
 
 describe('Explode: the clock and the drives', () => {
@@ -814,6 +845,13 @@ describe('Explode: the clock and the drives', () => {
 
   it('Drive State is 0 for a drive that is not there', () => {
     expect(run('Print Drive State(3)', emptyFs())).toBe('0')
+  })
+
+  it('Drive Busy asks for a drive that has no motor here', () => {
+    // routine 122 ($2388): a packet to the drive's own handler. DEVIATION --
+    // nothing in this port has a motor, and a volume that is not mounted is
+    // what a failed DeviceProc leaves behind
+    expect(run('Drive Busy 0,1\nDrive Busy 3,0\nPrint "ok"', emptyFs())).toBe('ok')
   })
 
   it('Dev State is 0 for a volume that is not there and -3 for a writable one', () => {
@@ -859,10 +897,11 @@ describe('Explode: the system group', () => {
   })
 
   it('Hardreset and Softreset stop the program, which is the nearest honest thing', () => {
-    const b = boot('Print "before"\nSoftreset\nPrint "after"')
-    b.rt.runHeadless(2_000)
-    expect(b.out()).toContain('before')
-    expect(b.out()).not.toContain('after')
+    for (const kw of ['Softreset', 'Hardreset']) {
+      const b = boot(`Print "before"\n${kw}\nPrint "after"`)
+      b.rt.runHeadless(2_000)
+      expect([kw, b.out().includes('before'), b.out().includes('after')]).toEqual([kw, true, false])
+    }
   })
 })
 
@@ -1043,6 +1082,31 @@ describe('Explode: the packer identification table', () => {
     expect(ask(Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]), 'Len(Ppk Name$(4));" ";Ppk Type(4)')).toBe('0 0')
   })
 
+  it('Ppk Data normalises a bank the whole group is built on', () => {
+    // routine 90 ($1a9a) into L_PpkData. A type-1 bank is already a plain
+    // PP20 and is returned untouched, which is the case that can be shown
+    // here -- the six stub formats need those products' files to check
+    // against and the corpus has none
+    const b = withBank(pp20(), 'Ppk Data 4\nPrint Ppk Name$(4);" ";Length(4)')
+    mustFinish(b.rt.runHeadless(3_000))
+    const packed = pp20()
+    expect(b.out().trim().replace(/\s+/g, ' ')).toBe(`PP20 ${packed.length}`)
+  })
+
+  it('and takes an optional password, which is length-checked like every other', () => {
+    expect(run('Reserve As Work 4,64 : Ppk Data 4,"secret" : Print "ok"')).toBe('ok')
+    expect(() => run('Reserve As Work 4,64 : Ppk Data 4,""')).toThrow(/function call/i)
+  })
+
+  it('Ppk Password answers 0 for a bank with no checksum, and this port for one with', () => {
+    // routine 88 ($1a64) is a WORD compare against ppCalcChecksum, and that
+    // function is powerpacker.library's -- the Explode source has the call
+    // and not the algorithm, so an encrypted bank cannot be answered without
+    // inventing it. DEVIATION recorded: both answer 0.
+    expect(ask(pp20(), 'Ppk Password(4,"secret")')).toBe('0')
+    expect(() => run('Reserve As Work 4,64 : A=Ppk Password(4,"")')).toThrow(/function call/i)
+  })
+
   it('the table is the source’s own dc.l block, all ten rows', () => {
     // three of them are PPEX, one name and three probe offsets
     expect(PPK_FORMATS.length).toBe(10)
@@ -1110,6 +1174,24 @@ describe('Explode: the XPK half, which reports its errors', () => {
 
   it('and answer 0 and empty for a bank that is not XPKF', () => {
     expect(run('Reserve As Work 4,32 : Print Xpk Length(4);" ";Len(Xpk Name$(4))')).toBe('0 0')
+  })
+
+  it('Xpk Unpack round-trips a bank through the one packer that is registered', () => {
+    // routine 93 ($1afc) into L_XpkUnpack. XPK_NONE is a real stream with a
+    // real XPKF header, which is what makes this more than an early return
+    const src = 'Reserve As Work 4,64 : Xpk Pack 4,"NONE",50 : Xpk Unpack 4 : Print Length(4);" ";Xpk Errn'
+    expect(run(src)).toBe('64 0')
+  })
+
+  it('and leaves a bank that is not XPKF alone', () => {
+    expect(run('Reserve As Work 4,32 : Xpk Unpack 4 : Print Length(4)')).toBe('32')
+  })
+
+  it('Xpk Crypt is Xpk Pack with a password where the mode goes', () => {
+    // routine 137 ($2650), the same L_XpkWork -- and the password is checked
+    // by the shared length rule, so an empty one is error 23
+    expect(run('Reserve As Work 4,64 : Xpk Crypt 4,"NONE","secret" : Print Xpk Errn')).toBe('0')
+    expect(() => run('Reserve As Work 4,64 : Xpk Crypt 4,"NONE",""')).toThrow(/function call/i)
   })
 
   it('Xpk Errn starts at 0 and Xpk Err$ with it', () => {
@@ -1182,6 +1264,37 @@ describe('Explode: ByteKiller and the lh.library header', () => {
     expect(run('Reserve As Work 4,32 : Bpk Unpack 4 : Print Length(4)')).toBe('32')
   })
 
+  it('Lpk Unpack decodes an LH18 bank through the ported LhDecode', () => {
+    // the stream is one symbol on lh.library's INITIAL tree, whose paths fall
+    // out of the init loop's `parent = 317 + (n >> 1)` -- the same
+    // independent derivation ../amiga/lh.test.ts uses, so this is not the
+    // decoder checking itself
+    const bits: number[] = []
+    for (let n = 90; n !== 2 * 317 - 2; n = 317 + (n >> 1)) bits.push(n & 1)
+    bits.reverse()
+    const body = new Uint8Array(Math.ceil(bits.length / 16) * 2)
+    bits.forEach((b, i) => {
+      if (b) body[(i >> 4) * 2 + ((i >> 3) & 1)] = (body[(i >> 4) * 2 + ((i >> 3) & 1)] ?? 0) | (0x80 >> (i & 7))
+    })
+    const lh = new Uint8Array(8 + body.length)
+    lh.set([0x4c, 0x48, 0x31, 0x38]) // "LH18" -- the LIBRARY's version, not a format id
+    lh[7] = 1 // one byte out
+    lh.set(body, 8)
+    const b = withBank(lh, 'Lpk Unpack 4\nPrint Length(4);" ";Peek(Start(4))')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().replace(/\s+/g, ' ')).toBe('1 90')
+  })
+
+  it('and leaves a bank without that marker alone', () => {
+    expect(run('Reserve As Work 4,32 : Lpk Unpack 4 : Print Length(4)')).toBe('32')
+  })
+
+  it('Lpk Pack does nothing, which is what routine 140 does with no buffer', () => {
+    // the encoder at $628 is not ported. `tst.l d0 / beq .Skip` after a
+    // failed CreateBuffer -- no error, no change
+    expect(run('Reserve As Work 4,64 : Lpk Pack 4 : Print Length(4)')).toBe('64')
+  })
+
   it('Lpk Length reads lh.library’s own LH18 marker', () => {
     const lh = new Uint8Array(16)
     lh.set([0x4c, 0x48, 0x31, 0x38]) // "LH18"
@@ -1190,5 +1303,65 @@ describe('Explode: ByteKiller and the lh.library header', () => {
     mustFinish(b.rt.runHeadless(2_000))
     expect(b.out().trim()).toBe('64')
     expect(run('Reserve As Work 4,32 : Print Lpk Length(4)')).toBe('0')
+  })
+})
+
+describe('Explode: decrunch.library', () => {
+  /** a bank holding `bytes`, and a program to run against it */
+  function withBank(bytes: Uint8Array, src: string): { rt: Runtime; out: () => string } {
+    const b = boot(src)
+    b.rt.reserveBank(4, bytes.length, 'Work', false, false)
+    b.rt.memBanks.get(4)!.data.set(bytes)
+    return b
+  }
+
+  function answer(bytes: Uint8Array, src: string): string {
+    const b = withBank(bytes, src)
+    mustFinish(b.rt.runHeadless(2_000))
+    return b.out().trim().replace(/\s+/g, ' ')
+  }
+
+  it('Dpk Name$ answers the library’s own name for a format', () => {
+    expect(answer(pp20Crunch(Uint8Array.from({ length: 64 }, (_, i) => i)), 'Print Dpk Name$(4)')).toBe('PowerPacker D')
+  })
+
+  it('and names one it can identify but not unpack, which is most of them', () => {
+    // ByteKiller 2.0's three probes and nothing else -- the keyword only
+    // identifies, so a format with no decruncher here still answers
+    const s = DL_SIGNATURES.find((x) => x.name === 'ByteKiller 2.0')!
+    const d = new Uint8Array(Math.max(...s.probes.map(([o]) => o)) + 4)
+    for (const [o, v] of s.probes) {
+      d[o] = (v >>> 24) & 0xff
+      d[o + 1] = (v >>> 16) & 0xff
+      d[o + 2] = (v >>> 8) & 0xff
+      d[o + 3] = v & 0xff
+    }
+    expect(answer(d, 'Print Dpk Name$(4)')).toBe('ByteKiller 2.0')
+  })
+
+  it('and the empty string for a bank it does not recognise', () => {
+    // `move.l ChVide(a5),d3` before the test, so the empty string is the
+    // answer already loaded when dlInitItem says no
+    expect(run('Reserve As Work 4,64 : Print "[";Dpk Name$(4);"]"')).toBe('[]')
+  })
+
+  it('Dpk Unpack replaces the bank with what came out', () => {
+    const src = Uint8Array.from({ length: 200 }, (_, i) => i & 7)
+    const out = answer(pp20Crunch(src), 'Dpk Unpack 4\nPrint Length(4);" ";Peek(Start(4)+9)')
+    expect(out).toBe('200 1')
+  })
+
+  it('and renames the bank Work, which no other unpacker here does', () => {
+    // there is no Bnk.GetFree and no head-clone: `move.l my_BkNumber(a0),d0`
+    // with `my_BkNameWork`, so the source's own number is re-reserved
+    const b = withBank(pp20Crunch(Uint8Array.from({ length: 64 }, (_, i) => i)), 'Dpk Unpack 4')
+    b.rt.memBanks.get(4)!.name = 'Samples '
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.rt.memBanks.get(4)!.name).toBe('Work')
+  })
+
+  it('and leaves a bank it cannot unpack alone, without complaining', () => {
+    // identified, no decruncher, `tst.l d0 / beq .Skip` -- no error, no change
+    expect(run('Reserve As Work 4,64 : Dpk Unpack 4 : Print Length(4)')).toBe('64')
   })
 })

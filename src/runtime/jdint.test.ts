@@ -397,3 +397,36 @@ describe('JD Intuition: Jd Intfill', () => {
     expect(px(rt, 50, 50)).toBe(1) // Jd Intfill did not: still the boot paper
   })
 })
+
+describe('JD Intuition: the four keywords the faithfulness gate had never run', () => {
+  it('Jd Intprint writes at the RastPort cursor, and Jd Intpaper is the pen behind it', () => {
+    // routine 10 ($bea) Text (-60) then routine 12 ($c54) SetBPen (-348). The
+    // two offsets it adds to the cursor and takes straight back off again are
+    // the window border's, and there is no window here.
+    const rt = run('Jd Intpaper 2 : Jd Intpen 1 : Jd Intprint "A"')
+    expect(rt.screen.rp.bgPen).toBe(2)
+    // something was drawn: the glyph's own box is no longer all background
+    let inked = 0
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (px(rt, x, y) !== 0) inked++
+    expect(inked).toBeGreaterThan(0)
+  })
+
+  it('Jd Show Intscreen and Jd Show Intwindow ignore an address they did not open', () => {
+    // both check their own list first -- `st.screens.includes` and the
+    // windows lookup -- so a number off the street is not passed to Intuition
+    expect(run('Jd Show Intscreen 12345 : Jd Show Intwindow 12345')).toBeTruthy()
+  })
+
+  it('and bring a real one to the front when they did open it', () => {
+    const rt = run(
+      [
+        'S=Jd Open Intscreen(320,200,3,0)',
+        'W=Jd Open Intwindow(0,0,100,50,"w")',
+        'Jd Show Intscreen S',
+        'Jd Show Intwindow W',
+      ].join(' : '),
+    )
+    expect(rt.jdint.screens.length).toBe(1)
+    expect(rt.jdint.windows.length).toBe(1)
+  })
+})

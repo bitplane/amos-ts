@@ -68,6 +68,7 @@ import { parseIlbm } from '../loader/iff'
 import { pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 import { bpkDecrunch, bpkLength } from '../amiga/bytekiller'
 import { lhUnpackBank } from '../amiga/lh'
+import { dlDecrunch, dlInitItem } from '../amiga/decrunchlib'
 import { XPK_MAGIC, XPK_PACKERS, XPKERR_NOFUNC, xpkErrorText, xpkParseMethod, xpkUnpack } from '../amiga/xpkmaster'
 
 /**
@@ -600,6 +601,45 @@ export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
         // the original has no bounds check anywhere in those sixty
         // instructions; a corrupt stream takes the machine with it
       }
+    },
+
+    /**
+     * `Dpk Unpack bk` — routine 76 ($1806), over `decrunch.library`.
+     *
+     * DecrunchLib knows about seventy formats and this port unpacks one of
+     * them, PowerPacker data. Identification is complete — see
+     * ../amiga/decrunchlib.ts for exactly which ids act and which only
+     * answer — and a format that identifies but does not unpack leaves the
+     * bank alone, which is the library's own outcome for a format it cannot
+     * handle: `dlDecrunch` returns zero and `tst.l d0 / beq .Skip`.
+     *
+     * DEVIATION: the set of formats that unpack is smaller than the real
+     * library's. A program that packed a bank with StoneCracker 3.00 and
+     * expects `Dpk Unpack` to undo it gets its bank back untouched instead of
+     * unpacked. Nothing is corrupted and no error is raised; the bank simply
+     * does not change.
+     *
+     * The bank arrangement is this routine's own and not the one every other
+     * unpacker here uses. There is no `Bnk.GetFree` and no head-clone: it
+     * reserves under the SOURCE's number (`move.l my_BkNumber(a0),d0`), which
+     * erases the source, and names it Work — so a bank that was called
+     * something else comes back called Work. And `Rjsr L_Bnk.Reserve / beq.s
+     * .1` skips the copy on a failed reserve WITHOUT raising error 24, where
+     * `Bpk Unpack` two routines earlier has `Rbeq L_OOfmem`.
+     */
+    'dpk unpack'(it) {
+      const bk = it.evalInt()
+      const ref = orAdr(rt, bk)
+      const bank = ref ? rt.memBanks.get(ref.number) : null
+      if (!ref || !bank) return
+      // `move.l my_BkLength(a0),d7 / subi.l #my_BkHeader,d7` — the payload,
+      // which is what a bank's data is here
+      const item = dlInitItem(bank.data)
+      const out = item ? dlDecrunch(bank.data, bank.data.length, item) : null
+      if (!out) return
+      rt.eraseBank(ref.number)
+      rt.reserveBank(ref.number, out.length, 'Work', false, false)
+      rt.memBanks.get(ref.number)?.data.set(out)
     },
 
     /**
@@ -2114,6 +2154,26 @@ export function makeExplodeFunctions(rt: Runtime): Record<string, Func> {
     'ppk name$': (_, a): Value => {
       const d = ppkBank(rt, int(a[0]!))
       return VS((d && ppkIdentify(d)?.name) || '')
+    },
+
+    /**
+     * =Dpk Name$(bk) — routine 77 ($189c): which cruncher packed the bank,
+     * in `decrunch.library`'s own words.
+     *
+     * "StoneCracker 2.99d", "PP 4.0 Overlay/Lib", "CrunchMania D/H/S" — 93
+     * names, none of them derivable, all of them extracted from the library
+     * rather than guessed. `ChVide(a5)`, the empty string, for a bank it does
+     * not recognise, and this keyword only ever identifies, so unlike `Dpk
+     * Unpack` it is the whole of what the original does.
+     *
+     * Note the item's length field is left at zero here — `Dpk Unpack` sets
+     * `22(a3)` and this does not, because identification never looks at the
+     * source's length. Only stage one's magics could care, and they read the
+     * front.
+     */
+    'dpk name$': (_, a): Value => {
+      const d = ppkBank(rt, int(a[0]!))
+      return VS((d && dlInitItem(d)?.name) || '')
     },
 
     /**

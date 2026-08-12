@@ -1611,6 +1611,16 @@ export const FAITHFUL = new Set<string>([
   // is APPROXIMATED and does nothing: the encoder is not ported, and a
   // stream only this port could read would be worse than no stream.
   'lpk unpack',
+  // Batch 12c -- `Dpk Name$`, over decrunch.library (DecrunchLib 35.237,
+  // LICENCEWARE, Georg Hoermann). The keyword only ever IDENTIFIES, and
+  // identification is the part that can be reproduced whole: 16 data magics,
+  // 76 executable signatures and one scan, extracted by ../cli/gendecrunch.ts
+  // and held to the binary in ../amiga/decrunchlib.corpus.test.ts. 93 names,
+  // none of them derivable. Its sibling `Dpk Unpack` is APPROXIMATED for a
+  // reason no reading fixes: the library is about seventy decrunchers and
+  // this port has one of the formats, so it identifies everything and unpacks
+  // PowerPacker data.
+  'dpk name$',
   'delta inter on', 'delta inter off', 'delta mouse off', 'delta reset',
   'delta drive motor on', 'delta drive motor off', 'delta change disk',
   'delta wait left mouse', 'delta wait fire', 'delta wait double mouse',
@@ -3321,6 +3331,16 @@ export const NA = new Set<string>([
  * never by indexing this directly, or the siblings look undocumented.
  */
 export const NOTES: Record<string, string> = {
+  "dpk unpack":
+    "Routine 76 ($1806) over decrunch.library, and APPROXIMATED because the library is roughly seventy " +
+    "decrunchers in 27KB and this port has one of the formats it knows. Identification is complete -- every " +
+    "format, in the order the library tries them, answering the name it answers -- so `Dpk Name$` is faithful " +
+    "and this keyword recognises everything. What it UNPACKS is PowerPacker data, id $48, through " +
+    "../amiga/powerpacker.ts. Anything else is left alone, which is the library's own outcome for a format it " +
+    "cannot handle: `dlDecrunch` answers zero and `tst.l d0 / beq .Skip` returns without an error. Widening it " +
+    "means porting a decruncher; ../amiga/decrunchlib.ts's DL_DECRUNCHES is the list, so the gap is a value " +
+    "rather than a claim. The bank arrangement IS reproduced: no Bnk.GetFree and no head-clone, just " +
+    "`Bnk.Reserve` under the source's own number with my_BkNameWork, so an unpacked bank comes back called Work.",
   "dr file$":
     "Routine 41 ($12b0) over the splitter at 43 ($12e2), which walks back for `/` or `:`. DEFECT: with NO " +
     "separator the answer is the string shifted one character left with a byte of whatever follows on the end. " +
