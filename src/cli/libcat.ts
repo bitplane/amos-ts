@@ -36,6 +36,7 @@ import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { scanLibraries, type ScannedLib } from './libpool'
+import { mdTable } from './mdtable'
 import { allExtensions } from '../ext/registry'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import type { TokenEntry } from '../tokens/libtok'
@@ -264,21 +265,17 @@ for (const r of rows) {
 if (!showAll && counts.known > 0) console.log(`\n(${counts.known} already-registered table(s) hidden; --all to show)`)
 
 if (mdOut !== undefined) {
-  const lines = [
-    '| keywords | format | verdict | `$VER` | path |',
-    '|---|---|---|---|---|',
-    ...rows.map((r) => {
-      const v =
-        r.verdict === 'known'
-          ? `known — \`${r.match}\``
-          : r.verdict === 'variant'
-            ? `variant of \`${r.match}\` (${pct(r.overlap)}, +${r.extra})`
-            : r.verdict === 'renumbered'
-              ? `renumbered \`${r.match}\` (${pct(r.nameOverlap)} names, ${pct(r.overlap)} ids)`
-              : '**new**'
-      return `| ${r.lib.named} | ${r.lib.format} | ${v} | ${r.ver ?? ''} | \`${short(r.lib.file)}\` |`
-    }),
-  ]
-  writeFileSync(mdOut, lines.join('\n') + '\n')
+  const body = rows.map((r) => {
+    const v =
+      r.verdict === 'known'
+        ? `known — \`${r.match}\``
+        : r.verdict === 'variant'
+          ? `variant of \`${r.match}\` (${pct(r.overlap)}, +${r.extra})`
+          : r.verdict === 'renumbered'
+            ? `renumbered \`${r.match}\` (${pct(r.nameOverlap)} names, ${pct(r.overlap)} ids)`
+            : '**new**'
+    return [String(r.lib.named), r.lib.format, v, r.ver ?? '', `\`${short(r.lib.file)}\``]
+  })
+  writeFileSync(mdOut, `${mdTable(['keywords', 'format', 'verdict', '`$VER`', 'path'], body)}\n`)
   console.log(`\nmarkdown written to ${mdOut}`)
 }

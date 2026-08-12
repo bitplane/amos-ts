@@ -203,93 +203,93 @@ behaviour is knowable from the ones where a port would be guessing. It says
 nothing about how much of each is ported; `src/cli/extaudit.ts` answers that,
 per keyword.
 
-| id | name | evidence | keywords | seen at | slot |
-|---|---|---|---|---|---|
-| `jd-5.3` | JD | source | 130 | 22 | — |
-| `jd-4.6` | JD | source | 125 | 22 | — |
-| `personal-1.0b` | Personnal Extension | source | 108 | 13 | — |
-| `opal-1.1` | Opal | source | 78 | — | recommends 21 |
-| `sln-2.0` | SLN | source | 70 | — | recommends 24 |
-| `jd-prt-1.3` | JD Printer | source | 63 | — | — |
-| `amospro-music-2.0` | Music | source | 49 | 1 | stock, slot 1 |
-| `jd-colour-1.4` | JD Colour | source | 44 | — | — |
-| `amospro-ioports-2.0` | IOPorts | source | 38 | 6 | stock, slot 6 |
-| `gamesupport-1.2` | GameSupport | source | 37 | — | recommends 23 |
-| `amospro-colours-1.0` | AMOSPro Colours | source | 27 | — | recommends 23 |
-| `amospro-compiler-2.0` | Compiler | source | 15 | 5 | stock, slot 5 |
-| `serial-1.2` | Serial (AMOS 1.3) | source | 15 | — | — |
-| `misc-1.0` | Misc Extension | source | 12 | — | recommends 23 |
-| `jvp-1.01` | JVP NoKids | source | 11 | — | recommends 25 |
-| `p61-1.2` | P61 Music | source | 9 | — | recommends 25 |
-| `fileid-1.0` | FileID | source | 6 | — | recommends 25 |
-| `amospro-compact-2.0` | Compact | source | 3 | 2 | stock, slot 2 |
-| `amospro-request-2.0` | Request | source | 3 | 3 | stock, slot 3 |
-| `personnal-extra-1.0a` | Personnal EXTRA | source | 2 | — | — |
-| `os-devkit-1.61` | OS-DevKit | disassembly | 1047 | 20 | recommends 20 |
-| `intuiextend-2.01b` | IntuiExtend | disassembly | 301 | — | recommends 23 |
-| `intuiextend-1.6` | IntuiExtend | disassembly | 294 | — | recommends 23 |
-| `amcaf-1.50` | AMCAF | disassembly | 280 | — | recommends 8 |
-| `amcaf-1.40` | AMCAF | disassembly | 268 | — | — |
-| `gui-2.10` | GUI | disassembly | 204 | — | recommends 24 |
-| `easylife-1.09` | EasyLife | disassembly | 156 | — | — |
-| `easylife-1.10` | Easy Life | disassembly | 156 | — | recommends 16 |
-| `turbo-plus-2.15` | TURBO Plus | disassembly | 152 | — | — |
-| `craft-1.0` | CRAFT | disassembly | 138 | — | recommends 18 |
-| `turbo-plus-1.0` | TURBO Plus Extension | disassembly | 134 | 12 | recommends 12 |
-| `jd-5.9` | JD | disassembly | 133 | — | recommends 22 |
-| `personnal-1.1` | Personnal | disassembly | 126 | 13 | — |
-| `easylife-1.44` | Easy Life | disassembly | 108 | — | recommends 16 |
-| `gui-1.61` | AMOSPro GUI Extension | disassembly | 103 | 24 | recommends 24 |
-| `the-game-0.9` | The Game Extension | disassembly | 103 | — | recommends 14 |
-| `turbo-plus-1.9` | TURBO Plus | disassembly | 87 | 12 | recommends 12 |
-| `ldos-2.6` | LDos | disassembly | 85 | — | recommends 10 |
-| `ldos-2.5` | LDos | disassembly | 77 | 10 | recommends 10 |
-| `range-2.0` | Range | disassembly | 73 | — | recommends 9 |
-| `easylife-1.0` | Easy Life | disassembly | 72 | — | recommends 16 |
-| `jd-prt-1.4` | JD Printer | disassembly | 69 | — | recommends 21 |
-| `tome-4.23` | TOME | disassembly | 67 | 7 | recommends 7 |
-| `powerbobs-1.0` | Power Bobs | disassembly | 65 | — | recommends 13 |
-| `amos3d-1.0` | AMOS 3D | disassembly | 64 | 4 | recommends 4 |
-| `eme-3.0` | Enhanced Music Extension | disassembly | 59 | — | recommends 1 |
-| `jd-prt-1.1` | JD Printer | disassembly | 58 | — | — |
-| `jd-colour-2.0` | JD Colour | disassembly | 56 | — | recommends 20 |
-| `eme-3.0-demo` | Enhanced Music Extension (demo build) | disassembly | 55 | — | — |
-| `d-sam-1.01` | D-Sam | disassembly | 50 | — | recommends 15 |
-| `gui-1.5b` | GUI | disassembly | 48 | — | — |
-| `range-1.0` | Range | disassembly | 48 | — | recommends 9 |
-| `delta-1.6` | Delta | disassembly | 46 | — | recommends 15 |
-| `tome-3.1` | TOME | disassembly | 34 | — | — |
-| `jd-int-1.3` | JD Intuition | disassembly | 33 | — | recommends 18 |
-| `tools-1.01` | Tools | disassembly | 33 | — | recommends 23 |
-| `make-1.30` | Make | disassembly | 32 | — | recommends 17 |
-| `bsdsocket-1.1.4` | BSDSocket | disassembly | 30 | — | recommends 18 |
-| `med-7.1` | MED | disassembly | 28 | — | recommends 19 |
-| `delta-1.4` | Delta | disassembly | 26 | — | recommends 15 |
-| `aga-1.0` | AMOS AGA | disassembly | 24 | — | recommends 20 |
-| `tft-0.6` | TFT | disassembly | 22 | — | recommends 25 |
-| `locale-0.26` | Locale | disassembly | 20 | — | recommends 17 |
-| `sticks-1.01b` | Sticks | disassembly | 16 | 17 | recommends 17 |
-| `butility-1.21` | BUtility | disassembly | 15 | — | recommends 12 |
-| `lserial-2.1` | LSerial | disassembly | 15 | 11 | recommends 11 |
-| `musicraft-1.0` | MusiCRAFT | disassembly | 12 | 19 | recommends 19 |
-| `ercole-1.7` | Ercole | disassembly | 11 | — | recommends 10 |
-| `stars-2.33` | Stars | disassembly | 11 | — | recommends 20 |
-| `dump-1.0` | Dump | disassembly | 8 | — | recommends 20 |
-| `ctext-1.0` | CText | disassembly | 6 | 8 | recommends 8 |
-| `jd-k3-1.1` | JD K3 | disassembly | 6 | — | recommends 19 |
-| `jotre-1.0` | Jotre | disassembly | 5 | — | recommends 22 |
-| `first-0.1` | First | disassembly | 4 | — | recommends 22 |
-| `dme-2.0` | DOOM Music Extension | manual | 184 | — | recommends 15 |
-| `intuition-1.3b` | Intuition Extension | manual | 183 | 14 | recommends 25 |
-| `explode-2.01` | Explode | manual | 131 | — | recommends 7 |
-| `int-1.0` | Int | manual | 62 | — | recommends 25 |
-| `symbase-0.94` | SymBase | manual | 51 | — | recommends 21 |
-| `amon-1.04` | Amon | manual | 24 | — | recommends 15 |
-| `dbench-0.42` | DBench | manual | 23 | — | recommends 21 |
-| `maxsdoor-0.20` | MAXS Door Handler | manual | 21 | — | recommends 16 |
-| `orgasm-1.0` | OrgAsm | manual | 13 | — | recommends 20 |
-| `display-0.01` | Display | manual | 6 | — | recommends 24 |
-| `thx-0.6` | THX | manual | 6 | — | recommends 20 |
+| id                     | name                                  | evidence    | keywords | seen at | slot          |
+| ---------------------- | ------------------------------------- | ----------- | -------: | ------: | ------------- |
+| `jd-5.3`               | JD                                    | source      |      130 |      22 | —             |
+| `jd-4.6`               | JD                                    | source      |      125 |      22 | —             |
+| `personal-1.0b`        | Personnal Extension                   | source      |      108 |      13 | —             |
+| `opal-1.1`             | Opal                                  | source      |       78 |       — | recommends 21 |
+| `sln-2.0`              | SLN                                   | source      |       70 |       — | recommends 24 |
+| `jd-prt-1.3`           | JD Printer                            | source      |       63 |       — | —             |
+| `amospro-music-2.0`    | Music                                 | source      |       49 |       1 | stock, slot 1 |
+| `jd-colour-1.4`        | JD Colour                             | source      |       44 |       — | —             |
+| `amospro-ioports-2.0`  | IOPorts                               | source      |       38 |       6 | stock, slot 6 |
+| `gamesupport-1.2`      | GameSupport                           | source      |       37 |       — | recommends 23 |
+| `amospro-colours-1.0`  | AMOSPro Colours                       | source      |       27 |       — | recommends 23 |
+| `amospro-compiler-2.0` | Compiler                              | source      |       15 |       5 | stock, slot 5 |
+| `serial-1.2`           | Serial (AMOS 1.3)                     | source      |       15 |       — | —             |
+| `misc-1.0`             | Misc Extension                        | source      |       12 |       — | recommends 23 |
+| `jvp-1.01`             | JVP NoKids                            | source      |       11 |       — | recommends 25 |
+| `p61-1.2`              | P61 Music                             | source      |        9 |       — | recommends 25 |
+| `fileid-1.0`           | FileID                                | source      |        6 |       — | recommends 25 |
+| `amospro-compact-2.0`  | Compact                               | source      |        3 |       2 | stock, slot 2 |
+| `amospro-request-2.0`  | Request                               | source      |        3 |       3 | stock, slot 3 |
+| `personnal-extra-1.0a` | Personnal EXTRA                       | source      |        2 |       — | —             |
+| `os-devkit-1.61`       | OS-DevKit                             | disassembly |     1047 |      20 | recommends 20 |
+| `intuiextend-2.01b`    | IntuiExtend                           | disassembly |      301 |       — | recommends 23 |
+| `intuiextend-1.6`      | IntuiExtend                           | disassembly |      294 |       — | recommends 23 |
+| `amcaf-1.50`           | AMCAF                                 | disassembly |      280 |       — | recommends 8  |
+| `amcaf-1.40`           | AMCAF                                 | disassembly |      268 |       — | —             |
+| `gui-2.10`             | GUI                                   | disassembly |      204 |       — | recommends 24 |
+| `easylife-1.09`        | EasyLife                              | disassembly |      156 |       — | —             |
+| `easylife-1.10`        | Easy Life                             | disassembly |      156 |       — | recommends 16 |
+| `turbo-plus-2.15`      | TURBO Plus                            | disassembly |      152 |       — | —             |
+| `craft-1.0`            | CRAFT                                 | disassembly |      138 |       — | recommends 18 |
+| `turbo-plus-1.0`       | TURBO Plus Extension                  | disassembly |      134 |      12 | recommends 12 |
+| `jd-5.9`               | JD                                    | disassembly |      133 |       — | recommends 22 |
+| `personnal-1.1`        | Personnal                             | disassembly |      126 |      13 | —             |
+| `easylife-1.44`        | Easy Life                             | disassembly |      108 |       — | recommends 16 |
+| `gui-1.61`             | AMOSPro GUI Extension                 | disassembly |      103 |      24 | recommends 24 |
+| `the-game-0.9`         | The Game Extension                    | disassembly |      103 |       — | recommends 14 |
+| `turbo-plus-1.9`       | TURBO Plus                            | disassembly |       87 |      12 | recommends 12 |
+| `ldos-2.6`             | LDos                                  | disassembly |       85 |       — | recommends 10 |
+| `ldos-2.5`             | LDos                                  | disassembly |       77 |      10 | recommends 10 |
+| `range-2.0`            | Range                                 | disassembly |       73 |       — | recommends 9  |
+| `easylife-1.0`         | Easy Life                             | disassembly |       72 |       — | recommends 16 |
+| `jd-prt-1.4`           | JD Printer                            | disassembly |       69 |       — | recommends 21 |
+| `tome-4.23`            | TOME                                  | disassembly |       67 |       7 | recommends 7  |
+| `powerbobs-1.0`        | Power Bobs                            | disassembly |       65 |       — | recommends 13 |
+| `amos3d-1.0`           | AMOS 3D                               | disassembly |       64 |       4 | recommends 4  |
+| `eme-3.0`              | Enhanced Music Extension              | disassembly |       59 |       — | recommends 1  |
+| `jd-prt-1.1`           | JD Printer                            | disassembly |       58 |       — | —             |
+| `jd-colour-2.0`        | JD Colour                             | disassembly |       56 |       — | recommends 20 |
+| `eme-3.0-demo`         | Enhanced Music Extension (demo build) | disassembly |       55 |       — | —             |
+| `d-sam-1.01`           | D-Sam                                 | disassembly |       50 |       — | recommends 15 |
+| `gui-1.5b`             | GUI                                   | disassembly |       48 |       — | —             |
+| `range-1.0`            | Range                                 | disassembly |       48 |       — | recommends 9  |
+| `delta-1.6`            | Delta                                 | disassembly |       46 |       — | recommends 15 |
+| `tome-3.1`             | TOME                                  | disassembly |       34 |       — | —             |
+| `jd-int-1.3`           | JD Intuition                          | disassembly |       33 |       — | recommends 18 |
+| `tools-1.01`           | Tools                                 | disassembly |       33 |       — | recommends 23 |
+| `make-1.30`            | Make                                  | disassembly |       32 |       — | recommends 17 |
+| `bsdsocket-1.1.4`      | BSDSocket                             | disassembly |       30 |       — | recommends 18 |
+| `med-7.1`              | MED                                   | disassembly |       28 |       — | recommends 19 |
+| `delta-1.4`            | Delta                                 | disassembly |       26 |       — | recommends 15 |
+| `aga-1.0`              | AMOS AGA                              | disassembly |       24 |       — | recommends 20 |
+| `tft-0.6`              | TFT                                   | disassembly |       22 |       — | recommends 25 |
+| `locale-0.26`          | Locale                                | disassembly |       20 |       — | recommends 17 |
+| `sticks-1.01b`         | Sticks                                | disassembly |       16 |      17 | recommends 17 |
+| `butility-1.21`        | BUtility                              | disassembly |       15 |       — | recommends 12 |
+| `lserial-2.1`          | LSerial                               | disassembly |       15 |      11 | recommends 11 |
+| `musicraft-1.0`        | MusiCRAFT                             | disassembly |       12 |      19 | recommends 19 |
+| `ercole-1.7`           | Ercole                                | disassembly |       11 |       — | recommends 10 |
+| `stars-2.33`           | Stars                                 | disassembly |       11 |       — | recommends 20 |
+| `dump-1.0`             | Dump                                  | disassembly |        8 |       — | recommends 20 |
+| `ctext-1.0`            | CText                                 | disassembly |        6 |       8 | recommends 8  |
+| `jd-k3-1.1`            | JD K3                                 | disassembly |        6 |       — | recommends 19 |
+| `jotre-1.0`            | Jotre                                 | disassembly |        5 |       — | recommends 22 |
+| `first-0.1`            | First                                 | disassembly |        4 |       — | recommends 22 |
+| `dme-2.0`              | DOOM Music Extension                  | manual      |      184 |       — | recommends 15 |
+| `intuition-1.3b`       | Intuition Extension                   | manual      |      183 |      14 | recommends 25 |
+| `explode-2.01`         | Explode                               | manual      |      131 |       — | recommends 7  |
+| `int-1.0`              | Int                                   | manual      |       62 |       — | recommends 25 |
+| `symbase-0.94`         | SymBase                               | manual      |       51 |       — | recommends 21 |
+| `amon-1.04`            | Amon                                  | manual      |       24 |       — | recommends 15 |
+| `dbench-0.42`          | DBench                                | manual      |       23 |       — | recommends 21 |
+| `maxsdoor-0.20`        | MAXS Door Handler                     | manual      |       21 |       — | recommends 16 |
+| `orgasm-1.0`           | OrgAsm                                | manual      |       13 |       — | recommends 20 |
+| `display-0.01`         | Display                               | manual      |        6 |       — | recommends 24 |
+| `thx-0.6`              | THX                                   | manual      |        6 |       — | recommends 20 |
 
 <!-- END registry -->
 
@@ -575,57 +575,57 @@ That loss is not evenly spread — it concentrates in one AMOS Basic release —
 so the counts are sound at the top of the table and should not be read as
 decisive between two neighbouring rows near the bottom.
 
-| programs | extension | port | keywords answered |
-|---:|---|---|---:|
-| 2294 | `amospro-music-2.0` | module | 49 / 49 |
-| 1622 | `amospro-compact-2.0` | core | 3 / 3 |
-| 135 | `amcaf-1.40` | module | 268 / 268 |
-| 134 | `turbo-plus-1.9` | module | 87 / 87 |
-| 108 | `ldos-2.5` | module | 77 / 77 |
-| 94 | `amospro-request-2.0` | core | 3 / 3 |
-| 92 | `personal-1.0b` | module | 108 / 108 |
-| 78 | `amos3d-1.0` | module | 64 / 64 |
-| 74 | `amospro-compiler-2.0` | part | 8 / 15 |
-| 55 | `turbo-plus-1.0` | module | 134 / 134 |
-| 51 | `easylife-1.09` | module | 156 / 156 |
-| 49 | `jd-4.6` | module | 125 / 125 |
-| 34 | `amospro-ioports-2.0` | module | 38 / 38 |
-| 26 | `intuition-1.3b` | part | 2 / 183 |
-| 16 | `amcaf-1.50` | module | 280 / 280 |
-| 16 | `tome-4.23` | module | 67 / 67 |
-| 15 | `tft-0.6` | module | 22 / 22 |
-| 14 | `ctext-1.0` | module | 6 / 6 |
-| 13 | `lserial-2.1` | module | 15 / 15 |
-| 11 | `sticks-1.01b` | module | 16 / 16 |
-| 10 | `jd-5.3` | module | 130 / 130 |
-| 10 | `personnal-1.1` | module | 126 / 126 |
-| 9 | `sln-2.0` | module | 70 / 70 |
-| 8 | `make-1.30` | module | 32 / 32 |
-| 6 | `gui-1.61` | — | 0 / 103 |
-| 6 | `range-1.0` | module | 48 / 48 |
-| 5 | `craft-1.0` | module | 138 / 138 |
-| 5 | `stars-2.33` | module | 11 / 11 |
-| 4 | `tome-3.1` | module | 33 / 34 |
-| 4 | `aga-1.0` | module | 24 / 24 |
-| 3 | `gui-2.10` | — | 0 / 204 |
-| 3 | `gui-1.5b` | — | 0 / 48 |
-| 3 | `d-sam-1.01` | — | 0 / 50 |
-| 3 | `jvp-1.01` | module | 11 / 11 |
-| 2 | `delta-1.6` | module | 26 / 46 |
-| 2 | `bsdsocket-1.1.4` | — | 0 / 30 |
-| 2 | `easylife-1.0` | module | 72 / 72 |
-| 2 | `locale-0.26` | module | 20 / 20 |
-| 2 | `jd-colour-1.4` | module | 44 / 44 |
-| 2 | `os-devkit-1.61` | — | 0 / 1047 |
-| 2 | `ldos-2.6` | module | 85 / 85 |
-| 2 | `the-game-0.9` | module | 103 / 103 |
-| 1 | `butility-1.21` | module | 15 / 15 |
-| 1 | `dme-2.0` | part | 5 / 184 |
-| 1 | `dump-1.0` | module | 8 / 8 |
-| 1 | `delta-1.4` | module | 26 / 26 |
-| 1 | `opal-1.1` | module | 78 / 78 |
-| 1 | `jotre-1.0` | module | 5 / 5 |
-| 1 | `turbo-plus-2.15` | module | 152 / 152 |
+| programs | extension              | port   | keywords answered |
+| -------: | ---------------------- | ------ | ----------------: |
+|     2294 | `amospro-music-2.0`    | module |           49 / 49 |
+|     1622 | `amospro-compact-2.0`  | core   |             3 / 3 |
+|      135 | `amcaf-1.40`           | module |         268 / 268 |
+|      134 | `turbo-plus-1.9`       | module |           87 / 87 |
+|      108 | `ldos-2.5`             | module |           77 / 77 |
+|       94 | `amospro-request-2.0`  | core   |             3 / 3 |
+|       92 | `personal-1.0b`        | module |         108 / 108 |
+|       78 | `amos3d-1.0`           | module |           64 / 64 |
+|       74 | `amospro-compiler-2.0` | part   |            8 / 15 |
+|       55 | `turbo-plus-1.0`       | module |         134 / 134 |
+|       51 | `easylife-1.09`        | module |         156 / 156 |
+|       49 | `jd-4.6`               | module |         125 / 125 |
+|       34 | `amospro-ioports-2.0`  | module |           38 / 38 |
+|       26 | `intuition-1.3b`       | part   |           2 / 183 |
+|       16 | `amcaf-1.50`           | module |         280 / 280 |
+|       16 | `tome-4.23`            | module |           67 / 67 |
+|       15 | `tft-0.6`              | module |           22 / 22 |
+|       14 | `ctext-1.0`            | module |             6 / 6 |
+|       13 | `lserial-2.1`          | module |           15 / 15 |
+|       11 | `sticks-1.01b`         | module |           16 / 16 |
+|       10 | `jd-5.3`               | module |         130 / 130 |
+|       10 | `personnal-1.1`        | module |         126 / 126 |
+|        9 | `sln-2.0`              | module |           70 / 70 |
+|        8 | `make-1.30`            | module |           32 / 32 |
+|        6 | `gui-1.61`             | —      |           0 / 103 |
+|        6 | `range-1.0`            | module |           48 / 48 |
+|        5 | `craft-1.0`            | module |         138 / 138 |
+|        5 | `stars-2.33`           | module |           11 / 11 |
+|        4 | `tome-3.1`             | module |           33 / 34 |
+|        4 | `aga-1.0`              | module |           24 / 24 |
+|        3 | `gui-2.10`             | —      |           0 / 204 |
+|        3 | `gui-1.5b`             | —      |            0 / 48 |
+|        3 | `d-sam-1.01`           | —      |            0 / 50 |
+|        3 | `jvp-1.01`             | module |           11 / 11 |
+|        2 | `delta-1.6`            | module |           46 / 46 |
+|        2 | `bsdsocket-1.1.4`      | —      |            0 / 30 |
+|        2 | `easylife-1.0`         | module |           72 / 72 |
+|        2 | `locale-0.26`          | module |           20 / 20 |
+|        2 | `jd-colour-1.4`        | module |           44 / 44 |
+|        2 | `os-devkit-1.61`       | —      |          0 / 1047 |
+|        2 | `ldos-2.6`             | module |           85 / 85 |
+|        2 | `the-game-0.9`         | module |         103 / 103 |
+|        1 | `butility-1.21`        | module |           15 / 15 |
+|        1 | `dme-2.0`              | part   |           5 / 184 |
+|        1 | `dump-1.0`             | module |             8 / 8 |
+|        1 | `delta-1.4`            | module |           26 / 26 |
+|        1 | `opal-1.1`             | module |           78 / 78 |
+|        1 | `jotre-1.0`            | module |             5 / 5 |
+|        1 | `turbo-plus-2.15`      | module |         152 / 152 |
 
 `port`: **module** = a dedicated port (`EXT_IMPLS` in `src/runtime/instr.ts`),
 **core** = every keyword it has is answered by core AMOS anyway, **part** =

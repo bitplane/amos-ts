@@ -14,6 +14,7 @@
  * `manual`-tier is a fact, "no manual found for *this* build" is a judgement.
  */
 import { readFileSync, writeFileSync } from 'node:fs'
+import { mdTable } from './mdtable'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { EXT_TABLES, EXT_INFO } from '../ext/tables.gen'
@@ -53,7 +54,7 @@ const rows = [...EXT_INFO]
     const slots = e.observedSlots.length > 0 ? e.observedSlots.join(', ') : '—'
     const where =
       e.origin === 'stock' ? `stock, slot ${e.defaultSlot}` : e.defaultSlot ? `recommends ${e.defaultSlot}` : '—'
-    return `| \`${e.id}\` | ${e.name} | ${e.evidence} | ${named(e.id)} | ${slots} | ${where} |`
+    return [`\`${e.id}\``, e.name, e.evidence, String(named(e.id)), slots, where]
   })
 
 const table = [
@@ -74,9 +75,7 @@ const table = [
   'nothing about how much of each is ported; `src/cli/extaudit.ts` answers that,',
   'per keyword.',
   '',
-  '| id | name | evidence | keywords | seen at | slot |',
-  '|---|---|---|---|---|---|',
-  ...rows,
+  mdTable(['id', 'name', 'evidence', 'keywords', 'seen at', 'slot'], rows),
   '',
   END,
 ].join('\n')

@@ -39,7 +39,9 @@ describe('the committed coverage manifest', () => {
     // the same numbers reached two ways: the table in the file, and the count
     // the CLI reports. They came apart once when the rollup changed and the
     // print line did not.
-    const total = /^\| \*\*total\*\* \| (\d+) \| (\d+) \| (\d+) \| (\d+) \|/m.exec(buildManifest())
+    // cells are padded to the column width now, so the separators carry runs
+    // of spaces — see mdtable.ts
+    const total = /^\|\s*\*\*total\*\*\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|/m.exec(buildManifest())
     expect(total, 'the manifest has a **total** row').not.toBeNull()
     const [, keywords, faithful, approximated, missing] = total!.map(Number)
     const summary = manifestSummary()
