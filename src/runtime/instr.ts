@@ -88,7 +88,7 @@ import { newJdState, JD_ERRORS, makeJdFunctions, makeJdInstructions } from './jd
 import { makeJdColourFunctions, makeJdColourInstructions, newJdColourState } from './jdcolour'
 import { makeJdIntFunctions, makeJdIntInstructions, newJdIntState } from './jdint'
 import { isAmon103, makeAmonFunctions, makeAmonInstructions, newAmonState } from './amon'
-import { makeExplodeFunctions } from './explode'
+import { makeExplodeFunctions, makeExplodeInstructions } from './explode'
 import { jdPrt11Aliases, makeJdPrtFunctions, makeJdPrtInstructions } from './jdprt'
 import { newTdState, TD_ERRORS, makeTdFunctions, makeTdInstructions } from './td'
 import { FUNCS, INSTR, parseAmosNumber } from '../interp/builtins'
@@ -6338,6 +6338,7 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
      * in batches by functional group; see explode.ts.
      */
     ids: ['explode-2.01'],
+    instructions: makeExplodeInstructions,
     functions: makeExplodeFunctions,
   },
   {

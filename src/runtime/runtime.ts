@@ -3728,11 +3728,17 @@ export class Runtime {
   }
 
   /**
-   * Bnk.OrAdr: a small value is a bank number (its start address), else
-   * a raw address into the fake address space.
+   * Bnk.OrAdr (+Lib.s:8082): a value BELOW 1024 is a bank number and answers
+   * that bank's start address, anything else is already an address.
+   *
+   * 1024 is the library's own line and not a round number chosen here:
+   * `cmp.l #1024,d0 / bge.s .Skip`. It is well under the 65535 a bank number
+   * can reach, so `Bload "f",2000` names an ADDRESS on the machine even
+   * though bank 2000 is a bank you can Reserve. This port had 0x10000 here,
+   * which is `reserveBank`'s range rather than this routine's.
    */
   bankOrAddr(n: number): { data: Uint8Array; off: number } | null {
-    if (n >= 0 && n < 0x10000) {
+    if (n >= 0 && n < 1024) {
       const bank = this.memBanks.get(n)
       if (!bank) throw new AmosError('bank not reserved', 36)
       return { data: bank.data, off: 0 }

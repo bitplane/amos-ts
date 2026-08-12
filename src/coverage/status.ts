@@ -1528,6 +1528,17 @@ export const FAITHFUL = new Set<string>([
   // and U are what `Inverse On`, `Shade On` and `Under On` look like inside a
   // string, and screen.ts ignored all three.
   'pinv$', 'psad$', 'pund$', 'pcpn$', 'pjam$', 'pcsr$', 'pdef$', 'format$',
+  // Batch 3, `BankCmd` plus `Bank To Chip` -- routines 19 to 32 and 142, over
+  // the shared loader 167. Two things a reading could miss and this one did
+  // not: `Bank As Work`/`Bank As Data` also RENAME the bank, comparing a
+  // longword against an eight-byte field so "Datas" becomes "Works"; and
+  // `Image Width` answers the stored word times 16, checked against real
+  // object banks in the corpus rather than assumed. `Bank Load`'s four
+  // arities share one token name and settle the shape themselves. This batch
+  // corrected Bnk.OrAdr's threshold in the core: 1024, not 0x10000.
+  'bank load', 'bank save', 'bank as work', 'bank as data', 'bank free',
+  'bank clone', 'number', 'finish', 'image swap', 'image width',
+  'image height', 'bank to chip',
   'delta inter on', 'delta inter off', 'delta mouse off', 'delta reset',
   'delta drive motor on', 'delta drive motor off', 'delta change disk',
   'delta wait left mouse', 'delta wait fire', 'delta wait double mouse',

@@ -11,6 +11,8 @@ import { TokenTable } from '../tokens/stream'
 import { CORE_TOKENS } from '../tokens/tables.gen'
 import { tokenize } from '../tokens/tokenizer'
 import { extensionById } from '../ext/registry'
+import { AmigaFS } from '../amiga/vfs'
+import { BankImage, ObjectBank } from './objects'
 import { Runtime } from './runtime'
 
 const table = new TokenTable(CORE_TOKENS)
@@ -18,21 +20,37 @@ const table = new TokenTable(CORE_TOKENS)
 const explode = extensionById('explode-2.01')!
 const exts = new Map([[7, explode.table]])
 
-function boot(src: string): { rt: Runtime; out: () => string } {
+function boot(src: string, fs?: AmigaFS): { rt: Runtime; out: () => string } {
   let out = ''
   const rt = new Runtime(tokenize(src, table, exts), table, {
     extensions: exts,
     extBindings: new Map([[7, explode]]),
+    ...(fs ? { fs } : {}),
     maxSteps: 500_000,
     onText: (t) => (out += t),
   })
   return { rt, out: () => out }
 }
 
-function run(src: string): string {
-  const b = boot(src)
+function run(src: string, fs?: AmigaFS): string {
+  const b = boot(src, fs)
   mustFinish(b.rt.runHeadless(3_000))
   return b.out().trim().replace(/\s+/g, ' ')
+}
+
+/** a writable RAM: with one file on it */
+function withFile(name: string, bytes: Uint8Array): AmigaFS {
+  const fs = new AmigaFS()
+  fs.mountMemory('RAM')
+  fs.writeFile(`RAM:${name}`, bytes)
+  return fs
+}
+
+/** a bare RAM: to save onto */
+function emptyFs(): AmigaFS {
+  const fs = new AmigaFS()
+  fs.mountMemory('RAM')
+  return fs
 }
 
 const val = (expr: string, setup = ''): string => run(`${setup === '' ? '' : `${setup}\n`}Print ${expr}`)
@@ -225,5 +243,260 @@ describe('Explode: Format$, which is exec RawDoFmt', () => {
 
   it('and a bank that was never reserved is AMOS error 36', () => {
     expect(() => run('A$=Format$("x",9)')).toThrow(/bank not reserved/i)
+  })
+})
+
+describe('Explode: Bank Load, in its four arities', () => {
+  const payload = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8])
+
+  it('with no bank named it loads to 8, which is my_BkDefault', () => {
+    const out = run('Bank Load "RAM:f.dat"\nPrint Length(8);" ";Peek(Start(8)+3)', withFile('f.dat', payload))
+    expect(out).toBe('8 4')
+  })
+
+  it('To names the bank, and the file lands whole', () => {
+    const out = run('Bank Load "RAM:f.dat" To 5\nPrint Length(5);" ";Peek(Start(5))', withFile('f.dat', payload))
+    expect(out).toBe('8 1')
+  })
+
+  it('the mask is Data in bit 0 and Chip in bit 1, and only those two', () => {
+    // `andi.l #%11,d1`. The manual: "%11 = Chip + Data, %00 = Fast + Work"
+    const fs = withFile('f.dat', payload)
+    const b = boot(
+      ['Bank Load "RAM:f.dat" To 5,%11', 'Bank Load "RAM:f.dat" To 6,%00', 'Bank Load "RAM:f.dat" To 7,%1100'].join('\n'),
+      fs,
+    )
+    mustFinish(b.rt.runHeadless(3_000))
+    // %11: a Data bank in chip memory, named "Data"
+    expect(b.rt.memBanks.get(5)!.name).toBe('Data')
+    expect(b.rt.memBanks.get(5)!.memType).toBe(1)
+    // %00: a Work bank in fast memory
+    expect(b.rt.memBanks.get(6)!.name).toBe('Work')
+    expect(b.rt.memBanks.get(6)!.memType).toBe(0)
+    // %1100 asks for the Bob and Icon bits, which the AND throws away
+    expect(b.rt.memBanks.get(7)!.name).toBe('Work')
+    expect(b.rt.memBanks.get(7)!.flags & 0xc).toBe(0)
+  })
+
+  it('mask and To together, in that order, and the mask always last', () => {
+    const out = run('Bank Load "RAM:f.dat" To 9,%10\nPrint Length(9)', withFile('f.dat', payload))
+    expect(out).toBe('8')
+  })
+
+  it('a bank that is already there is REPLACED, not refused', () => {
+    // Bnk.Reserve erases first (+Lib.s:8470); Reserve As Work would be error 35
+    const out = run(
+      'Reserve As Work 5,4096\nBank Load "RAM:f.dat" To 5\nPrint Length(5)',
+      withFile('f.dat', payload),
+    )
+    expect(out).toBe('8')
+  })
+
+  it('a missing file is error 94, the I/O error the port used to misname', () => {
+    expect(() => run('Bank Load "RAM:nothere"', emptyFs())).toThrow(/I\/O error/i)
+  })
+
+  it('an empty filename and a bank of 65536 are both error 23', () => {
+    expect(() => run('Bank Load ""', emptyFs())).toThrow(/function call/i)
+    expect(() => run('Bank Load "RAM:f.dat" To 65536', withFile('f.dat', payload))).toThrow(/function call/i)
+  })
+})
+
+describe('Explode: Bank Save', () => {
+  it('writes the payload with NO header, so Bank Load reads it back', () => {
+    // "Dabei wird kein Bank-Header vorangestellt"
+    const fs = emptyFs()
+    const out = run(
+      [
+        'Reserve As Data 6,4',
+        'Poke Start(6),65 : Poke Start(6)+1,66 : Poke Start(6)+2,67 : Poke Start(6)+3,68',
+        'Bank Save "RAM:out.dat",6',
+        'Bank Load "RAM:out.dat" To 7',
+        'Print Length(7);" ";Peek$(Start(7),4)',
+      ].join('\n'),
+      fs,
+    )
+    expect(out).toBe('4 ABCD')
+    expect(fs.readFile('RAM:out.dat')!.length).toBe(4)
+  })
+
+  it('refuses a Bob bank with error 23, and does so BEFORE looking at the name', () => {
+    // the bank pops first, so an empty name is not what raises here
+    const fs = emptyFs()
+    const b = boot('Bank Save "",1', fs)
+    b.rt.spriteBank = new ObjectBank()
+    b.rt.spriteBank.images = [new BankImage(16, 8, 2, 0, 0)]
+    expect(() => mustFinish(b.rt.runHeadless(2_000))).toThrow(/function call/i)
+  })
+})
+
+describe('Explode: Bank As Work and Bank As Data', () => {
+  it('move the Data bit, which is what Erase Temp tests', () => {
+    const out = run(
+      [
+        'Reserve As Data 7,100',
+        'Reserve As Work 8,100',
+        'Bank As Work 7',
+        'Bank As Data 8',
+        'Erase Temp',
+        'Print Length(8);" ";Errn',
+      ].join('\n'),
+    )
+    // 8 became a Data bank and survived; 7 became Work and did not
+    expect(out.startsWith('100')).toBe(true)
+  })
+
+  it('AND THEY RENAME the bank -- the part a skim misses', () => {
+    const b = boot(
+      ['Reserve As Data 7,100', 'Reserve As Work 8,100', 'Bank As Work 7', 'Bank As Data 8'].join('\n'),
+    )
+    mustFinish(b.rt.runHeadless(2_000))
+    // `Reserve As Data` names the bank "Datas", and the compare is a
+    // LONGWORD against an eight-byte field: the first four characters match
+    // "Data", the first four are overwritten, and the s survives
+    expect(b.rt.memBanks.get(7)!.name).toBe('Works')
+    expect(b.rt.memBanks.get(8)!.name).toBe('Data')
+  })
+
+  it('and a bank whose first four characters are neither keeps its name', () => {
+    const b = boot('Reserve As Work 4,100\nBank As Data 4')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.rt.memBanks.get(4)!.name).toBe('Data')
+    // a Tracker bank flipped to Data keeps its own name and moves only the bit
+    const c = boot('Bank As Data 4')
+    c.rt.memBanks.set(4, { kind: 'memory', number: 4, memType: 0, name: 'Tracker ', flags: 0, data: new Uint8Array(8) })
+    mustFinish(c.rt.runHeadless(2_000))
+    expect(c.rt.memBanks.get(4)!.name).toBe('Tracker ')
+    expect(c.rt.memBanks.get(4)!.flags & 1).toBe(1)
+  })
+})
+
+describe('Explode: Bank Free, Number, Finish and Bank Clone', () => {
+  it('Bank Free finds the first free number at or above the minimum', () => {
+    expect(run('Print Bank Free(1)')).toBe('1')
+    expect(run('Reserve As Work 1,10\nReserve As Work 2,10\nPrint Bank Free(1)')).toBe('3')
+    expect(run('Reserve As Work 1,10\nPrint Bank Free(5)')).toBe('5')
+  })
+
+  it('and a minimum of zero or below is error 23', () => {
+    // `move.l d0,d2 / Rble L_IFunc`
+    expect(() => run('A=Bank Free(0)')).toThrow(/function call/i)
+    expect(() => run('A=Bank Free(-1)')).toThrow(/function call/i)
+  })
+
+  it('Number is the inverse of Start, which is the reason it exists', () => {
+    // the manual's own example: Erase N does nothing, Erase Number(N) works
+    expect(run('Reserve As Work 6,100\nPrint Number(Start(6))')).toBe('6')
+    // and a bank NUMBER goes through Bnk.OrAdr unchanged
+    expect(run('Reserve As Work 6,100\nPrint Number(6)')).toBe('6')
+  })
+
+  it('Finish is one past the payload, so Start()+Length() reaches it', () => {
+    expect(run('Reserve As Work 6,100\nPrint Finish(6)-Start(6)')).toBe('100')
+    expect(run('Reserve As Work 6,100\nPrint Finish(6)-(Start(6)+Length(6))')).toBe('0')
+  })
+
+  it('Bank Clone copies the flags, the name and the bytes, and not the number', () => {
+    const b = boot(
+      [
+        'Reserve As Data 6,4',
+        'Poke Start(6),77',
+        'Bank Clone 6 To 9',
+        'Print Length(9);" ";Peek(Start(9));" ";Number(Start(9))',
+      ].join('\n'),
+    )
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().replace(/\s+/g, ' ')).toBe('4 77 9')
+    expect(b.rt.memBanks.get(9)!.name).toBe(b.rt.memBanks.get(6)!.name)
+    expect(b.rt.memBanks.get(9)!.flags).toBe(b.rt.memBanks.get(6)!.flags)
+  })
+
+  it('and the destination pops FIRST, being the last argument', () => {
+    // `move.l (a3)+,d7 ;Bk` then `move.l (a3)+,d0 ;Bk to clone`
+    expect(run('Reserve As Work 6,8\nBank Clone 6 To 9\nPrint Length(6);" ";Length(9)')).toBe('8 8')
+  })
+})
+
+describe('Explode: Bank To Chip', () => {
+  it('moves a fast bank into chip memory and leaves a chip one alone', () => {
+    const b = boot('Reserve As Work 6,64\nReserve As Chip Work 7,64\nBank To Chip 6\nBank To Chip 7')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.rt.memBanks.get(6)!.memType).toBe(1)
+    expect(b.rt.memBanks.get(7)!.memType).toBe(1)
+  })
+
+  it('and the bank keeps its number, its name and its bytes', () => {
+    // HeadClone (routine 160, $3014) copies the number, flags, name and the spare
+    // word onto the new bank, so the number is what survives the move
+    const b = boot('Reserve As Data 6,4\nPoke Start(6),88\nBank To Chip 6\nPrint Peek(Start(6));" ";Number(6)')
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().replace(/\s+/g, ' ')).toBe('88 6')
+    expect(b.rt.memBanks.get(6)!.name).toBe('Datas')
+  })
+})
+
+describe('Explode: Image Width, Image Height and Image Swap', () => {
+  /** a sprite bank of three images with distinguishable sizes */
+  function withBobs(): { rt: Runtime; out: () => string } {
+    const b = boot(
+      [
+        'Print Image Width(1,1);" ";Image Height(1,1);" ";Image Width(1,2);" ";Image Height(1,2)',
+        'Image Swap 1,1,2',
+        'Print Image Width(1,1);" ";Image Height(1,1);" ";Image Width(1,2);" ";Image Height(1,2)',
+      ].join('\n'),
+    )
+    const ob = new ObjectBank()
+    ob.images = [new BankImage(32, 9, 2, 0, 0), new BankImage(64, 25, 2, 0, 0), new BankImage(16, 3, 2, 0, 0)]
+    b.rt.spriteBank = ob
+    return b
+  }
+
+  it('the width is the stored word times 16 and the height is not rounded', () => {
+    const b = withBobs()
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().split('\n')[0]!.replace(/\s+/g, ' ').trim()).toBe('32 9 64 25')
+  })
+
+  it('and Image Swap exchanges the two images, so the sizes follow', () => {
+    const b = withBobs()
+    mustFinish(b.rt.runHeadless(2_000))
+    expect(b.out().trim().split('\n')[1]!.replace(/\s+/g, ' ').trim()).toBe('64 25 32 9')
+  })
+
+  it('all three go quiet on a bad index or a bank that is not an object bank', () => {
+    // every path falls to the same rts, with d3 still zero
+    const b = boot(
+      [
+        'Reserve As Work 5,100',
+        'Print Image Width(5,1);" ";Image Height(5,1);" ";Image Width(1,0);" ";Image Width(1,9)',
+        'Image Swap 1,1,9',
+        'Image Swap 5,1,2',
+        'Print Image Width(1,1)',
+      ].join('\n'),
+    )
+    const ob = new ObjectBank()
+    ob.images = [new BankImage(32, 9, 2, 0, 0), new BankImage(64, 25, 2, 0, 0)]
+    b.rt.spriteBank = ob
+    mustFinish(b.rt.runHeadless(2_000))
+    const lines = b.out().trim().split('\n')
+    expect(lines[0]!.replace(/\s+/g, ' ').trim()).toBe('0 0 0 0')
+    // the out-of-range swaps changed nothing
+    expect(lines[1]!.trim()).toBe('32')
+  })
+})
+
+describe('Explode: Bnk.OrAdr, which every one of these goes through', () => {
+  it('a bank number that names nothing is error 36', () => {
+    expect(() => run('Print Number(4)')).toThrow(/bank not reserved/i)
+    expect(() => run('Print Finish(4)')).toThrow(/bank not reserved/i)
+  })
+
+  it('and 1024 is the line between a bank number and an address', () => {
+    // `cmp.l #1024,d0 / bge.s .Skip` (+Lib.s:8082) -- so bank 2000 exists and
+    // is still not what Number(2000) asks about
+    expect(run('Reserve As Work 1023,8\nPrint Number(1023)')).toBe('1023')
+    expect(run('Reserve As Work 2000,8\nPrint Number(2000)')).toBe('0')
+    // by address it answers, because that is what 2000 and up mean here
+    expect(run('Reserve As Work 2000,8\nPrint Number(Start(2000))')).toBe('2000')
   })
 })

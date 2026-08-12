@@ -31,10 +31,34 @@
  *
  * A string argument arrives as a POINTER to an AMOS string block: a length
  * word, then the characters, so the first character is at `2(a0)`.
+ *
+ * ## The errors, all eight of them
+ *
+ * Routines 200 to 207 are the whole error vocabulary, each two instructions
+ * — a number into d0 and a jump to AMOS's own `L_Error`. Reading them
+ * together is worth more than reading them one at a time, so they are here
+ * once (source lines 4599-4620) rather than restated at each site:
+ *
+ *     200  L_OOfmem    24   Out of memory
+ *     201  L_IFunc     23   Illegal function call
+ *     202  L_SNopen    47   Screen not opened
+ *     203  L_FNopen    97   File not opened
+ *     204  L_IOError   94   I/O error
+ *     205  L_LibError  170  Cannot open library
+ *     206  L_NoIff     31   IFF compression not recognised
+ *     207  L_IScrn     48   Illegal screen parameter
+ *
+ * THIS TABLE FOUND A CORE DEFECT. Six of the eight agreed with the port's
+ * message table and two did not: 94 read "Next without For in animation
+ * string" and 97 "Autotest already opened". The author was right — the
+ * generated table was fourteen records short, and everything from 94 up
+ * answered under the wrong number. See AMOS_ERRORS in ../interp/values.ts.
  */
-import type { Func } from '../interp/builtins'
+import type { Func, Instr } from '../interp/builtins'
 import type { Runtime } from './runtime'
-import { VI, VS, funcCall, int, str, type Value } from '../interp/values'
+import { AmosError, VI, VS, funcCall, int, str, type Value } from '../interp/values'
+import { BNK, BOB_BANK, ICON_BANK, isObjectBank, type BankRef } from './banks'
+import type { ObjectBank } from './objects'
 
 /**
  * The characters of an AMOS string as bytes, padded with zeros.
@@ -208,6 +232,302 @@ function cstring(rt: Runtime, addr: number): string {
   return s
 }
 
+/** AMOS error N by number, for the five of the eight this batch can raise */
+function amosError(n: number, text: string): never {
+  throw new AmosError(text, n)
+}
+
+/**
+ * The AMOS bank header, as the source's own `RsReset` block names it
+ * (lines 137-143), because every keyword below is offsets off this:
+ *
+ *     my_BkDefault    8   the bank Bank Load uses when none is named
+ *     my_BkHeader    16   header bytes, subtracted from BkLength everywhere
+ *     my_BkLength   -20   (l) the WHOLE allocation, header included
+ *     my_BkNumber   -16   (l)
+ *     my_BkFlag     -12   (w) Bnk_BitData/Chip/Bob/Icon, see ./banks.ts
+ *     my_BkName      -8   (8 bytes)
+ *
+ * DEVIATION: THERE IS NO HEADER IN THIS ADDRESS SPACE, and this stands for the
+ * whole group. A bank's `Start()` is a synthetic base and the sixteen bytes below
+ * it belong to nothing, so a `BankRef` stands in for the header and an
+ * address that is not some bank's start has no header to read. On the
+ * machine such an address yields a bank made of whatever was in memory.
+ */
+function orAdr(rt: Runtime, n: number): BankRef | null {
+  // Bnk.OrAdr +Lib.s:8082 — below 1024 is a bank number, and one that names
+  // no bank is L_BkNoRes rather than a quiet nothing
+  if (n < 1024) {
+    const ref = rt.bankRef(n)
+    if (!ref) amosError(36, 'Bank not reserved')
+    return ref
+  }
+  return rt.bankRefs().find((b) => b.address === (n >>> 0)) ?? null
+}
+
+/**
+ * The payload byte length: `my_BkLength - my_BkHeader`, which is what every
+ * one of these keywords means by the size of a bank.
+ *
+ * `BankRef.length` cannot serve, because for an object bank it is the IMAGE
+ * COUNT — FnLength's own quirk, documented in ./banks.ts. The object banks
+ * answer from their serialised bytes instead, and DEVIATION: that is the
+ * `.abk` FILE layout, a count word then image records, where the machine
+ * holds a table of image and mask POINTERS. The two have no reason to be the
+ * same length, so `Finish` on a Bob bank is this port's arrangement rather
+ * than the machine's.
+ */
+function payloadLength(rt: Runtime, ref: BankRef): number {
+  if (ref.number === BOB_BANK && isObjectBank(ref)) return rt.objectBankImage('sprites')?.length ?? 0
+  if (ref.number === ICON_BANK && isObjectBank(ref)) return rt.objectBankImage('icons')?.length ?? 0
+  return rt.memBanks.get(ref.number)?.data.length ?? 0
+}
+
+/** the ObjectBank behind a Bob or Icon bank, which here is only banks 1 and 2 */
+function objectBank(rt: Runtime, ref: BankRef): ObjectBank | null {
+  if (!isObjectBank(ref)) return null
+  if (ref.number === BOB_BANK) return rt.spriteBank
+  if (ref.number === ICON_BANK) return rt.iconBank
+  return null
+}
+
+/**
+ * `L_GetFileInfo`'s filename check (routine 162, $30cc), which `Bank Load` and
+ * `Bank Save` both reach: `move.w (a0)+,d0 / subq.w #1,d0 / cmpi.w #128,d0 /
+ * Rbcc L_IFunc`.
+ *
+ * The compare is UNSIGNED and the decrement comes first, so an EMPTY name
+ * wraps to 65535 and fails the same test that rejects a long one. 1 to 128
+ * characters, and nothing else.
+ */
+function checkName(name: string): string {
+  if (name.length < 1 || name.length > 128) funcCall()
+  return name
+}
+
+export function makeExplodeInstructions(rt: Runtime): Record<string, Instr> {
+  /**
+   * Routine 167 ($31c6, `L_BankLoad`), the shared body all four `Bank Load`
+   * arities tail into. Each of routines 19 to 22 does nothing but fill three
+   * fields of the data zone and branch here, which is why the four forms
+   * cannot disagree about anything.
+   */
+  const bankLoad = (name: string, bank: number, mask: number): void => {
+    // `andi.l #%11,d1` — only Bnk_BitData and Bnk_BitChip survive, so the Bob
+    // and Icon bits cannot be asked for. The manual: "%11 = Chip + Data,
+    // %00 = Fast + Work ( Default )"
+    const m = mask & 3
+    // `cmpi.l #$10000,d0 / Rbge L_IFunc`, and SIGNED, so a negative number
+    // gets past here and is truncated to a word by Bnk.Reserve
+    if (bank >= 0x10000) funcCall()
+    checkName(name)
+    const bytes = rt.vfs?.readFile(name) ?? rt.fs?.read(name) ?? null
+    // Examine failing leaves my_FileSize at -1, and `Rblt L_IOError`
+    if (!bytes) amosError(94, 'I/O error')
+    // Bnk.Reserve (+Lib.s:8470) ERASES a bank that is already there rather
+    // than refusing it — no "bank already reserved" on this path.
+    //
+    // DEVIATION: an EMPTY file. Bnk.Reserve asks Lst.Cree for `d2 + 16` and
+    // gets a bank with no payload; this port's reserveBank guards `length <=
+    // 0` with error 23, which is RsBqX's rule and not this path's. So a
+    // zero-byte file raises here and makes an empty bank on the machine.
+    rt.eraseBank(bank & 0xffff)
+    rt.reserveBank(bank & 0xffff, bytes.length, (m & BNK.DATA) !== 0 ? 'Data' : 'Work', (m & BNK.DATA) !== 0, (m & BNK.CHIP) !== 0)
+    rt.memBanks.get(bank & 0xffff)!.data.set(bytes)
+  }
+
+  return {
+    /**
+     * `Bank Load name$ [To bk] [,mask]` — routines 19 to 22 ($fa6, $fbe, $fd6, $fea).
+     *
+     * Four token entries share one name (the table spells the first
+     * `!bank load` and leaves the other three unnamed), so the arity is
+     * settled here rather than by the tokeniser. The default bank is
+     * `my_BkDefault` = 8 and the default mask is zero, which is a Fast Work
+     * bank.
+     */
+    'bank load'(it) {
+      const name = it.evalStr()
+      let bank = 8
+      let mask = 0
+      if (it.accept('to')) {
+        bank = it.evalInt()
+        if (it.accept(',')) mask = it.evalInt()
+      } else if (it.accept(',')) {
+        mask = it.evalInt()
+      }
+      bankLoad(name, bank, mask)
+    },
+
+    /**
+     * `Bank Save name$,bk` — routine 23 ($ffe).
+     *
+     * Writes `BkLength - my_BkHeader`: the payload, with NO header in front
+     * of it. The manual is explicit — *"Dabei wird kein Bank-Header
+     * vorangestellt"* — so this is not `Bsave` of a bank and the file it
+     * makes is what `Bank Load` reads back.
+     *
+     * A Bob or Icon bank is error 23. The BANK is checked first even though
+     * the name is written first: the arguments pop right to left, so the bank
+     * is off the stack and through Bnk.OrAdr before the filename is looked at
+     * at all. `Bank Save "",1` on a Bob bank raises for the bank, not the
+     * name.
+     */
+    'bank save'(it) {
+      const name = it.evalStr()
+      it.expect(',')
+      const ref = orAdr(rt, it.evalInt())
+      if (!ref) return
+      if (isObjectBank(ref)) funcCall()
+      checkName(name)
+      const bank = rt.memBanks.get(ref.number)
+      if (!bank) amosError(94, 'I/O error')
+      // a failed Open and a short Write are the same error
+      if (!rt.vfs?.writeFile(name, Uint8Array.from(bank.data))) amosError(94, 'I/O error')
+    },
+
+    /**
+     * `Bank As Work bk` and `Bank As Data bk` — routines 24 and 25
+     * ($107e and $10a6), the Bnk_BitData bit cleared and set.
+     *
+     * AND THEY RENAME THE BANK. `cmpi.l #"Data",my_BkName(a0)` — if the name
+     * is exactly "Data" then `Bank As Work` writes "Work" over it, and the
+     * other way round. Any other name is left alone, so a bank called
+     * "Tracker" keeps its name and only the flag moves. The manual's example
+     * is `Reserve As Data 7,100 : Bank As Work 7 : Erase Temp`, which is the
+     * point of the flag: Bnk.EffTemp tests Bnk_BitData and nothing else.
+     */
+    'bank as work': (it) => setDataBit(rt, it.evalInt(), false),
+    'bank as data': (it) => setDataBit(rt, it.evalInt(), true),
+
+    /**
+     * `Bank Clone src To dest` — routine 27 ($10da).
+     *
+     * The destination pops FIRST because it is the last argument. Reserve
+     * gets the SOURCE's flags, the SOURCE's name and the source's payload
+     * length, and then the payload is copied — so the clone differs from the
+     * original in its number and its address and in nothing else. The manual
+     * says as much: *"Dabei wird
+     * Der Bank-Header so identisch wie möglich kopiert"*, and warns that the start addresses cannot match.
+     *
+     * A Bob or Icon source is error 23, and a destination that already
+     * exists is erased by Bnk.Reserve rather than refused.
+     */
+    'bank clone'(it) {
+      const src = it.evalInt()
+      it.expect('to')
+      const dest = it.evalInt()
+      const ref = orAdr(rt, src)
+      if (!ref) return
+      if (isObjectBank(ref)) funcCall()
+      const from = rt.memBanks.get(ref.number)
+      if (!from) funcCall()
+      const bytes = Uint8Array.from(from.data)
+      rt.eraseBank(dest & 0xffff)
+      rt.reserveBank(dest & 0xffff, bytes.length, from.name, (from.flags & BNK.DATA) !== 0, from.memType === 1)
+      rt.memBanks.get(dest & 0xffff)!.data.set(bytes)
+    },
+
+    /**
+     * `Bank To Chip bk` — routine 142 ($2d7e), and the only keyword in the
+     * group that moves memory for its own sake.
+     *
+     * A bank that is already in chip RAM is left alone. Otherwise the flag is
+     * set on the ORIGINAL first, a fresh chip bank is reserved at the first
+     * free number, the payload is copied into it and `L_Bnk.HeadClone`
+     * (routine 160, $3014) copies the number, flags, name and the reserved
+     * word over — so the new bank ends up claiming the old one's NUMBER.
+     *
+     * The manual's example is the reason it exists: a packed tracker module
+     * is loaded to fast RAM, unpacked, and has to reach chip RAM before
+     * `Pt Play` can touch it.
+     *
+     * Almost all of that round trip is invisible here, and not by accident: a
+     * bank's address in this port is `bankBase(number)`, a pure function of
+     * the number, so reserving a copy elsewhere and then giving it the old
+     * number lands it back at the same address. What is left is the flag,
+     * which is what this sets.
+     *
+     * DEVIATION: the ORIGINAL IS LEAKED on the machine. Two headers carry one
+     * number, the chain reaches the new one, and the old block is never
+     * freed — so `=Fast Free` stays down by the bank's length for the rest of
+     * the program. Here the one entry changes type and the fast memory comes
+     * back.
+     */
+    'bank to chip'(it) {
+      const ref = orAdr(rt, it.evalInt())
+      if (!ref) return
+      if ((ref.flags & BNK.CHIP) !== 0) return
+      const bank = rt.memBanks.get(ref.number)
+      if (!bank) return
+      bank.memType = 1
+    },
+
+    /**
+     * `Image Swap bk,i1,i2` — routine 30 ($115e).
+     *
+     * Swaps two 8-byte table entries, an image pointer and a mask pointer
+     * each, so it is the images themselves that exchange places and every Bob
+     * already using image 3 shows the new one.
+     *
+     * IT REFUSES NOTHING OUT LOUD. A bank that is neither Bob nor Icon, an
+     * index above the count, an index of zero or below — each falls straight
+     * to the `rts`. The compare is `cmp.w (a0),d6 / bgt.s .Skip` against the
+     * count word, then `subq.l #1 / blt.s .Skip`, and both indices are tested
+     * before either is used.
+     */
+    'image swap'(it) {
+      const ref = orAdr(rt, it.evalInt())
+      it.expect(',')
+      const i1 = it.evalInt()
+      it.expect(',')
+      const i2 = it.evalInt()
+      if (!ref) return
+      const ob = objectBank(rt, ref)
+      if (!ob) return
+      const n = ob.images.length
+      if (i1 > n || i2 > n || i1 < 1 || i2 < 1) return
+      const a = ob.images[i1 - 1]!
+      const b = ob.images[i2 - 1]!
+      ob.setImage(i1, b)
+      ob.setImage(i2, a)
+    },
+  }
+}
+
+/** the shared lookup of Image Width and Image Height — bank, then index */
+function imageOf(rt: Runtime, a: Value[]): BankImageLike | null {
+  const ref = orAdr(rt, int(a[0]!))
+  if (!ref) return null
+  const ob = objectBank(rt, ref)
+  const n = int(a[1]!)
+  if (!ob || n > ob.images.length || n < 1) return null
+  return ob.images[n - 1]!
+}
+
+/** just the two header words the pair reads */
+interface BankImageLike {
+  readonly width: number
+  readonly height: number
+}
+
+/** the shared body of Bank As Work and Bank As Data — routines 24 and 25 */
+function setDataBit(rt: Runtime, which: number, data: boolean): void {
+  const ref = orAdr(rt, which)
+  if (!ref) return
+  const bank = rt.memBanks.get(ref.number)
+  // an object bank is not refused, but its Data bit lives in banks.ts's
+  // fixed BOB_BANK_FLAGS and there is no stored word here to move
+  if (!bank) return
+  bank.flags = data ? bank.flags | BNK.DATA : bank.flags & ~BNK.DATA
+  // `cmpi.l #"Data",my_BkName(a0)` then `move.l #"Work",my_BkName(a0)`: a
+  // LONGWORD against an EIGHT-byte field, so it is the first four characters
+  // that are compared and the first four that are overwritten. A bank named
+  // "Datas   " matches and comes out "Works   ", trailing s and all
+  const want = data ? 'Work' : 'Data'
+  if (bank.name.slice(0, 4) === want) bank.name = (data ? 'Data' : 'Work') + bank.name.slice(4)
+}
+
 export function makeExplodeFunctions(rt: Runtime): Record<string, Func> {
   /**
    * Routine 163 ($3841 in the source, `L_PrtSeq`), which all six of the
@@ -277,6 +597,83 @@ export function makeExplodeFunctions(rt: Runtime): Record<string, Func> {
     'lsr.b': shift(8, false),
     'lsr.w': shift(16, false),
     'lsr.l': shift(32, false),
+
+    /**
+     * =Bank Free(min) — routine 26 ($10ce), which is `L_Bnk.GetFree`
+     * (routine 164, $3146) and nothing else.
+     *
+     * The first free number at or above `min`. A minimum of zero or below is
+     * error 23 (`Rble L_IFunc` on the way in) and so is running out: the scan
+     * checks `cmpi.l #$10000,d2 / Rbge L_IFunc` before each probe, so a
+     * machine with every bank taken raises rather than answering 65536.
+     *
+     * It asks `L_Bnk.GetAdr`, which walks the ONE list, so the Bob and Icon
+     * banks count as taken.
+     */
+    'bank free': (_, a): Value => {
+      const min = int(a[0]!)
+      if (min <= 0) funcCall()
+      for (let n = min; n < 0x10000; n++) if (!rt.bankRef(n)) return VI(n)
+      return funcCall()
+    },
+
+    /**
+     * =Number(addr) — routine 28 ($1136): the bank's own number field.
+     *
+     * The inverse of `Start()`, and the manual says why it is here: *"da es nicht
+     * möglich ist z.B. eine Bank zu löschen, deren Adresse zwar bekannt ist
+     * aber nicht deren interne Nummer"* — you cannot Erase a bank
+     * you only have the address of. `Erase Number(N)` can.
+     *
+     * It goes through Bnk.OrAdr like everything else, so `Number(8)` is 8.
+     */
+    number: (_, a): Value => VI(orAdr(rt, int(a[0]!))?.number ?? 0),
+
+    /**
+     * =Finish(bk) — routine 29 ($1146): `a0 + BkLength - my_BkHeader`, one
+     * past the last payload byte.
+     *
+     * *"Dieser Befehl hat die gleiche Bedeutung wie der Aufruf
+     * Start()+Length()"*, and the manual's example is the reason to want it:
+     * `Bsave "neuedatei",Start(10) To Finish(10)`.
+     *
+     * NOTE: that equivalence does NOT hold for a Bob or Icon bank, and the
+     * routine does not exclude one. `=Length()` on an object bank answers the
+     * IMAGE COUNT (FnLength +Lib.s:2491), so `Start(1)+Length(1)` is the bank
+     * start plus three, while `Finish(1)` is the real end. The author is
+     * describing the Data bank case.
+     */
+    finish: (_, a): Value => {
+      const ref = orAdr(rt, int(a[0]!))
+      return VI(ref ? (ref.address + payloadLength(rt, ref)) | 0 : 0)
+    },
+
+    /**
+     * =Image Width(bk,img) and =Image Height(bk,img) — routines 31 and 32
+     * ($11ac and $11de).
+     *
+     * The image's own header: word 0 is the width and word 1 the height. The
+     * width is read `move.w (a0),d3 / lsl.l #4,d3` — THE STORED WORD IS IN
+     * SIXTEEN-PIXEL UNITS, so the answer is always a multiple of 16 and the
+     * height is not. The author says so himself: *"Die Breite eines Images
+     * deckt sich nicht immer mit den Definitionen bei Get Bob oder Get Icon,
+     * da diese Werte zuvor immer als ein vielfaches von 16
+     * übertragen werden"*.
+     *
+     * Which way the sixteenths round was checked against real banks rather
+     * than assumed — `bankRowBytesFor` truncates where a screen's
+     * `rowBytesFor` rounds up. It does not arise: the `.abk` format stores
+     * whole words and the loader multiplies by 16, so every image in
+     * `bobs.abk` (2 words) and `icons.abk` (2 and 4) has a width that is
+     * already a multiple of 16. `>> 4 << 4` is the round trip through the
+     * stored word, and it changes nothing for a loaded bank.
+     *
+     * Both answer 0 rather than raising: a bank that is neither Bob nor Icon,
+     * an index above the count and an index below 1 all fall to the same
+     * `moveq #0,d2` with d3 still zero.
+     */
+    'image width': (_, a): Value => VI(((imageOf(rt, a)?.width ?? 0) >> 4) << 4),
+    'image height': (_, a): Value => VI(imageOf(rt, a)?.height ?? 0),
 
     /** =Even(#) — routine 71 ($16c0): `btst #0`, -1 when the bit is CLEAR */
     even: (_, a): Value => VI((int(a[0]!) & 1) === 0 ? -1 : 0),
