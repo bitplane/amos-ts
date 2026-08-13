@@ -1,15 +1,19 @@
 /**
  * StoneCracker `S404`.
  *
- * There is no crunched file in the corpus to check against — the magic turns
- * up only inside the libraries that know it — so what is checked here is the
- * pair against each other over inputs chosen to reach every code in the tree,
- * plus the header and trailer fields against the cruncher's own tail at $83a.
- * A wrong reading of one code would have to be wrong the same way twice to
+ * There is no crunched file in the corpus to decode — the magic turns up only
+ * inside the libraries that know it — so most of what is here is the pair
+ * against each other over inputs chosen to reach every code in the tree, plus
+ * the header and trailer fields against the cruncher's own tail at $83a. A
+ * wrong reading of one code would have to be wrong the same way twice to
  * survive a round trip of data that uses it, and the length ladder is walked
  * one value at a time so that each of its four arms is entered.
+ *
+ * The last describe is the one that does not depend on this port being right.
+ * `ancient` decrunches what `stcCrunch` writes, and it never saw any of this.
  */
 import { describe, expect, it } from 'vitest'
+import { CHECKED, HAS_ANCIENT, ORACLE, ORACLE_REQUIRED, ancientIdentify, ancientVerify } from '../testing/oracle'
 import { STC_OFFSET_BITS, STC_S404, isStoneCracked, stcCrunch, stcDecrunch, stcLength } from './stonecracker'
 
 const be32 = (d: Uint8Array, at: number): number =>
@@ -145,5 +149,100 @@ describe('S404 round trips', () => {
     const file = stcCrunch(data, 8)
     expect(be16(file, 12 + be32(file, 12))).toBe(8)
     expect(stcDecrunch(file)).toEqual(data)
+  })
+})
+
+/**
+ * `ancient` as an outside reader of `stcCrunch`.
+ *
+ * This file's header says what the gap was: no crunched file exists in the
+ * corpus, so everything above is the pair here agreeing with itself. A sweep
+ * of all 45,743 corpus files through `ancient identify` turns up 115
+ * PowerPacker files and not one StoneCracker, which settles that as measured
+ * rather than assumed.
+ *
+ * So the only outside evidence available is the other direction: hand our
+ * crunched stream to somebody else's decruncher. `ancient` reads S404 from
+ * its own understanding of the format and has never seen this port.
+ */
+describe('StoneCracker against ancient, an independent implementation', () => {
+  const CASES: Array<[string, Uint8Array]> = [
+    ['one byte', new Uint8Array([65])],
+    ['a long run, all RLE', new Uint8Array(3000)],
+    ['text', bytes('AMOS Professional '.repeat(600))],
+    ['incompressible, which drives the literal run', noise(20_000, 7)],
+    ['a ramp, all short matches', Uint8Array.from({ length: 5000 }, (_, i) => i & 0x3f)],
+    ['every length the ladder spells', (() => {
+      const parts: number[] = []
+      for (let len = 2; len <= 300; len++) {
+        const unit = noise(len, len * 31 + 1)
+        parts.push(...unit, ...unit)
+      }
+      return Uint8Array.from(parts)
+    })()],
+  ]
+
+  it('is installed wherever it is required', () => {
+    if (!ORACLE_REQUIRED) return
+    expect(HAS_ANCIENT, 'AMOS_ORACLE=1 but `ancient` is not on PATH').toBe(true)
+  })
+
+  it.skipIf(!HAS_ANCIENT)('records which build produced the evidence', () => {
+    expect(CHECKED, `ancient ${ORACLE} has not been checked against this file`).toContain(ORACLE)
+  })
+
+  it.skipIf(!HAS_ANCIENT)('decodes every stream stcCrunch writes', () => {
+    for (const [name, body] of CASES) {
+      const packed = stcCrunch(body)
+      expect(ancientIdentify(packed), name).toContain('S404')
+      expect(ancientVerify(packed, body), name).toContain('Files match!')
+    }
+  })
+
+  it.skipIf(!HAS_ANCIENT)('agrees on every offset window a caller actually asks for', () => {
+    const body = bytes('short window '.repeat(400))
+    for (const bits of [10, 11, 12, 13, 14]) {
+      const packed = stcCrunch(body, bits)
+      expect(ancientVerify(packed, body), `offsetBits ${bits}`).toContain('Files match!')
+    }
+  })
+
+  /**
+   * And disagrees outside 10..14, which nothing in this port reaches.
+   *
+   * `stcCrunch` writes the caller's number into the trailer and `stcDecrunch`
+   * uses it as a field width without a range test, because the decruncher at
+   * $958 does not make one either. `ancient` refuses anything below 10 or
+   * above 14. Both callers here are The Game's `G Encrypt` and `G Stc Pack`
+   * in ../runtime/thegame.ts, and both take the default 12, so the
+   * disagreement is reachable only from a test.
+   *
+   * Unsettled on purpose. A range `ancient` enforces and the machine code
+   * does not is a claim about what real StoneCracker WROTE, not about what
+   * its decruncher would read, and no crunched file exists to settle it.
+   */
+  it.skipIf(!HAS_ANCIENT)('and refuses the widths outside it, which the decruncher does not', () => {
+    const body = bytes('short window '.repeat(400))
+    for (const bits of [8, 9, 15, 16]) {
+      const packed = stcCrunch(body, bits)
+      expect(stcDecrunch(packed), `offsetBits ${bits}`).toEqual(body)
+      expect(ancientVerify(packed, body), `offsetBits ${bits}`).not.toContain('Files match!')
+    }
+  })
+
+  /**
+   * Three sources, three names for the same four bytes.
+   *
+   * `ancient` calls S404 "StoneCracker v4.10" and S403 "v4.02a". This file
+   * calls them 4.04 and 4.03, after the magic. DecrunchLib names S401
+   * "StoneCracker 4.01 D" (../amiga/decrunchlib.gen.ts). Nobody is wrong: the
+   * magic is a format tag and the version is the program that wrote it, and
+   * the two were never in step. Recorded so a reader who runs `ancient` on a
+   * file this port wrote is not left wondering which of them is confused.
+   */
+  it.skipIf(!HAS_ANCIENT)('is called something else by ancient, which is worth knowing', () => {
+    const id = ancientIdentify(stcCrunch(bytes('name check '.repeat(40))))
+    expect(id).toContain('S404')
+    expect(id).toContain('StoneCracker v4.10')
   })
 })

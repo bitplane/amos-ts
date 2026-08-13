@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { CHECKED, HAS_ANCIENT, ORACLE, ORACLE_REQUIRED, ancientIdentify, ancientVerify } from '../testing/oracle'
 import { pp20Crunch, pp20Decrunch } from './powerpacker'
 
 function lcg(seed: number): () => number {
@@ -183,5 +184,197 @@ describe('PP20 decoder vs GENUINE PowerPacker output', () => {
 
     // and the independent decoder agrees byte-for-byte on real data
     expect(Array.from(refDecrunch(file))).toEqual(Array.from(out))
+  })
+})
+
+/**
+ * The one rule `pp20Decrunch` does not enforce, and the bug that hid behind it.
+ *
+ * Real powerpacker.library reads the literal/match flag at the top of every
+ * pass and only tests whether the output is full AFTER the literal branch. A
+ * stream that finishes on a match therefore has one more flag bit than the
+ * data needs, and it is set. `pp20Decrunch` stops as soon as the output is
+ * full, so it never reads that bit and never misses it.
+ *
+ * For a long time `pp20Crunch` did not write it. The pair agreed with each
+ * other and the files were unreadable to the real library, which is the exact
+ * failure a self-checking encoder cannot see. The genuine fixture above did
+ * not catch it either: it ends on a literal run, the one case where no extra
+ * bit is due.
+ *
+ * The corpus settles what real PowerPacker does. Of its 23 crunched files, 15
+ * end on a match and every one leaves exactly one bit unread, set in all 15.
+ * The 6 that end on a literal run leave none.
+ */
+describe('PP20: the trailing flag bit a match-terminated stream owes', () => {
+  /**
+   * A decoder with real PowerPacker's loop shape rather than ours: the flag
+   * comes first, the done-test comes after the literals. Running out of bits
+   * throws, which is what the library would do by reading off the buffer.
+   */
+  function strictDecrunch(file: Uint8Array): Uint8Array {
+    const dv = new DataView(file.buffer, file.byteOffset, file.byteLength)
+    const eff = [file[4]!, file[5]!, file[6]!, file[7]!]
+    const end = file.length
+    const n = (file[end - 4]! << 16) | (file[end - 3]! << 8) | file[end - 2]!
+    let pos = end - 4
+    let word = 0
+    let left = 0
+    const getBit = (): number => {
+      if (left === 0) {
+        pos -= 4
+        if (pos < 8) throw new Error('pp20: ran out of bits')
+        word = dv.getUint32(pos) >>> 0
+        left = 32
+      }
+      const b = word & 1
+      word = word >>> 1
+      left--
+      return b
+    }
+    const getBits = (nb: number): number => {
+      let v = 0
+      for (let i = 0; i < nb; i++) v = ((v << 1) | getBit()) >>> 0
+      return v
+    }
+    for (let i = 0; i < file[end - 1]!; i++) getBit()
+
+    const out = new Uint8Array(n)
+    let p = n
+    for (;;) {
+      if (getBit() === 0) {
+        let cnt = 1
+        let t: number
+        do {
+          t = getBits(2)
+          cnt += t
+        } while (t === 3)
+        while (cnt-- > 0) {
+          if (p <= 0) throw new Error('pp20: literal past the start')
+          out[--p] = getBits(8)
+        }
+      }
+      if (p === 0) return out
+      const b = getBits(2)
+      let dist: number
+      let len: number
+      if (b < 3) {
+        dist = getBits(eff[b]!) + 1
+        len = b + 2
+      } else {
+        dist = getBits(getBit() ? eff[3]! : 7) + 1
+        len = 5
+        let t: number
+        do {
+          t = getBits(3)
+          len += t
+        } while (t === 7)
+      }
+      while (len-- > 0) {
+        if (p <= 0 || p - 1 + dist >= n) throw new Error('pp20: match past the end')
+        out[p - 1] = out[p - 1 + dist]!
+        p--
+      }
+    }
+  }
+
+  /** three zero bytes is the shortest input whose stream finishes on a match */
+  const MATCH_ENDING = new Uint8Array(3)
+  /** a byte that matches nothing forces the last pass to be a literal run */
+  const LITERAL_ENDING = Uint8Array.from([0xaa, 0, 0, 0, 0, 0, 0, 0, 0])
+
+  it('writes the bit, so the real loop shape decodes what we produce', () => {
+    for (const body of [MATCH_ENDING, LITERAL_ENDING, new Uint8Array(3000), Uint8Array.from({ length: 5000 }, (_, i) => i & 0x3f)]) {
+      expect(Array.from(strictDecrunch(pp20Crunch(body)))).toEqual(Array.from(body))
+    }
+  })
+
+  it('and the bit is the only thing between the two loop shapes', () => {
+    // one literal, then a two-byte match at distance one: 22 bits, then the
+    // owed flag. One word, 9 bits of padding, and the flag is the last bit
+    // read, which is why it lands in the top bit of the word.
+    const packed = pp20Crunch(MATCH_ENDING)
+    expect(Array.from(packed)).toEqual([
+      0x50, 0x50, 0x32, 0x30, // PP20
+      0x09, 0x0a, 0x0c, 0x0d, // efficiency, "Best"
+      0x80, 0x00, 0x00, 0x00, // the stream, the owed flag in bit 31
+      0x00, 0x00, 0x03, 0x09, // 3 bytes out, 9 bits of padding
+    ])
+    expect(Array.from(pp20Decrunch(packed))).toEqual([0, 0, 0])
+
+    // and the same stream as it was written before this was understood: no
+    // flag, so one fewer bit of data and one more of padding. Our decoder
+    // reads it perfectly. The real loop shape reaches for a bit that is not
+    // there, which is a read off the end of the buffer on the machine.
+    const asItWas = Uint8Array.from([
+      0x50, 0x50, 0x32, 0x30, 0x09, 0x0a, 0x0c, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x0a,
+    ])
+    expect(Array.from(pp20Decrunch(asItWas))).toEqual([0, 0, 0])
+    expect(() => strictDecrunch(asItWas)).toThrow(/ran out of bits/)
+  })
+
+  it('owes nothing when the stream finishes on a literal run', () => {
+    const packed = pp20Crunch(LITERAL_ENDING)
+    expect(Array.from(strictDecrunch(packed))).toEqual(Array.from(LITERAL_ENDING))
+    expect(Array.from(pp20Decrunch(packed))).toEqual(Array.from(LITERAL_ENDING))
+  })
+
+  const fixture = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures', 'powerpacker', 'OctaMEDPlayer.guide.pp')
+  it.skipIf(!existsSync(fixture))('reads the genuine file under the strict loop too', () => {
+    const file = new Uint8Array(readFileSync(fixture))
+    expect(strictDecrunch(file).length).toBe(7907)
+  })
+})
+
+/**
+ * `ancient` as an outside reader of `pp20Crunch`.
+ *
+ * The amigadepack transcription above is independent of our codec but not of
+ * this repo: both it and `pp20Decrunch` were written here, from the same
+ * understanding of the format, and both missed the trailing flag bit for the
+ * same reason. `ancient` was written by somebody who never saw either.
+ */
+describe('PowerPacker against ancient, an independent implementation', () => {
+  const CASES: Array<[string, Uint8Array]> = [
+    ['one byte', new Uint8Array([65])],
+    ['three zeros, the shortest match-ending stream', new Uint8Array(3)],
+    ['a long run', new Uint8Array(3000)],
+    ['text', Uint8Array.from('AMOS Professional '.repeat(600), (c) => c.charCodeAt(0) & 0xff)],
+    ['incompressible', Uint8Array.from({ length: 20_000 }, (_, i) => (Math.imul(i + 1, 2654435761) >>> 16) & 0xff)],
+    ['a ramp, which is all short matches', Uint8Array.from({ length: 5000 }, (_, i) => i & 0x3f)],
+    ['a far offset, which reaches eff[3]', (() => {
+      const b = new Uint8Array(1300)
+      for (let i = 0; i < 500; i++) b[i] = (Math.imul(i + 7, 2246822519) >>> 13) & 0xff
+      b.set(b.subarray(0, 500), 800)
+      return b
+    })()],
+  ]
+
+  it('is installed wherever it is required', () => {
+    if (!ORACLE_REQUIRED) return
+    expect(HAS_ANCIENT, 'AMOS_ORACLE=1 but `ancient` is not on PATH').toBe(true)
+  })
+
+  it.skipIf(!HAS_ANCIENT)('records which build produced the evidence', () => {
+    expect(CHECKED, `ancient ${ORACLE} has not been checked against this file`).toContain(ORACLE)
+  })
+
+  it.skipIf(!HAS_ANCIENT)('decodes every stream pp20Crunch writes', () => {
+    for (const [name, body] of CASES) {
+      const packed = pp20Crunch(body)
+      expect(ancientIdentify(packed), name).toContain('PP: PowerPacker')
+      expect(ancientVerify(packed, body), name).toContain('Files match!')
+    }
+  })
+
+  it.skipIf(!HAS_ANCIENT)('and refuses the streams written before the flag bit was understood', () => {
+    // the same three zeros, one bit short. Proof that the check above is
+    // reaching the thing it claims to: without the fix it fails, with it it
+    // passes, and `pp20Decrunch` cannot tell the two apart.
+    const asItWas = Uint8Array.from([
+      0x50, 0x50, 0x32, 0x30, 0x09, 0x0a, 0x0c, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x0a,
+    ])
+    expect(ancientIdentify(asItWas)).toContain('PP: PowerPacker')
+    expect(ancientVerify(asItWas, new Uint8Array(3))).not.toContain('Files match!')
   })
 })

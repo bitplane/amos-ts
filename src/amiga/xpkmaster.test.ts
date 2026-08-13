@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { CHECKED, HAS_ANCIENT, ORACLE, ORACLE_REQUIRED } from '../testing/oracle'
 import { loadHunks } from './hunk'
 import { pp20Crunch } from './powerpacker'
 import {
@@ -1721,53 +1722,23 @@ describe('against the real xpkIMPL.library 0.18', () => {
  * codec are confirmed by somebody who did not read our disassembly.
  */
 describe('against ancient, an independent XPK implementation', () => {
-  // `ancient --version` prints to stderr and exits 255, as does a bare
-  // `ancient`, so the build is scraped rather than asked for. ENOENT is the
-  // only answer that means the binary is absent.
-  const probe = spawnSync('ancient', ['--version'], { encoding: 'utf8' })
-  const HAS_ANCIENT = (probe.error as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT'
-  const ORACLE = (/Ancient v([\d.]+)/.exec(probe.stderr ?? '') ?? [])[1] ?? null
-
-  /**
-   * Builds of `ancient` these expectations have actually been run against.
-   *
-   * Everything this describe pins is observed output, not documented output:
-   * `Files match!`, `XPK-<method>`, and the `<invalid>` disagreement below,
-   * which is a quirk of the identify path rather than a promise. Upstream
-   * moves it. 2.2.0 changed the ids of clone formats and 2.3.0 lowered the
-   * decompression-bomb limits, so a new build can change what a stream is
-   * called without anything here being wrong.
-   *
-   * XPK itself is not the risk. 2.1.0's notes close with "XPK PPMQ (This
-   * concludes XPK, yay!)", so every method registered here has been in since
-   * then.
-   *
-   * In the event the two builds agree on all of it. CI installed 2.1.0 and
-   * both tests below passed unaltered, `<invalid>` included, while this list
-   * held 2.3.0 alone and failed by name. That is the arrangement working:
-   * version drift reads as version drift rather than as a codec mismatch
-   * forty lines further down, and the codecs still get checked meanwhile.
-   */
-  const CHECKED = ['2.1.0', '2.3.0']
-
-  /**
-   * Whether a machine without the oracle is a skip or a failure.
-   *
-   * A skip and a pass are the same colour. CI installs `ancient` and sets
-   * this, so deleting that step turns the run red rather than quietly
-   * removing the only external check these codecs have. Locally it is unset
-   * and the tests below skip, because a contributor without the binary
-   * should not be blocked by it.
-   */
-  const REQUIRED = process.env.AMOS_ORACLE === '1'
-
+  // The probe, the version list and the AMOS_ORACLE gate are shared with the
+  // PowerPacker and StoneCracker suites: ../testing/oracle.ts.
+  //
+  // What this describe pins is observed output, not documented output. `Files
+  // match!`, `XPK-<method>` and the `<invalid>` disagreement below are all
+  // quirks of the identify path rather than promises, which is why CHECKED
+  // lists the builds they have been seen on. CI installed 2.1.0 and every
+  // test here passed unaltered, `<invalid>` included, while CHECKED still
+  // held 2.3.0 alone and failed by name. Version drift therefore reads as
+  // version drift, and the codecs still get checked while it is sorted out.
   it('is installed wherever it is required', () => {
-    if (!REQUIRED) return
+    if (!ORACLE_REQUIRED) return
     expect(HAS_ANCIENT, 'AMOS_ORACLE=1 but `ancient` is not on PATH').toBe(true)
   })
 
   it.skipIf(!HAS_ANCIENT)('records which build produced the evidence', () => {
-    expect(ORACLE, `\`ancient --version\` said: ${JSON.stringify(probe.stderr?.slice(0, 80))}`).not.toBe(null)
+    expect(ORACLE, 'ancient --version said nothing this could parse').not.toBe(null)
     expect(CHECKED, `ancient ${ORACLE} has not been checked against the expectations in this file`).toContain(ORACLE)
   })
 

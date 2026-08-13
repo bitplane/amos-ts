@@ -17,18 +17,35 @@
  *      table, skip bits, 24-bit trailer).
  *   2. It decodes a GENUINE PowerPacker-crunched file (a real AmigaGuide) to
  *      byte-correct plaintext — real-world data, not a self-produced vector.
- *   3. `pp20Crunch`'s output is decoded correctly by an *independent* reference
- *      decoder, so the encoder emits real-format PP20 and no shared
- *      encoder/decoder bug can hide.
- * The decoder is therefore faithful to real PowerPacker output. The *encoder*
- * writes valid PP20 but is not bit-identical to powerpacker.library's crunch
- * choices (it compresses differently) — hence Ppsave is marked approximated.
+ *   3. Teemu Suutari's `ancient`, which read the format independently,
+ *      decodes what `pp20Crunch` writes. That is a check on the ENCODER, and
+ *      it is the one the other two cannot make.
+ *
+ * Point 3 arrived late and it caught a real bug. Until it ran, the encoder
+ * was checked only by `pp20Decrunch`, and the two shared a misreading: a
+ * stream ending on a match needs one more flag bit than the decoder here
+ * demands, so `pp20Crunch` wrote files real powerpacker.library could not
+ * open. See the note at the end of `pp20Crunch`. Five keywords went through
+ * it, `Ppsave` among them.
+ *
+ * The decoder is faithful to real PowerPacker output. The *encoder* now emits
+ * streams `ancient` accepts, but it is not bit-identical to
+ * powerpacker.library's crunch choices (it compresses differently), which is
+ * why Ppsave stays marked approximated.
+ *
+ * `pp20Decrunch` is still the more forgiving of the two, and deliberately.
+ * It stops as soon as the output is full, so it reads a match-terminated
+ * stream that lacks that final flag bit where the real library would run off
+ * the end of the buffer. Nothing real is rejected by being lenient here, and
+ * the encoder no longer produces such a stream.
  *
  * PP20 file: "PP20", 4 efficiency bytes (offset bit-widths), the crunched
  * 32-bit words, then a trailer of a 24-bit big-endian decrunched length and a
  * one-byte count of padding bits in the first word read. The decoder reads the
  * words BACKWARD, rebuilding the output from its end; matches reference a
- * position ahead (already reconstructed).
+ * position ahead (already reconstructed). A stream that finishes on a match
+ * carries one further flag bit, set, which the real decruncher reads before it
+ * notices the output is full.
  *
  * ## The errors are plain Errors, deliberately
  *
@@ -117,6 +134,7 @@ export function pp20Crunch(data: Uint8Array, eff: readonly number[] = DEFAULT_EF
 
   let p = n
   let lits: number[] = []
+  let endedWithMatch = false
   while (p > 0) {
     let bestLen = 0
     let bestDist = 0
@@ -136,14 +154,30 @@ export function pp20Crunch(data: Uint8Array, eff: readonly number[] = DEFAULT_EF
       emitMatch(bestDist, bestLen)
       lits = []
       p -= bestLen
+      endedWithMatch = true
     } else {
       lits.push(data[p - 1]!)
       p -= 1
+      endedWithMatch = false
     }
   }
   if (lits.length > 0) {
     putBit(0)
     emitLiterals(lits)
+  } else if (endedWithMatch) {
+    // A stream whose last operation is a match carries one more flag bit, and
+    // it is a 1. Real PowerPacker reads the literal/match flag at the top of
+    // every pass and only tests for completion after the literal branch, so
+    // the final pass consumes a bit it does not need. Of the 23 crunched files
+    // in the corpus, 15 end on a match; every one of them leaves exactly one
+    // bit unread, and in all 15 that bit is 1. The 6 that end on a literal run
+    // leave none.
+    //
+    // Omitting it wrote streams `pp20Decrunch` was happy with and
+    // powerpacker.library was not, which is the failure a self-checking
+    // encoder cannot see. `ancient` refused all 92 match-ending streams in a
+    // 120-body sweep and accepted all 28 literal-ending ones.
+    putBit(1)
   }
 
   // pad to a whole number of 32-bit words; the decoder discards `skip` bits

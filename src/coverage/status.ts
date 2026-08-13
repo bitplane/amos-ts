@@ -1052,8 +1052,12 @@ export const FAITHFUL = new Set<string>([
   // genuine PowerPacker-crunched AmigaGuide decodes to correct plaintext) and
   // matches two independent reference decoders (MilkyTracker/amigadepack)
   // line-by-line; the AMOS-side "PPbk" parse, bank install and error contract
-  // are ported from +CompExt.s:686-767. (Ppsave stays approximated — it writes
-  // valid PP20 but not bit-identical to real PowerPacker's crunch choices.)
+  // are ported from +CompExt.s:686-767. Ppsave's output is decoded by
+  // `ancient`, an implementation that read the format independently, which is
+  // what caught it writing streams the real library could not open: a
+  // match-terminated stream owes one more flag bit than our own decoder asks
+  // for. (Ppsave stays approximated — it writes valid PP20 but not
+  // bit-identical to real PowerPacker's crunch choices.)
   'ppload',
   // flow control verified against +ILib.s (loops 2102-2345, branch/on
   // 2364-2833, gosub/return/pop 2417-2479, error trapping 1296-2050):

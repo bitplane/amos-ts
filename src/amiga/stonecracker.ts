@@ -96,18 +96,39 @@
  * short for the whole run and put it back with a single `addq.w #$8,d7` at
  * the end.
  *
- * ## What is not checked
+ * ## What is checked, and what is not
  *
- * There is no crunched file anywhere in the corpus to test against: `S404`
+ * There is still no crunched file anywhere in the corpus to decode: `S404`
  * appears only inside the four libraries that know the magic, never as data.
- * So the tests round-trip this file's own pair, which cannot catch a reading
- * that is wrong the same way twice. Two things make that unlikely and are
- * worth saying rather than assuming. The length ladder is CONTIGUOUS — 2..3,
- * 4..7, 8..22, 23 up — and so are the three offset classes, 0..31, 32..543,
- * 544 up; a misread field width would leave a gap or an overlap at one of
- * those five joins. And the trailer's third word is written by the cruncher
- * as `16 - <free bits>` at $848, which is the count of VALID bits only if the
- * buffer is read from the top, as the decruncher's `add.w d6,d6` says it is.
+ * Every corpus file under 8MB has now been through `ancient identify` and it
+ * found 115 PowerPacker files and no StoneCracker at all, so that is measured
+ * rather than assumed.
+ *
+ * The other direction is available, and it is what the tests use. Teemu
+ * Suutari's `ancient` implements `S404` from its own reading of the format,
+ * and it decodes what `stcCrunch` writes across every code in the tree. An
+ * outside decruncher accepting this file's output is the strongest claim
+ * available about it, and it is worth more than the round trip because a
+ * reading that is wrong the same way twice survives a round trip and does not
+ * survive this.
+ *
+ * Two structural facts are still worth stating, because they are what made
+ * the round trip likely to be right before anybody checked. The length ladder
+ * is CONTIGUOUS — 2..3, 4..7, 8..22, 23 up — and so are the three offset
+ * classes, 0..31, 32..543, 544 up; a misread field width would leave a gap or
+ * an overlap at one of those five joins. And the trailer's third word is
+ * written by the cruncher as `16 - <free bits>` at $848, which is the count
+ * of VALID bits only if the buffer is read from the top, as the decruncher's
+ * `add.w d6,d6` says it is.
+ *
+ * ## Three sources, three names for the same four bytes
+ *
+ * `ancient` calls `S404` "StoneCracker v4.10" and `S403` "v4.02a". This file
+ * calls them 4.04 and 4.03, after the magic. DecrunchLib names `S401`
+ * "StoneCracker 4.01 D" (./decrunchlib.gen.ts). Nobody is wrong: the magic is
+ * a format tag, the version is the program that wrote it, and the two were
+ * never in step. Written down so that a reader who runs `ancient` over a file
+ * this port produced is not left wondering which of them is confused.
  */
 
 /** `S404`, the only magic this file writes and the only one it reads */

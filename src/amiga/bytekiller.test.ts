@@ -9,7 +9,23 @@
  * what the stream says independently of what the decoder thinks.
  *
  * No real ByteKiller file is in the corpus to check against, which is the
- * limit of this file and is worth saying plainly.
+ * limit of this file and is worth saying plainly. That is now measured
+ * rather than assumed: every corpus file under 8MB went through `ancient
+ * identify`, and it named 115 PowerPacker files, no ByteKiller and no
+ * StoneCracker.
+ *
+ * `ancient` cannot stand in for the missing file either, and the reason is
+ * worth writing down so nobody tries it twice. It does implement ByteKiller,
+ * from 2.3.0 on, but what it recognises is a ByteKiller FILE. What this port
+ * decodes is a bank payload behind the twelve-byte header Explode's
+ * `L_BpkUnpack` expects, three longwords with no magic in them, and `ancient
+ * identify` answers "Unknown or invalid compression format" for one. Working
+ * out what framing it wants would mean reading its source, which is the one
+ * thing this repo will not do with a third-party implementation.
+ *
+ * So of the four codecs in ../amiga that had only themselves to check
+ * against, this is the one the oracle does not reach. PowerPacker,
+ * StoneCracker and the Imploder are all confirmed from outside now.
  */
 import { describe, expect, it } from 'vitest'
 import { bpkDecrunch, bpkLength } from './bytekiller'
