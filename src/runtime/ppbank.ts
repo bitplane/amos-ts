@@ -7,6 +7,39 @@
  * sixteen-byte header AMOS invented to carry a bank NUMBER and its Bnk_Bit*
  * flags alongside the crunched bytes, and its definition is in AMOS's own
  * assembler source. A shared layer holds mechanism; a bank number is policy.
+ *
+ * ## Where the payload lands on load, which looks wrong and is not
+ *
+ * `ppLoad`'s memory-bank branch (+CompExt.s:490-527) reserves `banklen+16`,
+ * writes a size at block+0, sets TempBuffer to block+4, and hands
+ * `L_LoadUncrunch` a d2 of block+8. It then builds the bank node AT block+0,
+ * which puts the name field
+ * at block+16 and the data at block+24. Read that far and the payload appears
+ * to land at block+8, eight bytes below where `Bnk.GetAdr` will look, with the
+ * name falling on the number and flags words.
+ *
+ * It does not, because d2 is not the destination. `L_LoadUncrunch`
+ * (+CompExt.s:645-651) does `move.l d2,a0 / lea 8(a0),a1 / add.l d3,a0` and
+ * then `jsr _LVOppDecrunchBuffer(a6)`: a0 walks to the end of the crunched
+ * bytes, and the destination a1 is d2 PLUS EIGHT. So the payload lands at
+ * block+16, its name on the name field and its data at block+24.
+ *
+ * The object-bank branch settles the register convention without needing the
+ * library's autodocs. At +CompExt.s:530-538 it reserves `banklen+8`, commented
+ * "+ Securite pp", passes the buffer start as d2, and then reads the
+ * decrunched result back from `TempBuffer+8`. Same eight bytes, same meaning,
+ * and that branch is the one the three PPbk files in the corpus exercise.
+ *
+ * Three sums agree with it. `banklen` is `B_Length`'s answer, `datalen+8`, so
+ * the allocation is `datalen+24` and a node with its data at +24 fits it to
+ * the byte. The node length written at block+4 is `datalen+16`, which is what
+ * `Bnk.Reserve` writes for the same bank (+Lib.s:8455). And the number, flags
+ * and spare pokes go to block+8 through block+15, the gap between the list
+ * header and the name, so they overwrite nothing that was loaded.
+ *
+ * No defect, and nothing here to reproduce. Written down because the reading
+ * that says otherwise is the natural one, and it took `L_LoadUncrunch` to
+ * rule out.
  */
 import { DEFAULT_EFFICIENCY, pp20Crunch, pp20Decrunch } from '../amiga/powerpacker'
 
