@@ -17,7 +17,8 @@
  * in one of them today.
  *
  * The replay technique is the Multi_Rainbows.AMOS pattern, and it is the same
- * one copper.test.ts:144 already proves works for a single scene; this
+ * one copper.test.ts already proves for a single scene, in 'draws user
+ * colour bars through WAIT + COLOR00 moves'; this
  * generalises it into a table rather than inventing a new mechanism.
  */
 import { describe, expect, it } from 'vitest'
@@ -128,7 +129,7 @@ function expectIdentical(scene: string[]): void {
 
 describe('display differential sweep: modelled path vs copper interpreter', () => {
   it('baseline: bars and a palette change', () => {
-    // the scene copper.test.ts:144 already covers, kept here so the harness
+    // the scene copper.test.ts's user colour bars already cover, kept so the harness
     // itself is validated against a known-good case
     expectIdentical([
       'Ink 2 : Bar 50,20 To 270,180',

@@ -415,7 +415,7 @@ describe('Personnal: Mplot Draw and the field defines (L100/L105-107)', () => {
 
   it('plots into the plane bits, MSB leftmost, and the chunky side sees it', () => {
     // the write goes through the planar mirror; Point reads the chunky one,
-    // so this is the round trip screen.ts:127-392 promises
+    // so this is the round trip screen.ts's planar mirror promises
     let out = ''
     const src = scene([
       'Set Plane 1,P : Set Plane 2,P+8000',
@@ -1130,7 +1130,7 @@ describe('Personnal: HAM, EHB and collision control (L8/L9/L38/L40/L41/L44-46)',
 
   it('Sprite Col stays core\'s, because this table is keyed by name', () => {
     // Personnal has its own Sprite Col(s1,s2). Core has one too
-    // (instr.ts:4136) with different arguments, and an extension handler
+    // (the core's `sprite col` in instr.ts) with different arguments, and an extension handler
     // spread after it silently replaces it — which broke two core sprite
     // tests and cost the census two programs when it was first added. Core
     // wins; the deviation is recorded rather than the collision repeated.

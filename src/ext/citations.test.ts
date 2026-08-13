@@ -83,6 +83,44 @@ function report(where: string, bad: Mismatch[]): string[] {
  * property of data that is not there. Not worth it for a check that runs on
  * every machine that could act on a failure anyway.
  */
+/**
+ * A citation into our OWN tree may not carry a line number.
+ *
+ * A file name with a line number after it names nothing durable. Every line
+ * below an edit moves, and nothing recomputes the prose, so the citation
+ * quietly comes to point at unrelated code. src/runtime/README.md carried
+ * thirteen of them and
+ * not one still named what it claimed: the nearest was two lines out, the
+ * worst a thousand, and one had drifted so far that it described a keyword
+ * with no such behaviour at all.
+ *
+ * The `routine N ($ADDR)` form is checked above against the shipped binary,
+ * which is why that one is allowed to be exact. There is no equivalent oracle
+ * for our own source, and this is cheaper than building one: name the file
+ * and the symbol, and let grep do the rest.
+ *
+ * `+Lib.s:3650` is unaffected. That is a citation into the AMOS Professional
+ * source, which is a fixed released artifact and does not move.
+ */
+describe('citations into this tree name a symbol, not a line', () => {
+  const OURS = /\b[a-z0-9_.-]+\.tsx?:\d+/g
+
+  it('no source or markdown file cites one of ours by line number', () => {
+    const files = [...sources(src), join(root, 'README.md'), join(root, 'UNIMPLEMENTED.md')]
+    for (const p of [join(src, 'amiga'), join(src, 'runtime')]) files.push(join(p, 'README.md'))
+    const bad: string[] = []
+    for (const p of files) {
+      if (!existsSync(p)) continue
+      readFileSync(p, 'utf8')
+        .split('\n')
+        .forEach((line, i) => {
+          for (const hit of line.match(OURS) ?? []) bad.push(`${p.slice(root.length + 1)}:${i + 1} ${hit}`)
+        })
+    }
+    expect(bad).toEqual([])
+  })
+})
+
 describe.skipIf(!existsSync(extFixtures))('extension citations name the code they claim to', () => {
   /**
    * Check (a): every "routine N ($ADDR)" in a port agrees with that library's

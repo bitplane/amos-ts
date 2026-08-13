@@ -89,7 +89,7 @@ import { MAX_COMMENT, ST_FILE, ST_USERDIR, blocksFor } from '../amiga/dos'
  * as `Lansi` does.
  *
  * AMOS's console does not speak ANSI: it takes ESC followed by a letter and
- * a parameter byte (screen.ts:874, +Lib.s ChXxx) — ESC P n for pen, ESC B n
+ * a parameter byte (screen.ts's console escape, +Lib.s ChXxx) — ESC P n for pen, ESC B n
  * for paper, ESC X/Y n to locate, ESC O/N with a +128 bias to move
  * relatively. Lansi is the translator, which is why a BBS terminal written
  * in AMOS needs it.

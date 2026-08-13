@@ -1462,7 +1462,7 @@ export function makePersonnalInstructions(rt: Runtime): Record<string, Instr> {
      * These are direct planar writes into the addresses Set Plane recorded.
      * resolveWrite hands back the screen's planar mirror and flips its
      * authority, so the chunky side re-decodes on the next read — the port
-     * keeps both faithfully (screen.ts:127-392) and nothing extra is needed
+     * keeps both faithfully (screen.ts's planar mirror) and nothing extra is needed
      * here.
      */
     'mplot draw'(it) {
@@ -2826,7 +2826,7 @@ export function makePersonnalFunctions(rt: Runtime): Record<string, Func> {
     },
 
     // Sprite Col is NOT registered here, and must not be. Core AMOS has its
-    // own Sprite Col (instr.ts:4136) with different arguments, and this
+    // own Sprite Col (the core's `sprite col` in instr.ts) with different arguments, and this
     // dispatch table is keyed by NAME — an extension handler spread after the
     // core one silently replaces it, which is what happened when this was
     // added: two core sprite tests broke and the census lost two programs.
