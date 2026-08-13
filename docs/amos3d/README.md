@@ -35,14 +35,14 @@ are as loaded at `$210000`, which is what `tddis` uses.
 - **Everything downstream of the view matrix** is in 4096ths of a world unit,
   because the matrix product is not shifted back down. The perspective divide
   takes depth back to world units, which fixes the focal length at 4096/16 =
-  256 pixels — a 64-degree field of view on a 320-wide screen.
+  256 pixels, a 64-degree field of view on a 320-wide screen.
 - **Screen mapping**: column = `(x >> 4) + 160`, row = `((h-1)>>1) - (y >> 4)`,
   with rows 1..h-1 drawn and row 0 never touched.
 
 A real 1991 limit worth knowing about: the perspective divide is `divs.w`, a
 32-by-16 divide that takes only the low word of its divisor. The divisor is the
-depth in world units, so **past 32767 units objects come back the wrong size,
-and mirrored once it goes negative**. With the near limit at 16 units that
+depth in world units, so **past 32767 units objects come back the wrong size, and
+mirrored once it goes negative**. With the near limit at 16 units that
 still leaves a range of about 2000 to 1.
 
 ## The file formats
@@ -55,14 +55,15 @@ through `+$40` become pointers.
 
 A pen is **two bits**, EOR'd into the bottom two bitplanes: bit 0 selects plane
 0, bit 1 selects plane 1. This is why `Td Background` puts its picture at plane
-0 and full depth — the 3D draws *over* it changing only the bottom two bits,
-so the picture keeps its upper planes and the objects appear in front.
+0 and full depth: the 3D draws *over* it changing only the bottom two bits, so
+the picture keeps its upper planes and the objects appear in front.
 
 ### Block colours are dither pairs
 
 A "block" is the engine's word for a sub-object (error 24 is "Block does not
 exist"). Each block carries a **pair** of pens out of the sixteen pairs at
-`a4+$54`, not a colour index — the face is filled with the two alternating.
+`a4+$54` rather than a colour index, and the face is filled with the two
+alternating.
 `Td Set Colour n,block,code` picks the pair. `$212faa` masks the code with `$F`
 rather than clamping it, so 16 lands on 0.
 
@@ -71,7 +72,7 @@ rather than clamping it, so 16 lands on 0.
 This is the surprising one. A surface has three sections plus a relocation base
 at `+$12`; a stored pointer minus that base, divided by 10, is a **slot index**.
 
-- Slots 1–4 are the four projected corners of the face the surface is applied
+- Slots 1 to 4 are the four projected corners of the face the surface is applied
   to.
 - Every other slot is built by **repeated bisection**: a 12-byte construction
   record `(dest, a, b)` sets slot `dest` to the midpoint of slots `a` and `b`.
@@ -80,7 +81,7 @@ at `+$12`; a stored pointer minus that base, divided by 10, is a **slot index**.
 
 So a surface is a recipe relative to whatever face it lands on, which is how
 one surface file decorates faces of different sizes. The dice demo's six faces
-use fill counts `[3, 1, 4, 12, 5, 2]` — the twelve being six pips drawn twice,
+use fill counts `[3, 1, 4, 12, 5, 2]`, the twelve being six pips drawn twice,
 once in each pen.
 
 ### Relocation, and why two copies of a file differ
@@ -89,7 +90,7 @@ Stored pointers are absolute Amiga addresses, fixed up against the base at
 `+$12`. Two copies of the same object saved on machines with the engine at
 different addresses differ in every pointer by a constant. `p8.3DT` from the
 Amiga Computing coverdisk differs from the archive's copy in 240 bytes across
-57 runs, all explained by one delta of `$073247B8` — the same difference as
+57 runs, all explained by one delta of `$073247B8`, which is the difference
 between their two relocation bases. Any reader that subtracts the recorded base
 sees identical data, and neither copy is more canonical.
 
@@ -101,7 +102,7 @@ dated 31/10/1992 that shipped on the Object Modeller disk of the *Amiga
 Computing* #66 coverdisk (November 1993), under the heading "Undocumented Td
 Commands".
 
-The readme is useful but not authoritative — it says `Td Set Colour` takes 0 to
+The readme is useful but not authoritative. It says `Td Set Colour` takes 0 to
 16 and truncates out-of-range codes to the nearest valid one, and the binary
 does neither (there are sixteen combinations, and it masks). Where they
 disagree, the binary is what runs.
@@ -134,25 +135,36 @@ starting at `$12` comes down one per doubling. It scales the deltas before the
 matrix so the products stay inside a long. It is a range scale computed every
 frame, not a property of the model.
 
-## Where the port stops
+## Where the port stops, and where the original did
 
-Full detail is in `UNIMPLEMENTED.md` and `src/coverage/status.ts`. In short:
+`src/coverage/status.ts` is authoritative and `UNIMPLEMENTED.md` argues the
+three that matter. Three separate things get confused here, so they are kept
+apart.
 
-- **`td redraw`** — the model is the engine's and the rasteriser is ours. The
-  engine hands the blitter one EOR line per edge in line mode and area-fills
-  the mask; there is no blitter here, so the same shapes are computed by a
-  scanline fill, even-odd, edges half-open at the bottom. Right polygons, right
-  pens, not guaranteed identical bits — and the phase of the two-pen dither is
-  a choice rather than a reading.
-- **`td surface points`** — the four anchors are recorded where the engine
-  records them and nothing consumes them yet.
-- **`td visible`** — answered from our own face count rather than the engine's
-  bounding-sphere cull, so the two can disagree at the far margin.
-- **`td advanced`** — hands back an Amiga address; there is no address space
-  here for one to mean anything in.
-- **`td debug` and `td pragma`** are `link/unlk/rts` in the shipped library —
-  stubs that survived with their bodies removed. `td pragma status` is
-  `moveq #$2a,d0`: it always answers 42.
+**Approximated, meaning we fall short.** Four keywords:
+
+- **`td surface points`** and **`td surface points off`**. The four anchors are
+  recorded where the engine records them and nothing consumes them yet.
+- **`td visible`**. Answered from our own face count rather than the engine's
+  bounding-sphere cull at `$2190c8`, which has not been read, so the two agree
+  for an object rejected by the near limit and can differ at the far margin.
+- **`td advanced`**. Hands back an Amiga address, and there is no address space
+  here for one to mean anything in, so it answers zero.
+
+**Faithful, with the mechanism swapped.** `td redraw` is classified faithful
+and carries a note saying why the classification is not the whole story: the
+model is the engine's and the rasteriser is ours. The engine hands the blitter
+one EOR line per edge in line mode and area-fills the mask. There is no blitter
+here, so the same shapes are computed by a scanline fill, even-odd, with edges
+half-open at the bottom. Right polygons and right pens, not guaranteed
+identical bits, and the phase of the two-pen dither is a choice rather than a
+reading.
+
+**Faithful because the original does nothing.** `Td Debug` and `Td Pragma` are
+`link/unlk/rts` in the shipped library, stubs that survived with their bodies
+removed, and `Td Pragma Status` is `moveq #$2a,d0` and always answers 42.
+Reproducing a stub is the port working. These are not gaps and do not belong
+on a list of them.
 
 ## The demo objects
 

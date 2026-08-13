@@ -93,4 +93,26 @@ describe('the src/amiga layer boundary', () => {
     // without someone deciding to add it here
     expect(outside).toEqual([])
   })
+
+  /**
+   * README.md's contents table must name every module, and only real ones.
+   *
+   * It is the directory's index, and an index that is thirteen entries short
+   * is worse than none: a reader concludes the codecs and the OpalVision
+   * framebuffer are somewhere else. Thirteen is what it was, because a table
+   * maintained by hand loses one row per module added in a hurry and nothing
+   * ever says so.
+   *
+   * The one-line description stays hand-written, because "a THIRD pattern
+   * grammar, not `dospattern`'s" is a judgement no generator produces. Only
+   * the membership is checked.
+   */
+  it('README.md lists every module in this directory, and no others', () => {
+    const table = readFileSync(join(here, 'README.md'), 'utf8')
+    const listed = new Set([...table.matchAll(/^\| `([a-z0-9.]+\.ts)`/gm)].map((m) => m[1]!))
+    const missing = sources().filter((f) => !listed.has(f))
+    expect(missing, 'modules with no row in README.md').toEqual([])
+    const phantom = [...listed].filter((f) => !sources().includes(f))
+    expect(phantom, 'README.md rows naming a file that is not here').toEqual([])
+  })
 })
