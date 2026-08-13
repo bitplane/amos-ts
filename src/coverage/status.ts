@@ -3326,6 +3326,117 @@ export const NA = new Set<string>([
 ])
 
 /**
+ * Why each n/a keyword is n/a, as data rather than as prose.
+ *
+ * An n/a keyword sits outside the coverage denominator, so the reason is the
+ * only thing holding it up. Grouping those reasons answers the question the
+ * flat set cannot: WHAT WOULD RETIRE THIS. Every entry here is waiting on a
+ * capability this port has decided not to have, and if one of those decisions
+ * is ever reversed the whole group changes classification together, which is
+ * a thing worth being able to see coming.
+ *
+ * The groups were prose in UNIMPLEMENTED.md, in the section of a document
+ * nobody reads, where nothing could check them against the set they describe.
+ */
+export type NaGroup =
+  | 'm68k'
+  | 'debugger-trap'
+  | 'hardware'
+  | 'multitasking'
+  | 'syntax'
+  | 'dead-vector'
+  | 'editor'
+
+/** What each group is waiting on, in the order a reader should meet them. */
+export const NA_GROUPS: Record<NaGroup, string> = {
+  m68k:
+    'Executing 68000 machine code. The whole keyword IS the jump, so there is nothing to approximate. ' +
+    'A 68k interpreter would retire this group entire.',
+  'debugger-trap':
+    'Taking the 68000 ILLEGAL trap on purpose, to drop into a machine-code debugger. There is none, and ' +
+    'crashing the interpreter is not a service.',
+  hardware:
+    'Hardware below the layer this port models: the drive head through CIA-B, a battery clock at $DC0000, ' +
+    'AMAL machine code patched in place. Virtual hardware at that depth would retire the group.',
+  multitasking:
+    "exec's Forbid and Permit. There is one task here and nothing to forbid.",
+  syntax:
+    'Reserved words that are part of somebody else\'s grammar, or have no construct in the shipped grammar ' +
+    'that reaches them. There is no routine behind the token.',
+  'dead-vector':
+    'The keyword does not work in the original either: a null vector, a jump past the end of the table, or a ' +
+    'label that falls into the wrong routine. There is no behaviour to be faithful TO.',
+  editor:
+    'The AMOS editor and the compiler overlay, neither of which exists here.',
+}
+
+/**
+ * Every n/a keyword's group. coverage.test.ts requires this to cover NA
+ * exactly: no keyword without a group, and no group entry that is not n/a.
+ */
+export const NA_GROUP_OF: Record<string, NaGroup> = {
+  // 68k execution and its register scaffolding
+  '@_apml_@': 'm68k',
+  areg: 'm68k',
+  call: 'm68k',
+  cmpcall: 'm68k',
+  doscall: 'm68k',
+  dreg: 'm68k',
+  execall: 'm68k',
+  gfxcall: 'm68k',
+  intcall: 'm68k',
+  jsr: 'm68k',
+  'lib base': 'm68k',
+  'lib call': 'm68k',
+  'lib close': 'm68k',
+  'lib open': 'm68k',
+  'library call': 'm68k',
+  lvo: 'm68k',
+  // assembles 68k into a bank, and the only way to reach what it writes is Call
+  'trans screen dynamic': 'm68k',
+  // deliberate ILLEGAL
+  pdebug: 'debugger-trap',
+  'jd private': 'debugger-trap',
+  debug: 'debugger-trap',
+  // below the modelled layer
+  'mfm read': 'hardware',
+  'mfm luecke': 'hardware',
+  'jd setdate': 'hardware',
+  'jd setclock': 'hardware',
+  'set 68020 amal': 'hardware',
+  // Forbid / Permit
+  'multi off': 'multitasking',
+  'multi on': 'multitasking',
+  'jd multi off': 'multitasking',
+  'jd multi on': 'multitasking',
+  // broken in the original
+  's mask$': 'dead-vector',
+  't planes': 'dead-vector',
+  'pal on': 'dead-vector',
+  // reserved words with nothing behind them
+  as: 'syntax',
+  follow: 'syntax',
+  'follow off': 'syntax',
+  'screen size': 'syntax',
+  // the editor and the compiler overlay
+  'ask editor': 'editor',
+  'call editor': 'editor',
+  'kill editor': 'editor',
+  monitor: 'editor',
+  include: 'editor',
+  equ: 'editor',
+  struc: 'editor',
+  'struc$': 'editor',
+  '||apcmp||': 'editor',
+  '\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\/': 'editor',
+  ',': 'editor',
+  compile: 'editor',
+  'comp load': 'editor',
+  'comp del': 'editor',
+}
+
+
+/**
  * Known simplifications worth surfacing next to a keyword.
  *
  * One entry per READING, not per keyword. Where a single routine serves

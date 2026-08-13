@@ -250,41 +250,19 @@ Base`/`Icon Base` and the IFF ANIM `Frame *` family are all faithful, and
 
 ## Not applicable
 
-An n/a entry removes a keyword from the denominator, so a wrong one is
-invisible for ever. The set is 49 keywords and every one of them has nothing
-to implement rather than something not yet done:
+Fifty keywords, listed in `KEYWORDS.md` under "Not applicable, by what would
+retire it", grouped by the capability each one is waiting on.
 
-- **68k execution and its register scaffolding** — `Call`, `Execall`,
-  `Doscall`, `Gfxcall`, `Intcall`, `Lib Open/Call/Close/Base`, `Library Call`,
-  `Areg`, `Dreg`, `Lvo`, `@_apml_@`, `Cmpcall`. The whole keyword IS the jump.
-  `Trans Screen Dynamic` belongs here too: it assembles 68k into a bank, and
-  the only way to reach what it writes is `Call`.
-- **Deliberate crashes** — `Pdebug` and `Jd Private` take the 68000 ILLEGAL
-  trap on purpose, to drop a machine-code debugger. There is none, and
-  crashing the interpreter is not a service.
-- **Hardware below the layer that is modelled** — `Mfm Read` and
-  `Mfm Luecke` bit-bang the drive through CIA-B's port B rather than going
-  through trackdisk; `Jd Setdate` and `Jd Setclock` write a battery clock chip
-  at $DC0000 nibble by nibble; `Set 68020 Amal` patches AMAL's machine code in
-  place; `Debug` hands the display back to a system copper list that does not
-  exist here.
-- **The OS multitasking switch** — `Multi Off`/`Multi On` in two libraries are
-  exec's `Forbid` and `Permit`. There is one task and nothing to forbid.
-  `Pal On` is the one Misc's own manual apologises for: its label is followed
-  by directives that emit no code, so it falls into `Go60` and does the
-  opposite of its name before crashing on an unloaded register.
-- **Syntax-only tokens** — `As`, `Follow`, `Follow Off`, `Screen Size` and the
-  editor's own words point at `L_Syntax`, which is not an implementation but
-  the routine that says "this cannot start a statement".
-- **Null vectors the author documented** — `S Mask$` (*"This command is
-  non-existent!!! DO NOT USE"*) and `T Planes`, whose jump-table entry is 278
-  routines past the end of a 94-entry table.
-- **The editor and the compiler overlay** — `Ask/Call/Kill Editor`, `Monitor`,
-  `Include`, `Equ`, `Struc`, `Compile`, `Comp Load`, `Comp Del`.
+The grouping used to be here, in prose, where nothing could check it against
+the set it described. It is data in `src/coverage/status.ts` now, and
+`coverage.test.ts` requires every n/a keyword to have a group and every group
+to have members. A group emptying out means a capability arrived.
 
-Nothing on this list is waiting on a capability. Every group that was —
-requesters, the CON: window, the block device, the RastPort, exec device I/O
-and the ARexx port handshake — has been built.
+None of them is a gap. Each is a decision this port made: it does not execute
+68k, it has no debugger to trap into, no hardware below the modelled layer, no
+second task, no editor and no compiler overlay. Reverse one of those and a
+whole group changes classification at once, which is why they are worth
+watching as groups rather than as fifty separate lines.
 
 ## Implemented but approximated — the honesty list
 

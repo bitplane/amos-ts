@@ -15,7 +15,7 @@ import { INSTR, FUNCS, RAWFUNCS } from '../interp/builtins'
 import { makeInstructions, makeFunctions, makeRawFunctions, extensionImpls } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/tokenizer'
-import { FAITHFUL, NA, STRUCTURAL, noteFor } from '../coverage/status'
+import { FAITHFUL, NA, NA_GROUPS, NA_GROUP_OF, STRUCTURAL, noteFor } from '../coverage/status'
 
 /**
  * Where the manifest lives, resolved from THIS file rather than from the
@@ -114,7 +114,7 @@ for (const impl of extensionImpls()) {
  * broken table entry; ` rwb get menu adr` would look like a name with a
  * leading space, which is a different and wrong claim.
  */
-function printable(name: string): string {
+export function printable(name: string): string {
   // eslint-disable-next-line no-control-regex
   return name.replace(/[\u0000-\u001f\u007f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`)
 }
@@ -354,25 +354,73 @@ obligation and sits outside the percentages, so the reason recorded in
 \`status.ts\` is the only thing holding it up. That reason must say what the
 keyword IS, never what this port lacks.
 
+This file lists **gaps only**. What works is not listed, and a row that reads
+0% gets no keyword list at all, because every row is 0% or 100% and naming all
+1,047 OS DevKit keywords says nothing its count does not. \`UNIMPLEMENTED.md\`
+carries those rows with what each one is waiting on.
+
+So the list below shrinks as the port advances, which is the only property
+that makes a coverage document worth opening twice.
+
 The evidence is not here. The classification, the assembly citations and the
 ${noted} qualifying notes live in \`src/coverage/status.ts\`, which this file
-is generated from. They were inlined here once and took it past 400KB, one
-line per area, which GitHub declines to render. Look a keyword up in
-\`status.ts\` for why it is classified the way it is.
+is generated from. Look a keyword up there for why it is classified the way it
+is.
 
 ## Summary
 
 ${summary}
 `
 
+  md += naByGroup()
+
+  /*
+   * Per-area detail is GAPS ONLY, and a row with no implementation gets no
+   * keyword list at all.
+   *
+   * Listing what works was 4,529 keyword names and half of a 127KB file, and
+   * it answered a question nobody asks. Listing the keywords of a row that
+   * reads 0% was another 43KB and answered it worse: naming all 1,047 OS
+   * DevKit keywords says nothing the count and the reason do not, because
+   * every row is 0% or 100% and a 0% row is missing all of them by
+   * definition. UNIMPLEMENTED.md carries those rows with what each is waiting
+   * on, and coverage.test.ts checks that list against this one.
+   *
+   * What is left shrinks as the port advances, which is the only property
+   * that makes a coverage document worth opening twice.
+   */
   for (const [name, rs] of areas) {
+    const gaps = rs.filter((r) => r.status === 'approximated' || r.status === 'n/a')
+    const started = rs.some((r) => r.status === 'faithful' || r.status === 'approximated')
+    if (!started || gaps.length === 0) continue
     md += `\n## ${name} (${pct(rs)})\n\n`
-    for (const status of ['faithful', 'approximated', 'missing', 'n/a'] as Status[]) {
-      const subset = rs.filter((r) => r.status === status)
+    for (const status of ['approximated', 'n/a'] as Status[]) {
+      const subset = gaps.filter((r) => r.status === status)
       if (subset.length === 0) continue
       const lead = `- **${status}** (${subset.length}): `
       md += `${lead}${wrap(subset.map((r) => `\`${printable(r.name)}\``), 96, '  ', lead.length)}\n`
     }
+  }
+  return md
+}
+
+/**
+ * The n/a keywords by what would retire them.
+ *
+ * This is the list to watch. Each group is a capability this port has decided
+ * not to have, so the entries are not work anybody is going to do one at a
+ * time: reverse one decision and a whole group changes classification at
+ * once. Seventeen keywords are waiting on a 68k interpreter and nothing else.
+ */
+function naByGroup(): string {
+  const order = Object.keys(NA_GROUPS) as Array<keyof typeof NA_GROUPS>
+  let md = '\n## Not applicable, by what would retire it\n\n'
+  md += 'An n/a keyword sits outside the percentages, so its reason is the only thing holding it up.\n\n'
+  for (const g of order) {
+    const names = [...NA].filter((n) => NA_GROUP_OF[n] === g).sort()
+    if (names.length === 0) continue
+    md += `### ${g} (${names.length})\n\n${NA_GROUPS[g]}\n\n`
+    md += `${wrap(names.map((n) => `\`${printable(n)}\``), 96, '', 0)}\n\n`
   }
   return md
 }

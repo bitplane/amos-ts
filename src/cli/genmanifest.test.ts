@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { MANIFEST, buildManifest, manifestSummary } from './genmanifest'
+import { MANIFEST, buildManifest, manifestSummary, printable } from './genmanifest'
 
 describe('the committed coverage manifest', () => {
   it('is what genmanifest would write today', () => {
@@ -70,9 +70,16 @@ describe('the committed coverage manifest', () => {
     expect(bad).toEqual([])
   })
 
-  it('shows the broken name rather than tidying it away', () => {
-    // escaped, not stripped: ` rwb get menu adr` would read as a name with a
-    // leading space, which is a different and wrong claim about the table
-    expect(buildManifest()).toContain('`\\x00rwb get menu adr`')
+  it('shows a broken name rather than tidying it away', () => {
+    // Escaped, not stripped: ` rwb get menu adr` would read as a name with a
+    // leading space, which is a different and wrong claim about the table.
+    //
+    // Tested through `printable` rather than through the rendered file. The
+    // manifest lists gaps only, and `intuiextend-2.01b` reads 0%, so the one
+    // name in the tree with a control byte is not currently printed anywhere.
+    // The escaping still has to be right for the day it is.
+    expect(printable('\x00rwb get menu adr')).toBe('\\x00rwb get menu adr')
+    expect(printable('\x7f')).toBe('\\x7f')
+    expect(printable('bank as work')).toBe('bank as work')
   })
 })

@@ -17,7 +17,7 @@ import {
 } from '../runtime/instr'
 import { Runtime } from '../runtime/runtime'
 import { tokenize } from '../tokens/tokenizer'
-import { FAITHFUL, NA, NOTES, SHARED_NOTES, STRUCTURAL } from '../coverage/status'
+import { FAITHFUL, NA, NA_GROUPS, NA_GROUP_OF, NOTES, SHARED_NOTES, STRUCTURAL } from '../coverage/status'
 
 const table = new TokenTable(CORE_TOKENS)
 const rt = new Runtime(tokenize('', table), table, {})
@@ -150,6 +150,21 @@ describe('coverage manifest consistency', () => {
       if (NOTES[name]) bad.push(`${name} has its own NOTE and a SHARED_NOTES entry`)
     }
     expect(bad).toEqual([])
+  })
+
+  /**
+   * The n/a group is the reason, and a reason with no keyword or a keyword
+   * with no reason are both silent failures: an n/a keyword is outside the
+   * denominator, so nothing else will ever draw attention to it.
+   */
+  it('every n/a keyword has a group, and every group is used', () => {
+    const ungrouped = [...NA].filter((n) => !(n in NA_GROUP_OF))
+    expect(ungrouped, 'n/a with no group -- say what would retire it').toEqual([])
+    const notNa = Object.keys(NA_GROUP_OF).filter((n) => !NA.has(n))
+    expect(notNa, 'grouped as n/a but not in NA').toEqual([])
+    const used = new Set(Object.values(NA_GROUP_OF))
+    const empty = Object.keys(NA_GROUPS).filter((g) => !used.has(g as keyof typeof NA_GROUPS))
+    expect(empty, 'a group nothing is in -- delete it, or it is a capability we already have').toEqual([])
   })
 
   it('NA entries are real tokens and never implemented', () => {
