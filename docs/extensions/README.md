@@ -2,8 +2,8 @@
 
 AMOS Professional could be extended with third-party libraries that added
 keywords to the language. Dozens were written and released on Aminet, on
-coverdisks and by post, and a great many AMOS programs — including most of the
-ambitious ones — depend on at least one of them. A player that only handles the
+coverdisks and by post, and a great many AMOS programs depend on at least one
+of them, including most of the ambitious ones. A player that only handles the
 stock keyword set will load a large fraction of the surviving AMOS corpus and
 then fail on the first line that matters.
 
@@ -13,10 +13,10 @@ installed**, and everything below follows from why that has to be so.
 
 ## A slot number is not an identity
 
-AMOS Professional loads up to 26 extensions, each into a numbered slot. The
-filenames come from the interpreter config: slot *n* is loaded from config
-message *15+n* (`+B.s:2149-2166`, `+Interpreter_Config.s:150-157`). A stock
-installation fills five of them:
+AMOS Professional loads up to 26 extensions, each into a numbered slot, from
+filenames in the interpreter config: slot *n* comes from config message *15+n*
+(`+B.s:2149-2166`, `+Interpreter_Config.s:150-157`). A stock installation
+fills five:
 
 | slot | config message | library |
 |---|---|---|
@@ -26,149 +26,68 @@ installation fills five of them:
 | 5 | 20 | `AMOSPro_Compiler.Lib` |
 | 6 | 21 | `AMOSPro_IOPorts.Lib` |
 
-Slots 4 and 7–26 ship empty, for the user to fill in.
+Slots 4 and 7 to 26 ship empty, for the user to fill.
 
-When a program uses an extension keyword, the tokenised file records it as
-`EXTENSION, slot, nparams, token id` — and nothing else. No name, no version,
-no checksum. On load, `Ver_Extension` (`+Verif.s:430-460`) indexes
-`AdTokens[slot]`, and if that slot is empty raises error 5, *"Extension not
-present"*. It never checks that the extension sitting in the slot is the one
-the program was written against. If slot 12 holds a different library than it
-did on the author's machine, the program does not fail — it silently executes
-whatever keywords happen to live at those offsets.
-
-So a slot number is a property of the machine a program was saved on. It
-travels with the program and means nothing away from that machine. Extension
-authors compound this by recommending a slot in their documentation — the Misc
-extension's manual says *"load the Interpreter config and enter at number
-23"* — which is a suggestion, not a reservation. Two users following two
-manuals collide; a user who ignores both collides with everybody.
-
-**Consequence:** to run somebody else's program we have to work out which
-extension each slot actually held, from evidence in the program itself. That is
-what `src/ext/identify.ts` does, and it is why `src/ext/registry.ts` is keyed by
-identity strings like `intuition-1.3b` rather than by slot.
+A tokenised program records an extension keyword as `EXTENSION, slot, nparams,
+token id` and nothing else, so a slot is a property of the machine a program
+was saved on rather than an identity. **The argument, the citations and the
+consequences are in `src/ext/registry.ts`'s header**, which is where the
+registry that acts on them lives. Working out what each slot actually held is
+`src/ext/identify.ts`.
 
 ## How identification works
 
-Three kinds of evidence are available, all carried by the program:
+Three kinds of evidence, all carried by the program: the set of token ids used
+in the slot, the argument count recorded beside each use, and whether the ids
+land on entries with usable names. A candidate must account for every observed
+id, and where the evidence leaves more than one standing the answer is
+`ambiguous` rather than a guess.
 
-1. **The set of token ids used in the slot.** A token id is the byte offset of
-   that keyword's entry within the extension's token table, so the ids used by a
-   program form a fingerprint of one specific table. This is the hard
-   constraint: a candidate extension must account for *every* observed id. One
-   unexplained id disqualifies it.
-
-2. **The recorded argument count.** `Ver_Extension` (`+Verif.s:452-460`) writes
-   a byte beside each use: `$FF` when the slot held an AP20-format library, and
-   the call's real argument count when it held an older one. Where counts are
-   present they must agree with the candidate's parameter spec. Two caveats,
-   both found by measurement rather than assumed:
-   - The marker reflects the format of the library loaded when the program was
-     *last verified*, not the format of the copy we hold. AMOS 1.3-era programs
-     carry recorded counts for extensions that shipped as AP20 libraries under
-     AMOS Pro, so the marker is reported but not enforced.
-   - A zero where the keyword plainly takes arguments means the byte was never
-     written — the program was saved without a clean verify pass. Every instance
-     in the corpus is in a file the extension's own author named `bug1.amos` or
-     `bug2.amos`. It is treated as absence of evidence, not as an arity of zero.
-
-3. **Whether the ids land on entries with usable names**, which separates a real
-   table from a coincidental numeric fit.
-
-A candidate that survives all of this is reported with a confidence:
-`exact` (exactly one candidate survives), `probable` (several survive but only
-one has been seen in this slot before), `ambiguous` (the evidence genuinely does
-not separate them) or `unknown` (nothing explains it). **Ambiguous and unknown
-are reported, not guessed at.** A wrong binding does not produce an error; it
-silently runs the wrong keywords, which is worse than declining to choose.
-
-The regression oracle for all of this lives in `src/ext/ext.test.ts`: the
-configured slot map is thrown away and every slot used anywhere in the fixture
-corpus must resolve to exactly one extension with no token id left over.
+**`src/ext/identify.ts` documents this properly**, including the two caveats
+about the recorded count that were found by measurement, and it carries the
+four confidence levels as a type. The regression oracle is in
+`src/ext/ext.test.ts`: the configured slot map is thrown away and every slot
+used anywhere in the fixture corpus must resolve to exactly one extension with
+no token id left over.
 
 ## Evidence tiers
 
-Reading an extension's token table gives us keyword names and argument counts
-for free. It tells us almost nothing about what the keywords *do*. Those are
-tracked separately, because the difference decides whether a ported keyword can
-ever be called faithful:
+Reading a token table gives keyword names and argument counts for free and
+says nothing about what the keywords *do*. That is tracked separately as
+`source`, `disassembly` or `manual`, and **`src/ext/registry.ts`'s
+`ExtEvidence` is the definition**: what each tier means, that the tier records
+the strongest evidence AVAILABLE rather than whichever artifact somebody
+consulted, and that `manual` is therefore legal only where no binary exists.
+`src/ext/ext.test.ts` enforces it against the field and against the prose
+describing the field.
 
-| tier | when it applies |
-|---|---|
-| `source` | Original assembler source is available; behaviour can be read directly. |
-| `disassembly` | The library binary is available. Ranks with `source`. |
-| `manual` | **No binary and no source.** Only the extension's own documentation describes it. |
+What belongs here is the evidence for the rule, which is that manuals are
+wrong often enough to matter. Every one of these was found by reading a
+library whose manifest called it `manual` tier:
 
-The tier records the strongest evidence **available**, not whichever artifact
-somebody happened to consult. That is the whole rule, and it has one hard
-consequence:
+- LDos's manual states a password-length check that only one of its two crypt
+  routines actually has.
+- AMCAF's says `Amcaf Aga Notation On` selects 24-bit values, where routines
+  80 and 81 have the pair the wrong way round and `On` sets the mode it was
+  already in.
+- AMCAF's `Ham Point` is documented as returning -1 off-screen, and there is
+  no -1 anywhere in routine 160.
 
-> `manual` is legal only for an extension we hold **no binary** for. If the
-> `.Lib` is in the fixture, the tier is `disassembly` or better — always,
-> whatever the documentation looks like.
+Two consequences worth stating where a porter will meet them. First, the tier
+is not a record of work done: `disassembly` says the evidence is there, not
+that anyone has read it. `src/cli/extaudit.ts` answers the per-keyword
+question, reporting how many implemented keywords cite the routine they came
+from and how many cite nothing, and that is the number to look at before
+believing a port is finished.
 
-There is no fourth tier. There was a `table` — names and arities only,
-behaviour guessed from them — and it is retired because nothing can occupy
-it. Every registered extension but one holds a binary or the author's source,
-the exception (`intuition-1.3b`) has its manual, and the only other way a
-token table enters this codebase is `src/cli/libpool.ts`, which scans `.Lib`
-files and so holds the binary by construction. A tier with no possible
-occupant is a tier that only ever gets claimed by mistake, and it was: it
-survived in twelve manifests' prose for as long as it survived in the type.
+Second, 68k machine code is never *executed* here, and reading it is the same
+activity as reading `+Lib.s`. Because it is never run, a binary-only extension
+cannot be probed by experiment: behaviour is read out of the disassembly or
+marked unknown.
 
-A shipped binary can always be read. The token table makes it targeted rather
-than heroic: every keyword carries a routine number, so the read is tens of
-instructions, not thousands, and `src/cli/extdis.ts` does the resolving. So
-`manual` on an extension whose binary we have is not a lower tier of evidence,
-it is a decision to believe a paragraph over the code that shipped — and the
-paragraph loses. LDos's manual states a password-length check that only one of
-its two crypt routines actually has. AMCAF's says `Amcaf Aga Notation On`
-selects 24-bit values, where routines 80 and 81 have the pair the wrong way
-round and `On` sets the mode it was already in. AMCAF's `Ham Point` is
-documented as returning -1 off-screen and there is no -1 anywhere in routine
-160. Every one of those was found by reading a library whose manifest called
-it `manual` tier.
+Whether the documentation is any *good* is a separate and useful question, and
+that is what the manifest's `docs` field is for.
 
-This field is not a record of work done, and `disassembly` is not a claim that
-anything has been disassembled yet. It says the evidence is *there*. Whether a
-particular keyword has actually been read is a per-keyword question, and
-`src/cli/extaudit.ts` is what answers it — it reports, per port, how many
-implemented keywords cite the routine they came from and how many cite nothing.
-That number is the one to look at before believing a port is finished.
-
-What `manual` costs is faithfulness itself. A keyword implemented from
-documentation alone **cannot** be marked faithful, however plausible the
-implementation looks. There is nothing to check it against; the honest
-classification is structural, with a NOTES entry saying so. This cuts both
-ways, and the wrong way round is the one that actually happened: a port whose
-header called its evidence "manual tier" while the `.Lib` sat in its fixture
-directory was not being modest, it was declaring its own keywords unfaithful
-on the strength of a mislabel.
-
-`disassembly` is tracked apart from `source` because the failure mode differs.
-There are no symbols and no comments, data and code are easily confused (a
-string table disassembles into plausible nonsense), and nothing can be grepped
-for callers. A keyword read this way can be faithful; what it cannot be is
-re-checked as cheaply, and a future reader needs to know that is where it came
-from.
-
-Evidence is recorded per extension, but it is really per keyword: an extension
-whose headline tier is `disassembly` may still have individual keywords settled
-from an author's published source, and those carry a NOTES entry saying so.
-
-68k machine code is never *executed* here — that rule is unchanged. Reading it
-is the same activity as reading `+Lib.s`. Because the code is never run, a
-binary-only extension cannot be probed by experiment: behaviour has to be read
-out of the disassembly, or be marked unknown.
-
-The rule is enforced in `src/ext/ext.test.ts` twice over, because once was not
-enough. A new manifest cannot quietly declare `manual` over a binary — and it
-cannot *narrate* one either. When the field was corrected, twelve manifests
-went on saying "table tier" and "manual tier" in their `notes`, which is where
-a reader actually looks, so the prose is checked against the field as well.
-Whether the documentation is any good is a separate and useful question — that
-is what the `docs` field is for.
 
 ## The registry
 
@@ -180,10 +99,10 @@ into `src/ext/tables.gen.ts` by `src/cli/genext.ts`.
 The split is deliberate: `fixtures/` is gitignored because the AMOS libraries
 are not ours to redistribute, so manifests are tracked separately and the
 registry's documentation, provenance and generated tables all survive a clone
-even though the binaries have to be supplied locally. `genext` skips — with a
-warning, not an error — any manifest whose fixture is absent.
+even though the binaries have to be supplied locally. `genext` skips any manifest whose fixture is absent,
+with a warning rather than an error.
 
-Currently registered — regenerate with `npm run cli -- src/cli/genextdoc.ts`
+Currently registered. Regenerate with `npm run cli -- src/cli/genextdoc.ts`
 after adding a manifest:
 
 <!-- BEGIN registry (generated by src/cli/genextdoc.ts) -->
@@ -302,15 +221,15 @@ Notes worth having on individual entries, which the table cannot carry:
 `turbo-plus-1.0` and `1.9` are different tables, not subsets of each other, and
 neither is a subset of `2.15`. `tome-4.0` has two versions on the disc and
 identification is ambiguous between them. `sticks-1.01b` is a shareware build
-whose PD limitation is nag requesters, not disabled keywords — the one
+whose PD limitation is nag requesters rather than disabled keywords. Its one
 "Command not available in this version" guards the two-argument `Stick Fire`,
 which its own manual documents as a deliberate placeholder. Registration bought
 extra commands that are not in this table at all. `dump-1.0` is low-level disc access,
-much of it likely n/a here. `intuition-1.3b` ships no `.Lib` at all — see
+much of it likely n/a here. `intuition-1.3b` ships no `.Lib` at all. See
 "Token tables from source" below.
 
-Twelve entries came from a single source — the AMOS PD Library CD (Weird
-Science, 1994) — scanned with `libscan` and written up by hand. Their
+Twelve entries came from one source, the AMOS PD Library CD (Weird Science,
+1994), scanned with `libscan` and written up by hand. Their
 `provenance` records that the disc's own copyright notice disclaims any
 assumption of public-domain status, so redistribution terms are unverified for
 all of them.
@@ -337,8 +256,8 @@ base is *proven* rather than assumed: exactly one offset in −2048..2048 (K=6)
 maps all 149 distinct slot-14 token ids observed across the corpus onto valid
 entry starts. One fit out of 2049 candidates is not a coincidence.
 
-A linked `Intuition.lib` **does** survive elsewhere — in the Ultimate Amiga
-archive, under `ie13b/Intuition/` — and it corroborates the assembly rather
+A linked `Intuition.lib` **does** survive elsewhere, in the Ultimate Amiga
+archive under `ie13b/Intuition/`, and it corroborates the assembly rather
 than contradicting it: 183 named entries against our 183, **zero** differing
 id-to-name pairs. It carries one extra unnamed entry at id `$0` that the
 source-assembled table does not, which is why a comparison keyed on whole id
@@ -354,8 +273,8 @@ this reason and reports the padding difference separately.
 2. Write `src/ext/manifests/<id>.json`. Copy a neighbour. Required: `id`,
    `name`, `version`, `source` (`binary` or `tokens`), `evidence`,
    `idBaseEvidence`, `provenance`, and either `library`+`format` or
-   `tokenSource`. Record every identity string you find in the binary — a later
-   copy may carry only one of them. Be honest in `idBaseEvidence`:
+   `tokenSource`. Record every identity string you find in the binary, because a
+   later copy may carry only one of them. Be honest in `idBaseEvidence`:
    `calibrated` means proven against observed programs, `assumed` means taken
    from the layout of similar libraries and possibly uniformly offset.
 3. Run `npm run cli -- src/cli/genext.ts` to regenerate the tables, then
@@ -364,7 +283,7 @@ this reason and reports the padding difference separately.
 4. Run `npm test`. The registry tests check that the table parses, that ids are
    unique and even, and that provenance and evidence are recorded.
 5. If you have programs that use it, add a few under
-   `fixtures/extensions/<id>/progs/` — that is what turns `idBaseEvidence` from
+   `fixtures/extensions/<id>/progs/`. That is what turns `idBaseEvidence` from
    `assumed` into `calibrated`, and it guards the table against regressions.
 
 Implementing the keywords is a separate step from registering the extension, and
@@ -377,7 +296,7 @@ functions return a type-correct default rather than a type mismatch.
 Identification works from the token **ids** a program used, because a tokenised
 program records `(slot, id)` and nothing else. Two builds sharing every id are
 therefore indistinguishable in a program *no matter how differently their
-keywords are spelled* — so a second registry entry for one can never win an
+keywords are spelled*, so a second registry entry for one can never win an
 identification, and can only turn `exact` into `probable` or `ambiguous`.
 
 This is measured rather than theoretical. Registering five earlier stock builds
@@ -401,7 +320,7 @@ npm run contested -- eme
 ```
 
 Dispatch is by name (that is what "a slot number is not an identity" forces),
-so two products spelling a keyword the same way is not a syntax error — it is
+so two products spelling a keyword the same way is not a syntax error. It is
 one layer silently answering for the other, in every program, forever. The
 token tables know this before a line of the port is written:
 
@@ -409,7 +328,7 @@ token tables know this before a line of the port is written:
 eme (eme-3.0)
 59 keywords, 49 contested
 
-armed (49) — the other side is ported — porting this one collides
+armed (49), the other side is ported, porting this one collides
   bell           amospro-music*
   boom           amospro-music*
   ...
@@ -423,8 +342,8 @@ declaration back through work that is already finished.
 
 Two ported products settle a shared name between them: **one keeps the bare
 key** as the default and the other qualifies, and each is served on its own
-slots. Both mechanisms produce a slot-qualified key — `qualified` and
-`aliases` alike — so a name reached only through an alias is already declared
+slots. Both mechanisms produce a slot-qualified key, `qualified` and `aliases`
+alike, so a name reached only through an alias is already declared
 and needs nothing further.
 
 **Registering a table you have not ported is the case with no second side.**
@@ -432,21 +351,21 @@ It hands that product's keyword names to whoever already answers them, and the
 unported product has no `ExtensionImpl` to declare anything on, so its programs
 get the other product's handler under the other product's contract. Twenty
 names were in that state. `Nop` is a function in DME 2.0 and an instruction in
-AMCAF; `Plane Swap` takes two arguments in Explode and three in TURBO Plus —
-so the handler does not merely behave differently, it reads a different number
-of arguments off the stack. The fix comes from the only side that can give it:
+AMCAF; `Plane Swap` takes two arguments in Explode and three in TURBO Plus, so the
+handler does not merely behave differently. It reads a different number of
+arguments off the stack. The fix comes from the only side that can give it:
 the **ported** product qualifies, the bare key goes away, and the unported
 product's programs get an unimplemented keyword, which is what they have.
 `answeredForUnported()` is the standing check.
 
-Run it with no argument for the whole picture — `live` is what is misdispatching
+Run it with no argument for the whole picture. `live` is what is misdispatching
 today, `armed` is what the next port sets off.
 
 ### And check whether the releases agree with each other
 
 A port serves several identities of one product, and releases do not always
 call the keywords the same thing. JD's printer companion renamed **all 58** of
-them between 1.1 and 1.3 — `Prt Bold` became `Jd Prt Bold` — so the two tables
+them between 1.1 and 1.3, so `Prt Bold` became `Jd Prt Bold` and the two tables
 share not one name. EasyLife did the same to its prefix between 1.09 and 1.10
 (`znsx` → `elznsx`). Intuition and IntuiExtend instead ship an AMOS build and
 an AMOS Pro build of a *single* release that disagree on some names.
@@ -457,9 +376,9 @@ returns a type-correct default rather than erroring. A program written against
 the release you did not port runs, prints nothing useful, and reports no
 problem.
 
-The fix is `aliases` on the `ExtensionImpl` (`src/runtime/extimpl.ts`). Implement
-one set of names — whichever release you worked from — and declare what the
-others call them, keyed by identity:
+The fix is `aliases` on the `ExtensionImpl` (`src/runtime/extimpl.ts`). Implement one
+set of names, whichever release you worked from, and declare what the others
+call them, keyed by identity:
 
 ```ts
 {
@@ -472,9 +391,9 @@ others call them, keyed by identity:
 Each alias binds to the slots where *that* identity was identified, exactly as
 `qualified` does, so `prt bold` answers where Prt 1.1 sits and nowhere else.
 Where the rename is a rule rather than a list, derive the map from the
-registered table instead of transcribing it — 58 hand-written pairs are 58
-chances at a typo that only shows up as a keyword quietly doing nothing — and
-pin the rule with a test.
+registered table instead of transcribing it, and pin the rule with a test. 58
+hand-written pairs are 58 chances at a typo that only shows up as a keyword
+quietly doing nothing.
 
 Before relying on aliases, check the two releases really do behave the same.
 Prt 1.1 and 1.3 carry the same 46 escape sequences, verified byte for byte,
@@ -489,22 +408,22 @@ npm run cli -- src/cli/errscan.ts
 
 Extension call 1025, `L_ErrorExt`. Every library that has messages of its own
 raises them through it, and 43 of the 49 registered binaries that call it do so
-from exactly two sites, because AMOS's extension skeleton ships the pair. The
-full account — with the lines from AMOS's interpreter, its compiled runtime and
-the commented Voodoo 3D skeleton — is on `ExtensionImpl.errors` in
+from exactly two sites, because AMOS's extension skeleton ships the pair. The full
+account, with the lines from AMOS's interpreter, its compiled runtime and the
+commented Voodoo 3D skeleton, is on `ExtensionImpl.errors` in
 `src/runtime/extimpl.ts`. In brief: **a0** the NUL-separated table, **d0** the
 zero-based index into it, **d1** a threshold below which an error cannot be
 trapped (extensions pass 0, so all of theirs can), **d2** the extension number
 zero-based, **d3** 0 to print the message and -1 not to.
 
 Read from one disassembly this shape is ambiguous, and five ports here got it
-wrong in four different ways — `d3` called "the index", `d1 = 0` read as a
-boolean, and the whole thing called a requester when the interpreter's own
+wrong in four different ways. `d3` was called "the index", `d1 = 0` was read as
+a boolean, and the whole thing was called a requester when the interpreter's own
 comment on that arm is `Erreur normale, branche a l'editeur`. Read across all
 49 at once it is unambiguous, which is what the CLI is for.
 
-**`d2` also tells you the slot**, zero-based, independently of any manual —
-useful because most `defaultSlot` values come from a wiki list. All 34 with a
+**`d2` also tells you the slot**, zero-based and independently of any manual,
+which is useful because most `defaultSlot` values come from a wiki list. All 34 with a
 manifest slot agree with their binary; eleven more have no manifest slot and
 `d2` is the only evidence there is.
 
@@ -521,15 +440,15 @@ nothing said the two tables were the same library. EME 3.0 read 17% that way,
 already faithful. Each was one string in `ids:`.
 
 The sweep is a standing test now, so a new registration that a port already
-covers fails `versweep.test.ts` rather than sitting at zero. Its criterion is
-one thing — **no keyword name the two releases share may sit at a different
-id** — and everything else is allowed. Adding keywords is the point of looking;
+covers fails `versweep.test.ts` rather than sitting at zero. Its criterion is one
+thing, **no keyword name the two releases share may sit at a different id**,
+and everything else is allowed. Adding keywords is the point of looking;
 dropping them is harmless, because a handler no table entry reaches never
 fires. Requiring a superset was the first attempt and it rejected `serial-1.2`,
 one of the three cases the check exists to catch.
 
-A `renumbered` verdict is not a refusal, it is a question. Dispatch would still
-work — every identity brings its own table — but a rebuilt table is no longer
+A `renumbered` verdict is not a refusal, it is a question. Dispatch would still work,
+because every identity brings its own table, but a rebuilt table is no longer
 evidence that the routine behind a shared name is the routine the port read.
 Read the binary before adding that one.
 
@@ -543,11 +462,10 @@ numbers, and occasionally where to find them.
 
 It is worth reading for two reasons. First, it is a **check on identification
 that was arrived at independently**: of the ten slots the corpus actually uses,
-eight match Burton exactly — Music at 1, Compactor at 2, Requestor at 3,
-Voodoo 3D at 4, Compiler at 5, IO_Devices at 6, Turbo Plus at 12 and OS Devkit
-at 20. Two do not, and both are informative rather than worrying:
+eight match Burton exactly: Music at 1, Compactor at 2, Requestor at 3, Voodoo
+3D at 4, Compiler at 5, IO_Devices at 6, Turbo Plus at 12 and OS Devkit at 20. Two do not, and both are informative rather than worrying:
 
-- **slot 13**, where Burton lists Powerbobs and the corpus holds Personnal —
+- **slot 13**, where Burton lists Powerbobs and the corpus holds Personnal,
   which he does not list at all. Two extensions recommending one slot is the
   ordinary case, not a contradiction.
 - **slot 14**, where he lists The Game Extension, and puts Intuition at 25 with
@@ -557,8 +475,8 @@ at 20. Two do not, and both are informative rather than worrying:
 Second, it fills in what a binary cannot tell you: authorship (Sticks is by
 N. Critten, GUI by Pietro Ghizzoni), version numbers this port had only
 guessed at (TOME is 4.24, CText 1.32, Range 2.8), and the fact that Turbo
-and Turbo Plus were separately credited — Manuel Andre's 1.9 and Ryan Scott's
-2.x — even though their token tables are plainly one lineage.
+and Turbo Plus were separately credited, Manuel Andre's 1.9 and Ryan Scott's
+2.x, even though their token tables are plainly one lineage.
 
 Where the list and a binary disagree, the binary wins: it records The Game
 Extension at 0.4b where the library's own \$VER says 0.9.
@@ -572,70 +490,85 @@ id stays put so that generated tables and manifests keep matching up.
 
 <!-- BEGIN demand: generated by src/cli/libdemand.ts, do not edit by hand -->
 
-Programs identified to each extension across 6404 readable programs
-(3526 of them use an extension at all), one program at a time.
+Programs identified to each extension across 6476 readable programs
+(3594 of them use an extension at all), one program at a time.
 
-120 further program(s) could not be parsed and are not counted here.
+122 further program(s) could not be parsed and are not counted here.
 That loss is not evenly spread — it concentrates in one AMOS Basic release —
 so the counts are sound at the top of the table and should not be read as
 decisive between two neighbouring rows near the bottom.
 
-| programs | extension              | port   | keywords answered |
-| -------: | ---------------------- | ------ | ----------------: |
-|     2294 | `amospro-music-2.0`    | module |           49 / 49 |
-|     1622 | `amospro-compact-2.0`  | core   |             3 / 3 |
-|      135 | `amcaf-1.40`           | module |         268 / 268 |
-|      134 | `turbo-plus-1.9`       | module |           87 / 87 |
-|      108 | `ldos-2.5`             | module |           77 / 77 |
-|       94 | `amospro-request-2.0`  | core   |             3 / 3 |
-|       92 | `personal-1.0b`        | module |         108 / 108 |
-|       78 | `amos3d-1.0`           | module |           64 / 64 |
-|       74 | `amospro-compiler-2.0` | part   |            8 / 15 |
-|       55 | `turbo-plus-1.0`       | module |         134 / 134 |
-|       51 | `easylife-1.09`        | module |         156 / 156 |
-|       49 | `jd-4.6`               | module |         125 / 125 |
-|       34 | `amospro-ioports-2.0`  | module |           38 / 38 |
-|       26 | `intuition-1.3b`       | part   |           2 / 183 |
-|       16 | `amcaf-1.50`           | module |         280 / 280 |
-|       16 | `tome-4.23`            | module |           67 / 67 |
-|       15 | `tft-0.6`              | module |           22 / 22 |
-|       14 | `ctext-1.0`            | module |             6 / 6 |
-|       13 | `lserial-2.1`          | module |           15 / 15 |
-|       11 | `sticks-1.01b`         | module |           16 / 16 |
-|       10 | `jd-5.3`               | module |         130 / 130 |
-|       10 | `personnal-1.1`        | module |         126 / 126 |
-|        9 | `sln-2.0`              | module |           70 / 70 |
-|        8 | `make-1.30`            | module |           32 / 32 |
-|        6 | `gui-1.61`             | —      |           0 / 103 |
-|        6 | `range-1.0`            | module |           48 / 48 |
-|        5 | `craft-1.0`            | module |         138 / 138 |
-|        5 | `stars-2.33`           | module |           11 / 11 |
-|        4 | `tome-3.1`             | module |           33 / 34 |
-|        4 | `aga-1.0`              | module |           24 / 24 |
-|        3 | `gui-2.10`             | —      |           0 / 204 |
-|        3 | `gui-1.5b`             | —      |            0 / 48 |
-|        3 | `d-sam-1.01`           | —      |            0 / 50 |
-|        3 | `jvp-1.01`             | module |           11 / 11 |
-|        2 | `delta-1.6`            | module |           46 / 46 |
-|        2 | `bsdsocket-1.1.4`      | —      |            0 / 30 |
-|        2 | `easylife-1.0`         | module |           72 / 72 |
-|        2 | `locale-0.26`          | module |           20 / 20 |
-|        2 | `jd-colour-1.4`        | module |           44 / 44 |
-|        2 | `os-devkit-1.61`       | —      |          0 / 1047 |
-|        2 | `ldos-2.6`             | module |           85 / 85 |
-|        2 | `the-game-0.9`         | module |         103 / 103 |
-|        1 | `butility-1.21`        | module |           15 / 15 |
-|        1 | `dme-2.0`              | part   |           5 / 184 |
-|        1 | `dump-1.0`             | module |             8 / 8 |
-|        1 | `delta-1.4`            | module |           26 / 26 |
-|        1 | `opal-1.1`             | module |           78 / 78 |
-|        1 | `jotre-1.0`            | module |             5 / 5 |
-|        1 | `turbo-plus-2.15`      | module |         152 / 152 |
+| programs | extension                   | port              | keywords answered |
+| -------: | --------------------------- | ----------------- | ----------------: |
+|     2309 | `amospro-music-2.0`         | module            |           49 / 49 |
+|     1637 | `amospro-compact-2.0`       | core              |             3 / 3 |
+|      157 | `turbo-plus-1.9`            | module            |           87 / 87 |
+|      132 | `amcaf-1.40`                | module            |         268 / 268 |
+|      109 | `amospro-request-2.0`       | core              |             3 / 3 |
+|      108 | `ldos-2.5`                  | module            |           77 / 77 |
+|       92 | `personal-1.0b`             | module            |         108 / 108 |
+|       78 | `amos3d-1.0`                | module            |           64 / 64 |
+|       75 | `amospro-compiler-2.0`      | part              |            8 / 15 |
+|       59 | `turbo-plus-1.0`            | module            |         134 / 134 |
+|       51 | `easylife-1.09`             | module            |         156 / 156 |
+|       49 | `jd-4.6`                    | module            |         125 / 125 |
+|       34 | `amospro-ioports-2.0`       | module            |           38 / 38 |
+|       28 | `intuition-1.3b`            | part              |           2 / 183 |
+|       16 | `amcaf-1.50`                | module            |         280 / 280 |
+|       16 | `dme-2.0`                   | part              |           5 / 184 |
+|       16 | `tome-4.23`                 | module            |           67 / 67 |
+|       16 | `int-1.0`                   | —                 |            0 / 62 |
+|       15 | `tft-0.6`                   | module            |           22 / 22 |
+|       14 | `ctext-1.0`                 | module            |             6 / 6 |
+|       13 | `lserial-2.1`               | module            |           15 / 15 |
+|       11 | `sticks-1.01b`              | module            |           16 / 16 |
+|       10 | `music-68451de1`            | UNREGISTERED lead |                 — |
+|       10 | `jd-5.3`                    | module            |         130 / 130 |
+|       10 | `personnal-1.1`             | module            |         126 / 126 |
+|        9 | `sln-2.0`                   | module            |           70 / 70 |
+|        8 | `make-1.30`                 | module            |           32 / 32 |
+|        6 | `gui-1.61`                  | —                 |           0 / 103 |
+|        6 | `orgasm-1.0`                | —                 |            0 / 13 |
+|        5 | `stars-2.33`                | module            |           11 / 11 |
+|        4 | `craft-1.0`                 | module            |         138 / 138 |
+|        4 | `amospro_tft-v0.7-0405eb73` | UNREGISTERED lead |                 — |
+|        4 | `tome-3.1`                  | module            |           33 / 34 |
+|        4 | `aga-1.0`                   | module            |           24 / 24 |
+|        3 | `gui-2.10`                  | —                 |           0 / 204 |
+|        3 | `gui-1.5b`                  | —                 |            0 / 48 |
+|        3 | `d-sam-1.01`                | —                 |            0 / 50 |
+|        3 | `jvp-1.01`                  | module            |           11 / 11 |
+|        2 | `delta-1.6`                 | module            |           46 / 46 |
+|        2 | `bsdsocket-1.1.4`           | —                 |            0 / 30 |
+|        2 | `easylife-1.0`              | module            |           72 / 72 |
+|        2 | `locale-0.26`               | module            |           20 / 20 |
+|        2 | `jd-colour-1.4`             | module            |           44 / 44 |
+|        2 | `os-devkit-1.61`            | —                 |          0 / 1047 |
+|        2 | `range-1.0`                 | module            |           48 / 48 |
+|        2 | `ldos-2.6`                  | module            |           85 / 85 |
+|        2 | `the-game-0.9`              | module            |         103 / 103 |
+|        1 | `butility-1.21`             | module            |           15 / 15 |
+|        1 | `turbo_plus-v1.0-3927a4fb`  | UNREGISTERED lead |                 — |
+|        1 | `dump-1.0`                  | module            |             8 / 8 |
+|        1 | `maxsdoor-0.20`             | —                 |            0 / 21 |
+|        1 | `thx-0.6`                   | —                 |             0 / 6 |
+|        1 | `delta-1.4`                 | module            |           26 / 26 |
+|        1 | `opal-1.1`                  | module            |           78 / 78 |
+|        1 | `jotre-1.0`                 | module            |             5 / 5 |
+|        1 | `turbo-plus-2.15`           | module            |         152 / 152 |
 
 `port`: **module** = a dedicated port (`EXT_IMPLS` in `src/runtime/instr.ts`),
 **core** = every keyword it has is answered by core AMOS anyway, **part** =
-some are, **—** = none. `keywords answered` counts named entries in that
+some are, **-** = none. `keywords answered` counts named entries in that
 extension's own token table that the dispatch answers for, n/a included.
+
+These counts DISAGREE with `KEYWORDS.md` and both are right, because they
+answer different questions. This asks whether a program will run: a keyword
+is answered if ANY dispatch layer has a handler under its name. The manifest
+asks whether the port is done: a keyword counts only if the extension's own
+ExtensionImpl registers it. So `intuition-1.3b` reads 2 of 183 here and 0% in
+the manifest, and the two happen to be the same fact: two of its keyword
+names collide with core AMOS ones, and nothing has been ported.
 
 The next port is argued from the top row that is not already answered: a high
 program count against a low keyword count. Program counts come from a corpus
@@ -650,18 +583,17 @@ Regenerate against a corpus with:
 npm run cli -- src/cli/libdemand.ts /path/to/corpus --libs /path/to/corpus --md docs/extensions/README.md
 ```
 
-The corpus is not on this machine, so despite the marker the "port" and
-"keywords answered" columns get hand-corrected as ports land — `the-game-0.9`
-went from `— | 0 / 103` to `module | 103 / 103` that way. The program counts
-are the part that needs the corpus and the part that never changes on its own;
-correcting a cell beside them beats leaving the table saying an extension is
-unported for however long it takes to reassemble 5,000 programs.
+Regenerating needs the corpus, which is not always to hand, so the "port" and
+"keywords answered" columns may be hand-corrected as ports land. The program
+counts are the part that needs the corpus and the part that never changes on
+its own, so correcting a cell beside them beats leaving the table saying an
+extension is unported until somebody can reassemble 6,000 programs.
 
 ## Finding what is missing
 
 **Ask per program, never per slot.** A slot number belongs to the machine a
 program was saved on, so two programs in one collection routinely hold
-different extensions — or different versions of one — at the same slot. Merging
+different extensions, or different versions of one, at the same slot. Merging
 their token ids into a single fingerprint and identifying *that* asks a
 question nothing has to answer, and it fails in a way that looks like a
 discovery: with no candidate surviving there is no table to subtract, so every
@@ -689,13 +621,13 @@ npm run cli -- src/cli/extscan.ts /path/to/collection --json wanted.json
 ```
 
 The interesting output is the rows it *cannot* identify. Each unexplained token
-id is a specific, actionable request — "find the extension whose token table has
-an entry at offset `$04d2` taking one argument" — and `--json` writes them out
+id is a specific, actionable request, "find the extension whose token table has
+an entry at offset `$04d2` taking one argument", and `--json` writes them out
 as a wanted list. Working through a large archive is then mechanical rather than
 a matter of recognising keyword names by eye.
 
-Against the bundled corpus (488 programs) all ten slots in use resolve with no
-unexplained ids — eight `exact`, two `probable`, none ambiguous or unknown.
+Against the bundled corpus all ten slots in use resolve with no unexplained
+ids: eight `exact`, two `probable`, none ambiguous or unknown.
 That is a starting point, not a finish line: the corpus
 is the official releases plus the Intuition distribution's own samples, and a
 real sweep of Aminet would turn up extensions nobody here has seen.
@@ -704,15 +636,15 @@ real sweep of Aminet would turn up extensions nobody here has seen.
 
 `src/cli/libscan.ts` is the other half. Where extscan reads programs and reports
 the slots they use, libscan reads the `.Lib` files and reports what each token
-table *contains* — every keyword the extension has, not just the ones some
-program happened to call:
+table *contains*, meaning every keyword the extension has and not just the ones
+some program happened to call:
 
 ```
 npm run cli -- src/cli/libscan.ts /path/to/collection --json libs.json
 ```
 
-A collection carrying programs and their libraries together — a PD library
-disc, an install, a coverdisk rip — can therefore resolve its own slot numbers.
+A collection carrying programs and their libraries together, a PD library disc,
+an install or a coverdisk rip, can therefore resolve its own slot numbers.
 `extscan --libs` adds the scanned tables to the identification pool for that
 run:
 
@@ -724,7 +656,7 @@ A hit here is a **lead, not a registry entry**, and extscan labels it
 `UNREGISTERED` to keep the two apart. A matching id set establishes which token
 table a slot held; it says nothing about the extension's name, version, author,
 licence or behaviour, and the id base is assumed rather than calibrated.
-Promoting a lead means doing the work in "Adding an extension" above —
+Promoting a lead means doing the work in "Adding an extension" above,
 including recording where it came from.
 
 This is also how to sanity-check a corpus you cannot fully parse. Token ids are
