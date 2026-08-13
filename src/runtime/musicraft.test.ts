@@ -100,7 +100,7 @@ describe('MusiCRAFT: St Load', () => {
     // head of each of 31 samples and the last lands past the module
     const b = run(`${LOAD}Print Length(5)`)
     const bank = b.rt.memBanks.get(5)!
-    expect(bank.name).toBe('Tracker ')
+    expect(bank.name).toBe('Tracker')
     expect(bank.memType).toBe(1) // Bnk_BitChip
     expect(bank.data.length).toBe(modFile().length + 4)
   })

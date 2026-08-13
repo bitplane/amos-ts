@@ -1042,7 +1042,7 @@ describe('SLN: the tracker player', () => {
     const b = bootMod('S Track Load "RAM:tune.mod"')
     mustFinish(b.rt.runHeadless(2_000))
     const bank = b.rt.memBanks.get(7)!
-    expect(bank.name).toBe('Tracker ')
+    expect(bank.name).toBe('Tracker')
     expect(bank.memType).toBe(1) // Bnk_BitChip
     expect(bank.data.length).toBe(modFile().length)
   })

@@ -630,7 +630,7 @@ describe('banks', () => {
     // flags and `subq.l #$8,a0` for the name, so the copy is the original's
     // twin rather than a bank called "Amcaf   "
     const work = run([...setup, 'Bank Name 5,"Tracker"', 'Bank Copy 5 To 6']).rt.memBanks.get(6)!
-    expect(work.name).toBe('Tracker ')
+    expect(work.name).toBe('Tracker')
     expect(work.kind === 'memory' && work.flags).toBe(0)
     const data = run(['Reserve As Data 5,64', 'Bank Copy 5 To 6']).rt.memBanks.get(6)!
     expect(data.kind === 'memory' && data.flags).toBe(1)
@@ -653,11 +653,13 @@ describe('banks', () => {
       'Td Stars Bank 8,4', //            routine 304, $6d8e
       'Alloc Trans Map 9,32,1', //       routine 148, $4174 -- already right
     ])
+    // the binary's literals are eight characters -- 'Coords  ', 'Stars   ' --
+    // and the trailing spaces come off for storage, as they do everywhere else
     const want: [number, string][] = [
       [5, 'Pix Mask'],
-      [6, 'Coords  '],
+      [6, 'Coords'],
       [7, 'Splinter'],
-      [8, 'Stars   '],
+      [8, 'Stars'],
       [9, 'TransMap'],
     ]
     for (const [n, name] of want) {
@@ -1138,13 +1140,13 @@ describe('disk and DOS objects', () => {
     const b5 = rt.memBanks.get(5)!
     const b6 = rt.memBanks.get(6)!
     const b7 = rt.memBanks.get(7)!
-    expect(b5.name).toBe('Work    ')
-    expect(b6.name).toBe('Datas   ')
+    expect(b5.name).toBe('Work')
+    expect(b6.name).toBe('Datas')
     // and the type each Reserve asks for: Work banks clear the Data bit
     expect(b5.kind === 'memory' && b5.flags).toBe(0)
     expect(b6.kind === 'memory' && b6.flags).toBe(1)
     // the negative form landed on bank 7, in chip
-    expect(b7.name).toBe('Work    ')
+    expect(b7.name).toBe('Work')
     expect(b7.kind === 'memory' && b7.memType).toBe(1)
     expect(b5.kind === 'memory' && b5.memType).toBe(0)
   })
@@ -1163,7 +1165,7 @@ describe('disk and DOS objects', () => {
     // and Ppfromdisk's own Reserve is `moveq #$0,d1 / lea "Work    ",a0` at
     // $5b38/$5b44, the same pair Ppunpack uses -- not a bank called "Amcaf   "
     const b9 = rt.memBanks.get(9)!
-    expect(b9.name).toBe('Work    ')
+    expect(b9.name).toBe('Work')
     expect(b9.kind === 'memory' && b9.flags).toBe(0)
   })
 
@@ -2619,7 +2621,7 @@ describe('Splinters and Td Stars', () => {
     expect(w(0)).toBe(100) // the count, which Coords Read reads as its limit
     expect(w(2)).toBe(0) // the cursor
     expect((w(4) << 16) | w(6)).toBe(8) // the offset of the first entry
-    expect(rt.memBanks.get(4)!.name).toBe('Coords  ')
+    expect(rt.memBanks.get(4)!.name).toBe('Coords')
   })
 
   /** `move.l (a3)+,d2 / Rbeq routine 390` — a count of zero, before anything */
@@ -3265,7 +3267,7 @@ describe('Splinters and Td Stars', () => {
     expect(() => run([...scr, 'Td Stars Bank 6,0'])).toThrow(/Illegal function call/)
     const { rt } = run([...scr, 'Splinters Bank 5,4', 'Td Stars Bank 6,4'])
     expect(rt.memBanks.get(5)!.name).toBe('Splinter')
-    expect(rt.memBanks.get(6)!.name).toBe('Stars   ')
+    expect(rt.memBanks.get(6)!.name).toBe('Stars')
     // 22 bytes a splinter, 12 a star
     expect(rt.memBanks.get(5)!.data.length).toBe(4 * 22)
     expect(rt.memBanks.get(6)!.data.length).toBe(4 * 12)

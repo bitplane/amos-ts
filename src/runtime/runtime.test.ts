@@ -729,3 +729,74 @@ describe('the fake address space regions do not overlap', () => {
     }
   })
 })
+
+/**
+ * A bank's name is held with its trailing spaces off, everywhere.
+ *
+ * The field on the machine is eight bytes and `Bnk.Reserve` copies exactly
+ * eight (`moveq #7,d0` +Lib.s:8501), so a library's literal really is
+ * 'Work    ' or 'Datas   ' and the source at each call site should keep
+ * saying so. What is HELD is the trimmed name, because the loader holds one
+ * that way (`parseMemoryBank`) and a reserved bank and a loaded one have to
+ * compare equal.
+ *
+ * Before this was settled the tree did both. Five paths padded and three
+ * trimmed, and nothing noticed because `Bank As Work` and `Bank As Data`
+ * rewrite only the first four characters and `List Bank` pads to nine either
+ * way. A test asserting `.name === 'Work'` passed or failed depending on
+ * which keyword had made the bank.
+ *
+ * Two rules keep it settled, and both are checked below rather than trusted:
+ * padding goes back on at the boundary (`Bank Name$`, routines 59 and 60,
+ * and anything that writes a file), and a whole-name comparison pads before
+ * comparing, because the machine is comparing eight bytes.
+ */
+describe('bank names are held trimmed', () => {
+  it('reserveBank takes the padding off whatever a caller passes', () => {
+    const rt = new Runtime(tokenize('Rem\n', new TokenTable(CORE_TOKENS)), new TokenTable(CORE_TOKENS))
+    // the literals AMCAF and EasyLife really do hold, eight characters each
+    rt.reserveBank(5, 64, 'Work    ')
+    rt.reserveBank(6, 64, 'Datas   ')
+    rt.reserveBank(7, 64, 'Pac.Pic.') // eight already, with nothing to take off
+    expect(rt.memBanks.get(5)!.name).toBe('Work')
+    expect(rt.memBanks.get(6)!.name).toBe('Datas')
+    expect(rt.memBanks.get(7)!.name).toBe('Pac.Pic.')
+  })
+
+  it("and a reserved bank compares equal to the loader's idea of the same name", () => {
+    const rt = new Runtime(tokenize('Rem\n', new TokenTable(CORE_TOKENS)), new TokenTable(CORE_TOKENS))
+    rt.reserveBank(5, 64, 'Work    ')
+    // what parseMemoryBank would have produced for the same eight bytes
+    expect(rt.memBanks.get(5)!.name).toBe('Work    '.replace(/\s+$/, ''))
+  })
+
+  /**
+   * No source file may store a padded bank name.
+   *
+   * A behavioural test only covers the paths it happens to run. This covers
+   * the ones nobody has written yet, which is where the split came from: a
+   * new keyword copies the pattern next to it, and the pattern next to it was
+   * whichever convention that file already used.
+   */
+  it('and no source file pads one back on the way in', async () => {
+    const { readFileSync, readdirSync, statSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const walk = (dir: string): string[] =>
+      readdirSync(dir).flatMap((e) => {
+        const f = join(dir, e)
+        return statSync(f).isDirectory() ? walk(f) : f.endsWith('.ts') && !f.endsWith('.test.ts') ? [f] : []
+      })
+    const bad: string[] = []
+    for (const f of walk('src')) {
+      readFileSync(f, 'utf8')
+        .split('\n')
+        .forEach((line, i) => {
+          // `x.name = ...padEnd(8...)` stores the padded form; the boundary
+          // spellings are `VS(...padEnd(8` for a reader and `padEnd(8` inside
+          // a header writer, neither of which assigns to a name
+          if (/\.name\s*=[^=].*padEnd\(\s*8/.test(line)) bad.push(`${f}:${i + 1}`)
+        })
+    }
+    expect(bad, 'store the trimmed name and pad at the boundary instead').toEqual([])
+  })
+})

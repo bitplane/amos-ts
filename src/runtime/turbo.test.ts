@@ -1437,7 +1437,7 @@ describe('TURBO scenes: banks (TURBO_DocsV2.15.Asc + disassembly)', () => {
     // the type of the bank as Scenery".
     const { rt } = run('Reserve Scene 5,4,3')
     const b = rt.memBanks.get(5)!
-    expect(b.name).toBe('Scenery ')
+    expect(b.name).toBe('Scenery')
     expect(b.data.length).toBe(4 + 4 * 3 * 2)
     expect([...b.data.subarray(0, 4)]).toEqual([0, 4, 0, 3])
     expect([...b.data.subarray(4)].every((v) => v === 0)).toBe(true)
@@ -1493,7 +1493,7 @@ describe('TURBO scenes: banks (TURBO_DocsV2.15.Asc + disassembly)', () => {
     const file = [0, 2, 0, 1, 0, 9, 0, 4]
     const { rt } = run('Scene Load "map.scn",6', { 'map.scn': file })
     expect([...rt.memBanks.get(6)!.data]).toEqual(file)
-    expect(rt.memBanks.get(6)!.name).toBe('Scenery ')
+    expect(rt.memBanks.get(6)!.name).toBe('Scenery')
     expect(rt.turbo.scene.bank).toBe(0)
   })
 
@@ -1834,7 +1834,7 @@ describe('TURBO Multi Bload (disassembly)', () => {
     // that waits on Multi Bl Ended cannot tell apart.
     const { rt } = run('Multi Bload "data.bin","Level1",4', { 'data.bin': [1, 2, 3, 4, 5] })
     expect([...rt.memBanks.get(4)!.data]).toEqual([1, 2, 3, 4, 5])
-    expect(rt.memBanks.get(4)!.name).toBe('Level1  ')
+    expect(rt.memBanks.get(4)!.name).toBe('Level1')
   })
 
   it('Multi Bl Ended is true once nothing is pending, and Multi Bl Error reports the failure', () => {

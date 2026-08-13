@@ -1859,7 +1859,16 @@ export class Runtime {
     // the loader holds one, trailing spaces off in parseMemoryBank, so
     // that a reserved bank and a loaded one compare the same way. The
     // padding is the FILE format's, and belongs to whatever writes a file.
-    this.memBanks.set(n, { kind: 'memory', number: n, memType: chip ? 1 : 0, name, flags: dataBank ? 1 : 0, data: new Uint8Array(length) })
+    //
+    // Trimmed HERE rather than at each caller, because the callers pass
+    // whatever their own binary's literal says. AMCAF's Dload really does
+    // hold 'Datas   ' and EasyLife's Elxpk Load really does copy eight bytes
+    // out of an XPK header; both are evidence about those libraries and both
+    // should keep saying so at the call site. A program cannot see the
+    // difference: `Bank Name$` pads back to eight on the way out, which is
+    // routine 60's own behaviour.
+    const held = name.replace(/\s+$/, '')
+    this.memBanks.set(n, { kind: 'memory', number: n, memType: chip ? 1 : 0, name: held, flags: dataBank ? 1 : 0, data: new Uint8Array(length) })
   }
   // ---- resource banks (Interface language) ----
   /** Resource Bank n (0 = system default, InResourceBank +Lib.s:14933) */

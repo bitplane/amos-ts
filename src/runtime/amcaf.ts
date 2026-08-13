@@ -4501,8 +4501,11 @@ export function makeAmcafInstructions(rt: Runtime): Record<string, Instr> {
       const b = rt.memBanks.get(n)
       if (!b) amcafErr()
       // "Most AMOS commands ignore this ID, but e.g the AMOS Tracker commands
-      // require a bank named 'Tracker '" -- which is why it pads to eight
-      b.name = name.slice(0, 8).padEnd(8, ' ')
+      // require a bank named 'Tracker '" -- eight bytes into the field, and
+      // the trailing spaces off for storage, which is how every bank name is
+      // held here. `Bank Name$` pads them back, so the eight the manual talks
+      // about are the eight a program reads.
+      b.name = name.slice(0, 8).replace(/\s+$/, '')
     },
 
     /**
@@ -7831,11 +7834,18 @@ export function makeAmcafFunctions(rt: Runtime): Record<string, Func> {
       return VI((sum ^ 0xfaceface) | 0)
     },
 
-    /** =Bank Name$(bank) — routine 59 */
+    /**
+     * =Bank Name$(bank) — routine 59.
+     *
+     * Eight characters, spaces included. The field is eight bytes, the manual
+     * calls it "the 8 characters long name", and AMOS's own routine 60 reads
+     * it the same way. Names are held trimmed here, so the padding goes back
+     * on at the boundary rather than being carried around in memory.
+     */
     'bank name$': (_, a) => {
       const b = rt.memBanks.get(i0(a, 0))
       if (!b) amcafErr()
-      return VS(b.name)
+      return VS(b.name.padEnd(8, ' ').slice(0, 8))
     },
 
 

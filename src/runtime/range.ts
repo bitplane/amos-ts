@@ -519,7 +519,10 @@ export function makeRangeInstructions(rt: Runtime): Record<string, Instr> {
       const name = it.evalStr()
       const mem = rt.memBanks.get(n)
       if (!mem) throw new AmosError('bank not reserved')
-      mem.name = (name.length > 8 ? name.slice(0, 8) : name).padEnd(8, ' ')
+      // eight bytes go into the field, and the trailing spaces come off for
+      // storage the way every other bank name here is held. `Bank Name$` puts
+      // them back, so a program sees the eight the routine writes.
+      mem.name = name.slice(0, 8).replace(/\s+$/, '')
     },
 
     /**

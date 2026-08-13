@@ -873,7 +873,10 @@ function message(rt: Runtime, a: Value[]): { data: Uint8Array; at: number; len: 
   const data = b?.data ?? rt.resolveAddr(n)?.data
   const base = b ? 0 : (rt.resolveAddr(n)?.off ?? 0)
   if (!data) throw new AmosError('Bank not reserved', 36)
-  if ((b?.name ?? '') !== 'Message ') elError(9)
+  // $26a2 compares the field's eight bytes, so the comparison is made on the
+  // padded form. Names are held trimmed here, and a bank called 'Message'
+  // has the same eight bytes on the machine as one called 'Message '.
+  if ((b?.name ?? '').padEnd(8, ' ') !== 'Message ') elError(9)
   const v = new DataView(data.buffer, data.byteOffset, data.byteLength)
   const rd = (o: number): number => (o + 4 <= data.length ? v.getUint32(base + o, false) : 0)
   if (u32(rd(0) - 0x10) < u32(group * 4)) return null
@@ -3671,7 +3674,10 @@ export function makeEasyLifeInstructions(rt: Runtime): Record<string, Instr> {
       if (name.length !== 8) funcCall()
       const b = rt.memBanks.get(n)
       if (!b) throw new AmosError('Bank not reserved', 36)
-      b.name = name
+      // the eight-character demand above is EasyLife's, and it stays. What is
+      // stored is trimmed, like every other bank name here; `Bank Name$` pads
+      // it back to the eight this keyword insisted on.
+      b.name = name.replace(/\s+$/, '')
     },
 
     'elmz erase'(it) {

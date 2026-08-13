@@ -1937,9 +1937,9 @@ describe('EasyLife: the XPK block (routines 170-186)', () => {
     )
     mustFinish(b.rt.runHeadless(2000))
     expect(b.out()).toBe('$AABBCCDD\n')
-    // padded, unlike a reserved bank's: this name came out of the XPK
-    // header's eight bytes and EasyLife copies them as they are
-    expect(b.rt.memBanks.get(11)?.name).toBe('Data    ')
+    // the XPK header's eight bytes, trimmed for storage like every other
+    // bank name here. `Bank Name$` pads them back on the way out.
+    expect(b.rt.memBanks.get(11)?.name).toBe('Data')
     expect(b.rt.memBanks.get(11)?.flags).toBe(1) // Bnk_BitData, out of the file
   })
 
