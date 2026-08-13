@@ -191,7 +191,13 @@ export function makeJotreInstructions(rt: Runtime): Record<string, Instr> {
      * public memory"* — THX pre-computes every filtered waveform rather than
      * filtering as it plays.
      *
-     * NOTE: nothing is charged for those 414,768 bytes here. PowerBobs' own
+     * Cloak's figure is close and not right. InitPlayer at $460 asks for
+     * `move.l #$649f0,d0` = 412,144 of public memory and `move.l #$a00,d0` =
+     * 2,560 of chip, which is 414,704 between them. The public half is $568 of
+     * state and 63 waveform sets of 6,520 — see ../amiga/thxwaves.ts, which
+     * builds all of it.
+     *
+     * NOTE: nothing is charged for either allocation here. PowerBobs' own
      * AllocMems are not charged either, and for the same reason: no keyword
      * hands the address back, so the only observable would be `Fast Free`.
      */

@@ -124,6 +124,7 @@ really does differ from the real one and saying where is the whole job.
 | `p61.ts` | the Player 6.1A packed module format, onto that replay |
 | `thx.ts` | the THX synth-tracker module format, off its replayer's `InitModule` |
 | `thxplay.ts` | the THX sequencer: positions, rows, the sixteen track commands |
+| `thxwaves.ts` | the 6,520-byte THX waveform set and its 63 filtered copies |
 | `keyboard.ts` | the byte the keyboard clocks into CIA-A's SDR, and its decode |
 | `gameport.ts` | JOY0DAT and JOY1DAT, the quadrature counter registers |
 | `controller.ts` | what is plugged into a gameport |
