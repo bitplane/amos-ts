@@ -27,6 +27,7 @@ import type { MiscExtState } from './miscext'
 import type { FileIdState } from './fileid'
 import type { RangeState } from './range'
 import { jotreVbl, type JotreState } from './jotre'
+import { thxVbl, type ThxState } from './thx'
 import type { JdIntState } from './jdint'
 import type { AmonState } from './amon'
 import type { ExplodeState } from './explode'
@@ -603,6 +604,8 @@ export class Runtime {
   easylife!: EasyLifeState
   /** Jotre 1.0: the THX replayer's flag byte, module address and sub-song */
   jotre!: JotreState
+  /** THX 0.6: the play flag, the module address, and the replay itself */
+  thx!: ThxState
   thegame!: TheGameState
   /** Misc 1.0: the drive LED, which is all the state its twelve keywords have */
   miscExt!: MiscExtState
@@ -4397,6 +4400,9 @@ export class Runtime {
     ercoleVbl(this.ercole)
     // Jotre's replayer interrupt is VblRout[0], gated on BOTH its flag bits
     jotreVbl(this.jotre)
+    // THX 0.6 takes the FIRST free VblRout slot rather than a fixed one, and
+    // its hook gates on one flag --- see thx.ts on the nine-slot search
+    thxVbl(this.thx)
     // The Game's tracker keywords are ptreplay.library, which runs off a CIA
     // timer on the machine and off the frame here -- see thegame.ts
     thegameVbl(this)

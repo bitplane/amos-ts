@@ -2475,6 +2475,15 @@ export const FAITHFUL = new Set<string>([
   'play thx',
   'stop thx',
   'volume thx',
+  // --- THX 0.6, slot 20: Thomas Nokielski's front end for the same format
+  // Jotre plays, sharing no code with it. Four instructions, two functions;
+  // see thx.ts.
+  'thx play',
+  'thx stop',
+  'thx load',
+  'thx volume',
+  'thx subsongs',
+  'thx end',
   // --- First 0.1, slot 22: Pedro Gil's 248-byte extension; see first.ts.
   'change led',
   'wait mouse',
@@ -7794,6 +7803,28 @@ export const NOTES: Record<string, string> = {
   "volume thx":
     "routine 8. The Guide gives the range as \"anything between 0 (silent) to 63 (very loud)\" and the routine " +
     "enforces none of it: `move.b d7,(a1)` takes the low byte, so 64 and -1 both land",
+  "thx play":
+    "routine 2. The bank is resolved first and a miss is error 36; then InitModule, whose result is NOT tested, " +
+    "and StartSong. DEFECT (the author's, declared): \"There is also no routine to check, if the bank you " +
+    "access contains a THX module.\" Nothing looks at the bank's name or its magic",
+  "thx stop":
+    "routine 3. `tst.b (a2) / beq` tests the play flag FIRST, so stopping a song that is not playing calls " +
+    "nothing --- unlike Jotre's Stop Thx, which calls StopSong whatever the state",
+  "thx load":
+    "routine 4. Open, two Seeks to measure, reserve, Read, Close. An odd file gets an even bank: `btst.b " +
+    "#$0,d2 / addq.l #$1,d2`, which V0.5 added because \"If an AMOSPro bank is unequal, the compiler stops " +
+    "with error 'Not an AMOS-Program'.\" The bank is named \"THXMod  \" and nothing ever compares it",
+  "thx volume":
+    "routine 5. 0 to 63, error 23 outside, which is V0.6's change: \"'Thx Volume' accepts only values between " +
+    "0 and 63, now. I noticed that the music became louder when using 'Thx Volume 99'.\" The byte lands at the " +
+    "replayer's state+$1, the last of the five multiplies at $148e, so 63 cannot reach the chain's unity of 64",
+  "thx subsongs":
+    "routine 6. A positive bank INITIALISES the module as a side effect, which is why it refuses while " +
+    "something plays: \"this is because I have to initialize the module before accessing to this value so the " +
+    "replay routine could crash\". Zero or less reads the module already loaded",
+  "thx end":
+    "routine 7. Reads the replayer's end flag at state+$3 and does not clear it; only StartSong does. So the " +
+    "first wrap latches 255 and every later call answers 255 while the song goes round again",
   "change led":
     "routine 3: `bchg.b #$1,$bfe001`.",
   "wait mouse":

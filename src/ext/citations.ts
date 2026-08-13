@@ -497,5 +497,6 @@ export const CITED_BY: Record<string, string[]> = {
   'src/runtime/dump.ts': ['dump-1.0'],
   'src/runtime/dump.test.ts': ['dump-1.0'],
   'src/runtime/jotre.ts': ['jotre-1.0'],
+  'src/runtime/thx.ts': ['thx-0.6'],
   'src/runtime/jotre.test.ts': ['jotre-1.0'],
 }

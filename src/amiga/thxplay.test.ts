@@ -168,10 +168,13 @@ describe('the track commands', () => {
     expect(p.row).toBe(1)
   })
 
-  it('8 sets the master volume', () => {
-    const { p } = player(tinyModule([{ cmd: 8, arg: 0x20 }]))
+  it('8 writes a byte that nothing in either replayer reads', () => {
+    const { p, audio } = player(tinyModule([{ note: 25, ins: 1, cmd: 8, arg: 0x20 }, {}]))
     p.tick()
     expect(p.masterVolume).toBe(0x20)
+    // $0(a6) is not one of the five terms of the chain at $148e, so the
+    // command cannot be heard --- AUDxVOL is the instrument's $40 either way
+    expect(audio.events.filter((e) => e.kind === 'volume' && e.voice === 0)[0]!.volume).toBe(0x40)
   })
 
   it('B jumps to a DECIMAL position', () => {
@@ -217,18 +220,25 @@ describe('the track commands', () => {
       expect(p.channels[0]!.volume).toBe(0x30)
     })
 
-    it('sets the master, in every channel, from $50', () => {
+    it('broadcasts $21(a0) to all four channels from $50', () => {
       const { p } = player(tinyModule([{ cmd: 0xc, arg: 0x60 }]))
       p.tick()
-      expect(p.masterVolume).toBe(0x10)
-      expect(p.channels.map((c) => c.volume)).toEqual([0x10, 0x10, 0x10, 0x10])
+      expect(p.channels.map((c) => c.volumeC)).toEqual([0x10, 0x10, 0x10, 0x10])
+      // and leaves $1d, the first range's field, alone
+      expect(p.channels[0]!.volume).toBe(0)
+    })
+
+    it('sets $21(a0) on this channel alone from $a0', () => {
+      const { p } = player(tinyModule([{ cmd: 0xc, arg: 0xb0 }]))
+      p.tick()
+      expect(p.channels.map((c) => c.volumeC)).toEqual([0x10, 0, 0, 0])
     })
 
     it('does nothing in the gaps the two subtractions leave', () => {
       const { p } = player(tinyModule([{ cmd: 0xc, arg: 0x4a }]))
-      const before = p.channels[0]!.volume
       p.tick()
-      expect([p.channels[0]!.volume, p.masterVolume]).toEqual([before, 0x40])
+      expect(p.channels.map((c) => c.volumeC)).toEqual([0, 0, 0, 0])
+      expect(p.channels[0]!.volume).toBe(0)
     })
   })
 

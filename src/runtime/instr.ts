@@ -41,6 +41,7 @@ import { FILEID_ERRORS, makeFileIdFunctions, newFileIdState } from './fileid'
 import { makeFirstInstructions } from './first'
 import { makeRangeFunctions, makeRangeInstructions, newRangeState } from './range'
 import { JOTRE_ERRORS, makeJotreInstructions, newJotreState } from './jotre'
+import { THX_ERRORS, makeThxFunctions, makeThxInstructions, newThxState } from './thx'
 import { MED_ERRORS, makeMedExtFunctions, makeMedExtInstructions, medExtDefault, newMedExtState } from './medext'
 import { makeP61Functions, makeP61Instructions, newP61State } from './p61'
 import { makePowerBobsFunctions, makePowerBobsInstructions, newPowerBobsState } from './powerbobs'
@@ -5940,6 +5941,29 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
     },
     instructions: makeJotreInstructions,
     errors: JOTRE_ERRORS,
+  },
+  {
+    // THX 0.6 at slot 20 --- Thomas Nokielski's six keywords over the same
+    // format Jotre plays, and no code in common with it. Its VBL hook takes
+    // the first FREE slot rather than a fixed one, and is stepped from
+    // Runtime.frame(). No `defaults` hook: its +$4 is one AMOS call and an
+    // rts, and its +$c is the bare rts the author called an empty bank check.
+    // See thx.ts.
+    ids: ['thx-0.6'],
+    init: (rt) => {
+      rt.thx = newThxState(rt)
+    },
+    instructions: makeThxInstructions,
+    functions: makeThxFunctions,
+    errors: THX_ERRORS,
+    /**
+     * All six, because DME 2.0 carries a `thx *` block with the same six names
+     * and NOT ONE id in common — so a program written for one detokenises to
+     * nonsense under the other. DME's is unported; binding these by bare name
+     * would hand its programs this implementation of a keyword that means
+     * something else to them.
+     */
+    qualified: ['thx play', 'thx stop', 'thx load', 'thx volume', 'thx subsongs', 'thx end'],
   },
   {
     // TOME 4.23 and 3.1 share one port: 3.1's table is a strict prefix of

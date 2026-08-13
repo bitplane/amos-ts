@@ -161,9 +161,6 @@ const newChannel = (): ThxChannel => ({
   lastVol: -1,
 })
 
-/** `move.b #$40,$1(a6)` at Jotre's $42c — the master starts at full scale */
-const FULL_VOLUME = 0x40
-
 export class ThxPlayer {
   private module: ThxModule | null = null
 
@@ -179,8 +176,35 @@ export class ThxPlayer {
   tickCount = 0
   /** $3ae(a6) — the reload, and command F writes its low byte */
   speed = 6
-  /** $0(a6) — command 8 and command C's middle range */
-  masterVolume = 0x40
+  /**
+   * $0(a6) — what command 8 writes, and NOTHING READS.
+   *
+   * `clr.b $0(a6)` in StartSong and `move.b $2(a1,d0.l),$0(a6)` in the row
+   * handler are the only two instructions in either library that touch it. The
+   * volume chain at $148e does not, and neither does anything else: grepping
+   * both disassemblies for the byte finds two writes and no read at all.
+   *
+   * So command 8 is dead. It is kept because a program can still issue it and
+   * because saying "written and never read" needs somewhere to say it, but it
+   * takes no part in `writeVoices`.
+   */
+  masterVolume = 0
+  /**
+   * $1(a6) — the GLOBAL volume, which is a different byte from the master.
+   *
+   * `move.b #$40,$1(a6)` at Jotre's $776 sets it and only an extension keyword
+   * writes it afterwards: thx-0.6's `Thx Volume` at $1140 and Jotre's `Volume
+   * Thx`. It is the last multiply of the chain at $149c, which is
+   *
+   *     mulu.w $1e(a0),d0 / lsr.w #$6,d0      the envelope
+   *     mulu.w $20(a0),d0 / lsr.w #$6,d0      the per-channel scale
+   *     mulu.w $1(a6),d0  / lsr.w #$6,d0      this
+   *     move.w d0,$66(a0)                     and $1618 writes it to AUDxVOL
+   *
+   * so it scales everything and 64 is unity. The two middle terms are
+   * synthesis state and arrive with stage 4.
+   */
+  playerVolume = 0x40
 
   /** $3ac(a6) — the next frame takes a new row from the position table */
   private newRow = true
@@ -213,7 +237,9 @@ export class ThxPlayer {
     this.row = 0
     this.tickCount = 0
     this.speed = 6
-    this.masterVolume = FULL_VOLUME
+    // `clr.b $0(a6)` at $90c --- and note it CLEARS rather than restoring $40,
+    // which costs nothing only because nothing reads it
+    this.masterVolume = 0
     this.ended = false
     this.newRow = true
     this.breaking = false
@@ -453,13 +479,17 @@ export class ThxPlayer {
   /**
    * `$ef8-$f3a` — command C, three ranges reached by subtracting $50 twice.
    *
-   *     <= $40            the CHANNEL volume
-   *     $50..$90          the MASTER, written into all four channels
-   *     $a0..$e0          a third per-channel byte at $21(a0)
+   *     <= $40            $1d(a0), this channel's volume
+   *     $50..$90          $21(a0) of ALL FOUR channels
+   *     $a0..$e0          $21(a0) of this one
+   *
+   * The two upper ranges write the same field, which is why they are one
+   * keyword: $29, $111, $1f9 and $2e1 are the four channel bases $e8 apart
+   * plus $21, so the middle range is a broadcast of what the third range sets
+   * on its own channel.
    *
    * The gaps are real. $41..$4f, $91..$9f and anything above $e0 fall out of
-   * the `bmi`/`bgt` pairs and do nothing at all, which is what makes this
-   * three ranges rather than one scale.
+   * the `bmi`/`bgt` pairs and do nothing at all.
    */
   private commandC(v: number, arg: number): void {
     if (arg <= 0x40) {
@@ -469,10 +499,7 @@ export class ThxPlayer {
     let d = arg - 0x50
     if (d < 0) return
     if (d <= 0x40) {
-      // `move.b d1,$29(a6) / $111 / $1f9 / $2e1` --- the four channel bases,
-      // $e8 apart, so the master lands in every one of them
-      this.masterVolume = d
-      for (let i = 0; i < 4; i++) this.channels[i]!.volume = d
+      for (let i = 0; i < 4; i++) this.channels[i]!.volumeC = d
       return
     }
     d -= 0x50
@@ -521,6 +548,20 @@ export class ThxPlayer {
    * a change, because `NullAudio` records every call and a test reading the
    * event stream wants the changes rather than fifty identical writes a
    * second. `lastVol` is what makes that safe, exactly as in `protracker.ts`.
+   *
+   * The volume is TWO of the chain's five terms. `$148e` is
+   *
+   *     move.b $4(a0),d0        the envelope's own volume
+   *     mulu.w $1c(a0),d1 / lsr.w #$6      this channel's volume
+   *     mulu.w $1e(a0),d1 / lsr.w #$6      the note's
+   *     mulu.w $20(a0),d1 / lsr.w #$6      command C's other two ranges
+   *     mulu.w $1(a6),d1  / lsr.w #$6      the global
+   *
+   * and the first, third and fourth are synthesis state that stage 4 of #117
+   * fills in. Until then they stand at unity rather than at what the machine
+   * would hold, which is NOT the same thing: `$4(a0)` starts at zero on the
+   * machine, so a real THX voice is silent until its attack runs. A note here
+   * is at full volume the frame it strikes.
    */
   private writeVoices(): void {
     const sink = this.sink
@@ -528,7 +569,7 @@ export class ThxPlayer {
     for (let v = 0; v < 4; v++) {
       const ch = this.channels[v]!
       // `tst.b $27(a0) / bne -> move.w #$0,$8(a3)` --- off is silent, not stopped
-      const vol = ch.off ? 0 : clampVolume((ch.volume * this.masterVolume) >> 6)
+      const vol = ch.off ? 0 : clampVolume((ch.volume * this.playerVolume) >> 6)
       if (vol !== ch.lastVol) {
         ch.lastVol = vol
         sink.setVolume(v, vol)
