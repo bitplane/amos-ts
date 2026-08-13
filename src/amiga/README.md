@@ -122,6 +122,7 @@ really does differ from the real one and saying where is the whole job.
 | `notes.ts` | the tables every replayer shipped: periods, finetune, the vibrato sine |
 | `protracker.ts` | the four-channel ProTracker replay, off Player 6.1A's source |
 | `p61.ts` | the Player 6.1A packed module format, onto that replay |
+| `thx.ts` | the THX synth-tracker module format, off its replayer's `InitModule` |
 | `keyboard.ts` | the byte the keyboard clocks into CIA-A's SDR, and its decode |
 | `gameport.ts` | JOY0DAT and JOY1DAT, the quadrature counter registers |
 | `controller.ts` | what is plugged into a gameport |
