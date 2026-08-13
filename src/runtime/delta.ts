@@ -154,6 +154,25 @@ const deltaError = (n: number): never => {
 }
 
 /**
+ * Whether the program bound 1.6 rather than 1.4.
+ *
+ * One keyword disagrees between the releases -- `Delta Decrunch`, routine 3
+ * in both -- and a program can see the difference, so the port asks rather
+ * than picking one. Reads the binding the way amon.ts's `isAmon103` and
+ * jdprt.ts's `isPre14` do.
+ *
+ * Unbound, this answers false and 1.4 is what runs: 1.4 is the release
+ * delta.ts was read from, and a program identified by token table alone has
+ * no binding to ask about. The twenty keywords 1.6 added are not affected
+ * either way -- they exist only in 1.6's table, so reaching one at all is
+ * proof of which release is bound.
+ */
+export function isDelta16(rt: Runtime): boolean {
+  for (const def of rt.extBindings?.values() ?? []) if (def.id === 'delta-1.6') return true
+  return false
+}
+
+/**
  * The three phases of `Delta Wait Double Mouse`, which is the only keyword
  * here that has to remember anything across a frame.
  *
@@ -318,11 +337,25 @@ export function makeDeltaInstructions(rt: Runtime): Record<string, Instr> {
     },
 
     /**
-     * Routine 3 — `Delta Decrunch XX`.
+     * Routine 3 — `Delta Decrunch XX`, and the one keyword whose two
+     * releases disagree.
      *
-     *     tst.w d0 / beq   -> error 23    Illegal function call
-     *     cmpi.w #$1000,d0 / bge -> error 29   Overflow
+     * 1.4 ($280, 40 bytes) raises AMOS's own numbered errors:
+     *
+     *     move.l (a3)+,d0
+     *     tst.w d0         / beq  -> moveq #$17,d0 / Rjmp L_Error    23
+     *     cmpi.w #$1000,d0 / bge  -> moveq #$1d,d0 / Rjmp L_Error    29
      *     move.l d0,$dff180.l
+     *
+     * 1.6 ($1e78, 24 bytes) is the same three instructions with the two
+     * branches sent to its own message table instead — `Rbeq routine 34`
+     * and `Rbge routine 35`, which are `moveq #0,d0` and `moveq #1,d0` in
+     * front of a shared `Rbra routine 66`, the L_ErrorExt dispatcher. So the
+     * messages are DELTA_ERRORS 0 and 1, "Variable is too small" and
+     * "Variable is too large" — the pair `Delta Change Bank` also uses, which
+     * is 1.6-only and therefore needs no test of its own.
+     *
+     * `isDelta16` picks between them; unbound, 1.4's numbers are the answer.
      *
      * DEFECT: `move.l` to COLOR00 writes TWO registers. The high word lands in
      * COLOR00 and the low word in COLOR01, and the argument is a word — so
@@ -342,8 +375,15 @@ export function makeDeltaInstructions(rt: Runtime): Record<string, Instr> {
      */
     'delta decrunch'(it) {
       const v = it.evalInt()
-      if ((v & 0xffff) === 0) throw new AmosError('Illegal function call', 23)
-      if (((v & 0xffff) << 16) >> 16 >= 0x1000) throw new AmosError('Overflow', 29)
+      const v16 = isDelta16(rt)
+      if ((v & 0xffff) === 0) {
+        if (v16) deltaError(0)
+        throw new AmosError('Illegal function call', 23)
+      }
+      if (((v & 0xffff) << 16) >> 16 >= 0x1000) {
+        if (v16) deltaError(1)
+        throw new AmosError('Overflow', 29)
+      }
       const pal = rt.screen.palette
       pal[0] = (v >>> 16) & 0xfff
       pal[1] = v & 0xfff

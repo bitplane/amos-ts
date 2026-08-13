@@ -4131,10 +4131,12 @@ export const NOTES: Record<string, string> = {
     "gets the value, the reverse of the guide's \"This efect using colour 0\". DEFECT: both range checks are WORD " +
     "tests on a longword, and `cmpi.w #$1000` is SIGNED, so a negative number passes both while 65536 is refused " +
     "as if it were 0. NOTE: no loop -- the guide calls it an effect and it is one write, which the copper would " +
-    "undo on the next frame. NOTE: 1.4 AND 1.6 DISAGREE HERE, and this port answers for both. 1.4 raises AMOS's " +
-    "numbered errors, `moveq #$17,d0 / Rjmp L_Error` for 23 and `#$1d` for 29; 1.6's routine 3 ($1e78) sends the " +
-    "same two checks to the extension's own table instead, \"Variable is too small\" and \"Variable is too " +
-    "large\". The port keeps 1.4's numbered errors; modelling the difference from `rt.extBindings` is a pending task.",
+    "undo on the next frame. NOTE: 1.4 AND 1.6 DISAGREE HERE, and this port answers for both, choosing by the " +
+    "binding. 1.4 raises AMOS's numbered errors, `moveq #$17,d0 / Rjmp L_Error` for 23 and `#$1d` for 29; 1.6's " +
+    "routine 3 ($1e78) sends the same two checks to the extension's own table instead -- `Rbeq 34` and `Rbge 35`, " +
+    "which are `moveq #0,d0` and `moveq #1,d0` ahead of the shared L_ErrorExt dispatcher at routine 66 -- for " +
+    "\"Variable is too small\" and \"Variable is too large\". A program identified by token table alone has no " +
+    "binding to read, and answers as 1.4: the release this port was written from.",
   "delta hard reset":
     "Routine 29 ($229a), 1.6, three instructions: `movea.l $4.l,a6 / move.l #$0,$2a.l / jmp $fc0000.l`, and the " +
     "guide's entry for it is two words and two exclamation marks. DEFECT: `$2a` was meant to be `$2a(a6)` -- ExecBase+$2a is ColdCapture, the " +

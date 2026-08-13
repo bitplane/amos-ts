@@ -6203,22 +6203,17 @@ const EXT_IMPLS: readonly ExtensionImpl[] = [
      * that already answers 26 of its 46 keywords, and the coverage table read
      * 0% beside a row saying "26 of the 46 are Delta 1.4's, already faithful".
      *
-     * ONE KEYWORD DISAGREES BETWEEN THE TWO and this port does not yet tell
-     * them apart. `Delta Decrunch` is routine 3 in both; 1.4 raises AMOS's
-     * numbered errors from it, `moveq #$17,d0 / Rjmp L_Error` for 23 and
-     * `#$1d` for 29, and 1.6 sends the same two checks to its own message
-     * table instead, "Variable is too small" and "Variable is too large". The
-     * port keeps 1.4's numbered errors — the release it was written from —
-     * and the difference is recorded here and in status.ts rather than
-     * modelled.
+     * ONE KEYWORD DISAGREES BETWEEN THE TWO, and delta.ts's `isDelta16`
+     * tells them apart from `rt.extBindings`, the way jdprt.ts's `isPre14`
+     * and amon.ts's `isAmon103` do. `Delta Decrunch` is routine 3 in both;
+     * 1.4 raises AMOS's numbered errors from it, `moveq #$17,d0 / Rjmp
+     * L_Error` for 23 and `#$1d` for 29, and 1.6 sends the same two checks
+     * to its own message table instead, "Variable is too small" and
+     * "Variable is too large".
      *
-     * This used to say an ExtensionImpl had no way to ask which of its
-     * identities was bound, and that is NOT true: `rt.extBindings` carries
-     * the answer, jdprt.ts's `isPre14` has read it since JD's printer library
-     * landed, and amon.ts's `isAmon103` models two divergences with it. What
-     * remains true is that an UNBOUND program — identified by token table
-     * alone — cannot be told apart, so a port asking this must still pick a
-     * default. Modelling Delta's one divergence is its own task.
+     * An UNBOUND program — identified by token table alone — cannot be told
+     * apart, so the port still needs a default, and 1.4 is it: the release
+     * delta.ts was read from. That limit is real and is not going away.
      */
     ids: ['delta-1.4', 'delta-1.6'],
     init: (rt) => {

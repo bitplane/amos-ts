@@ -274,6 +274,37 @@ function run16(src: string): Boot {
 
 const text16 = (src: string): string => run16(src).out()
 
+describe('Delta 1.6: the one keyword the two releases disagree about', () => {
+  const scr = 'Screen Open 0,320,64,16,0 : '
+
+  it('Delta Decrunch raises 1.6\'s OWN messages where 1.4 raises AMOS numbers', () => {
+    // routine 3 is the same three instructions in both. 1.4 ($280) ends its
+    // two branches `moveq #$17,d0 / Rjmp L_Error` and `#$1d`; 1.6 ($1e78)
+    // ends them `Rbeq 34` and `Rbge 35`, which are `moveq #0,d0` and `moveq
+    // #1,d0` in front of the shared dispatcher at routine 66
+    expect(() => run16(`${scr}Delta Decrunch 0`)).toThrow(DELTA_ERRORS[0])
+    expect(() => run16(`${scr}Delta Decrunch 4096`)).toThrow(DELTA_ERRORS[1])
+    // and the 1.4 harness above gets 23 and 29 from the same two arguments
+  })
+
+  it('and the word-sized checks are still word-sized, message or no message', () => {
+    // the DEFECTS are 1.4's and 1.6 kept them: only the error path moved
+    expect(() => run16(`${scr}Delta Decrunch 65536`)).toThrow(DELTA_ERRORS[0])
+    expect(run16(`${scr}Delta Decrunch -1`).rt.screen.palette[1]).toBe(0xfff)
+    expect(() => run16(`${scr}Delta Decrunch 4095`)).not.toThrow()
+  })
+
+  it('an UNBOUND program answers as 1.4, because there is nothing to ask', () => {
+    // identified by token table alone -- no extBindings, so no way to tell
+    // the releases apart, and 1.4 is the release the port was read from
+    const rt = new Runtime(tokenize(`${scr}Delta Decrunch 0`, table, ext16), table, {
+      extensions: ext16,
+      maxSteps: 200_000,
+    })
+    expect(() => mustFinish(rt.runHeadless(2_000))).toThrow(/Illegal function call/)
+  })
+})
+
 describe('Delta 1.6: the private Move block', () => {
   // `movea.l (a3)+,a0 / move.l (a3)+,d0 / move.b d0,(a0)` — the ADDRESS pops
   // first, so it is the last argument, and the guide agrees: "Moveb DATA,
