@@ -44,5 +44,49 @@ export default defineConfig({
     // faithfulness gate can enforce that every FAITHFUL one is exercised
     setupFiles: ['src/coverage/probe.setup.ts'],
     globalSetup: ['src/coverage/gate.ts'],
+
+    /**
+     * Capped because the suite was getting things OOM-killed.
+     *
+     * One worker per core is the default and it costs more memory than a
+     * development machine has spare. Measured on 16 cores, full suite, peak
+     * resident across every vitest process:
+     *
+     *     16 workers   4.7 GB   33s
+     *      8 workers   3.4 GB   39s
+     *      6 workers   2.7 GB   35s
+     *      4 workers   2.2 GB   45s
+     *
+     * The default is about 10% faster and costs 2 GB more, which is the wrong
+     * trade on a 14.7 GB box that is also running a browser and an editor.
+     * The kernel OOM killer fired twice in one day here, once on an editor
+     * process, and a run that survives it has still been swapping.
+     *
+     * Six rather than eight because the headroom is the point, not the three
+     * seconds. CI is unaffected: that runner has four cores, so it never
+     * reaches this cap.
+     */
+    maxWorkers: 6,
+
+    /**
+     * Raised because the default catches nothing here and fails honest tests.
+     *
+     * 4,902 of this suite's 4,922 test bodies are SYNCHRONOUS, and vitest
+     * cannot interrupt a synchronous body. It runs to completion and is marked
+     * failed afterwards: given a 50 ms budget, one still recorded its full
+     * 391 ms and then failed. So this stops no hang, because a synchronous
+     * infinite loop hangs the worker whatever the number says. For those tests
+     * it only turns a slow machine into a red suite, which teaches you to
+     * re-run instead of read.
+     *
+     * It fired three times in one day on the corpus sweeps, which walk a
+     * 139 MB fixture tree CI does not have. Over five clean runs the worst was
+     * iffcorpus at 3.7s, already 74% of the old 5s budget, and the same test
+     * varied 2.2x between runs.
+     *
+     * The twenty async bodies are what this still guards, and none of them
+     * needs anything like 20s.
+     */
+    testTimeout: 20_000,
   },
 })
